@@ -316,3 +316,44 @@ see the same already-rounded value JS would.
 
 **Next**: `buildPlates()` — plate initialisation (positions, velocities,
 crust type), feeding `assignPlates`'s JFA Voronoi.
+
+## Phase 1 — buildPlates ported, one more real precision trap found (2026-08-12)
+
+`cartalith-terrain::build_plates` (reference HTML lines 2740-2766): seeds
+`n` plates via `mulberry32`, then relaxes their positions toward their
+own Voronoi-cell centroids for a configurable number of Lloyd iterations
+(brute-force nearest-plate per cell — its own separate cost from
+`assignPlates`'s JFA, which only replaces the *final* per-pixel
+assignment). World-wrap mode uses a circular mean (`atan2` of summed
+sin/cos) for x so a plate straddling the map seam isn't pulled toward the
+middle; also supports the world-structure crust reclassification pass
+(reads a continentality field, itself still unported — the parameter
+shape is ready for it).
+
+**Found the trap by reading the JS spec before porting, not by a failing
+test this time**: `Math.round` in JS rounds ties toward `+Infinity`
+(`Math.round(-0.5) === 0`), but Rust's `f64::round()` rounds ties away
+from zero (`(-0.5_f64).round() == -1.0`) — genuinely different functions
+for negative half-integer inputs. `buildPlates`'s world-wrap math
+(`dx-Math.round(dx/GW)*GW`) and its world-structure reclassification
+(`Math.round(plates[p].x)`) both depend on the JS behavior specifically.
+Wrote a `js_round` helper (`(x + 0.5).floor()` — the standard exact
+equivalent) instead of reaching for `.round()`, and made sure the golden
+cases actually exercise negative `dx` under world-wrap so a wrong
+rounding choice would have been caught, not just missed by luck.
+
+5 golden cases (world true/false, 0-2 Lloyd iterations, one exercising
+world-structure reclassification against a synthetic continentality
+field), all bit-for-bit exact — including the `atan2`/circular-mean path,
+so Rust's and V8's `atan2` agree exactly for these inputs (not guaranteed
+in general for transcendental functions, but confirmed here rather than
+assumed).
+
+- `cargo test -p cartalith-terrain`: 5/5 golden cases exact (9 total with
+  `compute_warp`'s). `cargo clippy -p cartalith-terrain --all-targets`:
+  clean.
+
+**Next**: `assignPlates()` — the JFA Voronoi rasterisation that turns
+`plates[]` into a per-pixel `plateId` field, the first stage whose output
+every later tectonic step (`computeStress`, `computeFlexure`, `ageField`,
+...) actually reads.

@@ -11,3 +11,4 @@ name = "cartalith_terrain"
 
 [dependencies]
 cartalith-noise = { path = "../cartalith-noise" }
+cartalith-rng = { path = "../cartalith-rng" }
