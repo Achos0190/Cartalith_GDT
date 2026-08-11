@@ -561,3 +561,59 @@ functions actually run as one pipeline against a real seed, rather than
 ten independently-tested islands — the natural point to also extract a
 true end-to-end golden fixture (seed → full field) from the live JS
 `generate()`, per `PARITY_TESTING.md`'s own recommended harness shape.
+
+## Phase 1 — volcanism (simple mode) + craters ported (2026-08-12)
+
+`cartalith-terrain::stamp_volcanoes_simple` + `stamp_craters` (reference
+HTML lines 3466-3576) — `MVP_SCOPE.md` point 4, "the point-feature
+placement and carving passes."
+
+**A scope note, not a silent gap**: `state.volc.provinces` defaults to
+`true` in the JS engine, which routes through `stampVolcanoesProvinces` —
+a larger clustering algorithm (arc/rift/hotspot chains along boundary
+type, spacing-based candidate selection with a Fisher-Yates shuffle) that
+isn't ported yet. `stampVolcanoesSimple` (boundary-biased scatter) is the
+one actually ported here, because it's the shared foundation
+(`stampOneVolcano`/`placeSizedVolcano`) both modes build on, and because
+verifying it in isolation first is the same "one piece at a time" reason
+every other function in this port has gone this way. Provinces mode is
+tracked as follow-up work, not dropped.
+
+**A precision trap distinct from the ones found so far — clamp order,
+not accumulation order.** Both `stampOneVolcano` and `stampOneCrater`
+follow a JS `field[i]+=delta; if(field[i]>1)... else if(field[i]<0)...`
+pattern. The natural-looking Rust translation — sum the delta(s) in
+`f64`, clamp that `f64` sum, round once — can disagree with JS right at
+the boundary: a sum just under `1.0` in `f64` can round *up* past `1.0`
+when narrowed to `f32` (or the reverse), and JS's clamp check reads the
+*already-rounded* `f32` value, not the pre-rounding sum. Fixed by adding
+`add_rounded()`, a small helper that rounds to `f32` immediately on every
+individual `+=` site (`stampOneCrater` has three per cell — bowl, rim,
+basin — each its own rounding step in JS, not summed together), with the
+clamp check reading back the stored, already-rounded value afterward —
+matching JS's actual two-step process instead of the arithmetically
+"nicer" one-step version that happens to be wrong at the edges.
+
+Also worth naming since it's easy to get backwards: `placeSizedVolcano`'s
+bounds check happens *before* any RNG draw, so an out-of-bounds
+placement consumes zero random numbers rather than a partial draw — and
+`stampVolcanoesSimple`'s `placeSizedVolcano(cx,cy,rng,rng()*v.age)` call
+evaluates the age argument (one more RNG draw) *before* entering the
+function body, ahead of the `r`/`hM`/`radKm` draws inside it. Every
+placement function in this port is a chain where one wrong draw shifts
+every subsequent one, so call-order details like these matter as much as
+the arithmetic itself.
+
+4 golden cases (2 volcano scatters, 2 crater fields including a
+large/basin-crater path), all bit-for-bit exact on the first attempt —
+the clamp-order and call-order issues above were both caught by reading
+the JS before writing Rust, not by a failing test.
+
+- `cargo test -p cartalith-terrain`: 4/4 golden cases exact (32 total
+  across the crate's eight golden suites). `cargo clippy -p
+  cartalith-terrain --all-targets`: clean.
+
+**Next**: `stampVolcanoesProvinces` (the actual default volcanism path)
+and world-structure archetypes (`generateContinentalityField`,
+`applyWorldStructureSeaLevel`), or move on to climate — open which to
+prioritize.

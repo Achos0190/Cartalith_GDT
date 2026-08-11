@@ -788,6 +788,337 @@ pub fn normalize_field(field: &[f32]) -> Vec<f32> {
     field.iter().map(|&v| ((v as f64 - mn) / range) as f32).collect()
 }
 
+/// `FEATURE_RADIUS_MAX_FRAC`/`clampFeatureRadiusCells()` (reference HTML,
+/// near line 3485): a single volcano or crater can't exceed ~12% of the
+/// shorter grid axis, however large its real-km radius would compute to.
+const FEATURE_RADIUS_MAX_FRAC: f64 = 0.12;
+
+fn clamp_feature_radius_cells(rad_cells: f64, gw: usize, gh: usize) -> f64 {
+    rad_cells.min(gw.min(gh) as f64 * FEATURE_RADIUS_MAX_FRAC)
+}
+
+/// Adds `delta` to `field[i]` and rounds to `f32` immediately — mirrors a
+/// single JS `field[i]+=delta` on a `Float32Array`. `stampOneCrater` calls
+/// this multiple times per cell (crater bowl, rim, basin ringing), and
+/// each is its own read-modify-write-with-rounding step in JS, not one
+/// `f64` accumulation rounded once at the end — see the doc comment on
+/// `stamp_one_crater` for why that distinction is load-bearing here.
+fn add_rounded(field: &mut [f32], i: usize, delta: f64) {
+    field[i] = (field[i] as f64 + delta) as f32;
+}
+
+/// `stampOneVolcano()` (reference HTML lines 3466-3473): radial cone with
+/// an optional caldera dip (a summit depression once the volcano is tall
+/// enough), and an age-damped volcanic-field mark for later biome/texture
+/// use.
+///
+/// The `field[i]+=add; if(field[i]>1)... else if(field[i]<0)...` sequence
+/// needs its rounding-then-clamp order preserved exactly: JS rounds the
+/// sum to `f32` *first* (the real `Float32Array` store), then clamps
+/// based on that *rounded* value. Clamping the pre-rounding `f64` sum
+/// instead (the natural-looking Rust translation) can disagree right at
+/// the boundary — a sum just under `1.0` in `f64` can round *up* past
+/// `1.0` in `f32`, or vice versa, and only checking post-rounding catches
+/// the case JS actually clamps.
+#[allow(clippy::too_many_arguments)]
+fn stamp_one_volcano(
+    gw: usize,
+    gh: usize,
+    field: &mut [f32],
+    volcanic_field: &mut [f32],
+    peak_m: f64,
+    cx: f64,
+    cy: f64,
+    rad_cells: f64,
+    height_m: f64,
+    age: f64,
+) {
+    let h = (height_m / peak_m) * 0.9 * (1.0 - age * 0.5);
+    let r = rad_cells.max(2.0);
+    let caldera = height_m > 1000.0;
+    let x0 = (((cx - r) as i64).max(0)) as usize;
+    let x1 = (((cx + r) as i64).min(gw as i64 - 1)).max(0) as usize;
+    let y0 = (((cy - r) as i64).max(0)) as usize;
+    let y1 = (((cy + r) as i64).min(gh as i64 - 1)).max(0) as usize;
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let dx = x as f64 - cx;
+            let dy = y as f64 - cy;
+            let d = dx.hypot(dy);
+            if d > r {
+                continue;
+            }
+            let t = d / r;
+            let mut add = h * (1.0 - t).powf(1.6 - age * 0.8);
+            if caldera && t < 0.16 {
+                add -= h * 0.5 * (1.0 - t / 0.16);
+            }
+            let i = y * gw + x;
+            add_rounded(field, i, add);
+            let stored = field[i] as f64;
+            field[i] = if stored > 1.0 {
+                1.0
+            } else if stored < 0.0 {
+                0.0
+            } else {
+                field[i]
+            };
+            let candidate = (1.0 - t) * (1.0 - age);
+            let vv = candidate.max(volcanic_field[i] as f64);
+            volcanic_field[i] = vv as f32;
+        }
+    }
+}
+
+/// `placeSizedVolcano()` (reference HTML lines 3487-3495): picks a
+/// power-law size class (70% small cinder cones, 25% stratovolcanoes, 5%
+/// large shields) and stamps one. Returns `None` (JS: `null`) when `x, y`
+/// falls outside the grid — checked *before* any RNG draw, so an
+/// out-of-bounds placement consumes zero random numbers, not a partial
+/// draw; get this ordering wrong and every subsequent placement in the
+/// caller's loop silently uses the wrong random stream.
+#[allow(clippy::too_many_arguments)]
+fn place_sized_volcano(
+    gw: usize,
+    gh: usize,
+    field: &mut [f32],
+    volcanic_field: &mut [f32],
+    map_width_km: f64,
+    peak_m: f64,
+    x: f64,
+    y: f64,
+    rng: &mut Mulberry32,
+    age: f64,
+) -> Option<(f64, f64)> {
+    if x < 0.0 || y < 0.0 || x >= gw as f64 - 1.0 || y >= gh as f64 - 1.0 {
+        return None;
+    }
+    let cell_km = map_width_km / gw as f64;
+    let r = rng.next_f64();
+    let mut h_m;
+    let rad_km;
+    if r < 0.70 {
+        h_m = 200.0 + rng.next_f64() * 800.0;
+        rad_km = 2.0 + rng.next_f64() * 8.0;
+    } else if r < 0.95 {
+        h_m = 1000.0 + rng.next_f64() * 2000.0;
+        rad_km = 10.0 + rng.next_f64() * 20.0;
+    } else {
+        h_m = 3000.0 + rng.next_f64() * 4000.0;
+        rad_km = 30.0 + rng.next_f64() * 50.0;
+    }
+    h_m = h_m.min(peak_m * 0.95);
+    stamp_one_volcano(
+        gw,
+        gh,
+        field,
+        volcanic_field,
+        peak_m,
+        x,
+        y,
+        clamp_feature_radius_cells(rad_km / cell_km, gw, gh),
+        h_m,
+        age,
+    );
+    Some((x, y))
+}
+
+/// `stampVolcanoesSimple()` (reference HTML lines 3497-3505): dusts
+/// volcanoes along plate boundaries (80% of the time, when any exist) or
+/// at random, jittered by up to 6 cells.
+///
+/// **Not the JS default** — `state.volc.provinces` defaults to `true`,
+/// which routes through `stampVolcanoesProvinces` (clustered arc/rift/
+/// hotspot chains) instead. That function isn't ported yet; this one is
+/// the shared foundation (`stampOneVolcano`/`placeSizedVolcano`) both
+/// modes build on, ported first because it's independently useful and
+/// far simpler to golden-verify in isolation. Tracked, not silently
+/// dropped — see `cartalith-native/docs/CHANGELOG.md`.
+#[allow(clippy::too_many_arguments)]
+pub fn stamp_volcanoes_simple(
+    gw: usize,
+    gh: usize,
+    seed: u32,
+    map_width_km: f64,
+    peak_m: f64,
+    boundary_mask: &[u8],
+    volc_count: i32,
+    volc_age: f64,
+    field: &mut [f32],
+    volcanic_field: &mut [f32],
+) {
+    let mut rng = Mulberry32::new(seed ^ 0x5bf03635);
+    let bc: Vec<usize> = (0..boundary_mask.len())
+        .filter(|&i| boundary_mask[i] != 0)
+        .collect();
+    let mut placed = 0;
+    let mut guard = 0;
+    while placed < volc_count && guard < volc_count * 40 {
+        guard += 1;
+        let (mut cx, cy);
+        if !bc.is_empty() && rng.next_f64() < 0.8 {
+            let idx = bc[(rng.next_f64() * bc.len() as f64) as usize];
+            cx = (idx % gw) as f64;
+            cy = (idx / gw) as f64;
+        } else {
+            cx = (rng.next_f64() * gw as f64).floor();
+            cy = (rng.next_f64() * gh as f64).floor();
+        }
+        cx += (rng.next_f64() * 2.0 - 1.0) * 6.0;
+        let cy = cy + (rng.next_f64() * 2.0 - 1.0) * 6.0;
+        // `rng()*v.age` is a call-site argument in JS, evaluated before
+        // placeSizedVolcano's own body runs — the age draw happens
+        // *before* the r/hM/radKm draws inside it, not after.
+        let age = rng.next_f64() * volc_age;
+        if place_sized_volcano(
+            gw,
+            gh,
+            field,
+            volcanic_field,
+            map_width_km,
+            peak_m,
+            cx,
+            cy,
+            &mut rng,
+            age,
+        )
+        .is_some()
+        {
+            placed += 1;
+        }
+    }
+}
+
+/// `stampOneCrater()` (reference HTML lines 3567-3575): a bowl (with an
+/// optional central peak for large craters), a raised rim ring, and
+/// optional concentric basin ringing for the largest impacts.
+///
+/// **Three separate `field[i]+=` sites**, not one combined delta — each
+/// is its own JS `Float32Array` read-modify-write-round step, and a later
+/// conditional reads back the *already-rounded* result of an earlier one
+/// (the rim and basin terms both see the bowl term's rounding). `add_rounded`
+/// is called once per site to reproduce that, rather than summing all
+/// three in `f64` and rounding once — which would occasionally disagree
+/// right at the clamp boundary, the same trap `stamp_one_volcano` has.
+#[allow(clippy::too_many_arguments)]
+fn stamp_one_crater(
+    gw: usize,
+    gh: usize,
+    field: &mut [f32],
+    impact_field: &mut [f32],
+    cx: f64,
+    cy: f64,
+    rad_cells: f64,
+    large: bool,
+    basin: bool,
+    age: f64,
+) {
+    let r = rad_cells.max(1.5);
+    let depth = (0.02 + rad_cells * 0.004).min(0.4) * (1.0 - age * 0.8);
+    let rim = depth * 0.25;
+    let x0 = (((cx - r * 1.3) as i64).max(0)) as usize;
+    let x1 = (((cx + r * 1.3) as i64).min(gw as i64 - 1)).max(0) as usize;
+    let y0 = (((cy - r * 1.3) as i64).max(0)) as usize;
+    let y1 = (((cy + r * 1.3) as i64).min(gh as i64 - 1)).max(0) as usize;
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let dx = x as f64 - cx;
+            let dy = y as f64 - cy;
+            let d = dx.hypot(dy);
+            let t = d / r;
+            let i = y * gw + x;
+            if t < 1.0 {
+                add_rounded(field, i, -depth * (1.0 - t * t));
+                if large && t < 0.18 {
+                    add_rounded(field, i, depth * 0.5 * (1.0 - t / 0.18));
+                }
+            }
+            if t > 0.85 && t < 1.25 {
+                let rt = 1.0 - (t - 1.05).abs() / 0.2;
+                if rt > 0.0 {
+                    add_rounded(field, i, rim * rt);
+                }
+            }
+            if basin && t < 1.0 {
+                add_rounded(field, i, (t * std::f64::consts::PI * 3.0).cos() * depth * 0.08);
+            }
+            let stored = field[i] as f64;
+            field[i] = if stored < 0.0 {
+                0.0
+            } else if stored > 1.0 {
+                1.0
+            } else {
+                field[i]
+            };
+            if d < r {
+                let vv = (1.0 - t).max(impact_field[i] as f64);
+                impact_field[i] = vv as f32;
+            }
+        }
+    }
+}
+
+/// `stampCraters()` (reference HTML lines 3568-3576): scattered impacts
+/// with power-law size classes; large craters (top 1%) additionally
+/// reject placements that would overlap an existing large crater, and
+/// craters above 200km real radius also get concentric basin ringing.
+/// Radius scales as `g^-0.22` — lower gravity, bigger craters for the
+/// same impactor (`docs/research/gravity-influence.md`).
+#[allow(clippy::too_many_arguments)]
+pub fn stamp_craters(
+    gw: usize,
+    gh: usize,
+    seed: u32,
+    map_width_km: f64,
+    g: f64,
+    crater_count: i32,
+    crater_age: f64,
+    field: &mut [f32],
+    impact_field: &mut [f32],
+) {
+    if crater_count <= 0 {
+        return;
+    }
+    let mut rng = Mulberry32::new(seed ^ 0x27d4eb2f);
+    let cell_km = map_width_km / gw as f64;
+    let mut big: Vec<(f64, f64, f64)> = Vec::new();
+    let mut placed = 0;
+    let mut guard = 0;
+    while placed < crater_count && guard < crater_count * 40 {
+        guard += 1;
+        let cx = (rng.next_f64() * gw as f64).floor();
+        let cy = (rng.next_f64() * gh as f64).floor();
+        let r = rng.next_f64();
+        let rad_km;
+        let mut large = false;
+        let mut basin = false;
+        if r < 0.90 {
+            rad_km = 0.5 + rng.next_f64() * 4.5;
+        } else if r < 0.99 {
+            rad_km = 5.0 + rng.next_f64() * 20.0;
+        } else {
+            rad_km = 25.0 + rng.next_f64() * 175.0;
+            large = true;
+            if rad_km > 200.0 {
+                basin = true;
+            }
+        }
+        let rad_cells = clamp_feature_radius_cells(rad_km * g.powf(-0.22) / cell_km, gw, gh);
+        if large {
+            let overlaps = big
+                .iter()
+                .any(|&(bx, by, br)| (bx - cx).hypot(by - cy) < (br + rad_cells) * 0.8);
+            if overlaps {
+                continue;
+            }
+            big.push((cx, cy, rad_cells));
+        }
+        let age = rng.next_f64() * crater_age;
+        stamp_one_crater(gw, gh, field, impact_field, cx, cy, rad_cells, large, basin, age);
+        placed += 1;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
