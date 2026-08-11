@@ -357,3 +357,46 @@ assumed).
 `plates[]` into a per-pixel `plateId` field, the first stage whose output
 every later tectonic step (`computeStress`, `computeFlexure`, `ageField`,
 ...) actually reads.
+
+## Phase 1 — assignPlates ported, one real infinite-loop bug caught pre-test (2026-08-12)
+
+`cartalith-terrain::assign_plates` (reference HTML lines 2771-2810): the
+Jump Flood Algorithm Voronoi rasterization — O(N log N) instead of the
+brute-force O(N × plates) `build_plates`'s own Lloyd step still uses.
+Every later tectonic stage (`computeStress`, `computeFlexure`, `ageField`,
+...) reads this function's output, not `build_plates`'s directly.
+
+**A real bug caught before ever running the test**, not by one: JS's
+`for(let step=maxStep>>1; step>=1; step>>=1)` doesn't step through a
+range — it visits exactly three fixed offsets per axis (`-step, 0,
++step`), never anything between. A first-draft port used a manual `while
+dx <= step { ...; dx += step }` translation and shadowed the outer
+step-halving variable with an inner per-iteration copy that was never
+written back — the outer loop's own `step` never actually halved, an
+infinite loop that would have hung the first test run rather than failed
+it. Caught on a re-read before running anything, and replaced with the
+much simpler (and correct-by-construction) `for &dy in &[-step, 0,
+step]` — since the JS loop only ever has three iterations, there was no
+reason to reach for a while-loop translation that needed manual increment
+bookkeeping in four different early-continue branches in the first place.
+
+Two precision details preserved deliberately, not simplified away:
+- `bestD2` is a `Float32Array` in JS — the running best squared distance
+  rounds to `f32` on every write, and later comparisons read that
+  *rounded* value back. `best_d2: Vec<f32>` reproduces the rounding point
+  exactly; an `f64` accumulator would occasionally pick a different
+  winner on a near-tie.
+- The world-wrap distance correction reuses `js_round`
+  (`buildPlates`'s own trap, `Math.round` ties toward `+Infinity`).
+
+4 golden cases (world true/false × warp-displaced/undisplaced), all
+matching bit-for-bit on the first successful run (after the loop-shape
+fix above).
+
+- `cargo test -p cartalith-terrain`: 4/4 golden cases exact (13 total
+  across the crate's three golden suites). `cargo clippy -p
+  cartalith-terrain --all-targets`: clean.
+
+**Next**: `computeStress()` — boundary classification and convergence/
+shear stress accumulation, the first stage to read `plateId` rather than
+`plates[]` directly.

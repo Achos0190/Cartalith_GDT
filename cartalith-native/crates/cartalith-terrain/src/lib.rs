@@ -199,6 +199,136 @@ pub fn build_plates(
     plates
 }
 
+/// `assignPlates()` (reference HTML lines 2771-2810): Jump Flood Algorithm
+/// Voronoi rasterization — O(N log N) instead of the O(N × plates)
+/// brute-force nested loop `build_plates`'s own Lloyd step still uses.
+/// Returns one plate index per cell (row-major, `y*gw+x`).
+///
+/// Two precision details matter for parity, not just the algorithm shape:
+/// - `bestD2` is a `Float32Array` in JS, so the running best distance is
+///   rounded to `f32` on every write, and later comparisons read that
+///   rounded value back — an `f64` accumulator here would occasionally
+///   pick a different winner on a near-tie. `best_d2: Vec<f32>` replicates
+///   the rounding point exactly.
+/// - The world-wrap distance correction (`ddx-Math.round(ddx/GW)*GW`)
+///   needs `js_round`, same trap as `build_plates`.
+pub fn assign_plates(
+    gw: usize,
+    gh: usize,
+    world: bool,
+    plates: &[Plate],
+    warp_x: Option<&[f32]>,
+    warp_y: Option<&[f32]>,
+) -> Vec<usize> {
+    let n = gw * gh;
+    let np = plates.len();
+    let px: Vec<f64> = plates.iter().map(|p| p.x).collect();
+    let py: Vec<f64> = plates.iter().map(|p| p.y).collect();
+
+    let mut nearest = vec![-1i32; n];
+    let mut best_d2 = vec![1e30f32; n];
+
+    for p in 0..np {
+        // JS `PX[p]|0`: ToInt32 truncates toward zero, matching `as i32`.
+        let cx = px[p] as i32;
+        let cy = (py[p] as i32).clamp(0, gh as i32 - 1);
+        // JS only bounds the upper side of wx_ (`cx<GW?cx:0`) — a
+        // negative cx (never produced by this crate's own seeding, but
+        // preserved for faithfulness) falls through to a negative index,
+        // which a JS TypedArray write silently no-ops on. Mirror that: skip.
+        if cx < 0 || cx >= gw as i32 {
+            continue;
+        }
+        let wy = cy.clamp(0, gh as i32 - 1) as usize;
+        let i = wy * gw + cx as usize;
+        nearest[i] = p as i32;
+        best_d2[i] = 0.0;
+    }
+
+    let max_dim = gw.max(gh) as f64;
+    let max_step = 1u32 << (max_dim.log2().ceil() as u32);
+    let mut step_u = max_step >> 1;
+    while step_u >= 1 {
+        let step = step_u as i64;
+        for y in 0..gh {
+            for x in 0..gw {
+                let i = y * gw + x;
+                let ax = x as f64 + warp_x.map_or(0.0, |w| w[i] as f64);
+                let ay = y as f64 + warp_y.map_or(0.0, |w| w[i] as f64);
+                // JS `for(dy=-step; dy<=step; dy+=step)` visits exactly
+                // three offsets — -step, 0, +step — never a full range.
+                for &dy in &[-step, 0, step] {
+                    for &dx in &[-step, 0, step] {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        let nx = x as i64 + dx;
+                        let ny = y as i64 + dy;
+                        let nx = if world {
+                            ((nx % gw as i64) + gw as i64) % gw as i64
+                        } else if nx < 0 || nx >= gw as i64 {
+                            continue;
+                        } else {
+                            nx
+                        };
+                        if ny < 0 || ny >= gh as i64 {
+                            continue;
+                        }
+                        let j = ny as usize * gw + nx as usize;
+                        let p = nearest[j];
+                        if p < 0 {
+                            continue;
+                        }
+                        let p = p as usize;
+                        let mut ddx = ax - px[p];
+                        if world {
+                            ddx -= js_round(ddx / gw as f64) * gw as f64;
+                        }
+                        let ddy = ay - py[p];
+                        let d2 = ddx * ddx + ddy * ddy;
+                        if d2 < best_d2[i] as f64 {
+                            best_d2[i] = d2 as f32;
+                            nearest[i] = p as i32;
+                        }
+                    }
+                }
+            }
+        }
+        if step_u == 1 {
+            break;
+        }
+        step_u >>= 1;
+    }
+
+    let mut plate_id = vec![0usize; n];
+    for i in 0..n {
+        if nearest[i] >= 0 {
+            plate_id[i] = nearest[i] as usize;
+            continue;
+        }
+        let x = i % gw;
+        let y = i / gw;
+        let ax = x as f64 + warp_x.map_or(0.0, |w| w[i] as f64);
+        let ay = y as f64 + warp_y.map_or(0.0, |w| w[i] as f64);
+        let mut best = 0usize;
+        let mut bd = f64::INFINITY;
+        for p in 0..np {
+            let mut dx = ax - px[p];
+            if world {
+                dx -= js_round(dx / gw as f64) * gw as f64;
+            }
+            let dy = ay - py[p];
+            let d = dx * dx + dy * dy;
+            if d < bd {
+                bd = d;
+                best = p;
+            }
+        }
+        plate_id[i] = best;
+    }
+    plate_id
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
