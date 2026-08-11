@@ -89,6 +89,66 @@ pub fn ridged(x: f64, y: f64, s: i32) -> f64 {
     sum / nrm
 }
 
+/// `pvnoise(x, y, s, pX)` — `vnoise`'s world-wrap sibling: the x lattice
+/// coordinate wraps mod `pX` so the noise tiles exactly on a cylinder
+/// (used when `state.world` is set).
+pub fn pvnoise(x: f64, y: f64, s: i32, p_x: i32) -> f64 {
+    let xi = x.floor();
+    let yi = y.floor();
+    let xf = x - xi;
+    let yf = y - yi;
+    let u = xf * xf * (3.0 - 2.0 * xf);
+    let v = yf * yf * (3.0 - 2.0 * yf);
+    let xi = xi as i32;
+    let yi = yi as i32;
+    // JS `((xi%pX)+pX)%pX` — Euclidean mod, since JS `%` keeps the
+    // dividend's sign (can be negative) unlike Rust's `rem_euclid` default.
+    let px = ((xi % p_x) + p_x) % p_x;
+    let px1 = (px + 1) % p_x;
+    let a = hash(px, yi, s);
+    let b = hash(px1, yi, s);
+    let c = hash(px, yi + 1, s);
+    let d = hash(px1, yi + 1, s);
+    a * (1.0 - u) * (1.0 - v) + b * u * (1.0 - v) + c * (1.0 - u) * v + d * u * v
+}
+
+/// `pfbm(x, y, s, pX)` — `fbm` over `pvnoise`; `pX` doubles each octave
+/// alongside frequency, same as the reference.
+pub fn pfbm(x: f64, y: f64, s: i32, p_x: i32) -> f64 {
+    let mut amp = 0.5;
+    let mut freq = 1.0;
+    let mut sum = 0.0;
+    let mut nrm = 0.0;
+    let mut p = p_x.max(2);
+    for o in 0..6 {
+        sum += amp * pvnoise(x * freq, y * freq, s + o * 131, p);
+        nrm += amp;
+        amp *= 0.5;
+        freq *= 2.0;
+        p = (p * 2).max(2);
+    }
+    sum / nrm
+}
+
+/// `pridged(x, y, s, pX)` — `ridged` over `pvnoise`.
+pub fn pridged(x: f64, y: f64, s: i32, p_x: i32) -> f64 {
+    let mut amp = 0.5;
+    let mut freq = 1.0;
+    let mut sum = 0.0;
+    let mut nrm = 0.0;
+    let mut p = p_x.max(2);
+    for o in 0..6 {
+        let n = pvnoise(x * freq, y * freq, s + o * 131, p);
+        let n = 1.0 - (2.0 * n - 1.0).abs();
+        sum += amp * n * n;
+        nrm += amp;
+        amp *= 0.5;
+        freq *= 2.0;
+        p = (p * 2).max(2);
+    }
+    sum / nrm
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

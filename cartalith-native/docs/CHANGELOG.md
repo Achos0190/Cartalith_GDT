@@ -269,6 +269,18 @@ multiply; all 342 values then matched bit-for-bit.
 - `cargo test -p cartalith-noise`: all 342 golden values match exactly.
   `cargo clippy -p cartalith-noise --all-targets`: clean.
 
+Also ported `pvnoise`/`pfbm`/`pridged` — the `state.world`-wrap periodic
+siblings (x lattice coordinate wraps mod `pX` so noise tiles on a
+cylinder) — in the same pass, since they're the same reference-file
+section and the same one caveat (JS `%` keeps the dividend's sign; the
+`((xi%pX)+pX)%pX` double-mod pattern needs replicating exactly, not
+swapped for Rust's `rem_euclid`). All 90 additional golden values matched
+on the first attempt — the `hash` sign fix above was the only real trap
+in this whole section.
+
+- `cargo test -p cartalith-noise`: all 432 golden values (342 + 90) match
+  exactly. `cargo clippy -p cartalith-noise --all-targets`: clean.
+
 **Next**: `buildTectonicSubstrate()` — the first real pipeline stage
 (`MVP_SCOPE.md` point 1), and the first one built on top of `mulberry32`
 + this noise module rather than tested in isolation.
