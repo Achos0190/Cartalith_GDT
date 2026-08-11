@@ -1,0 +1,8 @@
+# Build outputs — rebuildable, not source.
+/target/
+godot-project/.godot/
+godot-project/builds/
+
+# Export signing — never committed.
+*.keystore
+*.jks

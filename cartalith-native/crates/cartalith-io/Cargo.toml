@@ -1,0 +1,10 @@
+[package]
+name = "cartalith-io"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "save/load — reads the HTML app's .zip saves (SAVEFILE_COMPAT.md)"
+
+[lib]
+name = "cartalith_io"

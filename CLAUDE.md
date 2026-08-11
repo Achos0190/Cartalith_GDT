@@ -1,11 +1,17 @@
 # Porting to Godot — directory instructions
 
-Scoped to this folder. Supplements the repository root's `CLAUDE.md`, which governs
-`Cartalith Gen1 v*.html` and is unrelated to this effort except as the source being
-ported.
+**Update (this repository, `cartalith_gdt`, IS the new repository `DECISIONS.md`
+§8 describes.** This file was written while these documents still lived inside
+`Cartalith_RC` alongside the HTML app, where "no Rust or Godot project files
+here" meant something. Once extracted into this repo, that constraint is
+stale: `cartalith-native/` (the Cargo workspace + `godot-project/`) belongs
+here, at this repo's root, alongside the docs. The rest of this file's
+guidance — reading order, don't-edit-the-reference, re-verify-stale-versions
+— still holds.
 
-**This folder holds documentation and reference material only.** The Rust and Godot
-project belongs in a new, separate repository (`DECISIONS.md` §8).
+Supplements nothing else; `Cartalith_RC`'s own root `CLAUDE.md` governs
+`Cartalith Gen1 v*.html` there and is unrelated to this effort except as the
+source being ported.
 
 ## Read `README.md` first
 
@@ -15,8 +21,6 @@ not replace reading `README.md` and `DECISIONS.md` properly.
 
 ## Constraints
 
-- **Write no Rust or Godot project files here.** Starting the port means creating
-  the new repository, not adding a `Cargo.toml` to `Cartalith_RC`.
 - **Do not edit `reference/Cartalith Gen1 v2.10.html`.** It is the frozen snapshot
   every other document was written against. Re-freezing to a newer version is
   fine — regenerate `FUNCTION_INDEX.md` in the same pass, so the two never drift.
