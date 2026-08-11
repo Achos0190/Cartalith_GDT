@@ -204,3 +204,34 @@ With this, Phase 0's two remaining checkboxes from the original walking
 skeleton (`ROADMAP.md`) are both closed on real hardware: Godot loads and
 runs the gdext extension, and Windows + Android both build and package.
 Phase 1 (`MVP_SCOPE.md`) can start.
+
+## Phase 1 — mulberry32 ported and golden-verified (2026-08-12)
+
+First engine logic in `cartalith-rng`, per `PARITY_TESTING.md`'s explicit
+ordering: **port the RNG first, alone, before anything depends on it.**
+
+- Located the reference implementation in `reference/Cartalith Gen1
+  v2.10.html` (the `/* ===== noise ===== */` section) and confirmed via
+  call-site grep that it's the one MVP scope actually needs — tectonics,
+  volcanism, and crater placement all seed from it directly
+  (`state.tect.seed`, `state.tect.seed^0x5bf03635`,
+  `state.tect.seed^0x27d4eb2f`). The civ-layer `_civRng` elsewhere in the
+  file is a different, near-identical implementation used only by
+  out-of-MVP-scope code — not ported.
+- Extracted golden output by running the **actual JS function under real
+  Node.js** (v24.19.0), not hand-derived: 9 seeds (including the two real
+  XOR-derived seeds volcanism/craters actually use) × 8 values each = 72
+  values, in `cartalith-rng/tests/golden_parity.rs`.
+- Ported to `Mulberry32` (`cartalith-rng/src/lib.rs`) on `u32` throughout —
+  JS's `Math.imul`/`^`/`>>>` are bit-identical regardless of signed vs.
+  unsigned interpretation, so no `i32` split was needed. Division by
+  `2^32` is exact in `f64` (power-of-two divisor, integer numerator), so
+  the golden test asserts **bit-for-bit equality**, not a tolerance — the
+  right bar for pure integer arithmetic, per `PARITY_TESTING.md`'s "give
+  each field its own tolerance and record the reasoning."
+- `cargo test -p cartalith-rng`: all 72 golden values match exactly.
+  `cargo clippy -p cartalith-rng --all-targets`: clean.
+
+**Next**: `hash`, `vnoise`, `fbm`, `ridged` — same section of the reference
+file, same golden-extraction method, per `PARITY_TESTING.md`'s stated
+order ("port the RNG first, and the noise second").
