@@ -164,3 +164,43 @@ cycle — worth using once `cargo ndk -t arm64-v8a build -p cartalith-godot`
 produces the `.so` on a machine with NDK access. `MVP_SCOPE.md` criterion 4
 still wants the actual `.apk` built and sideloaded, so this is a good
 interim signal, not a substitute for that.
+
+## Phase 0 close-out — real Windows + Android, on real hardware (2026-08-12)
+
+The owner set up Rust, Godot 4.7.1, and the Android SDK/NDK directly on
+their own Windows PC (mirroring `TOOLCHAIN.md`, none of which the cloud
+sandbox could reach), then had this session continue there directly —
+real tool access to the actual machine, not the copy-paste relay the
+earlier entries describe.
+
+**Windows: confirmed.** Rebuilt with the fixed `.gdextension` manifest,
+opened a fresh editor session, clicked "Ping Rust" — `cartalith-godot:
+pong` appeared. The GDExtension method-call round-trip works, closing the
+one gap the previous entry left open.
+
+**Android: confirmed further than before, one more real gap found and
+fixed.**
+
+- `cargo ndk -t arm64-v8a build -p cartalith-godot` succeeded. `file` on
+  the result confirms `ELF 64-bit ... ARM aarch64 ... built by NDK r29
+  (14206865)` — exactly the version Godot 4.7.1 pins
+  (`platform/android/detect.py`), not a newer or older one.
+- `godot4 --headless --export-debug "Android" builds/android/Cartalith.apk`
+  first failed: `ETC2/ASTC texture compression is required for Android
+  export`. This is a real, generically-required Godot Android export
+  setting that had never been set — nothing about this project's assets
+  in particular. Fixed by adding
+  `textures/vram_compression/import_etc2_astc=true` to
+  `godot-project/project.godot`. Re-running the export then succeeded: a
+  real signed debug `.apk` was built and Godot's own verification step
+  passed.
+
+**Still open:** `MVP_SCOPE.md` criterion 4 wants the `.apk` **installed
+and run** on the device, not just built. This session confirmed the build
+and packaging pipeline end-to-end on real hardware — sideloading and
+launching it is the next, separate step.
+
+With this, Phase 0's two remaining checkboxes from the original walking
+skeleton (`ROADMAP.md`) are both closed on real hardware: Godot loads and
+runs the gdext extension, and Windows + Android both build and package.
+Phase 1 (`MVP_SCOPE.md`) can start.
