@@ -235,3 +235,40 @@ ordering: **port the RNG first, alone, before anything depends on it.**
 **Next**: `hash`, `vnoise`, `fbm`, `ridged` — same section of the reference
 file, same golden-extraction method, per `PARITY_TESTING.md`'s stated
 order ("port the RNG first, and the noise second").
+
+## Phase 1 — hash/vnoise/fbm/ridged ported, one real sign bug caught (2026-08-12)
+
+`cartalith-noise`, continuing directly from `mulberry32`. Golden data again
+extracted by running the actual JS (reference HTML lines 2292-2295) under
+Node.js — 234 `hash` cases (13 x-coords x 3 y-coords x 6 seeds, including
+negative coordinates) + 108 noise cases (12 float x-coords x 3 y-coords x
+3 seeds, each checking `vnoise`/`fbm`/`ridged` together) = 342 values,
+generated straight into a Rust test file rather than hand-transcribed
+JSON, to rule out transcription error at this volume.
+
+**First golden-test failure of the port, and exactly the kind
+`PARITY_TESTING.md` warns about.** `hash`'s middle step
+(`h=(h^(h>>>13))*1274126177`) doesn't use `Math.imul` — the product can
+reach ~2^61, past `f64`'s exact 53-bit range, so JS's own float64
+rounding is genuine, load-bearing behavior here (kept, not "fixed" — see
+`cartalith-noise/src/lib.rs`'s doc comment). Getting *that* part right
+the first time, the port still initially failed on `hash(0, 7,
+668265263)` and others: JS's `^` operator returns a **signed** int32, and
+that signed value — not its unsigned bit pattern — is what the following
+plain `*` multiplies. The first draft carried the unsigned value forward
+instead, silently flipping the sign of the multiplicand (and therefore
+the whole result) for roughly half of all outputs. Root-caused by
+comparing a step-by-step Node trace against the same steps reasoned
+through in Rust, not by loosening the assertion — the discipline the
+project's own skill (`cartalith-porting-discipline`) names explicitly:
+"a mismatch means re-read the JS... not widen the tolerance."
+
+Fixed with one re-interpretation cast (`h2_bits as i32`) before the
+multiply; all 342 values then matched bit-for-bit.
+
+- `cargo test -p cartalith-noise`: all 342 golden values match exactly.
+  `cargo clippy -p cartalith-noise --all-targets`: clean.
+
+**Next**: `buildTectonicSubstrate()` — the first real pipeline stage
+(`MVP_SCOPE.md` point 1), and the first one built on top of `mulberry32`
++ this noise module rather than tested in isolation.
