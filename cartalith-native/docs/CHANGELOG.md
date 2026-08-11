@@ -111,3 +111,30 @@ users' ABI expectations exactly, per `DECISIONS.md`) is open.
 
 **Not started:** everything past the walking skeleton — no engine crate has
 logic yet (Phase 1, `MVP_SCOPE.md`).
+
+## Phase 0 follow-up — owner verification on real Windows (2026-08-11)
+
+The owner opened `godot-project/` in the Godot 4.7.1 editor on their own
+Windows machine: the scene rendered (triangle, label, button), which
+`ROADMAP.md`'s bar asks for and this session's headless run couldn't show.
+
+**Found a real bug in the process — `.gdextension` pointed at the wrong
+Windows path.** The checked-in manifest had
+`windows.debug.x86_64 = "res://../target/x86_64-pc-windows-gnu/debug/..."`,
+because that is where *this session's* mingw-w64 cross-build (the
+`cargo-xwin`/MSVC fallback, see above) happened to land. A native `cargo
+build` on real Windows uses the host MSVC toolchain by default and needs no
+`--target` flag, so cargo drops the DLL straight in `target\debug\` — no
+triple subdirectory — and Godot correctly reported
+`GDExtension dynamic library not found`. Fixed to
+`res://../target/debug/cartalith_godot.dll` (and `.../release/...`),
+matching a plain `cargo build -p cartalith-godot [--release]` on native
+Windows — the path a real contributor actually hits, not the one this
+session's sandbox-only cross-compile happened to produce. The `linux.*`
+and `android.*` entries were already written this way; only `windows.*`
+had the leftover sandbox path.
+
+Once the owner rebuilds with the fixed manifest and re-runs the scene, the
+outstanding check is clicking "Ping Rust" and confirming
+`cartalith-godot: pong` appears — the actual GDExtension method-call
+round-trip, still unconfirmed as of this entry.

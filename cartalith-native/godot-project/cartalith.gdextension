@@ -7,8 +7,8 @@ reloadable = true
 linux.debug.x86_64     = "res://../target/debug/libcartalith_godot.so"
 linux.release.x86_64   = "res://../target/release/libcartalith_godot.so"
 
-windows.debug.x86_64   = "res://../target/x86_64-pc-windows-gnu/debug/cartalith_godot.dll"
-windows.release.x86_64 = "res://../target/x86_64-pc-windows-gnu/release/cartalith_godot.dll"
+windows.debug.x86_64   = "res://../target/debug/cartalith_godot.dll"
+windows.release.x86_64 = "res://../target/release/cartalith_godot.dll"
 
 android.debug.arm64    = "res://../target/aarch64-linux-android/debug/libcartalith_godot.so"
 android.release.arm64  = "res://../target/aarch64-linux-android/release/libcartalith_godot.so"
