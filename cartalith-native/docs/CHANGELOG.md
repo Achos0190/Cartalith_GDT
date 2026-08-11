@@ -617,3 +617,55 @@ the JS before writing Rust, not by a failing test.
 and world-structure archetypes (`generateContinentalityField`,
 `applyWorldStructureSeaLevel`), or move on to climate — open which to
 prioritize.
+
+## Phase 1 — temperature ported to new cartalith-climate crate (2026-08-12)
+
+`cartalith-climate::compute_temperature` (reference HTML lines 4951-5153)
+— `MVP_SCOPE.md` point 6's temperature half. First code in this crate;
+first crate boundary crossed since `cartalith-terrain`. Chose temperature
+over continuing volcanism/archetypes because it's needed before wind or
+rainfall can be ported at all, and moving one pipeline stage further
+along felt more valuable right now than deepening one already-working
+stage.
+
+Latitude-band base temperature (grounded in axial tilt + rotation via
+`insolationContrastK`/`rotationContrastK` — North & Coakley 1979's P2
+energy-balance approximation, `docs/research/solar-energy-budget.md`),
+cooled by altitude above sea level scaled by gravity (lapse rate), then
+optionally relaxed toward a colder cryosphere equilibrium wherever ice
+forms.
+
+**Deferred, matching this port's established pattern**: `geoidField`
+(`buildGeoid`, a per-cell sea-level offset from a separate planet-geoid
+subsystem) isn't ported. `state.planet.geoid.enabled` defaults to
+`false`, where JS's own `geoAt()` always returns `0` regardless — so
+`compute_temperature`'s `geo_field: Option<&[f32]>` passed as `None`
+matches the app's own default path exactly, not an approximation of it.
+
+**One more per-pass rounding trap, same family as `computeStress`'s and
+the volcanism/crater clamp-order one, caught before running any test**:
+`applyCryosphereAlbedo` relaxes over 6 passes, each reading and writing
+the same `Float32Array` in place — so each pass's write rounds to `f32`
+*before* the next pass's `smoothstep` reads it back, not a full-precision
+`f64` value carried between passes. A first draft used an `f64` working
+array for the whole 6-pass loop, rounding only once at the end; fixed to
+keep the working array `f32` throughout, exactly mirroring JS's real
+storage. `base` (the pre-loop snapshot) is captured once and never
+re-rounded, matching JS's own `Float32Array` copy semantics.
+
+Also kept `!(k > 0.0)` rather than the clippy-preferred `k <= 0.0` for
+the albedo no-op check, with a comment explaining why: JS's `!(k>0)` is
+`true` for `NaN` (since `NaN>0` is `false`), matching this project's
+NaN-as-off convention (`cartalith-rust-conventions`) — `k <= 0.0` would
+flip that, since `NaN<=0.0` is *also* `false` in IEEE754.
+
+3 golden cases (region mode, world-wrap mode with a non-Earth tilt/
+rotation, and one exercising the albedo relaxation path), all bit-for-bit
+exact on the first attempt.
+
+- `cargo test -p cartalith-climate`: 3/3 golden cases exact.
+  `cargo clippy -p cartalith-climate --all-targets`: clean.
+
+**Next**: wind (`buildWind`/`simulateWeather`) and rainfall — the larger
+half of `MVP_SCOPE.md` point 6, and the point real river/lake formation
+(hydrology) will eventually depend on.
