@@ -576,6 +576,121 @@ pub fn compute_stress(
     }
 }
 
+/// `computeFlexure()` (reference HTML lines 3105-3111): seeds a field
+/// from `stressField` only at boundary cells, blurs it wide (3x the
+/// normal blur radius — flexural wavelength is much longer than the
+/// stress wavelength that produced it), then normalizes by max
+/// magnitude.
+pub fn compute_flexure(
+    gw: usize,
+    gh: usize,
+    boundary_mask: &[u8],
+    stress_field: &[f32],
+    blur_r: f64,
+    world: bool,
+) -> Vec<f32> {
+    let n = gw * gh;
+    let mut raw = vec![0f32; n];
+    for i in 0..n {
+        if boundary_mask[i] != 0 {
+            raw[i] = stress_field[i];
+        }
+    }
+    let broad = gauss_blur(&raw, blur_r * 3.0, gw, gh, world);
+    let mut mx = 1e-6f64;
+    for &v in &broad {
+        let v = (v as f64).abs();
+        if v > mx {
+            mx = v;
+        }
+    }
+    broad.iter().map(|&v| (v as f64 / mx) as f32).collect()
+}
+
+/// `REF_CELLKM`/`TERRAIN_DETAIL_MAX_K`/`terrainDetailK()` (reference HTML,
+/// near line 2636): raises relief-noise frequency once the map's real
+/// cell size drops below the app's own literal default (800km / 2048px).
+/// A no-op (returns 1) at or above that reference — only genuinely finer
+/// configurations ease, capped at `TERRAIN_DETAIL_MAX_K`.
+pub fn terrain_detail_k(gw: usize, map_width_km: f64) -> f64 {
+    const REF_CELLKM: f64 = 800.0 / 2048.0;
+    const TERRAIN_DETAIL_MAX_K: f64 = 16.0;
+    let mwk = if map_width_km > 0.0 { map_width_km } else { 800.0 };
+    let cell_km = mwk / gw as f64;
+    (REF_CELLKM / cell_km).clamp(1.0, TERRAIN_DETAIL_MAX_K)
+}
+
+/// `computeHeterogeneity()` + `fillHeteroRows()` + `heteroParams()`
+/// (reference HTML lines 3117-3125): low-frequency noise modulated by
+/// tectonic age — old stable cratons show more internal diversity than
+/// young near-boundary crust.
+// JS groups seed/hf/world into a params object only because fillHeteroRows
+// is shared between the sync and Web-Worker-pool paths; this port has no
+// worker pool to share with, so a bespoke struct here would exist solely
+// to satisfy this lint, not to serve a second caller.
+#[allow(clippy::too_many_arguments)]
+pub fn compute_heterogeneity(
+    gw: usize,
+    gh: usize,
+    seed: i32,
+    map_width_km: f64,
+    world: bool,
+    age: &[f32],
+    warp_x: Option<&[f32]>,
+    warp_y: Option<&[f32]>,
+) -> Vec<f32> {
+    let n = gw * gh;
+    let hetero_seed = seed ^ 0x44bb;
+    let hf = 1.5 * terrain_detail_k(gw, map_width_km);
+    let oct = (js_round(hf).max(2.0)) as i32;
+    let mut out = vec![0f32; n];
+    for y in 0..gh {
+        for x in 0..gw {
+            let i = y * gw + x;
+            let wx = x as f64 + warp_x.map_or(0.0, |w| w[i] as f64);
+            let wy = y as f64 + warp_y.map_or(0.0, |w| w[i] as f64);
+            let low_n = if world {
+                pfbm(wx * hf / gw as f64, wy * hf / gw as f64, hetero_seed, oct)
+            } else {
+                fbm(wx * hf / gw as f64, wy * hf / gw as f64, hetero_seed)
+            } - 0.5;
+            out[i] = (low_n * (0.3 + 0.7 * age[i] as f64)) as f32;
+        }
+    }
+    let mut mx = 1e-6f64;
+    for &v in &out {
+        let v = (v as f64).abs();
+        if v > mx {
+            mx = v;
+        }
+    }
+    for v in &mut out {
+        *v = (*v as f64 / mx) as f32;
+    }
+    out
+}
+
+/// `computeResistance()` (reference HTML lines 3132-3139): erosion
+/// resistance from crust type (continental base = harder) and tectonic
+/// age (older = more resistant). Used later to spatially modulate
+/// stream-power erodibility.
+pub fn compute_resistance(
+    gw: usize,
+    gh: usize,
+    plate_id: &[usize],
+    plates: &[Plate],
+    age_field: &[f32],
+) -> Vec<f32> {
+    let n = gw * gh;
+    let mut resistance = vec![0f32; n];
+    for i in 0..n {
+        let pl = plates[plate_id[i]];
+        let crustal = pl.base.max(0.0);
+        resistance[i] = (crustal * 0.6 + age_field[i] as f64 * 0.4).min(1.0) as f32;
+    }
+    resistance
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

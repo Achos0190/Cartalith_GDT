@@ -471,3 +471,53 @@ these the slow way, one red test at a time.
 
 **Next**: `computeFlexure()` — needs `boundaryMask` + `stressField`, both
 now available.
+
+## Phase 1 — computeFlexure, computeHeterogeneity, computeResistance ported (2026-08-12)
+
+Three more `buildTectonicSubstrate` stages, all straightforward given the
+primitives already in place — no new precision traps found, just careful
+translation:
+
+- `compute_flexure` (reference HTML lines 3105-3111): seeds from
+  `stressField` at boundary cells only, blurs at 3x the normal radius
+  (flexural wavelength >> stress wavelength), normalizes by max
+  magnitude. Reuses `gauss_blur` directly.
+- `terrain_detail_k` (near line 2636) + `compute_heterogeneity` (lines
+  3117-3125): low-frequency noise modulated by tectonic age — old stable
+  cratons show more internal basement diversity than young near-boundary
+  crust. `terrain_detail_k` eases relief-noise frequency only once the
+  map's real cell size drops below the app's own 800km/2048px reference
+  (a no-op at or above it), the same "measure the real km scale, don't
+  assume resolution implies scale" reasoning `PROVENANCE.md` flags this
+  whole `terrainDetailK` family for.
+- `compute_resistance` (lines 3132-3139): erosion resistance from crust
+  type (continental base = harder) and age (older = more resistant) —
+  the one later `streamPowerErode` will read to spatially modulate
+  erodibility.
+
+5 golden cases across the three functions, all bit-for-bit exact on the
+first attempt.
+
+- `cargo test -p cartalith-terrain`: 5/5 golden cases exact (25 total
+  across the crate's six golden suites). `cargo clippy -p
+  cartalith-terrain --all-targets`: clean (one `#[allow(too_many_arguments)]`
+  on `compute_heterogeneity` — JS groups those params into an object only
+  to share `fillHeteroRows` with a Web-Worker-pool path this port doesn't
+  have; a bespoke struct here would exist solely to satisfy the lint).
+
+**`buildTectonicSubstrate`'s remaining pieces**: `generateContinentalityField`
+(world-structure archetypes, deferred with `MVP_SCOPE.md`'s own blessing
+until archetypes are actually being wired up) and the T1-T5 orogeny
+machinery (`buildOrogenyField`, opt-in via `state.tect.tectonicGraph`,
+substantial on its own — boundary polyline graphs, thinning, per-type
+structured features). Everything needed for the **default, non-orogeny,
+non-archetype** path — the one Phase 1's own golden-parity harness will
+actually run first — is now in place: `compute_warp`, `build_plates`,
+`assign_plates`, `compute_stress`, `compute_flexure`,
+`compute_heterogeneity`, `compute_resistance`.
+
+**Next**: the height formula itself (`MVP_SCOPE.md` point 2) — the first
+stage that actually turns these fields into a heightmap, and the natural
+point to also wire `cartalith-engine`'s orchestration so these nine
+functions run as one real pipeline instead of nine independently-tested
+islands.
