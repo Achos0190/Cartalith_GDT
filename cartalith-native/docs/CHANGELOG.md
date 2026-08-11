@@ -521,3 +521,43 @@ stage that actually turns these fields into a heightmap, and the natural
 point to also wire `cartalith-engine`'s orchestration so these nine
 functions run as one real pipeline instead of nine independently-tested
 islands.
+
+## Phase 1 — height formula + normalize ported (2026-08-12)
+
+`cartalith-terrain::compute_height` + `normalize_field` (reference HTML
+lines 2335-2344 and 4930-4935) — `MVP_SCOPE.md` points 2 and 3, and
+literally **the formula**: `0.5 + A*(0.40*bs + 0.50*T) + Fwt*flex +
+Hwt*hetero + B*N*(0.25+0.75*rug)`, transcribed term-for-term and weight-
+for-weight rather than reformulated, per `DECISIONS.md` §7's "reproduce
+it; do not improve it." `HeightParams` bundles the six tectonic tuning
+knobs (`alpha`/`beta`/`age`/`flexure`/`hetero`/`ridged`) into one struct —
+unlike `compute_heterogeneity`'s params, this grouping mirrors a real
+conceptual unit (the formula's own weights), not a JS worker-pool-sharing
+artifact, so it earns the struct rather than an `#[allow]`.
+
+3 golden cases spanning the branches that actually change behavior:
+world-wrap off/ridged-off, world-wrap on/ridged on/warp-displaced, and a
+third adding `oro` (orogeny) input — even though `buildOrogenyField`
+itself isn't ported yet, `compute_height`'s own `oro` branch
+(`T=oro?oro[i]+Math.min(sf,0):sf`) needed covering now rather than left
+implicitly untested until whenever orogeny lands. All three matched
+bit-for-bit on the first attempt — the accumulated discipline from the
+last several functions (know the JS promotion/rounding rules before
+writing the port, not after a test fails) held here too.
+
+`normalize_field` is CPU-path-only (same `GPU.enabled` fallback pattern
+as `gaussBlur`) and reproduces JS's `mx-mn||1` flat-field guard (a zero
+range divides by `1`, not `NaN`) explicitly rather than trusting Rust's
+own zero-division behavior to coincidentally match.
+
+- `cargo test -p cartalith-terrain`: 3/3 golden cases exact (28 total
+  across the crate's seven golden suites). `cargo clippy -p
+  cartalith-terrain --all-targets`: clean.
+
+With this, every piece of `MVP_SCOPE.md`'s first two milestones — the
+default tectonic substrate and the height formula — golden-verifies in
+isolation. **Next**: wire `cartalith-engine`'s orchestration so these ten
+functions actually run as one pipeline against a real seed, rather than
+ten independently-tested islands — the natural point to also extract a
+true end-to-end golden fixture (seed → full field) from the live JS
+`generate()`, per `PARITY_TESTING.md`'s own recommended harness shape.

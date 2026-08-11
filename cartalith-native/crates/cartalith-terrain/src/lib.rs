@@ -2,7 +2,7 @@
 //!
 //! Ported in pipeline order starting Phase 1 (MVP_SCOPE.md).
 
-use cartalith_noise::{fbm, pfbm};
+use cartalith_noise::{fbm, pfbm, pridged, ridged};
 use cartalith_rng::Mulberry32;
 
 /// Mirrors JS `Math.round`: ties round toward `+Infinity`, unlike Rust's
@@ -689,6 +689,103 @@ pub fn compute_resistance(
         resistance[i] = (crustal * 0.6 + age_field[i] as f64 * 0.4).min(1.0) as f32;
     }
     resistance
+}
+
+/// The tectonic "formula weights" `heightParams()` bundles in JS
+/// (`state.tect.alpha`/`.beta`/`.age`/`.flexure`/`.hetero`/`.ridged`) —
+/// grouped here because they're a real conceptual unit (the height
+/// formula's own tuning knobs), unlike `compute_heterogeneity`'s params,
+/// which JS only bundles to share code with a worker pool this port
+/// doesn't have.
+pub struct HeightParams {
+    pub nf: f64,
+    pub seed: i32,
+    pub a: f64,
+    pub b: f64,
+    pub age_inf: f64,
+    pub fwt: f64,
+    pub hwt: f64,
+    pub world: bool,
+    pub ridged: bool,
+}
+
+/// `fillHeightRows()` / `heightParams()` (reference HTML lines 2335-2344)
+/// — **the height formula**: tectonic base + boundary stress/orogeny +
+/// flexure + heterogeneity + ridged/value-noise roughness, damped by
+/// tectonic age. `MVP_SCOPE.md` point 2: reproduce exactly, do not
+/// improve (`DECISIONS.md` §7) — this function is a literal transcription
+/// of the JS formula's term order and weights, not a reformulation.
+#[allow(clippy::too_many_arguments)]
+pub fn compute_height(
+    gw: usize,
+    gh: usize,
+    base_field: &[f32],
+    stress: &[f32],
+    flex: &[f32],
+    hetero: &[f32],
+    age: &[f32],
+    warp_x: Option<&[f32]>,
+    warp_y: Option<&[f32]>,
+    oro: Option<&[f32]>,
+    p: &HeightParams,
+) -> Vec<f32> {
+    let n = gw * gh;
+    let mut field = vec![0f32; n];
+    for y in 0..gh {
+        for x in 0..gw {
+            let i = y * gw + x;
+            let sf = stress[i] as f64;
+            let t = match oro {
+                Some(o) => o[i] as f64 + sf.min(0.0),
+                None => sf,
+            };
+            let bs = base_field[i] as f64;
+            let rug = (-(age[i] as f64) * (1.0 + p.age_inf * 6.0)).exp();
+            let wx = x as f64 + warp_x.map_or(0.0, |w| w[i] as f64);
+            let wy = y as f64 + warp_y.map_or(0.0, |w| w[i] as f64);
+            let nx = wx * p.nf / gw as f64;
+            let ny = wy * p.nf / gw as f64;
+            let n_val = (if p.world {
+                if p.ridged {
+                    pridged(nx, ny, p.seed, 5)
+                } else {
+                    pfbm(nx, ny, p.seed, 5)
+                }
+            } else if p.ridged {
+                ridged(nx, ny, p.seed)
+            } else {
+                fbm(nx, ny, p.seed)
+            }) - 0.5;
+            field[i] = (0.5
+                + p.a * (0.40 * bs + 0.50 * t)
+                + p.fwt * flex[i] as f64
+                + p.hwt * hetero[i] as f64
+                + p.b * n_val * (0.25 + 0.75 * rug)) as f32;
+        }
+    }
+    field
+}
+
+/// `normalize()` (reference HTML lines 4930-4935), CPU path only — the
+/// GPU path is unavailable headless, and JS itself falls back to this
+/// exact code when it is. Min-max stretch to `[0,1]` (`MVP_SCOPE.md`
+/// point 3); `mx-mn||1` guards a flat field (JS's `||` treats `0` as
+/// falsy, so a zero range falls back to dividing by `1`, not `NaN`).
+pub fn normalize_field(field: &[f32]) -> Vec<f32> {
+    let mut mn = f64::INFINITY;
+    let mut mx = f64::NEG_INFINITY;
+    for &v in field {
+        let v = v as f64;
+        if v < mn {
+            mn = v;
+        }
+        if v > mx {
+            mx = v;
+        }
+    }
+    let range = mx - mn;
+    let range = if range == 0.0 { 1.0 } else { range };
+    field.iter().map(|&v| ((v as f64 - mn) / range) as f32).collect()
 }
 
 #[cfg(test)]
