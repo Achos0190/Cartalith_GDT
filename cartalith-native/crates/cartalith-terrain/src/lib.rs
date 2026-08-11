@@ -411,6 +411,171 @@ pub fn gauss_blur(src: &[f32], r: f64, w: usize, h: usize, wrap_x: bool) -> Vec<
     a
 }
 
+/// Boundary type codes matching JS's `BTYPE` object exactly (reference
+/// HTML line 2816) — used as plain `u8` rather than a Rust enum since
+/// `boundaryType` is a `Uint8Array` in the original and later stages
+/// (orogeny, rendering) index color/behavior tables by this number
+/// directly.
+pub mod btype {
+    pub const NONE: u8 = 0;
+    pub const COLLISION: u8 = 1;
+    pub const SUBDUCTION_OC: u8 = 2;
+    pub const ARC_OO: u8 = 3;
+    pub const RIFT: u8 = 4;
+    pub const TRANSFORM: u8 = 5;
+}
+
+/// `classifyBoundary()` (reference HTML line 2818): shear-dominant pairs
+/// are transforms regardless of crust type; otherwise convergence splits
+/// by ocean/continent combination, divergence is a rift.
+fn classify_boundary(ocean_a: bool, ocean_b: bool, c: f64, s: f64) -> u8 {
+    if s.abs() > 1.5 * c.abs() {
+        return btype::TRANSFORM;
+    }
+    if c > 0.0 {
+        if ocean_a && ocean_b {
+            btype::ARC_OO
+        } else if ocean_a != ocean_b {
+            btype::SUBDUCTION_OC
+        } else {
+            btype::COLLISION
+        }
+    } else {
+        btype::RIFT
+    }
+}
+
+/// Output of `compute_stress` — `boundaryMask`/`boundaryType`/
+/// `stressField`/`shearField` bundled together since JS computes all four
+/// in the same pass.
+pub struct StressResult {
+    pub boundary_mask: Vec<u8>,
+    pub boundary_type: Vec<u8>,
+    pub stress_field: Vec<f32>,
+    pub shear_field: Vec<f32>,
+}
+
+/// `computeStress()` (reference HTML lines 2819-2848): walks each cell's
+/// right/down neighbors (plus, under world-wrap, the row-wrap neighbor at
+/// the right edge — a cell never checks left/up, since each boundary is
+/// still marked on *both* sides when found from one direction), and where
+/// two different plates meet, accumulates convergence (`C`) and shear
+/// (`S`) stress from the plates' relative velocity projected onto the
+/// boundary normal/tangent.
+///
+/// `raw`/`rawS`/`domMag` are `Float32Array` in JS, and critically `+=`
+/// writes directly into them — each accumulation step rounds to `f32`
+/// immediately, not once at the end like `gauss_blur`'s internal `f64`
+/// accumulator. A cell touched by multiple boundary edges genuinely
+/// accumulates with per-step rounding, so these fields use `f32` math
+/// throughout, not an `f64` running sum cast down afterward.
+pub fn compute_stress(
+    gw: usize,
+    gh: usize,
+    world: bool,
+    plate_id: &[usize],
+    plates: &[Plate],
+    vel: f64,
+    blur_r: f64,
+) -> StressResult {
+    let n = gw * gh;
+    let mut raw = vec![0f32; n];
+    let mut raw_s = vec![0f32; n];
+    let mut dom_mag = vec![0f32; n];
+    let mut boundary_mask = vec![0u8; n];
+    let mut boundary_type = vec![0u8; n];
+
+    for y in 0..gh {
+        for x in 0..gw {
+            let i = y * gw + x;
+            let a = plate_id[i];
+            let mut neighbors: Vec<usize> = Vec::with_capacity(3);
+            if x + 1 < gw {
+                neighbors.push(i + 1);
+            }
+            if y + 1 < gh {
+                neighbors.push(i + gw);
+            }
+            if world && x == gw - 1 {
+                neighbors.push(y * gw);
+            }
+            for j in neighbors {
+                let b = plate_id[j];
+                if b == a {
+                    continue;
+                }
+                boundary_mask[i] = 1;
+                boundary_mask[j] = 1;
+                let pa = plates[a];
+                let pb = plates[b];
+                let mut nx = pb.x - pa.x;
+                let mut ny = pb.y - pa.y;
+                let nl = nx.hypot(ny);
+                let nl = if nl == 0.0 || nl.is_nan() { 1.0 } else { nl };
+                nx /= nl;
+                ny /= nl;
+                let tx = -ny;
+                let ty = nx;
+                let c = ((pa.vx - pb.vx) * nx + (pa.vy - pb.vy) * ny) * vel;
+                let s = ((pa.vx - pb.vx) * tx + (pa.vy - pb.vy) * ty) * vel;
+                // `raw[i] as f64 + c` (not `raw[i] + c as f32`): JS adds
+                // the full f64 C to the f64-promoted array read and
+                // rounds once — truncating c to f32 first would
+                // double-round and can disagree with JS on the ULP.
+                raw[i] = (raw[i] as f64 + c) as f32;
+                raw[j] = (raw[j] as f64 + c) as f32;
+                raw_s[i] = (raw_s[i] as f64 + s) as f32;
+                raw_s[j] = (raw_s[j] as f64 + s) as f32;
+                let mag = c.abs() + s.abs();
+                let bt = classify_boundary(pa.base < 0.0, pb.base < 0.0, c, s);
+                if mag >= dom_mag[i] as f64 {
+                    dom_mag[i] = mag as f32;
+                    boundary_type[i] = bt;
+                }
+                if mag >= dom_mag[j] as f64 {
+                    dom_mag[j] = mag as f32;
+                    boundary_type[j] = bt;
+                }
+            }
+        }
+    }
+
+    // mx/ms are plain (f64) JS variables, not typed-array elements —
+    // even though every value feeding them comes from an f32 read, the
+    // division below happens in f64 before rounding back to f32 on
+    // store, so mx/ms themselves must stay f64 throughout.
+    let mut stress_field = gauss_blur(&raw, blur_r, gw, gh, world);
+    let mut mx = 1e-6f64;
+    for &v in &stress_field {
+        let v = (v as f64).abs();
+        if v > mx {
+            mx = v;
+        }
+    }
+    for v in &mut stress_field {
+        *v = (*v as f64 / mx) as f32;
+    }
+
+    let mut shear_field = gauss_blur(&raw_s, blur_r, gw, gh, world);
+    let mut ms = 1e-6f64;
+    for &v in &shear_field {
+        let v = (v as f64).abs();
+        if v > ms {
+            ms = v;
+        }
+    }
+    for v in &mut shear_field {
+        *v = (*v as f64 / ms) as f32;
+    }
+
+    StressResult {
+        boundary_mask,
+        boundary_type,
+        stress_field,
+        shear_field,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -429,3 +429,45 @@ bit-for-bit exact on the first attempt.
 
 **Next**: `computeStress()` itself, now that its one missing dependency
 (`gaussBlur`) is in place.
+
+## Phase 1 — computeStress ported, two double-rounding traps caught pre-test (2026-08-12)
+
+`cartalith-terrain::compute_stress` + `classify_boundary` (reference HTML
+lines 2818-2848): walks each cell's right/down neighbors (plus, under
+world-wrap, the row-wrap neighbor at the right edge), and where two
+different plates meet, accumulates convergence (`C`, boundary-normal) and
+shear (`S`, boundary-tangent) stress from the plates' relative velocity,
+classifying each boundary cell by its dominant interaction.
+
+**Two more precision traps, both caught by reasoning through JS's typed-
+array semantics before running anything** — the pattern this port keeps
+hitting, per `cartalith-porting-discipline`'s emphasis on reading before
+porting rather than translating syntax and hoping:
+
+1. `raw[i]+=C` writes straight into a `Float32Array`. A first-draft
+   `raw[i] += c as f32` truncates `c` to `f32` *before* adding — but JS
+   promotes the existing `f32` value to `f64`, adds the full-precision
+   `f64` `C`, and rounds only once at the end. Truncating first
+   double-rounds, which can disagree with JS by a ULP. Fixed to
+   `raw[i] = (raw[i] as f64 + c) as f32`.
+2. `mx`/`ms` (the per-field normalization max) are plain JS variables —
+   `f64` — even though every value feeding them is read from a
+   `Float32Array`. The final `stressField[i]/=mx` divides in `f64` before
+   rounding back to `f32` on store. An `f32` accumulator for `mx` would
+   make that division happen in `f32` precision instead — a different
+   operation, not just a different variable type.
+
+Neither trap was found by a failing golden test — both were caught by
+comparing the port line-by-line against JS's actual promotion/rounding
+rules before running `cargo test` at all. The golden tests (3 cases,
+covering `boundary_mask`/`boundary_type`/`stress_field`/`shear_field`
+together) passed on the first real attempt, which is exactly the outcome
+that discipline is supposed to produce — the alternative is discovering
+these the slow way, one red test at a time.
+
+- `cargo test -p cartalith-terrain`: 3/3 golden cases exact (20 total
+  across the crate's five golden suites). `cargo clippy -p
+  cartalith-terrain --all-targets`: clean.
+
+**Next**: `computeFlexure()` — needs `boundaryMask` + `stressField`, both
+now available.
