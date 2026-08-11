@@ -329,6 +329,88 @@ pub fn assign_plates(
     plate_id
 }
 
+/// `boxH()` (reference HTML line 2511): horizontal sliding-window box
+/// blur. The running sum (`acc`) stays `f64` throughout — matching JS,
+/// where `acc` is a plain number even though it sums `Float32Array`
+/// reads — and is only rounded to `f32` at the point of writing `dst`.
+fn box_h(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64, wrap: bool) {
+    let norm = 1.0 / (2.0 * r as f64 + 1.0);
+    let wi = w as i64;
+    for y in 0..h {
+        let row = y * w;
+        let mut acc = 0.0f64;
+        if wrap {
+            for k in -r..=r {
+                let idx = (((k % wi) + wi) % wi) as usize;
+                acc += src[row + idx] as f64;
+            }
+        } else {
+            for k in -r..=r {
+                let idx = k.clamp(0, wi - 1) as usize;
+                acc += src[row + idx] as f64;
+            }
+        }
+        for x in 0..w {
+            dst[row + x] = (acc * norm) as f32;
+            let xi = x as i64;
+            if wrap {
+                let o = (((xi - r) % wi) + wi) % wi;
+                let i = (((xi + r + 1) % wi) + wi) % wi;
+                acc += src[row + i as usize] as f64 - src[row + o as usize] as f64;
+            } else {
+                let o = (xi - r).clamp(0, wi - 1) as usize;
+                let i = (xi + r + 1).clamp(0, wi - 1) as usize;
+                acc += src[row + i] as f64 - src[row + o] as f64;
+            }
+        }
+    }
+}
+
+/// `boxV()` (reference HTML line 2512): vertical sliding-window box blur.
+/// Always clamps at the top/bottom edge — maps don't wrap pole-to-pole,
+/// only (optionally) east-west, so unlike `box_h` there's no wrap variant.
+fn box_v(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64) {
+    let norm = 1.0 / (2.0 * r as f64 + 1.0);
+    let hi = h as i64;
+    for x in 0..w {
+        let mut acc = 0.0f64;
+        for k in -r..=r {
+            let idx = k.clamp(0, hi - 1) as usize;
+            acc += src[idx * w + x] as f64;
+        }
+        for y in 0..h {
+            dst[y * w + x] = (acc * norm) as f32;
+            let yi = y as i64;
+            let o = (yi - r).clamp(0, hi - 1) as usize;
+            let i = (yi + r + 1).clamp(0, hi - 1) as usize;
+            acc += src[i * w + x] as f64 - src[o * w + x] as f64;
+        }
+    }
+}
+
+/// `gaussBlur()` (reference HTML line 2513), CPU path only — the GPU path
+/// is unavailable headless, and JS itself falls back to exactly this code
+/// when it is, so parity only needs this branch. Three box-blur passes
+/// (H then V each time) approximate a Gaussian, alternating between two
+/// buffers exactly as JS does (`boxH(a,b,...); boxV(b,a,...)`, three
+/// times, `a` holds the result).
+///
+/// `r<1` returns an unmodified copy — a real, observable early-exit, not
+/// an optimization to skip.
+pub fn gauss_blur(src: &[f32], r: f64, w: usize, h: usize, wrap_x: bool) -> Vec<f32> {
+    if r < 1.0 {
+        return src.to_vec();
+    }
+    let pr = js_round(r / 1.6).max(1.0) as i64;
+    let mut a = src.to_vec();
+    let mut b = vec![0f32; src.len()];
+    for _ in 0..3 {
+        box_h(&a, &mut b, w, h, pr, wrap_x);
+        box_v(&b, &mut a, w, h, pr);
+    }
+    a
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

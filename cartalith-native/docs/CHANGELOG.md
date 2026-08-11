@@ -400,3 +400,32 @@ fix above).
 **Next**: `computeStress()` — boundary classification and convergence/
 shear stress accumulation, the first stage to read `plateId` rather than
 `plates[]` directly.
+
+## Phase 1 — gaussBlur ported (2026-08-12)
+
+`cartalith-terrain::gauss_blur` plus its `box_h`/`box_v` internals
+(reference HTML lines 2511-2515) — three-pass box blur approximating a
+Gaussian, the shared smoothing primitive `computeStress`,
+`computeFlexure`, and the base-crust blur all lean on next. CPU path
+only: the JS original tries a GPU path first
+(`GPU.enabled && GPU.blurOK`), but that's unavailable headless, and JS
+itself already falls back to the exact CPU code ported here when it is —
+so parity only needs this one branch, not a GPU-vs-CPU tolerance.
+
+Two things preserved rather than "cleaned up": the running sum in
+`box_h`/`box_v` stays `f64` throughout the sliding-window accumulation
+(matching JS, where `acc` is a plain number even though it's summing
+`Float32Array` reads) and only rounds to `f32` at the point of writing
+`dst` — an `f32` accumulator would drift over a wide blur radius. And
+`r<1` is a real early return (an unmodified copy), not an optimization
+worth skipping in the port.
+
+4 golden cases (wrap on/off, one below the `r<1` threshold), all
+bit-for-bit exact on the first attempt.
+
+- `cargo test -p cartalith-terrain`: 4/4 golden cases exact (17 total
+  across the crate's four golden suites). `cargo clippy -p
+  cartalith-terrain --all-targets`: clean.
+
+**Next**: `computeStress()` itself, now that its one missing dependency
+(`gaussBlur`) is in place.
