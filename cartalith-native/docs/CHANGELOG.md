@@ -284,3 +284,35 @@ in this whole section.
 **Next**: `buildTectonicSubstrate()` — the first real pipeline stage
 (`MVP_SCOPE.md` point 1), and the first one built on top of `mulberry32`
 + this noise module rather than tested in isolation.
+
+## Phase 1 — computeWarp ported (2026-08-12)
+
+`cartalith-terrain::compute_warp` — the first stage of `buildTectonicSubstrate`
+(reference HTML lines 2621-2735: `computeWarpPrep`/`fillWarpRows`/`warpParams`
+combined into one function, since JS's caching split across those three is a
+perf detail orthogonal to output values). Domain-warped fbm: sample `fbm`
+twice for a (qx, qy) offset, then sample again shifted by `4*(qx,qy)` for the
+final displacement — classic Inigo Quilez-style warp.
+
+4 golden cases (small grids, 5x5 to 8x6, covering `world` true/false and
+the below-threshold `None` case) generated the same way as the noise
+primitives, all matching bit-for-bit on the first attempt — the earlier
+noise work paying off, since this stage is "just" `fbm`/`pfbm` composed
+per-cell.
+
+One thing worth being explicit about: `warpX`/`warpY` are `Float32Array`
+in JS, so every stored cell is rounded from `f64` to `f32` at the point of
+assignment — not just at the end. `compute_warp` returns `Vec<f32>` and
+casts at the same point (`(wx * 2.0 * amp) as f32`), which reproduces
+that rounding rather than losing it to a final bulk conversion; later
+stages that read this field (`assignPlates`'s `ax=warpX?x+warpX[i]:x`)
+see the same already-rounded value JS would.
+
+- `cargo test -p cartalith-terrain`: 4/4 golden cases exact.
+  `cargo clippy -p cartalith-terrain --all-targets`: clean (added
+  `#![allow(clippy::excessive_precision)]` to the generated golden test
+  files — clippy flags full-round-trip-precision float literals as
+  "excessive," which is exactly the precision golden fixtures need).
+
+**Next**: `buildPlates()` — plate initialisation (positions, velocities,
+crust type), feeding `assignPlates`'s JFA Voronoi.

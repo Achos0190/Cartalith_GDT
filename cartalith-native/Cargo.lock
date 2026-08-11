@@ -40,6 +40,9 @@ version = "0.1.0"
 [[package]]
 name = "cartalith-terrain"
 version = "0.1.0"
+dependencies = [
+ "cartalith-noise",
+]
 
 [[package]]
 name = "gdextension-api"

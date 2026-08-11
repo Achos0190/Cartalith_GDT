@@ -1,3 +1,4 @@
+#![allow(clippy::excessive_precision)]
 //! Golden-parity test for `pvnoise`, `pfbm`, `pridged` (world-wrap noise variants, PARITY_TESTING.md).
 //!
 //! Same extraction method as golden_parity.rs: real JS under Node.js v24.19.0.
