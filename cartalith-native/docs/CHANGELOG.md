@@ -138,3 +138,29 @@ Once the owner rebuilds with the fixed manifest and re-runs the scene, the
 outstanding check is clicking "Ping Rust" and confirming
 `cartalith-godot: pong` appears — the actual GDExtension method-call
 round-trip, still unconfirmed as of this entry.
+
+## Phase 0 follow-up — owner tried real Android hardware (2026-08-11)
+
+The owner opened the project folder directly in the **Godot Editor Android
+app** on a real device (Adreno 750). Useful data even though it failed:
+
+```
+OpenGL API OpenGL ES 3.2 ... Compatibility - Using Device: Qualcomm - Adreno (TM) 750
+ERROR: Can't open dynamic library: .../target/aarch64-linux-android/debug/libcartalith_godot.so
+ERROR: Can't open GDExtension dynamic library: 'res://cartalith.gdextension'.
+```
+
+**Godot's own Android runtime works fine on real hardware** — it reached
+renderer init before failing on the one thing this session's blocked NDK
+never let it build: the `.so` itself doesn't exist yet. This is the exact
+gap already logged above (`cargo ndk build` fails with no NDK installed),
+not a new problem. Narrows the real remaining Android risk to "does the
+gdext cross-compile + on-device load work," not anything about Godot's
+Android integration generally.
+
+Also notable: running a project directly from the Godot Editor Android app
+is a lighter-weight on-device test than a full `.apk` export/sideload
+cycle — worth using once `cargo ndk -t arm64-v8a build -p cartalith-godot`
+produces the `.so` on a machine with NDK access. `MVP_SCOPE.md` criterion 4
+still wants the actual `.apk` built and sideloaded, so this is a good
+interim signal, not a substitute for that.
