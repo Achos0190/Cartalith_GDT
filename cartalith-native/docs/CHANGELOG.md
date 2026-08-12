@@ -773,3 +773,37 @@ point 7 names all three (droplet, stream-power, thermal) explicitly.
 **Next**: thermal erosion (simpler, no flow-accumulation dependency) or
 `cartalith-hydrology`'s flow accumulation (which stream-power erosion
 needs anyway) — open which to prioritize.
+
+## Phase 1 — thermal erosion ported (2026-08-12)
+
+`cartalith-erosion::erode_thermal` (reference HTML lines 3856-3865,
+`erodeThermalCPU` — CPU path only, GPU unavailable headless). Talus-
+angle diffusion: any cell steeper than `talus` relative to a 4-connected
+neighbor sheds the excess height, split proportionally among however
+many neighbors are over-steep, repeated for `passes` iterations.
+
+**A new variant of the round-then-clamp family, not just a repeat**:
+`delta` is a fresh `Float32Array` *every pass*, and unlike every prior
+example of this trap in the port so far (all of which were multiple
+writes to the *same* cell), here a single downhill neighbor cell can
+receive `+=` contributions from *several different uphill cells* within
+one pass — each one JS rounds to `f32` individually as it's added, not
+batched. Kept `delta` as `Vec<f32>` throughout rather than accumulating
+in `f64` and rounding once, the same reasoning as `compute_stress`'s
+`raw[i]+=` and `stamp_one_crater`'s three-site accumulation, just
+distributed across cells instead of terms.
+
+2 golden cases (default talus, and a much looser one to exercise more
+redistribution activity), both bit-for-bit exact on the first attempt.
+
+- `cargo test -p cartalith-erosion`: 4/4 golden cases exact across the
+  crate's two suites. `cargo clippy -p cartalith-erosion --all-targets`:
+  clean.
+
+**Remaining in `MVP_SCOPE.md` point 7**: `streamPowerKernel`/
+`streamPowerErode` — needs flow accumulation from hydrology first, so
+it's naturally blocked until `cartalith-hydrology` exists — plus
+`hillslopeDiffuseCPU` and `isostaticRebound`/`erodeFinish`'s tail.
+
+**Next**: `cartalith-hydrology`'s flow accumulation — both unblocks
+stream-power erosion and is `MVP_SCOPE.md` point 8 in its own right.

@@ -204,6 +204,69 @@ pub fn droplet_kernel(fld: &mut [f32], rain: Option<&[f32]>, w: usize, h: usize,
     }
 }
 
+/// `erodeThermalCPU()` (reference HTML lines 3856-3865), CPU path only —
+/// GPU is unavailable headless and JS falls back to this exact code when
+/// it is. Talus-angle-driven diffusion: any cell steeper than `talus`
+/// relative to a 4-connected neighbor sheds the excess, split
+/// proportionally among however many neighbors are over-steep.
+///
+/// `delta` stays `f32` throughout, matching JS's fresh `Float32Array`
+/// each pass — a downhill neighbor cell can receive `+=` contributions
+/// from *several* different uphill cells within one pass, and JS rounds
+/// each one individually, not once at the end. An `f64` accumulator for
+/// `delta` would occasionally disagree with a genuinely multi-contributor
+/// cell — the same trap `stamp_one_crater`'s three-site `field[i]+=` and
+/// `compute_stress`'s `raw[i]+=` both needed `add_rounded`-style handling
+/// for, just with the accumulation spread across *different cells* within
+/// one pass here instead of multiple terms at *one* cell.
+pub fn erode_thermal(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f64) {
+    for _ in 0..passes {
+        let mut delta = vec![0f32; w * h];
+        for y in 0..h {
+            for x in 0..w {
+                let i = y * w + x;
+                let hh = fld[i] as f64;
+                let mut excess = 0.0f64;
+                let mut nb: Vec<(usize, f64)> = Vec::new();
+                let ne: [(i64, i64); 4] = [
+                    (x as i64 - 1, y as i64),
+                    (x as i64 + 1, y as i64),
+                    (x as i64, y as i64 - 1),
+                    (x as i64, y as i64 + 1),
+                ];
+                for &(nx, ny) in &ne {
+                    if nx < 0 || ny < 0 || nx >= w as i64 || ny >= h as i64 {
+                        continue;
+                    }
+                    let (nx, ny) = (nx as usize, ny as usize);
+                    let dh = hh - fld[ny * w + nx] as f64;
+                    if dh > talus {
+                        nb.push((ny * w + nx, dh - talus));
+                        excess += dh - talus;
+                    }
+                }
+                if excess > 0.0 {
+                    let move_amt = hh.min(excess * 0.5 * 0.25);
+                    delta[i] = (delta[i] as f64 - move_amt) as f32;
+                    for &(j, e) in &nb {
+                        delta[j] = (delta[j] as f64 + move_amt * (e / excess)) as f32;
+                    }
+                }
+            }
+        }
+        for i in 0..w * h {
+            let stored = (fld[i] as f64 + delta[i] as f64) as f32;
+            fld[i] = if (stored as f64) < 0.0 {
+                0.0
+            } else if (stored as f64) > 1.0 {
+                1.0
+            } else {
+                stored
+            };
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
