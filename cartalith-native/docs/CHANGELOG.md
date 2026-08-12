@@ -856,3 +856,64 @@ output), the piece `MVP_SCOPE.md` point 7 (erosion) was still missing.
 river network extraction (Strahler ordering, polyline tracing,
 real-km-aware channel width — the rest of `MVP_SCOPE.md` point 8); open
 which to prioritize.
+
+## Phase 1 — streamPowerKernel ported: MVP_SCOPE.md point 7 complete (2026-08-12)
+
+`cartalith-erosion::stream_power_kernel` (reference HTML lines
+4082-4194) — the third and last erosion mode `MVP_SCOPE.md` point 7
+names, and the largest single function ported in this session: priority-
+flood depression fill, multiple-flow-direction drainage area (Freeman
+1991), and implicit stream-power incision (Braun & Willett 2013) with an
+optional sediment-deposition pass.
+
+**The `MinHeap` was hand-ported field-for-field, deliberately not
+substituted for `std::collections::BinaryHeap`** — the one place in this
+whole port so far where `PROVENANCE.md`'s algorithm table names the
+*exact reason* not to take the easy crate substitute: "Priority-flood
+depression fill (Barnes-style) — hand-port, carefully. Equal-priority
+pop order decides the fill tie-break and therefore lake shape." A
+generic binary heap would very likely produce a *valid* flood-fill, just
+not the *same* one on ties — silently different lake shapes and channel
+placement. Ported the same array-backed sift-up/sift-down comparison and
+swap order line-for-line instead.
+
+Three more precision/ordering details preserved deliberately, all
+recognized from patterns this port has already established:
+- `Cc` (implicit-incision coefficient) is a `Float64Array` in JS —
+  genuinely full `f64` precision, computed once and reused across every
+  iteration, never rounded through `f32`. Kept as `Vec<f64>`, not
+  downcast.
+- `area[j]+=...` and `sed[r]+=sed[i]` are both the same multi-writer-
+  per-pass trap `erode_thermal`'s `delta[j]+=` and `compute_flow`'s
+  `acc[best]+=` already established — a single target cell can receive
+  contributions from several different source cells within one pass,
+  each JS write rounding to `f32` individually.
+- The sediment-deposition block's two conditional adjustments to
+  `fld[i]`/`sed[i]` are sequential statements, not simultaneous — the
+  second condition reads back the *already-rounded* result the first one
+  just wrote (matters when both conditions fire on the same cell in the
+  same pass).
+
+2 golden cases (default/no-deposition, and a climate-coupled config with
+deposition enabled — the more complex code path), both bit-for-bit exact
+on the first attempt despite this being the largest and most intricate
+single function ported so far. That outcome is the real payoff of the
+accumulated discipline from every earlier function in this port: read
+the JS's exact promotion/rounding/ordering rules before writing the
+Rust, not after a red test.
+
+- `cargo test -p cartalith-erosion`: 6/6 golden cases exact across the
+  crate's three suites. `cargo clippy -p cartalith-erosion
+  --all-targets`: clean.
+
+**With this, `MVP_SCOPE.md` point 7 (erosion) is complete** — droplet,
+thermal, and stream-power all ported and golden-verified. `eroFinish`'s
+tail (`isostaticRebound`, `enforceRiverChannels`, dynamic-lithology
+recompute) remains unported, but the three named erosion *mechanisms*
+are done.
+
+**Next**: river network extraction (Strahler ordering, polyline tracing,
+real-km-aware channel width — the rest of `MVP_SCOPE.md` point 8), or
+wiring `cartalith-engine`'s orchestration now that tectonics, height,
+climate, and erosion can all run as one real pipeline; open which to
+prioritize.
