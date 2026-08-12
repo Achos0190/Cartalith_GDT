@@ -5,6 +5,9 @@ version = 4
 [[package]]
 name = "cartalith-climate"
 version = "0.1.0"
+dependencies = [
+ "cartalith-terrain",
+]
 
 [[package]]
 name = "cartalith-engine"

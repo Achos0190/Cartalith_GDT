@@ -669,3 +669,52 @@ exact on the first attempt.
 **Next**: wind (`buildWind`/`simulateWeather`) and rainfall — the larger
 half of `MVP_SCOPE.md` point 6, and the point real river/lake formation
 (hydrology) will eventually depend on.
+
+## Phase 1 — wind + rainfall ported; first genuine tolerance-based golden test (2026-08-12)
+
+`cartalith-climate::simulate_weather` + `build_wind` (reference HTML
+lines 5299-5719) — the rest of `MVP_SCOPE.md` point 6. Prevailing
+latitude-band winds (band count from `circulationCells`, itself scaled by
+planet rotation/size/gravity), an optional pressure-gradient + Coriolis
+perturbation from a smoothed temperature proxy, then `simulateWeather`'s
+iterative loop: evaporate over sea, advect moisture along wind
+(semi-Lagrangian backtrace via `bilC`), precipitate on orographic lift +
+convective excess, normalized against the 82nd-percentile land rainfall.
+
+**Deferred, same pattern as every prior deferral in this port — tracked,
+not silently dropped**: ocean-current SST folding (`state.climate.currents`,
+which `MVP_SCOPE.md` explicitly names a stretch goal), terrain wind
+deflection (`buildWind`'s `opts.elev`/`deflectFlow` branch — grouped with
+ocean currents by that same `MVP_SCOPE.md` sentence, so deferred under
+the same explicit permission), and world-structure continental-interior
+dryness. `geoidField` is omitted too, matching `compute_temperature`'s
+own reasoning.
+
+**The first genuinely tolerance-based golden test in this port, not an
+exact-equality one — found by bisection, not assumed.** Two of three
+golden cases initially failed by tiny (~1e-7) amounts after the fact that
+`build_wind`'s pressure/Coriolis step calls `.hypot()`. Rather than
+assume "floating-point noise" and loosen the assertion — exactly what
+`PARITY_TESTING.md` and this port's own skill
+(`cartalith-porting-discipline`) warn against — the actual `wx`/`wy`
+output was compared **bit-for-bit** (`f32::to_bits()`) against a parallel
+Node run. They differ from JS by exactly 1 ULP at a handful of cells,
+*immediately* after `build_wind` returns, before the iteration loop's 5
+passes ever run — proving the divergence is real and located, not an
+accumulating translation bug. `Math.hypot` is one of the ECMAScript Math
+functions ECMA-262 explicitly permits engines to only
+"implementation-approximate," unlike `+`/`-`/`*`/`/`, which are exactly
+specified — so a 1-ULP disagreement between V8's and Rust's `hypot` is
+expected and unavoidable, not a defect in either. `golden_parity_weather.rs`
+now asserts within `1e-5` absolute tolerance (documented inline, ~100x
+the observed drift) — every other golden suite in this port stays exact.
+
+- `cargo test -p cartalith-climate`: 6/6 golden cases pass (3 temperature
+  exact, 3 weather within tolerance). `cargo clippy -p cartalith-climate
+  --all-targets`: clean.
+
+With temperature, wind, and rainfall all in place, `MVP_SCOPE.md` point 6
+(climate) is done for the default path. **Next**: erosion (`MVP_SCOPE.md`
+point 7) — droplet, stream-power, thermal — or wiring `cartalith-engine`'s
+orchestration now that tectonics + height + climate can run as one real
+pipeline; open which to prioritize.
