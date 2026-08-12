@@ -11,3 +11,4 @@ name = "cartalith_erosion"
 
 [dependencies]
 cartalith-rng = { path = "../cartalith-rng" }
+cartalith-terrain = { path = "../cartalith-terrain" }

@@ -309,6 +309,134 @@ pub fn strahler_from_receivers(recv: &[i32], flow: &[f32], chan: &[u8]) -> Vec<i
     order
 }
 
+/// `riverWidthScaleK()` (reference HTML lines 2731-2734): channel-width
+/// scale factor, real-km-aware like `river_coarse_ease`/`terrain_detail_k`
+/// — but on the inverse side: a wider real map does not widen the literal
+/// channel, so this divides `800/mapWidthKm` rather than multiplying, and
+/// floors at `1/TERRAIN_DETAIL_MAX_K` rather than `1`. Deliberately
+/// `map_width_km` alone, never blended with grid width, per the reference
+/// comment's own explanation (matches `riverCoarseEase`'s established
+/// reasoning). No-op (returns 1) at the literal default `mapWidthKm=800`,
+/// at any resolution.
+pub fn river_width_scale_k(map_width_km: f64) -> f64 {
+    const TERRAIN_DETAIL_MAX_K: f64 = 16.0;
+    let mwk = if map_width_km > 0.0 { map_width_km } else { 800.0 };
+    (800.0 / mwk).clamp(1.0 / TERRAIN_DETAIL_MAX_K, TERRAIN_DETAIL_MAX_K)
+}
+
+/// `traceRiverPolylines()` (reference HTML lines 4559-4575): walks each
+/// channel cell's single receiver downstream from every *source* (a
+/// channelized cell with no channelized upstream donor) until it either
+/// runs off the channel network or rejoins an already-traced trunk —
+/// sources ordered main-stems-first (descending Strahler order, stable on
+/// ties) so trunks trace as long contiguous polylines rather than being
+/// fragmented by a tributary trace claiming shared cells first.
+///
+/// Returns cell-center points (`{x: col+0.5, y: row+0.5}` in JS); this
+/// port returns the same as `(f64, f64)` tuples rather than re-threading
+/// a Godot/UI point type through a pure-Rust crate (`ARCHITECTURE.md`:
+/// only `cartalith-godot` may depend on a rendering type).
+pub fn trace_river_polylines(order: &[i16], recv: &[i32], w: usize, h: usize, min_order: i32) -> Vec<Vec<(f64, f64)>> {
+    let min_order = if min_order > 1 { min_order } else { 1 };
+    let n = w * h;
+    let mut has_up = vec![0u8; n];
+    for i in 0..n {
+        if (order[i] as i32) < min_order {
+            continue;
+        }
+        let r = recv[i];
+        if r >= 0 && (order[r as usize] as i32) >= min_order {
+            has_up[r as usize] = 1;
+        }
+    }
+    let mut sources: Vec<usize> = (0..n).filter(|&i| (order[i] as i32) >= min_order && has_up[i] == 0).collect();
+    // JS `Array#sort` is stable (ES2019); `sources` was built by iterating
+    // 0..n ascending, so this reproduces JS's ascending-index tiebreak
+    // without an explicit secondary key, same reasoning
+    // `strahler_from_receivers`'s own doc comment already applies.
+    sources.sort_by(|&a, &b| order[b].cmp(&order[a]));
+    let mut visited = vec![0u8; n];
+    let mut polys = Vec::new();
+    for &s in &sources {
+        if visited[s] != 0 {
+            continue;
+        }
+        let mut pts = Vec::new();
+        let mut cur: i64 = s as i64;
+        while cur >= 0 && (order[cur as usize] as i32) >= min_order {
+            let ci = cur as usize;
+            pts.push(((ci % w) as f64 + 0.5, (ci / w) as f64 + 0.5));
+            if visited[ci] != 0 {
+                break;
+            }
+            visited[ci] = 1;
+            cur = recv[ci] as i64;
+        }
+        if pts.len() >= 2 {
+            polys.push(pts);
+        }
+    }
+    polys
+}
+
+/// `enforceChannelDescent()` (reference HTML lines 8725-8737): walks an
+/// ordered (downstream) polyline and carves a channel whose centreline
+/// descends monotonically — cutting through any rises so the carved
+/// valley actually drains to its outlet — stamping a parabolic cross-
+/// section (floor at centre, blending to existing terrain at `half_w`)
+/// per point. Returns the carved cell indices so the caller can lock them
+/// against later deposition refill (JS: `riverMask`/`riverFloor`).
+///
+/// `drop` is the JS default `opts.drop` (`0.0006`) inlined as an explicit
+/// parameter rather than an `Option` — this port has no caller yet that
+/// needs a different value, and an unused-override knob would exist
+/// solely to mirror JS's options-object shape.
+pub fn enforce_channel_descent(
+    fld: &mut [f32],
+    w: usize,
+    h: usize,
+    pts: &[(f64, f64)],
+    sea: f64,
+    half_w: f64,
+    drop: f64,
+) -> Vec<usize> {
+    let floor_lim = sea - 0.06;
+    let mut out = Vec::new();
+    let mut prev = f64::INFINITY;
+    for (k, &(px_f, py_f)) in pts.iter().enumerate() {
+        let px = (px_f as i64).clamp(0, w as i64 - 1) as usize;
+        let py = (py_f as i64).clamp(0, h as i64 - 1) as usize;
+        // never higher than the previous (upstream) point
+        let mut floor = (fld[py * w + px] as f64).min(prev - if k > 0 { drop } else { 0.0 });
+        if floor < floor_lim {
+            floor = floor_lim;
+        }
+        prev = floor;
+        let r = half_w.ceil() as i64;
+        let x0 = (px as i64 - r).max(0) as usize;
+        let x1 = (px as i64 + r).min(w as i64 - 1) as usize;
+        let y0 = (py as i64 - r).max(0) as usize;
+        let y1 = (py as i64 + r).min(h as i64 - 1) as usize;
+        for y in y0..=y1 {
+            for x in x0..=x1 {
+                let d = (x as f64 - px as f64).hypot(y as f64 - py as f64);
+                if d > half_w {
+                    continue;
+                }
+                let t = d / half_w;
+                let i = y * w + x;
+                // parabolic: floor at centre -> terrain at edge
+                let target = floor + (fld[i] as f64 - floor) * t * t;
+                if target < fld[i] as f64 {
+                    fld[i] = target as f32;
+                    out.push(i);
+                }
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

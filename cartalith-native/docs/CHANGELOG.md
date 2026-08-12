@@ -1075,3 +1075,113 @@ point `generate()` does; or `cartalith-io` (reading a real `.zip` save
 per `SAVEFILE_COMPAT.md`, which also doubles as independent golden
 data per its own MVP entry); or basic 2D rendering in `cartalith-godot`
 now that a real field exists to draw. Open which to prioritize.
+
+## Phase 1 — `carveRiverValleys` wired: `generate_terrain` now matches a default `generate()` (2026-08-12)
+
+Closed the gap the previous entry's "Next" note named. `generate_terrain`
+now runs `carveRiverValleys()` (reference HTML lines 8761-8789) whenever
+`carve_rivers` is on (the JS default) — light discharge-weighted
+stream-power pass → isostatic rebound → river-network topology on the
+now-lightly-eroded field → vector channel carve (`enforceChannelDescent`,
+cutting through rises so every carved valley actually descends to its
+outlet) → final `flow(discharge)` + `refreshClimate()` against the carved
+field. This is the same point a fresh default `generate()` call itself
+leaves `field`/`tempField`/`rainField`/`flowField` at — not an
+approximation of it.
+
+Three new functions ported to close real, previously-unaddressed gaps:
+
+- **`isostatic_rebound`** (`cartalith-erosion`) — erosional unloading
+  returns as broad flexural uplift (England & Molnar 1990), one-sided
+  (only net removal rebounds). 2 golden cases, exact.
+- **`trace_river_polylines`** (`cartalith-hydrology`) — walks each
+  channel cell's receiver downstream from every un-donored source,
+  main-stems-first so trunks trace as long contiguous polylines rather
+  than being fragmented by a tributary claiming shared cells first.
+  1 golden case (a confluence, two headwater branches into one trunk),
+  exact.
+- **`enforce_channel_descent`** (`cartalith-hydrology`) — stamps a
+  parabolic cross-section along a polyline whose centreline is forced to
+  descend monotonically, cutting through any rises so the carved valley
+  drains to its outlet; returns the carved cells so the caller can lock
+  them. 1 golden case (a deliberate mid-path rise), exact — the "cut
+  through rises" behavior is directly visible in the fixture. Also added
+  `river_width_scale_k` (`cartalith-hydrology`, trivial) — the real-km
+  channel-width scale `MVP_SCOPE.md` point 8 names.
+
+**A real restructuring, not just an addition**: the previous entry's
+`generate_terrain` computed river-network topology (`build_channels` +
+`strahler_from_receivers`) as a standalone final step after
+`flow(discharge)`. That doesn't match `generate()`'s actual call graph —
+`buildRiverNetwork` (topology's real JS source) is *only* ever called
+from inside `carveRiverValleys`, on the field *after* the light
+stream-power pass, not on the pre-erosion field. Wiring the real carve
+step meant moving topology computation to where JS actually computes it,
+not just appending carving after the old topology call. `channels`/
+`stream_order`/`river_mask`/`river_floor` are now `Option`s on
+`WorldState`, `None` when `carve_rivers` is off — matching JS, where none
+of that data exists at all outside `carveRiverValleys`.
+
+**Also added**: `resist` to `TectonicParams` (streamParams()'s
+erodibility-resistance weight — a real `state.tect` field nothing had
+read yet) and a new `StreamParams` struct (`state.stream`'s
+uplift/k/iters/deposit/climateK — `cycles` omitted, only read by the
+manual "Stream evolve" tool, not `carveRiverValleys`).
+
+**Deliberately not reproduced in this pass** (all previously logged,
+none new): `recomputeResistanceAfterErosion` (`state.tect.dynamicLithology`
+default off), `enforceRiverChannels` (always a no-op on any *fresh*
+`generate()` — `riverMask` only ever gets populated by a prior carve or
+manual brushing, both of which start empty). River-network render/export
+helpers (`splitRiverPolylines`, `riverSinuAmp`/`riverSinuosity`,
+`buildFeatureRegistry`, `buildRiverNetwork`'s own width/intensity/depth
+stamping loop) are all render- or export-time concerns per the
+reference's own comment on `splitRiverPolylines` — `carveRiverValleys`
+computes its own simpler per-polyline half-width directly and never
+reaches that loop.
+
+**Second true end-to-end golden fixture**, extending the first
+(tectonic-substrate-through-flow(area)) all the way through the full
+carve tail: extracted `streamPowerKernel`, `isostaticRebound`, the
+channelization+Strahler topology, `traceRiverPolylines`,
+`enforceChannelDescent`, and `carveRiverValleys`'s own orchestration
+verbatim into the Node harness (`buildWind`/`simulateWeather` keep the
+same elev/currents omissions `simulate_weather`'s own golden tests
+already use, for a fair comparison of what's actually ported). 2 cases,
+asserted against `generate_terrain`'s final `field`/`temperature`/
+`rainfall`/`flow_discharge`/`river_mask`.
+
+**Tolerance, not exact equality, for this one** — unlike the first
+fixture. A pipeline chaining this many independent `Math.hypot` call
+sites (`computeStress`, `streamPowerKernel`'s D8 table,
+`enforceChannelDescent`, `buildWind`, `simulateWeather`'s advection)
+accumulates the same 1-ULP JS/Rust divergence `golden_parity_weather.rs`
+already documents from more than one site, rather than the zero or one
+site earlier, shorter fixtures hit. `river_mask` (a discrete carve
+decision) stayed *exact* in both cases despite the underlying floats
+being off by ~1e-7 — itself evidence the divergence is float noise, not
+a wrong decision.
+
+- `cargo test --workspace`: all green, including 2 new golden suites
+  (`cartalith-erosion`: 2 cases: `cartalith-hydrology`: 3 cases across
+  a new suite) and the new `cartalith-engine` end-to-end carve fixture
+  (2 cases) plus an updated smoke-test pair (one asserting
+  `carve_rivers:true` produces topology, one asserting `carve_rivers:
+  false` produces `None`). `cargo clippy --workspace --all-targets`:
+  clean.
+
+**Remaining for full `generate()` parity**: World-Structure archetypes
+(`MVP_SCOPE.md` point 5 — the continentality field + sea-level
+re-anchoring, both currently no-ops since WS defaults disabled),
+graph-driven orogeny (WS-gated, same reason), `stampVolcanoesProvinces`,
+ocean-current SST folding + terrain wind deflection, seasons
+(`computeSeasons`), dynamic lithology. All previously logged, all
+no-ops or off at the JS engine's own defaults except the three genuine
+stretch-goal deferrals (`MVP_SCOPE.md`'s own permission).
+
+**Next**: `cartalith-io` (reading a real `.zip` save per
+`SAVEFILE_COMPAT.md` — also doubles as independent golden data per its
+own MVP entry, and a real save exercises paths this port's own
+synthetic fixtures can't); basic 2D rendering in `cartalith-godot` now
+that a real, carved field exists to draw; or World-Structure archetypes
+(`MVP_SCOPE.md` point 5). Open which to prioritize.

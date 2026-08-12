@@ -661,6 +661,35 @@ pub fn stream_power_kernel(
     }
 }
 
+/// `isostaticRebound()` (reference HTML lines 4426-4432): erosional
+/// unloading returns as broad flexural uplift (England & Molnar 1990) —
+/// one-sided, only net *removal* (`pre[i] - field[i] > 0`) rebounds;
+/// tectonic uplift inside the same erosion pass never does. `pre` is the
+/// field snapshot from *before* the erosion pass that just ran (JS:
+/// `field.slice()`, taken by the caller); `field` is mutated in place.
+/// No-op (JS: early `return`) when nothing eroded net-downward anywhere.
+pub fn isostatic_rebound(field: &mut [f32], pre: &[f32], gw: usize, gh: usize, blur_r: f64, world: bool) {
+    let n = gw * gh;
+    let mut d = vec![0f32; n];
+    let mut any = false;
+    for i in 0..n {
+        let e = pre[i] - field[i];
+        if e > 0.0 {
+            d[i] = e;
+            any = true;
+        }
+    }
+    if !any {
+        return;
+    }
+    // only long-wavelength unloading rebounds
+    let b = cartalith_terrain::gauss_blur(&d, blur_r.max(8.0), gw, gh, world);
+    for i in 0..n {
+        let v = field[i] as f64 + 0.8 * b[i] as f64;
+        field[i] = v.clamp(0.0, 1.0) as f32;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

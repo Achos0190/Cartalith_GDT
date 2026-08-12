@@ -1,14 +1,14 @@
 //! orchestrator: owns WorldState, runs the pipeline stages in order
 //!
-//! `generate_terrain()` (reference HTML `generate()`, lines 3339-3391, and its
-//! `buildTectonicSubstrate` prefix, lines 3396-3462) — the sync, no-worker-pool
-//! path specifically, since this port has no browser worker pool
-//! (`ARCHITECTURE.md`, threading: Rust's equivalent is `rayon`, not ported yet
-//! for this stage). Runs every already-ported subsystem in the JS engine's own
-//! order, from a seed through to river-network *topology* (channelization +
-//! Strahler ordering) — stopping short of `carveRiverValleys()`'s tail, which
-//! needs river polyline tracing and channel width/depth stamping this port
-//! hasn't ported yet (`cartalith-hydrology`'s own doc comment on `build_channels`).
+//! `generate_terrain()` (reference HTML `generate()`, lines 3339-3391, its
+//! `buildTectonicSubstrate` prefix at lines 3396-3462, and — when
+//! `carve_rivers` is on, the JS default — `carveRiverValleys()` at lines
+//! 8761-8789) — the sync, no-worker-pool path specifically, since this port
+//! has no browser worker pool (`ARCHITECTURE.md`, threading: Rust's
+//! equivalent is `rayon`, not ported yet for this stage). Runs every
+//! already-ported subsystem in the JS engine's own order, from a seed all
+//! the way through carved river valleys — the same point a fresh default
+//! `generate()` call leaves `field`/`tempField`/`rainField`/`flowField` at.
 //!
 //! ## What this deliberately does NOT reproduce, and why
 //!
@@ -32,26 +32,53 @@
 //!   goal and grants permission to defer it if documented — taken here despite
 //!   the JS default being *on*, consistent with `simulate_weather`'s own
 //!   already-documented deferral of the same mechanism.
-//! - **`carveRiverValleys()`** (default `state.carveRivers = true`): needs
-//!   `buildRiverNetwork`'s width/polyline half and `enforceChannelDescent`,
-//!   neither ported yet. This function's output ends at the same point
-//!   `computeFlow(true)` reaches in `generate()`, one step before it.
+//! - **Dynamic lithology** (`state.tect.dynamicLithology`, default `false`):
+//!   `recomputeResistanceAfterErosion` is gated on this flag in JS and stays
+//!   off at the default, so it's simply never called here.
+//! - **`enforceRiverChannels()`**: a no-op on any *fresh* `generate()` —
+//!   `riverMask` only ever gets cells locked by a PRIOR `carveRiverValleys`
+//!   call (or manual river brushing, which this port doesn't have), and
+//!   both start empty on a fresh world. `generate_terrain` always runs
+//!   fresh, so this call is always a no-op here and is omitted rather than
+//!   ported as dead code.
+//! - **River-network render/export helpers** (`splitRiverPolylines`,
+//!   `riverSinuAmp`/`riverSinuosity`, `buildFeatureRegistry`,
+//!   `buildRiverNetwork`'s own width/intensity/depth "cells" stamping
+//!   loop): all render- or export-time concerns, not part of the
+//!   generate()/carve pipeline — `carveRiverValleys` computes its own,
+//!   simpler per-polyline half-width directly rather than reusing that
+//!   loop's per-cell output (reference HTML's own comment on
+//!   `splitRiverPolylines`: "Applied at the render/export sites ONLY;
+//!   traceRiverPolylines itself is untouched so the generate()/carve
+//!   pipeline stays bit-identical").
 
 use cartalith_climate::{apply_climate_moisture_correctors, compute_temperature, simulate_weather, ClimateParams, WeatherParams};
-use cartalith_hydrology::{build_channels, compute_flow, strahler_from_receivers, ChannelResult};
+use cartalith_erosion::{isostatic_rebound, stream_power_kernel, StreamPowerParams};
+use cartalith_hydrology::{
+    build_channels, compute_flow, enforce_channel_descent, river_width_scale_k, strahler_from_receivers,
+    trace_river_polylines, ChannelResult,
+};
 use cartalith_terrain::{
     assign_plates, build_age_field, build_plates, compute_flexure, compute_height, compute_heterogeneity,
     compute_resistance, compute_stress, compute_warp, gauss_blur, normalize_field, stamp_craters,
     stamp_volcanoes_simple, HeightParams,
 };
 
+/// Mirrors JS `Math.round` (ties toward `+Infinity`) — same trap
+/// `cartalith-terrain::js_round`/`cartalith-climate::js_round` exist for;
+/// duplicated here rather than adding a dependency purely for one line,
+/// matching those crates' own precedent.
+fn js_round(x: f64) -> f64 {
+    (x + 0.5).floor()
+}
+
 /// `state.tect` (reference HTML line 2264-2265) — the formula's real tuning
-/// knobs. `resist` (used only by `streamParams()`'s stream-power tail, not
-/// yet wired) and `tectonic_graph`/`fold_intensity`/`trench_depth`/
-/// `fault_block`/`dynamic_lithology` (all World-Structure-gated, and WS
-/// stays off in this pipeline — see the module doc comment) are omitted:
-/// they're real `state.tect` fields, but nothing this function calls reads
-/// them yet.
+/// knobs, plus `resist` (`streamParams()`'s erodibility-resistance weight,
+/// now read by `carveRiverValleys`'s light stream-power pass). The
+/// World-Structure-gated fields (`tectonicGraph`/`foldIntensity`/
+/// `trenchDepth`/`faultBlock`/`dynamicLithology`) stay omitted — WS stays
+/// off in this pipeline (see the module doc comment), so nothing here
+/// reads them.
 pub struct TectonicParams {
     pub seed: i32,
     pub plates: usize,
@@ -65,6 +92,7 @@ pub struct TectonicParams {
     pub lloyd: usize,
     pub flexure: f64,
     pub hetero: f64,
+    pub resist: f64,
 }
 
 /// `state.volc` (reference HTML line 2266) minus `provinces` — see the
@@ -116,10 +144,25 @@ pub struct ClimateInputParams {
     pub w_iters: i32,
 }
 
+/// `state.stream` (reference HTML line 2269) fields `carveRiverValleys`'s
+/// light stream-power pass reads via `streamParams()`. `cycles` is omitted
+/// — only read by `evolveCoupled()`, the manual "Stream evolve" tool, not
+/// `carveRiverValleys`.
+pub struct StreamParams {
+    pub uplift: f64,
+    pub k: f64,
+    pub iters: i32,
+    pub deposit: f64,
+    pub climate_k: f64,
+}
+
 /// Everything `generate_terrain` needs from `state` — one struct per
-/// `state` sub-object (`tect`/`volc`/`crater`/`planet`/`climate`), plus the
-/// handful of top-level fields (`world`/`seaLevel`/`peakM`/`mapWidthKm`)
-/// every stage reads directly.
+/// `state` sub-object (`tect`/`volc`/`crater`/`planet`/`climate`/`stream`),
+/// plus the handful of top-level fields (`world`/`seaLevel`/`peakM`/
+/// `mapWidthKm`/`carveRivers`) every stage reads directly. `river_density`
+/// is `state.viz.riverDensity` — grouped at the top level since `viz` is
+/// otherwise a render-only settings bag this crate has no other reason to
+/// model.
 pub struct WorldParams {
     pub gw: usize,
     pub gh: usize,
@@ -127,11 +170,14 @@ pub struct WorldParams {
     pub sea_level: f64,
     pub peak_m: f64,
     pub map_width_km: f64,
+    pub carve_rivers: bool,
+    pub river_density: f64,
     pub tect: TectonicParams,
     pub volc: VolcanismParams,
     pub crater: CraterParams,
     pub planet: PlanetParams,
     pub climate: ClimateInputParams,
+    pub stream: StreamParams,
 }
 
 impl WorldParams {
@@ -148,6 +194,8 @@ impl WorldParams {
             sea_level: 0.42,
             peak_m: 4000.0,
             map_width_km: 800.0,
+            carve_rivers: true,
+            river_density: 1.0,
             tect: TectonicParams {
                 seed,
                 plates: 14,
@@ -161,6 +209,7 @@ impl WorldParams {
                 lloyd: 2,
                 flexure: 0.20,
                 hetero: 0.08,
+                resist: 0.50,
             },
             volc: VolcanismParams { count: 20, age: 0.40 },
             crater: CraterParams { count: 100, age: 0.50 },
@@ -184,16 +233,23 @@ impl WorldParams {
                 bulk_evap: true,
                 w_iters: 70,
             },
+            stream: StreamParams { uplift: 0.0, k: 0.012, iters: 15, deposit: 0.3, climate_k: 0.5 },
         }
     }
 }
 
 /// Everything `generate_terrain` produces — the Rust equivalent of the JS
 /// module globals `field`/`plateId`/`boundaryMask`/.../`flowField`/
-/// `tempField`/`rainField` a fresh `generate()` call leaves behind, as they
-/// stand right after `computeFlow(true)` (reference HTML line 3387) —
-/// `carveRiverValleys()`'s tail runs after that point and isn't included
-/// (see the module doc comment).
+/// `tempField`/`rainField`/`riverMask`/`riverFloor` a fresh `generate()`
+/// call leaves behind. `channels`/`stream_order`/`river_mask`/
+/// `river_floor` are `None` when `carve_rivers` is off — matching JS,
+/// where `buildRiverNetwork` (and therefore any channel topology at all)
+/// is never called anywhere in a default sync `generate()` except from
+/// inside `carveRiverValleys`. `field`/`temperature`/`rainfall`/
+/// `flow_discharge` reflect the state right after `carveRiverValleys`
+/// when it ran, or right after the pre-carve `computeFlow(true)`/
+/// `refreshClimate()` when it didn't — either way, the same fields
+/// `generate()` itself leaves as current.
 pub struct WorldState {
     pub field: Vec<f32>,
     pub plate_id: Vec<usize>,
@@ -209,13 +265,16 @@ pub struct WorldState {
     pub rainfall: Vec<f32>,
     pub flow_area: Vec<f32>,
     pub flow_discharge: Vec<f32>,
-    pub channels: ChannelResult,
-    pub stream_order: Vec<i16>,
+    pub channels: Option<ChannelResult>,
+    pub stream_order: Option<Vec<i16>>,
+    pub river_mask: Option<Vec<u8>>,
+    pub river_floor: Option<Vec<f32>>,
 }
 
-/// Runs the full ported pipeline once, from a seed to river-network
-/// topology. See the module doc comment for the exact JS function this
-/// mirrors and what's deliberately not reproduced yet.
+/// Runs the full ported pipeline once, from a seed to (when
+/// `p.carve_rivers`, the JS default) carved river valleys. See the module
+/// doc comment for the exact JS functions this mirrors and what's
+/// deliberately not reproduced yet.
 pub fn generate_terrain(p: &WorldParams) -> WorldState {
     let gw = p.gw;
     let gh = p.gh;
@@ -327,7 +386,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         peak_m: p.peak_m,
         albedo_k: p.climate.albedo_k,
     };
-    let temperature = compute_temperature(gw, gh, &field, None, &climate_params);
+    let mut temperature = compute_temperature(gw, gh, &field, None, &climate_params);
 
     let weather_params = WeatherParams {
         world,
@@ -372,12 +431,87 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
     // applyOceanCurrents()/computeSeasons(): deferred -- see the module
     // doc comment ("Ocean-current SST folding").
 
-    let flow_discharge = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
+    let mut flow_discharge = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
 
-    // ---- river network topology (cartalith-hydrology's own scope note on
-    // build_channels: not the whole of buildRiverNetwork) ----
-    let channels = build_channels(&field, &flow_discharge, gw, gh, p.sea_level, world, 1.0, p.map_width_km);
-    let stream_order = strahler_from_receivers(&channels.recv, &flow_discharge, &channels.chan);
+    let mut channels = None;
+    let mut stream_order = None;
+    let mut river_mask = None;
+    let mut river_floor = None;
+
+    if p.carve_rivers {
+        // ---- carveRiverValleys (reference HTML lines 8761-8789) ----
+        // (1) light physical erosion pass -- natural, discharge-weighted
+        // valley networks. `rainfall` here is still the PRE-carve field
+        // JS computed above; refreshClimate() doesn't run again until
+        // step (3), exactly matching the reference's own read order.
+        let pre = field.clone();
+        let light_iters = (js_round(p.stream.iters as f64 * 0.6) as i32).max(4);
+        let stream_params = StreamPowerParams {
+            k: p.stream.k,
+            uplift: p.stream.uplift,
+            deposit: p.stream.deposit,
+            climate_k: p.stream.climate_k,
+            iters: light_iters,
+            resist: p.tect.resist,
+            g: p.planet.g,
+            world,
+            sea: p.sea_level,
+        };
+        stream_power_kernel(&mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &stream_params);
+        isostatic_rebound(&mut field, &pre, gw, gh, p.tect.blur_r, world);
+        // recomputeResistanceAfterErosion(): dynamicLithology stays off in
+        // this pipeline -- see the module doc comment.
+        // enforceRiverChannels(): always a no-op here -- see the module
+        // doc comment.
+        let flow_for_network = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
+
+        // (2) vector network -> distance-field channel carve + lock
+        let ch = build_channels(&field, &flow_for_network, gw, gh, p.sea_level, world, p.river_density, p.map_width_km);
+        let order = strahler_from_receivers(&ch.recv, &flow_for_network, &ch.chan);
+        let polys = trace_river_polylines(&order, &ch.recv, gw, gh, 1);
+
+        let width_k = river_width_scale_k(p.map_width_km);
+        let half_w_cap = 4.0 * width_k;
+        let mut rmask = vec![0u8; gw * gh];
+        let mut rfloor = vec![0f32; gw * gh];
+        for poly in &polys {
+            let &(lx, ly) = poly.last().expect("trace_river_polylines only returns polylines with >=2 points");
+            let li = ((ly as i64) * gw as i64 + lx as i64).clamp(0, (gw * gh) as i64 - 1) as usize;
+            let o_raw = order[li];
+            let o = if o_raw != 0 { o_raw as f64 } else { 1.0 };
+            let mut half_w = (0.8 + 0.5 * (o - 1.0)) * width_k;
+            if half_w > half_w_cap {
+                half_w = half_w_cap;
+            }
+            let carved = enforce_channel_descent(&mut field, gw, gh, poly, p.sea_level, half_w, 0.0006);
+            for i in carved {
+                rmask[i] = 1;
+                rfloor[i] = field[i];
+            }
+        }
+
+        // (3) recompute so overlay + rainfall reflect the carved valleys
+        flow_discharge = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
+        temperature = compute_temperature(gw, gh, &field, None, &climate_params);
+        rainfall = simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params);
+        apply_climate_moisture_correctors(
+            gw,
+            gh,
+            &field,
+            &flow_discharge,
+            &mut rainfall,
+            p.sea_level,
+            world,
+            p.climate.lat_n,
+            p.climate.lat_s,
+            p.climate.zonal_k,
+        );
+
+        channels = Some(ch);
+        stream_order = Some(order);
+        river_mask = Some(rmask);
+        river_floor = Some(rfloor);
+    }
 
     WorldState {
         field,
@@ -396,6 +530,8 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         flow_discharge,
         channels,
         stream_order,
+        river_mask,
+        river_floor,
     }
 }
 
@@ -414,5 +550,19 @@ mod tests {
         assert_eq!(ws.flow_discharge.len(), n);
         assert!(ws.field.iter().all(|&v| (0.0..=1.0).contains(&v)));
         assert!(ws.rainfall.iter().all(|&v| (0.0..=1.0).contains(&v)));
+        // carve_rivers defaults true -- channel topology should be present.
+        assert!(ws.channels.is_some());
+        assert!(ws.stream_order.is_some());
+    }
+
+    #[test]
+    fn generate_terrain_without_carve_matches_pre_carve_shape() {
+        let mut p = WorldParams::defaults(20, 14, 555);
+        p.carve_rivers = false;
+        let ws = generate_terrain(&p);
+        assert!(ws.channels.is_none());
+        assert!(ws.stream_order.is_none());
+        assert!(ws.river_mask.is_none());
+        assert!(ws.river_floor.is_none());
     }
 }
