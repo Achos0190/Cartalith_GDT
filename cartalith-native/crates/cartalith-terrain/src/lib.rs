@@ -2,7 +2,7 @@
 //!
 //! Ported in pipeline order starting Phase 1 (MVP_SCOPE.md).
 
-use cartalith_noise::{fbm, pfbm, pridged, ridged};
+use cartalith_noise::{fbm, pfbm, pridged, pvnoise, ridged, vnoise};
 use cartalith_rng::Mulberry32;
 
 /// Mirrors JS `Math.round`: ties round toward `+Infinity`, unlike Rust's
@@ -100,6 +100,191 @@ pub struct Plate {
 pub struct WorldStructure<'a> {
     pub ocean_depth: f64,
     pub continental_field: &'a [f32],
+}
+
+/// Bilinear sample on a coarse `ww`×`wh` grid, with optional x-wrap —
+/// `bilC()` (reference HTML line 5537). Duplicated locally rather than
+/// shared with `cartalith-climate`'s own private `bil_c` (same reasoning
+/// as `js_round`'s per-crate duplication elsewhere in this port): one
+/// line's worth of dependency isn't worth a shared crate for.
+fn bil_c(a: &[f32], fx: f64, fy: f64, ww: usize, wh: usize, wrap_x: bool) -> f64 {
+    let fx = if wrap_x {
+        ((fx % ww as f64) + ww as f64) % ww as f64
+    } else {
+        fx.clamp(0.0, ww as f64 - 1.0)
+    };
+    let fy = fy.clamp(0.0, wh as f64 - 1.0);
+    let x0 = fx as i64;
+    let y0 = fy as i64;
+    let x1 = if x0 + 1 >= ww as i64 {
+        if wrap_x { 0 } else { ww as i64 - 1 }
+    } else {
+        x0 + 1
+    };
+    let y1 = (y0 + 1).min(wh as i64 - 1);
+    let tx = fx - x0 as f64;
+    let ty = fy - y0 as f64;
+    let (x0, x1, y0, y1) = (x0 as usize, x1 as usize, y0 as usize, y1 as usize);
+    let top = a[y0 * ww + x0] as f64 * (1.0 - tx) + a[y0 * ww + x1] as f64 * tx;
+    let bot = a[y1 * ww + x0] as f64 * (1.0 - tx) + a[y1 * ww + x1] as f64 * tx;
+    top * (1.0 - ty) + bot * ty
+}
+
+/// `generateContinentalityField()` (reference HTML lines 2556-2589) —
+/// World-Structure's continentality/fragmentation archetype knobs turned
+/// into the per-cell field `build_plates` reclassifies plate crust from.
+/// Caller passes `world_structure.enabled` up front; this returns `None`
+/// for that case rather than reproducing JS's `continentalField=null`
+/// module-global convention (`build_plates`'s own `Option<WorldStructure>`
+/// already models "disabled" the same way).
+///
+/// Runs on a coarse grid (`min(gw,240)` wide, matching every other
+/// coarse-grid stage in this port) then bilinear-upsamples — a smooth
+/// low-frequency field has no reason to pay full resolution. Percentile-
+/// normalized via an `O(N)` histogram (not a full sort) so exactly
+/// `continentality`'s fraction of coarse cells land above zero, then
+/// rescaled to `[-1,1]` by the larger-magnitude extreme.
+#[allow(clippy::too_many_arguments)]
+pub fn generate_continentality_field(
+    gw: usize,
+    gh: usize,
+    world: bool,
+    seed: i32,
+    continentality: f64,
+    fragmentation: f64,
+) -> Vec<f32> {
+    let cfw = gw.min(240);
+    let cfh = (js_round(cfw as f64 * gh as f64 / gw as f64) as usize).max(2);
+    let n = cfw * cfh;
+    let field_seed = seed ^ 0x00c0_ffee;
+    let freq = 0.3 + fragmentation * 2.7;
+    let p_x = (js_round(freq) as i32).max(2);
+
+    let mut raw = vec![0f32; n];
+    for y in 0..cfh {
+        for x in 0..cfw {
+            let nx = x as f64 / cfw as f64 * freq;
+            let ny = y as f64 / cfh as f64 * freq;
+            let mut vv = 0f64;
+            let mut amp = 0.5f64;
+            let mut fr = 1f64;
+            let mut nrm = 0f64;
+            for o in 0..3 {
+                let sample = if world {
+                    pvnoise(nx * fr, ny * fr, field_seed + o * 131, (p_x * (1 << o)).max(2))
+                } else {
+                    vnoise(nx * fr, ny * fr, field_seed + o * 131)
+                };
+                vv += amp * sample;
+                nrm += amp;
+                amp *= 0.5;
+                fr *= 2.0;
+            }
+            raw[y * cfw + x] = (vv / nrm) as f32;
+        }
+    }
+
+    const BINS: usize = 2000;
+    let mut hist = vec![0i32; BINS];
+    let mut hmin = f64::INFINITY;
+    let mut hmax = f64::NEG_INFINITY;
+    for &v in &raw {
+        let v = v as f64;
+        if v < hmin {
+            hmin = v;
+        }
+        if v > hmax {
+            hmax = v;
+        }
+    }
+    let h_range = if hmax - hmin != 0.0 { hmax - hmin } else { 1.0 };
+    for &v in &raw {
+        let bin = (((v as f64 - hmin) / h_range * BINS as f64) as usize).min(BINS - 1);
+        hist[bin] += 1;
+    }
+    let target = ((1.0 - continentality) * n as f64).floor() as i64;
+    let mut cum_count = 0i64;
+    let mut thresh = hmin;
+    for (b, &count) in hist.iter().enumerate() {
+        cum_count += count as i64;
+        if cum_count >= target {
+            thresh = hmin + b as f64 / BINS as f64 * h_range;
+            break;
+        }
+    }
+
+    let mut cmin = f64::INFINITY;
+    let mut cmax = f64::NEG_INFINITY;
+    for v in &mut raw {
+        let shifted = (*v as f64 - thresh) as f32;
+        *v = shifted;
+        let v = shifted as f64;
+        if v < cmin {
+            cmin = v;
+        }
+        if v > cmax {
+            cmax = v;
+        }
+    }
+    let c_range = cmin.abs().max(cmax.abs()).max(1e-6);
+    for v in &mut raw {
+        *v = (*v as f64 / c_range) as f32;
+    }
+
+    let wrap_x = world;
+    let mut continental_field = vec![0f32; gw * gh];
+    for y in 0..gh {
+        for x in 0..gw {
+            let fx = x as f64 / (gw as f64 - 1.0) * (cfw as f64 - 1.0);
+            let fy = y as f64 / (gh as f64 - 1.0) * (cfh as f64 - 1.0);
+            continental_field[y * gw + x] = bil_c(&raw, fx, fy, cfw, cfh, wrap_x) as f32;
+        }
+    }
+    continental_field
+}
+
+/// `applyWorldStructureSeaLevel()` (reference HTML lines 2603-2617): a
+/// World-Structure archetype promises a land/ocean ratio via
+/// `continentality`, but the height field's own actual distribution
+/// (reshaped independently by that archetype's `tectonicEnergy`/
+/// `oceanDepth`) won't generally cross zero at the fixed default sea
+/// level — so this re-measures the ACTUAL generated field's histogram
+/// and picks the threshold that yields exactly the promised land
+/// fraction, the same percentile technique
+/// `generate_continentality_field` already uses. Returns the new sea
+/// level; caller applies it (this crate has no `state.seaLevel` to
+/// mutate).
+pub fn apply_world_structure_sea_level(field: &[f32], continentality: f64) -> f64 {
+    let n = field.len();
+    const BINS: usize = 2000;
+    let mut hist = vec![0i32; BINS];
+    let mut hmin = f64::INFINITY;
+    let mut hmax = f64::NEG_INFINITY;
+    for &f in field {
+        let f = f as f64;
+        if f < hmin {
+            hmin = f;
+        }
+        if f > hmax {
+            hmax = f;
+        }
+    }
+    let h_range = if hmax - hmin != 0.0 { hmax - hmin } else { 1.0 };
+    for &f in field {
+        let bin = (((f as f64 - hmin) / h_range * BINS as f64) as usize).min(BINS - 1);
+        hist[bin] += 1;
+    }
+    let target = ((1.0 - continentality) * n as f64).floor() as i64;
+    let mut cum = 0i64;
+    let mut thresh = hmin;
+    for (b, &count) in hist.iter().enumerate() {
+        cum += count as i64;
+        if cum >= target {
+            thresh = hmin + b as f64 / BINS as f64 * h_range;
+            break;
+        }
+    }
+    thresh.clamp(0.05, 0.95)
 }
 
 /// `buildPlates()` (reference HTML, lines 2740-2766): seeds `n` plates at

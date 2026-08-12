@@ -10,19 +10,29 @@
 //! the way through carved river valleys — the same point a fresh default
 //! `generate()` call leaves `field`/`tempField`/`rainField`/`flowField` at.
 //!
-//! ## What this deliberately does NOT reproduce, and why
+//! ## World-Structure archetypes — ported, with one real deviation
 //!
-//! - **World-Structure archetypes** (`state.world_structure.enabled`, default
-//!   `false`): `generateContinentalityField()` and `applyWorldStructureSeaLevel()`
-//!   are both unconditional no-ops at that default (`if(!ws.enabled) return`) —
-//!   so at the JS engine's own default settings, omitting them entirely is
-//!   bit-identical, not an approximation. `MVP_SCOPE.md` point 5 (world-structure
-//!   archetypes) remains open separately.
-//! - **Graph-driven orogeny** (`state.tect.tectonicGraph`, default `false`):
-//!   only ever turns on when a World-Structure archetype is active
-//!   (`deriveFromWorldStructure()`), so it's already off in the default path
-//!   this function reproduces — `oro` is passed as `None` throughout, matching
-//!   `orogenyField`'s own default-`null` state.
+//! `state.world_structure.enabled` (default `false`, so this whole section
+//! is a no-op path at the JS engine's own defaults) now runs
+//! `generate_continentality_field`/`apply_world_structure_sea_level`
+//! (`cartalith-terrain`) and derives `tect.plates`/`tect.vel`/`volc.count`
+//! from the archetype's own params (`deriveFromWorldStructure()`, reference
+//! HTML lines 2528-2538) exactly as JS does — **except** graph-driven
+//! orogeny. JS's `deriveFromWorldStructure()` always sets
+//! `state.tect.tectonicGraph=true` alongside the plates/vel/volc.count
+//! derivation; this port has not ported `buildOrogenyField` (T2+T3 —
+//! boundary-polyline-graph-driven fold/trench/fault-block landforms), so
+//! `oro` stays `None` here even when `world_structure.enabled` is `true`.
+//! **This is a real, deliberate divergence from JS at that one setting**,
+//! not a no-op-at-defaults case like the rest of this list — a
+//! World-Structure world generated here will have the right continentality
+//! shape and land fraction (both real, verified, load-bearing effects) but
+//! the older "blob" convergent-stress uplift instead of JS's structured
+//! per-margin orogeny. Flagged here rather than silently approximated;
+//! `foldIntensity`/`trenchDepth` (JS's own orogeny-only tuning knobs) are
+//! correspondingly not modeled at all.
+//!
+//! ## What else this deliberately does NOT reproduce, and why
 //! - **`stampVolcanoesProvinces`** (`state.volc.provinces`, default `true` —
 //!   already a known, previously-logged deviation from JS's literal default,
 //!   not new to this pass): only `stampVolcanoesSimple` is ported, so this
@@ -59,9 +69,10 @@ use cartalith_hydrology::{
     trace_river_polylines, ChannelResult,
 };
 use cartalith_terrain::{
-    assign_plates, build_age_field, build_plates, compute_flexure, compute_height, compute_heterogeneity,
-    compute_resistance, compute_stress, compute_warp, gauss_blur, normalize_field, stamp_craters,
-    stamp_volcanoes_simple, HeightParams,
+    apply_world_structure_sea_level, assign_plates, build_age_field, build_plates, compute_flexure, compute_height,
+    compute_heterogeneity, compute_resistance, compute_stress, compute_warp, gauss_blur,
+    generate_continentality_field, normalize_field, stamp_craters, stamp_volcanoes_simple, HeightParams,
+    WorldStructure,
 };
 
 /// Mirrors JS `Math.round` (ties toward `+Infinity`) — same trap
@@ -156,13 +167,30 @@ pub struct StreamParams {
     pub climate_k: f64,
 }
 
+/// `state.world_structure` (reference HTML line 2263) — the five
+/// archetype knobs `ARCHETYPES`'s presets (earth/supercontinent/
+/// archipelago/volcanic/rift, reference HTML lines 2521-2526) set
+/// together. This port takes the five raw values directly rather than
+/// modeling named archetypes — a caller wanting "Archipelago" passes
+/// `ARCHETYPES.archipelago`'s own numbers. See the module doc comment
+/// for the one real deviation (`tectonicGraph`/graph-driven orogeny) this
+/// enables that this port doesn't reproduce.
+pub struct WorldStructureParams {
+    pub enabled: bool,
+    pub continentality: f64,
+    pub fragmentation: f64,
+    pub tectonic_energy: f64,
+    pub ocean_depth: f64,
+    pub hotspot_density: f64,
+}
+
 /// Everything `generate_terrain` needs from `state` — one struct per
-/// `state` sub-object (`tect`/`volc`/`crater`/`planet`/`climate`/`stream`),
-/// plus the handful of top-level fields (`world`/`seaLevel`/`peakM`/
-/// `mapWidthKm`/`carveRivers`) every stage reads directly. `river_density`
-/// is `state.viz.riverDensity` — grouped at the top level since `viz` is
-/// otherwise a render-only settings bag this crate has no other reason to
-/// model.
+/// `state` sub-object (`tect`/`volc`/`crater`/`planet`/`climate`/`stream`/
+/// `world_structure`), plus the handful of top-level fields (`world`/
+/// `seaLevel`/`peakM`/`mapWidthKm`/`carveRivers`) every stage reads
+/// directly. `river_density` is `state.viz.riverDensity` — grouped at the
+/// top level since `viz` is otherwise a render-only settings bag this
+/// crate has no other reason to model.
 pub struct WorldParams {
     pub gw: usize,
     pub gh: usize,
@@ -178,6 +206,7 @@ pub struct WorldParams {
     pub planet: PlanetParams,
     pub climate: ClimateInputParams,
     pub stream: StreamParams,
+    pub world_structure: WorldStructureParams,
 }
 
 impl WorldParams {
@@ -234,6 +263,14 @@ impl WorldParams {
                 w_iters: 70,
             },
             stream: StreamParams { uplift: 0.0, k: 0.012, iters: 15, deposit: 0.3, climate_k: 0.5 },
+            world_structure: WorldStructureParams {
+                enabled: false,
+                continentality: 0.30,
+                fragmentation: 0.50,
+                tectonic_energy: 0.60,
+                ocean_depth: 0.60,
+                hotspot_density: 0.20,
+            },
         }
     }
 }
@@ -251,6 +288,12 @@ impl WorldParams {
 /// `refreshClimate()` when it didn't — either way, the same fields
 /// `generate()` itself leaves as current.
 pub struct WorldState {
+    /// The sea level actually used for this generation — equal to
+    /// `p.sea_level` unless `world_structure.enabled` re-anchored it
+    /// (`apply_world_structure_sea_level`). Callers that classify land vs.
+    /// ocean (a renderer, a land-fraction check) must use this, not
+    /// `p.sea_level` directly.
+    pub sea_level: f64,
     pub field: Vec<f32>,
     pub plate_id: Vec<usize>,
     pub boundary_mask: Vec<u8>,
@@ -280,16 +323,50 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
     let gh = p.gh;
     let world = p.world;
 
+    // `deriveFromWorldStructure()` (reference HTML lines 2528-2538): once a
+    // World-Structure archetype is active, plates/velocity/volcano count
+    // are ALWAYS the archetype-derived values, not independently
+    // configurable -- these three overrides replace `p.tect.plates`/
+    // `p.tect.vel`/`p.volc.count` wherever WS is enabled, everywhere below.
+    let (tect_plates, tect_vel, volc_count) = if p.world_structure.enabled {
+        let ws = &p.world_structure;
+        let plates = (js_round(4.0 + ws.fragmentation * 24.0) as usize).clamp(4, 40);
+        let vel = ws.tectonic_energy * 2.0;
+        let volc_count = js_round(ws.hotspot_density * 60.0) as i32;
+        (plates, vel, volc_count)
+    } else {
+        (p.tect.plates, p.tect.vel, p.volc.count)
+    };
+
     // ---- buildTectonicSubstrate (reference HTML lines 3396-3462) ----
+    // generateContinentalityField(): a no-op (`None`) at World-Structure's
+    // default `enabled:false` -- bit-identical to omitting it entirely.
+    let continental_field = if p.world_structure.enabled {
+        Some(generate_continentality_field(
+            gw,
+            gh,
+            world,
+            p.tect.seed,
+            p.world_structure.continentality,
+            p.world_structure.fragmentation,
+        ))
+    } else {
+        None
+    };
+    let world_structure_arg = continental_field.as_ref().map(|cf| WorldStructure {
+        ocean_depth: p.world_structure.ocean_depth,
+        continental_field: cf.as_slice(),
+    });
+
     let warp = compute_warp(gw, gh, p.tect.seed, p.tect.warp, world);
     let (warp_x, warp_y) = match &warp {
         Some((wx, wy)) => (Some(wx.as_slice()), Some(wy.as_slice())),
         None => (None, None),
     };
 
-    let plates = build_plates(gw, gh, p.tect.seed as u32, p.tect.plates, p.tect.lloyd, world, None);
+    let plates = build_plates(gw, gh, p.tect.seed as u32, tect_plates, p.tect.lloyd, world, world_structure_arg);
     let plate_id = assign_plates(gw, gh, world, &plates, warp_x, warp_y);
-    let stress = compute_stress(gw, gh, world, &plate_id, &plates, p.tect.vel, p.tect.blur_r);
+    let stress = compute_stress(gw, gh, world, &plate_id, &plates, tect_vel, p.tect.blur_r);
     let flexure_field = compute_flexure(gw, gh, &stress.boundary_mask, &stress.stress_field, p.tect.blur_r, world);
 
     let base_raw: Vec<f32> = plate_id.iter().map(|&pid| plates[pid].base as f32).collect();
@@ -333,7 +410,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
     // ---- volcanism + craters (reference HTML lines 3365-3369) ----
     let mut volcanic_field = vec![0f32; gw * gh];
     let mut impact_field = vec![0f32; gw * gh];
-    if p.volc.count > 0 {
+    if volc_count > 0 {
         // stampVolcanoesSimple, not stampVolcanoesProvinces -- see the
         // module doc comment.
         stamp_volcanoes_simple(
@@ -343,7 +420,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
             p.map_width_km,
             p.peak_m,
             &stress.boundary_mask,
-            p.volc.count,
+            volc_count,
             p.volc.age,
             &mut field,
             &mut volcanic_field,
@@ -364,9 +441,18 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         *v = v.clamp(0.0, 1.0);
     }
 
-    // applyWorldStructureSeaLevel(): a no-op at World-Structure's default
-    // `enabled:false` -- see the module doc comment. `p.sea_level` is used
-    // as-is below.
+    // applyWorldStructureSeaLevel() (reference HTML lines 2603-2617): a
+    // no-op at World-Structure's default `enabled:false` -- `sea_level`
+    // stays `p.sea_level` unchanged. When enabled, re-anchors sea level
+    // against the ACTUAL generated field's histogram so the archetype's
+    // promised land fraction holds regardless of how tectonicEnergy/
+    // oceanDepth reshaped the height distribution -- everything from here
+    // down reads `sea_level`, not `p.sea_level`.
+    let sea_level = if p.world_structure.enabled {
+        apply_world_structure_sea_level(&field, p.world_structure.continentality)
+    } else {
+        p.sea_level
+    };
 
     // ---- natural order: structural drainage -> climate -> discharge-
     // weighted drainage (reference HTML lines 3382-3386) ----
@@ -382,7 +468,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         rotation_hours: p.planet.rotation_hours,
         lapse_rate: p.climate.lapse_rate,
         g: p.planet.g,
-        sea_level: p.sea_level,
+        sea_level,
         peak_m: p.peak_m,
         albedo_k: p.climate.albedo_k,
     };
@@ -397,7 +483,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         tilt_deg: p.planet.axial_tilt_deg,
         rotation_hours: p.planet.rotation_hours,
         lapse_rate: p.climate.lapse_rate,
-        sea_level: p.sea_level,
+        sea_level,
         peak_m: p.peak_m,
         wind_manual: p.climate.wind_manual,
         wind_dir_deg: p.climate.wind_dir_deg,
@@ -422,7 +508,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         &field,
         &flow_area,
         &mut rainfall,
-        p.sea_level,
+        sea_level,
         world,
         p.climate.lat_n,
         p.climate.lat_s,
@@ -455,7 +541,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
             resist: p.tect.resist,
             g: p.planet.g,
             world,
-            sea: p.sea_level,
+            sea: sea_level,
         };
         stream_power_kernel(&mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &stream_params);
         isostatic_rebound(&mut field, &pre, gw, gh, p.tect.blur_r, world);
@@ -466,7 +552,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         let flow_for_network = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
 
         // (2) vector network -> distance-field channel carve + lock
-        let ch = build_channels(&field, &flow_for_network, gw, gh, p.sea_level, world, p.river_density, p.map_width_km);
+        let ch = build_channels(&field, &flow_for_network, gw, gh, sea_level, world, p.river_density, p.map_width_km);
         let order = strahler_from_receivers(&ch.recv, &flow_for_network, &ch.chan);
         let polys = trace_river_polylines(&order, &ch.recv, gw, gh, 1);
 
@@ -483,7 +569,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
             if half_w > half_w_cap {
                 half_w = half_w_cap;
             }
-            let carved = enforce_channel_descent(&mut field, gw, gh, poly, p.sea_level, half_w, 0.0006);
+            let carved = enforce_channel_descent(&mut field, gw, gh, poly, sea_level, half_w, 0.0006);
             for i in carved {
                 rmask[i] = 1;
                 rfloor[i] = field[i];
@@ -500,7 +586,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
             &field,
             &flow_discharge,
             &mut rainfall,
-            p.sea_level,
+            sea_level,
             world,
             p.climate.lat_n,
             p.climate.lat_s,
@@ -514,6 +600,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
     }
 
     WorldState {
+        sea_level,
         field,
         plate_id,
         boundary_mask: stress.boundary_mask,
@@ -564,5 +651,49 @@ mod tests {
         assert!(ws.stream_order.is_none());
         assert!(ws.river_mask.is_none());
         assert!(ws.river_floor.is_none());
+    }
+
+    /// World-Structure is verified numerically against real JS in
+    /// `cartalith-terrain`'s own golden tests (`generate_continentality_field`/
+    /// `apply_world_structure_sea_level`); this only checks the *wiring* --
+    /// that an enabled archetype actually reaches a different, still-valid
+    /// `WorldState`, and that a low-continentality archetype (Archipelago)
+    /// produces less land than a high-continentality one (Supercontinent),
+    /// which is the whole reason `applyWorldStructureSeaLevel` exists
+    /// (`cartalith-terrain`'s own doc comment: the v1.25 bug it fixed).
+    #[test]
+    fn generate_terrain_world_structure_shapes_land_fraction() {
+        let land_fraction = |p: &WorldParams| {
+            let ws = generate_terrain(p);
+            let land = ws.field.iter().filter(|&&h| (h as f64) >= ws.sea_level).count();
+            land as f64 / ws.field.len() as f64
+        };
+
+        let mut archipelago = WorldParams::defaults(20, 16, 7);
+        archipelago.world_structure = WorldStructureParams {
+            enabled: true,
+            continentality: 0.15,
+            fragmentation: 0.90,
+            tectonic_energy: 0.80,
+            ocean_depth: 0.30,
+            hotspot_density: 0.50,
+        };
+
+        let mut supercontinent = WorldParams::defaults(20, 16, 7);
+        supercontinent.world_structure = WorldStructureParams {
+            enabled: true,
+            continentality: 0.60,
+            fragmentation: 0.10,
+            tectonic_energy: 0.50,
+            ocean_depth: 0.70,
+            hotspot_density: 0.10,
+        };
+
+        let archipelago_land = land_fraction(&archipelago);
+        let supercontinent_land = land_fraction(&supercontinent);
+        assert!(
+            archipelago_land < supercontinent_land,
+            "archipelago land {archipelago_land} should be less than supercontinent land {supercontinent_land}"
+        );
     }
 }

@@ -84,7 +84,9 @@ impl WorldGen {
         let mut p = WorldParams::defaults(gw, gh, seed);
         p.map_width_km = if width_km > 0.0 { width_km } else { 800.0 };
         let ws = generate_terrain(&p);
-        self.sea_level = p.sea_level;
+        // Not p.sea_level -- World-Structure archetypes (once exposed to
+        // this UI) re-anchor it; WorldState carries the value actually used.
+        self.sea_level = ws.sea_level;
         self.gw = gw as i32;
         self.gh = gh as i32;
         self.state = Some(ws);

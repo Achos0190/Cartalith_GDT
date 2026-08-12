@@ -1311,3 +1311,80 @@ just needing a real export; World-Structure archetypes
 (`MVP_SCOPE.md` point 5); or the owner opening the project in the
 Godot editor to close the visual-verification gap this entry flags.
 Open which to prioritize.
+
+## Phase 1 — World-Structure archetypes (2026-08-12)
+
+`MVP_SCOPE.md` point 5, the last MVP-listed subsystem with no port at
+all until now. `generate_continentality_field` and
+`apply_world_structure_sea_level` (`cartalith-terrain`, reference HTML
+lines 2556-2589 and 2603-2617) — a coarse-grid percentile-normalized
+noise field for continentality/fragmentation shape, and a histogram
+re-anchor of sea level against the *actual* generated field so an
+archetype's promised land fraction holds regardless of how its own
+`tectonicEnergy`/`oceanDepth` reshaped the height distribution
+independently (the exact v1.25 bug the reference's own comment
+describes — Archipelago/Volcanic rendering *more* land than Classic
+despite promising less). 5 golden cases (3 continentality-field
+configs, 2 sea-level re-anchors), all bit-for-bit exact on the first
+attempt. `build_plates`'s own continentality-reclassification branch
+(`WorldStructure<'a>`) was already ported in an earlier pass and just
+needed a real caller.
+
+`cartalith-engine::generate_terrain` now derives `tect.plates`/
+`tect.vel`/`volc.count` from the archetype's own params exactly as
+`deriveFromWorldStructure()` does (reference HTML lines 2528-2538)
+whenever `world_structure.enabled` — these three become **entirely
+archetype-controlled**, not independently configurable, matching JS.
+`WorldParams` takes the five raw archetype knobs directly
+(continentality/fragmentation/tectonicEnergy/oceanDepth/hotspotDensity)
+rather than modeling `ARCHETYPES`' named presets — a caller wanting
+"Archipelago" passes that preset's own numbers.
+
+**One real, deliberate deviation, not a no-op-at-defaults case like
+every other item on this port's deferred list**: JS's
+`deriveFromWorldStructure()` always sets `state.tect.tectonicGraph=true`
+alongside the plates/vel/volc.count derivation — turning on
+graph-driven orogeny (`buildOrogenyField`, T2+T3: boundary-polyline-
+graph-driven fold/trench/fault-block landforms along each margin,
+replacing the older convergent-stress "blob" uplift). This port has not
+ported `buildOrogenyField` — a large separate subsystem — so `oro`
+stays `None` even when World-Structure is enabled. A World-Structure
+world generated here gets the right continentality shape and land
+fraction (both real, verified, load-bearing effects) but the older blob
+uplift instead of JS's structured per-margin orogeny. Flagged
+explicitly in `generate_terrain`'s own doc comment, not silently
+approximated — `foldIntensity`/`trenchDepth` (orogeny-only tuning
+knobs) are correspondingly not modeled at all.
+
+Added `WorldState::sea_level` — the sea level actually used for a given
+generation, which callers that classify land vs. ocean must read
+instead of `WorldParams::sea_level` once World-Structure can move it.
+Caught this was needed while writing a wiring test that measures land
+fraction: `cartalith-godot::WorldGen` was reading `p.sea_level`
+directly (harmless today, since nothing yet exposes `world_structure`
+to the GDScript UI, but silently wrong the moment it is) — fixed to
+read `ws.sea_level` instead.
+
+A new `cartalith-engine` wiring test (not a golden-parity test — the
+underlying formulas are already verified by `cartalith-terrain`'s own
+golden suite) generates an Archipelago- and a Supercontinent-configured
+world at the same seed/grid and asserts Archipelago's land fraction is
+smaller — the actual, user-visible reason `apply_world_structure_sea_level`
+exists, per its own doc comment.
+
+- `cargo test --workspace`: all green, including 5 new
+  `cartalith-terrain` golden cases and the new `cartalith-engine`
+  wiring test. `cargo clippy --workspace --all-targets`: clean.
+
+**Remaining, all previously logged**: graph-driven orogeny (now the
+one deviation actually reachable by enabling a real feature, not just
+"off at JS's own default"), `stampVolcanoesProvinces`, ocean currents,
+terrain wind deflection, seasons, dynamic lithology — the stretch-goal
+deferrals `MVP_SCOPE.md` itself sanctions, plus the two owner-only
+items already flagged (a real `.zip` export, eyes on the Godot editor).
+
+**Next**: wire `cartalith-io::load_save` into `WorldGen`
+(`MVP_SCOPE.md`'s "done means all seven" criterion 7's other half);
+expose `world_structure` to the GDScript UI now that the engine side
+is real; or graph-driven orogeny, the largest remaining unported
+subsystem. Open which to prioritize.
