@@ -30,6 +30,9 @@ dependencies = [
 [[package]]
 name = "cartalith-hydrology"
 version = "0.1.0"
+dependencies = [
+ "cartalith-terrain",
+]
 
 [[package]]
 name = "cartalith-io"

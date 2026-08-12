@@ -917,3 +917,69 @@ real-km-aware channel width — the rest of `MVP_SCOPE.md` point 8), or
 wiring `cartalith-engine`'s orchestration now that tectonics, height,
 climate, and erosion can all run as one real pipeline; open which to
 prioritize.
+
+## Phase 1 — channelization + Strahler ordering ported (2026-08-12)
+
+`cartalith-hydrology::build_channels` + `strahler_from_receivers`
+(reference HTML lines 4454-4522), plus `river_flow_thresh` and
+`river_coarse_ease` (the latter added to `cartalith-terrain`, alongside
+its sibling `terrain_detail_k` — same "scale-invariant terrain" family,
+`docs/research/scale-invariant-terrain.md`). `MVP_SCOPE.md`'s own
+"Strahler ordering" bullet, specifically — not the whole of
+`buildRiverNetwork()`.
+
+**Scoped deliberately, not the full function**: `buildRiverNetwork()`
+also stamps channel width/depth/intensity into render-ready fields and
+(separately) traces polylines for the renderer. Neither changes network
+*topology* — which cells channelize, and the Strahler order of each —
+so this pass ported exactly what `strahler_from_receivers` needs and
+nothing past it, deferred the rest explicitly.
+
+**A real subtlety worth naming**: the single-receiver tree isn't picked
+by raw steepest-D8. Following Tarboton (1997), each channel cell
+computes a continuous gradient *aspect* (`atan2(-gy,-gx)`) and picks
+whichever of its 8 neighbors best combines downhill drop with alignment
+to that true aspect (`drop*(0.5+0.5*cos(Δθ))`), falling back to plain
+steepest-descent only when no neighbor is well-aligned. This removes the
+45°/90° staircase bias a pure-D8 tree would carry into traced polylines
+later — a real algorithmic choice in the original, not an
+implementation detail, so it needed porting exactly (the angular-
+distance wrapping via `atan2(sin(Δθ),cos(Δθ))` in particular — a common
+idiom for "shortest signed angular distance," easy to get subtly wrong
+translating between languages' `atan2` argument order, which is the same
+`(y, x)` in both JS and Rust here so no transposition risk, but worth
+flagging as the kind of detail that's easy to transpose without
+noticing).
+
+`riverFlowThresh`'s two-width-parameter shape was also worth preserving
+exactly rather than simplifying: the reference's own comment states the
+divisor terms (`terrainDetailK`/`riverCoarseEase`) must read the
+*world's* own grid width and real km extent, never the grid actually
+being classified — otherwise an LOD tile's threshold would be a tile-
+local mis-estimate rather than anchored to the real world's detail
+level. `river_flow_thresh` keeps `world_gw` and `gw` as separate
+parameters for this reason, even though they're always equal on the MVP
+path (no tiled LOD yet).
+
+3 golden cases (region, world-wrap, and a higher-density config that
+also exercises `channelThreshold`'s density-reshaping `dexp` term), all
+bit-for-bit exact on the first attempt — including the D∞-aspect
+receiver routing and the Strahler ordering's tributary-counting logic.
+
+- `cargo test -p cartalith-hydrology`: 6/6 golden cases exact across the
+  crate's two suites. `cargo clippy -p cartalith-hydrology
+  --all-targets` and `cargo clippy -p cartalith-terrain --all-targets`:
+  both clean.
+
+**Remaining in `MVP_SCOPE.md` point 8**: channel width/depth/intensity
+stamping and polyline tracing (`buildRiverNetwork`'s other half),
+`carveRiverValleys` (which actually cuts channels into the height
+field), `enforceRiverChannels`.
+
+**Next**: wiring `cartalith-engine`'s orchestration — tectonics, height,
+climate, and both erosion + channel-topology hydrology can now run as
+one real pipeline against an actual seed, which is also the natural
+point to extract a true end-to-end golden fixture from the live JS
+`generate()`, per `PARITY_TESTING.md`'s own recommended harness shape;
+or continue deeper into hydrology (width/depth stamping, valley
+carving). Open which to prioritize.

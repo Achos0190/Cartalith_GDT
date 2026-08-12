@@ -620,6 +620,22 @@ pub fn terrain_detail_k(gw: usize, map_width_km: f64) -> f64 {
     (REF_CELLKM / cell_km).clamp(1.0, TERRAIN_DETAIL_MAX_K)
 }
 
+/// `riverCoarseEase()` (reference HTML, near line 2672) —
+/// `terrainDetailK`'s sibling on the size axis rather than the
+/// resolution axis: eases the channel-initiation threshold for a
+/// region/world *larger* than the app's own 800km default (finer
+/// relief at small scale made drainage measurably sparser without this;
+/// `docs/research/scale-invariant-terrain.md`). No-op at/below 800km,
+/// same `TERRAIN_DETAIL_MAX_K` cap as `terrain_detail_k`, deliberately
+/// never blended with grid width — a first cut that did regressed this
+/// file's own low-resolution test battery, per the reference's own
+/// comment.
+pub fn river_coarse_ease(map_width_km: f64) -> f64 {
+    const TERRAIN_DETAIL_MAX_K: f64 = 16.0;
+    let mwk = if map_width_km > 0.0 { map_width_km } else { 800.0 };
+    (mwk / 800.0).clamp(1.0, TERRAIN_DETAIL_MAX_K)
+}
+
 /// `computeHeterogeneity()` + `fillHeteroRows()` + `heteroParams()`
 /// (reference HTML lines 3117-3125): low-frequency noise modulated by
 /// tectonic age — old stable cratons show more internal diversity than

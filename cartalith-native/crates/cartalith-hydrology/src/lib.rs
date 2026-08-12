@@ -108,6 +108,207 @@ pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, u
     acc
 }
 
+/// Slope-dependent multiplier on the channel-initiation threshold
+/// (reference HTML line 4549) — steep ground channelizes with less
+/// accumulated area.
+const RIVER_SLOPE_K: f64 = 8.0;
+
+/// `riverFlowThresh()` (reference HTML line 4493): the canonical
+/// channel-initiation threshold, replacing ~14 independently
+/// re-implemented copies the reference's own history found drifting.
+/// `world_gw`/`map_width_km` are the *world's own* grid width and real
+/// km extent — deliberately separate from `gw`/`gh` (the grid actually
+/// being classified), since an LOD tile's threshold must stay anchored
+/// to the real world's detail level, not a tile-local guess. For the
+/// MVP path (no tiled LOD), `world_gw` is always the same value as `gw`.
+pub fn river_flow_thresh(gw: usize, gh: usize, world_gw: usize, map_width_km: f64) -> f64 {
+    (gw * gh) as f64 * 0.0004
+        / (cartalith_terrain::terrain_detail_k(world_gw, map_width_km) * cartalith_terrain::river_coarse_ease(map_width_km))
+}
+
+/// `channelThreshold()` (reference HTML lines 4550-4554): scales the
+/// base threshold by slope (steeper ⇒ lower threshold) and by
+/// `riverDensity` (a density≠1 also re-shapes the slope response via
+/// `dexp`, not just a flat rescale).
+fn channel_threshold(base_thresh: f64, slope_n: f64, density: f64) -> f64 {
+    let density = if density > 0.0 { density } else { 1.0 };
+    let dexp = density.ln().abs();
+    (base_thresh / density) * (1.0 + RIVER_SLOPE_K * slope_n).powf(-dexp)
+}
+
+/// Output of `build_channels` — the channel mask, single-receiver tree,
+/// and slope field `buildRiverNetwork`'s channelization loop produces
+/// (reference HTML lines 4503-4522), bundled since they're computed
+/// together in one pass.
+pub struct ChannelResult {
+    pub recv: Vec<i32>,
+    pub chan: Vec<u8>,
+    pub slope: Vec<f32>,
+}
+
+/// `buildRiverNetwork()`'s channelization loop (reference HTML lines
+/// 4503-4522) — **not the whole function**. This covers the network's
+/// *topology*: which cells channelize (slope-area threshold,
+/// `channel_threshold`) and each channel cell's single downstream
+/// receiver, picked via a D∞-style continuous-aspect projection
+/// (Tarboton 1997) rather than raw steepest-D8-of-8, to avoid the
+/// 45°/90° staircase bias a pure D8 receiver tree would carry into the
+/// traced polylines. Falls back to steepest-descent when no neighbor is
+/// well-aligned with the true gradient aspect.
+///
+/// Width/depth/intensity stamping and polyline tracing (the rest of
+/// `buildRiverNetwork`) are deferred — this piece was ported first
+/// because it's what `MVP_SCOPE.md`'s own "Strahler ordering" bullet
+/// names, and because `strahler_from_receivers` needs exactly this
+/// output (`recv`/`chan`) and nothing more.
+#[allow(clippy::too_many_arguments)]
+pub fn build_channels(
+    fld: &[f32],
+    flow: &[f32],
+    w: usize,
+    h: usize,
+    sea: f64,
+    world: bool,
+    river_density: f64,
+    map_width_km: f64,
+) -> ChannelResult {
+    let wrap = world;
+    let n = w * h;
+    let thresh = river_flow_thresh(w, h, w, map_width_km);
+    let density = if river_density > 0.0 { river_density } else { 1.0 };
+
+    let mut recv = vec![-1i32; n];
+    let mut chan = vec![0u8; n];
+    let mut slope = vec![0f32; n];
+
+    let mut d8 = [0f64; 9];
+    for dy in -1i32..=1 {
+        for dx in -1i32..=1 {
+            d8[((dy + 1) * 3 + (dx + 1)) as usize] = (dx as f64).hypot(dy as f64);
+        }
+    }
+
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * w + x;
+            if (fld[i] as f64) < sea {
+                continue;
+            }
+            let xl = if wrap {
+                (x + w - 1) % w
+            } else if x > 0 {
+                x - 1
+            } else {
+                x
+            };
+            let xr = if wrap {
+                (x + 1) % w
+            } else if x < w - 1 {
+                x + 1
+            } else {
+                x
+            };
+            let gx = (fld[y * w + xr] as f64 - fld[y * w + xl] as f64) * 0.5;
+            let above = if y < h - 1 { fld[(y + 1) * w + x] as f64 } else { fld[i] as f64 };
+            let below = if y > 0 { fld[(y - 1) * w + x] as f64 } else { fld[i] as f64 };
+            let gy = (above - below) * 0.5;
+            let slope_n = gx.hypot(gy) * w as f64;
+            slope[i] = slope_n as f32;
+            if flow[i] as f64 <= channel_threshold(thresh, slope_n, density) {
+                continue;
+            }
+            chan[i] = 1;
+
+            let hh = fld[i] as f64;
+            let aspect = (-gy).atan2(-gx);
+            let mut best: i64 = -1;
+            let mut best_score = 0.0f64;
+            let mut s_best: i64 = -1;
+            let mut s_drop = 0.0f64;
+            for dy in -1i64..=1 {
+                for dx in -1i64..=1 {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    let mut nx = x as i64 + dx;
+                    let ny = y as i64 + dy;
+                    if wrap {
+                        nx = ((nx % w as i64) + w as i64) % w as i64;
+                    } else if nx < 0 || nx >= w as i64 {
+                        continue;
+                    }
+                    if ny < 0 || ny >= h as i64 {
+                        continue;
+                    }
+                    let j = ny * w as i64 + nx;
+                    let drop = (hh - fld[j as usize] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
+                    if drop <= 0.0 {
+                        continue;
+                    }
+                    if drop > s_drop {
+                        s_drop = drop;
+                        s_best = j;
+                    }
+                    let mut da = (dy as f64).atan2(dx as f64) - aspect;
+                    da = da.sin().atan2(da.cos()).abs();
+                    let score = drop * (0.5 + 0.5 * da.cos());
+                    if score > best_score {
+                        best_score = score;
+                        best = j;
+                    }
+                }
+            }
+            recv[i] = if best >= 0 { best as i32 } else { s_best as i32 };
+        }
+    }
+
+    ChannelResult { recv, chan, slope }
+}
+
+/// `strahlerFromReceivers()` (reference HTML lines 4454-4464): standard
+/// Strahler stream ordering over the single-receiver tree
+/// `build_channels` produces — a channel cell's order bumps by 1 only
+/// when *at least two* same-order tributaries converge into it, matching
+/// the classical definition.
+///
+/// Processes channel cells sorted ascending by flow (JS: `Array.sort`,
+/// stable since ES2019, so ties keep their original — ascending index —
+/// relative order; Rust's `sort_by` is also stable, and building `cells`
+/// by iterating `0..n` ascending reproduces the same starting order, so
+/// no explicit index tiebreak is needed in the comparator itself).
+pub fn strahler_from_receivers(recv: &[i32], flow: &[f32], chan: &[u8]) -> Vec<i16> {
+    let n = chan.len();
+    let mut order = vec![0i16; n];
+    let mut max_in = vec![0i16; n];
+    let mut max_cnt = vec![0i16; n];
+
+    let mut cells: Vec<usize> = (0..n).filter(|&i| chan[i] != 0).collect();
+    cells.sort_by(|&a, &b| flow[a].total_cmp(&flow[b]));
+
+    for &i in &cells {
+        let o = if max_in[i] == 0 {
+            1
+        } else if max_cnt[i] >= 2 {
+            max_in[i] + 1
+        } else {
+            max_in[i]
+        };
+        order[i] = o;
+        let r = recv[i];
+        if r >= 0 && chan[r as usize] != 0 {
+            let r = r as usize;
+            if o > max_in[r] {
+                max_in[r] = o;
+                max_cnt[r] = 1;
+            } else if o == max_in[r] {
+                max_cnt[r] += 1;
+            }
+        }
+    }
+
+    order
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
