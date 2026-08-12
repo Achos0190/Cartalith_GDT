@@ -1185,3 +1185,57 @@ own MVP entry, and a real save exercises paths this port's own
 synthetic fixtures can't); basic 2D rendering in `cartalith-godot` now
 that a real, carved field exists to draw; or World-Structure archetypes
 (`MVP_SCOPE.md` point 5). Open which to prioritize.
+
+## Phase 1 — `cartalith-io` reads a save's terrain fields (2026-08-12)
+
+`MVP_SCOPE.md` point 12: **reading only** — `load_save()` opens a
+`.zip`, pulls `params.json`'s `GW`/`GH`/`state.tect.seed`/
+`state.mapWidthKm`/`state.seaLevel`/`state.world`, and the six
+terrain-field entries `SAVEFILE_COMPAT.md`'s table names
+(`heightmap.f32`, `temperature.f32`, `rainfall.f32`,
+`volcanic_field.f32`, `impact_field.f32`, `strahler_order.bin`). Chosen
+approach 1 from `SAVEFILE_COMPAT.md`'s own two options — parse
+`params.json` as `serde_json::Value` and pull only what this port's
+pipeline reads, rather than a struct modeling the whole (large, mostly
+civ/UI) `state` object.
+
+Takes `Read + Seek` rather than a filesystem path — `zip::ZipArchive`
+accepts a `File`, an in-memory `Cursor<Vec<u8>>`, or anything else that
+implements both, so the reader isn't tied to disk I/O and is trivially
+testable in-memory.
+
+**Ignores unknown zip entries; never errors on them** — a real export
+carries far more than this reader wants (biome/lithology rasters, civ
+data, a baked atlas, `map.png`, a README), and
+`SAVEFILE_COMPAT.md` calls that out explicitly as normal, not
+corruption. Errors are typed (`LoadError`) rather than panics —
+`MissingEntry`/`MissingField` name exactly what's missing, `Zip`/`Io`/
+`Json` wrap the underlying library errors.
+
+**No real HTML-app export available to test against in this
+environment** (no browser to produce one) — `SAVEFILE_COMPAT.md` itself
+names confirming against a real export as one of the first things to
+do, and that's still genuinely unverified. Tested instead against a
+synthetic `.zip` this crate's own tests build (via the `zip` crate's
+writer, STORE method, matching pre-v1.90 saves) with the exact entry
+names/layout `SAVEFILE_COMPAT.md` documents, including a deliberately
+unknown entry to exercise the "ignore, don't error" path, and a
+missing-entry case to exercise the error path. This proves the reading
+logic itself is correct — byte layout, JSON field paths, entry
+handling — but is **not** a substitute for real-export testing, and
+is flagged as such rather than silently treated as equivalent.
+`SAVEFILE_COMPAT.md`'s own "doubles as golden data" framing for a real
+export remains unrealized until one is available.
+
+3 tests (round-trip on a region config, round-trip on a world config,
+missing-entry error path), all passing. `cargo test --workspace`:
+green. `cargo clippy --workspace --all-targets`: clean. New
+dependencies: `zip` (with `deflate`), `serde` (`derive`), `serde_json`.
+
+**Next**: a real HTML-app `.zip` export to close the verification gap
+above (owner-provided, since this environment can't produce one);
+`cartalith-godot`'s basic 2D rendering (color + hillshade) now that
+both a generated field and a loaded save's field exist to draw; or
+World-Structure archetypes (`MVP_SCOPE.md` point 5 — the one remaining
+MVP-listed subsystem with no port started at all). Open which to
+prioritize.
