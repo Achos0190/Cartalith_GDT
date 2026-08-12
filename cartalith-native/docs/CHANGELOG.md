@@ -807,3 +807,52 @@ it's naturally blocked until `cartalith-hydrology` exists — plus
 
 **Next**: `cartalith-hydrology`'s flow accumulation — both unblocks
 stream-power erosion and is `MVP_SCOPE.md` point 8 in its own right.
+
+## Phase 1 — flow accumulation ported (new cartalith-hydrology crate) (2026-08-12)
+
+`cartalith-hydrology::compute_flow` (reference HTML lines 4846-4890) —
+`MVP_SCOPE.md` point 8's first piece: D8 steepest-descent flow
+accumulation, seeded either uniformly (bare cell count) or by rainfall
+(discharge — Whipple & Tucker 1999, mean-normalized with a `0.05` floor).
+
+**A deliberate algorithm substitution, not a full port — and a
+documented one, per `PROVENANCE.md`'s own rule.** The JS original
+(`_flowRadixSortDesc`) sorts cells by a hand-rolled radix sort operating
+on IEEE-754 bit patterns re-mapped into an order-preserving `u32` key.
+Flow accumulation is downstream of the heightmap pixels
+(`PROVENANCE.md` §2's line: "hand-port anything upstream of the
+heightmap; take a crate for anything downstream of the pixels"), so only
+the *ordering guarantee* — descending height, ties broken by ascending
+original index — matters for parity, not the sort algorithm producing
+it. Replaced with `Vec::sort_by` and an explicit tie-breaking comparator,
+which is simpler and doesn't need reimplementing a bit-trick radix sort.
+
+One quirk *did* need carrying over rather than assumed away: JS
+explicitly normalizes `-0.0`'s sort key to equal `+0.0`'s
+(`if(b===0x80000000) b=0`) before building the order-preserving key.
+Rust's `f32::total_cmp` does *not* do this on its own — it defines
+`-0.0 < +0.0`, a real total ordering, just a different one than JS's
+here. `flow_cmp_desc` normalizes both operands to canonical `+0.0`
+before comparing, so a `-0.0`/`+0.0` tie still falls through to the
+index-based tiebreak exactly as it would in JS, rather than being
+silently ordered by sign.
+
+Same `acc[best]+=acc[i]` multi-writer-per-pass trap `erode_thermal`'s
+`delta[j]+=` already established the pattern for: a downhill cell can
+receive accumulated flow from several different upstream cells within
+the same pass, each rounding to `f32` individually — kept as per-write
+rounding, not an `f64` accumulator.
+
+3 golden cases (area-seeded, rain-seeded + world-wrap, rain-seeded
+region), all bit-for-bit exact on the first attempt.
+
+- `cargo test -p cartalith-hydrology`: 3/3 golden cases exact.
+  `cargo clippy -p cartalith-hydrology --all-targets`: clean.
+
+This also unblocks `streamPowerErode` (needs `computeFlow`'s discharge
+output), the piece `MVP_SCOPE.md` point 7 (erosion) was still missing.
+
+**Next**: `streamPowerKernel`/`streamPowerErode` (now unblocked), or
+river network extraction (Strahler ordering, polyline tracing,
+real-km-aware channel width — the rest of `MVP_SCOPE.md` point 8); open
+which to prioritize.
