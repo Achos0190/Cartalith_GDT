@@ -12,3 +12,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 godot = { version = "0.5.5", features = ["api-4-7"] }
+cartalith-engine = { path = "../cartalith-engine" }

@@ -1239,3 +1239,75 @@ both a generated field and a loaded save's field exist to draw; or
 World-Structure archetypes (`MVP_SCOPE.md` point 5 — the one remaining
 MVP-listed subsystem with no port started at all). Open which to
 prioritize.
+
+## Phase 1 — basic 2D rendering + minimal UI: the first visible map (2026-08-12)
+
+`MVP_SCOPE.md` points 10-11, closing `cartalith-godot`'s Phase 0
+placeholder gap. A new `WorldGen` GDExtension class
+(`ARCHITECTURE.md`'s own named API surface: "a `WorldGen` with
+`generate(seed, width_km, resolution)` and accessors returning
+fields") wraps `cartalith_engine::generate_terrain`, and a new
+`build_color_texture()` method turns the result into a Godot
+`ImageTexture` — the first point in this port where a generated world
+is actually visible, not just numerically verified.
+
+**Square grid only** (`gw == gh`, from a single `resolution` parameter)
+— the reference HTML's own aspect-from-image/`resW` handling is
+UI-layer scope this port hasn't built. `build_color_texture()`
+deliberately does not attempt colour parity with the reference
+renderer: `MVP_SCOPE.md` point 10 explicitly excludes "multi-octave
+grain, NPR styles, splat textures, or LOD pyramid," and a from-scratch
+simplified renderer (sea-level split, three-stop hypsometric land
+ramp, bathymetric water ramp, analytic hillshade from the height
+gradient, a blue tint on `carve_rivers`-produced channel cells) is
+enough to satisfy `MVP_SCOPE.md`'s own "done" checklist point 2: "land
+and water distinct, biome colouring plausible, rivers visible."
+
+Minimal UI (`main.tscn`/`main.gd`): seed/resolution/map-width `SpinBox`
+inputs, a Generate button, a `TextureRect`. `ARCHITECTURE.md`'s own
+constraint held to exactly: "Godot computes nothing beyond layout" —
+`main.gd` only reads input values and calls into `WorldGen`, no
+numeric logic of its own. The Phase 0 `WalkingSkeleton` ping UI (its
+job — proving the extension loads and survives Windows/Android export
+— already done and logged) is retired from the visible scene; the node
+itself stays instantiated so its `ready()` print remains a cheap
+"extension actually loaded" canary.
+
+**Verified headlessly, not visually** — this environment has no
+interactive display to open the Godot editor in. Confirmed instead via
+`godot --headless -s smoke_test.gd`: `WorldGen.generate()` runs the
+full pipeline, `build_color_texture()` returns a non-null texture of
+the requested size, and the rendered image — saved to a PNG and
+actually inspected — shows a plausible small landmass with distinct
+water/land colouring and visible shading, not a blank or garbage
+image. This is real evidence the rendering path works end-to-end, but
+it is **not** the same as the owner opening the project in the Godot
+editor and confirming it looks right interactively — flagged
+explicitly, matching this port's established practice for anything a
+headless session can't fully confirm (`DECISIONS.md` §5,
+`cartalith-porting-discipline`'s own "flag what can't be verified"
+rule, already applied to the Windows/Android export checks).
+`smoke_test.gd` is kept in the repo as a cheap, repeatable headless
+regression check — not a substitute for the owner's own look.
+
+- `cargo build -p cartalith-godot`: clean. `cargo test --workspace` /
+  `cargo clippy --workspace --all-targets`: unaffected, still green —
+  `cartalith-godot` has no `cargo test`-visible tests of its own (GDScript
+  isn't exercised by `cargo test`), verification is the headless Godot
+  run above.
+
+**Remaining for MVP_SCOPE.md's "done means all seven"**: criterion 7
+(open a real `.zip` and render it against the HTML app's own output for
+the same file) needs the still-missing real export (see the previous
+entry) *and* wiring `cartalith-io::load_save`'s output through
+`build_color_texture`'s same rendering path (not yet done — today's
+work only wires the `generate_terrain` path). Criteria 3/4 (Windows/
+Android, owner-run) were already confirmed in Phase 0.
+
+**Next**: wire `cartalith-io::load_save` into `WorldGen` (a second
+`load()` entry point next to `generate()`, reusing the same
+`build_color_texture()` renderer) so criterion 7 is one step away from
+just needing a real export; World-Structure archetypes
+(`MVP_SCOPE.md` point 5); or the owner opening the project in the
+Godot editor to close the visual-verification gap this entry flags.
+Open which to prioritize.

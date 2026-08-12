@@ -1,6 +1,10 @@
 ; Engine configuration file.
-; Phase 0 walking skeleton (ROADMAP.md) — no engine logic, proves the
-; gdext + Godot + Rust toolchain builds and runs on all three targets.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 

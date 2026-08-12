@@ -2,6 +2,7 @@
 /target/
 godot-project/.godot/
 godot-project/builds/
+godot-project/smoke_test_output.png
 
 # Export signing — never committed.
 *.keystore

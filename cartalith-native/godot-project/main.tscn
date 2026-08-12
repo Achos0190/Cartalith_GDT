@@ -7,23 +7,62 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 script = ExtResource("1")
 
-[node name="Triangle" type="Polygon2D" parent="."]
-polygon = PackedVector2Array(100, 50, 50, 150, 150, 150)
-color = Color(0.2, 0.6, 0.9, 1)
-
 [node name="VBox" type="VBoxContainer" parent="."]
-offset_left = 220.0
-offset_top = 50.0
-offset_right = 460.0
-offset_bottom = 150.0
+offset_left = 20.0
+offset_top = 20.0
+offset_right = 300.0
+offset_bottom = 260.0
 
-[node name="Label" type="Label" parent="VBox"]
-text = "Cartalith walking skeleton (Phase 0)"
+[node name="Title" type="Label" parent="VBox"]
+text = "Cartalith terrain generator (Phase 1 MVP)"
+autowrap_mode = 2
 
-[node name="PingButton" type="Button" parent="VBox"]
-text = "Ping Rust"
+[node name="SeedRow" type="HBoxContainer" parent="VBox"]
 
-[node name="ResultLabel" type="Label" parent="VBox"]
-text = ""
+[node name="SeedLabel" type="Label" parent="VBox/SeedRow"]
+custom_minimum_size = Vector2(120, 0)
+text = "Seed"
+
+[node name="SeedInput" type="SpinBox" parent="VBox/SeedRow"]
+min_value = 0.0
+max_value = 999999.0
+value = 12345.0
+
+[node name="ResolutionRow" type="HBoxContainer" parent="VBox"]
+
+[node name="ResolutionLabel" type="Label" parent="VBox/ResolutionRow"]
+custom_minimum_size = Vector2(120, 0)
+text = "Resolution"
+
+[node name="ResolutionInput" type="SpinBox" parent="VBox/ResolutionRow"]
+min_value = 32.0
+max_value = 512.0
+step = 32.0
+value = 128.0
+
+[node name="WidthRow" type="HBoxContainer" parent="VBox"]
+
+[node name="WidthLabel" type="Label" parent="VBox/WidthRow"]
+custom_minimum_size = Vector2(120, 0)
+text = "Map width (km)"
+
+[node name="WidthInput" type="SpinBox" parent="VBox/WidthRow"]
+min_value = 10.0
+max_value = 40000.0
+step = 10.0
+value = 800.0
+
+[node name="GenerateButton" type="Button" parent="VBox"]
+text = "Generate"
+
+[node name="StatusLabel" type="Label" parent="VBox"]
+autowrap_mode = 2
+text = "Press Generate to run the pipeline."
+
+[node name="MapView" type="TextureRect" parent="."]
+offset_left = 320.0
+offset_top = 20.0
+offset_right = 832.0
+offset_bottom = 532.0
 
 [node name="Skeleton" type="WalkingSkeleton" parent="."]
