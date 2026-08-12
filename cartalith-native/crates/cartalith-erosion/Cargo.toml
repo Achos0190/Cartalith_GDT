@@ -8,3 +8,6 @@ description = "droplet, stream-power, thermal erosion"
 
 [lib]
 name = "cartalith_erosion"
+
+[dependencies]
+cartalith-rng = { path = "../cartalith-rng" }

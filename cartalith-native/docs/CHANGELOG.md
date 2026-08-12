@@ -718,3 +718,58 @@ With temperature, wind, and rainfall all in place, `MVP_SCOPE.md` point 6
 point 7) — droplet, stream-power, thermal — or wiring `cartalith-engine`'s
 orchestration now that tectonics + height + climate can run as one real
 pipeline; open which to prioritize.
+
+## Phase 1 — droplet erosion ported (new cartalith-erosion crate) (2026-08-12)
+
+`cartalith-erosion::droplet_kernel` (reference HTML lines 3584-3616) —
+the first piece of `MVP_SCOPE.md` point 7. Particle-based hydraulic
+erosion: each droplet spawns (rain-weighted rejection sampling when
+climate coupling is on), then follows the inertia-blended downhill
+gradient for up to `max_lifetime` steps, eroding or depositing based on
+carrying capacity vs. current sediment load, gaining/losing speed via a
+simplified energy-conservation term scaled by planet gravity.
+
+The original JS is explicitly "self-contained by design" (its own
+comment: no module globals, since it's shipped to a Web Worker via
+`Function.prototype.toString()`) — which made it a clean first erosion
+stage to port, since the whole simulation genuinely is captured by one
+function's arguments, no hidden state to track down.
+
+**Two more round-then-clamp precision sites, same family as
+`cartalith-terrain`'s volcano/crater stamps** — caught by pattern-matching
+against the already-established trap, not rediscovered from scratch:
+`scrape()`'s per-cell `field[i]-=amount; if(field[i]<0)field[i]=0;`
+needed the clamp applied to the *rounded* `f32` value, not the
+pre-rounding `f64` delta (same helper pattern as `add_rounded` in
+`cartalith-terrain`, inlined here). `deposit()`, by contrast, genuinely
+has no clamping in the original — erosion's own `field[i]<0/>1` bound
+happens once, later, in `erodeFinish` (not yet ported), so `deposit`
+here correctly doesn't clamp either.
+
+Also preserved exactly: the do-while spawn-rejection loop's short-circuit
+evaluation order (`ck>0 && rng()>... && ++tries<16` — the second and
+third RNG-consuming/counting steps only happen when the earlier ones are
+true, so an early exit consumes fewer random draws, which would shift
+every subsequent droplet's entire trajectory if translated wrong).
+
+2 golden cases (climate-uncoupled and rain-coupled with rejection
+sampling active), both bit-for-bit exact on the first attempt — including
+through a `.hypot()` call (`len=Math.hypot(dx,dy)`), which didn't trigger
+the 1-ULP `Math.hypot` divergence `simulate_weather`'s golden test hit;
+worth remembering as a latent, not fully eliminated, risk if a future
+seed/config combination does hit it there.
+
+- `cargo test -p cartalith-erosion`: 2/2 golden cases exact.
+  `cargo clippy -p cartalith-erosion --all-targets`: clean.
+
+**Not yet ported**: `erodeThermal` (thermal erosion — talus-angle-driven
+diffusion), `streamPowerKernel`/`streamPowerErode` (the other named
+erosion mode, incision as a function of drainage area and slope — needs
+flow accumulation from hydrology first), `hillslopeDiffuseCPU`, and
+`isostaticRebound`/`erodeFinish`'s clamp-and-recompute tail. `droplet_kernel`
+alone is a real, usable erosion stage, not a stub — but `MVP_SCOPE.md`
+point 7 names all three (droplet, stream-power, thermal) explicitly.
+
+**Next**: thermal erosion (simpler, no flow-accumulation dependency) or
+`cartalith-hydrology`'s flow accumulation (which stream-power erosion
+needs anyway) — open which to prioritize.
