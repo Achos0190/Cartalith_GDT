@@ -12,6 +12,11 @@ dependencies = [
 [[package]]
 name = "cartalith-engine"
 version = "0.1.0"
+dependencies = [
+ "cartalith-climate",
+ "cartalith-hydrology",
+ "cartalith-terrain",
+]
 
 [[package]]
 name = "cartalith-erosion"

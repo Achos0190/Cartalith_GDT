@@ -587,6 +587,152 @@ pub fn simulate_weather(
     rain_field
 }
 
+/// `applyClimateMoistureCorrectors()` (reference HTML lines 5188-5225) —
+/// **unconditional**, unlike `applyOceanCurrents`/`computeSeasons`
+/// (both gated on `state.climate.currents`/`.seasons`, off by default and
+/// not yet ported): `refreshClimate()` always runs this after
+/// `simulateWeather()`, so it's part of the MVP's default rainfall path,
+/// not a stretch-goal deferral.
+///
+/// Three sequential, in-place corrections to `rain` (each sees the
+/// previous one's already-written values, same as JS mutating the one
+/// `rainField` array through all three passes):
+/// 1. **Coastal proximity** — blur an ocean mask on the coarse weather
+///    grid, add up to +0.38 near coastlines (wind-driven advection alone
+///    under-wets the immediate coast).
+/// 2. **River moisture corridors** — max-pool `flow_field` onto the same
+///    coarse grid (a bilinear sample alone would miss narrow single-cell
+///    rivers), blur, add up to +0.38 along them.
+/// 3. **Latitude climate zones** — sharpens the ITCZ wet belt (±15°) and
+///    subtropical dry belt (28°±13°) beyond what 2-D wind advection
+///    reaches on its own (no vertical subsidence in this model).
+///
+/// `geo_field` omitted for the same reason `compute_temperature` omits
+/// it: `state.planet.geoid.enabled` defaults `false`, where JS's
+/// `geoAt()` always returns `0` anyway.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_climate_moisture_correctors(
+    gw: usize,
+    gh: usize,
+    field: &[f32],
+    flow_field: &[f32],
+    rain: &mut [f32],
+    sea: f64,
+    world: bool,
+    lat_n: f64,
+    lat_s: f64,
+    zonal_k: f64,
+) {
+    let n = gw * gh;
+    let ww = gw.min(240);
+    let wh = (js_round(ww as f64 * gh as f64 / gw as f64) as usize).max(2);
+    let nc = ww * wh;
+    let wrap_x = world;
+
+    let field_c = |x: usize, y: usize| -> f64 {
+        sample_arr(
+            field,
+            x as f64 / (ww as f64 - 1.0) * (gw as f64 - 1.0),
+            y as f64 / (wh as f64 - 1.0) * (gh as f64 - 1.0),
+            gw,
+            gh,
+        )
+    };
+
+    // 1. coastal proximity
+    let mut c_mask = vec![0f32; nc];
+    for y in 0..wh {
+        for x in 0..ww {
+            if field_c(x, y) < sea {
+                c_mask[y * ww + x] = 1.0;
+            }
+        }
+    }
+    let c_blur = cartalith_terrain::gauss_blur(&c_mask, js_round(ww as f64 * 0.06), ww, wh, wrap_x);
+    for y in 0..gh {
+        for x in 0..gw {
+            let i = y * gw + x;
+            if (field[i] as f64) < sea {
+                continue;
+            }
+            let boost = bil_c(
+                &c_blur,
+                x as f64 / (gw as f64 - 1.0) * (ww as f64 - 1.0),
+                y as f64 / (gh as f64 - 1.0) * (wh as f64 - 1.0),
+                ww,
+                wh,
+                wrap_x,
+            ) * 0.38;
+            rain[i] = ((rain[i] as f64 + boost).min(1.0)) as f32;
+        }
+    }
+
+    // 2. river moisture corridors
+    let f_th = n as f64 * 0.0004;
+    let mut f_max = 1e-6f64;
+    for &f in flow_field {
+        if f as f64 > f_max {
+            f_max = f as f64;
+        }
+    }
+    let step = (1usize).max((gw as f64 / ww as f64).ceil() as usize);
+    let mut r_mask = vec![0f32; nc];
+    for y in 0..wh {
+        for x in 0..ww {
+            let x0 = (x as f64 / ww as f64 * (gw as f64 - 1.0)) as usize;
+            let y0 = (y as f64 / wh as f64 * (gh as f64 - 1.0)) as usize;
+            let mut mx = 0f64;
+            for dy in 0..step {
+                for dx in 0..step {
+                    let nx_ = (x0 + dx).min(gw - 1);
+                    let ny_ = (y0 + dy).min(gh - 1);
+                    let fl = flow_field[ny_ * gw + nx_] as f64;
+                    if fl > mx {
+                        mx = fl;
+                    }
+                }
+            }
+            if mx > f_th {
+                r_mask[y * ww + x] = ((mx - f_th) / (f_max * 0.04)).min(1.0) as f32;
+            }
+        }
+    }
+    let r_blur = cartalith_terrain::gauss_blur(&r_mask, js_round(ww as f64 * 0.012).max(2.0), ww, wh, false);
+    for y in 0..gh {
+        for x in 0..gw {
+            let i = y * gw + x;
+            if (field[i] as f64) < sea {
+                continue;
+            }
+            let boost = bil_c(
+                &r_blur,
+                x as f64 / (gw as f64 - 1.0) * (ww as f64 - 1.0),
+                y as f64 / (gh as f64 - 1.0) * (wh as f64 - 1.0),
+                ww,
+                wh,
+                false,
+            ) * 0.38;
+            rain[i] = ((rain[i] as f64 + boost).min(1.0)) as f32;
+        }
+    }
+
+    // 3. latitude climate zones
+    let (lat_top, lat_bot) = if world { (90.0, -90.0) } else { (lat_n, lat_s) };
+    for y in 0..gh {
+        let lat = lat_top - (lat_top - lat_bot) * y as f64 / (gh as f64 - 1.0);
+        let abs_lat = lat.abs();
+        let itcz = (1.0 - abs_lat / 15.0).max(0.0) * 0.22 * zonal_k;
+        let sub_dry = (1.0 - (abs_lat - 28.0).abs() / 13.0).max(0.0) * 0.30 * zonal_k;
+        for x in 0..gw {
+            let i = y * gw + x;
+            if (field[i] as f64) < sea {
+                continue;
+            }
+            rain[i] = ((rain[i] as f64 + itcz - sub_dry).clamp(0.0, 1.0)) as f32;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

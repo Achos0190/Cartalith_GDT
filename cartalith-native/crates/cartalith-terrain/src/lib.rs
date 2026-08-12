@@ -607,6 +607,87 @@ pub fn compute_flexure(
     broad.iter().map(|&v| (v as f64 / mx) as f32).collect()
 }
 
+/// `distanceToBoundary()` + the `ageField` normalization step that always
+/// immediately follows it in `buildTectonicSubstrate` (reference HTML
+/// lines 2860-2879 for the transform, 2779-2783 for the normalize) —
+/// bundled into one function since nothing else in the pipeline reads the
+/// raw chamfer distances, only the normalized `[0,1]` age.
+///
+/// Two-pass chamfer distance transform (forward pass top-left→bottom-right,
+/// backward pass bottom-right→top-left) from every boundary cell — `1.4142`
+/// is a literal diagonal-step cost in the original, not `2f64.sqrt()`
+/// (`1.4142135...`), and must match exactly, not just approximately.
+/// World-wrap is **not** applied here, matching the original (a margin
+/// distance that wraps around the seam is a documented gap in the JS
+/// source itself, not something this port introduces).
+pub fn build_age_field(gw: usize, gh: usize, boundary_mask: &[u8]) -> Vec<f32> {
+    const INF: f64 = 1e9;
+    // Deliberately the literal `1.4142`, not `SQRT_2` (1.41421356...) --
+    // matches the JS source's own diagonal-step constant exactly, not an
+    // "improved" more-precise approximation of root 2.
+    #[allow(clippy::approx_constant)]
+    const D2: f64 = 1.4142;
+    let n = gw * gh;
+    let mut d = vec![0f32; n];
+    for i in 0..n {
+        d[i] = if boundary_mask[i] != 0 { 0.0 } else { INF as f32 };
+    }
+    // `v` stays f64 for a whole cell's chain of `Math.min` comparisons,
+    // exactly as JS's plain (non-typed-array) `v` does — every `d[...]`
+    // read auto-promotes to f64, and only the final `d[idx]=v` rounds
+    // back to f32 once. Rounding after each `.min()` step instead
+    // (an all-f32 accumulator) diverges by up to 1 ULP on cells reached
+    // via a longer diagonal chain, since the two aren't equivalent once
+    // more than one step separates a cell from its nearest boundary.
+    for y in 0..gh {
+        let row = y * gw;
+        for x in 0..gw {
+            let idx = row + x;
+            let mut v = d[idx] as f64;
+            if x > 0 {
+                v = v.min(d[idx - 1] as f64 + 1.0);
+            }
+            if y > 0 {
+                v = v.min(d[idx - gw] as f64 + 1.0);
+            }
+            if x > 0 && y > 0 {
+                v = v.min(d[idx - gw - 1] as f64 + D2);
+            }
+            if x < gw - 1 && y > 0 {
+                v = v.min(d[idx - gw + 1] as f64 + D2);
+            }
+            d[idx] = v as f32;
+        }
+    }
+    for y in (0..gh).rev() {
+        for x in (0..gw).rev() {
+            let idx = y * gw + x;
+            let mut v = d[idx] as f64;
+            if x < gw - 1 {
+                v = v.min(d[idx + 1] as f64 + 1.0);
+            }
+            if y < gh - 1 {
+                v = v.min(d[idx + gw] as f64 + 1.0);
+            }
+            if x < gw - 1 && y < gh - 1 {
+                v = v.min(d[idx + gw + 1] as f64 + D2);
+            }
+            if x > 0 && y < gh - 1 {
+                v = v.min(d[idx + gw - 1] as f64 + D2);
+            }
+            d[idx] = v as f32;
+        }
+    }
+    let mut maxd = 1e-6f64;
+    for &v in &d {
+        let v = v as f64;
+        if v < 1e8 && v > maxd {
+            maxd = v;
+        }
+    }
+    d.iter().map(|&v| ((v as f64 / maxd).min(1.0)) as f32).collect()
+}
+
 /// `REF_CELLKM`/`TERRAIN_DETAIL_MAX_K`/`terrainDetailK()` (reference HTML,
 /// near line 2636): raises relief-noise frequency once the map's real
 /// cell size drops below the app's own literal default (800km / 2048px).

@@ -983,3 +983,95 @@ point to extract a true end-to-end golden fixture from the live JS
 `generate()`, per `PARITY_TESTING.md`'s own recommended harness shape;
 or continue deeper into hydrology (width/depth stamping, valley
 carving). Open which to prioritize.
+
+## Phase 1 — `cartalith-engine` wired, first true end-to-end fixture (2026-08-12)
+
+`generate_terrain()` (reference HTML `generate()` lines 3339-3391 + its
+`buildTectonicSubstrate` prefix, lines 3396-3462) — the sync, no-worker-
+pool path, since this port has no browser worker pool. Runs every
+already-ported subsystem in the JS engine's own order, seed through to
+river-network *topology*: warp → plates → assign → stress → flexure →
+base-blur → age → heterogeneity → resistance → height → normalize →
+volcanism/craters + clamp → flow(area) → temperature → weather →
+moisture correctors → flow(discharge) → channelize → Strahler. Stops
+one step before `carveRiverValleys()` (needs river polyline tracing +
+channel width, neither ported yet).
+
+Two gaps found and closed while wiring, both real ported functions that
+existed only as *inputs* other functions expected, never themselves
+produced:
+
+- **`build_age_field`** (`cartalith-terrain`) — `distanceToBoundary()` +
+  its immediate `ageField` normalize (ref lines 2860-2879, 2779-2783). A
+  two-pass chamfer distance transform; every prior heterogeneity/
+  resistance/height golden test had been handed a pre-made `age_field`
+  fixture, so this gap was invisible until something had to actually
+  *produce* one. First attempt used a pure-`f32` accumulator inside the
+  per-cell `min` chain and failed 5 of 80 cells by 1 ULP — the same
+  double-rounding trap `compute_stress` already has a comment for
+  (JS's `v` stays `f64` across a cell's whole chain of `Math.min`
+  comparisons; only the final `d[idx]=v` rounds once). Fixed by keeping
+  the accumulator `f64` per-cell, matching the existing pattern instead
+  of rediscovering it. 3 golden cases, exact after the fix.
+- **`apply_climate_moisture_correctors`** (`cartalith-climate`) — ref
+  lines 5188-5225. Unconditional in `refreshClimate()`, unlike
+  `applyOceanCurrents`/`computeSeasons` (both opt-in, off by default,
+  still not ported): coastal-proximity rain boost, river-corridor
+  moisture boost, ITCZ/subtropical-dry-belt sharpening — three
+  sequential in-place passes over `rainField`. 2 golden cases (region,
+  world-wrap), exact on the first attempt.
+
+**Deliberately not reproduced, and why** (full reasoning in
+`generate_terrain`'s own doc comment): World-Structure archetypes and
+graph-driven orogeny are both off at the JS engine's own defaults, so
+omitting them is bit-identical, not an approximation, at those
+defaults. `stampVolcanoesProvinces` (JS default) vs `stampVolcanoesSimple`
+(only one ported) is a previously-logged deviation, not a new one.
+Ocean-current SST folding is taken as deferred per `MVP_SCOPE.md`'s own
+stretch-goal permission, despite `state.climate.currents` defaulting
+`true` — consistent with `simulate_weather`'s pre-existing deferral of
+the same mechanism (and of `buildWind`'s terrain-deflection branch,
+which the same v1.78 comment says is "no longer a toggle" in the JS
+source, so this is a real, disclosed divergence from the literal JS
+default, not a stale toggle assumption).
+
+**First true end-to-end golden fixture**: extracted the tectonic-
+substrate-through-flow(area) segment verbatim from the reference HTML
+(no stripping needed — nothing in this segment is deferred) into a
+Node harness declaring the same module globals the JS functions
+themselves read/write, then ran `generate_terrain` against the same
+seed/grid/params and asserted exact equality on ten fields (`field`,
+`plate_id`, `boundary_mask`, `stress_field`, `flexure_field`,
+`age_field`, `heterogeneity_field`, `resistance_field`,
+`volcanic_field`, `impact_field`, `flow_area`). 2 cases (region,
+world-wrap), 24×18 and 20×14, both bit-for-bit exact. This is the
+first test in the port that exercises *wiring* — whether
+`generate_terrain` threads each subsystem's output into the next
+subsystem's input correctly — rather than any one subsystem in
+isolation; every function it calls already has its own golden test,
+but none of those catch an argument passed in the wrong order or a
+field threaded from the wrong stage.
+
+**Not re-verified end-to-end**: climate (temperature/weather/moisture
+correctors) and river-network topology past `flow(area)`. Both are
+already golden-tested in isolation by their own crates' test suites.
+Extending the end-to-end fixture through them would require hand-
+stripping `buildWind`'s terrain-deflection branch and the ocean-current
+SST fold from the JS harness copy to match this port's own documented
+deferrals of both — real transcription risk for coverage the existing
+per-function tests already provide. Flagged explicitly, not silently
+assumed.
+
+- `cargo test --workspace`: every suite green, including the new
+  `cartalith-engine` tests (1 smoke test + 2 end-to-end golden cases)
+  and the two new `cartalith-terrain`/`cartalith-climate` golden
+  suites above (3 + 2 cases). `cargo clippy --workspace --all-targets`:
+  clean.
+
+**Next**: river polyline tracing + real-km-aware channel width, then
+`carveRiverValleys`'s stream-power tail (the rest of `MVP_SCOPE.md`
+point 8) — both needed before `generate_terrain` can reach the same
+point `generate()` does; or `cartalith-io` (reading a real `.zip` save
+per `SAVEFILE_COMPAT.md`, which also doubles as independent golden
+data per its own MVP entry); or basic 2D rendering in `cartalith-godot`
+now that a real field exists to draw. Open which to prioritize.
