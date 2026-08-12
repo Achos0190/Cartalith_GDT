@@ -8,3 +8,6 @@ description = "temperature, wind, rainfall"
 
 [lib]
 name = "cartalith_climate"
+
+[dependencies]
+cartalith-terrain = { path = "../cartalith-terrain" }

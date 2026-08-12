@@ -1,10 +1,18 @@
 //! Boundary layer between Godot and the engine crates (ARCHITECTURE.md).
 //!
-//! Phase 0 walking skeleton: proves a gdext-backed class loads in the Godot
-//! editor and survives a Windows/Android export. No engine crate is wired in
-//! yet — that starts in Phase 1 (MVP_SCOPE.md).
+//! `WalkingSkeleton` is the Phase 0 proof that a gdext-backed class loads in
+//! the Godot editor and survives a Windows/Android export. `WorldGen`
+//! (below) is Phase 1's real API surface (`ARCHITECTURE.md`: "a `WorldGen`
+//! with `generate(seed, width_km, resolution)` and accessors returning
+//! fields") — the only place in this crate (and the only crate in the
+//! workspace) that touches `cartalith_engine::WorldState` and a Godot type
+//! in the same function, exactly the boundary `ARCHITECTURE.md` describes:
+//! "Rust never touches the scene tree... only `cartalith-godot` may depend
+//! on `gdext`."
 
-use godot::classes::{INode, Node};
+use cartalith_engine::{generate_terrain, WorldParams};
+use godot::classes::image::Format;
+use godot::classes::{IRefCounted, INode, Image, ImageTexture, Node, RefCounted};
 use godot::init::{ExtensionLibrary, gdextension};
 use godot::prelude::*;
 
@@ -39,4 +47,155 @@ impl WalkingSkeleton {
     fn ping(&self) -> GString {
         GString::from("cartalith-godot: pong")
     }
+}
+
+/// `MVP_SCOPE.md` points 10-11: basic 2D rendering + minimal UI. Owns the
+/// last `generate_terrain()` result; GDScript drives it via `generate()`
+/// then `build_color_texture()`. Square grid (`gw == gh`) for MVP — the
+/// reference HTML's own `resW`/aspect-from-image handling is UI-layer
+/// scope this port hasn't built yet.
+#[derive(GodotClass)]
+#[class(base=RefCounted)]
+struct WorldGen {
+    base: Base<RefCounted>,
+    state: Option<cartalith_engine::WorldState>,
+    gw: i32,
+    gh: i32,
+    sea_level: f64,
+}
+
+#[godot_api]
+impl IRefCounted for WorldGen {
+    fn init(base: Base<RefCounted>) -> Self {
+        Self { base, state: None, gw: 0, gh: 0, sea_level: 0.42 }
+    }
+}
+
+#[godot_api]
+impl WorldGen {
+    /// Runs the full ported pipeline (`cartalith_engine::generate_terrain`)
+    /// at the given seed/real-km map width/grid resolution. `resolution`
+    /// is clamped to a sane minimum (4) — a 0 or negative value from an
+    /// unset GDScript `SpinBox` should not panic the extension.
+    #[func]
+    fn generate(&mut self, seed: i32, width_km: f64, resolution: i32) {
+        let gw = resolution.max(4) as usize;
+        let gh = gw;
+        let mut p = WorldParams::defaults(gw, gh, seed);
+        p.map_width_km = if width_km > 0.0 { width_km } else { 800.0 };
+        let ws = generate_terrain(&p);
+        // Not p.sea_level -- World-Structure archetypes (once exposed to
+        // this UI) re-anchor it; WorldState carries the value actually used.
+        self.sea_level = ws.sea_level;
+        self.gw = gw as i32;
+        self.gh = gh as i32;
+        self.state = Some(ws);
+    }
+
+    #[func]
+    fn get_width(&self) -> i32 {
+        self.gw
+    }
+
+    #[func]
+    fn get_height(&self) -> i32 {
+        self.gh
+    }
+
+    /// Builds a colour + hillshade texture from the last `generate()`
+    /// result — `MVP_SCOPE.md` point 10: "colour and hillshade, enough to
+    /// verify what was generated," explicitly **not** the JS engine's full
+    /// renderer (no multi-octave grain, NPR styles, splat textures, or LOD
+    /// pyramid — none of that is MVP scope, so this doesn't reach for
+    /// pixel-for-pixel colour parity with the reference HTML's own
+    /// renderer either). Land/water split at `sea_level`, a three-stop
+    /// hypsometric ramp above it, a simple analytic hillshade from the
+    /// height gradient, and a blue tint on channelized cells when
+    /// `carve_rivers` produced topology — "land and water distinct, biome
+    /// colouring plausible, rivers visible" (`MVP_SCOPE.md`'s own "done"
+    /// checklist, point 2). Returns `None` before the first `generate()`
+    /// call.
+    #[func]
+    fn build_color_texture(&self) -> Option<Gd<ImageTexture>> {
+        let ws = self.state.as_ref()?;
+        let gw = self.gw as usize;
+        let gh = self.gh as usize;
+        let sea = self.sea_level;
+
+        let mut bytes = Vec::with_capacity(gw * gh * 3);
+        for y in 0..gh {
+            for x in 0..gw {
+                let i = y * gw + x;
+                let h = ws.field[i] as f64;
+                let (mut r, mut g, mut b) = color_for_height(h, sea);
+
+                let xl = if x > 0 { x - 1 } else { 0 };
+                let xr = if x + 1 < gw { x + 1 } else { gw - 1 };
+                let yu = if y > 0 { y - 1 } else { 0 };
+                let yd = if y + 1 < gh { y + 1 } else { gh - 1 };
+                let gx = (ws.field[y * gw + xr] as f64 - ws.field[y * gw + xl] as f64) * 0.5;
+                let gy = (ws.field[yd * gw + x] as f64 - ws.field[yu * gw + x] as f64) * 0.5;
+                let shade = hillshade(gx, gy);
+                r *= shade;
+                g *= shade;
+                b *= shade;
+
+                if let Some(channels) = &ws.channels
+                    && channels.chan[i] != 0
+                {
+                    r *= 0.5;
+                    g = (g * 0.5 + 0.3).min(1.0);
+                    b = (b * 0.5 + 0.45).min(1.0);
+                }
+
+                bytes.push((r.clamp(0.0, 1.0) * 255.0) as u8);
+                bytes.push((g.clamp(0.0, 1.0) * 255.0) as u8);
+                bytes.push((b.clamp(0.0, 1.0) * 255.0) as u8);
+            }
+        }
+
+        let packed = PackedByteArray::from(bytes);
+        let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGB8, &packed)?;
+        ImageTexture::create_from_image(&image)
+    }
+}
+
+/// Bathymetric/hypsometric tint at `[0,1]` height `h` relative to
+/// `sea_level` — a simplified stand-in for the reference HTML's own biome
+/// colouring (deliberately not attempted here, see `build_color_texture`'s
+/// doc comment).
+fn color_for_height(h: f64, sea_level: f64) -> (f64, f64, f64) {
+    if h < sea_level {
+        let depth = ((sea_level - h) / sea_level.max(1e-6)).clamp(0.0, 1.0);
+        lerp3((0.55, 0.75, 0.85), (0.02, 0.08, 0.25), depth)
+    } else {
+        let t = ((h - sea_level) / (1.0 - sea_level).max(1e-6)).clamp(0.0, 1.0);
+        if t < 0.3 {
+            lerp3((0.22, 0.42, 0.14), (0.55, 0.47, 0.28), t / 0.3)
+        } else if t < 0.7 {
+            lerp3((0.55, 0.47, 0.28), (0.5, 0.48, 0.46), (t - 0.3) / 0.4)
+        } else {
+            lerp3((0.5, 0.48, 0.46), (0.97, 0.97, 0.98), (t - 0.7) / 0.3)
+        }
+    }
+}
+
+fn lerp3(a: (f64, f64, f64), b: (f64, f64, f64), t: f64) -> (f64, f64, f64) {
+    (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t, a.2 + (b.2 - a.2) * t)
+}
+
+/// A simple analytic hillshade from the height gradient `(gx, gy)` — a
+/// synthetic normal (`z` fixed, not derived from real map-width-aware
+/// relief) lit from the upper-left, returned as a multiplicative factor
+/// clamped away from pure black/blown-out white so shaded terrain stays
+/// readable at any slope.
+fn hillshade(gx: f64, gy: f64) -> f64 {
+    let (nx, ny, nz) = (-gx, -gy, 0.15);
+    let nlen = (nx * nx + ny * ny + nz * nz).sqrt().max(1e-6);
+    let (nx, ny, nz) = (nx / nlen, ny / nlen, nz / nlen);
+    let (lx, ly, lz): (f64, f64, f64) = (0.5, 0.5, 0.7);
+    let llen = (lx * lx + ly * ly + lz * lz).sqrt();
+    let (lx, ly, lz) = (lx / llen, ly / llen, lz / llen);
+    let dot = nx * lx + ny * ly + nz * lz;
+    (0.55 + 0.55 * dot).clamp(0.35, 1.3)
 }

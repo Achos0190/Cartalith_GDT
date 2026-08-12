@@ -8,3 +8,6 @@ description = "flow accumulation, river network, channel width"
 
 [lib]
 name = "cartalith_hydrology"
+
+[dependencies]
+cartalith-terrain = { path = "../cartalith-terrain" }

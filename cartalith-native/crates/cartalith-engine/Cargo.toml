@@ -8,3 +8,9 @@ description = "orchestrator: owns WorldState, runs the pipeline stages in order"
 
 [lib]
 name = "cartalith_engine"
+
+[dependencies]
+cartalith-terrain = { path = "../cartalith-terrain" }
+cartalith-climate = { path = "../cartalith-climate" }
+cartalith-hydrology = { path = "../cartalith-hydrology" }
+cartalith-erosion = { path = "../cartalith-erosion" }
