@@ -12,6 +12,7 @@ extends Control
 @onready var dynamic_lithology_check: CheckBox = $VBox/DynamicLithologyCheck
 @onready var volc_provinces_check: CheckBox = $VBox/VolcProvincesCheck
 @onready var wind_deflection_check: CheckBox = $VBox/WindDeflectionCheck
+@onready var ocean_currents_check: CheckBox = $VBox/OceanCurrentsCheck
 @onready var generate_button: Button = $VBox/GenerateButton
 @onready var load_save_button: Button = $VBox/LoadSaveButton
 @onready var status_label: Label = $VBox/StatusLabel
@@ -48,6 +49,7 @@ func _on_generate_pressed() -> void:
 		dynamic_lithology_check.button_pressed,
 		volc_provinces_check.button_pressed,
 		wind_deflection_check.button_pressed,
+		ocean_currents_check.button_pressed,
 	)
 
 	var ok := true

@@ -520,6 +520,355 @@ fn build_wind(
     (wx, wy)
 }
 
+/// Tuning knobs `computeOceanCurrent()`'s own `opts` bag takes (reference
+/// HTML lines 5368-5369) — this port's one call site (`ocean_sst_anomaly`)
+/// passes JS's own defaults (an empty `{}` in JS resolves to
+/// `gap_k: 0.4, iterations: 20, bend_k: 0.9, western: true`).
+pub struct OceanCurrentParams {
+    pub gap_k: f64,
+    pub iterations: i32,
+    pub bend_k: f64,
+    pub western: bool,
+}
+
+/// A 2D ocean-current vector field (`u`/`v` zero on land) plus the ocean
+/// mask `computeOceanCurrent` derived it against.
+pub struct OceanCurrentResult {
+    pub u: Vec<f32>,
+    pub v: Vec<f32>,
+    pub ocean: Vec<u8>,
+}
+
+/// `computeOceanCurrent()` (reference HTML lines 5368-5462): a genuine 2D
+/// ocean-current vector field — Ekman-rotated (~25° right of wind in the
+/// N hemisphere, left in the S; Ekman 1905) from the (terrain-deflected)
+/// wind, run through `deflect_flow` again against a HARD coastline (vs.
+/// wind's soft elevation ramp), then a continental-shelf friction term
+/// (shallow water damps flow) and a western-intensification heuristic
+/// (subtropical gyres pile transport on a basin's western edge — Sverdrup
+/// 1947 / Stommel 1948). The heuristic is a distance-to-coast proxy, NOT a
+/// solved beta-plane model — disclosed, not oversold, matching the
+/// reference's own method notes. `u`/`v` are zero on land.
+#[allow(clippy::too_many_arguments)]
+pub fn compute_ocean_current(
+    wx: &[f32],
+    wy: &[f32],
+    elev_c: &[f32],
+    ww: usize,
+    wh: usize,
+    wrap_x: bool,
+    sea: f64,
+    world: bool,
+    lat_n: f64,
+    lat_s: f64,
+    p: &OceanCurrentParams,
+) -> OceanCurrentResult {
+    let lat_of = |y: usize| -> f64 {
+        if world {
+            90.0 - (y as f64 / (wh.max(1) as f64 - 1.0).max(1.0)) * 180.0
+        } else {
+            lat_n + (y as f64 / (wh.max(1) as f64 - 1.0).max(1.0)) * (lat_s - lat_n)
+        }
+    };
+    let n = ww * wh;
+    let ang = 25.0 * std::f64::consts::PI / 180.0;
+    let mut cu = vec![0f32; n];
+    let mut cv = vec![0f32; n];
+    let mut ocean = vec![0u8; n];
+    let mut block = vec![0f32; n];
+    for y in 0..wh {
+        let lat = lat_of(y);
+        let sgn = if lat >= 0.0 { 1.0 } else { -1.0 };
+        let c_a = (ang * sgn).cos();
+        let s_a = (ang * sgn).sin();
+        for x in 0..ww {
+            let i = y * ww + x;
+            let is_ocean = (elev_c[i] as f64) < sea;
+            ocean[i] = if is_ocean { 1 } else { 0 };
+            block[i] = if is_ocean { 0.0 } else { 1.0 };
+            if !is_ocean {
+                continue;
+            }
+            let ux = wx[i] as f64;
+            let uy = wy[i] as f64;
+            cu[i] = ((ux * c_a - uy * s_a) * 0.55) as f32;
+            cv[i] = ((ux * s_a + uy * c_a) * 0.55) as f32;
+        }
+    }
+
+    let deflect_params =
+        DeflectFlowParams { strength: 1.0, k1: 0.7, k2: 0.85, gap_k: p.gap_k, iterations: p.iterations, block_blur: 6 };
+    let (mut u_c, mut v_c) = deflect_flow(&cu, &cv, &block, ww, wh, wrap_x, &deflect_params);
+
+    for i in 0..n {
+        if ocean[i] == 0 {
+            u_c[i] = 0.0;
+            v_c[i] = 0.0;
+            continue;
+        }
+        let depth = sea - elev_c[i] as f64;
+        let shelf = (depth / 0.12).clamp(0.0, 1.0);
+        u_c[i] = (u_c[i] as f64 * shelf) as f32;
+        v_c[i] = (v_c[i] as f64 * shelf) as f32;
+    }
+
+    // Western-intensification heuristic: per-row west/east coast-distance
+    // scan, a speed boost on whichever side is closer to open ocean, and a
+    // poleward/equatorward bend derived from the same proximity terms.
+    if p.western {
+        let search_r = (ww as f64 * 0.28).max(10.0);
+        for y in 0..wh {
+            let row_off = y * ww;
+            let mut west_dist = vec![0f32; ww];
+            let mut acc = search_r + 1.0;
+            let passes = if wrap_x { 2 } else { 1 };
+            for _ in 0..passes {
+                #[allow(clippy::needless_range_loop)]
+                for x in 0..ww {
+                    let i = row_off + x;
+                    acc = if (elev_c[i] as f64) >= sea { 0.0 } else { (acc + 1.0).min(search_r + 1.0) };
+                    west_dist[x] = acc as f32;
+                }
+            }
+            let lat_here = lat_of(y);
+            let lat_next = lat_of((y + 1).min(wh - 1));
+            let pole_sign = if lat_next.abs() >= lat_here.abs() { 1.0 } else { -1.0 };
+            #[allow(clippy::needless_range_loop)]
+            for x in 0..ww {
+                let i = row_off + x;
+                if ocean[i] == 0 {
+                    continue;
+                }
+                let mut east_dist = search_r + 1.0;
+                let mut s = 1usize;
+                while (s as f64) <= search_r {
+                    let xx = if wrap_x { (x + s) % ww } else { x + s };
+                    if !wrap_x && xx >= ww {
+                        break;
+                    }
+                    if (elev_c[row_off + xx] as f64) >= sea {
+                        east_dist = s as f64;
+                        break;
+                    }
+                    s += 1;
+                }
+                let wd = west_dist[x] as f64;
+                if wd < east_dist {
+                    let boost =
+                        1.0 + 0.9 * (1.0 - wd / search_r).clamp(0.0, 1.0) * (east_dist / search_r).clamp(0.0, 1.0);
+                    u_c[i] = (u_c[i] as f64 * boost) as f32;
+                    v_c[i] = (v_c[i] as f64 * boost) as f32;
+                }
+                let w_bend = (1.0 - wd / search_r).clamp(0.0, 1.0) * (east_dist / search_r).clamp(0.0, 1.0);
+                let e_bend = (1.0 - east_dist / search_r).clamp(0.0, 1.0) * (wd / search_r).clamp(0.0, 1.0);
+                if w_bend > 0.0 || e_bend > 0.0 {
+                    let sp = (u_c[i] as f64).hypot(v_c[i] as f64);
+                    v_c[i] = (v_c[i] as f64 + pole_sign * p.bend_k * (w_bend - 0.45 * e_bend) * sp) as f32;
+                }
+            }
+        }
+    }
+
+    OceanCurrentResult { u: u_c, v: v_c, ocean }
+}
+
+/// `oceanSSTAnomaly()` (reference HTML lines 5246-5268): wind-driven
+/// ocean-current SST anomaly on the coarse weather grid — poleward
+/// surface currents carry warm water poleward (warm anomaly), equatorward
+/// flow brings cold upwelling (cold anomaly, Benguela/Peru → Atacama/
+/// Namib). Returned as a coarse field so `simulate_weather` can fold it
+/// into sea temperature BEFORE building winds (closing the real loop:
+/// currents → SST → pressure/evaporation → winds → rainfall) and so
+/// `apply_ocean_currents` can also use it as a post-hoc correction.
+/// `geoidField` omitted, matching `compute_temperature`'s own reasoning —
+/// `state.planet.geoid.enabled` defaults `false`.
+#[allow(clippy::too_many_arguments)]
+pub fn ocean_sst_anomaly(
+    gw: usize,
+    gh: usize,
+    field: &[f32],
+    ww: usize,
+    wh: usize,
+    wrap_x: bool,
+    step: f64,
+    sea: f64,
+    world: bool,
+    lat_n: f64,
+    lat_s: f64,
+    equator_temp: f64,
+    pole_temp: f64,
+    tilt_deg: f64,
+    rotation_hours: f64,
+    wind_manual: bool,
+    wind_dir_deg: f64,
+    press_k: f64,
+    current_k: f64,
+) -> Vec<f32> {
+    let lat_of = |y: usize| -> f64 {
+        if world {
+            90.0 - (y as f64 / (wh.max(1) as f64 - 1.0).max(1.0)) * 180.0
+        } else {
+            lat_n + (y as f64 / (wh.max(1) as f64 - 1.0).max(1.0)) * (lat_s - lat_n)
+        }
+    };
+    let nc = ww * wh;
+    let eq_eff = clim_effective_equator_temp(equator_temp, pole_temp, tilt_deg, rotation_hours);
+    let t_sea_at =
+        |lat: f64| -> f64 { pole_temp + (eq_eff - pole_temp) * (lat * std::f64::consts::PI / 180.0).cos().max(0.0) };
+
+    let mut tc = vec![0f32; nc];
+    for y in 0..wh {
+        let ts = t_sea_at(lat_of(y)) as f32;
+        for x in 0..ww {
+            tc[y * ww + x] = ts;
+        }
+    }
+
+    let mut elev_c = vec![0f32; nc];
+    for y in 0..wh {
+        for x in 0..ww {
+            let fx = x as f64 / (ww as f64 - 1.0) * (gw as f64 - 1.0);
+            let fy = y as f64 / (wh as f64 - 1.0) * (gh as f64 - 1.0);
+            elev_c[y * ww + x] = sample_arr(field, fx, fy, gw, gh) as f32;
+        }
+    }
+
+    let (wx, wy) = build_wind(
+        ww,
+        wh,
+        step,
+        Some(&tc),
+        0.0,
+        world,
+        lat_n,
+        lat_s,
+        wind_manual,
+        wind_dir_deg,
+        press_k,
+        rotation_hours,
+        Some((&elev_c, sea)),
+    );
+
+    let cur_params = OceanCurrentParams { gap_k: 0.4, iterations: 20, bend_k: 0.9, western: true };
+    let cur = compute_ocean_current(&wx, &wy, &elev_c, ww, wh, wrap_x, sea, world, lat_n, lat_s, &cur_params);
+
+    let mut sst = vec![0f32; nc];
+    for y in 0..wh {
+        let lat = lat_of(y);
+        let a_pole = lat.abs();
+        let d_warm = t_sea_at((a_pole - 12.0).max(0.0)) - t_sea_at(lat);
+        for x in 0..ww {
+            let i = y * ww + x;
+            if cur.ocean[i] == 0 {
+                sst[i] = 0.0;
+                continue;
+            }
+            let vp = if lat >= 0.0 { -(cur.v[i] as f64) } else { cur.v[i] as f64 };
+            let a = (current_k * (vp / step) * d_warm).clamp(-8.0, 8.0);
+            sst[i] = a as f32;
+        }
+    }
+
+    cartalith_terrain::gauss_blur(&sst, js_round(ww as f64 * 0.04).max(2.0), ww, wh, wrap_x)
+}
+
+/// `applyOceanCurrents()` (reference HTML lines 5270-5288): the post-hoc
+/// half of ocean-current coupling — folds `ocean_sst_anomaly`'s field
+/// into `temperature` directly over ocean, and into `temperature`/
+/// `rainfall` (coast-proximity-weighted, cold current → fog-dry coast,
+/// warm → slightly wetter) over nearby land. Distinct from
+/// `simulate_weather`'s own (optional) fold of the same anomaly into `tc`
+/// *before* building winds — this one runs after, as
+/// `refreshClimate()`'s own separate step.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_ocean_currents(
+    gw: usize,
+    gh: usize,
+    field: &[f32],
+    temperature: &mut [f32],
+    rainfall: &mut [f32],
+    sea: f64,
+    world: bool,
+    lat_n: f64,
+    lat_s: f64,
+    equator_temp: f64,
+    pole_temp: f64,
+    tilt_deg: f64,
+    rotation_hours: f64,
+    wind_manual: bool,
+    wind_dir_deg: f64,
+    press_k: f64,
+    current_k: f64,
+) {
+    let ww = gw.min(240);
+    let wh = (js_round(ww as f64 * gh as f64 / gw as f64) as usize).max(2);
+    let wrap_x = world;
+    let step = 3.0;
+
+    let sst_b = ocean_sst_anomaly(
+        gw,
+        gh,
+        field,
+        ww,
+        wh,
+        wrap_x,
+        step,
+        sea,
+        world,
+        lat_n,
+        lat_s,
+        equator_temp,
+        pole_temp,
+        tilt_deg,
+        rotation_hours,
+        wind_manual,
+        wind_dir_deg,
+        press_k,
+        current_k,
+    );
+
+    let mut c_mask = vec![0f32; ww * wh];
+    for y in 0..wh {
+        for x in 0..ww {
+            let fx = x as f64 / (ww as f64 - 1.0) * (gw as f64 - 1.0);
+            let fy = y as f64 / (wh as f64 - 1.0) * (gh as f64 - 1.0);
+            if sample_arr(field, fx, fy, gw, gh) < sea {
+                c_mask[y * ww + x] = 1.0;
+            }
+        }
+    }
+    let c_blur = cartalith_terrain::gauss_blur(&c_mask, js_round(ww as f64 * 0.05).max(2.0), ww, wh, wrap_x);
+
+    for y in 0..gh {
+        for x in 0..gw {
+            let i = y * gw + x;
+            let a = bil_c(
+                &sst_b,
+                x as f64 / (gw as f64 - 1.0) * (ww as f64 - 1.0),
+                y as f64 / (gh as f64 - 1.0) * (wh as f64 - 1.0),
+                ww,
+                wh,
+                wrap_x,
+            );
+            if (field[i] as f64) < sea {
+                temperature[i] = (temperature[i] as f64 + a) as f32;
+            } else {
+                let prox = bil_c(
+                    &c_blur,
+                    x as f64 / (gw as f64 - 1.0) * (ww as f64 - 1.0),
+                    y as f64 / (gh as f64 - 1.0) * (wh as f64 - 1.0),
+                    ww,
+                    wh,
+                    wrap_x,
+                );
+                temperature[i] = (temperature[i] as f64 + a * prox * 0.6) as f32;
+                let dr = if a < 0.0 { a * prox * 0.10 } else { a * prox * 0.04 };
+                rainfall[i] = (rainfall[i] as f64 + dr).clamp(0.0, 1.0) as f32;
+            }
+        }
+    }
+}
+
 /// The climate parameters `simulate_weather` reads off
 /// `state.climate`/`state.planet`/`state.seaLevel` — the formula's real
 /// tuning knobs, same reasoning as `ClimateParams`/`HeightParams`.
@@ -558,6 +907,19 @@ pub struct WeatherParams {
     /// `simulate_weather`) valid until someone extracts real ones with it
     /// enabled.
     pub terrain_wind_deflection: bool,
+    /// Gates folding `ocean_sst_anomaly` into `tc`/`sst_evap` before
+    /// `build_wind` runs (reference HTML: `if(c.currents){...}` in
+    /// `simulateWeather`'s own loop 2). JS's own default is `true`
+    /// ("ocean currents ON by default... integrated into the weather sim
+    /// before buildWind"); this port defaults to `false` for the same
+    /// reason `terrain_wind_deflection` does — `ocean_sst_anomaly` itself
+    /// calls `build_wind` (with its own terrain-deflection branch) and
+    /// `compute_ocean_current` (`deflect_flow` again, plus an unverified
+    /// western-intensification heuristic), so enabling this changes sea
+    /// temperature — and everything downstream of it — with no JS runtime
+    /// in this environment to confirm the cascade is correct.
+    pub currents: bool,
+    pub current_k: f64,
 }
 
 /// `simulateWeather()` (reference HTML lines 5670-5719) — `MVP_SCOPE.md`
@@ -571,14 +933,14 @@ pub struct WeatherParams {
 ///
 /// **Deferred, matching this port's established pattern** (documented,
 /// not silently dropped — see `cartalith-native/docs/CHANGELOG.md`):
-/// ocean-current SST folding (`state.climate.currents`, explicitly named
-/// a stretch goal by `MVP_SCOPE.md`) and world-structure continental-
-/// interior dryness (consistent with every other world-structure deferral
-/// in this port so far). Terrain wind deflection (`build_wind`'s
-/// `deflectFlow` block) is ported and reachable via
-/// `p.terrain_wind_deflection`, but defaults to `false` here, not JS's own
-/// unconditional default — see `WeatherParams::terrain_wind_deflection`'s
-/// own doc comment for why. `geoidField` is
+/// world-structure continental-interior dryness (consistent with every
+/// other world-structure deferral in this port so far). Terrain wind
+/// deflection (`build_wind`'s `deflectFlow` block) and ocean-current SST
+/// folding (`ocean_sst_anomaly`) are both ported and reachable via
+/// `p.terrain_wind_deflection`/`p.currents`, but both default to `false`
+/// here, not JS's own defaults (unconditional, and `true`, respectively)
+/// — see their own doc comments (`WeatherParams::terrain_wind_deflection`/
+/// `WeatherParams::currents`) for why. `geoidField` is
 /// also omitted, matching `compute_temperature`'s own reasoning — the
 /// default `state.planet.geoid.enabled=false` never reads it either.
 pub fn simulate_weather(
@@ -619,6 +981,40 @@ pub fn simulate_weather(
             eh[i] = h as f32;
             tc[i] = (t_sea - p.lapse_rate * ((h - sea).max(0.0) * mpu / 1000.0)) as f32;
             sst_evap[i] = ev_f as f32;
+        }
+    }
+
+    // Loop 2 (docs/research/system-coupling-audit.md §2): fold the
+    // wind-driven SST anomaly into the sea temperature BEFORE building
+    // winds, so warm currents -> lower pressure + more evaporation ->
+    // wetter downwind, cold currents -> drier.
+    if p.currents {
+        let an = ocean_sst_anomaly(
+            gw,
+            gh,
+            field,
+            ww,
+            wh,
+            wrap_x,
+            step,
+            sea,
+            p.world,
+            p.lat_n,
+            p.lat_s,
+            p.equator_temp,
+            p.pole_temp,
+            p.tilt_deg,
+            p.rotation_hours,
+            p.wind_manual,
+            p.wind_dir_deg,
+            p.press_k,
+            p.current_k,
+        );
+        for i in 0..n {
+            if (eh[i] as f64) < sea {
+                tc[i] = (tc[i] as f64 + an[i] as f64) as f32;
+                sst_evap[i] = (0.2 + 0.8 * ((tc[i] as f64 + 2.0) / 30.0).clamp(0.0, 1.0)) as f32;
+            }
         }
     }
 

@@ -1689,3 +1689,75 @@ otherwise this phase's remaining open items are largely owner-side
 (Windows/Android device verification per `MVP_SCOPE.md` criteria 3-4, a
 real Godot editor pass, and now side-by-side experimental-flag comparison
 against the HTML app).
+
+## Phase 1 — ocean-current SST folding ported, not yet the default (2026-08-13)
+
+The largest of this phase's subsystem ports. Three new `cartalith-climate`
+functions:
+
+- `compute_ocean_current` (reference HTML `computeOceanCurrent`, lines
+  5368-5462): a genuine 2D ocean-current vector field — Ekman-rotated
+  (~25° right of wind in the N hemisphere, left in the S) from the
+  terrain-deflected wind, run through `deflect_flow` again against a HARD
+  coastline, a continental-shelf friction term, and a western-
+  intensification heuristic (subtropical gyres pile transport on a
+  basin's western edge — a distance-to-coast proxy, not a solved
+  beta-plane model, disclosed as such in both the reference and here).
+- `ocean_sst_anomaly` (reference HTML `oceanSSTAnomaly`, lines 5246-5268):
+  builds a synthetic zonal-mean wind field via `build_wind`, runs it
+  through `compute_ocean_current`, and derives a coarse-grid SST anomaly
+  (poleward currents warm, equatorward currents cold-upwell) clamped to
+  ±8°C and blurred.
+- `apply_ocean_currents` (reference HTML `applyOceanCurrents`, lines
+  5270-5288): the post-hoc half — folds the anomaly directly into ocean
+  `temperature`, and (coast-proximity-weighted) into nearby land
+  `temperature`/`rainfall`.
+
+Wired at both places JS reads `state.climate.currents`:
+`simulate_weather`'s own loop 2 (folds the anomaly into `tc`/`sst_evap`
+*before* `build_wind` runs, closing the currents→SST→pressure→wind→
+rainfall loop — new `WeatherParams::currents`/`current_k` fields) and
+`generate_terrain`'s two `refreshClimate()`-equivalent points, right after
+`apply_climate_moisture_correctors` (new `ClimateInputParams::currents`/
+`current_k`, matching reference HTML line 8783's
+`computeFlow(true); refreshClimate();` inside `carveRiverValleys`).
+
+**Ported, but defaults to `false`, not JS's own `true`** — JS ships ocean
+currents ON by default ("cheap, integrated into the weather sim before
+buildWind"); this port keeps the same off-by-default posture as
+`stampVolcanoesProvinces`/terrain wind deflection and for the same
+reason: no JS runtime in this environment to golden-verify a
+`deflect_flow`-based algorithm with its own additional unverified
+heuristic (western intensification) layered on top. Reachable via
+`p.climate.currents` (engine) and `p.currents` (`WeatherParams`
+directly).
+
+Added `ocean_current_regression.rs` — explicitly **not** golden-parity:
+determinism across repeat runs, zero-on-land invariants, and an SST
+anomaly bounds check (`[-8,8]`). None of this confirms the numbers match
+JS.
+
+Extended `cartalith-godot::WorldGen::set_experimental_flags` to a fourth
+flag (`ocean_currents`) and added a matching "Ocean-current SST folding"
+checkbox to `main.tscn`'s experimental section, same reasoning as the
+other three — the owner's machine can run the real HTML app and close
+this port's actual verification gap; this dev environment cannot.
+
+- `cargo build/test/clippy --workspace`: all green/clean. Two more
+  `clippy::needless_range_loop` allows (multi-array-indexed row scans,
+  same precedent as `cartalith-erosion`) and one more `manual_clamp` fix.
+- `golden_parity_weather.rs`'s three fixtures needed `currents: false,
+  current_k: 1.0` added to their `WeatherParams` literals — no behavior
+  change, `false` reproduces this port's pre-existing behavior exactly.
+
+**Remaining, all previously logged**: graph-driven orogeny, seasons — plus
+golden-verifying all four experimental flags now exposed (dynamic
+lithology's gate, `stamp_volcanoes_provinces`, terrain wind deflection,
+ocean currents), squarely an owner task needing the actual HTML app to
+compare against.
+
+**Next**: graph-driven orogeny is the last large unported subsystem;
+seasons the last smaller one. Beyond that, this phase's open items are
+owner-side: Windows/Android device verification (`MVP_SCOPE.md` criteria
+3-4), a real Godot editor pass, and side-by-side experimental-flag
+comparison against the HTML app.

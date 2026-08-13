@@ -11,7 +11,7 @@ script = ExtResource("1")
 offset_left = 20.0
 offset_top = 20.0
 offset_right = 300.0
-offset_bottom = 460.0
+offset_bottom = 490.0
 
 [node name="Title" type="Label" parent="VBox"]
 text = "Cartalith terrain generator (Phase 1 MVP)"
@@ -79,6 +79,9 @@ text = "Clustered volcanism (provinces)"
 
 [node name="WindDeflectionCheck" type="CheckBox" parent="VBox"]
 text = "Terrain wind deflection"
+
+[node name="OceanCurrentsCheck" type="CheckBox" parent="VBox"]
+text = "Ocean-current SST folding"
 
 [node name="GenerateButton" type="Button" parent="VBox"]
 text = "Generate"

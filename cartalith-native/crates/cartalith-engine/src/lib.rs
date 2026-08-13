@@ -39,11 +39,12 @@
 //!   is `false` — see `WorldParams::defaults`'s doc comment on why
 //!   (no JS runtime in this environment to extract golden fixtures
 //!   against a placement algorithm this RNG-order-sensitive).
-//! - **Ocean-current SST folding** (`state.climate.currents`, default `true`):
-//!   `MVP_SCOPE.md` explicitly names ocean-current terrain coupling a stretch
-//!   goal and grants permission to defer it if documented — taken here despite
-//!   the JS default being *on*, consistent with `simulate_weather`'s own
-//!   already-documented deferral of the same mechanism.
+//! - **Ocean-current SST folding** (`state.climate.currents`, JS default
+//!   `true`): ported (`cartalith_climate::ocean_sst_anomaly`/
+//!   `apply_ocean_currents`, both built on `deflect_flow`) and reachable
+//!   via `p.climate.currents`, but this port's own default is `false` —
+//!   same reasoning as `stampVolcanoesProvinces`/terrain wind deflection
+//!   above, see `WeatherParams::currents`'s own doc comment.
 //! - **Terrain wind deflection** (`buildWind`'s `deflectFlow` block, JS
 //!   unconditional since v1.78): ported (`cartalith_climate::deflect_flow`)
 //!   and reachable via `p.climate.terrain_wind_deflection`, but this port's
@@ -72,7 +73,10 @@
 //!   traceRiverPolylines itself is untouched so the generate()/carve
 //!   pipeline stays bit-identical").
 
-use cartalith_climate::{apply_climate_moisture_correctors, compute_temperature, simulate_weather, ClimateParams, WeatherParams};
+use cartalith_climate::{
+    apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
+    WeatherParams,
+};
 use cartalith_erosion::{isostatic_rebound, recompute_resistance_after_erosion, stream_power_kernel, StreamPowerParams};
 use cartalith_hydrology::{
     build_channels, compute_flow, enforce_channel_descent, river_width_scale_k, strahler_from_receivers,
@@ -173,6 +177,12 @@ pub struct ClimateInputParams {
     /// port defaults it `false` where JS has no equivalent flag (always on
     /// since v1.78).
     pub terrain_wind_deflection: bool,
+    /// `cartalith_climate::WeatherParams::currents`/`apply_ocean_currents`'s
+    /// own gate, passed straight through — see that field's own doc
+    /// comment for why this port defaults it `false` where JS defaults it
+    /// `true`.
+    pub currents: bool,
+    pub current_k: f64,
 }
 
 /// `state.stream` (reference HTML line 2269) fields `carveRiverValleys`'s
@@ -299,6 +309,8 @@ impl WorldParams {
                 bulk_evap: true,
                 w_iters: 70,
                 terrain_wind_deflection: false,
+                currents: false,
+                current_k: 1.0,
             },
             stream: StreamParams { uplift: 0.0, k: 0.012, iters: 15, deposit: 0.3, climate_k: 0.5 },
             world_structure: WorldStructureParams {
@@ -551,6 +563,8 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         rain_dep: p.climate.rain_dep,
         bulk_evap: p.climate.bulk_evap,
         terrain_wind_deflection: p.climate.terrain_wind_deflection,
+        currents: p.climate.currents,
+        current_k: p.climate.current_k,
     };
     // decl=0: refreshClimate()'s own simulateWeather(state.climate.wIters)
     // call passes no declination argument, which defaults to 0 (annual
@@ -571,8 +585,31 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         p.climate.lat_s,
         p.climate.zonal_k,
     );
-    // applyOceanCurrents()/computeSeasons(): deferred -- see the module
-    // doc comment ("Ocean-current SST folding").
+    // applyOceanCurrents() (reference HTML lines 5270-5288): gated on
+    // p.climate.currents, off by default in this port -- see
+    // WeatherParams::currents's own doc comment. computeSeasons() stays
+    // deferred (module doc comment).
+    if p.climate.currents {
+        apply_ocean_currents(
+            gw,
+            gh,
+            &field,
+            &mut temperature,
+            &mut rainfall,
+            sea_level,
+            world,
+            p.climate.lat_n,
+            p.climate.lat_s,
+            p.climate.equator_temp,
+            p.climate.pole_temp,
+            p.planet.axial_tilt_deg,
+            p.planet.rotation_hours,
+            p.climate.wind_manual,
+            p.climate.wind_dir_deg,
+            p.climate.press_k,
+            p.climate.current_k,
+        );
+    }
 
     let mut flow_discharge = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
 
@@ -653,6 +690,29 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
             p.climate.lat_s,
             p.climate.zonal_k,
         );
+        // applyOceanCurrents() -- refreshClimate()'s own next step
+        // (reference HTML line 8783: `computeFlow(true); refreshClimate();`).
+        if p.climate.currents {
+            apply_ocean_currents(
+                gw,
+                gh,
+                &field,
+                &mut temperature,
+                &mut rainfall,
+                sea_level,
+                world,
+                p.climate.lat_n,
+                p.climate.lat_s,
+                p.climate.equator_temp,
+                p.climate.pole_temp,
+                p.planet.axial_tilt_deg,
+                p.planet.rotation_hours,
+                p.climate.wind_manual,
+                p.climate.wind_dir_deg,
+                p.climate.press_k,
+                p.climate.current_k,
+            );
+        }
 
         channels = Some(ch);
         stream_order = Some(order);

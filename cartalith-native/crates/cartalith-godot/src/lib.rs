@@ -78,7 +78,7 @@ struct WorldGen {
     gh: i32,
     sea_level: f64,
     /// Set via `set_experimental_flags`, applied by both `generate()` and
-    /// `generate_world_structure()`. All three gate a formula this port
+    /// `generate_world_structure()`. All four gate a formula this port
     /// has ported but cannot golden-verify in this environment (no JS
     /// runtime -- see each field's own doc comment in `cartalith-engine`/
     /// `cartalith-climate`), so each defaults to JS-parity-matching
@@ -88,6 +88,7 @@ struct WorldGen {
     dynamic_lithology: bool,
     volc_provinces: bool,
     terrain_wind_deflection: bool,
+    ocean_currents: bool,
 }
 
 #[godot_api]
@@ -102,21 +103,29 @@ impl IRefCounted for WorldGen {
             dynamic_lithology: false,
             volc_provinces: false,
             terrain_wind_deflection: false,
+            ocean_currents: false,
         }
     }
 }
 
 #[godot_api]
 impl WorldGen {
-    /// Sets the three experimental, JS-unverified flags this instance's
+    /// Sets the four experimental, JS-unverified flags this instance's
     /// `generate()`/`generate_world_structure()` calls apply from then on
     /// — see the `WorldGen` struct's own doc comment on the fields this
     /// writes.
     #[func]
-    fn set_experimental_flags(&mut self, dynamic_lithology: bool, volc_provinces: bool, terrain_wind_deflection: bool) {
+    fn set_experimental_flags(
+        &mut self,
+        dynamic_lithology: bool,
+        volc_provinces: bool,
+        terrain_wind_deflection: bool,
+        ocean_currents: bool,
+    ) {
         self.dynamic_lithology = dynamic_lithology;
         self.volc_provinces = volc_provinces;
         self.terrain_wind_deflection = terrain_wind_deflection;
+        self.ocean_currents = ocean_currents;
     }
 
     /// Runs the full ported pipeline (`cartalith_engine::generate_terrain`)
@@ -132,6 +141,7 @@ impl WorldGen {
         p.tect.dynamic_lithology = self.dynamic_lithology;
         p.volc.provinces = self.volc_provinces;
         p.climate.terrain_wind_deflection = self.terrain_wind_deflection;
+        p.climate.currents = self.ocean_currents;
         let ws = generate_terrain(&p);
         // Not p.sea_level -- World-Structure archetypes re-anchor it;
         // WorldState carries the value actually used.
@@ -174,6 +184,7 @@ impl WorldGen {
         p.tect.dynamic_lithology = self.dynamic_lithology;
         p.volc.provinces = self.volc_provinces;
         p.climate.terrain_wind_deflection = self.terrain_wind_deflection;
+        p.climate.currents = self.ocean_currents;
 
         let ws = generate_terrain(&p);
         self.sea_level = ws.sea_level;
