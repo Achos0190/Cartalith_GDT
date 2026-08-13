@@ -1761,3 +1761,59 @@ seasons the last smaller one. Beyond that, this phase's open items are
 owner-side: Windows/Android device verification (`MVP_SCOPE.md` criteria
 3-4), a real Godot editor pass, and side-by-side experimental-flag
 comparison against the HTML app.
+
+## Phase 1 — graph-driven orogeny, part 1: T1 boundary polyline graph (2026-08-13)
+
+Graph-driven orogeny (`state.tect.tectonicGraph`) is this port's largest
+remaining subsystem — split at the reference's own T1/T2+T3 boundary
+rather than ported in one pass. This entry is T1 only: turning the
+per-cell boundary mask into vector polylines T2+3 can grow features
+along.
+
+- `thin_mask` (reference HTML `thinMask`, lines 2888-2909): Zhang-Suen
+  thinning, reducing a (possibly 2-cell-thick) boundary mask to a 1-pixel
+  skeleton.
+- `trace_boundaries` (reference HTML `traceBoundaries`, lines 2921-2952):
+  walks the thinned skeleton into polylines — chains between nodes
+  (degree != 2: endpoints, junctions) and pure loops (all degree-2, no
+  node) traced separately. Returns both the polylines (with
+  `poly_meta`'s arc-length/curvature/closed-loop metadata,
+  `_polyMeta` at lines 2910-2920) and the junction list.
+
+**Genuinely golden-verifiable this time, unlike the last three ports**:
+this stage is pure topology/integer logic (no RNG, no float-precision-
+sensitive iteration) — a `thin_mask`/`trace_boundaries` unit test IS a
+credible parity check, not a "looks reasonable" substitute, because the
+algorithm is small and deterministic enough to hand-trace exactly.
+Verified straight-line tracing by hand (a 5-cell line stays a fixed point
+under thinning — endpoints are always kept, and interior cells have
+exactly 2 opposite 1-neighbors, which is 2 separate ring transitions, not
+the 1 Zhang-Suen requires for deletion — then traces to one 5-point
+chain with zero curvature) and a 2-cell mask's own real quirk: JS's
+`traceBoundaries` never marks a walk's *starting* cell visited, so a
+direct edge between two nodes gets recorded twice, once per endpoint —
+ported as-is and locked in by its own test, not silently deduplicated
+(`cartalith-porting-discipline`: that would be an improvement over JS,
+which needs a logged decision, not a silent fix made while porting). A
+first attempt at a "pure loop, no junctions" hand-built test case (a 3x3
+ring) turned out to be wrong by hand-calculation — 8-connected corner
+cells on a 1-cell-thick ring are diagonally adjacent to the *other* edge
+meeting at that corner, creating real degree>=3 junctions there, which
+is correct algorithm behavior, not a bug; dropped that test rather than
+assert a wrong expectation, since constructing a genuinely junction-free
+loop by hand needs a much larger, gently-curved shape impractical to
+hand-verify pixel-by-pixel.
+
+- `cargo build/test/clippy --workspace`: all green/clean, 8 new
+  `cartalith-terrain` unit tests.
+
+**Remaining**: T2+T3 (`buildOrogenyField`, the per-boundary-type
+signed-distance-field kernel stamping — collision fold ripples,
+subduction trench+arc, rift graben+shoulders) and wiring into
+`generate_terrain` behind `world_structure`'s existing `tectonicGraph`
+deviation flag. Once wired, this also closes that flag's own logged gap
+(World-Structure worlds currently get the older convergent-stress "blob"
+uplift instead of structured per-margin orogeny). Seasons and the
+owner-side items from the previous entry are still open too.
+
+**Next**: T2+T3 — the actual landform-shaping kernels this graph feeds.

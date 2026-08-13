@@ -1670,6 +1670,276 @@ pub fn stamp_craters(
     }
 }
 
+/* ===================== T1: boundary polyline graph (docs/research/tectonic-feature-graph.md) =====================
+   Turns the per-cell boundary mask into vector polylines so T2+3 (`build_orogeny_field`) can grow
+   features ALONG each margin (arc-length parameterised, per-segment type), instead of the blurred
+   stress blob. Pure + testable, no RNG and no floating-point-precision concerns (the thinning/tracing
+   stage is pure integer/topology; only `poly_meta`'s arc-length and turning-angle use floats, and
+   both are ordinary `Math.hypot`/`Math.atan2` calls this port already handles the same way elsewhere).
+   World-wrap is deliberately ignored here too (reference HTML's own comment: "a margin crossing the
+   x-seam splits in two — a documented refinement for later"), matching upstream. */
+
+/// `thinMask()` (reference HTML lines 2888-2909): Zhang-Suen thinning —
+/// reduces a (possibly 2-cell-thick) boundary mask to a 1-pixel skeleton.
+/// Two half-steps per pass (even step removes north/east-facing boundary
+/// pixels, odd removes south/west-facing), repeated until a full pass
+/// deletes nothing. Each half-step reads the mask as it stood BEFORE that
+/// half-step's own deletions — `del` is collected during the scan and
+/// applied only after it completes, matching JS exactly; deleting
+/// in-place while scanning would remove extra pixels a real Zhang-Suen
+/// pass wouldn't.
+pub fn thin_mask(mask: &[u8], w: usize, h: usize) -> Vec<u8> {
+    let mut a: Vec<u8> = mask.to_vec();
+    let g = |a: &[u8], x: i64, y: i64| -> u8 {
+        if x < 0 || y < 0 || x >= w as i64 || y >= h as i64 {
+            0
+        } else {
+            a[y as usize * w + x as usize]
+        }
+    };
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for step in 0..2 {
+            let mut del = Vec::new();
+            for y in 0..h {
+                for x in 0..w {
+                    let idx = y * w + x;
+                    if a[idx] == 0 {
+                        continue;
+                    }
+                    let (xi, yi) = (x as i64, y as i64);
+                    let p2 = g(&a, xi, yi - 1);
+                    let p3 = g(&a, xi + 1, yi - 1);
+                    let p4 = g(&a, xi + 1, yi);
+                    let p5 = g(&a, xi + 1, yi + 1);
+                    let p6 = g(&a, xi, yi + 1);
+                    let p7 = g(&a, xi - 1, yi + 1);
+                    let p8 = g(&a, xi - 1, yi);
+                    let p9 = g(&a, xi - 1, yi - 1);
+                    let b = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
+                    if !(2..=6).contains(&b) {
+                        continue;
+                    }
+                    let seq = [p2, p3, p4, p5, p6, p7, p8, p9];
+                    let mut a_count = 0;
+                    for k in 0..8 {
+                        if seq[k] == 0 && seq[(k + 1) % 8] == 1 {
+                            a_count += 1;
+                        }
+                    }
+                    if a_count != 1 {
+                        continue;
+                    }
+                    if step == 0 {
+                        if p2 * p4 * p6 != 0 || p4 * p6 * p8 != 0 {
+                            continue;
+                        }
+                    } else if p2 * p4 * p8 != 0 || p2 * p6 * p8 != 0 {
+                        continue;
+                    }
+                    del.push(idx);
+                }
+            }
+            if !del.is_empty() {
+                changed = true;
+                for i in del {
+                    a[i] = 0;
+                }
+            }
+        }
+    }
+    a
+}
+
+/// One 8-connected neighbor offset ring, in the exact order the reference
+/// HTML's own `N8` array lists them — iteration order is behaviorally
+/// significant here (which neighbor `nbrs()` returns *first*, and thus
+/// which direction a walk sets off in when a node has more than one
+/// unvisited neighbor), not just a style choice.
+const N8: [(i64, i64); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+
+fn nbrs(a: &[u8], w: usize, h: usize, x: usize, y: usize) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    for &(dx, dy) in &N8 {
+        let nx = x as i64 + dx;
+        let ny = y as i64 + dy;
+        if nx >= 0 && ny >= 0 && (nx as usize) < w && (ny as usize) < h && a[ny as usize * w + nx as usize] != 0 {
+            out.push((nx as usize, ny as usize));
+        }
+    }
+    out
+}
+
+/// One traced boundary-mask polyline: its grid-cell points plus
+/// `_polyMeta()`'s arc-length/curvature/closed-loop metadata. `kind` is
+/// left for a caller to populate (`currentBoundaryGraph`'s own per-
+/// polyline dominant-boundary-type majority vote, not yet ported/needed
+/// until `build_orogeny_field`'s own wiring) — `trace_boundaries` itself
+/// only knows geometry, matching the JS split between untyped
+/// `traceBoundaries` and typed `currentBoundaryGraph`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoundaryPolyline {
+    pub pts: Vec<(usize, usize)>,
+    pub length: f64,
+    pub closed: bool,
+    pub curvature: f64,
+}
+
+/// `traceBoundaries()`'s own return value: every traced polyline plus the
+/// junction list (`deg >= 3` cells only — degree-1 endpoints chain-walk
+/// terminates on too, but JS's own `nodes` array doesn't include them).
+pub struct BoundaryGraph {
+    pub polylines: Vec<BoundaryPolyline>,
+    pub nodes: Vec<(usize, usize)>,
+}
+
+/// `_polyMeta()` (reference HTML lines 2910-2920): arc length (sum of
+/// per-segment `Math.hypot`), total absolute turning angle normalized by
+/// length (`curvature`), and whether the point list closes back on
+/// itself.
+fn poly_meta(pts: Vec<(usize, usize)>) -> BoundaryPolyline {
+    let mut length = 0.0;
+    for i in 1..pts.len() {
+        let dx = pts[i].0 as f64 - pts[i - 1].0 as f64;
+        let dy = pts[i].1 as f64 - pts[i - 1].1 as f64;
+        length += dx.hypot(dy);
+    }
+    let mut turn = 0.0;
+    for i in 1..pts.len().saturating_sub(1) {
+        let a1 = (pts[i].1 as f64 - pts[i - 1].1 as f64).atan2(pts[i].0 as f64 - pts[i - 1].0 as f64);
+        let a2 = (pts[i + 1].1 as f64 - pts[i].1 as f64).atan2(pts[i + 1].0 as f64 - pts[i].0 as f64);
+        let mut d = a2 - a1;
+        while d > std::f64::consts::PI {
+            d -= 2.0 * std::f64::consts::PI;
+        }
+        while d < -std::f64::consts::PI {
+            d += 2.0 * std::f64::consts::PI;
+        }
+        turn += d.abs();
+    }
+    let n = pts.len();
+    let closed = n > 3 && pts[0] == pts[n - 1];
+    let curvature = if length > 0.0 { turn / length } else { 0.0 };
+    BoundaryPolyline { pts, length, closed, curvature }
+}
+
+/// Walks one chain starting at node/endpoint `(sx,sy)`, having just
+/// stepped to `(fx,fy)` — advances along degree-2 cells until hitting
+/// another node/endpoint, a dead end, or closing back on `(sx,sy)`.
+/// Marks every cell it steps onto (never the start `(sx,sy)` itself) as
+/// `visited`.
+#[allow(clippy::too_many_arguments)]
+fn walk(
+    a: &[u8],
+    deg: &[u8],
+    visited: &mut [u8],
+    w: usize,
+    h: usize,
+    sx: usize,
+    sy: usize,
+    fx: usize,
+    fy: usize,
+) -> Vec<(usize, usize)> {
+    let mut pts = vec![(sx, sy)];
+    let (mut px, mut py) = (sx, sy);
+    let (mut cx, mut cy) = (fx, fy);
+    loop {
+        pts.push((cx, cy));
+        visited[cy * w + cx] = 1;
+        if deg[cy * w + cx] != 2 {
+            break;
+        }
+        let ns: Vec<(usize, usize)> = nbrs(a, w, h, cx, cy).into_iter().filter(|&q| q != (px, py)).collect();
+        let Some(&(nx, ny)) = ns.first() else {
+            break;
+        };
+        px = cx;
+        py = cy;
+        cx = nx;
+        cy = ny;
+        if (cx, cy) == (sx, sy) {
+            pts.push((cx, cy));
+            break;
+        }
+    }
+    pts
+}
+
+/// `traceBoundaries()` (reference HTML lines 2921-2952): thins
+/// `boundary_mask` to a 1-px skeleton, then traces it into polylines —
+/// chains run between nodes (degree != 2: endpoints degree-1, junctions
+/// degree-3+), pure loops (all degree-2, no node) traced separately.
+///
+/// **A direct node-to-node edge is walked from both ends** (reference
+/// HTML's own behavior, not a bug this port introduces): `walk()` never
+/// marks its *starting* cell visited, only cells it steps onto — so a
+/// one-cell edge between two nodes gets recorded twice, once per
+/// endpoint, in whichever order the outer node scan reaches each end.
+/// Ported as-is; deduplicating would be a behavioral improvement over
+/// JS, which `cartalith-porting-discipline` reserves for a deliberately
+/// logged decision, not a silent "fix" made while porting.
+pub fn trace_boundaries(mask: &[u8], w: usize, h: usize) -> BoundaryGraph {
+    let a = thin_mask(mask, w, h);
+
+    let mut deg = vec![0u8; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            if a[y * w + x] != 0 {
+                deg[y * w + x] = nbrs(&a, w, h, x, y).len() as u8;
+            }
+        }
+    }
+
+    let mut nodes = Vec::new();
+    for y in 0..h {
+        for x in 0..w {
+            if a[y * w + x] != 0 && deg[y * w + x] >= 3 {
+                nodes.push((x, y));
+            }
+        }
+    }
+
+    let mut visited = vec![0u8; w * h];
+    let mut polylines = Vec::new();
+
+    for y in 0..h {
+        for x in 0..w {
+            if a[y * w + x] == 0 || deg[y * w + x] == 2 {
+                continue;
+            }
+            for (nx, ny) in nbrs(&a, w, h, x, y) {
+                if visited[ny * w + nx] != 0 {
+                    continue;
+                }
+                let pts = walk(&a, &deg, &mut visited, w, h, x, y, nx, ny);
+                if pts.len() >= 2 {
+                    polylines.push(poly_meta(pts));
+                }
+            }
+        }
+    }
+
+    for y in 0..h {
+        for x in 0..w {
+            if a[y * w + x] == 0 || deg[y * w + x] != 2 || visited[y * w + x] != 0 {
+                continue;
+            }
+            visited[y * w + x] = 1;
+            let ns = nbrs(&a, w, h, x, y);
+            let Some(&(fx, fy)) = ns.first() else {
+                continue;
+            };
+            let pts = walk(&a, &deg, &mut visited, w, h, x, y, fx, fy);
+            if pts.len() >= 2 {
+                polylines.push(poly_meta(pts));
+            }
+        }
+    }
+
+    BoundaryGraph { polylines, nodes }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1689,5 +1959,80 @@ mod tests {
         let a = compute_warp(6, 5, 42, 0.6, false);
         let b = compute_warp(6, 5, 42, 0.6, false);
         assert_eq!(a, b);
+    }
+
+    // Hand-derived against the Zhang-Suen conditions transcribed from the
+    // JS source (see thin_mask's own doc comment).
+    #[test]
+    fn thin_mask_leaves_a_straight_1px_line_untouched() {
+        // Endpoints are always kept (B<2 skip); interior cells of a
+        // straight line have exactly 2 opposite-side 1-neighbors, which
+        // is 2 separate 0->1 transitions around the ring (A=2, not 1),
+        // so they're skipped too -- a straight line is a fixed point.
+        let mask = vec![1u8, 1, 1, 1, 1];
+        let thinned = thin_mask(&mask, 5, 1);
+        assert_eq!(thinned, mask);
+    }
+
+    #[test]
+    fn thin_mask_is_idempotent_and_never_grows() {
+        // A solid 5x4 block: not a fixed point (thinning must remove
+        // interior/edge pixels down toward a skeleton), but whatever it
+        // converges to must itself be stable under a second pass, and
+        // must never have MORE set pixels than the input.
+        let (w, h) = (5, 4);
+        let mask = vec![1u8; w * h];
+        let once = thin_mask(&mask, w, h);
+        let twice = thin_mask(&once, w, h);
+        assert_eq!(once, twice, "a converged thinning must be a fixed point of another pass");
+        let count = |m: &[u8]| m.iter().filter(|&&v| v != 0).count();
+        assert!(count(&once) < count(&mask), "thinning a solid block must remove pixels");
+        assert!(count(&once) > 0, "thinning must not erase the shape entirely");
+    }
+
+    #[test]
+    fn thin_mask_all_zero_stays_all_zero() {
+        let mask = vec![0u8; 12];
+        assert_eq!(thin_mask(&mask, 4, 3), mask);
+    }
+
+    #[test]
+    fn trace_boundaries_traces_a_straight_line_end_to_end() {
+        // W=5,H=1, all-ones: two degree-1 endpoints and three degree-2
+        // interior cells. `nodes` (the returned list) only reports
+        // degree>=3 junctions -- degree-1 endpoints don't count as
+        // "nodes" there even though `isNode()`/the walk's own stopping
+        // condition (deg != 2) treats them as chain terminators, matching
+        // the JS source's own split between the two. Hand-traced:
+        // walk(0,0 -> 1,0) advances cell-by-cell to (4,0) (the far
+        // endpoint), producing one 5-point chain; (4,0)'s own single
+        // neighbor (3,0) is already visited by then, so no second walk
+        // starts there.
+        let mask = vec![1u8, 1, 1, 1, 1];
+        let g = trace_boundaries(&mask, 5, 1);
+        assert!(g.nodes.is_empty(), "no degree>=3 junctions on a straight line");
+        assert_eq!(g.polylines.len(), 1);
+        let p = &g.polylines[0];
+        assert_eq!(p.pts, vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0)]);
+        assert!((p.length - 4.0).abs() < 1e-9);
+        assert!(!p.closed);
+        assert_eq!(p.curvature, 0.0, "a straight line never turns");
+    }
+
+    #[test]
+    fn trace_boundaries_walks_a_direct_node_edge_from_both_ends() {
+        // A 2-cell mask: both cells are degree-1 endpoints (no degree>=3
+        // junction, so `nodes` is empty), each other's only neighbor.
+        // Reference HTML's own `traceBoundaries` never marks a walk's
+        // STARTING cell visited, so the single edge between them is
+        // recorded twice -- once from each end -- documented on
+        // `trace_boundaries`'s own doc comment, not a bug this port
+        // introduces.
+        let mask = vec![1u8, 1];
+        let g = trace_boundaries(&mask, 2, 1);
+        assert!(g.nodes.is_empty());
+        assert_eq!(g.polylines.len(), 2);
+        assert_eq!(g.polylines[0].pts, vec![(0, 0), (1, 0)]);
+        assert_eq!(g.polylines[1].pts, vec![(1, 0), (0, 0)]);
     }
 }
