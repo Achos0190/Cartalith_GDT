@@ -257,16 +257,131 @@ fn blur_coarse(a: &mut [f32], ww: usize, wh: usize, wrap_x: bool, passes: i32) {
     }
 }
 
-/// `buildWind()` (reference HTML lines 5464-5530), minus the terrain-
-/// deflection branch (`opts.elev`, gated on `deflectFlow`) — deferred
-/// under the same reasoning `MVP_SCOPE.md` explicitly grants
-/// ocean-current terrain coupling: real, but a later addition, tracked
-/// in `cartalith-native/docs/CHANGELOG.md`, not silently dropped.
+/// Tuning knobs `deflectFlow()`'s own `opts` bag takes (reference HTML
+/// line 5315-5319) — JS defaults noted per field; both call sites this
+/// port has (`build_wind`'s terrain deflection) override them.
+pub struct DeflectFlowParams {
+    pub strength: f64,
+    pub k1: f64,
+    pub k2: f64,
+    pub gap_k: f64,
+    pub iterations: i32,
+    pub block_blur: i32,
+}
+
+/// `deflectFlow()` (reference HTML lines 5315-5357): the component of
+/// `(u,v)` pointing INTO rising `block` is reduced and redirected
+/// tangentially along the block field's local contour, iterated with
+/// light blending so the deflection propagates upstream of a ridge/
+/// coastline rather than only appearing on top of it (linearised
+/// hill-flow theory, Jackson & Hunt 1975). Gap/strait acceleration comes
+/// from the block field's own Laplacian. Pure; shared by `build_wind`'s
+/// terrain deflection and (not yet ported) `computeOceanCurrent`'s hard
+/// coastline.
 ///
-/// Prevailing latitude-band winds (band count from `circulation_cells`),
-/// then an optional pressure-gradient + Coriolis perturbation from a
-/// smoothed temperature proxy (warm = thermal low) when `tc` is supplied
-/// and `press_k > 0`.
+/// Every intermediate value here is `f64` arithmetic over `f32`-stored
+/// inputs, rounded to `f32` only at each `Float32Array` write point
+/// (`nu`/`nv`/`u`/`v`) — matching JS's own read-as-full-precision,
+/// write-rounds-to-f32 typed-array semantics, the same discipline
+/// `stamp_one_volcano` documents for the same reason.
+pub fn deflect_flow(
+    u0: &[f32],
+    v0: &[f32],
+    block0: &[f32],
+    ww: usize,
+    wh: usize,
+    wrap_x: bool,
+    p: &DeflectFlowParams,
+) -> (Vec<f32>, Vec<f32>) {
+    let n = ww * wh;
+    let k1 = p.k1 * p.strength;
+    let k2 = p.k2 * p.strength;
+    let gap_k = p.gap_k * p.strength;
+
+    let mut u: Vec<f32> = u0.to_vec();
+    let mut v: Vec<f32> = v0.to_vec();
+    let mut b: Vec<f32> = block0.to_vec();
+    blur_coarse(&mut b, ww, wh, wrap_x, p.block_blur);
+
+    let mut bgx = vec![0f32; n];
+    let mut bgy = vec![0f32; n];
+    let mut lap = vec![0f32; n];
+    for y in 0..wh {
+        for x in 0..ww {
+            let i = y * ww + x;
+            let xl = if wrap_x { (x + ww - 1) % ww } else if x > 0 { x - 1 } else { 0 };
+            let xr = if wrap_x { (x + 1) % ww } else if x + 1 < ww { x + 1 } else { ww - 1 };
+            let yu = if y > 0 { y - 1 } else { 0 };
+            let yd = if y + 1 < wh { y + 1 } else { wh - 1 };
+            bgx[i] = ((b[y * ww + xr] as f64 - b[y * ww + xl] as f64) * 0.5) as f32;
+            bgy[i] = ((b[yd * ww + x] as f64 - b[yu * ww + x] as f64) * 0.5) as f32;
+            lap[i] = (b[y * ww + xl] as f64 + b[y * ww + xr] as f64 + b[yu * ww + x] as f64 + b[yd * ww + x] as f64
+                - 4.0 * b[i] as f64) as f32;
+        }
+    }
+
+    if p.strength > 0.0 {
+        for _ in 0..p.iterations {
+            let mut nu = vec![0f32; n];
+            let mut nv = vec![0f32; n];
+            for i in 0..n {
+                let dot = u[i] as f64 * bgx[i] as f64 + v[i] as f64 * bgy[i] as f64;
+                if dot > 0.0 {
+                    let gn = (bgx[i] as f64).hypot(bgy[i] as f64) + 1e-6;
+                    let nx = bgx[i] as f64 / gn;
+                    let ny = bgy[i] as f64 / gn;
+                    let rem = (k1 * dot).min(0.9 * dot);
+                    let mut uu = u[i] as f64 - rem * nx;
+                    let mut vv = v[i] as f64 - rem * ny;
+                    let px = -ny;
+                    let py = nx;
+                    let sign = if u[i] as f64 * px + v[i] as f64 * py >= 0.0 { 1.0 } else { -1.0 };
+                    let tang = k2 * dot;
+                    uu += sign * tang * px;
+                    vv += sign * tang * py;
+                    nu[i] = uu as f32;
+                    nv[i] = vv as f32;
+                } else {
+                    nu[i] = u[i];
+                    nv[i] = v[i];
+                }
+            }
+            let mut bu = nu.clone();
+            let mut bv = nv.clone();
+            blur_coarse(&mut bu, ww, wh, wrap_x, 1);
+            blur_coarse(&mut bv, ww, wh, wrap_x, 1);
+            for i in 0..n {
+                u[i] = (nu[i] as f64 * 0.7 + bu[i] as f64 * 0.3) as f32;
+                v[i] = (nv[i] as f64 * 0.7 + bv[i] as f64 * 0.3) as f32;
+            }
+        }
+    }
+
+    for i in 0..n {
+        let m = (1.0 + gap_k * lap[i] as f64 * 3.0).clamp(0.45, 2.4);
+        let sp = (u[i] as f64).hypot(v[i] as f64);
+        if sp > 1e-6 {
+            let t = sp * m;
+            u[i] = (u[i] as f64 / sp * t) as f32;
+            v[i] = (v[i] as f64 / sp * t) as f32;
+        }
+    }
+
+    (u, v)
+}
+
+/// `buildWind()` (reference HTML lines 5464-5535). Prevailing latitude-band
+/// winds (band count from `circulation_cells`), an optional pressure-
+/// gradient + Coriolis perturbation from a smoothed temperature proxy
+/// (warm = thermal low) when `tc` is supplied and `press_k > 0`, then —
+/// when `elev` is supplied — `deflectFlow`'s terrain-deflection block
+/// (mountains block/split flow, gaps/straits accelerate it) plus a
+/// high-altitude thin-air damping term. `elev`/`sea_level` mirror JS's
+/// `opts.elev`/`state.seaLevel`; every caller in this port supplies both
+/// (`simulate_weather`'s own `eh` coarse elevation array), matching JS's
+/// own v1.78 "no longer a toggle" default -- the only caller in the
+/// reference that omits `opts.elev` is `currentWindField` (a debug-view
+/// helper this port hasn't ported).
 #[allow(clippy::too_many_arguments)]
 fn build_wind(
     ww: usize,
@@ -281,6 +396,7 @@ fn build_wind(
     wind_dir_deg: f64,
     press_k: f64,
     rotation_hours: f64,
+    elev: Option<(&[f32], f64)>,
 ) -> (Vec<f32>, Vec<f32>) {
     let n = ww * wh;
     let mut wx = vec![0f32; n];
@@ -379,6 +495,28 @@ fn build_wind(
             wy[i] = uy as f32;
         }
     }
+    // deflectFlow terrain-deflection block (reference HTML lines 5521-5535):
+    // mountains block/split flow, gaps/straits accelerate it -- the one
+    // physical mechanism the pressure/Coriolis step above never modeled
+    // (it reacts to temperature, not real elevation).
+    if let Some((elev, sea)) = elev {
+        let mut block = vec![0f32; n];
+        for i in 0..n {
+            let h = elev[i] as f64;
+            let land = (((h - (sea - 0.02)) / 0.04).clamp(0.0, 1.0)) * 0.12;
+            let mtn = ((h - (sea - 0.03)) / 0.43).clamp(0.0, 1.0);
+            block[i] = (land + mtn).min(1.0) as f32;
+        }
+        let deflect_params = DeflectFlowParams { strength: 1.0, k1: 0.6, k2: 0.65, gap_k: 0.32, iterations: 16, block_blur: 2 };
+        let (du, dv) = deflect_flow(&wx, &wy, &block, ww, wh, world, &deflect_params);
+        for i in 0..n {
+            // elevation-band damping: thin high-altitude air slows/
+            // simplifies near-surface flow.
+            let damp = 0.55 * (((elev[i] as f64 - (sea + 0.30)) / 0.32).clamp(0.0, 1.0));
+            wx[i] = (du[i] as f64 * (1.0 - damp)) as f32;
+            wy[i] = (dv[i] as f64 * (1.0 - damp)) as f32;
+        }
+    }
     (wx, wy)
 }
 
@@ -405,6 +543,21 @@ pub struct WeatherParams {
     pub rain_k: f64,
     pub rain_dep: f64,
     pub bulk_evap: bool,
+    /// Gates `build_wind`'s `deflectFlow` terrain-deflection block. JS has
+    /// no equivalent flag -- v1.78 made this unconditional ("wind and
+    /// current should always be coupled to terrain") -- so `false` here is
+    /// this port's own deliberate deviation, not a JS default being
+    /// mirrored. `deflect_flow` is ported line-for-line, but it's a
+    /// substantial iterative algorithm (16 blur+redirect passes) that
+    /// reshapes wind everywhere terrain exists, which cascades through
+    /// every downstream term in this function (evaporation, advection,
+    /// orographic rain) -- exactly the kind of change golden-parity
+    /// discipline requires real JS numbers to verify, and this environment
+    /// has no JS runtime. `false` keeps existing golden fixtures
+    /// (`golden_parity_weather.rs` and everything built on
+    /// `simulate_weather`) valid until someone extracts real ones with it
+    /// enabled.
+    pub terrain_wind_deflection: bool,
 }
 
 /// `simulateWeather()` (reference HTML lines 5670-5719) — `MVP_SCOPE.md`
@@ -419,11 +572,13 @@ pub struct WeatherParams {
 /// **Deferred, matching this port's established pattern** (documented,
 /// not silently dropped — see `cartalith-native/docs/CHANGELOG.md`):
 /// ocean-current SST folding (`state.climate.currents`, explicitly named
-/// a stretch goal by `MVP_SCOPE.md`), terrain wind deflection
-/// (`build_wind`'s omitted `elev` branch, the same `deflectFlow`
-/// mechanism `MVP_SCOPE.md` groups with ocean currents), and
-/// world-structure continental-interior dryness (consistent with every
-/// other world-structure deferral in this port so far). `geoidField` is
+/// a stretch goal by `MVP_SCOPE.md`) and world-structure continental-
+/// interior dryness (consistent with every other world-structure deferral
+/// in this port so far). Terrain wind deflection (`build_wind`'s
+/// `deflectFlow` block) is ported and reachable via
+/// `p.terrain_wind_deflection`, but defaults to `false` here, not JS's own
+/// unconditional default — see `WeatherParams::terrain_wind_deflection`'s
+/// own doc comment for why. `geoidField` is
 /// also omitted, matching `compute_temperature`'s own reasoning — the
 /// default `state.planet.geoid.enabled=false` never reads it either.
 pub fn simulate_weather(
@@ -480,6 +635,7 @@ pub fn simulate_weather(
         p.wind_dir_deg,
         p.press_k,
         p.rotation_hours,
+        if p.terrain_wind_deflection { Some((&eh, sea)) } else { None },
     );
 
     let mut w = vec![0f32; n];

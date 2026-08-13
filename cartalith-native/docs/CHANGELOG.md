@@ -1582,3 +1582,67 @@ smaller climate deferrals (ocean currents, wind deflection, seasons) are
 comparably-sized alternatives. Golden-verifying `stamp_volcanoes_provinces`
 is worth flagging to the owner specifically — it's done except for the one
 thing this environment structurally cannot do.
+
+## Phase 1 — `deflectFlow` + terrain wind deflection ported, not yet the default (2026-08-13)
+
+`deflect_flow` (reference HTML lines 5315-5357) — the generic flow-
+deflection primitive `buildWind`'s terrain coupling and (not yet ported)
+`computeOceanCurrent`'s coastline coupling both build on: the component of
+a vector field pointing INTO a rising `block` field is reduced and
+redirected tangentially along the block field's local contour, iterated
+16 times with light blending so deflection propagates upstream of a ridge
+rather than only appearing on top of it, then a gap/strait acceleration
+pass from the block field's own Laplacian. New `cartalith-climate` public
+function, reusable once ocean currents are tackled.
+
+Wired into `build_wind`'s own `opts.elev` branch (reference HTML lines
+5521-5535): mountains block/split flow, gaps/straits accelerate it,
+followed by an elevation-band damping term (thin high-altitude air slows
+near-surface flow). `simulate_weather` now always has the coarse elevation
+array (`eh`) this needs on hand — it already computed one for temperature
+lapse — so wiring it through was just a new `elev: Option<(&[f32], f64)>`
+parameter on `build_wind` and a new `WeatherParams::terrain_wind_deflection`
+gate.
+
+**Ported, but defaults to `false`, not JS's own unconditional-since-v1.78
+default** — same reasoning as `stampVolcanoesProvinces` two entries back,
+and arguably a bigger deal here: this is a 16-iteration algorithm that
+reshapes wind everywhere terrain exists, which cascades into every
+downstream term in `simulate_weather` (evaporation, advection, orographic
+rain). No JS runtime in this environment means no golden fixtures to
+verify any of that cascade against, and this environment has no way to
+confirm a subtle sign error or off-by-one in the 16-iteration loop
+wouldn't silently pass every existing test while producing wrong rainfall
+everywhere. Reachable via `p.climate.terrain_wind_deflection` for anyone
+who wants to opt in and verify independently.
+
+Added `deflect_flow_regression.rs` (`cartalith-climate/tests/`) —
+explicitly **not** golden-parity: determinism across repeat runs, a
+synthetic ridge test confirming flow actually bends upstream of a block
+(and stays near-untouched far from one) as a basic physical sanity check,
+and a `strength: 0, gap_k: 0` near-identity case. None of this confirms
+the numbers match JS.
+
+- `cargo build/test/clippy --workspace`: all green/clean. One
+  `clippy::manual_clamp` fix (`.max(a).min(b)` → `.clamp(a,b)`, same
+  values, no behavior change).
+- `golden_parity_weather.rs`'s three existing fixtures needed a new
+  `terrain_wind_deflection: false` field added to their `WeatherParams`
+  literals — no other change, since `false` reproduces this port's
+  pre-existing (undeflected) behavior exactly.
+
+**Remaining, all previously logged**: graph-driven orogeny, ocean-current
+SST folding (now blocked on `deflect_flow`'s own golden verification too,
+since `computeOceanCurrent` reuses it), seasons — plus golden-verifying
+`stamp_volcanoes_provinces` and now `deflect_flow`/terrain wind deflection,
+both once a JS runtime is available.
+
+**Next**: graph-driven orogeny remains the largest unported subsystem;
+seasons is the smallest remaining climate deferral. Ocean-current SST
+folding is now more tractable than before (its own `computeOceanCurrent`
+reuses this entry's `deflect_flow`), but still needs coastline-distance
+scanning and gyre logic on top. Golden-verifying the two RNG/iteration-
+heavy algorithms ported this session (`stamp_volcanoes_provinces`,
+`deflect_flow`) against real JS output is worth flagging to the owner as
+its own piece of work — both are functionally complete and blocked purely
+on this environment lacking a JS runtime.

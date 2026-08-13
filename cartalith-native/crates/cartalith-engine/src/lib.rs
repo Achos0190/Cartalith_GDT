@@ -44,6 +44,12 @@
 //!   goal and grants permission to defer it if documented — taken here despite
 //!   the JS default being *on*, consistent with `simulate_weather`'s own
 //!   already-documented deferral of the same mechanism.
+//! - **Terrain wind deflection** (`buildWind`'s `deflectFlow` block, JS
+//!   unconditional since v1.78): ported (`cartalith_climate::deflect_flow`)
+//!   and reachable via `p.climate.terrain_wind_deflection`, but this port's
+//!   own default is `false` — same "no JS runtime to golden-verify a
+//!   substantial iterative algorithm" reasoning as `stampVolcanoesProvinces`
+//!   above, see `WeatherParams::terrain_wind_deflection`'s own doc comment.
 //! - **Dynamic lithology** (`state.tect.dynamicLithology`, default `false`):
 //!   ported and wired in (`recompute_resistance_after_erosion`, gated on
 //!   `p.tect.dynamic_lithology` exactly as JS gates it on the flag of the
@@ -162,6 +168,11 @@ pub struct ClimateInputParams {
     pub rain_dep: f64,
     pub bulk_evap: bool,
     pub w_iters: i32,
+    /// `cartalith_climate::WeatherParams::terrain_wind_deflection` passed
+    /// straight through — see that field's own doc comment for why this
+    /// port defaults it `false` where JS has no equivalent flag (always on
+    /// since v1.78).
+    pub terrain_wind_deflection: bool,
 }
 
 /// `state.stream` (reference HTML line 2269) fields `carveRiverValleys`'s
@@ -287,6 +298,7 @@ impl WorldParams {
                 rain_dep: 0.35,
                 bulk_evap: true,
                 w_iters: 70,
+                terrain_wind_deflection: false,
             },
             stream: StreamParams { uplift: 0.0, k: 0.012, iters: 15, deposit: 0.3, climate_k: 0.5 },
             world_structure: WorldStructureParams {
@@ -538,6 +550,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         rain_k: p.climate.rain_k,
         rain_dep: p.climate.rain_dep,
         bulk_evap: p.climate.bulk_evap,
+        terrain_wind_deflection: p.climate.terrain_wind_deflection,
     };
     // decl=0: refreshClimate()'s own simulateWeather(state.climate.wIters)
     // call passes no declination argument, which defaults to 0 (annual
