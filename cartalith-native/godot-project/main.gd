@@ -8,6 +8,7 @@ extends Control
 @onready var seed_input: SpinBox = $VBox/SeedRow/SeedInput
 @onready var resolution_input: SpinBox = $VBox/ResolutionRow/ResolutionInput
 @onready var width_input: SpinBox = $VBox/WidthRow/WidthInput
+@onready var world_shape_input: OptionButton = $VBox/WorldShapeRow/WorldShapeInput
 @onready var generate_button: Button = $VBox/GenerateButton
 @onready var load_save_button: Button = $VBox/LoadSaveButton
 @onready var status_label: Label = $VBox/StatusLabel
@@ -15,6 +16,12 @@ extends Control
 @onready var load_save_dialog: FileDialog = $LoadSaveDialog
 
 var world_gen: WorldGen = WorldGen.new()
+
+## Index into WorldShapeInput -> the archetype name WorldGen.
+## generate_world_structure expects (reference HTML `ARCHETYPES`). Index 0
+## ("Classic") isn't an archetype at all -- it's World-Structure disabled,
+## the plain `generate()` path.
+const WORLD_SHAPES := ["", "earth", "supercontinent", "archipelago", "volcanic", "rift"]
 
 
 func _ready() -> void:
@@ -28,13 +35,24 @@ func _on_generate_pressed() -> void:
 	var seed_value := int(seed_input.value)
 	var resolution := int(resolution_input.value)
 	var width_km := width_input.value
+	var archetype := WORLD_SHAPES[world_shape_input.selected]
 
-	world_gen.generate(seed_value, width_km, resolution)
+	var ok := true
+	if archetype.is_empty():
+		world_gen.generate(seed_value, width_km, resolution)
+	else:
+		ok = world_gen.generate_world_structure(seed_value, width_km, resolution, archetype)
+
+	if not ok:
+		status_label.text = "generate failed — see console"
+		return
+
 	var tex: ImageTexture = world_gen.build_color_texture()
 	if tex:
 		map_view.texture = tex
-		status_label.text = "%dx%d, seed %d, %.0f km" % [
-			world_gen.get_width(), world_gen.get_height(), seed_value, width_km
+		var shape_label := world_shape_input.get_item_text(world_shape_input.selected)
+		status_label.text = "%dx%d, seed %d, %.0f km, %s" % [
+			world_gen.get_width(), world_gen.get_height(), seed_value, width_km, shape_label
 		]
 	else:
 		status_label.text = "generate failed — see console"

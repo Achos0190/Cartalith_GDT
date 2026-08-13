@@ -1478,3 +1478,48 @@ owner-only items above and eyes on the Godot editor.
 **Next**: expose `world_structure` to the GDScript UI now that both the
 generate and load paths are real; or graph-driven orogeny, the largest
 remaining unported subsystem.
+
+## Phase 1 — World-Structure archetypes exposed to the GDScript UI (2026-08-13)
+
+The engine side (`cartalith-engine::WorldParams::world_structure`) has
+taken raw archetype knobs since the earlier World-Structure port; nothing
+in the UI could reach it. `WorldGen` (`cartalith-godot`) gained
+`generate_world_structure(seed, width_km, resolution, archetype)`, a
+second entry point alongside `generate()` (kept as the plain,
+World-Structure-disabled "Classic" path rather than overloading one method
+with an optional/empty archetype string). A `match` on the archetype name
+holds the five-preset `ARCHETYPES` table (reference HTML lines 2521-2526:
+earth/supercontinent/archipelago/volcanic/rift, each a
+`(continentality, fragmentation, tectonicEnergy, oceanDepth,
+hotspotDensity)` tuple) verbatim — the name→knobs lookup lives here, in
+the Rust boundary layer, not in GDScript
+(`ARCHITECTURE.md`: "Godot computes nothing beyond layout. Anything you
+could get numerically wrong belongs in Rust."). An unrecognized name
+prints to console and returns `false` rather than silently falling back to
+Classic.
+
+`main.tscn`/`main.gd`: added a "World shape" `OptionButton`
+(Classic/Earth/Supercontinent/Archipelago/Volcanic/Rift) above the
+Generate button. `WORLD_SHAPES` maps its selected index to the archetype
+string `generate_world_structure` expects; index 0 (Classic) routes to the
+existing plain `generate()` call instead. The status label now also shows
+the chosen shape after a successful generate.
+
+- `cargo build/test/clippy --workspace`: all green/clean.
+- **Not verified in this environment**: same `godot4` CLI carve-out as the
+  previous entry — compiles, but the dropdown/generate flow hasn't been
+  clicked through in a real editor or export this session.
+
+**Remaining, all previously logged**: graph-driven orogeny (now the
+*only* real numerical deviation left when an archetype is selected — see
+the earlier World-Structure entry's own flag on `tectonicGraph`/
+`buildOrogenyField`), `stampVolcanoesProvinces`, ocean currents, terrain
+wind deflection, seasons — the stretch-goal deferrals `MVP_SCOPE.md`
+itself sanctions, plus the owner-only items (Godot editor / device
+verification) already flagged.
+
+**Next**: graph-driven orogeny — the largest remaining unported subsystem,
+and now the one piece of the World-Structure UI that doesn't match the
+reference's actual landform shaping yet; or one of the smaller climate
+deferrals (`stampVolcanoesProvinces`, ocean currents, wind deflection,
+seasons).

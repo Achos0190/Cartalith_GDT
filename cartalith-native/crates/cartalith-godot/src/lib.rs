@@ -10,7 +10,7 @@
 //! "Rust never touches the scene tree... only `cartalith-godot` may depend
 //! on `gdext`."
 
-use cartalith_engine::{generate_terrain, WorldParams};
+use cartalith_engine::{generate_terrain, WorldParams, WorldStructureParams};
 use godot::classes::image::Format;
 use godot::classes::{IRefCounted, INode, Image, ImageTexture, Node, RefCounted};
 use godot::init::{ExtensionLibrary, gdextension};
@@ -105,6 +105,45 @@ impl WorldGen {
         self.gw = gw as i32;
         self.gh = gh as i32;
         self.source = Some(WorldSource::Generated(Box::new(ws)));
+    }
+
+    /// Named World-Structure archetype presets (reference HTML
+    /// `ARCHETYPES`, lines 2521-2526) as
+    /// `(continentality, fragmentation, tectonic_energy, ocean_depth,
+    /// hotspot_density)`. `cartalith_engine::WorldParams::world_structure`
+    /// itself takes raw knobs only, not named presets (its own doc
+    /// comment: "a caller wanting 'Archipelago' passes that preset's own
+    /// numbers") -- so the name -> knobs lookup lives here, in the
+    /// boundary layer, rather than in GDScript
+    /// (`ARCHITECTURE.md`: "Godot computes nothing beyond layout").
+    #[func]
+    fn generate_world_structure(&mut self, seed: i32, width_km: f64, resolution: i32, archetype: GString) -> bool {
+        let (continentality, fragmentation, tectonic_energy, ocean_depth, hotspot_density) =
+            match archetype.to_string().to_lowercase().as_str() {
+                "earth" => (0.30, 0.50, 0.60, 0.60, 0.20),
+                "supercontinent" => (0.60, 0.10, 0.50, 0.70, 0.10),
+                "archipelago" => (0.15, 0.90, 0.80, 0.30, 0.50),
+                "volcanic" => (0.05, 1.00, 0.90, 0.80, 1.00),
+                "rift" => (0.40, 0.35, 0.75, 0.55, 0.30),
+                other => {
+                    godot_print!("cartalith-godot: unknown World-Structure archetype '{other}'");
+                    return false;
+                }
+            };
+
+        let gw = resolution.max(4) as usize;
+        let gh = gw;
+        let mut p = WorldParams::defaults(gw, gh, seed);
+        p.map_width_km = if width_km > 0.0 { width_km } else { 800.0 };
+        p.world_structure =
+            WorldStructureParams { enabled: true, continentality, fragmentation, tectonic_energy, ocean_depth, hotspot_density };
+
+        let ws = generate_terrain(&p);
+        self.sea_level = ws.sea_level;
+        self.gw = gw as i32;
+        self.gh = gh as i32;
+        self.source = Some(WorldSource::Generated(Box::new(ws)));
+        true
     }
 
     /// `MVP_SCOPE.md` point 12 / criterion 7: opens a real HTML-app `.zip`
