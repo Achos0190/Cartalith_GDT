@@ -690,10 +690,49 @@ pub fn isostatic_rebound(field: &mut [f32], pre: &[f32], gw: usize, gh: usize, b
     }
 }
 
+/// `recomputeResistanceAfterErosion()` (reference HTML line 3144, the
+/// comment right before it at lines 3140-3143): "exhumation exposes
+/// harder basement — where erosion has carved deeply (pre−post large),
+/// resistance climbs toward a basement maximum so the NEXT pass bites
+/// less there (differential erosion → benches / inselbergs / hard
+/// sills)". Mutates `resist` in place. JS gates the call on
+/// `state.tect.dynamicLithology` (default `false`); `cartalith-engine`
+/// mirrors that gate on `p.tect.dynamic_lithology`, so this only runs
+/// when a caller opts in.
+pub fn recompute_resistance_after_erosion(resist: &mut [f32], pre: &[f32], post: &[f32], k: f64) {
+    for i in 0..resist.len() {
+        let ex = pre[i] as f64 - post[i] as f64;
+        if ex > 0.0 {
+            resist[i] = ((resist[i] as f64 + k * ex).min(1.0)) as f32;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::recompute_resistance_after_erosion;
+
     #[test]
     fn crate_compiles_and_tests_run() {
         assert_eq!(2 + 2, 4);
+    }
+
+    // Hand-derived against the JS formula (reference HTML line 3146):
+    // `const ex=pre[i]-post[i]; if(ex>0) resist[i]=Math.min(1, resist[i]+k*ex);`
+    #[test]
+    fn recompute_resistance_matches_js_formula() {
+        let mut resist = vec![0.5f32, 0.5, 0.5, 0.9];
+        let pre = vec![1.0f32, 1.0, 1.0, 1.0];
+        let post = vec![0.8f32, 1.0, 1.1, 0.0];
+        recompute_resistance_after_erosion(&mut resist, &pre, &post, 2.0);
+
+        // ex = 0.2 > 0 -> 0.5 + 2.0*0.2 = 0.9
+        assert!((resist[0] - 0.9).abs() < 1e-6);
+        // ex = 0.0, not > 0 -> untouched
+        assert!((resist[1] - 0.5).abs() < 1e-6);
+        // ex = -0.1 (deposition, not exhumation) -> untouched
+        assert!((resist[2] - 0.5).abs() < 1e-6);
+        // ex = 1.0, 0.9 + 2.0*1.0 = 2.9 -> clamped to the basement max of 1.0
+        assert!((resist[3] - 1.0).abs() < 1e-6);
     }
 }

@@ -11,7 +11,7 @@ script = ExtResource("1")
 offset_left = 20.0
 offset_top = 20.0
 offset_right = 300.0
-offset_bottom = 260.0
+offset_bottom = 300.0
 
 [node name="Title" type="Label" parent="VBox"]
 text = "Cartalith terrain generator (Phase 1 MVP)"
@@ -55,6 +55,9 @@ value = 800.0
 [node name="GenerateButton" type="Button" parent="VBox"]
 text = "Generate"
 
+[node name="LoadSaveButton" type="Button" parent="VBox"]
+text = "Load Save (.zip)..."
+
 [node name="StatusLabel" type="Label" parent="VBox"]
 autowrap_mode = 2
 text = "Press Generate to run the pipeline."
@@ -64,5 +67,13 @@ offset_left = 320.0
 offset_top = 20.0
 offset_right = 832.0
 offset_bottom = 532.0
+
+[node name="LoadSaveDialog" type="FileDialog" parent="."]
+title = "Open a Cartalith save"
+size = Vector2i(600, 400)
+ok_button_text = "Open"
+file_mode = 0
+access = 2
+filters = PackedStringArray("*.zip ; Cartalith save")
 
 [node name="Skeleton" type="WalkingSkeleton" parent="."]

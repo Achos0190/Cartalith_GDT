@@ -43,8 +43,10 @@
 //!   the JS default being *on*, consistent with `simulate_weather`'s own
 //!   already-documented deferral of the same mechanism.
 //! - **Dynamic lithology** (`state.tect.dynamicLithology`, default `false`):
-//!   `recomputeResistanceAfterErosion` is gated on this flag in JS and stays
-//!   off at the default, so it's simply never called here.
+//!   ported and wired in (`recompute_resistance_after_erosion`, gated on
+//!   `p.tect.dynamic_lithology` exactly as JS gates it on the flag of the
+//!   same name in `eroFinish`) — off at the default, so this pipeline is
+//!   bit-identical to before unless a caller opts in.
 //! - **`enforceRiverChannels()`**: a no-op on any *fresh* `generate()` —
 //!   `riverMask` only ever gets cells locked by a PRIOR `carveRiverValleys`
 //!   call (or manual river brushing, which this port doesn't have), and
@@ -63,7 +65,7 @@
 //!   pipeline stays bit-identical").
 
 use cartalith_climate::{apply_climate_moisture_correctors, compute_temperature, simulate_weather, ClimateParams, WeatherParams};
-use cartalith_erosion::{isostatic_rebound, stream_power_kernel, StreamPowerParams};
+use cartalith_erosion::{isostatic_rebound, recompute_resistance_after_erosion, stream_power_kernel, StreamPowerParams};
 use cartalith_hydrology::{
     build_channels, compute_flow, enforce_channel_descent, river_width_scale_k, strahler_from_receivers,
     trace_river_polylines, ChannelResult,
@@ -85,11 +87,12 @@ fn js_round(x: f64) -> f64 {
 
 /// `state.tect` (reference HTML line 2264-2265) — the formula's real tuning
 /// knobs, plus `resist` (`streamParams()`'s erodibility-resistance weight,
-/// now read by `carveRiverValleys`'s light stream-power pass). The
+/// now read by `carveRiverValleys`'s light stream-power pass) and
+/// `dynamic_lithology` (`eroFinish`'s L4 exhumation-hardening gate — see
+/// `recompute_resistance_after_erosion`'s call site below). The remaining
 /// World-Structure-gated fields (`tectonicGraph`/`foldIntensity`/
-/// `trenchDepth`/`faultBlock`/`dynamicLithology`) stay omitted — WS stays
-/// off in this pipeline (see the module doc comment), so nothing here
-/// reads them.
+/// `trenchDepth`/`faultBlock`) stay omitted — WS stays off in this pipeline
+/// (see the module doc comment), so nothing here reads them.
 pub struct TectonicParams {
     pub seed: i32,
     pub plates: usize,
@@ -104,6 +107,7 @@ pub struct TectonicParams {
     pub flexure: f64,
     pub hetero: f64,
     pub resist: f64,
+    pub dynamic_lithology: bool,
 }
 
 /// `state.volc` (reference HTML line 2266) minus `provinces` — see the
@@ -239,6 +243,7 @@ impl WorldParams {
                 flexure: 0.20,
                 hetero: 0.08,
                 resist: 0.50,
+                dynamic_lithology: false,
             },
             volc: VolcanismParams { count: 20, age: 0.40 },
             crater: CraterParams { count: 100, age: 0.50 },
@@ -376,7 +381,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
 
     let heterogeneity_field =
         compute_heterogeneity(gw, gh, p.tect.seed, p.map_width_km, world, &age_field, warp_x, warp_y);
-    let resistance_field = compute_resistance(gw, gh, &plate_id, &plates, &age_field);
+    let mut resistance_field = compute_resistance(gw, gh, &plate_id, &plates, &age_field);
     // orogenyField: always None here -- see the module doc comment
     // ("Graph-driven orogeny").
 
@@ -545,8 +550,12 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         };
         stream_power_kernel(&mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &stream_params);
         isostatic_rebound(&mut field, &pre, gw, gh, p.tect.blur_r, world);
-        // recomputeResistanceAfterErosion(): dynamicLithology stays off in
-        // this pipeline -- see the module doc comment.
+        if p.tect.dynamic_lithology {
+            // recomputeResistanceAfterErosion(reference HTML line 3144):
+            // JS's own call site (`eroFinish`) passes no `opts`, so `k`
+            // uses the function's built-in default of 6.0.
+            recompute_resistance_after_erosion(&mut resistance_field, &pre, &field, 6.0);
+        }
         // enforceRiverChannels(): always a no-op here -- see the module
         // doc comment.
         let flow_for_network = compute_flow(gw, gh, &field, Some(&rainfall), true, world);

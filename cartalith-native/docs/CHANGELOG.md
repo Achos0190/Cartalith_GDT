@@ -1388,3 +1388,93 @@ items already flagged (a real `.zip` export, eyes on the Godot editor).
 expose `world_structure` to the GDScript UI now that the engine side
 is real; or graph-driven orogeny, the largest remaining unported
 subsystem. Open which to prioritize.
+
+## Phase 1 — dynamic lithology (L4 exhumation hardening) ported and wired (2026-08-13)
+
+`recomputeResistanceAfterErosion()` (reference HTML line 3144, doc
+comment at lines 3140-3143): where erosion has carved deeply
+(`pre[i] - post[i]` large, i.e. net exhumation), resistance climbs
+toward a basement maximum of 1.0 so the *next* erosion pass bites less
+there — differential erosion producing benches/inselbergs/hard sills.
+Pure per-cell formula, no RNG or convolution involved, so ported and
+golden-verified with a hand-derived unit test directly against the JS
+arithmetic (`cartalith-erosion`'s own test module) rather than an HTML
+extraction harness — nothing in `min(1, resist[i] + k*ex)` is
+order-sensitive the way `gauss_blur` or noise are.
+
+Wired into `cartalith-engine::generate_terrain`'s `carveRiverValleys`
+step, mirroring JS's own call site (`eroFinish`) exactly: called right
+after `isostatic_rebound`, gated on a new `TectonicParams::
+dynamic_lithology` field (default `false`, matching `state.tect.
+dynamicLithology`'s own JS default) with `k` fixed at 6.0 — JS's own
+built-in default when `eroFinish` calls it with no `opts`. Off by
+default, so this pipeline stays bit-identical to before unless a
+caller opts in; `resistance_field` is now declared `mut` to allow it.
+
+- `cargo test --workspace`: all green, including the new
+  `recompute_resistance_matches_js_formula` unit test.
+  `cargo clippy --workspace --all-targets`: clean.
+
+**Remaining, all previously logged**: graph-driven orogeny,
+`stampVolcanoesProvinces`, ocean currents, terrain wind deflection,
+seasons — the stretch-goal deferrals `MVP_SCOPE.md` itself sanctions,
+plus the two owner-only items already flagged (a real `.zip` export,
+eyes on the Godot editor). Dynamic lithology is no longer on this
+list.
+
+**Next**: same open choice as last entry — `cartalith-io::load_save`
+into `WorldGen`, `world_structure` exposed to the GDScript UI, or
+graph-driven orogeny.
+
+## Phase 1 — `cartalith-io::load_save` wired into `WorldGen`: MVP_SCOPE.md criterion 7 (2026-08-13)
+
+`WorldGen` (`cartalith-godot`) now carries a `WorldSource` enum
+(`Generated(Box<WorldState>)` from `generate()`, or `Loaded(Box<SaveData>)`
+from a new `load_save(path)` method) instead of a bare `Option<WorldState>`
+— a loaded save only has the terrain fields `SAVEFILE_COMPAT.md` documents
+(no plate/stress/flexure substrate; those were never part of the save
+format), so it's a distinct variant rather than a partially-fake
+`WorldState`. `build_color_texture` reads `(field, channel_mask)` through a
+small match on the source instead of touching `WorldState` fields directly,
+so the existing renderer (`MVP_SCOPE.md` point 10, already logged as
+deliberately not the reference's full renderer) needed no changes beyond
+that indirection. Channel overlay for a loaded save reuses
+`strahler_order` (`u8`, `0` = non-channel) directly — same semantics as
+`ChannelResult::chan` from a fresh `generate()`, so one `!= 0` check covers
+both sources.
+
+`load_save(path: GString) -> bool` opens `path` as a plain
+`std::fs::File` (`cartalith_io::load_save` only needs `Read + Seek`, so no
+Godot `FileAccess` involvement) and returns `false` — printing the error,
+leaving the previous `source` untouched — on any open/parse failure,
+matching `generate()`'s own fail-quietly-check-the-console shape. `path` is
+a native OS path, which is what a GDScript `FileDialog` in filesystem-access
+mode returns; `res://`/`user://` virtual paths are not handled and aren't
+needed for this criterion.
+
+`main.tscn`/`main.gd`: added a "Load Save (.zip)..." button and a
+`FileDialog` (`access = FILESYSTEM`, `*.zip` filter) — picking a file calls
+`WorldGen.load_save` then `build_color_texture`, mirroring the Generate
+button's own status-label pattern.
+
+- `cargo build/test/clippy --workspace`: all green/clean, including the
+  boxed `WorldSource` variants (clippy's `large_enum_variant` on the
+  first pass — `WorldState` at 488 bytes vs. `SaveData` at 184 — fixed by
+  boxing both).
+- **Not verified in this environment**: no `godot4` CLI available this
+  session, so the scene/extension change is unverified against a real
+  Godot import or a real HTML-app `.zip` export — only "compiles and the
+  Rust-side unit tests pass" is confirmed
+  (`cartalith-porting-discipline`'s own carve-out). Criterion 7 needs a
+  real save file and a side-by-side comparison against what the HTML app
+  shows for it — owner-only until then.
+
+**Remaining, all previously logged**: graph-driven orogeny,
+`stampVolcanoesProvinces`, ocean currents, terrain wind deflection,
+seasons, `world_structure` not yet exposed to the GDScript UI — the
+stretch-goal deferrals `MVP_SCOPE.md` itself sanctions, plus the
+owner-only items above and eyes on the Godot editor.
+
+**Next**: expose `world_structure` to the GDScript UI now that both the
+generate and load paths are real; or graph-driven orogeny, the largest
+remaining unported subsystem.

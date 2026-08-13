@@ -49,16 +49,31 @@ impl WalkingSkeleton {
     }
 }
 
+/// Either a fresh `generate_terrain()` run or a loaded save
+/// (`cartalith_io::load_save`, `MVP_SCOPE.md` point 12/criterion 7). A
+/// loaded save only carries the terrain fields `SAVEFILE_COMPAT.md`
+/// documents (no plate/stress/flexure substrate — those aren't part of the
+/// save format), so this is a separate variant rather than trying to
+/// backfill a full `WorldState`; `build_color_texture` reads through
+/// `WorldGen`'s own small accessor methods below so it doesn't need to
+/// know which source is active.
+enum WorldSource {
+    Generated(Box<cartalith_engine::WorldState>),
+    Loaded(Box<cartalith_io::SaveData>),
+}
+
 /// `MVP_SCOPE.md` points 10-11: basic 2D rendering + minimal UI. Owns the
-/// last `generate_terrain()` result; GDScript drives it via `generate()`
-/// then `build_color_texture()`. Square grid (`gw == gh`) for MVP — the
-/// reference HTML's own `resW`/aspect-from-image handling is UI-layer
-/// scope this port hasn't built yet.
+/// last `generate_terrain()` result (or loaded save); GDScript drives it via
+/// `generate()`/`load_save()` then `build_color_texture()`. Square grid
+/// (`gw == gh`) for MVP **generation** — a loaded save keeps whatever
+/// `GW`/`GH` it was exported at, which need not be square (the reference
+/// HTML's own `resW`/aspect-from-image handling is UI-layer scope this port
+/// hasn't built yet, but a save's own stored resolution isn't that).
 #[derive(GodotClass)]
 #[class(base=RefCounted)]
 struct WorldGen {
     base: Base<RefCounted>,
-    state: Option<cartalith_engine::WorldState>,
+    source: Option<WorldSource>,
     gw: i32,
     gh: i32,
     sea_level: f64,
@@ -67,7 +82,7 @@ struct WorldGen {
 #[godot_api]
 impl IRefCounted for WorldGen {
     fn init(base: Base<RefCounted>) -> Self {
-        Self { base, state: None, gw: 0, gh: 0, sea_level: 0.42 }
+        Self { base, source: None, gw: 0, gh: 0, sea_level: 0.42 }
     }
 }
 
@@ -89,7 +104,38 @@ impl WorldGen {
         self.sea_level = ws.sea_level;
         self.gw = gw as i32;
         self.gh = gh as i32;
-        self.state = Some(ws);
+        self.source = Some(WorldSource::Generated(Box::new(ws)));
+    }
+
+    /// `MVP_SCOPE.md` point 12 / criterion 7: opens a real HTML-app `.zip`
+    /// and renders that save's terrain. `path` is a native OS filesystem
+    /// path (e.g. from a GDScript `FileDialog` in native/desktop mode) --
+    /// `cartalith_io::load_save` only needs `Read + Seek`, so a plain
+    /// `std::fs::File` satisfies it without any Godot `FileAccess`
+    /// involvement. Returns `false` on any read/parse error and leaves the
+    /// previous `source` untouched, matching `generate()`'s own
+    /// fail-quietly-check-the-console shape (`main.gd`'s doc comment).
+    #[func]
+    fn load_save(&mut self, path: GString) -> bool {
+        let file = match std::fs::File::open(path.to_string()) {
+            Ok(f) => f,
+            Err(e) => {
+                godot_print!("cartalith-godot: load_save open failed: {e}");
+                return false;
+            }
+        };
+        let save = match cartalith_io::load_save(std::io::BufReader::new(file)) {
+            Ok(s) => s,
+            Err(e) => {
+                godot_print!("cartalith-godot: load_save failed: {e}");
+                return false;
+            }
+        };
+        self.gw = save.params.gw as i32;
+        self.gh = save.params.gh as i32;
+        self.sea_level = save.params.sea_level;
+        self.source = Some(WorldSource::Loaded(Box::new(save)));
+        true
     }
 
     #[func]
@@ -117,7 +163,10 @@ impl WorldGen {
     /// call.
     #[func]
     fn build_color_texture(&self) -> Option<Gd<ImageTexture>> {
-        let ws = self.state.as_ref()?;
+        let (field, chan_mask): (&[f32], Option<&[u8]>) = match self.source.as_ref()? {
+            WorldSource::Generated(ws) => (&ws.field, ws.channels.as_ref().map(|c| c.chan.as_slice())),
+            WorldSource::Loaded(save) => (&save.fields.heightmap, Some(save.fields.strahler_order.as_slice())),
+        };
         let gw = self.gw as usize;
         let gh = self.gh as usize;
         let sea = self.sea_level;
@@ -126,22 +175,22 @@ impl WorldGen {
         for y in 0..gh {
             for x in 0..gw {
                 let i = y * gw + x;
-                let h = ws.field[i] as f64;
+                let h = field[i] as f64;
                 let (mut r, mut g, mut b) = color_for_height(h, sea);
 
                 let xl = if x > 0 { x - 1 } else { 0 };
                 let xr = if x + 1 < gw { x + 1 } else { gw - 1 };
                 let yu = if y > 0 { y - 1 } else { 0 };
                 let yd = if y + 1 < gh { y + 1 } else { gh - 1 };
-                let gx = (ws.field[y * gw + xr] as f64 - ws.field[y * gw + xl] as f64) * 0.5;
-                let gy = (ws.field[yd * gw + x] as f64 - ws.field[yu * gw + x] as f64) * 0.5;
+                let gx = (field[y * gw + xr] as f64 - field[y * gw + xl] as f64) * 0.5;
+                let gy = (field[yd * gw + x] as f64 - field[yu * gw + x] as f64) * 0.5;
                 let shade = hillshade(gx, gy);
                 r *= shade;
                 g *= shade;
                 b *= shade;
 
-                if let Some(channels) = &ws.channels
-                    && channels.chan[i] != 0
+                if let Some(mask) = chan_mask
+                    && mask[i] != 0
                 {
                     r *= 0.5;
                     g = (g * 0.5 + 0.3).min(1.0);
