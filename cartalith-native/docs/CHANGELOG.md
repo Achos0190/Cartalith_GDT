@@ -1646,3 +1646,46 @@ heavy algorithms ported this session (`stamp_volcanoes_provinces`,
 `deflect_flow`) against real JS output is worth flagging to the owner as
 its own piece of work — both are functionally complete and blocked purely
 on this environment lacking a JS runtime.
+
+## Phase 1 — experimental subsystem toggles exposed to the GDScript UI (2026-08-13)
+
+The three formulas ported this session but kept off by default
+(dynamic lithology, clustered volcanism/provinces, terrain wind
+deflection) had no way to reach the UI at all — the only way to exercise
+them was a hand-edited `WorldParams`. `WorldGen` gained
+`set_experimental_flags(dynamic_lithology, volc_provinces,
+terrain_wind_deflection)`, applied by both `generate()` and
+`generate_world_structure()` before calling `generate_terrain`; `main.tscn`
+gained an "Experimental (unverified vs. the HTML app)" section with one
+checkbox per flag, read at Generate-press time.
+
+**Why now, and why exposed at all despite being unverified**: this
+environment structurally cannot golden-verify these three (`stamp_volcanoes_
+provinces`, `deflect_flow`/wind deflection, `recompute_resistance_after_
+erosion`'s gate) against real JS — no JS runtime here to run the reference
+HTML. But the *owner's* machine can run that reference HTML directly. Real
+UI checkboxes turn "someone needs to write a golden-fixture-extraction
+harness" into "toggle this on, generate the same seed in both the Godot
+build and the HTML app, and look" — a much lower bar, and the fastest
+realistic path to closing this port's actual outstanding verification gap.
+Labeled "unverified" explicitly, not left implicit.
+
+- `cargo build/test/clippy --workspace`: all green/clean.
+- Also fixed two stale doc comments in `cartalith-godot::WorldGen`
+  (`generate`/`generate_world_structure`) still saying World-Structure
+  archetypes were "not yet exposed to this UI" — they have been since two
+  entries back.
+- **Not verified in this environment**: same `godot4` CLI carve-out as
+  every Godot-side change this session — compiles, but the three new
+  checkboxes haven't been clicked in a real editor or export.
+
+**Remaining, all previously logged**: graph-driven orogeny, ocean-current
+SST folding, seasons — plus golden-verifying the three experimental flags
+now exposed, which is squarely an owner task from here (needs the actual
+HTML app to compare against, not just a JS runtime to run it headless).
+
+**Next**: graph-driven orogeny or seasons for further subsystem ports;
+otherwise this phase's remaining open items are largely owner-side
+(Windows/Android device verification per `MVP_SCOPE.md` criteria 3-4, a
+real Godot editor pass, and now side-by-side experimental-flag comparison
+against the HTML app).

@@ -77,17 +77,48 @@ struct WorldGen {
     gw: i32,
     gh: i32,
     sea_level: f64,
+    /// Set via `set_experimental_flags`, applied by both `generate()` and
+    /// `generate_world_structure()`. All three gate a formula this port
+    /// has ported but cannot golden-verify in this environment (no JS
+    /// runtime -- see each field's own doc comment in `cartalith-engine`/
+    /// `cartalith-climate`), so each defaults to JS-parity-matching
+    /// `false` and is opt-in only. Exposed to the UI specifically so the
+    /// owner can compare against the real HTML app and help close that
+    /// verification gap.
+    dynamic_lithology: bool,
+    volc_provinces: bool,
+    terrain_wind_deflection: bool,
 }
 
 #[godot_api]
 impl IRefCounted for WorldGen {
     fn init(base: Base<RefCounted>) -> Self {
-        Self { base, source: None, gw: 0, gh: 0, sea_level: 0.42 }
+        Self {
+            base,
+            source: None,
+            gw: 0,
+            gh: 0,
+            sea_level: 0.42,
+            dynamic_lithology: false,
+            volc_provinces: false,
+            terrain_wind_deflection: false,
+        }
     }
 }
 
 #[godot_api]
 impl WorldGen {
+    /// Sets the three experimental, JS-unverified flags this instance's
+    /// `generate()`/`generate_world_structure()` calls apply from then on
+    /// — see the `WorldGen` struct's own doc comment on the fields this
+    /// writes.
+    #[func]
+    fn set_experimental_flags(&mut self, dynamic_lithology: bool, volc_provinces: bool, terrain_wind_deflection: bool) {
+        self.dynamic_lithology = dynamic_lithology;
+        self.volc_provinces = volc_provinces;
+        self.terrain_wind_deflection = terrain_wind_deflection;
+    }
+
     /// Runs the full ported pipeline (`cartalith_engine::generate_terrain`)
     /// at the given seed/real-km map width/grid resolution. `resolution`
     /// is clamped to a sane minimum (4) — a 0 or negative value from an
@@ -98,9 +129,12 @@ impl WorldGen {
         let gh = gw;
         let mut p = WorldParams::defaults(gw, gh, seed);
         p.map_width_km = if width_km > 0.0 { width_km } else { 800.0 };
+        p.tect.dynamic_lithology = self.dynamic_lithology;
+        p.volc.provinces = self.volc_provinces;
+        p.climate.terrain_wind_deflection = self.terrain_wind_deflection;
         let ws = generate_terrain(&p);
-        // Not p.sea_level -- World-Structure archetypes (once exposed to
-        // this UI) re-anchor it; WorldState carries the value actually used.
+        // Not p.sea_level -- World-Structure archetypes re-anchor it;
+        // WorldState carries the value actually used.
         self.sea_level = ws.sea_level;
         self.gw = gw as i32;
         self.gh = gh as i32;
@@ -137,6 +171,9 @@ impl WorldGen {
         p.map_width_km = if width_km > 0.0 { width_km } else { 800.0 };
         p.world_structure =
             WorldStructureParams { enabled: true, continentality, fragmentation, tectonic_energy, ocean_depth, hotspot_density };
+        p.tect.dynamic_lithology = self.dynamic_lithology;
+        p.volc.provinces = self.volc_provinces;
+        p.climate.terrain_wind_deflection = self.terrain_wind_deflection;
 
         let ws = generate_terrain(&p);
         self.sea_level = ws.sea_level;

@@ -11,7 +11,7 @@ script = ExtResource("1")
 offset_left = 20.0
 offset_top = 20.0
 offset_right = 300.0
-offset_bottom = 340.0
+offset_bottom = 460.0
 
 [node name="Title" type="Label" parent="VBox"]
 text = "Cartalith terrain generator (Phase 1 MVP)"
@@ -66,6 +66,19 @@ item_2/text = "Supercontinent"
 item_3/text = "Archipelago"
 item_4/text = "Volcanic"
 item_5/text = "Rift"
+
+[node name="ExperimentalLabel" type="Label" parent="VBox"]
+text = "Experimental (unverified vs. the HTML app):"
+autowrap_mode = 2
+
+[node name="DynamicLithologyCheck" type="CheckBox" parent="VBox"]
+text = "Dynamic lithology (exhumation hardening)"
+
+[node name="VolcProvincesCheck" type="CheckBox" parent="VBox"]
+text = "Clustered volcanism (provinces)"
+
+[node name="WindDeflectionCheck" type="CheckBox" parent="VBox"]
+text = "Terrain wind deflection"
 
 [node name="GenerateButton" type="Button" parent="VBox"]
 text = "Generate"

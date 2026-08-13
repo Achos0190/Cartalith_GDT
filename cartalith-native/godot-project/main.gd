@@ -9,6 +9,9 @@ extends Control
 @onready var resolution_input: SpinBox = $VBox/ResolutionRow/ResolutionInput
 @onready var width_input: SpinBox = $VBox/WidthRow/WidthInput
 @onready var world_shape_input: OptionButton = $VBox/WorldShapeRow/WorldShapeInput
+@onready var dynamic_lithology_check: CheckBox = $VBox/DynamicLithologyCheck
+@onready var volc_provinces_check: CheckBox = $VBox/VolcProvincesCheck
+@onready var wind_deflection_check: CheckBox = $VBox/WindDeflectionCheck
 @onready var generate_button: Button = $VBox/GenerateButton
 @onready var load_save_button: Button = $VBox/LoadSaveButton
 @onready var status_label: Label = $VBox/StatusLabel
@@ -36,6 +39,16 @@ func _on_generate_pressed() -> void:
 	var resolution := int(resolution_input.value)
 	var width_km := width_input.value
 	var archetype := WORLD_SHAPES[world_shape_input.selected]
+
+	## Ported but unverified against the real JS engine in this dev
+	## environment (no JS runtime here to extract golden fixtures) --
+	## opt-in only. Comparing this build's output against the actual HTML
+	## app with these on is exactly how that gap gets closed.
+	world_gen.set_experimental_flags(
+		dynamic_lithology_check.button_pressed,
+		volc_provinces_check.button_pressed,
+		wind_deflection_check.button_pressed,
+	)
 
 	var ok := true
 	if archetype.is_empty():
