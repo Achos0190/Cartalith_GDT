@@ -1210,12 +1210,11 @@ fn place_sized_volcano(
 /// at random, jittered by up to 6 cells.
 ///
 /// **Not the JS default** — `state.volc.provinces` defaults to `true`,
-/// which routes through `stampVolcanoesProvinces` (clustered arc/rift/
-/// hotspot chains) instead. That function isn't ported yet; this one is
-/// the shared foundation (`stampOneVolcano`/`placeSizedVolcano`) both
-/// modes build on, ported first because it's independently useful and
-/// far simpler to golden-verify in isolation. Tracked, not silently
-/// dropped — see `cartalith-native/docs/CHANGELOG.md`.
+/// which routes through `stamp_volcanoes_provinces` (below; clustered
+/// arc/rift/hotspot chains) instead. This is the shared foundation
+/// (`stampOneVolcano`/`placeSizedVolcano`) both modes build on, and stays
+/// reachable as the `provinces: false` path (`cartalith-engine`'s own
+/// `VolcanismParams::provinces`).
 #[allow(clippy::too_many_arguments)]
 pub fn stamp_volcanoes_simple(
     gw: usize,
@@ -1268,6 +1267,276 @@ pub fn stamp_volcanoes_simple(
         {
             placed += 1;
         }
+    }
+}
+
+/// `classifyBoundaries()` (reference HTML lines 3508-3512): splits plate
+/// boundary cells by stress sign — convergent (subduction, `s > 0.05`) vs.
+/// divergent (rift, `s < -0.05`). `stress_field` is a per-cell `f32`
+/// (`Float32Array` in JS); comparing the `f64`-promoted value against the
+/// `f64` literal thresholds, rather than comparing two `f32`s directly,
+/// matches how JS itself reads a typed-array element back as a full-width
+/// number before the comparison.
+fn classify_boundaries(boundary_mask: &[u8], stress_field: &[f32]) -> (Vec<usize>, Vec<usize>) {
+    let mut conv = Vec::new();
+    let mut div = Vec::new();
+    for i in 0..boundary_mask.len() {
+        if boundary_mask[i] == 0 {
+            continue;
+        }
+        let s = stress_field[i] as f64;
+        if s > 0.05 {
+            conv.push(i);
+        } else if s < -0.05 {
+            div.push(i);
+        }
+    }
+    (conv, div)
+}
+
+/// `placeProvinceVolcanoes()` (reference HTML lines 3514-3538): places one
+/// province's volcanoes — an age-progressive hotspot chain along plate
+/// drift, or (arc/rift) boundary-hugging placements spaced along the
+/// matching convergent/divergent cell pool, falling back to a scatter
+/// around the province centre when that pool has no candidates within
+/// `rad_prov`. The reference's own `placed` return array is never read by
+/// its one caller (`stamp_volcanoes_provinces` discards it) — the side
+/// effects on `field`/`volcanic_field` are what matter, so this doesn't
+/// build it.
+///
+/// Every RNG draw below is its own `let`, in the same left-to-right order
+/// the JS source's (multi-draw) argument lists evaluate in —
+/// `place_sized_volcano` also takes `rng: &mut Mulberry32`, so inlining
+/// draws directly as call arguments the way the JS source reads would
+/// need two live mutable borrows of `rng` at once (one held for the `rng`
+/// argument itself, one for a later argument's own `.next_f64()` call) and
+/// doesn't compile; splitting each draw into its own statement first, in
+/// JS's exact argument-evaluation order, is both what compiles and what's
+/// order-correct.
+#[allow(clippy::too_many_arguments)]
+fn place_province_volcanoes(
+    gw: usize,
+    gh: usize,
+    field: &mut [f32],
+    volcanic_field: &mut [f32],
+    map_width_km: f64,
+    peak_m: f64,
+    plate_id: &[usize],
+    plates: &[Plate],
+    kind: &str,
+    cx: f64,
+    cy: f64,
+    rad_prov: f64,
+    count: i32,
+    conv: &[usize],
+    div: &[usize],
+    rng: &mut Mulberry32,
+    cell_km: f64,
+    volc_age: f64,
+) {
+    if kind == "hotspot" {
+        let pid = plate_id[(cy as usize) * gw + cx as usize];
+        let pl = &plates[pid];
+        let (mut ux, mut uy) = (pl.vx, pl.vy);
+        let l = ux.hypot(uy);
+        let l = if l == 0.0 { 1.0 } else { l };
+        ux /= l;
+        uy /= l;
+        let step = (80.0 + rng.next_f64() * 70.0) / cell_km;
+        for n in 0..count {
+            let t = n as f64 - (count as f64 - 1.0) / 2.0;
+            let jx = (rng.next_f64() * 2.0 - 1.0) * 6.0;
+            let jy = (rng.next_f64() * 2.0 - 1.0) * 6.0;
+            let x = cx + ux * step * t + jx;
+            let y = cy + uy * step * t + jy;
+            let age = ((n as f64 / (count as f64 - 1.0).max(1.0)) * 0.85 + rng.next_f64() * volc_age * 0.4).min(1.0);
+            place_sized_volcano(gw, gh, field, volcanic_field, map_width_km, peak_m, x, y, rng, age);
+        }
+        return;
+    }
+
+    let pool: &[usize] = if kind == "arc" { conv } else { div };
+    let mut cand: Vec<usize> = pool
+        .iter()
+        .copied()
+        .filter(|&i| {
+            let x = (i % gw) as f64;
+            let y = (i / gw) as f64;
+            (x - cx).hypot(y - cy) <= rad_prov
+        })
+        .collect();
+    let sp = (50.0 + rng.next_f64() * 100.0) / cell_km;
+
+    if cand.is_empty() {
+        for _ in 0..count {
+            // `6.283`, not `TAU` -- the reference HTML's own literal
+            // (line 3530), not a full-precision 2*pi. Matching it exactly
+            // is the point (`cartalith-rust-conventions`: match precision,
+            // don't improve it).
+            #[allow(clippy::approx_constant)]
+            let a = rng.next_f64() * 6.283;
+            let r = rng.next_f64() * rad_prov * 0.5;
+            let age = rng.next_f64() * volc_age;
+            place_sized_volcano(
+                gw,
+                gh,
+                field,
+                volcanic_field,
+                map_width_km,
+                peak_m,
+                cx + a.cos() * r,
+                cy + a.sin() * r,
+                rng,
+                age,
+            );
+        }
+        return;
+    }
+
+    // Fisher-Yates shuffle -- JS's own loop shape exactly
+    // (`for(k=cand.length-1;k>0;k--)`), not a library shuffle, since the
+    // exact RNG draw sequence is load-bearing for parity.
+    for k in (1..cand.len()).rev() {
+        let j = (rng.next_f64() * (k as f64 + 1.0)) as usize;
+        cand.swap(k, j);
+    }
+
+    let mut chosen: Vec<usize> = Vec::new();
+    for &i in &cand {
+        let x = (i % gw) as f64;
+        let y = (i / gw) as f64;
+        let ok = chosen.iter().all(|&c| {
+            let cxp = (c % gw) as f64;
+            let cyp = (c / gw) as f64;
+            (x - cxp).hypot(y - cyp) >= sp
+        });
+        if ok {
+            chosen.push(i);
+            if chosen.len() as i32 >= count {
+                break;
+            }
+        }
+    }
+
+    let mut pc = 0;
+    for &i in &chosen {
+        let x = (i % gw) as f64;
+        let y = (i / gw) as f64;
+        let jx = (rng.next_f64() * 2.0 - 1.0) * 6.0;
+        let jy = (rng.next_f64() * 2.0 - 1.0) * 6.0;
+        let age = rng.next_f64() * volc_age;
+        place_sized_volcano(gw, gh, field, volcanic_field, map_width_km, peak_m, x + jx, y + jy, rng, age);
+        pc += 1;
+    }
+    while pc < count {
+        let base = if !chosen.is_empty() {
+            chosen[(rng.next_f64() * chosen.len() as f64) as usize]
+        } else {
+            cand[(rng.next_f64() * cand.len() as f64) as usize]
+        };
+        let bx = (base % gw) as f64;
+        let by = (base / gw) as f64;
+        let jx = (rng.next_f64() * 2.0 - 1.0) * 8.0;
+        let jy = (rng.next_f64() * 2.0 - 1.0) * 8.0;
+        let age = rng.next_f64() * volc_age;
+        place_sized_volcano(gw, gh, field, volcanic_field, map_width_km, peak_m, bx + jx, by + jy, rng, age);
+        pc += 1;
+    }
+}
+
+/// `stampVolcanoesProvinces()` (reference HTML lines 3540-3556): the JS
+/// default (`state.volc.provinces` = `true`) — clusters volcanoes into a
+/// handful of provinces (75% arc/subduction, 15% rift, 10% hotspot chain)
+/// along plate boundaries rather than dusting them uniformly the way
+/// `stamp_volcanoes_simple` does.
+#[allow(clippy::too_many_arguments)]
+pub fn stamp_volcanoes_provinces(
+    gw: usize,
+    gh: usize,
+    seed: u32,
+    map_width_km: f64,
+    peak_m: f64,
+    boundary_mask: &[u8],
+    stress_field: &[f32],
+    plate_id: &[usize],
+    plates: &[Plate],
+    volc_count: i32,
+    volc_age: f64,
+    field: &mut [f32],
+    volcanic_field: &mut [f32],
+) {
+    let mut rng = Mulberry32::new(seed ^ 0x5bf03635);
+    let (conv, div) = classify_boundaries(boundary_mask, stress_field);
+    let cell_km = map_width_km / gw as f64;
+    let n_prov = (js_round(volc_count as f64 / 7.0) as i32).clamp(1, 7);
+    let mut remaining = volc_count;
+
+    for pi in 0..n_prov {
+        if remaining <= 0 {
+            break;
+        }
+        let roll = rng.next_f64();
+        let mut kind = if roll < 0.75 {
+            "arc"
+        } else if roll < 0.90 {
+            "rift"
+        } else {
+            "hotspot"
+        };
+        if kind == "arc" && conv.is_empty() {
+            kind = if !div.is_empty() { "rift" } else { "hotspot" };
+        }
+        if kind == "rift" && div.is_empty() {
+            kind = if !conv.is_empty() { "arc" } else { "hotspot" };
+        }
+
+        let (cx, cy, rad_km_p);
+        match kind {
+            "arc" => {
+                let i = conv[(rng.next_f64() * conv.len() as f64) as usize];
+                cx = (i % gw) as f64;
+                cy = (i / gw) as f64;
+                rad_km_p = 100.0 + rng.next_f64() * 200.0;
+            }
+            "rift" => {
+                let i = div[(rng.next_f64() * div.len() as f64) as usize];
+                cx = (i % gw) as f64;
+                cy = (i / gw) as f64;
+                rad_km_p = 200.0 + rng.next_f64() * 400.0;
+            }
+            _ => {
+                cx = (rng.next_f64() * gw as f64).floor();
+                cy = (rng.next_f64() * gh as f64).floor();
+                rad_km_p = 500.0 + rng.next_f64() * 500.0;
+            }
+        }
+
+        let prov_left = (n_prov - pi) as f64;
+        let mut sub = (js_round(remaining as f64 / prov_left * (0.6 + 0.8 * rng.next_f64())) as i32).max(1);
+        if sub > remaining {
+            sub = remaining;
+        }
+        place_province_volcanoes(
+            gw,
+            gh,
+            field,
+            volcanic_field,
+            map_width_km,
+            peak_m,
+            plate_id,
+            plates,
+            kind,
+            cx,
+            cy,
+            rad_km_p / cell_km,
+            sub,
+            &conv,
+            &div,
+            &mut rng,
+            cell_km,
+            volc_age,
+        );
+        remaining -= sub;
     }
 }
 

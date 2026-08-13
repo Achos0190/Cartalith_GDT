@@ -33,10 +33,12 @@
 //! correspondingly not modeled at all.
 //!
 //! ## What else this deliberately does NOT reproduce, and why
-//! - **`stampVolcanoesProvinces`** (`state.volc.provinces`, default `true` —
-//!   already a known, previously-logged deviation from JS's literal default,
-//!   not new to this pass): only `stampVolcanoesSimple` is ported, so this
-//!   function always uses it regardless of the `provinces` default.
+//! - **`stampVolcanoesProvinces`** (`state.volc.provinces`, JS default
+//!   `true`): ported (`cartalith_terrain::stamp_volcanoes_provinces`) and
+//!   reachable via `p.volc.provinces`, but this port's own default here
+//!   is `false` — see `WorldParams::defaults`'s doc comment on why
+//!   (no JS runtime in this environment to extract golden fixtures
+//!   against a placement algorithm this RNG-order-sensitive).
 //! - **Ocean-current SST folding** (`state.climate.currents`, default `true`):
 //!   `MVP_SCOPE.md` explicitly names ocean-current terrain coupling a stretch
 //!   goal and grants permission to defer it if documented — taken here despite
@@ -73,8 +75,8 @@ use cartalith_hydrology::{
 use cartalith_terrain::{
     apply_world_structure_sea_level, assign_plates, build_age_field, build_plates, compute_flexure, compute_height,
     compute_heterogeneity, compute_resistance, compute_stress, compute_warp, gauss_blur,
-    generate_continentality_field, normalize_field, stamp_craters, stamp_volcanoes_simple, HeightParams,
-    WorldStructure,
+    generate_continentality_field, normalize_field, stamp_craters, stamp_volcanoes_provinces, stamp_volcanoes_simple,
+    HeightParams, WorldStructure,
 };
 
 /// Mirrors JS `Math.round` (ties toward `+Infinity`) — same trap
@@ -110,12 +112,15 @@ pub struct TectonicParams {
     pub dynamic_lithology: bool,
 }
 
-/// `state.volc` (reference HTML line 2266) minus `provinces` — see the
-/// module doc comment on why `stampVolcanoesSimple` always runs here
-/// regardless of that flag's default.
+/// `state.volc` (reference HTML line 2266). `provinces` selects
+/// `stamp_volcanoes_provinces` (JS default, `true`) vs. `stamp_volcanoes_simple`
+/// (`false`) — see `generate_terrain`'s own volcanism section and
+/// `WorldParams::defaults`'s doc comment on why `false` is this port's own
+/// default for now, not JS's.
 pub struct VolcanismParams {
     pub count: i32,
     pub age: f64,
+    pub provinces: bool,
 }
 
 /// `state.crater` (reference HTML line 2267).
@@ -245,7 +250,23 @@ impl WorldParams {
                 resist: 0.50,
                 dynamic_lithology: false,
             },
-            volc: VolcanismParams { count: 20, age: 0.40 },
+            // `provinces: false`, not JS's own literal default (`true`):
+            // stamp_volcanoes_provinces is ported (cartalith-terrain) and
+            // reachable via this flag, but this environment has no JS
+            // runtime to extract real golden fixtures against it
+            // (`PARITY_TESTING.md`'s own extraction procedure needs one),
+            // so it isn't golden-verified yet. A hand-derived unit test
+            // isn't a substitute here the way it was for
+            // recompute_resistance_after_erosion's pure per-cell formula
+            // -- this is a multi-branch, RNG-order-sensitive placement
+            // algorithm across a whole grid, exactly the kind of thing
+            // `cartalith-porting-discipline` says "looks reasonable" isn't
+            // sufficient for. `false` keeps this pipeline's default
+            // output identical to before this port (and to
+            // golden_parity_carve.rs's existing verified fixtures) until
+            // someone with a JS runtime extracts real fixtures and flips
+            // this default to match JS.
+            volc: VolcanismParams { count: 20, age: 0.40, provinces: false },
             crater: CraterParams { count: 100, age: 0.50 },
             planet: PlanetParams { g: 1.0, rotation_hours: 24.0, axial_tilt_deg: 23.4 },
             climate: ClimateInputParams {
@@ -416,20 +437,38 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
     let mut volcanic_field = vec![0f32; gw * gh];
     let mut impact_field = vec![0f32; gw * gh];
     if volc_count > 0 {
-        // stampVolcanoesSimple, not stampVolcanoesProvinces -- see the
-        // module doc comment.
-        stamp_volcanoes_simple(
-            gw,
-            gh,
-            p.tect.seed as u32,
-            p.map_width_km,
-            p.peak_m,
-            &stress.boundary_mask,
-            volc_count,
-            p.volc.age,
-            &mut field,
-            &mut volcanic_field,
-        );
+        // stampVolcanoes() (reference HTML lines 3474-3478): dispatches on
+        // state.volc.provinces, JS default true.
+        if p.volc.provinces {
+            stamp_volcanoes_provinces(
+                gw,
+                gh,
+                p.tect.seed as u32,
+                p.map_width_km,
+                p.peak_m,
+                &stress.boundary_mask,
+                &stress.stress_field,
+                &plate_id,
+                &plates,
+                volc_count,
+                p.volc.age,
+                &mut field,
+                &mut volcanic_field,
+            );
+        } else {
+            stamp_volcanoes_simple(
+                gw,
+                gh,
+                p.tect.seed as u32,
+                p.map_width_km,
+                p.peak_m,
+                &stress.boundary_mask,
+                volc_count,
+                p.volc.age,
+                &mut field,
+                &mut volcanic_field,
+            );
+        }
     }
     stamp_craters(
         gw,

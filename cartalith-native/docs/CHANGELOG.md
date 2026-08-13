@@ -1523,3 +1523,62 @@ and now the one piece of the World-Structure UI that doesn't match the
 reference's actual landform shaping yet; or one of the smaller climate
 deferrals (`stampVolcanoesProvinces`, ocean currents, wind deflection,
 seasons).
+
+## Phase 1 — `stampVolcanoesProvinces` ported, not yet the default (2026-08-13)
+
+`classifyBoundaries`/`placeProvinceVolcanoes`/`stampVolcanoesProvinces`
+(reference HTML lines 3507-3556) — the JS default (`state.volc.provinces:
+true`) volcanism mode: clusters volcanoes into a handful of provinces
+(75% arc/subduction along convergent boundaries, 15% rift along divergent
+ones, 10% age-progressive hotspot chains along plate drift) instead of
+`stamp_volcanoes_simple`'s uniform boundary dusting. New
+`cartalith-terrain` functions, all three ported line-for-line including
+RNG draw order — the tricky part: several call sites in the reference draw
+multiple `rng()` values within one JS expression (e.g.
+`placeSizedVolcano(x+(rng()*2-1)*6, y+(rng()*2-1)*6, rng, rng()*age)`,
+three draws in one argument list). Rust can't borrow `rng: &mut Mulberry32`
+mutably twice within one call expression the way that reads, so each draw
+became its own `let` in the same left-to-right order JS's argument
+evaluation would hit it — same numbers, different syntax.
+
+**Ported, but `cartalith_engine::VolcanismParams::provinces` defaults to
+`false`, not JS's own `true`** — a real, deliberate deviation, flagged
+rather than silently taken (`cartalith-porting-discipline`'s own standard
+for this). This environment has no JS runtime
+(`PARITY_TESTING.md`'s extraction procedure needs one to run the reference
+HTML and read back real numbers), so there's no way to extract golden
+fixtures for a multi-branch, RNG-order-sensitive placement algorithm —
+unlike `recompute_resistance_after_erosion` earlier this phase, a
+hand-derived unit test isn't a credible substitute here. Shipping this as
+the pipeline's silent default without golden verification would be
+exactly the "looks reasonable" bar this project's discipline rejects. The
+function is fully reachable (`p.volc.provinces = true`) for anyone who
+wants to opt in and verify it independently; `golden_parity_carve.rs`'s
+existing verified fixtures (which predate this port and implicitly assumed
+simple-mode volcanism) stay valid at the `false` default.
+
+Added `stamp_volcanoes_provinces_is_deterministic`
+(`cartalith-terrain/tests/golden_parity_volc_craters.rs`) — explicitly
+**not** a golden-parity test: same-seed-produces-same-output, output
+actually differs from the untouched baseline, and stays within `[0,1]`.
+Catches a future refactor breaking determinism or silently no-op'ing the
+function; does not catch a wrong-vs-JS formula. That gap is real and
+stays open until someone runs the reference HTML in a JS-capable
+environment and extracts fixtures the way `PARITY_TESTING.md` describes.
+
+- `cargo build/test/clippy --workspace`: all green/clean.
+  `#[allow(clippy::approx_constant)]` needed on one site — the reference's
+  own `6.283` literal (not `TAU`) for a per-province angle draw, kept
+  exact per `cartalith-rust-conventions`.
+
+**Remaining, all previously logged**: graph-driven orogeny, ocean
+currents, terrain wind deflection, seasons — plus, new to this entry,
+golden-verifying `stamp_volcanoes_provinces` itself once a JS runtime is
+available, which also unblocks flipping `VolcanismParams::provinces` to
+match JS's own default.
+
+**Next**: graph-driven orogeny remains the largest unported subsystem; the
+smaller climate deferrals (ocean currents, wind deflection, seasons) are
+comparably-sized alternatives. Golden-verifying `stamp_volcanoes_provinces`
+is worth flagging to the owner specifically — it's done except for the one
+thing this environment structurally cannot do.
