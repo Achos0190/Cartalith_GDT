@@ -2071,3 +2071,55 @@ comment).
 **Next**: ocean-current SST folding — the last item on this list, and the
 only one that's genuinely unverified at the kernel level, not just
 withheld from the pipeline default.
+
+## Phase 1 — ocean-current SST folding golden-verified: the last "unverified" item closed (2026-08-15)
+
+`compute_ocean_current` turned out pure too (all inputs explicit) — same
+orogeny-style extraction as `deflect_flow`, two cases (World mode with
+wrap, Region mode with the western-intensification heuristic off).
+**Bit-exact on the first attempt, including the heuristic itself** — its
+own doc comment already discloses it as "a distance-to-coast proxy, NOT a
+solved beta-plane model," and this confirms that disclosed proxy is
+actually ported correctly, not merely disclosed as an approximation while
+secretly also being wrong.
+
+`ocean_sst_anomaly`/`apply_ocean_currents` are the two remaining pieces,
+and JS's versions of both read several globals directly
+(`state.climate`/`GW`/`GH`/`field`/`geoidField`) where this port's own
+signatures parameterize everything — extracting them via Node would need
+the generate()-driving technique `stampVolcanoesProvinces` used. Checked
+by direct line-for-line comparison instead (reference HTML lines
+5246-5288): both are short, and every function they call
+(`build_wind`, `compute_ocean_current`, `gauss_blur`) is now independently
+golden-verified, so comparison is credible here the same way it was for
+`compute_height`'s `oro` combination and `build_wind`'s own terrain-deflect
+wiring. One deliberate, already-disclosed gap found: JS reads
+`field[i]-geoAt(i)` where this port reads plain `field[i]` — correct at
+`state.planet.geoid.enabled`'s default `false` (geoid correction is zero
+there), same reasoning `compute_temperature` already documents for the
+same omission.
+
+- `cargo test --workspace`: all green (`golden_parity_ocean_current.rs`, 2
+  new tests). `cargo clippy --workspace --all-targets`: clean.
+
+**This closes the "ported but off-by-default" list entirely.**
+`stampVolcanoesProvinces`, terrain wind deflection, and ocean-current SST
+folding are all now verified — the first at full pipeline fidelity
+(monkey-patched into a real `generate()` run), the other two at the
+kernel level plus direct-comparison wiring checks. All three remain
+`false` in `WorldParams::defaults`/`WeatherParams`, deliberately: each
+would change a field every downstream stage reads, and the existing
+`golden_parity_carve.rs`/`golden_parity_pipeline.rs`/
+`golden_parity_weather.rs` fixtures were captured with all three off.
+Flipping any of them for real is its own future unit of work — re-extract
+those fixtures with the new defaults, not a quiet side effect of
+verifying the functions themselves.
+
+**Next**: with the pipeline itself now fully ported and every previously
+"unverified" stretch subsystem closed, the remaining open items are the
+owner-only ones already logged repeatedly in this CHANGELOG (a real
+`.zip` export, eyes on the Godot editor and a real device) — and, if
+pursued, the bigger fixture-re-extraction pass to flip the three
+now-verified defaults to match JS for real. Everything past that is
+Phase 2+ (`ROADMAP.md`): civilisation, urban morphology, asset library —
+out of this port's current scope, not merely undone.

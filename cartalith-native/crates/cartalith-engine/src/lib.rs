@@ -38,11 +38,13 @@
 //! ## What else this deliberately does NOT reproduce, and why
 //! - **Ocean-current SST folding** (`state.climate.currents`, JS default
 //!   `true`): ported (`cartalith_climate::ocean_sst_anomaly`/
-//!   `apply_ocean_currents`, both built on `deflect_flow`) and reachable
-//!   via `p.climate.currents`, but this port's own default is `false` —
-//!   see `WeatherParams::currents`'s own doc comment (not yet golden-
-//!   verified; Node's now installed, per the CHANGELOG, but this one
-//!   hasn't been run through it yet).
+//!   `apply_ocean_currents`, both built on `compute_ocean_current`/
+//!   `deflect_flow`) and reachable via `p.climate.currents`, now fully
+//!   verified (`compute_ocean_current` golden-tested bit-exact including
+//!   its western-intensification heuristic; the two orchestration
+//!   functions checked line-for-line against JS) — see
+//!   `WeatherParams::currents`'s own doc comment. Still `false` here,
+//!   same fixture-cascading reasoning as the other two items on this list.
 //! - **Terrain wind deflection** (`buildWind`'s `deflectFlow` block, JS
 //!   unconditional since v1.78): ported (`cartalith_climate::deflect_flow`,
 //!   now golden-verified — `golden_parity_deflect_flow.rs`, bit-exact) and

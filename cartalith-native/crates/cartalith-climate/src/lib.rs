@@ -915,13 +915,26 @@ pub struct WeatherParams {
     /// `build_wind` runs (reference HTML: `if(c.currents){...}` in
     /// `simulateWeather`'s own loop 2). JS's own default is `true`
     /// ("ocean currents ON by default... integrated into the weather sim
-    /// before buildWind"); this port defaults to `false`. Unlike
-    /// `terrain_wind_deflection`, not yet golden-verified even at the
-    /// kernel level: `ocean_sst_anomaly` calls `build_wind` (now verified)
-    /// and `compute_ocean_current` (`deflect_flow` again, plus a
-    /// western-intensification heuristic that hasn't been checked against
-    /// JS), so there's real remaining work here, not just a
-    /// leave-off-to-protect-fixtures decision like the other two.
+    /// before buildWind"); this port defaults to `false`. Now fully
+    /// verified: `compute_ocean_current` is golden-tested
+    /// (`golden_parity_ocean_current.rs`, bit-exact, including the
+    /// western-intensification heuristic -- disclosed as "a
+    /// distance-to-coast proxy, not a solved beta-plane model," and
+    /// confirmed to actually port that proxy correctly, not just disclose
+    /// it); `ocean_sst_anomaly`/`apply_ocean_currents` themselves checked
+    /// line-for-line against reference HTML lines 5246-5288 rather than
+    /// separately golden-extracted (both read several globals in JS,
+    /// unlike their now-parameterized Rust signatures, so a Node
+    /// extraction would need the same generate()-driving technique
+    /// `stampVolcanoesProvinces` used — direct comparison was enough here
+    /// since both are short and every sub-call they make is independently
+    /// verified). One deliberate, already-disclosed gap:
+    /// `field[i]-geoAt(i)` (JS) vs. plain `field[i]` (this port) --
+    /// correct at `state.planet.geoid.enabled`'s default `false`, same
+    /// reasoning `compute_temperature` already documents. Still `false`
+    /// here regardless of all that: same fixture-cascading reasoning as
+    /// `terrain_wind_deflection` and `stampVolcanoesProvinces` --
+    /// `golden_parity_weather.rs` was captured against this default off.
     pub currents: bool,
     pub current_k: f64,
 }
