@@ -11,48 +11,61 @@ script = ExtResource("1")
 offset_left = 20.0
 offset_top = 20.0
 offset_right = 300.0
-offset_bottom = 260.0
+offset_bottom = 340.0
 
 [node name="Title" type="Label" parent="VBox"]
 text = "Cartalith terrain generator (Phase 1 MVP)"
 autowrap_mode = 2
 
 [node name="SeedRow" type="HBoxContainer" parent="VBox"]
+custom_minimum_size = Vector2(0, 48)
 
 [node name="SeedLabel" type="Label" parent="VBox/SeedRow"]
 custom_minimum_size = Vector2(120, 0)
+vertical_alignment = 1
 text = "Seed"
 
 [node name="SeedInput" type="SpinBox" parent="VBox/SeedRow"]
+custom_minimum_size = Vector2(0, 48)
+size_flags_horizontal = 3
 min_value = 0.0
 max_value = 999999.0
 value = 12345.0
 
 [node name="ResolutionRow" type="HBoxContainer" parent="VBox"]
+custom_minimum_size = Vector2(0, 48)
 
 [node name="ResolutionLabel" type="Label" parent="VBox/ResolutionRow"]
 custom_minimum_size = Vector2(120, 0)
+vertical_alignment = 1
 text = "Resolution"
 
 [node name="ResolutionInput" type="SpinBox" parent="VBox/ResolutionRow"]
+custom_minimum_size = Vector2(0, 48)
+size_flags_horizontal = 3
 min_value = 32.0
 max_value = 512.0
 step = 32.0
 value = 128.0
 
 [node name="WidthRow" type="HBoxContainer" parent="VBox"]
+custom_minimum_size = Vector2(0, 48)
 
 [node name="WidthLabel" type="Label" parent="VBox/WidthRow"]
 custom_minimum_size = Vector2(120, 0)
+vertical_alignment = 1
 text = "Map width (km)"
 
 [node name="WidthInput" type="SpinBox" parent="VBox/WidthRow"]
+custom_minimum_size = Vector2(0, 48)
+size_flags_horizontal = 3
 min_value = 10.0
 max_value = 40000.0
 step = 10.0
 value = 800.0
 
 [node name="GenerateButton" type="Button" parent="VBox"]
+custom_minimum_size = Vector2(0, 48)
 text = "Generate"
 
 [node name="StatusLabel" type="Label" parent="VBox"]
@@ -64,5 +77,3 @@ offset_left = 320.0
 offset_top = 20.0
 offset_right = 832.0
 offset_bottom = 532.0
-
-[node name="Skeleton" type="WalkingSkeleton" parent="."]
