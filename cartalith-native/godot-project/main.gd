@@ -14,19 +14,36 @@ extends Control
 ## ImageTexture) and every scene-tree write happen back on the main thread
 ## via `call_deferred`.
 
-@onready var seed_input: SpinBox = $VBox/SeedRow/SeedInput
-@onready var resolution_input: SpinBox = $VBox/ResolutionRow/ResolutionInput
-@onready var width_input: SpinBox = $VBox/WidthRow/WidthInput
-@onready var world_shape_input: OptionButton = $VBox/WorldShapeRow/WorldShapeInput
-@onready var dynamic_lithology_check: CheckBox = $VBox/DynamicLithologyCheck
-@onready var volc_provinces_check: CheckBox = $VBox/VolcProvincesCheck
-@onready var wind_deflection_check: CheckBox = $VBox/WindDeflectionCheck
-@onready var ocean_currents_check: CheckBox = $VBox/OceanCurrentsCheck
-@onready var generate_button: Button = $VBox/GenerateButton
-@onready var load_save_button: Button = $VBox/LoadSaveButton
-@onready var status_label: Label = $VBox/StatusLabel
-@onready var map_view: TextureRect = $MapView
-@onready var load_save_dialog: FileDialog = $LoadSaveDialog
+## Node lookups go through unique names (`%Name`, `unique_name_in_owner` in
+## main.tscn) rather than deep `$Path/To/Node` chains -- the redesigned scene
+## nests every input inside cards/scroll containers for visual grouping, and
+## %-refs keep this script stable if that nesting changes again without
+## touching any of these lines.
+@onready var seed_input: SpinBox = %SeedInput
+@onready var resolution_input: SpinBox = %ResolutionInput
+@onready var width_input: SpinBox = %WidthInput
+@onready var world_shape_input: OptionButton = %WorldShapeInput
+@onready var dynamic_lithology_check: CheckBox = %DynamicLithologyCheck
+@onready var volc_provinces_check: CheckBox = %VolcProvincesCheck
+@onready var wind_deflection_check: CheckBox = %WindDeflectionCheck
+@onready var ocean_currents_check: CheckBox = %OceanCurrentsCheck
+@onready var generate_button: Button = %GenerateButton
+@onready var load_save_button: Button = %LoadSaveButton
+@onready var status_label: Label = %StatusLabel
+@onready var map_view: TextureRect = %MapView
+@onready var load_save_dialog: FileDialog = %LoadSaveDialog
+
+## Responsive layout (see `_update_responsive_layout`): `Stage` is a plain
+## `BoxContainer`, not a fixed `H`/`VBoxContainer` -- toggling its `vertical`
+## property switches it between a side-by-side row (controls panel beside
+## the map, for desktop/tablet-landscape widths) and a stacked column
+## (controls above the map, for phone/portrait widths) while still letting
+## the container do every size/position computation. `ControlsPanel` is the
+## only node whose sizing differs between the two arrangements (a fixed-width
+## column vs. a full-width band), so it's the only other node this script
+## touches for layout purposes.
+@onready var stage: BoxContainer = %Stage
+@onready var controls_panel: PanelContainer = %ControlsPanel
 
 var world_gen: WorldGen = WorldGen.new()
 var _gen_thread: Thread
@@ -36,13 +53,41 @@ var _generating := false
 ## generate_world_structure expects (reference HTML `ARCHETYPES`). Index 0
 ## ("Classic") isn't an archetype at all -- it's World-Structure disabled,
 ## the plain `generate()` path.
-const WORLD_SHAPES := ["", "earth", "supercontinent", "archipelago", "volcanic", "rift"]
+const WORLD_SHAPES: Array[String] = ["", "earth", "supercontinent", "archipelago", "volcanic", "rift"]
+
+## Below this viewport width, the fixed-width controls panel (360px, see
+## main.tscn) plus a usably-sized map no longer both fit comfortably with
+## touch-sized controls, so the layout stacks instead of sitting side by
+## side. Chosen to fall between phone-portrait widths (~360-430px, always
+## stacked) and phone-landscape/tablet/desktop widths (~700px+, always
+## side-by-side) -- not verified against a real device, same GPU/touch
+## carve-out the godot-shell skill calls out for anything screen-visual.
+const RESPONSIVE_BREAKPOINT_WIDTH := 700.0
 
 
 func _ready() -> void:
 	generate_button.pressed.connect(_on_generate_pressed)
 	load_save_button.pressed.connect(_on_load_save_pressed)
 	load_save_dialog.file_selected.connect(_on_save_file_selected)
+	get_viewport().size_changed.connect(_update_responsive_layout)
+	_update_responsive_layout()
+
+
+## Desktop window resize and phone orientation change both fire
+## `Viewport.size_changed` -- one hook covers both real targets. Only
+## property toggles here, no pixel math: `Stage.vertical` picks the axis,
+## `ControlsPanel`'s horizontal size flag + minimum width pick fixed-column
+## vs. fill-width, and the containers do the rest.
+func _update_responsive_layout() -> void:
+	var viewport_width := get_viewport().get_visible_rect().size.x
+	var narrow := viewport_width < RESPONSIVE_BREAKPOINT_WIDTH
+	stage.vertical = narrow
+	if narrow:
+		controls_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		controls_panel.custom_minimum_size.x = 0
+	else:
+		controls_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		controls_panel.custom_minimum_size.x = 360
 
 
 func _on_generate_pressed() -> void:
