@@ -2032,3 +2032,42 @@ technique. Eventually: re-extract `golden_parity_carve.rs`/
 that default to match JS for real, once enough of the "ported but
 off-by-default" list is cleared that it's worth doing once instead of
 per-subsystem.
+
+## Phase 1 — terrain wind deflection golden-verified (2026-08-15)
+
+`deflect_flow` (`cartalith_climate`) turned out to be pure -- every input
+explicit, same as `build_orogeny_field` -- so this didn't need the
+let-to-var harness upgrade at all, just the original orogeny-style
+extraction: synthetic 16x12 `u0`/`v0`/`block0` fields (a sine/cosine flow
+crossing a diagonal ridge), called `deflectFlow` directly under Node with
+three cases (default opts, world-wrap, custom knobs). **Bit-exact on the
+first attempt**, all three cases.
+
+`build_wind`'s own wiring around `deflect_flow` (the `block` field's
+`land`/`mtn` terms, the hardcoded `DeflectFlowParams` constants, the
+elevation-band damping combine after) was checked line-for-line against
+reference HTML lines 5521-5535 rather than golden-extracted separately --
+`build_wind` itself isn't pure (reads several fields as part of a larger
+weather-simulation loop this port hasn't fully isolated for Node
+extraction yet), but this one block is small and mechanical enough that
+direct comparison is credible, the same reasoning `compute_height`'s
+`oro` combination formula got when the orogeny wiring landed.
+
+- `cargo test --workspace`: all green (`golden_parity_deflect_flow.rs`, 3
+  new tests). `cargo clippy --workspace --all-targets`: clean.
+
+**Still `false` by default**, same reasoning as `stampVolcanoesProvinces`:
+verifying the function doesn't make flipping the pipeline-wide default
+free, since it'd invalidate `golden_parity_weather.rs` and everything
+built on `simulate_weather` without also re-extracting those.
+
+**Remaining on the "ported but off-by-default" list**: only ocean-current
+SST folding now, and unlike the other two, it isn't just a
+fixture-invalidation-caution case -- `compute_ocean_current`'s
+western-intensification heuristic hasn't been checked against JS at all
+yet, kernel-level or otherwise (see `WeatherParams::currents`'s own doc
+comment).
+
+**Next**: ocean-current SST folding — the last item on this list, and the
+only one that's genuinely unverified at the kernel level, not just
+withheld from the pipeline default.

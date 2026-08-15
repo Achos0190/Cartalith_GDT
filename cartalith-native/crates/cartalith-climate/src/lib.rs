@@ -896,28 +896,32 @@ pub struct WeatherParams {
     /// no equivalent flag -- v1.78 made this unconditional ("wind and
     /// current should always be coupled to terrain") -- so `false` here is
     /// this port's own deliberate deviation, not a JS default being
-    /// mirrored. `deflect_flow` is ported line-for-line, but it's a
-    /// substantial iterative algorithm (16 blur+redirect passes) that
-    /// reshapes wind everywhere terrain exists, which cascades through
-    /// every downstream term in this function (evaporation, advection,
-    /// orographic rain) -- exactly the kind of change golden-parity
-    /// discipline requires real JS numbers to verify, and this environment
-    /// has no JS runtime. `false` keeps existing golden fixtures
-    /// (`golden_parity_weather.rs` and everything built on
-    /// `simulate_weather`) valid until someone extracts real ones with it
-    /// enabled.
+    /// mirrored. `deflect_flow` itself is now golden-verified
+    /// (`golden_parity_deflect_flow.rs`, bit-exact against real JS output,
+    /// three cases including custom knobs and world-wrap), and the wiring
+    /// around it in `build_wind` (the `block` field, the `DeflectFlowParams`
+    /// constants, the elevation-band damping combine) was checked
+    /// line-for-line against reference HTML lines 5521-5535 and matches
+    /// exactly. Still `false` regardless: it's a substantial iterative
+    /// algorithm (16 blur+redirect passes) that reshapes wind everywhere
+    /// terrain exists, cascading through every downstream term in this
+    /// function (evaporation, advection, orographic rain) -- flipping it
+    /// would invalidate `golden_parity_weather.rs` and everything built on
+    /// `simulate_weather` unless those are also re-extracted, which hasn't
+    /// happened yet (same reasoning `generate_terrain`'s own doc comment
+    /// gives for `stampVolcanoesProvinces`).
     pub terrain_wind_deflection: bool,
     /// Gates folding `ocean_sst_anomaly` into `tc`/`sst_evap` before
     /// `build_wind` runs (reference HTML: `if(c.currents){...}` in
     /// `simulateWeather`'s own loop 2). JS's own default is `true`
     /// ("ocean currents ON by default... integrated into the weather sim
-    /// before buildWind"); this port defaults to `false` for the same
-    /// reason `terrain_wind_deflection` does — `ocean_sst_anomaly` itself
-    /// calls `build_wind` (with its own terrain-deflection branch) and
-    /// `compute_ocean_current` (`deflect_flow` again, plus an unverified
-    /// western-intensification heuristic), so enabling this changes sea
-    /// temperature — and everything downstream of it — with no JS runtime
-    /// in this environment to confirm the cascade is correct.
+    /// before buildWind"); this port defaults to `false`. Unlike
+    /// `terrain_wind_deflection`, not yet golden-verified even at the
+    /// kernel level: `ocean_sst_anomaly` calls `build_wind` (now verified)
+    /// and `compute_ocean_current` (`deflect_flow` again, plus a
+    /// western-intensification heuristic that hasn't been checked against
+    /// JS), so there's real remaining work here, not just a
+    /// leave-off-to-protect-fixtures decision like the other two.
     pub currents: bool,
     pub current_k: f64,
 }

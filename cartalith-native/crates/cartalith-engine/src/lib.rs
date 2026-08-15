@@ -44,11 +44,16 @@
 //!   verified; Node's now installed, per the CHANGELOG, but this one
 //!   hasn't been run through it yet).
 //! - **Terrain wind deflection** (`buildWind`'s `deflectFlow` block, JS
-//!   unconditional since v1.78): ported (`cartalith_climate::deflect_flow`)
-//!   and reachable via `p.climate.terrain_wind_deflection`, but this port's
-//!   own default is `false` — same "not yet golden-verified" reasoning as
-//!   ocean-current SST folding above, see
-//!   `WeatherParams::terrain_wind_deflection`'s own doc comment.
+//!   unconditional since v1.78): ported (`cartalith_climate::deflect_flow`,
+//!   now golden-verified — `golden_parity_deflect_flow.rs`, bit-exact) and
+//!   reachable via `p.climate.terrain_wind_deflection`. `build_wind`'s own
+//!   wiring around it (the `block` field's `land`/`mtn` terms, the
+//!   `DeflectFlowParams` constants, the elevation-band damping combine)
+//!   checked line-for-line against reference HTML lines 5521-5535 — matches
+//!   exactly. Still off by default, same reasoning as `stampVolcanoesProvinces`
+//!   (`generate_terrain`'s own doc comment): flipping it changes the wind
+//!   field every downstream climate/erosion stage reads, which would
+//!   invalidate existing fixtures without also re-extracting them.
 //! - **Dynamic lithology** (`state.tect.dynamicLithology`, default `false`):
 //!   ported and wired in (`recompute_resistance_after_erosion`, gated on
 //!   `p.tect.dynamic_lithology` exactly as JS gates it on the flag of the
