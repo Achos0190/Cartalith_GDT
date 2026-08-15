@@ -2539,3 +2539,69 @@ control surface, not port every DOM widget that happens to exist.
 `STATUS.md` updated: the `ui-ux-pro-max` "installed but never reviewed"
 open item is now reviewed (see above); this UI pass itself noted under
 Phase 1.
+
+## Real biome/hillshade rendering replaces the MVP placeholder tint (2026-08-16)
+
+Closes the `build_color_texture` gap its own old doc comment flagged: "a
+simplified stand-in for the reference HTML's own biome colouring,
+deliberately not attempted here." Ported the reference renderer's real
+default-settings material synthesis instead -- `materialWeights` (the
+snow/rock/sand/wetland/canopy/grass fraction model, reference HTML
+7655-7707), the six climate-selected material colour ramps, the ecotone
+noise jitter, the multi-scale (macro+meso+micro) hillshade, the `bioBlend`
+grey-desaturation blend, the edge haze fade, and `seaColorCore`'s
+depth-banded/temperature-tinted water with sea-ice and surf-line -- all new
+in `cartalith-godot/src/render.rs`. Deliberately excluded: every
+`state.viz.*`-gated stretch feature (splat texturing, geology microtexture,
+NPR "Painter" styles, AO/SVF/shadow fields, coast/river SDF tinting, the
+vector river overlay), all off at JS's own defaults, so omitting them
+changes nothing about the *default* view -- `render.rs`'s own doc comment
+has the full list and why each is out.
+
+Two real bugs caught by golden verification, not code review:
+- **Missing final `ao * vignette` multiply** (reference HTML 7959-7960) --
+  sits right after the entire gated "Painter" NPR block but is itself
+  unconditional, easy to miss on a read that stops at "the core." Corner
+  cells were rendering ~40% too bright without it (a golden test cell
+  caught a 184-vs-108 mismatch immediately).
+- **`seaColor` reads smoothed bathymetry, not the raw field** -- JS's real
+  default (`state.mode==='biome'`) always builds `_seaH`/`_seaShade`
+  (`smoothSeaH`/`seaShadeFrom`, two separable box-blur passes over the
+  heightmap + a hillshade of the result) before shading water, "so the
+  seas were reading blocky" per the reference's own v0.063 comment. Not a
+  stretch feature -- it's what a default `generate()` + real app session
+  actually produces on screen, confirmed by extracting golden data through
+  an actual `await generate()` run (which triggers a real render pass) and
+  finding `seaColor(...)` disagreed with a naive `seaColorCore(...)` call
+  using the raw field. Ported `smoothSeaH`/`seaShadeFrom` (new `box_h`/
+  `box_v` helpers in `render.rs`) rather than working around it.
+
+**Golden-verified** (`golden_parity_render.rs`, new): two fixtures, both
+running the real reference `generate()` under Node and calling
+`isWater(v) ? seaColor(...) : surfaceColor(...)` per cell directly --
+`GW=GH=10`/seed 24601/`world=false` (41/100 cells water, exercises both
+colour paths) and `GW=GH=12`/seed 314159/`world=true` (exercises
+`slope_at`'s X-wrap path the first fixture never touches). Both pass at
+`1e-4` per-channel tolerance (Math.pow/exp/hypot vs. Rust's f64
+equivalents can differ by a handful of ULPs through `materialWeights`'
+two-pass canopy closure -- not bit-exact by construction, unlike the
+kernel-level golden tests elsewhere in this port, but far tighter than
+anything visually perceptible).
+
+`WorldGen` gained `world`/`lat_n`/`lat_s` fields (`latAt`'s inputs) set
+from `p.world`/`p.climate.lat_n`/`.lat_s` on `generate()`/
+`generate_world_structure()`; a loaded save has no stored latitude band
+(`SAVEFILE_COMPAT.md`), so it falls back to JS's own literal `climate`
+defaults (55/5), same as `WorldParams::defaults` does.
+
+- `cargo build -p cartalith-godot` / `cargo check --workspace --all-targets`:
+  clean. `cargo clippy --workspace --all-targets`: clean. `cargo test
+  --workspace`: all green, including both new render fixtures. `godot4
+  --headless --quit main.tscn`: clean, extension loads
+  (`Initialize godot-rust ...`).
+
+**What this doesn't reach**: pixel-for-pixel parity with every one of the
+reference's opt-in visual stretch features (still Phase 3, `ROADMAP.md`),
+and the river-network vector overlay (`drawRiverWays`) -- the existing
+simple channel-mask blue tint stays as its stand-in until that subsystem
+is ported.

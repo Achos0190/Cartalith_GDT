@@ -16,6 +16,9 @@ use godot::classes::{IRefCounted, INode, Image, ImageTexture, Node, RefCounted};
 use godot::init::{ExtensionLibrary, gdextension};
 use godot::prelude::*;
 
+mod render;
+use render::RenderCtx;
+
 struct CartalithExtension;
 
 #[gdextension]
@@ -94,6 +97,13 @@ struct WorldGen {
     volc_provinces: bool,
     terrain_wind_deflection: bool,
     ocean_currents: bool,
+    /// `latAt`'s inputs (`render.rs`) — `p.world`/`p.climate.lat_n`/`.lat_s`
+    /// for a fresh `generate()`, or `save.params.world` + JS's own literal
+    /// `climate` defaults (55/5) for a loaded save, whose format doesn't
+    /// store latitude band at all (`SAVEFILE_COMPAT.md`).
+    world: bool,
+    lat_n: f64,
+    lat_s: f64,
 }
 
 #[godot_api]
@@ -109,6 +119,9 @@ impl IRefCounted for WorldGen {
             volc_provinces: true,
             terrain_wind_deflection: true,
             ocean_currents: true,
+            world: false,
+            lat_n: 55.0,
+            lat_s: 5.0,
         }
     }
 }
@@ -153,6 +166,9 @@ impl WorldGen {
         self.sea_level = ws.sea_level;
         self.gw = gw as i32;
         self.gh = gh as i32;
+        self.world = p.world;
+        self.lat_n = p.climate.lat_n;
+        self.lat_s = p.climate.lat_s;
         self.source = Some(WorldSource::Generated(Box::new(ws)));
     }
 
@@ -195,6 +211,9 @@ impl WorldGen {
         self.sea_level = ws.sea_level;
         self.gw = gw as i32;
         self.gh = gh as i32;
+        self.world = p.world;
+        self.lat_n = p.climate.lat_n;
+        self.lat_s = p.climate.lat_s;
         self.source = Some(WorldSource::Generated(Box::new(ws)));
         true
     }
@@ -226,6 +245,12 @@ impl WorldGen {
         self.gw = save.params.gw as i32;
         self.gh = save.params.gh as i32;
         self.sea_level = save.params.sea_level;
+        self.world = save.params.world;
+        // SaveParams carries no latitude band -- JS's own literal
+        // `climate` defaults (reference HTML line 2287), same fallback
+        // WorldParams::defaults uses.
+        self.lat_n = 55.0;
+        self.lat_s = 5.0;
         self.source = Some(WorldSource::Loaded(Box::new(save)));
         true
     }
@@ -241,45 +266,41 @@ impl WorldGen {
     }
 
     /// Builds a colour + hillshade texture from the last `generate()`
-    /// result — `MVP_SCOPE.md` point 10: "colour and hillshade, enough to
-    /// verify what was generated," explicitly **not** the JS engine's full
-    /// renderer (no multi-octave grain, NPR styles, splat textures, or LOD
-    /// pyramid — none of that is MVP scope, so this doesn't reach for
-    /// pixel-for-pixel colour parity with the reference HTML's own
-    /// renderer either). Land/water split at `sea_level`, a three-stop
-    /// hypsometric ramp above it, a simple analytic hillshade from the
-    /// height gradient, and a blue tint on channelized cells when
-    /// `carve_rivers` produced topology — "land and water distinct, biome
-    /// colouring plausible, rivers visible" (`MVP_SCOPE.md`'s own "done"
-    /// checklist, point 2). Returns `None` before the first `generate()`
-    /// call.
+    /// result. Ported from the reference HTML's own default-settings
+    /// renderer (`render.rs`'s doc comment lists exactly what's ported vs.
+    /// deliberately excluded) — no longer the MVP placeholder tint this
+    /// method used before. A blue tint on channelized cells stands in for
+    /// the reference's vector river overlay (`drawRiverWays`, not wired
+    /// into this port), keeping "rivers visible" (`MVP_SCOPE.md`'s "done"
+    /// checklist, point 2) satisfied. Returns `None` before the first
+    /// `generate()` call.
     #[func]
     fn build_color_texture(&self) -> Option<Gd<ImageTexture>> {
-        let (field, chan_mask): (&[f32], Option<&[u8]>) = match self.source.as_ref()? {
-            WorldSource::Generated(ws) => (&ws.field, ws.channels.as_ref().map(|c| c.chan.as_slice())),
-            WorldSource::Loaded(save) => (&save.fields.heightmap, Some(save.fields.strahler_order.as_slice())),
-        };
+        let (field, temperature, rainfall, flow, chan_mask) = match self.source.as_ref()? {
+                WorldSource::Generated(ws) => (
+                    &ws.field,
+                    &ws.temperature,
+                    &ws.rainfall,
+                    Some(ws.flow_discharge.as_slice()),
+                    ws.channels.as_ref().map(|c| c.chan.as_slice()),
+                ),
+                WorldSource::Loaded(save) => (
+                    &save.fields.heightmap,
+                    &save.fields.temperature,
+                    &save.fields.rainfall,
+                    None,
+                    Some(save.fields.strahler_order.as_slice()),
+                ),
+            };
         let gw = self.gw as usize;
         let gh = self.gh as usize;
-        let sea = self.sea_level;
+        let ctx = RenderCtx::new(field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s);
 
         let mut bytes = Vec::with_capacity(gw * gh * 3);
         for y in 0..gh {
             for x in 0..gw {
                 let i = y * gw + x;
-                let h = field[i] as f64;
-                let (mut r, mut g, mut b) = color_for_height(h, sea);
-
-                let xl = if x > 0 { x - 1 } else { 0 };
-                let xr = if x + 1 < gw { x + 1 } else { gw - 1 };
-                let yu = if y > 0 { y - 1 } else { 0 };
-                let yd = if y + 1 < gh { y + 1 } else { gh - 1 };
-                let gx = (field[y * gw + xr] as f64 - field[y * gw + xl] as f64) * 0.5;
-                let gy = (field[yd * gw + x] as f64 - field[yu * gw + x] as f64) * 0.5;
-                let shade = hillshade(gx, gy);
-                r *= shade;
-                g *= shade;
-                b *= shade;
+                let (mut r, mut g, mut b) = render::cell_color(&ctx, x, y);
 
                 if let Some(mask) = chan_mask
                     && mask[i] != 0
@@ -299,44 +320,4 @@ impl WorldGen {
         let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGB8, &packed)?;
         ImageTexture::create_from_image(&image)
     }
-}
-
-/// Bathymetric/hypsometric tint at `[0,1]` height `h` relative to
-/// `sea_level` — a simplified stand-in for the reference HTML's own biome
-/// colouring (deliberately not attempted here, see `build_color_texture`'s
-/// doc comment).
-fn color_for_height(h: f64, sea_level: f64) -> (f64, f64, f64) {
-    if h < sea_level {
-        let depth = ((sea_level - h) / sea_level.max(1e-6)).clamp(0.0, 1.0);
-        lerp3((0.55, 0.75, 0.85), (0.02, 0.08, 0.25), depth)
-    } else {
-        let t = ((h - sea_level) / (1.0 - sea_level).max(1e-6)).clamp(0.0, 1.0);
-        if t < 0.3 {
-            lerp3((0.22, 0.42, 0.14), (0.55, 0.47, 0.28), t / 0.3)
-        } else if t < 0.7 {
-            lerp3((0.55, 0.47, 0.28), (0.5, 0.48, 0.46), (t - 0.3) / 0.4)
-        } else {
-            lerp3((0.5, 0.48, 0.46), (0.97, 0.97, 0.98), (t - 0.7) / 0.3)
-        }
-    }
-}
-
-fn lerp3(a: (f64, f64, f64), b: (f64, f64, f64), t: f64) -> (f64, f64, f64) {
-    (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t, a.2 + (b.2 - a.2) * t)
-}
-
-/// A simple analytic hillshade from the height gradient `(gx, gy)` — a
-/// synthetic normal (`z` fixed, not derived from real map-width-aware
-/// relief) lit from the upper-left, returned as a multiplicative factor
-/// clamped away from pure black/blown-out white so shaded terrain stays
-/// readable at any slope.
-fn hillshade(gx: f64, gy: f64) -> f64 {
-    let (nx, ny, nz) = (-gx, -gy, 0.15);
-    let nlen = (nx * nx + ny * ny + nz * nz).sqrt().max(1e-6);
-    let (nx, ny, nz) = (nx / nlen, ny / nlen, nz / nlen);
-    let (lx, ly, lz): (f64, f64, f64) = (0.5, 0.5, 0.7);
-    let llen = (lx * lx + ly * ly + lz * lz).sqrt();
-    let (lx, ly, lz) = (lx / llen, ly / llen, lz / llen);
-    let dot = nx * lx + ny * ly + nz * lz;
-    (0.55 + 0.55 * dot).clamp(0.35, 1.3)
 }
