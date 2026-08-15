@@ -4,6 +4,15 @@ extends Control
 ## Godot computes nothing here beyond reading input values and handing them
 ## to WorldGen.generate() (ARCHITECTURE.md: "Godot computes nothing beyond
 ## layout. Anything you could get numerically wrong belongs in Rust.").
+##
+## Generation runs on a background Thread (godot-shell skill: "generation
+## runs off the main thread... a frozen window during it is the difference
+## between a tool and a toy"). `WorldGen.generate()` is pure Rust
+## computation over plain WorldState -- no scene-tree or Godot-resource
+## touch (ARCHITECTURE.md: "Rust never touches the scene tree") -- so it's
+## safe off-thread. `build_color_texture()` (which builds an Image/
+## ImageTexture) and every scene-tree write happen back on the main thread
+## via `call_deferred`.
 
 @onready var seed_input: SpinBox = $VBox/SeedRow/SeedInput
 @onready var resolution_input: SpinBox = $VBox/ResolutionRow/ResolutionInput
@@ -20,6 +29,8 @@ extends Control
 @onready var load_save_dialog: FileDialog = $LoadSaveDialog
 
 var world_gen: WorldGen = WorldGen.new()
+var _gen_thread: Thread
+var _generating := false
 
 ## Index into WorldShapeInput -> the archetype name WorldGen.
 ## generate_world_structure expects (reference HTML `ARCHETYPES`). Index 0
@@ -35,7 +46,12 @@ func _ready() -> void:
 
 
 func _on_generate_pressed() -> void:
+	if _generating:
+		return
+	_generating = true
+	generate_button.disabled = true
 	status_label.text = "generating..."
+
 	var seed_value := int(seed_input.value)
 	var resolution := int(resolution_input.value)
 	var width_km := width_input.value
@@ -60,7 +76,27 @@ func _on_generate_pressed() -> void:
 
 	if not ok:
 		status_label.text = "generate failed — see console"
+		_generating = false
+		generate_button.disabled = false
 		return
+
+	_gen_thread = Thread.new()
+	_gen_thread.start(_generate_worker.bind(seed_value, width_km, resolution))
+
+
+## Runs off the main thread. Touches only `world_gen` (plain Rust state),
+## never a node -- see the class doc comment above.
+func _generate_worker(seed_value: int, width_km: float, resolution: int) -> void:
+	world_gen.generate(seed_value, width_km, resolution)
+	_on_generate_done.call_deferred(seed_value, width_km)
+
+
+## Deferred back to the main thread: joins the worker, then does the one
+## Rust call that builds a Godot resource (`build_color_texture`) and every
+## scene-tree write.
+func _on_generate_done(seed_value: int, width_km: float) -> void:
+	_gen_thread.wait_to_finish()
+	_gen_thread = null
 
 	var tex: ImageTexture = world_gen.build_color_texture()
 	if tex:
@@ -71,6 +107,9 @@ func _on_generate_pressed() -> void:
 		]
 	else:
 		status_label.text = "generate failed — see console"
+
+	generate_button.disabled = false
+	_generating = false
 
 
 func _on_load_save_pressed() -> void:
