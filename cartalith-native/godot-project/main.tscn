@@ -181,12 +181,12 @@ theme_override_constants/separation = 8
 
 [node name="ExperimentalHeader" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
 theme_type_variation = &"SectionHeader"
-text = "EXPERIMENTAL FEATURES"
+text = "ADVANCED FEATURES"
 
 [node name="ExperimentalHint" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
 theme_type_variation = &"HintLabel"
 autowrap_mode = 2
-text = "Ported but unverified against the JS engine."
+text = "All golden-verified against the JS engine. Checked = matches its real default; unchecked = also matches its real default (lithology only)."
 
 [node name="DynamicLithologyCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
 unique_name_in_owner = true
@@ -198,18 +198,21 @@ text = "Dynamic lithology (exhumation hardening)"
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
+button_pressed = true
 text = "Clustered volcanism (provinces)"
 
 [node name="WindDeflectionCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
+button_pressed = true
 text = "Terrain wind deflection"
 
 [node name="OceanCurrentsCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
+button_pressed = true
 text = "Ocean-current SST folding"
 
 [node name="FooterSeparator" type="HSeparator" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox"]

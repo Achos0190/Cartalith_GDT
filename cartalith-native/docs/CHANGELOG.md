@@ -2123,3 +2123,61 @@ pursued, the bigger fixture-re-extraction pass to flip the three
 now-verified defaults to match JS for real. Everything past that is
 Phase 2+ (`ROADMAP.md`): civilisation, urban morphology, asset library —
 out of this port's current scope, not merely undone.
+
+## Phase 1 — volc.provinces flipped to match JS; Godot UI defaults follow (2026-08-15)
+
+Started the fixture-re-extraction pass the previous entry flagged as
+future work, scoped to just `volc.provinces` (the cleanest of the three —
+`golden_parity_pipeline.rs` is bit-exact and stops before climate, so it's
+the only fixture this flip actually touches; `terrain_wind_deflection`/
+`currents` both feed climate and would also touch
+`golden_parity_carve.rs`/`golden_parity_weather.rs`, left for a dedicated
+pass rather than folded in here).
+
+`WorldParams::defaults`'s `volc.provinces` is now `true`, matching JS.
+`golden_parity_pipeline.rs` re-captured by monkey-patching `computeFlow`
+to snapshot every field it checks immediately after its first (area) call
+then aborting before climate/carve ever run — same technique
+`golden_parity_volc_provinces.rs` used, not a hand-stripped
+re-derivation. `plate_id`/`boundary_mask`/`stress_field`/`flexure_field`/
+`age_field`/`heterogeneity_field`/`resistance_field` came back
+bit-identical to the previous fixture, as expected (all computed before
+volcanism runs); only `field`/`volcanic_field`/`impact_field`
+(volcanism's own writes) and `flow_area` (reads the post-volcanism field)
+actually changed.
+
+`golden_parity_carve.rs` still assumes the old default (it also implicitly
+assumes `terrain_wind_deflection`/`currents` off, so re-extracting it
+belongs with flipping those too) — pinned with an explicit
+`p.volc.provinces = false` override rather than left to silently break,
+with a comment explaining why it's pinned and what unpins it.
+
+**Also flipped `cartalith-godot::WorldGen`'s own defaults** (independent
+of `WorldParams::defaults` — every `WorldGen::generate()`/
+`generate_world_structure()` call already overrides all four experimental
+flags explicitly, so this doesn't touch any golden fixture): `volc_provinces`/
+`terrain_wind_deflection`/`ocean_currents` now default `true`
+(`dynamic_lithology` stays `false` — that's JS's own real default, not an
+unverified-so-off case like the other three). Updated the Godot UI to
+match: the three checkboxes now start checked, the section header changed
+from "EXPERIMENTAL FEATURES" to "ADVANCED FEATURES", and the hint label no
+longer claims they're unverified, since they aren't anymore. This is the
+most user-visible form of closing the gap — a fresh `WorldGen` now
+produces output matching the real HTML app's actual defaults, not the
+conservative unverified-so-off state this port carried through most of
+Phase 1.
+
+- `cargo test --workspace`: all green, including the re-extracted
+  `golden_parity_pipeline.rs` and the pinned `golden_parity_carve.rs`.
+  `cargo clippy --workspace --all-targets`: clean. `godot4 --headless
+  --import .` / `--quit main.tscn`: clean, extension still loads.
+
+**Remaining**: re-extract `golden_parity_carve.rs`/
+`golden_parity_weather.rs` with `terrain_wind_deflection`/`currents` also
+flipped to `true` in `WorldParams::defaults`/`WeatherParams` — the last
+piece of making the pipeline-level defaults fully match JS, not just the
+Godot-facing `WorldGen` wrapper. Both fixtures are tolerance-based
+(`golden_parity_carve.rs` already documents why: accumulated `Math.hypot`
+noise across a long pipeline) and touch climate/erosion, so this is a
+bigger, more careful pass than today's — genuinely separate work, not
+mechanically the same as this entry.

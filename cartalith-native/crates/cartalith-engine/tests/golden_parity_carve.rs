@@ -56,6 +56,14 @@ fn generate_terrain_carve_case_0_region() {
 
     let mut p = cartalith_engine::WorldParams::defaults(14, 11, 24601);
     p.world = false;
+    // WorldParams::defaults now matches JS's real volc.provinces default
+    // (`true`, cartalith-native/docs/CHANGELOG.md, 2026-08-15) -- this
+    // fixture predates that flip and was captured against the old default
+    // (`false`, stamp_volcanoes_simple), so pinned here rather than
+    // re-extracted in the same pass. Re-extracting this one belongs with
+    // flipping terrain_wind_deflection/currents too, both of which this
+    // fixture also implicitly assumes off (see this file's own doc comment).
+    p.volc.provinces = false;
     p.climate.w_iters = 12;
     let ws = cartalith_engine::generate_terrain(&p);
 
@@ -77,6 +85,9 @@ fn generate_terrain_carve_case_1_world_wrap() {
 
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);
     p.world = true;
+    // See case 0's own comment: pinned to the pre-flip default, not
+    // re-extracted in this pass.
+    p.volc.provinces = false;
     p.climate.w_iters = 12;
     let ws = cartalith_engine::generate_terrain(&p);
 

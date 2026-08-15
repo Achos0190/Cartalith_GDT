@@ -102,10 +102,9 @@ func _on_generate_pressed() -> void:
 	var width_km := width_input.value
 	var archetype := WORLD_SHAPES[world_shape_input.selected]
 
-	## Ported but unverified against the real JS engine in this dev
-	## environment (no JS runtime here to extract golden fixtures) --
-	## opt-in only. Comparing this build's output against the actual HTML
-	## app with these on is exactly how that gap gets closed.
+	## All four golden-verified against the real JS engine
+	## (cartalith-native/docs/CHANGELOG.md). Still exposed as toggles --
+	## default checked state matches each one's real JS default.
 	world_gen.set_experimental_flags(
 		dynamic_lithology_check.button_pressed,
 		volc_provinces_check.button_pressed,

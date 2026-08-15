@@ -78,13 +78,18 @@ struct WorldGen {
     gh: i32,
     sea_level: f64,
     /// Set via `set_experimental_flags`, applied by both `generate()` and
-    /// `generate_world_structure()`. All four gate a formula this port
-    /// has ported but cannot golden-verify in this environment (no JS
-    /// runtime -- see each field's own doc comment in `cartalith-engine`/
-    /// `cartalith-climate`), so each defaults to JS-parity-matching
-    /// `false` and is opt-in only. Exposed to the UI specifically so the
-    /// owner can compare against the real HTML app and help close that
-    /// verification gap.
+    /// `generate_world_structure()`. All four are now golden-verified
+    /// (see each field's own doc comment in `cartalith-engine`/
+    /// `cartalith-climate` -- `cartalith-native/docs/CHANGELOG.md` has the
+    /// full extraction history). `dynamic_lithology` defaults `false`
+    /// because that's JS's own real default; `volc_provinces`/
+    /// `terrain_wind_deflection`/`ocean_currents` default `true` because
+    /// JS's real defaults are `true` (unconditional, in wind deflection's
+    /// case) -- this `WorldGen` wrapper's own defaults can match JS
+    /// exactly regardless of what `cartalith_engine::WorldParams::defaults`
+    /// itself defaults to, since every call site here overrides all four
+    /// explicitly. Still exposed as toggles, not hardcoded: useful for
+    /// comparing against the real HTML app with one turned off at a time.
     dynamic_lithology: bool,
     volc_provinces: bool,
     terrain_wind_deflection: bool,
@@ -101,16 +106,16 @@ impl IRefCounted for WorldGen {
             gh: 0,
             sea_level: 0.42,
             dynamic_lithology: false,
-            volc_provinces: false,
-            terrain_wind_deflection: false,
-            ocean_currents: false,
+            volc_provinces: true,
+            terrain_wind_deflection: true,
+            ocean_currents: true,
         }
     }
 }
 
 #[godot_api]
 impl WorldGen {
-    /// Sets the four experimental, JS-unverified flags this instance's
+    /// Sets the four golden-verified subsystem flags this instance's
     /// `generate()`/`generate_world_structure()` calls apply from then on
     /// — see the `WorldGen` struct's own doc comment on the fields this
     /// writes.

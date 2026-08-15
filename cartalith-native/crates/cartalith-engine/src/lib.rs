@@ -276,20 +276,17 @@ impl WorldParams {
                 resist: 0.50,
                 dynamic_lithology: false,
             },
-            // `provinces: false`, not JS's own literal default (`true`).
-            // stamp_volcanoes_provinces IS now golden-verified in its own
-            // right (cartalith-terrain/tests/golden_parity_volc_provinces.rs
-            // -- captured by driving the real reference `generate()` under
-            // Node with a small grid, bit-exact) -- but this pipeline-wide
-            // default stays `false` regardless, because flipping it would
-            // change the height field every downstream stage reads,
-            // invalidating golden_parity_carve.rs's and
-            // golden_parity_pipeline.rs's existing verified fixtures
-            // (captured against the `stamp_volcanoes_simple` path). Making
-            // this default match JS is a real, separate unit of work --
-            // re-extracting those fixtures too -- not a side effect of
-            // verifying the function in isolation.
-            volc: VolcanismParams { count: 20, age: 0.40, provinces: false },
+            // `provinces: true`, matching JS's own literal default.
+            // stamp_volcanoes_provinces is golden-verified
+            // (cartalith-terrain/tests/golden_parity_volc_provinces.rs --
+            // captured by driving the real reference `generate()` under
+            // Node with a small grid, bit-exact), and golden_parity_pipeline.rs
+            // has been re-extracted against this default (2026-08-15,
+            // cartalith-native/docs/CHANGELOG.md). golden_parity_carve.rs
+            // has NOT been re-extracted yet -- it also covers
+            // terrain_wind_deflection/currents, both still `false`, so
+            // re-extracting it belongs with flipping those too, not here.
+            volc: VolcanismParams { count: 20, age: 0.40, provinces: true },
             crater: CraterParams { count: 100, age: 0.50 },
             planet: PlanetParams { g: 1.0, rotation_hours: 24.0, axial_tilt_deg: 23.4 },
             climate: ClimateInputParams {
