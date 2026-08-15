@@ -1,60 +1,69 @@
 [gd_resource type="Theme" load_steps=20 format=3]
 
-; Dark "technical dashboard" palette from the ui-ux-pro-max skill's
-; --design-system search ("procedural generation control panel dashboard
-; tool", density 8 / variance 4) -- background #0F172A, card #1B2336,
-; slate primary/secondary #1E293B/#334155, accent #22C55E, foreground
-; #F8FAFC, muted-foreground #94A3B8, border #475569, destructive #EF4444,
-; focus ring #FFFFFF. Re-expressed as Godot StyleBoxFlat resources + Theme
-; type variations so main.tscn nodes opt in with a single
-; `theme_type_variation` string instead of per-node style overrides.
-; Applied project-wide via project.godot [gui] theme/custom.
+; Light "parchment" palette, ported directly from the reference HTML's own
+; `:root[data-theme="light"]` block (Cartalith Gen1 v2.10.html, line 271) --
+; not a fresh ui-ux-pro-max match, a literal port of the reference app's real
+; alternate theme (itself ported from the V1.915 editor's "Light" palette).
+; The reference's own comment there is worth repeating: this restyles UI
+; chrome only, never the rendered map (JS colour ramps, not CSS) -- ported
+; here in that same spirit, this Theme resource only ever touches Godot
+; Control styling, never `render.rs`'s pixel output.
 ;
-; Font: kept Godot's built-in default (Fira Sans/Fira Code was the
-; skill's typography match, but sourcing + licensing real font files is
-; deferred to a follow-up pass rather than guessed at here -- see
-; CHANGELOG.md).
+;   bg #efe7d6  panel #fbf5e9  panel2 #e7ddc9  line #d3c8b0
+;   ink #2a2015 (primary text)   dim #6d5f47 (secondary)   faint #9a8b70
+;   accent #b07f3f (warm brown, reference's own primary highlight colour)
+;   accent2 #3f6f9e (blue, used here only for keyboard-focus rings, so
+;   "focused" reads distinct from "primary/active" accent styling)
+;   warn #b04a4a
+;
+; Superseded 2026-08-16 dark "technical dashboard" ui-ux-pro-max match
+; (background #0F172A / accent #22C55E) per explicit user preference for
+; the reference app's own light scheme instead.
+;
+; Font: kept Godot's built-in default (Fira Sans/Fira Code was the earlier
+; dark-theme pass's typography match; sourcing + licensing real font files
+; is still a deferred follow-up, see CHANGELOG.md).
 
 [sub_resource type="StyleBoxFlat" id="SB_HeaderBar"]
-bg_color = Color(0.105882, 0.137255, 0.211765, 1)
+bg_color = Color(0.984314, 0.960784, 0.913725, 1)
 border_width_bottom = 1
-border_color = Color(0.278431, 0.333333, 0.411765, 1)
+border_color = Color(0.827451, 0.784314, 0.690196, 1)
 content_margin_left = 20.0
 content_margin_top = 10.0
 content_margin_right = 20.0
 content_margin_bottom = 10.0
 
 [sub_resource type="StyleBoxFlat" id="SB_OuterPanel"]
-bg_color = Color(0.058824, 0.090196, 0.164706, 1)
+bg_color = Color(0.937255, 0.905882, 0.839216, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.278431, 0.333333, 0.411765, 1)
+border_color = Color(0.827451, 0.784314, 0.690196, 1)
 corner_radius_top_left = 12
 corner_radius_top_right = 12
 corner_radius_bottom_right = 12
 corner_radius_bottom_left = 12
 
 [sub_resource type="StyleBoxFlat" id="SB_SettingsCard"]
-bg_color = Color(0.105882, 0.137255, 0.211765, 1)
+bg_color = Color(0.984314, 0.960784, 0.913725, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.278431, 0.333333, 0.411765, 1)
+border_color = Color(0.827451, 0.784314, 0.690196, 1)
 corner_radius_top_left = 10
 corner_radius_top_right = 10
 corner_radius_bottom_right = 10
 corner_radius_bottom_left = 10
 
 [sub_resource type="StyleBoxFlat" id="SB_Field"]
-bg_color = Color(0.078431, 0.101961, 0.164706, 1)
+bg_color = Color(0.905882, 0.866667, 0.788235, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.278431, 0.333333, 0.411765, 1)
+border_color = Color(0.827451, 0.784314, 0.690196, 1)
 corner_radius_top_left = 6
 corner_radius_top_right = 6
 corner_radius_bottom_right = 6
@@ -65,12 +74,12 @@ content_margin_right = 10.0
 content_margin_bottom = 6.0
 
 [sub_resource type="StyleBoxFlat" id="SB_Field_Focus"]
-bg_color = Color(0.078431, 0.101961, 0.164706, 1)
+bg_color = Color(0.905882, 0.866667, 0.788235, 1)
 border_width_left = 2
 border_width_top = 2
 border_width_right = 2
 border_width_bottom = 2
-border_color = Color(1, 1, 1, 1)
+border_color = Color(0.247059, 0.435294, 0.619608, 1)
 corner_radius_top_left = 6
 corner_radius_top_right = 6
 corner_radius_bottom_right = 6
@@ -81,12 +90,12 @@ content_margin_right = 9.0
 content_margin_bottom = 5.0
 
 [sub_resource type="StyleBoxFlat" id="SB_Button_Normal"]
-bg_color = Color(0.200000, 0.254902, 0.333333, 1)
+bg_color = Color(0.905882, 0.866667, 0.788235, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.278431, 0.333333, 0.411765, 1)
+border_color = Color(0.827451, 0.784314, 0.690196, 1)
 corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
@@ -97,12 +106,12 @@ content_margin_right = 14.0
 content_margin_bottom = 8.0
 
 [sub_resource type="StyleBoxFlat" id="SB_Button_Hover"]
-bg_color = Color(0.317647, 0.364706, 0.435294, 1)
+bg_color = Color(0.827451, 0.784314, 0.690196, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.580392, 0.639216, 0.721569, 1)
+border_color = Color(0.690196, 0.498039, 0.247059, 1)
 corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
@@ -113,12 +122,12 @@ content_margin_right = 14.0
 content_margin_bottom = 8.0
 
 [sub_resource type="StyleBoxFlat" id="SB_Button_Pressed"]
-bg_color = Color(0.117647, 0.160784, 0.231373, 1)
+bg_color = Color(0.780392, 0.729412, 0.611765, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.278431, 0.333333, 0.411765, 1)
+border_color = Color(0.827451, 0.784314, 0.690196, 1)
 corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
@@ -129,12 +138,12 @@ content_margin_right = 14.0
 content_margin_bottom = 8.0
 
 [sub_resource type="StyleBoxFlat" id="SB_Button_Disabled"]
-bg_color = Color(0.105882, 0.137255, 0.211765, 0.55)
+bg_color = Color(0.905882, 0.866667, 0.788235, 0.55)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.278431, 0.333333, 0.411765, 0.4)
+border_color = Color(0.827451, 0.784314, 0.690196, 0.4)
 corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
@@ -150,7 +159,7 @@ border_width_left = 2
 border_width_top = 2
 border_width_right = 2
 border_width_bottom = 2
-border_color = Color(1, 1, 1, 1)
+border_color = Color(0.247059, 0.435294, 0.619608, 1)
 corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
@@ -161,7 +170,7 @@ expand_margin_right = 2.0
 expand_margin_bottom = 2.0
 
 [sub_resource type="StyleBoxFlat" id="SB_Primary_Normal"]
-bg_color = Color(0.133333, 0.772549, 0.368627, 1)
+bg_color = Color(0.690196, 0.498039, 0.247059, 1)
 corner_radius_top_left = 10
 corner_radius_top_right = 10
 corner_radius_bottom_right = 10
@@ -172,7 +181,7 @@ content_margin_right = 16.0
 content_margin_bottom = 10.0
 
 [sub_resource type="StyleBoxFlat" id="SB_Primary_Hover"]
-bg_color = Color(0.262745, 0.807843, 0.462745, 1)
+bg_color = Color(0.760784, 0.572549, 0.313725, 1)
 corner_radius_top_left = 10
 corner_radius_top_right = 10
 corner_radius_bottom_right = 10
@@ -183,7 +192,7 @@ content_margin_right = 16.0
 content_margin_bottom = 10.0
 
 [sub_resource type="StyleBoxFlat" id="SB_Primary_Pressed"]
-bg_color = Color(0.113725, 0.654902, 0.313725, 1)
+bg_color = Color(0.6, 0.427451, 0.196078, 1)
 corner_radius_top_left = 10
 corner_radius_top_right = 10
 corner_radius_bottom_right = 10
@@ -199,7 +208,7 @@ border_width_left = 2
 border_width_top = 2
 border_width_right = 2
 border_width_bottom = 2
-border_color = Color(1, 1, 1, 1)
+border_color = Color(0.247059, 0.435294, 0.619608, 1)
 corner_radius_top_left = 10
 corner_radius_top_right = 10
 corner_radius_bottom_right = 10
@@ -212,7 +221,7 @@ expand_margin_bottom = 2.0
 [resource]
 default_font_size = 14
 
-Label/colors/font_color = Color(0.972549, 0.980392, 0.988235, 1)
+Label/colors/font_color = Color(0.164706, 0.125490, 0.082353, 1)
 Label/font_sizes/font_size = 13
 
 Button/styles/normal = SubResource("SB_Button_Normal")
@@ -220,16 +229,16 @@ Button/styles/hover = SubResource("SB_Button_Hover")
 Button/styles/pressed = SubResource("SB_Button_Pressed")
 Button/styles/disabled = SubResource("SB_Button_Disabled")
 Button/styles/focus = SubResource("SB_Button_Focus")
-Button/colors/font_color = Color(0.972549, 0.980392, 0.988235, 1)
-Button/colors/font_hover_color = Color(0.972549, 0.980392, 0.988235, 1)
-Button/colors/font_pressed_color = Color(0.972549, 0.980392, 0.988235, 1)
-Button/colors/font_disabled_color = Color(0.580392, 0.639216, 0.721569, 1)
+Button/colors/font_color = Color(0.164706, 0.125490, 0.082353, 1)
+Button/colors/font_hover_color = Color(0.164706, 0.125490, 0.082353, 1)
+Button/colors/font_pressed_color = Color(0.164706, 0.125490, 0.082353, 1)
+Button/colors/font_disabled_color = Color(0.427451, 0.372549, 0.278431, 1)
 Button/font_sizes/font_size = 13
 
 CheckBox/styles/focus = SubResource("SB_Button_Focus")
-CheckBox/colors/font_color = Color(0.972549, 0.980392, 0.988235, 1)
-CheckBox/colors/font_hover_color = Color(0.972549, 0.980392, 0.988235, 1)
-CheckBox/colors/font_pressed_color = Color(0.133333, 0.772549, 0.368627, 1)
+CheckBox/colors/font_color = Color(0.164706, 0.125490, 0.082353, 1)
+CheckBox/colors/font_hover_color = Color(0.164706, 0.125490, 0.082353, 1)
+CheckBox/colors/font_pressed_color = Color(0.690196, 0.498039, 0.247059, 1)
 CheckBox/font_sizes/font_size = 13
 
 OptionButton/styles/normal = SubResource("SB_Button_Normal")
@@ -237,13 +246,13 @@ OptionButton/styles/hover = SubResource("SB_Button_Hover")
 OptionButton/styles/pressed = SubResource("SB_Button_Pressed")
 OptionButton/styles/disabled = SubResource("SB_Button_Disabled")
 OptionButton/styles/focus = SubResource("SB_Button_Focus")
-OptionButton/colors/font_color = Color(0.972549, 0.980392, 0.988235, 1)
+OptionButton/colors/font_color = Color(0.164706, 0.125490, 0.082353, 1)
 OptionButton/font_sizes/font_size = 13
 
 LineEdit/styles/normal = SubResource("SB_Field")
 LineEdit/styles/focus = SubResource("SB_Field_Focus")
-LineEdit/colors/font_color = Color(0.972549, 0.980392, 0.988235, 1)
-LineEdit/colors/font_placeholder_color = Color(0.580392, 0.639216, 0.721569, 1)
+LineEdit/colors/font_color = Color(0.164706, 0.125490, 0.082353, 1)
+LineEdit/colors/font_placeholder_color = Color(0.603922, 0.545098, 0.439216, 1)
 LineEdit/font_sizes/font_size = 13
 
 PanelContainer/styles/panel = SubResource("SB_OuterPanel")
@@ -260,28 +269,28 @@ PrimaryButton/styles/hover = SubResource("SB_Primary_Hover")
 PrimaryButton/styles/pressed = SubResource("SB_Primary_Pressed")
 PrimaryButton/styles/disabled = SubResource("SB_Primary_Normal")
 PrimaryButton/styles/focus = SubResource("SB_Primary_Focus")
-PrimaryButton/colors/font_color = Color(0.058824, 0.090196, 0.164706, 1)
-PrimaryButton/colors/font_hover_color = Color(0.058824, 0.090196, 0.164706, 1)
-PrimaryButton/colors/font_pressed_color = Color(0.058824, 0.090196, 0.164706, 1)
-PrimaryButton/colors/font_disabled_color = Color(0.058824, 0.090196, 0.164706, 0.6)
+PrimaryButton/colors/font_color = Color(0.101961, 0.070588, 0.023529, 1)
+PrimaryButton/colors/font_hover_color = Color(0.101961, 0.070588, 0.023529, 1)
+PrimaryButton/colors/font_pressed_color = Color(0.101961, 0.070588, 0.023529, 1)
+PrimaryButton/colors/font_disabled_color = Color(0.101961, 0.070588, 0.023529, 0.6)
 PrimaryButton/font_sizes/font_size = 15
 
 AppTitle/base_type = &"Label"
-AppTitle/colors/font_color = Color(0.972549, 0.980392, 0.988235, 1)
+AppTitle/colors/font_color = Color(0.164706, 0.125490, 0.082353, 1)
 AppTitle/font_sizes/font_size = 18
 
 SectionHeader/base_type = &"Label"
-SectionHeader/colors/font_color = Color(0.133333, 0.772549, 0.368627, 1)
+SectionHeader/colors/font_color = Color(0.690196, 0.498039, 0.247059, 1)
 SectionHeader/font_sizes/font_size = 12
 
 HintLabel/base_type = &"Label"
-HintLabel/colors/font_color = Color(0.580392, 0.639216, 0.721569, 1)
+HintLabel/colors/font_color = Color(0.427451, 0.372549, 0.278431, 1)
 HintLabel/font_sizes/font_size = 11
 
 StatusLabel/base_type = &"Label"
-StatusLabel/colors/font_color = Color(0.580392, 0.639216, 0.721569, 1)
+StatusLabel/colors/font_color = Color(0.427451, 0.372549, 0.278431, 1)
 StatusLabel/font_sizes/font_size = 12
 
 ErrorLabel/base_type = &"Label"
-ErrorLabel/colors/font_color = Color(0.937255, 0.266667, 0.266667, 1)
+ErrorLabel/colors/font_color = Color(0.690196, 0.290196, 0.290196, 1)
 ErrorLabel/font_sizes/font_size = 12

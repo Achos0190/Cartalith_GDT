@@ -2605,3 +2605,70 @@ reference's opt-in visual stretch features (still Phase 3, `ROADMAP.md`),
 and the river-network vector overlay (`drawRiverWays`) -- the existing
 simple channel-mask blue tint stays as its stand-in until that subsystem
 is ported.
+
+## Real Windows hands-on verification: two real bugs caught, and a theme swap to the reference's own light palette (2026-08-16)
+
+With the rendering port, UI reskin, and criterion-7 work all landed, ran
+the actual full MVP UI on this session's real Windows desktop -- not
+`godot4 --headless`, the genuine windowed app (`Godot_v4.7.1-stable_win64.exe
+--path godot-project main.tscn`), screenshotted via `PrintWindow` (occlusion-
+independent, unlike `CopyFromScreen` which the first attempt used and which
+captured the wrong window entirely), and driven with real synthetic mouse
+clicks at the button's actual screen coordinates. This is `MVP_SCOPE.md`
+criterion 3's other half, previously only satisfied by the Phase 0
+walking-skeleton's `ping()` round-trip, not the real terrain-generating UI.
+
+**Two real bugs found by this, neither visible from reading the code:**
+
+1. **World-Structure dropdown showed no text at all.** Root cause: the
+   `.tscn`'s hand-authored `item_0/text`..`item_5/text` properties on
+   `WorldShapeInput` (added by the same-day UI reskin pass) are missing the
+   `id`/`icon` sub-fields Godot's own editor normally serialises alongside
+   `text` -- hand-typed directly into the text-format scene file, they
+   deserialise as broken/blank entries. First fix attempt made this *worse*
+   -- adding a `_ready()` populate-via-script loop on top of the already-
+   present (broken) scene items produced literal empty rows before the
+   real options in the dropdown popup, exactly as the owner reported by
+   screenshot. Correct fix: delete the malformed scene-authored items
+   entirely and populate purely from `main.gd`'s existing
+   `WORLD_SHAPES`/new `WORLD_SHAPE_LABELS` arrays (`_ready()`), the single
+   source of truth the script already had -- plus `world_shape_input.
+   selected = 0` so a Classic default actually displays instead of
+   OptionButton's `-1` (which GDScript's negative array indexing had been
+   silently resolving to `WORLD_SHAPES`'s *last* entry, `"rift"`, not
+   `"Classic"`, every time the JS-parity-verified default flags implied it
+   should be Classic).
+2. **Window title still read "Cartalith (walking skeleton) (DEBUG)"**
+   -- `project.godot`'s `config/name` was never updated past Phase 0. Now
+   `"Cartalith Terrain Generator"`.
+
+**Theme swap, per explicit owner feedback ("I like the light colorscheme
+better from the html")**: the reference HTML actually defaults to a *dark*
+palette (`:root{ --bg:#101218; ... }`) -- what the owner meant is its real,
+built-in `:root[data-theme="light"]` alternate theme (line 271, a parchment
+palette the reference itself ported from the older V1.915 editor's "Light"
+option: `--bg:#efe7d6 --panel:#fbf5e9 --panel2:#e7ddc9 --line:#d3c8b0
+--ink:#2a2015 --dim:#6d5f47 --accent:#b07f3f --accent2:#3f6f9e
+--warn:#b04a4a`). Replaced the earlier same-day `ui-ux-pro-max` dark
+"technical dashboard" match (`#0F172A`/`#22C55E`) with a literal port of
+this real palette into `theme/app_theme.tres`, plus the two hardcoded
+non-Theme colours in `main.tscn` (`Background` `ColorRect`, header
+`AccentDot`). `accent2` (blue) is used only for keyboard-focus rings, kept
+deliberately distinct from `accent` (warm brown, used for primary/active
+styling) so "this is focused" and "this is the active/primary control"
+stay visually different signals. The reference's own comment on this palette
+is worth carrying forward: only UI chrome restyles; the rendered map's
+colours are JS ramps (now `render.rs`'s ported equivalent), never CSS/Theme
+-- confirmed by regenerating the same seed under both themes and observing
+identical map pixels, only the surrounding chrome changed.
+
+Both fixes (and the theme swap) verified by the same real-window
+screenshot+click loop, not just re-read: dropdown now shows "Classic" and
+the status label correctly reports the archetype
+(`"128x128, seed 12345, 800 km, Classic"`); title bar confirmed; light
+theme confirmed end-to-end including a real `Generate` click producing the
+same terrain under the new chrome.
+
+- `cargo test --workspace`: all green (no Rust touched by this entry, but
+  confirmed rather than assumed). `godot4 --headless --quit main.tscn`:
+  clean, extension loads.

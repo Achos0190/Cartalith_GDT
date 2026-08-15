@@ -55,6 +55,9 @@ var _generating := false
 ## the plain `generate()` path.
 const WORLD_SHAPES: Array[String] = ["", "earth", "supercontinent", "archipelago", "volcanic", "rift"]
 
+## Display labels shown in the dropdown, same order/index as WORLD_SHAPES.
+const WORLD_SHAPE_LABELS: Array[String] = ["Classic", "Earth-like", "Supercontinent", "Archipelago", "Volcanic", "Rift"]
+
 ## Below this viewport width, the fixed-width controls panel (360px, see
 ## main.tscn) plus a usably-sized map no longer both fit comfortably with
 ## touch-sized controls, so the layout stacks instead of sitting side by
@@ -66,6 +69,15 @@ const RESPONSIVE_BREAKPOINT_WIDTH := 700.0
 
 
 func _ready() -> void:
+	## Was never populated at all (scene nor script) -- OptionButton.selected
+	## defaults to -1 with no items, and GDScript's negative indexing meant
+	## `WORLD_SHAPES[world_shape_input.selected]` silently resolved to the
+	## LAST entry ("rift") instead of erroring or defaulting to Classic.
+	## Caught by hands-on testing (a real generate() run), not by review.
+	for label in WORLD_SHAPE_LABELS:
+		world_shape_input.add_item(label)
+	world_shape_input.selected = 0
+
 	generate_button.pressed.connect(_on_generate_pressed)
 	load_save_button.pressed.connect(_on_load_save_pressed)
 	load_save_dialog.file_selected.connect(_on_save_file_selected)

@@ -13,7 +13,7 @@ script = ExtResource("1")
 anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
-color = Color(0.058824, 0.090196, 0.164706, 1)
+color = Color(0.937255, 0.905882, 0.839216, 1)
 
 [node name="Root" type="VBoxContainer" parent="."]
 anchor_right = 1.0
@@ -30,7 +30,7 @@ theme_override_constants/separation = 12
 [node name="AccentDot" type="ColorRect" parent="Root/HeaderBar/HeaderRow"]
 custom_minimum_size = Vector2(8, 8)
 size_flags_vertical = 4
-color = Color(0.133333, 0.772549, 0.368627, 1)
+color = Color(0.690196, 0.498039, 0.247059, 1)
 
 [node name="TitleLabel" type="Label" parent="Root/HeaderBar/HeaderRow"]
 size_flags_horizontal = 3
@@ -185,13 +185,6 @@ text = "World shape"
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
-item_count = 6
-item_0/text = "Classic"
-item_1/text = "Earth"
-item_2/text = "Supercontinent"
-item_3/text = "Archipelago"
-item_4/text = "Volcanic"
-item_5/text = "Rift"
 
 [node name="AdvancedCard" type="PanelContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList"]
 theme_type_variation = &"SettingsCard"
