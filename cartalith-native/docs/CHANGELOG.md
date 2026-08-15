@@ -2263,3 +2263,34 @@ real device) needs the owner's own hardware -- nothing left in engine
 scope blocks it. Past that, remaining work is Phase 2+ (`ROADMAP.md`):
 civilisation, urban morphology, asset library -- out of this port's
 current scope until raised and scoped properly, not merely undone.
+
+## Phase 0 close-out, part 2 — the Android `.apk` builds and packages on real hardware (2026-08-15)
+
+This session had real `ANDROID_NDK_HOME`/`ANDROID_SDK_ROOT` access on the
+owner's own Windows machine (set up earlier this session, NDK
+`29.0.14206865` -- exactly what Godot 4.7.1 pins) -- something no earlier
+session had. Worth actually using rather than leaving the Android side at
+"blocked" from the original cloud sandbox.
+
+`cargo ndk -t arm64-v8a build -p cartalith-godot`: succeeded, produced a
+real `target/aarch64-linux-android/debug/libcartalith_godot.so` (220MB).
+`godot4 --headless --export-debug "Android" builds/android/Cartalith.apk`:
+succeeded -- added every resource, aligned, signed with the debug
+keystore, verified. Confirmed both `lib/arm64-v8a/libgodot_android.so`
+(Godot's own runtime) and `lib/arm64-v8a/libcartalith_godot.so` (this
+port's extension) are genuinely inside the packaged `.apk`, not just that
+the export command exited 0 -- same "unzip and look" discipline
+`TOOLCHAIN.md` already prescribes for exactly this kind of claim.
+
+**Confirmed: builds and packages. Not confirmed: installed and run on a
+real device** -- that's the one half of `MVP_SCOPE.md` criterion 4 no
+session can do from a terminal, `DECISIONS.md` §5's own carve-out. The
+owner already reached this exact wall once before this session (via the
+Godot Editor Android app, missing `.so` at the time) -- with a real
+`.apk` in hand now, sideloading it directly is simpler than repeating
+that path.
+
+**This closes every part of Phase 0/Phase 1 reachable without the
+owner's phone in hand.** Both platforms now build and package
+end-to-end; Windows has owner confirmation already (`ping()` round-trip,
+earlier in this CHANGELOG), Android is one sideload away from the same.
