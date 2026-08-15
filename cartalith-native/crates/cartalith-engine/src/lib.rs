@@ -10,27 +10,30 @@
 //! the way through carved river valleys — the same point a fresh default
 //! `generate()` call leaves `field`/`tempField`/`rainField`/`flowField` at.
 //!
-//! ## World-Structure archetypes — ported, with one real deviation
+//! ## World-Structure archetypes — ported, including graph-driven orogeny
 //!
 //! `state.world_structure.enabled` (default `false`, so this whole section
 //! is a no-op path at the JS engine's own defaults) now runs
 //! `generate_continentality_field`/`apply_world_structure_sea_level`
 //! (`cartalith-terrain`) and derives `tect.plates`/`tect.vel`/`volc.count`
 //! from the archetype's own params (`deriveFromWorldStructure()`, reference
-//! HTML lines 2528-2538) exactly as JS does — **except** graph-driven
-//! orogeny. JS's `deriveFromWorldStructure()` always sets
-//! `state.tect.tectonicGraph=true` alongside the plates/vel/volc.count
-//! derivation; this port has not ported `buildOrogenyField` (T2+T3 —
-//! boundary-polyline-graph-driven fold/trench/fault-block landforms), so
-//! `oro` stays `None` here even when `world_structure.enabled` is `true`.
-//! **This is a real, deliberate divergence from JS at that one setting**,
-//! not a no-op-at-defaults case like the rest of this list — a
-//! World-Structure world generated here will have the right continentality
-//! shape and land fraction (both real, verified, load-bearing effects) but
-//! the older "blob" convergent-stress uplift instead of JS's structured
-//! per-margin orogeny. Flagged here rather than silently approximated;
-//! `foldIntensity`/`trenchDepth` (JS's own orogeny-only tuning knobs) are
-//! correspondingly not modeled at all.
+//! HTML lines 2528-2538) exactly as JS does. JS's `deriveFromWorldStructure()`
+//! also always sets `state.tect.tectonicGraph=true` alongside that
+//! derivation (the only trigger this port models — nothing here exposes an
+//! independent toggle, matching JS's own only caller); when enabled, this
+//! traces `stress.boundary_mask` into typed polylines
+//! (`trace_boundaries`/`tag_boundary_types`) and stamps `build_orogeny_field`
+//! and `smooth_orogeny` (T2+T3, reference HTML lines 2981-3080) into `oro`,
+//! which `compute_height` folds in exactly as `fillHeightRows`'s own
+//! `T=oro?oro[i]+Math.min(sf,0):sf` does — the kept negative (divergent)
+//! stress layered under the structured margin features, not replaced by
+//! them. `foldIntensity`/`trenchDepth`/`faultBlock` (JS's own orogeny-only
+//! T5 tuning knobs) aren't exposed as configurable params yet, so
+//! `foldK`/`trenchK`/`faultBlockK` are hardcoded to the exact values JS's
+//! own null-coalescing defaults produce when nothing overrides them
+//! (`0.16`, `1.0`, `0`) — not a separate approximation, the same reasoning
+//! `build_orogeny_field`'s own doc comment gives for hardcoding `block_w`/
+//! `jitter`.
 //!
 //! ## What else this deliberately does NOT reproduce, and why
 //! - **`stampVolcanoesProvinces`** (`state.volc.provinces`, JS default
@@ -83,10 +86,11 @@ use cartalith_hydrology::{
     trace_river_polylines, ChannelResult,
 };
 use cartalith_terrain::{
-    apply_world_structure_sea_level, assign_plates, build_age_field, build_plates, compute_flexure, compute_height,
-    compute_heterogeneity, compute_resistance, compute_stress, compute_warp, gauss_blur,
-    generate_continentality_field, normalize_field, stamp_craters, stamp_volcanoes_provinces, stamp_volcanoes_simple,
-    HeightParams, WorldStructure,
+    apply_world_structure_sea_level, assign_plates, build_age_field, build_orogeny_field, build_plates,
+    compute_flexure, compute_height, compute_heterogeneity, compute_resistance, compute_stress, compute_warp,
+    gauss_blur, generate_continentality_field, normalize_field, smooth_orogeny, stamp_craters,
+    stamp_volcanoes_provinces, stamp_volcanoes_simple, tag_boundary_types, trace_boundaries, HeightParams,
+    OrogenyParams, WorldStructure,
 };
 
 /// Mirrors JS `Math.round` (ties toward `+Infinity`) — same trap
@@ -202,9 +206,8 @@ pub struct StreamParams {
 /// archipelago/volcanic/rift, reference HTML lines 2521-2526) set
 /// together. This port takes the five raw values directly rather than
 /// modeling named archetypes — a caller wanting "Archipelago" passes
-/// `ARCHETYPES.archipelago`'s own numbers. See the module doc comment
-/// for the one real deviation (`tectonicGraph`/graph-driven orogeny) this
-/// enables that this port doesn't reproduce.
+/// `ARCHETYPES.archipelago`'s own numbers. See the module doc comment for
+/// `tectonicGraph`/graph-driven orogeny, the other thing `enabled` turns on.
 pub struct WorldStructureParams {
     pub enabled: bool,
     pub continentality: f64,
@@ -427,8 +430,32 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
     let heterogeneity_field =
         compute_heterogeneity(gw, gh, p.tect.seed, p.map_width_km, world, &age_field, warp_x, warp_y);
     let mut resistance_field = compute_resistance(gw, gh, &plate_id, &plates, &age_field);
-    // orogenyField: always None here -- see the module doc comment
-    // ("Graph-driven orogeny").
+
+    // resistanceToOrogeny() (reference HTML lines 3433-3444): T2+T3,
+    // gated on `state.tect.tectonicGraph`, which JS's own
+    // deriveFromWorldStructure() sets true exactly when World-Structure is
+    // enabled (see this module's doc comment) -- the only trigger this
+    // port models, matching the doc comment's own "not modeled at all"
+    // note on foldIntensity/trenchDepth/faultBlock: nothing here exposes
+    // those T5 knobs yet, so foldK/trenchK/faultBlockK are the exact
+    // values JS's own null-coalescing defaults produce when nothing
+    // overrides them (`0.16*1`, `1.0`, `0`), not a separate approximation.
+    let oro = if p.world_structure.enabled {
+        let mut graph = trace_boundaries(&stress.boundary_mask, gw, gh);
+        tag_boundary_types(&mut graph, &stress.boundary_type, gw);
+        let oro_params = OrogenyParams {
+            blur_r: p.tect.blur_r,
+            seed: p.tect.seed,
+            shear: Some(&stress.shear_field),
+            fold_k: 0.16,
+            trench_k: 1.0,
+            fault_block_k: 0.0,
+        };
+        let raw = build_orogeny_field(&graph.polylines, &stress.stress_field, &base_raw, gw, gh, &oro_params);
+        Some(smooth_orogeny(&raw, gw, gh, p.tect.blur_r, world))
+    } else {
+        None
+    };
 
     // ---- height -> normalize (reference HTML lines 3361-3363) ----
     let height_params = HeightParams {
@@ -452,7 +479,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         &age_field,
         warp_x,
         warp_y,
-        None,
+        oro.as_deref(),
         &height_params,
     );
     let mut field = normalize_field(&raw_height);
