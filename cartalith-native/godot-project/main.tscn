@@ -13,7 +13,7 @@ script = ExtResource("1")
 anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
-color = Color(0.062745, 0.070588, 0.094118, 1)
+color = Color(0.058824, 0.090196, 0.164706, 1)
 
 [node name="Root" type="VBoxContainer" parent="."]
 anchor_right = 1.0
@@ -26,6 +26,11 @@ theme_type_variation = &"HeaderBar"
 
 [node name="HeaderRow" type="HBoxContainer" parent="Root/HeaderBar"]
 theme_override_constants/separation = 12
+
+[node name="AccentDot" type="ColorRect" parent="Root/HeaderBar/HeaderRow"]
+custom_minimum_size = Vector2(8, 8)
+size_flags_vertical = 4
+color = Color(0.133333, 0.772549, 0.368627, 1)
 
 [node name="TitleLabel" type="Label" parent="Root/HeaderBar/HeaderRow"]
 size_flags_horizontal = 3
@@ -146,16 +151,37 @@ max_value = 40000.0
 step = 10.0
 value = 800.0
 
-[node name="WorldShapeRow" type="HBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="WorldStructureCard" type="PanelContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList"]
+theme_type_variation = &"SettingsCard"
+
+[node name="WorldStructureMargin" type="MarginContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldStructureCard"]
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="WorldStructureVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldStructureCard/WorldStructureMargin"]
+theme_override_constants/separation = 8
+
+[node name="WorldStructureHeader" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox"]
+theme_type_variation = &"SectionHeader"
+text = "WORLD STRUCTURE"
+
+[node name="WorldStructureHint" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox"]
+theme_type_variation = &"HintLabel"
+autowrap_mode = 2
+text = "An archetype presets continentality, fragmentation, and tectonic energy, then re-anchors sea level so its land fraction holds. Classic runs the plain, non-archetype pipeline."
+
+[node name="WorldShapeRow" type="HBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox"]
 custom_minimum_size = Vector2(0, 48)
 theme_override_constants/separation = 10
 
-[node name="WorldShapeLabel" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/WorldShapeRow"]
+[node name="WorldShapeLabel" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox/WorldShapeRow"]
 custom_minimum_size = Vector2(128, 0)
 vertical_alignment = 1
 text = "World shape"
 
-[node name="WorldShapeInput" type="OptionButton" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/WorldShapeRow"]
+[node name="WorldShapeInput" type="OptionButton" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox/WorldShapeRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
@@ -167,48 +193,48 @@ item_3/text = "Archipelago"
 item_4/text = "Volcanic"
 item_5/text = "Rift"
 
-[node name="ExperimentalCard" type="PanelContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList"]
+[node name="AdvancedCard" type="PanelContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList"]
 theme_type_variation = &"SettingsCard"
 
-[node name="ExperimentalMargin" type="MarginContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard"]
+[node name="AdvancedMargin" type="MarginContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard"]
 theme_override_constants/margin_left = 12
 theme_override_constants/margin_top = 12
 theme_override_constants/margin_right = 12
 theme_override_constants/margin_bottom = 12
 
-[node name="ExperimentalVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin"]
+[node name="AdvancedVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin"]
 theme_override_constants/separation = 8
 
-[node name="ExperimentalHeader" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
+[node name="AdvancedHeader" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
 theme_type_variation = &"SectionHeader"
 text = "ADVANCED FEATURES"
 
-[node name="ExperimentalHint" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
+[node name="AdvancedHint" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
 theme_type_variation = &"HintLabel"
 autowrap_mode = 2
-text = "All golden-verified against the JS engine. Checked = matches its real default; unchecked = also matches its real default (lithology only)."
+text = "All golden-verified against the JS engine. Every default below matches the reference app's own default."
 
-[node name="DynamicLithologyCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
+[node name="DynamicLithologyCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
 text = "Dynamic lithology (exhumation hardening)"
 
-[node name="VolcProvincesCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
+[node name="VolcProvincesCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
 button_pressed = true
 text = "Clustered volcanism (provinces)"
 
-[node name="WindDeflectionCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
+[node name="WindDeflectionCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
 button_pressed = true
 text = "Terrain wind deflection"
 
-[node name="OceanCurrentsCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
+[node name="OceanCurrentsCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3

@@ -2454,3 +2454,88 @@ variation rather than placeholder zeros. **Passed on the first attempt.**
 the Rust-side unit tests pass" (the prior state, per this file's own
 2026-08-13 entry) but an actual real-export round-trip, bit-exact,
 verified. `STATUS.md` updated to match.
+
+## Godot UI reskin via ui-ux-pro-max: dark technical-dashboard palette + grouped settings (2026-08-16)
+
+The owner asked to use the `ui-ux-pro-max` skill (installed earlier this
+session, security-reviewed just before this pass -- `scripts/*.py` checked
+for `exec`/`eval`/`subprocess`/network calls; the only matches were an
+offline data-validator (`validate_data.py`) and its own test suite, not
+the runtime search/design-system path) to migrate and improve on the
+reference HTML's interface design for `godot-project/`.
+
+`python scripts/search.py "... dashboard tool" --design-system --density 8
+--variance 4` (a first attempt with plainer keywords matched the skill's
+marketing-landing pattern -- hero/CTA/footer -- wrong shape for a dense
+control panel; retried per the skill's own protocol with dashboard-shaped
+keywords) returned a dark "technical dashboard" system: background
+`#0F172A`, card `#1B2336`, slate primary/secondary `#1E293B`/`#334155`,
+accent `#22C55E`, foreground `#F8FAFC`, muted-foreground `#94A3B8`, border
+`#475569`, destructive `#EF4444`, focus ring `#FFFFFF`. A follow-up `ux`
+domain search (`"slider checkbox touch target size"`) confirmed the
+44px-minimum/8px-gap touch rules the previous session's responsive pass
+had already applied -- verified, not re-derived.
+
+**Scope decision, made explicitly rather than by default:** the reference
+HTML's real control inventory (grepped every top-level `bind(...)` call)
+is overwhelmingly Phase-3/civ-layer material this port doesn't implement
+-- AO/SVF/shadows/curvature-shading/geology-microtexture/wetness/splat/
+ridged-relief, all four SDF coast/river/biome sliders, all nine "Painter"
+NPR style sliders, civ icon/way scale, territory/way opacity, planet
+rotation/axial-tilt/geoid/tides, erosion evolve-cycle/velocity knobs.
+Adding UI for any of these would be a dead control that does nothing --
+worse UX than the control not existing. "Migrate the UI" was read as:
+apply the reference's level of visual/UX polish to the real, engine-backed
+control surface, not port every DOM widget that happens to exist.
+
+**What changed:**
+- `theme/app_theme.tres` rebuilt on the new palette (was a warm amber
+  accent from an earlier session's own from-scratch pass -- not wrong,
+  just not what the design-system search actually recommends for this
+  product category). Added explicit `styles/focus` StyleBoxFlat overrides
+  for `Button`/`OptionButton`/`CheckBox`/`PrimaryButton` (a white 2px
+  outline with `expand_margin`) -- the previous theme only had a focus
+  style on `LineEdit`, so keyboard-only navigation had no visible focus
+  indicator on any button/checkbox/dropdown, a real pre-delivery-checklist
+  gap (`references/pro-rules.md` accessibility section) that predates this
+  pass, not introduced by it.
+- `main.tscn`: split the single "World Parameters" card into two --
+  "World Parameters" (seed/resolution/width) and "World Structure"
+  (archetype dropdown, now with its own explanatory hint pulled from
+  `MVP_SCOPE.md` point 5's own re-anchoring language) -- matching how the
+  reference conceptually separates these, not how the MVP UI happened to
+  ship them flattened together. "Advanced Features" card kept, hint text
+  tightened. Small accent-colored header dot added (a `ColorRect`, not an
+  icon font/emoji -- `pro-rules.md`'s "no emoji as structural icons" rule
+  applies even to a decorative mark). All existing `unique_name_in_owner`
+  refs (`%SeedInput` etc.) preserved exactly, so `main.gd` needed zero
+  changes -- Godot's `%Name` lookup is scene-wide, not path-dependent.
+- Manually checked text/background contrast pairs against WCAG 4.5:1
+  (foreground-on-background, muted-foreground-on-card, accent-on-card,
+  navy-on-accent-button): all clear 6:1 or better. `cargo`/`godot4`
+  verification is **not** run this pass -- `cartalith-godot`'s own Rust
+  side is mid-edit by a concurrent session (its `render.rs` port), so a
+  build/run right now would test that work's in-progress state, not this
+  one's. `.tscn`/`.tres` internal consistency (every referenced
+  `SubResource`/`ExtResource` id declared, no dangling unique-name refs)
+  checked by manual review only -- real engine verification is deferred
+  to whoever runs `godot4 --headless --quit main.tscn` once the rendering
+  port lands.
+
+**Deliberately deferred, not forgotten:**
+- Typography: the design-system match was Fira Sans/Fira Code ("dashboard,
+  data, analytics, technical, precise"). Sourcing and OFL-license-checking
+  real font files wasn't done this pass (no verified way to fetch and
+  confirm a binary asset's license from here in one shot) -- theme keeps
+  Godot's built-in default font. Follow-up.
+- `MVP_SCOPE.md` point 9 (sea level) is real in-scope terrain parameter
+  the reference exposes (`bind('sea', ...)`) that this UI still doesn't
+  -- flagged, not added, since exposing it needs a new `#[func]` on
+  `WorldGen` and `cartalith-godot/src/lib.rs` is the concurrent rendering
+  fork's file this pass explicitly avoided touching.
+- Every gated Phase-3 viz control listed above -- explicitly out of scope
+  until the rendering they'd control actually exists.
+
+`STATUS.md` updated: the `ui-ux-pro-max` "installed but never reviewed"
+open item is now reviewed (see above); this UI pass itself noted under
+Phase 1.

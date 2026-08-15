@@ -12,6 +12,7 @@ Last updated: 2026-08-16.
 | # | Criterion | Status |
 |---|---|---|
 | 1 | Height/temp/rain/flow match golden data | **Done.** Every pipeline stage golden-verified bit-exact/tight-tolerance against the real JS engine: tectonics/orogeny (graph-driven T1-T5), volcanism+provinces, climate (temp/wind/rain), ocean currents, terrain wind deflection, erosion, hydrology, world-structure archetypes, full carve pipeline. Nothing left pinned to a stale default. |
+| — | UI/UX (not one of the seven, but part of the `/goal` "feature and graphic parity" directive) | **Reskinned 2026-08-16.** `theme/app_theme.tres`/`main.tscn` rebuilt on a `ui-ux-pro-max` dark-dashboard design system (real palette + grouped World Parameters/World Structure/Advanced cards + visible keyboard-focus states). Deferred: real Fira font files (license-unverified, kept Godot's default font), and `MVP_SCOPE.md` point 9 (sea level) still isn't user-adjustable from Godot — needs a new `#[func]` binding, not done this pass. See `CHANGELOG.md`'s "Godot UI reskin via ui-ux-pro-max" entry. |
 | 2 | Recognisable 2D map render | **In progress.** Previous renderer was a placeholder elevation-only tint (own doc comment called it "deliberately not attempted" biome colouring). A fork was dispatched 2026-08-16 to port the reference's real default-settings material/biome color model (`materialWeights` + palette ramps + sea gradient + hillshade) — check `CHANGELOG.md`'s latest entry for the outcome. |
 | 3 | Windows `.exe` builds + owner has run it | **Partly done.** Phase 0 walking-skeleton confirmed on real Windows (`ping()` round-trip). The current full MVP UI (seed/resolution/generate/load-save, real rendering) has *not* been separately confirmed running on Windows by the owner — worth a fresh screenshot/run once criterion 2's rendering lands, now that this session has real desktop access on the owner's machine. |
 | 4 | Android `.apk` builds + owner has installed/run | **Apk builds and packages, confirmed.** Install+run on *real hardware* is not reachable from this environment — investigated via emulator, root-caused as a SwiftShader/emulator limitation, not our code (see `CHANGELOG.md`'s Android emulator entries). Per the `/goal` set 2026-08-16, this is **no longer a hard requirement** — testing via Godot editor/headless and local Android Studio is sufficient for now. |
@@ -34,8 +35,8 @@ Last updated: 2026-08-16.
 
 - Credits screen (Phase 1 closeout, `ROADMAP.md`).
 - Crate licence audit (Phase 1 closeout, `PROVENANCE.md`).
-- Criterion 7's real-export verification (in progress, see table above).
-- `.claude/skills/ui-ux-pro-max/` — installed but never reviewed (bundles third-party Python scripts; flagged as a security concern when installed, not yet resolved).
+- Real Fira Sans/Fira Code font files for the UI theme (design-system match found the pairing; sourcing + OFL-license verification deferred).
+- Sea level as a user-adjustable Godot control (`MVP_SCOPE.md` point 9 — real terrain scope, just not wired to a `#[func]` yet).
 
 ## Owner-only items
 
