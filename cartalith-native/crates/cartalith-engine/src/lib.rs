@@ -36,24 +36,19 @@
 //! `jitter`.
 //!
 //! ## What else this deliberately does NOT reproduce, and why
-//! - **`stampVolcanoesProvinces`** (`state.volc.provinces`, JS default
-//!   `true`): ported (`cartalith_terrain::stamp_volcanoes_provinces`) and
-//!   reachable via `p.volc.provinces`, but this port's own default here
-//!   is `false` — see `WorldParams::defaults`'s doc comment on why
-//!   (no JS runtime in this environment to extract golden fixtures
-//!   against a placement algorithm this RNG-order-sensitive).
 //! - **Ocean-current SST folding** (`state.climate.currents`, JS default
 //!   `true`): ported (`cartalith_climate::ocean_sst_anomaly`/
 //!   `apply_ocean_currents`, both built on `deflect_flow`) and reachable
 //!   via `p.climate.currents`, but this port's own default is `false` —
-//!   same reasoning as `stampVolcanoesProvinces`/terrain wind deflection
-//!   above, see `WeatherParams::currents`'s own doc comment.
+//!   see `WeatherParams::currents`'s own doc comment (not yet golden-
+//!   verified; Node's now installed, per the CHANGELOG, but this one
+//!   hasn't been run through it yet).
 //! - **Terrain wind deflection** (`buildWind`'s `deflectFlow` block, JS
 //!   unconditional since v1.78): ported (`cartalith_climate::deflect_flow`)
 //!   and reachable via `p.climate.terrain_wind_deflection`, but this port's
-//!   own default is `false` — same "no JS runtime to golden-verify a
-//!   substantial iterative algorithm" reasoning as `stampVolcanoesProvinces`
-//!   above, see `WeatherParams::terrain_wind_deflection`'s own doc comment.
+//!   own default is `false` — same "not yet golden-verified" reasoning as
+//!   ocean-current SST folding above, see
+//!   `WeatherParams::terrain_wind_deflection`'s own doc comment.
 //! - **Dynamic lithology** (`state.tect.dynamicLithology`, default `false`):
 //!   ported and wired in (`recompute_resistance_after_erosion`, gated on
 //!   `p.tect.dynamic_lithology` exactly as JS gates it on the flag of the
@@ -274,22 +269,19 @@ impl WorldParams {
                 resist: 0.50,
                 dynamic_lithology: false,
             },
-            // `provinces: false`, not JS's own literal default (`true`):
-            // stamp_volcanoes_provinces is ported (cartalith-terrain) and
-            // reachable via this flag, but this environment has no JS
-            // runtime to extract real golden fixtures against it
-            // (`PARITY_TESTING.md`'s own extraction procedure needs one),
-            // so it isn't golden-verified yet. A hand-derived unit test
-            // isn't a substitute here the way it was for
-            // recompute_resistance_after_erosion's pure per-cell formula
-            // -- this is a multi-branch, RNG-order-sensitive placement
-            // algorithm across a whole grid, exactly the kind of thing
-            // `cartalith-porting-discipline` says "looks reasonable" isn't
-            // sufficient for. `false` keeps this pipeline's default
-            // output identical to before this port (and to
-            // golden_parity_carve.rs's existing verified fixtures) until
-            // someone with a JS runtime extracts real fixtures and flips
-            // this default to match JS.
+            // `provinces: false`, not JS's own literal default (`true`).
+            // stamp_volcanoes_provinces IS now golden-verified in its own
+            // right (cartalith-terrain/tests/golden_parity_volc_provinces.rs
+            // -- captured by driving the real reference `generate()` under
+            // Node with a small grid, bit-exact) -- but this pipeline-wide
+            // default stays `false` regardless, because flipping it would
+            // change the height field every downstream stage reads,
+            // invalidating golden_parity_carve.rs's and
+            // golden_parity_pipeline.rs's existing verified fixtures
+            // (captured against the `stamp_volcanoes_simple` path). Making
+            // this default match JS is a real, separate unit of work --
+            // re-extracting those fixtures too -- not a side effect of
+            // verifying the function in isolation.
             volc: VolcanismParams { count: 20, age: 0.40, provinces: false },
             crater: CraterParams { count: 100, age: 0.50 },
             planet: PlanetParams { g: 1.0, rotation_hours: 24.0, axial_tilt_deg: 23.4 },

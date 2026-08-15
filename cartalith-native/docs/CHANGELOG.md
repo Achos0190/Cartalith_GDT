@@ -1951,3 +1951,84 @@ ocean-current SST folding, and terrain wind deflection are ported but
 still off-by-default pending golden verification — no longer blocked on
 "no JS runtime here" (Node is installed now, see the previous entry), just
 not yet done.
+
+## Phase 1 — extraction harness upgrade + stampVolcanoesProvinces golden-verified (2026-08-15)
+
+**A real harness upgrade, not just one more subsystem.** The orogeny
+extraction technique (a Node `vm` sandbox with DOM/timer stubs) only
+worked because `buildOrogenyField`/`smoothOrogeny` happen to be pure --
+every input as an explicit parameter, per their own doc comments.
+`stampVolcanoesProvinces` and its own helpers (`placeSizedVolcano`,
+`placeProvinceVolcanoes`, `classifyBoundaries`) are **not** pure -- they
+read `GW`/`GH`/`state`/`field`/`boundaryMask`/`stressField`/`plateId`/
+`plates` directly as globals, which the previous harness couldn't reach at
+all: `vm.runInContext` attaches top-level `function`/`var` bindings to the
+sandbox's context object, but **not** top-level `let`/`const` bindings --
+they live in an unreachable script-scope environment instead, a genuine
+`vm` quirk, not a bug in the harness itself. The reference HTML declares
+`GW`, `state`, `boundaryMask`, etc. with `let`/`const` at the top level.
+
+Fixed by rewriting *only zero-indent* (genuinely top-level, not
+function-body-local) `let`/`const` to `var` before `vm` execution -- a
+regex on the concatenated `<script>` source, not a real parser, but this
+file's own convention of never indenting top-level declarations makes it
+safe: block-scoped/closure-captured locals inside functions (where
+let-vs-var actually changes semantics) are never zero-indent, so they're
+untouched.
+
+**This unlocked something bigger than reaching a few more globals**: with
+`GW`/`GH`/`state`/`allocate` all reachable, it's now possible to set a
+small grid (20x14, matching this project's own stage-test convention),
+call the actual unmodified top-level `generate()`, and let the real
+pipeline populate every field from a real run -- rather than hand-building
+synthetic inputs per function the way the orogeny extraction had to.
+`Worker` was left `undefined` rather than stubbed: this port's own
+architecture only targets the sync/no-worker-pool fallback (no browser
+worker pool in Rust), and the reference app's own `typeof Worker==='undefined'`
+feature-detection is exactly how it's meant to reach that same path --
+stubbing `Worker` would make the app *think* workers are available and
+hang waiting on a `postMessage` callback that never fires. (Also worth
+recording: the reference app's actual default grid is 2048x1311 -- the
+full sync pipeline at that size is why an early attempt at this looked
+like a hang and wasn't; it just wasn't going to finish in this session.
+Set `GW`/`GH` small and call `allocate()` before `generate()`.)
+
+**`stampVolcanoesProvinces` verified by monkey-patching it**, not by
+calling it in isolation with hand-built inputs: replaced the sandbox's own
+`stampVolcanoesProvinces` with a wrapper that snapshots `field`/
+`boundaryMask`/`stressField`/`plateId`/`plates` immediately before calling
+the real original function, then snapshots `field`/`volcanicField`
+immediately after -- so every input the golden test uses is something the
+real `generate()` pipeline genuinely produced at seed 42, not a
+hand-constructed approximation of what it might produce. Fed those exact
+captured values into `stamp_volcanoes_provinces`
+(`golden_parity_volc_provinces.rs`) and asserted against the captured
+output. **Bit-exact on the first attempt** -- no precision-order bug this
+time, unlike orogeny's two.
+
+- `cargo test --workspace`: all green. `cargo clippy --workspace
+  --all-targets`: clean.
+
+**Deliberately not flipping `WorldParams::defaults`'s `volc.provinces` to
+match JS's own `true` default**, even though the function itself is now
+golden-verified: the height field it produces feeds every downstream
+stage, and `golden_parity_carve.rs`/`golden_parity_pipeline.rs`'s existing
+fixtures were captured against the `stamp_volcanoes_simple` path this
+default currently selects. Flipping the default would silently invalidate
+those without also re-extracting them -- a real, separate unit of work,
+not a side effect of verifying one function. Noted in
+`WorldParams::defaults`'s own doc comment rather than done quietly.
+
+**This harness upgrade is the more valuable output of this entry** --
+ocean-current SST folding and terrain wind deflection (both real,
+non-pure, global-reading JS functions, same class as
+`stampVolcanoesProvinces`) can use the exact same monkey-patch-and-capture
+technique next, and so can anything else this port ever needs to verify
+against a real `generate()` run, not just a hand-built synthetic case.
+
+**Next**: ocean-current SST folding or terrain wind deflection, same
+technique. Eventually: re-extract `golden_parity_carve.rs`/
+`golden_parity_pipeline.rs` fixtures with `volc.provinces: true` and flip
+that default to match JS for real, once enough of the "ported but
+off-by-default" list is cleared that it's worth doing once instead of
+per-subsystem.
