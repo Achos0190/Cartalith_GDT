@@ -2181,3 +2181,47 @@ Godot-facing `WorldGen` wrapper. Both fixtures are tolerance-based
 noise across a long pipeline) and touch climate/erosion, so this is a
 bigger, more careful pass than today's — genuinely separate work, not
 mechanically the same as this entry.
+
+## Phase 1 — terrain_wind_deflection/currents flipped to match JS (2026-08-15)
+
+Finished what the previous entry deferred. `WorldParams::defaults`'s
+`climate.terrain_wind_deflection`/`climate.currents` are now `true`,
+matching JS (wind deflection unconditional since v1.78; `state.climate.currents`
+defaults `true`).
+
+Added a new `simulate_weather` test case first
+(`golden_parity_weather.rs::simulate_weather_currents_case`) to prove the
+`terrain_wind_deflection: true, currents: true` wiring together, end to
+end, before touching any default: captured by driving the real reference
+`generate()` under Node (`state.climate.currents = true`, `wIters = 5` for
+speed) and monkey-patching `simulateWeather` to snapshot its real inputs
+(`field` plus every `state.climate`/`state.planet` value the JS function
+reads) immediately before the call, and `rainField` immediately after --
+same technique `golden_parity_volc_provinces.rs` established. One real
+naming trap caught along the way: JS's actual fields are `windDir` (not
+`windDirDeg`) and a `windMode` string (`'auto'`/`'manual'`), not a
+`windManual` boolean directly -- the port's own `wind_manual`/`wind_dir_deg`
+params are a derived, cleaner shape than JS's own state layout, not a
+literal field-for-field mirror. **Passed at the existing `1e-5` tolerance
+on the first attempt.**
+
+Flipping the actual `WorldParams`/`WeatherParams` defaults touches only
+`golden_parity_carve.rs` (already pinned, now to all three flags with an
+updated comment explaining why and what it's still owed) -- audited every
+other `WorldParams::defaults` caller first (`golden_parity_pipeline.rs`
+doesn't reach the climate stage at all; `cartalith-godot::WorldGen`
+already overrides all four explicitly at every call site, same as before).
+
+- `cargo test --workspace`: all green, including the new weather test
+  case. `cargo clippy --workspace --all-targets`: clean. `godot4
+  --headless --import .` / `--quit main.tscn`: clean.
+
+**This is the pipeline-level default flip fully done.** `WorldParams::defaults`
+now matches JS's real defaults for all three subsystems this port spent
+today verifying. The one remaining piece is exactly what it's been since
+the volc.provinces entry: re-extract `golden_parity_carve.rs` itself from
+scratch with all three flags on (it's still pinned to the old,
+all-three-off state) -- a genuinely separate, more careful pass given its
+own tolerance-based, full-pipeline-through-carved-rivers scope, not
+mechanically the same as adding one new isolated test case the way today's
+`currents_case` was.

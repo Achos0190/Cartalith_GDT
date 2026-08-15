@@ -307,8 +307,16 @@ impl WorldParams {
                 rain_dep: 0.35,
                 bulk_evap: true,
                 w_iters: 70,
-                terrain_wind_deflection: false,
-                currents: false,
+                // Matching JS's real defaults now (terrain wind deflection
+                // is unconditional since v1.78; state.climate.currents
+                // defaults true) -- both golden-verified
+                // (golden_parity_deflect_flow.rs, golden_parity_ocean_current.rs,
+                // golden_parity_weather.rs's own currents_case) as of
+                // cartalith-native/docs/CHANGELOG.md, 2026-08-15.
+                // golden_parity_carve.rs still assumes both off -- pinned
+                // there explicitly rather than left to silently break.
+                terrain_wind_deflection: true,
+                currents: true,
                 current_k: 1.0,
             },
             stream: StreamParams { uplift: 0.0, k: 0.012, iters: 15, deposit: 0.3, climate_k: 0.5 },

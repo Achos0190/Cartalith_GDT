@@ -9,9 +9,15 @@
 //!
 //! The JS harness's buildWind/simulateWeather omit the opts.elev
 //! terrain-deflection branch and the oceanSSTAnomaly currents fold, matching
-//! cartalith-climate::build_wind/simulate_weather's own already-documented
-//! deferrals of both -- extracting a fair comparison of what IS ported,
-//! not a stripped-down re-derivation of unported behaviour.
+//! this test's own p.climate.terrain_wind_deflection/currents overrides
+//! (both pinned false here, unlike WorldParams::defaults's own now-true
+//! values -- see this file's own generate_terrain_carve_case_0_region for
+//! why) -- extracting a fair comparison of what this fixture actually
+//! covers, not a stripped-down re-derivation of unrelated behaviour. Both
+//! are independently golden-verified elsewhere
+//! (golden_parity_deflect_flow.rs, golden_parity_ocean_current.rs,
+//! golden_parity_weather.rs's own currents_case) -- this fixture is just
+//! not yet re-extracted with them on.
 //!
 //! w_iters lowered to 12 (from the state default 70) purely to keep this
 //! fixture's generation script fast; the weather sim's own golden tests
@@ -56,14 +62,17 @@ fn generate_terrain_carve_case_0_region() {
 
     let mut p = cartalith_engine::WorldParams::defaults(14, 11, 24601);
     p.world = false;
-    // WorldParams::defaults now matches JS's real volc.provinces default
-    // (`true`, cartalith-native/docs/CHANGELOG.md, 2026-08-15) -- this
-    // fixture predates that flip and was captured against the old default
-    // (`false`, stamp_volcanoes_simple), so pinned here rather than
-    // re-extracted in the same pass. Re-extracting this one belongs with
-    // flipping terrain_wind_deflection/currents too, both of which this
-    // fixture also implicitly assumes off (see this file's own doc comment).
+    // WorldParams::defaults now matches JS's real defaults for all three
+    // of volc.provinces/terrain_wind_deflection/currents
+    // (cartalith-native/docs/CHANGELOG.md, 2026-08-15) -- this fixture
+    // predates all three flips and was captured against the old defaults
+    // (stamp_volcanoes_simple, no terrain deflection, no ocean-current
+    // fold), so pinned here rather than re-extracted in the same pass as
+    // any of them. This is the one fixture in this port still owed a
+    // from-scratch re-extraction with all three on.
     p.volc.provinces = false;
+    p.climate.terrain_wind_deflection = false;
+    p.climate.currents = false;
     p.climate.w_iters = 12;
     let ws = cartalith_engine::generate_terrain(&p);
 
@@ -85,9 +94,11 @@ fn generate_terrain_carve_case_1_world_wrap() {
 
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);
     p.world = true;
-    // See case 0's own comment: pinned to the pre-flip default, not
+    // See case 0's own comment: pinned to the pre-flip defaults, not
     // re-extracted in this pass.
     p.volc.provinces = false;
+    p.climate.terrain_wind_deflection = false;
+    p.climate.currents = false;
     p.climate.w_iters = 12;
     let ws = cartalith_engine::generate_terrain(&p);
 
