@@ -2371,3 +2371,86 @@ stand in for actual hardware, independent of the rendering finding.
 Checked for a physical device on this machine's USB first
 (`adb devices -l`) in case one was already connected and sideloading could
 happen directly from here; none was.
+
+## `cartalith-io` verified against a real HTML-app export: `MVP_SCOPE.md` criterion 7 closed (2026-08-16)
+
+The one half of criterion 7 no prior session could reach: `load_save` had
+only ever been checked against synthetic fixtures built by hand
+(`SaveData`'s own doc comment called this out explicitly as "not a
+substitute for testing against a real export"). No browser was ever
+available in any session -- solved the same way this port solves every
+other "no browser" gap: the reference's own `exportZip()` (line ~12418) is
+pure-data JS, reachable via the same Node `vm.runInContext` harness this
+project has used all session, run against the real, unmodified reference
+engine.
+
+**A real, previously-undocumented gotcha found along the way**: the
+reference file declares **two** top-level `function generate(...)` in the
+same global scope -- the real terrain engine's `async function generate()`
+(line 3339, no arguments) and the unrelated urban-morphology block's own
+`function generate(seed,opts)` (line 30931, block 4). Both are plain
+non-module `<script>` tags (four of them, confirmed via `grep -n
+"</script>"`: lines 14557/26721/28162/31104), so they share one global
+object -- the later declaration silently wins the binding after all four
+scripts load, meaning a harness that concatenates the whole file and calls
+bare `generate()` would silently run the WRONG function. Sidestepped by
+extracting only script tag #1's content (lines 2084-14556), which contains
+the entire terrain/climate/hydrology engine plus `exportZip`/
+`buildGridFields`/`serializeState` and none of the urban block, so the name
+collision never loads at all. Worth remembering for any future extraction
+that naively slices "the whole `<script>` region" instead of a specific tag.
+
+**Harness upgrade, reusable next time**: the previous harness's DOM/timer
+stubs were enough for `generate()`'s own pipeline but not for a real
+export, since this file's top-level script also wires a large amount of UI
+(event listeners, `querySelectorAll` chains, `bind()` calls) that isn't
+worth stubbing method-by-method. Replaced with a single permissive
+Proxy-based fake DOM element: any read of an unset property returns
+another instance of itself (both callable AND carrying element-like
+methods, since call sites use the same expression either way --
+`el.querySelectorAll(...).forEach(...)` calls it, `document.documentElement`
+reads it as a sub-object), so arbitrary UI wiring silently no-ops instead
+of needing a hand-maintained stub list. `window` set to the sandbox object
+itself (browser semantics: `window === globalThis`).
+
+**Verified real, not synthetic.** Extracted the 7 entries
+`cartalith_io::load_save` actually reads (`params.json`, `heightmap.f32`,
+`temperature.f32`, `rainfall.f32`, `volcanic_field.f32`, `impact_field.f32`,
+`strahler_order.bin` -- confirmed by reading `SaveData`'s fields and
+`load_save`'s own `read_entry` calls directly, not assumed) from a real
+`generate()` run at `gw=14 gh=11 seed=24601 world=false` -- deliberately
+the same config as `golden_parity_carve.rs`'s case 0, which let
+`field[0..5]` from this independent extraction be cross-checked directly
+against that fixture's `expected_field[0..5]`: **exact match**, real
+evidence this harness reconstruction is faithful and not a coincidentally-
+similar but differently-configured run. Zipped via PowerShell
+`Compress-Archive` (native platform tool, no new npm dependency for a
+one-shot extraction script -- `SAVEFILE_COMPAT.md` already confirms the
+`zip` crate reads both STORE and DEFLATE) after confirming the produced
+archive's entry names are flat, not nested under a folder (a real
+`Compress-Archive` gotcha, checked directly via
+`[System.IO.Compression.ZipFile]::OpenRead`, not assumed safe).
+
+New fixtures: `crates/cartalith-io/tests/fixtures/real_export_seed24601.zip`
+(the real export) and `..._captured.json` (the same values captured
+directly from the JS sandbox's own typed arrays at export time,
+independently of the `.zip`'s own bytes -- comparing against this rather
+than re-reading the `.zip` back is what makes this an actual loader check,
+not a test of `load_save` against itself). New test
+`crates/cartalith-io/tests/golden_parity_real_export.rs`: bit-exact
+equality (not tolerance -- reading a raw little-endian `Float32Array` dump
+back is a lossless byte reinterpretation, not a second computation), plus a
+sanity check that `volcanic_field`/`strahler_order` carry real non-zero
+variation rather than placeholder zeros. **Passed on the first attempt.**
+
+- `cargo test -p cartalith-io`: all green (3 existing + 1 new).
+  `cargo clippy -p cartalith-io --all-targets`: clean. `cargo test
+  --workspace`: everything outside `cartalith-godot` green; a concurrent
+  session was mid-edit on `cartalith-godot`'s own rendering port and its
+  `golden_parity_render.rs` was failing at the time -- not this entry's
+  scope, left untouched, see that crate's own CHANGELOG entry.
+
+**This closes `MVP_SCOPE.md` criterion 7 for real** -- not "compiles and
+the Rust-side unit tests pass" (the prior state, per this file's own
+2026-08-13 entry) but an actual real-export round-trip, bit-exact,
+verified. `STATUS.md` updated to match.
