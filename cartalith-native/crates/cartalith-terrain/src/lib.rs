@@ -1772,18 +1772,19 @@ fn nbrs(a: &[u8], w: usize, h: usize, x: usize, y: usize) -> Vec<(usize, usize)>
 }
 
 /// One traced boundary-mask polyline: its grid-cell points plus
-/// `_polyMeta()`'s arc-length/curvature/closed-loop metadata. `kind` is
-/// left for a caller to populate (`currentBoundaryGraph`'s own per-
-/// polyline dominant-boundary-type majority vote, not yet ported/needed
-/// until `build_orogeny_field`'s own wiring) — `trace_boundaries` itself
-/// only knows geometry, matching the JS split between untyped
-/// `traceBoundaries` and typed `currentBoundaryGraph`.
+/// `_polyMeta()`'s arc-length/curvature/closed-loop metadata. `kind`
+/// (one of the `btype` constants) starts at `btype::NONE` — `trace_boundaries`
+/// itself only knows geometry; `tag_boundary_types` (`currentBoundaryGraph`'s
+/// own per-polyline dominant-boundary-type majority vote) fills it in,
+/// matching the JS split between untyped `traceBoundaries` and typed
+/// `currentBoundaryGraph`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BoundaryPolyline {
     pub pts: Vec<(usize, usize)>,
     pub length: f64,
     pub closed: bool,
     pub curvature: f64,
+    pub kind: u8,
 }
 
 /// `traceBoundaries()`'s own return value: every traced polyline plus the
@@ -1821,7 +1822,7 @@ fn poly_meta(pts: Vec<(usize, usize)>) -> BoundaryPolyline {
     let n = pts.len();
     let closed = n > 3 && pts[0] == pts[n - 1];
     let curvature = if length > 0.0 { turn / length } else { 0.0 };
-    BoundaryPolyline { pts, length, closed, curvature }
+    BoundaryPolyline { pts, length, closed, curvature, kind: btype::NONE }
 }
 
 /// Walks one chain starting at node/endpoint `(sx,sy)`, having just
@@ -1940,6 +1941,277 @@ pub fn trace_boundaries(mask: &[u8], w: usize, h: usize) -> BoundaryGraph {
     BoundaryGraph { polylines, nodes }
 }
 
+/// `currentBoundaryGraph()`'s own per-polyline tagging step (reference
+/// HTML lines 2954-2964, minus the `_boundaryGraph` cache — a perf-only
+/// detail with no effect on output values, the same reasoning
+/// `compute_warp`'s own doc comment gives for not reproducing JS's
+/// analogous memoization). For each polyline, counts each `btype` value
+/// among its points and sets `.kind` to the most frequent one —
+/// `btype::NONE` (0) is excluded from the vote (a polyline touching no
+/// classified boundary cell falls back to `NONE` via `kind`'s own
+/// `poly_meta` default, not through this function picking it).
+pub fn tag_boundary_types(graph: &mut BoundaryGraph, boundary_type: &[u8], gw: usize) {
+    for pl in &mut graph.polylines {
+        let mut counts = [0i32; 6];
+        for &(x, y) in &pl.pts {
+            counts[boundary_type[y * gw + x] as usize] += 1;
+        }
+        let mut best = -1;
+        let mut bk = 0u8;
+        for (k, &count) in counts.iter().enumerate().skip(1) {
+            if count > best {
+                best = count;
+                bk = k as u8;
+            }
+        }
+        pl.kind = bk;
+    }
+}
+
+/// A Gaussian bump: `G(u,c,s) = exp(-(u-c)^2/s^2)` (reference HTML line
+/// 3032's own inline arrow function).
+fn orogeny_g(u: f64, c: f64, s: f64) -> f64 {
+    (-((u - c) * (u - c)) / (s * s)).exp()
+}
+
+/// Per-boundary-type search radius (reference HTML line 2991's `RADS`
+/// map) — `None` for `btype::NONE` or any other value, meaning "this
+/// polyline contributes no orogeny stamp" (`build_orogeny_field`'s own
+/// skip condition).
+fn orogeny_radius(kind: u8, blur_r: f64) -> Option<f64> {
+    match kind {
+        btype::COLLISION => Some(blur_r * 3.3),
+        btype::SUBDUCTION_OC => Some(blur_r * 2.3),
+        btype::ARC_OO => Some(blur_r * 3.05),
+        btype::RIFT => Some(blur_r * 1.85),
+        btype::TRANSFORM => Some(blur_r * 2.0),
+        _ => None,
+    }
+}
+
+/// Tuning knobs `buildOrogenyField()`'s own `opts` bag takes (reference
+/// HTML lines 2982-2990). `block_w`/`jitter` (JS: `opts.blockW`/
+/// `opts.jitter`) aren't exposed here — this port's one call site
+/// (`cartalith-engine`) never overrides either, matching JS's own only
+/// caller, so their JS defaults (`0.55`, `0.5`) are hardcoded constants
+/// inside `build_orogeny_field` instead of unused knobs threaded through
+/// a struct nothing varies (same reasoning `WeatherParams` gives for
+/// omitting `radius_rel`).
+pub struct OrogenyParams<'a> {
+    pub blur_r: f64,
+    pub seed: i32,
+    pub shear: Option<&'a [f32]>,
+    pub fold_k: f64,
+    pub trench_k: f64,
+    pub fault_block_k: f64,
+}
+
+/// `buildOrogenyField()` (reference HTML lines 2965-3071, "T2+T3: tectonic
+/// feature kernels") — per-boundary-type uplift/depression profiles
+/// stamped along margin polylines, replacing the blurred convergent-stress
+/// blob with linear, asymmetric, type-specific landforms: collision
+/// (multi-ridge fold + orogenic plateau + foreland-basin depression),
+/// subduction/arc (trench + volcanic arc, arc's narrower + has a backarc
+/// basin), rift (axial graben + uplifted shoulders, optionally repeated
+/// Basin-and-Range fault blocks when `fault_block_k > 0`), and transform
+/// (shear-driven linear fault valley + en-echelon pressure ridge/
+/// releasing-bend pair, offset by signed shear).
+///
+/// For each polyline: mean `|stress|`/`|shear|`/signed-shear along its
+/// points (skipped entirely if both are negligible), a majority vote for
+/// which geometric side is oceanic (sampled ±3 cells along the local
+/// normal at up to 16 points), then a signed-distance-field scan
+/// (per-segment bounding-box windows, nearest-segment `t`-projection) that
+/// finds every cell within that type's search radius. Each found cell's
+/// signed distance is wiggled by an `fbm` crest jitter and its overall
+/// vigor modulated by a second `fbm` along-strike factor before the
+/// per-type profile is evaluated and combined into `U` by `|max|` across
+/// overlapping margins (so a junction of two features doesn't double-stack).
+///
+/// Pure. `polylines` must already be typed (`tag_boundary_types`).
+pub fn build_orogeny_field(polylines: &[BoundaryPolyline], stress: &[f32], crust: &[f32], w: usize, h: usize, p: &OrogenyParams) -> Vec<f32> {
+    let blur_r = (if p.blur_r == 0.0 { 18.0 } else { p.blur_r }).max(4.0);
+    let seed = p.seed;
+    let s1 = blur_r * 0.42;
+    let d1 = blur_r * 1.0;
+    let s2 = blur_r * 0.30;
+    let block_w = 0.55 * blur_r;
+    let jit = 0.5;
+
+    let n = w * h;
+    let mut u = vec![0f32; n];
+    // JS: `new Float32Array(W*H)` -- every store narrows to f32, so a
+    // later read is the f32-rounded value widened back to f64, not the
+    // full-precision f64 that produced it. Keeping these as f64 (a first
+    // pass here did) drops that per-cell rounding step JS always takes.
+    let mut dist = vec![0f32; n];
+    let mut side = vec![0f32; n];
+    let mut mark = vec![-1i32; n];
+    let mut pid = -1i32;
+
+    for pl in polylines {
+        let Some(rad) = orogeny_radius(pl.kind, blur_r) else {
+            continue;
+        };
+        if pl.pts.len() < 2 {
+            continue;
+        }
+        pid += 1;
+
+        let mut amp = 0f64;
+        let mut sh_amp = 0f64;
+        let mut sh_sig = 0f64;
+        for &(x, y) in &pl.pts {
+            let i0 = y * w + x;
+            amp += (stress[i0] as f64).abs();
+            if let Some(shear) = p.shear {
+                sh_amp += (shear[i0] as f64).abs();
+                sh_sig += shear[i0] as f64;
+            }
+        }
+        let len = pl.pts.len() as f64;
+        amp /= len;
+        sh_amp /= len;
+        sh_sig /= len;
+        if amp < 1e-4 && sh_amp < 1e-4 {
+            continue;
+        }
+
+        // Which geometric side is oceanic? Majority vote over `crust`
+        // (<0 = oceanic) sampled +-3 cells along the local normal, at up
+        // to 16 points spaced along the polyline. Ties (O-O, C-C) -> -1.
+        let q = &pl.pts;
+        let step = (q.len() / 16).max(1);
+        let mut vote = 0i32;
+        let mut k = 1usize;
+        while k + 1 < q.len() {
+            let (kx1, ky1) = q[k + 1];
+            let (kxm1, kym1) = q[k - 1];
+            let mut tx = kx1 as f64 - kxm1 as f64;
+            let mut ty = ky1 as f64 - kym1 as f64;
+            let tl = tx.hypot(ty);
+            let tl = if tl == 0.0 { 1.0 } else { tl };
+            tx /= tl;
+            ty /= tl;
+            let nx = -ty;
+            let ny = tx;
+            let (kx, ky) = q[k];
+            let xp = (js_round(kx as f64 + nx * 3.0)).clamp(0.0, w as f64 - 1.0) as usize;
+            let yp = (js_round(ky as f64 + ny * 3.0)).clamp(0.0, h as f64 - 1.0) as usize;
+            let xm = (js_round(kx as f64 - nx * 3.0)).clamp(0.0, w as f64 - 1.0) as usize;
+            let ym = (js_round(ky as f64 - ny * 3.0)).clamp(0.0, h as f64 - 1.0) as usize;
+            vote += i32::from(crust[yp * w + xp] < 0.0) - i32::from(crust[ym * w + xm] < 0.0);
+            k += step;
+        }
+        let ocean_sign = if vote > 0 { 1.0 } else { -1.0 };
+
+        // Signed distance field around this polyline: nearest-segment
+        // scan in per-segment windows.
+        let mut touched: Vec<usize> = Vec::new();
+        let pts = &pl.pts;
+        for s in 0..pts.len() - 1 {
+            let (ax, ay) = (pts[s].0 as f64, pts[s].1 as f64);
+            let (bx, by) = (pts[s + 1].0 as f64, pts[s + 1].1 as f64);
+            let ex = bx - ax;
+            let ey = by - ay;
+            let e_l2 = { let v = ex * ex + ey * ey; if v == 0.0 { 1.0 } else { v } };
+            let x0 = (ax.min(bx) - rad).floor().max(0.0) as usize;
+            let x1 = (((ax.max(bx) + rad).ceil()).min(w as f64 - 1.0)) as usize;
+            let y0 = (ay.min(by) - rad).floor().max(0.0) as usize;
+            let y1 = (((ay.max(by) + rad).ceil()).min(h as f64 - 1.0)) as usize;
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    let (xf, yf) = (x as f64, y as f64);
+                    let t = (((xf - ax) * ex + (yf - ay) * ey) / e_l2).clamp(0.0, 1.0);
+                    let dx = xf - (ax + ex * t);
+                    let dy = yf - (ay + ey * t);
+                    let d = dx.hypot(dy);
+                    if d > rad {
+                        continue;
+                    }
+                    let i = y * w + x;
+                    let sgn = if ex * dy - ey * dx >= 0.0 { 1.0 } else { -1.0 };
+                    if mark[i] != pid {
+                        mark[i] = pid;
+                        dist[i] = d as f32;
+                        side[i] = sgn as f32;
+                        touched.push(i);
+                    } else if d < dist[i] as f64 {
+                        dist[i] = d as f32;
+                        side[i] = sgn as f32;
+                    }
+                }
+            }
+        }
+
+        for &i in &touched {
+            let x = i % w;
+            let y = i / w;
+            let sd = side[i] as f64 * dist[i] as f64;
+            let de = sd
+                + (fbm(x as f64 / (blur_r * 2.2), y as f64 / (blur_r * 2.2), seed ^ 0x7e11) - 0.5) * jit * blur_r * 2.0;
+            let aj = 0.75 + 0.5 * fbm(x as f64 / (blur_r * 3.1), y as f64 / (blur_r * 3.1), seed ^ 0x33aa);
+            let dor = -ocean_sign * de;
+            let mut amp_here = amp;
+            let prof = if pl.kind == btype::COLLISION {
+                (orogeny_g(de, 0.0, s1) + 0.5 * orogeny_g(de, d1, s2) + 0.3 * orogeny_g(de, -d1, s2))
+                    * (1.0 + p.fold_k * (2.0 * std::f64::consts::PI * de / d1).cos())
+                    + 0.15 * orogeny_g(de, 0.0, blur_r * 0.95)
+                    - 0.35 * orogeny_g(de, -blur_r * 1.7, blur_r * 0.5)
+            } else if pl.kind == btype::SUBDUCTION_OC {
+                -0.9 * p.trench_k * orogeny_g(dor, -blur_r * 0.5, blur_r * 0.30) + 0.75 * orogeny_g(dor, blur_r * 0.8, blur_r * 0.45)
+            } else if pl.kind == btype::ARC_OO {
+                -0.85 * p.trench_k * orogeny_g(dor, -blur_r * 0.45, blur_r * 0.28) + 0.6 * orogeny_g(dor, blur_r * 0.55, blur_r * 0.30)
+                    - 0.22 * orogeny_g(dor, blur_r * 1.5, blur_r * 0.5)
+            } else if pl.kind == btype::RIFT {
+                let mut prof = -0.45 * orogeny_g(de, 0.0, blur_r * 0.30)
+                    + 0.28 * (orogeny_g(de, blur_r * 0.75, blur_r * 0.35) + orogeny_g(de, -blur_r * 0.75, blur_r * 0.35));
+                if p.fault_block_k > 0.0 {
+                    let uu = de / block_w;
+                    let frac = uu - uu.floor();
+                    let tilt = (-2.4 * frac).exp() - 0.36;
+                    let env = (-(de * de) / ((blur_r * 1.7) * (blur_r * 1.7))).exp();
+                    prof += p.fault_block_k * 0.55 * tilt * env;
+                }
+                prof
+            } else {
+                // T4 transform (San Andreas / Dead Sea / Alpine Fault):
+                // driven by shear, not normal stress.
+                amp_here = sh_amp;
+                let ro = sh_sig * blur_r * 1.2;
+                -0.55 * orogeny_g(de, 0.0, blur_r * 0.45) + 0.32 * orogeny_g(de, ro, blur_r * 0.42)
+                    - 0.12 * orogeny_g(de, -ro, blur_r * 0.5)
+            };
+            // JS compares the full f64 `v` against `U[i]` widened back to
+            // f64 (reading a Float32Array never truncates further) and
+            // only narrows to f32 at the point of storage. Narrowing `v`
+            // to f32 before the comparison, as a first pass here did, can
+            // flip which side wins when the two magnitudes are within a
+            // few ULPs of each other -- matching JS's own order, not just
+            // its final stored value, per cartalith-rust-conventions.
+            let v = amp_here * aj * prof;
+            if v.abs() > (u[i] as f64).abs() {
+                u[i] = v as f32;
+            }
+        }
+    }
+
+    u
+}
+
+/// `smoothOrogeny()` (reference HTML lines 3077-3080): a light separable
+/// box blur on the finished orogeny field — the per-type Gaussian
+/// profiles + `|max|` margin-combine + crest-wiggle leave sharp creases;
+/// a small blur (radius proportional to `blur_r`) rounds them off.
+pub fn smooth_orogeny(u: &[f32], w: usize, h: usize, blur_r: f64, wrap: bool) -> Vec<f32> {
+    let r = (js_round((if blur_r == 0.0 { 18.0 } else { blur_r }) * 0.16) as i64).max(1);
+    let mut tmp = vec![0f32; w * h];
+    let mut out = u.to_vec();
+    box_h(&out, &mut tmp, w, h, r, wrap);
+    box_v(&tmp, &mut out, w, h, r);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2034,5 +2306,41 @@ mod tests {
         assert_eq!(g.polylines.len(), 2);
         assert_eq!(g.polylines[0].pts, vec![(0, 0), (1, 0)]);
         assert_eq!(g.polylines[1].pts, vec![(1, 0), (0, 0)]);
+    }
+
+    #[test]
+    fn tag_boundary_types_majority_vote_and_tie_break() {
+        // Hand-traceable (pure counting + argmax over a fixed 6-entry
+        // array) rather than Node-extracted: the JS this mirrors is
+        // inlined in currentBoundaryGraph(), which needs boundaryMask/
+        // boundaryType/GW/GH globals a Node vm sandbox can't reach (`let`-
+        // scoped, never attached to the context object) -- same class of
+        // verification T1's thin_mask/trace_boundaries tests already use.
+        //
+        // Grid (gw=3): row y=0 is [collision, collision, subductionOC];
+        // row y=1 is [rift, rift, _]; row y=2 is [subductionOC, arcOO, _].
+        #[rustfmt::skip]
+        let boundary_type: [u8; 9] = [
+            btype::COLLISION, btype::COLLISION, btype::SUBDUCTION_OC,
+            btype::RIFT,       btype::RIFT,       btype::NONE,
+            btype::SUBDUCTION_OC, btype::ARC_OO,   btype::NONE,
+        ];
+        let mut graph = BoundaryGraph {
+            polylines: vec![
+                // 2 collision cells + 1 subduction -> collision wins outright.
+                BoundaryPolyline { pts: vec![(0, 0), (1, 0), (2, 0)], length: 0.0, closed: false, curvature: 0.0, kind: btype::NONE },
+                // both rift -> rift.
+                BoundaryPolyline { pts: vec![(0, 1), (1, 1)], length: 0.0, closed: false, curvature: 0.0, kind: btype::NONE },
+                // tie: 1 subductionOC (k=2) vs 1 arcOO (k=3) -- JS's
+                // `if(cnt[k]>best)` is strict, so the lower k found first
+                // during the k=1..len scan keeps the win, not the last.
+                BoundaryPolyline { pts: vec![(0, 2), (1, 2)], length: 0.0, closed: false, curvature: 0.0, kind: btype::NONE },
+            ],
+            nodes: vec![],
+        };
+        tag_boundary_types(&mut graph, &boundary_type, 3);
+        assert_eq!(graph.polylines[0].kind, btype::COLLISION);
+        assert_eq!(graph.polylines[1].kind, btype::RIFT);
+        assert_eq!(graph.polylines[2].kind, btype::SUBDUCTION_OC, "tie keeps the lower boundary-type id, matching JS's strict >");
     }
 }

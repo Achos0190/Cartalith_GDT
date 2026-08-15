@@ -1817,3 +1817,81 @@ uplift instead of structured per-margin orogeny). Seasons and the
 owner-side items from the previous entry are still open too.
 
 **Next**: T2+T3 — the actual landform-shaping kernels this graph feeds.
+
+## Phase 1 — graph-driven orogeny, part 2: T2+T3 kernels ported and golden-verified (2026-08-15)
+
+**Node.js is now available in this environment** (installed this session,
+v24.19.0, matching the version every prior golden extraction in this
+CHANGELOG already cites) — the "no JS runtime here" caveat several earlier
+entries logged for deferring golden verification
+(`stampVolcanoesProvinces`, ocean-current SST folding, terrain wind
+deflection) no longer applies to future sessions on this machine.
+
+`tag_boundary_types` (`currentBoundaryGraph`'s per-polyline dominant-type
+majority vote, reference HTML lines 2957-2962, inlined in JS rather than
+its own function) and `build_orogeny_field`/`smooth_orogeny`
+(`buildOrogenyField`/`smoothOrogeny`, T2+T3, reference lines 2981-3080) —
+the per-boundary-type signed-distance-field kernels (collision multi-ridge
+fold, subduction/arc trench+arc, rift graben+shoulders+optional
+Basin-and-Range fault blocks, transform shear-driven fault valley) that
+`buildOrogenyField`'s own header comment describes, stamped along each
+typed margin polyline and combined by `|max|` so junctions don't
+double-stack.
+
+**Golden-verified**: extracted by running the actual JS `buildOrogenyField`/
+`smoothOrogeny` under real Node.js (a `vm`-sandboxed load of every
+`<script>` block in the reference HTML, with permissive stubs for
+DOM/timer APIs so top-level init code doesn't throw or hang the process --
+sanity-checked first against `mulberry32`'s already-golden values before
+trusting it for anything new) against a synthetic 20x14 grid, one polyline
+per boundary type, deterministic non-random stress/crust/shear fields.
+5 cases (collision, subductionOC, arcOO, rift with `faultBlockK>0` to
+exercise the Basin-and-Range branch, transform with a real shear field),
+2 also checked through `smooth_orogeny`. All bit-for-bit exact.
+
+**Two real precision-order bugs caught by the first test run, both the
+same class**: JS declares `dist`/`side` as `Float32Array` inside
+`buildOrogenyField` — every store narrows to f32, so a later read is the
+*rounded* value widened back to f64, not the full-precision f64 that
+produced it. A first pass at this port kept both as `Vec<f64>` (no
+narrowing until the final `U` store), and separately narrowed the final
+`|max|`-combine comparison's `v` to f32 *before* comparing magnitudes
+instead of after, matching neither of JS's two separate narrowing points.
+Both fixed to narrow exactly where JS's own `Float32Array` assignments do
+and nowhere else (`cartalith-rust-conventions`: match JS's float precision,
+don't improve on it) — the bit-exact test results above are after both
+fixes; the first attempt failed at roughly the 7th significant digit,
+small enough to look like "close enough" and easy to wave through without
+a golden test catching it.
+
+`tag_boundary_types` is intentionally **not** golden-tested via Node: it
+depends on `boundaryMask`/`boundaryType`/`GW`/`GH` globals declared `let`
+at the reference HTML's top level, which never attach to a Node `vm`
+context object (a real, load-bearing quirk of that extraction technique,
+not a bug in the harness) — small enough, pure counting + argmax over a
+fixed 6-entry array, to hand-verify instead, same class of "small enough
+to hand-trace exactly" T1's `thin_mask`/`trace_boundaries` tests already
+used. Covers a clean majority and JS's strict-`>` tie-break behaviour
+(lower boundary-type id wins a tie, not the last one scanned).
+
+- `cargo test --workspace`: all green, including this entry's new
+  `golden_parity_orogeny.rs` (5 tests) and one new `cartalith-terrain`
+  unit test. `cargo clippy --workspace --all-targets`: clean.
+
+**Remaining, unchanged from the previous entry**: wiring into
+`generate_terrain` behind `world_structure`'s existing `tectonicGraph`
+deviation flag. Everything the kernels themselves need already exists on
+the tectonic-substrate result (`boundary_mask`, `boundary_type`,
+`stress_field`, `shear_field`) — the one missing piece is a
+`plate_crust`-equivalent helper (JS `plateCrust()`, reference HTML: builds
+a per-cell `plates[plateId[i]].base` array) to feed `build_orogeny_field`'s
+ocean-side vote. Deliberately left as its own step rather than folded into
+this commit, matching this CHANGELOG's own established rhythm of "ported,
+not yet wired" as a separate unit from "wired in" (`stampVolcanoesProvinces`,
+`deflectFlow`, ocean currents all did this too) — easier to review, and a
+wiring bug can't be confused for a kernel bug if they land separately.
+
+**Next**: `plate_crust` helper, then wire `tag_boundary_types` +
+`build_orogeny_field` + `smooth_orogeny` into `generate_terrain`'s
+World-Structure section, closing the gap that section's own doc comment
+already flags.
