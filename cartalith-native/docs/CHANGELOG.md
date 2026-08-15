@@ -2354,3 +2354,20 @@ the real target (owner's physical device, real GPU) doesn't share this
 constraint. `MVP_SCOPE.md` criterion 4 remains exactly where the prior
 entry left it: one sideload away, on real hardware, not reachable from
 this environment.
+
+One correction to the read above: this AVD (`emulator-5554`,
+`sdk_gphone16k_x86_64`) is an **x86_64** system image, not arm64 --
+`ro.product.cpu.abi` confirms it, despite the `.apk` shipping only
+`lib/arm64-v8a/*.so`. It runs our arm64 libraries through
+`ro.dalvik.vm.native.bridge=libndk_translation.so` (confirmed present at
+`/system/lib64/libndk_translation.so`), Android Studio's standard ARM
+translation layer for x86_64 images with `abilist=x86_64,arm64-v8a`. This
+doesn't overturn the SceneShaderGLES3/SwiftShader root cause above (that's
+a pure GL-driver issue, unrelated to CPU architecture), but it does mean
+the emulator adds a second, unaudited layer of indirection
+(binary-translated native calls) between our `.so` and the OS that a real
+device wouldn't have -- one more reason this environment's result can't
+stand in for actual hardware, independent of the rendering finding.
+Checked for a physical device on this machine's USB first
+(`adb devices -l`) in case one was already connected and sideloading could
+happen directly from here; none was.
