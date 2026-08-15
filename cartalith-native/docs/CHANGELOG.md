@@ -2294,3 +2294,63 @@ that path.
 owner's phone in hand.** Both platforms now build and package
 end-to-end; Windows has owner confirmation already (`ping()` round-trip,
 earlier in this CHANGELOG), Android is one sideload away from the same.
+
+## Android emulator investigation — a real, reproducible boot stall, but SwiftShader's, not ours (2026-08-15)
+
+Tried the AVD emulator ("OP12", arm64, API level matching the export
+preset) as the closest technically-reachable proxy for "install and run"
+without the owner's own phone. Installed cleanly (`adb install`), process
+launches and survives (`pidof` stays populated, `ActivityTaskManager:
+Displayed ... +2s14ms`), no crash. A screenshot (`adb shell screencap`)
+shows a flat gray screen -- no triangle, no theme, no controls, nothing.
+
+Root-caused, not just observed. Cleared logcat and did a fresh
+force-stop/relaunch twice to rule out stale-buffer artifacts -- both
+captures are identical and short (29 lines under the `godot` tag,
+consistently). The full sequence, every time:
+
+1. `Godot Engine v4.7.1.stable.official...`
+2. `WARNING: Failed to load cached shader, recompiling.`
+3. `ERROR: SceneShaderGLES3: Program linking failed: Fragment shader
+   active uniforms exceed GL_MAX_FRAGMENT_UNIFORM_VECTORS (261)`
+4. `OpenGL API OpenGL ES 3.0 (OpenGL ES 3.0 SwiftShader 4.0.0.1) -
+   Compatibility - ... (Google SwiftShader)`
+5. Two more `CanvasShaderGLES3: Program linking failed` (same uniform-limit
+   error), then **nothing further, ever** -- not another log line of any
+   kind, across two independent clean captures.
+
+`SceneShaderGLES3`/`CanvasShaderGLES3` are Godot's own built-in engine
+shaders, not this port's -- they'd fail identically for a stock, unmodified
+Godot project on this same emulator. SwiftShader (the emulator's
+CPU-software GL implementation, not a real GPU) reports a
+`GL_MAX_FRAGMENT_UNIFORM_VECTORS` of 261, which is below what Godot's
+Compatibility renderer needs to link its own default shaders. Real GPU
+drivers don't carry this ceiling (typical minimum is 1024+ per the GLES3
+spec) -- this is a software-renderer-specific limitation, matching exactly
+the "real GPU rendering ... cannot be confirmed from a headless/cloud
+session" carve-out `DECISIONS.md` §5 and the `cartalith-porting-discipline`
+skill already document, just encountered here via an emulator instead of a
+sandbox.
+
+**What this does and doesn't tell us about criterion 4.** Godot loads
+GDExtensions during its own early boot (`Main::setup2()`), which Phase 0's
+`--headless --import` entry (above) confirmed logs `Initialize godot-rust
+(...)` on success. That line never appears in either capture -- but neither
+does any explicit extension-load failure (`Can't open dynamic library`,
+`GDExtension dynamic library not found`), which Godot logs just as loudly
+on the paths we've hit before (the Windows `.gdextension` path bug,
+earlier this CHANGELOG). The honest read: the boot sequence appears to
+stall inside shader/splash-screen setup before it reaches a point this
+capture can distinguish "extension loaded silently" from "extension never
+attempted." **This emulator run cannot confirm or deny whether
+`libcartalith_godot.so` loads on Android** -- it only confirms the `.apk`
+installs, launches, and doesn't crash. That was already known from the
+packaging entry above.
+
+**Not pursued further**: forcing a different rendering driver/backend to
+work around SwiftShader's shader-linking ceiling, since any such change
+would be diagnosing the emulator's software renderer, not this port, and
+the real target (owner's physical device, real GPU) doesn't share this
+constraint. `MVP_SCOPE.md` criterion 4 remains exactly where the prior
+entry left it: one sideload away, on real hardware, not reachable from
+this environment.
