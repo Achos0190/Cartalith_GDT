@@ -2225,3 +2225,41 @@ all-three-off state) -- a genuinely separate, more careful pass given its
 own tolerance-based, full-pipeline-through-carved-rivers scope, not
 mechanically the same as adding one new isolated test case the way today's
 `currents_case` was.
+
+## Phase 1 — golden_parity_carve.rs re-extracted: the fixture-flip pass is done (2026-08-15)
+
+Closed the one remaining gap. `carveRiverValleys()`'s own step 3
+(reference HTML line 8784: `computeFlow(true); refreshClimate();`) meant
+this capture needed no monkey-patch or early-abort at all, unlike every
+other fixture regenerated today -- carving is the last stage that touches
+any field this test checks, so the real reference `generate()` could just
+run to completion under Node and `field`/`tempField`/`rainField`/
+`flowField`/`riverMask` read directly off the sandbox afterward.
+
+Both cases (`gw=14 gh=11 seed=24601 world=false`,
+`gw=16 gh=12 seed=314159 world=true`) passed at the existing tolerance
+(`1e-4` atol+rtol, `river_mask` exact) **on the first attempt** -- the
+full pipeline (tectonics through carved rivers, with clustered volcanism,
+terrain-deflected wind, and ocean-current-coupled climate all genuinely
+active together for the first time in any test) matches JS end to end.
+No test-body overrides needed anymore either: this is what a plain
+`WorldParams::defaults` run actually produces now.
+
+- `cargo test --workspace`: all green. `cargo clippy --workspace
+  --all-targets`: clean. `godot4 --headless --quit main.tscn`: clean.
+
+**This closes the fixture-re-extraction arc started three entries ago.**
+Every golden test in this port now reflects `WorldParams::defaults`'s
+real, JS-matching values -- no fixture anywhere is still pinned to a
+stale pre-flip default. Combined with the earlier entries: graph-driven
+orogeny ported and wired, all three previously-"unverified" stretch
+subsystems golden-verified, and now every fixture that touches any of
+them re-extracted against their real defaults rather than left assuming
+the conservative all-off state this port carried through most of Phase 1.
+
+**Where this leaves `MVP_SCOPE.md`'s "done means all seven" checklist**:
+six of seven are satisfied. The seventh (`.apk` installed and run on a
+real device) needs the owner's own hardware -- nothing left in engine
+scope blocks it. Past that, remaining work is Phase 2+ (`ROADMAP.md`):
+civilisation, urban morphology, asset library -- out of this port's
+current scope until raised and scoped properly, not merely undone.
