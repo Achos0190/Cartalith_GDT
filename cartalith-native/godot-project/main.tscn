@@ -1,46 +1,126 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://main.gd" id="1"]
+[ext_resource type="Theme" path="res://theme/app_theme.tres" id="2"]
 
 [node name="Main" type="Control"]
 anchor_right = 1.0
 anchor_bottom = 1.0
+theme = ExtResource("2")
 script = ExtResource("1")
 
-[node name="VBox" type="VBoxContainer" parent="."]
-offset_left = 20.0
-offset_top = 20.0
-offset_right = 300.0
-offset_bottom = 490.0
+[node name="Background" type="ColorRect" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+color = Color(0.062745, 0.070588, 0.094118, 1)
 
-[node name="Title" type="Label" parent="VBox"]
-text = "Cartalith terrain generator (Phase 1 MVP)"
-autowrap_mode = 2
+[node name="Root" type="VBoxContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+theme_override_constants/separation = 0
 
-[node name="SeedRow" type="HBoxContainer" parent="VBox"]
+[node name="HeaderBar" type="PanelContainer" parent="Root"]
+custom_minimum_size = Vector2(0, 56)
+theme_type_variation = &"HeaderBar"
+
+[node name="HeaderRow" type="HBoxContainer" parent="Root/HeaderBar"]
+theme_override_constants/separation = 12
+
+[node name="TitleLabel" type="Label" parent="Root/HeaderBar/HeaderRow"]
+size_flags_horizontal = 3
+vertical_alignment = 1
+theme_type_variation = &"AppTitle"
+text = "Cartalith Terrain Generator"
+clip_text = true
+
+[node name="TaglineLabel" type="Label" parent="Root/HeaderBar/HeaderRow"]
+vertical_alignment = 1
+theme_type_variation = &"HintLabel"
+text = "Phase 1 MVP"
+
+[node name="StageMargin" type="MarginContainer" parent="Root"]
+size_flags_vertical = 3
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
+
+[node name="Stage" type="BoxContainer" parent="Root/StageMargin"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 16
+
+[node name="ControlsPanel" type="PanelContainer" parent="Root/StageMargin/Stage"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(360, 0)
+size_flags_horizontal = 0
+size_flags_vertical = 3
+size_flags_stretch_ratio = 1.0
+
+[node name="ControlsMargin" type="MarginContainer" parent="Root/StageMargin/Stage/ControlsPanel"]
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
+
+[node name="ControlsVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin"]
+theme_override_constants/separation = 14
+
+[node name="SettingsScroll" type="ScrollContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox"]
+custom_minimum_size = Vector2(0, 160)
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="SettingsList" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll"]
+size_flags_horizontal = 3
+theme_override_constants/separation = 14
+
+[node name="WorldParamsCard" type="PanelContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList"]
+theme_type_variation = &"SettingsCard"
+
+[node name="WorldParamsMargin" type="MarginContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard"]
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="WorldParamsVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin"]
+theme_override_constants/separation = 10
+
+[node name="WorldParamsHeader" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+theme_type_variation = &"SectionHeader"
+text = "WORLD PARAMETERS"
+
+[node name="SeedRow" type="HBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
 custom_minimum_size = Vector2(0, 48)
+theme_override_constants/separation = 10
 
-[node name="SeedLabel" type="Label" parent="VBox/SeedRow"]
-custom_minimum_size = Vector2(120, 0)
+[node name="SeedLabel" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeedRow"]
+custom_minimum_size = Vector2(128, 0)
 vertical_alignment = 1
 text = "Seed"
 
-[node name="SeedInput" type="SpinBox" parent="VBox/SeedRow"]
+[node name="SeedInput" type="SpinBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeedRow"]
+unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
 min_value = 0.0
 max_value = 999999.0
 value = 12345.0
 
-[node name="ResolutionRow" type="HBoxContainer" parent="VBox"]
+[node name="ResolutionRow" type="HBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
 custom_minimum_size = Vector2(0, 48)
+theme_override_constants/separation = 10
 
-[node name="ResolutionLabel" type="Label" parent="VBox/ResolutionRow"]
-custom_minimum_size = Vector2(120, 0)
+[node name="ResolutionLabel" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/ResolutionRow"]
+custom_minimum_size = Vector2(128, 0)
 vertical_alignment = 1
 text = "Resolution"
 
-[node name="ResolutionInput" type="SpinBox" parent="VBox/ResolutionRow"]
+[node name="ResolutionInput" type="SpinBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/ResolutionRow"]
+unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
 min_value = 32.0
@@ -48,15 +128,17 @@ max_value = 512.0
 step = 32.0
 value = 128.0
 
-[node name="WidthRow" type="HBoxContainer" parent="VBox"]
+[node name="WidthRow" type="HBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
 custom_minimum_size = Vector2(0, 48)
+theme_override_constants/separation = 10
 
-[node name="WidthLabel" type="Label" parent="VBox/WidthRow"]
-custom_minimum_size = Vector2(120, 0)
+[node name="WidthLabel" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/WidthRow"]
+custom_minimum_size = Vector2(128, 0)
 vertical_alignment = 1
 text = "Map width (km)"
 
-[node name="WidthInput" type="SpinBox" parent="VBox/WidthRow"]
+[node name="WidthInput" type="SpinBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/WidthRow"]
+unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
 min_value = 10.0
@@ -64,13 +146,19 @@ max_value = 40000.0
 step = 10.0
 value = 800.0
 
-[node name="WorldShapeRow" type="HBoxContainer" parent="VBox"]
+[node name="WorldShapeRow" type="HBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+custom_minimum_size = Vector2(0, 48)
+theme_override_constants/separation = 10
 
-[node name="WorldShapeLabel" type="Label" parent="VBox/WorldShapeRow"]
-custom_minimum_size = Vector2(120, 0)
+[node name="WorldShapeLabel" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/WorldShapeRow"]
+custom_minimum_size = Vector2(128, 0)
+vertical_alignment = 1
 text = "World shape"
 
-[node name="WorldShapeInput" type="OptionButton" parent="VBox/WorldShapeRow"]
+[node name="WorldShapeInput" type="OptionButton" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/WorldShapeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+size_flags_horizontal = 3
 item_count = 6
 item_0/text = "Classic"
 item_1/text = "Earth"
@@ -79,40 +167,95 @@ item_3/text = "Archipelago"
 item_4/text = "Volcanic"
 item_5/text = "Rift"
 
-[node name="ExperimentalLabel" type="Label" parent="VBox"]
-text = "Experimental (unverified vs. the HTML app):"
-autowrap_mode = 2
+[node name="ExperimentalCard" type="PanelContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList"]
+theme_type_variation = &"SettingsCard"
 
-[node name="DynamicLithologyCheck" type="CheckBox" parent="VBox"]
+[node name="ExperimentalMargin" type="MarginContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard"]
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="ExperimentalVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin"]
+theme_override_constants/separation = 8
+
+[node name="ExperimentalHeader" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
+theme_type_variation = &"SectionHeader"
+text = "EXPERIMENTAL FEATURES"
+
+[node name="ExperimentalHint" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
+theme_type_variation = &"HintLabel"
+autowrap_mode = 2
+text = "Ported but unverified against the JS engine."
+
+[node name="DynamicLithologyCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+autowrap_mode = 3
 text = "Dynamic lithology (exhumation hardening)"
 
-[node name="VolcProvincesCheck" type="CheckBox" parent="VBox"]
+[node name="VolcProvincesCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+autowrap_mode = 3
 text = "Clustered volcanism (provinces)"
 
-[node name="WindDeflectionCheck" type="CheckBox" parent="VBox"]
+[node name="WindDeflectionCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+autowrap_mode = 3
 text = "Terrain wind deflection"
 
-[node name="OceanCurrentsCheck" type="CheckBox" parent="VBox"]
+[node name="OceanCurrentsCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/ExperimentalCard/ExperimentalMargin/ExperimentalVBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+autowrap_mode = 3
 text = "Ocean-current SST folding"
 
-[node name="GenerateButton" type="Button" parent="VBox"]
-custom_minimum_size = Vector2(0, 48)
+[node name="FooterSeparator" type="HSeparator" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox"]
+
+[node name="FooterVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox"]
+theme_override_constants/separation = 8
+
+[node name="GenerateButton" type="Button" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/FooterVBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 56)
+theme_type_variation = &"PrimaryButton"
 text = "Generate"
 
-[node name="LoadSaveButton" type="Button" parent="VBox"]
+[node name="LoadSaveButton" type="Button" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/FooterVBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+autowrap_mode = 3
 text = "Load Save (.zip)..."
 
-[node name="StatusLabel" type="Label" parent="VBox"]
+[node name="StatusLabel" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/FooterVBox"]
+unique_name_in_owner = true
+theme_type_variation = &"StatusLabel"
 autowrap_mode = 2
 text = "Press Generate to run the pipeline."
 
-[node name="MapView" type="TextureRect" parent="."]
-offset_left = 320.0
-offset_top = 20.0
-offset_right = 832.0
-offset_bottom = 532.0
+[node name="MapPanel" type="PanelContainer" parent="Root/StageMargin/Stage"]
+custom_minimum_size = Vector2(0, 220)
+size_flags_horizontal = 3
+size_flags_vertical = 3
+size_flags_stretch_ratio = 2.0
+
+[node name="MapMargin" type="MarginContainer" parent="Root/StageMargin/Stage/MapPanel"]
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="MapView" type="TextureRect" parent="Root/StageMargin/Stage/MapPanel/MapMargin"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+size_flags_vertical = 3
+expand_mode = 1
+stretch_mode = 5
 
 [node name="LoadSaveDialog" type="FileDialog" parent="."]
+unique_name_in_owner = true
 title = "Open a Cartalith save"
 size = Vector2i(600, 400)
 ok_button_text = "Open"
