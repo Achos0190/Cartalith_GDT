@@ -91,6 +91,46 @@ mechanically. `PARITY_TESTING.md` covers how, and why exact bit-identity — the
 standard the HTML project holds itself to JS-to-JS — is not achievable across
 languages.
 
+## 7a. Principled equivalence for GPU/optimized paths (owner decision, 2026-08-16)
+
+§7 above still governs the CPU reference pipeline — every subsystem ported
+this session (tectonics, climate, erosion, hydrology, rendering, real HTML
+export round-trip) stays golden-verified against the JS engine and that
+work is not being discarded or devalued.
+
+What changes: for GPU-accelerated or otherwise re-optimized paths, exact or
+tolerance-bound numerical matching against JS is **not** a requirement when
+it becomes impractical. The GPU-compute pilot (`GPU_COMPUTE_PILOT_SCOPE.md`,
+`cartalith-gpu`) hit exactly this wall — `hash()`'s JS semantics depend on
+IEEE-754 *double*-precision rounding at an intermediate magnitude (~2^61)
+that exceeds `f32`'s useful range entirely, and WGSL has no working `f64`
+support on this toolchain (`naga` doesn't implement `enable f64;`). Owner's
+own framing: "rust, godot and wgpu are inherently a different type of code
+language" — cross-hardware GPU determinism is a categorically different,
+harder problem than the cross-*language*-on-CPU tolerance §7 already
+accepted, and insisting on JS-array-diffable output from a GPU path is not
+worth blocking real optimization over.
+
+The replacement bar, for any path where JS-parity genuinely can't be
+tested 1:1: implement the same **academic principles and generation flow**
+the reference embodies (the actual algorithm/model being approximated, not
+an arbitrary reinvention — `PROVENANCE.md`'s citation list still describes
+*why* a formula looks the way it does even when its exact digits are no
+longer being chased), and judge the result by whether it reaches an
+**equal-or-better visual/qualitative outcome**, not by array diffing.
+"Same seed reproduces the same world" (this port's own determinism
+contract) still holds *within* whichever path (CPU or GPU) actually ran —
+this is about JS-cross-checkability, not about abandoning determinism
+inside the Rust/wgpu implementation itself.
+
+This reopens a redesigned, GPU-native hash/noise function as a real option
+— the GPU pilot's "not viable" verdict was specifically about reproducing
+JS's exact rounding, not about GPU noise generation being impossible in
+principle. A GPU-safe hash is legitimate future work; scope it properly
+(same discipline as every other milestone this session — a scope doc, not
+an improvised inline rewrite) rather than retrofitting it into whichever
+crate happens to be open at the time.
+
 ## 8. Documentation here, code in a new repository
 
 `Cartalith_RC` has strict conventions of its own — single HTML file, version per
