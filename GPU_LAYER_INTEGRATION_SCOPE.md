@@ -236,6 +236,51 @@ needed and not already built).
 portability (separate future investigation), pipeline integration, UI
 exposure.
 
+## Milestone 4 — `gauss_blur` + `compute_resistance` on GPU (current)
+
+Traced `generate_terrain`'s real call order (`cartalith-engine/src/lib.rs:
+394`) before scoping this: `compute_height` needs `base_field` (=
+`gauss_blur(base_raw, ...)`), `stress.stress_field`, `flexure_field` (=
+`compute_flexure`, itself needs `stress` — not yet checked), `heterogeneity_
+field` (done, milestone 2), `age_field` (= `build_age_field(boundary_mask)`
+— not yet checked), `oro` (orogeny, graph-based, gated on world-structure
+— likely poor GPU fit, not yet confirmed). Two of these are checked and
+confirmed good GPU candidates right now:
+
+- **`gauss_blur`** (`cartalith-terrain/src/lib.rs:585`) — three passes of
+  separable horizontal+vertical box blur (`box_h`/`box_v`) approximating a
+  Gaussian. Classic separable convolution: each output cell depends only
+  on a small local window, no recursive/cross-cell dependency beyond that
+  window — a standard, well-understood GPU workload. **Used twice** in
+  the real pipeline (`base_field` and, via `compute_flexure`, part of
+  `flexure_field`'s own computation — check `compute_flexure`'s body
+  before assuming the *whole* flexure field is just a `gauss_blur` call,
+  it may do more) — real, repeated value, not a one-off.
+- **`compute_resistance`** (`cartalith-terrain/src/lib.rs:959`, already
+  read this session) — trivial per-cell formula (`crustal*0.6 +
+  age*0.4`, clamped), no noise call at all. Needs `plate_id`/`plates`
+  (from plate assignment) and `age_field` as inputs — treat as opaque
+  buffers, same discipline as milestone 3.
+
+**In scope**: `gpu_gauss_blur` and `gpu_compute_resistance` in
+`cartalith-gpu`, same verification/tolerance/timing discipline as
+milestones 2-3 (no golden-parity per §7c — wait, reconsider before
+assuming: `compute_resistance` and `gauss_blur` themselves don't touch
+noise at all, so a GPU port of *these two specifically* has no
+JS-precision-gap problem the way noise-driven kernels do — check whether
+CPU-vs-GPU-vs-**JS** three-way tolerance verification is actually
+achievable here, which would be a strictly stronger result than
+milestones 1-3 could offer. Investigate before assuming §7c applies by
+default; it may not need to for these two.
+
+**Out of scope, investigate (don't implement) for milestone 5**:
+`compute_flexure`'s own full body (beyond whatever blur it calls),
+`build_age_field`, `assign_plates`/`build_plates` (JFA — flagged earlier
+as a plausible good fit, still unconfirmed), `compute_stress`, and
+orogeny's graph-tracing functions (`trace_boundaries`/`tag_boundary_types`/
+`build_orogeny_field`, likely poor GPU fit given "graph-driven" framing in
+this project's own earlier CHANGELOG entries — confirm rather than assume).
+
 **Done.** `gpu_compute_height` (`cartalith-gpu`'s `gpu_height.wgsl` +
 `dispatch_gpu_height`), non-`world` branch only (matching milestones 1-2's
 own deferral). Both `ridged=false` and `ridged=true` verified against a
