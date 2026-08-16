@@ -293,20 +293,60 @@ genuinely new design decision, not something to improvise here). Porting
 `_civGenerateProvinces` now would produce a correctly-tested function with
 no real caller — technically "done," practically inert.
 
-**Milestone 9 is therefore not scoped yet.** Whoever picks this up next
-should treat this finding as the starting point, not re-discover it: the
-natural next civ-layer target needs to be something with a real
-programmatic input path in this port already, not territory/provinces.
-Candidates worth checking first (not yet investigated, listed only as
-starting points): `_civSeedVillages` (the v1.70 additive village layer,
-milestone 8 confirmed it's gated on a UI toggle not yet exposed — check
-whether its algorithm itself has real inputs regardless of the toggle);
-settlement population/naming (`_civBasePopForKind`/`_civSettleName`,
-explicitly deferred by milestone 8 as culture/economy, but worth checking
-whether population alone — without naming — has a clean boundary); or
-roads (`ROADMAP.md`'s own Journey Planner sub-phase, likely still too
-large to be "next," but worth a same-depth investigation before assuming
-that rather than guessing).
+## Milestone 9 — settlement population + naming (current)
+
+Investigated 2026-08-16, choosing between the milestone-8 fork's three
+candidates: `_civSeedVillages` is UI-toggle-gated with no clean way to
+verify it matters without the toggle (deferred again); roads/Journey
+Planner is real but `ROADMAP.md` already calls it its own large sub-phase,
+not investigated further here to keep momentum on a bounded win. Settlement
+population/naming has a clean boundary and real programmatic inputs
+(milestone 8's placed settlements + faction assignment), so it's this
+milestone.
+
+- **`_civBasePopForKind`** (reference line ~23433) — trivial: a lookup
+  table (`_CIV_BASE_POP_BY_KIND`) by settlement tier, default `120`.
+- **`_civSettleName`** (reference line ~20717) — RNG-driven syllable-
+  combination naming, keyed by the settlement's faction culture
+  (`_civCultureByKey`, reading `civFactionCulture[faction]`, falling back
+  to `'common'`). Small (`CIV_CULTURES`, reference lines ~14607-14635, a
+  short array of culture syllable/suffix tables — port the data verbatim,
+  it's not algorithmic content to redesign). **This is RNG-driven**, so it
+  must golden-verify against the *exact* RNG call sequence, not just the
+  final string — same discipline `PARITY_TESTING.md` demands for
+  everything downstream of `mulberry32` ("port the RNG first... a
+  different PRNG makes every downstream comparison fail for reasons
+  unrelated to whether the port is correct"). Find what `_civRng` actually
+  is (reference: `rng=_civRng((state.seed||12345)*31337+999)`, milestone
+  8's own harness likely already touched this) — almost certainly a
+  `mulberry32` instance under a different name, reuse this port's already-
+  verified `cartalith-rng` crate rather than re-deriving the algorithm.
+
+**Out of scope for this milestone**: `_civSeedVillages`, territory/
+provinces (milestone 9→10 renumbered by this decision — see below),
+economy, roads. Culture is ported only as inert syllable/suffix *data* for
+naming, not as any deeper cultural-simulation system — there isn't one at
+this point in the reference to port anyway.
+
+**Where the code goes**: `cartalith-civ`, same crate, same conventions.
+Needs `cartalith-rng`'s existing `mulberry32` — a cross-crate dependency
+this crate hasn't needed before, check `cartalith-civ/Cargo.toml`.
+
+## Milestone 10 — territory/provinces (blocked on a design decision, not scoped)
+
+Per the investigation above: no algorithmic auto-generation exists in the
+reference for this at all (interactive paint + save/load only). Needs a
+genuinely new design (Voronoi-from-capitals or another scheme) before it
+can be ported/built — a real decision for the project owner, not something
+to improvise here. Raised directly with the owner 2026-08-16; revisit once
+that direction is set.
+
+## Milestone 11+ — not yet scoped
+
+`_civSeedVillages` (once its real inputs are understood independent of the
+UI toggle), roads/Journey Planner (`ROADMAP.md`'s own sub-phase, needs its
+own investigation pass at the same depth every milestone here has had) —
+each scoped when reachable, not speculatively now.
 
 ## Done means (per milestone, not once for the whole phase)
 
