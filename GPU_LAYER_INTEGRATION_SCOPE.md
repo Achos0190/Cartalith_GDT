@@ -175,6 +175,45 @@ UI-per-milestone process, but this is backend-only work with no
 user-visible payoff yet — a GPU toggle isn't meaningful until enough of
 the pipeline actually runs on it end-to-end).
 
+## Milestone 3 — `compute_height` itself, as a standalone GPU kernel (current)
+
+Checked 2026-08-16: `compute_height` (`cartalith-terrain/src/lib.rs:1001`)
+is the same per-cell shape as milestone 2 — one noise evaluation
+(`fbm`/`pfbm`/`ridged`/`pridged` depending on `world`/`ridged` flags) plus
+arithmetic over already-materialized input field arrays (`base_field`,
+`stress`, `flex`, `hetero`, `age`, `warp_x`/`warp_y`, `oro`), no per-cell
+control flow beyond an `Option` branch on `oro`'s presence. Directly
+GPU-portable in the same way milestone 2 was, using `gpu_hash`/
+`gpu_vnoise`/`gpu_fbm` (and a `gpu_ridged` combinator — not yet built,
+check whether milestone 2 needs one first or whether this milestone
+builds it).
+
+**Deliberately scoped narrow**: this milestone treats `stress`/`flex`/
+`age`/`base_field`/`oro` as **opaque input buffers**, uploaded from their
+existing CPU-computed values — it does NOT attempt to move plate
+assignment, boundary stress, flexure, or orogeny to GPU. Those are a
+separate, larger, not-yet-investigated question. One correction to this
+document's own earlier feasibility table: plate assignment uses **JFA
+(Jump Flooding Algorithm)**, which is specifically designed to parallelize
+well on GPU (it's the same algorithmic family this port's own `cartalith-
+civ::build_coast_sdf`, Phase 2 milestone 6, already uses for a distance
+field) — this may turn out to be a *good* GPU fit, not a poor one like the
+graph/sequential algorithms (flow accumulation, priority-flood, Dijkstra/
+MST) genuinely are. Don't assume either way without investigating when
+that milestone is reached; this note exists so the assumption isn't
+carried forward uncorrected.
+
+**In scope**: `gpu_compute_height` in `cartalith-gpu`, taking the same
+inputs as the CPU function (as GPU buffers), same verification approach
+as milestone 2 (no golden-parity — different-by-design per §7c; internal
+determinism + statistical sanity + real timing at the established sizes).
+Also whatever noise-combinator gap milestone 2 left (`gpu_ridged`, if
+needed and not already built).
+
+**Out of scope**: plate assignment/stress/flexure/orogeny's own GPU
+portability (separate future investigation), pipeline integration, UI
+exposure.
+
 **Done.** Non-`world` branch only (world-wrap/`pfbm`-equivalent deferred,
 as anticipated). `cartalith_noise::gpu_fbm` + `cartalith-gpu`'s
 `gpu_warp.wgsl`/`gpu_heterogeneity.wgsl`. `gpu_heterogeneity` (single
