@@ -27,7 +27,7 @@ boundary milestone 1 adopted: "this lands lithology → soil → water access.
 Resources + carrying-capacity + settlement suitability are the v0.105–
 v0.106 follow-ups."
 
-## Milestone 2 — water-body classification (current)
+## Milestone 2 — water-body classification: **done** (2026-08-16)
 
 **Port `buildWaterBodies`** (reference line 5753) — the ocean/lake/land
 classifier every downstream affordance and civ field reads
@@ -69,7 +69,17 @@ depending on `cartalith-engine`'s `WorldState` fields the same way
 milestone 1 did — read-only, no modification to `cartalith-terrain`/
 `cartalith-climate`/`cartalith-engine`'s own output.
 
-## Milestone 3 — biome classification (not yet started)
+**Done.** `build_water_bodies` ported (connected-components flood fill +
+priority-flood min-heap, index-for-index port of the reference's own
+heap). Golden-verified bit-exact on classification, `1e-4` on fill-level,
+both fixture cases. Found and root-caused a real Node-harness bug along
+the way (the reference's `state` literal seeds `tect.seed` from
+`Math.random()` at load — the harness had been setting an unrelated
+top-level `state.seed`, leaving generation nondeterministic until fixed to
+set `state.tect.seed`), not a fixture/tolerance issue. See
+`CHANGELOG.md`'s "Phase 2 milestone 2" entry for the full record.
+
+## Milestone 3 — biome classification (current)
 
 `classifyBiome` (pure temp/rain → category) + `buildBiomeRaster` (applies
 it per-cell, with ocean/lake cells overridden from milestone 2's water-body

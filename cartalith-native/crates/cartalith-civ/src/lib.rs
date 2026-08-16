@@ -260,6 +260,264 @@ pub fn compute_affordance_fields(state: &WorldState, gw: usize, gh: usize, world
     AffordanceFields { lithology, soil_fertility, water_access }
 }
 
+/// `buildWaterBodies` output (reference HTML line 5753): per-cell
+/// classification (0 land, 1 ocean, 2 lake) plus the pooled fill-level
+/// raster (`fillOut`/`_lakeFill` in the reference) -- not consumed by this
+/// milestone, kept for later milestones' renderers per `PHASE2_SCOPE.md`.
+pub struct WaterBodies {
+    pub classification: Vec<u8>,
+    pub fill_level: Vec<f32>,
+}
+
+/// Binary min-heap backing the priority-flood fill below, hand-ported to
+/// match the reference's own array-based heap (line ~5786) index-for-index
+/// and comparison-for-comparison -- `PROVENANCE.md` flags this exact
+/// algorithm as "hand-port, carefully: equal-priority pop order decides
+/// the fill tie-break and therefore lake shape." `std::collections::
+/// BinaryHeap` (or any other heap) is not a safe substitute here: two
+/// cells can genuinely tie on priority (before either is EPS-raised), and
+/// tie-break order is decided by this exact sift-up/-down shape, not by
+/// the priority values alone.
+///
+/// Priorities are `f32` (matching the reference's `Float32Array`-backed
+/// `p`) -- every priority a caller pushes must already be truncated to
+/// `f32` the same way the reference's `filled` (also `Float32Array`)
+/// truncates on every store.
+struct MinHeap {
+    p: Vec<f32>,
+    v: Vec<usize>,
+}
+
+impl MinHeap {
+    fn with_capacity(cap: usize) -> Self {
+        MinHeap { p: Vec::with_capacity(cap), v: Vec::with_capacity(cap) }
+    }
+
+    fn size(&self) -> usize {
+        self.p.len()
+    }
+
+    /// Sift-up break condition is `p[parent] <= p[child]` (non-strict) --
+    /// reference line: `if(p[pa]<=p[i])break;`.
+    fn push(&mut self, pr: f32, va: usize) {
+        self.p.push(pr);
+        self.v.push(va);
+        let mut i = self.p.len() - 1;
+        while i > 0 {
+            let pa = (i - 1) / 2;
+            if self.p[pa] <= self.p[i] {
+                break;
+            }
+            self.p.swap(pa, i);
+            self.v.swap(pa, i);
+            i = pa;
+        }
+    }
+
+    /// Sift-down child selection is strict `<` -- reference lines:
+    /// `if(l<m&&p[l]<p[s])s=l; if(r<m&&p[r]<p[s])s=r;`.
+    fn pop(&mut self) -> usize {
+        let rv = self.v[0];
+        let last = self.p.len() - 1;
+        if last > 0 {
+            self.p[0] = self.p[last];
+            self.v[0] = self.v[last];
+        }
+        self.p.pop();
+        self.v.pop();
+        let m = self.p.len();
+        let mut i = 0usize;
+        loop {
+            let l = 2 * i + 1;
+            let r = 2 * i + 2;
+            let mut s = i;
+            if l < m && self.p[l] < self.p[s] {
+                s = l;
+            }
+            if r < m && self.p[r] < self.p[s] {
+                s = r;
+            }
+            if s == i {
+                break;
+            }
+            self.p.swap(s, i);
+            self.v.swap(s, i);
+            i = s;
+        }
+        rv
+    }
+}
+
+fn wb_seed(i: usize, filled: &[f32], done: &mut [bool], heap: &mut MinHeap) {
+    if !done[i] {
+        done[i] = true;
+        heap.push(filled[i], i);
+    }
+}
+
+/// Reference line 5801-5802's `visit` closure. `cur` is threaded explicitly
+/// (the reference's own v1.87 hoist, already the convention this port's
+/// hydrology/terrain flood-style code follows -- an explicit parameter
+/// instead of a closure recreated per neighbour).
+#[allow(clippy::too_many_arguments)]
+fn wb_visit(nx: isize, ny: isize, cur: f64, gw: isize, gh: isize, world: bool, filled: &mut [f32], done: &mut [bool], heap: &mut MinHeap) {
+    let nx = if world {
+        ((nx % gw) + gw) % gw
+    } else {
+        if nx < 0 || nx >= gw {
+            return;
+        }
+        nx
+    };
+    if ny < 0 || ny >= gh {
+        return;
+    }
+    let j = (ny * gw + nx) as usize;
+    if done[j] {
+        return;
+    }
+    done[j] = true;
+    const EPS: f64 = 1e-6;
+    if (filled[j] as f64) <= cur {
+        filled[j] = (cur + EPS) as f32;
+    }
+    heap.push(filled[j], j);
+}
+
+/// Reference line ~5764's `nb` closure (connected-components flood fill,
+/// distinct from `wb_visit`'s priority-flood one -- same neighbour-offset
+/// shape, different guard: below-sea-and-unlabelled instead of not-yet-done).
+#[allow(clippy::too_many_arguments)]
+fn cc_visit(nx: isize, ny: isize, gw: isize, gh: isize, world: bool, sea: f64, field: &[f32], lab: &mut [i32], comp: i32, stack: &mut Vec<usize>) {
+    let nx = if world {
+        ((nx % gw) + gw) % gw
+    } else {
+        if nx < 0 || nx >= gw {
+            return;
+        }
+        nx
+    };
+    if ny < 0 || ny >= gh {
+        return;
+    }
+    let j = (ny * gw + nx) as usize;
+    if lab[j] < 0 && (field[j] as f64) < sea {
+        lab[j] = comp;
+        stack.push(j);
+    }
+}
+
+/// `buildWaterBodies` (reference HTML line 5753): distinguishes the open
+/// OCEAN (largest connected below-sea component) from inland LAKES (every
+/// other below-sea component, plus above-sea depressions a priority-flood
+/// fill pools past `lakeDepth`, gated on local rainfall).
+///
+/// `geo` (per-cell sea-level offset/geoid) does not exist in this port yet
+/// -- treated as always-absent, matching the reference's own
+/// `geo ? geo[i] : 0` null guard (`hE(i) = fld[i]` here, unconditionally).
+/// `forceLake` (user-painted lakes) is omitted entirely: no painting UI
+/// exists in this port, so it would be an always-false input with no
+/// caller ever setting it -- `PHASE2_SCOPE.md`'s own guidance against
+/// half-porting a feature nothing calls.
+pub fn build_water_bodies(field: &[f32], gw: usize, gh: usize, sea: f64, world: bool, rain: Option<&[f32]>) -> WaterBodies {
+    let n = gw * gh;
+    let gw_i = gw as isize;
+    let gh_i = gh as isize;
+    let mut out = vec![0u8; n];
+
+    // ---- connected components of below-sea water ----
+    let mut lab = vec![-1i32; n];
+    let mut comp: i32 = 0;
+    let mut sizes: Vec<usize> = Vec::new();
+    let mut stack: Vec<usize> = Vec::new();
+
+    for s in 0..n {
+        if lab[s] >= 0 || (field[s] as f64) >= sea {
+            continue;
+        }
+        lab[s] = comp;
+        stack.clear();
+        stack.push(s);
+        let mut cnt = 0usize;
+        while let Some(i) = stack.pop() {
+            cnt += 1;
+            let x = (i % gw) as isize;
+            let y = (i / gw) as isize;
+            cc_visit(x - 1, y, gw_i, gh_i, world, sea, field, &mut lab, comp, &mut stack);
+            cc_visit(x + 1, y, gw_i, gh_i, world, sea, field, &mut lab, comp, &mut stack);
+            cc_visit(x, y - 1, gw_i, gh_i, world, sea, field, &mut lab, comp, &mut stack);
+            cc_visit(x, y + 1, gw_i, gh_i, world, sea, field, &mut lab, comp, &mut stack);
+        }
+        sizes.push(cnt);
+        comp += 1;
+    }
+
+    let mut ocean_comp: i32 = -1;
+    let mut best: i64 = -1;
+    for (c, &sz) in sizes.iter().enumerate() {
+        if sz as i64 > best {
+            best = sz as i64;
+            ocean_comp = c as i32;
+        }
+    }
+    for i in 0..n {
+        if (field[i] as f64) < sea {
+            out[i] = if lab[i] == ocean_comp { 1 } else { 2 };
+        }
+    }
+
+    // ---- above-sea depression lakes via priority-flood fill ----
+    let mut filled: Vec<f32> = field.to_vec();
+    let mut done = vec![false; n];
+    let mut heap = MinHeap::with_capacity(n);
+
+    for x in 0..gw {
+        wb_seed(x, &filled, &mut done, &mut heap);
+        wb_seed((gh - 1) * gw + x, &filled, &mut done, &mut heap);
+    }
+    if !world {
+        for y in 0..gh {
+            wb_seed(y * gw, &filled, &mut done, &mut heap);
+            wb_seed(y * gw + gw - 1, &filled, &mut done, &mut heap);
+        }
+    }
+    for (i, &o) in out.iter().enumerate() {
+        if o == 1 {
+            wb_seed(i, &filled, &mut done, &mut heap);
+        }
+    }
+
+    while heap.size() > 0 {
+        let i = heap.pop();
+        let x = (i % gw) as isize;
+        let y = (i / gw) as isize;
+        let cur = filled[i] as f64;
+        wb_visit(x - 1, y, cur, gw_i, gh_i, world, &mut filled, &mut done, &mut heap);
+        wb_visit(x + 1, y, cur, gw_i, gh_i, world, &mut filled, &mut done, &mut heap);
+        wb_visit(x, y - 1, cur, gw_i, gh_i, world, &mut filled, &mut done, &mut heap);
+        wb_visit(x, y + 1, cur, gw_i, gh_i, world, &mut filled, &mut done, &mut heap);
+    }
+
+    let lake_depth = 0.004_f64;
+    let lake_rain = 0.22_f64;
+    for i in 0..n {
+        if out[i] == 0 {
+            let depth = filled[i] as f64 - field[i] as f64;
+            if depth > lake_depth {
+                let rain_ok = match rain {
+                    Some(r) => (r[i] as f64) >= lake_rain,
+                    None => true,
+                };
+                if rain_ok {
+                    out[i] = 2;
+                }
+            }
+        }
+    }
+
+    WaterBodies { classification: out, fill_level: filled }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,5 +589,69 @@ mod tests {
         let field = [0.1f32, 0.9, 0.9, 0.9];
         let out = build_water_access(&flow, &field, 2, 2, 0.4, 1e9);
         assert_eq!(out[0], 1.0);
+    }
+
+    #[test]
+    fn min_heap_pops_in_ascending_priority_order() {
+        let mut h = MinHeap::with_capacity(8);
+        for (pr, va) in [(5.0f32, 0usize), (1.0, 1), (3.0, 2), (1.0, 3), (2.0, 4)] {
+            h.push(pr, va);
+        }
+        let mut popped = Vec::new();
+        while h.size() > 0 {
+            popped.push(h.pop());
+        }
+        // Two entries share priority 1.0 (values 1 and 3) -- the exact
+        // pop order between them is the tie-break this heap's sift shape
+        // decides; assert the priorities came out ascending, which is the
+        // property every downstream use actually relies on.
+        assert_eq!(popped.len(), 5);
+        assert!(popped[0] == 1 || popped[0] == 3);
+        assert!(popped[1] == 1 || popped[1] == 3);
+        assert_eq!(popped[2], 4); // priority 2.0
+        assert_eq!(popped[3], 2); // priority 3.0
+        assert_eq!(popped[4], 0); // priority 5.0
+    }
+
+    #[test]
+    fn build_water_bodies_largest_below_sea_component_is_ocean() {
+        // 4x1: three connected below-sea cells (large component) then a
+        // gap of land then a single below-sea cell (small component).
+        let field = [0.1f32, 0.1, 0.1, 0.9];
+        let wb = build_water_bodies(&field, 4, 1, 0.4, false, None);
+        assert_eq!(wb.classification[0], 1);
+        assert_eq!(wb.classification[1], 1);
+        assert_eq!(wb.classification[2], 1);
+        assert_eq!(wb.classification[3], 0); // land, unaffected
+    }
+
+    #[test]
+    fn build_water_bodies_smaller_below_sea_component_is_lake() {
+        // 5x1: a 3-cell below-sea component, a 1-cell land gap, a 1-cell
+        // below-sea component -- the smaller one classifies as lake (2),
+        // not ocean (1), even though it's still below sea level.
+        let field = [0.1f32, 0.1, 0.1, 0.9, 0.1];
+        let wb = build_water_bodies(&field, 5, 1, 0.4, false, None);
+        assert_eq!(wb.classification[0], 1);
+        assert_eq!(wb.classification[1], 1);
+        assert_eq!(wb.classification[2], 1);
+        assert_eq!(wb.classification[4], 2); // smaller below-sea component -> lake
+    }
+
+    #[test]
+    fn build_water_bodies_pooled_depression_becomes_lake_when_rain_allows() {
+        // 5x5, sea level low so nothing starts below it; a deep pit at the
+        // centre surrounded by a rim high enough that the pit can't drain
+        // to any border outlet without pooling past lakeDepth.
+        let mut field = vec![0.9f32; 25];
+        field[12] = 0.5; // centre (2,2): a real pit relative to its rim
+        let rain_wet = vec![0.9f32; 25];
+        let wb = build_water_bodies(&field, 5, 5, 0.05, false, Some(&rain_wet));
+        assert_eq!(wb.classification[12], 2, "a real pooled depression with enough rain should be a lake");
+        assert!(wb.fill_level[12] > field[12], "fill level must rise above the pit's raw floor");
+
+        let rain_dry = vec![0.05f32; 25];
+        let wb_dry = build_water_bodies(&field, 5, 5, 0.05, false, Some(&rain_dry));
+        assert_eq!(wb_dry.classification[12], 0, "an arid basin below lakeRain must stay dry land, not a lake");
     }
 }

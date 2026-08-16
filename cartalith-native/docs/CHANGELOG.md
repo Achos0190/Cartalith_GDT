@@ -2860,3 +2860,72 @@ route corridors, landmass quality, coast SDF, and water-body
 classification -- none of which exist yet, all explicitly deferred by
 `PHASE2_SCOPE.md`'s own "Out of scope" table. Factions, territory, roads,
 provinces, economy, and the Journey Planner remain untouched.
+
+## Phase 2 milestone 2 -- water-body classification (2026-08-16)
+
+`PHASE2_SCOPE.md`'s milestone 2: `buildWaterBodies` (reference HTML line
+5753) ported to `cartalith-civ` as `build_water_bodies`. Two real
+algorithms, not one -- a connected-components flood fill (largest below-sea
+component = ocean, every other below-sea component = lake) and a
+priority-flood depression fill (Barnes-style min-heap) for above-sea
+pooled lakes, gated on local rainfall. `PROVENANCE.md` already flagged
+this exact algorithm ("hand-port, carefully: equal-priority pop order
+decides the fill tie-break and therefore lake shape") -- the reference's
+own hand-rolled array-backed `MinHeap` was ported index-for-index and
+comparison-for-comparison (`<=` sift-up break, `<` sift-down child
+selection), not swapped for `std::collections::BinaryHeap`, since that
+crate's tie-break behaviour on equal priorities is not guaranteed to match.
+
+**A real, root-caused harness bug, not a fixture mismatch.** The first
+extraction attempt produced field values wildly different from
+`golden_parity_carve.rs`'s own `expected_field` -- and, worse, genuinely
+*nondeterministic* across separate process runs of the identical harness
+script with the identical intended seed. Root cause: the reference's own
+`state` literal defaults `tect.seed` to `(Math.random()*99999)|0` at
+script-load time (line 2264) -- the real per-generation seed lives at
+`state.tect.seed`, not a top-level `state.seed`. The harness had been
+setting `state.seed` (a field nothing reads), leaving the actual generation
+seeded by whatever `Math.random()` produced that process launch. Confirmed
+by running the extraction twice and diffing (different results both
+times), then fixed by setting `state.tect.seed` (matching
+`WorldParams.tect.seed` on the Rust side) and re-verifying determinism
+across two more runs before trusting the data.
+`cartalith-porting-discipline`'s own rule held here: a red/wrong result
+means re-read and root-cause, not adjust a tolerance to paper over it --
+there was no tolerance question at all, the bug was entirely in the
+harness's own state setup. Also needed an explicit `allocate()` call (the
+reference's own auto-boot sequence, stripped from the harness to control
+`generate()` invocation directly, was the only caller of `allocate()` for
+a fresh resolution -- omitting it left `riverMask`/`riverFloor` null,
+crashing `carveRiverValleys`) and a correction to `GH`: the reference
+derives grid height from width via a fixed aspect ratio (`gridH(gw) =
+round(gw*0.64)`, giving `GH=9` for `GW=14`), but this port's
+`WorldParams::defaults(gw, gh, seed)` takes `gw`/`gh` as independent
+parameters -- the harness must set `GH` directly to match the Rust
+fixture's `gh=11`, not derive it from `gridH()`.
+
+**Golden-verified** against the same two fixture configs as milestone 1
+and `golden_parity_carve.rs` (`gw=14 gh=11 seed=24601 world=false`,
+`gw=16 gh=12 seed=314159 world=true`), with `field[0..5]` matching
+`golden_parity_carve.rs`'s own `expected_field[0..5]` exactly once the
+seed-field bug was fixed -- real cross-validation the harness reconstruction
+is faithful. Case 0 exercises the 0/1 (land/ocean) path with no pooled
+lakes; case 1 exercises all three classes (127 land, 13 ocean, 52 lake)
+including the x-wrap connected-components/priority-flood path.
+Classification asserted bit-exact (categorical `u8`); fill-level at `1e-4`
+atol+rtol, matching this workspace's convention. **Both cases passed on
+the first attempt once the harness was actually correct.**
+
+- `cargo test -p cartalith-civ` (14 tests: 10 unit + 4 golden), `cargo
+  clippy -p cartalith-civ --all-targets`: clean. `cargo test --workspace` /
+  `cargo build --workspace`: no regressions elsewhere.
+
+**Scope discipline**: nothing from `PHASE2_SCOPE.md`'s "Out of scope"
+table was touched. Biome classification (`classifyBiome`/`buildBiomeRaster`)
+reads this milestone's output but stays its own milestone 3, not bundled
+in just because it's the natural next step.
+
+**Where this leaves Phase 2**: milestone 2 of 2 done so far. Biome
+classification is milestone 3; resource potentials, carrying capacity,
+population density, settlement suitability, factions, territory, roads,
+provinces, economy, and the Journey Planner remain untouched.
