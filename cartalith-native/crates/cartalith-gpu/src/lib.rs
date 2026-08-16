@@ -19,6 +19,25 @@ const SHADER_SRC: &str = include_str!("../shaders/vnoise.wgsl");
 /// arithmetic, gated behind `wgpu::Features::SHADER_F64` (Vulkan-only,
 /// native-only, confirmed present on this session's real adapter).
 const SHADER_SRC_F64: &str = include_str!("../shaders/vnoise_f64.wgsl");
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 1: the GPU-safe noise
+/// primitive (PCG3D-based `gpu_hash`/`gpu_vnoise`), NOT a port of the pilot's
+/// `vnoise.wgsl` above -- see that file's own header comment and
+/// `cartalith_noise::gpu_vnoise`'s doc comment for why a redesign was
+/// needed instead of a fix.
+const SHADER_SRC_GPU_NOISE: &str = include_str!("../shaders/gpu_noise.wgsl");
+
+/// Tolerance for the GPU-safe noise kernel vs. its CPU counterpart
+/// (`cartalith_noise::gpu_vnoise`). Unlike [`F32_TOLERANCE`] above (which
+/// exists to honestly report a *known, expected* divergence), this pair has
+/// no cross-precision-regime gap by construction -- both sides are pure
+/// `u32` wrapping arithmetic until the final `u32 -> f32` conversion, which
+/// is a fully-specified IEEE-754 round-to-nearest operation on both
+/// platforms. This tolerance exists only for whatever residual float
+/// scheduling differences (e.g. FMA contraction) the bilinear-blend step's
+/// multiply-adds might pick up between CPU codegen and the GPU shader
+/// compiler -- set from what was actually measured, not assumed, per this
+/// project's tolerance discipline (`PARITY_TESTING.md`).
+pub const GPU_SAFE_NOISE_TOLERANCE: f64 = 1e-5;
 
 /// Absolute tolerance for the f32 GPU kernel vs. the f64 CPU reference.
 ///
@@ -103,6 +122,15 @@ pub fn init_gpu() -> Result<GpuContext, GpuInitError> {
 /// should treat that the same as "no GPU" (`HARDWARE_ACCELERATION.md` §27).
 pub fn init_gpu_f64() -> Result<GpuContext, GpuInitError> {
     init_gpu_with(SHADER_SRC_F64, wgpu::Features::SHADER_F64, "vnoise (f64)")
+}
+
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 1: the GPU-safe noise
+/// primitive's device/pipeline. Same setup discipline as [`init_gpu`]
+/// (conservative limits, no fallback adapter) -- reuses [`Params`]'s exact
+/// bind-group layout (uniform Params + one storage `f32` buffer), so
+/// [`dispatch_gpu`] works unmodified against this context too.
+pub fn init_gpu_safe_noise() -> Result<GpuContext, GpuInitError> {
+    init_gpu_with(SHADER_SRC_GPU_NOISE, wgpu::Features::empty(), "gpu_noise (f32, PCG3D)")
 }
 
 fn init_gpu_with(
@@ -287,6 +315,24 @@ pub fn vnoise_grid_cpu(width: u32, height: u32, seed: i32, scale: f32) -> Vec<f3
     out
 }
 
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 1: the CPU side of the
+/// GPU-safe noise pair. Calls `cartalith_noise::gpu_vnoise` directly (all
+/// `f32`, same sampling convention as [`vnoise_grid_cpu`] and
+/// [`dispatch_gpu`]'s shader-side `x = gid.x * scale`) so this is directly
+/// comparable to the GPU kernel using [`SHADER_SRC_GPU_NOISE`], not a
+/// second, independent reimplementation.
+pub fn gpu_safe_noise_grid_cpu(width: u32, height: u32, seed: i32, scale: f32) -> Vec<f32> {
+    let mut out = vec![0.0f32; (width * height) as usize];
+    for gy in 0..height {
+        for gx in 0..width {
+            let x = gx as f32 * scale;
+            let y = gy as f32 * scale;
+            out[(gy * width + gx) as usize] = cartalith_noise::gpu_vnoise(x, y, seed);
+        }
+    }
+    out
+}
+
 /// `HARDWARE_ACCELERATION.md` §9's self-test, made concrete: run the real
 /// kernel on a small known grid, compare against the CPU reference within
 /// [`F32_TOLERANCE`]. This *is* the correctness gate -- [`vnoise_grid`]
@@ -462,6 +508,112 @@ mod tests {
 
             eprintln!(
                 "{w}x{h} ({} cells): GPU dispatch+readback = {:?}, CPU (single-thread) = {:?}, ratio (CPU/GPU) = {:.2}x",
+                w * h,
+                gpu_time,
+                cpu_time,
+                cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
+            );
+        }
+    }
+
+    // ===================== GPU_LAYER_INTEGRATION_SCOPE.md milestone 1 =====================
+    // The GPU-safe noise pair (`cartalith_noise::gpu_hash`/`gpu_vnoise` vs.
+    // `SHADER_SRC_GPU_NOISE`) -- verified CPU vs. GPU directly, NOT against
+    // the JS reference (`DECISIONS.md` §7a: this pair is a deliberate
+    // redesign, not required to match JS at all).
+
+    fn try_gpu_safe_noise() -> Option<GpuContext> {
+        init_gpu_safe_noise().ok()
+    }
+
+    /// This IS the milestone's correctness gate (`GPU_LAYER_INTEGRATION_
+    /// SCOPE.md` "Done means": CPU/GPU verified identical or within a real
+    /// tolerance) -- run at a real field size, not a toy grid, and asserted
+    /// (unlike the old pilot's `f32_hash_diverges_from_cpu_reference`,
+    /// which documented an *expected* failure -- this one is expected to
+    /// pass, by design, and the test enforces that).
+    #[test]
+    fn gpu_safe_noise_matches_cpu_reference_at_real_field_size() {
+        let Some(ctx) = try_gpu_safe_noise() else {
+            eprintln!("no GPU available -- skipping (requires real hardware)");
+            return;
+        };
+        let w = 512u32;
+        let h = 512u32;
+        let seed = 24601;
+        let scale = 0.05f32;
+        let gpu = dispatch_gpu(&ctx, w, h, seed, scale);
+        let cpu = gpu_safe_noise_grid_cpu(w, h, seed, scale);
+        let mut max_abs_diff = 0.0f64;
+        let mut mismatches = 0usize;
+        for (g, c) in gpu.iter().zip(cpu.iter()) {
+            let d = ((*g as f64) - (*c as f64)).abs();
+            if d > GPU_SAFE_NOISE_TOLERANCE {
+                mismatches += 1;
+            }
+            if d > max_abs_diff {
+                max_abs_diff = d;
+            }
+        }
+        eprintln!(
+            "gpu-safe noise, GPU vs CPU at {w}x{h}: {mismatches}/{} cells exceed tol={GPU_SAFE_NOISE_TOLERANCE}, max_abs_diff={max_abs_diff}",
+            w * h
+        );
+        assert_eq!(mismatches, 0, "GPU-safe noise pair diverged from its own CPU counterpart -- see max_abs_diff above; this pair has no known precision-regime gap, so any divergence is a real bug to root-cause, not a tolerance to widen");
+    }
+
+    #[test]
+    fn gpu_safe_noise_self_test_passes() {
+        let Some(ctx) = try_gpu_safe_noise() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        const W: u32 = 8;
+        const H: u32 = 8;
+        const SEED: i32 = 12345;
+        const SCALE: f32 = 0.37;
+        let gpu = dispatch_gpu(&ctx, W, H, SEED, SCALE);
+        let cpu = gpu_safe_noise_grid_cpu(W, H, SEED, SCALE);
+        let passed =
+            gpu.iter().zip(cpu.iter()).all(|(g, c)| ((*g as f64) - (*c as f64)).abs() <= GPU_SAFE_NOISE_TOLERANCE);
+        assert!(passed, "self-test grid: GPU-safe noise GPU output diverged from its CPU counterpart");
+    }
+
+    #[test]
+    fn gpu_safe_noise_cpu_path_is_deterministic() {
+        let a = gpu_safe_noise_grid_cpu(16, 16, 42, 0.2);
+        let b = gpu_safe_noise_grid_cpu(16, 16, 42, 0.2);
+        assert_eq!(a, b);
+    }
+
+    /// `GPU_LAYER_INTEGRATION_SCOPE.md` "Done means": the pilot's own
+    /// numbers (4.46x at 512x512, up to 19.55x at 2048x2048) were measured
+    /// against the non-portable `hash` kernel and are not confirmed for
+    /// this new one -- re-measured here at the same sizes, same honest
+    /// methodology (report a loss as legitimately as a win).
+    #[test]
+    fn measured_gpu_safe_noise_vs_cpu_timing() {
+        let Some(ctx) = try_gpu_safe_noise() else {
+            eprintln!("no GPU available -- skipping timing measurement");
+            return;
+        };
+        // Warm up: first dispatch pays one-time pipeline/driver JIT cost.
+        let _ = dispatch_gpu(&ctx, 8, 8, 1, 0.5);
+
+        for &(w, h) in &[(128u32, 128u32), (512, 512), (1024, 1024), (2048, 2048)] {
+            let seed = 24601;
+            let scale = 0.02f32;
+
+            let t0 = Instant::now();
+            let _ = dispatch_gpu(&ctx, w, h, seed, scale);
+            let gpu_time = t0.elapsed();
+
+            let t1 = Instant::now();
+            let _ = gpu_safe_noise_grid_cpu(w, h, seed, scale);
+            let cpu_time = t1.elapsed();
+
+            eprintln!(
+                "gpu-safe noise {w}x{h} ({} cells): GPU dispatch+readback = {:?}, CPU (single-thread) = {:?}, ratio (CPU/GPU) = {:.2}x",
                 w * h,
                 gpu_time,
                 cpu_time,

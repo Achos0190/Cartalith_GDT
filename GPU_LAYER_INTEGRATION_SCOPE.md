@@ -64,7 +64,7 @@ integration work should actually go once noise is unblocked, roughly in
 pipeline order (terrain → climate → erosion's per-cell parts → Phase 2's
 per-cell affordance fields → rendering).
 
-## Milestone 1 — GPU-safe noise redesign (current)
+## Milestone 1 — GPU-safe noise redesign: **done** (2026-08-16)
 
 **In scope**: design and implement a new hash/value-noise function that
 is `f32`/`u32`-safe (no operation exceeding `f32`'s exact-integer range at
@@ -116,10 +116,20 @@ comparison at the pilot's own tested sizes (128/512/1024/2048) using the
 function that turned out non-portable — the real throughput picture for
 noise generation specifically isn't confirmed until this lands.
 
+**Done.** `cartalith_noise::gpu_hash`/`gpu_vnoise` — single-round PCG3D
+(Jarzynski & Olano, JCGT 2020), pure `u32` wrapping arithmetic. Verified
+CPU vs. GPU (not vs. JS) at 512×512: 0/262144 cells exceed `1e-5`
+tolerance, max abs diff 1.28e-6. Existing `hash`/`vnoise` and every
+golden-parity test depending on them confirmed untouched (`cargo test
+--workspace`, before and after). Real timing at the pilot's own tested
+sizes: 0.10× at 128² (dispatch overhead), 2.85× at 512², 10.39× at
+1024², 11.94× at 2048². See `CHANGELOG.md`'s "GPU-safe noise redesign"
+entry for the full record.
+
 ## Milestone 2+ — not yet scoped
 
-Once milestone 1 lands: revisit domain warp/crustal heterogeneity/height
-formula as the next candidate (the actual first "real pipeline stage on
-GPU" milestone), then climate, then erosion's per-cell parts, in roughly
-that order — each scoped on its own once reachable, matching every other
-phase of this port's discipline. Do not scope these now.
+Now reachable: domain warp/crustal heterogeneity/height formula as the
+next candidate (the actual first "real pipeline stage on GPU" milestone),
+then climate, then erosion's per-cell parts, in roughly that order — each
+scoped on its own once reachable, matching every other phase of this
+port's discipline. Do not scope these now.

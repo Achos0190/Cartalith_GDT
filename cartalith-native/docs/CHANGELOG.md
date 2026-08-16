@@ -3635,3 +3635,83 @@ cartalith-godot --all-targets`: clean, no warnings. `cargo build
 milestone not yet implemented -- nothing to show), the full interactive
 civ editor (faction management, label editing, painting), village
 markers (village seeding itself still blocked on `civWays`, per above).
+
+## GPU-safe noise redesign: the pipeline's actual first GPU milestone (2026-08-16)
+
+`GPU_LAYER_INTEGRATION_SCOPE.md` milestone 1 -- the first real code
+written under `DECISIONS.md` §7a's "principled equivalence" carve-out.
+The GPU-compute pilot (`GPU_COMPUTE_PILOT_SCOPE.md`) found
+`cartalith_noise::hash`'s JS-matching output depends on IEEE-754
+*double*-precision rounding at an intermediate magnitude (~2^61) --
+unrepresentable in `f32`, and WGSL has no working `f64` support on this
+toolchain regardless of hardware feature support (`naga` doesn't
+implement `enable f64;`). Since `hash`/`vnoise` feed nearly the entire
+terrain substrate (domain warp, crustal heterogeneity, the height
+formula's fractal terms), this was the actual blocker for GPU-accelerating
+anything upstream, not one item among many.
+
+**Built, in `cartalith-noise`**: `gpu_hash(x, y, s) -> u32` and
+`gpu_vnoise(x, y, s) -> f32` -- a **deliberate redesign**, not a patched
+port. Construction: single-round PCG3D (Mark Jarzynski & Marc Olano,
+"Hash Functions for GPU Rendering," *Journal of Computer Graphics
+Techniques*, vol. 9, no. 3, 2020, jcgt.org/published/0009/03/02/), a hash
+designed specifically for GPU shaders. Every operation is pure `u32`
+wrapping arithmetic (multiply/add/xor/shift) until the final `u32 -> f32`
+conversion, which is a fully-specified IEEE-754 round-to-nearest
+operation on both platforms -- unlike `hash`'s problem (`f32 -> u32` for
+out-of-range values is implementation-defined/saturating), this direction
+has no platform-dependent behaviour to worry about. `hash`/`vnoise`
+themselves are completely untouched -- every existing golden-parity test
+across the workspace that depends on them for exact JS matching passes
+unmodified (`cargo test --workspace`, confirmed before and after).
+
+**Built, in `cartalith-gpu`**: `shaders/gpu_noise.wgsl`, mirroring the
+Rust side operation-for-operation, plus `init_gpu_safe_noise()` and
+`gpu_safe_noise_grid_cpu()` (reuses the pilot's existing `dispatch_gpu` --
+it was already generic over which shader/pipeline the `GpuContext` was
+built with, so no dispatch-path changes were needed).
+
+**Verification -- CPU vs. GPU, not vs. JS** (`DECISIONS.md` §7a: this pair
+was never required to match JS, only each other): at 512x512 on this
+session's real hardware (AMD Radeon RX 7800 XT, Vulkan), **0/262144
+cells exceeded a `1e-5` tolerance; max absolute difference was
+1.28e-6** -- effectively exact, with a comfortable margin. Set as a real
+`#[test]` assertion (`gpu_safe_noise_matches_cpu_reference_at_real_field_
+size`), not just logged, since this pair is *expected* to agree by
+construction, unlike the old pilot's documented-as-failing comparison.
+
+**Real timing, measured fresh** (the pilot's own 4.46x/15.65x/19.55x
+numbers were for the non-portable `hash` kernel and don't carry over --
+this hash does more work per call, two full PCG3D mixing rounds):
+
+| Size | GPU dispatch+readback | CPU (single-thread) | Ratio |
+|---|---|---|---|
+| 128x128 | 1.31ms | 135µs | 0.10x (GPU loses, dispatch overhead) |
+| 512x512 | 870µs | 2.48ms | 2.85x |
+| 1024x1024 | 900µs | 9.35ms | 10.39x |
+| 2048x2048 | 2.88ms | 34.37ms | 11.94x |
+
+Real, legitimate speedups at the sizes that matter (this port's real
+default is 2048, per the resolution-control fix earlier this session).
+
+- `cargo test -p cartalith-noise -p cartalith-gpu`: clean, all new tests
+  pass (CPU/GPU determinism, output-range sanity, lattice-boundary
+  continuity, the real-field-size correctness gate, timing). `cargo
+  clippy -p cartalith-noise -p cartalith-gpu --all-targets`: clean, zero
+  warnings. `cargo test --workspace`: all green, zero failures, confirming
+  the existing JS-matching noise tests are genuinely untouched.
+- **Not independently confirmed this pass**: `cargo build --workspace`
+  hit a transient file-lock (`cartalith_godot.dll`, "Access is denied")
+  -- environmental, not a code regression: a concurrent session pass had
+  just run the real windowed app (see the UI/UX entry immediately above),
+  which was still holding the DLL open. `cartalith-noise`/`cartalith-gpu`
+  build and test clean in isolation, and `cargo test --workspace`
+  (a separate, already-clean compilation) covers the same ground without
+  hitting the lock.
+
+**What this doesn't do**: wire the new noise into any actual pipeline
+stage. This milestone is the primitive alone, verified standalone --
+`GPU_LAYER_INTEGRATION_SCOPE.md`'s own scope boundary. The real next
+GPU milestone is domain warp / crustal heterogeneity / the height
+formula -- the first actual pipeline stage that can now move to GPU,
+scoped separately once reachable.

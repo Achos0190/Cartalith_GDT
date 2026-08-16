@@ -69,6 +69,38 @@ was implemented (no capability-tier classifier, no diagnostics panel, no
 telemetry system, no tiled compute) — all still deferred exactly as that
 document scoped them.
 
+## GPU layer integration (`GPU_LAYER_INTEGRATION_SCOPE.md`)
+
+Follow-up to the pilot above, prompted by the owner's explicit "connect
+GPU for each layer" directive (2026-08-16) plus a real architectural
+correction: Cartalith generates a **static map from a one-shot batch
+simulation**, not a continuously recomputing app — significantly narrows
+`HARDWARE_ACCELERATION.md`'s scheduling/priority/thermal sections (see
+`GPU_LAYER_INTEGRATION_SCOPE.md`'s own annotation).
+
+**Milestone 1 — GPU-safe noise redesign: done (2026-08-16).** The pilot's
+"not viable" verdict on `hash` was specifically about reproducing JS's
+exact double-precision rounding, not about GPU noise being impossible.
+`cartalith_noise::gpu_hash`/`gpu_vnoise` (PCG3D-based, pure `u32`
+wrapping arithmetic, cited: Jarzynski & Olano, JCGT 2020) verified against
+their own GPU counterpart (not JS — `DECISIONS.md` §7a) at 512×512: 0
+mismatches at `1e-5` tolerance, max diff 1.28e-6. Real timing: 2.85× at
+512², 10.39× at 1024², 11.94× at 2048² (the port's real default
+resolution). `hash`/`vnoise` themselves untouched — every existing
+JS-matching golden test still passes unmodified. See `CHANGELOG.md`'s
+"GPU-safe noise redesign" entry for the full record.
+
+**This unblocks, but does not yet implement**, the next real milestone:
+domain warp / crustal heterogeneity / the height formula — the actual
+first pipeline stage that can move to GPU now that its noise dependency
+is GPU-safe. Not started. Per the scope doc's own per-layer feasibility
+table: graph/sequential algorithms (flow accumulation, water-body
+priority-flood, Dijkstra/MST road networks) remain a poor GPU fit without
+real algorithmic redesign — not in scope for the foreseeable near-term
+milestones, which follow the per-cell-math layers instead (terrain →
+climate → erosion's per-cell parts → Phase 2's per-cell affordance
+fields → rendering).
+
 ## Known-open items (not owner-blocked, just not done yet)
 
 - Credits screen (Phase 1 closeout, `ROADMAP.md`).
