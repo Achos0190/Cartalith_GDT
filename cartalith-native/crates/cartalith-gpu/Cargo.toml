@@ -1,0 +1,16 @@
+[package]
+name = "cartalith-gpu"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "GPU-compute pilot (GPU_COMPUTE_PILOT_SCOPE.md) -- vnoise on wgpu, CPU-parity gated. No gdext dependency (ARCHITECTURE.md)."
+
+[lib]
+name = "cartalith_gpu"
+
+[dependencies]
+cartalith-noise = { path = "../cartalith-noise" }
+wgpu = "30"
+pollster = "1"
+bytemuck = { version = "1", features = ["derive"] }

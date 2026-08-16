@@ -2672,3 +2672,108 @@ same terrain under the new chrome.
 - `cargo test --workspace`: all green (no Rust touched by this entry, but
   confirmed rather than assumed). `godot4 --headless --quit main.tscn`:
   clean, extension loads.
+
+## GPU-compute pilot: `wgpu` viable as a hardware path, not viable for this specific formula (2026-08-16)
+
+`GPU_COMPUTE_PILOT_SCOPE.md` (repo root) scoped the first milestone of the
+owner-supplied `HARDWARE_ACCELERATION.md` architecture: prove or disprove a
+standalone `wgpu` compute path on real hardware, using exactly one kernel
+(`cartalith_noise::vnoise`) as the test case. New crate `cartalith-gpu`
+(`wgpu` 30.0.0, `pollster` 1.0.1, `bytemuck` 1.25.2 -- versions verified
+against crates.io/docs.rs at implementation time, not assumed, per
+`HARDWARE_ACCELERATION.md` §36's own warning that `wgpu`'s API moves
+between majors). No `gdext` dependency; builds and tests with plain `cargo
+test -p cartalith-gpu`, no Godot involvement (`ARCHITECTURE.md`'s rule
+intact).
+
+**The hardware path itself: works cleanly.** `Instance`/`Adapter`/`Device`
+creation, adapter inspection, conservative limits
+(`Limits::downlevel_defaults().using_resolution(...)`, not
+`Limits::unlimited()`), shader compilation, buffer/bind-group/pipeline
+setup, dispatch, and readback all function correctly on this session's
+real hardware: AMD Radeon RX 7800 XT, Vulkan backend, discrete GPU
+(`gpu_context_creates_on_this_hardware`).
+
+**The specific formula: does not survive an f32 GPU port, and the reason
+is precise, not vague.** `cartalith_noise::hash`'s own doc comment already
+warned its middle product reaches ~2^61 -- past `f64`'s own exact-integer
+range (2^53), meaning even the trusted CPU reference relies on `f64`'s
+specific rounding behaviour at that magnitude. Porting the same formula to
+WGSL's `f32` (24-bit mantissa) loses far more precision at that magnitude,
+and WGSL's `f32`->`u32` conversion for out-of-range floats is
+implementation-defined/saturating, not the wrap-on-truncate Rust's `(x as
+i64) as u32` guarantees -- both effects compound at *every* `hash` call
+(the ~2^61 regime is the norm here, not an edge case). Measured, not
+theorised: at 128x128 (`f32_hash_diverges_from_cpu_reference`),
+**16384/16384 cells** (100%) exceed even a loose `1e-4` tolerance, max
+absolute difference `0.93` on a `[0,1]`-ranged output -- categorically
+wrong, not "close but imprecise." `self_test` (the actual `HARDWARE_
+ACCELERATION.md` §9 gate, not a separate throwaway check) correctly
+reports FAIL, and `vnoise_grid`'s public API correctly refuses the GPU
+path and falls back to CPU as a result -- the gating logic itself is
+proven correct by this failure, not just the happy path.
+
+**A secondary experiment, and a genuinely interesting dead end.**
+`wgpu::Features::SHADER_F64` *is* reported present on this adapter (Vulkan
+exposes `shaderFloat64` on this GPU) -- raising the obvious question of
+whether an `f64`-arithmetic WGSL kernel could close the gap entirely.
+It cannot be tried at all, for a reason worth recording precisely: naga
+(wgpu 30's WGSL front end) does not implement `enable f64;` -- its
+`EnableExtensions` type lists `f16`/`wgpu_int16`/ray-tracing/mesh-shader
+extensions but no `f64` entry, confirmed by reading naga's own source
+(`front/wgsl/parse/directive/enable_extension.rs`) and reproduced live
+(`f64_wgsl_is_not_implemented_by_naga_even_though_the_gpu_feature_exists`,
+caught cleanly via `push_error_scope`/`pop_error_scope` rather than left
+to panic). The GPU and the `wgpu::Features` API both expose the
+capability; the WGSL shader language, as wgpu 30 compiles it, has no
+syntax to use it. (A raw-SPIR-V shader source could bypass WGSL and use
+`f64` directly -- a real door, deliberately not opened: hand-authoring or
+generating SPIR-V is well outside this pilot's "port the formula, don't
+reformulate the toolchain" scope, per `GPU_COMPUTE_PILOT_SCOPE.md`.)
+
+**Real timing numbers** (`measured_gpu_vs_cpu_timing`, GPU dispatch+readback
+vs. single-thread CPU, this hardware, after a warm-up dispatch to exclude
+one-time pipeline/driver JIT cost):
+
+| Field size | Cells | GPU (dispatch+readback) | CPU (single-thread) | CPU/GPU ratio |
+|---|---|---|---|---|
+| 128x128 | 16,384 | 941.8µs | 186.7µs | **0.20x -- GPU loses** |
+| 512x512 | 262,144 | 685.9µs | 3.058ms | 4.46x |
+| 1024x1024 | 1,048,576 | 778.2µs | 12.180ms | 15.65x |
+| 2048x2048 | 4,194,304 | 2.488ms | 48.631ms | 19.55x |
+
+The classic, expected shape: dispatch/readback overhead dominates and
+loses at small sizes, GPU wins increasingly at scale -- exactly
+`HARDWARE_ACCELERATION.md` §6's own framing ("small operations should
+remain on the CPU when that is demonstrably faster"). These numbers are
+real data for judging *future* GPU-compute candidates that don't share
+`hash`'s f64-precision dependency, not a verdict on this specific kernel
+(which isn't deployable regardless of how fast it runs, since it's wrong).
+
+**CPU fallback**: actually exercised, not just present
+(`gpu_fallback_path_matches_cpu_reference` forces the no-GPU branch via
+`ctx: None` and asserts the result is bit-identical to the already-trusted
+CPU path).
+
+- `cargo build -p cartalith-gpu`, `cargo test -p cartalith-gpu` (7/7 pass),
+  `cargo clippy -p cartalith-gpu --all-targets` (clean): all green.
+  `cargo test --workspace` / `cargo build --workspace`: no regressions
+  elsewhere.
+
+**`GPU_COMPUTE_PILOT_SCOPE.md`'s own question, answered honestly**: is
+`wgpu` a viable, correctness-preserving path on this project's actual
+hardware, for embarrassingly-parallel work? **Yes, the hardware/API path
+itself is solid.** Is *this* kernel a candidate for GPU deployment?
+**No** -- not a wgpu limitation, a precision limitation specific to a
+hash formula whose CPU reference deliberately depends on `f64`
+magnitude-dependent rounding to match the JS engine
+(`cartalith-rust-conventions`: match precision, don't improve it -- the
+same discipline that makes this formula hard to port is the discipline
+that makes the CPU version correct in the first place). Nothing outside
+`GPU_COMPUTE_PILOT_SCOPE.md`'s "In scope" list was implemented; the
+`ComputeTier` classifier, diagnostics panel, telemetry system, tiled
+compute, and every other §-numbered item on the "Out of scope" table
+remain untouched, as scoped. Whether other candidate subsystems
+(hillshade/AO synthesis, biome classification -- pure functions of
+already-computed fields, no `hash`-style huge-integer arithmetic) fare
+differently is the natural next question, not answered by this pilot.

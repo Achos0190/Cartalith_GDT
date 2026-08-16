@@ -5,7 +5,7 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-16 (post real-Windows hands-on verification + light-theme swap).
+Last updated: 2026-08-16 (post GPU-compute pilot).
 
 ## MVP_SCOPE.md — "done means all seven"
 
@@ -27,9 +27,47 @@ Last updated: 2026-08-16 (post real-Windows hands-on verification + light-theme 
 | 0 — Walking skeleton | **Done.** Triangle/button/`ping()` confirmed on Windows and Android (build+package; Android run-on-device is the one open half, see criterion 4 above). |
 | 1 — Terrain MVP | **7/7.** Criteria 1/2/3/5/6/7 done, criterion 4 softened by the 2026-08-16 `/goal` (no longer a hard requirement) and otherwise blocked purely on owner phone access. Two "easy to forget" Phase-1 closeout items from `ROADMAP.md` are still **not started**: a credits screen, and a licence audit of the crates pulled in (`PROVENANCE.md`). |
 | 2 — Civilisation layer | Not started. Out of scope until raised. |
-| 3 — Rendering and 3D | Not formally started. Two things to remember when it does: **(a)** criterion 2's renderer (above) ports the reference's *default-settings* material model only — real biome colours, real hillshade — explicitly excluding every `state.viz.*`-gated stretch feature (splat texturing, geology microtexture, NPR "Painter" styles, AO/SVF/shadows, multi-sun, SDF coast/river/biome tinting). Wiring any of those in is genuine Phase 3 work. **(b)** When that work lands, re-invoke `ui-ux-pro-max` for the UI side rather than bolting raw sliders onto the newly-exposed params — keep it consistent with the 2026-08-16 light parchment theme (ported from the reference's own `:root[data-theme="light"]`), not the earlier dark-dashboard match that theme replaced. **(c)** GPU compute shaders were researched 2026-08-16 (prompted by `godot-demo-projects/compute/heightmap`) and found not applicable *right now*: `project.godot` uses the `gl_compatibility` renderer, which doesn't support `RenderingDevice` compute dispatch at all (engine-level constraint, already documented in `.claude/skills/godot-shell/SKILL.md`). If Phase 3 revisits the renderer for other reasons (3D terrain drape, particles), GPU-accelerated presentation-layer work becomes reachable as a side effect — that's the point to reconsider it, not before, and not for core generation (which must stay CPU-Rust for golden-parity reproducibility regardless of renderer). |
+| 3 — Rendering and 3D | Not formally started. Two things to remember when it does: **(a)** criterion 2's renderer (above) ports the reference's *default-settings* material model only — real biome colours, real hillshade — explicitly excluding every `state.viz.*`-gated stretch feature (splat texturing, geology microtexture, NPR "Painter" styles, AO/SVF/shadows, multi-sun, SDF coast/river/biome tinting). Wiring any of those in is genuine Phase 3 work. **(b)** When that work lands, re-invoke `ui-ux-pro-max` for the UI side rather than bolting raw sliders onto the newly-exposed params — keep it consistent with the 2026-08-16 light parchment theme (ported from the reference's own `:root[data-theme="light"]`), not the earlier dark-dashboard match that theme replaced. **(c)** GPU compute *via Godot's own renderer* was researched 2026-08-16 (prompted by `godot-demo-projects/compute/heightmap`) and found not applicable *through that path*: `project.godot` uses the `gl_compatibility` renderer, which doesn't support `RenderingDevice` compute dispatch at all (engine-level constraint, already documented in `.claude/skills/godot-shell/SKILL.md`). That finding does **not** apply to a *standalone* `wgpu` instance created directly by Rust code — see the GPU-compute pilot section below, which tested exactly that and found the hardware path itself viable (the renderer choice is irrelevant to a `wgpu` instance that never touches Godot's own rendering pipeline). If Phase 3 revisits Godot's own renderer for other reasons (3D terrain drape, particles), GPU-accelerated presentation-layer work *through Godot* becomes reachable as a further, separate option — not before, and not for core generation (which must stay CPU-Rust for golden-parity reproducibility regardless of renderer). |
 | 4 — Asset Library | Not started. |
 | 5 — Urban morphology | Not started. |
+
+## GPU-compute pilot (`GPU_COMPUTE_PILOT_SCOPE.md`, `HARDWARE_ACCELERATION.md`)
+
+**Done, 2026-08-16.** Piloted a standalone `wgpu` compute path (new crate
+`cartalith-gpu`, no `gdext` dependency) on one kernel: `cartalith_noise::vnoise`.
+Findings:
+
+- **The `wgpu` hardware path itself works cleanly** on this session's real
+  hardware (AMD Radeon RX 7800 XT, Vulkan backend, discrete GPU) —
+  instance/adapter/device creation, conservative limits, shader compile,
+  dispatch, readback all function correctly.
+- **This specific formula is not GPU-viable in `f32`** — `hash`'s
+  f64-magnitude-dependent rounding (its own doc comment already flagged
+  ~2^61 intermediate products, past `f64`'s own exact range) does not
+  survive a portable `f32` WGSL port: 100% of cells diverge at 128×128,
+  max abs diff `0.93` on a `[0,1]` output. Measured, not assumed.
+  `self_test` (the real correctness gate) correctly reports FAIL and the
+  CPU fallback is correctly used instead.
+- **`f64` in WGSL is a dead end on this toolchain regardless of hardware
+  support** — `wgpu::Features::SHADER_F64` is present on this adapter, but
+  naga (wgpu 30's WGSL compiler) has no `enable f64;` implementation at
+  all. A real, precise finding, not a shrug.
+- **Real GPU-vs-CPU timing measured**: GPU loses at 128×128 (dispatch
+  overhead dominates, 0.20×) but wins increasingly at scale — 4.46× at
+  512×512, 15.65× at 1024×1024, 19.55× at 2048×2048.
+- **Verdict**: the `wgpu` path is a real, viable option for *future*
+  candidate kernels that don't share `hash`'s f64-precision dependency
+  (e.g. presentation-layer work — hillshade/AO synthesis, biome
+  classification — pure functions of already-computed fields). Not this
+  kernel, not right now, and no wider `HARDWARE_ACCELERATION.md` adoption
+  decision has been made — this pilot answers one narrow question, per its
+  own scope doc's explicit boundary.
+
+See `CHANGELOG.md`'s "GPU-compute pilot" entry for the full numbers and
+reasoning. Nothing outside `GPU_COMPUTE_PILOT_SCOPE.md`'s "In scope" list
+was implemented (no capability-tier classifier, no diagnostics panel, no
+telemetry system, no tiled compute) — all still deferred exactly as that
+document scoped them.
 
 ## Known-open items (not owner-blocked, just not done yet)
 
