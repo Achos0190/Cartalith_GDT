@@ -332,16 +332,56 @@ amortize, reported plainly rather than hidden. `compute_flexure` (a thin
 pass. See `CHANGELOG.md`'s "GPU layer integration milestone 4" entry for
 the full record.
 
-**Milestone 5, not scoped yet**: `compute_height`'s remaining upstream
-fields (`base_field`/plate assignment, `stress`/boundary stress,
-`flex`/flexure's own full body beyond the blur milestone 4 already
-covers, `oro`/orogeny) were NOT investigated this pass — milestone 4
-stayed within its own `gauss_blur`/`compute_resistance` scope. The one
-correction already recorded above (JFA-based plate assignment may be a
-*good* GPU fit, not a poor one) is still a hypothesis, not a finding — a
-real read of `cartalith-terrain`'s plate-assignment/stress/orogeny code,
-the same investigate-before-scope pass every milestone here has had, is
-milestone 5's actual first step. `build_age_field` is now confirmed (not
-just suspected) a poor GPU fit — a genuine two-pass chamfer distance
-transform with a real sequential sweep dependency, not a parallel
-per-cell op.
+## Milestone 5 — plate assignment (JFA) on GPU (current)
+
+Investigated 2026-08-16 (confirming/refuting the hypothesis milestone 3
+recorded): read `assign_plates` (`cartalith-terrain/src/lib.rs:400`) and
+`compute_stress` (line 657) in full.
+
+**`assign_plates` confirmed a genuine, textbook Jump Flooding
+Algorithm** — a `while step_u >= 1 { step_u >>= 1 }` loop, each iteration
+sampling exactly the 8 offsets `{-step,0,step}²` around each cell to
+propagate the nearest plate seed, halving `step` each pass. This is
+*specifically* the algorithm JFA was invented for — approximate parallel
+Voronoi/nearest-seed computation on GPU — and it's the same algorithmic
+family this port's own `cartalith-civ::build_coast_sdf` (Phase 2
+milestone 6) already uses. Each pass is fully per-cell parallel (reads a
+fixed neighbourhood at that pass's step size, writes only its own cell) —
+genuinely GPU-friendly, just multi-pass (`log2(max(GW,GH))` passes,
+ping-ponging between two buffers).
+
+**`compute_stress` confirmed genuinely harder, not a same-shape sibling**:
+its main loop is a **scatter** pattern, not per-cell-independent — for
+each boundary cell, it writes accumulated stress to *both itself and its
+neighbour* (`raw[i]` and `raw[j]` in the same iteration, sometimes via
+world-wrap too). Naively parallelizing this per-cell risks multiple
+threads writing the same output cell simultaneously (cell 5 receiving a
+contribution pushed from cell 4's iteration AND from its own). WGSL's
+atomic operations don't cover `f32` add in the core spec this toolchain
+targets — a real port would need reformulating as a **gather** (each
+output cell reads whether its neighbours would have pushed a contribution
+onto it, rather than pushing outward), which changes summation order and
+therefore needs its own careful floating-point-equivalence re-verification,
+not just a translation. **Genuinely deferred to a later milestone**, not
+bundled into this one.
+
+**In scope**: `gpu_assign_plates` in `cartalith-gpu`, JFA implementation,
+verified the same way as milestone 4 attempted — check whether three-way
+JS/CPU/GPU parity is achievable here too (JFA has no noise/no chaotic
+compounding, so the same reasoning that worked for `gauss_blur` may
+apply), or whether JFA's inherent *approximation* (it's a well-known
+property of JFA that it can occasionally miss the true nearest seed in
+rare geometric configurations, trading exactness for parallelism) means
+the CPU and GPU implementations should both be checked against the exact
+brute-force nearest-plate result instead, at a real, justified tolerance
+on the (rare) mismatch rate — investigate which framing actually fits
+before assuming either.
+
+**Out of scope**: `compute_stress` (deferred, see above — its own
+milestone once someone is ready to do the gather reformulation and
+re-verify), `flex`'s full body beyond milestone 4's blur, orogeny's
+graph-tracing (`trace_boundaries`/`tag_boundary_types`/
+`build_orogeny_field` — still not read, still a real "likely poor fit,
+verify don't assume" item for a future milestone), `build_age_field`
+(confirmed poor fit, milestone 4's own finding — a genuine two-pass
+chamfer distance transform with sequential sweep dependency).
