@@ -111,6 +111,67 @@ A bounded thread pool / not monopolising every core during interactive
 editing (`HARDWARE_ACCELERATION.md` §19's own caution) — not yet relevant,
 this port has no interactive editing mid-generation to protect against.
 
+## Resolved (2026-08-16): first pass done -- `cartalith-terrain`
+
+Added `rayon = "1"` to `cartalith-terrain/Cargo.toml`. Parallelized the
+five in-scope items exactly as listed above: `compute_warp`,
+`compute_heterogeneity` (the fbm loop only, not the trailing max-find/
+rescale reduction), `compute_height`, `compute_resistance`, and
+`gauss_blur`'s `box_h`/`box_v`. `box_h`'s rows are contiguous in
+`dst`, so `par_chunks_mut`/`par_chunks` zipped directly; `box_v`'s
+columns are strided in `dst`'s row-major layout, so each column is
+computed into a column-major scratch buffer in parallel, then
+scattered into `dst` sequentially (avoids `unsafe`, the scatter is
+O(w*h) and memory-bound, negligible next to the blur work it
+replaces).
+
+**Golden-parity verification, exact as required**: every existing test
+touching these functions (`golden_parity_blur.rs`,
+`golden_parity_flex_hetero_resist.rs`, `golden_parity_height.rs`,
+`golden_parity_stress.rs`, `golden_parity_orogeny.rs`) passes
+completely unmodified at existing tolerances. Full `cargo test
+--workspace` -- 0 failures, 0 modified tests, including
+`cartalith-engine`'s full-pipeline tests and `cartalith-gpu`'s
+CPU-vs-GPU cross-verification tests against these same functions.
+
+**Real timing** (`cargo run --release --example timing_bench -p
+cartalith-engine`, 16-logical-core machine, best of 3 runs, seed
+12345):
+
+| Size | Before | After | Speedup |
+|---|---|---|---|
+| 128x128 | 0.0973s | 0.0936s | ~1.04x |
+| 512x512 | 0.6019s | 0.4859s | ~1.24x |
+| 1024x1024 | 1.8328s | 1.3143s | ~1.39x |
+| 2048x2048 | 7.0670s | 5.1071s | ~1.38x |
+
+Real, honest, modest -- not near 16x, as expected: this pass touched 5
+functions in one crate, and everything else in `generate_terrain`
+(Lloyd relaxation, JFA plate assignment, `compute_stress`,
+`build_age_field`, all of climate/erosion/hydrology, river carving)
+stays fully sequential and sets the real ceiling. Full account:
+`cartalith-native/docs/CHANGELOG.md`'s "CPU multithreading milestone 1"
+entry.
+
+**Natural follow-up passes** (not scoped here, same "one subsystem at
+a time" discipline this whole port has used throughout):
+
+1. `cartalith-civ` -- the concurrent forks that blocked it during this
+   pass (sea routes, memory investigation) have both landed; safe to
+   scope now. Route corridors/settlement suitability/carrying
+   capacity/resource potentials are the named "safe, local-neighbourhood"
+   candidates from the section above.
+2. `cartalith-climate`/`cartalith-erosion`/`cartalith-hydrology` --
+   each needs its own independence read before touching (per-cell
+   temperature/rainfall formulas are likely safe; `simulate_weather`'s
+   wind-iteration loop needs parallelizing *within* each iteration's
+   pass, not across iterations, since iterations are sequential;
+   droplet erosion likely has genuine per-droplet sequential state,
+   verify rather than assume).
+3. GPU milestone 6's own flagged next step (`GpuContext` reuse across
+   stages) and the integrated-GPU idea below remain separate, GPU-side
+   follow-ups, not CPU-multithreading scope.
+
 ## Separate, lower-priority idea recorded, not scoped: using the integrated GPU too
 
 Also raised by the owner this turn: this machine has an integrated GPU

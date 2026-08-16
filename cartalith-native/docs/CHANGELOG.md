@@ -4918,3 +4918,144 @@ this change), `cargo test --workspace` (0 regressions), `godot4
 **Files touched**: `cartalith-native/crates/cartalith-godot/src/lib.rs`
 (`compute_civilisation()`), `MEMORY_OPTIMIZATION_SCOPE.md` (marked
 done with the real numbers above).
+
+## CPU multithreading milestone 1: Rayon-parallelize `cartalith-terrain`'s per-cell functions (2026-08-16)
+
+`CPU_MULTITHREADING_SCOPE.md`'s first pass, prompted directly by the
+owner ("multithreading support for cpus... doesn't seem to fully use
+the cpu"). Unlike every GPU milestone this session, this needs no
+`DECISIONS.md` §7a carve-out at all: parallelizing an existing per-cell
+loop with Rayon doesn't change what gets computed, only which of this
+machine's 16 logical cores computes which independent cell and in what
+order -- for any function shaped `output[i] = f(input, i)` with zero
+cross-cell read/write dependency, that preserves golden-parity output
+**exactly**, bit-for-bit, not within a tolerance.
+
+Added `rayon = "1"` to `cartalith-terrain/Cargo.toml` (same
+direct-version-string convention `cartalith-gpu`'s `Cargo.toml` already
+uses -- no `[workspace.dependencies]` table exists in this workspace to
+join). Parallelized, each verified independent-per-cell/row/column by
+reading the function fully before touching it:
+
+- `compute_warp` -- rows are independent (`warp_x[i]`/`warp_y[i]`
+  depend only on `x, y`, never another cell); parallelized with
+  `par_chunks_mut(gw)` zipped across the two output fields.
+- `compute_heterogeneity` -- same per-row shape; parallelized the
+  fbm-heavy loop, left the trailing max-find/rescale passes sequential
+  (a single O(n) scan, not the bottleneck, and touching a reduction adds
+  verification risk for no measurable gain).
+- `compute_height` -- same per-row shape; the most fbm/pridged-heavy
+  per-cell loop in the crate (up to 5 octaves per cell), so this is
+  where most of the real speedup below comes from.
+- `compute_resistance` -- flat per-index loop (`resistance[i] =
+  f(plate_id[i], age_field[i])`), parallelized directly with
+  `par_iter_mut().enumerate()`.
+- `gauss_blur`'s `box_h`/`box_v` (both private helpers, exercised by
+  every crate that calls `gauss_blur`, e.g. `compute_stress`/
+  `compute_flexure`/`build_orogeny_field`): `box_h` rows are
+  contiguous in `dst`'s row-major layout, so `par_chunks_mut(w)` zipped
+  with `src.par_chunks(w)` was a direct fit. `box_v`'s columns are
+  *not* contiguous (`dst[y*w+x]` for fixed `x`, varying `y` is a
+  strided write) -- rather than reach for `unsafe` to split disjoint
+  strided slices (a real, common pattern elsewhere, but unjustified
+  complexity when a simpler option exists), each column is computed in
+  parallel into a column-major scratch buffer (`par_chunks_mut(h)`,
+  each chunk genuinely contiguous there), then scattered into `dst` in
+  one cheap sequential O(w*h) pass -- memory-bound, negligible next to
+  the O(w*h*(2r+1))-shaped sliding-window work it replaces.
+
+**Left sequential, matching `GPU_LAYER_INTEGRATION_SCOPE.md`'s own
+"poor fit" catalogue for the identical underlying reason** (real
+cross-cell/sequential state, not "hasn't been tried"): `build_plates`'s
+Lloyd relaxation (per-cell writes reduce into shared per-plate
+accumulators -- a genuine reduction, not an independent write),
+`assign_plates`'s JFA (already GPU-verified as an iterative
+pass-based algorithm), `compute_stress` (confirmed scatter-write
+hazard -- two cells' boundary write to each other, Rayon has the
+identical race problem plain threads would), `build_age_field`
+(sequential two-pass chamfer distance transform), orogeny's
+graph-tracing. All correctly out of scope per the doc, none forced.
+
+**Golden-parity verification -- the headline check**: every existing
+test for the touched functions passes completely unmodified, at
+existing tolerances, with zero changes to any test file:
+`golden_parity_blur.rs` (4/4), `golden_parity_flex_hetero_resist.rs`
+(5/5, covers `compute_heterogeneity`/`compute_resistance`/
+`compute_flexure`, which itself calls `gauss_blur`),
+`golden_parity_height.rs` (3/3), `golden_parity_stress.rs` (3/3,
+exercises `compute_stress`'s own `gauss_blur` calls),
+`golden_parity_orogeny.rs` (5/5, exercises `build_age_field`'s
+downstream consumers). Full `cargo test --workspace` -- every crate,
+including `cartalith-engine`'s `golden_parity_pipeline.rs`/
+`golden_parity_carve.rs` (the full pipeline, transitively exercising
+every touched function together) and `cartalith-gpu`'s dev-only
+CPU-vs-GPU cross-verification tests against the now-parallel
+`cartalith-terrain` functions -- 0 failures, 0 modified tests. This is
+the real, load-bearing evidence that parallel execution order doesn't
+perturb any of these functions' floating-point results, not an
+assumption.
+
+**Real timing** (`cargo run --release --example timing_bench -p
+cartalith-engine`, this session's real 16-logical-core machine, best of
+3 timed runs after 1 warmup, `WorldParams::defaults` at each size, seed
+12345):
+
+| Size | Before | After | Speedup |
+|---|---|---|---|
+| 128x128 | 0.0973s | 0.0936s | ~1.04x |
+| 512x512 | 0.6019s | 0.4859s | ~1.24x |
+| 1024x1024 | 1.8328s | 1.3143s | ~1.39x |
+| 2048x2048 | 7.0670s | 5.1071s | ~1.38x |
+
+Honest reporting, not a hoped-for number: nowhere near a theoretical
+16x, and that's expected, not a bug -- Amdahl's law. This pass touched
+5 functions in one crate; the rest of `generate_terrain`'s pipeline
+(plate seeding/Lloyd relaxation, JFA plate assignment, `compute_stress`,
+`build_age_field`, all of `cartalith-climate`/`-erosion`/`-hydrology`,
+river carving) is still fully sequential and sets the real ceiling
+measured here. 128x128's near-1x result is expected too -- Rayon's own
+per-call thread-pool dispatch overhead is a larger fraction of a
+128x128 grid's total work than of a 2048x2048 grid's, so the smallest
+size shows the least benefit (visible, not hidden, per this project's
+own honest-reporting standard).
+
+**Before-measurement method**: `git stash push -- Cargo.lock
+crates/cartalith-terrain/Cargo.toml crates/cartalith-terrain/src/lib.rs`
+to get a real pre-change build (not a mental estimate), ran the same
+release-mode bench binary, then `git stash pop` to restore. Both
+before and after used the identical bench harness and machine state.
+
+**New tool, kept (not scope creep)**: `cartalith-engine/examples/
+timing_bench.rs` -- this project's own discipline for every GPU/CPU
+milestone is real measured numbers, not assumed ones
+(`GPU_LAYER_INTEGRATION_SCOPE.md`'s and `CPU_MULTITHREADING_SCOPE.md`'s
+own repeated language). A reusable `cargo run --release --example
+timing_bench -p cartalith-engine` is a small, direct fit for that
+standing need, not a one-off throwaway.
+
+**Verification**: `cargo build -p cartalith-terrain`, `cargo test -p
+cartalith-terrain` (all pre-existing tests, unmodified), `cargo clippy
+-p cartalith-terrain --all-targets` clean (four `needless_range_loop`
+warnings resolved with `#[allow]` + a one-line reason, matching this
+workspace's own existing convention in `cartalith-civ`/`-climate`/
+`-erosion` for loops where the index variable drives more than one
+array), `cargo build --workspace` clean, `cargo test --workspace`
+(every test, every crate, 0 failures, 0 modified).
+
+**Out of scope for this pass, explicitly deferred, not forgotten**
+(per the scope doc): `cartalith-civ` (two other forks were concurrently
+active there when this pass started), `cartalith-climate`/`-erosion`/
+`-hydrology` (each needs its own per-function independence read before
+touching, same discipline this pass followed for `cartalith-terrain`),
+GPU milestone 6's own flagged next step (`GpuContext` reuse across
+stages, currently ~1.3-1.4s fixed overhead per call), the
+integrated-GPU-alongside-dedicated idea (`HARDWARE_ACCELERATION.md`).
+
+**Files touched**: `cartalith-native/Cargo.lock`,
+`cartalith-native/crates/cartalith-terrain/Cargo.toml`,
+`cartalith-native/crates/cartalith-terrain/src/lib.rs`
+(`compute_warp`/`compute_heterogeneity`/`compute_height`/
+`compute_resistance`/`box_h`/`box_v`), new
+`cartalith-native/crates/cartalith-engine/examples/timing_bench.rs`,
+`CPU_MULTITHREADING_SCOPE.md` (marked first pass done with the real
+numbers above), `cartalith-native/docs/STATUS.md`.

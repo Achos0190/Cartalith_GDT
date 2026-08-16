@@ -4,6 +4,7 @@
 
 use cartalith_noise::{fbm, pfbm, pridged, pvnoise, ridged, vnoise};
 use cartalith_rng::Mulberry32;
+use rayon::prelude::*;
 
 /// Mirrors JS `Math.round`: ties round toward `+Infinity`, unlike Rust's
 /// `f64::round` (ties away from zero) — `Math.round(-0.5) == 0`, but
@@ -49,35 +50,42 @@ pub fn compute_warp(
     let n = gw * gh;
     let mut warp_x = vec![0f32; n];
     let mut warp_y = vec![0f32; n];
-    for y in 0..gh {
-        for x in 0..gw {
-            let i = y * gw + x;
-            let xf = x as f64 * wf;
-            let yf = y as f64 * wf;
-            let qx = if world {
-                pfbm(xf, yf, seed + 17, p_x)
-            } else {
-                fbm(xf, yf, seed + 17)
-            };
-            let qy = if world {
-                pfbm(xf, yf, seed + 101, p_x)
-            } else {
-                fbm(xf, yf, seed + 101)
-            };
-            let wx = if world {
-                pfbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 213, p_x) - 0.5
-            } else {
-                fbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 213) - 0.5
-            };
-            let wy = if world {
-                pfbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 331, p_x) - 0.5
-            } else {
-                fbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 331) - 0.5
-            };
-            warp_x[i] = (wx * 2.0 * amp) as f32;
-            warp_y[i] = (wy * 2.0 * amp) as f32;
-        }
-    }
+    // Rows are independent (`warp_x[i]`/`warp_y[i]` depend only on `x, y`,
+    // never another cell), so parallelizing across rows changes only which
+    // core computes which row, not any value -- output is bit-for-bit
+    // identical to the sequential version (CPU_MULTITHREADING_SCOPE.md).
+    warp_x
+        .par_chunks_mut(gw)
+        .zip(warp_y.par_chunks_mut(gw))
+        .enumerate()
+        .for_each(|(y, (wx_row, wy_row))| {
+            for x in 0..gw {
+                let xf = x as f64 * wf;
+                let yf = y as f64 * wf;
+                let qx = if world {
+                    pfbm(xf, yf, seed + 17, p_x)
+                } else {
+                    fbm(xf, yf, seed + 17)
+                };
+                let qy = if world {
+                    pfbm(xf, yf, seed + 101, p_x)
+                } else {
+                    fbm(xf, yf, seed + 101)
+                };
+                let wx = if world {
+                    pfbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 213, p_x) - 0.5
+                } else {
+                    fbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 213) - 0.5
+                };
+                let wy = if world {
+                    pfbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 331, p_x) - 0.5
+                } else {
+                    fbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 331) - 0.5
+                };
+                wx_row[x] = (wx * 2.0 * amp) as f32;
+                wy_row[x] = (wy * 2.0 * amp) as f32;
+            }
+        });
     Some((warp_x, warp_y))
 }
 
@@ -519,36 +527,47 @@ pub fn assign_plates(
 /// where `acc` is a plain number even though it sums `Float32Array`
 /// reads — and is only rounded to `f32` at the point of writing `dst`.
 fn box_h(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64, wrap: bool) {
+    debug_assert_eq!(src.len(), w * h);
+    debug_assert_eq!(dst.len(), w * h);
     let norm = 1.0 / (2.0 * r as f64 + 1.0);
     let wi = w as i64;
-    for y in 0..h {
-        let row = y * w;
-        let mut acc = 0.0f64;
-        if wrap {
-            for k in -r..=r {
-                let idx = (((k % wi) + wi) % wi) as usize;
-                acc += src[row + idx] as f64;
-            }
-        } else {
-            for k in -r..=r {
-                let idx = k.clamp(0, wi - 1) as usize;
-                acc += src[row + idx] as f64;
-            }
-        }
-        for x in 0..w {
-            dst[row + x] = (acc * norm) as f32;
-            let xi = x as i64;
+    // Each row's running sum only reads/writes within that row -- rows are
+    // independent, so chunking `dst`/`src` by row and processing chunks in
+    // parallel is exact, not approximate (CPU_MULTITHREADING_SCOPE.md).
+    dst.par_chunks_mut(w)
+        .zip(src.par_chunks(w))
+        .for_each(|(dst_row, src_row)| {
+            let mut acc = 0.0f64;
             if wrap {
-                let o = (((xi - r) % wi) + wi) % wi;
-                let i = (((xi + r + 1) % wi) + wi) % wi;
-                acc += src[row + i as usize] as f64 - src[row + o as usize] as f64;
+                for k in -r..=r {
+                    let idx = (((k % wi) + wi) % wi) as usize;
+                    acc += src_row[idx] as f64;
+                }
             } else {
-                let o = (xi - r).clamp(0, wi - 1) as usize;
-                let i = (xi + r + 1).clamp(0, wi - 1) as usize;
-                acc += src[row + i] as f64 - src[row + o] as f64;
+                for k in -r..=r {
+                    let idx = k.clamp(0, wi - 1) as usize;
+                    acc += src_row[idx] as f64;
+                }
             }
-        }
-    }
+            // `x` also drives the running-sum update below, not just the
+            // `dst_row` index -- an iterator/enumerate rewrite wouldn't be
+            // clearer here, same reasoning as this crate's other running-
+            // sum/sliding-window loops.
+            #[allow(clippy::needless_range_loop)]
+            for x in 0..w {
+                dst_row[x] = (acc * norm) as f32;
+                let xi = x as i64;
+                if wrap {
+                    let o = (((xi - r) % wi) + wi) % wi;
+                    let i = (((xi + r + 1) % wi) + wi) % wi;
+                    acc += src_row[i as usize] as f64 - src_row[o as usize] as f64;
+                } else {
+                    let o = (xi - r).clamp(0, wi - 1) as usize;
+                    let i = (xi + r + 1).clamp(0, wi - 1) as usize;
+                    acc += src_row[i] as f64 - src_row[o] as f64;
+                }
+            }
+        });
 }
 
 /// `boxV()` (reference HTML line 2512): vertical sliding-window box blur.
@@ -557,18 +576,33 @@ fn box_h(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64, wrap: bool) {
 fn box_v(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64) {
     let norm = 1.0 / (2.0 * r as f64 + 1.0);
     let hi = h as i64;
-    for x in 0..w {
+    // Columns are independent, but `dst`'s row-major layout makes a single
+    // column a strided (non-contiguous) write target -- rather than reach
+    // for unsafe to split disjoint strided slices, compute each column
+    // (contiguous in this column-major scratch buffer) in parallel, then
+    // scatter into `dst` in one cheap sequential pass. The scatter is
+    // O(w*h) and memory-bound, negligible next to the O(w*h*(2r+1))-shaped
+    // work it replaces (CPU_MULTITHREADING_SCOPE.md).
+    let mut cols = vec![0f32; w * h];
+    cols.par_chunks_mut(h).enumerate().for_each(|(x, col)| {
         let mut acc = 0.0f64;
         for k in -r..=r {
             let idx = k.clamp(0, hi - 1) as usize;
             acc += src[idx * w + x] as f64;
         }
+        #[allow(clippy::needless_range_loop)] // y also drives the running-sum update below
         for y in 0..h {
-            dst[y * w + x] = (acc * norm) as f32;
+            col[y] = (acc * norm) as f32;
             let yi = y as i64;
             let o = (yi - r).clamp(0, hi - 1) as usize;
             let i = (yi + r + 1).clamp(0, hi - 1) as usize;
             acc += src[i * w + x] as f64 - src[o * w + x] as f64;
+        }
+    });
+    for x in 0..w {
+        let col = &cols[x * h..x * h + h];
+        for y in 0..h {
+            dst[y * w + x] = col[y];
         }
     }
 }
@@ -926,7 +960,14 @@ pub fn compute_heterogeneity(
     let hf = 1.5 * terrain_detail_k(gw, map_width_km);
     let oct = (js_round(hf).max(2.0)) as i32;
     let mut out = vec![0f32; n];
-    for y in 0..gh {
+    // Per-row parallel: `out[i]` depends only on `x, y, age[i]` and the
+    // (read-only) warp fields, never another cell -- exact, not
+    // approximate (CPU_MULTITHREADING_SCOPE.md). The max-finding/rescale
+    // passes below stay sequential: a single O(n) scan is not the
+    // bottleneck here (the fbm calls above are), and max is the only
+    // reduction, so parallelizing it would add risk for no measurable gain.
+    out.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
+        #[allow(clippy::needless_range_loop)] // x also drives i, wx, wy below
         for x in 0..gw {
             let i = y * gw + x;
             let wx = x as f64 + warp_x.map_or(0.0, |w| w[i] as f64);
@@ -936,9 +977,9 @@ pub fn compute_heterogeneity(
             } else {
                 fbm(wx * hf / gw as f64, wy * hf / gw as f64, hetero_seed)
             } - 0.5;
-            out[i] = (low_n * (0.3 + 0.7 * age[i] as f64)) as f32;
+            row[x] = (low_n * (0.3 + 0.7 * age[i] as f64)) as f32;
         }
-    }
+    });
     let mut mx = 1e-6f64;
     for &v in &out {
         let v = (v as f64).abs();
@@ -965,11 +1006,13 @@ pub fn compute_resistance(
 ) -> Vec<f32> {
     let n = gw * gh;
     let mut resistance = vec![0f32; n];
-    for i in 0..n {
+    // `resistance[i] = f(plate_id[i], age_field[i])` -- no cross-cell
+    // dependency, exact under parallel execution (CPU_MULTITHREADING_SCOPE.md).
+    resistance.par_iter_mut().enumerate().for_each(|(i, r)| {
         let pl = plates[plate_id[i]];
         let crustal = pl.base.max(0.0);
-        resistance[i] = (crustal * 0.6 + age_field[i] as f64 * 0.4).min(1.0) as f32;
-    }
+        *r = (crustal * 0.6 + age_field[i] as f64 * 0.4).min(1.0) as f32;
+    });
     resistance
 }
 
@@ -1013,7 +1056,13 @@ pub fn compute_height(
 ) -> Vec<f32> {
     let n = gw * gh;
     let mut field = vec![0f32; n];
-    for y in 0..gh {
+    // `field[i]` reads only cell `i`'s own inputs across every field
+    // parameter here -- no cross-cell dependency, exact under parallel
+    // execution (CPU_MULTITHREADING_SCOPE.md). This is the most
+    // fbm/pridged-heavy per-cell loop in the crate, so the real timing win
+    // is expected to come mostly from here.
+    field.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
+        #[allow(clippy::needless_range_loop)] // x also drives i, wx, wy below
         for x in 0..gw {
             let i = y * gw + x;
             let sf = stress[i] as f64;
@@ -1038,13 +1087,13 @@ pub fn compute_height(
             } else {
                 fbm(nx, ny, p.seed)
             }) - 0.5;
-            field[i] = (0.5
+            row[x] = (0.5
                 + p.a * (0.40 * bs + 0.50 * t)
                 + p.fwt * flex[i] as f64
                 + p.hwt * hetero[i] as f64
                 + p.b * n_val * (0.25 + 0.75 * rug)) as f32;
         }
-    }
+    });
     field
 }
 

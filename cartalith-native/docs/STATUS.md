@@ -5,7 +5,7 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-16 (post GPU layer integration milestone 6: first real partial-GPU pipeline integration, `use_gpu` flag wired into `generate_terrain`).
+Last updated: 2026-08-16 (post CPU multithreading milestone 1: `cartalith-terrain`'s per-cell functions Rayon-parallelized, real 1.24-1.39x speedup measured).
 
 ## MVP_SCOPE.md — "done means all seven"
 
@@ -257,6 +257,36 @@ baseline is `cartalith-terrain`/`-climate`/`-erosion`/`-hydrology`'s own
 ~96 full-grid allocations, not instrumented stage-by-stage in this
 pass; a real candidate for a follow-up if the owner wants the peak
 pushed further. Full numbers in `cartalith-native/docs/CHANGELOG.md`.
+
+## CPU multithreading (`CPU_MULTITHREADING_SCOPE.md`, milestone 1 done 2026-08-16)
+
+Owner-reported "doesn't seem to fully use the cpu" (16 logical cores,
+generation used effectively one -- confirmed, `rayon` was not a
+dependency anywhere in the workspace before this). Unlike GPU work,
+needs no `DECISIONS.md` §7a carve-out: parallelizing an existing
+per-cell loop preserves golden-parity output exactly, bit-for-bit, not
+within a tolerance -- confirmed by every existing test for the touched
+functions passing completely unmodified, plus a full `cargo test
+--workspace` (0 failures, 0 modified tests).
+
+**Milestone 1 — `cartalith-terrain` (done 2026-08-16).** Added
+`rayon = "1"`; parallelized `compute_warp`, `compute_heterogeneity`
+(the fbm loop; the trailing reduction stayed sequential, not the
+bottleneck), `compute_height`, `compute_resistance`, and `gauss_blur`'s
+`box_h`/`box_v`. Real timing (16-core machine, best of 3, seed 12345):
+128² 0.0973s→0.0936s (~1.04x), 512² 0.6019s→0.4859s (~1.24x), 1024²
+1.8328s→1.3143s (~1.39x), 2048² 7.0670s→5.1071s (~1.38x). Honest,
+modest, not near 16x -- Amdahl's law: plate seeding/Lloyd relaxation,
+JFA plate assignment, `compute_stress`, `build_age_field`, and all of
+climate/erosion/hydrology stay fully sequential this pass and set the
+real ceiling measured. Full record and per-function reasoning:
+`cartalith-native/docs/CHANGELOG.md`'s "CPU multithreading milestone 1"
+entry.
+
+**Natural next passes, not yet scoped**: `cartalith-civ` (now unblocked
+-- the concurrent forks that deferred it here have landed),
+`cartalith-climate`/`cartalith-erosion`/`cartalith-hydrology` (each
+needs its own independence read first, same discipline as this pass).
 
 ## Known-open items (not owner-blocked, just not done yet)
 
