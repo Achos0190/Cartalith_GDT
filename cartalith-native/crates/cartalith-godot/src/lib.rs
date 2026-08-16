@@ -131,7 +131,7 @@ fn compute_civilisation(
     let water_access = cartalith_civ::build_water_access(&ws.flow_discharge, &ws.field, gw, gh, sea_level, flow_thresh);
     let carrying_cap = cartalith_civ::build_carrying_capacity(&soil, &water_access, Some(&biome), &ws.temperature, &ws.field, sea_level, 0.0, None);
 
-    let resources = cartalith_civ::build_resource_potentials(
+    let mut resources = cartalith_civ::build_resource_potentials(
         &lithology,
         Some(&ws.boundary_type),
         Some(&ws.shear_field),
@@ -147,7 +147,28 @@ fn compute_civilisation(
         true,
         false,
     );
-    let _ = &resources; // read for parity with the pipeline; not yet surfaced to GDScript (no UI consumer)
+    // `ResourcePotentials` carries all 15 fields (`build_resource_potentials`
+    // computes them together in one shared per-cell loop -- not splittable
+    // without real restructuring, `MEMORY_OPTIMIZATION_SCOPE.md`). Only 9
+    // (`SUIT_RESOURCE_KEYS`) are ever read below, via `ctx.resources` ->
+    // `build_settlement_suitability`'s mineral term (confirmed: no other
+    // reader anywhere in this production call chain -- grepped). `ctx`
+    // keeps `resources` alive until `suit` is computed ~40 lines down, so
+    // the other 6 (clay/buildstone/flint/obsidian/sulfur/alum, ~40% of this
+    // struct's own ~240 MB at 2048x2048) would otherwise sit unused for
+    // that whole span -- the single largest confirmed contributor to this
+    // function's measured peak (real before/after numbers in
+    // `MEMORY_OPTIMIZATION_SCOPE.md`/`CHANGELOG.md`). Freed immediately
+    // instead of held: replacing with an empty `Vec` drops the old heap
+    // allocation right here, and `resource_field()` never indexes these 6
+    // keys (only `SUIT_RESOURCE_KEYS` ever reaches it), so nothing later
+    // reads the now-empty buffers.
+    resources.clay = Vec::new();
+    resources.buildstone = Vec::new();
+    resources.flint = Vec::new();
+    resources.obsidian = Vec::new();
+    resources.sulfur = Vec::new();
+    resources.alum = Vec::new();
 
     let raw_slope = cartalith_civ::build_raw_slope_field(&ws.field, gw, gh, world);
     let corridors = cartalith_civ::build_route_corridors(&ws.field, &raw_slope, Some(&ws.flow_discharge), gw, gh, sea_level, world, flow_thresh);

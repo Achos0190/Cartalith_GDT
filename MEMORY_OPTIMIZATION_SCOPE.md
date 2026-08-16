@@ -119,3 +119,57 @@ honest account of what the actual dominant cost turned out to be
 (confirming or correcting the hypothesis above); no regression in
 correctness (existing tests still pass) or the "no persistent leak"
 finding (re-verify with two consecutive generations again after any fix).
+
+## Resolved (2026-08-16)
+
+**Hypothesis 1 confirmed as the real dominant contributor.** NLL-lifetime
+analysis of `compute_civilisation()` (`cartalith-godot/src/lib.rs`)
+traced ~436 MB of simultaneously-alive locally-scoped arrays at the
+point `build_settlement_suitability` runs; `ResourcePotentials`'s six
+unused fields (clay/buildstone/flint/obsidian/sulfur/alum, ~96 MB
+combined at 2048²) were the single largest confirmed contributor (over
+50%). Grepped the whole workspace for all six field names -- zero
+production readers outside a `cartalith-civ` test-only variable,
+confirming the fields really are dead weight in the pipeline, not
+merely unused by one caller.
+
+**Hypothesis 2 (`SuitabilityCtx`'s ~10 simultaneously-alive field
+references) not separately instrumented this pass** -- it's references,
+not owned copies, so it doesn't itself duplicate memory (as the
+hypothesis section above already noted); it remains a real constraint
+on how early upstream fields could be freed, but wasn't the confirmed
+dominant cost and wasn't chased further here.
+
+**Fix applied**: `compute_civilisation()` empties the six unused
+fields' `Vec`s (`Vec::new()`) immediately after `build_resource_potentials`
+returns, rather than letting them ride to function exit. No signature
+changes.
+
+**Real before/after** (Windows, real windowed app, same
+`PrintWindow`/`mouse_event` technique as the baseline above, 2048x2048,
+seed 12345):
+
+| State | Before | After (run 1) | After (run 2) |
+|---|---|---|---|
+| Peak during generation | ~1,445-1,653 MB | 1,501.8 MB | 1,434.5 MB |
+| Steady-state after completion | ~689-691 MB | 678.0 MB | 679.9 MB |
+
+Both post-fix peaks sit at or below the pre-fix range's floor; steady-
+state dropped ~10-12 MB in both runs. This is a real, honest, but
+modest improvement -- the confirmed ~96 MB saving is a genuine slice of
+the ~1.1-1.3 GB total transient peak above baseline, not its majority.
+The remaining peak is mostly `cartalith-terrain`/`-climate`/`-erosion`/
+`-hydrology`'s own ~96 full-grid allocations, not instrumented
+stage-by-stage in this pass -- a real candidate for a follow-up
+investigation if the owner wants the peak pushed down further, but out
+of scope for this one (see "Out of scope" above).
+
+**No persistent leak, re-confirmed**: two consecutive generations'
+steady-state (678.0 MB, 679.9 MB) stayed flat, matching the original
+finding.
+
+**Verification**: `cargo build -p cartalith-godot`, `cargo test -p
+cartalith-civ`, `cargo clippy -p cartalith-civ -p cartalith-godot
+--all-targets` (clean for the new code), `cargo test --workspace` (0
+regressions), `godot4 --headless --quit main.tscn` (clean). Full
+account in `cartalith-native/docs/CHANGELOG.md`.

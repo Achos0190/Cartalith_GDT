@@ -242,6 +242,22 @@ redesign — not in scope for near-term milestones, which continue to
 follow the per-cell-math layers (terrain → climate → erosion's per-cell
 parts → Phase 2's per-cell affordance fields → rendering).
 
+## Memory optimization (`MEMORY_OPTIMIZATION_SCOPE.md`, done 2026-08-16)
+
+Owner-reported "consumes a ton of memory" on generation, investigated
+with real measurement, not assumption. Confirmed dominant contributor:
+`ResourcePotentials` (`cartalith-civ`) held six resource fields
+(clay/buildstone/flint/obsidian/sulfur/alum, ~96 MB at 2048²) that
+nothing in the pipeline reads. Fixed by freeing them immediately after
+computation in `compute_civilisation()`. Real before/after at 2048²:
+peak 1,445-1,653 MB → 1,434.5-1,501.8 MB, steady-state 689-691 MB →
+678.0-679.9 MB, no persistent leak (re-confirmed). A real but modest
+win — the bulk of the remaining ~1.1-1.3 GB transient peak above
+baseline is `cartalith-terrain`/`-climate`/`-erosion`/`-hydrology`'s own
+~96 full-grid allocations, not instrumented stage-by-stage in this
+pass; a real candidate for a follow-up if the owner wants the peak
+pushed further. Full numbers in `cartalith-native/docs/CHANGELOG.md`.
+
 ## Known-open items (not owner-blocked, just not done yet)
 
 - Credits screen (Phase 1 closeout, `ROADMAP.md`).

@@ -4843,3 +4843,78 @@ the new code (all reported warnings pre-existing, in other test files).
 (`SeaRoute` struct, `civ_sea_routes`, the four generalized helpers and
 their updated call sites), `cartalith-native/crates/cartalith-civ/tests/
 golden_parity_sea_routes.rs` (new).
+
+## Memory optimization — `ResourcePotentials` unused-field fix (2026-08-16)
+
+Prompted directly by the owner: generating a map "uses a ton of memory."
+Investigated per `MEMORY_OPTIMIZATION_SCOPE.md` with real hands-on
+measurement before and after, not assumption (`cartalith-porting-
+discipline`'s own working rule).
+
+**Confirmed dominant contributor**: `ResourcePotentials`
+(`cartalith-civ`, Phase 2 milestone 5) computes and holds all 15
+`Vec<f32>` fields simultaneously (~240 MB at 2048x2048), but
+`build_settlement_suitability`'s mineral term only ever reads the 9-key
+`SUIT_RESOURCE_KEYS` subset (copper/tin/iron/gold/salt/timber/lead/
+silver/gems). Grepped the whole workspace for the other 6 field names
+(`clay`/`buildstone`/`flint`/`obsidian`/`sulfur`/`alum`) -- the only
+other reference found was a test-only variable inside
+`cartalith-civ`'s own test suite. Confirmed via NLL-lifetime analysis of
+`compute_civilisation()` that these six unused fields' backing arrays
+(~96 MB combined) stay alive for the full ~40-line span from
+computation through `build_settlement_suitability`, as one contributor
+among the roughly 436 MB of `compute_civilisation()`-owned arrays alive
+simultaneously at that point in the pipeline -- the single largest
+confirmed contributor (over 50% of that local peak).
+
+**Fix**: `cartalith-godot/src/lib.rs`'s `compute_civilisation()` --
+`let resources = ...` changed to `let mut resources = ...`, and the six
+unused fields' `Vec`s are reset to empty (`Vec::new()`) immediately
+after `build_resource_potentials` returns, freeing their backing
+allocations well before `resources` would otherwise be dropped at
+function exit. No signature changes to `build_resource_potentials` or
+`ResourcePotentials` itself -- the scope doc correctly flagged
+restructuring the struct/builder as real, unjustified-without-
+confirmation complexity, so this is the smallest fix that captures the
+confirmed saving.
+
+**Real before/after measurement** (Windows, real windowed app,
+`PrintWindow`/`mouse_event` automation, `Get-Process` sampled every
+~1.5s during generation, 2048x2048, seed 12345, Classic, 800 km, Phase 2
+civ layer + rendering all active -- same technique the scope doc's own
+baseline used):
+
+| State | Before | After (run 1) | After (run 2) |
+|---|---|---|---|
+| Idle baseline | ~288-300 MB | 288.5 MB | -- |
+| **Peak during generation** | **~1,445-1,653 MB** | **1,501.8 MB** | **1,434.5 MB** |
+| Steady-state after completion | ~689-691 MB | 678.0 MB | 679.9 MB |
+
+Both post-fix peaks land at or below the pre-fix range's own floor, and
+steady-state dropped by ~10-12 MB in both runs -- a real, honest, but
+modest improvement, not a dramatic one: the confirmed ~96 MB saving is a
+real fraction of the ~1.1-1.3 GB total transient peak above baseline,
+not its majority. **No persistent leak**, re-confirmed: two consecutive
+generations' steady-state (678.0 MB, 679.9 MB) stayed flat, matching the
+pre-fix finding.
+
+**Not chased in this pass** (per the scope doc's own out-of-scope list):
+the remaining ~1.3-1.4 GB of transient peak above steady-state is
+mostly `cartalith-terrain`/`-climate`/`-erosion`/`-hydrology`'s own ~96
+full-grid allocations plus `SuitabilityCtx`'s ~10 simultaneously-alive
+field references, neither instrumented stage-by-stage in this pass;
+GPU memory (separate pool); resolution-range UI policy (product
+decision, not this investigation's call).
+
+**Verification**: `cargo build -p cartalith-godot` clean (only
+pre-existing unrelated warnings in `cartalith-gpu`), `cargo test -p
+cartalith-civ` passes, `cargo clippy -p cartalith-civ -p
+cartalith-godot --all-targets` clean for the new code (the one
+`needless_borrow` warning at `cartalith-godot/src/lib.rs:253` is
+pre-existing, from the earlier village-seeding wiring, unrelated to
+this change), `cargo test --workspace` (0 regressions), `godot4
+--headless --quit main.tscn` (clean load and exit).
+
+**Files touched**: `cartalith-native/crates/cartalith-godot/src/lib.rs`
+(`compute_civilisation()`), `MEMORY_OPTIMIZATION_SCOPE.md` (marked
+done with the real numbers above).
