@@ -14,3 +14,11 @@ cartalith-noise = { path = "../cartalith-noise" }
 wgpu = "30"
 pollster = "1"
 bytemuck = { version = "1", features = ["derive"] }
+
+# GPU_LAYER_INTEGRATION_SCOPE.md milestone 4: gauss_blur/compute_resistance
+# don't touch noise, so their GPU kernels can be tested against the real,
+# untouched, JS-matching cartalith-terrain functions directly (not just a
+# GPU-vs-CPU-twin pair) -- dev-only, this crate's own library code never
+# depends on cartalith-terrain, only its test suite does.
+[dev-dependencies]
+cartalith-terrain = { path = "../cartalith-terrain" }

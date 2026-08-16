@@ -37,6 +37,16 @@ const SHADER_SRC_GPU_HETEROGENEITY: &str = include_str!("../shaders/gpu_heteroge
 /// narrow" note -- plate assignment/stress/flexure/orogeny's own GPU
 /// portability is explicitly out of scope here).
 const SHADER_SRC_GPU_HEIGHT: &str = include_str!("../shaders/gpu_height.wgsl");
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 4: separable box blur
+/// (`gauss_blur`'s GPU-native direct-sum twin, two entry points --
+/// `box_h_main`/`box_v_main`, see that shader's own header for why a
+/// direct sum rather than a running-sum port) and `compute_resistance`
+/// (trivial, no noise). Neither touches noise, so -- unlike milestones
+/// 1-3 -- these may reach genuine three-way JS/CPU/GPU verification, not
+/// just an internally-consistent GPU-vs-CPU-twin pair; see the tests
+/// below for which this pair actually achieved.
+const SHADER_SRC_GPU_GAUSS_BLUR: &str = include_str!("../shaders/gpu_gauss_blur.wgsl");
+const SHADER_SRC_GPU_RESISTANCE: &str = include_str!("../shaders/gpu_resistance.wgsl");
 
 /// Tolerance for the GPU-safe noise kernel vs. its CPU counterpart
 /// (`cartalith_noise::gpu_vnoise`). Unlike [`F32_TOLERANCE`] above (which
@@ -85,6 +95,37 @@ pub const WARP_TOLERANCE: f64 = 2e-4;
 /// tolerance than what's actually measured would hide, not honestly
 /// report, this kernel's real precision.
 pub const HEIGHT_TOLERANCE: f64 = GPU_SAFE_NOISE_TOLERANCE;
+
+/// Tolerance for `gpu_gauss_blur`'s GPU-vs-CPU comparison
+/// (`GPU_LAYER_INTEGRATION_SCOPE.md` milestone 4) -- and, remarkably,
+/// against the REAL, untouched, JS-matching `cartalith_terrain::gauss_blur`
+/// directly, not a GPU-specific twin (`gpu_gauss_blur_matches_real_cpu_
+/// gauss_blur`, a genuine `cartalith-terrain` dev-dependency comparison).
+/// The theoretical concern going in was real -- the CPU side accumulates
+/// its sliding-window sum in `f64` (only rounding to `f32` on write),
+/// while WGSL has no `f64` at all, so this kernel's direct-sum is `f32`-
+/// throughout -- but measured directly at 512x512 across three radius/
+/// wrap configurations (including a 48-cell-radius window, `2*48+1=97`
+/// summed values), the worst observed divergence was `7.15e-7`,
+/// essentially `f32` machine epsilon: a bounded linear sum over a modest
+/// window turns out not to compound the way milestones 1-3's chaotic,
+/// coordinate-perturbing noise evaluations did. Set just above that
+/// measured value, not the far looser bound this doc comment originally
+/// guessed before running the actual test.
+pub const BLUR_TOLERANCE: f64 = 2e-6;
+
+/// Tolerance for `gpu_compute_resistance`'s GPU-vs-CPU comparison --
+/// also against the REAL `cartalith_terrain::compute_resistance` directly
+/// (`gpu_compute_resistance_matches_real_cpu_compute_resistance`).
+/// `compute_resistance` has no noise, no transcendental functions, and no
+/// accumulation of any kind -- a single multiply-add-min per cell.
+/// Measured at 512x512: worst observed divergence `5.96e-8`, essentially
+/// `f32` machine epsilon -- genuine three-way JS/CPU/GPU parity. Set with
+/// a comfortable margin (~8x) over that measured value, matching this
+/// crate's own convention for a stable, FMA-contraction-scale residual
+/// ([`GPU_SAFE_NOISE_TOLERANCE`]'s own doc comment names the same source)
+/// rather than the thin ~1.7x margin a first pass gave this constant.
+pub const RESISTANCE_TOLERANCE: f64 = 5e-7;
 
 /// Absolute tolerance for the f32 GPU kernel vs. the f64 CPU reference.
 ///
@@ -159,6 +200,28 @@ struct HeightGpuParams {
     ridged: u32,
     has_oro: u32,
     _pad0: f32,
+}
+
+/// Matches `gpu_gauss_blur.wgsl`'s `BlurParams` field-for-field -- already
+/// a multiple of 16 bytes (4 x u32/i32), no explicit padding needed.
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct BlurParams {
+    width: u32,
+    height: u32,
+    radius: i32,
+    wrap: u32,
+}
+
+/// Matches `gpu_resistance.wgsl`'s `ResistanceParams` field-for-field,
+/// including its explicit padding to a 16-byte multiple.
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct ResistanceParams {
+    width: u32,
+    height: u32,
+    _pad0: u32,
+    _pad1: u32,
 }
 
 /// Which path actually produced a [`vnoise_grid`] result.
@@ -286,6 +349,125 @@ const HEIGHT_LAYOUT: [wgpu::BindGroupLayoutEntry; 10] = [
     storage_entry(8, true), // oro
     storage_entry(9, false), // out
 ];
+const RESISTANCE_LAYOUT: [wgpu::BindGroupLayoutEntry; 5] = [
+    uniform_entry(0),
+    storage_entry(1, true), // plate_id
+    storage_entry(2, true), // age
+    storage_entry(3, true), // crustal_per_plate
+    storage_entry(4, false), // out
+];
+/// Shared by both `box_h_main` and `box_v_main` -- same buffer signature
+/// (params, one input, one output), only the shader entry point differs.
+const BLUR_LAYOUT: [wgpu::BindGroupLayoutEntry; 3] =
+    [uniform_entry(0), storage_entry(1, true), storage_entry(2, false)];
+
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 4: `compute_resistance`,
+/// trivial per-cell formula, single pipeline -- reuses [`init_gpu_with`]
+/// unchanged, same as every kernel before this one that only needed one
+/// shader entry point.
+pub fn init_gpu_resistance() -> Result<GpuContext, GpuInitError> {
+    init_gpu_with(SHADER_SRC_GPU_RESISTANCE, wgpu::Features::empty(), "gpu_resistance (f32)", &RESISTANCE_LAYOUT)
+}
+
+/// Two pipelines (`box_h_main`, `box_v_main`) sharing one device/queue/
+/// bind-group-layout -- `gauss_blur`'s three-pass horizontal-then-
+/// vertical structure needs both kernels able to write into buffers the
+/// other reads, which a single-pipeline [`GpuContext`] (built for exactly
+/// one shader entry point) can't express. A dedicated context type rather
+/// than overloading [`GpuContext`] itself, so every existing single-
+/// pipeline caller stays untouched.
+pub struct GpuBlurContext {
+    pub adapter_name: String,
+    pub adapter_vendor: u32,
+    pub adapter_backend: wgpu::Backend,
+    pub device_type: wgpu::DeviceType,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    box_h_pipeline: wgpu::ComputePipeline,
+    box_v_pipeline: wgpu::ComputePipeline,
+    bind_group_layout: wgpu::BindGroupLayout,
+}
+
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 4: `gauss_blur`'s GPU path.
+/// Duplicates [`init_gpu_with`]'s adapter/device/queue setup rather than
+/// refactoring it to support multiple entry points -- this is the only
+/// kernel in this crate needing two pipelines from one shader module, and
+/// a one-off dedicated function is a smaller, clearer diff than
+/// generalizing the shared helper for a single caller.
+pub fn init_gpu_gauss_blur() -> Result<GpuBlurContext, GpuInitError> {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::HighPerformance,
+        force_fallback_adapter: false,
+        compatible_surface: None,
+        apply_limit_buckets: false,
+    }))
+    .map_err(|_| GpuInitError::NoAdapter)?;
+
+    let info = adapter.get_info();
+    let mut limits = wgpu::Limits::downlevel_defaults();
+    limits = limits.using_resolution(adapter.limits());
+    let storage_buffers_needed = BLUR_LAYOUT
+        .iter()
+        .filter(|e| matches!(e.ty, wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { .. }, .. }))
+        .count() as u32;
+    limits.max_storage_buffers_per_shader_stage =
+        limits.max_storage_buffers_per_shader_stage.max(storage_buffers_needed);
+
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("cartalith-gpu blur device"),
+        required_features: wgpu::Features::empty(),
+        required_limits: limits,
+        ..Default::default()
+    }))
+    .map_err(GpuInitError::RequestDevice)?;
+
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("gpu_gauss_blur (f32, direct-sum box blur)"),
+        source: wgpu::ShaderSource::Wgsl(SHADER_SRC_GPU_GAUSS_BLUR.into()),
+    });
+
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("cartalith-gpu blur bind group layout"),
+        entries: &BLUR_LAYOUT,
+    });
+
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("gauss blur pipeline layout"),
+        bind_group_layouts: &[Some(&bind_group_layout)],
+        ..Default::default()
+    });
+
+    let box_h_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("box_h pipeline"),
+        layout: Some(&pipeline_layout),
+        module: &shader,
+        entry_point: Some("box_h_main"),
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+        cache: None,
+    });
+    let box_v_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("box_v pipeline"),
+        layout: Some(&pipeline_layout),
+        module: &shader,
+        entry_point: Some("box_v_main"),
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+        cache: None,
+    });
+
+    Ok(GpuBlurContext {
+        adapter_name: info.name,
+        adapter_vendor: info.vendor,
+        adapter_backend: info.backend,
+        device_type: info.device_type,
+        device,
+        queue,
+        box_h_pipeline,
+        box_v_pipeline,
+        bind_group_layout,
+    })
+}
 
 const fn uniform_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
@@ -770,6 +952,202 @@ fn dispatch_gpu_height(
     result
 }
 
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 4: dispatch `gpu_resistance.wgsl`.
+/// `crustal_per_plate` is precomputed by the caller as `plates[k].base.
+/// max(0.0)` for each plate -- a tiny (`num_plates`-length) CPU-side step,
+/// not the per-cell workload this kernel accelerates (see the shader's
+/// own header comment).
+fn dispatch_gpu_resistance(ctx: &GpuContext, width: u32, height: u32, plate_id: &[u32], age: &[f32], crustal_per_plate: &[f32]) -> Vec<f32> {
+    let count = (width * height) as usize;
+    assert_eq!(plate_id.len(), count);
+    assert_eq!(age.len(), count);
+    let byte_len = (count * std::mem::size_of::<f32>()) as u64;
+
+    let params = ResistanceParams { width, height, _pad0: 0, _pad1: 0 };
+    let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("resistance params"),
+        contents: bytemuck::bytes_of(&params),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let plate_id_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("resistance plate_id (storage)"),
+        contents: bytemuck::cast_slice(plate_id),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+    let age_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("resistance age (storage)"),
+        contents: bytemuck::cast_slice(age),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+    let crustal_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("resistance crustal_per_plate (storage)"),
+        contents: bytemuck::cast_slice(crustal_per_plate),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+    let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("resistance out (storage)"),
+        size: byte_len,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let staging_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("resistance out (staging)"),
+        size: byte_len,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("resistance bind group"),
+        layout: &ctx.bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: plate_id_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 2, resource: age_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 3, resource: crustal_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 4, resource: out_buf.as_entire_binding() },
+        ],
+    });
+
+    let mut encoder =
+        ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("resistance encoder") });
+    {
+        let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("resistance pass"),
+            timestamp_writes: None,
+        });
+        pass.set_pipeline(&ctx.pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
+    }
+    encoder.copy_buffer_to_buffer(&out_buf, 0, &staging_buf, 0, byte_len);
+    ctx.queue.submit(Some(encoder.finish()));
+
+    let slice = staging_buf.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |res| {
+        let _ = tx.send(res);
+    });
+    ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
+    rx.recv().expect("map_async channel closed").expect("buffer map failed");
+    let data = slice.get_mapped_range().expect("get_mapped_range failed");
+    let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
+    drop(data);
+    staging_buf.unmap();
+    result
+}
+
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 4: dispatch `gpu_gauss_blur.
+/// wgsl`'s two entry points, three passes each (box_h then box_v), all
+/// within ONE command encoder -- wgpu sequences compute passes within a
+/// single encoder in submission order with an implicit barrier between
+/// them, so each pass's writes are visible to the next pass's reads
+/// without a CPU round-trip between iterations. Mirrors `gauss_blur`'s own
+/// `r<1.0` early-return-copy and `pr=round(r/1.6).max(1.0)` radius
+/// derivation exactly (JS `Math.round`/this project's own `js_round` and
+/// Rust `f64::round()` agree for the always-positive `r` this function
+/// receives -- both round halfway-from-zero, i.e. up, for positive
+/// values).
+fn dispatch_gpu_gauss_blur(ctx: &GpuBlurContext, src: &[f32], radius: f64, width: u32, height: u32, wrap_x: bool) -> Vec<f32> {
+    if radius < 1.0 {
+        return src.to_vec();
+    }
+    let count = (width * height) as usize;
+    assert_eq!(src.len(), count);
+    let byte_len = (count * std::mem::size_of::<f32>()) as u64;
+    let pr = (radius / 1.6).round().max(1.0) as i32;
+
+    let params_h = BlurParams { width, height, radius: pr, wrap: wrap_x as u32 };
+    let params_v = BlurParams { width, height, radius: pr, wrap: 0 }; // box_v never wraps, matching the CPU box_v
+    let params_h_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("blur params (h)"),
+        contents: bytemuck::bytes_of(&params_h),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let params_v_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("blur params (v)"),
+        contents: bytemuck::bytes_of(&params_v),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+
+    // Ping-pong between two storage buffers across the 6 dispatches (3x
+    // box_h, 3x box_v), same alternation `gauss_blur` itself does with its
+    // own `a`/`b` CPU arrays.
+    let make_rw = |label: &str, contents: Option<&[f32]>| {
+        if let Some(c) = contents {
+            ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(label),
+                contents: bytemuck::cast_slice(c),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            })
+        } else {
+            ctx.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: byte_len,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        }
+    };
+    let buf_a = make_rw("blur buf a", Some(src));
+    let buf_b = make_rw("blur buf b", None);
+    let staging_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("blur out (staging)"),
+        size: byte_len,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let make_bind_group = |label: &str, params_buf: &wgpu::Buffer, in_buf: &wgpu::Buffer, out_buf: &wgpu::Buffer| {
+        ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout: &ctx.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: in_buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: out_buf.as_entire_binding() },
+            ],
+        })
+    };
+    // a -> b (box_h), b -> a (box_v), repeated 3 times: a holds the result.
+    let bg_h = make_bind_group("blur bg h (a->b)", &params_h_buf, &buf_a, &buf_b);
+    let bg_v = make_bind_group("blur bg v (b->a)", &params_v_buf, &buf_b, &buf_a);
+
+    let mut encoder =
+        ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("blur encoder") });
+    for _ in 0..3 {
+        {
+            let mut pass = encoder
+                .begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("box_h pass"), timestamp_writes: None });
+            pass.set_pipeline(&ctx.box_h_pipeline);
+            pass.set_bind_group(0, &bg_h, &[]);
+            pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
+        }
+        {
+            let mut pass = encoder
+                .begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("box_v pass"), timestamp_writes: None });
+            pass.set_pipeline(&ctx.box_v_pipeline);
+            pass.set_bind_group(0, &bg_v, &[]);
+            pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
+        }
+    }
+    encoder.copy_buffer_to_buffer(&buf_a, 0, &staging_buf, 0, byte_len);
+    ctx.queue.submit(Some(encoder.finish()));
+
+    let slice = staging_buf.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |res| {
+        let _ = tx.send(res);
+    });
+    ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
+    rx.recv().expect("map_async channel closed").expect("buffer map failed");
+    let data = slice.get_mapped_range().expect("get_mapped_range failed");
+    let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
+    drop(data);
+    staging_buf.unmap();
+    result
+}
+
 /// `compute_heterogeneity`'s trailing max-reduce normalize pass, factored
 /// out so both the CPU and GPU paths apply the exact same post-process to
 /// their (different, per `DECISIONS.md` §7c) per-cell outputs.
@@ -881,6 +1259,76 @@ pub fn gpu_height_grid_cpu(
             let n_val = (if ridged { cartalith_noise::gpu_ridged(nx, ny, seed) } else { cartalith_noise::gpu_fbm(nx, ny, seed) }) - 0.5;
             out[i] = 0.5 + a * (0.40 * bs + 0.50 * t) + fwt * flex[i] + hwt * hetero[i] + b * n_val * (0.25 + 0.75 * rug);
         }
+    }
+    out
+}
+
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 4: GPU-shape CPU twin for
+/// [`dispatch_gpu_gauss_blur`] -- the same direct-sum-per-cell evaluation
+/// the shader performs (not the CPU production `box_h`/`box_v`'s running-
+/// sum-in-f64 optimization), so this is directly comparable to the GPU
+/// kernel's own arithmetic. The REAL parity question (does this whole
+/// approach match `cartalith_terrain::gauss_blur`, the untouched JS-
+/// matching function) is answered by a dedicated test importing that
+/// crate directly (`cartalith-terrain` as a dev-dependency here), not by
+/// this function -- this one exists only so GPU-side determinism/
+/// regression tests have a same-shape CPU comparison independent of the
+/// three-way question.
+pub fn gpu_gauss_blur_grid_cpu(src: &[f32], radius: f64, width: u32, height: u32, wrap_x: bool) -> Vec<f32> {
+    if radius < 1.0 {
+        return src.to_vec();
+    }
+    let w = width as i32;
+    let h = height as i32;
+    let pr = (radius / 1.6).round().max(1.0) as i32;
+    let norm = 1.0 / (2.0 * pr as f32 + 1.0);
+
+    let box_h = |input: &[f32], wrap: bool| -> Vec<f32> {
+        let mut out = vec![0.0f32; input.len()];
+        for y in 0..h {
+            for x in 0..w {
+                let mut sum = 0.0f32;
+                for k in -pr..=pr {
+                    let idx = if wrap { ((x + k).rem_euclid(w)) as usize } else { (x + k).clamp(0, w - 1) as usize };
+                    sum += input[(y * w) as usize + idx];
+                }
+                out[(y * w + x) as usize] = sum * norm;
+            }
+        }
+        out
+    };
+    let box_v = |input: &[f32]| -> Vec<f32> {
+        let mut out = vec![0.0f32; input.len()];
+        for x in 0..w {
+            for y in 0..h {
+                let mut sum = 0.0f32;
+                for k in -pr..=pr {
+                    let idx = (y + k).clamp(0, h - 1);
+                    sum += input[(idx * w + x) as usize];
+                }
+                out[(y * w + x) as usize] = sum * norm;
+            }
+        }
+        out
+    };
+
+    let mut a = src.to_vec();
+    for _ in 0..3 {
+        let b = box_h(&a, wrap_x);
+        a = box_v(&b);
+    }
+    a
+}
+
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 4: CPU twin for
+/// [`dispatch_gpu_resistance`] -- identical trivial formula, no precision
+/// concerns either side.
+pub fn gpu_resistance_grid_cpu(width: u32, height: u32, plate_id: &[u32], age: &[f32], crustal_per_plate: &[f32]) -> Vec<f32> {
+    let n = (width * height) as usize;
+    let mut out = vec![0.0f32; n];
+    for i in 0..n {
+        let crustal = crustal_per_plate[plate_id[i] as usize];
+        out[i] = (crustal * 0.6 + age[i] * 0.4).min(1.0);
     }
     out
 }
@@ -1690,6 +2138,224 @@ mod tests {
                 gpu_time,
                 cpu_time,
                 cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
+            );
+        }
+    }
+
+    // ===================== GPU_LAYER_INTEGRATION_SCOPE.md milestone 4 =====================
+    // gauss_blur + compute_resistance. Neither touches noise -- the
+    // headline question each test below answers is whether that reaches
+    // genuine three-way JS/CPU/GPU parity (comparing directly against the
+    // real, untouched cartalith_terrain functions) or needs its own
+    // GPU-vs-CPU-twin carve-out like milestones 1-3.
+
+    fn try_gpu_resistance() -> Option<GpuContext> {
+        init_gpu_resistance().ok()
+    }
+
+    fn try_gpu_blur() -> Option<GpuBlurContext> {
+        init_gpu_gauss_blur().ok()
+    }
+
+    /// Deterministic pseudo-random-looking f32 field in [0,1] -- not real
+    /// noise (no dependency on `cartalith-noise` needed here), just enough
+    /// spatial variation that a mis-wired buffer or a swapped x/y index
+    /// would show up as a real mismatch rather than passing by coincidence
+    /// on a flat/uniform field.
+    fn synthetic_field(n: usize, salt: u32) -> Vec<f32> {
+        (0..n)
+            .map(|i| {
+                let x = (i as u32).wrapping_mul(2654435761).wrapping_add(salt);
+                ((x >> 8) & 0xFFFF) as f32 / 65535.0
+            })
+            .collect()
+    }
+
+    #[test]
+    fn gpu_gauss_blur_matches_real_cpu_gauss_blur() {
+        let Some(ctx) = try_gpu_blur() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let (w, h) = (512u32, 512u32);
+        let n = (w * h) as usize;
+        let src = synthetic_field(n, 7);
+
+        for &(radius, wrap) in &[(12.0f64, false), (12.0, true), (48.0, false)] {
+            let gpu = dispatch_gpu_gauss_blur(&ctx, &src, radius, w, h, wrap);
+            // The REAL comparison: the untouched, JS-matching CPU function,
+            // not a GPU-shaped twin.
+            let real_cpu = cartalith_terrain::gauss_blur(&src, radius, w as usize, h as usize, wrap);
+
+            let mut max_abs_diff = 0.0f64;
+            let mut mismatches = 0usize;
+            for (g, c) in gpu.iter().zip(real_cpu.iter()) {
+                let d = ((*g as f64) - (*c as f64)).abs();
+                if d > BLUR_TOLERANCE {
+                    mismatches += 1;
+                }
+                if d > max_abs_diff {
+                    max_abs_diff = d;
+                }
+            }
+            eprintln!(
+                "gpu_gauss_blur vs REAL cartalith_terrain::gauss_blur, radius={radius} wrap={wrap}, {w}x{h}: {mismatches}/{n} cells exceed tol={BLUR_TOLERANCE}, max_abs_diff={max_abs_diff}"
+            );
+            assert_eq!(
+                mismatches, 0,
+                "gpu_gauss_blur diverged from the REAL CPU gauss_blur beyond {BLUR_TOLERANCE} at radius={radius} wrap={wrap} -- see max_abs_diff above"
+            );
+        }
+    }
+
+    #[test]
+    fn gpu_gauss_blur_matches_gpu_shaped_cpu_twin() {
+        // Independent of the three-way question above: confirms the GPU
+        // kernel itself is internally correct against a same-shape CPU
+        // reimplementation, so a three-way regression (if the real CPU
+        // gauss_blur's own behaviour ever legitimately changes) doesn't
+        // silently take this kernel's own correctness signal down with it.
+        let Some(ctx) = try_gpu_blur() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let (w, h) = (256u32, 256u32);
+        let n = (w * h) as usize;
+        let src = synthetic_field(n, 11);
+        let gpu = dispatch_gpu_gauss_blur(&ctx, &src, 10.0, w, h, false);
+        let twin = gpu_gauss_blur_grid_cpu(&src, 10.0, w, h, false);
+        for (g, t) in gpu.iter().zip(twin.iter()) {
+            assert!((g - t).abs() < 1e-4, "gpu vs same-shape CPU twin diverged: {g} vs {t}");
+        }
+    }
+
+    #[test]
+    fn gpu_gauss_blur_r_below_one_is_unmodified_copy() {
+        let Some(ctx) = try_gpu_blur() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let src = synthetic_field(64, 3);
+        let out = dispatch_gpu_gauss_blur(&ctx, &src, 0.5, 8, 8, false);
+        assert_eq!(out, src, "radius<1 must be an unmodified copy, matching cartalith_terrain::gauss_blur's own early exit");
+    }
+
+    #[test]
+    fn gpu_gauss_blur_deterministic_across_runs() {
+        let Some(ctx) = try_gpu_blur() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let src = synthetic_field(64 * 64, 5);
+        let a = dispatch_gpu_gauss_blur(&ctx, &src, 12.0, 64, 64, false);
+        let b = dispatch_gpu_gauss_blur(&ctx, &src, 12.0, 64, 64, false);
+        assert_eq!(a, b, "same input must produce identical GPU output across runs");
+    }
+
+    #[test]
+    fn gpu_compute_resistance_matches_real_cpu_compute_resistance() {
+        let Some(ctx) = try_gpu_resistance() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let (w, h) = (512u32, 512u32);
+        let n = (w * h) as usize;
+        let num_plates = 9usize;
+        let plate_id_usize: Vec<usize> = (0..n).map(|i| i % num_plates).collect();
+        let plate_id_u32: Vec<u32> = plate_id_usize.iter().map(|&p| p as u32).collect();
+        let age = synthetic_field(n, 13);
+        // Real Plate structs, some with negative base (oceanic crust) --
+        // compute_resistance's `.max(0.0)` clamp only matters if a real
+        // test exercises a negative value, not just positive ones.
+        let plates: Vec<cartalith_terrain::Plate> = (0..num_plates)
+            .map(|k| cartalith_terrain::Plate {
+                x: 0.0,
+                y: 0.0,
+                vx: 0.0,
+                vy: 0.0,
+                base: (k as f64 - 4.0) * 0.3, // spans negative and positive
+            })
+            .collect();
+        let crustal_per_plate: Vec<f32> = plates.iter().map(|p| p.base.max(0.0) as f32).collect();
+
+        let gpu = dispatch_gpu_resistance(&ctx, w, h, &plate_id_u32, &age, &crustal_per_plate);
+        let real_cpu = cartalith_terrain::compute_resistance(w as usize, h as usize, &plate_id_usize, &plates, &age);
+
+        let mut max_abs_diff = 0.0f64;
+        let mut mismatches = 0usize;
+        for (g, c) in gpu.iter().zip(real_cpu.iter()) {
+            let d = ((*g as f64) - (*c as f64)).abs();
+            if d > RESISTANCE_TOLERANCE {
+                mismatches += 1;
+            }
+            if d > max_abs_diff {
+                max_abs_diff = d;
+            }
+        }
+        eprintln!(
+            "gpu_compute_resistance vs REAL cartalith_terrain::compute_resistance, {w}x{h}: {mismatches}/{n} cells exceed tol={RESISTANCE_TOLERANCE}, max_abs_diff={max_abs_diff}"
+        );
+        assert_eq!(mismatches, 0, "gpu_compute_resistance diverged from the REAL CPU function beyond {RESISTANCE_TOLERANCE}");
+    }
+
+    #[test]
+    fn gpu_compute_resistance_deterministic_across_runs() {
+        let Some(ctx) = try_gpu_resistance() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let n = 64 * 64;
+        let plate_id: Vec<u32> = (0..n).map(|i| (i % 5) as u32).collect();
+        let age = synthetic_field(n, 17);
+        let crustal_per_plate = vec![0.2f32, 0.5, 0.0, 0.9, 0.35];
+        let a = dispatch_gpu_resistance(&ctx, 64, 64, &plate_id, &age, &crustal_per_plate);
+        let b = dispatch_gpu_resistance(&ctx, 64, 64, &plate_id, &age, &crustal_per_plate);
+        assert_eq!(a, b, "same input must produce identical GPU output across runs");
+    }
+
+    #[test]
+    fn measured_gpu_blur_and_resistance_timing() {
+        let (Some(blur_ctx), Some(res_ctx)) = (try_gpu_blur(), try_gpu_resistance()) else {
+            eprintln!("no GPU available -- skipping timing measurement");
+            return;
+        };
+        for &(w, h) in &[(128u32, 128u32), (512, 512), (1024, 1024), (2048, 2048)] {
+            let n = (w * h) as usize;
+            let src = synthetic_field(n, 23);
+
+            let t0 = Instant::now();
+            let _ = dispatch_gpu_gauss_blur(&blur_ctx, &src, 12.0, w, h, false);
+            let gpu_blur_time = t0.elapsed();
+            let t1 = Instant::now();
+            let _ = cartalith_terrain::gauss_blur(&src, 12.0, w as usize, h as usize, false);
+            let cpu_blur_time = t1.elapsed();
+            eprintln!(
+                "gpu_gauss_blur {w}x{h}: GPU = {:?}, CPU (real, running-sum) = {:?}, ratio (CPU/GPU) = {:.2}x",
+                gpu_blur_time,
+                cpu_blur_time,
+                cpu_blur_time.as_secs_f64() / gpu_blur_time.as_secs_f64().max(1e-9)
+            );
+
+            let num_plates = 9usize;
+            let plate_id_u32: Vec<u32> = (0..n).map(|i| (i % num_plates) as u32).collect();
+            let plate_id_usize: Vec<usize> = plate_id_u32.iter().map(|&p| p as usize).collect();
+            let age = synthetic_field(n, 29);
+            let plates: Vec<cartalith_terrain::Plate> = (0..num_plates)
+                .map(|k| cartalith_terrain::Plate { x: 0.0, y: 0.0, vx: 0.0, vy: 0.0, base: (k as f64 - 4.0) * 0.3 })
+                .collect();
+            let crustal_per_plate: Vec<f32> = plates.iter().map(|p| p.base.max(0.0) as f32).collect();
+
+            let t2 = Instant::now();
+            let _ = dispatch_gpu_resistance(&res_ctx, w, h, &plate_id_u32, &age, &crustal_per_plate);
+            let gpu_res_time = t2.elapsed();
+            let t3 = Instant::now();
+            let _ = cartalith_terrain::compute_resistance(w as usize, h as usize, &plate_id_usize, &plates, &age);
+            let cpu_res_time = t3.elapsed();
+            eprintln!(
+                "gpu_compute_resistance {w}x{h}: GPU = {:?}, CPU (real) = {:?}, ratio (CPU/GPU) = {:.2}x",
+                gpu_res_time,
+                cpu_res_time,
+                cpu_res_time.as_secs_f64() / gpu_res_time.as_secs_f64().max(1e-9)
             );
         }
     }

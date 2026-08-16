@@ -135,18 +135,43 @@ its golden-parity tests unaffected. Also fixed a doc-merge artifact in
 been misplaced under milestone 3's heading). See `CHANGELOG.md`'s "GPU
 layer integration milestone 3" entry for the full record.
 
-**Milestone 4 (not started)**: plate assignment/stress/flexure/orogeny's
-own GPU portability — the natural next candidate, but not yet
-investigated (this milestone deliberately treated them as opaque
-buffers). One correction on record: plate assignment uses JFA (Jump
-Flooding Algorithm), specifically designed to parallelize well on GPU —
-a hypothesis worth checking, not yet a finding. Per the scope doc's own
-feasibility table: graph/sequential algorithms (flow accumulation,
-water-body priority-flood, Dijkstra/MST road networks) remain a poor GPU
-fit without real algorithmic redesign — not in scope for the foreseeable
-near-term milestones, which follow the per-cell-math layers instead
-(terrain → climate → erosion's per-cell parts → Phase 2's per-cell
-affordance fields → rendering).
+**Milestone 4 — `gauss_blur` + `compute_resistance` on GPU: done
+(2026-08-16), genuine three-way JS/CPU/GPU parity.** Unlike milestones
+1-3 (all noise-driven, all only GPU-vs-CPU-twin verifiable per
+`DECISIONS.md` §7c), neither of these touches noise — verified directly
+against the real, untouched `cartalith_terrain::gauss_blur`/
+`compute_resistance` (`cartalith-terrain` added as a `cartalith-gpu`
+dev-dependency, test-only). `gauss_blur`: max observed divergence
+`7.15e-7` at 512×512 across three radius/wrap configs (a direct-sum-in-f32
+GPU kernel vs. the CPU's running-sum-in-f64 — the real precision-regime
+gap turned out negligible for a bounded linear sum, unlike noise's
+chaotic compounding). `compute_resistance`: max divergence `5.96e-8`,
+essentially `f32` epsilon. New `GpuBlurContext` (two pipelines — `box_h`/
+`box_v` — sharing one device, since `gauss_blur`'s 3-pass structure needs
+both kernels reading what the other just wrote). `compute_flexure`
+(a thin `gauss_blur`-plus-mask-plus-normalize wrapper) checked, not
+ported this pass — noted for whoever wires `gauss_blur` into it.
+
+**Real, honestly-reported timing** — not every kernel wins: `gauss_blur`
+20.49× at 2048² (a real win), but `compute_resistance` **loses to CPU at
+every size tested, including 2048² (0.38×)** — its formula is too trivial
+for GPU dispatch overhead to ever amortize, exactly the case
+`HARDWARE_ACCELERATION.md` §6 already warns about. Recorded plainly, not
+hidden — not every candidate should actually move to GPU even once it's
+technically been verified there.
+
+**Milestone 5 (not started)**: plate assignment/stress/flexure's real
+body/`build_age_field`/orogeny's own GPU portability — the natural next
+candidates, still not investigated. `build_age_field` is confirmed (not
+assumed) a poor GPU fit — a genuine two-pass chamfer distance transform
+with a sequential sweep dependency. Plate assignment's JFA hypothesis
+remains unconfirmed. Per the scope doc's own feasibility table:
+graph/sequential algorithms (flow accumulation, water-body priority-flood,
+Dijkstra/MST road networks) remain a poor GPU fit without real
+algorithmic redesign — not in scope for the foreseeable near-term
+milestones, which follow the per-cell-math layers instead (terrain →
+climate → erosion's per-cell parts → Phase 2's per-cell affordance fields
+→ rendering).
 
 ## Known-open items (not owner-blocked, just not done yet)
 

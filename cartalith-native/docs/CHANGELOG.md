@@ -4167,3 +4167,90 @@ boundaries/monotonicity, `RoadProximityIndex`'s empty/populated cases,
 (`_civMstRoutes`), corridor consolidation/Catmull-Rom smoothing/road
 classification -- unaffected by this milestone, which only needed raw
 topology.
+
+## GPU layer integration milestone 4: `gauss_blur` + `compute_resistance` on GPU -- genuine three-way JS/CPU/GPU parity (2026-08-16)
+
+`GPU_LAYER_INTEGRATION_SCOPE.md`'s milestone 4. Unlike milestones 1-3
+(GPU-safe noise, domain warp, height formula -- all noise-driven, all
+verified only GPU-vs-CPU-twin per `DECISIONS.md` §7c since the JS-matching
+noise isn't GPU-portable at all), `gauss_blur` and `compute_resistance`
+touch no noise. Traced `generate_terrain`'s real call chain first (milestone
+3's own "out of scope, investigate for milestone 5" list): both are used
+directly, `gauss_blur` twice (`base_field`, and inside `compute_flexure`).
+
+**Headline result, investigated rather than assumed**: both kernels reach
+genuine three-way JS/CPU/GPU parity -- verified directly against the real,
+untouched `cartalith_terrain::gauss_blur`/`compute_resistance` (a new
+`cartalith-terrain` dev-dependency in `cartalith-gpu`'s own `Cargo.toml`,
+test-only, no runtime dependency), not a GPU-specific CPU twin.
+
+- `gauss_blur`: the real concern going in was real -- CPU accumulates its
+  sliding-window sum in `f64` (rounding to `f32` only on write); WGSL has
+  no `f64` at all, so the GPU kernel does a direct per-cell window sum in
+  `f32` throughout (a different, GPU-native evaluation order for the same
+  box-filter definition, not a running-sum port -- that optimization isn't
+  even expressible on this toolchain). Measured at 512x512 across three
+  radius/wrap configurations (including a 48-cell radius, 97 summed
+  values per output cell): worst observed divergence `7.15e-7`, essentially
+  `f32` machine epsilon. `BLUR_TOLERANCE = 2e-6`.
+- `compute_resistance`: trivial per-cell formula (`min(crustal*0.6 +
+  age*0.4, 1.0)`), no accumulation. Measured at 512x512: worst observed
+  divergence `5.96e-8`. `RESISTANCE_TOLERANCE = 5e-7` (a ~8x margin,
+  matching this crate's convention for a stable FMA-contraction-scale
+  residual rather than the thinner margin a first pass gave it).
+
+**`compute_flexure`, checked not assumed**: a thin wrapper (mask
+`stress_field` by `boundary_mask`, `gauss_blur` at 3x radius, max-abs
+normalize) -- not ported this pass. The trivial mask-select and the
+normalize both follow the same "cheap CPU post/pre-process around the real
+GPU-accelerated workload" pattern milestone 2's heterogeneity normalize
+already established; `gpu_gauss_blur` itself is the piece that needed real
+verification, and now exists for a future pass to wire `compute_flexure`
+around.
+
+**Real, honest timing** (128/512/1024/2048, single-threaded CPU, real
+wgpu dispatch+readback):
+
+| Kernel | 128² | 512² | 1024² | 2048² |
+|---|---|---|---|---|
+| `gauss_blur` | 0.03x (GPU loses) | 3.33x | 16.89x | 20.49x |
+| `compute_resistance` | 0.00x | 0.12x | 0.38x | 0.38x |
+
+`compute_resistance` **loses to CPU at every tested size, including
+2048²** -- reported plainly, not hidden. Its formula is so trivial (one
+multiply-add-min, one array lookup) that GPU dispatch/readback overhead
+never amortizes against it, exactly the case `HARDWARE_ACCELERATION.md`
+§6 already warns about ("small operations should remain on the CPU when
+demonstrably faster"). `crustal_per_plate` (a `plates[k].base.max(0.0)`
+array, `num_plates` long) is precomputed on CPU once per call -- cheap,
+not the workload being measured.
+
+**Where the code goes**: `cartalith-gpu`, two new WGSL files
+(`gpu_gauss_blur.wgsl` with two entry points `box_h_main`/`box_v_main`
+sharing one bind-group layout, `gpu_resistance.wgsl`), a new
+`GpuBlurContext` (two pipelines, one device/queue -- `gauss_blur`'s
+three-pass horizontal-then-vertical structure needs both kernels able to
+read what the other just wrote, which the existing single-pipeline
+`GpuContext` can't express; a dedicated init function duplicating
+`init_gpu_with`'s adapter/device/queue setup rather than generalizing that
+shared helper for its one caller needing two entry points). `cartalith-
+terrain`'s `gauss_blur`/`compute_resistance`/`compute_flexure` untouched,
+same rule every GPU milestone has followed for the CPU reference pipeline.
+
+7 new tests (`gpu_gauss_blur_matches_real_cpu_gauss_blur`,
+`_matches_gpu_shaped_cpu_twin`, `_r_below_one_is_unmodified_copy`,
+`_deterministic_across_runs`; `gpu_compute_resistance_matches_real_cpu_
+compute_resistance`, `_deterministic_across_runs`; `measured_gpu_blur_
+and_resistance_timing`). `cargo test -p cartalith-gpu`: 30/30 pass.
+`cargo test --workspace`/`cargo build --workspace`/`cargo clippy -p
+cartalith-terrain -p cartalith-gpu --all-targets`: clean, no regressions.
+
+**Milestone 5, not scoped, deliberately left open**: `build_age_field`
+(a real two-pass chamfer distance transform, sequential sweep dependency
+-- confirmed a poor GPU fit, not assumed, milestone 3's own note), plate
+assignment/`build_plates` (JFA-based, flagged as a plausible good fit
+several milestones ago, still not investigated), `compute_stress`, and
+orogeny's graph-tracing (`trace_boundaries`/`tag_boundary_types`/
+`build_orogeny_field`) all remain genuinely uninvestigated -- this
+milestone didn't get to any of them, say so plainly rather than implying
+otherwise.

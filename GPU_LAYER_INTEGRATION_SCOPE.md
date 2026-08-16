@@ -236,7 +236,7 @@ needed and not already built).
 portability (separate future investigation), pipeline integration, UI
 exposure.
 
-## Milestone 4 — `gauss_blur` + `compute_resistance` on GPU (current)
+## Milestone 4 — `gauss_blur` + `compute_resistance` on GPU: **done** (2026-08-16)
 
 Traced `generate_terrain`'s real call order (`cartalith-engine/src/lib.rs:
 394`) before scoping this: `compute_height` needs `base_field` (=
@@ -314,12 +314,34 @@ confirms every existing golden-parity test (including `cartalith-terrain`'s
 own `compute_height` tests) passes unmodified. See `CHANGELOG.md`'s "GPU
 layer integration milestone 3" entry for the full record.
 
-**Investigated for milestone 4, not scoped yet**: `compute_height`'s
-upstream fields (`base_field`/plate assignment, `stress`/boundary stress,
-`flex`/flexure, `oro`/orogeny) were NOT investigated this pass — this
-milestone deliberately treated them as opaque buffers per its own scope.
-The one correction already recorded above (JFA-based plate assignment may
-be a *good* GPU fit, not a poor one) is a hypothesis, not a finding — a
-real read of `cartalith-terrain`'s plate-assignment/stress/flexure/
-orogeny code, the same investigate-before-scope pass every milestone here
-has had, is milestone 4's actual first step.
+**Milestone 4 done, genuine three-way JS/CPU/GPU parity** — the headline
+result, verified rather than assumed: `gauss_blur`/`compute_resistance`
+touch no noise, so unlike milestones 1-3 they could be (and were) checked
+directly against the real, untouched `cartalith_terrain::gauss_blur`/
+`compute_resistance` (a new `cartalith-gpu` dev-dependency on
+`cartalith-terrain`), not just a GPU-specific CPU twin. `gauss_blur`: max
+divergence `7.15e-7` at 512×512 across three radius/wrap configs — the
+real f64-running-sum-vs-f32-direct-sum precision-regime gap turned out
+negligible for a bounded linear sum, unlike noise's chaotic coordinate-
+perturbing compounding. `compute_resistance`: max divergence `5.96e-8`.
+Real timing: `gauss_blur` wins increasingly (20.49× at 2048²);
+`compute_resistance` **loses to CPU at every size including 2048²
+(0.38×)** — its formula is too trivial for GPU dispatch overhead to ever
+amortize, reported plainly rather than hidden. `compute_flexure` (a thin
+`gauss_blur`-plus-mask-plus-normalize wrapper) checked, not ported this
+pass. See `CHANGELOG.md`'s "GPU layer integration milestone 4" entry for
+the full record.
+
+**Milestone 5, not scoped yet**: `compute_height`'s remaining upstream
+fields (`base_field`/plate assignment, `stress`/boundary stress,
+`flex`/flexure's own full body beyond the blur milestone 4 already
+covers, `oro`/orogeny) were NOT investigated this pass — milestone 4
+stayed within its own `gauss_blur`/`compute_resistance` scope. The one
+correction already recorded above (JFA-based plate assignment may be a
+*good* GPU fit, not a poor one) is still a hypothesis, not a finding — a
+real read of `cartalith-terrain`'s plate-assignment/stress/orogeny code,
+the same investigate-before-scope pass every milestone here has had, is
+milestone 5's actual first step. `build_age_field` is now confirmed (not
+just suspected) a poor GPU fit — a genuine two-pass chamfer distance
+transform with a real sequential sweep dependency, not a parallel
+per-cell op.
