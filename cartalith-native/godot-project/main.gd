@@ -31,6 +31,8 @@ extends Control
 @onready var load_save_button: Button = %LoadSaveButton
 @onready var status_label: Label = %StatusLabel
 @onready var map_view: TextureRect = %MapView
+@onready var map_overlay: Control = %MapOverlay
+@onready var civ_layer_check: CheckBox = %CivLayerCheck
 @onready var load_save_dialog: FileDialog = %LoadSaveDialog
 
 ## Responsive layout (see `_update_responsive_layout`): `Stage` is a plain
@@ -92,6 +94,7 @@ func _ready() -> void:
 	generate_button.pressed.connect(_on_generate_pressed)
 	load_save_button.pressed.connect(_on_load_save_pressed)
 	load_save_dialog.file_selected.connect(_on_save_file_selected)
+	civ_layer_check.toggled.connect(func(pressed: bool): map_overlay.visible = pressed)
 	get_viewport().size_changed.connect(_update_responsive_layout)
 	_update_responsive_layout()
 
@@ -168,9 +171,19 @@ func _on_generate_done(seed_value: int, width_km: float) -> void:
 	var tex: ImageTexture = world_gen.build_color_texture()
 	if tex:
 		map_view.texture = tex
+		## Phase 2 civilisation layer (cartalith-civ): computed automatically
+		## by generate()/generate_world_structure() itself (see
+		## cartalith-godot's WorldGen), so it's already ready here -- just
+		## fetch and hand to the overlay. No civ data for a loaded save
+		## (see WorldGen.load_save's own doc comment), only a fresh generate.
+		var settlements := world_gen.get_settlements()
+		var roads := world_gen.get_roads()
+		map_overlay.set_civ_data(settlements, roads, world_gen.get_width(), world_gen.get_height())
+
 		var shape_label := world_shape_input.get_item_text(world_shape_input.selected)
-		status_label.text = "%dx%d, seed %d, %.0f km, %s" % [
-			world_gen.get_width(), world_gen.get_height(), seed_value, width_km, shape_label
+		var civ_note := ", %d settlements" % settlements.size() if not settlements.is_empty() else ""
+		status_label.text = "%dx%d, seed %d, %.0f km, %s%s" % [
+			world_gen.get_width(), world_gen.get_height(), seed_value, width_km, shape_label, civ_note
 		]
 	else:
 		status_label.text = "generate failed — see console"
@@ -195,6 +208,10 @@ func _on_save_file_selected(path: String) -> void:
 	var tex: ImageTexture = world_gen.build_color_texture()
 	if tex:
 		map_view.texture = tex
+		## No civ data in a loaded save (WorldGen.load_save's own doc
+		## comment) -- clear any settlements/roads left over from a
+		## previous generate() so a stale overlay doesn't linger.
+		map_overlay.set_civ_data([], [], world_gen.get_width(), world_gen.get_height())
 		status_label.text = "loaded %s (%dx%d)" % [
 			path.get_file(), world_gen.get_width(), world_gen.get_height()
 		]

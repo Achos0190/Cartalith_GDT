@@ -3535,3 +3535,103 @@ useful on its own: the algorithm behind the manual "Generate Roads" tool
 (`buildRoadsOp`), reachable as a future Godot-UI feature independent of
 the civ auto-populate pipeline. Recording this precisely so milestone 12
 isn't scoped on the wrong assumption.
+
+## UI/UX catch-up: Phase 2's civilisation layer is now visible (2026-08-16)
+
+Every Phase 2 milestone through 11 (affordance fields, water bodies,
+biomes, carrying capacity, resources, route corridors/landmass/coast-SDF,
+settlement suitability, faction assignment, population/naming, roads)
+landed with zero wiring to `cartalith-godot` and zero visual
+representation -- the map view showed terrain only. Requested explicitly
+by the owner this session ("with every milestone and phase the GUI and UX
+should be updated as well... use a separate agent") after Phase 2 reached
+9+ golden-verified milestones with nothing to show for it on screen. This
+entry establishes that pattern going forward, not just a one-off fix.
+
+**Part 1 -- chained the civ pipeline end-to-end for the first time.**
+`compute_civilisation()` (`cartalith-godot/src/lib.rs`, new) calls the
+full Phase 2 chain in dependency order (mirroring
+`cartalith-civ/tests/golden_parity_settlement_placement.rs`'s own
+`compute_placements` helper, the canonical reference for call order):
+water bodies -> biome -> lithology/soil -> water access/carrying capacity
+-> resources -> route corridors/landmass quality/coast SDF -> settlement
+suitability -> seeds -> land-component labelling -> snap-to-land/coast ->
+faction assignment -> settlement placement -> naming/population -> travel
+cost -> road network. Runs automatically at the end of `generate()`/
+`generate_world_structure()` (on the same background `Thread` `main.gd`
+already uses -- no new threading code needed, civ computation is just
+more Rust work inside a call that was already off-thread), stored as
+`Option<CivData>` on `WorldGen`; `None` for a loaded save (`SAVEFILE_COMPAT.md`
+doesn't store the substrate fields -- `crust_field`/`boundary_type`/
+`shear_field`/`age_field` -- this pipeline needs) or before the first
+`generate()`.
+
+New `#[func]` accessors: `get_settlements() -> Array<VarDictionary>` (x/y/
+name/population/kind/faction/capital/coastal per settlement -- `VarDictionary`
+not `Dictionary<K,V>`, since gdext 0.5.5's `Dictionary` is now a *typed*
+homogeneous-value container and these values are heterogeneous) and
+`get_roads() -> Array<PackedVector2Array>` (one array of grid-cell
+`(x,y)` points per MST edge, the real terrain-following path, not a
+straight line between endpoints).
+
+**Honest scope note on which road algorithm this uses**: `build_road_network`
+(milestone 11) is, per that milestone's own investigation, the algorithm
+behind the reference's *manual* "Generate Roads" tool (`buildRoadsOp`,
+user-clicked markers) -- not the civ auto-populate's own road system
+(`civWays`, built by the separate, unported `_civHierarchicalNetwork`+
+`_civMstRoutes`). This wiring deliberately reuses the one already-ported,
+golden-verified pathfinding algorithm to connect the *auto-placed* civ
+settlements instead, since it's the same underlying MST-over-cost-distance
+technique and produces a real, useful result now rather than leaving roads
+absent until `_civHierarchicalNetwork` is ported. A deliberate adaptation,
+not a literal port of what the reference does at this call site -- worth
+knowing if `_civHierarchicalNetwork` lands later and this wiring should be
+swapped to the "real" civ road system.
+
+**Part 2 -- new Godot-side visualisation**, matching the existing light
+"parchment" theme (no new visual language introduced):
+- `main.tscn` gains a "MAP LAYERS" settings card (same card pattern as
+  World Structure/Advanced Features) with a "Show settlements & roads"
+  checkbox, default on, plus a new `MapOverlay` `Control` node as a
+  sibling of `%MapView` under the same `MarginContainer` (`MapMargin`)
+  -- `MarginContainer` lays out every child to the same rect, so the two
+  overlap automatically with no manual rect-syncing needed.
+- `map_overlay.gd` (new): reproduces `%MapView`'s own
+  `STRETCH_KEEP_ASPECT_CENTERED` fit/letterbox math (`_displayed_rect()`)
+  so grid-cell coordinates land on the real pixels the terrain texture
+  occupies, at any window size. Draws road polylines, then settlement
+  markers sized by tier (capitals get a ring, standing out from hamlets)
+  and coloured by faction using the Okabe-Ito colourblind-safe qualitative
+  palette (6 hues, matching `CIV_FACTION_COUNT` exactly) -- chosen
+  deliberately independent of the UI's own parchment theme, since this is
+  data-driven map content (which faction owns this settlement) the same
+  way the terrain renderer's biome colours are theme-independent.
+  `_gui_input` hit-tests mouse position against marker screen positions
+  (tier-radius + a small hit-test pad) for hover; a floating info card
+  (name, tier, population, formatted `17.7k`-style) draws near the cursor,
+  styled to match the parchment theme's card/border colours.
+- `main.gd`: fetches `get_settlements()`/`get_roads()` right after
+  `build_color_texture()` in `_on_generate_done`, hands them to the
+  overlay, and appends a live settlement count to the status label. Clears
+  the overlay (empty arrays) in `_on_save_file_selected` since a loaded
+  save carries no civ data. The layer-visibility checkbox toggles
+  `MapOverlay.visible` directly.
+
+**Verified hands-on, not just headless** (this session's own established
+discipline -- two real UI bugs earlier were only caught this way): ran the
+actual windowed app, generated a real 512x512 world, confirmed on screen
+-- 20 settlements rendered with visibly distinct per-faction colours,
+capitals clearly larger with a ring, roads following real terrain (not
+straight lines) between markers, and hovering a marker produced a correct
+info card (`"Torvtorgskaltorvbay (Capital)" / "Population 17.7k"`, a real
+RNG-generated name from milestone 9's culture tables). `godot4 --headless
+--quit main.tscn`: clean, extension loads.
+
+**Verification**: `cargo build -p cartalith-godot`, `cargo clippy -p
+cartalith-godot --all-targets`: clean, no warnings. `cargo build
+--workspace`: clean.
+
+**What this doesn't cover**: territory/border rendering (Phase 2
+milestone not yet implemented -- nothing to show), the full interactive
+civ editor (faction management, label editing, painting), village
+markers (village seeding itself still blocked on `civWays`, per above).

@@ -15,3 +15,5 @@ godot = { version = "0.5.5", features = ["api-4-7"] }
 cartalith-engine = { path = "../cartalith-engine" }
 cartalith-io = { path = "../cartalith-io" }
 cartalith-noise = { path = "../cartalith-noise" }
+cartalith-civ = { path = "../cartalith-civ" }
+cartalith-hydrology = { path = "../cartalith-hydrology" }

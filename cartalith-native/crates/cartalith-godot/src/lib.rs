@@ -65,6 +65,98 @@ enum WorldSource {
     Loaded(Box<cartalith_io::SaveData>),
 }
 
+/// Phase 2's civilisation layer (`cartalith-civ`, `PHASE2_SCOPE.md`
+/// milestones 1-11): settlements (placed, faction-assigned, named,
+/// populated) and the road network connecting them. Computed once,
+/// automatically, right after a fresh `generate()`/`generate_world_structure()`
+/// call — `Loaded` saves carry none of the substrate fields (`crust_field`,
+/// `boundary_type`, `shear_field`, `age_field`) this pipeline needs
+/// (`SAVEFILE_COMPAT.md` doesn't store them), so civ data is only ever
+/// real for a freshly generated world, never a loaded one. `None` before
+/// the first successful `generate()`, or if generation produced zero
+/// settlement candidates (a legitimate empty-map outcome, not an error).
+struct CivData {
+    settlements: Vec<cartalith_civ::NamedSettlement>,
+    roads: Vec<cartalith_civ::RoadEdge>,
+}
+
+/// Runs the full Phase 2 pipeline (milestones 1-11) over a freshly
+/// generated `WorldState`, in exactly the dependency order each
+/// milestone's own golden test exercises
+/// (`cartalith-civ/tests/golden_parity_settlement_placement.rs`'s
+/// `compute_placements` helper is the canonical reference for this
+/// chain — mirrored here, not reinvented). `CIV_FACTION_COUNT=6` matches
+/// the reference's real `CIV_FACTIONS.length-1` (7 entries including
+/// "Unclaimed" at index 0, reference line ~14568).
+const CIV_FACTION_COUNT: i32 = 6;
+
+fn compute_civilisation(ws: &cartalith_engine::WorldState, gw: usize, gh: usize, world: bool, map_width_km: f64, river_density: f64) -> CivData {
+    let sea_level = ws.sea_level;
+    let wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea_level, world, Some(&ws.rainfall));
+    let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
+
+    let soil_slope = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
+    let lithology = cartalith_civ::build_lithology(
+        &ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, sea_level,
+    );
+    let soil = cartalith_civ::build_soil_fertility(&lithology, &ws.temperature, &ws.rainfall, &soil_slope, &ws.age_field);
+
+    let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
+    let water_access = cartalith_civ::build_water_access(&ws.flow_discharge, &ws.field, gw, gh, sea_level, flow_thresh);
+    let carrying_cap = cartalith_civ::build_carrying_capacity(&soil, &water_access, Some(&biome), &ws.temperature, &ws.field, sea_level, 0.0, None);
+
+    let resources = cartalith_civ::build_resource_potentials(
+        &lithology,
+        Some(&ws.boundary_type),
+        Some(&ws.shear_field),
+        Some(&ws.flow_discharge),
+        Some(&biome),
+        &ws.field,
+        &ws.rainfall,
+        &ws.age_field,
+        gw,
+        gh,
+        sea_level,
+        Some(&ws.volcanic_field),
+        true,
+        false,
+    );
+    let _ = &resources; // read for parity with the pipeline; not yet surfaced to GDScript (no UI consumer)
+
+    let raw_slope = cartalith_civ::build_raw_slope_field(&ws.field, gw, gh, world);
+    let corridors = cartalith_civ::build_route_corridors(&ws.field, &raw_slope, Some(&ws.flow_discharge), gw, gh, sea_level, world, flow_thresh);
+    let landmass = cartalith_civ::build_landmass_quality(&ws.field, Some(&carrying_cap), gw, gh, sea_level, world);
+    let coast_sdf = cartalith_civ::build_coast_sdf(&ws.field, gw, gh, sea_level);
+    let flood = cartalith_civ::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, sea_level);
+    let river_order = cartalith_civ::fresh_river_order(&ws.field, &ws.flow_discharge, gw, gh, sea_level, world, river_density, map_width_km);
+
+    let ctx = cartalith_civ::SuitabilityCtx {
+        water_bodies: Some(&wb.classification),
+        corridor: Some(&corridors),
+        landmass: Some(&landmass.quality),
+        flow: Some(&ws.flow_discharge),
+        river_order: Some(&river_order),
+        coast_sdf: Some(&coast_sdf),
+        resources: Some(&resources),
+        rain: Some(&ws.rainfall),
+        flood: Some(&flood),
+        slope_raw: Some(&raw_slope),
+        flow_thresh,
+    };
+
+    let slope_n = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
+    let suit = cartalith_civ::build_settlement_suitability(&soil, &water_access, &carrying_cap, &ws.field, &slope_n, gw, gh, sea_level, Some(&ctx));
+    let seeds = cartalith_civ::find_settlement_seeds(&suit, gw, gh, 0.65, (gw as f64 / 20.0).max(4.0));
+
+    let placements = cartalith_civ::place_settlements(&seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, CIV_FACTION_COUNT);
+    let settlements = cartalith_civ::name_and_populate_settlements(&placements);
+
+    let cost = cartalith_civ::build_travel_cost(&ws.field, gw, gh, sea_level);
+    let roads = cartalith_civ::build_road_network(&placements, &cost, gw, gh, world);
+
+    CivData { settlements, roads }
+}
+
 /// `MVP_SCOPE.md` points 10-11: basic 2D rendering + minimal UI. Owns the
 /// last `generate_terrain()` result (or loaded save); GDScript drives it via
 /// `generate()`/`load_save()` then `build_color_texture()`. Square grid
@@ -104,6 +196,9 @@ struct WorldGen {
     world: bool,
     lat_n: f64,
     lat_s: f64,
+    /// Phase 2 civilisation-layer output for the current `Generated`
+    /// source (`None` for a `Loaded` save, or before any `generate()`).
+    civ: Option<CivData>,
 }
 
 #[godot_api]
@@ -122,6 +217,7 @@ impl IRefCounted for WorldGen {
             world: false,
             lat_n: 55.0,
             lat_s: 5.0,
+            civ: None,
         }
     }
 }
@@ -169,6 +265,7 @@ impl WorldGen {
         self.world = p.world;
         self.lat_n = p.climate.lat_n;
         self.lat_s = p.climate.lat_s;
+        self.civ = Some(compute_civilisation(&ws, gw, gh, p.world, p.map_width_km, p.river_density));
         self.source = Some(WorldSource::Generated(Box::new(ws)));
     }
 
@@ -214,6 +311,7 @@ impl WorldGen {
         self.world = p.world;
         self.lat_n = p.climate.lat_n;
         self.lat_s = p.climate.lat_s;
+        self.civ = Some(compute_civilisation(&ws, gw, gh, p.world, p.map_width_km, p.river_density));
         self.source = Some(WorldSource::Generated(Box::new(ws)));
         true
     }
@@ -251,6 +349,11 @@ impl WorldGen {
         // WorldParams::defaults uses.
         self.lat_n = 55.0;
         self.lat_s = 5.0;
+        // A loaded save carries none of the tectonic substrate fields
+        // (crust_field/boundary_type/shear_field/age_field) the civ
+        // pipeline needs (SAVEFILE_COMPAT.md doesn't store them) --
+        // civ data only ever exists for a freshly generated world.
+        self.civ = None;
         self.source = Some(WorldSource::Loaded(Box::new(save)));
         true
     }
@@ -319,5 +422,62 @@ impl WorldGen {
         let packed = PackedByteArray::from(bytes);
         let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGB8, &packed)?;
         ImageTexture::create_from_image(&image)
+    }
+
+    /// Phase 2 civilisation layer (`cartalith-civ`): one `Dictionary` per
+    /// settlement with keys `x`/`y` (grid cell, int), `name` (String),
+    /// `population` (int), `kind` (String: "capital"/"city"/"town"/
+    /// "village"/"hamlet"), `faction` (int, `1..=6`, matching
+    /// `CIV_FACTION_COUNT`), `capital` (bool), `coastal` (bool). Empty
+    /// before any `generate()` call, after `load_save()` (no civ data for
+    /// a loaded save, see `load_save`'s own doc comment), or if generation
+    /// produced zero settlement candidates.
+    #[func]
+    fn get_settlements(&self) -> Array<VarDictionary> {
+        let Some(civ) = self.civ.as_ref() else { return Array::new() };
+        civ.settlements
+            .iter()
+            .map(|s| {
+                let kind_str = match s.placement.kind {
+                    cartalith_civ::SettlementKind::Capital => "capital",
+                    cartalith_civ::SettlementKind::City => "city",
+                    cartalith_civ::SettlementKind::Town => "town",
+                    cartalith_civ::SettlementKind::Village => "village",
+                    cartalith_civ::SettlementKind::Hamlet => "hamlet",
+                };
+                vdict! {
+                    "x" => s.placement.x as i32,
+                    "y" => s.placement.y as i32,
+                    "name" => s.name.as_str(),
+                    "population" => s.pop as i32,
+                    "kind" => kind_str,
+                    "faction" => s.placement.faction,
+                    "capital" => s.placement.capital,
+                    "coastal" => s.placement.coastal,
+                }
+            })
+            .collect()
+    }
+
+    /// Road network (`cartalith-civ::build_road_network`): one
+    /// `PackedVector2Array` per MST edge, each point a grid-cell `(x, y)`
+    /// along that edge's real terrain-cost-following path (not a straight
+    /// line between endpoints) — draw as a polyline. Empty under the same
+    /// conditions as `get_settlements`.
+    #[func]
+    fn get_roads(&self) -> Array<PackedVector2Array> {
+        let Some(civ) = self.civ.as_ref() else { return Array::new() };
+        let gw = self.gw.max(1) as usize;
+        civ.roads
+            .iter()
+            .map(|edge| {
+                let points: PackedVector2Array = edge
+                    .path
+                    .iter()
+                    .map(|&idx| Vector2::new((idx % gw) as f32, (idx / gw) as f32))
+                    .collect();
+                points
+            })
+            .collect()
     }
 }

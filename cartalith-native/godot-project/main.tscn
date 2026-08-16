@@ -1,7 +1,8 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://main.gd" id="1"]
 [ext_resource type="Theme" path="res://theme/app_theme.tres" id="2"]
+[ext_resource type="Script" path="res://map_overlay.gd" id="3"]
 
 [node name="Main" type="Control"]
 anchor_right = 1.0
@@ -187,6 +188,34 @@ unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
 
+[node name="MapLayersCard" type="PanelContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList"]
+theme_type_variation = &"SettingsCard"
+
+[node name="MapLayersMargin" type="MarginContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/MapLayersCard"]
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 12
+
+[node name="MapLayersVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/MapLayersCard/MapLayersMargin"]
+theme_override_constants/separation = 8
+
+[node name="MapLayersHeader" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/MapLayersCard/MapLayersMargin/MapLayersVBox"]
+theme_type_variation = &"SectionHeader"
+text = "MAP LAYERS"
+
+[node name="MapLayersHint" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/MapLayersCard/MapLayersMargin/MapLayersVBox"]
+theme_type_variation = &"HintLabel"
+autowrap_mode = 2
+text = "Settlements (Phase 2, cartalith-civ): capitals/cities/towns/villages/hamlets, colour-coded by faction, connected by the real terrain-cost road network. Hover a marker for details."
+
+[node name="CivLayerCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/MapLayersCard/MapLayersMargin/MapLayersVBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+autowrap_mode = 3
+button_pressed = true
+text = "Show settlements & roads"
+
 [node name="AdvancedCard" type="PanelContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList"]
 theme_type_variation = &"SettingsCard"
 
@@ -276,6 +305,10 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 expand_mode = 1
 stretch_mode = 5
+
+[node name="MapOverlay" type="Control" parent="Root/StageMargin/Stage/MapPanel/MapMargin"]
+unique_name_in_owner = true
+script = ExtResource("3")
 
 [node name="LoadSaveDialog" type="FileDialog" parent="."]
 unique_name_in_owner = true
