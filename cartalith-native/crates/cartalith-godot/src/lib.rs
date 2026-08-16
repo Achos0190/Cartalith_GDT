@@ -77,7 +77,14 @@ enum WorldSource {
 /// settlement candidates (a legitimate empty-map outcome, not an error).
 struct CivData {
     settlements: Vec<cartalith_civ::NamedSettlement>,
-    roads: Vec<cartalith_civ::RoadEdge>,
+    /// Consolidated, classified, Catmull-Rom-smoothed, named road
+    /// polylines (`cartalith_civ::civ_consolidate_and_smooth_ways`, Phase
+    /// 2 milestone 14) -- the real auto-populate road network
+    /// (`civ_hierarchical_network_topology`, milestone 12) run through its
+    /// own reference consolidation tail, not the earlier placeholder
+    /// (`build_road_network`, the *manual*-tool algorithm this pipeline
+    /// used as a stand-in before milestone 12/14 existed to replace it).
+    ways: Vec<cartalith_civ::Way>,
     /// `cartalith_civ::assign_territory`'s per-cell output (Phase 2
     /// milestone 10, `DECISIONS.md` §7b -- cost-distance Voronoi from
     /// capitals, population-weighted, no JS reference to match since the
@@ -179,8 +186,23 @@ fn compute_civilisation(
 
     let placements = cartalith_civ::place_settlements(&seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, CIV_FACTION_COUNT);
 
+    // Real auto-populate road network, not `build_road_network` (that's
+    // `buildRoadNetwork`, the reference's *manual*-placement-tool
+    // algorithm -- an earlier pass here used it as a stand-in for the
+    // auto-populate system before that system was ported at all). Now
+    // that both exist: `civ_hierarchical_network_topology` (Phase 2
+    // milestone 12, the real `_civHierarchicalNetwork` raw topology) then
+    // `civ_consolidate_and_smooth_ways` (milestone 14) for the
+    // Catmull-Rom-smoothed, classified, named polylines this map actually
+    // draws.
+    let topology = cartalith_civ::civ_hierarchical_network_topology(
+        &placements, gw, gh, sea_level, &ws.field, &ws.flow_discharge, &river_order, &biome, &wb.classification, world, map_width_km,
+    );
+    let roads = &topology.edges;
+    // Still needed below by `assign_territory` (independent of which road
+    // algorithm produced `roads` above -- territory's own Dijkstra runs
+    // over this same real terrain-cost field directly, per capital).
     let cost = cartalith_civ::build_travel_cost(&ws.field, gw, gh, sea_level);
-    let roads = cartalith_civ::build_road_network(&placements, &cost, gw, gh, world);
 
     // Reference `_civIterativeAutoWorld`: placement-naming and village
     // seeding draw from ONE continuous mulberry32 stream, not two
@@ -253,7 +275,15 @@ fn compute_civilisation(
     // whether villages were added above doesn't change this at all.
     let territory = cartalith_civ::assign_territory(&settlements, &cost, gw, gh, world);
 
-    CivData { settlements, roads, territory }
+    // Milestone 14 consolidation/smoothing needs NAMED settlements
+    // (`pa.name`/`pb.name`) -- must run after the naming/village block
+    // above, not alongside `topology`. `topology.edges`' `a`/`b` indices
+    // are into the pre-village `placements` order, which `settlements`
+    // preserves as its own prefix (villages are appended after, never
+    // interleaved), so indexing stays valid whether or not villages ran.
+    let ways = cartalith_civ::civ_consolidate_and_smooth_ways(&topology, &settlements, &ws.field, &wb.classification, gw, gh, map_width_km);
+
+    CivData { settlements, ways, territory }
 }
 
 /// `MVP_SCOPE.md` points 10-11: basic 2D rendering + minimal UI. Owns the
@@ -610,24 +640,39 @@ impl WorldGen {
             .collect()
     }
 
-    /// Road network (`cartalith-civ::build_road_network`): one
-    /// `PackedVector2Array` per MST edge, each point a grid-cell `(x, y)`
-    /// along that edge's real terrain-cost-following path (not a straight
-    /// line between endpoints) — draw as a polyline. Empty under the same
+    /// Road network (`cartalith-civ::civ_consolidate_and_smooth_ways`,
+    /// Phase 2 milestone 14): one `Dictionary` per visible way — `points`
+    /// (a `PackedVector2Array`, already smoothed full-resolution map
+    /// coordinates, not raw grid-cell indices) and `way_type` (`"highway"`/
+    /// `"regional"`/`"road"`/`"track"`, by peak corridor usage) — draw as
+    /// a polyline, weight/colour by type if desired. Hidden ways (an edge
+    /// fully consolidated away into a busier neighbour, reference's own
+    /// junction-continuity behaviour) are omitted entirely, not emitted as
+    /// a 2-point stub — nothing to draw for those. Empty under the same
     /// conditions as `get_settlements`.
     #[func]
-    fn get_roads(&self) -> Array<PackedVector2Array> {
+    fn get_roads(&self) -> Array<VarDictionary> {
         let Some(civ) = self.civ.as_ref() else { return Array::new() };
-        let gw = self.gw.max(1) as usize;
-        civ.roads
+        civ.ways
             .iter()
-            .map(|edge| {
-                let points: PackedVector2Array = edge
-                    .path
-                    .iter()
-                    .map(|&idx| Vector2::new((idx % gw) as f32, (idx / gw) as f32))
-                    .collect();
-                points
+            .filter(|w| !w.hidden)
+            .map(|w| {
+                let points: PackedVector2Array =
+                    w.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
+                let way_type = match w.way_type {
+                    cartalith_civ::WayType::Highway => "highway",
+                    cartalith_civ::WayType::Regional => "regional",
+                    cartalith_civ::WayType::Road => "road",
+                    cartalith_civ::WayType::Track => "track",
+                };
+                // `brks`: indices into `points` where this way's own path
+                // has a real gap (two disjoint consolidated runs sharing
+                // one `Way`, not a continuous curve) -- drawing straight
+                // through these would render a phantom line across the
+                // gap, so the renderer must split into separate strokes
+                // there instead of treating `points` as one polyline.
+                let brks: PackedInt32Array = w.brks.iter().map(|&b| b as i32).collect();
+                dict! { "points" => &points, "brks" => &brks, "way_type" => way_type, "name" => w.name.as_str() }
             })
             .collect()
     }

@@ -35,8 +35,12 @@ const FACTION_COLORS: Array[Color] = [
 ## must read as visually more important than a hamlet at a glance.
 const TIER_RADIUS := {"capital": 9.0, "city": 6.5, "town": 5.0, "village": 3.8, "hamlet": 2.8}
 const CAPITAL_RING_WIDTH := 2.5
+## By `way_type` (`cartalith_civ::WayType`, peak-corridor-usage
+## classification, Phase 2 milestone 14) -- a highway should read as more
+## prominent than a track, the same "tier implies visual weight" principle
+## `TIER_RADIUS` already applies to settlements.
 const ROAD_COLOR := Color(0.36, 0.29, 0.16, 0.55)
-const ROAD_WIDTH := 1.6
+const ROAD_WIDTH_BY_TYPE := {"highway": 2.6, "regional": 2.0, "road": 1.6, "track": 1.1}
 const MARKER_OUTLINE := Color(0.101, 0.070, 0.023, 0.85) ## matches PrimaryButton's ink tone
 const HOVER_RADIUS_PAD := 4.0 ## extra hit-test slack (px) beyond the drawn marker radius
 
@@ -54,11 +58,15 @@ func _ready() -> void:
 
 ## Called by `main.gd` right after a successful `generate()`/
 ## `generate_world_structure()`. `settlements` is `WorldGen.get_settlements()`'s
-## `Array[Dictionary]`, `roads` is `get_roads()`'s `Array[PackedVector2Array]`
-## (already in grid-cell coordinates, not screen space -- this overlay does
-## the screen-space conversion itself, every frame it draws, from the
-## current control size, so it stays correct across window resizes without
-## needing to be told again).
+## `Array[Dictionary]`, `roads` is `get_roads()`'s `Array[Dictionary]` --
+## each entry `{points: PackedVector2Array, brks: PackedInt32Array,
+## way_type: String, name: String}` (Phase 2 milestone 14's own
+## consolidated/smoothed/classified output, not raw grid-cell indices --
+## `points` are already continuous full-resolution coordinates, drawn via
+## `_point_to_screen`, distinct from `_cell_to_screen`'s settlement-marker
+## `+0.5` cell-centering, which would be wrong here). Screen-space
+## conversion happens every frame from the current control size, so this
+## stays correct across window resizes without needing to be told again.
 func set_civ_data(settlements: Array, roads: Array, gw: int, gh: int) -> void:
 	_settlements = settlements
 	_roads = roads
@@ -87,6 +95,13 @@ func _cell_to_screen(cell: Vector2, rect: Rect2) -> Vector2:
 	return rect.position + Vector2((cell.x + 0.5) / _gw, (cell.y + 0.5) / _gh) * rect.size
 
 
+## Roads' own `points` are already continuous full-resolution coordinates
+## (Catmull-Rom-smoothed, not raw cell indices) -- no `+0.5` centering,
+## unlike `_cell_to_screen`'s settlement markers.
+func _point_to_screen(p: Vector2, rect: Rect2) -> Vector2:
+	return rect.position + Vector2(p.x / _gw, p.y / _gh) * rect.size
+
+
 func _draw() -> void:
 	if _settlements.is_empty() and _roads.is_empty():
 		return
@@ -94,14 +109,21 @@ func _draw() -> void:
 	if rect.size.x <= 0.0:
 		return
 
-	for road_path: PackedVector2Array in _roads:
-		if road_path.size() < 2:
+	for way: Dictionary in _roads:
+		var points: PackedVector2Array = way["points"]
+		if points.size() < 2:
 			continue
-		var screen_points := PackedVector2Array()
-		screen_points.resize(road_path.size())
-		for i in road_path.size():
-			screen_points[i] = _cell_to_screen(road_path[i], rect)
-		draw_polyline(screen_points, ROAD_COLOR, ROAD_WIDTH, true)
+		var width: float = ROAD_WIDTH_BY_TYPE.get(way["way_type"], 1.6)
+		var brks: PackedInt32Array = way["brks"]
+		# `brks` marks indices where this way's own path has a real gap
+		# (two disjoint consolidated runs sharing one `Way`) -- draw each
+		# run between breaks as its own stroke, not one polyline straight
+		# through the gap.
+		var start := 0
+		for cut in brks:
+			_draw_way_segment(points, start, cut, rect, width)
+			start = cut
+		_draw_way_segment(points, start, points.size(), rect, width)
 
 	for i in _settlements.size():
 		var s: Dictionary = _settlements[i]
@@ -119,6 +141,19 @@ func _draw() -> void:
 
 	if _hover_index >= 0 and _hover_index < _settlements.size():
 		_draw_hover_card(_settlements[_hover_index], rect)
+
+
+## Draws `points[start:end]` (exclusive) as one stroke, converted to
+## screen space. `end - start < 2` is a real, legitimate no-op (a run with
+## a single point either side of a break contributes nothing to draw).
+func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2, width: float) -> void:
+	if end - start < 2:
+		return
+	var screen_points := PackedVector2Array()
+	screen_points.resize(end - start)
+	for i in range(start, end):
+		screen_points[i - start] = _point_to_screen(points[i], rect)
+	draw_polyline(screen_points, ROAD_COLOR, width, true)
 
 
 func _draw_hover_card(s: Dictionary, rect: Rect2) -> void:

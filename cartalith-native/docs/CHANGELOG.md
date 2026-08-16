@@ -4586,3 +4586,69 @@ main.gd` (onready refs, toggle wiring, `set_villages_enabled()` call,
 save-load). `cartalith-civ` untouched — deliberately, both to stay
 disjoint from the concurrent milestone-14 fork and because no new
 public API was needed there.
+
+## UI/UX catch-up: wire milestone 14's smoothed roads into the map (2026-08-16)
+
+Closes the gap the previous UI/UX pass explicitly flagged: milestone 14
+(`civ_consolidate_and_smooth_ways`) landed with real Catmull-Rom-smoothed,
+classified, named road polylines, but `compute_civilisation()` still
+built its `roads` field from `build_road_network` — not even milestone
+12's own raw topology, let alone milestone 14's smoothed output. That
+function is `buildRoadNetwork`, the reference's *manual*-placement-tool
+algorithm, used as a stand-in for the real auto-populate road system
+before that system existed at all (an even earlier gap than the
+milestone-14-only framing this task started from).
+
+**Fixed the real chain**: `civ_hierarchical_network_topology` (milestone
+12) now builds the actual auto-populate topology from `placements`, then
+— after naming/village-seeding, since `civ_consolidate_and_smooth_ways`
+needs named settlements for its `pa.name`/`pb.name` endpoint naming —
+`civ_consolidate_and_smooth_ways` (milestone 14) turns it into the
+smoothed `Way` list the map now renders. `civ_seed_villages` also now
+reads `topology.edges` (the real network) instead of the old manual-tool
+stand-in's edges, so village road-proximity is against the right network
+too, not just the map's rendering.
+
+**`CivData.roads: Vec<RoadEdge>` → `CivData.ways: Vec<Way>`.** `get_roads()`
+now returns `Array<VarDictionary>` (`points`, `brks`, `way_type`, `name`)
+instead of raw `Array<PackedVector2Array>` cell-index paths — `points`
+are already continuous, smoothed, full-resolution coordinates, not grid
+cell indices, so `map_overlay.gd` needed a distinct `_point_to_screen`
+(no `+0.5` cell-centering) alongside the existing `_cell_to_screen`
+(settlement markers, which *are* still cell-index-based) — using the
+wrong one would have shifted every road by half a cell. Hidden ways (an
+edge fully consolidated away into a busier neighbour — real, expected
+behaviour, not a bug) are filtered out entirely rather than drawn as
+degenerate 2-point stubs. `brks` (real internal gaps where two disjoint
+consolidated runs share one `Way`) are honoured by splitting into
+separate `draw_polyline` calls per run — drawing straight through a break
+would render a phantom line across a real discontinuity. Road width now
+varies by `way_type` (`highway` 2.6px down to `track` 1.1px), the same
+"tier implies visual weight" principle already applied to settlement
+markers.
+
+**Screenshot-verified** (real windowed app, 512×512, seed 12345, Classic,
+40 settlements): roads now render as visibly smooth, continuous curves
+following terrain between settlements, a clear, dramatic change from the
+straight/jagged MST-approximation look the previous pipeline produced —
+confirmed by eye, not just "the code compiles."
+
+**Real gotcha caught before it shipped**: the first edit attempt passed
+an empty settlement slice to `civ_consolidate_and_smooth_ways` (available
+before naming ran) — silently wrong, not a crash: every edge's `a_idx`/
+`b_idx` bounds-check (`a >= n || b >= n`) would have failed against an
+empty list, producing **zero ways** rather than an error. Caught by
+reading the function's own indexing logic before running it, not by
+observing a blank map after the fact.
+
+**Verification**: `cargo build -p cartalith-godot`, `cargo test
+--workspace`, `cargo clippy --workspace --all-targets` all clean.
+`godot4 --headless --quit main.tscn` clean, extension loads.
+
+**Files touched**: `cartalith-native/crates/cartalith-godot/src/lib.rs`
+(`CivData.ways` replacing `.roads`, `compute_civilisation()`'s road-chain
+reordering, `get_roads()`'s new `Dictionary`-per-way shape),
+`cartalith-native/godot-project/map_overlay.gd` (`_point_to_screen`,
+`_draw_way_segment`, `ROAD_WIDTH_BY_TYPE`, break-aware road drawing).
+`cartalith-civ`/`cartalith-terrain`/`cartalith-gpu` untouched — stayed
+disjoint from concurrently-running GPU-integration and Phase 2 forks.
