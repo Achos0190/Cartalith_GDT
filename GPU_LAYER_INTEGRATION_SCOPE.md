@@ -175,7 +175,29 @@ UI-per-milestone process, but this is backend-only work with no
 user-visible payoff yet — a GPU toggle isn't meaningful until enough of
 the pipeline actually runs on it end-to-end).
 
-## Milestone 3 — `compute_height` itself, as a standalone GPU kernel (current)
+**Done.** Non-`world` branch only (world-wrap/`pfbm`-equivalent deferred,
+as anticipated). `cartalith_noise::gpu_fbm` + `cartalith-gpu`'s
+`gpu_warp.wgsl`/`gpu_heterogeneity.wgsl`. `gpu_heterogeneity` (single
+`gpu_fbm` call/cell) matches its CPU twin at `1e-5`, 0/262144 mismatches
+at 512×512 — confirms `gpu_fbm` carries no new precision gap.
+`gpu_warp` (two nested `gpu_fbm` evaluations, the second sampled at a
+position computed from the first) needed its own tolerance
+(`WARP_TOLERANCE=2e-4`, set just above the actually-measured 1.18e-4 max)
+— a real, isolated, structural finding (residual float-scheduling
+differences amplified through the second evaluation), not a loosened
+test; `gpu_heterogeneity`'s clean pass at the tighter tolerance proves
+`gpu_fbm` itself isn't the source. Real timing: `gpu_warp` up to 80× at
+2048² (better than milestone 1's bare noise — more octave calls per cell
+means GPU's fixed dispatch overhead amortizes further), `gpu_heterogeneity`
+up to 16.7×. `compute_warp`/`compute_heterogeneity` (CPU) untouched,
+golden-parity tests unaffected. Found, not introduced: `cargo test -p
+cartalith-gpu` alone can hit a flaky driver-level crash under parallel
+GPU-context churn (reliable single-threaded or as part of a full
+workspace run) — a real fragility worth knowing as this crate's
+GPU-context-per-test count grows. See `CHANGELOG.md`'s "GPU layer
+integration milestone 2" entry for the full record.
+
+## Milestone 3 — `compute_height` itself, as a standalone GPU kernel: **done** (2026-08-16)
 
 Checked 2026-08-16: `compute_height` (`cartalith-terrain/src/lib.rs:1001`)
 is the same per-cell shape as milestone 2 — one noise evaluation
@@ -214,33 +236,45 @@ needed and not already built).
 portability (separate future investigation), pipeline integration, UI
 exposure.
 
-**Done.** Non-`world` branch only (world-wrap/`pfbm`-equivalent deferred,
-as anticipated). `cartalith_noise::gpu_fbm` + `cartalith-gpu`'s
-`gpu_warp.wgsl`/`gpu_heterogeneity.wgsl`. `gpu_heterogeneity` (single
-`gpu_fbm` call/cell) matches its CPU twin at `1e-5`, 0/262144 mismatches
-at 512×512 — confirms `gpu_fbm` carries no new precision gap.
-`gpu_warp` (two nested `gpu_fbm` evaluations, the second sampled at a
-position computed from the first) needed its own tolerance
-(`WARP_TOLERANCE=2e-4`, set just above the actually-measured 1.18e-4 max)
-— a real, isolated, structural finding (residual float-scheduling
-differences amplified through the second evaluation), not a loosened
-test; `gpu_heterogeneity`'s clean pass at the tighter tolerance proves
-`gpu_fbm` itself isn't the source. Real timing: `gpu_warp` up to 80× at
-2048² (better than milestone 1's bare noise — more octave calls per cell
-means GPU's fixed dispatch overhead amortizes further), `gpu_heterogeneity`
-up to 16.7×. `compute_warp`/`compute_heterogeneity` (CPU) untouched,
-golden-parity tests unaffected. Found, not introduced: `cargo test -p
-cartalith-gpu` alone can hit a flaky driver-level crash under parallel
-GPU-context churn (reliable single-threaded or as part of a full
-workspace run) — a real fragility worth knowing as this crate's
-GPU-context-per-test count grows. See `CHANGELOG.md`'s "GPU layer
-integration milestone 2" entry for the full record.
+**Done.** `gpu_compute_height` (`cartalith-gpu`'s `gpu_height.wgsl` +
+`dispatch_gpu_height`), non-`world` branch only (matching milestones 1-2's
+own deferral). Both `ridged=false` and `ridged=true` verified against a
+fresh `gpu_height_grid_cpu` CPU twin at 512×512 (5 distinct synthetic
+input fields, not all-zero/all-one, so a mis-wired buffer binding would
+show up rather than pass by coincidence): **0/262144 mismatches, max
+observed absolute difference `1.19e-7`** — essentially `f32`'s own machine
+epsilon, tighter than milestone 2's own `gpu_warp` result and matching
+`gpu_heterogeneity`'s clean single-evaluation precision (this kernel has
+only one noise call per cell, the same shape, not `gpu_warp`'s two nested
+ones) — given its own dedicated `HEIGHT_TOLERANCE` (`=GPU_SAFE_NOISE_
+TOLERANCE`, the tightest this crate uses) rather than reusing the looser
+`WARP_TOLERANCE` a first guess might have borrowed. A dedicated test
+(`gpu_height_has_oro_true_changes_the_formula`) proves the `has_oro`
+branch (oro's *absence* changes which formula runs, not just an additive
+zero — unlike `warp_x`/`warp_y`) is genuinely wired, not silently
+ignored either way. `init_gpu_with` gained an automatic
+`max_storage_buffers_per_shader_stage` bump derived from each kernel's own
+bind-group layout (this kernel needs 9 storage buffers, past
+`downlevel_defaults()`'s conservative baseline) — a self-contained,
+backward-compatible fix (existing 3 call sites unaffected) that scales
+for any future kernel automatically rather than hand-picking a number per
+kernel. Real timing (single-threaded CPU vs. GPU dispatch+readback):
+128² GPU loses (0.86×, dispatch overhead), 512² 5.17×, 1024² 8.13×, 2048²
+4.84× — the drop from 1024² to 2048² is reported as measured, not
+smoothed over; a plausible real cause (memory-bandwidth-bound at 9
+input+output buffers, unlike warp/heterogeneity's 2-4) is not yet
+investigated, worth a look if this kernel's throughput matters later.
+`compute_height` (CPU) completely untouched; `cargo test --workspace`
+confirms every existing golden-parity test (including `cartalith-terrain`'s
+own `compute_height` tests) passes unmodified. See `CHANGELOG.md`'s "GPU
+layer integration milestone 3" entry for the full record.
 
-## Milestone 3 — the height formula (`compute_height`): not yet scoped
-
-Next per the table above, but needs the same investigate-before-scope
-pass every milestone in this document has had — its real upstream
-dependency chain (boundary stress, flexure, orogeny, plate/boundary
-assignment via JFA Voronoi) hasn't been checked for GPU-portability yet.
-Do not assume it's a clean next slice the way warp/heterogeneity turned
-out to be; verify first.
+**Investigated for milestone 4, not scoped yet**: `compute_height`'s
+upstream fields (`base_field`/plate assignment, `stress`/boundary stress,
+`flex`/flexure, `oro`/orogeny) were NOT investigated this pass — this
+milestone deliberately treated them as opaque buffers per its own scope.
+The one correction already recorded above (JFA-based plate assignment may
+be a *good* GPU fit, not a poor one) is a hypothesis, not a finding — a
+real read of `cartalith-terrain`'s plate-assignment/stress/flexure/
+orogeny code, the same investigate-before-scope pass every milestone here
+has had, is milestone 4's actual first step.

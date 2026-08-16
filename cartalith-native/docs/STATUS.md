@@ -112,17 +112,41 @@ flaky driver-level crash under parallel GPU-context churn — reliable
 with `--test-threads=1` or as part of a full workspace run. See
 `CHANGELOG.md`'s "GPU layer integration milestone 2" entry.
 
-**Milestone 3 (not started)**: `compute_height` itself — the actual
-height formula, next per the scope doc's per-layer table, but needs the
-same investigate-before-scope pass every milestone here has had (real
-upstream dependency chain: boundary stress, flexure, orogeny, JFA Voronoi
-plate assignment — GPU-portability of each not yet assessed). Per the
-scope doc's own feasibility table: graph/sequential algorithms (flow
-accumulation, water-body priority-flood, Dijkstra/MST road networks)
-remain a poor GPU fit without real algorithmic redesign — not in scope
-for the foreseeable near-term milestones, which follow the per-cell-math
-layers instead (terrain → climate → erosion's per-cell parts → Phase 2's
-per-cell affordance fields → rendering).
+**Milestone 3 — the height formula (`compute_height`) on GPU: done
+(2026-08-16).** Treats upstream fields (base/stress/flex/hetero/age/
+warp/oro) as opaque GPU buffers — plate assignment/stress/flexure/
+orogeny's own GPU portability is deliberately NOT this milestone's scope.
+Added `cartalith_noise::gpu_ridged` (the noise-combinator gap milestone 2
+anticipated) plus `cartalith-gpu`'s `gpu_height.wgsl`/`dispatch_gpu_height`.
+Both `ridged=false`/`true` verified against a CPU twin at 512×512: 0
+mismatches, max diff `1.19e-7` — essentially `f32` machine epsilon, given
+its own tight `HEIGHT_TOLERANCE` (this kernel has one noise call/cell,
+`gpu_heterogeneity`'s clean shape, not `gpu_warp`'s compounding one).
+`oro`'s absence changes the formula (not an additive no-op like
+warp_x/warp_y) — a dedicated regression test proves the branch is
+genuinely wired. `init_gpu_with` gained an automatic storage-buffer-limit
+derivation from each kernel's own layout (this kernel needs 9, past
+`downlevel_defaults()`'s baseline) — self-contained, existing call sites
+unaffected. Real timing: 512²/1024²/2048² at 5.17×/8.13×/4.84× (the
+1024²→2048² drop reported honestly, not investigated — possibly memory-
+bandwidth-bound at 8 input buffers). `compute_height` (CPU) untouched,
+its golden-parity tests unaffected. Also fixed a doc-merge artifact in
+`GPU_LAYER_INTEGRATION_SCOPE.md` (milestone 2's own completion note had
+been misplaced under milestone 3's heading). See `CHANGELOG.md`'s "GPU
+layer integration milestone 3" entry for the full record.
+
+**Milestone 4 (not started)**: plate assignment/stress/flexure/orogeny's
+own GPU portability — the natural next candidate, but not yet
+investigated (this milestone deliberately treated them as opaque
+buffers). One correction on record: plate assignment uses JFA (Jump
+Flooding Algorithm), specifically designed to parallelize well on GPU —
+a hypothesis worth checking, not yet a finding. Per the scope doc's own
+feasibility table: graph/sequential algorithms (flow accumulation,
+water-body priority-flood, Dijkstra/MST road networks) remain a poor GPU
+fit without real algorithmic redesign — not in scope for the foreseeable
+near-term milestones, which follow the per-cell-math layers instead
+(terrain → climate → erosion's per-cell parts → Phase 2's per-cell
+affordance fields → rendering).
 
 ## Known-open items (not owner-blocked, just not done yet)
 

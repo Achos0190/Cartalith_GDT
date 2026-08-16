@@ -261,6 +261,27 @@ pub fn gpu_fbm(x: f32, y: f32, s: i32) -> f32 {
     sum / nrm
 }
 
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 3: 6-octave ridged
+/// multifractal over [`gpu_vnoise`], same fold-and-square transform as
+/// [`ridged`] (`n = 1 - |2n-1|`, squared, amplitude-weighted) but all-`f32`
+/// throughout, same reasoning as [`gpu_fbm`]. Not periodic (no `gpu_pridged`
+/// sibling) — world-wrap stays out of scope, same as `gpu_fbm`.
+pub fn gpu_ridged(x: f32, y: f32, s: i32) -> f32 {
+    let mut amp = 0.5f32;
+    let mut freq = 1.0f32;
+    let mut sum = 0.0f32;
+    let mut nrm = 0.0f32;
+    for o in 0..6 {
+        let n = gpu_vnoise(x * freq, y * freq, s + o * 131);
+        let n = 1.0 - (2.0 * n - 1.0).abs();
+        sum += amp * n * n;
+        nrm += amp;
+        amp *= 0.5;
+        freq *= 2.0;
+    }
+    sum / nrm
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

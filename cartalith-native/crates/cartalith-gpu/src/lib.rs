@@ -31,6 +31,12 @@ const SHADER_SRC_GPU_NOISE: &str = include_str!("../shaders/gpu_noise.wgsl");
 /// WGSL module include here, see each shader's own header comment).
 const SHADER_SRC_GPU_WARP: &str = include_str!("../shaders/gpu_warp.wgsl");
 const SHADER_SRC_GPU_HETEROGENEITY: &str = include_str!("../shaders/gpu_heterogeneity.wgsl");
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 3: the height formula
+/// itself, treating `stress`/`flex`/`hetero`/`age`/`base_field`/`oro` as
+/// opaque input buffers (see that document's own "deliberately scoped
+/// narrow" note -- plate assignment/stress/flexure/orogeny's own GPU
+/// portability is explicitly out of scope here).
+const SHADER_SRC_GPU_HEIGHT: &str = include_str!("../shaders/gpu_height.wgsl");
 
 /// Tolerance for the GPU-safe noise kernel vs. its CPU counterpart
 /// (`cartalith_noise::gpu_vnoise`). Unlike [`F32_TOLERANCE`] above (which
@@ -63,6 +69,22 @@ pub const GPU_SAFE_NOISE_TOLERANCE: f64 = 1e-5;
 /// disappear (`PARITY_TESTING.md`'s rule, applied here to a GPU/GPU pair
 /// instead of a JS/Rust one).
 pub const WARP_TOLERANCE: f64 = 2e-4;
+
+/// Tolerance for `gpu_compute_height`'s GPU-vs-CPU pair
+/// (`GPU_LAYER_INTEGRATION_SCOPE.md` milestone 3). `compute_height` has
+/// only ONE `gpu_fbm`/`gpu_ridged` evaluation per cell (unlike `compute_
+/// warp`'s two nested ones) -- the same single-evaluation shape as
+/// [`gpu_heterogeneity`], not the compounding shape that earned
+/// [`WARP_TOLERANCE`] its looser value. Measured directly at 512x512
+/// (both `ridged=false` and `ridged=true`): max observed absolute
+/// difference was `1.19e-7` -- essentially `f32`'s own machine epsilon,
+/// i.e. bit-exact modulo final rounding. Set at [`GPU_SAFE_NOISE_TOLERANCE`]
+/// (the tightest tolerance this crate uses, already proven sufficient for
+/// the base noise primitive) rather than reusing [`WARP_TOLERANCE`] just
+/// because it was the most recently added constant -- borrowing a looser
+/// tolerance than what's actually measured would hide, not honestly
+/// report, this kernel's real precision.
+pub const HEIGHT_TOLERANCE: f64 = GPU_SAFE_NOISE_TOLERANCE;
 
 /// Absolute tolerance for the f32 GPU kernel vs. the f64 CPU reference.
 ///
@@ -115,6 +137,28 @@ struct HeteroParams {
     width: u32,
     height: u32,
     scale: f32,
+}
+
+/// Matches `gpu_height.wgsl`'s `HeightParams` field-for-field. 12 `f32`-
+/// sized fields = 48 bytes = 3x16, already a multiple of the common
+/// uniform-buffer alignment real backends round up to (see `WarpParams`'
+/// own comment on why this matters) -- no explicit padding field needed
+/// beyond `_pad0`, which exists only to keep the field count even/clean.
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct HeightGpuParams {
+    seed: i32,
+    width: u32,
+    height: u32,
+    nf: f32,
+    a: f32,
+    b: f32,
+    age_inf: f32,
+    fwt: f32,
+    hwt: f32,
+    ridged: u32,
+    has_oro: u32,
+    _pad0: f32,
 }
 
 /// Which path actually produced a [`vnoise_grid`] result.
@@ -209,6 +253,16 @@ pub fn init_gpu_heterogeneity() -> Result<GpuContext, GpuInitError> {
     )
 }
 
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 3: the height formula reads
+/// 8 input fields (base, stress, flex, hetero, age, warp_x, warp_y, oro)
+/// and writes 1 output -- more storage buffers than any prior kernel in
+/// this crate needed, past `Limits::downlevel_defaults()`'s conservative
+/// baseline (see [`init_gpu_with`]'s own limit-derivation for how this is
+/// requested without hand-picking a number).
+pub fn init_gpu_height() -> Result<GpuContext, GpuInitError> {
+    init_gpu_with(SHADER_SRC_GPU_HEIGHT, wgpu::Features::empty(), "gpu_height (f32, PCG3D fbm/ridged)", &HEIGHT_LAYOUT)
+}
+
 const ONE_STORAGE_OUT_LAYOUT: [wgpu::BindGroupLayoutEntry; 2] =
     [uniform_entry(0), storage_entry(1, false)];
 const TWO_STORAGE_OUT_LAYOUT: [wgpu::BindGroupLayoutEntry; 3] =
@@ -219,6 +273,18 @@ const HETEROGENEITY_LAYOUT: [wgpu::BindGroupLayoutEntry; 5] = [
     storage_entry(2, true),
     storage_entry(3, true),
     storage_entry(4, false),
+];
+const HEIGHT_LAYOUT: [wgpu::BindGroupLayoutEntry; 10] = [
+    uniform_entry(0),
+    storage_entry(1, true), // base
+    storage_entry(2, true), // stress
+    storage_entry(3, true), // flex
+    storage_entry(4, true), // hetero
+    storage_entry(5, true), // age
+    storage_entry(6, true), // warp_x
+    storage_entry(7, true), // warp_y
+    storage_entry(8, true), // oro
+    storage_entry(9, false), // out
 ];
 
 const fn uniform_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
@@ -270,6 +336,21 @@ fn init_gpu_with(
     let info = adapter.get_info();
     let mut limits = wgpu::Limits::downlevel_defaults();
     limits = limits.using_resolution(adapter.limits());
+    // `HARDWARE_ACCELERATION.md` §10: request the minimum actually needed,
+    // not `Limits::unlimited()` -- but "minimum needed" depends on how many
+    // storage buffers THIS kernel's own bind group actually declares (the
+    // height kernel, milestone 3, needs 9: `downlevel_defaults()`'s
+    // conservative baseline is not guaranteed to cover that). Derived from
+    // `layout_entries` itself rather than hand-picking a number per kernel,
+    // so this scales automatically for any future kernel too, and is still
+    // capped by the adapter's own real limit (`using_resolution` above),
+    // never requesting more than the hardware actually reports.
+    let storage_buffers_needed = layout_entries
+        .iter()
+        .filter(|e| matches!(e.ty, wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { .. }, .. }))
+        .count() as u32;
+    limits.max_storage_buffers_per_shader_stage =
+        limits.max_storage_buffers_per_shader_stage.max(storage_buffers_needed);
 
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("cartalith-gpu pilot device"),
@@ -557,6 +638,138 @@ fn dispatch_gpu_heterogeneity(
     result
 }
 
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 3: dispatch `gpu_height.wgsl`.
+/// `warp_x`/`warp_y` should be zero-filled by the caller when there's no
+/// real warp field (matches `compute_height`'s `Option<&[f32]>` the same
+/// way [`dispatch_gpu_heterogeneity`] already does). `oro` is different --
+/// its ABSENCE changes which formula runs, not just an additive no-op --
+/// so `has_oro` is a real parameter, and the `oro` buffer content is
+/// ignored by the shader when `has_oro` is `false` (any same-length slice
+/// works, including a zero-filled dummy).
+#[allow(clippy::too_many_arguments)]
+fn dispatch_gpu_height(
+    ctx: &GpuContext,
+    width: u32,
+    height: u32,
+    seed: i32,
+    nf: f32,
+    a: f32,
+    b: f32,
+    age_inf: f32,
+    fwt: f32,
+    hwt: f32,
+    ridged: bool,
+    has_oro: bool,
+    base_field: &[f32],
+    stress: &[f32],
+    flex: &[f32],
+    hetero: &[f32],
+    age: &[f32],
+    warp_x: &[f32],
+    warp_y: &[f32],
+    oro: &[f32],
+) -> Vec<f32> {
+    let count = (width * height) as usize;
+    assert_eq!(base_field.len(), count);
+    assert_eq!(stress.len(), count);
+    assert_eq!(flex.len(), count);
+    assert_eq!(hetero.len(), count);
+    assert_eq!(age.len(), count);
+    assert_eq!(warp_x.len(), count);
+    assert_eq!(warp_y.len(), count);
+    assert_eq!(oro.len(), count);
+    let byte_len = (count * std::mem::size_of::<f32>()) as u64;
+
+    let params = HeightGpuParams {
+        seed,
+        width,
+        height,
+        nf,
+        a,
+        b,
+        age_inf,
+        fwt,
+        hwt,
+        ridged: ridged as u32,
+        has_oro: has_oro as u32,
+        _pad0: 0.0,
+    };
+    let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("height params"),
+        contents: bytemuck::bytes_of(&params),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let make_input = |label: &str, data: &[f32]| {
+        ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label),
+            contents: bytemuck::cast_slice(data),
+            usage: wgpu::BufferUsages::STORAGE,
+        })
+    };
+    let base_buf = make_input("height base (storage)", base_field);
+    let stress_buf = make_input("height stress (storage)", stress);
+    let flex_buf = make_input("height flex (storage)", flex);
+    let hetero_buf = make_input("height hetero (storage)", hetero);
+    let age_buf = make_input("height age (storage)", age);
+    let warp_x_buf = make_input("height warp_x (storage)", warp_x);
+    let warp_y_buf = make_input("height warp_y (storage)", warp_y);
+    let oro_buf = make_input("height oro (storage)", oro);
+    let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("height out (storage)"),
+        size: byte_len,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let staging_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("height out (staging)"),
+        size: byte_len,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("height bind group"),
+        layout: &ctx.bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: base_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 2, resource: stress_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 3, resource: flex_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 4, resource: hetero_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 5, resource: age_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 6, resource: warp_x_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 7, resource: warp_y_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 8, resource: oro_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 9, resource: out_buf.as_entire_binding() },
+        ],
+    });
+
+    let mut encoder =
+        ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("height encoder") });
+    {
+        let mut pass = encoder
+            .begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("height pass"), timestamp_writes: None });
+        pass.set_pipeline(&ctx.pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
+    }
+    encoder.copy_buffer_to_buffer(&out_buf, 0, &staging_buf, 0, byte_len);
+    ctx.queue.submit(Some(encoder.finish()));
+
+    let slice = staging_buf.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |res| {
+        let _ = tx.send(res);
+    });
+    ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
+    rx.recv().expect("map_async channel closed").expect("buffer map failed");
+    let data = slice.get_mapped_range().expect("get_mapped_range failed");
+    let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
+    drop(data);
+    staging_buf.unmap();
+    result
+}
+
 /// `compute_heterogeneity`'s trailing max-reduce normalize pass, factored
 /// out so both the CPU and GPU paths apply the exact same post-process to
 /// their (different, per `DECISIONS.md` §7c) per-cell outputs.
@@ -620,6 +833,55 @@ pub fn gpu_heterogeneity_grid_cpu(
         }
     }
     normalize_by_max_abs(&mut out);
+    out
+}
+
+/// CPU reference for [`dispatch_gpu_height`] -- calls `cartalith_noise::
+/// gpu_fbm`/`gpu_ridged` directly, same shape as the other `*_grid_cpu`
+/// twins above. Non-`world` case only, matching the GPU kernel. `oro`'s
+/// absence is expressed as `has_oro: false` (the `oro` slice content is
+/// then ignored, mirroring the shader's own `select()`), not by passing
+/// an `Option` -- keeps this function's signature directly comparable to
+/// [`dispatch_gpu_height`]'s own flat parameter list.
+#[allow(clippy::too_many_arguments)]
+pub fn gpu_height_grid_cpu(
+    width: u32,
+    height: u32,
+    seed: i32,
+    nf: f32,
+    a: f32,
+    b: f32,
+    age_inf: f32,
+    fwt: f32,
+    hwt: f32,
+    ridged: bool,
+    has_oro: bool,
+    base_field: &[f32],
+    stress: &[f32],
+    flex: &[f32],
+    hetero: &[f32],
+    age: &[f32],
+    warp_x: &[f32],
+    warp_y: &[f32],
+    oro: &[f32],
+) -> Vec<f32> {
+    let n = (width * height) as usize;
+    let mut out = vec![0.0f32; n];
+    for gy in 0..height {
+        for gx in 0..width {
+            let i = (gy * width + gx) as usize;
+            let sf = stress[i];
+            let t = if has_oro { oro[i] + sf.min(0.0) } else { sf };
+            let bs = base_field[i];
+            let rug = (-age[i] * (1.0 + age_inf * 6.0)).exp();
+            let wx = gx as f32 + warp_x[i];
+            let wy = gy as f32 + warp_y[i];
+            let nx = wx * nf / width as f32;
+            let ny = wy * nf / width as f32;
+            let n_val = (if ridged { cartalith_noise::gpu_ridged(nx, ny, seed) } else { cartalith_noise::gpu_fbm(nx, ny, seed) }) - 0.5;
+            out[i] = 0.5 + a * (0.40 * bs + 0.50 * t) + fwt * flex[i] + hwt * hetero[i] + b * n_val * (0.25 + 0.75 * rug);
+        }
+    }
     out
 }
 
@@ -1219,6 +1481,211 @@ mod tests {
 
             eprintln!(
                 "gpu_heterogeneity {w}x{h} ({} cells): GPU dispatch+readback = {:?}, CPU (single-thread) = {:?}, ratio (CPU/GPU) = {:.2}x",
+                w * h,
+                gpu_time,
+                cpu_time,
+                cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
+            );
+        }
+    }
+
+    // GPU_LAYER_INTEGRATION_SCOPE.md milestone 3: the height formula
+    // itself. Same verification shape as warp/heterogeneity above -- no
+    // JS-reference comparison (§7c), GPU-side determinism + statistical
+    // sanity + a debug image + real timing.
+
+    fn try_gpu_height() -> Option<GpuContext> {
+        init_gpu_height().ok()
+    }
+
+    /// `(base, stress, flex, hetero, age)` -- named to avoid a 5-tuple of
+    /// `Vec<f32>` tripping `clippy::type_complexity` at every call site.
+    type HeightTestFields = (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>);
+
+    /// Deterministic synthetic input fields sized `w*h`, distinct per field
+    /// so a mis-wired binding (e.g. `stress` accidentally reading `flex`'s
+    /// buffer) would show up as a wrong-shaped result rather than silently
+    /// matching by coincidence -- same reasoning `gpu_heterogeneity`'s own
+    /// non-trivial synthetic `age` field already applied.
+    fn synthetic_height_inputs(n: usize) -> HeightTestFields {
+        let base: Vec<f32> = (0..n).map(|i| ((i * 2654435761u32 as usize) % 1000) as f32 / 1000.0 - 0.5).collect();
+        let stress: Vec<f32> = (0..n).map(|i| ((i * 40503u32 as usize) % 1000) as f32 / 1000.0 - 0.5).collect();
+        let flex: Vec<f32> = (0..n).map(|i| ((i * 2246822519u32 as usize) % 1000) as f32 / 1000.0 * 0.2).collect();
+        let hetero: Vec<f32> = (0..n).map(|i| ((i * 3266489917u32 as usize) % 1000) as f32 / 1000.0 - 0.5).collect();
+        let age: Vec<f32> = (0..n).map(|i| ((i * 668265263u32 as usize) % 1000) as f32 / 1000.0).collect();
+        (base, stress, flex, hetero, age)
+    }
+
+    #[test]
+    fn gpu_height_matches_cpu_reference_at_real_field_size() {
+        let Some(ctx) = try_gpu_height() else {
+            eprintln!("no GPU available -- skipping (requires real hardware)");
+            return;
+        };
+        let (w, h) = (512u32, 512u32);
+        let n = (w * h) as usize;
+        let seed = 24601;
+        let (base, stress, flex, hetero, age) = synthetic_height_inputs(n);
+        let warp_x = vec![0.0f32; n];
+        let warp_y = vec![0.0f32; n];
+        let oro = vec![0.0f32; n]; // has_oro=false below -- content ignored, matches shader's select()
+        let (nf, a, b, age_inf, fwt, hwt) = (5.0f32, 0.5f32, 0.3f32, 0.5f32, 0.15f32, 0.1f32);
+
+        for ridged in [false, true] {
+            let gpu = dispatch_gpu_height(
+                &ctx, w, h, seed, nf, a, b, age_inf, fwt, hwt, ridged, false, &base, &stress, &flex, &hetero, &age,
+                &warp_x, &warp_y, &oro,
+            );
+            let cpu = gpu_height_grid_cpu(
+                w, h, seed, nf, a, b, age_inf, fwt, hwt, ridged, false, &base, &stress, &flex, &hetero, &age, &warp_x,
+                &warp_y, &oro,
+            );
+            let mut max_abs_diff = 0.0f64;
+            let mut mismatches = 0usize;
+            for (g, c) in gpu.iter().zip(cpu.iter()) {
+                let d = ((*g as f64) - (*c as f64)).abs();
+                if d > HEIGHT_TOLERANCE {
+                    mismatches += 1;
+                }
+                if d > max_abs_diff {
+                    max_abs_diff = d;
+                }
+            }
+            eprintln!(
+                "gpu_height (ridged={ridged}) GPU vs CPU at {w}x{h}: {mismatches}/{n} cells exceed tol={HEIGHT_TOLERANCE}, max_abs_diff={max_abs_diff}"
+            );
+            assert_eq!(
+                mismatches, 0,
+                "gpu_height (ridged={ridged}) GPU/CPU diverged beyond {HEIGHT_TOLERANCE} -- see max_abs_diff above"
+            );
+            assert_finite_and_bounded(&gpu, -10.0, 10.0, "height");
+        }
+    }
+
+    #[test]
+    fn gpu_height_has_oro_true_changes_the_formula() {
+        // Regression guard for the has_oro branch specifically: an oro field
+        // that actually differs from `min(stress, 0)` must change the output,
+        // proving the shader's `select()` genuinely branches rather than
+        // silently ignoring the oro buffer either way.
+        let Some(ctx) = try_gpu_height() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let (w, h) = (16u32, 16u32);
+        let n = (w * h) as usize;
+        let (base, stress, flex, hetero, age) = synthetic_height_inputs(n);
+        let warp_x = vec![0.0f32; n];
+        let warp_y = vec![0.0f32; n];
+        let oro_zero = vec![0.0f32; n];
+        let oro_large = vec![5.0f32; n]; // deliberately far from min(stress,0)
+        let (nf, a, b, age_inf, fwt, hwt) = (5.0f32, 0.5f32, 0.3f32, 0.5f32, 0.15f32, 0.1f32);
+
+        let without_oro = dispatch_gpu_height(
+            &ctx, w, h, 1, nf, a, b, age_inf, fwt, hwt, false, false, &base, &stress, &flex, &hetero, &age, &warp_x,
+            &warp_y, &oro_zero,
+        );
+        let with_oro = dispatch_gpu_height(
+            &ctx, w, h, 1, nf, a, b, age_inf, fwt, hwt, false, true, &base, &stress, &flex, &hetero, &age, &warp_x,
+            &warp_y, &oro_large,
+        );
+        assert_ne!(without_oro, with_oro, "has_oro=true with a distinctly different oro field produced identical output -- select() branch not exercised");
+    }
+
+    #[test]
+    fn gpu_height_deterministic_across_runs() {
+        let Some(ctx) = try_gpu_height() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let n = 32 * 32;
+        let (base, stress, flex, hetero, age) = synthetic_height_inputs(n);
+        let warp_x = vec![0.0f32; n];
+        let warp_y = vec![0.0f32; n];
+        let oro = vec![0.0f32; n];
+        let a = dispatch_gpu_height(
+            &ctx, 32, 32, 42, 5.0, 0.5, 0.3, 0.5, 0.15, 0.1, false, false, &base, &stress, &flex, &hetero, &age,
+            &warp_x, &warp_y, &oro,
+        );
+        let b = dispatch_gpu_height(
+            &ctx, 32, 32, 42, 5.0, 0.5, 0.3, 0.5, 0.15, 0.1, false, false, &base, &stress, &flex, &hetero, &age,
+            &warp_x, &warp_y, &oro,
+        );
+        assert_eq!(a, b, "gpu_height not deterministic across runs");
+    }
+
+    /// Qualitative sanity check (`DECISIONS.md` §7a) -- writes a small
+    /// grayscale PGM of a real GPU height field.
+    #[test]
+    fn gpu_height_debug_image_written_for_visual_check() {
+        let Some(ctx) = try_gpu_height() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let (w, h) = (256u32, 256u32);
+        let n = (w * h) as usize;
+        let (base, stress, flex, hetero, age) = synthetic_height_inputs(n);
+        let warp_x = vec![0.0f32; n];
+        let warp_y = vec![0.0f32; n];
+        let oro = vec![0.0f32; n];
+        let height = dispatch_gpu_height(
+            &ctx, w, h, 24601, 5.0, 0.5, 0.3, 0.5, 0.15, 0.1, false, false, &base, &stress, &flex, &hetero, &age,
+            &warp_x, &warp_y, &oro,
+        );
+        let mut mn = f32::INFINITY;
+        let mut mx = f32::NEG_INFINITY;
+        for &v in &height {
+            mn = mn.min(v);
+            mx = mx.max(v);
+        }
+        let range = (mx - mn).max(1e-6);
+        let mut bytes = Vec::with_capacity(n);
+        for &v in &height {
+            bytes.push((((v - mn) / range) * 255.0) as u8);
+        }
+        let path = std::env::temp_dir().join("cartalith_gpu_height_debug.pgm");
+        let mut file_contents = format!("P5\n{w} {h}\n255\n").into_bytes();
+        file_contents.extend_from_slice(&bytes);
+        std::fs::write(&path, &file_contents).expect("failed to write debug PGM");
+        eprintln!("wrote GPU height debug image to {} (range [{mn},{mx}]) -- open it to visually confirm no banding/lattice artifacts", path.display());
+    }
+
+    #[test]
+    fn measured_gpu_height_vs_cpu_timing() {
+        let Some(ctx) = try_gpu_height() else {
+            eprintln!("no GPU available -- skipping timing measurement");
+            return;
+        };
+        let (warm_base, warm_stress, warm_flex, warm_hetero, warm_age) = synthetic_height_inputs(64);
+        let warm_zero = vec![0.0f32; 64];
+        let _ = dispatch_gpu_height(
+            &ctx, 8, 8, 1, 5.0, 0.5, 0.3, 0.5, 0.15, 0.1, false, false, &warm_base, &warm_stress, &warm_flex,
+            &warm_hetero, &warm_age, &warm_zero, &warm_zero, &warm_zero,
+        ); // warm up
+
+        for &(w, h) in &[(128u32, 128u32), (512, 512), (1024, 1024), (2048, 2048)] {
+            let n = (w * h) as usize;
+            let (base, stress, flex, hetero, age) = synthetic_height_inputs(n);
+            let warp_x = vec![0.0f32; n];
+            let warp_y = vec![0.0f32; n];
+            let oro = vec![0.0f32; n];
+
+            let t0 = Instant::now();
+            let _ = dispatch_gpu_height(
+                &ctx, w, h, 24601, 5.0, 0.5, 0.3, 0.5, 0.15, 0.1, false, false, &base, &stress, &flex, &hetero, &age,
+                &warp_x, &warp_y, &oro,
+            );
+            let gpu_time = t0.elapsed();
+
+            let t1 = Instant::now();
+            let _ = gpu_height_grid_cpu(
+                w, h, 24601, 5.0, 0.5, 0.3, 0.5, 0.15, 0.1, false, false, &base, &stress, &flex, &hetero, &age,
+                &warp_x, &warp_y, &oro,
+            );
+            let cpu_time = t1.elapsed();
+
+            eprintln!(
+                "gpu_height {w}x{h} ({} cells): GPU dispatch+readback = {:?}, CPU (single-thread) = {:?}, ratio (CPU/GPU) = {:.2}x",
                 w * h,
                 gpu_time,
                 cpu_time,

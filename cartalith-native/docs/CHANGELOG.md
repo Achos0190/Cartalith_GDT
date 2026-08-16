@@ -3958,3 +3958,106 @@ candidate, per `GPU_LAYER_INTEGRATION_SCOPE.md`'s own note -- its real
 upstream dependency chain (boundary stress, flexure, orogeny, JFA Voronoi
 plate assignment) needs the same investigation-before-scoping pass every
 milestone in this session has had, not assumed reachable.
+
+## GPU layer integration milestone 3 -- the height formula (`compute_height`) on GPU (2026-08-16)
+
+`compute_height` (`cartalith-terrain/src/lib.rs:1001`) ported to GPU
+(`cartalith-gpu`), treating its upstream input fields (`base_field`,
+`stress`, `flex`, `hetero`, `age`, `warp_x`/`warp_y`, `oro`) as opaque
+GPU buffers -- this milestone deliberately does NOT attempt plate
+assignment/stress/flexure/orogeny's own GPU portability, per
+`GPU_LAYER_INTEGRATION_SCOPE.md`'s own scope. Non-`world` branch only,
+matching milestones 1-2's own deferral.
+
+**Built**: `cartalith_noise::gpu_ridged` (6-octave ridged multifractal
+over `gpu_vnoise`, same fold-and-square transform as the JS-matching
+`ridged`, all-`f32` -- the noise-combinator gap milestone 2 anticipated).
+`cartalith-gpu` gains `gpu_height.wgsl`, `init_gpu_height`,
+`dispatch_gpu_height`, and a CPU reference twin (`gpu_height_grid_cpu`).
+`init_gpu_with` gained an automatic `max_storage_buffers_per_shader_stage`
+bump, derived from each kernel's own bind-group layout (counting its
+`Storage`-typed entries) rather than a hand-picked number -- this
+kernel's 9 storage buffers (8 inputs + 1 output) exceed
+`downlevel_defaults()`'s conservative baseline, and milestone 2's own
+3-call-site extension pattern (add a parameter, existing calls
+unaffected) wasn't itself enough here since the *limit*, not just the
+*layout*, needed adjusting. Self-contained, backward-compatible: the
+existing 4 call sites (`init_gpu`/`init_gpu_f64`/`init_gpu_safe_noise`/
+`init_gpu_warp`/`init_gpu_heterogeneity`) are unaffected and scales
+automatically for any future kernel's own buffer count.
+
+**`oro`'s absence changes the formula, not just an additive no-op** --
+unlike `warp_x`/`warp_y` (zero-filled when absent, matching
+`.map_or(0.0, ...)`'s CPU behaviour exactly), `compute_height`'s `t =
+match oro { Some(o) => o[i] + stress.min(0.0), None => stress }` is a
+genuine branch. The shader takes an explicit `has_oro: u32` param and a
+`select()`; a dedicated regression test
+(`gpu_height_has_oro_true_changes_the_formula`, distinctly different oro
+data vs. `has_oro=false`) proves the branch is genuinely wired, not
+silently ignored either way -- the kind of thing a naive all-buffers-are-
+optional-and-zero-filled port would have gotten wrong.
+
+**Verification, no golden-parity possible (`DECISIONS.md` §7c)**: both
+`ridged=false` and `ridged=true` verified against `gpu_height_grid_cpu`
+at 512x512 with 5 distinct, non-trivial synthetic input fields (so a
+mis-wired buffer binding -- e.g. `stress` accidentally reading `flex`'s
+buffer -- would show up as a wrong-shaped result, not pass by
+coincidence): **0/262144 mismatches, max observed absolute difference
+1.19e-7** -- essentially `f32`'s own machine epsilon. This kernel has
+only ONE noise evaluation per cell (unlike `compute_warp`'s two nested
+ones), the same shape as milestone 2's clean `gpu_heterogeneity` result,
+not its compounding `gpu_warp` one -- given its own `HEIGHT_TOLERANCE`
+(`= GPU_SAFE_NOISE_TOLERANCE`, the tightest this crate uses) rather than
+reusing the looser `WARP_TOLERANCE` a first guess might have borrowed
+without checking what was actually measured. Deterministic across
+repeated runs, all output finite and within the expected physical range.
+A debug PGM of a real GPU height field written for by-eye inspection.
+
+**Real timing** (single-threaded CPU vs. GPU dispatch+readback, same
+honest methodology as milestones 1-2):
+
+| Size | `gpu_height` (1 `gpu_fbm`/`gpu_ridged` call/cell + 8 buffer reads) |
+|---|---|
+| 128² | 0.86x (GPU loses, dispatch overhead) |
+| 512² | 5.17x |
+| 1024² | 8.13x |
+| 2048² | 4.84x |
+
+The drop from 1024² to 2048² is reported as measured, not smoothed over
+-- a plausible cause (this kernel reads 8 input buffers vs. `gpu_warp`/
+`gpu_heterogeneity`'s 2-4, so it may be memory-bandwidth-bound rather
+than compute-bound at scale) is not yet investigated; worth a look if
+this kernel's throughput matters later, not chased down here.
+
+- `cargo test -p cartalith-noise -p cartalith-terrain -p cartalith-gpu`:
+  all pass (23/23 in `cartalith-gpu`, includes 5 new height tests; serial
+  or as part of a full workspace run, same known concurrent-GPU-context
+  flake milestone 2 already documented). `cargo clippy -p cartalith-noise
+  -p cartalith-terrain -p cartalith-gpu --all-targets`: clean (one real
+  `clippy::type_complexity` warning on a new test helper's 5-tuple return
+  type, fixed with a named type alias; the pre-existing `dead_code`
+  warnings on test-only dispatch functions are the same known class
+  milestone 2 already documented, not new). `cargo test --workspace`/
+  `cargo build --workspace`: no regressions, `cartalith-terrain`'s
+  existing `compute_height` golden-parity tests untouched and passing
+  (confirms the CPU function was genuinely not modified).
+
+**Also fixed**: `GPU_LAYER_INTEGRATION_SCOPE.md` had picked up a doc-merge
+artifact -- milestone 2's own "Done" completion note had been misplaced
+under milestone 3's heading (a concurrent-edit collision from earlier in
+this session), leaving milestone 2's section without its completion
+record and a stale duplicate "milestone 3: not yet scoped" section
+alongside the real one. Corrected in place as part of this entry's own
+doc update, not left standing.
+
+**Milestone 4 (not scoped here)**: plate assignment/stress/flexure/
+orogeny's own GPU portability is the natural next candidate -- this
+milestone deliberately treated them as opaque buffers and did not
+investigate them. One correction already on record
+(`GPU_LAYER_INTEGRATION_SCOPE.md`): plate assignment uses JFA (Jump
+Flooding Algorithm), which is specifically designed to parallelize well
+on GPU, unlike the genuinely poor-fit graph/sequential algorithms
+(flow accumulation, priority-flood, Dijkstra/MST) -- a hypothesis worth
+checking, not yet a finding. Real investigation of `cartalith-terrain`'s
+actual plate-assignment/stress/flexure/orogeny code is milestone 4's
+first step, the same discipline every milestone here has had.
