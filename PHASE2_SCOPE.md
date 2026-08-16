@@ -147,46 +147,55 @@ default (`scarcity=true, scarcity_legacy=false` — original six unthinned,
 nine v1.31 additions thinned) verified with a dedicated test, not by
 inspection. See `CHANGELOG.md`'s "Phase 2 milestone 5" entry.
 
-## Milestone 6 — settlement-suitability prerequisites: route corridors, landmass quality, coast SDF (current)
+## Milestone 6 — settlement-suitability prerequisites: route corridors, landmass quality, coast SDF: **done** (2026-08-16)
 
-Three more affordance fields `currentSettlementSuitability()`'s real
-`ctx` needs, none built yet (checked 2026-08-16, reference lines noted):
+Ported `buildRouteCorridors` (line 5903), `buildLandmassQuality` (line
+5970), `buildCoastSDF` (line 7462, always via the true-Euclidean JFA
+backend — the only path this port's real caller uses) to `cartalith-civ`.
+All three golden-verified, `1e-4` tolerance, three cases (two established
+fixtures plus a new 48×40 case added specifically to exercise
+`buildRouteCorridors`'s nonzero branch — both established fixtures'
+tiny grids genuinely produce zero corridors from the real reference
+engine, confirmed real, not a bug, but untested by an all-zero fixture).
 
-- **`buildRouteCorridors`** (line 5903, `currentRouteCorridors()` wrapper
-  at 5950) — natural crossroads/passes: a pinch point needs an expensive
-  barrier on BOTH flanking sides of at least one axis (min, not max — a
-  hillside on one side alone doesn't count). Needs `fld`, `currentSlopeField()`
-  (check whether this is the same slope computation `build_slope_field`
-  already provides from milestone 1, or a distinct one — same name,
-  verify before assuming), `flowField` (real). `CORRIDOR_KNEE=0.45`.
-- **`buildLandmassQuality`** (line 5970, `currentLandmassQuality()`
-  wrapper at 6015) — per-cell quality of the LAND COMPONENT a cell sits
-  on (area + mean carrying capacity), not the cell alone — the reason
-  islet settlements were beating fertile mainland cells before this
-  existed. A connected-components flood fill over land, similar shape to
-  milestone 2's below-sea flood fill (reusable pattern, not reusable
-  code — different cell predicate). Needs carrying capacity (real,
-  milestone 4).
-- **`buildCoastSDF`** (line 7462) — signed distance field to the
-  coastline, used for `currentSettlementSuitability`'s real coast
-  distance term (replacing a proximity proxy) and referenced by later
-  render/SDF-tinting work this port has already deliberately deferred
-  (`STATUS.md` Phase 3 notes) — this milestone only needs the SDF
-  computation itself, not any of its Phase-3 rendering consumers.
+Root-caused a real harness bug before trusting the data: `field[0..5]`
+was ~1e-5 off the trusted fixture on the first attempt — not a wrong seed,
+`golden_parity_carve.rs`'s fixture uses `w_iters=12` (a speed override),
+not the real default `70`. Matching it exactly reproduced the fixture
+bit-for-bit. See `CHANGELOG.md`'s "Phase 2 milestone 6" entry for the full
+record, including three real porting subtleties (raw vs. `*GW`-scaled
+slope field, 8-neighbour vs. 4-neighbour flood fill, JFA vs. chamfer SDF
+backend).
 
-**Out of scope for this milestone**: `currentSettlementSuitability` /
-`findSettlementSeeds` themselves (still need river network order —
-`_riverNet`/`buildRiverNetwork`, not yet ported — on top of these three;
-check that dependency once this milestone lands, don't assume it's the
-only one left). Factions, territory, provinces, economy, roads.
+## Milestone 7 — settlement suitability / seed-finding (current)
 
-## Milestone 7+ — not yet scoped
+**First step, not optional**: resolve whether `WorldState.stream_order`
+(already populated by `cartalith-hydrology::strahler_from_receivers` when
+`carve_rivers` is on) is a semantic match for `buildRiverNetwork`'s own
+independent `order` output (`currentSettlementSuitability`'s real
+`riverOrder` input) — milestone 6 found the Strahler-order *solver* is
+already ported, but `buildRiverNetwork` computes its own `recv`/`chan`
+receiver tree via a slope-area threshold + Tarboton-aspect receiver
+selection, which may or may not match whatever `build_channels`' carve-
+pipeline channel computation does. If they match, `ws.stream_order`
+answers this directly with no further porting; if not, port a
+`buildRiverNetwork`-equivalent (reusing `strahler_from_receivers`, fed a
+different `recv`/`chan`). Don't assume either answer — verify first.
 
-`currentSettlementSuitability`/`findSettlementSeeds` (needs milestone 6
-plus river network order, per above), then
-factions/territory/provinces/economy, then roads (`ROADMAP.md` already
-calls the Journey Planner its own sub-phase) — each scoped when reachable,
-not speculatively now.
+Then `currentSettlementSuitability`/`findSettlementSeeds` themselves
+(reference lines ~6319/~6418) — now that lithology/soil/water/carrying-
+capacity/resources/biome/route-corridors/landmass-quality/coast-SDF are
+all real (milestones 1-6), plus whatever milestone 7's own river-order
+step resolves.
+
+**Out of scope for this milestone**: factions, territory, provinces,
+economy, roads (`ROADMAP.md` already calls the Journey Planner its own
+sub-phase).
+
+## Milestone 8+ — not yet scoped
+
+Factions/territory/provinces/culture/economy (block 2 proper), then
+roads/Journey Planner — each scoped when reachable, not speculatively now.
 
 ## Done means (per milestone, not once for the whole phase)
 

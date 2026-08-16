@@ -1181,6 +1181,299 @@ pub fn build_resource_potentials(
     ResourcePotentials { copper, tin, iron, gold, salt, timber, lead, silver, clay, buildstone, flint, obsidian, gems, sulfur, alum }
 }
 
+/// `currentSlopeField()` (reference HTML line 5661): raw `slopeAt(x,y)` per
+/// cell, UNSCALED -- distinct from `build_slope_field`'s output above
+/// (`currentSoil()`'s own inline `slopeAt(x,y)*GW` convention). Confuse the
+/// two and `build_route_corridors`'s cost field silently double-scales.
+pub fn build_raw_slope_field(field: &[f32], gw: usize, gh: usize, world: bool) -> Vec<f32> {
+    let mut out = vec![0f32; gw * gh];
+    for y in 0..gh {
+        for x in 0..gw {
+            out[y * gw + x] = slope_at(field, gw, gh, world, x, y) as f32;
+        }
+    }
+    out
+}
+
+/// `CORRIDOR_KNEE` (reference line 5902): below this the flanks are a
+/// hillside, not a pass.
+pub const CORRIDOR_KNEE: f64 = 0.45;
+
+/// `buildRouteCorridors` (reference HTML line 5903): natural crossroads --
+/// passes, fords, isthmuses -- computed from terrain alone (roads are
+/// generated AFTER settlements in the reference, so a road-derived signal
+/// would make the dependency circular). A corridor cell is cheap to cross
+/// with expensive flanks on BOTH sides of at least one of four axes (a MIN
+/// across the two flanking maxima, not a MAX -- one steep side is a
+/// hillside, two is a pass).
+///
+/// `slope` is `currentSlopeField()`'s raw, unscaled output
+/// (`build_raw_slope_field`, NOT `build_slope_field`) -- this function does
+/// its own `*slope_k` normalisation (`slope_k` defaults to `gw`, the
+/// file-wide resolution-normalised convention). `flow_hi` is the caller-
+/// supplied `riverFlowThresh()` value, matching this crate's existing
+/// `build_water_access`/`build_resource_potentials` convention of threading
+/// former-globals in explicitly.
+#[allow(clippy::too_many_arguments)]
+pub fn build_route_corridors(field: &[f32], slope: &[f32], flow: Option<&[f32]>, gw: usize, gh: usize, sea: f64, world: bool, flow_hi: f64) -> Vec<f32> {
+    let n = gw * gh;
+    let slope_k = gw as f64;
+    let r_reach = ((gw as f64 / 64.0).round() as i64).max(2);
+    let mut out = vec![0f32; n];
+
+    // Traversal cost: steep is expensive, open water is impassable.
+    let mut cost = vec![0f32; n];
+    for i in 0..n {
+        if (field[i] as f64) < sea {
+            cost[i] = 1.0;
+            continue;
+        }
+        let sl = ((slope[i] as f64) * slope_k / 6.0).min(1.0);
+        let riv = if flow.is_some_and(|f| (f[i] as f64) > flow_hi) { 0.55 } else { 0.0 };
+        cost[i] = (sl * 0.85 + riv).clamp(0.0, 1.0) as f32;
+    }
+
+    let axes: [(i64, i64); 4] = [(1, 0), (0, 1), (1, 1), (1, -1)];
+    for y in 0..gh {
+        for x in 0..gw {
+            let i = y * gw + x;
+            if (field[i] as f64) < sea {
+                continue;
+            }
+            let here = cost[i] as f64;
+            if here > 0.45 {
+                continue;
+            }
+            let mut best_gap = 0.0f64;
+            for &(ax, ay) in &axes {
+                let mut hi_a = 0.0f64;
+                let mut hi_b = 0.0f64;
+                for r in 1..=r_reach {
+                    let xa = x as i64 + ax * r;
+                    let ya = y as i64 + ay * r;
+                    let xb = x as i64 - ax * r;
+                    let yb = y as i64 - ay * r;
+                    if xa >= 0 && xa < gw as i64 && ya >= 0 && ya < gh as i64 {
+                        let c = cost[ya as usize * gw + xa as usize] as f64;
+                        if c > hi_a {
+                            hi_a = c;
+                        }
+                    }
+                    if xb >= 0 && xb < gw as i64 && yb >= 0 && yb < gh as i64 {
+                        let c = cost[yb as usize * gw + xb as usize] as f64;
+                        if c > hi_b {
+                            hi_b = c;
+                        }
+                    }
+                }
+                // A corridor needs a barrier on BOTH sides of the axis --
+                // min, not max.
+                let gap = hi_a.min(hi_b) - here;
+                if gap > best_gap {
+                    best_gap = gap;
+                }
+            }
+            out[i] = if best_gap > CORRIDOR_KNEE { ((best_gap - CORRIDOR_KNEE) / (1.0 - CORRIDOR_KNEE)).min(1.0) as f32 } else { 0.0 };
+        }
+    }
+    let _ = world; // `wrap` is not read by the reference's own buildRouteCorridors -- land-only, no x-wrap in the flanking scan.
+    out
+}
+
+/// `buildLandmassQuality`'s per-cell output plus the component bookkeeping
+/// the reference's own return object carries (`comp`/`sizes`/`count`) --
+/// not consumed by this milestone, kept for parity with the reference's
+/// real shape and for later milestones, same precedent `WaterBodies` set.
+pub struct LandmassQuality {
+    pub quality: Vec<f32>,
+    pub comp: Vec<i32>,
+    pub sizes: Vec<usize>,
+    pub count: usize,
+}
+
+/// `buildLandmassQuality` (reference HTML line 5970): per-cell quality of
+/// the LAND COMPONENT a cell sits on (area + mean carrying capacity), not
+/// the cell alone -- an islet whose own cell scores well should not beat a
+/// merely-decent cell on a large fertile landmass. **8-neighbour** flood
+/// fill (diagonals included) -- deliberately different from
+/// `build_water_bodies`'s 4-neighbour below-sea fill; component labelling
+/// order doesn't affect the final partition (unlike the priority-flood
+/// heap's pop order, which does), so this port's own stack-based DFS need
+/// not replicate the reference's flat-array stack mechanics index-for-
+/// index, only the connectivity rule and per-component aggregation.
+/// RELATIVE to the world's own largest landmass (log-scaled area score),
+/// not an absolute cutoff -- an archipelago world is legitimately all
+/// small islands.
+pub fn build_landmass_quality(field: &[f32], carrying_cap: Option<&[f32]>, gw: usize, gh: usize, sea: f64, world: bool) -> LandmassQuality {
+    let n = gw * gh;
+    let mut comp = vec![-1i32; n];
+    let mut sizes: Vec<usize> = Vec::new();
+    let mut cap_sum: Vec<f64> = Vec::new();
+    let mut n_comp: i32 = 0;
+    let mut stack: Vec<usize> = Vec::new();
+
+    for s in 0..n {
+        if (field[s] as f64) < sea || comp[s] >= 0 {
+            continue;
+        }
+        let id = n_comp;
+        n_comp += 1;
+        comp[s] = id;
+        stack.clear();
+        stack.push(s);
+        let mut cells = 0usize;
+        let mut cap = 0.0f64;
+        while let Some(c) = stack.pop() {
+            cells += 1;
+            cap += carrying_cap.map(|k| k[c] as f64).unwrap_or(0.0);
+            let cx = (c % gw) as i64;
+            let cy = (c / gw) as i64;
+            for dy in -1i64..=1 {
+                for dx in -1i64..=1 {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    let ny = cy + dy;
+                    if ny < 0 || ny >= gh as i64 {
+                        continue;
+                    }
+                    let nx = if world { ((cx + dx) % gw as i64 + gw as i64) % gw as i64 } else { cx + dx };
+                    if !world && (nx < 0 || nx >= gw as i64) {
+                        continue;
+                    }
+                    let ni = ny as usize * gw + nx as usize;
+                    if (field[ni] as f64) < sea || comp[ni] >= 0 {
+                        continue;
+                    }
+                    comp[ni] = id;
+                    stack.push(ni);
+                }
+            }
+        }
+        sizes.push(cells);
+        cap_sum.push(cap);
+    }
+
+    let mut out = vec![0f32; n];
+    if n_comp == 0 {
+        return LandmassQuality { quality: out, comp, sizes, count: 0 };
+    }
+    let max_size = *sizes.iter().max().unwrap() as f64;
+    let area_score: Vec<f64> = sizes
+        .iter()
+        .map(|&sz| {
+            let r = sz as f64 / max_size;
+            ((r.log10() + 3.0) / 3.0).clamp(0.0, 1.0)
+        })
+        .collect();
+    let cap_mean: Vec<f64> = sizes.iter().zip(cap_sum.iter()).map(|(&sz, &cs)| if sz > 0 { cs / sz as f64 } else { 0.0 }).collect();
+    let best_cap = cap_mean.iter().cloned().fold(1e-6, f64::max);
+    for i in 0..n {
+        if (field[i] as f64) < sea {
+            continue;
+        }
+        let c = comp[i] as usize;
+        out[i] = (0.65 * area_score[c] + 0.35 * (cap_mean[c] / best_cap)).clamp(0.0, 1.0) as f32;
+    }
+    LandmassQuality { quality: out, comp, sizes, count: n_comp as usize }
+}
+
+/// `jfaDist` (reference HTML line 7444): Jump Flooding Algorithm (Rong &
+/// Tan 2006) -- true Euclidean distance from a boolean seed mask via
+/// `log2(N)` halving passes, each cell propagating its nearest seed cell's
+/// COORDINATE (not just a running distance) from 8 neighbours at the
+/// current step size. Sharper than `chamfer_dist`'s <=1-cell anisotropy;
+/// this is the SDF backend `buildCoastSDF` actually uses in production
+/// (`{euclid:true}`, the only call site in this port's scope).
+fn jfa_dist(seed_mask: &[u8], gw: usize, gh: usize) -> Vec<f32> {
+    let n = gw * gh;
+    const INF: f64 = 1e30;
+    let mut sx = vec![-1i64; n];
+    let mut sy = vec![-1i64; n];
+    let mut d2 = vec![0f64; n];
+    for i in 0..n {
+        if seed_mask[i] != 0 {
+            sx[i] = (i % gw) as i64;
+            sy[i] = (i / gw) as i64;
+            d2[i] = 0.0;
+        } else {
+            d2[i] = INF;
+        }
+    }
+    let max_dim = gw.max(gh).max(2) as f64;
+    let mut max_step: i64 = 1;
+    while (max_step as f64) < max_dim {
+        max_step <<= 1;
+    }
+    let mut step = max_step >> 1;
+    while step >= 1 {
+        for y in 0..gh {
+            for x in 0..gw {
+                let i = y * gw + x;
+                let mut dy = -step;
+                while dy <= step {
+                    let mut dx = -step;
+                    while dx <= step {
+                        if dx != 0 || dy != 0 {
+                            let nx = x as i64 + dx;
+                            let ny = y as i64 + dy;
+                            if nx >= 0 && nx < gw as i64 && ny >= 0 && ny < gh as i64 {
+                                let j = ny as usize * gw + nx as usize;
+                                if sx[j] >= 0 {
+                                    let ex = (x as i64 - sx[j]) as f64;
+                                    let ey = (y as i64 - sy[j]) as f64;
+                                    let dd = ex * ex + ey * ey;
+                                    if dd < d2[i] {
+                                        d2[i] = dd;
+                                        sx[i] = sx[j];
+                                        sy[i] = sy[j];
+                                    }
+                                }
+                            }
+                        }
+                        dx += step;
+                    }
+                    dy += step;
+                }
+            }
+        }
+        step >>= 1;
+    }
+    let mut out = vec![0f32; n];
+    for i in 0..n {
+        out[i] = if sx[i] < 0 { 1e9 } else { d2[i].sqrt() as f32 };
+    }
+    out
+}
+
+/// `buildCoastSDF` (reference HTML line 7462): signed distance to the
+/// coastline -- negative inland (distance to water), positive offshore
+/// (distance to land), zero at the shoreline. Always the JFA (true
+/// Euclidean) backend: `currentSettlementSuitability()`, this port's only
+/// real caller, passes `{euclid:true}` -- the `chamferDist` fallback
+/// (`opts.euclid` falsy) has no consumer in this port's scope, so it's not
+/// ported here (`PHASE2_SCOPE.md`'s own guidance against half-porting a
+/// path nothing calls).
+pub fn build_coast_sdf(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32> {
+    let n = gw * gh;
+    let mut land = vec![0u8; n];
+    let mut water = vec![0u8; n];
+    for i in 0..n {
+        if (field[i] as f64) < sea {
+            water[i] = 1;
+        } else {
+            land[i] = 1;
+        }
+    }
+    let d_to_land = jfa_dist(&land, gw, gh);
+    let d_to_water = jfa_dist(&water, gw, gh);
+    let mut sdf = vec![0f32; n];
+    for i in 0..n {
+        sdf[i] = if (field[i] as f64) < sea { d_to_land[i] } else { -d_to_water[i] };
+    }
+    sdf
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

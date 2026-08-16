@@ -3108,3 +3108,83 @@ the next real milestone -- still needs route corridors, landmass quality,
 and coast SDF (none built yet, per milestone 1's original dependency
 trace) on top of everything now real. Factions, territory, provinces,
 economy, and the Journey Planner remain untouched and further out.
+
+## Phase 2 milestone 6 — settlement-suitability prerequisites: route corridors, landmass quality, coast SDF (2026-08-16)
+
+Ports the last three affordance fields `currentSettlementSuitability()`'s
+real `ctx` needs before settlement suitability itself becomes reachable:
+`buildRouteCorridors` (reference line 5903), `buildLandmassQuality` (line
+5970), `buildCoastSDF` (line 7462, always via the JFA/Euclidean backend
+`{euclid:true}` -- the only path this port's production caller actually
+uses).
+
+**A real harness bug found and root-caused before trusting any of this
+milestone's data.** The first extraction attempt reproduced `field[0..5]`
+close to but not bit-identical to `golden_parity_carve.rs`'s fixture
+(~1e-5 off) -- small enough to look like float noise, but this project's
+own discipline doesn't accept "close" as a harness cross-check. Root
+cause: that fixture was captured with `p.climate.w_iters=12` (an explicit
+speed override, not the real default `70`), so wind/rain convergence --
+and the carved `field` downstream -- genuinely differs at the reference's
+own literal default. Setting `state.climate.wIters=12` before extraction
+reproduced the fixture exactly. A parameter mismatch, not a wrong-seed or
+wrong-code-path bug this time.
+
+**Three real subtleties caught during porting, not just formula
+transcription:**
+- `currentSlopeField()` (raw `slopeAt(x,y)`, reference line 5661) is
+  distinct from `currentSoil()`'s own inline `slopeAt(x,y)*GW` convention
+  `build_slope_field` (milestone 1) already provides -- reusing the wrong
+  one would silently double- or under-scale `buildRouteCorridors`'s cost
+  field. Added `build_raw_slope_field` as the correct, separate input.
+- `buildLandmassQuality`'s flood fill is **8-neighbour** (diagonals
+  included) -- deliberately different from `build_water_bodies`'s
+  (milestone 2) 4-neighbour below-sea fill. Component-labelling order
+  doesn't affect the final partition the way the priority-flood heap's pop
+  order decided lake shape, so this port's own stack-based traversal
+  doesn't need to replicate the reference's flat-array stack mechanics
+  index-for-index, only the connectivity rule.
+- `buildCoastSDF` dispatches between a chamfer fallback and a true-Euclidean
+  Jump Flooding Algorithm (`jfaDist`, Rong & Tan 2006) depending on
+  `opts.euclid`; the only real caller in this port's scope always passes
+  `{euclid:true}`, so `jfaDist` (log2(N) halving passes, each cell
+  propagating its nearest seed cell's coordinate from 8 neighbours at the
+  current step size) was ported, not the simpler chamfer path.
+
+**Golden verification**: two cases reuse this crate's established fixture
+configs (matching `golden_parity_carve.rs`/`golden_parity_resource_
+potentials.rs`); a third, larger case (`gw=48 gh=40 seed=777 world=false`)
+was added specifically because both established fixtures' tiny grids
+(154/192 cells) genuinely produce **zero** nonzero corridor cells from the
+real reference engine -- confirmed real (`buildRouteCorridors`'s own
+comment: "SPARSE, like every other opportunity term", `CORRIDOR_KNEE=0.45`
+is a strict threshold), not a bug, but an all-zero fixture would pass even
+with an inverted min/max in the flanking-barrier logic. The larger case
+(203/1920 cells nonzero) genuinely exercises that branch. `1e-4` tolerance
+for the two continuous fields (corridors, coast SDF); landmass-quality
+component count asserted exact (an integer). All three cases passed on the
+first attempt.
+
+- `cargo test/clippy -p cartalith-civ --all-targets`: clean (44 unit +
+  13 golden tests). `cargo test/build/clippy --workspace`: no regressions.
+
+**Milestone 7 scoping**: `currentSettlementSuitability`/`findSettlementSeeds`
+themselves still need river network order (`_riverNet.order`, from
+`buildRiverNetwork`, reference line 4494) on top of everything this
+milestone lands. Checked, not assumed away -- and the finding is more
+nuanced than "missing": `cartalith-hydrology::strahler_from_receivers`
+(the pure Strahler solver `buildRiverNetwork` itself calls, reference line
+4454) is already ported, and `WorldState.stream_order` is already
+populated by it when `carve_rivers` is on (`cartalith-engine`, feeding
+`ch.recv`/`ch.chan` from `build_channels`'s carve-pipeline channel
+computation into the same ordering rule). **Not yet verified**: whether
+`build_channels`'s receiver/channel logic is a semantic match for
+`buildRiverNetwork`'s own independent channelization (it recomputes `recv`/
+`chan` itself via a slope-area threshold + Tarboton-aspect receiver
+selection, rather than necessarily reusing whatever the carve pipeline's
+own channel computation does) -- if it matches, `ws.stream_order` may
+already answer settlement suitability's `riverOrder` term directly with no
+further porting; if the two channelization approaches differ, milestone 7
+needs its own `buildRiverNetwork`-equivalent (reusing `strahler_from_
+receivers`, just fed a different `recv`/`chan`). Milestone 7's own first
+step is resolving this, not assuming either answer.
