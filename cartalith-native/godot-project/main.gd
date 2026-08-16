@@ -20,7 +20,7 @@ extends Control
 ## %-refs keep this script stable if that nesting changes again without
 ## touching any of these lines.
 @onready var seed_input: SpinBox = %SeedInput
-@onready var resolution_input: SpinBox = %ResolutionInput
+@onready var resolution_input: OptionButton = %ResolutionInput
 @onready var width_input: SpinBox = %WidthInput
 @onready var world_shape_input: OptionButton = %WorldShapeInput
 @onready var dynamic_lithology_check: CheckBox = %DynamicLithologyCheck
@@ -58,6 +58,13 @@ const WORLD_SHAPES: Array[String] = ["", "earth", "supercontinent", "archipelago
 ## Display labels shown in the dropdown, same order/index as WORLD_SHAPES.
 const WORLD_SHAPE_LABELS: Array[String] = ["Classic", "Earth-like", "Supercontinent", "Archipelago", "Volcanic", "Rift"]
 
+## Reference HTML's real "Working resolution" presets (`#resSeg` buttons:
+## 512/1K/2K/4K/8K, default 2K) -- this port previously capped at 512 via a
+## 32-512 SpinBox, far below what the reference actually offers by default.
+const RESOLUTION_PRESETS: Array[int] = [512, 1024, 2048, 4096, 8192]
+const RESOLUTION_LABELS: Array[String] = ["512", "1K", "2K", "4K", "8K"]
+const RESOLUTION_DEFAULT_INDEX := 2 ## 2K, matching the reference's own default.
+
 ## Below this viewport width, the fixed-width controls panel (360px, see
 ## main.tscn) plus a usably-sized map no longer both fit comfortably with
 ## touch-sized controls, so the layout stacks instead of sitting side by
@@ -77,6 +84,10 @@ func _ready() -> void:
 	for label in WORLD_SHAPE_LABELS:
 		world_shape_input.add_item(label)
 	world_shape_input.selected = 0
+
+	for label in RESOLUTION_LABELS:
+		resolution_input.add_item(label)
+	resolution_input.selected = RESOLUTION_DEFAULT_INDEX
 
 	generate_button.pressed.connect(_on_generate_pressed)
 	load_save_button.pressed.connect(_on_load_save_pressed)
@@ -110,7 +121,7 @@ func _on_generate_pressed() -> void:
 	status_label.text = "generating..."
 
 	var seed_value := int(seed_input.value)
-	var resolution := int(resolution_input.value)
+	var resolution := RESOLUTION_PRESETS[resolution_input.selected]
 	var width_km := width_input.value
 	var archetype := WORLD_SHAPES[world_shape_input.selected]
 
