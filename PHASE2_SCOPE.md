@@ -363,12 +363,58 @@ can be ported/built — a real decision for the project owner, not something
 to improvise here. Raised directly with the owner 2026-08-16; revisit once
 that direction is set.
 
-## Milestone 11+ — not yet scoped
+## Milestone 11 — road network algorithm (current)
 
-`_civSeedVillages` (once its real inputs are understood independent of the
-UI toggle), roads/Journey Planner (`ROADMAP.md`'s own sub-phase, needs its
-own investigation pass at the same depth every milestone here has had) —
-each scoped when reachable, not speculatively now.
+Investigated 2026-08-16, choosing between the remaining candidates:
+`_civSeedVillages` (reference line ~25164) reads `ways` (a road network)
+via `_civRoadProximityQuery(ways, cell)`, load-bearing in its village
+acceptance probability — genuinely blocked on roads existing first, not a
+false blocker. Territory stays blocked on the owner decision (milestone
+10). Roads themselves turn out to be reachable now: `buildTravelCost`
+(reference line 3257), `roadDijkstra` (line 3275), and `buildRoadNetwork`
+(line 3316) are **block-1, pure, no DOM dependency at all** — the
+reference's own comment on `buildRoadNetwork` says so outright ("MST over
+the designated places using cost-distance... Pure").
+
+- **`buildTravelCost`** — small: slope² cost field, water cells
+  impassable (`Infinity`). Trivial once field/sea are real (they are).
+- **`roadDijkstra`** — single-source Dijkstra over an 8-neighbour cost
+  grid, own hand-rolled binary min-heap (parallel-array, same shape as
+  milestone 2's `buildWaterBodies` heap — a DIFFERENT heap instance, not
+  reusable code, but a precedent for how this crate already ports this
+  exact structure). Read the reference's own v0.70 comment carefully: a
+  real, subtle precision bug it already fixed once (`Float64` push
+  priorities vs. `Float32` `dist` array causing values that compare-less
+  but round-equal, an infinite-repush hazard) — the fix (a `visited` guard
+  finalizing each cell on first pop) is part of the specification now, not
+  optional cleanup; port it as written, don't "simplify" it back to the
+  pre-fix shape.
+- **`buildRoadNetwork`** — Prim's MST over the settlement set, using each
+  settlement's own full-grid Dijkstra distances (one `roadDijkstra` call
+  per settlement) as edge weights; reconstructs the actual cell-path for
+  each MST edge via `prev` backtracking.
+
+**Caller-agnostic on purpose**: this milestone ports the algorithm only,
+not `buildRoadsOp()` (which reads `state.places` — user-clicked map
+markers, a distinct manual-placement tool, not the civ auto-populate
+settlements milestones 8-9 built) and not whatever step (if any)
+`_civIterativeAutoWorld`'s own flow uses to connect its auto-placed
+settlements — that wiring is a separate, later step, investigate it before
+assuming its shape once this milestone's algorithm is real and tested.
+
+**Out of scope for this milestone**: `_civSeedVillages` (unblocked by this
+landing, but its own milestone, needs a fresh look at what `ways` actually
+needs to look like once real roads exist), the Journey Planner itself
+(`jpJourneyCost` and everything around it — `ROADMAP.md` already calls
+this its own large sub-phase), territory/provinces (milestone 10, still
+blocked on the owner).
+
+**Where the code goes**: check whether this belongs in `cartalith-civ`
+(matching every other milestone) or a lower-level crate — `buildRoadNetwork`
+lives in block 1 of the reference (line ~3316, well before the civ block
+starts around line 12000+), which is a genuine signal worth weighing
+against `ARCHITECTURE.md`'s crate boundaries before assuming `cartalith-civ`
+by default the way every prior milestone did.
 
 ## Done means (per milestone, not once for the whole phase)
 
