@@ -146,7 +146,17 @@ fn compute_civilisation(ws: &cartalith_engine::WorldState, gw: usize, gh: usize,
 
     let slope_n = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
     let suit = cartalith_civ::build_settlement_suitability(&soil, &water_access, &carrying_cap, &ws.field, &slope_n, gw, gh, sea_level, Some(&ctx));
-    let seeds = cartalith_civ::find_settlement_seeds(&suit, gw, gh, 0.65, (gw as f64 / 20.0).max(4.0));
+    // Reference `_civIterativeAutoWorld` (the real auto-populate entry
+    // point this function mirrors -- not the standalone .f32/JSON export
+    // path, which the earlier golden-parity fixtures were built against):
+    // `findSettlementSeeds(suit,GW,GH,{thresh:wantCounts?0.35:SETTLE_SEED_THRESH,suppR})`
+    // with `suppR=wantCounts?...:Math.max(6,(GW/22)|0)`. This port has no
+    // `wantCounts` (no fixed-tier-count UI), so the real default branch is
+    // `SETTLE_SEED_THRESH=0.42`/`max(6, floor(GW/22))` -- found and flagged
+    // by Phase 2 milestone 15's own investigation (`PHASE2_SCOPE.md`),
+    // corrected here rather than left as the placeholder 0.65/GW/20 an
+    // earlier pass used before this real call site existed to check against.
+    let seeds = cartalith_civ::find_settlement_seeds(&suit, gw, gh, 0.42, (gw as f64 / 22.0).floor().max(6.0));
 
     let placements = cartalith_civ::place_settlements(&seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, CIV_FACTION_COUNT);
     let settlements = cartalith_civ::name_and_populate_settlements(&placements);
