@@ -323,3 +323,38 @@ Rust remains the core simulation language; `wgpu` is the primary GPU abstraction
 Cartalith should not ask "does this computer have a GPU?" It should ask "what compute hardware is available, what can it actually do, what is the most efficient execution strategy for this workload, and how can I use it without compromising correctness or responsiveness?" That principle should govern the entire Rust compute architecture, scaling from a low-end CPU-only machine through multicore desktop CPU, integrated GPU, mobile GPU, to a high-end desktop GPU, without requiring separate simulation architectures for each class of machine.
 
 Hardware capability determines execution strategy. The simulation model remains the same.
+
+## Real-world findings so far (updated as GPU/CPU work actually lands)
+
+**CPU multithreading was the real, immediate gap, not GPU.** Checked
+2026-08-16 (owner's own observation: "currently on my system it doesn't
+seem to fully use the cpu"): confirmed `rayon` was never added as a
+dependency and every per-cell loop across the entire pipeline ran on a
+single thread, on a 16-logical-core machine. `CPU_MULTITHREADING_SCOPE.md`
+covers this — and unlike GPU work, it needs none of §7a's carve-out,
+since parallelizing an existing per-cell loop changes nothing about the
+math, only execution order across already-independent cells. Given GPU
+milestone 6 found the dedicated-GPU path currently *loses* to CPU below
+2048² (per-call context-creation overhead), CPU parallelism is plausibly
+the higher-value near-term win, not a consolation prize.
+
+**Using the integrated GPU alongside the dedicated one — a real idea,
+not yet scoped.** Also raised 2026-08-16: this machine (and presumably
+many real target machines) has both a dedicated and an integrated GPU.
+`cartalith-gpu` currently only ever requests one `PowerPreference::
+HighPerformance` adapter — correctly picks the dedicated GPU (confirmed
+by the pilot's own results), but the integrated GPU is never enumerated
+or used for anything, even as a secondary resource for smaller/latency-
+tolerant work running alongside the dedicated GPU's main pipeline. This
+is architecturally consistent with §13's own "desktop integrated vs
+discrete GPU" section, which already anticipates inspecting multiple
+adapters rather than blindly picking one — but actually building
+multi-adapter workload splitting is a genuinely more complex undertaking
+than anything implemented so far (adapter enumeration, capability-based
+workload assignment, avoiding the two GPUs contending over the same PCIe/
+memory bandwidth in ways that net out worse than just using one well).
+Deliberately not scoped yet — CPU multithreading and finishing out the
+single-dedicated-GPU pipeline (context reuse, per `GPU_LAYER_INTEGRATION_
+SCOPE.md`'s own milestone 6 finding) are the higher-value next steps.
+Revisit this once those are real and the actual remaining headroom is
+clearer, not before.
