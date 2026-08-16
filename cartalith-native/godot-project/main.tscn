@@ -216,6 +216,13 @@ autowrap_mode = 3
 button_pressed = true
 text = "Show settlements & roads"
 
+[node name="TerritoryLayerCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/MapLayersCard/MapLayersMargin/MapLayersVBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+autowrap_mode = 3
+button_pressed = false
+text = "Show territory (faction colour fill)"
+
 [node name="AdvancedCard" type="PanelContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList"]
 theme_type_variation = &"SettingsCard"
 
@@ -264,6 +271,13 @@ autowrap_mode = 3
 button_pressed = true
 text = "Ocean-current SST folding"
 
+[node name="VillagesCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+autowrap_mode = 3
+button_pressed = false
+text = "Village seeding (Phase 2, additive hamlets)"
+
 [node name="FooterSeparator" type="HSeparator" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox"]
 
 [node name="FooterVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox"]
@@ -305,6 +319,15 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 expand_mode = 1
 stretch_mode = 5
+
+[node name="TerritoryView" type="TextureRect" parent="Root/StageMargin/Stage/MapPanel/MapMargin"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+size_flags_vertical = 3
+expand_mode = 1
+stretch_mode = 5
+mouse_filter = 2
+visible = false
 
 [node name="MapOverlay" type="Control" parent="Root/StageMargin/Stage/MapPanel/MapMargin"]
 unique_name_in_owner = true

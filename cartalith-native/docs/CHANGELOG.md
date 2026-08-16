@@ -4487,3 +4487,102 @@ excluding lakes -- a straightforward variant, not a new algorithm).
 Economy, culture, and territory sub-partitioning
 (`_civGenerateProvinces`) remain untouched, out of scope for this pass as
 directed.
+
+## UI/UX catch-up: territory + villages (2026-08-16)
+
+Second UI/UX-catch-up pass this session (the first wired settlements/
+factions/roads into `map_overlay.gd`; the ongoing practice per the
+owner's own words: "keep an agent in parallel for the gui"). Two Phase 2
+milestones had landed with real output and zero visual representation:
+milestone 10 (territory assignment, `assign_territory`) — its own
+implementing pass explicitly flagged it was never rendered or even
+looked at — and milestone 15 (village seeding, `civ_seed_villages`),
+which wasn't called from `cartalith-godot` at all yet.
+
+**Part 1 — wired both into the real pipeline** (`cartalith-godot/src/
+lib.rs`). `compute_civilisation()` gained a `villages_enabled: bool`
+parameter (threaded from a new `WorldGen.villages` field, default
+`false` matching the reference's real `_civVillages` default). When
+enabled: one `Mulberry32` instance is created via `civ_name_rng()` and
+threaded through *both* `name_and_populate_settlements_with_rng` and
+`civ_seed_villages` — a single continuous stream, not two independent
+RNGs, per `civ_seed_villages`'s own doc comment requirement (a bug in an
+early draft of this edit: an accidental duplicate `civ_name_rng()` call
+created a second, desynced RNG instance; caught and fixed during
+self-review before verification, never shipped). `civ_routing_grid`
+(the `routing_rw`/`routing_sc` grid `civ_seed_villages` needs) is
+`private` in `cartalith-civ` — rather than widen that crate's public API
+while a concurrent fork was actively editing the same file (milestone 14
+landed mid-session, see below), its trivial formula (`rw =
+gw.min(384)`, `sc = rw/gw`) is replicated locally in `cartalith-godot`
+instead. Seeded villages come back as `VillageSettlement { x, y, name,
+faction }` and are merged into the same `Vec<NamedSettlement>` the map
+overlay already draws, tagged `SettlementKind::Hamlet`, `pop: 0`
+(villages don't carry a population figure in the reference either).
+Territory is unconditional (not gated) — `assign_territory` is called
+every generation regardless of the `villages` toggle, reusing the
+already-computed `cost` field from the road network (one Dijkstra per
+capital, cheap), and there's no reference default to match since the
+reference has no algorithmic territory generation at all
+(`DECISIONS.md` §7b).
+
+**Part 2 — rendered both.** Territory: per-cell `Vec<i32>` grid data is
+too large for `map_overlay.gd`'s per-marker `_draw()` calls (the pattern
+settlements/roads use) — instead, a new `build_territory_texture()`
+(mirrors the existing `build_color_texture()` pattern) turns it into an
+RGBA8 `ImageTexture`: the same 6-hue Okabe-Ito palette settlement
+markers already use, at alpha 82/255 (~0.32) so terrain/biome colour
+still reads through, transparent for unowned cells (water or
+unreachable from any capital). A new `TerritoryView` `TextureRect` sits
+in `main.tscn` between `MapView` (terrain) and `MapOverlay` (settlement/
+road vector draw) for correct z-order, wired to a new default-OFF "Show
+territory (faction colour fill)" checkbox in the existing "Map Layers"
+card. Villages needed no new rendering code at all — merging them into
+the existing settlement list means `map_overlay.gd`'s established
+tier-based marker/hover pattern already draws and labels them as
+`Hamlet`-tier markers, gated by a new default-OFF "Village seeding
+(Phase 2, additive hamlets)" checkbox under "Advanced Features".
+
+**Verified — real windowed app, not just headless.** `cargo build -p
+cartalith-godot`, `cargo clippy -p cartalith-godot --all-targets`, and
+`cargo build --workspace` all clean (only pre-existing warnings from
+concurrent GPU-integration work elsewhere in the workspace, none from
+these changes). Launched the actual windowed MVP UI on this session's
+real Windows desktop (PID/hwnd captured, `PrintWindow`-based screenshot
+technique per this session's established method), scrolled the settings
+panel with synthetic mouse-wheel events to reveal the two new
+checkboxes (a real PowerShell gotcha hit and fixed along the way: the
+`mouse_event` P/Invoke signature's `dwData` parameter must be declared
+signed `int`, not `uint` — a negative wheel-delta value throws a type-
+conversion error against an unsigned parameter type), checked both,
+generated a real 512×512 world (seed 12345, 800 km, Classic), and
+screenshotted the result. **Confirmed by actually looking at it**:
+territory renders as four plausible, contiguous colour-filled regions
+(orange/blue/yellow/teal-green) that follow the landmasses and stop
+cleanly at coastlines and open water — not noise, not a uniform tint —
+and village seeding visibly densifies the settlement layer: dense
+clusters of small hamlet-tier dots surround each capital well beyond
+what base settlement placement alone produces, with the status label
+confirming 240 total settlements for this run.
+
+**Scope discipline held**: sea routes (13), road consolidation/
+smoothing rendering (14 — its data-layer function `
+civ_consolidate_and_smooth_ways` landed mid-session from a concurrent
+fork, confirmed via `git log` to touch only `cartalith-civ` and its own
+docs, not `cartalith-godot` or `godot-project/` — the map correctly
+still renders milestone 12's raw topology, since wiring 14 in was never
+part of either fork's scope), the full interactive civ editor, and
+territory sub-partitioning into provinces all stayed untouched, exactly
+as directed.
+
+**Files touched**: `cartalith-native/crates/cartalith-godot/src/lib.rs`
+(`CivData.territory` field, `compute_civilisation()` signature +
+villages/territory wiring, `WorldGen.villages` field +
+`set_villages_enabled()`, `build_territory_texture()`),
+`cartalith-native/godot-project/main.tscn` (`TerritoryLayerCheck`,
+`VillagesCheck`, `TerritoryView`), `cartalith-native/godot-project/
+main.gd` (onready refs, toggle wiring, `set_villages_enabled()` call,
+`build_territory_texture()` call, clearing `territory_view.texture` on
+save-load). `cartalith-civ` untouched — deliberately, both to stay
+disjoint from the concurrent milestone-14 fork and because no new
+public API was needed there.

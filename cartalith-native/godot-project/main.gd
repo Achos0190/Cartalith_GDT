@@ -31,8 +31,11 @@ extends Control
 @onready var load_save_button: Button = %LoadSaveButton
 @onready var status_label: Label = %StatusLabel
 @onready var map_view: TextureRect = %MapView
+@onready var territory_view: TextureRect = %TerritoryView
 @onready var map_overlay: Control = %MapOverlay
 @onready var civ_layer_check: CheckBox = %CivLayerCheck
+@onready var territory_layer_check: CheckBox = %TerritoryLayerCheck
+@onready var villages_check: CheckBox = %VillagesCheck
 @onready var load_save_dialog: FileDialog = %LoadSaveDialog
 
 ## Responsive layout (see `_update_responsive_layout`): `Stage` is a plain
@@ -95,6 +98,7 @@ func _ready() -> void:
 	load_save_button.pressed.connect(_on_load_save_pressed)
 	load_save_dialog.file_selected.connect(_on_save_file_selected)
 	civ_layer_check.toggled.connect(func(pressed: bool): map_overlay.visible = pressed)
+	territory_layer_check.toggled.connect(func(pressed: bool): territory_view.visible = pressed)
 	get_viewport().size_changed.connect(_update_responsive_layout)
 	_update_responsive_layout()
 
@@ -137,6 +141,10 @@ func _on_generate_pressed() -> void:
 		wind_deflection_check.button_pressed,
 		ocean_currents_check.button_pressed,
 	)
+	## Reference `_civVillages` default OFF (Phase 2 milestone 15) --
+	## gated separately from the four flags above since it's civ-layer,
+	## not terrain-substrate.
+	world_gen.set_villages_enabled(villages_check.button_pressed)
 
 	var ok := true
 	if archetype.is_empty():
@@ -179,6 +187,7 @@ func _on_generate_done(seed_value: int, width_km: float) -> void:
 		var settlements := world_gen.get_settlements()
 		var roads := world_gen.get_roads()
 		map_overlay.set_civ_data(settlements, roads, world_gen.get_width(), world_gen.get_height())
+		territory_view.texture = world_gen.build_territory_texture()
 
 		var shape_label := world_shape_input.get_item_text(world_shape_input.selected)
 		var civ_note := ", %d settlements" % settlements.size() if not settlements.is_empty() else ""
@@ -209,9 +218,10 @@ func _on_save_file_selected(path: String) -> void:
 	if tex:
 		map_view.texture = tex
 		## No civ data in a loaded save (WorldGen.load_save's own doc
-		## comment) -- clear any settlements/roads left over from a
-		## previous generate() so a stale overlay doesn't linger.
+		## comment) -- clear any settlements/roads/territory left over
+		## from a previous generate() so a stale overlay doesn't linger.
 		map_overlay.set_civ_data([], [], world_gen.get_width(), world_gen.get_height())
+		territory_view.texture = null
 		status_label.text = "loaded %s (%dx%d)" % [
 			path.get_file(), world_gen.get_width(), world_gen.get_height()
 		]

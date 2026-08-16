@@ -78,6 +78,16 @@ enum WorldSource {
 struct CivData {
     settlements: Vec<cartalith_civ::NamedSettlement>,
     roads: Vec<cartalith_civ::RoadEdge>,
+    /// `cartalith_civ::assign_territory`'s per-cell output (Phase 2
+    /// milestone 10, `DECISIONS.md` §7b -- cost-distance Voronoi from
+    /// capitals, population-weighted, no JS reference to match since the
+    /// reference has no algorithmic territory generation at all). `0` =
+    /// unowned (water, or unreachable from any capital). Always computed
+    /// (cheap: one Dijkstra per capital, already-real `cost` field reused
+    /// from the road network above) -- unlike `villages`, this isn't
+    /// gated, since there's no reference default to match and no reason
+    /// to withhold it.
+    territory: Vec<i32>,
 }
 
 /// Runs the full Phase 2 pipeline (milestones 1-11) over a freshly
@@ -90,7 +100,16 @@ struct CivData {
 /// "Unclaimed" at index 0, reference line ~14568).
 const CIV_FACTION_COUNT: i32 = 6;
 
-fn compute_civilisation(ws: &cartalith_engine::WorldState, gw: usize, gh: usize, world: bool, map_width_km: f64, river_density: f64) -> CivData {
+#[allow(clippy::too_many_arguments)]
+fn compute_civilisation(
+    ws: &cartalith_engine::WorldState,
+    gw: usize,
+    gh: usize,
+    world: bool,
+    map_width_km: f64,
+    river_density: f64,
+    villages_enabled: bool,
+) -> CivData {
     let sea_level = ws.sea_level;
     let wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea_level, world, Some(&ws.rainfall));
     let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
@@ -159,12 +178,82 @@ fn compute_civilisation(ws: &cartalith_engine::WorldState, gw: usize, gh: usize,
     let seeds = cartalith_civ::find_settlement_seeds(&suit, gw, gh, 0.42, (gw as f64 / 22.0).floor().max(6.0));
 
     let placements = cartalith_civ::place_settlements(&seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, CIV_FACTION_COUNT);
-    let settlements = cartalith_civ::name_and_populate_settlements(&placements);
 
     let cost = cartalith_civ::build_travel_cost(&ws.field, gw, gh, sea_level);
     let roads = cartalith_civ::build_road_network(&placements, &cost, gw, gh, world);
 
-    CivData { settlements, roads }
+    // Reference `_civIterativeAutoWorld`: placement-naming and village
+    // seeding draw from ONE continuous mulberry32 stream, not two
+    // independent ones (`civ_seed_villages`'s own doc comment). Only
+    // matters when villages are actually requested -- the plain
+    // `name_and_populate_settlements()` (fresh RNG each call, milestones
+    // 8/9's own golden-verified default path) stays exactly as before
+    // when they're not, so disabling this toggle is still bit-identical
+    // to every existing golden fixture. `_civVillages` (reference default
+    // OFF, Phase 2 milestone 15's own "flagged, not resolved" note): opt-
+    // in here too, matching JS's real default.
+    let mut settlements;
+    if villages_enabled {
+        let mut rng = cartalith_civ::civ_name_rng();
+        settlements = cartalith_civ::name_and_populate_settlements_with_rng(&placements, &mut rng);
+        // `civ_seed_villages` needs the downsampled routing grid's
+        // (rw, sc) that `civ_hierarchical_network_topology` builds
+        // internally (`civ_routing_grid`, private to `cartalith-civ`) --
+        // replicated here rather than widening that crate's public API
+        // mid-flight while another fork is concurrently editing it. Pure
+        // function of `field`/`gw`/`gh` alone, independent of which road
+        // algorithm actually produced `roads` above.
+        let routing_rw = gw.min(384);
+        let routing_sc = routing_rw as f64 / gw as f64;
+        let villages = cartalith_civ::civ_seed_villages(
+            &settlements,
+            &roads,
+            routing_rw,
+            routing_sc,
+            &mut rng,
+            &suit,
+            &ws.field,
+            &wb.classification,
+            &wb.fill_level,
+            gw,
+            gh,
+            sea_level,
+            map_width_km,
+        );
+        // Reference `_civSeedVillages`'s own added object has no
+        // suitability score, no capital/coastal flags, and an
+        // unconditional `pop:0` -- `VillageSettlement`'s own doc comment
+        // is explicit these are never populated for a village. Wrapped as
+        // a `NamedSettlement`/`SettlementPlacement` here (not a distinct
+        // rendered shape) purely so `get_settlements()`/`map_overlay.gd`
+        // need zero changes: a village renders exactly like any other
+        // hamlet, which is what the reference's own hamlet-tier tagging
+        // for these already implies.
+        settlements.extend(villages.into_iter().map(|v| cartalith_civ::NamedSettlement {
+            placement: cartalith_civ::SettlementPlacement {
+                x: v.x,
+                y: v.y,
+                suit: 0.0,
+                faction: v.faction,
+                capital: false,
+                kind: cartalith_civ::SettlementKind::Hamlet,
+                coastal: false,
+            },
+            name: v.name,
+            pop: 0,
+        }));
+    } else {
+        settlements = cartalith_civ::name_and_populate_settlements(&placements);
+    }
+
+    // Territory (`DECISIONS.md` §7b): reuses the same real terrain
+    // travel-cost field the road network above already computed --
+    // capitals only (villages/non-capital settlements don't project
+    // territory, `assign_territory`'s own `if !capital continue`), so
+    // whether villages were added above doesn't change this at all.
+    let territory = cartalith_civ::assign_territory(&settlements, &cost, gw, gh, world);
+
+    CivData { settlements, roads, territory }
 }
 
 /// `MVP_SCOPE.md` points 10-11: basic 2D rendering + minimal UI. Owns the
@@ -206,6 +295,11 @@ struct WorldGen {
     world: bool,
     lat_n: f64,
     lat_s: f64,
+    /// Set via `set_villages_enabled`. Defaults `false`, matching the
+    /// reference's own real `_civVillages` default (Phase 2 milestone 15's
+    /// own "flagged, not resolved" note on this exact toggle) -- disabled
+    /// generation stays bit-identical to every existing golden fixture.
+    villages: bool,
     /// Phase 2 civilisation-layer output for the current `Generated`
     /// source (`None` for a `Loaded` save, or before any `generate()`).
     civ: Option<CivData>,
@@ -227,6 +321,7 @@ impl IRefCounted for WorldGen {
             world: false,
             lat_n: 55.0,
             lat_s: 5.0,
+            villages: false,
             civ: None,
         }
     }
@@ -252,6 +347,14 @@ impl WorldGen {
         self.ocean_currents = ocean_currents;
     }
 
+    /// Reference `_civVillages` (default OFF) -- the additive village-
+    /// seeding pass (Phase 2 milestone 15), gated separately from the
+    /// four flags above since it's civ-layer, not terrain-substrate.
+    #[func]
+    fn set_villages_enabled(&mut self, enabled: bool) {
+        self.villages = enabled;
+    }
+
     /// Runs the full ported pipeline (`cartalith_engine::generate_terrain`)
     /// at the given seed/real-km map width/grid resolution. `resolution`
     /// is clamped to a sane minimum (4) — a 0 or negative value from an
@@ -275,7 +378,7 @@ impl WorldGen {
         self.world = p.world;
         self.lat_n = p.climate.lat_n;
         self.lat_s = p.climate.lat_s;
-        self.civ = Some(compute_civilisation(&ws, gw, gh, p.world, p.map_width_km, p.river_density));
+        self.civ = Some(compute_civilisation(&ws, gw, gh, p.world, p.map_width_km, p.river_density, self.villages));
         self.source = Some(WorldSource::Generated(Box::new(ws)));
     }
 
@@ -321,7 +424,7 @@ impl WorldGen {
         self.world = p.world;
         self.lat_n = p.climate.lat_n;
         self.lat_s = p.climate.lat_s;
-        self.civ = Some(compute_civilisation(&ws, gw, gh, p.world, p.map_width_km, p.river_density));
+        self.civ = Some(compute_civilisation(&ws, gw, gh, p.world, p.map_width_km, p.river_density, self.villages));
         self.source = Some(WorldSource::Generated(Box::new(ws)));
         true
     }
@@ -431,6 +534,44 @@ impl WorldGen {
 
         let packed = PackedByteArray::from(bytes);
         let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGB8, &packed)?;
+        ImageTexture::create_from_image(&image)
+    }
+
+    /// Per-cell territory ownership (`DECISIONS.md` §7b), as a semi-
+    /// transparent RGBA overlay -- same Okabe-Ito palette
+    /// (`map_overlay.gd`'s own `FACTION_COLORS`, duplicated here as plain
+    /// `u8` triples since this crate has no reason to depend on Godot's
+    /// `Color` type for a pure byte-buffer build) at low alpha so the
+    /// terrain/biome colours underneath still read through -- this is
+    /// presentation-only map content, independent of UI chrome, the same
+    /// principle `build_color_texture` and every settlement/road marker
+    /// already follow. Unowned cells (`territory[i] == 0` -- water, or
+    /// unreachable from any capital) are fully transparent. `None` before
+    /// any `generate()` call, after `load_save()`, or if territory hasn't
+    /// been computed for this world (see `CivData::territory`'s own doc
+    /// comment -- always computed when `civ` is `Some`, so in practice
+    /// this is `None` under exactly the same conditions as
+    /// `get_settlements()`/`get_roads()` returning empty).
+    #[func]
+    fn build_territory_texture(&self) -> Option<Gd<ImageTexture>> {
+        let civ = self.civ.as_ref()?;
+        let gw = self.gw as usize;
+        let gh = self.gh as usize;
+        const FACTION_RGB: [(u8, u8, u8); 6] =
+            [(230, 159, 0), (86, 180, 233), (0, 158, 115), (240, 228, 66), (0, 114, 178), (213, 94, 0)];
+        const ALPHA: u8 = 82; // ~0.32, low enough for terrain/biome colour to read through
+
+        let mut bytes = Vec::with_capacity(gw * gh * 4);
+        for &f in &civ.territory {
+            if f > 0 {
+                let (r, g, b) = FACTION_RGB[((f - 1) as usize) % FACTION_RGB.len()];
+                bytes.extend_from_slice(&[r, g, b, ALPHA]);
+            } else {
+                bytes.extend_from_slice(&[0, 0, 0, 0]);
+            }
+        }
+        let packed = PackedByteArray::from(bytes);
+        let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGBA8, &packed)?;
         ImageTexture::create_from_image(&image)
     }
 
