@@ -2929,3 +2929,62 @@ in just because it's the natural next step.
 classification is milestone 3; resource potentials, carrying capacity,
 population density, settlement suitability, factions, territory, roads,
 provinces, economy, and the Journey Planner remain untouched.
+
+## Phase 2 milestone 3 — biome classification (2026-08-16)
+
+Ported `classifyBiome` (reference HTML line 5736 -- pure temperature/
+moisture -> one of 12 climate-biome categories, threshold order preserved
+exactly) and `buildBiomeRaster` (line 6798 -- applies it per-cell, with
+milestone 2's water-body classification overriding climate for ocean/lake
+cells) to `cartalith-civ`. `BIOME_KEYS`/`BIOME_INDEX` (lines 6796-6797)
+ported as named `u8` constants (`BIOME_ICE`..`BIOME_TROP_WET`, plus
+`BIOME_OCEAN`=0 and `BIOME_LAKE`=13, matching the reference's own index
+values) rather than a Rust enum, for consistency with milestone 1's
+`build_lithology` convention (plain numeric codes, not an enum).
+
+Extraction harness called the reference's own `buildBiomeRaster()`
+directly post-`generate()` rather than hand-composing
+`classifyBiome`+water-body logic in the harness -- exercises the exact
+composition production JS code uses, not a parallel reimplementation of
+it. Cross-checked two independent ways before trusting the data: (1)
+`field[0..5]` matched `golden_parity_waterbodies.rs`'s already-verified
+`expected_fill[0..5]` exactly for both cases (confirming the harness
+correctly applies milestone 2's own root-caused seeding fix --
+`state.tect.seed`, not `state.seed`); (2) each case's biome category
+counts summed exactly to that same file's known ocean/lake/land totals
+(case 0: 75 ocean + 79 land; case 1: 13 ocean + 52 lake + 127 land) -- a
+biome raster with a real classification bug would not reproduce those
+totals by coincidence. Both golden cases passed bit-exact on the first
+attempt.
+
+- `cargo test -p cartalith-civ` (19 tests: 15 unit + 4 golden -- 6 new
+  unit tests cover every `classifyBiome` threshold branch, plus one
+  covering `buildBiomeRaster`'s water-override precedence), `cargo
+  clippy -p cartalith-civ --all-targets`: clean. `cargo test --workspace`
+  / `cargo build --workspace`: no regressions elsewhere.
+
+**Scope discipline**: `buildCartBiome` (reference line 6817 -- a
+*different*, denser 15-category Cartalith editor-bridge biome-paint
+auto-fill) confirmed out of scope: it feeds a paint-layer export/editor
+bridge (`CART_BIOMES`/`CART_BIOME_COLS`) with no consumer anywhere in
+this port (no painting UI, no Cartalith editor integration exists) --
+same reasoning `PHASE2_SCOPE.md` already used to defer other
+speculative-UI-adjacent work. Not implemented.
+
+**What's confirmed still missing before milestone 4 (resources/carrying
+capacity/population density) is fully reachable**: `boundary_type` and
+`shear_field` (needed by `buildResourcePotentials`) already exist in
+`cartalith-terrain`'s tectonic-substrate output from earlier this
+session's orogeny work -- check whether they're retained on `WorldState`
+or need the same treatment `crust_field` did in milestone 1 (computed but
+discarded past `generate_terrain`). `buildCarryingCapacity` needs only
+already-real inputs (soil, water access, biome, temp, field) plus
+`buildWetlandMask` (small, not yet ported). Population density
+additionally needs `buildNPP`/`currentNPP` (net primary productivity,
+reference line 6613) -- **does not exist in this port yet**, a real gap
+milestone 4 will need to close, not assumed away.
+
+**Where this leaves Phase 2**: milestone 3 of (at least) 4 done. Resource
+potentials, carrying capacity, population density are milestone 4;
+settlement suitability, factions, territory, roads, provinces, economy,
+and the Journey Planner remain untouched and further out.

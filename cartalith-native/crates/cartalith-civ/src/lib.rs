@@ -518,6 +518,108 @@ pub fn build_water_bodies(field: &[f32], gw: usize, gh: usize, sea: f64, world: 
     WaterBodies { classification: out, fill_level: filled }
 }
 
+/// `BIOME_KEYS` (reference line 6796) -- frozen, append-only. `BIOME_INDEX`
+/// (line 6797) maps `ocean -> 0` plus each key to its 1-based position
+/// here, so `BIOME_KEYS[i]`'s index constant is `i + 1`. `lake` (index 13)
+/// is appended for `buildWaterBodies` overrides only -- `classifyBiome`
+/// itself never returns it (reference's own comment, line 6796).
+pub const BIOME_KEYS: [&str; 13] = [
+    "ice", "tundra", "boreal", "conifer", "tempForest", "tempRain", "grass", "shrub", "desert", "savanna", "tropDry", "tropWet", "lake",
+];
+
+/// Index constants matching `BIOME_INDEX` (reference line 6797) --
+/// `ocean` is 0 (not a `BIOME_KEYS` entry, added explicitly by the
+/// reference's own `BIOME_INDEX` literal).
+pub const BIOME_OCEAN: u8 = 0;
+pub const BIOME_ICE: u8 = 1;
+pub const BIOME_TUNDRA: u8 = 2;
+pub const BIOME_BOREAL: u8 = 3;
+pub const BIOME_CONIFER: u8 = 4;
+pub const BIOME_TEMP_FOREST: u8 = 5;
+pub const BIOME_TEMP_RAIN: u8 = 6;
+pub const BIOME_GRASS: u8 = 7;
+pub const BIOME_SHRUB: u8 = 8;
+pub const BIOME_DESERT: u8 = 9;
+pub const BIOME_SAVANNA: u8 = 10;
+pub const BIOME_TROP_DRY: u8 = 11;
+pub const BIOME_TROP_WET: u8 = 12;
+pub const BIOME_LAKE: u8 = 13;
+
+/// `classifyBiome` (reference HTML line 5736): pure temperature/moisture ->
+/// one of 12 climate-biome categories. Returns the `BIOME_INDEX` value
+/// directly (never `BIOME_OCEAN`/`BIOME_LAKE` -- those are
+/// `buildBiomeRaster`'s own water-body overrides, matching the reference's
+/// own comment that this function never returns `'lake'`).
+///
+/// Threshold order matters and is preserved exactly: each `if` only
+/// fires when every earlier one has already failed, so e.g. the `t<12`
+/// bracket's `m<0.30` check only ever sees moisture that already cleared
+/// the `t<5` bracket above it.
+pub fn classify_biome(t: f64, m: f64) -> u8 {
+    if t < -7.0 {
+        return BIOME_ICE;
+    }
+    if t < 0.0 {
+        return BIOME_TUNDRA;
+    }
+    if t < 5.0 {
+        return if m < 0.20 { BIOME_TUNDRA } else { BIOME_BOREAL };
+    }
+    if t < 12.0 {
+        if m < 0.30 {
+            return BIOME_GRASS;
+        }
+        if m < 0.60 {
+            return BIOME_CONIFER;
+        }
+        return BIOME_TEMP_RAIN;
+    }
+    if t < 20.0 {
+        if m < 0.12 {
+            return BIOME_DESERT;
+        }
+        if m < 0.28 {
+            return BIOME_SHRUB;
+        }
+        if m < 0.55 {
+            return BIOME_TEMP_FOREST;
+        }
+        return BIOME_TEMP_RAIN;
+    }
+    if m < 0.12 {
+        return BIOME_DESERT;
+    }
+    if m < 0.30 {
+        return BIOME_SAVANNA;
+    }
+    if m < 0.55 {
+        return BIOME_TROP_DRY;
+    }
+    BIOME_TROP_WET
+}
+
+/// `buildBiomeRaster` (reference HTML line 6798): per-cell biome
+/// classification, with `buildWaterBodies`' classification overriding
+/// climate for water cells (ocean -> `BIOME_OCEAN`, lake -> `BIOME_LAKE`,
+/// land -> `classify_biome(temp, rain)`).
+///
+/// The reference caches this (`_biomeRaster`) since it's re-read many
+/// times per render; this port leaves caching to the caller (matching
+/// this crate's existing pure-function convention -- `compute_
+/// affordance_fields` doesn't cache either).
+pub fn build_biome_raster(water_bodies: &[u8], temp: &[f32], rain: &[f32]) -> Vec<u8> {
+    let n = water_bodies.len();
+    let mut out = vec![0u8; n];
+    for i in 0..n {
+        out[i] = match water_bodies[i] {
+            1 => BIOME_OCEAN,
+            2 => BIOME_LAKE,
+            _ => classify_biome(temp[i] as f64, rain[i] as f64),
+        };
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -653,5 +755,47 @@ mod tests {
         let rain_dry = vec![0.05f32; 25];
         let wb_dry = build_water_bodies(&field, 5, 5, 0.05, false, Some(&rain_dry));
         assert_eq!(wb_dry.classification[12], 0, "an arid basin below lakeRain must stay dry land, not a lake");
+    }
+
+    #[test]
+    fn classify_biome_temperature_bands() {
+        assert_eq!(classify_biome(-10.0, 0.5), BIOME_ICE);
+        assert_eq!(classify_biome(-3.0, 0.5), BIOME_TUNDRA);
+        assert_eq!(classify_biome(2.0, 0.1), BIOME_TUNDRA); // t<5, m<0.20
+        assert_eq!(classify_biome(2.0, 0.5), BIOME_BOREAL); // t<5, m>=0.20
+    }
+
+    #[test]
+    fn classify_biome_mid_temperature_moisture_thresholds() {
+        assert_eq!(classify_biome(8.0, 0.1), BIOME_GRASS);
+        assert_eq!(classify_biome(8.0, 0.4), BIOME_CONIFER);
+        assert_eq!(classify_biome(8.0, 0.9), BIOME_TEMP_RAIN);
+    }
+
+    #[test]
+    fn classify_biome_warm_temperature_moisture_thresholds() {
+        assert_eq!(classify_biome(15.0, 0.05), BIOME_DESERT);
+        assert_eq!(classify_biome(15.0, 0.2), BIOME_SHRUB);
+        assert_eq!(classify_biome(15.0, 0.4), BIOME_TEMP_FOREST);
+        assert_eq!(classify_biome(15.0, 0.9), BIOME_TEMP_RAIN);
+    }
+
+    #[test]
+    fn classify_biome_hot_temperature_moisture_thresholds() {
+        assert_eq!(classify_biome(25.0, 0.05), BIOME_DESERT);
+        assert_eq!(classify_biome(25.0, 0.2), BIOME_SAVANNA);
+        assert_eq!(classify_biome(25.0, 0.4), BIOME_TROP_DRY);
+        assert_eq!(classify_biome(25.0, 0.9), BIOME_TROP_WET);
+    }
+
+    #[test]
+    fn build_biome_raster_water_overrides_climate() {
+        let water_bodies = [0u8, 1, 2];
+        let temp = [25.0f32, 25.0, 25.0]; // would classify as tropWet on land
+        let rain = [0.9f32, 0.9, 0.9];
+        let out = build_biome_raster(&water_bodies, &temp, &rain);
+        assert_eq!(out[0], BIOME_TROP_WET); // land: real climate classification
+        assert_eq!(out[1], BIOME_OCEAN); // ocean overrides climate
+        assert_eq!(out[2], BIOME_LAKE); // lake overrides climate
     }
 }

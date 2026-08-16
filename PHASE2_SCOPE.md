@@ -79,26 +79,39 @@ top-level `state.seed`, leaving generation nondeterministic until fixed to
 set `state.tect.seed`), not a fixture/tolerance issue. See
 `CHANGELOG.md`'s "Phase 2 milestone 2" entry for the full record.
 
-## Milestone 3 — biome classification (current)
+## Milestone 3 — biome classification: **done** (2026-08-16)
 
 `classifyBiome` (pure temp/rain → category) + `buildBiomeRaster` (applies
 it per-cell, with ocean/lake cells overridden from milestone 2's water-body
-classification). Small once milestone 2 exists. Feeds carrying capacity,
-resource potentials, population density, and the Cartalith biome-paint
-auto-fill (`buildCartBiome` — check whether that's in this milestone's
-scope or a later one before starting; it's a *different*, denser
-15-category classification for a downstream editor bridge, not the same
-thing as the 12-category climate biome, don't conflate them).
+classification). Ported to `cartalith-civ`, bit-exact both cases, first
+attempt. `buildCartBiome` (the *different*, denser 15-category Cartalith
+editor-bridge biome-paint auto-fill) confirmed out of scope — no consumer
+exists anywhere in this port (no painting UI, no editor integration) —
+not implemented. See `CHANGELOG.md`'s "Phase 2 milestone 3" entry.
 
-## Milestone 4+ — not yet scoped
+## Milestone 4 — resource potentials, carrying capacity, population density (current)
 
-Resource potentials, carrying capacity, population density (reference's
-own next real boundary after biome classification exists), then settlement
-suitability/seed-finding, then factions/territory/provinces/economy, then
-roads (`ROADMAP.md` already calls the Journey Planner its own sub-phase).
-Each gets scoped when reachable, not speculatively now — matching how
-milestone 2 wasn't written until milestone 1's own findings made its real
-shape clear.
+Reference's own next real boundary after biome classification (v0.105–
+v0.106 follow-up to milestone 1's v0.104 affordance-field foundation).
+Confirmed before this milestone starts:
+
+- `boundary_type`/`shear_field` (needed by `buildResourcePotentials`)
+  **already exist** in `cartalith-terrain`'s tectonic-substrate output —
+  check whether they're retained on `WorldState` or need the same fix
+  `crust_field` got in milestone 1 (computed but discarded past
+  `generate_terrain`).
+- `buildCarryingCapacity` needs only already-real inputs (soil, water
+  access, biome, temp, field) plus `buildWetlandMask` (small, reference
+  line ~6839, not yet ported).
+- `buildNPP`/`currentNPP` (net primary productivity, reference line 6613)
+  — needed for population density specifically, not carrying capacity —
+  **does not exist in this port yet**. A real gap to close, not assumed
+  reachable just because biome classification landed.
+
+Then settlement suitability/seed-finding, then
+factions/territory/provinces/economy, then roads (`ROADMAP.md` already
+calls the Journey Planner its own sub-phase) — each scoped when reachable,
+not speculatively now.
 
 ## Done means (per milestone, not once for the whole phase)
 
