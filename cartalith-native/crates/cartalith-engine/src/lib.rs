@@ -366,6 +366,15 @@ pub struct WorldState {
     /// port, which reads this exact same value (`currentLithology()`'s
     /// `crust` argument in the reference).
     pub crust_field: Vec<f32>,
+    /// `StressResult::boundary_type`/`shear_field` (`cartalith-terrain`):
+    /// per-cell plate-boundary classification and shear magnitude. Already
+    /// computed for T2+T3 orogeny (`tag_boundary_types`/`OrogenyParams::
+    /// shear`) but not previously retained past `generate_terrain` --
+    /// added for `cartalith-civ`'s `buildResourcePotentials` port (Phase 2
+    /// milestone 5, `PHASE2_SCOPE.md`), the same `boundaryType`/
+    /// `shearField` arguments the reference passes it.
+    pub boundary_type: Vec<u8>,
+    pub shear_field: Vec<f32>,
     pub volcanic_field: Vec<f32>,
     pub impact_field: Vec<f32>,
     pub temperature: Vec<f32>,
@@ -769,6 +778,8 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         heterogeneity_field,
         resistance_field,
         crust_field: base_raw,
+        boundary_type: stress.boundary_type,
+        shear_field: stress.shear_field,
         volcanic_field,
         impact_field,
         temperature,

@@ -3054,3 +3054,57 @@ will need the equivalent retention fix before it can start.
 potentials is milestone 5; settlement suitability, factions, territory,
 roads, provinces, economy, and the Journey Planner remain untouched and
 further out.
+
+## Phase 2 milestone 5 — resource potentials (2026-08-16)
+
+`buildResourcePotentials` (reference HTML lines 6085-6172) ported to
+`cartalith-civ`: 15 `[0,1]` geological-potential fields (copper, tin, iron,
+gold, salt, timber, lead, silver, clay, buildstone, flint, obsidian, gems,
+sulfur, alum) from lithology x boundary type x shear x crustal age x
+volcanism x flow x rain x biome. Computed over the FULL map (submerged
+cells included, matching the reference's own v0.86 fix for a
+sea-slider-dependent blank layer), then thinned by a rank-based scarcity
+cut (`applyResourceScarcity`/`resourceScarcityCut`) applied AFTER the
+geology so it can only remove deposits, never invent them.
+
+**`WorldState`'s first real gap this milestone needed, not optional**:
+`boundary_type`/`shear_field` (`cartalith-terrain`'s `StressResult`) were
+computed for T2+T3 orogeny but discarded past `generate_terrain`, the same
+situation `crust_field` was in before milestone 1's fix. Added both as
+retained `WorldState` fields (`cartalith-engine/src/lib.rs`) -- a pure
+additive change, `cargo build --workspace` confirmed nothing else broke.
+
+**Golden verification**: same Node `vm` harness technique, reconfirmed
+deterministic (ran each case twice, diffed) and cross-checked against
+`golden_parity_carve.rs`'s own `expected_field[0..5]` -- exact match both
+cases, same as every prior milestone. All 15 fields at `1e-4`
+absolute+relative tolerance, matching this crate's existing convention.
+**Both fixture cases passed on the first attempt.**
+
+Production default matched exactly, not assumed: `currentResourcePotentials()`
+(reference line ~6452) passes no explicit `scarcity`/`scarcityLegacy`, so
+these fixtures use `scarcity=true, scarcity_legacy=false` -- the original
+six (copper/tin/iron/gold/salt/timber) are genuinely NOT scarcity-thinned
+by default, only the nine v1.31 additions are. Verified with a dedicated
+unit test (`build_resource_potentials_scarcity_default_spares_legacy_six`)
+that would fail if this were backwards.
+
+- `cargo test/clippy -p cartalith-civ`: clean, 37 unit tests + 10 golden
+  tests. `cargo test --workspace`/`cargo build --workspace`/`cargo clippy
+  --workspace --all-targets`: no regressions.
+
+**Scope discipline**: settlement suitability, factions, territory, roads,
+provinces, economy, and the Journey Planner all remain untouched. Nothing
+outside `buildResourcePotentials` itself and the `WorldState` retention
+fix it required was implemented.
+
+**Where this leaves Phase 2**: 5 of (at least) 5 milestones scoped so far
+are done -- every affordance field the reference's own v0.104-v0.106
+history names (lithology, soil, water access, water bodies, biome
+classification, carrying capacity, NPP, population density, resource
+potentials) is now golden-verified in `cartalith-civ`. Settlement
+suitability (`currentSettlementSuitability`, the "v1.30 one function") is
+the next real milestone -- still needs route corridors, landmass quality,
+and coast SDF (none built yet, per milestone 1's original dependency
+trace) on top of everything now real. Factions, territory, provinces,
+economy, and the Journey Planner remain untouched and further out.

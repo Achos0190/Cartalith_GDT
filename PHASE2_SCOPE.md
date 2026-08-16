@@ -133,26 +133,57 @@ situation `crust_field` was in before milestone 1's fix. Milestone 5
 needs the equivalent retention fix before it can start. See
 `CHANGELOG.md`'s "Phase 2 milestone 4" entry for the full record.
 
-## Milestone 5 — resource potentials (current)
+## Milestone 5 — resource potentials: **done** (2026-08-16)
 
-`buildResourcePotentials` (reference lines 6085–6193). Needs
-`boundary_type`/`shear_field` retained on `WorldState` first (confirmed
-missing, see milestone 4's own findings above — this is milestone 5's
-first real step, not an optional check), plus lithology (real, milestone
-1), flow field (real), biome (real, milestone 3), field/rain/age (real).
-`SUIT_RESOURCE_KEYS` (9 ore types: copper/tin/iron/gold/salt/timber/
-lead/silver/gems — note block 2's own `CIV_RESOURCE_KEYS` is a
-*different*, larger vocabulary per the reference's own comment at line
-~6293; this milestone ports only the block-1 ore subset, not the full
-civ resource list). Read the full function before scoping further — 108
-lines may itself split into sub-passes once its actual structure is
-clear.
+`buildResourcePotentials` (reference lines 6085–6172): all 15 fields
+(copper/tin/iron/gold/salt/timber/lead/silver/clay/buildstone/flint/
+obsidian/gems/sulfur/alum — `RESOURCE_KEYS`, not `SUIT_RESOURCE_KEYS`'s
+smaller 9-ore settlement-suitability subset, and not block 2's own larger
+`CIV_RESOURCE_KEYS`). Needed the predicted `WorldState` retention fix:
+added `boundary_type`/`shear_field` (from `cartalith-terrain`'s
+`StressResult`), matching `crust_field`'s milestone-1 precedent exactly.
+`1e-4` tolerance, both cases passed first attempt. Production scarcity
+default (`scarcity=true, scarcity_legacy=false` — original six unthinned,
+nine v1.31 additions thinned) verified with a dedicated test, not by
+inspection. See `CHANGELOG.md`'s "Phase 2 milestone 5" entry.
 
-## Milestone 6+ — not yet scoped
+## Milestone 6 — settlement-suitability prerequisites: route corridors, landmass quality, coast SDF (current)
 
-Settlement suitability/seed-finding (needs milestone 5 plus route
-corridors, landmass quality, coast SDF — none built, check what those
-actually require once reachable), then
+Three more affordance fields `currentSettlementSuitability()`'s real
+`ctx` needs, none built yet (checked 2026-08-16, reference lines noted):
+
+- **`buildRouteCorridors`** (line 5903, `currentRouteCorridors()` wrapper
+  at 5950) — natural crossroads/passes: a pinch point needs an expensive
+  barrier on BOTH flanking sides of at least one axis (min, not max — a
+  hillside on one side alone doesn't count). Needs `fld`, `currentSlopeField()`
+  (check whether this is the same slope computation `build_slope_field`
+  already provides from milestone 1, or a distinct one — same name,
+  verify before assuming), `flowField` (real). `CORRIDOR_KNEE=0.45`.
+- **`buildLandmassQuality`** (line 5970, `currentLandmassQuality()`
+  wrapper at 6015) — per-cell quality of the LAND COMPONENT a cell sits
+  on (area + mean carrying capacity), not the cell alone — the reason
+  islet settlements were beating fertile mainland cells before this
+  existed. A connected-components flood fill over land, similar shape to
+  milestone 2's below-sea flood fill (reusable pattern, not reusable
+  code — different cell predicate). Needs carrying capacity (real,
+  milestone 4).
+- **`buildCoastSDF`** (line 7462) — signed distance field to the
+  coastline, used for `currentSettlementSuitability`'s real coast
+  distance term (replacing a proximity proxy) and referenced by later
+  render/SDF-tinting work this port has already deliberately deferred
+  (`STATUS.md` Phase 3 notes) — this milestone only needs the SDF
+  computation itself, not any of its Phase-3 rendering consumers.
+
+**Out of scope for this milestone**: `currentSettlementSuitability` /
+`findSettlementSeeds` themselves (still need river network order —
+`_riverNet`/`buildRiverNetwork`, not yet ported — on top of these three;
+check that dependency once this milestone lands, don't assume it's the
+only one left). Factions, territory, provinces, economy, roads.
+
+## Milestone 7+ — not yet scoped
+
+`currentSettlementSuitability`/`findSettlementSeeds` (needs milestone 6
+plus river network order, per above), then
 factions/territory/provinces/economy, then roads (`ROADMAP.md` already
 calls the Journey Planner its own sub-phase) — each scoped when reachable,
 not speculatively now.

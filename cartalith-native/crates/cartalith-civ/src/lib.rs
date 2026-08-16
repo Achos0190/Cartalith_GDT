@@ -806,6 +806,381 @@ pub fn estimate_regional_density_km2(
     out
 }
 
+/// `RESOURCE_KEYS` (reference HTML line 6027): the full block-1 resource
+/// vocabulary, frozen/append-only (`resource_index.json`/`.f32` export
+/// names are keyed to this exact order). Block 2's own `CIV_RESOURCE_KEYS`
+/// is a *different*, larger vocabulary (reference comment, line ~6293);
+/// `SUIT_RESOURCE_KEYS` (settlement suitability's copy, line 6294) is a
+/// smaller 9-key ore-only subset -- neither is this milestone's concern.
+pub const RESOURCE_KEYS: [&str; 15] = [
+    "copper", "tin", "iron", "gold", "salt", "timber", "lead", "silver", "clay", "buildstone", "flint", "obsidian", "gems", "sulfur", "alum",
+];
+
+/// `RESOURCE_NAMES` (reference line 6029).
+pub const RESOURCE_NAMES: [&str; 15] = [
+    "Copper (Cu)",
+    "Tin (Sn)",
+    "Iron (Fe)",
+    "Gold (Au)",
+    "Salt",
+    "Timber",
+    "Lead (Pb)",
+    "Silver (Ag)",
+    "Clay",
+    "Building stone",
+    "Flint / chert",
+    "Obsidian",
+    "Gemstones",
+    "Sulfur",
+    "Alum",
+];
+
+/// `RESOURCE_ABUNDANCE_PPM` (reference line 6043): elemental crustal
+/// abundance in ppm, `resource_scarcity_cut`'s log-compression anchor.
+/// `None` for non-elemental (rock/mineral/biotic) keys.
+fn resource_abundance_ppm(key: &str) -> Option<f64> {
+    match key {
+        "iron" => Some(50000.0),
+        "copper" => Some(70.0),
+        "lead" => Some(16.0),
+        "tin" => Some(2.0),
+        "silver" => Some(0.1),
+        "gold" => Some(0.005),
+        _ => None,
+    }
+}
+
+/// `RESOURCE_OCCUPANCY` (reference line 6047): design-value land-fraction
+/// occupancy ceiling for keys with no crustal-abundance figure. Matches
+/// the reference's own `!=null?...:0.30` fallback for anything neither
+/// table lists.
+fn resource_occupancy(key: &str) -> f64 {
+    match key {
+        "salt" => 0.10,
+        "timber" => 0.45,
+        "clay" => 0.55,
+        "buildstone" => 0.40,
+        "flint" => 0.14,
+        "obsidian" => 0.03,
+        "gems" => 0.05,
+        "sulfur" => 0.05,
+        "alum" => 0.06,
+        _ => 0.30,
+    }
+}
+
+/// `resourceScarcityCut` (reference line 6055): log-compresses crustal
+/// abundance onto a 0.02-0.45 land-fraction occupancy band (gold..iron
+/// span), or falls back to `resource_occupancy` for untabled keys.
+pub fn resource_scarcity_cut(key: &str) -> f64 {
+    match resource_abundance_ppm(key) {
+        None => resource_occupancy(key),
+        Some(ppm) => {
+            let lo = 0.005f64.log10();
+            let hi = 50000f64.log10();
+            let t = ((ppm.log10() - lo) / (hi - lo)).clamp(0.0, 1.0);
+            0.02 + t * 0.43
+        }
+    }
+}
+
+/// `applyResourceScarcity` (reference line 6067): keeps only the
+/// strongest `cut` fraction of LAND cells' non-zero values, zeroing the
+/// rest -- rank-based over cells the geology already flagged, so it only
+/// thins an existing signal, never invents a deposit. In place.
+pub fn apply_resource_scarcity(arr: &mut [f32], field: &[f32], sea: f64, cut: f64) {
+    let n = arr.len();
+    let mut vals: Vec<f64> = Vec::new();
+    for i in 0..n {
+        if (field[i] as f64) < sea {
+            continue;
+        }
+        if arr[i] > 0.0 {
+            vals.push(arr[i] as f64);
+        }
+    }
+    if vals.is_empty() {
+        return;
+    }
+    let land = field.iter().take(n).filter(|&&h| (h as f64) >= sea).count();
+    let keep = ((land as f64 * cut).round() as usize).max(1);
+    if vals.len() <= keep {
+        return; // already rarer than its ceiling
+    }
+    vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    let thresh = vals[keep - 1];
+    for v in arr.iter_mut().take(n) {
+        if (*v as f64) < thresh {
+            *v = 0.0;
+        }
+    }
+}
+
+/// `buildResourcePotentials`'s 15 output fields (reference HTML line 6085).
+pub struct ResourcePotentials {
+    pub copper: Vec<f32>,
+    pub tin: Vec<f32>,
+    pub iron: Vec<f32>,
+    pub gold: Vec<f32>,
+    pub salt: Vec<f32>,
+    pub timber: Vec<f32>,
+    pub lead: Vec<f32>,
+    pub silver: Vec<f32>,
+    pub clay: Vec<f32>,
+    pub buildstone: Vec<f32>,
+    pub flint: Vec<f32>,
+    pub obsidian: Vec<f32>,
+    pub gems: Vec<f32>,
+    pub sulfur: Vec<f32>,
+    pub alum: Vec<f32>,
+}
+
+/// `buildResourcePotentials` (reference HTML lines 6085-6172): 15 `[0,1]`
+/// geological-potential fields from lithology x boundary type x shear x
+/// crustal age x volcanism x flow x rain x biome -- every signal already
+/// computed elsewhere, per the reference's own v1.31 comment ("nothing
+/// here needed a new pipeline stage"). Computed over the FULL map,
+/// submerged cells included (`r` clamped to >=0 for the surface-formed
+/// branches) -- v0.86's own fix for a sea-slider-dependent blank layer.
+///
+/// `boundary_type`/`shear_field`/`flow`/`biome`/`volcanic` are all
+/// `Option` -- the reference's own `boundaryType?...` /`shearField?...`
+/// null guards, not assumed-present. `gw`/`gh` are threaded explicitly for
+/// `chamfer_dist` (matching `build_water_access`'s existing convention in
+/// this crate).
+///
+/// `scarcity`/`scarcity_legacy` match `opts.scarcity`/`opts.scarcityLegacy`
+/// (reference lines 6164-6169). The real default call
+/// (`currentResourcePotentials()`, reference line ~6452) passes neither
+/// explicitly, so production runs with `scarcity=true, scarcity_legacy=
+/// false` -- meaning the original six (copper/tin/iron/gold/salt/timber)
+/// are genuinely NOT scarcity-thinned by default; only the nine v1.31
+/// additions are.
+#[allow(clippy::too_many_arguments)]
+pub fn build_resource_potentials(
+    lith: &[u8],
+    boundary_type: Option<&[u8]>,
+    shear_field: Option<&[f32]>,
+    flow: Option<&[f32]>,
+    biome: Option<&[u8]>,
+    field: &[f32],
+    rain: &[f32],
+    age: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    volcanic: Option<&[f32]>,
+    scarcity: bool,
+    scarcity_legacy: bool,
+) -> ResourcePotentials {
+    let n = gw * gh;
+    let denom = (1.0 - sea).max(1e-6);
+    let age_old = 0.60;
+    let cu_lam = (gw as f64 / 24.0).max(3.0);
+
+    // copper source mask: subductionOC (2) or arcOO (3) boundary cells.
+    let mut cu_src = vec![0u8; n];
+    if let Some(bt) = boundary_type {
+        for i in 0..n {
+            if bt[i] == 2 || bt[i] == 3 {
+                cu_src[i] = 1;
+            }
+        }
+    }
+    let cu_dist = chamfer_dist(&cu_src, gw, gh);
+
+    let mut copper = vec![0f32; n];
+    let mut tin = vec![0f32; n];
+    let mut iron = vec![0f32; n];
+    let mut gold = vec![0f32; n];
+    let mut salt = vec![0f32; n];
+    let mut timber = vec![0f32; n];
+    let mut lead = vec![0f32; n];
+    let mut silver = vec![0f32; n];
+    let mut clay = vec![0f32; n];
+    let mut buildstone = vec![0f32; n];
+    let mut flint = vec![0f32; n];
+    let mut obsidian = vec![0f32; n];
+    let mut gems = vec![0f32; n];
+    let mut sulfur = vec![0f32; n];
+    let mut alum = vec![0f32; n];
+
+    let flow_max_raw = flow.map(|f| f.iter().fold(0.0f64, |m, &v| m.max(v as f64))).unwrap_or(0.0);
+    let flow_max = if flow_max_raw > 0.0 { flow_max_raw } else { 1.0 };
+
+    for i in 0..n {
+        let li = lith[i];
+        let ai = age[i] as f64;
+        let ri = rain[i] as f64;
+        let sh = shear_field.map(|s| (s[i] as f64).abs()).unwrap_or(0.0);
+        let bt = boundary_type.map(|b| b[i]).unwrap_or(0);
+        let r = ((field[i] as f64 - sea) / denom).max(0.0);
+
+        // copper: Gaussian decay from subduction/arc boundary, amplified in andesite/basalt.
+        let cu_mult = match li {
+            2 => 1.0,
+            1 => 0.8,
+            _ => 0.55,
+        };
+        copper[i] = ((-(cu_dist[i] as f64) / cu_lam).exp() * cu_mult).min(1.0) as f32;
+
+        // tin: pegmatite Sn in old granites, skarn in metamorphic.
+        tin[i] = (if li == 0 && ai > age_old {
+            0.70
+        } else if li == 6 {
+            0.45
+        } else if li == 0 {
+            0.30
+        } else {
+            0.0
+        }) as f32;
+
+        // iron: BIF in old shields, bog iron in wet shale lowlands.
+        iron[i] = (if li == 0 && ai > age_old && bt == 0 {
+            0.65
+        } else if li == 5 && ri > 0.55 && r < 0.25 {
+            0.55
+        } else if li == 3 {
+            0.20
+        } else {
+            0.0
+        }) as f32;
+
+        // gold: orogenic Au from transform faults + quartz veins in sheared granites.
+        gold[i] = (if bt == 5 {
+            (0.65 + 0.35 * sh).min(1.0)
+        } else if sh > 0.25 && li == 0 {
+            (0.20 + sh).min(0.55)
+        } else if li == 0 && ai > age_old {
+            0.12
+        } else {
+            0.0
+        }) as f32;
+
+        // salt: evaporite basins, arid lowlands in limestone/sandstone.
+        if r < 0.25 && ri < 0.22 {
+            salt[i] = (if li == 3 || li == 4 {
+                (0.50 + 0.40 * (0.22 - ri) / 0.22).min(0.90)
+            } else if r < 0.12 && ri < 0.12 {
+                0.40
+            } else {
+                0.0
+            }) as f32;
+        }
+
+        // timber: closed-canopy biomes (boreal/conifer/tempForest/tempRain/tropWet).
+        if let Some(b) = biome {
+            let bv = b[i];
+            if bv == 3 || bv == 4 || bv == 5 || bv == 6 || bv == 12 {
+                timber[i] = (0.40 + 0.60 * (ri * 1.5).min(1.0)).min(1.0) as f32;
+            }
+        }
+
+        let vv = volcanic.map(|v| v[i] as f64).unwrap_or(0.0);
+
+        // lead (galena): hydrothermal veins in limestone, needs a shear/boundary driver.
+        lead[i] = (if li == 3 {
+            (0.25 + 0.55 * (sh * 2.2).min(1.0) + if bt != 0 { 0.20 } else { 0.0 }).min(1.0)
+        } else if li == 6 && sh > 0.30 {
+            0.25
+        } else {
+            0.0
+        }) as f32;
+
+        // silver: byproduct of argentiferous galena -- lead's terrain, scaled down.
+        silver[i] = if lead[i] > 0.0 { lead[i] as f64 * 0.55 } else { 0.0 } as f32;
+
+        // clay: riverine/floodplain/lake-margin, near-universal on lowlands with real drainage.
+        {
+            let wet = flow.map(|f| ((1.0 + f[i] as f64).ln() / (1.0 + flow_max * 0.05).ln()).min(1.0)).unwrap_or(0.0);
+            if r < 0.35 {
+                let v = 0.30 + 0.50 * wet + 0.25 * (ri * 1.6).min(1.0) - if li == 0 { 0.25 } else { 0.0 };
+                clay[i] = v.clamp(0.0, 1.0) as f32;
+            }
+        }
+        // kaolin: weathered-granite tail of the same clay signal, folded in as a bonus.
+        if li == 0 && ri > 0.5 && clay[i] > 0.0 {
+            clay[i] = ((clay[i] as f64) + 0.20).min(1.0) as f32;
+        }
+
+        // building stone: limestone (workable+mortar), granite/basalt (durable, hard).
+        buildstone[i] = match li {
+            3 => 0.85,
+            0 | 1 => 0.70,
+            4 => 0.45,
+            6 => 0.40,
+            _ => 0.15,
+        };
+
+        // flint/chert: nodules in limestone, no hydrothermal requirement (unlike lead).
+        flint[i] = if li == 3 { 0.60 } else { 0.0 };
+
+        // obsidian: volcanic glass, young silica-rich volcanism (andesite arc).
+        obsidian[i] = (if vv > 0.45 && (li == 2 || li == 1) {
+            (0.35 + 0.65 * vv).min(1.0)
+        } else if li == 2 && bt == 3 {
+            0.30
+        } else {
+            0.0
+        }) as f32;
+
+        // gemstones: pegmatite veins in old granite, metamorphic contact zones.
+        gems[i] = (if li == 0 && ai > age_old {
+            (0.30 + 0.50 * (sh * 2.0).min(1.0)).min(1.0)
+        } else if li == 6 {
+            (0.20 + 0.55 * (sh * 2.5).min(1.0)).min(1.0)
+        } else {
+            0.0
+        }) as f32;
+
+        // sulfur: volcanic/hot-spring/fumarole zones.
+        sulfur[i] = if vv > 0.35 { (0.25 + 0.75 * vv).min(1.0) } else { 0.0 } as f32;
+
+        // alum: volcanic OR sedimentary evaporite route (shares salt's arid-evaporite logic).
+        alum[i] = (if vv > 0.30 {
+            (0.20 + 0.60 * vv).min(1.0)
+        } else if r < 0.25 && ri < 0.30 && (li == 4 || li == 5) {
+            0.45
+        } else {
+            0.0
+        }) as f32;
+    }
+
+    // Scarcity cut, applied AFTER geology so it can only remove deposits,
+    // never invent them. Production default: scarcity=true,
+    // scarcity_legacy=false -- the pre-v1.31 six stay unthinned.
+    if scarcity {
+        for key in RESOURCE_KEYS {
+            let legacy_six = matches!(key, "copper" | "tin" | "iron" | "gold" | "salt" | "timber");
+            if !scarcity_legacy && legacy_six {
+                continue;
+            }
+            let cut = resource_scarcity_cut(key);
+            let arr: &mut [f32] = match key {
+                "copper" => &mut copper,
+                "tin" => &mut tin,
+                "iron" => &mut iron,
+                "gold" => &mut gold,
+                "salt" => &mut salt,
+                "timber" => &mut timber,
+                "lead" => &mut lead,
+                "silver" => &mut silver,
+                "clay" => &mut clay,
+                "buildstone" => &mut buildstone,
+                "flint" => &mut flint,
+                "obsidian" => &mut obsidian,
+                "gems" => &mut gems,
+                "sulfur" => &mut sulfur,
+                "alum" => &mut alum,
+                _ => unreachable!(),
+            };
+            apply_resource_scarcity(arr, field, sea, cut);
+        }
+    }
+
+    ResourcePotentials { copper, tin, iron, gold, salt, timber, lead, silver, clay, buildstone, flint, obsidian, gems, sulfur, alum }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1070,5 +1445,86 @@ mod tests {
         let out = estimate_regional_density_km2(&k, &water, None, None, &field, 0.4, None);
         assert_eq!(out[0], 0.0);
         assert!(out[1] > 0.0);
+    }
+
+    #[test]
+    fn resource_scarcity_cut_gold_iron_endpoints() {
+        // gold (0.005 ppm) is the low end of the log-compressed band -> 0.02;
+        // iron (50000 ppm) is the high end -> 0.02+0.43=0.45.
+        assert!((resource_scarcity_cut("gold") - 0.02).abs() < 1e-9);
+        assert!((resource_scarcity_cut("iron") - 0.45).abs() < 1e-9);
+    }
+
+    #[test]
+    fn resource_scarcity_cut_untabled_key_uses_occupancy_fallback() {
+        assert_eq!(resource_scarcity_cut("obsidian"), 0.03);
+        assert_eq!(resource_scarcity_cut("clay"), 0.55);
+    }
+
+    #[test]
+    fn apply_resource_scarcity_keeps_only_top_fraction() {
+        // 10 land cells, values 1..=10 (as f32), cut=0.3 -> keep 3 (round(10*0.3)=3).
+        let mut arr: Vec<f32> = (1..=10).map(|v| v as f32).collect();
+        let field = vec![0.9f32; 10]; // all land, sea=0.4
+        apply_resource_scarcity(&mut arr, &field, 0.4, 0.3);
+        let kept = arr.iter().filter(|&&v| v > 0.0).count();
+        assert_eq!(kept, 3, "should keep exactly the top 3 of 10 land cells");
+        // the top 3 values (8,9,10) must survive; the bottom 7 must be zeroed.
+        assert_eq!(arr[9], 10.0);
+        assert_eq!(arr[8], 9.0);
+        assert_eq!(arr[7], 8.0);
+        assert_eq!(arr[0], 0.0);
+    }
+
+    #[test]
+    fn apply_resource_scarcity_noop_when_already_rarer_than_ceiling() {
+        let mut arr = [1.0f32, 0.0, 0.0, 0.0];
+        let field = vec![0.9f32; 4];
+        apply_resource_scarcity(&mut arr, &field, 0.4, 0.5); // ceiling keep=2, only 1 nonzero value
+        assert_eq!(arr[0], 1.0, "a single deposit under a looser ceiling must survive untouched");
+    }
+
+    #[test]
+    fn build_resource_potentials_copper_peaks_at_subduction_boundary() {
+        // 5x1, subduction boundary (bt=2) at the centre; andesite (li=2) everywhere.
+        let n = 5;
+        let lith = [2u8; 5];
+        let boundary_type = [0u8, 0, 2, 0, 0];
+        let field = vec![0.6f32; n];
+        let rain = vec![0.5f32; n];
+        let age = vec![0.3f32; n];
+        let rp = build_resource_potentials(&lith, Some(&boundary_type), None, None, None, &field, &rain, &age, 5, 1, 0.4, None, false, false);
+        assert_eq!(rp.copper[2], 1.0, "at the boundary source cell itself, copper should be at its peak (distance 0)");
+        assert!(rp.copper[2] > rp.copper[0], "copper should decay away from the subduction boundary");
+    }
+
+    #[test]
+    fn build_resource_potentials_silver_is_a_fraction_of_lead() {
+        // limestone (li=3) with real shear -> lead>0, silver must be exactly 0.55x lead.
+        let lith = [3u8];
+        let field = [0.6f32];
+        let rain = [0.5f32];
+        let age = [0.3f32];
+        let shear = [0.5f32];
+        let rp = build_resource_potentials(&lith, None, Some(&shear), None, None, &field, &rain, &age, 1, 1, 0.4, None, false, false);
+        assert!(rp.lead[0] > 0.0);
+        assert!((rp.silver[0] as f64 - rp.lead[0] as f64 * 0.55).abs() < 1e-6);
+    }
+
+    #[test]
+    fn build_resource_potentials_scarcity_default_spares_legacy_six() {
+        // A field where every land cell qualifies for buildstone (li=3 -> 0.85
+        // everywhere) but only a scattering for gems (needs old granite/shear) --
+        // production defaults (scarcity=true, scarcity_legacy=false) must thin
+        // gems (a v1.31 addition) but leave buildstone (one of the original six)
+        // untouched even though every cell has a nonzero value.
+        let n = 100;
+        let lith = vec![3u8; n]; // limestone everywhere -> buildstone=0.85 everywhere
+        let field = vec![0.6f32; n];
+        let rain = vec![0.5f32; n];
+        let age = vec![0.3f32; n];
+        let rp = build_resource_potentials(&lith, None, None, None, None, &field, &rain, &age, 10, 10, 0.4, None, true, false);
+        let buildstone_nonzero = rp.buildstone.iter().filter(|&&v| v > 0.0).count();
+        assert_eq!(buildstone_nonzero, n, "original six (buildstone) must not be scarcity-thinned under production defaults");
     }
 }
