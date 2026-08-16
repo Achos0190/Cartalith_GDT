@@ -401,14 +401,43 @@ happens even on a small grid — up to 18.22× at 1024×1024. See
 `CHANGELOG.md`'s "GPU layer integration milestone 5" entry for the full
 record.
 
-## Milestone 6 — orogeny's graph-tracing (not yet investigated)
+## Milestone 6 — orogeny's graph-tracing: investigated, confirmed poor GPU fit (2026-08-16)
 
-`trace_boundaries`/`tag_boundary_types`/`build_orogeny_field` — the last
-unread candidate feeding `compute_height`'s `oro` input. Likely poor GPU
-fit given "graph-driven" framing in this project's own earlier CHANGELOG
-entries (the T1-T5 orogeny port), but not confirmed — read fully before
-scoping, the same discipline every milestone here has used. Once this and
-`compute_stress` (milestone 5's deferred item) are both resolved,
-`compute_height`'s full upstream chain is accounted for and an actual
-end-to-end GPU terrain-generation path (or an honest accounting of which
-pieces stay CPU) becomes possible to scope.
+Read `trace_boundaries` (`cartalith-terrain/src/lib.rs:1883`) with
+remaining time in milestone 5's own pass. **Confirmed, not just assumed, a
+poor GPU fit**: it thins the boundary mask, computes per-cell vertex
+degree, identifies junction nodes (degree ≥3), then *walks* polylines
+outward from each node using a shared, mutable `visited` array to prevent
+re-tracing the same boundary from two directions. This is genuine
+sequential graph traversal — each walk's extent depends on which cells
+earlier walks in the *same* call already claimed, with no natural
+per-cell-independent decomposition the way every GPU-friendly kernel so
+far (warp, heterogeneity, height, blur, resistance, even JFA's per-pass
+structure) has had. `tag_boundary_types`/`build_orogeny_field` (downstream
+of the resulting polylines) not read in detail, but almost certainly
+inherit the same graph-shaped dependency.
+
+**Not scoped as a GPU milestone** — this needs a genuine algorithmic
+redesign (parallel skeletonization + parallel graph extraction are real,
+studied problems, but a real research task, not a straightforward port),
+the same category `compute_stress`, flow accumulation, water-body
+classification, and Dijkstra/MST road networks already sit in. Left there
+rather than forced.
+
+**Where this leaves `compute_height`'s upstream chain**: `base_field`
+(plate assignment, done, milestone 5), `hetero`/`warp` (done, milestone
+2), `flex` (thin wrapper over `gauss_blur`, done, milestone 4, not yet
+wired), `stress` (deferred, needs a gather reformulation),
+`age`/`build_age_field` (confirmed poor fit, milestone 4), `oro`
+(confirmed poor fit, this entry). Three of `compute_height`'s six real
+upstream fields have a clean GPU path (`base_field`/`hetero`/`warp`), two
+are genuinely hard and deferred (`stress`, `oro`), one is a poor fit by
+its own nature (`age`, used only via `compute_height`'s roughness-damping
+term). An honest full end-to-end GPU terrain substrate isn't reachable
+without solving `compute_stress`'s gather reformulation and orogeny's
+parallel-graph redesign — real, larger undertakings, not the next quick
+milestone. The next reachable win is instead **wiring the pieces that
+already work** (`base_field` via JFA, `hetero`/`warp`, `flex` via
+`gauss_blur`) into an actual partial GPU pipeline stage, keeping
+`stress`/`age`/`oro` on CPU and uploaded as buffers — a real integration
+milestone, not another individual-kernel one.
