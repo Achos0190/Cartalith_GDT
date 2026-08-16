@@ -92,16 +92,37 @@ resolution). `hash`/`vnoise` themselves untouched — every existing
 JS-matching golden test still passes unmodified. See `CHANGELOG.md`'s
 "GPU-safe noise redesign" entry for the full record.
 
-**This unblocks, but does not yet implement**, the next real milestone:
-domain warp / crustal heterogeneity / the height formula — the actual
-first pipeline stage that can move to GPU now that its noise dependency
-is GPU-safe. Not started. Per the scope doc's own per-layer feasibility
-table: graph/sequential algorithms (flow accumulation, water-body
-priority-flood, Dijkstra/MST road networks) remain a poor GPU fit without
-real algorithmic redesign — not in scope for the foreseeable near-term
-milestones, which follow the per-cell-math layers instead (terrain →
-climate → erosion's per-cell parts → Phase 2's per-cell affordance
-fields → rendering).
+**Milestone 2 — domain warp + crustal heterogeneity on GPU: done
+(2026-08-16).** `cartalith_noise::gpu_fbm` (6-octave combinator over
+`gpu_vnoise`) plus `cartalith-gpu`'s `gpu_warp.wgsl`/
+`gpu_heterogeneity.wgsl`. Non-`world` branch only (periodic/`pfbm`
+GPU equivalent deferred). `gpu_heterogeneity` (one `gpu_fbm` call/cell)
+matches its CPU twin at `1e-5`, 0 mismatches at 512×512 — confirms
+`gpu_fbm` itself is clean. `gpu_warp` (chains two nested `gpu_fbm`
+evaluations) needed its own, separately-justified `WARP_TOLERANCE=2e-4`
+— a real, measured, structural effect (float-scheduling residue from the
+first evaluation amplified through the second), not a loosened test.
+Real timing: `gpu_warp` up to 80× at 2048² (24 octave-calls/cell — even
+better than milestone 1's bare noise, since GPU's fixed dispatch
+overhead amortizes further against costlier per-cell work);
+`gpu_heterogeneity` up to 16.7×. `compute_warp`/`compute_heterogeneity`
+(CPU, JS-matching) untouched, their own golden-parity tests unaffected.
+Found (not introduced): `cargo test -p cartalith-gpu` alone can hit a
+flaky driver-level crash under parallel GPU-context churn — reliable
+with `--test-threads=1` or as part of a full workspace run. See
+`CHANGELOG.md`'s "GPU layer integration milestone 2" entry.
+
+**Milestone 3 (not started)**: `compute_height` itself — the actual
+height formula, next per the scope doc's per-layer table, but needs the
+same investigate-before-scope pass every milestone here has had (real
+upstream dependency chain: boundary stress, flexure, orogeny, JFA Voronoi
+plate assignment — GPU-portability of each not yet assessed). Per the
+scope doc's own feasibility table: graph/sequential algorithms (flow
+accumulation, water-body priority-flood, Dijkstra/MST road networks)
+remain a poor GPU fit without real algorithmic redesign — not in scope
+for the foreseeable near-term milestones, which follow the per-cell-math
+layers instead (terrain → climate → erosion's per-cell parts → Phase 2's
+per-cell affordance fields → rendering).
 
 ## Known-open items (not owner-blocked, just not done yet)
 

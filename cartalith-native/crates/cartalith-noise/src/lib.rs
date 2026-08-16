@@ -237,6 +237,30 @@ pub fn gpu_vnoise(x: f32, y: f32, s: i32) -> f32 {
     a * (1.0 - u) * (1.0 - v) + b * u * (1.0 - v) + c * (1.0 - u) * v + d * u * v
 }
 
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 2: 6-octave fbm over
+/// [`gpu_vnoise`], same octave-combining shape as [`fbm`] (amp/freq
+/// halving/doubling, `s + o*131` per-octave seed offset) but all-`f32`
+/// throughout — mirrors `gpu_vnoise`'s own reasoning: matching this
+/// function's arithmetic operation-for-operation against its WGSL
+/// counterpart gives the tightest achievable CPU/GPU agreement, rather
+/// than promoting to `f64` mid-computation and introducing a second,
+/// unrelated precision gap. Not periodic (no `gpu_pfbm` sibling yet) —
+/// `compute_warp`'s `world=true`/`pfbm` branch is deliberately out of
+/// scope for this milestone, see `GPU_LAYER_INTEGRATION_SCOPE.md`.
+pub fn gpu_fbm(x: f32, y: f32, s: i32) -> f32 {
+    let mut amp = 0.5f32;
+    let mut freq = 1.0f32;
+    let mut sum = 0.0f32;
+    let mut nrm = 0.0f32;
+    for o in 0..6 {
+        sum += amp * gpu_vnoise(x * freq, y * freq, s + o * 131);
+        nrm += amp;
+        amp *= 0.5;
+        freq *= 2.0;
+    }
+    sum / nrm
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,6 +280,14 @@ mod tests {
     fn gpu_hash_deterministic_for_same_input() {
         assert_eq!(gpu_hash(3, -7, 42), gpu_hash(3, -7, 42));
         assert_eq!(gpu_vnoise(1.5, -2.5, 42), gpu_vnoise(1.5, -2.5, 42));
+    }
+
+    #[test]
+    fn gpu_fbm_deterministic_and_in_range() {
+        let a = gpu_fbm(1.5, -2.5, 42);
+        let b = gpu_fbm(1.5, -2.5, 42);
+        assert_eq!(a, b);
+        assert!((0.0..=1.0).contains(&a), "gpu_fbm output {a} out of [0,1]");
     }
 
     #[test]

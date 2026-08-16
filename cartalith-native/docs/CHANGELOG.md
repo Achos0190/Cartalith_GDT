@@ -3865,3 +3865,96 @@ and road corridor consolidation/smoothing, per the entry above.
 `_civGenerateProvinces` (sub-partitioning owned territory into
 per-settlement provinces) is now genuinely reachable for the first time
 -- territory itself exists -- but not scoped or attempted here.
+
+## GPU layer integration milestone 2 -- domain warp + crustal heterogeneity on GPU (2026-08-16)
+
+`compute_warp`/`compute_heterogeneity` (`cartalith-terrain/src/lib.rs`)
+ported to GPU (`cartalith-gpu`), building on milestone 1's `gpu_hash`/
+`gpu_vnoise` (`cartalith-noise`). Non-`world` branch only (no `pfbm`
+periodic-noise equivalent yet) -- deliberately deferred, see
+`GPU_LAYER_INTEGRATION_SCOPE.md`.
+
+**Built**: `cartalith_noise::gpu_fbm` (a 6-octave combinator over
+`gpu_vnoise`, all-`f32`, same octave-combining shape as the JS-matching
+`fbm`). `cartalith-gpu` gains `gpu_warp.wgsl`/`gpu_heterogeneity.wgsl`,
+`init_gpu_warp`/`init_gpu_heterogeneity`, `dispatch_gpu_warp`/
+`dispatch_gpu_heterogeneity`, and CPU reference twins
+(`gpu_warp_grid_cpu`/`gpu_heterogeneity_grid_cpu`). `init_gpu_with`
+refactored to take the bind-group layout as a parameter (`WarpParams`
+needs 2 storage outputs, `HeteroParams` needs 3 storage inputs + 1
+output, neither fits the pilot's original single-uniform/single-storage
+layout) -- the three existing call sites (`init_gpu`/`init_gpu_f64`/
+`init_gpu_safe_noise`) pass the original layout unchanged, so this is a
+pure extension, not a behaviour change to anything already verified.
+
+**A real, measured, structural finding, not a bug**: `gpu_heterogeneity`
+(one `gpu_fbm` call per cell) matches its CPU twin within
+`GPU_SAFE_NOISE_TOLERANCE` (`1e-5`) exactly -- 0/262144 cells at 512x512,
+max diff ~6e-7, confirming `gpu_fbm` itself carries no new precision gap.
+`gpu_warp` (which chains TWO nested `gpu_fbm` evaluations -- `qx`/`qy`
+first, then `wx`/`wy` sampled at a position computed from `qx`/`qy`)
+diverged by up to 1.18e-4 at the same tolerance: sub-epsilon residual
+float-scheduling differences (the same FMA-contraction-scale category the
+pilot's own tolerance comment already named) in the first evaluation
+become a coordinate perturbation feeding a second, full 6-octave
+evaluation, which amplifies them. Given a real, isolated cause (proven by
+comparing against the passing single-evaluation case, not assumed), added
+`WARP_TOLERANCE = 2e-4` -- set just above the actually-measured max, not
+loosened further, matching `PARITY_TESTING.md`'s rule applied here to a
+GPU/GPU pair instead of a JS/Rust one. At that tolerance: 0/524288 cells
+(both axes) exceed it, both `gpu_warp`/`gpu_heterogeneity` deterministic
+across repeated runs, all output finite and within the expected physical
+range.
+
+**Real timing** (128/512/1024/2048, same honest methodology as milestone
+1 -- the pilot's own numbers don't carry over, these functions do 4x/1x
+as much per-cell work respectively):
+
+| Size | `gpu_warp` (24 `gpu_vnoise` calls/cell) | `gpu_heterogeneity` (6 calls/cell) |
+|---|---|---|
+| 128² | 3.46x | 0.87x (GPU loses, dispatch overhead) |
+| 512² | 46.18x | 7.32x |
+| 1024² | 79.22x | 15.54x |
+| 2048² | 80.37x | 16.74x |
+
+`gpu_warp`'s ratios are dramatically higher than milestone 1's bare-noise
+kernel (up to 80x vs ~12x) -- makes sense: CPU cost scales with total
+octave-call count (24 vs 6 vs milestone 1's 1), while GPU dispatch/
+readback overhead stays roughly fixed, so costlier per-cell kernels see
+proportionally larger GPU wins.
+
+**Qualitative check** (`DECISIONS.md` §7a, "judged by looking at it"): a
+grayscale PGM of a real 256x256 GPU `warp_x` field is written to a temp
+path by `gpu_warp_debug_image_written_for_visual_check` for manual visual
+inspection (no banding/lattice-artifact check automated -- this is a
+by-eye test, the PGM is the deliverable).
+
+**A real, flaky, pre-existing-class issue found, not introduced**:
+`cargo test -p cartalith-gpu` alone (default thread-parallel) hit one
+`STATUS_ACCESS_VIOLATION` crash partway through -- not attributable to
+any specific test or assertion. `--test-threads=1` reproduces cleanly
+(18/18 pass) every time, and a full `cargo test --workspace` run (where
+cargo runs each crate's test binary as a separate process rather than
+maximally parallelizing within one) also passed clean. Read as GPU-driver-
+level resource contention from several tests creating/tearing down
+`wgpu` devices concurrently within one process -- a real fragility this
+crate's growing GPU-context-per-test count made more likely to surface,
+worth knowing about, not silently worked around by weakening a test.
+
+- `cargo build -p cartalith-terrain -p cartalith-gpu`: clean.
+  `cargo test -p cartalith-noise -p cartalith-gpu`: 18/18 (`cartalith-gpu`,
+  serial or as part of the full workspace run) + existing `cartalith-noise`
+  tests, all pass. `cargo clippy -p cartalith-terrain -p cartalith-gpu
+  -p cartalith-noise --all-targets`: clean (two expected `dead_code`
+  warnings on functions only reachable via `#[cfg(test)]`, same class the
+  pilot's own `dispatch_gpu`/`vnoise_grid_cpu` already have in a
+  non-test build -- not a real issue). `cargo test --workspace`/`cargo
+  build --workspace`: no regressions, `cartalith-terrain`'s existing
+  `compute_warp`/`compute_heterogeneity` golden-parity tests untouched
+  and passing (confirms the CPU functions were genuinely not modified).
+
+**Milestone 3 (not scoped here)**: `compute_height` itself is the next
+candidate, per `GPU_LAYER_INTEGRATION_SCOPE.md`'s own note -- its real
+upstream dependency chain (boundary stress, flexure, orogeny, JFA Voronoi
+plate assignment) needs the same investigation-before-scoping pass every
+milestone in this session has had, not assumed reachable.

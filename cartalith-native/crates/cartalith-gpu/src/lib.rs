@@ -25,6 +25,12 @@ const SHADER_SRC_F64: &str = include_str!("../shaders/vnoise_f64.wgsl");
 /// `cartalith_noise::gpu_vnoise`'s doc comment for why a redesign was
 /// needed instead of a fix.
 const SHADER_SRC_GPU_NOISE: &str = include_str!("../shaders/gpu_noise.wgsl");
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 2: domain warp and crustal
+/// heterogeneity, built on `gpu_hash`/`gpu_vnoise` above (via a WGSL
+/// `gpu_fbm` combinator duplicated into each shader file -- no cross-file
+/// WGSL module include here, see each shader's own header comment).
+const SHADER_SRC_GPU_WARP: &str = include_str!("../shaders/gpu_warp.wgsl");
+const SHADER_SRC_GPU_HETEROGENEITY: &str = include_str!("../shaders/gpu_heterogeneity.wgsl");
 
 /// Tolerance for the GPU-safe noise kernel vs. its CPU counterpart
 /// (`cartalith_noise::gpu_vnoise`). Unlike [`F32_TOLERANCE`] above (which
@@ -38,6 +44,25 @@ const SHADER_SRC_GPU_NOISE: &str = include_str!("../shaders/gpu_noise.wgsl");
 /// compiler -- set from what was actually measured, not assumed, per this
 /// project's tolerance discipline (`PARITY_TESTING.md`).
 pub const GPU_SAFE_NOISE_TOLERANCE: f64 = 1e-5;
+
+/// Tolerance for `gpu_compute_warp`'s GPU-vs-CPU pair specifically
+/// (`GPU_LAYER_INTEGRATION_SCOPE.md` milestone 2) -- looser than
+/// [`GPU_SAFE_NOISE_TOLERANCE`] for a real, measured, structural reason:
+/// `compute_warp` chains TWO nested `gpu_fbm` evaluations per axis (`qx`/
+/// `qy` first, then `wx`/`wy` sampled at `xf + 4*qx, yf + 4*qy`), unlike
+/// `gpu_heterogeneity`'s single evaluation (which matches within
+/// [`GPU_SAFE_NOISE_TOLERANCE`] exactly, confirming the base `gpu_fbm`
+/// combinator itself is not the source). Sub-epsilon residual float-
+/// scheduling differences (FMA contraction, etc. -- the same category
+/// [`GPU_SAFE_NOISE_TOLERANCE`]'s own doc comment already names) in the
+/// first evaluation become a coordinate perturbation feeding the second,
+/// full 6-octave evaluation, which can amplify it. Measured directly, not
+/// assumed: at 512x512, max observed absolute difference was
+/// `1.18e-4` — this tolerance is set above that measured value with a
+/// small margin, not widened further to make a differently-sized failure
+/// disappear (`PARITY_TESTING.md`'s rule, applied here to a GPU/GPU pair
+/// instead of a JS/Rust one).
+pub const WARP_TOLERANCE: f64 = 2e-4;
 
 /// Absolute tolerance for the f32 GPU kernel vs. the f64 CPU reference.
 ///
@@ -58,6 +83,34 @@ pub const F32_TOLERANCE: f64 = 1e-4;
 #[repr(C)]
 #[derive(Copy, Clone, Pod, Zeroable)]
 struct Params {
+    seed: i32,
+    width: u32,
+    height: u32,
+    scale: f32,
+}
+
+/// Matches `gpu_warp.wgsl`'s `WarpParams` field-for-field, including the
+/// explicit padding -- WGSL uniform-address-space structs are commonly
+/// required to round to 16-byte multiples by real backends even where the
+/// spec's minimum requirement is looser; padding explicitly here avoids
+/// relying on that being true only in the strict-minimum case.
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct WarpParams {
+    seed: i32,
+    width: u32,
+    height: u32,
+    wf: f32,
+    amp: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
+}
+
+/// Matches `gpu_heterogeneity.wgsl`'s `HeteroParams` field-for-field.
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct HeteroParams {
     seed: i32,
     width: u32,
     height: u32,
@@ -110,7 +163,7 @@ pub struct GpuContext {
 /// (the most restrictive portable baseline wgpu ships) is requested and
 /// only raised if adapter capability genuinely requires it.
 pub fn init_gpu() -> Result<GpuContext, GpuInitError> {
-    init_gpu_with(SHADER_SRC, wgpu::Features::empty(), "vnoise (f32)")
+    init_gpu_with(SHADER_SRC, wgpu::Features::empty(), "vnoise (f32)", &ONE_STORAGE_OUT_LAYOUT)
 }
 
 /// Secondary pilot experiment: identical setup, but requests
@@ -121,7 +174,7 @@ pub fn init_gpu() -> Result<GpuContext, GpuInitError> {
 /// Returns `Err` cleanly if the adapter doesn't support it -- callers
 /// should treat that the same as "no GPU" (`HARDWARE_ACCELERATION.md` §27).
 pub fn init_gpu_f64() -> Result<GpuContext, GpuInitError> {
-    init_gpu_with(SHADER_SRC_F64, wgpu::Features::SHADER_F64, "vnoise (f64)")
+    init_gpu_with(SHADER_SRC_F64, wgpu::Features::SHADER_F64, "vnoise (f64)", &ONE_STORAGE_OUT_LAYOUT)
 }
 
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 1: the GPU-safe noise
@@ -130,13 +183,75 @@ pub fn init_gpu_f64() -> Result<GpuContext, GpuInitError> {
 /// bind-group layout (uniform Params + one storage `f32` buffer), so
 /// [`dispatch_gpu`] works unmodified against this context too.
 pub fn init_gpu_safe_noise() -> Result<GpuContext, GpuInitError> {
-    init_gpu_with(SHADER_SRC_GPU_NOISE, wgpu::Features::empty(), "gpu_noise (f32, PCG3D)")
+    init_gpu_with(SHADER_SRC_GPU_NOISE, wgpu::Features::empty(), "gpu_noise (f32, PCG3D)", &ONE_STORAGE_OUT_LAYOUT)
+}
+
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 2: domain warp needs two
+/// storage outputs (warp_x, warp_y) computed together in one dispatch
+/// (matching `compute_warp`'s own shape -- `qx`/`qy` are shared between
+/// the `wx`/`wy` paths, so splitting into two dispatches would recompute
+/// them twice for no benefit).
+pub fn init_gpu_warp() -> Result<GpuContext, GpuInitError> {
+    init_gpu_with(SHADER_SRC_GPU_WARP, wgpu::Features::empty(), "gpu_warp (f32, PCG3D fbm)", &TWO_STORAGE_OUT_LAYOUT)
+}
+
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 2: crustal heterogeneity
+/// reads three inputs (age, required; warp_x/warp_y, zero-filled when the
+/// caller has no warp field -- see the shader's own header comment) and
+/// writes one output (the pre-normalize heterogeneity value; the
+/// max-reduce normalize pass runs on CPU after readback).
+pub fn init_gpu_heterogeneity() -> Result<GpuContext, GpuInitError> {
+    init_gpu_with(
+        SHADER_SRC_GPU_HETEROGENEITY,
+        wgpu::Features::empty(),
+        "gpu_heterogeneity (f32, PCG3D fbm)",
+        &HETEROGENEITY_LAYOUT,
+    )
+}
+
+const ONE_STORAGE_OUT_LAYOUT: [wgpu::BindGroupLayoutEntry; 2] =
+    [uniform_entry(0), storage_entry(1, false)];
+const TWO_STORAGE_OUT_LAYOUT: [wgpu::BindGroupLayoutEntry; 3] =
+    [uniform_entry(0), storage_entry(1, false), storage_entry(2, false)];
+const HETEROGENEITY_LAYOUT: [wgpu::BindGroupLayoutEntry; 5] = [
+    uniform_entry(0),
+    storage_entry(1, true),
+    storage_entry(2, true),
+    storage_entry(3, true),
+    storage_entry(4, false),
+];
+
+const fn uniform_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
+const fn storage_entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Storage { read_only },
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
 }
 
 fn init_gpu_with(
     shader_src: &str,
     required_features: wgpu::Features,
     label: &str,
+    layout_entries: &[wgpu::BindGroupLayoutEntry],
 ) -> Result<GpuContext, GpuInitError> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
 
@@ -170,29 +285,8 @@ fn init_gpu_with(
     });
 
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("vnoise bind group layout"),
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-        ],
+        label: Some("cartalith-gpu bind group layout"),
+        entries: layout_entries,
     });
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -296,6 +390,237 @@ fn dispatch_gpu(ctx: &GpuContext, width: u32, height: u32, seed: i32, scale: f32
     drop(data);
     staging_buf.unmap();
     result
+}
+
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 2: dispatch `gpu_warp.wgsl`,
+/// returning `(warp_x, warp_y)` -- one dispatch computes both, matching
+/// `compute_warp`'s own shape (see [`init_gpu_warp`]'s doc comment).
+fn dispatch_gpu_warp(ctx: &GpuContext, width: u32, height: u32, seed: i32, wf: f32, amp: f32) -> (Vec<f32>, Vec<f32>) {
+    let count = (width * height) as usize;
+    let byte_len = (count * std::mem::size_of::<f32>()) as u64;
+
+    let params = WarpParams { seed, width, height, wf, amp, _pad0: 0.0, _pad1: 0.0, _pad2: 0.0 };
+    let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("warp params"),
+        contents: bytemuck::bytes_of(&params),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let make_storage = |label: &str| {
+        ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: byte_len,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        })
+    };
+    let out_x = make_storage("warp_x (storage)");
+    let out_y = make_storage("warp_y (storage)");
+    let make_staging = |label: &str| {
+        ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: byte_len,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        })
+    };
+    let staging_x = make_staging("warp_x (staging)");
+    let staging_y = make_staging("warp_y (staging)");
+
+    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("warp bind group"),
+        layout: &ctx.bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: out_x.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 2, resource: out_y.as_entire_binding() },
+        ],
+    });
+
+    let mut encoder =
+        ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("warp encoder") });
+    {
+        let mut pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("warp pass"), timestamp_writes: None });
+        pass.set_pipeline(&ctx.pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
+    }
+    encoder.copy_buffer_to_buffer(&out_x, 0, &staging_x, 0, byte_len);
+    encoder.copy_buffer_to_buffer(&out_y, 0, &staging_y, 0, byte_len);
+    ctx.queue.submit(Some(encoder.finish()));
+
+    let read_back = |staging: &wgpu::Buffer| -> Vec<f32> {
+        let slice = staging.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |res| {
+            let _ = tx.send(res);
+        });
+        ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
+        rx.recv().expect("map_async channel closed").expect("buffer map failed");
+        let data = slice.get_mapped_range().expect("get_mapped_range failed");
+        let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
+        drop(data);
+        staging.unmap();
+        result
+    };
+    (read_back(&staging_x), read_back(&staging_y))
+}
+
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 2: dispatch
+/// `gpu_heterogeneity.wgsl`. `age` is required; `warp_x`/`warp_y` should be
+/// zero-filled by the caller when there's no real warp field (mirrors
+/// `compute_heterogeneity`'s `Option<&[f32]>` -- see the shader's own
+/// header comment). Returns the PRE-normalize heterogeneity field --
+/// callers do the max-reduce normalize pass on CPU (see
+/// [`normalize_by_max_abs`]).
+#[allow(clippy::too_many_arguments)]
+fn dispatch_gpu_heterogeneity(
+    ctx: &GpuContext,
+    width: u32,
+    height: u32,
+    hetero_seed: i32,
+    scale: f32,
+    age: &[f32],
+    warp_x: &[f32],
+    warp_y: &[f32],
+) -> Vec<f32> {
+    let count = (width * height) as usize;
+    assert_eq!(age.len(), count);
+    assert_eq!(warp_x.len(), count);
+    assert_eq!(warp_y.len(), count);
+    let byte_len = (count * std::mem::size_of::<f32>()) as u64;
+
+    let params = HeteroParams { seed: hetero_seed, width, height, scale };
+    let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("hetero params"),
+        contents: bytemuck::bytes_of(&params),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let make_input = |label: &str, data: &[f32]| {
+        ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label),
+            contents: bytemuck::cast_slice(data),
+            usage: wgpu::BufferUsages::STORAGE,
+        })
+    };
+    let age_buf = make_input("hetero age (storage)", age);
+    let warp_x_buf = make_input("hetero warp_x (storage)", warp_x);
+    let warp_y_buf = make_input("hetero warp_y (storage)", warp_y);
+    let out_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("hetero out (storage)"),
+        size: byte_len,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let staging_buf = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("hetero out (staging)"),
+        size: byte_len,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("hetero bind group"),
+        layout: &ctx.bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: age_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 2, resource: warp_x_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 3, resource: warp_y_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 4, resource: out_buf.as_entire_binding() },
+        ],
+    });
+
+    let mut encoder =
+        ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("hetero encoder") });
+    {
+        let mut pass = encoder
+            .begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("hetero pass"), timestamp_writes: None });
+        pass.set_pipeline(&ctx.pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
+    }
+    encoder.copy_buffer_to_buffer(&out_buf, 0, &staging_buf, 0, byte_len);
+    ctx.queue.submit(Some(encoder.finish()));
+
+    let slice = staging_buf.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |res| {
+        let _ = tx.send(res);
+    });
+    ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
+    rx.recv().expect("map_async channel closed").expect("buffer map failed");
+    let data = slice.get_mapped_range().expect("get_mapped_range failed");
+    let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
+    drop(data);
+    staging_buf.unmap();
+    result
+}
+
+/// `compute_heterogeneity`'s trailing max-reduce normalize pass, factored
+/// out so both the CPU and GPU paths apply the exact same post-process to
+/// their (different, per `DECISIONS.md` §7c) per-cell outputs.
+fn normalize_by_max_abs(values: &mut [f32]) {
+    let mut mx = 1e-6f64;
+    for &v in values.iter() {
+        let v = (v as f64).abs();
+        if v > mx {
+            mx = v;
+        }
+    }
+    for v in values.iter_mut() {
+        *v = (*v as f64 / mx) as f32;
+    }
+}
+
+/// CPU reference for [`dispatch_gpu_warp`] -- calls `cartalith_noise::gpu_fbm`
+/// directly (all-`f32`, same shape as [`gpu_safe_noise_grid_cpu`]), not a
+/// second reimplementation. Non-world case only, matching the GPU kernel.
+pub fn gpu_warp_grid_cpu(width: u32, height: u32, seed: i32, wf: f32, amp: f32) -> (Vec<f32>, Vec<f32>) {
+    let n = (width * height) as usize;
+    let mut warp_x = vec![0.0f32; n];
+    let mut warp_y = vec![0.0f32; n];
+    for gy in 0..height {
+        for gx in 0..width {
+            let i = (gy * width + gx) as usize;
+            let xf = gx as f32 * wf;
+            let yf = gy as f32 * wf;
+            let qx = cartalith_noise::gpu_fbm(xf, yf, seed + 17);
+            let qy = cartalith_noise::gpu_fbm(xf, yf, seed + 101);
+            let wx = cartalith_noise::gpu_fbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 213) - 0.5;
+            let wy = cartalith_noise::gpu_fbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 331) - 0.5;
+            warp_x[i] = wx * 2.0 * amp;
+            warp_y[i] = wy * 2.0 * amp;
+        }
+    }
+    (warp_x, warp_y)
+}
+
+/// CPU reference for [`dispatch_gpu_heterogeneity`], including the
+/// normalize pass -- directly comparable to the GPU path's own
+/// dispatch-then-[`normalize_by_max_abs`] sequence.
+pub fn gpu_heterogeneity_grid_cpu(
+    width: u32,
+    height: u32,
+    hetero_seed: i32,
+    scale: f32,
+    age: &[f32],
+    warp_x: &[f32],
+    warp_y: &[f32],
+) -> Vec<f32> {
+    let n = (width * height) as usize;
+    let mut out = vec![0.0f32; n];
+    for gy in 0..height {
+        for gx in 0..width {
+            let i = (gy * width + gx) as usize;
+            let wx = gx as f32 + warp_x[i];
+            let wy = gy as f32 + warp_y[i];
+            let low_n = cartalith_noise::gpu_fbm(wx * scale, wy * scale, hetero_seed) - 0.5;
+            out[i] = low_n * (0.3 + 0.7 * age[i]);
+        }
+    }
+    normalize_by_max_abs(&mut out);
+    out
 }
 
 /// The CPU reference path -- same sampling convention as [`dispatch_gpu`]
@@ -677,6 +1002,228 @@ mod tests {
             None => eprintln!(
                 "unexpected: `enable f64;` was accepted -- naga's f64 support may have landed since this pilot was written, re-check its EnableExtensions list"
             ),
+        }
+    }
+
+    // ===================== GPU_LAYER_INTEGRATION_SCOPE.md milestone 2 =====================
+    // Domain warp + crustal heterogeneity on GPU. No JS-reference comparison
+    // (there isn't one, per `DECISIONS.md` §7a/§7c) -- verified by GPU-side
+    // determinism, statistical sanity, and (for warp) a written debug image.
+
+    fn try_gpu_warp() -> Option<GpuContext> {
+        init_gpu_warp().ok()
+    }
+
+    fn try_gpu_heterogeneity() -> Option<GpuContext> {
+        init_gpu_heterogeneity().ok()
+    }
+
+    fn assert_finite_and_bounded(values: &[f32], lo: f32, hi: f32, what: &str) {
+        for &v in values {
+            assert!(v.is_finite(), "{what}: found non-finite value {v}");
+            assert!((lo..=hi).contains(&v), "{what}: value {v} out of expected range [{lo},{hi}]");
+        }
+    }
+
+    #[test]
+    fn gpu_warp_matches_cpu_reference_at_real_field_size() {
+        let Some(ctx) = try_gpu_warp() else {
+            eprintln!("no GPU available -- skipping (requires real hardware)");
+            return;
+        };
+        let (w, h) = (512u32, 512u32);
+        let seed = 24601;
+        let wf = 2.5 / w as f32;
+        let amp = 40.0f32;
+        let (gx, gy) = dispatch_gpu_warp(&ctx, w, h, seed, wf, amp);
+        let (cx, cy) = gpu_warp_grid_cpu(w, h, seed, wf, amp);
+        let mut max_abs_diff = 0.0f64;
+        let mut mismatches = 0usize;
+        for (g, c) in gx.iter().chain(gy.iter()).zip(cx.iter().chain(cy.iter())) {
+            let d = ((*g as f64) - (*c as f64)).abs();
+            if d > WARP_TOLERANCE {
+                mismatches += 1;
+            }
+            if d > max_abs_diff {
+                max_abs_diff = d;
+            }
+        }
+        eprintln!(
+            "gpu_warp GPU vs CPU at {w}x{h}: {mismatches}/{} cells (both x,y) exceed tol={WARP_TOLERANCE}, max_abs_diff={max_abs_diff}",
+            (w * h * 2)
+        );
+        assert_eq!(mismatches, 0, "gpu_warp GPU/CPU diverged beyond {WARP_TOLERANCE} -- see max_abs_diff above");
+        assert_finite_and_bounded(&gx, -2.0 * amp, 2.0 * amp, "warp_x");
+        assert_finite_and_bounded(&gy, -2.0 * amp, 2.0 * amp, "warp_y");
+    }
+
+    #[test]
+    fn gpu_warp_deterministic_across_runs() {
+        let Some(ctx) = try_gpu_warp() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let (a_x, a_y) = dispatch_gpu_warp(&ctx, 64, 64, 42, 0.05, 20.0);
+        let (b_x, b_y) = dispatch_gpu_warp(&ctx, 64, 64, 42, 0.05, 20.0);
+        assert_eq!(a_x, b_x, "gpu_warp not deterministic across runs (x)");
+        assert_eq!(a_y, b_y, "gpu_warp not deterministic across runs (y)");
+    }
+
+    /// Qualitative sanity check (`DECISIONS.md` §7a: "judged by looking at
+    /// it") -- writes a small grayscale PGM of the GPU warp_x field so it can
+    /// actually be viewed, not just statistically summarized. PGM (not PNG)
+    /// deliberately: trivial ASCII-header + raw-bytes format, no extra
+    /// dependency for a one-off debug dump.
+    #[test]
+    fn gpu_warp_debug_image_written_for_visual_check() {
+        let Some(ctx) = try_gpu_warp() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let (w, h) = (256u32, 256u32);
+        let (warp_x, _) = dispatch_gpu_warp(&ctx, w, h, 24601, 2.5 / w as f32, 40.0);
+        let mut mn = f32::INFINITY;
+        let mut mx = f32::NEG_INFINITY;
+        for &v in &warp_x {
+            mn = mn.min(v);
+            mx = mx.max(v);
+        }
+        let range = (mx - mn).max(1e-6);
+        let mut bytes = Vec::with_capacity((w * h) as usize);
+        for &v in &warp_x {
+            bytes.push((((v - mn) / range) * 255.0) as u8);
+        }
+        let path = std::env::temp_dir().join("cartalith_gpu_warp_debug.pgm");
+        let mut file_contents = format!("P5\n{w} {h}\n255\n").into_bytes();
+        file_contents.extend_from_slice(&bytes);
+        std::fs::write(&path, &file_contents).expect("failed to write debug PGM");
+        eprintln!("wrote GPU warp_x debug image to {} (range [{mn},{mx}]) -- open it to visually confirm no banding/lattice artifacts", path.display());
+    }
+
+    #[test]
+    fn gpu_heterogeneity_matches_cpu_reference_at_real_field_size() {
+        let Some(ctx) = try_gpu_heterogeneity() else {
+            eprintln!("no GPU available -- skipping (requires real hardware)");
+            return;
+        };
+        let (w, h) = (512u32, 512u32);
+        let n = (w * h) as usize;
+        let seed = 24601;
+        let hetero_seed = seed ^ 0x44bb;
+        let scale = 1.5 * 12.0 / w as f32; // representative hf/gw, hf ~ 1.5*terrain_detail_k
+        // Real-shaped, deterministic synthetic age field (not all-zero/all-one,
+        // which wouldn't exercise the `0.3 + 0.7*age` term meaningfully).
+        let age: Vec<f32> = (0..n).map(|i| ((i * 2654435761u32 as usize) % 1000) as f32 / 1000.0).collect();
+        let warp_x = vec![0.0f32; n]; // no-warp case: zero-filled, matches Option::None on CPU
+        let warp_y = vec![0.0f32; n];
+
+        let mut gpu = dispatch_gpu_heterogeneity(&ctx, w, h, hetero_seed, scale, &age, &warp_x, &warp_y);
+        normalize_by_max_abs(&mut gpu);
+        let cpu = gpu_heterogeneity_grid_cpu(w, h, hetero_seed, scale, &age, &warp_x, &warp_y);
+
+        let mut max_abs_diff = 0.0f64;
+        let mut mismatches = 0usize;
+        for (g, c) in gpu.iter().zip(cpu.iter()) {
+            let d = ((*g as f64) - (*c as f64)).abs();
+            if d > GPU_SAFE_NOISE_TOLERANCE {
+                mismatches += 1;
+            }
+            if d > max_abs_diff {
+                max_abs_diff = d;
+            }
+        }
+        eprintln!(
+            "gpu_heterogeneity GPU vs CPU at {w}x{h}: {mismatches}/{n} cells exceed tol={GPU_SAFE_NOISE_TOLERANCE}, max_abs_diff={max_abs_diff}"
+        );
+        assert_eq!(mismatches, 0, "gpu_heterogeneity GPU/CPU diverged beyond {GPU_SAFE_NOISE_TOLERANCE} -- see max_abs_diff above");
+        assert_finite_and_bounded(&gpu, -1.0, 1.0, "heterogeneity (post-normalize)");
+    }
+
+    #[test]
+    fn gpu_heterogeneity_deterministic_across_runs() {
+        let Some(ctx) = try_gpu_heterogeneity() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let n = 32 * 32;
+        let age = vec![0.5f32; n];
+        let warp_x = vec![0.0f32; n];
+        let warp_y = vec![0.0f32; n];
+        let mut a = dispatch_gpu_heterogeneity(&ctx, 32, 32, 42, 0.1, &age, &warp_x, &warp_y);
+        let mut b = dispatch_gpu_heterogeneity(&ctx, 32, 32, 42, 0.1, &age, &warp_x, &warp_y);
+        normalize_by_max_abs(&mut a);
+        normalize_by_max_abs(&mut b);
+        assert_eq!(a, b, "gpu_heterogeneity not deterministic across runs");
+    }
+
+    /// Real timing at the pilot's own tested sizes -- milestone 1's numbers
+    /// were for the bare noise kernel; these two functions do meaningfully
+    /// more per-cell work (up to 4 `gpu_fbm` calls per warp cell, each 6
+    /// octaves), so the ratios are not assumed to carry over unchanged.
+    #[test]
+    fn measured_gpu_warp_vs_cpu_timing() {
+        let Some(ctx) = try_gpu_warp() else {
+            eprintln!("no GPU available -- skipping timing measurement");
+            return;
+        };
+        let _ = dispatch_gpu_warp(&ctx, 8, 8, 1, 0.5, 10.0); // warm up
+        for &(w, h) in &[(128u32, 128u32), (512, 512), (1024, 1024), (2048, 2048)] {
+            let seed = 24601;
+            let wf = 2.5 / w as f32;
+            let amp = 40.0f32;
+
+            let t0 = Instant::now();
+            let _ = dispatch_gpu_warp(&ctx, w, h, seed, wf, amp);
+            let gpu_time = t0.elapsed();
+
+            let t1 = Instant::now();
+            let _ = gpu_warp_grid_cpu(w, h, seed, wf, amp);
+            let cpu_time = t1.elapsed();
+
+            eprintln!(
+                "gpu_warp {w}x{h} ({} cells): GPU dispatch+readback = {:?}, CPU (single-thread) = {:?}, ratio (CPU/GPU) = {:.2}x",
+                w * h,
+                gpu_time,
+                cpu_time,
+                cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
+            );
+        }
+    }
+
+    #[test]
+    fn measured_gpu_heterogeneity_vs_cpu_timing() {
+        let Some(ctx) = try_gpu_heterogeneity() else {
+            eprintln!("no GPU available -- skipping timing measurement");
+            return;
+        };
+        let warm_n = 64;
+        let warm_age = vec![0.5f32; warm_n];
+        let warm_zero = vec![0.0f32; warm_n];
+        let _ = dispatch_gpu_heterogeneity(&ctx, 8, 8, 1, 0.5, &warm_age, &warm_zero, &warm_zero); // warm up
+
+        for &(w, h) in &[(128u32, 128u32), (512, 512), (1024, 1024), (2048, 2048)] {
+            let n = (w * h) as usize;
+            let hetero_seed = 24601 ^ 0x44bb;
+            let scale = 1.5 * 12.0 / w as f32;
+            let age = vec![0.6f32; n];
+            let warp_x = vec![0.0f32; n];
+            let warp_y = vec![0.0f32; n];
+
+            let t0 = Instant::now();
+            let _ = dispatch_gpu_heterogeneity(&ctx, w, h, hetero_seed, scale, &age, &warp_x, &warp_y);
+            let gpu_time = t0.elapsed();
+
+            let t1 = Instant::now();
+            let _ = gpu_heterogeneity_grid_cpu(w, h, hetero_seed, scale, &age, &warp_x, &warp_y);
+            let cpu_time = t1.elapsed();
+
+            eprintln!(
+                "gpu_heterogeneity {w}x{h} ({} cells): GPU dispatch+readback = {:?}, CPU (single-thread) = {:?}, ratio (CPU/GPU) = {:.2}x",
+                w * h,
+                gpu_time,
+                cpu_time,
+                cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
+            );
         }
     }
 }

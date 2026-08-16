@@ -126,7 +126,7 @@ sizes: 0.10× at 128² (dispatch overhead), 2.85× at 512², 10.39× at
 1024², 11.94× at 2048². See `CHANGELOG.md`'s "GPU-safe noise redesign"
 entry for the full record.
 
-## Milestone 2 — domain warp + crustal heterogeneity on GPU (current)
+## Milestone 2 — domain warp + crustal heterogeneity on GPU: **done** (2026-08-16)
 
 Checked 2026-08-16: `compute_warp` (`cartalith-terrain/src/lib.rs:36`) and
 `compute_heterogeneity` (line 914) are both genuinely per-cell —
@@ -174,3 +174,34 @@ the GPU functions are proven standalone), any UI exposure (per the
 UI-per-milestone process, but this is backend-only work with no
 user-visible payoff yet — a GPU toggle isn't meaningful until enough of
 the pipeline actually runs on it end-to-end).
+
+**Done.** Non-`world` branch only (world-wrap/`pfbm`-equivalent deferred,
+as anticipated). `cartalith_noise::gpu_fbm` + `cartalith-gpu`'s
+`gpu_warp.wgsl`/`gpu_heterogeneity.wgsl`. `gpu_heterogeneity` (single
+`gpu_fbm` call/cell) matches its CPU twin at `1e-5`, 0/262144 mismatches
+at 512×512 — confirms `gpu_fbm` carries no new precision gap.
+`gpu_warp` (two nested `gpu_fbm` evaluations, the second sampled at a
+position computed from the first) needed its own tolerance
+(`WARP_TOLERANCE=2e-4`, set just above the actually-measured 1.18e-4 max)
+— a real, isolated, structural finding (residual float-scheduling
+differences amplified through the second evaluation), not a loosened
+test; `gpu_heterogeneity`'s clean pass at the tighter tolerance proves
+`gpu_fbm` itself isn't the source. Real timing: `gpu_warp` up to 80× at
+2048² (better than milestone 1's bare noise — more octave calls per cell
+means GPU's fixed dispatch overhead amortizes further), `gpu_heterogeneity`
+up to 16.7×. `compute_warp`/`compute_heterogeneity` (CPU) untouched,
+golden-parity tests unaffected. Found, not introduced: `cargo test -p
+cartalith-gpu` alone can hit a flaky driver-level crash under parallel
+GPU-context churn (reliable single-threaded or as part of a full
+workspace run) — a real fragility worth knowing as this crate's
+GPU-context-per-test count grows. See `CHANGELOG.md`'s "GPU layer
+integration milestone 2" entry for the full record.
+
+## Milestone 3 — the height formula (`compute_height`): not yet scoped
+
+Next per the table above, but needs the same investigate-before-scope
+pass every milestone in this document has had — its real upstream
+dependency chain (boundary stress, flexure, orogeny, plate/boundary
+assignment via JFA Voronoi) hasn't been checked for GPU-portability yet.
+Do not assume it's a clean next slice the way warp/heterogeneity turned
+out to be; verify first.
