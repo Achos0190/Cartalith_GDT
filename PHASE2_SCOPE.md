@@ -565,6 +565,46 @@ porting once, shared) and `_civTerrainValidTest`. Not required for
 raw unsmoothed edges already provide), but required for anything that
 actually *draws* roads on the map.
 
+## Milestone 15 — village seeding: `_civSeedVillages` (current)
+
+Confirmed reachable now, independent of milestones 13/14 (per milestone
+12's own note: `_civSeedVillages` needs road-proximity *distance*, which
+raw unsmoothed MST-family edges already provide — smoothing/classification
+is a rendering concern, not a functional one). Reference line ~25164
+(re-verify against the live file). Read the full function fresh — this
+session read it once already but before milestone 12's real topology
+existed to build against, re-check every input actually matches what's
+real now.
+
+**Algorithm** (already read this session, verify against live file): a
+Bishop-Fisher-style spatial hash grid rejects candidates too close to any
+existing settlement (`spacing` from `VILLAGE_SPACING_KM`), scans
+`findSettlementSeeds` at a *relaxed* threshold (`VILLAGE_SUIT_THRESH`,
+lower than the main settlement threshold — dense-mode-style full-map
+coverage), and for each candidate computes a soft accept probability
+blending suitability with road proximity (`_civRoadProximityQuery`,
+already built in milestone 12's own helpers — check exact function name)
+via `_civVillageAcceptProb` (not yet read in full — read it now). Nearest
+existing settlement's faction is inherited. Named via milestone 9's
+`civ_settle_name`/RNG (same shared stream discipline milestone 9
+established). Capped at `_CIV_VILLAGE_CAP` (find its real value).
+
+**In scope**: `_civSeedVillages` itself, `_civVillageAcceptProb`,
+`_civRoadProximityQuery` if milestone 12 didn't already build an
+equivalent (check first, don't duplicate), the spatial-hash rejection
+grid. Golden-verify against the real reference engine — this one DOES
+have a JS reference to check (unlike territory, milestone 10) since it's
+a real reference function, not new design.
+
+**Out of scope**: milestones 13/14's own scope (sea routes, consolidation/
+smoothing/road classification/rendering), economy, culture beyond naming
+(already real, milestone 9), the UI toggle this port has for `_civVillages`
+gating in the reference (no such toggle exists in this port's UI yet —
+check whether that matters for a headless port, or whether "always on" is
+the right default here given no UI exposes it either way).
+
+**Where the code goes**: `cartalith-civ`, same crate, same conventions.
+
 ## Done means (per milestone, not once for the whole phase)
 
 Each milestone: golden-verified against the real reference engine with a
