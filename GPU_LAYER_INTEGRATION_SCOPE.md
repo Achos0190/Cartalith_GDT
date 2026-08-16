@@ -441,3 +441,73 @@ already work** (`base_field` via JFA, `hetero`/`warp`, `flex` via
 `gauss_blur`) into an actual partial GPU pipeline stage, keeping
 `stress`/`age`/`oro` on CPU and uploaded as buffers — a real integration
 milestone, not another individual-kernel one.
+
+## Milestone 6 — first real partial-GPU pipeline integration (current)
+
+Every prior milestone built and verified a **standalone** kernel in
+`cartalith-gpu` — none has ever been called from `generate_terrain`
+(`cartalith-engine/src/lib.rs:394`) itself. This milestone is the first
+that actually touches the real pipeline: run plate assignment
+(`gpu_assign_plates`), domain warp (`gpu_compute_warp`), crustal
+heterogeneity (`gpu_compute_heterogeneity`), and flexure's blur
+(`gpu_gauss_blur`, wiring `compute_flexure`'s thin wrapper milestone 4
+already confirmed) on GPU, keeping `compute_stress`, `build_age_field`,
+and orogeny (`oro`) on CPU exactly as today, feeding their CPU-computed
+output to `compute_height` as buffers (mixed CPU/GPU inputs — already
+how `compute_height` works, it doesn't care where its input arrays came
+from).
+
+**The real architectural question this milestone has to answer, not
+assume**: per `DECISIONS.md` §7c, GPU-generated warp/heterogeneity/plate-
+assignment will produce a **different world than CPU for the same seed**
+(genuinely different noise, not tolerance-different). That means this
+can't be a silent internal optimization — it has to be an explicit,
+opt-in execution path (a new `WorldParams` flag, e.g. `use_gpu: bool`,
+default `false`), not something that changes existing CPU-path output.
+Existing golden-parity tests for `generate_terrain` (and everything
+downstream — climate, erosion, hydrology, every Phase 2 field) must keep
+passing completely unmodified with the flag at its default `false`. This
+is the first milestone where "keep the CPU path untouched" is a
+structural requirement on the *pipeline*, not just on individual
+functions.
+
+**Self-test/fallback, per `HARDWARE_ACCELERATION.md` §9/§27 (still
+relevant even under the static-generation scope correction)**: if
+`use_gpu` is requested but GPU init/dispatch fails for any reason (no
+adapter, device creation failure, shader compile failure), fall back to
+the CPU path and say so (a return value or log, not a silent swap — the
+user/caller should be able to tell which path actually ran, especially
+since the two produce different worlds).
+
+**In scope**: a new function (e.g. `generate_terrain_gpu` or a `use_gpu`
+branch inside `generate_terrain` itself — your call, but keep the CPU
+path's own code path completely unchanged either way) that runs the four
+GPU-ready stages on GPU and the rest on CPU, in `cartalith-engine`
+(orchestration) calling into `cartalith-gpu` (the actual dispatch) —
+check whether `cartalith-engine` can depend on `cartalith-gpu` without
+violating `ARCHITECTURE.md`'s crate rules (neither depends on `gdext`,
+should be fine, but verify the dependency direction makes sense per the
+crate-per-subsystem ladder).
+
+**Verification**: existing CPU-path golden-parity tests for
+`generate_terrain` must pass completely unmodified (the structural
+requirement above). The new GPU path needs its own verification: internal
+determinism (same seed → same GPU-path world, every run), statistical
+sanity on the resulting height field (comparable range/variance to a
+CPU-generated world, no NaN/degenerate output), and a real visual
+check if practical (render both a CPU and a GPU world through the
+existing `render.rs` colour pipeline and look at both — they'll differ,
+but both should look like plausible terrain, not garbage).
+
+**Real timing**: measure the four-stage GPU chain against the equivalent
+CPU stages, at the pilot's established sizes. This is the first timing
+number that reflects genuine pipeline-stage savings, not an isolated
+kernel benchmark — report it as such.
+
+**Out of scope**: UI exposure of the `use_gpu` flag (real future
+UI/UX-process work once this lands and is trustworthy — per
+`DECISIONS.md` §7c's own note, a GPU toggle needs honest "this may
+produce a different world" messaging when it becomes user-facing, not
+silently added as a checkbox), `compute_stress`'s gather reformulation,
+orogeny's parallel-graph redesign, climate/erosion/hydrology's own GPU
+integration (later milestones, once this one proves the pattern).
