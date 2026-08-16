@@ -14,3 +14,7 @@ cartalith-terrain = { path = "../cartalith-terrain" }
 cartalith-climate = { path = "../cartalith-climate" }
 cartalith-hydrology = { path = "../cartalith-hydrology" }
 cartalith-erosion = { path = "../cartalith-erosion" }
+# GPU_LAYER_INTEGRATION_SCOPE.md milestone 6: opt-in (WorldParams.use_gpu)
+# partial-GPU substrate path. Neither crate depends on gdext -- fine per
+# ARCHITECTURE.md's crate rules (only cartalith-godot may touch Godot).
+cartalith-gpu = { path = "../cartalith-gpu" }

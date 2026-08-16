@@ -242,6 +242,21 @@ pub struct WorldParams {
     pub climate: ClimateInputParams,
     pub stream: StreamParams,
     pub world_structure: WorldStructureParams,
+    /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6: run plate assignment,
+    /// domain warp, crustal heterogeneity, and the flexure/base-field blur
+    /// on GPU instead of CPU. Default `false` -- with this flag at its
+    /// default, `generate_terrain`'s behaviour and output are byte-for-byte
+    /// identical to before this milestone (verified: every existing
+    /// golden-parity test passes unmodified). **Not a performance-only
+    /// switch**: per `DECISIONS.md` §7c, the GPU noise primitive is a
+    /// genuinely different hash function from the CPU/JS-matching one, so
+    /// `use_gpu: true` produces a different (still valid, still
+    /// deterministic-per-seed) world for the same seed, not just a faster
+    /// path to the same one. On any GPU init/dispatch failure, each stage
+    /// falls back to CPU individually rather than crashing
+    /// (`HARDWARE_ACCELERATION.md` §27) -- which path each stage actually
+    /// took is recorded on `WorldState.gpu_stages_used`, not hidden.
+    pub use_gpu: bool,
 }
 
 impl WorldParams {
@@ -328,6 +343,7 @@ impl WorldParams {
                 ocean_depth: 0.60,
                 hotspot_density: 0.20,
             },
+            use_gpu: false,
         }
     }
 }
@@ -385,6 +401,14 @@ pub struct WorldState {
     pub stream_order: Option<Vec<i16>>,
     pub river_mask: Option<Vec<u8>>,
     pub river_floor: Option<Vec<f32>>,
+    /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6: which of the four
+    /// GPU-eligible substrate stages (`"warp"`, `"heterogeneity"`,
+    /// `"plate_assignment"`, `"base_field_blur"`) actually ran on GPU this
+    /// generation. Empty when `p.use_gpu` was `false`, or when every stage
+    /// fell back to CPU (`HARDWARE_ACCELERATION.md` §27 -- GPU failure
+    /// falls back silently in terms of *correctness*, but the caller can
+    /// always tell which path actually ran by reading this).
+    pub gpu_stages_used: Vec<String>,
 }
 
 /// Runs the full ported pipeline once, from a seed to (when
@@ -431,24 +455,136 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         continental_field: cf.as_slice(),
     });
 
-    let warp = compute_warp(gw, gh, p.tect.seed, p.tect.warp, world);
+    let mut gpu_stages_used: Vec<String> = Vec::new();
+
+    // ---- GPU_LAYER_INTEGRATION_SCOPE.md milestone 6: opt-in partial-GPU
+    // substrate path. `p.use_gpu=false` (the default) takes the exact same
+    // code path as before this milestone -- every `if p.use_gpu` branch
+    // below is additive, never altering the `else` arm's behaviour.
+    // World-wrap isn't supported by the GPU warp kernel yet (milestone 2's
+    // own deferral) -- `use_gpu` under `world=true` falls back to CPU for
+    // warp specifically, same as any other GPU-unavailable case.
+    let warp = if p.use_gpu && !world {
+        let amp = (p.tect.warp * 0.18 * gw as f64) as f32;
+        if amp < 0.5 {
+            None
+        } else {
+            let wf = (2.5 / gw as f64) as f32; // non-world branch only, matching compute_warp's own `wf`
+            match cartalith_gpu::warp_grid_gpu(gw as u32, gh as u32, p.tect.seed, wf, amp) {
+                Some(wxy) => {
+                    gpu_stages_used.push("warp".to_string());
+                    Some(wxy)
+                }
+                None => compute_warp(gw, gh, p.tect.seed, p.tect.warp, world),
+            }
+        }
+    } else {
+        compute_warp(gw, gh, p.tect.seed, p.tect.warp, world)
+    };
     let (warp_x, warp_y) = match &warp {
         Some((wx, wy)) => (Some(wx.as_slice()), Some(wy.as_slice())),
         None => (None, None),
     };
 
     let plates = build_plates(gw, gh, p.tect.seed as u32, tect_plates, p.tect.lloyd, world, world_structure_arg);
-    let plate_id = assign_plates(gw, gh, world, &plates, warp_x, warp_y);
+
+    let plate_id = if p.use_gpu {
+        let plate_x: Vec<f32> = plates.iter().map(|pl| pl.x as f32).collect();
+        let plate_y: Vec<f32> = plates.iter().map(|pl| pl.y as f32).collect();
+        cartalith_gpu::assign_plates_grid_gpu(gw as u32, gh as u32, &plate_x, &plate_y, warp_x, warp_y)
+            .filter(|ids| ids.iter().all(|&id| id >= 0)) // any unassigned cell => treat as a failed dispatch, fall back
+            .map(|ids| {
+                gpu_stages_used.push("plate_assignment".to_string());
+                ids.into_iter().map(|id| id as usize).collect::<Vec<usize>>()
+            })
+            .unwrap_or_else(|| assign_plates(gw, gh, world, &plates, warp_x, warp_y))
+    } else {
+        assign_plates(gw, gh, world, &plates, warp_x, warp_y)
+    };
+
     let stress = compute_stress(gw, gh, world, &plate_id, &plates, tect_vel, p.tect.blur_r);
-    let flexure_field = compute_flexure(gw, gh, &stress.boundary_mask, &stress.stress_field, p.tect.blur_r, world);
+
+    // compute_flexure's own body, inlined: mask by boundary, blur (GPU or
+    // CPU), max-normalize (CPU either way -- a cheap reduction, not worth
+    // its own kernel). `compute_flexure` itself is left completely
+    // untouched for the `p.use_gpu=false` path (called directly, no
+    // inlining needed there -- see the `else` arm).
+    let flexure_field = if p.use_gpu {
+        let mut raw = vec![0f32; gw * gh];
+        for (r, (&mask, &sv)) in raw.iter_mut().zip(stress.boundary_mask.iter().zip(stress.stress_field.iter())) {
+            if mask != 0 {
+                *r = sv;
+            }
+        }
+        match cartalith_gpu::gauss_blur_grid_gpu(&raw, p.tect.blur_r * 3.0, gw as u32, gh as u32, world) {
+            Some(broad) => {
+                gpu_stages_used.push("base_field_blur".to_string()); // shared GPU kernel with base_field below
+                let mut mx = 1e-6f64;
+                for &v in &broad {
+                    let v = (v as f64).abs();
+                    if v > mx {
+                        mx = v;
+                    }
+                }
+                broad.iter().map(|&v| (v as f64 / mx) as f32).collect()
+            }
+            None => compute_flexure(gw, gh, &stress.boundary_mask, &stress.stress_field, p.tect.blur_r, world),
+        }
+    } else {
+        compute_flexure(gw, gh, &stress.boundary_mask, &stress.stress_field, p.tect.blur_r, world)
+    };
 
     let base_raw: Vec<f32> = plate_id.iter().map(|&pid| plates[pid].base as f32).collect();
-    let base_field = gauss_blur(&base_raw, (p.tect.blur_r * 0.35).max(2.0), gw, gh, world);
+    let base_field = if p.use_gpu {
+        match cartalith_gpu::gauss_blur_grid_gpu(&base_raw, (p.tect.blur_r * 0.35).max(2.0), gw as u32, gh as u32, world) {
+            Some(v) => {
+                if !gpu_stages_used.iter().any(|s| s == "base_field_blur") {
+                    gpu_stages_used.push("base_field_blur".to_string());
+                }
+                v
+            }
+            None => gauss_blur(&base_raw, (p.tect.blur_r * 0.35).max(2.0), gw, gh, world),
+        }
+    } else {
+        gauss_blur(&base_raw, (p.tect.blur_r * 0.35).max(2.0), gw, gh, world)
+    };
 
     let age_field = build_age_field(gw, gh, &stress.boundary_mask);
 
-    let heterogeneity_field =
-        compute_heterogeneity(gw, gh, p.tect.seed, p.map_width_km, world, &age_field, warp_x, warp_y);
+    let heterogeneity_field = if p.use_gpu && !world {
+        let hetero_seed = p.tect.seed ^ 0x44bb; // matches compute_heterogeneity's own seed derivation
+        let hf = (1.5 * cartalith_terrain::terrain_detail_k(gw, p.map_width_km)) as f32;
+        let wx = warp_x.unwrap_or(&[]);
+        let wy = warp_y.unwrap_or(&[]);
+        let zero_wx;
+        let zero_wy;
+        let (wx, wy) = if wx.len() == gw * gh && wy.len() == gw * gh {
+            (wx, wy)
+        } else {
+            zero_wx = vec![0f32; gw * gh];
+            zero_wy = vec![0f32; gw * gh];
+            (zero_wx.as_slice(), zero_wy.as_slice())
+        };
+        match cartalith_gpu::heterogeneity_grid_gpu(gw as u32, gh as u32, hetero_seed, hf / gw as f32, &age_field, wx, wy) {
+            Some(mut out) => {
+                gpu_stages_used.push("heterogeneity".to_string());
+                let mut mx = 1e-6f64;
+                for &v in &out {
+                    let v = (v as f64).abs();
+                    if v > mx {
+                        mx = v;
+                    }
+                }
+                for v in &mut out {
+                    *v = (*v as f64 / mx) as f32;
+                }
+                out
+            }
+            None => compute_heterogeneity(gw, gh, p.tect.seed, p.map_width_km, world, &age_field, warp_x, warp_y),
+        }
+    } else {
+        compute_heterogeneity(gw, gh, p.tect.seed, p.map_width_km, world, &age_field, warp_x, warp_y)
+    };
     let mut resistance_field = compute_resistance(gw, gh, &plate_id, &plates, &age_field);
 
     // resistanceToOrogeny() (reference HTML lines 3433-3444): T2+T3,
@@ -790,6 +926,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         stream_order,
         river_mask,
         river_floor,
+        gpu_stages_used,
     }
 }
 
@@ -811,6 +948,100 @@ mod tests {
         // carve_rivers defaults true -- channel topology should be present.
         assert!(ws.channels.is_some());
         assert!(ws.stream_order.is_some());
+    }
+
+    /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6: the GPU path (when
+    /// available on this machine) is internally deterministic and produces
+    /// statistically sane terrain -- NOT checked against the CPU/JS
+    /// reference (`DECISIONS.md` §7c: different noise, different world, by
+    /// design). Environment-tolerant: if this machine has no usable GPU,
+    /// every stage falls back to CPU and `gpu_stages_used` is empty --
+    /// still a valid, asserted-on outcome, not a test failure.
+    #[test]
+    fn generate_terrain_gpu_path_is_deterministic_and_valid() {
+        let mut p = WorldParams::defaults(24, 18, 777);
+        p.use_gpu = true;
+        let a = generate_terrain(&p);
+        let b = generate_terrain(&p);
+
+        // Determinism: same seed, same use_gpu path, same result -- twice.
+        assert_eq!(a.field, b.field, "GPU-path generation must be deterministic for a fixed seed");
+        assert_eq!(a.gpu_stages_used, b.gpu_stages_used, "which stages ran on GPU must itself be deterministic");
+
+        // Statistical sanity: real terrain, not garbage, whichever path
+        // (GPU or CPU-fallback) actually produced it.
+        let n = 24 * 18;
+        assert_eq!(a.field.len(), n);
+        assert!(a.field.iter().all(|&v| v.is_finite()), "no NaN/Inf in a GPU-path height field");
+        assert!(a.field.iter().all(|&v| (0.0..=1.0).contains(&v)), "GPU-path height field still normalized to [0,1]");
+        let mn = a.field.iter().cloned().fold(f32::INFINITY, f32::min);
+        let mx = a.field.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        assert!(mx - mn > 0.05, "GPU-path terrain shouldn't be a degenerate flat field");
+
+        // Every reported stage name is one this milestone actually wired.
+        let known = ["warp", "heterogeneity", "plate_assignment", "base_field_blur"];
+        for s in &a.gpu_stages_used {
+            assert!(known.contains(&s.as_str()), "unexpected gpu_stages_used entry: {s}");
+        }
+    }
+
+    /// The structural requirement: `use_gpu=true`/`false` must never change
+    /// which fields exist or their shapes -- only, potentially, the actual
+    /// substrate values (per §7c). A crash or a length mismatch here would
+    /// mean the GPU path broke `WorldState`'s own contract with every
+    /// downstream consumer (climate, erosion, hydrology, every Phase 2
+    /// field).
+    #[test]
+    fn generate_terrain_gpu_and_cpu_paths_share_worldstate_shape() {
+        let mut p_gpu = WorldParams::defaults(20, 16, 42);
+        p_gpu.use_gpu = true;
+        let p_cpu = WorldParams::defaults(20, 16, 42);
+
+        let a = generate_terrain(&p_gpu);
+        let b = generate_terrain(&p_cpu);
+
+        assert_eq!(a.field.len(), b.field.len());
+        assert_eq!(a.heterogeneity_field.len(), b.heterogeneity_field.len());
+        assert_eq!(a.flexure_field.len(), b.flexure_field.len());
+        assert_eq!(a.plate_id.len(), b.plate_id.len());
+        assert!(b.gpu_stages_used.is_empty(), "CPU path (use_gpu=false) must never report GPU stages used");
+    }
+
+    /// GPU_LAYER_INTEGRATION_SCOPE.md milestone 6's own required
+    /// measurement: end-to-end `use_gpu=true` vs `use_gpu=false`
+    /// `generate_terrain` at the four established sizes -- not isolated
+    /// kernel dispatch time (already measured per-kernel in milestones
+    /// 2/4/5), but the real cost including a *fresh `GpuContext` per stage,
+    /// per call* (see the doc comment on `warp_grid_gpu` et al. in
+    /// `cartalith-gpu` for why that's an accepted tradeoff for one-shot
+    /// batch generation). `--nocapture` to see the numbers; `#[ignore]`d
+    /// since it's a timing report, not a correctness check, and full
+    /// 2048x2048 CPU pipeline runs are slow enough to not want in the
+    /// default `cargo test` loop.
+    #[test]
+    #[ignore]
+    fn measured_generate_terrain_gpu_vs_cpu_timing() {
+        for &sz in &[128usize, 512, 1024, 2048] {
+            let mut p_gpu = WorldParams::defaults(sz, sz, 24601);
+            p_gpu.use_gpu = true;
+            let p_cpu = WorldParams::defaults(sz, sz, 24601);
+
+            let t0 = std::time::Instant::now();
+            let ws_gpu = generate_terrain(&p_gpu);
+            let gpu_time = t0.elapsed();
+
+            let t1 = std::time::Instant::now();
+            let _ws_cpu = generate_terrain(&p_cpu);
+            let cpu_time = t1.elapsed();
+
+            eprintln!(
+                "generate_terrain {sz}x{sz}: use_gpu=true = {:?} (stages actually on GPU: {:?}), use_gpu=false = {:?}, ratio (CPU/GPU) = {:.2}x",
+                gpu_time,
+                ws_gpu.gpu_stages_used,
+                cpu_time,
+                cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
+            );
+        }
     }
 
     #[test]

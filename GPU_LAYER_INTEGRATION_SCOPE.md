@@ -442,7 +442,7 @@ already work** (`base_field` via JFA, `hetero`/`warp`, `flex` via
 `stress`/`age`/`oro` on CPU and uploaded as buffers — a real integration
 milestone, not another individual-kernel one.
 
-## Milestone 6 — first real partial-GPU pipeline integration (current)
+## Milestone 6 — first real partial-GPU pipeline integration: **done** (2026-08-16)
 
 Every prior milestone built and verified a **standalone** kernel in
 `cartalith-gpu` — none has ever been called from `generate_terrain`
@@ -511,3 +511,150 @@ produce a different world" messaging when it becomes user-facing, not
 silently added as a checkbox), `compute_stress`'s gather reformulation,
 orogeny's parallel-graph redesign, climate/erosion/hydrology's own GPU
 integration (later milestones, once this one proves the pattern).
+
+**Done.** `WorldParams.use_gpu: bool` (default `false`) added.
+`generate_terrain` (`cartalith-engine/src/lib.rs`) gained a `p.use_gpu`
+branch that runs domain warp, crustal heterogeneity, plate assignment,
+and the flexure/base-field blur through four new public wrappers in
+`cartalith-gpu` (`warp_grid_gpu`/`heterogeneity_grid_gpu`/
+`assign_plates_grid_gpu`/`gauss_blur_grid_gpu` — a real gap this
+milestone had to close: milestones 2/4/5's own `dispatch_gpu_*`
+functions were private, unreachable from any other crate). Each wrapper
+is `init_gpu_X().ok()?` then dispatch, returning `Option`; any `None`
+(no adapter, device-creation failure, or — for plate assignment — any
+unassigned/`-1` cell in the result) falls back to the exact CPU function
+for that stage only, never a panic (`HARDWARE_ACCELERATION.md` §27).
+`WorldState.gpu_stages_used: Vec<String>` records which stages actually
+ran on GPU this call, so a caller isn't left guessing. Domain warp and
+heterogeneity specifically gate on `p.use_gpu && !world` — milestone 2
+never added world-wrap support to those two kernels, so `world=true`
+always takes the CPU path regardless of the flag. `compute_stress`,
+`build_age_field`, and orogeny stayed CPU-only and untouched, as scoped.
+`cartalith-terrain`'s reference functions (`compute_warp`,
+`compute_heterogeneity`, `assign_plates`, `compute_flexure`,
+`compute_stress`) are byte-untouched.
+
+**CPU path unchanged — the headline requirement**: `cargo test
+--workspace` passes 100%, every existing golden-parity test for
+`generate_terrain` and everything downstream (climate, erosion,
+hydrology, every Phase 2 field) unmodified. `WorldParams::defaults()`
+sets `use_gpu: false`, so every pre-existing call site is unaffected
+without being touched.
+
+**GPU path verification**: two new tests in `cartalith-engine`.
+Determinism — `use_gpu=true` at a fixed seed, run twice, byte-identical
+`field` and identical `gpu_stages_used` both times. Statistical sanity —
+no NaN/Inf, `field` still normalized to `[0,1]`, not a degenerate flat
+plane, and every `gpu_stages_used` entry is one of the four names this
+milestone actually wired (catches a stray/typo'd stage name as a test
+failure, not silently). A second test confirms `use_gpu=true` and
+`use_gpu=false` produce `WorldState`s with identical field *shapes*
+(lengths of `field`/`heterogeneity_field`/`flexure_field`/`plate_id`)
+even though the values differ per §7c, and that the CPU path's
+`gpu_stages_used` is always empty. No JS/CPU-vs-GPU value comparison —
+per §7c, that comparison doesn't apply once GPU touches anything
+noise-derived. Visual comparison not attempted this pass (no windowed
+Godot session available in this environment for this fork) — an
+explicit skip, not an oversight.
+
+**Real timing — end-to-end `generate_terrain`, not isolated kernel
+dispatch**: this is the first number in this whole effort that includes
+the actual integration cost, and it's a genuinely different picture
+from every prior milestone's per-kernel numbers. Each of the four GPU
+wrappers creates its **own fresh `GpuContext`** (adapter + device +
+pipeline) on every call — an explicit, documented tradeoff (fine for
+one-shot batch generation, no per-frame budget to protect), but it means
+`generate_terrain(use_gpu=true)` pays roughly four device-creation
+overheads every single call, not once. Measured (`WorldParams::defaults`
+sizes, release build, single run per size, not averaged):
+
+| Size | `use_gpu=true` | `use_gpu=false` | Ratio (CPU/GPU) |
+|---|---|---|---|
+| 128×128 | 1.44s | 88ms | 0.06× — GPU ~16× **slower** |
+| 512×512 | 1.46s | 594ms | 0.41× — GPU ~2.4× slower |
+| 1024×1024 | 2.32s | 1.82s | 0.78× — GPU slower, closing |
+| 2048×2048 | 6.03s | 7.20s | 1.19× — GPU wins, modestly |
+
+Reported honestly, including the loss: at every size this pilot actually
+ships at by default, the GPU path is slower than CPU, dominated by
+~1.3-1.4s of fixed per-call context-creation overhead that barely
+changes with grid size (visible directly: GPU time is nearly flat from
+128×128 to 512×512, while CPU time grows 6.75×). Only at 2048×2048 does
+the individual kernels' own large per-cell-work wins (up to 80× for warp
+alone, ~18-20× for blur/JFA alone, all measured standalone in milestones
+2/4/5) finally outrun the fixed overhead — and even then, by a modest
+19%, not the dramatic multiples the standalone kernel numbers would
+suggest, because those numbers excluded context creation (warmed up
+once, then measured many dispatches). **The single highest-leverage
+next optimization is context reuse/caching across the four stages
+within one `generate_terrain` call** (and potentially across repeated
+calls) — not attempted this pass, out of scope for "wire the kernels
+in," and flagged here rather than silently eaten into the timing table.
+
+**Verification**: `cargo build --workspace`, `cargo test --workspace`
+(all green, 0 regressions), `cargo clippy --workspace --all-targets`
+(clean — one real new warning in this milestone's own inlined
+`compute_flexure` masking loop, `needless_range_loop`, fixed by
+iterating with `zip` instead of an index range; everything else
+pre-existing).
+
+**Answers a live question**: generating a new map today still runs on
+CPU by construction — `use_gpu` defaults to `false` and this milestone
+adds no UI to flip it (explicitly out of scope, see above). Before this
+milestone, the answer to "why CPU not GPU" was structural: no GPU kernel
+was ever called from `generate_terrain` at all, regardless of any flag,
+because milestones 1-5 only built and verified standalone kernels. This
+milestone is the fix — `generate_terrain` can now genuinely run four
+stages on GPU — but the flag stays off by default and unexposed in the
+UI until a real UI/UX pass adds the "this may produce a different world"
+messaging `DECISIONS.md` §7c requires, and — per the timing table above —
+until context-reuse work makes the GPU path an actual win at realistic
+map sizes, not just at 2048×2048.
+
+## Milestone 7 — investigated, not yet built: climate's wind/rain loop
+
+`simulate_weather` (`cartalith-climate/src/lib.rs:963`) was this scope
+doc's own flagged next candidate, with an explicit caveat: its
+`for _ in 0..iters` wind/rain loop needed verification for cross-cell
+coupling before assuming a clean per-cell GPU shape, unlike
+`compute_stress`'s confirmed *scatter* hazard (milestone 5). Read in
+full this pass, not assumed.
+
+**Finding: genuinely GPU-feasible, and a better fit than it looked.**
+Each iteration of the loop is three per-cell passes, sequenced but each
+internally parallel:
+
+1. **Evaporation** (line ~1062): purely per-cell, reads only that cell's
+   own `sst_evap`/`tc`/current `w`. Trivially parallel.
+2. **Semi-Lagrangian advection** (line ~1096-1102): `w2[i] =
+   bil_c(&w, x - wx[i], y - wy[i], ...)` — each cell **reads** a
+   bilinearly-interpolated sample from the *previous* iteration's full
+   `w` field, offset by its own wind vector. This is a **gather**, not
+   `compute_stress`'s scatter (no cell ever writes to another cell's
+   output) — the same shape `assign_plates`'s JFA and `gauss_blur`
+   already established as GPU-friendly. `wx`/`wy` are frozen for the
+   whole call (`build_wind` runs once, before the loop, not per-
+   iteration), so there's no wind-recompute coupling to worry about
+   either.
+3. **Orographic/convective precipitation + deposit** (line ~1103-1125):
+   also a pure gather — reads `w2`, `eh` (elevation, static), and a
+   second `bil_c` sample of `eh` upwind. No cross-cell writes.
+
+The one serial patch is the non-wrap ocean-boundary humidity reset
+(`if !wrap_x { ... }`, line ~1073-1095) — touches only the leftmost/
+rightmost columns and top/bottom rows, the same "small enough not to be
+worth its own kernel" category as JFA's seeding/fallback fill
+(milestone 5). `build_wind` itself (line 386) is also per-cell
+independent — Coriolis/pressure-gradient terms read only fixed-offset
+neighbours — and already calls `cartalith_terrain::gauss_blur`, which
+has a GPU sibling from milestone 4 sitting unused here too.
+
+**Not bundled into this pass**: this is a genuinely larger port than
+milestones 2-5 (three kernels per iteration × `iters` sequential
+dispatches, versus a single dispatch or a handful of blur passes), and
+`simulate_weather` sits behind `cartalith-climate`, a crate this
+milestone never touched — scoping it further (kernel count, whether
+`build_wind`'s pressure step is worth its own kernel or reuses
+`gauss_blur_grid_gpu` as-is, and whether per-iteration dispatch
+overhead repeats milestone 6's own context-creation lesson) is real
+future work, not assumed complete by this investigation.

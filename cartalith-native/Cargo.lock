@@ -152,6 +152,7 @@ version = "0.1.0"
 dependencies = [
  "cartalith-climate",
  "cartalith-erosion",
+ "cartalith-gpu",
  "cartalith-hydrology",
  "cartalith-terrain",
 ]

@@ -4652,3 +4652,103 @@ reordering, `get_roads()`'s new `Dictionary`-per-way shape),
 `_draw_way_segment`, `ROAD_WIDTH_BY_TYPE`, break-aware road drawing).
 `cartalith-civ`/`cartalith-terrain`/`cartalith-gpu` untouched — stayed
 disjoint from concurrently-running GPU-integration and Phase 2 forks.
+
+## GPU layer integration milestone 6 -- first real partial-GPU pipeline integration (2026-08-16)
+
+`GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6. Every prior GPU milestone
+(1-5) built and verified a **standalone** kernel — none was ever called
+from `generate_terrain` (`cartalith-engine/src/lib.rs:418`) itself.
+Generating a map has been CPU-only this whole time not because GPU
+wasn't working, but because nothing wired it in. This milestone is that
+wiring.
+
+**A real gap found before it could be closed**: milestones 2/4/5's own
+`dispatch_gpu_warp`/`dispatch_gpu_heterogeneity`/`dispatch_gpu_gauss_
+blur`/`dispatch_gpu_assign_plates` were all private to `cartalith-gpu` —
+`init_gpu_*()` was public but the actual dispatch functions weren't, so
+no other crate could reach them regardless of any flag. Added four new
+public wrappers (`warp_grid_gpu`/`heterogeneity_grid_gpu`/`gauss_blur_
+grid_gpu`/`assign_plates_grid_gpu`), each `init_gpu_X().ok()?` then
+dispatch, returning `Option` — `None` means "GPU unavailable right now,"
+never a panic (`HARDWARE_ACCELERATION.md` §27).
+
+**Built**: `WorldParams.use_gpu: bool` (default `false`) and
+`WorldState.gpu_stages_used: Vec<String>` (which stages actually ran on
+GPU this call — a caller isn't left guessing which path executed).
+`generate_terrain` gained a `p.use_gpu` branch running domain warp,
+crustal heterogeneity, plate assignment, and flexure/base-field blur on
+GPU, with per-stage fallback to the exact CPU function on any `None`
+(including, for plate assignment, any `-1`/unassigned cell in the GPU
+result — treated as a failed dispatch, not cast-and-corrupt). Domain
+warp and heterogeneity gate on `p.use_gpu && !world` specifically —
+milestone 2 never added world-wrap support to those two kernels, so
+`world=true` always takes CPU regardless of the flag.
+`compute_flexure`'s own three-step body (mask, blur, normalize) is
+inlined into the GPU branch so only its blur step routes through GPU;
+the `use_gpu=false` branch keeps calling the real, untouched
+`compute_flexure` directly. `compute_stress`, `build_age_field`, and
+orogeny stayed CPU-only, as scoped (confirmed poor GPU fits in
+milestones 4/5/6's own orogeny investigation). `cartalith-terrain`'s
+reference functions are byte-untouched.
+
+**CPU path unchanged — the headline requirement**: `cargo test
+--workspace` 100% green, every existing golden-parity test for
+`generate_terrain` and every downstream field (climate, erosion,
+hydrology, all of Phase 2) passes unmodified. `use_gpu: false` is
+`WorldParams::defaults()`'s value, so no pre-existing call site needed
+touching.
+
+**GPU path verification**: two new `cartalith-engine` tests —
+determinism (same seed, `use_gpu=true`, run twice, byte-identical
+`field` and `gpu_stages_used`) and statistical sanity (no NaN/Inf,
+`field` still in `[0,1]`, not degenerate-flat, every `gpu_stages_used`
+name is one of the four this milestone actually wired) plus a shape-
+parity test confirming `use_gpu=true`/`false` produce identically-
+shaped `WorldState`s even though values differ (`DECISIONS.md` §7c: GPU
+noise is a structurally different hash, not a tolerance-close port, so
+the two are genuinely different valid worlds for the same seed, not
+compared value-for-value). Visual render comparison not attempted this
+pass — no windowed Godot session available in this environment.
+
+**Real timing — end-to-end, not isolated kernel dispatch**: each of the
+four GPU wrappers creates its own fresh `GpuContext` per call (documented
+tradeoff, fine for one-shot batch generation), so `generate_terrain
+(use_gpu=true)` pays roughly four device-creation overheads every call,
+not once. Measured (release build): 128×128 GPU ~16× **slower** (1.44s
+vs 88ms), 512×512 ~2.4× slower (1.46s vs 594ms), 1024×1024 still slower
+but closing (2.32s vs 1.82s), 2048×2048 GPU finally wins, modestly
+(6.03s vs 7.20s, 1.19×). Reported honestly including the loss: at every
+size this pilot ships at by default, GPU is slower, dominated by ~1.3-
+1.4s of near-flat fixed per-call context-creation overhead that the
+individual kernels' own much larger standalone wins (up to 80× for warp,
+~18-20× for blur/JFA, milestones 2/4/5) can't outrun until the grid is
+large enough. Context reuse/caching across the four stages is the
+single highest-leverage next optimization — not attempted here, flagged
+in `GPU_LAYER_INTEGRATION_SCOPE.md` rather than glossed over.
+
+**Verification**: `cargo build --workspace`, `cargo test --workspace`
+(0 regressions), `cargo clippy --workspace --all-targets` clean — one
+real new warning in this milestone's own inlined `compute_flexure`
+masking loop (`needless_range_loop`), fixed with `zip` over an index
+range; everything else pre-existing.
+
+**Milestone 7, investigated not built**: read `simulate_weather`
+(`cartalith-climate/src/lib.rs:963`) in full, resolving this scope
+doc's own flagged uncertainty about its wind/rain loop's cross-cell
+coupling. Finding: genuinely GPU-feasible — each iteration's three
+per-cell passes (evaporation, semi-Lagrangian advection via bilinear
+*gather* from the previous iteration's frozen field, precipitation
+deposit) are all gather-shaped like JFA/blur, not `compute_stress`'s
+scatter hazard. `build_wind` itself (called once, not per-iteration) is
+also per-cell independent and already calls `gauss_blur`, unused on GPU
+here. Not bundled into this pass — real future scoping work (kernel
+count, per-iteration dispatch overhead repeating this milestone's own
+context-creation lesson) still needed, not assumed complete by the
+investigation alone.
+
+**Files touched**: `cartalith-native/crates/cartalith-gpu/src/lib.rs`
+(four new public wrappers), `cartalith-native/crates/cartalith-engine/
+Cargo.toml` (new `cartalith-gpu` dependency), `cartalith-native/crates/
+cartalith-engine/src/lib.rs` (`WorldParams.use_gpu`, `WorldState.
+gpu_stages_used`, `generate_terrain`'s new branch, four new tests).
+`cartalith-terrain` untouched.

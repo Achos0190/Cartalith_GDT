@@ -5,7 +5,7 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-16 (post UI/UX catch-up: territory overlay + village seeding wired and rendered).
+Last updated: 2026-08-16 (post GPU layer integration milestone 6: first real partial-GPU pipeline integration, `use_gpu` flag wired into `generate_terrain`).
 
 ## MVP_SCOPE.md — "done means all seven"
 
@@ -189,18 +189,58 @@ small grid. Scaling to 11.50×/18.22×/15.65× at 512²/1024²/2048² (the last
 a real, honestly-reported dip, not investigated). See `CHANGELOG.md`'s
 "GPU layer integration milestone 5" entry for the full record.
 
-**Milestone 6 (not investigated)**: `compute_stress` (deferred above,
-needs the gather reformulation), `flex`'s full body beyond milestone 4's
-blur, orogeny's graph-tracing (`trace_boundaries`/`tag_boundary_types`/
-`build_orogeny_field`, still genuinely unread), `build_age_field`
-(confirmed poor fit, milestone 4). Orogeny is the natural next candidate
-to actually read. Per the scope doc's own feasibility table: graph/
-sequential algorithms (flow accumulation, water-body priority-flood,
-Dijkstra/MST road networks) remain a poor GPU fit without real
-algorithmic redesign — not in scope for the foreseeable near-term
-milestones, which follow the per-cell-math layers instead (terrain →
-climate → erosion's per-cell parts → Phase 2's per-cell affordance fields
-→ rendering).
+**Milestone 6 (orogeny sub-investigation) — confirmed poor GPU fit
+(2026-08-16).** Orogeny's graph-tracing (`trace_boundaries`/
+`tag_boundary_types`/`build_orogeny_field`) is sequential graph
+traversal, the same poor-fit category as `compute_stress`'s scatter
+hazard and Phase 2's Dijkstra/MST road networks — informational finding,
+no kernel built.
+
+**Milestone 6 — first real partial-GPU pipeline integration: done
+(2026-08-16), the architecturally significant one.** Every prior
+milestone (1-5) built a standalone, never-called kernel — generating a
+map has been CPU-only this whole time not because GPU didn't work, but
+because nothing wired it into `generate_terrain` itself. This milestone
+is that wiring: a new opt-in `WorldParams.use_gpu` flag (default
+`false`) runs domain warp, crustal heterogeneity, plate assignment, and
+the flexure/base-field blur on GPU inside the real pipeline, with
+per-stage CPU fallback on any GPU failure (never a panic) and a new
+`WorldState.gpu_stages_used` field so callers can tell which path
+actually ran. **Headline result: with the flag at its default `false`,
+`generate_terrain`'s output is unchanged** — `cargo test --workspace`
+100% green, every existing golden-parity test (this pilot's whole
+foundation) unmodified. Closed a real gap along the way: milestones
+2/4/5's own dispatch functions were private, unreachable outside
+`cartalith-gpu` — four new public wrappers fixed that. **Real end-to-end
+timing is the honest, sobering number this milestone adds**: each GPU
+wrapper creates its own fresh `GpuContext` per call, so at every size
+this pilot ships at by default (128×128 through 1024×1024), the
+`use_gpu=true` path is *slower* than CPU (up to ~16× at 128×128),
+dominated by ~1.3-1.4s of fixed context-creation overhead that only the
+largest tested size (2048×2048) outruns, and only by 19%. Context
+reuse/caching across the four stages is flagged as the clear next
+optimization, not attempted this pass. See `GPU_LAYER_INTEGRATION_
+SCOPE.md`'s milestone 6 "Done." section and `CHANGELOG.md`'s "GPU layer
+integration milestone 6" entry for the full numbers.
+
+**Milestone 7 — climate's wind/rain loop, investigated not built
+(2026-08-16).** Read `simulate_weather` in full, resolving the scope
+doc's own flagged cross-cell-coupling uncertainty: each iteration's three
+per-cell passes (evaporation, semi-Lagrangian advection, precipitation
+deposit) are all *gather*-shaped (each cell reads a bilinearly-
+interpolated sample of the *previous* iteration's frozen field), the
+same GPU-friendly shape as JFA/blur, not `compute_stress`'s scatter
+hazard. Genuinely GPU-feasible — a real future candidate — but not
+bundled into this pass; kernel count and per-iteration dispatch overhead
+(likely repeating milestone 6's own context-creation lesson) still need
+real scoping.
+
+Per the scope doc's own feasibility table: graph/sequential algorithms
+(flow accumulation, water-body priority-flood, Dijkstra/MST road
+networks, orogeny) remain a poor GPU fit without real algorithmic
+redesign — not in scope for near-term milestones, which continue to
+follow the per-cell-math layers (terrain → climate → erosion's per-cell
+parts → Phase 2's per-cell affordance fields → rendering).
 
 ## Known-open items (not owner-blocked, just not done yet)
 
