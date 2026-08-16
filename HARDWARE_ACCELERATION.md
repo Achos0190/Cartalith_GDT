@@ -19,6 +19,46 @@ absence of a currently-measured performance problem, interaction with
 `DECISIONS.md` §7's tolerance-based golden-parity discipline, and the sheer
 size of this spec relative to any single work session).
 
+**Major scope correction, owner-confirmed 2026-08-16**: Cartalith generates
+a **static map from a one-shot batch simulation**, not a continuously
+recomputing interactive application. `generate()` runs once per
+seed/parameter change and produces a final result; there is no per-frame
+simulation tick. This significantly narrows what several sections below
+actually require in practice — read them as describing the general
+principle, not literally the runtime shape needed here:
+
+- §16 (async GPU work), §32-34 (UX/priority model): the concern that
+  matters is "don't freeze the UI during the one `generate()` call" — this
+  port already does that today (a background `Thread` in `main.gd`, no
+  GPU involved yet). The elaborate continuous-scheduler/priority-queue
+  machinery these sections describe (competing background jobs, frame-by-
+  frame budget) is not needed for a single batch job that runs, completes,
+  and hands back a static result.
+- §21 (thermal/mobile adaptive scheduling): matters far less for an
+  occasional multi-second batch computation than for sustained per-frame
+  load — revisit only if real device testing shows it matters, don't
+  build it speculatively.
+- §14/§15 (GPU memory pooling, minimize CPU↔GPU transfers): **still fully
+  applies, arguably more cleanly** — a one-shot pipeline should keep
+  intermediate fields resident on GPU across every stage that can consume
+  them (terrain → climate → erosion → hydrology → civ affordance layers,
+  wherever each stage is actually GPU-resident) and read back to CPU only
+  the final result(s) that Godot/`cartalith-civ`/save-export actually need
+  — not because of a continuous-frame budget, but because upload/download
+  bandwidth is pure overhead on a single run with no amortization across
+  frames to hide it in.
+- §9/§27 (GPU self-test, failure fallback): still fully applies, but runs
+  *once* (at first GPU use, not every frame) — cache the result for the
+  process lifetime, no need for elaborate cache-invalidation machinery
+  (§30) beyond "did the GPU/driver change since last successful run."
+
+The practical shape this implies: an efficient **one-shot GPU pipeline**
+per `generate()` call — CPU orchestrates, each GPU-suitable stage runs as
+a batch compute dispatch keeping data resident on GPU, CPU-only stages
+(graph/sequential algorithms — flow accumulation, priority-flood, Dijkstra/
+MST road networks — see the per-layer feasibility read below) interleave
+via minimal, deliberate readback points, not a round-trip per stage.
+
 ---
 
 ## Cartalith — Hardware Acceleration & Adaptive Compute Architecture

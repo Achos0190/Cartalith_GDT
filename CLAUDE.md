@@ -45,7 +45,9 @@ not replace reading `README.md` and `DECISIONS.md` properly.
 | `REFERENCES.md` | external libraries and projects |
 | `TOOLCHAIN.md` | setup, in order |
 | `ROADMAP.md` | phases after the MVP |
-| `HARDWARE_ACCELERATION.md` | proposed GPU-compute architecture (owner-supplied 2026-08-16) — **not yet scoped or implemented**, needs its own scope pass before any code lands against it |
+| `HARDWARE_ACCELERATION.md` | proposed GPU-compute architecture (owner-supplied 2026-08-16), annotated with a major scope correction (static one-shot generation, not continuous simulation) |
+| `GPU_COMPUTE_PILOT_SCOPE.md` | the GPU-compute pilot (done) — proved the `wgpu` path works, found the noise hash function isn't GPU-portable without redesign |
+| `GPU_LAYER_INTEGRATION_SCOPE.md` | per-layer GPU feasibility + sequencing for the pipeline proper, current milestone: GPU-safe noise redesign |
 | `SKILLS.md` | which skills to install, vendored or not, and why |
 | `skills/ponytail/` | vendored anti-over-engineering skill (MIT) |
 | `skills/rust-craft/` | general Rust craft, plus errors/async/performance references |
