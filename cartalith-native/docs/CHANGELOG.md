@@ -3188,3 +3188,73 @@ further porting; if the two channelization approaches differ, milestone 7
 needs its own `buildRiverNetwork`-equivalent (reusing `strahler_from_
 receivers`, just fed a different `recv`/`chan`). Milestone 7's own first
 step is resolving this, not assuming either answer.
+
+## Phase 2 milestone 7 -- settlement suitability / seed-finding: the "v1.30 one function" (2026-08-16)
+
+The function `ROADMAP.md` originally named as this phase's landmark.
+`buildSettlementSuitability`/`findSettlementSeeds` (reference lines
+6319/6418) ported to `cartalith-civ`, golden-verified bit-close against
+the real reference engine.
+
+**River-network question resolved (milestone 6's open item).**
+`cartalith_hydrology::build_channels` IS already a line-for-line port of
+`buildRiverNetwork`'s channelization loop -- its own doc comment cites the
+exact reference lines (4503-4522). The algorithm was never the problem.
+The real finding: `WorldState.stream_order` is computed too early in the
+pipeline for this specific caller. The reference's own
+`carveRiverValleys()` explicitly nulls `_riverNet` at its very last line
+(8783), so `currentSettlementSuitability()` always rebuilds the river
+network fresh on the FINAL, post-carve `field`/`flowField` the next time
+anything asks for it -- never reusing whatever was computed mid-carve.
+`WorldState.stream_order` is computed at an earlier point in
+`generate_terrain` (before the channel-lock stamp that follows it), so
+it's stale for this one caller even though it remains correct for its own
+original purpose. Fixed with `fresh_river_order()`, a thin wrapper that
+reuses `build_channels`/`strahler_from_receivers` directly on
+`ws.field`/`ws.flow_discharge` -- no second receiver-tree implementation
+needed, just the right inputs.
+
+**A real gap closed along the way**: `buildFloodField` (reference line
+5634, TWI + discharge + lowland-proximity) had no port anywhere in this
+crate. `buildSettlementSuitability`'s `ctx.flood` genuinely reads it in
+production (unlike some other `ctx` fields that stay `null` in this port
+for lack of an upstream source) -- ported as `build_flood_field`. No
+geoid field exists in this port, so `field[i]-geoAt(i)` becomes just
+`field[i]`, the same `geo: None` pattern `build_water_bodies` already
+established for the same absence.
+
+**A genuine threshold ambiguity found and resolved, not glossed over.**
+First golden extraction attempt used `{thresh: SETTLE_SEED_THRESH}` (0.42)
+-- matching what the reference's *interactive advisory debug view* passes
+(lines 8461/11517) -- and found a real mismatch: 6 seeds instead of 5,
+even though the suitability field itself was already bit-identical to the
+fixture. Investigated rather than dismissed as noise: the reference
+actually has two different real call sites with different thresholds. The
+`settlement_seeds.json` **export** (line 12445:
+`findSettlementSeeds(currentSettlementSuitability(),GW,GH)`, no opts) uses
+the function's own bare default, `0.65` -- and since no interactive debug
+view exists anywhere in this port, that export path is the only headless,
+non-interactive real production caller and this port's own closest
+analog. Re-extracted at `0.65`; both fixtures passed exactly.
+`SETTLE_SEED_THRESH` (0.42) stays ported as a named `pub const` in
+`cartalith-civ` for if/when an interactive advisory view is ever built
+here -- just not what this milestone's golden fixture exercises.
+
+Both cases (`gw=14 gh=11 seed=24601 world=false`, `gw=16 gh=12
+seed=314159 world=true`) reuse the crate's standing fixture configs
+(`w_iters=12`, matching every prior milestone). `field[0..5]` cross-checked
+exactly against `golden_parity_carve.rs` before trusting either
+extraction; determinism confirmed by running case 0 twice and diffing
+byte-identical JSON. Suitability at `1e-4` tolerance (this crate's
+convention); seeds checked by exact `(x, y, score)` triples in
+score-descending order, not just count -- both passed after the threshold
+fix, without needing to touch the underlying formula at all.
+
+- `cargo test/clippy -p cartalith-civ --all-targets`: clean. `cargo
+  test/build/clippy --workspace`: no regressions.
+
+**Confirmed still missing before milestone 8** (factions/territory/
+provinces/economy, block 2 proper): everything, genuinely -- no faction,
+territory, culture, or economy logic exists anywhere in this port yet.
+Milestone 8 needs its own scoping pass once picked up, the same way every
+milestone before it did.

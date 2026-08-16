@@ -167,35 +167,49 @@ record, including three real porting subtleties (raw vs. `*GW`-scaled
 slope field, 8-neighbour vs. 4-neighbour flood fill, JFA vs. chamfer SDF
 backend).
 
-## Milestone 7 — settlement suitability / seed-finding (current)
+## Milestone 7 — settlement suitability / seed-finding: **done** (2026-08-16)
 
-**First step, not optional**: resolve whether `WorldState.stream_order`
-(already populated by `cartalith-hydrology::strahler_from_receivers` when
-`carve_rivers` is on) is a semantic match for `buildRiverNetwork`'s own
-independent `order` output (`currentSettlementSuitability`'s real
-`riverOrder` input) — milestone 6 found the Strahler-order *solver* is
-already ported, but `buildRiverNetwork` computes its own `recv`/`chan`
-receiver tree via a slope-area threshold + Tarboton-aspect receiver
-selection, which may or may not match whatever `build_channels`' carve-
-pipeline channel computation does. If they match, `ws.stream_order`
-answers this directly with no further porting; if not, port a
-`buildRiverNetwork`-equivalent (reusing `strahler_from_receivers`, fed a
-different `recv`/`chan`). Don't assume either answer — verify first.
+The "v1.30 one function" `ROADMAP.md` originally named as this phase's
+landmark. `buildSettlementSuitability`/`findSettlementSeeds` (reference
+lines 6319/6418) ported to `cartalith-civ`, golden-verified.
 
-Then `currentSettlementSuitability`/`findSettlementSeeds` themselves
-(reference lines ~6319/~6418) — now that lithology/soil/water/carrying-
-capacity/resources/biome/route-corridors/landmass-quality/coast-SDF are
-all real (milestones 1-6), plus whatever milestone 7's own river-order
-step resolves.
+**River-network question resolved**: `build_channels` IS already a
+line-for-line port of `buildRiverNetwork`'s channelization loop (confirmed
+via its own doc comment). `WorldState.stream_order` still isn't the right
+input for this caller, though — it's computed too early (mid-carve, before
+the channel-lock stamp), while the reference's own `carveRiverValleys()`
+explicitly nulls `_riverNet` at its very end so `currentSettlementSuitability()`
+always rebuilds fresh on the FINAL post-carve field. Fixed with
+`fresh_river_order()`, reusing `build_channels`/`strahler_from_receivers`
+directly rather than porting a second implementation.
 
-**Out of scope for this milestone**: factions, territory, provinces,
-economy, roads (`ROADMAP.md` already calls the Journey Planner its own
-sub-phase).
+**A real gap closed**: `buildFloodField` (reference line 5634) had no
+prior port anywhere in this crate — added as `build_flood_field`, since
+`ctx.flood` genuinely reads it in production.
 
-## Milestone 8+ — not yet scoped
+**A genuine ambiguity found and resolved**: two different real reference
+call sites use different seed-finding thresholds (`SETTLE_SEED_THRESH`=
+0.42 for the interactive advisory view this port doesn't have, vs. `0.65`
+— the function's own bare default — for the `settlement_seeds.json`
+export, the only headless production caller and this port's closest
+analog). First extraction used 0.42 and found a real mismatch (6 seeds vs.
+5) despite the suitability field already being bit-identical; re-extracted
+at 0.65, matched exactly. See `CHANGELOG.md`'s full "Phase 2 milestone 7"
+entry for the complete reasoning.
 
-Factions/territory/provinces/culture/economy (block 2 proper), then
-roads/Journey Planner — each scoped when reachable, not speculatively now.
+Both fixture cases passed (suitability `1e-4` tolerance, seeds checked by
+exact `(x,y,score)` triples) after the threshold fix, without touching the
+underlying formula.
+
+## Milestone 8 — civilisation layer proper: not yet scoped
+
+Factions, territory, provinces, culture, economy (block 2 proper) — the
+first genuinely new territory this phase reaches; nothing built yet exists
+to depend on for it the way milestones 1-7 built on each other. Needs its
+own investigation pass (what does the reference's faction/territory
+machinery actually depend on, in what order) before it can be scoped the
+way every milestone before it was — don't assume a shape for it here.
+Roads/Journey Planner stay their own later sub-phase per `ROADMAP.md`.
 
 ## Done means (per milestone, not once for the whole phase)
 

@@ -1474,6 +1474,399 @@ pub fn build_coast_sdf(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32
     sdf
 }
 
+fn clamp01(x: f64) -> f64 {
+    x.clamp(0.0, 1.0)
+}
+
+fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
+    let t = clamp01((x - a) / (b - a));
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// `buildFloodField` (reference HTML line 5634): a flood-risk raster from
+/// topographic wetness index (TWI, Beven & Kirkby 1979: `ln(a/tanβ)`) +
+/// normalised discharge + a lowland-proximity term. No geoid field exists
+/// in this port (`build_water_bodies`'s own `geo: Option<&[f32]>` already
+/// established the pattern of treating it as always-absent), so
+/// `field[i]-geoAt(i)` becomes just `field[i]`, matching the reference's
+/// own `geoAt(i)==0` behaviour when no geoid is active. Feeds
+/// `build_settlement_suitability`'s flood penalty term.
+pub fn build_flood_field(field: &[f32], flow: &[f32], slope_raw: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32> {
+    let n = gw * gh;
+    let mut out = vec![0f32; n];
+    let log_max = (1.0 + (gw * gh) as f64).ln();
+    for i in 0..n {
+        let vw = field[i] as f64;
+        if vw < sea {
+            continue;
+        }
+        let sl = (slope_raw[i] as f64).max(0.002);
+        let a = (flow[i] as f64 / (gw * gh) as f64).max(1e-4);
+        let twi = (a / sl).ln();
+        let disc = (1.0 + flow[i] as f64).ln() / log_max;
+        let lowland = smoothstep(0.18, 0.0, vw - sea);
+        out[i] = clamp01(0.5 * smoothstep(-2.0, 6.0, twi) + 0.5 * disc + 0.4 * lowland) as f32;
+    }
+    out
+}
+
+/// `_civTerrainRuggednessD` (reference HTML line 6318): mild upland
+/// (`r≈0.35`, elevation as a `[0,1]` fraction of the land band above sea
+/// level) scores highest, falling off on both sides.
+fn terrain_ruggedness_d(r: f64) -> f64 {
+    (1.0 - 4.0 * (r - 0.35).abs()).max(0.0)
+}
+
+/// `SUIT_W_BASE` (reference line 6307): the five-weight legacy set used
+/// only when `ctx` is absent -- `currentSettlementSuitability()` always
+/// supplies `ctx`, so production never takes this branch, but it's ported
+/// for completeness/testability the way the reference itself keeps it
+/// callable with the original 8 arguments.
+const SUIT_W_BASE_K: f64 = 0.35;
+const SUIT_W_BASE_W: f64 = 0.25;
+const SUIT_W_BASE_A: f64 = 0.15;
+const SUIT_W_BASE_D: f64 = 0.10;
+const SUIT_W_BASE_C: f64 = 0.15;
+
+/// `SUIT_W_FULL` (reference line 6308) -- the real, production weight set.
+const SUIT_W_FULL_K: f64 = 0.35;
+const SUIT_W_FULL_W: f64 = 0.20;
+const SUIT_W_FULL_A: f64 = 0.15;
+const SUIT_W_FULL_D: f64 = 0.10;
+const SUIT_W_FULL_AGRI: f64 = 0.12;
+const SUIT_W_FULL_BUILD: f64 = 0.08;
+const SUIT_W_FULL_COAST: f64 = 0.14;
+const SUIT_W_FULL_RIVER: f64 = 0.14;
+const SUIT_W_FULL_LAKE: f64 = 0.06;
+const SUIT_W_FULL_MINERAL: f64 = 0.08;
+const SUIT_W_FULL_CORRIDOR: f64 = 0.08;
+const SUIT_W_FULL_FLOOD: f64 = 0.14;
+const SUIT_W_FULL_ISLET: f64 = 0.30;
+
+/// `ISLET_KNEE` (reference line 6414): landmass quality at or above this
+/// pays no islet penalty.
+pub const ISLET_KNEE: f64 = 0.55;
+
+/// `SETTLE_SEED_THRESH` (reference line 6415).
+pub const SETTLE_SEED_THRESH: f64 = 0.42;
+
+/// `SUIT_RESOURCE_KEYS` (reference line 6294): the ORE subset of
+/// `RESOURCE_KEYS` that feeds the mineral term -- clay/buildstone/flint/
+/// obsidian/sulfur/alum are ubiquitous-enough materials that including
+/// them would flatten the term, per the reference's own comment.
+pub const SUIT_RESOURCE_KEYS: [&str; 9] = ["copper", "tin", "iron", "gold", "salt", "timber", "lead", "silver", "gems"];
+
+/// The optional context rasters `buildSettlementSuitability` reads when
+/// `ctx` is supplied (reference lines 6328-6333) -- every field is
+/// `Option` because the reference guards every read individually ("a
+/// partial context degrades term by term rather than throwing"), though
+/// `currentSettlementSuitability()`'s own production call always supplies
+/// all of them once milestones 1-7 are complete.
+#[derive(Default)]
+pub struct SuitabilityCtx<'a> {
+    pub water_bodies: Option<&'a [u8]>,
+    pub corridor: Option<&'a [f32]>,
+    pub landmass: Option<&'a [f32]>,
+    pub flow: Option<&'a [f32]>,
+    pub river_order: Option<&'a [i16]>,
+    pub coast_sdf: Option<&'a [f32]>,
+    pub resources: Option<&'a ResourcePotentials>,
+    pub rain: Option<&'a [f32]>,
+    pub flood: Option<&'a [f32]>,
+    pub slope_raw: Option<&'a [f32]>,
+    /// `riverFlowThresh(GW,GH)` (reference line 6481) -- unlike every
+    /// other `ctx` field, production always supplies this explicitly
+    /// (`currentSettlementSuitability()` never omits it), so it's required
+    /// rather than optional-with-a-fallback: a fallback here would need
+    /// `map_width_km` to compute correctly (`cartalith_hydrology::
+    /// river_flow_thresh`'s Rust signature takes it explicitly, unlike the
+    /// reference's 2-arg `riverFlowThresh(W,H)`), and a placeholder value
+    /// for that would silently compute the WRONG threshold rather than
+    /// matching JS's real fallback -- safer to require the caller compute
+    /// it correctly once, which every real call site already can.
+    pub flow_thresh: f64,
+}
+
+/// `buildSettlementSuitability` (reference HTML line 6319) -- the "v1.30
+/// one function": the settlement-suitability debug view, the `.f32`
+/// export, the seed list, and auto-populate all read this one field.
+/// `slope_n` is `slopeAt(x,y)*GW` (`build_slope_field`'s convention, NOT
+/// `build_raw_slope_field`'s -- the two slope fields this crate carries
+/// are genuinely different scalings for different callers, verified
+/// against the reference at each call site, not assumed interchangeable).
+#[allow(clippy::too_many_arguments)]
+pub fn build_settlement_suitability(
+    soil: &[f32],
+    water: &[f32],
+    carrying_cap: &[f32],
+    field: &[f32],
+    slope_n: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    ctx: Option<&SuitabilityCtx>,
+) -> Vec<f32> {
+    let n = gw * gh;
+    let mut out = vec![0f32; n];
+    let slope_max = 4.0;
+    let denom = (1.0 - sea).max(1e-6);
+    let lake_r = ((gw as f64 / 170.0).round() as isize).max(2);
+
+    for i in 0..n {
+        if (field[i] as f64) < sea {
+            continue;
+        }
+        if let Some(wb) = ctx.and_then(|c| c.water_bodies)
+            && wb[i] != 0
+        {
+            continue;
+        }
+        let k = carrying_cap[i] as f64;
+        let wa = water[i] as f64;
+        let a = (1.0 - slope_n[i] as f64 / slope_max).max(0.0);
+        let r = (field[i] as f64 - sea) / denom;
+        let d = terrain_ruggedness_d(r);
+
+        let (w_k, w_w, w_a, w_d) = if ctx.is_some() {
+            (SUIT_W_FULL_K, SUIT_W_FULL_W, SUIT_W_FULL_A, SUIT_W_FULL_D)
+        } else {
+            (SUIT_W_BASE_K, SUIT_W_BASE_W, SUIT_W_BASE_A, SUIT_W_BASE_D)
+        };
+        let mut z = w_k * k + w_w * wa + w_a * a + w_d * d;
+
+        match ctx {
+            None => {
+                z += SUIT_W_BASE_C * (wa * 1.2).min(1.0);
+            }
+            Some(c) => {
+                let x = i % gw;
+                let y = i / gw;
+                let flow_thresh = c.flow_thresh;
+
+                let mut coast = 0.0;
+                if let Some(sdf) = c.coast_sdf {
+                    let dist = -(sdf[i] as f64);
+                    if dist >= 0.0 {
+                        coast = (1.0 - dist / 5.0).max(0.0);
+                        if coast > 0.0
+                            && let Some(flow) = c.flow
+                            && flow[i] as f64 > flow_thresh * 3.0
+                        {
+                            coast = (coast + 0.6).min(1.0);
+                        }
+                    }
+                }
+
+                let mut river = 0.0f64;
+                if let Some(ord) = c.river_order {
+                    let oo = ord[i];
+                    river = if oo >= 4 {
+                        1.0
+                    } else if oo >= 3 {
+                        0.7
+                    } else if oo >= 2 {
+                        0.3
+                    } else {
+                        0.0
+                    };
+                }
+                if let Some(flow) = c.flow
+                    && flow[i] as f64 > flow_thresh * 2.0
+                {
+                    let mut is_max = true;
+                    'nb: for dy in -1isize..=1 {
+                        for dx in -1isize..=1 {
+                            if dx == 0 && dy == 0 {
+                                continue;
+                            }
+                            let nx = x as isize + dx;
+                            let ny = y as isize + dy;
+                            if nx < 0 || nx >= gw as isize || ny < 0 || ny >= gh as isize {
+                                continue;
+                            }
+                            let j = ny as usize * gw + nx as usize;
+                            if flow[j] > flow[i] {
+                                is_max = false;
+                                break 'nb;
+                            }
+                        }
+                    }
+                    let bonus = if is_max {
+                        0.5
+                    } else if flow[i] as f64 > flow_thresh * 5.0 {
+                        0.25
+                    } else {
+                        0.0
+                    };
+                    river = (river + bonus).min(1.0);
+                }
+
+                let mut lake = 0.0;
+                if let Some(wb) = c.water_bodies {
+                    'lake: for dy in -lake_r..=lake_r {
+                        for dx in -lake_r..=lake_r {
+                            let nx = x as isize + dx;
+                            let ny = y as isize + dy;
+                            if nx < 0 || nx >= gw as isize || ny < 0 || ny >= gh as isize {
+                                continue;
+                            }
+                            if wb[ny as usize * gw + nx as usize] == 2 {
+                                lake = 0.55;
+                                break 'lake;
+                            }
+                        }
+                    }
+                    let l_n = y > 0 && wb[(y - 1) * gw + x] == 2;
+                    let l_s = y < gh - 1 && wb[(y + 1) * gw + x] == 2;
+                    let l_e = x < gw - 1 && wb[i + 1] == 2;
+                    let l_w = x > 0 && wb[i - 1] == 2;
+                    if (l_n && l_s) || (l_e && l_w) {
+                        lake = 1.0;
+                    }
+                }
+
+                let mut mineral = 0.0;
+                if let Some(res) = c.resources {
+                    let s: f64 = SUIT_RESOURCE_KEYS
+                        .iter()
+                        .map(|k| resource_field(res, k)[i] as f64)
+                        .sum();
+                    mineral = (s / (SUIT_RESOURCE_KEYS.len() as f64 / 3.0)).min(1.0);
+                }
+
+                let mut agri = 0.0;
+                if let Some(rain) = c.rain {
+                    let rr = rain[i] as f64;
+                    let r_bell = if rr < 0.30 {
+                        rr / 0.30
+                    } else if rr < 0.60 {
+                        1.0
+                    } else if rr < 0.85 {
+                        (0.85 - rr) / 0.25
+                    } else {
+                        0.0
+                    };
+                    agri = (soil[i] as f64 * r_bell).clamp(0.0, 1.0);
+                }
+
+                let fl = c.flood.map(|f| f[i] as f64).unwrap_or(0.0);
+                let build = if let Some(slope_raw) = c.slope_raw {
+                    ((1.0 - (slope_raw[i] as f64 * gw as f64 / slope_max).min(1.0)) * (1.0 - fl)).clamp(0.0, 1.0)
+                } else {
+                    a * (1.0 - fl)
+                };
+
+                let corr = c.corridor.map(|cr| cr[i] as f64).unwrap_or(0.0);
+
+                let islet = c.landmass.map(|lm| (1.0 - lm[i] as f64 / ISLET_KNEE).max(0.0)).unwrap_or(0.0);
+
+                z += SUIT_W_FULL_COAST * coast + SUIT_W_FULL_RIVER * river + SUIT_W_FULL_LAKE * lake
+                    + SUIT_W_FULL_MINERAL * mineral
+                    + SUIT_W_FULL_CORRIDOR * corr
+                    + SUIT_W_FULL_AGRI * agri
+                    + SUIT_W_FULL_BUILD * build
+                    - SUIT_W_FULL_FLOOD * fl
+                    - SUIT_W_FULL_ISLET * islet;
+            }
+        }
+
+        out[i] = clamp01(1.0 / (1.0 + (-6.0 * (z - 0.5)).exp())) as f32;
+    }
+    out
+}
+
+fn resource_field<'a>(res: &'a ResourcePotentials, key: &str) -> &'a [f32] {
+    match key {
+        "copper" => &res.copper,
+        "tin" => &res.tin,
+        "iron" => &res.iron,
+        "gold" => &res.gold,
+        "salt" => &res.salt,
+        "timber" => &res.timber,
+        "lead" => &res.lead,
+        "silver" => &res.silver,
+        "gems" => &res.gems,
+        other => panic!("resource_field: unknown key {other}"),
+    }
+}
+
+/// One `findSettlementSeeds` candidate (reference HTML line 6418): a local
+/// suitability maximum above threshold, with a suppression radius applied.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SettlementSeed {
+    pub x: usize,
+    pub y: usize,
+    pub score: f32,
+}
+
+/// `findSettlementSeeds` (reference HTML line 6418): advisory local maxima
+/// of `P_settle` above `thresh`, greedily suppressed within `supp_r` of
+/// any already-accepted seed, sorted by score descending. Never places
+/// settlements -- purely advisory. Pure post-processing over `suit`, no
+/// new affordance data needed.
+pub fn find_settlement_seeds(suit: &[f32], gw: usize, gh: usize, thresh: f64, supp_r: f64) -> Vec<SettlementSeed> {
+    let mut cands = Vec::new();
+    for y in 1..gh.saturating_sub(1) {
+        for x in 1..gw.saturating_sub(1) {
+            let i = y * gw + x;
+            let v = suit[i];
+            if (v as f64) < thresh {
+                continue;
+            }
+            let mut is_max = true;
+            'lp: for dy in -1isize..=1 {
+                for dx in -1isize..=1 {
+                    if dy == 0 && dx == 0 {
+                        continue;
+                    }
+                    let j = (y as isize + dy) as usize * gw + (x as isize + dx) as usize;
+                    if suit[j] > v {
+                        is_max = false;
+                        break 'lp;
+                    }
+                }
+            }
+            if is_max {
+                cands.push(SettlementSeed { x, y, score: v });
+            }
+        }
+    }
+    cands.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+    let mut seeds: Vec<SettlementSeed> = Vec::new();
+    let supp_r2 = supp_r * supp_r;
+    for c in cands {
+        let ok = !seeds.iter().any(|s| {
+            let dx = c.x as f64 - s.x as f64;
+            let dy = c.y as f64 - s.y as f64;
+            dx * dx + dy * dy < supp_r2
+        });
+        if ok {
+            seeds.push(c);
+        }
+    }
+    seeds
+}
+
+/// A fresh Strahler stream-order pass over `field`/`flow`, matching the
+/// reference's own `currentSettlementSuitability()` behaviour: `_riverNet`
+/// is explicitly nulled at the end of `carveRiverValleys()` (reference
+/// line 8783), so the network settlement suitability reads is ALWAYS
+/// rebuilt fresh on the FINAL, post-carve field -- never the intermediate
+/// state `WorldState.stream_order` was computed from mid-carve (before the
+/// channel-lock stamp that follows it in `generate_terrain`). Confirmed by
+/// direct comparison: `build_channels`'s own doc comment already cites it
+/// as a line-for-line port of `buildRiverNetwork`'s channelization loop
+/// (reference lines 4503-4522) -- the ALGORITHM already matches, the
+/// earlier `WorldState.stream_order` value simply isn't computed on the
+/// right INPUT for this specific caller. Reuses `build_channels`/
+/// `strahler_from_receivers` directly rather than porting a second
+/// receiver-tree implementation.
+#[allow(clippy::too_many_arguments)]
+pub fn fresh_river_order(field: &[f32], flow: &[f32], gw: usize, gh: usize, sea: f64, world: bool, river_density: f64, map_width_km: f64) -> Vec<i16> {
+    let ch = cartalith_hydrology::build_channels(field, flow, gw, gh, sea, world, river_density, map_width_km);
+    cartalith_hydrology::strahler_from_receivers(&ch.recv, flow, &ch.chan)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
