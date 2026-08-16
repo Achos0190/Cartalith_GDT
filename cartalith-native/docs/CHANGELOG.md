@@ -3794,3 +3794,74 @@ not shared with this milestone's land network at all. Corridor
 consolidation/smoothing for the land network (deferred above) is a
 separate, likely-smaller follow-up once `_civSmoothPath` exists for sea
 routes to use too -- worth doing once, not twice.
+
+## Phase 2 milestone 10 -- territory assignment: cost-distance Voronoi, population-weighted (2026-08-16)
+
+`PHASE2_SCOPE.md` milestone 10 / `DECISIONS.md` §7b. The first Phase 2
+milestone with **no JS reference to port at all** -- the reference has no
+algorithmic territory generation whatsoever, only a hand-painted brush
+tool and save/load restoration of an already-painted raster. This is the
+owner's own design decision (§7b), implemented here, not a discovery made
+during porting.
+
+**Algorithm**: for every capital settlement (milestone 8's `capital`
+flag), run `road_dijkstra` (milestone 11, reused directly -- the same
+private function `build_road_network` already calls, made available in
+this module) from that capital's cell over `build_travel_cost`'s real
+terrain-cost field. Each cell's *effective* distance is its raw
+cost-distance divided by `territory_weight(pop) = 1 + ln(1 + pop/pop_ref)`
+(§7b's own suggested form), so a more populous capital's territory reaches
+farther for the same terrain cost. Each land cell's owner is the faction
+of whichever capital reaches it at the lowest effective distance; a
+multi-capital faction's territory is the union of every one of its
+capitals' independently-competing zones. Cells no capital's Dijkstra tree
+ever reaches (water, or a genuinely disconnected landmass) stay unowned
+(faction `0`) -- the same unreachability mechanism `build_travel_cost`'s
+water-impassable convention already gives `build_road_network`, no
+separate sea-level check needed.
+
+**`pop_ref` choice, documented not arbitrary**: `15000.0`, exactly
+`civ_base_pop_for_kind(SettlementKind::Capital)` -- the reference
+population scale for a capital before suitability/RNG variance. A real
+capital's actual population (`name_and_populate_settlements`:
+`base*(0.7+suit*0.8)*(0.8+rng*0.4)`) ranges roughly 8,400-27,000;
+anchoring `pop_ref` at the base value keeps the weight spread well-behaved
+across that real range (`w` from ~1.41 at the low end to ~2.10 at the high
+end) instead of picking a number with no connection to this port's actual
+population scale.
+
+**Verification, per §7a/§7b's own stated standard**: no golden-parity test
+is possible (nothing to diff against). Eight unit tests instead, covering
+what a JS diff would have covered by construction: a capital's own cell is
+always self-owned (trivially, distance 0 always wins); on a flat,
+fully-passable strip with two equal-population capitals, ownership splits
+at the geometric midpoint (the classic unweighted-Voronoi boundary,
+confirming the weight function is inert at equal population); with one
+capital at 100,000 and a rival at 5,000 on the same strip, the geometric
+midpoint flips to the larger capital -- the actual population-weighting
+behaviour, not just present but *measured* to move the boundary the
+expected direction; unreachable cells (an impassable barrier cell)
+correctly stay unowned rather than defaulting to whichever capital was
+processed first; a non-capital settlement projects no territory of its
+own; a two-capital faction's territory is confirmed as the union of both
+zones, not just the first one checked.
+
+Deliberately not attempted this pass: rendering territory as a real colour
+overlay in the Godot map view (the UI-per-milestone process this session
+established) -- would need a new `cartalith-godot` binding plus
+`map_overlay.gd` wiring, genuine scope beyond this milestone's own
+`cartalith-civ`-only diff. Flagged as the natural next UI/UX-catch-up
+target, not silently skipped.
+
+- `cargo test -p cartalith-civ`: clean, 8 new unit tests (50 total in the
+  crate's own unit-test binary). `cargo clippy -p cartalith-civ
+  --all-targets`: clean (one real `erasing_op` lint caught in a test's
+  own `owner[0*5+0]` index expression, fixed to `owner[0]` -- a
+  leftover-from-drafting mistake, not a design issue). `cargo test
+  --workspace`/`cargo build --workspace`: no regressions.
+
+**Milestone 13/14 unchanged from milestone 12's own scoping**: sea routes
+and road corridor consolidation/smoothing, per the entry above.
+`_civGenerateProvinces` (sub-partitioning owned territory into
+per-settlement provinces) is now genuinely reachable for the first time
+-- territory itself exists -- but not scoped or attempted here.

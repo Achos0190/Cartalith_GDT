@@ -3370,6 +3370,98 @@ pub fn civ_hierarchical_network_topology(
     HierarchicalNetworkResult { edges: all_edges, usage_count, degree_of }
 }
 
+// ===================== Milestone 10: territory assignment =====================
+//
+// `PHASE2_SCOPE.md` milestone 10 / `DECISIONS.md` §7b. The reference has NO
+// algorithmic territory generation at all -- ownership is set only by
+// hand-painting with a brush tool, or restored from a save file
+// (`_civGenerateProvinces` partitions an ALREADY-painted raster; nothing
+// computes one programmatically). This is genuinely new design, not a port,
+// under §7a's "principled equivalence" latitude -- there is no JS behaviour
+// to diff against, only academic grounding to build from and a visual-
+// plausibility standard to verify against (§7b).
+//
+// Owner-decided algorithm (§7b): cost-distance Voronoi from capitals,
+// weighted by capital population -- not straight-line Voronoi (ignores
+// terrain, reads as artificial) and not simulated historical expansion
+// (real complexity a v1 doesn't need, deferred not rejected). Grounded in
+// multiplicatively-weighted Voronoi diagrams (size-weighted spatial
+// competition, standard computational geometry) and Christaller's central
+// place theory (1933, already cited in `PROVENANCE.md` for the
+// civilisation layer -- "settlement hierarchy projects influence
+// proportional to size," applied here to territory instead of trade
+// catchment).
+
+/// The population scale at which the weight function's `ln` term
+/// contributes exactly `ln(2) ≈ 0.69` (i.e. `w(pop_ref) ≈ 1.69`) --
+/// `civ_base_pop_for_kind(SettlementKind::Capital)`'s own value (15000),
+/// not an arbitrary number. A capital's real population after suitability/
+/// RNG variance (`name_and_populate_settlements`: `base*(0.7+suit*0.8)*
+/// (0.8+rng*0.4)`) ranges roughly 8,400-27,000, so anchoring `pop_ref` at
+/// the base value keeps the weight spread well-behaved across that real
+/// range (`w` from ~1.41 at the low end to ~2.10 at the high end) rather
+/// than saturating or barely moving.
+const TERRITORY_POP_REF: f64 = 15000.0;
+
+/// Weight function `w(pop) = 1 + ln(1 + pop/pop_ref)` (§7b's own suggested
+/// form) -- monotonic, `w(0) = 1` (no advantage over an empty capital),
+/// grows without bound but slowly (logarithmic), so no single very-large
+/// capital can swallow the whole map's effective distance scale.
+fn territory_weight(pop: u32) -> f64 {
+    1.0 + (1.0 + pop as f64 / TERRITORY_POP_REF).ln()
+}
+
+/// Cost-distance Voronoi territory assignment (§7b). For every CAPITAL
+/// among `settlements` (non-capital settlements don't project territory of
+/// their own -- they belong to whichever capital's zone they fall inside),
+/// runs `road_dijkstra` from that capital's cell over `cost` (the same
+/// `build_travel_cost` field the road network itself uses -- one real
+/// terrain-cost metric, not a second one invented for this). Each cell's
+/// *effective* distance to a capital is its raw cost-distance divided by
+/// that capital's `territory_weight` -- a more populous capital reaches
+/// farther for the same terrain cost. Each land cell's owner is the
+/// FACTION of whichever capital reaches it at the lowest effective
+/// distance; a multi-capital faction's territory is therefore the union of
+/// every one of its capitals' zones, since each capital competes
+/// independently and the winning capital's faction id is what's recorded.
+///
+/// Cells `road_dijkstra` never reaches (`dist == INFINITY`) stay unowned
+/// (faction `0`) -- this includes water (impassable in `build_travel_cost`)
+/// and any landmass no capital's Dijkstra tree ever connects to, with no
+/// separate sea-level check needed: unreachability under the real cost
+/// field already IS the water-impassable convention, the same mechanism
+/// `build_road_network` already relies on.
+///
+/// No JS reference to golden-verify against (§7b) -- verified by the tests
+/// below (a capital's own cell is always self-owned; a higher-population
+/// capital claims strictly more territory than an equidistant lower-
+/// population rival; unowned cells are exactly the unreachable ones) and by
+/// visual inspection on real generated worlds, per §7a/§7b's stated
+/// standard.
+pub fn assign_territory(settlements: &[NamedSettlement], cost: &[f32], gw: usize, gh: usize, world: bool) -> Vec<i32> {
+    let n = gw * gh;
+    let mut owner = vec![0i32; n];
+    let mut best_effective = vec![f64::INFINITY; n];
+    for s in settlements {
+        if !s.placement.capital {
+            continue;
+        }
+        let (dist, _prev) = road_dijkstra(cost, gw, gh, s.placement.x, s.placement.y, world);
+        let weight = territory_weight(s.pop);
+        for i in 0..n {
+            if dist[i].is_infinite() {
+                continue;
+            }
+            let effective = dist[i] as f64 / weight;
+            if effective < best_effective[i] {
+                best_effective[i] = effective;
+                owner[i] = s.placement.faction;
+            }
+        }
+    }
+    owner
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3848,5 +3940,106 @@ mod tests {
         let places = vec![SettlementPlacement { x: 0, y: 0, suit: 0.5, faction: 1, capital: true, kind: SettlementKind::Capital, coastal: false }];
         assert!(build_road_network(&places, &cost, 3, 3, false).is_empty());
         assert!(build_road_network(&[], &cost, 3, 3, false).is_empty());
+    }
+
+    fn named_capital(x: usize, y: usize, faction: i32, pop: u32) -> NamedSettlement {
+        NamedSettlement {
+            placement: SettlementPlacement { x, y, suit: 0.5, faction, capital: true, kind: SettlementKind::Capital, coastal: false },
+            name: "Test".to_string(),
+            pop,
+        }
+    }
+
+    #[test]
+    fn territory_weight_is_one_at_zero_population() {
+        assert_eq!(territory_weight(0), 1.0);
+    }
+
+    #[test]
+    fn territory_weight_is_monotonic_in_population() {
+        assert!(territory_weight(1000) < territory_weight(15000));
+        assert!(territory_weight(15000) < territory_weight(30000));
+    }
+
+    #[test]
+    fn assign_territory_capital_cell_is_always_self_owned() {
+        // Two capitals of different factions on a flat, fully-passable 5x5 grid.
+        let cost = vec![1.0f32; 25];
+        let settlements = vec![named_capital(0, 0, 1, 15000), named_capital(4, 4, 2, 15000)];
+        let owner = assign_territory(&settlements, &cost, 5, 5, false);
+        assert_eq!(owner[0], 1, "faction 1's own capital cell must be owned by faction 1");
+        assert_eq!(owner[4 * 5 + 4], 2, "faction 2's own capital cell must be owned by faction 2");
+    }
+
+    #[test]
+    fn assign_territory_higher_population_capital_claims_more_territory() {
+        // Two equidistant capitals on a flat, fully-passable 1x11 strip: faction 1
+        // at x=0 with a much larger population, faction 2 at x=10 with the same
+        // base population every other territory test uses. The higher-population
+        // capital's effective reach must extend strictly farther than the exact
+        // geometric midpoint an unweighted (equal-population) Voronoi would give.
+        let cost = vec![1.0f32; 11];
+        let settlements = vec![named_capital(0, 0, 1, 100_000), named_capital(10, 0, 2, 5_000)];
+        let owner = assign_territory(&settlements, &cost, 11, 1, false);
+        // Unweighted, the midpoint (x=5) is equidistant (cost-distance 5 from each
+        // capital) and would be a coin-flip; weighted by population, faction 1's
+        // far greater weight must win it and push the boundary past the midpoint.
+        assert_eq!(owner[5], 1, "the geometric midpoint must go to the far larger capital once weighted");
+        assert_eq!(owner[0], 1);
+        assert_eq!(owner[10], 2);
+    }
+
+    #[test]
+    fn assign_territory_equal_population_capitals_split_at_midpoint() {
+        // Same layout, equal population -> the classic unweighted-Voronoi
+        // boundary: each capital owns its own half up to (not including, since
+        // effective distance is strictly less-than to win) the midpoint.
+        let cost = vec![1.0f32; 11];
+        let settlements = vec![named_capital(0, 0, 1, 15000), named_capital(10, 0, 2, 15000)];
+        let owner = assign_territory(&settlements, &cost, 11, 1, false);
+        assert_eq!(owner[0], 1);
+        assert_eq!(owner[4], 1);
+        assert_eq!(owner[10], 2);
+        assert_eq!(owner[6], 2);
+    }
+
+    #[test]
+    fn assign_territory_unreachable_cells_stay_unowned() {
+        // 1x5 strip, cell 2 impassable -> the far side is unreachable from a
+        // single capital on the near side and must stay unowned (faction 0).
+        let cost = vec![1.0f32, 1.0, f32::INFINITY, 1.0, 1.0];
+        let settlements = vec![named_capital(0, 0, 1, 15000)];
+        let owner = assign_territory(&settlements, &cost, 5, 1, false);
+        assert_eq!(owner[0], 1);
+        assert_eq!(owner[1], 1);
+        assert_eq!(owner[2], 0, "the impassable cell itself must stay unowned");
+        assert_eq!(owner[3], 0, "cut off from the only capital by the impassable cell");
+        assert_eq!(owner[4], 0);
+    }
+
+    #[test]
+    fn assign_territory_no_capitals_leaves_everything_unowned() {
+        let cost = vec![1.0f32; 9];
+        let non_capital = NamedSettlement {
+            placement: SettlementPlacement { x: 1, y: 1, suit: 0.5, faction: 1, capital: false, kind: SettlementKind::Town, coastal: false },
+            name: "Test".to_string(),
+            pop: 1500,
+        };
+        let owner = assign_territory(&[non_capital], &cost, 3, 3, false);
+        assert!(owner.iter().all(|&f| f == 0), "a non-capital settlement projects no territory of its own");
+    }
+
+    #[test]
+    fn assign_territory_multi_capital_faction_unions_both_zones() {
+        // Faction 1 has two capitals (a real multi-seat landmass case from
+        // milestone 8); faction 2 has one, in between them. Faction 1's total
+        // territory must be the union of both its capitals' zones, not just
+        // whichever one happens to be checked first.
+        let cost = vec![1.0f32; 15];
+        let settlements = vec![named_capital(0, 0, 1, 15000), named_capital(14, 0, 1, 15000), named_capital(7, 0, 2, 15000)];
+        let owner = assign_territory(&settlements, &cost, 15, 1, false);
+        assert_eq!(owner[0], 1, "faction 1's western capital zone");
+        assert_eq!(owner[14], 1, "faction 1's eastern capital zone");
+        assert_eq!(owner[7], 2, "faction 2's own capital cell");
     }
 }

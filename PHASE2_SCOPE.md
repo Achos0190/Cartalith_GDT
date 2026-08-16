@@ -354,7 +354,7 @@ any Rust code was touched). Both fixture cases golden-verified bit-exact
 extraction. See `CHANGELOG.md`'s "Phase 2 milestone 9" entry for the full
 account.
 
-## Milestone 10 — territory/provinces: **design decided, unblocked (milestone 11 landed), current**
+## Milestone 10 — territory/provinces: **done** (2026-08-16)
 
 Owner decision recorded 2026-08-16, `DECISIONS.md` §7b — read that first,
 it's the authoritative design record, this is only the implementation
@@ -399,6 +399,16 @@ version).
 needs `buildTravelCost`/`roadDijkstra` real and tested. Check on
 completion whether milestone 11's Rust API is directly reusable here
 (single-source Dijkstra called once per capital) without modification.
+
+**Done.** `assign_territory` reuses `road_dijkstra`/`build_travel_cost`
+(milestone 11) directly, no modification needed, confirming the note
+above. Verified by 8 unit tests standing in for a golden test (no JS
+reference exists) — programmatic checks only, real map-overlay
+rendering deliberately deferred as its own follow-up UI/UX-catch-up
+target, not attempted in this pass since it needs `cartalith-godot`
+binding work outside this crate. `pop_ref=15000.0` documented as
+`civ_base_pop_for_kind(Capital)`'s own value, not picked arbitrarily.
+See `CHANGELOG.md`'s "Phase 2 milestone 10" entry.
 
 ## Milestone 11 — road network algorithm: **done** (2026-08-16)
 
