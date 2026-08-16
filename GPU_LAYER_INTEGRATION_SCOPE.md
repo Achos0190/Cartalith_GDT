@@ -126,10 +126,51 @@ sizes: 0.10× at 128² (dispatch overhead), 2.85× at 512², 10.39× at
 1024², 11.94× at 2048². See `CHANGELOG.md`'s "GPU-safe noise redesign"
 entry for the full record.
 
-## Milestone 2+ — not yet scoped
+## Milestone 2 — domain warp + crustal heterogeneity on GPU (current)
 
-Now reachable: domain warp/crustal heterogeneity/height formula as the
-next candidate (the actual first "real pipeline stage on GPU" milestone),
-then climate, then erosion's per-cell parts, in roughly that order — each
-scoped on its own once reachable, matching every other phase of this
-port's discipline. Do not scope these now.
+Checked 2026-08-16: `compute_warp` (`cartalith-terrain/src/lib.rs:36`) and
+`compute_heterogeneity` (line 914) are both genuinely per-cell —
+independent noise evaluations with no cross-cell dependency (`compute_
+heterogeneity` has one global max-reduce normalize pass at the end, a
+standard parallel-reduction shape, not a blocker). Both are built on the
+JS-matching `fbm`/`pfbm` (old `hash`/`vnoise`), **not** milestone 1's
+`gpu_hash`/`gpu_vnoise` — moving them to GPU means using the new noise,
+which per `DECISIONS.md` §7c means **the GPU-generated warp/heterogeneity
+fields will genuinely differ from the CPU/JS-matching ones for the same
+seed** — not a bug, the accepted consequence of §7a, but real: implement
+with that understanding, and keep the CPU functions completely untouched
+(same rule milestone 1 followed for the noise primitives themselves).
+
+**`compute_height` itself (line 1001, the actual height formula) is
+explicitly NOT this milestone** — it depends on many upstream fields
+(boundary stress, flexure, orogeny, plate/boundary assignment via JFA
+Voronoi) whose own GPU-portability hasn't been assessed yet. Warp and
+heterogeneity are the clean, immediately-reachable slice; height formula
+integration is a real next milestone once this lands and warp/heterogeneity
+are proven working end-to-end on GPU.
+
+**In scope**: `gpu_compute_warp`/`gpu_compute_heterogeneity` (or similar
+distinct names, matching milestone 1's `gpu_`-prefix convention) in
+`cartalith-gpu`, WGSL kernels using `gpu_hash`/`gpu_vnoise`/an equivalent
+GPU-side `fbm` combinator (check whether `gpu_vnoise` alone is enough or
+whether a GPU `fbm`-equivalent needs porting too — `compute_warp`/
+`compute_heterogeneity` both call `fbm`/`pfbm`, which layer 6 octaves of
+`vnoise` — the GPU shader needs the same octave-combining logic, built on
+`gpu_vnoise`, not a new noise model). World-wrap (`pfbm`'s periodic
+variant) — check whether this milestone needs to support it or can defer
+world-wrap to a later pass (`compute_warp`'s own `world` branch use case).
+
+**Verification**: no golden-parity test possible (different-by-design
+output per §7c) — verify internally instead: same seed on GPU produces
+the same warp/heterogeneity field every run (GPU-side determinism), the
+output has the right statistical shape (comparable variance/range to the
+CPU version, no NaN/degenerate output, visually plausible if you render
+it as a debug grayscale image), and real timing at the pilot's established
+sizes (128/512/1024/2048).
+
+**Out of scope**: `compute_height` and anything downstream, wiring this
+into the actual `generate()` pipeline (a separate integration step once
+the GPU functions are proven standalone), any UI exposure (per the
+UI-per-milestone process, but this is backend-only work with no
+user-visible payoff yet — a GPU toggle isn't meaningful until enough of
+the pipeline actually runs on it end-to-end).
