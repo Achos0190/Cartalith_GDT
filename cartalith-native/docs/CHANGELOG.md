@@ -4346,3 +4346,144 @@ genuinely unread), `build_age_field` (confirmed poor fit, milestone 4).
 Orogeny is the natural next candidate to actually read, per this
 milestone's own scope note -- not investigated this pass, flagged
 honestly rather than guessed at.
+
+## Phase 2 milestone 14 -- corridor consolidation + path smoothing (2026-08-16)
+
+Ported the consolidation/classify/smooth/name tail of
+`_civHierarchicalNetwork` (reference HTML lines ~21670-21739) plus its
+three helpers `rdpSimplify`/`catmullRomSample` (lines 8701/8790) and
+`_civSmoothPath`/`_civTerrainValidTest`/`_civNearestValidPt` (lines
+21892/21843/21872) to `cartalith-civ`, as
+`civ_consolidate_and_smooth_ways`. This is `PHASE2_SCOPE.md` milestone
+14, deferred from milestone 12 on purpose -- milestone 12 shipped the raw
+MST-family topology (what road-proximity queries need), this ships the
+presentation layer on top of it (what actually gets drawn).
+
+**What the step actually does, confirmed against the reference rather
+than assumed from the original one-sentence brief**: milestone 12's
+`civ_hierarchical_network_topology` produces raw edges as lists of
+downsampled-routing-grid cell indices, several of which legitimately
+overlap (two settlements' shortest paths sharing a trunk corridor). This
+milestone (a) sorts all edges by peak per-cell usage count descending,
+(b) walks them busiest-first, each edge claiming only the sub-runs of its
+own path not already claimed by a busier edge (plus one already-claimed
+connector cell at each cut, so strokes still join at junctions) -- so a
+shared trunk renders once, under the busiest edge's classification, not
+once per edge that uses it, (c) classifies each edge by its own peak
+usage (`highway`>=8, `regional`>=5, `road`>=3, else `track`) and
+auto-names it from its endpoint settlements
+(`"PlaceA → PlaceB"`/one name/empty), (d) converts each claimed run's
+cell indices back to full-grid coordinates and Catmull-Rom-smooths it
+(RDP-simplify at `eps=1.5` then chord-length-parameterized spline
+sampling at `step=3`, both matching the reference's own generic
+polyline-smoothing helpers bit-for-bit in algorithm shape), with a
+terrain-validity repair pass (any smoothed+rounded point landing in water
+gets pulled to the nearest land cell via bounded expanding-box search)
+and float-precision endpoint restoration (a run's own first/last point is
+always the exact un-rounded coordinate it started from, not smoothing
+output), and (e) an edge with no unclaimed cells left at all still emits
+a hidden 2-point straight-line way (so the network graph stays complete
+for anything querying by `aIdx`/`bIdx`, even though nothing draws it).
+A final endpoint-snap pass pulls each visible way's own start/end point
+onto its edge's real settlement position if within a bounded threshold
+(`(max(6, 4/sc) capped at (GW/30)*0.45))^2`), since consolidation can
+leave a visible run starting a routing-cell or two short of the pin.
+
+`_civTerrainValidTest` was ported narrowed, not in general form: the
+reference's real function takes a `kind` (`'land'`/`'ocean'`/etc.) plus
+optional sea-lane-allowance `opts`, but this network's only real call
+site is `_civTerrainValidTest('land')` with no `opts` -- so
+`civ_is_valid_land` implements exactly that one collapsed case (valid iff
+not water, against milestone 2's real water-body classification), not
+the general dispatcher. Flagged explicitly for milestone 13: the ocean
+mode (`kind==='ocean'`, valid iff water-body class 1 specifically,
+excluding lakes) is a different, not-yet-ported case that milestone 13's
+sea routes will need.
+
+**Golden verification**: fresh Node harness, blocks #1 (2084-14556) +
+#2 (14563-26720) concatenated into one `vm` context. **A small but real
+correction to a previously-recorded line-range convention**: an earlier
+milestone's own CHANGELOG entry states these ranges as
+"2083-14556"/"14562-26720" -- literally slicing at those numbers includes
+the `<script>` tag itself as the first extracted line (confirmed by
+direct inspection: line 2083 is the tag, real code starts 2084; line
+14562 is block 2's tag, real code starts 14563) and throws
+`SyntaxError: Unexpected token '<'`. Both prior milestones' own
+extractions evidently used the code-only start already (their harnesses
+otherwise couldn't have run) -- this was a transcription slip in that one
+CHANGELOG sentence, not a real bug in prior extractions; recorded here so
+the next fork copying line ranges from a CHANGELOG entry uses the correct
+ones. `state.tect.seed` (not the dead `state.seed`), `allocate()` with
+zero arguments, `state.climate.wIters=12` (this crate's established
+speed-override convention, matching every sibling fixture, not the real
+70). `_civHierarchicalNetwork(places, {})` was called directly rather
+than instrumented -- unlike milestone 12, this function already *returns*
+the post-consolidation `ways` array natively.
+
+Both test cases reuse already-verified upstream fixtures rather than
+re-deriving anything: settlement `(x,y,faction,name,pop)` tuples from
+`golden_parity_settlement_naming.rs`'s own case0/case1, topology
+confirmed against `golden_parity_hierarchical_network.rs`'s own edge
+counts (case0: 1 edge; case1: K5, 10 edges) by calling
+`civ_hierarchical_network_topology` fresh inside the new test (cheap,
+deterministic, already proven correct -- not hand-transcribed). `field[0]`
+cross-checked against both cases' already-trusted Rust-side values before
+trusting the extraction, per this crate's own established discipline:
+matched within ~9e-6 (`0.8640562...` vs `0.8640472...` for case0,
+similarly for case1) -- comfortably inside this crate's `1e-4`
+convention, and consistent with ordinary JS-vs-Rust cross-language float
+noise (`PARITY_TESTING.md`: exact bit-identity across languages isn't the
+target), not a harness setup bug.
+
+New test file `tests/golden_parity_road_consolidation.rs`, two cases:
+- **Case 0** (region, 1 edge, `gw=14 gh=11 seed=24601`): a genuine
+  short-segment Catmull-Rom oversampling quirk, not a synthetic corner
+  case -- the 2-cell path `[35,34]` produces a 3-point smoothed output
+  `[(7,2),(7,2),(6,2)]` where the interpolated midpoint (6.5,2) rounds
+  (via this project's `Math.round`-equivalent, which rounds .5 up) back
+  onto the run's own start point, which then also gets endpoint-precision-
+  restored to the identical exact coordinate -- a real duplicate point in
+  legitimate output, traced and confirmed by hand, not treated as a bug
+  to paper over.
+- **Case 1** (world-wrap, K5, `gw=16 gh=12 seed=314159`): 10 ways, a mix
+  of 3 visible smoothed polylines (2 highway, exercising real corridor
+  sharing -- e.g. the Orenelywash-Ghalbahrghaltazdune and
+  Ghalbahrghaltazdune-Hurngarngarnhaskcairn edges both routing through
+  the same claimed cells the busiest edge already smoothed) and 7 hidden
+  straight-line ways (edges whose entire path was already claimed by a
+  busier edge), 5 highway + 2 regional by classification.
+
+Point coordinates checked at this crate's established `1e-4` tolerance;
+`km`/name/type/`aIdx`/`bIdx`/`hidden`/point-count checked exactly.
+Both cases pass bit-for-bit against the real extraction on the first
+attempt.
+
+**Verification**: `cargo test -p cartalith-civ --all-targets`: all pass
+(2 new, no regressions in the other 8 golden-parity test files). `cargo
+clippy -p cartalith-civ --all-targets`: clean except the same 27
+pre-existing "float has excessive precision" warnings milestone 12's own
+test file already had (none in the new code). `cargo test --workspace` /
+`cargo build --workspace`: clean, no regressions.
+
+**Milestone 13, investigated for scope, not started**: `_civMstRoutes`
+(reference line 21240) shares `_civSmoothPath` and the overall
+Dijkstra-then-MST shape with milestone 12/this milestone, but is a real,
+separately-scoped algorithm -- not a same-shape sibling to reskin. Its
+cost grid marks land `Infinity` (genuinely impassable for sea routing,
+not merely expensive -- a v1.xx fix note in the reference explains a
+finite-but-expensive land cost let Dijkstra cut across jagged downsampled
+coastline pixels, which Catmull-Rom smoothing then exaggerated into
+visible nonsensical loops), pathing is costed by real current/wind fields
+via `_civSeaTimeEdgeCost` (not yet read in any detail), and a v0.73
+sea-lane augmentation pass adds each port's single nearest sea-reachable
+port as a direct lane beyond the bare MST tree (capped at 1.15x the MST's
+own longest edge), so short coastal hops don't detour through the tree's
+spine. The one piece of milestone 13 this pass concretely unblocks:
+`_civSmoothPath` itself is real and ported, reusable as-is by whatever
+ports `_civMstRoutes` -- only the validity-predicate needs to change from
+this milestone's land-only `civ_is_valid_land` to an ocean-only
+equivalent (`kind==='ocean'`: valid iff water-body class 1 specifically,
+excluding lakes -- a straightforward variant, not a new algorithm).
+Economy, culture, and territory sub-partitioning
+(`_civGenerateProvinces`) remain untouched, out of scope for this pass as
+directed.

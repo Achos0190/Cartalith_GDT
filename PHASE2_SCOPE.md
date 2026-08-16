@@ -554,16 +554,43 @@ augmentation beyond the bare MST tree, and Catmull-Rom path smoothing
 route branch may be dead code in production (not yet confirmed either
 way).
 
-## Milestone 14 — corridor consolidation + path smoothing (not yet started)
+**Now more concretely scoped, following milestone 14**: `_civSmoothPath`
+is real and ported (`civ_smooth_path` in `cartalith-civ`), reusable
+as-is — `_civMstRoutes`'s own call site passes it a validity predicate,
+not a boolean, and this milestone only needs a second variant of that
+predicate alongside milestone 14's land-only one:
+`_civTerrainValidTest('ocean')` (valid iff water-body class 1
+specifically, excluding lakes — a small variant of `civ_is_valid_land`,
+not a new algorithm). The real unscoped work is still `_civMstRoutes`
+itself: its cost grid marks land `Infinity` (not merely expensive — the
+reference has a v1.xx fix note explaining why a finite land cost let
+paths cut across jagged coastline pixels, which smoothing then
+exaggerated into visible loops), `_civSeaTimeEdgeCost` (current/wind-field
+routing cost, not yet read), and the v0.73 nearest-reachable-port
+sea-lane augmentation pass (capped at 1.15× the MST's own longest edge).
+See `CHANGELOG.md`'s "Phase 2 milestone 14" entry for the full trace.
+
+## Milestone 14 — corridor consolidation + path smoothing: **done** (2026-08-16)
 
 Deferred from milestone 12 (reference lines ~21670-21739): turns raw MST-
 family edges into deduplicated, Catmull-Rom-smoothed, classified
 (`highway`/`regional`/`road`/`track`), auto-named polylines for rendering.
-Needs `_civSmoothPath` (also needed by milestone 13's sea routes — worth
-porting once, shared) and `_civTerrainValidTest`. Not required for
-`_civSeedVillages` to function (it needs road-proximity distance, which
-raw unsmoothed edges already provide), but required for anything that
-actually *draws* roads on the map.
+Needed `_civSmoothPath` (also needed by milestone 13's sea routes — ported
+once, shared, see milestone 13's note above) and `_civTerrainValidTest`
+(ported narrowed to this network's one real call shape, `'land'` mode
+only — the `'ocean'` mode milestone 13 needs is not yet ported). Not
+required for `_civSeedVillages` to function (it needs road-proximity
+distance, which raw unsmoothed edges already provide), but required for
+anything that actually *draws* roads on the map.
+
+Shipped as `civ_consolidate_and_smooth_ways` in `cartalith-civ`, golden-
+verified against two real cases (reusing milestone 12's and milestone 9's
+own already-verified fixtures) in
+`tests/golden_parity_road_consolidation.rs`. Full record — including a
+small line-range correction to a previously-documented reference-HTML
+script-block convention, and a genuine short-segment Catmull-Rom
+oversampling quirk traced and confirmed by hand — in `CHANGELOG.md`'s
+"Phase 2 milestone 14" entry.
 
 ## Milestone 15 — village seeding: `_civSeedVillages`: **done** (2026-08-16)
 

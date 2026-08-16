@@ -3723,6 +3723,394 @@ pub fn civ_seed_villages(
     added
 }
 
+// ===================== Milestone 14: corridor consolidation + path smoothing =====================
+//
+// `PHASE2_SCOPE.md` milestone 14. Turns milestone 12's raw MST-family edges
+// (`HierarchicalNetworkResult`) into the classified, named, Catmull-Rom-
+// smoothed polylines that actually belong on a rendered map -- reference
+// `_civHierarchicalNetwork`'s own consolidation tail (lines ~21670-21739),
+// plus its helpers `rdpSimplify`/`catmullRomSample`/`_civSmoothPath`/
+// `_civTerrainValidTest`/`_civNearestValidPt` (lines 8701/8790/21892/
+// 21843/21872). NOT required for `civ_seed_villages` (milestone 15) --
+// that only needs road-PROXIMITY distance, which raw unsmoothed edges
+// already give via `RoadProximityIndex` -- required for anything that
+// actually draws roads.
+//
+// `_civTerrainValidTest` is ported narrowed to exactly the one call shape
+// this network ever uses: `_isValidLand=_civTerrainValidTest('land')`, no
+// `opts` -- no sea-lane allowance (`laneCells` is always null on that
+// path), so the general function collapses to "land iff not water"
+// against the real water-body classification (milestone 2).
+
+fn js_round(x: f64) -> f64 {
+    (x + 0.5).floor()
+}
+
+/// `rdpSimplify` (reference line 8701): Ramer-Douglas-Peucker line
+/// simplification, explicit-stack form matching the reference's own
+/// (not recursion) -- though for this algorithm the final `keep` set is
+/// independent of stack processing order, since each interval only ever
+/// examines points strictly between its own fixed boundaries.
+fn civ_rdp_simplify(pts: &[(f64, f64)], eps: f64) -> Vec<(f64, f64)> {
+    if pts.len() < 3 {
+        return pts.to_vec();
+    }
+    let mut keep = vec![false; pts.len()];
+    keep[0] = true;
+    keep[pts.len() - 1] = true;
+    let mut stack = vec![(0usize, pts.len() - 1)];
+    while let Some((a, b)) = stack.pop() {
+        if b - a < 2 {
+            continue;
+        }
+        let (ax, ay) = pts[a];
+        let (dx, dy) = (pts[b].0 - ax, pts[b].1 - ay);
+        let l2 = dx * dx + dy * dy;
+        let mut worst = usize::MAX;
+        let mut wd = -1.0f64;
+        for (i, &(px, py)) in pts.iter().enumerate().take(b).skip(a + 1) {
+            let d = if l2 < 1e-12 { (px - ax).hypot(py - ay) } else { (dx * (py - ay) - dy * (px - ax)).abs() / l2.sqrt() };
+            if d > wd {
+                wd = d;
+                worst = i;
+            }
+        }
+        if wd > eps {
+            keep[worst] = true;
+            stack.push((a, worst));
+            stack.push((worst, b));
+        }
+    }
+    pts.iter().zip(keep.iter()).filter(|&(_, &k)| k).map(|(&p, _)| p).collect()
+}
+
+/// `catmullRomSample` (reference line 8790): chord-length-parameterized
+/// Catmull-Rom evaluation via repeated linear interpolation (Barry &
+/// Goldman), synthetic reflected phantom endpoints, sampled at
+/// ~`step`-pixel intervals per segment.
+fn civ_catmull_rom_sample(pts: &[(f64, f64)], step: f64) -> Vec<(f64, f64)> {
+    if pts.len() < 2 {
+        return pts.to_vec();
+    }
+    let n = pts.len();
+    let mut p: Vec<(f64, f64)> = Vec::with_capacity(n + 2);
+    p.push((2.0 * pts[0].0 - pts[1].0, 2.0 * pts[0].1 - pts[1].1));
+    p.extend_from_slice(pts);
+    p.push((2.0 * pts[n - 1].0 - pts[n - 2].0, 2.0 * pts[n - 1].1 - pts[n - 2].1));
+
+    let dist = |a: (f64, f64), b: (f64, f64)| (b.0 - a.0).hypot(b.1 - a.1);
+    let mut out = Vec::new();
+    for s in 0..(n - 1) {
+        let (p0, p1, p2, p3) = (p[s], p[s + 1], p[s + 2], p[s + 3]);
+        let t0 = 0.0f64;
+        let t1 = t0 + dist(p0, p1).sqrt();
+        let t2 = t1 + dist(p1, p2).sqrt();
+        let t3 = t2 + dist(p2, p3).sqrt();
+        if t2 - t1 < 1e-6 {
+            continue;
+        }
+        let seg_len = dist(p1, p2);
+        let n_steps = ((seg_len / step).ceil() as i64).max(2) as usize;
+        let add_pt = if s < n - 2 { n_steps } else { n_steps + 1 };
+        for i in 0..add_pt {
+            let t = t1 + (t2 - t1) * (i as f64) / (n_steps as f64);
+            let lerp = |a: (f64, f64), b: (f64, f64), t: f64, t_a: f64, t_b: f64| {
+                (a.0 + (b.0 - a.0) * (t - t_a) / (t_b - t_a), a.1 + (b.1 - a.1) * (t - t_a) / (t_b - t_a))
+            };
+            let a1 = lerp(p0, p1, t, t0, t1);
+            let a2 = lerp(p1, p2, t, t1, t2);
+            let a3 = lerp(p2, p3, t, t2, t3);
+            let b1 = lerp(a1, a2, t, t0, t2);
+            let b2 = lerp(a2, a3, t, t1, t3);
+            out.push(lerp(b1, b2, t, t1, t2));
+        }
+    }
+    out
+}
+
+/// `_civTerrainValidTest('land')` narrowed to this network's one real call
+/// shape (see this section's own header comment): land iff not water,
+/// against milestone 2's real water-body classification.
+fn civ_is_valid_land(x: f64, y: f64, gw: usize, gh: usize, water_bodies: &[u8]) -> bool {
+    let xi = if x < 0.0 { 0 } else if x >= gw as f64 { gw - 1 } else { js_round(x) as usize };
+    let yi = if y < 0.0 { 0 } else if y >= gh as f64 { gh - 1 } else { js_round(y) as usize };
+    water_bodies[yi * gw + xi] == 0
+}
+
+/// `_civNearestValidPt` (reference line 21872): bounded expanding-box
+/// search, re-scanning the whole box from scratch at each radius
+/// (matching the reference's own -- redundant but correctness-preserving
+/// -- structure) so the first match in row-major (dy outer, dx inner)
+/// order is returned, not necessarily the Euclidean-nearest one.
+fn civ_nearest_valid_pt(x: i64, y: i64, gw: usize, gh: usize, water_bodies: &[u8], max_r: i64) -> (i64, i64) {
+    for r in 1..=max_r {
+        for dy in -r..=r {
+            for dx in -r..=r {
+                let (nx, ny) = (x + dx, y + dy);
+                if nx < 0 || ny < 0 || nx >= gw as i64 || ny >= gh as i64 {
+                    continue;
+                }
+                if water_bodies[ny as usize * gw + nx as usize] == 0 {
+                    return (nx, ny);
+                }
+            }
+        }
+    }
+    (x, y)
+}
+
+struct SmoothedPath {
+    pts: Vec<(f64, f64)>,
+    brks: Vec<usize>,
+    km: f64,
+}
+
+/// `_civSmoothPath` (reference line 21892): splits `raw` into runs at any
+/// `|dx| > gw/2` jump (world-wrap seam), RDP-simplifies then Catmull-Rom
+/// samples each run independently, repairs any resulting point that lands
+/// in water back onto land, then restores the run's own supplied
+/// full-precision endpoints (never moved by the repair pass).
+fn civ_smooth_path(raw: &[(f64, f64)], gw: usize, gh: usize, water_bodies: &[u8], map_width_km: f64) -> Option<SmoothedPath> {
+    if raw.is_empty() {
+        return None;
+    }
+    let mut runs: Vec<Vec<(f64, f64)>> = Vec::new();
+    let mut run: Vec<(f64, f64)> = vec![raw[0]];
+    for &p in &raw[1..] {
+        if (p.0 - run.last().unwrap().0).abs() > gw as f64 / 2.0 {
+            if run.len() > 1 {
+                runs.push(run);
+            }
+            run = Vec::new();
+        }
+        run.push(p);
+    }
+    if run.len() > 1 {
+        runs.push(run);
+    }
+    if runs.is_empty() {
+        return None;
+    }
+
+    let mut pts: Vec<(f64, f64)> = Vec::new();
+    let mut brks: Vec<usize> = Vec::new();
+    let mut km = 0.0f64;
+
+    for r in &runs {
+        let simplified = civ_rdp_simplify(r, 1.5);
+        let smooth = civ_catmull_rom_sample(&simplified, 3.0);
+        if smooth.len() < 2 {
+            continue;
+        }
+        if !pts.is_empty() {
+            brks.push(pts.len());
+        }
+        let run_start = pts.len();
+        for &s in &smooth {
+            let mut p = (js_round(s.0), js_round(s.1));
+            if !civ_is_valid_land(p.0, p.1, gw, gh, water_bodies) {
+                let (nx, ny) = civ_nearest_valid_pt(p.0 as i64, p.1 as i64, gw, gh, water_bodies, 16);
+                p = (nx as f64, ny as f64);
+            }
+            if let Some(&prev) = pts.last() {
+                km += (p.0 - prev.0).hypot(p.1 - prev.1) * map_width_km / gw as f64;
+            }
+            pts.push(p);
+        }
+        pts[run_start] = r[0];
+        let last = pts.len() - 1;
+        pts[last] = r[r.len() - 1];
+    }
+
+    if pts.len() >= 2 {
+        Some(SmoothedPath { pts, brks, km })
+    } else {
+        None
+    }
+}
+
+/// Road classification by peak corridor usage along the way's own path
+/// (reference: `e.maxU>=8?'highway':e.maxU>=5?'regional':e.maxU>=3?'road':'track'`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WayType {
+    Highway,
+    Regional,
+    Road,
+    Track,
+}
+
+fn civ_classify_way(max_usage: u16) -> WayType {
+    if max_usage >= 8 {
+        WayType::Highway
+    } else if max_usage >= 5 {
+        WayType::Regional
+    } else if max_usage >= 3 {
+        WayType::Road
+    } else {
+        WayType::Track
+    }
+}
+
+/// A consolidated, classified, named, smoothed road polyline ready to
+/// draw -- reference `_civHierarchicalNetwork`'s own `ways` output shape.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Way {
+    pub pts: Vec<(f64, f64)>,
+    pub brks: Vec<usize>,
+    pub km: f64,
+    pub name: String,
+    pub way_type: WayType,
+    pub a_idx: usize,
+    pub b_idx: usize,
+    pub hidden: bool,
+}
+
+/// `_civHierarchicalNetwork`'s consolidation/classify/smooth/name tail
+/// (reference lines ~21670-21739), consuming `civ_hierarchical_network_
+/// topology`'s raw edges (milestone 12). Recomputes the same routing grid
+/// milestone 12 used (`civ_routing_grid` is a pure function of
+/// `field`/`gw`/`gh` -- deterministic, safe to recompute rather than
+/// threading `rw`/`sc` through `HierarchicalNetworkResult` for this alone).
+pub fn civ_consolidate_and_smooth_ways(
+    topology: &HierarchicalNetworkResult,
+    places: &[NamedSettlement],
+    field: &[f32],
+    water_bodies: &[u8],
+    gw: usize,
+    gh: usize,
+    map_width_km: f64,
+) -> Vec<Way> {
+    let grid = civ_routing_grid(field, gw, gh);
+    let (rw, sc) = (grid.rw, grid.sc);
+    let n = places.len();
+
+    let mut e_ordered: Vec<(usize, usize, &[usize], u16)> = topology
+        .edges
+        .iter()
+        .map(|e| {
+            let max_u = e.path.iter().map(|&ci| topology.usage_count[ci]).max().unwrap_or(0);
+            (e.a, e.b, e.path.as_slice(), max_u)
+        })
+        .collect();
+    e_ordered.sort_by_key(|e| std::cmp::Reverse(e.3));
+
+    let mut claimed: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut ways: Vec<Way> = Vec::new();
+    for (a, b, path, max_u) in e_ordered {
+        if a >= n || b >= n {
+            continue;
+        }
+        let pa = &places[a];
+        let pb = &places[b];
+        let way_type = civ_classify_way(max_u);
+        let name = if !pa.name.is_empty() && !pb.name.is_empty() {
+            format!("{} \u{2192} {}", pa.name, pb.name)
+        } else if !pa.name.is_empty() {
+            pa.name.clone()
+        } else {
+            pb.name.clone()
+        };
+
+        // Claim cells busiest-corridor-first: this edge only emits the
+        // sub-runs of its path not yet claimed by a busier edge, plus one
+        // already-claimed connector cell at each cut so strokes join at
+        // junctions. The full path is marked claimed only AFTER building
+        // runs against the pre-this-edge claimed state.
+        let mut runs: Vec<Vec<usize>> = Vec::new();
+        let mut run: Option<Vec<usize>> = None;
+        for (k, &ci) in path.iter().enumerate() {
+            if !claimed.contains(&ci) {
+                if run.is_none() {
+                    let mut new_run = Vec::new();
+                    if k > 0 {
+                        new_run.push(path[k - 1]);
+                    }
+                    run = Some(new_run);
+                }
+                run.as_mut().unwrap().push(ci);
+            } else if let Some(mut r) = run.take() {
+                r.push(ci);
+                runs.push(r);
+            }
+        }
+        if let Some(r) = run {
+            runs.push(r);
+        }
+        for &ci in path {
+            claimed.insert(ci);
+        }
+
+        let mut emitted = false;
+        for r in &runs {
+            if r.len() < 2 {
+                continue;
+            }
+            let mut raw: Vec<(f64, f64)> =
+                r.iter().map(|&ci| (((ci % rw) as f64 + 0.5) / sc, ((ci / rw) as f64 + 0.5) / sc)).collect();
+            if r[0] == path[0] {
+                raw[0] = (pa.placement.x as f64, pa.placement.y as f64);
+            }
+            let last = raw.len() - 1;
+            if r[r.len() - 1] == path[path.len() - 1] {
+                raw[last] = (pb.placement.x as f64, pb.placement.y as f64);
+            }
+            let Some(sm) = civ_smooth_path(&raw, gw, gh, water_bodies, map_width_km) else {
+                continue;
+            };
+            if sm.pts.len() < 2 {
+                continue;
+            }
+            ways.push(Way { pts: sm.pts, brks: sm.brks, km: sm.km, name: name.clone(), way_type, a_idx: a, b_idx: b, hidden: false });
+            emitted = true;
+        }
+        if !emitted {
+            ways.push(Way {
+                pts: vec![(pa.placement.x as f64, pa.placement.y as f64), (pb.placement.x as f64, pb.placement.y as f64)],
+                brks: Vec::new(),
+                km: 0.0,
+                name,
+                way_type,
+                a_idx: a,
+                b_idx: b,
+                hidden: true,
+            });
+        }
+    }
+
+    // Endpoint snapping (reference v1.02): pull a way's own start/end
+    // point onto its own edge's settlement (a_idx/b_idx) if within a
+    // bounded, generous threshold -- corridor consolidation can leave a
+    // visible run starting a routing-cell or two short of the pin.
+    let snap_t2 = (6.0f64.max(4.0 / sc)).min((gw as f64 / 30.0) * 0.45).powi(2);
+    for w in &mut ways {
+        if w.hidden || w.pts.len() < 2 {
+            continue;
+        }
+        let last = w.pts.len() - 1;
+        for idx in [0usize, last] {
+            let pt = w.pts[idx];
+            let mut best: Option<(f64, f64)> = None;
+            let mut bd = snap_t2;
+            for pi in [w.a_idx, w.b_idx] {
+                if pi >= n {
+                    continue;
+                }
+                let p = &places[pi].placement;
+                let dd = (pt.0 - p.x as f64).powi(2) + (pt.1 - p.y as f64).powi(2);
+                if dd < bd {
+                    bd = dd;
+                    best = Some((p.x as f64, p.y as f64));
+                }
+            }
+            if let Some(b) = best {
+                w.pts[idx] = b;
+            }
+        }
+    }
+
+    ways
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
