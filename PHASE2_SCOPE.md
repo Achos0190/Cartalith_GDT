@@ -354,7 +354,7 @@ any Rust code was touched). Both fixture cases golden-verified bit-exact
 extraction. See `CHANGELOG.md`'s "Phase 2 milestone 9" entry for the full
 account.
 
-## Milestone 10 — territory/provinces: **design decided, blocked on milestone 11's infrastructure**
+## Milestone 10 — territory/provinces: **design decided, unblocked (milestone 11 landed), current**
 
 Owner decision recorded 2026-08-16, `DECISIONS.md` §7b — read that first,
 it's the authoritative design record, this is only the implementation
