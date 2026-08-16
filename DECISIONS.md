@@ -179,6 +179,39 @@ already established.
 **Blocked on**: Phase 2 milestone 11 (the travel-cost/Dijkstra
 infrastructure this depends on) landing first — see `PHASE2_SCOPE.md`.
 
+## 7c. Consequence of 7a, made explicit: GPU generation produces a different world than CPU, same seed (2026-08-16)
+
+Worth stating plainly once the first real consequence showed up
+(`GPU_LAYER_INTEGRATION_SCOPE.md` milestone 1, the GPU-safe noise
+redesign): because the GPU noise primitive is a genuinely different hash
+function from the CPU/JS-matching one (not a precision-tolerant port of
+the same algorithm — that was proven unreachable), **any pipeline stage
+that moves to GPU and depends on noise will produce different output than
+the CPU path, for the same seed.** Not "close within tolerance" —
+different, by design, the same way two different-but-valid noise
+functions always diverge from their first call.
+
+This does not break determinism *within* a path: the CPU path is fully
+deterministic and JS-matching (unchanged); the GPU path is fully
+deterministic given the new noise (same seed always reproduces the same
+GPU-generated world). What breaks is the assumption that "seed + GPU
+on/off" together fully determine one canonical world — they don't
+anymore, once GPU touches anything noise-derived. §7a already anticipated
+this ("this is about JS-cross-checkability, not about abandoning
+determinism inside the Rust/wgpu implementation itself") but didn't spell
+out the concrete UX consequence.
+
+**Implication for later UI/UX work** (per the `cartalith-ui-per-milestone`
+process): whenever a GPU-accelerated generation path is actually wired up
+and user-facing, the UI needs to communicate this honestly — a GPU toggle
+is not merely "faster," it's "a different (still valid, still
+deterministic-per-seed) world," the same way the reference's own
+archetype/world-structure toggles change generation, not a hidden
+performance-only switch. Exact wording/placement is a UI-pass decision
+when that toggle actually exists, not decided here — this entry exists so
+the fact isn't rediscovered as a surprise, or worse, silently hidden from
+the user, later.
+
 ## 8. Documentation here, code in a new repository
 
 `Cartalith_RC` has strict conventions of its own — single HTML file, version per
