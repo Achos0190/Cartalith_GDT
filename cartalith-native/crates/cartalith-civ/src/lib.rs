@@ -620,6 +620,192 @@ pub fn build_biome_raster(water_bodies: &[u8], temp: &[f32], rain: &[f32]) -> Ve
     out
 }
 
+/// `BIOME_DENSITY_RESIDUAL` (reference line 6192): disease/climate-friction
+/// correction on carrying capacity, indexed to `BIOME_KEYS` order via
+/// `biome_idx - 1`. `tropWet` (index 11) is the lowest non-ocean entry --
+/// the reference's own "rainforest paradox" comment (pathogen suppression,
+/// Tallavaara 2018).
+pub const BIOME_DENSITY_RESIDUAL: [f64; 13] = [0.60, 0.65, 0.85, 0.85, 1.00, 0.90, 0.90, 0.95, 0.55, 0.80, 0.75, 0.55, 0.00];
+
+/// `biomeDensityResidual` (reference line 6193).
+pub fn biome_density_residual(biome_idx: u8) -> f64 {
+    if biome_idx == 0 {
+        return 0.0;
+    }
+    BIOME_DENSITY_RESIDUAL.get((biome_idx - 1) as usize).copied().unwrap_or(0.9)
+}
+
+/// `BIOME_INTENSIFY_ELIGIBLE` (reference line 6198): how transformative
+/// irrigation/wetland farming was per biome, same `BIOME_KEYS` indexing.
+pub const BIOME_INTENSIFY_ELIGIBLE: [f64; 13] = [0.10, 0.10, 0.20, 0.20, 0.30, 0.30, 0.50, 0.40, 1.00, 0.50, 0.60, 0.90, 0.00];
+
+/// `biomeIntensifyEligible` (reference line 6199).
+pub fn biome_intensify_eligible(biome_idx: u8) -> f64 {
+    if biome_idx == 0 {
+        return 0.0;
+    }
+    BIOME_INTENSIFY_ELIGIBLE.get((biome_idx - 1) as usize).copied().unwrap_or(0.3)
+}
+
+/// `WETLAND_DENSITY_RESIDUAL`/`WETLAND_INTENSIFY_ELIGIBLE` (reference lines
+/// 6208-6209): between grass and tropWet on the density axis (productive
+/// but disease/flood friction); near the top on the intensify axis (managed
+/// wetlands/rice are the historical intensification story).
+pub const WETLAND_DENSITY_RESIDUAL: f64 = 0.70;
+pub const WETLAND_INTENSIFY_ELIGIBLE: f64 = 0.95;
+
+/// `buildWetlandMask` (reference HTML line 6839): the same moisture (>0.62)
+/// and low-elevation (<0.18) and flat (slope<1.0) condition `buildCartBiome`
+/// uses for its Wetlands/Marshes override, on land only (water-body cells
+/// are never a land wetland). `geoAt(i)` (per-cell sea-level offset) does
+/// not exist in this port -- treated as always-zero, matching milestone
+/// 2's own `geo`-absent precedent (`build_water_bodies`'s doc comment).
+/// `slope_n` is `build_slope_field`'s output (already `slopeAt(x,y)*GW`).
+pub fn build_wetland_mask(water_bodies: &[u8], field: &[f32], rain: &[f32], slope_n: &[f32], sea: f64) -> Vec<u8> {
+    let n = water_bodies.len();
+    let mut out = vec![0u8; n];
+    let denom = (1.0 - sea).max(1e-6);
+    for i in 0..n {
+        if water_bodies[i] != 0 {
+            continue;
+        }
+        let r = (field[i] as f64 - sea) / denom;
+        let sn = slope_n[i] as f64;
+        let m = rain[i] as f64;
+        if m > 0.62 && r < 0.18 && sn < 1.0 {
+            out[i] = 1;
+        }
+    }
+    out
+}
+
+/// `buildCarryingCapacity` (reference HTML line 6238): food productivity
+/// K(x,y) in \[0,1\] -- soil x temperature-bell x water modifier x an
+/// optional biome-residual disease/climate correction. `biome_k=0.0`
+/// reproduces the reference's own real default (`_biomeK=0`, "byte-
+/// identical to v0.68" per its own comment) -- `wet_mask` is only ever
+/// consulted when `biome_k != 0.0`, matching `bM=(bK&&biome) ? ... : 1`
+/// exactly (a zero `biome_k` short-circuits the whole residual/wetland
+/// correction, not just zeroes its contribution).
+#[allow(clippy::too_many_arguments)]
+pub fn build_carrying_capacity(
+    soil: &[f32],
+    water: &[f32],
+    biome: Option<&[u8]>,
+    temp: &[f32],
+    field: &[f32],
+    sea: f64,
+    biome_k: f64,
+    wet_mask: Option<&[u8]>,
+) -> Vec<f32> {
+    let n = field.len();
+    let mut out = vec![0f32; n];
+    let t_opt = 18.0;
+    let t_var = 800.0;
+    for i in 0..n {
+        if (field[i] as f64) < sea {
+            continue;
+        }
+        if let Some(b) = biome
+            && b[i] == 0
+        {
+            continue;
+        }
+        let t = temp[i] as f64;
+        let t_f = (-((t - t_opt) * (t - t_opt)) / t_var).exp();
+        let w_mod = 0.25 + 0.75 * water[i] as f64;
+        let mut resid = biome.map(|b| biome_density_residual(b[i])).unwrap_or(1.0);
+        if let Some(w) = wet_mask
+            && w[i] != 0
+        {
+            resid = WETLAND_DENSITY_RESIDUAL;
+        }
+        let b_m = if biome_k != 0.0 && biome.is_some() { 1.0 - biome_k + biome_k * resid } else { 1.0 };
+        out[i] = (soil[i] as f64 * t_f * w_mod * b_m).clamp(0.0, 1.0) as f32;
+    }
+    out
+}
+
+/// `buildNPP` (reference HTML line 6497): Miami-model net primary
+/// productivity (Lieth 1975), g dry matter/m^2/yr; 0 over ocean.
+/// `max_rain_mm` matches `opts.maxRainMm` (reference default 3000,
+/// `state.climate.maxRainMm`'s own literal default) -- this port has no
+/// caller-configurable equivalent yet, so callers should pass `3000.0`
+/// until one exists, rather than this function guessing at a knob nothing
+/// can turn.
+pub fn build_npp(temp: &[f32], rain: &[f32], field: &[f32], sea: f64, max_rain_mm: f64) -> Vec<f32> {
+    let n = field.len();
+    let mut out = vec![0f32; n];
+    for i in 0..n {
+        if (field[i] as f64) < sea {
+            continue;
+        }
+        let t = temp[i] as f64;
+        let p = (rain[i] as f64).max(0.0) * max_rain_mm;
+        let n_t = 3000.0 / (1.0 + (1.315 - 0.119 * t).exp());
+        let n_p = 3000.0 * (1.0 - (-0.000664 * p).exp());
+        out[i] = n_t.min(n_p) as f32;
+    }
+    out
+}
+
+/// `FORAGER_NPP_SLOPE`/`FORAGER_NPP_INTERCEPT`/`NPP_DRYMATTER_TO_CARBON`
+/// (reference line 6184): converts Miami-model NPP (dry matter basis) to
+/// the MODIS-NPP-carbon-basis regression `foragerFloorKm2` is fit on. The
+/// reference's own comment: "The x0.45 is load-bearing -- omitting it
+/// gives 22/km2, 10x high."
+const FORAGER_NPP_SLOPE: f64 = 9.6e-4;
+const FORAGER_NPP_INTERCEPT: f64 = -1.53;
+const NPP_DRYMATTER_TO_CARBON: f64 = 0.45;
+
+/// `foragerFloorKm2` (reference line 6185): pre-agricultural population
+/// floor from NPP alone (persons/km^2).
+pub fn forager_floor_km2(npp_dry_matter: f64) -> f64 {
+    let npp_c = npp_dry_matter * NPP_DRYMATTER_TO_CARBON;
+    10f64.powf(FORAGER_NPP_SLOPE * npp_c + FORAGER_NPP_INTERCEPT)
+}
+
+/// `RAINFED_CEILING_KM2`/`INTENSIVE_CEILING_KM2` (reference line 6216):
+/// the pre-industrial rain-fed density cap vs. the water-driven-
+/// intensification cap (Low Countries c.1500 vs. Classic Maya lidar).
+pub const RAINFED_CEILING_KM2: f64 = 45.0;
+pub const INTENSIVE_CEILING_KM2: f64 = 165.0;
+
+/// `estimateRegionalDensityKm2` (reference HTML line 6217): real regional
+/// population density (persons/km^2) -- additive to carrying capacity `k`,
+/// never feeds back into it. Forager floor (even bad land supports some
+/// people) plus `k` scaled by a water-gated ceiling between the rain-fed
+/// and water-intensified caps.
+#[allow(clippy::too_many_arguments)]
+pub fn estimate_regional_density_km2(
+    k: &[f32],
+    water: &[f32],
+    biome: Option<&[u8]>,
+    npp: Option<&[f32]>,
+    field: &[f32],
+    sea: f64,
+    wet_mask: Option<&[u8]>,
+) -> Vec<f32> {
+    let n = field.len();
+    let mut out = vec![0f32; n];
+    for i in 0..n {
+        if (field[i] as f64) < sea {
+            continue;
+        }
+        let mut iw = biome.map(|b| biome_intensify_eligible(b[i])).unwrap_or(0.3);
+        if let Some(w) = wet_mask
+            && w[i] != 0
+        {
+            iw = WETLAND_INTENSIFY_ELIGIBLE;
+        }
+        let w = water[i] as f64;
+        let ceiling = RAINFED_CEILING_KM2 + (INTENSIVE_CEILING_KM2 - RAINFED_CEILING_KM2) * iw * w * w;
+        let npp_v = npp.map(|p| p[i] as f64).unwrap_or(0.0);
+        out[i] = (forager_floor_km2(npp_v) + k[i] as f64 * ceiling) as f32;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -797,5 +983,92 @@ mod tests {
         assert_eq!(out[0], BIOME_TROP_WET); // land: real climate classification
         assert_eq!(out[1], BIOME_OCEAN); // ocean overrides climate
         assert_eq!(out[2], BIOME_LAKE); // lake overrides climate
+    }
+
+    #[test]
+    fn biome_density_residual_ocean_is_zero_tropwet_is_rainforest_paradox() {
+        assert_eq!(biome_density_residual(BIOME_OCEAN), 0.0);
+        assert_eq!(biome_density_residual(BIOME_TEMP_RAIN), 0.90);
+        assert_eq!(biome_density_residual(BIOME_TROP_WET), 0.55); // lowest non-ocean entry
+    }
+
+    #[test]
+    fn biome_intensify_eligible_desert_is_maximal() {
+        assert_eq!(biome_intensify_eligible(BIOME_OCEAN), 0.0);
+        assert_eq!(biome_intensify_eligible(BIOME_DESERT), 1.00); // Nile-style: irrigation transformative
+    }
+
+    #[test]
+    fn build_wetland_mask_flags_wet_low_flat_land_only() {
+        // cell 0: water body -> never a land wetland regardless of moisture.
+        // cell 1: wet+low+flat land -> wetland.
+        // cell 2: wet but steep -> not a wetland (slope fails the <1.0 gate).
+        let water_bodies = [1u8, 0, 0];
+        let field = [0.1f32, 0.45, 0.45]; // sea=0.4, denom=0.6 -> r=(0.45-0.4)/0.6=0.0833 < 0.18
+        let rain = [0.9f32, 0.9, 0.9];
+        let slope_n = [0.0f32, 0.0, 5.0];
+        let out = build_wetland_mask(&water_bodies, &field, &rain, &slope_n, 0.4);
+        assert_eq!(out[0], 0);
+        assert_eq!(out[1], 1);
+        assert_eq!(out[2], 0);
+    }
+
+    #[test]
+    fn build_carrying_capacity_zero_over_ocean_and_no_biome_default_matches_bk_zero() {
+        let soil = [0.8f32, 0.8];
+        let water = [0.6f32, 0.6];
+        let temp = [18.0f32, 18.0]; // at t_opt -> tF ~= 1
+        let field = [0.1f32, 0.6]; // cell 0 ocean, cell 1 land
+        let sea = 0.4;
+        let no_biome = build_carrying_capacity(&soil, &water, None, &temp, &field, sea, 0.0, None);
+        assert_eq!(no_biome[0], 0.0); // ocean
+        assert!(no_biome[1] > 0.0);
+
+        // biome_k=0 must ignore the biome/wetland residual entirely (bM=1), matching
+        // the reference's own bM=(bK&&biome)?...:1 short-circuit, not just weighting resid to 0.
+        let biome = [1u8, BIOME_TROP_WET]; // tropWet has the lowest residual (0.55) -- would visibly lower K if bK weren't truly short-circuited
+        let with_biome_bk_zero = build_carrying_capacity(&soil, &water, Some(&biome), &temp, &field, sea, 0.0, None);
+        assert_eq!(with_biome_bk_zero[1], no_biome[1]);
+    }
+
+    #[test]
+    fn build_carrying_capacity_biome_k_applies_residual_and_wetland_override() {
+        let soil = [0.8f32];
+        let water = [0.6f32];
+        let temp = [18.0f32];
+        let field = [0.6f32];
+        let biome = [BIOME_TROP_WET]; // residual 0.55
+        let base = build_carrying_capacity(&soil, &water, Some(&biome), &temp, &field, 0.4, 1.0, None);
+        let wet = [1u8];
+        let with_wetland = build_carrying_capacity(&soil, &water, Some(&biome), &temp, &field, 0.4, 1.0, Some(&wet));
+        // WETLAND_DENSITY_RESIDUAL (0.70) > tropWet's own residual (0.55) -> wetland override raises K here.
+        assert!(with_wetland[0] > base[0]);
+    }
+
+    #[test]
+    fn build_npp_zero_over_ocean_positive_on_land() {
+        let temp = [18.0f32, 18.0];
+        let rain = [0.6f32, 0.6];
+        let field = [0.1f32, 0.6];
+        let out = build_npp(&temp, &rain, &field, 0.4, 3000.0);
+        assert_eq!(out[0], 0.0);
+        assert!(out[1] > 0.0);
+    }
+
+    #[test]
+    fn forager_floor_km2_zero_npp_matches_reference_calibration() {
+        // Reference doc comment: "NPP 0 -> ~0.030/km2 (Binford median 0.044)".
+        let floor = forager_floor_km2(0.0);
+        assert!((floor - 0.0295).abs() < 0.001, "got {floor}");
+    }
+
+    #[test]
+    fn estimate_regional_density_km2_zero_over_ocean() {
+        let k = [0.5f32, 0.5];
+        let water = [0.6f32, 0.6];
+        let field = [0.1f32, 0.6];
+        let out = estimate_regional_density_km2(&k, &water, None, None, &field, 0.4, None);
+        assert_eq!(out[0], 0.0);
+        assert!(out[1] > 0.0);
     }
 }

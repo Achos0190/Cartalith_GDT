@@ -89,7 +89,7 @@ editor-bridge biome-paint auto-fill) confirmed out of scope — no consumer
 exists anywhere in this port (no painting UI, no editor integration) —
 not implemented. See `CHANGELOG.md`'s "Phase 2 milestone 3" entry.
 
-## Milestone 4 — carrying capacity, NPP, population density (current)
+## Milestone 4 — carrying capacity, NPP, population density: **done** (2026-08-16)
 
 Split out from resource potentials after checking real size (2026-08-16):
 `buildResourcePotentials` (reference lines 6085–6193, ~108 lines, 9
@@ -119,18 +119,34 @@ disproportionate. It becomes its own milestone 5.
 9 distinct per-resource scoring rules; genuinely milestone 5's own scope,
 not this one's).
 
-## Milestone 5 — resource potentials (not yet started)
+**Done.** `build_carrying_capacity`/`build_npp`/`estimate_regional_density_km2`
+ported to `cartalith-civ`, `1e-4` tolerance, both fixture cases passed
+first attempt. A real short-circuit gotcha caught: the reference's
+`bK&&biome` biome-residual gate requires *both* truthy, not just
+arithmetic that happens to equal the unconditional case at `bK=0` — this
+port's gate matches the reference's condition exactly, not just its
+output at the default. **Confirmed for milestone 5**: `WorldState`
+(`cartalith-engine/src/lib.rs`) genuinely has no `boundary_type`/
+`shear_field` fields — they exist only inside a local `stress` struct
+computed mid-`generate_terrain` and are discarded past it, the same
+situation `crust_field` was in before milestone 1's fix. Milestone 5
+needs the equivalent retention fix before it can start. See
+`CHANGELOG.md`'s "Phase 2 milestone 4" entry for the full record.
+
+## Milestone 5 — resource potentials (current)
 
 `buildResourcePotentials` (reference lines 6085–6193). Needs
-`boundary_type`/`shear_field` retained on `WorldState` (verify/fix per
-above), plus lithology (real, milestone 1), flow field (real), biome
-(real, milestone 3), field/rain/age (real). `SUIT_RESOURCE_KEYS` (9 ore
-types: copper/tin/iron/gold/salt/timber/lead/silver/gems — note block 2's
-own `CIV_RESOURCE_KEYS` is a *different*, larger vocabulary per the
-reference's own comment at line ~6293; this milestone ports only the
-block-1 ore subset, not the full civ resource list). Read the full
-function before scoping further — 108 lines may itself split into
-sub-passes once its actual structure is clear.
+`boundary_type`/`shear_field` retained on `WorldState` first (confirmed
+missing, see milestone 4's own findings above — this is milestone 5's
+first real step, not an optional check), plus lithology (real, milestone
+1), flow field (real), biome (real, milestone 3), field/rain/age (real).
+`SUIT_RESOURCE_KEYS` (9 ore types: copper/tin/iron/gold/salt/timber/
+lead/silver/gems — note block 2's own `CIV_RESOURCE_KEYS` is a
+*different*, larger vocabulary per the reference's own comment at line
+~6293; this milestone ports only the block-1 ore subset, not the full
+civ resource list). Read the full function before scoping further — 108
+lines may itself split into sub-passes once its actual structure is
+clear.
 
 ## Milestone 6+ — not yet scoped
 

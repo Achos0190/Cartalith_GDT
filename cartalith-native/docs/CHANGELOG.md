@@ -2988,3 +2988,69 @@ milestone 4 will need to close, not assumed away.
 potentials, carrying capacity, population density are milestone 4;
 settlement suitability, factions, territory, roads, provinces, economy,
 and the Journey Planner remain untouched and further out.
+
+## Phase 2 milestone 4 -- carrying capacity, NPP, population density (2026-08-16)
+
+`buildResourcePotentials` split out into its own milestone 5 after
+checking real size (~108 lines, 9 resource-type scoring rules -- see
+`PHASE2_SCOPE.md`'s milestone 4/5 split). This milestone ports the three
+smaller, already-reachable functions instead: `buildCarryingCapacity`
+(reference line 6238), `buildNPP` (line 6497), and
+`estimateRegionalDensityKm2` (line 6217), plus their small dependencies
+(`biomeDensityResidual`/`biomeIntensifyEligible` lookups,
+`WETLAND_DENSITY_RESIDUAL`/`WETLAND_INTENSIFY_ELIGIBLE`,
+`buildWetlandMask` line 6839, `foragerFloorKm2`).
+
+**A real semantic gotcha caught while porting, not by review alone**:
+the reference's `bM=(bK&&biome) ? (1-bK+bK*resid) : 1` is a genuine
+short-circuit, not a weighted blend that happens to reach 1 at `bK=0`. A
+first instinct (`1.0 - biome_k + biome_k * resid` unconditionally) would
+have been numerically identical at `biome_k=0.0` but silently *wrong*
+the moment a caller passes `biome=None` with `biome_k>0.0` -- the
+reference's own condition requires *both* `bK` truthy *and* `biome`
+present, and this port's `build_carrying_capacity` reproduces that exact
+gate (`if biome_k != 0.0 && biome.is_some()`), not just the arithmetic
+that happens to match at the reference's own real default.
+
+**Golden verification**: harness called the reference's own
+`buildCarryingCapacity`/`buildNPP`/`estimateRegionalDensityKm2` directly
+through `currentSoil()`/`currentWaterAccess()`/`buildBiomeRaster()`, the
+exact production composition, not a hand-assembled reimplementation. Hit
+a real harness gap along the way: `generate()` assumes `field`/`GW`/`GH`
+and every subsystem field are already allocated by a prior `allocate()`
+call (normally triggered by UI resolution-change handlers this harness
+bypasses entirely) -- without it, `buildWaterBodies`'s `filled.set(fld)`
+throws `RangeError: offset is out of bounds` because `field` is still
+sized from the sandbox's own initial (wrong) grid dimensions. Fixed by
+calling `allocate()` explicitly after setting `GW`/`GH`, before
+`generate()`. Cross-checked before trusting the extraction: this harness's
+own `field[0..5]` matched both `cartalith-engine/tests/golden_parity_carve.rs`'s
+`expected_field` *and* `cartalith-io`'s real-export fixture
+(`real_export_seed24601_captured.json`) exactly across the full 154-value
+array for case 0 -- three independently-built harnesses across three
+different sessions/milestones all agreeing is strong evidence this
+extraction technique is sound, not just this one run. Determinism
+reconfirmed by running case 0 twice and diffing (the milestone-2 lesson
+applied cleanly from the start this time).
+
+`build_carrying_capacity`/`build_npp`/`estimate_regional_density_km2` all
+`1e-4` absolute+relative tolerance (continuous `f32` fields), matching
+`golden_parity_affordance.rs`'s existing convention. Both fixture cases
+passed on the first attempt.
+
+- `cargo test/clippy -p cartalith-civ`: clean, 25 unit tests + 8 golden
+  tests. `cargo test --workspace`/`cargo build --workspace`: no
+  regressions.
+
+**Scope discipline**: `buildResourcePotentials` (milestone 5) not
+touched. Confirmed for milestone 5's benefit: `WorldState`
+(`cartalith-engine/src/lib.rs`) has no `boundary_type`/`shear_field`
+fields -- they exist only inside a local `stress` struct computed
+mid-pipeline in `generate_terrain` and are discarded past it, the exact
+same situation `crust_field` was in before milestone 1's fix. Milestone 5
+will need the equivalent retention fix before it can start.
+
+**Where this leaves Phase 2**: milestone 4 of (at least) 5 done. Resource
+potentials is milestone 5; settlement suitability, factions, territory,
+roads, provinces, economy, and the Journey Planner remain untouched and
+further out.
