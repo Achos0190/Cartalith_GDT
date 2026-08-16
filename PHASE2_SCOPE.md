@@ -472,7 +472,7 @@ depth or ported. `_civSeedVillages`'s `ways` parameter is `civWays`, not
 `buildRoadNetwork`'s output. See `CHANGELOG.md`'s "Phase 2 milestone 11"
 entry for the full account.
 
-## Milestone 12 — civ auto-populate road network: `_civHierarchicalNetwork` (current)
+## Milestone 12 — civ auto-populate road network: `_civHierarchicalNetwork`: **done** (2026-08-16)
 
 Investigated further 2026-08-16: confirmed substantially larger than
 milestone 11's `buildRoadNetwork`, not a same-shape sibling. Real
@@ -515,15 +515,45 @@ file, this session's numbers drift):
   unchanged behaviour) — a plausible thing to defer to a later pass since
   this port has no manual road-drawing tool yet for it to matter to.
 
-**Whoever implements this**: read `_civMstRoutes`/`_civPreferSeaRoutes`
-fully before committing to whether this is one milestone or needs
-splitting again (the same judgment call that split milestone 4 into
-4+5) — this doc's own size estimate here may still be short. Land-only
-network (`_civHierarchicalNetwork` + its direct helpers, `existingWays`
-integration deferred) is the more clearly-bounded core; sea routes may
-warrant their own follow-up milestone once the land network is real and
-tested, the same way this project has repeatedly separated a clean core
-from an adjacent extension rather than bundling both.
+**Done.** Read `_civMstRoutes`/`_civPreferSeaRoutes` fully as instructed —
+confirmed the real production call site (`_civIterativeAutoWorld`) never
+calls `_civPreferSeaRoutes` at all (only the separate, manual-tool-adjacent
+`_civAutoRoutes` does) and appends `_civMstRoutes(ports,true)` sea routes
+directly via `ways.push(...)`. Also confirmed `_civHierarchicalNetwork`
+itself has THREE passes, not two (a Floyd-Warshall shortcut-detour-relief
+pass beyond MST + min-degree-fill), plus a substantial corridor-
+consolidation/Catmull-Rom-smoothing/road-class-emission step. Split
+accordingly: ported the raw three-pass topology
+(`civ_hierarchical_network_topology`, `cartalith-civ`) — golden-verified,
+both fixture cases exercising real edge conditions (an unreachable
+settlement; the min-degree-fill pass hitting its natural ceiling rather
+than its target). Corridor consolidation/smoothing (needs `_civSmoothPath`,
+not yet ported) deferred to milestone 14 below. See `CHANGELOG.md`'s
+"Phase 2 milestone 12" entry for the full record, including a real
+`river_flow_thresh` parameter bug (hardcoded map width) caught before it
+shipped.
+
+## Milestone 13 — sea routes: `_civMstRoutes` (not yet started)
+
+Confirmed genuinely separate from milestone 12's land network, not a
+same-shape sibling: current/wind-costed sea edges
+(`_civSeaTimeEdgeCost`, needs ocean-current/wind fields), sea-lane
+augmentation beyond the bare MST tree, and Catmull-Rom path smoothing
+(`_civSmoothPath`, needed here too — see milestone 14). Called only with
+`isSea=true` at every real call site found so far; the `isSea=false` land-
+route branch may be dead code in production (not yet confirmed either
+way).
+
+## Milestone 14 — corridor consolidation + path smoothing (not yet started)
+
+Deferred from milestone 12 (reference lines ~21670-21739): turns raw MST-
+family edges into deduplicated, Catmull-Rom-smoothed, classified
+(`highway`/`regional`/`road`/`track`), auto-named polylines for rendering.
+Needs `_civSmoothPath` (also needed by milestone 13's sea routes — worth
+porting once, shared) and `_civTerrainValidTest`. Not required for
+`_civSeedVillages` to function (it needs road-proximity distance, which
+raw unsmoothed edges already provide), but required for anything that
+actually *draws* roads on the map.
 
 ## Done means (per milestone, not once for the whole phase)
 

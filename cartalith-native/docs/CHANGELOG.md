@@ -3715,3 +3715,82 @@ stage. This milestone is the primitive alone, verified standalone --
 GPU milestone is domain warp / crustal heterogeneity / the height
 formula -- the first actual pipeline stage that can now move to GPU,
 scoped separately once reachable.
+
+## Phase 2 milestone 12 — civ auto-populate road network topology (2026-08-16)
+
+`PHASE2_SCOPE.md` milestone 12: `_civHierarchicalNetwork` (reference HTML
+line ~21526) plus its direct helpers -- the real dependency
+`_civSeedVillages` needs (`civWays`), confirmed by reading every real call
+site of it and of milestone 11's `build_road_network`: the auto-populate
+flow (`_civIterativeAutoWorld`, lines ~25581-25680) calls
+`_civHierarchicalNetwork(places,{})` with empty opts (no `existingWays`)
+and never calls `_civPreferSeaRoutes` at all -- that function is only used
+by the separate `_civAutoRoutes` (manual-tool-adjacent) caller.
+`build_road_network` (milestone 11) is a different, simpler system used
+only by the *manual* "Generate Roads" tool.
+
+**Real scope finding, not assumed**: `_civHierarchicalNetwork` turned out
+substantially larger than milestone 11 estimated when this milestone was
+first scoped -- THREE passes (Prim MST, min-degree-fill by settlement
+tier, Floyd-Warshall shortcut-detour-relief), not two, plus a
+corridor-consolidation + Catmull-Rom-smoothing + road-class/name-emission
+step (reference lines ~21670-21739) that turns raw edges into pretty,
+deduplicated polylines for rendering. **Split the scope here**: ported the
+raw three-pass topology (`civ_hierarchical_network_topology`, new in
+`cartalith-civ`) -- what `_civSeedVillages`'s `_civRoadProximityQuery`
+needs functionally (distance to nearest road cell), even unsmoothed.
+Corridor consolidation/smoothing/classification is real, separate work
+(needs `_civSmoothPath`, `_civTerrainValidTest`, road-class assignment --
+none read or ported) deferred to its own future milestone rather than
+rushed under budget pressure.
+
+**Built**: `civ_biome_friction`, `civ_navigable_river_discount`,
+`civ_routing_grid`, `civ_enhanced_travel_cost`,
+`civ_apply_settlement_gravity`, `civ_snap_finite`, `civ_trace_path`,
+`civ_hierarchical_network_topology` in `cartalith-civ`. Reuses
+`road_dijkstra` (milestone 11) directly -- its scalar single-source,
+no-`edgeCost` signature already matches every call this milestone makes.
+A real bug caught before it shipped: `river_flow_thresh` needs the real
+per-world `map_width_km`, not a hardcoded `800.0` default -- would have
+silently diverged for any non-default map width; threaded through as a
+real parameter instead.
+
+**Golden verification**: fresh Node harness, blocks #1 (2083-14556) + #2
+(14562-26720) concatenated (per `golden_parity_settlement_naming.rs`'s own
+documented block boundaries). `_civHierarchicalNetwork` only *returns* the
+post-consolidation `ways` -- the raw `allEdges` this port's topology
+matches was captured by instrumenting the extracted source, inserting a
+capture statement immediately before the reference's own `/* Classify,
+CONSOLIDATE and smooth. */` comment. Settlement inputs reused directly
+from `golden_parity_settlement_naming.rs`'s own already-verified
+`(x,y,faction,kind)` fixture rather than re-derived. `field[0..5]`
+cross-checked against a direct `generate_terrain` call before trusting
+the extraction.
+
+Both fixture cases are real, meaningful edge cases, not synthetic ones:
+case0 (3 capitals) has one settlement genuinely **unreachable** from the
+other two over the terrain-cost grid (`degree_of=[1,0,1]`, a single MST
+edge, min-degree-fill correctly finds no finite-cost candidates rather
+than looping or panicking); case1 (5 capitals, each requiring tier degree
+5) exercises the fill pass hitting its natural ceiling instead of the
+requirement -- every place reaches degree 4 (the maximum possible with 4
+other places), the network becomes the complete graph K5 (10 edges), and
+pass 3 (shortcut-detour-relief) correctly finds nothing left to add.
+Edge topology and usage counts checked exactly (integers/categorical, no
+float tolerance needed) -- both cases passed on the first real attempt
+after fixing the `river_flow_thresh` parameter bug above.
+
+- `cargo test/clippy -p cartalith-civ --all-targets`: clean (2 new golden
+  tests, zero new clippy warnings -- the file's other pre-existing
+  excessive-float-precision warnings are milestone 11's own test file,
+  untouched here). `cargo test --workspace`/`cargo build --workspace`: no
+  regressions.
+
+**Milestone 13+ not yet scoped**: sea routes (`_civMstRoutes` with
+`isSea=true`) -- confirmed to have real, separate new dependencies
+(current/wind-costed sea edges via `_civSeaTimeEdgeCost`, sea-lane
+augmentation beyond the MST tree, `_civSmoothPath` Catmull-Rom smoothing)
+not shared with this milestone's land network at all. Corridor
+consolidation/smoothing for the land network (deferred above) is a
+separate, likely-smaller follow-up once `_civSmoothPath` exists for sea
+routes to use too -- worth doing once, not twice.

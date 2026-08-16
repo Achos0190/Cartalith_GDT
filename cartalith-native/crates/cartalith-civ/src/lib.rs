@@ -2847,6 +2847,529 @@ pub fn build_road_network(places: &[SettlementPlacement], cost: &[f32], gw: usiz
     edges
 }
 
+// ===================== Milestone 12: civ auto-populate road network topology =====================
+//
+// `_civHierarchicalNetwork` (reference ~line 21526) is the real dependency
+// `_civSeedVillages` needs (`civWays`) -- NOT `build_road_network` above,
+// which is the *manual*-tool algorithm (`buildRoadsOp`, a different,
+// simpler system; confirmed by reading every real call site of both).
+//
+// Scope decision (2026-08-16, made after reading the reference in full,
+// per `PHASE2_SCOPE.md`'s own instruction to decide based on what's
+// actually there): `_civHierarchicalNetwork` has real structure beyond
+// what was estimated when this milestone was scoped -- THREE passes (MST,
+// min-degree fill, Floyd-Warshall shortcut-detour-relief), not two, plus a
+// substantial corridor-consolidation + Catmull-Rom-smoothing + road-class/
+// name-emission step that turns raw MST-family edges into pretty,
+// deduplicated polylines for rendering (reference lines ~21670-21739).
+//
+// This port stops at the raw topology: the three passes producing
+// `HierarchicalNetworkResult { edges, usage_count, degree_of }`, where each
+// edge's `path` is the raw (un-consolidated, un-smoothed) routing-grid
+// cell-index sequence. This is what `_civSeedVillages`'s
+// `_civRoadProximityQuery(ways, cell)` needs FUNCTIONALLY -- distance to
+// nearest road cell -- even though the reference's own `ways` at that call
+// site is the fully consolidated/smoothed/classified structure. The
+// consolidation/smoothing/classification step (needs `_civSmoothPath`,
+// `_civTerrainValidTest`, road-class/name assignment -- none read or
+// ported here) is real, separate work, deferred to its own milestone
+// rather than implemented under budget pressure and risking a rushed,
+// unverified port of `_civSmoothPath`'s Catmull-Rom + wrap-aware seam
+// splitting. Flagged explicitly here and in `PHASE2_SCOPE.md`/`CHANGELOG.md`
+// -- this is a real, honest gap, not a silent one.
+//
+// `_civPreferSeaRoutes` and `opts.existingWays` are out of scope per the
+// milestone's own investigation: the real auto-populate call site
+// (`_civIterativeAutoWorld`, reference lines 25581-25680) calls
+// `_civHierarchicalNetwork(places,{})` with EMPTY opts (no existingWays)
+// and never calls `_civPreferSeaRoutes` at all -- that function is only
+// used by the separate `_civAutoRoutes` (manual-tool-adjacent) caller.
+// Sea routes (`_civMstRoutes(ports,true)`, appended via `ways.push(...)`)
+// are a real, separate, simpler MST with its own new dependencies
+// (current/wind-costed sea edges, sea-lane augmentation, path smoothing)
+// -- not a same-shape sibling of this function, its own future milestone.
+
+/// `_civBiomeFriction` (reference ~line 20938): a per-biome travel-cost
+/// multiplier lookup. `b` is the 1-based `BIOME_KEYS` index this port's
+/// `build_biome_raster` already produces (0 = ocean/lake, handled upstream
+/// by the water-body Infinity check, never reaches this function in
+/// practice, but the reference's own `return 1.0` default covers it
+/// harmlessly either way).
+fn civ_biome_friction(b: u8) -> f64 {
+    match b {
+        3 | 4 | 6 | 12 => 1.6, // dense forest: boreal/conifer/tempRain/tropWet
+        5 | 11 => 1.3,         // medium forest: tempForest/tropDry
+        8 | 10 => 1.1,         // scrub/savanna
+        1 | 2 | 9 => 1.2,      // ice/tundra/desert
+        _ => 1.0,
+    }
+}
+
+/// `_civNavigableRiverDiscount` (reference ~line 20951): a `[0,1]`
+/// multiplier, gated at Strahler order >= 3 (barge/raft-navigable).
+/// `order` is `i16` matching `fresh_river_order`'s own output type; the
+/// reference compares against a JS number so a negative "no channel"
+/// sentinel (if `fresh_river_order` ever produces one) is handled the same
+/// as any order < 3: no discount, matching `order>=3` being false.
+fn civ_navigable_river_discount(order: i16) -> f64 {
+    if order >= 3 {
+        1.0 - 0.35 * (((order - 2) as f64) / 4.0).min(1.0)
+    } else {
+        1.0
+    }
+}
+
+/// `_civRoutingGrid` (reference ~line 21022): the shared downsampled
+/// routing grid every civ router builds through, so paths/discount masks/
+/// place snapping all agree cell-for-cell. `rw <= 384`.
+struct CivRoutingGrid {
+    dfld: Vec<f32>,
+    rw: usize,
+    rh: usize,
+    sc: f64,
+}
+
+fn civ_routing_grid(field: &[f32], gw: usize, gh: usize) -> CivRoutingGrid {
+    let rw = gw.min(384);
+    let sc = rw as f64 / gw as f64;
+    let rh = ((gh as f64 * sc).round() as usize).max(2);
+    let mut dfld = vec![0.0f32; rw * rh];
+    for y in 0..rh {
+        for x in 0..rw {
+            let fx = ((x as f64 / sc) as usize).min(gw - 1);
+            let fy = ((y as f64 / sc) as usize).min(gh - 1);
+            dfld[y * rw + x] = field[fy * gw + fx];
+        }
+    }
+    CivRoutingGrid { dfld, rw, rh, sc }
+}
+
+/// `_civEnhancedTravelCost` (reference ~line 20958): terrain-aware cost
+/// model -- mountain-pass detection, swamp/floodplain penalty, river
+/// ford-vs-bridge cost, navigable-river discount, biome friction, and
+/// (when `usage_count` is `Some`) a road-reuse corridor discount. All
+/// full-resolution lookups (`flow`, `river_order`, `biome`, `water_bodies`)
+/// are sampled at the downsampled `(x,y)` cell's nearest full-res cell via
+/// `sc_x`/`sc_y`, matching the reference's own `Math.round(x*scX)` mapping.
+#[allow(clippy::too_many_arguments)]
+fn civ_enhanced_travel_cost(
+    dfld: &[f32],
+    w: usize,
+    h: usize,
+    sea: f64,
+    usage_count: Option<&[u16]>,
+    gw: usize,
+    gh: usize,
+    water_bodies: Option<&[u8]>,
+    flow: Option<&[f32]>,
+    flow_thresh: f64,
+    river_order: Option<&[i16]>,
+    biome: Option<&[u8]>,
+) -> Vec<f32> {
+    const SLOPE_K: f64 = 50.0;
+    const ROAD_REUSE_K: f64 = 0.55;
+    let sc_x = gw as f64 / w as f64;
+    let sc_y = gh as f64 / h as f64;
+    let mut cost = vec![0.0f32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * w + x;
+            let d_i = dfld[i] as f64;
+            if d_i < sea {
+                cost[i] = f32::INFINITY;
+                continue;
+            }
+            let fx = ((x as f64 * sc_x).round() as usize).min(gw - 1);
+            let fy = ((y as f64 * sc_y).round() as usize).min(gh - 1);
+            let fi = fy * gw + fx;
+            if water_bodies.is_some_and(|wb| wb[fi] != 0) {
+                cost[i] = f32::INFINITY;
+                continue;
+            }
+            let xl = if x > 0 { dfld[i - 1] as f64 } else { d_i };
+            let xr = if x < w - 1 { dfld[i + 1] as f64 } else { d_i };
+            let yt = if y > 0 { dfld[i - w] as f64 } else { d_i };
+            let yb = if y < h - 1 { dfld[i + w] as f64 } else { d_i };
+            let sl = ((xr - xl) * 0.5).hypot((yb - yt) * 0.5);
+            let mut c = 1.0 + SLOPE_K * sl * sl;
+            let ew_pass = xr > d_i + 0.018 && xl > d_i + 0.018 && d_i > sea + 0.15;
+            let ns_pass = yb > d_i + 0.018 && yt > d_i + 0.018 && d_i > sea + 0.15;
+            if ew_pass || ns_pass {
+                c = 1.0 + SLOPE_K * sl * sl * 0.40;
+            }
+            if let Some(fl) = flow {
+                let flow_fi = fl[fi] as f64;
+                if d_i < sea + 0.06 && flow_fi > flow_thresh * 8.0 {
+                    c *= 1.8;
+                }
+                if flow_fi > flow_thresh {
+                    let ord = river_order.map(|ro| ro[fi]).unwrap_or(0);
+                    let mag = (((flow_fi / flow_thresh) + 1.0).ln() / 5.0).min(1.0);
+                    let ford_k = if ord <= 2 {
+                        0.35
+                    } else if ord <= 4 {
+                        0.75
+                    } else {
+                        1.0
+                    };
+                    c += 8.0 * mag * ford_k;
+                }
+            }
+            if let Some(ro) = river_order {
+                c *= civ_navigable_river_discount(ro[fi]);
+            }
+            if let Some(bi) = biome {
+                c *= civ_biome_friction(bi[fi]);
+            }
+            if usage_count.is_some_and(|uc| uc[i] > 0) {
+                c *= ROAD_REUSE_K;
+            }
+            cost[i] = c.max(0.05) as f32;
+        }
+    }
+    cost
+}
+
+/// `_civApplySettlementGravity` (reference ~line 21119): a capped,
+/// radius-limited cost discount around every settlement so a least-cost
+/// path naturally threads through nearby settlements. Mutates `cost` in
+/// place; only finite (traversable) cells are discounted. `places` here is
+/// every settlement in the network build (this port has no separate
+/// "labels/non-settlement places" concept the reference's own
+/// `CIV_SETTLE_KEYS` filter exists to exclude).
+fn civ_apply_settlement_gravity(cost: &mut [f32], rw: usize, rh: usize, sc: f64, places: &[SettlementPlacement], world: bool) {
+    const G: f64 = 0.5;
+    let rg = ((rw as f64 / 80.0).round() as isize).max(3);
+    if places.is_empty() {
+        return;
+    }
+    let rg2 = (rg * rg) as f64;
+    for p in places {
+        let rx = ((p.x as f64 * sc).round() as isize).clamp(0, rw as isize - 1);
+        let ry = ((p.y as f64 * sc).round() as isize).clamp(0, rh as isize - 1);
+        for dy in -rg..=rg {
+            let ny = ry + dy;
+            if ny < 0 || ny >= rh as isize {
+                continue;
+            }
+            for dx in -rg..=rg {
+                let d2 = (dx * dx + dy * dy) as f64;
+                if d2 > rg2 {
+                    continue;
+                }
+                let nx = if world {
+                    (((rx + dx) % rw as isize) + rw as isize) % rw as isize
+                } else {
+                    let v = rx + dx;
+                    if v < 0 || v >= rw as isize {
+                        continue;
+                    }
+                    v
+                };
+                let j = (ny as usize) * rw + (nx as usize);
+                if !cost[j].is_finite() {
+                    continue;
+                }
+                let f = 1.0 - G * (1.0 - d2.sqrt() / rg as f64);
+                cost[j] *= f as f32;
+            }
+        }
+    }
+}
+
+/// `snapFinite`/`snapToFinite` (reference, both `_civHierarchicalNetwork`
+/// and `_civMstRoutes` have their own copy with identical logic): snaps a
+/// downsampled `(rx,ry)` to the nearest cell with finite cost, expanding
+/// r=1..=6 as a full `(2r+1)x(2r+1)` square scanned row-major (`dy` outer,
+/// `dx` inner) each time -- NOT an optimized ring/spiral. Ported literally:
+/// a ring-based rewrite would return a different cell on ties whenever more
+/// than one finite cell exists at the same minimal `r`, since the
+/// reference's own row-major first-match order is the tie-break.
+fn civ_snap_finite(cost: &[f32], rw: usize, rh: usize, rx: usize, ry: usize) -> usize {
+    if cost[ry * rw + rx].is_finite() {
+        return ry * rw + rx;
+    }
+    for r in 1isize..=6 {
+        for dy in -r..=r {
+            for dx in -r..=r {
+                let nx = (rx as isize + dx).clamp(0, rw as isize - 1) as usize;
+                let ny = (ry as isize + dy).clamp(0, rh as isize - 1) as usize;
+                if cost[ny * rw + nx].is_finite() {
+                    return ny * rw + nx;
+                }
+            }
+        }
+    }
+    ry * rw + rx
+}
+
+/// `tracePath` (reference, inline in `_civHierarchicalNetwork`): walks a
+/// Dijkstra `prev` tree from `ti` back to `si`, inclusive, in
+/// target-to-source order then reversed to source-to-target -- matching
+/// `RoadEdge.path`'s existing convention from `build_road_network` above.
+fn civ_trace_path(prev: &[i32], si: usize, ti: usize) -> Vec<usize> {
+    let mut raw = Vec::new();
+    let mut ci = ti as i64;
+    let mut guard = prev.len();
+    while ci != si as i64 && ci >= 0 && guard > 0 {
+        guard -= 1;
+        raw.push(ci as usize);
+        let pv = prev[ci as usize];
+        if pv < 0 || pv as i64 == ci {
+            break;
+        }
+        ci = pv as i64;
+    }
+    raw.push(si);
+    raw.reverse();
+    raw
+}
+
+/// The raw topology `_civHierarchicalNetwork` produces before corridor
+/// consolidation/smoothing (deliberately not ported here, see the module
+/// doc comment above). `edges[i].a`/`.b` index into the `places` slice
+/// given to `civ_hierarchical_network_topology`.
+pub struct HierarchicalNetworkResult {
+    pub edges: Vec<RoadEdge>,
+    pub usage_count: Vec<u16>,
+    pub degree_of: Vec<u32>,
+}
+
+/// `_civHierarchicalNetwork`'s three real passes (reference ~lines
+/// 21526-21668, stopping before corridor consolidation at ~21670 -- see
+/// this module's own doc comment for why). `opts.existingWays` is not
+/// ported (see the same doc comment); this is the `{}` / no-existing-ways
+/// shape, which is what the real auto-populate call site
+/// (`_civIterativeAutoWorld`) always uses in production.
+#[allow(clippy::too_many_arguments)]
+pub fn civ_hierarchical_network_topology(
+    places: &[SettlementPlacement],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    field: &[f32],
+    flow: &[f32],
+    river_order: &[i16],
+    biome: &[u8],
+    water_bodies: &[u8],
+    world: bool,
+    map_width_km: f64,
+) -> HierarchicalNetworkResult {
+    let n = places.len();
+    if n < 2 {
+        return HierarchicalNetworkResult { edges: Vec::new(), usage_count: Vec::new(), degree_of: vec![0; n] };
+    }
+    let grid = civ_routing_grid(field, gw, gh);
+    let (rw, rh, sc) = (grid.rw, grid.rh, grid.sc);
+    let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
+
+    let mut usage_count = vec![0u16; rw * rh];
+    let mut degree_of = vec![0u32; n];
+    let mut all_edges: Vec<RoadEdge> = Vec::new();
+
+    // --- PASS 1: no-reuse cost -> Prim MST -> mark usage ---
+    let mut cost1 = civ_enhanced_travel_cost(&grid.dfld, rw, rh, sea, None, gw, gh, Some(water_bodies), Some(flow), flow_thresh, Some(river_order), Some(biome));
+    civ_apply_settlement_gravity(&mut cost1, rw, rh, sc, places, world);
+    let rp1: Vec<usize> = places
+        .iter()
+        .map(|p| {
+            let rx = ((p.x as f64 * sc).round() as usize).min(rw - 1);
+            let ry = ((p.y as f64 * sc).round() as usize).min(rh - 1);
+            civ_snap_finite(&cost1, rw, rh, rx, ry)
+        })
+        .collect();
+    let res1: Vec<(Vec<f32>, Vec<i32>)> = rp1.iter().map(|&ri| road_dijkstra(&cost1, rw, rh, ri % rw, ri / rw, world)).collect();
+
+    {
+        let mut in_tree = vec![false; n];
+        let mut best = vec![f64::INFINITY; n];
+        let mut from = vec![-1i32; n];
+        best[0] = 0.0;
+        for _ in 0..n {
+            let mut u: i32 = -1;
+            let mut bd = f64::INFINITY;
+            for i in 0..n {
+                if !in_tree[i] && best[i] < bd {
+                    bd = best[i];
+                    u = i as i32;
+                }
+            }
+            if u < 0 || !bd.is_finite() {
+                break;
+            }
+            let u = u as usize;
+            in_tree[u] = true;
+            if from[u] >= 0 {
+                let a = from[u] as usize;
+                let path = civ_trace_path(&res1[a].1, rp1[a], rp1[u]);
+                for &ci in &path {
+                    usage_count[ci] += 1;
+                }
+                all_edges.push(RoadEdge { a, b: u, path });
+                degree_of[a] += 1;
+                degree_of[u] += 1;
+            }
+            for v in 0..n {
+                if in_tree[v] {
+                    continue;
+                }
+                let d = res1[u].0[rp1[v]] as f64;
+                if d.is_finite() && d < best[v] {
+                    best[v] = d;
+                    from[v] = u as i32;
+                }
+            }
+        }
+    }
+
+    // --- PASS 2: reuse cost -> fill minimum degree by tier ---
+    let mut cost2 = civ_enhanced_travel_cost(&grid.dfld, rw, rh, sea, Some(&usage_count), gw, gh, Some(water_bodies), Some(flow), flow_thresh, Some(river_order), Some(biome));
+    civ_apply_settlement_gravity(&mut cost2, rw, rh, sc, places, world);
+    let rp2: Vec<usize> = places
+        .iter()
+        .map(|p| {
+            let rx = ((p.x as f64 * sc).round() as usize).min(rw - 1);
+            let ry = ((p.y as f64 * sc).round() as usize).min(rh - 1);
+            civ_snap_finite(&cost2, rw, rh, rx, ry)
+        })
+        .collect();
+    let res2: Vec<(Vec<f32>, Vec<i32>)> = rp2.iter().map(|&ri| road_dijkstra(&cost2, rw, rh, ri % rw, ri / rw, world)).collect();
+
+    let mut edge_set: std::collections::HashSet<usize> = all_edges.iter().map(|e| e.a.min(e.b) * n + e.a.max(e.b)).collect();
+
+    let min_deg = |k: SettlementKind| -> u32 {
+        match k {
+            SettlementKind::Capital => 5,
+            SettlementKind::City => 4,
+            SettlementKind::Town => 3,
+            SettlementKind::Village => 2,
+            SettlementKind::Hamlet => 1,
+        }
+    };
+
+    for ai in 0..n {
+        let req = min_deg(places[ai].kind);
+        if degree_of[ai] >= req {
+            continue;
+        }
+        let mut by_dist: Vec<(usize, f64)> = Vec::new();
+        #[allow(clippy::needless_range_loop)] // bi indexes both places and rp2 by settlement id, not a single array being iterated
+        for bi in 0..n {
+            if bi == ai {
+                continue;
+            }
+            let d = res2[ai].0[rp2[bi]] as f64;
+            if d.is_finite() {
+                by_dist.push((bi, d));
+            }
+        }
+        by_dist.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+        for (bi, _) in by_dist {
+            if degree_of[ai] >= req {
+                break;
+            }
+            let key = ai.min(bi) * n + ai.max(bi);
+            if edge_set.contains(&key) {
+                continue;
+            }
+            edge_set.insert(key);
+            let path = civ_trace_path(&res2[ai].1, rp2[ai], rp2[bi]);
+            for &ci in &path {
+                usage_count[ci] += 1;
+            }
+            all_edges.push(RoadEdge { a: ai, b: bi, path });
+            degree_of[ai] += 1;
+            degree_of[bi] += 1;
+        }
+    }
+
+    // --- PASS 3: shortcut edges (detour relief) ---
+    {
+        let edge_cost = |a: usize, b: usize| -> f64 {
+            let d = res2[a].0[rp2[b]] as f64;
+            if d.is_finite() {
+                d
+            } else {
+                f64::INFINITY
+            }
+        };
+        let mut edge_list: Vec<(usize, usize, f64)> = all_edges.iter().map(|e| (e.a, e.b, edge_cost(e.a, e.b))).collect();
+        let mut sorted: Vec<f64> = edge_list.iter().map(|e| e.2).filter(|w| w.is_finite()).collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let med = if !sorted.is_empty() { sorted[sorted.len() / 2] } else { f64::INFINITY };
+        let near = med * 2.5;
+        const DETOUR: f64 = 1.7;
+        let max_add = ((n as f64 / 6.0).round() as usize).max(2);
+
+        // Floyd-Warshall over the (small, n settlements) graph -- every
+        // index below addresses a 2D distance matrix by (row,col) pairs
+        // that don't correspond to any single sequence being walked, the
+        // textbook matrix-algorithm shape `needless_range_loop` doesn't fit.
+        #[allow(clippy::needless_range_loop)]
+        let net_dists = |edge_list: &[(usize, usize, f64)]| -> Vec<Vec<f64>> {
+            let mut d = vec![vec![f64::INFINITY; n]; n];
+            for i in 0..n {
+                d[i][i] = 0.0;
+            }
+            for &(a, b, w) in edge_list {
+                if w < d[a][b] {
+                    d[a][b] = w;
+                    d[b][a] = w;
+                }
+            }
+            for k in 0..n {
+                for i in 0..n {
+                    let dik = d[i][k];
+                    if !dik.is_finite() {
+                        continue;
+                    }
+                    for j in 0..n {
+                        let v = dik + d[k][j];
+                        if v < d[i][j] {
+                            d[i][j] = v;
+                            d[j][i] = v;
+                        }
+                    }
+                }
+            }
+            d
+        };
+
+        #[allow(clippy::needless_range_loop)]
+        for _ in 0..max_add {
+            let d = net_dists(&edge_list);
+            let mut best: Option<(usize, usize, f64, f64)> = None;
+            for a in 0..n {
+                for b in (a + 1)..n {
+                    if edge_set.contains(&(a * n + b)) {
+                        continue;
+                    }
+                    let direct = edge_cost(a, b);
+                    if !direct.is_finite() || direct <= 0.0 || direct > near {
+                        continue;
+                    }
+                    let gain = d[a][b] / direct;
+                    if gain > DETOUR && best.map(|b2| gain > b2.3).unwrap_or(true) {
+                        best = Some((a, b, direct, gain));
+                    }
+                }
+            }
+            let Some((a, b, w, _)) = best else { break };
+            edge_set.insert(a * n + b);
+            let path = civ_trace_path(&res2[a].1, rp2[a], rp2[b]);
+            for &ci in &path {
+                usage_count[ci] += 1;
+            }
+            all_edges.push(RoadEdge { a, b, path });
+            edge_list.push((a, b, w));
+            degree_of[a] += 1;
+            degree_of[b] += 1;
+        }
+    }
+
+    HierarchicalNetworkResult { edges: all_edges, usage_count, degree_of }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
