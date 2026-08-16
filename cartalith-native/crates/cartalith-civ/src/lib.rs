@@ -1867,6 +1867,483 @@ pub fn fresh_river_order(field: &[f32], flow: &[f32], gw: usize, gh: usize, sea:
     cartalith_hydrology::strahler_from_receivers(&ch.recv, flow, &ch.chan)
 }
 
+// ===================== Phase 2 milestone 8: settlement placement + faction assignment =====================
+// The pure, non-DOM-coupled core of `_civIterativeAutoWorld` (reference HTML line ~25336) --
+// `PHASE2_SCOPE.md` milestone 8. That function itself reads `document.getElementById(...)` for
+// user-fixed tier-count inputs and calls `alert()` on failure paths; neither belongs in a pure Rust
+// crate, so this ports only the deterministic algorithm it calls: land-component labelling, snap
+// seeds onto land then coast, faction assignment by landmass, settlement tier classification, and
+// ocean-port detection. Stops before population/naming (`_civSettleName`/`_civBasePopForKind`,
+// culture/economy -- milestone 9+, out of scope here).
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+/// A settlement candidate after land/coast snapping, tagged with its
+/// landmass id (reference: the `candidates` array in
+/// `_civIterativeAutoWorld`, ~line 25393).
+#[derive(Debug, Clone, Copy)]
+pub struct SettlementCandidate {
+    pub x: usize,
+    pub y: usize,
+    pub suit: f64,
+    pub cont_id: i32,
+}
+
+/// Settlement tier (reference: the `isCapital`/`isCity`/`isTown`/
+/// `isVillage` rank cascade inline in `_civIterativeAutoWorld`,
+/// ~lines 25409-25421).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettlementKind {
+    Capital,
+    City,
+    Town,
+    Village,
+    Hamlet,
+}
+
+/// A placed settlement: land/coast-snapped position, faction, tier, and
+/// ocean-port flag. Reference `_civIterativeAutoWorld` (~lines 25366-
+/// 25425), stopping before population/naming (culture/economy,
+/// `PHASE2_SCOPE.md` milestone 9+, out of scope here).
+#[derive(Debug, Clone, Copy)]
+pub struct SettlementPlacement {
+    pub x: usize,
+    pub y: usize,
+    pub suit: f64,
+    pub faction: i32,
+    pub capital: bool,
+    pub kind: SettlementKind,
+    pub coastal: bool,
+}
+
+/// 4-connected flood fill labelling every LAND cell's connected
+/// component (reference `_civIterativeAutoWorld`'s own land-component
+/// pass, ~lines 25366-25386). Deliberately NOT `build_landmass_quality`'s
+/// 8-connected fill -- a different algorithm for a different purpose;
+/// reusing it here would silently change which cells count as "the same
+/// landmass" for faction assignment. `world` gates x-wrap, matching the
+/// reference's `wrapX=!!state.world`. DFS via an explicit stack, matching
+/// the reference's own `q.push`/`q.pop()` (used as a stack despite the
+/// name) -- scan order and traversal order both preserved for determinism.
+pub fn label_land_components(field: &[f32], gw: usize, gh: usize, sea: f64, world: bool) -> Vec<i32> {
+    let n = gw * gh;
+    let mut comp = vec![-1i32; n];
+    let mut n_comp: i32 = 0;
+    let mut stack: Vec<usize> = Vec::new();
+    const DX4: [isize; 4] = [1, -1, 0, 0];
+    const DY4: [isize; 4] = [0, 0, 1, -1];
+
+    for s in 0..n {
+        if (field[s] as f64) < sea || comp[s] >= 0 {
+            continue;
+        }
+        let id = n_comp;
+        n_comp += 1;
+        comp[s] = id;
+        stack.clear();
+        stack.push(s);
+        while let Some(ci) = stack.pop() {
+            let cx = (ci % gw) as isize;
+            let cy = (ci / gw) as isize;
+            for d in 0..4 {
+                let mut nx = cx + DX4[d];
+                let ny = cy + DY4[d];
+                if world {
+                    nx = ((nx % gw as isize) + gw as isize) % gw as isize;
+                } else if nx < 0 || nx >= gw as isize {
+                    continue;
+                }
+                if ny < 0 || ny >= gh as isize {
+                    continue;
+                }
+                let ni = ny as usize * gw + nx as usize;
+                if (field[ni] as f64) < sea || comp[ni] >= 0 {
+                    continue;
+                }
+                comp[ni] = id;
+                stack.push(ni);
+            }
+        }
+    }
+    comp
+}
+
+/// `_civLakeFlooded` (reference line 5737): true when (x,y) is
+/// classified "land" by the coarse water-body raster but sits below a
+/// neighbouring lake's pooled fill level, so it reads dry on the map but
+/// wet once a sub-cell renderer floods the shoreline band. `lake_fill` is
+/// `WaterBodies::fill_level` (milestone 2's `build_water_bodies` output).
+fn civ_lake_flooded(x: usize, y: usize, field: &[f32], wb: &[u8], lake_fill: &[f32], gw: usize, gh: usize) -> bool {
+    let h = field[y * gw + x];
+    for dy in -1isize..=1 {
+        for dx in -1isize..=1 {
+            let nx = x as isize + dx;
+            let ny = y as isize + dy;
+            if nx < 0 || nx >= gw as isize || ny < 0 || ny >= gh as isize {
+                continue;
+            }
+            let ni = ny as usize * gw + nx as usize;
+            if wb[ni] == 2 && lake_fill[ni] > h {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// `_civSnapLand` (reference line 20747): spiral outward (Chebyshev
+/// rings, scan order dy-outer/dx-inner, first hit wins) up to `max_r` for
+/// the nearest dry cell -- guards a settlement seed from spawning in a
+/// lake when coarse-grid coordinates round into water at full
+/// resolution. Does NOT world-wrap -- the reference's own search offsets
+/// are unwrapped, bounded strictly by grid edges regardless of
+/// `state.world`.
+#[allow(clippy::too_many_arguments)]
+fn civ_snap_land(x: usize, y: usize, max_r: isize, field: &[f32], wb: &[u8], lake_fill: &[f32], gw: usize, gh: usize, sea: f64) -> Option<(usize, usize)> {
+    let dry = |xx: isize, yy: isize| -> bool {
+        if xx < 0 || xx >= gw as isize || yy < 0 || yy >= gh as isize {
+            return false;
+        }
+        let i = yy as usize * gw + xx as usize;
+        (field[i] as f64) >= sea && wb[i] == 0 && !civ_lake_flooded(xx as usize, yy as usize, field, wb, lake_fill, gw, gh)
+    };
+    if dry(x as isize, y as isize) {
+        return Some((x, y));
+    }
+    for r in 1..=max_r {
+        for dy in -r..=r {
+            for dx in -r..=r {
+                if dx.abs().max(dy.abs()) != r {
+                    continue;
+                }
+                let xx = x as isize + dx;
+                let yy = y as isize + dy;
+                if dry(xx, yy) {
+                    return Some((xx as usize, yy as usize));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// `_civSnapCoast` (reference line 20841): if (x,y) sits within `max_r`
+/// cells of the ocean (water-body class 1), relocate to the best SHORE
+/// cell (dry land 4-adjacent to ocean) by highest suitability, nearest
+/// wins ties. `used` prevents two seeds converging on the same shore
+/// cell (mutated in place, matching the reference's shared `Set`).
+#[allow(clippy::too_many_arguments)]
+fn civ_snap_coast(x: usize, y: usize, max_r: isize, suit: &[f32], used: &mut HashSet<usize>, field: &[f32], wb: &[u8], gw: usize, gh: usize, sea: f64, world: bool) -> Option<(usize, usize)> {
+    const DX4: [isize; 4] = [1, -1, 0, 0];
+    const DY4: [isize; 4] = [0, 0, 1, -1];
+    let mut best: Option<(usize, usize, usize)> = None;
+    let mut bs = f64::NEG_INFINITY;
+    let mut bd = f64::INFINITY;
+    for dy in -max_r..=max_r {
+        let ny = y as isize + dy;
+        if ny < 0 || ny >= gh as isize {
+            continue;
+        }
+        for dx in -max_r..=max_r {
+            let mut nx = x as isize + dx;
+            if world {
+                nx = ((nx % gw as isize) + gw as isize) % gw as isize;
+            } else if nx < 0 || nx >= gw as isize {
+                continue;
+            }
+            let ni = ny as usize * gw + nx as usize;
+            if (field[ni] as f64) < sea || wb[ni] != 0 {
+                continue;
+            }
+            let mut shore = false;
+            for d in 0..4 {
+                let mut qx = nx + DX4[d];
+                let qy = ny + DY4[d];
+                if world {
+                    qx = ((qx % gw as isize) + gw as isize) % gw as isize;
+                } else if qx < 0 || qx >= gw as isize {
+                    continue;
+                }
+                if qy < 0 || qy >= gh as isize {
+                    continue;
+                }
+                if wb[qy as usize * gw + qx as usize] == 1 {
+                    shore = true;
+                    break;
+                }
+            }
+            if !shore || used.contains(&ni) {
+                continue;
+            }
+            let sv = suit[ni] as f64;
+            let d = ((dx * dx + dy * dy) as f64).sqrt();
+            if sv > bs + 1e-9 || ((sv - bs).abs() <= 1e-9 && d < bd) {
+                bs = sv;
+                bd = d;
+                best = Some((nx as usize, ny as usize, ni));
+            }
+        }
+    }
+    let (bx, by, bi) = best?;
+    used.insert(bi);
+    Some((bx, by))
+}
+
+/// `_civIsCoastal` (reference line 20917): true if any cell within
+/// circular radius `r` (`dx*dx+dy*dy<=r*r`) is water. `ocean_only`
+/// restricts to water-body class 1 -- a settlement on an enclosed
+/// inland-sea/lake shore is waterside but not a sea-lane port. Always
+/// x-wraps unconditionally (`nx=((gx+dx)+GW)%GW` in the reference, with
+/// no `state.world` guard, unlike `civ_snap_coast`'s conditional wrap) --
+/// preserved exactly as a real reference quirk, not "fixed" for
+/// consistency with the sibling function.
+#[allow(clippy::too_many_arguments)]
+fn civ_is_coastal(x: usize, y: usize, r: isize, ocean_only: bool, field: &[f32], wb: Option<&[u8]>, gw: usize, gh: usize, sea: f64) -> bool {
+    let wb = if ocean_only { wb } else { None };
+    for dy in -r..=r {
+        let ny = y as isize + dy;
+        if ny < 0 || ny >= gh as isize {
+            continue;
+        }
+        for dx in -r..=r {
+            if dx * dx + dy * dy > r * r {
+                continue;
+            }
+            let nx = ((x as isize + dx) % gw as isize + gw as isize) % gw as isize;
+            let i = ny as usize * gw + nx as usize;
+            let hit = match wb {
+                Some(w) => w[i] == 1,
+                None => (field[i] as f64) < sea,
+            };
+            if hit {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// `_civAssignLandmassFactions` (reference line 25022): apportions
+/// faction "seats" across landmasses (capacity-weighted, iterative,
+/// capped by each landmass's own candidate count), then assigns concrete
+/// faction ids -- a landmass with exactly one seat gets its whole
+/// candidate list; a landmass with K>1 seeds by suitability+spacing (5
+/// attempts, halving minimum separation each attempt, falling back to
+/// top-suitability-regardless-of-spacing if the spacing search never
+/// finds enough), then assigns every other candidate on that landmass to
+/// its nearest seed. Deterministic by construction (fixed iteration over
+/// ascending-sorted landmass ids, no RNG) -- golden-verified bit-exact.
+pub fn assign_landmass_factions(candidates: &[SettlementCandidate], faction_count: i32) -> (Vec<i32>, Vec<bool>) {
+    let mut by_cont: BTreeMap<i32, Vec<usize>> = BTreeMap::new();
+    for (idx, c) in candidates.iter().enumerate() {
+        by_cont.entry(c.cont_id).or_default().push(idx);
+    }
+    let cont_ids: Vec<i32> = by_cont.keys().copied().collect(); // BTreeMap: already ascending
+    let l = cont_ids.len() as i32;
+
+    let mut primary_faction_of: HashMap<i32, i32> = HashMap::new();
+    {
+        let mut fi: i32 = 1;
+        for &cid in &cont_ids {
+            primary_faction_of.insert(cid, fi);
+            fi = fi % faction_count.max(1) + 1;
+        }
+    }
+
+    let capacity_of: HashMap<i32, f64> =
+        cont_ids.iter().map(|&cid| (cid, by_cont[&cid].iter().map(|&i| candidates[i].suit.max(0.05)).sum())).collect();
+    let mut seats_of: HashMap<i32, i32> = cont_ids.iter().map(|&cid| (cid, 1)).collect();
+    let mut spare_seats = (faction_count - l).max(0);
+    while spare_seats > 0 {
+        let mut best: Option<i32> = None;
+        let mut best_score = -1.0f64;
+        for &cid in &cont_ids {
+            let seats = seats_of[&cid];
+            let n = by_cont[&cid].len() as i32;
+            if seats >= n {
+                continue;
+            }
+            let score = capacity_of[&cid] / (seats + 1) as f64;
+            if score > best_score {
+                best_score = score;
+                best = Some(cid);
+            }
+        }
+        match best {
+            Some(cid) => {
+                *seats_of.get_mut(&cid).unwrap() += 1;
+                spare_seats -= 1;
+            }
+            None => break,
+        }
+    }
+
+    let mut next_spare_id = l + 1;
+    let mut faction_ids_of: HashMap<i32, Vec<i32>> = HashMap::new();
+    for &cid in &cont_ids {
+        let mut ids = vec![primary_faction_of[&cid]];
+        for _ in 1..seats_of[&cid] {
+            ids.push(next_spare_id);
+            next_spare_id += 1;
+        }
+        faction_ids_of.insert(cid, ids);
+    }
+
+    let mut faction_of = vec![1i32; candidates.len()];
+    let mut capital_of = vec![false; candidates.len()];
+    for &cid in &cont_ids {
+        let idxs = &by_cont[&cid];
+        let ids = &faction_ids_of[&cid];
+        if ids.len() == 1 {
+            for &i in idxs {
+                faction_of[i] = ids[0];
+            }
+            capital_of[idxs[0]] = true;
+            continue;
+        }
+        let mut ranked = idxs.clone();
+        ranked.sort_by(|&a, &b| candidates[b].suit.partial_cmp(&candidates[a].suit).unwrap());
+
+        let (mut min_x, mut max_x, mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+        for &i in idxs {
+            let (x, y) = (candidates[i].x as f64, candidates[i].y as f64);
+            min_x = min_x.min(x);
+            max_x = max_x.max(x);
+            min_y = min_y.min(y);
+            max_y = max_y.max(y);
+        }
+        let diag_raw = ((max_x - min_x).powi(2) + (max_y - min_y).powi(2)).sqrt();
+        let diag = if diag_raw == 0.0 { 1.0 } else { diag_raw };
+        let mut min_sep = diag / (2.0 * (ids.len() as f64).sqrt());
+        let mut seeds: Vec<usize> = Vec::new();
+        for _attempt in 0..5 {
+            if seeds.len() >= ids.len() {
+                break;
+            }
+            seeds.clear();
+            for &i in &ranked {
+                if seeds.len() >= ids.len() {
+                    break;
+                }
+                let c = &candidates[i];
+                let ok = seeds.iter().all(|&si| {
+                    let s = &candidates[si];
+                    let dx = s.x as f64 - c.x as f64;
+                    let dy = s.y as f64 - c.y as f64;
+                    (dx * dx + dy * dy).sqrt() >= min_sep
+                });
+                if ok {
+                    seeds.push(i);
+                }
+            }
+            min_sep *= 0.5;
+        }
+        for &i in &ranked {
+            if seeds.len() >= ids.len() {
+                break;
+            }
+            if !seeds.contains(&i) {
+                seeds.push(i);
+            }
+        }
+        for &i in &seeds {
+            capital_of[i] = true;
+        }
+        for &i in idxs {
+            let c = &candidates[i];
+            let mut bi = seeds[0];
+            let mut bd = f64::INFINITY;
+            for &si in &seeds {
+                let s = &candidates[si];
+                let dx = s.x as f64 - c.x as f64;
+                let dy = s.y as f64 - c.y as f64;
+                let d = (dx * dx + dy * dy).sqrt();
+                if d < bd {
+                    bd = d;
+                    bi = si;
+                }
+            }
+            let pos = seeds.iter().position(|&x| x == bi).unwrap();
+            faction_of[i] = ids[pos];
+        }
+    }
+    (faction_of, capital_of)
+}
+
+/// The pure, non-DOM-coupled core of `_civIterativeAutoWorld` (reference
+/// ~lines 25336-25425, stopping before population/naming): land-component
+/// labelling, snap seeds onto land then coast, faction assignment by
+/// landmass, settlement tier classification, ocean-port detection.
+/// `max_places = min(40, max(8, (gw*gh/65536*20)|0))` matches the
+/// reference's own default -- the `wantCounts` DOM-input branch that
+/// overrides it in production is out of scope here (no Godot UI exposes
+/// user-fixed tier counts in this port).
+#[allow(clippy::too_many_arguments)]
+pub fn place_settlements(
+    seeds: &[SettlementSeed],
+    suit: &[f32],
+    field: &[f32],
+    wb: &[u8],
+    lake_fill: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    faction_count: i32,
+) -> Vec<SettlementPlacement> {
+    let max_places = (((gw * gh) as f64 / 65536.0 * 20.0) as i64).clamp(8, 40) as usize;
+
+    let comp = label_land_components(field, gw, gh, sea, world);
+
+    let coast_snap_r: isize = ((gw as f64 / 160.0) as isize).max(4);
+    let mut used_shore: HashSet<usize> = HashSet::new();
+
+    let mut candidates: Vec<SettlementCandidate> = Vec::new();
+    for s in seeds.iter().take(max_places) {
+        let Some((sx, sy)) = civ_snap_land(s.x, s.y, 6, field, wb, lake_fill, gw, gh, sea) else {
+            continue;
+        };
+        let (fx, fy) =
+            civ_snap_coast(sx, sy, coast_snap_r, suit, &mut used_shore, field, wb, gw, gh, sea, world).unwrap_or((sx, sy));
+        let cont_id = comp[fy * gw + fx];
+        if cont_id < 0 {
+            continue;
+        }
+        candidates.push(SettlementCandidate { x: fx, y: fy, suit: s.score as f64, cont_id });
+    }
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+
+    let (faction_of, capital_of) = assign_landmass_factions(&candidates, faction_count);
+
+    let coast_r: isize = ((gw as f64 / 60.0) as isize).max(6);
+
+    candidates
+        .iter()
+        .enumerate()
+        .map(|(rank, c)| {
+            let is_capital = capital_of[rank];
+            let is_city = !is_capital && rank < 4;
+            let is_town = !is_capital && !is_city && rank < 12;
+            let is_village = !is_capital && !is_city && !is_town && rank < 24;
+            let kind = if is_capital {
+                SettlementKind::Capital
+            } else if is_city {
+                SettlementKind::City
+            } else if is_town {
+                SettlementKind::Town
+            } else if is_village {
+                SettlementKind::Village
+            } else {
+                SettlementKind::Hamlet
+            };
+            let coastal = civ_is_coastal(c.x, c.y, coast_r, true, field, Some(wb), gw, gh, sea);
+            SettlementPlacement { x: c.x, y: c.y, suit: c.suit, faction: faction_of[rank], capital: is_capital, kind, coastal }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2212,5 +2689,67 @@ mod tests {
         let rp = build_resource_potentials(&lith, None, None, None, None, &field, &rain, &age, 10, 10, 0.4, None, true, false);
         let buildstone_nonzero = rp.buildstone.iter().filter(|&&v| v > 0.0).count();
         assert_eq!(buildstone_nonzero, n, "original six (buildstone) must not be scarcity-thinned under production defaults");
+    }
+
+    #[test]
+    fn label_land_components_separates_diagonal_only_touching_islands() {
+        // 3x3 grid, sea=0.5: two land cells touching only at a corner (diagonal)
+        // must NOT merge under 4-connectivity, unlike build_landmass_quality's
+        // 8-connected fill -- this is the whole reason milestone 8 doesn't reuse
+        // that function's flood fill.
+        //   L . .
+        //   . L .
+        //   . . .
+        let field = vec![0.9f32, 0.1, 0.1, 0.1, 0.9, 0.1, 0.1, 0.1, 0.1];
+        let comp = label_land_components(&field, 3, 3, 0.5, false);
+        assert_eq!(comp[0], 0);
+        assert_eq!(comp[4], 1, "diagonal-only neighbour must be a separate 4-connected component");
+    }
+
+    #[test]
+    fn label_land_components_merges_orthogonal_neighbours_into_one() {
+        let field = vec![0.9f32, 0.9, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1];
+        let comp = label_land_components(&field, 3, 3, 0.5, false);
+        assert_eq!(comp[0], comp[1], "orthogonally-adjacent land cells share one component");
+    }
+
+    #[test]
+    fn civ_snap_land_returns_self_when_already_dry() {
+        let field = vec![0.9f32; 9];
+        let wb = vec![0u8; 9];
+        let lake_fill = vec![0f32; 9];
+        assert_eq!(civ_snap_land(1, 1, 6, &field, &wb, &lake_fill, 3, 3, 0.5), Some((1, 1)));
+    }
+
+    #[test]
+    fn civ_snap_land_spirals_outward_to_nearest_dry_ring() {
+        // Center cell (1,1) is wet; the only dry cell is (2,1), one ring out.
+        let mut field = vec![0.1f32; 9];
+        field[2 * 3 + 1] = 0.9; // (x=1,y=2)
+        let wb = vec![0u8; 9];
+        let lake_fill = vec![0f32; 9];
+        let snapped = civ_snap_land(1, 1, 6, &field, &wb, &lake_fill, 3, 3, 0.5);
+        assert_eq!(snapped, Some((1, 2)));
+    }
+
+    #[test]
+    fn assign_landmass_factions_single_candidate_landmass_is_its_own_capital() {
+        let candidates = vec![SettlementCandidate { x: 0, y: 0, suit: 0.8, cont_id: 0 }];
+        let (faction_of, capital_of) = assign_landmass_factions(&candidates, 6);
+        // n=1 candidate caps seats at 1 regardless of factionCount, so this stays
+        // a single-seat landmass: one faction, the sole candidate is its capital.
+        assert_eq!(faction_of, vec![1]);
+        assert_eq!(capital_of, vec![true]);
+    }
+
+    #[test]
+    fn assign_landmass_factions_two_landmasses_get_distinct_primary_ids() {
+        let candidates = vec![
+            SettlementCandidate { x: 0, y: 0, suit: 0.8, cont_id: 0 },
+            SettlementCandidate { x: 5, y: 5, suit: 0.7, cont_id: 1 },
+        ];
+        let (faction_of, capital_of) = assign_landmass_factions(&candidates, 6);
+        assert_ne!(faction_of[0], faction_of[1], "distinct landmasses get distinct faction ids");
+        assert!(capital_of[0] && capital_of[1], "each landmass's sole candidate is its own capital");
     }
 }

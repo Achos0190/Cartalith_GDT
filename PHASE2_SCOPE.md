@@ -249,6 +249,65 @@ with no algorithmic content, not core scope here.
 
 **Where the code goes**: `cartalith-civ`, same crate, same conventions.
 
+**Done.** Land-component labelling (fresh 4-connected fill, deliberately
+not a reuse of `build_landmass_quality`'s 8-connected one — a unit test
+pins the distinction), `_civSnapLand`/`_civSnapCoast`/`_civIsCoastal`
+(including two real preserved reference quirks: `_civSnapLand` never
+world-wraps while `_civSnapCoast` does; `_civIsCoastal` always x-wraps
+unconditionally regardless of `state.world`), `_civAssignLandmassFactions`
+(ported line-for-line, including its 5-attempt spacing-then-fallback
+capital-seeding loop), and settlement tier classification all landed in
+`cartalith-civ`. `CIV_FACTIONS` confirmed to contribute only `.length` to
+the algorithm — a plain `faction_count: i32` sufficed, no roster ported.
+Both fixture cases golden-verified bit-exact on the first attempt, and
+both genuinely exercise the multi-capital (K>1 seats) branch (checked, not
+assumed). See `CHANGELOG.md`'s "Phase 2 milestone 8" entry for the full
+record, including the harness technique (a small injected function
+mirroring `_civIterativeAutoWorld`'s own inline candidate-building loop,
+since that loop isn't a standalone callable in the reference).
+
+## Milestone 9 — investigated, not yet scoped: territory/provinces is a dead end here
+
+Investigated 2026-08-16, before assuming `_civGenerateProvinces`/
+`getCivTerritory` (the natural-looking next target) was reachable: **it
+isn't, and the reason is worth recording rather than discovering again
+later.** `getCivTerritory()` (reference line 14933) only lazily
+zero-allocates `civTerritory` — it never computes faction ownership per
+cell. Grepped every write site to `civTerritory[...]` in the reference:
+the only two are `_civPaintTerritoryAt` (reference line 15964, an
+interactive brush tool driven by pointer events) and a save/load
+deserializer (line ~26145, restoring a previously-painted delta). **There
+is no auto-generation function anywhere — no Voronoi-from-capitals, no
+algorithmic territory fill.** Territory shape in the reference is
+purely a hand-painted, interactive-editor feature with zero headless
+production path.
+
+Consequence: `_civGenerateProvinces` itself IS pure and portable (a
+straightforward Voronoi partition of an *already-owned* territory raster
+into per-settlement provinces, reading `state.places`/`civTerritory`,
+writing nothing DOM-coupled) — but its real input has no programmatic
+source in this port, and won't until/unless a territory-painting UI is
+built in Godot (real future UI work, not a JS port) or some other
+territory-assignment approach is designed for this port specifically (a
+genuinely new design decision, not something to improvise here). Porting
+`_civGenerateProvinces` now would produce a correctly-tested function with
+no real caller — technically "done," practically inert.
+
+**Milestone 9 is therefore not scoped yet.** Whoever picks this up next
+should treat this finding as the starting point, not re-discover it: the
+natural next civ-layer target needs to be something with a real
+programmatic input path in this port already, not territory/provinces.
+Candidates worth checking first (not yet investigated, listed only as
+starting points): `_civSeedVillages` (the v1.70 additive village layer,
+milestone 8 confirmed it's gated on a UI toggle not yet exposed — check
+whether its algorithm itself has real inputs regardless of the toggle);
+settlement population/naming (`_civBasePopForKind`/`_civSettleName`,
+explicitly deferred by milestone 8 as culture/economy, but worth checking
+whether population alone — without naming — has a clean boundary); or
+roads (`ROADMAP.md`'s own Journey Planner sub-phase, likely still too
+large to be "next," but worth a same-depth investigation before assuming
+that rather than guessing).
+
 ## Done means (per milestone, not once for the whole phase)
 
 Each milestone: golden-verified against the real reference engine with a

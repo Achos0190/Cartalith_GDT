@@ -3258,3 +3258,99 @@ provinces/economy, block 2 proper): everything, genuinely -- no faction,
 territory, culture, or economy logic exists anywhere in this port yet.
 Milestone 8 needs its own scoping pass once picked up, the same way every
 milestone before it did.
+
+## Phase 2 milestone 8: settlement placement + faction assignment (2026-08-16)
+
+`_civIterativeAutoWorld` (reference line ~25336, block 2's real
+"auto-populate" entry point) mixes pure algorithm with direct DOM reads
+(`document.getElementById('civNCap')` etc.) and `alert()` calls on failure
+paths. Neither belongs in a pure Rust crate, so this milestone ports only
+the deterministic core it calls, stopping before population/naming
+(`_civSettleName`/`_civBasePopForKind`, culture/economy -- milestone 9+):
+
+- **Land-component labelling** -- a fresh 4-connected flood fill over
+  land cells (world-wrap aware), matching `_civIterativeAutoWorld`'s own
+  inline pass exactly. **Deliberately not a reuse of
+  `build_landmass_quality`'s flood fill** -- that one is 8-connected
+  (diagonals), a different algorithm for a different purpose (area+
+  capacity scoring, not per-cell landmass membership for factions).
+  Reusing it here would have silently changed which cells count as "the
+  same landmass." A unit test (`label_land_components_separates_
+  diagonal_only_touching_islands`) pins exactly this distinction: two
+  land cells touching only at a corner stay separate components under
+  4-connectivity, where the 8-connected fill would merge them.
+- **`_civSnapLand`/`_civSnapCoast`/`_civIsCoastal`** (reference lines
+  ~20747/20841/20917) -- snap a suitability-maximum seed onto real dry
+  land (Chebyshev-ring spiral search, no world-wrap -- a real reference
+  quirk, `_civSnapCoast` DOES wrap, `_civSnapLand` does not, preserved
+  exactly rather than "fixed" for consistency), then onto the shore when
+  near the sea (harbour towns sit ON the water), plus ocean-port
+  detection (`_civIsCoastal` always x-wraps unconditionally regardless of
+  `state.world` -- another real, preserved quirk, not normalized away).
+  `_civSnapLand` needed `_civLakeFlooded` (reference line 5737, a small
+  sub-cell-flood-band check reading `WaterBodies::fill_level`, milestone
+  2's own output) -- ported alongside it.
+- **`_civAssignLandmassFactions`** (reference line ~25022) -- the genuinely
+  intricate one: capacity-weighted seat apportionment across landmasses
+  (iterative, capped by each landmass's own candidate count), concrete
+  faction-id assignment, and for any landmass earning multiple seats, a
+  suitability+spacing capital-seeding loop (5 attempts, halving minimum
+  separation each attempt, falling back to top-suitability-regardless-of-
+  spacing if the search never finds enough) followed by nearest-seed
+  assignment for every other candidate on that landmass. Fully
+  deterministic (fixed iteration over ascending-sorted landmass ids, no
+  RNG) -- ported line-for-line, not reimplemented from the docstring's
+  summary of what it does.
+- **Settlement tier classification** (capital/city/town/village/hamlet by
+  rank -- the `isCapital`/`isCity`/`isTown`/`isVillage` cascade inline in
+  `_civIterativeAutoWorld`, ~lines 25409-25421) -- small, ported alongside
+  the rest since it has no DOM dependency either.
+
+`CIV_FACTIONS` (reference line 14568): confirmed `_civAssignLandmassFactions`
+only ever reads `.length` from it (for `factionCount`) -- the 7-entry
+roster (`'Unclaimed'` + 6 real factions, so `factionCount=6`) is
+presentation data (names, colours) with zero algorithmic content this
+milestone's output depends on. A plain `faction_count: i32` parameter is
+sufficient; the full roster was not ported.
+
+**Golden verification.** The reference's own candidate-building loop is
+inline in `_civIterativeAutoWorld`, not a standalone callable -- extracted
+by injecting a small harness-only function into the same `vm` context that
+mirrors that loop verbatim (calling the reference's own `_civSnapLand`/
+`_civSnapCoast`/`_civIsCoastal`/`_civAssignLandmassFactions` internally,
+not a reimplementation) rather than trying to call a DOM-coupled function
+directly. `state.tect.seed` (not `state.seed`) set correctly from the
+start this time -- no fresh harness-seeding bug to rediscover.
+`field[0..5]` matched `golden_parity_carve.rs`'s trusted values exactly on
+the first extraction for both cases, and the extracted `seeds` matched
+`golden_parity_settlement_suitability.rs`'s own already-verified seed list
+exactly, before any of this milestone's own new data was trusted.
+
+**Both fixtures genuinely exercise the multi-capital (K>1 seats) branch**
+of `_civAssignLandmassFactions`, not a degenerate always-single-seat case
+-- checked, not assumed, the same discipline milestone 6 established when
+it found its own small fixtures produced all-zero output for a different
+field. Case 0's candidates split across 2 landmasses (2 candidates on one,
+1 on the other); with `factionCount=6`, the 2-candidate landmass earns a
+second seat and exercises the spacing loop. Case 1's 5 candidates all land
+on a single world-wrapped landmass, which earns seats up to its full
+candidate count (5), so every candidate becomes its own capital via the
+same branch. No third, larger fixture was needed.
+
+All output (faction id, capital flag, settlement tier, coastal flag) is
+categorical/discrete -- checked bit-exact per place, matching every other
+categorical output in this crate. Both fixture cases passed on the first
+attempt.
+
+- `cargo test/clippy -p cartalith-civ --all-targets`: clean (36 unit +
+  15 golden tests). `cargo test/build/clippy --workspace`: no regressions.
+
+**Confirmed still missing before milestone 9** (territory/province
+generation, `_civGenerateProvinces`/`getCivTerritory` -- the natural next
+target): everything specific to territory/provinces, genuinely -- this
+milestone reaches faction *assignment* (which settlement belongs to which
+polity), not territory *shape* (the geographic boundary a faction
+controls). Milestone 9 needs its own investigation pass into what
+`_civGenerateProvinces` actually depends on before it can be scoped, the
+same way this milestone's own scoping investigated `_civIterativeAutoWorld`
+before committing to a boundary.
