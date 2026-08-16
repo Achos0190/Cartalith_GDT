@@ -293,7 +293,7 @@ genuinely new design decision, not something to improvise here). Porting
 `_civGenerateProvinces` now would produce a correctly-tested function with
 no real caller — technically "done," practically inert.
 
-## Milestone 9 — settlement population + naming (current)
+## Milestone 9 — settlement population + naming: **done** (2026-08-16)
 
 Investigated 2026-08-16, choosing between the milestone-8 fork's three
 candidates: `_civSeedVillages` is UI-toggle-gated with no clean way to
@@ -331,6 +331,28 @@ this point in the reference to port anyway.
 **Where the code goes**: `cartalith-civ`, same crate, same conventions.
 Needs `cartalith-rng`'s existing `mulberry32` — a cross-crate dependency
 this crate hasn't needed before, check `cartalith-civ/Cargo.toml`.
+
+**Done.** `civ_settle_name`/`civ_base_pop_for_kind`/`civ_name_rng`/
+`civ_default_culture`/`name_and_populate_settlements` ported to
+`cartalith-civ`. Confirmed `_civRng` is `mulberry32` under a different
+seed-derivation wrapper by hand-proof (XOR/OR commutativity + `ToInt32`
+idempotence), not assumed — reuses `cartalith-rng` directly. Found and
+documented a genuine reference quirk (`state.seed` is dead code, always
+`undefined`, so the civ-naming RNG seed is a hardcoded constant
+independent of the world's actual terrain seed) rather than mistaking its
+symptom (identical names across different worlds for same-rank
+settlements) for a bug. Two real harness bugs caught and fixed before
+trusting any extracted data: a 4-script-block miscount (a comment inside
+block #2 itself contains the literal text `<script>` in prose, corrupting
+a naive regex-based block counter), and a `.suit`-field mixup (milestone
+8's `SettlementPlacement.suit` correctly carries the pre-snap seed score
+through unchanged, but this milestone's first harness attempt re-sampled
+the suitability field at the post-snap position instead — caught because
+names matched but population didn't, narrowing the bug precisely before
+any Rust code was touched). Both fixture cases golden-verified bit-exact
+(names by string equality, population as exact `u32`) on the corrected
+extraction. See `CHANGELOG.md`'s "Phase 2 milestone 9" entry for the full
+account.
 
 ## Milestone 10 — territory/provinces (blocked on a design decision, not scoped)
 

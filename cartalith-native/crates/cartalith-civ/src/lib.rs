@@ -2344,6 +2344,217 @@ pub fn place_settlements(
         .collect()
 }
 
+// ===================== Milestone 9: settlement population + naming =====================
+// PHASE2_SCOPE.md milestone 9. `_civBasePopForKind` (reference line
+// ~23433) and `_civSettleName` (reference line ~20717), ported together
+// because production computes them in the SAME closure over the SAME
+// shared RNG stream (`_civIterativeAutoWorld`'s `places.map(...)`,
+// reference lines ~25409-25444) -- name generation and the population
+// variance multiplier are not independent, they interleave on one stream
+// per settlement, in rank order (best suitability first, matching
+// `place_settlements`'s own output order).
+
+/// A settlement's culture (naming flavour) -- `CIV_CULTURES` (reference
+/// lines 14607-14634). Seven pools: `common` (the original pre-v1.07
+/// `_SYL`/`_SFX` pool, reference lines 14588-14594) plus six per-faction
+/// cultures. Ported verbatim as inert lookup data, not redesigned.
+pub struct Culture {
+    pub key: &'static str,
+    pub syl: &'static [&'static str],
+    pub sfx: &'static [&'static str],
+}
+
+pub const CIV_CULTURES: [Culture; 7] = [
+    Culture {
+        key: "common",
+        syl: &[
+            "ar", "bel", "cor", "dun", "el", "far", "gol", "hal", "ith", "kor", "lan", "mor", "nor", "os", "par",
+            "quel", "ral", "sen", "tor", "ul", "val", "wyn", "yr", "zan", "aer", "bri", "cas", "dor", "eth", "fen",
+            "gal", "hur", "ire", "kar", "las", "mel", "nar", "osh", "pre", "ris", "syl", "tur", "vol", "war", "xan",
+            "yel", "zel",
+        ],
+        sfx: &[
+            "", "", "", "heim", "ford", "burg", "ton", "vale", "moor", "fell", "wick", "stead", "holt", "crest",
+            "mere", "haven",
+        ],
+    },
+    Culture {
+        key: "imperial",
+        syl: &[
+            "aur", "cas", "dom", "flav", "gal", "imp", "jun", "luc", "marc", "nov", "oct", "pris", "quin", "reg",
+            "sev", "tib", "ulp", "val", "arc", "cor",
+        ],
+        sfx: &["ium", "ora", "ara", "um", "opolis", "ica", "iana", "forum", "portus", "castra"],
+    },
+    Culture {
+        key: "highland",
+        syl: &[
+            "brak", "dun", "gorm", "krag", "thorn", "bruk", "garn", "hask", "krun", "morg", "stok", "vrag", "and",
+            "bald", "crun", "dagr", "forn", "grim", "hurn", "kar",
+        ],
+        sfx: &["dun", "crag", "hold", "fell", "stone", "peak", "ridge", "cairn", "tor", "ward"],
+    },
+    Culture {
+        key: "desert",
+        syl: &[
+            "ash", "bahr", "dahn", "far", "ghal", "har", "irs", "kad", "mir", "nash", "qir", "rah", "sah", "taz",
+            "ush", "wah", "zaf", "abed", "yus", "omar",
+        ],
+        sfx: &["abad", "sar", "ir", "oasis", "dune", "well", "rest", "march", "gate", "span"],
+    },
+    Culture {
+        key: "riverlands",
+        syl: &[
+            "aven", "bryn", "del", "esh", "flor", "ila", "lor", "mira", "ness", "ova", "rev", "sila", "tam", "ula",
+            "ves", "wela", "isla", "oren", "anwe", "ely",
+        ],
+        sfx: &["ford", "mere", "brook", "wick", "vale", "mill", "reach", "wash", "bend", "shallows"],
+    },
+    Culture {
+        key: "sylvan",
+        syl: &[
+            "a'el", "el'a", "fae", "ily", "leth", "mira", "nym", "ora", "sil", "thal", "vel", "wyn", "ael", "ith",
+            "lor", "sae", "tael", "yl", "enne", "iel",
+        ],
+        sfx: &["leaf", "thorn", "wood", "glen", "bough", "dell", "shade", "bloom", "hollow", "rest"],
+    },
+    Culture {
+        key: "maritime",
+        syl: &[
+            "bjor", "fjor", "hald", "kell", "lund", "nord", "skal", "torv", "vik", "yorn", "bren", "fjal", "holv",
+            "karsk", "morn", "sker", "torg", "ulve", "vann", "yist",
+        ],
+        sfx: &["holm", "ness", "bay", "port", "haven", "skerry", "sound", "strand", "wick", "fjord"],
+    },
+];
+
+/// `_civDefaultCulture(fid)` (reference line 14642): `CIV_CULTURES[fid %
+/// CIV_CULTURES.length]`. Faction `0` ("Unclaimed") lands on index 0
+/// ("common") purely because that's `CIV_CULTURES`' own declared order --
+/// no special-casing needed. This is the ONLY culture-assignment path
+/// that exists without an interactive culture-editing UI (verified: the
+/// reference's own `civFactionCulture` array is populated exactly this
+/// way at module load via `.map(_civDefaultCulture)`, and this port has
+/// no UI that could ever change it afterward), so reading it directly
+/// stands in for the reference's `civFactionCulture[faction]` array read.
+pub fn civ_default_culture(faction: i32) -> &'static Culture {
+    let idx = (faction as usize) % CIV_CULTURES.len();
+    &CIV_CULTURES[idx]
+}
+
+/// `_civIterativeAutoWorld`'s settlement-naming RNG seed input
+/// (reference line 25339: `_civRng((state.seed||12345)*31337+999)`).
+/// **`state.seed` is never assigned anywhere in the reference file** --
+/// verified by grepping every `.seed=` assignment in the whole source;
+/// the only matches are unrelated (`_sculptCtx.seed`, `opts.seed` for
+/// erosion droplets, an export-metadata field that itself reads
+/// `state.tect.seed`, not `state.seed`). So `state.seed||12345` always
+/// evaluates to the literal `12345`, and this civ-naming RNG stream is
+/// seeded IDENTICALLY for every world regardless of its actual terrain
+/// seed -- a genuine, verified quirk of the reference (most likely dead
+/// code surviving from before the real generation seed moved to
+/// `state.tect.seed`), ported exactly as it actually behaves, not as it
+/// "should".
+pub const CIV_NAME_RNG_SEED_INPUT: u32 = 12345;
+
+/// `_civRng`'s generator body (reference lines 20707-20714) is
+/// `mulberry32` in disguise, proved by hand rather than assumed: XOR/OR
+/// are both commutative, and JS's `ToInt32` coercion (applied implicitly
+/// by every `^`/`>>>`/`|` operator) is idempotent under modular
+/// reduction -- so `_civRng`'s state `s` (accumulated via plain `+=`,
+/// never explicitly `|0`-wrapped between calls) is numerically identical
+/// at every step to `mulberry32`'s explicitly wrapped state `a`, for any
+/// call count far short of `f64`'s 2^53 exact-integer limit (this port
+/// never approaches that). The only real difference is `_civRng`'s own
+/// seed-derivation wrapper: `(seed>>>0)||1` (substitute `1` if the
+/// derived seed is exactly `0`). Reuses `cartalith_rng::Mulberry32`
+/// directly rather than a second hand-rolled generator.
+pub fn civ_name_rng() -> cartalith_rng::Mulberry32 {
+    let raw = CIV_NAME_RNG_SEED_INPUT.wrapping_mul(31337).wrapping_add(999);
+    let seed = if raw == 0 { 1 } else { raw };
+    cartalith_rng::Mulberry32::new(seed)
+}
+
+/// `_civSettleName` (reference line 20717): 2-4 syllables (RNG-chosen
+/// count and, per syllable, RNG-chosen index into the culture's syllable
+/// pool) plus one RNG-chosen suffix, first letter capitalised. Consumes
+/// `1 + n + 1` RNG calls in that exact order -- callers sharing this RNG
+/// stream (population generation, same call site) depend on that count.
+/// `rng.next_f64()` is always strictly `< 1.0` (verified:
+/// `cartalith_rng::Mulberry32::next_f64` divides a `u32` by exactly
+/// `2^32`, so the maximum possible value is `(2^32-1)/2^32 < 1`), so
+/// every index computed below is provably in-bounds without a defensive
+/// clamp -- adding one would silently mask a real bug instead of
+/// matching the reference's own unclamped indexing.
+pub fn civ_settle_name(rng: &mut cartalith_rng::Mulberry32, faction: i32) -> String {
+    let cul = civ_default_culture(faction);
+    let n = 2 + (rng.next_f64() * 3.0) as usize;
+    let mut s = String::new();
+    for _ in 0..n {
+        let idx = (rng.next_f64() * cul.syl.len() as f64) as usize;
+        s.push_str(cul.syl[idx]);
+    }
+    let suf_idx = (rng.next_f64() * cul.sfx.len() as f64) as usize;
+    let suf = cul.sfx[suf_idx];
+    let mut chars = s.chars();
+    let mut out = String::with_capacity(s.len() + suf.len());
+    if let Some(first) = chars.next() {
+        out.extend(first.to_uppercase());
+    }
+    out.push_str(chars.as_str());
+    out.push_str(suf);
+    out
+}
+
+/// `_civBasePopForKind` (reference line 23433) / `_CIV_BASE_POP_BY_KIND`
+/// (line 23432). `SettlementKind` has no `Metropolis` variant -- that
+/// tier is a separate opt-in promotion pass (`_civMetropolis`) this port
+/// doesn't build (milestone 8's own scope), so only the five reachable
+/// tiers are represented; the reference's own `!=null?...:120` fallback
+/// (which in practice only ever protects against an unrecognised `kind`
+/// string, impossible here since `SettlementKind` is a closed enum) has
+/// no equivalent needed.
+pub fn civ_base_pop_for_kind(kind: SettlementKind) -> f64 {
+    match kind {
+        SettlementKind::Capital => 15000.0,
+        SettlementKind::City => 6000.0,
+        SettlementKind::Town => 1500.0,
+        SettlementKind::Village => 400.0,
+        SettlementKind::Hamlet => 120.0,
+    }
+}
+
+/// A settlement with its RNG-generated name and population, continuing
+/// `place_settlements`'s output (milestone 8) with the rest of
+/// `_civIterativeAutoWorld`'s own `places.map(...)` closure (reference
+/// lines ~25409-25444).
+#[derive(Debug, Clone)]
+pub struct NamedSettlement {
+    pub placement: SettlementPlacement,
+    pub name: String,
+    pub pop: u32,
+}
+
+/// Names and populates settlements produced by `place_settlements`, in
+/// the same rank order, sharing ONE RNG stream (`civ_name_rng()`) --
+/// name-then-population-variance per settlement, not two separate passes
+/// each with their own stream (reference line 25444:
+/// `pop:Math.round(basePop*(0.7+c.suit*0.8)*(0.8+rng()*0.4))`, drawing
+/// its one `rng()` call immediately after that settlement's name is
+/// generated, inside the same `.map()` iteration).
+pub fn name_and_populate_settlements(placements: &[SettlementPlacement]) -> Vec<NamedSettlement> {
+    let mut rng = civ_name_rng();
+    placements
+        .iter()
+        .map(|p| {
+            let name = civ_settle_name(&mut rng, p.faction);
+            let base_pop = civ_base_pop_for_kind(p.kind);
+            let pop = (base_pop * (0.7 + p.suit * 0.8) * (0.8 + rng.next_f64() * 0.4)).round() as u32;
+            NamedSettlement { placement: *p, name, pop }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

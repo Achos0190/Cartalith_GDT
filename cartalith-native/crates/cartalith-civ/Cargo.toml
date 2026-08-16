@@ -12,3 +12,4 @@ name = "cartalith_civ"
 [dependencies]
 cartalith-engine = { path = "../cartalith-engine" }
 cartalith-hydrology = { path = "../cartalith-hydrology" }
+cartalith-rng = { path = "../cartalith-rng" }

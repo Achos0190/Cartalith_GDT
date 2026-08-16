@@ -3354,3 +3354,90 @@ controls). Milestone 9 needs its own investigation pass into what
 `_civGenerateProvinces` actually depends on before it can be scoped, the
 same way this milestone's own scoping investigated `_civIterativeAutoWorld`
 before committing to a boundary.
+
+## Phase 2 milestone 9 -- settlement population + naming, and a dead-code seed quirk worth knowing about (2026-08-16)
+
+Milestone 8's own investigation found territory/provinces genuinely
+unreachable (no auto-generation path exists anywhere in the reference --
+interactive paint + save/load only), so this milestone picked the other
+candidate with a clean boundary and real inputs: `_civBasePopForKind`
+(reference line ~23433, a trivial lookup) and `_civSettleName` (line
+~20717, RNG-driven syllable-combination naming), the rest of
+`_civIterativeAutoWorld`'s own `places.map(...)` closure milestone 8
+stopped short of.
+
+**A genuinely important, verified quirk, not assumed**: `_civSettleName`'s
+RNG seed comes from `_civRng((state.seed||12345)*31337+999)` (reference
+line 25339) -- but `state.seed` (distinct from `state.tect.seed`, the real
+per-world terrain seed) is **never assigned anywhere in the reference
+file**. Verified two ways: grepping every `.seed=` write site (the only
+matches are unrelated -- `_sculptCtx.seed`, `opts.seed` for erosion
+droplets, an export-metadata field that itself reads `state.tect.seed`),
+and confirming live at runtime that `state.seed` reads `undefined`
+immediately after a real `generate()` call, for both fixture configs. So
+`state.seed||12345` always evaluates to the literal `12345` -- the civ-
+naming RNG stream is seeded IDENTICALLY for every world ever generated,
+regardless of that world's actual terrain seed. Combined with
+`_civAssignLandmassFactions` (milestone 8, consumes no RNG) cycling
+faction ids from `1` in ascending landmass order, this produces a real,
+fully-explained, non-coincidental result: both fixtures' rank-1 settlement
+(faction 1 in both) gets the exact same generated name
+("Sevjuniana"), and this chains forward through every same-rank,
+same-faction pair (case 0 and case 1's first three settlements, factions
+1-3, produced byte-identical names pairwise; case 1's settlements 4-5,
+unique factions, are unique). Documented in full in
+`golden_parity_settlement_naming.rs`'s own module doc comment so this
+doesn't read as a bug to whoever encounters it next.
+
+`_civRng`'s generator body is `mulberry32` in disguise -- proved by hand
+(XOR/OR commutativity + `ToInt32`'s idempotence under modular reduction
+means `_civRng`'s never-explicitly-wrapped state is numerically identical
+at every step to `mulberry32`'s explicitly `|0`-wrapped one, for any
+realistic call count) rather than assumed, so this reuses
+`cartalith_rng::Mulberry32` directly instead of a second hand-rolled
+generator -- the only real difference is `_civRng`'s own seed-derivation
+wrapper (`(seed>>>0)||1`), ported as `civ_name_rng()`.
+
+**Two real bugs caught in the extraction harness itself, not in the Rust
+port** -- worth recording since both would otherwise look like Rust bugs
+to whoever debugs a similar mismatch later:
+1. The reference file has **four** `<script>` blocks, not the one/two
+   earlier milestones' own doc comments assumed. `_civRng`/`_civSettleName`/
+   `_civAssignLandmassFactions` all live in block #2 (lines 14562-26721),
+   requiring blocks #1+#2 concatenated. Worse: block #2 itself contains a
+   comment discussing "this file's three sequential `<script>` tags" in
+   prose -- a naive regex scan for the literal text `<script>` counts that
+   occurrence too, miscounting every block after it. Fixed by using the
+   real line numbers from a direct `grep -n` on the file instead of
+   re-deriving boundaries by text search.
+2. `SettlementPlacement.suit` (milestone 8, already correct) carries the
+   settlement's ORIGINAL SEED score straight through unchanged after
+   snapping (reference line 25398: `suit:s.score`, not a fresh lookup at
+   the snapped position) -- milestone 8's own golden test never checked
+   `.suit` itself, so this went unverified until this milestone's
+   population formula (which reads `.suit` directly) exposed a harness bug
+   that re-sampled `suit[]` at the wrong (snapped) position. Correct names
+   with wrong population values was the exact signal that narrowed this to
+   a `suit`-extraction bug, not an RNG/naming bug, before touching any Rust
+   code. Fixed by mirroring the reference's real candidate-building loop
+   (`_civSnapLand`/`_civSnapCoast`/land-component DFS) directly in the
+   harness.
+
+**Golden verification**: both fixture cases, names checked by exact string
+equality (RNG-driven, no rounding ambiguity once the stream is confirmed
+in sync), population checked as an exact `u32` (a `round()` of a
+continuous formula removes sub-integer ambiguity). Both passed on the
+first attempt after the two harness bugs above were fixed --
+`field[0..5]` and `suit` per settlement cross-checked against
+`golden_parity_carve.rs`/`golden_parity_settlement_suitability.rs`'s own
+already-trusted values before any new data was accepted.
+
+- `cargo test/clippy -p cartalith-civ --all-targets`: clean (36 unit + 20
+  golden tests, counted directly not estimated). `cargo test/build/clippy
+  --workspace`: no regressions.
+
+**Confirmed still missing before milestone 10** (territory/provinces):
+unchanged from milestone 8's own finding -- no auto-generation path exists
+anywhere in the reference, purely interactive paint + save/load. Remains
+blocked on a real design decision (raised with the owner), not scoped
+further here.
