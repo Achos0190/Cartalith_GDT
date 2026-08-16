@@ -2544,10 +2544,23 @@ pub struct NamedSettlement {
 /// generated, inside the same `.map()` iteration).
 pub fn name_and_populate_settlements(placements: &[SettlementPlacement]) -> Vec<NamedSettlement> {
     let mut rng = civ_name_rng();
+    name_and_populate_settlements_with_rng(placements, &mut rng)
+}
+
+/// Same as `name_and_populate_settlements`, but threads an external RNG
+/// instead of starting a fresh `civ_name_rng()` -- needed by milestone 15
+/// (`civ_seed_villages`), which must continue the SAME stream naming left
+/// off at (reference: one `rng` closure shared across the whole
+/// `_civIterativeAutoWorld` flow -- placement/naming, then village
+/// seeding, draw from one continuous sequence, not two independent ones).
+pub fn name_and_populate_settlements_with_rng(
+    placements: &[SettlementPlacement],
+    rng: &mut cartalith_rng::Mulberry32,
+) -> Vec<NamedSettlement> {
     placements
         .iter()
         .map(|p| {
-            let name = civ_settle_name(&mut rng, p.faction);
+            let name = civ_settle_name(rng, p.faction);
             let base_pop = civ_base_pop_for_kind(p.kind);
             let pop = (base_pop * (0.7 + p.suit * 0.8) * (0.8 + rng.next_f64() * 0.4)).round() as u32;
             NamedSettlement { placement: *p, name, pop }
@@ -3462,6 +3475,254 @@ pub fn assign_territory(settlements: &[NamedSettlement], cost: &[f32], gw: usize
     owner
 }
 
+// ===================== Phase 2 milestone 15: village seeding =====================
+//
+// `_civSeedVillages` (reference line ~25164): an additive, full-map-coverage pass that
+// seeds hamlet-tier villages after routing is finished, gated by a SOFT accept probability
+// (`_civVillageAcceptProb`) blending suitability with road proximity (`_civRoadProximityQuery`)
+// rather than a hard cutoff. `PHASE2_SCOPE.md` milestone 15 -- confirmed reachable independent
+// of milestones 13/14 (sea routes, corridor consolidation/smoothing): this needs road-proximity
+// *distance* only, which milestone 12's raw, unsmoothed `civ_hierarchical_network_topology`
+// edges already provide.
+
+/// `VILLAGE_SPACING_KM` (reference line 6232) -- `MARKET_TOWN_SPACING_KM`
+/// from the same line belongs to an unported pass, not needed here.
+pub const VILLAGE_SPACING_KM: f64 = 10.0;
+
+/// `VILLAGE_SUIT_THRESH` (reference line 25120): the relaxed floor village
+/// seeding uses -- lower than `SETTLE_SEED_THRESH` (0.42), the strict
+/// base-settlement threshold. A HARD floor: road proximity can raise a
+/// candidate's acceptance odds but never lets it exist below this
+/// suitability at all.
+pub const VILLAGE_SUIT_THRESH: f64 = 0.32;
+
+/// `_CIV_VILLAGE_CAP` (reference line 6445): upper bound on villages added
+/// per auto-populate run.
+pub const CIV_VILLAGE_CAP: usize = 200;
+
+/// `suppressionRadiusCells` (reference line 6233): a spacing in km,
+/// converted to grid cells via this world's own km-per-cell ratio, floored
+/// at 4 cells so a tiny map width never collapses the spacing to nothing.
+fn suppression_radius_cells(spacing_km: f64, gw: usize, map_width_km: f64) -> f64 {
+    let cell_km = map_width_km / gw as f64;
+    (spacing_km / cell_km).round().max(4.0)
+}
+
+/// `_civVillageAcceptProb` (reference line 25159): the soft accept-
+/// probability formula, factored out for direct unit testing exactly as
+/// the reference itself factors it out ("Pure: ... directly unit-testable
+/// in isolation from a generated world"). `road_prob` decays smoothly from
+/// 1 at the road; `suit_prob` ramps 0->1 between the floor and the strict
+/// threshold; the two combine via `max` so either alone can qualify a
+/// candidate -- road proximity can only ever RAISE a candidate's odds,
+/// never lower it below what suitability alone earns.
+pub fn civ_village_accept_prob(road_dist: f64, suit_score: f64, road_falloff: f64, suit_lo: f64, suit_hi: f64) -> f64 {
+    let road_prob = (-road_dist / road_falloff).exp();
+    let suit_prob = ((suit_score - suit_lo) / (suit_hi - suit_lo)).clamp(0.0, 1.0);
+    road_prob.max(suit_prob)
+}
+
+/// `_civRoadProximityQuery` (reference line 25127), adapted for milestone
+/// 12's raw per-cell topology rather than the reference's own coarser,
+/// already-full-grid polyline `ways` (`.pts`, sampled every ~2 cells along
+/// straight segments). `HierarchicalNetworkResult.edges`' `path` indices
+/// live in the DOWNSAMPLED routing grid (`routing_rw` wide, scaled by
+/// `routing_sc`) `civ_hierarchical_network_topology` builds internally --
+/// converted back to full-grid coordinates here via the same
+/// `(cx+0.5)/sc` mapping `buildRoadsOp` itself uses to turn a routing-grid
+/// path back into world coordinates. Deliberate simplification: milestone
+/// 12's raw path is already one point per routing-grid cell traversed by
+/// Dijkstra, denser than the reference's own 2-cell segment sampling needs
+/// to be, so every path cell is inserted directly, no segment
+/// interpolation required.
+struct RoadProximityIndex {
+    buckets: Vec<Vec<(f64, f64)>>,
+    bw: usize,
+    bh: usize,
+    cell: f64,
+    any: bool,
+}
+
+impl RoadProximityIndex {
+    fn build(edges: &[RoadEdge], routing_rw: usize, routing_sc: f64, gw: usize, gh: usize, cell: f64) -> Self {
+        let bw = ((gw as f64 / cell).ceil() as usize).max(1);
+        let bh = ((gh as f64 / cell).ceil() as usize).max(1);
+        let mut buckets: Vec<Vec<(f64, f64)>> = vec![Vec::new(); bw * bh];
+        let mut any = false;
+        for e in edges {
+            for &idx in &e.path {
+                let cx = (idx % routing_rw) as f64;
+                let cy = (idx / routing_rw) as f64;
+                let fx = (cx + 0.5) / routing_sc;
+                let fy = (cy + 0.5) / routing_sc;
+                let bx = ((fx / cell) as isize).clamp(0, bw as isize - 1) as usize;
+                let by = ((fy / cell) as isize).clamp(0, bh as isize - 1) as usize;
+                buckets[by * bw + bx].push((fx, fy));
+                any = true;
+            }
+        }
+        Self { buckets, bw, bh, cell, any }
+    }
+
+    /// `Infinity` when no road data exists at all (reference: `if(!any)
+    /// return ()=>Infinity`), else the nearest indexed point within the
+    /// query cell's 3x3 bucket neighbourhood, `Infinity` if that
+    /// neighbourhood is empty too (reference's own coarse "soft bias"
+    /// distance -- not an exact segment distance, not a full-grid
+    /// fallback scan).
+    fn nearest_dist(&self, x: f64, y: f64) -> f64 {
+        if !self.any {
+            return f64::INFINITY;
+        }
+        let bx = ((x / self.cell) as isize).clamp(0, self.bw as isize - 1);
+        let by = ((y / self.cell) as isize).clamp(0, self.bh as isize - 1);
+        let mut best = f64::INFINITY;
+        for dy in -1isize..=1 {
+            for dx in -1isize..=1 {
+                let nx = bx + dx;
+                let ny = by + dy;
+                if nx < 0 || ny < 0 || nx as usize >= self.bw || ny as usize >= self.bh {
+                    continue;
+                }
+                for &(qx, qy) in &self.buckets[ny as usize * self.bw + nx as usize] {
+                    let d = ((qx - x).powi(2) + (qy - y).powi(2)).sqrt();
+                    if d < best {
+                        best = d;
+                    }
+                }
+            }
+        }
+        best
+    }
+}
+
+/// A hamlet-tier settlement added by `civ_seed_villages`, distinct from
+/// `SettlementPlacement`/`NamedSettlement`: the reference's own added
+/// object (`{x,y,name,kind:'hamlet',...,pop:0,traits:[],villageAddon:true}`)
+/// carries no suitability score, no capital/coastal flags, and an
+/// unconditional `pop:0` (never run through `name_and_populate_settlements`'s
+/// suitability-scaled population formula) -- forcing it into
+/// `SettlementPlacement`'s shape would invent fields the reference itself
+/// never populates for a village.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VillageSettlement {
+    pub x: usize,
+    pub y: usize,
+    pub name: String,
+    pub faction: i32,
+}
+
+/// `_civSeedVillages` (reference line 25164). `places` are the already
+/// placed-and-named base settlements (milestone 8/9's real output);
+/// `edges` is milestone 12's real raw road topology; `rng` MUST be the
+/// same, continuing `Mulberry32` stream `name_and_populate_settlements_with_rng`
+/// left off at -- passing a fresh `civ_name_rng()` here would desync every
+/// village name and every soft-accept roll from the reference's real draw
+/// order (reference: one `rng` closure threaded through the whole
+/// `_civIterativeAutoWorld` flow, placement/naming then village seeding in
+/// strict sequence). `suit` is the same settlement-suitability field
+/// `find_settlement_seeds`/`place_settlements` already consumed.
+#[allow(clippy::too_many_arguments)]
+pub fn civ_seed_villages(
+    places: &[NamedSettlement],
+    edges: &[RoadEdge],
+    routing_rw: usize,
+    routing_sc: f64,
+    rng: &mut cartalith_rng::Mulberry32,
+    suit: &[f32],
+    field: &[f32],
+    water_bodies: &[u8],
+    lake_fill: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    map_width_km: f64,
+) -> Vec<VillageSettlement> {
+    let spacing = suppression_radius_cells(VILLAGE_SPACING_KM, gw, map_width_km);
+    let spacing_sq = spacing * spacing;
+    let cell = spacing.max(3.0);
+    let bw = ((gw as f64 / cell).ceil() as usize).max(1);
+    let bh = ((gh as f64 / cell).ceil() as usize).max(1);
+
+    let bucket_of = |x: f64, y: f64| -> (usize, usize) {
+        let bx = ((x / cell) as isize).clamp(0, bw as isize - 1) as usize;
+        let by = ((y / cell) as isize).clamp(0, bh as isize - 1) as usize;
+        (bx, by)
+    };
+
+    // Spacing-rejection bucket grid, seeded with every already-placed
+    // settlement (reference: `for(const p of places) take(p.x,p.y)`).
+    let mut reject_buckets: Vec<Vec<(f64, f64)>> = vec![Vec::new(); bw * bh];
+    for p in places {
+        let (bx, by) = bucket_of(p.placement.x as f64, p.placement.y as f64);
+        reject_buckets[by * bw + bx].push((p.placement.x as f64, p.placement.y as f64));
+    }
+    let fits = |x: f64, y: f64, buckets: &[Vec<(f64, f64)>]| -> bool {
+        let (bx, by) = bucket_of(x, y);
+        for dy in -1isize..=1 {
+            for dx in -1isize..=1 {
+                let nx = bx as isize + dx;
+                let ny = by as isize + dy;
+                if nx < 0 || ny < 0 || nx as usize >= bw || ny as usize >= bh {
+                    continue;
+                }
+                for &(qx, qy) in &buckets[ny as usize * bw + nx as usize] {
+                    let ddx = qx - x;
+                    let ddy = qy - y;
+                    if ddx * ddx + ddy * ddy < spacing_sq {
+                        return false;
+                    }
+                }
+            }
+        }
+        true
+    };
+
+    // Same dry-land test `civ_snap_land`'s own `dry` closure uses --
+    // belt-and-braces alongside `suit`'s own [field<sea]/[wb!=0] zeroing.
+    let is_dry = |x: usize, y: usize| -> bool {
+        let i = y * gw + x;
+        (field[i] as f64) >= sea
+            && water_bodies[i] == 0
+            && !civ_lake_flooded(x, y, field, water_bodies, lake_fill, gw, gh)
+    };
+
+    let road_index = RoadProximityIndex::build(edges, routing_rw, routing_sc, gw, gh, cell);
+    let road_falloff = spacing; // soft-decay scale reuses the spacing constant -- no new independent tunable
+    let suit_lo = VILLAGE_SUIT_THRESH;
+    let suit_hi = SETTLE_SEED_THRESH; // suitProb ramps 0->1 between the relaxed floor and the strict unconstrained threshold
+
+    let cands = find_settlement_seeds(suit, gw, gh, VILLAGE_SUIT_THRESH, spacing); // dense mode's own full-map-coverage technique
+    let mut added: Vec<VillageSettlement> = Vec::new();
+    for c in cands {
+        if added.len() >= CIV_VILLAGE_CAP {
+            break;
+        }
+        let (cx, cy) = (c.x as f64, c.y as f64);
+        if !fits(cx, cy, &reject_buckets) || !is_dry(c.x, c.y) {
+            continue;
+        }
+        let accept_prob = civ_village_accept_prob(road_index.nearest_dist(cx, cy), c.score as f64, road_falloff, suit_lo, suit_hi);
+        if rng.next_f64() >= accept_prob {
+            continue; // soft reject -- no hard road/no-road cutoff
+        }
+        let mut faction = 1;
+        let mut fd = f64::INFINITY;
+        for p in places {
+            let d = ((p.placement.x as f64 - cx).powi(2) + (p.placement.y as f64 - cy).powi(2)).sqrt();
+            if d < fd {
+                fd = d;
+                faction = p.placement.faction;
+            }
+        }
+        let name = civ_settle_name(rng, faction);
+        added.push(VillageSettlement { x: c.x, y: c.y, name, faction });
+        let (bx, by) = bucket_of(cx, cy);
+        reject_buckets[by * bw + bx].push((cx, cy));
+    }
+    added
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4041,5 +4302,121 @@ mod tests {
         assert_eq!(owner[0], 1, "faction 1's western capital zone");
         assert_eq!(owner[14], 1, "faction 1's eastern capital zone");
         assert_eq!(owner[7], 2, "faction 2's own capital cell");
+    }
+
+    // ===================== Phase 2 milestone 15: village seeding =====================
+
+    #[test]
+    fn suppression_radius_cells_matches_hand_computed_value() {
+        // 10 km spacing over an 800 km map at gw=100 -> 8 km/cell -> 1.25 cells, rounds to 1, floored to 4.
+        assert_eq!(suppression_radius_cells(10.0, 100, 800.0), 4.0);
+        // A finer grid where the real spacing exceeds the floor: gw=800 -> 1 km/cell -> 10 cells exactly.
+        assert_eq!(suppression_radius_cells(10.0, 800, 800.0), 10.0);
+    }
+
+    #[test]
+    fn village_accept_prob_at_the_road_is_always_one() {
+        // roadDist=0 -> roadProb=exp(0)=1 -> max(1, anything) = 1, regardless of how bad the site is.
+        let p = civ_village_accept_prob(0.0, VILLAGE_SUIT_THRESH, 10.0, VILLAGE_SUIT_THRESH, SETTLE_SEED_THRESH);
+        assert!((p - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn village_accept_prob_at_the_suit_ceiling_is_always_one_even_far_from_any_road() {
+        // suitScore == suitHi -> suitProb=1 -> max(anything, 1) = 1, even with roadDist effectively infinite.
+        let p = civ_village_accept_prob(1e6, SETTLE_SEED_THRESH, 10.0, VILLAGE_SUIT_THRESH, SETTLE_SEED_THRESH);
+        assert!((p - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn village_accept_prob_at_the_suit_floor_and_far_from_road_is_near_zero() {
+        // Both signals bottom out: suitScore == suitLo -> suitProb=0; roadDist huge -> roadProb~0.
+        let p = civ_village_accept_prob(1e6, VILLAGE_SUIT_THRESH, 10.0, VILLAGE_SUIT_THRESH, SETTLE_SEED_THRESH);
+        assert!(p < 1e-6, "expected near-zero accept probability, got {p}");
+    }
+
+    #[test]
+    fn village_accept_prob_road_proximity_only_ever_raises_never_lowers() {
+        // Fix a mediocre suitability (so suitProb is some middle value), then confirm moving closer to
+        // a road never DECREASES the accept probability -- max() semantics, per the reference's own
+        // comment ("road proximity can only ever RAISE a candidate's odds, never lower it").
+        let suit_mid = (VILLAGE_SUIT_THRESH + SETTLE_SEED_THRESH) / 2.0;
+        let far = civ_village_accept_prob(100.0, suit_mid, 10.0, VILLAGE_SUIT_THRESH, SETTLE_SEED_THRESH);
+        let near = civ_village_accept_prob(1.0, suit_mid, 10.0, VILLAGE_SUIT_THRESH, SETTLE_SEED_THRESH);
+        assert!(near >= far, "closer to a road ({near}) should never score below farther away ({far})");
+    }
+
+    #[test]
+    fn road_proximity_index_empty_edges_is_always_infinite() {
+        let idx = RoadProximityIndex::build(&[], 10, 1.0, 20, 20, 4.0);
+        assert_eq!(idx.nearest_dist(5.0, 5.0), f64::INFINITY);
+    }
+
+    #[test]
+    fn road_proximity_index_finds_nearest_real_edge_point() {
+        // One edge with a single-cell path at routing-grid index 55 in a 10-wide routing grid
+        // (cx=5, cy=5) with sc=1.0 -> full-grid point (5.5, 5.5).
+        let edges = vec![RoadEdge { a: 0, b: 1, path: vec![55] }];
+        let idx = RoadProximityIndex::build(&edges, 10, 1.0, 20, 20, 4.0);
+        let d = idx.nearest_dist(5.5, 5.5);
+        assert!(d < 1e-9, "querying the exact road point should read ~0 distance, got {d}");
+        let d_far = idx.nearest_dist(0.0, 0.0);
+        assert!(d_far > 5.0, "far from the only road point should read a real, non-trivial distance, got {d_far}");
+    }
+
+    #[test]
+    fn civ_seed_villages_respects_existing_settlement_spacing() {
+        // A uniformly-suitable 40x40 land grid, no water, one existing capital at (20,20).
+        // Every candidate within the spacing radius of it must be rejected regardless of RNG.
+        let gw = 40;
+        let gh = 40;
+        let n = gw * gh;
+        let field = vec![1.0f32; n];
+        let water_bodies = vec![0u8; n];
+        let lake_fill = vec![0.0f32; n];
+        // just under the village floor everywhere else, except two local-maximum bumps
+        let mut suit = vec![0.30f32; n];
+        // A local-maximum suitability bump right next to the capital (within spacing) and another
+        // far away from it (outside spacing) -- both above VILLAGE_SUIT_THRESH.
+        let near_i = 21 * gw + 20; // 1 cell from the capital
+        let far_i = 5 * gw + 5; // far corner
+        suit[near_i] = 0.50;
+        suit[far_i] = 0.50;
+
+        let places = vec![NamedSettlement {
+            placement: SettlementPlacement { x: 20, y: 20, suit: 0.9, faction: 1, capital: true, kind: SettlementKind::Capital, coastal: false },
+            name: "Capital".to_string(),
+            pop: 15000,
+        }];
+        let mut rng = cartalith_rng::Mulberry32::new(1); // arbitrary fixed seed, deterministic
+
+        let added = civ_seed_villages(&places, &[], 1, 1.0, &mut rng, &suit, &field, &water_bodies, &lake_fill, gw, gh, 0.0, 800.0);
+
+        assert!(
+            added.iter().all(|v| !(v.x == near_i % gw && v.y == near_i / gw)),
+            "a candidate within spacing of the existing capital must never be accepted"
+        );
+    }
+
+    #[test]
+    fn civ_seed_villages_never_exceeds_the_village_cap() {
+        // Every cell independently suitable enough to be its own candidate seed, no existing
+        // settlements, no roads (so suitProb alone must carry acceptance for any high-suit cell) --
+        // this should saturate the CIV_VILLAGE_CAP, not run away past it.
+        let gw = 60;
+        let gh = 60;
+        let n = gw * gh;
+        let field = vec![1.0f32; n];
+        let water_bodies = vec![0u8; n];
+        let lake_fill = vec![0.0f32; n];
+        // Every cell exactly at the strict threshold -> suitProb = 1 -> always accepted once it
+        // survives the local-maxima/spacing filters.
+        let suit = vec![SETTLE_SEED_THRESH as f32; n];
+        let mut rng = cartalith_rng::Mulberry32::new(7);
+
+        let added = civ_seed_villages(&[], &[], 1, 1.0, &mut rng, &suit, &field, &water_bodies, &lake_fill, gw, gh, 0.0, 800.0);
+
+        assert!(added.len() <= CIV_VILLAGE_CAP, "must never exceed the village cap, got {}", added.len());
+        assert!(!added.is_empty(), "a uniformly-maximal-suitability map with no obstacles should add at least one village");
     }
 }

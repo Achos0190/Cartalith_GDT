@@ -565,7 +565,7 @@ porting once, shared) and `_civTerrainValidTest`. Not required for
 raw unsmoothed edges already provide), but required for anything that
 actually *draws* roads on the map.
 
-## Milestone 15 — village seeding: `_civSeedVillages` (current)
+## Milestone 15 — village seeding: `_civSeedVillages`: **done** (2026-08-16)
 
 Confirmed reachable now, independent of milestones 13/14 (per milestone
 12's own note: `_civSeedVillages` needs road-proximity *distance*, which
@@ -604,6 +604,19 @@ check whether that matters for a headless port, or whether "always on" is
 the right default here given no UI exposes it either way).
 
 **Where the code goes**: `cartalith-civ`, same crate, same conventions.
+
+**Done.** `civ_seed_villages`/`civ_village_accept_prob`/`RoadProximityIndex`
+(the milestone-12-topology adaptation of `_civRoadProximityQuery`) ported.
+Closed a real RNG-sharing gap first: added
+`name_and_populate_settlements_with_rng` (milestone 9, purely additive) so
+village seeding can continue the exact stream naming left off at, matching
+the reference's one-shared-`rng`-closure design. Golden-verified against
+the real reference engine, bit-exact first attempt (fully synthetic but
+reference-function-verified inputs, matching milestone 12's own
+established standard) — see `CHANGELOG.md`'s "Phase 2 milestone 15" entry
+for the full account, including a real threshold-consistency question
+flagged (not fixed here) for whoever next touches `cartalith-godot`'s
+orchestration, and the UI-toggle decision left to that same crate.
 
 ## Done means (per milestone, not once for the whole phase)
 

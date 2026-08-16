@@ -4061,3 +4061,109 @@ on GPU, unlike the genuinely poor-fit graph/sequential algorithms
 checking, not yet a finding. Real investigation of `cartalith-terrain`'s
 actual plate-assignment/stress/flexure/orogeny code is milestone 4's
 first step, the same discipline every milestone here has had.
+
+## Phase 2 milestone 15 -- village seeding (`_civSeedVillages`)
+
+Ported `_civSeedVillages` (reference HTML line ~25164) plus its direct
+helpers `_civVillageAcceptProb` (~25159) and a milestone-12-topology-
+adapted `_civRoadProximityQuery` (~25127) to `cartalith-civ`. Confirmed
+reachable independent of milestones 13/14 (sea routes, corridor
+consolidation/smoothing): `_civSeedVillages` only needs road-proximity
+*distance*, which milestone 12's raw, unsmoothed
+`civ_hierarchical_network_topology` edges already provide -- smoothing is
+a rendering concern, not a functional one for this pass.
+
+**RNG stream threading, a real gap closed before this milestone could
+start**: the reference shares ONE `rng` closure across the whole
+`_civIterativeAutoWorld` flow -- settlement placement, naming, THEN
+village seeding draw from one continuous `mulberry32` sequence, not
+independent streams. `name_and_populate_settlements` (milestone 9)
+previously created and discarded its own `civ_name_rng()` internally with
+no way to continue its ending state. Added
+`name_and_populate_settlements_with_rng` (threading an external
+`&mut Mulberry32`) alongside the existing zero-arg function, which now
+delegates to it -- purely additive, the original signature/behaviour and
+its existing golden test are untouched.
+
+**Road-proximity coordinate adaptation**: `HierarchicalNetworkResult`'s
+edge paths live in `civ_hierarchical_network_topology`'s own DOWNSAMPLED
+routing grid (`rw`x`rh`, scaled by `sc`), not full-grid coordinates like
+the reference's own already-full-grid `ways`/`.pts`. `RoadProximityIndex`
+converts each path cell back via `(cx+0.5)/sc` -- the identical mapping
+`buildRoadsOp` itself uses to turn a routing-grid path back into world
+coordinates -- and inserts every raw per-cell path point directly (no
+2-cell segment interpolation, since milestone 12's raw path is already
+denser than the reference's own coarser polyline sampling needs).
+
+**A real threshold-consistency question investigated, not assumed**:
+`_civSeedVillages`'s own `suitHi=SETTLE_SEED_THRESH` is unambiguous
+(`0.42`, the reference's literal module constant) -- but milestones 7-9's
+existing golden tests all seed their candidate lists at `0.65`
+(`find_settlement_seeds(..., 0.65, ...)`), not `SETTLE_SEED_THRESH`.
+Traced the reference's own default `_civIterativeAutoWorld` call
+(`thresh:wantCounts?0.35:SETTLE_SEED_THRESH`) and confirmed a headless
+harness with no DOM elements makes `wantCounts` always `null` (every
+`document.getElementById` lookup returns `null` -&gt; falsy), so the real
+default path uses `0.42`, not `0.65`. This is **not a bug in milestones
+7-9** (`find_settlement_seeds`/`place_settlements`/
+`name_and_populate_settlements` are pure functions, correctly verified
+bit-exact for whichever threshold their own tests fed them) -- it is a
+**pipeline-orchestration question**: whatever calls these functions to
+build the REAL base-settlement candidate list (`cartalith-godot`'s
+`compute_civilisation()`, built by the UI/UX pass) should pass `0.42`
+(`SETTLE_SEED_THRESH`) to match `_civIterativeAutoWorld`'s real default
+behaviour, not `0.65` (that value's real origin is a *different* call
+site -- the standalone `settlement_seeds.json` export's own bare-default
+fallback). **Flagged here for whoever next touches `cartalith-godot`'s
+orchestration -- not fixed in this pass, out of `cartalith-civ`'s own
+scope.**
+
+**Golden verification**: fresh Node harness (blocks #1 2084-14552,
+trimmed before the trailing `GW=state.resW;...generate()` auto-invoke
+that would otherwise run at default resolution on load, + block #2
+14563-26720). Two real gotchas this harness hit and fixed, neither
+previously documented by a sibling fixture: (1) the permissive DOM-stub
+Proxy needed explicit `Symbol.toPrimitive`/`valueOf`/`toString` handlers
+-- an auto-vivified stub property failing numeric coercion
+(`navigator.maxTouchPoints&gt;1`) crashed load entirely; (2)
+`window.addEventListener` needed a real no-op function on the sandbox
+object itself, since `window===sandbox` in this harness rather than
+another stub layer.
+
+Deliberately fully synthetic inputs (uniform `field=0.9`/`seaLevel=0.1`
+so every cell is land, avoiding the real risk of hand-picking candidate
+coordinates that might land underwater in an actual generated world) --
+same standard `golden_parity_hierarchical_network.rs`'s own settlement
+inputs already established: hand-constructed but verified against the
+REAL reference function, not a reimplementation. Two well-separated
+suitability hotspots (`0.5`, comfortably above `VILLAGE_SUIT_THRESH`
+so `suitProb` clamps to `1.0` and the accept roll is deterministic
+regardless of RNG position), no road edges (`suitProb` alone must carry
+acceptance). **Passed bit-exact on the first attempt**, including
+RNG-derived village names (`"Nashzafwell"`/`"Dagrkartor"`) and
+nearest-capital faction inheritance. A second, targeted extraction
+independently confirmed the road-proximity coordinate-conversion formula:
+computed `_civVillageAcceptProb` at the reference's own real distance
+matched a hand-calculated `exp(-0.7071.../4)` to 15 significant figures
+(`0.8379668855787558`), the same geometry `RoadProximityIndex`'s
+`(cx+0.5)/sc` conversion produces by construction.
+
+**Toggle decision**: the reference gates this whole feature behind
+`_civVillages` (default OFF). `civ_seed_villages` itself is a standalone,
+nothing-calls-it-automatically function within `cartalith-civ` -- already
+opt-in by construction. Whether `cartalith-godot`'s orchestration should
+call it (and whether that should be user-facing, matching the reference's
+own default-off gating) is that crate's own decision, out of this
+milestone's scope -- flagged, not resolved here.
+
+`cargo test -p cartalith-civ`: 60 lib tests + all golden fixtures green
+(10 new unit tests covering `civ_village_accept_prob`'s formula
+boundaries/monotonicity, `RoadProximityIndex`'s empty/populated cases,
+`suppression_radius_cells`, spacing-rejection, and the village cap).
+`cargo clippy -p cartalith-civ --all-targets`: clean, zero new warnings.
+`cargo test --workspace`/`cargo build --workspace`: no regressions.
+
+**Not implemented, milestones 13/14's own scope**: sea routes
+(`_civMstRoutes`), corridor consolidation/Catmull-Rom smoothing/road
+classification -- unaffected by this milestone, which only needed raw
+topology.
