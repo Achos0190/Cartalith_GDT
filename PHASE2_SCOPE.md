@@ -472,20 +472,58 @@ depth or ported. `_civSeedVillages`'s `ways` parameter is `civWays`, not
 `buildRoadNetwork`'s output. See `CHANGELOG.md`'s "Phase 2 milestone 11"
 entry for the full account.
 
-## Milestone 12 — civ auto-populate road network: `_civHierarchicalNetwork` (not yet scoped)
+## Milestone 12 — civ auto-populate road network: `_civHierarchicalNetwork` (current)
 
-Investigated 2026-08-16 (see milestone 11's "done" note above for the
-full finding): this is the real dependency `_civSeedVillages` needs, not
-`buildRoadNetwork` (milestone 11 — real, useful, but for the *manual*
-placement tool only). `_civHierarchicalNetwork` + `_civMstRoutes` +
-`_civPreferSeaRoutes` have not been read in depth yet — read them fully
-before writing a scope boundary here, the same discipline every prior
-milestone in this document already followed (milestone 1's investigation
-of `currentSettlementSuitability`, milestone 8's investigation of
-territory, milestone 11's own investigation of roads). Do not assume this
-is the same size/shape as `buildRoadNetwork` — `civWays`'s own comment
-("auto-generated road/**sea** network") and the presence of three
-cooperating functions rather than one suggest it may be larger.
+Investigated further 2026-08-16: confirmed substantially larger than
+milestone 11's `buildRoadNetwork`, not a same-shape sibling. Real
+dependency graph, all reference-line-numbered (verify against the live
+file, this session's numbers drift):
+
+- `_civHierarchicalNetwork` (~21526) — the entry point. Two-pass: **Pass
+  1** builds a Prim MST over a no-reuse cost grid (same MST shape
+  milestone 11 already has real, tested code for — check whether it's
+  reusable here or needs its own copy given the surrounding differences).
+  **Pass 2** re-runs Dijkstra over a *reuse-discounted* cost grid (roads
+  already used are cheaper to extend) and fills every settlement up to a
+  **minimum degree by tier** (`capital/metropolis:5, city:4, town:3,
+  village:2, hamlet:1`) with shortcut edges the MST alone doesn't provide
+  — a real, deliberate second structural pass, not a refinement of pass 1.
+- `_civEnhancedTravelCost` (~20958) — a richer cost model than milestone
+  11's `buildTravelCost`, taking a `usageCount` raster (nullable — null on
+  pass 1, real on pass 2, which is *how* the reuse-discount works).
+- `_civRoutingGrid` (~21022) — a downsampled routing grid distinct from
+  full resolution (`RW`/`RH`/`sc` — check what resolution/why, likely the
+  same "pathfind on a downsampled grid, road precision doesn't need full
+  res" reasoning `buildRoadsOp` already used at milestone 11's own call
+  site).
+- `_civApplySettlementGravity` (~21119) — soft-attracts routes through
+  intermediate settlements near a corridor (so A→C routes via B when B is
+  close to the line), applied on *both* passes.
+- `_civMstRoutes` (~21240), `_civPreferSeaRoutes` (~21389) — not yet read
+  in detail; `_civPreferSeaRoutes` implies actual sea-lane routing is part
+  of this system (`civWays`'s own comment: "auto-generated road/**sea**
+  network") — a real scope question: is sea-lane routing this milestone's
+  job or a natural sub-split, given it needs its own water-crossing cost
+  model distinct from the land-only `_isValidLand` gate
+  `_civHierarchicalNetwork` itself uses (`sea:false on every emitted way`
+  per its own v1.99 comment — meaning `_civHierarchicalNetwork` itself is
+  LAND-ONLY, and sea routing is a separate concern layered on by one of
+  the other two functions, not inside this one).
+- `opts.existingWays` (v1.64) — lets manually-drawn roads discount the
+  auto-network's cost near them so it converges onto rather than
+  duplicates manual work. Real but **optional/additive** (absent input ⇒
+  unchanged behaviour) — a plausible thing to defer to a later pass since
+  this port has no manual road-drawing tool yet for it to matter to.
+
+**Whoever implements this**: read `_civMstRoutes`/`_civPreferSeaRoutes`
+fully before committing to whether this is one milestone or needs
+splitting again (the same judgment call that split milestone 4 into
+4+5) — this doc's own size estimate here may still be short. Land-only
+network (`_civHierarchicalNetwork` + its direct helpers, `existingWays`
+integration deferred) is the more clearly-bounded core; sea routes may
+warrant their own follow-up milestone once the land network is real and
+tested, the same way this project has repeatedly separated a clean core
+from an adjacent extension rather than bundling both.
 
 ## Done means (per milestone, not once for the whole phase)
 
