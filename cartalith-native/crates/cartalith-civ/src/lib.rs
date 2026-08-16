@@ -2555,6 +2555,298 @@ pub fn name_and_populate_settlements(placements: &[SettlementPlacement]) -> Vec<
         .collect()
 }
 
+// ===================== Milestone 11: road network algorithm =====================
+//
+// `PHASE2_SCOPE.md` milestone 11: `buildTravelCost`/`roadDijkstra`/
+// `buildRoadNetwork` (reference lines 3257/3275/3316). Placed in this
+// crate rather than a new one -- the reference's own block-1 placement
+// (well before the civ block, line ~12000+) is a real signal, weighed and
+// rejected: `ARCHITECTURE.md` says "later subsystems (civ, urban
+// morphology, assets) arrive as new crates depending on
+// `cartalith-engine`'s public types" and names `cartalith-civ` for this
+// exact phase (`ROADMAP.md`). Road connectivity between settlements is
+// conceptually a civ-layer concern regardless of which reference script
+// block happened to define the pure function first; this crate already
+// depends on `cartalith-engine::WorldState` read-only with zero `gdext`,
+// the same shape a new crate would have to duplicate for no real benefit
+// (`ponytail`: no second crate until something actually needs the split).
+//
+// Caller-agnostic on purpose: this ports the algorithm only, not
+// `buildRoadsOp()` (reads `state.places`, user-clicked map markers, a
+// distinct manual-placement tool) and not any civ-auto-populate wiring.
+
+/// `roadDijkstra`'s own local min-heap (reference lines 3286-3288) is a
+/// DIFFERENT precision regime from this crate's existing `MinHeap`
+/// (used by `build_water_bodies`): the reference's v1.89 comment confirms
+/// a Float32Array-backed heap was tried here and measured WORSE (reverted)
+/// -- `roadDijkstra` deliberately keeps a PLAIN (untyped, therefore
+/// double/`f64`) JS array heap. `build_water_bodies`'s heap stores true
+/// `f32` priorities (its `filled` array is genuinely `Float32Array`-backed
+/// in the reference); this heap stores `f64` priorities computed fresh
+/// each push (`nd`, `cartalith-rust-conventions`: f32 fields read-promote
+/// to f64 for arithmetic, matching JS). Reusing the crate's f32 `MinHeap`
+/// here would silently diverge from the reference -- this is the exact
+/// "Float64 push priorities vs Float32 dist array" mismatch the
+/// reference's own v0.70 comment documents as load-bearing, not
+/// incidental.
+struct DijkstraHeap {
+    p: Vec<f64>,
+    v: Vec<usize>,
+}
+
+impl DijkstraHeap {
+    fn with_capacity(cap: usize) -> Self {
+        DijkstraHeap { p: Vec::with_capacity(cap), v: Vec::with_capacity(cap) }
+    }
+
+    fn size(&self) -> usize {
+        self.p.len()
+    }
+
+    /// Sift-up break condition `p[parent] <= p[child]` -- reference:
+    /// `if(hp[par]<=hp[i])break;`.
+    fn push(&mut self, pr: f64, va: usize) {
+        self.p.push(pr);
+        self.v.push(va);
+        let mut i = self.p.len() - 1;
+        while i > 0 {
+            let pa = (i - 1) / 2;
+            if self.p[pa] <= self.p[i] {
+                break;
+            }
+            self.p.swap(pa, i);
+            self.v.swap(pa, i);
+            i = pa;
+        }
+    }
+
+    /// Sift-down child selection strict `<` -- reference:
+    /// `if(l<m&&hp[l]<hp[s])s=l; if(r<m&&hp[r]<hp[s])s=r;`.
+    fn pop(&mut self) -> usize {
+        let rv = self.v[0];
+        let last = self.p.len() - 1;
+        if last > 0 {
+            self.p[0] = self.p[last];
+            self.v[0] = self.v[last];
+        }
+        self.p.pop();
+        self.v.pop();
+        let m = self.p.len();
+        let mut i = 0usize;
+        loop {
+            let l = 2 * i + 1;
+            let r = 2 * i + 2;
+            let mut s = i;
+            if l < m && self.p[l] < self.p[s] {
+                s = l;
+            }
+            if r < m && self.p[r] < self.p[s] {
+                s = r;
+            }
+            if s == i {
+                break;
+            }
+            self.p.swap(s, i);
+            self.v.swap(s, i);
+            i = s;
+        }
+        rv
+    }
+}
+
+/// `buildTravelCost` (reference line 3257): slope^2 travel cost, water
+/// cells impassable (`Infinity`). `slopeK=50`/`waterCost=Infinity` are the
+/// reference's own `opts` defaults -- no caller in this port's current
+/// scope needs a non-default value, so they're hardcoded rather than an
+/// options surface nobody constructs differently yet (`ponytail`).
+pub fn build_travel_cost(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32> {
+    const SLOPE_K: f64 = 50.0;
+    let n = gw * gh;
+    let mut cost = vec![0.0f32; n];
+    for y in 0..gh {
+        for x in 0..gw {
+            let i = y * gw + x;
+            if (field[i] as f64) < sea {
+                cost[i] = f32::INFINITY;
+                continue;
+            }
+            let xl = if x > 0 { field[i - 1] as f64 } else { field[i] as f64 };
+            let xr = if x < gw - 1 { field[i + 1] as f64 } else { field[i] as f64 };
+            let yt = if y > 0 { field[i - gw] as f64 } else { field[i] as f64 };
+            let yb = if y < gh - 1 { field[i + gw] as f64 } else { field[i] as f64 };
+            let slope = ((xr - xl) * 0.5).hypot((yb - yt) * 0.5);
+            cost[i] = (1.0 + SLOPE_K * slope * slope) as f32;
+        }
+    }
+    cost
+}
+
+/// `roadDijkstra` (reference line 3275): single-source Dijkstra over an
+/// 8-neighbour cost grid, diagonal steps x sqrt(2), optional x-wrap.
+/// Returns `(dist, prev)` -- `dist[i]=Infinity` unreachable, `prev[i]=-1`
+/// no predecessor.
+///
+/// Only the scalar single-source case is ported. The reference's own
+/// v1.71 multi-source variant (`sx` as an array) has no caller in this
+/// port's current scope (`_civRoadProximityQuery`/`_civSeedVillages`,
+/// `PHASE2_SCOPE.md` milestone 12+); every in-scope call site
+/// (`build_road_network`, below) passes a scalar source, so porting the
+/// array branch now would be an abstraction with no caller (`ponytail`).
+///
+/// The `edgeCost` (v1.98 optional directional-cost callback) parameter is
+/// also omitted -- no call site in this port's scope passes one, and the
+/// reference's own comment confirms every such call site is bit-identical
+/// to the unconditional `(dx&&dy?SQ2:1)*0.5*(cost[i]+cost[j])` path ported
+/// here.
+fn road_dijkstra(cost: &[f32], gw: usize, gh: usize, sx: usize, sy: usize, world: bool) -> (Vec<f32>, Vec<i32>) {
+    // Bit-identical to the reference's own literal `1.4142135623730951`
+    // (both parse to the same nearest f64) -- named per clippy's
+    // approx_constant lint rather than kept as a literal.
+    const SQ2: f64 = std::f64::consts::SQRT_2;
+    let n = gw * gh;
+    let mut dist = vec![f32::INFINITY; n];
+    let mut prev = vec![-1i32; n];
+    let mut heap = DijkstraHeap::with_capacity(n);
+    let si = sy * gw + sx;
+    dist[si] = 0.0;
+    heap.push(0.0, si);
+    let mut visited = vec![false; n];
+    while heap.size() > 0 {
+        let i = heap.pop();
+        if visited[i] {
+            continue;
+        }
+        visited[i] = true;
+        let d = dist[i] as f64;
+        if d.is_infinite() {
+            break;
+        }
+        let x = (i % gw) as isize;
+        let y = (i / gw) as isize;
+        for dy in -1isize..=1 {
+            for dx in -1isize..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let nx = if world {
+                    (((x + dx) % gw as isize) + gw as isize) % gw as isize
+                } else {
+                    let v = x + dx;
+                    if v < 0 || v >= gw as isize {
+                        continue;
+                    }
+                    v
+                };
+                let ny = y + dy;
+                if ny < 0 || ny >= gh as isize {
+                    continue;
+                }
+                let j = ny as usize * gw + nx as usize;
+                let step = (if dx != 0 && dy != 0 { SQ2 } else { 1.0 }) * 0.5 * (cost[i] as f64 + cost[j] as f64);
+                let nd = d + step;
+                if nd < dist[j] as f64 {
+                    dist[j] = nd as f32;
+                    prev[j] = i as i32;
+                    heap.push(nd, j);
+                }
+            }
+        }
+    }
+    (dist, prev)
+}
+
+/// A road-network edge: `a`/`b` are indices into the `places` slice given
+/// to `build_road_network`, `path` is the sequence of cell indices from
+/// `b` back to `a` (inclusive), reconstructed by walking `a`'s own
+/// Dijkstra `prev` tree -- matching the reference's own path order
+/// (`path.push(c)` starting from `b`'s cell), not reversed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoadEdge {
+    pub a: usize,
+    pub b: usize,
+    pub path: Vec<usize>,
+}
+
+/// `buildRoadNetwork` (reference line 3316): Prim's MST over `places`
+/// using cost-distance (`road_dijkstra`, run once per place as edge
+/// weights). Place index `0` is always the deterministic MST root
+/// (reference: `best[0]=0`, every other place starts `Infinity`) -- not
+/// "nearest to some external point"; a caller wanting a specific root
+/// orders `places` accordingly. Places on an unreachable landmass
+/// correctly get no edge (`bu===Infinity` break); `places.len()<2`
+/// short-circuits to no edges, matching the reference's own guard. Only
+/// `place.x`/`place.y` are read (matching the reference, which only reads
+/// `places[s].x`/`.y` throughout) -- callers pass `SettlementPlacement`
+/// for ergonomic real-pipeline use, not because every other field
+/// matters here.
+pub fn build_road_network(places: &[SettlementPlacement], cost: &[f32], gw: usize, gh: usize, world: bool) -> Vec<RoadEdge> {
+    let p_count = places.len();
+    if p_count < 2 {
+        return Vec::new();
+    }
+    let idx_of = |p: &SettlementPlacement| -> usize {
+        let cx = p.x.min(gw - 1);
+        let cy = p.y.min(gh - 1);
+        cy * gw + cx
+    };
+    let mut dists: Vec<Vec<f32>> = Vec::with_capacity(p_count);
+    let mut prevs: Vec<Vec<i32>> = Vec::with_capacity(p_count);
+    for place in places {
+        let sx = place.x.min(gw - 1);
+        let sy = place.y.min(gh - 1);
+        let (dist, prev) = road_dijkstra(cost, gw, gh, sx, sy, world);
+        dists.push(dist);
+        prevs.push(prev);
+    }
+    let mut in_tree = vec![false; p_count];
+    let mut best = vec![f64::INFINITY; p_count];
+    let mut from = vec![-1i32; p_count];
+    let mut edges = Vec::new();
+    best[0] = 0.0;
+    for _ in 0..p_count {
+        let mut u: i32 = -1;
+        let mut bu = f64::INFINITY;
+        for k in 0..p_count {
+            if !in_tree[k] && best[k] < bu {
+                bu = best[k];
+                u = k as i32;
+            }
+        }
+        if u < 0 || bu.is_infinite() {
+            break;
+        }
+        let u = u as usize;
+        in_tree[u] = true;
+        if from[u] >= 0 {
+            let a = from[u] as usize;
+            let b = u;
+            let mut path = Vec::new();
+            let mut c: i64 = idx_of(&places[b]) as i64;
+            let target: i64 = idx_of(&places[a]) as i64;
+            let mut guard = gw * gh;
+            while c >= 0 && guard > 0 {
+                guard -= 1;
+                path.push(c as usize);
+                if c == target {
+                    break;
+                }
+                c = prevs[a][c as usize] as i64;
+            }
+            edges.push(RoadEdge { a, b, path });
+        }
+        for k in 0..p_count {
+            if !in_tree[k] {
+                let d = dists[u][idx_of(&places[k])] as f64;
+                if d < best[k] {
+                    best[k] = d;
+                    from[k] = u as i32;
+                }
+            }
+        }
+    }
+    edges
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2962,5 +3254,76 @@ mod tests {
         let (faction_of, capital_of) = assign_landmass_factions(&candidates, 6);
         assert_ne!(faction_of[0], faction_of[1], "distinct landmasses get distinct faction ids");
         assert!(capital_of[0] && capital_of[1], "each landmass's sole candidate is its own capital");
+    }
+
+    #[test]
+    fn build_travel_cost_water_is_infinite_land_is_finite() {
+        // 3x3, sea=0.5: row 0 water, rows 1-2 land, all flat (no slope term).
+        let field = vec![0.1, 0.1, 0.1, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8];
+        let cost = build_travel_cost(&field, 3, 3, 0.5);
+        assert!(cost[0].is_infinite() && cost[1].is_infinite() && cost[2].is_infinite());
+        // Cell 7 (row2,col1): all 4 neighbours (row1/row2, clamped at the
+        // bottom edge) are the same flat 0.8 land value, so it's the one
+        // interior cell with genuinely zero slope -- cell 4 sits directly
+        // on the water/land boundary and picks up a real slope term from
+        // its water neighbour, which is correct algorithm behaviour, not
+        // a bug (verified by hand before writing this fixture).
+        assert!((cost[7] - 1.0).abs() < 1e-6, "flat land cost should be exactly 1.0, got {}", cost[7]);
+    }
+
+    #[test]
+    fn road_dijkstra_flat_grid_diagonal_uses_sqrt2() {
+        // 3x3 flat land, cost=1 everywhere. Source at (0,0).
+        let cost = vec![1.0f32; 9];
+        let (dist, _prev) = road_dijkstra(&cost, 3, 3, 0, 0, false);
+        assert!((dist[0] - 0.0).abs() < 1e-6, "source distance should be 0");
+        assert!((dist[1] - 1.0).abs() < 1e-5, "orthogonal step should cost 1.0, got {}", dist[1]);
+        let sq2 = std::f64::consts::SQRT_2 as f32;
+        assert!((dist[4] - sq2).abs() < 1e-4, "diagonal step should cost sqrt(2), got {}", dist[4]);
+    }
+
+    #[test]
+    fn road_dijkstra_impassable_water_stays_unreachable() {
+        // 1x3 strip, middle cell impassable -> the far end is unreachable from the source.
+        let cost = vec![1.0f32, f32::INFINITY, 1.0f32];
+        let (dist, prev) = road_dijkstra(&cost, 3, 1, 0, 0, false);
+        assert!((dist[0] - 0.0).abs() < 1e-6);
+        assert!(dist[2].is_infinite(), "cell past an infinite-cost barrier should stay unreachable");
+        assert_eq!(prev[2], -1);
+    }
+
+    #[test]
+    fn build_road_network_two_places_flat_terrain_one_edge() {
+        let cost = vec![1.0f32; 25]; // 5x5 flat land
+        let places = vec![
+            SettlementPlacement { x: 0, y: 0, suit: 0.5, faction: 1, capital: true, kind: SettlementKind::Capital, coastal: false },
+            SettlementPlacement { x: 4, y: 4, suit: 0.5, faction: 1, capital: false, kind: SettlementKind::Town, coastal: false },
+        ];
+        let edges = build_road_network(&places, &cost, 5, 5, false);
+        assert_eq!(edges.len(), 1, "two mutually-reachable places should produce exactly one MST edge");
+        assert_eq!(edges[0].a, 0);
+        assert_eq!(edges[0].b, 1);
+        assert_eq!(*edges[0].path.first().unwrap(), 4 * 5 + 4, "path starts at b's cell");
+        assert_eq!(*edges[0].path.last().unwrap(), 0, "path ends at a's cell");
+    }
+
+    #[test]
+    fn build_road_network_unreachable_landmass_gets_no_edge() {
+        // 1x5 strip, cell 2 impassable -> splits it into two unreachable halves.
+        let cost = vec![1.0f32, 1.0, f32::INFINITY, 1.0, 1.0];
+        let places = vec![
+            SettlementPlacement { x: 0, y: 0, suit: 0.5, faction: 1, capital: true, kind: SettlementKind::Capital, coastal: false },
+            SettlementPlacement { x: 4, y: 0, suit: 0.5, faction: 1, capital: false, kind: SettlementKind::Town, coastal: false },
+        ];
+        let edges = build_road_network(&places, &cost, 5, 1, false);
+        assert!(edges.is_empty(), "places split by an impassable barrier should get no road edge");
+    }
+
+    #[test]
+    fn build_road_network_fewer_than_two_places_returns_no_edges() {
+        let cost = vec![1.0f32; 9];
+        let places = vec![SettlementPlacement { x: 0, y: 0, suit: 0.5, faction: 1, capital: true, kind: SettlementKind::Capital, coastal: false }];
+        assert!(build_road_network(&places, &cost, 3, 3, false).is_empty());
+        assert!(build_road_network(&[], &cost, 3, 3, false).is_empty());
     }
 }

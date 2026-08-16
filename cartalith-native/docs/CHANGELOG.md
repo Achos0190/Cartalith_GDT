@@ -3441,3 +3441,97 @@ unchanged from milestone 8's own finding -- no auto-generation path exists
 anywhere in the reference, purely interactive paint + save/load. Remains
 blocked on a real design decision (raised with the owner), not scoped
 further here.
+
+## Phase 2 milestone 11: road network algorithm -- `buildTravelCost`/`roadDijkstra`/`buildRoadNetwork` (2026-08-16)
+
+Ported `buildTravelCost` (reference line 3257), `roadDijkstra` (3275), and
+`buildRoadNetwork` (3316) to `cartalith-civ`. Investigated (per
+`PHASE2_SCOPE.md` milestone 11) before starting: `_civSeedVillages` reads
+`ways` via `_civRoadProximityQuery`, genuinely blocked on a real road
+network existing, not a false blocker; roads themselves turned out
+reachable now, since these three functions are pure block-1 code (the
+reference's own comment on `buildRoadNetwork` says so outright: "Pure").
+
+**Crate placement, decided and documented rather than defaulted**: these
+functions live in block 1 of the reference (well before the civ block),
+a real signal weighed against `ARCHITECTURE.md`'s own text -- "later
+subsystems (civ, urban morphology, assets) arrive as new crates depending
+on `cartalith-engine`'s public types" naming `cartalith-civ` for exactly
+this phase (`ROADMAP.md`). Road connectivity between settlements is
+conceptually civ-layer regardless of which reference script block defined
+the pure function first, and a new crate would duplicate `cartalith-civ`'s
+existing zero-`gdext`/`WorldState`-read-only shape for no real benefit.
+Landed in `cartalith-civ`.
+
+**A genuine precision-regime distinction caught by reading the reference's
+own comments, not by pattern-matching this crate's existing `MinHeap`**:
+`roadDijkstra`'s own local heap is a DIFFERENT precision regime from
+`build_water_bodies`'s (milestone 2) `f32`-priority `MinHeap`. The
+reference's v1.89 comment confirms a `Float32Array`-backed heap was tried
+here and measured WORSE (reverted) -- `roadDijkstra` deliberately keeps a
+plain (untyped, therefore `f64`) JS array heap, matching the v0.70 comment's
+documented "Float64 push priorities vs Float32 `dist` array" mismatch
+(the actual fix for a real historical bug: a lazy heap pushing duplicate
+entries that round-compare-equal at `f32` precision could re-push without
+bound). Reusing the crate's existing `f32` heap here would have silently
+diverged from the reference. Added a distinct `DijkstraHeap` (`f64`
+priorities) rather than generalising the existing one -- same sift-up/
+sift-down comparison operators (`<=`/`<`), different priority type,
+genuinely a different heap instance per the reference's own design.
+
+**Deliberately narrower than the reference's full API, with reasons
+recorded, not silently dropped**: only the scalar single-source case of
+`roadDijkstra` is ported (the reference's own v1.71 multi-source array
+variant has no in-scope caller -- every call site this milestone reaches
+passes a scalar source); the `edgeCost` v1.98 optional directional-cost
+callback is omitted (no call site in scope passes one, and the reference's
+own comment confirms every such call site is bit-identical to the
+unconditional path ported here).
+
+**Golden verification**: built a fresh Node harness needing only block 1
+(2084-14556) -- unlike milestone 9, no civ-block code is needed here.
+Reused milestone 9's own already-verified settlement `(x,y)` pairs
+directly as `places` rather than re-deriving the civ pipeline in JS
+(`build_road_network` only reads `.x`/`.y`, matching the reference's own
+`buildRoadNetwork`). Stripped the reference's trailing "v0.67: boot"
+auto-generate call from the extracted source (`GW=state.resW; GH=gridH(GW);
+allocate(); withBusy('generating…',generate);`) -- left in place, it would
+auto-run `generate()` with wrong parameters before the harness driver gets
+a chance to set `state.tect.seed`/`GW`/`GH`, the same class of pitfall
+milestone 9 hit with the auto-boot's `allocate()` call.
+`field[0..5]` cross-checked against `golden_parity_carve.rs`'s trusted
+values before trusting the extraction -- matched exactly, both cases.
+Both fixture cases passed at `1e-4` (cost field) / bit-exact (edge
+topology, cell-index paths) on the first attempt.
+
+**Real terrain data exercised the "unreachable place" branch, not a
+synthetic-only test**: case0's 3 places produce only ONE MST edge, not the
+two a fully-connected 3-node MST would have -- place index 1 sits on a
+landmass the cost-distance search from place 0 never reaches in this
+generated world, so the Prim loop's `bu===Infinity` guard correctly
+breaks early. Confirmed by a synthetic unit test covering the same branch
+deliberately, then found again for real by the golden fixture.
+
+- `cargo test/clippy -p cartalith-civ --all-targets`: clean (47 unit + 22
+  golden tests). `cargo test/build/clippy --workspace`: no regressions.
+
+**Investigated for milestone 12, not implemented**: does the civ
+auto-populate flow (`_civIterativeAutoWorld`) ever call `buildRoadNetwork`
+to connect its own auto-placed settlements? **No** -- grepped every call
+site of `buildRoadNetwork`/`buildTravelCost` in the reference: the only
+caller is `buildRoadsOp()` (line 4816), which reads `state.places` (the
+*manual*, user-clicked marker list, a distinct tool from the civ
+auto-populate settlements milestones 8-9 built). The civ auto-populate
+flow's own road system is a **different, larger** algorithm entirely:
+`civWays` (line 14758, genuinely "auto-generated," unlike `civTerritory`)
+is built by `_civHierarchicalNetwork` (land routes) + `_civMstRoutes`
+(sea routes, port-to-port) + `_civPreferSeaRoutes` (chooses land vs. sea
+per edge by cost, preserving connectivity) -- none of which this milestone
+ported or read in depth. `_civSeedVillages`'s `ways` parameter is
+`civWays`, not `buildRoadNetwork`'s output -- **milestone 11's work does
+not unblock village seeding**; that needs `_civHierarchicalNetwork` (a
+separate, larger port) first. What milestone 11 *does* provide, real and
+useful on its own: the algorithm behind the manual "Generate Roads" tool
+(`buildRoadsOp`), reachable as a future Godot-UI feature independent of
+the civ auto-populate pipeline. Recording this precisely so milestone 12
+isn't scoped on the wrong assumption.

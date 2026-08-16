@@ -400,7 +400,7 @@ needs `buildTravelCost`/`roadDijkstra` real and tested. Check on
 completion whether milestone 11's Rust API is directly reusable here
 (single-source Dijkstra called once per capital) without modification.
 
-## Milestone 11 — road network algorithm (current)
+## Milestone 11 — road network algorithm: **done** (2026-08-16)
 
 Investigated 2026-08-16, choosing between the remaining candidates:
 `_civSeedVillages` (reference line ~25164) reads `ways` (a road network)
@@ -439,19 +439,53 @@ settlements milestones 8-9 built) and not whatever step (if any)
 settlements — that wiring is a separate, later step, investigate it before
 assuming its shape once this milestone's algorithm is real and tested.
 
-**Out of scope for this milestone**: `_civSeedVillages` (unblocked by this
-landing, but its own milestone, needs a fresh look at what `ways` actually
-needs to look like once real roads exist), the Journey Planner itself
+**Out of scope for this milestone**: the Journey Planner itself
 (`jpJourneyCost` and everything around it — `ROADMAP.md` already calls
-this its own large sub-phase), territory/provinces (milestone 10, still
-blocked on the owner).
+this its own large sub-phase), territory/provinces (milestone 10).
 
-**Where the code goes**: check whether this belongs in `cartalith-civ`
-(matching every other milestone) or a lower-level crate — `buildRoadNetwork`
-lives in block 1 of the reference (line ~3316, well before the civ block
-starts around line 12000+), which is a genuine signal worth weighing
-against `ARCHITECTURE.md`'s crate boundaries before assuming `cartalith-civ`
-by default the way every prior milestone did.
+**Where the code goes**: decided, not defaulted — landed in `cartalith-civ`.
+`buildRoadNetwork` lives in block 1 of the reference (well before the civ
+block), a real signal, but weighed against `ARCHITECTURE.md`'s own text
+("later subsystems (civ, urban morphology, assets) arrive as new crates..."
+naming `cartalith-civ` for this phase) and this crate's existing zero-
+`gdext`/`WorldState`-read-only shape (a new crate would duplicate it for
+no benefit) — `cartalith-civ` wins.
+
+**Done.** All three functions ported, golden-verified (cost field `1e-4`,
+edge topology bit-exact), both fixture cases, first attempt. A real
+distinct-precision-regime heap needed (not reusable from milestone 2's
+`MinHeap` — `roadDijkstra`'s own heap is `f64`-priority per the
+reference's own v1.89 comment, a genuinely different regime, not a style
+choice). Real terrain data exercised the "unreachable landmass" MST branch,
+not just a synthetic unit test. **A wrong assumption in this section's own
+original text, corrected by investigation, not left standing**: the note
+above claimed `_civSeedVillages` would be "unblocked by this landing" —
+false. Investigated for milestone 12 and found `buildRoadNetwork` only
+ever serves the *manual* "Generate Roads" tool (`buildRoadsOp`, reads
+user-clicked `state.places`); the civ auto-populate flow's own road system
+(`civWays`, genuinely auto-generated per the reference's own line-14758
+comment) is built by a separate, larger algorithm —
+`_civHierarchicalNetwork` (land routes) + `_civMstRoutes` (sea routes,
+port-to-port) + `_civPreferSeaRoutes` (cost-compares land vs. sea per
+edge, preserves connectivity) — none of which this milestone read in
+depth or ported. `_civSeedVillages`'s `ways` parameter is `civWays`, not
+`buildRoadNetwork`'s output. See `CHANGELOG.md`'s "Phase 2 milestone 11"
+entry for the full account.
+
+## Milestone 12 — civ auto-populate road network: `_civHierarchicalNetwork` (not yet scoped)
+
+Investigated 2026-08-16 (see milestone 11's "done" note above for the
+full finding): this is the real dependency `_civSeedVillages` needs, not
+`buildRoadNetwork` (milestone 11 — real, useful, but for the *manual*
+placement tool only). `_civHierarchicalNetwork` + `_civMstRoutes` +
+`_civPreferSeaRoutes` have not been read in depth yet — read them fully
+before writing a scope boundary here, the same discipline every prior
+milestone in this document already followed (milestone 1's investigation
+of `currentSettlementSuitability`, milestone 8's investigation of
+territory, milestone 11's own investigation of roads). Do not assume this
+is the same size/shape as `buildRoadNetwork` — `civWays`'s own comment
+("auto-generated road/**sea** network") and the presence of three
+cooperating functions rather than one suggest it may be larger.
 
 ## Done means (per milestone, not once for the whole phase)
 
