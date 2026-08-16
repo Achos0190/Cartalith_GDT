@@ -89,26 +89,54 @@ editor-bridge biome-paint auto-fill) confirmed out of scope — no consumer
 exists anywhere in this port (no painting UI, no editor integration) —
 not implemented. See `CHANGELOG.md`'s "Phase 2 milestone 3" entry.
 
-## Milestone 4 — resource potentials, carrying capacity, population density (current)
+## Milestone 4 — carrying capacity, NPP, population density (current)
 
-Reference's own next real boundary after biome classification (v0.105–
-v0.106 follow-up to milestone 1's v0.104 affordance-field foundation).
-Confirmed before this milestone starts:
+Split out from resource potentials after checking real size (2026-08-16):
+`buildResourcePotentials` (reference lines 6085–6193, ~108 lines, 9
+resource-type scoring rules) is substantially larger than the other three
+functions here (`buildCarryingCapacity` ~15 lines at 6238,
+`estimateRegionalDensityKm2` ~21 lines at 6217, `biomeDensityResidual` and
+`buildNPP` both small) — bundling it in would make this milestone
+disproportionate. It becomes its own milestone 5.
 
-- `boundary_type`/`shear_field` (needed by `buildResourcePotentials`)
-  **already exist** in `cartalith-terrain`'s tectonic-substrate output —
-  check whether they're retained on `WorldState` or need the same fix
-  `crust_field` got in milestone 1 (computed but discarded past
-  `generate_terrain`).
-- `buildCarryingCapacity` needs only already-real inputs (soil, water
-  access, biome, temp, field) plus `buildWetlandMask` (small, reference
-  line ~6839, not yet ported).
-- `buildNPP`/`currentNPP` (net primary productivity, reference line 6613)
-  — needed for population density specifically, not carrying capacity —
-  **does not exist in this port yet**. A real gap to close, not assumed
-  reachable just because biome classification landed.
+**In scope**:
+- `buildCarryingCapacity` (line 6238) — soil × temperature-bell × water
+  modifier × biome-density-residual. Needs `biomeDensityResidual` (line
+  6193, one-line lookup) and `WETLAND_DENSITY_RESIDUAL` (small const) plus
+  `buildWetlandMask` (reference line ~6839, small, not yet ported). All
+  already-real inputs otherwise (soil, water access, biome, temp, field —
+  all from milestones 1–3).
+- `buildNPP` (line 6497) — Miami-model net primary productivity from
+  temp/rain. Simple, already-real inputs.
+- `estimateRegionalDensityKm2` (line 6217) — population density; reads
+  carrying capacity + water access + biome + NPP, all real once the above
+  two land.
 
-Then settlement suitability/seed-finding, then
+**Out of scope for this milestone**: `buildResourcePotentials` (needs
+`boundary_type`/`shear_field` — confirmed already computed in
+`cartalith-terrain`'s tectonic substrate, but check whether retained on
+`WorldState` or need the same fix `crust_field` got in milestone 1 — and
+9 distinct per-resource scoring rules; genuinely milestone 5's own scope,
+not this one's).
+
+## Milestone 5 — resource potentials (not yet started)
+
+`buildResourcePotentials` (reference lines 6085–6193). Needs
+`boundary_type`/`shear_field` retained on `WorldState` (verify/fix per
+above), plus lithology (real, milestone 1), flow field (real), biome
+(real, milestone 3), field/rain/age (real). `SUIT_RESOURCE_KEYS` (9 ore
+types: copper/tin/iron/gold/salt/timber/lead/silver/gems — note block 2's
+own `CIV_RESOURCE_KEYS` is a *different*, larger vocabulary per the
+reference's own comment at line ~6293; this milestone ports only the
+block-1 ore subset, not the full civ resource list). Read the full
+function before scoping further — 108 lines may itself split into
+sub-passes once its actual structure is clear.
+
+## Milestone 6+ — not yet scoped
+
+Settlement suitability/seed-finding (needs milestone 5 plus route
+corridors, landmass quality, coast SDF — none built, check what those
+actually require once reachable), then
 factions/territory/provinces/economy, then roads (`ROADMAP.md` already
 calls the Journey Planner its own sub-phase) — each scoped when reachable,
 not speculatively now.
