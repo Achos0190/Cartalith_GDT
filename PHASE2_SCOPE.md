@@ -543,32 +543,74 @@ not yet ported) deferred to milestone 14 below. See `CHANGELOG.md`'s
 `river_flow_thresh` parameter bug (hardcoded map width) caught before it
 shipped.
 
-## Milestone 13 — sea routes: `_civMstRoutes` (not yet started)
+## Milestone 13 — sea routes: `_civMstRoutes`: **done** (2026-08-16)
 
 Confirmed genuinely separate from milestone 12's land network, not a
-same-shape sibling: current/wind-costed sea edges
-(`_civSeaTimeEdgeCost`, needs ocean-current/wind fields), sea-lane
-augmentation beyond the bare MST tree, and Catmull-Rom path smoothing
-(`_civSmoothPath`, needed here too — see milestone 14). Called only with
-`isSea=true` at every real call site found so far; the `isSea=false` land-
-route branch may be dead code in production (not yet confirmed either
-way).
+same-shape sibling, by reading the reference directly: cost grids mark
+land `Infinity` (not merely expensive — the reference's own fix-history
+comment explains a finite land cost let paths cut across jagged
+downsampled coastline pixels, which smoothing then exaggerated into
+visible loops), ports snap to the nearest navigable-ocean cell at radius
+10 (wider than milestone 12/14's radius 6 on a different cost grid — a
+real reference difference, not a typo "fixed" into consistency), and a
+v0.73 sea-lane augmentation pass adds each port's single nearest
+sea-reachable port as a direct lane (capped at 1.15× the MST's own
+longest hop) beyond the bare Prim's-MST tree. Confirmed called only with
+`isSea=true` at the real production call site
+(`_civIterativeAutoWorld`, reference line ~25680: pushed unconditionally
+onto `civWays` whenever `ports.length>=2`, NOT gated behind
+`_civAutoRoutes`'s land-vs-sea cost comparison — that belongs to a
+separate manual "Auto routes" tool, confirmed out of scope by reading
+`_civAutoRoutes` itself). The `isSea=false` land-route branch has no
+confirmed real caller and is not ported.
 
-**Now more concretely scoped, following milestone 14**: `_civSmoothPath`
-is real and ported (`civ_smooth_path` in `cartalith-civ`), reusable
-as-is — `_civMstRoutes`'s own call site passes it a validity predicate,
-not a boolean, and this milestone only needs a second variant of that
-predicate alongside milestone 14's land-only one:
-`_civTerrainValidTest('ocean')` (valid iff water-body class 1
-specifically, excluding lakes — a small variant of `civ_is_valid_land`,
-not a new algorithm). The real unscoped work is still `_civMstRoutes`
-itself: its cost grid marks land `Infinity` (not merely expensive — the
-reference has a v1.xx fix note explaining why a finite land cost let
-paths cut across jagged coastline pixels, which smoothing then
-exaggerated into visible loops), `_civSeaTimeEdgeCost` (current/wind-field
-routing cost, not yet read), and the v0.73 nearest-reachable-port
-sea-lane augmentation pass (capped at 1.15× the MST's own longest edge).
-See `CHANGELOG.md`'s "Phase 2 milestone 14" entry for the full trace.
+`_civSmoothPath` (real, ported as `civ_smooth_path` in
+`cartalith-civ` — milestone 14) is reused as-is via a new `is_sea`
+parameter threaded through it and three sibling helpers
+(`civ_snap_finite`, `civ_is_valid_land`→`civ_is_valid_terrain`,
+`civ_nearest_valid_pt`), generalizing them to both land and ocean
+validity modes (`_civTerrainValidTest('land'|'ocean')`) rather than
+duplicating them — a surgical parameter addition on each, all four
+existing land-only call sites updated to pass their previous fixed
+values explicitly.
+
+**`_civSeaTimeEdgeCost` (current/wind-costed sea-lane pricing)
+deliberately NOT ported.** Read in full: its real inputs are the
+ocean-current and wind u/v vector fields, both computed internally
+(`apply_ocean_currents`/`deflect_flow`, already golden-verified
+elsewhere) but never retained on `WorldState` past that internal
+use — only the resulting SST/rainfall corrections survive. The
+reference's own code degrades gracefully when these fields are
+unavailable (`if(!oceanF&&!windF) return null` → caller falls back to
+`roadDijkstra`'s default uniform arithmetic-cost step), so this port
+takes that same documented fallback. **Real flagged follow-up**:
+wind/current-aware sea-lane costing, blocked on adding `WorldState`
+retention for the ocean-current/wind fields (out of this milestone's own
+scope, not silently dropped).
+
+Shipped as `civ_sea_routes` (+ `SeaRoute` struct) in `cartalith-civ`,
+golden-verified against two real cases reusing milestone 14's own
+already-verified case0/case1 fixtures (genuine mixed land/ocean/lake
+geography at both grids, not degenerate all-one-class) in
+`tests/golden_parity_sea_routes.rs` — matched the reference's real
+output exactly on the first run, including a genuine `_civSmoothPath`
+rounding quirk (two of case1's four routes carry `km:0` despite real
+points — `km` accumulates over rounded sample points *before* the
+function's own final endpoint-precision-restore step). Full record,
+including a real harness bug caught before trusting extraction
+(`generate()` is `async`; a bare unawaited call silently left `field` at
+its default-zero fill), in `CHANGELOG.md`'s "Phase 2 milestone 13"
+entry.
+
+**Not yet wired into `cartalith-godot`'s rendering** — the engine-side
+algorithm is done and golden-verified, but the UI/UX catch-up pass
+(`compute_civilisation()`, `map_overlay.gd`) hasn't reached sea routes
+yet. `_civIterativeAutoWorld`'s real merge (`ways.push(...)` alongside
+land ways) is a reasonable model to follow: sea routes are `Way`-shaped
+enough (`pts`/`brks`/`km`/`name`) to likely reuse the same rendering
+path milestone 14's UI/UX catch-up already built for land roads, once a
+`sea: true` (or equivalent) flag exists to distinguish styling if
+desired — not yet designed, flagged for whichever pass picks this up.
 
 ## Milestone 14 — corridor consolidation + path smoothing: **done** (2026-08-16)
 
@@ -578,7 +620,8 @@ family edges into deduplicated, Catmull-Rom-smoothed, classified
 Needed `_civSmoothPath` (also needed by milestone 13's sea routes — ported
 once, shared, see milestone 13's note above) and `_civTerrainValidTest`
 (ported narrowed to this network's one real call shape, `'land'` mode
-only — the `'ocean'` mode milestone 13 needs is not yet ported). Not
+only — the `'ocean'` mode was generalized in by milestone 13, now done).
+Not
 required for `_civSeedVillages` to function (it needs road-proximity
 distance, which raw unsmoothed edges already provide), but required for
 anything that actually *draws* roads on the map.

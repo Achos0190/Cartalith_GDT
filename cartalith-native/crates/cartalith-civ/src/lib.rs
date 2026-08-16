@@ -3098,11 +3098,11 @@ fn civ_apply_settlement_gravity(cost: &mut [f32], rw: usize, rh: usize, sc: f64,
 /// a ring-based rewrite would return a different cell on ties whenever more
 /// than one finite cell exists at the same minimal `r`, since the
 /// reference's own row-major first-match order is the tie-break.
-fn civ_snap_finite(cost: &[f32], rw: usize, rh: usize, rx: usize, ry: usize) -> usize {
+fn civ_snap_finite(cost: &[f32], rw: usize, rh: usize, rx: usize, ry: usize, max_r: isize) -> usize {
     if cost[ry * rw + rx].is_finite() {
         return ry * rw + rx;
     }
-    for r in 1isize..=6 {
+    for r in 1isize..=max_r {
         for dy in -r..=r {
             for dx in -r..=r {
                 let nx = (rx as isize + dx).clamp(0, rw as isize - 1) as usize;
@@ -3188,7 +3188,7 @@ pub fn civ_hierarchical_network_topology(
         .map(|p| {
             let rx = ((p.x as f64 * sc).round() as usize).min(rw - 1);
             let ry = ((p.y as f64 * sc).round() as usize).min(rh - 1);
-            civ_snap_finite(&cost1, rw, rh, rx, ry)
+            civ_snap_finite(&cost1, rw, rh, rx, ry, 6)
         })
         .collect();
     let res1: Vec<(Vec<f32>, Vec<i32>)> = rp1.iter().map(|&ri| road_dijkstra(&cost1, rw, rh, ri % rw, ri / rw, world)).collect();
@@ -3243,7 +3243,7 @@ pub fn civ_hierarchical_network_topology(
         .map(|p| {
             let rx = ((p.x as f64 * sc).round() as usize).min(rw - 1);
             let ry = ((p.y as f64 * sc).round() as usize).min(rh - 1);
-            civ_snap_finite(&cost2, rw, rh, rx, ry)
+            civ_snap_finite(&cost2, rw, rh, rx, ry, 6)
         })
         .collect();
     let res2: Vec<(Vec<f32>, Vec<i32>)> = rp2.iter().map(|&ri| road_dijkstra(&cost2, rw, rh, ri % rw, ri / rw, world)).collect();
@@ -3831,10 +3831,22 @@ fn civ_catmull_rom_sample(pts: &[(f64, f64)], step: f64) -> Vec<(f64, f64)> {
 /// `_civTerrainValidTest('land')` narrowed to this network's one real call
 /// shape (see this section's own header comment): land iff not water,
 /// against milestone 2's real water-body classification.
-fn civ_is_valid_land(x: f64, y: f64, gw: usize, gh: usize, water_bodies: &[u8]) -> bool {
+/// `_civTerrainValidTest('land')`/`'ocean'` (reference line 21843,
+/// narrowed to the two modes this crate's callers actually use). `land`:
+/// dry ground only (`water_bodies==0`). `ocean`: navigable ocean only
+/// (`water_bodies==1`), excluding lakes (`==2`) -- `_civMstRoutes`'s own
+/// comment on why: inland seas/lakes are separate unconnected water
+/// bodies with no path to ocean ports, and letting a sea route snap into
+/// one produced zero connectable pairs.
+fn civ_is_valid_terrain(x: f64, y: f64, gw: usize, gh: usize, water_bodies: &[u8], is_sea: bool) -> bool {
     let xi = if x < 0.0 { 0 } else if x >= gw as f64 { gw - 1 } else { js_round(x) as usize };
     let yi = if y < 0.0 { 0 } else if y >= gh as f64 { gh - 1 } else { js_round(y) as usize };
-    water_bodies[yi * gw + xi] == 0
+    let wb = water_bodies[yi * gw + xi];
+    if is_sea {
+        wb == 1
+    } else {
+        wb == 0
+    }
 }
 
 /// `_civNearestValidPt` (reference line 21872): bounded expanding-box
@@ -3842,7 +3854,7 @@ fn civ_is_valid_land(x: f64, y: f64, gw: usize, gh: usize, water_bodies: &[u8]) 
 /// (matching the reference's own -- redundant but correctness-preserving
 /// -- structure) so the first match in row-major (dy outer, dx inner)
 /// order is returned, not necessarily the Euclidean-nearest one.
-fn civ_nearest_valid_pt(x: i64, y: i64, gw: usize, gh: usize, water_bodies: &[u8], max_r: i64) -> (i64, i64) {
+fn civ_nearest_valid_pt(x: i64, y: i64, gw: usize, gh: usize, water_bodies: &[u8], max_r: i64, is_sea: bool) -> (i64, i64) {
     for r in 1..=max_r {
         for dy in -r..=r {
             for dx in -r..=r {
@@ -3850,7 +3862,9 @@ fn civ_nearest_valid_pt(x: i64, y: i64, gw: usize, gh: usize, water_bodies: &[u8
                 if nx < 0 || ny < 0 || nx >= gw as i64 || ny >= gh as i64 {
                     continue;
                 }
-                if water_bodies[ny as usize * gw + nx as usize] == 0 {
+                let wb = water_bodies[ny as usize * gw + nx as usize];
+                let valid = if is_sea { wb == 1 } else { wb == 0 };
+                if valid {
                     return (nx, ny);
                 }
             }
@@ -3868,9 +3882,14 @@ struct SmoothedPath {
 /// `_civSmoothPath` (reference line 21892): splits `raw` into runs at any
 /// `|dx| > gw/2` jump (world-wrap seam), RDP-simplifies then Catmull-Rom
 /// samples each run independently, repairs any resulting point that lands
-/// in water back onto land, then restores the run's own supplied
-/// full-precision endpoints (never moved by the repair pass).
-fn civ_smooth_path(raw: &[(f64, f64)], gw: usize, gh: usize, water_bodies: &[u8], map_width_km: f64) -> Option<SmoothedPath> {
+/// off-terrain back onto valid ground, then restores the run's own
+/// supplied full-precision endpoints (never moved by the repair pass).
+/// `is_sea`: land routes (milestone 14) repair onto dry land; sea routes
+/// (milestone 13) repair onto navigable ocean (reference:
+/// `_civTerrainValidTest(isSea?'ocean':'land')`, passed to this function
+/// as a validity closure -- inlined here as a bool since this crate's
+/// only two real call shapes are exactly those two modes).
+fn civ_smooth_path(raw: &[(f64, f64)], gw: usize, gh: usize, water_bodies: &[u8], map_width_km: f64, is_sea: bool) -> Option<SmoothedPath> {
     if raw.is_empty() {
         return None;
     }
@@ -3908,8 +3927,8 @@ fn civ_smooth_path(raw: &[(f64, f64)], gw: usize, gh: usize, water_bodies: &[u8]
         let run_start = pts.len();
         for &s in &smooth {
             let mut p = (js_round(s.0), js_round(s.1));
-            if !civ_is_valid_land(p.0, p.1, gw, gh, water_bodies) {
-                let (nx, ny) = civ_nearest_valid_pt(p.0 as i64, p.1 as i64, gw, gh, water_bodies, 16);
+            if !civ_is_valid_terrain(p.0, p.1, gw, gh, water_bodies, is_sea) {
+                let (nx, ny) = civ_nearest_valid_pt(p.0 as i64, p.1 as i64, gw, gh, water_bodies, 16, is_sea);
                 p = (nx as f64, ny as f64);
             }
             if let Some(&prev) = pts.last() {
@@ -4054,7 +4073,7 @@ pub fn civ_consolidate_and_smooth_ways(
             if r[r.len() - 1] == path[path.len() - 1] {
                 raw[last] = (pb.placement.x as f64, pb.placement.y as f64);
             }
-            let Some(sm) = civ_smooth_path(&raw, gw, gh, water_bodies, map_width_km) else {
+            let Some(sm) = civ_smooth_path(&raw, gw, gh, water_bodies, map_width_km, false) else {
                 continue;
             };
             if sm.pts.len() < 2 {
@@ -4109,6 +4128,219 @@ pub fn civ_consolidate_and_smooth_ways(
     }
 
     ways
+}
+
+/// A sea-lane route between two coastal settlements (ports) -- reference
+/// `_civMstRoutes`'s own sea-route object shape (`{pts,km,brks,sea,name}`),
+/// genuinely leaner than `Way` (no classification, no hidden-way flag, no
+/// endpoint indices): sea routes are pushed directly onto `civWays`
+/// without going through `_civHierarchicalNetwork`'s consolidation tail.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeaRoute {
+    pub pts: Vec<(f64, f64)>,
+    pub brks: Vec<usize>,
+    pub km: f64,
+    pub name: String,
+}
+
+/// `_civMstRoutes(ports, true)` (reference line 21240, `isSea` branch
+/// only -- the `isSea=false` land-route branch has no confirmed real
+/// caller in production; `_civHierarchicalNetwork`/milestone 12 is what
+/// the real auto-populate flow uses for land, the same "manual-tool-only"
+/// shape milestone 11's own `buildRoadNetwork` finding already
+/// established for a sibling function). Called from
+/// `_civIterativeAutoWorld` (reference line ~25680) unconditionally on
+/// every port-tagged settlement pair (`SettlementPlacement.coastal`,
+/// same "port" trait milestone 8 already derives) whenever at least two
+/// ports exist -- pushed directly onto `civWays`, NOT gated behind
+/// `_civPreferSeaRoutes`'s land-vs-sea cost comparison, which belongs to
+/// the separate `_civAutoRoutes` manual "Auto routes" tool (out of
+/// scope, confirmed by reading `_civAutoRoutes` itself).
+///
+/// **Deliberately does not implement `_civSeaTimeEdgeCost`** (current/
+/// wind-costed routing): its real inputs -- ocean-current and wind u/v
+/// vector fields -- are not retained on `WorldState` past their internal
+/// use in `apply_ocean_currents`/`deflect_flow` (only the resulting SST/
+/// rainfall corrections are kept there today). The reference's own code
+/// degrades gracefully when these fields are unavailable
+/// (`if(!oceanF&&!windF) return null` -> caller falls back to the
+/// uniform arithmetic-cost path, `roadDijkstra`'s own default
+/// `0.5*(cost[i]+cost[j])` step), so this port takes that same
+/// documented fallback rather than adding new `WorldState` plumbing
+/// outside this milestone's own scope -- a real, flagged follow-up
+/// (wind/current-aware sea-lane costing), not a silently-dropped
+/// feature.
+pub fn civ_sea_routes(
+    ports: &[NamedSettlement],
+    field: &[f32],
+    water_bodies: &[u8],
+    gw: usize,
+    gh: usize,
+    world: bool,
+    map_width_km: f64,
+) -> Vec<SeaRoute> {
+    let n = ports.len();
+    if n < 2 {
+        return Vec::new();
+    }
+    let grid = civ_routing_grid(field, gw, gh);
+    let (rw, rh, sc) = (grid.rw, grid.rh, grid.sc);
+
+    // Cost grid: navigable open ocean (water_bodies==1) = 1, everything
+    // else (land, lakes/inland seas) = Infinity -- land must be genuinely
+    // impassable, not merely expensive. Reference's own fix-history
+    // comment: a finite land cost let Dijkstra cut across jagged
+    // downsampled coastline pixels when it was cheaper than the long way
+    // around, and Catmull-Rom smoothing then exaggerated those
+    // land-cutting zigzags into visible nonsensical loops.
+    let mut cost = vec![0f32; rw * rh];
+    for y in 0..rh {
+        for x in 0..rw {
+            let fx = ((x as f64 / sc) as usize).min(gw - 1);
+            let fy = ((y as f64 / sc) as usize).min(gh - 1);
+            let fi = fy * gw + fx;
+            cost[y * rw + x] = if water_bodies[fi] == 1 { 1.0 } else { f32::INFINITY };
+        }
+    }
+
+    // Snap each port (always on land) to the nearest navigable-ocean
+    // cell -- radius 10, matching the reference's own `snapToFinite`
+    // exactly (milestone 12/14's own `civ_snap_finite` calls use radius
+    // 6 for a different cost grid; the reference genuinely uses a wider
+    // radius here, not a typo to "fix" into consistency).
+    let rp: Vec<usize> = ports
+        .iter()
+        .map(|p| {
+            let rx = ((p.placement.x as f64 * sc).round() as usize).min(rw - 1);
+            let ry = ((p.placement.y as f64 * sc).round() as usize).min(rh - 1);
+            civ_snap_finite(&cost, rw, rh, rx, ry, 10)
+        })
+        .collect();
+
+    let results: Vec<(Vec<f32>, Vec<i32>)> =
+        rp.iter().map(|&ri| road_dijkstra(&cost, rw, rh, ri % rw, ri / rw, world)).collect();
+
+    // Prim's MST using Dijkstra distances (same loop shape as milestone
+    // 12's own two passes).
+    let mut in_tree = vec![false; n];
+    let mut best = vec![f64::INFINITY; n];
+    let mut from = vec![-1i32; n];
+    best[0] = 0.0;
+    let mut edges: Vec<(usize, usize)> = Vec::new();
+    let mut edge_key: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut mst_max = 0.0f64;
+    for _ in 0..n {
+        let mut u: i32 = -1;
+        let mut bd = f64::INFINITY;
+        for i in 0..n {
+            if !in_tree[i] && best[i] < bd {
+                bd = best[i];
+                u = i as i32;
+            }
+        }
+        if u < 0 || !bd.is_finite() {
+            break;
+        }
+        let u = u as usize;
+        in_tree[u] = true;
+        if from[u] >= 0 {
+            let a = from[u] as usize;
+            let k = a.min(u) * n + a.max(u);
+            if edge_key.insert(k) {
+                edges.push((a, u));
+            }
+            mst_max = mst_max.max(bd);
+        }
+        for v in 0..n {
+            if in_tree[v] {
+                continue;
+            }
+            let d = results[u].0[rp[v]] as f64;
+            if d.is_finite() && d < best[v] {
+                best[v] = d;
+                from[v] = u as i32;
+            }
+        }
+    }
+
+    // v0.73 sea-lane augmentation: each port's single nearest
+    // sea-reachable port becomes a direct lane too (capped at 1.15x the
+    // MST's own longest hop), so two neighbouring coastal towns linked
+    // only via a long detour through the tree's spine also get the
+    // direct, economically-real short hop.
+    if n > 2 {
+        let cap = if mst_max > 0.0 { mst_max * 1.15 } else { f64::INFINITY };
+        for u in 0..n {
+            let mut bv: i32 = -1;
+            let mut bd = cap;
+            for v in 0..n {
+                if v == u {
+                    continue;
+                }
+                let d = results[u].0[rp[v]] as f64;
+                if d.is_finite() && d < bd {
+                    bd = d;
+                    bv = v as i32;
+                }
+            }
+            if bv >= 0 {
+                let bv = bv as usize;
+                let k = u.min(bv) * n + u.max(bv);
+                if edge_key.insert(k) {
+                    edges.push((u, bv));
+                }
+            }
+        }
+    }
+
+    // Reconstruct each edge's raw cell-path from the Dijkstra `prev`
+    // tree, then smooth with Catmull-Rom (ocean validity mode).
+    let mut routes = Vec::new();
+    for (a, b) in edges {
+        let pa = &ports[a];
+        let pb = &ports[b];
+        let prev = &results[a].1;
+        let si = rp[a] as i64;
+        let mut raw: Vec<(f64, f64)> = Vec::new();
+        let mut ci = rp[b] as i64;
+        let mut guard = rw * rh;
+        while ci != si && ci >= 0 && guard > 0 {
+            guard -= 1;
+            let rx = (ci as usize) % rw;
+            let ry = (ci as usize) / rw;
+            raw.push(((rx as f64 + 0.5) / sc, (ry as f64 + 0.5) / sc));
+            let pv = prev[ci as usize];
+            if pv < 0 || pv as i64 == ci {
+                break;
+            }
+            ci = pv as i64;
+        }
+        raw.push((pa.placement.x as f64, pa.placement.y as f64));
+        raw.reverse();
+        let pb_pt = (pb.placement.x as f64, pb.placement.y as f64);
+        if raw.last() != Some(&pb_pt) {
+            raw.push(pb_pt);
+        }
+        if raw.len() < 2 {
+            continue;
+        }
+        let Some(sm) = civ_smooth_path(&raw, gw, gh, water_bodies, map_width_km, true) else {
+            continue;
+        };
+        if sm.pts.len() < 2 {
+            continue;
+        }
+        let (name_a, name_b) = (pa.name.as_str(), pb.name.as_str());
+        let name = if !name_a.is_empty() && !name_b.is_empty() {
+            format!("{} \u{2192} {}", name_a, name_b)
+        } else if !name_a.is_empty() {
+            name_a.to_string()
+        } else {
+            name_b.to_string()
+        };
+        routes.push(SeaRoute { pts: sm.pts, brks: sm.brks, km: sm.km, name });
+    }
+    routes
 }
 
 #[cfg(test)]

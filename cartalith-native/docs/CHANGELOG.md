@@ -4752,3 +4752,94 @@ Cargo.toml` (new `cartalith-gpu` dependency), `cartalith-native/crates/
 cartalith-engine/src/lib.rs` (`WorldParams.use_gpu`, `WorldState.
 gpu_stages_used`, `generate_terrain`'s new branch, four new tests).
 `cartalith-terrain` untouched.
+
+## Phase 2 milestone 13 -- sea routes (2026-08-16)
+
+Ported `_civMstRoutes(ports, true)` (reference HTML line 21240, `isSea`
+branch only) to `cartalith-civ` as `civ_sea_routes`. This is
+`PHASE2_SCOPE.md` milestone 13, the port-to-port sea-lane MST that runs
+alongside milestone 12's land network in the real auto-populate flow
+(`_civIterativeAutoWorld`, reference line ~25680: `if(ports.length>=2)
+ways.push(..._civMstRoutes(ports,true))`, pushed unconditionally, NOT
+gated behind `_civAutoRoutes`'s land-vs-sea cost comparison -- that
+comparison belongs to a separate manual "Auto routes" tool, confirmed
+out of scope by reading `_civAutoRoutes` itself).
+
+**Scope confirmed by reading the reference directly, not assumed from
+the milestone brief**: the `isSea=false` land branch of `_civMstRoutes`
+has no confirmed real caller (`_civHierarchicalNetwork`/milestone 12 is
+what the actual land network uses) and is not ported. `_civSeaTimeEdgeCost`
+(v1.98 current/wind-costed sea-lane pricing) is also not ported -- its
+real inputs, the ocean-current and wind u/v vector fields, are computed
+internally by `apply_ocean_currents`/`deflect_flow` but never retained
+on `WorldState` past that internal use (only the resulting SST/rainfall
+corrections survive). The reference's own code degrades gracefully when
+these fields are unavailable (`if(!oceanF&&!windF) return null` ->
+caller falls back to `roadDijkstra`'s default uniform arithmetic-cost
+step), so this port takes that same documented fallback rather than
+adding new `WorldState` plumbing outside this milestone's scope -- a
+real, flagged follow-up (wind/current-aware sea-lane costing), not a
+silently-dropped feature.
+
+**What it does**: builds a downsampled cost grid where navigable open
+ocean (`water_bodies==1`) costs 1 and everything else -- land, lakes,
+inland seas -- is genuinely `Infinity` (not merely expensive; the
+reference's own fix-history comment explains why: a finite land cost let
+Dijkstra cut across jagged downsampled coastline pixels when that was
+cheaper than the long way around, and Catmull-Rom smoothing then
+exaggerated those land-cutting zigzags into visible nonsensical loops).
+Snaps each port to the nearest navigable-ocean cell (radius 10 --
+deliberately wider than milestone 12/14's own radius-6 `civ_snap_finite`
+calls on a different cost grid, matching the reference exactly, not
+"fixed" into false consistency), runs Dijkstra from every port, builds a
+Prim's MST over the pairwise distances, then applies the v0.73 nearest-
+port sea-lane augmentation (each port's single nearest sea-reachable
+port becomes a direct lane too, capped at 1.15x the MST's own longest
+hop, so two neighbouring coastal towns linked only via a long detour
+through the tree's spine also get the short direct economic hop).
+Reconstructs each edge's path from the Dijkstra `prev` tree and smooths
+it with the same Catmull-Rom pipeline milestone 14 already ported
+(`civ_smooth_path`), in ocean validity mode.
+
+**Four existing helpers generalized to land/ocean modes** rather than
+duplicated: `civ_snap_finite` (added a `max_r` parameter, was hardcoded
+to milestone 14's `1..=6`), `civ_is_valid_land` renamed
+`civ_is_valid_terrain` (added an `is_sea` branch alongside the existing
+land check, matching `_civTerrainValidTest('land'|'ocean')`),
+`civ_nearest_valid_pt` and `civ_smooth_path` (both threaded the same
+`is_sea` flag through to their internal validity checks). All four
+existing call sites (milestone 12/14's land-only uses) updated to pass
+their previous fixed values explicitly -- a surgical parameter addition,
+not a closure/trait abstraction, per this project's smallest-diff
+discipline.
+
+**Golden verification**: fresh Node `vm` harness (reference HTML blocks
+2084-14556 + 14563-26720), reusing `golden_parity_road_consolidation.rs`'s
+own case0/case1 fixtures (already-verified coastal settlements at two
+grids with genuine mixed land/ocean/lake geography: case0 79 land / 75
+ocean / 0 lake of 154 cells at gw14×gh11 world=false; case1 127 land / 13
+ocean / 52 lake of 192 cells at gw16×gh12 world=true). A real harness bug
+caught before trusting extraction: `generate()` is `async`, and a bare
+unawaited call left `field` at its default-zero fill and
+`currentWaterBodies()` reporting 100% ocean -- fixed by awaiting it
+properly and cross-checking `field[0]` plus land/ocean/lake cell counts
+against already-trusted fixtures before extracting `_civMstRoutes`
+output. Both cases (2 routes for case0's 3 ports, 4 routes for case1's 5
+ports) matched the Rust port's output exactly on the first run --
+`cargo test -p cartalith-civ --test golden_parity_sea_routes` passes
+both. Two of case1's four routes carry `km:0` despite having real points
+-- confirmed a genuine reference behavior by reading `_civSmoothPath`
+directly (it accumulates `km` over the *rounded* sample points before
+its own final step restores full-precision endpoints, so a short
+diagonal hop whose only interior sample rounds to coincide with the
+pre-restore rounded start point contributes zero distance), not a
+harness bug.
+
+**Verification**: `cargo build --workspace`, `cargo test --workspace`
+(0 regressions), `cargo clippy -p cartalith-civ --all-targets` clean for
+the new code (all reported warnings pre-existing, in other test files).
+
+**Files touched**: `cartalith-native/crates/cartalith-civ/src/lib.rs`
+(`SeaRoute` struct, `civ_sea_routes`, the four generalized helpers and
+their updated call sites), `cartalith-native/crates/cartalith-civ/tests/
+golden_parity_sea_routes.rs` (new).
