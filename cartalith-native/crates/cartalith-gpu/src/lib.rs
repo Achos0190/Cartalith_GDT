@@ -47,6 +47,13 @@ const SHADER_SRC_GPU_HEIGHT: &str = include_str!("../shaders/gpu_height.wgsl");
 /// below for which this pair actually achieved.
 const SHADER_SRC_GPU_GAUSS_BLUR: &str = include_str!("../shaders/gpu_gauss_blur.wgsl");
 const SHADER_SRC_GPU_RESISTANCE: &str = include_str!("../shaders/gpu_resistance.wgsl");
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 5: plate assignment via a
+/// standard double-buffered Jump Flooding Algorithm -- NOT a port of
+/// `cartalith_terrain::assign_plates`'s in-place-mutation variant (see the
+/// shader's own header comment for why those are different algorithms, not
+/// different implementations of the same one). Verified against
+/// brute-force exact-nearest ground truth, not the CPU function directly.
+const SHADER_SRC_GPU_JFA_PLATES: &str = include_str!("../shaders/gpu_jfa_plates.wgsl");
 
 /// Tolerance for the GPU-safe noise kernel vs. its CPU counterpart
 /// (`cartalith_noise::gpu_vnoise`). Unlike [`F32_TOLERANCE`] above (which
@@ -224,6 +231,15 @@ struct ResistanceParams {
     _pad1: u32,
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct JfaParams {
+    width: u32,
+    height: u32,
+    step: i32,
+    _pad0: u32,
+}
+
 /// Which path actually produced a [`vnoise_grid`] result.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComputePath {
@@ -360,6 +376,22 @@ const RESISTANCE_LAYOUT: [wgpu::BindGroupLayoutEntry; 5] = [
 /// (params, one input, one output), only the shader entry point differs.
 const BLUR_LAYOUT: [wgpu::BindGroupLayoutEntry; 3] =
     [uniform_entry(0), storage_entry(1, true), storage_entry(2, false)];
+/// `gpu_jfa_plates.wgsl`'s `main` -- one pipeline, dispatched once per
+/// JFA step with alternating in/out bind groups (double-buffered), same
+/// "single pipeline, many bind groups" shape [`init_gpu_resistance`] uses,
+/// not [`GpuBlurContext`]'s two-pipeline shape (JFA has only one shader
+/// entry point, unlike blur's `box_h`/`box_v` pair).
+const JFA_LAYOUT: [wgpu::BindGroupLayoutEntry; 9] = [
+    uniform_entry(0),
+    storage_entry(1, true),  // nearest_in
+    storage_entry(2, true),  // best_d2_in
+    storage_entry(3, false), // nearest_out
+    storage_entry(4, false), // best_d2_out
+    storage_entry(5, true),  // plate_x
+    storage_entry(6, true),  // plate_y
+    storage_entry(7, true),  // warp_x
+    storage_entry(8, true),  // warp_y
+];
 
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 4: `compute_resistance`,
 /// trivial per-cell formula, single pipeline -- reuses [`init_gpu_with`]
@@ -367,6 +399,15 @@ const BLUR_LAYOUT: [wgpu::BindGroupLayoutEntry; 3] =
 /// shader entry point.
 pub fn init_gpu_resistance() -> Result<GpuContext, GpuInitError> {
     init_gpu_with(SHADER_SRC_GPU_RESISTANCE, wgpu::Features::empty(), "gpu_resistance (f32)", &RESISTANCE_LAYOUT)
+}
+
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 5: plate assignment (JFA).
+/// One pipeline, `log2(max(width,height))`-ish dispatches per call
+/// (see [`dispatch_gpu_assign_plates`]), all issued within one encoder --
+/// same "many passes, one submit" shape [`dispatch_gpu_gauss_blur`]
+/// already established.
+pub fn init_gpu_jfa_plates() -> Result<GpuContext, GpuInitError> {
+    init_gpu_with(SHADER_SRC_GPU_JFA_PLATES, wgpu::Features::empty(), "gpu_jfa_plates (f32, double-buffered JFA)", &JFA_LAYOUT)
 }
 
 /// Two pipelines (`box_h_main`, `box_v_main`) sharing one device/queue/
@@ -1146,6 +1187,274 @@ fn dispatch_gpu_gauss_blur(ctx: &GpuBlurContext, src: &[f32], radius: f64, width
     drop(data);
     staging_buf.unmap();
     result
+}
+
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 5: double-buffered JFA plate
+/// assignment. `world`-mode x-wrap is deliberately unimplemented (matching
+/// every GPU milestone so far) -- callers must pass `world=false` data.
+///
+/// Seeding (`nearest[home_cell]=p, best_d2=0`) and the CPU-side fallback
+/// fill for any cell JFA never reached (`nearest<0`, filled by brute-force
+/// nearest-plate search, mirroring `assign_plates`'s own fallback loop)
+/// both run on CPU -- seeding is O(plate count), the fallback is expected
+/// near-zero-cost in practice (a full JFA sweep down to step=1 reaches
+/// essentially every cell), so neither is worth its own GPU kernel.
+#[allow(clippy::too_many_arguments)]
+fn dispatch_gpu_assign_plates(
+    ctx: &GpuContext,
+    width: u32,
+    height: u32,
+    plate_x: &[f32],
+    plate_y: &[f32],
+    warp_x: Option<&[f32]>,
+    warp_y: Option<&[f32]>,
+) -> Vec<i32> {
+    let w = width as usize;
+    let h = height as usize;
+    let n = w * h;
+    let np = plate_x.len();
+    assert_eq!(plate_y.len(), np);
+    let byte_len_i32 = (n * std::mem::size_of::<i32>()) as u64;
+    let byte_len_f32 = (n * std::mem::size_of::<f32>()) as u64;
+
+    // Seed: each plate's own home cell starts at distance 0, matching
+    // `assign_plates`'s own seeding loop (clamped y, skip out-of-range x).
+    let mut nearest0 = vec![-1i32; n];
+    let mut best_d20 = vec![1e30f32; n];
+    for (p, (&px, &py)) in plate_x.iter().zip(plate_y.iter()).enumerate() {
+        let cx = px as i32;
+        if cx < 0 || cx >= width as i32 {
+            continue;
+        }
+        let cy = (py as i32).clamp(0, height as i32 - 1) as usize;
+        let i = cy * w + cx as usize;
+        nearest0[i] = p as i32;
+        best_d20[i] = 0.0;
+    }
+
+    let warp_x_owned;
+    let warp_x = match warp_x {
+        Some(w) => w,
+        None => {
+            warp_x_owned = vec![0f32; n];
+            &warp_x_owned
+        }
+    };
+    let warp_y_owned;
+    let warp_y = match warp_y {
+        Some(w) => w,
+        None => {
+            warp_y_owned = vec![0f32; n];
+            &warp_y_owned
+        }
+    };
+
+    let max_dim = w.max(h) as f64;
+    let max_step = 1u32 << (max_dim.log2().ceil() as u32);
+    let mut steps = Vec::new();
+    let mut step_u = max_step >> 1;
+    loop {
+        steps.push(step_u as i32);
+        if step_u == 1 {
+            break;
+        }
+        step_u >>= 1;
+    }
+
+    let make_i32 = |label: &str, contents: &[i32]| {
+        ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label),
+            contents: bytemuck::cast_slice(contents),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+        })
+    };
+    let make_f32 = |label: &str, contents: &[f32]| {
+        ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label),
+            contents: bytemuck::cast_slice(contents),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+        })
+    };
+    let make_i32_empty = |label: &str| {
+        ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: byte_len_i32,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    };
+    let make_f32_empty = |label: &str| {
+        ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: byte_len_f32,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        })
+    };
+
+    let nearest_a = make_i32("jfa nearest a", &nearest0);
+    let nearest_b = make_i32_empty("jfa nearest b");
+    let best_d2_a = make_f32("jfa best_d2 a", &best_d20);
+    let best_d2_b = make_f32_empty("jfa best_d2 b");
+    let plate_x_buf = make_f32("jfa plate_x", plate_x);
+    let plate_y_buf = make_f32("jfa plate_y", plate_y);
+    let warp_x_buf = make_f32("jfa warp_x", warp_x);
+    let warp_y_buf = make_f32("jfa warp_y", warp_y);
+
+    let staging_nearest = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("jfa nearest (staging)"),
+        size: byte_len_i32,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let param_bufs: Vec<wgpu::Buffer> = steps
+        .iter()
+        .map(|&step| {
+            let params = JfaParams { width, height, step, _pad0: 0 };
+            ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("jfa params"),
+                contents: bytemuck::bytes_of(&params),
+                usage: wgpu::BufferUsages::UNIFORM,
+            })
+        })
+        .collect();
+
+    let make_bind_group = |label: &str,
+                            params_buf: &wgpu::Buffer,
+                            nearest_in: &wgpu::Buffer,
+                            best_d2_in: &wgpu::Buffer,
+                            nearest_out: &wgpu::Buffer,
+                            best_d2_out: &wgpu::Buffer| {
+        ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(label),
+            layout: &ctx.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 1, resource: nearest_in.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: best_d2_in.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: nearest_out.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 4, resource: best_d2_out.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 5, resource: plate_x_buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 6, resource: plate_y_buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 7, resource: warp_x_buf.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 8, resource: warp_y_buf.as_entire_binding() },
+            ],
+        })
+    };
+
+    // One fresh bind group per pass (each has a distinct `step` uniform),
+    // alternating a->b / b->a direction -- same ping-pong shape
+    // `dispatch_gpu_gauss_blur` uses, generalized from a fixed 3x2 to N
+    // distinct-param passes (N = steps.len(), unknown until `width`/
+    // `height` are known, so passes can't be split into two reused bind
+    // groups the way blur's fixed 3-iteration loop can).
+    let bind_groups: Vec<wgpu::BindGroup> = param_bufs
+        .iter()
+        .enumerate()
+        .map(|(idx, params_buf)| {
+            if idx % 2 == 0 {
+                make_bind_group("jfa bg a->b", params_buf, &nearest_a, &best_d2_a, &nearest_b, &best_d2_b)
+            } else {
+                make_bind_group("jfa bg b->a", params_buf, &nearest_b, &best_d2_b, &nearest_a, &best_d2_a)
+            }
+        })
+        .collect();
+
+    let mut encoder =
+        ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("jfa encoder") });
+    for bg in &bind_groups {
+        let mut pass =
+            encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("jfa pass"), timestamp_writes: None });
+        pass.set_pipeline(&ctx.pipeline);
+        pass.set_bind_group(0, bg, &[]);
+        pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
+    }
+    // After an even number of passes (0-indexed: 1,3,5.. => odd count)
+    // result lands back in `a`; after an odd pass count it's in `b`.
+    let result_in_a = steps.len() % 2 == 0;
+    let final_buf = if result_in_a { &nearest_a } else { &nearest_b };
+    encoder.copy_buffer_to_buffer(final_buf, 0, &staging_nearest, 0, byte_len_i32);
+    ctx.queue.submit(Some(encoder.finish()));
+
+    let slice = staging_nearest.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |res| {
+        let _ = tx.send(res);
+    });
+    ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
+    rx.recv().expect("map_async channel closed").expect("buffer map failed");
+    let data = slice.get_mapped_range().expect("get_mapped_range failed");
+    let mut nearest: Vec<i32> = bytemuck::cast_slice(&data).to_vec();
+    drop(data);
+    staging_nearest.unmap();
+
+    // Fallback: any cell JFA never reached (rare/none in practice) gets a
+    // brute-force nearest-plate search, matching `assign_plates`'s own
+    // fallback loop.
+    for i in 0..n {
+        if nearest[i] >= 0 {
+            continue;
+        }
+        let x = (i % w) as f32;
+        let y = (i / w) as f32;
+        let ax = x + warp_x[i];
+        let ay = y + warp_y[i];
+        let mut best = 0i32;
+        let mut bd = f32::INFINITY;
+        for p in 0..np {
+            let dx = ax - plate_x[p];
+            let dy = ay - plate_y[p];
+            let d = dx * dx + dy * dy;
+            if d < bd {
+                bd = d;
+                best = p as i32;
+            }
+        }
+        nearest[i] = best;
+    }
+    nearest
+}
+
+/// Brute-force exact nearest-plate ground truth (no JFA at all) -- what
+/// both `assign_plates` (CPU, in-place JFA) and [`dispatch_gpu_assign_plates`]
+/// (GPU, double-buffered JFA) are each an *approximation* of. Used to
+/// characterize both JFA variants' real mismatch rate against the true
+/// answer, since the two JFA variants are not expected to match each other
+/// exactly (see `gpu_jfa_plates.wgsl`'s header comment). `world`-mode
+/// unimplemented, matching the GPU kernel it's verifying.
+pub fn brute_force_nearest_plate(
+    width: u32,
+    height: u32,
+    plate_x: &[f32],
+    plate_y: &[f32],
+    warp_x: Option<&[f32]>,
+    warp_y: Option<&[f32]>,
+) -> Vec<i32> {
+    let w = width as usize;
+    let h = height as usize;
+    let np = plate_x.len();
+    let mut out = vec![0i32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * w + x;
+            let ax = x as f32 + warp_x.map_or(0.0, |v| v[i]);
+            let ay = y as f32 + warp_y.map_or(0.0, |v| v[i]);
+            let mut best = 0i32;
+            let mut bd = f32::INFINITY;
+            for p in 0..np {
+                let dx = ax - plate_x[p];
+                let dy = ay - plate_y[p];
+                let d = dx * dx + dy * dy;
+                if d < bd {
+                    bd = d;
+                    best = p as i32;
+                }
+            }
+            out[i] = best;
+        }
+    }
+    out
 }
 
 /// `compute_heterogeneity`'s trailing max-reduce normalize pass, factored
@@ -2296,6 +2605,155 @@ mod tests {
             "gpu_compute_resistance vs REAL cartalith_terrain::compute_resistance, {w}x{h}: {mismatches}/{n} cells exceed tol={RESISTANCE_TOLERANCE}, max_abs_diff={max_abs_diff}"
         );
         assert_eq!(mismatches, 0, "gpu_compute_resistance diverged from the REAL CPU function beyond {RESISTANCE_TOLERANCE}");
+    }
+
+    fn try_gpu_jfa_plates() -> Option<GpuContext> {
+        init_gpu_jfa_plates().ok()
+    }
+
+    /// Deterministic scattered plate positions across a `w`x`h` grid --
+    /// real spatial spread (not all-at-origin like the resistance test's
+    /// simpler setup), needed for JFA's nearest-seed behaviour to actually
+    /// be exercised.
+    fn scattered_plates(np: usize, w: u32, h: u32, salt: u32) -> (Vec<f32>, Vec<f32>) {
+        let mut px = Vec::with_capacity(np);
+        let mut py = Vec::with_capacity(np);
+        for p in 0..np {
+            let hx = (p as u32).wrapping_mul(2654435761).wrapping_add(salt);
+            let hy = (p as u32).wrapping_mul(40503).wrapping_add(salt).wrapping_mul(2246822519);
+            px.push(((hx >> 8) & 0xFFFF) as f32 / 65535.0 * w as f32);
+            py.push(((hy >> 8) & 0xFFFF) as f32 / 65535.0 * h as f32);
+        }
+        (px, py)
+    }
+
+    /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 5's actual headline
+    /// question: `assign_plates` (CPU, in-place-mutation JFA) and
+    /// [`dispatch_gpu_assign_plates`] (GPU, double-buffered JFA) are two
+    /// DIFFERENT completions of the jump-flood algorithm -- three-way
+    /// JS/CPU/GPU exact parity (milestone 4's result for `gauss_blur`/
+    /// `compute_resistance`) is not expected here, and this test doesn't
+    /// attempt it. Instead: measure each variant's real mismatch rate
+    /// against brute-force exact-nearest-plate ground truth, and measure
+    /// GPU-vs-CPU directly, all with real numbers rather than an assumed
+    /// "GPU-vs-CPU-twin, ignore CPU" framing.
+    #[test]
+    fn gpu_jfa_plates_vs_cpu_jfa_vs_brute_force_ground_truth() {
+        let Some(ctx) = try_gpu_jfa_plates() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        for (w, h, np, salt) in [(512u32, 512u32, 14usize, 71u32), (512, 512, 40, 137), (1024, 768, 22, 5)] {
+            let n = (w * h) as usize;
+            let (px, py) = scattered_plates(np, w, h, salt);
+
+            let gpu = dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, None, None);
+            let truth = brute_force_nearest_plate(w, h, &px, &py, None, None);
+
+            let plates: Vec<cartalith_terrain::Plate> =
+                px.iter().zip(py.iter()).map(|(&x, &y)| cartalith_terrain::Plate {
+                    x: x as f64,
+                    y: y as f64,
+                    vx: 0.0,
+                    vy: 0.0,
+                    base: 0.0,
+                }).collect();
+            let cpu = cartalith_terrain::assign_plates(w as usize, h as usize, false, &plates, None, None);
+
+            let mut gpu_vs_truth = 0usize;
+            let mut cpu_vs_truth = 0usize;
+            let mut gpu_vs_cpu = 0usize;
+            for i in 0..n {
+                if gpu[i] != truth[i] {
+                    gpu_vs_truth += 1;
+                }
+                if cpu[i] as i32 != truth[i] {
+                    cpu_vs_truth += 1;
+                }
+                if gpu[i] != cpu[i] as i32 {
+                    gpu_vs_cpu += 1;
+                }
+            }
+            eprintln!(
+                "gpu_jfa_plates {w}x{h} ({np} plates, salt={salt}): gpu_vs_brute_force={gpu_vs_truth}/{n} ({:.4}%), cpu_vs_brute_force={cpu_vs_truth}/{n} ({:.4}%), gpu_vs_cpu={gpu_vs_cpu}/{n} ({:.4}%)",
+                100.0 * gpu_vs_truth as f64 / n as f64,
+                100.0 * cpu_vs_truth as f64 / n as f64,
+                100.0 * gpu_vs_cpu as f64 / n as f64,
+            );
+            // Both JFA variants are *approximations* of brute-force nearest
+            // -- a small, real mismatch rate (boundary cells equidistant or
+            // near-equidistant between two plates) is expected and correct
+            // behaviour, not a bug. JFA's own literature puts this at a
+            // fraction of a percent for reasonable seed counts/grid sizes;
+            // assert a generous ceiling that would catch a genuinely broken
+            // implementation (e.g. a mis-wired buffer producing near-random
+            // output) without false-failing on JFA's known, real
+            // approximation error.
+            assert!(
+                (gpu_vs_truth as f64 / n as f64) < 0.05,
+                "GPU JFA mismatch rate against brute-force truth ({:.4}%) at {w}x{h}/{np} plates is far higher than JFA's known approximation error -- likely a real bug, not expected imprecision",
+                100.0 * gpu_vs_truth as f64 / n as f64
+            );
+        }
+    }
+
+    #[test]
+    fn gpu_jfa_plates_determinism() {
+        let Some(ctx) = try_gpu_jfa_plates() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let (w, h) = (256u32, 256u32);
+        let (px, py) = scattered_plates(9, w, h, 5);
+        let a = dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, None, None);
+        let b = dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, None, None);
+        assert_eq!(a, b, "same input must produce identical GPU JFA output across runs");
+    }
+
+    /// Real timing, same honest methodology every prior milestone used.
+    /// JFA's pass count scales with `log2(max(w,h))`, not O(1) like the
+    /// single-pass kernels milestones 1-4 measured -- report what's
+    /// actually measured, don't assume the earlier ratios carry over.
+    #[test]
+    fn measured_gpu_jfa_plates_vs_cpu_timing() {
+        let Some(ctx) = try_gpu_jfa_plates() else {
+            eprintln!("no GPU available -- skipping timing measurement");
+            return;
+        };
+        // Warm up: first dispatch pays one-time pipeline/driver JIT cost.
+        let (wx, wy) = scattered_plates(8, 64, 64, 1);
+        let _ = dispatch_gpu_assign_plates(&ctx, 64, 64, &wx, &wy, None, None);
+
+        for &(w, h) in &[(128u32, 128u32), (512, 512), (1024, 1024), (2048, 2048)] {
+            let np = 24usize;
+            let (px, py) = scattered_plates(np, w, h, 999);
+            let plates: Vec<cartalith_terrain::Plate> =
+                px.iter().zip(py.iter()).map(|(&x, &y)| cartalith_terrain::Plate {
+                    x: x as f64,
+                    y: y as f64,
+                    vx: 0.0,
+                    vy: 0.0,
+                    base: 0.0,
+                }).collect();
+
+            let t0 = Instant::now();
+            let _ = dispatch_gpu_assign_plates(&ctx, w, h, &px, &py, None, None);
+            let gpu_time = t0.elapsed();
+
+            let t1 = Instant::now();
+            let _ = cartalith_terrain::assign_plates(w as usize, h as usize, false, &plates, None, None);
+            let cpu_time = t1.elapsed();
+
+            let max_dim = w.max(h) as f64;
+            let passes = max_dim.log2().ceil() as u32;
+            eprintln!(
+                "{w}x{h} ({} cells, {passes} JFA passes, {np} plates): GPU dispatch+readback = {:?}, CPU (single-thread, in-place JFA) = {:?}, ratio (CPU/GPU) = {:.2}x",
+                w * h,
+                gpu_time,
+                cpu_time,
+                cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
+            );
+        }
     }
 
     #[test]

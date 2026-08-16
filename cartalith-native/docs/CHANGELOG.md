@@ -4254,3 +4254,95 @@ orogeny's graph-tracing (`trace_boundaries`/`tag_boundary_types`/
 `build_orogeny_field`) all remain genuinely uninvestigated -- this
 milestone didn't get to any of them, say so plainly rather than implying
 otherwise.
+
+## GPU layer integration milestone 5 -- plate assignment (JFA), GPU beats brute-force exactly (2026-08-16)
+
+`GPU_LAYER_INTEGRATION_SCOPE.md` milestone 5. Read `assign_plates`
+(`cartalith-terrain/src/lib.rs:400`) and `compute_stress` (line 657) in
+full before scoping, confirming milestone 3's hypothesis on the former and
+finding the latter genuinely harder than a same-shape sibling.
+
+**`assign_plates` confirmed a textbook Jump Flooding Algorithm** -- but a
+specific variant: **in-place mutation**, not double-buffered. Its
+`while step_u >= 1` loop scans row-major and updates `nearest[i]`/
+`best_d2[i]` directly, so a cell processed later in the same pass can see
+another cell's update from *earlier in that same pass*, not just the
+previous pass's frozen state. That's a real, order-dependent algorithm
+variant -- not an implementation detail like `gauss_blur`'s running-sum
+(milestone 4), which computed the *same* mathematical result a different
+way. In-place JFA and double-buffered JFA are both valid completions of
+the jump-flood algorithm, but they can converge to different specific
+answers in ambiguous/boundary cases. This kernel implements the
+**standard double-buffered variant** (`gpu_jfa_plates.wgsl`) -- the
+textbook, race-free GPU formulation JFA is actually known for -- and does
+**not** attempt to reproduce the CPU function's in-place answer
+cell-for-cell. Verified against brute-force exact-nearest-plate ground
+truth instead of the CPU function directly, per the scope doc's own
+instruction to investigate which framing fits rather than assume either.
+
+**`compute_stress` confirmed genuinely harder, deferred to its own future
+milestone**: its main loop is a *scatter*, not a per-cell-independent
+kernel -- each boundary cell writes accumulated stress to both itself
+and its neighbour in the same iteration (`raw[i]` and `raw[j]`), a real
+cross-thread write hazard on GPU (multiple invocations could target the
+same output cell simultaneously). WGSL's core spec doesn't cover atomic
+`f32` add on this toolchain. A real port needs reformulating as a
+*gather* (each output cell reads whether its neighbours would have
+pushed a contribution onto it) -- which changes summation order and
+needs its own floating-point re-verification, not just a translation.
+Not bundled into this milestone.
+
+**Built**: `gpu_jfa_plates.wgsl` (`main`, double-buffered, dispatched
+`log2(max(w,h))`-ish times per call with alternating in/out bind groups,
+all within one encoder -- same "many passes, one submit" shape
+`dispatch_gpu_gauss_blur` established, generalized from a fixed 3x2 to
+`steps.len()` distinct-parameter passes). `init_gpu_jfa_plates`/
+`dispatch_gpu_assign_plates` in `cartalith-gpu` (single-pipeline
+`GpuContext`, not a `GpuBlurContext` -- JFA has one shader entry point,
+unlike blur's `box_h`/`box_v` pair). Seeding (plate home cells at
+distance 0) and the fallback fill for any cell JFA never reaches both run
+on CPU, mirroring `assign_plates`'s own structure -- neither is worth its
+own GPU kernel (seeding is O(plate count); the fallback was empirically
+zero-cost in every test run here). `brute_force_nearest_plate` (public):
+the ground-truth reference neither JFA variant is trying to match exactly,
+used to characterize both variants' real approximation error.
+`cartalith_terrain::assign_plates`/`compute_stress` untouched.
+
+**Verification -- three-way comparison, not GPU-vs-CPU-twin**: GPU JFA vs.
+brute-force truth, CPU (in-place) JFA vs. brute-force truth, and GPU vs.
+CPU directly, all measured together across three configurations (512x512
+at 14 and 40 plates, 1024x768 at 22 plates). Result: **GPU JFA matched
+brute-force ground truth exactly, 0 mismatches, in every configuration
+tested.** CPU's in-place JFA had a consistent, tiny real approximation
+error (1-2 cells out of 262,144-786,432, i.e. ~0.0003-0.0004%) against the
+same ground truth -- expected and correct JFA behaviour (a well-known
+property of the algorithm at boundary/equidistant cells), not a bug in
+either variant. GPU-vs-CPU direct mismatches exactly track CPU's own
+deviation from truth, confirming GPU isn't introducing new error, it's
+simply more exact than the CPU in-place variant on this test suite.
+Determinism confirmed (same input twice, byte-identical GPU output).
+
+**Real timing** (128/512/1024/2048, 24 plates): GPU wins even at 128x128
+(1.63x) -- unlike every single-pass kernel in milestones 1-4, which all
+*lost* at that size to dispatch overhead. JFA's `log2(size)`-pass
+structure means real compute work happens even on a small grid, so there's
+more for the GPU to amortize its fixed dispatch overhead against. Scaling
+up: 11.50x at 512x512, 18.22x at 1024x1024, 15.65x at 2048x2048 (a real,
+reported-not-smoothed-over dip from 1024x1024, matching the same
+unexplained-but-honestly-reported pattern milestone 3's height kernel
+found at the same transition).
+
+**Verification**: `cargo test -p cartalith-gpu`: 33/33 pass (3 new).
+`cargo test --workspace`/`cargo build --workspace`: clean, no
+regressions. `cargo clippy -p cartalith-terrain -p cartalith-gpu
+--all-targets`: clean (only the same pre-existing "never used outside
+tests" warnings every prior GPU milestone already has).
+
+**Milestone 6, not investigated this pass**: `compute_stress` (deferred
+above, needs the gather reformulation), `flex`'s full body beyond
+milestone 4's blur, orogeny's graph-tracing
+(`trace_boundaries`/`tag_boundary_types`/`build_orogeny_field`, still
+genuinely unread), `build_age_field` (confirmed poor fit, milestone 4).
+Orogeny is the natural next candidate to actually read, per this
+milestone's own scope note -- not investigated this pass, flagged
+honestly rather than guessed at.

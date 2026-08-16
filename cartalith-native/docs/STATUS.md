@@ -160,13 +160,42 @@ for GPU dispatch overhead to ever amortize, exactly the case
 hidden — not every candidate should actually move to GPU even once it's
 technically been verified there.
 
-**Milestone 5 (not started)**: plate assignment/stress/flexure's real
-body/`build_age_field`/orogeny's own GPU portability — the natural next
-candidates, still not investigated. `build_age_field` is confirmed (not
-assumed) a poor GPU fit — a genuine two-pass chamfer distance transform
-with a sequential sweep dependency. Plate assignment's JFA hypothesis
-remains unconfirmed. Per the scope doc's own feasibility table:
-graph/sequential algorithms (flow accumulation, water-body priority-flood,
+**Milestone 5 — plate assignment (JFA) on GPU: done (2026-08-16), GPU
+beats brute-force exactly.** Confirmed the JFA hypothesis: `assign_plates`
+is a textbook Jump Flooding Algorithm, but a specific **in-place-mutation**
+variant (a cell can see another cell's update from earlier in the *same*
+pass, not just the previous pass's frozen state) — a real algorithm
+variant, not an implementation detail. `gpu_jfa_plates.wgsl` implements
+the standard **double-buffered** JFA instead (the textbook, race-free GPU
+formulation) and doesn't attempt to match the CPU's in-place answer
+cell-for-cell — verified against **brute-force exact-nearest-plate ground
+truth** instead, per the scope doc's own instruction to investigate which
+framing fits rather than assume. Result across three configurations
+(512×512 at 14/40 plates, 1024×768 at 22 plates): **GPU JFA matched
+ground truth exactly, 0 mismatches, every time.** CPU's in-place JFA had a
+tiny, consistent, expected approximation error (1-2 cells out of
+262k-786k) against the same truth — a known JFA property, not a bug in
+either variant. Also investigated `compute_stress`: confirmed genuinely
+harder, not a same-shape sibling — its main loop is a *scatter* (writes to
+both a cell and its neighbour in one pass), a real cross-thread write
+hazard WGSL's core atomics don't cover, needing a gather reformulation
+and its own re-verification. Deferred to its own future milestone, not
+bundled in.
+
+**Real timing** (128/512/1024/2048, 24 plates): GPU wins even at 128×128
+(1.63×) — the first GPU milestone to win at that size, since JFA's
+`log2(size)`-pass structure means real compute work happens even on a
+small grid. Scaling to 11.50×/18.22×/15.65× at 512²/1024²/2048² (the last
+a real, honestly-reported dip, not investigated). See `CHANGELOG.md`'s
+"GPU layer integration milestone 5" entry for the full record.
+
+**Milestone 6 (not investigated)**: `compute_stress` (deferred above,
+needs the gather reformulation), `flex`'s full body beyond milestone 4's
+blur, orogeny's graph-tracing (`trace_boundaries`/`tag_boundary_types`/
+`build_orogeny_field`, still genuinely unread), `build_age_field`
+(confirmed poor fit, milestone 4). Orogeny is the natural next candidate
+to actually read. Per the scope doc's own feasibility table: graph/
+sequential algorithms (flow accumulation, water-body priority-flood,
 Dijkstra/MST road networks) remain a poor GPU fit without real
 algorithmic redesign — not in scope for the foreseeable near-term
 milestones, which follow the per-cell-math layers instead (terrain →

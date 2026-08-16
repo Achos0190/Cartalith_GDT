@@ -332,7 +332,7 @@ amortize, reported plainly rather than hidden. `compute_flexure` (a thin
 pass. See `CHANGELOG.md`'s "GPU layer integration milestone 4" entry for
 the full record.
 
-## Milestone 5 — plate assignment (JFA) on GPU (current)
+## Milestone 5 — plate assignment (JFA) on GPU: **done** (2026-08-16)
 
 Investigated 2026-08-16 (confirming/refuting the hypothesis milestone 3
 recorded): read `assign_plates` (`cartalith-terrain/src/lib.rs:400`) and
@@ -385,3 +385,30 @@ graph-tracing (`trace_boundaries`/`tag_boundary_types`/
 verify don't assume" item for a future milestone), `build_age_field`
 (confirmed poor fit, milestone 4's own finding — a genuine two-pass
 chamfer distance transform with sequential sweep dependency).
+
+**Done.** `gpu_jfa_plates.wgsl` + `dispatch_gpu_assign_plates`
+(double-buffered JFA, NOT a port of the CPU's in-place variant — see the
+shader's own header comment). Verified against brute-force exact-nearest
+ground truth (not the CPU function directly, since the two JFA variants
+are different algorithms): **GPU matched ground truth exactly, 0
+mismatches**, across three configs; CPU's in-place JFA had a tiny (1-2
+cell) real approximation error against the same truth, as expected for
+JFA. `compute_stress` confirmed genuinely harder (a scatter pattern
+needing a gather reformulation), deferred to its own future milestone,
+not bundled in. Real timing: GPU wins even at 128×128 (1.63×) — the first
+milestone to do so, since JFA's multi-pass structure means real compute
+happens even on a small grid — up to 18.22× at 1024×1024. See
+`CHANGELOG.md`'s "GPU layer integration milestone 5" entry for the full
+record.
+
+## Milestone 6 — orogeny's graph-tracing (not yet investigated)
+
+`trace_boundaries`/`tag_boundary_types`/`build_orogeny_field` — the last
+unread candidate feeding `compute_height`'s `oro` input. Likely poor GPU
+fit given "graph-driven" framing in this project's own earlier CHANGELOG
+entries (the T1-T5 orogeny port), but not confirmed — read fully before
+scoping, the same discipline every milestone here has used. Once this and
+`compute_stress` (milestone 5's deferred item) are both resolved,
+`compute_height`'s full upstream chain is accounted for and an actual
+end-to-end GPU terrain-generation path (or an honest accounting of which
+pieces stay CPU) becomes possible to scope.
