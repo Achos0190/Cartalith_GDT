@@ -201,15 +201,53 @@ Both fixture cases passed (suitability `1e-4` tolerance, seeds checked by
 exact `(x,y,score)` triples) after the threshold fix, without touching the
 underlying formula.
 
-## Milestone 8 — civilisation layer proper: not yet scoped
+## Milestone 8 — settlement placement + faction assignment (current)
 
-Factions, territory, provinces, culture, economy (block 2 proper) — the
-first genuinely new territory this phase reaches; nothing built yet exists
-to depend on for it the way milestones 1-7 built on each other. Needs its
-own investigation pass (what does the reference's faction/territory
-machinery actually depend on, in what order) before it can be scoped the
-way every milestone before it was — don't assume a shape for it here.
-Roads/Journey Planner stay their own later sub-phase per `ROADMAP.md`.
+Investigated 2026-08-16: `_civIterativeAutoWorld` (reference line ~25336,
+block 2's real "auto-populate" entry point) mixes pure algorithm with
+direct DOM reads (`document.getElementById('civNCap')` etc.) and `alert()`
+calls — that DOM-coupled orchestration shell is **not** what this milestone
+ports; it becomes real Godot-side UI/orchestration logic later, not a JS
+transliteration. But the algorithmic core it calls is pure, deterministic,
+and testable exactly like every prior milestone:
+
+- **Land-component labelling** — a plain 4-connected flood fill over
+  land cells (world-wrap aware), giving each landmass an id. Same
+  algorithmic shape as milestone 2's water-body fill and milestone 6's
+  landmass-quality fill (a third occurrence of this pattern in this
+  codebase — reusable *pattern*, still a distinct predicate each time).
+- **`_civSnapLand`/`_civSnapCoast`/`_civIsCoastal`** (reference lines
+  ~20747/~20841/~20917) — snap a suitability-maximum seed onto real dry
+  land (a shore-hugging maximum can round into a lake at full resolution),
+  then onto the shore when the optimal site is near the sea (harbour towns
+  sit ON the water), plus ocean-port coastal detection (inland-sea/lake
+  shores explicitly don't count).
+- **`_civAssignLandmassFactions`** (reference line ~25022) — apportions
+  faction "seats" across landmasses (capacity-weighted, capped by
+  candidate count), assigns concrete faction ids, and for a landmass with
+  multiple seats, seeds multi-capital placement by suitability+spacing
+  before nearest-seed-assignment for the rest. Fully pure, no DOM/RNG-UI
+  coupling — the one RNG use in the wider function (`_civRng`, for
+  anything beyond this) is out of scope here.
+- **Settlement tier classification** (capital/city/town/village/hamlet by
+  rank — the `isCapital`/`isCity`/`isTown`/`isVillage` cascade inline in
+  `_civIterativeAutoWorld`, reference lines ~25409-25421) — small, pure,
+  worth porting alongside the above since it's the direct next step after
+  faction assignment and has no DOM dependency either.
+
+**Out of scope for this milestone**: the `wantCounts`/user-fixed-tier-count
+branch (reads DOM inputs directly — a real Godot UI control, if ever
+exposed, is separate future work, not this milestone); `_civSeedVillages`
+(the v1.70 additive village layer, gated on a toggle with no UI exposed in
+this port yet); territory/province generation (`_civGenerateProvinces`,
+`getCivTerritory`); culture, economy, roads (`ROADMAP.md`'s Journey Planner
+sub-phase). `CIV_FACTIONS` (the faction name/colour/culture roster this
+milestone's output indexes into) — check whether a minimal stand-in
+(count + numeric id, no names/colours/culture yet) is sufficient for this
+milestone's own golden-testing, since the full roster is presentation data
+with no algorithmic content, not core scope here.
+
+**Where the code goes**: `cartalith-civ`, same crate, same conventions.
 
 ## Done means (per milestone, not once for the whole phase)
 
