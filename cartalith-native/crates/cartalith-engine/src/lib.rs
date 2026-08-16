@@ -359,6 +359,13 @@ pub struct WorldState {
     pub age_field: Vec<f32>,
     pub heterogeneity_field: Vec<f32>,
     pub resistance_field: Vec<f32>,
+    /// `plateCrust()` (reference HTML line 3083): raw, unblurred per-cell
+    /// plate base (`<0` = oceanic crust). Already computed internally as
+    /// `base_raw` for orogeny/height, but not previously retained past
+    /// `generate_terrain` -- added for `cartalith-civ`'s `buildLithology`
+    /// port, which reads this exact same value (`currentLithology()`'s
+    /// `crust` argument in the reference).
+    pub crust_field: Vec<f32>,
     pub volcanic_field: Vec<f32>,
     pub impact_field: Vec<f32>,
     pub temperature: Vec<f32>,
@@ -761,6 +768,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         age_field,
         heterogeneity_field,
         resistance_field,
+        crust_field: base_raw,
         volcanic_field,
         impact_field,
         temperature,

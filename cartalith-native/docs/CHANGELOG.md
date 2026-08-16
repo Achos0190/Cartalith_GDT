@@ -2777,3 +2777,86 @@ remain untouched, as scoped. Whether other candidate subsystems
 (hillshade/AO synthesis, biome classification -- pure functions of
 already-computed fields, no `hash`-style huge-integer arithmetic) fare
 differently is the natural next question, not answered by this pilot.
+
+## Phase 2 milestone 1: affordance fields foundation (lithology, soil fertility, water access) (2026-08-16)
+
+First real Phase 2 (civilisation layer) work, scoped in `PHASE2_SCOPE.md`
+after tracing `currentSettlementSuitability`'s (the "v1.30 one function"
+`ROADMAP.md` flags) real dependency chain and finding it several
+milestones away, not a starting point -- the reference's own history
+(v0.104 comment, line ~5824) already drew this exact boundary: *"this
+lands lithology -> soil -> water access; resources + carrying-capacity +
+settlement suitability are the v0.105-0.106 follow-ups."* This entry ships
+that same first slice.
+
+**New crate `cartalith-civ`** (`crates/cartalith-civ/`), zero `gdext`
+dependency, depends on `cartalith-engine` (for `WorldState`) and
+`cartalith-hydrology` (for the shared `river_flow_thresh`). Resolves the
+placement tension `PHASE2_SCOPE.md` flagged (reference treats these as
+block-1/terrain functions, `ROADMAP.md` names a new `cartalith-civ` crate)
+by having the new crate depend on already-computed terrain/climate output
+without modifying it -- matches both.
+
+**Ported** (reference HTML lines 5835/5852/5866):
+- `buildLithology` -> `build_lithology`: categorical 7-type rock
+  classification (granite/basalt/andesite/limestone/sandstone/shale/
+  metamorphic) from crust sign, volcanic intensity, resistance, and
+  rain-conditioned elevation band. Pure, single-pass, no neighbour reads.
+  The reference signature also takes an unused `hetero` parameter (dead in
+  the original too) -- omitted here, a no-op restructuring
+  (`cartalith-porting-discipline`: "internal restructuring that preserves
+  output: proceed").
+- `buildSoilFertility` -> `build_soil_fertility`: Jenny (1941) pedological
+  interaction -- temperature bell x moisture x lithology-weatherability x
+  slope-shedding x age-development. Needed its own `slope_at` -- a
+  deliberate small duplicate of `cartalith-godot/src/render.rs`'s existing
+  copy (same reference function, `slopeAt`, line 7584) rather than a
+  cross-crate extraction for one ~10-line pure function; `render.rs` can't
+  be a dependency (it's the `gdext` boundary crate).
+- `buildWaterAccess` -> `build_water_access`: exponential distance decay
+  from rivers/coast, via a new `chamfer_dist` (reference's `chamferDist`,
+  line 7423) -- a two-pass raster chamfer distance transform. `d` stays
+  `f32` throughout (matching the reference's own `Float32Array`), with
+  every per-cell store narrowed from an `f64` accumulation -- the
+  intermediate truncation genuinely participates in the result (each
+  cell's neighbours read back the already-truncated value), not just a
+  final-output rounding, so this needed the same "accumulate at f64,
+  narrow only at store, per-cell" discipline the orogeny fix used earlier
+  this session, applied to every single raster-scan step rather than once
+  at the end.
+
+**A real gap found and fixed along the way, not part of this milestone's
+own scope**: `WorldState` never retained `plateCrust()`'s Rust equivalent
+(`base_raw`, the raw per-cell plate base `buildLithology`'s `crust`
+parameter needs) past `generate_terrain` -- it was a local variable,
+computed and used for orogeny/height, then dropped. Added as a new
+`WorldState.crust_field` (pure addition, `cartalith-engine` owns
+`WorldState` per the porting-discipline ladder, no existing field's
+numeric output touched).
+
+**Golden-verified** against a real reference `generate()` run via the
+established Node `vm.runInContext` harness (transient, rebuilt for this
+task, not checked in), reusing `golden_parity_carve.rs`'s exact two fixture
+configs (`gw=14 gh=11 seed=24601 world=false`, `gw=16 gh=12 seed=314159
+world=true`, `w_iters=12`) so this doubles as a cross-check that both
+extractions agree on the same underlying run (confirmed: `sea_level`
+matched exactly in both). Lithology asserted bit-exact (`assert_eq!` on
+the `Vec<u8>` -- it's a categorical classification, any mismatch would be
+a real bug); soil fertility and water access at `1e-4` atol+rtol, matching
+`golden_parity_carve.rs`'s own convention. **Both cases passed on the
+first attempt.**
+
+- `cargo test -p cartalith-civ` (8 tests: 6 unit + 2 golden), `cargo
+  clippy -p cartalith-civ --all-targets`: clean (one real `if_same_then_
+  else` lint fixed by merging the two source conditions with `||`, since
+  the reference's own `if(fld[i]<sea) src[i]=1; else if(flow[i]>thr)
+  src[i]=1;` has genuinely identical bodies). `cargo test --workspace` /
+  `cargo build --workspace`: no regressions elsewhere.
+
+**Where this leaves Phase 2**: milestone 1 of an unknown-but-large number
+still needed before civilisation-layer feature parity. `currentSettlement
+Suitability` itself still needs resource potentials, carrying capacity,
+route corridors, landmass quality, coast SDF, and water-body
+classification -- none of which exist yet, all explicitly deferred by
+`PHASE2_SCOPE.md`'s own "Out of scope" table. Factions, territory, roads,
+provinces, economy, and the Journey Planner remain untouched.

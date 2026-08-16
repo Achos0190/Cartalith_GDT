@@ -131,6 +131,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cartalith-civ"
+version = "0.1.0"
+dependencies = [
+ "cartalith-engine",
+ "cartalith-hydrology",
+]
+
+[[package]]
 name = "cartalith-climate"
 version = "0.1.0"
 dependencies = [
