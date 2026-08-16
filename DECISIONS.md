@@ -131,6 +131,54 @@ principle. A GPU-safe hash is legitimate future work; scope it properly
 an improvised inline rewrite) rather than retrofitting it into whichever
 crate happens to be open at the time.
 
+## 7b. Territory/border generation: cost-distance, strength-weighted (owner decision, 2026-08-16)
+
+The reference has **no algorithm for this at all** — territory ownership
+is set only by hand-painting with a brush tool, or restored from a save
+file (`_civGenerateProvinces` partitions an *already-painted* territory
+raster; nothing computes that raster programmatically). This is genuinely
+new design, not a port, and falls under §7a's "principled equivalence"
+latitude — there is no JS behaviour to approximate here at all, only
+academic grounding to build from.
+
+**Decision**: cost-distance Voronoi from capitals, weighted by faction
+strength (capital population) — not straight-line Voronoi. Each land cell
+is assigned to whichever capital reaches it at the lowest *effective*
+cost, where effective cost is the real terrain travel-cost distance
+(`buildTravelCost`/`roadDijkstra`, Phase 2 milestone 11) divided down by a
+monotonic function of that capital's settlement population (higher
+population → farther effective reach for the same terrain cost). This
+produces borders that follow mountain ranges and rivers rather than being
+geometrically arbitrary, and ties directly to two things this port already
+has real, cited grounding for: multiplicatively-weighted Voronoi
+diagrams (standard computational-geometry technique for size-weighted
+spatial competition) and Christaller's central place theory (1933,
+already cited in `PROVENANCE.md` for the civilisation layer generally —
+this is exactly the "settlement hierarchy projects influence proportional
+to size" idea Christaller describes, just applied to faction territory
+instead of trade-catchment radius).
+
+**Why not plain Voronoi**: straight-line nearest-capital ignores terrain
+entirely and reads as artificial — worse than doing nothing, for a port
+whose explicit goal (`DECISIONS.md` intro, owner's own framing) is an
+equal-or-better visual/qualitative result, not a technically-simplest one.
+
+**Why not simulated historical expansion** (a contested-territory
+flood-fill/war-of-conquest model): considered and deferred, not rejected —
+real complexity (temporal simulation, conflict resolution, balancing) for
+a v1 that a static weighted-Voronoi pass doesn't need. Revisit only if the
+static version's results feel wrong once actually seen, not preemptively.
+
+**Verification standard**: per §7a, this can't be golden-tested against
+JS (nothing to compare against) — judge it by whether borders look
+geographically plausible on real generated worlds (following terrain
+features, stronger factions visibly larger) once implemented, the same
+"equal-or-better visual result, judged by looking at it" standard §7a
+already established.
+
+**Blocked on**: Phase 2 milestone 11 (the travel-cost/Dijkstra
+infrastructure this depends on) landing first — see `PHASE2_SCOPE.md`.
+
 ## 8. Documentation here, code in a new repository
 
 `Cartalith_RC` has strict conventions of its own — single HTML file, version per

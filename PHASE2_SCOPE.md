@@ -354,14 +354,51 @@ any Rust code was touched). Both fixture cases golden-verified bit-exact
 extraction. See `CHANGELOG.md`'s "Phase 2 milestone 9" entry for the full
 account.
 
-## Milestone 10 — territory/provinces (blocked on a design decision, not scoped)
+## Milestone 10 — territory/provinces: **design decided, blocked on milestone 11's infrastructure**
 
-Per the investigation above: no algorithmic auto-generation exists in the
-reference for this at all (interactive paint + save/load only). Needs a
-genuinely new design (Voronoi-from-capitals or another scheme) before it
-can be ported/built — a real decision for the project owner, not something
-to improvise here. Raised directly with the owner 2026-08-16; revisit once
-that direction is set.
+Owner decision recorded 2026-08-16, `DECISIONS.md` §7b — read that first,
+it's the authoritative design record, this is only the implementation
+scope. **Genuinely new design, not a port**: the reference has no
+algorithmic territory generation at all (interactive paint + save/load
+only), so there's nothing to golden-verify against — judged by visual
+plausibility once real, per §7a/§7b's standard.
+
+**Algorithm**: cost-distance Voronoi from capitals, weighted by capital
+population.
+
+1. For every capital (milestone 8's `capital_of` flags + milestone 9's
+   population figures), run `roadDijkstra` (milestone 11) from that
+   capital's cell over `buildTravelCost`'s cost field — same real
+   terrain-cost distance the road network itself uses, not a fresh metric.
+2. Effective distance = raw cost-distance ÷ `w(population)`, `w` a
+   monotonic weight function (e.g. `1 + ln(1 + pop/pop_ref)` — pick and
+   document a real constant, don't leave it magic) so a more populous
+   capital's territory reaches farther for the same terrain cost.
+3. Each land cell's owner = the faction whose capital reaches it at the
+   lowest effective distance. Water/unreachable cells (cost-distance
+   `Infinity` from every capital) stay unowned, consistent with
+   `buildTravelCost`'s water-impassable convention.
+4. Multi-capital factions (milestone 8's multi-seat case): each capital
+   projects its own influence independently; a cell's faction is whichever
+   *capital* wins, then mapped to that capital's faction id — a faction
+   with two capitals effectively gets the union of both their zones.
+
+**In scope**: the assignment algorithm above, golden-... no — *visually*
+verified (per §7b) on real generated worlds, at more than one seed/map
+shape so a single lucky-looking result isn't mistaken for "it works."
+
+**Out of scope**: `_civGenerateProvinces` (sub-partitioning owned
+territory into per-settlement provinces — a real next step once territory
+itself exists, not this milestone), the interactive paint tool (this port
+has no painting UI, not planned as part of this milestone), economy,
+culture, roads-as-borders refinement (real roads existing, milestone 11,
+could later inform border smoothing — not needed for a first working
+version).
+
+**Blocked on**: milestone 11 (road network algorithm) landing first —
+needs `buildTravelCost`/`roadDijkstra` real and tested. Check on
+completion whether milestone 11's Rust API is directly reusable here
+(single-source Dijkstra called once per capital) without modification.
 
 ## Milestone 11 — road network algorithm (current)
 
