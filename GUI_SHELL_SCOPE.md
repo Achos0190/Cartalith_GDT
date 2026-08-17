@@ -292,3 +292,35 @@ Inspector (hover → real "WHY HERE?" chain, e.g. *"strong fresh water (0.86)
 flood risk (0.06) / Suitability 0.58"*) both still work correctly through
 the cleaned-up shell; the Layers panel (now the sole entry point) still
 shows and functions for all three overlay toggles.
+
+## Second workflow re-audit (2026-08-17)
+
+Owner asked to re-check the shell against `design/Cartalith GUI.dc.html` and
+`design/cartalith-menu-structure.md` once more and correct any remaining
+drift. Re-read `main.gd`/`main.tscn` against both sources directly, then
+confirmed against a real maximized (1696×1018) screenshot rather than code
+alone.
+
+**Confirmed clean, not re-broken**: no duplicate top-bar/nav items found —
+the earlier Map-menu "Layers" fix (bundled into `d7fdd2d`) held. Nav-subject
+click correctly swaps only the second panel + inspector context, never the
+viewport, per §2's own rule — verified in both code (`_select_nav_subject`)
+and the live screenshot. Mode bar, bottom timeline bar, and the 7 top-bar
+menus all present and structurally match the mockup's own regions.
+
+**One real design question found, decided, not silently changed**: the
+mockup's own `1a`/`4a` reference screens show the *Layers* list as the
+panel content when "Overview" is the active nav row — this port instead
+shows the generation-parameter form (seed/resolution/world shape/sea level)
+under `WORLD:Overview`, with Layers living under its own `CARTOGRAPHY:Layers`
+subject. This was a deliberate milestone-1 decision, not an oversight: a
+user's very first action is entering a seed and pressing Generate, and
+`menu-structure.md`'s own §2 rule ("navigator swaps the tool palette") only
+mandates that nav selection changes the palette — it doesn't mandate which
+palette lives at which subject. Kept as-is; noting the discrepancy here so
+it's a recorded decision, not a gap that gets "fixed" back and forth by a
+future pass without the reasoning in hand.
+
+**Verified**: real windowed-app screenshot only this pass (no code changes
+were needed — the shell was already correct after the prior cleanup); no
+`cargo`/`godot4 --headless` re-run required since nothing changed.

@@ -61,8 +61,8 @@ extends Control
 @onready var navigator_vbox: VBoxContainer = %NavigatorVBox
 @onready var second_panel_header: Label = %SecondPanelHeader
 @onready var overview_content: Control = %OverviewContent
-@onready var layers_content: Control = %LayersContent
 @onready var placeholder_content: Control = %PlaceholderContent
+@onready var placeholder_label: Label = %PlaceholderLabel
 @onready var scale_bar_label: Label = %ScaleBarLabel
 @onready var inspector_header: Label = %InspectorHeader
 @onready var inspector_body: RichTextLabel = %InspectorBody
@@ -100,9 +100,18 @@ const NAV_GROUPS := {
 	"INFRASTRUCTURE": ["Roads", "Rivers", "Ports", "Trade", "Logistics"],
 	"CARTOGRAPHY": ["Layers", "Styling", "Labels", "Assets", "Export"],
 }
-## The only two subjects with real content this milestone -- everything
-## else in NAV_GROUPS falls through to the placeholder.
-const NAV_REAL_SUBJECTS := ["WORLD:Overview", "CARTOGRAPHY:Layers"]
+## The only subject with real *parameter-panel* content this milestone --
+## everything else in NAV_GROUPS falls through to the placeholder. Layers
+## is deliberately not here: per the actual design mockup (`design/
+## Cartalith GUI.dc.html`, turn 1a), the Layers panel is a permanent third
+## column beside the navigator, always visible regardless of which subject
+## is selected -- not a destination the navigator swaps to. Re-audited
+## 2026-08-17 after the owner asked to re-check the shell against the
+## mockup/menu-structure docs: the first shell pass had collapsed the
+## mockup's two always-visible left-side panels (Workspace nav + Layers)
+## into one swappable slot, which is a real workflow mismatch, not just a
+## cosmetic one -- see LayersPanel in main.tscn.
+const NAV_REAL_SUBJECTS := ["WORLD:Overview"]
 
 var _nav_buttons: Dictionary = {} ## "GROUP:Subject" -> Button, for active-state styling
 
@@ -180,14 +189,20 @@ func _select_nav_subject(group_name: String, subject: String) -> void:
 
 	second_panel_header.text = "%s · %s" % [group_name, subject.to_upper()]
 	overview_content.visible = false
-	layers_content.visible = false
 	placeholder_content.visible = false
 	if key == "WORLD:Overview":
 		overview_content.visible = true
 	elif key == "CARTOGRAPHY:Layers":
-		layers_content.visible = true
+		## Layers is listed here for inventory completeness (`design/
+		## cartalith-menu-structure.md`'s own CARTOGRAPHY grouping), but its
+		## real content lives permanently in `LayersPanel`, not behind this
+		## click -- say so rather than showing the generic "not wired yet"
+		## placeholder, which would be actively misleading here.
+		placeholder_content.visible = true
+		placeholder_label.text = "Layer visibility is always available in the LAYERS panel to the right, regardless of which subject is selected here."
 	else:
 		placeholder_content.visible = true
+		placeholder_label.text = "This workspace subject isn't wired to the engine yet."
 
 
 ## Populates the 7 top-bar domain menus from `design/cartalith-menu-

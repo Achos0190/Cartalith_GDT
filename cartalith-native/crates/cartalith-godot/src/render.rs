@@ -144,6 +144,25 @@ pub struct TerrainAppearance {
     /// this port's 512²–8192² resolution range (same reasoning as
     /// `smooth_sea_h`'s own `gw/200` radius).
     pub ao_radius_frac: f64,
+
+    // ---- Milestone 3 (`TERRAIN_APPEARANCE_SCOPE.md`): hydrology tint ----
+    /// Ambient "near water" darkening/cooling strength
+    /// (`TERRAIN_APPEARANCE_RESEARCH.md` §13). `0.0` disables it entirely
+    /// (and skips the precompute); the reference has no such effect at its
+    /// defaults, so `js_reference()` uses `0.0`. Deliberately a *tint*, not
+    /// a repaint — §13 is explicit that "river rendering itself must remain
+    /// a separate vector/layer system; do not paint rivers into the terrain
+    /// colour raster", so this never approaches wetland-tint strength and
+    /// never touches `material_weights` (the golden-verified fraction
+    /// blend already has its own, independent TWI-driven wetland channel —
+    /// this is a lighting-layer echo of "there's a lot of flow near here",
+    /// not a second material classifier).
+    pub hydro_wet_strength: f64,
+    /// Blur radius (fraction of grid width) used to turn the per-cell flow
+    /// field into a soft halo around channels rather than a hard one-cell
+    /// outline — same reasoning as `ao_radius_frac`, but tighter, since a
+    /// river corridor is a much narrower feature than a drainage basin.
+    pub hydro_wet_radius_frac: f64,
 }
 
 impl Default for TerrainAppearance {
@@ -185,6 +204,8 @@ impl Default for TerrainAppearance {
             relief_gain: 1.16,
             ao_strength: 0.28,
             ao_radius_frac: 0.012,
+            hydro_wet_strength: 0.38,
+            hydro_wet_radius_frac: 0.006,
         }
     }
 }
@@ -217,6 +238,7 @@ impl TerrainAppearance {
             relief_ambient: 0.45,
             relief_gain: 1.02,
             ao_strength: 0.0,
+            hydro_wet_strength: 0.0,
             ..TerrainAppearance::default()
         }
     }
@@ -385,6 +407,50 @@ fn build_ao(field: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool, a:
     out
 }
 
+/// Ambient "near water" tint field (`TERRAIN_APPEARANCE_RESEARCH.md` §13),
+/// returned as a per-cell `[0, 1]` strength (0 = no effect). `flow` is
+/// `None` for a loaded save (`SAVEFILE_COMPAT.md` carries no flow field,
+/// same fallback `cell_color`'s own TWI calculation already documents) —
+/// this returns an all-zero field rather than guessing.
+///
+/// Method: log-compress flow the same way `cell_color`'s own TWI term
+/// already does (`(flow / (gw*gh)).max(1e-4)`, so this stays on a
+/// comparable scale to the existing hydrology math), min-max normalize so
+/// it holds up across worlds with wildly different total flow (the same
+/// reason `build_ao` normalizes by RMS rather than a fixed threshold —
+/// §32's "flatters one terrain, destroys another" failure), then keep only
+/// the top of that range with a smoothstep so ordinary hillside sheet-flow
+/// doesn't tint the whole map, and blur it into a soft halo rather than a
+/// hard one-cell channel outline.
+fn build_hydro_wetness(flow: Option<&[f32]>, gw: usize, gh: usize, world: bool, a: &TerrainAppearance) -> Vec<f32> {
+    let n = gw * gh;
+    if a.hydro_wet_strength <= 0.0 {
+        return vec![0f32; n];
+    }
+    let Some(flow) = flow else {
+        return vec![0f32; n];
+    };
+    let denom = (gw * gh) as f64;
+    let mut logf: Vec<f32> = flow.iter().map(|&f| (((f as f64) / denom).max(1e-4)).ln() as f32).collect();
+
+    let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+    for &v in &logf {
+        if v < lo {
+            lo = v;
+        }
+        if v > hi {
+            hi = v;
+        }
+    }
+    let range = (hi - lo).max(1e-6);
+    for v in logf.iter_mut() {
+        *v = smoothstep(0.55, 0.88, ((*v - lo) / range) as f64) as f32;
+    }
+
+    let rad = ((gw as f64 * a.hydro_wet_radius_frac).round() as i64).max(1);
+    blur_once(&logf, gw, gh, rad, world)
+}
+
 /// The weighted multidirectional light table (`lx, ly, lz, weight`), built
 /// once per render rather than re-deriving six sin/cos pairs per pixel.
 /// Weights are normalized to sum to 1, so the combined shade stays on the
@@ -464,6 +530,10 @@ pub struct RenderCtx<'a> {
     /// Per-cell ambient-occlusion multiplier (`build_ao`). All `1.0` when
     /// `appearance.ao_strength == 0`, which is the reference's own state.
     ao: Vec<f32>,
+    /// Per-cell "near water" tint strength (`build_hydro_wetness`). All
+    /// `0.0` when `appearance.hydro_wet_strength == 0`, which is the
+    /// reference's own state.
+    hydro_wet: Vec<f32>,
     /// Precomputed weighted light directions (`build_lights`).
     lights: Vec<(f64, f64, f64, f64)>,
     /// The renderer's colour data/shading constants (`TerrainAppearance`'s
@@ -513,8 +583,9 @@ impl<'a> RenderCtx<'a> {
         let sea_h = smooth_sea_h(field, gw, gh, world);
         let sea_shade = sea_shade_from(&sea_h, gw, gh, &appearance);
         let ao = build_ao(field, gw, gh, sea_level, world, &appearance);
+        let hydro_wet = build_hydro_wetness(flow, gw, gh, world, &appearance);
         let lights = build_lights(&appearance);
-        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, lights, appearance }
+        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, hydro_wet, lights, appearance }
     }
 
     fn h(&self, x: usize, y: usize) -> f64 {
@@ -756,7 +827,7 @@ fn bio_jitter(x: usize, y: usize, gw: usize) -> f64 {
 /// AO/SVF/shadow fields all being off). Every other `state.viz.*`-gated
 /// extra is omitted — see this module's doc comment.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, x: usize, y: usize, gw: usize, gh: usize) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, hydro_wet: f64, x: usize, y: usize, gw: usize, gh: usize) -> Rgb {
     let n_low = vnoise(x as f64 * 0.06, y as f64 * 0.06, 11);
     let n_hi = vnoise(x as f64 * 96.0 / gw as f64, y as f64 * 96.0 / gw as f64, 23);
     let n_bio = bio_jitter(x, y, gw);
@@ -815,7 +886,20 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     let dx = x as f64 / gw as f64 - 0.5;
     let dy = y as f64 / gh as f64 - 0.5;
     let haze = clamp01(dx.hypot(dy) * 1.9).powf(2.2) * 0.18;
-    let l = (l.0 + (208.0 - l.0) * haze, l.1 + (218.0 - l.1) * haze, l.2 + (230.0 - l.2) * haze);
+    let mut l = (l.0 + (208.0 - l.0) * haze, l.1 + (218.0 - l.1) * haze, l.2 + (230.0 - l.2) * haze);
+
+    // Milestone 3: ambient "near water" tint (`TERRAIN_APPEARANCE_RESEARCH.md`
+    // §13) — a soft pull toward a cool, muted green-grey near high flow
+    // accumulation, deliberately short of `wetland_temp`'s own darkest stop
+    // so it never reads as a second, competing material classification (that
+    // channel already exists, independently, inside `material_weights`).
+    // `hydro_wet` is `0.0` whenever `hydro_wet_strength == 0` (including
+    // `js_reference()`), so this is a no-op on the pinned JS-parity path.
+    if hydro_wet > 0.0 {
+        let wet = hydro_wet * appearance.hydro_wet_strength;
+        let target = (50.0, 68.0, 74.0);
+        l = (l.0 + (target.0 - l.0) * wet, l.1 + (target.1 - l.1) * wet, l.2 + (target.2 - l.2) * wet);
+    }
 
     // `ao * vignette` (7959-7960). `ao` was a hardcoded `1.0` before
     // milestone 2 (the reference's AO/SVF/shadow fields are all off at its
@@ -881,7 +965,7 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
         let twi = (a / beta).ln();
         let asp = ctx.aspect_factor(x, y);
         let curv = ctx.curvature_at(x, y);
-        land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, x, y, ctx.gw, ctx.gh)
+        land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, ctx.hydro_wet[i] as f64, x, y, ctx.gw, ctx.gh)
     };
 
     (clamp01(r / 255.0), clamp01(g / 255.0), clamp01(b / 255.0))

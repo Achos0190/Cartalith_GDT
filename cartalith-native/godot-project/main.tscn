@@ -407,50 +407,70 @@ theme_type_variation = &"StatusLabel"
 autowrap_mode = 2
 text = "Press Generate to run the pipeline."
 
-[node name="LayersContent" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox"]
+[node name="PlaceholderContent" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox"]
 unique_name_in_owner = true
 visible = false
-theme_override_constants/separation = 8
 
-[node name="MapLayersHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/LayersContent"]
+[node name="PlaceholderLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/PlaceholderContent"]
+unique_name_in_owner = true
 theme_type_variation = &"HintLabel"
 autowrap_mode = 2
-text = "Settlements (Phase 2, cartalith-civ): capitals/cities/towns/villages/hamlets, colour-coded by faction, connected by the real terrain-cost road network. Hover a marker for details."
+text = "This workspace subject isn't wired to the engine yet."
 
-[node name="CivLayerCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/LayersContent"]
+[node name="LayersPanel" type="PanelContainer" parent="Shell/MainRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(238, 0)
+size_flags_horizontal = 0
+theme_override_styles/panel = SubResource("SB_SecondPanel")
+
+[node name="LayersPanelMargin" type="MarginContainer" parent="Shell/MainRow/LayersPanel"]
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 12
+
+[node name="LayersPanelVBox" type="VBoxContainer" parent="Shell/MainRow/LayersPanel/LayersPanelMargin"]
+theme_override_constants/separation = 10
+
+[node name="LayersPanelHeader" type="Label" parent="Shell/MainRow/LayersPanel/LayersPanelMargin/LayersPanelVBox"]
+theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
+theme_override_font_sizes/font_size = 9
+text = "LAYERS"
+
+[node name="LayersContent" type="VBoxContainer" parent="Shell/MainRow/LayersPanel/LayersPanelMargin/LayersPanelVBox"]
+unique_name_in_owner = true
+theme_override_constants/separation = 8
+
+[node name="MapLayersHint" type="Label" parent="Shell/MainRow/LayersPanel/LayersPanelMargin/LayersPanelVBox/LayersContent"]
+theme_type_variation = &"HintLabel"
+autowrap_mode = 2
+text = "Settlements (Phase 2, cartalith-civ): capitals/cities/towns/villages/hamlets, colour-coded by faction, connected by the real terrain-cost road network. Hover a marker for details. Always visible regardless of which workspace subject is selected -- these toggle what's drawn on the one map underneath, not a destination you navigate to."
+
+[node name="CivLayerCheck" type="CheckBox" parent="Shell/MainRow/LayersPanel/LayersPanelMargin/LayersPanelVBox/LayersContent"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 44)
 autowrap_mode = 3
 button_pressed = true
 text = "Show settlements & roads"
 
-[node name="TerritoryLayerCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/LayersContent"]
+[node name="TerritoryLayerCheck" type="CheckBox" parent="Shell/MainRow/LayersPanel/LayersPanelMargin/LayersPanelVBox/LayersContent"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 44)
 autowrap_mode = 3
 button_pressed = false
 text = "Show territory (faction colour fill)"
 
-[node name="ProvinceLayerCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/LayersContent"]
+[node name="ProvinceLayerCheck" type="CheckBox" parent="Shell/MainRow/LayersPanel/LayersPanelMargin/LayersPanelVBox/LayersContent"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 44)
 autowrap_mode = 3
 button_pressed = false
 text = "Show province boundaries"
 
-[node name="LayersUnavailableHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/LayersContent"]
+[node name="LayersUnavailableHint" type="Label" parent="Shell/MainRow/LayersPanel/LayersPanelMargin/LayersPanelVBox/LayersContent"]
 theme_type_variation = &"HintLabel"
 autowrap_mode = 2
 text = "Hillshade / Water / Rivers / Biomes / Ecology / Resources / Politics / Trade / Labels / Graticule are not separable render layers yet -- render.rs composites them into one pass (see TERRAIN_APPEARANCE_SCOPE.md)."
-
-[node name="PlaceholderContent" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox"]
-unique_name_in_owner = true
-visible = false
-
-[node name="PlaceholderLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/PlaceholderContent"]
-theme_type_variation = &"HintLabel"
-autowrap_mode = 2
-text = "This workspace subject isn't wired to the engine yet."
 
 [node name="ViewportPanel" type="PanelContainer" parent="Shell/MainRow"]
 size_flags_horizontal = 3

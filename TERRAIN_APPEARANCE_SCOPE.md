@@ -264,3 +264,38 @@ ground, forest stippling, hand-lettered glyphs, physical border — see
 by `GUI_SHELL_SCOPE.md`), the GPU path (§21), and milestone 1's own open
 question about whether an elevation-breakpoint ramp should exist as a
 separate mode alongside the material system.
+
+## Milestone 3 — hydrology-based colour modulation (2026-08-17)
+
+Research doc §13: increase local wetness/material influence near rivers and
+high flow accumulation, using flow accumulation itself rather than a crude
+circular overlay, and keeping river *rendering* a separate vector/layer
+system — the terrain colour raster gets a tint, not a repaint.
+
+**Built**: `TerrainAppearance` gained `hydro_wet_strength`/
+`hydro_wet_radius_frac`. `build_hydro_wetness()` log-compresses flow the
+same way `cell_color`'s own TWI term already does, min-max normalizes per
+world (the milestone-2 lesson: a fixed threshold flatters one terrain and
+destroys another), keeps only the top of that range via `smoothstep(0.72,
+0.97, …)` so ordinary hillside sheet-flow doesn't tint the whole map, then
+blurs into a soft halo. `land_color` pulls toward a muted cool green-grey by
+`hydro_wet * hydro_wet_strength`, deliberately short of the material
+system's own `wetland_temp` darkest stop so it reads as an ambient echo of
+"there's real flow near here," not a second, competing material
+classification — the material blend's own TWI-driven wetland channel is
+untouched.
+
+**Golden parity, same discipline as milestone 2**: `js_reference()` sets
+`hydro_wet_strength: 0.0`, which both zeroes the tint in `land_color` and
+skips `build_hydro_wetness`'s own precompute — the reference render path is
+a true no-op, not just a visually-negligible one. `golden_parity_render.rs`
+passes unmodified at its original tolerance.
+
+**Verified**: `cargo build -p cartalith-godot`, `cargo test --workspace`
+(0 regressions), `cargo clippy -p cartalith-godot --all-targets` (clean —
+the crate's one pre-existing `needless_borrow` warning at `lib.rs:317` is
+unrelated), `godot4 --headless --quit main.tscn` clean load. Real
+windowed-app screenshot (seed 12345, Classic, 2048×2048) confirms
+generation renders correctly end-to-end through the also-restructured shell
+(see `GUI_SHELL_SCOPE.md`'s second workflow re-audit, same day) — terrain,
+water, and 40 real settlements all visible, no corruption.

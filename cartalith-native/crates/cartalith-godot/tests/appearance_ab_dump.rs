@@ -73,6 +73,15 @@ fn run(label: &str, mut p: WorldParams) {
     let ws = generate_terrain(&p);
     dump(&format!("{label}_before"), &ws, gw, gh, world, render::TerrainAppearance::js_reference());
     dump(&format!("{label}_after"), &ws, gw, gh, world, render::TerrainAppearance::default());
+
+    // Milestone 3 isolation pair: milestone 2's relief lighting/AO held
+    // fixed at their own `default()` values, hydrology tint alone toggled
+    // off vs on — isolates this milestone's own delta from milestone 2's
+    // already-verified one, rather than conflating both against JS.
+    let mut no_hydro = render::TerrainAppearance::default();
+    no_hydro.hydro_wet_strength = 0.0;
+    dump(&format!("{label}_nohydro"), &ws, gw, gh, world, no_hydro);
+    dump(&format!("{label}_withhydro"), &ws, gw, gh, world, render::TerrainAppearance::default());
 }
 
 #[test]

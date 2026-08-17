@@ -482,6 +482,24 @@ generated from the source), and Android's four `launcher_icons/*` fields
 safe-zone margins so launcher masks don't clip the content). Full record in
 `CHANGELOG.md`'s "App icon wired for Windows and Android" entry.
 
+## GUI shell + terrain appearance, second pass (done 2026-08-17)
+
+Second workflow re-audit found and fixed a real structural gap: the Layers
+panel is now a permanent fifth region (nav / params-or-placeholder / layers
+/ viewport / inspector) rather than something the navigator swapped to —
+matching the mockup's own always-visible region count. `GUI_SHELL_SCOPE.md`'s
+own "second workflow re-audit" section has the full reasoning.
+
+`TERRAIN_APPEARANCE_SCOPE.md` milestone 3 (hydrology-based colour
+modulation, research doc §13) also landed: a subtle, flow-accumulation-
+driven wetness tint on land colour near rivers/high flow, gated the same
+way milestone 2's hillshade/AO were — `js_reference()` stays a true no-op,
+`golden_parity_render.rs` unmodified at its original tolerance.
+
+Both verified together: real end-to-end generation (seed 12345, Classic,
+2048×2048, 40 settlements) through the restructured shell, full workspace
+test suite green, headless load clean.
+
 ## Known-open items (not owner-blocked, just not done yet)
 
 - Real Fira Sans/Fira Code font files for the UI theme (design-system match found the pairing; sourcing + OFL-license verification deferred).

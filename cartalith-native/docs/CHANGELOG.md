@@ -6542,3 +6542,34 @@ re-run just for this cosmetic change.
 icon.png`, `godot-project/icon.ico`, `godot-project/icons/android_*.png`
 (4 files, new), `godot-project/project.godot`, `godot-project/
 export_presets.cfg`, this file, `docs/STATUS.md`.
+
+## GUI shell second workflow re-audit: Layers made a permanent panel (2026-08-17)
+
+Owner asked to re-check the shell against the design mockup/menu-structure
+docs once more. Re-reading `design/Cartalith GUI.dc.html`'s own `1a`/`4a`
+reference screens against the running shell surfaced a real structural
+mismatch, not a cosmetic one: the mockup's Layers panel is a permanent third
+column beside the workspace navigator, always visible regardless of which
+nav subject is active — the first shell pass (`5d44c6b`) had instead made
+Layers a destination the navigator *swapped to* (`CARTOGRAPHY:Layers`),
+collapsing two of the mockup's always-visible regions into one slot.
+
+Restructured `main.tscn`: `LayersContent` (settlement/territory/province
+toggles) moved out of the swappable `SecondPanel` into a new, permanent
+`LayersPanel` sitting between it and the viewport — a real fifth column,
+matching the mockup's own region count. `CARTOGRAPHY:Layers` now correctly
+explains itself ("Layer visibility is always available in the LAYERS panel
+to the right...") rather than either duplicating the real panel or showing
+the generic "not wired yet" placeholder, which would have been actively
+misleading for a subject whose content genuinely does exist, just not
+behind that click.
+
+**Verified**: `cargo build -p cartalith-godot`, `cargo test --workspace`
+(0 regressions), `godot4 --headless --quit main.tscn` clean load. Real
+windowed-app screenshots, before and after the restructure, and a real
+end-to-end generation (seed 12345, Classic, 2048×2048, 40 settlements)
+through the new layout — Layers panel, its three toggles, and the map all
+render correctly together.
+
+**Files touched**: `cartalith-native/godot-project/main.tscn`,
+`cartalith-native/godot-project/main.gd`, `GUI_SHELL_SCOPE.md`, this file.
