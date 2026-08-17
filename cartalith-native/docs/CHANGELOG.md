@@ -5126,3 +5126,48 @@ repo needs to change before that — the build path itself is proven.
 items). No production code changed — the toolchain and export
 configuration were already correct. Build artifacts (`.so`, `.apk`)
 stay gitignored, not committed, per existing convention.
+
+## Real Android device pass, part 2: golden path actually driven (2026-08-17, same day)
+
+The owner unlocked the phone mid-session. Re-checked immediately rather
+than assuming: `adb devices` still showed it, and a fresh screencap came
+back a real 1.26MB image (vs. the earlier blanked 15KB ones) —
+`dumpsys window` confirmed `isKeyguardShowing=false`.
+
+The app (same process, alive backgrounded since the earlier launch) was
+foregrounded and was **already showing a fully rendered world** — real
+biome/hillshade terrain, rivers, faction-coloured settlements, the road
+network, at the UI's own default params (512×512, seed 12345, 800km,
+Classic, 40 settlements) — confirming the on-device renderer itself
+works, not just that the engine initializes.
+
+Tapped **Generate** for real (`adb shell input tap`) and sampled `adb
+shell dumpsys meminfo` roughly every second through the run:
+
+**Peak PSS during generation: ~283,326 KB (~277 MB)** at 512×512,
+settling to a flat ~271,290 KB steady-state across four consecutive
+samples afterward — no runaway growth, matching the "real peak, no
+persistent leak" shape `MEMORY_OPTIMIZATION_SCOPE.md` already found on
+Windows at a much larger 2048×2048 (not directly size-comparable, but
+the same qualitative pattern). Generation completed in ~7-9s wall-clock
+— slower than this session's own 512×512 desktop timing-bench numbers
+(sub-second on a 16-thread machine), expected given a phone SoC's far
+fewer/slower cores plus the not-yet-multithreaded Phase 2 civ layer
+running in the mix.
+
+A second screenshot taken as memory plateaued showed the **identical
+rendered map** — same seed, same terrain/settlements/roads — real
+confirmation the full pipeline (terrain → climate → erosion → hydrology
+→ Phase 2 civ → render) ran to completion on-device and re-rendered
+correctly, not just redrew stale state. **No ANR, no crash, no hang**:
+`adb logcat` across the whole window showed no `ANR`/`FATAL`/`crash`
+lines from this app.
+
+**MVP criterion 4 is now fully closed** — both halves (build+install
+and actually running the golden path) confirmed on real hardware with
+real numbers.
+
+**Files touched**: `ANDROID_BUILD_SCOPE.md` (blocker section replaced
+with the real golden-path result and numbers), `cartalith-native/docs/
+STATUS.md` (criterion 4, Phase 1 row, Owner-only items, all marked
+fully done).

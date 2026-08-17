@@ -97,7 +97,69 @@ after launch (process alive, activity recorded `visible=true`):
 This is **launch/idle** memory only — see the blocker below for why
 generation-time numbers weren't reachable this pass.
 
-## The real blocker: a genuinely secured lock screen, not a code problem
+## Golden path, driven for real once the owner unlocked the phone (2026-08-17)
+
+The owner unlocked the device mid-session. Re-checked immediately:
+`adb devices` still showed it, and a fresh `adb exec-out screencap`
+came back a real 1.26MB image (vs. the earlier blanked 15KB ones) —
+`dumpsys window` confirmed `isKeyguardShowing=false`.
+
+The app (still the same process from the earlier launch — it had stayed
+alive backgrounded this whole time) was foregrounded via `adb shell am
+start`, and the screenshot showed it was **already displaying a fully
+rendered world** — real biome/hillshade terrain, rivers, settlements
+(faction-coloured markers sized by tier), and the real road network, at
+the UI's own default parameters (512×512, seed 12345, 800km, Classic, 40
+settlements). This confirms the on-device renderer itself works
+correctly — this wasn't left generating blank/broken while backgrounded.
+
+To get a real, freshly-triggered generation with memory sampled through
+it (not just a static already-rendered result), tapped the **Generate**
+button (`adb shell input tap`, coordinates mapped from the screenshot)
+and sampled `adb shell dumpsys meminfo` every ~1s through the run:
+
+| Sample | t (approx) | PSS Total | Native Heap (private dirty) |
+|---|---|---|---|
+| 1 (right after tap) | +0s | 251,519 KB | 89,520 KB |
+| 2 | +1s | 257,166 KB | 96,872 KB |
+| 3 | +2s | 269,070 KB | 108,796 KB |
+| 6 | +5s | 270,822 KB | 110,548 KB |
+| 7 | +6s | 276,018 KB | 115,744 KB |
+| **8 (peak)** | **+7s** | **283,326 KB** | **123,052 KB** |
+| steady-state (settled, 4 consecutive samples) | +9-12s | ~271,290 KB | — |
+
+**Peak PSS during generation: ~283,326 KB (~277 MB).** Steady-state
+after completion settled to ~271,290 KB (~265 MB) and held flat across
+four consecutive samples — no runaway growth. For comparison, this
+project's own Windows measurement at 2048×2048 found a ~1,434-1,502 MB
+peak (`MEMORY_OPTIMIZATION_SCOPE.md`) — this Android run was at the much
+smaller default 512×512, so the two aren't directly comparable
+size-for-size, but the *shape* (a real transient peak above a lower
+steady-state, no leak) matches.
+
+A second screenshot taken right as memory plateaued showed the
+**identical map** (same seed, same terrain/settlements/roads, pixel-for-
+pixel as far as visual inspection can tell) — exactly the deterministic
+behavior a same-seed regeneration should produce, real confirmation the
+full pipeline (terrain → climate → erosion → hydrology → Phase 2 civ →
+render) ran to completion on-device and re-rendered correctly, not just
+redrew stale state.
+
+**No ANR, no crash, no hang.** `adb logcat` for the full window around
+the tap showed no `ANR`/`FATAL`/`crash`/`Not responding` lines from this
+app (only unrelated system noise — WiFi/location-permission chatter from
+other processes). Generation completed in roughly 7-9 seconds wall-clock
+at this size on the OnePlus 6T's mobile CPU — slower than this session's
+own desktop timing-bench numbers for 512×512 (sub-second on the
+16-thread Windows machine per `CPU_MULTITHREADING_SCOPE.md`), which is
+expected: a phone SoC has far fewer, far slower cores, and this is the
+full pipeline (including the not-yet-multithreaded Phase 2 civ layer),
+not just the Rayon-parallelized terrain stage that benchmark measured.
+
+**Golden path confirmed, real device, real numbers.** This closes out
+the remaining half of MVP criterion 4.
+
+## The real blocker (resolved above): a genuinely secured lock screen, not a code problem
 
 A screenshot taken ~5s after launch (`adb exec-out screencap`) came back
 solid black. Investigated rather than assumed a render failure:
@@ -132,24 +194,18 @@ an ANR under Android's stricter watchdog — needs the phone physically
 unlocked (by the owner) while a session drives it, or the owner running
 the already-installed APK by hand.
 
-## Done means (partially reached, honestly)
+## Done means (fully reached)
 
 | Item | Status |
 |---|---|
 | Android toolchain (NDK/cargo-ndk/gdext/Godot export) actually works | **Confirmed**, first real end-to-end proof this project has had |
 | Current `.apk` built from today's code, not a stale one | **Done** — installed build reflects all of 2026-08-16's landed work |
 | Installs on real hardware | **Done** |
-| Launches, GDExtension loads, engine initializes, real GPU context created | **Confirmed via logcat** — the strongest signal reachable without an unlocked screen |
-| Golden path exercised (tap Generate, confirm render) | **Not reached** — blocked by the device's real lock screen |
-| On-device memory during generation | **Not reached**, same blocker — only launch/idle memory captured |
-| ANR/responsiveness check under load | **Not reached**, same blocker |
+| Launches, GDExtension loads, engine initializes, real GPU context created | **Confirmed via logcat** |
+| Golden path exercised (tap Generate, confirm render) | **Done (2026-08-17)** — same-seed regeneration reproduced the identical rendered world |
+| On-device memory during generation | **Done** — peak ~283,326 KB PSS (~277 MB) at 512×512, steady-state ~271,290 KB, no leak observed |
+| ANR/responsiveness check under load | **Done** — no ANR/crash/hang, ~7-9s wall-clock at 512×512 |
 
-## Next step (owner-only, not a code task)
-
-With the phone physically unlocked (or screen-lock temporarily set to
-"None" for testing), re-run: `adb shell input tap` at the Generate
-button's real screen coordinates (or the owner taps it directly), then
-`adb shell dumpsys meminfo org.cartalith.walkingskeleton` polled during
-generation, plus `adb exec-out screencap` to confirm the render. Nothing
-else in this repository needs to change first — the build, install, and
-launch path is proven working.
+MVP criterion 4 ("Android `.apk` builds + owner has installed/run") is
+now **fully closed**, real hardware, real numbers, both halves (build+
+install and actually running the golden path).
