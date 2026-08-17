@@ -8426,3 +8426,151 @@ future GUI work.
 `cartalith-terrain`, for `river_coarse_ease` — `jp_stage_dry_km` divides the
 map's own coarse ease back out to substitute JP's uncapped one, and
 duplicating that function here would have been a second copy to drift from.
+
+## DCC shell milestone 2: the Generate menu's real parameter dialogs (2026-08-18)
+
+`UI_SHELL_DESIGN.md`'s Generate menu spec built for real — "the pipeline
+stages in order [...] each opens its parameter dialog". The GUI half of the
+owner's directive "make all generation options active in the current
+interface so that we have the same functional controls as the older html
+version"; the engine half is the previous entry ("Generation parameters: the
+whole engine surface reachable from GDScript"), whose flat dotted-key API
+this consumes.
+
+**Built** — all in `godot-project/main.gd`; `main.tscn` is untouched, the
+dialogs are constructed at runtime:
+
+- **Six live stage dialogs** on the Generate menu — Tectonics, Volcanism,
+  Erosion, Hydrology, Climate, Settlements — carrying **57 controls**, every
+  one of them wired end to end from widget to `WorldParams` to the generated
+  world. The remaining four stages (Glacial & coastal, Ecology,
+  Infrastructure, Politics) stay visibly present and disabled, each with a
+  tooltip naming the real reason: the engine has no parameters for them,
+  because those passes are either unported or have no dials in either engine.
+- **Nothing about a parameter is written twice.** Every range, step, label,
+  unit and default is read at runtime from `WorldGen.get_param_info()` /
+  `get_param_defaults()`, which the Rust side builds from `params.rs`'s
+  `PARAMS` table. `main.gd` carries only what that table has no opinion
+  about: which Generate-menu *stage* a parameter group belongs to, which rows
+  are level-5 Advanced, and the prose. Adding a parameter stays one Rust row
+  and no GDScript change, exactly as `params.rs`'s own doc comment intends.
+- **The five-level disclosure grammar** (`design/Cartalith Menu Structure
+  v2.dc.html`): menu bar (1) → Generate menu (2) → a stage's dialog (3) → a
+  section per `params.rs` group (4) → that section's collapsed **ADVANCED**
+  fold (5). Advanced membership follows a rule rather than taste: a
+  parameter is Advanced if the reference itself buried it (its
+  `<details class="adv">` *Physical coupling fields* block — flexure,
+  heterogeneity, rock resistance) or if the reference never exposed it at all
+  and this port surfaces it as a superset (`tect.lloyd`,
+  `climate.current_k`/`ocean_hum`/`bulk_evap`,
+  `climate.terrain_wind_deflection`).
+- **Real reset**, two granularities: each dialog's *Reset this stage*, and
+  Generate → *Reset all generation parameters* (which calls the engine's own
+  `reset_params()` rather than replaying 58 values at it). Both restore
+  `cartalith_engine::WorldParams::defaults` — the reference app's own `state`
+  literal.
+- **`set_params`' verdict is respected, not assumed.** It returns
+  `{"clamped": [...], "rejected": [...]}`; when a key comes back in either
+  list the row re-reads the engine's actual stored value instead of leaving
+  the widget claiming a value the engine did not accept.
+- **Six parameters are proxied, not duplicated.** `tect.dynamic_lithology`,
+  `volc.provinces`, `climate.terrain_wind_deflection`, `climate.currents` and
+  village seeding already had working controls in File > New World, pushed to
+  the engine by `set_experimental_flags()`/`set_villages_enabled()`. Their
+  stage rows drive those existing `CheckBox` nodes directly, so the two
+  surfaces cannot disagree about one value. Verified in the app: toggling
+  village seeding in Generate > Settlements flips the New World checkbox too.
+
+**Two parameters deliberately excluded, each with its reason recorded in
+`EXCLUDED_KEYS`**: `sea_level` (File > New World already owns it through
+`set_sea_level()`; a second control for one value is worse than none), and
+`use_gpu` (`GPU_LAYER_INTEGRATION_SCOPE.md`'s current milestone is still the
+GPU-safe noise redesign, and per `DECISIONS.md` §7c the GPU path produces a
+*different* world for the same seed — surfacing the switch now would expose
+an incomplete path; `GUI_FEATURE_PARITY_SCOPE.md` Category-1 item #7,
+deferred again here rather than silently dropped).
+
+**Staleness — the honest answer, decided rather than faked.**
+`UI_SHELL_DESIGN.md` says each stage "reports staleness". No staleness system
+exists (`UNIFIED_TOOL_PLAN.md` milestone A, unbuilt), and more fundamentally
+the engine is a **one-shot generator**: `generate_terrain` runs the whole
+pipeline or none of it, so there is no per-stage incremental recompute for a
+stage to be stale *relative to*. A per-stage "stale" pip would advertise
+exactly the incremental pipeline that does not exist. So there are **no
+per-stage staleness indicators**. Instead every dialog carries an honest
+regenerate-to-apply affordance: a footer line that states plainly that the
+whole world is regenerated and there is no per-stage recompute, a status-bar
+note when a parameter has changed since the last generate, and a real
+*Generate now* button whose own tooltip says it runs the same single full
+pass File > New World's Generate runs.
+
+**Ranges and labels — matched, and where they are not, said so.** Every
+numeric range and step is the reference control's own, converted through the
+reference's own `tparam`/`cparam`/`eparam`/`bind` mapping function (that
+conversion lives in `params.rs`; `GENERATION_PARAMETERS.md` records the raw
+slider range beside each row). Two honest deviations, both recorded:
+
+- *Value-readout precision* is derived from each parameter's step (step >= 1
+  → 0 dp, >= 0.1 → 1 dp, >= 0.01 → 2 dp, else 3 dp) rather than copying each
+  reference span's own `toFixed`. It agrees with the reference everywhere
+  except `Uplift spread`, which reads `18.0 px` here against the reference's
+  `Math.round(...)+'px'` → `18px`. The step is 0.4, so a decimal is the more
+  informative readout; noted rather than special-cased.
+- *`flexure` and `hetero`* ship in the reference with a static HTML slider
+  position that disagrees with the app's own `state` default. The reference
+  overwrites both in `syncUI` (reference line 12656), so the `state` default
+  is the real one — which is what `WorldParams::defaults` carries and what
+  these dialogs show. A reference bug, not a port deviation.
+
+**Verified — real windowed app, not just compiled.** `cargo build -p
+cartalith-godot` clean; `cargo test --workspace` **563 tests across 83
+binaries, 0 failures, 0 regressions**; `godot4 --headless --quit main.tscn`
+clean load reporting `58 exposed by the engine, 2 deliberately excluded, 57
+rows across the Generate menu`. Then the load-bearing check — the real
+1920x1080 windowed app (`PrintWindow` + synthetic input, this session's
+established technique), seed 12345 / 2048x2048 / 800 km / Classic throughout,
+**one parameter changed at a time so attribution is unambiguous**:
+
+| Changed | Struct | What the map actually did |
+|---|---|---|
+| `tect.plates` 14 → 40 | `TectonicParams` | Continent structure completely different — many more, smaller landmasses and inland seas at the same seed |
+| `climate.equator_temp` 30 → 0 °C, `climate.pole_temp` −25 → −50 °C | `ClimateInputParams` | Coastlines identical, the whole world glaciated — biomes changed, terrain geometry preserved, exactly the expected decoupling |
+| `volc.count` 20 → 100 | `VolcanismParams` | Extra volcanic cones on the same base terrain |
+| `crater.count` 100 → 200 | `CraterParams` | Clear circular impact craters with rims where the previous render had plain ground |
+| `river_density` x1.00 → x3.00 | `WorldParams` (top level) | Dense dendritic drainage networks across every landmass |
+
+Also confirmed in the same session: *Reset this stage* restored Climate's
+30 °C/−25 °C exactly; the staleness footer and status-bar note flipped on
+change and cleared on generate; parameter tooltips surface the reference's
+own element id (`Reference control #plates.`, `#tpo.`).
+
+**Golden path re-verified, no regressions**: generation end-to-end from both
+entry points (File > New World's Generate and a stage dialog's *Generate
+now* — the same single function); all five map-overlay toggles including
+Territory (faction fill) and Province boundaries; the causal-chain Inspector
+on **hover** and **click-to-pin** (`Sevjuniana (Capital)`, population 19518,
+`strong fresh water (1.00) → strong gentle terrain (0.97) → strong river
+access (1.00)`, `Despite: weak flood risk (0.26)`, suitability 0.81, Strahler
+4 · flow 2202), the pin surviving subsequent layer-toggle clicks; Help >
+Credits; File > Open project's dialog.
+
+**One layout trap worth recording**, since it cost a rebuild to find: an
+autowrap `Label` with no width constraint reports a minimum height for
+wrapping at its longest-word width — hundreds of lines for a paragraph. Three
+of those in a dialog drove `AcceptDialog`'s `wrap_controls` to size the window
+past the bottom of a 1080p screen, taking its own footer buttons with it.
+Fixed by pinning the wrap width on every autowrap `Label`/`CheckBox` in these
+dialogs (`_hint_label`, `_build_param_row`) and turning `wrap_controls` off so
+the explicit `DIALOG_SIZE` holds and the `ScrollContainer` does the scrolling
+it is there for. `ScrollContainer` itself was measured innocent — it reports a
+12 px vertical minimum for 800 px of content.
+
+**Still open**: the four parameterless stages stay inert until their passes
+are ported (glacial, coastal) or gain dials (ecology, infrastructure,
+politics); the three structured-orogeny knobs and the geoid/tides/seasons
+sub-systems remain unexposed for the reasons `GENERATION_PARAMETERS.md`
+records; `use_gpu` waits on the noise redesign. Light theme and responsive
+breakpoints are still deferred (`DCC_SHELL_SCOPE.md`), as is any tool
+functionality (`UNIFIED_TOOL_PLAN.md`). The pre-existing `dark_theme.tres`
+issue where an unchecked `CheckBox` draws no glyph is unchanged by this pass
+and still visible in these dialogs.

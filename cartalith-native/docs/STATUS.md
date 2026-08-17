@@ -77,10 +77,63 @@ selection and workspace-tab switching both confirmed structurally correct
 per `UI_SHELL_DESIGN.md`'s own rules. Full record: `CHANGELOG.md`'s "DCC
 shell milestone 1" entry.
 
-**Milestone 2 (parallel, no code, not this pass)**: `UNIFIED_TOOL_PLAN.md` —
+**Milestone 2 done 2026-08-18 — the Generate menu's real parameter dialogs.**
+The GUI half of the owner's "make all generation options active" directive
+(the Rust half is the section immediately below). `UI_SHELL_DESIGN.md`'s
+Generate menu spec built for real: **six live stage dialogs** (Tectonics,
+Volcanism, Erosion, Hydrology, Climate, Settlements) carrying **57 controls,
+every one wired end to end** from widget to `WorldParams` to the generated
+world; the other four stages (Glacial & coastal, Ecology, Infrastructure,
+Politics) stay visibly present and disabled with tooltips naming the real
+reason. Dialogs, never persistent panels, per that document's governing rule.
+
+- **No duplicated parameter metadata.** Ranges/steps/labels/units/defaults
+  are read at runtime from `get_param_info()`/`get_param_defaults()`;
+  `main.gd` owns only stage grouping, Advanced membership and prose. Adding a
+  parameter stays one Rust row and no GDScript change. `main.tscn` is
+  untouched — the dialogs are built at runtime.
+- **Five-level disclosure**: menu bar → Generate menu → stage dialog →
+  a section per `params.rs` group → that section's collapsed ADVANCED fold.
+  Advanced membership follows a rule, not taste: the reference buried it, or
+  the reference never exposed it and this port surfaces it as a superset.
+- **Real reset** at two granularities (per-stage, and Generate → *Reset all
+  generation parameters* calling the engine's own `reset_params()`).
+- **Six parameters proxied, not duplicated** — the four experimental flags
+  and village seeding drive File > New World's existing `CheckBox` nodes
+  directly, so the two surfaces cannot disagree. Two deliberately excluded
+  with reasons recorded in code: `sea_level` (New World owns it) and
+  `use_gpu` (waits on the GPU-safe noise redesign; `DECISIONS.md` §7c).
+- **Staleness — decided, not faked.** `UI_SHELL_DESIGN.md` says each stage
+  "reports staleness", but no staleness system exists
+  (`UNIFIED_TOOL_PLAN.md` milestone A) and the engine is a **one-shot
+  generator**, so there is no per-stage incremental recompute to be stale
+  against. Therefore **no per-stage staleness indicators** — a pip would
+  advertise a pipeline that does not exist. Instead: an honest
+  regenerate-to-apply footer stating the whole world is regenerated, a
+  status-bar note on change, and a *Generate now* button running the same
+  single full pass New World's Generate runs.
+
+Verified: `cargo build -p cartalith-godot` clean, `cargo test --workspace`
+**563 tests / 83 binaries / 0 failures**, `godot4 --headless --quit main.tscn`
+clean load (`58 exposed, 2 excluded, 57 rows`). Real 1920×1080 windowed-app
+screenshot verification, **one parameter at a time at a fixed seed**, proving
+control → engine → visibly different world across five parameters in five
+different structs: `tect.plates` 14→40 (`TectonicParams`, completely
+different continent structure); `climate.equator_temp`/`pole_temp` to minimum
+(`ClimateInputParams`, identical coastlines, fully glaciated world);
+`volc.count` 20→100 (`VolcanismParams`); `crater.count` 100→200
+(`CraterParams`, clear impact craters); `river_density` ×1→×3
+(`WorldParams`, dense drainage networks). *Reset this stage* confirmed
+restoring exact defaults. Golden path re-verified with no regressions:
+generation from both entry points, all five overlay toggles, the causal-chain
+Inspector on hover **and** click-to-pin (pin surviving layer toggles),
+Credits, and the Open-project dialog. Full record: `CHANGELOG.md`'s "DCC
+shell milestone 2" entry.
+
+**Milestone 2 (parallel track, no code)**: `UNIFIED_TOOL_PLAN.md` —
 investigate the reference's own Sculpt editor, scope Track 2 (the tool
 system itself) honestly. **Milestone 3+ (not yet dispatched)**: the tool
-system, milestoned by whatever milestone 2 finds.
+system, milestoned by whatever that investigation finds.
 
 ## Generation parameters exposed to the GUI (done 2026-08-18, `GENERATION_PARAMETERS.md`)
 

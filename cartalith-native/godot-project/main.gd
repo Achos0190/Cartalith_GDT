@@ -209,6 +209,10 @@ func _ready() -> void:
 
 	_build_workspace_tabs()
 	_build_tool_rail()
+	## Must precede _build_menus(): the Generate menu asks each stage whether
+	## any of its parameters actually resolved to a real WorldGen setter
+	## before deciding whether that stage opens a dialog or stays inert.
+	_init_generation_params()
 	_build_menus()
 	_select_tab("WORLD")
 
@@ -383,10 +387,23 @@ func _build_edit_menu() -> void:
 
 func _build_generate_menu() -> void:
 	var popup := generate_menu.get_popup()
-	var tip := "Per-stage parameter dialog + staleness reporting not implemented yet -- the whole pipeline still runs as one step via File > New World's Generate button."
-	for stage in ["Tectonics", "Volcanism", "Erosion", "Glacial & coastal", "Hydrology",
-			"Climate", "Ecology", "Settlements", "Infrastructure", "Politics"]:
-		_add_inert_item(popup, stage, tip)
+	for i in GEN_STAGES.size():
+		var stage: Dictionary = GEN_STAGES[i]
+		if _stage_has_live_params(i):
+			popup.add_item(String(stage["name"]) + "...", i)
+			popup.set_item_tooltip(popup.item_count - 1, String(stage["note"]))
+		else:
+			## A stage with no engine-side parameters stays visibly present
+			## and disabled, its tooltip naming the real reason -- the shell's
+			## own "visibly present, not hidden" rule (GUI_SHELL_SCOPE.md).
+			_add_inert_item(popup, String(stage["name"]),
+				String(stage["note"]) if _params_available else PARAMS_MISSING_TIP)
+	popup.add_separator()
+	if _params_available:
+		popup.add_item("Reset all generation parameters", ID_GEN_RESET_ALL)
+	else:
+		_add_inert_item(popup, "Reset all generation parameters", PARAMS_MISSING_TIP)
+	popup.id_pressed.connect(_on_generate_menu_id)
 
 
 func _build_simulate_menu() -> void:
@@ -438,6 +455,558 @@ func _build_help_menu() -> void:
 func _on_help_menu_id(id: int) -> void:
 	if id == ID_HELP_CREDITS:
 		credits_dialog.popup_centered()
+
+
+## ── Generate menu: per-stage parameter dialogs ──────────────────────────
+## DCC_SHELL_SCOPE.md milestone 2 (GUI half). UI_SHELL_DESIGN.md's Generate
+## menu spec: "The pipeline stages in order [...] each opens its parameter
+## dialog". Dialogs, never persistent panels -- that document's governing
+## rule for the whole menu bar.
+##
+## The five-level disclosure grammar (design/Cartalith Menu Structure v2):
+## menu bar (1) -> Generate menu (2) -> a stage's dialog (3) -> a section
+## inside it (4) -> that section's collapsed ADVANCED fold (5), holding
+## "only dials whose defaults are already correct".
+##
+## ── Where the numbers come from ─────────────────────────────────────────
+## Nowhere in this file. Every range, step, label, unit and default is read
+## at runtime from WorldGen.get_param_info() / get_params(), which the Rust
+## side builds from `cartalith-godot/src/params.rs`'s PARAMS table -- itself
+## derived from the reference HTML's own controls put through their own
+## mapping functions, and from cartalith_engine::WorldParams::defaults. That
+## table's doc comment states the reason directly: a GDScript copy of 59
+## ranges is 59 chances for a slider to silently drift from the range the
+## reference actually shipped. So this file carries only what the Rust table
+## has no opinion about -- which Generate-menu STAGE a parameter group
+## belongs to, which rows are level-5 Advanced, and the prose.
+##
+## ── Staleness: deliberate decision, recorded rather than faked ──────────
+## UI_SHELL_DESIGN.md says each stage "reports staleness". No staleness
+## system exists (UNIFIED_TOOL_PLAN.md milestone A, unbuilt), and more
+## fundamentally the engine is a ONE-SHOT generator: generate_terrain() runs
+## the whole pipeline or none of it, so there is no per-stage incremental
+## recompute for a stage to be stale *relative to*. A per-stage "stale" pip
+## would advertise exactly the incremental pipeline that does not exist.
+## So: no per-stage staleness indicators. Instead every dialog carries an
+## honest regenerate-to-apply affordance -- a footer line that says plainly
+## that the whole world is regenerated, a status-bar note when a parameter
+## has changed since the last generate, and a real Generate now button that
+## runs the same single full pass File > New World's Generate runs.
+
+const ID_GEN_RESET_ALL := 1000
+
+## Stage -> which params.rs groups (and which individual keys) it owns.
+## `groups` are pulled whole; `keys` pull single parameters out of a group
+## that is otherwise split across stages (the Rust table's "world" group is
+## world setup + hydrology + a GPU switch, three different stages' worth).
+const GEN_STAGES: Array = [
+	{
+		"name": "Tectonics",
+		"groups": ["tectonics", "world_structure"],
+		"keys": [],
+		"note": "Plate layout, boundary stress and the base height field. Reference: the Tectonics and World Structure panels.",
+		"gaps": "Not exposed: the reference's graph-driven orogeny switch (state.tect.tectonicGraph, omitted by cartalith-engine) and its three dials — Fold intensity, Trench depth, Fault blocks. generate_terrain hardcodes those three to the exact values the reference's own defaults produce, so behaviour matches; surfacing them needs three new fields threaded through OrogenyParams (GENERATION_PARAMETERS.md).",
+	},
+	{
+		"name": "Volcanism",
+		"groups": ["volcanism"],
+		"keys": [],
+		"note": "Volcanic cones, provinces and impact craters stamped onto the height field. Reference: the Volcanism & impacts panel.",
+		"gaps": "",
+	},
+	{
+		"name": "Erosion",
+		"groups": ["erosion"],
+		"keys": [],
+		"note": "The stream-power incision pass that runs inside generation. Reference: Erosion > Stream-power carve.",
+		"gaps": "Not ported: Droplet hydraulic, Hillslope diffuse, Velocity (momentum) and Evolve & sediment. Each is a separate manual erosion op in the HTML app with no cartalith-engine equivalent, so their dials are absent rather than inert.",
+	},
+	{
+		"name": "Glacial & coastal",
+		"groups": [],
+		"keys": [],
+		"note": "Not ported. The reference's glacial-erosion pass (snowline, U-width, cirques, fjords) and its coastal pass (sea cliffs, estuaries, tidal marsh) have no cartalith-engine equivalent, so there is nothing to parameterise yet.",
+		"gaps": "",
+	},
+	{
+		"name": "Hydrology",
+		"groups": [],
+		"keys": ["carve_rivers", "river_density"],
+		"note": "River-network extraction and valley carving. Reference: the carve-on-generation switch plus the Rivers panel's density control.",
+		"gaps": "Min stream order is a reference render filter, not a generation parameter -- it belongs with the Render menu's map-mode work, not here.",
+	},
+	{
+		"name": "Climate",
+		"groups": ["planet", "climate", "weather"],
+		"keys": ["world", "peak_m"],
+		"note": "Planet setup, the temperature field, and the moisture/weather simulation. Reference: the Planet, Climate & biomes and Weather panels.",
+		"gaps": "Not ported: geoid and tides (both default-off sub-systems in the reference), Seasons, and Koppen-Geiger classification.",
+	},
+	{
+		"name": "Ecology",
+		"groups": [],
+		"keys": [],
+		"note": "Not parameterised. Biome classification runs off the finished temperature/rainfall/elevation fields with no dials of its own in cartalith-engine; the reference's Ecology panel is likewise all render-side.",
+		"gaps": "",
+	},
+	{
+		"name": "Settlements",
+		"groups": [],
+		"keys": [],
+		"note": "Suitability scoring and settlement placement (compute_civilisation). Reference: the Civilization panel's generation half.",
+		"gaps": "The reference exposed no numeric dials for civ generation beyond village seeding -- the suitability weights are constants in both engines.",
+	},
+	{
+		"name": "Infrastructure",
+		"groups": [],
+		"keys": [],
+		"note": "Not parameterised. Roads and sea routes are derived from the settlement set and the travel-cost field with no dials in cartalith-civ.",
+		"gaps": "",
+	},
+	{
+		"name": "Politics",
+		"groups": [],
+		"keys": [],
+		"note": "Not parameterised. Territory and province assignment are derived from settlements and travel cost with no dials in cartalith-civ.",
+		"gaps": "",
+	},
+]
+
+## Section headings, matching the reference HTML's own panel headings.
+const GROUP_TITLES := {
+	"tectonics": "PLATES & UPLIFT",
+	"world_structure": "WORLD STRUCTURE",
+	"volcanism": "VOLCANISM & IMPACTS",
+	"erosion": "STREAM-POWER CARVE",
+	"planet": "PLANET",
+	"climate": "CLIMATE & TEMPERATURE",
+	"weather": "WEATHER · RAINFALL SIM",
+	"world": "WORLD & SCALE",
+}
+
+## Disclosure level 5 -- "only dials whose defaults are already correct".
+## The rule, rather than taste: a parameter is Advanced if the reference
+## itself buried it (its Physical coupling fields <details class="adv">
+## block, and dynamic lithology inside the Evolve & sediment accordion), or
+## if the reference never exposed it at all and this port surfaces it as a
+## superset (DECISIONS.md 7d). Everything else stays visible.
+const ADVANCED_KEYS: Array[String] = [
+	"tect.flexure", "tect.hetero", "tect.resist",
+	"tect.dynamic_lithology", "tect.lloyd",
+	"climate.current_k", "climate.terrain_wind_deflection",
+	"climate.ocean_hum", "climate.bulk_evap",
+]
+
+## Parameters deliberately NOT given a Generate-menu row, each with its
+## reason. Left out is a decision; silently dropping one would not be.
+const EXCLUDED_KEYS := {
+	"sea_level": "Owned by File > New World, which already drives it through set_sea_level(). Duplicating it here would create two controls for one value.",
+	"use_gpu": "GPU_LAYER_INTEGRATION_SCOPE.md's current milestone is still the GPU-safe noise redesign; per DECISIONS.md 7c the GPU path produces a different world for the same seed. Surfacing the switch before that lands would expose an incomplete path (GUI_FEATURE_PARITY_SCOPE.md Category-1 item #7, deferred again here).",
+}
+
+## Parameters whose single source of truth is an existing, already-wired
+## scene control rather than this dialog's own state. The four experimental
+## flags are pushed to the engine by _on_generate_pressed's
+## set_experimental_flags() call and villages by set_villages_enabled();
+## these rows drive those CheckBoxes directly so the two surfaces can never
+## disagree about one value.
+const PROXY_KEYS := {
+	"tect.dynamic_lithology": "dynamic_lithology_check",
+	"volc.provinces": "volc_provinces_check",
+	"climate.terrain_wind_deflection": "wind_deflection_check",
+	"climate.currents": "ocean_currents_check",
+}
+
+## Rows with no params.rs entry at all -- a real engine capability reached
+## through its own older #[func], given a home in the stage it belongs to.
+const EXTRA_ROWS := {
+	"Settlements": [{
+		"key": "_villages", "group": "settlements", "type": "bool", "default": false,
+		"label": "Village seeding (additive hamlets)", "unit": "",
+		"proxy": "villages_check", "reference_control": "civVillagesChk",
+		"hint": "Reference _civVillages, default off. Seeds an extra tier of hamlets after the main settlement pass.",
+	}],
+}
+
+var _param_info: Dictionary = {} ## key -> the info Dictionary from Rust (plus GUI-only extras)
+var _param_defaults: Dictionary = {} ## key -> the engine's own default
+var _stage_rows: Dictionary = {} ## stage index -> Array of info Dictionaries, in display order
+var _param_controls: Dictionary = {} ## key -> [control, value Label or null]
+var _stage_dialogs: Dictionary = {} ## stage index -> AcceptDialog
+var _stage_footers: Dictionary = {} ## stage index -> Label
+var _params_available := false
+var _params_dirty := false
+
+const STALE_TEXT_CLEAN := "Cartalith is a one-shot generator: parameters take effect on the next full generate, not incrementally."
+const STALE_TEXT_DIRTY := "Parameters changed since the last generate — press Generate now (or File > New World > Generate) to apply them. The whole world is regenerated; there is no per-stage recompute."
+const PARAMS_MISSING_TIP := "WorldGen exposes no get_param_info() yet, so no live parameter table can be read from the engine. Rebuild the GDExtension once the generation-parameter API has landed."
+
+
+## Reads the engine's own parameter table and sorts it into stages. Runs
+## before _build_menus(), which asks each stage whether it has any real row
+## before deciding to offer a dialog or stay inert.
+func _init_generation_params() -> void:
+	_params_available = world_gen.has_method("get_param_info") and world_gen.has_method("set_params")
+	if not _params_available:
+		push_warning("cartalith: WorldGen has no get_param_info()/set_params() — Generate-menu stages stay inert.")
+		return
+
+	## get_param_info() is key -> {group, type, default, min, max, step,
+	## label, unit, reference_control}. The key lives outside the row, so it
+	## is folded in here; every row then carries everything a control needs.
+	var engine_info: Dictionary = world_gen.get_param_info()
+	for key: String in engine_info:
+		if EXCLUDED_KEYS.has(key):
+			continue
+		var info: Dictionary = (engine_info[key] as Dictionary).duplicate()
+		info["key"] = key
+		if PROXY_KEYS.has(key):
+			info["proxy"] = PROXY_KEYS[key]
+		_param_info[key] = info
+
+	_param_defaults = world_gen.get_param_defaults()
+
+	for i in GEN_STAGES.size():
+		var stage: Dictionary = GEN_STAGES[i]
+		var rows: Array = []
+		## Dictionary iteration follows insertion order, and the engine builds
+		## its table in the order the GUI should show it -- so this preserves
+		## the reference's own within-panel ordering for free.
+		for group_name: String in stage["groups"]:
+			for key: String in _param_info:
+				if String((_param_info[key] as Dictionary)["group"]) == group_name:
+					rows.append(_param_info[key])
+		for key: String in stage["keys"]:
+			if _param_info.has(key):
+				rows.append(_param_info[key])
+		for extra: Dictionary in EXTRA_ROWS.get(String(stage["name"]), []):
+			_param_info[String(extra["key"])] = extra
+			rows.append(extra)
+		_stage_rows[i] = rows
+
+	var placed := 0
+	for i: int in _stage_rows:
+		placed += (_stage_rows[i] as Array).size()
+	print("cartalith: generation parameters — %d exposed by the engine, %d deliberately excluded, %d rows across the Generate menu" % [
+		engine_info.size(), EXCLUDED_KEYS.size(), placed])
+
+
+func _stage_has_live_params(index: int) -> bool:
+	return not (_stage_rows.get(index, []) as Array).is_empty()
+
+
+func _on_generate_menu_id(id: int) -> void:
+	if id == ID_GEN_RESET_ALL:
+		_reset_params([])
+		return
+	if id >= 0 and id < GEN_STAGES.size():
+		_open_stage_dialog(id)
+
+
+## ── Reading and writing one parameter ───────────────────────────────────
+func _param_get(key: String):
+	var info: Dictionary = _param_info[key]
+	if info.has("proxy"):
+		var node: Control = get(String(info["proxy"]))
+		return node.button_pressed if node is CheckBox else node.value
+	return world_gen.get_params().get(key, _param_defaults.get(key, 0.0))
+
+
+## Engine-side type tag: "bool" | "int" | "float" (params.rs Kind::as_str).
+func _param_is_bool(info: Dictionary) -> bool:
+	return String(info.get("type", "float")) == "bool"
+
+
+func _param_set(key: String, value) -> void:
+	var info: Dictionary = _param_info[key]
+	if info.has("proxy"):
+		## One source of truth: drive the existing scene control, whose own
+		## already-wired handler is what reaches the engine.
+		var node: Control = get(String(info["proxy"]))
+		if node is CheckBox:
+			node.button_pressed = bool(value)
+		else:
+			node.value = value
+		_mark_params_dirty()
+		return
+	var clamped: Dictionary = world_gen.set_params({key: value})
+	## set_params reports what it actually stored. If it clamped or rejected
+	## the value, echo the engine's own value back into the widget rather
+	## than leaving the GUI claiming something the engine did not accept.
+	if clamped.get("clamped", []).has(key) or clamped.get("rejected", []).has(key):
+		_refresh_param_control(key)
+	_mark_params_dirty()
+
+
+## The honest half of UI_SHELL_DESIGN.md's "reports staleness" — see this
+## section's own header comment for why there is nothing per-stage to report.
+func _mark_params_dirty() -> void:
+	_params_dirty = true
+	shell_status_label.text = "generation parameters changed — regenerate to apply"
+	for i: int in _stage_footers:
+		(_stage_footers[i] as Label).text = STALE_TEXT_DIRTY
+
+
+func _clear_params_dirty() -> void:
+	_params_dirty = false
+	for i: int in _stage_footers:
+		(_stage_footers[i] as Label).text = STALE_TEXT_CLEAN
+
+
+## Restores cartalith_engine::WorldParams::defaults — the reference app's own
+## `state` literal — for the given keys, or for every exposed parameter when
+## `keys` is empty.
+func _reset_params(keys: Array) -> void:
+	var targets: Array = keys if not keys.is_empty() else _param_info.keys()
+	if keys.is_empty():
+		## The engine has its own whole-table reset; use it rather than
+		## replaying 58 values back at it.
+		world_gen.reset_params()
+	var batch := {}
+	for key: String in targets:
+		var info: Dictionary = _param_info[key]
+		var fallback = _param_defaults.get(key, info.get("default", _param_get(key)))
+		if info.has("proxy"):
+			_param_set(key, fallback)
+		elif not keys.is_empty():
+			batch[key] = fallback
+	if not batch.is_empty():
+		world_gen.set_params(batch)
+	_refresh_all_param_controls()
+	_mark_params_dirty()
+	shell_status_label.text = "generation parameters reset to defaults — regenerate to apply"
+
+
+func _refresh_all_param_controls() -> void:
+	for key: String in _param_controls:
+		_refresh_param_control(key)
+
+
+func _refresh_param_control(key: String) -> void:
+	if not _param_controls.has(key):
+		return
+	var pair: Array = _param_controls[key]
+	var value = _param_get(key)
+	var control: Control = pair[0]
+	if control is CheckBox:
+		control.set_pressed_no_signal(bool(value))
+	else:
+		control.set_value_no_signal(float(value))
+		(pair[1] as Label).text = _format_param(_param_info[key], value)
+
+
+## Decimal places follow the parameter's own step, so a 0.0003-step dial
+## reads 0.012 and a 1.0-step dial reads 70 — no per-parameter format string,
+## and nothing here to drift from the Rust table.
+func _format_param(info: Dictionary, value) -> String:
+	var step := float(info.get("step", 1.0))
+	var digits := 0 if step >= 1.0 else (1 if step >= 0.1 else (2 if step >= 0.01 else 3))
+	## "%.*f" rather than String.num(), which trims trailing zeros -- the
+	## reference's own readouts are toFixed(2), so 0.60 must read "0.60".
+	var text: String = ("%." + str(digits) + "f") % float(value)
+	var unit := String(info.get("unit", ""))
+	if unit.is_empty():
+		return text
+	## The reference writes its multiplier unit in front (×1.00), everything
+	## else after (23.4°, 4000 m).
+	return unit + text if unit == "×" else text + (" " if unit.length() > 1 else "") + unit
+
+
+## ── Building a stage dialog ─────────────────────────────────────────────
+func _open_stage_dialog(index: int) -> void:
+	if not _stage_dialogs.has(index):
+		_stage_dialogs[index] = _build_stage_dialog(index)
+	_refresh_all_param_controls()
+	(_stage_dialogs[index] as AcceptDialog).popup_centered(DIALOG_SIZE)
+
+
+func _build_stage_dialog(index: int) -> AcceptDialog:
+	var stage: Dictionary = GEN_STAGES[index]
+	var dialog := AcceptDialog.new()
+	dialog.title = "Generate — %s" % stage["name"]
+	dialog.theme = theme
+	## AcceptDialog defaults wrap_controls on, which grows the window to its
+	## content's full minimum height -- a 20-row stage would run off a 1080p
+	## screen and take its own footer buttons with it. Off, so the fixed size
+	## below holds and the ScrollContainer does the scrolling it is there for.
+	dialog.wrap_controls = false
+	add_child(dialog)
+
+	var margin := MarginContainer.new()
+	for side in ["left", "top", "right", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 8)
+	dialog.add_child(margin)
+
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 10)
+	margin.add_child(root)
+
+	root.add_child(_hint_label(String(stage["note"])))
+	if not String(stage["gaps"]).is_empty():
+		root.add_child(_hint_label(String(stage["gaps"])))
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root.add_child(scroll)
+
+	var list := VBoxContainer.new()
+	list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	list.add_theme_constant_override("separation", 14)
+	scroll.add_child(list)
+
+	## Disclosure level 4 = a section per params.rs group, in the order the
+	## Rust table lists them. Level 5 = each section's collapsed ADVANCED
+	## fold, present only when that section actually has advanced rows.
+	var sections: Array[String] = []
+	var by_group: Dictionary = {}
+	for info: Dictionary in _stage_rows[index]:
+		var g := String(info["group"])
+		if not by_group.has(g):
+			by_group[g] = []
+			sections.append(g)
+		(by_group[g] as Array).append(info)
+
+	for g: String in sections:
+		var header := Label.new()
+		header.theme_type_variation = &"SectionHeader"
+		header.text = String(GROUP_TITLES.get(g, g.to_upper()))
+		list.add_child(header)
+
+		var body := VBoxContainer.new()
+		body.add_theme_constant_override("separation", 8)
+		list.add_child(body)
+
+		var advanced: Array = []
+		for info: Dictionary in by_group[g]:
+			if ADVANCED_KEYS.has(String(info["key"])):
+				advanced.append(info)
+			else:
+				body.add_child(_build_param_row(info))
+
+		if not advanced.is_empty():
+			var fold := FoldableContainer.new()
+			fold.title = "ADVANCED"
+			fold.folded = true
+			fold.tooltip_text = "Dials whose defaults are already correct — buried in the reference too, or never exposed by it at all."
+			body.add_child(fold)
+			var adv_body := VBoxContainer.new()
+			adv_body.add_theme_constant_override("separation", 8)
+			fold.add_child(adv_body)
+			for info: Dictionary in advanced:
+				adv_body.add_child(_build_param_row(info))
+
+	root.add_child(HSeparator.new())
+
+	var footer := _hint_label(STALE_TEXT_DIRTY if _params_dirty else STALE_TEXT_CLEAN)
+	root.add_child(footer)
+	_stage_footers[index] = footer
+
+	var buttons := HBoxContainer.new()
+	buttons.add_theme_constant_override("separation", 8)
+	root.add_child(buttons)
+
+	var reset := Button.new()
+	reset.text = "Reset this stage"
+	reset.custom_minimum_size = Vector2(0, 40)
+	reset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	reset.tooltip_text = "Restores cartalith_engine::WorldParams::defaults for this stage's parameters — the reference app's own state literal."
+	var stage_keys: Array = []
+	for info: Dictionary in _stage_rows[index]:
+		stage_keys.append(String(info["key"]))
+	reset.pressed.connect(_reset_params.bind(stage_keys))
+	buttons.add_child(reset)
+
+	var gen := Button.new()
+	gen.text = "Generate now"
+	gen.custom_minimum_size = Vector2(0, 40)
+	gen.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	gen.theme_type_variation = &"PrimaryButton"
+	gen.tooltip_text = "Runs the same single full generation pass File > New World's Generate runs — the whole pipeline, not just this stage."
+	gen.pressed.connect(_on_generate_pressed)
+	buttons.add_child(gen)
+
+	return dialog
+
+
+const DIALOG_SIZE := Vector2i(620, 840)
+
+## An autowrap Label with no width constraint reports a minimum height for
+## wrapping at its longest-word width -- hundreds of lines for a paragraph,
+## which drags the whole dialog past the bottom of a 1080p screen and takes
+## its own footer buttons with it. Pinning the wrap width fixes the min
+## height at the height it will actually render.
+func _hint_label(text: String) -> Label:
+	var label := Label.new()
+	label.theme_type_variation = &"HintLabel"
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.custom_minimum_size = Vector2(DIALOG_SIZE.x - 60, 0)
+	label.text = text
+	return label
+
+
+func _build_param_row(info: Dictionary) -> Control:
+	var key := String(info["key"])
+	var hint := String(info.get("hint", ""))
+	var ref := String(info.get("reference_control", ""))
+	if hint.is_empty():
+		hint = ("Reference control #%s." % ref) if not ref.is_empty() else \
+			"Not exposed by the reference app — surfaced here as a superset, at the engine's own default."
+
+	if _param_is_bool(info):
+		var check := CheckBox.new()
+		check.text = String(info["label"])
+		## Width pinned for the same reason _hint_label pins its own.
+		check.custom_minimum_size = Vector2(DIALOG_SIZE.x - 90, 36)
+		check.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		check.tooltip_text = hint
+		check.set_pressed_no_signal(bool(_param_get(key)))
+		check.toggled.connect(func(pressed: bool): _param_set(key, pressed))
+		_param_controls[key] = [check, null]
+		return check
+
+	var row := HBoxContainer.new()
+	row.custom_minimum_size = Vector2(0, 36)
+	row.add_theme_constant_override("separation", 10)
+
+	var label := Label.new()
+	label.custom_minimum_size = Vector2(140, 0)
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.text = String(info["label"])
+	label.tooltip_text = hint
+	row.add_child(label)
+
+	var slider := HSlider.new()
+	slider.min_value = float(info["min"])
+	slider.max_value = float(info["max"])
+	slider.step = float(info["step"])
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	slider.tooltip_text = hint
+	slider.set_value_no_signal(float(_param_get(key)))
+	row.add_child(slider)
+
+	var value_label := Label.new()
+	value_label.custom_minimum_size = Vector2(78, 0)
+	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	## Same numeric-readout treatment the shell's ReadoutLabel/
+	## CoordinatesLabel already use — dark_theme.tres has no monospace
+	## variation to reference, so this follows the existing convention rather
+	## than inventing a theme entry (UI_SHELL_DESIGN.md's monospace readouts
+	## are a later theme pass, not this milestone).
+	value_label.add_theme_color_override("font_color", Color(0.784314, 0.796078, 0.803922))
+	value_label.add_theme_font_size_override("font_size", 11)
+	value_label.text = _format_param(info, _param_get(key))
+	row.add_child(value_label)
+
+	var is_int := String(info.get("type", "float")) == "int"
+	slider.value_changed.connect(func(v: float):
+		value_label.text = _format_param(info, v)
+		_param_set(key, int(round(v)) if is_int else v))
+
+	_param_controls[key] = [slider, value_label]
+	return row
 
 
 ## ── Generation ───────────────────────────────────────────────────────────
@@ -576,6 +1145,11 @@ func _on_generate_pressed() -> void:
 	)
 	world_gen.set_villages_enabled(villages_check.button_pressed)
 	world_gen.set_sea_level(sea_level_input.value / 100.0)
+	## Every Generate-menu parameter is already stored on the engine's own
+	## WorldParams by set_params() at the moment its dial moved -- there is
+	## nothing to re-push here. The five lines above stay because their five
+	## values live on File > New World's controls, not in the parameter table
+	## (PROXY_KEYS/EXCLUDED_KEYS record which and why).
 
 	_gen_thread = Thread.new()
 	_gen_thread.start(_generate_worker.bind(seed_value, width_km, resolution, archetype))
@@ -627,6 +1201,8 @@ func _on_generate_done(seed_value: int, width_km: float, ok: bool) -> void:
 		status_label.text = summary
 		shell_status_label.text = summary
 		readout_label.text = "seed %d · %dx%d · %.0f km" % [seed_value, world_gen.get_width(), world_gen.get_height(), width_km]
+		## Everything the dialogs hold is now reflected in the world on screen.
+		_clear_params_dirty()
 	else:
 		status_label.text = "generate failed — see console"
 		readout_label.text = "generate failed"

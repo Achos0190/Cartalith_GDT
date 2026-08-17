@@ -229,3 +229,122 @@ viewport or the already-selected tool's highlight). Full record:
 
 Milestone 2 (`UNIFIED_TOOL_PLAN.md`) and milestone 3+ remain not yet
 dispatched, unchanged by this pass.
+
+## Milestone 2 (GUI track): the Generate menu's parameter dialogs — done (2026-08-18)
+
+Note on numbering: "milestone 2" was originally the *planning* task above
+(`UNIFIED_TOOL_PLAN.md`, the tool track). This is the second **shell** GUI
+milestone and runs on the other track — the two are independent, and the tool
+track's numbering is unaffected. Track 2 milestone 3+ is still not dispatched.
+
+Dispatched from the owner's directive *"make all generation options active in
+the current interface so that we have the same functional controls as the
+older html version."* This is the GUI half; the engine half landed in
+parallel as `GENERATION_PARAMETERS.md` (7 → 58 parameters reachable from
+GDScript through a flat dotted-key API). **Their API was the contract, and it
+is what this consumes** — this milestone hardcodes no ranges of its own.
+
+**What shipped** (`godot-project/main.gd` only; `main.tscn` untouched, the
+dialogs are built at runtime):
+
+- Six live stage dialogs — Tectonics, Volcanism, Erosion, Hydrology, Climate,
+  Settlements — **57 controls, all functional end to end**. The other four
+  stages in `UI_SHELL_DESIGN.md`'s list (Glacial & coastal, Ecology,
+  Infrastructure, Politics) stay visibly present and disabled, each tooltip
+  naming the real reason: the engine has no parameters for them, because
+  those passes are unported (glacial, coastal) or have no dials in either
+  engine (ecology, infrastructure, politics).
+- Dialogs, never persistent panels — `UI_SHELL_DESIGN.md`'s governing rule
+  for the whole menu bar, held.
+- The five-level disclosure grammar from `design/Cartalith Menu Structure
+  v2.dc.html`: menu bar (1) → Generate menu (2) → stage dialog (3) → a
+  section per `params.rs` group (4) → that section's collapsed **ADVANCED**
+  fold (5), holding "only dials whose defaults are already correct".
+  Advanced membership follows a rule rather than taste: a parameter is
+  Advanced if the reference itself buried it (its `<details class="adv">`
+  *Physical coupling fields* block) or if the reference never exposed it at
+  all and this port surfaces it as a superset (`DECISIONS.md` §7d).
+- Real reset at two granularities: per-dialog *Reset this stage*, and
+  Generate → *Reset all generation parameters* delegating to the engine's own
+  `reset_params()`.
+- Six parameters proxied rather than duplicated: the four experimental flags
+  and village seeding already had working controls in File > New World, so
+  their stage rows drive those existing `CheckBox` nodes directly. One source
+  of truth; verified in the app that toggling village seeding in Generate >
+  Settlements flips the New World checkbox too.
+- Two parameters deliberately excluded, reasons recorded in code
+  (`EXCLUDED_KEYS`): `sea_level` (New World owns it via `set_sea_level()`),
+  and `use_gpu` (`GPU_LAYER_INTEGRATION_SCOPE.md`'s current milestone is
+  still the GPU-safe noise redesign; per `DECISIONS.md` §7c the GPU path
+  produces a *different* world for the same seed, so surfacing the switch now
+  would expose an incomplete path).
+
+**Staleness — the decision this milestone was asked to make honestly.**
+`UI_SHELL_DESIGN.md` says each Generate stage "reports staleness". Two facts
+make a per-stage staleness indicator the wrong thing to build today: no
+staleness system exists (`UNIFIED_TOOL_PLAN.md` scopes it as milestone A,
+unbuilt), and — the load-bearing one — **the engine is a one-shot
+generator**. `generate_terrain` runs the whole pipeline or none of it, so
+there is no per-stage incremental recompute for a stage to be stale
+*relative to*. A per-stage "stale" pip would advertise exactly the
+incremental pipeline that does not exist, which is worse than showing
+nothing.
+
+**Decision: no per-stage staleness indicators.** Instead each dialog carries
+an honest regenerate-to-apply affordance — a footer line stating plainly that
+the whole world is regenerated and there is no per-stage recompute, a
+status-bar note when a parameter has changed since the last generate, and a
+*Generate now* button whose own tooltip says it runs the same single full
+pass File > New World's Generate runs. When the tool system's real staleness
+model lands, this is the natural place to upgrade; until then it claims
+nothing the engine cannot do.
+
+**Real parity gaps found, recorded rather than papered over.** These are
+genuine parity information, not wiring gaps — each belongs to a pipeline
+stage `cartalith-engine` has not ported, and each is stated in the relevant
+dialog's own header text so a user reads it where it matters:
+
+- Droplet hydraulic erosion, hillslope diffusion, velocity (momentum)
+  erosion and evolve-and-sediment are all separate *manual* ops in the HTML
+  app with no engine equivalent — the Erosion dialog exposes only the
+  stream-power carve that generation actually runs, and says so.
+- Glacial erosion and the coastal pass are unported outright, so that stage
+  has no dialog at all rather than an empty one.
+- The graph-driven orogeny switch is omitted by the engine; its three dials
+  (fold intensity, trench depth, fault blocks) are hardcoded to the values
+  the reference's own defaults produce, so behaviour matches — exposing them
+  needs three new fields threaded through `OrogenyParams`.
+- Geoid, tides, seasons and Köppen classification are unported (all
+  default-off in the reference).
+- Min stream order is a render filter, not a generation parameter; it belongs
+  with the Render menu's map-mode work.
+
+**Two honest deviations from the reference's own presentation**, both
+recorded: value-readout precision is derived from each parameter's step
+rather than copying each reference span's `toFixed` (agrees everywhere except
+`Uplift spread`, `18.0 px` here vs `18px` there); and `flexure`/`hetero` ship
+in the reference with a static HTML slider position that contradicts its own
+`state` default — the reference overwrites both in `syncUI` (line 12656), so
+the `state` default is the real one and is what these dialogs show.
+
+**Verification.** `cargo build -p cartalith-godot` clean; `cargo test
+--workspace` 563 tests across 83 binaries, 0 failures, 0 regressions;
+`godot4 --headless --quit main.tscn` clean load. Then the load-bearing check
+— real 1920×1080 windowed app, seed 12345 / 2048×2048 / 800 km / Classic,
+**one parameter changed at a time** so attribution is unambiguous, proving
+control → engine → visibly different world across five parameters in five
+different structs: `tect.plates` 14→40 (`TectonicParams`); the two climate
+temperatures to minimum (`ClimateInputParams` — identical coastlines, fully
+glaciated world, the expected terrain/biome decoupling); `volc.count` 20→100
+(`VolcanismParams`); `crater.count` 100→200 (`CraterParams`); `river_density`
+×1→×3 (`WorldParams`). *Reset this stage* confirmed restoring exact defaults.
+
+**Golden path re-verified, no regressions**: generation end-to-end from both
+entry points, all five map-overlay toggles, the causal-chain Inspector on
+hover *and* click-to-pin with the pin surviving subsequent layer toggles,
+Credits, and File > Open project's dialog.
+
+**Still deferred, unchanged**: light theme, responsive breakpoints, and all
+tool functionality. The pre-existing `dark_theme.tres` unchecked-`CheckBox`
+glyph issue recorded under milestone 1 is unchanged and visible in these
+dialogs too.
