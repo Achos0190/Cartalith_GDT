@@ -5,7 +5,33 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-17 (post real Android device pass — MVP criterion 4 fully closed —, sea routes (Phase 2 milestone 13) wired into `cartalith-godot`'s rendering with a real render-loop crash found and fixed along the way, CPU-multithreading milestones 2-3 — `cartalith-civ` then `cartalith-climate`/`cartalith-erosion`/`cartalith-hydrology` Rayon-parallelized — Phase 1's two closeout items (credits screen, crate license audit) both done, GPU layer integration milestones 7-8 — GPU-backed weather simulation, shared GpuContext across `generate_terrain`'s stages — a new standalone `cartalith-spatial` crate (tiling/quadtree/dirty-tracking base for a future LOD integration — real, tested, referenced by nothing yet), Phase 2 milestone 16 (`_civGenerateProvinces` — resolved the milestone-9 territory-input blocker via milestone 10's own `assign_territory`, data/backend done and verified, rendering wired as a boundary-line overlay in a same-day follow-up), and Phase 2 milestone 17 (economy/Journey Planner investigated for real — two separate large subsystems found, not one; the ~70-function Journey Planner confirmed to genuinely need its own sub-phase per `ROADMAP.md`, not attempted; `civ_resource_trade_balance` ported/tested from the smaller economy layer, not yet wired — full reasoning in `ECONOMY_SCOPE.md`), and Phase 3 milestone 1 (`TerrainAppearance` abstraction in `render.rs` — colour data now owned/structured, pixel-identical output verified, real audit finding that no elevation-breakpoint ramp exists in this renderer) — see `CHANGELOG.md`).
+Last updated: 2026-08-17 (post real Android device pass — MVP criterion 4 fully closed —, sea routes (Phase 2 milestone 13) wired into `cartalith-godot`'s rendering with a real render-loop crash found and fixed along the way, CPU-multithreading milestones 2-3 — `cartalith-civ` then `cartalith-climate`/`cartalith-erosion`/`cartalith-hydrology` Rayon-parallelized — Phase 1's two closeout items (credits screen, crate license audit) both done, GPU layer integration milestones 7-8 — GPU-backed weather simulation, shared GpuContext across `generate_terrain`'s stages — a new standalone `cartalith-spatial` crate (tiling/quadtree/dirty-tracking base for a future LOD integration — real, tested, referenced by nothing yet), Phase 2 milestone 16 (`_civGenerateProvinces` — resolved the milestone-9 territory-input blocker via milestone 10's own `assign_territory`, data/backend done and verified, rendering wired as a boundary-line overlay in a same-day follow-up), and Phase 2 milestone 17 (economy/Journey Planner investigated for real — two separate large subsystems found, not one; the ~70-function Journey Planner confirmed to genuinely need its own sub-phase per `ROADMAP.md`, not attempted; `civ_resource_trade_balance` ported/tested from the smaller economy layer, not yet wired — full reasoning in `ECONOMY_SCOPE.md`), Phase 3 milestone 1 (`TerrainAppearance` abstraction in `render.rs` — colour data now owned/structured, pixel-identical output verified, real audit finding that no elevation-breakpoint ramp exists in this renderer), and the GUI shell redesign milestone 1 (`GUI_SHELL_SCOPE.md` — full 6-region professional-editor shell rebuilt in `main.tscn`/`main.gd` from an owner-supplied design import, zero Rust changes, every real control re-parented and screenshot-verified working end-to-end, every not-yet-real feature visibly present but honestly disabled) — see `CHANGELOG.md`).
+
+## GUI shell (`GUI_SHELL_SCOPE.md`, milestone 1 done 2026-08-17)
+
+Owner-supplied design import (`claude_design` MCP) redesigning the whole
+Godot UI as a professional-editor shell — top bar (7 domain menus),
+workspace navigator (4 subject groups), a second panel that swaps with
+navigator selection, mode bar + viewport, right context inspector, bottom
+timeline bar. Owner decided: target this port not the JS reference app (the
+mockup's own `#id`-re-parent notes describe `Cartalith Gen1 v2.10.html`'s
+DOM, a different frozen file in a different repo); build the full shell
+structure now, wire only what has real engine backing, leave the rest
+visibly present but honestly `disabled`.
+
+**Milestone 1 done**: the shell exists, every real control (seed/
+resolution/width/sea level/world shape/experimental flags/villages/the
+three map-overlay toggles/load-save/credits) re-parented with zero
+`main.gd` reference changes (Godot's `%UniqueName` lookup is
+position-independent) and zero Rust changes. New: a settlement-hover
+signal (`map_overlay.gd`) feeding the new Inspector panel with real data.
+Screenshot-verified end-to-end: generation, all overlay toggles, navigator
+swapping, settlement-hover inspector, and the credits dialog all confirmed
+working through the new shell on a real Windows run. Deferred, as scoped:
+light theme, panel collapse/rails, all three responsive breakpoints,
+terrain appearance's actual editing GUI. Full record, including every real
+feature-inventory correction found along the way: `CHANGELOG.md`'s "GUI
+shell redesign milestone 1" entry, `GUI_SHELL_SCOPE.md`'s own "done" note.
 
 ## MVP_SCOPE.md — "done means all seven"
 

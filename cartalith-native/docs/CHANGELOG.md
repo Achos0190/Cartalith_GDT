@@ -6092,3 +6092,89 @@ screenshot testing found illegible.
 
 **Files touched**: `crates/cartalith-godot/src/lib.rs`
 (`build_province_boundary_texture`), `docs/STATUS.md`, this file.
+
+## GUI shell redesign milestone 1: full 6-region professional-editor shell (2026-08-17)
+
+Owner-supplied design import (`claude_design` MCP, project "UI mockups
+planning") — `design/Cartalith GUI.dc.html` (multi-breakpoint/theme mockup)
+and `design/cartalith-menu-structure.md` (the handoff spec). Two owner
+decisions grounded this pass, both recorded in `GUI_SHELL_SCOPE.md`: target
+this Godot port (the menu-structure doc's own "re-parent existing `#id`s"
+notes describe the JS reference app's DOM, a different, frozen file this
+repo's own `CLAUDE.md` forbids editing, in a different repository); and
+build the full shell structure now, wiring only what has real engine
+backing, leaving everything else visibly present but honestly inert.
+
+Rebuilt `main.tscn`/`main.gd` from the prior single-panel MVP layout into
+the mockup's full structure: a top bar with 7 domain menus (Project/World/
+Generate/Simulate/Map/Assets/View), a 4-group workspace navigator (World/
+Civilization/Infrastructure/Cartography, ~20 subject rows generated from a
+data table, not hand-authored per-node), a second panel that swaps content
+with the navigator selection, a mode bar (WORLD/EDIT/ANALYSIS/SIMULATION/
+CARTOGRAPHIC/DEBUG — only WORLD active, the rest real but `disabled`), the
+existing map viewport, a right context inspector (new), and a bottom
+timeline bar with transport/speed/simulation-layer controls (all real nodes,
+all `disabled` — no time-simulation engine exists to drive them).
+
+**Zero Rust changes** — confirmed by `cargo build -p cartalith-godot`
+needing no new `#[func]`s; every real control (seed/resolution/width/sea
+level/world shape/the four experimental flags/villages/the three
+map-overlay toggles/load-save/credits) was re-parented, not rewritten.
+Godot's `%UniqueName` lookup resolves by name regardless of tree position,
+so `main.gd`'s existing `@onready var x = %Name` references needed no
+changes for any of these — the whole rewrite stayed mechanical for the
+working parts.
+
+**Real feature-inventory corrections** (verified against the actual
+`cartalith-godot` `#[func]` list, not assumed from the mockup): no live
+CPU/GPU/memory readout exists — the top-bar readout shows real generation
+status instead of a fabricated number; no per-cell inspector query
+(elevation/slope/etc. at an arbitrary cursor position) exists — the
+Inspector's "no selection" state says so honestly rather than being built
+against fields that don't exist. What *does* have real backing: settlement
+hover data, already computed by `map_overlay.gd` for its own on-canvas
+hover card — added a new `settlement_hovered` signal so the Inspector panel
+shows the same real data (name/population/faction/coastal/capital) without
+duplicating the hit-test logic.
+
+**Judgment calls, disclosed rather than silently made**: menu items with
+real backing are actions (Generate World, New seed, Open project, Credits),
+not live-editable parameters — `PopupMenu` doesn't support embedded
+SpinBox/slider controls well, so parameter editing stays in the
+navigator-driven second panel. The menu-structure doc's full multi-hundred-
+item inventory (individual generation-stage sliders, most of which don't
+exist as separate Rust tunables beyond the 4 experimental flags already
+exposed) was populated representatively, not transcribed exhaustively — the
+shell *structure* was this milestone's goal, not every leaf item. Panel
+widths deviate from the mockup's exact 206/238/272px where the existing
+cards needed more room to stay readable (360px second panel). The prior
+`Stage`/`ControlsPanel` width-based responsive fallback was removed, not
+preserved — the new 5-region layout has no structural equivalent, and a
+real responsive redesign is its own deferred milestone; narrow windows will
+look cramped, not stacked, until then. The new shell chrome uses inline
+dark `StyleBoxFlat` styling (not a new Theme resource); re-parented input
+controls still render with `app_theme.tres`'s light-parchment chrome on the
+new dark background — a real, known, flagged visual seam pending the
+deferred light/dark theme-toggle milestone.
+
+**Verified**: `cargo build -p cartalith-godot` clean, `cargo test
+--workspace` 0 failures. `godot4 --headless --quit main.tscn` clean load.
+Real windowed-app screenshot verification, end-to-end, through the new
+shell (this session's established `PrintWindow`/`mouse_event`/minimize-
+restore-focus technique): generation (seed 12345, Classic, 2048²) completed
+and rendered correctly with real terrain/settlements/roads/sea routes;
+top-bar readout and status label both updated with real data; the
+`CARTOGRAPHY > Layers` navigator swap correctly showed the three real
+overlay toggles; hovering a settlement updated the new Inspector panel with
+real data, confirmed against the existing on-canvas hover card showing the
+same settlement; the Credits dialog opened and rendered correctly.
+
+**Deferred, exactly as scoped**: light theme, panel collapse/rails, all
+three responsive breakpoints, terrain appearance's actual editing GUI.
+
+**Files touched**: `godot-project/main.tscn` (full rebuild),
+`godot-project/main.gd` (menu/navigator/inspector logic added, old
+`Stage`/`ControlsPanel` responsive code removed), `godot-project/
+map_overlay.gd` (`settlement_hovered` signal), `GUI_SHELL_SCOPE.md`,
+`docs/STATUS.md`, this file. New `design/` directory holds the imported
+mockup HTML and menu-structure spec verbatim.

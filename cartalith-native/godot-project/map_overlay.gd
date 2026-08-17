@@ -54,6 +54,12 @@ const SEA_ROUTE_DASH_COLOR := Color(0.118, 0.510, 0.784, 0.7)
 const SEA_ROUTE_DASH_WIDTH := 0.85
 const SEA_ROUTE_DASH_LENGTH := 2.6
 
+## Emitted whenever the hovered settlement changes -- `null` on hover-exit.
+## Lets `main.gd`'s Inspector panel show the same data this overlay's own
+## `_draw_hover_card` already draws on-canvas, without duplicating the
+## hit-test logic in `_gui_input` below.
+signal settlement_hovered(data: Variant)
+
 var _settlements: Array = []
 var _roads: Array = []
 var _sea_routes: Array = []
@@ -287,9 +293,11 @@ func _gui_input(event: InputEvent) -> void:
 		if closest != _hover_index:
 			_hover_index = closest
 			queue_redraw()
+			settlement_hovered.emit(_settlements[closest] if closest != -1 else null)
 
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_MOUSE_EXIT and _hover_index != -1:
 		_hover_index = -1
 		queue_redraw()
+		settlement_hovered.emit(null)

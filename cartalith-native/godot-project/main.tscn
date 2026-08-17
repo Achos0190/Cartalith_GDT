@@ -1,9 +1,47 @@
-[gd_scene load_steps=5 format=3]
+[gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://main.gd" id="1"]
 [ext_resource type="Theme" path="res://theme/app_theme.tres" id="2"]
 [ext_resource type="Script" path="res://map_overlay.gd" id="3"]
 [ext_resource type="Script" path="res://credits.gd" id="4"]
+
+[sub_resource type="StyleBoxFlat" id="SB_Shell"]
+bg_color = Color(0.0509804, 0.054902, 0.0588235, 1)
+
+[sub_resource type="StyleBoxFlat" id="SB_TopBar"]
+bg_color = Color(0.0509804, 0.054902, 0.0588235, 1)
+border_width_bottom = 1
+border_color = Color(1, 1, 1, 0.1)
+
+[sub_resource type="StyleBoxFlat" id="SB_NavPanel"]
+bg_color = Color(0.0509804, 0.054902, 0.0588235, 1)
+border_width_right = 1
+border_color = Color(1, 1, 1, 0.1)
+
+[sub_resource type="StyleBoxFlat" id="SB_SecondPanel"]
+bg_color = Color(0.0509804, 0.054902, 0.0588235, 1)
+border_width_right = 1
+border_color = Color(1, 1, 1, 0.1)
+
+[sub_resource type="StyleBoxFlat" id="SB_Viewport"]
+bg_color = Color(0.0627451, 0.0666667, 0.0705882, 1)
+
+[sub_resource type="StyleBoxFlat" id="SB_Inspector"]
+bg_color = Color(0.0509804, 0.054902, 0.0588235, 1)
+border_width_left = 1
+border_color = Color(1, 1, 1, 0.1)
+
+[sub_resource type="StyleBoxFlat" id="SB_BottomBar"]
+bg_color = Color(0.0509804, 0.054902, 0.0588235, 1)
+border_width_top = 1
+border_color = Color(1, 1, 1, 0.1)
+
+[sub_resource type="StyleBoxFlat" id="SB_NavRowActive"]
+bg_color = Color(0.878431, 0.639216, 0.290196, 0.06)
+border_width_left = 2
+border_color = Color(0.878431, 0.639216, 0.290196, 1)
+
+[sub_resource type="StyleBoxEmpty" id="SB_Empty"]
 
 [node name="Main" type="Control"]
 anchor_right = 1.0
@@ -15,108 +53,177 @@ script = ExtResource("1")
 anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
-color = Color(0.937255, 0.905882, 0.839216, 1)
+color = Color(0.0509804, 0.054902, 0.0588235, 1)
 
-[node name="Root" type="VBoxContainer" parent="."]
+[node name="Shell" type="VBoxContainer" parent="."]
 anchor_right = 1.0
 anchor_bottom = 1.0
 theme_override_constants/separation = 0
 
-[node name="HeaderBar" type="PanelContainer" parent="Root"]
-custom_minimum_size = Vector2(0, 56)
-theme_type_variation = &"HeaderBar"
+[node name="TopBar" type="PanelContainer" parent="Shell"]
+custom_minimum_size = Vector2(0, 36)
+theme_override_styles/panel = SubResource("SB_TopBar")
 
-[node name="HeaderRow" type="HBoxContainer" parent="Root/HeaderBar"]
-theme_override_constants/separation = 12
+[node name="TopBarMargin" type="MarginContainer" parent="Shell/TopBar"]
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_right = 18
 
-[node name="AccentDot" type="ColorRect" parent="Root/HeaderBar/HeaderRow"]
-custom_minimum_size = Vector2(8, 8)
-size_flags_vertical = 4
-color = Color(0.690196, 0.498039, 0.247059, 1)
+[node name="TopBarRow" type="HBoxContainer" parent="Shell/TopBar/TopBarMargin"]
+theme_override_constants/separation = 26
 
-[node name="TitleLabel" type="Label" parent="Root/HeaderBar/HeaderRow"]
-size_flags_horizontal = 3
+[node name="Wordmark" type="Label" parent="Shell/TopBar/TopBarMargin/TopBarRow"]
 vertical_alignment = 1
-theme_type_variation = &"AppTitle"
-text = "Cartalith Terrain Generator"
-clip_text = true
+theme_override_colors/font_color = Color(0.909804, 0.921569, 0.92549, 1)
+theme_override_font_sizes/font_size = 13
+text = "CARTALITH"
 
-[node name="TaglineLabel" type="Label" parent="Root/HeaderBar/HeaderRow"]
-vertical_alignment = 1
-theme_type_variation = &"HintLabel"
-text = "Phase 1 MVP"
-
-[node name="CreditsButton" type="Button" parent="Root/HeaderBar/HeaderRow"]
+[node name="MenuBar" type="HBoxContainer" parent="Shell/TopBar/TopBarMargin/TopBarRow"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(32, 32)
+theme_override_constants/separation = 2
+
+[node name="ProjectMenu" type="MenuButton" parent="Shell/TopBar/TopBarMargin/TopBarRow/MenuBar"]
+unique_name_in_owner = true
+flat = true
+text = "Project"
+theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
+
+[node name="WorldMenu" type="MenuButton" parent="Shell/TopBar/TopBarMargin/TopBarRow/MenuBar"]
+unique_name_in_owner = true
+flat = true
+text = "World"
+theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
+
+[node name="GenerateMenu" type="MenuButton" parent="Shell/TopBar/TopBarMargin/TopBarRow/MenuBar"]
+unique_name_in_owner = true
+flat = true
+text = "Generate"
+theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
+
+[node name="SimulateMenu" type="MenuButton" parent="Shell/TopBar/TopBarMargin/TopBarRow/MenuBar"]
+unique_name_in_owner = true
+flat = true
+text = "Simulate"
+theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
+
+[node name="MapMenu" type="MenuButton" parent="Shell/TopBar/TopBarMargin/TopBarRow/MenuBar"]
+unique_name_in_owner = true
+flat = true
+text = "Map"
+theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
+
+[node name="AssetsMenu" type="MenuButton" parent="Shell/TopBar/TopBarMargin/TopBarRow/MenuBar"]
+unique_name_in_owner = true
+flat = true
+text = "Assets"
+theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
+
+[node name="ViewMenu" type="MenuButton" parent="Shell/TopBar/TopBarMargin/TopBarRow/MenuBar"]
+unique_name_in_owner = true
+flat = true
+text = "View"
+theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
+
+[node name="TopBarSpacer" type="Control" parent="Shell/TopBar/TopBarMargin/TopBarRow"]
+size_flags_horizontal = 3
+
+[node name="ReadoutRow" type="HBoxContainer" parent="Shell/TopBar/TopBarMargin/TopBarRow"]
+theme_override_constants/separation = 24
+
+[node name="ReadoutLabel" type="Label" parent="Shell/TopBar/TopBarMargin/TopBarRow/ReadoutRow"]
+unique_name_in_owner = true
+vertical_alignment = 1
+theme_override_colors/font_color = Color(0.435294, 0.454902, 0.470588, 1)
+theme_override_font_sizes/font_size = 11
+text = "no world generated"
+
+[node name="CreditsButton" type="Button" parent="Shell/TopBar/TopBarMargin/TopBarRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(28, 28)
 size_flags_vertical = 4
+flat = true
 tooltip_text = "Credits & academic principles"
 text = "ⓘ"
+theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
 
-[node name="StageMargin" type="MarginContainer" parent="Root"]
+[node name="MainRow" type="HBoxContainer" parent="Shell"]
 size_flags_vertical = 3
-theme_override_constants/margin_left = 16
-theme_override_constants/margin_top = 16
-theme_override_constants/margin_right = 16
-theme_override_constants/margin_bottom = 16
+theme_override_constants/separation = 0
 
-[node name="Stage" type="BoxContainer" parent="Root/StageMargin"]
+[node name="NavigatorPanel" type="PanelContainer" parent="Shell/MainRow"]
+custom_minimum_size = Vector2(206, 0)
+theme_override_styles/panel = SubResource("SB_NavPanel")
+
+[node name="NavigatorMargin" type="MarginContainer" parent="Shell/MainRow/NavigatorPanel"]
+theme_override_constants/margin_top = 12
+
+[node name="NavigatorScroll" type="ScrollContainer" parent="Shell/MainRow/NavigatorPanel/NavigatorMargin"]
+horizontal_scroll_mode = 0
+
+[node name="NavigatorVBox" type="VBoxContainer" parent="Shell/MainRow/NavigatorPanel/NavigatorMargin/NavigatorScroll"]
 unique_name_in_owner = true
 size_flags_horizontal = 3
-size_flags_vertical = 3
 theme_override_constants/separation = 16
 
-[node name="ControlsPanel" type="PanelContainer" parent="Root/StageMargin/Stage"]
-unique_name_in_owner = true
+[node name="NavHeader" type="Label" parent="Shell/MainRow/NavigatorPanel/NavigatorMargin/NavigatorScroll/NavigatorVBox"]
+theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
+theme_override_font_sizes/font_size = 9
+text = "WORKSPACE"
+
+[node name="SecondPanel" type="PanelContainer" parent="Shell/MainRow"]
 custom_minimum_size = Vector2(360, 0)
 size_flags_horizontal = 0
-size_flags_vertical = 3
-size_flags_stretch_ratio = 1.0
+theme_override_styles/panel = SubResource("SB_SecondPanel")
 
-[node name="ControlsMargin" type="MarginContainer" parent="Root/StageMargin/Stage/ControlsPanel"]
+[node name="SecondPanelMargin" type="MarginContainer" parent="Shell/MainRow/SecondPanel"]
 theme_override_constants/margin_left = 16
-theme_override_constants/margin_top = 16
+theme_override_constants/margin_top = 12
 theme_override_constants/margin_right = 16
-theme_override_constants/margin_bottom = 16
+theme_override_constants/margin_bottom = 12
 
-[node name="ControlsVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin"]
-theme_override_constants/separation = 14
+[node name="SecondPanelVBox" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin"]
+theme_override_constants/separation = 10
 
-[node name="SettingsScroll" type="ScrollContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox"]
-custom_minimum_size = Vector2(0, 160)
+[node name="SecondPanelHeader" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
+theme_override_font_sizes/font_size = 9
+text = "WORLD · OVERVIEW"
+
+[node name="OverviewContent" type="ScrollContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox"]
+unique_name_in_owner = true
 size_flags_vertical = 3
 horizontal_scroll_mode = 0
 
-[node name="SettingsList" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll"]
+[node name="OverviewList" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent"]
 size_flags_horizontal = 3
 theme_override_constants/separation = 14
 
-[node name="WorldParamsCard" type="PanelContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList"]
+[node name="WorldParamsCard" type="PanelContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList"]
 theme_type_variation = &"SettingsCard"
 
-[node name="WorldParamsMargin" type="MarginContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard"]
+[node name="WorldParamsMargin" type="MarginContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard"]
 theme_override_constants/margin_left = 12
 theme_override_constants/margin_top = 12
 theme_override_constants/margin_right = 12
 theme_override_constants/margin_bottom = 12
 
-[node name="WorldParamsVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin"]
+[node name="WorldParamsVBox" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin"]
 theme_override_constants/separation = 10
 
-[node name="WorldParamsHeader" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="WorldParamsHeader" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
 theme_type_variation = &"SectionHeader"
 text = "WORLD PARAMETERS"
 
-[node name="SeedRow" type="HBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="SeedRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
 custom_minimum_size = Vector2(0, 48)
 theme_override_constants/separation = 10
 
-[node name="SeedLabel" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeedRow"]
-custom_minimum_size = Vector2(128, 0)
+[node name="SeedLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeedRow"]
+custom_minimum_size = Vector2(110, 0)
 vertical_alignment = 1
 text = "Seed"
 
-[node name="SeedInput" type="SpinBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeedRow"]
+[node name="SeedInput" type="SpinBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeedRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
@@ -124,35 +231,35 @@ min_value = 0.0
 max_value = 999999.0
 value = 12345.0
 
-[node name="ResolutionRow" type="HBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="ResolutionRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
 custom_minimum_size = Vector2(0, 48)
 theme_override_constants/separation = 10
 
-[node name="ResolutionLabel" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/ResolutionRow"]
-custom_minimum_size = Vector2(128, 0)
+[node name="ResolutionLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/ResolutionRow"]
+custom_minimum_size = Vector2(110, 0)
 vertical_alignment = 1
 text = "Resolution"
 
-[node name="ResolutionInput" type="OptionButton" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/ResolutionRow"]
+[node name="ResolutionInput" type="OptionButton" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/ResolutionRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
 
-[node name="ResolutionHint" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="ResolutionHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
 theme_type_variation = &"HintLabel"
 autowrap_mode = 3
 text = "4K/8K are memory- and time-heavy on this port's current CPU-only pipeline (reference app's own hint, plus: no GPU acceleration path is wired into generation yet)."
 
-[node name="WidthRow" type="HBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="WidthRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
 custom_minimum_size = Vector2(0, 48)
 theme_override_constants/separation = 10
 
-[node name="WidthLabel" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/WidthRow"]
-custom_minimum_size = Vector2(128, 0)
+[node name="WidthLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/WidthRow"]
+custom_minimum_size = Vector2(110, 0)
 vertical_alignment = 1
 text = "Map width (km)"
 
-[node name="WidthInput" type="SpinBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/WidthRow"]
+[node name="WidthInput" type="SpinBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/WidthRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
@@ -161,16 +268,16 @@ max_value = 40000.0
 step = 10.0
 value = 800.0
 
-[node name="SeaLevelRow" type="HBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="SeaLevelRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
 custom_minimum_size = Vector2(0, 48)
 theme_override_constants/separation = 10
 
-[node name="SeaLevelLabel" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeaLevelRow"]
-custom_minimum_size = Vector2(128, 0)
+[node name="SeaLevelLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeaLevelRow"]
+custom_minimum_size = Vector2(110, 0)
 vertical_alignment = 1
 text = "Sea level"
 
-[node name="SeaLevelInput" type="SpinBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeaLevelRow"]
+[node name="SeaLevelInput" type="SpinBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeaLevelRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
@@ -180,195 +287,253 @@ step = 1.0
 value = 42.0
 suffix = "%"
 
-[node name="SeaLevelHint" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="SeaLevelHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
 theme_type_variation = &"HintLabel"
 autowrap_mode = 3
 text = "Only applies to the Classic world shape -- named shapes (Earth-like, Archipelago, etc.) re-anchor sea level from their own land-fraction target."
 
-[node name="WorldStructureCard" type="PanelContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList"]
+[node name="WorldStructureCard" type="PanelContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList"]
 theme_type_variation = &"SettingsCard"
 
-[node name="WorldStructureMargin" type="MarginContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldStructureCard"]
+[node name="WorldStructureMargin" type="MarginContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureCard"]
 theme_override_constants/margin_left = 12
 theme_override_constants/margin_top = 12
 theme_override_constants/margin_right = 12
 theme_override_constants/margin_bottom = 12
 
-[node name="WorldStructureVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldStructureCard/WorldStructureMargin"]
+[node name="WorldStructureVBox" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureCard/WorldStructureMargin"]
 theme_override_constants/separation = 8
 
-[node name="WorldStructureHeader" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox"]
+[node name="WorldStructureHeader" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox"]
 theme_type_variation = &"SectionHeader"
 text = "WORLD STRUCTURE"
 
-[node name="WorldStructureHint" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox"]
+[node name="WorldStructureHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox"]
 theme_type_variation = &"HintLabel"
 autowrap_mode = 2
 text = "An archetype presets continentality, fragmentation, and tectonic energy, then re-anchors sea level so its land fraction holds. Classic runs the plain, non-archetype pipeline."
 
-[node name="WorldShapeRow" type="HBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox"]
+[node name="WorldShapeRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox"]
 custom_minimum_size = Vector2(0, 48)
 theme_override_constants/separation = 10
 
-[node name="WorldShapeLabel" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox/WorldShapeRow"]
-custom_minimum_size = Vector2(128, 0)
+[node name="WorldShapeLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox/WorldShapeRow"]
+custom_minimum_size = Vector2(110, 0)
 vertical_alignment = 1
 text = "World shape"
 
-[node name="WorldShapeInput" type="OptionButton" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox/WorldShapeRow"]
+[node name="WorldShapeInput" type="OptionButton" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox/WorldShapeRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
 
-[node name="MapLayersCard" type="PanelContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList"]
+[node name="AdvancedCard" type="PanelContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList"]
 theme_type_variation = &"SettingsCard"
 
-[node name="MapLayersMargin" type="MarginContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/MapLayersCard"]
+[node name="AdvancedMargin" type="MarginContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard"]
 theme_override_constants/margin_left = 12
 theme_override_constants/margin_top = 12
 theme_override_constants/margin_right = 12
 theme_override_constants/margin_bottom = 12
 
-[node name="MapLayersVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/MapLayersCard/MapLayersMargin"]
+[node name="AdvancedVBox" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin"]
 theme_override_constants/separation = 8
 
-[node name="MapLayersHeader" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/MapLayersCard/MapLayersMargin/MapLayersVBox"]
-theme_type_variation = &"SectionHeader"
-text = "MAP LAYERS"
-
-[node name="MapLayersHint" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/MapLayersCard/MapLayersMargin/MapLayersVBox"]
-theme_type_variation = &"HintLabel"
-autowrap_mode = 2
-text = "Settlements (Phase 2, cartalith-civ): capitals/cities/towns/villages/hamlets, colour-coded by faction, connected by the real terrain-cost road network. Hover a marker for details."
-
-[node name="CivLayerCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/MapLayersCard/MapLayersMargin/MapLayersVBox"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 48)
-autowrap_mode = 3
-button_pressed = true
-text = "Show settlements & roads"
-
-[node name="TerritoryLayerCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/MapLayersCard/MapLayersMargin/MapLayersVBox"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 48)
-autowrap_mode = 3
-button_pressed = false
-text = "Show territory (faction colour fill)"
-
-[node name="ProvinceLayerCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/MapLayersCard/MapLayersMargin/MapLayersVBox"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 48)
-autowrap_mode = 3
-button_pressed = false
-text = "Show province boundaries"
-
-[node name="AdvancedCard" type="PanelContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList"]
-theme_type_variation = &"SettingsCard"
-
-[node name="AdvancedMargin" type="MarginContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard"]
-theme_override_constants/margin_left = 12
-theme_override_constants/margin_top = 12
-theme_override_constants/margin_right = 12
-theme_override_constants/margin_bottom = 12
-
-[node name="AdvancedVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin"]
-theme_override_constants/separation = 8
-
-[node name="AdvancedHeader" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
+[node name="AdvancedHeader" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
 theme_type_variation = &"SectionHeader"
 text = "ADVANCED FEATURES"
 
-[node name="AdvancedHint" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
+[node name="AdvancedHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
 theme_type_variation = &"HintLabel"
 autowrap_mode = 2
 text = "All golden-verified against the JS engine. Every default below matches the reference app's own default."
 
-[node name="DynamicLithologyCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
+[node name="DynamicLithologyCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
 text = "Dynamic lithology (exhumation hardening)"
 
-[node name="VolcProvincesCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
+[node name="VolcProvincesCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
 button_pressed = true
 text = "Clustered volcanism (provinces)"
 
-[node name="WindDeflectionCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
+[node name="WindDeflectionCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
 button_pressed = true
 text = "Terrain wind deflection"
 
-[node name="OceanCurrentsCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
+[node name="OceanCurrentsCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
 button_pressed = true
 text = "Ocean-current SST folding"
 
-[node name="VillagesCheck" type="CheckBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
+[node name="VillagesCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
 button_pressed = false
 text = "Village seeding (Phase 2, additive hamlets)"
 
-[node name="FooterSeparator" type="HSeparator" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox"]
+[node name="FooterSeparator" type="HSeparator" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox"]
+unique_name_in_owner = true
 
-[node name="FooterVBox" type="VBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox"]
+[node name="FooterVBox" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox"]
+unique_name_in_owner = true
 theme_override_constants/separation = 8
 
-[node name="GenerateButton" type="Button" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/FooterVBox"]
+[node name="GenerateButton" type="Button" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/FooterVBox"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 56)
+custom_minimum_size = Vector2(0, 52)
 theme_type_variation = &"PrimaryButton"
 text = "Generate"
 
-[node name="LoadSaveButton" type="Button" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/FooterVBox"]
+[node name="LoadSaveButton" type="Button" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/FooterVBox"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 48)
+custom_minimum_size = Vector2(0, 44)
 autowrap_mode = 3
 text = "Load Save (.zip)..."
 
-[node name="StatusLabel" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/FooterVBox"]
+[node name="StatusLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/FooterVBox"]
 unique_name_in_owner = true
 theme_type_variation = &"StatusLabel"
 autowrap_mode = 2
 text = "Press Generate to run the pipeline."
 
-[node name="MapPanel" type="PanelContainer" parent="Root/StageMargin/Stage"]
-custom_minimum_size = Vector2(0, 220)
+[node name="LayersContent" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox"]
+unique_name_in_owner = true
+visible = false
+theme_override_constants/separation = 8
+
+[node name="MapLayersHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/LayersContent"]
+theme_type_variation = &"HintLabel"
+autowrap_mode = 2
+text = "Settlements (Phase 2, cartalith-civ): capitals/cities/towns/villages/hamlets, colour-coded by faction, connected by the real terrain-cost road network. Hover a marker for details."
+
+[node name="CivLayerCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/LayersContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+autowrap_mode = 3
+button_pressed = true
+text = "Show settlements & roads"
+
+[node name="TerritoryLayerCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/LayersContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+autowrap_mode = 3
+button_pressed = false
+text = "Show territory (faction colour fill)"
+
+[node name="ProvinceLayerCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/LayersContent"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+autowrap_mode = 3
+button_pressed = false
+text = "Show province boundaries"
+
+[node name="LayersUnavailableHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/LayersContent"]
+theme_type_variation = &"HintLabel"
+autowrap_mode = 2
+text = "Hillshade / Water / Rivers / Biomes / Ecology / Resources / Politics / Trade / Labels / Graticule are not separable render layers yet -- render.rs composites them into one pass (see TERRAIN_APPEARANCE_SCOPE.md)."
+
+[node name="PlaceholderContent" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox"]
+unique_name_in_owner = true
+visible = false
+
+[node name="PlaceholderLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/PlaceholderContent"]
+theme_type_variation = &"HintLabel"
+autowrap_mode = 2
+text = "This workspace subject isn't wired to the engine yet."
+
+[node name="ViewportPanel" type="PanelContainer" parent="Shell/MainRow"]
 size_flags_horizontal = 3
 size_flags_vertical = 3
-size_flags_stretch_ratio = 2.0
+theme_override_styles/panel = SubResource("SB_Empty")
 
-[node name="MapMargin" type="MarginContainer" parent="Root/StageMargin/Stage/MapPanel"]
+[node name="ViewportVBox" type="VBoxContainer" parent="Shell/MainRow/ViewportPanel"]
+theme_override_constants/separation = 0
+
+[node name="ModeBar" type="PanelContainer" parent="Shell/MainRow/ViewportPanel/ViewportVBox"]
+custom_minimum_size = Vector2(0, 29)
+theme_override_styles/panel = SubResource("SB_TopBar")
+
+[node name="ModeBarMargin" type="MarginContainer" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ModeBar"]
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_right = 16
+
+[node name="ModeBarRow" type="HBoxContainer" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ModeBar/ModeBarMargin"]
+unique_name_in_owner = true
+theme_override_constants/separation = 4
+
+[node name="WorldModeBtn" type="Button" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ModeBar/ModeBarMargin/ModeBarRow"]
+unique_name_in_owner = true
+flat = true
+toggle_mode = true
+button_pressed = true
+text = "WORLD"
+theme_override_colors/font_color = Color(0.878431, 0.639216, 0.290196, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="EditModeBtn" type="Button" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ModeBar/ModeBarMargin/ModeBarRow"]
+flat = true
+disabled = true
+text = "EDIT"
+theme_override_colors/font_color = Color(0.435294, 0.454902, 0.470588, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="AnalysisModeBtn" type="Button" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ModeBar/ModeBarMargin/ModeBarRow"]
+flat = true
+disabled = true
+text = "ANALYSIS"
+theme_override_colors/font_color = Color(0.435294, 0.454902, 0.470588, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="SimulationModeBtn" type="Button" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ModeBar/ModeBarMargin/ModeBarRow"]
+flat = true
+disabled = true
+text = "SIMULATION"
+theme_override_colors/font_color = Color(0.435294, 0.454902, 0.470588, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="CartographicModeBtn" type="Button" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ModeBar/ModeBarMargin/ModeBarRow"]
+flat = true
+disabled = true
+text = "CARTOGRAPHIC"
+theme_override_colors/font_color = Color(0.435294, 0.454902, 0.470588, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="DebugModeBtn" type="Button" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ModeBar/ModeBarMargin/ModeBarRow"]
+flat = true
+disabled = true
+text = "DEBUG"
+theme_override_colors/font_color = Color(0.435294, 0.454902, 0.470588, 1)
+theme_override_font_sizes/font_size = 11
+
+[node name="ViewportBody" type="PanelContainer" parent="Shell/MainRow/ViewportPanel/ViewportVBox"]
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("SB_Viewport")
+
+[node name="MapMargin" type="MarginContainer" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ViewportBody"]
 theme_override_constants/margin_left = 12
 theme_override_constants/margin_top = 12
 theme_override_constants/margin_right = 12
 theme_override_constants/margin_bottom = 12
 
-[node name="MapView" type="TextureRect" parent="Root/StageMargin/Stage/MapPanel/MapMargin"]
+[node name="MapView" type="TextureRect" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ViewportBody/MapMargin"]
 unique_name_in_owner = true
 size_flags_horizontal = 3
 size_flags_vertical = 3
 expand_mode = 1
 stretch_mode = 5
 
-[node name="TerritoryView" type="TextureRect" parent="Root/StageMargin/Stage/MapPanel/MapMargin"]
-unique_name_in_owner = true
-size_flags_horizontal = 3
-size_flags_vertical = 3
-expand_mode = 1
-stretch_mode = 5
-mouse_filter = 2
-visible = false
-
-[node name="ProvinceBoundaryView" type="TextureRect" parent="Root/StageMargin/Stage/MapPanel/MapMargin"]
+[node name="TerritoryView" type="TextureRect" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ViewportBody/MapMargin"]
 unique_name_in_owner = true
 size_flags_horizontal = 3
 size_flags_vertical = 3
@@ -377,9 +542,183 @@ stretch_mode = 5
 mouse_filter = 2
 visible = false
 
-[node name="MapOverlay" type="Control" parent="Root/StageMargin/Stage/MapPanel/MapMargin"]
+[node name="ProvinceBoundaryView" type="TextureRect" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ViewportBody/MapMargin"]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+size_flags_vertical = 3
+expand_mode = 1
+stretch_mode = 5
+mouse_filter = 2
+visible = false
+
+[node name="MapOverlay" type="Control" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ViewportBody/MapMargin"]
 unique_name_in_owner = true
 script = ExtResource("3")
+
+[node name="ScaleBarLabel" type="Label" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ViewportBody/MapMargin"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 4.0
+offset_top = -20.0
+offset_right = 220.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.490196, 0.509804, 0.529412, 1)
+theme_override_font_sizes/font_size = 11
+text = ""
+
+[node name="TileReadoutLabel" type="Label" parent="Shell/MainRow/ViewportPanel/ViewportVBox/ViewportBody/MapMargin"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -220.0
+offset_top = -20.0
+mouse_filter = 2
+horizontal_alignment = 2
+theme_override_colors/font_color = Color(0.435294, 0.454902, 0.470588, 1)
+theme_override_font_sizes/font_size = 11
+text = "no tiling / LOD (cartalith-spatial not yet integrated)"
+
+[node name="InspectorPanel" type="PanelContainer" parent="Shell/MainRow"]
+custom_minimum_size = Vector2(272, 0)
+theme_override_styles/panel = SubResource("SB_Inspector")
+
+[node name="InspectorMargin" type="MarginContainer" parent="Shell/MainRow/InspectorPanel"]
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 16
+
+[node name="InspectorVBox" type="VBoxContainer" parent="Shell/MainRow/InspectorPanel/InspectorMargin"]
+theme_override_constants/separation = 10
+
+[node name="InspectorHeader" type="Label" parent="Shell/MainRow/InspectorPanel/InspectorMargin/InspectorVBox"]
+unique_name_in_owner = true
+theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
+theme_override_font_sizes/font_size = 9
+text = "INSPECTOR · NO SELECTION"
+
+[node name="InspectorBody" type="RichTextLabel" parent="Shell/MainRow/InspectorPanel/InspectorMargin/InspectorVBox"]
+unique_name_in_owner = true
+size_flags_vertical = 3
+bbcode_enabled = true
+fit_content = true
+scroll_active = false
+theme_override_colors/default_color = Color(0.784314, 0.796078, 0.803922, 1)
+theme_override_font_sizes/normal_font_size = 12
+text = "No selection.
+
+Hover a settlement marker on the map to inspect it. A full per-cell inspector (elevation, slope, aspect, drainage, etc. at the cursor) needs a new engine query this milestone doesn't add -- see GUI_SHELL_SCOPE.md."
+
+[node name="BottomBar" type="PanelContainer" parent="Shell"]
+custom_minimum_size = Vector2(0, 70)
+theme_override_styles/panel = SubResource("SB_BottomBar")
+
+[node name="BottomBarMargin" type="MarginContainer" parent="Shell/BottomBar"]
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 8
+
+[node name="BottomBarVBox" type="VBoxContainer" parent="Shell/BottomBar/BottomBarMargin"]
+theme_override_constants/separation = 8
+
+[node name="TimelineRow" type="HBoxContainer" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox"]
+theme_override_constants/separation = 14
+
+[node name="YearStartLabel" type="Label" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TimelineRow"]
+theme_override_colors/font_color = Color(0.435294, 0.454902, 0.470588, 1)
+theme_override_font_sizes/font_size = 11
+text = "YEAR --"
+
+[node name="TimelineScrub" type="HSlider" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TimelineRow"]
+size_flags_horizontal = 3
+editable = false
+mouse_default_cursor_shape = 0
+
+[node name="TimelineHint" type="Label" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TimelineRow"]
+theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
+theme_override_font_sizes/font_size = 10
+text = "static generation -- no year-by-year simulation yet"
+
+[node name="TransportRow" type="HBoxContainer" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox"]
+theme_override_constants/separation = 22
+
+[node name="TransportButtons" type="HBoxContainer" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow"]
+theme_override_constants/separation = 8
+
+[node name="PlayBtn" type="Button" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow/TransportButtons"]
+disabled = true
+text = "▶ Play"
+theme_override_font_sizes/font_size = 11
+
+[node name="PauseBtn" type="Button" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow/TransportButtons"]
+disabled = true
+text = "⏸ Pause"
+theme_override_font_sizes/font_size = 11
+
+[node name="StepBtn" type="Button" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow/TransportButtons"]
+disabled = true
+text = "Step ◀ ▶"
+theme_override_font_sizes/font_size = 11
+
+[node name="SpeedButtons" type="HBoxContainer" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow"]
+theme_override_constants/separation = 6
+
+[node name="Speed1Btn" type="Button" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow/SpeedButtons"]
+disabled = true
+text = "×1"
+theme_override_font_sizes/font_size = 11
+
+[node name="Speed10Btn" type="Button" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow/SpeedButtons"]
+disabled = true
+text = "×10"
+theme_override_font_sizes/font_size = 11
+
+[node name="Speed100Btn" type="Button" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow/SpeedButtons"]
+disabled = true
+text = "×100"
+theme_override_font_sizes/font_size = 11
+
+[node name="TransportSpacer" type="Control" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow"]
+size_flags_horizontal = 3
+
+[node name="SimLayerButtons" type="HBoxContainer" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow"]
+theme_override_constants/separation = 16
+
+[node name="ClimateSimCheck" type="CheckBox" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow/SimLayerButtons"]
+disabled = true
+text = "Climate"
+theme_override_font_sizes/font_size = 11
+
+[node name="PopulationSimCheck" type="CheckBox" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow/SimLayerButtons"]
+disabled = true
+text = "Population"
+theme_override_font_sizes/font_size = 11
+
+[node name="EconomySimCheck" type="CheckBox" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow/SimLayerButtons"]
+disabled = true
+text = "Economy"
+theme_override_font_sizes/font_size = 11
+
+[node name="PoliticsSimCheck" type="CheckBox" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow/SimLayerButtons"]
+disabled = true
+text = "Politics"
+theme_override_font_sizes/font_size = 11
+
+[node name="InfrastructureSimCheck" type="CheckBox" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow/SimLayerButtons"]
+disabled = true
+text = "Infrastructure"
+theme_override_font_sizes/font_size = 11
+
+[node name="WarfareSimCheck" type="CheckBox" parent="Shell/BottomBar/BottomBarMargin/BottomBarVBox/TransportRow/SimLayerButtons"]
+disabled = true
+text = "Warfare"
+theme_override_font_sizes/font_size = 11
 
 [node name="LoadSaveDialog" type="FileDialog" parent="."]
 unique_name_in_owner = true

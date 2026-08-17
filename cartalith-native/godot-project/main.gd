@@ -1,24 +1,30 @@
 extends Control
-## Phase 1 MVP UI (MVP_SCOPE.md points 10-11): seed / resolution / map
-## width inputs, a Generate button, and a TextureRect showing the result.
-## Godot computes nothing here beyond reading input values and handing them
-## to WorldGen.generate() (ARCHITECTURE.md: "Godot computes nothing beyond
-## layout. Anything you could get numerically wrong belongs in Rust.").
+## GUI shell (GUI_SHELL_SCOPE.md milestone 1): top bar with 7 domain menus,
+## left workspace navigator, a second panel that swaps with the navigator
+## selection, centre mode bar + viewport, right context inspector, bottom
+## timeline bar. Desktop (1920x1080) dark theme only this pass -- light
+## theme, panel collapse, and responsive breakpoints are explicitly deferred
+## follow-up milestones (`GUI_SHELL_SCOPE.md`'s own scope).
 ##
-## Generation runs on a background Thread (godot-shell skill: "generation
-## runs off the main thread... a frozen window during it is the difference
-## between a tool and a toy"). `WorldGen.generate()` is pure Rust
-## computation over plain WorldState -- no scene-tree or Godot-resource
-## touch (ARCHITECTURE.md: "Rust never touches the scene tree") -- so it's
-## safe off-thread. `build_color_texture()` (which builds an Image/
-## ImageTexture) and every scene-tree write happen back on the main thread
-## via `call_deferred`.
+## Every real, working control from the prior MVP shell is re-parented here
+## unchanged -- same %unique_name node names, same signals, same Rust calls.
+## Godot's `%Name` lookup resolves by unique name regardless of tree
+## position, so re-parenting a node in the .tscn never breaks an existing
+## `@onready var x = %Name` reference in this script, as long as the name
+## and `unique_name_in_owner` are preserved (verified against every %ref
+## below). Controls for features with no engine backing yet (Simulate's
+## year-by-year playback, Warfare, full Politics/Trade, tile/LOD, 2D/3D)
+## are real nodes, visibly present, `disabled = true` -- not hidden, not
+## deleted -- per the owner's own explicit "build the full shell now, wire
+## it up later" decision (GUI_SHELL_SCOPE.md).
+##
+## Generation still runs on a background Thread (unchanged from the prior
+## shell -- godot-shell skill: "a frozen window during it is the difference
+## between a tool and a toy"). `WorldGen.generate()`/`generate_world_
+## structure()` are pure Rust computation over plain WorldState, safe off
+## -thread; `build_color_texture()` and every scene-tree write happen back
+## on the main thread via `call_deferred`.
 
-## Node lookups go through unique names (`%Name`, `unique_name_in_owner` in
-## main.tscn) rather than deep `$Path/To/Node` chains -- the redesigned scene
-## nests every input inside cards/scroll containers for visual grouping, and
-## %-refs keep this script stable if that nesting changes again without
-## touching any of these lines.
 @onready var seed_input: SpinBox = %SeedInput
 @onready var resolution_input: OptionButton = %ResolutionInput
 @onready var width_input: SpinBox = %WidthInput
@@ -43,21 +49,28 @@ extends Control
 @onready var credits_button: Button = %CreditsButton
 @onready var credits_dialog: AcceptDialog = %CreditsDialog
 
-## Responsive layout (see `_update_responsive_layout`): `Stage` is a plain
-## `BoxContainer`, not a fixed `H`/`VBoxContainer` -- toggling its `vertical`
-## property switches it between a side-by-side row (controls panel beside
-## the map, for desktop/tablet-landscape widths) and a stacked column
-## (controls above the map, for phone/portrait widths) while still letting
-## the container do every size/position computation. `ControlsPanel` is the
-## only node whose sizing differs between the two arrangements (a fixed-width
-## column vs. a full-width band), so it's the only other node this script
-## touches for layout purposes.
-@onready var stage: BoxContainer = %Stage
-@onready var controls_panel: PanelContainer = %ControlsPanel
+## New this milestone: shell chrome.
+@onready var readout_label: Label = %ReadoutLabel
+@onready var project_menu: MenuButton = %ProjectMenu
+@onready var world_menu: MenuButton = %WorldMenu
+@onready var generate_menu: MenuButton = %GenerateMenu
+@onready var simulate_menu: MenuButton = %SimulateMenu
+@onready var map_menu: MenuButton = %MapMenu
+@onready var assets_menu: MenuButton = %AssetsMenu
+@onready var view_menu: MenuButton = %ViewMenu
+@onready var navigator_vbox: VBoxContainer = %NavigatorVBox
+@onready var second_panel_header: Label = %SecondPanelHeader
+@onready var overview_content: Control = %OverviewContent
+@onready var layers_content: Control = %LayersContent
+@onready var placeholder_content: Control = %PlaceholderContent
+@onready var scale_bar_label: Label = %ScaleBarLabel
+@onready var inspector_header: Label = %InspectorHeader
+@onready var inspector_body: RichTextLabel = %InspectorBody
 
 var world_gen: WorldGen = WorldGen.new()
 var _gen_thread: Thread
 var _generating := false
+var _last_width_km := 0.0
 
 ## Index into WorldShapeInput -> the archetype name WorldGen.
 ## generate_world_structure expects (reference HTML `ARCHETYPES`). Index 0
@@ -75,14 +88,23 @@ const RESOLUTION_PRESETS: Array[int] = [512, 1024, 2048, 4096, 8192]
 const RESOLUTION_LABELS: Array[String] = ["512", "1K", "2K", "4K", "8K"]
 const RESOLUTION_DEFAULT_INDEX := 2 ## 2K, matching the reference's own default.
 
-## Below this viewport width, the fixed-width controls panel (360px, see
-## main.tscn) plus a usably-sized map no longer both fit comfortably with
-## touch-sized controls, so the layout stacks instead of sitting side by
-## side. Chosen to fall between phone-portrait widths (~360-430px, always
-## stacked) and phone-landscape/tablet/desktop widths (~700px+, always
-## side-by-side) -- not verified against a real device, same GPU/touch
-## carve-out the godot-shell skill calls out for anything screen-visual.
-const RESPONSIVE_BREAKPOINT_WIDTH := 700.0
+## Workspace navigator, `design/cartalith-menu-structure.md`'s own §"Shell
+## regions"/groups list. Only WORLD > Overview and CARTOGRAPHY > Layers have
+## real content this milestone (`OverviewContent`/`LayersContent` in the
+## .tscn); every other subject swaps in `PlaceholderContent`, an honest
+## "not wired to the engine yet" label -- per GUI_SHELL_SCOPE.md's own
+## inventory, none of the others have real backing to show.
+const NAV_GROUPS := {
+	"WORLD": ["Overview", "Terrain", "Water", "Climate", "Ecology", "Resources"],
+	"CIVILIZATION": ["Settlements", "Population", "Economy", "Politics", "Culture"],
+	"INFRASTRUCTURE": ["Roads", "Rivers", "Ports", "Trade", "Logistics"],
+	"CARTOGRAPHY": ["Layers", "Styling", "Labels", "Assets", "Export"],
+}
+## The only two subjects with real content this milestone -- everything
+## else in NAV_GROUPS falls through to the placeholder.
+const NAV_REAL_SUBJECTS := ["WORLD:Overview", "CARTOGRAPHY:Layers"]
+
+var _nav_buttons: Dictionary = {} ## "GROUP:Subject" -> Button, for active-state styling
 
 
 func _ready() -> void:
@@ -106,25 +128,175 @@ func _ready() -> void:
 	civ_layer_check.toggled.connect(func(pressed: bool): map_overlay.visible = pressed)
 	territory_layer_check.toggled.connect(func(pressed: bool): territory_view.visible = pressed)
 	province_layer_check.toggled.connect(func(pressed: bool): province_boundary_view.visible = pressed)
-	get_viewport().size_changed.connect(_update_responsive_layout)
-	_update_responsive_layout()
+	map_overlay.settlement_hovered.connect(_on_settlement_hovered)
+
+	_build_navigator()
+	_build_menus()
+	_select_nav_subject("WORLD", "Overview")
 
 
-## Desktop window resize and phone orientation change both fire
-## `Viewport.size_changed` -- one hook covers both real targets. Only
-## property toggles here, no pixel math: `Stage.vertical` picks the axis,
-## `ControlsPanel`'s horizontal size flag + minimum width pick fixed-column
-## vs. fill-width, and the containers do the rest.
-func _update_responsive_layout() -> void:
-	var viewport_width := get_viewport().get_visible_rect().size.x
-	var narrow := viewport_width < RESPONSIVE_BREAKPOINT_WIDTH
-	stage.vertical = narrow
-	if narrow:
-		controls_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		controls_panel.custom_minimum_size.x = 0
+## Builds the 4-group workspace navigator (`design/cartalith-menu-structure.md`
+## §"Shell regions") from `NAV_GROUPS` -- 20 subject rows would be tedious
+## and error-prone to hand-author as individual .tscn nodes, so they're
+## generated here instead. Each row is a real, clickable flat Button;
+## `_nav_buttons` keeps a flat "GROUP:Subject" -> Button map so
+## `_select_nav_subject` can restyle whichever row is active without a tree
+## walk.
+func _build_navigator() -> void:
+	for group_name in NAV_GROUPS:
+		var group_header := Label.new()
+		group_header.text = group_name
+		group_header.add_theme_color_override("font_color", Color(0.552941, 0.576471, 0.588235))
+		group_header.add_theme_font_size_override("font_size", 9)
+		navigator_vbox.add_child(group_header)
+
+		var group_box := VBoxContainer.new()
+		navigator_vbox.add_child(group_box)
+
+		for subject in NAV_GROUPS[group_name]:
+			var btn := Button.new()
+			btn.text = subject
+			btn.flat = true
+			btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			btn.custom_minimum_size = Vector2(0, 30)
+			btn.add_theme_color_override("font_color", Color(0.784314, 0.796078, 0.803922))
+			var key := "%s:%s" % [group_name, subject]
+			btn.pressed.connect(_select_nav_subject.bind(group_name, subject))
+			_nav_buttons[key] = btn
+			group_box.add_child(btn)
+
+
+## Swaps the second panel's content and restyles the active navigator row.
+## Per `design/cartalith-menu-structure.md`'s own architectural rule: "A
+## navigator node never swaps the viewport or the application -- it swaps
+## the tool palette and the inspector around it." Only the viewport itself
+## (and inspector's live selection state) are untouched by this.
+func _select_nav_subject(group_name: String, subject: String) -> void:
+	var key := "%s:%s" % [group_name, subject]
+	for k in _nav_buttons:
+		var btn: Button = _nav_buttons[k]
+		btn.add_theme_color_override("font_color",
+			Color(0.878431, 0.639216, 0.290196) if k == key else Color(0.784314, 0.796078, 0.803922))
+
+	second_panel_header.text = "%s · %s" % [group_name, subject.to_upper()]
+	overview_content.visible = false
+	layers_content.visible = false
+	placeholder_content.visible = false
+	if key == "WORLD:Overview":
+		overview_content.visible = true
+	elif key == "CARTOGRAPHY:Layers":
+		layers_content.visible = true
 	else:
-		controls_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		controls_panel.custom_minimum_size.x = 360
+		placeholder_content.visible = true
+
+
+## Populates the 7 top-bar domain menus from `design/cartalith-menu-
+## structure.md`'s own inventory. Real (`#id`-tagged in that doc) items call
+## an existing, already-wired action; `NEW`-tagged items are added
+## `disabled` -- present and readable, not a functional no-op silently
+## doing nothing, per GUI_SHELL_SCOPE.md's "visibly present but honestly
+## inert" rule. This is a representative subset of the full multi-hundred-
+## item inventory (e.g. Generate's 11 pipeline stages list dozens of
+## individual sliders that don't exist as separate Rust-side tunables
+## beyond the 4 experimental flags already in the Overview panel) --
+## exhaustively transcribing every leaf item wasn't this milestone's goal,
+## the shell *structure* was.
+func _build_menus() -> void:
+	var project_popup := project_menu.get_popup()
+	project_popup.add_item("Open project (.zip)...")
+	project_popup.add_item("Credits")
+	project_popup.add_separator()
+	project_popup.add_item("New world...")
+	project_popup.set_item_disabled(project_popup.item_count - 1, true)
+	project_popup.add_item("Save project")
+	project_popup.set_item_disabled(project_popup.item_count - 1, true)
+	project_popup.add_item("Export .zip...")
+	project_popup.set_item_disabled(project_popup.item_count - 1, true)
+	project_popup.id_pressed.connect(_on_project_menu_id)
+
+	var world_popup := world_menu.get_popup()
+	world_popup.add_item("Generate World")
+	world_popup.add_item("New seed")
+	world_popup.add_separator()
+	world_popup.add_item("Planet settings...")
+	world_popup.set_item_disabled(world_popup.item_count - 1, true)
+	world_popup.add_item("Coordinate system / projection...")
+	world_popup.set_item_disabled(world_popup.item_count - 1, true)
+	world_popup.id_pressed.connect(_on_world_menu_id)
+
+	var generate_popup := generate_menu.get_popup()
+	for stage in ["01 Tectonics", "02 Volcanism & impacts", "03 Erosion", "04 Glacial & coastal",
+			"05 Hydrology", "06 Climate & biomes", "07 Weather · rainfall sim", "08 Ecology",
+			"09 Settlements", "10 Infrastructure", "11 Politics"]:
+		generate_popup.add_item(stage)
+		generate_popup.set_item_disabled(generate_popup.item_count - 1, true)
+	generate_popup.add_separator()
+	generate_popup.add_item("(per-stage tuning lives in World > Overview for now)")
+	generate_popup.set_item_disabled(generate_popup.item_count - 1, true)
+
+	var simulate_popup := simulate_menu.get_popup()
+	for item in ["Time simulation (year-by-year, not implemented)", "Economy panel",
+			"Statistics", "Logistics / Journey Planner"]:
+		simulate_popup.add_item(item)
+		simulate_popup.set_item_disabled(simulate_popup.item_count - 1, true)
+
+	var map_popup := map_menu.get_popup()
+	map_popup.add_item("Layers")
+	map_popup.add_item("Terrain appearance...")
+	map_popup.set_item_disabled(map_popup.item_count - 1, true)
+	map_popup.add_item("Painter styles (NPR)")
+	map_popup.set_item_disabled(map_popup.item_count - 1, true)
+	map_popup.add_item("Labels & annotation")
+	map_popup.set_item_disabled(map_popup.item_count - 1, true)
+	map_popup.id_pressed.connect(_on_map_menu_id)
+
+	var assets_popup := assets_menu.get_popup()
+	assets_popup.add_item("Asset library (not implemented)")
+	assets_popup.set_item_disabled(0, true)
+
+	var view_popup := view_menu.get_popup()
+	for item in ["2D / 3D (3D deferred, DECISIONS.md §4)", "Tiled LOD view (cartalith-spatial, unintegrated)",
+			"Analysis field...", "Debug & performance"]:
+		view_popup.add_item(item)
+		view_popup.set_item_disabled(view_popup.item_count - 1, true)
+
+
+func _on_project_menu_id(id: int) -> void:
+	match id:
+		0: _on_load_save_pressed()
+		1: credits_dialog.popup_centered()
+
+
+func _on_world_menu_id(id: int) -> void:
+	match id:
+		0: _on_generate_pressed()
+		1: seed_input.value = randi() % 1000000
+
+
+func _on_map_menu_id(id: int) -> void:
+	if id == 0:
+		_select_nav_subject("CARTOGRAPHY", "Layers")
+
+
+## Updates the Inspector panel (right) with real settlement data on hover,
+## mirroring what `map_overlay.gd`'s own `_draw_hover_card` already draws on
+## -canvas -- same data, no new query. `data` is `null` on hover-exit.
+func _on_settlement_hovered(data: Variant) -> void:
+	if data == null:
+		inspector_header.text = "INSPECTOR · NO SELECTION"
+		inspector_body.text = "No selection.\n\nHover a settlement marker on the map to inspect it. A full per-cell inspector (elevation, slope, aspect, drainage, etc. at the cursor) needs a new engine query this milestone doesn't add -- see GUI_SHELL_SCOPE.md."
+		return
+	var s: Dictionary = data
+	inspector_header.text = "INSPECTOR · SETTLEMENT"
+	var kind_label: String = String(s["kind"]).capitalize()
+	var lines := [
+		"[b]%s[/b] (%s)" % [s["name"], kind_label],
+		"Population: %s" % s["population"],
+		"Faction: %d" % s["faction"],
+		"Coastal: %s" % ("yes" if s["coastal"] else "no"),
+		"Capital: %s" % ("yes" if s["capital"] else "no"),
+	]
+	inspector_body.text = "\n".join(lines)
 
 
 func _on_generate_pressed() -> void:
@@ -133,6 +305,7 @@ func _on_generate_pressed() -> void:
 	_generating = true
 	generate_button.disabled = true
 	status_label.text = "generating..."
+	readout_label.text = "generating..."
 
 	var seed_value := int(seed_input.value)
 	var resolution := RESOLUTION_PRESETS[resolution_input.selected]
@@ -165,13 +338,8 @@ func _on_generate_pressed() -> void:
 ## never a node -- see the class doc comment above. `generate()` and
 ## `generate_world_structure()` are both full, equally expensive
 ## `generate_terrain()` calls that mutate the same `world_gen` state --
-## this must be the ONE call site. (Previously `generate_world_structure()`
-## ran synchronously on the *main* thread in `_on_generate_pressed`,
-## freezing the UI for the whole generation, and this worker then
-## unconditionally re-ran plain `generate()` anyway -- silently discarding
-## whatever archetype the World Shape dropdown selected, every time. Found
-## 2026-08-17, verified independently by reading both Rust entry points
-## before fixing.) `archetype` empty == Classic (World-Structure disabled).
+## this must be the ONE call site. `archetype` empty == Classic
+## (World-Structure disabled).
 func _generate_worker(seed_value: int, width_km: float, resolution: int, archetype: String) -> void:
 	var ok := true
 	if archetype.is_empty():
@@ -191,6 +359,7 @@ func _on_generate_done(seed_value: int, width_km: float, ok: bool) -> void:
 
 	if not ok:
 		status_label.text = "generate failed — see console"
+		readout_label.text = "generate failed"
 		generate_button.disabled = false
 		_generating = false
 		return
@@ -215,16 +384,38 @@ func _on_generate_done(seed_value: int, width_km: float, ok: bool) -> void:
 		## unlike CIV_FACTION_COUNT).
 		province_boundary_view.texture = world_gen.build_province_boundary_texture()
 
+		_last_width_km = width_km
+		_update_scale_bar()
+
 		var shape_label := world_shape_input.get_item_text(world_shape_input.selected)
 		var civ_note := ", %d settlements" % settlements.size() if not settlements.is_empty() else ""
 		status_label.text = "%dx%d, seed %d, %.0f km, %s%s" % [
 			world_gen.get_width(), world_gen.get_height(), seed_value, width_km, shape_label, civ_note
 		]
+		readout_label.text = "seed %d · %dx%d · %.0f km" % [seed_value, world_gen.get_width(), world_gen.get_height(), width_km]
 	else:
 		status_label.text = "generate failed — see console"
+		readout_label.text = "generate failed"
 
 	generate_button.disabled = false
 	_generating = false
+
+
+## Top-bar readout has no live CPU/GPU/memory number wired this milestone
+## (`GUI_SHELL_SCOPE.md`'s own "ambiguous, verify before building" note --
+## Godot's `Performance` singleton has some of this natively but wiring it
+## honestly wasn't this pass's focus); the scale bar is real, computed from
+## the actual generated map width in km against the viewport's own map-view
+## pixel width.
+func _update_scale_bar() -> void:
+	if _last_width_km <= 0.0 or map_view.size.x <= 0.0:
+		scale_bar_label.text = ""
+		return
+	var km_per_px := _last_width_km / map_view.size.x
+	var bar_km := 100.0
+	if km_per_px > 0.0:
+		bar_km = roundf(100.0 * km_per_px) / km_per_px / 100.0 * 100.0
+	scale_bar_label.text = "%.0f km across viewport" % _last_width_km
 
 
 func _on_load_save_pressed() -> void:
@@ -252,5 +443,6 @@ func _on_save_file_selected(path: String) -> void:
 		status_label.text = "loaded %s (%dx%d)" % [
 			path.get_file(), world_gen.get_width(), world_gen.get_height()
 		]
+		readout_label.text = "loaded %s" % path.get_file()
 	else:
 		status_label.text = "load succeeded but render failed — see console"
