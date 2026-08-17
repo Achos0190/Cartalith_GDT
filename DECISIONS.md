@@ -231,3 +231,40 @@ This document was written against a knowledge cutoff. A patch version hardcoded
 here risks being stale — missing bugfixes, or naming a release no longer
 recommended — by the time anyone executes the plan. Same discipline the HTML
 project enforces about re-measuring rather than trusting a stale assumption.
+
+## 7d. Behavior is the contract, not implementation (owner decision, 2026-08-17)
+
+Owner's words, verbatim: "everything should be redesigned in rust and be more
+effective (so if qgis/mapbox do the same job and have the same visual result
+as the html version take the QGIS and mapbox examples and implementations as
+leading — this kind of thing wasn't possible in an efficient way at the time
+of the html). Other than that all described functions from the old project
+should be maintained."
+
+What this refines: §7's golden-parity discipline and §7a's principled-
+equivalence carve-out both already distinguish *what a feature produces* from
+*how it computes it*. This decision generalizes that distinction to the whole
+port: the reference HTML app defines the **feature contract** — every
+described function must exist and produce an equivalent result — but its
+*implementations* were shaped by a single-file browser app's constraints
+(no threads, no GPU compute, no native file I/O, one canvas). Where mature
+tools in the same problem domain (QGIS, Mapbox GL, and by extension the
+terrain/DCC lineage the shell now follows) solve the same job with the same
+visual result more effectively, their approach is **leading**, and the
+reference's approach is historical context, not a requirement.
+
+What this does NOT change: the CPU generation pipeline's existing golden
+verification stands — those algorithms were ported and verified precisely
+because their *outputs* are the contract, and nothing here re-litigates a
+verified stage. This decision governs how *unported and future* work is
+approached (rendering architecture, tiling, layer compositing, interaction
+models, file handling), and how already-ported presentation-layer code may be
+*improved past* JS parity — the door §7a already opened for GPU, now open on
+principle wherever a better-practice implementation preserves the behavioral
+contract.
+
+Practical test for any future pass: "would a user of the HTML app find this
+feature present and its result equivalent or better?" If yes, the
+implementation is free to differ. If a change would make a described function
+absent or visibly worse, it violates the contract regardless of how modern
+the replacement is.
