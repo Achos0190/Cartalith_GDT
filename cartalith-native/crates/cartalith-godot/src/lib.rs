@@ -17,6 +17,7 @@ use godot::init::{ExtensionLibrary, gdextension};
 use godot::prelude::*;
 
 mod pack;
+mod params;
 mod render;
 use render::{RenderCtx, SplatTextures, TerrainAppearance};
 
@@ -463,6 +464,74 @@ fn compute_civilisation(
     CivData { settlements, ways, sea_routes, territory, provinces, province_list, trade_balances, explanations }
 }
 
+/// Named World-Structure archetype presets (reference HTML `ARCHETYPES`,
+/// lines 2521-2526) as `(continentality, fragmentation, tectonic_energy,
+/// ocean_depth, hotspot_density)`.
+/// `cartalith_engine::WorldParams::world_structure` itself takes raw knobs
+/// only, not named presets (its own doc comment: "a caller wanting
+/// 'Archipelago' passes that preset's own numbers") — so the name -> knobs
+/// lookup lives here, in the boundary layer, rather than in GDScript
+/// (`ARCHITECTURE.md`: "Godot computes nothing beyond layout").
+const ARCHETYPES: [(&str, [f64; 5]); 5] = [
+    ("earth", [0.30, 0.50, 0.60, 0.60, 0.20]),
+    ("supercontinent", [0.60, 0.10, 0.50, 0.70, 0.10]),
+    ("archipelago", [0.15, 0.90, 0.80, 0.30, 0.50]),
+    ("volcanic", [0.05, 1.00, 0.90, 0.80, 1.00]),
+    ("rift", [0.40, 0.35, 0.75, 0.55, 0.30]),
+];
+
+/// `ARCHETYPES` lookup, case-insensitive, as a ready `WorldStructureParams`
+/// with `enabled: true`. `None` for an unknown name.
+fn archetype_knobs(name: &GString) -> Option<WorldStructureParams> {
+    let name = name.to_string().to_lowercase();
+    ARCHETYPES.iter().find(|(n, _)| *n == name).map(|(_, k)| WorldStructureParams {
+        enabled: true,
+        continentality: k[0],
+        fragmentation: k[1],
+        tectonic_energy: k[2],
+        ocean_depth: k[3],
+        hotspot_density: k[4],
+    })
+}
+
+/// One `params::Value` as the Godot type its `Kind` promises — `bool` for a
+/// checkbox parameter, `int` for a whole-number one, `float` otherwise. Keeps
+/// GDScript from having to guess whether `params["tect.plates"]` is `14` or
+/// `14.0`.
+fn value_to_variant(kind: params::Kind, value: params::Value) -> Variant {
+    match (kind, value) {
+        (_, params::Value::Bool(b)) => b.to_variant(),
+        (params::Kind::Int, params::Value::Num(n)) => (n as i64).to_variant(),
+        (_, params::Value::Num(n)) => n.to_variant(),
+    }
+}
+
+/// Every parameter in `p`, as the flat dotted-key `Dictionary` `get_params`/
+/// `get_param_defaults` both return.
+fn params_to_dict(p: &WorldParams) -> VarDictionary {
+    let mut out = VarDictionary::new();
+    for s in params::PARAMS {
+        let v = params::get(p, s.key).expect("every table key resolves against its own table");
+        out.set(s.key, &value_to_variant(s.kind, v));
+    }
+    out
+}
+
+/// The GDScript side of the invalid-value policy (`params::set`'s own doc
+/// comment has the full rule): only `bool`, `int` and `float` Variants carry
+/// a parameter value at all. Anything else (String, Array, `null`, an
+/// Object) is `None` here and reported as rejected — never coerced, since
+/// "0" and `null` both have a plausible-looking numeric coercion that would
+/// silently write a wrong world.
+fn variant_to_value(v: &Variant) -> Option<params::Value> {
+    match v.get_type() {
+        VariantType::BOOL => Some(params::Value::Bool(v.to::<bool>())),
+        VariantType::INT => Some(params::Value::Num(v.to::<i64>() as f64)),
+        VariantType::FLOAT => Some(params::Value::Num(v.to::<f64>())),
+        _ => None,
+    }
+}
+
 /// `MVP_SCOPE.md` points 10-11: basic 2D rendering + minimal UI. Owns the
 /// last `generate_terrain()` result (or loaded save); GDScript drives it via
 /// `generate()`/`load_save()` then `build_color_texture()`. Square grid
@@ -478,37 +547,41 @@ struct WorldGen {
     gw: i32,
     gh: i32,
     sea_level: f64,
-    /// Set via `set_experimental_flags`, applied by both `generate()` and
-    /// `generate_world_structure()`. All four are now golden-verified
-    /// (see each field's own doc comment in `cartalith-engine`/
-    /// `cartalith-climate` -- `cartalith-native/docs/CHANGELOG.md` has the
-    /// full extraction history). `dynamic_lithology` defaults `false`
-    /// because that's JS's own real default; `volc_provinces`/
-    /// `terrain_wind_deflection`/`ocean_currents` default `true` because
-    /// JS's real defaults are `true` (unconditional, in wind deflection's
-    /// case) -- this `WorldGen` wrapper's own defaults can match JS
-    /// exactly regardless of what `cartalith_engine::WorldParams::defaults`
-    /// itself defaults to, since every call site here overrides all four
-    /// explicitly. Still exposed as toggles, not hardcoded: useful for
-    /// comparing against the real HTML app with one turned off at a time.
-    dynamic_lithology: bool,
-    volc_provinces: bool,
-    terrain_wind_deflection: bool,
-    ocean_currents: bool,
-    /// Set via `set_sea_level` -- the user-facing input `p.sea_level`
-    /// (reference `state.seaLevel`, a raw `[0,1]` normalized threshold
-    /// against the height field's own `[0,1]` stretch, default `0.42`,
-    /// reference `bind('sea', ...)` UI is a 0-100% slider dividing by 100
-    /// before storage -- same convention here, GDScript converts). Only
-    /// takes effect when World Structure is disabled (`generate()`, the
-    /// "Classic" shape): `generate_world_structure()` always sets
-    /// `world_structure.enabled = true`, and `apply_world_structure_sea_level`
-    /// re-anchors sea level from the archetype's own land-fraction target,
-    /// overriding whatever `p.sea_level` was set to (`cartalith-engine`'s
-    /// own `WorldState.sea_level` doc comment). Distinct from the sibling
-    /// `sea_level` field below, which tracks the *effective* post-generation
-    /// value for the renderer, not this input.
-    sea_level_input: f64,
+    /// **The persistent generation-parameter state** — every field of
+    /// `cartalith_engine::WorldParams` except the three `generate()` takes
+    /// as arguments (`gw`/`gh` from `resolution`, `tect.seed` from `seed`,
+    /// `map_width_km` from `width_km`), which are overwritten on every call
+    /// and therefore never read from here.
+    ///
+    /// Written by `set_params`/`reset_params` (the flat dotted-key API in
+    /// `params.rs`) and by the three legacy convenience setters
+    /// (`set_sea_level`, `set_experimental_flags`, both of which now write
+    /// straight into this struct so there is exactly one source of truth).
+    /// **Values persist between generations** — set once, and every
+    /// subsequent `generate()`/`generate_world_structure()` uses them, the
+    /// same way `set_sea_level` has always behaved. Initialized to
+    /// `WorldParams::defaults(0, 0, 0)`, so a `WorldGen` nobody ever calls a
+    /// setter on generates exactly what it generated before this API
+    /// existed.
+    ///
+    /// Note `sea_level` here is the user-facing *input* (reference
+    /// `state.seaLevel`, a raw `[0,1]` threshold against the height field's
+    /// own `[0,1]` stretch, default `0.42`; the reference's `bind('sea')` UI
+    /// is a 0-100% slider dividing by 100 before storage — same convention
+    /// here, GDScript converts). It only takes effect when World Structure
+    /// is disabled: `generate_world_structure()` (and any
+    /// `world_structure.enabled = true`) makes
+    /// `apply_world_structure_sea_level` re-anchor sea level from the
+    /// archetype's own land-fraction target instead. The sibling `sea_level`
+    /// field above tracks the *effective* post-generation value the renderer
+    /// needs, not this input.
+    params: WorldParams,
+    /// `WorldState::gpu_stages_used` from the last generation — which of the
+    /// GPU-eligible stages actually ran on GPU (`GPU_LAYER_INTEGRATION_SCOPE.md`
+    /// milestone 6+). Empty when `use_gpu` was off *or* when every stage fell
+    /// back to CPU, which is exactly the distinction the UI must be able to
+    /// report honestly rather than assume from the checkbox.
+    gpu_stages_used: Vec<String>,
     /// `latAt`'s inputs (`render.rs`) — `p.world`/`p.climate.lat_n`/`.lat_s`
     /// for a fresh `generate()`, or `save.params.world` + JS's own literal
     /// `climate` defaults (55/5) for a loaded save, whose format doesn't
@@ -549,11 +622,8 @@ impl IRefCounted for WorldGen {
             gw: 0,
             gh: 0,
             sea_level: 0.42,
-            dynamic_lithology: false,
-            volc_provinces: true,
-            terrain_wind_deflection: true,
-            ocean_currents: true,
-            sea_level_input: 0.42,
+            params: params::defaults(),
+            gpu_stages_used: Vec::new(),
             world: false,
             lat_n: 55.0,
             lat_s: 5.0,
@@ -565,12 +635,53 @@ impl IRefCounted for WorldGen {
     }
 }
 
+/// Plain (non-`#[func]`) helpers shared by `generate()` and
+/// `generate_world_structure()` — kept out of the `#[godot_api]` block since
+/// they are Rust-internal, not part of the GDScript surface.
+impl WorldGen {
+    /// This instance's persistent parameters with the three call-argument
+    /// fields filled in. The single place `gw`/`gh`/`seed`/`map_width_km`
+    /// enter a `WorldParams` — everything else comes from `self.params`
+    /// unchanged, which is why an untouched `WorldGen` generates exactly what
+    /// it did before the parameter API existed.
+    fn call_params(&self, seed: i32, width_km: f64, gw: usize) -> WorldParams {
+        let mut p = self.params.clone();
+        p.gw = gw;
+        p.gh = gw;
+        p.tect.seed = seed;
+        p.map_width_km = if width_km > 0.0 { width_km } else { 800.0 };
+        p
+    }
+
+    /// Stores a finished generation: the effective sea level, the render
+    /// inputs `render.rs` needs, the civ layer, and which stages actually ran
+    /// on GPU.
+    fn absorb(&mut self, ws: cartalith_engine::WorldState, p: &WorldParams, gw: usize, seed: i32) {
+        // Not `p.sea_level` -- World-Structure archetypes re-anchor it;
+        // `WorldState` carries the value actually used.
+        self.sea_level = ws.sea_level;
+        self.gw = gw as i32;
+        self.gh = gw as i32;
+        self.world = p.world;
+        self.lat_n = p.climate.lat_n;
+        self.lat_s = p.climate.lat_s;
+        self.gpu_stages_used = ws.gpu_stages_used.clone();
+        self.civ = Some(compute_civilisation(&ws, gw, gw, p.world, p.map_width_km, p.river_density, self.villages));
+        self.source = Some(WorldSource::Generated(Box::new(ws)));
+        self.seed = seed;
+    }
+}
+
 #[godot_api]
 impl WorldGen {
     /// Sets the four golden-verified subsystem flags this instance's
-    /// `generate()`/`generate_world_structure()` calls apply from then on
-    /// — see the `WorldGen` struct's own doc comment on the fields this
-    /// writes.
+    /// `generate()`/`generate_world_structure()` calls apply from then on.
+    ///
+    /// Kept as its own `#[func]` because `main.gd` already drives it, but it
+    /// is now pure sugar over `set_params` — exactly equivalent to
+    /// `set_params({"tect.dynamic_lithology": …, "volc.provinces": …,
+    /// "climate.terrain_wind_deflection": …, "climate.currents": …})`, and
+    /// `get_params()` reads the same four values back.
     #[func]
     fn set_experimental_flags(
         &mut self,
@@ -579,10 +690,200 @@ impl WorldGen {
         terrain_wind_deflection: bool,
         ocean_currents: bool,
     ) {
-        self.dynamic_lithology = dynamic_lithology;
-        self.volc_provinces = volc_provinces;
-        self.terrain_wind_deflection = terrain_wind_deflection;
-        self.ocean_currents = ocean_currents;
+        self.params.tect.dynamic_lithology = dynamic_lithology;
+        self.params.volc.provinces = volc_provinces;
+        self.params.climate.terrain_wind_deflection = terrain_wind_deflection;
+        self.params.climate.currents = ocean_currents;
+    }
+
+    /// Every generation parameter's **current** value, as a flat
+    /// `Dictionary` of dotted keys (`"sea_level"`, `"tect.plates"`,
+    /// `"climate.lat_n"`, …) — the exact keys `set_params` accepts and
+    /// `get_param_info` describes. Booleans come back as `bool`, integer
+    /// parameters as `int`, everything else as `float`.
+    ///
+    /// This is real current state, not assumed defaults: a dialog should
+    /// populate itself from here, and re-read after `set_params` to see what
+    /// was actually stored (a clamped value differs from what was sent).
+    #[func]
+    fn get_params(&self) -> VarDictionary {
+        params_to_dict(&self.params)
+    }
+
+    /// The same shape as `get_params()`, but every value at its
+    /// `cartalith_engine::WorldParams::defaults` setting — what a
+    /// "reset to default" control should show. Never affected by anything
+    /// this instance has been set to.
+    #[func]
+    fn get_param_defaults(&self) -> VarDictionary {
+        params_to_dict(&params::defaults())
+    }
+
+    /// Metadata for building parameter dialogs without hardcoding any of it
+    /// in GDScript: dotted key -> `Dictionary` with
+    /// - `group` (String) — the dialog section, one of `get_param_groups()`,
+    /// - `type` (String) — `"bool"` / `"int"` / `"float"`,
+    /// - `default` (bool/int/float) — same value `get_param_defaults()` has,
+    /// - `min`, `max`, `step` (float) — the valid range and the reference
+    ///   control's own step, already in this parameter's units,
+    /// - `label` (String) — the reference's own control label where it has
+    ///   one,
+    /// - `unit` (String) — display suffix (`"°"`, `"h"`, `"m"`, `"×"`), `""`
+    ///   when unitless,
+    /// - `reference_control` (String) — the reference HTML element id this
+    ///   parameter's user control has, or `""` when the reference never
+    ///   exposed it (see `GENERATION_PARAMETERS.md` — such a parameter is a
+    ///   deliberate superset, not a parity claim).
+    ///
+    /// `min`/`max`/`step` for every parameter the reference *does* expose are
+    /// that control's real reachable range, converted through its own mapping
+    /// function — not plausible-looking invented numbers.
+    #[func]
+    fn get_param_info(&self) -> VarDictionary {
+        let defaults = params::defaults();
+        let mut out = VarDictionary::new();
+        for s in params::PARAMS {
+            let d: VarDictionary = vdict! {
+                "group" => s.group,
+                "type" => s.kind.as_str(),
+                "default" => &value_to_variant(s.kind, params::get(&defaults, s.key).expect("every table key resolves against its own table")),
+                "min" => s.min,
+                "max" => s.max,
+                "step" => s.step,
+                "label" => s.label,
+                "unit" => s.unit,
+                "reference_control" => s.reference_control,
+            };
+            out.set(s.key, &d);
+        }
+        out
+    }
+
+    /// The distinct parameter groups, in the order a dialog should show its
+    /// sections: `["world", "planet", "world_structure", "tectonics",
+    /// "volcanism", "erosion", "climate", "weather"]`. Each matches a real
+    /// panel heading in the reference HTML's own sidebar.
+    #[func]
+    fn get_param_groups(&self) -> PackedStringArray {
+        params::groups().into_iter().map(GString::from).collect()
+    }
+
+    /// Applies a partial `Dictionary` of dotted key -> value. Keys not
+    /// present are left alone, so a dialog can send only what its user
+    /// touched. **Values persist on this `WorldGen` between generations** —
+    /// every subsequent `generate()`/`generate_world_structure()` uses them
+    /// until `reset_params()` or another `set_params()` changes them, the
+    /// same way `set_sea_level`/`set_villages_enabled` have always behaved.
+    ///
+    /// Returns a report so the caller never has to guess what happened:
+    /// - `rejected` (`PackedStringArray`) — keys **not** applied: unknown
+    ///   key, wrong value type (a `bool` parameter given a number, or a
+    ///   numeric parameter given a String/Array/…), or a non-finite number.
+    /// - `clamped` (`PackedStringArray`) — keys applied but **adjusted**: an
+    ///   out-of-range value pulled to the nearest bound, or a fractional
+    ///   value rounded for an `int` parameter. Read `get_params()` back for
+    ///   the stored value.
+    ///
+    /// Both empty means every key applied exactly as sent. Rejections are
+    /// also printed to the Godot console — a typo'd key in a dialog is a bug
+    /// worth seeing, not something to swallow.
+    #[func]
+    fn set_params(&mut self, values: VarDictionary) -> VarDictionary {
+        let mut rejected: PackedStringArray = PackedStringArray::new();
+        let mut clamped: PackedStringArray = PackedStringArray::new();
+        for (k, v) in values.iter_shared() {
+            let key = k.to_string();
+            let outcome = match variant_to_value(&v) {
+                Some(value) => params::set(&mut self.params, &key, value),
+                None => params::Outcome::Rejected,
+            };
+            match outcome {
+                params::Outcome::Applied => {}
+                params::Outcome::Clamped => clamped.push(&GString::from(&key)),
+                params::Outcome::Rejected => {
+                    godot_print!("cartalith-godot: set_params rejected '{key}' (unknown key, wrong type, or non-finite)");
+                    rejected.push(&GString::from(&key));
+                }
+            }
+        }
+        dict! { "rejected" => &rejected, "clamped" => &clamped }
+    }
+
+    /// Restores every generation parameter to its
+    /// `cartalith_engine::WorldParams::defaults` value — the real
+    /// "reset to defaults" action, not a GDScript re-send of remembered
+    /// numbers. Does not touch `set_villages_enabled` (civ-layer, not a
+    /// `WorldParams` field) or anything about an already-generated world.
+    #[func]
+    fn reset_params(&mut self) {
+        self.params = params::defaults();
+    }
+
+    /// Which GPU-eligible stages actually ran on GPU during the last
+    /// `generate()`/`generate_world_structure()` — a subset of
+    /// `["warp", "heterogeneity", "plate_assignment", "base_field_blur",
+    /// "weather", "flow"]`.
+    ///
+    /// Read-only, and deliberately not derivable from the `use_gpu`
+    /// parameter: every stage falls back to CPU **individually** on any GPU
+    /// init/dispatch failure (`HARDWARE_ACCELERATION.md` §27), so an empty
+    /// array with `use_gpu` on means "asked for GPU, got none" — which the
+    /// UI should report honestly rather than claiming acceleration it did not
+    /// get. Empty before the first generation and after `load_save()`.
+    #[func]
+    fn get_gpu_stages_used(&self) -> PackedStringArray {
+        self.gpu_stages_used.iter().map(GString::from).collect()
+    }
+
+    /// The seed the last `generate()`/`generate_world_structure()` used
+    /// (reference `state.tect.seed`). `0` before the first call. Seed is a
+    /// `generate()` argument, not a settable parameter — this exists so a
+    /// dialog can display the world it is actually looking at.
+    #[func]
+    fn get_seed(&self) -> i32 {
+        self.seed
+    }
+
+    /// Whether the additive village-seeding pass is on (`set_villages_enabled`).
+    /// Not part of `get_params()`: villages are a `cartalith-civ` concern,
+    /// not a `WorldParams` field.
+    #[func]
+    fn get_villages_enabled(&self) -> bool {
+        self.villages
+    }
+
+    /// The named World-Structure archetypes `apply_archetype` and
+    /// `generate_world_structure` accept (reference HTML `ARCHETYPES`).
+    #[func]
+    fn get_archetypes(&self) -> PackedStringArray {
+        ARCHETYPES.iter().map(|(name, _)| GString::from(*name)).collect()
+    }
+
+    /// Writes a named archetype's five raw World-Structure knobs into the
+    /// persistent parameters and turns World Structure **on**, so a following
+    /// plain `generate()` runs that archetype and `get_params()` shows its
+    /// real numbers in the five sliders (the reference's own behaviour: its
+    /// archetype segment sets the same five sliders, which stay editable as
+    /// "Custom" fine-tuning afterwards).
+    ///
+    /// Returns `false` for an unknown name, changing nothing. Set
+    /// `world_structure.enabled` back to `false` via `set_params` for the
+    /// Classic (no continental steering) shape.
+    ///
+    /// Distinct from `generate_world_structure()`, which applies a preset for
+    /// **one call only** and leaves these parameters untouched — that method
+    /// keeps its original one-shot behaviour so existing GDScript that
+    /// alternates between `generate()` and `generate_world_structure()` per
+    /// menu selection keeps working unchanged.
+    #[func]
+    fn apply_archetype(&mut self, archetype: GString) -> bool {
+        match archetype_knobs(&archetype) {
+            Some(ws) => {
+                self.params.world_structure = ws;
+                true
+            }
+            None => false,
+        }
     }
 
     /// Reference `_civVillages` (default OFF) -- the additive village-
@@ -595,95 +896,67 @@ impl WorldGen {
 
     /// `MVP_SCOPE.md` point 9 / `state.seaLevel` -- `sea_level` is the raw
     /// `[0,1]` normalized threshold `cartalith_engine::WorldParams` itself
-    /// expects (see the `sea_level_input` field's own doc comment for the
+    /// expects (see the `params` field's own doc comment for the
     /// World-Structure re-anchoring interaction this only partially
     /// controls). Clamped defensively -- an out-of-range value from a
     /// misconfigured GDScript control should not silently invert the
     /// land/ocean classification rather than just clamping to a sane edge.
+    ///
+    /// Pure sugar over `set_params({"sea_level": …})`, kept because
+    /// `main.gd` already drives it; the two write the same field and clamp
+    /// identically.
     #[func]
     fn set_sea_level(&mut self, sea_level: f64) {
-        self.sea_level_input = sea_level.clamp(0.0, 1.0);
+        self.params.sea_level = sea_level.clamp(0.0, 1.0);
     }
 
     /// Runs the full ported pipeline (`cartalith_engine::generate_terrain`)
-    /// at the given seed/real-km map width/grid resolution. `resolution`
-    /// is clamped to a sane minimum (4) — a 0 or negative value from an
-    /// unset GDScript `SpinBox` should not panic the extension.
+    /// at the given seed/real-km map width/grid resolution, using **this
+    /// instance's persistent parameters** for everything else
+    /// (`set_params`/`reset_params`/`set_sea_level`/`set_experimental_flags`
+    /// — see the `params` field's own doc comment). `resolution` is clamped
+    /// to a sane minimum (4) — a 0 or negative value from an unset GDScript
+    /// `SpinBox` should not panic the extension.
+    ///
+    /// Seed, map width and resolution stay call arguments rather than
+    /// parameters, matching the reference: the seed changes per "New seed"
+    /// click, and map width is a creation-time decision the reference itself
+    /// refuses to make editable mid-project ("changing it would silently
+    /// rescale every derived distance, grade, route length and settlement
+    /// spacing").
     #[func]
     fn generate(&mut self, seed: i32, width_km: f64, resolution: i32) {
         let gw = resolution.max(4) as usize;
-        let gh = gw;
-        let mut p = WorldParams::defaults(gw, gh, seed);
-        p.map_width_km = if width_km > 0.0 { width_km } else { 800.0 };
-        p.sea_level = self.sea_level_input;
-        p.tect.dynamic_lithology = self.dynamic_lithology;
-        p.volc.provinces = self.volc_provinces;
-        p.climate.terrain_wind_deflection = self.terrain_wind_deflection;
-        p.climate.currents = self.ocean_currents;
+        let p = self.call_params(seed, width_km, gw);
         let ws = generate_terrain(&p);
-        // Not p.sea_level -- World-Structure archetypes re-anchor it;
-        // WorldState carries the value actually used.
-        self.sea_level = ws.sea_level;
-        self.gw = gw as i32;
-        self.gh = gh as i32;
-        self.world = p.world;
-        self.lat_n = p.climate.lat_n;
-        self.lat_s = p.climate.lat_s;
-        self.civ = Some(compute_civilisation(&ws, gw, gh, p.world, p.map_width_km, p.river_density, self.villages));
-        self.source = Some(WorldSource::Generated(Box::new(ws)));
-        self.seed = seed;
+        self.absorb(ws, &p, gw, seed);
     }
 
-    /// Named World-Structure archetype presets (reference HTML
-    /// `ARCHETYPES`, lines 2521-2526) as
-    /// `(continentality, fragmentation, tectonic_energy, ocean_depth,
-    /// hotspot_density)`. `cartalith_engine::WorldParams::world_structure`
-    /// itself takes raw knobs only, not named presets (its own doc
-    /// comment: "a caller wanting 'Archipelago' passes that preset's own
-    /// numbers") -- so the name -> knobs lookup lives here, in the
-    /// boundary layer, rather than in GDScript
-    /// (`ARCHITECTURE.md`: "Godot computes nothing beyond layout").
+    /// Generates with a named World-Structure archetype (`ARCHETYPES`, the
+    /// reference's own five presets) applied for **this call only** — the
+    /// stored parameters (`get_params()`) are left exactly as they were, so
+    /// alternating between this and `generate()` per menu selection behaves
+    /// as it always has. Use `apply_archetype()` instead to make an
+    /// archetype stick and become editable as raw sliders.
+    ///
+    /// Returns `false` (generating nothing) for an unknown archetype name.
     #[func]
     fn generate_world_structure(&mut self, seed: i32, width_km: f64, resolution: i32, archetype: GString) -> bool {
-        let (continentality, fragmentation, tectonic_energy, ocean_depth, hotspot_density) =
-            match archetype.to_string().to_lowercase().as_str() {
-                "earth" => (0.30, 0.50, 0.60, 0.60, 0.20),
-                "supercontinent" => (0.60, 0.10, 0.50, 0.70, 0.10),
-                "archipelago" => (0.15, 0.90, 0.80, 0.30, 0.50),
-                "volcanic" => (0.05, 1.00, 0.90, 0.80, 1.00),
-                "rift" => (0.40, 0.35, 0.75, 0.55, 0.30),
-                other => {
-                    godot_print!("cartalith-godot: unknown World-Structure archetype '{other}'");
-                    return false;
-                }
-            };
+        let Some(world_structure) = archetype_knobs(&archetype) else {
+            godot_print!("cartalith-godot: unknown World-Structure archetype '{archetype}'");
+            return false;
+        };
 
         let gw = resolution.max(4) as usize;
-        let gh = gw;
-        let mut p = WorldParams::defaults(gw, gh, seed);
-        p.map_width_km = if width_km > 0.0 { width_km } else { 800.0 };
-        // Set for consistency with `generate()`, but `apply_world_structure_
-        // sea_level` always re-anchors it below since `world_structure.
-        // enabled` is unconditionally true on this path -- see
-        // `sea_level_input`'s own doc comment.
-        p.sea_level = self.sea_level_input;
-        p.world_structure =
-            WorldStructureParams { enabled: true, continentality, fragmentation, tectonic_energy, ocean_depth, hotspot_density };
-        p.tect.dynamic_lithology = self.dynamic_lithology;
-        p.volc.provinces = self.volc_provinces;
-        p.climate.terrain_wind_deflection = self.terrain_wind_deflection;
-        p.climate.currents = self.ocean_currents;
+        let mut p = self.call_params(seed, width_km, gw);
+        // `p.sea_level` carries the stored input for consistency with
+        // `generate()`, but `apply_world_structure_sea_level` always
+        // re-anchors it below since `enabled` is unconditionally true on this
+        // path -- see the `params` field's own doc comment.
+        p.world_structure = world_structure;
 
         let ws = generate_terrain(&p);
-        self.sea_level = ws.sea_level;
-        self.gw = gw as i32;
-        self.gh = gh as i32;
-        self.world = p.world;
-        self.lat_n = p.climate.lat_n;
-        self.lat_s = p.climate.lat_s;
-        self.civ = Some(compute_civilisation(&ws, gw, gh, p.world, p.map_width_km, p.river_density, self.villages));
-        self.source = Some(WorldSource::Generated(Box::new(ws)));
-        self.seed = seed;
+        self.absorb(ws, &p, gw, seed);
         true
     }
 
@@ -725,6 +998,9 @@ impl WorldGen {
         // pipeline needs (SAVEFILE_COMPAT.md doesn't store them) --
         // civ data only ever exists for a freshly generated world.
         self.civ = None;
+        // A loaded save was not generated by this process at all -- reporting
+        // the previous world's GPU stages against it would be a lie.
+        self.gpu_stages_used = Vec::new();
         self.source = Some(WorldSource::Loaded(Box::new(save)));
         true
     }

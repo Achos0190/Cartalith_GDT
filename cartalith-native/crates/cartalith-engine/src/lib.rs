@@ -111,6 +111,7 @@ fn js_round(x: f64) -> f64 {
 /// World-Structure-gated fields (`tectonicGraph`/`foldIntensity`/
 /// `trenchDepth`/`faultBlock`) stay omitted — WS stays off in this pipeline
 /// (see the module doc comment), so nothing here reads them.
+#[derive(Clone, Debug, PartialEq)]
 pub struct TectonicParams {
     pub seed: i32,
     pub plates: usize,
@@ -133,6 +134,7 @@ pub struct TectonicParams {
 /// (`false`) — see `generate_terrain`'s own volcanism section and
 /// `WorldParams::defaults`'s doc comment on why `false` is this port's own
 /// default for now, not JS's.
+#[derive(Clone, Debug, PartialEq)]
 pub struct VolcanismParams {
     pub count: i32,
     pub age: f64,
@@ -140,6 +142,7 @@ pub struct VolcanismParams {
 }
 
 /// `state.crater` (reference HTML line 2267).
+#[derive(Clone, Debug, PartialEq)]
 pub struct CraterParams {
     pub count: i32,
     pub age: f64,
@@ -152,6 +155,7 @@ pub struct CraterParams {
 /// varies it yet) and the geoid/tides sub-objects (both default `enabled:
 /// false`, matching `compute_temperature`'s/`simulate_weather`'s own
 /// `None`-geoid reasoning).
+#[derive(Clone, Debug, PartialEq)]
 pub struct PlanetParams {
     pub g: f64,
     pub rotation_hours: f64,
@@ -160,6 +164,7 @@ pub struct PlanetParams {
 
 /// `state.climate` (reference HTML line 2280) fields this pipeline's
 /// temperature/weather/moisture-corrector stages actually read.
+#[derive(Clone, Debug, PartialEq)]
 pub struct ClimateInputParams {
     pub lat_n: f64,
     pub lat_s: f64,
@@ -195,6 +200,7 @@ pub struct ClimateInputParams {
 /// light stream-power pass reads via `streamParams()`. `cycles` is omitted
 /// — only read by `evolveCoupled()`, the manual "Stream evolve" tool, not
 /// `carveRiverValleys`.
+#[derive(Clone, Debug, PartialEq)]
 pub struct StreamParams {
     pub uplift: f64,
     pub k: f64,
@@ -210,6 +216,7 @@ pub struct StreamParams {
 /// modeling named archetypes — a caller wanting "Archipelago" passes
 /// `ARCHETYPES.archipelago`'s own numbers. See the module doc comment for
 /// `tectonicGraph`/graph-driven orogeny, the other thing `enabled` turns on.
+#[derive(Clone, Debug, PartialEq)]
 pub struct WorldStructureParams {
     pub enabled: bool,
     pub continentality: f64,
@@ -226,6 +233,7 @@ pub struct WorldStructureParams {
 /// directly. `river_density` is `state.viz.riverDensity` — grouped at the
 /// top level since `viz` is otherwise a render-only settings bag this
 /// crate has no other reason to model.
+#[derive(Clone, Debug, PartialEq)]
 pub struct WorldParams {
     pub gw: usize,
     pub gh: usize,
