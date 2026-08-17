@@ -7527,3 +7527,110 @@ preset in both cases. Nothing but a golden run would have found it.
 `cargo test -p cartalith-assets` (24 new tests: 11 golden + 4 hardening + 9
 unit), `cargo clippy -p cartalith-assets --all-targets` clean,
 `cargo test --workspace` with no regressions.
+
+## Phase 3 milestone 4 follow-up: overlays learn about the plate frame (2026-08-17)
+
+Closes the one limitation milestone 4 flagged and deliberately did not
+reach for. That milestone gave the raster a physical plate frame (bare-paper
+margin plus a thick and a thin neatline); four things drawn *over* that
+raster knew nothing about it, so anything near the sheet edge painted onto
+what is supposed to read as blank paper. In the real app at 2048²/seed
+12345/Classic, a capital's marker ring hung entirely off the plate, three
+smaller markers sat on the cream margin, and roads ruled straight across it.
+
+**The choice, since there were two real options and they are not
+equivalent.** `TERRAIN_APPEARANCE_SCOPE.md`'s own milestone-4 section
+records the reasoning in full; the short version is that *insetting* the
+overlay coordinate space — remapping world cells into the plate interior —
+is the wrong shape for this frame. The frame composites **over** the
+finished raster's outermost cells; it does not shrink the map into a margin.
+The terrain under the margin is covered, not moved, so an inset marker would
+be displaced from the coastline and river it belongs to. Everything drawn
+from world data is therefore handled at the *neatline*, not by remapping:
+
+- **Linear features are clipped.** A road or sea lane that reaches the sheet
+  edge genuinely continues past it, and cutting it at the neatline is what
+  an atlas plate does.
+- **Point symbols are placed or omitted, never sliced.** A settlement whose
+  cell lies under the frame has no visible terrain beneath it at all, so its
+  marker points at nothing; it is off-plate and is not drawn. One whose
+  centre is inside keeps its position and lets the clip trim any overhang —
+  which is the actual defect, markers landing *partly* on the margin.
+- **Raster tints fade with the frame rather than being cut**, using the
+  frame's own soft edge, so a river does not stop one cell short of where
+  the wash does.
+
+**Built.**
+
+- `render.rs` gains two `pub fn`s and becomes the single source of the
+  frame's geometry: `border_width_cells` (frame width in cells, `0.0` when
+  disabled) and `border_cover` (how much of a cell the frame covers, `0.0`
+  through the whole interior, ramping to `1.0` under the margin using the
+  same `smoothstep` edge `apply_border` composites with). `apply_border` was
+  refactored onto both rather than keeping its own copy of `0.014 * gw`.
+- `lib.rs` — all three of this crate's over-raster products now fade by
+  `1 - border_cover`: the river channel-mask tint in `build_color_texture`,
+  the per-faction wash in `build_territory_texture`, and the line in
+  `build_province_boundary_texture`. The last two were not in milestone 4's
+  flagged list and were found while fixing it — territory is a solid wash
+  over every owned cell, so any faction reaching the sheet edge coloured the
+  margin outright.
+- `WorldGen::get_border_inset_frac()` — the frame width as a **fraction of
+  texture width**, the one new `#[func]`. A fraction rather than a cell
+  count deliberately: `map_overlay.gd` works in screen pixels against a
+  letterboxed texture, so a fraction survives the fit maths with no
+  resolution knowledge on the GDScript side, and nothing hardcodes `0.014` a
+  second time.
+- `map_overlay.gd` — `_interior_rect()` alongside the existing
+  `_displayed_rect()` (the frame is inset by the same cell count on all four
+  sides and the fit scale is uniform, so one pixel inset serves both axes).
+  `_draw` scissors the canvas item to that rect via
+  `RenderingServer.canvas_item_set_clip`/`canvas_item_set_custom_rect` —
+  one scissor for all four primitive types rather than hand-clipping
+  circles, arcs, polylines and dashed lines separately. `Control` re-sets
+  both from its own rect on every `NOTIFICATION_DRAW`, which fires
+  immediately before `_draw()`, so the override lasts exactly one frame and
+  needs no restore. Settlements whose centre falls outside the interior are
+  skipped, in `_draw` **and** in `_gui_input`'s hit test on the same
+  predicate — an invisible marker must not still fill the Inspector's "WHY
+  HERE?" panel from a hover over blank paper. The hover card now clamps into
+  the interior instead of the control bounds, so the scissor can never slice
+  it.
+- `main.gd` passes the new value through `set_civ_data`, whose extra
+  parameter defaults to `0.0` (no frame → old behaviour exactly).
+
+**No-op without a frame, by construction — the same gate every milestone-2/3/4
+stage uses.** `border_cover` returns `0.0` everywhere when
+`border_width_frac == 0.0` (`js_reference()`'s state), each raster call site
+is written as `tinted + (plain - tinted) * cover` so `cover == 0.0` restores
+the old value *bit-exactly* rather than to within an ulp, and
+`_border_frac == 0.0` makes `_interior_rect()` return `_displayed_rect()`
+unchanged and skips the scissor entirely. `golden_parity_render.rs` is still
+completely unmodified and both tests still pass at their original `1e-4`
+tolerance.
+
+**Verified — by looking, since that is how the defect was found.**
+`cargo build -p cartalith-godot` clean; `cargo test --workspace` 0 failures
+with no expected value modified; `cargo clippy -p cartalith-godot
+--all-targets` now fully clean (this pass also cleared the pre-existing
+`needless_borrow` at `lib.rs:317` that milestone 4's entry recorded as the
+crate's sole remaining warning); `godot4 --headless --quit main.tscn` clean
+load. Real windowed app, controlled before/after: the same 2048²/seed
+12345/Classic world generated twice, once with the fix stashed and once with
+it applied, screenshotted with `PrintWindow` and cropped 4× at the west
+edge. Counting overlay ink inside the frame band (the specific failing case,
+not a general impression):
+
+| | marker orange on margin | river-tint cyan on margin |
+|---|---|---|
+| before | 268 px | 67 px |
+| after | **0 px** | **0 px** |
+
+Differences between the two runs are confined to the frame band and to
+within 4 px inside the neatline — nothing in the plate interior moved.
+Archipelago (35 settlements, sea routes on) gives 0 px on both counts too,
+and shows the two rules working together: a coastal capital whose centre is
+just inside the interior is trimmed cleanly at the neatline while the sea
+lanes are cut there. Territory fill, province boundaries, settlements,
+roads, sea routes, hover card and the Inspector's causal-chain "WHY HERE?"
+panel were all exercised on the real app after the change.

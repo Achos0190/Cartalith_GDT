@@ -17,7 +17,7 @@ use godot::init::{ExtensionLibrary, gdextension};
 use godot::prelude::*;
 
 mod render;
-use render::RenderCtx;
+use render::{RenderCtx, TerrainAppearance};
 
 struct CartalithExtension;
 
@@ -314,7 +314,7 @@ fn compute_civilisation(
         let routing_sc = routing_rw as f64 / gw as f64;
         let villages = cartalith_civ::civ_seed_villages(
             &settlements,
-            &roads,
+            roads,
             routing_rw,
             routing_sc,
             &mut rng,
@@ -720,6 +720,25 @@ impl WorldGen {
         self.gh
     }
 
+    /// Width of the rendered plate's frame (paper margin + neatlines, Phase
+    /// 3 milestone 4) as a **fraction of the texture's own width** — `0.0`
+    /// when there is no frame. Returned as a fraction rather than in cells
+    /// deliberately: `map_overlay.gd` works in screen pixels against a
+    /// letterboxed texture, so a fraction survives the fit/scale maths with
+    /// no resolution knowledge on the GDScript side.
+    ///
+    /// Exists so the marker overlay can keep its content inside the
+    /// neatline instead of drawing settlements and roads onto the bare
+    /// margin, without hardcoding `render.rs`'s `0.014` a second time.
+    #[func]
+    fn get_border_inset_frac(&self) -> f64 {
+        let gw = self.gw as usize;
+        if gw == 0 {
+            return 0.0;
+        }
+        render::border_width_cells(&TerrainAppearance::default(), gw) / gw as f64
+    }
+
     /// Builds a colour + hillshade texture from the last `generate()`
     /// result. Ported from the reference HTML's own default-settings
     /// renderer (`render.rs`'s doc comment lists exactly what's ported vs.
@@ -749,7 +768,10 @@ impl WorldGen {
             };
         let gw = self.gw as usize;
         let gh = self.gh as usize;
-        let ctx = RenderCtx::new(field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s);
+        let appearance = TerrainAppearance::default();
+        let ctx = RenderCtx::with_appearance(
+            field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance.clone(),
+        );
 
         let mut bytes = Vec::with_capacity(gw * gh * 3);
         for y in 0..gh {
@@ -760,9 +782,22 @@ impl WorldGen {
                 if let Some(mask) = chan_mask
                     && mask[i] != 0
                 {
-                    r *= 0.5;
-                    g = (g * 0.5 + 0.3).min(1.0);
-                    b = (b * 0.5 + 0.45).min(1.0);
+                    // The tint composites *over* a colour `cell_color` has
+                    // already stamped the plate frame onto (milestone 4), so
+                    // it has to fade back out exactly as the frame fades in
+                    // — otherwise a river reaching the sheet edge paints
+                    // blue across what is supposed to read as bare paper.
+                    // `border_cover` is `0.0` throughout the plate interior
+                    // and `0.0` everywhere when there is no frame, and
+                    // `t + (v - t) * 0.0 == t` exactly, so the unframed
+                    // tint is bit-identical to what it was before.
+                    let cover = render::border_cover(&appearance, x, y, gw, gh);
+                    if cover < 1.0 {
+                        let (tr, tg, tb) = (r * 0.5, (g * 0.5 + 0.3).min(1.0), (b * 0.5 + 0.45).min(1.0));
+                        r = tr + (r - tr) * cover;
+                        g = tg + (g - tg) * cover;
+                        b = tb + (b - tb) * cover;
+                    }
                 }
 
                 bytes.push((r.clamp(0.0, 1.0) * 255.0) as u8);
@@ -800,11 +835,18 @@ impl WorldGen {
             [(230, 159, 0), (86, 180, 233), (0, 158, 115), (240, 228, 66), (0, 114, 178), (213, 94, 0)];
         const ALPHA: u8 = 82; // ~0.32, low enough for terrain/biome colour to read through
 
+        // Same plate-frame rule the river tint follows: this wash is drawn
+        // over the finished raster, and a faction whose territory reaches
+        // the sheet edge would otherwise colour the bare-paper margin.
+        // `border_cover` is `0.0` across the whole interior (and everywhere
+        // when there is no frame), so `alpha` is untouched there.
+        let appearance = TerrainAppearance::default();
         let mut bytes = Vec::with_capacity(gw * gh * 4);
-        for &f in &civ.territory {
-            if f > 0 {
+        for (i, &f) in civ.territory.iter().enumerate() {
+            let cover = render::border_cover(&appearance, i % gw, i / gw, gw, gh);
+            if f > 0 && cover < 1.0 {
                 let (r, g, b) = FACTION_RGB[((f - 1) as usize) % FACTION_RGB.len()];
-                bytes.extend_from_slice(&[r, g, b, ALPHA]);
+                bytes.extend_from_slice(&[r, g, b, (ALPHA as f64 * (1.0 - cover)) as u8]);
             } else {
                 bytes.extend_from_slice(&[0, 0, 0, 0]);
             }
@@ -1061,6 +1103,11 @@ impl WorldGen {
 
         // Pass 2: dilate by one cell (3x3 neighbourhood) for a real ~3px
         // stroke instead of the single-pixel line that proved illegible.
+        // Pass 3 is the plate frame (milestone 4), same rule as the river
+        // tint and the territory wash: this line is drawn over the finished
+        // raster, so it fades out as the bare-paper margin fades in rather
+        // than ruling straight across it. No-op without a frame.
+        let appearance = TerrainAppearance::default();
         let mut bytes = vec![0u8; gw * gh * 4];
         for y in 0..gh {
             for x in 0..gw {
@@ -1069,9 +1116,12 @@ impl WorldGen {
                 let x0 = x.saturating_sub(1);
                 let x1 = (x + 1).min(gw - 1);
                 let near = (y0..=y1).any(|ny| (x0..=x1).any(|nx| boundary[ny * gw + nx]));
-                if near {
+                let cover = render::border_cover(&appearance, x, y, gw, gh);
+                if near && cover < 1.0 {
                     let i = y * gw + x;
-                    bytes[i * 4..i * 4 + 4].copy_from_slice(&LINE_RGBA);
+                    let mut px = LINE_RGBA;
+                    px[3] = (px[3] as f64 * (1.0 - cover)) as u8;
+                    bytes[i * 4..i * 4 + 4].copy_from_slice(&px);
                 }
             }
         }

@@ -531,7 +531,11 @@ func _on_generate_done(seed_value: int, width_km: float, ok: bool) -> void:
 		var settlements := world_gen.get_settlements()
 		var roads := world_gen.get_roads()
 		var sea_routes := world_gen.get_sea_routes()
-		map_overlay.set_civ_data(settlements, roads, sea_routes, world_gen.get_width(), world_gen.get_height())
+		## `get_border_inset_frac()` is the plate frame the terrain raster
+		## itself draws (Phase 3 milestone 4) -- the overlay needs it to keep
+		## markers and roads off the bare-paper margin, and only Rust knows
+		## how wide it is.
+		map_overlay.set_civ_data(settlements, roads, sea_routes, world_gen.get_width(), world_gen.get_height(), world_gen.get_border_inset_frac())
 		territory_view.texture = world_gen.build_territory_texture()
 		## Province boundaries (Phase 2, civ_generate_provinces): thin lines
 		## only, drawn on top of territory's own per-faction fill -- see
@@ -593,7 +597,7 @@ func _on_save_file_selected(path: String) -> void:
 		## No civ data in a loaded save (WorldGen.load_save's own doc
 		## comment) -- clear any settlements/roads/territory left over
 		## from a previous generate() so a stale overlay doesn't linger.
-		map_overlay.set_civ_data([], [], [], world_gen.get_width(), world_gen.get_height())
+		map_overlay.set_civ_data([], [], [], world_gen.get_width(), world_gen.get_height(), world_gen.get_border_inset_frac())
 		territory_view.texture = null
 		province_boundary_view.texture = null
 		status_label.text = "loaded %s (%dx%d)" % [

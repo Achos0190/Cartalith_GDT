@@ -81,6 +81,11 @@ type Rgb = (f64, f64, f64);
 /// `cartalith-spatial`'s own "standalone, real, unintegrated" precedent
 /// from earlier this session. See this module's own doc comment for why
 /// this is a palette table, not an elevation-breakpoint ramp.
+// `Clone` so a caller can hold *one* appearance value, hand it to
+// `RenderCtx::with_appearance`, and still measure the plate frame with
+// `border_cover` afterwards — rather than the raster and the overlays each
+// constructing their own `default()` and hoping the two agree.
+#[derive(Clone)]
 pub struct TerrainAppearance {
     pub w_abyss: [Rgb; 3],
     pub w_deep: [Rgb; 3],
@@ -1139,6 +1144,46 @@ fn apply_paper(a: &TerrainAppearance, c: Rgb, tone: Rgb) -> Rgb {
     mix(c, grey, a.paper_wash * a.paper_strength)
 }
 
+/// Width of the plate frame **in cells**, or `0.0` when there is no frame.
+/// The single source of truth for the frame's geometry: `apply_border`
+/// draws with it, `border_cover` measures with it, and `WorldGen::
+/// get_border_inset_frac` hands it across the gdext boundary so
+/// `map_overlay.gd` can keep its markers inside the neatline. Anything that
+/// re-derives `0.014 * gw` by hand is a second source of truth and will
+/// drift the first time the frame is retuned.
+pub fn border_width_cells(a: &TerrainAppearance, gw: usize) -> f64 {
+    if a.border_width_frac <= 0.0 {
+        return 0.0;
+    }
+    (a.border_width_frac * gw as f64).max(10.0)
+}
+
+/// How much of this cell the plate frame covers: `0.0` anywhere the frame
+/// has no influence at all, ramping to `1.0` under the bare-paper margin,
+/// using the *same* soft edge `apply_border` composites with (so a caller
+/// that fades by `1 - cover` lines up with the frame exactly rather than
+/// approximately).
+///
+/// This exists for the two systems that draw **over** the finished raster
+/// and would otherwise paint on what is supposed to read as blank paper:
+/// `lib.rs`'s river channel tint and its territory/province overlays.
+/// Returns `0.0` everywhere when `border_width_frac == 0.0`, so every
+/// caller is a bit-exact no-op on the `js_reference()` path.
+// Called from `lib.rs`, which the test targets (they compile `render.rs`
+// standalone) don't include — same situation as `js_reference()` in reverse.
+#[allow(dead_code)]
+pub fn border_cover(a: &TerrainAppearance, x: usize, y: usize, gw: usize, gh: usize) -> f64 {
+    let w = border_width_cells(a, gw);
+    if w <= 0.0 {
+        return 0.0;
+    }
+    let d = (x.min(gw - 1 - x)).min(y.min(gh - 1 - y)) as f64;
+    if d >= w {
+        return 0.0;
+    }
+    1.0 - smoothstep(w - 1.5, w, d)
+}
+
 /// The physical plate border (`VISION.md`'s "physical border"): a bare-paper
 /// margin carrying a thick and a thin neatline, the classic atlas plate
 /// edge. Pure presentation — it composites over the finished colour and
@@ -1149,10 +1194,10 @@ fn apply_paper(a: &TerrainAppearance, c: Rgb, tone: Rgb) -> Rgb {
 /// floored in absolute cells so the frame survives this port's 512²–8192²
 /// resolution range without the two rules merging at the small end.
 fn apply_border(a: &TerrainAppearance, c: Rgb, tone: Rgb, x: usize, y: usize, gw: usize, gh: usize) -> Rgb {
-    if a.border_width_frac <= 0.0 {
+    let w = border_width_cells(a, gw);
+    if w <= 0.0 {
         return c;
     }
-    let w = (a.border_width_frac * gw as f64).max(10.0);
     let dx = x.min(gw - 1 - x) as f64;
     let dy = y.min(gh - 1 - y) as f64;
     let d = dx.min(dy);

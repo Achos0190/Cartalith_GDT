@@ -70,6 +70,10 @@ var _sea_routes: Array = []
 var _gw := 0
 var _gh := 0
 var _hover_index := -1
+## Plate-frame width as a fraction of the terrain texture's own width
+## (`WorldGen.get_border_inset_frac()`, Phase 3 milestone 4). `0.0` when the
+## renderer draws no frame, which makes every use of it below an exact no-op.
+var _border_frac := 0.0
 
 
 func _ready() -> void:
@@ -91,12 +95,18 @@ func _ready() -> void:
 ## highway/regional/road/track tier). Screen-space conversion happens every
 ## frame from the current control size, so this stays correct across
 ## window resizes without needing to be told again.
-func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, gh: int) -> void:
+## `border_frac` is `WorldGen.get_border_inset_frac()` -- the plate frame the
+## terrain raster itself now carries, as a fraction of texture width. Passed
+## in rather than hardcoded here because `render.rs` owns that geometry (see
+## `_interior_rect`); defaults to `0.0` so a caller that doesn't know about
+## the frame simply gets the old, uninset behaviour.
+func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, gh: int, border_frac: float = 0.0) -> void:
 	_settlements = settlements
 	_roads = roads
 	_sea_routes = sea_routes
 	_gw = gw
 	_gh = gh
+	_border_frac = border_frac
 	_hover_index = -1
 	queue_redraw()
 
@@ -116,6 +126,24 @@ func _displayed_rect() -> Rect2:
 	return Rect2(origin, displayed_size)
 
 
+## The plate *interior*: `_displayed_rect()` minus the frame the terrain
+## raster draws over its own outermost cells (paper margin + thick and thin
+## neatlines, `render.rs`'s `apply_border`, Phase 3 milestone 4). Everything
+## outside this is bare paper with no map under it at all -- the terrain
+## there is covered, not shown -- so nothing drawn from world data belongs
+## on it.
+##
+## The frame is inset by the same number of *cells* on all four sides and
+## `_displayed_rect()`'s fit scale is uniform, so one pixel inset serves both
+## axes. `_border_frac` is a fraction of texture width rather than a cell
+## count precisely so this needs no resolution knowledge.
+func _interior_rect(rect: Rect2) -> Rect2:
+	if _border_frac <= 0.0:
+		return rect
+	var inset := minf(_border_frac * rect.size.x, minf(rect.size.x, rect.size.y) * 0.45)
+	return rect.grow(-inset)
+
+
 func _cell_to_screen(cell: Vector2, rect: Rect2) -> Vector2:
 	return rect.position + Vector2((cell.x + 0.5) / _gw, (cell.y + 0.5) / _gh) * rect.size
 
@@ -133,6 +161,22 @@ func _draw() -> void:
 	var rect := _displayed_rect()
 	if rect.size.x <= 0.0:
 		return
+	var interior := _interior_rect(rect)
+
+	# Linear features (roads, sea lanes) are *clipped* at the neatline: a
+	# road that runs off the plate genuinely continues past the sheet edge,
+	# and cutting it there is what an atlas plate does. Point symbols are
+	# handled the opposite way below -- placed or not placed, never sliced.
+	#
+	# One scissor rect for the whole canvas item rather than hand-clipping
+	# four different primitive types. `Control` re-sets both of these from
+	# its own rect on every `NOTIFICATION_DRAW`, which fires immediately
+	# before `_draw()`, so this override lasts exactly one frame and needs
+	# no restore.
+	if _border_frac > 0.0:
+		var ci := get_canvas_item()
+		RenderingServer.canvas_item_set_custom_rect(ci, true, interior)
+		RenderingServer.canvas_item_set_clip(ci, true)
 
 	for route: Dictionary in _sea_routes:
 		var points: PackedVector2Array = route["points"]
@@ -164,6 +208,15 @@ func _draw() -> void:
 	for i in _settlements.size():
 		var s: Dictionary = _settlements[i]
 		var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
+		# A settlement whose cell is under the frame has no visible terrain
+		# beneath it at all, so a marker there points at nothing -- it is off
+		# the plate, and off-plate detail is omitted rather than trimmed to a
+		# half-disc against the neatline. The clip above then trims the one
+		# remaining case: a settlement just *inside* the interior whose
+		# radius overhangs it (the actual defect this fixes -- markers
+		# landing partly on the margin, seen in both test worlds).
+		if not interior.has_point(pos):
+			continue
 		var faction: int = s["faction"]
 		var color: Color = FACTION_COLORS[(faction - 1) % FACTION_COLORS.size()] if faction > 0 else Color(0.5, 0.5, 0.5)
 		var radius: float = TIER_RADIUS.get(s["kind"], 3.0)
@@ -176,7 +229,7 @@ func _draw() -> void:
 			draw_arc(pos, radius + CAPITAL_RING_WIDTH, 0, TAU, 28, color, CAPITAL_RING_WIDTH, true)
 
 	if _hover_index >= 0 and _hover_index < _settlements.size():
-		_draw_hover_card(_settlements[_hover_index], rect)
+		_draw_hover_card(_settlements[_hover_index], rect, interior)
 
 
 ## Draws `points[start:end]` (exclusive) as one stroke, converted to
@@ -249,7 +302,7 @@ func _draw_dashed_polyline(points: PackedVector2Array, color: Color, width: floa
 			phase += step
 
 
-func _draw_hover_card(s: Dictionary, rect: Rect2) -> void:
+func _draw_hover_card(s: Dictionary, rect: Rect2, interior: Rect2) -> void:
 	var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
 	var kind_label: String = String(s["kind"]).capitalize()
 	var lines := ["%s (%s)" % [s["name"], kind_label], "Population %s" % _format_pop(s["population"])]
@@ -262,8 +315,13 @@ func _draw_hover_card(s: Dictionary, rect: Rect2) -> void:
 	var pad := 8.0
 	var card_size := Vector2(w + pad * 2, line_h * lines.size() + pad * 2)
 	var card_pos := pos + Vector2(10, -card_size.y - 10)
-	card_pos.x = clampf(card_pos.x, 0.0, size.x - card_size.x)
-	card_pos.y = clampf(card_pos.y, 0.0, size.y - card_size.y)
+	# Clamped into the plate interior, not into this control's full bounds:
+	# `_draw`'s scissor is still in force here, so a card clamped to the
+	# control edge would be sliced by the neatline. Keeping it inside the
+	# interior keeps it whole *and* keeps it on the map, which is where a
+	# tooltip about map content belongs anyway.
+	card_pos.x = clampf(card_pos.x, interior.position.x, maxf(interior.position.x, interior.end.x - card_size.x))
+	card_pos.y = clampf(card_pos.y, interior.position.y, maxf(interior.position.y, interior.end.y - card_size.y))
 
 	# Dark-viewport-compatible palette (GUI decluttering pass, 2026-08-17) --
 	# was a light-parchment cream/brown card, the fourth stray light-styled
@@ -290,12 +348,19 @@ func _gui_input(event: InputEvent) -> void:
 		var rect := _displayed_rect()
 		if rect.size.x <= 0.0:
 			return
+		var interior := _interior_rect(rect)
 		var mouse: Vector2 = event.position
 		var closest := -1
 		var closest_dist := INF
 		for i in _settlements.size():
 			var s: Dictionary = _settlements[i]
 			var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
+			# Same predicate `_draw` uses: an off-plate settlement has no
+			# marker, so it must not have a hit target either -- otherwise
+			# the Inspector's "WHY HERE?" panel fills in from a hover over
+			# what looks like blank paper.
+			if not interior.has_point(pos):
+				continue
 			var radius: float = TIER_RADIUS.get(s["kind"], 3.0) + HOVER_RADIUS_PAD
 			var d := mouse.distance_to(pos)
 			if d <= radius and d < closest_dist:

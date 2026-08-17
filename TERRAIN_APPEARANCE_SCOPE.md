@@ -450,7 +450,8 @@ milestone 2's "essentially free" and the obvious first candidate if the
 render ever needs to be fast (the two sheet-scale mottle octaves could be
 precomputed at a coarse resolution and bilinearly sampled).
 
-**One real known limitation, found in the real app and not fixed here.** Two
+**One real known limitation, found in the real app and not fixed here —
+~~open~~ RESOLVED in a follow-up pass the same day (see below).** Two
 systems draw *over* the finished raster and know nothing about the frame:
 `lib.rs`'s river channel-mask tint, and `map_overlay.gd`'s settlement/road
 markers. In both test worlds a settlement sitting at the extreme west edge
@@ -458,6 +459,90 @@ puts its marker partly on the plate margin. It is a small, real defect; the
 fix (skip the overlay inside the border band) belongs in those two files,
 both of which are outside this milestone's `render.rs`-only scope and one of
 which a concurrent fork owns this session. Flagged rather than reached for.
+
+### Milestone 4 follow-up — the overlays learn about the frame (done 2026-08-17)
+
+The limitation above, fixed. It turned out to be **four** systems, not two:
+the river tint and the GDScript markers as flagged, plus
+`build_territory_texture`'s per-faction wash and
+`build_province_boundary_texture`'s line, both found while fixing the first
+two. Territory is the worst of the four — a solid semi-transparent fill over
+every owned cell, so any faction whose land reaches the sheet edge coloured
+the bare margin outright, not just at one settlement.
+
+**Inset versus clip, and why insetting is the wrong shape for this frame.**
+The tempting fix is to give the overlays the plate *interior* as their
+coordinate space, so nothing can land on the margin by construction. That is
+how a real atlas plate is laid out — and it is wrong here, because
+`apply_border` does not lay the plate out that way. It **composites over the
+finished raster's outermost cells**: the terrain under the margin is
+*covered*, not moved. Remapping markers into the interior would therefore
+shift every one of them away from the coastline, river and road it sits on,
+which is a far worse defect than the one being fixed. Making insetting
+correct would mean resampling the *world* into the interior inside
+`render.rs` — a different, much larger change that would move every
+measurement in the table above, and that also has to answer what happens to
+the world's aspect ratio when the frame is a fixed cell count on all four
+sides. Not a defect fix.
+
+So everything is handled at the neatline instead, and the two overlay kinds
+are handled *differently* because they are different objects:
+
+- **Linear features are clipped** (roads, sea lanes, province boundaries). A
+  road that reaches the sheet edge genuinely continues past it; cutting it
+  at the neatline is exactly what a plate does.
+- **Point symbols are placed or omitted, never sliced.** A settlement whose
+  cell is under the frame has no visible terrain beneath it at all — its
+  marker points at nothing — so it is off-plate and is not drawn. One whose
+  centre is inside keeps its exact position and lets the clip trim any
+  overhang, which is the actual reported defect (markers landing *partly* on
+  the margin).
+- **Raster tints fade rather than cut.** The river tint and the territory
+  wash are multiplied by `1 - border_cover`, the frame's own soft edge, so
+  they stop exactly where the paper wash starts instead of a cell and a half
+  early.
+
+**Where the geometry lives.** `render.rs` keeps it, and now exports it:
+`border_width_cells` (width in cells, `0.0` when disabled) and
+`border_cover` (frame coverage at a cell, `0.0` throughout the interior,
+`smoothstep`-ramped to `1.0` under the margin). `apply_border` was rewritten
+onto both rather than keeping a second copy of `0.014 * gw`.
+`WorldGen::get_border_inset_frac()` carries it across the gdext boundary as
+a **fraction of texture width** — a fraction, not a cell count, because
+`map_overlay.gd` works in screen pixels against a letterboxed texture and a
+fraction survives `_displayed_rect()`'s fit maths without the GDScript side
+knowing the resolution. `map_overlay.gd` derives `_interior_rect()` from it
+and scissors its canvas item to that rect
+(`RenderingServer.canvas_item_set_clip` + `canvas_item_set_custom_rect`) —
+one scissor covering circles, arcs, polylines and dashed lines rather than
+four hand-written clippers. `Control` re-sets both from its own rect on
+every `NOTIFICATION_DRAW`, which fires immediately before `_draw()`, so the
+override lasts one frame and needs no restore.
+
+**Same zero-gate discipline, so parity is untouched.** `border_cover` is
+`0.0` everywhere when `border_width_frac == 0.0`; every raster call site is
+written `tinted + (plain - tinted) * cover` so `cover == 0.0` restores the
+old value *bit-exactly* rather than to within an ulp; `_border_frac == 0.0`
+makes `_interior_rect()` return `_displayed_rect()` unchanged and skips the
+scissor. `golden_parity_render.rs` remains completely unmodified and both
+tests still pass at `1e-4` — four milestones in, that file has still never
+been edited.
+
+**Measured on the real app, at the specific failing case.** The same
+2048²/seed 12345/Classic world generated twice — once with the fix stashed,
+once applied — screenshotted and cropped 4× at the west edge, counting
+overlay ink inside the frame band:
+
+| | marker orange on margin | river-tint cyan on margin |
+|---|---|---|
+| before | 268 px | 67 px |
+| after | **0 px** | **0 px** |
+
+Differences between the two runs sit entirely in the frame band and within
+4 px inside the neatline; nothing in the plate interior moved. Archipelago
+(35 settlements, sea routes on) is 0/0 as well, and shows both rules at once
+— a coastal capital whose centre is just inside is trimmed cleanly at the
+neatline while its sea lanes are cut there.
 
 **Verified.** `cargo build -p cartalith-godot` clean; `cargo test
 --workspace` 383 passed / 0 failed, no expected value anywhere modified;
