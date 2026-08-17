@@ -175,8 +175,33 @@ owner's call, and it is the single biggest open question this render raises.
    shape as milestone 2's own finding: real on the mountainous Classic
    world, nearly invisible on the low-relief Archipelago one, because
    there's simply less major drainage there to find.
-   Still ahead for the atlas look proper: the paper/vellum ground, forest
-   stippling, hand-lettered glyphs and the physical border.
+   **Milestone 4 done 2026-08-17**: three of the four atlas elements this
+   item used to list as "still ahead" — the paper/vellum ground, forest
+   stippling and the physical plate border. The paper is applied to the
+   whole sheet, ocean included, as a luminance-neutral parchment tint plus
+   a luminance-preserving chroma muting, so the map reads as pigment on a
+   sheet rather than as emitted colour, at zero cost in relief or biome
+   legibility (interior mean luma moves 132.8→133.0 on Classic and
+   106.3→106.2 on Archipelago, and contrast *rises* slightly in both).
+   Stippling is driven by `material_weights`' own `canopy` fraction — real
+   data, not decorative noise. The border is a bare-paper margin carrying a
+   thick and a thin neatline.
+   Two corrections came out of actually looking, again: the parchment tint
+   alone was a pure hue rotation and read too weakly until the chroma wash
+   was added, and the first stipple field read as a regular halftone screen
+   until its sampling lattice was rotated and domain-warped (the same class
+   of regression as milestone 2's AO speckle, found the same way — a 6×
+   crop, not a diff statistic). And the cross-world result inverts what
+   milestones 2 and 3 both found: this one is *stronger* on the low-relief
+   Archipelago (−26% chroma, its bright cyan sea becoming a muted
+   teal-grey) than on mountainous Classic (−13%), because the paper acts on
+   the whole sheet and that world is mostly ocean.
+   Still ahead for the atlas look proper: hand-lettered settlement glyphs —
+   which are drawn by `map_overlay.gd`, not by `render.rs`, so they are a
+   GDScript overlay task rather than a renderer one. The same two overlay
+   systems (that one and `lib.rs`'s river channel tint) also draw over the
+   new plate margin at the extreme map edge, a small real defect recorded
+   in `TERRAIN_APPEARANCE_SCOPE.md`.
 3. **Layer-stack treatment** — real polish on an already-built panel.
 4. **Journey Planner** milestones 3-6 — already scoped and underway.
 5. **Narrative/Scenario, and the static-vs-temporal question** — needs an

@@ -7167,3 +7167,137 @@ carries a deliberate **dev-dependency cycle** (on `cartalith-engine` and
 permits cycles through dev-dependencies specifically, nothing in the
 library depends on either, and the alternative was editing a crate three
 other concurrent forks were working in.
+
+## Phase 3 milestone 4: the atlas look — paper ground, forest stippling, plate border (2026-08-17)
+
+Fourth `TERRAIN_APPEARANCE_SCOPE.md` pass, and the one that closes most of
+`VISION.md`'s sequencing item 2. That item named four things still ahead
+after milestone 3 — *"the paper/vellum ground, forest stippling,
+hand-lettered glyphs and the physical border"*. Three of the four live in
+`render.rs`'s raster and landed here; the fourth (hand-lettered settlement
+glyphs) is drawn by `godot-project/map_overlay.gd`, not by this raster, and
+was deliberately left alone.
+
+**Built**, three independent stages on `TerrainAppearance`, each gated on
+its own parameter:
+
+- **Paper/vellum ground** (`paper_tone`/`apply_paper`, new
+  `paper_strength`/`paper_tint`/`paper_grain`/`paper_mottle`/`paper_wash`).
+  Applied in `cell_color` *after both* the land and sea branches, on
+  purpose: an ocean that isn't on the same sheet as the land makes the map
+  read as terrain art pasted onto a parchment background. Two composited
+  parts, both luminance-preserving by construction — a parchment tint
+  divided by its own Rec.709 luma (so it warms without dimming; a straight
+  multiply by an off-white would cost ~10% luma everywhere and flatten
+  exactly the relief legibility milestone 2 bought), and `paper_wash`, a
+  pull toward a paper-coloured grey *of the same luminance* so chroma drops
+  and nothing else does. Fibre is two fixed-cell-frequency coherent-noise
+  octaves (one isotropic tooth, one stretched into laid lines) never finer
+  than ~3 cells per feature; ageing is a separate sheet-scale mottle.
+- **Forest stippling** (in `land_color`, `stipple_strength`/
+  `stipple_scale_frac`). Weighted by `material_weights`' own `canopy`
+  fraction — real data, not decorative noise laid wherever the image
+  happens to look green — through a `smoothstep` gate (no hard biome
+  borders), and applied as a **zero-mean** modulation so canopy gains
+  texture without being net-darkened.
+- **Physical plate border** (`apply_border`, `border_width_frac`/
+  `border_ink`). A bare-paper margin carrying a thick and a thin neatline,
+  ink density modulated along the rule by low-frequency coherent noise so
+  it reads as drawn rather than as a CSS box. Widths floored in absolute
+  cells so the frame survives the 512²–8192² range without the two rules
+  merging. Pure presentation: it reads no world data at all.
+
+None of the three touches `material_weights` or the 25 palettes — the same
+rule milestones 2 and 3 both held to.
+
+**Golden-parity: the same mechanism extended, not replaced.**
+`js_reference()` gains `paper_strength: 0.0`, `stipple_strength: 0.0`,
+`border_width_frac: 0.0`, and each stage **early-returns on its own zero**
+rather than merely evaluating to an arithmetic no-op — `paper_tone` returns
+before touching a single `vnoise`, the stipple block is inside an `if`,
+`apply_border` returns its argument. That is exactly the discipline
+`relief_lights <= 1` established in milestone 2 (a dedicated branch, so
+parity can never drift on a float reassociation). `golden_parity_render.rs`
+remains **completely unmodified** and both tests still pass at their
+original `1e-4` tolerance with every expected value unchanged.
+
+**Two real corrections caught by looking, not by the numbers** — milestone
+3's lesson holding for a second milestone running:
+
+1. The parchment tint on its own is only a hue rotation, and a side-by-side
+   showed it reading far too weakly, leaving a digital-looking saturated
+   ocean. `paper_wash` is what actually shifted the tonal feel: pigment
+   soaked into a sheet is never as chromatic as an emitted colour, and that
+   is the whole difference between a screen render and a printed plate.
+2. The first stipple field read as a regular diagonal **halftone screen** —
+   §30's "random texture noise" failure, and the same class of regression as
+   milestone 2's AO speckle, found the same way (a 6× crop of the real dump,
+   not a diff statistic). Fixed by rotating the sampling lattice ~34°,
+   domain-warping it with a second coherent field, and flooring mark size at
+   4 cells. Deterministic throughout (§27) — every stage is a pure function
+   of the cell coordinates.
+
+**Measured against §30's anti-list, terrain only** (2048², seed 12345, the
+40-cell frame band excluded so the border doesn't skew terrain statistics;
+"base" is milestone 3's look):
+
+| | Classic base | Classic atlas | Archipelago base | Archipelago atlas |
+|---|---|---|---|---|
+| interior luma min | 42.4 | 41.0 | 34.6 | 33.8 |
+| interior luma mean | 132.8 | **133.0** | 106.3 | **106.2** |
+| interior luma sd | 31.32 | **31.89** | 27.66 | **28.30** |
+| interior mean chroma | 59.7 | 51.96 | 70.3 | 51.96 |
+| any-channel clipping | 0.70% | 0.73% | 0.03% | 0.03% |
+
+Mean luma unchanged to a fraction of a level in both worlds; contrast
+**rises** slightly rather than falling, so nothing was washed out; the luma
+minimum drops 1.4 and 0.8 levels, entirely from paper grain, so no new black
+valleys; terrain clipping unchanged.
+
+**Cross-world honesty — and this time it runs opposite to milestones 2 and
+3.** Both of those were strong on mountainous Classic and nearly invisible
+on low-relief Archipelago because they keyed off relief and drainage. This
+one is the reverse: the paper acts on the whole sheet and Archipelago is
+mostly ocean, so it loses **26%** of its chroma against Classic's 13%, its
+bright cyan sea becoming a muted teal-grey — the largest single visual
+change either test world has seen in this phase. Worth recording: the two
+worlds start 18% apart in mean chroma (59.7 vs 70.3) and land within 0.01 of
+each other (51.960 vs 51.963), not by clamping (the ratios differ, 0.871 vs
+0.739) but because a common printing medium is exactly what converges two
+differently coloured subjects. Stippling mirrors it: 13.9% of Classic's
+pixels touched vs 10.8% of Archipelago's, and it only really reads where
+there is continuous canopy.
+
+**Cost, honestly: not free.** 2048² render 598 → 915 ms (Classic) and 295 →
+597 ms (Archipelago) — the paper is four extra `vnoise` calls on every pixel
+including the ocean. A one-shot cost at generate time against a pipeline
+that already takes far longer, so accepted rather than optimized, but a real
+regression from milestone 2's "essentially free" and the obvious first
+candidate if the render ever needs to be fast (the two sheet-scale mottle
+octaves could be precomputed coarse and bilinearly sampled).
+
+**One known limitation, found in the real app and not fixed here.** Two
+systems draw *over* the finished raster and know nothing about the frame:
+`lib.rs`'s river channel-mask tint and `map_overlay.gd`'s settlement/road
+markers. In both test worlds a settlement at the extreme west edge puts its
+marker partly on the plate margin. The fix (skip the overlay inside the
+border band) belongs in those two files, outside this milestone's
+`render.rs`-only scope and one of them owned by a concurrent fork this
+session. Flagged rather than reached for.
+
+**Verified.** `cargo build -p cartalith-godot` clean; `cargo test
+--workspace` 383 passed / 0 failed with no expected value anywhere modified;
+`cargo clippy -p cartalith-godot --all-targets` clean for this milestone's
+files (the crate's sole remaining warning is the pre-existing
+`needless_borrow` in `lib.rs`; `cartalith-gpu`/`cartalith-civ` warnings are
+concurrent forks' and were confirmed unrelated by file and line — this pass
+also cleared four `field_reassign_with_default` warnings the A/B harness had
+accumulated); `godot4 --headless --quit main.tscn` clean load. Real windowed
+app (2048², seed 12345, 40 settlements) generated and screenshotted for
+**both** Classic and Archipelago: plate frame, parchment ground and canopy
+texture all read correctly at the app's own display scale with the
+settlement/road overlay on top. The controlled before/after is
+`appearance_ab_dump.rs` run at the same 2048² the app uses — it now emits a
+`noatlas`/`withatlas` isolation pair (milestones 2 and 3 held fixed) plus
+`paperonly`/`stippleonly` dumps, since the three stages are independent and
+a combined image cannot show which one carries a change.

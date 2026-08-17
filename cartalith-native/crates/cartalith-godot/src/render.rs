@@ -51,6 +51,24 @@
 //! style elevation ramp would be a genuinely new visual layer/mode to
 //! design on top of (or blended with) this material model in a future
 //! milestone, not a re-encoding of something already here.
+//!
+//! ## The atlas look (`TERRAIN_APPEARANCE_SCOPE.md` milestone 4, 2026-08-17)
+//!
+//! Three presentation stages toward `VISION.md`'s hand-drawn atlas target,
+//! all gated to `0.0` in `js_reference()` and all early-returning on that
+//! `0.0` rather than merely evaluating to a no-op:
+//!
+//! - **paper/vellum ground** (`paper_tone`) — a luminance-neutral parchment
+//!   tone with fibre and ageing, applied in `cell_color` over land *and*
+//!   sea so the whole map sits on one sheet;
+//! - **forest stippling** (in `land_color`) — zero-mean coherent marks
+//!   weighted by `material_weights`' own `canopy` fraction;
+//! - **physical plate border** (`apply_border`) — paper margin plus a thick
+//!   and a thin neatline.
+//!
+//! Hand-lettered settlement glyphs, the fourth element `VISION.md` names,
+//! are deliberately *not* here: settlement markers are drawn by
+//! `godot-project/map_overlay.gd`, not by this raster.
 
 use cartalith_noise::vnoise;
 
@@ -163,6 +181,68 @@ pub struct TerrainAppearance {
     /// outline — same reasoning as `ao_radius_frac`, but tighter, since a
     /// river corridor is a much narrower feature than a drainage basin.
     pub hydro_wet_radius_frac: f64,
+
+    // ---- Milestone 4 (`TERRAIN_APPEARANCE_SCOPE.md`): the atlas look ----
+    /// Strength of the paper/vellum ground (`VISION.md`'s "a paper/vellum
+    /// ground with a physical border"). `0.0` disables it entirely and the
+    /// whole stage early-returns, which is what `js_reference()` uses.
+    ///
+    /// The paper is applied as a **luminance-neutral multiplicative tone**
+    /// over the finished image, land *and* sea alike — see `paper_tone`.
+    pub paper_strength: f64,
+    /// The parchment colour. Only its *hue/chroma* is used: `paper_tone`
+    /// divides it by its own Rec.709 luma first, so raising
+    /// `paper_strength` warms the sheet without dimming it.
+    /// `TERRAIN_APPEARANCE_RESEARCH.md` §30's anti-list is explicit that the
+    /// goal is legibility of real physical differences, and a straight
+    /// multiply by an off-white would cost ~10% luma across the whole map
+    /// for nothing.
+    pub paper_tint: Rgb,
+    /// Amplitude of the sheet's fibre/tooth — two fixed-cell-frequency
+    /// coherent-noise octaves, one isotropic (tooth) and one stretched
+    /// along Y (laid lines). Deterministic coherent noise only, per §16/§27;
+    /// frequencies are chosen so a feature is never smaller than ~3 cells,
+    /// the floor milestone 2's AO speckle regression established.
+    pub paper_grain: f64,
+    /// Amplitude of the broad age/stain mottle, expressed at *sheet* scale
+    /// (a handful of blotches across the whole map) rather than cell scale,
+    /// so it reads as the sheet being unevenly aged rather than as noise.
+    pub paper_mottle: f64,
+    /// How far the wash is muted toward a paper-coloured grey of the **same
+    /// luminance**. This is the half of the paper ground that actually
+    /// changes the tonal *feel*: pigment soaked into a sheet is never as
+    /// chromatic as an emitted colour, and the tint alone (which only
+    /// rotates hue) leaves a digital-looking saturated ocean.
+    ///
+    /// Luminance-preserving by construction, so it costs no relief or biome
+    /// legibility — only chroma — which is the distinction
+    /// `TERRAIN_APPEARANCE_RESEARCH.md` §30 draws when it says the goal is
+    /// "not make the map more colourful" but "make the physical differences
+    /// visually legible". Ordering between materials is untouched.
+    pub paper_wash: f64,
+
+    /// Forest stippling strength (`VISION.md`'s "forest stippling").
+    /// `0.0` disables it; `js_reference()` uses `0.0`. Driven by
+    /// `material_weights`' own `canopy` fraction — real data, not decorative
+    /// noise — and applied as a **zero-mean** modulation so the canopy gains
+    /// texture without being net-darkened (§30: no black valleys, no
+    /// excessive contrast).
+    pub stipple_strength: f64,
+    /// Mark spacing as a fraction of grid width, so a stand of trees is a
+    /// fixed *world* size rather than a fixed pixel size. Floored at 3.2
+    /// cells inside `land_color` for exactly the reason `build_ao` floors
+    /// its radii: below that a coherent-noise field is indistinguishable
+    /// from per-pixel speckle, which is on §30's anti-list.
+    pub stipple_scale_frac: f64,
+
+    /// Width of the physical plate border as a fraction of grid width
+    /// (floored at 10 cells). `0.0` disables it; `js_reference()` uses
+    /// `0.0`. Drawn as a bare-paper margin carrying a thick and a thin
+    /// neatline — the classic atlas plate edge.
+    pub border_width_frac: f64,
+    /// Neatline ink colour. Deliberately a warm sepia rather than black:
+    /// pure black rules read as UI chrome, not as ink on a sheet.
+    pub border_ink: Rgb,
 }
 
 impl Default for TerrainAppearance {
@@ -206,6 +286,15 @@ impl Default for TerrainAppearance {
             ao_radius_frac: 0.012,
             hydro_wet_strength: 0.38,
             hydro_wet_radius_frac: 0.006,
+            paper_strength: 0.85,
+            paper_tint: (238.0, 228.0, 205.0),
+            paper_grain: 0.050,
+            paper_mottle: 0.045,
+            paper_wash: 0.16,
+            stipple_strength: 0.20,
+            stipple_scale_frac: 0.0045,
+            border_width_frac: 0.014,
+            border_ink: (74.0, 61.0, 47.0),
         }
     }
 }
@@ -239,6 +328,14 @@ impl TerrainAppearance {
             relief_gain: 1.02,
             ao_strength: 0.0,
             hydro_wet_strength: 0.0,
+            // Milestone 4: every atlas-presentation stage is off on the
+            // reference path, and each one early-returns on its own `0.0`
+            // rather than merely evaluating to a no-op — the same
+            // "dedicated branch so parity can never drift on a float
+            // reassociation" rule `relief_lights <= 1` already follows.
+            paper_strength: 0.0,
+            stipple_strength: 0.0,
+            border_width_frac: 0.0,
             ..TerrainAppearance::default()
         }
     }
@@ -874,6 +971,49 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     c.1 += g;
     c.2 += g;
 
+    // Milestone 4: forest stippling (`VISION.md`). Texture over canopy, from
+    // `material_weights`' own `canopy` fraction — real data, not decorative
+    // noise laid over "wherever looks green".
+    //
+    // Three things make this survive `TERRAIN_APPEARANCE_RESEARCH.md` §30:
+    // the gate is a `smoothstep` (no hard biome borders); the mark field is
+    // deterministic coherent noise floored at 3.2 cells per mark (§16/§27,
+    // and the same speckle floor milestone 2's AO needed); and the
+    // modulation is **zero-mean** — marks darken, gaps lighten by the same
+    // amount — so a forest gains texture without the whole canopy going
+    // darker, which would read as excessive contrast rather than as ink.
+    if appearance.stipple_strength > 0.0 && w.canopy > 0.0 {
+        let gate = smoothstep(0.30, 0.72, w.canopy);
+        if gate > 0.0 {
+            let per_mark = (appearance.stipple_scale_frac * gw as f64).max(4.0);
+            let f = 1.0 / per_mark;
+            let (xf, yf) = (x as f64, y as f64);
+            // Rotate the sampling lattice (~34°) and domain-warp it. Value
+            // noise sampled on the axis-aligned grid at a few cells per
+            // feature reads as a regular halftone screen — caught by
+            // looking at a 6x crop of the first version of this, the same
+            // way milestone 2's AO speckle was. Rotation breaks the axis
+            // alignment; the warp breaks the lattice regularity, so the
+            // marks clump the way drawn stippling does.
+            let (rx, ry) = (xf * 0.8290 + yf * 0.5592, -xf * 0.5592 + yf * 0.8290);
+            let wx = (vnoise(rx * f * 0.42, ry * f * 0.42, 75) - 0.5) * 1.8;
+            let wy = (vnoise(ry * f * 0.42, rx * f * 0.42, 77) - 0.5) * 1.8;
+            let n = 0.62 * vnoise(rx * f + wx, ry * f + wy, 71) + 0.38 * vnoise(ry * f * 2.13 - wy, rx * f * 2.13 + wx, 73);
+            // Signed, then pushed toward its extremes (exponent < 1) so the
+            // field clumps into discrete marks instead of reading as a soft
+            // wobble. Symmetric about zero, hence zero-mean.
+            let d = (n - 0.5) * 2.0;
+            let d = d.signum() * d.abs().powf(0.65);
+            let s = appearance.stipple_strength * gate * d;
+            // Marks sit as a slightly deeper, greener ink; gaps as lighter
+            // wash — the red channel moves most, so the texture is a hue
+            // modulation as well as a value one.
+            c.0 *= 1.0 - s * 1.15;
+            c.1 *= 1.0 - s * 0.95;
+            c.2 *= 1.0 - s * 1.05;
+        }
+    }
+
     let sh_micro = clamp01(sh + (n_hi - 0.5) * 0.20);
     let sh_combined = 0.40 * sh + 0.40 * sh_m + 0.20 * sh_micro;
     let light = appearance.relief_ambient + appearance.relief_gain * clamp01(sh_combined).powf(0.85);
@@ -936,6 +1076,111 @@ fn sea_color_core(appearance: &TerrainAppearance, depth: f64, t: f64, n_low: f64
     ((wc.0 + tex) * sh2 * vig, (wc.1 + tex) * sh2 * vig, (wc.2 + tex) * sh2 * vig)
 }
 
+/// The paper/vellum ground as a **per-channel multiplicative tone** around
+/// `1.0` (`TERRAIN_APPEARANCE_SCOPE.md` milestone 4, `VISION.md`'s
+/// "paper/vellum ground"). Returned rather than applied so that both the
+/// map wash (`apply_paper`) and the plate margin (`apply_border`) sit on
+/// the *same* sheet — the fibre has to run continuously under both, or the
+/// border reads as a separate graphic pasted on top.
+///
+/// Three deliberate properties:
+///
+/// 1. **Luminance-neutral tint.** `paper_tint` is divided by its own
+///    Rec.709 luma, so the parchment shifts hue (warmer reds, muted blues)
+///    without darkening the image. A straight multiply by an off-white
+///    would cost ~10% luma everywhere and flatten exactly the relief and
+///    biome legibility milestones 2 and 3 just bought —
+///    `TERRAIN_APPEARANCE_RESEARCH.md` §30's whole point.
+/// 2. **Grain frequencies fixed in *cell* units**, never finer than ~3
+///    cells per feature (0.31 and 0.27 cycles/cell here). Milestone 2's AO
+///    speckle regression is the precedent: coherent noise at ~1 cell is
+///    indistinguishable from the "random texture noise" §30 forbids.
+/// 3. **Mottle at *sheet* scale** (5 and 13 features across the map), so
+///    ageing reads as a property of the sheet rather than of the terrain.
+///
+/// Deterministic — pure `vnoise` of the cell coordinates, per §27.
+fn paper_tone(a: &TerrainAppearance, x: usize, y: usize, gw: usize) -> Rgb {
+    if a.paper_strength <= 0.0 {
+        return (1.0, 1.0, 1.0);
+    }
+    let (xf, yf, gwf) = (x as f64, y as f64, gw as f64);
+    let t = a.paper_tint;
+    let luma = (0.2126 * t.0 + 0.7152 * t.1 + 0.0722 * t.2).max(1e-6);
+    let t = (t.0 / luma, t.1 / luma, t.2 / luma);
+
+    let tooth = vnoise(xf * 0.31, yf * 0.31, 61);
+    // Stretched along Y: laid lines. Cheap, and it's the single cue that
+    // reads as "sheet" rather than "noise overlay" at a glance.
+    let laid = vnoise(xf * 0.27, yf * 0.075, 63);
+    let grain = ((tooth - 0.5) * 0.55 + (laid - 0.5) * 0.45) * 2.0;
+    let mottle = 0.65 * vnoise(xf / gwf * 5.0, yf / gwf * 5.0, 65) + 0.35 * vnoise(xf / gwf * 13.0, yf / gwf * 13.0, 67);
+
+    let v = 1.0 + grain * a.paper_grain + (mottle - 0.5) * 2.0 * a.paper_mottle;
+    let s = a.paper_strength;
+    (1.0 + (t.0 * v - 1.0) * s, 1.0 + (t.1 * v - 1.0) * s, 1.0 + (t.2 * v - 1.0) * s)
+}
+
+/// Lay the finished colour onto the sheet: the parchment tint (a pure hue
+/// rotation, see `paper_tone`) followed by the muting toward a
+/// luminance-matched paper grey (`paper_wash`). Both stages leave luminance
+/// alone, so relief and biome legibility are untouched — only chroma moves.
+fn apply_paper(a: &TerrainAppearance, c: Rgb, tone: Rgb) -> Rgb {
+    if a.paper_strength <= 0.0 {
+        return c;
+    }
+    let c = (c.0 * tone.0, c.1 * tone.1, c.2 * tone.2);
+    if a.paper_wash <= 0.0 {
+        return c;
+    }
+    let y = 0.2126 * c.0 + 0.7152 * c.1 + 0.0722 * c.2;
+    let t = a.paper_tint;
+    let tl = (0.2126 * t.0 + 0.7152 * t.1 + 0.0722 * t.2).max(1e-6);
+    let grey = (t.0 / tl * y, t.1 / tl * y, t.2 / tl * y);
+    mix(c, grey, a.paper_wash * a.paper_strength)
+}
+
+/// The physical plate border (`VISION.md`'s "physical border"): a bare-paper
+/// margin carrying a thick and a thin neatline, the classic atlas plate
+/// edge. Pure presentation — it composites over the finished colour and
+/// reads no world data at all.
+///
+/// The ink density is modulated by low-frequency coherent noise along the
+/// rule, so the lines read as drawn rather than as a CSS box. Widths are
+/// floored in absolute cells so the frame survives this port's 512²–8192²
+/// resolution range without the two rules merging at the small end.
+fn apply_border(a: &TerrainAppearance, c: Rgb, tone: Rgb, x: usize, y: usize, gw: usize, gh: usize) -> Rgb {
+    if a.border_width_frac <= 0.0 {
+        return c;
+    }
+    let w = (a.border_width_frac * gw as f64).max(10.0);
+    let dx = x.min(gw - 1 - x) as f64;
+    let dy = y.min(gh - 1 - y) as f64;
+    let d = dx.min(dy);
+    if d >= w {
+        return c;
+    }
+
+    // Bare sheet, carrying the same fibre as the map itself.
+    let sheet = (a.paper_tint.0 * tone.0, a.paper_tint.1 * tone.1, a.paper_tint.2 * tone.2);
+    // Soft over ~1.5 cells: the wash stopping at the neatline, not a
+    // hard-aliased cut — §30's "artificial outlines".
+    let cover = 1.0 - smoothstep(w - 1.5, w, d);
+    let mut out = mix(c, sheet, cover);
+
+    let rule = |centre: f64, half: f64| 1.0 - smoothstep(half - 0.75, half + 0.75, (d - centre).abs());
+    let thick = rule(0.34 * w, (0.075 * w).max(2.0));
+    let thin = rule(0.80 * w, (0.028 * w).max(0.9));
+    let mut ink = thick.max(thin);
+    if ink > 0.0 {
+        // Hand-drawn density variation along the line (deterministic, §27).
+        let along = if dx < dy { y as f64 } else { x as f64 };
+        ink *= 0.80 + 0.20 * vnoise(along * 0.05, d * 0.4, 69);
+        let ic = (a.border_ink.0 * tone.0, a.border_ink.1 * tone.1, a.border_ink.2 * tone.2);
+        out = mix(out, ic, ink);
+    }
+    out
+}
+
 /// Top-level per-cell colour, `[0,1]` per channel — `isWater(v) ?
 /// seaColor(...) : surfaceColor(...)` (`debugBaseColor`'s `'biome'`
 /// branch, 8204; the main renderer's own default mode).
@@ -967,6 +1212,17 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
         let curv = ctx.curvature_at(x, y);
         land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, ctx.hydro_wet[i] as f64, x, y, ctx.gw, ctx.gh)
     };
+
+    // Milestone 4: the sheet. Applied *here*, after both branches, rather
+    // than inside `land_color` — the ocean has to sit on the same paper as
+    // the land or the map reads as terrain-art pasted onto a parchment
+    // background. `paper_tone` returns `(1,1,1)` and `apply_border` returns
+    // its input unchanged whenever their strengths are `0.0`, which is
+    // `js_reference()`'s state, so the pinned JS-parity path never enters
+    // any of this.
+    let tone = paper_tone(&ctx.appearance, x, y, ctx.gw);
+    let (r, g, b) = apply_paper(&ctx.appearance, (r, g, b), tone);
+    let (r, g, b) = apply_border(&ctx.appearance, (r, g, b), tone, x, y, ctx.gw, ctx.gh);
 
     (clamp01(r / 255.0), clamp01(g / 255.0), clamp01(b / 255.0))
 }

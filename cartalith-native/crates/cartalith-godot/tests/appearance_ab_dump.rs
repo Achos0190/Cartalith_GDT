@@ -78,10 +78,25 @@ fn run(label: &str, mut p: WorldParams) {
     // fixed at their own `default()` values, hydrology tint alone toggled
     // off vs on — isolates this milestone's own delta from milestone 2's
     // already-verified one, rather than conflating both against JS.
-    let mut no_hydro = render::TerrainAppearance::default();
-    no_hydro.hydro_wet_strength = 0.0;
+    let no_hydro = render::TerrainAppearance { hydro_wet_strength: 0.0, ..Default::default() };
     dump(&format!("{label}_nohydro"), &ws, gw, gh, world, no_hydro);
     dump(&format!("{label}_withhydro"), &ws, gw, gh, world, render::TerrainAppearance::default());
+
+    // Milestone 4 isolation pair: milestones 2 and 3 held fixed at their
+    // own `default()` values, the three atlas stages (paper ground, forest
+    // stippling, plate border) toggled off vs on together — so this
+    // milestone's delta is measured against the already-verified
+    // milestone-3 look, not conflated with it.
+    let no_atlas = render::TerrainAppearance { paper_strength: 0.0, stipple_strength: 0.0, border_width_frac: 0.0, ..Default::default() };
+    dump(&format!("{label}_noatlas"), &ws, gw, gh, world, no_atlas);
+    dump(&format!("{label}_withatlas"), &ws, gw, gh, world, render::TerrainAppearance::default());
+
+    // And each atlas stage alone, since the three are independent and a
+    // combined dump can't tell which one is carrying the change.
+    let paper_only = render::TerrainAppearance { stipple_strength: 0.0, border_width_frac: 0.0, ..Default::default() };
+    dump(&format!("{label}_paperonly"), &ws, gw, gh, world, paper_only);
+    let stipple_only = render::TerrainAppearance { paper_strength: 0.0, border_width_frac: 0.0, ..Default::default() };
+    dump(&format!("{label}_stippleonly"), &ws, gw, gh, world, stipple_only);
 }
 
 #[test]
