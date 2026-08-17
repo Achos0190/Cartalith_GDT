@@ -5059,3 +5059,70 @@ integrated-GPU-alongside-dedicated idea (`HARDWARE_ACCELERATION.md`).
 `cartalith-native/crates/cartalith-engine/examples/timing_bench.rs`,
 `CPU_MULTITHREADING_SCOPE.md` (marked first pass done with the real
 numbers above), `cartalith-native/docs/STATUS.md`.
+
+## Real Android device pass: builds, installs, launches — blocked at the lock screen (2026-08-17)
+
+First real on-device Android test this project has had, now that a real
+device (OnePlus 6T, Android 14) was connected and authorized. Full record
+in `ANDROID_BUILD_SCOPE.md` (new, repo root); summary here.
+
+**Toolchain check, not toolchain setup**: every piece `TOOLCHAIN.md`
+flagged as "the single highest-risk item" — `aarch64-linux-android`
+rustup target, `cargo-ndk`, the NDK, `gdext`'s Android library paths in
+`cartalith.gdextension`, the `"Android"` preset in `export_presets.cfg`
+— was already correctly installed and wired from earlier work. Nothing
+needed fixing. The existing `builds/android/Cartalith.apk` was just stale
+(dated 2026-08-15, before all of that day's Phase 2/GPU/memory/threading
+work) and debug-only.
+
+**Build**: `cargo ndk -t arm64-v8a build --release -p cartalith-godot`
+(2m38s, clean) produced a current release `.so`. `godot4 --headless
+--export-release "Android"` failed as expected — no release keystore
+exists yet (`TOOLCHAIN.md`'s own "No keystore yet, debug signing is
+enough to sideload" note). Rebuilt the debug `.so` too, then `godot4
+--headless --export-debug "Android"` succeeded, signed with Godot's own
+debug keystore. (Note: `godot4` resolves via a WinGet shim visible to
+PowerShell but not to Git Bash's `PATH` — this pass's Godot invocations
+had to go through the `PowerShell` tool.)
+
+**Install + launch**: `adb install -r` succeeded first try. Logcat
+confirms a genuine successful engine start on real hardware — the
+GDExtension loaded, Godot's native layer initialized, and a real OpenGL
+ES 3.2 context was created against the device's actual Adreno 630 GPU
+(`renderer: gl_compatibility`, `Using Device: Qualcomm - Adreno (TM)
+630`). No crash, no ANR, no `gdext` error anywhere in the process's log.
+Launch/idle memory via `adb shell dumpsys meminfo`: 151,982 KB PSS total,
+78,244 KB private dirty.
+
+**Real blocker, investigated not assumed**: a screenshot taken shortly
+after launch came back solid black. Traced it, not shrugged at it —
+`dumpsys power`/`dumpsys deviceidle` showed the screen had locked
+(`mScreenLocked=true`), and Godot's own logcat showed why: `OnPause`→
+`OnStop` fired ~140ms after `OnResume`, then `BufferQueue has been
+abandoned`/`eglSwapBuffers failed: EGL_BAD_SURFACE` — the render surface
+was torn down mid-init when the screen locked under it. Woke the screen
+(`input keyevent KEYCODE_WAKEUP`, confirmed `mWakefulness=Awake`) and
+tried `wm dismiss-keyguard` plus a manual swipe — keyguard stayed up.
+`adb shell locksettings get-disabled` returned `false`, confirming this
+device has a real, enabled lock credential (PIN/pattern/biometric), not
+a bare swipe lock — `wm dismiss-keyguard` only works against "None"/
+"Swipe" security, exactly the no-op observed. A repeat screenshot came
+back byte-identical to the first: Android intentionally blanks
+`screencap` output behind a secure keyguard, a real OS security
+behavior. **This is a physical-access requirement, not a code or
+toolchain gap** — guessing or forcing past a real lock credential was
+never appropriate to attempt.
+
+**Reached**: build/install/launch/engine-init/GPU-context-creation, all
+confirmed real, on real hardware, for the first time. **Not reached**:
+driving the golden path (Generate button, confirming the render, on-
+device memory during generation, ANR/responsiveness under Android's
+stricter watchdog) — needs the owner to physically unlock the phone
+first, or run the already-installed APK themselves. Nothing else in the
+repo needs to change before that — the build path itself is proven.
+
+**Files touched**: new `ANDROID_BUILD_SCOPE.md` (repo root),
+`cartalith-native/docs/STATUS.md` (criterion 4, Phase 1 row, Owner-only
+items). No production code changed — the toolchain and export
+configuration were already correct. Build artifacts (`.so`, `.apk`)
+stay gitignored, not committed, per existing convention.
