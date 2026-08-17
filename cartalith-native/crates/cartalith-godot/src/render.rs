@@ -25,47 +25,117 @@
 //! Ported despite being extras: the `bioBlend` grey-desaturation blend
 //! (0.90 default) and the edge haze fade, both unconditional in the
 //! reference at its own default settings.
+//!
+//! ## `TerrainAppearance` (`TERRAIN_APPEARANCE_SCOPE.md` milestone 1, 2026-08-17)
+//!
+//! A real, owned, data-driven structure (below) replaces what used to be 26
+//! bare module-level consts (19 material palettes, 6 water palettes,
+//! `EXAG`/`SUN_AZ_DEG`/`BIO_BLEND`) — a behavior-preserving refactor only,
+//! verified byte-identical against `golden_parity_render.rs` (unmodified).
+//!
+//! **Audit finding, corrected from the milestone's own initial assumption**:
+//! there is no elevation-keyed colour *breakpoint ramp* anywhere in this
+//! renderer, despite `TERRAIN_APPEARANCE_RESEARCH.md`'s MapTiler-style
+//! mental model (`0m → green, 300m → yellow-green, ...`). Colour instead
+//! comes from `material_weights()`, a continuous multi-input blend over
+//! temperature/moisture/slope/relative-elevation/aspect/curvature that
+//! produces six material *fractions* (snow/rock/sand/wetland/canopy/grass),
+//! each material contributing its own colour via a **noise-jittered**
+//! 3-stop micro-ramp (`ramp3`, selected by `tt` — a per-pixel texture-variety
+//! value derived from coherent noise, not from elevation). Relative
+//! elevation (`r` in `material_weights`) is one continuous input among
+//! several `smoothstep` terms, not a lookup axis. So "the current hardcoded
+//! elevation bands" the original milestone plan expected to re-encode as a
+//! ramp don't exist in that shape — what *does* exist, and is real and
+//! editable now, is this palette-and-constants table. A literal MapTiler-
+//! style elevation ramp would be a genuinely new visual layer/mode to
+//! design on top of (or blended with) this material model in a future
+//! milestone, not a re-encoding of something already here.
 
 use cartalith_noise::vnoise;
 
 type Rgb = (f64, f64, f64);
 
-const W_ABYSS: [Rgb; 3] = [(8.0, 36.0, 58.0), (10.0, 45.0, 70.0), (18.0, 59.0, 89.0)];
-const W_DEEP: [Rgb; 3] = [(16.0, 58.0, 87.0), (26.0, 75.0, 104.0), (42.0, 96.0, 122.0)];
-const W_SHELF: [Rgb; 3] = [(47.0, 118.0, 150.0), (76.0, 151.0, 182.0), (111.0, 179.0, 207.0)];
-const W_TROP: [Rgb; 3] = [(88.0, 184.0, 181.0), (121.0, 206.0, 197.0), (149.0, 222.0, 210.0)];
-const W_GLAC: [Rgb; 3] = [(127.0, 174.0, 190.0), (165.0, 197.0, 207.0), (194.0, 215.0, 222.0)];
-const SAND_BEACH: [Rgb; 3] = [(200.0, 180.0, 138.0), (215.0, 195.0, 154.0), (227.0, 208.0, 167.0)];
-const SAND_TROP: [Rgb; 3] = [(228.0, 212.0, 181.0), (239.0, 226.0, 197.0), (246.0, 234.0, 213.0)];
-const SAND_DESERT: [Rgb; 3] = [(201.0, 169.0, 104.0), (215.0, 182.0, 118.0), (226.0, 197.0, 138.0)];
-const SAND_RED: [Rgb; 3] = [(168.0, 101.0, 61.0), (191.0, 119.0, 75.0), (208.0, 137.0, 92.0)];
-const GRASS_DRY: [Rgb; 3] = [(154.0, 138.0, 93.0), (176.0, 154.0, 106.0), (192.0, 171.0, 119.0)];
-const GRASS_TEMP: [Rgb; 3] = [(127.0, 138.0, 86.0), (143.0, 155.0, 97.0), (162.0, 175.0, 112.0)];
-const GRASS_BOREAL: [Rgb; 3] = [(102.0, 114.0, 79.0), (115.0, 128.0, 90.0), (133.0, 145.0, 107.0)];
-const GRASS_SAV: [Rgb; 3] = [(181.0, 160.0, 94.0), (198.0, 176.0, 109.0), (216.0, 193.0, 128.0)];
-const WOOD_TEMP: [Rgb; 3] = [(53.0, 65.0, 40.0), (66.0, 82.0, 50.0), (85.0, 104.0, 67.0)];
-const WOOD_DENSE: [Rgb; 3] = [(40.0, 51.0, 31.0), (50.0, 64.0, 38.0), (64.0, 80.0, 48.0)];
-const WOOD_BOREAL: [Rgb; 3] = [(47.0, 56.0, 44.0), (57.0, 68.0, 53.0), (70.0, 84.0, 69.0)];
-const WOOD_TROP: [Rgb; 3] = [(29.0, 71.0, 37.0), (40.0, 96.0, 50.0), (52.0, 120.0, 63.0)];
-const ROCK_GRANITE: [Rgb; 3] = [(123.0, 117.0, 108.0), (147.0, 139.0, 128.0), (170.0, 161.0, 149.0)];
-const ROCK_SANDSTONE: [Rgb; 3] = [(167.0, 122.0, 87.0), (188.0, 141.0, 103.0), (208.0, 159.0, 118.0)];
-const ROCK_SCREE: [Rgb; 3] = [(106.0, 102.0, 95.0), (122.0, 118.0, 110.0), (141.0, 137.0, 128.0)];
-const SNOW_SEAS: [Rgb; 3] = [(217.0, 215.0, 210.0), (232.0, 231.0, 228.0), (245.0, 245.0, 245.0)];
-const SNOW_PERM: [Rgb; 3] = [(237.0, 240.0, 242.0), (245.0, 247.0, 248.0), (252.0, 252.0, 252.0)];
-const SNOW_GLAC: [Rgb; 3] = [(184.0, 210.0, 219.0), (203.0, 224.0, 230.0), (221.0, 236.0, 239.0)];
-const WETLAND_TEMP: [Rgb; 3] = [(58.0, 72.0, 52.0), (72.0, 88.0, 63.0), (89.0, 108.0, 78.0)];
-const WETLAND_TROP: [Rgb; 3] = [(46.0, 68.0, 44.0), (60.0, 86.0, 55.0), (76.0, 106.0, 68.0)];
-const MANGROVE: [Rgb; 3] = [(38.0, 56.0, 42.0), (50.0, 72.0, 52.0), (64.0, 90.0, 65.0)];
+/// The renderer's editable colour data and shading constants — what used to
+/// be 26 free-floating module consts, now one real, owned, inspectable
+/// structure. `Default` reproduces today's exact values (pixel-identical
+/// output); nothing here is wired to any UI/`#[func]` yet, matching
+/// `cartalith-spatial`'s own "standalone, real, unintegrated" precedent
+/// from earlier this session. See this module's own doc comment for why
+/// this is a palette table, not an elevation-breakpoint ramp.
+pub struct TerrainAppearance {
+    pub w_abyss: [Rgb; 3],
+    pub w_deep: [Rgb; 3],
+    pub w_shelf: [Rgb; 3],
+    pub w_trop: [Rgb; 3],
+    pub w_glac: [Rgb; 3],
+    pub sand_beach: [Rgb; 3],
+    pub sand_trop: [Rgb; 3],
+    pub sand_desert: [Rgb; 3],
+    pub sand_red: [Rgb; 3],
+    pub grass_dry: [Rgb; 3],
+    pub grass_temp: [Rgb; 3],
+    pub grass_boreal: [Rgb; 3],
+    pub grass_sav: [Rgb; 3],
+    pub wood_temp: [Rgb; 3],
+    pub wood_dense: [Rgb; 3],
+    pub wood_boreal: [Rgb; 3],
+    pub wood_trop: [Rgb; 3],
+    pub rock_granite: [Rgb; 3],
+    pub rock_sandstone: [Rgb; 3],
+    pub rock_scree: [Rgb; 3],
+    pub snow_seas: [Rgb; 3],
+    pub snow_perm: [Rgb; 3],
+    pub snow_glac: [Rgb; 3],
+    pub wetland_temp: [Rgb; 3],
+    pub wetland_trop: [Rgb; 3],
+    pub mangrove: [Rgb; 3],
+    /// `state.exag`'s literal default (reference HTML line 2260) — this
+    /// port has no exposure/UI for it, fixed at the JS default.
+    pub exag: f64,
+    /// `state.sunAz`'s literal default (reference HTML line 2260).
+    pub sun_az_deg: f64,
+    /// `state.bioBlend`'s literal default (reference HTML line 2260) — the
+    /// grey-desaturation blend in `land_color` is unconditional at this
+    /// value (`blend < 1`), not a `state.viz`-gated stretch feature.
+    pub bio_blend: f64,
+}
 
-/// `state.exag`/`state.sunAz`'s literal defaults (reference HTML line
-/// 2260) — this port has no exposure/UI for either, so both are fixed at
-/// their JS defaults rather than becoming new `WorldParams` knobs.
-const EXAG: f64 = 3.4;
-const SUN_AZ_DEG: f64 = 315.0;
-/// `state.bioBlend`'s literal default (reference HTML line 2260) — the
-/// grey-desaturation blend in `land_color` is unconditional at this value
-/// (`blend < 1`), not a `state.viz`-gated stretch feature.
-const BIO_BLEND: f64 = 0.90;
+impl Default for TerrainAppearance {
+    fn default() -> Self {
+        TerrainAppearance {
+            w_abyss: [(8.0, 36.0, 58.0), (10.0, 45.0, 70.0), (18.0, 59.0, 89.0)],
+            w_deep: [(16.0, 58.0, 87.0), (26.0, 75.0, 104.0), (42.0, 96.0, 122.0)],
+            w_shelf: [(47.0, 118.0, 150.0), (76.0, 151.0, 182.0), (111.0, 179.0, 207.0)],
+            w_trop: [(88.0, 184.0, 181.0), (121.0, 206.0, 197.0), (149.0, 222.0, 210.0)],
+            w_glac: [(127.0, 174.0, 190.0), (165.0, 197.0, 207.0), (194.0, 215.0, 222.0)],
+            sand_beach: [(200.0, 180.0, 138.0), (215.0, 195.0, 154.0), (227.0, 208.0, 167.0)],
+            sand_trop: [(228.0, 212.0, 181.0), (239.0, 226.0, 197.0), (246.0, 234.0, 213.0)],
+            sand_desert: [(201.0, 169.0, 104.0), (215.0, 182.0, 118.0), (226.0, 197.0, 138.0)],
+            sand_red: [(168.0, 101.0, 61.0), (191.0, 119.0, 75.0), (208.0, 137.0, 92.0)],
+            grass_dry: [(154.0, 138.0, 93.0), (176.0, 154.0, 106.0), (192.0, 171.0, 119.0)],
+            grass_temp: [(127.0, 138.0, 86.0), (143.0, 155.0, 97.0), (162.0, 175.0, 112.0)],
+            grass_boreal: [(102.0, 114.0, 79.0), (115.0, 128.0, 90.0), (133.0, 145.0, 107.0)],
+            grass_sav: [(181.0, 160.0, 94.0), (198.0, 176.0, 109.0), (216.0, 193.0, 128.0)],
+            wood_temp: [(53.0, 65.0, 40.0), (66.0, 82.0, 50.0), (85.0, 104.0, 67.0)],
+            wood_dense: [(40.0, 51.0, 31.0), (50.0, 64.0, 38.0), (64.0, 80.0, 48.0)],
+            wood_boreal: [(47.0, 56.0, 44.0), (57.0, 68.0, 53.0), (70.0, 84.0, 69.0)],
+            wood_trop: [(29.0, 71.0, 37.0), (40.0, 96.0, 50.0), (52.0, 120.0, 63.0)],
+            rock_granite: [(123.0, 117.0, 108.0), (147.0, 139.0, 128.0), (170.0, 161.0, 149.0)],
+            rock_sandstone: [(167.0, 122.0, 87.0), (188.0, 141.0, 103.0), (208.0, 159.0, 118.0)],
+            rock_scree: [(106.0, 102.0, 95.0), (122.0, 118.0, 110.0), (141.0, 137.0, 128.0)],
+            snow_seas: [(217.0, 215.0, 210.0), (232.0, 231.0, 228.0), (245.0, 245.0, 245.0)],
+            snow_perm: [(237.0, 240.0, 242.0), (245.0, 247.0, 248.0), (252.0, 252.0, 252.0)],
+            snow_glac: [(184.0, 210.0, 219.0), (203.0, 224.0, 230.0), (221.0, 236.0, 239.0)],
+            wetland_temp: [(58.0, 72.0, 52.0), (72.0, 88.0, 63.0), (89.0, 108.0, 78.0)],
+            wetland_trop: [(46.0, 68.0, 44.0), (60.0, 86.0, 55.0), (76.0, 106.0, 68.0)],
+            mangrove: [(38.0, 56.0, 42.0), (50.0, 72.0, 52.0), (64.0, 90.0, 65.0)],
+            exag: 3.4,
+            sun_az_deg: 315.0,
+            bio_blend: 0.90,
+        }
+    }
+}
 
 fn clamp01(x: f64) -> f64 {
     x.clamp(0.0, 1.0)
@@ -152,8 +222,8 @@ fn smooth_sea_h(src: &[f32], gw: usize, gh: usize, world: bool) -> Vec<f32> {
 /// `seaShadeFrom` (8112-8121) — single-sun hillshade of the smoothed
 /// bathymetry, edge-clamped (never wraps, even in world mode, matching the
 /// reference exactly).
-fn sea_shade_from(hf: &[f32], gw: usize, gh: usize) -> Vec<f32> {
-    let az = SUN_AZ_DEG.to_radians();
+fn sea_shade_from(hf: &[f32], gw: usize, gh: usize, appearance: &TerrainAppearance) -> Vec<f32> {
+    let az = appearance.sun_az_deg.to_radians();
     let alt = 40.0_f64.to_radians();
     let (lx, ly, lz) = (alt.cos() * az.sin(), -alt.cos() * az.cos(), alt.sin());
     let mut out = vec![0f32; gw * gh];
@@ -164,7 +234,7 @@ fn sea_shade_from(hf: &[f32], gw: usize, gh: usize) -> Vec<f32> {
             let r = if x + 1 < gw { hf[i + 1] } else { hf[i] } as f64;
             let u = if y > 0 { hf[i - gw] } else { hf[i] } as f64;
             let d = if y + 1 < gh { hf[i + gw] } else { hf[i] } as f64;
-            let (nx, ny, nz) = (-(r - l) * EXAG, -(d - u) * EXAG, 1.0_f64);
+            let (nx, ny, nz) = (-(r - l) * appearance.exag, -(d - u) * appearance.exag, 1.0_f64);
             let il = 1.0 / nx.hypot(ny).hypot(nz);
             let (nx, ny, nz) = (nx * il, ny * il, nz * il);
             out[i] = (nx * lx + ny * ly + nz * lz).max(0.0) as f32;
@@ -198,6 +268,10 @@ pub struct RenderCtx<'a> {
     /// shows. Computed once in `RenderCtx::new` rather than per cell.
     sea_h: Vec<f32>,
     sea_shade: Vec<f32>,
+    /// The renderer's colour data/shading constants (`TerrainAppearance`'s
+    /// own doc comment) — `TerrainAppearance::default()` this milestone,
+    /// not yet caller-settable (`TERRAIN_APPEARANCE_SCOPE.md` milestone 2+).
+    appearance: TerrainAppearance,
 }
 
 impl<'a> RenderCtx<'a> {
@@ -214,9 +288,10 @@ impl<'a> RenderCtx<'a> {
         lat_n: f64,
         lat_s: f64,
     ) -> Self {
+        let appearance = TerrainAppearance::default();
         let sea_h = smooth_sea_h(field, gw, gh, world);
-        let sea_shade = sea_shade_from(&sea_h, gw, gh);
-        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade }
+        let sea_shade = sea_shade_from(&sea_h, gw, gh, &appearance);
+        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, appearance }
     }
 
     fn h(&self, x: usize, y: usize) -> f64 {
@@ -288,13 +363,13 @@ impl<'a> RenderCtx<'a> {
         let r = self.h(xr, y);
         let u = self.h(x, yu);
         let d = self.h(x, yd);
-        let ex = EXAG / step as f64;
+        let ex = self.appearance.exag / step as f64;
         let dzdx = (r - l) * ex;
         let dzdy = (d - u) * ex;
         let (nx, ny, nz) = (-dzdx, -dzdy, 1.0_f64);
         let il = 1.0 / nx.hypot(ny).hypot(nz);
         let (nx, ny, nz) = (nx * il, ny * il, nz * il);
-        let az = SUN_AZ_DEG.to_radians();
+        let az = self.appearance.sun_az_deg.to_radians();
         let alt = 40.0_f64.to_radians();
         let (lx, ly, lz) = (alt.cos() * az.sin(), -alt.cos() * az.cos(), alt.sin());
         (nx * lx + ny * ly + nz * lz).max(0.0)
@@ -311,56 +386,56 @@ impl<'a> RenderCtx<'a> {
 
 /// `grassCol`/`forestCol`/`sandCol`/`rockCol`/`snowCol`/`wetlandCol`
 /// (7632-7638).
-fn grass_col(t: f64, m: f64, r: f64, tt: f64) -> Rgb {
+fn grass_col(a: &TerrainAppearance, t: f64, m: f64, r: f64, tt: f64) -> Rgb {
     let c = if t < 4.0 {
-        mix(ramp3(&GRASS_BOREAL, tt), ramp3(&GRASS_TEMP, tt), clamp01(m))
+        mix(ramp3(&a.grass_boreal, tt), ramp3(&a.grass_temp, tt), clamp01(m))
     } else if t > 22.0 && m < 0.4 {
-        mix(ramp3(&GRASS_SAV, tt), ramp3(&GRASS_DRY, tt), clamp01(m * 2.0))
+        mix(ramp3(&a.grass_sav, tt), ramp3(&a.grass_dry, tt), clamp01(m * 2.0))
     } else {
-        mix(ramp3(&GRASS_DRY, tt), ramp3(&GRASS_TEMP, tt), clamp01(m))
+        mix(ramp3(&a.grass_dry, tt), ramp3(&a.grass_temp, tt), clamp01(m))
     };
     let d = 1.0 - r * 0.16;
     (c.0 * d, c.1 * d, c.2 * d)
 }
 
-fn forest_col(t: f64, m: f64, tt: f64) -> Rgb {
+fn forest_col(a: &TerrainAppearance, t: f64, m: f64, tt: f64) -> Rgb {
     if t < 3.0 {
-        ramp3(&WOOD_BOREAL, tt)
+        ramp3(&a.wood_boreal, tt)
     } else if t > 20.0 && m > 0.45 {
-        ramp3(&WOOD_TROP, tt)
+        ramp3(&a.wood_trop, tt)
     } else if m > 0.62 {
-        ramp3(&WOOD_DENSE, tt)
+        ramp3(&a.wood_dense, tt)
     } else {
-        ramp3(&WOOD_TEMP, tt)
+        ramp3(&a.wood_temp, tt)
     }
 }
 
-fn sand_col(t: f64, m: f64, tt: f64) -> Rgb {
-    if t > 24.0 && m < 0.1 { ramp3(&SAND_RED, tt) } else { ramp3(&SAND_DESERT, tt) }
+fn sand_col(a: &TerrainAppearance, t: f64, m: f64, tt: f64) -> Rgb {
+    if t > 24.0 && m < 0.1 { ramp3(&a.sand_red, tt) } else { ramp3(&a.sand_desert, tt) }
 }
 
-fn rock_col(t: f64, m: f64, r: f64, tt: f64) -> Rgb {
+fn rock_col(a: &TerrainAppearance, t: f64, m: f64, r: f64, tt: f64) -> Rgb {
     if r > 0.82 {
-        ramp3(&ROCK_SCREE, tt)
+        ramp3(&a.rock_scree, tt)
     } else if t > 18.0 && m < 0.32 {
-        ramp3(&ROCK_SANDSTONE, tt)
+        ramp3(&a.rock_sandstone, tt)
     } else {
-        ramp3(&ROCK_GRANITE, tt)
+        ramp3(&a.rock_granite, tt)
     }
 }
 
-fn snow_col(t: f64, tt: f64) -> Rgb {
+fn snow_col(a: &TerrainAppearance, t: f64, tt: f64) -> Rgb {
     if t < -12.0 {
-        ramp3(&SNOW_GLAC, tt)
+        ramp3(&a.snow_glac, tt)
     } else if t < -4.0 {
-        ramp3(&SNOW_PERM, tt)
+        ramp3(&a.snow_perm, tt)
     } else {
-        ramp3(&SNOW_SEAS, tt)
+        ramp3(&a.snow_seas, tt)
     }
 }
 
-fn wetland_col(t: f64, mangrove: bool, tt: f64) -> Rgb {
-    if mangrove { ramp3(&MANGROVE, tt) } else { ramp3(if t > 20.0 { &WETLAND_TROP } else { &WETLAND_TEMP }, tt) }
+fn wetland_col(a: &TerrainAppearance, t: f64, mangrove: bool, tt: f64) -> Rgb {
+    if mangrove { ramp3(&a.mangrove, tt) } else { ramp3(if t > 20.0 { &a.wetland_trop } else { &a.wetland_temp }, tt) }
 }
 
 /// `materialWeights` (7655-7707) — the six material fractions, Σ=1.
@@ -442,7 +517,7 @@ fn bio_jitter(x: usize, y: usize, gw: usize) -> f64 {
 /// AO/SVF/shadow fields all being off). Every other `state.viz.*`-gated
 /// extra is omitted — see this module's doc comment.
 #[allow(clippy::too_many_arguments)]
-fn land_color(t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, x: usize, y: usize, gw: usize, gh: usize) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, x: usize, y: usize, gw: usize, gh: usize) -> Rgb {
     let n_low = vnoise(x as f64 * 0.06, y as f64 * 0.06, 11);
     let n_hi = vnoise(x as f64 * 96.0 / gw as f64, y as f64 * 96.0 / gw as f64, 23);
     let n_bio = bio_jitter(x, y, gw);
@@ -461,24 +536,24 @@ fn land_color(t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64,
         c.1 += m.1 * w;
         c.2 += m.2 * w;
     };
-    add(&mut c, snow_col(te, tt), w.snow);
-    add(&mut c, rock_col(te, me, r, tt), w.rock);
-    add(&mut c, sand_col(te, me, tt), w.sand);
-    add(&mut c, wetland_col(te, w.is_mangrove, tt), w.wetland);
+    add(&mut c, snow_col(appearance, te, tt), w.snow);
+    add(&mut c, rock_col(appearance, te, me, r, tt), w.rock);
+    add(&mut c, sand_col(appearance, te, me, tt), w.sand);
+    add(&mut c, wetland_col(appearance, te, w.is_mangrove, tt), w.wetland);
 
     if w.canopy > 0.0 {
         let understory = smoothstep(0.70, 0.94, w.c) * w.canopy * 0.28;
         c.0 += 20.0 * understory;
         c.1 += 43.0 * understory;
         c.2 += 25.0 * understory;
-        add(&mut c, forest_col(te, w.meff, tt), w.canopy - understory);
+        add(&mut c, forest_col(appearance, te, w.meff, tt), w.canopy - understory);
     }
 
-    add(&mut c, grass_col(te, me, r, tt), w.grass);
+    add(&mut c, grass_col(appearance, te, me, r, tt), w.grass);
 
     let beach_t = smoothstep(0.03, 0.0, r) * 0.6;
     if beach_t > 0.0 {
-        let bc = ramp3(if te > 22.0 { &SAND_TROP } else { &SAND_BEACH }, tt);
+        let bc = ramp3(if te > 22.0 { &appearance.sand_trop } else { &appearance.sand_beach }, tt);
         c.0 += (bc.0 - c.0) * beach_t;
         c.1 += (bc.1 - c.1) * beach_t;
         c.2 += (bc.2 - c.2) * beach_t;
@@ -493,9 +568,9 @@ fn land_color(t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64,
     let sh_combined = 0.40 * sh + 0.40 * sh_m + 0.20 * sh_micro;
     let light = 0.45 + 1.02 * clamp01(sh_combined).powf(0.85);
     let mut l = (c.0 * light, c.1 * light, c.2 * light);
-    if BIO_BLEND < 1.0 {
+    if appearance.bio_blend < 1.0 {
         let grey = 185.0 * light;
-        l = (grey + (l.0 - grey) * BIO_BLEND, grey + (l.1 - grey) * BIO_BLEND, grey + (l.2 - grey) * BIO_BLEND);
+        l = (grey + (l.0 - grey) * appearance.bio_blend, grey + (l.1 - grey) * appearance.bio_blend, grey + (l.2 - grey) * appearance.bio_blend);
     }
 
     let dx = x as f64 / gw as f64 - 0.5;
@@ -509,19 +584,19 @@ fn land_color(t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64,
 }
 
 /// `seaColorCore` (8122-8130).
-fn sea_color_core(depth: f64, t: f64, n_low: f64, sh: f64, vig: f64) -> Rgb {
+fn sea_color_core(appearance: &TerrainAppearance, depth: f64, t: f64, n_low: f64, sh: f64, vig: f64) -> Rgb {
     let mut wc = if depth < 0.2 {
-        ramp3(&W_SHELF, n_low)
+        ramp3(&appearance.w_shelf, n_low)
     } else if depth < 0.55 {
-        mix(ramp3(&W_SHELF, n_low), ramp3(&W_DEEP, n_low), (depth - 0.2) / 0.35)
+        mix(ramp3(&appearance.w_shelf, n_low), ramp3(&appearance.w_deep, n_low), (depth - 0.2) / 0.35)
     } else {
-        mix(ramp3(&W_DEEP, n_low), ramp3(&W_ABYSS, n_low), (depth - 0.55) / 0.45)
+        mix(ramp3(&appearance.w_deep, n_low), ramp3(&appearance.w_abyss, n_low), (depth - 0.55) / 0.45)
     };
     if t > 22.0 {
-        wc = mix(wc, ramp3(&W_TROP, n_low), smoothstep(22.0, 28.0, t) * (1.0 - depth) * 0.8);
+        wc = mix(wc, ramp3(&appearance.w_trop, n_low), smoothstep(22.0, 28.0, t) * (1.0 - depth) * 0.8);
     }
     if t < 5.0 {
-        wc = mix(wc, ramp3(&W_GLAC, n_low), smoothstep(5.0, -3.0, t) * 0.7);
+        wc = mix(wc, ramp3(&appearance.w_glac, n_low), smoothstep(5.0, -3.0, t) * 0.7);
     }
     if t < -2.0 {
         wc = mix(wc, (226.0, 233.0, 239.0), clamp01((-2.0 - t) / 6.0) * 0.85);
@@ -552,7 +627,7 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
         let shw = ctx.sea_shade[i] as f64;
         let depth = if ctx.sea_level <= 0.0 { 0.0 } else { clamp01((ctx.sea_level - hs) / ctx.sea_level) };
         let n_low = vnoise(x as f64 * 25.6 / ctx.gw as f64, y as f64 * 25.6 / ctx.gw as f64, 5);
-        sea_color_core(depth, t, n_low, shw, ctx.vignette_at(x, y))
+        sea_color_core(&ctx.appearance, depth, t, n_low, shw, ctx.vignette_at(x, y))
     } else {
         // `surfaceColor` (8145-8196), unconditional parts only.
         let m = ctx.rainfall[i] as f64;
@@ -564,7 +639,7 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
         let twi = (a / beta).ln();
         let asp = ctx.aspect_factor(x, y);
         let curv = ctx.curvature_at(x, y);
-        land_color(t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), x, y, ctx.gw, ctx.gh)
+        land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), x, y, ctx.gw, ctx.gh)
     };
 
     (clamp01(r / 255.0), clamp01(g / 255.0), clamp01(b / 255.0))

@@ -6008,3 +6008,51 @@ Classic-vs-Archipelago comparison described above.
 
 **Files touched**: `main.gd` (`_on_generate_pressed`/`_generate_worker`/
 `_on_generate_done`), `docs/STATUS.md` (Known-open item closed), this file.
+
+## Phase 3 milestone 1: `TerrainAppearance` abstraction in the renderer (2026-08-17)
+
+Turns `TERRAIN_APPEARANCE_RESEARCH.md` (owner-supplied) into Phase 3's first
+real milestone (`TERRAIN_APPEARANCE_SCOPE.md`) — a behavior-preserving
+refactor of `crates/cartalith-godot/src/render.rs`'s colour logic, no
+visual change.
+
+**Real audit finding, correcting the milestone's own initial assumption**:
+`render.rs` has no elevation-keyed colour *breakpoint ramp* anywhere,
+despite the research doc's MapTiler-style mental model (`0m → green, 300m
+→ yellow-green, ...`). Colour comes from `material_weights()` — a
+continuous blend over temperature/moisture/slope/relative-elevation/
+aspect/curvature producing six material fractions, each contributing
+colour via a noise-jittered 3-stop micro-ramp (`ramp3`, selected by a
+per-pixel texture-variety value from coherent noise, not by elevation).
+Relative elevation is one continuous input among several, not a lookup
+axis — so there were no "hardcoded elevation bands" to re-encode as a
+ramp, contrary to the milestone's own original plan.
+
+**Built instead, the honest version**: the 25 material/water 3-stop
+palettes (`W_ABYSS`...`MANGROVE`) plus `EXAG`/`SUN_AZ_DEG`/`BIO_BLEND` —
+previously 26 free module-level consts — are now one owned
+`TerrainAppearance` struct with a `Default` impl reproducing every value
+exactly. Threaded through every colour-selector function
+(`grass_col`/`forest_col`/`sand_col`/`rock_col`/`snow_col`/`wetland_col`/
+`sea_color_core`/`land_color`/`sea_shade_from`/`RenderCtx::shade`), all
+previously reading bare consts, now reading `&TerrainAppearance`.
+`RenderCtx` owns one `TerrainAppearance` (built via `Default` inside
+`RenderCtx::new`), so `RenderCtx::new`'s and `cell_color`'s public
+signatures — and therefore `golden_parity_render.rs` — needed **zero
+modification**. Not wired to any UI/`#[func]` yet, matching
+`cartalith-spatial`'s own "standalone but real" precedent.
+
+**Verified**: `golden_parity_render.rs`'s two tests
+(`cell_color_matches_js_surface_and_sea`, `cell_color_matches_js_world_wrap`)
+pass byte-identical, test file completely unmodified — the headline check
+for a pure refactor. `cargo build -p cartalith-godot` clean, `cargo clippy
+-p cartalith-godot --all-targets` clean (no new warnings), `cargo test
+--workspace` 0 regressions, `godot4 --headless --quit` clean load. Real
+windowed-app screenshot (seed 12345, Classic, 2048², 40 settlements)
+confirms correct rendering — biome colours, hillshade, settlements, roads,
+sea routes all visible, matching this session's prior screenshots at the
+same settings.
+
+**Files touched**: `crates/cartalith-godot/src/render.rs`,
+`TERRAIN_APPEARANCE_SCOPE.md` (milestone 1 marked done with the real
+finding), `docs/STATUS.md`, this file.
