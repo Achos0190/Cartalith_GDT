@@ -23,6 +23,20 @@
 //! the identical cells or it does not — plus [`icon_slot_for_item`] and
 //! [`sprite_draw_rect`].
 //!
+//! Milestone 5 added [`library`]: [`AssetDB`], [`AssetCollections`], the
+//! `AssetValidator.run()` warnings ([`library::run`]), and the
+//! `assetlib/library.json` record shape.
+//!
+//! Milestone 6 added [`raster`]: real PNG decode/encode, [`item_hash`] (a
+//! real content hash from decoded pixels, feeding milestone 5's own
+//! `duplicate_groups`/`slot_has_dupe`), [`fit_to_bottom`] and [`render_item`]
+//! (the transform math applied to actual pixels, for thumbnails, the
+//! inspector preview and a pack export's baked slot image alike),
+//! [`finalize_pack_texture_inv_mean`], and
+//! [`library::AssetDB::apply_library_file_with_items`] — the item
+//! restoration milestone 5 deliberately left undone because it needed
+//! pixels.
+//!
 //! ```
 //! use cartalith_assets::{parse_pack_manifest, pack_summary, Family, RawManifest};
 //! use std::collections::BTreeSet;
@@ -87,12 +101,13 @@
 //! `zip` crate, not a hand-port: what is ported is the reference's own
 //! STORE-the-PNGs / frozen-timestamp / `pack.json`-last export behaviour.
 //!
-//! Image decoding, the Asset Library's own item
-//! store and project-embedded `assetlib/library.json`, the icon *placement*
-//! engine that consumes [`ScatterRule`]s, and every part of the library UI are
-//! later milestones or explicitly out of scope; see `ASSET_LIBRARY_SCOPE.md`.
-//! **Nothing in the workspace depends on this crate yet** — by design, per
-//! this project's "don't wire in what nothing calls" discipline.
+//! Every part of the library UI, the sprite-sheet slicer's canvas
+//! interaction, and sprite compositing into the actual map render/ground-
+//! texture sampling (milestone 7, genuinely Phase-3-adjacent rendering work
+//! in `cartalith-godot`) are later milestones or explicitly out of scope; see
+//! `ASSET_LIBRARY_SCOPE.md`. **Nothing in the workspace depends on this crate
+//! yet** — by design, per this project's "don't wire in what nothing calls"
+//! discipline.
 
 #[cfg(feature = "zip")]
 pub mod archive;
@@ -100,6 +115,7 @@ pub mod library;
 pub mod manifest;
 pub mod ordered_map;
 pub mod placement;
+pub mod raster;
 pub mod scatter;
 pub mod slots;
 
@@ -111,6 +127,10 @@ pub use library::{
     AssetCollections, AssetDB, DuplicateEntry, ItemRecord, ItemTransform, LIBRARY_POI_SLOTS,
     LibraryError, LibraryFile, LibraryItem, LibrarySlot, PackInfo, SlotMeta, SlotRecord,
     duplicate_groups, library_slot_ids, parse_library_json, slot_has_dupe, slot_title,
+};
+pub use raster::{
+    DecodedImage, ImageError, decode_png, encode_png, finalize_pack_texture_inv_mean,
+    fit_to_bottom, item_hash, render_item,
 };
 pub use manifest::{
     MANIFEST_CSV, MANIFEST_JSON, PackError, PackManifest, Paths, RawManifest, RawStructures,

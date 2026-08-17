@@ -7844,3 +7844,128 @@ matters").
 hardening, plus milestones 1-4's existing suites unchanged),
 `cargo clippy -p cartalith-assets --all-targets` clean, `cargo test
 --workspace` 0 regressions across every crate.
+
+## Phase 4 milestone 6: image handling, real pixels via the `image` crate (2026-08-17)
+
+`ASSET_LIBRARY_SCOPE.md` milestone 6. New module `raster` in
+`cartalith-assets` (no feature gate — `image`'s own `default-features =
+false` + `png`-only already keeps its footprint small, and nothing in this
+crate needs an image-free build the way `archive`'s callers might want a
+zip-free one). First milestone that touches pixels.
+
+**Narrower than the milestone's own original description, exactly as
+milestone 5's own corrections already called it.** The transform *shape*
+(`ItemTransform`) and the duplicate-detection *machinery*
+(`duplicate_groups`/`slot_has_dupe`) both already existed. What this
+milestone actually built: real PNG decode/encode (`decode_png`/
+`encode_png`), a real content hash from decoded pixels (`item_hash`), the
+transform math itself applied to pixels rather than merely represented
+(`fit_to_bottom` mutates the transform; `render_item` is what actually
+composites scale/pan onto a canvas), thumbnail and pack-export bake
+(`render_item` again — the reference's own single shared function for
+both, per `ThumbnailRenderer`'s own architecture comment: "shared render
+core (thumbnails, inspector preview, export bake)"), `finalizePackTexture`'s
+inverse means (`finalize_pack_texture_inv_mean`), and wiring decoded items
+into library restoration (`AssetDB::apply_library_file_with_items`).
+
+**Crate work (`image`) plus a thin port, per the scope doc's own framing.**
+`image = "0.25.10"`, `default-features = false`, `features = ["png"]` —
+every asset this crate reads or writes is a PNG (every pack entry, every
+`assetlib/img/N.png` project entry), so the rest of `image`'s format zoo
+(gif/jpeg/webp/tiff/avif/exr/…) and its rayon/simd extras are dead weight
+never called here. Not present anywhere else in the workspace before this
+milestone; `default-features = false` verified to actually drop the extra
+codec dependencies (compared the dependency tree with and without the
+override before committing to it).
+
+**`itemHash`'s real algorithm, read before porting anything, and a real
+compatibility decision rather than an assumption.** `itemHash(img,w,h)`
+(reference line 26913) downsamples through `ctx.drawImage(img,0,0,32,32)`
+on a canvas, then runs a stride-7 FNV-1a variant (offset basis
+`0x811c9dc5`, prime `0x01000193`, 32-bit wrapping multiply) over the
+resulting pixels, appending `-{w}x{h}` (the item's *original* dimensions,
+not the thumbnail's). The hash constants and stride are ported verbatim.
+**Not golden-verified against a captured browser hash — a real, checked
+decision, not a gap**, for two reasons found by reading rather than
+assumed:
+
+1. **Never serialized, on either side.** `_alExportEntries` writes
+   `{img,name,t}` per item (line 27890) — no `hash` field — and
+   `_alImportProject` **recomputes** `hash:itemHash(img,w,h)` fresh after
+   its own decode (line 27922) rather than reading one back from a file.
+   No process ever compares its hash against another's.
+   `crate::library::ItemRecord` already reflected this before this
+   milestone ever named the reason — it shipped in milestone 5 with no
+   `hash` field at all.
+2. **Could not match even if it needed to.** `ctx.drawImage`'s resample
+   kernel is implementation-defined per the HTML5 Canvas spec — two
+   *browsers* need not agree on it, so "matches the reference" was never a
+   coherent bar here.
+
+`item_hash` is therefore real, deterministic content hashing (`image`'s
+`Triangle` filter standing in for the browser's unspecified resample),
+verified with real unit tests for the property that matters: same decoded
+pixels in, same string out; different pixels or different original
+dimensions, a different string out.
+
+**`finalizePackTexture`'s "inverse means" — checked against the real
+reference rather than assumed to be some reversed baking transform, per
+the task's own instruction to verify exactly what before porting. The
+literal reading holds**: the mean of each of R/G/B across every pixel,
+clamped to never read below 1 (`Math.max(1,mean)`), then reciprocated.
+Ported as `finalize_pack_texture_inv_mean(w,h,rgba) -> [f64;3]`. Pure
+arithmetic, no DOM — unlike `item_hash`, this one **is** golden-verified
+against the real reference (the same transient Node `vm` technique every
+earlier milestone used), six fixtures matched exactly including `n==0` and
+a mean-below-1-clamped case. `fit_to_bottom` is the milestone's other
+DOM-free function, golden-verified alongside it with seven fixtures.
+
+**`render_item` ports the reference's own shared render core**
+(`drawItemOnly`/`renderItem`) as one function for thumbnail, inspector
+preview, and pack-export bake alike, matching the reference's own
+architecture. Geometry (position, size, source-over alpha compositing) is
+exact; only the resampling kernel (`image`'s `CatmullRom`, standing in for
+`imageSmoothingQuality:'high'`) is not reference-identical, for the same
+reason `item_hash`'s is not.
+
+**Why the split between golden-parity and real unit tests**: every prior
+milestone's golden tests lift real reference functions into a headless
+Node `vm.runInContext` sandbox, which has no `document`/`Canvas`/`Image`/
+`Blob`. `finalizePackTexture` and `fitToBottom` are the only two functions
+in this milestone's scope with no DOM dependency, so those two are
+golden-verified; `item_hash`/`render_item`/`decode_png`/`encode_png` are
+real unit tests, documented as such in `src/raster.rs`'s own module docs.
+
+**`AssetDB::apply_library_file_with_items`**, the milestone-5-flagged
+wrapper: calls `apply_library_file` (unchanged, still covered by its own
+tests), then for each item whose PNG bytes the caller supplies (keyed by
+`img` index — reading them out of a project `.zip` is the caller's job),
+decodes, hashes for real, and `add_item`s a `LibraryItem` built from the
+record's own `name`/`t`. A missing or undecodable image is skipped
+silently without failing the rest — the reference's own
+`try{...}catch(_){}` (line 27920-27923).
+
+**A real non-port, named rather than silently skipped**:
+`AssetImporter.importPackZip` (decoding a whole *external pack* into
+`AssetDB`, distinct from restoring a previously-*exported project* via
+`apply_library_file_with_items`) was not built — the driving task named
+project restoration specifically, and every piece `importPackZip`'s
+equivalent would compose already exists for whoever picks it up next
+(`PackManifest`, `PackEntries`, this milestone's decode/hash/transform
+functions). Not a correction to milestone 7, which does not need it.
+
+15 new tests (10 raster unit + 3 library unit + 2 golden-parity). Still
+wired to nothing.
+
+**Corrections to milestone 7's scope: none.** Its boundary — renderer +
+Godot integration, only-then UI, sprite-sheet slicer and Library page UI
+both already out of scope — is unchanged by what this milestone's real
+implementation surface turned out to be.
+
+**Verified:** `cargo build -p cartalith-assets` and `--workspace`,
+`cargo test -p cartalith-assets` (87 lib unit tests total — 74 carried over
+from milestones 1-5 plus this milestone's 13 new ones, 10 in `raster` and 3
+in `library`; plus the new `tests/golden_parity_raster.rs`, 2 tests; every
+earlier milestone's golden/hardening suite unchanged), `cargo clippy -p
+cartalith-assets --all-targets` clean, `cargo test --workspace` 0
+regressions across every crate.

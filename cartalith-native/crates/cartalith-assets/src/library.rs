@@ -6,23 +6,32 @@
 //!   `AssetValidator` (lines 26781-26961).
 //! - `_alExportEntries`/`_alImportProject`'s **shape** (lines 27879-27928) —
 //!   the record schema and the pack-info/collections/rules restoration logic.
-//!   Image decode/encode (`encodeItemPng`, `AssetImporter.decodeBytes`) is
-//!   milestone 6's job; nothing here touches a pixel.
+//!   Image decode/encode (`encodeItemPng`, `AssetImporter.decodeBytes`) lives
+//!   in [`crate::raster`] (milestone 6); [`AssetDB::apply_library_file_with_items`]
+//!   is where the two meet.
 //!
-//! # What "pure data management; no images" means here
+//! # What "pure data management; no images" meant at milestone 5, and what
+//! changed at milestone 6
 //!
 //! [`LibraryItem`] carries a `hash: String` — the reference's `itemHash(img,
-//! w, h)` — but this crate never computes one: it is always supplied by the
-//! caller (a test fixture today, milestone 6's real decode step later). That
-//! keeps [`run`]'s duplicate-image detection fully
-//! implementable and golden-testable without decoding a single PNG.
+//! w, h)` ([`crate::item_hash`] since milestone 6) — but *this module* still
+//! never computes one itself: every constructor here still takes it as a
+//! caller-supplied string (a test fixture, or [`crate::item_hash`]'s real
+//! output via [`AssetDB::apply_library_file_with_items`]). That is what keeps
+//! [`run`]'s duplicate-image detection golden-testable without decoding a
+//! single PNG, exactly as milestone 5 shipped it — milestone 6 added a real
+//! hash *source*, not a new code path inside [`run`]/[`duplicate_groups`]
+//! themselves.
 //!
-//! [`AssetDB::apply_library_file`] restores everything a parsed
-//! [`LibraryFile`] carries **except** items: pack info, collections
-//! (unvalidated — see its own docs), and per-slot metadata/scatter rules. Item
-//! restoration needs real image bytes to compute a hash and is therefore left
-//! to milestone 6, which can reuse [`SlotRecord::items`]' `img` indices to
-//! find its bytes.
+//! [`AssetDB::apply_library_file`] still restores everything a parsed
+//! [`LibraryFile`] carries **except** items (pack info, collections —
+//! unvalidated, see its own docs — and per-slot metadata/scatter rules),
+//! unchanged from milestone 5 and still covered by its own golden/unit tests.
+//! [`AssetDB::apply_library_file_with_items`] is the milestone-6 wrapper
+//! milestone 5's own corrections named in advance: it calls
+//! `apply_library_file`, then decodes each [`SlotRecord::items`] entry whose
+//! `img` index the caller can supply bytes for, hashes it for real, and
+//! [`AssetDB::add_item`]s it.
 //!
 //! # A real finding: the Library's own `poi` vocabulary is not the pack
 //! vocabulary
@@ -778,10 +787,8 @@ impl AssetDB {
         }
         self.collections = AssetCollections::from_map(file.collections.clone());
         for rec in &file.slots {
-            let uid = match Family::from_key(&rec.fam) {
-                Some(Family::Custom) => self.add_custom_slot(&rec.name, rec.set.as_deref()).uid.clone(),
-                Some(family) => make_uid(family, None, &rec.id),
-                None => continue, // parse_library_json already drops these; defensive only
+            let Some(uid) = self.resolve_or_create_record_uid(rec) else {
+                continue; // parse_library_json already drops these; defensive only
             };
             let Some(slot) = self.slots.get_mut(&uid) else {
                 continue;
@@ -793,6 +800,72 @@ impl AssetDB {
                 slot.rules = Some(r.clone());
             }
         }
+    }
+
+    /// The uid a [`SlotRecord`] resolves to, creating a custom slot if needed
+    /// — the shared half of [`AssetDB::apply_library_file`]'s and
+    /// [`AssetDB::apply_library_file_with_items`]'s per-record loops.
+    /// `None` for an unresolvable `fam` (defensive only: [`parse_library_json`]
+    /// already drops those records before either loop ever sees them).
+    fn resolve_or_create_record_uid(&mut self, rec: &SlotRecord) -> Option<String> {
+        match Family::from_key(&rec.fam) {
+            Some(Family::Custom) => Some(self.add_custom_slot(&rec.name, rec.set.as_deref()).uid.clone()),
+            Some(family) => Some(make_uid(family, None, &rec.id)),
+            None => None,
+        }
+    }
+
+    /// [`AssetDB::apply_library_file`] plus the one piece it deliberately left
+    /// undone: item restoration (milestone 5's own note — "needs real image
+    /// bytes to compute a hash"). This is milestone 6's wrapper around it, per
+    /// that same note.
+    ///
+    /// Calls [`AssetDB::apply_library_file`] first (pack info, collections,
+    /// per-slot metadata/rules, and every slot's existence — including custom
+    /// slots), then walks `file`'s records again and, for each
+    /// [`ItemRecord`] whose `img` index has a matching entry in `img_bytes`
+    /// (keyed exactly as `assetlib/img/<img>.png` names it, minus the path —
+    /// the caller's job, not this crate's, since reading that path out of a
+    /// project `.zip` is `cartalith-io`/save-format territory), decodes it,
+    /// computes a real [`crate::item_hash`], and [`AssetDB::add_item`]s a
+    /// [`LibraryItem`] built from the record's own `name`/`t`.
+    ///
+    /// A missing byte entry or a decode failure for one item is skipped
+    /// silently and does not fail the whole restore — the reference's own
+    /// `try{...}catch(_){}` around this exact step (line 27920-27923): one
+    /// damaged image must not lose the rest of a restored project.
+    ///
+    /// Returns the number of items actually restored (a convenience this
+    /// port has and the reference does not report anywhere; harmless either
+    /// way since nothing here is serialized).
+    pub fn apply_library_file_with_items(
+        &mut self,
+        file: &LibraryFile,
+        img_bytes: &HashMap<usize, Vec<u8>>,
+    ) -> usize {
+        self.apply_library_file(file);
+        let mut restored = 0usize;
+        for rec in &file.slots {
+            let Some(uid) = self.resolve_or_create_record_uid(rec) else {
+                continue;
+            };
+            if !self.slots.contains_key(&uid) {
+                continue;
+            }
+            for item in &rec.items {
+                let Some(bytes) = img_bytes.get(&item.img) else {
+                    continue;
+                };
+                let Ok(decoded) = crate::raster::decode_png(bytes) else {
+                    continue;
+                };
+                let hash = crate::raster::item_hash(&decoded);
+                let library_item = LibraryItem::new(item.name.clone(), hash).with_transform(item.t.clone());
+                self.add_item(&uid, library_item);
+                restored += 1;
+            }
+        }
+        restored
     }
 }
 
@@ -1479,6 +1552,92 @@ mod tests {
     #[test]
     fn parse_library_json_rejects_malformed_json_as_an_error() {
         assert!(parse_library_json(b"{not json").is_err());
+    }
+
+    // -- apply_library_file_with_items (milestone 6) -----------------------
+
+    fn png_bytes(w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
+        let mut data = Vec::with_capacity((w * h * 4) as usize);
+        for _ in 0..(w * h) {
+            data.extend_from_slice(&rgba);
+        }
+        let img = crate::raster::DecodedImage::new(w, h, data).unwrap();
+        crate::raster::encode_png(&img).unwrap()
+    }
+
+    #[test]
+    fn apply_library_file_with_items_restores_real_items_with_a_real_hash() {
+        let mut db = AssetDB::new();
+        let uid = db.add_custom_slot("Lighthouse", Some("Naval")).uid.clone();
+        db.add_item(&uid, LibraryItem::new("l1.png", "placeholder"));
+        db.add_item("icons:mountain", LibraryItem::new("m1.png", "placeholder"));
+        let exported = db.to_library_json().unwrap();
+
+        let mut img_bytes = HashMap::new();
+        for slot in &exported.slots {
+            for item in &slot.items {
+                let rgba = if item.img == 0 { [10, 20, 30, 255] } else { [40, 50, 60, 255] };
+                img_bytes.insert(item.img, png_bytes(8, 8, rgba));
+            }
+        }
+
+        let mut fresh = AssetDB::new();
+        let restored = fresh.apply_library_file_with_items(&exported, &img_bytes);
+        assert_eq!(restored, 2);
+        assert_eq!(fresh.items(&uid).len(), 1);
+        assert_eq!(fresh.items("icons:mountain").len(), 1);
+
+        // A real hash, computed from real pixels -- not the placeholder string
+        // that went in, and not empty.
+        let lighthouse_hash = &fresh.items(&uid)[0].hash;
+        assert_ne!(lighthouse_hash, "placeholder");
+        assert!(!lighthouse_hash.is_empty());
+        assert!(lighthouse_hash.ends_with("-8x8"));
+
+        // Two different source images -> two different hashes, so dedup logic
+        // built on top of this (duplicate_groups) has something real to key on.
+        assert_ne!(lighthouse_hash, &fresh.items("icons:mountain")[0].hash);
+    }
+
+    #[test]
+    fn apply_library_file_with_items_skips_a_missing_or_undecodable_image_without_failing_the_rest() {
+        let mut db = AssetDB::new();
+        db.add_item("icons:mountain", LibraryItem::new("m1.png", "placeholder"));
+        db.add_item("icons:hill", LibraryItem::new("h1.png", "placeholder"));
+        let exported = db.to_library_json().unwrap();
+
+        let mut img_bytes = HashMap::new();
+        // Only supply (and corrupt) the first item's bytes; the second's index
+        // is never present at all -- both are real-world "damaged project"
+        // cases the reference's own try/catch absorbs.
+        img_bytes.insert(0usize, b"not a real png".to_vec());
+
+        let mut fresh = AssetDB::new();
+        let restored = fresh.apply_library_file_with_items(&exported, &img_bytes);
+        assert_eq!(restored, 0, "both items fail to restore, but neither panics");
+        assert!(fresh.items("icons:mountain").is_empty());
+        assert!(fresh.items("icons:hill").is_empty());
+    }
+
+    #[test]
+    fn apply_library_file_with_items_still_restores_meta_rules_pack_and_collections() {
+        // The wrapper must not regress anything apply_library_file already
+        // covers -- it calls straight through before touching a pixel. No
+        // image bytes are supplied at all, so the item itself does not
+        // restore, but everything else must.
+        let mut db = AssetDB::new();
+        db.pack.name = "My Pack".to_string();
+        db.collections.add("Coastal", &["icons:mountain".to_string()]);
+        db.slot_meta_mut("icons:mountain").unwrap().tags = vec!["tall".to_string()];
+        db.add_item("icons:mountain", LibraryItem::new("m1.png", "placeholder"));
+        let exported = db.to_library_json().unwrap();
+
+        let mut fresh = AssetDB::new();
+        let restored = fresh.apply_library_file_with_items(&exported, &HashMap::new());
+        assert_eq!(restored, 0, "no bytes supplied -- nothing decodes");
+        assert_eq!(fresh.pack.name, "My Pack");
+        assert_eq!(fresh.collections.as_map().get("Coastal").unwrap(), &["icons:mountain".to_string()]);
+        assert_eq!(fresh.get("icons:mountain").unwrap().meta.tags, vec!["tall"]);
     }
 
     #[test]
