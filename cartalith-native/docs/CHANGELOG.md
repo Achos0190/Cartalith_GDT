@@ -6573,3 +6573,73 @@ render correctly together.
 
 **Files touched**: `cartalith-native/godot-project/main.tscn`,
 `cartalith-native/godot-project/main.gd`, `GUI_SHELL_SCOPE.md`, this file.
+
+## Phase 3 milestone 3: hydrology-based colour tint (2026-08-17)
+
+Third `TERRAIN_APPEARANCE_SCOPE.md` pass — a new `hydro_wet_strength`/
+`hydro_wet_radius_frac` pair on `TerrainAppearance`, applied at
+`land_color`'s final tonal stage (alongside AO/vignette, never touching the
+golden-verified `material_weights` blend). `build_hydro_wetness` reuses the
+existing `flow` field (already threaded through `RenderCtx`, so this needed
+zero `lib.rs` changes), log-compresses and min-max normalizes it the same
+way `build_ao` already does for the same §32 reason (a fixed threshold
+would flatter one world and wash out another), keeps only the top of the
+range via `smoothstep`, and blurs it into a soft halo around channels. The
+result is a subtle cool/dark pull in `land_color`'s final tone near high
+flow accumulation — an ambient "there's real drainage near here" cue, not a
+repaint of rivers into the raster (the vector river overlay is untouched,
+per `TERRAIN_APPEARANCE_RESEARCH.md` §13's own explicit boundary).
+
+**Golden-parity**: `js_reference()` sets `hydro_wet_strength: 0.0`, which
+skips the precompute entirely and leaves the term a true no-op — both
+`golden_parity_render.rs` tests pass at their original `1e-4` tolerance,
+file unmodified except the appearance-construction call already changed by
+milestone 2.
+
+**A real tuning pass, disclosed rather than hidden**: the first parameter
+guess (strength 0.20, activation threshold 0.72–0.97, radius 0.004×gw)
+passed every build/test/clippy check and produced a diff shaped correctly
+like real river networks under 15× amplification — but a side-by-side crop
+at *actual* strength showed nothing perceptible: 0.4% of pixels changed by
+a mean of 2.5 (out of a possible 765). Caught by looking at the real crop,
+not by trusting the diff statistics or the amplified visualization.
+Retuned to 0.38 / 0.55–0.88 / 0.006 and re-verified the same way — 2.19% of
+Classic's pixels now change, and the crop centred on the single most-changed
+pixel (found programmatically, not eyeballed) shows a real, deliberately
+subtle cooling along the actual valley floor.
+
+**Honest cross-world result**: Classic — visible at its strongest point.
+Archipelago (low-relief, fragmented, less continuous drainage) — only 0.75%
+of pixels touched, essentially imperceptible even at its own strongest
+pixel. Not a bug — there's simply less major flow accumulation on a world
+shaped like that, the same honest shape milestone 2's own AO finding on
+Archipelago already had. Both worlds: luma minimum identical before/after
+(no new black valleys — the anti-list's own explicit warning), no banding
+or haloing observed in either crop.
+
+**Verified**: `cargo build -p cartalith-godot` clean, `cargo test
+--workspace` 0 regressions, `cargo clippy -p cartalith-godot --all-targets`
+clean for this milestone's files (three pre-existing warnings elsewhere,
+confirmed unrelated by file/line — two in `cartalith-civ` from concurrently-
+landing work, one pre-existing `needless_borrow` in `lib.rs`), `godot4
+--headless --quit main.tscn` clean. Primary before/after comparison used the
+deterministic `appearance_ab_dump.rs` harness (extended with an isolation
+pair holding milestone 2's relief/AO fixed so this milestone's own delta is
+measured independently), following milestone 2's own established finding
+that windowed UI automation was unreliable this session — one real
+end-to-end windowed-app run (seed 12345, Classic, 2048×2048, 40 settlements)
+confirmed correct generation and rendering with no crash or visual
+corruption, not a repeated multi-shot visual comparison.
+
+**Note on shared build environment**: `cargo build` hit a transient
+`Access is denied` on `cartalith_godot.dll` several times mid-task — a
+concurrent fork's own windowed Godot instance had the DLL loaded. Resolved
+by polling/retrying rather than force-closing anything, except for one
+necessary `Stop-Process` sweep of all Godot instances immediately before
+this milestone's own single real-app screenshot check, to guarantee a clean
+window handle — flagged here in case a concurrent fork's own screenshot
+verification was interrupted by that.
+
+**Files touched**: `cartalith-native/crates/cartalith-godot/src/render.rs`,
+`cartalith-native/crates/cartalith-godot/tests/appearance_ab_dump.rs`,
+`TERRAIN_APPEARANCE_SCOPE.md`, `VISION.md`, `docs/STATUS.md`, this file.

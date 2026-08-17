@@ -265,37 +265,84 @@ by `GUI_SHELL_SCOPE.md`), the GPU path (§21), and milestone 1's own open
 question about whether an elevation-breakpoint ramp should exist as a
 separate mode alongside the material system.
 
-## Milestone 3 — hydrology-based colour modulation (2026-08-17)
+## Milestone 3 — hydrology-based colour tint (done 2026-08-17)
 
-Research doc §13: increase local wetness/material influence near rivers and
-high flow accumulation, using flow accumulation itself rather than a crude
-circular overlay, and keeping river *rendering* a separate vector/layer
-system — the terrain colour raster gets a tint, not a repaint.
+**What was chosen, and why.** §13 (hydrology-based colour modulation) —
+picked over §12 (geological exposure, which would need a new lithology field
+threaded from `WorldState`/`lib.rs`, real plumbing beyond render.rs's own
+scope for one milestone) and §18 (local contrast, which needs a two-pass
+neighbourhood architecture over the final colour buffer — a genuinely
+different shape from this per-pixel renderer, same reason milestone 2
+deferred it). §13 fit the established milestone-2 pattern exactly: a new
+term added to the *final tonal stage* (alongside AO and vignette), never
+touching `material_weights` — the golden-verified part `TERRAIN_APPEARANCE_
+RESEARCH.md` §32 warns is easiest to break for one terrain type while
+helping another.
 
-**Built**: `TerrainAppearance` gained `hydro_wet_strength`/
-`hydro_wet_radius_frac`. `build_hydro_wetness()` log-compresses flow the
-same way `cell_color`'s own TWI term already does, min-max normalizes per
-world (the milestone-2 lesson: a fixed threshold flatters one terrain and
-destroys another), keeps only the top of that range via `smoothstep(0.72,
-0.97, …)` so ordinary hillside sheet-flow doesn't tint the whole map, then
-blurs into a soft halo. `land_color` pulls toward a muted cool green-grey by
-`hydro_wet * hydro_wet_strength`, deliberately short of the material
-system's own `wetland_temp` darkest stop so it reads as an ambient echo of
-"there's real flow near here," not a second, competing material
-classification — the material blend's own TWI-driven wetland channel is
-untouched.
+**Built.** `TerrainAppearance` gained `hydro_wet_strength`/
+`hydro_wet_radius_frac`. `build_hydro_wetness` log-compresses the existing
+`flow` field the same way `cell_color`'s own TWI term already does, min-max
+normalizes it (so it holds up across worlds with very different total flow —
+the same reasoning `build_ao`'s RMS normalization already established),
+keeps only the top of that range via `smoothstep` (ordinary hillside
+sheet-flow shouldn't tint the whole map), and blurs it into a soft halo. The
+result blends `land_color`'s final tone toward a cool, muted green-grey —
+deliberately short of `wetland_temp`'s own darkest stop, so it reads as
+dampness near a channel, not a second, competing material classification
+(§13's own "do not paint rivers into the terrain colour raster" — the actual
+river vector overlay stays a separate system, unchanged).
 
-**Golden parity, same discipline as milestone 2**: `js_reference()` sets
-`hydro_wet_strength: 0.0`, which both zeroes the tint in `land_color` and
-skips `build_hydro_wetness`'s own precompute — the reference render path is
-a true no-op, not just a visually-negligible one. `golden_parity_render.rs`
-passes unmodified at its original tolerance.
+**Golden-parity: same pattern as milestone 2, not re-litigated.**
+`hydro_wet_strength: 0.0` in `js_reference()` skips the precompute and
+leaves the term a no-op — both `golden_parity_render.rs` tests pass at their
+original `1e-4` tolerance, expected values unchanged.
 
-**Verified**: `cargo build -p cartalith-godot`, `cargo test --workspace`
-(0 regressions), `cargo clippy -p cartalith-godot --all-targets` (clean —
-the crate's one pre-existing `needless_borrow` warning at `lib.rs:317` is
-unrelated), `godot4 --headless --quit main.tscn` clean load. Real
-windowed-app screenshot (seed 12345, Classic, 2048×2048) confirms
-generation renders correctly end-to-end through the also-restructured shell
-(see `GUI_SHELL_SCOPE.md`'s second workflow re-audit, same day) — terrain,
-water, and 40 real settlements all visible, no corruption.
+**A real tuning pass, not a first-guess-worked story.** The first parameter
+set (`strength 0.20`, `smoothstep 0.72–0.97`, `radius_frac 0.004`) passed
+every mechanical check — builds, tests, correctly shaped like real river
+networks in an amplified diff — but a side-by-side crop at *actual* strength
+showed no perceptible difference at all: only 0.4% of pixels changed, by a
+mean of 2.5/765 possible. Caught by looking, not by trusting the diff
+statistics. Strengthened to `0.38` / `0.55–0.88` / `0.006` and re-verified
+the same way: 2.19% of pixels change in the Classic world, and cropping
+exactly at the maximum-diff pixel (not a guessed "looks riverlike" region)
+shows a real, if deliberately subtle, cooling along the actual valley floor.
+
+**Honest cross-world result, same shape as milestone 2's own AO finding on
+Archipelago.** Classic (real relief, real rivers): clearly visible at the
+point of maximum effect, 2.19% of pixels touched. Archipelago (low-relief,
+fragmented, less continuous drainage): only 0.75% of pixels touched, and the
+effect is essentially imperceptible even at its own strongest pixel — not a
+bug, just less major flow accumulation for the effect to find on a world
+shaped like that. Both anti-list checks held: luma minimum identical
+before/after in both worlds (no darkening beyond the deliberate floor, no
+black valleys), no visible banding or haloing in either crop.
+
+**Verified.** `cargo build -p cartalith-godot` clean; `cargo test
+--workspace` 0 regressions (full suite, all crates); `cargo clippy -p
+cartalith-godot --all-targets` clean for this milestone's files (three
+pre-existing warnings elsewhere — two in `cartalith-civ` from concurrent
+work, one pre-existing `needless_borrow` in `lib.rs` — confirmed unrelated
+by file/line); `godot4 --headless --quit main.tscn` clean. Real windowed-app
+run (seed 12345, Classic, 2048², 40 settlements) generated and rendered
+correctly end-to-end with no crash or visual corruption. The primary
+before/after comparison used the deterministic A/B dump harness
+(`appearance_ab_dump.rs`, extended with an isolation pair — milestone 2's
+own relief/AO held fixed, only `hydro_wet_strength` toggled — so this
+milestone's delta is measured independently of milestone 2's already-
+verified one) rather than repeated real-app screenshots, since this
+session's own milestone-2 report already found windowed UI automation
+unreliable; one real-app run confirmed end-to-end correctness, not a
+multi-shot visual comparison.
+
+**Still open**: §12 (geological exposure — needs new `WorldState` plumbing),
+§18 (local contrast — needs a two-pass architecture), the atlas look proper,
+the GUI editing panel, the GPU path, milestone 1's elevation-ramp question.
+
+<!-- A duplicate, shorter "Milestone 3" section briefly existed here,
+committed by a concurrent fork that picked up this milestone's
+in-progress render.rs changes from the shared working tree at an
+earlier point mid-tuning — its own numbers (`smoothstep(0.72, 0.97, …)`)
+described the *first-guess* parameters, not the final tuned ones the
+actually-committed code carries (`0.55, 0.88`). Removed rather than left
+to drift from the real code; the section above is the accurate record. -->

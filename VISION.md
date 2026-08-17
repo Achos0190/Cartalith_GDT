@@ -162,6 +162,19 @@ owner's call, and it is the single biggest open question this render raises.
    dimming. A 3× zoom caught one real regression mid-pass (the fine AO
    radius resolved to 1 cell and read as speckle — "random texture
    noise", also on the anti-list) which was fixed before landing.
+   **Milestone 3 done 2026-08-17**: a subtle cool/dark tint near real river
+   flow (`hydro_wet_strength`), reusing the same `flow` field already
+   powering the settlement suitability explainer above — hydrology now
+   shows up twice in this codebase, once as data (item 1) and once as
+   atmosphere (this item). The first parameter guess passed every
+   mechanical check but was visually undetectable in a real crop (0.4% of
+   pixels, barely above the JPEG-noise floor) — caught by actually looking,
+   not by trusting the diff numbers — and was strengthened until a crop
+   centred on the real maximum-difference pixel showed genuine, still-
+   subtle dampness along a valley floor. Honest across terrain types, same
+   shape as milestone 2's own finding: real on the mountainous Classic
+   world, nearly invisible on the low-relief Archipelago one, because
+   there's simply less major drainage there to find.
    Still ahead for the atlas look proper: the paper/vellum ground, forest
    stippling, hand-lettered glyphs and the physical border.
 3. **Layer-stack treatment** — real polish on an already-built panel.
