@@ -190,7 +190,30 @@ doc's own "Out of scope for all milestones" section.
 
 ## Real milestone breakdown for what remains (not started)
 
-Ordered by dependency, per `ECONOMY_SCOPE.md`'s own categorization:
+### Build order — read this before the numbers below
+
+**The milestone numbers below are historical identifiers, not a build
+order.** They were assigned by `ECONOMY_SCOPE.md`'s original categorization,
+before anyone had read the real reference code; milestone 3's own
+investigation then found a genuine dependency inversion (its two stage
+calculators need milestone 4's mass model). The numbers are deliberately
+**not** renumbered — they are referenced by name across `CHANGELOG.md`,
+`STATUS.md`, several commit messages, and this document's own prose, and
+renumbering would invalidate all of it to fix a problem a single table
+solves.
+
+| Build next | Milestone | Why this position |
+|---|---|---|
+| 1st | **4 — Consumption/resupply** | Unblocks milestone 3's tail (`jp_calc_land`/`jp_calc_water`) and part of milestone 2's. Carries `jp_fmt_kg` from milestone 6. Contains real quick wins (four near-one-liners) plus one genuinely hard piece (`jp_foraging`'s wildlife-richness plumbing). |
+| 2nd | **3 (tail) + 2 (partial)** | `jp_calc_land`/`jp_calc_water` become portable the moment 4 lands; `_jp_best_land_transport_for_stage` follows immediately after `jp_calc_land`. Not a milestone of its own — fold into 4's own verification pass. |
+| 3rd | **5 — Route/stage derivation** | The orchestration layer; needs 2-4 done. Almost certainly the largest single milestone here. Pick up `_civTransshipments` alongside it (on no list, needed by the already-ported `jp_journey_cost`). |
+| 4th | **6 — Verdict/reporting** | Needs 5's plan output to verify against. Minus `jp_fmt_kg`, already taken by 4. |
+| last | **2 (remainder)** | `jp_auto_pick_transport`/`jp_auto_pick_vessel`/`_jp_best_package_for_stage` all need milestone 5's plan shapes. Re-attempt after 5. |
+
+Milestones 1 and 3 (main body) are **done**; see their own sections above.
+
+The numbered list that follows preserves the original numbering for
+cross-reference; consult the table above for what to actually build next:
 
 2. ~~**Transport mode selection**~~ — see "Milestone 2" above. Four
    functions remain genuinely blocked, re-checked against the reference
