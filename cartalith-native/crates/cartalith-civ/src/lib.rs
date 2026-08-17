@@ -5342,25 +5342,14 @@ pub fn jp_animal_terrain_mod(animal_key: &str, terrain: &str) -> f64 {
     jp_animal_terrain_override(animal_key, terrain).unwrap_or_else(|| jp_terrain_land_mod(terrain))
 }
 
-/// `JP_BIOMES[...].desertLike`/`.bestAnimals[0]` (reference line 17487),
-/// narrowed to the two fields `jpBestAnimalForContext` actually reads --
-/// `water`/`forage`/`waterForage`/`grazing`/`weather` belong to milestones
-/// 3/4, not this one.
+/// `JP_BIOMES[...].desertLike`/`.bestAnimals[0]` (reference line 17487) --
+/// the two fields `jpBestAnimalForContext` reads, off the one biome record
+/// `jp_biome` owns (milestone 4 added the remaining columns; there is no
+/// second copy of this table to drift from).
 fn jp_biome_desert_like_and_best(biome_key: &str) -> (bool, &'static str) {
-    match biome_key {
-        "Temperate Forest" => (false, "mule"),
-        "Tropical Jungle" => (false, "mule"),
-        "Boreal Taiga" => (false, "mule"),
-        "Tundra / Polar" => (false, "mule"),
-        "Steppe / Grassland" => (false, "horse"),
-        "Mediterranean Scrub" => (false, "mule"),
-        "Hot Desert" => (true, "camel"),
-        "Cold Desert / Badlands" => (true, "camel"),
-        "Mountain Highland" => (false, "mule"),
-        "Wetlands / Marshes" => (false, "donkey"),
-        "Coastal Lowland" => (false, "mule"),
-        "Ruined Wastes" => (false, "mule"),
-        _ => (false, "mule"),
+    match jp_biome(biome_key) {
+        Some(b) => (b.desert_like, b.best_animal),
+        None => (false, "mule"),
     }
 }
 
@@ -6256,6 +6245,1534 @@ pub fn jp_journey_cost(
         cargo_t,
         per_tonne_km,
         break_even_per_tonne,
+    })
+}
+
+// ----------------------------------------------------------------------------
+// Journey Planner milestone 4 -- consumption/resupply (`JOURNEY_PLANNER_SCOPE.md`).
+//
+// Built here *before* milestone 3's own tail, on the build-order table at the
+// head of that document's milestone breakdown: `jpCalcLand`/`jpCalcWater` call
+// `jpCapacity`/`jpForaging`/`jpAssessResupply`/`_jpDesertTierForGap`, every one
+// of which is milestone 4's. So this block ships milestone 4 *and* closes
+// milestone 3 (`jp_calc_land`/`jp_calc_water`) and one of milestone 2's four
+// deferrals (`_jp_best_land_transport_for_stage`, which needs nothing beyond
+// `jpCalcLand` and a plan -- confirmed by reading reference line 18053, whose
+// `eff` parameter is only ever a plan with per-stage overrides merged in).
+// `jp_fmt_kg` is milestone 6's, carried here because both stage calculators
+// format their blocked-message text with it; the rest of milestone 6 is
+// untouched.
+//
+// **The wildlife-richness decision** (the one piece this scope doc flagged as
+// "its own real decision, not a transcription"): `_jpWildlifeForageMod`
+// (reference line 18134) samples `currentWildlife().regions[rid].richness` at a
+// stage's midpoint cell and compares it with the *world's own* mean richness.
+// Checked against this port rather than assumed: `richness` is not NPP and not
+// carrying capacity -- `build_npp`/`build_carrying_capacity` (Phase 2
+// milestones 4-5, in this same crate) are both real and both *inputs* to it,
+// but the quantity itself is a per-ecoregion **species count**
+// (`assignWildlife`, reference line 18177 of block 1: `present.length`, a
+// biome species roster clipped by `regionRichness`'s species-area x energy x
+// heterogeneity x latitude curve). The whole ecoregion-segmentation +
+// species-roster subsystem (`buildEcoregions`/`regionRichness`/
+// `assignWildlife`/`WILD_ROSTERS`) is unported, is not on any Journey Planner
+// milestone, and is far larger than this one. So the input is genuinely new.
+//
+// It is supplied by the caller, not reached for: `jp_wildlife_forage_mod`
+// takes one region's richness and the world mean and returns exactly the
+// reference's bounded ratio, `jp_world_mean_richness` computes that mean from a
+// caller-supplied region list, and `JpStage::wildlife_forage_mod` carries the
+// finished multiplier in place of the reference's `st.mx`/`st.my` grid
+// coordinates. Same precedent as `civ_resource_trade_balance`'s caller-supplied
+// means, and it preserves the reference's own calibration anchor exactly:
+// **1.0 means "no wildlife data", and 1.0 is also what an exactly-average
+// region produces**, so the flat `JP_BIOMES.forage` table stays the anchor and
+// a port with no ecoregion model behaves identically to the reference running
+// on a world whose wildlife layer was never built.
+//
+// Golden-verified against the frozen reference: lines 17297-19206 were sliced
+// out of `reference/Cartalith Gen1 v2.10.html` and evaluated in a bare Node
+// `vm.runInContext` with no DOM (same harness technique milestone 3 used), and
+// every expected value in the tests below -- including all eleven `jpCalcLand`
+// cases and all seven `jpCalcWater` cases, verdict strings and all -- is that
+// run's output rather than hand arithmetic.
+//
+// Not wired to any caller: no `#[func]`, no `compute_civilisation()`
+// integration, per the scope doc's own "Out of scope for all milestones".
+// ----------------------------------------------------------------------------
+
+/// `jpFmtKg` (reference line 17605, milestone 6's, needed here): mass as a
+/// human-readable string. `Math.round`/`toFixed` are JS's own
+/// round-half-away-from-zero, not Rust's round-half-to-even -- see `js_fixed`.
+pub fn jp_fmt_kg(kg: f64) -> String {
+    if kg >= 1000.0 {
+        format!("{} t", js_fixed(kg / 1000.0, 1))
+    } else {
+        format!("{} kg", (kg + 0.5).floor())
+    }
+}
+
+/// JS `Number.prototype.toFixed`: "pick the larger n" on a tie, i.e. round
+/// half away from zero, where Rust's `{:.N}` rounds half to even. Only ever
+/// used for verdict/blocked-message text, but those strings are compared
+/// against the reference's own output in the tests below, so the tie-breaking
+/// rule has to match.
+fn js_fixed(v: f64, digits: u32) -> String {
+    if !v.is_finite() {
+        return format!("{v}");
+    }
+    let p = 10f64.powi(digits as i32);
+    let rounded = (v.abs() * p + 0.5).floor() / p * v.signum();
+    format!("{:.*}", digits as usize, rounded)
+}
+
+/// `JP_BIOMES` (reference line 17487), the four columns milestones 2 and 3
+/// each deliberately left out (`water`/`forage`/`waterForage`/`grazing`) plus
+/// the two they did port, so there is one biome record rather than three
+/// partial ones. `weather` stays in `jp_biome_weather` (milestone 3's, keyed
+/// by season) -- a 12x4x5 table has no business inside a scalar row struct.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JpBiome {
+    /// `water[0]`/`water[1]`: the L/person/day range whose midpoint is
+    /// `jp_human_water_rate`.
+    pub water_lo: f64,
+    pub water_hi: f64,
+    pub forage: f64,
+    /// v1.81: dew/succulents/damp ground a forager can exploit *beyond* the
+    /// mapped water sources `_jp_stage_dry_km` already finds -- deliberately
+    /// much smaller than `forage` and near zero in true desert.
+    pub water_forage: f64,
+    pub grazing: f64,
+    pub desert_like: bool,
+    /// `bestAnimals[0]`, the only element `jpBestAnimalForContext` reads.
+    pub best_animal: &'static str,
+}
+
+/// `JP_BIOMES[key]`; `None` for an unrecognised key, which is the reference's
+/// own `undefined` -- every caller here forks on exactly that.
+pub fn jp_biome(biome_key: &str) -> Option<JpBiome> {
+    let b = |water_lo, water_hi, forage, water_forage, grazing, desert_like, best_animal| {
+        Some(JpBiome { water_lo, water_hi, forage, water_forage, grazing, desert_like, best_animal })
+    };
+    match biome_key {
+        "Temperate Forest" => b(2.0, 3.0, 0.55, 0.12, 0.60, false, "mule"),
+        "Tropical Jungle" => b(3.0, 5.0, 0.65, 0.20, 0.45, false, "mule"),
+        "Boreal Taiga" => b(2.0, 3.0, 0.30, 0.08, 0.35, false, "mule"),
+        "Tundra / Polar" => b(2.0, 4.0, 0.10, 0.05, 0.10, false, "mule"),
+        "Steppe / Grassland" => b(3.0, 5.0, 0.22, 0.06, 0.65, false, "horse"),
+        "Mediterranean Scrub" => b(3.0, 5.0, 0.32, 0.05, 0.45, false, "mule"),
+        "Hot Desert" => b(6.0, 10.0, 0.04, 0.01, 0.00, true, "camel"),
+        "Cold Desert / Badlands" => b(4.0, 7.0, 0.07, 0.02, 0.05, true, "camel"),
+        "Mountain Highland" => b(2.0, 4.0, 0.18, 0.07, 0.25, false, "mule"),
+        "Wetlands / Marshes" => b(3.0, 4.0, 0.50, 0.22, 0.40, false, "donkey"),
+        "Coastal Lowland" => b(2.0, 4.0, 0.40, 0.10, 0.50, false, "mule"),
+        "Ruined Wastes" => b(3.0, 5.0, 0.15, 0.04, 0.18, false, "mule"),
+        _ => None,
+    }
+}
+
+/// `JP_SEASONS` (reference line 17530): seasonal forage/grazing multipliers.
+/// `None` for an unrecognised season, matching the reference's own
+/// `JP_SEASONS[season]?.forageMod ?? 1.0`.
+fn jp_season_mods(season: &str) -> Option<(f64, f64)> {
+    match season {
+        "Spring" => Some((1.10, 1.10)),
+        "Summer" => Some((1.25, 1.20)),
+        "Autumn" => Some((1.00, 0.90)),
+        "Winter" => Some((0.45, 0.35)),
+        _ => None,
+    }
+}
+
+/// `JP_DESERT_ANIMAL_MOD` (reference line 17392): desert food/water
+/// multipliers per species -- a camel drinks a third of its temperate rate,
+/// a horse over twice.
+fn jp_desert_animal_mod(animal_key: &str) -> (f64, f64) {
+    match animal_key {
+        "donkey" => (1.2, 2.0),
+        "mule" => (1.2, 2.0),
+        "horse" => (1.3, 2.3),
+        "camel" => (0.9, 0.35),
+        _ => (1.0, 1.0),
+    }
+}
+
+/// `JP_SEASONAL_ANIMAL` (reference line 17397): per-species seasonal
+/// physiology as `(cap, food, water)`. `None` for an unrecognised season --
+/// the reference's own `JP_SEASONAL_ANIMAL[season]||null`, which switches the
+/// whole seasonal term off rather than defaulting per-field.
+fn jp_seasonal_animal(season: &str, animal_key: &str) -> Option<(f64, f64, f64)> {
+    let row = match (season, animal_key) {
+        ("Winter", "donkey") => (1.00, 1.15, 0.90),
+        ("Winter", "mule") => (1.05, 1.15, 0.90),
+        ("Winter", "horse") => (1.05, 1.20, 0.90),
+        ("Winter", "camel") => (1.50, 1.05, 0.70),
+        ("Spring", "donkey") => (1.00, 1.00, 1.00),
+        ("Spring", "mule") => (1.00, 1.00, 1.00),
+        ("Spring", "horse") => (1.00, 1.00, 1.00),
+        ("Spring", "camel") => (1.30, 1.00, 0.85),
+        ("Summer", "donkey") => (0.95, 0.95, 1.10),
+        ("Summer", "mule") => (0.95, 0.95, 1.15),
+        ("Summer", "horse") => (0.90, 1.00, 1.20),
+        ("Summer", "camel") => (1.00, 0.95, 1.00),
+        ("Autumn", "donkey") => (1.00, 1.05, 0.95),
+        ("Autumn", "mule") => (1.00, 1.05, 0.95),
+        ("Autumn", "horse") => (1.00, 1.10, 0.95),
+        ("Autumn", "camel") => (1.30, 1.00, 0.85),
+        _ => return None,
+    };
+    Some(row)
+}
+
+/// `JP_SEASONAL_HUMAN` (reference line 17403) as `(food, water)`; an
+/// unrecognised season gets the reference's own `{food:1,water:1}` fallback.
+fn jp_seasonal_human(season: &str) -> (f64, f64) {
+    match season {
+        "Winter" => (1.30, 0.85),
+        "Spring" => (1.00, 1.00),
+        "Summer" => (0.95, 1.25),
+        "Autumn" => (1.05, 0.95),
+        _ => (1.0, 1.0),
+    }
+}
+
+/// `JP_GRAZING` (reference line 17540) as `(speedMod, fodderFrac)`.
+/// `speedMod` is the *cost* of grazing during travel hours (v1.63 confirmed
+/// the scale is not inverted), so it falls as more grazing happens on the
+/// move. Unknown key -> the reference's own `?? 1.0` on both reads.
+fn jp_grazing(key: &str) -> (f64, f64) {
+    match key {
+        "None — carry all fodder" => (1.00, 1.00),
+        "Partial — graze at camp" => (0.93, 0.50),
+        "Full — graze on route" => (0.85, 0.00),
+        _ => (1.00, 1.00),
+    }
+}
+
+/// `JP_FORAGING` (reference line 17541) as `(speedMod, take)`.
+fn jp_foraging_mode(mode: &str) -> (f64, f64) {
+    match mode {
+        "None" => (1.00, 0.00),
+        "Opportunistic" => (0.97, 0.40),
+        "Active" => (0.88, 1.00),
+        _ => (1.00, 0.00),
+    }
+}
+
+/// `JP_TERRAIN_CONSUMPTION` (reference line 17561): Pandolf et al. (1977)
+/// metabolic terrain factors as `(food, water)` ration multipliers.
+fn jp_terrain_consumption(terrain: &str) -> (f64, f64) {
+    match terrain {
+        "Paved Road" | "Dirt Track" | "Open Plains" => (1.00, 1.00),
+        "Forest Path" => (1.05, 1.00),
+        "Hills" => (1.10, 1.05),
+        "Rocky Terrain" => (1.15, 1.05),
+        "Mountain Pass" => (1.20, 1.15),
+        "Mountain Trails" => (1.30, 1.20),
+        "Swamp / Marsh" => (1.20, 1.10),
+        "Desert Hardpack" => (1.00, 1.10),
+        "Deep Sand" => (1.25, 1.30),
+        "Snow / Ice" => (1.30, 0.95),
+        "Ruins / Debris" => (1.10, 1.05),
+        _ => (1.0, 1.0),
+    }
+}
+
+/// `JP_FORAGE_TERRAIN` (reference line 17568): how much of a biome's forage
+/// potential this ground actually yields. Unknown terrain -> `?? 0.5`.
+fn jp_forage_terrain(terrain: &str) -> f64 {
+    match terrain {
+        "Paved Road" => 0.35,
+        "Dirt Track" => 0.55,
+        "Open Plains" => 0.70,
+        "Forest Path" => 1.00,
+        "Hills" => 0.65,
+        "Rocky Terrain" => 0.40,
+        "Mountain Pass" => 0.45,
+        "Mountain Trails" => 0.45,
+        "Swamp / Marsh" => 0.70,
+        "Desert Hardpack" => 0.15,
+        "Deep Sand" => 0.05,
+        "Snow / Ice" => 0.30,
+        "Ruins / Debris" => 0.25,
+        _ => 0.5,
+    }
+}
+
+/// `JP_PACE` (reference line 17533). Unknown key -> `?? 1.0`.
+pub fn jp_pace_mod(pace: &str) -> f64 {
+    match pace {
+        "Haste" => 1.35,
+        "Forced March" => 1.25,
+        "Standard Pace" => 1.00,
+        "Cautious / Scouting" => 0.75,
+        "Stealth / Night Travel" => 0.60,
+        _ => 1.0,
+    }
+}
+
+/// `JP_INFRA` (reference line 17534). Unknown key -> `?? 1.0`.
+pub fn jp_infra_mod(infra: &str) -> f64 {
+    match infra {
+        "Operational Waystations" => 1.15,
+        "Stable Settlements" => 1.00,
+        "Sparse Settlements" => 0.85,
+        "Ruined Region" => 0.70,
+        "Hostile / Dead Zone" => 0.50,
+        _ => 1.0,
+    }
+}
+
+/// `JP_ROUTE` (reference line 17464): route-condition speed modifiers per
+/// travel category. Unknown key -> `?? 1.0`.
+pub fn jp_route_mod(cat: &str, condition: &str) -> f64 {
+    let hit = match cat {
+        "land" => match condition {
+            "Maintained" => Some(1.20),
+            "Standard" => Some(1.00),
+            "Deteriorated" => Some(0.75),
+            "Broken" => Some(0.55),
+            "None / Wild" => Some(0.85),
+            _ => None,
+        },
+        "river" => match condition {
+            "Strong Downstream" => Some(1.40),
+            "Mild Downstream" => Some(1.30),
+            "Neutral" => Some(1.00),
+            "Mild Upstream" => Some(0.80),
+            "Strong Upstream" => Some(0.55),
+            _ => None,
+        },
+        "sea" => match condition {
+            "Favorable Wind & Current" => Some(1.40),
+            "Favorable Wind" => Some(1.20),
+            "Neutral" => Some(1.00),
+            "Headwind" => Some(0.75),
+            "Strong Headwind" => Some(0.50),
+            _ => None,
+        },
+        _ => None,
+    };
+    hit.unwrap_or(1.0)
+}
+
+/// `JP_GROUP_CLASSES` (reference line 17553, v1.43/v1.63): party-size bands
+/// and their coordination modifier. Small Caravan carries `travel-speeds.md`
+/// §5's own +15-25% unescorted-party advantage (1.20, mid-band).
+pub fn jp_group_class(n: i64) -> (&'static str, f64) {
+    match n {
+        i64::MIN..=1 => ("Individual", 1.00),
+        2..=10 => ("Small Caravan", 1.20),
+        11..=30 => ("Caravan", 0.88),
+        31..=100 => ("Large Caravan", 0.82),
+        _ => ("Column / Large Force", 0.76),
+    }
+}
+
+/// `JP_LAND_TRANSPORTS` (reference line 17297): the three land modes and
+/// their base km/h. `None` is the reference's own `undefined`, which
+/// `jpCalcLand` reads as "portage -- crew proceeds on foot".
+pub const JP_LAND_TRANSPORT_KEYS: [&str; 3] = ["Walking", "Mounted Rider", "Baggage Train"];
+
+pub fn jp_land_transport_kmh(transport: &str) -> Option<f64> {
+    match transport {
+        "Walking" => Some(4.0),
+        "Mounted Rider" => Some(6.5),
+        "Baggage Train" => Some(2.6),
+        _ => None,
+    }
+}
+
+/// `JP_MOUNT_BLOCKED` (reference line 17473).
+fn jp_mount_blocked(terrain: &str) -> bool {
+    terrain == "Swamp / Marsh"
+}
+
+/// `JP_DESERT_WATER` (reference line 17525) as `(gap_days, reserve, speed)`,
+/// in the reference's own key order -- which `_jpDesertTierForGap` walks, so
+/// it is load-bearing, not cosmetic.
+pub const JP_DESERT_WATER_KEYS: [&str; 4] =
+    ["Dense Oasis Route", "Established Caravan Route", "Sparse Wells", "Deep Desert Crossing"];
+
+fn jp_desert_water(key: &str) -> Option<(f64, f64, f64)> {
+    match key {
+        "Dense Oasis Route" => Some((1.0, 1.10, 1.25)),
+        "Established Caravan Route" => Some((3.0, 1.45, 1.20)),
+        "Sparse Wells" => Some((6.0, 1.90, 0.85)),
+        "Deep Desert Crossing" => Some((999.0, 2.50, 0.70)),
+        _ => None,
+    }
+}
+
+/// `_jpDesertTierForGap` (reference line 18727, v1.51): map a *measured*
+/// waterless gap in days onto the `JP_DESERT_WATER` tier that describes it,
+/// so the dropdown's `reserve`/`speed` still apply on the auto path. First
+/// tier whose own gap covers the measured one; the last tier otherwise.
+pub fn jp_desert_tier_for_gap(gap_days: f64) -> &'static str {
+    for k in JP_DESERT_WATER_KEYS {
+        if jp_desert_water(k).expect("JP_DESERT_WATER_KEYS are all real keys").0 >= gap_days {
+            return k;
+        }
+    }
+    JP_DESERT_WATER_KEYS[JP_DESERT_WATER_KEYS.len() - 1]
+}
+
+/// Vehicle/porter capacities and draft slots (reference lines 17574-17576),
+/// and the daily ration constants beside them.
+const JP_CART_CAP: f64 = 750.0;
+const JP_WAGON_CAP: f64 = 1000.0;
+const JP_TRAVOIS_CAP: f64 = 100.0;
+const JP_SLED_CAP: f64 = 500.0;
+const JP_CART_DRAFT: i64 = 2;
+const JP_WAGON_DRAFT: i64 = 3;
+const JP_SLED_DRAFT: i64 = 2;
+const JP_DRAFT_FOOD: f64 = 6.0;
+const JP_HUMAN_FOOD: f64 = 1.5;
+const JP_HUMAN_PORTER: f64 = 30.0;
+/// v1.83: fraction of a ridden mount's own pack capacity credited as
+/// saddlebag cargo -- a reasoned estimate, disclosed as such by the reference.
+const JP_MOUNT_SADDLEBAG_FRAC: f64 = 0.3;
+
+/// `jpHumanWaterRate` (reference line 17626, v1.95): the one per-person daily
+/// water rate (L/day) -- the biome's own midpoint, or a flat 2.5 with no
+/// biome. The reference takes the resolved biome object; this takes the key
+/// and resolves it, so an unrecognised key *is* the reference's `undefined`.
+pub fn jp_human_water_rate(biome_key: &str) -> f64 {
+    match jp_biome(biome_key) {
+        Some(b) => (b.water_lo + b.water_hi) / 2.0,
+        None => 2.5,
+    }
+}
+
+/// `jpHumanWaterCarryDays` (reference line 17620, v1.84): humans carry a
+/// water *reserve* only in arid biomes -- every other biome is assumed within
+/// reach of a spring, stream or rainfall and carries zero water weight.
+pub fn jp_human_water_carry_days(biome_key: &str, supply_days: i64) -> f64 {
+    match jp_biome(biome_key) {
+        Some(b) if b.desert_like => (supply_days as f64).min(4.0),
+        _ => 0.0,
+    }
+}
+
+/// `jpAnimalWaterCarryDays` (reference line 17631, v1.95): the same gate for
+/// animals, which the reference already had right before v1.84 fixed humans.
+pub fn jp_animal_water_carry_days(biome_key: &str, supply_days: i64) -> f64 {
+    match jp_biome(biome_key) {
+        Some(b) if b.desert_like => (supply_days as f64).min(4.0),
+        _ => 0.0,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ConsumptionFactors {
+    pub food: f64,
+    pub water: f64,
+}
+
+/// `jpConsumptionFactors` (reference line 18169): Pandolf terrain factor x a
+/// velocity-squared surcharge, so a pace above 1.0 costs disproportionately.
+pub fn jp_consumption_factors(terrain: &str, pace_key: &str) -> ConsumptionFactors {
+    let (tf_food, tf_water) = jp_terrain_consumption(terrain);
+    let pm = jp_pace_mod(pace_key);
+    let vm = if pm > 1.0 { 1.0 + (pm - 1.0).powi(2) * 2.0 } else { 1.0 };
+    ConsumptionFactors { food: tf_food * vm, water: tf_water * vm }
+}
+
+/// `_jpWorldMeanRichness` (reference line 18128): the world's own mean
+/// species richness over its wildlife regions. The reference memoizes this
+/// per world object and reads it off `currentWildlife()`; here the caller
+/// supplies the region richnesses (`None` for a region with no wildlife
+/// record, the reference's own `r.richness!=null` skip), which is the same
+/// caller-supplied-means shape `civ_resource_trade_balance` uses. Returns 0
+/// when nothing is known, which `jp_wildlife_forage_mod` reads as "no data".
+pub fn jp_world_mean_richness(region_richness: &[Option<f64>]) -> f64 {
+    let mut sum = 0.0;
+    let mut n = 0usize;
+    for r in region_richness.iter().flatten() {
+        sum += *r;
+        n += 1;
+    }
+    if n > 0 { sum / n as f64 } else { 0.0 }
+}
+
+/// `_jpWildlifeForageMod` (reference line 18134, v1.81): how much better or
+/// worse this region forages than the world's own average, bounded to
+/// [0.5, 1.8] so one freak region cannot make foraging negligible or absurd.
+///
+/// **Exactly 1.0 whenever wildlife data is unavailable** -- the reference's
+/// own calibration anchor, which is what keeps the flat `JP_BIOMES.forage`
+/// table meaningful. The reference reads the region under a stage's midpoint
+/// cell out of `currentWildlife()`; this port has no ecoregion/species model
+/// (see the milestone header above), so the caller passes the sampled
+/// richness and the world mean instead of a grid coordinate.
+pub fn jp_wildlife_forage_mod(region_richness: Option<f64>, world_mean_richness: f64) -> f64 {
+    let Some(r) = region_richness else { return 1.0 };
+    // `!(x > 0.0)`, not `x <= 0.0` -- the reference's own `!(mean>0)`,
+    // including its NaN behaviour (same rationale as `jp_column_factor`).
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    if !(world_mean_richness > 0.0) {
+        return 1.0;
+    }
+    (r / world_mean_richness).clamp(0.5, 1.8)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Foraging {
+    /// `move`: the speed cost of foraging while travelling.
+    pub move_mod: f64,
+    /// Fraction of the party's carried *food* need offset by foraging.
+    pub reduction: f64,
+    /// v1.81: the far smaller, steeply biome-dependent *water* offset.
+    pub water_reduction: f64,
+}
+
+/// `jpForaging` (reference line 18156, v1.81): what a party can live off the
+/// land for, given the mode, the biome, the ground, the season, the group
+/// size and this world's own fauna.
+///
+/// `wildlife_mod` is `jp_wildlife_forage_mod`'s output -- pass `1.0` for "no
+/// wildlife data", which reproduces the reference's own omitted-argument
+/// fallback exactly. It deliberately does not touch `water_reduction`: fauna
+/// density is a food proxy, and real water *sources* are the separate
+/// `jp_stage_dry_km` hydrology measurement.
+pub fn jp_foraging(mode: &str, biome_key: &str, terrain: &str, season: &str, people: i64, wildlife_mod: f64) -> Foraging {
+    let none = Foraging { move_mod: 1.0, reduction: 0.0, water_reduction: 0.0 };
+    if mode == "None" {
+        return none;
+    }
+    let Some(biome) = jp_biome(biome_key) else { return none };
+    let season_mod = jp_season_mods(season).map(|(f, _)| f).unwrap_or(1.0);
+    let terrain_forage = jp_forage_terrain(terrain);
+    let gsf = if people <= 1 {
+        1.00
+    } else if people <= 4 {
+        0.85
+    } else if people <= 15 {
+        0.70
+    } else if people <= 50 {
+        0.55
+    } else {
+        0.40
+    };
+    let (speed_mod, take_mod) = jp_foraging_mode(mode);
+    let take = (biome.forage * wildlife_mod * terrain_forage * gsf * season_mod) * take_mod;
+    let water_take = (biome.water_forage * terrain_forage * gsf * season_mod) * take_mod;
+    Foraging { move_mod: speed_mod, reduction: take.min(0.95), water_reduction: water_take.min(0.50) }
+}
+
+/// The subset of the reference's `plan` object the consumption/resupply layer
+/// and both stage calculators read. `_jpEnsurePlan` (reference line 18246) is
+/// milestone 5's -- it also needs the journey's derived stages to correct its
+/// vessel guess -- but its own default block is what `Default` reproduces
+/// here, for the fields this milestone touches.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JpPlan {
+    pub party: JpParty,
+    /// `"Walking"` / `"Mounted Rider"` / `"Baggage Train"` for land; anything
+    /// else is the reference's own portage case. Water legs read `vessel`.
+    pub transport: String,
+    /// `plan.mountAnimal` -- only consulted when the party has no animals of
+    /// its own (`jp_resolve_mount`).
+    pub mount_animal: Option<String>,
+    pub vessel: String,
+    pub hours: f64,
+    pub pace: String,
+    pub season: String,
+    pub supply_days: i64,
+    pub carry_food: bool,
+    pub grazing: String,
+    pub foraging: String,
+    /// `None` (or `"auto"`) is the reference's own auto path: the desert tier
+    /// is derived from the stage's measured waterless run instead of chosen.
+    pub desert_water: Option<String>,
+    /// `None` (or `"auto"`) keeps `jp_wx_weighted`'s season x biome average.
+    pub weather_override: Option<String>,
+    pub seasonal_closures: bool,
+}
+
+impl Default for JpPlan {
+    fn default() -> Self {
+        JpPlan {
+            party: JpParty { group_size: 4, ..JpParty::default() },
+            transport: "Walking".to_string(),
+            mount_animal: Some("horse".to_string()),
+            vessel: "Keelboat".to_string(),
+            hours: 8.0,
+            pace: "Standard Pace".to_string(),
+            season: "Summer".to_string(),
+            supply_days: 7,
+            carry_food: true,
+            grazing: "Partial — graze at camp".to_string(),
+            foraging: "None".to_string(),
+            desert_water: None,
+            weather_override: None,
+            seasonal_closures: true,
+        }
+    }
+}
+
+impl JpPlan {
+    /// `jpResolveMount(plan)` over this plan's own animal counts and
+    /// mount-animal fallback.
+    pub fn resolve_mount(&self) -> &'static str {
+        let counts: std::collections::HashMap<&str, i32> = [
+            ("donkey", self.party.donkey as i32),
+            ("mule", self.party.mule as i32),
+            ("camel", self.party.camel as i32),
+            ("horse", self.party.horse as i32),
+        ]
+        .into_iter()
+        .collect();
+        jp_resolve_mount(&counts, self.mount_animal.as_deref())
+    }
+
+    /// The reference's `!plan.desertWater || plan.desertWater==='auto'`.
+    fn desert_water_auto(&self) -> bool {
+        matches!(self.desert_water.as_deref(), None | Some("auto") | Some(""))
+    }
+}
+
+/// `jpCapacity`'s return (reference line 18177). The JS nests the five mass
+/// terms under `breakdown`; they are flat here -- one struct, same names.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JpCapacity {
+    pub total_mass: f64,
+    pub capacity: f64,
+    /// Strict-draft animals the party is short (travois is flexible draft and
+    /// never counts). Zero when the party has no real animals at all, per the
+    /// reference's own `realAnimals>0` gate.
+    pub draft_shortfall: i64,
+    pub cargo: f64,
+    pub human_food: f64,
+    pub human_water: f64,
+    pub fodder: f64,
+    pub animal_water: f64,
+    pub animal_food_daily: f64,
+    pub animal_water_daily: f64,
+    pub draft_food_daily: f64,
+    pub draft_water_daily: f64,
+    pub human_water_rate: f64,
+    pub mount_credit: f64,
+}
+
+/// `jpCapacity` (reference line 18177, a port of V1.915's `calcCapacity`):
+/// the whole mass model -- seasonal physiology, desert food/water
+/// multipliers, phantom-draft-animal shortfall, and v1.83's saddlebag credit
+/// for a rider's own mount.
+pub fn jp_capacity(plan: &JpPlan, biome_key: &str, season: &str) -> JpCapacity {
+    let people = plan.party.group_size.max(1) as f64;
+    let cargo = plan.party.cargo_kg.max(0.0);
+    let supply_days = plan.supply_days.max(1) as f64;
+    let (_, fodder_frac) = jp_grazing(&plan.grazing);
+    let biome = jp_biome(biome_key);
+    let desert_like = biome.is_some_and(|b| b.desert_like);
+    let (sh_food, sh_water) = jp_seasonal_human(season);
+
+    let counts = |k: &str| -> f64 {
+        match k {
+            "donkey" => plan.party.donkey as f64,
+            "mule" => plan.party.mule as f64,
+            "camel" => plan.party.camel as f64,
+            "horse" => plan.party.horse as f64,
+            _ => 0.0,
+        }
+    };
+    let carts = plan.party.carts;
+    let wagons = plan.party.wagons;
+    let travois = plan.party.travois;
+    let sleds = plan.party.sleds;
+
+    // `dm` is null outside a desert biome, `sa` null for an unknown season --
+    // both switch the whole term off rather than defaulting per field.
+    let af = |k: &str| -> f64 {
+        let a = jp_animal_stats(k).expect("JP_ANIMAL_KEYS are all real keys");
+        let dm = if desert_like { jp_desert_animal_mod(k).0 } else { 1.0 };
+        let sa = jp_seasonal_animal(season, k).map(|(_, f, _)| f).unwrap_or(1.0);
+        a.food_kg_day * dm * sa
+    };
+    let aw = |k: &str| -> f64 {
+        let a = jp_animal_stats(k).expect("JP_ANIMAL_KEYS are all real keys");
+        let dm = if desert_like { jp_desert_animal_mod(k).1 } else { 1.0 };
+        let sa = jp_seasonal_animal(season, k).map(|(_, _, w)| w).unwrap_or(1.0);
+        a.water_l_day * dm * sa
+    };
+    let ac = |k: &str| -> f64 {
+        let a = jp_animal_stats(k).expect("JP_ANIMAL_KEYS are all real keys");
+        let sa = jp_seasonal_animal(season, k).map(|(c, _, _)| c).unwrap_or(1.0);
+        a.cap_kg * sa
+    };
+
+    // Summed in `JP_ANIMAL_KEYS` order -- the reference's own `counts` key
+    // order, which fixes the float summation order.
+    let mut animal_food_daily = 0.0;
+    let mut animal_water_daily = 0.0;
+    for k in JP_ANIMAL_KEYS {
+        animal_food_daily += counts(k) * af(k);
+        animal_water_daily += counts(k) * aw(k);
+    }
+
+    let real_animals = plan.party.pack_animals();
+    let strict_draft_demand = carts * JP_CART_DRAFT + wagons * JP_WAGON_DRAFT + sleds * JP_SLED_DRAFT;
+    let draft_animals = if real_animals == 0 { 0 } else { (strict_draft_demand - real_animals).max(0) };
+    let draft_food_daily = draft_animals as f64 * JP_DRAFT_FOOD * if desert_like { 1.2 } else { 1.0 };
+    let draft_water_daily = draft_animals as f64 * if desert_like { 35.0 } else { 25.0 };
+
+    let human_water_rate = jp_human_water_rate(biome_key);
+    let human_water_carry_days = jp_human_water_carry_days(biome_key, plan.supply_days.max(1));
+    let animal_water_carry_days = jp_animal_water_carry_days(biome_key, plan.supply_days.max(1));
+
+    let human_food_total = people * JP_HUMAN_FOOD * supply_days * sh_food;
+    let human_water_total = people * human_water_rate * human_water_carry_days * sh_water;
+    let fodder_total = (animal_food_daily + draft_food_daily) * supply_days * fodder_frac;
+    let animal_water_total = (animal_water_daily + draft_water_daily) * animal_water_carry_days;
+    let total_mass = cargo + human_food_total + human_water_total + fodder_total + animal_water_total;
+
+    // v1.83: a rider's own mount carries saddlebag cargo -- but only when it
+    // is not already declared as a full pack animal, or the same physical
+    // animal would be counted twice ("Lone courier" gets zero credit).
+    let mut mount_credit = 0.0;
+    if plan.transport == "Mounted Rider" {
+        let mk = plan.resolve_mount();
+        let m_count = (people - counts(mk)).max(0.0);
+        mount_credit = m_count * jp_animal_stats(mk).expect("resolve_mount returns a real key").cap_kg * JP_MOUNT_SADDLEBAG_FRAC;
+    }
+    let capacity = counts("donkey") * ac("donkey")
+        + counts("mule") * ac("mule")
+        + counts("camel") * ac("camel")
+        + counts("horse") * ac("horse")
+        + carts as f64 * JP_CART_CAP
+        + wagons as f64 * JP_WAGON_CAP
+        + travois as f64 * JP_TRAVOIS_CAP
+        + sleds as f64 * JP_SLED_CAP
+        + people * JP_HUMAN_PORTER
+        + mount_credit;
+
+    JpCapacity {
+        total_mass,
+        capacity,
+        draft_shortfall: if real_animals > 0 { (strict_draft_demand - real_animals).max(0) } else { 0 },
+        cargo,
+        human_food: human_food_total,
+        human_water: human_water_total,
+        fodder: fodder_total,
+        animal_water: animal_water_total,
+        animal_food_daily,
+        animal_water_daily,
+        draft_food_daily,
+        draft_water_daily,
+        human_water_rate,
+        mount_credit,
+    }
+}
+
+/// `jpAssessResupply`'s return (reference line 18231).
+#[derive(Debug, Clone, PartialEq)]
+pub struct JpResupply {
+    pub feasible: bool,
+    /// `None` when infeasible -- the reference's own `stopsNeeded:null`.
+    pub stops_needed: Option<i64>,
+    /// `"water"` / `"capacity"` / `"food / settlement"` /
+    /// `"water (no food carried)"`; `None` only on the sea path in
+    /// `jp_calc_water`, which builds its own verdict.
+    pub limited_by: Option<String>,
+    /// v1.51: `"water"` or `"load"` -- *why* an infeasible stage is
+    /// infeasible, which is what tells a reroute from a repack. `None` when
+    /// feasible.
+    pub cause: Option<&'static str>,
+    pub binding_interval: Option<f64>,
+    pub interval_km: Option<f64>,
+    pub verdict: String,
+}
+
+/// `jpAssessResupply` (reference line 18231, v1.51): can this party carry
+/// what the stage demands, and if so how often must it stop? The v1.51 fix is
+/// the two named causes -- "over capacity" alone is the symptom of two very
+/// different problems, and only one of them is fixed by rerouting.
+// Eight parameters is the reference's own signature; grouping them into a
+// struct here would only rename the same eight fields at every call site.
+#[allow(clippy::too_many_arguments)]
+pub fn jp_assess_resupply(
+    total_mass: f64,
+    capacity: f64,
+    trip_days: f64,
+    daily_km: f64,
+    water_gap_days: f64,
+    settlement_days: f64,
+    carry_food: bool,
+    dry_km: f64,
+) -> JpResupply {
+    if total_mass > capacity {
+        let water_bound = dry_km > 0.0 && water_gap_days >= 3.0;
+        let over = jp_fmt_kg(total_mass - capacity);
+        return JpResupply {
+            feasible: false,
+            stops_needed: None,
+            limited_by: Some(if water_bound { "water" } else { "capacity" }.to_string()),
+            cause: Some(if water_bound { "water" } else { "load" }),
+            binding_interval: None,
+            interval_km: None,
+            verdict: if water_bound {
+                format!(
+                    "No water for {} km (~{} d) — carrying that reserve is {over} over capacity. No party size fixes this: reroute past a river or lake, or cross in a wetter season.",
+                    js_fixed(dry_km, 0),
+                    js_fixed(water_gap_days, 1)
+                )
+            } else {
+                format!("Cannot carry sufficient supplies — over capacity by {over}.")
+            },
+        };
+    }
+    let binding_interval = if carry_food { water_gap_days.min(settlement_days) } else { water_gap_days };
+    let limited_by = if carry_food {
+        if water_gap_days < settlement_days { "water" } else { "food / settlement" }
+    } else {
+        "water (no food carried)"
+    };
+    let interval_km = binding_interval * daily_km;
+    let stops_needed = ((trip_days / binding_interval).ceil() as i64 - 1).max(0);
+    let used_pct = js_round((total_mass / capacity) * 100.0);
+    let verdict = if stops_needed == 0 {
+        format!("No stops required — supplies cover the full stage ({used_pct}% capacity).")
+    } else {
+        format!(
+            "{stops_needed} resupply stop{} — every ~{} km (~{} d). Binding: {limited_by}.",
+            if stops_needed > 1 { "s" } else { "" },
+            js_fixed(interval_km, 0),
+            js_fixed(binding_interval, 1)
+        )
+    };
+    JpResupply {
+        feasible: true,
+        stops_needed: Some(stops_needed),
+        limited_by: Some(limited_by.to_string()),
+        cause: None,
+        binding_interval: Some(binding_interval),
+        interval_km: Some(interval_km),
+        verdict,
+    }
+}
+
+/// One derived stage, as `jpCalcLand`/`jpCalcWater` read it (reference line
+/// 18912: `{km, terrain, routeCond, infra, biome, cat, mx, my, dryKm,
+/// claimedFrac}`). Milestone 5's `_jpDeriveStages` is what will produce these;
+/// until then the caller supplies them, the same way milestone 2's and 3's
+/// functions take caller-supplied stage lists.
+///
+/// The reference's `mx`/`my` grid coordinates are replaced by the finished
+/// `wildlife_forage_mod` -- see the milestone header for why the lookup itself
+/// stays outside this crate. `claimed_frac` is not here: it is
+/// `jp_journey_cost`'s input, not either calculator's.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JpStage {
+    pub km: f64,
+    /// `"land"`, `"river"` or `"sea"`.
+    pub cat: String,
+    pub terrain: String,
+    pub route_cond: String,
+    pub infra: String,
+    pub biome: String,
+    /// v1.51: this stage's own measured longest waterless run, in km
+    /// (`jp_stage_dry_km`). 0 = freshwater in reach throughout.
+    pub dry_km: f64,
+    /// `jp_wildlife_forage_mod`'s output for this stage; 1.0 = no wildlife
+    /// data, which is also what an exactly-average region gives.
+    pub wildlife_forage_mod: f64,
+}
+
+impl Default for JpStage {
+    fn default() -> Self {
+        JpStage {
+            km: 0.0,
+            cat: "land".to_string(),
+            terrain: "Dirt Track".to_string(),
+            route_cond: "Standard".to_string(),
+            infra: "Stable Settlements".to_string(),
+            biome: "Temperate Forest".to_string(),
+            dry_km: 0.0,
+            wildlife_forage_mod: 1.0,
+        }
+    }
+}
+
+/// A stage that cannot be travelled as configured. The reference returns
+/// `{blocked:"...", seasonal:true?}` in place of a computed stage; here that
+/// is the error half of a `Result`, so a blocked stage cannot be read as a
+/// computed one by accident.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JpBlocked {
+    pub reason: String,
+    /// v1.51/v1.52: this stage is shut by the *season* (a snowed-in pass, a
+    /// closed sailing season), not by the party's own configuration.
+    pub seasonal: bool,
+}
+
+/// `jpCalcLand`'s return (reference line 18912), minus its `formula` trace:
+/// that string is presentation (`ARCHITECTURE.md` -- Godot owns it) and every
+/// value it prints is a field here.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JpLandCalc {
+    pub daily_km: f64,
+    pub days: f64,
+    pub load_ratio: f64,
+    pub cap: JpCapacity,
+    /// `None` only when the party has no carrying capacity at all.
+    pub resupply: Option<JpResupply>,
+    pub transport_label: String,
+    pub mount_key: Option<&'static str>,
+    pub is_desert: bool,
+    pub col_km: f64,
+    pub col_mod: f64,
+    pub dry_km: f64,
+    /// Invariant on every path: `water_gap_days == waterDaysAt(daily_km)`, so
+    /// the reported gap always belongs to the reported speed.
+    pub water_gap_days: f64,
+    pub supply_days: i64,
+    /// The reference's own `portage` flag: the plan named a transport mode
+    /// that is not a land transport, so the crew proceeds on foot.
+    pub portage: bool,
+    /// The resolved desert-water tier, `Some((label, auto))` -- `auto` marks
+    /// the v1.51 map-derived path rather than an explicit user choice.
+    pub desert_tier: Option<(&'static str, bool)>,
+}
+
+/// `jpCalcWater`'s return (reference line 19124), same `formula` omission.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JpWaterCalc {
+    pub daily_km: f64,
+    pub days: f64,
+    pub load_ratio: f64,
+    pub resupply: JpResupply,
+    pub transport_label: String,
+    pub crew: u32,
+    pub hold_kg: f64,
+    pub food_needed: f64,
+    pub water_needed: f64,
+}
+
+/// `jpCalcLand` (reference line 18912, a port of V1.915's `calcLand`): one
+/// land stage's real daily distance and duration, through the hard
+/// feasibility blocks, the speed chain, and v1.51's supply/load/speed
+/// convergence loop.
+pub fn jp_calc_land(st: &JpStage, plan: &JpPlan) -> Result<JpLandCalc, JpBlocked> {
+    let blocked = |reason: String| JpBlocked { reason, seasonal: false };
+    let distance = st.km;
+    let terrain = st.terrain.as_str();
+    let biome_key = st.biome.as_str();
+    let season = plan.season.as_str();
+    let group = plan.party.group_size.max(1);
+    let hours_raw = if plan.hours.is_finite() && plan.hours != 0.0 { plan.hours } else { 8.0 };
+    let hours = hours_raw.clamp(1.0, 16.0);
+    let plan_kmh = jp_land_transport_kmh(&plan.transport);
+    let portage = plan_kmh.is_none();
+    let transport = if portage { "Walking" } else { plan.transport.as_str() };
+    let (carts, wagons, travois, sleds) = (plan.party.carts, plan.party.wagons, plan.party.travois, plan.party.sleds);
+    let pack_animals = plan.party.pack_animals();
+
+    // hard feasibility blocks
+    if (wagons > 0 || carts > 0) && JP_WHEEL_BLOCKED.contains(&terrain) {
+        return Err(blocked(format!("Wheeled vehicles cannot traverse {terrain}. Remove carts/wagons or reroute.")));
+    }
+    if transport == "Baggage Train" && JP_WHEEL_BLOCKED.contains(&terrain) && !(travois > 0 || pack_animals > 0) {
+        return Err(blocked(format!("A baggage train cannot operate on {terrain}. Add travois or pack animals, or reroute.")));
+    }
+    if transport == "Mounted Rider" && jp_mount_blocked(terrain) {
+        return Err(blocked(format!("Mounted travel is not viable in {terrain}. Switch to Walking or reroute.")));
+    }
+    if let Some(closure) = jp_seasonal_closure(terrain, biome_key, season, plan.seasonal_closures) {
+        return Err(JpBlocked { reason: closure, seasonal: true });
+    }
+
+    let mount_key = if transport == "Mounted Rider" { Some(plan.resolve_mount()) } else { None };
+    let mount_anim = mount_key.and_then(jp_animal_stats);
+    // v1.43: the pace-setting animal is resolved whenever the party HAS
+    // animals, not only for a Mounted Rider -- a ten-camel caravan gets the
+    // camel's desert affinity (and its marsh penalty) just as a lone rider does.
+    let pace_anim_key = mount_key.or(if pack_animals > 0 { Some(plan.resolve_mount()) } else { None });
+    let train_pace = if transport == "Baggage Train" { Some(jp_train_pace(&plan.party)) } else { None };
+    let animal_paced = mount_anim.is_some() || train_pace.is_some_and(|t| t.label != "porter-borne");
+
+    let w_w = jp_weather_factor(plan.weather_override.as_deref(), biome_key, season, pace_anim_key);
+    let mut t_mod = match pace_anim_key {
+        Some(k) => jp_animal_terrain_mod(k, terrain),
+        None => jp_terrain_land_mod(terrain),
+    };
+    t_mod = jp_surface_gain(t_mod, animal_paced);
+    let sled_on_snow = sleds > 0 && terrain == "Snow / Ice";
+    if sled_on_snow {
+        t_mod = 1.0; // runners glide where wheels lock
+    }
+    let r_mod = jp_route_mod("land", &st.route_cond);
+    let p_mod = jp_pace_mod(&plan.pace);
+    let i_mod = jp_infra_mod(&st.infra);
+    let is_haste = plan.pace == "Haste";
+    let (_cls_label, cls_coord) = jp_group_class(group);
+    let c_mod = if is_haste { 1.0 } else { cls_coord };
+    let f_mod = if is_haste { 1.0 } else { jp_fatigue(hours) };
+    let g_mod = if is_haste { 1.0 } else { jp_grazing(&plan.grazing).0 };
+    let biome = jp_biome(biome_key);
+    let is_desert = biome.is_some_and(|b| b.desert_like);
+
+    // v1.51/v1.84: the desert tier is desert-only, and on 'auto' it is derived
+    // from this stage's own measured waterless run once a speed is known.
+    let dw_auto = plan.desert_water_auto();
+    let mut desert_speed = 1.0;
+    let mut desert_reserve = 1.1;
+    let mut desert_tier: Option<(&'static str, bool)> = None;
+    if is_desert && !dw_auto {
+        let key = plan.desert_water.as_deref().unwrap_or("");
+        let (label, dw) = match jp_desert_water(key) {
+            Some(dw) => (
+                JP_DESERT_WATER_KEYS.iter().find(|&&k| k == key).copied().expect("matched key"),
+                dw,
+            ),
+            None => ("Established Caravan Route", jp_desert_water("Established Caravan Route").expect("real key")),
+        };
+        desert_speed = dw.2;
+        desert_reserve = dw.1;
+        desert_tier = Some((label, false));
+    }
+
+    let forage = if is_haste {
+        Foraging { move_mod: 1.0, reduction: 0.0, water_reduction: 0.0 }
+    } else {
+        jp_foraging(&plan.foraging, biome_key, terrain, season, group, st.wildlife_forage_mod)
+    };
+    let base_speed = match (mount_anim, train_pace) {
+        (Some(a), _) => a.mounted_speed_kmh,
+        (None, Some(t)) => t.kmh,
+        (None, None) => jp_land_transport_kmh(transport).unwrap_or(4.0),
+    };
+    let cap = jp_capacity(plan, biome_key, season);
+    let ratio0 = if cap.capacity > 0.0 { cap.total_mass / cap.capacity } else { 0.0 };
+    // v1.63: a stage this overloaded cannot depart at all, Haste included.
+    // Checked on the un-iterated ratio, whose driver (cargo) never shrinks.
+    if cap.capacity > 0.0 && ratio0 > JP_LOAD_INVALID_RATIO {
+        return Err(blocked(format!(
+            "Overloaded {}% of capacity ({} carried vs {} rated) — no party departs in this state. \
+             Assign pack animals or a cart/wagon for this stage, reduce cargo, or split the load across a resupply stop.",
+            js_fixed(ratio0 * 100.0, 0),
+            jp_fmt_kg(cap.total_mass),
+            jp_fmt_kg(cap.capacity)
+        )));
+    }
+    let pen0 = jp_load_penalty(ratio0);
+    let l_mod = if is_haste {
+        1.0
+    } else if cap.capacity > 0.0 {
+        pen0.load_mod
+    } else {
+        1.0
+    };
+    let col_km = jp_column_length_km(&plan.party, terrain);
+    let dry_km = st.dry_km.max(0.0);
+
+    // Days between water sources, floored at half a day -- you cannot water
+    // more often than you make camp. An explicit desert tier's own gap wins,
+    // which is what makes the dropdown an override rather than a suggestion.
+    let water_days_at = |spd: f64| -> f64 {
+        if is_desert && !dw_auto {
+            return plan.desert_water.as_deref().and_then(jp_desert_water).map(|dw| dw.0).unwrap_or(3.0);
+        }
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
+        if !(dry_km > 0.0) {
+            return 0.5;
+        }
+        (dry_km / spd.max(0.01)).max(0.5)
+    };
+
+    // The auto tier's input (a gap in days) depends on speed and its output
+    // changes speed, so the circle is broken with one pre-pass at the
+    // un-modified speed -- enough, because the tier is a 4-step ladder.
+    let raw_no_desert = base_speed * hours * t_mod * r_mod * c_mod * p_mod * i_mod * w_w * f_mod * g_mod * forage.move_mod;
+    if is_desert && dw_auto {
+        let k = jp_desert_tier_for_gap(water_days_at(raw_no_desert.max(0.01)));
+        let dw = jp_desert_water(k).expect("jp_desert_tier_for_gap returns a real key");
+        desert_speed = dw.2;
+        desert_reserve = dw.1;
+        desert_tier = Some((k, true));
+    }
+    let raw_daily = raw_no_desert * desert_speed;
+    let col_mod = jp_column_factor(col_km, raw_daily);
+    let base_daily = raw_daily * l_mod * col_mod;
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    if !(base_daily > 0.0) {
+        return Err(blocked("Effective speed is zero.".to_string()));
+    }
+
+    let mut daily_km = base_daily;
+    let mut days = distance / daily_km;
+    let mut resupply: Option<JpResupply> = None;
+    let mut load_ratio = ratio0;
+    let carry_food = plan.carry_food;
+    let grazing_mod = jp_season_mods(season).map(|(_, g)| g).unwrap_or(1.0);
+    let settlement_days = plan.supply_days.max(1) as f64;
+    let mut water_gap_days = water_days_at(base_daily);
+
+    if !is_haste && cap.capacity > 0.0 {
+        // convergence loop: supplies for the ACTUAL trip length <-> load
+        // penalty <-> speed. Both of its intervals are measurements, not
+        // constants (v1.51): the water gap is this stage's own dry run at the
+        // speed reached so far, the food interval the party's own supplyDays.
+        for _ in 0..12 {
+            water_gap_days = water_days_at(daily_km);
+            let eff_water_gap = water_gap_days.min(days);
+            let eff_settlement = settlement_days.min(days);
+            let human_food_net = group as f64 * JP_HUMAN_FOOD * (1.0 - forage.reduction);
+            let grazed_off = if is_desert {
+                0.0
+            } else {
+                biome.map(|b| b.grazing).unwrap_or(0.0) * grazing_mod * (1.0 - jp_grazing(&plan.grazing).1)
+            };
+            let animal_food_net = (cap.animal_food_daily + cap.draft_food_daily) * (1.0 - grazed_off);
+            let food_needed = if carry_food { (human_food_net + animal_food_net) * eff_settlement } else { 0.0 };
+            // v1.84: outside an arid biome water contributes zero mass -- it
+            // is assumed abundant and collectable as the party goes.
+            let water_needed = if is_desert {
+                (group as f64 * cap.human_water_rate + cap.animal_water_daily + cap.draft_water_daily)
+                    * eff_water_gap
+                    * desert_reserve
+                    * (1.0 - forage.water_reduction)
+            } else {
+                0.0
+            };
+            let total_mass = cap.cargo + food_needed + water_needed;
+            load_ratio = total_mass / cap.capacity;
+            let pen = jp_load_penalty(load_ratio).load_mod;
+            let next = raw_daily * col_mod * pen;
+            let new_days = distance / next;
+            if (new_days - days).abs() < 0.01 {
+                daily_km = next;
+                days = new_days;
+                water_gap_days = water_days_at(daily_km);
+                resupply = Some(jp_assess_resupply(
+                    total_mass,
+                    cap.capacity,
+                    days,
+                    daily_km,
+                    if is_desert { water_gap_days } else { f64::INFINITY },
+                    settlement_days,
+                    carry_food,
+                    if is_desert { dry_km } else { 0.0 },
+                ));
+                break;
+            }
+            daily_km = next;
+            days = new_days;
+        }
+        if resupply.is_none() {
+            resupply = Some(jp_assess_resupply(
+                cap.total_mass,
+                cap.capacity,
+                days,
+                daily_km,
+                if is_desert { water_gap_days } else { f64::INFINITY },
+                settlement_days,
+                carry_food,
+                if is_desert { dry_km } else { 0.0 },
+            ));
+        }
+    } else if cap.capacity > 0.0 {
+        resupply = Some(jp_assess_resupply(
+            cap.total_mass,
+            cap.capacity,
+            days,
+            daily_km,
+            if is_desert { water_gap_days } else { f64::INFINITY },
+            settlement_days,
+            carry_food,
+            if is_desert { dry_km } else { 0.0 },
+        ));
+    }
+
+    // v1.67: the same JP_LOAD_INVALID_RATIO cutoff, checked on the ratio the
+    // water math actually converges to -- the loop's own feedback (slower ->
+    // longer gap -> more water -> slower) can converge at a stable but
+    // physically absurd load the ratio0 check never sees.
+    if !is_haste && cap.capacity > 0.0 && load_ratio > JP_LOAD_INVALID_RATIO {
+        let pct = js_fixed(load_ratio * 100.0, 0);
+        let carried = jp_fmt_kg(load_ratio * cap.capacity);
+        let rated = jp_fmt_kg(cap.capacity);
+        return Err(blocked(if is_desert {
+            format!(
+                "Carrying enough water for this stretch pushes the load to {pct}% of capacity ({carried} vs {rated} rated) — no party departs in this state. \
+                 Reduce cargo, add pack animals, reroute past water, or cross in a wetter season."
+            )
+        } else {
+            format!(
+                "Supplies for this stretch push the load to {pct}% of capacity ({carried} vs {rated} rated) — no party departs in this state. \
+                 Reduce cargo, add pack animals, or split the load across a resupply stop."
+            )
+        }));
+    }
+    // The REPORTED gap must belong to the REPORTED speed, on every path.
+    water_gap_days = water_days_at(daily_km);
+
+    let transport_label = match (mount_anim, train_pace) {
+        (Some(a), _) => format!("{transport} — {}", a.label),
+        (None, Some(t)) => format!("{transport} — {}", t.label),
+        (None, None) => transport.to_string(),
+    };
+    Ok(JpLandCalc {
+        daily_km,
+        days,
+        load_ratio,
+        cap,
+        resupply,
+        transport_label,
+        mount_key,
+        is_desert,
+        col_km,
+        col_mod,
+        dry_km,
+        water_gap_days,
+        supply_days: plan.supply_days.max(1),
+        portage,
+        desert_tier,
+    })
+}
+
+/// `jpCalcWater` (reference line 19124, a port of V1.915's `calcWater`): one
+/// river or sea stage. The plan's `hours` slider is a land concept and is
+/// deliberately not read here -- how long a hull is under way is a property
+/// of the water (`jp_water_window`, v1.43).
+pub fn jp_calc_water(st: &JpStage, plan: &JpPlan) -> Result<JpWaterCalc, JpBlocked> {
+    let blocked = |reason: String| JpBlocked { reason, seasonal: false };
+    let distance = st.km;
+    let cat = st.cat.as_str();
+    let terrain = st.terrain.as_str();
+    let biome_key = st.biome.as_str();
+    let season = plan.season.as_str();
+    let passengers = plan.party.group_size.max(0) as f64;
+    let cargo = plan.party.cargo_kg.max(0.0);
+    let hours = jp_water_window(cat, terrain);
+    let Some(ship) = jp_ship_stats(&plan.vessel) else {
+        return Err(blocked("No vessel selected for the water leg.".to_string()));
+    };
+    let is_haste = plan.pace == "Haste";
+    if let Some(b) = jp_vessel_water_block(&ship, cat, terrain, &plan.vessel) {
+        return Err(blocked(b));
+    }
+    // v1.52: the sailing season, checked AFTER the vessel rating so a hull
+    // that could never be here at all still reports that first.
+    if cat == "sea"
+        && let Some(shut) = jp_sea_closure(terrain, season, plan.seasonal_closures)
+    {
+        return Err(JpBlocked { reason: shut, seasonal: true });
+    }
+    let w_w = jp_weather_factor(plan.weather_override.as_deref(), biome_key, season, None);
+    let t_mod = jp_terrain_water_mod(cat, terrain);
+    let r_mod = jp_route_mod(cat, &st.route_cond);
+    let p_mod = jp_pace_mod(&plan.pace);
+    let i_mod = jp_infra_mod(&st.infra);
+    let biome = jp_biome(biome_key);
+    let total_aboard = ship.crew as f64 + passengers;
+    let human_water_rate = jp_human_water_rate(biome_key);
+    let human_food_daily = total_aboard * JP_HUMAN_FOOD;
+    let human_water_daily = total_aboard * human_water_rate;
+    let base_daily0 = ship.speed_kmh * hours * t_mod * r_mod * p_mod * i_mod * w_w;
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    if !(base_daily0 > 0.0) {
+        return Err(blocked("Effective speed is zero.".to_string()));
+    }
+    let mut daily_km = base_daily0;
+    let mut trip_days = distance / daily_km;
+    let river_settlement: f64 = 2.0;
+    let carry_food = plan.carry_food;
+    let (mut food_needed, mut water_needed) = (0.0, 0.0);
+    for _ in 0..6 {
+        food_needed = if carry_food {
+            if cat == "sea" {
+                human_food_daily * trip_days * 1.10
+            } else {
+                human_food_daily * river_settlement.min(trip_days)
+            }
+        } else {
+            0.0
+        };
+        water_needed = if cat == "sea" {
+            human_water_daily * trip_days * 1.10
+        } else {
+            human_water_daily * river_settlement.min(trip_days) * if biome.is_some_and(|b| b.desert_like) { 2.0 } else { 1.10 }
+        };
+        let total_load = cargo + food_needed + water_needed;
+        if total_load > ship.cargo_kg {
+            return Err(blocked(format!(
+                "Hold overloaded: {} exceeds {}'s {} capacity.",
+                jp_fmt_kg(total_load),
+                plan.vessel,
+                jp_fmt_kg(ship.cargo_kg)
+            )));
+        }
+        let pen = if is_haste { 1.0 } else { jp_load_penalty(total_load / ship.cargo_kg).load_mod };
+        let next = base_daily0 * pen;
+        let nd = distance / next;
+        if (nd - trip_days).abs() < 0.01 {
+            daily_km = next;
+            trip_days = nd;
+            break;
+        }
+        daily_km = next;
+        trip_days = nd;
+    }
+    let total_load = cargo + food_needed + water_needed;
+    let load_ratio = total_load / ship.cargo_kg;
+    let resupply = if cat == "sea" {
+        JpResupply {
+            feasible: true,
+            stops_needed: Some(0),
+            limited_by: None,
+            cause: None,
+            binding_interval: None,
+            interval_km: None,
+            verdict: format!("Loaded at port — no en-route resupply required ({}% hold).", js_fixed(load_ratio * 100.0, 0)),
+        }
+    } else {
+        jp_assess_resupply(total_load, ship.cargo_kg, trip_days, daily_km, river_settlement, river_settlement, carry_food, 0.0)
+    };
+    Ok(JpWaterCalc {
+        daily_km,
+        days: trip_days,
+        load_ratio,
+        resupply,
+        transport_label: format!("{} — {}", if cat == "sea" { "Sea Faring" } else { "River Transport" }, plan.vessel),
+        crew: ship.crew,
+        hold_kg: ship.cargo_kg,
+        food_needed,
+        water_needed,
+    })
+}
+
+/// `_jpBestLandTransportForStage` (reference line 18053, v1.53): which land
+/// mode is fastest on *this* stage's own ground, same equipment. Milestone 2
+/// deferred it because it calls `jpCalcLand`; re-checked against the reference
+/// rather than assumed, its `eff` parameter is only ever a plan (milestone 5's
+/// `_jpEffectiveStagePlan` merges per-stage overrides into one), so
+/// `jp_calc_land` landing here is all it needed.
+///
+/// Measures, never applies -- the reference's own contract: nothing calls it
+/// outside rendering, and it never changes what a plan computes on its own.
+pub fn jp_best_land_transport_for_stage(st: &JpStage, plan: &JpPlan) -> Option<(&'static str, f64)> {
+    if st.cat != "land" {
+        return None;
+    }
+    let mut best: Option<(&'static str, f64)> = None;
+    for m in JP_LAND_TRANSPORT_KEYS {
+        let mut candidate = plan.clone();
+        candidate.transport = m.to_string();
+        let Ok(r) = jp_calc_land(st, &candidate) else { continue };
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
+        if !(r.daily_km > 0.0) {
+            continue;
+        }
+        if best.is_none_or(|(_, km)| r.daily_km > km) {
+            best = Some((m, r.daily_km));
+        }
+    }
+    best
+}
+
+/// `_jpWaterReachCells` (reference line 18655): the watering detour a party
+/// will actually make, in grid cells. Floored at 1.5 cells because the raster
+/// quantises to whole cells -- a threshold below one cell width is
+/// unsatisfiable rather than strict.
+pub fn jp_water_reach_cells(cell_km: f64) -> f64 {
+    (6.0 / cell_km.max(0.001)).max(1.5)
+}
+
+/// v1.56: `flowThresh` is `buildRiverNetwork`'s own channel-initiation
+/// cutoff, and a travelling party historically needed a spring or first-order
+/// stream, not a mapped river. Horton's laws put a channel two Strahler
+/// orders below it at roughly 9-36x less flow; 16 (Rb~4) sits in the middle of
+/// both the theoretical and the measured range.
+const JP_DRINKING_FLOW_DIVISOR: f64 = 16.0;
+/// v1.101 Fix B: JP's own drinking-water coarse ease is uncapped where the
+/// map's `riverCoarseEase` is capped at 16 for cartographic reasons that have
+/// nothing to do with whether a thirsty party can find a spring. This ceiling
+/// exists purely to keep an extreme misconfiguration finite.
+const JP_DRINKING_COARSE_MAX: f64 = 64.0;
+
+/// `_jpDrinkingCoarseEase` (reference line 18689, v1.101).
+pub fn jp_drinking_coarse_ease(map_width_km: f64) -> f64 {
+    let mwk = if map_width_km > 0.0 { map_width_km } else { 800.0 };
+    (mwk / 800.0).clamp(1.0, JP_DRINKING_COARSE_MAX)
+}
+
+/// `_jpStageDryKm` (reference line 18697, v1.51): the longest waterless run
+/// along a stage, in km -- the measurement that replaced a hardcoded 1.5-day
+/// water gap and made hydrology the binding constraint on a column's range
+/// that Engels' reconstruction says it is.
+///
+/// Freshwater = a river cell above the *drinking* threshold (deliberately
+/// looser than the mapped-river cutoff) or a lake cell (`water_bodies` class
+/// 2; class 1 is ocean, and the sea is not freshwater). Returns 0 when the
+/// stage is never dry.
+///
+/// The reference reads `GW`/`GH`/`flowField`/`state.mapWidthKm` off globals;
+/// they are parameters here, same as every other ported field consumer in
+/// this crate. `river_coarse_ease` is `cartalith_terrain`'s, which is the same
+/// function the map's own threshold was divided by.
+#[allow(clippy::too_many_arguments)]
+pub fn jp_stage_dry_km(
+    pts: &[(f64, f64)],
+    i0: usize,
+    i1: usize,
+    cell_km: f64,
+    water_bodies: Option<&[u8]>,
+    flow_field: Option<&[f32]>,
+    gw: usize,
+    gh: usize,
+    flow_thresh: f64,
+    map_width_km: f64,
+) -> f64 {
+    if pts.is_empty() || i0 > i1 || i1 >= pts.len() {
+        return 0.0;
+    }
+    let r = jp_water_reach_cells(cell_km).ceil() as i64;
+    let drink_thresh = flow_thresh * (cartalith_terrain::river_coarse_ease(map_width_km) / jp_drinking_coarse_ease(map_width_km)) / JP_DRINKING_FLOW_DIVISOR;
+    let fresh = |x: i64, y: i64| -> bool {
+        for dy in -r..=r {
+            for dx in -r..=r {
+                let (nx, ny) = (x + dx, y + dy);
+                if nx < 0 || nx >= gw as i64 || ny < 0 || ny >= gh as i64 {
+                    continue;
+                }
+                if dx * dx + dy * dy > r * r {
+                    continue;
+                }
+                let i = ny as usize * gw + nx as usize;
+                if flow_field.is_some_and(|f| f[i] as f64 > drink_thresh) {
+                    return true;
+                }
+                if water_bodies.is_some_and(|wb| wb[i] == 2) {
+                    return true;
+                }
+            }
+        }
+        false
+    };
+    let (mut longest, mut run) = (0.0f64, 0.0f64);
+    for k in i0..=i1 {
+        let x = (pts[k].0.round() as i64).clamp(0, gw as i64 - 1);
+        let y = (pts[k].1.round() as i64).clamp(0, gh as i64 - 1);
+        let step_km = if k > i0 {
+            let adx = (pts[k].0 - pts[k - 1].0).abs();
+            let dy = pts[k].1 - pts[k - 1].1;
+            adx.min(gw as f64 - adx).hypot(dy) * cell_km
+        } else {
+            0.0
+        };
+        if fresh(x, y) {
+            run = 0.0;
+        } else {
+            run += step_km;
+            if run > longest {
+                longest = run;
+            }
+        }
+    }
+    longest
+}
+
+/// One finished stage as `_jpResupplyReach` reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResupplyReachStage {
+    pub blocked: bool,
+    pub cat: String,
+    pub daily_km: f64,
+    pub supply_days: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResupplyReach {
+    /// The tightest food range any land stage imposes, in km.
+    pub required_km: f64,
+    /// The longest gap between resupply points the route actually offers.
+    pub max_gap_km: f64,
+    pub gap_at_km: f64,
+    pub total_km: f64,
+    pub stops: usize,
+    /// The route cannot in fact meet the requirement the stage calculators state.
+    pub unmet: bool,
+    pub carry_food: bool,
+    pub shortfall: f64,
+}
+
+/// `_jpResupplyReach` (reference line 19225, v1.51 -- "THE audit's headline
+/// finding"): `jpAssessResupply` states a requirement ("N stops, every ~X km")
+/// computed purely from what the party can carry, and nothing ever compared it
+/// with the settlements the route actually passes. This does.
+///
+/// The route polyline, its cell size and the stops are milestone 5's to
+/// derive; supplied by the caller here. The route's own endpoints count as
+/// resupply points (a party leaves provisioned and arrives at its destination).
+pub fn jp_resupply_reach(
+    pts: &[(f64, f64)],
+    cell_km: f64,
+    gw: usize,
+    stages: &[ResupplyReachStage],
+    stops: &[(f64, f64)],
+    carry_food: bool,
+) -> Option<ResupplyReach> {
+    if pts.len() < 2 {
+        return None;
+    }
+    let mut cum = vec![0.0f64; pts.len()];
+    for k in 1..pts.len() {
+        let adx = (pts[k].0 - pts[k - 1].0).abs();
+        let dy = pts[k].1 - pts[k - 1].1;
+        cum[k] = cum[k - 1] + adx.min(gw as f64 - adx).hypot(dy) * cell_km;
+    }
+    let total_km = cum[pts.len() - 1];
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    if !(total_km > 0.0) {
+        return None;
+    }
+    let mut required_km = f64::INFINITY;
+    for r in stages {
+        if r.blocked || r.cat != "land" || r.daily_km == 0.0 || r.supply_days == 0 {
+            continue;
+        }
+        let range = r.supply_days as f64 * r.daily_km;
+        if range < required_km {
+            required_km = range;
+        }
+    }
+    if !required_km.is_finite() || required_km <= 0.0 {
+        return None;
+    }
+    let mut marks = vec![0.0f64];
+    for s in stops {
+        let mut bi = 0usize;
+        let mut bd = f64::INFINITY;
+        for (k, p) in pts.iter().enumerate() {
+            let (dx, dy) = (p.0 - s.0, p.1 - s.1);
+            let d = dx * dx + dy * dy;
+            if d < bd {
+                bd = d;
+                bi = k;
+            }
+        }
+        marks.push(cum[bi]);
+    }
+    marks.push(total_km);
+    marks.sort_by(|a, b| a.partial_cmp(b).expect("route arc positions are finite"));
+    let (mut max_gap_km, mut gap_at_km) = (0.0f64, 0.0f64);
+    for i in 1..marks.len() {
+        let g = marks[i] - marks[i - 1];
+        if g > max_gap_km {
+            max_gap_km = g;
+            gap_at_km = marks[i - 1];
+        }
+    }
+    Some(ResupplyReach {
+        required_km,
+        max_gap_km,
+        gap_at_km,
+        total_km,
+        stops: stops.len(),
+        unmet: carry_food && max_gap_km > required_km * 1.0001,
+        carry_food,
+        shortfall: if required_km > 0.0 { max_gap_km / required_km } else { 1.0 },
     })
 }
 
@@ -8068,5 +9585,760 @@ mod tests {
     #[test]
     fn journey_cost_returns_nothing_when_there_is_nothing_to_price() {
         assert!(jp_journey_cost(&jp_m3_party(), &[], &[], 10.0, 300.0, 0).is_none());
+    }
+
+    // ------------------------------------------------------------------
+    // Journey Planner milestone 4 -- consumption/resupply, plus milestone
+    // 3's two stage calculators and milestone 2's `_jpBestLandTransport-
+    // ForStage`. Every expected value below is the frozen reference's own
+    // output: lines 17297-19252 of `reference/Cartalith Gen1 v2.10.html`
+    // sliced out and run in a bare Node `vm.runInContext` with no DOM.
+    // ------------------------------------------------------------------
+
+    const JP_M4_EPS: f64 = 1e-9;
+
+    /// The reference's own "Merchant caravan" preset (`JP_PRESETS`, line
+    /// 17600), which is what the golden harness drove.
+    fn jp_m4_plan() -> JpPlan {
+        JpPlan {
+            party: JpParty { group_size: 12, cargo_kg: 900.0, mule: 8, horse: 2, carts: 2, ..JpParty::default() },
+            transport: "Baggage Train".to_string(),
+            mount_animal: Some("horse".to_string()),
+            vessel: "Cog".to_string(),
+            hours: 8.0,
+            pace: "Standard Pace".to_string(),
+            season: "Summer".to_string(),
+            supply_days: 7,
+            carry_food: true,
+            grazing: "Partial — graze at camp".to_string(),
+            foraging: "None".to_string(),
+            desert_water: None,
+            weather_override: None,
+            seasonal_closures: true,
+        }
+    }
+
+    fn jp_m4_stage() -> JpStage {
+        JpStage { km: 200.0, ..JpStage::default() }
+    }
+
+    fn near(a: f64, b: f64, what: &str) {
+        assert!((a - b).abs() < JP_M4_EPS, "{what}: got {a}, reference {b}");
+    }
+
+    #[test]
+    fn fmt_kg_switches_to_tonnes_at_exactly_1000() {
+        // Golden: JS `Math.round` below the switch, `toFixed(1)` above it.
+        assert_eq!(jp_fmt_kg(0.0), "0 kg");
+        assert_eq!(jp_fmt_kg(1.0), "1 kg");
+        assert_eq!(jp_fmt_kg(999.4), "999 kg");
+        // 999.6 rounds up to a four-digit KG figure, not to tonnes -- the
+        // switch is on the raw value, not the rounded one.
+        assert_eq!(jp_fmt_kg(999.6), "1000 kg");
+        assert_eq!(jp_fmt_kg(1000.0), "1.0 t");
+        assert_eq!(jp_fmt_kg(1234.0), "1.2 t");
+        assert_eq!(jp_fmt_kg(2500.0), "2.5 t");
+        assert_eq!(jp_fmt_kg(45678.0), "45.7 t");
+    }
+
+    #[test]
+    fn human_water_rate_is_the_biome_midpoint_or_a_flat_fallback() {
+        near(jp_human_water_rate("Temperate Forest"), 2.5, "temperate");
+        near(jp_human_water_rate("Hot Desert"), 8.0, "hot desert");
+        near(jp_human_water_rate("Cold Desert / Badlands"), 5.5, "cold desert");
+        near(jp_human_water_rate("Tropical Jungle"), 4.0, "jungle");
+        near(jp_human_water_rate("Wetlands / Marshes"), 3.5, "wetlands");
+        // No biome at all -> the reference's own flat 2.5 L/day.
+        near(jp_human_water_rate("Nonexistent Biome"), 2.5, "unknown");
+    }
+
+    #[test]
+    fn water_reserve_is_carried_only_in_arid_biomes() {
+        // v1.84: the whole point of these two -- a non-desert biome carries
+        // ZERO water weight, on the modelling assumption that a spring or
+        // stream is always in reach. Deserts cap the reserve at 4 days.
+        near(jp_human_water_carry_days("Hot Desert", 7), 4.0, "desert 7d");
+        near(jp_human_water_carry_days("Hot Desert", 2), 2.0, "desert 2d");
+        near(jp_human_water_carry_days("Temperate Forest", 7), 0.0, "temperate");
+        near(jp_human_water_carry_days("Nonexistent Biome", 7), 0.0, "unknown");
+        near(jp_animal_water_carry_days("Cold Desert / Badlands", 10), 4.0, "animals desert");
+        near(jp_animal_water_carry_days("Cold Desert / Badlands", 3), 3.0, "animals short supply");
+        near(jp_animal_water_carry_days("Steppe / Grassland", 10), 0.0, "animals non-desert");
+    }
+
+    #[test]
+    fn desert_tier_ladder_picks_the_first_tier_that_covers_the_gap() {
+        for (gap, want) in [
+            (0.0, "Dense Oasis Route"),
+            (0.5, "Dense Oasis Route"),
+            (1.0, "Dense Oasis Route"),
+            (1.01, "Established Caravan Route"),
+            (3.0, "Established Caravan Route"),
+            (3.5, "Sparse Wells"),
+            (6.0, "Sparse Wells"),
+            (6.1, "Deep Desert Crossing"),
+            (1000.0, "Deep Desert Crossing"),
+        ] {
+            assert_eq!(jp_desert_tier_for_gap(gap), want, "gap {gap} d");
+        }
+    }
+
+    #[test]
+    fn drinking_coarse_ease_is_uncapped_where_the_map_ease_is_capped() {
+        // v1.101 Fix B: identical to the cartographic ease up to its own 16x
+        // break point, then keeps going -- a 40,000 km world reads 50, which
+        // `river_coarse_ease` would have clamped to 16.
+        near(jp_drinking_coarse_ease(0.0), 1.0, "no width -> 800 km default");
+        near(jp_drinking_coarse_ease(400.0), 1.0, "below the default");
+        near(jp_drinking_coarse_ease(800.0), 1.0, "at the default");
+        near(jp_drinking_coarse_ease(1600.0), 2.0, "2x");
+        near(jp_drinking_coarse_ease(40_000.0), 50.0, "past the cartographic cap");
+        near(jp_drinking_coarse_ease(1e9), 64.0, "ceiling");
+        assert!((cartalith_terrain::river_coarse_ease(40_000.0) - 16.0).abs() < JP_M4_EPS);
+    }
+
+    #[test]
+    fn consumption_factors_apply_a_velocity_squared_surcharge_above_standard_pace() {
+        for (terrain, pace, food, water) in [
+            ("Dirt Track", "Standard Pace", 1.0, 1.0),
+            ("Mountain Trails", "Haste", 1.6185000000000003, 1.494),
+            ("Deep Sand", "Forced March", 1.40625, 1.4625000000000001),
+            // Below Standard Pace there is no surcharge at all -- only the
+            // Pandolf terrain factor survives.
+            ("Snow / Ice", "Cautious / Scouting", 1.3, 0.95),
+            ("Nonexistent Terrain", "Haste", 1.245, 1.245),
+            ("Hills", "Stealth / Night Travel", 1.1, 1.05),
+        ] {
+            let c = jp_consumption_factors(terrain, pace);
+            near(c.food, food, &format!("{terrain}/{pace} food"));
+            near(c.water, water, &format!("{terrain}/{pace} water"));
+        }
+    }
+
+    #[test]
+    fn foraging_matches_the_reference_across_mode_biome_terrain_season_and_group_size() {
+        for (mode, biome, terrain, season, people, mv, red, wred) in [
+            ("None", "Temperate Forest", "Forest Path", "Summer", 4, 1.0, 0.0, 0.0),
+            ("Active", "Temperate Forest", "Forest Path", "Summer", 4, 0.88, 0.5843750000000001, 0.1275),
+            // Winter forage collapses (0.45) and a 200-strong column strips
+            // the smallest group-size factor (0.40) on top of it.
+            ("Active", "Temperate Forest", "Forest Path", "Winter", 200, 0.88, 0.09900000000000002, 0.0216),
+            ("Opportunistic", "Hot Desert", "Deep Sand", "Summer", 20, 0.97, 0.00055, 0.0001375),
+            ("Active", "Wetlands / Marshes", "Swamp / Marsh", "Spring", 1, 0.88, 0.385, 0.16940000000000002),
+            ("Active", "Tropical Jungle", "Forest Path", "Summer", 1, 0.88, 0.8125, 0.25),
+            // An unrecognised biome forages not at all, and does not even pay
+            // the movement cost -- the reference returns before reading mode.
+            ("Active", "Nonexistent Biome", "Forest Path", "Summer", 4, 1.0, 0.0, 0.0),
+            ("Active", "Temperate Forest", "Unknown Terrain", "Autumn", 12, 0.88, 0.1925, 0.041999999999999996),
+        ] {
+            let f = jp_foraging(mode, biome, terrain, season, people, 1.0);
+            let what = format!("{mode}/{biome}/{terrain}/{season}/{people}");
+            near(f.move_mod, mv, &format!("{what} move"));
+            near(f.reduction, red, &format!("{what} reduction"));
+            near(f.water_reduction, wred, &format!("{what} water"));
+        }
+    }
+
+    #[test]
+    fn wildlife_forage_mod_is_bounded_and_anchored_at_one() {
+        // The reference's own calibration anchor: no data -> exactly 1.0, and
+        // so does a region exactly on the world's mean, which is what keeps
+        // the flat JP_BIOMES.forage table meaningful.
+        near(jp_wildlife_forage_mod(None, 10.0), 1.0, "no region");
+        near(jp_wildlife_forage_mod(Some(4.0), 0.0), 1.0, "no world mean");
+        near(jp_wildlife_forage_mod(Some(10.0), 10.0), 1.0, "exactly average");
+        // Golden: richness 4 against a mean of 10 is 0.4, clamped up to the
+        // 0.5 floor; 16 against 10 lands on the 1.6 the reference reports.
+        near(jp_wildlife_forage_mod(Some(4.0), 10.0), 0.5, "sparse, clamped");
+        near(jp_wildlife_forage_mod(Some(16.0), 10.0), 1.6, "rich");
+        near(jp_wildlife_forage_mod(Some(1000.0), 10.0), 1.8, "ceiling");
+        // `_jpWorldMeanRichness` skips regions with no wildlife record.
+        near(jp_world_mean_richness(&[Some(4.0), Some(16.0)]), 10.0, "mean");
+        near(jp_world_mean_richness(&[Some(4.0), None, Some(16.0)]), 10.0, "mean skipping nulls");
+        near(jp_world_mean_richness(&[]), 0.0, "no regions at all");
+        // A game-rich region forages measurably better -- and only FOOD does:
+        // water_reduction is unchanged from the wildlife_mod=1.0 case above.
+        let f = jp_foraging("Active", "Temperate Forest", "Forest Path", "Summer", 4, 1.6);
+        near(f.reduction, 0.9350000000000002, "wildlife-modulated food");
+        near(f.water_reduction, 0.1275, "water is not wildlife-modulated");
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn assert_capacity(c: &JpCapacity, what: &str, want: [f64; 14]) {
+        near(c.total_mass, want[0], &format!("{what} total_mass"));
+        near(c.capacity, want[1], &format!("{what} capacity"));
+        assert_eq!(c.draft_shortfall as f64, want[2], "{what} draft_shortfall");
+        near(c.cargo, want[3], &format!("{what} cargo"));
+        near(c.human_food, want[4], &format!("{what} human_food"));
+        near(c.human_water, want[5], &format!("{what} human_water"));
+        near(c.fodder, want[6], &format!("{what} fodder"));
+        near(c.animal_water, want[7], &format!("{what} animal_water"));
+        near(c.animal_food_daily, want[8], &format!("{what} animal_food_daily"));
+        near(c.animal_water_daily, want[9], &format!("{what} animal_water_daily"));
+        near(c.draft_food_daily, want[10], &format!("{what} draft_food_daily"));
+        near(c.draft_water_daily, want[11], &format!("{what} draft_water_daily"));
+        near(c.human_water_rate, want[12], &format!("{what} human_water_rate"));
+        near(c.mount_credit, want[13], &format!("{what} mount_credit"));
+    }
+
+    #[test]
+    fn capacity_merchant_caravan_by_season() {
+        // Summer vs Winter on the identical party: winter humans eat 30%
+        // more, winter mules carry 5% more and eat 15% more, and winter
+        // animals drink noticeably less.
+        let p = jp_m4_plan();
+        assert_capacity(
+            &jp_capacity(&p, "Temperate Forest", "Summer"),
+            "summer",
+            [1201.7, 2912.0, 0.0, 900.0, 119.69999999999999, 0.0, 182.0, 0.0, 52.0, 244.0, 0.0, 0.0, 2.5, 0.0],
+        );
+        assert_capacity(
+            &jp_capacity(&p, "Temperate Forest", "Winter"),
+            "winter",
+            [1283.6, 3036.0, 0.0, 900.0, 163.8, 0.0, 219.79999999999998, 0.0, 62.8, 189.0, 0.0, 0.0, 2.5, 0.0],
+        );
+        // An unrecognised season switches the whole seasonal-animal term off
+        // rather than defaulting per field (the reference's own `||null`).
+        assert_capacity(
+            &jp_capacity(&p, "Nonexistent Biome", "Wetseason"),
+            "no season, no biome",
+            [1215.0, 2980.0, 0.0, 900.0, 126.0, 0.0, 189.0, 0.0, 54.0, 210.0, 0.0, 0.0, 2.5, 0.0],
+        );
+    }
+
+    #[test]
+    fn capacity_desert_caravan_carries_real_water_mass() {
+        // 24 camels in Hot Desert: the only configuration in this file where
+        // both the human and the animal water reserve become real mass
+        // (800 kg + 1008 kg of the 6.3 t total), and camels drink at 0.35x.
+        let p = JpPlan {
+            party: JpParty { group_size: 20, cargo_kg: 3000.0, camel: 24, ..JpParty::default() },
+            supply_days: 10,
+            grazing: "None — carry all fodder".to_string(),
+            ..jp_m4_plan()
+        };
+        assert_capacity(
+            &jp_capacity(&p, "Hot Desert", "Summer"),
+            "desert caravan",
+            [6324.2, 7800.0, 0.0, 3000.0, 285.0, 800.0, 1231.2, 1008.0, 123.12, 252.0, 0.0, 0.0, 8.0, 0.0],
+        );
+    }
+
+    #[test]
+    fn capacity_credits_a_riders_own_mount_but_never_twice() {
+        // v1.83: 10 Mounted Riders with no separately-declared pack animals
+        // get 10 x 120 kg x 0.3 = 360 kg of saddlebag capacity on top of the
+        // flat porter rate...
+        let p = JpPlan {
+            party: JpParty { group_size: 10, cargo_kg: 50.0, ..JpParty::default() },
+            transport: "Mounted Rider".to_string(),
+            supply_days: 4,
+            ..jp_m4_plan()
+        };
+        assert_capacity(
+            &jp_capacity(&p, "Steppe / Grassland", "Spring"),
+            "mounted riders",
+            [110.0, 660.0, 0.0, 50.0, 60.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.0, 360.0],
+        );
+        // ...while "Lone courier" (1 person, 1 horse already declared as a
+        // pack animal) gets exactly zero extra: the same physical animal is
+        // already earning the full pack rate.
+        let p = JpPlan {
+            party: JpParty { group_size: 1, cargo_kg: 5.0, horse: 1, ..JpParty::default() },
+            transport: "Mounted Rider".to_string(),
+            supply_days: 2,
+            grazing: "Full — graze on route".to_string(),
+            ..jp_m4_plan()
+        };
+        assert_capacity(
+            &jp_capacity(&p, "Steppe / Grassland", "Autumn"),
+            "lone courier",
+            [8.15, 150.0, 0.0, 5.0, 3.1500000000000004, 0.0, 0.0, 0.0, 7.700000000000001, 23.75, 0.0, 0.0, 4.0, 0.0],
+        );
+    }
+
+    #[test]
+    fn capacity_counts_phantom_draft_animals_only_when_real_ones_exist() {
+        // 30 wagons demand 90 draft animals; 100 are present, so there is no
+        // shortfall at all.
+        let p = JpPlan {
+            party: JpParty { group_size: 400, cargo_kg: 15000.0, mule: 20, horse: 80, wagons: 30, ..JpParty::default() },
+            supply_days: 12,
+            ..jp_m4_plan()
+        };
+        let c = jp_capacity(&p, "Steppe / Grassland", "Winter");
+        assert_capacity(
+            &c,
+            "army column",
+            [29082.0, 54390.0, 0.0, 15000.0, 9360.0, 0.0, 4722.0, 0.0, 787.0, 2160.0, 0.0, 0.0, 4.0, 0.0],
+        );
+        // Two carts and no animals at all: the reference deliberately reports
+        // NO shortfall (`realAnimals===0` gate), because a party with zero
+        // animals is not "short four donkeys", it is hauling by hand.
+        let p = JpPlan {
+            party: JpParty { group_size: 4, cargo_kg: 100.0, carts: 2, ..JpParty::default() },
+            ..jp_m4_plan()
+        };
+        let c = jp_capacity(&p, "Temperate Forest", "Summer");
+        assert_eq!(c.draft_shortfall, 0);
+        near(c.draft_food_daily, 0.0, "no phantom food");
+        // One donkey against the same two carts IS short three.
+        let p = JpPlan {
+            party: JpParty { group_size: 4, cargo_kg: 100.0, carts: 2, donkey: 1, ..JpParty::default() },
+            ..jp_m4_plan()
+        };
+        let c = jp_capacity(&p, "Temperate Forest", "Summer");
+        assert_eq!(c.draft_shortfall, 3);
+        near(c.draft_food_daily, 18.0, "3 phantom animals x 6 kg");
+        near(c.draft_water_daily, 75.0, "3 phantom animals x 25 L");
+    }
+
+    #[test]
+    fn capacity_a_lone_walker_in_a_cold_desert_is_over_capacity_on_water_alone() {
+        // 1 person, 30 kg of porter capacity, 10 kg of cargo -- and 4 days of
+        // desert water (27.5 kg) puts the load at 43.2 kg. This is exactly the
+        // case v1.84 was written about, and it is still real in a desert.
+        let p = JpPlan {
+            party: JpParty { group_size: 1, cargo_kg: 10.0, ..JpParty::default() },
+            transport: "Walking".to_string(),
+            supply_days: 4,
+            grazing: "None — carry all fodder".to_string(),
+            ..jp_m4_plan()
+        };
+        assert_capacity(
+            &jp_capacity(&p, "Cold Desert / Badlands", "Summer"),
+            "lone walker",
+            [43.2, 30.0, 0.0, 10.0, 5.699999999999999, 27.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5.5, 0.0],
+        );
+    }
+
+    #[test]
+    fn assess_resupply_names_water_and_load_as_different_causes() {
+        // v1.51's headline fix: the same 1 t overload reads as a REROUTE
+        // problem when a long dry stretch drives it, and as a REPACK problem
+        // otherwise. The water branch needs both a measured dry run and a gap
+        // of at least 3 days -- a 2-day gap is back to "capacity".
+        let r = jp_assess_resupply(5000.0, 4000.0, 20.0, 25.0, f64::INFINITY, 7.0, true, 0.0);
+        assert!(!r.feasible && r.stops_needed.is_none());
+        assert_eq!(r.limited_by.as_deref(), Some("capacity"));
+        assert_eq!(r.cause, Some("load"));
+        assert_eq!(r.verdict, "Cannot carry sufficient supplies — over capacity by 1.0 t.");
+        let r = jp_assess_resupply(5000.0, 4000.0, 20.0, 25.0, 4.5, 7.0, true, 300.0);
+        assert_eq!(r.cause, Some("water"));
+        assert_eq!(r.limited_by.as_deref(), Some("water"));
+        assert_eq!(
+            r.verdict,
+            "No water for 300 km (~4.5 d) — carrying that reserve is 1.0 t over capacity. \
+             No party size fixes this: reroute past a river or lake, or cross in a wetter season."
+        );
+        let r = jp_assess_resupply(5000.0, 4000.0, 20.0, 25.0, 2.0, 7.0, true, 300.0);
+        assert_eq!(r.cause, Some("load"));
+    }
+
+    #[test]
+    fn assess_resupply_binds_on_whichever_interval_is_shorter() {
+        let r = jp_assess_resupply(900.0, 4000.0, 5.0, 25.0, f64::INFINITY, 7.0, true, 0.0);
+        assert_eq!(r.stops_needed, Some(0));
+        assert_eq!(r.verdict, "No stops required — supplies cover the full stage (23% capacity).");
+        let r = jp_assess_resupply(900.0, 4000.0, 30.0, 25.0, f64::INFINITY, 7.0, true, 0.0);
+        assert_eq!(r.stops_needed, Some(4));
+        assert_eq!(r.limited_by.as_deref(), Some("food / settlement"));
+        assert_eq!(r.verdict, "4 resupply stops — every ~175 km (~7.0 d). Binding: food / settlement.");
+        // A 3-day water gap beats the 7-day supply interval, so water binds.
+        let r = jp_assess_resupply(900.0, 4000.0, 30.0, 25.0, 3.0, 7.0, true, 120.0);
+        assert_eq!(r.stops_needed, Some(9));
+        assert_eq!(r.limited_by.as_deref(), Some("water"));
+        assert_eq!(r.verdict, "9 resupply stops — every ~75 km (~3.0 d). Binding: water.");
+        // Carrying no food at all leaves water the only interval, and says so.
+        let r = jp_assess_resupply(900.0, 4000.0, 30.0, 25.0, 3.0, 7.0, false, 120.0);
+        assert_eq!(r.limited_by.as_deref(), Some("water (no food carried)"));
+        assert_eq!(r.verdict, "9 resupply stops — every ~75 km (~3.0 d). Binding: water (no food carried).");
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn assert_land(c: &JpLandCalc, what: &str, daily_km: f64, days: f64, load_ratio: f64, col_km: f64, col_mod: f64, water_gap_days: f64) {
+        near(c.daily_km, daily_km, &format!("{what} daily_km"));
+        near(c.days, days, &format!("{what} days"));
+        near(c.load_ratio, load_ratio, &format!("{what} load_ratio"));
+        near(c.col_km, col_km, &format!("{what} col_km"));
+        near(c.col_mod, col_mod, &format!("{what} col_mod"));
+        near(c.water_gap_days, water_gap_days, &format!("{what} water_gap_days"));
+    }
+
+    #[test]
+    fn calc_land_merchant_caravan_on_a_dirt_track() {
+        let c = jp_calc_land(&jp_m4_stage(), &jp_m4_plan()).expect("not blocked");
+        assert_land(
+            &c,
+            "merchant",
+            22.363624,
+            8.943094375044044,
+            0.4323351648351648,
+            0.027800000000000002,
+            0.9987584532363819,
+            0.5,
+        );
+        assert_eq!(c.transport_label, "Baggage Train — cart-limited");
+        assert_eq!(c.mount_key, None);
+        assert!(!c.is_desert && !c.portage && c.desert_tier.is_none());
+        assert_eq!(c.supply_days, 7);
+        near(c.cap.total_mass, 1201.7, "cap total_mass");
+        near(c.cap.capacity, 2912.0, "cap capacity");
+        let r = c.resupply.expect("has capacity");
+        assert_eq!(r.stops_needed, Some(1));
+        assert_eq!(r.verdict, "1 resupply stop — every ~157 km (~7.0 d). Binding: food / settlement.");
+    }
+
+    #[test]
+    fn calc_land_foraging_and_column_length_reach_the_answer() {
+        // A 4-person walking party foraging actively across open plains.
+        let st = JpStage { km: 120.0, terrain: "Open Plains".to_string(), ..jp_m4_stage() };
+        let p = JpPlan {
+            party: JpParty { group_size: 4, cargo_kg: 40.0, ..JpParty::default() },
+            transport: "Walking".to_string(),
+            supply_days: 5,
+            foraging: "Active".to_string(),
+            ..jp_m4_plan()
+        };
+        let c = jp_calc_land(&st, &p).expect("not blocked");
+        assert_land(&c, "walkers", 28.3616704, 4.231062497644708, 0.45834800806842935, 0.0008, 0.9999717937122995, 0.5);
+        assert_eq!(c.transport_label, "Walking");
+
+        // A 400-strong column with 30 wagons occupies 430 m of road and pays
+        // 3.8% of its marching day to its own passage -- the v1.51 physics
+        // that stopped bigger parties from being monotonically faster.
+        let st = JpStage { km: 400.0, biome: "Steppe / Grassland".to_string(), ..jp_m4_stage() };
+        let p = JpPlan {
+            party: JpParty { group_size: 400, cargo_kg: 15000.0, mule: 20, horse: 80, wagons: 30, ..JpParty::default() },
+            supply_days: 12,
+            foraging: "Opportunistic".to_string(),
+            ..jp_m4_plan()
+        };
+        let c = jp_calc_land(&st, &p).expect("not blocked");
+        assert_land(&c, "army", 10.822001552000001, 36.96173929360382, 0.5086356912573488, 0.43, 0.9617845769028027, 0.5);
+        assert_eq!(c.transport_label, "Baggage Train — wagon-limited");
+    }
+
+    #[test]
+    fn calc_land_desert_water_feedback_can_block_a_stage_outright() {
+        // v1.67: 24 camels crossing 300 km of Deep Sand with a 180 km dry run.
+        // The loop's own feedback (slower -> longer gap -> more water -> more
+        // load -> slower) converges at 340% of capacity, which is a stage no
+        // party departs on, not a slow one.
+        let st = JpStage {
+            km: 300.0,
+            terrain: "Deep Sand".to_string(),
+            biome: "Hot Desert".to_string(),
+            dry_km: 180.0,
+            ..jp_m4_stage()
+        };
+        let p = JpPlan {
+            party: JpParty { group_size: 20, cargo_kg: 3000.0, camel: 24, ..JpParty::default() },
+            supply_days: 10,
+            grazing: "None — carry all fodder".to_string(),
+            ..jp_m4_plan()
+        };
+        let err = jp_calc_land(&st, &p).expect_err("blocked");
+        assert!(!err.seasonal);
+        assert_eq!(
+            err.reason,
+            "Carrying enough water for this stretch pushes the load to 340% of capacity (26.5 t vs 7.8 t rated) — \
+             no party departs in this state. Reduce cargo, add pack animals, reroute past water, or cross in a wetter season."
+        );
+    }
+
+    #[test]
+    fn calc_land_an_explicit_desert_tier_overrides_the_measured_gap() {
+        // Same party on hardpack with "Sparse Wells" chosen by hand: the
+        // tier's own 6-day gap wins over the stage's measured run, which is
+        // what makes the dropdown an override rather than a suggestion. The
+        // stage computes -- but its resupply verdict is infeasible.
+        let st = JpStage {
+            km: 300.0,
+            terrain: "Desert Hardpack".to_string(),
+            biome: "Hot Desert".to_string(),
+            dry_km: 180.0,
+            ..jp_m4_stage()
+        };
+        let p = JpPlan {
+            party: JpParty { group_size: 20, cargo_kg: 3000.0, camel: 24, ..JpParty::default() },
+            supply_days: 10,
+            grazing: "None — carry all fodder".to_string(),
+            desert_water: Some("Sparse Wells".to_string()),
+            ..jp_m4_plan()
+        };
+        let c = jp_calc_land(&st, &p).expect("not blocked");
+        assert_land(&c, "sparse wells", 20.333979989333333, 14.753629154615675, 1.1830769230769231, 0.04133333333333333, 0.9983764623695736, 6.0);
+        assert!(c.is_desert);
+        assert_eq!(c.desert_tier, Some(("Sparse Wells", false)));
+        near(c.dry_km, 180.0, "dry_km");
+        let r = c.resupply.expect("has capacity");
+        assert!(!r.feasible);
+        assert_eq!(r.cause, Some("water"));
+        assert_eq!(
+            r.verdict,
+            "No water for 180 km (~6.0 d) — carrying that reserve is 1.4 t over capacity. \
+             No party size fixes this: reroute past a river or lake, or cross in a wetter season."
+        );
+    }
+
+    #[test]
+    fn calc_land_hard_blocks_fire_before_anything_is_computed() {
+        let p = jp_m4_plan();
+        let st = JpStage { terrain: "Deep Sand".to_string(), ..jp_m4_stage() };
+        assert_eq!(
+            jp_calc_land(&st, &p).expect_err("blocked").reason,
+            "Wheeled vehicles cannot traverse Deep Sand. Remove carts/wagons or reroute."
+        );
+        let st = JpStage { terrain: "Swamp / Marsh".to_string(), ..jp_m4_stage() };
+        let mounted = JpPlan { transport: "Mounted Rider".to_string(), party: JpParty { carts: 0, ..p.party }, ..p.clone() };
+        assert_eq!(
+            jp_calc_land(&st, &mounted).expect_err("blocked").reason,
+            "Mounted travel is not viable in Swamp / Marsh. Switch to Walking or reroute."
+        );
+        // A closed pass is `seasonal`, which is what tells "wrong month" from
+        // "wrong party".
+        let st = JpStage { terrain: "Mountain Pass".to_string(), biome: "Mountain Highland".to_string(), ..jp_m4_stage() };
+        let winter = JpPlan { season: "Winter".to_string(), party: JpParty { carts: 0, ..p.party }, ..p.clone() };
+        let err = jp_calc_land(&st, &winter).expect_err("blocked");
+        assert!(err.seasonal);
+        assert_eq!(
+            err.reason,
+            "Mountain Pass in Mountain Highland is closed by snow in Winter. \
+             Travel in another season, reroute below the pass, or turn off seasonal closures in the party form."
+        );
+        // v1.63: 40 t of cargo against 60 kg of porter capacity cannot depart
+        // at any speed, and is caught before the convergence loop ever runs.
+        let hopeless = JpPlan {
+            party: JpParty { group_size: 2, cargo_kg: 40000.0, ..JpParty::default() },
+            ..p.clone()
+        };
+        assert_eq!(
+            jp_calc_land(&jp_m4_stage(), &hopeless).expect_err("blocked").reason,
+            "Overloaded 66700% of capacity (40.0 t carried vs 60 kg rated) — no party departs in this state. \
+             Assign pack animals or a cart/wagon for this stage, reduce cargo, or split the load across a resupply stop."
+        );
+    }
+
+    #[test]
+    fn calc_land_haste_bypasses_the_soft_modifiers_and_sleds_glide_on_snow() {
+        // Haste forces coordination/fatigue/grazing/foraging/load to 1.000 --
+        // a lone courier on pavement makes 90 km/day.
+        let st = JpStage { km: 150.0, terrain: "Paved Road".to_string(), ..jp_m4_stage() };
+        let p = JpPlan {
+            party: JpParty { group_size: 1, cargo_kg: 5.0, horse: 1, ..JpParty::default() },
+            transport: "Mounted Rider".to_string(),
+            pace: "Haste".to_string(),
+            hours: 10.0,
+            supply_days: 2,
+            grazing: "Full — graze on route".to_string(),
+            ..jp_m4_plan()
+        };
+        let c = jp_calc_land(&st, &p).expect("not blocked");
+        assert_land(&c, "haste courier", 90.41448333333334, 1.659026236393911, 0.05688405797101449, 0.0017666666666666666, 0.9999804607394505, 0.5);
+        assert_eq!(c.transport_label, "Mounted Rider — Horse");
+        assert_eq!(c.mount_key, Some("horse"));
+
+        // Sled runners on Snow / Ice replace the terrain modifier with 1.0
+        // where wheels would be blocked outright.
+        let st = JpStage {
+            km: 100.0,
+            terrain: "Snow / Ice".to_string(),
+            biome: "Tundra / Polar".to_string(),
+            ..jp_m4_stage()
+        };
+        let p = JpPlan {
+            party: JpParty { group_size: 6, cargo_kg: 500.0, mule: 4, sleds: 2, ..JpParty::default() },
+            season: "Winter".to_string(),
+            supply_days: 6,
+            seasonal_closures: false,
+            ..jp_m4_plan()
+        };
+        let c = jp_calc_land(&st, &p).expect("not blocked");
+        assert_land(&c, "sleds", 19.427984000000002, 5.147214451072226, 0.403556095382311, 0.0172, 0.9991154622141915, 0.5);
+        assert_eq!(c.transport_label, "Baggage Train — sled-limited");
+    }
+
+    #[test]
+    fn calc_water_sea_and_river_differ_in_window_food_and_resupply() {
+        // A Cog on Coastal Waters: an 11 h window, 0.60 of cruise realised,
+        // and a sea leg is loaded at port rather than resupplied en route.
+        let st = JpStage {
+            km: 500.0,
+            cat: "sea".to_string(),
+            terrain: "Coastal Waters".to_string(),
+            route_cond: "Neutral".to_string(),
+            biome: "Coastal Lowland".to_string(),
+            ..jp_m4_stage()
+        };
+        let p = JpPlan {
+            party: JpParty { group_size: 6, cargo_kg: 40000.0, ..JpParty::default() },
+            transport: "Sea Faring".to_string(),
+            vessel: "Cog".to_string(),
+            supply_days: 14,
+            ..jp_m4_plan()
+        };
+        let c = jp_calc_water(&st, &p).expect("not blocked");
+        near(c.daily_km, 61.379999999999995, "cog daily_km");
+        near(c.days, 8.145975887911373, "cog days");
+        near(c.load_ratio, 0.5131048387096774, "cog load_ratio");
+        near(c.food_needed, 349.46236559139794, "cog food");
+        near(c.water_needed, 698.9247311827959, "cog water");
+        assert_eq!(c.crew, 20);
+        assert_eq!(c.transport_label, "Sea Faring — Cog");
+        assert_eq!(c.resupply.limited_by, None);
+        assert_eq!(c.resupply.verdict, "Loaded at port — no en-route resupply required (51% hold).");
+
+        // A Keelboat on a calm river: a 2-day settlement interval, and real
+        // resupply stops.
+        let st = JpStage {
+            km: 180.0,
+            cat: "river".to_string(),
+            terrain: "Calm River".to_string(),
+            route_cond: "Mild Downstream".to_string(),
+            ..jp_m4_stage()
+        };
+        let p = JpPlan {
+            party: JpParty { group_size: 4, cargo_kg: 5000.0, ..JpParty::default() },
+            transport: "River Transport".to_string(),
+            vessel: "Keelboat".to_string(),
+            ..jp_m4_plan()
+        };
+        let c = jp_calc_water(&st, &p).expect("not blocked");
+        near(c.daily_km, 59.28, "keelboat daily_km");
+        near(c.days, 3.0364372469635628, "keelboat days");
+        near(c.water_needed, 66.0, "keelboat water");
+        assert_eq!(c.resupply.verdict, "1 resupply stop — every ~119 km (~2.0 d). Binding: food / settlement.");
+
+        // The same boat through a desert biome carries 2.0x the river water
+        // reserve rather than 1.10x -- a hold mid-passage cannot detour to a
+        // stream the way a land party can, so jpCalcWater keeps its own rule.
+        let st = JpStage { terrain: "Moderate River".to_string(), route_cond: "Neutral".to_string(), biome: "Hot Desert".to_string(), ..st };
+        let c = jp_calc_water(&st, &p).expect("not blocked");
+        near(c.water_needed, 384.0, "desert river water");
+        near(c.daily_km, 37.7136, "desert river daily_km");
+    }
+
+    #[test]
+    fn calc_water_blocks_on_rating_season_and_hold() {
+        let st = JpStage {
+            km: 500.0,
+            cat: "sea".to_string(),
+            terrain: "Open Sea".to_string(),
+            route_cond: "Neutral".to_string(),
+            biome: "Coastal Lowland".to_string(),
+            ..jp_m4_stage()
+        };
+        // The vessel rating is checked BEFORE the sailing season: a hull that
+        // could never be here at all reports that first.
+        let p = JpPlan { transport: "Sea Faring".to_string(), vessel: "Keelboat".to_string(), season: "Winter".to_string(), ..jp_m4_plan() };
+        let err = jp_calc_water(&st, &p).expect_err("blocked");
+        assert!(!err.seasonal);
+        assert_eq!(err.reason, "Keelboat is not rated for open-sea conditions on this leg.");
+        // With a hull that IS rated, winter closes the lane -- and flags it
+        // seasonal.
+        let p = JpPlan { vessel: "Cog".to_string(), ..p };
+        let err = jp_calc_water(&st, &p).expect_err("blocked");
+        assert!(err.seasonal);
+        assert_eq!(
+            err.reason,
+            "Open Sea is closed to shipping in Winter (the sailing season is shut). \
+             Sail in another season, hug the coast instead, or turn off seasonal closures in the party form."
+        );
+        // A hold that cannot take cargo + supplies is blocked inside the
+        // convergence loop, not silently slowed.
+        let st = JpStage { terrain: "Coastal Waters".to_string(), ..st };
+        let p = JpPlan {
+            party: JpParty { group_size: 6, cargo_kg: 1400.0, ..JpParty::default() },
+            vessel: "Fishing Vessel".to_string(),
+            supply_days: 14,
+            season: "Summer".to_string(),
+            ..p
+        };
+        assert_eq!(
+            jp_calc_water(&st, &p).expect_err("blocked").reason,
+            "Hold overloaded: 1.9 t exceeds Fishing Vessel's 1.5 t capacity."
+        );
+        // An unnamed vessel is the reference's own "no vessel" verdict.
+        let p = JpPlan { vessel: "Raft".to_string(), party: JpParty { cargo_kg: 0.0, ..p.party }, ..p };
+        assert_eq!(jp_calc_water(&st, &p).expect_err("blocked").reason, "No vessel selected for the water leg.");
+    }
+
+    #[test]
+    fn best_land_transport_measures_every_mode_on_one_stages_own_ground() {
+        // Milestone 2's fourth deferral, unblocked by jp_calc_land: same
+        // equipment, different marching order.
+        let p = jp_m4_plan();
+        let (mode, km) = jp_best_land_transport_for_stage(&jp_m4_stage(), &p).expect("a mode wins");
+        assert_eq!(mode, "Mounted Rider");
+        near(km, 31.0714, "dirt track best km/day");
+        // On Forest Path the wheeled variants are blocked outright, and the
+        // measurement simply skips them.
+        let st = JpStage { terrain: "Forest Path".to_string(), ..jp_m4_stage() };
+        let p2 = JpPlan { party: JpParty { carts: 0, travois: 2, ..p.party }, ..p.clone() };
+        let (mode, km) = jp_best_land_transport_for_stage(&st, &p2).expect("a mode wins");
+        assert_eq!(mode, "Mounted Rider");
+        near(km, 23.2918, "forest path best km/day");
+        // Water stages are not its business.
+        let st = JpStage { cat: "sea".to_string(), terrain: "Coastal Waters".to_string(), ..jp_m4_stage() };
+        assert!(jp_best_land_transport_for_stage(&st, &p).is_none());
+    }
+
+    #[test]
+    fn stage_dry_km_measures_the_longest_run_with_no_freshwater_in_reach() {
+        // A 16x8 grid at 5 km/cell: one river column at x=12 and one lake
+        // cell at (2,3). The reach is 1.5 cells (floored), so the river wets
+        // x=10..14 and the lake x=0..4 -- leaving a 25 km dry run between.
+        let (gw, gh) = (16usize, 8usize);
+        let mut flow = vec![0.0f32; gw * gh];
+        for y in 0..gh {
+            flow[y * gw + 12] = 500.0;
+        }
+        let mut wb = vec![0u8; gw * gh];
+        wb[3 * gw + 2] = 2;
+        let pts: Vec<(f64, f64)> = (0..gw).map(|x| (x as f64, 3.0)).collect();
+        near(
+            jp_stage_dry_km(&pts, 0, gw - 1, 5.0, Some(&wb), Some(&flow), gw, gh, 100.0, 800.0),
+            25.0,
+            "river + lake",
+        );
+        // Without the lake the party is dry from the start: 45 km.
+        near(jp_stage_dry_km(&pts, 0, gw - 1, 5.0, None, Some(&flow), gw, gh, 100.0, 800.0), 45.0, "river only");
+        // Sub-ranges measure only their own span.
+        near(jp_stage_dry_km(&pts, 0, 5, 5.0, Some(&wb), Some(&flow), gw, gh, 100.0, 800.0), 5.0, "first half");
+        near(jp_stage_dry_km(&pts, 6, 10, 5.0, None, Some(&flow), gw, gh, 100.0, 800.0), 15.0, "middle");
+    }
+
+    #[test]
+    fn resupply_reach_compares_the_stated_requirement_with_the_real_route() {
+        // v1.51's audit finding: the tightest land stage needs a resupply
+        // every 60 km (5 days x 12 km/day), and the route's own settlements
+        // leave a 2200 km gap. Water stages and blocked stages are ignored.
+        let pts: Vec<(f64, f64)> = (0..100).map(|x| (x as f64, 3.0)).collect();
+        let stages = vec![
+            ResupplyReachStage { blocked: false, cat: "land".to_string(), daily_km: 20.0, supply_days: 7 },
+            ResupplyReachStage { blocked: false, cat: "land".to_string(), daily_km: 12.0, supply_days: 5 },
+            ResupplyReachStage { blocked: false, cat: "sea".to_string(), daily_km: 60.0, supply_days: 14 },
+            ResupplyReachStage { blocked: true, cat: "land".to_string(), daily_km: 5.0, supply_days: 2 },
+        ];
+        let r = jp_resupply_reach(&pts, 50.0, 16, &stages, &[(20.0, 3.0), (55.0, 3.0)], true).expect("measurable");
+        near(r.required_km, 60.0, "required_km");
+        near(r.max_gap_km, 2200.0, "max_gap_km");
+        near(r.gap_at_km, 2750.0, "gap_at_km");
+        near(r.total_km, 4950.0, "total_km");
+        assert_eq!(r.stops, 2);
+        assert!(r.unmet && r.carry_food);
+        near(r.shortfall, 36.666666666666664, "shortfall");
+        // With no stops at all the whole route is one gap...
+        let r = jp_resupply_reach(&pts, 50.0, 16, &stages, &[], true).expect("measurable");
+        near(r.max_gap_km, 4950.0, "no stops max_gap_km");
+        near(r.shortfall, 82.5, "no stops shortfall");
+        assert!(r.unmet);
+        // ...but a party carrying no food is never "unmet" on food.
+        let r = jp_resupply_reach(&pts, 50.0, 16, &stages, &[], false).expect("measurable");
+        assert!(!r.unmet && !r.carry_food);
+        // A route with nothing to measure returns nothing.
+        assert!(jp_resupply_reach(&pts[..1], 50.0, 16, &stages, &[], true).is_none());
+        assert!(jp_resupply_reach(&pts, 50.0, 16, &[], &[], true).is_none());
     }
 }

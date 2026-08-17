@@ -8325,3 +8325,104 @@ the exact values the reference's own null-coalescing defaults produce), and
 geoid/tides/seasons — each itemized with its reason in
 `GENERATION_PARAMETERS.md`'s own "Parameters the reference exposed that this
 port does not" section.
+
+## Journey Planner milestone 4: consumption/resupply — and milestone 3 closed (2026-08-18)
+
+Built **out of the numbered order on purpose**. Milestone 3's own
+investigation found a real dependency inversion — its two stage calculators
+need milestone 4's mass model — and `JOURNEY_PLANNER_SCOPE.md` now carries an
+explicit build-order table at the head of its milestone breakdown. The
+numbers stay as historical identifiers (they are referenced across this
+changelog, `STATUS.md` and several commit messages); the table is the real
+order.
+
+**Ported (`cartalith-civ`, ~1,000 lines):**
+
+- **The four real quick wins first**, as the scope doc suggested:
+  `jp_human_water_rate` (v1.95's one per-person daily rate),
+  `jp_human_water_carry_days`/`jp_animal_water_carry_days` (v1.84's
+  desert-only carried-water reserve — outside an arid biome water is
+  assumed collectable and contributes *zero* mass), and
+  `jp_desert_tier_for_gap`.
+- `jp_consumption_factors` (Pandolf terrain factors × a velocity-squared
+  pace surcharge), `jp_foraging` (v1.81, food *and* water offsets),
+  `jp_capacity` (the whole mass model: seasonal physiology, desert
+  food/water multipliers, the phantom-draft-animal shortfall, and v1.83's
+  saddlebag credit for a rider's own mount, which correctly refuses to
+  double-count the "Lone courier" preset's already-declared horse), and
+  `jp_assess_resupply` (v1.51's two named causes — a load problem and a
+  water problem are fixed by different actions, so they cannot share one
+  message).
+- The hydrology/measurement helpers: `jp_water_reach_cells`,
+  `jp_drinking_coarse_ease` (v1.101 Fix B — JP's own *uncapped* ease, where
+  the map's `river_coarse_ease` is capped for cartographic reasons that have
+  nothing to do with finding a spring), `jp_stage_dry_km`, and
+  `jp_resupply_reach` (v1.51's headline audit finding: nothing had ever
+  compared the resupply requirement with the settlements the route passes).
+- The data milestones 2 and 3 each deliberately left out: `JP_BIOMES`'
+  `water`/`forage`/`waterForage`/`grazing` columns (now one `jp_biome`
+  record, with milestone 2's two-field lookup delegating to it rather than
+  keeping a second copy of the same table), `JP_SEASONAL_ANIMAL`,
+  `JP_SEASONAL_HUMAN`, `JP_DESERT_ANIMAL_MOD`, `JP_GRAZING`, `JP_SEASONS`,
+  `JP_FORAGING`, `JP_TERRAIN_CONSUMPTION`, `JP_FORAGE_TERRAIN`, `JP_PACE`,
+  `JP_INFRA`, `JP_ROUTE`, `JP_GROUP_CLASSES`, `JP_LAND_TRANSPORTS`,
+  `JP_DESERT_WATER` and the vehicle/ration constants.
+- **Milestone 3's two deferrals, which closes milestone 3**: `jp_calc_land`
+  (hard feasibility blocks → speed chain → v1.51's supply/load/speed
+  convergence loop → v1.63's and v1.67's two infeasibility cutoffs) and
+  `jp_calc_water`. Both return `Result<_, JpBlocked>` rather than the
+  reference's `{blocked:"…"}` sentinel object, so a blocked stage cannot be
+  read as a computed one by accident. Their `formula` trace strings are
+  deliberately not ported — pure presentation (`ARCHITECTURE.md`), and every
+  value they print is a field on the returned struct.
+- **Milestone 6's `jp_fmt_kg`**, needed here because both calculators format
+  their overload/hold messages with it. The rest of milestone 6 is untouched.
+- **Milestone 2's `_jpBestLandTransportForStage`**, checked against the real
+  reference rather than assumed: its `eff` parameter is only ever a plan with
+  per-stage overrides merged in, so `jp_calc_land` landing was genuinely all
+  it needed. **Genuinely unblocked, ported.** Milestone 2's other three
+  (`jp_auto_pick_transport`/`jp_auto_pick_vessel`/`_jp_best_package_for_stage`)
+  re-read again and still blocked on milestone 5's plan shapes.
+
+**The wildlife-richness question, resolved by investigation:** `jp_foraging`
+reads the world's wildlife richness through `_jpWildlifeForageMod`, which
+this port has never plumbed in. Checked against Phase 2's own ecology work
+rather than concluded from the name: `build_npp` and
+`build_carrying_capacity` are real and are *inputs* to the reference's
+richness model, but they are not the same quantity — `richness` is a
+per-ecoregion **species count** (`assignWildlife`'s `present.length`, a biome
+species roster clipped by a species-area × energy × heterogeneity × latitude
+curve), and the whole ecoregion-segmentation + roster subsystem behind it is
+unported, on no Journey Planner milestone, and larger than this one. So the
+input is genuinely new, and it is **caller-supplied**:
+`jp_wildlife_forage_mod(region_richness, world_mean_richness)` and
+`jp_world_mean_richness(&[Option<f64>])` are pure, and `JpStage` carries the
+finished multiplier where the reference carries `mx`/`my`. Same precedent as
+`civ_resource_trade_balance`'s caller-supplied means, and it preserves the
+reference's own calibration anchor exactly: **1.0 means "no wildlife data",
+and 1.0 is also what an exactly-average region produces**, so a port with no
+ecoregion model behaves identically to the reference running on a world whose
+wildlife layer was never built.
+
+**Verified — golden, not hand arithmetic.** Reference lines 17297-19252 were
+sliced out of `reference/Cartalith Gen1 v2.10.html` and evaluated in a bare
+Node `vm.runInContext` with no DOM (the harness milestone 3 introduced,
+extended: one contiguous slice with a block-comment balance check at the
+boundaries, which is exactly the class of bug that bit milestone 3). Every
+expected value in the 26 new tests is that run's output, including all eight
+`jpCapacity` configurations field by field, all eleven `jpCalcLand` cases and
+all seven `jpCalcWater` cases with their exact verdict and blocked-message
+strings. `cargo build -p cartalith-civ`, `cargo test -p cartalith-civ --lib`
+(165 passed, 0 failed, 26 new), `cargo clippy -p cartalith-civ --all-targets`
+(clean — the two remaining lib warnings are the same pre-existing ones
+milestones 2 and 3 recorded), `cargo test --workspace` (0 regressions).
+
+**Not wired to any caller** — no `#[func]`, no `compute_civilisation()`
+integration, per the scope doc's own "Out of scope for all milestones": the
+Journey Planner is interactive per-journey tooling whose real integration is
+future GUI work.
+
+**One new workspace dependency**: `cartalith-civ` now depends on
+`cartalith-terrain`, for `river_coarse_ease` — `jp_stage_dry_km` divides the
+map's own coarse ease back out to substitute JP's uncapped one, and
+duplicating that function here would have been a second copy to drift from.

@@ -154,6 +154,7 @@ dependencies = [
  "cartalith-engine",
  "cartalith-hydrology",
  "cartalith-rng",
+ "cartalith-terrain",
  "rayon",
 ]
 

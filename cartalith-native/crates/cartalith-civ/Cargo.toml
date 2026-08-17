@@ -13,4 +13,5 @@ name = "cartalith_civ"
 cartalith-engine = { path = "../cartalith-engine" }
 cartalith-hydrology = { path = "../cartalith-hydrology" }
 cartalith-rng = { path = "../cartalith-rng" }
+cartalith-terrain = { path = "../cartalith-terrain" }
 rayon = "1"
