@@ -146,3 +146,121 @@ whether "editable ramp" for Cartalith should instead mean exposing
 `TerrainAppearance`'s own real palettes (the 25 material colours) to a
 GUI — a genuine design decision, not a re-encoding exercise, now that the
 audit has corrected the original assumption.
+
+## Milestone 2 — relief lighting: multidirectional hillshade + ambient occlusion (done 2026-08-17)
+
+Milestone 1 was deliberately zero-visual-change groundwork. This one is the
+opposite: the default render should look meaningfully better, judged by
+looking at it.
+
+**What was chosen, and why these two.** `TERRAIN_APPEARANCE_RESEARCH.md`
+lists 15 phases; this milestone did two of them properly rather than four
+badly. §14 (multidirectional hillshade) and §15 (ambient occlusion) were
+picked because they share one decisive property: **they act on the lighting
+term only, never on the material/colour term.** The material blend
+(`material_weights` and the 25 palettes) is the part golden-verified against
+the JS engine, and the part §32 warns is easiest to break for one terrain
+type while improving another. Leaving it untouched made this a low-risk,
+high-visibility change.
+
+The two also complement each other, which is why doing only one would have
+been worse than doing neither well:
+
+- Multidirectional lighting reveals landforms whose ridgelines run *parallel*
+  to the single NW sun — structurally invisible under one light, no matter
+  how the curve is tuned.
+- But adding lights lifts shadowed slopes and therefore *flattens* depth,
+  the classic multidirectional failure mode. AO restores that depth from the
+  terrain's own concavity rather than from light direction.
+
+Rejected for this pass, with reasons: §10/§11 (slope/curvature modulation)
+would have meant editing `material_weights`, the golden-verified part —
+exactly the §32 risk above, and unnecessary since slope and curvature are
+*already* inputs there. §18 (local contrast) needs a neighbourhood pass over
+final colour, an architecturally different shape from this per-pixel
+renderer, and the research doc's own haloing/edge-artifact warnings make it a
+milestone rather than an add-on.
+
+**Built.** `TerrainAppearance` gained `sun_alt_deg` (hoisted from two
+separate hardcoded `40.0`s), `relief_lights`/`relief_directionality`/
+`relief_ambient`/`relief_gain`, and `ao_strength`/`ao_radius_frac` — named to
+match §14/§15's own GUI vocabulary so the deferred editing panel maps onto
+them directly. `shade` computes the surface normal once and dots it against a
+precomputed weighted light table (6 lights, weight `((1+cos θ)/2)^p`, primary
+still dominant at 43%); `build_ao` is a two-scale cavity map built from the
+existing separable box blur.
+
+**The AO normalization is the part that makes it survive §32.** Each scale is
+normalized by its own RMS over *land cells only*, so occlusion is measured
+against the world's own relief statistics. A fixed magnitude threshold would
+have given a low-relief world no AO at all and crushed an alpine one — the
+exact "flatters one terrain, destroys another" failure §32 names. It is also
+a pure function of the heightfield, so §27 determinism holds.
+
+**Golden-parity: kept exact, not re-baselined, not loosened.** New
+`TerrainAppearance::js_reference()` (`relief_lights: 1`, `ao_strength: 0.0`,
+original curve constants) reproduces the pre-milestone renderer bit-for-bit —
+`relief_lights <= 1` takes a dedicated early-return branch in `shade` so JS
+parity can never drift on a float reassociation, and `ao_strength == 0` skips
+the AO precompute entirely, leaving the `1.0` the code previously hardcoded.
+`golden_parity_render.rs` now constructs its context through the new
+`RenderCtx::with_appearance(..., js_reference())`: **both tests still pass at
+their original `1e-4` tolerance with every expected value unchanged** — the
+only edit is which appearance the context is built with.
+
+That choice follows `DECISIONS.md` §7a read carefully rather than loosely.
+§7a's carve-out is scoped to paths where JS parity is *impractical*
+(GPU/`f32`/`naga`), and it says in as many words that the CPU rendering port
+"stays golden-verified against the JS engine and that work is not being
+discarded or devalued". A deliberate visual improvement is not an
+impractical one, so the reference path stays tested. This also satisfies
+research doc §1.5 ("preserve the current renderer as a fallback/reference
+implementation") literally rather than in spirit.
+
+**A/B harness** — new `tests/appearance_ab_dump.rs` (`#[ignore]`d; run with
+`--ignored`) renders the same generated world through both appearances and
+writes raw RGB dumps, covering Classic and Archipelago. This is research doc
+§1.6's "establish deterministic A/B comparison rendering", and it exists
+because UI screenshots alone can't isolate the renderer from the rest of the
+app.
+
+**Verified.** `cargo build -p cartalith-godot` clean; `cargo test
+--workspace` 71 suites, 0 failures, 0 modified expectations; `cargo clippy -p
+cartalith-godot --all-targets` clean for this milestone's files (the one
+remaining warning is the pre-existing `needless_borrow` in `lib.rs`);
+`godot4 --headless --quit main.tscn` clean.
+
+Real before/after, both from the deterministic dump and from the real
+windowed app (2048², seed 12345, Classic, 40 settlements, same parameters
+both runs): drainage networks, ridge/valley structure and coastal
+escarpments become legible where the single-sun render showed a flat tan
+wash. Against §30's anti-list, measured rather than eyeballed:
+
+| | Classic before | Classic after | Archipelago before | Archipelago after |
+|---|---|---|---|---|
+| min luma | 39.4 | **39.4** | 31.6 | **31.6** |
+| mean luma | 133.3 | 128.8 | 108.7 | 108.0 |
+
+Identical minima confirm no new darkest pixel — no black valleys (AO darkens
+concavities only and is floored at `1 - ao_strength`). Mean luma barely
+moves, so the change redistributes contrast rather than dimming. The
+archipelago case is the important one for §32: the low-relief world gains
+definition without being crushed or going monochromatic.
+
+**One real regression caught mid-pass by looking, not by reading.** A 3× zoom
+of the dump showed speckle on flat plains: the fine AO radius resolved to 1
+cell at 512², close enough to the raw field that the cavity signal picked up
+per-cell heightfield noise — "random texture noise" on §30's own anti-list.
+Floored both radii (`r_fine = (r_broad/3).max(2)`) and re-verified.
+
+**Cost: essentially free.** 512² render time 45→45 ms (Classic) and 20→19 ms
+(Archipelago). The normal is computed once and reused across all six lights,
+so multi-light adds only dot products; AO is a one-time O(n) separable blur
+plus a per-pixel array lookup.
+
+**Still open for later milestones**: the atlas look proper (paper/vellum
+ground, forest stippling, hand-lettered glyphs, physical border — see
+`VISION.md`), §10/§11/§18 as reasoned above, the GUI editing panel (deferred
+by `GUI_SHELL_SCOPE.md`), the GPU path (§21), and milestone 1's own open
+question about whether an elevation-breakpoint ramp should exist as a
+separate mode alongside the material system.

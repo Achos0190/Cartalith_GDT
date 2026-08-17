@@ -6348,3 +6348,149 @@ headless terrain cross-check and windowed screenshots above.
 `cartalith-native/godot-project/main.gd` (Inspector "WHY HERE?" section),
 `cartalith-native/godot-project/map_overlay.gd` (index on the hover
 signal), `VISION.md`, `docs/STATUS.md`, this file.
+
+## Phase 3 milestone 2: multidirectional hillshade + ambient occlusion (2026-08-17)
+
+`TERRAIN_APPEARANCE_SCOPE.md` milestone 2. Milestone 1 was zero-visual-change
+groundwork; this is the pass where the default render actually gets better.
+Prompted by the owner's vision render (`VISION.md`), whose own gap assessment
+names atlas-quality rendering the largest purely-visual gap between today and
+the target.
+
+**Two improvements, chosen because they touch only the lighting term.**
+`TERRAIN_APPEARANCE_RESEARCH.md` lists 15 phases; this did §14
+(multidirectional hillshade) and §15 (ambient occlusion) properly instead of
+four badly. Neither touches `material_weights` or the 25 palettes — the part
+golden-verified against JS, and the part §32 warns is easiest to improve for
+one terrain type while wrecking another.
+
+They're also complementary, which is why either alone would have been worse:
+multi-light reveals ridgelines running *parallel* to the single NW sun
+(structurally invisible under one light), but adding lights lifts shadows and
+flattens depth — the classic multidirectional failure mode. AO puts that
+depth back from the terrain's own concavity instead of from light direction.
+
+- **Multidirectional hillshade** — `shade` computes the surface normal once
+  and dots it against a precomputed weighted light table (6 lights evenly
+  spaced from `sun_az_deg`, weight `((1+cos θ)/2)^p`, primary NW sun still
+  dominant at 43%). Each light is clamped at the horizon *before* weighting.
+  The light curve's ambient floor and gain became parameters
+  (`relief_ambient`/`relief_gain`) because multi-light compresses the shade
+  range upward and the reference's `0.45` floor would wash the image out.
+- **Ambient occlusion** — `build_ao`, a two-scale cavity map: compare each
+  cell against a blurred copy of the heightfield; sitting below the local
+  mean means sitting in a hollow. Uses the box blur already in this file.
+  `ao` had been a hardcoded `1.0` in `land_color` since the renderer landed.
+
+**The AO normalization is what makes it survive §32.** Each scale is
+normalized by its own RMS *over land cells only*, so occlusion is measured
+against each world's own relief statistics. A fixed threshold would give a
+low-relief world no AO and crush an alpine one — precisely the failure §32
+names. Pure function of the heightfield, so §27 determinism holds.
+
+**Golden parity kept exact — not re-baselined, not loosened.** New
+`TerrainAppearance::js_reference()` reproduces the pre-milestone renderer
+bit-for-bit: `relief_lights: 1` takes a dedicated early-return branch in
+`shade` (so parity can't drift on a float reassociation) and
+`ao_strength: 0.0` skips the AO precompute, leaving the `1.0` the code
+previously hardcoded. `golden_parity_render.rs` now builds its context via
+the new `RenderCtx::with_appearance(..., js_reference())` — **both tests pass
+at their original `1e-4` tolerance with every expected value unchanged**; the
+only edit is which appearance the context uses.
+
+This reading of `DECISIONS.md` §7a is deliberate: §7a's carve-out is scoped to
+paths where JS parity is *impractical* (GPU/`f32`/`naga`), and it states that
+the CPU rendering port "stays golden-verified against the JS engine and that
+work is not being discarded or devalued". A deliberate visual improvement
+isn't an impractical one, so the reference path stays tested — which also
+satisfies research doc §1.5's "preserve the current renderer as a
+fallback/reference implementation" literally.
+
+**New A/B harness** — `tests/appearance_ab_dump.rs` (`#[ignore]`d, run with
+`--ignored`) renders one generated world through both appearances and dumps
+raw RGB for Classic and Archipelago. Research doc §1.6's "deterministic A/B
+comparison rendering"; it exists because app screenshots can't isolate the
+renderer from the rest of the app.
+
+**Real before/after**, from both the deterministic dump and the real windowed
+app (2048², seed 12345, Classic, 40 settlements, identical params both runs):
+drainage networks, ridge/valley structure and coastal escarpments become
+legible where the single-sun render was a flat tan wash. Measured against
+§30's anti-list rather than eyeballed:
+
+| | Classic before | Classic after | Archipelago before | Archipelago after |
+|---|---|---|---|---|
+| min luma | 39.4 | **39.4** | 31.6 | **31.6** |
+| mean luma | 133.3 | 128.8 | 108.7 | 108.0 |
+
+Identical minima prove no new darkest pixel — no black valleys (AO darkens
+concavities only, floored at `1 - ao_strength`). Mean luma barely moves, so
+contrast is redistributed rather than the image dimmed. Archipelago is the
+§32 case: the low-relief world gains definition without being crushed or
+going monochromatic.
+
+**One real regression caught by looking, not by reading.** A 3× zoom of the
+dump showed speckle on flat plains — the fine AO radius resolved to 1 cell at
+512², close enough to the raw field that the cavity signal picked up per-cell
+heightfield noise ("random texture noise", also on §30's anti-list). Floored
+both radii (`r_fine = (r_broad/3).max(2)`) and re-verified.
+
+**Cost is essentially nil**: 512² render 45→45 ms (Classic), 20→19 ms
+(Archipelago). The normal is computed once and reused across all six lights,
+so multi-light adds only dot products; AO is a one-time O(n) separable blur
+plus a per-pixel lookup.
+
+**Verified**: `cargo build -p cartalith-godot` clean; `cargo test --workspace`
+71 suites, 0 failures, 0 modified expectations; `cargo clippy -p
+cartalith-godot --all-targets` clean for this milestone's files (the one
+remaining warning is a pre-existing `needless_borrow` in `lib.rs`); `godot4
+--headless --quit main.tscn` clean.
+
+**Files touched**: `cartalith-native/crates/cartalith-godot/src/render.rs`,
+`cartalith-native/crates/cartalith-godot/tests/golden_parity_render.rs` (two
+constructor calls only), new
+`cartalith-native/crates/cartalith-godot/tests/appearance_ab_dump.rs`,
+`TERRAIN_APPEARANCE_SCOPE.md`, `VISION.md`, `docs/STATUS.md`, this file.
+
+## GUI shell cleanup: remove top-bar/navigator menu duplication (2026-08-17)
+
+Owner-flagged directly after using the shell: *"There should be no double
+menus in the upper bar that are present in the left [nav]."* Audited every
+top-bar menu item (`main.gd`'s `_build_menus()`) against the navigator's
+`NAV_GROUPS` inventory for real duplication (same label *and* destination),
+not superficial word overlap between conceptually distinct surfaces
+(`design/cartalith-menu-structure.md`'s own rule: menus hold operations,
+the navigator holds subjects).
+
+Found one real, flagrant duplicate: the Map menu's "Layers" item did
+nothing but jump to `CARTOGRAPHY > Layers` — the exact same panel the nav's
+own "Layers" subject already opens, identical label, identical destination,
+zero distinct content. Removed the item and the now-dead
+`_on_map_menu_id` handler (the Map menu's remaining three items are all
+`disabled`, so nothing was left listening for a click that could never
+fire).
+
+Considered and deliberately left alone: the top-bar "Assets" domain menu
+vs. the CARTOGRAPHY nav's "Assets" subject (both inert placeholders
+representing genuinely different real-design scopes — global asset-library
+management vs. per-map asset usage — and removing either would trade real
+mockup fidelity for a speculative fix with no concrete content yet on
+either side to disambiguate against), and the Generate menu's numbered
+pipeline-stage items that share a bare word with unrelated nav subjects
+("08 Ecology", "09 Settlements", "11 Politics") — an ordered process list
+reads as a genuinely different kind of thing from a subject browser, not a
+copy of it.
+
+**Verified**: `cargo build -p cartalith-godot` clean (0 new Rust, pure
+GDScript), `cargo test --workspace` unaffected, `godot4 --headless --quit`
+clean load. Real windowed-app screenshot verification, maximized
+(1696×1018): confirmed the Map menu shows only its three real items with
+the nav's own unduplicated "Layers" below it; re-ran the full golden path
+(seed 12345, Classic, 2048², Generate → real terrain/settlements/roads/sea
+routes) and the causal-chain Inspector (hover → real "WHY HERE?" chain)
+both still work correctly through the cleaned-up shell; the Layers panel
+(now the sole entry point for that content) still functions for all three
+overlay toggles.
+
+**Files touched**: `cartalith-native/godot-project/main.gd`,
+`GUI_SHELL_SCOPE.md`, `docs/STATUS.md`, this file.

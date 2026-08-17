@@ -244,3 +244,51 @@ correctly re-parented.
 **Deferred, exactly as scoped**: light theme, panel collapse/rails, all
 three responsive breakpoints, terrain appearance's actual editing GUI, any
 further engine-side `#[func]` work.
+
+## Cleanup pass: eliminate top-bar/navigator duplication (2026-08-17)
+
+Owner-flagged after looking at the shipped shell: *"There should be no
+double menus in the upper bar that are present in the left [nav]."*
+Audited every top-bar menu item against the navigator's `NAV_GROUPS`
+inventory for real, not superficial, duplication — same label *and* same
+destination/content, not just a shared word between conceptually distinct
+surfaces (`design/cartalith-menu-structure.md`'s own §2 rule: menus hold
+operations, the navigator holds subjects — a menu action and a nav subject
+sharing a word isn't automatically a duplicate, e.g. the Generate menu's
+numbered pipeline stages "08 Ecology"/"09 Settlements"/"11 Politics" read as
+an ordered process list, not a second copy of the WORLD/CIVILIZATION
+subject browser, and weren't touched).
+
+**Found one real, flagrant case**: the Map menu's "Layers" item did nothing
+but call `_select_nav_subject("CARTOGRAPHY", "Layers")` — the exact same
+panel the CARTOGRAPHY nav group's own "Layers" subject already opens, same
+label, same destination, zero distinct content. Removed the item from
+`_build_menus()`'s Map popup and the now-dead `_on_map_menu_id` handler
+(the Map menu's three remaining items — Terrain appearance, Painter
+styles, Labels & annotation — are all still `disabled`, so the popup never
+fires `id_pressed` for anything now; the connection and handler were
+removed rather than left as dead code).
+
+**Considered and left alone, with reasoning**: the top-bar "Assets" menu
+(a real top-level domain per the mockup's own 7-menu top bar) versus the
+CARTOGRAPHY nav's "Assets" subject — both are 100% inert placeholders
+right now, but they represent genuinely different scopes in the source
+design (global asset-library management vs. per-map asset usage), the same
+relationship as the "World" menu name matching the "WORLD" nav group
+header. Removing either would reduce fidelity to the actual mockup
+screenshot without fixing a real functional duplicate — left for a future
+pass once either surface gains real content and the distinction (or lack
+of one) becomes concrete rather than speculative.
+
+**Verified**: `cargo build -p cartalith-godot` clean (0 new Rust — pure
+GDScript), `cargo test --workspace` unaffected. `godot4 --headless --quit`
+clean load. Real windowed-app screenshot verification, maximized
+(1696×1018): confirmed the Map menu now shows only its three real items
+with the CARTOGRAPHY nav's own "Layers" visible and unduplicated below it;
+re-ran the full golden path (seed 12345, Classic, 2048², Generate →
+real terrain/settlements/roads/sea-routes render) and the causal-chain
+Inspector (hover → real "WHY HERE?" chain, e.g. *"strong fresh water (0.86)
+→ strong gentle terrain (0.85) → strong terrain form (0.98) / Despite: weak
+flood risk (0.06) / Suitability 0.58"*) both still work correctly through
+the cleaned-up shell; the Layers panel (now the sole entry point) still
+shows and functions for all three overlay toggles.

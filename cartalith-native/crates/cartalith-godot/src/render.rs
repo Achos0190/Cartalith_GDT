@@ -95,10 +95,55 @@ pub struct TerrainAppearance {
     pub exag: f64,
     /// `state.sunAz`'s literal default (reference HTML line 2260).
     pub sun_az_deg: f64,
+    /// Sun elevation angle. Was hardcoded `40.0` in two separate places
+    /// (`shade`/`sea_shade_from`) before milestone 2 hoisted it here;
+    /// `TERRAIN_APPEARANCE_RESEARCH.md` §14 lists "elevation angle" as a
+    /// real control, so it belongs in the table, not inline.
+    pub sun_alt_deg: f64,
     /// `state.bioBlend`'s literal default (reference HTML line 2260) — the
     /// grey-desaturation blend in `land_color` is unconditional at this
     /// value (`blend < 1`), not a `state.viz`-gated stretch feature.
     pub bio_blend: f64,
+
+    // ---- Milestone 2 (`TERRAIN_APPEARANCE_SCOPE.md`): relief lighting ----
+    /// Number of hillshade light directions, evenly spaced around the
+    /// compass starting at `sun_az_deg` (`TERRAIN_APPEARANCE_RESEARCH.md`
+    /// §14). **`1` reproduces the reference's exact single-sun shading**
+    /// via a dedicated early-return path in `shade`, so
+    /// `TerrainAppearance::js_reference()` stays bit-identical to JS.
+    /// Higher counts reveal landforms whose ridgelines run *parallel* to
+    /// the primary sun — invisible under single-light shading, which is
+    /// the whole point of multidirectional relief.
+    pub relief_lights: usize,
+    /// How strongly the primary sun dominates the secondary lights, as the
+    /// exponent `p = relief_directionality * 3` in each light's weight
+    /// `((1 + cos θ)/2)^p` (θ = angular offset from the primary).
+    /// `1.0` ≈ near-single-light, `0.0` = fully omnidirectional (which
+    /// flattens relief completely — the classic multidirectional failure
+    /// mode, avoided here by keeping the primary dominant).
+    pub relief_directionality: f64,
+    /// Ambient floor of the light curve (`light = ambient + gain·sh^0.85`).
+    /// Multidirectional shading compresses `sh`'s range upward (fewer
+    /// surfaces sit at zero), so the reference's `0.45` floor would wash
+    /// the image out; the multi-light default lowers it and raises `gain`
+    /// to restore comparable contrast. `TERRAIN_APPEARANCE_RESEARCH.md`
+    /// §14's "ambient contribution".
+    pub relief_ambient: f64,
+    /// Gain of the light curve — see `relief_ambient`.
+    pub relief_gain: f64,
+
+    // ---- Milestone 2: ambient occlusion ----
+    /// AO darkening strength (`TERRAIN_APPEARANCE_RESEARCH.md` §15).
+    /// `0.0` disables AO entirely (and skips its precompute); the
+    /// reference has no AO at its defaults, so `js_reference()` uses `0.0`.
+    /// Deliberately modest — §15's explicit warning is "do not allow AO to
+    /// turn terrain black", so `ao` is floored at `1 - ao_strength`.
+    pub ao_strength: f64,
+    /// Broad AO blur radius as a fraction of grid width, so the occlusion
+    /// reads at a consistent *world* scale rather than a pixel scale across
+    /// this port's 512²–8192² resolution range (same reasoning as
+    /// `smooth_sea_h`'s own `gw/200` radius).
+    pub ao_radius_frac: f64,
 }
 
 impl Default for TerrainAppearance {
@@ -132,7 +177,47 @@ impl Default for TerrainAppearance {
             mangrove: [(38.0, 56.0, 42.0), (50.0, 72.0, 52.0), (64.0, 90.0, 65.0)],
             exag: 3.4,
             sun_az_deg: 315.0,
+            sun_alt_deg: 40.0,
             bio_blend: 0.90,
+            relief_lights: 6,
+            relief_directionality: 0.62,
+            relief_ambient: 0.34,
+            relief_gain: 1.16,
+            ao_strength: 0.28,
+            ao_radius_frac: 0.012,
+        }
+    }
+}
+
+impl TerrainAppearance {
+    /// The reference HTML's exact default-settings shading: one sun, no
+    /// ambient occlusion, the original light curve. Produces **bit-identical
+    /// output to this renderer before milestone 2** — `relief_lights: 1`
+    /// takes `shade`'s dedicated single-light early return, and
+    /// `ao_strength: 0.0` skips the AO precompute and leaves `ao = 1.0`,
+    /// which is literally what the code hardcoded before.
+    ///
+    /// This exists so `golden_parity_render.rs` keeps verifying real JS
+    /// parity at its original `1e-4` tolerance rather than being
+    /// re-baselined: `DECISIONS.md` §7a's principled-equivalence carve-out
+    /// is scoped to paths where JS parity is *impractical* (GPU/f32), and
+    /// says in as many words that the CPU rendering port "stays
+    /// golden-verified against the JS engine and that work is not being
+    /// discarded or devalued". A deliberate visual improvement is not the
+    /// same thing as an impractical one, so the reference path stays
+    /// tested — this also satisfies `TERRAIN_APPEARANCE_RESEARCH.md` §1.5's
+    /// "preserve the current renderer as a fallback/reference
+    /// implementation" literally rather than in spirit.
+    // Used by `golden_parity_render.rs`, which compiles as its own target,
+    // so the lib target alone sees it as unreachable.
+    #[allow(dead_code)]
+    pub fn js_reference() -> Self {
+        TerrainAppearance {
+            relief_lights: 1,
+            relief_ambient: 0.45,
+            relief_gain: 1.02,
+            ao_strength: 0.0,
+            ..TerrainAppearance::default()
         }
     }
 }
@@ -219,12 +304,120 @@ fn smooth_sea_h(src: &[f32], gw: usize, gh: usize, world: bool) -> Vec<f32> {
     a
 }
 
+/// Separable box blur at `rad`, one pass (`smooth_sea_h` does two at a
+/// fixed radius; AO wants a single pass at each of two radii instead).
+fn blur_once(src: &[f32], gw: usize, gh: usize, rad: i64, world: bool) -> Vec<f32> {
+    let mut b = vec![0f32; src.len()];
+    let mut out = vec![0f32; src.len()];
+    box_h(src, &mut b, gw, gh, rad, world);
+    box_v(&b, &mut out, gw, gh, rad);
+    out
+}
+
+/// Ambient occlusion over the heightfield (`TERRAIN_APPEARANCE_RESEARCH.md`
+/// §15), returned as a per-cell multiplier in `[1 - ao_strength, 1]`.
+///
+/// Method: a **cavity map** — compare each cell's height against a blurred
+/// version of the same field. Sitting below the local mean means sitting in
+/// a hollow (valley floor, ravine, basin) and therefore seeing less sky;
+/// sitting above it means a ridge or spur. This is a standard heightfield
+/// AO approximation and it targets exactly what §15 asks for ("valleys,
+/// ravines, canyon floors, depressions, terrain surrounded by steep
+/// slopes") without the cost of real horizon ray-marching, which would be
+/// far too expensive per-pixel on CPU at this port's 8192² ceiling.
+///
+/// Two radii are combined so both broad basins and narrow ravines register.
+///
+/// **Each scale is normalized by its own RMS over land cells**, which is
+/// what makes this hold up across wildly different worlds — §32 warns that
+/// appearance work flattering one terrain type often destroys another, and
+/// a fixed magnitude threshold would do exactly that (a low-relief world
+/// would get no AO at all, an alpine one would get crushed). Normalizing
+/// against the world's own relief statistics gives a flat world the same
+/// *relative* depth cue as a mountainous one. Deterministic: a pure
+/// function of the field, per §27.
+fn build_ao(field: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool, a: &TerrainAppearance) -> Vec<f32> {
+    if a.ao_strength <= 0.0 {
+        // The reference has no AO; `land_color` used a hardcoded `1.0`
+        // before milestone 2, and this reproduces it with no work done.
+        return vec![1f32; field.len()];
+    }
+    let r_broad = ((gw as f64 * a.ao_radius_frac).round() as i64).max(2);
+    // Floored at 2: a radius-1 blur is close enough to the raw field that
+    // the cavity signal picks up per-cell heightfield noise and renders as
+    // speckle on flat ground — "random texture noise", on §30's anti-list.
+    // Caught by a 3x zoom of the real A/B dump, not by reading the code.
+    let r_fine = (r_broad / 3).max(2);
+    let b_broad = blur_once(field, gw, gh, r_broad, world);
+    let b_fine = blur_once(field, gw, gh, r_fine, world);
+
+    // RMS of each scale's cavity signal, over land only — sea cells would
+    // otherwise dominate the statistics with bathymetry that never gets
+    // AO applied to it anyway (`land_color` is the only consumer).
+    let (mut acc_b, mut acc_f, mut n) = (0.0f64, 0.0f64, 0usize);
+    for i in 0..field.len() {
+        if (field[i] as f64) < sea_level {
+            continue;
+        }
+        let cb = (b_broad[i] - field[i]) as f64;
+        let cf = (b_fine[i] - field[i]) as f64;
+        acc_b += cb * cb;
+        acc_f += cf * cf;
+        n += 1;
+    }
+    if n == 0 {
+        return vec![1f32; field.len()];
+    }
+    let rms_b = (acc_b / n as f64).sqrt().max(1e-9);
+    let rms_f = (acc_f / n as f64).sqrt().max(1e-9);
+
+    let mut out = vec![1f32; field.len()];
+    for i in 0..field.len() {
+        let cb = (b_broad[i] - field[i]) as f64 / rms_b;
+        let cf = (b_fine[i] - field[i]) as f64 / rms_f;
+        // Only concavity darkens. Convexity is left at 1.0 rather than
+        // brightening ridges: brightening risks clipping into the
+        // oversaturation §30 lists in its anti-list, and §15 describes AO
+        // purely as a darkening term.
+        let occ = clamp01(0.62 * cb + 0.38 * cf);
+        out[i] = (1.0 - a.ao_strength * occ) as f32;
+    }
+    out
+}
+
+/// The weighted multidirectional light table (`lx, ly, lz, weight`), built
+/// once per render rather than re-deriving six sin/cos pairs per pixel.
+/// Weights are normalized to sum to 1, so the combined shade stays on the
+/// same `[0,1]` scale the single-light path produces.
+fn build_lights(a: &TerrainAppearance) -> Vec<(f64, f64, f64, f64)> {
+    let alt = a.sun_alt_deg.to_radians();
+    let n = a.relief_lights.max(1);
+    let p = (a.relief_directionality * 3.0).max(0.0);
+    let mut out: Vec<(f64, f64, f64, f64)> = Vec::with_capacity(n);
+    let mut total = 0.0;
+    for k in 0..n {
+        let theta = (k as f64) * std::f64::consts::TAU / n as f64;
+        let w = ((1.0 + theta.cos()) * 0.5).powf(p);
+        let az = a.sun_az_deg.to_radians() + theta;
+        out.push((alt.cos() * az.sin(), -alt.cos() * az.cos(), alt.sin(), w));
+        total += w;
+    }
+    let inv = if total > 0.0 { 1.0 / total } else { 1.0 };
+    for l in &mut out {
+        l.3 *= inv;
+    }
+    out
+}
+
 /// `seaShadeFrom` (8112-8121) — single-sun hillshade of the smoothed
 /// bathymetry, edge-clamped (never wraps, even in world mode, matching the
-/// reference exactly).
+/// reference exactly). Deliberately stays single-light even when land
+/// shading is multidirectional: the bathymetry it reads is already heavily
+/// smoothed (`smooth_sea_h`), so cross-lighting would only flatten it
+/// further with nothing left to reveal.
 fn sea_shade_from(hf: &[f32], gw: usize, gh: usize, appearance: &TerrainAppearance) -> Vec<f32> {
     let az = appearance.sun_az_deg.to_radians();
-    let alt = 40.0_f64.to_radians();
+    let alt = appearance.sun_alt_deg.to_radians();
     let (lx, ly, lz) = (alt.cos() * az.sin(), -alt.cos() * az.cos(), alt.sin());
     let mut out = vec![0f32; gw * gh];
     for y in 0..gh {
@@ -268,14 +461,23 @@ pub struct RenderCtx<'a> {
     /// shows. Computed once in `RenderCtx::new` rather than per cell.
     sea_h: Vec<f32>,
     sea_shade: Vec<f32>,
+    /// Per-cell ambient-occlusion multiplier (`build_ao`). All `1.0` when
+    /// `appearance.ao_strength == 0`, which is the reference's own state.
+    ao: Vec<f32>,
+    /// Precomputed weighted light directions (`build_lights`).
+    lights: Vec<(f64, f64, f64, f64)>,
     /// The renderer's colour data/shading constants (`TerrainAppearance`'s
-    /// own doc comment) — `TerrainAppearance::default()` this milestone,
-    /// not yet caller-settable (`TERRAIN_APPEARANCE_SCOPE.md` milestone 2+).
+    /// own doc comment). Settable via `with_appearance` as of milestone 2 —
+    /// still not wired to any UI/`#[func]` (that's `GUI_SHELL_SCOPE.md`'s
+    /// own deferred terrain-appearance panel), but the golden-parity test
+    /// uses it to pin the exact JS path.
     appearance: TerrainAppearance,
 }
 
 impl<'a> RenderCtx<'a> {
-    #[allow(clippy::too_many_arguments)]
+    // Used by `lib.rs`'s real render path; the test target (which calls
+    // `with_appearance` directly) alone sees it as unreachable.
+    #[allow(clippy::too_many_arguments, dead_code)]
     pub fn new(
         field: &'a [f32],
         temperature: &'a [f32],
@@ -288,10 +490,31 @@ impl<'a> RenderCtx<'a> {
         lat_n: f64,
         lat_s: f64,
     ) -> Self {
-        let appearance = TerrainAppearance::default();
+        Self::with_appearance(field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, TerrainAppearance::default())
+    }
+
+    /// As `new`, but with caller-supplied appearance data. Pass
+    /// `TerrainAppearance::js_reference()` for the reference HTML's exact
+    /// default-settings output (what `golden_parity_render.rs` pins).
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_appearance(
+        field: &'a [f32],
+        temperature: &'a [f32],
+        rainfall: &'a [f32],
+        flow: Option<&'a [f32]>,
+        gw: usize,
+        gh: usize,
+        sea_level: f64,
+        world: bool,
+        lat_n: f64,
+        lat_s: f64,
+        appearance: TerrainAppearance,
+    ) -> Self {
         let sea_h = smooth_sea_h(field, gw, gh, world);
         let sea_shade = sea_shade_from(&sea_h, gw, gh, &appearance);
-        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, appearance }
+        let ao = build_ao(field, gw, gh, sea_level, world, &appearance);
+        let lights = build_lights(&appearance);
+        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, lights, appearance }
     }
 
     fn h(&self, x: usize, y: usize) -> f64 {
@@ -369,10 +592,26 @@ impl<'a> RenderCtx<'a> {
         let (nx, ny, nz) = (-dzdx, -dzdy, 1.0_f64);
         let il = 1.0 / nx.hypot(ny).hypot(nz);
         let (nx, ny, nz) = (nx * il, ny * il, nz * il);
-        let az = self.appearance.sun_az_deg.to_radians();
-        let alt = 40.0_f64.to_radians();
-        let (lx, ly, lz) = (alt.cos() * az.sin(), -alt.cos() * az.cos(), alt.sin());
-        (nx * lx + ny * ly + nz * lz).max(0.0)
+
+        if self.appearance.relief_lights <= 1 {
+            // Reference path, byte-for-byte as it was before milestone 2 —
+            // kept as its own branch rather than falling out of the general
+            // weighted sum, so JS parity can never drift on a float
+            // reassociation. `js_reference()` takes this path.
+            let az = self.appearance.sun_az_deg.to_radians();
+            let alt = self.appearance.sun_alt_deg.to_radians();
+            let (lx, ly, lz) = (alt.cos() * az.sin(), -alt.cos() * az.cos(), alt.sin());
+            return (nx * lx + ny * ly + nz * lz).max(0.0);
+        }
+
+        // Multidirectional (`TERRAIN_APPEARANCE_RESEARCH.md` §14): each
+        // light is clamped at the horizon *before* weighting, so a light
+        // below the surface contributes nothing rather than subtracting.
+        let mut sum = 0.0;
+        for &(lx, ly, lz, w) in &self.lights {
+            sum += w * (nx * lx + ny * ly + nz * lz).max(0.0);
+        }
+        sum
     }
 
     fn macro_shade(&self, x: usize, y: usize) -> f64 {
@@ -517,7 +756,7 @@ fn bio_jitter(x: usize, y: usize, gw: usize) -> f64 {
 /// AO/SVF/shadow fields all being off). Every other `state.viz.*`-gated
 /// extra is omitted — see this module's doc comment.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, x: usize, y: usize, gw: usize, gh: usize) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, x: usize, y: usize, gw: usize, gh: usize) -> Rgb {
     let n_low = vnoise(x as f64 * 0.06, y as f64 * 0.06, 11);
     let n_hi = vnoise(x as f64 * 96.0 / gw as f64, y as f64 * 96.0 / gw as f64, 23);
     let n_bio = bio_jitter(x, y, gw);
@@ -566,7 +805,7 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
 
     let sh_micro = clamp01(sh + (n_hi - 0.5) * 0.20);
     let sh_combined = 0.40 * sh + 0.40 * sh_m + 0.20 * sh_micro;
-    let light = 0.45 + 1.02 * clamp01(sh_combined).powf(0.85);
+    let light = appearance.relief_ambient + appearance.relief_gain * clamp01(sh_combined).powf(0.85);
     let mut l = (c.0 * light, c.1 * light, c.2 * light);
     if appearance.bio_blend < 1.0 {
         let grey = 185.0 * light;
@@ -578,7 +817,10 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     let haze = clamp01(dx.hypot(dy) * 1.9).powf(2.2) * 0.18;
     let l = (l.0 + (208.0 - l.0) * haze, l.1 + (218.0 - l.1) * haze, l.2 + (230.0 - l.2) * haze);
 
-    let ao = 1.0;
+    // `ao * vignette` (7959-7960). `ao` was a hardcoded `1.0` before
+    // milestone 2 (the reference's AO/SVF/shadow fields are all off at its
+    // defaults); it now carries `build_ao`'s cavity map, and is still
+    // exactly `1.0` under `js_reference()`.
     let k = ao * vig;
     (l.0 * k, l.1 * k, l.2 * k)
 }
@@ -639,7 +881,7 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
         let twi = (a / beta).ln();
         let asp = ctx.aspect_factor(x, y);
         let curv = ctx.curvature_at(x, y);
-        land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), x, y, ctx.gw, ctx.gh)
+        land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, x, y, ctx.gw, ctx.gh)
     };
 
     (clamp01(r / 255.0), clamp01(g / 255.0), clamp01(b / 255.0))

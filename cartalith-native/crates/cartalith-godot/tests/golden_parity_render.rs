@@ -25,7 +25,7 @@ mod render;
 
 #[test]
 fn cell_color_matches_js_surface_and_sea() {
-    let ctx = render::RenderCtx::new(&FIELD, &TEMPERATURE, &RAINFALL, Some(&FLOW), 10, 10, 0.42f64, false, 55f64, 5f64);
+    let ctx = render::RenderCtx::with_appearance(&FIELD, &TEMPERATURE, &RAINFALL, Some(&FLOW), 10, 10, 0.42f64, false, 55f64, 5f64, render::TerrainAppearance::js_reference());
 
     // Tight but not bit-exact -- Math.pow/exp/hypot vs. Rust's f64
     // equivalents can differ by a handful of ULPs, which compounds through
@@ -62,7 +62,7 @@ const EXPECTED_RGB_2: [f64; 432] = [0.47662790445844655f64, 0.5035805635715515f6
 
 #[test]
 fn cell_color_matches_js_world_wrap() {
-    let ctx = render::RenderCtx::new(&FIELD_2, &TEMPERATURE_2, &RAINFALL_2, Some(&FLOW_2), 12, 12, 0.42f64, true, 55f64, 5f64);
+    let ctx = render::RenderCtx::with_appearance(&FIELD_2, &TEMPERATURE_2, &RAINFALL_2, Some(&FLOW_2), 12, 12, 0.42f64, true, 55f64, 5f64, render::TerrainAppearance::js_reference());
 
     const TOL: f64 = 1e-4;
     for y in 0..12usize {

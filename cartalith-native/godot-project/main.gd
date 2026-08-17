@@ -240,15 +240,18 @@ func _build_menus() -> void:
 		simulate_popup.add_item(item)
 		simulate_popup.set_item_disabled(simulate_popup.item_count - 1, true)
 
+	## No "Layers" item here: the left navigator's CARTOGRAPHY > Layers
+	## subject already owns that panel exactly, by the identical label --
+	## a top-bar shortcut to the same destination read as a duplicate menu,
+	## not a second real surface (owner-flagged, 2026-08-17). Every other
+	## item below is a genuinely distinct future surface, not a nav echo.
 	var map_popup := map_menu.get_popup()
-	map_popup.add_item("Layers")
 	map_popup.add_item("Terrain appearance...")
 	map_popup.set_item_disabled(map_popup.item_count - 1, true)
 	map_popup.add_item("Painter styles (NPR)")
 	map_popup.set_item_disabled(map_popup.item_count - 1, true)
 	map_popup.add_item("Labels & annotation")
 	map_popup.set_item_disabled(map_popup.item_count - 1, true)
-	map_popup.id_pressed.connect(_on_map_menu_id)
 
 	var assets_popup := assets_menu.get_popup()
 	assets_popup.add_item("Asset library (not implemented)")
@@ -271,11 +274,6 @@ func _on_world_menu_id(id: int) -> void:
 	match id:
 		0: _on_generate_pressed()
 		1: seed_input.value = randi() % 1000000
-
-
-func _on_map_menu_id(id: int) -> void:
-	if id == 0:
-		_select_nav_subject("CARTOGRAPHY", "Layers")
 
 
 ## Noun phrases for each suitability term key returned by

@@ -150,7 +150,20 @@ owner's call, and it is the single biggest open question this render raises.
      `travel_cost`); their downstream halves are unbuilt, and were not
      invented to complete the picture.
 2. **Atlas rendering** (`TERRAIN_APPEARANCE_SCOPE.md` m2+) — closes the
-   largest purely-visual gap.
+   largest purely-visual gap. **Milestone 2 done 2026-08-17**: the relief
+   itself now reads — multidirectional hillshade (6 weighted lights, the
+   primary NW sun still dominant) plus heightfield ambient occlusion, so
+   drainage networks, ridges, valley floors and coastal escarpments are
+   legible where the single-sun render washed them into a flat tan blur.
+   Measured against §30's anti-list rather than eyeballed: the darkest
+   pixel is *identical* before and after in both test worlds (no black
+   valleys — AO only darkens concavities and is floored), and mean luma
+   moves just 133.3→128.8, so it redistributes contrast instead of
+   dimming. A 3× zoom caught one real regression mid-pass (the fine AO
+   radius resolved to 1 cell and read as speckle — "random texture
+   noise", also on the anti-list) which was fixed before landing.
+   Still ahead for the atlas look proper: the paper/vellum ground, forest
+   stippling, hand-lettered glyphs and the physical border.
 3. **Layer-stack treatment** — real polish on an already-built panel.
 4. **Journey Planner** milestones 3-6 — already scoped and underway.
 5. **Narrative/Scenario, and the static-vs-temporal question** — needs an
