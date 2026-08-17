@@ -17,3 +17,4 @@ cartalith-io = { path = "../cartalith-io" }
 cartalith-noise = { path = "../cartalith-noise" }
 cartalith-civ = { path = "../cartalith-civ" }
 cartalith-hydrology = { path = "../cartalith-hydrology" }
+cartalith-assets = { path = "../cartalith-assets" }

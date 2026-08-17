@@ -16,8 +16,9 @@ use godot::classes::{IRefCounted, INode, Image, ImageTexture, Node, RefCounted};
 use godot::init::{ExtensionLibrary, gdextension};
 use godot::prelude::*;
 
+mod pack;
 mod render;
-use render::{RenderCtx, TerrainAppearance};
+use render::{RenderCtx, SplatTextures, TerrainAppearance};
 
 struct CartalithExtension;
 
@@ -523,6 +524,20 @@ struct WorldGen {
     /// Phase 2 civilisation-layer output for the current `Generated`
     /// source (`None` for a `Loaded` save, or before any `generate()`).
     civ: Option<CivData>,
+    /// The seed the last `generate()`/`generate_world_structure()` call
+    /// used (reference `state.tect.seed`) — threaded into
+    /// `pack::composite_map_icons`'s placement hashing so a loaded pack's
+    /// scattered icons are as deterministic-per-world as everything else
+    /// this port generates. `0` before the first `generate()` call, same as
+    /// every other field here.
+    seed: i32,
+    /// A real, loaded asset pack (`ASSET_LIBRARY_SCOPE.md` milestone 7) —
+    /// `None` by default, since this port ships no default pack (verified:
+    /// there is nothing in `godot-project/` that ships pack art, matching
+    /// the reference's own `assetPack = null` default). Set via
+    /// `load_asset_pack`; consumed by `build_color_texture` for both real
+    /// sprite compositing and ground-texture splat.
+    asset_pack: Option<pack::LoadedPack>,
 }
 
 #[godot_api]
@@ -544,6 +559,8 @@ impl IRefCounted for WorldGen {
             lat_s: 5.0,
             villages: false,
             civ: None,
+            seed: 0,
+            asset_pack: None,
         }
     }
 }
@@ -614,6 +631,7 @@ impl WorldGen {
         self.lat_s = p.climate.lat_s;
         self.civ = Some(compute_civilisation(&ws, gw, gh, p.world, p.map_width_km, p.river_density, self.villages));
         self.source = Some(WorldSource::Generated(Box::new(ws)));
+        self.seed = seed;
     }
 
     /// Named World-Structure archetype presets (reference HTML
@@ -665,6 +683,7 @@ impl WorldGen {
         self.lat_s = p.climate.lat_s;
         self.civ = Some(compute_civilisation(&ws, gw, gh, p.world, p.map_width_km, p.river_density, self.villages));
         self.source = Some(WorldSource::Generated(Box::new(ws)));
+        self.seed = seed;
         true
     }
 
@@ -708,6 +727,51 @@ impl WorldGen {
         self.civ = None;
         self.source = Some(WorldSource::Loaded(Box::new(save)));
         true
+    }
+
+    /// `ASSET_LIBRARY_SCOPE.md` milestone 7: load a real `.zip` asset pack
+    /// (the same format `cartalith-assets` milestones 1-2 golden-verified
+    /// against the reference's own exporter, e.g. `tests/fixtures/
+    /// reference_pack.zip`) and decode the two families this port composites
+    /// — scattered feature icons and the six ground-texture splat channels
+    /// (`pack.rs`'s own doc comment explains why the biome/terrain "painted
+    /// layer" families are parsed but not decoded).
+    ///
+    /// `path` is a native OS filesystem path, matching `load_save`'s own
+    /// convention (a plain `std::fs::File` read, no Godot `FileAccess`
+    /// involved) rather than a `res://`/`user://` virtual path — this is a
+    /// real API surface for a caller (a future importer UI, a debug script,
+    /// this milestone's own verification pass) to drive, not a GUI control
+    /// in itself. Returns `false` and leaves any previously loaded pack in
+    /// place on any read/parse/decode error.
+    #[func]
+    fn load_asset_pack(&mut self, path: GString) -> bool {
+        let bytes = match std::fs::read(path.to_string()) {
+            Ok(b) => b,
+            Err(e) => {
+                godot_print!("cartalith-godot: load_asset_pack open failed: {e}");
+                return false;
+            }
+        };
+        match pack::load_pack_from_bytes(bytes) {
+            Ok(loaded) => {
+                self.asset_pack = Some(loaded);
+                true
+            }
+            Err(e) => {
+                godot_print!("cartalith-godot: load_asset_pack failed: {e}");
+                false
+            }
+        }
+    }
+
+    /// Whether a real asset pack is currently loaded (`load_asset_pack`) —
+    /// lets a caller (verification tooling, a future importer UI) confirm
+    /// the load actually took without re-deriving it from `build_color_texture`'s
+    /// pixel output.
+    #[func]
+    fn has_asset_pack(&self) -> bool {
+        self.asset_pack.is_some()
     }
 
     #[func]
@@ -769,9 +833,25 @@ impl WorldGen {
         let gw = self.gw as usize;
         let gh = self.gh as usize;
         let appearance = TerrainAppearance::default();
-        let ctx = RenderCtx::with_appearance(
+        let mut ctx = RenderCtx::with_appearance(
             field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance.clone(),
         );
+        // Milestone 7 (`ASSET_LIBRARY_SCOPE.md`): attach real ground-texture
+        // splat channels whenever a pack is loaded. `SplatTextures::default()`
+        // (all `None`) is what a pack-less or textures-less pack produces --
+        // `land_color`'s own splat branch never activates without at least
+        // one `Some`, matching the reference's `texAny` gate exactly.
+        if let Some(loaded) = self.asset_pack.as_ref() {
+            let splat = SplatTextures {
+                grass: loaded.splat.get("grass"),
+                rock: loaded.splat.get("rock"),
+                sand: loaded.splat.get("sand"),
+                snow: loaded.splat.get("snow"),
+                wetland: loaded.splat.get("wetland"),
+                canopy: loaded.splat.get("canopy"),
+            };
+            ctx = ctx.with_splat(splat);
+        }
 
         let mut bytes = Vec::with_capacity(gw * gh * 3);
         for y in 0..gh {
@@ -804,6 +884,17 @@ impl WorldGen {
                 bytes.push((g.clamp(0.0, 1.0) * 255.0) as u8);
                 bytes.push((b.clamp(0.0, 1.0) * 255.0) as u8);
             }
+        }
+
+        // Milestone 7: `drawMapIcons`' own painter's pass, composited over
+        // the finished raster exactly as it is in the reference (a separate
+        // canvas draw call after the terrain fill, not blended into
+        // `cell_color`'s own per-pixel loop above). A no-op whenever no
+        // pack is loaded or the loaded pack's scatter-rule table ends up
+        // empty (`pack::composite_map_icons`'s own doc comment) -- which is
+        // this port's only state today, since it ships no default pack.
+        if let Some(loaded) = self.asset_pack.as_ref() {
+            pack::composite_map_icons(&mut bytes, field, temperature, rainfall, gw, gh, self.sea_level, self.seed, loaded);
         }
 
         let packed = PackedByteArray::from(bytes);

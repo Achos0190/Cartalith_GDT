@@ -823,14 +823,125 @@ into the map render and ground-texture sampling are real rendering work in
 `cartalith-godot`/`render.rs`, and nothing this milestone shipped changes
 that surface's shape.
 
-### Milestone 7 — renderer + Godot integration
+### Milestone 7 — renderer + Godot integration: done (2026-08-17)
 
-Sprite compositing into the map render (`drawMapIcons`' painter's pass and
-per-slot procedural fallback), ground-texture sampling for splat and the two
-painted layers, and only then any UI. Genuine Phase 3-adjacent rendering work;
-the UI on top of it is a `GUI_SHELL_SCOPE.md` job and should re-run
-`ui-ux-pro-max` rather than bolting controls on (`MEMORY.md`'s own standing
-note).
+`cartalith-godot`, new module `pack` — the first thing in the workspace to
+depend on `cartalith-assets` (its own doc comment said "nothing depends on
+this yet" until now). Two of this milestone's own three named surfaces are
+real:
+
+- **Sprite compositing** (`composite_map_icons`, `drawMapIcons`'s own
+  Y-sorted painter's pass): builds a scatter-rule table from a loaded pack's
+  manifest (`autopopulate_scatter_rules`), derives a `BIOME_INDEX` raster and
+  a wetland mask from the already-generated height/temperature/rainfall
+  fields (presentation-side computation, no new world-generation data —
+  `cartalith_civ::classify_biome`, already golden-verified elsewhere, plus a
+  `buildWetlandMask`-equivalent), calls `place_map_icons_ruled`, then
+  composites each placed icon: a real bilinear-sampled blit
+  (`sprite_draw_rect`'s destination geometry) where the pack has art for
+  that slot, a real per-slot procedural glyph fallback (`draw_icon_glyph`,
+  all ten `PACK_ICON_SLOTS` shapes — mountain/hill/six tree kinds/cactus/
+  boulder, "shrub" doubling as the reference's own documented catch-all for
+  an uncovered custom asset) otherwise.
+- **Ground-texture splat** (`land_color`'s new branch, `render.rs`): the six
+  `SPLAT_PAINT_SLOTS` channels, decoded and inverse-mean-baked at load time
+  (`finalize_pack_texture_inv_mean`, milestone 6's own function — wired to
+  something real for the first time), blended per-cell using the *exact*
+  `materialWeights` fractions and each material's own procedural ramp colour
+  `land_color` already computes — no new logic, splat is a read-only
+  consumer of both.
+
+**The third named surface — ground-texture sampling for the two "painted
+layers" — is deliberately not implemented this pass, and this is a real
+scope finding, not an oversight.** Read literally (reference lines
+7898-7900, 12187-12196): `pBio`/`pTer` are per-cell indices into
+`state.cartoPaint.biome`/`.terrain`, sparse arrays a manual Cartography
+paint-brush tool populates (`paintBiome`/`paintSplat`/`paintTerrain` module
+globals). This port has never ported that tool — there is no producer of a
+painted-cell array anywhere in the workspace, and building one from scratch
+is itself a real, separate UI+state effort this milestone's own "no GUI
+controls" boundary rules out (a paint tool has no meaning without a brush UI
+to drive it). Unlike splat (gated only by `assetPack.texAny`, on by default
+the instant a pack loads) and icons (gated by `state.viz.icons`, off by
+default regardless), the painted layers are gated by a *third* piece of
+state this port simply has no producer for — so `LoadedPack` parses
+`.biomes`/`.terrains` from the manifest (for a correct warning count) but
+never decodes or rasterises them. Named here as the natural remaining item
+for whoever next ports the Cartography paint-brush tool, per the terrain-
+appearance research vocabulary this document's own §1 table already used.
+
+**Two real defaults confirmed by reading the reference, not assumed**:
+`state.viz.icons` defaults `false` (icons are an opt-in `state.viz.*`
+stretch feature like every other one `render.rs`'s own doc comment already
+excludes — a pack-less *or* icon-toggle-off render was always bit-identical,
+and `current_scatter_rules` returning `None` whenever no pack supplies real
+icon art is `composite_map_icons`'s own early return, reproducing exactly
+that no-op). `state.viz.splat` defaults **`0.7`** — the opposite shape,
+gated only by `assetPack.texAny`, real and active the instant a pack with
+real ground textures loads, no toggle at all. Both are genuinely additive/
+opt-in rather than JS-parity-gated stretch features (per this milestone's
+own "judge from what you find" instruction) — there is no pack-less version
+of "blend in a texture that doesn't exist" to stay bit-identical with.
+`golden_parity_render.rs` passes unmodified at its original `1e-4`
+tolerance either way, since `RenderCtx.splat` stays `None` on that path
+(`with_splat` is a builder method, never called by the test).
+
+**This port confirmed to ship no default asset pack** — nothing in
+`godot-project/` bundles pack art — so real sprite/splat compositing has
+nothing to composite in the common case, exactly as this milestone's own
+scope anticipated. Real, permanent new plumbing was added for it rather than
+a throwaway stand-in: `WorldGen::load_asset_pack(path) -> bool` (a native
+filesystem path, same convention as `load_save`) and
+`WorldGen::has_asset_pack() -> bool`, both real `#[func]` API surface with
+no GDScript UI call site anywhere — dormant, real code for a future importer
+or `GUI_SHELL_SCOPE.md` pass to call, not a GUI control in itself.
+
+**Verified three ways.** A new `cartalith-godot/tests/pack_compositing.rs`
+loads the real `reference_pack.zip` fixture milestone 2 golden-verified
+against the reference's own exporter (reused rather than inventing a new
+fixture, per this milestone's own instruction) and proves, on a small
+synthetic world: real sprite art blits where a relief-mode mountain places
+one; the procedural glyph fallback fires for a biome region the fixture has
+no art for at all; and a pack whose manifest has no icon slots places
+nothing — the same "keeps `placeMapIcons` on its legacy/no-op path"
+condition `current_scatter_rules`'s own doc comment names as what keeps a
+pack-less render bit-identical. Static: `cargo build -p cartalith-godot`/
+`--workspace`, `cargo test --workspace` (zero regressions,
+`golden_parity_render.rs` unmodified), `cargo clippy -p cartalith-godot -p
+cartalith-assets --all-targets` clean (the rasterizer's loose `bytes/gw/gh`
+argument triples became a small `Canvas` struct along the way, both for
+clippy's `too_many_arguments` and because it reads better), `godot4
+--headless --quit main.tscn` clean. Real windowed: launched the actual
+`Godot_v4.7.1-stable_win64.exe`, generated a real 512² world, called
+`load_asset_pack` against the real fixture (temporary `main.gd` debug calls
+only, reverted before commit — the shipped diff carries no GDScript
+changes), and saved the native `Image` output directly to disk for
+full-resolution inspection rather than a scaled-down window screenshot.
+**Confirmed by actually looking at it**: a sharp-edged, flat-coloured
+rectangular block sits on land exactly where a relief-mode mountain would
+place one (real pack sprite art — a procedural blend is always noisy/
+gradient, never a hard-edged rectangle); a large irregular checkerboard
+region follows real land-material boundaries rather than sitting in a fixed
+box (real per-pixel splat sampling, not a sprite); small soft-edged
+translucent blobs appear elsewhere on plain terrain (the procedural glyph
+fallback, where the fixture has no matching art).
+
+3 new tests (real integration tests against the real fixture pack, not
+unit tests standing in for one). Not gold-plated beyond what was asked: the
+sprite resample is a hand-written bilinear sampler rather than a new `image`
+crate dependency in `cartalith-godot` (the icons involved are small; a
+manual sampler is the smaller, sufficient tool); the procedural glyph
+fallback drops two purely-decorative reference variants (the arid jagged
+hill outline, the cold-mountain snow-cap) since the reference itself
+describes them as "procedural-fallback variety only" on top of an
+unconditional base silhouette, which is what's ported.
+
+**Phase 4 is genuinely complete.** Checked honestly against §8's own "done
+means" below, written specifically to give this phase an operational finish
+line beyond `ROADMAP.md`'s one-sentence description — that bar is met. The
+Library-authoring workspace is that same sentence's own explicit carve-out,
+tracked separately in `GUI_SHELL_SCOPE.md`, not part of this phase's
+definition of done.
 
 ## 7. Out of scope for all milestones above
 

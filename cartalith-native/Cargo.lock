@@ -189,6 +189,7 @@ dependencies = [
 name = "cartalith-godot"
 version = "0.1.0"
 dependencies = [
+ "cartalith-assets",
  "cartalith-civ",
  "cartalith-engine",
  "cartalith-hydrology",

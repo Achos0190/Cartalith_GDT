@@ -74,6 +74,60 @@ use cartalith_noise::vnoise;
 
 type Rgb = (f64, f64, f64);
 
+/// One decoded ground-material channel plus its baked inverse-mean
+/// (`finalizePackTexture`) — real pixel data from a loaded pack
+/// (`ASSET_LIBRARY_SCOPE.md` milestone 7). Defined here rather than in
+/// `crate::pack` so `render.rs` keeps compiling standalone under
+/// `golden_parity_render.rs`'s own `#[path = "../src/render.rs"] mod
+/// render;` inclusion, which has no sibling `pack` module to resolve a
+/// cross-module `use` against — `crate::pack::load_pack_from_bytes` builds
+/// this type directly instead.
+#[derive(Clone)]
+pub struct SplatChannel {
+    pub w: u32,
+    pub h: u32,
+    pub rgba: Vec<u8>,
+    pub inv: [f64; 3],
+}
+
+/// Real ground-texture channels for splat blending (`ASSET_LIBRARY_SCOPE.md`
+/// milestone 7) — the six `SPLAT_PAINT_SLOTS` from a loaded pack, borrowed
+/// rather than owned so `RenderCtx` doesn't need to know anything about pack
+/// lifetime beyond "outlives this render". `None` fields are the common case
+/// (a pack with textures for some but not all six channels; `land_color`'s
+/// `sp()`-equivalent already treats a missing channel as zero coverage, same
+/// as the reference).
+#[derive(Clone, Copy, Default)]
+pub struct SplatTextures<'a> {
+    pub grass: Option<&'a SplatChannel>,
+    pub rock: Option<&'a SplatChannel>,
+    pub sand: Option<&'a SplatChannel>,
+    pub snow: Option<&'a SplatChannel>,
+    pub wetland: Option<&'a SplatChannel>,
+    pub canopy: Option<&'a SplatChannel>,
+}
+
+/// `sp(tex, rampCol, wt)` (reference line 7761-7762) — a texture channel's
+/// texel, re-tinted by the material's own procedural ramp colour as a
+/// deviation-around-the-mean ratio (`texel * inv_mean`), accumulated by
+/// material weight. UV: one texel per grid cell, nearest, wrapped — the same
+/// addressing `_paintedTex` uses, so a texture tiles identically whichever
+/// path samples it.
+fn splat_sample(tex: &SplatChannel, ramp: Rgb, wt: f64, x: usize, y: usize, acc: &mut Rgb, cov: &mut f64) {
+    if wt <= 0.0 {
+        return;
+    }
+    let (tw, th) = (tex.w as i64, tex.h as i64);
+    let sx = (((x as i64) % tw) + tw) % tw;
+    let sy = (((y as i64) % th) + th) % th;
+    let o = ((sy * tw + sx) * 4) as usize;
+    let (r, g, b) = (tex.rgba[o] as f64, tex.rgba[o + 1] as f64, tex.rgba[o + 2] as f64);
+    acc.0 += ramp.0 * r * tex.inv[0] * wt;
+    acc.1 += ramp.1 * g * tex.inv[1] * wt;
+    acc.2 += ramp.2 * b * tex.inv[2] * wt;
+    *cov += wt;
+}
+
 /// The renderer's editable colour data and shading constants — what used to
 /// be 26 free-floating module consts, now one real, owned, inspectable
 /// structure. `Default` reproduces today's exact values (pixel-identical
@@ -248,6 +302,20 @@ pub struct TerrainAppearance {
     /// Neatline ink colour. Deliberately a warm sepia rather than black:
     /// pure black rules read as UI chrome, not as ink on a sheet.
     pub border_ink: Rgb,
+
+    // ---- Milestone 7 (`ASSET_LIBRARY_SCOPE.md`): ground-texture splat ----
+    /// Strength of the ground-texture splat blend (reference `state.viz.
+    /// splat`, real default `0.7` — unlike `state.viz.icons`, splat is
+    /// **not** off-by-default in the reference; it is gated purely by
+    /// `assetPack.texAny` (line 8410's own comment: "textures only in the
+    /// biome material render"). This field matches that: it is inert
+    /// whenever `RenderCtx.splat` is `None` (the case for every existing
+    /// caller and for `golden_parity_render.rs`, which never attaches a
+    /// pack), and becomes real the moment a real pack with real ground
+    /// textures is loaded — genuinely additive/opt-in rather than a
+    /// JS-parity-gated stretch feature, since there is no pack-less version
+    /// of "blend in a texture that doesn't exist" to be bit-identical with.
+    pub splat_strength: f64,
 }
 
 impl Default for TerrainAppearance {
@@ -300,6 +368,7 @@ impl Default for TerrainAppearance {
             stipple_scale_frac: 0.0045,
             border_width_frac: 0.014,
             border_ink: (74.0, 61.0, 47.0),
+            splat_strength: 0.7,
         }
     }
 }
@@ -644,6 +713,11 @@ pub struct RenderCtx<'a> {
     /// own deferred terrain-appearance panel), but the golden-parity test
     /// uses it to pin the exact JS path.
     appearance: TerrainAppearance,
+    /// Real ground-texture channels for splat blending (milestone 7),
+    /// `None` by construction — attach with [`Self::with_splat`]. Never set
+    /// by `golden_parity_render.rs`, so the pinned JS-parity path never
+    /// enters `land_color`'s splat branch at all.
+    splat: Option<SplatTextures<'a>>,
 }
 
 impl<'a> RenderCtx<'a> {
@@ -687,7 +761,21 @@ impl<'a> RenderCtx<'a> {
         let ao = build_ao(field, gw, gh, sea_level, world, &appearance);
         let hydro_wet = build_hydro_wetness(flow, gw, gh, world, &appearance);
         let lights = build_lights(&appearance);
-        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, hydro_wet, lights, appearance }
+        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, hydro_wet, lights, appearance, splat: None }
+    }
+
+    /// Attach real ground-texture channels (milestone 7). A builder method
+    /// rather than a `new`/`with_appearance` parameter so every existing
+    /// caller — including `golden_parity_render.rs`, which constructs a
+    /// `RenderCtx` positionally — keeps compiling unchanged; splat stays
+    /// `None` (inert) unless a caller opts in explicitly.
+    // Used by `lib.rs`'s real render path; the test target (`#[path]`-includes
+    // this file standalone and never calls it) alone sees it as unreachable,
+    // same situation as `js_reference()` in reverse.
+    #[allow(dead_code)]
+    pub fn with_splat(mut self, splat: SplatTextures<'a>) -> Self {
+        self.splat = Some(splat);
+        self
     }
 
     fn h(&self, x: usize, y: usize) -> f64 {
@@ -929,7 +1017,7 @@ fn bio_jitter(x: usize, y: usize, gw: usize) -> f64 {
 /// AO/SVF/shadow fields all being off). Every other `state.viz.*`-gated
 /// extra is omitted — see this module's doc comment.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, hydro_wet: f64, x: usize, y: usize, gw: usize, gh: usize) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, hydro_wet: f64, x: usize, y: usize, gw: usize, gh: usize, splat: Option<&SplatTextures>) -> Rgb {
     let n_low = vnoise(x as f64 * 0.06, y as f64 * 0.06, 11);
     let n_hi = vnoise(x as f64 * 96.0 / gw as f64, y as f64 * 96.0 / gw as f64, 23);
     let n_bio = bio_jitter(x, y, gw);
@@ -962,6 +1050,44 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     }
 
     add(&mut c, grass_col(appearance, te, me, r, tt), w.grass);
+
+    // Milestone 7 (`ASSET_LIBRARY_SCOPE.md`): real ground-texture splat.
+    // `sp()`'s six calls (reference lines 7773-7778), re-tinting each pack
+    // channel by the *same* material-weight fraction and procedural ramp
+    // colour `land_color` already computed above — no new logic, splat is a
+    // read-only consumer of `w`/`te`/`me`/`r`/`tt`. `_splatK=0` (no pack /
+    // strength 0) is a byte-untouched no-op, matching the reference's own
+    // "the add() mix above is byte-untouched" comment.
+    if let Some(splat) = splat
+        && appearance.splat_strength > 0.0
+    {
+        let mut acc: Rgb = (0.0, 0.0, 0.0);
+        let mut cov = 0.0;
+        if let Some(tex) = splat.grass {
+            splat_sample(tex, grass_col(appearance, te, me, r, tt), w.grass, x, y, &mut acc, &mut cov);
+        }
+        if let Some(tex) = splat.rock {
+            splat_sample(tex, rock_col(appearance, te, me, r, tt), w.rock, x, y, &mut acc, &mut cov);
+        }
+        if let Some(tex) = splat.sand {
+            splat_sample(tex, sand_col(appearance, te, me, tt), w.sand, x, y, &mut acc, &mut cov);
+        }
+        if let Some(tex) = splat.snow {
+            splat_sample(tex, snow_col(appearance, te, tt), w.snow, x, y, &mut acc, &mut cov);
+        }
+        if let Some(tex) = splat.wetland {
+            splat_sample(tex, wetland_col(appearance, te, w.is_mangrove, tt), w.wetland, x, y, &mut acc, &mut cov);
+        }
+        if let Some(tex) = splat.canopy {
+            splat_sample(tex, forest_col(appearance, te, w.meff, tt), w.canopy, x, y, &mut acc, &mut cov);
+        }
+        if cov > 0.0 {
+            let k = appearance.splat_strength * cov;
+            c.0 = c.0 * (1.0 - k) + (acc.0 / cov) * k;
+            c.1 = c.1 * (1.0 - k) + (acc.1 / cov) * k;
+            c.2 = c.2 * (1.0 - k) + (acc.2 / cov) * k;
+        }
+    }
 
     let beach_t = smoothstep(0.03, 0.0, r) * 0.6;
     if beach_t > 0.0 {
@@ -1255,7 +1381,7 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
         let twi = (a / beta).ln();
         let asp = ctx.aspect_factor(x, y);
         let curv = ctx.curvature_at(x, y);
-        land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, ctx.hydro_wet[i] as f64, x, y, ctx.gw, ctx.gh)
+        land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, ctx.hydro_wet[i] as f64, x, y, ctx.gw, ctx.gh, ctx.splat.as_ref())
     };
 
     // Milestone 4: the sheet. Applied *here*, after both branches, rather
