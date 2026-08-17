@@ -473,15 +473,82 @@ both cases. Nothing but a golden run would have found that.
   (reference lines 7281-7283) for `iconSlotForItem`'s non-ruled branch. Small,
   but not currently named anywhere in this document.
 
-### Milestone 4 — rule-driven icon placement
+### Milestone 4 — rule-driven icon placement: done (2026-08-17)
 
-`placeMapIconsRuled` + `iconSlotForItem` + `spriteDrawRect`. Pure; the first
-milestone with real golden-parity *placement* surface (positional and seeded,
-so it diffs exactly). Note the two v1.27 fixes inside it: scatter-rule
-priority is sorted most-specific-first so the winner is not insertion-order
-dependent, and `requireWetland` is ANDed with the biome test rather than
-replacing it. Depends on milestone 3 — see its correction list above for what
-already shipped and what changed.
+`cartalith-assets`, new module `placement`: `place_map_icons_ruled`
+(`placeMapIconsRuled`, reference line 7194), `icon_slot_for_item` with the
+`TREE_SLOT`/`SCATTER_SLOT` legacy fallback maps (7289-7300), and
+`sprite_draw_rect` (12173). Pure, and the first milestone in this crate with
+real golden-parity *placement* surface: positional and seeded, so it diffs
+**exactly** rather than within a tolerance. Still wired to nothing.
+
+**The legacy (non-ruled) `placeMapIcons` body is out of scope, on purpose.**
+The reference only enters `placeMapIconsRuled` when `opts.rules` is
+non-empty; its own hard-coded v1.25 biome-switch body is untouched code this
+milestone's scope never named, and `current_scatter_rules` (milestone 3)
+already reproduces the empty-table condition under which the reference falls
+through to it. `icon_slot_for_item` is still ported in full — including its
+legacy `cat`/`kind` branches and the `TREE_SLOT`/`SCATTER_SLOT` maps
+milestone 3's corrections flagged as this milestone's remaining work — since
+it is the one function a legacy-shaped item and a ruled item would both have
+to agree with, even though this crate's own placement engine never produces
+the former.
+
+**Both named v1.27 fixes, checked with the same scrutiny milestone 3 applied
+to its three (one of which it found structurally unreachable in Rust) — and
+both of these transfer, because both are real logic defects, not JS-coercion
+artifacts:**
+
+1. **Most-specific-first priority sort** (reference lines 7250-7259, ported as
+   `specificity`). Before v1.27 a contested cell's winner was whichever rule
+   the caller's array happened to list first — which, since the table comes
+   from iterating an object, meant "whichever order the user added assets to
+   the Library in." **Structurally necessary in Rust too**: nothing about
+   ownership or types removes insertion-order dependence from a `Vec` any
+   more than from a JS array — ordering was always a real, ported
+   `sort_by_key`, not a JS artifact.
+2. **`requireWetland` ANDed with the biome test, not substituted for it**
+   (reference line 7273). v1.26's scatter branch let `requireWetland`
+   *replace* `biomeOk` outright, silently discarding a rule's biome
+   restriction whenever wetland was also required. **Structurally necessary
+   in Rust too**: an algorithm/predicate defect, not a consequence of JS
+   type coercion or `Object.assign` aliasing (the two mechanisms behind two
+   of `scatter.rs`'s three v1.27 fixes) — a straight transcription of the
+   old "replace" logic reproduces the bug in any language.
+
+Proven with a hand-traceable fixture rather than left to a broad sweep's
+chance coverage: a 3x1 grid, `sea=-1` (every cell counts as land), `tGap=1`.
+The last choice is the trick — `hash(*)` is always in `[0,1)`, so
+`(hash(gx,gy,seed)*1)|0` is always `0`, meaning the scatter grid's own jitter
+degenerates to zero and `jx=gx, jy=gy` exactly for every cell (checked
+against the real reference `hash`, not assumed). Three cells — wetland+grass,
+dry+grass, wetland+shrub — and three rules (`wetland_grass`: wetland AND
+grass; `narrow_biome`: grass only; `generic_land`: any land) inserted
+**least-specific first** resolve to `wetland_grass` / `narrow_biome` /
+`generic_land` across three seeds, unchanged when the whole rule array is
+reversed. The third cell is fix 2's own proof: it is wetland (would have
+satisfied the pre-v1.27 OR/replace semantics) but the wrong biome, so
+`wetland_grass` is correctly rejected and the cell falls through.
+
+**Golden-verified against the real reference**, the same transient Node `vm`
+technique as milestones 1-3. A synthetic 10x8 grid (single circular
+elevation peak, biome cycling through `(x*3+y*5)%14`, wetland mask on
+`(x+y)%4==0`) run through an eight-rule table across six sea/seed/density
+configurations matches cell-for-cell, key-for-key, and size-for-size to
+1e-9 — including one configuration that exercises every rule family at
+once (both relief bands sharing one bucket grid, including an unbounded
+`elevMin:null` relief rule; three different scatter specificities winning
+different cells; and a `ghost_biome` rule with `biomes:[5.5]` placing
+**nothing**, anywhere, confirming `biomeOk`'s `biome[i] as f64` cast: a
+non-integer rule biome is finite so nothing rejects it at the normalizer
+boundary, but it simply never equals an integer `BIOME_INDEX`).
+
+23 new tests (12 unit + 11 golden).
+
+**Corrections to milestones 5-7 found on this read: none.** `TREE_SLOT`/
+`SCATTER_SLOT` were already flagged by milestone 3's own corrections as this
+milestone's remaining, previously-unnamed work, and that is exactly where
+they landed — no further scope drift found.
 
 ### Milestone 5 — the Library model
 

@@ -18,6 +18,11 @@
 //! hardened normalizer that is the only way to build one out of a
 //! user-supplied project file.
 //!
+//! Milestone 4 added [`placement`]: [`place_map_icons_ruled`], the placement
+//! engine itself — positional and seeded, so a port either lands icons on
+//! the identical cells or it does not — plus [`icon_slot_for_item`] and
+//! [`sprite_draw_rect`].
+//!
 //! ```
 //! use cartalith_assets::{parse_pack_manifest, pack_summary, Family, RawManifest};
 //! use std::collections::BTreeSet;
@@ -93,6 +98,7 @@
 pub mod archive;
 pub mod manifest;
 pub mod ordered_map;
+pub mod placement;
 pub mod scatter;
 pub mod slots;
 
@@ -105,6 +111,10 @@ pub use manifest::{
     Structures, pack_summary, parse_pack_csv, parse_pack_entries, parse_pack_manifest,
 };
 pub use ordered_map::OrderedMap;
+pub use placement::{
+    IconCategory, IconKind, PlaceIconsRuledOpts, PlacedIcon, SpriteRect, icon_slot_for_item,
+    place_map_icons_ruled, sprite_draw_rect,
+};
 pub use scatter::{
     ScatterMode, ScatterRule, ScatterRuleTable, autopopulate_scatter_rules, current_scatter_rules,
     normalize_scatter_rule, pick_icon_variant, pick_weighted_variant, preset_scatter_rule,

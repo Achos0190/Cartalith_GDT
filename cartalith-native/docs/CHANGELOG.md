@@ -7528,6 +7528,95 @@ preset in both cases. Nothing but a golden run would have found it.
 unit), `cargo clippy -p cartalith-assets --all-targets` clean,
 `cargo test --workspace` with no regressions.
 
+## Phase 4 milestone 4: rule-driven icon placement, both v1.27 fixes confirmed structurally necessary (2026-08-17)
+
+`ASSET_LIBRARY_SCOPE.md` milestone 4. New module `placement` in
+`cartalith-assets`: `place_map_icons_ruled` (the reference's
+`placeMapIconsRuled`, line 7194), `icon_slot_for_item` with the `TREE_SLOT`/
+`SCATTER_SLOT` legacy fallback maps (7289-7300), and `sprite_draw_rect`
+(12173). The first milestone in this crate with real golden-parity
+*placement* surface: every random draw is `hash(x,y,seed±k)` on a cell
+coordinate, so a port either lands icons on the identical cells with the
+identical sizes, or it does not — no tolerance to argue about. Still wired to
+nothing.
+
+**The reference's legacy `placeMapIcons` body is out of scope, deliberately.**
+`placeMapIconsRuled` is reached only when the caller passes non-empty
+`opts.rules`; the untouched v1.25 hard-coded biome-switch path that runs
+otherwise is not ported here — nothing in the milestone 4 scope calls for it,
+and `current_scatter_rules` (milestone 3) already reproduces the empty-table
+condition under which the reference would fall through to it. `iconSlotForItem`
+is still ported in full, including its legacy `cat`/`kind` branches (the
+`TREE_SLOT`/`SCATTER_SLOT` maps milestone 3's own corrections flagged as
+needed here but not yet named): it is the one function that has to agree with
+a legacy-shaped item's slot spelling even though this crate produces none.
+
+**Both of milestone 4's own v1.27 fixes, ported and checked for whether they
+transfer, the same scrutiny milestone 3 applied to its three** (one of which
+it found structurally unreachable in Rust). Both of these do transfer —
+they are real logic bugs, not JS-coercion artifacts:
+
+1. **Most-specific-first priority sort** (reference lines 7250-7259). Before
+   v1.27, a contested cell's winner was whichever rule happened to be
+   inserted first in the array the caller built — which, since the table
+   comes from iterating an object, meant "whichever order the user happened
+   to add assets to the Library in." The fix sorts by `specificity` (fewest
+   matching biomes = most specific; a wetland-requiring rule's contribution
+   is offset below a non-wetland rule's; an empty biome list — "any land" —
+   sorts last) before the first-match-wins loop runs. **Structurally
+   necessary in Rust too**: nothing about ownership or types removes
+   insertion-order dependence from a `Vec` any more than from a JS array.
+2. **`requireWetland` ANDed with the biome test, not substituted for it**
+   (reference line 7273). v1.26's scatter branch let `requireWetland` outright
+   *replace* the biome test, so a rule with both a biome list and
+   `requireWetland` ticked silently discarded the user's biome selection —
+   any wetland cell matched, regardless of biome. **Structurally necessary in
+   Rust too**: this is a predicate-logic defect, not a consequence of JS's
+   type coercion or object-aliasing semantics (the two mechanisms behind two
+   of `scatter.rs`'s three v1.27 fixes) — a straight transcription of the old
+   "replace" logic reproduces the bug in any language.
+
+Proven with a hand-traceable fixture rather than left to a broad sweep's
+chance coverage: a 3×1 grid, `sea=-1` (every cell is land), `tGap=1`. That
+last choice is the trick — `hash(*)` is always in `[0,1)`, so
+`(hash(gx,gy,seed)*1)|0` is always `0`, meaning the scatter grid's jitter
+degenerates to zero and `jx=gx, jy=gy` exactly for every cell (confirmed
+against the real reference `hash`, not assumed). Cell 0 is wetland+grass,
+cell 1 is dry+grass, cell 2 is wetland+shrub. Three rules — `wetland_grass`
+(wetland AND grass), `narrow_biome` (grass only), `generic_land` (any land) —
+inserted **least-specific first**, resolve to `wetland_grass` / `narrow_biome`
+/ `generic_land` at the three cells across three seeds, and the outcome is
+identical when the whole array is reversed. That third result is the fix 2
+proof specifically: cell 2 is wetland (would have satisfied `requireWetland`
+under the old OR/replace semantics) but its biome is wrong, so `wetland_grass`
+must be rejected and the cell falls through to `generic_land`.
+
+**Golden-verified against the real reference** (transient Node `vm` harness
+over the frozen HTML, same technique as milestones 1-3, harness not checked
+in). A synthetic 10×8 grid (single circular elevation peak, biome cycling
+through `(x*3+y*5)%14`, wetland mask on `(x+y)%4==0`) run through an
+eight-rule table across six sea/seed/density configurations matches
+cell-for-cell, key-for-key, and size-for-size to 1e-9. One configuration
+(`sea=0.2, tGap=2`) exercises every rule family in one run — both relief bands
+sharing one bucket grid (including an unbounded `elevMin:null` relief rule),
+three different scatter specificities picking different winners at different
+cells, and `ghost_biome` (`biomes:[5.5]`) placing **nothing**, anywhere, in
+any configuration — direct evidence that `biomeOk`'s `biome[i] as f64` cast
+works: a non-integer rule biome is finite (so nothing rejects it at the
+normalizer boundary) but simply never equals an integer `BIOME_INDEX`.
+
+**Corrections to `ASSET_LIBRARY_SCOPE.md`, recorded there:** none found to
+milestones 5-7's scope on this read; `TREE_SLOT`/`SCATTER_SLOT` were already
+flagged as milestone 4's own remaining work by milestone 3's corrections, and
+that is exactly where they landed.
+
+**Verified:** `cargo build -p cartalith-assets` and `--workspace`,
+`cargo test -p cartalith-assets` (23 new tests: 12 unit + 11 golden-parity placement +
+`icon_slot_for_item` + `spriteDrawRect`, plus unit tests for the empty-grid
+guard, the `t_gap=0` clamp, `biome_ok`, and the specificity ordering),
+`cargo clippy -p cartalith-assets --all-targets` clean, `cargo test
+--workspace` with no regressions.
+
 ## Phase 3 milestone 4 follow-up: overlays learn about the plate frame (2026-08-17)
 
 Closes the one limitation milestone 4 flagged and deliberately did not
