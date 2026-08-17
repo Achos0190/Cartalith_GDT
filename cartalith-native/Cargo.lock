@@ -214,6 +214,14 @@ name = "cartalith-rng"
 version = "0.1.0"
 
 [[package]]
+name = "cartalith-spatial"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cartalith-terrain"
 version = "0.1.0"
 dependencies = [

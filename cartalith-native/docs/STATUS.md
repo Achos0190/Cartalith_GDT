@@ -5,7 +5,7 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-17 (post real Android device pass — MVP criterion 4 fully closed —, sea routes (Phase 2 milestone 13) wired into `cartalith-godot`'s rendering with a real render-loop crash found and fixed along the way, CPU-multithreading milestone 2 — `cartalith-civ` Rayon-parallelized, ~1.34-1.81x — Phase 1's two closeout items (credits screen, crate license audit) both done, and GPU layer integration milestone 8 — shared GpuContext across `generate_terrain`'s stages, GPU now wins starting at 1024x1024 — see `CHANGELOG.md`).
+Last updated: 2026-08-17 (post real Android device pass — MVP criterion 4 fully closed —, sea routes (Phase 2 milestone 13) wired into `cartalith-godot`'s rendering with a real render-loop crash found and fixed along the way, CPU-multithreading milestone 2 — `cartalith-civ` Rayon-parallelized, ~1.34-1.81x — Phase 1's two closeout items (credits screen, crate license audit) both done, GPU layer integration milestone 8 — shared GpuContext across `generate_terrain`'s stages, GPU now wins starting at 1024x1024, and a new standalone `cartalith-spatial` crate (tiling/quadtree/dirty-tracking base for a future LOD integration — real, tested, referenced by nothing yet) — see `CHANGELOG.md`).
 
 ## MVP_SCOPE.md — "done means all seven"
 
@@ -341,6 +341,42 @@ independence read first, same discipline as milestones 1-2); the
 remaining sequential `cartalith-civ` stages (settlement placement,
 naming, roads, territory's outer capital loop, villages) — confirmed
 genuinely hard (RNG-order/graph-shaped), not just unattempted.
+
+## LOD/tiling base (`LOD_TILING_BASE_SCOPE.md`, done 2026-08-17)
+
+Owner directive, directly after `TERRAIN_ARCHITECTURE_RESEARCH.md` was
+filed as forward-looking research (not current scope -- most of it
+assumes a real-time camera/LOD/streaming/painting engine Cartalith
+isn't): "LOD and zoom etc might be out of scope for the base, but
+they're still goals in this project. The base should be present before
+integration." Given three concrete scope options, the owner chose the
+middle one -- foundational data structures now, real and unit-tested,
+zero integration into the live pipeline.
+
+New crate `cartalith-spatial` (no `gdext` dependency): `TiledField<T>`
+(zero-copy tile/region/row/column views over a flat `Vec<T>`, the same
+SoA layout `WorldState`/`CivData` already use; `tile_size` is a
+constructor parameter, not hardcoded, since no real workload exists yet
+to benchmark against), a packed `QuadTree<T>` (`Vec<Node>`, integer
+child indices, generic caller-defined aggregate flags, real
+bounds-rejection proven by a visited-node counter -- a 64x64/leaf_max-4
+tree queried with a 1x1 region visits `< len()/4` nodes, not a brute-force
+full traversal), and a generic `DirtyTracker` (per-tile dirty flag +
+monotonic version counter, no Cartalith-specific field-dependency
+semantics baked in). `serde` round-trip tested on all three. 24 real
+unit tests (not compile-only), `cargo build/test/clippy -p
+cartalith-spatial` clean, full workspace `cargo test` clean (one
+`cartalith-engine` GPU-determinism test flake reproduced the
+already-documented pre-existing GPU-driver flakiness under parallel
+scheduling, unrelated -- passed on isolation and on a clean re-run).
+
+**Confirmed nothing else in the workspace references this crate** --
+`cartalith-engine`/`-terrain`/`-climate`/`-erosion`/`-hydrology`/`-civ`/
+`-godot` and every `.gd`/`.tscn` file are untouched. Exists purely as a
+tested foundation for whenever Phase 3 (3D) or a real large-world need
+actually triggers LOD/tiling integration -- not wired to anything today.
+Full record: `cartalith-native/docs/CHANGELOG.md`'s "New crate
+cartalith-spatial" entry.
 
 ## Known-open items (not owner-blocked, just not done yet)
 

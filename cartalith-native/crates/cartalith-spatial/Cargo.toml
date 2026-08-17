@@ -1,0 +1,16 @@
+[package]
+name = "cartalith-spatial"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "standalone tiling/spatial-index data structures for a future LOD/large-world integration (LOD_TILING_BASE_SCOPE.md) -- not referenced by any other crate yet"
+
+[lib]
+name = "cartalith_spatial"
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1.0.151"

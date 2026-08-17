@@ -5473,3 +5473,83 @@ four `_with` wrapper functions), `cartalith-native/crates/
 cartalith-engine/src/lib.rs` (`generate_terrain`'s five GPU call sites),
 `GPU_LAYER_INTEGRATION_SCOPE.md` (milestone 8 section), this file,
 `docs/STATUS.md`.
+
+## New crate `cartalith-spatial`: standalone tiling/spatial-index base, not integrated (2026-08-17)
+
+Prompted by the owner, directly: "LOD and zoom etc might be out of scope for
+the base, but they're still goals in this project. The base should be
+present before integration." Given three concrete scope options, the owner
+chose "data structures + dirty-region/versioning scaffolding" — build the
+foundational data structures now, real and unit-tested, but touch nothing in
+the live generation/rendering pipeline. Full reasoning, scope boundary, and
+what stays deferred: `LOD_TILING_BASE_SCOPE.md` (repo root). The research
+this responds to (`TERRAIN_ARCHITECTURE_RESEARCH.md`, also filed this
+session) describes a much larger real-time camera/LOD/streaming/painting
+architecture that doesn't fit Cartalith's current one-shot static-generation
+product shape at all — this crate is deliberately the narrow, safe slice of
+that research: reusable data structures with zero opinion on Cartalith
+semantics, sitting completely unreferenced by any other crate.
+
+**Built**, all in one new crate `cartalith-native/crates/cartalith-spatial`
+(no `gdext` dependency, per `ARCHITECTURE.md`'s crate-boundary rule):
+
+- **`TiledField<T>`** — wraps a flat, row-major `Vec<T>` (the same
+  Structure-of-Arrays layout `WorldState`/`CivData` already use) with
+  zero-copy `whole()`/`row()`/`column()`/`region()`/`tile()` views, both
+  read-only and mutable. `tile_size` is a constructor parameter, not a
+  hardcoded constant — no real workload exists yet to benchmark 64 vs. 128
+  vs. 256 against (`TERRAIN_ARCHITECTURE_RESEARCH.md` §31 says exactly this).
+  `column()` returns a lazy iterator rather than a slice since a column
+  isn't contiguous in row-major storage (stride = width) — a real, not
+  hypothetical, distinction from `row()`'s genuine `&[T]` slice.
+- **`QuadTree<T>`** — packed (`Vec<Node<T>>`, integer child indices via a
+  `NO_CHILD` sentinel, never `Box<Node>`/pointers), built bottom-up from a
+  flat field with a caller-supplied `leaf_max` and a caller-supplied
+  `flags_of` closure for per-node aggregate flags — the crate assigns no
+  meaning to any bit, deliberately (no `has_river: bool` baked into a
+  library crate with no real caller to say what "has river" should mean
+  yet). Handles non-power-of-two/odd dimensions by omitting zero-width or
+  zero-height quadrants during the split rather than special-casing them.
+  `query_region_counted` returns both the matching leaves and how many nodes
+  were actually visited — the real proof that bounds-rejection skips whole
+  subtrees rather than merely returning the right answer by brute force.
+- **`DirtyTracker`** — per-tile dirty flag with a caller-supplied reason
+  string (not Cartalith's specific `HEIGHT_DIRTY`/`BIOME_DIRTY` field-
+  dependency semantics from the research doc — that dependency graph has no
+  real caller yet either) plus a monotonic `u64` version counter that only
+  `mark_dirty` bumps; `clear_dirty` acknowledges without incrementing, since
+  clearing isn't itself a data change.
+- `serde` `Serialize`/`Deserialize` on all three (reusing the exact
+  `serde = "1.0.229"` version `cartalith-io` already pins, not a new
+  version choice) — round-trip tested via `serde_json` (dev-dependency
+  only), not wired to any actual disk-paging system.
+
+**Verified**: 24 real unit tests, not compile-only coverage — tile-boundary
+correctness including the off-by-one edge-tile case (world dimensions not an
+exact multiple of `tile_size`), a mutable view's writes landing in the
+correct backing-array cells, quadtree aggregate min/max matching the real
+source data, non-power-of-two dimension handling (5×3, doesn't panic, every
+cell covered by exactly one leaf), and — the test that actually proves the
+point rather than assuming it — a 64×64/leaf_max-4 tree (a real multi-level
+structure, `>100` nodes) queried with a 1×1 region visiting `< len()/4`
+nodes, plus a predicate-search test using a genuinely partial query region
+(not the whole field, which would reject nothing) to find one specific cell
+among 1024 by descending only into leaves whose own min/max aggregate
+couldn't rule it out. `cargo build/test/clippy -p cartalith-spatial` all
+clean. Full `cargo test --workspace` clean (one `generate_terrain_gpu_path_
+is_deterministic_and_valid` failure on the first run reproduced the
+already-documented pre-existing GPU-driver flakiness under parallel test
+scheduling — passed in isolation and on a full clean re-run; this crate has
+no GPU code and nothing depends on it, so it cannot be the cause).
+
+**Confirmed untouched, deliberately**: `cartalith-engine`, `cartalith-
+terrain`, `cartalith-climate`, `cartalith-erosion`, `cartalith-hydrology`,
+`cartalith-civ`, `cartalith-godot`, every `.gd`/`.tscn` file — nothing else
+in the workspace references `cartalith-spatial` at all. It exists purely so
+that whenever Phase 3 (3D) or a real large-world need actually triggers LOD/
+tiling integration, that work starts from a tested foundation instead of a
+green field.
+
+**Files touched**: new `cartalith-native/crates/cartalith-spatial/`
+(`Cargo.toml`, `src/lib.rs`), `LOD_TILING_BASE_SCOPE.md` (marked done), this
+file, `docs/STATUS.md`.
