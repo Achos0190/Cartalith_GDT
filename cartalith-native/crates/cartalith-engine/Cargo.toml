@@ -14,6 +14,12 @@ cartalith-terrain = { path = "../cartalith-terrain" }
 cartalith-climate = { path = "../cartalith-climate" }
 cartalith-hydrology = { path = "../cartalith-hydrology" }
 cartalith-erosion = { path = "../cartalith-erosion" }
+# UNIFIED_TOOL_PLAN.md milestone A: the first real dependency on
+# cartalith-spatial, which LOD_TILING_BASE_SCOPE.md deliberately left
+# unintegrated "for whenever a real large-world need actually triggers
+# integration". The DCC tool system is that trigger. Pure data structures,
+# no gdext -- fine per ARCHITECTURE.md's crate rules.
+cartalith-spatial = { path = "../cartalith-spatial" }
 # GPU_LAYER_INTEGRATION_SCOPE.md milestone 6: opt-in (WorldParams.use_gpu)
 # partial-GPU substrate path. Neither crate depends on gdext -- fine per
 # ARCHITECTURE.md's crate rules (only cartalith-godot may touch Godot).

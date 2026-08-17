@@ -5,7 +5,18 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-18 (post **generation-parameter API** — every
+Last updated: 2026-08-18 (post **unified tool plan milestone A** — the
+`PassBuffer`/staleness core, `UNIFIED_TOOL_PLAN.md`'s foundation layer that
+every tool milestone B-F builds on: `PassBuffer<S>`/`Stamp`/`StageGraph` in
+`cartalith-spatial`, Cartalith's own stage chain in `cartalith-engine`,
+tested and unwired, no tool built yet; see its own section below — post
+**non-square maps** — `generate_sized()`/
+`generate_world_structure_sized()` unlock the independent `gw`/`gh` the
+engine always had; every golden fixture in this workspace was already
+non-square, so the squareness lived only in `cartalith-godot`'s
+`call_params`; `map_height_km` is derived, not settable, because cells are
+square in km — see its own section below and `GENERATION_PARAMETERS.md` —
+post **generation-parameter API** — every
 generation parameter in `cartalith-engine`'s eight parameter structs is
 now reachable from GDScript, 7 -> 58, via one flat dotted-key table
 (`get_params`/`get_param_info`/`set_params`/`reset_params`) rather than
@@ -134,6 +145,63 @@ shell milestone 2" entry.
 investigate the reference's own Sculpt editor, scope Track 2 (the tool
 system itself) honestly. **Milestone 3+ (not yet dispatched)**: the tool
 system, milestoned by whatever that investigation finds.
+
+## Non-square maps (Rust half done 2026-08-18, `GENERATION_PARAMETERS.md`)
+
+Owner's standing complaint: *"the map is always square, but the engine
+doesn't require that"*, and the target it sets up: *"a proper base setup menu
+where we can pick map size, resolution, dimensions."* The Rust half. **Done.**
+
+- **The square-ness was never in the engine.** `WorldParams` has always had
+  independent `gw`/`gh`, and **every golden-parity fixture in this workspace
+  is already non-square** (14x11, 16x12, 24x18, 20x14, 48x40, 10x8) — so
+  terrain/climate/hydrology/erosion/civ are already JS-verified at non-square
+  dimensions. `cartalith-io` save loading was already correct too (10x8 and
+  12x6 in its own tests). The restriction was two lines in
+  `cartalith-godot/src/lib.rs`: `call_params`'s `p.gh = gw` and `absorb`'s
+  `self.gh = gw`.
+- **The reference is never square either**: `gridH(gw) = round(gw * 0.5)` in
+  world mode, `round(gw * 0.64)` in region mode (reference line 5049), and
+  its "Working resolution" segment sets the **width** only. This port's
+  square default was an artifact of a one-argument `generate()`, not a parity
+  match. It stays the default anyway, because every golden fixture and every
+  existing `main.gd` call rests on it.
+- **API** (additive, square by default, `generate()` unchanged):
+  `generate_sized(seed, width_km, grid_w, grid_h)`,
+  `generate_world_structure_sized(seed, width_km, grid_w, grid_h, archetype)`,
+  `reference_grid_height(grid_w, world)`, `get_map_width_km()`,
+  `get_map_height_km()`. Grid height is a call argument, not a stored
+  parameter — like `resolution`, it reallocates every field.
+- **`map_height_km` is derived, with no setter.** Every km-to-cell conversion
+  in the workspace goes through the single quotient `map_width_km / gw`
+  applied isotropically (`terrain_detail_k`, `river_flow_thresh`,
+  `civ_catchment_radius_cells`, `suppression_radius_cells`), so cells are
+  square in km and height is `width_km * gh / gw`. Setting it independently
+  would silently contradict every distance, grade and spacing in the world.
+- **Rendering**: `render.rs` audited per pixel — every index carries a real
+  `gh` bound and every resolution-derived radius is isotropic. One real fix:
+  the plate frame's uniform cell margin could exceed half the height on a very
+  wide plate and cover the whole sheet, so `border_width_cells` now caps at
+  `0.25 * gh` **only when `gh < gw`** (square and tall grids byte-unchanged).
+  `pack.rs` needed no change.
+- **`map_overlay.gd` was already correct** — verified, not assumed, and not
+  touched: `_displayed_rect()` is a real aspect-preserving fit and
+  `_interior_rect`'s width-fraction inset is right for a non-square plate
+  because the frame is a uniform cell count under a uniform fit scale.
+- Verified: `cargo test --workspace` 0 regressions, every golden fixture
+  unmodified; 7 new engine tests (256x128, 128x256, 250x150, the reference's
+  own 256x164 and 256x128 world shape, 512x32, World Structure at 192x96);
+  7 new `cartalith-godot` tests including a real "the picture is the right
+  *shape*" check (rendered water still coincides with `field < sea_level`
+  above 95%); real PNG dumps at `target/nonsquare/`; clippy clean; headless
+  Godot clean load.
+- **Still open**: the setup dialog itself (GUI fork's — it should call
+  `generate_sized`/`generate_world_structure_sized`, with
+  `reference_grid_height()` for the default shape, and follow the reference's
+  width-plus-extent model rather than two free spinboxes). `cartalith-civ`
+  was read but deliberately not edited (sibling fork mid-milestone); nothing
+  in it needs fixing. Aspect ratios beyond roughly 16:1 are degenerate but
+  non-crashing, not a design target.
 
 ## Generation parameters exposed to the GUI (done 2026-08-18, `GENERATION_PARAMETERS.md`)
 
@@ -1080,7 +1148,48 @@ accumulation, priority-flood, scatter-writes, per-particle/per-iteration
 wavefronts) are the real remaining ceiling, per this scope doc's own
 "Out of scope" section from the first pass.
 
-## LOD/tiling base (`LOD_TILING_BASE_SCOPE.md`, done 2026-08-17)
+## Unified tool plan (`UNIFIED_TOOL_PLAN.md`, milestone A done 2026-08-18)
+
+The tool system's foundation layer — what every tool in milestones B-F
+shares. **Done: milestone A only.** No tool exists yet; the left rail is
+still honestly inert (DCC shell milestone 1).
+
+- **Done — the `PassBuffer`/staleness core**, tested and unwired.
+  `cartalith-spatial::pass` (`Stamp` trait, `PassEntry<S>`, `PassBuffer<S>`,
+  `CommitSummary`) and `cartalith-spatial::staleness` (`StageGraph`), plus
+  `cartalith-engine::staleness` (`PipelineStage`/`pipeline_stage_graph()`)
+  for Cartalith's own stage names and edges. 43 new tests in `-spatial` (67
+  total), 5 in `-engine`, clippy clean on both.
+- **The reference's Sculpt editor was read directly, not through a summary.**
+  Its draft/commit/discard model is real and is the pass buffer's direct
+  ancestor, as the plan claimed. The property reading added: a stamp holds
+  **no pixel data** — it is a recipe re-evaluated over its own bounding box —
+  which is why `Stamp` shipped as a trait rather than a struct, and why this
+  milestone is a small type rather than a delta-buffer subsystem.
+- **`DirtyTracker` needed no extension**, only composition. Its `mark_dirty`
+  already is "my data changed here, here's why, bump the version" — the one
+  primitive both editing and recomputation need.
+- **Staleness is deferred structurally, not by convention**: `StageGraph` has
+  no recompute hook of any kind and every query takes `&self`. It cannot
+  recompute. That is the code answer to the measured ~7.07s terrain+civ at
+  2048² behind the mockup's "rivers · deferred".
+- **First dependent on `cartalith-spatial`** (`cartalith-engine`). That
+  crate's "whenever a real large-world need triggers integration" trigger
+  turned out to be the tool system, not LOD rendering — see the section
+  immediately below, whose "referenced by nothing" line is now history.
+- **Open: milestones B-F** — the Sculpt-editor terrain port (B), water &
+  ecology (C), civilization (D), annotation & measure (E), shell wiring (F).
+  Also deliberately open: the field-level undo snapshot at commit time (no
+  undo stack exists in this port yet to snapshot into; `commit` returns the
+  touched-tile list a tile-diff undo would need), and tile-incremental
+  recompute of hydrology/climate/civ (none are tile-scoped today — staleness
+  reports which tiles are stale, stages still recompute globally).
+- **Note for the next session:** `cargo test --workspace` currently fails to
+  build `cartalith-civ` — a sibling fork's mid-edit Journey Planner work
+  (`crates/cartalith-civ/src/lib.rs:8633`), untouched and unrelated here.
+  Every other crate was tested individually, 0 regressions.
+
+## LOD/tiling base (`LOD_TILING_BASE_SCOPE.md`, done 2026-08-17; integrated 2026-08-18)
 
 Owner directive, directly after `TERRAIN_ARCHITECTURE_RESEARCH.md` was
 filed as forward-looking research (not current scope -- most of it
@@ -1108,13 +1217,15 @@ cartalith-spatial` clean, full workspace `cargo test` clean (one
 already-documented pre-existing GPU-driver flakiness under parallel
 scheduling, unrelated -- passed on isolation and on a clean re-run).
 
-**Confirmed nothing else in the workspace references this crate** --
-`cartalith-engine`/`-terrain`/`-climate`/`-erosion`/`-hydrology`/`-civ`/
-`-godot` and every `.gd`/`.tscn` file are untouched. Exists purely as a
-tested foundation for whenever Phase 3 (3D) or a real large-world need
-actually triggers LOD/tiling integration -- not wired to anything today.
-Full record: `cartalith-native/docs/CHANGELOG.md`'s "New crate
-cartalith-spatial" entry.
+**Confirmed nothing else in the workspace references this crate** -- true as
+of 2026-08-17, **no longer true**: `UNIFIED_TOOL_PLAN.md` milestone A
+(2026-08-18) built `PassBuffer<S>`/`StageGraph` in this crate and made
+`cartalith-engine` its first dependent. The trigger this section waited for
+turned out to be the DCC tool system, not Phase 3 or LOD. The bet paid off
+as argued -- the tool system started from a tested foundation, and
+`DirtyTracker` needed no extension whatsoever to serve its first real
+caller. Full record: `cartalith-native/docs/CHANGELOG.md`'s "New crate
+cartalith-spatial" entry and its "unified tool plan milestone A" entry.
 
 ## Province boundary legibility (fixed 2026-08-17)
 

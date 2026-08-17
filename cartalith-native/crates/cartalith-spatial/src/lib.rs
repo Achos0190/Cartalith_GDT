@@ -29,6 +29,30 @@
 //! Cartalith-specific concept — that's deliberate: a data-structure crate
 //! with no opinion on what's stored in it is what stays cheap to leave
 //! unintegrated for however long that turns out to be.
+//!
+//! ## The trigger arrived (`UNIFIED_TOOL_PLAN.md` milestone A, 2026-08-18)
+//!
+//! "Whenever a real large-world need actually triggers integration" turned
+//! out to be the DCC tool system, not LOD rendering. Two more pieces live
+//! here now, built on the three above and holding to the same
+//! stay-generic rule:
+//!
+//! 4. [`PassBuffer`] — a non-destructive draft stack of [`Stamp`]s that
+//!    previews without writing, commits the whole stack in one ordered pass,
+//!    and discards by simply forgetting (see [`pass`]).
+//! 5. [`StageGraph`] — deferred, lazily-evaluated staleness across a DAG of
+//!    pipeline stages, each owning its own [`DirtyTracker`] (see
+//!    [`staleness`]).
+//!
+//! Both stayed generic, and neither needed [`DirtyTracker`] extended: its
+//! `mark_dirty` already is the "my data changed here, here's why, bump the
+//! version" primitive both editing and recomputation need.
+
+pub mod pass;
+pub mod staleness;
+
+pub use pass::{CommitSummary, PassBuffer, PassEntry, Stamp};
+pub use staleness::{StageGraph, StageId, Staleness};
 
 use serde::{Deserialize, Serialize};
 

@@ -650,7 +650,8 @@ the largest single chunk and the one with the most complete reference
 answer, so it anchors the plan.
 
 **Milestone A — `PassBuffer`/staleness core (`cartalith-spatial` +
-`cartalith-engine`).** The new `PassBuffer<Stamp>` type from "The shared
+`cartalith-engine`). DONE 2026-08-18 — see "Milestone A as built" below.**
+The new `PassBuffer<Stamp>` type from "The shared
 editing model" above: stamp storage, touched-tile tracking, preview-via-
 scratch-composite, commit-via-real-write, discard. Per-stage `DirtyTracker`
 instances wired along the real dependency chain (height → hydrology →
@@ -723,3 +724,143 @@ incremental today (a much larger, separate re-architecture, out of scope
 for "does the tool system work" and only worth taking on if lazy-whole-
 recompute proves too slow in practice once Milestone F is real and
 measurable end to end).
+
+## Milestone A as built (2026-08-18)
+
+Shipped tested and unwired, the same "ship the primitive ahead of the
+orchestration" precedent Phase 2 and the Journey Planner both used. No tool
+exists yet; this is the mechanism B-F share.
+
+**Where it landed, and why.**
+
+- `cartalith-spatial/src/pass.rs` — `Stamp` (trait), `PassEntry<S>`,
+  `PassBuffer<S>`, `CommitSummary`.
+- `cartalith-spatial/src/staleness.rs` — `StageGraph`, `StageId`,
+  `Staleness`.
+- `cartalith-engine/src/staleness.rs` — `PipelineStage` and
+  `pipeline_stage_graph()`: Cartalith's own stage names and edges.
+
+The split follows `cartalith-spatial`'s own precedent rather than the
+convenience of one file. That crate's `DirtyTracker` doc comment explicitly
+refuses to bake Cartalith field names into a library crate, and `QuadTree`
+takes caller-defined aggregate flags for the same reason; the stage *names
+and edges* are pipeline knowledge, so they live with the orchestrator that
+owns pipeline order. `cartalith-engine` gaining a `cartalith-spatial`
+dependency is the first one in the workspace — `LOD_TILING_BASE_SCOPE.md`'s
+"whenever a real large-world need actually triggers integration" turned out
+to be the tool system, not LOD rendering, and that document's "Done" section
+is updated to say so.
+
+**What a `Stamp` actually is, and what this port made of it.** Read directly,
+the reference's stamp object is `{type, seed, pts, g:{...}, f:{...}, hidden,
+_cx, _cy}` — feature key, seed, the captured stroke polyline in grid
+coordinates, two flat parameter bags (the eight global brush/noise keys and
+the per-feature control values), a hide flag, and a cached centroid for
+radial features. The load-bearing property, which the plan above did not
+state explicitly: **a stamp stores no pixel data at all.** It is a *recipe*,
+re-evaluated over its own padded bounding box every time it is drawn or
+baked. That is exactly why the draft can be kept as plain object state,
+JSON-snapshotted for undo, reordered, and thrown away for free.
+
+So milestone A ships `Stamp` as a **trait**, not a struct — `bounds()` and
+`apply(&self, dst, width, height)`. The recipe is Cartalith-terrain-specific
+and belongs with the feature registry milestone B ports; the stack semantics
+around it are generic. A biome-paint disc, a territory-paint disc and a
+13-feature landform stamp can all implement it (`type Cell` covers `f32`
+height and `u8` categorical override layers alike) without the library crate
+learning what a biome is. `hidden` moved off the recipe onto `PassEntry`,
+because hiding is a *stack* edit — one of the four structural edits the
+reference's own draft undo tracks (add, delete, reorder, hide) — not a
+property of the recipe.
+
+`Stamp::apply` writing into a caller-supplied destination is a direct port of
+the reference's own contract, quoted verbatim in the module docs:
+`sculptApplyStamp` *"writes directly into caller-supplied H/W arrays (never
+`field`/module globals) so both the draft preview (a scratch buffer) and
+commit (field itself) reuse the identical code path."* One apply, two
+destinations. A test asserts preview and commit produce identical results —
+the test that would catch them drifting.
+
+**How preview avoids mutating.** `preview_into(base: &[Cell], scratch: &mut
+[Cell])`. `base` is a shared reference, so the non-destructive guarantee is
+the borrow checker's rather than a convention — no stamp implementation can
+violate it. `touched_tiles()`/`touched_bounds()` give the renderer its upload
+scope. The whole-base copy is deliberately the simple, obviously-correct
+primitive; a touched-region-only refresh is left to the caller, since no
+renderer is wired yet to say what shape it wants.
+
+**Corrections this pass made to the plan above.**
+
+1. **`DirtyTracker` needed no extension at all.** The plan's conclusion
+   ("necessary but not sufficient — holds no data") is confirmed, but the
+   remedy is pure composition: not one method was added or changed.
+   `mark_dirty` already *is* "my data changed at this tile, here is why, bump
+   the version", which is the single primitive both editing and recomputation
+   need. `PassBuffer` uses it at commit; each `StageGraph` stage owns one.
+2. **Staleness needs two rules, not one.** The plan describes a stage
+   "comparing the version it last computed against the upstream tracker's
+   current version". That alone is *not* transitive: a height edit bumps only
+   height's version, so climate — comparing against hydrology, whose version
+   did not move — would report itself current. The built graph adds rule 2:
+   a stage is also stale if an upstream is *itself* stale, evaluated
+   recursively at query time. That keeps deferral intact (nothing is pushed
+   downstream at commit time; computing a flow change's downstream tile
+   footprint is exactly the expensive query the plan rightly refuses to run)
+   while making civ correctly stale after a terrain edit. A dirty-flag-only
+   design also gets this wrong in the other direction, and there is a test
+   for it: recomputing civ over a still-stale hydrology does **not** settle
+   civ.
+3. **Deferral is structural, not conventional.** `StageGraph` has no
+   recompute hook of any kind — no closure, no callback, no trait object it
+   could invoke — and every query takes `&self`. It is not merely that it
+   *doesn't* recompute; it *cannot*. Work happens only when a caller runs a
+   stage itself and says so via `mark_recomputed_tiles`.
+4. **The real chain has more edges than the plan's spine.** Verified against
+   the real signature, not assumed: `build_settlement_suitability` takes
+   `field` (height) and `slope_n` directly, alongside the climate-derived
+   soil/water/carrying-capacity inputs. So civ depends on height and
+   hydrology *directly*, not only through climate, and `pipeline_stage_graph`
+   encodes that. With transitive staleness this does not change *whether* civ
+   is stale after a height edit — the spine alone gets that right — but it is
+   what a future tile-incremental recompute would have to honour, and it
+   makes the graph an honest description rather than a simplified one.
+   Erosion is deliberately absent: it is genuinely two-way-coupled with
+   climate (`ARCHITECTURE.md`'s known acyclicity pressure point,
+   `evolveCoupled()`), a cycle cannot be expressed here by construction, and
+   inventing an edge direction before a tool makes the question concrete
+   would be guessing.
+5. **The dirty flag and staleness are separate concerns.** A stage's
+   `DirtyTracker` flag means "this stage's data changed and the presentation
+   layer has not re-read it" — a re-upload marker, cleared by `acknowledge`.
+   Staleness is computed purely from version counters. Acknowledging never
+   changes whether anything is stale, and there is a test pinning that.
+
+**Also built, straight from the reference rather than from the plan:** the
+draft-scoped undo/redo stack (`sculptHistory`/`sculptRedoStack`, capped at
+`SCULPT_HIST_MAX = 30`, ported as `HISTORY_MAX`), covering all four
+structural edits and clearing the redo branch on any new edit exactly as the
+reference does. Stack **order** is load-bearing (stamps read the destination
+they write, so they compose), which is why `move_up`/`move_down` exist and
+why a test uses a set-to-constant stamp to prove reordering changes the
+result — an add-only stamp would have hidden it.
+
+**Verified.** 43 new unit tests in `cartalith-spatial` (67 total, up from 24)
+and 5 in `cartalith-engine`. The behaviours that matter, each tested for
+real: a stroke previews without mutating the field; preview and commit agree
+exactly; commit applies the whole stack in order and empties the draft;
+discard leaves the field **bit-identical** (compared as raw bit patterns, so
+a `-0.0`/`0.0` difference would still fail); one commit bumps each touched
+tile's version exactly once however many strokes touched it (the "undo
+granularity is one committed pass" rule, enforced in code rather than left to
+callers); discarded passes never bump a version at all across repeated
+commit/discard cycles; staleness marks exactly the right downstream stages at
+exactly the right tiles and never recomputes. `cargo build/test/clippy
+--all-targets` clean on both crates.
+
+**Not built, deliberately.** The tools themselves (B-E) and shell wiring (F).
+Also: the field-level undo snapshot taken at commit time. The plan lists it
+under the shared model, but there is nothing to snapshot *into* yet — no
+undo stack exists anywhere in this port — and inventing one before milestone
+B has a real committed edit to undo would be guessing at its granularity.
+`PassBuffer::commit` returns the exact touched-tile list a tile-diff undo
+would need, so the seam is left open rather than filled speculatively.

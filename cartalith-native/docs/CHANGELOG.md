@@ -8574,3 +8574,288 @@ breakpoints are still deferred (`DCC_SHELL_SCOPE.md`), as is any tool
 functionality (`UNIFIED_TOOL_PLAN.md`). The pre-existing `dark_theme.tres`
 issue where an unchecked `CheckBox` draws no glyph is unchanged by this pass
 and still visible in these dialogs.
+
+## Non-square maps: unlocking the aspect ratio the engine already had (2026-08-18)
+
+Owner's standing complaint, and a real limitation: **the map is always
+square, but nothing in the engine requires that.** This pass makes non-square
+generation work end to end from the GDScript boundary, and verifies it.
+
+**What the investigation actually found — the square-ness was in one file.**
+
+`cartalith_engine::WorldParams` has always carried independent `pub gw` and
+`pub gh`. More than that: **every golden-parity fixture in this workspace is
+already non-square** — 14x11 and 16x12 across the whole `cartalith-civ`
+battery and `golden_parity_carve.rs`, 24x18 and 20x14 in
+`golden_parity_pipeline.rs`, 48x40 in `golden_parity_settlement_prereqs.rs`,
+10x8 in `golden_parity_weather.rs`, 14x11 in the real `.zip` export fixture.
+The engine, terrain, climate, hydrology, erosion and civ layers are therefore
+*already JS-verified at non-square dimensions*, and have been since they were
+ported. `cartalith-io`'s save loading was likewise already correct (its own
+unit tests load 10x8 and 12x6, and `WorldGen::load_save` has always stored
+both dimensions) — which is exactly why loading a real reference export never
+hit the square restriction.
+
+The restriction was two lines in `cartalith-godot/src/lib.rs`:
+`call_params`'s `p.gh = gw;` and `absorb`'s `self.gh = gw as i32;` /
+`compute_civilisation(&ws, gw, gw, …)`. `generate()` takes a single
+`resolution`, so the boundary layer threw the capability away.
+
+**The reference is never square, either.** `gridH(gw)` (reference HTML line
+5049) is `round(gw * 0.5)` in world mode (2:1 equirectangular) and
+`round(gw * 0.64)` in region mode (a 1.5625:1 frame), and the reference's
+"Working resolution" segment (512 / 1K / 2K / 4K / 8K) sets the **width**
+only. So this port's square default was never a parity match — it was an
+artifact of a one-argument `generate()`. It stays the default here regardless,
+because every golden fixture and every existing `main.gd` call is built on it.
+
+**The API, and why it has this shape.**
+
+Additive, square by default, fitted to the convention `88c15f0` established
+(a flat dotted-key `Dictionary` for parameters, with `seed`/`resolution`/
+`width_km` deliberately kept as `generate()` arguments):
+
+- `generate_sized(seed, width_km, grid_w, grid_h)` and
+  `generate_world_structure_sized(seed, width_km, grid_w, grid_h, archetype)`
+  — the general entry points. `generate()`/`generate_world_structure()` are
+  now exactly these with `grid_h = grid_w`, unchanged for callers.
+- `reference_grid_height(grid_w, world) -> int` — the reference's own
+  `gridH`, so a setup dialog can offer the shape the reference uses without
+  hardcoding `0.64`/`0.5` in GDScript (`ARCHITECTURE.md`: "Godot computes
+  nothing beyond layout").
+- `get_map_width_km()` / `get_map_height_km()` — readouts.
+
+Grid height is a **call argument, not a stored parameter**, for the same
+reason `resolution` already is: it reallocates every field in the pipeline,
+so it cannot honour the parameter table's contract ("set it, then generate as
+many times as you like").
+
+**`map_height_km` is derived, and deliberately has no setter.** Read
+literally, every kilometre-to-cell conversion in this workspace goes through
+one quotient — `map_width_km / gw` — and applies it isotropically:
+`terrain_detail_k(gw, map_width_km)`, `river_flow_thresh(…, world_gw,
+map_width_km)`, `civ_catchment_radius_cells(cat_km2, map_width_km, gw)`,
+`suppression_radius_cells(spacing_km, gw, map_width_km)`. The engine's real,
+already-shipped assumption is that **cells are square in kilometres**, so the
+map's height in km is `map_width_km * gh / gw` and nothing else. An
+independently-set height would silently contradict every distance, grade,
+river threshold, catchment radius and settlement spacing the world was built
+from — precisely the class of silent rescaling the reference cites when it
+freezes `map_width_km` after creation. `get_map_height_km()` reports the
+derived value; there is no `set_map_height_km`.
+
+**Rendering: one real fix, and one thing that was already right.**
+
+`render.rs` was audited per-pixel. Every index is `y * gw + x` with a genuine
+`gh` bound; every resolution-derived radius (`smooth_sea_h`'s `gw/200`,
+`build_ao`'s `ao_radius_frac * gw`, `build_hydro_wetness`, the stipple mark
+spacing, `bio_jitter`'s and `land_color`'s noise frequencies) is keyed to `gw`
+on *both* axes, which is isotropic and therefore correct — a feature is the
+same size in cells whichever way the sheet runs. `box_v`, `sea_shade_from`,
+`slope_at`, `aspect_factor`, `curvature_at` and `shade` all clamp against
+`gh`. `vignette_at` and the edge haze normalize each axis by its own
+dimension, matching the reference.
+
+The one real problem was the plate frame. `border_width_cells` derives a
+uniform margin in cells from `gw` (correct — a real plate margin *is*
+uniform, and it is what keeps `get_border_inset_frac`'s "fraction of texture
+width" contract exact), but `apply_border`/`border_cover` measure
+`min(dx, dy)`: on a plate much wider than it is tall, that margin can exceed
+half the height and cover the entire sheet, rendering blank paper. Now capped
+at `0.25 * gh` — **only when `gh < gw`**, so every square and every tall grid
+keeps byte-for-byte the width it had before. A guard that also fired on
+square grids would have silently changed the frame at small square
+resolutions, which is exactly the kind of drift this pass was told not to
+introduce.
+
+`pack.rs` needed no change: it already threads `gw`/`gh` into
+`build_biome_and_wetland`, `place_map_icons_ruled` and the `Canvas`
+rasterizer, all of which are dimension-independent.
+
+**`map_overlay.gd`'s fit math was already correct — verified, not assumed,
+and not touched.** `_displayed_rect()` computes `scale = min(size.x/gw,
+size.y/gh)` and centres `Vector2(gw, gh) * scale`: a real aspect-preserving
+fit, matching `MapView`'s own `stretch_mode = 5`
+(`STRETCH_KEEP_ASPECT_CENTERED`). `_interior_rect` insets by
+`border_frac * rect.size.x`, which is right for a non-square plate precisely
+because the frame is a uniform cell count and the fit scale is uniform.
+`_cell_to_screen` divides by `_gw`/`_gh` separately, and `main.gd` has always
+passed `get_width()`/`get_height()` rather than one number. No GDScript
+change was needed or made.
+
+**Verified.**
+
+- `cargo test --workspace`: 0 regressions, **every golden-parity fixture
+  unmodified**, including `golden_parity_render.rs` (square, `js_reference()`)
+  and the whole non-square civ battery.
+- New `cartalith-engine/tests/non_square_pipeline.rs` (7 tests): the full
+  pipeline at 256x128, 128x256, 250x150, the reference's own 256x164 region
+  and 256x128 world shapes, a 512x32 case where resolution-derived blur radii
+  exceed the shorter axis outright, and World Structure at 192x96. Every
+  field allocated at `gw*gh`, all finite, height still normalized to `[0,1]`,
+  no degenerate all-sea/all-land outcome.
+- New `cartalith-godot/tests/nonsquare.rs` (7 tests): every cell of 192x96,
+  96x192, 150x90 and 128x128 renders in range; world mode at 2:1; the plate
+  frame is a uniform margin with a non-margin interior and never swallows the
+  sheet; the border guard provably never fires on a square or tall grid;
+  sprite compositing runs on non-square buffers in both orientations.
+- The load-bearing one — **the image is the right shape, not merely the right
+  size**: `rendered_water_still_lands_where_the_field_says_it_does` renders
+  each shape under `js_reference()` and checks that blue-dominant pixels still
+  coincide with `field[i] < sea_level` (freezing cells excluded, since
+  `snow_glac` is blue-dominant too). A renderer that transposed axes, used the
+  wrong stride or clamped `y` against `gw` would still emit `gw*gh` finite
+  pixels but would decorrelate here. Agreement is required above 95%.
+- Real PNGs of real non-square worlds, for eyeball verification, via
+  `cargo test -p cartalith-godot --test nonsquare -- --ignored`:
+  `target/nonsquare/{512x256,256x512,512x256_world,512x512}.png`.
+- `cargo clippy -p cartalith-engine -p cartalith-godot --all-targets`: clean.
+- `godot4 --headless --quit main.tscn`: clean load.
+
+**Still open, deliberately.**
+
+- **The setup dialog itself.** This pass is the Rust half only: the GUI is a
+  follow-up (a sibling fork owns `main.gd`/`main.tscn` right now). What that
+  dialog needs to call is `generate_sized`/`generate_world_structure_sized`,
+  with `reference_grid_height()` for the default shape and
+  `get_map_width_km()`/`get_map_height_km()` for the readout. The reference's
+  own model is worth copying: a **width** resolution segment plus an extent
+  (region/world) choice, with height derived — not two free spinboxes.
+- **`cartalith-civ` was read but not edited** (a sibling fork is mid-milestone
+  in it). Nothing was found that needs fixing: its whole public surface takes
+  `gw, gh` pairs; its two width-only helpers (`civ_catchment_radius_cells`,
+  `suppression_radius_cells`) are km-to-cell conversions that are *correct*
+  under the square-cells rule; the seed-suppression radius `max(6, gw/22)`
+  this port passes into `find_settlement_seeds` is `GW`-keyed in the
+  reference too, on maps that are themselves non-square; and its golden
+  fixtures are 14x11/16x12/48x40. Recorded here so the next reader does not
+  re-derive it.
+- **Extreme aspect ratios beyond roughly 16:1** are not a design target. They
+  do not panic and are covered by a test (512x32), but a margin that is 4.5%
+  of the height and a `min(gw,240)` weather grid only a couple of rows tall
+  are degenerate rather than wrong.
+
+## Unified tool plan milestone A — the `PassBuffer`/staleness core (2026-08-18)
+
+`UNIFIED_TOOL_PLAN.md`'s foundation layer, the mechanism every tool in
+milestones B-F shares. Shipped tested and **unwired** — no tool exists yet,
+nothing in the pipeline consults it — the same "ship the primitive ahead of
+the orchestration" precedent Phase 2 and the Journey Planner both used.
+
+**Read first, designed after.** The reference's Sculpt editor (reference HTML
+lines ~8837-9470) was read directly rather than through the plan's summary.
+The plan's central claim held up: the reference already has a real
+draft/commit/discard model, and it is the direct ancestor of the DCC shell's
+"pass buffer" language, not invented UX. What reading added is the property
+the plan never states — **a stamp holds no pixel data**. `{type, seed, pts,
+g:{...}, f:{...}, hidden, _cx, _cy}` is a *recipe* (feature key, seed, the
+captured stroke polyline in grid coordinates, two flat parameter bags, a
+hide flag, a cached radial centroid), re-evaluated over its own padded
+bounding box every time it is drawn or baked. That is why the draft can be
+plain object state, JSON-snapshotted for undo, reordered, and thrown away
+for free — and it is the reason this milestone could ship a small type
+rather than a delta-buffer subsystem.
+
+**Built.**
+
+- `cartalith-spatial::pass` — `Stamp` (a trait, not a struct: `bounds()` +
+  `apply(&self, dst, width, height)`, with an associated `Cell` type so an
+  `f32` height stamp and a `u8` categorical-override disc both fit),
+  `PassEntry<S>`, `PassBuffer<S>`, `CommitSummary`. Preview composites over
+  a `&[Cell]` read of the field into a caller-owned scratch — the field is a
+  shared reference, so "never mutates" is the borrow checker's guarantee, not
+  a convention. Commit bakes the visible stack in order into the real field
+  and marks every touched tile dirty **once**. Discard forgets. Plus the
+  draft-scoped undo/redo stack ported from `sculptHistory`/`sculptRedoStack`
+  (cap 30 = the reference's `SCULPT_HIST_MAX`) over all four structural
+  edits the reference tracks: add, delete, reorder, hide.
+- `cartalith-spatial::staleness` — `StageGraph`: a DAG of pipeline stages,
+  each owning a `DirtyTracker`, with per-tile staleness computed lazily from
+  version counters. No stage names, no Cartalith semantics.
+- `cartalith-engine::staleness` — `PipelineStage` + `pipeline_stage_graph()`:
+  the Cartalith stage names and edges. Placed here, not in the library crate,
+  for the reason `cartalith-spatial`'s own `DirtyTracker` doc comment gives
+  for refusing to bake in field names — the library stays generic, pipeline
+  knowledge lives with the orchestrator that owns pipeline order.
+- `cartalith-engine` now depends on `cartalith-spatial`: the workspace's
+  **first** dependent on that crate. `LOD_TILING_BASE_SCOPE.md` built it
+  standalone "for whenever a real large-world need actually triggers
+  integration"; the trigger turned out to be the tool system, not LOD
+  rendering, and that document is updated to say so.
+
+**Design decisions worth the record.**
+
+- **`DirtyTracker` needed no extension at all.** The plan predicted
+  "necessary but not sufficient". Confirmed — but the remedy is pure
+  composition, and not one method was added or changed. `mark_dirty` already
+  *is* "my data changed at this tile, here is why, bump the version", the one
+  primitive both editing and recomputation need.
+- **Staleness needs two rules, not one.** Version comparison against direct
+  upstreams — the plan's description — is not transitive: a height edit bumps
+  only height's version, so climate, comparing against an unmoved hydrology,
+  would report itself current. The graph adds "or an upstream is itself
+  stale", evaluated recursively **at query time**. Deferral is intact
+  (nothing is pushed downstream at commit; computing a flow change's
+  downstream tile footprint is exactly the expensive query the plan refuses
+  to run), and civ correctly reports stale after a terrain edit.
+- **Deferral is structural.** `StageGraph` has no recompute hook of any kind
+  — no closure, no callback, no trait object — and every query takes `&self`.
+  It cannot recompute, rather than merely choosing not to. That is the code
+  answer to the measured constraint (`CPU_MULTITHREADING_SCOPE.md`: terrain
+  ~5.1s and terrain+civ ~7.07s at 2048², excluding climate/erosion/hydrology
+  and civ's sequential stages) behind the mockup's "rivers · deferred".
+- **The real chain has more edges than the plan's linear spine.** Verified
+  against the real signature: `build_settlement_suitability` takes `field`
+  (height) and `slope_n` directly, so civ depends on height and hydrology
+  directly, not only through climate. Encoded. Erosion deliberately left out
+  — it is two-way-coupled with climate (`ARCHITECTURE.md`'s known
+  acyclicity pressure point), a cycle cannot be expressed here by
+  construction, and picking an edge direction before a tool makes the
+  question concrete would be guessing.
+- **Two separate concerns, deliberately not merged.** A stage's dirty *flag*
+  means "changed, presentation layer hasn't re-read it" — a re-upload marker,
+  cleared by `acknowledge`. Staleness is computed purely from *versions*.
+  Acknowledging never changes what is stale.
+
+**Verified.**
+
+- `cargo test -p cartalith-spatial`: 67 pass (24 before, 43 new).
+  `cargo test -p cartalith-engine`: 21 pass including 5 new, golden-parity
+  fixtures unmodified. `cargo clippy --all-targets` clean on both.
+- The behaviours that actually matter, each a real test: a stroke previews
+  without mutating the field; preview and commit produce identical results
+  (the test that would catch the one-apply-two-destinations contract
+  drifting); commit applies the whole stack in order and empties the draft;
+  discard leaves the field **bit-identical**, compared as raw bit patterns so
+  a `-0.0`/`0.0` or NaN-payload difference would still fail; one commit bumps
+  each touched tile exactly once however many strokes touched it (the "undo
+  granularity is one committed pass" rule, in code rather than left to
+  callers); repeated commit/discard cycles bump versions only on commit;
+  reordering the stack really changes the result (proved with a
+  set-to-constant stamp — an add-only stamp would have hidden it); staleness
+  marks exactly the right stages at exactly the right tiles, reports the
+  most-upstream cause for a status line, and repeated querying changes no
+  version and clears no staleness.
+- `cargo test --workspace` could **not** be run to completion: `cartalith-civ`
+  is mid-edit by a sibling fork and does not compile
+  (`crates/cartalith-civ/src/lib.rs:8633`, a parenthesisation error in
+  Journey Planner work, plus a `JpPlan` initializer missing five fields).
+  Untouched here by instruction, and unrelated — nothing in this milestone
+  references `cartalith-civ`. Every crate that does build was run
+  individually instead: `-noise`, `-rng`, `-terrain`, `-climate`, `-erosion`,
+  `-hydrology`, `-spatial`, `-engine`, `-io` all pass, 0 regressions.
+
+**Still open, deliberately.**
+
+- **The tools themselves** (milestones B-E) and shell wiring (F). This is the
+  mechanism, nothing more.
+- **The field-level undo snapshot at commit time.** The plan lists it under
+  the shared editing model, but there is no undo stack anywhere in this port
+  to snapshot into, and choosing its granularity before milestone B has a
+  real committed edit to undo would be guessing. `PassBuffer::commit` returns
+  the exact touched-tile list a tile-diff undo would need, so the seam is
+  open rather than speculatively filled.
+- **Tile-incremental recompute** of hydrology/climate/civ — none of those
+  crates are tile-scoped today. `StageGraph` reports *which* tiles are stale;
+  every stage still recomputes globally when asked. Unchanged from the plan's
+  own deliberate deferral.

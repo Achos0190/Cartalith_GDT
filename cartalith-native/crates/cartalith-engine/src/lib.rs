@@ -78,6 +78,11 @@
 //!   traceRiverPolylines itself is untouched so the generate()/carve
 //!   pipeline stays bit-identical").
 
+/// Cartalith's generation-stage dependency chain as a deferred staleness
+/// graph (`UNIFIED_TOOL_PLAN.md` milestone A). Unwired: the pipeline below
+/// does not consult it yet.
+pub mod staleness;
+
 use cartalith_climate::{
     apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
     WeatherParams,

@@ -140,3 +140,19 @@ and confirmed unrelated — no GPU code in this crate, nothing depends on it).
 Confirmed zero references from any other crate or `.gd`/`.tscn` file. Full
 record: `cartalith-native/docs/CHANGELOG.md`'s "New crate cartalith-spatial"
 entry, `docs/STATUS.md`'s own "LOD/tiling base" section.
+
+## Integrated (2026-08-18) — the trigger was the tool system, not LOD
+
+"Whenever Phase 3 or a real large-world need actually starts integration"
+turned out to be neither: it was the DCC tool system.
+`UNIFIED_TOOL_PLAN.md` milestone A built `PassBuffer<S>` and `StageGraph`
+*in this crate*, on top of `TiledField`/`DirtyTracker`, and
+`cartalith-engine` now depends on it — the first dependent, so the "not a
+dependency of any other crate" line above is history rather than current
+fact. The bet this document made paid off exactly as argued: the tool
+system started from a tested foundation instead of a green field, and
+`DirtyTracker` needed **no** extension at all to serve a real caller — its
+deliberately generic caller-supplied reason string (defended here against
+baking in Cartalith field names) turned out to be right, because each
+pipeline stage owns its own tracker instance rather than sharing one
+field-name enum.
