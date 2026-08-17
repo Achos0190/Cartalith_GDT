@@ -223,17 +223,36 @@ optimization, not attempted this pass. See `GPU_LAYER_INTEGRATION_
 SCOPE.md`'s milestone 6 "Done." section and `CHANGELOG.md`'s "GPU layer
 integration milestone 6" entry for the full numbers.
 
-**Milestone 7 — climate's wind/rain loop, investigated not built
-(2026-08-16).** Read `simulate_weather` in full, resolving the scope
-doc's own flagged cross-cell-coupling uncertainty: each iteration's three
-per-cell passes (evaporation, semi-Lagrangian advection, precipitation
-deposit) are all *gather*-shaped (each cell reads a bilinearly-
-interpolated sample of the *previous* iteration's frozen field), the
-same GPU-friendly shape as JFA/blur, not `compute_stress`'s scatter
-hazard. Genuinely GPU-feasible — a real future candidate — but not
-bundled into this pass; kernel count and per-iteration dispatch overhead
-(likely repeating milestone 6's own context-creation lesson) still need
-real scoping.
+**Milestone 7 — climate's wind/rain loop on GPU: done (2026-08-17), a
+real loss even with milestone 8's own fix applied from the start.**
+Built `gpu_weather.wgsl` (`evap_main`/`advect_main`/`deposit_main`) using
+the shared-`GpuDevice` pattern from day one (milestone 7 landed after 8,
+no reason to repeat 6's original per-call-context mistake). Required a
+real refactor first: `simulate_weather`'s previously-inline setup/
+teardown extracted into new `pub fn build_weather_grid`/`finish_weather_
+grid` (`cartalith-climate`) — pure extraction, `golden_parity_weather.rs`
+unchanged. **Correctness**: no noise dependency, verified directly
+against the real CPU `simulate_weather` at production `iters=70`: max
+abs diff `1.79e-7`, essentially f32 epsilon — 70 iterations of gather/
+advect/deposit didn't compound meaningfully (bounded arithmetic, unlike
+nested noise). **Real timing, the honest finding**: this kernel's
+working set is capped at `min(gw,240)` and stops growing with map
+resolution past that — unlike every other GPU-wired stage. Measured at
+its real production size (240×240, 70 iters, from a real 2048² map):
+**GPU 23.8ms vs CPU 22.2ms, 0.93× — GPU loses**, even with milestone 8's
+fix. 210 dispatches (70×3) against a 57,600-cell working set is too
+little work to amortize even the remaining per-dispatch overhead once
+context-creation stops dominating. Joins `compute_resistance` (milestone
+4, 0.38×) as a second confirmed "verified on GPU, shouldn't run there"
+case — a different structural reason (dispatch-count-dominated, not
+formula-triviality-dominated). **Wired anyway** behind `p.use_gpu` for
+architectural consistency (`"weather"` joins `gpu_stages_used`), expected
+to keep losing regardless of map size. Found and fixed a real pre-
+existing bug along the way: `cartalith-civ`/`cartalith-engine`'s two
+`examples/timing_bench.rs` (from the CPU-multithreading milestones)
+collided at the same output path, breaking `cargo test --workspace` —
+renamed the civ one to `civ_timing_bench.rs`. See `GPU_LAYER_INTEGRATION_
+SCOPE.md`'s milestone 7 section and `CHANGELOG.md` for the full record.
 
 Per the scope doc's own feasibility table: graph/sequential algorithms
 (flow accumulation, water-body priority-flood, Dijkstra/MST road
@@ -324,7 +343,9 @@ not grid-shaped), `fresh_river_order` (delegates to
 `cartalith-hydrology`). Golden-parity exact-unchanged: every existing
 `cartalith-civ` test passes unmodified, full `cargo test --workspace`
 68 suites 0 failures. Real timing (new `cartalith-civ/examples/
-timing_bench.rs`, chaining this crate's own real per-cell pipeline
+civ_timing_bench.rs` -- renamed 2026-08-17 from `timing_bench.rs`,
+which collided with `cartalith-engine`'s own example of the same name,
+see `CPU_MULTITHREADING_SCOPE.md` -- chaining this crate's own real per-cell pipeline
 since `compute_civilisation()` itself is a private `fn` in the
 `cdylib`-only `cartalith-godot`, unreachable for direct benchmarking):
 128² ~0.99x, 512² ~1.34x, 1024² ~1.52x, 2048² ~1.81x -- better-scaling

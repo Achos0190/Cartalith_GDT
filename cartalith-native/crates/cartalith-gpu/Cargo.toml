@@ -20,5 +20,9 @@ bytemuck = { version = "1", features = ["derive"] }
 # untouched, JS-matching cartalith-terrain functions directly (not just a
 # GPU-vs-CPU-twin pair) -- dev-only, this crate's own library code never
 # depends on cartalith-terrain, only its test suite does.
+#
+# Milestone 7: simulate_weather is the same situation (no noise dependency,
+# verify directly against the real cartalith-climate function).
 [dev-dependencies]
 cartalith-terrain = { path = "../cartalith-terrain" }
+cartalith-climate = { path = "../cartalith-climate" }

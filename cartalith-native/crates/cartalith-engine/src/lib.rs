@@ -777,7 +777,50 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
     // decl=0: refreshClimate()'s own simulateWeather(state.climate.wIters)
     // call passes no declination argument, which defaults to 0 (annual
     // mean, no seasonal tilt) -- reference HTML line 5154.
-    let mut rainfall = simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params);
+    // GPU_LAYER_INTEGRATION_SCOPE.md milestone 7: simulate_weather's inner
+    // loop. Unlike every other GPU-wired stage above, this one's own
+    // working set (the coarse `min(gw,240)` grid `build_weather_grid`
+    // builds) doesn't grow with `gw`/`gh` once past 240 -- real measurement
+    // found GPU losing to CPU even with the shared `gpu_device` (0.93x at
+    // the real 240x240/70-iters working size), so `p.use_gpu=true` still
+    // takes this path (consistent `gpu_stages_used` reporting, real
+    // per-stage fallback), but don't expect it to ever win the way the
+    // stages above eventually did -- see the scope doc's own milestone 7
+    // section for the honest numbers.
+    let mut rainfall = if p.use_gpu {
+        let grid = cartalith_climate::build_weather_grid(gw, gh, &field, 0.0, &weather_params);
+        match gpu_device.as_ref().map(|gpu| {
+            cartalith_gpu::simulate_weather_loop_gpu_with(
+                gpu,
+                &grid.eh,
+                &grid.tc,
+                &grid.sst_evap,
+                &grid.wx,
+                &grid.wy,
+                &grid.w_init,
+                grid.ww as u32,
+                grid.wh as u32,
+                p.climate.w_iters,
+                grid.sea as f32,
+                grid.ocean_hum as f32,
+                grid.evap as f32,
+                grid.ocean as f32,
+                grid.rain_k as f32,
+                grid.dry as f32,
+                grid.step as f32,
+                grid.bulk_evap,
+                grid.wrap_x,
+            )
+        }) {
+            Some((_w, rain)) => {
+                gpu_stages_used.push("weather".to_string());
+                cartalith_climate::finish_weather_grid(&grid.eh, rain, grid.ww, grid.wh, grid.wrap_x, grid.sea, gw, gh)
+            }
+            None => simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params),
+        }
+    } else {
+        simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params)
+    };
 
     // applyClimateMoistureCorrectors() -- unconditional, see
     // cartalith-climate's own doc comment on this function.
@@ -885,7 +928,42 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         // (3) recompute so overlay + rainfall reflect the carved valleys
         flow_discharge = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
         temperature = compute_temperature(gw, gh, &field, None, &climate_params);
-        rainfall = simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params);
+        rainfall = if p.use_gpu {
+            let grid = cartalith_climate::build_weather_grid(gw, gh, &field, 0.0, &weather_params);
+            match gpu_device.as_ref().map(|gpu| {
+                cartalith_gpu::simulate_weather_loop_gpu_with(
+                    gpu,
+                    &grid.eh,
+                    &grid.tc,
+                    &grid.sst_evap,
+                    &grid.wx,
+                    &grid.wy,
+                    &grid.w_init,
+                    grid.ww as u32,
+                    grid.wh as u32,
+                    p.climate.w_iters,
+                    grid.sea as f32,
+                    grid.ocean_hum as f32,
+                    grid.evap as f32,
+                    grid.ocean as f32,
+                    grid.rain_k as f32,
+                    grid.dry as f32,
+                    grid.step as f32,
+                    grid.bulk_evap,
+                    grid.wrap_x,
+                )
+            }) {
+                Some((_w, rain)) => {
+                    if !gpu_stages_used.iter().any(|s| s == "weather") {
+                        gpu_stages_used.push("weather".to_string());
+                    }
+                    cartalith_climate::finish_weather_grid(&grid.eh, rain, grid.ww, grid.wh, grid.wrap_x, grid.sea, gw, gh)
+                }
+                None => simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params),
+            }
+        } else {
+            simulate_weather(gw, gh, &field, p.climate.w_iters, 0.0, &weather_params)
+        };
         apply_climate_moisture_correctors(
             gw,
             gh,
@@ -1004,7 +1082,7 @@ mod tests {
         assert!(mx - mn > 0.05, "GPU-path terrain shouldn't be a degenerate flat field");
 
         // Every reported stage name is one this milestone actually wired.
-        let known = ["warp", "heterogeneity", "plate_assignment", "base_field_blur"];
+        let known = ["warp", "heterogeneity", "plate_assignment", "base_field_blur", "weather"];
         for s in &a.gpu_stages_used {
             assert!(known.contains(&s.as_str()), "unexpected gpu_stages_used entry: {s}");
         }

@@ -245,7 +245,7 @@ every other crate's own tests (including `cartalith-godot`'s and
 benchmarked directly -- it's a private `fn` inside `cartalith-godot`,
 the one crate `ARCHITECTURE.md` restricts to `cdylib`-only (no `rlib`
 target to link an external bench binary against), so a new `cartalith-
-civ/examples/timing_bench.rs` instead chains this crate's own real
+civ/examples/civ_timing_bench.rs` instead chains this crate's own real
 per-cell pipeline in the exact order `golden_parity_settlement_naming.
 rs`'s own `compute_named_settlements` test helper already established
 (lithology -> soil/water access -> biome -> carrying capacity/NPP ->
@@ -255,8 +255,20 @@ what `compute_civilisation()` runs, using real `generate_terrain`
 output as input, not synthetic data. Measured by temporarily
 `git stash`-ing this pass's own changes to get a true sequential
 baseline from the identical benchmark code, then restoring (`cargo run
---release --example timing_bench -p cartalith-civ`, 16-core machine,
+--release --example civ_timing_bench -p cartalith-civ`, 16-core machine,
 best of 3, seed 12345):
+
+Renamed from `timing_bench.rs` (2026-08-17, milestone 7): collided with
+`cartalith-engine/examples/timing_bench.rs`'s own output binary path
+(`target/debug/examples/timing_bench.exe`) once both examples exist in
+the same workspace, breaking `cargo test --workspace`/`cargo build
+--workspace --examples`. `-p cartalith-civ`/`-p cartalith-engine`
+already disambiguated `cargo run --example` invocations (the commands
+above and in `docs/CHANGELOG.md`/`docs/STATUS.md` all specify `-p`),
+but that doesn't stop Cargo from trying to build both to the identical
+output filename in a workspace-wide command. Fixed by renaming this
+crate's own example, not `cartalith-engine`'s (which existed one
+commit earlier).
 
 | Size | Before | After | Speedup |
 |---|---|---|---|

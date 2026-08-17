@@ -611,7 +611,96 @@ messaging `DECISIONS.md` §7c requires, and — per the timing table above —
 until context-reuse work makes the GPU path an actual win at realistic
 map sizes, not just at 2048×2048.
 
-## Milestone 7 — investigated, not yet built: climate's wind/rain loop
+## Milestone 7 — climate's wind/rain loop on GPU: done (2026-08-17), a real loss even with milestone 8's own fix
+
+Built exactly what the investigation below scoped: `gpu_weather.wgsl`
+(three entry points -- `evap_main`/`advect_main`/`deposit_main`, one
+iteration = evaporation+boundary-reset fused, then advection, then
+deposit, each a separate dispatch since WGSL has no cross-workgroup
+barrier mid-dispatch and pass 2 needs pass 1's COMPLETE output) plus
+`GpuWeatherContext`/`init_gpu_weather_with`/`simulate_weather_loop_gpu_with`,
+using milestone 8's shared-`GpuDevice` pattern from the start (no
+standalone per-call-context version was ever built here, unlike
+milestones 1-5 followed by milestone 8's later fix -- this milestone
+landed after 8, so there was no reason to repeat that mistake).
+
+**Real refactor required first**: `simulate_weather`'s setup (`eh`/`tc`/
+`sst_evap`/`wx`/`wy`/initial `w`) was previously inline, private state --
+extracted into a new `pub fn build_weather_grid` (returns a `WeatherGrid`)
+and `pub fn finish_weather_grid` (the post-loop blur+percentile+upsample),
+both in `cartalith-climate`, with `simulate_weather` itself refactored to
+call them -- a pure extraction, zero behavior change (every existing
+`golden_parity_weather.rs` case still passes, exactly as extracted, not
+re-verified against a new tolerance). This keeps `cartalith-climate`
+itself free of any `cartalith-gpu` dependency (matching every other
+subsystem crate's convention -- GPU-calling logic lives in
+`cartalith-engine`, which already depends on both), while still letting
+`cartalith-engine` reuse the coarse-grid setup for both the CPU and GPU
+paths without duplicating it.
+
+**Correctness**: no noise dependency (`cartalith-climate` doesn't import
+`cartalith-noise` at all), so verified directly against the real,
+untouched `cartalith_climate::simulate_weather` -- milestone 4's
+GPU-vs-real-CPU discipline, not a GPU-vs-CPU-twin carve-out. Real
+production default `iters=70` (not the golden test's own `iters=5`), to
+exercise the actual compounding case this milestone cares about. Result:
+max abs diff `1.79e-7` against the real CPU function -- essentially f32
+machine epsilon, milestone 3's `HEIGHT_TOLERANCE` territory, not
+milestone 2's `WARP_TOLERANCE` compounding-noise territory. 70 iterations
+of gather/advect/deposit turned out not to compound meaningfully, the
+same finding milestone 4 made for `gauss_blur`'s direct-sum-in-f32 vs
+running-sum-in-f64 gap -- bounded, non-chaotic arithmetic, unlike nested
+noise evaluations. `WEATHER_TOLERANCE = 1e-5` (~50x headroom over the
+measured value).
+
+**Real timing -- the honest headline finding**: this kernel's own working
+set doesn't scale like every other GPU-wired stage. `simulate_weather`'s
+coarse grid is capped at `ww = min(gw, 240)`; for any square map at
+`gw >= 240` (every resolution preset this port actually offers, 512
+through 8192), the coarse grid stays essentially the same size regardless
+of source map resolution -- so testing at 128/512/1024/2048 the way every
+prior milestone did would show near-identical numbers at each size, not
+four meaningfully different data points. The one real measurement, at the
+kernel's actual production working size (240x240 coarse grid, 70 iters,
+sourced from a real 2048x2048 map): **GPU = 23.8ms, CPU = 22.2ms, ratio
+0.93x -- GPU loses, even with milestone 8's shared-device fix applied
+from the start.** 210 total dispatches (70 iters x 3 passes) against a
+57,600-cell working set is simply too little per-dispatch work to
+amortize even the small fixed per-dispatch overhead that remains once
+context-creation is no longer the dominant cost -- the same category
+milestone 4 already established for `compute_resistance` (0.38x, loses
+at every size tested): not every GPU-verified kernel should actually run
+on GPU, and this is the second confirmed case, for a different structural
+reason (dispatch-count-dominated, not formula-triviality-dominated).
+
+**Wired anyway, behind `p.use_gpu`, for consistency**: both
+`simulate_weather` call sites in `generate_terrain` (the initial pass and
+the post-river-carve recompute) branch on `p.use_gpu`, matching every
+other stage's `gpu_stages_used` tracking and per-stage CPU fallback --
+`"weather"` joins the known `gpu_stages_used` entries. This is a
+deliberate choice to keep the architecture consistent (one flag, one
+fallback pattern, one place to look) even though the honest expectation,
+absent a fundamentally different tactic (fewer dispatches via a bigger
+per-dispatch working set that JS parity doesn't allow, or a wider
+coarse-grid cap that would itself be a behavior change), is that this
+stage never wins.
+
+Real fixed pre-existing bug found and fixed along the way, unrelated to
+this milestone's own scope: `cartalith-civ/examples/timing_bench.rs`
+(CPU-multithreading milestone 2) and `cartalith-engine/examples/
+timing_bench.rs` (CPU-multithreading milestone 1) collided at the same
+`target/debug/examples/timing_bench.exe` output path, breaking `cargo
+test --workspace`/`cargo build --workspace --examples` for anyone, not
+just this task -- fixed by renaming the `cartalith-civ` one to
+`civ_timing_bench.rs` (see `CPU_MULTITHREADING_SCOPE.md`'s own note).
+
+**Verified**: `cargo build --workspace`, `cargo test --workspace` (70
+suites, 0 failures, 0 modified tests -- including `cartalith-climate`'s
+own `golden_parity_weather.rs` unchanged after the extraction), `cargo
+clippy -p cartalith-gpu -p cartalith-climate -p cartalith-engine
+--all-targets` clean.
+
+## Milestone 7 investigation — pre-existing, kept for the reasoning it captured
 
 `simulate_weather` (`cartalith-climate/src/lib.rs:963`) was this scope
 doc's own flagged next candidate, with an explicit caveat: its

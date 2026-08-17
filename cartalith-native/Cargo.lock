@@ -145,6 +145,7 @@ name = "cartalith-climate"
 version = "0.1.0"
 dependencies = [
  "cartalith-terrain",
+ "rayon",
 ]
 
 [[package]]
@@ -164,6 +165,7 @@ version = "0.1.0"
 dependencies = [
  "cartalith-rng",
  "cartalith-terrain",
+ "rayon",
 ]
 
 [[package]]
@@ -183,6 +185,7 @@ name = "cartalith-gpu"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "cartalith-climate",
  "cartalith-noise",
  "cartalith-terrain",
  "pollster",
@@ -194,6 +197,7 @@ name = "cartalith-hydrology"
 version = "0.1.0"
 dependencies = [
  "cartalith-terrain",
+ "rayon",
 ]
 
 [[package]]

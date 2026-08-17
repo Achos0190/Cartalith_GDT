@@ -5553,3 +5553,78 @@ green field.
 **Files touched**: new `cartalith-native/crates/cartalith-spatial/`
 (`Cargo.toml`, `src/lib.rs`), `LOD_TILING_BASE_SCOPE.md` (marked done), this
 file, `docs/STATUS.md`.
+
+## GPU layer integration milestone 7: climate's wind/rain loop -- real loss even with milestone 8's fix (2026-08-17)
+
+Built `simulate_weather`'s inner loop on GPU (`gpu_weather.wgsl`: `evap_main`
+/`advect_main`/`deposit_main`, evaporation+boundary-reset fused into one
+dispatch, advection and deposit each their own since WGSL has no
+cross-workgroup barrier mid-dispatch), using milestone 8's shared-`GpuDevice`
+pattern from the very start rather than repeating milestone 6's original
+per-call-context mistake.
+
+**Real refactor first**: extracted `simulate_weather`'s previously-inline
+setup into `pub fn build_weather_grid` (returns a new `WeatherGrid`) and the
+post-loop teardown into `pub fn finish_weather_grid`, both in
+`cartalith-climate`, with `simulate_weather` itself now calling them --
+pure extraction, zero behavior change (`golden_parity_weather.rs`'s four
+cases pass exactly as before). This keeps `cartalith-climate` itself free of
+any `cartalith-gpu` dependency, matching every other subsystem crate's
+convention -- the branching/dispatching logic lives entirely in
+`cartalith-engine`, which already depends on both.
+
+**Correctness**: no noise dependency in this function at all, verified
+directly against the real, untouched `cartalith_climate::simulate_weather`
+(milestone 4's GPU-vs-real-CPU discipline), at the real production default
+`iters=70`. Max abs diff `1.79e-7` -- essentially f32 machine epsilon; 70
+iterations of gather/advect/deposit did not compound meaningfully (bounded,
+non-chaotic arithmetic, unlike nested noise evaluations). `WEATHER_TOLERANCE
+= 1e-5`, ~50x headroom over the measured value.
+
+**Real timing, the honest finding**: unlike every prior GPU-wired stage,
+this kernel's own working set is capped (`ww = min(gw, 240)`) and doesn't
+grow with map resolution once `gw >= 240` -- every resolution preset this
+port offers. Measured at the kernel's real production working size (240x240
+coarse grid, 70 iterations, sourced from a real 2048x2048 map): **GPU =
+23.8ms, CPU = 22.2ms, ratio 0.93x -- GPU loses**, even with milestone 8's
+shared-device fix applied from the start. 210 total dispatches (70 iters x
+3 passes) against a 57,600-cell working set is too little per-dispatch work
+to amortize even the small remaining fixed per-dispatch overhead once
+context-creation is no longer the dominant cost. Joins `compute_resistance`
+(milestone 4, 0.38x) as a second confirmed case of a GPU-verified kernel
+that shouldn't actually run on GPU -- for a different structural reason
+(dispatch-count-dominated, not formula-triviality-dominated).
+
+**Wired anyway**, behind `p.use_gpu`, both `simulate_weather` call sites in
+`generate_terrain` (initial pass + post-river-carve recompute) -- `"weather"`
+joins the known `gpu_stages_used` entries, per-stage CPU fallback preserved,
+for architectural consistency even though this stage is expected to keep
+losing regardless of map size.
+
+**Real pre-existing bug found and fixed, unrelated to this milestone's own
+scope**: `cartalith-civ/examples/timing_bench.rs` (CPU-multithreading
+milestone 2) and `cartalith-engine/examples/timing_bench.rs`
+(CPU-multithreading milestone 1) collided at the identical
+`target/debug/examples/timing_bench.exe` output path -- broke `cargo test
+--workspace`/`cargo build --workspace --examples` outright for anyone, not
+just this task. Fixed by renaming `cartalith-civ`'s to
+`civ_timing_bench.rs` (its own scope doc's `-p cartalith-civ`-qualified
+`cargo run --example` commands updated to match; `cartalith-engine`'s stays
+unchanged, having existed one commit earlier).
+
+**Verified**: `cargo build --workspace`, `cargo test --workspace` (70
+suites, 0 failures, 0 modified tests -- including `golden_parity_weather.rs`
+unchanged after the extraction), `cargo clippy -p cartalith-gpu -p
+cartalith-climate -p cartalith-engine --all-targets` clean.
+
+**Files touched**: `cartalith-native/crates/cartalith-gpu/shaders/
+gpu_weather.wgsl` (new), `cartalith-gpu/src/lib.rs` (`WeatherParams`,
+`GpuWeatherContext`, `init_gpu_weather_with`, `dispatch_gpu_weather`,
+`simulate_weather_loop_gpu_with`, two new tests), `cartalith-gpu/Cargo.toml`
+(`cartalith-climate` dev-dependency), `cartalith-climate/src/lib.rs`
+(`WeatherGrid`, `build_weather_grid`, `finish_weather_grid`,
+`simulate_weather` refactored to call them), `cartalith-engine/src/lib.rs`
+(both `simulate_weather` call sites GPU-gated, `gpu_stages_used` allowlist),
+`cartalith-civ/examples/civ_timing_bench.rs` (renamed from
+`timing_bench.rs`), `CPU_MULTITHREADING_SCOPE.md`, `GPU_LAYER_INTEGRATION_
+SCOPE.md`, this file, `docs/STATUS.md`.

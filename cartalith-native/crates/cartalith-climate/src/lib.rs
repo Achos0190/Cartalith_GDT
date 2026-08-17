@@ -2,6 +2,8 @@
 //!
 //! Ported in pipeline order starting Phase 1 (MVP_SCOPE.md).
 
+use rayon::prelude::*;
+
 /// `smoothstep()` (reference HTML line 7569).
 fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
     let denom = b - a;
@@ -88,11 +90,16 @@ fn apply_cryosphere_albedo(temp: &mut [f32], k: f64) {
     }
     let base: Vec<f32> = temp.to_vec();
     for _ in 0..6 {
-        for i in 0..temp.len() {
-            let ice = smoothstep(1.0, -6.0, temp[i] as f64);
-            let v = temp[i] as f64 * 0.5 + (base[i] as f64 - k * ALB_COOL * ice) * 0.5;
-            temp[i] = v as f32;
-        }
+        // Each pass reads only `temp[i]`'s own previous value and the
+        // frozen `base[i]` -- independent per cell within one pass, but
+        // the 6 passes are sequential (each reads the previous pass's
+        // output), same "parallel within, sequential across" shape as
+        // `blur_coarse`'s multi-pass loop below.
+        temp.par_iter_mut().enumerate().for_each(|(i, t)| {
+            let ice = smoothstep(1.0, -6.0, *t as f64);
+            let v = *t as f64 * 0.5 + (base[i] as f64 - k * ALB_COOL * ice) * 0.5;
+            *t = v as f32;
+        });
     }
 }
 
@@ -137,16 +144,18 @@ pub fn compute_temperature(
     let mpu = meters_per_unit(p.peak_m, p.sea_level);
     let eq_eff = clim_effective_equator_temp(p.equator_temp, p.pole_temp, p.tilt_deg, p.rotation_hours);
     let mut temp = vec![0f32; gw * gh];
-    for y in 0..gh {
+    // Each output row is `f(input, y, x)` -- no cross-cell dependency,
+    // rows independent, safe to parallelize per row.
+    temp.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
         let lat = lat_at(y, gh, p.world, p.lat_n, p.lat_s) * std::f64::consts::PI / 180.0;
         let t_sea = p.pole_temp + (eq_eff - p.pole_temp) * lat.cos().max(0.0);
-        for x in 0..gw {
+        for (x, t) in row.iter_mut().enumerate() {
             let i = y * gw + x;
             let geo = geo_field.map_or(0.0, |g| g[i] as f64);
             let above_sea = ((field[i] as f64 - geo - p.sea_level).max(0.0)) * mpu;
-            temp[i] = (t_sea - p.lapse_rate * p.g * (above_sea / 1000.0)) as f32;
+            *t = (t_sea - p.lapse_rate * p.g * (above_sea / 1000.0)) as f32;
         }
-    }
+    });
     apply_cryosphere_albedo(&mut temp, p.albedo_k);
     temp
 }
@@ -226,8 +235,15 @@ fn sample_arr(a: &[f32], fx: f64, fy: f64, gw: usize, gh: usize) -> f64 {
 fn blur_coarse(a: &mut [f32], ww: usize, wh: usize, wrap_x: bool, passes: i32) {
     let mut t = vec![0f32; a.len()];
     for _ in 0..passes {
-        for y in 0..wh {
-            for x in 0..ww {
+        // Unlike `cartalith-terrain::gauss_blur`'s box_h/box_v, this 3-tap
+        // blur reads its 3 neighbours directly per output cell (no
+        // running-sum carried across the loop), so both passes are
+        // trivially per-row/per-cell independent -- no row/column
+        // restructuring needed, just parallelize the row chunks. The two
+        // passes stay sequential (the second reads `t`, the first pass's
+        // full output).
+        t.par_chunks_mut(ww).enumerate().for_each(|(y, trow)| {
+            for (x, tv) in trow.iter_mut().enumerate() {
                 let xl = if wrap_x {
                     (x + ww - 1) % ww
                 } else if x > 0 {
@@ -242,18 +258,16 @@ fn blur_coarse(a: &mut [f32], ww: usize, wh: usize, wrap_x: bool, passes: i32) {
                 } else {
                     ww - 1
                 };
-                t[y * ww + x] =
-                    ((a[y * ww + xl] as f64 + a[y * ww + x] as f64 + a[y * ww + xr] as f64) / 3.0) as f32;
+                *tv = ((a[y * ww + xl] as f64 + a[y * ww + x] as f64 + a[y * ww + xr] as f64) / 3.0) as f32;
             }
-        }
-        for y in 0..wh {
+        });
+        a.par_chunks_mut(ww).enumerate().for_each(|(y, arow)| {
             let yu = if y > 0 { y - 1 } else { 0 };
             let yd = if y < wh - 1 { y + 1 } else { wh - 1 };
-            for x in 0..ww {
-                a[y * ww + x] =
-                    ((t[yu * ww + x] as f64 + t[y * ww + x] as f64 + t[yd * ww + x] as f64) / 3.0) as f32;
+            for (x, av) in arow.iter_mut().enumerate() {
+                *av = ((t[yu * ww + x] as f64 + t[y * ww + x] as f64 + t[yd * ww + x] as f64) / 3.0) as f32;
             }
-        }
+        });
     }
 }
 
@@ -306,25 +320,37 @@ pub fn deflect_flow(
     let mut bgx = vec![0f32; n];
     let mut bgy = vec![0f32; n];
     let mut lap = vec![0f32; n];
-    for y in 0..wh {
-        for x in 0..ww {
-            let i = y * ww + x;
-            let xl = if wrap_x { (x + ww - 1) % ww } else if x > 0 { x - 1 } else { 0 };
-            let xr = if wrap_x { (x + 1) % ww } else if x + 1 < ww { x + 1 } else { ww - 1 };
+    // Per-cell, fixed 3x3 read of the frozen (already-blurred) `b` --
+    // independent across cells, safe to parallelize by row.
+    bgx.par_chunks_mut(ww)
+        .zip(bgy.par_chunks_mut(ww))
+        .zip(lap.par_chunks_mut(ww))
+        .enumerate()
+        .for_each(|(y, ((bgx_row, bgy_row), lap_row))| {
+            let xl_of = |x: usize| if wrap_x { (x + ww - 1) % ww } else if x > 0 { x - 1 } else { 0 };
+            let xr_of = |x: usize| if wrap_x { (x + 1) % ww } else if x + 1 < ww { x + 1 } else { ww - 1 };
             let yu = if y > 0 { y - 1 } else { 0 };
             let yd = if y + 1 < wh { y + 1 } else { wh - 1 };
-            bgx[i] = ((b[y * ww + xr] as f64 - b[y * ww + xl] as f64) * 0.5) as f32;
-            bgy[i] = ((b[yd * ww + x] as f64 - b[yu * ww + x] as f64) * 0.5) as f32;
-            lap[i] = (b[y * ww + xl] as f64 + b[y * ww + xr] as f64 + b[yu * ww + x] as f64 + b[yd * ww + x] as f64
-                - 4.0 * b[i] as f64) as f32;
-        }
-    }
+            for x in 0..ww {
+                let xl = xl_of(x);
+                let xr = xr_of(x);
+                bgx_row[x] = ((b[y * ww + xr] as f64 - b[y * ww + xl] as f64) * 0.5) as f32;
+                bgy_row[x] = ((b[yd * ww + x] as f64 - b[yu * ww + x] as f64) * 0.5) as f32;
+                lap_row[x] = (b[y * ww + xl] as f64 + b[y * ww + xr] as f64 + b[yu * ww + x] as f64
+                    + b[yd * ww + x] as f64
+                    - 4.0 * b[y * ww + x] as f64) as f32;
+            }
+        });
 
     if p.strength > 0.0 {
         for _ in 0..p.iterations {
+            // Each cell reads only its own index `i` of `u`/`v`/`bgx`/`bgy`
+            // (frozen at the start of this iteration) -- independent per
+            // cell, but the iterations themselves are sequential (each
+            // reads the previous iteration's `u`/`v`).
             let mut nu = vec![0f32; n];
             let mut nv = vec![0f32; n];
-            for i in 0..n {
+            nu.par_iter_mut().zip(nv.par_iter_mut()).enumerate().for_each(|(i, (nu_i, nv_i))| {
                 let dot = u[i] as f64 * bgx[i] as f64 + v[i] as f64 * bgy[i] as f64;
                 if dot > 0.0 {
                     let gn = (bgx[i] as f64).hypot(bgy[i] as f64) + 1e-6;
@@ -339,33 +365,33 @@ pub fn deflect_flow(
                     let tang = k2 * dot;
                     uu += sign * tang * px;
                     vv += sign * tang * py;
-                    nu[i] = uu as f32;
-                    nv[i] = vv as f32;
+                    *nu_i = uu as f32;
+                    *nv_i = vv as f32;
                 } else {
-                    nu[i] = u[i];
-                    nv[i] = v[i];
+                    *nu_i = u[i];
+                    *nv_i = v[i];
                 }
-            }
+            });
             let mut bu = nu.clone();
             let mut bv = nv.clone();
             blur_coarse(&mut bu, ww, wh, wrap_x, 1);
             blur_coarse(&mut bv, ww, wh, wrap_x, 1);
-            for i in 0..n {
-                u[i] = (nu[i] as f64 * 0.7 + bu[i] as f64 * 0.3) as f32;
-                v[i] = (nv[i] as f64 * 0.7 + bv[i] as f64 * 0.3) as f32;
-            }
+            u.par_iter_mut().zip(v.par_iter_mut()).enumerate().for_each(|(i, (u_i, v_i))| {
+                *u_i = (nu[i] as f64 * 0.7 + bu[i] as f64 * 0.3) as f32;
+                *v_i = (nv[i] as f64 * 0.7 + bv[i] as f64 * 0.3) as f32;
+            });
         }
     }
 
-    for i in 0..n {
-        let m = (1.0 + gap_k * lap[i] as f64 * 3.0).clamp(0.45, 2.4);
-        let sp = (u[i] as f64).hypot(v[i] as f64);
+    u.par_iter_mut().zip(v.par_iter_mut()).zip(lap.par_iter()).for_each(|((u_i, v_i), lap_i)| {
+        let m = (1.0 + gap_k * *lap_i as f64 * 3.0).clamp(0.45, 2.4);
+        let sp = (*u_i as f64).hypot(*v_i as f64);
         if sp > 1e-6 {
             let t = sp * m;
-            u[i] = (u[i] as f64 / sp * t) as f32;
-            v[i] = (v[i] as f64 / sp * t) as f32;
+            *u_i = (*u_i as f64 / sp * t) as f32;
+            *v_i = (*v_i as f64 / sp * t) as f32;
         }
-    }
+    });
 
     (u, v)
 }
@@ -417,7 +443,7 @@ fn build_wind(
     } else {
         let cells = circulation_cells(rotation_hours, 1.0, 1.0);
         let band_w = 90.0 / cells as f64;
-        for y in 0..wh {
+        wx.par_chunks_mut(ww).zip(wy.par_chunks_mut(ww)).enumerate().for_each(|(y, (wx_row, wy_row))| {
             let lat = lat_of(y);
             let a = (lat - decl).abs();
             let band = ((a / band_w).floor() as i32).min(cells - 1);
@@ -436,11 +462,9 @@ fn build_wind(
             let l = if l == 0.0 { 1.0 } else { l };
             let ux = (zx / l * step) as f32;
             let uy = (my / l * step) as f32;
-            for x in 0..ww {
-                wx[y * ww + x] = ux;
-                wy[y * ww + x] = uy;
-            }
-        }
+            wx_row.fill(ux);
+            wy_row.fill(uy);
+        });
     }
     let kp = press_k;
     if let Some(tc) = tc
@@ -451,19 +475,23 @@ fn build_wind(
         let mut gx = vec![0f64; n];
         let mut gy = vec![0f64; n];
         let omega = 24.0 / if rotation_hours != 0.0 { rotation_hours } else { 24.0 };
-        let mut mx = 1e-9f64;
-        for y in 0..wh {
+        // Per-cell, fixed-neighbour read of the frozen pressure field `p`
+        // -- independent across cells, parallel by row. `mx` becomes a
+        // separate max-reduction below: max is associative/commutative for
+        // real (non-NaN) values, so the reduced result is bit-identical to
+        // the sequential running-max regardless of visitation order --
+        // unlike a running sum, there's no rounding-order dependency.
+        gx.par_chunks_mut(ww).zip(gy.par_chunks_mut(ww)).enumerate().for_each(|(y, (gx_row, gy_row))| {
+            let ym = y.saturating_sub(1);
+            let yp = (y + 1).min(wh - 1);
+            let lat_r = lat_of(y) * std::f64::consts::PI / 180.0;
+            let f = lat_r.sin() * omega;
+            let geo_w = (((lat_r.abs() * 180.0 / std::f64::consts::PI) - 5.0) / 10.0).clamp(0.0, 1.0);
             for x in 0..ww {
-                let i = y * ww + x;
                 let xm = if wrap_x { (x + ww - 1) % ww } else { x.saturating_sub(1) };
                 let xp = if wrap_x { (x + 1) % ww } else { (x + 1).min(ww - 1) };
-                let ym = y.saturating_sub(1);
-                let yp = (y + 1).min(wh - 1);
                 let d_pdx = -(p[y * ww + xp] as f64 - p[y * ww + xm] as f64) * 0.5;
                 let d_pdy_s = -(p[yp * ww + x] as f64 - p[ym * ww + x] as f64) * 0.5;
-                let lat_r = lat_of(y) * std::f64::consts::PI / 180.0;
-                let f = lat_r.sin() * omega;
-                let geo_w = (((lat_r.abs() * 180.0 / std::f64::consts::PI) - 5.0) / 10.0).clamp(0.0, 1.0);
                 let (mut ux, mut uy) = (0.0f64, 0.0f64);
                 if geo_w > 0.0 {
                     let inv = (if f < 0.0 { -1.0 } else { 1.0 }) / f.abs().max(0.25);
@@ -473,27 +501,28 @@ fn build_wind(
                 let dgw = (1.0 - geo_w) * 1.5;
                 ux += -d_pdx * dgw;
                 uy += -d_pdy_s * dgw;
-                gx[i] = ux;
-                gy[i] = uy;
-                let m = ux.hypot(uy);
-                if m > mx {
-                    mx = m;
-                }
+                gx_row[x] = ux;
+                gy_row[x] = uy;
             }
-        }
+        });
+        let mx = gx
+            .par_iter()
+            .zip(gy.par_iter())
+            .map(|(gxv, gyv)| gxv.hypot(*gyv))
+            .reduce(|| 1e-9f64, f64::max);
         let sc = (step * 0.8) / mx * kp;
         let cap = step * 1.8;
-        for i in 0..n {
-            let mut ux = wx[i] as f64 + gx[i] * sc;
-            let mut uy = wy[i] as f64 + gy[i] * sc;
+        wx.par_iter_mut().zip(wy.par_iter_mut()).enumerate().for_each(|(i, (wx_i, wy_i))| {
+            let mut ux = *wx_i as f64 + gx[i] * sc;
+            let mut uy = *wy_i as f64 + gy[i] * sc;
             let m = ux.hypot(uy);
             if m > cap {
                 ux *= cap / m;
                 uy *= cap / m;
             }
-            wx[i] = ux as f32;
-            wy[i] = uy as f32;
-        }
+            *wx_i = ux as f32;
+            *wy_i = uy as f32;
+        });
     }
     // deflectFlow terrain-deflection block (reference HTML lines 5521-5535):
     // mountains block/split flow, gaps/straits accelerate it -- the one
@@ -501,21 +530,21 @@ fn build_wind(
     // (it reacts to temperature, not real elevation).
     if let Some((elev, sea)) = elev {
         let mut block = vec![0f32; n];
-        for i in 0..n {
+        block.par_iter_mut().enumerate().for_each(|(i, b)| {
             let h = elev[i] as f64;
             let land = (((h - (sea - 0.02)) / 0.04).clamp(0.0, 1.0)) * 0.12;
             let mtn = ((h - (sea - 0.03)) / 0.43).clamp(0.0, 1.0);
-            block[i] = (land + mtn).min(1.0) as f32;
-        }
+            *b = (land + mtn).min(1.0) as f32;
+        });
         let deflect_params = DeflectFlowParams { strength: 1.0, k1: 0.6, k2: 0.65, gap_k: 0.32, iterations: 16, block_blur: 2 };
         let (du, dv) = deflect_flow(&wx, &wy, &block, ww, wh, world, &deflect_params);
-        for i in 0..n {
+        wx.par_iter_mut().zip(wy.par_iter_mut()).enumerate().for_each(|(i, (wx_i, wy_i))| {
             // elevation-band damping: thin high-altitude air slows/
             // simplifies near-surface flow.
             let damp = 0.55 * (((elev[i] as f64 - (sea + 0.30)) / 0.32).clamp(0.0, 1.0));
-            wx[i] = (du[i] as f64 * (1.0 - damp)) as f32;
-            wy[i] = (dv[i] as f64 * (1.0 - damp)) as f32;
-        }
+            *wx_i = (du[i] as f64 * (1.0 - damp)) as f32;
+            *wy_i = (dv[i] as f64 * (1.0 - damp)) as f32;
+        });
     }
     (wx, wy)
 }
@@ -576,48 +605,58 @@ pub fn compute_ocean_current(
     let mut cv = vec![0f32; n];
     let mut ocean = vec![0u8; n];
     let mut block = vec![0f32; n];
-    for y in 0..wh {
-        let lat = lat_of(y);
-        let sgn = if lat >= 0.0 { 1.0 } else { -1.0 };
-        let c_a = (ang * sgn).cos();
-        let s_a = (ang * sgn).sin();
-        for x in 0..ww {
-            let i = y * ww + x;
-            let is_ocean = (elev_c[i] as f64) < sea;
-            ocean[i] = if is_ocean { 1 } else { 0 };
-            block[i] = if is_ocean { 0.0 } else { 1.0 };
-            if !is_ocean {
-                continue;
+    // Per-cell, reads only `wx`/`wy`/`elev_c` at the same index -- rows
+    // independent, safe to parallelize.
+    cu.par_chunks_mut(ww)
+        .zip(cv.par_chunks_mut(ww))
+        .zip(ocean.par_chunks_mut(ww))
+        .zip(block.par_chunks_mut(ww))
+        .enumerate()
+        .for_each(|(y, (((cu_row, cv_row), ocean_row), block_row))| {
+            let lat = lat_of(y);
+            let sgn = if lat >= 0.0 { 1.0 } else { -1.0 };
+            let c_a = (ang * sgn).cos();
+            let s_a = (ang * sgn).sin();
+            for x in 0..ww {
+                let i = y * ww + x;
+                let is_ocean = (elev_c[i] as f64) < sea;
+                ocean_row[x] = if is_ocean { 1 } else { 0 };
+                block_row[x] = if is_ocean { 0.0 } else { 1.0 };
+                if !is_ocean {
+                    continue;
+                }
+                let ux = wx[i] as f64;
+                let uy = wy[i] as f64;
+                cu_row[x] = ((ux * c_a - uy * s_a) * 0.55) as f32;
+                cv_row[x] = ((ux * s_a + uy * c_a) * 0.55) as f32;
             }
-            let ux = wx[i] as f64;
-            let uy = wy[i] as f64;
-            cu[i] = ((ux * c_a - uy * s_a) * 0.55) as f32;
-            cv[i] = ((ux * s_a + uy * c_a) * 0.55) as f32;
-        }
-    }
+        });
 
     let deflect_params =
         DeflectFlowParams { strength: 1.0, k1: 0.7, k2: 0.85, gap_k: p.gap_k, iterations: p.iterations, block_blur: 6 };
     let (mut u_c, mut v_c) = deflect_flow(&cu, &cv, &block, ww, wh, wrap_x, &deflect_params);
 
-    for i in 0..n {
+    u_c.par_iter_mut().zip(v_c.par_iter_mut()).enumerate().for_each(|(i, (u_i, v_i))| {
         if ocean[i] == 0 {
-            u_c[i] = 0.0;
-            v_c[i] = 0.0;
-            continue;
+            *u_i = 0.0;
+            *v_i = 0.0;
+            return;
         }
         let depth = sea - elev_c[i] as f64;
         let shelf = (depth / 0.12).clamp(0.0, 1.0);
-        u_c[i] = (u_c[i] as f64 * shelf) as f32;
-        v_c[i] = (v_c[i] as f64 * shelf) as f32;
-    }
+        *u_i = (*u_i as f64 * shelf) as f32;
+        *v_i = (*v_i as f64 * shelf) as f32;
+    });
 
     // Western-intensification heuristic: per-row west/east coast-distance
     // scan, a speed boost on whichever side is closer to open ocean, and a
     // poleward/equatorward bend derived from the same proximity terms.
+    // `west_dist`'s own scan carries a running accumulator WITHIN one row
+    // (same "per-row independent, within-row sequential" shape as
+    // `cartalith-terrain::gauss_blur`'s box_h) -- parallelize by row.
     if p.western {
         let search_r = (ww as f64 * 0.28).max(10.0);
-        for y in 0..wh {
+        u_c.par_chunks_mut(ww).zip(v_c.par_chunks_mut(ww)).enumerate().for_each(|(y, (u_row, v_row))| {
             let row_off = y * ww;
             let mut west_dist = vec![0f32; ww];
             let mut acc = search_r + 1.0;
@@ -656,17 +695,17 @@ pub fn compute_ocean_current(
                 if wd < east_dist {
                     let boost =
                         1.0 + 0.9 * (1.0 - wd / search_r).clamp(0.0, 1.0) * (east_dist / search_r).clamp(0.0, 1.0);
-                    u_c[i] = (u_c[i] as f64 * boost) as f32;
-                    v_c[i] = (v_c[i] as f64 * boost) as f32;
+                    u_row[x] = (u_row[x] as f64 * boost) as f32;
+                    v_row[x] = (v_row[x] as f64 * boost) as f32;
                 }
                 let w_bend = (1.0 - wd / search_r).clamp(0.0, 1.0) * (east_dist / search_r).clamp(0.0, 1.0);
                 let e_bend = (1.0 - east_dist / search_r).clamp(0.0, 1.0) * (wd / search_r).clamp(0.0, 1.0);
                 if w_bend > 0.0 || e_bend > 0.0 {
-                    let sp = (u_c[i] as f64).hypot(v_c[i] as f64);
-                    v_c[i] = (v_c[i] as f64 + pole_sign * p.bend_k * (w_bend - 0.45 * e_bend) * sp) as f32;
+                    let sp = (u_row[x] as f64).hypot(v_row[x] as f64);
+                    v_row[x] = (v_row[x] as f64 + pole_sign * p.bend_k * (w_bend - 0.45 * e_bend) * sp) as f32;
                 }
             }
-        }
+        });
     }
 
     OceanCurrentResult { u: u_c, v: v_c, ocean }
@@ -717,21 +756,19 @@ pub fn ocean_sst_anomaly(
         |lat: f64| -> f64 { pole_temp + (eq_eff - pole_temp) * (lat * std::f64::consts::PI / 180.0).cos().max(0.0) };
 
     let mut tc = vec![0f32; nc];
-    for y in 0..wh {
+    tc.par_chunks_mut(ww).enumerate().for_each(|(y, row)| {
         let ts = t_sea_at(lat_of(y)) as f32;
-        for x in 0..ww {
-            tc[y * ww + x] = ts;
-        }
-    }
+        row.fill(ts);
+    });
 
     let mut elev_c = vec![0f32; nc];
-    for y in 0..wh {
-        for x in 0..ww {
+    elev_c.par_chunks_mut(ww).enumerate().for_each(|(y, row)| {
+        for (x, ev) in row.iter_mut().enumerate() {
             let fx = x as f64 / (ww as f64 - 1.0) * (gw as f64 - 1.0);
             let fy = y as f64 / (wh as f64 - 1.0) * (gh as f64 - 1.0);
-            elev_c[y * ww + x] = sample_arr(field, fx, fy, gw, gh) as f32;
+            *ev = sample_arr(field, fx, fy, gw, gh) as f32;
         }
-    }
+    });
 
     let (wx, wy) = build_wind(
         ww,
@@ -753,21 +790,21 @@ pub fn ocean_sst_anomaly(
     let cur = compute_ocean_current(&wx, &wy, &elev_c, ww, wh, wrap_x, sea, world, lat_n, lat_s, &cur_params);
 
     let mut sst = vec![0f32; nc];
-    for y in 0..wh {
+    sst.par_chunks_mut(ww).enumerate().for_each(|(y, row)| {
         let lat = lat_of(y);
         let a_pole = lat.abs();
         let d_warm = t_sea_at((a_pole - 12.0).max(0.0)) - t_sea_at(lat);
-        for x in 0..ww {
+        for (x, s) in row.iter_mut().enumerate() {
             let i = y * ww + x;
             if cur.ocean[i] == 0 {
-                sst[i] = 0.0;
+                *s = 0.0;
                 continue;
             }
             let vp = if lat >= 0.0 { -(cur.v[i] as f64) } else { cur.v[i] as f64 };
             let a = (current_k * (vp / step) * d_warm).clamp(-8.0, 8.0);
-            sst[i] = a as f32;
+            *s = a as f32;
         }
-    }
+    });
 
     cartalith_terrain::gauss_blur(&sst, js_round(ww as f64 * 0.04).max(2.0), ww, wh, wrap_x)
 }
@@ -828,45 +865,50 @@ pub fn apply_ocean_currents(
     );
 
     let mut c_mask = vec![0f32; ww * wh];
-    for y in 0..wh {
-        for x in 0..ww {
+    c_mask.par_chunks_mut(ww).enumerate().for_each(|(y, row)| {
+        for (x, m) in row.iter_mut().enumerate() {
             let fx = x as f64 / (ww as f64 - 1.0) * (gw as f64 - 1.0);
             let fy = y as f64 / (wh as f64 - 1.0) * (gh as f64 - 1.0);
             if sample_arr(field, fx, fy, gw, gh) < sea {
-                c_mask[y * ww + x] = 1.0;
+                *m = 1.0;
             }
         }
-    }
+    });
     let c_blur = cartalith_terrain::gauss_blur(&c_mask, js_round(ww as f64 * 0.05).max(2.0), ww, wh, wrap_x);
 
-    for y in 0..gh {
-        for x in 0..gw {
-            let i = y * gw + x;
-            let a = bil_c(
-                &sst_b,
-                x as f64 / (gw as f64 - 1.0) * (ww as f64 - 1.0),
-                y as f64 / (gh as f64 - 1.0) * (wh as f64 - 1.0),
-                ww,
-                wh,
-                wrap_x,
-            );
-            if (field[i] as f64) < sea {
-                temperature[i] = (temperature[i] as f64 + a) as f32;
-            } else {
-                let prox = bil_c(
-                    &c_blur,
+    // Full-resolution grid, per-cell: reads only the frozen coarse fields
+    // (`sst_b`/`c_blur`) via bilinear sample, plus its own index of
+    // `field`/`temperature`/`rainfall` -- independent across cells.
+    temperature.par_chunks_mut(gw).zip(rainfall.par_chunks_mut(gw)).enumerate().for_each(
+        |(y, (temp_row, rain_row))| {
+            for x in 0..gw {
+                let i = y * gw + x;
+                let a = bil_c(
+                    &sst_b,
                     x as f64 / (gw as f64 - 1.0) * (ww as f64 - 1.0),
                     y as f64 / (gh as f64 - 1.0) * (wh as f64 - 1.0),
                     ww,
                     wh,
                     wrap_x,
                 );
-                temperature[i] = (temperature[i] as f64 + a * prox * 0.6) as f32;
-                let dr = if a < 0.0 { a * prox * 0.10 } else { a * prox * 0.04 };
-                rainfall[i] = (rainfall[i] as f64 + dr).clamp(0.0, 1.0) as f32;
+                if (field[i] as f64) < sea {
+                    temp_row[x] = (temp_row[x] as f64 + a) as f32;
+                } else {
+                    let prox = bil_c(
+                        &c_blur,
+                        x as f64 / (gw as f64 - 1.0) * (ww as f64 - 1.0),
+                        y as f64 / (gh as f64 - 1.0) * (wh as f64 - 1.0),
+                        ww,
+                        wh,
+                        wrap_x,
+                    );
+                    temp_row[x] = (temp_row[x] as f64 + a * prox * 0.6) as f32;
+                    let dr = if a < 0.0 { a * prox * 0.10 } else { a * prox * 0.04 };
+                    rain_row[x] = (rain_row[x] as f64 + dr).clamp(0.0, 1.0) as f32;
+                }
             }
-        }
-    }
+        },
+    );
 }
 
 /// The climate parameters `simulate_weather` reads off
@@ -968,6 +1010,135 @@ pub fn simulate_weather(
     decl: f64,
     p: &WeatherParams,
 ) -> Vec<f32> {
+    let grid = build_weather_grid(gw, gh, field, decl, p);
+    let ww = grid.ww;
+    let wh = grid.wh;
+    let wrap_x = grid.wrap_x;
+    let sea = grid.sea;
+    let n = ww * wh;
+    let eh = &grid.eh;
+    let tc = &grid.tc;
+    let sst_evap = &grid.sst_evap;
+    let wx = &grid.wx;
+    let wy = &grid.wy;
+    let step = grid.step;
+
+    let mut w = grid.w_init.clone();
+    let mut rain = vec![0f32; n];
+    let dry = grid.dry;
+
+    // Each of the 3 passes below is a "gather" over frozen input from the
+    // *start* of this iteration (`w`/`w2` each pass reads are not written
+    // by that same pass) -- independent per cell within one pass. The
+    // `iters` iterations themselves stay sequential (each reads the
+    // previous iteration's `w`), same "parallel within, sequential across"
+    // shape as `deflect_flow`'s own iteration loop above.
+    for _ in 0..iters {
+        w.par_iter_mut().enumerate().for_each(|(i, w_i)| {
+            if (eh[i] as f64) < sea {
+                let cap = grid.ocean_hum.max(sat_cap(tc[i] as f64)) * 1.2;
+                let mut e = grid.evap * sst_evap[i] as f64 * grid.ocean;
+                if grid.bulk_evap {
+                    let u = (wx[i] as f64).hypot(wy[i] as f64) / step;
+                    e *= (0.4 + 0.6 * u) * (1.0 - *w_i as f64 / cap).max(0.0);
+                }
+                *w_i = (*w_i as f64 + e).min(cap) as f32;
+            }
+        });
+        if !wrap_x {
+            let th = 0.15 * step;
+            for y in 0..wh {
+                let mut i = y * ww;
+                if wx[i] as f64 > th && (w[i] as f64) < grid.ocean_hum {
+                    w[i] = grid.ocean_hum as f32;
+                }
+                i = y * ww + ww - 1;
+                if (wx[i] as f64) < -th && (w[i] as f64) < grid.ocean_hum {
+                    w[i] = grid.ocean_hum as f32;
+                }
+            }
+            for x in 0..ww {
+                let mut i = x;
+                if wy[i] as f64 > th && (w[i] as f64) < grid.ocean_hum {
+                    w[i] = grid.ocean_hum as f32;
+                }
+                i = (wh - 1) * ww + x;
+                if (wy[i] as f64) < -th && (w[i] as f64) < grid.ocean_hum {
+                    w[i] = grid.ocean_hum as f32;
+                }
+            }
+        }
+        let mut w2 = vec![0f32; n];
+        w2.par_chunks_mut(ww).enumerate().for_each(|(y, row)| {
+            for (x, w2v) in row.iter_mut().enumerate() {
+                let i = y * ww + x;
+                *w2v = bil_c(&w, x as f64 - wx[i] as f64, y as f64 - wy[i] as f64, ww, wh, wrap_x) as f32;
+            }
+        });
+        w.par_chunks_mut(ww).zip(rain.par_chunks_mut(ww)).enumerate().for_each(|(y, (w_row, rain_row))| {
+            for x in 0..ww {
+                let i = y * ww + x;
+                if (eh[i] as f64) < sea {
+                    w_row[x] = w2[i];
+                    continue;
+                }
+                let ux = wx[i] as f64;
+                let uy = wy[i] as f64;
+                let l = ux.hypot(uy);
+                let l = if l == 0.0 { 1.0 } else { l };
+                let eh_up = bil_c(eh, x as f64 - ux / l, y as f64 - uy / l, ww, wh, wrap_x);
+                let oro = w2[i] as f64 * (eh[i] as f64 - eh_up).max(0.0) * grid.rain_k * 9.0;
+                let excess = (w2[i] as f64 - sat_cap(tc[i] as f64)).max(0.0);
+                let conv = w2[i] as f64 * 0.05;
+                let mut pr = (oro + excess * 0.6 + conv) * dry;
+                if pr > w2[i] as f64 {
+                    pr = w2[i] as f64;
+                }
+                w_row[x] = (w2[i] as f64 - pr) as f32;
+                rain_row[x] = (rain_row[x] as f64 * 0.55 + pr * 0.45) as f32;
+            }
+        });
+    }
+
+    finish_weather_grid(eh, rain, ww, wh, wrap_x, sea, gw, gh)
+}
+
+/// Everything `simulate_weather` computes ONCE before its `iters` loop:
+/// static per-cell fields (`eh`/`tc`/`sst_evap`), frozen wind (`wx`/`wy`,
+/// `build_wind` runs once, not per-iteration), the loop's own initial `w`
+/// state, and the scalar constants the loop body reads every iteration.
+/// Extracted (`GPU_LAYER_INTEGRATION_SCOPE.md` milestone 7) so a GPU-backed
+/// caller (`cartalith-engine`, which already depends on both this crate and
+/// `cartalith-gpu` — this crate itself stays GPU-dependency-free, matching
+/// every other subsystem crate's convention) can run the same setup once
+/// and feed it to `cartalith_gpu::simulate_weather_loop_gpu_with` instead of
+/// the CPU loop below, without duplicating this setup logic. `simulate_weather`
+/// itself now calls this directly — pure extraction, not a behavior change;
+/// every existing golden-parity test for this function must still pass
+/// completely unmodified.
+pub struct WeatherGrid {
+    pub eh: Vec<f32>,
+    pub tc: Vec<f32>,
+    pub sst_evap: Vec<f32>,
+    pub wx: Vec<f32>,
+    pub wy: Vec<f32>,
+    /// The loop's `w` state before iteration 0 (`ocean_hum` over sea, 0.10
+    /// over land) — GPU callers upload this as-is; the CPU loop clones it.
+    pub w_init: Vec<f32>,
+    pub ww: usize,
+    pub wh: usize,
+    pub wrap_x: bool,
+    pub sea: f64,
+    pub ocean_hum: f64,
+    pub evap: f64,
+    pub ocean: f64,
+    pub rain_k: f64,
+    pub dry: f64,
+    pub step: f64,
+    pub bulk_evap: bool,
+}
+
+pub fn build_weather_grid(gw: usize, gh: usize, field: &[f32], decl: f64, p: &WeatherParams) -> WeatherGrid {
     let sea = p.sea_level;
     let mpu = meters_per_unit(p.peak_m, p.sea_level);
     let decl_r = decl * std::f64::consts::PI / 180.0;
@@ -981,25 +1152,28 @@ pub fn simulate_weather(
     let mut tc = vec![0f32; n];
     let mut sst_evap = vec![0f32; n];
     let eq_eff = clim_effective_equator_temp(p.equator_temp, p.pole_temp, p.tilt_deg, p.rotation_hours);
-    for y in 0..wh {
-        let lat = (if p.world {
-            90.0 - (y as f64 / (wh.max(1) as f64 - 1.0).max(1.0)) * 180.0
-        } else {
-            p.lat_n + (y as f64 / (wh.max(1) as f64 - 1.0).max(1.0)) * (p.lat_s - p.lat_n)
-        }) * std::f64::consts::PI
-            / 180.0;
-        let t_sea = p.pole_temp + (eq_eff - p.pole_temp) * (lat - decl_r).cos().max(0.0);
-        let ev_f = 0.2 + 0.8 * ((t_sea + 2.0) / 30.0).clamp(0.0, 1.0);
-        for x in 0..ww {
-            let i = y * ww + x;
-            let fx = x as f64 / (ww as f64 - 1.0) * (gw as f64 - 1.0);
-            let fy = y as f64 / (wh as f64 - 1.0) * (gh as f64 - 1.0);
-            let h = sample_arr(field, fx, fy, gw, gh);
-            eh[i] = h as f32;
-            tc[i] = (t_sea - p.lapse_rate * ((h - sea).max(0.0) * mpu / 1000.0)) as f32;
-            sst_evap[i] = ev_f as f32;
-        }
-    }
+    eh.par_chunks_mut(ww)
+        .zip(tc.par_chunks_mut(ww))
+        .zip(sst_evap.par_chunks_mut(ww))
+        .enumerate()
+        .for_each(|(y, ((eh_row, tc_row), sst_row))| {
+            let lat = (if p.world {
+                90.0 - (y as f64 / (wh.max(1) as f64 - 1.0).max(1.0)) * 180.0
+            } else {
+                p.lat_n + (y as f64 / (wh.max(1) as f64 - 1.0).max(1.0)) * (p.lat_s - p.lat_n)
+            }) * std::f64::consts::PI
+                / 180.0;
+            let t_sea = p.pole_temp + (eq_eff - p.pole_temp) * (lat - decl_r).cos().max(0.0);
+            let ev_f = 0.2 + 0.8 * ((t_sea + 2.0) / 30.0).clamp(0.0, 1.0);
+            for x in 0..ww {
+                let fx = x as f64 / (ww as f64 - 1.0) * (gw as f64 - 1.0);
+                let fy = y as f64 / (wh as f64 - 1.0) * (gh as f64 - 1.0);
+                let h = sample_arr(field, fx, fy, gw, gh);
+                eh_row[x] = h as f32;
+                tc_row[x] = (t_sea - p.lapse_rate * ((h - sea).max(0.0) * mpu / 1000.0)) as f32;
+                sst_row[x] = ev_f as f32;
+            }
+        });
 
     // Loop 2 (docs/research/system-coupling-audit.md §2): fold the
     // wind-driven SST anomaly into the sea temperature BEFORE building
@@ -1027,12 +1201,12 @@ pub fn simulate_weather(
             p.press_k,
             p.current_k,
         );
-        for i in 0..n {
+        tc.par_iter_mut().zip(sst_evap.par_iter_mut()).enumerate().for_each(|(i, (tc_i, sst_i))| {
             if (eh[i] as f64) < sea {
-                tc[i] = (tc[i] as f64 + an[i] as f64) as f32;
-                sst_evap[i] = (0.2 + 0.8 * ((tc[i] as f64 + 2.0) / 30.0).clamp(0.0, 1.0)) as f32;
+                *tc_i = (*tc_i as f64 + an[i] as f64) as f32;
+                *sst_i = (0.2 + 0.8 * ((*tc_i as f64 + 2.0) / 30.0).clamp(0.0, 1.0)) as f32;
             }
-        }
+        });
     }
 
     let (wx, wy) = build_wind(
@@ -1051,80 +1225,44 @@ pub fn simulate_weather(
         if p.terrain_wind_deflection { Some((&eh, sea)) } else { None },
     );
 
-    let mut w = vec![0f32; n];
-    for i in 0..n {
-        w[i] = if (eh[i] as f64) < sea { p.ocean_hum as f32 } else { 0.10 };
-    }
-    let mut rain = vec![0f32; n];
+    let mut w_init = vec![0f32; n];
+    w_init.par_iter_mut().enumerate().for_each(|(i, w)| {
+        *w = if (eh[i] as f64) < sea { p.ocean_hum as f32 } else { 0.10 };
+    });
     let dry = 0.4 + p.rain_dep;
 
-    for _ in 0..iters {
-        for i in 0..n {
-            if (eh[i] as f64) < sea {
-                let cap = p.ocean_hum.max(sat_cap(tc[i] as f64)) * 1.2;
-                let mut e = p.evap * sst_evap[i] as f64 * p.ocean;
-                if p.bulk_evap {
-                    let u = (wx[i] as f64).hypot(wy[i] as f64) / step;
-                    e *= (0.4 + 0.6 * u) * (1.0 - w[i] as f64 / cap).max(0.0);
-                }
-                w[i] = (w[i] as f64 + e).min(cap) as f32;
-            }
-        }
-        if !wrap_x {
-            let th = 0.15 * step;
-            for y in 0..wh {
-                let mut i = y * ww;
-                if wx[i] as f64 > th && (w[i] as f64) < p.ocean_hum {
-                    w[i] = p.ocean_hum as f32;
-                }
-                i = y * ww + ww - 1;
-                if (wx[i] as f64) < -th && (w[i] as f64) < p.ocean_hum {
-                    w[i] = p.ocean_hum as f32;
-                }
-            }
-            for x in 0..ww {
-                let mut i = x;
-                if wy[i] as f64 > th && (w[i] as f64) < p.ocean_hum {
-                    w[i] = p.ocean_hum as f32;
-                }
-                i = (wh - 1) * ww + x;
-                if (wy[i] as f64) < -th && (w[i] as f64) < p.ocean_hum {
-                    w[i] = p.ocean_hum as f32;
-                }
-            }
-        }
-        let mut w2 = vec![0f32; n];
-        for y in 0..wh {
-            for x in 0..ww {
-                let i = y * ww + x;
-                w2[i] = bil_c(&w, x as f64 - wx[i] as f64, y as f64 - wy[i] as f64, ww, wh, wrap_x) as f32;
-            }
-        }
-        for y in 0..wh {
-            for x in 0..ww {
-                let i = y * ww + x;
-                if (eh[i] as f64) < sea {
-                    w[i] = w2[i];
-                    continue;
-                }
-                let ux = wx[i] as f64;
-                let uy = wy[i] as f64;
-                let l = ux.hypot(uy);
-                let l = if l == 0.0 { 1.0 } else { l };
-                let eh_up = bil_c(&eh, x as f64 - ux / l, y as f64 - uy / l, ww, wh, wrap_x);
-                let oro = w2[i] as f64 * (eh[i] as f64 - eh_up).max(0.0) * p.rain_k * 9.0;
-                let excess = (w2[i] as f64 - sat_cap(tc[i] as f64)).max(0.0);
-                let conv = w2[i] as f64 * 0.05;
-                let mut pr = (oro + excess * 0.6 + conv) * dry;
-                if pr > w2[i] as f64 {
-                    pr = w2[i] as f64;
-                }
-                w[i] = (w2[i] as f64 - pr) as f32;
-                rain[i] = (rain[i] as f64 * 0.55 + pr * 0.45) as f32;
-            }
-        }
+    WeatherGrid {
+        eh,
+        tc,
+        sst_evap,
+        wx,
+        wy,
+        w_init,
+        ww,
+        wh,
+        wrap_x,
+        sea,
+        ocean_hum: p.ocean_hum,
+        evap: p.evap,
+        ocean: p.ocean,
+        rain_k: p.rain_k,
+        dry,
+        step,
+        bulk_evap: p.bulk_evap,
     }
+}
 
+/// The `iters` loop's own final `w`/`rain` state (coarse `ww`x`wh` grid) ->
+/// `simulate_weather`'s real return value: a 3-pass box blur to kill
+/// row/column banding, normalize against the 82nd-percentile land rainfall,
+/// bilinear-upsample to the full `gw`x`gh` resolution. Identical whichever
+/// path (CPU loop or GPU kernel) produced `rain`/`eh` — this function
+/// doesn't know or care which.
+#[allow(clippy::too_many_arguments)]
+pub fn finish_weather_grid(eh: &[f32], mut rain: Vec<f32>, ww: usize, wh: usize, wrap_x: bool, sea: f64, gw: usize, gh: usize) -> Vec<f32> {
+    let n = ww * wh;
+    debug_assert_eq!(eh.len(), n);
+    debug_assert_eq!(rain.len(), n);
     blur_coarse(&mut rain, ww, wh, wrap_x, 3);
 
     let mut land: Vec<f32> = (0..n).filter(|&i| (eh[i] as f64) >= sea).map(|i| rain[i]).collect();
@@ -1139,8 +1277,8 @@ pub fn simulate_weather(
     };
 
     let mut rain_field = vec![0f32; gw * gh];
-    for y in 0..gh {
-        for x in 0..gw {
+    rain_field.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
+        for (x, rf) in row.iter_mut().enumerate() {
             let r = bil_c(
                 &rain,
                 x as f64 / (gw as f64 - 1.0) * (ww as f64 - 1.0),
@@ -1150,9 +1288,9 @@ pub fn simulate_weather(
                 wrap_x,
             );
             let moisture = (r / reference).min(1.0);
-            rain_field[y * gw + x] = moisture as f32;
+            *rf = moisture as f32;
         }
-    }
+    });
     rain_field
 }
 
@@ -1210,16 +1348,21 @@ pub fn apply_climate_moisture_correctors(
 
     // 1. coastal proximity
     let mut c_mask = vec![0f32; nc];
-    for y in 0..wh {
-        for x in 0..ww {
+    c_mask.par_chunks_mut(ww).enumerate().for_each(|(y, row)| {
+        for (x, m) in row.iter_mut().enumerate() {
             if field_c(x, y) < sea {
-                c_mask[y * ww + x] = 1.0;
+                *m = 1.0;
             }
         }
-    }
+    });
     let c_blur = cartalith_terrain::gauss_blur(&c_mask, js_round(ww as f64 * 0.06), ww, wh, wrap_x);
-    for y in 0..gh {
-        for x in 0..gw {
+    // Each of the three correction passes below writes `rain[i]` reading
+    // only its own previous value plus a frozen coarse-grid bilinear
+    // sample -- independent per cell within a pass. The three passes stay
+    // sequential relative to each other (each reads the previous pass's
+    // `rain` writes), matching JS's own single-array three-pass mutation.
+    rain.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
+        for (x, r) in row.iter_mut().enumerate() {
             let i = y * gw + x;
             if (field[i] as f64) < sea {
                 continue;
@@ -1232,22 +1375,20 @@ pub fn apply_climate_moisture_correctors(
                 wh,
                 wrap_x,
             ) * 0.38;
-            rain[i] = ((rain[i] as f64 + boost).min(1.0)) as f32;
+            *r = ((*r as f64 + boost).min(1.0)) as f32;
         }
-    }
+    });
 
     // 2. river moisture corridors
     let f_th = n as f64 * 0.0004;
-    let mut f_max = 1e-6f64;
-    for &f in flow_field {
-        if f as f64 > f_max {
-            f_max = f as f64;
-        }
-    }
+    // Max is associative/commutative for real values -- a parallel
+    // reduction gives the exact same result as the sequential running-max,
+    // same reasoning `build_wind`'s own `mx` reduction above uses.
+    let f_max = flow_field.par_iter().map(|&f| f as f64).reduce(|| 1e-6f64, f64::max);
     let step = (1usize).max((gw as f64 / ww as f64).ceil() as usize);
     let mut r_mask = vec![0f32; nc];
-    for y in 0..wh {
-        for x in 0..ww {
+    r_mask.par_chunks_mut(ww).enumerate().for_each(|(y, row)| {
+        for (x, rm) in row.iter_mut().enumerate() {
             let x0 = (x as f64 / ww as f64 * (gw as f64 - 1.0)) as usize;
             let y0 = (y as f64 / wh as f64 * (gh as f64 - 1.0)) as usize;
             let mut mx = 0f64;
@@ -1262,13 +1403,13 @@ pub fn apply_climate_moisture_correctors(
                 }
             }
             if mx > f_th {
-                r_mask[y * ww + x] = ((mx - f_th) / (f_max * 0.04)).min(1.0) as f32;
+                *rm = ((mx - f_th) / (f_max * 0.04)).min(1.0) as f32;
             }
         }
-    }
+    });
     let r_blur = cartalith_terrain::gauss_blur(&r_mask, js_round(ww as f64 * 0.012).max(2.0), ww, wh, false);
-    for y in 0..gh {
-        for x in 0..gw {
+    rain.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
+        for (x, r) in row.iter_mut().enumerate() {
             let i = y * gw + x;
             if (field[i] as f64) < sea {
                 continue;
@@ -1281,25 +1422,25 @@ pub fn apply_climate_moisture_correctors(
                 wh,
                 false,
             ) * 0.38;
-            rain[i] = ((rain[i] as f64 + boost).min(1.0)) as f32;
+            *r = ((*r as f64 + boost).min(1.0)) as f32;
         }
-    }
+    });
 
     // 3. latitude climate zones
     let (lat_top, lat_bot) = if world { (90.0, -90.0) } else { (lat_n, lat_s) };
-    for y in 0..gh {
+    rain.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
         let lat = lat_top - (lat_top - lat_bot) * y as f64 / (gh as f64 - 1.0);
         let abs_lat = lat.abs();
         let itcz = (1.0 - abs_lat / 15.0).max(0.0) * 0.22 * zonal_k;
         let sub_dry = (1.0 - (abs_lat - 28.0).abs() / 13.0).max(0.0) * 0.30 * zonal_k;
-        for x in 0..gw {
+        for (x, r) in row.iter_mut().enumerate() {
             let i = y * gw + x;
             if (field[i] as f64) < sea {
                 continue;
             }
-            rain[i] = ((rain[i] as f64 + itcz - sub_dry).clamp(0.0, 1.0)) as f32;
+            *r = ((*r as f64 + itcz - sub_dry).clamp(0.0, 1.0)) as f32;
         }
-    }
+    });
 }
 
 #[cfg(test)]
