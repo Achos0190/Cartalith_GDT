@@ -6494,3 +6494,51 @@ overlay toggles.
 
 **Files touched**: `cartalith-native/godot-project/main.gd`,
 `GUI_SHELL_SCOPE.md`, `docs/STATUS.md`, this file.
+
+## App icon wired for Windows and Android (2026-08-17)
+
+Owner supplied a real icon design (`design/app-icon.png` — the layered-map
+motif from `VISION.md`'s own "physical sheets" idea, with a "C" wordmark)
+and asked for it wired into both platform build targets, not just dropped in
+as a file.
+
+Generated the full real asset set from the one 1254×1254 source (Pillow,
+installed fresh for this task — no other workspace tooling did image
+processing before now): bbox-cropped to the actual opaque content, re-centred
+on a square canvas so every derived size shares one consistent frame.
+
+- `godot-project/icon.png` (256×256) — the project/editor icon, wired via a
+  new `config/icon` in `project.godot` (previously unset, falling back to
+  Godot's own default logo).
+- `godot-project/icon.ico` (16/32/48/64/128/256, multi-resolution) — Windows
+  export's `application/icon` and `application/console_wrapper_icon`
+  (`export_presets.cfg`, both previously empty strings).
+- Android launcher set (`godot-project/icons/`): `android_main_192.png`
+  (legacy icon, content at ~88% of frame — safety margin for launchers that
+  still circle-crop), `android_adaptive_foreground_432.png` (content scaled
+  to ~62% of the 432px canvas — Android's adaptive-icon mask safe zone,
+  roughly the inner 66%; full-bleed content would get clipped by circular/
+  squircle/rounded-square launcher masks), `android_adaptive_background_432.png`
+  (flat fill — sampled the icon's own dominant colour by histogramming the
+  bottom third of the source rather than a single-pixel guess, which first
+  landed on an anti-aliased edge pixel; the real base-plate tone is
+  `rgb(0,48,96)`), `android_adaptive_monochrome_432.png` (white silhouette
+  from the foreground's own alpha channel, for Android 13+ themed icons).
+  Wired into `export_presets.cfg`'s four `launcher_icons/*` fields
+  (previously empty strings).
+
+**Verified**: `godot4 --headless --quit main.tscn` clean load. Real
+windowed-app screenshot (`PrintWindow`, this session's established
+technique) confirms the title-bar icon is genuinely the new design, not
+Godot's default — cropped and zoomed the exact icon region to check, not
+assumed from the config change alone. Export-time icon baking (the actual
+`.exe`/`.apk` icon, as opposed to the debug-run title bar) not re-verified
+by a fresh export in this pass — the config wiring is real and points at
+real files, following the same `application/icon`/`launcher_icons/*` fields
+this project's Windows/Android builds already use, but a full export was not
+re-run just for this cosmetic change.
+
+**Files touched**: `design/app-icon.png` (owner-supplied), `godot-project/
+icon.png`, `godot-project/icon.ico`, `godot-project/icons/android_*.png`
+(4 files, new), `godot-project/project.godot`, `godot-project/
+export_presets.cfg`, this file, `docs/STATUS.md`.

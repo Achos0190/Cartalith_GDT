@@ -471,6 +471,17 @@ clean, bold lines at normal view, clearly distinct from roads. See
 `CHANGELOG.md`'s "Fix: province boundary lines were illegible at normal
 zoom" entry.
 
+## App icon (done 2026-08-17)
+
+Owner-supplied icon (`design/app-icon.png`) wired into both platform build
+targets: `project.godot`'s `config/icon` (editor/debug-run window icon —
+screenshot-confirmed real, not assumed from config alone), Windows export's
+`application/icon`/`console_wrapper_icon` (a real multi-resolution `.ico`
+generated from the source), and Android's four `launcher_icons/*` fields
+(legacy + adaptive foreground/background/monochrome, generated with real
+safe-zone margins so launcher masks don't clip the content). Full record in
+`CHANGELOG.md`'s "App icon wired for Windows and Android" entry.
+
 ## Known-open items (not owner-blocked, just not done yet)
 
 - Real Fira Sans/Fira Code font files for the UI theme (design-system match found the pairing; sourcing + OFL-license verification deferred).
