@@ -658,3 +658,103 @@ milestone never touched — scoping it further (kernel count, whether
 `gauss_blur_grid_gpu` as-is, and whether per-iteration dispatch
 overhead repeats milestone 6's own context-creation lesson) is real
 future work, not assumed complete by this investigation.
+
+## Milestone 8 — GPU context reuse across `generate_terrain`'s stages: done (2026-08-17)
+
+Milestone 6's own flagged next optimization, picked up directly: each of
+its five GPU dispatches (warp, heterogeneity, plate assignment, and two
+separate `gauss_blur_grid_gpu` calls — flexure's broad blur and base
+field's narrow blur) was independently paying `instance.request_adapter`/
+`adapter.request_device` (both synchronous driver calls, measured at
+~1.3-1.4s each, flat regardless of grid size). This milestone makes that
+handshake happen once per `generate_terrain` call instead of once per
+stage.
+
+**API shape**: `cartalith-gpu` gained `GpuDevice` (adapter+device+queue,
+no pipeline) and `init_gpu_shared_device()` to build one. `wgpu::Device`/
+`wgpu::Queue` are confirmed `Clone` (checked the actual `wgpu` 30.0.0
+source, `#[derive(Debug, Clone)]` on both, Arc-backed internally under
+`dispatch::DispatchDevice`/`DispatchQueue`) — not assumed, since a wrong
+assumption here would have meant either an expensive deep-clone or a
+compile error. Each of the four reused kernels (warp, heterogeneity, JFA
+plate assignment, blur) gained an `init_gpu_X_with(gpu: &GpuDevice)`
+pipeline builder and the four milestone-6 wrapper functions
+(`warp_grid_gpu` etc.) gained `_with` siblings
+(`warp_grid_gpu_with`/`heterogeneity_grid_gpu_with`/
+`gauss_blur_grid_gpu_with`/`assign_plates_grid_gpu_with`) that build their
+pipeline on an existing `GpuDevice` instead of requesting a new adapter/
+device — infallible past device creation (no more `Option`/`.ok()?` per
+stage, since the caller already handled that failure mode once by holding
+a `GpuDevice`). The original standalone `init_gpu_X()`/`X_grid_gpu()`
+functions are completely untouched — every existing milestone 1-6 test
+that calls them directly still exercises the exact same code path.
+`REUSED_STAGE_MAX_STORAGE_BUFFERS = 8` (JFA's own bind-group size, the
+largest of the four reused kernels) sizes the shared device's limits up
+front, since `wgpu` limits can't be raised after device creation —
+unlike `init_gpu_with`'s existing per-kernel derivation, this has to be a
+fixed choice made once.
+
+`cartalith-engine`'s `generate_terrain` now calls
+`cartalith_gpu::init_gpu_shared_device()` exactly once (behind `if
+p.use_gpu`), and every one of the five GPU call sites uses
+`gpu_device.as_ref().map(|gpu| ..._with(gpu, ...))` instead of calling
+the standalone function directly. A `None` (adapter unavailable, or
+device-creation failure) makes every stage fall through to its existing
+CPU fallback exactly as before — one failure point instead of five
+independent (and independently wasteful) retries of an already-failing
+handshake.
+
+**CPU path (`use_gpu=false`, the default) is untouched** — no `if
+p.use_gpu` branch's `else` arm changed, and this is confirmed, not just
+assumed: every existing golden-parity test in the workspace passed
+completely unmodified (`cargo test --workspace`, 0 failures), which is
+only possible if the default code path produces byte-identical output to
+before this milestone.
+
+**Real timing** — same benchmark methodology as milestone 6
+(`measured_generate_terrain_gpu_vs_cpu_timing`, release build, single run
+per size, not averaged):
+
+| Size | Before (milestone 6) | After (milestone 8) | Ratio before | Ratio after |
+|---|---|---|---|---|
+| 128×128 | 1.44s | 813ms | 0.06× | 0.11× |
+| 512×512 | 1.46s | 689ms | 0.41× | 0.76× |
+| 1024×1024 | 2.32s | 1.39s | 0.78× | **1.14×** |
+| 2048×2048 | 6.03s | 5.92s | 1.19× | 0.98× |
+
+**The real headline: GPU now wins starting at 1024×1024, not only
+2048×2048** — a genuine crossover moved down one full size tier, not
+just a smaller loss. GPU time dropped substantially at the two smallest
+sizes too (roughly halved at 128²/512²), consistent with going from
+paying ~4-5 handshakes to ~1 per call, though not a clean 4-5× drop —
+some of milestone 6's own ~1.3-1.4s-per-stage estimate likely included
+per-kernel shader-compile time on top of the adapter/device handshake,
+and that part is still paid once per stage (pipelines aren't shared,
+only the device they're built from is) — not separately measured this
+pass.
+
+**Reported honestly, not cherry-picked**: 2048×2048's ratio moved from
+1.19× (a win) to 0.98× (essentially even, a very slight loss) between the
+two measurement runs. This is very likely single-run variance rather than
+a regression — the CPU-side time itself moved from 7.20s to 5.83s between
+runs (a ~19% swing with zero code changed on that path), and this
+benchmark's own doc comment already flags "single run per size, not
+averaged" as a known limitation. Averaging multiple runs to get a tighter
+number is real future work, not done this pass — noted here rather than
+re-running until a more favorable number appeared.
+
+**Verification**: `cargo build --workspace`, `cargo test --workspace` (0
+failures — the load-bearing check that the CPU path stayed byte-identical),
+`cargo clippy -p cartalith-gpu -p cartalith-engine --all-targets` (clean;
+one new `too_many_arguments` warning on `heterogeneity_grid_gpu_with`,
+fixed with the same `#[allow(clippy::too_many_arguments)]` convention
+already used ~35 times elsewhere in this workspace for kernels whose
+argument count is inherent to their real inputs, not accidental).
+
+**Not attempted this pass**: per-pipeline caching (rebuilding the same
+kernel's pipeline across repeated `generate_terrain` calls, e.g. a UI
+"regenerate" loop) — this milestone only shares the device *within* one
+call, not *across* calls; averaging the timing benchmark over multiple
+runs to reduce the single-run-variance noise visible in the 2048² number
+above; GPU milestone 7 (climate) remains investigated-not-built, untouched
+by this pass.

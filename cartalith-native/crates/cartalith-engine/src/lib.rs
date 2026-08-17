@@ -461,6 +461,19 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
     // substrate path. `p.use_gpu=false` (the default) takes the exact same
     // code path as before this milestone -- every `if p.use_gpu` branch
     // below is additive, never altering the `else` arm's behaviour.
+    //
+    // Milestone 8 (context reuse): one `GpuDevice` is requested here, once,
+    // and threaded through every stage below via the `_with` wrappers --
+    // milestone 6 found each of the five GPU dispatches paying its own
+    // ~1.3-1.4s adapter/device handshake independently, the dominant cost
+    // at every size this port ships at by default below 2048x2048. A
+    // `None` here (no adapter, or device-creation failure) makes every
+    // stage below fall through to its existing CPU fallback exactly as it
+    // did before this milestone -- one failure point instead of five
+    // independent (and independently wasteful) retries of a failing
+    // handshake.
+    let gpu_device = if p.use_gpu { cartalith_gpu::init_gpu_shared_device().ok() } else { None };
+
     // World-wrap isn't supported by the GPU warp kernel yet (milestone 2's
     // own deferral) -- `use_gpu` under `world=true` falls back to CPU for
     // warp specifically, same as any other GPU-unavailable case.
@@ -470,7 +483,10 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
             None
         } else {
             let wf = (2.5 / gw as f64) as f32; // non-world branch only, matching compute_warp's own `wf`
-            match cartalith_gpu::warp_grid_gpu(gw as u32, gh as u32, p.tect.seed, wf, amp) {
+            match gpu_device
+                .as_ref()
+                .map(|gpu| cartalith_gpu::warp_grid_gpu_with(gpu, gw as u32, gh as u32, p.tect.seed, wf, amp))
+            {
                 Some(wxy) => {
                     gpu_stages_used.push("warp".to_string());
                     Some(wxy)
@@ -491,7 +507,9 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
     let plate_id = if p.use_gpu {
         let plate_x: Vec<f32> = plates.iter().map(|pl| pl.x as f32).collect();
         let plate_y: Vec<f32> = plates.iter().map(|pl| pl.y as f32).collect();
-        cartalith_gpu::assign_plates_grid_gpu(gw as u32, gh as u32, &plate_x, &plate_y, warp_x, warp_y)
+        gpu_device
+            .as_ref()
+            .map(|gpu| cartalith_gpu::assign_plates_grid_gpu_with(gpu, gw as u32, gh as u32, &plate_x, &plate_y, warp_x, warp_y))
             .filter(|ids| ids.iter().all(|&id| id >= 0)) // any unassigned cell => treat as a failed dispatch, fall back
             .map(|ids| {
                 gpu_stages_used.push("plate_assignment".to_string());
@@ -516,7 +534,10 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
                 *r = sv;
             }
         }
-        match cartalith_gpu::gauss_blur_grid_gpu(&raw, p.tect.blur_r * 3.0, gw as u32, gh as u32, world) {
+        match gpu_device
+            .as_ref()
+            .map(|gpu| cartalith_gpu::gauss_blur_grid_gpu_with(gpu, &raw, p.tect.blur_r * 3.0, gw as u32, gh as u32, world))
+        {
             Some(broad) => {
                 gpu_stages_used.push("base_field_blur".to_string()); // shared GPU kernel with base_field below
                 let mut mx = 1e-6f64;
@@ -536,7 +557,9 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
 
     let base_raw: Vec<f32> = plate_id.iter().map(|&pid| plates[pid].base as f32).collect();
     let base_field = if p.use_gpu {
-        match cartalith_gpu::gauss_blur_grid_gpu(&base_raw, (p.tect.blur_r * 0.35).max(2.0), gw as u32, gh as u32, world) {
+        match gpu_device.as_ref().map(|gpu| {
+            cartalith_gpu::gauss_blur_grid_gpu_with(gpu, &base_raw, (p.tect.blur_r * 0.35).max(2.0), gw as u32, gh as u32, world)
+        }) {
             Some(v) => {
                 if !gpu_stages_used.iter().any(|s| s == "base_field_blur") {
                     gpu_stages_used.push("base_field_blur".to_string());
@@ -565,7 +588,9 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
             zero_wy = vec![0f32; gw * gh];
             (zero_wx.as_slice(), zero_wy.as_slice())
         };
-        match cartalith_gpu::heterogeneity_grid_gpu(gw as u32, gh as u32, hetero_seed, hf / gw as f32, &age_field, wx, wy) {
+        match gpu_device.as_ref().map(|gpu| {
+            cartalith_gpu::heterogeneity_grid_gpu_with(gpu, gw as u32, gh as u32, hetero_seed, hf / gw as f32, &age_field, wx, wy)
+        }) {
             Some(mut out) => {
                 gpu_stages_used.push("heterogeneity".to_string());
                 let mut mx = 1e-6f64;

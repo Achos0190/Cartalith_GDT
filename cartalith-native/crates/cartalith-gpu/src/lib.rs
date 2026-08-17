@@ -536,12 +536,31 @@ const fn storage_entry(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEn
     }
 }
 
-fn init_gpu_with(
-    shader_src: &str,
+/// The adapter+device+queue triple, before any pipeline is built on top of
+/// it -- factored out of what was `init_gpu_with`'s own inline body so
+/// [`init_gpu_shared_device`] (milestone 8, GPU context reuse) can request
+/// this exact same handshake once and hand it to several pipeline builders,
+/// instead of every kernel repeating its own `request_adapter`/
+/// `request_device` round trip.
+struct RawGpuDevice {
+    adapter_name: String,
+    adapter_vendor: u32,
+    adapter_backend: wgpu::Backend,
+    device_type: wgpu::DeviceType,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+}
+
+/// `HARDWARE_ACCELERATION.md` §10: request the minimum actually needed,
+/// not `Limits::unlimited()` -- but "minimum needed" depends on how many
+/// storage buffers the kernel(s) this device will back actually declare.
+/// Still capped by the adapter's own real limit (`using_resolution` below),
+/// never requesting more than the hardware actually reports.
+fn request_gpu_device(
     required_features: wgpu::Features,
-    label: &str,
-    layout_entries: &[wgpu::BindGroupLayoutEntry],
-) -> Result<GpuContext, GpuInitError> {
+    min_storage_buffers: u32,
+    device_label: &str,
+) -> Result<RawGpuDevice, GpuInitError> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
 
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -559,47 +578,57 @@ fn init_gpu_with(
     let info = adapter.get_info();
     let mut limits = wgpu::Limits::downlevel_defaults();
     limits = limits.using_resolution(adapter.limits());
-    // `HARDWARE_ACCELERATION.md` §10: request the minimum actually needed,
-    // not `Limits::unlimited()` -- but "minimum needed" depends on how many
-    // storage buffers THIS kernel's own bind group actually declares (the
-    // height kernel, milestone 3, needs 9: `downlevel_defaults()`'s
-    // conservative baseline is not guaranteed to cover that). Derived from
-    // `layout_entries` itself rather than hand-picking a number per kernel,
-    // so this scales automatically for any future kernel too, and is still
-    // capped by the adapter's own real limit (`using_resolution` above),
-    // never requesting more than the hardware actually reports.
-    let storage_buffers_needed = layout_entries
-        .iter()
-        .filter(|e| matches!(e.ty, wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { .. }, .. }))
-        .count() as u32;
     limits.max_storage_buffers_per_shader_stage =
-        limits.max_storage_buffers_per_shader_stage.max(storage_buffers_needed);
+        limits.max_storage_buffers_per_shader_stage.max(min_storage_buffers);
 
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        label: Some("cartalith-gpu pilot device"),
+        label: Some(device_label),
         required_features,
         required_limits: limits,
         ..Default::default()
     }))
     .map_err(GpuInitError::RequestDevice)?;
 
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+    Ok(RawGpuDevice {
+        adapter_name: info.name,
+        adapter_vendor: info.vendor,
+        adapter_backend: info.backend,
+        device_type: info.device_type,
+        device,
+        queue,
+    })
+}
+
+fn count_storage_buffers(layout_entries: &[wgpu::BindGroupLayoutEntry]) -> u32 {
+    layout_entries
+        .iter()
+        .filter(|e| matches!(e.ty, wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { .. }, .. }))
+        .count() as u32
+}
+
+fn build_pipeline(
+    raw: RawGpuDevice,
+    shader_src: &str,
+    label: &str,
+    layout_entries: &[wgpu::BindGroupLayoutEntry],
+) -> GpuContext {
+    let shader = raw.device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some(label),
         source: wgpu::ShaderSource::Wgsl(shader_src.into()),
     });
 
-    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+    let bind_group_layout = raw.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("cartalith-gpu bind group layout"),
         entries: layout_entries,
     });
 
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+    let pipeline_layout = raw.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("vnoise pipeline layout"),
         bind_group_layouts: &[Some(&bind_group_layout)],
         ..Default::default()
     });
 
-    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+    let pipeline = raw.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some("vnoise pipeline"),
         layout: Some(&pipeline_layout),
         module: &shader,
@@ -608,16 +637,171 @@ fn init_gpu_with(
         cache: None,
     });
 
-    Ok(GpuContext {
-        adapter_name: info.name,
-        adapter_vendor: info.vendor,
-        adapter_backend: info.backend,
-        device_type: info.device_type,
-        device,
-        queue,
+    GpuContext {
+        adapter_name: raw.adapter_name,
+        adapter_vendor: raw.adapter_vendor,
+        adapter_backend: raw.adapter_backend,
+        device_type: raw.device_type,
+        device: raw.device,
+        queue: raw.queue,
         pipeline,
         bind_group_layout,
+    }
+}
+
+fn init_gpu_with(
+    shader_src: &str,
+    required_features: wgpu::Features,
+    label: &str,
+    layout_entries: &[wgpu::BindGroupLayoutEntry],
+) -> Result<GpuContext, GpuInitError> {
+    let storage_buffers_needed = count_storage_buffers(layout_entries);
+    let raw = request_gpu_device(required_features, storage_buffers_needed, "cartalith-gpu pilot device")?;
+    Ok(build_pipeline(raw, shader_src, label, layout_entries))
+}
+
+/// A shared adapter+device+queue, reusable across several pipeline
+/// contexts. `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6 measured
+/// `instance.request_adapter`/`adapter.request_device` (both synchronous
+/// driver calls) at ~1.3-1.4s **per stage**, flat regardless of grid size
+/// or which shader follows -- the dominant cost at every size
+/// `generate_terrain` ships at by default below 2048x2048, since each of
+/// its five GPU dispatches (warp, heterogeneity, plate assignment, and two
+/// separate `gauss_blur` calls) was paying that handshake independently.
+/// `wgpu::Device`/`wgpu::Queue` are cheap `Clone` handles (Arc-backed
+/// internally, confirmed by reading `wgpu` 30's own source, not assumed),
+/// so building each stage's own pipeline from one shared `GpuDevice`
+/// keeps the expensive part paid once per `generate_terrain` call instead
+/// of once per stage, without needing `unsafe` or a custom ref-counting
+/// scheme.
+pub struct GpuDevice {
+    pub adapter_name: String,
+    pub adapter_vendor: u32,
+    pub adapter_backend: wgpu::Backend,
+    pub device_type: wgpu::DeviceType,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+}
+
+/// Sized for the largest bind group among the kernels `generate_terrain`'s
+/// `use_gpu` path reuses this device across -- JFA plate assignment's own
+/// [`JFA_LAYOUT`] (8 storage buffers), the highest of the four reused
+/// kernels (warp needs 2, heterogeneity 4, blur 2). `wgpu` limits can't be
+/// raised after device creation, so this has to be decided up front rather
+/// than derived per-pipeline the way [`init_gpu_with`] derives it for a
+/// single-use device.
+const REUSED_STAGE_MAX_STORAGE_BUFFERS: u32 = 8;
+
+/// Create the shared device milestone 8's `_with` pipeline builders below
+/// (e.g. [`init_gpu_warp_with`]) each build a pipeline on top of, instead
+/// of each independently requesting its own adapter/device.
+pub fn init_gpu_shared_device() -> Result<GpuDevice, GpuInitError> {
+    let raw = request_gpu_device(
+        wgpu::Features::empty(),
+        REUSED_STAGE_MAX_STORAGE_BUFFERS,
+        "cartalith-gpu shared device",
+    )?;
+    Ok(GpuDevice {
+        adapter_name: raw.adapter_name,
+        adapter_vendor: raw.adapter_vendor,
+        adapter_backend: raw.adapter_backend,
+        device_type: raw.device_type,
+        device: raw.device,
+        queue: raw.queue,
     })
+}
+
+fn build_pipeline_shared(
+    gpu: &GpuDevice,
+    shader_src: &str,
+    label: &str,
+    layout_entries: &[wgpu::BindGroupLayoutEntry],
+) -> GpuContext {
+    let raw = RawGpuDevice {
+        adapter_name: gpu.adapter_name.clone(),
+        adapter_vendor: gpu.adapter_vendor,
+        adapter_backend: gpu.adapter_backend,
+        device_type: gpu.device_type,
+        device: gpu.device.clone(),
+        queue: gpu.queue.clone(),
+    };
+    build_pipeline(raw, shader_src, label, layout_entries)
+}
+
+/// `_with` sibling of [`init_gpu_warp`] -- builds the same pipeline on an
+/// already-created [`GpuDevice`] instead of requesting a new adapter/device.
+pub fn init_gpu_warp_with(gpu: &GpuDevice) -> GpuContext {
+    build_pipeline_shared(gpu, SHADER_SRC_GPU_WARP, "gpu_warp (f32, PCG3D fbm)", &TWO_STORAGE_OUT_LAYOUT)
+}
+
+/// `_with` sibling of [`init_gpu_heterogeneity`].
+pub fn init_gpu_heterogeneity_with(gpu: &GpuDevice) -> GpuContext {
+    build_pipeline_shared(
+        gpu,
+        SHADER_SRC_GPU_HETEROGENEITY,
+        "gpu_heterogeneity (f32, PCG3D fbm)",
+        &HETEROGENEITY_LAYOUT,
+    )
+}
+
+/// `_with` sibling of [`init_gpu_jfa_plates`].
+pub fn init_gpu_jfa_plates_with(gpu: &GpuDevice) -> GpuContext {
+    build_pipeline_shared(
+        gpu,
+        SHADER_SRC_GPU_JFA_PLATES,
+        "gpu_jfa_plates (f32, double-buffered JFA)",
+        &JFA_LAYOUT,
+    )
+}
+
+/// `_with` sibling of [`init_gpu_gauss_blur`] -- same two-pipeline
+/// (`box_h_main`/`box_v_main`) shape, built on a shared device instead of
+/// requesting its own.
+pub fn init_gpu_gauss_blur_with(gpu: &GpuDevice) -> GpuBlurContext {
+    let shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("gpu_gauss_blur (f32, direct-sum box blur)"),
+        source: wgpu::ShaderSource::Wgsl(SHADER_SRC_GPU_GAUSS_BLUR.into()),
+    });
+
+    let bind_group_layout = gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("cartalith-gpu blur bind group layout"),
+        entries: &BLUR_LAYOUT,
+    });
+
+    let pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("gauss blur pipeline layout"),
+        bind_group_layouts: &[Some(&bind_group_layout)],
+        ..Default::default()
+    });
+
+    let box_h_pipeline = gpu.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("box_h pipeline"),
+        layout: Some(&pipeline_layout),
+        module: &shader,
+        entry_point: Some("box_h_main"),
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+        cache: None,
+    });
+    let box_v_pipeline = gpu.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("box_v pipeline"),
+        layout: Some(&pipeline_layout),
+        module: &shader,
+        entry_point: Some("box_v_main"),
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+        cache: None,
+    });
+
+    GpuBlurContext {
+        adapter_name: gpu.adapter_name.clone(),
+        adapter_vendor: gpu.adapter_vendor,
+        adapter_backend: gpu.adapter_backend,
+        device_type: gpu.device_type,
+        device: gpu.device.clone(),
+        queue: gpu.queue.clone(),
+        box_h_pipeline,
+        box_v_pipeline,
+        bind_group_layout,
+    }
 }
 
 /// Dispatch the GPU kernel over a `width`x`height` grid, sampling
@@ -1751,6 +1935,52 @@ pub fn assign_plates_grid_gpu(
 ) -> Option<Vec<i32>> {
     let ctx = init_gpu_jfa_plates().ok()?;
     Some(dispatch_gpu_assign_plates(&ctx, width, height, plate_x, plate_y, warp_x, warp_y))
+}
+
+/// `_with` sibling of [`warp_grid_gpu`] -- builds its pipeline on an
+/// already-created [`GpuDevice`] (milestone 8, context reuse across
+/// `generate_terrain`'s several GPU stages) instead of requesting its own
+/// adapter/device. Infallible past device creation, which the caller
+/// already handled by holding a `GpuDevice` in the first place.
+pub fn warp_grid_gpu_with(gpu: &GpuDevice, width: u32, height: u32, seed: i32, wf: f32, amp: f32) -> (Vec<f32>, Vec<f32>) {
+    let ctx = init_gpu_warp_with(gpu);
+    dispatch_gpu_warp(&ctx, width, height, seed, wf, amp)
+}
+
+/// `_with` sibling of [`heterogeneity_grid_gpu`].
+#[allow(clippy::too_many_arguments)]
+pub fn heterogeneity_grid_gpu_with(
+    gpu: &GpuDevice,
+    width: u32,
+    height: u32,
+    hetero_seed: i32,
+    scale: f32,
+    age: &[f32],
+    warp_x: &[f32],
+    warp_y: &[f32],
+) -> Vec<f32> {
+    let ctx = init_gpu_heterogeneity_with(gpu);
+    dispatch_gpu_heterogeneity(&ctx, width, height, hetero_seed, scale, age, warp_x, warp_y)
+}
+
+/// `_with` sibling of [`gauss_blur_grid_gpu`].
+pub fn gauss_blur_grid_gpu_with(gpu: &GpuDevice, src: &[f32], radius: f64, width: u32, height: u32, wrap_x: bool) -> Vec<f32> {
+    let ctx = init_gpu_gauss_blur_with(gpu);
+    dispatch_gpu_gauss_blur(&ctx, src, radius, width, height, wrap_x)
+}
+
+/// `_with` sibling of [`assign_plates_grid_gpu`].
+pub fn assign_plates_grid_gpu_with(
+    gpu: &GpuDevice,
+    width: u32,
+    height: u32,
+    plate_x: &[f32],
+    plate_y: &[f32],
+    warp_x: Option<&[f32]>,
+    warp_y: Option<&[f32]>,
+) -> Vec<i32> {
+    let ctx = init_gpu_jfa_plates_with(gpu);
+    dispatch_gpu_assign_plates(&ctx, width, height, plate_x, plate_y, warp_x, warp_y)
 }
 
 /// `HARDWARE_ACCELERATION.md` §9's self-test, made concrete: run the real
