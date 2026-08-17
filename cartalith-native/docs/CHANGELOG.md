@@ -8106,3 +8106,98 @@ fields, splat/icon wiring in `build_color_texture`), `cartalith-native/
 crates/cartalith-godot/tests/pack_compositing.rs` (new). `godot-project/
 main.gd` untouched in the final diff — the verification-only debug calls
 described above were reverted before commit.
+
+## DCC shell milestone 1: full structural replacement of the panel-browser shell (2026-08-18)
+
+`DCC_SHELL_SCOPE.md`'s milestone 1, picked up mid-flight: a prior fork had
+already done the real rebuild work in the working tree (`main.gd`/`main.tscn`/
+`map_overlay.gd`, all uncommitted) before being cut off by an account-level API
+error with no recoverable transcript. This pass's first job was assessing that
+work rather than assuming either "nothing works" or "everything is done" —
+`git diff` against all three files, a full read of `main.gd`, `main.tscn`, and
+`map_overlay.gd`, then real verification, found the prior fork's work
+**substantially complete and structurally sound**: all six regions from
+`UI_SHELL_DESIGN.md`'s governing table built as real Godot scenes/Control
+nodes, every currently-real control re-parented, the eight-menu bar content
+change done correctly (not just a rename — Edit/Help genuinely new, Generate/
+Simulate/Render/Assets restructured per the design doc's own table), the
+click-to-pin Properties dock (`GUI_FEATURE_PARITY_SCOPE.md` Category-1 item
+#10) and the three-way independent layer-toggle split (item #9) both real and
+wired, File > Import asset pack wired to the real `load_asset_pack`/
+`has_asset_pack` (item #1). `cargo build -p cartalith-godot` and
+`cargo test --workspace` both passed clean on first attempt — the prior
+fork's Rust-facing GDScript (function names, signal shapes, dictionary keys)
+matched `lib.rs` exactly with zero corrections needed.
+
+**One real gap found and fixed**: the status bar's own `StatusHintLabel` —
+`UI_SHELL_DESIGN.md`'s "the active tool's modifier hints" slot — had no
+`unique_name_in_owner` and was never touched by `main.gd`, so it stayed
+hard-coded "no active tool" even after selecting a tool from the rail, while
+the Tool Options Bar correctly showed the tool's name. Left alone, this would
+have been a real inconsistency between two chrome regions describing the same
+state, not merely an unfinished stretch feature — fixed by wiring
+`_on_tool_selected` to set `%StatusHintLabel` honestly (`"RAISE / LOWER
+selected -- no pass-buffer/commit/discard yet"`), matching the same
+"visible, not hidden; honest, not silent" discipline every inert item in the
+new menus already follows.
+
+**Judgment call — tool-options-bar/status-bar honesty**: the prior fork had
+already made the right call here, worth recording explicitly since the task
+asked for it to be judged carefully. The Tool Options Bar shows no live
+per-tool parameters at all — just the selected tool's name and one hint line
+("no live tool parameters -- tool system not implemented yet
+(DCC_SHELL_SCOPE.md milestone 2/3)") — rather than fabricating controls like
+"RAISE / LOWER · commit pass" that would imply a working pass-buffer/commit/
+discard model. That fabricated version would have been actively misleading
+(matches the task's own framing of the risk); the shipped version is honestly
+inert, consistent with every other not-yet-real surface in this shell (the
+disabled Generate-menu stage items, the disabled Edit-menu Undo, etc.).
+
+**Known pre-existing cosmetic issue, not touched**: unchecked `CheckBox`
+nodes in the right dock (`Territory (faction fill)`, `Province boundaries`
+before being checked) render with no visible checkbox glyph against
+`theme/dark_theme.tres`'s dark fill — `checkbox_unchecked_color` is set but
+Godot's `CheckBox` icon theme items are a separate mechanism this theme
+resource doesn't populate. Confirmed functional regardless (clicking toggles
+the layer correctly, screenshot-verified below) — this is a theme-icon gap
+that predates this milestone (the theme resource itself isn't part of this
+diff), not a DCC-shell structural defect, so it's noted here rather than
+fixed as scope creep.
+
+**Verification**: `cargo build -p cartalith-godot` and `cargo test
+--workspace` both clean, 0 regressions (every crate's suite passing, e.g.
+`cartalith-godot` 139/139, `cartalith-civ` 87/87). `godot4 --headless --quit
+main.tscn` clean load, no script/parse errors. Real windowed-app screenshot
+verification, end-to-end, on this session's real Windows desktop
+(`Godot_v4.7.1-stable_win64.exe --path godot-project main.tscn`,
+`PrintWindow`-based capture, synthetic `mouse_event`/`SetCursorPos`
+automation, maximize/restore focus-forcing trick): File > New World opened
+with all five real fields defaulted correctly (seed 12345, 2K, 800 km, sea
+level 42%, Classic); Generate produced a real 2048×2048 world (seed 12345,
+40 settlements) with terrain, settlement markers, roads, and sea routes all
+rendering correctly through the new viewport; toggling Territory (faction
+fill) and Province boundaries from the Layers dock rendered both overlays
+correctly and independently of Settlements/Roads/Sea routes staying on;
+hovering a settlement showed the on-canvas hover card and live Sample-dock
+data simultaneously; clicking it pinned the same settlement's full causal
+"WHY HERE?" chain into the Properties dock (`strong fresh water (1.00) →
+strong gentle terrain (0.97) → strong terrain form (0.85)`, suitability,
+river order/flow, distance to water, elevation, travel cost) and the pin
+survived subsequent layer-toggle clicks, as designed; File > Open project
+(.zip) opened the real save-file dialog rooted correctly and cancelled
+cleanly without disturbing the generated world; Help > Credits opened the
+real credits dialog with its full academic-principles text; selecting a
+tool-rail icon (Raise / lower) updated the Tool Options Bar label, the
+now-fixed status-bar hint, and the rail's own highlight together; switching
+to the CIVILIZATION workspace tab correctly restyled the tab row and dimmed/
+brightened tool-rail group emphasis without touching the viewport or the
+still-selected tool's own highlight, per `UI_SHELL_DESIGN.md`'s "a tab
+swaps... it never swaps the application, and never changes the map" rule.
+
+**Files touched**: `cartalith-native/godot-project/main.gd` (status-bar hint
+wiring, the only code change this pass added on top of the prior fork's
+work — everything else was prior-fork work verified as-is),
+`cartalith-native/godot-project/main.tscn` (`StatusHintLabel` gains
+`unique_name_in_owner`), `cartalith-native/godot-project/map_overlay.gd`
+(prior-fork work, verified unchanged). `DCC_SHELL_SCOPE.md` marked milestone
+1 done.

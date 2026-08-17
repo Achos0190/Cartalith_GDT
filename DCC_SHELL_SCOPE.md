@@ -153,3 +153,79 @@ language, every currently-real feature is reachable through it, the tool
 rail is present and honest about what doesn't work yet, and the golden path
 is screenshot-verified unbroken. Milestone 2's `UNIFIED_TOOL_PLAN.md` gives
 whoever picks up milestone 3 a real, scoped target instead of a green field.
+
+## Milestone 1: done (2026-08-18)
+
+Dispatched, then interrupted mid-flight by an account-level API error with
+no recoverable transcript — real, uncommitted work was left sitting in the
+working tree (`main.gd`/`main.tscn`/`map_overlay.gd`). This entry is from
+the pass that picked it back up: first assessed what was actually there
+(`git diff` against all three files, full reads, not an assumption in either
+direction), found it **substantially complete and structurally sound**, then
+verified and finished it rather than discarding real work per this project's
+own reversible-action discipline.
+
+**State found**: all six `UI_SHELL_DESIGN.md` regions built as real Control
+nodes; the 8-menu bar's real content change (not a rename) done correctly;
+every currently-real control re-parented (generation params into a File >
+New World dialog, load-save, credits, the four experimental flags +
+villages, all three map-overlay toggles now independent per
+`GUI_FEATURE_PARITY_SCOPE.md` item #9, the causal-chain inspector moved to
+click-to-pin per item #10, asset-pack import wired per item #1); the
+16-tool rail across 5 groups, honestly inert, present with real tooltips
+naming what doesn't work; workspace tabs restyling tool-rail emphasis
+without touching the viewport, exactly as specified. `cargo build -p
+cartalith-godot` and `cargo test --workspace` both passed clean on first
+attempt against the prior fork's GDScript — zero corrections needed to any
+Rust-facing call.
+
+**What this pass completed/fixed**: one real gap — the status bar's own
+"active tool's modifier hints" slot (`StatusHintLabel`) had no
+`unique_name_in_owner` and was never written by `main.gd`, so it stayed
+"no active tool" even with a tool selected, while the Tool Options Bar
+correctly showed the tool's name. Two chrome regions disagreeing about the
+same state is exactly the kind of inconsistency this milestone's own bar
+exists to catch. Fixed: `_on_tool_selected` now sets it honestly
+(`"RAISE / LOWER selected -- no pass-buffer/commit/discard yet"`).
+
+**Judgment call — tool-options-bar/status-bar honesty**: the prior fork had
+already made the right call, worth recording since this doc explicitly asks
+for it to be judged carefully. The Tool Options Bar shows no fabricated live
+parameters — just the tool's name plus one hint line naming the real reason
+nothing is live yet. A version reading "RAISE / LOWER · commit pass" with no
+working pass-buffer behind it would have been actively misleading, worse
+than an honest inert placeholder, per this document's own framing of the
+risk. What shipped avoids that trap consistently across every new menu item
+and dock control, not just the tool rail.
+
+**Known pre-existing issue, not fixed (out of this milestone's scope)**:
+unchecked `CheckBox` nodes in the right dock render with no visible glyph
+against `theme/dark_theme.tres` — the theme sets `checkbox_unchecked_color`
+but doesn't populate Godot's separate `CheckBox` icon theme items. Confirmed
+functional regardless (toggling still works, screenshot-verified); this
+predates the milestone (the theme resource isn't part of this diff), so
+it's recorded here rather than patched as scope creep.
+
+**Verification**: `cargo build -p cartalith-godot`/`cargo test --workspace`
+0 regressions. `godot4 --headless --quit main.tscn` clean load, no script/
+parse errors. Real windowed-app screenshot verification end-to-end
+(`PrintWindow`/`mouse_event`/`SetCursorPos` automation, maximize/restore
+focus-forcing trick, this session's established technique): New World
+dialog → Generate (seed 12345, 2K, 800 km, Classic, sea level 42%) →
+2048×2048/40-settlement world rendered correctly with terrain/settlements/
+roads/sea routes; Territory (faction fill) and Province boundaries toggles
+both confirmed rendering correctly and independently of the other three
+layers; settlement hover (on-canvas card + Sample dock) and click-to-pin
+(Properties dock's full "WHY HERE?" causal chain, persists across
+subsequent layer-toggle clicks) both confirmed; File > Open project (.zip)
+opened the real save dialog rooted at the project directory and cancelled
+cleanly without disturbing the generated world; Help > Credits opened with
+its full academic-principles text; tool-rail selection and workspace-tab
+switching both confirmed structurally correct against `UI_SHELL_DESIGN.md`'s
+own rules (tab switching restyles tool-rail emphasis only, never the
+viewport or the already-selected tool's highlight). Full record:
+`cartalith-native/docs/CHANGELOG.md`'s "DCC shell milestone 1" entry,
+`cartalith-native/docs/STATUS.md`'s own DCC shell section.
+
+Milestone 2 (`UNIFIED_TOOL_PLAN.md`) and milestone 3+ remain not yet
+dispatched, unchanged by this pass.

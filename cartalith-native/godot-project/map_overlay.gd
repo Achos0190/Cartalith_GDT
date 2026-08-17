@@ -55,14 +55,29 @@ const SEA_ROUTE_DASH_WIDTH := 0.85
 const SEA_ROUTE_DASH_LENGTH := 2.6
 
 ## Emitted whenever the hovered settlement changes -- `null` on hover-exit.
-## Lets `main.gd`'s Inspector panel show the same data this overlay's own
+## Lets `main.gd`'s Sample dock show the same data this overlay's own
 ## `_draw_hover_card` already draws on-canvas, without duplicating the
 ## hit-test logic in `_gui_input` below.
 ## `index` is the position in `get_settlements()`'s own array (`-1` on
 ## hover-exit) -- the same index `WorldGen.explain_settlement()` keys on, so
-## the Inspector can ask why that settlement is there without re-running any
-## hit test.
+## the dock can ask why that settlement is there without re-running any hit
+## test.
 signal settlement_hovered(data: Variant, index: int)
+
+## DCC shell milestone 1 (DCC_SHELL_SCOPE.md), click-to-pin (GUI_FEATURE_
+## PARITY_SCOPE.md Category-1 item #10): emitted on a left click that hits
+## a settlement, or on a click that hits nothing (`null`, `-1`) to unpin.
+## Independent of `settlement_hovered` above -- the Properties dock holds
+## this until the next click, unlike Sample's transient hover state.
+signal settlement_selected(data: Variant, index: int)
+
+## DCC shell milestone 1: emitted on every mouse motion with the grid-cell
+## position under the cursor (`valid` false when the cursor is off the
+## plate interior or nothing has been generated yet). Feeds the viewport's
+## corner coordinate readout and the Sample dock -- real grid coordinates
+## only, never a fabricated per-cell field (elevation/slope/biome) the
+## engine doesn't expose per-cell yet.
+signal cursor_sampled(gx: float, gy: float, valid: bool)
 
 var _settlements: Array = []
 var _roads: Array = []
@@ -70,6 +85,14 @@ var _sea_routes: Array = []
 var _gw := 0
 var _gh := 0
 var _hover_index := -1
+## Layer-granularity split (GUI_FEATURE_PARITY_SCOPE.md Category-1 item
+## #9): the old shell had one checkbox hiding this whole control (and with
+## it, hover input) -- these three flags let Settlements/Roads/Sea routes
+## toggle independently while the control itself, and hover/click input on
+## settlements, stay live regardless of which are on.
+var _show_settlements := true
+var _show_roads := true
+var _show_sea_routes := true
 ## Plate-frame width as a fraction of the terrain texture's own width
 ## (`WorldGen.get_border_inset_frac()`, Phase 3 milestone 4). `0.0` when the
 ## renderer draws no frame, which makes every use of it below an exact no-op.
@@ -108,6 +131,21 @@ func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, 
 	_gh = gh
 	_border_frac = border_frac
 	_hover_index = -1
+	queue_redraw()
+
+
+func set_show_settlements(shown: bool) -> void:
+	_show_settlements = shown
+	queue_redraw()
+
+
+func set_show_roads(shown: bool) -> void:
+	_show_roads = shown
+	queue_redraw()
+
+
+func set_show_sea_routes(shown: bool) -> void:
+	_show_sea_routes = shown
 	queue_redraw()
 
 
@@ -178,58 +216,61 @@ func _draw() -> void:
 		RenderingServer.canvas_item_set_custom_rect(ci, true, interior)
 		RenderingServer.canvas_item_set_clip(ci, true)
 
-	for route: Dictionary in _sea_routes:
-		var points: PackedVector2Array = route["points"]
-		if points.size() < 2:
-			continue
-		var brks: PackedInt32Array = route["brks"]
-		var start := 0
-		for cut in brks:
-			_draw_sea_route_segment(points, start, cut, rect)
-			start = cut
-		_draw_sea_route_segment(points, start, points.size(), rect)
+	if _show_sea_routes:
+		for route: Dictionary in _sea_routes:
+			var points: PackedVector2Array = route["points"]
+			if points.size() < 2:
+				continue
+			var brks: PackedInt32Array = route["brks"]
+			var start := 0
+			for cut in brks:
+				_draw_sea_route_segment(points, start, cut, rect)
+				start = cut
+			_draw_sea_route_segment(points, start, points.size(), rect)
 
-	for way: Dictionary in _roads:
-		var points: PackedVector2Array = way["points"]
-		if points.size() < 2:
-			continue
-		var width: float = ROAD_WIDTH_BY_TYPE.get(way["way_type"], 1.6)
-		var brks: PackedInt32Array = way["brks"]
-		# `brks` marks indices where this way's own path has a real gap
-		# (two disjoint consolidated runs sharing one `Way`) -- draw each
-		# run between breaks as its own stroke, not one polyline straight
-		# through the gap.
-		var start2 := 0
-		for cut in brks:
-			_draw_way_segment(points, start2, cut, rect, width)
-			start2 = cut
-		_draw_way_segment(points, start2, points.size(), rect, width)
+	if _show_roads:
+		for way: Dictionary in _roads:
+			var points: PackedVector2Array = way["points"]
+			if points.size() < 2:
+				continue
+			var width: float = ROAD_WIDTH_BY_TYPE.get(way["way_type"], 1.6)
+			var brks: PackedInt32Array = way["brks"]
+			# `brks` marks indices where this way's own path has a real gap
+			# (two disjoint consolidated runs sharing one `Way`) -- draw each
+			# run between breaks as its own stroke, not one polyline straight
+			# through the gap.
+			var start2 := 0
+			for cut in brks:
+				_draw_way_segment(points, start2, cut, rect, width)
+				start2 = cut
+			_draw_way_segment(points, start2, points.size(), rect, width)
 
-	for i in _settlements.size():
-		var s: Dictionary = _settlements[i]
-		var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
-		# A settlement whose cell is under the frame has no visible terrain
-		# beneath it at all, so a marker there points at nothing -- it is off
-		# the plate, and off-plate detail is omitted rather than trimmed to a
-		# half-disc against the neatline. The clip above then trims the one
-		# remaining case: a settlement just *inside* the interior whose
-		# radius overhangs it (the actual defect this fixes -- markers
-		# landing partly on the margin, seen in both test worlds).
-		if not interior.has_point(pos):
-			continue
-		var faction: int = s["faction"]
-		var color: Color = FACTION_COLORS[(faction - 1) % FACTION_COLORS.size()] if faction > 0 else Color(0.5, 0.5, 0.5)
-		var radius: float = TIER_RADIUS.get(s["kind"], 3.0)
-		if i == _hover_index:
-			radius += 1.5
+	if _show_settlements:
+		for i in _settlements.size():
+			var s: Dictionary = _settlements[i]
+			var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
+			# A settlement whose cell is under the frame has no visible terrain
+			# beneath it at all, so a marker there points at nothing -- it is off
+			# the plate, and off-plate detail is omitted rather than trimmed to a
+			# half-disc against the neatline. The clip above then trims the one
+			# remaining case: a settlement just *inside* the interior whose
+			# radius overhangs it (the actual defect this fixes -- markers
+			# landing partly on the margin, seen in both test worlds).
+			if not interior.has_point(pos):
+				continue
+			var faction: int = s["faction"]
+			var color: Color = FACTION_COLORS[(faction - 1) % FACTION_COLORS.size()] if faction > 0 else Color(0.5, 0.5, 0.5)
+			var radius: float = TIER_RADIUS.get(s["kind"], 3.0)
+			if i == _hover_index:
+				radius += 1.5
 
-		draw_circle(pos, radius, color)
-		draw_arc(pos, radius, 0, TAU, 24, MARKER_OUTLINE, 1.2, true)
-		if s["capital"]:
-			draw_arc(pos, radius + CAPITAL_RING_WIDTH, 0, TAU, 28, color, CAPITAL_RING_WIDTH, true)
+			draw_circle(pos, radius, color)
+			draw_arc(pos, radius, 0, TAU, 24, MARKER_OUTLINE, 1.2, true)
+			if s["capital"]:
+				draw_arc(pos, radius + CAPITAL_RING_WIDTH, 0, TAU, 28, color, CAPITAL_RING_WIDTH, true)
 
-	if _hover_index >= 0 and _hover_index < _settlements.size():
-		_draw_hover_card(_settlements[_hover_index], rect, interior)
+		if _hover_index >= 0 and _hover_index < _settlements.size():
+			_draw_hover_card(_settlements[_hover_index], rect, interior)
 
 
 ## Draws `points[start:end]` (exclusive) as one stroke, converted to
@@ -343,37 +384,70 @@ func _format_pop(pop: int) -> String:
 	return str(pop)
 
 
+## Nearest settlement whose marker is within its own hit radius of `mouse`,
+## or `-1`. Shared by hover (`_gui_input`'s motion branch) and click-to-pin
+## (its button branch) so both use exactly one hit-test definition.
+func _hit_test_settlement(mouse: Vector2, interior: Rect2, rect: Rect2) -> int:
+	var closest := -1
+	var closest_dist := INF
+	for i in _settlements.size():
+		var s: Dictionary = _settlements[i]
+		var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
+		# Same predicate `_draw` uses: an off-plate settlement has no
+		# marker, so it must not have a hit target either -- otherwise a
+		# hover/click would fill in dock data from what looks like blank
+		# paper.
+		if not interior.has_point(pos):
+			continue
+		var radius: float = TIER_RADIUS.get(s["kind"], 3.0) + HOVER_RADIUS_PAD
+		var d := mouse.distance_to(pos)
+		if d <= radius and d < closest_dist:
+			closest = i
+			closest_dist = d
+	return closest
+
+
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		var rect := _displayed_rect()
 		if rect.size.x <= 0.0:
+			cursor_sampled.emit(0.0, 0.0, false)
 			return
 		var interior := _interior_rect(rect)
 		var mouse: Vector2 = event.position
-		var closest := -1
-		var closest_dist := INF
-		for i in _settlements.size():
-			var s: Dictionary = _settlements[i]
-			var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
-			# Same predicate `_draw` uses: an off-plate settlement has no
-			# marker, so it must not have a hit target either -- otherwise
-			# the Inspector's "WHY HERE?" panel fills in from a hover over
-			# what looks like blank paper.
-			if not interior.has_point(pos):
-				continue
-			var radius: float = TIER_RADIUS.get(s["kind"], 3.0) + HOVER_RADIUS_PAD
-			var d := mouse.distance_to(pos)
-			if d <= radius and d < closest_dist:
-				closest = i
-				closest_dist = d
+
+		var closest := _hit_test_settlement(mouse, interior, rect)
 		if closest != _hover_index:
 			_hover_index = closest
 			queue_redraw()
 			settlement_hovered.emit(_settlements[closest] if closest != -1 else null, closest)
 
+		# Real grid-cell coordinates under the cursor, inverse of
+		# `_cell_to_screen` -- feeds the viewport's corner readout and the
+		# Sample dock. `valid` only inside the plate interior; off-plate is
+		# bare paper with no world coordinate under it.
+		if _gw > 0 and _gh > 0 and interior.has_point(mouse):
+			var gx := (mouse.x - rect.position.x) / rect.size.x * _gw
+			var gy := (mouse.y - rect.position.y) / rect.size.y * _gh
+			cursor_sampled.emit(gx, gy, true)
+		else:
+			cursor_sampled.emit(0.0, 0.0, false)
+
+	elif event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
+			var rect := _displayed_rect()
+			if rect.size.x <= 0.0:
+				return
+			var interior := _interior_rect(rect)
+			var hit := _hit_test_settlement(mb.position, interior, rect)
+			settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
+
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_MOUSE_EXIT and _hover_index != -1:
-		_hover_index = -1
-		queue_redraw()
-		settlement_hovered.emit(null, -1)
+	if what == NOTIFICATION_MOUSE_EXIT:
+		cursor_sampled.emit(0.0, 0.0, false)
+		if _hover_index != -1:
+			_hover_index = -1
+			queue_redraw()
+			settlement_hovered.emit(null, -1)

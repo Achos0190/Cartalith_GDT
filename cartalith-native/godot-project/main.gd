@@ -1,29 +1,45 @@
 extends Control
-## GUI shell (GUI_SHELL_SCOPE.md milestone 1): top bar with 7 domain menus,
-## left workspace navigator, a second panel that swaps with the navigator
-## selection, centre mode bar + viewport, right context inspector, bottom
-## timeline bar. Desktop (1920x1080) dark theme only this pass -- light
-## theme, panel collapse, and responsive breakpoints are explicitly deferred
-## follow-up milestones (`GUI_SHELL_SCOPE.md`'s own scope).
+## DCC shell (DCC_SHELL_SCOPE.md milestone 1): structural replacement of the
+## prior panel-browser shell (GUI_SHELL_SCOPE.md, commits 5d44c6b..2dee8fc).
+## Six regions per UI_SHELL_DESIGN.md's own governing table: top menu bar
+## (program actions only), workspace tabs, tool options bar, left tool rail,
+## viewport, right dock (Layers/Properties/Sample), status bar. Desktop
+## 1920x1080 dark theme only this pass -- light theme, responsive
+## breakpoints, and any actual tool functionality (pass-buffer/commit/
+## discard/staleness) are explicitly deferred (DCC_SHELL_SCOPE.md milestone
+## 3+, UNIFIED_TOOL_PLAN.md).
 ##
-## Every real, working control from the prior MVP shell is re-parented here
-## unchanged -- same %unique_name node names, same signals, same Rust calls.
-## Godot's `%Name` lookup resolves by unique name regardless of tree
-## position, so re-parenting a node in the .tscn never breaks an existing
-## `@onready var x = %Name` reference in this script, as long as the name
-## and `unique_name_in_owner` are preserved (verified against every %ref
-## below). Controls for features with no engine backing yet (Simulate's
-## year-by-year playback, Warfare, full Politics/Trade, tile/LOD, 2D/3D)
-## are real nodes, visibly present, `disabled = true` -- not hidden, not
-## deleted -- per the owner's own explicit "build the full shell now, wire
-## it up later" decision (GUI_SHELL_SCOPE.md).
+## Every real, working control from the prior shell is re-parented here --
+## generation params moved into a "New World" dialog (File menu), reached
+## the same way a DCC's own New Document dialog is: world setup is a
+## program-level action, not a persistent dock panel, so it belongs behind
+## a menu, not in the right dock (UI_SHELL_DESIGN.md's own governing rule:
+## "the top bar is about the program, the map is about the world").
 ##
-## Generation still runs on a background Thread (unchanged from the prior
-## shell -- godot-shell skill: "a frozen window during it is the difference
-## between a tool and a toy"). `WorldGen.generate()`/`generate_world_
-## structure()` are pure Rust computation over plain WorldState, safe off
-## -thread; `build_color_texture()` and every scene-tree write happen back
-## on the main thread via `call_deferred`.
+## The left tool rail's 16 tools + tool-preferences icon are built and
+## visible, honestly inert: selecting one only changes which tool name the
+## Tool Options Bar shows (a real, harmless presentation affordance) -- no
+## pass-buffer/commit/discard/map-editing exists yet. Same "shell now, wire
+## later" discipline GUI_SHELL_SCOPE.md milestone 1 already established.
+##
+## Category-1 parity-audit items folded into this rebuild while these
+## controls were already being touched (GUI_FEATURE_PARITY_SCOPE.md):
+## #1 (asset-pack import, now real: File > Import asset pack), #9 (layer
+## granularity: Settlements/Roads/Sea routes are now three independent
+## toggles instead of one that hid all of map_overlay together), #10
+## (click-to-pin selection: the Properties dock now holds a settlement's
+## causal "why here?" chain after a click, independent of the transient
+## Sample dock's live hover data). Left for later: #2-5 (settlements
+## table/economy panel/province list/culture-fit -- each needs its own real
+## table UI, not a drive-by wiring), #6 (planet params setter), #7 (GPU
+## toggle/readout -- GPU_LAYER_INTEGRATION_SCOPE.md's own current milestone
+## is still the noise redesign, wiring a toggle ahead of that would surface
+## an incomplete path), #8 (World Structure raw sliders).
+##
+## Generation still runs on a background Thread (unchanged). WorldGen.
+## generate()/generate_world_structure() are pure Rust computation over
+## plain WorldState, safe off-thread; build_color_texture() and every
+## scene-tree write happen back on the main thread via call_deferred.
 
 @onready var seed_input: SpinBox = %SeedInput
 @onready var resolution_input: OptionButton = %ResolutionInput
@@ -34,49 +50,49 @@ extends Control
 @onready var volc_provinces_check: CheckBox = %VolcProvincesCheck
 @onready var wind_deflection_check: CheckBox = %WindDeflectionCheck
 @onready var ocean_currents_check: CheckBox = %OceanCurrentsCheck
+@onready var villages_check: CheckBox = %VillagesCheck
 @onready var generate_button: Button = %GenerateButton
-@onready var load_save_button: Button = %LoadSaveButton
-@onready var status_label: Label = %StatusLabel
+@onready var status_label: Label = %StatusLabel ## New World dialog's own detailed status line.
 @onready var map_view: TextureRect = %MapView
 @onready var territory_view: TextureRect = %TerritoryView
 @onready var province_boundary_view: TextureRect = %ProvinceBoundaryView
 @onready var map_overlay: Control = %MapOverlay
-@onready var civ_layer_check: CheckBox = %CivLayerCheck
-@onready var territory_layer_check: CheckBox = %TerritoryLayerCheck
-@onready var province_layer_check: CheckBox = %ProvinceLayerCheck
-@onready var villages_check: CheckBox = %VillagesCheck
 @onready var load_save_dialog: FileDialog = %LoadSaveDialog
-@onready var credits_button: Button = %CreditsButton
+@onready var asset_pack_dialog: FileDialog = %AssetPackDialog
 @onready var credits_dialog: AcceptDialog = %CreditsDialog
+@onready var new_world_dialog: AcceptDialog = %NewWorldDialog
 
-## New this milestone: shell chrome.
+## Shell chrome, new this milestone.
 @onready var readout_label: Label = %ReadoutLabel
-@onready var project_menu: MenuButton = %ProjectMenu
-@onready var world_menu: MenuButton = %WorldMenu
+@onready var file_menu: MenuButton = %FileMenu
+@onready var edit_menu: MenuButton = %EditMenu
 @onready var generate_menu: MenuButton = %GenerateMenu
 @onready var simulate_menu: MenuButton = %SimulateMenu
-@onready var map_menu: MenuButton = %MapMenu
-## Not a MenuButton: the reference app's own `#assetsHeaderBtn` is a plain
-## mode-switch toggle (flips its own label to "← Map" on exit), not a
-## dropdown of operations -- Assets is a full-viewport mode, not an
-## operations list. Converted from MenuButton to Button in this
-## decluttering pass (GUI_SHELL_SCOPE.md); stays `disabled` since no
-## Assets-mode viewport exists in this port yet.
-@onready var assets_menu: Button = %AssetsMenu
+@onready var render_menu: MenuButton = %RenderMenu
+@onready var assets_menu: MenuButton = %AssetsMenu
 @onready var view_menu: MenuButton = %ViewMenu
-@onready var navigator_vbox: VBoxContainer = %NavigatorVBox
-@onready var second_panel_header: Label = %SecondPanelHeader
-@onready var overview_content: Control = %OverviewContent
-@onready var placeholder_content: Control = %PlaceholderContent
-@onready var placeholder_label: Label = %PlaceholderLabel
+@onready var help_menu: MenuButton = %HelpMenu
+
+@onready var tabs_row: HBoxContainer = %TabsRow
+@onready var workspace_subtitle_label: Label = %WorkspaceSubtitleLabel
+@onready var active_tool_label: Label = %ActiveToolLabel
+@onready var tool_rail_vbox: VBoxContainer = %ToolRailVBox
+
+@onready var show_settlements_check: CheckBox = %ShowSettlementsCheck
+@onready var show_roads_check: CheckBox = %ShowRoadsCheck
+@onready var show_sea_routes_check: CheckBox = %ShowSeaRoutesCheck
+@onready var territory_layer_check: CheckBox = %TerritoryLayerCheck
+@onready var province_layer_check: CheckBox = %ProvinceLayerCheck
+
+@onready var properties_header: Label = %PropertiesHeader
+@onready var properties_body: RichTextLabel = %PropertiesBody
+@onready var sample_body: RichTextLabel = %SampleBody
+
 @onready var scale_bar_label: Label = %ScaleBarLabel
-@onready var inspector_header: Label = %InspectorHeader
-@onready var inspector_body: RichTextLabel = %InspectorBody
-## §3 fix: `FooterVBox` (Generate/Load Save/Status) must be scoped to
-## `WORLD:Overview` only -- it previously persisted, visible, on all 20 nav
-## subjects regardless of which one was selected.
-@onready var footer_separator: HSeparator = %FooterSeparator
-@onready var footer_vbox: VBoxContainer = %FooterVBox
+@onready var coordinates_label: Label = %CoordinatesLabel
+
+@onready var shell_status_label: Label = %ShellStatusLabel
+@onready var status_hint_label: Label = %StatusHintLabel ## Status bar's own "active tool's modifier hints" slot (UI_SHELL_DESIGN.md).
 
 var world_gen: WorldGen = WorldGen.new()
 var _gen_thread: Thread
@@ -84,275 +100,73 @@ var _generating := false
 var _last_width_km := 0.0
 
 ## Index into WorldShapeInput -> the archetype name WorldGen.
-## generate_world_structure expects (reference HTML `ARCHETYPES`). Index 0
+## generate_world_structure expects (reference HTML ARCHETYPES). Index 0
 ## ("Classic") isn't an archetype at all -- it's World-Structure disabled,
-## the plain `generate()` path.
+## the plain generate() path.
 const WORLD_SHAPES: Array[String] = ["", "earth", "supercontinent", "archipelago", "volcanic", "rift"]
-
-## Display labels shown in the dropdown, same order/index as WORLD_SHAPES.
 const WORLD_SHAPE_LABELS: Array[String] = ["Classic", "Earth-like", "Supercontinent", "Archipelago", "Volcanic", "Rift"]
 
-## Reference HTML's real "Working resolution" presets (`#resSeg` buttons:
-## 512/1K/2K/4K/8K, default 2K) -- this port previously capped at 512 via a
-## 32-512 SpinBox, far below what the reference actually offers by default.
 const RESOLUTION_PRESETS: Array[int] = [512, 1024, 2048, 4096, 8192]
 const RESOLUTION_LABELS: Array[String] = ["512", "1K", "2K", "4K", "8K"]
 const RESOLUTION_DEFAULT_INDEX := 2 ## 2K, matching the reference's own default.
 
-## Workspace navigator, GUI decluttering pass (2026-08-17): every group and
-## subject below is grounded in the reference app's real IA (`Cartalith
-## Gen1 v2.10.html`'s Generate->{World, Civilization, Cartography, Sculpt}
-## branches plus Explore, the reference's real second mode) -- not the
-## prior pass's invented `INFRASTRUCTURE` bucket (Roads/Rivers/Ports/Trade/
-## Logistics), which had zero grounding there and is replaced by `EXPLORE`.
-## `CARTOGRAPHY:Layers` is also gone as a nav subject: it and the debug/
-## analysis layer picker were two surfaces for one thing (the reference
-## app's own admission); consolidated into `LayersPanel` alone (always
-## visible, not a destination), freeing CARTOGRAPHY's 5th slot for `Paint`
-## -- the reference's real brush bucket, previously homeless. Only
-## WORLD:Overview has a real parameter panel (`OverviewContent` in the
-## .tscn); every other subject swaps in `PlaceholderContent`, now with a
-## subject-specific honest hint (`NAV_SUBJECT_HINTS` below) instead of one
-## generic message -- per GUI_SHELL_SCOPE.md's own inventory, none of them
-## have engine backing yet, but they're at least named and grouped where
-## the reference app actually puts them.
-const NAV_GROUPS := {
-	"WORLD": ["Overview", "Terrain", "Water", "Climate", "Ecology", "Sculpt"],
-	"CIVILIZATION": ["Settlements", "Factions", "Economy", "Generation", "Statistics"],
-	"CARTOGRAPHY": ["Map Style", "Labels", "Icons", "Map View", "Paint"],
-	"EXPLORE": ["Tools", "Timeline", "Info", "Journeys", "Journey Planner"],
+## ── Workspace tabs ──────────────────────────────────────────────────────
+## UI_SHELL_DESIGN.md's own workspace row: "what the old navigator's groups
+## became". A tab swaps tool-rail emphasis and dock context; it never
+## swaps the viewport (UI_SHELL_DESIGN.md's own rule).
+const TAB_NAMES: Array[String] = ["WORLD", "CIVILIZATION", "INFRASTRUCTURE", "CARTOGRAPHY", "RENDER"]
+const TAB_SUBTITLES := {
+	"WORLD": "Terrain · Water · Climate · Ecology · Resources",
+	"CIVILIZATION": "Settlements · Factions · Economy · Statistics",
+	"INFRASTRUCTURE": "Roads · Ports · Trade · Logistics",
+	"CARTOGRAPHY": "Map style · Labels · Icons · Paint",
+	"RENDER": "Terrain appearance · Lighting · NPR · Bake",
 }
-## The only subject with real *parameter-panel* content this milestone --
-## everything else in NAV_GROUPS falls through to the placeholder, worded
-## per `NAV_SUBJECT_HINTS`.
-const NAV_REAL_SUBJECTS := ["WORLD:Overview"]
-
-## Per-subject honest placeholder text, reference-grounded (this plan's
-## own §2/§6): each names the *real* controls that subject corresponds to
-## in the reference app, not a generic "not wired yet" -- a concrete
-## honesty improvement even before any of them get engine backing.
-## `CIVILIZATION:Settlements` is the one exception with real backing today
-## (settlements render, hover works) -- its hint is a redirect to where
-## that real data already lives, matching the pattern `LAYERS` established,
-## not the generic "not wired" text, which would be actively misleading.
-const NAV_SUBJECT_HINTS := {
-	"WORLD:Terrain": "Tectonics (plates, drift, warp, uplift, erosion age) and volcanism & impact controls, matching the reference app's Geology stage. Not wired yet -- the four experimental flags on Overview are the only exposed knobs so far.",
-	"WORLD:Water": "Droplet / hillslope / stream-power / velocity erosion, evolve & sediment, glacial, and coastal controls, matching the reference app's Hydrology stage. Not wired yet.",
-	"WORLD:Climate": "Climate & biome classification and the weather / rainfall simulator, matching the reference app's Climate stage. Not wired yet.",
-	"WORLD:Ecology": "River-in-biome, river density, minimum stream order, sharper biomes, and lakes-as-water controls, matching the reference app's Ecology stage. Not wired yet.",
-	"WORLD:Sculpt": "The reference app's 4th Generate branch: stamp editor (feature type, presets, brush & noise, feature params, stamp stack, commit/discard). No engine backing in this port yet.",
-	"CIVILIZATION:Settlements": "Settlements have real engine backing -- they render on the map and respond to hover. Hover a marker to see its data and causal \"why here?\" chain in the INSPECTOR panel to the right. A dedicated searchable/sortable table here is not yet built.",
-	"CIVILIZATION:Factions": "Faction pills, add/remove, and an \"Open Faction Roster...\" modal, matching the reference app's faction management. Not wired yet.",
-	"CIVILIZATION:Economy": "Aggregate faction economics report, matching the reference app's Economy stage. Not wired yet (see ECONOMY_SCOPE.md).",
-	"CIVILIZATION:Generation": "Step 1 populate (counts, Auto-populate, toggles) -> Step 2 roads (Generate Roads, ways list) -> Step 3 territories/provinces, plus a display fold (settlement/way scale, opacity) -- the reference app's real Civilization generation sequence. Not wired yet; see the Generate menu for the same three steps as menu actions.",
-	"CIVILIZATION:Statistics": "World and per-faction statistics report, matching the reference app's Culture stage. Not wired yet.",
-	"CARTOGRAPHY:Map Style": "Presets (Default/Antique/Ink/Watercolor/Print), a rendering-advanced fold, the painter NPR fold, and overlays, matching the reference app's map styling. Not wired yet (see TERRAIN_APPEARANCE_SCOPE.md).",
-	"CARTOGRAPHY:Labels": "Region name labels, matching the reference app's Labels stage. Not wired yet.",
-	"CARTOGRAPHY:Icons": "Manual icon placement: category, gallery, density brush, and the placed-icons list, matching the reference app's Assets stage. Not wired yet.",
-	"CARTOGRAPHY:Map View": "Mode segment (Biome/Relief/Height/Shade), relief<->biome blend, exaggeration, sun angle, and hillshade toggle. Not wired yet.",
-	"CARTOGRAPHY:Paint": "Paint toggle, layer segment (Biome/Splat/Terrain), value, radius, erase, texture strength, clear, and pack gallery -- the reference app's Paint brush. Not wired yet.",
-	"EXPLORE:Tools": "Info / route tool palette, snap-to-places-and-ways toggle, and Commit route. Not wired yet -- the engine is a one-shot static generator, not a continuous simulation (HARDWARE_ACCELERATION.md).",
-	"EXPLORE:Timeline": "Add-year input and pills, \"show only objects in selected year\" / Ghost / Highlight toggles, and a nested Simulate collapse/recovery fold -- year management and simulation, distinct from the BottomBar's own play/pause/step/speed scrub controls. Not wired yet.",
-	"EXPLORE:Info": "Click-to-inspect readout feeding the Inspector panel; on a settlement hit, opens the full-screen City Viewer in the reference app. Settlement hover already feeds the Inspector today (see CIVILIZATION > Settlements) -- the rest is not wired yet.",
-	"EXPLORE:Journeys": "Journey list, matching the reference app's Explore > Journeys. Not wired yet.",
-	"EXPLORE:Journey Planner": "Compact summary plus \"Edit route...\" opening the full-screen Route Editor, matching the reference app's Journey Planner. Not wired yet.",
+## Which tool-rail group index (0-based, matching TOOL_GROUPS below) a tab
+## puts visual emphasis on. Presentation-only -- no tool becomes functional
+## by switching tabs, this only brightens/dims rail icon groups.
+const TAB_TO_GROUP_INDEX := {
+	"WORLD": 1, "CIVILIZATION": 3, "INFRASTRUCTURE": 3, "CARTOGRAPHY": 4, "RENDER": 4,
 }
+var _tab_buttons: Dictionary = {} ## tab name -> Button
+var _active_tab := "WORLD"
 
-var _nav_buttons: Dictionary = {} ## "GROUP:Subject" -> Button, for active-state styling
+## ── Left tool rail ──────────────────────────────────────────────────────
+## UI_SHELL_DESIGN.md's own 5 groups, 16 tools total (+ tool preferences,
+## pinned separately at the bottom). Selecting one only changes the Tool
+## Options Bar's displayed name -- no pass-buffer/commit/discard exists
+## (DCC_SHELL_SCOPE.md Track 2, not this milestone).
+const TOOL_GROUPS: Array = [
+	[{"name": "Select / inspect", "glyph": "➤", "key": "V"},
+	 {"name": "Pan", "glyph": "✥", "key": "H"},
+	 {"name": "Point sample", "glyph": "◎", "key": "I"}],
+	[{"name": "Raise / lower", "glyph": "▲", "key": "B"},
+	 {"name": "Smooth", "glyph": "≈", "key": "S"},
+	 {"name": "Flatten / terrace", "glyph": "▭", "key": "F"},
+	 {"name": "Stamp (landform library)", "glyph": "◆", "key": ""}],
+	[{"name": "River / water", "glyph": "∿", "key": "R"},
+	 {"name": "Biome paint", "glyph": "❋", "key": "P"}],
+	[{"name": "Place settlement", "glyph": "⌂", "key": ""},
+	 {"name": "Draw route / way", "glyph": "↝", "key": ""},
+	 {"name": "Territory / faction", "glyph": "▩", "key": ""}],
+	[{"name": "Label", "glyph": "T", "key": "T"},
+	 {"name": "Icon stamp", "glyph": "✦", "key": ""},
+	 {"name": "Measure", "glyph": "⟋", "key": "M"},
+	 {"name": "Region select / export", "glyph": "⬚", "key": ""}],
+]
+var _tool_group_buttons: Array = [] ## Array[Array[Button]], mirrors TOOL_GROUPS.
 
-
-func _ready() -> void:
-	## Was never populated at all (scene nor script) -- OptionButton.selected
-	## defaults to -1 with no items, and GDScript's negative indexing meant
-	## `WORLD_SHAPES[world_shape_input.selected]` silently resolved to the
-	## LAST entry ("rift") instead of erroring or defaulting to Classic.
-	## Caught by hands-on testing (a real generate() run), not by review.
-	for label in WORLD_SHAPE_LABELS:
-		world_shape_input.add_item(label)
-	world_shape_input.selected = 0
-
-	for label in RESOLUTION_LABELS:
-		resolution_input.add_item(label)
-	resolution_input.selected = RESOLUTION_DEFAULT_INDEX
-
-	generate_button.pressed.connect(_on_generate_pressed)
-	load_save_button.pressed.connect(_on_load_save_pressed)
-	load_save_dialog.file_selected.connect(_on_save_file_selected)
-	credits_button.pressed.connect(func(): credits_dialog.popup_centered())
-	civ_layer_check.toggled.connect(func(pressed: bool): map_overlay.visible = pressed)
-	territory_layer_check.toggled.connect(func(pressed: bool): territory_view.visible = pressed)
-	province_layer_check.toggled.connect(func(pressed: bool): province_boundary_view.visible = pressed)
-	map_overlay.settlement_hovered.connect(_on_settlement_hovered)
-
-	_build_navigator()
-	_build_menus()
-	_select_nav_subject("WORLD", "Overview")
-
-
-## Builds the 4-group workspace navigator (`design/cartalith-menu-structure.md`
-## §"Shell regions") from `NAV_GROUPS` -- 20 subject rows would be tedious
-## and error-prone to hand-author as individual .tscn nodes, so they're
-## generated here instead. Each row is a real, clickable flat Button;
-## `_nav_buttons` keeps a flat "GROUP:Subject" -> Button map so
-## `_select_nav_subject` can restyle whichever row is active without a tree
-## walk.
-func _build_navigator() -> void:
-	for group_name in NAV_GROUPS:
-		var group_header := Label.new()
-		group_header.text = group_name
-		group_header.add_theme_color_override("font_color", Color(0.552941, 0.576471, 0.588235))
-		group_header.add_theme_font_size_override("font_size", 9)
-		navigator_vbox.add_child(group_header)
-
-		var group_box := VBoxContainer.new()
-		navigator_vbox.add_child(group_box)
-
-		for subject in NAV_GROUPS[group_name]:
-			var btn := Button.new()
-			btn.text = subject
-			btn.flat = true
-			btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			btn.custom_minimum_size = Vector2(0, 30)
-			btn.add_theme_color_override("font_color", Color(0.784314, 0.796078, 0.803922))
-			var key := "%s:%s" % [group_name, subject]
-			btn.pressed.connect(_select_nav_subject.bind(group_name, subject))
-			_nav_buttons[key] = btn
-			group_box.add_child(btn)
-
-
-## Swaps the second panel's content and restyles the active navigator row.
-## Per `design/cartalith-menu-structure.md`'s own architectural rule: "A
-## navigator node never swaps the viewport or the application -- it swaps
-## the tool palette and the inspector around it." Only the viewport itself
-## (and inspector's live selection state) are untouched by this.
-func _select_nav_subject(group_name: String, subject: String) -> void:
-	var key := "%s:%s" % [group_name, subject]
-	for k in _nav_buttons:
-		var btn: Button = _nav_buttons[k]
-		btn.add_theme_color_override("font_color",
-			Color(0.878431, 0.639216, 0.290196) if k == key else Color(0.784314, 0.796078, 0.803922))
-
-	second_panel_header.text = "%s · %s" % [group_name, subject.to_upper()]
-	overview_content.visible = false
-	placeholder_content.visible = false
-	## §3 fix: the footer (Generate/Load Save/Status) is `WORLD:Overview`-
-	## only chrome -- it used to persist, visible, across all 20 subjects.
-	var is_overview := key == "WORLD:Overview"
-	footer_separator.visible = is_overview
-	footer_vbox.visible = is_overview
-	if is_overview:
-		overview_content.visible = true
-	else:
-		placeholder_content.visible = true
-		placeholder_label.text = NAV_SUBJECT_HINTS.get(key, "This workspace subject isn't wired to the engine yet.")
-
-
-## Populates the 6 remaining top-bar domain popups (Assets is a plain
-## toggle `Button`, not a `MenuButton` -- see its `@onready` doc comment)
-## per this decluttering pass's §1: real header/Generate-branch content
-## from the reference app, not the prior pass's invented items. Real items
-## call an existing, already-wired action; disabled items are present and
-## readable, not a functional no-op silently doing nothing, per
-## GUI_SHELL_SCOPE.md's "visibly present but honestly inert" rule.
-func _build_menus() -> void:
-	## ProjectMenu: `New world...` / `Save project` deleted outright -- zero
-	## reference grounding (the reference has no such File▾ entries; "save"
-	## *is* Export .zip, world creation is the onboarding gate, not a menu
-	## action). Replaced with an honest, disabled Import group (Load
-	## heightmap / Infer tectonics / Import asset pack -- none exist in the
-	## Rust core yet) and an honest Export group (Export .zip / GeoJSON).
-	var project_popup := project_menu.get_popup()
-	project_popup.add_item("Open project (.zip)...")
-	project_popup.add_item("Credits")
-	project_popup.add_separator()
-	for item in ["Load heightmap...", "Infer tectonics from heightmap...", "Import asset pack..."]:
-		project_popup.add_item(item)
-		project_popup.set_item_disabled(project_popup.item_count - 1, true)
-	project_popup.add_separator()
-	for item in ["Export .zip", "Export GeoJSON"]:
-		project_popup.add_item(item)
-		project_popup.set_item_disabled(project_popup.item_count - 1, true)
-	project_popup.id_pressed.connect(_on_project_menu_id)
-
-	## WorldMenu: same two real items as before (call the same functions as
-	## Overview's own footer buttons -- a legitimate header shortcut, not a
-	## duplicate implementation). `Planet settings...`/`Coordinate system...`
-	## stay disabled, but their *future* behavior is now a jump-to-section
-	## contract (scroll/expand Overview's Planet subsection once wired), not
-	## a second settings surface -- avoids building a duplicate modal later.
-	var world_popup := world_menu.get_popup()
-	world_popup.add_item("Generate World")
-	world_popup.add_item("New seed")
-	world_popup.add_separator()
-	world_popup.add_item("Planet settings...")
-	world_popup.set_item_disabled(world_popup.item_count - 1, true)
-	world_popup.add_item("Coordinate system / projection...")
-	world_popup.set_item_disabled(world_popup.item_count - 1, true)
-	world_popup.id_pressed.connect(_on_world_menu_id)
-
-	## GenerateMenu: replaces the prior flat 11-stage placeholder list (it
-	## implied one monolithic pipeline that doesn't match the reference's
-	## real branch structure) with the reference's actual Civilization
-	## Step 1->2->3 sequence, the single largest piece of invented structure
-	## in the prior shell.
-	var generate_popup := generate_menu.get_popup()
-	for item in ["Auto-populate world (Step 1)", "Generate Roads (Step 2)", "Recalculate Territories (Step 3)"]:
-		generate_popup.add_item(item)
-		generate_popup.set_item_disabled(generate_popup.item_count - 1, true)
-	generate_popup.add_separator()
-	generate_popup.add_item("Generate Provinces")
-	generate_popup.set_item_disabled(generate_popup.item_count - 1, true)
-
-	## SimulateMenu: renamed to the reference's real Explore/Timeline
-	## operations (same 4-item slot count as before).
-	var simulate_popup := simulate_menu.get_popup()
-	for item in ["Add year...", "Animate playback", "Simulate collapse / recovery...",
-			"(Explore phase — not yet implemented)"]:
-		simulate_popup.add_item(item)
-		simulate_popup.set_item_disabled(simulate_popup.item_count - 1, true)
-
-	## MapMenu: same 3 items, but their future behavior is now a
-	## navigator-jump contract -- each maps 1:1 to a real CARTOGRAPHY
-	## subject (Map View / Map Style's NPR fold / Labels) instead of a
-	## future modal, preventing a future duplicate-surface bug. No "Layers"
-	## item here: `LayersPanel` is the one real layer surface, always
-	## visible, not a nav destination a menu item could echo.
-	var map_popup := map_menu.get_popup()
-	map_popup.add_item("Terrain appearance...")  # -> jump to CARTOGRAPHY:Map View
-	map_popup.set_item_disabled(map_popup.item_count - 1, true)
-	map_popup.add_item("Painter styles (NPR)")  # -> jump to CARTOGRAPHY:Map Style's NPR fold
-	map_popup.set_item_disabled(map_popup.item_count - 1, true)
-	map_popup.add_item("Labels & annotation")  # -> jump to CARTOGRAPHY:Labels
-	map_popup.set_item_disabled(map_popup.item_count - 1, true)
-
-	## AssetsMenu has no popup to build -- it's a plain toggle `Button` now,
-	## see its `@onready` doc comment.
-
-	## ViewMenu: renamed to real reference-grounded items (same 4-item slot
-	## count).
-	var view_popup := view_menu.get_popup()
-	for item in ["3D view dials... (relief exaggeration / detail / light / flatten oceans)",
-			"Focus Layers panel", "Tiled LOD view (cartalith-spatial, unintegrated)", "Atlas cache"]:
-		view_popup.add_item(item)
-		view_popup.set_item_disabled(view_popup.item_count - 1, true)
-
-
-func _on_project_menu_id(id: int) -> void:
-	match id:
-		0: _on_load_save_pressed()
-		1: credits_dialog.popup_centered()
-
-
-func _on_world_menu_id(id: int) -> void:
-	match id:
-		0: _on_generate_pressed()
-		1: seed_input.value = randi() % 1000000
-
+## ── Right dock: Properties (click-to-pin) / Sample (live hover) ────────
+var _selected_settlement: Variant = null
+var _selected_index := -1
+var _cursor_valid := false
+var _cursor_gx := 0.0
+var _cursor_gy := 0.0
+var _hover_settlement: Variant = null
 
 ## Noun phrases for each suitability term key returned by
-## `WorldGen.explain_settlement()`. Wording lives here, not in Rust: the
-## engine supplies facts, the UI phrases them (ARCHITECTURE.md -- Godot
-## computes nothing beyond layout, and wording is layout).
+## WorldGen.explain_settlement(). Wording lives here, not in Rust: the
+## engine supplies facts, the UI phrases them (ARCHITECTURE.md).
 const SUIT_TERM_LABELS := {
 	"carrying_capacity": "fertile land",
 	"water_access": "fresh water",
@@ -370,9 +184,263 @@ const SUIT_TERM_LABELS := {
 	"water_bonus": "water",
 }
 
-## Qualifies a term by its own raw 0..1 reading, so the chain stays honest:
-## a settlement placed on mediocre soil reads as "weak farmland", not as a
-## flattering "farmland". Deliberately describes the reading, not the rank.
+
+func _ready() -> void:
+	for label in WORLD_SHAPE_LABELS:
+		world_shape_input.add_item(label)
+	world_shape_input.selected = 0
+
+	for label in RESOLUTION_LABELS:
+		resolution_input.add_item(label)
+	resolution_input.selected = RESOLUTION_DEFAULT_INDEX
+
+	generate_button.pressed.connect(_on_generate_pressed)
+	load_save_dialog.file_selected.connect(_on_save_file_selected)
+	asset_pack_dialog.file_selected.connect(_on_asset_pack_file_selected)
+
+	show_settlements_check.toggled.connect(func(pressed: bool): map_overlay.set_show_settlements(pressed))
+	show_roads_check.toggled.connect(func(pressed: bool): map_overlay.set_show_roads(pressed))
+	show_sea_routes_check.toggled.connect(func(pressed: bool): map_overlay.set_show_sea_routes(pressed))
+	territory_layer_check.toggled.connect(func(pressed: bool): territory_view.visible = pressed)
+	province_layer_check.toggled.connect(func(pressed: bool): province_boundary_view.visible = pressed)
+	map_overlay.settlement_hovered.connect(_on_settlement_hovered)
+	map_overlay.settlement_selected.connect(_on_settlement_selected)
+	map_overlay.cursor_sampled.connect(_on_cursor_sampled)
+
+	_build_workspace_tabs()
+	_build_tool_rail()
+	_build_menus()
+	_select_tab("WORLD")
+
+
+## ── Workspace tabs ──────────────────────────────────────────────────────
+func _build_workspace_tabs() -> void:
+	for tab_name in TAB_NAMES:
+		var btn := Button.new()
+		btn.text = tab_name
+		btn.flat = true
+		btn.custom_minimum_size = Vector2(0, 30)
+		btn.add_theme_font_size_override("font_size", 10)
+		btn.add_theme_color_override("font_color", Color(0.552941, 0.576471, 0.588235))
+		btn.pressed.connect(_select_tab.bind(tab_name))
+		_tab_buttons[tab_name] = btn
+		## Insert before the spacer so the subtitle label stays right-aligned.
+		tabs_row.add_child(btn)
+		tabs_row.move_child(btn, tabs_row.get_child_count() - 3)
+
+
+## Per UI_SHELL_DESIGN.md: "A tab swaps which tools and dock panels are
+## shown around the same viewport -- it never swaps the application, and
+## never changes the map." This only restyles the tab row, the workspace
+## subtitle, and brightens the tool-rail group most relevant to the tab --
+## no engine call, no viewport change.
+func _select_tab(tab_name: String) -> void:
+	_active_tab = tab_name
+	for k in _tab_buttons:
+		var btn: Button = _tab_buttons[k]
+		btn.add_theme_color_override("font_color",
+			Color(0.878431, 0.639216, 0.290196) if k == tab_name else Color(0.552941, 0.576471, 0.588235))
+	workspace_subtitle_label.text = TAB_SUBTITLES.get(tab_name, "")
+
+	var emphasis_group: int = TAB_TO_GROUP_INDEX.get(tab_name, -1)
+	for gi in _tool_group_buttons.size():
+		var dim := Color(0.372549, 0.392157, 0.407843)
+		var normal := Color(0.552941, 0.576471, 0.588235)
+		var col := normal if gi == emphasis_group else dim
+		for btn: Button in _tool_group_buttons[gi]:
+			if not btn.button_pressed:
+				btn.add_theme_color_override("font_color", col)
+
+
+## ── Left tool rail ──────────────────────────────────────────────────────
+func _build_tool_rail() -> void:
+	var group_button = ButtonGroup.new()
+	var first_group := true
+	for group in TOOL_GROUPS:
+		if not first_group:
+			var sep := Control.new()
+			sep.custom_minimum_size = Vector2(22, 1)
+			var sep_rect := ColorRect.new()
+			sep_rect.color = Color(1, 1, 1, 0.10)
+			sep_rect.custom_minimum_size = Vector2(22, 1)
+			var sep_wrap := CenterContainer.new()
+			sep_wrap.custom_minimum_size = Vector2(0, 9)
+			sep_wrap.add_child(sep_rect)
+			tool_rail_vbox.add_child(sep_wrap)
+		var group_buttons: Array = []
+		for tool: Dictionary in group:
+			var btn := Button.new()
+			btn.custom_minimum_size = Vector2(32, 32)
+			btn.toggle_mode = true
+			btn.button_group = group_button
+			btn.flat = true
+			btn.text = String(tool["glyph"])
+			btn.add_theme_font_size_override("font_size", 15)
+			btn.add_theme_color_override("font_color", Color(0.552941, 0.576471, 0.588235))
+			var key_hint := "  (%s)" % tool["key"] if String(tool["key"]) != "" else ""
+			btn.tooltip_text = "%s%s" % [tool["name"], key_hint]
+			btn.pressed.connect(_on_tool_selected.bind(tool["name"], btn))
+			group_buttons.append(btn)
+			tool_rail_vbox.add_child(btn)
+		_tool_group_buttons.append(group_buttons)
+		first_group = false
+
+	var rail_spacer := Control.new()
+	rail_spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tool_rail_vbox.add_child(rail_spacer)
+
+	var prefs_btn := Button.new()
+	prefs_btn.custom_minimum_size = Vector2(32, 32)
+	prefs_btn.flat = true
+	prefs_btn.disabled = true
+	prefs_btn.text = "⚙"
+	prefs_btn.add_theme_font_size_override("font_size", 15)
+	prefs_btn.add_theme_color_override("font_disabled_color", Color(0.372549, 0.392157, 0.407843))
+	prefs_btn.tooltip_text = "Tool preferences -- not implemented (no tool system exists yet)"
+	tool_rail_vbox.add_child(prefs_btn)
+
+	## Default active tool: Select / inspect, the rail's own first button.
+	var first_btn: Button = _tool_group_buttons[0][0]
+	first_btn.button_pressed = true
+	_on_tool_selected(TOOL_GROUPS[0][0]["name"], first_btn)
+
+
+func _on_tool_selected(tool_name: String, btn: Button) -> void:
+	active_tool_label.text = String(tool_name).to_upper()
+	## Status bar's own modifier-hints slot (UI_SHELL_DESIGN.md): honestly
+	## reflects which tool is active without implying it does anything --
+	## no pass-buffer/commit/discard exists yet (DCC_SHELL_SCOPE.md Track 2).
+	status_hint_label.text = "%s selected -- no pass-buffer/commit/discard yet" % String(tool_name).to_upper()
+	for group_buttons in _tool_group_buttons:
+		for b: Button in group_buttons:
+			b.add_theme_color_override("font_color",
+				Color(0.878431, 0.639216, 0.290196) if b == btn else Color(0.552941, 0.576471, 0.588235))
+
+
+## ── Top menu bar ────────────────────────────────────────────────────────
+const ID_FILE_NEW_WORLD := 1
+const ID_FILE_OPEN_PROJECT := 2
+const ID_FILE_IMPORT_ASSET_PACK := 3
+const ID_HELP_CREDITS := 1
+
+func _build_menus() -> void:
+	_build_file_menu()
+	_build_edit_menu()
+	_build_generate_menu()
+	_build_simulate_menu()
+	_build_render_menu()
+	_build_assets_menu()
+	_build_view_menu()
+	_build_help_menu()
+
+
+## Adds a disabled, honestly-inert item -- present per the shell's own
+## "visibly present, not hidden" rule (GUI_SHELL_SCOPE.md), never a silent
+## no-op: every disabled item keeps a tooltip naming why.
+func _add_inert_item(popup: PopupMenu, text: String, tooltip: String = "not implemented yet") -> void:
+	popup.add_item(text)
+	var idx := popup.item_count - 1
+	popup.set_item_disabled(idx, true)
+	popup.set_item_tooltip(idx, tooltip)
+
+
+func _build_file_menu() -> void:
+	var popup := file_menu.get_popup()
+	popup.add_item("New world", ID_FILE_NEW_WORLD)
+	popup.add_item("Open project (.zip)...", ID_FILE_OPEN_PROJECT)
+	popup.add_separator()
+	_add_inert_item(popup, "Save", "No export writer exists yet -- Export .zip below is the closest real equivalent, also not yet implemented.")
+	_add_inert_item(popup, "Save as")
+	_add_inert_item(popup, "Recent")
+	popup.add_separator()
+	_add_inert_item(popup, "Import heightmap...", "No cartalith-io reader for this exists yet (GUI_FEATURE_PARITY_SCOPE.md Category 2).")
+	popup.add_item("Import asset pack...", ID_FILE_IMPORT_ASSET_PACK)
+	popup.add_separator()
+	_add_inert_item(popup, "Export image/tiles")
+	_add_inert_item(popup, "Export GeoJSON", "No Rust writer exists yet -- the underlying road/settlement/territory data is already real.")
+	_add_inert_item(popup, "Export region")
+	popup.add_separator()
+	_add_inert_item(popup, "Project settings...")
+	popup.id_pressed.connect(_on_file_menu_id)
+
+
+func _on_file_menu_id(id: int) -> void:
+	match id:
+		ID_FILE_NEW_WORLD: new_world_dialog.popup_centered()
+		ID_FILE_OPEN_PROJECT: load_save_dialog.popup_centered()
+		ID_FILE_IMPORT_ASSET_PACK: asset_pack_dialog.popup_centered()
+
+
+func _build_edit_menu() -> void:
+	var popup := edit_menu.get_popup()
+	_add_inert_item(popup, "Undo", "No undo system exists -- there is nothing to undo yet (no tool system, DCC_SHELL_SCOPE.md).")
+	_add_inert_item(popup, "Redo")
+	_add_inert_item(popup, "Undo history")
+	popup.add_separator()
+	_add_inert_item(popup, "Preferences")
+	_add_inert_item(popup, "Theme", "Light/dark toggle -- the light-theme milestone is deferred (GUI_SHELL_SCOPE.md).")
+
+
+func _build_generate_menu() -> void:
+	var popup := generate_menu.get_popup()
+	var tip := "Per-stage parameter dialog + staleness reporting not implemented yet -- the whole pipeline still runs as one step via File > New World's Generate button."
+	for stage in ["Tectonics", "Volcanism", "Erosion", "Glacial & coastal", "Hydrology",
+			"Climate", "Ecology", "Settlements", "Infrastructure", "Politics"]:
+		_add_inert_item(popup, stage, tip)
+
+
+func _build_simulate_menu() -> void:
+	var popup := simulate_menu.get_popup()
+	var tip := "The engine is a one-shot static generator, not a continuous simulation (HARDWARE_ACCELERATION.md's own scope correction)."
+	for item in ["Time controls", "Collapse / recovery", "Economy", "Statistics", "Logistics"]:
+		_add_inert_item(popup, item, tip)
+
+
+func _build_render_menu() -> void:
+	var popup := render_menu.get_popup()
+	_add_inert_item(popup, "Map mode")
+	_add_inert_item(popup, "Style preset")
+	_add_inert_item(popup, "Terrain appearance...", "TERRAIN_APPEARANCE_SCOPE.md milestones 1-4 built real CPU-only rendering; no GUI exists yet.")
+	_add_inert_item(popup, "Painter styles (NPR)")
+	_add_inert_item(popup, "Lighting & shadows")
+	popup.add_separator()
+	_add_inert_item(popup, "3D viewport")
+	_add_inert_item(popup, "Tiled LOD & atlas cache", "cartalith-spatial exists standalone, unintegrated (LOD_TILING_BASE_SCOPE.md).")
+	_add_inert_item(popup, "Render quality")
+	popup.add_separator()
+	_add_inert_item(popup, "Bake image / tiles...")
+
+
+func _build_assets_menu() -> void:
+	var popup := assets_menu.get_popup()
+	_add_inert_item(popup, "Asset library")
+	_add_inert_item(popup, "Sprite sheet slicer")
+	_add_inert_item(popup, "Asset pack (validate / export)", "Import is real -- see File > Import asset pack. Validate/export have no Rust backing yet.")
+	_add_inert_item(popup, "Assets by domain")
+
+
+func _build_view_menu() -> void:
+	var popup := view_menu.get_popup()
+	_add_inert_item(popup, "Panel visibility")
+	_add_inert_item(popup, "Workspace tabs")
+	_add_inert_item(popup, "Analysis field overlay")
+	_add_inert_item(popup, "Performance readout", "No live CPU/GPU/memory #[func] exists yet (GUI_FEATURE_PARITY_SCOPE.md).")
+
+
+func _build_help_menu() -> void:
+	var popup := help_menu.get_popup()
+	popup.add_item("Credits & academic principles", ID_HELP_CREDITS)
+	_add_inert_item(popup, "References")
+	_add_inert_item(popup, "Keyboard map")
+	popup.id_pressed.connect(_on_help_menu_id)
+
+
+func _on_help_menu_id(id: int) -> void:
+	if id == ID_HELP_CREDITS:
+		credits_dialog.popup_centered()
+
+
+## ── Generation ───────────────────────────────────────────────────────────
 func _term_strength(value: float) -> String:
 	if value >= 0.75:
 		return "strong"
@@ -389,17 +457,10 @@ func _describe_term(t: Dictionary) -> String:
 	return "%s %s (%.2f)" % [_term_strength(float(t["value"])), label, float(t["value"])]
 
 
-## Updates the Inspector panel (right) on hover: the settlement's own data
-## plus a real "why here?" causal chain, decomposed from the very
-## suitability score that placed it (`WorldGen.explain_settlement`,
-## VISION.md). `data` is `null` and `index` `-1` on hover-exit.
-func _on_settlement_hovered(data: Variant, index: int) -> void:
-	if data == null:
-		inspector_header.text = "INSPECTOR · NO SELECTION"
-		inspector_body.text = "No selection.\n\nHover a settlement marker on the map to inspect it. A full per-cell inspector (elevation, slope, aspect, drainage, etc. at the cursor) needs a new engine query this milestone doesn't add -- see GUI_SHELL_SCOPE.md."
-		return
-	var s: Dictionary = data
-	inspector_header.text = "INSPECTOR · SETTLEMENT"
+## Builds the causal "why here?" chain for the Properties dock (pinned
+## selection). Same underlying data/logic the prior shell's Inspector used
+## on hover; now used on click instead (Category-1 item #10).
+func _build_causal_chain_text(s: Dictionary, index: int) -> String:
 	var kind_label: String = String(s["kind"]).capitalize()
 	var lines := [
 		"[b]%s[/b] (%s)" % [s["name"], kind_label],
@@ -414,13 +475,9 @@ func _on_settlement_hovered(data: Variant, index: int) -> void:
 		lines.append("")
 		lines.append("[b]WHY HERE?[/b]")
 		if why.has("excluded"):
-			# A placed settlement shouldn't sit on an excluded cell; if it
-			# ever does, say so plainly rather than inventing a rationale.
 			lines.append("Cell excluded from suitability (%s)." % why["excluded"])
 		else:
 			var terms: Array = why["terms"]
-			# `terms` arrives sorted most-decisive-first. Positives are the
-			# reasons it's here; negatives are what it was placed in spite of.
 			var positives: Array[String] = []
 			var negatives: Array[String] = []
 			for t: Dictionary in terms:
@@ -442,17 +499,59 @@ func _on_settlement_hovered(data: Variant, index: int) -> void:
 		var river_txt := ("Strahler %d" % ord_i) if ord_i > 0 else "none"
 		var coast_cells := float(why["coast_dist_cells"])
 		lines.append("River: %s · flow %.0f" % [river_txt, float(why["flow"])])
-		# Spelled out as distance-to-water rather than "coast", because the
-		# settlement's own `Coastal` flag above uses a much wider radius
-		# (max(6, GW/60) cells -- port eligibility) than the suitability
-		# coast bonus does (a 5-cell falloff). A settlement can honestly be
-		# coastal AND have earned no coastal bonus; labelling this "coast"
-		# made those two lines read as a contradiction when they aren't.
 		lines.append("Distance to water: %.1f cells" % coast_cells)
 		lines.append("Elevation: %.3f (normalised)" % float(why["elevation"]))
 		lines.append("Travel cost: %.2f" % float(why["travel_cost"]))
 
-	inspector_body.text = "\n".join(lines)
+	return "\n".join(lines)
+
+
+## Properties dock: pinned selection (click-to-pin, Category-1 item #10).
+## Independent of the transient hover state Sample owns below.
+func _on_settlement_selected(data: Variant, index: int) -> void:
+	_selected_settlement = data
+	_selected_index = index
+	if data == null:
+		properties_header.text = "PROPERTIES"
+		properties_body.text = "No tool active and no selection. Click a settlement on the map to inspect it. A full per-cell property inspector (elevation, slope, aspect, etc. under an active tool) needs the tool system this milestone doesn't add -- see DCC_SHELL_SCOPE.md."
+		return
+	properties_header.text = "PROPERTIES · SETTLEMENT"
+	properties_body.text = _build_causal_chain_text(data, index)
+
+
+## Sample dock: live, transient hover data -- lighter than Properties'
+## pinned causal chain, and never invents fields (elevation/slope/biome/
+## drainage under the cursor) the engine doesn't expose per-cell yet.
+func _on_settlement_hovered(data: Variant, index: int) -> void:
+	_hover_settlement = data
+	_refresh_sample_panel()
+
+
+func _on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
+	_cursor_valid = valid
+	_cursor_gx = gx
+	_cursor_gy = gy
+	coordinates_label.text = ("%.0f E · %.0f N (cell)" % [gx, gy]) if valid else ""
+	_refresh_sample_panel()
+
+
+func _refresh_sample_panel() -> void:
+	var lines: Array[String] = []
+	if _hover_settlement != null:
+		var s: Dictionary = _hover_settlement
+		var kind_label: String = String(s["kind"]).capitalize()
+		lines.append("[b]%s[/b] (%s)" % [s["name"], kind_label])
+		lines.append("Population %s" % s["population"])
+		lines.append("Faction %d" % s["faction"])
+		lines.append("Coastal: %s" % ("yes" if s["coastal"] else "no"))
+		lines.append("Capital: %s" % ("yes" if s["capital"] else "no"))
+	elif _cursor_valid:
+		lines.append("X %.0f    Y %.0f (grid cell)" % [_cursor_gx, _cursor_gy])
+		lines.append("")
+		lines.append("Per-cell fields (elevation, slope, biome, etc.) need a new engine query this milestone doesn't add -- only cursor position and settlement hover data are real today.")
+	else:
+		lines.append("Hover the map to sample.")
+	sample_body.text = "\n".join(lines)
 
 
 func _on_generate_pressed() -> void:
@@ -462,40 +561,30 @@ func _on_generate_pressed() -> void:
 	generate_button.disabled = true
 	status_label.text = "generating..."
 	readout_label.text = "generating..."
+	shell_status_label.text = "generating..."
 
 	var seed_value := int(seed_input.value)
 	var resolution := RESOLUTION_PRESETS[resolution_input.selected]
 	var width_km := width_input.value
 	var archetype := WORLD_SHAPES[world_shape_input.selected]
 
-	## All four golden-verified against the real JS engine
-	## (cartalith-native/docs/CHANGELOG.md). Still exposed as toggles --
-	## default checked state matches each one's real JS default.
 	world_gen.set_experimental_flags(
 		dynamic_lithology_check.button_pressed,
 		volc_provinces_check.button_pressed,
 		wind_deflection_check.button_pressed,
 		ocean_currents_check.button_pressed,
 	)
-	## Reference `_civVillages` default OFF (Phase 2 milestone 15) --
-	## gated separately from the four flags above since it's civ-layer,
-	## not terrain-substrate.
 	world_gen.set_villages_enabled(villages_check.button_pressed)
-	## `MVP_SCOPE.md` point 9 / reference `state.seaLevel`. UI is a 0-100%
-	## SpinBox (matching the reference's own `#seaV` slider convention);
-	## WorldGen.set_sea_level expects the raw [0,1] fraction.
 	world_gen.set_sea_level(sea_level_input.value / 100.0)
 
 	_gen_thread = Thread.new()
 	_gen_thread.start(_generate_worker.bind(seed_value, width_km, resolution, archetype))
 
 
-## Runs off the main thread. Touches only `world_gen` (plain Rust state),
-## never a node -- see the class doc comment above. `generate()` and
-## `generate_world_structure()` are both full, equally expensive
-## `generate_terrain()` calls that mutate the same `world_gen` state --
-## this must be the ONE call site. `archetype` empty == Classic
-## (World-Structure disabled).
+## Runs off the main thread. Touches only world_gen (plain Rust state),
+## never a node. generate() and generate_world_structure() are both full,
+## equally expensive generate_terrain() calls that mutate the same
+## world_gen state -- this must be the ONE call site.
 func _generate_worker(seed_value: int, width_km: float, resolution: int, archetype: String) -> void:
 	var ok := true
 	if archetype.is_empty():
@@ -505,10 +594,6 @@ func _generate_worker(seed_value: int, width_km: float, resolution: int, archety
 	_on_generate_done.call_deferred(seed_value, width_km, ok)
 
 
-## Deferred back to the main thread: joins the worker, then does the one
-## Rust call that builds a Godot resource (`build_color_texture`) and every
-## scene-tree write. `ok` is false only for an unrecognized archetype
-## string (defensive -- `WORLD_SHAPES` only ever supplies known values).
 func _on_generate_done(seed_value: int, width_km: float, ok: bool) -> void:
 	_gen_thread.wait_to_finish()
 	_gen_thread = null
@@ -516,6 +601,7 @@ func _on_generate_done(seed_value: int, width_km: float, ok: bool) -> void:
 	if not ok:
 		status_label.text = "generate failed — see console"
 		readout_label.text = "generate failed"
+		shell_status_label.text = "generate failed — see console"
 		generate_button.disabled = false
 		_generating = false
 		return
@@ -523,25 +609,11 @@ func _on_generate_done(seed_value: int, width_km: float, ok: bool) -> void:
 	var tex: ImageTexture = world_gen.build_color_texture()
 	if tex:
 		map_view.texture = tex
-		## Phase 2 civilisation layer (cartalith-civ): computed automatically
-		## by generate()/generate_world_structure() itself (see
-		## cartalith-godot's WorldGen), so it's already ready here -- just
-		## fetch and hand to the overlay. No civ data for a loaded save
-		## (see WorldGen.load_save's own doc comment), only a fresh generate.
 		var settlements := world_gen.get_settlements()
 		var roads := world_gen.get_roads()
 		var sea_routes := world_gen.get_sea_routes()
-		## `get_border_inset_frac()` is the plate frame the terrain raster
-		## itself draws (Phase 3 milestone 4) -- the overlay needs it to keep
-		## markers and roads off the bare-paper margin, and only Rust knows
-		## how wide it is.
 		map_overlay.set_civ_data(settlements, roads, sea_routes, world_gen.get_width(), world_gen.get_height(), world_gen.get_border_inset_frac())
 		territory_view.texture = world_gen.build_territory_texture()
-		## Province boundaries (Phase 2, civ_generate_provinces): thin lines
-		## only, drawn on top of territory's own per-faction fill -- see
-		## `build_province_boundary_texture`'s own doc comment for why this
-		## isn't a per-province fill colour (province count is unbounded,
-		## unlike CIV_FACTION_COUNT).
 		province_boundary_view.texture = world_gen.build_province_boundary_texture()
 
 		_last_width_km = width_km
@@ -549,60 +621,59 @@ func _on_generate_done(seed_value: int, width_km: float, ok: bool) -> void:
 
 		var shape_label := world_shape_input.get_item_text(world_shape_input.selected)
 		var civ_note := ", %d settlements" % settlements.size() if not settlements.is_empty() else ""
-		status_label.text = "%dx%d, seed %d, %.0f km, %s%s" % [
+		var summary := "%dx%d, seed %d, %.0f km, %s%s" % [
 			world_gen.get_width(), world_gen.get_height(), seed_value, width_km, shape_label, civ_note
 		]
+		status_label.text = summary
+		shell_status_label.text = summary
 		readout_label.text = "seed %d · %dx%d · %.0f km" % [seed_value, world_gen.get_width(), world_gen.get_height(), width_km]
 	else:
 		status_label.text = "generate failed — see console"
 		readout_label.text = "generate failed"
+		shell_status_label.text = "generate failed — see console"
 
 	generate_button.disabled = false
 	_generating = false
 
 
-## Top-bar readout has no live CPU/GPU/memory number wired this milestone
-## (`GUI_SHELL_SCOPE.md`'s own "ambiguous, verify before building" note --
-## Godot's `Performance` singleton has some of this natively but wiring it
-## honestly wasn't this pass's focus); the scale bar is real, computed from
-## the actual generated map width in km against the viewport's own map-view
-## pixel width.
 func _update_scale_bar() -> void:
 	if _last_width_km <= 0.0 or map_view.size.x <= 0.0:
 		scale_bar_label.text = ""
 		return
-	var km_per_px := _last_width_km / map_view.size.x
-	var bar_km := 100.0
-	if km_per_px > 0.0:
-		bar_km = roundf(100.0 * km_per_px) / km_per_px / 100.0 * 100.0
 	scale_bar_label.text = "%.0f km across viewport" % _last_width_km
 
 
-func _on_load_save_pressed() -> void:
-	load_save_dialog.popup_centered()
-
-
-## `MVP_SCOPE.md` criterion 7: opens a real HTML-app `.zip` and renders that
-## save's terrain. `WorldGen.load_save` (`cartalith-io`) reads the save's
-## own stored fields directly -- no `generate()` call involved, so whatever
-## grid size/seed/map width the save was exported at is what's shown.
+## MVP_SCOPE.md criterion 7: opens a real HTML-app .zip and renders that
+## save's terrain. WorldGen.load_save (cartalith-io) reads the save's own
+## stored fields directly -- no generate() call involved.
 func _on_save_file_selected(path: String) -> void:
-	status_label.text = "loading %s..." % path.get_file()
+	shell_status_label.text = "loading %s..." % path.get_file()
 	if not world_gen.load_save(path):
-		status_label.text = "load failed — see console"
+		shell_status_label.text = "load failed — see console"
 		return
 	var tex: ImageTexture = world_gen.build_color_texture()
 	if tex:
 		map_view.texture = tex
 		## No civ data in a loaded save (WorldGen.load_save's own doc
-		## comment) -- clear any settlements/roads/territory left over
-		## from a previous generate() so a stale overlay doesn't linger.
+		## comment) -- clear any leftover overlay from a previous generate().
 		map_overlay.set_civ_data([], [], [], world_gen.get_width(), world_gen.get_height(), world_gen.get_border_inset_frac())
 		territory_view.texture = null
 		province_boundary_view.texture = null
-		status_label.text = "loaded %s (%dx%d)" % [
-			path.get_file(), world_gen.get_width(), world_gen.get_height()
-		]
+		var summary := "loaded %s (%dx%d)" % [path.get_file(), world_gen.get_width(), world_gen.get_height()]
+		shell_status_label.text = summary
+		status_label.text = summary
 		readout_label.text = "loaded %s" % path.get_file()
 	else:
-		status_label.text = "load succeeded but render failed — see console"
+		shell_status_label.text = "load succeeded but render failed — see console"
+
+
+## Category-1 item #1: File > Import asset pack. WorldGen.load_asset_pack/
+## has_asset_pack are both real Rust functions (cartalith-assets), used
+## previously only by a hardcoded debug call -- this is the first real GUI
+## surface for them.
+func _on_asset_pack_file_selected(path: String) -> void:
+	shell_status_label.text = "importing asset pack %s..." % path.get_file()
+	if world_gen.load_asset_pack(path):
+		shell_status_label.text = "asset pack loaded: %s (has_asset_pack=%s)" % [path.get_file(), world_gen.has_asset_pack()]
+	else:
+		shell_status_label.text = "asset pack import failed — see console"
