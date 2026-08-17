@@ -534,11 +534,18 @@ fn variant_to_value(v: &Variant) -> Option<params::Value> {
 
 /// `MVP_SCOPE.md` points 10-11: basic 2D rendering + minimal UI. Owns the
 /// last `generate_terrain()` result (or loaded save); GDScript drives it via
-/// `generate()`/`load_save()` then `build_color_texture()`. Square grid
-/// (`gw == gh`) for MVP **generation** — a loaded save keeps whatever
-/// `GW`/`GH` it was exported at, which need not be square (the reference
-/// HTML's own `resW`/aspect-from-image handling is UI-layer scope this port
-/// hasn't built yet, but a save's own stored resolution isn't that).
+/// `generate()`/`generate_sized()`/`load_save()` then `build_color_texture()`.
+///
+/// **The grid need not be square.** `cartalith_engine::WorldParams` has
+/// always carried independent `gw`/`gh` (and every golden-parity fixture in
+/// this workspace is non-square — 14×11, 16×12, 24×18, 20×14, 48×40 — so the
+/// whole engine and civ layer is JS-verified at non-square dimensions), but
+/// until `generate_sized()` existed this layer's `generate(seed, width_km,
+/// resolution)` forced `gh = gw` and threw that capability away. `generate()`
+/// keeps doing exactly that (square, bit-identical, and the reason every
+/// existing golden test is untouched); `generate_sized()` is the general
+/// entry point. A loaded save has always kept whatever `GW`/`GH` it was
+/// exported at.
 #[derive(GodotClass)]
 #[class(base=RefCounted)]
 struct WorldGen {
@@ -546,6 +553,12 @@ struct WorldGen {
     source: Option<WorldSource>,
     gw: i32,
     gh: i32,
+    /// The real map width in km of the current world (`WorldParams::
+    /// map_width_km` for a generated one, `SaveParams::map_width_km` for a
+    /// loaded one). `0.0` before the first generation/load. Stored so
+    /// `get_map_width_km`/`get_map_height_km` can report the world actually
+    /// on screen rather than making the caller remember what it asked for.
+    map_width_km: f64,
     sea_level: f64,
     /// **The persistent generation-parameter state** — every field of
     /// `cartalith_engine::WorldParams` except the three `generate()` takes
@@ -621,6 +634,7 @@ impl IRefCounted for WorldGen {
             source: None,
             gw: 0,
             gh: 0,
+            map_width_km: 0.0,
             sea_level: 0.42,
             params: params::defaults(),
             gpu_stages_used: Vec::new(),
@@ -639,15 +653,24 @@ impl IRefCounted for WorldGen {
 /// `generate_world_structure()` — kept out of the `#[godot_api]` block since
 /// they are Rust-internal, not part of the GDScript surface.
 impl WorldGen {
-    /// This instance's persistent parameters with the three call-argument
+    /// This instance's persistent parameters with the four call-argument
     /// fields filled in. The single place `gw`/`gh`/`seed`/`map_width_km`
     /// enter a `WorldParams` — everything else comes from `self.params`
     /// unchanged, which is why an untouched `WorldGen` generates exactly what
     /// it did before the parameter API existed.
-    fn call_params(&self, seed: i32, width_km: f64, gw: usize) -> WorldParams {
+    ///
+    /// `width_km` is the **width** of the map. The engine derives its cell
+    /// size from `map_width_km / gw` alone (`cartalith_terrain::
+    /// terrain_detail_k`, `river_flow_thresh`, `civ_catchment_radius_cells`,
+    /// `suppression_radius_cells` — every km↔cell conversion in the
+    /// workspace goes through that one quotient and is applied isotropically),
+    /// so **cells are square in km and the map's real height is
+    /// `width_km * gh / gw`** — derived, never independently settable. See
+    /// `get_map_height_km`.
+    fn call_params(&self, seed: i32, width_km: f64, gw: usize, gh: usize) -> WorldParams {
         let mut p = self.params.clone();
         p.gw = gw;
-        p.gh = gw;
+        p.gh = gh;
         p.tect.seed = seed;
         p.map_width_km = if width_km > 0.0 { width_km } else { 800.0 };
         p
@@ -656,20 +679,40 @@ impl WorldGen {
     /// Stores a finished generation: the effective sea level, the render
     /// inputs `render.rs` needs, the civ layer, and which stages actually ran
     /// on GPU.
-    fn absorb(&mut self, ws: cartalith_engine::WorldState, p: &WorldParams, gw: usize, seed: i32) {
+    fn absorb(&mut self, ws: cartalith_engine::WorldState, p: &WorldParams, seed: i32) {
         // Not `p.sea_level` -- World-Structure archetypes re-anchor it;
         // `WorldState` carries the value actually used.
         self.sea_level = ws.sea_level;
-        self.gw = gw as i32;
-        self.gh = gw as i32;
+        self.gw = p.gw as i32;
+        self.gh = p.gh as i32;
+        self.map_width_km = p.map_width_km;
         self.world = p.world;
         self.lat_n = p.climate.lat_n;
         self.lat_s = p.climate.lat_s;
         self.gpu_stages_used = ws.gpu_stages_used.clone();
-        self.civ = Some(compute_civilisation(&ws, gw, gw, p.world, p.map_width_km, p.river_density, self.villages));
+        self.civ = Some(compute_civilisation(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, self.villages));
         self.source = Some(WorldSource::Generated(Box::new(ws)));
         self.seed = seed;
     }
+}
+
+/// `gridH(gw)` (reference HTML line 5049): the reference app's own grid
+/// height for a chosen working resolution — `round(gw * 0.5)` in world mode
+/// (2:1 equirectangular) and `round(gw * 0.64)` in region mode (a 1.5625:1
+/// frame). **The reference's maps are never square**; this port's square
+/// default came from `generate()`'s single `resolution` argument, not from
+/// anything the reference does.
+///
+/// Exposed so a setup dialog gets it from the engine side rather than
+/// hardcoding `0.64` a second time in GDScript (`ARCHITECTURE.md`: "Godot
+/// computes nothing beyond layout").
+///
+/// One deliberate deviation from the reference: floored at 4, matching
+/// `generate_sized`'s own minimum, so this can never hand back a grid the
+/// generator would then clamp behind the caller's back.
+fn reference_grid_h(gw: usize, world: bool) -> usize {
+    let k = if world { 0.5 } else { 0.64 };
+    ((gw as f64 * k).round() as usize).max(4)
 }
 
 #[godot_api]
@@ -924,12 +967,42 @@ impl WorldGen {
     /// refuses to make editable mid-project ("changing it would silently
     /// rescale every derived distance, grade, route length and settlement
     /// spacing").
+    ///
+    /// **Square**: `gh = gw = resolution`. Exactly
+    /// `generate_sized(seed, width_km, resolution, resolution)`, kept as its
+    /// own `#[func]` because `main.gd` drives it — and kept square so every
+    /// existing golden-parity fixture stays untouched. Use `generate_sized`
+    /// for any other shape.
     #[func]
     fn generate(&mut self, seed: i32, width_km: f64, resolution: i32) {
-        let gw = resolution.max(4) as usize;
-        let p = self.call_params(seed, width_km, gw);
+        self.generate_sized(seed, width_km, resolution, resolution);
+    }
+
+    /// As `generate()`, but with **independent grid width and height** — the
+    /// engine's real capability, which `generate()`'s single `resolution`
+    /// argument hides.
+    ///
+    /// `grid_w`/`grid_h` are each clamped to a sane minimum (4), matching
+    /// `generate()`'s own `resolution.max(4)`: a `0` from an unset GDScript
+    /// `SpinBox` must not panic the extension.
+    ///
+    /// **`width_km` is the map's width, and cells stay square in km**, so the
+    /// map's real height is `width_km * grid_h / grid_w` — read it back with
+    /// `get_map_height_km()`. There is deliberately no independent
+    /// `height_km`: every km↔cell conversion in this workspace derives from
+    /// `map_width_km / gw` and applies it to both axes (see `call_params`),
+    /// so a separately-set height would silently contradict every distance,
+    /// grade, route length and settlement spacing the world is built from.
+    /// A world that is 2:1 in cells is 2:1 in km.
+    ///
+    /// `reference_grid_height()` gives the shape the reference HTML app
+    /// itself uses for a given working resolution.
+    #[func]
+    fn generate_sized(&mut self, seed: i32, width_km: f64, grid_w: i32, grid_h: i32) {
+        let (gw, gh) = (grid_w.max(4) as usize, grid_h.max(4) as usize);
+        let p = self.call_params(seed, width_km, gw, gh);
         let ws = generate_terrain(&p);
-        self.absorb(ws, &p, gw, seed);
+        self.absorb(ws, &p, seed);
     }
 
     /// Generates with a named World-Structure archetype (`ARCHETYPES`, the
@@ -940,15 +1013,34 @@ impl WorldGen {
     /// archetype stick and become editable as raw sliders.
     ///
     /// Returns `false` (generating nothing) for an unknown archetype name.
+    ///
+    /// **Square**, exactly as `generate()` is —
+    /// `generate_world_structure_sized(seed, width_km, resolution,
+    /// resolution, archetype)`. Use that method for any other shape.
     #[func]
     fn generate_world_structure(&mut self, seed: i32, width_km: f64, resolution: i32, archetype: GString) -> bool {
+        self.generate_world_structure_sized(seed, width_km, resolution, resolution, archetype)
+    }
+
+    /// As `generate_world_structure()`, but with independent grid width and
+    /// height — the same relationship `generate_sized()` has to `generate()`,
+    /// including the square-cells-in-km rule (see `generate_sized`).
+    #[func]
+    fn generate_world_structure_sized(
+        &mut self,
+        seed: i32,
+        width_km: f64,
+        grid_w: i32,
+        grid_h: i32,
+        archetype: GString,
+    ) -> bool {
         let Some(world_structure) = archetype_knobs(&archetype) else {
             godot_print!("cartalith-godot: unknown World-Structure archetype '{archetype}'");
             return false;
         };
 
-        let gw = resolution.max(4) as usize;
-        let mut p = self.call_params(seed, width_km, gw);
+        let (gw, gh) = (grid_w.max(4) as usize, grid_h.max(4) as usize);
+        let mut p = self.call_params(seed, width_km, gw, gh);
         // `p.sea_level` carries the stored input for consistency with
         // `generate()`, but `apply_world_structure_sea_level` always
         // re-anchors it below since `enabled` is unconditionally true on this
@@ -956,8 +1048,51 @@ impl WorldGen {
         p.world_structure = world_structure;
 
         let ws = generate_terrain(&p);
-        self.absorb(ws, &p, gw, seed);
+        self.absorb(ws, &p, seed);
         true
+    }
+
+    /// The grid height the **reference HTML app itself** uses for a given
+    /// working resolution (`gridH`, reference line 5049): `round(grid_w *
+    /// 0.5)` when `world` is on (2:1 equirectangular) and `round(grid_w *
+    /// 0.64)` when it is off (a 1.5625:1 region frame), floored at 4.
+    ///
+    /// Exists so a setup dialog can offer "the shape the reference uses"
+    /// without hardcoding those two constants in GDScript. Note the
+    /// consequence: **this port's square default is a divergence from the
+    /// reference, not a match** — the reference's maps are never square. It
+    /// stays the default here only because every golden-parity fixture and
+    /// every existing `main.gd` call is built on it.
+    ///
+    /// Pure function of its arguments; reads and changes no state.
+    #[func]
+    fn reference_grid_height(&self, grid_w: i32, world: bool) -> i32 {
+        reference_grid_h(grid_w.max(4) as usize, world) as i32
+    }
+
+    /// The current world's real map **width** in km (`generate()`'s own
+    /// `width_km` argument, or a loaded save's `mapWidthKm`). `0.0` before
+    /// the first generation or load.
+    #[func]
+    fn get_map_width_km(&self) -> f64 {
+        self.map_width_km
+    }
+
+    /// The current world's real map **height** in km — **derived**, as
+    /// `map_width_km * gh / gw`, because the engine's one km↔cell quotient is
+    /// `map_width_km / gw` applied isotropically (see `call_params`), i.e.
+    /// cells are square in km. `0.0` before the first generation or load.
+    ///
+    /// This is a readout, not a setting: there is no `set_map_height_km`, and
+    /// deliberately so — a height that disagreed with `width_km * gh / gw`
+    /// would contradict every distance, grade, route length and settlement
+    /// spacing the world was generated from.
+    #[func]
+    fn get_map_height_km(&self) -> f64 {
+        if self.gw <= 0 {
+            return 0.0;
+        }
+        self.map_width_km * self.gh as f64 / self.gw as f64
     }
 
     /// `MVP_SCOPE.md` point 12 / criterion 7: opens a real HTML-app `.zip`
@@ -984,8 +1119,14 @@ impl WorldGen {
                 return false;
             }
         };
+        // A real reference export is very often non-square (the reference's
+        // own `gridH` is `gw*0.64` in region mode, `gw*0.5` in world mode) --
+        // this path has always carried both dimensions through correctly,
+        // which is why loading was never affected by `generate()`'s square
+        // restriction.
         self.gw = save.params.gw as i32;
         self.gh = save.params.gh as i32;
+        self.map_width_km = save.params.map_width_km;
         self.sea_level = save.params.sea_level;
         self.world = save.params.world;
         // SaveParams carries no latitude band -- JS's own literal
@@ -1070,13 +1211,18 @@ impl WorldGen {
     /// Exists so the marker overlay can keep its content inside the
     /// neatline instead of drawing settlements and roads onto the bare
     /// margin, without hardcoding `render.rs`'s `0.014` a second time.
+    ///
+    /// Correct for a **non-square** grid without a second value for the
+    /// vertical inset: the frame is a uniform cell count on all four sides
+    /// and `map_overlay.gd`'s `_displayed_rect()` fit scale is uniform, so
+    /// `frac × displayed_width` is the inset in screen pixels on both axes.
     #[func]
     fn get_border_inset_frac(&self) -> f64 {
-        let gw = self.gw as usize;
-        if gw == 0 {
+        let (gw, gh) = (self.gw as usize, self.gh as usize);
+        if gw == 0 || gh == 0 {
             return 0.0;
         }
-        render::border_width_cells(&TerrainAppearance::default(), gw) / gw as f64
+        render::border_width_cells(&TerrainAppearance::default(), gw, gh) / gw as f64
     }
 
     /// Builds a colour + hillshade texture from the last `generate()`

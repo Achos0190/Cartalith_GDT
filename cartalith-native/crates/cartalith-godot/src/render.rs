@@ -1277,11 +1277,26 @@ fn apply_paper(a: &TerrainAppearance, c: Rgb, tone: Rgb) -> Rgb {
 /// `map_overlay.gd` can keep its markers inside the neatline. Anything that
 /// re-derives `0.014 * gw` by hand is a second source of truth and will
 /// drift the first time the frame is retuned.
-pub fn border_width_cells(a: &TerrainAppearance, gw: usize) -> f64 {
+/// The frame is a **uniform number of cells on all four sides** (a real
+/// atlas plate's margin is uniform, not proportional per axis), so it is
+/// keyed to `gw` alone — which is also what keeps
+/// `WorldGen::get_border_inset_frac`'s "fraction of texture width" contract
+/// exact under the uniform fit `map_overlay.gd` applies.
+///
+/// The one-sided `gh` guard exists because `apply_border`/`border_cover`
+/// measure distance as `min(dx, dy)`: on a plate much wider than it is tall,
+/// a width-derived margin can exceed half the height and swallow the entire
+/// sheet, producing a blank image rather than a framed one. It is deliberately
+/// one-sided (`gh < gw` only) so that **every square and every tall grid keeps
+/// exactly the width it had before non-square generation existed** — a
+/// guard that also fired on square grids would silently change the frame at
+/// small square resolutions.
+pub fn border_width_cells(a: &TerrainAppearance, gw: usize, gh: usize) -> f64 {
     if a.border_width_frac <= 0.0 {
         return 0.0;
     }
-    (a.border_width_frac * gw as f64).max(10.0)
+    let w = (a.border_width_frac * gw as f64).max(10.0);
+    if gh < gw { w.min(gh as f64 * 0.25) } else { w }
 }
 
 /// How much of this cell the plate frame covers: `0.0` anywhere the frame
@@ -1299,7 +1314,7 @@ pub fn border_width_cells(a: &TerrainAppearance, gw: usize) -> f64 {
 // standalone) don't include — same situation as `js_reference()` in reverse.
 #[allow(dead_code)]
 pub fn border_cover(a: &TerrainAppearance, x: usize, y: usize, gw: usize, gh: usize) -> f64 {
-    let w = border_width_cells(a, gw);
+    let w = border_width_cells(a, gw, gh);
     if w <= 0.0 {
         return 0.0;
     }
@@ -1320,7 +1335,7 @@ pub fn border_cover(a: &TerrainAppearance, x: usize, y: usize, gw: usize, gh: us
 /// floored in absolute cells so the frame survives this port's 512²–8192²
 /// resolution range without the two rules merging at the small end.
 fn apply_border(a: &TerrainAppearance, c: Rgb, tone: Rgb, x: usize, y: usize, gw: usize, gh: usize) -> Rgb {
-    let w = border_width_cells(a, gw);
+    let w = border_width_cells(a, gw, gh);
     if w <= 0.0 {
         return c;
     }

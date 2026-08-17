@@ -64,6 +64,89 @@ Unchanged, and still the way `main.gd` drives them:
 `set_villages_enabled(bool)`, `generate(seed, width_km, resolution)`,
 `generate_world_structure(seed, width_km, resolution, archetype) -> bool`.
 
+## Map dimensions and aspect ratio
+
+**The map does not have to be square, and in the reference it never is.**
+
+`cartalith_engine::WorldParams` has always carried independent `pub gw` and
+`pub gh`, every subsystem threads both, and **every golden-parity fixture in
+this workspace is non-square** (14×11, 16×12, 24×18, 20×14, 48×40, 10×8) — so
+JS parity at non-square dimensions has been established since those
+subsystems were ported. The squareness lived entirely in `cartalith-godot`:
+`generate()` took one `resolution` and `call_params` wrote `p.gh = gw`,
+discarding the capability at the boundary. The reference itself computes
+`GH = gridH(GW) = round(GW × (world ? 0.5 : 0.64))` (reference HTML line
+5049) — 2:1 equirectangular in world mode, a 1.5625:1 frame in region mode —
+and its "Working resolution" segment (`512 / 1K / 2K / 4K / 8K`) sets the
+**width** only.
+
+| Signature | Returns |
+|---|---|
+| `generate_sized(seed: int, width_km: float, grid_w: int, grid_h: int) -> void` | The general entry point: full pipeline at independent grid dimensions. Each dimension clamped to ≥ 4. |
+| `generate_world_structure_sized(seed, width_km, grid_w, grid_h, archetype) -> bool` | Same, with a one-call archetype applied. `false` for an unknown name. |
+| `reference_grid_height(grid_w: int, world: bool) -> int` | The reference app's own `gridH`: `round(grid_w × 0.5)` when `world`, `round(grid_w × 0.64)` otherwise, floored at 4. Pure function; touches no state. |
+| `get_map_width_km() -> float` | The current world's real map **width** in km. `0.0` before any generation/load. |
+| `get_map_height_km() -> float` | The current world's real map **height** in km — **derived** as `map_width_km × gh / gw`. `0.0` before any generation/load. |
+
+`get_width()` / `get_height()` already returned the real `gw` / `gh` (the
+loaded-save path has always carried both), so nothing new is needed to read
+the shape back.
+
+**One caveat the GUI must respect: in `world` mode, 2:1 is not a preference,
+it is the physically consistent shape.** X wraps a full 360° of longitude
+over `gw` and Y spans 180° of latitude over `gh` (`lat_at`, reference
+`latAt`), so any other ratio silently stretches the graticule. Generation
+does not enforce it (nothing panics, and a loaded save may legitimately be
+any shape), so a setup dialog should default world extent to
+`reference_grid_height(grid_w, true)` rather than offering the two dimensions
+as free, independent choices.
+
+### Why height is a `generate()` argument, not a parameter
+
+Same reasoning `resolution` already had, and stated in the same place: grid
+dimensions reallocate every field in the pipeline, so they are a creation-time
+decision, not a slider. Making `grid_h` a stored `set_params` key would put
+it in a table whose whole contract is "set it, then generate as many times as
+you like" — which is exactly what a dimension cannot support. It therefore
+sits beside `seed`, `resolution` and `width_km` as a call argument.
+
+### Why there is no `map_height_km`
+
+Because it is not free to choose. Every kilometre↔cell conversion in this
+workspace derives from **one** quotient, `map_width_km / gw`, and applies it
+to both axes:
+
+- `cartalith_terrain::terrain_detail_k(gw, map_width_km)` → `cell_km = mwk / gw`,
+- `cartalith_hydrology::river_flow_thresh(gw, gh, world_gw, map_width_km)`,
+- `cartalith_civ::civ_catchment_radius_cells(cat_km2, map_width_km, gw)`,
+- `cartalith_civ::suppression_radius_cells(spacing_km, gw, map_width_km)`.
+
+So the engine's real, already-shipped assumption is that **cells are square
+in kilometres**. A separately-settable map height would contradict every
+distance, grade, river threshold, catchment radius and settlement spacing the
+world is generated from — the same class of silent rescaling the reference
+cites as its reason for freezing `map_width_km` after creation. A world 2:1
+in cells is 2:1 in kilometres; `get_map_height_km()` reports that, and there
+is deliberately no setter.
+
+### Backward compatibility
+
+`generate(seed, width_km, resolution)` and `generate_world_structure(...)`
+are unchanged and still square — they now delegate to the `_sized` forms with
+`grid_h = grid_w`. Square output is bit-identical to before this pass; every
+golden-parity fixture is unmodified and passing.
+
+### What the plate frame does on a non-square sheet
+
+The atlas plate border (`TERRAIN_APPEARANCE_SCOPE.md` milestone 4) is a
+**uniform margin in cells on all four sides**, keyed to `gw`, which is what a
+real plate margin is and what keeps `get_border_inset_frac()`'s
+"fraction of texture width" contract exact under `map_overlay.gd`'s uniform
+fit. One guard was added: on a plate much *wider* than it is tall, a
+width-derived margin can exceed half the height and swallow the sheet, so
+`border_width_cells` caps at `0.25 × gh` — **only when `gh < gw`**, so every
+square and every tall grid keeps exactly the width it had before.
+
 ### Persistence
 
 **Parameters persist on the `WorldGen` instance between generations.** Set
@@ -75,12 +158,14 @@ not left to be discovered.
 
 ### What is *not* a parameter, and why
 
-Three values stay `generate()` arguments:
+Three values stay `generate()` arguments (four, counting `grid_h` — see
+**Map dimensions and aspect ratio** above):
 
 - **`seed`** — changes on every "New seed" click; it is the call, not a
   setting. Readable back via `get_seed()`.
-- **`resolution`** (`gw`/`gh`) — a working-resolution segment in the
-  reference, not a slider, and it reallocates every field.
+- **`resolution`** (`gw`, and `gh` via `generate_sized`) — a
+  working-resolution segment in the reference, not a slider, and it
+  reallocates every field.
 - **`width_km`** (`map_width_km`) — the reference itself refuses to make this
   editable mid-project: *"it's a creation-time decision, set only in the
   New-world / Import setup gate (never editable mid-project; changing it would
