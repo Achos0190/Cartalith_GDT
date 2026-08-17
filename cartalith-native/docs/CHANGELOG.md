@@ -7302,6 +7302,130 @@ settlement/road overlay on top. The controlled before/after is
 `paperonly`/`stippleonly` dumps, since the three stages are independent and
 a combined image cannot show which one carries a change.
 
+## Phase 4 milestone 2: pack ZIP read/write (2026-08-17)
+
+`ASSET_LIBRARY_SCOPE.md` milestone 2 of 7 — the reference's `unzipAny`
+(line 12210) and `zipStore` (line 12009) in Rust terms, plus the entry
+ordering its own exporter writes.
+
+**Placement decided for real, not deferred again.** The scope doc left it
+open between "`cartalith-assets` behind a feature" and "`cartalith-io`".
+Reading `cartalith-io` first is what settled it: its entire zip surface is
+`ZipArchive::new` + `by_name` + `read_to_end`, so there is no helper to
+extract — the `zip` crate already *is* the shared piece that `unzipAny`/
+`zipStore` were in the reference. Milestone 1's finding that packs use the
+same writer as the world save is true, and precisely because it is true it
+implies a shared *crate*, not shared code. Two further reasons pushed the
+same way: `cartalith-io` is reading-only by explicit scope (`MVP_SCOPE.md`
+point 12, `SAVEFILE_COMPAT.md`'s "Deferred"), and a pack writer there would
+break that; and the dependency would point the wrong way, making every
+consumer of the world-save loader drag in the asset vocabulary for a
+subsystem that is optional by design.
+
+So: **new `cartalith-assets::archive`, behind an on-by-default `zip`
+feature**. `default-features = false` gives back exactly the archive-free
+manifest model milestone 1 shipped — and that is *tested*
+(`cargo test -p cartalith-assets --no-default-features`), not merely claimed.
+
+**Ported, not delegated.** The container is the `zip` crate's job. What is a
+real port is the reference's own policy around it, all of which a plain `zip`
+call gets wrong by default:
+
+- **`.png` is STORED, everything else DEFLATED.** A PNG is already internally
+  DEFLATE-compressed; re-compressing it is wasted CPU for no size gain (the
+  reference says so in its own comment).
+- **Timestamps frozen at 1980-01-01 00:00:00** — `zipStore` hardcodes DOS date
+  `0x0021`, time `0`, which makes exports byte-reproducible. `zip`'s own
+  default is the wall clock, so this is set explicitly; there is a test that
+  writes the same pack twice and compares bytes.
+- **`pack.json` last**, after every image, matching the exporter's own append.
+- **Names verbatim on read** — no wrapping-folder stripping, no backslash
+  rewriting. Zipping the *folder* rather than its *contents* therefore fails
+  with the reference's own "pack has no pack.json or pack.csv", which is the
+  behaviour to keep: guessing a root would make every manifest path ambiguous.
+  There is a test for it.
+- **Directory entries survive** as zero-byte members (the reference walks the
+  central directory and keeps what it finds; no manifest path ends in `/`).
+- **An unrecognised method errors, worded as the reference words it** —
+  `unsupported zip method 93 for pack.json`, obtained by reading the entry's
+  metadata with `by_index_raw` before instantiating a decompressor, rather
+  than letting the crate return a generic "unsupported archive".
+
+Two deliberate non-ports, stated rather than smuggled: `zipStore`'s extra
+"only if the compressed bytes actually came out smaller" fallback (a
+browser-side size/`CompressionStream`-availability concern no reader can
+observe), and `unzipStore` — `unzipAny`'s fallback for an archive with no
+readable central directory, which answers `null` for every deflated entry.
+That is a defence against a truncated `ArrayBuffer`, not a format variant;
+`zip::ZipArchive` requires the central directory and errors cleanly without
+it, which is the better answer.
+
+**API**: `read_pack_entries` (→ `BTreeMap<String, Vec<u8>>`, the shape
+`parse_pack_entries` already wanted), `read_pack` (entries + validated
+manifest in one pass — `loadAssetPack` minus the image decode),
+`write_pack_entries` (caller-ordered), and `write_pack` (manifest + images,
+applying the exporter's own traversal order and appending `pack.json`).
+`write_pack` errors on a manifest path the image map does not carry rather
+than exporting a pack whose own parser would warn about every missing slot.
+
+**Verified against a pack the reference itself exported — in both
+directions.** The harness runs the reference's own
+`PackManifestBuilder.build()` (line 26964) over its own `FAMILIES`/`AssetDB`
+vocabulary and its own `zipStore()` headlessly under Node's
+`vm.runInContext`, everything lifted verbatim by line range from the frozen
+HTML — the same technique the 2026-08-15 "extraction harness upgrade" entry
+established and `cartalith-io`'s `golden_parity_real_export.rs` uses for world
+saves. Exactly two things in that run are not reference code, and the test
+file says so up front: `renderToBlob` is a canvas rasteriser (replaced by a
+real PNG encoder emitting genuine, valid PNGs at each family's own 512²/256²
+bake size), and the three DOM inputs
+`E('alPackName'|'alPackAuthor'|'alPackLicense')` are stubbed with real values.
+Filenames, entry order, stored-vs-deflated, timestamps, the manifest's exact
+JSON text and every CRC-32 are the reference's own output.
+
+The result is checked in as `tests/fixtures/reference_pack.zip` (18 entries,
+21 KB, covering all eight families including a custom set) plus that run's own
+`unzipAny`/`parsePackManifest`/`packSummary` capture — so the comparison is
+against what the reference saw, not against a re-read by this port's own
+reader.
+
+- **Read**: entries match name for name and CRC-32 for CRC-32 (the checksums
+  the reference wrote into the archive, re-derived in the test by a ten-line
+  port of the reference's own `crc32` rather than by adding a hash crate);
+  `parse_pack_entries` reproduces the summary and the single warning; and
+  `to_pack_json()` reproduces the exporter's `pack.json` **text byte for
+  byte** — which incidentally confirms milestone 1 got `RawManifest`'s field
+  order right (`textures`, `icons`, then only the non-empty
+  `biomes`/`terrains`/`structures`/`custom`, because the reference
+  pre-creates the first two in its object literal and adds the rest lazily).
+- **Write**: `write_pack` reproduces the reference archive's entry order,
+  per-entry compression method, CRC-32, uncompressed size and 1980 timestamps
+  — and the bytes were fed back through the reference's own `unzipAny` +
+  `parsePackManifest`, which read all 18 entries with byte-identical payloads,
+  a byte-identical `pack.json`, and an identical summary and warning list.
+  The two archives differ by **2 bytes in total**, first divergence at offset
+  4 (version-needed-to-extract). Exact byte equality is not the bar and could
+  not be: the one deflated entry is compressed by `miniz_oxide` here and by
+  the browser's zlib there, and two conforming deflate encoders need not agree
+  on a bit stream.
+
+**Corrections this milestone made to `ASSET_LIBRARY_SCOPE.md`**: its §4 filed
+ZIP read/write under "platform work, not a port", which is three-quarters
+right — the container is, the export policy above is not, and the timestamp
+case is one where the crate's default is actively wrong. Milestone 5 (the
+Library model) is flagged to keep **both** the raw custom-set name and its
+slug, confirmed by watching the real exporter emit `custom/naval/…` paths
+under a `"Naval"` manifest key; losing either makes a round-trip lossy. And
+`packSummary`'s "*N* custom icon(s)" counts slots, not variants — already
+matched, noted because it reads like a bug.
+
+**Verification**: `cargo build -p cartalith-assets` and `--workspace` clean;
+`cargo test -p cartalith-assets` green with 14 new tests (4 golden-parity +
+10 unit) and green again with `--no-default-features`, where the archive
+module and its golden test compile out entirely; `cargo clippy -p cartalith-assets --all-targets`
+clean for this milestone's files; `cargo test --workspace` 0 failures.
+**Wired to nothing** — milestone 7 is where integration lives.
+
 ## Phase 4 milestone 3: scatter rules, with the v1.27 hardening ported as fixes (2026-08-17)
 
 `ASSET_LIBRARY_SCOPE.md` milestone 3. New module `scatter` in

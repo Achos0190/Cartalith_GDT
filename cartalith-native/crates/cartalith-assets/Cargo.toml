@@ -4,12 +4,22 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "asset-pack manifest + scatter rules: frozen slot vocabularies, pack.json/pack.csv parsing, and the rule model that decides where an asset scatters (ASSET_LIBRARY_SCOPE.md milestones 1 and 3) -- no images, no zip, no gdext"
+description = "asset-pack manifest + scatter rules: frozen slot vocabularies, pack.json/pack.csv parsing, and the rule model that decides where an asset scatters, plus pack .zip read/write (ASSET_LIBRARY_SCOPE.md milestones 1-3) -- no images, no gdext"
 
 [lib]
 name = "cartalith_assets"
+
+[features]
+# On by default: a pack that cannot be opened is not much use. Turn it off with
+# `default-features = false` to get back exactly the archive-free manifest
+# model milestone 1 shipped.
+default = ["zip"]
+zip = ["dep:zip"]
 
 [dependencies]
 cartalith-noise = { path = "../cartalith-noise" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+# Same version and feature set cartalith-io already proved against real
+# reference exports, so the workspace resolves a single copy.
+zip = { version = "8.6.0", features = ["deflate"], optional = true }

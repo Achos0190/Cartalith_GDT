@@ -137,6 +137,7 @@ dependencies = [
  "cartalith-noise",
  "serde",
  "serde_json",
+ "zip",
 ]
 
 [[package]]

@@ -1,0 +1,325 @@
+{
+  "note": "produced by the reference PackManifestBuilder.build() + zipStore(), read back by its own unzipAny()",
+  "zipBytes": 21320,
+  "zipSha256": "376f6225b1bf63a3760d10ebeb1fd9be8a641ad83d0c4ee74ef2344c6748f18c",
+  "exporterEntryOrder": [
+    "textures/grass.png",
+    "textures/rock.png",
+    "textures/sand.png",
+    "biomes/jungle.png",
+    "terrains/paved.png",
+    "icons/mountain_01.png",
+    "icons/mountain_02.png",
+    "icons/mountain_03.png",
+    "icons/tree_conifer_01.png",
+    "icons/tree_conifer_02.png",
+    "structures/settlement/village_01.png",
+    "structures/settlement/city_01.png",
+    "structures/settlement/city_02.png",
+    "structures/trait/port_01.png",
+    "structures/poi/ruin_01.png",
+    "custom/naval/lighthouse_01.png",
+    "custom/naval/lighthouse_02.png",
+    "pack.json"
+  ],
+  "centralDirectory": [
+    {
+      "name": "textures/grass.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 3932307173,
+      "csize": 1820,
+      "usize": 1820,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "textures/rock.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 174921766,
+      "csize": 1819,
+      "usize": 1819,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "textures/sand.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 4242167399,
+      "csize": 1821,
+      "usize": 1821,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "biomes/jungle.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 3181870712,
+      "csize": 1820,
+      "usize": 1820,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "terrains/paved.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 300855363,
+      "csize": 1818,
+      "usize": 1818,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "icons/mountain_01.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 410849135,
+      "csize": 800,
+      "usize": 800,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "icons/mountain_02.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 410849135,
+      "csize": 800,
+      "usize": 800,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "icons/mountain_03.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 410849135,
+      "csize": 800,
+      "usize": 800,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "icons/tree_conifer_01.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 2608568620,
+      "csize": 802,
+      "usize": 802,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "icons/tree_conifer_02.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 2608568620,
+      "csize": 802,
+      "usize": 802,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "structures/settlement/village_01.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 246023568,
+      "csize": 801,
+      "usize": 801,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "structures/settlement/city_01.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 317169649,
+      "csize": 802,
+      "usize": 802,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "structures/settlement/city_02.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 317169649,
+      "csize": 802,
+      "usize": 802,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "structures/trait/port_01.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 3509807234,
+      "csize": 802,
+      "usize": 802,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "structures/poi/ruin_01.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 3054507848,
+      "csize": 801,
+      "usize": 801,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "custom/naval/lighthouse_01.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 1367557900,
+      "csize": 800,
+      "usize": 800,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "custom/naval/lighthouse_02.png",
+      "method": 0,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 1367557900,
+      "csize": 800,
+      "usize": 800,
+      "elen": 0,
+      "clen": 0
+    },
+    {
+      "name": "pack.json",
+      "method": 8,
+      "mtime": 0,
+      "mdate": 33,
+      "crc": 3077313107,
+      "csize": 370,
+      "usize": 1127,
+      "elen": 0,
+      "clen": 0
+    }
+  ],
+  "readBack": [
+    {
+      "name": "textures/grass.png",
+      "len": 1820,
+      "sha256": "8f0eea787c962673feaf410ddbd643eb13c1098515c07cd8e6fe5bafb4f6ed99"
+    },
+    {
+      "name": "textures/rock.png",
+      "len": 1819,
+      "sha256": "0a9ef1e4c17c6f210e4371b6f995e25c094d7fbd4d9dff79fc0bf2fea3c9bb76"
+    },
+    {
+      "name": "textures/sand.png",
+      "len": 1821,
+      "sha256": "4892c760607a41325d3e5c030fdbe9fa7dd67922f48976ca9e9261791c6297f9"
+    },
+    {
+      "name": "biomes/jungle.png",
+      "len": 1820,
+      "sha256": "446346c10e0055930116cd445c6014a406bcc36379ad96a845e607833f7d3573"
+    },
+    {
+      "name": "terrains/paved.png",
+      "len": 1818,
+      "sha256": "5f3cf2db54409178372b836936ab2a322081b7b9afe14e6a88d57d614b495e07"
+    },
+    {
+      "name": "icons/mountain_01.png",
+      "len": 800,
+      "sha256": "b409fe7b9d2bc70b831cafcc719685a11fb0fe7245f01e832f8957e4fe72d5ae"
+    },
+    {
+      "name": "icons/mountain_02.png",
+      "len": 800,
+      "sha256": "b409fe7b9d2bc70b831cafcc719685a11fb0fe7245f01e832f8957e4fe72d5ae"
+    },
+    {
+      "name": "icons/mountain_03.png",
+      "len": 800,
+      "sha256": "b409fe7b9d2bc70b831cafcc719685a11fb0fe7245f01e832f8957e4fe72d5ae"
+    },
+    {
+      "name": "icons/tree_conifer_01.png",
+      "len": 802,
+      "sha256": "6a325604108db5f7ffb21fdd0097908f5c85f2acd19c7053ed6bbfaa26358efe"
+    },
+    {
+      "name": "icons/tree_conifer_02.png",
+      "len": 802,
+      "sha256": "6a325604108db5f7ffb21fdd0097908f5c85f2acd19c7053ed6bbfaa26358efe"
+    },
+    {
+      "name": "structures/settlement/village_01.png",
+      "len": 801,
+      "sha256": "00020ed9c79934f152355ea693c1a83382d849d9f244fd115ea0cb58bb0e302b"
+    },
+    {
+      "name": "structures/settlement/city_01.png",
+      "len": 802,
+      "sha256": "df44f711f2137099f061fc72dad8a3c924ef7ff00eb7a21656c7f1bd80eac8c6"
+    },
+    {
+      "name": "structures/settlement/city_02.png",
+      "len": 802,
+      "sha256": "df44f711f2137099f061fc72dad8a3c924ef7ff00eb7a21656c7f1bd80eac8c6"
+    },
+    {
+      "name": "structures/trait/port_01.png",
+      "len": 802,
+      "sha256": "6b185114492159f794f0013121c99a42da5fa991ebca6189e5b7795dd9718784"
+    },
+    {
+      "name": "structures/poi/ruin_01.png",
+      "len": 801,
+      "sha256": "4600d1106f6701cc2a5d5395f3156b60de9a28195cc0cf33bd7a99a3a9ae26f6"
+    },
+    {
+      "name": "custom/naval/lighthouse_01.png",
+      "len": 800,
+      "sha256": "8c8f7e9469ad6cbf0df8352f61029011556f1c9e872480a911fa5ce5cb810e36"
+    },
+    {
+      "name": "custom/naval/lighthouse_02.png",
+      "len": 800,
+      "sha256": "8c8f7e9469ad6cbf0df8352f61029011556f1c9e872480a911fa5ce5cb810e36"
+    },
+    {
+      "name": "pack.json",
+      "len": 1127,
+      "sha256": "83adbac0250a222b61435cd77af89613fa07490c14bb4709d5ddc2f4998110c5"
+    }
+  ],
+  "packJson": "{\n  \"schema\": 2,\n  \"name\": \"Reference Round-Trip Pack\",\n  \"author\": \"Cartalith Gen1\",\n  \"license\": \"CC0-1.0\",\n  \"textures\": {\n    \"grass\": \"textures/grass.png\",\n    \"rock\": \"textures/rock.png\",\n    \"sand\": \"textures/sand.png\"\n  },\n  \"icons\": {\n    \"mountain\": [\n      \"icons/mountain_01.png\",\n      \"icons/mountain_02.png\",\n      \"icons/mountain_03.png\"\n    ],\n    \"tree_conifer\": [\n      \"icons/tree_conifer_01.png\",\n      \"icons/tree_conifer_02.png\"\n    ]\n  },\n  \"biomes\": {\n    \"jungle\": \"biomes/jungle.png\"\n  },\n  \"terrains\": {\n    \"paved\": \"terrains/paved.png\"\n  },\n  \"structures\": {\n    \"settlement\": {\n      \"village\": [\n        \"structures/settlement/village_01.png\"\n      ],\n      \"city\": [\n        \"structures/settlement/city_01.png\",\n        \"structures/settlement/city_02.png\"\n      ]\n    },\n    \"trait\": {\n      \"port\": [\n        \"structures/trait/port_01.png\"\n      ]\n    },\n    \"poi\": {\n      \"ruin\": [\n        \"structures/poi/ruin_01.png\"\n      ]\n    }\n  },\n  \"custom\": {\n    \"Naval\": {\n      \"lighthouse\": [\n        \"custom/naval/lighthouse_01.png\",\n        \"custom/naval/lighthouse_02.png\"\n      ]\n    }\n  }\n}",
+  "summary": "Reference Round-Trip Pack · CC0-1.0 — 3 textures · 2 biome/terrain ground · mountain×3 conifer×2 · 4 structure sprites · 1 custom icon",
+  "warnings": [
+    "3 pack section(s) not yet used by the live map (trait, biomes, terrains)"
+  ],
+  "manifestName": "Reference Round-Trip Pack",
+  "manifestAuthor": "Cartalith Gen1",
+  "manifestLicense": "CC0-1.0"
+}

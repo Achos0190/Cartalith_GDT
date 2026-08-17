@@ -255,14 +255,121 @@ ordering of all nine resulting warnings.
 same "don't wire in what nothing calls" discipline as `cartalith-spatial` and
 every unwired Phase 2 primitive.
 
-### Milestone 2 — pack ZIP read/write
+### Milestone 2 — pack ZIP read/write: done (2026-08-17)
 
 `unzipAny`/`zipStore` in Rust terms: read a real `.zip` pack into
-`parse_pack_entries`, and write one back. Depends on the `zip` crate, which
-`cartalith-io` has already proved against real reference exports. Lands either
-in `cartalith-assets` behind a feature or in `cartalith-io` — decide from
-ergonomics when it starts, not now. Verification should include a real
-round-trip against a pack the reference itself exported.
+`parse_pack_entries`, and write one back.
+
+**Placement, decided by reading rather than by the coin-toss this section
+originally left open: `cartalith-assets`, module `archive`, behind an
+on-by-default `zip` feature.** The open question was whether to put it in
+`cartalith-io` instead, or extract a shared helper. Reading `cartalith-io`
+first settled it:
+
+- **There is nothing to share.** `cartalith-io`'s entire "zip handling" is
+  `ZipArchive::new`, `by_name`, `read_to_end` and a `MissingEntry` error
+  variant — the `zip` crate *is* the shared helper the reference's own
+  `unzipAny`/`zipStore` pair was. A common wrapper over that would be a
+  wrapper around a wrapper; milestone 1's "packs use the same `zipStore()`
+  the world save uses" finding is true and, precisely because it is true,
+  implies **no shared code**, only a shared crate.
+- **`cartalith-io` writes nothing, on purpose.** `MVP_SCOPE.md` point 12 and
+  `SAVEFILE_COMPAT.md`'s own "Deferred" section make it reading-only.
+  A pack *writer* there would break that crate's stated boundary, and it is
+  the writer where the reference's real quirks live.
+- **The dependency would point the wrong way.** Putting packs in
+  `cartalith-io` makes it depend on `cartalith-assets`, so every consumer of
+  the world-save loader drags in the asset vocabulary. Packs are the optional
+  subsystem; the save loader is not.
+- **The feature keeps milestone 1's promise literally true.**
+  `default-features = false` gives back exactly the archive-free manifest
+  model, and it is tested that way (`cargo test -p cartalith-assets
+  --no-default-features`) rather than merely asserted.
+
+**Reference quirks found and preserved** (the zip layer has its own, as
+expected):
+
+- **`.png` entries are STORED, never deflated** — a PNG is already internally
+  DEFLATE-compressed, so re-compressing it is wasted CPU for no gain. The
+  reference says so in its own comment; the port applies the same rule by
+  filename extension, case-insensitively.
+- **Timestamps are frozen at 1980-01-01 00:00:00.** `zipStore` hardcodes the
+  DOS date word to `0x0021` and the time word to `0`. That makes exports
+  byte-reproducible, and it is *not* what the `zip` crate does by default (it
+  uses the wall clock), so the port sets it explicitly.
+- **`pack.json` is written last**, after every image — the exporter appends it
+  once its family walk is done. Not semantically load-bearing, but it is what
+  a reference-written pack looks like.
+- **Names are read verbatim.** No wrapping-folder stripping, no backslash
+  rewriting. This is why zipping the *folder* instead of its *contents* yields
+  a pack whose manifest is at `MyPack/pack.json` and is therefore not found —
+  a real, reported failure (the reference's own error message says "try
+  re-zipping the folder…"), preserved rather than papered over.
+- **Directory entries are kept** as zero-byte members, because `unzipAny`
+  walks the central directory and stores what it finds. Harmless: no manifest
+  path ends in `/`.
+- **An unrecognised compression method is an error**, worded exactly as the
+  reference words it (`unsupported zip method 93 for pack.json`), not a
+  silently skipped entry.
+
+Two deliberate non-ports, stated rather than smuggled: `zipStore`'s extra
+"…and only if the compressed bytes actually came out smaller" fallback (a
+browser-side size/`CompressionStream`-availability concern that no reader can
+observe), and `unzipStore`, which is `unzipAny`'s fallback for an archive with
+no readable central directory and answers `null` for every deflated entry —
+a browser-quirk defence, not a format variant. `zip::ZipArchive` requires the
+central directory and errors cleanly without it, which is the better answer.
+
+**Verified against a pack the reference itself exported, in both directions.**
+The harness runs the reference's *own* `PackManifestBuilder.build()` (line
+26964) over its *own* `FAMILIES`/`AssetDB` vocabulary and its *own*
+`zipStore()` (line 12009) headlessly under Node's `vm.runInContext`, all
+lifted verbatim by line range from the frozen HTML. Only two things in that
+run are not reference code, and the test file says so: `renderToBlob` is a
+canvas rasteriser, replaced by a real PNG encoder emitting genuine PNGs at each
+family's own bake size, and the three DOM inputs `E('alPackName'|…)` are
+stubbed with real values. Everything else — filenames, entry order, which
+entries are stored vs. deflated, the frozen timestamps, the manifest's exact
+JSON text, every CRC-32 — is the reference's own output, checked in as
+`tests/fixtures/reference_pack.zip` (18 entries, 21 KB) alongside that run's
+`unzipAny`/`parsePackManifest`/`packSummary` capture.
+
+- **Read**: this port's entries match the reference's `unzipAny` output name
+  for name and CRC for CRC; its `parse_pack_entries` reproduces the summary and
+  the one warning; and `to_pack_json()` reproduces the exporter's `pack.json`
+  **text byte for byte**.
+- **Write**: `write_pack` reproduces the reference archive's entry order,
+  per-entry method, CRC-32, uncompressed size and 1980 timestamps; and the
+  bytes were fed back through the reference's own `unzipAny` +
+  `parsePackManifest`, which read all 18 entries with identical payloads,
+  an identical `pack.json`, and an identical summary and warning list. The two
+  archives differ by 2 bytes in total; the first differing byte is the
+  version-needed-to-extract field. Exact byte equality is not achievable and
+  is not the bar — the single deflated entry is compressed by `miniz_oxide`
+  here and by the browser's zlib there, and two conforming encoders need not
+  agree on a bit stream.
+
+14 new tests (4 golden-parity + 10 unit). Still wired to nothing.
+
+**Corrections to this document that the milestone surfaced:**
+
+- §4 files "ZIP read/write" under *"Neither — platform work, not a port"*.
+  That is three-quarters right and one-quarter wrong: the *container* is pure
+  crate work, but the reference's **export policy** — STORE the PNGs, freeze
+  the timestamps, write `pack.json` last, never normalise a name on read — is
+  real ported behaviour that a plain `zip` call gets wrong by default, in the
+  timestamp's case actively so. Roughly 60 lines of policy over a crate, not
+  zero.
+- Milestone 5 (the Library model) must keep **both** the raw set name and its
+  slug on a custom slot. Confirmed by watching the real exporter run: the file
+  path uses the slug (`custom/naval/lighthouse_01.png`) while the manifest key
+  is the author's own text (`"custom": {"Naval": …}`). Losing either makes a
+  round-trip lossy, and `AssetDB.addCustomSlot` really does carry both
+  (`slot.set` and `slot.setId`).
+- `packSummary`'s trailing "*N* custom icon(s)" counts custom **slots**, not
+  variants — a two-variant lighthouse reads as "1 custom icon". Already
+  matched by milestone 1's port; noted here because it looks like a bug and is
+  not.
 
 ### Milestone 3 — scatter rules: done (2026-08-17)
 

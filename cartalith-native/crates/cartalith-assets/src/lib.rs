@@ -76,18 +76,30 @@
 //! than depending on the crate that already golden-matches it would be the
 //! worse trade by a wide margin.
 //!
-//! Image decoding, ZIP reading and writing, the Asset Library's own item
+//! Pack `.zip` read/write *is* here, in [`archive`], behind the on-by-default
+//! `zip` feature — `default-features = false` gives back the archive-free
+//! manifest model milestone 1 shipped. It is a thin policy layer over the
+//! `zip` crate, not a hand-port: what is ported is the reference's own
+//! STORE-the-PNGs / frozen-timestamp / `pack.json`-last export behaviour.
+//!
+//! Image decoding, the Asset Library's own item
 //! store and project-embedded `assetlib/library.json`, the icon *placement*
 //! engine that consumes [`ScatterRule`]s, and every part of the library UI are
-//! later milestones or explicitly out of scope; see `ASSET_LIBRARY_SCOPE.md`. **Nothing in the workspace depends on this crate
-//! yet** — by design, per this project's "don't wire in what nothing calls"
-//! discipline.
+//! later milestones or explicitly out of scope; see `ASSET_LIBRARY_SCOPE.md`.
+//! **Nothing in the workspace depends on this crate yet** — by design, per
+//! this project's "don't wire in what nothing calls" discipline.
 
+#[cfg(feature = "zip")]
+pub mod archive;
 pub mod manifest;
 pub mod ordered_map;
 pub mod scatter;
 pub mod slots;
 
+#[cfg(feature = "zip")]
+pub use archive::{
+    ArchiveError, PackEntries, read_pack, read_pack_entries, write_pack, write_pack_entries,
+};
 pub use manifest::{
     MANIFEST_CSV, MANIFEST_JSON, PackError, PackManifest, Paths, RawManifest, RawStructures,
     Structures, pack_summary, parse_pack_csv, parse_pack_entries, parse_pack_manifest,
