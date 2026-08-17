@@ -17,7 +17,7 @@ config/icon="res://icon.png"
 
 [gui]
 
-theme/custom="res://theme/app_theme.tres"
+theme/custom="res://theme/dark_theme.tres"
 
 [rendering]
 

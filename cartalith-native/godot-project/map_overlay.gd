@@ -265,11 +265,18 @@ func _draw_hover_card(s: Dictionary, rect: Rect2) -> void:
 	card_pos.x = clampf(card_pos.x, 0.0, size.x - card_size.x)
 	card_pos.y = clampf(card_pos.y, 0.0, size.y - card_size.y)
 
-	draw_rect(Rect2(card_pos, card_size), Color(0.984, 0.960, 0.913, 0.96), true)
-	draw_rect(Rect2(card_pos, card_size), Color(0.690, 0.498, 0.247, 1.0), false, 1.5)
+	# Dark-viewport-compatible palette (GUI decluttering pass, 2026-08-17) --
+	# was a light-parchment cream/brown card, the fourth stray light-styled
+	# surface even though this control's independence from the Theme
+	# resource is legitimate (map content, not chrome, see this file's own
+	# top comment). Matches the shell's own surface/border/emphasis tokens
+	# (`theme/dark_theme.tres`): near-black card fill, accent border,
+	# emphasis-toned text.
+	draw_rect(Rect2(card_pos, card_size), Color(0.051, 0.055, 0.059, 0.96), true)
+	draw_rect(Rect2(card_pos, card_size), Color(0.878, 0.639, 0.290, 1.0), false, 1.5)
 	for j in lines.size():
 		var text_pos := card_pos + Vector2(pad, pad + line_h * (j + 1) - font.get_descent(font_size))
-		draw_string(font, text_pos, lines[j], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.164, 0.125, 0.082))
+		draw_string(font, text_pos, lines[j], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(0.910, 0.922, 0.925))
 
 
 func _format_pop(pop: int) -> String:

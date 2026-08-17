@@ -1,7 +1,7 @@
 [gd_scene load_steps=13 format=3]
 
 [ext_resource type="Script" path="res://main.gd" id="1"]
-[ext_resource type="Theme" path="res://theme/app_theme.tres" id="2"]
+[ext_resource type="Theme" path="res://theme/dark_theme.tres" id="2"]
 [ext_resource type="Script" path="res://map_overlay.gd" id="3"]
 [ext_resource type="Script" path="res://credits.gd" id="4"]
 
@@ -111,9 +111,11 @@ flat = true
 text = "Map"
 theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
 
-[node name="AssetsMenu" type="MenuButton" parent="Shell/TopBar/TopBarMargin/TopBarRow/MenuBar"]
+[node name="AssetsMenu" type="Button" parent="Shell/TopBar/TopBarMargin/TopBarRow/MenuBar"]
 unique_name_in_owner = true
 flat = true
+disabled = true
+tooltip_text = "Full-viewport Assets mode, matching the reference app's #assetsHeaderBtn (a mode switch that flips its own label to \"← Map\" on exit, not a dropdown of operations). No Assets-mode viewport exists in this port yet."
 text = "Assets"
 theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
 
@@ -135,6 +137,15 @@ vertical_alignment = 1
 theme_override_colors/font_color = Color(0.435294, 0.454902, 0.470588, 1)
 theme_override_font_sizes/font_size = 11
 text = "no world generated"
+
+[node name="ThemeToggleButton" type="Button" parent="Shell/TopBar/TopBarMargin/TopBarRow"]
+custom_minimum_size = Vector2(28, 28)
+size_flags_vertical = 4
+flat = true
+disabled = true
+tooltip_text = "Light/dark theme toggle -- reference app has one, mockup specifies it; the light-theme milestone itself is deferred (GUI_SHELL_SCOPE.md), so this stays honestly inert rather than half-wired."
+text = "◐"
+theme_override_colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
 
 [node name="CreditsButton" type="Button" parent="Shell/TopBar/TopBarMargin/TopBarRow"]
 unique_name_in_owner = true
@@ -198,32 +209,23 @@ horizontal_scroll_mode = 0
 size_flags_horizontal = 3
 theme_override_constants/separation = 14
 
-[node name="WorldParamsCard" type="PanelContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList"]
-theme_type_variation = &"SettingsCard"
-
-[node name="WorldParamsMargin" type="MarginContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard"]
-theme_override_constants/margin_left = 12
-theme_override_constants/margin_top = 12
-theme_override_constants/margin_right = 12
-theme_override_constants/margin_bottom = 12
-
-[node name="WorldParamsVBox" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin"]
+[node name="WorldParamsSection" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList"]
 theme_override_constants/separation = 10
 
-[node name="WorldParamsHeader" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="WorldParamsHeader" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection"]
 theme_type_variation = &"SectionHeader"
 text = "WORLD PARAMETERS"
 
-[node name="SeedRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="SeedRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection"]
 custom_minimum_size = Vector2(0, 48)
 theme_override_constants/separation = 10
 
-[node name="SeedLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeedRow"]
+[node name="SeedLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection/SeedRow"]
 custom_minimum_size = Vector2(110, 0)
 vertical_alignment = 1
 text = "Seed"
 
-[node name="SeedInput" type="SpinBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeedRow"]
+[node name="SeedInput" type="SpinBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection/SeedRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
@@ -231,35 +233,35 @@ min_value = 0.0
 max_value = 999999.0
 value = 12345.0
 
-[node name="ResolutionRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="ResolutionRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection"]
 custom_minimum_size = Vector2(0, 48)
 theme_override_constants/separation = 10
 
-[node name="ResolutionLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/ResolutionRow"]
+[node name="ResolutionLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection/ResolutionRow"]
 custom_minimum_size = Vector2(110, 0)
 vertical_alignment = 1
 text = "Resolution"
 
-[node name="ResolutionInput" type="OptionButton" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/ResolutionRow"]
+[node name="ResolutionInput" type="OptionButton" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection/ResolutionRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
 
-[node name="ResolutionHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="ResolutionHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection"]
 theme_type_variation = &"HintLabel"
 autowrap_mode = 3
 text = "4K/8K are memory- and time-heavy on this port's current CPU-only pipeline (reference app's own hint, plus: no GPU acceleration path is wired into generation yet)."
 
-[node name="WidthRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="WidthRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection"]
 custom_minimum_size = Vector2(0, 48)
 theme_override_constants/separation = 10
 
-[node name="WidthLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/WidthRow"]
+[node name="WidthLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection/WidthRow"]
 custom_minimum_size = Vector2(110, 0)
 vertical_alignment = 1
 text = "Map width (km)"
 
-[node name="WidthInput" type="SpinBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/WidthRow"]
+[node name="WidthInput" type="SpinBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection/WidthRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
@@ -268,16 +270,16 @@ max_value = 40000.0
 step = 10.0
 value = 800.0
 
-[node name="SeaLevelRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="SeaLevelRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection"]
 custom_minimum_size = Vector2(0, 48)
 theme_override_constants/separation = 10
 
-[node name="SeaLevelLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeaLevelRow"]
+[node name="SeaLevelLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection/SeaLevelRow"]
 custom_minimum_size = Vector2(110, 0)
 vertical_alignment = 1
 text = "Sea level"
 
-[node name="SeaLevelInput" type="SpinBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeaLevelRow"]
+[node name="SeaLevelInput" type="SpinBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection/SeaLevelRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
@@ -287,95 +289,81 @@ step = 1.0
 value = 42.0
 suffix = "%"
 
-[node name="SeaLevelHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+[node name="SeaLevelHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldParamsSection"]
 theme_type_variation = &"HintLabel"
 autowrap_mode = 3
 text = "Only applies to the Classic world shape -- named shapes (Earth-like, Archipelago, etc.) re-anchor sea level from their own land-fraction target."
 
-[node name="WorldStructureCard" type="PanelContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList"]
-theme_type_variation = &"SettingsCard"
+[node name="OverviewDivider1" type="HSeparator" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList"]
 
-[node name="WorldStructureMargin" type="MarginContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureCard"]
-theme_override_constants/margin_left = 12
-theme_override_constants/margin_top = 12
-theme_override_constants/margin_right = 12
-theme_override_constants/margin_bottom = 12
-
-[node name="WorldStructureVBox" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureCard/WorldStructureMargin"]
+[node name="WorldStructureSection" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList"]
 theme_override_constants/separation = 8
 
-[node name="WorldStructureHeader" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox"]
+[node name="WorldStructureHeader" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureSection"]
 theme_type_variation = &"SectionHeader"
 text = "WORLD STRUCTURE"
 
-[node name="WorldStructureHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox"]
+[node name="WorldStructureHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureSection"]
 theme_type_variation = &"HintLabel"
 autowrap_mode = 2
 text = "An archetype presets continentality, fragmentation, and tectonic energy, then re-anchors sea level so its land fraction holds. Classic runs the plain, non-archetype pipeline."
 
-[node name="WorldShapeRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox"]
+[node name="WorldShapeRow" type="HBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureSection"]
 custom_minimum_size = Vector2(0, 48)
 theme_override_constants/separation = 10
 
-[node name="WorldShapeLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox/WorldShapeRow"]
+[node name="WorldShapeLabel" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureSection/WorldShapeRow"]
 custom_minimum_size = Vector2(110, 0)
 vertical_alignment = 1
 text = "World shape"
 
-[node name="WorldShapeInput" type="OptionButton" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureCard/WorldStructureMargin/WorldStructureVBox/WorldShapeRow"]
+[node name="WorldShapeInput" type="OptionButton" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/WorldStructureSection/WorldShapeRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 size_flags_horizontal = 3
 
-[node name="AdvancedCard" type="PanelContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList"]
-theme_type_variation = &"SettingsCard"
+[node name="OverviewDivider2" type="HSeparator" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList"]
 
-[node name="AdvancedMargin" type="MarginContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard"]
-theme_override_constants/margin_left = 12
-theme_override_constants/margin_top = 12
-theme_override_constants/margin_right = 12
-theme_override_constants/margin_bottom = 12
+[node name="AdvancedFold" type="FoldableContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList"]
+title = "ADVANCED FEATURES (physical coupling fields)"
+folded = true
 
-[node name="AdvancedVBox" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin"]
+[node name="AdvancedVBox" type="VBoxContainer" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedFold"]
 theme_override_constants/separation = 8
 
-[node name="AdvancedHeader" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
-theme_type_variation = &"SectionHeader"
-text = "ADVANCED FEATURES"
-
-[node name="AdvancedHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
+[node name="AdvancedHint" type="Label" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedFold/AdvancedVBox"]
 theme_type_variation = &"HintLabel"
 autowrap_mode = 2
 text = "All golden-verified against the JS engine. Every default below matches the reference app's own default."
 
-[node name="DynamicLithologyCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
+[node name="DynamicLithologyCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedFold/AdvancedVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
 text = "Dynamic lithology (exhumation hardening)"
 
-[node name="VolcProvincesCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
+[node name="VolcProvincesCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedFold/AdvancedVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
 button_pressed = true
 text = "Clustered volcanism (provinces)"
 
-[node name="WindDeflectionCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
+[node name="WindDeflectionCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedFold/AdvancedVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
 button_pressed = true
 text = "Terrain wind deflection"
 
-[node name="OceanCurrentsCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
+[node name="OceanCurrentsCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedFold/AdvancedVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
 button_pressed = true
 text = "Ocean-current SST folding"
 
-[node name="VillagesCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedCard/AdvancedMargin/AdvancedVBox"]
+[node name="VillagesCheck" type="CheckBox" parent="Shell/MainRow/SecondPanel/SecondPanelMargin/SecondPanelVBox/OverviewContent/OverviewList/AdvancedFold/AdvancedVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 48)
 autowrap_mode = 3
@@ -754,6 +742,7 @@ unique_name_in_owner = true
 title = "Credits & Academic Principles"
 initial_position = 1
 size = Vector2i(680, 620)
+theme = ExtResource("2")
 script = ExtResource("4")
 
 [node name="CreditsMargin" type="MarginContainer" parent="CreditsDialog"]

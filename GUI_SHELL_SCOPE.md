@@ -353,3 +353,155 @@ window loses true foreground — also hit by the concurrent terrain-
 appearance fork the same day); not a regression from this change, which
 never touches generation wiring, and not re-chased given the structural
 fix itself was already directly, visually confirmed working.
+
+## GUI decluttering pass: target information architecture (2026-08-17)
+
+Owner-supplied design-lead plan ("Cartalith Godot Shell — Target
+Information Architecture", built from real research into the reference
+app, the shell as it stood, and the mockup) implemented in full — real
+menu/panel restructuring, real control relocation, real dark-theme
+restyling, not a token gesture. The plan's own §0 resolution: the reference
+app decides *what exists and where it lives*, the mockup decides *how the
+shell is built and dressed*. Two real violations of that split, both fixed:
+
+- **`INFRASTRUCTURE`** (Roads/Rivers/Ports/Trade/Logistics) had zero
+  grounding in the reference app — replaced with **`EXPLORE`**, the
+  reference's real second mode (Tools/Timeline/Info/Journeys/Journey
+  Planner).
+- **`CARTOGRAPHY:Layers`** and the always-visible `LayersPanel` were two
+  surfaces for one thing. The nav subject is gone; `LayersPanel` alone is
+  now the single layer surface, freeing CARTOGRAPHY's 5th slot for
+  **`Paint`**, the reference's real brush bucket, previously homeless.
+  (One drift found from the plan's own assumption: the plan's §3 also
+  described consolidating a pre-existing "debug/analysis layer picker (30
+  views) + opacity" into `LayersPanel`. Checked, not assumed — no such
+  picker has ever existed anywhere in this codebase; `LayersPanel` was
+  already the one honest surface, with its own hint explaining why the 30
+  debug views aren't separable render layers yet. Nothing to consolidate;
+  noted rather than fabricating a picker that would itself have been new,
+  unrequested clutter.)
+
+**Real IA implemented** (`main.gd`'s `NAV_GROUPS`):
+
+| Group | Subjects |
+|---|---|
+| WORLD | Overview (real), Terrain, Water, Climate, Ecology, **Sculpt** (replaces `Resources`, zero reference grounding — Sculpt is the reference's real 4th Generate branch, previously homeless) |
+| CIVILIZATION | Settlements (real, redirect), **Factions** (was Population), Economy, **Generation** (was Politics — Step 1 populate → Step 2 roads → Step 3 territories/provinces, the reference's real sequence), **Statistics** (was Culture) |
+| CARTOGRAPHY | **Map Style** (was Styling), Labels, **Icons** (was Assets), **Map View** (was Export), **Paint** (new 5th slot) |
+| EXPLORE | Tools, Timeline, Info, Journeys, Journey Planner (replaces `INFRASTRUCTURE` wholesale) |
+
+18 of 20 non-Overview subjects now carry a specific, reference-grounded
+honest placeholder (`main.gd`'s `NAV_SUBJECT_HINTS`) instead of one generic
+"not wired yet" string — naming the real controls that subject corresponds
+to in the reference app. `CIVILIZATION:Settlements` is the one exception
+with real backing today (settlements render, respond to hover); its hint
+redirects to the Inspector rather than claiming a table that doesn't exist,
+the same honest-redirect pattern `Layers` established.
+
+**Top bar** (`main.gd`'s `_build_menus`): `ProjectMenu`'s `New world...`/
+`Save project` deleted outright (zero reference grounding — reference has
+no such File▾ entries; "save" *is* Export .zip). Replaced with a disabled,
+honest Import group (Load heightmap / Infer tectonics / Import asset pack)
+and Export group (Export .zip / Export GeoJSON). `GenerateMenu`'s fabricated
+flat 11-stage pipeline list — the single largest piece of invented
+structure in the prior shell — replaced with the reference's real
+Civilization Step 1→2→3 sequence plus Generate Provinces. `SimulateMenu`/
+`MapMenu`/`ViewMenu` renamed to real reference-grounded items at the same
+slot counts (behavior-contract changes only: Map's three items are now a
+navigator-jump contract to CARTOGRAPHY subjects, not future modals).
+`AssetsMenu` converted from `MenuButton` to a plain `Button` (structural
+node-type change) matching the reference's real `#assetsHeaderBtn`
+mode-switch mechanism, not a dropdown — stays `disabled`, no Assets-mode
+viewport exists yet. A `ThemeToggleButton` was added to the global header
+(reference has one, mockup specifies it, it was simply missing) —
+`disabled`, since the light-theme milestone itself stays deferred.
+
+**Real bug fixed**: `FooterVBox` (Generate/Load Save/Status) previously had
+no visibility logic at all in `_select_nav_subject` — it persisted, visible,
+across all 20 nav subjects instead of scoping to `WORLD:Overview` alone.
+Fixed with two new `@onready` refs (`footer_vbox`, `footer_separator`) and
+one `is_overview` boolean gate.
+
+**Visual consistency** (the plan's §5, the largest real fix): authored
+`theme/dark_theme.tres`, a real dark `Theme` resource — surface `#0d0e0f`/
+viewport `#101112`, hairline/divider/border alpha-white tokens, text
+`#c8cbcd`/emphasis `#e8ebec`/dim `#8d9296`/label `#5f6468`, single accent
+`#e0a34a`, matching the exact literal `Color(...)` values already scattered
+inline throughout `main.tscn` (verified by comparison, not guessed) —
+centralising them so the SpinBox/OptionButton/CheckBox/Button controls that
+previously fell back to `app_theme.tres`'s light-parchment chrome now
+resolve to one theme with none left. Explicit `disabled` styles defined for
+every control type (dark "inert" look, not the light theme's pale-tan
+fallback). Assigned as both `Main`'s theme and the project-wide default
+(`project.godot`'s `gui/theme/custom`), and directly on `CreditsDialog`
+(Window-derived nodes don't inherit the Control-tree theme automatically —
+confirmed real: before this, Credits was a fully unstyled default-grey
+Godot dialog; after, its text/button chrome resolve through the same dark
+tokens). `app_theme.tres` itself is untouched (still a real, working light
+theme) but no longer wired into the live path anywhere. `theme_type_
+variation = &"SettingsCard"` retired outright: `WorldParamsCard`/
+`WorldStructureCard`/`AdvancedCard` (three light-parchment cards sitting on
+the dark shell — the single most visible inconsistency in the prior shell)
+flattened into plain sectioned `VBoxContainer`s with `HSeparator` dividers,
+matching the reference app's own h2-subsection convention. `AdvancedCard`
+specifically became a Godot 4.4+ `FoldableContainer` (collapsed by
+default, "ADVANCED FEATURES (physical coupling fields)"), matching the
+reference's own `<details class="adv">` pattern. `map_overlay.gd`'s
+hover-card literals recolored from cream/brown to the same dark surface/
+accent/emphasis tokens (was the fourth stray light-styled surface even
+though this control's independence from the Theme resource is legitimate —
+map content, not chrome).
+
+**One real limitation found, not silently worked around**: `AcceptDialog`'s
+own "panel" background isn't reachable the same way its text/button colors
+are — assigning the theme to `CreditsDialog` demonstrably re-themed its
+`RichTextLabel` text and `Close` button (screenshot-confirmed: white text,
+accent-bordered button, versus the fully unstyled grey-on-grey it was
+before), but the dialog's background panel stayed Godot's own default
+mid-grey rather than the shell's near-black surface token. Left as a
+smaller, real, flagged gap rather than chased further this pass — the
+"third unstyled look" the plan named is fixed (legible, coordinated colors,
+not the old dead default), even if the panel hue isn't a pixel-perfect
+match. `LoadSaveDialog` (native `FileDialog`) was deliberately left
+untouched per the plan — confirmed by screenshot to already render with
+Godot's own neutral dark-grey engine chrome, not the light `app_theme.tres`
+skin, so "leave as native OS-chrome" cost nothing.
+
+**Verification, in full**:
+
+1. `cargo build -p cartalith-godot` — clean, 0 new Rust (pure GDScript/
+   scene/theme-resource work). `cargo test --workspace` — 0 failures.
+2. `godot4 --headless --quit main.tscn` — clean load, re-checked after each
+   incremental restructuring step (theme swap → card flattening → menu
+   rewrite → nav-group rewrite), not only once at the end.
+3. **Real windowed screenshot verification, before/after**: the *before*
+   screenshot was captured by genuinely running the old shell (`git stash`
+   of every changed file, launch, screenshot, `git stash pop` to restore) —
+   not reconstructed from memory — confirming the light-parchment cards on
+   the dark shell, the `INFRASTRUCTURE` nav group, and the old menu
+   contents as they actually rendered. The *after* sequence covered: the
+   default `WORLD:Overview` view (dark chrome throughout, folded Advanced
+   section, new nav groups/subjects); `ProjectMenu` and `GenerateMenu`
+   popups (content matches the plan's tables exactly); a full Generate run
+   (seed 12345, 2048×2048, 800 km, Classic → 40 real settlements rendered,
+   status/readout both correct); territory + province-boundary toggles
+   (real faction-colour fill and boundary lines drawn); a settlement hover
+   (dark-styled on-canvas card *and* the Inspector's causal "WHY HERE?"
+   chain — `strong fresh water (0.93) → strong gentle terrain (0.99) →
+   weak fertile land (0.34)`, `Despite: weak flood risk (0.06)`,
+   `Suitability 0.80` — both still real and correct); the Credits dialog
+   (dark, legible, functional); `LoadSaveDialog` (opens, browses the real
+   filesystem, Cancel closes it); `CIVILIZATION:Settlements`' honest
+   redirect placeholder with `FooterVBox` correctly hidden (the bug fix,
+   directly confirmed); `CARTOGRAPHY:Paint`'s new honest placeholder with
+   correct accent-highlighted active nav row; the `ViewMenu` popup (content
+   matches the plan's table exactly). Every golden-path element the task
+   named — seed/resolution/width/sea level/world shape reaching generation,
+   all three map-overlay toggles, the causal-chain Inspector, load-save,
+   credits — reconfirmed working through the restructured shell, not
+   assumed unaffected.
+
+**Files touched**: `cartalith-native/godot-project/main.tscn`, `main.gd`,
+`map_overlay.gd`, `project.godot`, new `theme/dark_theme.tres` (light
+`theme/app_theme.tres` untouched but retired from the live path), this
+file, `docs/CHANGELOG.md`, `docs/STATUS.md`.

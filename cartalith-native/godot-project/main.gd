@@ -56,7 +56,13 @@ extends Control
 @onready var generate_menu: MenuButton = %GenerateMenu
 @onready var simulate_menu: MenuButton = %SimulateMenu
 @onready var map_menu: MenuButton = %MapMenu
-@onready var assets_menu: MenuButton = %AssetsMenu
+## Not a MenuButton: the reference app's own `#assetsHeaderBtn` is a plain
+## mode-switch toggle (flips its own label to "← Map" on exit), not a
+## dropdown of operations -- Assets is a full-viewport mode, not an
+## operations list. Converted from MenuButton to Button in this
+## decluttering pass (GUI_SHELL_SCOPE.md); stays `disabled` since no
+## Assets-mode viewport exists in this port yet.
+@onready var assets_menu: Button = %AssetsMenu
 @onready var view_menu: MenuButton = %ViewMenu
 @onready var navigator_vbox: VBoxContainer = %NavigatorVBox
 @onready var second_panel_header: Label = %SecondPanelHeader
@@ -66,6 +72,11 @@ extends Control
 @onready var scale_bar_label: Label = %ScaleBarLabel
 @onready var inspector_header: Label = %InspectorHeader
 @onready var inspector_body: RichTextLabel = %InspectorBody
+## §3 fix: `FooterVBox` (Generate/Load Save/Status) must be scoped to
+## `WORLD:Overview` only -- it previously persisted, visible, on all 20 nav
+## subjects regardless of which one was selected.
+@onready var footer_separator: HSeparator = %FooterSeparator
+@onready var footer_vbox: VBoxContainer = %FooterVBox
 
 var world_gen: WorldGen = WorldGen.new()
 var _gen_thread: Thread
@@ -88,30 +99,64 @@ const RESOLUTION_PRESETS: Array[int] = [512, 1024, 2048, 4096, 8192]
 const RESOLUTION_LABELS: Array[String] = ["512", "1K", "2K", "4K", "8K"]
 const RESOLUTION_DEFAULT_INDEX := 2 ## 2K, matching the reference's own default.
 
-## Workspace navigator, `design/cartalith-menu-structure.md`'s own §"Shell
-## regions"/groups list. Only WORLD > Overview and CARTOGRAPHY > Layers have
-## real content this milestone (`OverviewContent`/`LayersContent` in the
-## .tscn); every other subject swaps in `PlaceholderContent`, an honest
-## "not wired to the engine yet" label -- per GUI_SHELL_SCOPE.md's own
-## inventory, none of the others have real backing to show.
+## Workspace navigator, GUI decluttering pass (2026-08-17): every group and
+## subject below is grounded in the reference app's real IA (`Cartalith
+## Gen1 v2.10.html`'s Generate->{World, Civilization, Cartography, Sculpt}
+## branches plus Explore, the reference's real second mode) -- not the
+## prior pass's invented `INFRASTRUCTURE` bucket (Roads/Rivers/Ports/Trade/
+## Logistics), which had zero grounding there and is replaced by `EXPLORE`.
+## `CARTOGRAPHY:Layers` is also gone as a nav subject: it and the debug/
+## analysis layer picker were two surfaces for one thing (the reference
+## app's own admission); consolidated into `LayersPanel` alone (always
+## visible, not a destination), freeing CARTOGRAPHY's 5th slot for `Paint`
+## -- the reference's real brush bucket, previously homeless. Only
+## WORLD:Overview has a real parameter panel (`OverviewContent` in the
+## .tscn); every other subject swaps in `PlaceholderContent`, now with a
+## subject-specific honest hint (`NAV_SUBJECT_HINTS` below) instead of one
+## generic message -- per GUI_SHELL_SCOPE.md's own inventory, none of them
+## have engine backing yet, but they're at least named and grouped where
+## the reference app actually puts them.
 const NAV_GROUPS := {
-	"WORLD": ["Overview", "Terrain", "Water", "Climate", "Ecology", "Resources"],
-	"CIVILIZATION": ["Settlements", "Population", "Economy", "Politics", "Culture"],
-	"INFRASTRUCTURE": ["Roads", "Rivers", "Ports", "Trade", "Logistics"],
-	"CARTOGRAPHY": ["Layers", "Styling", "Labels", "Assets", "Export"],
+	"WORLD": ["Overview", "Terrain", "Water", "Climate", "Ecology", "Sculpt"],
+	"CIVILIZATION": ["Settlements", "Factions", "Economy", "Generation", "Statistics"],
+	"CARTOGRAPHY": ["Map Style", "Labels", "Icons", "Map View", "Paint"],
+	"EXPLORE": ["Tools", "Timeline", "Info", "Journeys", "Journey Planner"],
 }
 ## The only subject with real *parameter-panel* content this milestone --
-## everything else in NAV_GROUPS falls through to the placeholder. Layers
-## is deliberately not here: per the actual design mockup (`design/
-## Cartalith GUI.dc.html`, turn 1a), the Layers panel is a permanent third
-## column beside the navigator, always visible regardless of which subject
-## is selected -- not a destination the navigator swaps to. Re-audited
-## 2026-08-17 after the owner asked to re-check the shell against the
-## mockup/menu-structure docs: the first shell pass had collapsed the
-## mockup's two always-visible left-side panels (Workspace nav + Layers)
-## into one swappable slot, which is a real workflow mismatch, not just a
-## cosmetic one -- see LayersPanel in main.tscn.
+## everything else in NAV_GROUPS falls through to the placeholder, worded
+## per `NAV_SUBJECT_HINTS`.
 const NAV_REAL_SUBJECTS := ["WORLD:Overview"]
+
+## Per-subject honest placeholder text, reference-grounded (this plan's
+## own §2/§6): each names the *real* controls that subject corresponds to
+## in the reference app, not a generic "not wired yet" -- a concrete
+## honesty improvement even before any of them get engine backing.
+## `CIVILIZATION:Settlements` is the one exception with real backing today
+## (settlements render, hover works) -- its hint is a redirect to where
+## that real data already lives, matching the pattern `LAYERS` established,
+## not the generic "not wired" text, which would be actively misleading.
+const NAV_SUBJECT_HINTS := {
+	"WORLD:Terrain": "Tectonics (plates, drift, warp, uplift, erosion age) and volcanism & impact controls, matching the reference app's Geology stage. Not wired yet -- the four experimental flags on Overview are the only exposed knobs so far.",
+	"WORLD:Water": "Droplet / hillslope / stream-power / velocity erosion, evolve & sediment, glacial, and coastal controls, matching the reference app's Hydrology stage. Not wired yet.",
+	"WORLD:Climate": "Climate & biome classification and the weather / rainfall simulator, matching the reference app's Climate stage. Not wired yet.",
+	"WORLD:Ecology": "River-in-biome, river density, minimum stream order, sharper biomes, and lakes-as-water controls, matching the reference app's Ecology stage. Not wired yet.",
+	"WORLD:Sculpt": "The reference app's 4th Generate branch: stamp editor (feature type, presets, brush & noise, feature params, stamp stack, commit/discard). No engine backing in this port yet.",
+	"CIVILIZATION:Settlements": "Settlements have real engine backing -- they render on the map and respond to hover. Hover a marker to see its data and causal \"why here?\" chain in the INSPECTOR panel to the right. A dedicated searchable/sortable table here is not yet built.",
+	"CIVILIZATION:Factions": "Faction pills, add/remove, and an \"Open Faction Roster...\" modal, matching the reference app's faction management. Not wired yet.",
+	"CIVILIZATION:Economy": "Aggregate faction economics report, matching the reference app's Economy stage. Not wired yet (see ECONOMY_SCOPE.md).",
+	"CIVILIZATION:Generation": "Step 1 populate (counts, Auto-populate, toggles) -> Step 2 roads (Generate Roads, ways list) -> Step 3 territories/provinces, plus a display fold (settlement/way scale, opacity) -- the reference app's real Civilization generation sequence. Not wired yet; see the Generate menu for the same three steps as menu actions.",
+	"CIVILIZATION:Statistics": "World and per-faction statistics report, matching the reference app's Culture stage. Not wired yet.",
+	"CARTOGRAPHY:Map Style": "Presets (Default/Antique/Ink/Watercolor/Print), a rendering-advanced fold, the painter NPR fold, and overlays, matching the reference app's map styling. Not wired yet (see TERRAIN_APPEARANCE_SCOPE.md).",
+	"CARTOGRAPHY:Labels": "Region name labels, matching the reference app's Labels stage. Not wired yet.",
+	"CARTOGRAPHY:Icons": "Manual icon placement: category, gallery, density brush, and the placed-icons list, matching the reference app's Assets stage. Not wired yet.",
+	"CARTOGRAPHY:Map View": "Mode segment (Biome/Relief/Height/Shade), relief<->biome blend, exaggeration, sun angle, and hillshade toggle. Not wired yet.",
+	"CARTOGRAPHY:Paint": "Paint toggle, layer segment (Biome/Splat/Terrain), value, radius, erase, texture strength, clear, and pack gallery -- the reference app's Paint brush. Not wired yet.",
+	"EXPLORE:Tools": "Info / route tool palette, snap-to-places-and-ways toggle, and Commit route. Not wired yet -- the engine is a one-shot static generator, not a continuous simulation (HARDWARE_ACCELERATION.md).",
+	"EXPLORE:Timeline": "Add-year input and pills, \"show only objects in selected year\" / Ghost / Highlight toggles, and a nested Simulate collapse/recovery fold -- year management and simulation, distinct from the BottomBar's own play/pause/step/speed scrub controls. Not wired yet.",
+	"EXPLORE:Info": "Click-to-inspect readout feeding the Inspector panel; on a settlement hit, opens the full-screen City Viewer in the reference app. Settlement hover already feeds the Inspector today (see CIVILIZATION > Settlements) -- the rest is not wired yet.",
+	"EXPLORE:Journeys": "Journey list, matching the reference app's Explore > Journeys. Not wired yet.",
+	"EXPLORE:Journey Planner": "Compact summary plus \"Edit route...\" opening the full-screen Route Editor, matching the reference app's Journey Planner. Not wired yet.",
+}
 
 var _nav_buttons: Dictionary = {} ## "GROUP:Subject" -> Button, for active-state styling
 
@@ -190,45 +235,51 @@ func _select_nav_subject(group_name: String, subject: String) -> void:
 	second_panel_header.text = "%s · %s" % [group_name, subject.to_upper()]
 	overview_content.visible = false
 	placeholder_content.visible = false
-	if key == "WORLD:Overview":
+	## §3 fix: the footer (Generate/Load Save/Status) is `WORLD:Overview`-
+	## only chrome -- it used to persist, visible, across all 20 subjects.
+	var is_overview := key == "WORLD:Overview"
+	footer_separator.visible = is_overview
+	footer_vbox.visible = is_overview
+	if is_overview:
 		overview_content.visible = true
-	elif key == "CARTOGRAPHY:Layers":
-		## Layers is listed here for inventory completeness (`design/
-		## cartalith-menu-structure.md`'s own CARTOGRAPHY grouping), but its
-		## real content lives permanently in `LayersPanel`, not behind this
-		## click -- say so rather than showing the generic "not wired yet"
-		## placeholder, which would be actively misleading here.
-		placeholder_content.visible = true
-		placeholder_label.text = "Layer visibility is always available in the LAYERS panel to the right, regardless of which subject is selected here."
 	else:
 		placeholder_content.visible = true
-		placeholder_label.text = "This workspace subject isn't wired to the engine yet."
+		placeholder_label.text = NAV_SUBJECT_HINTS.get(key, "This workspace subject isn't wired to the engine yet.")
 
 
-## Populates the 7 top-bar domain menus from `design/cartalith-menu-
-## structure.md`'s own inventory. Real (`#id`-tagged in that doc) items call
-## an existing, already-wired action; `NEW`-tagged items are added
-## `disabled` -- present and readable, not a functional no-op silently
-## doing nothing, per GUI_SHELL_SCOPE.md's "visibly present but honestly
-## inert" rule. This is a representative subset of the full multi-hundred-
-## item inventory (e.g. Generate's 11 pipeline stages list dozens of
-## individual sliders that don't exist as separate Rust-side tunables
-## beyond the 4 experimental flags already in the Overview panel) --
-## exhaustively transcribing every leaf item wasn't this milestone's goal,
-## the shell *structure* was.
+## Populates the 6 remaining top-bar domain popups (Assets is a plain
+## toggle `Button`, not a `MenuButton` -- see its `@onready` doc comment)
+## per this decluttering pass's §1: real header/Generate-branch content
+## from the reference app, not the prior pass's invented items. Real items
+## call an existing, already-wired action; disabled items are present and
+## readable, not a functional no-op silently doing nothing, per
+## GUI_SHELL_SCOPE.md's "visibly present but honestly inert" rule.
 func _build_menus() -> void:
+	## ProjectMenu: `New world...` / `Save project` deleted outright -- zero
+	## reference grounding (the reference has no such File▾ entries; "save"
+	## *is* Export .zip, world creation is the onboarding gate, not a menu
+	## action). Replaced with an honest, disabled Import group (Load
+	## heightmap / Infer tectonics / Import asset pack -- none exist in the
+	## Rust core yet) and an honest Export group (Export .zip / GeoJSON).
 	var project_popup := project_menu.get_popup()
 	project_popup.add_item("Open project (.zip)...")
 	project_popup.add_item("Credits")
 	project_popup.add_separator()
-	project_popup.add_item("New world...")
-	project_popup.set_item_disabled(project_popup.item_count - 1, true)
-	project_popup.add_item("Save project")
-	project_popup.set_item_disabled(project_popup.item_count - 1, true)
-	project_popup.add_item("Export .zip...")
-	project_popup.set_item_disabled(project_popup.item_count - 1, true)
+	for item in ["Load heightmap...", "Infer tectonics from heightmap...", "Import asset pack..."]:
+		project_popup.add_item(item)
+		project_popup.set_item_disabled(project_popup.item_count - 1, true)
+	project_popup.add_separator()
+	for item in ["Export .zip", "Export GeoJSON"]:
+		project_popup.add_item(item)
+		project_popup.set_item_disabled(project_popup.item_count - 1, true)
 	project_popup.id_pressed.connect(_on_project_menu_id)
 
+	## WorldMenu: same two real items as before (call the same functions as
+	## Overview's own footer buttons -- a legitimate header shortcut, not a
+	## duplicate implementation). `Planet settings...`/`Coordinate system...`
+	## stay disabled, but their *future* behavior is now a jump-to-section
+	## contract (scroll/expand Overview's Planet subsection once wired), not
+	## a second settings surface -- avoids building a duplicate modal later.
 	var world_popup := world_menu.get_popup()
 	world_popup.add_item("Generate World")
 	world_popup.add_item("New seed")
@@ -239,42 +290,49 @@ func _build_menus() -> void:
 	world_popup.set_item_disabled(world_popup.item_count - 1, true)
 	world_popup.id_pressed.connect(_on_world_menu_id)
 
+	## GenerateMenu: replaces the prior flat 11-stage placeholder list (it
+	## implied one monolithic pipeline that doesn't match the reference's
+	## real branch structure) with the reference's actual Civilization
+	## Step 1->2->3 sequence, the single largest piece of invented structure
+	## in the prior shell.
 	var generate_popup := generate_menu.get_popup()
-	for stage in ["01 Tectonics", "02 Volcanism & impacts", "03 Erosion", "04 Glacial & coastal",
-			"05 Hydrology", "06 Climate & biomes", "07 Weather · rainfall sim", "08 Ecology",
-			"09 Settlements", "10 Infrastructure", "11 Politics"]:
-		generate_popup.add_item(stage)
+	for item in ["Auto-populate world (Step 1)", "Generate Roads (Step 2)", "Recalculate Territories (Step 3)"]:
+		generate_popup.add_item(item)
 		generate_popup.set_item_disabled(generate_popup.item_count - 1, true)
 	generate_popup.add_separator()
-	generate_popup.add_item("(per-stage tuning lives in World > Overview for now)")
+	generate_popup.add_item("Generate Provinces")
 	generate_popup.set_item_disabled(generate_popup.item_count - 1, true)
 
+	## SimulateMenu: renamed to the reference's real Explore/Timeline
+	## operations (same 4-item slot count as before).
 	var simulate_popup := simulate_menu.get_popup()
-	for item in ["Time simulation (year-by-year, not implemented)", "Economy panel",
-			"Statistics", "Logistics / Journey Planner"]:
+	for item in ["Add year...", "Animate playback", "Simulate collapse / recovery...",
+			"(Explore phase — not yet implemented)"]:
 		simulate_popup.add_item(item)
 		simulate_popup.set_item_disabled(simulate_popup.item_count - 1, true)
 
-	## No "Layers" item here: the left navigator's CARTOGRAPHY > Layers
-	## subject already owns that panel exactly, by the identical label --
-	## a top-bar shortcut to the same destination read as a duplicate menu,
-	## not a second real surface (owner-flagged, 2026-08-17). Every other
-	## item below is a genuinely distinct future surface, not a nav echo.
+	## MapMenu: same 3 items, but their future behavior is now a
+	## navigator-jump contract -- each maps 1:1 to a real CARTOGRAPHY
+	## subject (Map View / Map Style's NPR fold / Labels) instead of a
+	## future modal, preventing a future duplicate-surface bug. No "Layers"
+	## item here: `LayersPanel` is the one real layer surface, always
+	## visible, not a nav destination a menu item could echo.
 	var map_popup := map_menu.get_popup()
-	map_popup.add_item("Terrain appearance...")
+	map_popup.add_item("Terrain appearance...")  # -> jump to CARTOGRAPHY:Map View
 	map_popup.set_item_disabled(map_popup.item_count - 1, true)
-	map_popup.add_item("Painter styles (NPR)")
+	map_popup.add_item("Painter styles (NPR)")  # -> jump to CARTOGRAPHY:Map Style's NPR fold
 	map_popup.set_item_disabled(map_popup.item_count - 1, true)
-	map_popup.add_item("Labels & annotation")
+	map_popup.add_item("Labels & annotation")  # -> jump to CARTOGRAPHY:Labels
 	map_popup.set_item_disabled(map_popup.item_count - 1, true)
 
-	var assets_popup := assets_menu.get_popup()
-	assets_popup.add_item("Asset library (not implemented)")
-	assets_popup.set_item_disabled(0, true)
+	## AssetsMenu has no popup to build -- it's a plain toggle `Button` now,
+	## see its `@onready` doc comment.
 
+	## ViewMenu: renamed to real reference-grounded items (same 4-item slot
+	## count).
 	var view_popup := view_menu.get_popup()
-	for item in ["2D / 3D (3D deferred, DECISIONS.md §4)", "Tiled LOD view (cartalith-spatial, unintegrated)",
-			"Analysis field...", "Debug & performance"]:
+	for item in ["3D view dials... (relief exaggeration / detail / light / flatten oceans)",
+			"Focus Layers panel", "Tiled LOD view (cartalith-spatial, unintegrated)", "Atlas cache"]:
 		view_popup.add_item(item)
 		view_popup.set_item_disabled(view_popup.item_count - 1, true)
 
