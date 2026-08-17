@@ -6876,3 +6876,126 @@ in-progress crate omitted. **Not wired to any caller** — no `#[func]`, no
 
 **Files touched**: `cartalith-native/crates/cartalith-civ/src/lib.rs`,
 `JOURNEY_PLANNER_SCOPE.md`, `cartalith-native/docs/STATUS.md`, this file.
+
+## Phase 4 started: Asset Library investigated, milestone 1 (pack manifest) (2026-08-17)
+
+`ROADMAP.md`'s Phase 4 is one sentence ("Block 3, the sprite and texture pack
+system") plus a "Confirm before starting" note, which the owner's own
+direction to continue "until you've finished phase 4" satisfies. This entry
+covers the investigation that sentence deferred and the first real milestone
+built on it. Full findings in the new `ASSET_LIBRARY_SCOPE.md`.
+
+**What the Asset Library really is**, read out of `reference/Cartalith Gen1
+v2.10.html` rather than out of the two pre-implementation design docs in
+`docs/` (where those disagree with the shipped code, the code won and the
+disagreement is recorded):
+
+- **An asset is not an arbitrary named image.** It is one PNG bound to one
+  slot in a frozen, ordered vocabulary the engine already knows how to draw --
+  8 families, 7 of them closed (7 splat channels, 15 biome grounds, 13 terrain
+  grounds, 10 feature icons, 9 settlement pins, 7 trait overlays, 8 POI
+  markers) plus one open-vocabulary `custom` family of user-named icons in
+  user-named sets. Slots hold 1..N variants, picked deterministically by
+  position hash so a ridge of forty peaks is not forty copies of one drawing.
+- **Order is load-bearing twice over**: the biome/terrain lists are index-
+  aligned 1:1 with the frozen `CART_BIOMES`/`CART_TERRAINS` paint vocabularies,
+  and the structure lists mirror `CIV_SETTLEMENT_CLASSES`/`CIV_POI_TYPES`/
+  `CIV_TRAITS` key for key.
+- **An asset pack is a real serialization format**, not a proposal -- a plain
+  PKZIP written by the same `zipStore()` the world save uses, with a
+  `pack.json` (schema 1, or the schema-2 superset) or a real `pack.csv`
+  alternative over that frozen vocabulary. Unknown keys are dropped *with a
+  warning*, never rejected, so parsing can only fail on a missing or malformed
+  manifest -- never on content. **The manifest, not the folder layout, is the
+  source of truth**; `textures/`, `icons/` etc. are only what the exporter
+  happens to write.
+- **A second, different format also exists**: `_alExportEntries`/
+  `_alImportProject` embed the *editable* Library (per-slot metadata, tags,
+  collections, per-item transforms, scatter rules) into a project `.zip` as
+  `assetlib/library.json` + `assetlib/img/N.png`. That is the "Asset Library
+  payload" `SAVEFILE_COMPAT.md` already lists among entries the MVP reader
+  ignores. The live `assetPack` global is deliberately never serialized into
+  `params.json` (the reference's transient-UI invariant 6).
+- **The renderer really does draw pack sprites**, and has for many versions --
+  the vector glyphs are the fallback, not the other way round. `placeMapIcons`
+  (with a v1.26 rule-driven engine behind it) decides where, `iconSlotForItem`
+  resolves the slot, `pickWeightedVariant` picks the variant, `drawMapIcons`
+  composites in one Y-sorted painter's pass, bottom-anchored via
+  `spriteDrawRect`. Phase 5's urban morphology does **not** consume packs
+  (checked: block 4 has no `assetPack` reference).
+
+**How big Phase 4 actually is -- stated plainly rather than understated**: block
+3 (the Asset Library page) is ~1,439 lines, block 1's asset regions ~800 more,
+plus block 2's consumers -- **~2,250+ lines against the Journey Planner's
+~3,100**. But where the Journey Planner was ~70 functions of dense portable
+modelling, this is ~600-800 lines of portable logic wrapped in 1,000+ lines of
+editor UI (the sprite-sheet slicer modal alone is ~408 lines, almost entirely
+canvas/pointer interaction) and a platform layer of image/ZIP handling that is
+crate work, not porting. A real sub-phase; scoped into seven milestones.
+
+**Milestone 1 shipped: new crate `cartalith-assets`** -- the pack *manifest*:
+data model, parser, validation warnings, schema-2 serialization. Deliberately
+the piece with no images, no archive, no renderer and no UI in it, and the
+piece every later milestone is defined against. Zero `gdext`, zero dependency
+on any other Cartalith crate -- the standalone shape `cartalith-spatial` set.
+
+- `slots.rs` -- all seven frozen vocabularies verbatim, plus a `Family` enum
+  carrying each family's manifest section, export directory, bake size,
+  opacity, anchor and multi-variant flag (the reference's own `FAMILIES`
+  metadata), `Family::asset_path` (the exporter's path convention) and
+  `slug_id`.
+- `manifest.rs` -- `RawManifest` (as authored, key order preserved) and
+  `PackManifest` (validated), `parse_pack_csv`, `parse_pack_manifest`,
+  `parse_pack_entries`, `pack_summary`, `to_raw`/`to_pack_json`,
+  `referenced_files`, and a `PackError` whose `NoManifest` message is the
+  reference's own thrown string.
+- `ordered_map.rs` -- a ~40-line insertion-ordered map. Not incidental: the
+  reference emits its unknown-slot warnings by iterating the author's own
+  objects, and JavaScript iterates string keys in insertion order, so **warning
+  order is a function of how the pack was written**. `BTreeMap` would sort it
+  away, and serde_json's `preserve_order` feature would have leaked into
+  `cartalith-io` through workspace feature unification -- so a small local type
+  instead of a shared behaviour change.
+
+**Golden-verified against the real reference** -- a real execution path exists
+for this logic, so it was used rather than stood in for. A transient Node `vm`
+harness (the same technique Phase 2 used throughout) slices
+`parsePackCsv`/`parsePackManifest`/`packSummary` and their six `PACK_*_SLOTS`
+vocabularies out of the frozen HTML by line range and runs them on five
+fixtures; every expected value in `tests/golden_parity_pack_manifest.rs` is
+that run's output verbatim. All five cases matched on the first run.
+
+The fixtures deliberately target what a rewrite gets *plausibly* wrong rather
+than the happy path: a missing texture file; an unknown texture slot; an
+unknown biome slot that is really a *terrain* slot (dropped even though its
+file is present); one missing icon variant (slot survives) versus every variant
+missing (slot dropped whole, not left empty); a bare string standing in for a
+one-element variant list; an unknown settlement slot; a missing custom-set
+variant that kills the slot but not the set; CSV variant ordering as a *stable*
+sort with unnumbered rows pushed to the end (an unstable sort would silently
+reorder them); JSON winning over CSV when both are present; an empty-string
+path counting as a missing file because the reference's `has` is a truthiness
+test; and the exact wording and ordering of all nine resulting warnings.
+
+Two real reference details found by reading and preserved rather than tidied:
+the CSV path drops unknown slots **silently** while the JSON path warns, and
+the pack-import `poi` vocabulary has 8 slots while the Asset Library's own has
+10 (`lake`/`bridge` have no engine POI kind, so they can be authored and
+exported but never load -- the reference documents this and shrugs).
+
+**Verified**: `cargo build -p cartalith-assets` and `cargo build --workspace`,
+`cargo test -p cartalith-assets` (28 tests -- 18 unit, 9 golden, 1 doctest -- 0
+failures), `cargo clippy -p cartalith-assets --all-targets` clean (one real
+`collapsible_match` in the CSV dispatch fixed by moving all four arms onto
+match guards), `cargo fmt`. `cargo test --workspace --exclude cartalith-gpu`:
+0 regressions. `cartalith-gpu` was excluded because a sibling fork's
+in-progress GPU flow-accumulation work had its lib tests mid-edit and
+non-compiling in the shared tree at the time -- unrelated to this crate, which
+nothing depends on. Nothing Godot-side was touched, so no scene load was
+needed. **Not wired to anything** -- same "don't wire in what nothing calls"
+discipline as `cartalith-spatial` and every unwired Phase 2 primitive.
+
+**Files touched**: `cartalith-native/crates/cartalith-assets/` (new),
+`ASSET_LIBRARY_SCOPE.md` (new), `cartalith-native/docs/STATUS.md`, this file.
+The workspace `Cargo.toml` needed no edit -- its `members = ["crates/*"]` glob
+picks the new crate up automatically.

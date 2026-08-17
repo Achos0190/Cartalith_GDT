@@ -131,6 +131,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cartalith-assets"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cartalith-civ"
 version = "0.1.0"
 dependencies = [
