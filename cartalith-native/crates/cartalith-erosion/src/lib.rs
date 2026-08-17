@@ -3,6 +3,7 @@
 //! Ported in pipeline order starting Phase 1 (MVP_SCOPE.md).
 
 use cartalith_rng::Mulberry32;
+use rayon::prelude::*;
 
 struct HGrad {
     height: f64,
@@ -103,6 +104,13 @@ pub struct DropletParams {
 /// `rain` must be `Some` whenever `ck>0` — mirrors the JS caller's own
 /// invariant (`erode()`: `ck>0?rainField:null`), not independently
 /// re-validated here.
+///
+/// NOT parallelized (`CPU_MULTITHREADING_SCOPE.md`): confirmed, not just
+/// flagged, genuine per-droplet sequential state — each droplet's own
+/// `deposit`/`scrape` calls mutate `fld` in place, and the *next* droplet's
+/// path (`hgrad` samples) depends on exactly what every previous droplet
+/// already carved. This is the outer `for _ in 0..p.droplets` loop; there
+/// is no independent per-cell shape to parallelize here at all.
 pub fn droplet_kernel(fld: &mut [f32], rain: Option<&[f32]>, w: usize, h: usize, p: &DropletParams) {
     let mut rng = Mulberry32::new(p.seed ^ 0x9e3779b9);
 
@@ -222,6 +230,15 @@ pub fn droplet_kernel(fld: &mut [f32], rain: Option<&[f32]>, w: usize, h: usize,
 pub fn erode_thermal(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f64) {
     for _ in 0..passes {
         let mut delta = vec![0f32; w * h];
+        // NOT parallelized: this loop writes `delta[i]` (its own cell) AND
+        // scatters into `delta[j]` for up to 4 neighbours in the same
+        // pass -- the same cross-cell scatter-write hazard already
+        // identified for `compute_stress` (GPU_LAYER_INTEGRATION_SCOPE.md)
+        // and `cartalith-civ`'s scatter-based functions: two cells' writes
+        // could land on the same neighbour's `delta` simultaneously. A
+        // gather reformulation (each cell reads its neighbours' excess
+        // instead of writing to them) would fix this, but that's a real
+        // algorithmic redesign, not a `par_iter` swap -- left sequential.
         for y in 0..h {
             for x in 0..w {
                 let i = y * w + x;
@@ -254,16 +271,17 @@ pub fn erode_thermal(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f6
                 }
             }
         }
-        for i in 0..w * h {
-            let stored = (fld[i] as f64 + delta[i] as f64) as f32;
-            fld[i] = if (stored as f64) < 0.0 {
+        // Independent per cell (reads only `fld[i]`/`delta[i]`), safe.
+        fld.par_iter_mut().zip(delta.par_iter()).for_each(|(f, d)| {
+            let stored = (*f as f64 + *d as f64) as f32;
+            *f = if (stored as f64) < 0.0 {
                 0.0
             } else if (stored as f64) > 1.0 {
                 1.0
             } else {
                 stored
             };
-        }
+        });
     }
 }
 
@@ -460,6 +478,11 @@ pub fn stream_power_kernel(
     }
     let dist = rdist; // renamed for clarity below (matches JS's `dist`, reused as `rdist` after receiver computation overwrites it)
 
+    // NOT parallelized: `ss` is a running SUM (not a max), and unlike
+    // max/min, floating-point summation is order-dependent -- a parallel
+    // reduction could round differently and, in a rare edge case, flip
+    // the `ss < 1e-3` branch below. Cheap (O(n), trivial per-cell work),
+    // not worth risking bit-exactness for.
     let mut u = vec![0f32; n];
     let mut ss = 0.0f64;
     for i in 0..n {
@@ -470,19 +493,18 @@ pub fn stream_power_kernel(
         ss += (s as f64).abs();
     }
     if ss < 1e-3 {
-        for i in 0..n {
-            u[i] = ((fld[i] as f64 - 0.3).max(0.0)) as f32;
-        }
+        // Per-cell, independent -- safe.
+        u.par_iter_mut().enumerate().for_each(|(i, uv)| {
+            *uv = ((fld[i] as f64 - 0.3).max(0.0)) as f32;
+        });
     }
-    let mut u_max = 1e-6f64;
-    for &uv in &u {
-        if uv as f64 > u_max {
-            u_max = uv as f64;
-        }
-    }
-    for uv in &mut u {
+    // Max is associative/commutative for real values -- a parallel
+    // reduction gives the exact same result as the sequential running-max
+    // (same reasoning `cartalith-climate::build_wind`'s own `mx` uses).
+    let u_max = u.par_iter().map(|&uv| uv as f64).reduce(|| 1e-6f64, f64::max);
+    u.par_iter_mut().for_each(|uv| {
         *uv = ((*uv as f64 / u_max) * p.uplift) as f32;
-    }
+    });
 
     let m = 0.5f64;
     let k_coef = p.k * p.g;
@@ -492,7 +514,9 @@ pub fn stream_power_kernel(
 
     let mut rcv = vec![-1i32; n];
     let mut rdist = dist; // overwrite with receiver distances, matching JS reusing `rdist`
-    for i in 0..n {
+    // Per-cell, fixed 3x3 read of the frozen `filled` -- independent
+    // across cells, safe to parallelize.
+    rcv.par_iter_mut().zip(rdist.par_iter_mut()).enumerate().for_each(|(i, (rcv_i, rdist_i))| {
         let x = (i % w) as i64;
         let y = (i / w) as i64;
         let hh = filled[i] as f64;
@@ -524,10 +548,15 @@ pub fn stream_power_kernel(
                 }
             }
         }
-        rcv[i] = best;
-        rdist[i] = brd;
-    }
+        *rcv_i = best;
+        *rdist_i = brd;
+    });
 
+    // NOT parallelized: descending-order flow accumulation -- each cell
+    // scatters its own accumulated `area` into its downstream donors
+    // (`area[j] += ...`), the same genuine cross-cell dependency already
+    // confirmed unsafe for `cartalith-hydrology::compute_flow` and flagged
+    // in `CPU_MULTITHREADING_SCOPE.md`/`GPU_LAYER_INTEGRATION_SCOPE.md`.
     let mut area = vec![1f32; n];
     for k in (0..n).rev() {
         let i = order[k] as usize;
@@ -584,23 +613,32 @@ pub fn stream_power_kernel(
         }
     }
 
+    // `order[k]` only ever supplies an index `i` here -- the computation
+    // itself doesn't depend on `k`/visitation order, and `order` visits
+    // every `0..n` index exactly once, so iterating `i` directly (instead
+    // of through `order[k]`) is the identical computation, just without
+    // the indirection -- and lets this run as one independent per-cell
+    // pass (reads only `rcv[i]`/`rdist[i]`/`resist[i]`/`rain[i]`/`area[i]`,
+    // all already frozen).
     let mut cc = vec![0f64; n];
-    // `k` indexes `order` to get `i`, then `i` indexes several other
-    // per-cell arrays (rcv/rdist/resist/rain/area/cc) -- an iterator
-    // over `order` alone wouldn't carry that any more clearly.
-    #[allow(clippy::needless_range_loop)]
-    for k in 0..n {
-        let i = order[k] as usize;
+    cc.par_iter_mut().enumerate().for_each(|(i, cc_i)| {
         let r = rcv[i];
         if r < 0 {
-            continue;
+            return;
         }
         let l = rdist[i] as f64;
         let res = p.resist * 0.7 * resist[i] as f64;
         let ki = k_coef * (1.0 - res).max(0.05) * (1.0 + ck * 2.0 * rain[i] as f64);
-        cc[i] = ki * dt * (area[i] as f64).powf(m) / l;
-    }
+        *cc_i = ki * dt * (area[i] as f64).powf(m) / l;
+    });
 
+    // NOT parallelized, this whole loop: a genuine donor-receiver
+    // wavefront dependency, not just across `p.iters` iterations but
+    // WITHIN a single iteration too -- `fld[i]`'s update reads `fld[r]`,
+    // which the receivers-before-donors comment below confirms was
+    // *already updated earlier in this same pass*. The deposition
+    // sub-loop below has the identical shape in reverse (scatters into
+    // `sed[r]`). Same category as `area`'s flow accumulation above.
     for _ in 0..p.iters {
         let old_h: Option<Vec<f32>> = if dep > 0.0 { Some(fld.to_vec()) } else { None };
         // receivers-before-donors: `order` runs low-to-high fill order,
@@ -656,9 +694,7 @@ pub fn stream_power_kernel(
         }
     }
 
-    for v in fld.iter_mut() {
-        *v = v.clamp(0.0, 1.0);
-    }
+    fld.par_iter_mut().for_each(|v| *v = v.clamp(0.0, 1.0));
 }
 
 /// `isostaticRebound()` (reference HTML lines 4426-4432): erosional
@@ -670,24 +706,25 @@ pub fn stream_power_kernel(
 /// No-op (JS: early `return`) when nothing eroded net-downward anywhere.
 pub fn isostatic_rebound(field: &mut [f32], pre: &[f32], gw: usize, gh: usize, blur_r: f64, world: bool) {
     let n = gw * gh;
+    // Per-cell, independent -- parallel fill. `any` is a boolean OR, safe
+    // to reduce in parallel (order-independent, unlike a sum).
     let mut d = vec![0f32; n];
-    let mut any = false;
-    for i in 0..n {
+    d.par_iter_mut().enumerate().for_each(|(i, di)| {
         let e = pre[i] - field[i];
         if e > 0.0 {
-            d[i] = e;
-            any = true;
+            *di = e;
         }
-    }
+    });
+    let any = d.par_iter().any(|&v| v > 0.0);
     if !any {
         return;
     }
     // only long-wavelength unloading rebounds
     let b = cartalith_terrain::gauss_blur(&d, blur_r.max(8.0), gw, gh, world);
-    for i in 0..n {
-        let v = field[i] as f64 + 0.8 * b[i] as f64;
-        field[i] = v.clamp(0.0, 1.0) as f32;
-    }
+    field.par_iter_mut().zip(b.par_iter()).for_each(|(f, bi)| {
+        let v = *f as f64 + 0.8 * *bi as f64;
+        *f = v.clamp(0.0, 1.0) as f32;
+    });
 }
 
 /// `recomputeResistanceAfterErosion()` (reference HTML line 3144, the
@@ -700,12 +737,12 @@ pub fn isostatic_rebound(field: &mut [f32], pre: &[f32], gw: usize, gh: usize, b
 /// mirrors that gate on `p.tect.dynamic_lithology`, so this only runs
 /// when a caller opts in.
 pub fn recompute_resistance_after_erosion(resist: &mut [f32], pre: &[f32], post: &[f32], k: f64) {
-    for i in 0..resist.len() {
+    resist.par_iter_mut().enumerate().for_each(|(i, r)| {
         let ex = pre[i] as f64 - post[i] as f64;
         if ex > 0.0 {
-            resist[i] = ((resist[i] as f64 + k * ex).min(1.0)) as f32;
+            *r = ((*r as f64 + k * ex).min(1.0)) as f32;
         }
-    }
+    });
 }
 
 #[cfg(test)]

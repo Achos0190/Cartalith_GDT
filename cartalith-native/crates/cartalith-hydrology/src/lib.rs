@@ -2,6 +2,8 @@
 //!
 //! Ported in pipeline order starting Phase 1 (MVP_SCOPE.md).
 
+use rayon::prelude::*;
+
 /// Descending-height, ascending-index-on-tie comparison — the ordering
 /// `_flowRadixSortDesc()` (reference HTML lines 4846-4861) guarantees.
 /// The JS implementation is a radix sort operating on IEEE-754 bit
@@ -38,6 +40,14 @@ fn flow_cmp_desc(a: f32, b: f32) -> std::cmp::Ordering {
 /// a downhill cell can receive accumulated flow from several different
 /// upstream cells, each JS write rounding to `f32` individually. Kept as
 /// per-write rounding here too, not an `f64` accumulator.
+///
+/// NOT parallelized (`CPU_MULTITHREADING_SCOPE.md`): the descending-order
+/// accumulation loop below is exactly the flow-accumulation hazard this
+/// project's own scope docs already named — each cell scatters into its
+/// single downstream receiver in strict descending-height order, a genuine
+/// wavefront dependency, confirmed here rather than assumed. `sm` is also
+/// a running sum (not a max), so left sequential for the same
+/// floating-point-reordering reason `stream_power_kernel::ss` is.
 pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, use_rain: bool, world: bool) -> Vec<f32> {
     let n = gw * gh;
     let mut order: Vec<usize> = (0..n).collect();
@@ -53,9 +63,8 @@ pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, u
             sm += r;
         }
         let k = n as f64 / sm.max(1e-6);
-        for v in &mut acc {
-            *v = (*v as f64 * k) as f32;
-        }
+        // Per-cell rescale, independent -- safe.
+        acc.par_iter_mut().for_each(|v| *v = (*v as f64 * k) as f32);
     } else {
         acc.fill(1.0);
     }
@@ -188,79 +197,88 @@ pub fn build_channels(
         }
     }
 
-    for y in 0..h {
-        for x in 0..w {
-            let i = y * w + x;
-            if (fld[i] as f64) < sea {
-                continue;
-            }
-            let xl = if wrap {
-                (x + w - 1) % w
-            } else if x > 0 {
-                x - 1
-            } else {
-                x
-            };
-            let xr = if wrap {
-                (x + 1) % w
-            } else if x < w - 1 {
-                x + 1
-            } else {
-                x
-            };
-            let gx = (fld[y * w + xr] as f64 - fld[y * w + xl] as f64) * 0.5;
-            let above = if y < h - 1 { fld[(y + 1) * w + x] as f64 } else { fld[i] as f64 };
-            let below = if y > 0 { fld[(y - 1) * w + x] as f64 } else { fld[i] as f64 };
-            let gy = (above - below) * 0.5;
-            let slope_n = gx.hypot(gy) * w as f64;
-            slope[i] = slope_n as f32;
-            if flow[i] as f64 <= channel_threshold(thresh, slope_n, density) {
-                continue;
-            }
-            chan[i] = 1;
+    // Per-cell: writes only `slope[i]`/`chan[i]`/`recv[i]`, reads only a
+    // fixed 3x3 neighbourhood of the frozen `fld`/`flow` inputs -- no
+    // cross-cell write, no dependency on any other output cell. Unlike
+    // `compute_flow` above (a real downstream-accumulation scatter), this
+    // is genuinely independent -- the one real win in this crate.
+    recv.par_chunks_mut(w)
+        .zip(chan.par_chunks_mut(w))
+        .zip(slope.par_chunks_mut(w))
+        .enumerate()
+        .for_each(|(y, ((recv_row, chan_row), slope_row))| {
+            for x in 0..w {
+                let i = y * w + x;
+                if (fld[i] as f64) < sea {
+                    continue;
+                }
+                let xl = if wrap {
+                    (x + w - 1) % w
+                } else if x > 0 {
+                    x - 1
+                } else {
+                    x
+                };
+                let xr = if wrap {
+                    (x + 1) % w
+                } else if x < w - 1 {
+                    x + 1
+                } else {
+                    x
+                };
+                let gx = (fld[y * w + xr] as f64 - fld[y * w + xl] as f64) * 0.5;
+                let above = if y < h - 1 { fld[(y + 1) * w + x] as f64 } else { fld[i] as f64 };
+                let below = if y > 0 { fld[(y - 1) * w + x] as f64 } else { fld[i] as f64 };
+                let gy = (above - below) * 0.5;
+                let slope_n = gx.hypot(gy) * w as f64;
+                slope_row[x] = slope_n as f32;
+                if flow[i] as f64 <= channel_threshold(thresh, slope_n, density) {
+                    continue;
+                }
+                chan_row[x] = 1;
 
-            let hh = fld[i] as f64;
-            let aspect = (-gy).atan2(-gx);
-            let mut best: i64 = -1;
-            let mut best_score = 0.0f64;
-            let mut s_best: i64 = -1;
-            let mut s_drop = 0.0f64;
-            for dy in -1i64..=1 {
-                for dx in -1i64..=1 {
-                    if dx == 0 && dy == 0 {
-                        continue;
-                    }
-                    let mut nx = x as i64 + dx;
-                    let ny = y as i64 + dy;
-                    if wrap {
-                        nx = ((nx % w as i64) + w as i64) % w as i64;
-                    } else if nx < 0 || nx >= w as i64 {
-                        continue;
-                    }
-                    if ny < 0 || ny >= h as i64 {
-                        continue;
-                    }
-                    let j = ny * w as i64 + nx;
-                    let drop = (hh - fld[j as usize] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
-                    if drop <= 0.0 {
-                        continue;
-                    }
-                    if drop > s_drop {
-                        s_drop = drop;
-                        s_best = j;
-                    }
-                    let mut da = (dy as f64).atan2(dx as f64) - aspect;
-                    da = da.sin().atan2(da.cos()).abs();
-                    let score = drop * (0.5 + 0.5 * da.cos());
-                    if score > best_score {
-                        best_score = score;
-                        best = j;
+                let hh = fld[i] as f64;
+                let aspect = (-gy).atan2(-gx);
+                let mut best: i64 = -1;
+                let mut best_score = 0.0f64;
+                let mut s_best: i64 = -1;
+                let mut s_drop = 0.0f64;
+                for dy in -1i64..=1 {
+                    for dx in -1i64..=1 {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        let mut nx = x as i64 + dx;
+                        let ny = y as i64 + dy;
+                        if wrap {
+                            nx = ((nx % w as i64) + w as i64) % w as i64;
+                        } else if nx < 0 || nx >= w as i64 {
+                            continue;
+                        }
+                        if ny < 0 || ny >= h as i64 {
+                            continue;
+                        }
+                        let j = ny * w as i64 + nx;
+                        let drop = (hh - fld[j as usize] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
+                        if drop <= 0.0 {
+                            continue;
+                        }
+                        if drop > s_drop {
+                            s_drop = drop;
+                            s_best = j;
+                        }
+                        let mut da = (dy as f64).atan2(dx as f64) - aspect;
+                        da = da.sin().atan2(da.cos()).abs();
+                        let score = drop * (0.5 + 0.5 * da.cos());
+                        if score > best_score {
+                            best_score = score;
+                            best = j;
+                        }
                     }
                 }
+                recv_row[x] = if best >= 0 { best as i32 } else { s_best as i32 };
             }
-            recv[i] = if best >= 0 { best as i32 } else { s_best as i32 };
-        }
-    }
+        });
 
     ChannelResult { recv, chan, slope }
 }
@@ -276,6 +294,13 @@ pub fn build_channels(
 /// relative order; Rust's `sort_by` is also stable, and building `cells`
 /// by iterating `0..n` ascending reproduces the same starting order, so
 /// no explicit index tiebreak is needed in the comparator itself).
+///
+/// NOT parallelized (`CPU_MULTITHREADING_SCOPE.md`): a genuine sequential
+/// graph accumulation — each channel cell's own order depends on
+/// `max_in`/`max_cnt` at its receiver having already been updated by
+/// every one of its own upstream tributaries. Also channel-cell-count
+/// sized, not grid-sized, so the real payoff would be small even if it
+/// were parallelizable.
 pub fn strahler_from_receivers(recv: &[i32], flow: &[f32], chan: &[u8]) -> Vec<i16> {
     let n = chan.len();
     let mut order = vec![0i16; n];
@@ -336,6 +361,11 @@ pub fn river_width_scale_k(map_width_km: f64) -> f64 {
 /// port returns the same as `(f64, f64)` tuples rather than re-threading
 /// a Godot/UI point type through a pure-Rust crate (`ARCHITECTURE.md`:
 /// only `cartalith-godot` may depend on a rendering type).
+///
+/// NOT parallelized (`CPU_MULTITHREADING_SCOPE.md`): a sequential
+/// downstream graph walk per source (`visited` also gates cross-source
+/// sharing, so sources aren't even independent of each other) —
+/// source-count sized, not grid-sized.
 pub fn trace_river_polylines(order: &[i16], recv: &[i32], w: usize, h: usize, min_order: i32) -> Vec<Vec<(f64, f64)>> {
     let min_order = if min_order > 1 { min_order } else { 1 };
     let n = w * h;
@@ -391,6 +421,13 @@ pub fn trace_river_polylines(order: &[i16], recv: &[i32], w: usize, h: usize, mi
 /// parameter rather than an `Option` — this port has no caller yet that
 /// needs a different value, and an unused-override knob would exist
 /// solely to mirror JS's options-object shape.
+///
+/// NOT parallelized (`CPU_MULTITHREADING_SCOPE.md`): each point's `floor`
+/// is bounded by `prev`, the previous (upstream) point's own floor — a
+/// genuine sequential dependency along the polyline. Adjacent points'
+/// `half_w`-radius stamps can also overlap the same cells, a real
+/// scatter-write hazard between iterations. One river's polyline at a
+/// time anyway, not grid-sized.
 pub fn enforce_channel_descent(
     fld: &mut [f32],
     w: usize,

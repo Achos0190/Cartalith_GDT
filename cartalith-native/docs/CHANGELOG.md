@@ -5628,3 +5628,104 @@ gpu_weather.wgsl` (new), `cartalith-gpu/src/lib.rs` (`WeatherParams`,
 `cartalith-civ/examples/civ_timing_bench.rs` (renamed from
 `timing_bench.rs`), `CPU_MULTITHREADING_SCOPE.md`, `GPU_LAYER_INTEGRATION_
 SCOPE.md`, this file, `docs/STATUS.md`.
+
+## CPU multithreading milestone 3: Rayon-parallelize climate/erosion/hydrology (2026-08-17)
+
+Covers `CPU_MULTITHREADING_SCOPE.md`'s own "natural follow-up" from
+milestone 1 (`1faa16a`, `cartalith-terrain`) and milestone 2 (`d938afb`,
+`cartalith-civ`): `cartalith-climate`, `cartalith-erosion`,
+`cartalith-hydrology`. Read every candidate function's body in full
+before touching it, checking each against known hazard categories
+(flow accumulation, priority-flood, scatter-write, per-particle
+sequential state, floating-point summation-order sensitivity) rather
+than assuming safety from a function's name.
+
+**`cartalith-climate`**: the deepest pass — most of the crate genuinely
+parallelizes. `compute_temperature`, `apply_cryosphere_albedo` (parallel
+within each of 6 passes), `blur_coarse` (both passes are direct 3-tap
+convolutions, no running-sum unlike `cartalith-terrain::gauss_blur`'s
+box_h/box_v — simpler to parallelize), `deflect_flow` (parallel within
+each iteration), `build_wind` (its pressure-gradient max found via
+`reduce(f64::max)` — exact, since max is order-independent unlike a
+sum), `compute_ocean_current` (its western-intensification pass stays
+row-parallel, each row keeping its own sequential west-distance scan —
+the same "per-row independent, within-row sequential" shape
+`gauss_blur`'s box_h uses), `ocean_sst_anomaly`, `apply_ocean_currents`,
+`apply_climate_moisture_correctors`, and `simulate_weather`'s `iters`
+loop (all three per-iteration passes — evaporation, semi-Lagrangian
+advection, precipitation — parallel within one iteration, `iters` itself
+sequential; confirms `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 7's own
+"gather-shaped" finding for this exact loop applies equally to the CPU
+path).
+
+**`cartalith-erosion`**: mixed, the flagged hazards confirmed real.
+Parallelized: `erode_thermal`'s final clamp (not its `delta` computation
+— see below), `stream_power_kernel`'s `u`/`u_max` normalization, its
+`rcv`/`rdist` receiver computation, its `cc` computation (`order[k]`'s
+indirection turned out not to matter — the computation depends only on
+the resulting index `i`, and `order` visits every index exactly once,
+so iterating `i` directly in parallel is the identical computation
+without a scatter-via-collect step), its final clamp; `isostatic_
+rebound`'s `d`-field fill and combine (`any` via `.par_iter().any()`, a
+boolean OR — order-independent); `recompute_resistance_after_erosion`.
+Confirmed unsafe, not assumed: `droplet_kernel` (genuine per-droplet
+sequential state, verified by reading the function, not taken on the
+scope doc's own leading hypothesis alone); `erode_thermal`'s `delta`
+computation (scatters into up to 4 neighbours' `delta[j]` in the same
+pass — the same cross-cell hazard `compute_stress` has); `stream_power_
+kernel`'s `area` flow-accumulation pass and its entire main `p.iters`
+loop (a genuine donor-receiver wavefront *within* one iteration, per
+the code's own receivers-before-donors comment). `ss` (a running sum
+gating a branch) deliberately left sequential — summation order affects
+rounding, unlike a max, and a parallel reduction could rarely flip which
+side of `ss < 1e-3` it lands on.
+
+**`cartalith-hydrology`**: confirmed mostly sequential, matching the
+scope doc's own leading hypothesis. `compute_flow` (flow accumulation)
+stays fully sequential — its own doc comment already named the
+`acc[best]+=acc[i]` scatter hazard before this pass started; only its
+rain-rescale loop parallelizes. `strahler_from_receivers`, `trace_
+river_polylines`, `enforce_channel_descent` all confirmed genuinely
+sequential and, separately, not grid-sized (channel-cell-count or
+source-count sized — small real payoff even if theoretically safe). The
+one real win: `build_channels`'s main channelization loop — genuinely
+per-cell, parallelized by row.
+
+**Golden-parity verification, exact as required**: every existing test
+in all three crates passes completely unmodified — every golden-parity
+suite (temperature/weather/ocean_current/deflect_flow/moisture_
+correctors for climate; droplet/thermal/streampower/rebound for erosion;
+flow/river/polylines for hydrology). `cargo clippy --all-targets` clean
+on all three, zero new warnings. Full `cargo test --workspace`/`cargo
+build --workspace`: 0 failures, 0 modified tests, every other crate
+(including the concurrently-landed GPU weather milestone 7 work above)
+unaffected.
+
+**Real timing** (`timing_bench`, 16-core machine, seed 12345). Measured
+via a temporary `git worktree` at the last clean commit rather than
+`git stash` — a concurrent fork's own uncommitted GPU-weather extraction
+lived in this same `cartalith-climate/src/lib.rs` file, and stashing the
+whole file would have reverted their in-progress work too:
+
+| Size | Before | After | Speedup |
+|---|---|---|---|
+| 128x128 | 0.1049s | 0.0797s | ~1.32x |
+| 512x512 | 0.5222s | 0.3363s | ~1.55x |
+| 1024x1024 | 1.4109s | 1.1230s | ~1.26x |
+| 2048x2048 | 5.1970s | 4.7815s | ~1.09x |
+
+Real, honest, and unusually better-scaling at smaller sizes than at
+2048x2048 for this session's own timing results — plausibly climate's
+coarse weather grid (capped `min(gw,240)`) keeps the `iters` loop's own
+per-cell work roughly constant past a certain full-resolution size,
+while erosion/hydrology's full-resolution passes keep growing, shrinking
+the parallelized fraction of total work as gw/gh grows. Not chased
+further this pass — a real candidate if a future pass revisits this
+crate. Combined with milestones 1/2's already-measured terrain+civ
+speedups, this is the third and (for now) final subsystem this session's
+CPU-multithreading effort covers.
+
+**Files touched**: `cartalith-native/crates/cartalith-climate/{Cargo.toml,
+src/lib.rs}`, `cartalith-erosion/{Cargo.toml,src/lib.rs}`,
+`cartalith-hydrology/{Cargo.toml,src/lib.rs}`, `CPU_MULTITHREADING_
+SCOPE.md`, this file, `docs/STATUS.md`.

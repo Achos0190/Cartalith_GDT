@@ -5,7 +5,7 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-17 (post real Android device pass — MVP criterion 4 fully closed —, sea routes (Phase 2 milestone 13) wired into `cartalith-godot`'s rendering with a real render-loop crash found and fixed along the way, CPU-multithreading milestone 2 — `cartalith-civ` Rayon-parallelized, ~1.34-1.81x — Phase 1's two closeout items (credits screen, crate license audit) both done, GPU layer integration milestone 8 — shared GpuContext across `generate_terrain`'s stages, GPU now wins starting at 1024x1024, and a new standalone `cartalith-spatial` crate (tiling/quadtree/dirty-tracking base for a future LOD integration — real, tested, referenced by nothing yet) — see `CHANGELOG.md`).
+Last updated: 2026-08-17 (post real Android device pass — MVP criterion 4 fully closed —, sea routes (Phase 2 milestone 13) wired into `cartalith-godot`'s rendering with a real render-loop crash found and fixed along the way, CPU-multithreading milestones 2-3 — `cartalith-civ` then `cartalith-climate`/`cartalith-erosion`/`cartalith-hydrology` Rayon-parallelized — Phase 1's two closeout items (credits screen, crate license audit) both done, GPU layer integration milestones 7-8 — GPU-backed weather simulation, shared GpuContext across `generate_terrain`'s stages — and a new standalone `cartalith-spatial` crate (tiling/quadtree/dirty-tracking base for a future LOD integration — real, tested, referenced by nothing yet) — see `CHANGELOG.md`).
 
 ## MVP_SCOPE.md — "done means all seven"
 
@@ -356,12 +356,44 @@ sequential to ~7.07s parallelized. Full record:
 `cartalith-native/docs/CHANGELOG.md`'s "CPU multithreading milestone 2"
 entry.
 
-**Natural next passes, not yet scoped**: `cartalith-climate`/
-`cartalith-erosion`/`cartalith-hydrology` (each needs its own
-independence read first, same discipline as milestones 1-2); the
-remaining sequential `cartalith-civ` stages (settlement placement,
-naming, roads, territory's outer capital loop, villages) — confirmed
-genuinely hard (RNG-order/graph-shaped), not just unattempted.
+**Milestone 3 — `cartalith-climate`/`cartalith-erosion`/`cartalith-
+hydrology` (done 2026-08-17).** Read every candidate function fully
+before touching it (same discipline as milestones 1-2). Climate: the
+deepest pass, most of the crate genuinely parallelizes (`compute_
+temperature`, `apply_cryosphere_albedo`, `blur_coarse`, `deflect_flow`,
+`build_wind`, `compute_ocean_current`, `ocean_sst_anomaly`, `apply_
+ocean_currents`, `apply_climate_moisture_correctors`, `simulate_
+weather`'s `iters` loop — parallel within each iteration, sequential
+across, confirming `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 7's own
+"gather-shaped" finding applies to the CPU path too). Erosion: mixed,
+confirmed real hazards — `droplet_kernel` (genuine per-droplet
+sequential state) and `stream_power_kernel`'s donor-receiver `iters`
+loop (wavefront *within* one iteration) stay fully sequential; `erode_
+thermal`/`stream_power_kernel`'s safe pieces (final clamps, receiver
+computation, `u_max`/`cc`) parallelized. Hydrology: confirmed mostly
+sequential, matching this scope doc's own leading hypothesis — `compute_
+flow` (flow accumulation) stays fully sequential exactly as its own
+pre-existing doc comment already flagged; the one real win is `build_
+channels`'s main per-cell channelization loop. Golden-parity exact-
+unchanged across all three crates; full `cargo test --workspace` 0
+failures, 0 modified tests. Real timing (`timing_bench`, measured via a
+temporary `git worktree` since a concurrent fork's own uncommitted GPU-
+weather work lived in the same `cartalith-climate/src/lib.rs` file):
+128² ~1.32x, 512² ~1.55x, 1024² ~1.26x, 2048² ~1.09x — unusually
+better-scaling at smaller sizes than larger ones for this session's own
+results, plausibly climate's coarse weather grid capping the `iters`
+loop's own growth while erosion/hydrology's full-resolution passes keep
+growing; not chased further. Full record: `CPU_MULTITHREADING_SCOPE.md`'s
+own third-pass section and `cartalith-native/docs/CHANGELOG.md`'s "CPU
+multithreading milestone 3" entry.
+
+**Remaining, not yet scoped**: the remaining sequential `cartalith-civ`
+stages (settlement placement, naming, roads, territory's outer capital
+loop, villages) — confirmed genuinely hard (RNG-order/graph-shaped), not
+just unattempted. Every crate's own hard-hazard functions (flow
+accumulation, priority-flood, scatter-writes, per-particle/per-iteration
+wavefronts) are the real remaining ceiling, per this scope doc's own
+"Out of scope" section from the first pass.
 
 ## LOD/tiling base (`LOD_TILING_BASE_SCOPE.md`, done 2026-08-17)
 

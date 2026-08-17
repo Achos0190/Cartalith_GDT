@@ -304,6 +304,139 @@ villages).
 CHANGELOG.md`'s "CPU multithreading milestone 2" entry has the same
 numbers in this project's established changelog style.
 
+## Resolved (2026-08-17): third pass done -- `cartalith-climate`/`cartalith-erosion`/`cartalith-hydrology`
+
+Covers this scope doc's own "Natural follow-up passes" note from
+milestone 1. Read every candidate function's body in full in all three
+crates before touching it (same discipline as milestones 1/2), checking
+each against the known hazard categories (flow accumulation, priority-
+flood/flood-fill, scatter-write, per-droplet/per-particle sequential
+state, running-sum floating-point reductions) rather than assuming a
+function was safe or unsafe from its name alone.
+
+**`cartalith-climate` -- the deepest pass, most of the crate genuinely
+parallelizes.** `compute_temperature`, `apply_cryosphere_albedo`
+(parallel within each of its 6 passes, sequential across -- reads only
+the same cell's own previous value), `blur_coarse` (both its row and
+column passes are direct 3-tap convolutions with no running-sum, unlike
+`cartalith-terrain::gauss_blur`'s box_h/box_v -- simpler to parallelize,
+no row/column restructuring needed), `deflect_flow` (per-cell within
+each iteration, sequential across iterations -- same "gather-shaped"
+property `GPU_LAYER_INTEGRATION_SCOPE.md` already found for
+`simulate_weather`'s wind loop), `build_wind` (including its pressure-
+gradient max-reduction, parallelized as a `reduce(f64::max)` -- exact
+because max is associative/commutative for real values, unlike a sum),
+`compute_ocean_current` (including its western-intensification pass,
+row-parallel -- each row carries its own sequential west-distance scan,
+the same "per-row independent, within-row sequential" shape
+`gauss_blur`'s box_h already established), `ocean_sst_anomaly`,
+`apply_ocean_currents`, `apply_climate_moisture_correctors` (all three
+of its sequential correction passes parallel internally), and
+`simulate_weather`'s own `iters` loop (all three of its per-iteration
+passes -- evaporation, semi-Lagrangian advection, precipitation --
+parallel within one iteration, `iters` itself sequential, confirming
+`GPU_LAYER_INTEGRATION_SCOPE.md` milestone 7's own "gather-shaped"
+finding applies equally to the CPU path). Left sequential and why:
+`droplet`-style sums (`ss` in `stream_power_kernel`, not this crate --
+see erosion below) don't appear here, but the same reasoning shows up as
+a `reduce` vs. running-sum distinction throughout -- every max-style
+reduction (`build_wind`'s `mx`, `apply_climate_moisture_correctors`'s
+`f_max`) was parallelized via `reduce(f64::max)` (order-independent,
+bit-exact), while nothing in this crate had a genuine running-*sum*
+reduction gating a branch decision that would have needed the same
+caution `stream_power_kernel::ss` gets in erosion.
+
+**`cartalith-erosion` -- confirmed mixed, the real hazards are real.**
+Parallelized: `erode_thermal`'s final clamp pass (not its `delta`
+computation pass -- see below), `stream_power_kernel`'s `u`/`u_max`
+normalization (max via `reduce`, same reasoning as climate), its
+`rcv`/`rdist` receiver computation (fixed 3x3 read of the frozen `filled`
+array), its `cc` computation (realized that `order[k]`'s indirection
+doesn't matter -- the computation only depends on the resulting index
+`i`, and `order` visits every index exactly once, so iterating `i`
+directly in parallel is the identical computation without needing a
+scatter-via-collect step), and its final clamp; `isostatic_rebound`'s
+`d`-field fill and final combine (`any` parallelized as `.par_iter().any()`,
+a boolean OR -- order-independent, unlike a sum); `recompute_
+resistance_after_erosion` (fully independent per-cell). **Confirmed
+unsafe, not assumed**: `droplet_kernel` (genuine per-droplet sequential
+state -- each droplet's path depends on exactly what every previous
+droplet already carved into `fld`, matching this scope doc's own
+leading hypothesis, now verified by reading the function rather than
+taken on faith); `erode_thermal`'s `delta` computation pass (scatters
+into up to 4 neighbours' `delta[j]` in the same pass -- the identical
+cross-cell hazard `compute_stress` has, needing a gather reformulation
+to parallelize safely, not attempted here); `stream_power_kernel`'s
+`area` flow-accumulation pass and its entire main `p.iters` loop
+(a genuine donor-receiver wavefront dependency *within* one iteration,
+not just across iterations -- confirmed by reading the receivers-before-
+donors comment already in the code, not inferred). `ss` (a running sum
+gating a branch decision) deliberately left sequential -- unlike a max,
+summation order affects rounding, and a parallel reduction could in a
+rare edge case flip which branch `ss < 1e-3` takes.
+
+**`cartalith-hydrology` -- confirmed mostly sequential, exactly as this
+scope doc's own leading hypothesis said.** `compute_flow` (flow
+accumulation) stays fully sequential -- its own doc comment already
+named the `acc[best]+=acc[i]` scatter hazard before this pass even
+started; only its rain-rescale loop parallelizes (a plain per-cell
+multiply, no reduction). `strahler_from_receivers` (Strahler ordering),
+`trace_river_polylines` (downstream graph walk), `enforce_channel_
+descent` (sequential-along-a-polyline, with overlapping neighbour
+stamps) all confirmed genuinely sequential and, separately, not
+grid-sized (channel-cell-count or source-count sized) -- even a
+hypothetically-safe parallelization would have small real payoff here.
+**The one real win**: `build_channels`'s main channelization loop --
+genuinely per-cell (writes only `slope[i]`/`chan[i]`/`recv[i]`, reads a
+fixed 3x3 neighbourhood of the frozen `fld`/`flow` inputs), parallelized
+by row.
+
+**Golden-parity verification, exact as required**: every existing test
+in all three crates (`cargo test -p cartalith-climate -p cartalith-erosion
+-p cartalith-hydrology`) passes completely unmodified, including every
+golden-parity suite (`golden_parity_temperature`/`_weather`/
+`_ocean_current`/`_deflect_flow`/`_moisture_correctors` for climate;
+`golden_parity_droplet`/`_thermal`/`_streampower`/`_rebound` for erosion;
+`golden_parity_flow`/`_river`/`_polylines` for hydrology). `cargo clippy
+--all-targets` clean on all three (zero new warnings). Full `cargo test
+--workspace` and `cargo build --workspace`: 0 failures, 0 modified
+tests, every other crate (including the concurrently-landed GPU weather
+milestone 7 work in `cartalith-climate`/`cartalith-gpu`/
+`cartalith-engine`) unaffected.
+
+**Real timing** (`cargo run --release --example timing_bench -p
+cartalith-engine`, 16-core machine, seed 12345). Measured via a
+temporary `git worktree` at the last clean commit rather than `git
+stash` -- a concurrent fork's own uncommitted GPU-weather extraction
+lives in this same `cartalith-climate/src/lib.rs` file, and stashing the
+whole file would have reverted their in-progress work too. The worktree
+isolates this pass's own marginal effect cleanly without touching the
+live working tree:
+
+| Size | Before | After | Speedup |
+|---|---|---|---|
+| 128x128 | 0.1049s | 0.0797s | ~1.32x |
+| 512x512 | 0.5222s | 0.3363s | ~1.55x |
+| 1024x1024 | 1.4109s | 1.1230s | ~1.26x |
+| 2048x2048 | 5.1970s | 4.7815s | ~1.09x |
+
+Real, honest, and -- unusually for this session's own timing results --
+*better* proportional scaling at smaller sizes than at 2048x2048. Not
+investigated further here, but plausibly climate's own coarse weather
+grid (capped at `min(gw,240)`) means the `iters` loop's own per-cell
+work stays roughly constant past a certain full-resolution size while
+erosion/hydrology's full-resolution passes keep growing -- the
+parallelized fraction of total work shrinks relatively as gw/gh grows
+past where the coarse grid saturates. A real candidate for a closer
+look if a future pass revisits this crate, not chased further now.
+Combined with milestones 1/2's own already-measured terrain+civ
+speedups, this is the third and (for now) final subsystem this session's
+CPU-multithreading effort covers -- `cartalith-godot`'s own sequential
+orchestration and the remaining hard-hazard functions in every crate
+(flow accumulation, priority-flood, scatter-writes, per-droplet/
+per-iteration wavefronts) are the real ceiling left, per this scope
+doc's own "Out of scope" section from the very first pass.
+
 ## Separate, lower-priority idea recorded, not scoped: using the integrated GPU too
 
 Also raised by the owner this turn: this machine has an integrated GPU

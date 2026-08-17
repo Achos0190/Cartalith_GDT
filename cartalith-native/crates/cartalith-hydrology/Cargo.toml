@@ -11,3 +11,4 @@ name = "cartalith_hydrology"
 
 [dependencies]
 cartalith-terrain = { path = "../cartalith-terrain" }
+rayon = "1"
