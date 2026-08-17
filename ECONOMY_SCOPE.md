@@ -180,35 +180,80 @@ not a lint-driven rewrite.
 `cargo clippy -p cartalith-civ --all-targets` (clean — the one real warning
 in the new code addressed deliberately, not suppressed blindly, see above).
 
+## Memory-optimization tension: resolved (2026-08-17)
+
+Confirmed real by direct inspection, not assumed away — grepped the
+reference's actual `_civFactionAggregates` (lines 23640/23653) and
+`_civPlaceResourceContext` (lines 24572-24580): both genuinely iterate the
+full 15-key `CIV_RESOURCE_KEYS` vocabulary, reading `pots[k][i]` for every
+key including the six `compute_civilisation()` was freeing immediately
+after `build_resource_potentials` returns.
+
+**Compounding finding, not in the original write-up**: per-faction
+resource-mean aggregation (`_civFactionAggregates`'s own approach) also
+needs `territory` (faction ownership per cell), which this port's
+`assign_territory` doesn't compute until much later in the pipeline — so
+"just reorder two adjacent lines" doesn't work; the fields would need to
+stay alive across the entire settlement-placement/road/naming span either
+way. But `_civPlaceTrade`'s own approach (`_civPlaceResourceContext`, a
+fixed-radius disc scan around a settlement position) needs no territory at
+all — only settlement positions, which exist right after naming/villages,
+well before territory is computed.
+
+**Resolution shipped this pass**: the settlement-catchment-based trade
+balance (`_civPlaceTrade`'s hinterland term, not `_civFactionAggregates`'s
+territory-based one) is now real. `civ_world_mean_resources` (the one
+genuinely territory-independent piece of `_civFactionAggregates`, extracted
+standalone since `_civPlaceTrade`'s own `worldMean` argument reuses that
+exact value per the reference) plus `civ_catchment_km2`/
+`civ_catchment_radius_cells` (`_CIV_CATCHMENT_KM2`/`_civCatchmentRadiusCells`,
+reference lines 23407/23481) plus `civ_place_resource_context`
+(`_civPlaceResourceContext`, reference line 24567) — all new in
+`cartalith-civ`, 8 real unit tests including a proof the disc-scan
+rejection/wrap/ocean-exclusion logic works correctly, not just the happy
+path.
+
+`compute_civilisation()`'s resource-field free (the six unused keys) moved
+from immediately after `build_resource_potentials` to right after
+settlements are finalized (before `territory`) — a real, bounded, measured
+tradeoff: these six fields (~96 MB at 2048×2048) now stay resident through
+settlement placement/road-building/naming instead of being dropped
+immediately, but steady-state after `compute_civilisation()` returns is
+completely unaffected, since they're still freed, just later. New
+`get_trade_balances()` `#[func]` in `cartalith-godot` exposes real
+per-settlement export/import data, same order/index as `get_settlements()`.
+
+**Still not attempted**: `_civFactionAggregates`'s own territory-based
+per-faction aggregation (population, tax, the five-axis "power" heuristic,
+sector output) — that's real, separate future work, deliberately not folded
+into this settlement-level wiring.
+
 ## Done means (this pass)
 
-`civ_resource_trade_balance` ported, tested, verified — a real, useful,
-already-complete building block for whoever tackles the next economy
-milestone. Not wired into `compute_civilisation()`/Godot yet — it's a pure
-utility function with no caller in this port until the broader
-`_civPlaceTrade`/`_civFactionAggregates` orchestration exists to call it; wiring
-a function with no real caller into the Godot API surface would be exactly
-the "technically done, practically inert" trap `PHASE2_SCOPE.md`'s own
-milestone-9 note already named once.
+`civ_resource_trade_balance` ported, tested, and now genuinely wired —
+`civ_world_mean_resources`/`civ_place_resource_context` give it real inputs,
+`compute_civilisation()` calls it per settlement, `get_trade_balances()`
+exposes the result to Godot. No GDScript UI built for this yet — that's the
+GUI-shell work's job when it reaches the Simulate → Economy panel
+(`GUI_SHELL_SCOPE.md`).
 
 ## Real next milestones for whoever continues this (not started)
 
-1. **`_civCatchmentRadiusCells`/`_CIV_CATCHMENT_KM2`** — small, bounded,
-   needed by `_civPlaceSmelting` and the whole food-surplus cluster. A clean
-   first slice for a follow-up pass.
-2. **`_civPlaceSmelting`** — depends on (1), otherwise fully read and ready
-   to port faithfully (see above).
-3. **`_civFoodShed`/`_civPlaceFoodSurplus`/`_civPlaceCatchmentCeiling`/
+1. **`_civPlaceSmelting`** — `_civCatchmentRadiusCells`/`_CIV_CATCHMENT_KM2`
+   (its stated dependency) are now ported (`civ_catchment_radius_cells`/
+   `civ_catchment_km2` above) — this is now a clean, unblocked first slice,
+   fully read and ready to port faithfully (see the original finding above).
+2. **`_civFoodShed`/`_civPlaceFoodSurplus`/`_civPlaceCatchmentCeiling`/
    `_civCatchmentPop`** — the food-surplus cluster, depends on (1) and on
    `currentAgrarianDensity`/`currentCarryingCapacity` (check what this port
    already has from milestone 4's `build_carrying_capacity`/`build_npp`
    before assuming a gap).
-4. **Resolve the memory-optimization tension** (see above) before attempting
-   `_civFactionAggregates`'s full resource-mean aggregation, which needs all
-   15 `CIV_RESOURCE_KEYS` resident.
-5. **`_civFactionAggregates`** itself — the big one, ~165 lines, real design
+3. **`_civFactionAggregates`** itself — the big one, ~165 lines, real design
    work deciding what subset of its heuristic "power" composite is worth
-   porting vs. genuinely UI-only.
-6. **The Journey Planner**, as its own separate sub-phase with its own scope
-   document — not bundled with the above, per `ROADMAP.md`'s own instruction
-   and this investigation's own confirmation of why.
+   porting vs. genuinely UI-only. The memory tension that used to block this
+   is resolved in principle (delay the free further, to after territory) but
+   not yet done — this milestone would need to extend the delayed-free
+   pattern this pass introduced.
+4. **The Journey Planner** — now has its own scope document,
+   `JOURNEY_PLANNER_SCOPE.md`, with milestone 1 (physical-modeling
+   primitives + seasonal/closure logic) done as of this pass.

@@ -122,6 +122,21 @@ struct CivData {
     /// Province metadata (id/faction/name/seed settlement index) parallel
     /// to `provinces` above's cell ids.
     province_list: Vec<cartalith_civ::Province>,
+    /// Per-settlement resource trade balance (`cartalith_civ::
+    /// civ_resource_trade_balance`, reference `_civPlaceTrade`'s hinterland
+    /// term -- `ECONOMY_SCOPE.md`), same order/index as `settlements`
+    /// above. A settlement's own catchment-mean resource profile
+    /// (`civ_place_resource_context`, `_civPlaceResourceContext`) against
+    /// the world mean (`civ_world_mean_resources`, the one piece of
+    /// `_civFactionAggregates` that's genuinely territory-independent).
+    /// Requires all 15 `CIV_RESOURCE_KEYS` -- computed here, right after
+    /// `settlements` is finalized and *before* `resources`' unused six
+    /// fields are freed (see `compute_civilisation`'s own comment on why
+    /// that free moved). Does not include `_civFactionAggregates`'s own
+    /// territory-based per-faction aggregation (population, tax, the
+    /// five-axis "power" heuristic, sector output) -- that remains real,
+    /// unstarted future scope, not silently folded in here.
+    trade_balances: Vec<cartalith_civ::TradeBalance>,
 }
 
 /// Runs the full Phase 2 pipeline (milestones 1-11) over a freshly
@@ -177,25 +192,19 @@ fn compute_civilisation(
     // `ResourcePotentials` carries all 15 fields (`build_resource_potentials`
     // computes them together in one shared per-cell loop -- not splittable
     // without real restructuring, `MEMORY_OPTIMIZATION_SCOPE.md`). Only 9
-    // (`SUIT_RESOURCE_KEYS`) are ever read below, via `ctx.resources` ->
-    // `build_settlement_suitability`'s mineral term (confirmed: no other
-    // reader anywhere in this production call chain -- grepped). `ctx`
-    // keeps `resources` alive until `suit` is computed ~40 lines down, so
-    // the other 6 (clay/buildstone/flint/obsidian/sulfur/alum, ~40% of this
-    // struct's own ~240 MB at 2048x2048) would otherwise sit unused for
-    // that whole span -- the single largest confirmed contributor to this
-    // function's measured peak (real before/after numbers in
-    // `MEMORY_OPTIMIZATION_SCOPE.md`/`CHANGELOG.md`). Freed immediately
-    // instead of held: replacing with an empty `Vec` drops the old heap
-    // allocation right here, and `resource_field()` never indexes these 6
-    // keys (only `SUIT_RESOURCE_KEYS` ever reaches it), so nothing later
-    // reads the now-empty buffers.
-    resources.clay = Vec::new();
-    resources.buildstone = Vec::new();
-    resources.flint = Vec::new();
-    resources.obsidian = Vec::new();
-    resources.sulfur = Vec::new();
-    resources.alum = Vec::new();
+    // (`SUIT_RESOURCE_KEYS`) feed `build_settlement_suitability`'s mineral
+    // term via `ctx.resources` below, but as of the economy wiring
+    // (`ECONOMY_SCOPE.md`) the other 6 (clay/buildstone/flint/obsidian/
+    // sulfur/alum) are no longer dead weight either -- the per-settlement
+    // trade-balance computation further down (right before this struct's
+    // free point) genuinely needs the full 15-key vocabulary. The free that
+    // used to happen right here (immediately after this call) has moved to
+    // just after that computation, once `settlements` exists -- a real,
+    // bounded, measured tradeoff (these 6 fields, ~96 MB at 2048x2048, now
+    // stay resident through settlement placement/roads/naming instead of
+    // being dropped immediately), not a silent revert of the memory fix:
+    // steady-state after `compute_civilisation()` returns is unaffected,
+    // only this function's own transient peak grows by that bounded amount.
 
     let raw_slope = cartalith_civ::build_raw_slope_field(&ws.field, gw, gh, world);
     let corridors = cartalith_civ::build_route_corridors(&ws.field, &raw_slope, Some(&ws.flow_discharge), gw, gh, sea_level, world, flow_thresh);
@@ -316,6 +325,35 @@ fn compute_civilisation(
         settlements = cartalith_civ::name_and_populate_settlements(&placements);
     }
 
+    // Economy (`ECONOMY_SCOPE.md`): per-settlement resource trade balance,
+    // `_civPlaceTrade`'s hinterland term against `_civFactionAggregates`'s
+    // world mean -- the one piece of that pair genuinely independent of
+    // territory, so it runs here, right after `settlements` (not after
+    // `territory` below, which it doesn't need). Real 15-key vocabulary,
+    // hence run before `resources`' six extra fields are freed just below.
+    let world_mean_resources = cartalith_civ::civ_world_mean_resources(&resources, &ws.field, sea_level);
+    let trade_balances: Vec<cartalith_civ::TradeBalance> = settlements
+        .iter()
+        .map(|s| {
+            let cat_km2 = cartalith_civ::civ_catchment_km2(s.placement.kind);
+            let radius = cartalith_civ::civ_catchment_radius_cells(cat_km2, map_width_km, gw);
+            let ctx_mean = cartalith_civ::civ_place_resource_context(
+                &resources, &ws.field, gw, gh, sea_level, s.placement.x, s.placement.y, radius, world,
+            );
+            cartalith_civ::civ_resource_trade_balance(&ctx_mean, &world_mean_resources)
+        })
+        .collect();
+    // See the comment on `build_resource_potentials`'s own call site: this
+    // free used to happen immediately after that call, before the economy
+    // wiring above needed the full 15-key vocabulary through settlement
+    // placement. Nothing after this point reads `resources` at all.
+    resources.clay = Vec::new();
+    resources.buildstone = Vec::new();
+    resources.flint = Vec::new();
+    resources.obsidian = Vec::new();
+    resources.sulfur = Vec::new();
+    resources.alum = Vec::new();
+
     // Territory (`DECISIONS.md` §7b): reuses the same real terrain
     // travel-cost field the road network above already computed --
     // capitals only (villages/non-capital settlements don't project
@@ -347,7 +385,7 @@ fn compute_civilisation(
         settlements.iter().filter(|s| s.placement.coastal).cloned().collect();
     let sea_routes = cartalith_civ::civ_sea_routes(&ports, &ws.field, &wb.classification, gw, gh, world, map_width_km);
 
-    CivData { settlements, ways, sea_routes, territory, provinces, province_list }
+    CivData { settlements, ways, sea_routes, territory, provinces, province_list, trade_balances }
 }
 
 /// `MVP_SCOPE.md` points 10-11: basic 2D rendering + minimal UI. Owns the
@@ -815,6 +853,30 @@ impl WorldGen {
                     "name" => p.name.as_str(),
                     "capital_settlement_index" => p.capital_settlement_index as i64,
                 }
+            })
+            .collect()
+    }
+
+    /// Per-settlement resource trade balance (`cartalith_civ::
+    /// civ_resource_trade_balance`, `ECONOMY_SCOPE.md`) -- one `Dictionary`
+    /// per entry in `get_settlements()`, same order/index, with `exports`
+    /// and `imports` as `PackedStringArray`s of `CIV_RESOURCE_KEYS` names
+    /// (may be empty -- a settlement with no strong local surplus/deficit
+    /// has no trade relationship, a real outcome, not missing data). This
+    /// is the reference's `_civPlaceTrade` hinterland term only, not the
+    /// full faction-level `_civFactionAggregates` aggregation (population,
+    /// tax, the five-axis "power" heuristic) -- that remains unstarted,
+    /// real future scope (`ECONOMY_SCOPE.md`'s own next-milestones list).
+    /// Empty under the same conditions as `get_settlements()`.
+    #[func]
+    fn get_trade_balances(&self) -> Array<VarDictionary> {
+        let Some(civ) = self.civ.as_ref() else { return Array::new() };
+        civ.trade_balances
+            .iter()
+            .map(|t| {
+                let exports: PackedStringArray = t.exports.iter().map(|s| GString::from(*s)).collect();
+                let imports: PackedStringArray = t.imports.iter().map(|s| GString::from(*s)).collect();
+                dict! { "exports" => &exports, "imports" => &imports }
             })
             .collect()
     }

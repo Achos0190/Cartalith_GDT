@@ -785,5 +785,72 @@ bounded; `civ_resource_trade_balance` (the one fully self-contained piece,
 verified in `cartalith-civ`. Not yet wired anywhere — no real caller exists
 until the broader trade orchestration is built. A real, disclosed tension
 found: the full trade layer needs all 15 `CIV_RESOURCE_KEYS` resident, but
-this session's own memory-optimization pass frees 6 of them after use —
-unresolved, flagged for whoever continues this.
+this session's own memory-optimization pass frees 6 of them after use.
+
+**Resolved same day**: the tension was confirmed real (not assumed away —
+grepped the reference's actual `_civFactionAggregates`/
+`_civPlaceResourceContext`, both genuinely need all 15 keys) and fixed via
+`_civPlaceTrade`'s own settlement-catchment approach, which needs no
+territory (unlike `_civFactionAggregates`'s per-faction approach) — full
+reasoning and the real fields/functions shipped
+(`civ_world_mean_resources`/`civ_catchment_km2`/
+`civ_catchment_radius_cells`/`civ_place_resource_context`, 8 new tests,
+`get_trade_balances()` #[func]) now in `ECONOMY_SCOPE.md`'s own updated
+"Memory-optimization tension: resolved" section.
+
+## Milestone 18 — culture beyond naming: investigated, confirmed real but blocked (2026-08-17)
+
+Real investigation, not another unverified "not done" mention (matching the
+discipline milestone 9's territory note and milestone 17's economy
+investigation both already established). Grepped the reference for every
+culture-related computation beyond the syllable/suffix naming tables already
+ported (milestone 9).
+
+**Finding**: `civFactionCulture`/`civFactionGovernment`/`civFactionReligion`/
+ag-technology are confirmed genuinely UI-only categorical labels with zero
+derived computation — the reference's own v1.57 comment (line 26309) says so
+directly ("editing a faction's Government/Culture/Religion/Ag.-technology").
+**But one real thing does exist beyond naming**: `_civCultureTerrainFit`
+(reference line 23748, v1.55) — a small, pure function comparing a faction's
+territory terrain-mix against what its culture is thematically associated
+with (highland↔hills, desert↔arid, riverlands↔river, sylvan↔forest,
+maritime↔coast), producing a match/typical/mismatch verdict relative to the
+world mean. `common`/`imperial` (identity-flavored, not terrain-themed)
+deliberately get no verdict, matching the reference's own "never fabricate a
+verdict without a real basis" discipline.
+
+Ported as `civ_culture_terrain_fit` (`cartalith-civ`), 7 real unit tests
+covering every verdict band plus both zero-world-mean edge cases. **Not
+wired to any caller** — its real inputs (`terrain_mix`/`world_mean_terrain`,
+per-faction terrain-type fractions) are `_civFactionAggregates`'s own v1.55
+"Territory Fit" output, part of the same still-unstarted 165-line
+territory-based aggregation `ECONOMY_SCOPE.md` flags as milestone 3 of its
+own remaining work — same "ship the primitive ahead of the orchestration"
+precedent as `civ_resource_trade_balance`.
+
+**Also found and correctly ruled out of Phase 2's scope**: a completely
+unrelated, much larger "culture" concept exists in the reference at lines
+28193+ (`docs/07-culture-architecture.md`, urban-morphology "culture
+profiles" — Organic Growth, Islamic/Byzantine/Chinese/Aztec/Viking/etc.
+city-layout patterns). This belongs to `ROADMAP.md` Phase 5 (Urban
+morphology, block 4, not started) — a different system entirely, not a
+Phase 2 gap.
+
+**Culture-beyond-naming is now genuinely closed for Phase 2**: the one real
+computation is ported, the rest is confirmed to not exist (Government/
+Religion/Ag-tech) or belongs to a different phase entirely (urban
+morphology).
+
+## Milestone 19 — Journey Planner milestone 1: physical-modeling primitives + seasonal/closure logic (2026-08-17)
+
+Full reasoning and the remaining milestone breakdown now live in
+`JOURNEY_PLANNER_SCOPE.md` (repo root, new). Summary: ported the two fully
+self-contained categories of the ~70-function Journey Planner that need no
+route/plan/vessel context object — `jp_fatigue`/`jp_load_penalty`/
+`jp_surface_gain`/`jp_can_use_wheels` (tiny physical-modeling primitives)
+and `jp_season_at`/`jp_rest_days`/`jp_seasonal_closure`/`jp_sea_closure`
+(the reference's own "v1.52: four deferred items" cluster — rest-day
+scheduling, season drift over long journeys, mountain-pass and sea-lane
+winter closures). 22 real unit tests. Not wired to any caller — the real
+route/plan orchestration (`JOURNEY_PLANNER_SCOPE.md`'s milestones 2-6) is
+real, substantial, unstarted future work.

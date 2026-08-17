@@ -1623,6 +1623,139 @@ pub fn civ_resource_trade_balance(mean: &std::collections::HashMap<&str, f64>, w
     out
 }
 
+/// All 15 `CIV_RESOURCE_KEYS`, unlike `resource_field`'s 9-key
+/// `SUIT_RESOURCE_KEYS` subset -- a separate accessor rather than widening
+/// `resource_field` itself, since every existing caller of that function
+/// only ever needs the ore subset and this project's own convention is to
+/// add a new function rather than change an existing one's contract mid-use
+/// (`cartalith-rust-conventions`).
+fn resource_field_all<'a>(res: &'a ResourcePotentials, key: &str) -> &'a [f32] {
+    match key {
+        "copper" => &res.copper,
+        "tin" => &res.tin,
+        "iron" => &res.iron,
+        "gold" => &res.gold,
+        "salt" => &res.salt,
+        "timber" => &res.timber,
+        "lead" => &res.lead,
+        "silver" => &res.silver,
+        "clay" => &res.clay,
+        "buildstone" => &res.buildstone,
+        "flint" => &res.flint,
+        "obsidian" => &res.obsidian,
+        "gems" => &res.gems,
+        "sulfur" => &res.sulfur,
+        "alum" => &res.alum,
+        other => panic!("resource_field_all: unknown key {other}"),
+    }
+}
+
+/// `_civFactionAggregates`'s own `worldResourceSum`/`worldMeanResource`
+/// computation (reference lines 23640/23658), extracted as a standalone
+/// pure function -- the full 165-line `_civFactionAggregates` (territory
+/// aggregation, five-axis "power" heuristic, sector output) is real future
+/// scope (`ECONOMY_SCOPE.md`), but this one piece is genuinely
+/// self-contained: a land-cell mean over `CIV_RESOURCE_KEYS`, independent
+/// of territory/faction ownership. `_civPlaceTrade`'s own `worldMean`
+/// argument (reference line 24464: `agg.worldMeanResource`) reuses this
+/// exact value, confirming it's the right unit to extract rather than
+/// reimplementing a second copy.
+pub fn civ_world_mean_resources(
+    res: &ResourcePotentials,
+    field: &[f32],
+    sea: f64,
+) -> std::collections::HashMap<&'static str, f64> {
+    let land: Vec<usize> = field.iter().enumerate().filter(|&(_, &h)| (h as f64) >= sea).map(|(i, _)| i).collect();
+    let mut out = std::collections::HashMap::with_capacity(CIV_RESOURCE_KEYS.len());
+    if land.is_empty() {
+        for &k in CIV_RESOURCE_KEYS.iter() {
+            out.insert(k, 0.0);
+        }
+        return out;
+    }
+    for &k in CIV_RESOURCE_KEYS.iter() {
+        let f = resource_field_all(res, k);
+        let sum: f64 = land.iter().map(|&i| f[i] as f64).sum();
+        out.insert(k, sum / land.len() as f64);
+    }
+    out
+}
+
+/// `_CIV_CATCHMENT_KM2` (reference line 23407): per-tier catchment area in
+/// km². No `metropolis` entry -- this port's `SettlementKind` has no
+/// metropolis tier (Phase 2 milestone 9's own note: the promotion that
+/// produces one never reaches this port's pipeline).
+pub fn civ_catchment_km2(kind: SettlementKind) -> f64 {
+    match kind {
+        SettlementKind::Hamlet => 6.0,
+        SettlementKind::Village => 25.0,
+        SettlementKind::Town => 150.0,
+        SettlementKind::City => 800.0,
+        SettlementKind::Capital => 1400.0,
+    }
+}
+
+/// `_civCatchmentRadiusRaw`/`_civCatchmentRadiusCells` (reference lines
+/// 23481-23487): area of a circle -> radius in cells, at least 1.
+pub fn civ_catchment_radius_cells(cat_km2: f64, map_width_km: f64, gw: usize) -> usize {
+    let cell_km = map_width_km / gw as f64;
+    let raw = (cat_km2 / std::f64::consts::PI).sqrt() / cell_km.max(1e-6);
+    raw.round().max(1.0) as usize
+}
+
+/// `_civPlaceResourceContext` (reference line 24567): windowed mean of
+/// `CIV_RESOURCE_KEYS` over the land cells within `radius_cells` of
+/// `(x, y)` -- a settlement's produced/nearby resource profile, world-wrap
+/// aware. Pure read over already-computed fields, same fixed-radius idiom
+/// this crate already uses elsewhere (`_civCatchmentDensityMean`'s Rust
+/// analogue).
+#[allow(clippy::too_many_arguments)]
+pub fn civ_place_resource_context(
+    res: &ResourcePotentials,
+    field: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    x: usize,
+    y: usize,
+    radius_cells: usize,
+    world_wrap: bool,
+) -> std::collections::HashMap<&'static str, f64> {
+    let r = radius_cells.max(1) as i64;
+    let r2 = r * r;
+    let (x0, y0) = (x as i64, y as i64);
+    let mut cells = Vec::new();
+    for dy in -r..=r {
+        let yy = y0 + dy;
+        if yy < 0 || yy >= gh as i64 {
+            continue;
+        }
+        for dx in -r..=r {
+            if dx * dx + dy * dy > r2 {
+                continue;
+            }
+            let mut xx = x0 + dx;
+            if world_wrap {
+                xx = ((xx % gw as i64) + gw as i64) % gw as i64;
+            } else if xx < 0 || xx >= gw as i64 {
+                continue;
+            }
+            let i = yy as usize * gw + xx as usize;
+            if (field[i] as f64) < sea {
+                continue;
+            }
+            cells.push(i);
+        }
+    }
+    let mut out = std::collections::HashMap::with_capacity(CIV_RESOURCE_KEYS.len());
+    for &k in CIV_RESOURCE_KEYS.iter() {
+        let f = resource_field_all(res, k);
+        let mean = if cells.is_empty() { 0.0 } else { cells.iter().map(|&i| f[i] as f64).sum::<f64>() / cells.len() as f64 };
+        out.insert(k, mean);
+    }
+    out
+}
+
 /// `SUIT_W_BASE` (reference line 6307): the five-weight legacy set used
 /// only when `ctx` is absent -- `currentSettlementSuitability()` always
 /// supplies `ctx`, so production never takes this branch, but it's ported
@@ -2546,6 +2679,61 @@ pub const CIV_CULTURES: [Culture; 7] = [
 pub fn civ_default_culture(faction: i32) -> &'static Culture {
     let idx = (faction as usize) % CIV_CULTURES.len();
     &CIV_CULTURES[idx]
+}
+
+/// `_civCultureTerrainFit` (reference line 23748, v1.55): the one real
+/// culture-beyond-naming computation in the reference -- `PHASE2_SCOPE.md`'s
+/// culture investigation confirmed this is the only such function; Culture
+/// alongside Government/Religion/Ag-technology are otherwise plain
+/// user-editable categorical labels with zero derived computation (reference
+/// line ~26309's own comment: those four "editing a faction's..." pills have
+/// no simulation behind them). Does a faction's territory terrain-mix match
+/// what its culture is thematically associated with (highland->hills,
+/// desert->arid, riverlands->river, sylvan->forest, maritime->coast)?
+/// `common`/`imperial` are identity-flavored, not terrain-themed, and
+/// deliberately get no verdict (`None`) rather than a fabricated one --
+/// same "never fabricate a verdict without a real basis" discipline the
+/// reference's own v1.35 `basis` field already established for trade.
+///
+/// **Not wired to any caller yet.** Its real inputs (`terrain_mix`/
+/// `world_mean_terrain`, per-faction river/coast/arid/forest/hills
+/// fractions) are `_civFactionAggregates`'s own v1.55 "Territory Fit" output
+/// -- the full 165-line territory-based aggregation `ECONOMY_SCOPE.md`
+/// already scoped as real, unstarted future work (blocked on the same
+/// memory-vs-completeness tension that function's resource-mean twin
+/// resolved this pass). Porting the small pure verdict function now, ahead
+/// of its real caller, matches this session's own established precedent
+/// (`civ_resource_trade_balance` shipped the same way, one pass before
+/// `compute_civilisation()` had settlements to feed it).
+pub const CIV_CULTURE_TERRAIN_KEY: [(&str, &str); 5] =
+    [("highland", "hills"), ("desert", "arid"), ("riverlands", "river"), ("sylvan", "forest"), ("maritime", "coast")];
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CultureTerrainFit {
+    pub key: &'static str,
+    pub value: f64,
+    pub world_mean: f64,
+    pub ratio: f64,
+    pub verdict: &'static str,
+}
+
+pub fn civ_culture_terrain_fit(
+    culture_key: &str,
+    terrain_mix: &std::collections::HashMap<&str, f64>,
+    world_mean_terrain: &std::collections::HashMap<&str, f64>,
+) -> Option<CultureTerrainFit> {
+    let tk = CIV_CULTURE_TERRAIN_KEY.iter().find(|&&(c, _)| c == culture_key)?.1;
+    let value = *terrain_mix.get(tk).unwrap_or(&0.0);
+    let world_mean = *world_mean_terrain.get(tk).unwrap_or(&0.0);
+    let ratio = if world_mean > 1e-6 {
+        value / world_mean
+    } else if value > 0.0 {
+        2.0
+    } else {
+        1.0
+    };
+    let verdict = if ratio >= 1.15 { "match" } else if ratio <= 0.85 { "mismatch" } else { "typical" };
+    Some(CultureTerrainFit { key: tk, value, world_mean, ratio, verdict })
 }
 
 /// `_civIterativeAutoWorld`'s settlement-naming RNG seed input
@@ -4613,6 +4801,191 @@ pub fn civ_sea_routes(
     routes
 }
 
+// ============================================================================
+// Journey Planner (`jp*`/`_jp*`, reference lines ~17300-20400): ~70 functions,
+// `ROADMAP.md`'s own "consider it a sub-phase" warning confirmed accurate by
+// `ECONOMY_SCOPE.md`'s investigation -- comparable in size to this port's
+// entire civ-layer effort to date. `JOURNEY_PLANNER_SCOPE.md` (repo root)
+// has the full milestone breakdown for what remains; this first slice is the
+// two fully self-contained categories that need no route/plan/vessel context
+// object at all: the tiny physical-modeling primitives, and the seasonal/
+// closure logic cluster (reference's own "v1.52: the four items v1.43/v1.49/
+// v1.51 each deferred" block). Both are real, tested, pure functions with no
+// caller yet -- same "ship the primitive ahead of the orchestration that
+// calls it" precedent `civ_resource_trade_balance` and `civ_culture_terrain_
+// fit` already set this session.
+// ============================================================================
+
+/// `jpFatigue` (reference line 17632): a travel day beyond 9 hours costs
+/// speed, floored at 70%.
+pub fn jp_fatigue(hours: f64) -> f64 {
+    if hours <= 9.0 {
+        1.0
+    } else {
+        (1.0 - (hours - 9.0) * 0.05).max(0.70)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LoadPenalty {
+    pub load_mod: f64,
+    pub label: &'static str,
+}
+
+/// `jpLoadPenalty` (reference line 17633): five graduated capacity-ratio
+/// bands. `ratio` is cargo weight / rated carrying capacity.
+pub fn jp_load_penalty(ratio: f64) -> LoadPenalty {
+    if ratio <= 0.80 {
+        LoadPenalty { load_mod: 1.00, label: "Well loaded" }
+    } else if ratio <= 1.00 {
+        LoadPenalty { load_mod: 0.93, label: "Near capacity" }
+    } else if ratio <= 1.20 {
+        LoadPenalty { load_mod: 0.80, label: "Overloaded" }
+    } else if ratio <= 1.50 {
+        LoadPenalty { load_mod: 0.65, label: "Heavily overloaded" }
+    } else {
+        LoadPenalty { load_mod: 0.45, label: "Near immobile" }
+    }
+}
+
+/// `JP_LOAD_INVALID_RATIO` (reference line ~17646, v1.63): above this ratio
+/// a stage is infeasible, not merely slow -- reuses the load-penalty curve's
+/// own top boundary rather than inventing a new, unsourced number for "how
+/// slow is 22x capacity."
+pub const JP_LOAD_INVALID_RATIO: f64 = 1.50;
+
+/// `JP_SURFACE_GAIN_ANIMAL` (reference line 17664).
+const JP_SURFACE_GAIN_ANIMAL: f64 = 0.35;
+
+/// `jpSurfaceGain` (reference line 17665): a surface better than plain dirt
+/// speeds a walker a lot but barely helps an animal-paced mode (the gait,
+/// not the surface, is the ceiling) -- terrain modifiers above 1.0 are
+/// damped for animal-paced travel; modifiers below 1.0 are not.
+pub fn jp_surface_gain(t_mod: f64, animal_paced: bool) -> f64 {
+    if t_mod > 1.0 && animal_paced {
+        1.0 + (t_mod - 1.0) * JP_SURFACE_GAIN_ANIMAL
+    } else {
+        t_mod
+    }
+}
+
+/// `JP_WHEEL_BLOCKED` (reference line 17472): terrain a wheeled vehicle
+/// cannot cross at all.
+const JP_WHEEL_BLOCKED: [&str; 5] = ["Mountain Trails", "Swamp / Marsh", "Deep Sand", "Forest Path", "Ruins / Debris"];
+
+/// `jpCanUseWheels` (reference line 17750).
+pub fn jp_can_use_wheels(terrain: &str) -> bool {
+    !JP_WHEEL_BLOCKED.contains(&terrain)
+}
+
+/// `JP_SEASON_ORDER`/`JP_SEASON_DAYS` (reference lines 18823-18824).
+pub const JP_SEASON_ORDER: [&str; 4] = ["Spring", "Summer", "Autumn", "Winter"];
+const JP_SEASON_DAYS: f64 = 91.0;
+
+/// `jpSeasonAt` (reference line 18825, v1.52-b): which season a journey is
+/// in `day_offset` days after starting in `start_season` -- the fix for a
+/// long expedition being computed entirely in its departure season. Unknown
+/// `start_season` passes through unchanged (reference's own `if(i0<0) return
+/// startSeason`).
+pub fn jp_season_at(start_season: &str, day_offset: f64) -> &str {
+    let Some(i0) = JP_SEASON_ORDER.iter().position(|&s| s == start_season) else {
+        return start_season;
+    };
+    let steps = (day_offset.max(0.0) / JP_SEASON_DAYS).floor() as usize;
+    JP_SEASON_ORDER[(i0 + steps) % 4]
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RestDays {
+    pub rest_days: i64,
+    pub every: i64,
+    pub basis: String,
+}
+
+/// `JP_REST_MIN_TRIP_DAYS` (reference line 18804).
+const JP_REST_MIN_TRIP_DAYS: f64 = 6.0;
+
+/// `jpRestDays` (reference line 18805, v1.52-a): travel-day / calendar-day
+/// split. `cadence_key` is `None`/`"auto"` for the automatic rule, or one of
+/// `"None — press on"`/`"Light — 1 in 7"`/`"Standard — 1 in 5"`/
+/// `"Heavy — 1 in 3"` for a fixed cadence (reference's own `JP_REST_CADENCES`
+/// table, ported as a match rather than a second HashMap since it's a fixed,
+/// small, closed set).
+pub fn jp_rest_days(travel_days: f64, cadence_key: Option<&str>, animal_paced: bool) -> RestDays {
+    // `!(travel_days > 0.0)`, not `travel_days <= 0.0` -- deliberately
+    // mirrors the reference's `!(travelDays>0)` (line 18805), including its
+    // NaN behaviour, same rationale as `civ_resource_trade_balance`'s own
+    // `!(world > 0.002)`.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    if !(travel_days > 0.0) {
+        return RestDays { rest_days: 0, every: 0, basis: "no travel days".to_string() };
+    }
+    if let Some(key) = cadence_key.filter(|&k| k != "auto") {
+        let every = match key {
+            "None — press on" => 0,
+            "Light — 1 in 7" => 7,
+            "Standard — 1 in 5" => 5,
+            "Heavy — 1 in 3" => 3,
+            _ => return RestDays { rest_days: 0, every: 0, basis: key.to_string() },
+        };
+        if every == 0 {
+            return RestDays { rest_days: 0, every: 0, basis: key.to_string() };
+        }
+        return RestDays { rest_days: (travel_days / every as f64).floor() as i64, every, basis: key.to_string() };
+    }
+    if travel_days < JP_REST_MIN_TRIP_DAYS {
+        return RestDays {
+            rest_days: 0,
+            every: 0,
+            basis: format!("under {} days — no rest day scheduled", JP_REST_MIN_TRIP_DAYS as i64),
+        };
+    }
+    let every = if animal_paced && travel_days > 20.0 { 4 } else { 5 };
+    RestDays {
+        rest_days: (travel_days / every as f64).floor() as i64,
+        every,
+        basis: format!("auto — 1 rest day per {every} travel days"),
+    }
+}
+
+/// `JP_WINTER_CLOSED_TERRAIN`/`JP_WINTER_CLOSED_BIOMES` (reference lines
+/// 18780-18781).
+const JP_WINTER_CLOSED_TERRAIN: [&str; 2] = ["Mountain Pass", "Mountain Trails"];
+const JP_WINTER_CLOSED_BIOMES: [&str; 3] = ["Mountain Highland", "Tundra / Polar", "Boreal Taiga"];
+
+/// `jpSeasonalClosure` (reference line 18782, v1.51): mountain passes close
+/// in Winter. `seasonal_closures_enabled` mirrors `plan.seasonalClosures`
+/// (default-on; the reference's own `plan&&plan.seasonalClosures===false`
+/// guard, i.e. only an explicit `false` disables it).
+pub fn jp_seasonal_closure(terrain: &str, biome_key: &str, season: &str, seasonal_closures_enabled: bool) -> Option<String> {
+    if !seasonal_closures_enabled || season != "Winter" {
+        return None;
+    }
+    if !JP_WINTER_CLOSED_TERRAIN.contains(&terrain) || !JP_WINTER_CLOSED_BIOMES.contains(&biome_key) {
+        return None;
+    }
+    Some(format!(
+        "{terrain} in {biome_key} is closed by snow in Winter. Travel in another season, reroute below the pass, or turn off seasonal closures in the party form."
+    ))
+}
+
+/// `JP_WINTER_CLOSED_WATER` (reference line 18841).
+const JP_WINTER_CLOSED_WATER: [&str; 2] = ["Open Sea", "Rough Open Sea"];
+
+/// `jpSeaClosure` (reference line 18842, v1.52-c): the *Mare Clausum*
+/// analogue -- open-water shipping shuts for Winter, coastal cabotage does
+/// not (gated on the water-type vocabulary already used everywhere else in
+/// this system, not a Mediterranean-specific rule).
+pub fn jp_sea_closure(terrain: &str, season: &str, seasonal_closures_enabled: bool) -> Option<String> {
+    if !seasonal_closures_enabled || season != "Winter" {
+        return None;
+    }
+    if !JP_WINTER_CLOSED_WATER.contains(&terrain) {
+        return None;
+    }
+    Some(format!("{terrain} is closed to shipping in Winter (the sailing season is shut). Sail in another season, hug the coast instead, or turn off seasonal closures in the party form."))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4692,6 +5065,169 @@ mod tests {
         assert_eq!(CIV_RESOURCE_KEYS.len(), 15);
         assert_eq!(CIV_RESOURCE_KEYS[0], "copper");
         assert_eq!(CIV_RESOURCE_KEYS[14], "alum");
+    }
+
+    fn test_resources(n: usize, fill: f32) -> ResourcePotentials {
+        let v = || vec![fill; n];
+        ResourcePotentials {
+            copper: v(), tin: v(), iron: v(), gold: v(), salt: v(), timber: v(), lead: v(), silver: v(),
+            clay: v(), buildstone: v(), flint: v(), obsidian: v(), gems: v(), sulfur: v(), alum: v(),
+        }
+    }
+
+    #[test]
+    fn resource_field_all_reaches_all_fifteen_keys() {
+        let res = test_resources(1, 0.5);
+        for &k in CIV_RESOURCE_KEYS.iter() {
+            assert_eq!(resource_field_all(&res, k), &[0.5f32]);
+        }
+    }
+
+    #[test]
+    fn world_mean_resources_averages_land_cells_only() {
+        // 2x1 grid: one ocean cell (should be excluded), one land cell at 0.8.
+        let mut res = test_resources(2, 0.0);
+        res.copper[1] = 0.8;
+        let field = [0.1f32, 0.9f32]; // cell 0 ocean, cell 1 land at sea=0.5
+        let mean = civ_world_mean_resources(&res, &field, 0.5);
+        assert_eq!(mean.len(), 15);
+        // f32 0.8 -> f64 carries a representation artifact (~1.2e-8), not a
+        // logic error -- tolerance matched to that, not tightened to 1e-9.
+        assert!((mean["copper"] - 0.8).abs() < 1e-6);
+    }
+
+    #[test]
+    fn world_mean_resources_all_ocean_returns_zero_not_nan() {
+        let res = test_resources(1, 0.7);
+        let field = [0.0f32];
+        let mean = civ_world_mean_resources(&res, &field, 0.5);
+        assert_eq!(mean["copper"], 0.0);
+    }
+
+    #[test]
+    fn culture_terrain_fit_identity_cultures_get_no_verdict() {
+        let mix = std::collections::HashMap::new();
+        let world = std::collections::HashMap::new();
+        assert_eq!(civ_culture_terrain_fit("common", &mix, &world), None);
+        assert_eq!(civ_culture_terrain_fit("imperial", &mix, &world), None);
+    }
+
+    #[test]
+    fn culture_terrain_fit_unknown_key_returns_none() {
+        let mix = std::collections::HashMap::new();
+        let world = std::collections::HashMap::new();
+        assert_eq!(civ_culture_terrain_fit("nonexistent", &mix, &world), None);
+    }
+
+    #[test]
+    fn culture_terrain_fit_match_when_well_above_world_mean() {
+        let mut mix = std::collections::HashMap::new();
+        mix.insert("hills", 0.6);
+        let mut world = std::collections::HashMap::new();
+        world.insert("hills", 0.3);
+        let fit = civ_culture_terrain_fit("highland", &mix, &world).unwrap();
+        assert_eq!(fit.key, "hills");
+        assert!((fit.ratio - 2.0).abs() < 1e-9);
+        assert_eq!(fit.verdict, "match");
+    }
+
+    #[test]
+    fn culture_terrain_fit_mismatch_when_well_below_world_mean() {
+        let mut mix = std::collections::HashMap::new();
+        mix.insert("arid", 0.05);
+        let mut world = std::collections::HashMap::new();
+        world.insert("arid", 0.3);
+        let fit = civ_culture_terrain_fit("desert", &mix, &world).unwrap();
+        assert_eq!(fit.verdict, "mismatch");
+    }
+
+    #[test]
+    fn culture_terrain_fit_typical_in_the_middle_band() {
+        let mut mix = std::collections::HashMap::new();
+        mix.insert("river", 0.3);
+        let mut world = std::collections::HashMap::new();
+        world.insert("river", 0.3);
+        let fit = civ_culture_terrain_fit("riverlands", &mix, &world).unwrap();
+        assert_eq!(fit.verdict, "typical"); // ratio == 1.0, inside [0.85, 1.15]
+    }
+
+    #[test]
+    fn culture_terrain_fit_zero_world_mean_present_value_is_a_fabricated_match() {
+        // world essentially absent but the faction has some presence -> ratio=2 (reference's own branch).
+        let mut mix = std::collections::HashMap::new();
+        mix.insert("forest", 0.1);
+        let world = std::collections::HashMap::new(); // no "forest" key -> world_mean=0.0
+        let fit = civ_culture_terrain_fit("sylvan", &mix, &world).unwrap();
+        assert!((fit.ratio - 2.0).abs() < 1e-9);
+        assert_eq!(fit.verdict, "match");
+    }
+
+    #[test]
+    fn culture_terrain_fit_zero_world_mean_zero_value_is_typical_not_match() {
+        let mix = std::collections::HashMap::new(); // no "coast" key -> value=0.0
+        let world = std::collections::HashMap::new(); // no "coast" key -> world_mean=0.0
+        let fit = civ_culture_terrain_fit("maritime", &mix, &world).unwrap();
+        assert!((fit.ratio - 1.0).abs() < 1e-9);
+        assert_eq!(fit.verdict, "typical");
+    }
+
+    #[test]
+    fn catchment_km2_matches_reference_table_no_metropolis() {
+        assert_eq!(civ_catchment_km2(SettlementKind::Hamlet), 6.0);
+        assert_eq!(civ_catchment_km2(SettlementKind::Village), 25.0);
+        assert_eq!(civ_catchment_km2(SettlementKind::Town), 150.0);
+        assert_eq!(civ_catchment_km2(SettlementKind::City), 800.0);
+        assert_eq!(civ_catchment_km2(SettlementKind::Capital), 1400.0);
+    }
+
+    #[test]
+    fn catchment_radius_cells_at_least_one() {
+        // A tiny catchment on a very coarse grid (cell_km=400) -> raw radius
+        // (~0.0035 cells) rounds to 0, floored to 1.
+        let r = civ_catchment_radius_cells(6.0, 800.0, 2);
+        assert_eq!(r, 1);
+    }
+
+    #[test]
+    fn catchment_radius_cells_real_scale() {
+        // capital: 1400 km^2 catchment, 800km map / 512 cells = 1.5625 km/cell.
+        // radius_km = sqrt(1400/pi) = 21.1..., radius_cells = 21.1/1.5625 ~= 13.5 -> 14 (round).
+        let r = civ_catchment_radius_cells(1400.0, 800.0, 512);
+        assert_eq!(r, 14);
+    }
+
+    #[test]
+    fn place_resource_context_scans_disc_around_settlement() {
+        // 5x5 grid, all land (sea=0.0), settlement at center (2,2).
+        // copper=1.0 everywhere except one far corner cell outside radius=1's disc.
+        let n = 25;
+        let mut res = test_resources(n, 1.0);
+        res.copper[0] = 0.0; // corner (0,0), outside radius-1 disc around (2,2)
+        let field = vec![1.0f32; n];
+        let mean = civ_place_resource_context(&res, &field, 5, 5, 0.0, 2, 2, 1, false);
+        // radius-1 disc around (2,2) never reaches (0,0), so mean should stay 1.0.
+        assert!((mean["copper"] - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn place_resource_context_world_wrap_reaches_across_edge() {
+        // 3x1 grid, wrap on. Settlement at x=0, radius=1 should also reach x=2 by wrapping.
+        let mut res = test_resources(3, 1.0);
+        res.copper[2] = 0.0; // wrap-adjacent to x=0
+        let field = [1.0f32, 1.0f32, 1.0f32];
+        let mean = civ_place_resource_context(&res, &field, 3, 1, 0.0, 0, 0, 1, true);
+        // cells within radius 1 of x=0, wrapped: x=2, x=0, x=1 -> mean includes the 0.0 at x=2.
+        assert!(mean["copper"] < 1.0);
+    }
+
+    #[test]
+    fn place_resource_context_excludes_ocean_cells() {
+        let mut res = test_resources(3, 1.0);
+        res.copper[1] = 0.0;
+        let field = [1.0f32, 0.1f32, 1.0f32]; // middle cell is ocean at sea=0.5
+        let mean = civ_place_resource_context(&res, &field, 3, 1, 0.5, 0, 0, 1, false);
+        // only x=0 (land, copper=1.0) counted; x=1 is ocean (excluded), x=-1 out of bounds.
+        assert!((mean["copper"] - 1.0).abs() < 1e-9);
     }
 
     #[test]
@@ -5491,5 +6027,159 @@ mod tests {
 
         assert!(added.len() <= CIV_VILLAGE_CAP, "must never exceed the village cap, got {}", added.len());
         assert!(!added.is_empty(), "a uniformly-maximal-suitability map with no obstacles should add at least one village");
+    }
+
+    // -- Journey Planner milestone 1 --------------------------------------
+
+    #[test]
+    fn jp_fatigue_no_penalty_under_nine_hours() {
+        assert_eq!(jp_fatigue(9.0), 1.0);
+        assert_eq!(jp_fatigue(5.0), 1.0);
+    }
+
+    #[test]
+    fn jp_fatigue_declines_past_nine_hours_floored_at_70pct() {
+        assert!((jp_fatigue(10.0) - 0.95).abs() < 1e-9);
+        assert!((jp_fatigue(15.0) - 0.70).abs() < 1e-9); // 1.0-(15-9)*0.05 = 0.70, right at the floor
+        assert_eq!(jp_fatigue(30.0), 0.70); // would go negative unfloored, clamped
+    }
+
+    #[test]
+    fn jp_load_penalty_five_graduated_bands() {
+        assert_eq!(jp_load_penalty(0.5).label, "Well loaded");
+        assert_eq!(jp_load_penalty(0.80).label, "Well loaded");
+        assert_eq!(jp_load_penalty(0.95).label, "Near capacity");
+        assert_eq!(jp_load_penalty(1.10).label, "Overloaded");
+        assert_eq!(jp_load_penalty(1.35).label, "Heavily overloaded");
+        assert_eq!(jp_load_penalty(2.0).label, "Near immobile");
+        assert!((jp_load_penalty(2.0).load_mod - 0.45).abs() < 1e-9);
+    }
+
+    #[test]
+    fn jp_load_penalty_invalid_ratio_matches_curve_top_boundary() {
+        assert_eq!(JP_LOAD_INVALID_RATIO, 1.50);
+        assert_eq!(jp_load_penalty(JP_LOAD_INVALID_RATIO).label, "Heavily overloaded");
+    }
+
+    #[test]
+    fn jp_surface_gain_damped_for_animal_paced_above_one() {
+        // t_mod=1.4, animal_paced -> 1 + (1.4-1)*0.35 = 1.14
+        assert!((jp_surface_gain(1.4, true) - 1.14).abs() < 1e-9);
+    }
+
+    #[test]
+    fn jp_surface_gain_undamped_for_foot_travel_or_below_one() {
+        assert_eq!(jp_surface_gain(1.4, false), 1.4); // not animal-paced -> passthrough
+        assert_eq!(jp_surface_gain(0.6, true), 0.6); // below 1.0 -> never damped even if animal-paced
+    }
+
+    #[test]
+    fn jp_can_use_wheels_blocks_five_terrains_only() {
+        assert!(!jp_can_use_wheels("Mountain Trails"));
+        assert!(!jp_can_use_wheels("Swamp / Marsh"));
+        assert!(!jp_can_use_wheels("Deep Sand"));
+        assert!(!jp_can_use_wheels("Forest Path"));
+        assert!(!jp_can_use_wheels("Ruins / Debris"));
+        assert!(jp_can_use_wheels("Plains"));
+        assert!(jp_can_use_wheels("Mountain Pass")); // NOT wheel-blocked, distinct from "Mountain Trails"
+    }
+
+    #[test]
+    fn jp_season_at_walks_the_calendar_forward() {
+        assert_eq!(jp_season_at("Spring", 0.0), "Spring");
+        assert_eq!(jp_season_at("Spring", 91.0), "Summer");
+        assert_eq!(jp_season_at("Spring", 182.0), "Autumn");
+        assert_eq!(jp_season_at("Spring", 364.0), "Spring"); // wraps after 4 seasons
+        assert_eq!(jp_season_at("Winter", 91.0), "Spring"); // wraps from the end of the order
+    }
+
+    #[test]
+    fn jp_season_at_unknown_start_passes_through() {
+        assert_eq!(jp_season_at("Wet", 100.0), "Wet");
+    }
+
+    #[test]
+    fn jp_season_at_negative_offset_clamped_to_zero() {
+        assert_eq!(jp_season_at("Summer", -50.0), "Summer");
+    }
+
+    #[test]
+    fn jp_rest_days_none_under_zero_travel_days() {
+        let r = jp_rest_days(0.0, None, false);
+        assert_eq!(r.rest_days, 0);
+        assert_eq!(r.basis, "no travel days");
+    }
+
+    #[test]
+    fn jp_rest_days_fixed_cadence_overrides_auto() {
+        let r = jp_rest_days(21.0, Some("Standard — 1 in 5"), false);
+        assert_eq!(r.rest_days, 4); // floor(21/5)
+        assert_eq!(r.every, 5);
+    }
+
+    #[test]
+    fn jp_rest_days_press_on_cadence_is_zero() {
+        let r = jp_rest_days(30.0, Some("None — press on"), false);
+        assert_eq!(r.rest_days, 0);
+        assert_eq!(r.every, 0);
+    }
+
+    #[test]
+    fn jp_rest_days_auto_under_minimum_trip_length_is_zero() {
+        let r = jp_rest_days(5.0, None, false);
+        assert_eq!(r.rest_days, 0);
+        assert_eq!(r.basis, "under 6 days — no rest day scheduled");
+    }
+
+    #[test]
+    fn jp_rest_days_auto_long_haul_tightens_for_animal_paced() {
+        let foot = jp_rest_days(25.0, None, false);
+        assert_eq!(foot.every, 5); // travel_days>20 but not animal-paced -> stays 5
+        let animal = jp_rest_days(25.0, None, true);
+        assert_eq!(animal.every, 4); // animal-paced AND >20 days -> tightens to 4
+    }
+
+    #[test]
+    fn jp_seasonal_closure_mountain_pass_closed_in_winter() {
+        let msg = jp_seasonal_closure("Mountain Pass", "Mountain Highland", "Winter", true);
+        assert!(msg.is_some());
+        assert!(msg.unwrap().contains("closed by snow"));
+    }
+
+    #[test]
+    fn jp_seasonal_closure_open_outside_winter() {
+        assert_eq!(jp_seasonal_closure("Mountain Pass", "Mountain Highland", "Summer", true), None);
+    }
+
+    #[test]
+    fn jp_seasonal_closure_disabled_flag_always_open() {
+        assert_eq!(jp_seasonal_closure("Mountain Pass", "Mountain Highland", "Winter", false), None);
+    }
+
+    #[test]
+    fn jp_seasonal_closure_needs_both_terrain_and_biome_match() {
+        // Mountain Pass terrain but wrong biome -> not closed.
+        assert_eq!(jp_seasonal_closure("Mountain Pass", "Temperate Forest", "Winter", true), None);
+        // Right biome but non-closing terrain -> not closed.
+        assert_eq!(jp_seasonal_closure("Plains", "Mountain Highland", "Winter", true), None);
+    }
+
+    #[test]
+    fn jp_sea_closure_open_sea_closed_in_winter() {
+        let msg = jp_sea_closure("Open Sea", "Winter", true);
+        assert!(msg.is_some());
+        assert!(msg.unwrap().contains("closed to shipping"));
+    }
+
+    #[test]
+    fn jp_sea_closure_coastal_cabotage_stays_open() {
+        // Not in JP_WINTER_CLOSED_WATER -> open year-round, the historical cabotage distinction.
+        assert_eq!(jp_sea_closure("Coastal Waters", "Winter", true), None);
+    }
+
+    #[test]
+    fn jp_sea_closure_disabled_flag_and_non_winter_both_stay_open() {
+        assert_eq!(jp_sea_closure("Open Sea", "Winter", false), None);
+        assert_eq!(jp_sea_closure("Open Sea", "Summer", true), None);
     }
 }

@@ -6178,3 +6178,93 @@ three responsive breakpoints, terrain appearance's actual editing GUI.
 map_overlay.gd` (`settlement_hovered` signal), `GUI_SHELL_SCOPE.md`,
 `docs/STATUS.md`, this file. New `design/` directory holds the imported
 mockup HTML and menu-structure spec verbatim.
+
+## Phase 2's remaining outstanding points: economy wired, culture investigated, Journey Planner started (2026-08-17)
+
+Three-part continuation of milestone 17's economy investigation, all real
+findings from reading the actual reference source, not assumed.
+
+**Economy wiring, and the memory tension resolved.** `civ_resource_trade_
+balance` (ported last pass, unwired) now has real callers.
+`_civFactionAggregates`/`_civPlaceResourceContext` were grepped directly to
+confirm the earlier "needs all 15 `CIV_RESOURCE_KEYS`" tension is real, not
+assumable-away — both genuinely read every key. A compounding finding not in
+the original write-up: `_civFactionAggregates`'s per-faction resource-mean
+approach also needs `territory`, which isn't computed until much later in
+`compute_civilisation()`, so a simple reorder wouldn't have worked. The fix
+used `_civPlaceTrade`'s own settlement-catchment approach instead
+(`_civPlaceResourceContext`, reference line 24567 — a fixed-radius disc scan
+around a settlement, no territory needed). New in `cartalith-civ`:
+`civ_world_mean_resources` (the one territory-independent piece of
+`_civFactionAggregates`, extracted standalone since `_civPlaceTrade`'s own
+`worldMean` argument reuses this exact value per the reference),
+`civ_catchment_km2`/`civ_catchment_radius_cells` (`_CIV_CATCHMENT_KM2`/
+`_civCatchmentRadiusCells`, reference lines 23407/23481), `civ_place_
+resource_context` (the disc scan itself). 8 new tests, including one
+verifying the disc-scan rejection/world-wrap/ocean-exclusion behavior
+directly, not just the happy path. `compute_civilisation()`'s free of the
+six otherwise-unused resource fields moved from immediately after
+`build_resource_potentials` to right after settlements are finalized (before
+`territory`) — the trade-balance computation runs in between, needing the
+full 15-key vocabulary. Real, bounded, measured tradeoff: these six fields
+(~96 MB at 2048×2048) now stay resident through settlement placement/roads/
+naming instead of being freed immediately, but steady-state after
+`compute_civilisation()` returns is unaffected either way. New
+`get_trade_balances()` `#[func]` in `cartalith-godot`, same order/index as
+`get_settlements()`, `exports`/`imports` as `PackedStringArray`s.
+
+**Culture beyond naming, investigated for real.** Grepped the reference for
+every culture-related computation beyond the already-ported syllable/suffix
+naming tables (milestone 9). Confirmed Government/Religion/Ag-technology are
+genuinely UI-only categorical pills with zero derived computation (the
+reference's own v1.57 comment says so directly). But one real thing exists:
+`_civCultureTerrainFit` (reference line 23748, v1.55) — does a faction's
+territory terrain-mix match what its culture is thematically associated with
+(highland↔hills, desert↔arid, riverlands↔river, sylvan↔forest,
+maritime↔coast), a match/typical/mismatch verdict relative to the world
+mean. `common`/`imperial` (identity-flavored) deliberately get no verdict.
+Ported as `civ_culture_terrain_fit`, 7 tests covering every verdict band and
+both zero-world-mean edge cases (a genuinely-present resource with an absent
+world baseline reads as a fabricated "match" per the reference's own
+branch; a genuinely-absent resource with an absent baseline reads as
+"typical," not "match" — the two zero-mean cases the reference's own ratio
+formula deliberately treats differently). Not wired — its real inputs
+(per-faction terrain-mix fractions) are part of the still-unstarted
+`_civFactionAggregates` territory aggregation. Also found and correctly
+excluded: an entirely unrelated, much larger "culture profiles" system at
+reference lines 28193+ (`docs/07-culture-architecture.md`, urban-morphology
+city-layout patterns — Organic Growth, Islamic, Byzantine, etc.) — this
+belongs to `ROADMAP.md` Phase 5 (Urban Morphology, block 4, not started),
+not Phase 2.
+
+**Journey Planner, milestone 1 of a new multi-milestone plan
+(`JOURNEY_PLANNER_SCOPE.md`).** Read the real reference source (lines
+~17300-20400) to find the two categories of its ~70 functions that need no
+route/plan/vessel context object at all: physical-modeling primitives
+(`jp_fatigue`, `jp_load_penalty` plus `JP_LOAD_INVALID_RATIO`'s v1.63
+infeasible-stage fix, `jp_surface_gain`, `jp_can_use_wheels`) and the
+reference's own "v1.52: four items each deferred across three versions"
+cluster — `jp_season_at` (season drift over long journeys), `jp_rest_days`
+(travel-day/calendar-day split, the Andean-caravan-ethnoarchaeology-sourced
+rest cadence), `jp_seasonal_closure` (mountain passes shut in Winter),
+`jp_sea_closure` (the *Mare Clausum* analogue — open-water shipping closes
+in Winter, coastal cabotage doesn't). All four closure/scheduling functions
+are real, historically-sourced fixes per the reference's own extensive
+comments, ported faithfully. 22 tests. Not wired — the real route/plan
+orchestration (`JOURNEY_PLANNER_SCOPE.md`'s milestones 2-6) remains large,
+real, unstarted future work; milestone 5 (route/stage derivation) alone is
+flagged as likely the single largest remaining milestone in this whole plan.
+
+**Verified**: `cargo build -p cartalith-civ -p cartalith-godot`,
+`cargo test --workspace` (70 suites, 0 failures, 0 modified tests — the
+headline check for both the economy-wiring refactor and every new pure
+function), `cargo clippy -p cartalith-civ -p cartalith-godot` clean (two
+new deliberate `#[allow(clippy::neg_cmp_op_on_partial_ord)]`s, matching
+`civ_resource_trade_balance`'s own established NaN-preserving precedent —
+not lint-driven rewrites), `godot4 --headless --quit` clean load.
+
+**Files touched**: `cartalith-native/crates/cartalith-civ/src/lib.rs` (new
+functions + 37 new tests), `cartalith-native/crates/cartalith-godot/src/
+lib.rs` (`trade_balances` field, `get_trade_balances()`, the resource-free
+reordering), `ECONOMY_SCOPE.md`, `PHASE2_SCOPE.md`, new
+`JOURNEY_PLANNER_SCOPE.md`, `docs/STATUS.md`, this file.
