@@ -44,8 +44,19 @@ const ROAD_WIDTH_BY_TYPE := {"highway": 2.6, "regional": 2.0, "road": 1.6, "trac
 const MARKER_OUTLINE := Color(0.101, 0.070, 0.023, 0.85) ## matches PrimaryButton's ink tone
 const HOVER_RADIUS_PAD := 4.0 ## extra hit-test slack (px) beyond the drawn marker radius
 
+## Sea-lane style: reference's own convention (reference HTML line ~15511)
+## is a dark navy solid underlayer plus a lighter dashed overlay -- not the
+## `ROAD_COLOR`/`ROAD_WIDTH_BY_TYPE` land-road styling, so sea routes read
+## as visually distinct (shipping lanes, not roads) at a glance.
+const SEA_ROUTE_UNDERLAY := Color(0.039, 0.118, 0.235, 0.4)
+const SEA_ROUTE_UNDERLAY_WIDTH := 1.5
+const SEA_ROUTE_DASH_COLOR := Color(0.118, 0.510, 0.784, 0.7)
+const SEA_ROUTE_DASH_WIDTH := 0.85
+const SEA_ROUTE_DASH_LENGTH := 2.6
+
 var _settlements: Array = []
 var _roads: Array = []
+var _sea_routes: Array = []
 var _gw := 0
 var _gh := 0
 var _hover_index := -1
@@ -64,12 +75,16 @@ func _ready() -> void:
 ## consolidated/smoothed/classified output, not raw grid-cell indices --
 ## `points` are already continuous full-resolution coordinates, drawn via
 ## `_point_to_screen`, distinct from `_cell_to_screen`'s settlement-marker
-## `+0.5` cell-centering, which would be wrong here). Screen-space
-## conversion happens every frame from the current control size, so this
-## stays correct across window resizes without needing to be told again.
-func set_civ_data(settlements: Array, roads: Array, gw: int, gh: int) -> void:
+## `+0.5` cell-centering, which would be wrong here). `sea_routes` is
+## `get_sea_routes()`'s `Array[Dictionary]` -- same `{points, brks, name}`
+## shape minus `way_type` (Phase 2 milestone 13, `SeaRoute` has no
+## highway/regional/road/track tier). Screen-space conversion happens every
+## frame from the current control size, so this stays correct across
+## window resizes without needing to be told again.
+func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, gh: int) -> void:
 	_settlements = settlements
 	_roads = roads
+	_sea_routes = sea_routes
 	_gw = gw
 	_gh = gh
 	_hover_index = -1
@@ -103,11 +118,22 @@ func _point_to_screen(p: Vector2, rect: Rect2) -> Vector2:
 
 
 func _draw() -> void:
-	if _settlements.is_empty() and _roads.is_empty():
+	if _settlements.is_empty() and _roads.is_empty() and _sea_routes.is_empty():
 		return
 	var rect := _displayed_rect()
 	if rect.size.x <= 0.0:
 		return
+
+	for route: Dictionary in _sea_routes:
+		var points: PackedVector2Array = route["points"]
+		if points.size() < 2:
+			continue
+		var brks: PackedInt32Array = route["brks"]
+		var start := 0
+		for cut in brks:
+			_draw_sea_route_segment(points, start, cut, rect)
+			start = cut
+		_draw_sea_route_segment(points, start, points.size(), rect)
 
 	for way: Dictionary in _roads:
 		var points: PackedVector2Array = way["points"]
@@ -119,11 +145,11 @@ func _draw() -> void:
 		# (two disjoint consolidated runs sharing one `Way`) -- draw each
 		# run between breaks as its own stroke, not one polyline straight
 		# through the gap.
-		var start := 0
+		var start2 := 0
 		for cut in brks:
-			_draw_way_segment(points, start, cut, rect, width)
-			start = cut
-		_draw_way_segment(points, start, points.size(), rect, width)
+			_draw_way_segment(points, start2, cut, rect, width)
+			start2 = cut
+		_draw_way_segment(points, start2, points.size(), rect, width)
 
 	for i in _settlements.size():
 		var s: Dictionary = _settlements[i]
@@ -154,6 +180,63 @@ func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: R
 	for i in range(start, end):
 		screen_points[i - start] = _point_to_screen(points[i], rect)
 	draw_polyline(screen_points, ROAD_COLOR, width, true)
+
+
+## Sea lane, reference's own two-pass style (reference HTML line ~15511):
+## a solid dark-navy underlayer stroke first, then a lighter dashed overlay
+## on top. The underlayer is one `draw_polyline` (phase doesn't matter, it's
+## solid). The dash overlay is walked manually via `_draw_dashed_polyline`
+## below, NOT one `draw_dashed_line` call per vertex pair -- a smoothed
+## route's points are only a few px apart, shorter than one dash+gap cycle,
+## so restarting the dash phase at every vertex left every segment landing
+## inside the "on" portion and rendered as a solid line, not dashed (caught
+## by the real-app screenshot verification this milestone requires, not
+## assumed).
+func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2) -> void:
+	if end - start < 2:
+		return
+	var screen_points := PackedVector2Array()
+	screen_points.resize(end - start)
+	for i in range(start, end):
+		screen_points[i - start] = _point_to_screen(points[i], rect)
+	draw_polyline(screen_points, SEA_ROUTE_UNDERLAY, SEA_ROUTE_UNDERLAY_WIDTH, true)
+	_draw_dashed_polyline(screen_points, SEA_ROUTE_DASH_COLOR, SEA_ROUTE_DASH_WIDTH, SEA_ROUTE_DASH_LENGTH)
+
+
+## Draws `points` as a dashed line with the dash phase carried continuously
+## across every vertex (equal-length dash/gap, `dash_len` each) -- unlike
+## `draw_dashed_line` per-segment, a dash or gap can span a vertex instead
+## of always restarting "on" there.
+func _draw_dashed_polyline(points: PackedVector2Array, color: Color, width: float, dash_len: float) -> void:
+	var period := dash_len * 2.0
+	var phase := 0.0
+	for i in range(points.size() - 1):
+		var p0 := points[i]
+		var p1 := points[i + 1]
+		var seg_vec := p1 - p0
+		var seg_len := seg_vec.length()
+		if seg_len <= 0.0:
+			continue
+		var dir := seg_vec / seg_len
+		var traveled := 0.0
+		while traveled < seg_len:
+			var cycle_pos := fmod(phase, period)
+			var on := cycle_pos < dash_len
+			var remaining_in_state := (dash_len - cycle_pos) if on else (period - cycle_pos)
+			# `remaining_in_state` is mathematically > 0 whenever the loop is
+			# reached, but `phase` accumulates across every vertex of a long
+			# route, and float drift can land `cycle_pos` close enough to a
+			# `dash_len`/`period` boundary that subtraction rounds to exactly
+			# 0.0 -- `step` then never advances `traveled`, spinning forever
+			# and flooding the renderer's draw-command buffer until it
+			# overflows (crashed a real run, not a hypothetical). Floor
+			# `step` to a sub-pixel epsilon so every iteration makes forward
+			# progress; the resulting overshoot is invisible.
+			var step := maxf(minf(remaining_in_state, seg_len - traveled), 0.001)
+			if on:
+				draw_line(p0 + dir * traveled, p0 + dir * (traveled + step), color, width, true)
+			traveled += step
+			phase += step
 
 
 func _draw_hover_card(s: Dictionary, rect: Rect2) -> void:

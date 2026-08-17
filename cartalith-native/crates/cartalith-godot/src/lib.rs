@@ -85,6 +85,17 @@ struct CivData {
     /// (`build_road_network`, the *manual*-tool algorithm this pipeline
     /// used as a stand-in before milestone 12/14 existed to replace it).
     ways: Vec<cartalith_civ::Way>,
+    /// Sea-lane routes between port (coastal) settlements
+    /// (`cartalith_civ::civ_sea_routes`, Phase 2 milestone 13,
+    /// `_civMstRoutes(ports,true)`) -- a separate, leaner shape than `Way`
+    /// (no classification/hidden-way flag/endpoint indices), pushed
+    /// straight onto the reference's `civWays` rather than going through
+    /// `civ_consolidate_and_smooth_ways`'s consolidation tail, so it's kept
+    /// as its own field/getter rather than merged into `ways`. Empty
+    /// whenever fewer than 2 coastal settlements exist (`civ_sea_routes`'s
+    /// own `n < 2` early return) -- a legitimate empty-map outcome, not an
+    /// error.
+    sea_routes: Vec<cartalith_civ::SeaRoute>,
     /// `cartalith_civ::assign_territory`'s per-cell output (Phase 2
     /// milestone 10, `DECISIONS.md` §7b -- cost-distance Voronoi from
     /// capitals, population-weighted, no JS reference to match since the
@@ -304,7 +315,17 @@ fn compute_civilisation(
     // interleaved), so indexing stays valid whether or not villages ran.
     let ways = cartalith_civ::civ_consolidate_and_smooth_ways(&topology, &settlements, &ws.field, &wb.classification, gw, gh, map_width_km);
 
-    CivData { settlements, ways, territory }
+    // Sea routes (milestone 13): reference calls `_civMstRoutes(ports,true)`
+    // unconditionally whenever >=2 port-tagged settlements exist, over the
+    // SAME `settlements` list `ways` was just built from (villages included,
+    // if enabled -- `civ_sea_routes` itself gates on `.coastal`, and a
+    // village's own `coastal: false` above means villages never qualify as
+    // ports here, matching the reference's own hamlet-tier village shape).
+    let ports: Vec<cartalith_civ::NamedSettlement> =
+        settlements.iter().filter(|s| s.placement.coastal).cloned().collect();
+    let sea_routes = cartalith_civ::civ_sea_routes(&ports, &ws.field, &wb.classification, gw, gh, world, map_width_km);
+
+    CivData { settlements, ways, sea_routes, territory }
 }
 
 /// `MVP_SCOPE.md` points 10-11: basic 2D rendering + minimal UI. Owns the
@@ -694,6 +715,27 @@ impl WorldGen {
                 // there instead of treating `points` as one polyline.
                 let brks: PackedInt32Array = w.brks.iter().map(|&b| b as i32).collect();
                 dict! { "points" => &points, "brks" => &brks, "way_type" => way_type, "name" => w.name.as_str() }
+            })
+            .collect()
+    }
+
+    /// Sea-lane routes (`cartalith_civ::civ_sea_routes`, Phase 2 milestone
+    /// 13) -- same `{points, brks, name}` shape as `get_roads()`, minus
+    /// `way_type` (sea routes have no highway/regional/road/track tier,
+    /// `SeaRoute` doesn't carry one). Draw distinctly from land roads --
+    /// the reference's own convention (line ~15511) is a dark navy
+    /// underlayer plus a lighter dashed overlay, not a road colour/width.
+    /// Empty under the same conditions as `get_roads()`.
+    #[func]
+    fn get_sea_routes(&self) -> Array<VarDictionary> {
+        let Some(civ) = self.civ.as_ref() else { return Array::new() };
+        civ.sea_routes
+            .iter()
+            .map(|r| {
+                let points: PackedVector2Array =
+                    r.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
+                let brks: PackedInt32Array = r.brks.iter().map(|&b| b as i32).collect();
+                dict! { "points" => &points, "brks" => &brks, "name" => r.name.as_str() }
             })
             .collect()
     }

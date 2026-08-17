@@ -5171,3 +5171,66 @@ real numbers.
 with the real golden-path result and numbers), `cartalith-native/docs/
 STATUS.md` (criterion 4, Phase 1 row, Owner-only items, all marked
 fully done).
+
+## Wire sea routes (Phase 2 milestone 13) into the Godot renderer (2026-08-17)
+
+`civ_sea_routes` landed last session but was never reachable from
+GDScript — `compute_civilisation()` computed land roads only. Wired the
+full chain: `CivData` gained a `sea_routes: Vec<cartalith_civ::SeaRoute>`
+field, `compute_civilisation()` calls `civ_sea_routes(&ports, ...)`
+alongside the existing road build, and `cartalith-godot` exposes a new
+`get_sea_routes() -> Array[Dictionary]` (`{points, brks, name}` — same
+shape as `get_roads()` minus `way_type`, since `SeaRoute` carries no
+highway/regional/road/track tier). `main.gd` fetches it after `generate()`
+and hands it to `map_overlay.set_civ_data()` alongside settlements/roads.
+
+**Rendering style**: reference HTML (line ~15511) draws sea lanes as a
+solid dark-navy underlayer plus a lighter dashed overlay, distinct from
+land roads' own solid-brown styling — `map_overlay.gd` reproduces this
+(`SEA_ROUTE_UNDERLAY`/`SEA_ROUTE_DASH_COLOR` consts, `_draw_sea_route_segment`).
+The dash overlay is walked manually (`_draw_dashed_polyline`), not one
+`draw_dashed_line` call per vertex pair — a smoothed route's points are
+only a few px apart, shorter than one dash+gap cycle, so restarting dash
+phase at every vertex made every segment land inside the "on" portion
+and render solid, not dashed. Carrying the dash phase continuously across
+vertices fixed this — caught by real-app screenshot verification, not
+assumed correct from reading the code.
+
+**Real crash found and fixed by that same verification pass**: generating
+an Archipelago-shape world (512×512, guaranteed multiple sea routes)
+crashed the real windowed app outright — `godot.log` showed a GDScript
+backtrace through `_draw_dashed_polyline` ending in a Godot-engine
+`FATAL: Index p_index = 26906976 out of bounds` inside its internal
+`Vector<T>::operator[]`, i.e. the renderer's own draw-command buffer grew
+to ~27 million entries before overflowing. Root cause: `step := minf(
+remaining_in_state, seg_len - traveled)` is mathematically positive
+whenever the loop runs, but `phase` accumulates additively across every
+vertex of a long route, and float drift can land `cycle_pos` close enough
+to a `dash_len`/`period` boundary that the subtraction rounds to exactly
+`0.0` — `step` then never advances `traveled`, so the `while traveled <
+seg_len` loop spins forever, calling `draw_line` on a zero-length segment
+each pass until the buffer overflows. Fixed by flooring `step` to a
+sub-pixel epsilon (`0.001`) so every iteration guarantees forward
+progress; the resulting overshoot is visually invisible. Re-ran the exact
+same Archipelago/512 generation after the fix: no crash, dashed sea
+routes render correctly and visibly distinct from land roads (confirmed
+by cropping/zooming the real screenshot on the water between coastal
+settlements).
+
+**Verified**: `cargo build -p cartalith-civ -p cartalith-godot`, `cargo
+test --workspace` (0 regressions), `cargo clippy -p cartalith-civ -p
+cartalith-godot --all-targets` (clean for the new code; pre-existing
+unrelated warnings elsewhere untouched), `godot4 --headless --quit
+main.tscn` (clean load). Real windowed-app screenshot verification as
+described above, including reproducing and then re-verifying the crash
+fix on the identical config that originally crashed.
+
+A debug-only string (`[DEBUG coastal=%d sea_routes=%d]`) had been left in
+`main.gd`'s status label by the in-progress work that produced this
+wiring — removed before commit; it was never meant to ship.
+
+**Files touched**: `cartalith-native/crates/cartalith-godot/src/lib.rs`
+(`sea_routes` field, wiring, `get_sea_routes()`), `cartalith-native/
+godot-project/main.gd` (fetch + pass through, debug string removed),
+`cartalith-native/godot-project/map_overlay.gd` (rendering + the crash
+fix), this file, `docs/STATUS.md`.

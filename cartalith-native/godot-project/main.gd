@@ -186,7 +186,8 @@ func _on_generate_done(seed_value: int, width_km: float) -> void:
 		## (see WorldGen.load_save's own doc comment), only a fresh generate.
 		var settlements := world_gen.get_settlements()
 		var roads := world_gen.get_roads()
-		map_overlay.set_civ_data(settlements, roads, world_gen.get_width(), world_gen.get_height())
+		var sea_routes := world_gen.get_sea_routes()
+		map_overlay.set_civ_data(settlements, roads, sea_routes, world_gen.get_width(), world_gen.get_height())
 		territory_view.texture = world_gen.build_territory_texture()
 
 		var shape_label := world_shape_input.get_item_text(world_shape_input.selected)
@@ -220,7 +221,7 @@ func _on_save_file_selected(path: String) -> void:
 		## No civ data in a loaded save (WorldGen.load_save's own doc
 		## comment) -- clear any settlements/roads/territory left over
 		## from a previous generate() so a stale overlay doesn't linger.
-		map_overlay.set_civ_data([], [], world_gen.get_width(), world_gen.get_height())
+		map_overlay.set_civ_data([], [], [], world_gen.get_width(), world_gen.get_height())
 		territory_view.texture = null
 		status_label.text = "loaded %s (%dx%d)" % [
 			path.get_file(), world_gen.get_width(), world_gen.get_height()
