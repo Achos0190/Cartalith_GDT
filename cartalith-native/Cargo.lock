@@ -137,6 +137,7 @@ dependencies = [
  "cartalith-engine",
  "cartalith-hydrology",
  "cartalith-rng",
+ "rayon",
 ]
 
 [[package]]

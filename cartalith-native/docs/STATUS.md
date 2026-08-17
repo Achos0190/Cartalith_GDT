@@ -5,7 +5,7 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-17 (post real Android device pass — MVP criterion 4 fully closed — and sea routes (Phase 2 milestone 13) now wired into `cartalith-godot`'s rendering, dashed-style, distinct from land roads; a real render-loop crash bug found and fixed along the way, see `CHANGELOG.md`).
+Last updated: 2026-08-17 (post real Android device pass — MVP criterion 4 fully closed —, sea routes (Phase 2 milestone 13) wired into `cartalith-godot`'s rendering with a real render-loop crash found and fixed along the way, and CPU-multithreading milestone 2 — `cartalith-civ` Rayon-parallelized, ~1.34-1.81x — see `CHANGELOG.md`).
 
 ## MVP_SCOPE.md — "done means all seven"
 
@@ -283,10 +283,42 @@ real ceiling measured. Full record and per-function reasoning:
 `cartalith-native/docs/CHANGELOG.md`'s "CPU multithreading milestone 1"
 entry.
 
-**Natural next passes, not yet scoped**: `cartalith-civ` (now unblocked
--- the concurrent forks that deferred it here have landed),
-`cartalith-climate`/`cartalith-erosion`/`cartalith-hydrology` (each
-needs its own independence read first, same discipline as this pass).
+**Milestone 2 — `cartalith-civ` (done 2026-08-17).** Added `rayon` to
+`cartalith-civ`; parallelized 16 functions (`build_lithology`,
+`build_slope_field`, `build_soil_fertility`, `build_water_access`,
+`build_biome_raster`, `build_wetland_mask`, `build_carrying_capacity`,
+`build_npp`, `estimate_regional_density_km2`, `build_resource_
+potentials`'s 15-field main loop, `apply_resource_scarcity`, `build_
+raw_slope_field`, `build_route_corridors`, `build_landmass_quality`'s
+final fold, `build_flood_field`, `build_settlement_suitability`,
+`build_travel_cost`, `assign_territory`'s inner cell loop). Left
+sequential and why: `chamfer_dist`/`jfa_dist` (wavefront/iterative,
+not independent), `build_water_bodies`/`label_land_components`/
+`build_landmass_quality`'s flood-fill (connected components),
+`road_dijkstra`/`build_road_network`/`civ_hierarchical_network_
+topology`/`civ_sea_routes`/`civ_consolidate_and_smooth_ways`
+(graph/Dijkstra/MST), settlement placement/naming/villages (RNG-order,
+not grid-shaped), `fresh_river_order` (delegates to
+`cartalith-hydrology`). Golden-parity exact-unchanged: every existing
+`cartalith-civ` test passes unmodified, full `cargo test --workspace`
+68 suites 0 failures. Real timing (new `cartalith-civ/examples/
+timing_bench.rs`, chaining this crate's own real per-cell pipeline
+since `compute_civilisation()` itself is a private `fn` in the
+`cdylib`-only `cartalith-godot`, unreachable for direct benchmarking):
+128² ~0.99x, 512² ~1.34x, 1024² ~1.52x, 2048² ~1.81x -- better-scaling
+than milestone 1's terrain result, since this crate has larger
+independent per-cell functions. Combined with milestone 1: a full
+`generate_terrain` + civ-layer pass at 2048² goes from ~10.62s
+sequential to ~7.07s parallelized. Full record:
+`cartalith-native/docs/CHANGELOG.md`'s "CPU multithreading milestone 2"
+entry.
+
+**Natural next passes, not yet scoped**: `cartalith-climate`/
+`cartalith-erosion`/`cartalith-hydrology` (each needs its own
+independence read first, same discipline as milestones 1-2); the
+remaining sequential `cartalith-civ` stages (settlement placement,
+naming, roads, territory's outer capital loop, villages) — confirmed
+genuinely hard (RNG-order/graph-shaped), not just unattempted.
 
 ## Known-open items (not owner-blocked, just not done yet)
 

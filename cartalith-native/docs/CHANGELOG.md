@@ -5234,3 +5234,108 @@ wiring — removed before commit; it was never meant to ship.
 godot-project/main.gd` (fetch + pass through, debug string removed),
 `cartalith-native/godot-project/map_overlay.gd` (rendering + the crash
 fix), this file, `docs/STATUS.md`.
+
+## CPU multithreading milestone 2: Rayon-parallelize cartalith-civ (2026-08-17)
+
+Follow-up to milestone 1 (`1faa16a`, `cartalith-terrain`) -- unblocked
+once the two concurrent forks `CPU_MULTITHREADING_SCOPE.md` named as
+the reason `cartalith-civ` was deferred (sea routes, memory
+investigation) both landed (`71da1d5`, `62b9b51`).
+
+Added `rayon = "1"` to `cartalith-civ/Cargo.toml` (same convention
+milestone 1 used). Read every named candidate function's full body
+before touching it, same discipline as milestone 1. Parallelized 16
+functions confirmed genuinely `output[i] = f(input, i)` or a
+fixed-radius read of an already-frozen buffer: `build_lithology`,
+`build_slope_field`, `build_soil_fertility`, `build_water_access`'s two
+per-cell passes, `build_biome_raster`, `build_wetland_mask`,
+`build_carrying_capacity`, `build_npp`, `estimate_regional_density_
+km2`, `build_resource_potentials`'s 15-field main loop, `apply_
+resource_scarcity`, `build_raw_slope_field`, `build_route_corridors`
+(both passes), `build_landmass_quality`'s final per-cell fold,
+`build_flood_field`, `build_settlement_suitability`, `build_travel_
+cost`, and `assign_territory`'s inner per-capital cell loop.
+
+`build_resource_potentials`'s 15 simultaneous output fields (the same
+ones `MEMORY_OPTIMIZATION_SCOPE.md` flagged for their memory
+footprint) don't zip cleanly as 15 separate `par_iter_mut()` slices, so
+the per-cell math computes into one `[f32; 15]` per cell in parallel,
+then a cheap sequential pass scatters the 15 values into their named
+output `Vec`s -- plain data movement, negligible next to the branchy
+geology math it follows.
+
+`apply_resource_scarcity` needed real care, not a direct `par_iter_
+mut` swap: it ranks all non-zero land-cell values by a global sort to
+find a keep-threshold. Parallelized the value collection (`into_par_
+iter().filter_map().collect()` -- order-preserving, and irrelevant
+anyway since the result is sorted immediately after), the land-cell
+count, `par_sort_unstable_by` (safe despite "unstable": the threshold
+depends only on the VALUE at rank `keep-1`, never on which physical
+duplicate of a tied value ends up there), and the final per-cell
+threshold-application loop.
+
+**Left sequential, and why** (same bar as every prior GPU/CPU pass this
+session): `chamfer_dist` (two-pass raster scan, each cell reads its own
+predecessor from the SAME pass -- a genuine wavefront dependency);
+`jfa_dist`/`build_coast_sdf` (iterative Jump Flooding, already
+GPU-verified as iterative); `build_water_bodies` (priority-flood);
+`label_land_components` and `build_landmass_quality`'s own flood-fill
+(connected components); `road_dijkstra`/`build_road_network`/`civ_
+hierarchical_network_topology`/`civ_sea_routes`/`civ_consolidate_and_
+smooth_ways` (graph/Dijkstra/MST); `assign_landmass_factions`/`place_
+settlements`/`civ_seed_villages`/naming (RNG-stream order matters, not
+grid-shaped anyway); `fresh_river_order` (delegates entirely to
+`cartalith-hydrology`, outside this crate).
+
+**Golden-parity verification, exact as required**: `cargo build -p
+cartalith-civ` clean. `cargo test -p cartalith-civ`: every existing
+golden-parity suite passes completely unmodified at existing
+tolerances (resource potentials, settlement suitability/placement/
+naming, village seeding, hierarchical network, road network/
+consolidation, sea routes, water bodies, carrying capacity/NPP/
+density, settlement prereqs). `cargo clippy -p cartalith-civ
+--all-targets` clean for this pass's own code (two pre-existing,
+unrelated warnings confirmed by line number: a `needless_range_loop`
+note in `civ_sea_routes`, untouched this pass, and a test-fixture
+`excessive_precision` note). Full `cargo test --workspace`: 68 test
+suites, 0 failures, 0 modified tests -- every other crate (including
+`cartalith-godot` and `cartalith-gpu`'s own cross-verification tests)
+unaffected. `cargo build --workspace` clean.
+
+**Real timing**: `compute_civilisation()` itself can't be benchmarked
+directly from outside `cartalith-godot` -- it's a private `fn` in the
+one crate `ARCHITECTURE.md` restricts to `cdylib`-only, no `rlib`
+target to link a bench binary against. A new `cartalith-civ/examples/
+timing_bench.rs` instead chains this crate's own real per-cell
+pipeline in the same order `golden_parity_settlement_naming.rs`'s
+`compute_named_settlements` test helper already established, fed with
+real `generate_terrain` output (not synthetic data) -- the real
+upstream half of what `compute_civilisation()` runs. Measured via
+`git stash` of this pass's own changes for a true sequential baseline
+from the identical benchmark, then restored (16-core machine, best of
+3, seed 12345):
+
+| Size | Before | After | Speedup |
+|---|---|---|---|
+| 128x128 | 0.0074s | 0.0075s | ~0.99x |
+| 512x512 | 0.1399s | 0.1044s | ~1.34x |
+| 1024x1024 | 0.6615s | 0.4340s | ~1.52x |
+| 2048x2048 | 3.5568s | 1.9625s | ~1.81x |
+
+Better-scaling than milestone 1's own terrain result (~1.38x at
+2048x2048) -- more, and larger, genuinely independent per-cell work in
+this crate (`build_resource_potentials`'s 15 fields, `build_
+settlement_suitability`'s large branchy body) than `cartalith-terrain`'s
+five functions had. Combined with milestone 1's own number, a full
+`generate_terrain` + this crate's civ layer at 2048x2048 goes from
+`7.0670s + 3.5568s = 10.62s` sequential to `5.1071s + 1.9625s = 7.07s`
+parallelized -- roughly a third off real wall-clock time for the two
+subsystems parallelized so far, honestly reported, not the theoretical
+16x (`chamfer_dist`/`jfa_dist`/flood-fill/priority-flood all stay
+sequential and set the real ceiling, same reasoning as milestone 1).
+
+**Files touched**: `cartalith-native/crates/cartalith-civ/Cargo.toml`
+(`rayon` dependency), `cartalith-native/crates/cartalith-civ/src/lib.rs`
+(the 16 functions above), `cartalith-native/crates/cartalith-civ/
+examples/timing_bench.rs` (new), `CPU_MULTITHREADING_SCOPE.md`, this
+file, `docs/STATUS.md`.

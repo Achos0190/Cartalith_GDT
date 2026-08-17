@@ -12,6 +12,7 @@
 //! crate-per-subsystem rule. Zero dependency on `gdext`.
 
 use cartalith_engine::WorldState;
+use rayon::prelude::*;
 
 /// `LITH_KEYS` (reference line 5830) -- frozen, append-only.
 pub const LITH_KEYS: [&str; 7] =
@@ -53,33 +54,33 @@ pub fn build_lithology(
     let age_old = 0.6;
     let res_hard = 0.55;
 
-    for i in 0..n {
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
         if (crust[i] as f64) < 0.0 {
-            out[i] = 1; // oceanic crust -> basalt
-            continue;
+            *o = 1; // oceanic crust -> basalt
+            return;
         }
         if (volc[i] as f64) > volc_th {
-            out[i] = 2; // volcanic arc / hotspot -> andesite
-            continue;
+            *o = 2; // volcanic arc / hotspot -> andesite
+            return;
         }
         if (resist[i] as f64) > res_hard {
-            out[i] = if (age[i] as f64) > age_old { 0 } else { 6 }; // hard basement: old shield -> granite, young orogen -> metamorphic
-            continue;
+            *o = if (age[i] as f64) > age_old { 0 } else { 6 }; // hard basement: old shield -> granite, young orogen -> metamorphic
+            return;
         }
         let r = (field[i] as f64 - sea) / denom;
         let m = rain[i] as f64;
         if r < 0.30 {
-            out[i] = if m > 0.55 {
+            *o = if m > 0.55 {
                 3 // limestone (wet)
             } else if m < 0.25 {
                 4 // sandstone (arid)
             } else {
                 5 // shale (mid)
             };
-            continue;
+            return;
         }
-        out[i] = if (age[i] as f64) > age_old { 0 } else { 5 }; // upland default: old -> granite, else shale
-    }
+        *o = if (age[i] as f64) > age_old { 0 } else { 5 }; // upland default: old -> granite, else shale
+    });
     out
 }
 
@@ -106,11 +107,10 @@ fn slope_at(field: &[f32], gw: usize, gh: usize, world: bool, x: usize, y: usize
 /// store, matching every other ported field in this project.
 pub fn build_slope_field(field: &[f32], gw: usize, gh: usize, world: bool) -> Vec<f32> {
     let mut out = vec![0f32; gw * gh];
-    for y in 0..gh {
-        for x in 0..gw {
-            out[y * gw + x] = (slope_at(field, gw, gh, world, x, y) * gw as f64) as f32;
-        }
-    }
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
+        let (x, y) = (i % gw, i / gw);
+        *o = (slope_at(field, gw, gh, world, x, y) * gw as f64) as f32;
+    });
     out
 }
 
@@ -124,15 +124,15 @@ pub fn build_soil_fertility(lith: &[u8], temp: &[f32], rain: &[f32], slope_n: &[
     let t_opt = 18.0;
     let t_var = 600.0;
 
-    for i in 0..n {
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
         let w = LITH_WEATHER.get(lith[i] as usize).copied().unwrap_or(0.5);
         let t = temp[i] as f64;
         let t_f = (-((t - t_opt) * (t - t_opt)) / t_var).exp();
         let m_f = (rain[i] as f64).clamp(0.0, 1.0);
         let sl_f = (-(slope_n[i] as f64).max(0.0) / slope_k).exp();
         let ti_f = 0.4 + 0.6 * (age[i] as f64).clamp(0.0, 1.0);
-        out[i] = (t_f * m_f * w * sl_f * ti_f).clamp(0.0, 1.0) as f32;
-    }
+        *o = (t_f * m_f * w * sl_f * ti_f).clamp(0.0, 1.0) as f32;
+    });
     out
 }
 
@@ -210,20 +210,20 @@ pub fn build_water_access(flow: &[f32], field: &[f32], gw: usize, gh: usize, sea
     let n = gw * gh;
     let lam = (gw as f64 / 64.0).max(3.0);
     let mut src = vec![0u8; n];
-    for i in 0..n {
+    src.par_iter_mut().enumerate().for_each(|(i, s)| {
         if (field[i] as f64) < sea || (flow[i] as f64) > flow_thresh {
-            src[i] = 1;
+            *s = 1;
         }
-    }
+    });
     let d = chamfer_dist(&src, gw, gh);
     let mut out = vec![0f32; n];
-    for i in 0..n {
-        out[i] = if (field[i] as f64) < sea {
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
+        *o = if (field[i] as f64) < sea {
             1.0
         } else {
             (-(d[i] as f64) / lam).exp().clamp(0.0, 1.0) as f32
         };
-    }
+    });
     out
 }
 
@@ -610,13 +610,13 @@ pub fn classify_biome(t: f64, m: f64) -> u8 {
 pub fn build_biome_raster(water_bodies: &[u8], temp: &[f32], rain: &[f32]) -> Vec<u8> {
     let n = water_bodies.len();
     let mut out = vec![0u8; n];
-    for i in 0..n {
-        out[i] = match water_bodies[i] {
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
+        *o = match water_bodies[i] {
             1 => BIOME_OCEAN,
             2 => BIOME_LAKE,
             _ => classify_biome(temp[i] as f64, rain[i] as f64),
         };
-    }
+    });
     out
 }
 
@@ -665,17 +665,17 @@ pub fn build_wetland_mask(water_bodies: &[u8], field: &[f32], rain: &[f32], slop
     let n = water_bodies.len();
     let mut out = vec![0u8; n];
     let denom = (1.0 - sea).max(1e-6);
-    for i in 0..n {
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
         if water_bodies[i] != 0 {
-            continue;
+            return;
         }
         let r = (field[i] as f64 - sea) / denom;
         let sn = slope_n[i] as f64;
         let m = rain[i] as f64;
         if m > 0.62 && r < 0.18 && sn < 1.0 {
-            out[i] = 1;
+            *o = 1;
         }
-    }
+    });
     out
 }
 
@@ -702,14 +702,14 @@ pub fn build_carrying_capacity(
     let mut out = vec![0f32; n];
     let t_opt = 18.0;
     let t_var = 800.0;
-    for i in 0..n {
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
         if (field[i] as f64) < sea {
-            continue;
+            return;
         }
         if let Some(b) = biome
             && b[i] == 0
         {
-            continue;
+            return;
         }
         let t = temp[i] as f64;
         let t_f = (-((t - t_opt) * (t - t_opt)) / t_var).exp();
@@ -721,8 +721,8 @@ pub fn build_carrying_capacity(
             resid = WETLAND_DENSITY_RESIDUAL;
         }
         let b_m = if biome_k != 0.0 && biome.is_some() { 1.0 - biome_k + biome_k * resid } else { 1.0 };
-        out[i] = (soil[i] as f64 * t_f * w_mod * b_m).clamp(0.0, 1.0) as f32;
-    }
+        *o = (soil[i] as f64 * t_f * w_mod * b_m).clamp(0.0, 1.0) as f32;
+    });
     out
 }
 
@@ -736,16 +736,16 @@ pub fn build_carrying_capacity(
 pub fn build_npp(temp: &[f32], rain: &[f32], field: &[f32], sea: f64, max_rain_mm: f64) -> Vec<f32> {
     let n = field.len();
     let mut out = vec![0f32; n];
-    for i in 0..n {
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
         if (field[i] as f64) < sea {
-            continue;
+            return;
         }
         let t = temp[i] as f64;
         let p = (rain[i] as f64).max(0.0) * max_rain_mm;
         let n_t = 3000.0 / (1.0 + (1.315 - 0.119 * t).exp());
         let n_p = 3000.0 * (1.0 - (-0.000664 * p).exp());
-        out[i] = n_t.min(n_p) as f32;
-    }
+        *o = n_t.min(n_p) as f32;
+    });
     out
 }
 
@@ -788,9 +788,9 @@ pub fn estimate_regional_density_km2(
 ) -> Vec<f32> {
     let n = field.len();
     let mut out = vec![0f32; n];
-    for i in 0..n {
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
         if (field[i] as f64) < sea {
-            continue;
+            return;
         }
         let mut iw = biome.map(|b| biome_intensify_eligible(b[i])).unwrap_or(0.3);
         if let Some(w) = wet_mask
@@ -801,8 +801,8 @@ pub fn estimate_regional_density_km2(
         let w = water[i] as f64;
         let ceiling = RAINFED_CEILING_KM2 + (INTENSIVE_CEILING_KM2 - RAINFED_CEILING_KM2) * iw * w * w;
         let npp_v = npp.map(|p| p[i] as f64).unwrap_or(0.0);
-        out[i] = (forager_floor_km2(npp_v) + k[i] as f64 * ceiling) as f32;
-    }
+        *o = (forager_floor_km2(npp_v) + k[i] as f64 * ceiling) as f32;
+    });
     out
 }
 
@@ -890,30 +890,32 @@ pub fn resource_scarcity_cut(key: &str) -> f64 {
 /// thins an existing signal, never invents a deposit. In place.
 pub fn apply_resource_scarcity(arr: &mut [f32], field: &[f32], sea: f64, cut: f64) {
     let n = arr.len();
-    let mut vals: Vec<f64> = Vec::new();
-    for i in 0..n {
-        if (field[i] as f64) < sea {
-            continue;
-        }
-        if arr[i] > 0.0 {
-            vals.push(arr[i] as f64);
-        }
-    }
+    // Collection order doesn't matter -- `vals` is sorted immediately below,
+    // and rayon's `collect()` on an indexed range preserves encounter order
+    // regardless anyway (filter_map stays order-preserving).
+    let mut vals: Vec<f64> = (0..n)
+        .into_par_iter()
+        .filter(|&i| (field[i] as f64) >= sea && arr[i] > 0.0)
+        .map(|i| arr[i] as f64)
+        .collect();
     if vals.is_empty() {
         return;
     }
-    let land = field.iter().take(n).filter(|&&h| (h as f64) >= sea).count();
+    let land = field[..n].par_iter().filter(|&&h| (h as f64) >= sea).count();
     let keep = ((land as f64 * cut).round() as usize).max(1);
     if vals.len() <= keep {
         return; // already rarer than its ceiling
     }
-    vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    // Unstable parallel sort: `thresh` depends only on the VALUE at rank
+    // `keep-1`, never on which physical duplicate lands there, so tie
+    // order (the only thing "unstable" changes) can't affect the result.
+    vals.par_sort_unstable_by(|a, b| b.partial_cmp(a).unwrap());
     let thresh = vals[keep - 1];
-    for v in arr.iter_mut().take(n) {
+    arr[..n].par_iter_mut().for_each(|v| {
         if (*v as f64) < thresh {
             *v = 0.0;
         }
-    }
+    });
 }
 
 /// `buildResourcePotentials`'s 15 output fields (reference HTML line 6085).
@@ -1008,142 +1010,177 @@ pub fn build_resource_potentials(
     let flow_max_raw = flow.map(|f| f.iter().fold(0.0f64, |m, &v| m.max(v as f64))).unwrap_or(0.0);
     let flow_max = if flow_max_raw > 0.0 { flow_max_raw } else { 1.0 };
 
-    for i in 0..n {
-        let li = lith[i];
-        let ai = age[i] as f64;
-        let ri = rain[i] as f64;
-        let sh = shear_field.map(|s| (s[i] as f64).abs()).unwrap_or(0.0);
-        let bt = boundary_type.map(|b| b[i]).unwrap_or(0);
-        let r = ((field[i] as f64 - sea) / denom).max(0.0);
+    // 15 outputs written per cell, no cross-cell dependency (`silver`/`clay`'s
+    // kaolin bonus read this SAME index's just-written value only) -- computed
+    // in parallel into one `[f32; 15]` per cell (rayon can't zip 15 output
+    // slices as cleanly as one), then scattered into the 15 named `Vec`s below
+    // in a single cheap sequential pass (plain data movement, negligible next
+    // to the branchy math above).
+    let per_cell: Vec<[f32; 15]> = (0..n)
+        .into_par_iter()
+        .map(|i| {
+            let li = lith[i];
+            let ai = age[i] as f64;
+            let ri = rain[i] as f64;
+            let sh = shear_field.map(|s| (s[i] as f64).abs()).unwrap_or(0.0);
+            let bt = boundary_type.map(|b| b[i]).unwrap_or(0);
+            let r = ((field[i] as f64 - sea) / denom).max(0.0);
 
-        // copper: Gaussian decay from subduction/arc boundary, amplified in andesite/basalt.
-        let cu_mult = match li {
-            2 => 1.0,
-            1 => 0.8,
-            _ => 0.55,
-        };
-        copper[i] = ((-(cu_dist[i] as f64) / cu_lam).exp() * cu_mult).min(1.0) as f32;
+            // copper: Gaussian decay from subduction/arc boundary, amplified in andesite/basalt.
+            let cu_mult = match li {
+                2 => 1.0,
+                1 => 0.8,
+                _ => 0.55,
+            };
+            let copper_v = ((-(cu_dist[i] as f64) / cu_lam).exp() * cu_mult).min(1.0) as f32;
 
-        // tin: pegmatite Sn in old granites, skarn in metamorphic.
-        tin[i] = (if li == 0 && ai > age_old {
-            0.70
-        } else if li == 6 {
-            0.45
-        } else if li == 0 {
-            0.30
-        } else {
-            0.0
-        }) as f32;
-
-        // iron: BIF in old shields, bog iron in wet shale lowlands.
-        iron[i] = (if li == 0 && ai > age_old && bt == 0 {
-            0.65
-        } else if li == 5 && ri > 0.55 && r < 0.25 {
-            0.55
-        } else if li == 3 {
-            0.20
-        } else {
-            0.0
-        }) as f32;
-
-        // gold: orogenic Au from transform faults + quartz veins in sheared granites.
-        gold[i] = (if bt == 5 {
-            (0.65 + 0.35 * sh).min(1.0)
-        } else if sh > 0.25 && li == 0 {
-            (0.20 + sh).min(0.55)
-        } else if li == 0 && ai > age_old {
-            0.12
-        } else {
-            0.0
-        }) as f32;
-
-        // salt: evaporite basins, arid lowlands in limestone/sandstone.
-        if r < 0.25 && ri < 0.22 {
-            salt[i] = (if li == 3 || li == 4 {
-                (0.50 + 0.40 * (0.22 - ri) / 0.22).min(0.90)
-            } else if r < 0.12 && ri < 0.12 {
-                0.40
+            // tin: pegmatite Sn in old granites, skarn in metamorphic.
+            let tin_v = (if li == 0 && ai > age_old {
+                0.70
+            } else if li == 6 {
+                0.45
+            } else if li == 0 {
+                0.30
             } else {
                 0.0
             }) as f32;
-        }
 
-        // timber: closed-canopy biomes (boreal/conifer/tempForest/tempRain/tropWet).
-        if let Some(b) = biome {
-            let bv = b[i];
-            if bv == 3 || bv == 4 || bv == 5 || bv == 6 || bv == 12 {
-                timber[i] = (0.40 + 0.60 * (ri * 1.5).min(1.0)).min(1.0) as f32;
+            // iron: BIF in old shields, bog iron in wet shale lowlands.
+            let iron_v = (if li == 0 && ai > age_old && bt == 0 {
+                0.65
+            } else if li == 5 && ri > 0.55 && r < 0.25 {
+                0.55
+            } else if li == 3 {
+                0.20
+            } else {
+                0.0
+            }) as f32;
+
+            // gold: orogenic Au from transform faults + quartz veins in sheared granites.
+            let gold_v = (if bt == 5 {
+                (0.65 + 0.35 * sh).min(1.0)
+            } else if sh > 0.25 && li == 0 {
+                (0.20 + sh).min(0.55)
+            } else if li == 0 && ai > age_old {
+                0.12
+            } else {
+                0.0
+            }) as f32;
+
+            // salt: evaporite basins, arid lowlands in limestone/sandstone.
+            let mut salt_v = 0f32;
+            if r < 0.25 && ri < 0.22 {
+                salt_v = (if li == 3 || li == 4 {
+                    (0.50 + 0.40 * (0.22 - ri) / 0.22).min(0.90)
+                } else if r < 0.12 && ri < 0.12 {
+                    0.40
+                } else {
+                    0.0
+                }) as f32;
             }
-        }
 
-        let vv = volcanic.map(|v| v[i] as f64).unwrap_or(0.0);
-
-        // lead (galena): hydrothermal veins in limestone, needs a shear/boundary driver.
-        lead[i] = (if li == 3 {
-            (0.25 + 0.55 * (sh * 2.2).min(1.0) + if bt != 0 { 0.20 } else { 0.0 }).min(1.0)
-        } else if li == 6 && sh > 0.30 {
-            0.25
-        } else {
-            0.0
-        }) as f32;
-
-        // silver: byproduct of argentiferous galena -- lead's terrain, scaled down.
-        silver[i] = if lead[i] > 0.0 { lead[i] as f64 * 0.55 } else { 0.0 } as f32;
-
-        // clay: riverine/floodplain/lake-margin, near-universal on lowlands with real drainage.
-        {
-            let wet = flow.map(|f| ((1.0 + f[i] as f64).ln() / (1.0 + flow_max * 0.05).ln()).min(1.0)).unwrap_or(0.0);
-            if r < 0.35 {
-                let v = 0.30 + 0.50 * wet + 0.25 * (ri * 1.6).min(1.0) - if li == 0 { 0.25 } else { 0.0 };
-                clay[i] = v.clamp(0.0, 1.0) as f32;
+            // timber: closed-canopy biomes (boreal/conifer/tempForest/tempRain/tropWet).
+            let mut timber_v = 0f32;
+            if let Some(b) = biome {
+                let bv = b[i];
+                if bv == 3 || bv == 4 || bv == 5 || bv == 6 || bv == 12 {
+                    timber_v = (0.40 + 0.60 * (ri * 1.5).min(1.0)).min(1.0) as f32;
+                }
             }
-        }
-        // kaolin: weathered-granite tail of the same clay signal, folded in as a bonus.
-        if li == 0 && ri > 0.5 && clay[i] > 0.0 {
-            clay[i] = ((clay[i] as f64) + 0.20).min(1.0) as f32;
-        }
 
-        // building stone: limestone (workable+mortar), granite/basalt (durable, hard).
-        buildstone[i] = match li {
-            3 => 0.85,
-            0 | 1 => 0.70,
-            4 => 0.45,
-            6 => 0.40,
-            _ => 0.15,
-        };
+            let vv = volcanic.map(|v| v[i] as f64).unwrap_or(0.0);
 
-        // flint/chert: nodules in limestone, no hydrothermal requirement (unlike lead).
-        flint[i] = if li == 3 { 0.60 } else { 0.0 };
+            // lead (galena): hydrothermal veins in limestone, needs a shear/boundary driver.
+            let lead_v = (if li == 3 {
+                (0.25 + 0.55 * (sh * 2.2).min(1.0) + if bt != 0 { 0.20 } else { 0.0 }).min(1.0)
+            } else if li == 6 && sh > 0.30 {
+                0.25
+            } else {
+                0.0
+            }) as f32;
 
-        // obsidian: volcanic glass, young silica-rich volcanism (andesite arc).
-        obsidian[i] = (if vv > 0.45 && (li == 2 || li == 1) {
-            (0.35 + 0.65 * vv).min(1.0)
-        } else if li == 2 && bt == 3 {
-            0.30
-        } else {
-            0.0
-        }) as f32;
+            // silver: byproduct of argentiferous galena -- lead's terrain, scaled down.
+            let silver_v = if lead_v > 0.0 { lead_v as f64 * 0.55 } else { 0.0 } as f32;
 
-        // gemstones: pegmatite veins in old granite, metamorphic contact zones.
-        gems[i] = (if li == 0 && ai > age_old {
-            (0.30 + 0.50 * (sh * 2.0).min(1.0)).min(1.0)
-        } else if li == 6 {
-            (0.20 + 0.55 * (sh * 2.5).min(1.0)).min(1.0)
-        } else {
-            0.0
-        }) as f32;
+            // clay: riverine/floodplain/lake-margin, near-universal on lowlands with real drainage.
+            let mut clay_v = 0f32;
+            {
+                let wet = flow.map(|f| ((1.0 + f[i] as f64).ln() / (1.0 + flow_max * 0.05).ln()).min(1.0)).unwrap_or(0.0);
+                if r < 0.35 {
+                    let v = 0.30 + 0.50 * wet + 0.25 * (ri * 1.6).min(1.0) - if li == 0 { 0.25 } else { 0.0 };
+                    clay_v = v.clamp(0.0, 1.0) as f32;
+                }
+            }
+            // kaolin: weathered-granite tail of the same clay signal, folded in as a bonus.
+            if li == 0 && ri > 0.5 && clay_v > 0.0 {
+                clay_v = ((clay_v as f64) + 0.20).min(1.0) as f32;
+            }
 
-        // sulfur: volcanic/hot-spring/fumarole zones.
-        sulfur[i] = if vv > 0.35 { (0.25 + 0.75 * vv).min(1.0) } else { 0.0 } as f32;
+            // building stone: limestone (workable+mortar), granite/basalt (durable, hard).
+            let buildstone_v: f32 = match li {
+                3 => 0.85,
+                0 | 1 => 0.70,
+                4 => 0.45,
+                6 => 0.40,
+                _ => 0.15,
+            };
 
-        // alum: volcanic OR sedimentary evaporite route (shares salt's arid-evaporite logic).
-        alum[i] = (if vv > 0.30 {
-            (0.20 + 0.60 * vv).min(1.0)
-        } else if r < 0.25 && ri < 0.30 && (li == 4 || li == 5) {
-            0.45
-        } else {
-            0.0
-        }) as f32;
+            // flint/chert: nodules in limestone, no hydrothermal requirement (unlike lead).
+            let flint_v: f32 = if li == 3 { 0.60 } else { 0.0 };
+
+            // obsidian: volcanic glass, young silica-rich volcanism (andesite arc).
+            let obsidian_v = (if vv > 0.45 && (li == 2 || li == 1) {
+                (0.35 + 0.65 * vv).min(1.0)
+            } else if li == 2 && bt == 3 {
+                0.30
+            } else {
+                0.0
+            }) as f32;
+
+            // gemstones: pegmatite veins in old granite, metamorphic contact zones.
+            let gems_v = (if li == 0 && ai > age_old {
+                (0.30 + 0.50 * (sh * 2.0).min(1.0)).min(1.0)
+            } else if li == 6 {
+                (0.20 + 0.55 * (sh * 2.5).min(1.0)).min(1.0)
+            } else {
+                0.0
+            }) as f32;
+
+            // sulfur: volcanic/hot-spring/fumarole zones.
+            let sulfur_v = if vv > 0.35 { (0.25 + 0.75 * vv).min(1.0) } else { 0.0 } as f32;
+
+            // alum: volcanic OR sedimentary evaporite route (shares salt's arid-evaporite logic).
+            let alum_v = (if vv > 0.30 {
+                (0.20 + 0.60 * vv).min(1.0)
+            } else if r < 0.25 && ri < 0.30 && (li == 4 || li == 5) {
+                0.45
+            } else {
+                0.0
+            }) as f32;
+
+            [
+                copper_v, tin_v, iron_v, gold_v, salt_v, timber_v, lead_v, silver_v, clay_v, buildstone_v, flint_v, obsidian_v, gems_v,
+                sulfur_v, alum_v,
+            ]
+        })
+        .collect();
+
+    for (i, c) in per_cell.iter().enumerate() {
+        copper[i] = c[0];
+        tin[i] = c[1];
+        iron[i] = c[2];
+        gold[i] = c[3];
+        salt[i] = c[4];
+        timber[i] = c[5];
+        lead[i] = c[6];
+        silver[i] = c[7];
+        clay[i] = c[8];
+        buildstone[i] = c[9];
+        flint[i] = c[10];
+        obsidian[i] = c[11];
+        gems[i] = c[12];
+        sulfur[i] = c[13];
+        alum[i] = c[14];
     }
 
     // Scarcity cut, applied AFTER geology so it can only remove deposits,
@@ -1187,11 +1224,10 @@ pub fn build_resource_potentials(
 /// two and `build_route_corridors`'s cost field silently double-scales.
 pub fn build_raw_slope_field(field: &[f32], gw: usize, gh: usize, world: bool) -> Vec<f32> {
     let mut out = vec![0f32; gw * gh];
-    for y in 0..gh {
-        for x in 0..gw {
-            out[y * gw + x] = slope_at(field, gw, gh, world, x, y) as f32;
-        }
-    }
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
+        let (x, y) = (i % gw, i / gw);
+        *o = slope_at(field, gw, gh, world, x, y) as f32;
+    });
     out
 }
 
@@ -1223,59 +1259,61 @@ pub fn build_route_corridors(field: &[f32], slope: &[f32], flow: Option<&[f32]>,
 
     // Traversal cost: steep is expensive, open water is impassable.
     let mut cost = vec![0f32; n];
-    for i in 0..n {
+    cost.par_iter_mut().enumerate().for_each(|(i, c)| {
         if (field[i] as f64) < sea {
-            cost[i] = 1.0;
-            continue;
+            *c = 1.0;
+            return;
         }
         let sl = ((slope[i] as f64) * slope_k / 6.0).min(1.0);
         let riv = if flow.is_some_and(|f| (f[i] as f64) > flow_hi) { 0.55 } else { 0.0 };
-        cost[i] = (sl * 0.85 + riv).clamp(0.0, 1.0) as f32;
-    }
+        *c = (sl * 0.85 + riv).clamp(0.0, 1.0) as f32;
+    });
 
     let axes: [(i64, i64); 4] = [(1, 0), (0, 1), (1, 1), (1, -1)];
-    for y in 0..gh {
-        for x in 0..gw {
-            let i = y * gw + x;
-            if (field[i] as f64) < sea {
-                continue;
-            }
-            let here = cost[i] as f64;
-            if here > 0.45 {
-                continue;
-            }
-            let mut best_gap = 0.0f64;
-            for &(ax, ay) in &axes {
-                let mut hi_a = 0.0f64;
-                let mut hi_b = 0.0f64;
-                for r in 1..=r_reach {
-                    let xa = x as i64 + ax * r;
-                    let ya = y as i64 + ay * r;
-                    let xb = x as i64 - ax * r;
-                    let yb = y as i64 - ay * r;
-                    if xa >= 0 && xa < gw as i64 && ya >= 0 && ya < gh as i64 {
-                        let c = cost[ya as usize * gw + xa as usize] as f64;
-                        if c > hi_a {
-                            hi_a = c;
-                        }
-                    }
-                    if xb >= 0 && xb < gw as i64 && yb >= 0 && yb < gh as i64 {
-                        let c = cost[yb as usize * gw + xb as usize] as f64;
-                        if c > hi_b {
-                            hi_b = c;
-                        }
-                    }
-                }
-                // A corridor needs a barrier on BOTH sides of the axis --
-                // min, not max.
-                let gap = hi_a.min(hi_b) - here;
-                if gap > best_gap {
-                    best_gap = gap;
-                }
-            }
-            out[i] = if best_gap > CORRIDOR_KNEE { ((best_gap - CORRIDOR_KNEE) / (1.0 - CORRIDOR_KNEE)).min(1.0) as f32 } else { 0.0 };
+    // `cost` is fully computed and read-only from here on -- each cell reads
+    // only a fixed-radius (`r_reach`) window of already-frozen `cost` values
+    // and writes only its own `out[i]`, the same "local-neighbourhood, still
+    // safe" shape `CPU_MULTITHREADING_SCOPE.md` names this function under.
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
+        let (x, y) = (i % gw, i / gw);
+        if (field[i] as f64) < sea {
+            return;
         }
-    }
+        let here = cost[i] as f64;
+        if here > 0.45 {
+            return;
+        }
+        let mut best_gap = 0.0f64;
+        for &(ax, ay) in &axes {
+            let mut hi_a = 0.0f64;
+            let mut hi_b = 0.0f64;
+            for r in 1..=r_reach {
+                let xa = x as i64 + ax * r;
+                let ya = y as i64 + ay * r;
+                let xb = x as i64 - ax * r;
+                let yb = y as i64 - ay * r;
+                if xa >= 0 && xa < gw as i64 && ya >= 0 && ya < gh as i64 {
+                    let c = cost[ya as usize * gw + xa as usize] as f64;
+                    if c > hi_a {
+                        hi_a = c;
+                    }
+                }
+                if xb >= 0 && xb < gw as i64 && yb >= 0 && yb < gh as i64 {
+                    let c = cost[yb as usize * gw + xb as usize] as f64;
+                    if c > hi_b {
+                        hi_b = c;
+                    }
+                }
+            }
+            // A corridor needs a barrier on BOTH sides of the axis --
+            // min, not max.
+            let gap = hi_a.min(hi_b) - here;
+            if gap > best_gap {
+                best_gap = gap;
+            }
+        }
+        *o = if best_gap > CORRIDOR_KNEE { ((best_gap - CORRIDOR_KNEE) / (1.0 - CORRIDOR_KNEE)).min(1.0) as f32 } else { 0.0 };
+    });
     let _ = world; // `wrap` is not read by the reference's own buildRouteCorridors -- land-only, no x-wrap in the flanking scan.
     out
 }
@@ -1368,13 +1406,18 @@ pub fn build_landmass_quality(field: &[f32], carrying_cap: Option<&[f32]>, gw: u
         .collect();
     let cap_mean: Vec<f64> = sizes.iter().zip(cap_sum.iter()).map(|(&sz, &cs)| if sz > 0 { cs / sz as f64 } else { 0.0 }).collect();
     let best_cap = cap_mean.iter().cloned().fold(1e-6, f64::max);
-    for i in 0..n {
+    // Only this final per-cell fold is parallelized -- `comp`'s own flood
+    // fill above is a genuine sequential graph traversal (connected
+    // components), the same "hard" category `CPU_MULTITHREADING_SCOPE.md`
+    // already names. This loop reads `comp`/`area_score`/`cap_mean` as
+    // already-frozen, read-only lookups.
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
         if (field[i] as f64) < sea {
-            continue;
+            return;
         }
         let c = comp[i] as usize;
-        out[i] = (0.65 * area_score[c] + 0.35 * (cap_mean[c] / best_cap)).clamp(0.0, 1.0) as f32;
-    }
+        *o = (0.65 * area_score[c] + 0.35 * (cap_mean[c] / best_cap)).clamp(0.0, 1.0) as f32;
+    });
     LandmassQuality { quality: out, comp, sizes, count: n_comp as usize }
 }
 
@@ -1495,18 +1538,18 @@ pub fn build_flood_field(field: &[f32], flow: &[f32], slope_raw: &[f32], gw: usi
     let n = gw * gh;
     let mut out = vec![0f32; n];
     let log_max = (1.0 + (gw * gh) as f64).ln();
-    for i in 0..n {
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
         let vw = field[i] as f64;
         if vw < sea {
-            continue;
+            return;
         }
         let sl = (slope_raw[i] as f64).max(0.002);
         let a = (flow[i] as f64 / (gw * gh) as f64).max(1e-4);
         let twi = (a / sl).ln();
         let disc = (1.0 + flow[i] as f64).ln() / log_max;
         let lowland = smoothstep(0.18, 0.0, vw - sea);
-        out[i] = clamp01(0.5 * smoothstep(-2.0, 6.0, twi) + 0.5 * disc + 0.4 * lowland) as f32;
-    }
+        *o = clamp01(0.5 * smoothstep(-2.0, 6.0, twi) + 0.5 * disc + 0.4 * lowland) as f32;
+    });
     out
 }
 
@@ -1612,14 +1655,14 @@ pub fn build_settlement_suitability(
     let denom = (1.0 - sea).max(1e-6);
     let lake_r = ((gw as f64 / 170.0).round() as isize).max(2);
 
-    for i in 0..n {
+    out.par_iter_mut().enumerate().for_each(|(i, o)| {
         if (field[i] as f64) < sea {
-            continue;
+            return;
         }
         if let Some(wb) = ctx.and_then(|c| c.water_bodies)
             && wb[i] != 0
         {
-            continue;
+            return;
         }
         let k = carrying_cap[i] as f64;
         let wa = water[i] as f64;
@@ -1770,8 +1813,8 @@ pub fn build_settlement_suitability(
             }
         }
 
-        out[i] = clamp01(1.0 / (1.0 + (-6.0 * (z - 0.5)).exp())) as f32;
-    }
+        *o = clamp01(1.0 / (1.0 + (-6.0 * (z - 0.5)).exp())) as f32;
+    });
     out
 }
 
@@ -2676,21 +2719,19 @@ pub fn build_travel_cost(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f
     const SLOPE_K: f64 = 50.0;
     let n = gw * gh;
     let mut cost = vec![0.0f32; n];
-    for y in 0..gh {
-        for x in 0..gw {
-            let i = y * gw + x;
-            if (field[i] as f64) < sea {
-                cost[i] = f32::INFINITY;
-                continue;
-            }
-            let xl = if x > 0 { field[i - 1] as f64 } else { field[i] as f64 };
-            let xr = if x < gw - 1 { field[i + 1] as f64 } else { field[i] as f64 };
-            let yt = if y > 0 { field[i - gw] as f64 } else { field[i] as f64 };
-            let yb = if y < gh - 1 { field[i + gw] as f64 } else { field[i] as f64 };
-            let slope = ((xr - xl) * 0.5).hypot((yb - yt) * 0.5);
-            cost[i] = (1.0 + SLOPE_K * slope * slope) as f32;
+    cost.par_iter_mut().enumerate().for_each(|(i, c)| {
+        let (x, y) = (i % gw, i / gw);
+        if (field[i] as f64) < sea {
+            *c = f32::INFINITY;
+            return;
         }
-    }
+        let xl = if x > 0 { field[i - 1] as f64 } else { field[i] as f64 };
+        let xr = if x < gw - 1 { field[i + 1] as f64 } else { field[i] as f64 };
+        let yt = if y > 0 { field[i - gw] as f64 } else { field[i] as f64 };
+        let yb = if y < gh - 1 { field[i + gw] as f64 } else { field[i] as f64 };
+        let slope = ((xr - xl) * 0.5).hypot((yb - yt) * 0.5);
+        *c = (1.0 + SLOPE_K * slope * slope) as f32;
+    });
     cost
 }
 
@@ -3461,16 +3502,25 @@ pub fn assign_territory(settlements: &[NamedSettlement], cost: &[f32], gw: usize
         }
         let (dist, _prev) = road_dijkstra(cost, gw, gh, s.placement.x, s.placement.y, world);
         let weight = territory_weight(s.pop);
-        for i in 0..n {
-            if dist[i].is_infinite() {
-                continue;
-            }
-            let effective = dist[i] as f64 / weight;
-            if effective < best_effective[i] {
-                best_effective[i] = effective;
-                owner[i] = s.placement.faction;
-            }
-        }
+        // One capital's Dijkstra pass at a time, same order as before
+        // (needed: the running per-cell min IS meant to compare across
+        // capitals in this order) -- but within one capital's own pass,
+        // each cell's compare-and-maybe-update is independent of every
+        // other cell, safe to parallelize.
+        owner
+            .par_iter_mut()
+            .zip(best_effective.par_iter_mut())
+            .enumerate()
+            .for_each(|(i, (o, be))| {
+                if dist[i].is_infinite() {
+                    return;
+                }
+                let effective = dist[i] as f64 / weight;
+                if effective < *be {
+                    *be = effective;
+                    *o = s.placement.faction;
+                }
+            });
     }
     owner
 }

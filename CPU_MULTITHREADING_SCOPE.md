@@ -156,21 +156,141 @@ entry.
 **Natural follow-up passes** (not scoped here, same "one subsystem at
 a time" discipline this whole port has used throughout):
 
-1. `cartalith-civ` -- the concurrent forks that blocked it during this
-   pass (sea routes, memory investigation) have both landed; safe to
-   scope now. Route corridors/settlement suitability/carrying
-   capacity/resource potentials are the named "safe, local-neighbourhood"
-   candidates from the section above.
-2. `cartalith-climate`/`cartalith-erosion`/`cartalith-hydrology` --
+1. `cartalith-climate`/`cartalith-erosion`/`cartalith-hydrology` --
    each needs its own independence read before touching (per-cell
    temperature/rainfall formulas are likely safe; `simulate_weather`'s
    wind-iteration loop needs parallelizing *within* each iteration's
    pass, not across iterations, since iterations are sequential;
    droplet erosion likely has genuine per-droplet sequential state,
    verify rather than assume).
-3. GPU milestone 6's own flagged next step (`GpuContext` reuse across
+2. GPU milestone 6's own flagged next step (`GpuContext` reuse across
    stages) and the integrated-GPU idea below remain separate, GPU-side
    follow-ups, not CPU-multithreading scope.
+
+## Resolved (2026-08-17): second pass done -- `cartalith-civ`
+
+The concurrent forks that blocked this crate during milestone 1 (sea
+routes, memory investigation) both landed (`71da1d5`, `62b9b51`), so
+this was unblocked and scoped as its own pass rather than left further
+deferred.
+
+Read every named candidate function's body in full before touching it
+(same discipline milestone 1 used), confirming each is genuinely
+`output[i] = f(input, i)` or a fixed-radius read of an already-frozen
+buffer, with zero cross-cell dependency within the parallelized loop.
+Parallelized: `build_lithology`, `build_slope_field`,
+`build_soil_fertility`, `build_water_access` (its own two simple
+per-cell passes -- `chamfer_dist` itself stays sequential, see below),
+`build_biome_raster`, `build_wetland_mask`, `build_carrying_capacity`,
+`build_npp`, `estimate_regional_density_km2`, `build_resource_
+potentials`'s main 15-field-per-cell loop (computed into one
+`[f32; 15]` per cell in parallel, then scattered into the 15 named
+output `Vec`s in one cheap sequential pass -- rayon can't zip 15
+mutable output slices as cleanly as one array), `apply_resource_
+scarcity` (parallel filter/collect, parallel land-count, `par_sort_
+unstable_by` -- safe since the result only depends on the VALUE at
+rank `keep-1`, never on which physical duplicate lands there, so
+sort instability can't change the answer), `build_raw_slope_field`,
+`build_route_corridors` (both its per-cell cost pre-pass and its main
+fixed-radius corridor scan, which reads only the now-frozen `cost`
+array), `build_landmass_quality`'s final per-cell quality fold only
+(its own flood-fill connected-components pass above stays sequential,
+see below), `build_flood_field`, `build_settlement_suitability` (the
+single largest per-cell function in this crate -- every context field
+it reads is either the same index or a fixed-radius/3x3 neighbourhood
+of an already-frozen buffer), `build_travel_cost`, and `assign_
+territory`'s inner per-cell min-comparison loop (parallelized *within*
+each capital's own Dijkstra pass, keeping the outer per-capital loop
+itself sequential and in its original order, since the running
+per-cell "best so far" is meant to compare across capitals in that
+order).
+
+**Left sequential, and why** (same "genuine cross-cell state, not just
+'hasn't been tried'" bar milestone 1 and `GPU_LAYER_INTEGRATION_
+SCOPE.md` both already used): `chamfer_dist` (two-pass raster scan --
+each cell reads its immediate predecessor in the SAME pass, a genuine
+wavefront/scan dependency, not independent per-cell); `jfa_dist` and
+therefore `build_coast_sdf` (iterative Jump Flooding, the same
+already-GPU-verified-as-iterative algorithm milestone 1's own doc
+flagged); `build_water_bodies` (priority-flood); `label_land_
+components` and `build_landmass_quality`'s own flood-fill (connected
+components -- genuine sequential graph traversal); `road_dijkstra`,
+`build_road_network`, `civ_hierarchical_network_topology`, `civ_sea_
+routes`, `civ_consolidate_and_smooth_ways` (graph/Dijkstra/MST
+algorithms); `assign_landmass_factions`, `place_settlements`, `civ_
+seed_villages`, the naming functions (sequential RNG-stream order
+matters, and these aren't grid-shaped anyway -- settlement-count
+sized, not cell-count sized); `fresh_river_order` (delegates entirely
+to `cartalith-hydrology::build_channels`/`strahler_from_receivers`,
+outside this crate and this pass's scope).
+
+**Golden-parity verification, exact as required**: `cargo build -p
+cartalith-civ` clean; `cargo test -p cartalith-civ` -- every existing
+test (all golden-parity suites, including `resource_potentials_*`,
+`settlement_suitability_*`, `settlement_placement_*`, `settlement_
+naming_*`, `village_seeding_*`, `hierarchical_network_*`, `road_
+network_*`, `sea_routes_*`, `road_consolidation_*`, `waterbodies_*`,
+`carrying_capacity_npp_density_*`, `settlement_prereqs_*`) passes
+completely unmodified, at existing tolerances. `cargo clippy -p
+cartalith-civ --all-targets` clean (the only warnings present are
+pre-existing, in code this pass didn't touch -- a `civ_sea_routes`
+`needless_range_loop` note and a test-fixture `excessive_precision`
+note, both confirmed unrelated by their line numbers). Full `cargo
+test --workspace`: 68 test-suite runs, 0 failures, 0 modified tests --
+every other crate's own tests (including `cartalith-godot`'s and
+`cartalith-gpu`'s cross-verification tests) unaffected. `cargo build
+--workspace` clean.
+
+**Real timing**: `compute_civilisation()` itself couldn't be
+benchmarked directly -- it's a private `fn` inside `cartalith-godot`,
+the one crate `ARCHITECTURE.md` restricts to `cdylib`-only (no `rlib`
+target to link an external bench binary against), so a new `cartalith-
+civ/examples/timing_bench.rs` instead chains this crate's own real
+per-cell pipeline in the exact order `golden_parity_settlement_naming.
+rs`'s own `compute_named_settlements` test helper already established
+(lithology -> soil/water access -> biome -> carrying capacity/NPP ->
+resource potentials -> corridors/landmass/coast SDF/flood ->
+settlement suitability -> travel cost) -- the real upstream half of
+what `compute_civilisation()` runs, using real `generate_terrain`
+output as input, not synthetic data. Measured by temporarily
+`git stash`-ing this pass's own changes to get a true sequential
+baseline from the identical benchmark code, then restoring (`cargo run
+--release --example timing_bench -p cartalith-civ`, 16-core machine,
+best of 3, seed 12345):
+
+| Size | Before | After | Speedup |
+|---|---|---|---|
+| 128x128 | 0.0074s | 0.0075s | ~0.99x |
+| 512x512 | 0.1399s | 0.1044s | ~1.34x |
+| 1024x1024 | 0.6615s | 0.4340s | ~1.52x |
+| 2048x2048 | 3.5568s | 1.9625s | ~1.81x |
+
+Real, honest, and better-scaling than milestone 1's own terrain result
+(~1.38x at 2048x2048) -- this crate has more, and larger, genuinely
+independent per-cell functions (`build_resource_potentials`'s 15
+fields, `build_settlement_suitability`'s large branchy body) than
+`cartalith-terrain`'s five did, so there's more real parallel work per
+dispatch. Still well short of 16x: `chamfer_dist`/`jfa_dist`/the
+flood-fill component-labelling passes/all of `build_water_bodies`'s
+priority-flood stay sequential and are folded into this same
+benchmark's "before" and "after" numbers (they don't speed up, so they
+compress the ceiling), plus 128x128 shows the same real, honestly-
+reported small-size floor GPU milestone 6 already found for a
+different reason (fixed per-`par_iter_mut` dispatch overhead not yet
+amortized by so little real work per cell at that size).
+
+Combined with milestone 1's own `cartalith-terrain` result, a full
+`generate_terrain` + this crate's per-cell civ layer at 2048x2048 goes
+from roughly `7.0670s + 3.5568s = 10.62s` sequential to roughly
+`5.1071s + 1.9625s = 7.07s` parallelized -- a real ~33% wall-clock
+reduction for the two subsystems parallelized so far, before touching
+climate/erosion/hydrology or the remaining sequential civ stages
+(settlement placement, naming, roads, territory's outer capital loop,
+villages).
+
+**Verification**: full account above; `cartalith-native/docs/
+CHANGELOG.md`'s "CPU multithreading milestone 2" entry has the same
+numbers in this project's established changelog style.
 
 ## Separate, lower-priority idea recorded, not scoped: using the integrated GPU too
 
