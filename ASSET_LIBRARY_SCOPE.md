@@ -264,26 +264,117 @@ in `cartalith-assets` behind a feature or in `cartalith-io` — decide from
 ergonomics when it starts, not now. Verification should include a real
 round-trip against a pack the reference itself exported.
 
-### Milestone 3 — scatter rules
+### Milestone 3 — scatter rules: done (2026-08-17)
 
-`ScatterRule` + `defaultScatterRule`/`SCATTER_RULE_PRESETS`/
-`presetScatterRule`/`normalizeScatterRule`/`scatterRuleKey`/
-`currentScatterRules`/`autopopulateScatterRules`/`pickWeightedVariant`. Pure,
-self-contained, and carrying real, documented v1.27 hardening against untrusted
-project input (a NaN `density` scattered on *every* cell; a NaN `spacing`
-collapsed an O(1) neighbour test to O(n²); an `Object.assign` aliasing bug made
-every fallback read the garbage it was supposed to replace). Port those fixes
-as fixes, with tests that name them.
+`cartalith-assets`, module `scatter`: `ScatterRule` + `ScatterMode`,
+`Default` (`defaultScatterRule`), `preset_scatter_rule` (the ten
+`SCATTER_RULE_PRESETS` inline), `normalize_scatter_rule`, `scatter_rule_key`,
+`current_scatter_rules`, `autopopulate_scatter_rules`,
+`pick_weighted_variant` and `pick_icon_variant`. Pure and self-contained, and
+still wired to nothing.
+
+**The v1.27 hardening, ported as fixes rather than transcribed.** Rules are
+read out of `assetlib/library.json` inside a *user-supplied project `.zip`*, so
+every field reaching the normalizer is untrusted. v1.26 merged it with the
+`+x||fallback` idiom, which lost a legitimate `0` (falsy) and let a `NaN`
+propagate instead of rejecting it. A Rust port has different natural failure
+modes, so each of the three named failures was re-derived here rather than
+guarded by reflex — `tests/hardening_v1_27.rs` has one test per fix, each
+reproducing the *downstream* arithmetic inline (four lines, lifted from
+`placeMapIconsRuled`) so the test shows the failure it prevents rather than
+asserting a value:
+
+1. **`NaN` density scattered on every cell — still a real hazard, by the
+   opposite IEEE rule.** The JS predicate is `keep >= Math.min(1, density)`
+   and `Math.min(1, NaN)` is `NaN`, so nothing is ever rejected. Rust's
+   `f64::min` *absorbs* NaN (`f64::min(1.0, NAN) == 1.0`) — but `keep` is a
+   hash in `[0,1]`, so `keep >= 1.0` is false anyway and the corrupt rule
+   still carpets the map. Same catastrophe, opposite mechanism; rejecting
+   non-finite input at the boundary closes both.
+2. **`NaN` spacing collapsing an O(1) neighbour test to O(n²) — real, and
+   `f64::max` would have masked it.** `Math.ceil(W/NaN)||1` gives a 1×1 bucket
+   grid, so `fits()` degenerates from a nine-bucket lookup into a scan over
+   every icon placed so far. Rust's NaN-absorbing `f64::max` would rescue the
+   derived-spacing path *by accident*; the explicit `is_finite` check is kept,
+   because an implicit dependency on an IEEE corner is exactly what this fix
+   existed to remove — and fix 1 above shows how little that intuition can be
+   trusted.
+3. **The `Object.assign` aliasing bug — structurally unreachable, and not for
+   the reason one would guess.** It is not "Rust's ownership rules": the bug
+   needs the defaults and the untrusted input to inhabit *one mutable object*,
+   and here they are different **types** — `base` is an owned `ScatterRule`
+   with an `f64` field, the input is a `serde_json::Value`. There is no
+   merge-in-place operation to get wrong because a `"x"` can never be stored
+   in the field it would have to corrupt. **No defensive code was written for
+   it.** The test pins the reference's own probe case (`{minSize:"x",
+   maxSize:2}` must give the preset's `0.55` and a surviving `2`) so a future
+   refactor toward a "merge" helper fails loudly, and adds a
+   nothing-poisons-anything sweep over an all-garbage record.
+
+A fourth guarantee this port has and the reference cannot: `ScatterRule`
+implements `Serialize` but **deliberately not `Deserialize`**. The hardening
+is not bypassable by a future caller reaching for `serde_json::from_str` —
+`normalize_scatter_rule` is the only door in. Untrusted input is typed as
+`&serde_json::Value` for the same reason.
+
+**Golden-verified against the real reference**, the same transient Node `vm`
+technique as milestones 1-2: all nine functions plus `hash` lifted out of the
+frozen HTML by line range and run on the fixtures. `pick_weighted_variant` is
+deterministic-hash-driven, so it diffs **exactly** — an 11-case × 36-position
+sweep matched index for index, including the three degenerate weightings that
+must fall through to `pickIconVariant`'s untouched v1.25 hash. 37
+`normalize_scatter_rule` fixtures cover the JavaScript idioms a rewrite gets
+plausibly wrong, and one did catch a real bug on the first run: **`density`'s
+fallback is not symmetric with the other numeric fields.** The reference
+merges first and *then* runs `num(out.density,0,3,1)`, so an absent `density`
+keeps the slot preset's own value (`cactus` stays 0.35) while a *rejected* one
+lands on a literal `1`. Every other numeric field falls back to the preset in
+both cases. Nothing but a golden run would have found that.
+
+24 new tests (11 golden + 4 hardening + 9 unit).
+
+**Corrections to milestone 4, which depends on this one:**
+
+- **Milestone 4 is not "the first milestone with a cross-crate dependency" —
+  milestone 3 is.** `pickWeightedVariant` falls through to `pickIconVariant`,
+  which is `hash`, so `cartalith-assets` already depends on `cartalith-noise`.
+  Reimplementing that hash locally to preserve milestone 1's "no dependency on
+  any other Cartalith crate" property would have been the worse trade by a
+  wide margin (`cartalith-noise`'s `hash` carries two hard-won JS float
+  subtleties in its own doc comment).
+- **`pickIconVariant` shipped here, not in milestone 4.** §4 files it under
+  "Placement/geometry"; it is three lines and `pickWeightedVariant` cannot be
+  golden-tested without it.
+- **`spaceOf`'s half of v1.27 fix 2 shipped here too**, as
+  `ScatterRule::spacing_cells(map_width)`. The fix is two-sided — reject at
+  the boundary, and guard the *computed* value for callers that bypass the
+  boundary — and leaving half of a named fix to a later milestone would have
+  made it untestable here. Milestone 4's `placeMapIconsRuled` calls the
+  method. It reproduces two reference quirks: a density of exactly `0` derives
+  spacing as if it were `1` (`+0||1`), and the floor of 3 cells.
+- **Milestone 4's own two v1.27 fixes are confirmed still its own** — the
+  most-specific-first priority sort and the `requireWetland` AND both live
+  inside `placeMapIconsRuled`'s scatter branch (reference lines 7258-7271), not
+  in the rule model.
+- **`biomes` is `Vec<f64>`, so milestone 4's `biomeOk` compares against
+  `biome[i] as f64`.** Not an aesthetic choice: the reference filters the list
+  with `Number.isFinite`, which does not coerce, so a `"4"` is dropped while a
+  hand-edited `5.5` is **kept** and simply never matches. Truncating to `i32`
+  would make it start matching, and would rewrite the author's file on the
+  next `library.json` round trip.
+- Milestone 4 also needs the legacy `TREE_SLOT`/`SCATTER_SLOT` kind→slot maps
+  (reference lines 7281-7283) for `iconSlotForItem`'s non-ruled branch. Small,
+  but not currently named anywhere in this document.
 
 ### Milestone 4 — rule-driven icon placement
 
-`placeMapIconsRuled` + `iconSlotForItem` + `spriteDrawRect`. Pure, needs
-`cartalith-noise`'s `hash` — the first milestone with a cross-crate dependency,
-and the first with real golden-parity surface (placement is positional and
-seeded, so it diffs exactly). Note the two v1.27 fixes inside it: scatter-rule
+`placeMapIconsRuled` + `iconSlotForItem` + `spriteDrawRect`. Pure; the first
+milestone with real golden-parity *placement* surface (positional and seeded,
+so it diffs exactly). Note the two v1.27 fixes inside it: scatter-rule
 priority is sorted most-specific-first so the winner is not insertion-order
 dependent, and `requireWetland` is ANDed with the biome test rather than
-replacing it. Depends on milestone 3.
+replacing it. Depends on milestone 3 — see its correction list above for what
+already shipped and what changed.
 
 ### Milestone 5 — the Library model
 

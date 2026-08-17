@@ -134,6 +134,7 @@ dependencies = [
 name = "cartalith-assets"
 version = "0.1.0"
 dependencies = [
+ "cartalith-noise",
  "serde",
  "serde_json",
 ]

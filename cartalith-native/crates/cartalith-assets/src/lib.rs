@@ -7,10 +7,16 @@
 //! breakdown, and what this crate will and will not eventually hold, is in
 //! `ASSET_LIBRARY_SCOPE.md` at the repo root.
 //!
-//! This crate is milestone 1 of that plan: the pack **manifest** — its data
-//! model, its parser, its validation warnings, and its serialization. That is
-//! deliberately the piece with no images, no archive, no renderer and no UI in
-//! it, and it is the piece everything else in Phase 4 is defined against.
+//! This crate started as milestone 1 of that plan: the pack **manifest** —
+//! its data model, its parser, its validation warnings, and its
+//! serialization. That is deliberately the piece with no images, no archive,
+//! no renderer and no UI in it, and it is the piece everything else in Phase 4
+//! is defined against.
+//!
+//! Milestone 3 added [`scatter`]: the [`ScatterRule`] model that decides
+//! *where* an asset gets scattered on the map, its slot presets, and the
+//! hardened normalizer that is the only way to build one out of a
+//! user-supplied project file.
 //!
 //! ```
 //! use cartalith_assets::{parse_pack_manifest, pack_summary, Family, RawManifest};
@@ -63,17 +69,23 @@
 //!
 //! ## Not in this crate
 //!
-//! No `gdext`, and no dependency on any other Cartalith crate — the same
-//! standalone shape `cartalith-spatial` set. Image decoding, ZIP reading and
-//! writing, the Asset Library's own item store and project-embedded
-//! `assetlib/library.json`, the scatter-rule engine, and every part of the
-//! library UI are later milestones or explicitly out of scope; see
-//! `ASSET_LIBRARY_SCOPE.md`. **Nothing in the workspace depends on this crate
+//! No `gdext`. Milestone 1 also had no dependency on any other Cartalith
+//! crate; milestone 3 added exactly one, `cartalith-noise`, because
+//! [`pick_weighted_variant`] falls through to the *exact* `pickIconVariant`
+//! position hash when weights are absent — reimplementing that hash rather
+//! than depending on the crate that already golden-matches it would be the
+//! worse trade by a wide margin.
+//!
+//! Image decoding, ZIP reading and writing, the Asset Library's own item
+//! store and project-embedded `assetlib/library.json`, the icon *placement*
+//! engine that consumes [`ScatterRule`]s, and every part of the library UI are
+//! later milestones or explicitly out of scope; see `ASSET_LIBRARY_SCOPE.md`. **Nothing in the workspace depends on this crate
 //! yet** — by design, per this project's "don't wire in what nothing calls"
 //! discipline.
 
 pub mod manifest;
 pub mod ordered_map;
+pub mod scatter;
 pub mod slots;
 
 pub use manifest::{
@@ -81,6 +93,11 @@ pub use manifest::{
     Structures, pack_summary, parse_pack_csv, parse_pack_entries, parse_pack_manifest,
 };
 pub use ordered_map::OrderedMap;
+pub use scatter::{
+    ScatterMode, ScatterRule, ScatterRuleTable, autopopulate_scatter_rules, current_scatter_rules,
+    normalize_scatter_rule, pick_icon_variant, pick_weighted_variant, preset_scatter_rule,
+    scatter_rule_key,
+};
 pub use slots::{
     Anchor, Family, PACK_BIOME_SLOTS, PACK_ICON_SLOTS, PACK_POI_SLOTS, PACK_SETTLEMENT_SLOTS,
     PACK_TERRAIN_SLOTS, PACK_TEX_SLOTS, PACK_TRAIT_SLOTS, SPLAT_PAINT_SLOTS, slug_id,

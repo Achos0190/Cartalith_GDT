@@ -7301,3 +7301,105 @@ settlement/road overlay on top. The controlled before/after is
 `noatlas`/`withatlas` isolation pair (milestones 2 and 3 held fixed) plus
 `paperonly`/`stippleonly` dumps, since the three stages are independent and
 a combined image cannot show which one carries a change.
+
+## Phase 4 milestone 3: scatter rules, with the v1.27 hardening ported as fixes (2026-08-17)
+
+`ASSET_LIBRARY_SCOPE.md` milestone 3. New module `scatter` in
+`cartalith-assets`: the `ScatterRule` model that decides *where* an asset gets
+scattered on the map, its ten slot presets, and the hardened normalizer that
+is the only way to build one out of a user-supplied project file. Still wired
+to nothing — the placement engine that consumes these is milestone 4.
+
+**Ported** (reference `Cartalith Gen1 v2.10.html` lines 6937-7039, 7088-7101
+and 12171): `ScatterMode`/`SCATTER_MODES`, `ScatterRule` +
+`Default` (`defaultScatterRule`), `preset_scatter_rule` with the ten
+`SCATTER_RULE_PRESETS` inline, `scatter_rule_key`, `normalize_scatter_rule`,
+`pick_weighted_variant`, `pick_icon_variant`, `current_scatter_rules`,
+`autopopulate_scatter_rules`, and `ScatterRule::spacing_cells` (the relief
+`spaceOf` helper, see below).
+
+**The three v1.27 hardening fixes, re-derived for Rust rather than
+transcribed.** Rules arrive from `assetlib/library.json` inside a
+*user-supplied project `.zip`*, so every field is untrusted. v1.26 merged it
+with the `+x||fallback` idiom, which lost a legitimate `0` (falsy in JS) and
+let a `NaN` propagate instead of being rejected. `tests/hardening_v1_27.rs`
+has one test per named failure, each reproducing the *downstream* arithmetic
+inline (four lines, lifted from `placeMapIconsRuled`) so the test demonstrates
+the failure it prevents rather than asserting a value:
+
+1. **A `NaN` `density` scattering on every cell — still a real hazard here,
+   by the opposite IEEE rule.** The JS predicate is
+   `keep >= Math.min(1, density)`, and `Math.min(1, NaN)` is `NaN`, so nothing
+   is ever rejected. Rust's `f64::min` *absorbs* NaN
+   (`f64::min(1.0, NAN) == 1.0`) — but `keep` is a hash in `[0,1]`, so
+   `keep >= 1.0` is false anyway and the corrupt rule still carpets the map.
+   Same catastrophe, opposite mechanism. Rejecting non-finite input at the
+   boundary closes both, and the same fix restores a deliberately-zero
+   density (which v1.26's `||` idiom turned into 1, i.e. "place everywhere").
+2. **A `NaN` `spacing` collapsing an O(1) neighbour test to O(n²) — real, and
+   `f64::max` would have masked it.** `Math.ceil(W/NaN)||1` yields a 1×1
+   bucket grid, so `fits()` degenerates from a nine-bucket lookup into a scan
+   over every icon already placed. Rust's NaN-absorbing `f64::max` would
+   rescue the derived-spacing path *by accident*; the explicit `is_finite`
+   check is kept anyway, because an implicit dependency on an IEEE corner is
+   precisely what this fix existed to remove — and fix 1 shows how little
+   that intuition can be trusted.
+3. **The `Object.assign` aliasing bug — structurally unreachable, and not for
+   the reason one would guess.** It is *not* "Rust's ownership rules". The
+   bug requires the defaults and the untrusted input to inhabit one mutable
+   object (`Object.assign(base, r)` mutates `base` and returns it, so every
+   `num(out.minSize, …, base.minSize)` fell back to the very `'x'` it was
+   rejecting). Here they are different **types** — an owned `ScatterRule`
+   with `f64` fields versus a `serde_json::Value` — so no merge-in-place is
+   expressible, because a `"x"` can never be stored in the field it would
+   have to corrupt. **No defensive code was written for it**; the test pins
+   the reference's own probe case so a future refactor toward a "merge"
+   helper fails loudly, plus a nothing-poisons-anything sweep over a record
+   whose every field is garbage.
+
+A fourth guarantee this port has and the reference cannot: `ScatterRule`
+implements `Serialize` but **deliberately not `Deserialize`**, so the
+hardening cannot be bypassed by a future caller reaching for
+`serde_json::from_str` — `normalize_scatter_rule` is the only door in.
+
+**Golden-verified against the real reference** (transient Node `vm` harness
+over the frozen HTML, same technique as milestones 1-2, harness not checked
+in). `pick_weighted_variant` is deterministic-hash-driven and diffs
+**exactly**: an 11-case × 36-position sweep matched index for index,
+including the three degenerate weightings that must fall through to
+`pickIconVariant`'s untouched v1.25 hash. 37 `normalize_scatter_rule`
+fixtures cover the JavaScript idioms a rewrite gets plausibly wrong
+(`+"2.5"` vs `+"x"`, `0` falsy but `"no"` truthy, `Number.isFinite` not
+coercing so `"4"` is dropped from a biome list while `5.5` is kept, `""` as
+"unset" but `"   "` as 0, `"0x2"` as 2).
+
+**One real bug the golden run caught on the first pass**: `density`'s
+fallback is not symmetric with the other numeric fields. The reference merges
+first and *then* runs `num(out.density,0,3,1)`, so an **absent** `density`
+keeps the slot preset's own value (`cactus` stays 0.35) while a **rejected**
+one lands on a literal `1`. Every other numeric field falls back to the
+preset in both cases. Nothing but a golden run would have found it.
+
+**Corrections to `ASSET_LIBRARY_SCOPE.md`, recorded there:**
+
+- Milestone 4 is **not** "the first milestone with a cross-crate dependency"
+  — milestone 3 is. `pickWeightedVariant` falls through to `pickIconVariant`,
+  which is `hash`, so `cartalith-assets` now depends on `cartalith-noise`.
+  Reimplementing that hash to preserve milestone 1's standalone property was
+  the worse trade: `cartalith-noise::hash` carries two hard-won JS float
+  subtleties that cost golden-test failures to find.
+- `pickIconVariant` shipped here rather than in milestone 4 (three lines, and
+  `pickWeightedVariant` cannot be golden-tested without it), as did
+  `spaceOf`'s half of fix 2, as `ScatterRule::spacing_cells`. Leaving half of
+  a named fix to a later milestone would have made it untestable here.
+- `biomes` is `Vec<f64>`, not `Vec<i32>` — a consequence of
+  `Number.isFinite` not coercing, so milestone 4's `biomeOk` compares against
+  `biome[i] as f64`.
+- Milestone 4's own two v1.27 fixes (most-specific-first priority sort,
+  `requireWetland` ANDed with the biome test) confirmed to live inside
+  `placeMapIconsRuled` and remain its own work.
+
+**Verified:** `cargo build -p cartalith-assets` and `--workspace`,
+`cargo test -p cartalith-assets` (24 new tests: 11 golden + 4 hardening + 9
+unit), `cargo clippy -p cartalith-assets --all-targets` clean,
+`cargo test --workspace` with no regressions.
