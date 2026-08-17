@@ -157,35 +157,43 @@ func _on_generate_pressed() -> void:
 	## WorldGen.set_sea_level expects the raw [0,1] fraction.
 	world_gen.set_sea_level(sea_level_input.value / 100.0)
 
+	_gen_thread = Thread.new()
+	_gen_thread.start(_generate_worker.bind(seed_value, width_km, resolution, archetype))
+
+
+## Runs off the main thread. Touches only `world_gen` (plain Rust state),
+## never a node -- see the class doc comment above. `generate()` and
+## `generate_world_structure()` are both full, equally expensive
+## `generate_terrain()` calls that mutate the same `world_gen` state --
+## this must be the ONE call site. (Previously `generate_world_structure()`
+## ran synchronously on the *main* thread in `_on_generate_pressed`,
+## freezing the UI for the whole generation, and this worker then
+## unconditionally re-ran plain `generate()` anyway -- silently discarding
+## whatever archetype the World Shape dropdown selected, every time. Found
+## 2026-08-17, verified independently by reading both Rust entry points
+## before fixing.) `archetype` empty == Classic (World-Structure disabled).
+func _generate_worker(seed_value: int, width_km: float, resolution: int, archetype: String) -> void:
 	var ok := true
 	if archetype.is_empty():
 		world_gen.generate(seed_value, width_km, resolution)
 	else:
 		ok = world_gen.generate_world_structure(seed_value, width_km, resolution, archetype)
-
-	if not ok:
-		status_label.text = "generate failed — see console"
-		_generating = false
-		generate_button.disabled = false
-		return
-
-	_gen_thread = Thread.new()
-	_gen_thread.start(_generate_worker.bind(seed_value, width_km, resolution))
-
-
-## Runs off the main thread. Touches only `world_gen` (plain Rust state),
-## never a node -- see the class doc comment above.
-func _generate_worker(seed_value: int, width_km: float, resolution: int) -> void:
-	world_gen.generate(seed_value, width_km, resolution)
-	_on_generate_done.call_deferred(seed_value, width_km)
+	_on_generate_done.call_deferred(seed_value, width_km, ok)
 
 
 ## Deferred back to the main thread: joins the worker, then does the one
 ## Rust call that builds a Godot resource (`build_color_texture`) and every
-## scene-tree write.
-func _on_generate_done(seed_value: int, width_km: float) -> void:
+## scene-tree write. `ok` is false only for an unrecognized archetype
+## string (defensive -- `WORLD_SHAPES` only ever supplies known values).
+func _on_generate_done(seed_value: int, width_km: float, ok: bool) -> void:
 	_gen_thread.wait_to_finish()
 	_gen_thread = null
+
+	if not ok:
+		status_label.text = "generate failed — see console"
+		generate_button.disabled = false
+		_generating = false
+		return
 
 	var tex: ImageTexture = world_gen.build_color_texture()
 	if tex:

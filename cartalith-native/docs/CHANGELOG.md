@@ -5962,3 +5962,49 @@ clean load, real windowed-app screenshot verification as described above.
 `SeaLevelInput`/`SeaLevelHint`), `main.gd` (`sea_level_input` ref, wiring
 into `_on_generate_pressed`), `docs/STATUS.md` (item closed, new bug
 flagged), this file.
+
+## Fix: World Shape archetype selection had no effect on generation (2026-08-17)
+
+The bug the sea-level pass above flagged (not fixed there): every World
+Shape dropdown selection (Earth-like/Supercontinent/Archipelago/Volcanic/
+Rift) silently generated the Classic map regardless. Independently
+re-confirmed before fixing, per this project's own discipline -- read both
+Rust entry points (`WorldGen::generate`/`generate_world_structure` in
+`cartalith-godot/src/lib.rs`) and found the real mechanism is worse than
+"never called": `_on_generate_pressed` *did* call `generate_world_structure()`
+when an archetype was selected, but **synchronously on the main thread**
+(freezing the UI for the full generation, defeating the whole point of the
+background-thread design this file's own doc comment describes), and then
+`_generate_worker` (started immediately after, on the background thread)
+**unconditionally re-ran plain `generate()`**, overwriting `world_gen`'s
+state with the archetype-free result before `_on_generate_done` ever read
+it. Both entry points are equally expensive full `generate_terrain()`
+calls mutating the same `self` state on the Rust side -- confirmed by
+reading `generate()`/`generate_world_structure()` side by side.
+
+**Fix**: moved the `archetype.is_empty() ? generate() : generate_world_
+structure()` branch into `_generate_worker` itself, making it the one and
+only call site, on the background thread where it belongs. `archetype` is
+now bound into the worker via `Thread.start(...).bind(...)`; `_on_generate_
+done` gained an `ok: bool` parameter (previously checked before the thread
+even started) to still handle the defensive "unknown archetype string"
+case, now surfaced after the worker completes instead of before it starts.
+
+**Real before/after screenshot proof, not just a code-path claim**: same
+seed (12345), same resolution (512x512), same map width (800km) --
+Classic produced one large landmass, 40 settlements; Archipelago produced
+scattered small islands across mostly open ocean, 33 settlements.
+Dramatically different structure, not just different noise detail --
+exactly the world-structure archetype's own land-fraction/fragmentation
+parameters taking real effect for the first time. Before this fix, both
+screenshots would have been byte-identical regardless of World Shape
+selection.
+
+**Verified**: `cargo build -p cartalith-godot` clean (no Rust changes
+needed -- this was purely a GDScript dispatch bug), `cargo test --workspace`
+(71+ suites, 0 failures, 0 modified tests), `godot4 --headless --quit
+main.tscn` clean load, real windowed-app screenshot verification with the
+Classic-vs-Archipelago comparison described above.
+
+**Files touched**: `main.gd` (`_on_generate_pressed`/`_generate_worker`/
+`_on_generate_done`), `docs/STATUS.md` (Known-open item closed), this file.
