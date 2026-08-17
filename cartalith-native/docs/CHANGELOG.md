@@ -7723,3 +7723,124 @@ just inside the interior is trimmed cleanly at the neatline while the sea
 lanes are cut there. Territory fill, province boundaries, settlements,
 roads, sea routes, hover card and the Inspector's causal-chain "WHY HERE?"
 panel were all exercised on the real app after the change.
+
+## Phase 4 milestone 5: the Library model, AssetDB/AssetCollections/AssetValidator (2026-08-17)
+
+`ASSET_LIBRARY_SCOPE.md` milestone 5. New module `library` in
+`cartalith-assets`: `AssetDB` (frozen-vocabulary bootstrap, custom-slot
+add/rename/remove, lazy scatter-rule attach, item store), `AssetCollections`,
+`run` (`AssetValidator.run()`), and the `assetlib/library.json` record shape
+(`LibraryFile`/`SlotRecord`/`ItemRecord`, `parse_library_json`,
+`AssetDB::to_library_json`/`apply_library_file`). Pure data management; no
+images — every `LibraryItem` carries a caller-supplied `hash: String` rather
+than one computed from pixels, which is what keeps the validator's
+duplicate-image detection fully implementable without an image decoder.
+Depends on milestones 1 (`Family`/`slug_id`) and 3 (`ScatterRule` and its
+normalizer/presets/key function), both used directly. Still wired to
+nothing.
+
+**How this lines up with `SAVEFILE_COMPAT.md`'s existing cross-reference.**
+That document already lists "an Asset Library payload" among the entries its
+MVP reader ignores, noting "there is nothing in the port to deserialise them
+into yet." `LibraryFile` is that something now: `{version, kind, pack:
+{name,author,license}, collections:{name->[uid]}, slots:[{fam,id,name,meta,
+items:[{img,name,t}],set?,rules?}]}`, field order matching a real
+`_alExportEntries()` export exactly. `SAVEFILE_COMPAT.md` needed no
+correction — `cartalith-io` still deserialises nothing here, by design (the
+same "packs are optional, the save loader is not" reasoning milestone 2
+already used to keep the dependency pointing the right way) — only a real,
+tested shape now exists for a later milestone (6/7, or a future
+`cartalith-io` extension) to read into.
+
+**Two real corrections to this document's own §4, found by reading the
+reference rather than assumed from milestone 1's framing:**
+
+1. **Per-slot display *names* are not purely presentational.** §4 filed
+   `mkSlots`'s `name`/`desc`/`code` columns as UI-only text; true for
+   `desc`/`code`, false for `name` — `AssetValidator.run()`'s "Identical
+   images" warning renders `slot.name`, confirmed by a golden run:
+   `"Identical images: Mountain#1 = Hill#1"`, not `mountain#1 = hill#1`.
+   Ported as `slot_title`, a 65-entry table across the six frozen families
+   whose slots ever appear in that message.
+2. **The Library's own `poi` vocabulary is ten slots, not `PACK_POI_SLOTS`'
+   eight.** `AssetDB` bootstraps from the Asset Library's own `FAMILIES`
+   table, which is a *different* constant than the pack-import vocabulary
+   `parsePackManifest` validates against, and `FAMILIES[...].poi.slots`
+   carries `lake`/`bridge` in addition. Both lists now exist
+   (`LIBRARY_POI_SLOTS`, ten; `PACK_POI_SLOTS`, eight, unchanged) rather than
+   one "fixing" the other — the same `lake`/`bridge`-authorable-but-never-
+   loads inconsistency §1 already named, now visible in two constants
+   instead of one.
+
+**The id-slugging and uid-collision hardening the milestone asked for by
+name — real, checked for rather than assumed, and ported with tests.**
+`addCustomSlot` returns the *existing* slot on a uid collision rather than
+creating a duplicate (`const existing=fam.slots.find(...); if(existing)
+return existing;`); `renameCustomSlot` refuses a colliding rename outright,
+keeping the *old* uid (`if(SLOT_REG[nuid]) return uid;`). Unlike v1.27's
+three fixes, neither carries a version-tagged reference comment — reported
+here as a finding, not a named historical fix — but both are real
+defences against untrusted, free-form user text (a custom slot's `id` is
+[`slug_id`] of whatever the author typed) colliding on one slug, which is a
+real hazard for content editable outside the app rather than a
+hypothetical. Pinned in `tests/hardening_asset_db.rs`, which also documents
+a companion finding: two of `run`'s six checks — "Duplicate identifier" and
+"Invalid filename id" — are structurally unreachable through this module's
+own public API in *both* languages, for a reason that is not "Rust's type
+system" (the same shape of surprise milestone 3's fix #3 found for the
+`Object.assign` aliasing bug). Ported anyway, faithfully, as real
+defence-in-depth. A third check, "Collection references a missing asset,"
+*is* reachable, but only via `AssetCollections::from_map`'s deliberately
+unchecked assignment (mirroring `AssetCollections.map=lib.collections||{}`
+in `_alImportProject`) — `remove_custom_slot` already cleans up membership
+before the validator could see a stale reference through ordinary editing.
+
+**Golden-verified against the real reference** — `AssetValidator.run()`
+turned out to be exactly the "strong golden-verification candidate" the
+scope document suggested. A transient Node `vm` harness (same technique as
+milestones 1-4, not checked in) ran the real `AssetDB`/`AssetCollections`/
+`AssetValidator`/`_alExportEntries` on twelve constructed library states —
+empty, one item, duplicate hashes across two and three slots, the
+grass-splat hint present and absent, an empty custom slot, a stale
+collection reference reached the one real way, and a "kitchen sink"
+combining several warnings to pin the reference's exact warning order.
+`to_library_json()`'s shape was checked the same way across five more
+scenarios (pack fields, a bare frozen slot, a tagged-but-empty custom slot
+kept alive by `fam.custom`, a tagged-but-empty frozen slot kept alive by its
+tags, a frozen slot with neither excluded entirely, collections
+round-tripping verbatim, and the whole-library-empty `None` case). Every
+case matched on the first run.
+
+**Deliberately not restored by this milestone**: `apply_library_file`
+restores pack info, collections, and per-slot metadata/scatter rules from a
+parsed `LibraryFile`, but not items — `SlotRecord.items` carries everything
+a real reader has except pixels (`img` index, name, transform), left for
+milestone 6 to pair with decoded `assetlib/img/<idx>.png` bytes and a real
+`itemHash`. `normalizeScatterRule`-on-load happens eagerly during *parsing*
+rather than at apply time, since a record's own `fam`/`id`/`set` are enough
+to compute its rule key without touching the live registry.
+
+56 new tests (23 unit + 32 golden-parity + 7 hardening — the hardening file's
+scenarios deliberately overlap two of the golden file's, pinning the same
+behaviour once as "matches the reference" and once as "and here is why it
+matters").
+
+**Corrections to milestones 6-7's scope:**
+
+- Milestone 6's "`itemHash` duplicate detection" is already implemented
+  (`duplicate_groups`/`slot_has_dupe`); milestone 6 only needs to supply a
+  real hash string via `AssetDB::add_item`, not reimplement grouping.
+- Milestone 6's "per-item transform" already has its data shape
+  (`ItemTransform`); `fitToBottom` remains milestone 6's own pixel-dimension
+  computation, but the field and its `library.json` round trip do not need
+  redesigning.
+- Milestone 6 needs to wire real item restoration into
+  `AssetDB::apply_library_file` (or a wrapper around it): decode each
+  `SlotRecord.items[].img`-indexed PNG, hash it, and call `AssetDB::add_item`
+  with a `LibraryItem` built from the record's own `name`/`t`.
+
+**Verified:** `cargo build -p cartalith-assets` and `--workspace`,
+`cargo test -p cartalith-assets` (74 lib unit tests, 32 golden-parity, 7
+hardening, plus milestones 1-4's existing suites unchanged),
+`cargo clippy -p cartalith-assets --all-targets` clean, `cargo test
+--workspace` 0 regressions across every crate.

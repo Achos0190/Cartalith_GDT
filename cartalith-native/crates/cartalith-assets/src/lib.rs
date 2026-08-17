@@ -96,6 +96,7 @@
 
 #[cfg(feature = "zip")]
 pub mod archive;
+pub mod library;
 pub mod manifest;
 pub mod ordered_map;
 pub mod placement;
@@ -105,6 +106,11 @@ pub mod slots;
 #[cfg(feature = "zip")]
 pub use archive::{
     ArchiveError, PackEntries, read_pack, read_pack_entries, write_pack, write_pack_entries,
+};
+pub use library::{
+    AssetCollections, AssetDB, DuplicateEntry, ItemRecord, ItemTransform, LIBRARY_POI_SLOTS,
+    LibraryError, LibraryFile, LibraryItem, LibrarySlot, PackInfo, SlotMeta, SlotRecord,
+    duplicate_groups, library_slot_ids, parse_library_json, slot_has_dupe, slot_title,
 };
 pub use manifest::{
     MANIFEST_CSV, MANIFEST_JSON, PackError, PackManifest, Paths, RawManifest, RawStructures,

@@ -66,6 +66,20 @@ impl<V> OrderedMap<V> {
         }
     }
 
+    /// A mutable reference to the value stored under `key`, if any.
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut V> {
+        self.0.iter_mut().find(|(k, _)| k == key).map(|(_, v)| v)
+    }
+
+    /// Remove `key`, returning its value if it was present — JavaScript's
+    /// `delete`. A later [`insert`](Self::insert) of the same key is a fresh
+    /// insertion at the end, matching `delete`-then-reassign's effect on
+    /// `Object.keys` order.
+    pub fn remove(&mut self, key: &str) -> Option<V> {
+        let pos = self.0.iter().position(|(k, _)| k == key)?;
+        Some(self.0.remove(pos).1)
+    }
+
     /// Entries in insertion order.
     pub fn iter(&self) -> impl Iterator<Item = (&str, &V)> {
         self.0.iter().map(|(k, v)| (k.as_str(), v))
@@ -174,5 +188,20 @@ mod tests {
             *v *= 10;
         }
         assert_eq!(m.get("two"), Some(&20));
+    }
+
+    #[test]
+    fn remove_then_reinsert_moves_the_key_to_the_end() {
+        let mut m = OrderedMap::new();
+        m.insert("a", 1);
+        m.insert("b", 2);
+        m.insert("c", 3);
+        assert_eq!(m.remove("a"), Some(1));
+        assert_eq!(m.remove("missing"), None);
+        assert_eq!(m.keys().collect::<Vec<_>>(), ["b", "c"]);
+        m.insert("a", 9);
+        assert_eq!(m.keys().collect::<Vec<_>>(), ["b", "c", "a"]);
+        *m.get_mut("b").unwrap() += 100;
+        assert_eq!(m.get("b"), Some(&102));
     }
 }

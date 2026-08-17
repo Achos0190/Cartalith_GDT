@@ -193,6 +193,13 @@ impl Family {
         }
     }
 
+    /// The inverse of [`Family::key`] — the reference's
+    /// `FAMILIES.find(f=>f.key===rec.fam)`, used to resolve a persisted
+    /// `library.json` slot record's `fam` string back to a [`Family`].
+    pub fn from_key(key: &str) -> Option<Family> {
+        Family::ALL.into_iter().find(|f| f.key() == key)
+    }
+
     /// The frozen slot list, or `&[]` for [`Family::Custom`]'s open vocabulary.
     pub fn slots(self) -> &'static [&'static str] {
         match self {
@@ -387,6 +394,15 @@ mod tests {
             Family::Custom.asset_path("lighthouse", "naval", 1),
             "custom/naval/lighthouse_02.png"
         );
+    }
+
+    #[test]
+    fn from_key_is_the_inverse_of_key() {
+        for fam in Family::ALL {
+            assert_eq!(Family::from_key(fam.key()), Some(fam));
+        }
+        assert_eq!(Family::from_key("nope"), None);
+        assert_eq!(Family::from_key(""), None);
     }
 
     #[test]
