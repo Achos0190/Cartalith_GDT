@@ -37,6 +37,8 @@ extends Control
 @onready var territory_layer_check: CheckBox = %TerritoryLayerCheck
 @onready var villages_check: CheckBox = %VillagesCheck
 @onready var load_save_dialog: FileDialog = %LoadSaveDialog
+@onready var credits_button: Button = %CreditsButton
+@onready var credits_dialog: AcceptDialog = %CreditsDialog
 
 ## Responsive layout (see `_update_responsive_layout`): `Stage` is a plain
 ## `BoxContainer`, not a fixed `H`/`VBoxContainer` -- toggling its `vertical`
@@ -97,6 +99,7 @@ func _ready() -> void:
 	generate_button.pressed.connect(_on_generate_pressed)
 	load_save_button.pressed.connect(_on_load_save_pressed)
 	load_save_dialog.file_selected.connect(_on_save_file_selected)
+	credits_button.pressed.connect(func(): credits_dialog.popup_centered())
 	civ_layer_check.toggled.connect(func(pressed: bool): map_overlay.visible = pressed)
 	territory_layer_check.toggled.connect(func(pressed: bool): territory_view.visible = pressed)
 	get_viewport().size_changed.connect(_update_responsive_layout)

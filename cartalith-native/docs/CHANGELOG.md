@@ -5339,3 +5339,66 @@ sequential and set the real ceiling, same reasoning as milestone 1).
 (the 16 functions above), `cartalith-native/crates/cartalith-civ/
 examples/timing_bench.rs` (new), `CPU_MULTITHREADING_SCOPE.md`, this
 file, `docs/STATUS.md`.
+
+## Phase 1 closeout: credits screen + crate license audit (2026-08-17)
+
+`ROADMAP.md`/`PROVENANCE.md` both name two items as part of Phase 1's own
+definition of done, easy to forget because neither is visible until
+someone looks: a credits screen (carrying forward the reference HTML's
+own `#creditsModal` attribution, which "dropping in the rewrite would
+quietly withdraw") and a crate license audit ("release-blocking...
+neither is visible until someone looks"). Both sat open in `STATUS.md`'s
+known-open-items list since early in the port. Picked up now.
+
+**License audit**: installed `cargo-license` and ran it against the
+whole workspace with `--all-features`. Real result, not assumed clean:
+
+- **~190 of ~200 total dependencies** (including transitive) are
+  permissively licensed — MIT, Apache-2.0, BSD-2-Clause, Zlib, ISC,
+  Unlicense, CC0-1.0, or 0BSD, individually or dual/tri-licensed. Every
+  core dependency this port actually relies on falls here: `rayon`
+  (CPU parallelism), `wgpu`/`naga` (GPU compute), `serde`/`serde_json`,
+  `zip`/`flate2`/`crc32fast` (the save format), `glam`, and all nine of
+  this project's own crates.
+- **`godot`/`gdext`** (`godot`, `godot-core`, `godot-ffi`,
+  `godot-macros`, `godot-codegen`, `godot-cell`, `godot-bindings`,
+  `gdextension-api` — 8 crates) are **MPL-2.0** (Mozilla Public License
+  2.0), the one weak-copyleft entry in the whole tree. Flagged, not
+  hidden: MPL-2.0's copyleft is file-level and applies to modifications
+  of MPL-licensed files themselves — this project depends on `gdext`
+  unmodified, as the Rust↔Godot binding the entire port is built on, not
+  as vendored/modified source.
+- **`libbz2-rs-sys`** (pulled in transitively via `zip`'s optional bzip2
+  support) reports its license as the literal string `bzip2-1.0.6` —
+  the original bzip2 license (Julian Seward), a permissive BSD-style
+  license, not a standard SPDX identifier `cargo-license` recognized by
+  name.
+- **No GPL, LGPL, AGPL, or other strong-copyleft dependency anywhere**
+  in the workspace, across all features.
+
+**Credits screen**: a new `godot-project/credits.gd` (`AcceptDialog`,
+wired into `main.tscn` as a `CreditsDialog` node) reachable via a new
+header "ⓘ" button (`CreditsButton`, `main.tscn`'s `HeaderRow`) —
+mirroring the reference HTML's own header-ⓘ `#creditsModal` affordance.
+Content, in a scrollable `RichTextLabel` (BBCode): the reference's own
+attribution (`reference/Cartalith Gen1 v2.10.html`'s `#creditsModal`,
+line ~2043 — programming/code sources studied, academic principles for
+terrain/tectonics/climate and civilization/population, condensed from
+the original), plus a new section this port owns on top of that: the
+license-audit findings above, in the same "studied, not copied, and
+here's exactly what we depend on" spirit.
+
+**Verified**: `cargo build --workspace`, `cargo test --workspace` (0
+regressions — pure GDScript/scene change, no Rust logic touched),
+`godot4 --headless --quit main.tscn` clean load. Real windowed-app
+screenshot verification (`PrintWindow`/`mouse_event`, minimize/restore
+focus trick): clicked the real ⓘ button at its real on-screen position,
+confirmed the dialog opens with the attribution section visible, then
+scrolled and confirmed the license-audit section renders in full down to
+its closing note — not a placeholder, not assumed from reading the code.
+
+**Files touched**: `cartalith-native/godot-project/main.tscn`
+(`CreditsButton`, `CreditsDialog` + its `ScrollContainer`/
+`RichTextLabel`), new `cartalith-native/godot-project/credits.gd`,
+`cartalith-native/godot-project/main.gd` (button wiring), `docs/
+STATUS.md` (Phase 1 row, known-open-items list).
