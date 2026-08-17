@@ -74,3 +74,15 @@ Save-file **writing** (`SAVEFILE_COMPAT.md`), store distribution
 (`DECISIONS.md` §6), and a WASM target sharing `cartalith-engine`
 (`DECISIONS.md` §2) are all things the architecture permits and nobody has
 committed to. Raise them rather than assuming they are queued.
+
+**Markdown Vault integration** (`MARKDOWN_VAULT_INTEGRATION.md`) — owner-
+supplied full V1 design (2026-08-18): links Cartalith entities (settlements,
+POIs, regions) to an external Markdown vault (Obsidian-compatible, not
+Obsidian-dependent), pull-oriented with explicit, section-aware write-back.
+Genuinely new feature, not a port — nothing in the reference HTML app does
+this, so it sits outside `DECISIONS.md` §7d's contract entirely. Needs its
+own `MARKDOWN_VAULT_SCOPE.md` (the same investigate-then-milestone discipline
+every other large effort here has used) before any code — the design doc's
+own V1 acceptance criteria assume entity concepts this port may not fully
+have yet (POIs/regions as addressable entities with their own info panel);
+verify before scoping.
