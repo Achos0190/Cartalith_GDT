@@ -308,19 +308,48 @@ viewport, per §2's own rule — verified in both code (`_select_nav_subject`)
 and the live screenshot. Mode bar, bottom timeline bar, and the 7 top-bar
 menus all present and structurally match the mockup's own regions.
 
-**One real design question found, decided, not silently changed**: the
-mockup's own `1a`/`4a` reference screens show the *Layers* list as the
-panel content when "Overview" is the active nav row — this port instead
-shows the generation-parameter form (seed/resolution/world shape/sea level)
-under `WORLD:Overview`, with Layers living under its own `CARTOGRAPHY:Layers`
-subject. This was a deliberate milestone-1 decision, not an oversight: a
-user's very first action is entering a seed and pressing Generate, and
-`menu-structure.md`'s own §2 rule ("navigator swaps the tool palette") only
-mandates that nav selection changes the palette — it doesn't mandate which
-palette lives at which subject. Kept as-is; noting the discrepancy here so
-it's a recorded decision, not a gap that gets "fixed" back and forth by a
-future pass without the reasoning in hand.
+**One real design question found, decided, not silently changed** (this
+entry originally recorded a decision that a follow-up re-audit,
+2026-08-17, found to be a misreading — corrected below rather than
+silently overwritten, per this project's own "record the new reasoning"
+discipline):
 
-**Verified**: real windowed-app screenshot only this pass (no code changes
-were needed — the shell was already correct after the prior cleanup); no
-`cargo`/`godot4 --headless` re-run required since nothing changed.
+The prior pass's own note claimed the mockup shows Layers as the panel
+content *replacing* Overview when Layers is selected. Re-reading turn
+`1a` directly (the primary 1920×1080 dark reference every other doc
+cites, not a secondary theme variant) shows the opposite: `1a`'s own
+one-line description reads *"Strict hairline · **docked layer list** ·
+point-sample inspector"*, and its actual markup shows "Overview" active
+(amber-highlighted) in the 206px WORKSPACE navigator **at the same time**
+a separate 238px LAYERS panel sits immediately beside it, populated with
+real entries (Terrain 100, Hillshade 64, Water 100, Rivers 90...). The
+Layers panel is a permanent, always-visible third column — "docked" — not
+a navigator destination that swaps other content out. This matches every
+other turn checked this session (turn 4, the light-theme mirror, shows
+the identical simultaneous-panels structure).
+
+**Fixed 2026-08-17**: `LayersContent` (settlements/territory/province
+toggles) extracted out of `SecondPanel`'s swappable slot into a new
+permanent `LayersPanel` sibling column in `main.tscn` (238px, matching the
+mockup exactly), always visible regardless of which navigator subject is
+selected. `_select_nav_subject` in `main.gd` no longer touches its
+visibility. `NAV_REAL_SUBJECTS` reduced to `["WORLD:Overview"]` only;
+clicking `CARTOGRAPHY:Layers` now shows an honest placeholder pointing at
+the permanent panel ("Layer visibility is always available in the LAYERS
+panel to the right...") rather than the generic "not wired yet" text,
+which would have been actively misleading now that layers *are* real.
+
+**Verified**: `cargo build -p cartalith-godot` clean (pure `.tscn`/`.gd`
+change, 0 Rust edits), `cargo test --workspace` 0 regressions, `godot4
+--headless --quit main.tscn` clean load. Real windowed-app screenshots:
+confirmed the Layers panel renders permanently with its own header and all
+three real toggles at the default `WORLD:Overview` state, and — the actual
+behavioral test — clicking `Terrain` under WORLD correctly swapped the
+parameter panel to the honest placeholder while the Layers panel and its
+checkboxes stayed exactly in place, unaffected. A full Generate-button
+click-through was attempted but blocked by this session's own documented
+UI-automation flakiness (synthetic clicks silently dropped when the test
+window loses true foreground — also hit by the concurrent terrain-
+appearance fork the same day); not a regression from this change, which
+never touches generation wiring, and not re-chased given the structural
+fix itself was already directly, visually confirmed working.
