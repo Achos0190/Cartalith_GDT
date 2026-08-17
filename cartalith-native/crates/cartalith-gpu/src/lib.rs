@@ -55,6 +55,16 @@ const SHADER_SRC_GPU_RESISTANCE: &str = include_str!("../shaders/gpu_resistance.
 /// brute-force exact-nearest ground truth, not the CPU function directly.
 const SHADER_SRC_GPU_JFA_PLATES: &str = include_str!("../shaders/gpu_jfa_plates.wgsl");
 const SHADER_SRC_GPU_WEATHER: &str = include_str!("../shaders/gpu_weather.wgsl");
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 9: D8 flow accumulation,
+/// the first genuinely *sequential* CPU algorithm in this pipeline to get
+/// a parallel redesign rather than a port. `cartalith_hydrology::
+/// compute_flow` sorts all `n` cells by descending height and walks that
+/// order; this kernel replaces both the sort and the walk with (1) a
+/// per-cell flow-direction pass and (2) `ceil(log2(n))` pointer-doubling
+/// rounds over the resulting receiver forest. See the shader's own header
+/// for the literature this follows and [`dispatch_gpu_flow`] for the
+/// fixed-point accumulation choice that keeps it deterministic.
+const SHADER_SRC_GPU_FLOW: &str = include_str!("../shaders/gpu_flow.wgsl");
 
 /// Tolerance for the GPU-safe noise kernel vs. its CPU counterpart
 /// (`cartalith_noise::gpu_vnoise`). Unlike [`F32_TOLERANCE`] above (which
@@ -134,6 +144,45 @@ pub const BLUR_TOLERANCE: f64 = 2e-6;
 /// ([`GPU_SAFE_NOISE_TOLERANCE`]'s own doc comment names the same source)
 /// rather than the thin ~1.7x margin a first pass gave this constant.
 pub const RESISTANCE_TOLERANCE: f64 = 5e-7;
+
+/// **Relative** tolerance for GPU flow accumulation against the real
+/// `cartalith_hydrology::compute_flow` -- the only tolerance in this crate
+/// that is relative rather than absolute, and the only one comparing two
+/// genuinely *different algorithms* rather than two implementations of the
+/// same one (see `gpu_flow.wgsl`'s header). Accumulations here span six
+/// orders of magnitude within a single grid (1.0 at a ridge crest, ~4.2e6
+/// at a 2048x2048 outlet), so an absolute bound would be meaningless at one
+/// end or vacuous at the other; the comparison is `|gpu-cpu| / max(cpu,1)`.
+///
+/// Two error sources, and they have opposite shapes -- which is why this
+/// constant is defined against a *threshold* rather than against every
+/// cell. The CPU carries a long chain of per-write `f32` roundings
+/// (`acc[best] = (acc[best] as f64 + acc[i] as f64) as f32`, thousands deep
+/// at a major outlet), so its error grows with accumulation. The GPU rounds
+/// each seed once into fixed point and is exact from then on (integer
+/// addition), so its absolute error is bounded by half a quantization step
+/// per contributing cell -- which makes its *relative* error worst at tiny
+/// accumulations built from many small seeds, and shrink as accumulation
+/// grows.
+///
+/// Measured on real generated worlds
+/// (`examples/flow_downstream_settlements`): the worst relative error in the
+/// whole grid lands on cells accumulating ~1.2 units (2.3e-4 at 512x512,
+/// 2.6e-3 at 1024x1024), while at and above the channel-initiation
+/// threshold `river_flow_thresh` -- the only regime any downstream consumer
+/// actually distinguishes -- it is 1.3e-4 and 3.3e-4 respectively. This
+/// constant bounds that second, load-bearing regime;
+/// [`FLOW_ANY_CELL_TOLERANCE`] is the loose guard over everything else.
+pub const FLOW_TOLERANCE: f64 = 1e-3;
+
+/// Guard on the sub-threshold cells [`FLOW_TOLERANCE`] deliberately
+/// excludes -- accumulations of a few units, where a handful of
+/// individually-rounded seeds is the entire value, so quantization is the
+/// entire error. Not a hydrologically meaningful regime (nothing in this
+/// pipeline distinguishes an accumulation of 1.27 from one of 1.28), but
+/// bounded rather than unchecked, so a wrong fixed-point scale or a lost
+/// doubling round still fails a test.
+pub const FLOW_ANY_CELL_TOLERANCE: f64 = 5e-3;
 
 /// Absolute tolerance for the f32 GPU kernel vs. the f64 CPU reference.
 ///
@@ -219,6 +268,18 @@ struct BlurParams {
     height: u32,
     radius: i32,
     wrap: u32,
+}
+
+/// Matches `gpu_flow.wgsl`'s `FlowParams` field-for-field -- 4 x u32 = 16
+/// bytes, already a multiple of the common uniform-buffer alignment (see
+/// [`WarpParams`]' own comment on why that matters).
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct FlowGpuParams {
+    width: u32,
+    height: u32,
+    world: u32,
+    _pad0: u32,
 }
 
 /// Matches `gpu_weather.wgsl`'s `WeatherParams` field-for-field, including
@@ -421,6 +482,23 @@ const JFA_LAYOUT: [wgpu::BindGroupLayoutEntry; 9] = [
 /// `read_write` even though a given pass only ever touches a subset (e.g.
 /// `advect_main` only writes `w2`) -- the layout is fixed once and shared
 /// by every pipeline built from it, so it has to satisfy the neediest pass.
+/// `gpu_flow.wgsl`'s three entry points (`dir_main`/`scatter_main`/
+/// `merge_main`) -- same "one shader module, one layout, several
+/// pipelines" shape as [`WEATHER_LAYOUT`]. `acc`/`delta` are declared
+/// `atomic<u32>` on the shader side; a bind group layout has no way to
+/// express that (an atomic storage array is just a storage buffer as far
+/// as the layout is concerned), so they appear here as ordinary
+/// `read_write` storage entries.
+const FLOW_LAYOUT: [wgpu::BindGroupLayoutEntry; 7] = [
+    uniform_entry(0),
+    storage_entry(1, true),  // field (heights, read-only throughout)
+    storage_entry(2, false), // recv (steepest-descent receiver, written once by dir_main)
+    storage_entry(3, false), // ptr (the doubling pointer)
+    storage_entry(4, false), // ptr_next (next round's pointer, written by scatter_main)
+    storage_entry(5, false), // acc (atomic<u32> fixed-point accumulation)
+    storage_entry(6, false), // delta (atomic<u32> per-round deliveries)
+];
+
 const WEATHER_LAYOUT: [wgpu::BindGroupLayoutEntry; 9] = [
     uniform_entry(0),
     storage_entry(1, true),  // eh (static elevation, coarse grid)
@@ -531,6 +609,72 @@ pub fn init_gpu_weather_with(gpu: &GpuDevice) -> GpuWeatherContext {
         evap_pipeline: make_pipeline("evap pipeline", "evap_main"),
         advect_pipeline: make_pipeline("advect pipeline", "advect_main"),
         deposit_pipeline: make_pipeline("deposit pipeline", "deposit_main"),
+        bind_group_layout,
+    }
+}
+
+/// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 9: D8 flow accumulation --
+/// three pipelines (`dir_main`/`scatter_main`/`merge_main`) from one shader
+/// module, [`GpuWeatherContext`]'s shape reused. Built only via
+/// [`init_gpu_flow_with`] (a shared [`GpuDevice`]), never a standalone
+/// per-call adapter/device handshake: `generate_terrain` calls flow
+/// accumulation up to four times per generation, so milestone 6's
+/// per-call-context mistake would cost four handshakes here on top of
+/// everything else. Hold one of these across all four call sites and the
+/// shader is compiled once per generation too, not once per call.
+pub struct GpuFlowContext {
+    pub adapter_name: String,
+    pub adapter_vendor: u32,
+    pub adapter_backend: wgpu::Backend,
+    pub device_type: wgpu::DeviceType,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    dir_pipeline: wgpu::ComputePipeline,
+    scatter_pipeline: wgpu::ComputePipeline,
+    merge_pipeline: wgpu::ComputePipeline,
+    bind_group_layout: wgpu::BindGroupLayout,
+}
+
+/// `_with` sibling pattern (milestone 8): builds on an already-created
+/// [`GpuDevice`] instead of requesting a new adapter/device.
+pub fn init_gpu_flow_with(gpu: &GpuDevice) -> GpuFlowContext {
+    let shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("gpu_flow (D8 direction + pointer-doubling accumulation)"),
+        source: wgpu::ShaderSource::Wgsl(SHADER_SRC_GPU_FLOW.into()),
+    });
+
+    let bind_group_layout = gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("cartalith-gpu flow bind group layout"),
+        entries: &FLOW_LAYOUT,
+    });
+
+    let pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("flow pipeline layout"),
+        bind_group_layouts: &[Some(&bind_group_layout)],
+        ..Default::default()
+    });
+
+    let make_pipeline = |label: &str, entry_point: &str| {
+        gpu.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some(label),
+            layout: Some(&pipeline_layout),
+            module: &shader,
+            entry_point: Some(entry_point),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        })
+    };
+
+    GpuFlowContext {
+        adapter_name: gpu.adapter_name.clone(),
+        adapter_vendor: gpu.adapter_vendor,
+        adapter_backend: gpu.adapter_backend,
+        device_type: gpu.device_type,
+        device: gpu.device.clone(),
+        queue: gpu.queue.clone(),
+        dir_pipeline: make_pipeline("flow dir pipeline", "dir_main"),
+        scatter_pipeline: make_pipeline("flow scatter pipeline", "scatter_main"),
+        merge_pipeline: make_pipeline("flow merge pipeline", "merge_main"),
         bind_group_layout,
     }
 }
@@ -1913,6 +2057,267 @@ fn dispatch_gpu_assign_plates(
         nearest[i] = best;
     }
     nearest
+}
+
+/// The per-cell seed `compute_flow` starts its accumulation from, computed
+/// exactly as `cartalith_hydrology::compute_flow`'s own opening block does
+/// (`use_rain=false` => 1.0 everywhere; `use_rain=true` => `max(rain,0.05)`
+/// rescaled so the seeds sum to `n`). Deliberately duplicated here rather
+/// than imported: `cartalith-gpu` depends on `cartalith-hydrology` only as
+/// a dev-dependency (milestone 4's convention -- the library never pulls a
+/// subsystem crate in, only the test suite does), and this is six lines of
+/// arithmetic whose *whole point* is being bit-identical to the CPU
+/// function's, so any drift shows up immediately as a divergence in
+/// `gpu_flow_matches_real_cpu_compute_flow`.
+fn flow_seed(n: usize, rain: Option<&[f32]>, use_rain: bool) -> Vec<f32> {
+    let mut acc = vec![0f32; n];
+    if use_rain {
+        let rain = rain.expect("rain field required when use_rain is true");
+        let mut sm = 0.0f64;
+        for (v, &r) in acc.iter_mut().zip(rain.iter()) {
+            let r = (r as f64).max(0.05);
+            *v = r as f32;
+            sm += r;
+        }
+        let k = n as f64 / sm.max(1e-6);
+        for v in acc.iter_mut() {
+            *v = (*v as f64 * k) as f32;
+        }
+    } else {
+        acc.fill(1.0);
+    }
+    acc
+}
+
+/// Headroom the fixed-point accumulator keeps below `u32::MAX`. The largest
+/// value any cell can ever hold is the full seed total (an outlet draining
+/// the whole grid), so `total * scale` must fit; capping at 2^31 leaves a
+/// full factor-of-two margin for the per-seed rounding that can push the
+/// quantized total slightly above the real one.
+const FLOW_FIXED_POINT_CEILING: f64 = 2_147_483_648.0;
+/// Upper bound on the fixed-point scale, so a tiny grid doesn't pick an
+/// absurd shift. 2^24 is where an `f32` stops representing consecutive
+/// integers anyway -- finer quantization than that buys nothing once the
+/// result is converted back to `f32`.
+const FLOW_MAX_FIXED_POINT_SHIFT: u32 = 24;
+
+/// Largest power-of-two fixed-point scale whose worst-case accumulation
+/// still fits the `u32` atomics, given the real seed total.
+fn flow_fixed_point_scale(total: f64) -> f64 {
+    let total = total.max(1.0);
+    let mut shift = 0u32;
+    while shift < FLOW_MAX_FIXED_POINT_SHIFT && total * ((1u64 << (shift + 1)) as f64) <= FLOW_FIXED_POINT_CEILING {
+        shift += 1;
+    }
+    (1u64 << shift) as f64
+}
+
+/// Result of one flow dispatch: the accumulation itself plus the D8
+/// receiver field it was computed over (`-1` = pit/outlet). The receivers
+/// are the interesting half for verification -- they are the *only* place
+/// this kernel can diverge from the CPU function for a reason other than
+/// summation order, so the tests read them back directly rather than
+/// inferring divergence from the accumulation alone.
+pub struct GpuFlowResult {
+    pub acc: Vec<f32>,
+    pub recv: Vec<i32>,
+    /// The fixed-point scale actually chosen for this grid (see
+    /// [`flow_fixed_point_scale`]); reported so a caller/test can state the
+    /// real quantization step rather than guess at it.
+    pub fixed_point_scale: f64,
+}
+
+/// D8 flow accumulation on GPU. See `gpu_flow.wgsl`'s header for the
+/// algorithm and its literature; this function owns the two decisions that
+/// live on the Rust side:
+///
+/// **Round count.** Pointer doubling reaches every ancestor once `2^k`
+/// exceeds the longest flow path. The longest possible path in an `n`-cell
+/// single-receiver forest is `n` cells (every edge strictly descends, so no
+/// cycles), hence `ceil(log2(n))` rounds is a hard upper bound -- 22 at
+/// 2048x2048. No convergence read-back: checking whether every pointer has
+/// gone `-1` would cost a map/unmap round trip per round, which is more
+/// expensive than simply running the bound (each round is two cheap
+/// dispatches), and it would make the dispatch count data-dependent, i.e.
+/// the timing unreproducible.
+///
+/// **Fixed-point accumulation.** WGSL has no atomic float add. Emulating
+/// one with a compare-exchange loop would make the answer depend on which
+/// thread wins each race, i.e. non-deterministic run to run -- something
+/// every GPU milestone in this project has had to rule out. Integer
+/// addition is exactly associative and commutative, so `u32` fixed point
+/// makes the scatter order-independent *and* bit-reproducible. The cost is
+/// quantization: each seed is rounded to the nearest `1/scale`, where
+/// `scale` is the largest power of two whose worst-case total still fits
+/// (see [`flow_fixed_point_scale`]). At 2048x2048 that is 1/1024 per seed
+/// against accumulations reaching ~4.2e6, i.e. a worst-case relative error
+/// of ~5e-4 and a typical (random-sign, sqrt-cancelling) one far below
+/// that -- comparable to, and at large accumulations better than, the
+/// error the CPU's own long chain of `f32` additions already carries.
+pub fn dispatch_gpu_flow(
+    ctx: &GpuFlowContext,
+    gw: usize,
+    gh: usize,
+    field: &[f32],
+    rain: Option<&[f32]>,
+    use_rain: bool,
+    world: bool,
+) -> GpuFlowResult {
+    let n = gw * gh;
+    assert_eq!(field.len(), n, "field length must be gw*gh");
+    let width = gw as u32;
+    let height = gh as u32;
+
+    let seed = flow_seed(n, rain, use_rain);
+    let total: f64 = seed.iter().map(|&v| v as f64).sum();
+    let scale = flow_fixed_point_scale(total);
+    let acc0: Vec<u32> = seed
+        .iter()
+        .map(|&v| ((v as f64) * scale).round().clamp(0.0, u32::MAX as f64) as u32)
+        .collect();
+
+    let byte_len_u32 = (n * std::mem::size_of::<u32>()) as u64;
+
+    let storage = wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST;
+    let make_init = |label: &str, contents: &[u8]| {
+        ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents, usage: storage })
+    };
+    let make_empty = |label: &str| {
+        ctx.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(label),
+            size: byte_len_u32,
+            usage: storage,
+            mapped_at_creation: false,
+        })
+    };
+
+    let field_buf = make_init("flow field", bytemuck::cast_slice(field));
+    // `recv`/`ptr` are both written by `dir_main` before anything reads
+    // them; `delta` must start at zero, which `wgpu` guarantees for a
+    // freshly-created buffer.
+    let recv_buf = make_empty("flow recv");
+    let ptr_buf = make_empty("flow ptr");
+    let ptr_next_buf = make_empty("flow ptr_next");
+    let acc_buf = make_init("flow acc", bytemuck::cast_slice(&acc0));
+    let delta_buf = make_init("flow delta", bytemuck::cast_slice(&vec![0u32; n]));
+
+    let params = FlowGpuParams { width, height, world: u32::from(world), _pad0: 0 };
+    let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("flow params"),
+        contents: bytemuck::bytes_of(&params),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+
+    let bind_group = ctx.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("flow bind group"),
+        layout: &ctx.bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: params_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: field_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 2, resource: recv_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 3, resource: ptr_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 4, resource: ptr_next_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 5, resource: acc_buf.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 6, resource: delta_buf.as_entire_binding() },
+        ],
+    });
+
+    let staging_acc = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("flow acc (staging)"),
+        size: byte_len_u32,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let staging_recv = ctx.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("flow recv (staging)"),
+        size: byte_len_u32,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let rounds = (n as f64).log2().ceil().max(1.0) as u32;
+    let (gx, gy) = (width.div_ceil(8), height.div_ceil(8));
+
+    let mut encoder =
+        ctx.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("flow encoder") });
+    {
+        let mut pass = encoder
+            .begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("flow dir"), timestamp_writes: None });
+        pass.set_pipeline(&ctx.dir_pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.dispatch_workgroups(gx, gy, 1);
+    }
+    // One bind group for every round -- unlike JFA (a distinct `step`
+    // uniform per pass) nothing per-round is uniform data here, and unlike
+    // blur nothing ping-pongs between buffers: `merge_main` copies
+    // `ptr_next` back into `ptr` itself. So all `2 * rounds` passes go into
+    // one encoder and one submit.
+    for _ in 0..rounds {
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("flow scatter"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&ctx.scatter_pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.dispatch_workgroups(gx, gy, 1);
+        }
+        {
+            let mut pass = encoder
+                .begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("flow merge"), timestamp_writes: None });
+            pass.set_pipeline(&ctx.merge_pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.dispatch_workgroups(gx, gy, 1);
+        }
+    }
+    encoder.copy_buffer_to_buffer(&acc_buf, 0, &staging_acc, 0, byte_len_u32);
+    encoder.copy_buffer_to_buffer(&recv_buf, 0, &staging_recv, 0, byte_len_u32);
+    ctx.queue.submit(Some(encoder.finish()));
+
+    let acc_slice = staging_acc.slice(..);
+    let recv_slice = staging_recv.slice(..);
+    let (tx_a, rx_a) = std::sync::mpsc::channel();
+    acc_slice.map_async(wgpu::MapMode::Read, move |res| {
+        let _ = tx_a.send(res);
+    });
+    let (tx_r, rx_r) = std::sync::mpsc::channel();
+    recv_slice.map_async(wgpu::MapMode::Read, move |res| {
+        let _ = tx_r.send(res);
+    });
+    ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
+    rx_a.recv().expect("map_async channel closed").expect("buffer map failed");
+    rx_r.recv().expect("map_async channel closed").expect("buffer map failed");
+
+    let acc_data = acc_slice.get_mapped_range().expect("get_mapped_range failed");
+    let acc_raw: &[u32] = bytemuck::cast_slice(&acc_data);
+    let acc: Vec<f32> = acc_raw.iter().map(|&q| (q as f64 / scale) as f32).collect();
+    drop(acc_data);
+    staging_acc.unmap();
+
+    let recv_data = recv_slice.get_mapped_range().expect("get_mapped_range failed");
+    let recv: Vec<i32> = bytemuck::cast_slice(&recv_data).to_vec();
+    drop(recv_data);
+    staging_recv.unmap();
+
+    GpuFlowResult { acc, recv, fixed_point_scale: scale }
+}
+
+/// Convenience wrapper: build a flow pipeline on `gpu` and run one
+/// accumulation. Callers issuing several accumulations per generation
+/// (`generate_terrain` issues up to four) should hold one
+/// [`init_gpu_flow_with`] context and call [`dispatch_gpu_flow`] instead,
+/// so the shader is compiled once rather than once per call.
+pub fn flow_accumulation_gpu_with(
+    gpu: &GpuDevice,
+    gw: usize,
+    gh: usize,
+    field: &[f32],
+    rain: Option<&[f32]>,
+    use_rain: bool,
+    world: bool,
+) -> Vec<f32> {
+    let ctx = init_gpu_flow_with(gpu);
+    dispatch_gpu_flow(&ctx, gw, gh, field, rain, use_rain, world).acc
 }
 
 /// Brute-force exact nearest-plate ground truth (no JFA at all) -- what
@@ -3638,5 +4043,301 @@ mod tests {
             cpu_time,
             cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
         );
+    }
+
+    // ---- GPU_LAYER_INTEGRATION_SCOPE.md milestone 9: flow accumulation ----
+
+    /// A smoothed height field with real drainage structure.
+    /// [`synthetic_field`]'s raw per-cell hash is white noise: almost every
+    /// cell is a local pit or one step from one, so flow paths are ~1 cell
+    /// long and NEITHER the CPU function's descending walk NOR the GPU
+    /// kernel's pointer doubling gets exercised at all. Blurring produces
+    /// basins with flow paths hundreds of cells long -- the case that
+    /// actually distinguishes the two algorithms.
+    ///
+    /// `fine_weight` sets how pitted the result is, and that turns out to
+    /// be the variable that actually matters here: a rough field drains in
+    /// short hops into thousands of local pits (short pointer chains, small
+    /// accumulations), a smooth one drains across most of the grid into a
+    /// handful of outlets (chains hundreds of cells long, accumulations
+    /// four orders of magnitude larger, and correspondingly deeper `f32`
+    /// summation chains on the CPU side). Both regimes are tested, because
+    /// only the second one really stresses either algorithm.
+    fn drainage_test_field(w: usize, h: usize, salt: u32, fine_weight: f32) -> Vec<f32> {
+        let broad = cartalith_terrain::gauss_blur(&synthetic_field(w * h, salt), 64.0, w, h, false);
+        let fine = cartalith_terrain::gauss_blur(&synthetic_field(w * h, salt ^ 0x9E37), 5.0, w, h, false);
+        let mut f: Vec<f32> = broad.iter().zip(fine.iter()).map(|(&b, &s)| b + fine_weight * s).collect();
+        let mn = f.iter().cloned().fold(f32::INFINITY, f32::min);
+        let mx = f.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let range = (mx - mn).max(1e-6);
+        for v in f.iter_mut() {
+            *v = (*v - mn) / range;
+        }
+        f
+    }
+
+    /// `compute_flow`'s D8 receiver choice, extracted as a reference so the
+    /// GPU direction kernel can be checked against it *directly* rather
+    /// than only through the accumulation. Deliberately a literal transcript
+    /// of the CPU function's inner double loop (same visiting order, same
+    /// `f64` arithmetic, same strict `>` first-max-wins tie-break) -- if it
+    /// ever drifts from the real one, `gpu_flow_matches_real_cpu_compute_flow`
+    /// (which uses the real function, not this) is what catches it.
+    fn cpu_receivers(gw: usize, gh: usize, field: &[f32], world: bool) -> Vec<i32> {
+        let mut d8 = [0f64; 9];
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                d8[((dy + 1) * 3 + (dx + 1)) as usize] = (dx as f64).hypot(dy as f64);
+            }
+        }
+        (0..gw * gh)
+            .map(|i| {
+                let x = (i % gw) as i64;
+                let y = (i / gw) as i64;
+                let h = field[i] as f64;
+                let mut best: i64 = -1;
+                let mut best_drop = 0.0f64;
+                for dy in -1i64..=1 {
+                    for dx in -1i64..=1 {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        let mut nx = x + dx;
+                        let ny = y + dy;
+                        if world {
+                            nx = ((nx % gw as i64) + gw as i64) % gw as i64;
+                        } else if nx < 0 || nx >= gw as i64 {
+                            continue;
+                        }
+                        if ny < 0 || ny >= gh as i64 {
+                            continue;
+                        }
+                        let j = ny * gw as i64 + nx;
+                        let drop = (h - field[j as usize] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
+                        if drop > best_drop {
+                            best_drop = drop;
+                            best = j;
+                        }
+                    }
+                }
+                best as i32
+            })
+            .collect()
+    }
+
+    /// The flow-direction half of the redesign: embarrassingly parallel and
+    /// a faithful transcript of the CPU inner loop, so this is where the
+    /// two algorithms *could* agree exactly. The only thing standing in the
+    /// way is that the CPU computes `drop` in `f64` and WGSL has no `f64`
+    /// -- so a receiver flips only when two candidate neighbours' drops are
+    /// within `f32` rounding of each other. This test measures how often
+    /// that really happens rather than assuming it away.
+    #[test]
+    fn gpu_flow_directions_match_cpu_receivers() {
+        let Some(gpu) = init_gpu_shared_device().ok() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let ctx = init_gpu_flow_with(&gpu);
+        let (gw, gh) = (512usize, 512usize);
+
+        for &(fine, world) in &[(0.25f32, false), (0.25, true), (0.02, false)] {
+            let field = drainage_test_field(gw, gh, 11, fine);
+            let out = dispatch_gpu_flow(&ctx, gw, gh, &field, None, false, world);
+            let cpu = cpu_receivers(gw, gh, &field, world);
+            let mismatches = out.recv.iter().zip(cpu.iter()).filter(|(a, b)| a != b).count();
+            let pits = cpu.iter().filter(|&&r| r < 0).count();
+            eprintln!(
+                "gpu_flow directions {gw}x{gh} fine={fine} world={world}: {mismatches}/{} receivers differ from CPU ({pits} pits)",
+                cpu.len()
+            );
+            assert_eq!(
+                mismatches, 0,
+                "flow direction is a pure per-cell function of the height field -- any mismatch is a real \
+                 f32-vs-f64 near-tie, worth investigating rather than tolerating"
+            );
+        }
+    }
+
+    /// The headline correctness check: the GPU accumulation against the
+    /// **real, untouched** `cartalith_hydrology::compute_flow`, not a
+    /// GPU-shaped CPU twin (milestone 4's discipline). This is a
+    /// different-algorithm comparison -- a global descending-height walk
+    /// summing in `f32` versus `ceil(log2(n))` pointer-doubling rounds
+    /// summing in `u32` fixed point -- so exact equality is not expected;
+    /// what is expected, and asserted, is that the two agree to within the
+    /// fixed-point quantization the Rust side deliberately chose.
+    #[test]
+    fn gpu_flow_matches_real_cpu_compute_flow() {
+        let Some(gpu) = init_gpu_shared_device().ok() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let ctx = init_gpu_flow_with(&gpu);
+        let (gw, gh) = (512usize, 512usize);
+        let rain = synthetic_field(gw * gh, 23);
+
+        // The third row is the long-chain regime: a nearly pit-free field
+        // where a single outlet drains most of the grid, so the CPU's own
+        // f32 accumulation chain is ~1e5 additions deep. That is where the
+        // two algorithms' error behaviour actually differs.
+        for &(use_rain, world, fine) in &[(false, false, 0.25f32), (true, false, 0.25), (true, true, 0.25), (false, false, 0.02), (true, false, 0.02)] {
+            let field = drainage_test_field(gw, gh, 11, fine);
+            let out =
+                dispatch_gpu_flow(&ctx, gw, gh, &field, if use_rain { Some(&rain) } else { None }, use_rain, world);
+            let cpu = cartalith_hydrology::compute_flow(
+                gw,
+                gh,
+                &field,
+                if use_rain { Some(&rain) } else { None },
+                use_rain,
+                world,
+            );
+
+            // The channel-initiation threshold splits the two error
+            // regimes described on FLOW_TOLERANCE: at and above it, every
+            // downstream consumer (channels, water access, route corridors,
+            // flood) actually reads the value; below it, the accumulation is
+            // a handful of individually-quantized seeds and nothing in the
+            // pipeline distinguishes one from the next.
+            let thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, 1000.0);
+            let mut max_abs = 0.0f64;
+            let mut max_rel_any = 0.0f64;
+            let mut max_rel_channel = 0.0f64;
+            let mut over_tol = 0usize;
+            let mut cpu_max = 0.0f64;
+            for (g, c) in out.acc.iter().zip(cpu.iter()) {
+                let (g, c) = (*g as f64, *c as f64);
+                cpu_max = cpu_max.max(c);
+                let abs = (g - c).abs();
+                // Floored at 1.0 (one cell's worth of seed): below that a
+                // "relative" error says more about the denominator than
+                // about the algorithms.
+                let rel = abs / c.abs().max(1.0);
+                max_abs = max_abs.max(abs);
+                max_rel_any = max_rel_any.max(rel);
+                if c >= thresh {
+                    max_rel_channel = max_rel_channel.max(rel);
+                    if rel > FLOW_TOLERANCE {
+                        over_tol += 1;
+                    }
+                }
+            }
+            eprintln!(
+                "gpu_flow vs REAL compute_flow {gw}x{gh} use_rain={use_rain} world={world} fine={fine}: max_abs={max_abs:.6}, max_rel(all)={max_rel_any:.3e}, max_rel(>=thresh {thresh:.0})={max_rel_channel:.3e}, {over_tol} channel cells over tol={FLOW_TOLERANCE}, cpu_max_acc={cpu_max:.1}, fixed_point_step={:.3e}",
+                1.0 / out.fixed_point_scale
+            );
+            assert_eq!(
+                over_tol, 0,
+                "GPU flow accumulation diverged from the real CPU compute_flow beyond tolerance where it matters"
+            );
+            assert!(
+                max_rel_any <= FLOW_ANY_CELL_TOLERANCE,
+                "even the sub-threshold cells moved more than quantization can explain: {max_rel_any:.3e}"
+            );
+        }
+    }
+
+    /// Fixed-point integer accumulation is exactly order-independent, so
+    /// unlike a compare-exchange float-atomic emulation this kernel is
+    /// bit-reproducible -- asserted, not assumed, because it is the whole
+    /// reason the fixed-point choice was made.
+    #[test]
+    fn gpu_flow_is_bit_reproducible() {
+        let Some(gpu) = init_gpu_shared_device().ok() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let ctx = init_gpu_flow_with(&gpu);
+        let (gw, gh) = (256usize, 256usize);
+        let field = drainage_test_field(gw, gh, 5, 0.05);
+        let rain = synthetic_field(gw * gh, 6);
+        let a = dispatch_gpu_flow(&ctx, gw, gh, &field, Some(&rain), true, false);
+        let b = dispatch_gpu_flow(&ctx, gw, gh, &field, Some(&rain), true, false);
+        assert_eq!(a.acc, b.acc, "GPU flow accumulation must be bit-identical run to run");
+        assert_eq!(a.recv, b.recv, "GPU flow directions must be bit-identical run to run");
+    }
+
+    /// The measurement `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 9 exists
+    /// to produce: flow accumulation is not a leaf computation, it feeds
+    /// the river network, so "how close is the number" matters less than
+    /// "does the river network come out the same". Both accumulations are
+    /// run through the real `build_channels`/`strahler_from_receivers` and
+    /// the resulting channel masks compared cell for cell.
+    #[test]
+    fn gpu_flow_downstream_river_network_divergence() {
+        let Some(gpu) = init_gpu_shared_device().ok() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let ctx = init_gpu_flow_with(&gpu);
+        let (gw, gh) = (512usize, 512usize);
+        let rain = synthetic_field(gw * gh, 23);
+        let (sea, density, km) = (0.35f64, 1.0f64, 1000.0f64);
+        for &fine in &[0.25f32, 0.02] {
+        let field = drainage_test_field(gw, gh, 11, fine);
+
+        let gpu_acc = dispatch_gpu_flow(&ctx, gw, gh, &field, Some(&rain), true, false).acc;
+        let cpu_acc = cartalith_hydrology::compute_flow(gw, gh, &field, Some(&rain), true, false);
+
+        let ch_gpu = cartalith_hydrology::build_channels(&field, &gpu_acc, gw, gh, sea, false, density, km);
+        let ch_cpu = cartalith_hydrology::build_channels(&field, &cpu_acc, gw, gh, sea, false, density, km);
+        let n_gpu = ch_gpu.chan.iter().filter(|&&c| c != 0).count();
+        let n_cpu = ch_cpu.chan.iter().filter(|&&c| c != 0).count();
+        let chan_diff = ch_gpu.chan.iter().zip(ch_cpu.chan.iter()).filter(|(a, b)| a != b).count();
+        let recv_diff = ch_gpu.recv.iter().zip(ch_cpu.recv.iter()).filter(|(a, b)| a != b).count();
+
+        let ord_gpu = cartalith_hydrology::strahler_from_receivers(&ch_gpu.recv, &gpu_acc, &ch_gpu.chan);
+        let ord_cpu = cartalith_hydrology::strahler_from_receivers(&ch_cpu.recv, &cpu_acc, &ch_cpu.chan);
+        let ord_diff = ord_gpu.iter().zip(ord_cpu.iter()).filter(|(a, b)| a != b).count();
+        let max_gpu = ord_gpu.iter().copied().max().unwrap_or(0);
+        let max_cpu = ord_cpu.iter().copied().max().unwrap_or(0);
+
+        eprintln!(
+            "gpu_flow downstream {gw}x{gh} fine={fine}: river cells GPU={n_gpu} CPU={n_cpu} (delta {}), \
+             channel-mask cells differing={chan_diff}, channel receivers differing={recv_diff}, \
+             Strahler order cells differing={ord_diff}, max order GPU={max_gpu} CPU={max_cpu}",
+            n_gpu as i64 - n_cpu as i64
+        );
+
+        // A hard ceiling on how far the river network may move, so a future
+        // regression (a wrong scale, a lost round, a broken tie-break) fails
+        // here instead of quietly reshaping every map. Set well above the
+        // real measured divergence -- see the milestone entry for the actual
+        // numbers.
+        let rel = (n_gpu as f64 - n_cpu as f64).abs() / (n_cpu.max(1) as f64);
+        assert!(rel < 0.02, "river-cell count moved by {:.3}% -- far beyond quantization", rel * 100.0);
+        assert_eq!(max_gpu, max_cpu, "the river network's maximum Strahler order must not change");
+        }
+    }
+
+    #[test]
+    fn gpu_flow_real_timing() {
+        let Some(gpu) = init_gpu_shared_device().ok() else {
+            eprintln!("no GPU available -- skipping");
+            return;
+        };
+        let ctx = init_gpu_flow_with(&gpu);
+        for &size in &[128usize, 512, 1024, 2048] {
+            let field = drainage_test_field(size, size, 11, 0.02);
+            let rain = synthetic_field(size * size, 23);
+
+            let t0 = Instant::now();
+            let out = dispatch_gpu_flow(&ctx, size, size, &field, Some(&rain), true, false);
+            let gpu_time = t0.elapsed();
+
+            let t1 = Instant::now();
+            let _ = cartalith_hydrology::compute_flow(size, size, &field, Some(&rain), true, false);
+            let cpu_time = t1.elapsed();
+
+            eprintln!(
+                "gpu_flow {size}x{size}: GPU = {:?} ({} doubling rounds), CPU (real) = {:?}, ratio (CPU/GPU) = {:.2}x",
+                gpu_time,
+                ((size * size) as f64).log2().ceil() as u32,
+                cpu_time,
+                cpu_time.as_secs_f64() / gpu_time.as_secs_f64().max(1e-9)
+            );
+            assert!(out.acc.iter().all(|v| v.is_finite()), "no NaN/Inf in the GPU accumulation");
+        }
     }
 }

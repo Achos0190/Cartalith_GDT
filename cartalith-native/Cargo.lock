@@ -193,7 +193,10 @@ name = "cartalith-gpu"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "cartalith-civ",
  "cartalith-climate",
+ "cartalith-engine",
+ "cartalith-hydrology",
  "cartalith-noise",
  "cartalith-terrain",
  "pollster",

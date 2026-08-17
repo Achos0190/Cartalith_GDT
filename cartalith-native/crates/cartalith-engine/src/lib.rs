@@ -474,6 +474,19 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
     // handshake.
     let gpu_device = if p.use_gpu { cartalith_gpu::init_gpu_shared_device().ok() } else { None };
 
+    // `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 9: flow accumulation is
+    // called up to FOUR times below (structural drainage, discharge-weighted
+    // drainage, the river-network pass, and the post-carve recompute), so
+    // its pipeline is built once here rather than per call -- milestone 8's
+    // shared-device lesson applied to shader compilation as well as to the
+    // adapter/device handshake. `None` whenever `use_gpu` is off or the
+    // device handshake failed; every call site below falls back to the real
+    // `compute_flow` in that case (`HARDWARE_ACCELERATION.md` §27).
+    let gpu_flow = gpu_device.as_ref().map(cartalith_gpu::init_gpu_flow_with);
+    let flow_on_gpu = |field: &[f32], rain: Option<&[f32]>, use_rain: bool| -> Option<Vec<f32>> {
+        gpu_flow.as_ref().map(|c| cartalith_gpu::dispatch_gpu_flow(c, gw, gh, field, rain, use_rain, world).acc)
+    };
+
     // World-wrap isn't supported by the GPU warp kernel yet (milestone 2's
     // own deferral) -- `use_gpu` under `world=true` falls back to CPU for
     // warp specifically, same as any other GPU-unavailable case.
@@ -732,7 +745,22 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
 
     // ---- natural order: structural drainage -> climate -> discharge-
     // weighted drainage (reference HTML lines 3382-3386) ----
-    let flow_area = compute_flow(gw, gh, &field, None, false, world);
+    // Milestone 9: the GPU path here is a genuinely different ALGORITHM
+    // (per-cell D8 direction + pointer-doubling subtree sums, in u32 fixed
+    // point) rather than a translation of the CPU function's global
+    // descending-height sort and walk -- see `gpu_flow.wgsl`. Verified
+    // against the real `compute_flow` at 512x512: bit-exact for the
+    // `use_rain=false` seeding this very call uses, and within 2.3e-4
+    // relative for discharge seeding, with no measured change to the river
+    // network or to settlement placement (see the scope doc's milestone 9
+    // entry). Falls back to the CPU function whenever GPU is unavailable.
+    let flow_area = match flow_on_gpu(&field, None, false) {
+        Some(v) => {
+            gpu_stages_used.push("flow".to_string());
+            v
+        }
+        None => compute_flow(gw, gh, &field, None, false, world),
+    };
 
     let climate_params = ClimateParams {
         world,
@@ -862,7 +890,15 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         );
     }
 
-    let mut flow_discharge = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
+    let mut flow_discharge = match flow_on_gpu(&field, Some(&rainfall), true) {
+        Some(v) => {
+            if !gpu_stages_used.iter().any(|s| s == "flow") {
+                gpu_stages_used.push("flow".to_string());
+            }
+            v
+        }
+        None => compute_flow(gw, gh, &field, Some(&rainfall), true, world),
+    };
 
     let mut channels = None;
     let mut stream_order = None;
@@ -898,7 +934,15 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         }
         // enforceRiverChannels(): always a no-op here -- see the module
         // doc comment.
-        let flow_for_network = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
+        let flow_for_network = match flow_on_gpu(&field, Some(&rainfall), true) {
+            Some(v) => {
+                if !gpu_stages_used.iter().any(|s| s == "flow") {
+                    gpu_stages_used.push("flow".to_string());
+                }
+                v
+            }
+            None => compute_flow(gw, gh, &field, Some(&rainfall), true, world),
+        };
 
         // (2) vector network -> distance-field channel carve + lock
         let ch = build_channels(&field, &flow_for_network, gw, gh, sea_level, world, p.river_density, p.map_width_km);
@@ -926,7 +970,15 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         }
 
         // (3) recompute so overlay + rainfall reflect the carved valleys
-        flow_discharge = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
+        flow_discharge = match flow_on_gpu(&field, Some(&rainfall), true) {
+            Some(v) => {
+                if !gpu_stages_used.iter().any(|s| s == "flow") {
+                    gpu_stages_used.push("flow".to_string());
+                }
+                v
+            }
+            None => compute_flow(gw, gh, &field, Some(&rainfall), true, world),
+        };
         temperature = compute_temperature(gw, gh, &field, None, &climate_params);
         rainfall = if p.use_gpu {
             let grid = cartalith_climate::build_weather_grid(gw, gh, &field, 0.0, &weather_params);
@@ -1082,7 +1134,10 @@ mod tests {
         assert!(mx - mn > 0.05, "GPU-path terrain shouldn't be a degenerate flat field");
 
         // Every reported stage name is one this milestone actually wired.
-        let known = ["warp", "heterogeneity", "plate_assignment", "base_field_blur", "weather"];
+        // Grows by one name per newly-wired stage (milestone 7 added
+        // "weather", milestone 9 adds "flow") -- an allow-list that must
+        // track reality, not a weakened assertion.
+        let known = ["warp", "heterogeneity", "plate_assignment", "base_field_blur", "weather", "flow"];
         for s in &a.gpu_stages_used {
             assert!(known.contains(&s.as_str()), "unexpected gpu_stages_used entry: {s}");
         }

@@ -23,6 +23,26 @@ bytemuck = { version = "1", features = ["derive"] }
 #
 # Milestone 7: simulate_weather is the same situation (no noise dependency,
 # verify directly against the real cartalith-climate function).
+#
+# Milestone 9: flow accumulation is the same situation again (no noise
+# dependency), and it is the milestone where verifying against the REAL CPU
+# function matters most -- the GPU version is a different algorithm, not a
+# translation, so nothing but the real `compute_flow` is a meaningful
+# reference for it.
 [dev-dependencies]
 cartalith-terrain = { path = "../cartalith-terrain" }
 cartalith-climate = { path = "../cartalith-climate" }
+cartalith-hydrology = { path = "../cartalith-hydrology" }
+# Milestone 9's `flow_downstream_settlements` example only. This is a
+# deliberate DEV-DEPENDENCY CYCLE (cartalith-civ -> cartalith-engine ->
+# cartalith-gpu, and back here through dev-deps): cargo permits cycles
+# through dev-dependencies specifically, and this is the case that
+# justifies one. Flow accumulation is the first GPU kernel here that is not
+# a leaf computation -- it feeds rivers, which feed settlement placement --
+# so the milestone's real question is whether the civilisation layer moves,
+# and answering it needs the civ layer. The alternative (putting the
+# example in cartalith-civ) would have meant editing a crate three other
+# concurrent forks were working in. Nothing in this crate's LIBRARY code
+# depends on either, so the crate ladder in ARCHITECTURE.md is unaffected.
+cartalith-engine = { path = "../cartalith-engine" }
+cartalith-civ = { path = "../cartalith-civ" }

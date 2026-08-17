@@ -847,3 +847,197 @@ call, not *across* calls; averaging the timing benchmark over multiple
 runs to reduce the single-run-variance noise visible in the 2048² number
 above; GPU milestone 7 (climate) remains investigated-not-built, untouched
 by this pass.
+
+## Milestone 9 — flow accumulation on GPU: **done** (2026-08-17), the first genuinely sequential algorithm redesigned rather than ported
+
+The owner's "do the algorithms for the GPU" directive, aimed squarely at
+this document's own repeatedly-deferred "poor GPU fit without a real
+algorithmic redesign" row. `cartalith_hydrology::compute_flow` is the
+flagship case: its own doc comment already named the descending-height
+ordering dependency, and `CPU_MULTITHREADING_SCOPE.md` had already
+confirmed it as the one stage Rayon could not touch.
+
+### The parallel formulation actually used
+
+`compute_flow` does two things that look like one: it sorts all `n` cells
+by descending height, then walks that order pushing each cell's running
+total into its single steepest-descent receiver. The redesign is the
+decomposition the cited literature establishes (Qin & Zhan 2012; the 2016
+RUSLE paper; `HETEROGENEOUS_COMPUTE_RESEARCH.md` §48-49):
+
+1. **Flow direction is a pure function of the height field.** It never
+   reads `acc`, so the descending-height ordering is irrelevant to it —
+   embarrassingly parallel, and `dir_main` is a literal transcript of the
+   CPU inner loop (same visiting order, same strict `>` first-max-wins
+   tie-break, same world-wrap branch).
+2. **Accumulation over the resulting receiver forest is a subtree sum.**
+   That is what the descending-height walk computes *incidentally*, not
+   fundamentally — and subtree sums over a pointer forest parallelize by
+   **pointer doubling** (path doubling / dependency transfer). Each round,
+   every cell delivers its current total to the cell its pointer names,
+   then re-points at *that* cell's pointer. Invariant after round `k`:
+   `acc[i]` = the seed sum of every cell upstream of `i` within `2^k`
+   steps, `ptr[i]` = the cell exactly `2^k` steps downstream. Once `2^k`
+   exceeds the longest flow path the answer is final, so `ceil(log2(n))`
+   rounds is a hard upper bound — **22 at 2048×2048**, versus the
+   thousands a naive donor-gather-to-fixpoint iteration would need, and
+   versus the global sort the CPU pays.
+
+**Fixed-point, not floats — the load-bearing implementation decision.**
+WGSL has no atomic float add. Emulating one with a compare-exchange loop
+would make the answer depend on which thread wins each race, i.e.
+non-deterministic run to run — which every GPU milestone here has had to
+rule out. `acc`/`delta` are therefore `atomic<u32>` fixed point: integer
+addition is exactly associative and commutative, so the scatter is
+order-independent **and** bit-reproducible. The scale is the largest power
+of two whose worst-case total still fits `u32`, derived from the real seed
+total per call. A pleasant consequence worth stating plainly: the GPU
+rounds each seed **once** and is exact from then on, whereas the CPU
+rounds to `f32` on **every** write (`acc[best] = (acc[best] as f64 +
+acc[i] as f64) as f32`, thousands deep at a major outlet) — so at large
+accumulations the GPU path is arguably the *more* accurate of the two.
+
+### Correctness
+
+- **Flow directions: 0 mismatches out of 262,144**, at 512×512, in both
+  world-wrap modes and across two roughness regimes. The `f64`-vs-`f32`
+  near-tie risk this milestone expected to have to quantify simply did not
+  materialize on real fields.
+- **Accumulation vs. the real, untouched `cartalith_hydrology::compute_flow`**
+  (milestone 4's discipline — no noise dependency, so no §7c carve-out
+  needed; `cartalith-hydrology` added as a `cartalith-gpu` dev-dependency):
+  for `use_rain=false` (the area-only seeding the pipeline's first call
+  uses) the two are **bit-exact, max_abs = 0.0**. For discharge seeding the
+  error is pure seed quantization, and it has the opposite shape to the
+  CPU's: worst at *tiny* accumulations built from many small seeds,
+  shrinking as accumulation grows. Measured on real generated worlds, at
+  and above `river_flow_thresh` — the only regime any downstream consumer
+  distinguishes — max relative error is **1.3e-4 at 512²** and **3.3e-4 at
+  1024²**. `FLOW_TOLERANCE` bounds that regime; `FLOW_ANY_CELL_TOLERANCE`
+  is a loose guard over the sub-threshold cells (worst 2.6e-3, on cells
+  accumulating ~1.2 units — nothing in this pipeline distinguishes 1.27
+  from 1.28).
+- **Bit-reproducible run to run**, asserted, not assumed — the whole point
+  of choosing fixed point over a float-atomic CAS loop.
+
+### The measured downstream effect — the real headline
+
+Flow accumulation is the first GPU kernel here that is *not* a leaf
+computation, so "the numbers agree" is not a sufficient answer. Measured
+directly, holding terrain fixed (a real CPU-path world, both accumulations
+computed over its own final height/rainfall fields, so the comparison
+isolates flow accumulation instead of also swapping the noise/plate/weather
+kernels):
+
+- **River network: zero difference.** `build_channels` +
+  `strahler_from_receivers` on both accumulations, two roughness regimes:
+  identical river-cell counts (2674/2674 and 6652/6652), **0 channel-mask
+  cells differing, 0 channel receivers differing, 0 Strahler-order cells
+  differing.**
+- **Settlements: zero difference.** The full `compute_civilisation`
+  suitability chain run twice with every input identical except
+  `flow_discharge` (new `examples/flow_downstream_settlements`): the
+  suitability raster differs in its last `f32` digits (max 2.7e-6 at 512²,
+  1.3e-5 at 1024²), and **`find_settlement_seeds` returns the same count
+  and the same positions — 104/104 at 512², 125/125 at 1024², zero seeds
+  moved.**
+
+The divergence is real but lands entirely below the granularity anything
+downstream resolves. That number, not the speedup, is what this milestone
+was for.
+
+### Real timing
+
+Isolated kernel, shared `GpuDevice` from the start (no repeat of milestone
+6's per-call-context mistake), against the real CPU `compute_flow`:
+
+| Size | GPU | CPU | Ratio |
+|---|---|---|---|
+| 128×128 | 6.7ms (14 rounds) | 1.3ms | 0.20× — GPU loses |
+| 512×512 | 4.7ms (18 rounds) | 21.5ms | **4.6×** |
+| 1024×1024 | 9.5ms (20 rounds) | 99.0ms | **10.4×** |
+| 2048×2048 | 31.5ms (22 rounds) | 488.9ms | **15.5×** |
+
+128×128 loses for the usual reason plus one specific to this kernel: the
+round count barely falls with grid size (14 vs 22), so a small grid pays
+almost the same dispatch count over far less work per dispatch.
+
+**End-to-end `generate_terrain`**, same benchmark as milestones 6 and 8
+(single run per size, not averaged — the same caveat those entries carry):
+
+| Size | Ratio after milestone 8 | Ratio after milestone 9 |
+|---|---|---|
+| 128×128 | 0.11× | 0.16× |
+| 512×512 | 0.76× | 0.83× |
+| 1024×1024 | 1.14× | **1.36×** |
+| 2048×2048 | 0.98× | **1.74×** |
+
+2048×2048 moving from essentially even to a 1.74× win is the largest
+single-milestone shift this effort has produced, and it makes sense:
+`compute_flow` is called up to four times per generation and was ~490ms of
+pure CPU time per call at that size. The absolute numbers moved more than
+the ratios between the two runs (CPU 2048² measured 4.86s here vs 5.83s in
+milestone 8's run, with no code changed on that path), so the ratios are
+the meaningful comparison, not the absolute times.
+
+### Wiring
+
+`WorldParams.use_gpu` gates it exactly as milestones 6-8 established, with
+per-stage CPU fallback on any failure and never a panic; `"flow"` joins
+`gpu_stages_used`. One shared `GpuFlowContext` is built per
+`generate_terrain` call and reused across all four `compute_flow` call
+sites, so the shader is compiled once per generation rather than once per
+call — milestone 8's lesson applied to pipeline creation, not just to the
+adapter/device handshake. **`compute_flow` itself is byte-untouched** and
+`cargo test --workspace` passes with 0 failures and 0 modified tests.
+
+### Candidates 2 and 3 — read, judged, not forced
+
+**Water-body priority-flood (`cartalith-civ::build_water_bodies`): half
+tractable, half genuinely hard — not attempted.** Read in full rather than
+taken from this document's own summary. It is two different algorithms back
+to back. The first, connected components of below-sea water, is a
+stack-based flood fill with a real parallel formulation, and the exact CPU
+answer is reachable: component IDs are assigned in raster-scan discovery
+order, so "largest component, first wins on ties" is equivalent to "largest
+component, smallest minimum cell index wins" — a label-propagation or
+union-find-by-pointer-jumping formulation (the same machinery this
+milestone just built) could reproduce it exactly. The second, the above-sea
+depression fill, is a **global priority queue** (`MinHeap`, seeded from the
+borders and the ocean, popped in ascending fill order) — the classic
+Priority-Flood. Its parallel formulations (Planchon-Darboux-style iterative
+flooding) converge in O(longest ascending path) iterations, and unlike flow
+accumulation there is no pointer structure to double: the recurrence is a
+min-max over neighbours, not a sum over a tree. That is precisely the
+iterations-for-parallelism trade this milestone avoided, and it is a real
+research task rather than the tail of this one. Measured cost for
+proportion: `build_water_bodies` is **~92ms at 1024×1024** — real, but an
+order of magnitude below what flow accumulation was costing, so the payoff
+for solving the hard half is correspondingly smaller.
+
+**Dijkstra/MST road networks (`cartalith-civ::road_dijkstra`): confirmed,
+should stay on CPU** — agreeing with `HETEROGENEOUS_COMPUTE_RESEARCH.md`
+§53, with two concrete reasons found by reading the code rather than by
+deferring to it. First, `road_dijkstra`'s `prev` array is what road
+geometry is literally made of, and unlike an accumulation sum (which is
+order-independent once you have the receiver forest) a shortest-path
+predecessor is genuinely settle-order-dependent on ties — every GPU
+alternative (Bellman-Ford relaxation, delta-stepping, fast marching)
+changes which equal-cost predecessor wins, so roads would visibly move.
+Second, and more decisively: it is already called *many times over a small,
+downsampled road grid* (`rw`×`rh`, once per road hub, at four separate call
+sites), all of them independent. The obvious parallelism here is **across
+sources on CPU** — those call sites are still plain `.iter().map()` and
+Rayon would take them today — not within a single traversal on GPU.
+Recommending the cheap CPU win over the expensive GPU redesign is the
+honest answer, not a dodge.
+
+### Not attempted this pass
+
+`compute_stress`'s gather reformulation and orogeny's parallel-graph
+redesign (still deferred, milestones 5 and 6); world-wrap for the milestone
+1-5 kernels (this kernel *does* support world-wrap, since for flow
+direction it is one extra modulo, but that does not retroactively fix
+warp/heterogeneity); averaging the timing benchmarks over multiple runs to
+kill the single-run variance milestone 8 already flagged; per-pipeline
+caching across repeated `generate_terrain` calls.
