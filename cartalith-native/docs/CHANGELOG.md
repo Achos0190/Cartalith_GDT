@@ -5831,3 +5831,67 @@ pattern, this is real, working data reaching a real, working render path.
 **Files touched**: `cartalith-native/godot-project/main.tscn`
 (`ProvinceLayerCheck`, `ProvinceBoundaryView`), `main.gd` (wiring),
 `docs/CHANGELOG.md`, `docs/STATUS.md`.
+
+## Phase 2 milestone 17: economy investigated, `civ_resource_trade_balance` ported (2026-08-17)
+
+Investigated "economy" and the "Journey Planner" for real, both repeatedly
+named but never read — full reasoning in `ECONOMY_SCOPE.md` (repo root).
+Found two separate, both genuinely large subsystems, not one: the Journey
+Planner (`jp*`/`_jp*`, reference lines ~17300-20400, ~70 functions covering
+transport-mode selection, physical travel cost, consumption/resupply,
+seasonal closures, multi-stage route derivation) confirms `ROADMAP.md`'s own
+"consider it a sub-phase" warning as accurate — comparable in size to this
+port's entire civ-layer effort to date, not attempted here. The
+faction/settlement economy layer (`_civFactionAggregates`, ~165 lines,
+reference line 23575; `_civPlaceTrade` and its dependency cluster,
+reference line 24459) is smaller but still real — a `Vec` output feeding
+Factions/Settlements/Economy/Statistics display pages, explicitly
+"NOT new simulation" per the reference's own header comment.
+
+**Ported**: `civ_resource_trade_balance` (`cartalith-civ`) — direct port of
+`_civResourceTradeBalance` (reference line 24175, v1.33's unification of two
+drifted copies). Given a settlement's or faction's own catchment-mean
+resource values and the world mean for the same 15 `CIV_RESOURCE_KEYS`,
+classifies each as an export (well above world average, past both a ratio
+and an absolute floor) or an import (well below average, and only for
+resources in `CIV_CONSUMED_RESOURCES` — a locally-scarce resource nobody
+consumes, like `gems`, is never an import). Fully self-contained: operates
+on caller-supplied means, no new upstream field dependency.
+
+Kept a real JS-parity subtlety clippy flagged: the reference's
+`!(world>0.002)` (not `world<=0.002`) matters for NaN inputs — `!(NaN>x)` is
+`true` in both languages, `NaN<=x` is `false` only in Rust. Kept the
+JS-matching form with a documented `#[allow(clippy::neg_cmp_op_on_partial_ord)]`
+rather than silently changing NaN behavior to satisfy the lint.
+
+Chose real unit tests over a Node-harness golden extraction for this one
+function specifically — small, pure, branch-complete, no RNG/iteration-order
+to get subtly wrong, the same category `PARITY_TESTING.md`'s own discipline
+treats real unit tests as a legitimate stand-in for (same precedent as
+milestone 10's territory / the provinces work). Seven tests: empty inputs,
+the absent-worldwide branch's absolute floor, ratio-clears-but-floor-fails
+(a real branch-order case), a genuine export, import correctly gated to
+`CONSUMED_RESOURCES` only, missing-key-as-zero fallback, full 15-key order.
+
+**Real tension found, not resolved**: the full trade layer's own resource-mean
+aggregation needs all 15 `CIV_RESOURCE_KEYS` resident, but this session's own
+memory-optimization pass (commit `62b9b51`) frees 6 of them
+(clay/buildstone/flint/obsidian/sulfur/alum) right after
+`build_resource_potentials` returns, since nothing consumed them at the time.
+Flagged in `ECONOMY_SCOPE.md` for whoever ports the full orchestration next —
+not silently reverted here.
+
+**Not wired anywhere** — `civ_resource_trade_balance` has no real caller yet
+in this port (the broader `_civPlaceTrade` orchestration that would call it
+doesn't exist), so it isn't exposed to Godot. Wiring a function nothing calls
+into the API surface would repeat the exact "technically done, practically
+inert" trap this document's own milestone 9 note already flagged once for
+territory before provinces gave it a real caller.
+
+**Verified**: `cargo test -p cartalith-civ --lib trade_balance` (7 new, all
+passing), `cargo test --workspace` (0 regressions), `cargo clippy -p
+cartalith-civ --all-targets` clean.
+
+**Files touched**: `cartalith-civ/src/lib.rs` (`civ_resource_trade_balance`,
+`CIV_RESOURCE_KEYS`, `CIV_CONSUMED_RESOURCES`, `TradeBalance`, 7 tests), new
+`ECONOMY_SCOPE.md` (repo root), `PHASE2_SCOPE.md`, `docs/STATUS.md`.

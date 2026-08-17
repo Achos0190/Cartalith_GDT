@@ -767,3 +767,23 @@ to reflect real state, not "Phase 2 done" until it actually is. Nothing
 outside a milestone's own explicit scope gets implemented in that
 milestone's pass — flag and stop if something turns out unavoidable,
 report it, don't silently expand.
+
+## Milestone 17 — economy investigated, first slice ported (2026-08-17)
+
+Full investigation and reasoning now lives in `ECONOMY_SCOPE.md` (repo
+root), not repeated here — this entry is the pointer. Summary: "economy" and
+"Journey Planner" turned out to be two separate, both genuinely large,
+subsystems (confirmed by reading the real reference, not assumed from a
+scope-doc one-liner — the same correction this document's own milestone 9
+note already had to make once for territory). The Journey Planner
+(~70 `jp*`/`_jp*` functions) confirms `ROADMAP.md`'s own "consider it a
+sub-phase" warning as accurate, not overcautious — not attempted. The
+faction/settlement economy layer (`_civFactionAggregates`,
+`_civPlaceTrade` and its dependency cluster, ~20 functions) is large but
+bounded; `civ_resource_trade_balance` (the one fully self-contained piece,
+`_civResourceTradeBalance` reference line 24175) is ported, tested, and
+verified in `cartalith-civ`. Not yet wired anywhere — no real caller exists
+until the broader trade orchestration is built. A real, disclosed tension
+found: the full trade layer needs all 15 `CIV_RESOURCE_KEYS` resident, but
+this session's own memory-optimization pass frees 6 of them after use —
+unresolved, flagged for whoever continues this.

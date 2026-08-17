@@ -1560,6 +1560,69 @@ fn terrain_ruggedness_d(r: f64) -> f64 {
     (1.0 - 4.0 * (r - 0.35).abs()).max(0.0)
 }
 
+/// Phase 2 economy investigation (`ECONOMY_SCOPE.md`): the reference's
+/// per-settlement/per-faction economy layer turned out to be two genuinely
+/// large, separately-scoped subsystems (`_civFactionAggregates`'s ~170-line
+/// aggregate pass plus `_civPlaceTrade`'s multi-source orchestration, and
+/// the Journey Planner's ~70 `jp*` functions, matching `ROADMAP.md`'s own
+/// "consider it a sub-phase" warning) -- this is the one fully
+/// self-contained piece ported so far, not the whole layer.
+///
+/// `_civResourceTradeBalance` (reference HTML line 24175, v1.33): the ONE
+/// resource trade-threshold rule, shared by both the per-settlement
+/// inspector and the faction-level Economy page after v1.33 unified two
+/// drifted copies (the reference's own comment: "this is the third time
+/// this shape has appeared... so the rule now lives in exactly one place
+/// and both callers use it"). Pure: given a settlement's (or faction's)
+/// own catchment-mean resource values and the world mean for the same
+/// keys, classifies each resource as an export (mean well above world
+/// average) or an import (mean well below average, and only for resources
+/// this settlement actually consumes -- exporting a surplus of something
+/// nobody needs isn't a trade relationship). `CONSUMED_RESOURCES` (line
+/// 24263) is the subset of `CIV_RESOURCE_KEYS` an import can ever apply
+/// to; the other seven keys can only ever be exports.
+pub const CIV_RESOURCE_KEYS: [&str; 15] = [
+    "copper", "tin", "iron", "gold", "salt", "timber", "lead", "silver", "clay", "buildstone", "flint", "obsidian", "gems", "sulfur", "alum",
+];
+const CIV_CONSUMED_RESOURCES: [&str; 8] = ["iron", "salt", "timber", "copper", "clay", "buildstone", "alum", "lead"];
+
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct TradeBalance {
+    pub exports: Vec<&'static str>,
+    pub imports: Vec<&'static str>,
+}
+
+pub fn civ_resource_trade_balance(mean: &std::collections::HashMap<&str, f64>, world_mean: &std::collections::HashMap<&str, f64>) -> TradeBalance {
+    let mut out = TradeBalance::default();
+    if mean.is_empty() || world_mean.is_empty() {
+        return out;
+    }
+    for &k in CIV_RESOURCE_KEYS.iter() {
+        let mine = *mean.get(k).unwrap_or(&0.0);
+        let world = *world_mean.get(k).unwrap_or(&0.0);
+        // `!(world > 0.002)`, not `world <= 0.002` -- deliberately mirrors
+        // the reference's `!(world>0.002)` (line 24180) bit-for-bit,
+        // including its NaN behaviour: `!(NaN > x)` is `true` in both JS
+        // and Rust, but `NaN <= x` is `false` in Rust -- the rewrite
+        // clippy suggests would silently diverge on a NaN input.
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
+        if !(world > 0.002) {
+            // essentially absent worldwide
+            if mine > 0.05 {
+                out.exports.push(k);
+            }
+            continue;
+        }
+        let ratio = mine / world;
+        if ratio > 1.35 && mine > 0.02 {
+            out.exports.push(k);
+        } else if ratio < 0.65 && CIV_CONSUMED_RESOURCES.contains(&k) {
+            out.imports.push(k);
+        }
+    }
+    out
+}
+
 /// `SUIT_W_BASE` (reference line 6307): the five-weight legacy set used
 /// only when `ctx` is absent -- `currentSettlementSuitability()` always
 /// supplies `ctx`, so production never takes this branch, but it's ported
@@ -4553,6 +4616,83 @@ pub fn civ_sea_routes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn tb_map(pairs: &[(&'static str, f64)]) -> std::collections::HashMap<&'static str, f64> {
+        pairs.iter().cloned().collect()
+    }
+
+    // Reference formula (line 24175-24186), hand-traced per branch:
+    //   if world <= 0.002: export only if mine > 0.05, never an import
+    //   else: ratio = mine/world; export if ratio>1.35 && mine>0.02;
+    //         import if ratio<0.65 && key is in CONSUMED_RESOURCES
+
+    #[test]
+    fn trade_balance_empty_inputs_return_empty() {
+        let empty = tb_map(&[]);
+        let out = civ_resource_trade_balance(&empty, &tb_map(&[("iron", 0.5)]));
+        assert!(out.exports.is_empty() && out.imports.is_empty());
+        let out2 = civ_resource_trade_balance(&tb_map(&[("iron", 0.5)]), &empty);
+        assert!(out2.exports.is_empty() && out2.imports.is_empty());
+    }
+
+    #[test]
+    fn trade_balance_world_essentially_absent_exports_only_above_absolute_floor() {
+        // world=0.001 (<=0.002): mine=0.06>0.05 -> export; mine=0.03 -> nothing (not >0.05).
+        let mean = tb_map(&[("gems", 0.06), ("obsidian", 0.03)]);
+        let world = tb_map(&[("gems", 0.001), ("obsidian", 0.001)]);
+        let out = civ_resource_trade_balance(&mean, &world);
+        assert_eq!(out.exports, vec!["gems"]);
+        assert!(out.imports.is_empty());
+    }
+
+    #[test]
+    fn trade_balance_export_needs_both_ratio_and_absolute_floor() {
+        // ratio = 0.015/0.01 = 1.5 > 1.35 (clears the ratio test), but
+        // mine=0.015 is NOT > 0.02 -- the absolute floor must still gate
+        // the export even once the ratio alone would qualify.
+        let mean = tb_map(&[("gold", 0.015)]);
+        let world = tb_map(&[("gold", 0.01)]);
+        let out = civ_resource_trade_balance(&mean, &world);
+        assert!(out.exports.is_empty(), "ratio clears threshold but absolute mine>0.02 floor must still gate the export");
+    }
+
+    #[test]
+    fn trade_balance_real_export_case() {
+        // ratio = 0.20/0.10 = 2.0 > 1.35, mine=0.20 > 0.02 -> export.
+        let mean = tb_map(&[("copper", 0.20)]);
+        let world = tb_map(&[("copper", 0.10)]);
+        let out = civ_resource_trade_balance(&mean, &world);
+        assert_eq!(out.exports, vec!["copper"]);
+        assert!(out.imports.is_empty());
+    }
+
+    #[test]
+    fn trade_balance_import_only_for_consumed_resources() {
+        // ratio = 0.03/0.10 = 0.3 < 0.65 for both -- iron IS consumed, gems is NOT.
+        let mean = tb_map(&[("iron", 0.03), ("gems", 0.03)]);
+        let world = tb_map(&[("iron", 0.10), ("gems", 0.10)]);
+        let out = civ_resource_trade_balance(&mean, &world);
+        assert_eq!(out.imports, vec!["iron"], "gems is scarce locally too, but it's not a CONSUMED resource so it can never be an import");
+        assert!(out.exports.is_empty());
+    }
+
+    #[test]
+    fn trade_balance_missing_key_treated_as_zero() {
+        // a key present in world_mean but absent from mean (or vice versa) reads as 0.0,
+        // matching the reference's `mean[k]||0` / `worldMean[k]||0` fallback.
+        let mean = tb_map(&[("salt", 0.0)]);
+        let world = tb_map(&[("salt", 0.10)]);
+        let out = civ_resource_trade_balance(&mean, &world);
+        // ratio = 0/0.10 = 0 < 0.65, salt IS consumed -> import
+        assert_eq!(out.imports, vec!["salt"]);
+    }
+
+    #[test]
+    fn trade_balance_iterates_all_fifteen_keys_in_reference_order() {
+        assert_eq!(CIV_RESOURCE_KEYS.len(), 15);
+        assert_eq!(CIV_RESOURCE_KEYS[0], "copper");
+        assert_eq!(CIV_RESOURCE_KEYS[14], "alum");
+    }
 
     #[test]
     fn build_lithology_oceanic_crust_is_basalt() {
