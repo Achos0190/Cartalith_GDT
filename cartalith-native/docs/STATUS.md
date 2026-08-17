@@ -431,6 +431,20 @@ actually triggers LOD/tiling integration -- not wired to anything today.
 Full record: `cartalith-native/docs/CHANGELOG.md`'s "New crate
 cartalith-spatial" entry.
 
+## Province boundary legibility (fixed 2026-08-17)
+
+The province-boundary overlay (`build_province_boundary_texture`, wired
+same-day as milestone 16's own follow-up) was flagged as a known
+legibility issue: functionally correct data, but a literal 1px-wide line
+at full grid resolution became sub-pixel and near-invisible once
+downscaled to the viewport. Fixed with symmetric boundary detection plus
+a one-cell dilation for a real ~3px stroke and a modest alpha bump
+(not to fully opaque). Real screenshot-verified (seed 12345, Classic,
+512×512, both territory and province layers on): boundaries now read as
+clean, bold lines at normal view, clearly distinct from roads. See
+`CHANGELOG.md`'s "Fix: province boundary lines were illegible at normal
+zoom" entry.
+
 ## Known-open items (not owner-blocked, just not done yet)
 
 - Real Fira Sans/Fira Code font files for the UI theme (design-system match found the pairing; sourcing + OFL-license verification deferred).

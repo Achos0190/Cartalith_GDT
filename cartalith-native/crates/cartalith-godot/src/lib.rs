@@ -819,26 +819,35 @@ impl WorldGen {
             .collect()
     }
 
-    /// Province *boundaries* as a semi-transparent RGBA overlay -- a thin
-    /// line wherever two orthogonally-adjacent cells belong to different
+    /// Province *boundaries* as a semi-transparent RGBA overlay -- a line
+    /// wherever two orthogonally-adjacent cells belong to different
     /// (nonzero) provinces, transparent everywhere else. Deliberately not a
     /// per-province fill colour the way `build_territory_texture` fills by
     /// faction: a province count isn't bounded the way `CIV_FACTION_COUNT`
     /// is, so there's no fixed small palette to draw from without a real
     /// UI/UX design pass picking one -- boundary lines need no palette at
     /// all and read clearly layered on top of `build_territory_texture`'s
-    /// own per-faction fill. Not yet wired into `main.gd`/`map_overlay.gd`
-    /// (`CHANGELOG.md`) -- this method exists so that wiring is a small,
-    /// later addition, not a green-field task. `None` under the same
-    /// conditions as `build_territory_texture`.
+    /// own per-faction fill. `None` under the same conditions as
+    /// `build_territory_texture`.
+    ///
+    /// The line is drawn 3px wide at full grid resolution, not 1px --
+    /// found by real windowed-app screenshot verification (not assumed)
+    /// that a literal single-cell-wide line at e.g. 2048px source
+    /// resolution becomes sub-pixel once `TextureRect` downscales it to
+    /// fit a typical viewport width, anti-aliasing it into near-invisible
+    /// mush indistinguishable from roads/coastline. A real stroke width
+    /// survives that downscale the way an actual cartographic line does.
     #[func]
     fn build_province_boundary_texture(&self) -> Option<Gd<ImageTexture>> {
         let civ = self.civ.as_ref()?;
         let gw = self.gw as usize;
         let gh = self.gh as usize;
-        const LINE_RGBA: [u8; 4] = [43, 30, 10, 200]; // matches map_overlay.gd's MARKER_OUTLINE ink tone
+        const LINE_RGBA: [u8; 4] = [35, 24, 9, 235]; // map_overlay.gd's ink tone, alpha nudged up (not to opaque)
 
-        let mut bytes = vec![0u8; gw * gh * 4];
+        // Pass 1: symmetric boundary detection (checks all four neighbours,
+        // not just +x/+y) so a boundary is a property of the edge, not of
+        // which cell happened to be scanned first.
+        let mut boundary = vec![false; gw * gh];
         for y in 0..gh {
             for x in 0..gw {
                 let i = y * gw + x;
@@ -846,9 +855,25 @@ impl WorldGen {
                 if here == 0 {
                     continue;
                 }
-                let differs_from_neighbor = (x + 1 < gw && civ.provinces[i + 1] != here)
-                    || (y + 1 < gh && civ.provinces[i + gw] != here);
-                if differs_from_neighbor {
+                boundary[i] = (x + 1 < gw && civ.provinces[i + 1] != here)
+                    || (y + 1 < gh && civ.provinces[i + gw] != here)
+                    || (x > 0 && civ.provinces[i - 1] != here)
+                    || (y > 0 && civ.provinces[i - gw] != here);
+            }
+        }
+
+        // Pass 2: dilate by one cell (3x3 neighbourhood) for a real ~3px
+        // stroke instead of the single-pixel line that proved illegible.
+        let mut bytes = vec![0u8; gw * gh * 4];
+        for y in 0..gh {
+            for x in 0..gw {
+                let y0 = y.saturating_sub(1);
+                let y1 = (y + 1).min(gh - 1);
+                let x0 = x.saturating_sub(1);
+                let x1 = (x + 1).min(gw - 1);
+                let near = (y0..=y1).any(|ny| (x0..=x1).any(|nx| boundary[ny * gw + nx]));
+                if near {
+                    let i = y * gw + x;
                     bytes[i * 4..i * 4 + 4].copy_from_slice(&LINE_RGBA);
                 }
             }

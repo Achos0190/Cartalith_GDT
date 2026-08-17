@@ -6056,3 +6056,39 @@ same settings.
 **Files touched**: `crates/cartalith-godot/src/render.rs`,
 `TERRAIN_APPEARANCE_SCOPE.md` (milestone 1 marked done with the real
 finding), `docs/STATUS.md`, this file.
+
+## Fix: province boundary lines were illegible at normal zoom (2026-08-17)
+
+`build_province_boundary_texture()` (commit `f1afafb`) was functionally
+correct — real, verified per-cell data — but real screenshot testing found
+its output illegible: a literal single-cell-wide line drawn into a
+full-grid-resolution (e.g. 2048×2048) RGBA texture becomes sub-pixel once
+`TextureRect` downscales it to fit a typical viewport width, anti-aliasing
+it into a faint smudge indistinguishable from roads or coastline. This
+was a rendering-resolution problem, not a data problem — the boundary
+data itself was already correct.
+
+**Fix, in `cartalith-godot`'s `build_province_boundary_texture()` only**
+(`map_overlay.gd` has no province-drawing code at all — provinces render
+as a texture overlay, same mechanism as territory, not custom `_draw()`):
+two-pass approach — pass 1 detects boundaries symmetrically (checks all
+four neighbours, not just +x/+y, so a boundary is a property of the edge
+rather than of scan order), pass 2 dilates by one cell (3×3 neighbourhood)
+for a real ~3px stroke at source resolution instead of 1px. Alpha nudged
+modestly (200→235 of 255) — not to fully opaque, since the goal is a
+legible subdivision line, not a competing top-level feature.
+
+**Real before/after screenshot** (seed 12345, Classic, 512×512, 40
+settlements, both territory and province layers enabled): boundaries now
+read as clean, bold lines cleanly subdividing each faction's territory
+(visible splitting the orange and teal/green factions into two provinces
+each), clearly distinct from roads' thin brown lines, at normal
+(non-zoomed, non-cropped) view — the exact case the original fix's
+screenshot testing found illegible.
+
+**Verified**: `cargo build -p cartalith-godot` clean, `cargo test
+--workspace` 0 regressions (91 test binaries, all green), `godot4
+--headless --quit main.tscn` clean load.
+
+**Files touched**: `crates/cartalith-godot/src/lib.rs`
+(`build_province_boundary_texture`), `docs/STATUS.md`, this file.
