@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics=""><meta name="design_doc_mode" content="canvas"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"><style>body{margin:0;background:#0d0e0f}a{color:#e0a34a}a:hover{color:#f0bd72}</style></helmet>
+
+<div data-screen-label="DCC shell 1920" style="width:1920px;height:1080px;background:#0d0e0f;color:#c8cbcd;font:11px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden;position:relative">
+
+  <!-- ══ TOP MENU BAR · program functions only ══ -->
+  <div style="height:34px;flex:none;display:flex;align-items:center;gap:0;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10);position:relative;z-index:30">
+    <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec;margin-right:22px">CARTALITH</div>
+    <div style="display:flex;font-size:11.5px;color:#a9adb0">
+      <span style="padding:9px 11px">File</span>
+      <span style="padding:9px 11px">Edit</span>
+      <span style="padding:9px 11px">Generate</span>
+      <span style="padding:9px 11px">Simulate</span>
+      <span style="padding:9px 11px;color:#e0a34a;background:rgba(224,163,74,.08);border-bottom:1px solid #e0a34a">Render</span>
+      <span style="padding:9px 11px">Assets</span>
+      <span style="padding:9px 11px">View</span>
+      <span style="padding:9px 11px">Help</span>
+    </div>
+    <div style="flex:1"></div>
+    <div style="display:flex;gap:22px;font:11px 'IBM Plex Mono',monospace;color:#6f7478"><span>ELDRA · seed 483920</span><span>finalized · L4 baked</span><span>CPU 38</span><span>GPU 71</span><span>1.6 GB</span></div>
+  </div>
+
+  <!-- open Render menu -->
+  <div style="position:absolute;top:98px;left:346px;width:262px;background:#121314;border:1px solid rgba(255,255,255,.14);box-shadow:0 14px 34px rgba(0,0,0,.55);z-index:40;font-size:11.5px;padding:5px 0">
+    <div style="padding:6px 14px;display:flex;justify-content:space-between"><span>Map mode</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">relief ▸</span></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between"><span>Style preset</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">atlas ▸</span></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between;background:rgba(224,163,74,.10);color:#e8ebec"><span>Terrain appearance…</span><span style="color:#e0a34a;font:10.5px 'IBM Plex Mono',monospace">⇧T</span></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between"><span>Painter styles (NPR)</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">▸</span></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between"><span>Lighting &amp; shadows</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">▸</span></div>
+    <div style="height:1px;background:rgba(255,255,255,.09);margin:5px 0"></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between"><span>3D viewport</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">Tab</span></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between"><span>Tiled LOD &amp; atlas cache</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">▸</span></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between"><span>Render quality</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">balanced ▸</span></div>
+    <div style="height:1px;background:rgba(255,255,255,.09);margin:5px 0"></div>
+    <div style="padding:6px 14px;display:flex;justify-content:space-between"><span>Bake image / tiles…</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">⌘⇧E</span></div>
+  </div>
+
+  <!-- ══ WORKSPACE TABS · GUI's navigator domains, as DCC workspace switcher ══ -->
+  <div style="height:30px;flex:none;display:flex;align-items:center;padding:0 14px;gap:2px;border-bottom:1px solid rgba(255,255,255,.10);font:10.5px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#8d9296">
+    <span style="padding:6px 13px;color:#e8ebec;border-bottom:1px solid #e0a34a">WORLD</span>
+    <span style="padding:6px 13px">CIVILIZATION</span>
+    <span style="padding:6px 13px">INFRASTRUCTURE</span>
+    <span style="padding:6px 13px">CARTOGRAPHY</span>
+    <span style="padding:6px 13px;color:#e0a34a">RENDER</span>
+    <div style="flex:1"></div>
+    <span style="padding:6px 0;color:#5f6468">Terrain · Water · Climate · Ecology · Resources</span>
+  </div>
+
+  <!-- ══ TOOL OPTIONS BAR · contextual to active tool ══ -->
+  <div style="height:34px;flex:none;display:flex;align-items:center;gap:18px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+    <span style="color:#e0a34a;letter-spacing:.14em">RAISE / LOWER</span>
+
+    <span style="display:flex;align-items:center;gap:7px">hardness <span style="width:70px;height:2px;background:rgba(255,255,255,.14);position:relative;display:inline-block"><span style="position:absolute;left:0;top:0;height:2px;width:35%;background:#e0a34a"></span></span> <span style="color:#c8cbcd">0.35</span></span>
+    <span style="display:flex;align-items:center;gap:7px">intensity <span style="width:70px;height:2px;background:rgba(255,255,255,.14);position:relative;display:inline-block"><span style="position:absolute;left:0;top:0;height:2px;width:50%;background:#e0a34a"></span></span> <span style="color:#c8cbcd">+120&nbsp;m</span></span>
+    <span style="display:flex;align-items:center;gap:7px">noise <span style="color:#c8cbcd">fBm · 4 oct</span></span>
+    <span style="display:flex;gap:2px"><span style="padding:3px 9px;border:1px solid #e0a34a;color:#e0a34a">raise</span><span style="padding:3px 9px;border:1px solid rgba(255,255,255,.16)">lower</span><span style="padding:3px 9px;border:1px solid rgba(255,255,255,.16)">smooth</span></span>
+    <span style="color:#5f6468">⇧ invert · ⌥ sample height</span>
+    <div style="flex:1"></div>
+    <span style="padding:3px 11px;border:1px solid #e0a34a;color:#e0a34a">commit pass</span>
+    <span style="padding:3px 11px;border:1px solid rgba(255,255,255,.16)">discard</span>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+
+    <!-- ══ LEFT TOOL RAIL · the map-editing toolchain ══ -->
+    <div style="width:44px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:2px;font:12px 'IBM Plex Mono',monospace;color:#8d9296">
+      <div title="Select / inspect (V)" style="width:32px;height:32px;display:grid;place-items:center">➤</div>
+      <div title="Pan (H)" style="width:32px;height:32px;display:grid;place-items:center">✥</div>
+      <div title="Point sample (I)" style="width:32px;height:32px;display:grid;place-items:center">◎</div>
+      <div style="width:22px;height:1px;background:rgba(255,255,255,.10);margin:5px 0"></div>
+      <div title="Raise / lower (B)" style="width:32px;height:32px;display:grid;place-items:center;color:#e0a34a;border:1px solid #e0a34a">▲</div>
+      <div title="Smooth (S)" style="width:32px;height:32px;display:grid;place-items:center">≈</div>
+      <div title="Flatten / terrace (F)" style="width:32px;height:32px;display:grid;place-items:center">▭</div>
+      <div title="Stamp (landform library)" style="width:32px;height:32px;display:grid;place-items:center">◆</div>
+      <div style="width:22px;height:1px;background:rgba(255,255,255,.10);margin:5px 0"></div>
+      <div title="River / water (R)" style="width:32px;height:32px;display:grid;place-items:center">∿</div>
+      <div title="Biome paint (P)" style="width:32px;height:32px;display:grid;place-items:center">❋</div>
+      <div style="width:22px;height:1px;background:rgba(255,255,255,.10);margin:5px 0"></div>
+      <div title="Place settlement" style="width:32px;height:32px;display:grid;place-items:center">⌂</div>
+      <div title="Draw route / way" style="width:32px;height:32px;display:grid;place-items:center">↝</div>
+      <div title="Territory / faction" style="width:32px;height:32px;display:grid;place-items:center">▩</div>
+      <div style="width:22px;height:1px;background:rgba(255,255,255,.10);margin:5px 0"></div>
+      <div title="Label (T)" style="width:32px;height:32px;display:grid;place-items:center">T</div>
+      <div title="Icon stamp" style="width:32px;height:32px;display:grid;place-items:center">✦</div>
+      <div title="Measure (M)" style="width:32px;height:32px;display:grid;place-items:center">⟋</div>
+      <div title="Region select / export" style="width:32px;height:32px;display:grid;place-items:center">⬚</div>
+      <div style="flex:1"></div>
+      <div title="Tool preferences" style="width:32px;height:32px;display:grid;place-items:center;color:#5f6468">⚙</div>
+    </div>
+
+    <!-- ══ VIEWPORT ══ -->
+    <div style="flex:1;position:relative;background:radial-gradient(1100px 700px at 42% 46%,#17191a 0%,#101112 58%,#0d0e0f 100%);min-width:0">
+      <div style="position:absolute;inset:0;background:radial-gradient(340px 250px at 40% 42%,rgba(224,163,74,.05),transparent 70%),radial-gradient(500px 300px at 62% 60%,rgba(120,140,150,.045),transparent 70%)"></div>
+      <div style="position:absolute;left:39%;top:40%;font:10px 'IBM Plex Mono',monospace;color:#5f6468;letter-spacing:.12em">KHARET RANGE</div>
+      <div style="position:absolute;left:60%;top:63%;font:10px 'IBM Plex Mono',monospace;color:#5f6468;letter-spacing:.12em">SEA OF VELD</div>
+      <div style="position:absolute;left:47%;top:55%;font:10px 'IBM Plex Mono',monospace;color:#7d8286">● Ashfeld · 12,400</div>
+      <!-- brush cursor -->
+      <div style="position:absolute;left:44%;top:44%;width:150px;height:150px;border:1px solid rgba(224,163,74,.85);border-radius:50%;transform:translate(-50%,-50%)"></div>
+      <div style="position:absolute;left:44%;top:44%;width:96px;height:96px;border:1px dashed rgba(224,163,74,.4);border-radius:50%;transform:translate(-50%,-50%)"></div>
+      <div style="position:absolute;left:calc(44% + 84px);top:calc(44% - 78px);font:10px 'IBM Plex Mono',monospace;color:#e0a34a">240 px · +120 m</div>
+      <!-- viewport furniture -->
+      <div style="position:absolute;left:14px;bottom:12px;font:10px 'IBM Plex Mono',monospace;color:#6f7478;display:flex;align-items:center;gap:10px"><span style="width:80px;height:1px;background:#8d9296;position:relative"><span style="position:absolute;left:0;top:-3px;width:1px;height:7px;background:#8d9296"></span><span style="position:absolute;right:0;top:-3px;width:1px;height:7px;background:#8d9296"></span></span>200 km</div>
+      <div style="position:absolute;right:14px;top:10px;font:10px 'IBM Plex Mono',monospace;color:#6f7478;text-align:right">2D · equirect · z 5.2<br>relief · atlas preset</div>
+      <div style="position:absolute;right:14px;bottom:12px;font:10px 'IBM Plex Mono',monospace;color:#6f7478">4 812 km E · 1 093 km N · 1 462 m</div>
+    </div>
+
+    <!-- ══ RIGHT DOCK ══ -->
+    <div style="width:296px;flex:none;border-left:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;min-height:0">
+      <!-- layers -->
+      <div style="flex:none;border-bottom:1px solid rgba(255,255,255,.10)">
+        <div style="padding:8px 13px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between"><span>LAYERS</span><span style="color:#5f6468">＋ ⌄</span></div>
+        <div style="padding:0 0 8px">
+          <div style="display:flex;align-items:center;gap:9px;padding:4px 13px"><span style="color:#e0a34a">●</span><span style="flex:1">Labels &amp; icons</span><span style="width:44px;height:2px;background:rgba(255,255,255,.14);position:relative"><span style="position:absolute;left:0;top:0;height:2px;width:100%;background:#8d9296"></span></span></div>
+          <div style="display:flex;align-items:center;gap:9px;padding:4px 13px"><span style="color:#e0a34a">●</span><span style="flex:1">Settlements &amp; ways</span><span style="width:44px;height:2px;background:rgba(255,255,255,.14);position:relative"><span style="position:absolute;left:0;top:0;height:2px;width:100%;background:#8d9296"></span></span></div>
+          <div style="display:flex;align-items:center;gap:9px;padding:4px 13px;color:#6f7478"><span>○</span><span style="flex:1">Political tint</span><span style="width:44px;height:2px;background:rgba(255,255,255,.14);position:relative"><span style="position:absolute;left:0;top:0;height:2px;width:40%;background:#5f6468"></span></span></div>
+          <div style="display:flex;align-items:center;gap:9px;padding:4px 13px"><span style="color:#e0a34a">●</span><span style="flex:1">Rivers &amp; lakes</span><span style="width:44px;height:2px;background:rgba(255,255,255,.14);position:relative"><span style="position:absolute;left:0;top:0;height:2px;width:100%;background:#8d9296"></span></span></div>
+          <div style="display:flex;align-items:center;gap:9px;padding:4px 13px;background:rgba(224,163,74,.07)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec">Terrain (editing)</span><span style="width:44px;height:2px;background:rgba(255,255,255,.14);position:relative"><span style="position:absolute;left:0;top:0;height:2px;width:100%;background:#e0a34a"></span></span></div>
+          <div style="display:flex;align-items:center;gap:9px;padding:4px 13px;color:#6f7478"><span>○</span><span style="flex:1">Analysis · flow accum.</span><span style="width:44px;height:2px;background:rgba(255,255,255,.14);position:relative"><span style="position:absolute;left:0;top:0;height:2px;width:60%;background:#5f6468"></span></span></div>
+        </div>
+      </div>
+      <!-- properties -->
+      <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+        <div style="padding:8px 13px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.07)"><span>PROPERTIES · RAISE / LOWER</span><span style="color:#5f6468">⌄</span></div>
+        <div style="padding:10px 13px;display:flex;flex-direction:column;gap:8px;font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+          <div style="display:flex;justify-content:space-between"><span>falloff</span><span style="color:#c8cbcd">smooth (gauss)</span></div>
+          <div style="display:flex;justify-content:space-between"><span>noise scale</span><span style="color:#c8cbcd">0.8 km</span></div>
+          <div style="display:flex;justify-content:space-between"><span>octaves · persistence</span><span style="color:#c8cbcd">4 · 0.5</span></div>
+          <div style="display:flex;justify-content:space-between"><span>respect water mask</span><span style="color:#e0a34a">on</span></div>
+          <div style="display:flex;justify-content:space-between"><span>affect layer</span><span style="color:#c8cbcd">bedrock + sediment</span></div>
+          <div style="height:1px;background:rgba(255,255,255,.07)"></div>
+          <div style="display:flex;justify-content:space-between"><span>pass buffer</span><span style="color:#c8cbcd">3 strokes · 41 MB</span></div>
+          <div style="display:flex;justify-content:space-between"><span>downstream update</span><span style="color:#e0a34a">rivers · deferred</span></div>
+        </div>
+        <div style="padding:8px 13px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;border-top:1px solid rgba(255,255,255,.07);border-bottom:1px solid rgba(255,255,255,.07);display:flex;justify-content:space-between"><span>SAMPLE · UNDER CURSOR</span><span style="color:#5f6468">⌄</span></div>
+        <div style="padding:10px 13px;display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+          <span>X <span style="color:#c8cbcd">4 832</span></span><span>Y <span style="color:#c8cbcd">1 093</span></span>
+          <span>elev <span style="color:#c8cbcd">1 462 m</span></span><span>slope <span style="color:#c8cbcd">14.2°</span></span>
+          <span>aspect <span style="color:#c8cbcd">SW</span></span><span>drainage <span style="color:#c8cbcd">0.31</span></span>
+          <span>temp <span style="color:#c8cbcd">8.4 °C</span></span><span>precip <span style="color:#c8cbcd">920 mm</span></span>
+          <span>biome <span style="color:#c8cbcd">montane</span></span><span>lith <span style="color:#c8cbcd">granite</span></span>
+          <span>soil <span style="color:#c8cbcd">thin</span></span><span>control <span style="color:#c8cbcd">unclaimed</span></span>
+          <span style="grid-column:1 / -1">nearest settlement <span style="color:#e8ebec">Valdrin · 41 km</span></span>
+        </div>
+        <div style="flex:1"></div>
+        <div style="padding:9px 13px;border-top:1px solid rgba(255,255,255,.07);font:10px 'IBM Plex Mono',monospace;color:#5f6468">Docked panels: Layers · Properties · History · Assets — drag tabs to rearrange.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ STATUS BAR ══ -->
+  <div style="height:26px;flex:none;display:flex;align-items:center;gap:22px;padding:0 14px;border-top:1px solid rgba(255,255,255,.10);font:10.5px 'IBM Plex Mono',monospace;color:#6f7478">
+    <span style="color:#e0a34a">● editing terrain — 3 uncommitted strokes</span>
+    <span>autosave 2 min ago</span>
+    <span>tiles 214/214 cached</span>
+    <div style="flex:1"></div>
+    <span>B raise/lower · [ ] size · ⇧ invert · ⌘Z undo</span>
+  </div>
+</div>
+
+<!-- ══════════════ TABLET · 2560×1600 landscape · full parity, 48px touch targets ══════════════ -->
+<div data-screen-label="DCC shell tablet 2560" style="width:2560px;height:1600px;background:#0d0e0f;color:#c8cbcd;font:14px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden;position:relative;margin-top:40px">
+
+  <div style="height:52px;flex:none;display:flex;align-items:center;gap:0;padding:0 22px;border-bottom:1px solid rgba(255,255,255,.10)">
+    <div style="font:500 15px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec;margin-right:28px">CARTALITH</div>
+    <div style="display:flex;font-size:14px;color:#a9adb0">
+      <span style="padding:15px 15px">File</span><span style="padding:15px 15px">Edit</span><span style="padding:15px 15px">Generate</span><span style="padding:15px 15px">Simulate</span>
+      <span style="padding:15px 15px;color:#e0a34a;background:rgba(224,163,74,.08);border-bottom:2px solid #e0a34a">Render</span>
+      <span style="padding:15px 15px">Assets</span><span style="padding:15px 15px">View</span><span style="padding:15px 15px">Help</span>
+    </div>
+    <div style="flex:1"></div>
+    <div style="display:flex;gap:26px;font:13px 'IBM Plex Mono',monospace;color:#6f7478"><span>ELDRA · seed 483920</span><span>finalized · L4 baked</span><span>GPU 71</span></div>
+  </div>
+
+  <div style="height:44px;flex:none;display:flex;align-items:center;padding:0 22px;gap:4px;border-bottom:1px solid rgba(255,255,255,.10);font:13px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#8d9296">
+    <span style="padding:11px 18px;color:#e8ebec;border-bottom:2px solid #e0a34a">WORLD</span>
+    <span style="padding:11px 18px">CIVILIZATION</span><span style="padding:11px 18px">INFRASTRUCTURE</span><span style="padding:11px 18px">CARTOGRAPHY</span>
+    <span style="padding:11px 18px;color:#e0a34a">RENDER</span>
+    <div style="flex:1"></div>
+    <span style="color:#5f6468">Terrain · Water · Climate · Ecology · Resources</span>
+  </div>
+
+  <div style="height:52px;flex:none;display:flex;align-items:center;gap:22px;padding:0 22px;border-bottom:1px solid rgba(255,255,255,.10);font:13px 'IBM Plex Mono',monospace;color:#8d9296">
+    <span style="color:#e0a34a;letter-spacing:.14em">RAISE / LOWER</span>
+    <span style="display:flex;align-items:center;gap:9px">hardness <span style="width:90px;height:3px;background:rgba(255,255,255,.14);position:relative;display:inline-block"><span style="position:absolute;left:0;top:0;height:3px;width:35%;background:#e0a34a"></span></span> <span style="color:#c8cbcd">0.35</span></span>
+    <span style="display:flex;align-items:center;gap:9px">intensity <span style="width:90px;height:3px;background:rgba(255,255,255,.14);position:relative;display:inline-block"><span style="position:absolute;left:0;top:0;height:3px;width:50%;background:#e0a34a"></span></span> <span style="color:#c8cbcd">+120&nbsp;m</span></span>
+    <span style="display:flex;gap:4px"><span style="padding:9px 16px;min-height:34px;display:flex;align-items:center;border:1px solid #e0a34a;color:#e0a34a">raise</span><span style="padding:9px 16px;min-height:34px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.16)">lower</span><span style="padding:9px 16px;min-height:34px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.16)">smooth</span></span>
+    <div style="flex:1"></div>
+    <span style="padding:9px 18px;min-height:44px;display:flex;align-items:center;border:1px solid #e0a34a;color:#e0a34a">commit pass</span>
+    <span style="padding:9px 18px;min-height:44px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.16)">discard</span>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+    <div style="width:64px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;align-items:center;padding:10px 0;gap:4px;font:15px 'IBM Plex Mono',monospace;color:#8d9296">
+      <div style="width:48px;height:48px;display:grid;place-items:center">➤</div>
+      <div style="width:48px;height:48px;display:grid;place-items:center">✥</div>
+      <div style="width:48px;height:48px;display:grid;place-items:center">◎</div>
+      <div style="width:30px;height:1px;background:rgba(255,255,255,.10);margin:6px 0"></div>
+      <div style="width:48px;height:48px;display:grid;place-items:center;color:#e0a34a;border:1px solid #e0a34a">▲</div>
+      <div style="width:48px;height:48px;display:grid;place-items:center">≈</div>
+      <div style="width:48px;height:48px;display:grid;place-items:center">▭</div>
+      <div style="width:48px;height:48px;display:grid;place-items:center">◆</div>
+      <div style="width:30px;height:1px;background:rgba(255,255,255,.10);margin:6px 0"></div>
+      <div style="width:48px;height:48px;display:grid;place-items:center">∿</div>
+      <div style="width:48px;height:48px;display:grid;place-items:center">❋</div>
+      <div style="width:30px;height:1px;background:rgba(255,255,255,.10);margin:6px 0"></div>
+      <div style="width:48px;height:48px;display:grid;place-items:center">⌂</div>
+      <div style="width:48px;height:48px;display:grid;place-items:center">↝</div>
+      <div style="width:48px;height:48px;display:grid;place-items:center">▩</div>
+      <div style="width:30px;height:1px;background:rgba(255,255,255,.10);margin:6px 0"></div>
+      <div style="width:48px;height:48px;display:grid;place-items:center">T</div>
+      <div style="width:48px;height:48px;display:grid;place-items:center">✦</div>
+      <div style="width:48px;height:48px;display:grid;place-items:center">⟋</div>
+      <div style="width:48px;height:48px;display:grid;place-items:center">⬚</div>
+      <div style="flex:1"></div>
+      <div style="width:48px;height:48px;display:grid;place-items:center;color:#5f6468">⚙</div>
+    </div>
+
+    <div style="flex:1;position:relative;background:radial-gradient(1400px 900px at 42% 46%,#17191a 0%,#101112 58%,#0d0e0f 100%);min-width:0">
+      <div style="position:absolute;left:39%;top:40%;font:13px 'IBM Plex Mono',monospace;color:#5f6468;letter-spacing:.12em">KHARET RANGE</div>
+      <div style="position:absolute;left:60%;top:63%;font:13px 'IBM Plex Mono',monospace;color:#5f6468;letter-spacing:.12em">SEA OF VELD</div>
+      <div style="position:absolute;left:47%;top:55%;font:13px 'IBM Plex Mono',monospace;color:#7d8286">● Ashfeld · 12,400</div>
+      <div style="position:absolute;left:44%;top:44%;width:190px;height:190px;border:1px solid rgba(224,163,74,.85);border-radius:50%;transform:translate(-50%,-50%)"></div>
+      <div style="position:absolute;right:18px;top:14px;font:13px 'IBM Plex Mono',monospace;color:#6f7478;text-align:right">2D · equirect · z 5.2<br>relief · atlas preset</div>
+      <div style="position:absolute;right:18px;bottom:16px;font:13px 'IBM Plex Mono',monospace;color:#6f7478">4 812 km E · 1 093 km N · 1 462 m</div>
+    </div>
+
+    <div style="width:400px;flex:none;border-left:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;min-height:0">
+      <div style="flex:none;border-bottom:1px solid rgba(255,255,255,.10)">
+        <div style="padding:12px 18px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between"><span>LAYERS</span><span style="color:#5f6468">＋ ⌄</span></div>
+        <div style="padding:0 0 10px">
+          <div style="display:flex;align-items:center;gap:11px;padding:8px 18px;min-height:44px"><span style="color:#e0a34a">●</span><span style="flex:1">Labels &amp; icons</span></div>
+          <div style="display:flex;align-items:center;gap:11px;padding:8px 18px;min-height:44px"><span style="color:#e0a34a">●</span><span style="flex:1">Settlements &amp; ways</span></div>
+          <div style="display:flex;align-items:center;gap:11px;padding:8px 18px;min-height:44px;color:#6f7478"><span>○</span><span style="flex:1">Political tint</span></div>
+          <div style="display:flex;align-items:center;gap:11px;padding:8px 18px;min-height:44px;background:rgba(224,163,74,.07)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec">Terrain (editing)</span></div>
+        </div>
+      </div>
+      <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+        <div style="padding:12px 18px;font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;border-bottom:1px solid rgba(255,255,255,.07)">SAMPLE · UNDER CURSOR</div>
+        <div style="padding:14px 18px;display:grid;grid-template-columns:1fr 1fr;gap:9px 18px;font:13px 'IBM Plex Mono',monospace;color:#8d9296">
+          <span>X <span style="color:#c8cbcd">4 832</span></span><span>Y <span style="color:#c8cbcd">1 093</span></span>
+          <span>elev <span style="color:#c8cbcd">1 462 m</span></span><span>slope <span style="color:#c8cbcd">14.2°</span></span>
+          <span>temp <span style="color:#c8cbcd">8.4 °C</span></span><span>precip <span style="color:#c8cbcd">920 mm</span></span>
+          <span>biome <span style="color:#c8cbcd">montane</span></span><span>lith <span style="color:#c8cbcd">granite</span></span>
+          <span style="grid-column:1 / -1">nearest settlement <span style="color:#e8ebec">Valdrin · 41 km</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:36px;flex:none;display:flex;align-items:center;gap:26px;padding:0 22px;border-top:1px solid rgba(255,255,255,.10);font:12px 'IBM Plex Mono',monospace;color:#6f7478">
+    <span style="color:#e0a34a">● editing terrain — 3 uncommitted strokes</span>
+    <span>autosave 2 min ago</span>
+    <div style="flex:1"></div>
+    <span>B raise/lower · [ ] size · ⇧ invert</span>
+  </div>
+</div>
+
+<!-- ══════════════ ANDROID PHONE · 393×852 portrait · bottom toolchain + sheets ══════════════ -->
+<div data-screen-label="DCC shell android phone" style="width:393px;height:852px;background:#0d0e0f;color:#c8cbcd;font:14px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden;position:relative;margin-top:40px">
+
+  <div style="height:28px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 16px 4px;font:11px 'IBM Plex Mono',monospace;color:#8d9296"><span>9:41</span><span>ELDRA · 483920</span></div>
+
+  <div style="height:52px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.10)">
+    <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.14);font:16px 'IBM Plex Mono',monospace">☰</div>
+    <div style="font:500 13px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#e8ebec;flex:1">CARTALITH</div>
+    <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:#e0a34a;font:16px 'IBM Plex Mono',monospace">▤</div>
+  </div>
+
+  <div style="height:40px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#6f7478;overflow:hidden">
+    <span style="color:#e8ebec;border-bottom:2px solid #e0a34a;padding-bottom:2px">WORLD</span><span>CIVIL.</span><span>INFRA.</span><span>MAP</span><span style="color:#e0a34a">RENDER</span>
+  </div>
+
+  <div style="flex:1;position:relative;min-height:0;background:radial-gradient(700px 500px at 44% 42%,#17191a 0%,#101112 58%,#0d0e0f 100%)">
+    <div style="position:absolute;left:38%;top:38%;font:9px 'IBM Plex Mono',monospace;color:#5f6468">KHARET RANGE</div>
+    <div style="position:absolute;left:50%;top:60%;font:10px 'IBM Plex Mono',monospace;color:#7d8286">● Ashfeld</div>
+    <div style="position:absolute;left:46%;top:44%;width:100px;height:100px;border:1px solid rgba(224,163,74,.85);border-radius:50%;transform:translate(-50%,-50%)"></div>
+    <div style="position:absolute;right:12px;top:10px;font:10px 'IBM Plex Mono',monospace;color:#6f7478;text-align:right">z 5.2 · relief</div>
+
+    <div style="position:absolute;left:0;right:0;bottom:0;background:#121314;border-top:1px solid rgba(255,255,255,.14);box-shadow:0 -14px 34px rgba(0,0,0,.45)">
+      <div style="height:22px;display:flex;align-items:center;justify-content:center"><div style="width:40px;height:4px;border-radius:2px;background:rgba(255,255,255,.22)"></div></div>
+      <div style="padding:0 16px 6px;font:11px 'IBM Plex Mono',monospace;color:#e0a34a;letter-spacing:.12em">RAISE / LOWER</div>
+      <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:12px;font:12px 'IBM Plex Mono',monospace;color:#8d9296">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><span>hardness</span><span style="flex:1;height:3px;background:rgba(255,255,255,.14);position:relative;margin:0 10px"><span style="position:absolute;left:0;top:0;height:3px;width:35%;background:#e0a34a"></span></span><span style="color:#c8cbcd">0.35</span></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><span>intensity</span><span style="flex:1;height:3px;background:rgba(255,255,255,.14);position:relative;margin:0 10px"><span style="position:absolute;left:0;top:0;height:3px;width:50%;background:#e0a34a"></span></span><span style="color:#c8cbcd">+120 m</span></div>
+        <div style="display:flex;gap:8px">
+          <span style="flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;border:1px solid #e0a34a;color:#e0a34a">raise</span>
+          <span style="flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.16)">lower</span>
+          <span style="flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.16)">smooth</span>
+        </div>
+        <div style="display:flex;gap:8px">
+          <span style="flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;border:1px solid #e0a34a;color:#e0a34a">commit pass</span>
+          <span style="flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.16)">discard</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:64px;flex:none;display:flex;align-items:center;gap:2px;padding:0 6px;border-top:1px solid rgba(255,255,255,.10);overflow-x:auto;font:15px 'IBM Plex Mono',monospace;color:#8d9296">
+    <div style="width:52px;height:52px;flex:none;display:grid;place-items:center">➤</div>
+    <div style="width:52px;height:52px;flex:none;display:grid;place-items:center">◎</div>
+    <div style="width:52px;height:52px;flex:none;display:grid;place-items:center;color:#e0a34a;border:1px solid #e0a34a">▲</div>
+    <div style="width:52px;height:52px;flex:none;display:grid;place-items:center">≈</div>
+    <div style="width:52px;height:52px;flex:none;display:grid;place-items:center">▭</div>
+    <div style="width:52px;height:52px;flex:none;display:grid;place-items:center">◆</div>
+    <div style="width:52px;height:52px;flex:none;display:grid;place-items:center">∿</div>
+    <div style="width:52px;height:52px;flex:none;display:grid;place-items:center">❋</div>
+    <div style="width:52px;height:52px;flex:none;display:grid;place-items:center">⌂</div>
+    <div style="width:52px;height:52px;flex:none;display:grid;place-items:center">↝</div>
+    <div style="width:52px;height:52px;flex:none;display:grid;place-items:center">T</div>
+    <div style="width:52px;height:52px;flex:none;display:grid;place-items:center">⬚</div>
+  </div>
+
+  <div style="height:24px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-top:1px solid rgba(255,255,255,.10);font:10px 'IBM Plex Mono',monospace;color:#6f7478">
+    <span style="color:#e0a34a">● 3 uncommitted</span><div style="flex:1"></div><span>autosave 2m</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
