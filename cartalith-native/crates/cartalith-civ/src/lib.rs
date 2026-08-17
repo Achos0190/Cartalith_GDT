@@ -5249,6 +5249,517 @@ pub fn jp_sea_closure(terrain: &str, season: &str, seasonal_closures_enabled: bo
     Some(format!("{terrain} is closed to shipping in Winter (the sailing season is shut). Sail in another season, hug the coast instead, or turn off seasonal closures in the party form."))
 }
 
+// ----------------------------------------------------------------------------
+// Journey Planner milestone 2 -- transport mode selection (JOURNEY_PLANNER_
+// SCOPE.md). Real finding, not assumed: of the 10 functions that scope doc
+// listed for this milestone, `jpAutoPickTransport`/`jpAutoPickVessel`/
+// `_jpBestLandTransportForStage`/`_jpBestPackageForStage` all take a `plan`
+// object built by `_jpEnsurePlan`/`_jpDeriveStages` (milestone 5, the largest
+// remaining piece, not started) or call `jpCalcLand` (milestone 3, not
+// started) -- reference lines 17814/18012/18053/18080 read directly, not
+// assumed from the scope doc's own guess. Porting those four now would mean
+// inventing the shape of data milestones 3/5 haven't built yet. The other six
+// are genuinely self-contained given a caller-supplied stage list rather than
+// the full JS `plan`/`jn` orchestration object, and are what this milestone
+// ships: `jpBestAnimalForContext`, `jpPickSpeciesForRoute`, `jpResolveMount`,
+// `jpVesselMatrix`, `_jpVesselFits`, `_jpAutoStageVessel` (plus their real
+// data tables and the small pure helpers they call).
+// ----------------------------------------------------------------------------
+
+/// `JP_ANIMALS` (reference line 17386): pack/draft animal stats.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AnimalStats {
+    pub cap_kg: f64,
+    pub food_kg_day: f64,
+    pub water_l_day: f64,
+    pub mounted_speed_kmh: f64,
+    pub label: &'static str,
+}
+
+pub const JP_ANIMAL_KEYS: [&str; 4] = ["donkey", "mule", "camel", "horse"];
+
+pub fn jp_animal_stats(key: &str) -> Option<AnimalStats> {
+    Some(match key {
+        "donkey" => AnimalStats { cap_kg: 80.0, food_kg_day: 4.0, water_l_day: 15.0, mounted_speed_kmh: 4.0, label: "Donkey" },
+        "mule" => AnimalStats { cap_kg: 110.0, food_kg_day: 5.0, water_l_day: 20.0, mounted_speed_kmh: 5.0, label: "Mule" },
+        "camel" => AnimalStats { cap_kg: 300.0, food_kg_day: 6.0, water_l_day: 30.0, mounted_speed_kmh: 4.5, label: "Camel" },
+        "horse" => AnimalStats { cap_kg: 120.0, food_kg_day: 7.0, water_l_day: 25.0, mounted_speed_kmh: 6.0, label: "Horse" },
+        _ => return None,
+    })
+}
+
+/// `JP_ANIMAL_TERRAIN_OVERRIDE` (reference line 17405): per-species terrain
+/// affinity overrides -- replaces the default `JP_TERRAIN.land` value for
+/// that animal on that terrain. `horse` has no overrides (empty in the
+/// reference), matching `jpAnimalTerrainMod`'s own fallthrough.
+fn jp_animal_terrain_override(animal_key: &str, terrain: &str) -> Option<f64> {
+    match (animal_key, terrain) {
+        ("camel", "Deep Sand") => Some(0.85),
+        ("camel", "Desert Hardpack") => Some(0.95),
+        ("camel", "Swamp / Marsh") => Some(0.20),
+        ("camel", "Mountain Trails") => Some(0.30),
+        ("camel", "Mountain Pass") => Some(0.50),
+        ("camel", "Snow / Ice") => Some(0.30),
+        ("mule", "Hills") => Some(0.85),
+        ("mule", "Rocky Terrain") => Some(0.75),
+        ("mule", "Mountain Pass") => Some(0.85),
+        ("mule", "Mountain Trails") => Some(0.65),
+        ("mule", "Deep Sand") => Some(0.45),
+        ("donkey", "Hills") => Some(0.80),
+        ("donkey", "Rocky Terrain") => Some(0.70),
+        ("donkey", "Mountain Pass") => Some(0.75),
+        ("donkey", "Mountain Trails") => Some(0.55),
+        ("donkey", "Forest Path") => Some(0.85),
+        _ => None,
+    }
+}
+
+/// `JP_TERRAIN.land` (reference line 17446-17449): the ratio table against
+/// "maintained dirt/trade road = 1.00".
+pub fn jp_terrain_land_mod(terrain: &str) -> f64 {
+    match terrain {
+        "Paved Road" => 1.50,
+        "Dirt Track" => 1.00,
+        "Open Plains" => 0.95,
+        "Forest Path" => 0.75,
+        "Hills" => 0.70,
+        "Rocky Terrain" => 0.50,
+        "Mountain Pass" => 0.65,
+        "Mountain Trails" => 0.45,
+        "Swamp / Marsh" => 0.40,
+        "Desert Hardpack" => 0.80,
+        "Deep Sand" => 0.50,
+        "Snow / Ice" => 0.55,
+        "Ruins / Debris" => 0.50,
+        _ => 1.0,
+    }
+}
+
+/// `jpAnimalTerrainMod` (reference line 17709, v1.50): the one place an
+/// animal's terrain speed modifier is resolved -- its species override if it
+/// has one, else the generic land-terrain row.
+pub fn jp_animal_terrain_mod(animal_key: &str, terrain: &str) -> f64 {
+    jp_animal_terrain_override(animal_key, terrain).unwrap_or_else(|| jp_terrain_land_mod(terrain))
+}
+
+/// `JP_BIOMES[...].desertLike`/`.bestAnimals[0]` (reference line 17487),
+/// narrowed to the two fields `jpBestAnimalForContext` actually reads --
+/// `water`/`forage`/`waterForage`/`grazing`/`weather` belong to milestones
+/// 3/4, not this one.
+fn jp_biome_desert_like_and_best(biome_key: &str) -> (bool, &'static str) {
+    match biome_key {
+        "Temperate Forest" => (false, "mule"),
+        "Tropical Jungle" => (false, "mule"),
+        "Boreal Taiga" => (false, "mule"),
+        "Tundra / Polar" => (false, "mule"),
+        "Steppe / Grassland" => (false, "horse"),
+        "Mediterranean Scrub" => (false, "mule"),
+        "Hot Desert" => (true, "camel"),
+        "Cold Desert / Badlands" => (true, "camel"),
+        "Mountain Highland" => (false, "mule"),
+        "Wetlands / Marshes" => (false, "donkey"),
+        "Coastal Lowland" => (false, "mule"),
+        "Ruined Wastes" => (false, "mule"),
+        _ => (false, "mule"),
+    }
+}
+
+/// `jpLegacyBiomeOf`'s own climate-key fallback table (reference lines
+/// 18313-18319, `bIdx===13` branch): the reference's real, already-designed
+/// answer to "how does the world's climate-biome id map onto `JP_BIOMES`'
+/// legacy V1.915 names" -- not invented here. `biome_id` is this port's own
+/// `classify_biome` output (`BIOME_*` constants, `cartalith-civ`); the
+/// reference's `classifyBiome(T,M)` keys (`ice`/`tundra`/`boreal`/`conifer`/
+/// `tempForest`/`tempRain`/`grass`/`savanna`/`shrub`/`desert`/`tropDry`/
+/// `tropWet`) are the exact same climate-biome scheme this port already
+/// golden-verified `classify_biome` against -- confirmed by reading both
+/// side by side, not assumed. `desert` splits on temperature exactly as the
+/// reference does (`T<10?"Cold Desert / Badlands":"Hot Desert"`). Water
+/// biomes (`BIOME_OCEAN`/`BIOME_LAKE`) have no JP land-biome meaning and fall
+/// through to the reference's own default, `"Temperate Forest"`.
+pub fn jp_biome_key(biome_id: u8, temp_c: f64) -> &'static str {
+    match biome_id {
+        BIOME_ICE | BIOME_TUNDRA => "Tundra / Polar",
+        BIOME_BOREAL | BIOME_CONIFER => "Boreal Taiga",
+        BIOME_TEMP_FOREST | BIOME_TEMP_RAIN => "Temperate Forest",
+        BIOME_GRASS | BIOME_SAVANNA => "Steppe / Grassland",
+        BIOME_SHRUB => "Mediterranean Scrub",
+        BIOME_DESERT => {
+            if temp_c < 10.0 {
+                "Cold Desert / Badlands"
+            } else {
+                "Hot Desert"
+            }
+        }
+        BIOME_TROP_DRY | BIOME_TROP_WET => "Tropical Jungle",
+        _ => "Temperate Forest",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnimalPick {
+    pub key: &'static str,
+    pub reason: String,
+}
+
+/// `jpBestAnimalForContext` (reference line 17713): terrain-specific rules
+/// take priority over biome (v1.50 audit fix -- Mountain Pass/Hills used to
+/// fall through to the biome branch and let a dry biome pick a camel on
+/// terrain the table itself rates worst there), then biome aridity, then the
+/// biome's own preferred-animals list, then a versatile default.
+pub fn jp_best_animal_for_context(terrain: &str, biome_key: &str) -> AnimalPick {
+    if terrain == "Deep Sand" || terrain == "Desert Hardpack" {
+        return AnimalPick { key: "camel", reason: "camels dominate desert travel — water efficiency and load stability on sand.".to_string() };
+    }
+    if terrain == "Mountain Trails" || terrain == "Rocky Terrain" || terrain == "Mountain Pass" || terrain == "Hills" {
+        return AnimalPick { key: "mule", reason: "mules are sure-footed and rated for rough/upland terrain where horses and camels falter.".to_string() };
+    }
+    if terrain == "Swamp / Marsh" {
+        return AnimalPick { key: "donkey", reason: "donkeys handle marginal footing with light loads — wagons and horses cannot operate here.".to_string() };
+    }
+    if terrain == "Open Plains" && biome_key == "Steppe / Grassland" {
+        return AnimalPick { key: "horse", reason: "horses are the historical steppe transport — speed and grazing efficiency on open grass.".to_string() };
+    }
+    if terrain == "Snow / Ice" {
+        return AnimalPick { key: "mule", reason: "mules tolerate cold and rough surfaces better than horses; donkeys struggle in deep snow.".to_string() };
+    }
+    if terrain == "Forest Path" {
+        return AnimalPick { key: "mule", reason: "mules carry well through narrow forest tracks where wagons cannot enter.".to_string() };
+    }
+    let (desert_like, best) = jp_biome_desert_like_and_best(biome_key);
+    if desert_like {
+        return AnimalPick { key: "camel", reason: "arid biome — camels minimise water consumption and tolerate heat.".to_string() };
+    }
+    if !biome_key.is_empty() {
+        let label = jp_animal_stats(best).map(|a| a.label).unwrap_or(best).to_lowercase();
+        return AnimalPick { key: best, reason: format!("{label}s are the typical workhorses for this biome.") };
+    }
+    AnimalPick { key: "mule", reason: "mules are the versatile default — workable across most temperate terrain.".to_string() }
+}
+
+/// `jpPickSpeciesForRoute`'s land-stage input (reference's own per-stage
+/// `{terrain, biome, km}` shape, milestone 5's `_jpDeriveStages` output --
+/// taken here as a caller-supplied slice rather than requiring that
+/// milestone to exist yet, same "ship the primitive ahead of the
+/// orchestration" precedent as milestone 1).
+#[derive(Debug, Clone, PartialEq)]
+pub struct LandStage {
+    pub terrain: String,
+    pub biome_key: String,
+    pub km: f64,
+}
+
+/// `JP_BOTTLENECK_PENALTY`/`JP_BOTTLENECK_MIN_SHARE` (reference line 17770).
+const JP_BOTTLENECK_PENALTY: f64 = 0.20;
+const JP_BOTTLENECK_MIN_SHARE: f64 = 0.10;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpeciesPick {
+    pub key: &'static str,
+    pub reason: String,
+    pub switched: Option<SpeciesSwitch>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpeciesSwitch {
+    pub from: &'static str,
+    pub to: &'static str,
+    pub terrain: String,
+    pub km: f64,
+    pub penalty: f64,
+}
+
+/// `jpPickSpeciesForRoute` (reference line 17771, v1.50 bottleneck veto): a
+/// km-weighted plurality vote across every land stage, overridden only when
+/// one stage is a genuine bottleneck for the elected animal (materially
+/// worse than the best available AND a real share of the route) -- then the
+/// whole route switches to whichever animal minimises total travel time.
+pub fn jp_pick_species_for_route(land_stages: &[LandStage]) -> SpeciesPick {
+    if land_stages.is_empty() {
+        return SpeciesPick { key: "mule", reason: "no land stages on this route — mule is the versatile default.".to_string(), switched: None };
+    }
+    let total_km: f64 = land_stages.iter().map(|s| s.km.max(0.01)).sum();
+
+    let mut tally: std::collections::HashMap<&'static str, f64> = std::collections::HashMap::new();
+    let mut reason_of: std::collections::HashMap<&'static str, String> = std::collections::HashMap::new();
+    let mut reason_km: std::collections::HashMap<&'static str, f64> = std::collections::HashMap::new();
+    for s in land_stages {
+        let pick = jp_best_animal_for_context(&s.terrain, &s.biome_key);
+        let km = s.km.max(0.01);
+        *tally.entry(pick.key).or_insert(0.0) += km;
+        if km > *reason_km.get(pick.key).unwrap_or(&0.0) {
+            reason_km.insert(pick.key, km);
+            reason_of.insert(pick.key, pick.reason.clone());
+        }
+    }
+    let naive = *tally.iter().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).map(|(k, _)| k).unwrap();
+
+    let time_for = |a: &str| -> f64 {
+        land_stages.iter().map(|s| s.km.max(0.01) / jp_animal_terrain_mod(a, &s.terrain).max(0.05)).sum()
+    };
+
+    let mut worst: Option<(String, f64, f64)> = None; // (terrain, km, penalty)
+    for s in land_stages {
+        let km = s.km.max(0.01);
+        if km / total_km < JP_BOTTLENECK_MIN_SHARE {
+            continue;
+        }
+        let mine = jp_animal_terrain_mod(naive, &s.terrain);
+        let best = JP_ANIMAL_KEYS.iter().map(|a| jp_animal_terrain_mod(a, &s.terrain)).fold(f64::MIN, f64::max);
+        let penalty = if best > 0.0 { (best - mine) / best } else { 0.0 };
+        if penalty >= JP_BOTTLENECK_PENALTY && worst.as_ref().is_none_or(|w| penalty > w.2) {
+            worst = Some((s.terrain.clone(), km, penalty));
+        }
+    }
+    let Some((worst_terrain, worst_km, worst_penalty)) = worst else {
+        return SpeciesPick { key: naive, reason: reason_of.get(naive).cloned().unwrap_or_default(), switched: None };
+    };
+
+    let winner = *JP_ANIMAL_KEYS.iter().min_by(|a, b| time_for(a).partial_cmp(&time_for(b)).unwrap()).unwrap();
+    if winner == naive {
+        return SpeciesPick { key: naive, reason: reason_of.get(naive).cloned().unwrap_or_default(), switched: None };
+    }
+    let winner_label = jp_animal_stats(winner).map(|a| a.label).unwrap_or(winner).to_lowercase();
+    let naive_label = jp_animal_stats(naive).map(|a| a.label).unwrap_or(naive).to_lowercase();
+    SpeciesPick {
+        key: winner,
+        reason: format!(
+            "{winner_label}s are chosen for the whole route because of {} km of {worst_terrain} — a {naive_label} loses {}% of its pace there.",
+            worst_km.round() as i64,
+            (worst_penalty * 100.0).round() as i64
+        ),
+        switched: Some(SpeciesSwitch { from: naive, to: winner, terrain: worst_terrain, km: worst_km, penalty: worst_penalty }),
+    }
+}
+
+/// `jpResolveMount` (reference line 17687): the slowest animal in the train
+/// sets the mounted pace (a column moves at its slowest member). Caller
+/// supplies the plan's own animal counts and mount-animal override, rather
+/// than the full JS `plan` object.
+pub fn jp_resolve_mount(animal_counts: &std::collections::HashMap<&str, i32>, mount_animal_override: Option<&str>) -> &'static str {
+    let present: Vec<&str> = JP_ANIMAL_KEYS.iter().copied().filter(|k| *animal_counts.get(k).unwrap_or(&0) > 0).collect();
+    if !present.is_empty() {
+        return present
+            .into_iter()
+            .reduce(|s, k| {
+                let s_speed = jp_animal_stats(s).map(|a| a.mounted_speed_kmh).unwrap_or(f64::MAX);
+                let k_speed = jp_animal_stats(k).map(|a| a.mounted_speed_kmh).unwrap_or(f64::MAX);
+                if k_speed < s_speed { k } else { s }
+            })
+            .unwrap();
+    }
+    match mount_animal_override {
+        Some(k) if JP_ANIMAL_KEYS.contains(&k) => JP_ANIMAL_KEYS.iter().find(|&&a| a == k).copied().unwrap(),
+        _ => "horse",
+    }
+}
+
+/// `JP_SHIPS` (reference line 17318): the vessel roster.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShipStats {
+    pub speed_kmh: f64,
+    pub cargo_kg: f64,
+    pub crew: u32,
+    pub river: bool,
+    pub sea: bool,
+    pub open_sea: bool,
+    pub invalid_water: &'static [&'static str],
+}
+
+pub const JP_VESSEL_PREFERENCE: [&str; 11] =
+    ["Fishing Vessel", "Keelboat", "River Barge", "Dhow", "Cog", "Caravel", "River Galley", "Longship", "Fluyt", "Carrack", "Galleon"];
+
+pub fn jp_ship_stats(name: &str) -> Option<ShipStats> {
+    Some(match name {
+        "River Barge" => ShipStats { speed_kmh: 2.0, cargo_kg: 30000.0, crew: 12, river: true, sea: false, open_sea: false, invalid_water: &["River with Rapids"] },
+        "Keelboat" => ShipStats { speed_kmh: 4.0, cargo_kg: 8000.0, crew: 8, river: true, sea: true, open_sea: false, invalid_water: &[] },
+        "River Galley" => ShipStats { speed_kmh: 5.0, cargo_kg: 3000.0, crew: 30, river: true, sea: false, open_sea: false, invalid_water: &["River with Rapids"] },
+        "Fishing Vessel" => ShipStats { speed_kmh: 8.0, cargo_kg: 1500.0, crew: 4, river: false, sea: true, open_sea: false, invalid_water: &["Open Sea", "Rough Open Sea"] },
+        "Longship" => ShipStats { speed_kmh: 11.0, cargo_kg: 5000.0, crew: 40, river: true, sea: true, open_sea: true, invalid_water: &[] },
+        "Cog" => ShipStats { speed_kmh: 10.0, cargo_kg: 80000.0, crew: 20, river: false, sea: true, open_sea: true, invalid_water: &[] },
+        "Dhow" => ShipStats { speed_kmh: 12.0, cargo_kg: 20000.0, crew: 15, river: false, sea: true, open_sea: true, invalid_water: &[] },
+        "Caravel" => ShipStats { speed_kmh: 13.0, cargo_kg: 30000.0, crew: 20, river: false, sea: true, open_sea: true, invalid_water: &[] },
+        "Carrack" => ShipStats { speed_kmh: 11.0, cargo_kg: 200000.0, crew: 80, river: false, sea: true, open_sea: true, invalid_water: &[] },
+        "Galleon" => ShipStats { speed_kmh: 13.0, cargo_kg: 300000.0, crew: 150, river: false, sea: true, open_sea: true, invalid_water: &[] },
+        "Fluyt" => ShipStats { speed_kmh: 11.0, cargo_kg: 250000.0, crew: 50, river: false, sea: true, open_sea: true, invalid_water: &[] },
+        _ => return None,
+    })
+}
+
+fn jp_ship_mode_ok(ship: &ShipStats, cat: &str) -> bool {
+    match cat {
+        "river" => ship.river,
+        "sea" => ship.sea,
+        _ => false,
+    }
+}
+
+/// `JP_WATER_WINDOW` (reference line 17459): hours actually under way per
+/// day, by water type.
+pub fn jp_water_window(cat: &str, terrain: &str) -> f64 {
+    let hit = match (cat, terrain) {
+        ("sea", "Sheltered Bay") => Some(9.0),
+        ("sea", "Coastal Waters") => Some(11.0),
+        ("sea", "Open Sea") => Some(22.0),
+        ("sea", "Rough Open Sea") => Some(22.0),
+        ("river", "Calm River") => Some(12.0),
+        ("river", "Moderate River") => Some(12.0),
+        ("river", "River with Shallows") => Some(11.0),
+        ("river", "River Delta") => Some(11.0),
+        ("river", "River with Rapids") => Some(9.0),
+        _ => None,
+    };
+    hit.unwrap_or(11.0)
+}
+
+/// `JP_TERRAIN.river`/`.sea` (reference lines 17450-17451): the structural
+/// water-type speed modifier (wind/current is a separate axis, not double-
+/// counted here).
+fn jp_terrain_water_mod(cat: &str, terrain: &str) -> f64 {
+    match (cat, terrain) {
+        ("river", "Calm River") => 1.00,
+        ("river", "Moderate River") => 0.90,
+        ("river", "River with Shallows") => 0.75,
+        ("river", "River Delta") => 0.65,
+        ("river", "River with Rapids") => 0.50,
+        ("sea", "Sheltered Bay") => 0.38,
+        ("sea", "Coastal Waters") => 0.60,
+        ("sea", "Open Sea") => 0.55,
+        ("sea", "Rough Open Sea") => 0.20,
+        _ => 1.0,
+    }
+}
+
+/// `_jpVesselWaterBlock` (reference line 17956): why (if at all) a vessel
+/// cannot enter this water -- the single source of truth both the auto-
+/// picker and the manual-plan validator read from.
+pub fn jp_vessel_water_block(ship: &ShipStats, cat: &str, terrain: &str, vessel_name: &str) -> Option<String> {
+    if !jp_ship_mode_ok(ship, cat) {
+        let water = if cat == "river" { "rivers/lakes" } else { "the open sea" };
+        return Some(format!("{vessel_name} cannot operate on {water}."));
+    }
+    if cat == "sea" && !ship.open_sea && (terrain == "Open Sea" || terrain == "Rough Open Sea") {
+        return Some(format!("{vessel_name} is not rated for open-sea conditions on this leg."));
+    }
+    if ship.invalid_water.contains(&terrain) {
+        return Some(format!("{vessel_name} cannot navigate {terrain}."));
+    }
+    None
+}
+
+/// `jpVesselDayKm` (reference line 17975, v1.51): real per-day distance for
+/// one vessel on one water type -- cruise × sailing window × terrain
+/// fraction of cruise realised. `None` when the vessel cannot enter at all
+/// (same verdict `jp_vessel_water_block` gives).
+pub fn jp_vessel_day_km(ship_name: &str, cat: &str, terrain: &str) -> Option<f64> {
+    let ship = jp_ship_stats(ship_name)?;
+    if !jp_ship_mode_ok(&ship, cat) {
+        return None;
+    }
+    if jp_vessel_water_block(&ship, cat, terrain, ship_name).is_some() {
+        return None;
+    }
+    let win = jp_water_window(cat, terrain);
+    let t_mod = jp_terrain_water_mod(cat, terrain);
+    Some(ship.speed_kmh * win * t_mod)
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VesselMatrixRow {
+    pub name: &'static str,
+    pub cruise_kmh: f64,
+    pub cargo_kg: f64,
+    pub crew: u32,
+    pub waters_usable: usize,
+    pub best_kmday: f64,
+    pub best_water: Option<&'static str>,
+    pub range: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VesselMatrixBest {
+    pub name: Option<&'static str>,
+    pub kmday: Option<f64>,
+}
+
+/// `jpVesselMatrix` (reference line 17984): every vessel × every water type,
+/// plus which vessel is fastest on each one -- "what is actually fast HERE",
+/// not the same vessel everywhere.
+pub fn jp_vessel_matrix() -> (Vec<VesselMatrixRow>, std::collections::HashMap<(&'static str, &'static str), VesselMatrixBest>) {
+    const RIVER_TERRAINS: [&str; 5] = ["Calm River", "Moderate River", "River with Shallows", "River Delta", "River with Rapids"];
+    const SEA_TERRAINS: [&str; 4] = ["Sheltered Bay", "Coastal Waters", "Open Sea", "Rough Open Sea"];
+    let waters: Vec<(&str, &str)> = std::iter::empty()
+        .chain(RIVER_TERRAINS.iter().map(|&t| ("river", t)))
+        .chain(SEA_TERRAINS.iter().map(|&t| ("sea", t)))
+        .collect();
+
+    let mut rows = Vec::with_capacity(JP_VESSEL_PREFERENCE.len());
+    for &name in JP_VESSEL_PREFERENCE.iter() {
+        let ship = jp_ship_stats(name).expect("JP_VESSEL_PREFERENCE names are all real JP_SHIPS keys");
+        let cells: Vec<(&str, &str, Option<f64>)> = waters.iter().map(|&(cat, terrain)| (cat, terrain, jp_vessel_day_km(name, cat, terrain))).collect();
+        let usable: Vec<&(&str, &str, Option<f64>)> = cells.iter().filter(|c| c.2.is_some()).collect();
+        let best_kmday = usable.iter().filter_map(|c| c.2).fold(0.0_f64, f64::max);
+        let best_water = usable.iter().max_by(|a, b| a.2.unwrap().partial_cmp(&b.2.unwrap()).unwrap()).map(|c| c.1);
+        let mut modes: Vec<&str> = Vec::new();
+        if ship.river {
+            modes.push("river");
+        }
+        if ship.sea {
+            modes.push("sea");
+        }
+        modes.sort_unstable();
+        let range = modes.join("+") + if ship.open_sea { " (open-sea rated)" } else { "" };
+        rows.push(VesselMatrixRow {
+            name,
+            cruise_kmh: ship.speed_kmh,
+            cargo_kg: ship.cargo_kg,
+            crew: ship.crew,
+            waters_usable: usable.len(),
+            best_kmday,
+            best_water,
+            range,
+        });
+    }
+
+    let mut best: std::collections::HashMap<(&str, &str), VesselMatrixBest> = std::collections::HashMap::new();
+    for &(cat, terrain) in &waters {
+        let mut bn: Option<&'static str> = None;
+        let mut bv = -1.0_f64;
+        for &name in JP_VESSEL_PREFERENCE.iter() {
+            if let Some(km) = jp_vessel_day_km(name, cat, terrain)
+                && km > bv
+            {
+                bv = km;
+                bn = Some(name);
+            }
+        }
+        best.insert((cat, terrain), VesselMatrixBest { name: bn, kmday: if bv > 0.0 { Some(bv) } else { None } });
+    }
+    (rows, best)
+}
+
+/// `_jpVesselFits`'s water-stage input (reference's per-stage `{cat,
+/// terrain}` shape).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WaterStage {
+    pub cat: String,
+    pub terrain: String,
+}
+
+/// `_jpVesselFits` (reference line 18005, v1.23): filters a candidate vessel
+/// through the exact same rules the manual-plan validator enforces, so an
+/// auto-selected vessel is provably never one the validator would flag.
+pub fn jp_vessel_fits(name: &str, water_stages: &[WaterStage]) -> bool {
+    let Some(ship) = jp_ship_stats(name) else { return false };
+    water_stages.iter().all(|s| jp_vessel_water_block(&ship, &s.cat, &s.terrain, name).is_none())
+}
+
+/// `_jpAutoStageVessel` (reference line 18040): the first vessel (in
+/// preference order) that fits one single stage.
+pub fn jp_auto_stage_vessel(stage: &WaterStage) -> Option<&'static str> {
+    JP_VESSEL_PREFERENCE.iter().find(|&&name| jp_vessel_fits(name, std::slice::from_ref(stage))).copied()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -6695,5 +7206,159 @@ mod tests {
         let ore_sum: f64 = SUIT_RESOURCE_KEYS.iter().map(|k| resource_field(&f.res, k)[5] as f64).sum();
         let expected = (ore_sum / (SUIT_RESOURCE_KEYS.len() as f64 / 3.0)).min(1.0);
         assert!((mineral.value - expected).abs() < 1e-12, "clay leaked into the mineral term");
+    }
+
+    // ---- Journey Planner milestone 2: transport mode selection ----
+
+    #[test]
+    fn animal_terrain_mod_uses_species_override_then_land_table() {
+        // camel has an explicit Deep Sand override (0.85); horse has none, so
+        // it falls through to the generic land-terrain row (Deep Sand: 0.50).
+        assert_eq!(jp_animal_terrain_mod("camel", "Deep Sand"), 0.85);
+        assert_eq!(jp_animal_terrain_mod("horse", "Deep Sand"), 0.50);
+        assert_eq!(jp_animal_terrain_mod("horse", "Paved Road"), 1.50);
+    }
+
+    #[test]
+    fn biome_key_maps_every_classify_biome_output_and_splits_desert_by_temperature() {
+        assert_eq!(jp_biome_key(BIOME_ICE, 5.0), "Tundra / Polar");
+        assert_eq!(jp_biome_key(BIOME_TUNDRA, 5.0), "Tundra / Polar");
+        assert_eq!(jp_biome_key(BIOME_BOREAL, 5.0), "Boreal Taiga");
+        assert_eq!(jp_biome_key(BIOME_CONIFER, 5.0), "Boreal Taiga");
+        assert_eq!(jp_biome_key(BIOME_TEMP_FOREST, 15.0), "Temperate Forest");
+        assert_eq!(jp_biome_key(BIOME_TEMP_RAIN, 15.0), "Temperate Forest");
+        assert_eq!(jp_biome_key(BIOME_GRASS, 20.0), "Steppe / Grassland");
+        assert_eq!(jp_biome_key(BIOME_SAVANNA, 20.0), "Steppe / Grassland");
+        assert_eq!(jp_biome_key(BIOME_SHRUB, 20.0), "Mediterranean Scrub");
+        assert_eq!(jp_biome_key(BIOME_TROP_DRY, 28.0), "Tropical Jungle");
+        assert_eq!(jp_biome_key(BIOME_TROP_WET, 28.0), "Tropical Jungle");
+        // desert splits on the reference's own T<10 boundary, both sides:
+        assert_eq!(jp_biome_key(BIOME_DESERT, 9.99), "Cold Desert / Badlands");
+        assert_eq!(jp_biome_key(BIOME_DESERT, 10.0), "Hot Desert");
+        // water biomes have no JP land-biome meaning -> reference's own default.
+        assert_eq!(jp_biome_key(BIOME_OCEAN, 20.0), "Temperate Forest");
+        assert_eq!(jp_biome_key(BIOME_LAKE, 20.0), "Temperate Forest");
+    }
+
+    #[test]
+    fn best_animal_for_context_terrain_rules_outrank_biome() {
+        // v1.50 audit case: Mountain Pass picks mule even in a desert-like biome
+        // (the bug this rule ordering fixed -- a camel used to win there).
+        assert_eq!(jp_best_animal_for_context("Mountain Pass", "Hot Desert").key, "mule");
+        assert_eq!(jp_best_animal_for_context("Deep Sand", "Temperate Forest").key, "camel");
+        assert_eq!(jp_best_animal_for_context("Swamp / Marsh", "Temperate Forest").key, "donkey");
+        assert_eq!(jp_best_animal_for_context("Open Plains", "Steppe / Grassland").key, "horse");
+        assert_eq!(jp_best_animal_for_context("Snow / Ice", "Tundra / Polar").key, "mule");
+        assert_eq!(jp_best_animal_for_context("Forest Path", "Temperate Forest").key, "mule");
+        // no terrain rule, desert-like biome -> camel.
+        assert_eq!(jp_best_animal_for_context("Open Plains", "Hot Desert").key, "camel");
+        // no terrain rule, non-desert biome -> biome's own bestAnimals[0].
+        assert_eq!(jp_best_animal_for_context("Open Plains", "Wetlands / Marshes").key, "donkey");
+    }
+
+    #[test]
+    fn pick_species_for_route_empty_defaults_to_mule() {
+        let pick = jp_pick_species_for_route(&[]);
+        assert_eq!(pick.key, "mule");
+        assert!(pick.switched.is_none());
+    }
+
+    #[test]
+    fn pick_species_for_route_plurality_without_bottleneck() {
+        // Two short, low-share stages that don't clear JP_BOTTLENECK_MIN_SHARE
+        // (10%) individually can't trigger the veto -- plurality by km wins.
+        let stages = [
+            LandStage { terrain: "Open Plains".into(), biome_key: "Steppe / Grassland".into(), km: 100.0 },
+            LandStage { terrain: "Open Plains".into(), biome_key: "Steppe / Grassland".into(), km: 50.0 },
+        ];
+        let pick = jp_pick_species_for_route(&stages);
+        assert_eq!(pick.key, "horse");
+        assert!(pick.switched.is_none());
+    }
+
+    #[test]
+    fn pick_species_for_route_bottleneck_switches_whole_route() {
+        // Mostly plains (horse-favouring biome) with one real (>10% share)
+        // Mountain Pass stretch. Horse's Mountain Pass mod (0.65, no override)
+        // is a real penalty against mule's override (0.85): (0.85-0.65)/0.85
+        // = 0.235 >= 0.20 -> fires. Whole-route time then favours mule.
+        let stages = [
+            LandStage { terrain: "Open Plains".into(), biome_key: "Steppe / Grassland".into(), km: 100.0 },
+            LandStage { terrain: "Mountain Pass".into(), biome_key: "Steppe / Grassland".into(), km: 30.0 },
+        ];
+        let pick = jp_pick_species_for_route(&stages);
+        let switched = pick.switched.expect("a real bottleneck should switch the route");
+        assert_eq!(switched.from, "horse");
+        assert_eq!(switched.to, "mule");
+        assert_eq!(switched.terrain, "Mountain Pass");
+        assert_eq!(pick.key, "mule");
+    }
+
+    #[test]
+    fn resolve_mount_picks_slowest_present_animal() {
+        let mut counts = std::collections::HashMap::new();
+        counts.insert("mule", 2);
+        counts.insert("horse", 1);
+        // mule mountedSpeed 5.0 < horse 6.0 -> the column moves at the mule's pace.
+        assert_eq!(jp_resolve_mount(&counts, None), "mule");
+    }
+
+    #[test]
+    fn resolve_mount_falls_back_to_override_then_horse() {
+        let empty = std::collections::HashMap::new();
+        assert_eq!(jp_resolve_mount(&empty, Some("camel")), "camel");
+        assert_eq!(jp_resolve_mount(&empty, None), "horse");
+        assert_eq!(jp_resolve_mount(&empty, Some("not-a-real-animal")), "horse");
+    }
+
+    #[test]
+    fn vessel_water_block_gates_mode_open_sea_rating_and_invalid_water() {
+        let river_barge = jp_ship_stats("River Barge").unwrap();
+        assert!(jp_vessel_water_block(&river_barge, "sea", "Coastal Waters", "River Barge").is_some(), "river-only vessel can't take a sea leg");
+        assert!(jp_vessel_water_block(&river_barge, "river", "River with Rapids", "River Barge").is_some(), "explicit invalid_water entry");
+
+        let fishing = jp_ship_stats("Fishing Vessel").unwrap();
+        assert!(jp_vessel_water_block(&fishing, "sea", "Open Sea", "Fishing Vessel").is_some(), "not open-sea rated");
+        assert!(jp_vessel_water_block(&fishing, "sea", "Coastal Waters", "Fishing Vessel").is_none(), "coastal is fine for a non-open-sea vessel");
+
+        let cog = jp_ship_stats("Cog").unwrap();
+        assert!(jp_vessel_water_block(&cog, "sea", "Open Sea", "Cog").is_none(), "open-sea rated vessel is fine on Open Sea");
+    }
+
+    #[test]
+    fn vessel_day_km_matches_hand_computed_cruise_times_window_times_terrain() {
+        // Cog on Coastal Waters: speed 10 * window 11 * terrain-mod 0.60 = 66.0.
+        let km = jp_vessel_day_km("Cog", "sea", "Coastal Waters").expect("Cog is sea-capable");
+        assert!((km - 66.0).abs() < 1e-9);
+        // Fishing Vessel cannot enter Open Sea at all.
+        assert!(jp_vessel_day_km("Fishing Vessel", "sea", "Open Sea").is_none());
+    }
+
+    #[test]
+    fn vessel_fits_and_auto_stage_vessel_respect_preference_order_and_blocking() {
+        let coastal = WaterStage { cat: "sea".into(), terrain: "Coastal Waters".into() };
+        // Fishing Vessel is first in JP_VESSEL_PREFERENCE and fits a plain coastal leg.
+        assert!(jp_vessel_fits("Fishing Vessel", std::slice::from_ref(&coastal)));
+        assert_eq!(jp_auto_stage_vessel(&coastal), Some("Fishing Vessel"));
+
+        let open_sea = WaterStage { cat: "sea".into(), terrain: "Open Sea".into() };
+        assert!(!jp_vessel_fits("Fishing Vessel", std::slice::from_ref(&open_sea)), "not open-sea rated");
+        // First preference-order vessel that IS open-sea rated and sea-capable.
+        let picked = jp_auto_stage_vessel(&open_sea).expect("some vessel must handle open sea");
+        assert!(jp_ship_stats(picked).unwrap().open_sea);
+
+        let rapids = WaterStage { cat: "river".into(), terrain: "River with Rapids".into() };
+        assert!(!jp_vessel_fits("River Barge", std::slice::from_ref(&rapids)), "explicit invalid_water entry");
+    }
+
+    #[test]
+    fn vessel_matrix_covers_every_preference_vessel_and_finds_a_best_for_open_sea() {
+        let (rows, best) = jp_vessel_matrix();
+        assert_eq!(rows.len(), JP_VESSEL_PREFERENCE.len());
+        let sea_best = best.get(&("sea", "Open Sea")).expect("Open Sea entry present");
+        assert!(sea_best.name.is_some() && sea_best.kmday.unwrap() > 0.0);
+        // River Barge's own best water must be a river it can actually navigate.
+        let barge_row = rows.iter().find(|r| r.name == "River Barge").unwrap();
+        assert!(matches!(barge_row.best_water, Some("Calm River" | "Moderate River" | "River with Shallows" | "River Delta")));
     }
 }

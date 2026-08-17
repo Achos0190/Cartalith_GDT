@@ -6643,3 +6643,51 @@ verification was interrupted by that.
 **Files touched**: `cartalith-native/crates/cartalith-godot/src/render.rs`,
 `cartalith-native/crates/cartalith-godot/tests/appearance_ab_dump.rs`,
 `TERRAIN_APPEARANCE_SCOPE.md`, `VISION.md`, `docs/STATUS.md`, this file.
+
+## Journey Planner milestone 2: transport mode selection (2026-08-17)
+
+`JOURNEY_PLANNER_SCOPE.md`'s next milestone. Real finding: 4 of the 10
+originally-listed functions (`jpAutoPickTransport`, `jpAutoPickVessel`,
+`_jpBestLandTransportForStage`, `_jpBestPackageForStage`) turned out to have
+a genuine dependency on milestone 5's route/stage derivation (or milestone
+3's `jpCalcLand`) once the real reference code was read line-by-line — not
+assumed from the scope doc's own earlier guess. Left unported, re-flagged
+under their real dependency milestone rather than forced.
+
+The other six shipped, given caller-supplied stage lists instead of the
+full JS `plan` object: `jp_best_animal_for_context`, `jp_pick_species_for_route`
+(includes the v1.50 bottleneck-veto logic — a route mostly plains with one
+real mountain-pass stretch switches the whole route's animal choice),
+`jp_resolve_mount`, `jp_vessel_matrix`, `jp_vessel_fits`, `jp_auto_stage_vessel`,
+plus their real data tables (`JP_ANIMALS`, `JP_ANIMAL_TERRAIN_OVERRIDE`,
+`JP_TERRAIN` land/river/sea, `JP_SHIPS`, `JP_VESSEL_PREFERENCE`,
+`JP_WATER_WINDOW`) and supporting pure functions (`jp_animal_terrain_mod`,
+`jp_water_window`, `jp_vessel_water_block`, `jp_vessel_day_km`).
+
+**The biome-mapping question this scope doc worried about turned out to
+already be answered by the reference itself.** `jpLegacyBiomeOf` (reference
+line 18310) already maps `classifyBiome(T,M)`'s output keys onto
+`JP_BIOMES`' legacy names — and those keys are the exact same climate-biome
+scheme this port's own `classify_biome` golden-verifies against, confirmed
+by reading both side by side. Ported as `jp_biome_key(biome_id, temp_c)`, a
+direct transcription of the reference's own fallback table (including the
+desert/temperature split), not an invented mapping.
+
+15 new unit tests, no golden harness needed (same precedent as milestone
+1 and `civ_resource_trade_balance`/`civ_culture_terrain_fit` — small, pure,
+branch-complete functions). A hand-computed vessel-speed test (Cog on
+Coastal Waters: 10 × 11 × 0.60 = 66.0 km/day) and a real bottleneck-veto
+test are the two that exercise the least-trivial arithmetic.
+
+**Verified**: `cargo build -p cartalith-civ`, `cargo test -p cartalith-civ
+--lib` (127 passed, 0 failed, 15 new), `cargo clippy -p cartalith-civ --lib`
+clean (fixed one real `collapsible_if` in the new `jp_vessel_matrix` code;
+two pre-existing, unrelated warnings elsewhere untouched), `cargo test
+--workspace` (0 regressions). Not wired to any caller, per this doc's own
+established "ship the primitive ahead of the orchestration" precedent and
+`JOURNEY_PLANNER_SCOPE.md`'s explicit "out of scope for all milestones"
+section (Journey Planner is real interactive per-journey tooling, a future
+GUI feature, not something auto-wired for every settlement pair).
+
+**Files touched**: `cartalith-native/crates/cartalith-civ/src/lib.rs`,
+`JOURNEY_PLANNER_SCOPE.md`, `docs/STATUS.md`, this file.

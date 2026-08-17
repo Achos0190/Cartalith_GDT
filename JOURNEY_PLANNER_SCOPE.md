@@ -38,20 +38,82 @@ orchestration" precedent this session has used repeatedly. `jpJourneyCost`
 and the actual route/plan orchestration (milestones 2+ below) are what would
 call these.
 
+## Milestone 2 — transport mode selection: done (2026-08-17)
+
+**Real finding, not assumed**: of the 10 functions this milestone originally
+listed, four turned out to have a genuine, load-bearing dependency this
+scope doc hadn't confirmed by reading the actual reference code —
+`jpAutoPickTransport` (line 17814) and `jpAutoPickVessel` (line 18012) both
+open by calling `_jpEnsurePlan(jn)` then `_jpDeriveStages(jn,plan)` —
+**milestone 5's own route/stage derivation**, not yet started and flagged in
+this doc as "almost certainly the largest single milestone in this whole
+plan." `_jpBestLandTransportForStage` (line 18053) calls `jpCalcLand`
+(milestone 3, physical travel cost, also not started); `_jpBestPackageForStage`
+(line 18080) takes an `eff` parameter shaped like milestone 5's
+`_jpEffectiveStagePlan` output. Porting any of the four now would mean
+inventing the shape of data two unbuilt milestones haven't defined yet — so
+they stay unported, re-flagged below under milestones 5/3 respectively
+rather than silently dropped.
+
+The other six were genuinely self-contained given a caller-supplied stage
+list instead of the full JS `plan`/`jn` orchestration object, and are what
+shipped: `jpBestAnimalForContext`, `jpPickSpeciesForRoute`, `jpResolveMount`,
+`jpVesselMatrix`, `_jpVesselFits`, `_jpAutoStageVessel` — plus their real
+supporting data (`JP_ANIMALS`, `JP_ANIMAL_TERRAIN_OVERRIDE`, `JP_TERRAIN`'s
+land/river/sea tables, `JP_SHIPS`, `JP_VESSEL_PREFERENCE`, `JP_WATER_WINDOW`)
+and the small pure helpers they call (`jpAnimalTerrainMod`, `jpWaterWindow`,
+`_jpVesselWaterBlock`, `jpVesselDayKm`).
+
+**The real biome-mapping design question, resolved by the reference itself,
+not invented here**: this scope doc originally worried the reference's
+`biome.desertLike`/`biome.bestAnimals` objects wouldn't map onto this port's
+`u8` `classify_biome` output. They don't need a new lookup table — the
+reference already has one. `jpLegacyBiomeOf` (reference line 18310, its own
+`bIdx===13` "Hills" branch) calls `classifyBiome(T,M)` and maps its output
+keys (`ice`/`tundra`/`boreal`/`conifer`/`tempForest`/`tempRain`/`grass`/
+`savanna`/`shrub`/`desert`/`tropDry`/`tropWet`) onto `JP_BIOMES`' own legacy
+V1.915 names — and those keys are, confirmed by reading both side by side,
+the exact same climate-biome scheme this port's `classify_biome`
+(`cartalith-civ`) already golden-verifies against. Ported as `jp_biome_key`
+(`biome_id: u8, temp_c: f64) -> &'static str`), a direct transcription of
+the reference's own fallback table, including its `desert` → `T<10 ?
+"Cold Desert / Badlands" : "Hot Desert"` split. Water biomes (`BIOME_OCEAN`/
+`BIOME_LAKE`) have no JP land-biome meaning and fall through to the
+reference's own default (`"Temperate Forest"`), same as the reference does.
+
+`jp_can_use_wheels` was already ported in milestone 1 (bundled there as a
+natural fit alongside `jp_surface_gain`, even though this doc's own original
+milestone-2 list didn't separately call that out) — not re-ported.
+
+15 real unit tests (`cartalith-civ/src/lib.rs`), same "no golden harness
+needed" precedent as milestone 1 — small, pure, branch-complete functions.
+Notably includes a real bottleneck-veto case (`jpPickSpeciesForRoute`'s
+v1.50 fix: a route mostly plains with one real mountain-pass stretch
+switches the whole route's animal choice, hand-verified against the
+reference's own `JP_BOTTLENECK_PENALTY`/`JP_BOTTLENECK_MIN_SHARE`
+arithmetic) and a hand-computed vessel speed (`jpVesselDayKm`: Cog on
+Coastal Waters = 10 × 11 × 0.60 = 66.0 km/day).
+
+**Verified**: `cargo build -p cartalith-civ`, `cargo test -p cartalith-civ
+--lib` (127 tests, 0 failures, 15 new), `cargo clippy -p cartalith-civ --lib`
+clean (one real `collapsible_if` in the new `jp_vessel_matrix` code, fixed;
+the two remaining lib warnings are pre-existing, unrelated to this
+milestone), `cargo test --workspace` (0 regressions). **Not wired to any
+caller** — same "ship the primitive ahead of the orchestration" precedent
+milestone 1 and `civ_resource_trade_balance`/`civ_culture_terrain_fit` all
+set; no `#[func]`, no `compute_civilisation()` integration, per this doc's
+own "Out of scope for all milestones" section below.
+
 ## Real milestone breakdown for what remains (not started)
 
 Ordered by dependency, per `ECONOMY_SCOPE.md`'s own categorization:
 
-2. **Transport mode selection** — `jp_auto_pick_transport`,
-   `jp_best_animal_for_context`, `jp_pick_species_for_route`,
-   `jp_resolve_mount`, `jp_auto_pick_vessel`, `jp_vessel_matrix`,
-   `_jp_vessel_fits`, `_jp_best_land_transport_for_stage`,
-   `_jp_best_package_for_stage`, `_jp_auto_stage_vessel`. Needs biome/terrain
-   context objects this port's civ layer already produces in some form
-   (biome raster, water-body classification) — read the reference's real
-   argument shapes before assuming a 1:1 translation; the reference's own
-   `biome` objects (`.desertLike`, `.bestAnimals`) may not map directly onto
-   this port's `u8` biome-id raster and would need a lookup table.
+2. ~~**Transport mode selection**~~ — see "Milestone 2" above. Four
+   functions remain genuinely blocked: `jp_auto_pick_transport`/
+   `jp_auto_pick_vessel` need milestone 5's `_jpEnsurePlan`/`_jpDeriveStages`;
+   `_jp_best_land_transport_for_stage` needs milestone 3's `jpCalcLand`;
+   `_jp_best_package_for_stage` needs milestone 5's `_jpEffectiveStagePlan`
+   output shape. Re-attempt each once its real dependency milestone lands.
 
 3. **Physical travel cost** — `jp_train_pace`, `jp_sail_factor`,
    `jp_water_window`, `jp_wx_weighted`, `jp_weather_factor`,
