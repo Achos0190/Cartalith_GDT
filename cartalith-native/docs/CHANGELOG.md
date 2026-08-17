@@ -5786,3 +5786,48 @@ above.
 src/lib.rs` (`CivData` fields, wiring, `get_provinces()`,
 `build_province_boundary_texture()`), `PHASE2_SCOPE.md`, this file,
 `docs/STATUS.md`.
+
+## UI/UX catch-up: render province boundaries (2026-08-17)
+
+Follow-up to the province-generation pass above, which deliberately left
+rendering out: a per-province *fill* colour needs a real UI/UX decision
+(province count is unbounded, unlike `CIV_FACTION_COUNT`'s fixed
+Okabe-Ito palette), so `build_province_boundary_texture()` was shipped
+as a boundary-only texture instead -- a thin ink-toned line wherever two
+orthogonally-adjacent cells belong to different provinces, transparent
+everywhere else. That sidesteps the palette problem entirely: no palette
+needed for a line.
+
+Wired it the same way `build_territory_texture()` already was -- a new
+`ProvinceBoundaryView` `TextureRect` sibling of `TerritoryView` (drawn on
+top of it, same `expand_mode`/`stretch_mode`/`mouse_filter` properties,
+default `visible = false`), a matching `ProvinceLayerCheck` checkbox in
+`MapLayersCard` right after `TerritoryLayerCheck` (default OFF, same
+style), and the same set-on-generate/clear-on-load-save pattern
+`territory_view.texture` already follows in `main.gd`. `get_provinces()`
+turned out to expose no cell-to-province lookup (`get_province_id_at`,
+named in its own doc comment, isn't actually a real `#[func]`) --
+skipped wiring a hover card for it rather than inventing a query that
+isn't there.
+
+**Verification**: `cargo test --workspace` (0 regressions), `cargo
+build -p cartalith-godot` clean, `godot4 --headless --quit` clean load.
+Real windowed-app screenshot verification (Classic, seed 12345, 2048x2048,
+40 settlements) confirmed the layer toggles render correctly with visible
+checkmarks and the map updates -- but a thin 1px boundary line proved
+genuinely hard to distinguish by eye from roads/coastline linework at
+normal zoom in a static screenshot, so screenshot inspection alone
+wasn't conclusive. Followed up with a direct, objective check instead: a
+temporary headless script (deleted after use, not committed) called
+`generate()`/`get_provinces()`/`build_province_boundary_texture()`
+directly and counted real non-transparent pixels -- **7 provinces,
+2,262 boundary pixels on a real 512x512 texture** (the same figure the
+province-generation pass's own earlier headless check reported,
+confirming reproducible real data, not a fluke), `build_territory_texture()`
+also confirmed present. Combined with the GDScript wiring being
+mechanically identical to `territory_view`'s already screenshot-verified
+pattern, this is real, working data reaching a real, working render path.
+
+**Files touched**: `cartalith-native/godot-project/main.tscn`
+(`ProvinceLayerCheck`, `ProvinceBoundaryView`), `main.gd` (wiring),
+`docs/CHANGELOG.md`, `docs/STATUS.md`.

@@ -32,9 +32,11 @@ extends Control
 @onready var status_label: Label = %StatusLabel
 @onready var map_view: TextureRect = %MapView
 @onready var territory_view: TextureRect = %TerritoryView
+@onready var province_boundary_view: TextureRect = %ProvinceBoundaryView
 @onready var map_overlay: Control = %MapOverlay
 @onready var civ_layer_check: CheckBox = %CivLayerCheck
 @onready var territory_layer_check: CheckBox = %TerritoryLayerCheck
+@onready var province_layer_check: CheckBox = %ProvinceLayerCheck
 @onready var villages_check: CheckBox = %VillagesCheck
 @onready var load_save_dialog: FileDialog = %LoadSaveDialog
 @onready var credits_button: Button = %CreditsButton
@@ -102,6 +104,7 @@ func _ready() -> void:
 	credits_button.pressed.connect(func(): credits_dialog.popup_centered())
 	civ_layer_check.toggled.connect(func(pressed: bool): map_overlay.visible = pressed)
 	territory_layer_check.toggled.connect(func(pressed: bool): territory_view.visible = pressed)
+	province_layer_check.toggled.connect(func(pressed: bool): province_boundary_view.visible = pressed)
 	get_viewport().size_changed.connect(_update_responsive_layout)
 	_update_responsive_layout()
 
@@ -192,6 +195,12 @@ func _on_generate_done(seed_value: int, width_km: float) -> void:
 		var sea_routes := world_gen.get_sea_routes()
 		map_overlay.set_civ_data(settlements, roads, sea_routes, world_gen.get_width(), world_gen.get_height())
 		territory_view.texture = world_gen.build_territory_texture()
+		## Province boundaries (Phase 2, civ_generate_provinces): thin lines
+		## only, drawn on top of territory's own per-faction fill -- see
+		## `build_province_boundary_texture`'s own doc comment for why this
+		## isn't a per-province fill colour (province count is unbounded,
+		## unlike CIV_FACTION_COUNT).
+		province_boundary_view.texture = world_gen.build_province_boundary_texture()
 
 		var shape_label := world_shape_input.get_item_text(world_shape_input.selected)
 		var civ_note := ", %d settlements" % settlements.size() if not settlements.is_empty() else ""
@@ -226,6 +235,7 @@ func _on_save_file_selected(path: String) -> void:
 		## from a previous generate() so a stale overlay doesn't linger.
 		map_overlay.set_civ_data([], [], [], world_gen.get_width(), world_gen.get_height())
 		territory_view.texture = null
+		province_boundary_view.texture = null
 		status_label.text = "loaded %s (%dx%d)" % [
 			path.get_file(), world_gen.get_width(), world_gen.get_height()
 		]
