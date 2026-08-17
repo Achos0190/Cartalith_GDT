@@ -123,9 +123,32 @@ owner's call, and it is the single biggest open question this render raises.
 
 ## Sequencing that follows from the above
 
-1. **Causal-chain explainer** — highest value-to-effort in the whole render,
-   uniquely supported by work already done, and it makes the existing
-   engine's rigour *visible* for the first time.
+1. ~~**Causal-chain explainer**~~ — **done 2026-08-17.** Hovering a
+   settlement now shows a real "WHY HERE?" chain in the Inspector,
+   decomposed from `build_settlement_suitability`'s own thirteen weighted
+   terms, sorted most-decisive-first, with penalties shown as penalties.
+   Proved faithful rather than plausible: a test reconstructs the real
+   function's output at every cell of a field from the explanation alone,
+   and a headless pass over all 40 settlements of a real world confirmed
+   the coastal/river terms track the actual terrain (0 violations).
+
+   Two honest corrections to this document's own assessment came out of it:
+
+   - The section above said the inputs "need only a `#[func]`". Not quite:
+     they are locals of `compute_civilisation` and are **not retained** on
+     `CivData`, so a general per-cell `explain_cell(x, y)` would have meant
+     holding ~12 full-grid rasters (hundreds of MB at 2048²) — against
+     `MEMORY_OPTIMIZATION_SCOPE.md`'s measured work. Shipped per-settlement
+     instead, computed while the rasters are alive. That covers the question
+     the render actually poses and costs ~nothing.
+   - The render's *other two* chains (`mineral deposit → mine → industrial
+     settlement`, `mountain pass → … → fortification`) terminate in systems
+     that do not exist anywhere in this engine or the reference — Industry
+     and Fortifications, as this document's own gap assessment already
+     notes. Their upstream halves are real (`build_resource_potentials`,
+     `build_travel_cost`, both surfaced in the explainer as `minerals` and
+     `travel_cost`); their downstream halves are unbuilt, and were not
+     invented to complete the picture.
 2. **Atlas rendering** (`TERRAIN_APPEARANCE_SCOPE.md` m2+) — closes the
    largest purely-visual gap.
 3. **Layer-stack treatment** — real polish on an already-built panel.

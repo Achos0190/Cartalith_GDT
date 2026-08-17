@@ -6268,3 +6268,83 @@ functions + 37 new tests), `cartalith-native/crates/cartalith-godot/src/
 lib.rs` (`trade_balances` field, `get_trade_balances()`, the resource-free
 reordering), `ECONOMY_SCOPE.md`, `PHASE2_SCOPE.md`, new
 `JOURNEY_PLANNER_SCOPE.md`, `docs/STATUS.md`, this file.
+
+## Causal-chain explainer: "why is this settlement here?" (2026-08-17)
+
+`VISION.md`'s sequencing item 1, and the one idea in the owner's vision
+render that this engine was already positioned to answer honestly. The
+render annotates the map with chains like `mountain range -> watershed ->
+river -> fertile valley -> settlements -> road network -> trade corridor ->
+political importance`. Those aren't decorative: every link is a field this
+port already computes and golden-verifies. This makes that derivable
+causality visible.
+
+**What it decomposes.** `build_settlement_suitability` *is* the answer to
+"why here?" -- it sums thirteen weighted terms (carrying capacity, water
+access, gentle slope, terrain form, coastal access, river, lake, minerals,
+route corridor, farmland, buildable ground, minus flood risk and islet
+isolation) and squashes the result through a sigmoid. New
+`cartalith_civ::explain_settlement_suitability` returns that same sum
+broken into its parts: each term's raw `value`, its `weight` (signed --
+the two penalties are genuinely negative), and its `contribution`
+(`weight * value`), sorted most-decisive-first, plus the pre-sigmoid `z`
+and the two real early-return exclusions (`below_sea_level`, `water_body`).
+
+**It is provably the real arithmetic, not a lookalike.**
+`explanation_reconstructs_real_suitability` runs both functions over an
+entire synthetic field and asserts the explainer's `score` equals
+`build_settlement_suitability`'s output at *every* cell, and that each
+cell's terms sum to its own `z`. A second test does the same for the
+no-context weight set. Editing one function's arithmetic without the other
+fails the build -- which is the point of having it. (7 new tests total,
+also covering exclusion reasons, sort order, penalty signs, and that the
+mineral term really does ignore the six non-ore resources.)
+
+**A real design correction, made deliberately.** The obvious API would be
+`explain_cell(x, y)` for an arbitrary cell. That is not what shipped, for a
+measured reason: every raster the decomposition needs (soil, water access,
+carrying capacity, coast SDF, river order, flow, corridor, landmass, flood,
+slope, resources) is a local of `compute_civilisation` and dies at its end.
+`CivData` retains none of them. Answering for arbitrary cells later would
+mean holding all twelve -- hundreds of MB at 2048x2048, straight back into
+what `MEMORY_OPTIMIZATION_SCOPE.md` spent real measurement escaping. So the
+explanation is computed per-settlement, inside that function, while the
+rasters are alive: ~40 records instead of ~4.2M cells, covering the question
+actually being asked. `WorldGen.explain_settlement(index)` is keyed by
+settlement index accordingly.
+
+**Verified against the terrain, not just against itself.** A temporary
+headless script (not committed) generated a real 512x512 world and checked
+all 40 settlements: every one of the 10 sitting within 5 cells of water
+carried a coastal bonus, every one of the 30 beyond it carried none (the
+coast term is a 5-cell falloff), 29 carried a river term consistent with
+their Strahler order, and no settlement violated either relation. Real
+windowed-app hover screenshots confirmed the Inspector renders it live.
+
+**Real finding surfaced by that cross-check**: a settlement can honestly
+read `Coastal: yes` while earning *zero* coastal bonus. Two different,
+deliberately different notions exist in the reference -- the `coastal` flag
+uses a `max(6, GW/60)`-cell radius (34 cells at 2048, port eligibility),
+while the suitability bonus uses a 5-cell falloff. Not a bug in either;
+the Inspector now says "Distance to water" rather than "Coast" so the two
+lines stop reading as a contradiction.
+
+**Wording lives in GDScript, facts in Rust.** The `#[func]` returns numbers
+and stable keys only; `main.gd` owns the phrasing, and qualifies each term
+by its own raw reading ("weak farmland (0.31)", not a flattering label) so
+a settlement placed on mediocre ground reads as such. `map_overlay.gd`'s
+`settlement_hovered` signal gained the settlement index so the Inspector can
+ask without re-running any hit test.
+
+**Verified**: `cargo build -p cartalith-godot`, `cargo test --workspace`
+(70 suites, 0 failures), `cargo clippy -p cartalith-civ -p cartalith-godot
+--all-targets` clean, `godot4 --headless --quit` clean load, plus the
+headless terrain cross-check and windowed screenshots above.
+
+**Files touched**: `cartalith-native/crates/cartalith-civ/src/lib.rs`
+(`SuitTerm`/`SuitExplanation`/`explain_settlement_suitability` + 7 tests),
+`cartalith-native/crates/cartalith-godot/src/lib.rs`
+(`SettlementExplanation`, `CivData.explanations`, `explain_settlement()`),
+`cartalith-native/godot-project/main.gd` (Inspector "WHY HERE?" section),
+`cartalith-native/godot-project/map_overlay.gd` (index on the hover
+signal), `VISION.md`, `docs/STATUS.md`, this file.

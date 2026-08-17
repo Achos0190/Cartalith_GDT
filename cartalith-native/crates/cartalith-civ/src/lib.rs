@@ -2029,6 +2029,269 @@ fn resource_field<'a>(res: &'a ResourcePotentials, key: &str) -> &'a [f32] {
     }
 }
 
+/// One weighted term in `build_settlement_suitability`'s own score sum,
+/// broken out so a caller can say *why* a cell scored what it did.
+/// `contribution == weight * value`, signed -- flood and islet are real
+/// penalties and carry negative weights.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SuitTerm {
+    /// Stable identifier (`"carrying_capacity"`, `"river"`, ...). Human
+    /// phrasing is deliberately NOT here: that's presentation, owned by
+    /// the UI layer (`ARCHITECTURE.md` -- Godot computes nothing beyond
+    /// layout, and wording *is* layout).
+    pub key: &'static str,
+    /// The term's own value before weighting. `0..1` for every term, the
+    /// two penalties included (stored positive, weighted negative).
+    pub value: f64,
+    /// The weight `build_settlement_suitability` multiplies `value` by.
+    pub weight: f64,
+    /// `weight * value` -- this term's signed contribution to `z`.
+    pub contribution: f64,
+}
+
+/// Why one cell scored what it did in `build_settlement_suitability`.
+///
+/// This is a genuine decomposition of that function's own arithmetic, not
+/// a plausible-looking reconstruction: `explanation_reconstructs_real_
+/// suitability` (this module's own test) asserts `score` here equals
+/// `build_settlement_suitability`'s output at the same cell, so the two
+/// cannot silently drift apart.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SuitExplanation {
+    pub x: usize,
+    pub y: usize,
+    /// Identical to `build_settlement_suitability`'s own output here.
+    pub score: f32,
+    /// The pre-sigmoid weighted sum.
+    pub z: f64,
+    /// Every term, sorted by `|contribution|` descending -- dominant
+    /// reason first. Empty when `excluded` is set.
+    pub terms: Vec<SuitTerm>,
+    /// `Some(reason)` when the cell is excluded outright (below sea level,
+    /// or inside a water body) and scores `0` with no terms evaluated --
+    /// both are real early-return branches in
+    /// `build_settlement_suitability`, not error states.
+    pub excluded: Option<&'static str>,
+}
+
+/// Decompose `build_settlement_suitability`'s score at one cell.
+///
+/// Deliberately a single-cell function rather than a whole-field one: the
+/// inputs it needs (a dozen full-grid rasters) are alive only inside
+/// `compute_civilisation`, and retaining them all just to answer "why
+/// here?" for a handful of settlements would cost hundreds of MB at
+/// production resolutions -- exactly what `MEMORY_OPTIMIZATION_SCOPE.md`'s
+/// own work went the other way on. Call this while the rasters are still
+/// in scope, keep the small result.
+///
+/// Mirrors `build_settlement_suitability`'s per-cell arithmetic exactly,
+/// including both weight sets and every early return.
+#[allow(clippy::too_many_arguments)]
+pub fn explain_settlement_suitability(
+    soil: &[f32],
+    water: &[f32],
+    carrying_cap: &[f32],
+    field: &[f32],
+    slope_n: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    ctx: Option<&SuitabilityCtx>,
+    x: usize,
+    y: usize,
+) -> SuitExplanation {
+    let i = y * gw + x;
+    let mut terms: Vec<SuitTerm> = Vec::new();
+    let push = |terms: &mut Vec<SuitTerm>, key: &'static str, value: f64, weight: f64| {
+        terms.push(SuitTerm { key, value, weight, contribution: weight * value });
+    };
+
+    if (field[i] as f64) < sea {
+        return SuitExplanation { x, y, score: 0.0, z: 0.0, terms, excluded: Some("below_sea_level") };
+    }
+    if let Some(wb) = ctx.and_then(|c| c.water_bodies)
+        && wb[i] != 0
+    {
+        return SuitExplanation { x, y, score: 0.0, z: 0.0, terms, excluded: Some("water_body") };
+    }
+
+    let slope_max = 4.0;
+    let denom = (1.0 - sea).max(1e-6);
+    let lake_r = ((gw as f64 / 170.0).round() as isize).max(2);
+
+    let k = carrying_cap[i] as f64;
+    let wa = water[i] as f64;
+    let a = (1.0 - slope_n[i] as f64 / slope_max).max(0.0);
+    let r = (field[i] as f64 - sea) / denom;
+    let d = terrain_ruggedness_d(r);
+
+    let (w_k, w_w, w_a, w_d) = if ctx.is_some() {
+        (SUIT_W_FULL_K, SUIT_W_FULL_W, SUIT_W_FULL_A, SUIT_W_FULL_D)
+    } else {
+        (SUIT_W_BASE_K, SUIT_W_BASE_W, SUIT_W_BASE_A, SUIT_W_BASE_D)
+    };
+    push(&mut terms, "carrying_capacity", k, w_k);
+    push(&mut terms, "water_access", wa, w_w);
+    push(&mut terms, "gentle_slope", a, w_a);
+    push(&mut terms, "terrain_form", d, w_d);
+    let mut z = w_k * k + w_w * wa + w_a * a + w_d * d;
+
+    match ctx {
+        None => {
+            let v = (wa * 1.2).min(1.0);
+            push(&mut terms, "water_bonus", v, SUIT_W_BASE_C);
+            z += SUIT_W_BASE_C * v;
+        }
+        Some(c) => {
+            let flow_thresh = c.flow_thresh;
+
+            let mut coast = 0.0;
+            if let Some(sdf) = c.coast_sdf {
+                let dist = -(sdf[i] as f64);
+                if dist >= 0.0 {
+                    coast = (1.0 - dist / 5.0).max(0.0);
+                    if coast > 0.0
+                        && let Some(flow) = c.flow
+                        && flow[i] as f64 > flow_thresh * 3.0
+                    {
+                        coast = (coast + 0.6).min(1.0);
+                    }
+                }
+            }
+
+            let mut river = 0.0f64;
+            if let Some(ord) = c.river_order {
+                let oo = ord[i];
+                river = if oo >= 4 {
+                    1.0
+                } else if oo >= 3 {
+                    0.7
+                } else if oo >= 2 {
+                    0.3
+                } else {
+                    0.0
+                };
+            }
+            if let Some(flow) = c.flow
+                && flow[i] as f64 > flow_thresh * 2.0
+            {
+                let mut is_max = true;
+                'nb: for dy in -1isize..=1 {
+                    for dx in -1isize..=1 {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        let nx = x as isize + dx;
+                        let ny = y as isize + dy;
+                        if nx < 0 || nx >= gw as isize || ny < 0 || ny >= gh as isize {
+                            continue;
+                        }
+                        let j = ny as usize * gw + nx as usize;
+                        if flow[j] > flow[i] {
+                            is_max = false;
+                            break 'nb;
+                        }
+                    }
+                }
+                let bonus = if is_max {
+                    0.5
+                } else if flow[i] as f64 > flow_thresh * 5.0 {
+                    0.25
+                } else {
+                    0.0
+                };
+                river = (river + bonus).min(1.0);
+            }
+
+            let mut lake = 0.0;
+            if let Some(wb) = c.water_bodies {
+                'lake: for dy in -lake_r..=lake_r {
+                    for dx in -lake_r..=lake_r {
+                        let nx = x as isize + dx;
+                        let ny = y as isize + dy;
+                        if nx < 0 || nx >= gw as isize || ny < 0 || ny >= gh as isize {
+                            continue;
+                        }
+                        if wb[ny as usize * gw + nx as usize] == 2 {
+                            lake = 0.55;
+                            break 'lake;
+                        }
+                    }
+                }
+                let l_n = y > 0 && wb[(y - 1) * gw + x] == 2;
+                let l_s = y < gh - 1 && wb[(y + 1) * gw + x] == 2;
+                let l_e = x < gw - 1 && wb[i + 1] == 2;
+                let l_w = x > 0 && wb[i - 1] == 2;
+                if (l_n && l_s) || (l_e && l_w) {
+                    lake = 1.0;
+                }
+            }
+
+            let mut mineral = 0.0;
+            if let Some(res) = c.resources {
+                let s: f64 = SUIT_RESOURCE_KEYS.iter().map(|k| resource_field(res, k)[i] as f64).sum();
+                mineral = (s / (SUIT_RESOURCE_KEYS.len() as f64 / 3.0)).min(1.0);
+            }
+
+            let mut agri = 0.0;
+            if let Some(rain) = c.rain {
+                let rr = rain[i] as f64;
+                let r_bell = if rr < 0.30 {
+                    rr / 0.30
+                } else if rr < 0.60 {
+                    1.0
+                } else if rr < 0.85 {
+                    (0.85 - rr) / 0.25
+                } else {
+                    0.0
+                };
+                agri = (soil[i] as f64 * r_bell).clamp(0.0, 1.0);
+            }
+
+            let fl = c.flood.map(|f| f[i] as f64).unwrap_or(0.0);
+            let build = if let Some(slope_raw) = c.slope_raw {
+                ((1.0 - (slope_raw[i] as f64 * gw as f64 / slope_max).min(1.0)) * (1.0 - fl)).clamp(0.0, 1.0)
+            } else {
+                a * (1.0 - fl)
+            };
+
+            let corr = c.corridor.map(|cr| cr[i] as f64).unwrap_or(0.0);
+            let islet = c.landmass.map(|lm| (1.0 - lm[i] as f64 / ISLET_KNEE).max(0.0)).unwrap_or(0.0);
+
+            push(&mut terms, "coastal_access", coast, SUIT_W_FULL_COAST);
+            push(&mut terms, "river", river, SUIT_W_FULL_RIVER);
+            push(&mut terms, "lake", lake, SUIT_W_FULL_LAKE);
+            push(&mut terms, "minerals", mineral, SUIT_W_FULL_MINERAL);
+            push(&mut terms, "route_corridor", corr, SUIT_W_FULL_CORRIDOR);
+            push(&mut terms, "farmland", agri, SUIT_W_FULL_AGRI);
+            push(&mut terms, "buildable_ground", build, SUIT_W_FULL_BUILD);
+            push(&mut terms, "flood_risk", fl, -SUIT_W_FULL_FLOOD);
+            push(&mut terms, "islet_penalty", islet, -SUIT_W_FULL_ISLET);
+
+            z += SUIT_W_FULL_COAST * coast + SUIT_W_FULL_RIVER * river + SUIT_W_FULL_LAKE * lake
+                + SUIT_W_FULL_MINERAL * mineral
+                + SUIT_W_FULL_CORRIDOR * corr
+                + SUIT_W_FULL_AGRI * agri
+                + SUIT_W_FULL_BUILD * build
+                - SUIT_W_FULL_FLOOD * fl
+                - SUIT_W_FULL_ISLET * islet;
+        }
+    }
+
+    // Stable sort: equal contributions keep the insertion order above, so
+    // the same world always explains a cell the same way.
+    terms.sort_by(|p, q| q.contribution.abs().total_cmp(&p.contribution.abs()));
+
+    SuitExplanation {
+        x,
+        y,
+        score: clamp01(1.0 / (1.0 + (-6.0 * (z - 0.5)).exp())) as f32,
+        z,
+        terms,
+        excluded: None,
+    }
+}
+
 /// One `findSettlementSeeds` candidate (reference HTML line 6418): a local
 /// suitability maximum above threshold, with a suppression radius applied.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -6181,5 +6444,256 @@ mod tests {
     fn jp_sea_closure_disabled_flag_and_non_winter_both_stay_open() {
         assert_eq!(jp_sea_closure("Open Sea", "Winter", false), None);
         assert_eq!(jp_sea_closure("Open Sea", "Summer", true), None);
+    }
+
+    // --- Suitability explanation (causal-chain explainer) -------------
+    //
+    // The load-bearing property is that the explanation is a real
+    // decomposition of `build_settlement_suitability`, not a lookalike --
+    // so these tests reconstruct that function's own output from the
+    // explainer and demand exact equality, over a whole synthetic field.
+
+    /// A small, deliberately varied synthetic world: land and sea, a lake,
+    /// a river of rising order, differing soil/rain/slope/flood/resources,
+    /// so the terms below are genuinely exercised rather than all zero.
+    struct SuitFixture {
+        gw: usize,
+        gh: usize,
+        sea: f64,
+        soil: Vec<f32>,
+        water: Vec<f32>,
+        carrying_cap: Vec<f32>,
+        field: Vec<f32>,
+        slope_n: Vec<f32>,
+        wb: Vec<u8>,
+        corridor: Vec<f32>,
+        landmass: Vec<f32>,
+        flow: Vec<f32>,
+        river_order: Vec<i16>,
+        coast_sdf: Vec<f32>,
+        rain: Vec<f32>,
+        flood: Vec<f32>,
+        slope_raw: Vec<f32>,
+        res: ResourcePotentials,
+    }
+
+    fn suit_fixture() -> SuitFixture {
+        let (gw, gh) = (16usize, 16usize);
+        let n = gw * gh;
+        let sea = 0.42f64;
+        let mut f = SuitFixture {
+            gw,
+            gh,
+            sea,
+            soil: vec![0.0; n],
+            water: vec![0.0; n],
+            carrying_cap: vec![0.0; n],
+            field: vec![0.0; n],
+            slope_n: vec![0.0; n],
+            wb: vec![0u8; n],
+            corridor: vec![0.0; n],
+            landmass: vec![0.0; n],
+            flow: vec![0.0; n],
+            river_order: vec![0i16; n],
+            coast_sdf: vec![0.0; n],
+            rain: vec![0.0; n],
+            flood: vec![0.0; n],
+            slope_raw: vec![0.0; n],
+            res: ResourcePotentials {
+                copper: vec![0.0; n],
+                tin: vec![0.0; n],
+                iron: vec![0.0; n],
+                gold: vec![0.0; n],
+                salt: vec![0.0; n],
+                timber: vec![0.0; n],
+                lead: vec![0.0; n],
+                silver: vec![0.0; n],
+                clay: vec![0.0; n],
+                buildstone: vec![0.0; n],
+                flint: vec![0.0; n],
+                obsidian: vec![0.0; n],
+                gems: vec![0.0; n],
+                sulfur: vec![0.0; n],
+                alum: vec![0.0; n],
+            },
+        };
+        for y in 0..gh {
+            for x in 0..gw {
+                let i = y * gw + x;
+                let fx = x as f32 / gw as f32;
+                let fy = y as f32 / gh as f32;
+                // Left quarter is ocean; height rises eastward.
+                f.field[i] = if x < 4 { 0.20 + 0.04 * fx } else { 0.45 + 0.5 * fx };
+                f.coast_sdf[i] = (x as f32) - 4.0; // negative offshore, distance inland
+                f.soil[i] = 0.15 + 0.7 * fy;
+                f.rain[i] = 0.10 + 0.75 * fx;
+                f.water[i] = 0.9 - 0.5 * fx;
+                f.carrying_cap[i] = 0.2 + 0.6 * (1.0 - fx) * fy;
+                f.slope_n[i] = 0.3 + 2.0 * fx;
+                f.slope_raw[i] = (0.02 + 0.05 * fx) / gw as f32;
+                f.flood[i] = if y == 8 { 0.35 } else { 0.02 };
+                f.corridor[i] = if y == 6 { 0.8 } else { 0.1 };
+                f.landmass[i] = if x < 4 { 0.0 } else { 0.35 + 0.5 * fx };
+                f.rain[i] = f.rain[i].min(0.99);
+                if x < 4 {
+                    f.wb[i] = 1; // ocean
+                }
+                f.res.iron[i] = 0.3 * fy;
+                f.res.copper[i] = 0.2 * fx;
+                f.res.timber[i] = 0.4 * (1.0 - fx);
+                f.res.gold[i] = if x == 12 && y == 12 { 0.9 } else { 0.0 };
+                // Clay is NOT in SUIT_RESOURCE_KEYS -- set it high to prove
+                // the mineral term genuinely ignores the non-ore six.
+                f.res.clay[i] = 1.0;
+            }
+        }
+        // A lake block, and a river running down column 9 with rising order.
+        for y in 3..6 {
+            for x in 10..13 {
+                f.wb[y * gw + x] = 2;
+            }
+        }
+        for y in 0..gh {
+            let i = y * gw + 9;
+            f.river_order[i] = (y / 4) as i16 + 1;
+            f.flow[i] = 50.0 + 400.0 * y as f32;
+        }
+        f
+    }
+
+    fn suit_ctx(f: &SuitFixture) -> SuitabilityCtx<'_> {
+        SuitabilityCtx {
+            water_bodies: Some(&f.wb),
+            corridor: Some(&f.corridor),
+            landmass: Some(&f.landmass),
+            flow: Some(&f.flow),
+            river_order: Some(&f.river_order),
+            coast_sdf: Some(&f.coast_sdf),
+            resources: Some(&f.res),
+            rain: Some(&f.rain),
+            flood: Some(&f.flood),
+            slope_raw: Some(&f.slope_raw),
+            flow_thresh: 300.0,
+        }
+    }
+
+    /// THE test: for every cell of a real field, the explainer's `score`
+    /// must equal `build_settlement_suitability`'s own output exactly. If
+    /// anyone edits one function's arithmetic without the other, this
+    /// fails -- which is the whole point of having it.
+    #[test]
+    fn explanation_reconstructs_real_suitability() {
+        let f = suit_fixture();
+        let ctx = suit_ctx(&f);
+        let real = build_settlement_suitability(
+            &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(&ctx),
+        );
+        let mut scored = 0usize;
+        for y in 0..f.gh {
+            for x in 0..f.gw {
+                let e = explain_settlement_suitability(
+                    &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(&ctx), x, y,
+                );
+                assert_eq!(e.score, real[y * f.gw + x], "explanation diverged at ({x},{y})");
+                if e.excluded.is_none() {
+                    scored += 1;
+                    // A scored cell must also reconstruct z from its own terms.
+                    let sum: f64 = e.terms.iter().map(|t| t.contribution).sum();
+                    assert!((sum - e.z).abs() < 1e-12, "terms don't sum to z at ({x},{y})");
+                }
+            }
+        }
+        // Guard against a vacuous pass: the fixture must really have land.
+        assert!(scored > 100, "fixture produced too few scored cells: {scored}");
+    }
+
+    /// Same equality demand on the no-context branch, which uses a
+    /// different weight set and a different extra term.
+    #[test]
+    fn explanation_reconstructs_real_suitability_base_weights() {
+        let f = suit_fixture();
+        let real =
+            build_settlement_suitability(&f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, None);
+        for y in 0..f.gh {
+            for x in 0..f.gw {
+                let e = explain_settlement_suitability(
+                    &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, None, x, y,
+                );
+                assert_eq!(e.score, real[y * f.gw + x], "base-weight explanation diverged at ({x},{y})");
+            }
+        }
+    }
+
+    #[test]
+    fn explanation_reports_why_a_cell_was_excluded() {
+        let f = suit_fixture();
+        let ctx = suit_ctx(&f);
+        // Column 0 is ocean: below sea level AND flagged as a water body --
+        // the height test runs first, so that's the reason reported.
+        let sea_cell = explain_settlement_suitability(
+            &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(&ctx), 0, 0,
+        );
+        assert_eq!(sea_cell.excluded, Some("below_sea_level"));
+        assert_eq!(sea_cell.score, 0.0);
+        assert!(sea_cell.terms.is_empty());
+
+        // The lake block sits above sea level but is a water body.
+        let lake_cell = explain_settlement_suitability(
+            &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(&ctx), 11, 4,
+        );
+        assert_eq!(lake_cell.excluded, Some("water_body"));
+        assert_eq!(lake_cell.score, 0.0);
+    }
+
+    #[test]
+    fn explanation_terms_are_sorted_by_absolute_contribution() {
+        let f = suit_fixture();
+        let ctx = suit_ctx(&f);
+        let e = explain_settlement_suitability(
+            &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(&ctx), 9, 12,
+        );
+        assert!(e.terms.len() >= 13, "expected the full-context term set, got {}", e.terms.len());
+        for w in e.terms.windows(2) {
+            assert!(
+                w[0].contribution.abs() >= w[1].contribution.abs(),
+                "terms out of order: {} then {}",
+                w[0].key,
+                w[1].key
+            );
+        }
+    }
+
+    /// Penalties must read as penalties -- a negative contribution, so the
+    /// UI can honestly say "held back by flood risk" rather than silently
+    /// presenting it as a positive reason.
+    #[test]
+    fn explanation_penalties_carry_negative_contributions() {
+        let f = suit_fixture();
+        let ctx = suit_ctx(&f);
+        // Row 8 carries the elevated flood value from the fixture.
+        let e = explain_settlement_suitability(
+            &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(&ctx), 7, 8,
+        );
+        let flood = e.terms.iter().find(|t| t.key == "flood_risk").expect("flood term present");
+        assert!(flood.value > 0.0 && flood.contribution < 0.0, "flood should penalise: {flood:?}");
+        let islet = e.terms.iter().find(|t| t.key == "islet_penalty").expect("islet term present");
+        assert!(islet.weight < 0.0, "islet weight should be negative: {islet:?}");
+    }
+
+    /// The mineral term reads only the nine ore keys. The fixture sets
+    /// clay (not an ore) to 1.0 everywhere, so a non-zero clay must not
+    /// leak into the mineral contribution.
+    #[test]
+    fn explanation_mineral_term_ignores_non_ore_resources() {
+        let f = suit_fixture();
+        let ctx = suit_ctx(&f);
+        // (5,0): fy=0 so iron/timber contribute little, copper small, gold 0.
+        let e = explain_settlement_suitability(
+            &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(&ctx), 5, 0,
+        );
+        let mineral = e.terms.iter().find(|t| t.key == "minerals").expect("mineral term present");
+        let ore_sum: f64 = SUIT_RESOURCE_KEYS.iter().map(|k| resource_field(&f.res, k)[5] as f64).sum();
+        let expected = (ore_sum / (SUIT_RESOURCE_KEYS.len() as f64 / 3.0)).min(1.0);
+        assert!((mineral.value - expected).abs() < 1e-12, "clay leaked into the mineral term");
     }
 }

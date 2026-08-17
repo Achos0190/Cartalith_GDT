@@ -137,6 +137,34 @@ struct CivData {
     /// five-axis "power" heuristic, sector output) -- that remains real,
     /// unstarted future scope, not silently folded in here.
     trade_balances: Vec<cartalith_civ::TradeBalance>,
+    /// Why each settlement is where it is (`VISION.md`'s causal chain),
+    /// same order/index as `settlements`. Captured inside
+    /// `compute_civilisation` while the suitability rasters are still
+    /// alive -- see that function's own comment for why this is
+    /// per-settlement rather than a general per-cell query.
+    explanations: Vec<SettlementExplanation>,
+}
+
+/// One settlement's "why here?" record: the real decomposition of its
+/// suitability score, plus the handful of context readings the causal
+/// chain in `VISION.md` actually names (river, coast, terrain, route
+/// cost). Every value is read straight from a computed raster -- nothing
+/// here is inferred or estimated.
+struct SettlementExplanation {
+    suit: cartalith_civ::SuitExplanation,
+    elevation: f32,
+    /// Distance to coast in cells (negative = offshore), matching
+    /// `build_coast_sdf`'s own sign convention as the suitability coast
+    /// term reads it.
+    coast_dist_cells: f32,
+    /// Strahler order at this cell, `0` where no river was extracted.
+    river_order: i16,
+    flow: f32,
+    /// `build_travel_cost` at this cell -- the same movement-cost surface
+    /// the road network and territory Dijkstras both run over.
+    travel_cost: f32,
+    /// `build_biome_raster`'s class id at this cell.
+    biome: u8,
 }
 
 /// Runs the full Phase 2 pipeline (milestones 1-11) over a freshly
@@ -343,6 +371,52 @@ fn compute_civilisation(
             cartalith_civ::civ_resource_trade_balance(&ctx_mean, &world_mean_resources)
         })
         .collect();
+    // Causal-chain explainer (`VISION.md`): decompose the suitability score
+    // at each settlement's own cell into its real weighted terms, so the UI
+    // can answer "why is this town here?" from the actual arithmetic that
+    // placed it rather than a template.
+    //
+    // Computed HERE, and per-settlement rather than per-cell, for a real
+    // reason: every raster this needs (soil/water/carrying-capacity/coast
+    // SDF/river order/flow/corridor/landmass/flood/slope/resources) is a
+    // local of this function and dies at its end. Answering "why here?" for
+    // an arbitrary cell later would mean retaining all of them -- hundreds
+    // of MB at 2048x2048, straight back into what
+    // `MEMORY_OPTIMIZATION_SCOPE.md` spent real measurement getting out of.
+    // A settlement list is ~40 entries, so explaining all of them costs
+    // nothing and covers the question actually being asked.
+    let explanations: Vec<SettlementExplanation> = settlements
+        .iter()
+        .map(|s| {
+            let (x, y) = (s.placement.x, s.placement.y);
+            let i = y * gw + x;
+            SettlementExplanation {
+                suit: cartalith_civ::explain_settlement_suitability(
+                    &soil,
+                    &water_access,
+                    &carrying_cap,
+                    &ws.field,
+                    &slope_n,
+                    gw,
+                    gh,
+                    sea_level,
+                    Some(&ctx),
+                    x,
+                    y,
+                ),
+                elevation: ws.field[i],
+                // `build_coast_sdf` is negative offshore / positive inland;
+                // the suitability coast term reads `-sdf`, so this is the
+                // same sign convention, in cells.
+                coast_dist_cells: -coast_sdf[i],
+                river_order: river_order[i],
+                flow: ws.flow_discharge[i],
+                travel_cost: cost[i],
+                biome: biome[i],
+            }
+        })
+        .collect();
+
     // See the comment on `build_resource_potentials`'s own call site: this
     // free used to happen immediately after that call, before the economy
     // wiring above needed the full 15-key vocabulary through settlement
@@ -385,7 +459,7 @@ fn compute_civilisation(
         settlements.iter().filter(|s| s.placement.coastal).cloned().collect();
     let sea_routes = cartalith_civ::civ_sea_routes(&ports, &ws.field, &wb.classification, gw, gh, world, map_width_km);
 
-    CivData { settlements, ways, sea_routes, territory, provinces, province_list, trade_balances }
+    CivData { settlements, ways, sea_routes, territory, provinces, province_list, trade_balances, explanations }
 }
 
 /// `MVP_SCOPE.md` points 10-11: basic 2D rendering + minimal UI. Owns the
@@ -855,6 +929,67 @@ impl WorldGen {
                 }
             })
             .collect()
+    }
+
+    /// Why the settlement at `index` is where it is (`VISION.md`'s causal
+    /// chain) -- the real decomposition of `build_settlement_suitability`'s
+    /// score at that settlement's own cell, not a template.
+    ///
+    /// Returns an empty `Dictionary` for an out-of-range index or before
+    /// any generate. Otherwise:
+    /// - `score` (float) -- the settlement's suitability, identical to
+    ///   the value that placed it.
+    /// - `terms` (Array of Dictionary) -- every weighted term, **sorted
+    ///   most-decisive first**, each with `key` (stable String id like
+    ///   `"river"`/`"farmland"`/`"flood_risk"`), `value` (0..1 raw
+    ///   reading), `weight` (signed -- negative for the two penalties),
+    ///   and `contribution` (`weight * value`, the signed amount this
+    ///   term moved the score).
+    /// - `excluded` (String) -- present only for a cell the suitability
+    ///   pass skips outright (`"below_sea_level"` / `"water_body"`).
+    /// - context readings named by the causal chain, each straight from a
+    ///   real raster: `elevation`, `coast_dist_cells` (negative offshore),
+    ///   `river_order` (Strahler, 0 = no river), `flow`, `travel_cost`,
+    ///   `biome`.
+    ///
+    /// Deliberately keyed by settlement index rather than `(x, y)`: the
+    /// rasters this is derived from live only inside `compute_civilisation`
+    /// and retaining them for arbitrary-cell queries would cost hundreds of
+    /// MB at production resolutions (`MEMORY_OPTIMIZATION_SCOPE.md`). All
+    /// wording is left to the caller -- this returns facts, not prose.
+    #[func]
+    fn explain_settlement(&self, index: i64) -> VarDictionary {
+        let Some(civ) = self.civ.as_ref() else { return VarDictionary::new() };
+        let Some(e) = usize::try_from(index).ok().and_then(|i| civ.explanations.get(i)) else {
+            return VarDictionary::new();
+        };
+        let terms: Array<VarDictionary> = e
+            .suit
+            .terms
+            .iter()
+            .map(|t| {
+                dict! {
+                    "key" => t.key,
+                    "value" => t.value,
+                    "weight" => t.weight,
+                    "contribution" => t.contribution,
+                }
+            })
+            .collect();
+        let mut out = dict! {
+            "score" => e.suit.score,
+            "terms" => &terms,
+            "elevation" => e.elevation,
+            "coast_dist_cells" => e.coast_dist_cells,
+            "river_order" => e.river_order as i64,
+            "flow" => e.flow,
+            "travel_cost" => e.travel_cost,
+            "biome" => e.biome as i64,
+        };
+        if let Some(reason) = e.suit.excluded {
+            out.set("excluded", reason);
+        }
+        out
     }
 
     /// Per-settlement resource trade balance (`cartalith_civ::

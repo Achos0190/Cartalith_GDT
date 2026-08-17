@@ -58,7 +58,11 @@ const SEA_ROUTE_DASH_LENGTH := 2.6
 ## Lets `main.gd`'s Inspector panel show the same data this overlay's own
 ## `_draw_hover_card` already draws on-canvas, without duplicating the
 ## hit-test logic in `_gui_input` below.
-signal settlement_hovered(data: Variant)
+## `index` is the position in `get_settlements()`'s own array (`-1` on
+## hover-exit) -- the same index `WorldGen.explain_settlement()` keys on, so
+## the Inspector can ask why that settlement is there without re-running any
+## hit test.
+signal settlement_hovered(data: Variant, index: int)
 
 var _settlements: Array = []
 var _roads: Array = []
@@ -293,11 +297,11 @@ func _gui_input(event: InputEvent) -> void:
 		if closest != _hover_index:
 			_hover_index = closest
 			queue_redraw()
-			settlement_hovered.emit(_settlements[closest] if closest != -1 else null)
+			settlement_hovered.emit(_settlements[closest] if closest != -1 else null, closest)
 
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_MOUSE_EXIT and _hover_index != -1:
 		_hover_index = -1
 		queue_redraw()
-		settlement_hovered.emit(null)
+		settlement_hovered.emit(null, -1)

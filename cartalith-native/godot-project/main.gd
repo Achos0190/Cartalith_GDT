@@ -278,10 +278,51 @@ func _on_map_menu_id(id: int) -> void:
 		_select_nav_subject("CARTOGRAPHY", "Layers")
 
 
-## Updates the Inspector panel (right) with real settlement data on hover,
-## mirroring what `map_overlay.gd`'s own `_draw_hover_card` already draws on
-## -canvas -- same data, no new query. `data` is `null` on hover-exit.
-func _on_settlement_hovered(data: Variant) -> void:
+## Noun phrases for each suitability term key returned by
+## `WorldGen.explain_settlement()`. Wording lives here, not in Rust: the
+## engine supplies facts, the UI phrases them (ARCHITECTURE.md -- Godot
+## computes nothing beyond layout, and wording is layout).
+const SUIT_TERM_LABELS := {
+	"carrying_capacity": "fertile land",
+	"water_access": "fresh water",
+	"gentle_slope": "gentle terrain",
+	"terrain_form": "terrain form",
+	"coastal_access": "coastal access",
+	"river": "river access",
+	"lake": "lakeside",
+	"minerals": "mineral deposits",
+	"route_corridor": "natural route corridor",
+	"farmland": "farmland",
+	"buildable_ground": "buildable ground",
+	"flood_risk": "flood risk",
+	"islet_penalty": "isolation",
+	"water_bonus": "water",
+}
+
+## Qualifies a term by its own raw 0..1 reading, so the chain stays honest:
+## a settlement placed on mediocre soil reads as "weak farmland", not as a
+## flattering "farmland". Deliberately describes the reading, not the rank.
+func _term_strength(value: float) -> String:
+	if value >= 0.75:
+		return "strong"
+	if value >= 0.45:
+		return "moderate"
+	if value > 0.05:
+		return "weak"
+	return "negligible"
+
+
+func _describe_term(t: Dictionary) -> String:
+	var key := String(t["key"])
+	var label: String = SUIT_TERM_LABELS.get(key, key.replace("_", " "))
+	return "%s %s (%.2f)" % [_term_strength(float(t["value"])), label, float(t["value"])]
+
+
+## Updates the Inspector panel (right) on hover: the settlement's own data
+## plus a real "why here?" causal chain, decomposed from the very
+## suitability score that placed it (`WorldGen.explain_settlement`,
+## VISION.md). `data` is `null` and `index` `-1` on hover-exit.
+func _on_settlement_hovered(data: Variant, index: int) -> void:
 	if data == null:
 		inspector_header.text = "INSPECTOR · NO SELECTION"
 		inspector_body.text = "No selection.\n\nHover a settlement marker on the map to inspect it. A full per-cell inspector (elevation, slope, aspect, drainage, etc. at the cursor) needs a new engine query this milestone doesn't add -- see GUI_SHELL_SCOPE.md."
@@ -296,6 +337,50 @@ func _on_settlement_hovered(data: Variant) -> void:
 		"Coastal: %s" % ("yes" if s["coastal"] else "no"),
 		"Capital: %s" % ("yes" if s["capital"] else "no"),
 	]
+
+	var why: Dictionary = world_gen.explain_settlement(index)
+	if not why.is_empty():
+		lines.append("")
+		lines.append("[b]WHY HERE?[/b]")
+		if why.has("excluded"):
+			# A placed settlement shouldn't sit on an excluded cell; if it
+			# ever does, say so plainly rather than inventing a rationale.
+			lines.append("Cell excluded from suitability (%s)." % why["excluded"])
+		else:
+			var terms: Array = why["terms"]
+			# `terms` arrives sorted most-decisive-first. Positives are the
+			# reasons it's here; negatives are what it was placed in spite of.
+			var positives: Array[String] = []
+			var negatives: Array[String] = []
+			for t: Dictionary in terms:
+				var c := float(t["contribution"])
+				if c > 0.005 and positives.size() < 3:
+					positives.append(_describe_term(t))
+				elif c < -0.005 and negatives.size() < 2:
+					negatives.append(_describe_term(t))
+			if positives.is_empty():
+				lines.append("No single factor stands out -- placed on broadly average ground.")
+			else:
+				lines.append(" → ".join(positives))
+			if not negatives.is_empty():
+				lines.append("Despite: %s" % ", ".join(negatives))
+			lines.append("Suitability %.2f" % float(why["score"]))
+
+		lines.append("")
+		var ord_i := int(why["river_order"])
+		var river_txt := ("Strahler %d" % ord_i) if ord_i > 0 else "none"
+		var coast_cells := float(why["coast_dist_cells"])
+		lines.append("River: %s · flow %.0f" % [river_txt, float(why["flow"])])
+		# Spelled out as distance-to-water rather than "coast", because the
+		# settlement's own `Coastal` flag above uses a much wider radius
+		# (max(6, GW/60) cells -- port eligibility) than the suitability
+		# coast bonus does (a 5-cell falloff). A settlement can honestly be
+		# coastal AND have earned no coastal bonus; labelling this "coast"
+		# made those two lines read as a contradiction when they aren't.
+		lines.append("Distance to water: %.1f cells" % coast_cells)
+		lines.append("Elevation: %.3f (normalised)" % float(why["elevation"]))
+		lines.append("Travel cost: %.2f" % float(why["travel_cost"]))
+
 	inspector_body.text = "\n".join(lines)
 
 
