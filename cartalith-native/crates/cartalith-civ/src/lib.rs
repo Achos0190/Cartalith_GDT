@@ -3525,6 +3525,163 @@ pub fn assign_territory(settlements: &[NamedSettlement], cost: &[f32], gw: usize
     owner
 }
 
+/// A province: an auto-subdivided sub-region of one faction's territory,
+/// seeded from that faction's own city-tier-and-up settlements (reference
+/// `_civGenerateProvinces`, line ~14945, v1.10: "auto-subdivide every
+/// faction's territory into provinces, one per city-tier+ ... settlement
+/// belonging to that faction"). `civ_generate_provinces`'s per-cell output
+/// is `0` for "no province" (matches the reference's own `Uint16Array`
+/// default) or this struct's own 1-indexed `id`.
+#[derive(Debug, Clone)]
+pub struct Province {
+    pub id: i32,
+    pub faction: i32,
+    pub name: String,
+    /// Stands in for the reference's `capitalTid` (`_civAssignTid`,
+    /// reference line 20564) -- a lazy JS-object-identity counter used for
+    /// cross-session save/undo tracking. `compute_civilisation()` is a
+    /// fresh, stateless call every time (no persistent object identity
+    /// across generations to track), so the seed settlement's own index
+    /// into the `settlements` slice passed to `civ_generate_provinces` is
+    /// the direct, sufficient equivalent for "which settlement is this
+    /// province's seed."
+    pub capital_settlement_index: usize,
+}
+
+/// Auto-subdivides every faction's territory into provinces, one per
+/// city-tier-and-up settlement belonging to that faction (reference
+/// `_civGenerateProvinces`, line 14945 -- see `Province`'s own doc comment
+/// for the v1.10 changelog quote). A settlement-seeded Voronoi partition
+/// restricted to cells the seed's OWN faction already owns (nearest
+/// same-faction seed wins; never crosses a territory boundary, exactly the
+/// reference's own `if(s.fid!==fid) continue`). A faction with no city+
+/// settlement falls back to its single highest-population settlement, so
+/// any faction that owns territory gets at least one named province. A
+/// faction that owns territory but placed zero settlements at all (a real,
+/// if rare, edge case) gets none -- those cells stay province `0`, exactly
+/// matching the reference's own `civProvince[i]` default (it too only ever
+/// writes cells reachable from a same-faction seed).
+///
+/// The reference's rank>=3 seed filter (`CIV_SETTLEMENT_CLASSES`: city=3,
+/// capital=4, metropolis=5, university=3, industrial=3) reduces cleanly to
+/// "Capital or City" under this port's own five-tier `SettlementKind`
+/// (`Capital`=4, `City`=3, `Town`=2, `Village`=1, `Hamlet`=0 -- the exact
+/// same numeric ranks the reference assigns those five tiers). Metropolis/
+/// university/industrial were never ported into `SettlementKind`
+/// (`PHASE2_SCOPE.md`), so there is nothing else rank>=3 could mean here --
+/// not an approximation of the reference's filter, the same filter with
+/// tiers this port never built removed from the input domain entirely.
+///
+/// `territory` must be `assign_territory`'s own per-cell output (Phase 2
+/// milestone 10, `DECISIONS.md` §7b) -- the reference's real `civTerritory`
+/// has no algorithmic production path at all (`PHASE2_SCOPE.md`'s own
+/// "territory/provinces is a dead end here" investigation: the only two
+/// writers in the whole reference are an interactive paint tool and a
+/// save/load deserializer restoring a previously-painted delta), so this
+/// port's own territory algorithm is the only real input available. The
+/// shapes match exactly: `Vec<i32>`/`Uint8Array` per-cell faction id, `0` =
+/// unowned in both.
+///
+/// Faction iteration order (`BTreeMap`, ascending) is this port's own
+/// choice, not a match to the reference's JS `Map` insertion order --
+/// there is nothing to match it *against* (no golden JS run for this step,
+/// same reason territory itself has none, §7b), and province numbering is
+/// opaque/cosmetic across factions since the Voronoi partition itself is
+/// entirely faction-scoped (a cell's candidate seeds are always filtered to
+/// its own faction first). Within one faction, seed order follows
+/// settlement-list encounter order, matching the reference's own
+/// `arr.push` order.
+///
+/// No JS reference to golden-verify the *province* step itself against,
+/// for the same reason milestone 10 had none for territory (§7b) --
+/// verified by the tests below instead: every owned cell's province
+/// belongs to that cell's own faction; provinces partition their parent
+/// territory with no gaps; multi-seed and single-fallback-seed cases are
+/// both exercised; a faction with territory but no settlements stays
+/// province-0.
+pub fn civ_generate_provinces(
+    settlements: &[NamedSettlement],
+    territory: &[i32],
+    gw: usize,
+    gh: usize,
+) -> (Vec<i32>, Vec<Province>) {
+    struct Seed {
+        x: usize,
+        y: usize,
+        province: i32,
+        faction: i32,
+    }
+
+    let mut by_faction: BTreeMap<i32, Vec<usize>> = BTreeMap::new();
+    for (idx, s) in settlements.iter().enumerate() {
+        if s.placement.faction == 0 {
+            continue;
+        }
+        by_faction.entry(s.placement.faction).or_default().push(idx);
+    }
+
+    let mut provinces = Vec::new();
+    let mut seeds = Vec::new();
+    for (fid, indices) in &by_faction {
+        let mut seed_indices: Vec<usize> = indices
+            .iter()
+            .copied()
+            .filter(|&i| matches!(settlements[i].placement.kind, SettlementKind::Capital | SettlementKind::City))
+            .collect();
+        if seed_indices.is_empty() {
+            // Fallback: single highest-population settlement of this faction
+            // (reference: `arr.reduce((a,b)=>(b.p.pop||0)>(a.p.pop||0)?b:a)`).
+            if let Some(&best) = indices.iter().max_by_key(|&&i| settlements[i].pop) {
+                seed_indices.push(best);
+            }
+        }
+        for idx in seed_indices {
+            let province_id = provinces.len() as i32 + 1; // 1-indexed, 0 = "no province"
+            let s = &settlements[idx];
+            provinces.push(Province {
+                id: province_id,
+                faction: *fid,
+                name: format!("{} Province", s.name),
+                capital_settlement_index: idx,
+            });
+            seeds.push(Seed { x: s.placement.x, y: s.placement.y, province: province_id, faction: *fid });
+        }
+    }
+
+    let mut province = vec![0i32; gw * gh];
+    if !seeds.is_empty() {
+        // Per-cell independent nearest-same-faction-seed lookup -- identical
+        // parallelization shape to `assign_territory`'s own per-cell compare
+        // above (each cell reads only the shared, already-computed `territory`
+        // and `seeds`, writes only its own output cell).
+        province.par_iter_mut().enumerate().for_each(|(i, p)| {
+            let fid = territory[i];
+            if fid == 0 {
+                return;
+            }
+            let x = (i % gw) as i64;
+            let y = (i / gw) as i64;
+            let mut best = 0i32;
+            let mut best_dist = i64::MAX;
+            for seed in &seeds {
+                if seed.faction != fid {
+                    continue;
+                }
+                let dx = seed.x as i64 - x;
+                let dy = seed.y as i64 - y;
+                let d = dx * dx + dy * dy;
+                if d < best_dist {
+                    best_dist = d;
+                    best = seed.province;
+                }
+            }
+            *p = best;
+        });
+    }
+
+    (province, provinces)
+}
+
 // ===================== Phase 2 milestone 15: village seeding =====================
 //
 // `_civSeedVillages` (reference line ~25164): an additive, full-map-coverage pass that
@@ -4881,6 +5038,14 @@ mod tests {
         }
     }
 
+    fn named_settlement(x: usize, y: usize, faction: i32, kind: SettlementKind, pop: u32, name: &str) -> NamedSettlement {
+        NamedSettlement {
+            placement: SettlementPlacement { x, y, suit: 0.5, faction, capital: kind == SettlementKind::Capital, kind, coastal: false },
+            name: name.to_string(),
+            pop,
+        }
+    }
+
     #[test]
     fn territory_weight_is_one_at_zero_population() {
         assert_eq!(territory_weight(0), 1.0);
@@ -4958,6 +5123,104 @@ mod tests {
         };
         let owner = assign_territory(&[non_capital], &cost, 3, 3, false);
         assert!(owner.iter().all(|&f| f == 0), "a non-capital settlement projects no territory of its own");
+    }
+
+    #[test]
+    fn civ_generate_provinces_seeds_from_city_tier_settlements() {
+        // One faction, one capital (x=0) and one city (x=10) on a 1x11 strip
+        // it fully owns -- two rank>=3 seeds, so two provinces, split at the
+        // Voronoi midpoint between them (unweighted, unlike territory itself).
+        let settlements = vec![
+            named_settlement(0, 0, 1, SettlementKind::Capital, 15000, "Capital"),
+            named_settlement(10, 0, 1, SettlementKind::City, 8000, "City"),
+        ];
+        let territory = vec![1i32; 11];
+        let (province, provinces) = civ_generate_provinces(&settlements, &territory, 11, 1);
+        assert_eq!(provinces.len(), 2, "two rank>=3 settlements in one faction seed two provinces");
+        assert_eq!(province[0], provinces[0].id);
+        assert_eq!(province[10], provinces[1].id);
+        // x=4/x=6 are unambiguous on either side of the Voronoi boundary
+        // (squared distances 16 vs 36, no tie) -- x=5 itself is an exact tie
+        // broken by seed order, not asserted here since it isn't a clean
+        // distance fact.
+        assert_eq!(province[4], provinces[0].id);
+        assert_eq!(province[6], provinces[1].id);
+    }
+
+    #[test]
+    fn civ_generate_provinces_falls_back_to_highest_population_settlement() {
+        // One faction, no capital/city -- only a town and a village. Neither
+        // is rank>=3, so the fallback (single highest-population settlement)
+        // must produce exactly one province, seeded by the town (pop 4000 >
+        // village's 800), not the capital-tier filter (which would find none).
+        let settlements = vec![
+            named_settlement(0, 0, 1, SettlementKind::Town, 4000, "Town"),
+            named_settlement(4, 0, 1, SettlementKind::Village, 800, "Village"),
+        ];
+        let territory = vec![1i32; 5];
+        let (province, provinces) = civ_generate_provinces(&settlements, &territory, 5, 1);
+        assert_eq!(provinces.len(), 1, "no rank>=3 seed available -> exactly one fallback province");
+        assert_eq!(provinces[0].capital_settlement_index, 0, "the higher-population settlement (Town, index 0) is the fallback seed");
+        assert!(province.iter().all(|&p| p == provinces[0].id), "with only one seed, the whole owned strip is that one province");
+    }
+
+    #[test]
+    fn civ_generate_provinces_never_crosses_a_territory_faction_boundary() {
+        // Two factions' capitals on a 1x11 strip, territory already split at
+        // the midpoint by a prior assign_territory-shaped input (not computed
+        // here -- province generation must respect whatever territory says,
+        // not re-derive its own faction boundary).
+        let settlements = vec![
+            named_settlement(0, 0, 1, SettlementKind::Capital, 15000, "Capital A"),
+            named_settlement(10, 0, 2, SettlementKind::Capital, 15000, "Capital B"),
+        ];
+        let mut territory = vec![1i32; 11];
+        for t in territory.iter_mut().skip(5) {
+            *t = 2;
+        }
+        let (province, provinces) = civ_generate_provinces(&settlements, &territory, 11, 1);
+        for i in 0..11 {
+            if province[i] == 0 {
+                continue;
+            }
+            let owning_faction = territory[i];
+            let prov = provinces.iter().find(|p| p.id == province[i]).unwrap();
+            assert_eq!(prov.faction, owning_faction, "cell {i}'s province must belong to that cell's own owning faction");
+        }
+    }
+
+    #[test]
+    fn civ_generate_provinces_faction_with_territory_but_no_settlements_stays_unassigned() {
+        // territory claims faction 3 for every cell, but no settlement in the
+        // input list belongs to faction 3 (only faction 1 has a settlement,
+        // owning no territory here). The reference still seeds a province
+        // *entry* for every faction that has a qualifying settlement
+        // (`seedsByFaction` is built from `state.places` alone, independent
+        // of `civTerritory`) -- so faction 1 gets exactly one province
+        // record, but zero cells, since the per-cell Voronoi pass only ever
+        // matches a seed against `territory[i]`'s own faction (here, always
+        // 3, which has no seed at all) -- `civProvince[i]` never gets
+        // written for a faction with no seed, so those cells stay 0.
+        let settlements = vec![named_settlement(0, 0, 1, SettlementKind::Capital, 15000, "Elsewhere")];
+        let territory = vec![3i32; 9];
+        let (province, provinces) = civ_generate_provinces(&settlements, &territory, 3, 3);
+        assert_eq!(provinces.len(), 1, "faction 1's capital still seeds a province record even though it owns no territory here");
+        assert_eq!(provinces[0].faction, 1);
+        assert!(province.iter().all(|&p| p == 0), "faction 3 owns all the territory but has no settlement to seed a province");
+    }
+
+    #[test]
+    fn civ_generate_provinces_partitions_owned_territory_with_no_gaps() {
+        // Every cell in a faction's territory that IS reachable by a
+        // same-faction seed must get a nonzero province -- no owned cell left
+        // at province 0 merely because it's not the nearest to any one seed.
+        let settlements = vec![
+            named_settlement(1, 1, 1, SettlementKind::Capital, 15000, "Capital"),
+            named_settlement(3, 3, 1, SettlementKind::City, 6000, "City"),
+        ];
+        let territory = vec![1i32; 25]; // whole 5x5 grid owned by faction 1
+        let (province, _provinces) = civ_generate_provinces(&settlements, &territory, 5, 5);
+        assert!(province.iter().all(|&p| p != 0), "every cell owned by a faction with a real seed must land in some province");
     }
 
     #[test]

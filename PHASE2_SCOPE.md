@@ -293,6 +293,17 @@ genuinely new design decision, not something to improvise here). Porting
 `_civGenerateProvinces` now would produce a correctly-tested function with
 no real caller — technically "done," practically inert.
 
+**Resolved 2026-08-17**: the "some other territory-assignment approach"
+alternative this note itself named arrived — milestone 10 (below),
+`assign_territory` (`DECISIONS.md` §7b), built for a wholly different
+original reason (the port needed *some* territory system since the
+reference had none at all), turned out to produce the exact same per-cell
+shape `_civGenerateProvinces` needs (`Vec<i32>` faction id, `0` = unowned,
+matching `civTerritory`'s own `Uint8Array` convention exactly). Re-checked
+by reading the real reference source directly (not re-trusting this note's
+own summary) before porting — confirmed compatible, ported for real. See
+"Milestone 16" below.
+
 ## Milestone 9 — settlement population + naming: **done** (2026-08-16)
 
 Investigated 2026-08-16, choosing between the milestone-8 fork's three
@@ -687,6 +698,65 @@ established standard) — see `CHANGELOG.md`'s "Phase 2 milestone 15" entry
 for the full account, including a real threshold-consistency question
 flagged (not fixed here) for whoever next touches `cartalith-godot`'s
 orchestration, and the UI-toggle decision left to that same crate.
+
+## Milestone 16 — provinces: `_civGenerateProvinces`: **done** (2026-08-17)
+
+Resolved the blocker the original milestone-9 investigation (above) found:
+`civTerritory` (the reference's real input to this function) has no
+programmatic producer anywhere in the JS, but milestone 10's own
+`assign_territory` — built for a different reason (the port needed *a*
+territory system since the reference had none) — turned out to produce the
+identical per-cell shape (`Vec<i32>` faction id, `0` = unowned). Confirmed
+by reading the real reference source directly before porting, not by
+re-trusting the earlier note's own summary.
+
+`civ_generate_provinces(settlements, territory, gw, gh) -> (Vec<i32>,
+Vec<Province>)` (`cartalith-civ`): a settlement-seeded Voronoi partition of
+each faction's own owned cells, restricted to same-faction seeds (never
+crosses a territory boundary). Seeds are every `Capital`/`City`-tier
+settlement of a faction (this port's own five-tier `SettlementKind` reduces
+the reference's rank>=3 filter — city=3/capital=4/metropolis=5/
+university=3/industrial=3 — cleanly to "Capital or City," since metropolis/
+university/industrial were never ported into `SettlementKind` in the first
+place; not an approximation, the same filter with tiers this port doesn't
+have removed from the input domain). A faction with no city-tier seed falls
+back to its single highest-population settlement. A faction that owns
+territory but placed zero settlements gets no province (cells stay `0`,
+matching the reference's own behaviour).
+
+No JS reference to golden-verify the province step itself against, same
+reason milestone 10 had none for territory (§7b) — verified by 5 real unit
+tests instead: multi-seed Voronoi split, single-fallback-seed case, a
+province never claims a cell outside its own faction's territory, a
+faction with territory but no settlements stays unassigned, and every
+reachable owned cell partitions into some real province (no gaps).
+
+Wired into `cartalith-godot`'s `compute_civilisation()`/`CivData`
+(`provinces: Vec<i32>`, `province_list: Vec<Province>`), with two new
+`#[func]` methods: `get_provinces()` (metadata: id/faction/name/seed
+settlement index) and `build_province_boundary_texture()` (a boundary-line
+RGBA overlay — deliberately lines, not a per-province fill colour, since
+province count isn't bounded the way `CIV_FACTION_COUNT` is and a real
+per-province palette is a UI/UX design decision, not a data-porting one).
+**Deliberately not wired into `main.gd`/`map_overlay.gd`** — no new UI
+toggle, no new `TextureRect` — per this port's own standing practice of
+routing new-visual-feature UI/UX through a dedicated pass rather than
+improvising scene-tree changes inside a data-porting task. Both new methods
+verified with real generated data via a temporary headless GDScript
+(`generate()` → `get_provinces()`/`build_province_boundary_texture()`,
+not committed): 7 provinces at seed 12345/512²/Classic, a real non-empty
+512×512 boundary texture (2,262 boundary pixels), no crash — the same
+real-invocation discipline this session's sea-routes crash was caught by,
+applied here even without a permanent UI to screenshot.
+
+**Verified**: `cargo test -p cartalith-civ` (5 new tests, 64 total, 0
+failed), `cargo test --workspace` (0 regressions), `cargo clippy -p
+cartalith-civ -p cartalith-godot --all-targets` clean, `godot4 --headless
+--quit main.tscn` clean load, plus the real headless functional check
+above.
+
+**Out of scope for this milestone**: any actual rendering/UI wiring (the
+follow-up this section itself flags), economy, culture beyond naming.
 
 ## Done means (per milestone, not once for the whole phase)
 

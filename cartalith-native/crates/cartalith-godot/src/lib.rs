@@ -106,6 +106,22 @@ struct CivData {
     /// gated, since there's no reference default to match and no reason
     /// to withhold it.
     territory: Vec<i32>,
+    /// `cartalith_civ::civ_generate_provinces`'s per-cell output (reference
+    /// `_civGenerateProvinces`, ported once `territory` above gave it a
+    /// real programmatic input to subdivide -- `PHASE2_SCOPE.md`'s earlier
+    /// "territory/provinces is a dead end here" note was about the
+    /// reference's own missing `civTerritory` producer, not about this
+    /// port's `assign_territory`, which supplies the exact same per-cell
+    /// shape). `0` = no province (unowned territory, or a faction that owns
+    /// territory here but placed no settlement to seed one -- see
+    /// `civ_generate_provinces`'s own doc comment for why that's a real,
+    /// non-error outcome). Data only this pass -- no Godot-side rendering
+    /// wired in yet, deliberately left for a dedicated UI/UX pass rather
+    /// than improvised here (see this field's own CHANGELOG entry).
+    provinces: Vec<i32>,
+    /// Province metadata (id/faction/name/seed settlement index) parallel
+    /// to `provinces` above's cell ids.
+    province_list: Vec<cartalith_civ::Province>,
 }
 
 /// Runs the full Phase 2 pipeline (milestones 1-11) over a freshly
@@ -306,6 +322,12 @@ fn compute_civilisation(
     // territory, `assign_territory`'s own `if !capital continue`), so
     // whether villages were added above doesn't change this at all.
     let territory = cartalith_civ::assign_territory(&settlements, &cost, gw, gh, world);
+    // Provinces (`_civGenerateProvinces`, PHASE2_SCOPE.md): the reference
+    // itself has no programmatic `civTerritory` producer to subdivide, but
+    // this port's own `assign_territory` output above is the exact same
+    // per-cell shape (`Vec<i32>` faction id, 0 = unowned) the reference
+    // function expects -- see `civ_generate_provinces`'s own doc comment.
+    let (provinces, province_list) = cartalith_civ::civ_generate_provinces(&settlements, &territory, gw, gh);
 
     // Milestone 14 consolidation/smoothing needs NAMED settlements
     // (`pa.name`/`pb.name`) -- must run after the naming/village block
@@ -325,7 +347,7 @@ fn compute_civilisation(
         settlements.iter().filter(|s| s.placement.coastal).cloned().collect();
     let sea_routes = cartalith_civ::civ_sea_routes(&ports, &ws.field, &wb.classification, gw, gh, world, map_width_km);
 
-    CivData { settlements, ways, sea_routes, territory }
+    CivData { settlements, ways, sea_routes, territory, provinces, province_list }
 }
 
 /// `MVP_SCOPE.md` points 10-11: basic 2D rendering + minimal UI. Owns the
@@ -738,5 +760,68 @@ impl WorldGen {
                 dict! { "points" => &points, "brks" => &brks, "name" => r.name.as_str() }
             })
             .collect()
+    }
+
+    /// Province metadata (`cartalith_civ::civ_generate_provinces`) -- one
+    /// `Dictionary` per province with keys `id` (int, matches
+    /// `get_province_id_at`... see `build_province_boundary_texture`'s own
+    /// doc comment for how a province id maps back to a cell), `faction`
+    /// (int, `1..=6`), `name` (String), `capital_settlement_index` (int,
+    /// index into `get_settlements()`'s own array -- the seed settlement
+    /// this province was subdivided from). Empty under the same conditions
+    /// as `get_settlements()`/`get_roads()`.
+    #[func]
+    fn get_provinces(&self) -> Array<VarDictionary> {
+        let Some(civ) = self.civ.as_ref() else { return Array::new() };
+        civ.province_list
+            .iter()
+            .map(|p| {
+                dict! {
+                    "id" => p.id,
+                    "faction" => p.faction,
+                    "name" => p.name.as_str(),
+                    "capital_settlement_index" => p.capital_settlement_index as i64,
+                }
+            })
+            .collect()
+    }
+
+    /// Province *boundaries* as a semi-transparent RGBA overlay -- a thin
+    /// line wherever two orthogonally-adjacent cells belong to different
+    /// (nonzero) provinces, transparent everywhere else. Deliberately not a
+    /// per-province fill colour the way `build_territory_texture` fills by
+    /// faction: a province count isn't bounded the way `CIV_FACTION_COUNT`
+    /// is, so there's no fixed small palette to draw from without a real
+    /// UI/UX design pass picking one -- boundary lines need no palette at
+    /// all and read clearly layered on top of `build_territory_texture`'s
+    /// own per-faction fill. Not yet wired into `main.gd`/`map_overlay.gd`
+    /// (`CHANGELOG.md`) -- this method exists so that wiring is a small,
+    /// later addition, not a green-field task. `None` under the same
+    /// conditions as `build_territory_texture`.
+    #[func]
+    fn build_province_boundary_texture(&self) -> Option<Gd<ImageTexture>> {
+        let civ = self.civ.as_ref()?;
+        let gw = self.gw as usize;
+        let gh = self.gh as usize;
+        const LINE_RGBA: [u8; 4] = [43, 30, 10, 200]; // matches map_overlay.gd's MARKER_OUTLINE ink tone
+
+        let mut bytes = vec![0u8; gw * gh * 4];
+        for y in 0..gh {
+            for x in 0..gw {
+                let i = y * gw + x;
+                let here = civ.provinces[i];
+                if here == 0 {
+                    continue;
+                }
+                let differs_from_neighbor = (x + 1 < gw && civ.provinces[i + 1] != here)
+                    || (y + 1 < gh && civ.provinces[i + gw] != here);
+                if differs_from_neighbor {
+                    bytes[i * 4..i * 4 + 4].copy_from_slice(&LINE_RGBA);
+                }
+            }
+        }
+        let packed = PackedByteArray::from(bytes);
+        let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGBA8, &packed)?;
+        ImageTexture::create_from_image(&image)
     }
 }

@@ -5729,3 +5729,60 @@ CPU-multithreading effort covers.
 src/lib.rs}`, `cartalith-erosion/{Cargo.toml,src/lib.rs}`,
 `cartalith-hydrology/{Cargo.toml,src/lib.rs}`, `CPU_MULTITHREADING_
 SCOPE.md`, this file, `docs/STATUS.md`.
+
+## Phase 2 milestone 16: provinces (`_civGenerateProvinces`) (2026-08-17)
+
+Resolved a blocker recorded, not assumed stale, since the milestone-9
+investigation that found it: the reference's `civTerritory` (this
+function's real input) has zero programmatic producer anywhere in the JS
+— only an interactive paint tool and a save/load deserializer ever write
+it. Milestone 10's own `assign_territory` (`DECISIONS.md` §7b), built for
+an unrelated reason (the port needed *a* territory system since the
+reference never had one), turned out to produce the exact same per-cell
+shape this function needs (`Vec<i32>` faction id, `0` = unowned). Verified
+by reading the real reference source directly before porting, not by
+trusting the earlier note's own summary — confirmed compatible.
+
+`civ_generate_provinces` (`cartalith-civ`): a settlement-seeded Voronoi
+partition of each faction's own territory, restricted to same-faction
+seeds. Seeds are `Capital`/`City`-tier settlements (this port's five-tier
+`SettlementKind` reduces the reference's rank>=3 filter cleanly, since
+metropolis/university/industrial were never ported into `SettlementKind`
+at all — nothing else rank>=3 could mean here). No city-tier seed in a
+faction falls back to its single highest-population settlement. A faction
+that owns territory but placed zero settlements gets no province.
+
+No JS reference to golden-verify the province step against (same reason
+as territory itself, §7b) — verified by 5 real unit tests: multi-seed
+Voronoi split, single-fallback-seed case, a province never claims a cell
+outside its own faction's territory, a faction with territory but no
+settlements stays unassigned, every reachable owned cell partitions into
+a real province with no gaps.
+
+Wired into `cartalith-godot`'s `CivData`/`compute_civilisation()`
+(`provinces: Vec<i32>`, `province_list: Vec<Province>`) with two new
+`#[func]`s: `get_provinces()` and `build_province_boundary_texture()` (a
+boundary-line overlay, not a per-province fill — a real per-province
+colour palette is a UI/UX design decision this task didn't make, since
+province count isn't bounded the way `CIV_FACTION_COUNT` is).
+**Deliberately not wired into `main.gd`/`map_overlay.gd`** — no new
+toggle, no new `TextureRect` — left for a dedicated UI/UX pass per this
+port's own standing practice, rather than improvising scene-tree changes
+inside a data-porting task. Both new methods verified against real
+generated data via a temporary (uncommitted) headless GDScript: 7
+provinces at seed 12345/512²/Classic, a real non-empty 512×512 boundary
+texture (2,262 boundary pixels), no crash — the same real-invocation
+discipline this session's sea-routes crash was caught by, applied here
+even with no permanent UI yet to screenshot.
+
+**Verified**: `cargo test -p cartalith-civ` (5 new tests, 64 total, 0
+failed), `cargo test --workspace` (0 regressions), `cargo clippy -p
+cartalith-civ -p cartalith-godot --all-targets` clean, `godot4 --headless
+--quit main.tscn` clean load, plus the real headless functional check
+above.
+
+**Files touched**: `cartalith-native/crates/cartalith-civ/src/lib.rs`
+(`Province`, `civ_generate_provinces`, 5 tests), `cartalith-godot/
+src/lib.rs` (`CivData` fields, wiring, `get_provinces()`,
+`build_province_boundary_texture()`), `PHASE2_SCOPE.md`, this file,
+`docs/STATUS.md`.
