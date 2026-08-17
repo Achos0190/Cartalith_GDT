@@ -6781,3 +6781,98 @@ text.
 **Files touched**: `cartalith-native/godot-project/main.tscn`, `main.gd`,
 `map_overlay.gd`, `project.godot`, new `theme/dark_theme.tres`,
 `GUI_SHELL_SCOPE.md`, `docs/STATUS.md`, this file.
+
+## Journey Planner milestone 3: physical travel cost (2026-08-17)
+
+`JOURNEY_PLANNER_SCOPE.md`'s next milestone. **The biggest real finding is a
+dependency-ordering error in that scope doc itself**, found by reading the
+reference rather than trusting the plan: milestone 3 is listed *before*
+milestone 4, and it needs to be the other way round. `jpCalcLand` (reference
+line 18912) calls `jpCapacity` (18177), `jpForaging` (18156),
+`jpAssessResupply` (18231) and `_jpDesertTierForGap` (18727); `jpCalcWater`
+(19124) calls `jpAssessResupply` and `jpHumanWaterRate` (17626). Every one of
+those is on milestone 4's own list, and they are not thin shims —
+`jpCapacity` is the whole seasonal-physiology/draft-shortfall/mount-saddlebag
+mass model, and `jpForaging` reaches through `_jpWildlifeForageMod` into the
+world's wildlife-richness field, real world context never plumbed into the
+Journey Planner. So `jp_calc_land`/`jp_calc_water` stay unported and are
+re-flagged under milestone 4, on exactly the discipline milestone 2 used for
+its own four deferrals. The scope doc is corrected accordingly.
+
+Two more of the eleven listed functions (`jp_water_window`,
+`jp_animal_terrain_mod`) had already shipped with milestone 2, which needed
+them for its own work. Not re-ported.
+
+**The seven that shipped**, all self-contained given a caller-supplied
+party/leg summary instead of the full JS `plan`/`jn` object: `jp_train_pace`
+(the slowest-carrier rule — wheels, then travois, then pack animals, porters
+last), `jp_sail_factor` (v1.97's rig-class sail polar: zero in the no-go
+zone, peak on a beam-to-broad reach, falling off again dead downwind — not a
+cosine of wind angle), `jp_wx_weighted` + `jp_weather_factor` (season×biome
+probability-weighted weather, blending the pace animal's own affinity, plus
+v1.44's forced-condition override), `jp_column_length_km` +
+`jp_column_factor` (v1.51's road-capacity damping — the fix for bigger
+parties coming out monotonically *faster* in v1.50), and `jp_journey_cost`.
+Supporting data ported alongside: `JP_TRAIN_PACE`, `JP_RIG`/`JP_SHIP_RIG`,
+`JP_WEATHER`, `JP_ANIMAL_WEATHER_OVERRIDE`, `JP_FILES_BY_TERRAIN` and the
+column-spacing constants, `JP_COST_*`, plus one small shared `JpParty`
+struct.
+
+**`JP_BIOMES[...].weather` — the table the scope doc flagged as "not yet
+identified as ported or not" — was NOT ported**, checked rather than
+assumed: milestone 2 deliberately narrowed its `JP_BIOMES` port to the two
+fields `jpBestAnimalForContext` reads and said so in its own doc comment. The
+weather distributions (12 biomes × 4 seasons × 5 conditions) are ported here
+with the two functions that consume them. The remaining columns
+(`water`/`forage`/`waterForage`/`grazing`) stay unported and belong to
+milestone 4.
+
+**`jp_journey_cost` turned out portable**, confirmed by reading its real
+signature rather than assuming (the scope doc warned it might need milestone
+2's transport selection to have run). The reference's own comment calls it
+"pure over the plan object — no globals, no DOM", and that held: it touches a
+five-field per-leg summary (`cat`/`st.km`/`days`/`crew`/`blocked`), one
+`claimedFrac` per stage, the trip totals and the party. Ported with a
+`JourneyLeg` input struct narrowed to exactly those fields — which is also
+the shape `jp_calc_land`/`jp_calc_water` will produce once milestone 4
+unblocks them.
+
+**Milestone 2's four deferrals: none resolved**, re-checked by reading each
+again rather than inferred. `_jpBestLandTransportForStage` calls `jpCalcLand`
+in its inner loop, and `jpCalcLand` did not land — so it stays blocked, now
+behind milestone 4 rather than milestone 3. `jpAutoPickTransport`/
+`jpAutoPickVessel` still open with `_jpEnsurePlan`+`_jpDeriveStages`
+(milestone 5); `_jpBestPackageForStage` still takes an `_jpEffectiveStagePlan`
+-shaped argument.
+
+**Golden-verified against the real reference**, not hand arithmetic — the
+first Journey Planner milestone to use a harness rather than pure unit tests,
+because the weather blend is a 48-cell five-term float sum where hand
+arithmetic would be the weak link. The reference's own source lines for all
+seven functions and their tables were sliced out of `reference/Cartalith Gen1
+v2.10.html` by line range and run in a bare Node `vm.runInContext` with no
+DOM (the same technique Phase 2 used throughout, applied to functions pure
+enough not to need a generated world to drive them). Every expected value in
+the 12 new tests is that run's output: all 48 `jpWxWeighted` cells as a
+block, the sail polar's five control points plus interpolation and
+angle-folding (−90°/270°/400° all fold correctly), and two full
+`jpJourneyCost` breakdowns. One real harness bug caught before anything was
+trusted: an unterminated block comment at a slice boundary was swallowing the
+following slice.
+
+**Verified**: `cargo build -p cartalith-civ`, `cargo test -p cartalith-civ
+--lib` (139 passed, 0 failed, 12 new), `cargo clippy -p cartalith-civ
+--all-targets` (two real findings in the new code fixed — a `manual_clamp`
+and an `inconsistent_digit_grouping`; the lib is back to the same two
+pre-existing unrelated warnings milestone 2 recorded, and the new test code
+adds none), `cargo test --workspace` (0 regressions). Three sibling forks had
+uncommitted work in the shared tree at the time, including a half-created
+`cartalith-assets` crate whose missing `src/lib.rs` broke workspace manifest
+loading; rather than edit a shared `Cargo.toml` out from under them,
+verification ran against a scratch mirror of the workspace with that one
+in-progress crate omitted. **Not wired to any caller** — no `#[func]`, no
+`compute_civilisation()` integration, per `JOURNEY_PLANNER_SCOPE.md`'s own
+"out of scope for all milestones" section.
+
+**Files touched**: `cartalith-native/crates/cartalith-civ/src/lib.rs`,
+`JOURNEY_PLANNER_SCOPE.md`, `cartalith-native/docs/STATUS.md`, this file.

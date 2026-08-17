@@ -5760,6 +5760,505 @@ pub fn jp_auto_stage_vessel(stage: &WaterStage) -> Option<&'static str> {
     JP_VESSEL_PREFERENCE.iter().find(|&&name| jp_vessel_fits(name, std::slice::from_ref(stage))).copied()
 }
 
+// ----------------------------------------------------------------------------
+// Journey Planner milestone 3 -- physical travel cost (JOURNEY_PLANNER_SCOPE.md).
+//
+// Two of the eleven functions that scope doc listed for this milestone were
+// already shipped by milestone 2, which needed them for its own work and said
+// so: `jpWaterWindow` (`jp_water_window`, above) and `jpAnimalTerrainMod`
+// (`jp_animal_terrain_mod`, above). Not re-ported.
+//
+// **Real finding, read out of the reference rather than assumed**: two more --
+// `jpCalcLand` (line 18912) and `jpCalcWater` (line 19124) -- are blocked on
+// milestone *4*, which this scope doc orders AFTER milestone 3. `jpCalcLand`
+// calls `jpCapacity` (line 18177), `jpForaging` (line 18156), `jpAssessResupply`
+// (line 18231) and `_jpDesertTierForGap` (line 18727); `jpCalcWater` calls
+// `jpAssessResupply` and `jpHumanWaterRate` (line 17626). Every one of those is
+// on milestone 4's own list ("Consumption/resupply"), and they are not thin
+// shims: `jpCapacity` is the whole seasonal-physiology/draft-shortfall/mount-
+// saddlebag mass model, and `jpForaging` reaches into the world's wildlife-
+// richness field (`_jpWildlifeForageMod`, line 18134) -- real world context
+// this port has not plumbed into the Journey Planner yet. So the dependency
+// ordering in `JOURNEY_PLANNER_SCOPE.md` is wrong in one place and is corrected
+// there: milestone 4 must land before milestone 3's two stage calculators can.
+// Porting them now would mean stubbing out the mass model they are mostly made
+// of -- exactly what milestone 2 refused to do for its own four deferrals.
+//
+// What ships here is the seven that are genuinely self-contained given a
+// caller-supplied party/leg summary instead of the full JS `plan`/`jn`
+// orchestration object: `jpTrainPace`, `jpSailFactor`, `jpWxWeighted`,
+// `jpWeatherFactor`, `jpColumnLengthKm`, `jpColumnFactor` and `jpJourneyCost`
+// -- plus the real data they read, including `JP_BIOMES[...].weather` (the
+// table the scope doc flagged as "not yet identified as ported or not": it was
+// NOT ported, milestone 2 deliberately narrowed `JP_BIOMES` to the two fields
+// `jpBestAnimalForContext` reads, so the weather distributions are ported here
+// alongside the two functions that consume them).
+//
+// `jpJourneyCost` (line 18873) turned out portable after reading its real
+// signature: the reference's own comment calls it "pure over the plan object --
+// no globals, no DOM", and the fields it actually touches are a small, stable
+// per-leg summary (`cat`/`km`/`days`/`crew`/`blocked`), a per-stage claimed
+// fraction, and the party composition. None of that needs milestone 5 to have
+// run; the caller supplies it, the same way milestone 2's functions take a
+// caller-supplied stage list.
+//
+// Golden-verified against the frozen reference: the reference's own source
+// lines for all seven functions and their tables were sliced out of
+// `reference/Cartalith Gen1 v2.10.html` and evaluated in a bare Node
+// `vm.runInContext` (no DOM), and every expected value in the tests below is
+// that run's output -- not hand arithmetic. All 48 `jpWxWeighted` cells (12
+// biomes x 4 seasons) are checked against it.
+// ----------------------------------------------------------------------------
+
+/// The subset of the reference's `plan` object that milestone 3's functions
+/// actually read: party composition and cargo. The JS side stores animal
+/// counts in a `plan.animals` map and applies `|0` at every read; the counts
+/// are a fixed four-species set (`JP_ANIMAL_KEYS`), so they are named fields
+/// here rather than a map.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct JpParty {
+    pub group_size: i64,
+    pub cargo_kg: f64,
+    pub donkey: i64,
+    pub mule: i64,
+    pub camel: i64,
+    pub horse: i64,
+    pub carts: i64,
+    pub wagons: i64,
+    pub sleds: i64,
+    pub travois: i64,
+}
+
+impl JpParty {
+    /// The reference's own `(a.donkey|0)+(a.mule|0)+(a.camel|0)+(a.horse|0)`.
+    pub fn pack_animals(&self) -> i64 {
+        self.donkey + self.mule + self.camel + self.horse
+    }
+
+    /// The reference's own `(p.carts|0)+(p.wagons|0)+(p.sleds|0)+(p.travois|0)`.
+    pub fn vehicles(&self) -> i64 {
+        self.carts + self.wagons + self.sleds + self.travois
+    }
+}
+
+/// `JP_TRAIN_PACE` (reference line 17302, v1.43): baggage-train base pace
+/// (km/h) by slowest carrier -- `travel-speeds.md` §8's travel-day column
+/// divided by an 8 h day. Ordering is "what actually carries the load".
+const JP_TRAIN_PACE_WAGON: f64 = 2.2;
+const JP_TRAIN_PACE_CART: f64 = 3.6;
+const JP_TRAIN_PACE_TRAVOIS: f64 = 3.4;
+const JP_TRAIN_PACE_PACK: f64 = 4.8;
+const JP_TRAIN_PACE_PORTER: f64 = 2.6;
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TrainPace {
+    pub kmh: f64,
+    pub label: &'static str,
+}
+
+/// `jpTrainPace` (reference line 17303, v1.43): the report's own §5.1 rule --
+/// "caravan speed is set by its slowest essential component" -- resolved from
+/// what is actually carrying the load. Sleds share the cart pace (the
+/// reference's own `JP_TRAIN_PACE.cart` on the sled branch), and porters only
+/// set the pace when nothing else is carrying.
+pub fn jp_train_pace(party: &JpParty) -> TrainPace {
+    if party.wagons > 0 {
+        TrainPace { kmh: JP_TRAIN_PACE_WAGON, label: "wagon-limited" }
+    } else if party.carts > 0 {
+        TrainPace { kmh: JP_TRAIN_PACE_CART, label: "cart-limited" }
+    } else if party.sleds > 0 {
+        TrainPace { kmh: JP_TRAIN_PACE_CART, label: "sled-limited" }
+    } else if party.travois > 0 {
+        TrainPace { kmh: JP_TRAIN_PACE_TRAVOIS, label: "travois-limited" }
+    } else if party.pack_animals() > 0 {
+        TrainPace { kmh: JP_TRAIN_PACE_PACK, label: "pack-animal" }
+    } else {
+        TrainPace { kmh: JP_TRAIN_PACE_PORTER, label: "porter-borne" }
+    }
+}
+
+/// `JP_RIG` (reference line 17348, v1.97): sail polars as `[0°, 45°, 90°,
+/// 135°, 180°]` speed multipliers, linearly interpolated between control
+/// points. Rig class, not per-hull -- at this fidelity the meaningful split is
+/// how well a rig works to windward, which is a property of the sail plan.
+const JP_RIG_SQUARE: [f64; 5] = [0.00, 0.15, 0.85, 1.00, 0.80];
+const JP_RIG_FOREAFT: [f64; 5] = [0.00, 0.62, 1.00, 0.92, 0.68];
+const JP_RIG_OARED: [f64; 5] = [1.00, 1.00, 1.00, 1.00, 1.00];
+
+/// `JP_SHIP_RIG` (reference line 17370), including `jpSailFactor`'s own
+/// `||'oared'` fallback: an unknown vessel is wind-neutral rather than
+/// penalised by a model that does not apply to it.
+fn jp_ship_rig(vessel_name: &str) -> [f64; 5] {
+    match vessel_name {
+        "Longship" | "Cog" | "Carrack" | "Galleon" | "Fluyt" => JP_RIG_SQUARE,
+        "Fishing Vessel" | "Dhow" | "Caravel" => JP_RIG_FOREAFT,
+        // "River Barge" / "Keelboat" / "River Galley" are explicitly oared;
+        // anything else falls through the reference's own `||'oared'`.
+        _ => JP_RIG_OARED,
+    }
+}
+
+/// `jpSailFactor` (reference line 17378, v1.97): speed multiplier for a vessel
+/// at true wind angle `twa_deg` (0 = dead upwind, 180 = dead downwind). A
+/// sailing hull is zero in the no-go zone, peaks on a beam-to-broad reach, and
+/// falls off again dead downwind -- not a cosine of the wind angle.
+///
+/// The angle fold mirrors the reference's `Math.abs(((twa%360)+360)%360)`
+/// exactly, including Rust's `%` being the same truncated remainder JS uses.
+/// A non-finite `twa_deg` returns NaN, which is what the JS produces too
+/// (`pts[NaN]` is `undefined`); no real caller feeds one -- both call sites
+/// derive the angle from `acos`.
+pub fn jp_sail_factor(vessel_name: &str, twa_deg: f64) -> f64 {
+    if !twa_deg.is_finite() {
+        return f64::NAN;
+    }
+    let pts = jp_ship_rig(vessel_name);
+    let mut a = (((twa_deg % 360.0) + 360.0) % 360.0).abs();
+    if a > 180.0 {
+        a = 360.0 - a;
+    }
+    let seg = a / 45.0;
+    let i = (seg.floor() as usize).min(3);
+    let f = seg - i as f64;
+    pts[i] + (pts[i + 1] - pts[i]) * f
+}
+
+/// `JP_WEATHER` (reference line 17535) -- and the iteration order
+/// `jpWxWeighted`'s `for(const k in JP_WEATHER)` walks, which is load-bearing:
+/// the weighted sum below accumulates in exactly this order so the float
+/// result matches the reference term for term.
+pub const JP_WEATHER_KEYS: [&str; 5] = ["Clear", "Rain", "Storm", "Snow", "Sandstorm"];
+const JP_WEATHER_MODS: [f64; 5] = [1.00, 0.90, 0.65, 0.50, 0.40];
+
+/// `JP_WEATHER[cond]`, `None` for an unrecognised condition (the reference's
+/// `??` fallthrough depends on that distinction).
+pub fn jp_weather_mod(condition: &str) -> Option<f64> {
+    JP_WEATHER_KEYS.iter().position(|&k| k == condition).map(|i| JP_WEATHER_MODS[i])
+}
+
+/// `JP_ANIMAL_WEATHER_OVERRIDE` (reference line 17411): per-species weather
+/// affinity. `horse` has an empty table in the reference, so it never yields a
+/// value -- which is the same observable behaviour as an unknown species, and
+/// both of the reference's branches on that distinction converge on the same
+/// fallback, so one `Option` lookup is faithful to both.
+fn jp_animal_weather_override(animal_key: &str, condition: &str) -> Option<f64> {
+    match (animal_key, condition) {
+        ("camel", "Sandstorm") => Some(0.70),
+        ("camel", "Snow") => Some(0.30),
+        ("mule", "Snow") => Some(0.55),
+        ("donkey", "Snow") => Some(0.55),
+        _ => None,
+    }
+}
+
+/// `JP_BIOMES[...].weather` (reference line 17487): the per-season weather
+/// distribution, as `[Clear, Rain, Storm, Snow, Sandstorm]` percentages
+/// summing to 100. Milestone 2 deliberately narrowed its `JP_BIOMES` port to
+/// the two fields `jpBestAnimalForContext` reads; this is the column
+/// `jpWxWeighted` needs, ported alongside it. The remaining columns
+/// (`water`/`forage`/`waterForage`/`grazing`) belong to milestone 4.
+///
+/// `None` for an unknown biome or season -- the reference's own `?.` chain,
+/// which `jpWxWeighted` turns into a flat 1.0.
+fn jp_biome_weather(biome_key: &str, season: &str) -> Option<[f64; 5]> {
+    // Rows are [Spring, Summer, Autumn, Winter], matching `JP_SEASON_ORDER`.
+    let by_season: [[f64; 5]; 4] = match biome_key {
+        "Temperate Forest" => [
+            [50.0, 40.0, 10.0, 0.0, 0.0],
+            [70.0, 22.0, 8.0, 0.0, 0.0],
+            [45.0, 40.0, 12.0, 3.0, 0.0],
+            [30.0, 18.0, 7.0, 45.0, 0.0],
+        ],
+        "Tropical Jungle" => [
+            [35.0, 50.0, 15.0, 0.0, 0.0],
+            [55.0, 32.0, 13.0, 0.0, 0.0],
+            [25.0, 55.0, 20.0, 0.0, 0.0],
+            [60.0, 28.0, 12.0, 0.0, 0.0],
+        ],
+        "Boreal Taiga" => [
+            [40.0, 30.0, 10.0, 20.0, 0.0],
+            [65.0, 25.0, 10.0, 0.0, 0.0],
+            [35.0, 30.0, 10.0, 25.0, 0.0],
+            [20.0, 5.0, 5.0, 70.0, 0.0],
+        ],
+        "Tundra / Polar" => [
+            [30.0, 15.0, 10.0, 45.0, 0.0],
+            [50.0, 30.0, 15.0, 5.0, 0.0],
+            [25.0, 15.0, 10.0, 50.0, 0.0],
+            [10.0, 2.0, 3.0, 85.0, 0.0],
+        ],
+        "Steppe / Grassland" => [
+            [55.0, 25.0, 15.0, 5.0, 0.0],
+            [70.0, 15.0, 15.0, 0.0, 0.0],
+            [60.0, 20.0, 15.0, 5.0, 0.0],
+            [40.0, 5.0, 5.0, 50.0, 0.0],
+        ],
+        "Mediterranean Scrub" => [
+            [65.0, 22.0, 10.0, 0.0, 3.0],
+            [88.0, 3.0, 4.0, 0.0, 5.0],
+            [60.0, 25.0, 10.0, 0.0, 5.0],
+            [48.0, 35.0, 12.0, 0.0, 5.0],
+        ],
+        "Hot Desert" => [
+            [72.0, 3.0, 5.0, 0.0, 20.0],
+            [78.0, 0.0, 2.0, 0.0, 20.0],
+            [75.0, 4.0, 4.0, 0.0, 17.0],
+            [78.0, 6.0, 6.0, 0.0, 10.0],
+        ],
+        "Cold Desert / Badlands" => [
+            [55.0, 10.0, 8.0, 8.0, 19.0],
+            [70.0, 15.0, 10.0, 0.0, 5.0],
+            [55.0, 15.0, 8.0, 5.0, 17.0],
+            [38.0, 5.0, 5.0, 35.0, 17.0],
+        ],
+        "Mountain Highland" => [
+            [35.0, 30.0, 18.0, 17.0, 0.0],
+            [55.0, 28.0, 14.0, 3.0, 0.0],
+            [35.0, 25.0, 15.0, 25.0, 0.0],
+            [15.0, 5.0, 10.0, 70.0, 0.0],
+        ],
+        "Wetlands / Marshes" => [
+            [30.0, 55.0, 13.0, 2.0, 0.0],
+            [55.0, 33.0, 12.0, 0.0, 0.0],
+            [30.0, 50.0, 15.0, 5.0, 0.0],
+            [25.0, 35.0, 10.0, 30.0, 0.0],
+        ],
+        "Coastal Lowland" => [
+            [50.0, 33.0, 15.0, 2.0, 0.0],
+            [65.0, 23.0, 10.0, 0.0, 2.0],
+            [45.0, 33.0, 20.0, 2.0, 0.0],
+            [35.0, 27.0, 15.0, 23.0, 0.0],
+        ],
+        "Ruined Wastes" => [
+            [48.0, 18.0, 14.0, 5.0, 15.0],
+            [62.0, 12.0, 13.0, 0.0, 13.0],
+            [48.0, 18.0, 14.0, 5.0, 15.0],
+            [35.0, 10.0, 10.0, 30.0, 15.0],
+        ],
+        _ => return None,
+    };
+    let i = JP_SEASON_ORDER.iter().position(|&s| s == season)?;
+    Some(by_season[i])
+}
+
+/// `jpWxWeighted` (reference line 17666): the season x biome probability-
+/// weighted average weather speed modifier, blending in the pace animal's own
+/// weather affinity where it has one. Unknown biome or season returns a flat
+/// 1.0, exactly as the reference's `if(!dist) return 1.0` does.
+pub fn jp_wx_weighted(biome_key: &str, season: &str, mount_key: Option<&str>) -> f64 {
+    let Some(dist) = jp_biome_weather(biome_key, season) else {
+        return 1.0;
+    };
+    let mut t = 0.0;
+    for (i, &condition) in JP_WEATHER_KEYS.iter().enumerate() {
+        let m = mount_key.and_then(|k| jp_animal_weather_override(k, condition)).unwrap_or(JP_WEATHER_MODS[i]);
+        t += (dist[i] / 100.0) * m;
+    }
+    t
+}
+
+/// `jpWeatherFactor` (reference line 17680, v1.44): `weather_override` is the
+/// plan's own control -- `None`/`"auto"`/`""` keeps `jp_wx_weighted`'s
+/// probability-weighted average (so a journey that never touches the control
+/// is unchanged), while a named `JP_WEATHER` condition forces that single
+/// condition for the whole route. A forced condition still reads the pace
+/// animal's affinity for it, so a camel train in a forced sandstorm gets
+/// 0.70, not the generic 0.40. An unrecognised override falls back to the
+/// weighted average (the reference's `??`).
+pub fn jp_weather_factor(weather_override: Option<&str>, biome_key: &str, season: &str, mount_key: Option<&str>) -> f64 {
+    let Some(ov) = weather_override.filter(|&o| !o.is_empty() && o != "auto") else {
+        return jp_wx_weighted(biome_key, season, mount_key);
+    };
+    if let Some(m) = mount_key.and_then(|k| jp_animal_weather_override(k, ov)) {
+        return m;
+    }
+    jp_weather_mod(ov).unwrap_or_else(|| jp_wx_weighted(biome_key, season, mount_key))
+}
+
+/// `JP_FILES_BY_TERRAIN` (reference line 18744, v1.51): how many people can
+/// march abreast on this ground. Unknown terrain gets the reference's own
+/// `||3` default.
+fn jp_files_by_terrain(terrain: &str) -> f64 {
+    match terrain {
+        "Paved Road" => 6.0,
+        "Dirt Track" => 4.0,
+        "Open Plains" => 8.0,
+        "Forest Path" => 2.0,
+        "Hills" => 3.0,
+        "Rocky Terrain" => 2.0,
+        "Mountain Pass" => 2.0,
+        "Mountain Trails" => 1.0,
+        "Swamp / Marsh" => 1.0,
+        "Desert Hardpack" => 6.0,
+        "Deep Sand" => 4.0,
+        "Snow / Ice" => 3.0,
+        "Ruins / Debris" => 2.0,
+        _ => 3.0,
+    }
+}
+
+/// Reference lines 18749-18752 (v1.51).
+const JP_RANK_SPACING_M: f64 = 1.6;
+const JP_ANIMAL_ROAD_M: f64 = 3.0;
+const JP_VEHICLE_ROAD_M: f64 = 8.0;
+/// A column never stops entirely -- it degrades to a crawl.
+const JP_COLUMN_FLOOR: f64 = 0.35;
+
+/// `jpColumnLengthKm` (reference line 18754, v1.51): road length the party
+/// occupies, in km. People form ranks `files` abreast; animals and vehicles
+/// are effectively single file on anything narrower than open ground, so they
+/// are divided by at most two files, not the full count.
+pub fn jp_column_length_km(party: &JpParty, terrain: &str) -> f64 {
+    let files = jp_files_by_terrain(terrain).max(1.0);
+    let people = party.group_size.max(1) as f64;
+    let animals = party.pack_animals() as f64;
+    let vehicles = party.vehicles() as f64;
+    let v_files = files.clamp(1.0, 2.0);
+    let m = (people / files) * JP_RANK_SPACING_M + (animals / v_files) * JP_ANIMAL_ROAD_M + (vehicles / v_files) * JP_VEHICLE_ROAD_M;
+    m / 1000.0
+}
+
+/// `jpColumnFactor` (reference line 18768, v1.51): the fraction of the day's
+/// distance that survives the column's own passage -- the tail cannot start
+/// until the head has cleared. Deliberately a damping term on the finished
+/// daily distance, never another speed multiplier. At caravan scale and below
+/// this is ~1.0 (a 30-person caravan is 12 m long).
+pub fn jp_column_factor(col_km: f64, raw_daily_km: f64) -> f64 {
+    // `!(x > 0.0)`, not `x <= 0.0` -- mirrors the reference's own `!(colKm>0)`
+    // including its NaN behaviour, same rationale as `jp_rest_days`.
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
+    if !(col_km > 0.0) || !(raw_daily_km > 0.0) {
+        return 1.0;
+    }
+    (1.0 - col_km / raw_daily_km).max(JP_COLUMN_FLOOR)
+}
+
+/// `JP_COST_*` (reference lines 18864-18871, v1.52-d). Every figure is
+/// denominated in DAY-WAGES (one day of unskilled labour), never a currency:
+/// the absolute level is meaningless in an invented world, so the
+/// historically-grounded part (the Diocletian Price Edict ratios, ~28:5.5:1
+/// land:river:sea per tonne-km) stays separate from the part the tool cannot
+/// know (a world's money).
+const JP_COST_PER_TKM_LAND: f64 = 0.055;
+const JP_COST_PER_TKM_RIVER: f64 = 0.011;
+const JP_COST_PER_TKM_SEA: f64 = 0.002;
+const JP_COST_WAGE_DAY: f64 = 1.0;
+const JP_COST_CREW_DAY: f64 = 1.4;
+const JP_COST_ANIMAL_DAY: f64 = 0.35;
+const JP_COST_VEHICLE_DAY: f64 = 0.8;
+const JP_COST_TOLL_PER_BORDER: f64 = 6.0;
+const JP_COST_TRANSSHIP: f64 = 3.0;
+
+/// One entry of the reference's `plan.results` array, narrowed to the five
+/// fields `jpJourneyCost` actually reads (`r.blocked`, `r.cat`, `r.st.km`,
+/// `r.crew`, `r.days`). Milestone 3's own `jpCalcLand`/`jpCalcWater` are what
+/// will eventually produce these; until then a caller supplies them, the same
+/// way milestone 2's functions take a caller-supplied stage list.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JourneyLeg {
+    pub blocked: bool,
+    /// `"land"`, `"river"` or `"sea"`; anything else is priced at the land
+    /// rate, per the reference's own `?? JP_COST_PER_TKM.land`.
+    pub cat: String,
+    pub km: f64,
+    /// Mandatory crew, water legs only -- the reference only accrues crew days
+    /// when `r.cat!=='land' && r.crew`.
+    pub crew: u32,
+    pub days: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct JourneyCost {
+    pub total: f64,
+    pub carriage: f64,
+    pub wages: f64,
+    pub crew: f64,
+    pub upkeep: f64,
+    pub tolls: f64,
+    pub transship: f64,
+    pub borders: usize,
+    pub days: f64,
+    pub cargo_t: f64,
+    pub per_tonne_km: Option<f64>,
+    /// What the cargo must fetch, per tonne, purely to break even on the trip.
+    pub break_even_per_tonne: Option<f64>,
+}
+
+/// `jpJourneyCost` (reference line 18873, v1.52-d): cost of a finished plan,
+/// in day-wages. The reference's own comment calls it "pure over the plan
+/// object -- no globals, no DOM", and that held up on reading: the only inputs
+/// are the per-leg summary, the party, the trip totals, and one claimed
+/// fraction per stage.
+///
+/// `claimed_frac` is `plan.stages[i].claimedFrac` -- the fraction of each
+/// stage inside claimed territory. A change across the 0.5 line between
+/// consecutive stages counts as one political frontier, and therefore one
+/// toll. The reference labels that an approximation itself; it is derived from
+/// real territory rather than invented, which is why it is kept.
+///
+/// Returns `None` when there is nothing to price. The reference also bails on
+/// `plan.blocked`; that gate belongs to the caller here, since a blocked plan
+/// has no legs worth passing in.
+pub fn jp_journey_cost(
+    party: &JpParty,
+    legs: &[JourneyLeg],
+    claimed_frac: &[f64],
+    total_days: f64,
+    total_km: f64,
+    transshipments: i64,
+) -> Option<JourneyCost> {
+    if legs.is_empty() {
+        return None;
+    }
+    let people = party.group_size.max(1) as f64;
+    let cargo_t = party.cargo_kg.max(0.0) / 1000.0;
+
+    // Carriage: cargo tonnage over each leg's own distance at that mode's rate.
+    let mut carriage = 0.0;
+    let mut crew_days = 0.0;
+    for leg in legs {
+        if leg.blocked {
+            continue;
+        }
+        let rate = match leg.cat.as_str() {
+            "river" => JP_COST_PER_TKM_RIVER,
+            "sea" => JP_COST_PER_TKM_SEA,
+            _ => JP_COST_PER_TKM_LAND,
+        };
+        carriage += cargo_t * leg.km * rate;
+        if leg.cat != "land" && leg.crew > 0 {
+            crew_days += leg.crew as f64 * leg.days;
+        }
+    }
+
+    let wages = people * total_days * JP_COST_WAGE_DAY;
+    let crew = crew_days * JP_COST_CREW_DAY;
+    let upkeep = (party.pack_animals() as f64 * JP_COST_ANIMAL_DAY + party.vehicles() as f64 * JP_COST_VEHICLE_DAY) * total_days;
+
+    let borders = claimed_frac.windows(2).filter(|w| (w[0] > 0.5) != (w[1] > 0.5)).count();
+    let tolls = borders as f64 * JP_COST_TOLL_PER_BORDER;
+    let transship = transshipments.max(0) as f64 * JP_COST_TRANSSHIP;
+
+    let total = carriage + wages + crew + upkeep + tolls + transship;
+    let per_tonne_km = (cargo_t > 0.0 && total_km > 0.0).then(|| total / (cargo_t * total_km));
+    let break_even_per_tonne = (cargo_t > 0.0).then(|| total / cargo_t);
+
+    Some(JourneyCost {
+        total,
+        carriage,
+        wages,
+        crew,
+        upkeep,
+        tolls,
+        transship,
+        borders,
+        days: total_days,
+        cargo_t,
+        per_tonne_km,
+        break_even_per_tonne,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -7360,5 +7859,214 @@ mod tests {
         // River Barge's own best water must be a river it can actually navigate.
         let barge_row = rows.iter().find(|r| r.name == "River Barge").unwrap();
         assert!(matches!(barge_row.best_water, Some("Calm River" | "Moderate River" | "River with Shallows" | "River Delta")));
+    }
+
+    // ------------------------------------------------------------------------
+    // Journey Planner milestone 3 -- physical travel cost.
+    //
+    // Every expected value below came out of a bare-`vm` Node run of the
+    // frozen reference's OWN source lines (`reference/Cartalith Gen1
+    // v2.10.html`, sliced by line range and evaluated with no DOM), not from
+    // hand arithmetic -- the same `vm.runInContext` harness technique Phase 2
+    // used for its golden-parity tests, applied to functions that are pure
+    // enough not to need a whole generated world to drive them.
+    // ------------------------------------------------------------------------
+
+    const JP_M3_EPS: f64 = 1e-9;
+
+    fn jp_m3_party() -> JpParty {
+        JpParty::default()
+    }
+
+    #[test]
+    fn train_pace_walks_down_its_slowest_carrier() {
+        // Reference (17303): wheels first, then travois, then pack animals,
+        // and porters only when nothing else carries. A wagon wins even when
+        // faster carriers are present.
+        let p = JpParty { wagons: 1, carts: 3, mule: 9, ..jp_m3_party() };
+        assert_eq!(jp_train_pace(&p), TrainPace { kmh: 2.2, label: "wagon-limited" });
+        let p = JpParty { carts: 2, mule: 8, ..jp_m3_party() };
+        assert_eq!(jp_train_pace(&p), TrainPace { kmh: 3.6, label: "cart-limited" });
+        // Sleds share the CART pace but carry their own label -- the
+        // reference's own `JP_TRAIN_PACE.cart` on the sled branch, not a typo.
+        let p = JpParty { sleds: 1, ..jp_m3_party() };
+        assert_eq!(jp_train_pace(&p), TrainPace { kmh: 3.6, label: "sled-limited" });
+        let p = JpParty { travois: 4, horse: 2, ..jp_m3_party() };
+        assert_eq!(jp_train_pace(&p), TrainPace { kmh: 3.4, label: "travois-limited" });
+        let p = JpParty { camel: 3, ..jp_m3_party() };
+        assert_eq!(jp_train_pace(&p), TrainPace { kmh: 4.8, label: "pack-animal" });
+        assert_eq!(jp_train_pace(&jp_m3_party()), TrainPace { kmh: 2.6, label: "porter-borne" });
+    }
+
+    #[test]
+    fn sail_factor_hits_every_control_point_and_interpolates_between_them() {
+        // Square rig (Cog) at the five control points, then two midpoints.
+        for (twa, want) in [(0.0, 0.0), (45.0, 0.15), (90.0, 0.85), (135.0, 1.0), (180.0, 0.8)] {
+            assert!((jp_sail_factor("Cog", twa) - want).abs() < JP_M3_EPS, "Cog @{twa}");
+        }
+        assert!((jp_sail_factor("Cog", 22.5) - 0.075).abs() < JP_M3_EPS);
+        assert!((jp_sail_factor("Cog", 67.5) - 0.5).abs() < JP_M3_EPS);
+        // Fore-and-aft points materially closer to the wind than square does.
+        assert!((jp_sail_factor("Dhow", 45.0) - 0.62).abs() < JP_M3_EPS);
+        assert!((jp_sail_factor("Dhow", 110.0) - 0.964_444_444_444_444_4).abs() < JP_M3_EPS);
+        assert!((jp_sail_factor("Fishing Vessel", 135.0) - 0.92).abs() < JP_M3_EPS);
+        // Oared/river craft and unknown hulls are wind-neutral, never
+        // penalised by a model that does not apply to them.
+        assert!((jp_sail_factor("River Barge", 0.0) - 1.0).abs() < JP_M3_EPS);
+        assert!((jp_sail_factor("Nonesuch", 30.0) - 1.0).abs() < JP_M3_EPS);
+    }
+
+    #[test]
+    fn sail_factor_folds_the_wind_angle_onto_zero_to_one_eighty() {
+        // -90 and 270 are the same beam reach as 90; 400 wraps to 40.
+        assert!((jp_sail_factor("Cog", -90.0) - 0.85).abs() < JP_M3_EPS);
+        assert!((jp_sail_factor("Cog", 270.0) - 0.85).abs() < JP_M3_EPS);
+        assert!((jp_sail_factor("Cog", 400.0) - 0.133_333_333_333_333_33).abs() < JP_M3_EPS);
+    }
+
+    #[test]
+    fn wx_weighted_matches_the_reference_for_every_biome_and_season() {
+        // All 48 cells (12 biomes x 4 seasons), reference values verbatim.
+        #[rustfmt::skip]
+        const CELLS: [(&str, [f64; 4]); 12] = [
+            ("Temperate Forest",       [0.925,  0.95,   0.903,  0.732_499_999_999_999_9]),
+            ("Tropical Jungle",        [0.897_500_000_000_000_1, 0.922_500_000_000_000_1, 0.875_000_000_000_000_1, 0.93]),
+            ("Boreal Taiga",           [0.835_000_000_000_000_1, 0.94, 0.81, 0.6275]),
+            ("Tundra / Polar",         [0.725,  0.892_500_000_000_000_1, 0.7, 0.5625]),
+            ("Steppe / Grassland",     [0.897_500_000_000_000_1, 0.9325, 0.902_500_000_000_000_1, 0.7275]),
+            ("Mediterranean Scrub",    [0.925,  0.953_000_000_000_000_1, 0.909_999_999_999_999_9, 0.892_999_999_999_999_9]),
+            ("Hot Desert",             [0.859_499_999_999_999_9, 0.873, 0.880_000_000_000_000_1, 0.913_000_000_000_000_1]),
+            ("Cold Desert / Badlands", [0.808,  0.919_999_999_999_999_9, 0.830_000_000_000_000_1, 0.700_500_000_000_000_1]),
+            ("Mountain Highland",      [0.822,  0.908,  0.7975, 0.61]),
+            ("Wetlands / Marshes",     [0.889_500_000_000_000_1, 0.925, 0.8725, 0.779_999_999_999_999_9]),
+            ("Coastal Lowland",        [0.904_500_000_000_000_1, 0.929_999_999_999_999_9, 0.887_000_000_000_000_1, 0.8055]),
+            ("Ruined Wastes",          [0.818_000_000_000_000_1, 0.8645, 0.818_000_000_000_000_1, 0.715_000_000_000_000_1]),
+        ];
+        for (biome, per_season) in CELLS {
+            for (i, &season) in JP_SEASON_ORDER.iter().enumerate() {
+                let got = jp_wx_weighted(biome, season, None);
+                assert!((got - per_season[i]).abs() < JP_M3_EPS, "{biome}/{season}: got {got}, want {}", per_season[i]);
+            }
+        }
+    }
+
+    #[test]
+    fn wx_weighted_blends_in_the_pace_animals_own_weather_affinity() {
+        // v1.43's fix: a camel train, not just a lone camel rider, gets the
+        // camel's 0.70 sandstorm affinity instead of the generic 0.40 --
+        // Hot Desert/Summer is 20% sandstorm, so the blend moves.
+        assert!((jp_wx_weighted("Hot Desert", "Summer", None) - 0.873).abs() < JP_M3_EPS);
+        assert!((jp_wx_weighted("Hot Desert", "Summer", Some("camel")) - 0.933).abs() < JP_M3_EPS);
+        // ...and it cuts both ways: a mule's 0.55 snow affinity beats the
+        // generic 0.50 in a 70%-snow boreal winter.
+        assert!((jp_wx_weighted("Boreal Taiga", "Winter", None) - 0.6275).abs() < JP_M3_EPS);
+        assert!((jp_wx_weighted("Boreal Taiga", "Winter", Some("mule")) - 0.662_500_000_000_000_1).abs() < JP_M3_EPS);
+        // Horse has an empty override table in the reference -- indistinguishable
+        // from having none.
+        assert!((jp_wx_weighted("Hot Desert", "Summer", Some("horse")) - 0.873).abs() < JP_M3_EPS);
+    }
+
+    #[test]
+    fn wx_weighted_falls_back_to_neutral_for_unknown_biome_or_season() {
+        assert!((jp_wx_weighted("Nowhere", "Summer", None) - 1.0).abs() < JP_M3_EPS);
+        assert!((jp_wx_weighted("Hot Desert", "Monsoon", None) - 1.0).abs() < JP_M3_EPS);
+    }
+
+    #[test]
+    fn weather_factor_auto_is_the_weighted_average_and_a_forced_condition_is_not() {
+        // v1.44: 'auto' (and absent) must be byte-identical to jpWxWeighted,
+        // so a journey that never touches the control is unchanged.
+        assert!((jp_weather_factor(Some("auto"), "Hot Desert", "Summer", Some("camel")) - 0.933).abs() < JP_M3_EPS);
+        assert!((jp_weather_factor(None, "Hot Desert", "Summer", Some("camel")) - 0.933).abs() < JP_M3_EPS);
+        // A forced condition still reads the pace animal's own affinity...
+        assert!((jp_weather_factor(Some("Sandstorm"), "Hot Desert", "Summer", Some("camel")) - 0.70).abs() < JP_M3_EPS);
+        // ...and falls back to the generic table without one.
+        assert!((jp_weather_factor(Some("Sandstorm"), "Hot Desert", "Summer", None) - 0.40).abs() < JP_M3_EPS);
+        assert!((jp_weather_factor(Some("Snow"), "Boreal Taiga", "Winter", Some("mule")) - 0.55).abs() < JP_M3_EPS);
+        // A condition the animal has no entry for uses the generic value.
+        assert!((jp_weather_factor(Some("Rain"), "Hot Desert", "Summer", Some("camel")) - 0.90).abs() < JP_M3_EPS);
+        // An unrecognised override falls all the way back to the average --
+        // the reference's `??`, for both an empty and a populated animal table.
+        assert!((jp_weather_factor(Some("Hail"), "Hot Desert", "Summer", Some("camel")) - 0.933).abs() < JP_M3_EPS);
+        assert!((jp_weather_factor(Some("Hail"), "Hot Desert", "Summer", Some("horse")) - 0.873).abs() < JP_M3_EPS);
+    }
+
+    #[test]
+    fn column_length_grows_with_the_party_and_shrinks_with_road_width() {
+        // A 30-person merchant caravan is 32 m of road -- below caravan scale
+        // this term does essentially nothing, which is the point.
+        let caravan = JpParty { group_size: 30, mule: 8, carts: 2, ..jp_m3_party() };
+        assert!((jp_column_length_km(&caravan, "Dirt Track") - 0.032).abs() < JP_M3_EPS);
+        // The "Army column" preset: 400 people, 100 animals, 30 wagons.
+        let army = JpParty { group_size: 400, mule: 20, horse: 80, wagons: 30, ..jp_m3_party() };
+        assert!((jp_column_length_km(&army, "Dirt Track") - 0.43).abs() < JP_M3_EPS);
+        // Same army on a single-file mountain trail is 2.7x longer.
+        assert!((jp_column_length_km(&army, "Mountain Trails") - 1.18).abs() < JP_M3_EPS);
+        // Unknown terrain takes the reference's own ||3 file default.
+        let bare = JpParty { group_size: 400, ..jp_m3_party() };
+        assert!((jp_column_length_km(&bare, "Elsewhere") - 0.213_333_333_333_333_37).abs() < JP_M3_EPS);
+        // Group size floors at 1, so an empty party still occupies 1 rank.
+        let empty = JpParty { group_size: 0, ..jp_m3_party() };
+        assert!((jp_column_length_km(&empty, "Open Plains") - 0.0002).abs() < JP_M3_EPS);
+    }
+
+    #[test]
+    fn column_factor_damps_the_day_and_floors_at_a_crawl() {
+        // Caravan scale: barely any loss.
+        assert!((jp_column_factor(0.0464, 25.0) - 0.998_144).abs() < JP_M3_EPS);
+        // The army column above (0.43 km) against a 25 km day.
+        assert!((jp_column_factor(0.43, 25.0) - 0.9828).abs() < JP_M3_EPS);
+        // A column twice as long as the day it can march never stops entirely.
+        assert!((jp_column_factor(50.0, 25.0) - JP_COLUMN_FLOOR).abs() < JP_M3_EPS);
+        // Degenerate inputs are a no-op, not a zero.
+        assert!((jp_column_factor(0.0, 25.0) - 1.0).abs() < JP_M3_EPS);
+        assert!((jp_column_factor(5.0, 0.0) - 1.0).abs() < JP_M3_EPS);
+    }
+
+    #[test]
+    fn journey_cost_prices_a_mixed_land_and_sea_trip() {
+        // Reference values from the vm run: a 12-person caravan, 900 kg cargo,
+        // 8 mules + 2 horses + 2 carts, 1000 km over 40 days, one blocked land
+        // leg (excluded from carriage), one 500 km sea leg with 20 crew,
+        // 3 stages crossing the claimed/unclaimed line twice, 2 transshipments.
+        let party = JpParty { group_size: 12, cargo_kg: 900.0, mule: 8, horse: 2, carts: 2, ..jp_m3_party() };
+        let legs = vec![
+            JourneyLeg { blocked: false, cat: "land".into(), km: 400.0, crew: 0, days: 20.0 },
+            JourneyLeg { blocked: true, cat: "land".into(), km: 100.0, crew: 0, days: 5.0 },
+            JourneyLeg { blocked: false, cat: "sea".into(), km: 500.0, crew: 20, days: 15.0 },
+        ];
+        let c = jp_journey_cost(&party, &legs, &[0.9, 0.2, 0.8], 40.0, 1000.0, 2).expect("priceable");
+        assert!((c.carriage - 20.7).abs() < JP_M3_EPS, "carriage {}", c.carriage);
+        assert!((c.wages - 480.0).abs() < JP_M3_EPS);
+        assert!((c.crew - 420.0).abs() < JP_M3_EPS);
+        assert!((c.upkeep - 204.0).abs() < JP_M3_EPS);
+        assert_eq!(c.borders, 2);
+        assert!((c.tolls - 12.0).abs() < JP_M3_EPS);
+        assert!((c.transship - 6.0).abs() < JP_M3_EPS);
+        assert!((c.total - 1142.7).abs() < JP_M3_EPS, "total {}", c.total);
+        assert!((c.cargo_t - 0.9).abs() < JP_M3_EPS);
+        assert!((c.per_tonne_km.unwrap() - 1.269_666_666_666_666_7).abs() < JP_M3_EPS);
+        assert!((c.break_even_per_tonne.unwrap() - 1_269.666_666_666_666_7).abs() < JP_M3_EPS);
+    }
+
+    #[test]
+    fn journey_cost_river_crew_dominates_a_zero_cargo_trip() {
+        // River rate is 5x cheaper than land per tonne-km, but with no cargo
+        // the whole bill is wages + the barge's mandatory 12 crew.
+        let party = JpParty { group_size: 4, ..jp_m3_party() };
+        let legs = vec![JourneyLeg { blocked: false, cat: "river".into(), km: 300.0, crew: 12, days: 10.0 }];
+        let c = jp_journey_cost(&party, &legs, &[0.3], 10.0, 300.0, 0).expect("priceable");
+        assert!((c.carriage - 0.0).abs() < JP_M3_EPS);
+        assert!((c.wages - 40.0).abs() < JP_M3_EPS);
+        assert!((c.crew - 168.0).abs() < JP_M3_EPS);
+        assert!((c.total - 208.0).abs() < JP_M3_EPS);
+        assert_eq!(c.borders, 0);
+        // No cargo means no per-tonne figure to report, not a division by zero.
+        assert!(c.per_tonne_km.is_none() && c.break_even_per_tonne.is_none());
+    }
+
+    #[test]
+    fn journey_cost_returns_nothing_when_there_is_nothing_to_price() {
+        assert!(jp_journey_cost(&jp_m3_party(), &[], &[], 10.0, 300.0, 0).is_none());
     }
 }

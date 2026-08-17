@@ -104,39 +104,133 @@ milestone 1 and `civ_resource_trade_balance`/`civ_culture_terrain_fit` all
 set; no `#[func]`, no `compute_civilisation()` integration, per this doc's
 own "Out of scope for all milestones" section below.
 
+## Milestone 3 — physical travel cost: done (2026-08-17)
+
+**The single biggest real finding of this pass is a dependency-ordering
+error in this document itself**: milestone 3 is ordered *before* milestone 4,
+and it should be the other way round. `jpCalcLand` (reference line 18912)
+calls `jpCapacity` (18177), `jpForaging` (18156), `jpAssessResupply` (18231)
+and `_jpDesertTierForGap` (18727); `jpCalcWater` (19124) calls
+`jpAssessResupply` and `jpHumanWaterRate` (17626). **Every one of those is on
+milestone 4's own list.** They are not thin shims either — `jpCapacity` is
+the whole seasonal-physiology / draft-shortfall / mount-saddlebag mass model,
+and `jpForaging` reaches through `_jpWildlifeForageMod` (18134) into the
+world's wildlife-richness field, real world context this port has not plumbed
+into the Journey Planner at all. So `jp_calc_land`/`jp_calc_water` stay
+unported here, re-flagged under milestone 4 below rather than silently
+dropped, on exactly the discipline milestone 2 used for its own four.
+**Milestone 4 must land before milestone 3's two stage calculators can.**
+
+Of the eleven functions this doc listed for milestone 3, two were already
+shipped by milestone 2, which needed them for its own work and said so:
+`jp_water_window` and `jp_animal_terrain_mod`. Not re-ported.
+
+The remaining **seven shipped**, all genuinely self-contained given a
+caller-supplied party/leg summary instead of the full JS `plan`/`jn`
+orchestration object: `jp_train_pace`, `jp_sail_factor`, `jp_wx_weighted`,
+`jp_weather_factor`, `jp_column_length_km`, `jp_column_factor` and
+`jp_journey_cost` — plus the real data they read (`JP_TRAIN_PACE`, `JP_RIG` /
+`JP_SHIP_RIG` sail polars, `JP_WEATHER`, `JP_ANIMAL_WEATHER_OVERRIDE`,
+`JP_FILES_BY_TERRAIN` and the column-spacing constants, `JP_COST_*`) and one
+small shared `JpParty` struct for the plan fields all three of the
+party-shaped functions read.
+
+**The `JP_BIOMES[...].weather` flag this doc raised, checked rather than
+assumed**: it was **not** ported. Milestone 2 deliberately narrowed its
+`JP_BIOMES` port to the two fields `jpBestAnimalForContext` reads
+(`desertLike`/`bestAnimals`) and said so in its own doc comment. The weather
+distributions (12 biomes × 4 seasons × 5 conditions) are ported here,
+alongside the two functions that consume them. The remaining `JP_BIOMES`
+columns (`water`/`forage`/`waterForage`/`grazing`) are still unported and
+belong to milestone 4.
+
+**`jp_journey_cost` turned out portable**, confirmed by reading its real
+signature rather than assuming: the reference's own comment calls it "pure
+over the plan object — no globals, no DOM", and that held up. The fields it
+actually touches are a small, stable per-leg summary (`cat`/`st.km`/`days`/
+`crew`/`blocked`), one `claimedFrac` per stage, the trip totals and the party
+composition. None of that needs milestone 5 to have run — the caller supplies
+it, the same way milestone 2's functions take a caller-supplied stage list.
+Ported with a `JourneyLeg` input struct narrowed to exactly those five
+fields, which is also the shape `jp_calc_land`/`jp_calc_water` will produce
+when milestone 4 unblocks them.
+
+**Milestone 2's four deferrals: none resolved.** Re-checked by reading each
+one again, not inferred. `_jpBestLandTransportForStage` (18053) calls
+`jpCalcLand` in its inner loop — and `jpCalcLand` did *not* land this
+milestone, so it stays blocked, now behind milestone 4 rather than
+milestone 3. `jpAutoPickTransport` (17814) and `jpAutoPickVessel` (18012)
+still open with `_jpEnsurePlan(jn)` + `_jpDeriveStages(jn,plan)` (milestone
+5); `jpAutoPickTransport` additionally does `jpCapacity`-shaped mass
+arithmetic inline, so it needs milestone 4 too. `_jpBestPackageForStage`
+(18080) still takes an `eff` shaped like milestone 5's
+`_jpEffectiveStagePlan` output.
+
+**Golden-verified against the real reference**, not hand arithmetic: the
+reference's own source lines for all seven functions and their tables were
+sliced out of `reference/Cartalith Gen1 v2.10.html` by line range and
+evaluated in a bare Node `vm.runInContext` with no DOM — the same harness
+technique Phase 2 used throughout, applied to functions pure enough not to
+need a whole generated world to drive them. Every expected value in the 12
+new tests is that run's output, including all 48 `jpWxWeighted` cells
+(12 biomes × 4 seasons) checked as a block, the sail polar's five control
+points plus interpolation and angle-folding (−90°/270°/400°), and two full
+`jpJourneyCost` breakdowns. One real harness bug found and fixed before
+trusting any of it: an unterminated block comment at a slice boundary was
+swallowing the next slice.
+
+**Verified**: `cargo build -p cartalith-civ`, `cargo test -p cartalith-civ
+--lib` (139 passed, 0 failed, 12 new), `cargo clippy -p cartalith-civ
+--all-targets` (two real findings in the new code fixed — a `manual_clamp`
+and an `inconsistent_digit_grouping`; the lib is back to the same two
+pre-existing, unrelated warnings milestone 2 recorded, and the new test code
+adds none), `cargo test --workspace` (0 regressions). **Not wired to any
+caller** — no `#[func]`, no `compute_civilisation()` integration, per this
+doc's own "Out of scope for all milestones" section.
+
 ## Real milestone breakdown for what remains (not started)
 
 Ordered by dependency, per `ECONOMY_SCOPE.md`'s own categorization:
 
 2. ~~**Transport mode selection**~~ — see "Milestone 2" above. Four
-   functions remain genuinely blocked: `jp_auto_pick_transport`/
-   `jp_auto_pick_vessel` need milestone 5's `_jpEnsurePlan`/`_jpDeriveStages`;
-   `_jp_best_land_transport_for_stage` needs milestone 3's `jpCalcLand`;
-   `_jp_best_package_for_stage` needs milestone 5's `_jpEffectiveStagePlan`
-   output shape. Re-attempt each once its real dependency milestone lands.
+   functions remain genuinely blocked, re-checked against the reference
+   again after milestone 3 and **still all four blocked**:
+   `jp_auto_pick_transport`/`jp_auto_pick_vessel` need milestone 5's
+   `_jpEnsurePlan`/`_jpDeriveStages` (and `jp_auto_pick_transport` needs
+   milestone 4's mass model besides); `_jp_best_land_transport_for_stage`
+   needs `jpCalcLand`, which milestone 3 could not port either and which now
+   sits behind **milestone 4**, not milestone 3; `_jp_best_package_for_stage`
+   needs milestone 5's `_jpEffectiveStagePlan` output shape. Re-attempt each
+   once its real dependency milestone lands.
 
-3. **Physical travel cost** — `jp_train_pace`, `jp_sail_factor`,
-   `jp_water_window`, `jp_wx_weighted`, `jp_weather_factor`,
-   `jp_animal_terrain_mod`, `jp_column_length_km`, `jp_column_factor`,
-   `jp_calc_land`, `jp_calc_water`, `jp_journey_cost` (line 18873, the
-   apparent top-level cost function — read its real signature before
-   assuming what it needs; it may depend on milestone 2's transport
-   selection already having run). Depends on milestone 1's primitives
-   (`jp_fatigue`/`jp_load_penalty`/`jp_surface_gain` all feed into pace
-   calculations) and on weather-distribution data (`JP_BIOMES[...].weather`
-   in the reference — a real data table not yet identified as ported or
-   not, check before assuming).
+3. ~~**Physical travel cost**~~ — see "Milestone 3" above. Seven of eleven
+   shipped; two (`jp_water_window`, `jp_animal_terrain_mod`) had already
+   shipped with milestone 2. **`jp_calc_land`/`jp_calc_water` remain
+   blocked on milestone 4**, which this list orders after them — a real
+   ordering error in this document, corrected in the milestone 3 section
+   above. `JP_BIOMES[...].weather` was indeed unported and is now ported.
+   `jp_journey_cost` turned out genuinely portable, no milestone-5 plan
+   object needed.
 
-4. **Consumption/resupply** — `jp_human_water_carry_days`,
-   `jp_human_water_rate`, `jp_animal_water_carry_days`,
-   `jp_consumption_factors`, `jp_capacity`, `jp_foraging`,
-   `jp_assess_resupply`, `_jp_world_mean_richness`,
+4. **Consumption/resupply — do this next; milestone 3's tail depends on it.**
+   `jp_human_water_carry_days`, `jp_human_water_rate`,
+   `jp_animal_water_carry_days`, `jp_consumption_factors`, `jp_capacity`,
+   `jp_foraging`, `jp_assess_resupply`, `_jp_world_mean_richness`,
    `_jp_wildlife_forage_mod`, `_jp_resupply_reach`,
-   `_jp_drinking_coarse_ease`, `_jp_stage_dry_km`, `_jp_desert_tier_for_gap`.
-   `jp_human_water_rate`/`jp_animal_water_carry_days` are small and
-   independent (already read this pass, not yet ported — real quick wins
-   for whoever picks this milestone up). The rest need real settlement/
-   terrain context.
+   `_jp_drinking_coarse_ease`, `_jp_stage_dry_km`, `_jp_desert_tier_for_gap`
+   — **plus `jp_calc_land` and `jp_calc_water`**, milestone 3's two
+   deferrals, which become portable the moment `jp_capacity`/`jp_foraging`/
+   `jp_assess_resupply`/`_jp_desert_tier_for_gap` exist. `jp_human_water_rate`
+   /`jp_human_water_carry_days`/`jp_animal_water_carry_days`/
+   `_jp_desert_tier_for_gap` are one-liners over data mostly already ported
+   (real quick wins). `jp_capacity` also needs the `JP_BIOMES` columns
+   milestones 2 and 3 each deliberately left out (`water`/`forage`/
+   `waterForage`/`grazing`) and the seasonal tables `JP_SEASONAL_ANIMAL`/
+   `JP_SEASONAL_HUMAN`/`JP_DESERT_ANIMAL_MOD`/`JP_GRAZING`, none of which are
+   ported yet. `jp_foraging` is the one genuinely hard piece: through
+   `_jp_wildlife_forage_mod` it reads the world's wildlife-richness region
+   field, which this port has never plumbed into the Journey Planner — expect
+   that to be its own real decision, not a transcription.
 
 5. **Route/stage derivation** — `_jp_derive_stages`, `_jp_effective_stage_
    plan`, `_jp_plan`, `_jp_ensure_plan`, `_jp_layovers`, `_jp_stop_key`,
@@ -147,11 +241,24 @@ Ordered by dependency, per `ECONOMY_SCOPE.md`'s own categorization:
    layer — needs milestones 2-4 done first, needs this port's road network
    (`civ_hierarchical_network_topology`/`civ_consolidate_and_smooth_ways`,
    already real) and settlement data as real inputs. Almost certainly the
-   largest single milestone in this whole plan.
+   largest single milestone in this whole plan. **Two concrete requirements
+   milestone 3's reading pinned down**, worth writing here before they're
+   re-derived: (a) the per-stage object this layer must produce is read by
+   `jpCalcLand` as `{km, terrain, routeCond, infra, biome, cat, mx, my,
+   dryKm, claimedFrac}` — `mx`/`my` are map cell coordinates (for
+   `jp_foraging`'s wildlife lookup) and `dryKm` is the stage's own measured
+   longest waterless run, both genuine map measurements, not plan fields;
+   (b) `jp_journey_cost` (already ported) additionally wants a transshipment
+   count, which the reference computes with `_civTransshipments` (line
+   ~18906) — a small `_civ*` helper that appears on **no** milestone list
+   here and should be picked up alongside this one.
 
 6. **Verdict/reporting** — `_jp_verdict`, `_jp_confidence`, `_jp_pack_range`,
    `jp_fmt_kg`, `jp_fmt_days`. Small, needs milestone 5's plan output to
-   verify against.
+   verify against — **except `jp_fmt_kg`, which is needed at milestone 4**,
+   not here: `jpCalcLand`/`jpCalcWater` both format their overload/hold
+   blocked-message text with it. Port it with milestone 4 and leave the rest
+   of this milestone where it is.
 
 **UI-only, not portable** (`ARCHITECTURE.md`: Godot owns presentation) —
 `_jp_run_auto`, `_jp_refresh`, `_jp_sync_asset_inputs`, `_jp_render_party_
