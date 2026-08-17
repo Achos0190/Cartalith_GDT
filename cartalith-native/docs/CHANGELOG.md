@@ -5895,3 +5895,70 @@ cartalith-civ --all-targets` clean.
 **Files touched**: `cartalith-civ/src/lib.rs` (`civ_resource_trade_balance`,
 `CIV_RESOURCE_KEYS`, `CIV_CONSUMED_RESOURCES`, `TradeBalance`, 7 tests), new
 `ECONOMY_SCOPE.md` (repo root), `PHASE2_SCOPE.md`, `docs/STATUS.md`.
+
+## Sea level as a user-adjustable Godot control (2026-08-17)
+
+Closed a known-open item from the UI reskin (`MVP_SCOPE.md` point 9 /
+reference `state.seaLevel`): `cartalith-engine::WorldParams.sea_level` was
+already a real `[0,1]` parameter (default `0.42`, matching the reference's
+own default), but nothing in `cartalith-godot`/the Godot UI ever set it --
+every generation silently used the hardcoded default.
+
+**Rust side**: `WorldGen` gained a `sea_level_input: f64` field (distinct
+from the existing `sea_level` field, which tracks the *effective*
+post-generation value the renderer reads -- `WorldState.sea_level`, not
+`p.sea_level`, since World-Structure archetypes re-anchor it) and a new
+`set_sea_level(&mut self, sea_level: f64)` `#[func]`, clamped to `[0,1]`.
+Wired into both `generate()` and `generate_world_structure()` via
+`p.sea_level = self.sea_level_input`.
+
+**Real, documented interaction, not a new limitation**: `generate_world_
+structure()` always sets `world_structure.enabled = true`, and
+`apply_world_structure_sea_level` unconditionally re-anchors sea level from
+the selected archetype's own land-fraction target when enabled --
+overriding whatever `p.sea_level` was set to. The manual sea-level input
+therefore only has a real effect under the Classic world shape (`generate()`,
+no archetype). A new `SeaLevelHint` label in `main.tscn` says so plainly,
+matching this UI's existing hint-label convention (`ResolutionHint`).
+
+**GDScript side**: new `Sea level` `SpinBox` in the `WORLD PARAMETERS` card
+(0-100%, matching the reference's own `#seaV` slider convention -- `bind(
+'sea', e => state.seaLevel = +e.target.value/100 ...)`), `main.gd` converts
+to the `[0,1]` fraction `set_sea_level` expects before calling it alongside
+the existing `set_experimental_flags`/`set_villages_enabled` calls.
+
+**Screenshot-verified, not just wired**: seed 12345, 512x512, Classic. At
+the default 42% sea level, the generated map showed roughly half ocean/half
+land with the usual coastline shape. Changing only the sea-level input to
+15% and regenerating with the same seed produced a dramatically different
+result -- most of the ocean became land, only a small lake/river feature
+remained, and settlement positions shifted accordingly (they snap to real
+land/coast, which moved). Confirms the control has a real, substantial
+effect on generation, not just a cosmetic one.
+
+**Real pre-existing bug found while tracing this, not fixed here (out of
+scope for this task, flagged in `docs/STATUS.md`'s Known-open items)**:
+`main.gd`'s `_on_generate_pressed` calls `generate()`/`generate_world_
+structure()` synchronously on the main thread first (wasted, blocking work
+-- the result is thrown away), then `_generate_worker` (whose result is
+what's actually displayed) unconditionally calls plain `generate()`, never
+`generate_world_structure()`, regardless of the selected World Shape.
+**Every World Shape archetype selection currently has no effect on the
+displayed map** -- generation always runs the Classic path. This did not
+block verifying sea level (Classic is exactly the path sea level's manual
+input takes effect on, per the interaction above), but is a real,
+independent bug a future pass needs to fix.
+
+**Verified**: `cargo build -p cartalith-godot`, `cargo test --workspace`
+(0 regressions; one `cartalith-engine` GPU-determinism test failed once
+under parallel scheduling, reproduced and confirmed as the already-
+documented pre-existing GPU-driver flakiness by re-running in isolation
+with `--test-threads=1`, where it passed clean -- unrelated to this
+change, which touches no GPU code), `godot4 --headless --quit main.tscn`
+clean load, real windowed-app screenshot verification as described above.
+
+**Files touched**: `cartalith-godot/src/lib.rs` (`sea_level_input` field,
+`set_sea_level`, wiring into both generate paths), `main.tscn` (`SeaLevelRow`/
+`SeaLevelInput`/`SeaLevelHint`), `main.gd` (`sea_level_input` ref, wiring
+into `_on_generate_pressed`), `docs/STATUS.md` (item closed, new bug
+flagged), this file.

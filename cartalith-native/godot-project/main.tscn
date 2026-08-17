@@ -161,6 +161,30 @@ max_value = 40000.0
 step = 10.0
 value = 800.0
 
+[node name="SeaLevelRow" type="HBoxContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+custom_minimum_size = Vector2(0, 48)
+theme_override_constants/separation = 10
+
+[node name="SeaLevelLabel" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeaLevelRow"]
+custom_minimum_size = Vector2(128, 0)
+vertical_alignment = 1
+text = "Sea level"
+
+[node name="SeaLevelInput" type="SpinBox" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox/SeaLevelRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+size_flags_horizontal = 3
+min_value = 0.0
+max_value = 100.0
+step = 1.0
+value = 42.0
+suffix = "%"
+
+[node name="SeaLevelHint" type="Label" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList/WorldParamsCard/WorldParamsMargin/WorldParamsVBox"]
+theme_type_variation = &"HintLabel"
+autowrap_mode = 3
+text = "Only applies to the Classic world shape -- named shapes (Earth-like, Archipelago, etc.) re-anchor sea level from their own land-fraction target."
+
 [node name="WorldStructureCard" type="PanelContainer" parent="Root/StageMargin/Stage/ControlsPanel/ControlsMargin/ControlsVBox/SettingsScroll/SettingsList"]
 theme_type_variation = &"SettingsCard"
 

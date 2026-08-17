@@ -22,6 +22,7 @@ extends Control
 @onready var seed_input: SpinBox = %SeedInput
 @onready var resolution_input: OptionButton = %ResolutionInput
 @onready var width_input: SpinBox = %WidthInput
+@onready var sea_level_input: SpinBox = %SeaLevelInput
 @onready var world_shape_input: OptionButton = %WorldShapeInput
 @onready var dynamic_lithology_check: CheckBox = %DynamicLithologyCheck
 @onready var volc_provinces_check: CheckBox = %VolcProvincesCheck
@@ -151,6 +152,10 @@ func _on_generate_pressed() -> void:
 	## gated separately from the four flags above since it's civ-layer,
 	## not terrain-substrate.
 	world_gen.set_villages_enabled(villages_check.button_pressed)
+	## `MVP_SCOPE.md` point 9 / reference `state.seaLevel`. UI is a 0-100%
+	## SpinBox (matching the reference's own `#seaV` slider convention);
+	## WorldGen.set_sea_level expects the raw [0,1] fraction.
+	world_gen.set_sea_level(sea_level_input.value / 100.0)
 
 	var ok := true
 	if archetype.is_empty():

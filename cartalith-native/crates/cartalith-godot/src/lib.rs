@@ -382,6 +382,20 @@ struct WorldGen {
     volc_provinces: bool,
     terrain_wind_deflection: bool,
     ocean_currents: bool,
+    /// Set via `set_sea_level` -- the user-facing input `p.sea_level`
+    /// (reference `state.seaLevel`, a raw `[0,1]` normalized threshold
+    /// against the height field's own `[0,1]` stretch, default `0.42`,
+    /// reference `bind('sea', ...)` UI is a 0-100% slider dividing by 100
+    /// before storage -- same convention here, GDScript converts). Only
+    /// takes effect when World Structure is disabled (`generate()`, the
+    /// "Classic" shape): `generate_world_structure()` always sets
+    /// `world_structure.enabled = true`, and `apply_world_structure_sea_level`
+    /// re-anchors sea level from the archetype's own land-fraction target,
+    /// overriding whatever `p.sea_level` was set to (`cartalith-engine`'s
+    /// own `WorldState.sea_level` doc comment). Distinct from the sibling
+    /// `sea_level` field below, which tracks the *effective* post-generation
+    /// value for the renderer, not this input.
+    sea_level_input: f64,
     /// `latAt`'s inputs (`render.rs`) — `p.world`/`p.climate.lat_n`/`.lat_s`
     /// for a fresh `generate()`, or `save.params.world` + JS's own literal
     /// `climate` defaults (55/5) for a loaded save, whose format doesn't
@@ -412,6 +426,7 @@ impl IRefCounted for WorldGen {
             volc_provinces: true,
             terrain_wind_deflection: true,
             ocean_currents: true,
+            sea_level_input: 0.42,
             world: false,
             lat_n: 55.0,
             lat_s: 5.0,
@@ -449,6 +464,18 @@ impl WorldGen {
         self.villages = enabled;
     }
 
+    /// `MVP_SCOPE.md` point 9 / `state.seaLevel` -- `sea_level` is the raw
+    /// `[0,1]` normalized threshold `cartalith_engine::WorldParams` itself
+    /// expects (see the `sea_level_input` field's own doc comment for the
+    /// World-Structure re-anchoring interaction this only partially
+    /// controls). Clamped defensively -- an out-of-range value from a
+    /// misconfigured GDScript control should not silently invert the
+    /// land/ocean classification rather than just clamping to a sane edge.
+    #[func]
+    fn set_sea_level(&mut self, sea_level: f64) {
+        self.sea_level_input = sea_level.clamp(0.0, 1.0);
+    }
+
     /// Runs the full ported pipeline (`cartalith_engine::generate_terrain`)
     /// at the given seed/real-km map width/grid resolution. `resolution`
     /// is clamped to a sane minimum (4) — a 0 or negative value from an
@@ -459,6 +486,7 @@ impl WorldGen {
         let gh = gw;
         let mut p = WorldParams::defaults(gw, gh, seed);
         p.map_width_km = if width_km > 0.0 { width_km } else { 800.0 };
+        p.sea_level = self.sea_level_input;
         p.tect.dynamic_lithology = self.dynamic_lithology;
         p.volc.provinces = self.volc_provinces;
         p.climate.terrain_wind_deflection = self.terrain_wind_deflection;
@@ -504,6 +532,11 @@ impl WorldGen {
         let gh = gw;
         let mut p = WorldParams::defaults(gw, gh, seed);
         p.map_width_km = if width_km > 0.0 { width_km } else { 800.0 };
+        // Set for consistency with `generate()`, but `apply_world_structure_
+        // sea_level` always re-anchors it below since `world_structure.
+        // enabled` is unconditionally true on this path -- see
+        // `sea_level_input`'s own doc comment.
+        p.sea_level = self.sea_level_input;
         p.world_structure =
             WorldStructureParams { enabled: true, continentality, fragmentation, tectonic_energy, ocean_depth, hotspot_density };
         p.tect.dynamic_lithology = self.dynamic_lithology;
