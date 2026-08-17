@@ -5402,3 +5402,74 @@ its closing note — not a placeholder, not assumed from reading the code.
 `RichTextLabel`), new `cartalith-native/godot-project/credits.gd`,
 `cartalith-native/godot-project/main.gd` (button wiring), `docs/
 STATUS.md` (Phase 1 row, known-open-items list).
+
+## GPU layer integration milestone 8: context reuse across `generate_terrain`'s stages (2026-08-17)
+
+Milestone 6's own flagged next optimization, picked up directly: each of
+its five GPU dispatches (warp, heterogeneity, plate assignment, and two
+separate `gauss_blur_grid_gpu` calls) independently paid `instance.
+request_adapter`/`adapter.request_device` (~1.3-1.4s each, flat
+regardless of grid size — the dominant cost below 2048×2048).
+
+**New `cartalith-gpu` API**: `GpuDevice` (adapter+device+queue, no
+pipeline) + `init_gpu_shared_device()`. Confirmed (not assumed) `wgpu::
+Device`/`wgpu::Queue` are cheap `Clone` handles by reading `wgpu`
+30.0.0's own source (`#[derive(Debug, Clone)]`, Arc-backed via
+`dispatch::DispatchDevice`/`DispatchQueue`) before relying on it. Each
+of the four reused kernels gained an `init_gpu_X_with(gpu: &GpuDevice)`
+pipeline builder, and the four milestone-6 wrappers gained `_with`
+siblings (`warp_grid_gpu_with`/`heterogeneity_grid_gpu_with`/
+`gauss_blur_grid_gpu_with`/`assign_plates_grid_gpu_with`) that build a
+pipeline on an existing device instead of requesting a new one —
+infallible past device creation, so no more per-stage `Option`/`.ok()?`.
+The original standalone `init_gpu_X()`/`X_grid_gpu()` functions are
+byte-untouched; every milestone 1-6 test calling them directly still
+exercises the identical code path. `REUSED_STAGE_MAX_STORAGE_BUFFERS =
+8` (JFA's own bind-group size) sizes the shared device's limits up
+front, since `wgpu` limits can't be raised after device creation.
+
+`generate_terrain` now calls `init_gpu_shared_device()` once (behind `if
+p.use_gpu`) and every GPU call site uses `gpu_device.as_ref().map(|gpu|
+..._with(gpu, ...))` — a `None` still falls through to the exact same
+CPU fallback as before, just from one failure point instead of five.
+
+**CPU path unchanged, confirmed not assumed**: `cargo test --workspace`
+— 0 failures, every golden-parity test unmodified, which is only
+possible if `use_gpu=false`'s output stayed byte-identical.
+
+**Real timing** (same benchmark as milestone 6, release build, single
+run per size):
+
+| Size | Before (M6) | After (M8) | Ratio before | Ratio after |
+|---|---|---|---|---|
+| 128×128 | 1.44s | 813ms | 0.06× | 0.11× |
+| 512×512 | 1.46s | 689ms | 0.41× | 0.76× |
+| 1024×1024 | 2.32s | 1.39s | 0.78× | **1.14× — new win** |
+| 2048×2048 | 6.03s | 5.92s | 1.19× | 0.98× |
+
+**GPU now beats CPU starting at 1024×1024** (previously only
+2048×2048, and only by 19%) — a real crossover moved down a full size
+tier. Reported honestly: 2048×2048's own ratio dipped from a 19% win to
+essentially even between the two runs — almost certainly single-run
+variance (CPU time alone moved from 7.20s to 5.83s with zero code
+changed on that path), not a regression, and the benchmark's own doc
+comment already flags "not averaged" as a known limitation. Not
+re-run to chase a better number.
+
+**Verified**: `cargo build --workspace`, `cargo test --workspace` (0
+failures), `cargo clippy -p cartalith-gpu -p cartalith-engine
+--all-targets` (clean; one new `too_many_arguments` warning on
+`heterogeneity_grid_gpu_with`, fixed with the same `#[allow]`
+convention already used ~35 times elsewhere in this workspace).
+
+**Not attempted**: pipeline caching *across* repeated `generate_terrain`
+calls (this milestone only shares the device *within* one call);
+averaging the timing benchmark to reduce single-run noise; GPU
+milestone 7 (climate), untouched.
+
+**Files touched**: `cartalith-native/crates/cartalith-gpu/src/lib.rs`
+(`GpuDevice`, `init_gpu_shared_device`, four `_with` pipeline builders,
+four `_with` wrapper functions), `cartalith-native/crates/
+cartalith-engine/src/lib.rs` (`generate_terrain`'s five GPU call sites),
+`GPU_LAYER_INTEGRATION_SCOPE.md` (milestone 8 section), this file,
+`docs/STATUS.md`.

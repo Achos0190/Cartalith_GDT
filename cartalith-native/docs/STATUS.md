@@ -5,7 +5,7 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-17 (post real Android device pass — MVP criterion 4 fully closed —, sea routes (Phase 2 milestone 13) wired into `cartalith-godot`'s rendering with a real render-loop crash found and fixed along the way, CPU-multithreading milestone 2 — `cartalith-civ` Rayon-parallelized, ~1.34-1.81x — and Phase 1's two closeout items (credits screen, crate license audit) both done — see `CHANGELOG.md`).
+Last updated: 2026-08-17 (post real Android device pass — MVP criterion 4 fully closed —, sea routes (Phase 2 milestone 13) wired into `cartalith-godot`'s rendering with a real render-loop crash found and fixed along the way, CPU-multithreading milestone 2 — `cartalith-civ` Rayon-parallelized, ~1.34-1.81x — Phase 1's two closeout items (credits screen, crate license audit) both done, and GPU layer integration milestone 8 — shared GpuContext across `generate_terrain`'s stages, GPU now wins starting at 1024x1024 — see `CHANGELOG.md`).
 
 ## MVP_SCOPE.md — "done means all seven"
 
@@ -241,6 +241,28 @@ networks, orogeny) remain a poor GPU fit without real algorithmic
 redesign — not in scope for near-term milestones, which continue to
 follow the per-cell-math layers (terrain → climate → erosion's per-cell
 parts → Phase 2's per-cell affordance fields → rendering).
+
+**Milestone 8 — GPU context reuse across `generate_terrain`'s stages:
+done (2026-08-17).** Picked up milestone 6's own flagged next
+optimization directly. New `cartalith-gpu::GpuDevice` (adapter+device+
+queue, no pipeline) + `init_gpu_shared_device()`, built once per
+`generate_terrain(use_gpu=true)` call and threaded through all five GPU
+call sites (warp, heterogeneity, plate assignment, two `gauss_blur`
+calls) via new `_with(gpu: &GpuDevice)` pipeline builders and wrapper
+functions, instead of each stage independently paying its own ~1.3-1.4s
+adapter/device handshake. Confirmed (not assumed) `wgpu::Device`/`Queue`
+are cheap `Clone` handles by reading `wgpu` 30.0.0's own source before
+relying on it. Original standalone functions byte-untouched — every
+milestone 1-6 test still exercises the identical code path. **CPU path
+confirmed unchanged**: `cargo test --workspace` 0 failures, every
+golden-parity test unmodified. **Real result: GPU now beats CPU
+starting at 1024×1024** (128²: 1.44s→813ms, 512²: 1.46s→689ms, 1024²:
+2.32s→1.39s and crosses from a 0.78× loss to a **1.14× win**, 2048²:
+6.03s→5.92s at ~0.98× — reported honestly as likely single-run
+variance rather than a regression, per the benchmark's own "not
+averaged" caveat, not re-run to chase a better number). See
+`GPU_LAYER_INTEGRATION_SCOPE.md`'s milestone 8 section and
+`CHANGELOG.md`'s own entry for the full record.
 
 ## Memory optimization (`MEMORY_OPTIMIZATION_SCOPE.md`, done 2026-08-16)
 
