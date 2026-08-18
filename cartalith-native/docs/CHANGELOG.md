@@ -9566,3 +9566,174 @@ integration would actually mean.
 functions are ported bar `_jp_reroute_for_mode`; the seven UI-only ones the
 scope doc names were never portable; what remains is the interactive GUI that
 would give a player somewhere to type a journey into.
+
+## Phase 5 milestone 2 — the planar street graph, the thing the whole engine stands on (2026-08-18)
+
+`URBAN_MORPHOLOGY_SCOPE.md` milestone 2: all 15 functions of reference lines
+**28363-28512** — `makeGraph`, `gKey`, `gridCellsForSeg`, `indexEdge`/
+`unindexEdge`/`edgesNear` (the uniform-grid spatial index), `addNode`,
+`nearestNode`, `rawEdge`, `splitEdge`, `attachPoint`, `addStreet`,
+`addPolylineStreet`, `extractFaces`, `edgeBetween` — as
+`cartalith-urban::graph`. Dependencies unchanged: `cartalith-rng` only. Wired to
+nothing, per the standing discipline.
+
+The plan said 28363-28513; `edgeBetween` ends at 28512 and `astar` begins at
+28514, so the range was one line long. Small, but the kind of thing this port
+checks rather than inherits.
+
+**The planarity invariant lives here.** `addStreet` attaches both endpoints
+(snap to a node within 11 m, else split the nearest edge within 9 m, else a new
+node), splits every live edge the new segment crosses, promotes every existing
+node within 2.5 m of the segment's interior to a junction, then chains the whole
+ordered sequence. `extractFaces` — angularly-sorted half-edge traversal with
+dead-end spur collapsing — is what makes town blocks possible at all.
+
+### The index design, settled for the whole crate
+
+Dense `Vec` with tombstones, ids never reused, exactly as the scope doc
+predicted: `splitEdge` leaves the split edge in place and dead, and later
+milestones walk `g.edges` by index filtering on `alive`. A slotmap would have
+been the "better" Rust answer and would have changed the iteration order that
+`extract_faces` and every `filter(e => e.alive)` pass depends on.
+
+Two things the plan did not say, both verified rather than assumed:
+
+- **`nextN`/`nextE` are not stored.** They are unconditionally `nodes.len()` and
+  `edges.len()`, and the capture asserts that against the reference's own
+  counters on all 19 scenarios rather than leaving it as a claim.
+- **`gKey` does not survive as a function.** An `(i64, i64)` tuple key is the
+  same partition as the reference's `cx + ':' + cy` string, and the grid map is
+  only ever probed, never iterated, so no ordering is lost. 15 reference
+  functions land as 14 Rust items.
+
+`cls` stays a `&'static str` rather than becoming an enum: the reference
+compares it by string in six places and `hashModel` serialises it verbatim, so
+the string *is* the value — and an enum would have to guess now at classes later
+milestones introduce (`'ringroad'` in 10, `'lane'` in 11, a variable in `grow`).
+
+### Golden-verified through `_test`, and mutation-checked afterwards
+
+`UME._test` reaches `makeGraph`, `addStreet` and `extractFaces`, and that turns
+out to be enough for all fifteen, because the harness dumps the **entire graph
+state** after each scripted scenario rather than return values alone: every node
+with its adjacency, every edge including tombstoned ones, the uniform grid cell
+by cell, and the extracted faces. `attachPoint`/`rawEdge`/`splitEdge`/
+`nearestNode` live entirely inside `addStreet`; the index family's whole
+observable effect *is* the grid. 19 scenarios, matching exactly — floats
+emitted as JSON shortest-round-trip decimals so Rust parses each back to the
+bit-identical `f64` and nothing is compared within a tolerance.
+
+The scenarios include a **stress case driven by the reference's own exported
+`stream`**, so 24 pseudo-random streets produce the identical input sequence on
+both sides — making it a golden over `cartalith-urban::rng` and the graph at
+once (94 edges, 12 faces).
+
+**`hashModel()` turned out not to be usable here, correcting an assumption the
+scope doc made.** It reads `m.graph`/`m.blocks`/`m.parcels`/`m.buildings` off a
+finished `generate()` model and cannot be fed a partial subsystem; it becomes
+reachable at **milestone 16**. The state dump is stricter anyway — `hashModel`
+rounds coordinates to `Math.round(n.x*100)`.
+
+**The goldens were then mutation-checked**, because a full-state dump can look
+thorough and still be vacuous. Perturbing the 26 m index cell, the 0.7 cell
+step, the 3×3 cell dilation, the 11 m node snap, the 9 m edge snap, both 3.5 m
+guards, the 2.5 m node-promotion radius, the `[0.03, 0.97]` t clamp, the spur
+collapse's stack rule, the outer-face tie-break's strict `>`, and swapping
+`js_hypot` for `f64::hypot` each break at least one golden. **The first round
+found two constants unexercised**, and two scenarios exist only because of it:
+`clampT` (a 400 m street where the t clamp genuinely moves the split, from
+x=10 to x=12 at the low end and 388.36 at the high end) and `hypotSnap*`.
+
+### `js_hypot` earns its keep, visibly
+
+Milestone 1 established that V8's `Math.hypot` is one ulp above the correctly
+rounded value. Milestone 2 makes that **structural**: at
+`dx = 7.778174593052022`, V8 gives `Math.hypot(dx, dx) == 11` exactly while
+Rust's `f64::hypot` gives `10.999999999999998`. `attachPoint` snaps at strictly
+under 11. So on that input the reference builds a **four-node** graph and a
+port using `f64::hypot` builds a **three-node** one — a different graph, not a
+differently-rounded one. Four `hypotSnap*` goldens straddle the boundary and a
+named test asserts the arithmetic directly, so `js_hypot` cannot be
+"simplified" away without failing first.
+
+### The block-comment assertion, run as a negative control
+
+It caught nothing this time — milestone 1's slice boundaries are unchanged and
+correct. But deliberately shifting them found a genuine hole in the assertion
+itself: a slice that *ends* inside a block comment is caught (unterminated
+open), and one that starts three lines into the header comment is caught once an
+**orphan-close counter** is added — but one that starts exactly *one* line late
+is not, because the scanner treats an apostrophe at depth 0 as a string
+delimiter and block 4's header comment contains the prose `"Gen1's globals"`,
+which swallows the stray `*/`. The orphan-close counter is a real improvement
+and is kept; the residual hole is covered by the two **structural** assertions
+(the slice must contain the `UME` IIFE header and must end at
+`module.exports = UME;`). Recorded plainly in the scope doc: the balance assert
+is necessary, not sufficient.
+
+### Findings that change how later milestones must be built
+
+1. **Encapsulation, verified by grep across all 2,937 lines of block 4:**
+   `cell`, `grid`, `nextE` and `nextN` are touched **only** by this milestone's
+   functions. No later milestone reaches into the spatial index.
+2. **`g._fromPaths` is a dynamic JS property and needs a real field.**
+   `buildPrimariesFromPaths` sets it (line 28830, milestone 6) and
+   `builtMassHull` reads it (line 29709, milestone 10) to discount the bare
+   degree-2 vertices a resampled real road drags in. Milestone 2 deliberately
+   did **not** add the field — nothing sets or reads it yet — and both later
+   milestones' entries now say so, because skipping it over-encloses the
+   enceinte along arterials exactly as the reference's own v1.01 note describes.
+3. **The reference is internally inconsistent about one splice, and the port
+   reproduces it.** `splitEdge` removes an edge from `a.adj` with an
+   **unguarded** `splice(indexOf(e.id), 1)` — a miss would silently drop the
+   *last* element, since JS `splice(-1,1)` does — while milestone 11's
+   `_killEdge` guards the identical splice with `if (k >= 0)`. Unreachable given
+   `rawEdge`'s invariant; reproduced rather than hardened, and flagged so
+   milestone 11 does not unify them.
+4. **`addStreet` leaves orphan nodes.** When both endpoints are fresh and every
+   resulting link is then rejected by the 3.5 m minimum, the nodes stay in
+   `g.nodes` with empty `adj`. Pinned by a golden (4 nodes, 1 edge). Later
+   passes must keep filtering on live adjacency.
+5. **The stable hit sort is a safety property, not a behavioural one — the tie
+   is unreachable.** Two crossings at one `t` are the same point, so those edges
+   already crossed and share a node whose half-edges the `1e-4` guard excludes.
+   Two on-segment nodes at one `t` lie on one perpendicular within 2.5 m of the
+   segment, hence within 5 m of each other, which the 11 m snap prevents. A
+   crossing tied with a node sits at that node's own foot, ≤2.5 m away, which
+   the 3.5 m split guard folds back. Established by trying to construct one and
+   failing: the scenario built for the attempt is kept, renamed `nearParallel`,
+   for what it does cover. Confirmed by mutation (an unstable sort changes no
+   golden) and by a test that re-derives every hit parameter across all 19
+   scenarios.
+6. **Two constants in `addStreet` are redundant inside the engine's own site
+   box.** The `1e-4` interior-crossing and `1e-3` node-parameter guards survive
+   being loosened to `1e-9`: a hit at `t = 1e-4` is `1e-4·L` from an endpoint,
+   so it only escapes the 3.5 m fold-back past `L > 35 km`, and the node guard
+   past `L > 3.5 km`, against `SITE_WM`/`SITE_HM` of 1700 × 1250 m. Kept as
+   written — they are the reference's, and they are what stops the degenerate
+   case if the box ever grows. The two surviving mutations are reported as a
+   finding, not hidden as a gap.
+7. **`extractFaces`' guard arithmetic is subtler than it looks.** JS
+   `while (guard++ < 20000)` leaves `guard` at 20001 when the bound stopped it,
+   so the post-check `guard >= 20000` also discards a face that closed on step
+   20000 exactly, and a traversal that hits the guard is **dropped**, not
+   truncated. Reproduced as written.
+8. **The outer-face tie-break is observable.** A closed loop with one dead-end
+   spur yields exactly two faces of equal absolute area (±14400 on the golden),
+   and the strict `>` makes the *lowest-indexed* one outer. `buildBlocks`
+   (milestone 12) skips the outer face, so this is not cosmetic.
+
+### Verification
+
+`cargo build -p cartalith-urban`, `cargo test -p cartalith-urban` (26 tests, up
+from 19), `cargo clippy -p cartalith-urban --all-targets` all clean.
+`cargo build --workspace` hit the known Windows quirk — `failed to remove file
+… cartalith_godot.dll — Access is denied`, a Godot editor instance holding the
+DLL, not a compile error — so it was run as `--workspace --exclude
+cartalith-godot` plus `cargo check -p cartalith-godot`, both clean. Stated
+rather than reported as a clean workspace build that did not happen.
+
+**Scope discipline held**: milestone 2 only. `astar` (milestone 3) is next door
+in the reference and was not touched; `Graph::from_paths` was left for milestone
+6 rather than added speculatively; nothing is wired into
+`compute_civilisation()`, `cartalith-godot` or the GUI.

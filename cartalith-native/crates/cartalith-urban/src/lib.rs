@@ -11,15 +11,20 @@
 //! `URBAN_MORPHOLOGY_SCOPE.md` for the full investigation and the milestone
 //! plan this crate is being built along.
 //!
-//! Milestone 1 (this module set) is the foundation every later milestone reads:
-//! the labelled RNG substreams and the vector/polygon geometry kernel.
+//! Milestone 1 is the foundation every later milestone reads: the labelled RNG
+//! substreams ([`rng`]) and the vector/polygon geometry kernel ([`geom`]).
+//! Milestone 2 adds the [`graph`] the whole engine is built on — a planar
+//! street graph with a uniform-grid spatial index, and the planar face
+//! extraction that turns it into town blocks.
 //!
 //! **Not wired to anything.** Nothing in this crate is called from
 //! `compute_civilisation()`, `cartalith-godot`, or the GUI — same standing
 //! discipline as `cartalith-spatial` and every unwired subsystem port before it.
 
 pub mod geom;
+pub mod graph;
 pub mod rng;
 
 pub use geom::Vec2;
+pub use graph::{Edge, Face, Graph, Node};
 pub use rng::{Substream, fnv1a, stream};

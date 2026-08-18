@@ -27,9 +27,19 @@ reference's own authors already ran it headlessly under Node.
 
 Better still, it ships its own parity apparatus: `hashModel(m)` (line 31087), a
 stable FNV serialisation of the graph, blocks, parcels and buildings, written
-explicitly "for determinism goldens"; and a `_test` export exposing fourteen
-internal functions. Golden verification here is not something this port has to
-invent — the reference built the door.
+explicitly "for determinism goldens"; and a `_test` export exposing **fifteen**
+internal functions (this document said fourteen until milestone 2 counted them:
+`polyArea`, `polyCentroid`, `pointInPoly`, `segInt`, `insetPoly`, `clipConvex`,
+`extractFaces`, `makeGraph`, `addStreet`, `ensureCCW`, `convexHull`, `simplify`,
+`chaikin`, `astar`, `distPtSeg`). Golden verification here is not something this
+port has to invent — the reference built the door.
+
+**One caveat on `hashModel`, found at milestone 2**: it takes a finished
+`generate()` model and reads `m.graph`/`m.blocks`/`m.parcels`/`m.buildings`, so
+it cannot be fed a partial subsystem. It is a **milestone 16** instrument, not a
+per-milestone one. Milestones before that get their goldens by dumping state
+directly, which is also stricter — `hashModel` rounds coordinates to
+`Math.round(n.x*100)`.
 
 **Contrast with the two subsystems this project has already sized.** The Asset
 Library turned out to be a UI browser wrapped around a frozen vocabulary; the
@@ -212,20 +222,133 @@ subject poking past the window's corners can collapse to empty), and
 `insetPoly` returns nothing at all — not a degenerate polygon — below area 15
 or on self-intersection at ≤60 vertices. Downstream code reads both.
 
-### Milestone 2 — planar street graph (lines 28363-28513, 15 functions)
+### Milestone 2 — planar street graph: **done** (2026-08-18)
 
-`makeGraph`, `gKey`, `gridCellsForSeg`, `indexEdge`/`unindexEdge`/`edgesNear`
-(the uniform-grid spatial index), `addNode`, `nearestNode`, `rawEdge`,
-`splitEdge`, `attachPoint`, `addStreet`, `addPolylineStreet`, `extractFaces`,
-`edgeBetween`. The planarity invariant (every crossing becomes a node) lives
-here, and `extractFaces` is what makes blocks possible at all.
+All 15 functions, reference lines **28363-28512** (the plan said 28363-28513;
+`edgeBetween` ends at 28512 and `astar` starts at 28514, so the range was one
+line long): `makeGraph`, `gKey`, `gridCellsForSeg`, `indexEdge`/`unindexEdge`/
+`edgesNear`, `addNode`, `nearestNode`, `rawEdge`, `splitEdge`, `attachPoint`,
+`addStreet`, `addPolylineStreet`, `extractFaces`, `edgeBetween`. Module
+`cartalith-urban::graph`; dependencies still `cartalith-rng` only. 7 new tests
+(26 in the crate), 19 golden scenarios inside the main one.
 
-Golden path: `UME._test` exports `makeGraph`, `addStreet` and `extractFaces`
-directly. This is the milestone where arena-vs-`Vec` index design gets settled
-for the whole crate — the JS uses dense integer ids into `g.nodes`/`g.edges`
-with a soft-delete `alive` flag, and the id **stability** matters
-(`splitEdge` leaves dead edges in place), so the port should keep dense
-`Vec`-with-tombstones rather than "improving" it into a slotmap.
+**The index design is settled as the plan predicted**: dense `Vec` with
+tombstones, ids never reused. Two things the plan did not say, both verified
+rather than assumed:
+
+- **`nextN`/`nextE` are not stored.** They are unconditionally `nodes.len()`
+  and `edges.len()` — every increment is paired with a `push`, nothing is ever
+  removed — and the capture asserts that against the reference's own counters
+  on all 19 scenarios rather than leaving it as a claim.
+- **`gKey` does not survive as a function.** Its only purpose is to make a
+  `Map` key out of two integers; an `(i64, i64)` tuple key is the same
+  partition, and the grid map is only ever *probed*, never iterated, so no
+  ordering is lost. 15 reference functions land as 14 Rust items.
+
+**`cls` is kept as `&'static str`, not promoted to an enum.** The reference
+compares it by string in six places and `hashModel` serialises it verbatim, so
+the string is the value; and an enum would have to guess now at the classes
+later milestones introduce (`'ringroad'` arrives in milestone 10, `'lane'` in
+11, and `grow` passes a variable).
+
+#### Golden verification
+
+`UME._test` reaches `makeGraph`, `addStreet` and `extractFaces` — and that is
+enough for **all fifteen**, because the harness dumps the *entire* graph state
+after each scripted scenario, not just return values: every node with its
+adjacency, every edge including tombstoned ones, **the uniform grid cell by
+cell**, and the extracted faces. `attachPoint`, `rawEdge`, `splitEdge` and
+`nearestNode` live entirely inside `addStreet`; the index family's whole
+observable effect *is* the grid. 19 scenarios, all matching exactly.
+
+**`hashModel()` was not usable here, and that corrects an assumption this
+document made.** It serialises `m.graph`, `m.blocks`, `m.parcels` and
+`m.buildings` off a finished `generate()` model — there is no way to feed it a
+bare graph. It becomes reachable at **milestone 16** and not before. The full
+state dump is strictly stronger anyway: `hashModel` rounds node coordinates to
+`Math.round(n.x*100)`, so it would not have caught the sub-centimetre
+divergences the exact dump does.
+
+**The goldens were mutation-checked**, because a full-state dump can look
+thorough and still be vacuous. Perturbing the 26 m index cell, the 0.7 cell
+step, the 3×3 cell dilation, the 11 m node snap, the 9 m edge snap, both 3.5 m
+guards, the 2.5 m node-promotion radius, the `[0.03, 0.97]` t clamp, the spur
+collapse's stack rule, the outer-face tie-break's strict `>`, and swapping
+`js_hypot` for `f64::hypot` each break at least one golden. Two scenarios
+(`clampT`, `hypotSnap*`) exist only because the first mutation round found
+those constants unexercised.
+
+#### The block-comment assertion: what it caught, and a real limit in it
+
+It caught nothing this time — the slice boundaries were already established by
+milestone 1 and are unchanged. But running it as a **negative control** (a
+thing worth doing to any assertion you rely on) found a genuine hole:
+
+| deliberately wrong slice | caught? |
+|---|---|
+| ends inside a block comment | yes, unterminated-open depth 1 |
+| starts 3 lines into the header comment | yes, once an **orphan-close** counter was added |
+| starts **1** line into the header comment | **no** |
+
+The one-line-late case slips through because the scanner treats an apostrophe
+at depth 0 as a string delimiter, and block 4's header comment contains the
+prose `"Gen1's globals"` — so the stray `*/` gets swallowed as string content.
+The orphan-close counter is a real improvement over milestone 1's version and
+is kept; the residual hole is covered by the **two structural assertions**
+(the slice must contain the `UME` IIFE header and must end at
+`module.exports = UME;`), which is what actually pins the boundary. Worth
+recording plainly: the balance assert is necessary, not sufficient.
+
+#### Findings that change how later milestones must be built
+
+1. **Encapsulation, verified by grep across all 2,937 lines**: `cell`, `grid`,
+   `nextE` and `nextN` are touched **only** by this milestone's functions. No
+   later milestone reaches into the spatial index. `nodes`/`edges`/`adj` are
+   read widely, always as `n.adj.filter(id => g.edges[id].alive)`.
+2. **`g._fromPaths` is a dynamic property, and it needs a real field.**
+   `buildPrimariesFromPaths` sets `g._fromPaths = true` (line 28830,
+   **milestone 6**) and `builtMassHull` reads it (line 29709, **milestone 10**)
+   to discount the bare degree-2 vertices that a resampled real road drags in.
+   Milestone 2 deliberately does **not** add the field — nothing sets or reads
+   it yet — but milestone 6 must add `Graph::from_paths` and milestone 10 must
+   read it, or the enceinte over-encloses along arterials exactly as the
+   reference's own v1.01 note describes.
+3. **The reference is internally inconsistent about one splice, and the port
+   reproduces it.** `splitEdge` removes an edge from `a.adj` with an
+   **unguarded** `splice(indexOf(e.id), 1)`, where a miss would silently drop
+   the *last* element (JS `splice(-1,1)`); milestone 11's `_killEdge` guards
+   the identical splice with `if (k >= 0)`. Unreachable given `rawEdge`'s
+   invariant, reproduced rather than hardened, and flagged here so milestone 11
+   does not "unify" them.
+4. **`addStreet` leaves orphan nodes.** When both endpoints are fresh and every
+   resulting link is then rejected by `rawEdge`'s 3.5 m minimum, the nodes stay
+   in `g.nodes` with empty `adj`. Pinned by a golden (`tooShort`: 4 nodes,
+   1 edge). Every later pass must keep filtering on live adjacency.
+5. **The stable hit sort in `addStreet` is a safety property, not a
+   behavioural one — a tie is unreachable.** Two crossings at one `t` are the
+   same point, so those edges already crossed and share a node whose half-edges
+   the `1e-4` guard excludes. Two on-segment nodes at one `t` lie on one
+   perpendicular within 2.5 m of the segment, hence within 5 m of each other,
+   which `attachPoint`'s 11 m snap prevents. A crossing tied with a node is at
+   that node's own foot, ≤2.5 m away, which `splitEdge`'s 3.5 m guard folds
+   back. Confirmed by mutation (an unstable sort changes no golden) and by a
+   test that re-derives every hit parameter across all 19 scenarios.
+6. **Two constants in `addStreet` are redundant inside the engine's own site
+   box.** The `1e-4` interior-crossing guards and the `1e-3` node-parameter
+   guards survive being loosened to `1e-9`: a hit at `t = 1e-4` is `1e-4·L`
+   from an endpoint, so it only escapes `splitEdge`'s 3.5 m fold-back past
+   `L > 35 km`, and the node guard past `L > 3.5 km`, against a 1700 × 1250 m
+   site box. Kept as written — they are the reference's, and they are what
+   stops the degenerate case if the box ever grows.
+7. **`extractFaces`' guard arithmetic is subtler than it looks.** JS
+   `while (guard++ < 20000)` leaves `guard` at 20001 when the bound stopped it,
+   so the post-check `guard >= 20000` also discards a face that closed on step
+   20000 exactly. A traversal that hits the guard is **dropped**, not
+   truncated. Reproduced as written.
+8. **The outer-face tie-break is observable.** A closed loop with one dead-end
+   spur yields exactly two faces of equal absolute area (±14400 on the golden),
+   and the strict `>` makes the *lowest-indexed* one outer. `buildBlocks`
+   (milestone 12) skips the outer face, so this is not cosmetic.
 
 ### Milestone 3 — A\* over the cost raster (lines 28514-28556, 1 function)
 
@@ -260,6 +383,12 @@ raster, and comparing sampled fields.
 that produces a real street graph end to end, so the first that can be
 golden-checked with a hash over graph state.
 
+**Must add `Graph::from_paths`** (milestone 2's finding 2): the JS sets
+`g._fromPaths = true` as a dynamic property at line 28830, and milestone 10's
+`builtMassHull` reads it at line 29709. Milestone 2 left the field out because
+nothing set it; it is milestone 6's to add, and skipping it silently
+over-encloses the enceinte along arterial roads.
+
 ### Milestone 7 — organic growth (lines 29390-29630, 5 functions)
 
 `logisticRamp`, `estimateCarryingCapacity`, `wallOccupancy`, `grow`,
@@ -289,6 +418,9 @@ milestone 1). **The largest single milestone in this plan.** Curtain-wall
 tracing around the built-mass hull, gate placement at radial crossings, wet/dry
 ditches, and the bastioned trace with its own geometry.
 
+`builtMassHull` reads `Graph::from_paths` (milestone 2's finding 2, milestone
+6's to add). Also introduces the `'ringroad'` street class.
+
 ### Milestone 11 — graph cleanup passes (lines 30038-30192, 6 functions)
 
 `_killEdge`, `pruneLargest`, `removeWaterCrossings`, `privatizeAlleys`,
@@ -296,11 +428,19 @@ ditches, and the bastioned trace with its own geometry.
 `detectRiverCrossings` deliberately runs after all of them so a recorded bridge
 always has a live road on it.
 
+`_killEdge` guards its `adj` splice with `if (k >= 0)` where milestone 2's
+`splitEdge` does not (finding 3). **Do not unify them** — the port reproduces
+both as written, and the difference is the reference's, not the port's.
+
 ### Milestone 12 — blocks and parcels (lines 30193-30344, 2 functions)
 
 `buildBlocks`, `buildParcels`. Dense: the bisector platting method with
 ray-cast depth caps, log-normal frontage/depth draws, overlap filtering and
-area conservation. Directly hashable via `hashModel`'s block/parcel terms.
+area conservation. `hashModel`'s block/parcel terms cover this, but only from
+milestone 16 — it needs a whole model (milestone 2's finding). Until then, dump
+state directly, as milestone 2 did. Note also that `buildBlocks` skips
+`extractFaces`' outer face, which milestone 2 pinned as a **first-index-wins**
+tie-break on absolute area.
 
 ### Milestone 13 — districts and buildings (lines 30345-30710, 7 functions)
 
@@ -378,6 +518,14 @@ design, adopted here for the same reason: an unterminated `/*` at a boundary
 silently swallows the rest of the slice, and one contiguous slice plus a
 balance assert removes the whole class. Two further assertions check the slice
 really starts at the IIFE and ends at the export.
+
+Milestone 2 ran that assertion as a **negative control** and found one case it
+does not cover (a slice starting exactly one line into the header comment, whose
+orphan `*/` gets eaten by an apostrophe in the comment prose). An orphan-close
+counter was added — it catches the three-lines-late variant — and the residual
+hole is covered by the two structural assertions, which are what actually pin
+the boundary. See milestone 2's section for the table. **The balance assert is
+necessary, not sufficient; keep the structural asserts.**
 
 Where `_test` or the public export reaches a function, expected values are the
 reference's own output. Where it does not (`polySelfIntersects` is the only
