@@ -12,9 +12,25 @@ screens, not the nine the spec's own table lists; the tenth is
 `Phone inset rules`). Organised by the spec's own section numbering, one row
 per control.
 
-**All UI work is on hold** (owner, 2026-08-18; `DCC_SHELL_SCOPE.md`). Nothing
-here is a plan to build; it is a map of the distance between the design and
-the program.
+**The hold is lifted** (owner, 2026-08-18): *"Replace the current GUI and
+replace it in full by the DCC version including all it's wiring and
+functionality."* The rows below are now a build list, not only a map.
+
+Two amendments since this index was written, both from the design revision
+imported at `dd82c2e` (sync 2026-08-18T23:05Z):
+
+1. **§5.2's sculpt disagreement is resolved.** The design team rewrote §5.2
+   from v2.10's real `SCULPT_FEATURES` registry, so brush size is 6-200 px and
+   intensity 0-1.5 dimensionless — matching `cartalith-terrain/src/sculpt.rs`
+   exactly. The rows below that record an abstract 0.05-20.0 radius and a
+   ±500 m intensity are superseded.
+2. **This index runs one direction only.** It reads the design's controls and
+   asks what the engine can do. Run the other way — engine capability against
+   the design's controls — and seven tools with working, golden-verified Rust
+   have no surface in the design at all, plus one half-surfaced. That count is
+   recorded separately in **`STRANDED_TOOLS.md`**, which is where the "no home
+   for it" cases live; they are absent here by construction, since a control
+   that does not exist in the spec has no row to appear in.
 
 ---
 
