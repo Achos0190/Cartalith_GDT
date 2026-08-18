@@ -1,4 +1,34 @@
-# GUI shell redesign: milestone plan
+# GUI shell redesign: milestone plan — ⚠ SUPERSEDED
+
+> **This document describes a shell that no longer exists. Do not build from
+> it.** It is kept for history: how the panel-browser shell was designed, what
+> it decided and why, and the real inventory of engine capability it produced.
+>
+> **Superseded by `DCC_SHELL_SCOPE.md`** (owner, 2026-08-17: *"this, the dcc
+> shell, is the design that should be followed religiously and needs to fully
+> replace the current gui"*). The design project's own notes say the same of
+> the mockup this plan was built from — `design/Cartalith GUI.dc.html` is
+> recorded there as *"earlier panel-based directions, superseded"*. The shell
+> described below (left navigator swapping a parameter panel and inspector
+> around a static viewport) was replaced in full by the DCC editor shell
+> (menu bar / workspace tabs / tool options bar / left tool rail / viewport /
+> right dock / status bar).
+>
+> **And UI work is now on hold entirely** (owner, 2026-08-18) while the
+> interface is redesigned again — see the notice at the top of
+> `DCC_SHELL_SCOPE.md`.
+>
+> **What is still worth reading here**: milestone 1's real inventory of which
+> engine features had backing versus which were inert. That inventory was
+> about the Rust engine, not the shell, so it outlived the layout — and
+> `GUI_FEATURE_PARITY_SCOPE.md` has since re-baselined it against the DCC
+> structure. Prefer that document; use this one only for the reasoning behind
+> decisions it records.
+>
+> `design/cartalith-menu-structure.md` and `design/Cartalith GUI.dc.html` are
+> this plan's source material and are superseded with it. The current design
+> sources are `UI_SHELL_DESIGN.md`, `design/Cartalith DCC Shell.dc.html` and
+> `design/Cartalith Menu Structure v2.dc.html`.
 
 Owner-supplied design import (2026-08-17, via the `claude_design` MCP,
 project "UI mockups planning") — `design/Cartalith GUI.dc.html` (the mockup,

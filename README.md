@@ -1,75 +1,117 @@
-# Porting Cartalith to Godot — start here
+# Cartalith — native port
 
-Documentation and reference material for a ground-up native port of Cartalith
-Gen1 — the single-file HTML worldbuilding tool — to a Rust engine inside Godot,
-targeting a Windows `.exe` and an Android `.apk`.
+A ground-up native port of **Cartalith Gen1**, the single-file HTML
+worldbuilding tool, to a Rust engine inside Godot 4 — shipping a Windows
+`.exe` and an Android `.apk`.
 
-**No code lives here.** This is a new project, not a refactor: nothing in
-`Cartalith Gen1 v*.html` changes, and none of its working rules are altered.
+The frozen source lives in `reference/`; it is never modified. The port's own
+code is the Cargo workspace in `cartalith-native/`.
 
-## The decisions
+## Where things stand
 
-Made through structured Q&A with the owner. Reasoning in `DECISIONS.md` — read it
-before revisiting any of these.
-
-| | |
+| Phase | State |
 |---|---|
-| **First milestone** | Terrain-only MVP: the full pipeline, no civ, assets, sculpt, or journey planner |
-| **MVP boundary** | Includes erosion and hydrology, not just heightmap and climate |
-| **Architecture** | Godot + Rust via `gdext` — Rust owns logic, Godot owns rendering, UI, and packaging |
-| **Rendering** | 2D only; the 3D drape is a later phase |
-| **Build environment** | This cloud session builds; the owner verifies on real hardware |
-| **Distribution** | Personal/hobby — no signing certificates or store work yet |
-| **Correctness** | Golden-value parity against the JS engine, within a documented tolerance |
-| **Code location** | A new, separate repository once porting begins |
-| **Godot version** | Latest stable 4.x at setup time, pinned there rather than here |
-| **Save files** | The port reads an existing HTML `.zip`'s terrain; writing comes later |
-| **Build structure** | A Cargo workspace, one crate per subsystem |
+| 0 — Walking skeleton | **Done** |
+| 1 — Terrain MVP | **Done**, all seven criteria plus closeout |
+| 2 — Civilisation layer | **Done** — 17 milestones; the Journey Planner sub-phase is engine-complete (65 of the reference's 74 `jp*` functions; 6 UI-only, 2 JS idioms, 1 blocked) |
+| 3 — Rendering and 3D | **Partial** — terrain appearance milestones 1-5 done; the 3D drape (`DECISIONS.md` §4) not started |
+| 4 — Asset Library | **Done**, all seven milestones |
+| 5 — Urban morphology | **In progress** — milestones 1-5 of ~17; the largest single unported subsystem (~3,860 lines) |
+
+Cross-cutting work, none of it a numbered phase: GPU compute (9 milestones,
+including a redesigned parallel flow accumulation), CPU multithreading (3),
+a measured memory-optimization pass, the standalone `cartalith-spatial`
+tiling/quadtree base, and the tool system's engine layer (milestones A-E).
+
+**Authoritative status lives in `cartalith-native/docs/STATUS.md`** — read it
+before starting work. `cartalith-native/docs/CHANGELOG.md` is the detailed
+per-milestone history.
+
+**All UI work is currently on hold** at the owner's direction (2026-08-18)
+while the interface is redesigned; see the notice at the top of
+`DCC_SHELL_SCOPE.md`.
+
+## The workspace
+
+Fourteen crates under `cartalith-native/crates/`, one per subsystem, per
+`ARCHITECTURE.md`. Only `cartalith-godot` depends on `gdext`; everything else
+is plain Rust and testable without Godot.
+
+`cartalith-rng` · `cartalith-noise` · `cartalith-terrain` ·
+`cartalith-climate` · `cartalith-erosion` · `cartalith-hydrology` ·
+`cartalith-civ` · `cartalith-engine` · `cartalith-io` · `cartalith-gpu` ·
+`cartalith-spatial` · `cartalith-assets` · `cartalith-urban` ·
+`cartalith-godot`
 
 ## Reading order
 
+**Start here** — the decisions and the rules that govern everything else:
+
 | Document | Covers |
 |---|---|
-| `DECISIONS.md` | every choice, what it beat, and why |
-| `MVP_SCOPE.md` | what the first milestone includes, excludes, and what "done" means |
+| `DECISIONS.md` | every choice, what it beat, and why — including §7d, the rule that behaviour is the contract and implementation is not |
 | `ARCHITECTURE.md` | the Rust↔Godot split and the crate layout |
-| `PROVENANCE.md` | academic sources, algorithms, and formats — what must be hand-ported and what a crate may replace |
-| `SAVEFILE_COMPAT.md` | the `.zip` format, verified against the live code |
-| `PARITY_TESTING.md` | extracting golden data and testing against it |
-| `REFERENCES.md` | libraries and projects worth using or reading |
-| `TOOLCHAIN.md` | setup, in the order to do it |
-| `ROADMAP.md` | phases after the MVP |
-| `SKILLS.md` | which Claude Code skills to install, and why |
+| `ROADMAP.md` | the phases (note: `docs/ROADMAP.md` is a *different*, source-project document) |
+| `PARITY_TESTING.md` | golden-value testing against the JS engine |
+| `PROVENANCE.md` | academic sources and formats; what must be hand-ported |
 
-Also here: `reference/` holds a frozen copy of the HTML app with a generated index
-of all 1,094 top-level functions, and `skills/` holds the skills themselves.
+**Then, as the work requires** — scope documents, each owning one subsystem
+and carrying its own milestone-by-milestone record of what was built, what the
+reference actually turned out to do, and what remains:
+
+`MVP_SCOPE.md` · `PHASE2_SCOPE.md` · `JOURNEY_PLANNER_SCOPE.md` ·
+`ECONOMY_SCOPE.md` · `ASSET_LIBRARY_SCOPE.md` · `URBAN_MORPHOLOGY_SCOPE.md` ·
+`TERRAIN_APPEARANCE_SCOPE.md` · `UNIFIED_TOOL_PLAN.md` ·
+`GPU_LAYER_INTEGRATION_SCOPE.md` · `GPU_COMPUTE_PILOT_SCOPE.md` ·
+`CPU_MULTITHREADING_SCOPE.md` · `MEMORY_OPTIMIZATION_SCOPE.md` ·
+`LOD_TILING_BASE_SCOPE.md` · `ANDROID_BUILD_SCOPE.md` ·
+`GENERATION_PARAMETERS.md` · `SAVEFILE_COMPAT.md` · `TOOLCHAIN.md` ·
+`REFERENCES.md` · `SKILLS.md`
+
+**Reference and direction** — inputs, not plans: `FUNCTIONAL_CONTRACT.md`
+(what the HTML app does, capability by capability), `VISION.md`,
+`UI_SHELL_DESIGN.md`, `DCC_SHELL_SCOPE.md`, `GUI_FEATURE_PARITY_SCOPE.md`,
+`MARKDOWN_VAULT_INTEGRATION.md`, and the three owner-supplied research
+documents (`TERRAIN_ARCHITECTURE_RESEARCH.md`,
+`HETEROGENEOUS_COMPUTE_RESEARCH.md`, `TERRAIN_APPEARANCE_RESEARCH.md`), each
+annotated with how much of it applies to this port today.
+
+## Other directories
+
+| Path | What it is |
+|---|---|
+| `cartalith-native/` | the Cargo workspace and the Godot project |
+| `reference/` | the frozen HTML snapshot + its generated function index |
+| `docs/` | **the source project's own documentation**, kept as provenance — see `docs/README.md`; two filenames collide with the port's |
+| `design/` | owner-supplied UI mockups and handoff specs, imported verbatim |
+| `skills/` | the vendored Claude Code skills this project uses |
 
 ## Working discipline
 
-The HTML project's discipline — measure before fixing, test everything, finish one
-thing before starting the next, document the reasoning — is the reason it survived
-200+ versions. Carry it over.
+The HTML project's discipline — measure before fixing, test everything, finish
+one thing before starting the next, document the reasoning — is why it
+survived 200+ versions. It carries over, and this port has added to it from
+real failures:
 
-- **Read before porting.** Study the JS source and the CHANGELOG entries that
-  explain *why* a formula looks as it does, and extract golden values, before
-  writing the Rust. Then you have something to test against as you go rather than
-  at the end.
-- **One subsystem at a time.** Port in pipeline order and verify each stage before
-  the next. Porting four stages and debugging the combination is how a week
-  disappears.
-- **Faithful, not literal.** Idiomatic Rust is expected — ownership, iterators,
-  `rayon` where Web Workers were. Same algorithms, constants, and formulas is also
-  expected. **A deviation that changes the numbers is a decision to raise, not to
-  make quietly.**
-- **Document as you go.** Each milestone gets a changelog entry recording what was
-  ported, how it was verified, and what is still open — so the next session can
-  start cold.
-- **Say what you verified.** GPU rendering, touch input, and on-device performance
-  cannot be checked from a headless session. "Compiles and passes tests" is not
-  "works."
-
-## Status
-
-Planning complete; no code written. Next is Phase 0 (`ROADMAP.md`): a walking
-skeleton proving the toolchain builds for all three targets before any engine
-logic is ported — in the new repository, not here.
+- **Read the reference before porting.** Every milestone that assumed a scope
+  document's description without checking found it wrong: line ranges wrong at
+  both ends, functions that turned out to be callers rather than duplicates,
+  plans describing the rarer of two code paths.
+- **One subsystem at a time**, verified before the next.
+- **Faithful, not literal.** Idiomatic Rust is expected; identical numbers are
+  also expected. A deviation that changes the numbers is a decision to raise,
+  not to make quietly (`DECISIONS.md` §7, §7a, §7d).
+- **Golden-matching is necessary and not sufficient.** Mutation-test the
+  constants. Fixtures must be *shaped* to reach the code under test —
+  quantised where a tie-break hides in continuous values, just-below-a-boundary
+  where rounding hides a constant, and built out of the geometry under test.
+  Each of those three conventions came from a sweep where every golden passed
+  and most mutations survived.
+- **Watch for V8's libm.** `Math.hypot` and `Math.exp` both diverge from
+  Rust's, and both changed real results — one altered graph topology through a
+  snap threshold. Use `geom::js_hypot` and `geom::js_exp`; likewise
+  `js_min`/`js_max`, because JS propagates NaN where Rust absorbs it.
+- **Say what you verified.** On-device behaviour, touch input and GPU
+  rendering cannot be checked from a headless session. "Compiles and passes
+  tests" is not "works" — and a synthetic tap at a computed pixel is not
+  evidence a person can reach the control.
