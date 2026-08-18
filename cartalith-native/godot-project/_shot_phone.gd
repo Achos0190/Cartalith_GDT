@@ -11,7 +11,10 @@ extends Node
 ## Run:
 ##   godot --path . --resolution 393x852 _shot_phone.tscn -- --force-touch
 ##   godot --path . --resolution 852x393 _shot_phone.tscn -- --force-touch
-## Add `--generate` too to capture a generated world rather than the empty state.
+## Add `--generate` too to capture a generated world rather than the empty
+## state. One of `--drawer` / `--picker` / `--overflow` / `--leftsheet` /
+## `--rightsheet` force-opens that phone overlay before the capture, since
+## none of them are reachable by a script driving no real input.
 
 func _ready() -> void:
 	var app: Node = load("res://shell/app.tscn").instantiate()
@@ -28,12 +31,19 @@ func _ready() -> void:
 			await get_tree().create_timer(0.25).timeout
 		await get_tree().create_timer(0.6).timeout
 
-	var vh = app.viewport
-	print("DEBUG readout text=[", vh._readout_label.text, "] pos=", vh._readout_label.position,
-		" global=", vh._readout_label.global_position, " size=", vh._readout_label.size,
-		" visible=", vh._readout_label.visible, " modulate=", vh._readout_label.modulate)
-	print("DEBUG viewport rect=", vh.get_global_rect())
-	print("DEBUG scale text=[", vh._scale_label.text, "] pos=", vh._scale_label.position)
+	if "--drawer" in OS.get_cmdline_user_args():
+		app._set_drawer_open(true)
+	if "--picker" in OS.get_cmdline_user_args():
+		app._set_panel_picker_open(true)
+	if "--overflow" in OS.get_cmdline_user_args():
+		app._set_overflow_open(true)
+	if "--leftsheet" in OS.get_cmdline_user_args():
+		app._set_sheet_open("left", true)
+	if "--rightsheet" in OS.get_cmdline_user_args():
+		app._set_sheet_open("right", true)
+	await get_tree().process_frame
+	await get_tree().process_frame
+
 	var size := get_viewport().get_visible_rect().size
 	var orientation := "landscape" if size.x > size.y else "portrait"
 	var img := get_viewport().get_texture().get_image()
