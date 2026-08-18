@@ -113,13 +113,8 @@ use cartalith_terrain::{
     OrogenyParams, WorldStructure,
 };
 
-/// Mirrors JS `Math.round` (ties toward `+Infinity`) — same trap
-/// `cartalith-terrain::js_round`/`cartalith-climate::js_round` exist for;
-/// duplicated here rather than adding a dependency purely for one line,
-/// matching those crates' own precedent.
-fn js_round(x: f64) -> f64 {
-    (x + 0.5).floor()
-}
+// `Math.round` (ties toward `+Infinity`), from `cartalith-jsmath`.
+use cartalith_jsmath::js_round;
 
 /// `state.tect` (reference HTML line 2264-2265) — the formula's real tuning
 /// knobs, plus `resist` (`streamParams()`'s erodibility-resistance weight,

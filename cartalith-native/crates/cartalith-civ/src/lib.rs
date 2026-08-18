@@ -1882,37 +1882,18 @@ fn civ_tier_rank(kind: SettlementKind) -> f64 {
 }
 const CIV_MAX_TIER_RANK: f64 = 5.0;
 
-/// `Math.min(a, b)` -- JS propagates `NaN`, Rust's `f64::min` absorbs it.
-/// The whole power breakdown below is `Math.max(0,Math.min(1,...))`, so a
-/// `NaN` reaching it (an empty faction's `0/0` mean, a `NaN` density cell)
-/// must come out `NaN`, not silently clamp to a plausible-looking number.
-fn js_min(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() { f64::NAN } else if b < a { b } else { a }
-}
-
-/// `Math.max(a, b)`, same NaN rule as [`js_min`].
-fn js_max(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() { f64::NAN } else if b > a { b } else { a }
-}
-
-/// JS `x || 0`. **`NaN` is falsy in JS**, so `NaN || 0` is `0` -- not `NaN`,
-/// which is what a plain Rust read of the same field would give. The
-/// reference guards every per-place number this way (`p.pop||0`,
-/// `p.tradeVolume||0`, `p.economicImportance||0`, and both sides of
-/// `_civFactionCapital`'s comparison), and the effect is real: a `NaN`
-/// population is absorbed at the place, so it can never reach the power
-/// clamp downstream. Dropping this would let one bad settlement turn a
-/// whole faction's aggregate row into `NaN`s the reference never produces.
-fn js_num_or_zero(x: f64) -> f64 {
-    if x.is_nan() { 0.0 } else { x }
-}
-
-/// JS truthiness of a number used as a divide-by guard (`maxPop ? a/maxPop
-/// : 0`): `0`, `-0` and `NaN` are all falsy. `x != 0.0` alone would take the
-/// true branch on `NaN` and divide by it.
-fn js_truthy_num(x: f64) -> bool {
-    x != 0.0 && !x.is_nan()
-}
+// One implementation of each of these now lives in `cartalith-jsmath`, the
+// workspace's dependency-free leaf crate (`JS_SEMANTICS_AUDIT.md`
+// recommendation #2). They were written independently in five crates and had
+// already drifted apart in three measurable ways (§3).
+//
+// `js_min`/`js_max` propagate NaN where Rust's `f64::min`/`f64::max` absorb it:
+// the whole power breakdown below is `Math.max(0,Math.min(1,...))`, so a `NaN`
+// reaching it (an empty faction's `0/0` mean, a `NaN` density cell) must come
+// out `NaN` rather than silently clamping to a plausible-looking number.
+// `js_num_or_zero`/`js_truthy_num` are JS's falsiness of `NaN`, which the
+// reference relies on at every `p.pop||0` and `maxPop ? ... : 0`.
+use cartalith_jsmath::{js_max, js_min, js_num_or_zero, js_truthy_num};
 
 /// `_civOceanDistField` (reference line 22450): the cached chamfer distance
 /// transform to the nearest **ocean** cell (`wb[i]===1`, ocean only -- lakes
@@ -5080,64 +5061,26 @@ pub fn civ_seed_villages(
 // path), so the general function collapses to "land iff not water"
 // against the real water-body classification (milestone 2).
 
-fn js_round(x: f64) -> f64 {
-    (x + 0.5).floor()
-}
-
-/// V8's `Math.hypot`, which is **not** `sqrt(x*x + y*y)` and is not
-/// bit-identical to Rust's `f64::hypot` either: it divides by the larger
-/// magnitude and Kahan-compensates the sum of squares (V8's
-/// `Builtins::MathHypot`). Identical to `cartalith-terrain`'s own
-/// `sculpt::js_hypot`, ported there by `UNIFIED_TOOL_PLAN.md` milestone B.
-///
-/// Milestone B recorded, honestly, that its fixtures could *not* tell the
-/// two apart -- every one of its 23 golden cases still passed with the
-/// naive form, because an `f32` store absorbed the difference. Milestone D
-/// found the fixture that can: `_civSmoothPath` accumulates `km` in `f64`
-/// across dozens of segments with no rounding step anywhere, so a single
-/// ULP survives to the result. Case 1's unreachable land route comes out
-/// `610.6390435628962` with Rust's `hypot` and `610.6390435628963` -- the
-/// reference's own value -- with this. So this is now genuinely
-/// test-enforced, in this crate, by
-/// `tests/golden_parity_civ_tools.rs::case1_land_and_water_negative_controls`.
-///
-/// Applied to the path-smoothing chain (`civ_rdp_simplify`,
-/// `civ_catmull_rom_sample`, `civ_smooth_path`) and `civ_dijkstra_path`'s
-/// straight-line fallback -- every `Math.hypot` on the route-geometry path.
-/// The crate's other `.hypot()` sites (slope gradients, wrap-aware leg
-/// lengths in the Journey Planner) are deliberately left alone: they are
-/// covered by their own passing golden tests, and changing them here would
-/// be an unmeasured edit to verified code. Worth a sweep of its own if a
-/// future fixture ever distinguishes them there too.
-pub(crate) fn js_hypot(x: f64, y: f64) -> f64 {
-    // ECMA-262 21.3.2.18 pins this ahead of the scaling loop, and the loop
-    // on its own gets both wrong: an infinite argument makes `v / max` a
-    // NaN, and a NaN argument loses the `v > max` comparison so `max` stays
-    // 0. `Math.hypot(inf, NaN)` is `inf`, not NaN -- infinity is checked
-    // first. (`JS_SEMANTICS_AUDIT.md` §3.2 found this preamble missing from
-    // three of the four copies of this function.)
-    if x.is_infinite() || y.is_infinite() {
-        return f64::INFINITY;
-    }
-    if x.is_nan() || y.is_nan() {
-        return f64::NAN;
-    }
-    let (ax, ay) = (x.abs(), y.abs());
-    let max = if ax > ay { ax } else { ay };
-    if max == 0.0 {
-        return 0.0;
-    }
-    let mut sum = 0.0f64;
-    let mut compensation = 0.0f64;
-    for v in [ax, ay] {
-        let n = v / max;
-        let summand = n * n - compensation;
-        let preliminary = sum + summand;
-        compensation = (preliminary - sum) - summand;
-        sum = preliminary;
-    }
-    max * sum.sqrt()
-}
+// `Math.round` (half toward +inf) and V8's compensated `Math.hypot`, both from
+// `cartalith-jsmath`.
+//
+// The `js_hypot` note milestone D wrote is worth keeping, because it is the one
+// place in the workspace where a fixture can tell V8's `Math.hypot` from
+// Rust's: `_civSmoothPath` accumulates `km` in `f64` across dozens of segments
+// with no rounding step anywhere, so a single ULP survives to the result. Case
+// 1's unreachable land route comes out `610.6390435628962` with `f64::hypot`
+// and `610.6390435628963` -- the reference's own value -- with this, and
+// `tests/golden_parity_civ_tools.rs::case1_land_and_water_negative_controls`
+// enforces it.
+//
+// Applied to the path-smoothing chain (`civ_rdp_simplify`,
+// `civ_catmull_rom_sample`, `civ_smooth_path`) and `civ_dijkstra_path`'s
+// straight-line fallback -- every `Math.hypot` on the route-geometry path. The
+// crate's other `.hypot()` sites (slope gradients, wrap-aware leg lengths in
+// the Journey Planner) are deliberately left alone: they are covered by their
+// own passing golden tests, and changing them here would be an unmeasured edit
+// to verified code (`JS_SEMANTICS_AUDIT.md` §4.1 endorses that policy).
+pub(crate) use cartalith_jsmath::{js_hypot, js_round};
 
 /// `rdpSimplify` (reference line 8701): Ramer-Douglas-Peucker line
 /// simplification, explicit-stack form matching the reference's own
@@ -7036,57 +6979,12 @@ pub fn jp_fmt_kg(kg: f64) -> String {
     }
 }
 
-/// JS `Number.prototype.toFixed`: "pick the larger n" on a tie, i.e. round
-/// half away from zero, where Rust's `{:.N}` rounds half to even. Only ever
-/// used for verdict/blocked-message text, but those strings are compared
-/// against the reference's own output in the tests below, so the tie-breaking
-/// rule has to match.
-///
-/// The tie is decided on the value's **exact** decimal expansion, never by
-/// scaling. Milestone 6 found the earlier `(v*10^d + 0.5).floor()` form
-/// fabricating ties: `61.5/30` is `2.0499999999999998`, which JS renders
-/// `"2.0"`, but `2.0499999999999998 * 10` rounds to exactly `20.5` in `f64` and
-/// the `+0.5` then carried it to `"2.1"`. Rust's own `{:.N}` already prints the
-/// correctly-rounded exact decimal, so all this has to do is spot a genuine tie
-/// and step it away from zero instead of to even.
-fn js_fixed(v: f64, digits: u32) -> String {
-    if !v.is_finite() {
-        return format!("{v}");
-    }
-    let d = digits as usize;
-    // A double is a dyadic rational, so its decimal expansion terminates; a tie
-    // at place `d+1` therefore means digit `d+1` is 5 and the expansion ends
-    // there. Eighteen guard digits is far past the point where two neighbouring
-    // doubles could both look like one.
-    let exact = format!("{:.*}", d + 18, v.abs());
-    let frac = &exact[exact.find('.').expect("a fractional part was requested") + 1..];
-    let tie = frac.as_bytes()[d] == b'5' && frac.as_bytes()[d + 1..].iter().all(|&b| b == b'0');
-    if !tie {
-        return format!("{:.*}", d, v);
-    }
-    // Away from zero: increment the last kept decimal digit, carrying.
-    let dot = exact.find('.').expect("checked above");
-    let mut kept: Vec<u8> = exact[..dot].bytes().chain(frac[..d].bytes()).collect();
-    let mut i = kept.len();
-    loop {
-        if i == 0 {
-            kept.insert(0, b'1');
-            break;
-        }
-        i -= 1;
-        if kept[i] == b'9' {
-            kept[i] = b'0';
-        } else {
-            kept[i] += 1;
-            break;
-        }
-    }
-    let split = kept.len() - d;
-    let int_part = String::from_utf8(kept[..split].to_vec()).expect("ascii digits");
-    let frac_part = String::from_utf8(kept[split..].to_vec()).expect("ascii digits");
-    let sign = if v < 0.0 { "-" } else { "" };
-    if d == 0 { format!("{sign}{int_part}") } else { format!("{sign}{int_part}.{frac_part}") }
-}
+// JS `Number.prototype.toFixed`, which rounds a decimal tie to the larger n
+// (away from zero) where Rust's `{:.N}` rounds half to even. Used for
+// verdict/blocked-message text, which the goldens below compare against the
+// reference's own strings. `JS_SEMANTICS_AUDIT.md` §3.4: this was the correct
+// one of the two independent `toFixed` ports, and it is the one that moved.
+use cartalith_jsmath::js_fixed;
 
 /// `JP_BIOMES` (reference line 17487), the four columns milestones 2 and 3
 /// each deliberately left out (`water`/`forage`/`waterForage`/`grazing`) plus
@@ -10859,28 +10757,6 @@ pub fn jp_best_package_for_stage(st: &JpStage, eff: &JpPlan) -> Option<JpPackage
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The `Math.hypot` cases ECMA-262 21.3.2.18 pins, which the bare
-    /// scaling loop got wrong until `JS_SEMANTICS_AUDIT.md` §3.2 found
-    /// this copy missing the preamble. Every expectation is `node`
-    /// v24.19.0's own output. No live call site can reach an infinite or
-    /// NaN argument today -- this test is what keeps that from mattering
-    /// if one ever does.
-    #[test]
-    fn js_hypot_follows_the_spec_on_infinity_and_nan() {
-        assert_eq!(js_hypot(f64::INFINITY, 3.0), f64::INFINITY);
-        assert_eq!(js_hypot(3.0, f64::INFINITY), f64::INFINITY);
-        assert_eq!(js_hypot(f64::NEG_INFINITY, 3.0), f64::INFINITY);
-        // Infinity wins over NaN, in either argument order.
-        assert_eq!(js_hypot(f64::INFINITY, f64::NAN), f64::INFINITY);
-        assert_eq!(js_hypot(f64::NAN, f64::INFINITY), f64::INFINITY);
-        assert!(js_hypot(f64::NAN, 0.0).is_nan());
-        assert!(js_hypot(0.0, f64::NAN).is_nan());
-        assert!(js_hypot(f64::NAN, f64::NAN).is_nan());
-        // The ordinary path is unchanged: V8's one-ulp-high 3root2.
-        assert_eq!(js_hypot(0.0, 0.0), 0.0);
-        assert_eq!(js_hypot(3.0, 3.0), 4.242640687119286);
-    }
 
     fn tb_map(pairs: &[(&'static str, f64)]) -> std::collections::HashMap<&'static str, f64> {
         pairs.iter().cloned().collect()

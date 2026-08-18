@@ -12071,3 +12071,209 @@ shared-directory run reported 34.)
    added** — round 4's survivor count went *up*, 73 → 74, on a round meant to
    improve things, because swapping one trig band for a better one gave up the
    branch the old one reached. Add; do not substitute.
+
+## `cartalith-jsmath` — one implementation each, and the last two `atan2` hazards closed (2026-08-18)
+
+`JS_SEMANTICS_AUDIT.md` recommendation #2, carried out. The audit catalogued
+eight distinct operations where Rust's standard library and V8 disagree about
+what a floating-point expression means, plus the rounding-mode family — and by
+the time it ran, the JS-faithful replacements had been written **independently
+in five crates**: seven copies of `js_hypot`, seven of `js_round`, three of
+`js_min`/`js_max`, two of `toFixed`, and one each of `js_exp`/`js_sin`/`js_cos`/
+`js_log`/`js_atan2` that nothing outside their own crate could reach.
+
+The recommendation was blocked only because `cartalith-urban` was mid-edit. That
+fork landed (`6d242cf`), and the case had got worse in the meantime: milestone 6
+established that `cartalith-urban` must keep `cartalith-rng` as its **only**
+dependency, so it could not use the `js_atan2` that had landed in
+`cartalith-hydrology` — and its milestone 8 needs `atan2`, which would have been
+a **ninth** FDLIBM copy site.
+
+### The crate
+
+`crates/cartalith-jsmath`, two files, **no dependencies at all** — not on
+another Cartalith crate, not on a third-party crate, and **not a dev-dependency
+either**. `ARCHITECTURE.md` has dependencies running one way in pipeline order,
+and a crate with none cannot create a cycle wherever it is added; that is the
+only shape that reaches all fifteen, since `cartalith-urban` is allowed only
+`-rng` and `cartalith-assets` only `-io`/`-noise`. The bulk goldens carry a
+four-line inline `mulberry32` rather than borrowing `cartalith-rng`'s, precisely
+so the leaf property is a fact about the manifest rather than a convention.
+
+- `libm.rs` — the FDLIBM family V8 ships in `src/base/ieee754.cc` rather than
+  taking from the platform: `js_exp`, `js_sin`, `js_cos`, `js_log`, `js_atan2`,
+  and `js_atan`, which was private inside `cartalith-hydrology` and is public
+  now because `Math.atan` is a JS function in its own right.
+- `lib.rs` — `js_hypot`/`js_hypot3`/`js_hypot_n`, `js_min`/`js_max`,
+  `js_round`, `js_num_or_zero`/`js_truthy_num`, `js_fixed`/`js_to_fixed`,
+  `u8_clamped`.
+
+**No call site had to change.** Where a module path was load-bearing —
+`geom::js_hypot`, `sculpt::js_hypot`, `tile_render::u8_clamped`,
+`spatial::geo::js_to_fixed` — it survives as a `pub use` re-export.
+
+**What deliberately stayed put.** `cartalith-spatial::paint`'s exhaustive
+rim-cell scans, `cartalith-assets`' `js_round_is_half_up_which_matters_at_the_left_edge`,
+and `cartalith-civ`'s NaN-absorption tests: they test a *call site's* behaviour,
+not the helper's. `-assets::scatter::js_number`, `-assets::manifest::js_parse_float`,
+`-io::tiles::js_num` and `-urban::site::js_or` also stayed — they are JS
+*coercions* over crate-specific types (`serde_json::Value`, `Option<f64>`,
+strings), not floating-point semantics.
+
+**`js_acos`/`js_log10` deliberately not added.** `cartalith-urban` milestones 10
+and 15 will need them; adding them now would be two hundred lines of FDLIBM with
+no caller and no golden.
+
+### The three copy disagreements, resolved rather than recorded
+
+1. **`js_round`.** Six crates used `(x + 0.5).floor()`, which differs from V8 on
+   exactly one double, `0.49999999999999994`. Consolidated onto the
+   fractional-part form, which is V8's answer there and everywhere.
+   `cartalith-terrain`'s "the standard exact equivalent" comment went with the
+   code it was wrong about. No golden moved.
+2. **`js_hypot`.** The `js_atan2` fork had already restored the specification
+   preamble to all three copies that had lost it, but through **five distinct
+   compensated sums**. There is one now, `js_hypot_n`, with `js_hypot` and
+   `js_hypot3` as wrappers, so the preamble cannot be lost from one entry point
+   and kept in another. Its one behavioural difference: it takes signed
+   arguments and `abs`es them itself, where `cartalith-terrain`'s form required
+   pre-`abs`ed magnitudes — and `abs` of a magnitude is the identity, so nothing
+   moved. Five identical spec tests collapsed into one.
+3. **`js_min`/`js_max` on signed zero.** `Math.min(+0, -0)` is `-0` and
+   `Math.max(+0, -0)` is `+0` in **either** argument order, because ECMA-262
+   treats `-0` as strictly smaller than `+0` for these two functions alone. A
+   plain `<` cannot see that, so which order a copy got right depended purely on
+   how it was spelled: `-urban`/`-civ`'s `if b < a` and `-terrain`'s `if a < b`
+   were each wrong in the opposite direction. **All three were wrong.** The one
+   implementation has a four-line both-zeros arm and is V8's in both orders,
+   with eight expectations read off `node` using `Object.is(x, -0)` and both
+   superseded forms asserted failing.
+
+### Two live hazards, fixed and proved
+
+**`cartalith-urban::graph:607` — `extract_faces`' half-edge sort key.** `ang`
+was `f64::atan2`, written at milestone 2 before the divergence was measured. It
+is the sort key the face traversal walks, so one ulp reorders two edges leaving
+a node and the traversal produces a different city block. Measured on the
+coordinates the graph really produces — arbitrary `f64`, from `attach_point`'s
+split points — `f64::atan2` returns a different double from V8 on **196,034 of
+510,634** near-parallel edge deltas (38 %, higher than any figure in the audit
+because these are small differences of large coordinates), and the two put the
+pair in a **different order on 23,814 of them, 4.7 %**. Three quarters of those
+are cases where Rust manufactures a difference out of what V8 computes as an
+exact tie.
+
+All **20** of milestone 2's golden scenarios — which compare the entire graph
+state plus every extracted face against the reference's own `UME._test` output —
+pass **unmodified** after the fix. That is the proof the change moved nothing
+they can see, and the reason is measurable rather than lucky: they are built
+from round coordinates whose incidences at a node are milliradians apart. What
+they cannot see is pinned by a new test carrying five real delta pairs with the
+bit patterns `node` v24.19.0 returns and V8's own comparison of each: **V8 agrees
+with `js_atan2` on 5 of 5 and with `f64::atan2` on 0 of 5.**
+
+**`cartalith-terrain:372` — `buildPlates`' world-wrap circular mean.** The audit
+reported this and deliberately did *not* change it, because the divergence
+enters **upstream** of `atan2` and `js_atan2` alone would leave the site
+*differently* wrong. Its instruction was to fix all three together in the pass
+that lands `js_sin`/`js_cos`. This is that pass, and the site became fixable.
+
+Measured over 2,000 synthetic plates at `gw = 512`, arguments drawn by the
+reference's own `mulberry32`:
+
+| | disagrees with V8 |
+|---|---|
+| the `(Σ sin, Σ cos)` pair, before `atan2` is reached | **737 / 2000** |
+| final `plate.x`, `f64::sin`/`cos`/`atan2` | **193 / 2000** |
+| final `plate.x`, `js_atan2` only — the partial fix | **110 / 2000** |
+| final `plate.x`, `js_sin` + `js_cos` + `js_atan2` | **0 / 2000** |
+
+The third row is the audit's "differently wrong" claim turned into a measurement
+in this repository: the partial fix is a real improvement that still leaves the
+site disagreeing with V8 on one plate in eighteen. It matters because
+`-terrain:347`'s `dx = x as f64 - plate.x` feeds the next Lloyd iteration's
+nearest-plate argmin — the same discrete-decision hazard as the river receiver,
+one iteration removed.
+
+Both `world`-mode cases of `golden_parity_plates.rs` pass **unmodified**; their
+grids are 6×5 and 7×6, so the circular mean is over a handful of cells and lands
+on the same double either way. The *feature* golden passing while it cannot see
+the *branch*, again — which is why the new test is a bulk FNV-1a hash of all
+2,000 `plate.x` values per seed against `node`, with assertions that Rust's own
+libm and the partial fix both produce a *different* hash so the rows cannot
+quietly stop discriminating.
+
+### Verification
+
+- `cargo test --workspace --exclude cartalith-godot`: **1134 passed / 0 failed**
+  across 99 suites, against an immediately-preceding baseline of **1138 / 0**
+  across 96, taken before anything was touched. The delta of **-4** is fully
+  accounted for: 8 tests **moved** out of `-urban`/`-hydrology` into
+  `cartalith-jsmath`; 15 **duplicates** deleted (five crates had grown identical
+  copies of the same three helper tests); `cartalith-jsmath` gained those 8 plus
+  **8 new**; **3 new** landed at the two fixed call sites.
+  `1138 − 8 − 15 + 16 + 3 = 1134`.
+- **No existing golden expectation was modified anywhere.** Not one — including
+  all 20 urban graph scenarios and both `world` cases of the plates golden.
+- The moved tests passed on their **first run** in the new home, including the
+  bulk FNV-1a goldens over 54,000 `sin`, 54,000 `cos` and 30,000 `log` results
+  and the two `node`-derived `js_atan2` goldens. That is the check that the move
+  was pure.
+- `cargo clippy --all-targets` over all nine touched crates: **no warning in any
+  line this pass wrote**; `cartalith-jsmath` is warning-free outright. What
+  remains is what the audit's §6.1 already named — `excessive_precision` in
+  `golden_parity_road_network.rs`, two loop-index warnings and a `matches!`
+  suggestion in `cartalith-civ`, `cartalith-gpu`'s two dead-code warnings.
+- **Mutation-tested: 440 mutants, 258 killed, 182 survived, 0 broken**, over the
+  whole non-test body of both crate files, each in its own `cargo test` with a
+  **private `CARGO_TARGET_DIR`** — milestone 6 found two runners sharing one
+  target directory leaving a live mutation in the source. Snapshot before
+  writing, restore after, a post-sweep byte-comparison of both files, and a
+  post-sweep baseline: **GREEN**. Twenty survivors re-run in isolation:
+  **20 of 20 reproduce, zero false survivors.** The survivor classes, each with
+  the invariant it rests on:
+
+  | count | class | why no argument can express it |
+  |---|---|---|
+  | 56 | a FDLIBM constant moved by **one ulp** | the perturbation reaches the result scaled by `z^k` and is 10⁻⁵–10⁻³ of the result's own ulp |
+  | 55 | a comparison flipped on a boundary | the two forms differ only when the operands are exactly equal, and both arms then return the same double |
+  | 36 | a reduction threshold bumped one representable step | fires only for the single argument whose high word *is* the threshold |
+  | 24 | a guard dropped | Rust's saturating float→int casts and always-false NaN comparisons make it redundant (`u8_clamped`'s `return 0`/`return 255`, `js_round`'s non-finite arm) |
+  | 11 | a slot or shift inside `rem_pio2`'s third correction round or the Payne-Hanek hand-off | branches the audit already documents as unreachable from any angle this engine produces |
+
+  **The sweep paid for itself twice.** The first pass left **206** alive, and
+  **101 of those were inside `js_exp` and `js_atan`/`js_atan2`** — the two
+  functions that predated the hash technique and still had only a dozen
+  hand-picked rows each. Adding the two bulk FNV-1a goldens they were missing
+  (48,000 `exp` arguments over eight bands, 54,000 `atan2` arguments over nine
+  ratio bands and all four sign quadrants, both matching V8 on the **first
+  run**) took it to 182. The sweep also found **four real gaps** in this pass's
+  own new code: both `toFixed` ports' non-finite guards were untested — dropping
+  either leaves a `.expect()` that panics on an infinity — and every value in
+  the `u8_clamped` table had an **even floor**, so inverting its round-down
+  comparison fell through to the ties-to-even arm and produced the same answer.
+  Writing the non-finite test then exposed a **real divergence**: `js_fixed`
+  returned Rust's `inf`/`-inf` where JS spells them `Infinity`/`-Infinity`.
+  Fixed, from `node`.
+- `cargo fmt` was not run — several crates are not rustfmt-clean and it would
+  create noise across the workspace. Nothing Godot-scene-side was touched (UI
+  hold, owner, 2026-08-18).
+
+### Two findings about the sweep itself, worth more than the numbers
+
+**A mutation operator can manufacture its own survivors.** The first round
+reported dozens, and they were an artefact twice over: it was mutating inside
+`//` comments (`// atan(1.5)hi` → `// atan(1.6)hi` is not a mutation), and it
+was bumping a float constant's **last written decimal digit** — but FDLIBM
+writes its constants to 21 significant figures, three past what an `f64` can
+hold, so the "mutant" parsed to the same double. Both fixed: mutate only the
+code half of a line, and perturb a float by **one ulp** via its bit pattern.
+The lesson generalises past this crate — a survivor is only evidence if the
+mutant is genuinely a different program.
+
+**The consolidation is exactly the shape of edit this project's own history says
+to distrust**, so it was done as a pure move: the implementations were extracted
+verbatim rather than re-derived, the tests moved with them unchanged, and the
+only bodies actually rewritten were `js_hypot_n`'s signature and `js_min`/
+`js_max`'s signed-zero arm — the two places where the copies disagreed and a
+choice had to be made. Everything else is the same text in a different file.

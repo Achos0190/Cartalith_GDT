@@ -65,33 +65,14 @@ impl Default for AmplifyOpts {
     }
 }
 
-/// `Math.min` semantics, which differ from Rust's `f64::min` on NaN: JS
-/// propagates it, Rust returns the other operand. `amplifyRegion`'s
-/// `Math.min(1, hypot(gx,gy)*8)` is reached with NaN inputs by the `outW == 1`
-/// case above, and `f64::min` there would silently turn an all-NaN tile into a
-/// plausible-looking one.
-#[inline]
-pub(crate) fn js_min(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        f64::NAN
-    } else if a < b {
-        a
-    } else {
-        b
-    }
-}
-
-/// `Math.max` with the same NaN propagation as [`js_min`].
-#[inline]
-pub(crate) fn js_max(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        f64::NAN
-    } else if a > b {
-        a
-    } else {
-        b
-    }
-}
+// `Math.min`/`Math.max`, which propagate NaN where Rust's absorb it.
+// `amplifyRegion`'s `Math.min(1, hypot(gx,gy)*8)` is reached with NaN inputs by
+// the `outW == 1` case above, and `f64::min` there would silently turn an
+// all-NaN tile into a plausible-looking one. Moved to `cartalith-jsmath`, which
+// also settles the signed-zero disagreement this copy had with
+// `cartalith-urban`'s and `cartalith-civ`'s (`JS_SEMANTICS_AUDIT.md` §3.3):
+// each of the three was right in one argument order and wrong in the other.
+pub(crate) use cartalith_jsmath::{js_max, js_min};
 
 /// The reference's inline bilinear sampler over the coarse source, clamped at
 /// every edge. Reads `f32` storage, computes in `f64` — the same split as the
@@ -348,19 +329,6 @@ mod tests {
         // shipped caller reaches this; pinned so it is not silently "fixed".
         assert_eq!(o.len(), 1);
         assert!(o[0].is_nan());
-    }
-
-    #[test]
-    fn js_min_propagates_nan_where_rusts_own_min_would_not() {
-        assert!(js_min(1.0, f64::NAN).is_nan());
-        assert_eq!(1.0f64.min(f64::NAN), 1.0, "Rust's f64::min still swallows NaN");
-        assert_eq!(js_min(1.0, 0.5), 0.5);
-    }
-
-    #[test]
-    fn js_max_propagates_nan_too() {
-        assert!(js_max(0.0, f64::NAN).is_nan());
-        assert_eq!(js_max(0.0, 3.0), 3.0);
     }
 
     #[test]

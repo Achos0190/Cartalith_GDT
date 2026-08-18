@@ -112,30 +112,13 @@ pub fn hypso(v: f64, sea: f64) -> [f64; 3] {
     LAND[LAND.len() - 1].1
 }
 
-/// ECMA-262 `ToUint8Clamp` — what storing into a `Uint8ClampedArray` does.
-///
-/// Clamp to `[0, 255]`, NaN to `0`, then round to nearest with **ties to
-/// even**. Not `as u8` (which truncates) and not `round()` (which breaks ties
-/// away from zero).
-#[inline]
-pub fn u8_clamped(v: f64) -> u8 {
-    if v.is_nan() || v <= 0.0 {
-        return 0;
-    }
-    if v >= 255.0 {
-        return 255;
-    }
-    let f = v.floor();
-    if f + 0.5 < v {
-        (f + 1.0) as u8
-    } else if v < f + 0.5 {
-        f as u8
-    } else if (f as u64) % 2 == 1 {
-        (f + 1.0) as u8
-    } else {
-        f as u8
-    }
-}
+// ECMA-262 `ToUint8Clamp` -- what storing into a `Uint8ClampedArray` does,
+// and the three-argument `Math.hypot` `renderHeightTileRGBA` calls. Both moved
+// to `cartalith-jsmath`; re-exported because `u8_clamped` is this module's
+// public API and `JS_SEMANTICS_AUDIT.md` §4.6 names it as the correct
+// conversion the rest of the workspace is measured against.
+pub use cartalith_jsmath::u8_clamped;
+pub(crate) use cartalith_jsmath::js_hypot3;
 
 /// `edgeL` (reference 11606). `ro` is the row offset `y * w`.
 #[inline]
@@ -233,15 +216,6 @@ pub fn render_height_tile_rgba(
     out
 }
 
-/// Three-argument `Math.hypot`, which V8 computes by dividing through the
-/// largest magnitude and Kahan-compensating the sum of squares — not
-/// `sqrt(x²+y²+z²)`. Shares its arithmetic with [`crate::sculpt::js_hypot`],
-/// which milestone D proved is genuinely distinguishable from the naive form.
-#[inline]
-pub(crate) fn js_hypot3(x: f64, y: f64, z: f64) -> f64 {
-    crate::sculpt::js_hypot_n(&[x.abs(), y.abs(), z.abs()])
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,25 +239,6 @@ mod tests {
             }
         }
         t
-    }
-
-    #[test]
-    fn u8_clamped_rounds_ties_to_even_not_away_from_zero() {
-        assert_eq!(u8_clamped(0.5), 0); // 0 is even
-        assert_eq!(u8_clamped(1.5), 2);
-        assert_eq!(u8_clamped(2.5), 2);
-        assert_eq!(u8_clamped(3.5), 4);
-        assert_eq!(u8_clamped(2.4999), 2);
-        assert_eq!(u8_clamped(2.5001), 3);
-    }
-
-    #[test]
-    fn u8_clamped_clamps_both_ends_and_maps_nan_to_zero() {
-        assert_eq!(u8_clamped(-17.0), 0);
-        assert_eq!(u8_clamped(0.0), 0);
-        assert_eq!(u8_clamped(255.0), 255);
-        assert_eq!(u8_clamped(1e9), 255);
-        assert_eq!(u8_clamped(f64::NAN), 0);
     }
 
     #[test]
@@ -384,10 +339,4 @@ mod tests {
         assert_ne!(a, b);
     }
 
-    #[test]
-    fn js_hypot3_matches_the_pythagorean_answer_on_exact_cases() {
-        assert_eq!(js_hypot3(0.0, 0.0, 0.0), 0.0);
-        assert_eq!(js_hypot3(3.0, 4.0, 0.0), 5.0);
-        assert_eq!(js_hypot3(2.0, 3.0, 6.0), 7.0);
-    }
 }

@@ -10,6 +10,7 @@ description = "tectonics, height formula, normalize, volcanism, world-structure 
 name = "cartalith_terrain"
 
 [dependencies]
+cartalith-jsmath = { path = "../cartalith-jsmath" }
 cartalith-noise = { path = "../cartalith-noise" }
 cartalith-rng = { path = "../cartalith-rng" }
 cartalith-spatial = { path = "../cartalith-spatial" }

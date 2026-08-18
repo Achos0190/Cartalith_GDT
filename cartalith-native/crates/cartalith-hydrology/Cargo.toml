@@ -10,5 +10,6 @@ description = "flow accumulation, river network, channel width"
 name = "cartalith_hydrology"
 
 [dependencies]
+cartalith-jsmath = { path = "../cartalith-jsmath" }
 cartalith-terrain = { path = "../cartalith-terrain" }
 rayon = "1"

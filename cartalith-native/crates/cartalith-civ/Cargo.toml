@@ -10,6 +10,7 @@ description = "civilisation-layer affordance fields: lithology, soil fertility, 
 name = "cartalith_civ"
 
 [dependencies]
+cartalith-jsmath = { path = "../cartalith-jsmath" }
 cartalith-engine = { path = "../cartalith-engine" }
 cartalith-hydrology = { path = "../cartalith-hydrology" }
 cartalith-rng = { path = "../cartalith-rng" }

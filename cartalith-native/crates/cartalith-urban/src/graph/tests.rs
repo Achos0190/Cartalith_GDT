@@ -20,6 +20,17 @@
 //! scenario here has two incidences close enough for a last-bit difference to
 //! reorder them.
 //!
+//! **That last sentence was true and was still the wrong thing to rely on.**
+//! Milestone 2 wrote the sort key as `f64::atan2`, before `JS_SEMANTICS_AUDIT.md`
+//! measured that `Math.atan2` is the *largest* divergence in this workspace —
+//! Rust and V8 return different doubles on 17-23 % of ordinary arguments, and on
+//! **38 %** of the edge deltas a town graph really produces (196 034 of 510 634,
+//! measured directly). §4.4 called the site "a real hazard … the argmax hazard
+//! in a different costume". It is now `js_atan2`, and every scenario below
+//! passes **unmodified**, which is the proof that nothing these fixtures can
+//! see moved. What the fixtures cannot see is pinned separately by
+//! [`the_half_edge_sort_key_orders_like_v8_not_like_rust`].
+//!
 //! The functions the `_test` export does **not** reach — `add_polyline_street`,
 //! `edge_between`, `nearest_node`, `raw_edge`, `split_edge`, `attach_point`, and
 //! the `cells_for_seg` / `index_edge` / `unindex_edge` / `edges_near` index
@@ -259,6 +270,84 @@ fn golden_every_scenario_reproduces_the_reference_graph_exactly() {
             }
         }
     }
+}
+
+/// The `extract_faces` half-edge sort key follows **V8's** `atan2`, not Rust's.
+///
+/// `ang` is the key the face traversal walks, and `sort_by` is stable, so the
+/// only thing that can change a face is the *ordering* of two half-edges
+/// leaving one node — which needs their two angles to be within an ulp of each
+/// other. Every golden scenario above is built from round coordinates whose
+/// incidences are milliradians apart, so none of them can reach that; a search
+/// over 510 634 near-parallel pairs on the arbitrary `f64` coordinates
+/// `attach_point` and `buildPrimaries` actually produce finds the ordering
+/// differing between `f64::atan2` and `js_atan2` on **23 814** of them, 4.7 %.
+///
+/// The five rows below are from that search. Each is a real pair of edge
+/// deltas; `want` is the bit pattern **`node` v24.19.0 returns** for
+/// `Math.atan2(dy, dx)`, and `order` is V8's own comparison of the two. V8
+/// agrees with `js_atan2` on 5 of 5 and with `f64::atan2` on 0 of 5 — in three
+/// of the five Rust manufactures a difference where V8 has an exact tie (which
+/// the stable sort would otherwise resolve by insertion order), and in the
+/// other two it does the reverse.
+#[test]
+fn the_half_edge_sort_key_orders_like_v8_not_like_rust() {
+    use std::cmp::Ordering;
+    // (d1, d2, V8 bits for atan2(d1), V8 bits for atan2(d2), V8's ordering)
+    #[allow(clippy::type_complexity)]
+    let rows: [((f64, f64), (f64, f64), u64, u64, Ordering); 5] = [
+        (
+            (-44.214706967050915, 331.40973238441916),
+            (-44.21470696705097, 331.40973238441916),
+            0x3ffb413cd1b9b6f8,
+            0x3ffb413cd1b9b6f8,
+            Ordering::Equal,
+        ),
+        (
+            (-20.4638750793862, 210.66496825109425),
+            (-20.46387507938624, 210.66496825109425),
+            0x3ffaae9ed39d8fab,
+            0x3ffaae9ed39d8fac,
+            Ordering::Less,
+        ),
+        (
+            (-25.919881988211955, 168.92259134332483),
+            (-25.919881988211955, 168.92259134332494),
+            0x3ffb919e1cf1ae94,
+            0x3ffb919e1cf1ae93,
+            Ordering::Greater,
+        ),
+        (
+            (-43.373954902418745, 174.12731268537743),
+            (-43.373954902418745, 174.12731268537755),
+            0x3ffd09eb1cce454d,
+            0x3ffd09eb1cce454d,
+            Ordering::Equal,
+        ),
+        (
+            (-147.09492742521496, 343.3608283649455),
+            (-147.0949274252149, 343.3608283649455),
+            0x3fff9bd111d88f09,
+            0x3fff9bd111d88f09,
+            Ordering::Equal,
+        ),
+    ];
+
+    let mut rust_order_wrong = 0;
+    for (d1, d2, w1, w2, want) in rows {
+        // The expression `extract_faces` evaluates, spelled the same way.
+        let j1 = js_atan2(d1.1, d1.0);
+        let j2 = js_atan2(d2.1, d2.0);
+        assert_eq!(j1.to_bits(), w1, "js_atan2{d1:?} vs node");
+        assert_eq!(j2.to_bits(), w2, "js_atan2{d2:?} vs node");
+        assert_eq!(j1.partial_cmp(&j2).unwrap(), want, "sort order for {d1:?} / {d2:?}");
+
+        let (r1, r2) = (d1.1.atan2(d1.0), d2.1.atan2(d2.0));
+        if r1.partial_cmp(&r2).unwrap() != want {
+            rust_order_wrong += 1;
+        }
+    }
+    assert_eq!(rust_order_wrong, 5, "these rows exist to discriminate; f64::atan2 now agrees");
 }
 
 #[test]

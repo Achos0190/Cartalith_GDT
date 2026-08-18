@@ -10,4 +10,11 @@ description = "urban morphology (reference script block 4, the UME engine) -- st
 name = "cartalith_urban"
 
 [dependencies]
+# Milestone 6's rule -- this crate depends on nothing in the pipeline -- is
+# unchanged: `cartalith-jsmath` is the workspace's dependency-free leaf, below
+# even `cartalith-rng`, and exists precisely so that the FDLIBM ports this
+# crate wrote (`js_hypot`/`js_exp`/`js_sin`/`js_cos`/`js_log`) can be shared
+# without any crate having to reach sideways into another subsystem
+# (`JS_SEMANTICS_AUDIT.md` recommendation #2, ARCHITECTURE.md's crate rules).
+cartalith-jsmath = { path = "../cartalith-jsmath" }
 cartalith-rng = { path = "../cartalith-rng" }

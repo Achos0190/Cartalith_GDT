@@ -38,7 +38,7 @@
 //! the spatial index. `nodes`, `edges` and `adj` are read widely (always as
 //! `n.adj.filter(id => g.edges[id].alive)`), which is why they are public here.
 
-use crate::geom::{Vec2, dist_pt_seg, js_hypot, poly_area, seg_int};
+use crate::geom::{Vec2, dist_pt_seg, js_atan2, js_hypot, poly_area, seg_int};
 use std::collections::HashMap;
 
 /// A street-graph node. `id` always equals the index into [`Graph::nodes`] —
@@ -604,7 +604,19 @@ impl Graph {
                 adj_sorted[from].push(HalfEdge {
                     eid,
                     other: to,
-                    ang: (b.y - a.y).atan2(b.x - a.x),
+                    // `js_atan2`, not `f64::atan2`. This is the **sort key**
+                    // the face traversal walks, so one ulp reorders two edges
+                    // leaving a node in nearly the same direction and the
+                    // traversal then produces a different city block --
+                    // `JS_SEMANTICS_AUDIT.md` §4.4 named it "the argmax hazard
+                    // in a different costume" and the next one to fix. Rust and
+                    // V8 disagree on 17-23 % of ordinary `atan2` arguments, the
+                    // largest divergence in the workspace. Milestone 2 wrote
+                    // this before that was measured; all 19 of its golden
+                    // scenarios still pass unmodified afterwards, which is the
+                    // proof that the fix moved nothing they can see (their
+                    // incidences are too far apart for a last bit to reorder).
+                    ang: js_atan2(b.y - a.y, b.x - a.x),
                 });
             }
         }

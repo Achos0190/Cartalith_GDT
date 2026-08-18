@@ -17,6 +17,7 @@ default = ["zip"]
 zip = ["dep:zip", "dep:flate2"]
 
 [dependencies]
+cartalith-jsmath = { path = "../cartalith-jsmath" }
 cartalith-noise = { path = "../cartalith-noise" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

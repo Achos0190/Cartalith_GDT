@@ -1,0 +1,16 @@
+[package]
+name = "cartalith-jsmath"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Deliberately empty, and it must stay that way. This is the workspace's one
+# true leaf: `cartalith-urban` may depend only on `cartalith-rng` and this,
+# `cartalith-assets` only on `cartalith-io`/`-noise` and this, and
+# `ARCHITECTURE.md`'s "dependencies run one way, in pipeline order" survives
+# only because a crate with no dependencies of its own cannot create a cycle
+# wherever it is added. Adding anything here -- including a dev-dependency --
+# would put that back in question, which is why the bulk goldens below carry
+# their own four-line `mulberry32` rather than borrowing `cartalith-rng`'s.
+[dependencies]

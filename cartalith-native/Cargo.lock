@@ -140,6 +140,7 @@ dependencies = [
 name = "cartalith-assets"
 version = "0.1.0"
 dependencies = [
+ "cartalith-jsmath",
  "cartalith-noise",
  "flate2",
  "image",
@@ -154,6 +155,7 @@ version = "0.1.0"
 dependencies = [
  "cartalith-engine",
  "cartalith-hydrology",
+ "cartalith-jsmath",
  "cartalith-rng",
  "cartalith-spatial",
  "cartalith-terrain",
@@ -164,6 +166,7 @@ dependencies = [
 name = "cartalith-climate"
 version = "0.1.0"
 dependencies = [
+ "cartalith-jsmath",
  "cartalith-terrain",
  "rayon",
 ]
@@ -178,6 +181,7 @@ dependencies = [
  "cartalith-gpu",
  "cartalith-hydrology",
  "cartalith-io",
+ "cartalith-jsmath",
  "cartalith-spatial",
  "cartalith-terrain",
  "zip",
@@ -225,6 +229,7 @@ dependencies = [
 name = "cartalith-hydrology"
 version = "0.1.0"
 dependencies = [
+ "cartalith-jsmath",
  "cartalith-terrain",
  "rayon",
 ]
@@ -240,6 +245,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cartalith-jsmath"
+version = "0.1.0"
+
+[[package]]
 name = "cartalith-noise"
 version = "0.1.0"
 
@@ -251,6 +260,7 @@ version = "0.1.0"
 name = "cartalith-spatial"
 version = "0.1.0"
 dependencies = [
+ "cartalith-jsmath",
  "serde",
  "serde_json",
 ]
@@ -259,6 +269,7 @@ dependencies = [
 name = "cartalith-terrain"
 version = "0.1.0"
 dependencies = [
+ "cartalith-jsmath",
  "cartalith-noise",
  "cartalith-rng",
  "cartalith-spatial",
@@ -269,6 +280,7 @@ dependencies = [
 name = "cartalith-urban"
 version = "0.1.0"
 dependencies = [
+ "cartalith-jsmath",
  "cartalith-rng",
 ]
 

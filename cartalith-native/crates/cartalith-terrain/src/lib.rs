@@ -10,26 +10,21 @@ pub mod amplify;
 pub mod sculpt;
 pub mod tile_render;
 
-/// Mirrors JS `Math.round`: ties round toward `+Infinity`, unlike Rust's
-/// `f64::round` (ties away from zero) — `Math.round(-0.5) == 0`, but
-/// `(-0.5_f64).round() == -1.0`. `buildPlates`'s world-wrap math depends
-/// on the JS behaviour specifically (`cartalith-rust-conventions`: match
-/// precision, don't improve it).
-///
-/// `(x + 0.5).floor()` is **not** an exact equivalent, as this comment
-/// used to claim. A sweep of 3 million random values plus every double
-/// within 3 ulp of every half-integer in +-50 finds exactly one input
-/// where it differs (`JS_SEMANTICS_AUDIT.md` §3.1):
-/// `x = 0.49999999999999994`, the largest double below `0.5`, for which
-/// `x + 0.5` rounds up to exactly `1.0` and this returns `1` where
-/// `Math.round(x)` is `0`. No call site can reach that value, and the
-/// same form is used by five other crates, so it is left alone rather
-/// than edited in six places under an active fork -- but a *new*
-/// `js_round` should compare the fractional part, as
-/// `cartalith-urban::geom::js_round` does.
-fn js_round(x: f64) -> f64 {
-    (x + 0.5).floor()
-}
+// `Math.round`, `Math.sin`, `Math.cos` and `Math.atan2` with JS semantics.
+//
+// `js_round` was written here as `(x + 0.5).floor()` with a doc comment calling
+// it "the standard exact equivalent"; it is not, and `JS_SEMANTICS_AUDIT.md`
+// §3.1 measured the single input where it differs from V8
+// (`0.49999999999999994`, where it gives 1 and `Math.round` gives 0). The
+// comment was corrected in place at the time and the implementation left,
+// because editing six crates under an active fork was the wrong trade. There
+// is one implementation now, in `cartalith-jsmath`, and it is the
+// fractional-part form that is right on that input too.
+//
+// `js_sin`/`js_cos`/`js_atan2` are `build_plates`' world-wrap circular mean --
+// audit §4.4's `-terrain:372`, which it reported and did *not* change because
+// `js_atan2` alone could not fix it. See that call site.
+use cartalith_jsmath::{js_atan2, js_cos, js_round, js_sin};
 
 /// `computeWarp()` / `computeWarpPrep()` / `warpParams()` (reference HTML,
 /// lines 2621-2735) — domain-warped fbm producing the per-cell (x, y)
@@ -367,9 +362,12 @@ pub fn build_plates(
                     }
                 }
                 if world {
+                    // `js_sin`/`js_cos`, not `f64::sin`/`f64::cos`. See the
+                    // circular mean below -- the divergence enters HERE, in the
+                    // accumulation, before `atan2` is ever called.
                     let th = x as f64 / gw as f64 * std::f64::consts::PI * 2.0;
-                    sxs[best] += th.sin();
-                    sxc[best] += th.cos();
+                    sxs[best] += js_sin(th);
+                    sxc[best] += js_cos(th);
                 } else {
                     sx[best] += x as f64;
                 }
@@ -380,7 +378,31 @@ pub fn build_plates(
         for p in 0..n {
             if c[p] != 0.0 {
                 plates[p].x = if world {
-                    (sxs[p].atan2(sxc[p]) / (std::f64::consts::PI * 2.0) + 1.0) * gw as f64
+                    // `JS_SEMANTICS_AUDIT.md` §4.4's `-terrain:372`, fixed.
+                    //
+                    // The audit reported this site and deliberately did **not**
+                    // change it, because at the time only `js_atan2` existed:
+                    // Rust's own `sin`/`cos` already produce a different
+                    // `(sum sin, sum cos)` pair from V8's on 92 of 2 000
+                    // synthetic plates, *before* `atan2` is reached, so
+                    // swapping in `js_atan2` alone moved the result from
+                    // 98/2000 disagreeing to 7/2000 -- an improvement that
+                    // leaves the site differently wrong, which is worse than
+                    // leaving it alone because the next reader would believe
+                    // it had been handled. "Fix this in the same pass that
+                    // lands `js_sin`/`js_cos`, not before, and fix all three
+                    // together."
+                    //
+                    // This is that pass. All three are `cartalith-jsmath`'s
+                    // now, and the accumulation above uses the other two.
+                    //
+                    // It matters because of `-terrain:347`: the next Lloyd
+                    // iteration's `dx = x as f64 - plate.x` feeds a
+                    // nearest-plate argmin, which is structurally the same
+                    // discrete-decision hazard as the river receiver in §2.3,
+                    // one iteration removed. (`-terrain:385` quantises through
+                    // `js_round` and was measured safe either way.)
+                    (js_atan2(sxs[p], sxc[p]) / (std::f64::consts::PI * 2.0) + 1.0) * gw as f64
                         % gw as f64
                 } else {
                     sx[p] / c[p]

@@ -169,49 +169,16 @@ pub const ICON_BRUSH_MIN_SPACING: f64 = 1.2;
 /// reachable by dragging over the area again."*
 pub const ICON_BRUSH_MAX_DARTS: usize = 1500;
 
-/// `Math.round` — half **up**, not Rust's half-away-from-zero. Load-bearing
-/// here: a dart at `cx - R` can land on a negative coordinate, and
-/// `Math.round(-0.5)` is `0` where `(-0.5f64).round()` is `-1`, which would
-/// place an icon one cell further out than the reference does (and then have
-/// it rejected by the bounds test, changing the dart budget's outcome).
-#[inline]
-fn js_round(v: f64) -> f64 {
-    (v + 0.5).floor()
-}
-
-/// V8's compensated `Math.hypot`, as `cartalith-terrain` and `cartalith-civ`
-/// each already carry. Used by the hit test and the resize handle, both of
-/// which compare against a radius where one ULP decides a hit.
-#[inline]
-fn js_hypot(x: f64, y: f64) -> f64 {
-    // ECMA-262 21.3.2.18 pins this ahead of the scaling loop, and the loop
-    // on its own gets both wrong: an infinite argument makes `v / max` a
-    // NaN, and a NaN argument loses the `v > max` comparison so `max` stays
-    // 0. `Math.hypot(inf, NaN)` is `inf`, not NaN -- infinity is checked
-    // first. (`JS_SEMANTICS_AUDIT.md` §3.2 found this preamble missing from
-    // three of the four copies of this function.)
-    if x.is_infinite() || y.is_infinite() {
-        return f64::INFINITY;
-    }
-    if x.is_nan() || y.is_nan() {
-        return f64::NAN;
-    }
-    let (ax, ay) = (x.abs(), y.abs());
-    let max = if ax > ay { ax } else { ay };
-    if max == 0.0 {
-        return 0.0;
-    }
-    let mut sum = 0.0f64;
-    let mut compensation = 0.0f64;
-    for v in [ax, ay] {
-        let n = v / max;
-        let summand = n * n - compensation;
-        let preliminary = sum + summand;
-        compensation = (preliminary - sum) - summand;
-        sum = preliminary;
-    }
-    max * sum.sqrt()
-}
+// `Math.round` -- half **up**, not Rust's half-away-from-zero. Load-bearing
+// here: a dart at `cx - R` can land on a negative coordinate, and
+// `Math.round(-0.5)` is `0` where `(-0.5f64).round()` is `-1`, which would
+// place an icon one cell further out than the reference does (and then have it
+// rejected by the bounds test, changing the dart budget's outcome).
+//
+// V8's compensated `Math.hypot` alongside it, used by the hit test and the
+// resize handle, both of which compare against a radius where one ULP decides
+// a hit. Both from `cartalith-jsmath` now.
+use cartalith_jsmath::{js_hypot, js_round};
 
 /// `_carIconBrushRule()` (reference line 15046).
 ///
@@ -464,28 +431,6 @@ pub fn icon_resize_scale(start_scale: f64, cx: f64, cy: f64, gx: f64, gy: f64, s
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The `Math.hypot` cases ECMA-262 21.3.2.18 pins, which the bare
-    /// scaling loop got wrong until `JS_SEMANTICS_AUDIT.md` §3.2 found
-    /// this copy missing the preamble. Every expectation is `node`
-    /// v24.19.0's own output. No live call site can reach an infinite or
-    /// NaN argument today -- this test is what keeps that from mattering
-    /// if one ever does.
-    #[test]
-    fn js_hypot_follows_the_spec_on_infinity_and_nan() {
-        assert_eq!(js_hypot(f64::INFINITY, 3.0), f64::INFINITY);
-        assert_eq!(js_hypot(3.0, f64::INFINITY), f64::INFINITY);
-        assert_eq!(js_hypot(f64::NEG_INFINITY, 3.0), f64::INFINITY);
-        // Infinity wins over NaN, in either argument order.
-        assert_eq!(js_hypot(f64::INFINITY, f64::NAN), f64::INFINITY);
-        assert_eq!(js_hypot(f64::NAN, f64::INFINITY), f64::INFINITY);
-        assert!(js_hypot(f64::NAN, 0.0).is_nan());
-        assert!(js_hypot(0.0, f64::NAN).is_nan());
-        assert!(js_hypot(f64::NAN, f64::NAN).is_nan());
-        // The ordinary path is unchanged: V8's one-ulp-high 3root2.
-        assert_eq!(js_hypot(0.0, 0.0), 0.0);
-        assert_eq!(js_hypot(3.0, 3.0), 4.242640687119286);
-    }
 
     fn feature() -> ArmedIcon {
         ArmedIcon { family: ManualIconFamily::Feature, slot: "mountain".into(), set: None }

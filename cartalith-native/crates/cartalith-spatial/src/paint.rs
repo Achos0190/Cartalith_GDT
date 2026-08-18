@@ -188,57 +188,14 @@ impl Stamp for PaintStamp {
     }
 }
 
-/// `Math.hypot(x, y)` as V8 computes it — **not** `f64::hypot`.
-///
-/// V8 scales by the larger magnitude and Kahan-sums the squared ratios
-/// (`max * sqrt(Σ (vᵢ/max)²)`); Rust's `f64::hypot` is a different, correctly
-/// rounded algorithm. They disagree on **1,398 of the 4,096** integer offsets
-/// `(dx, dy) ∈ [0, 64)²` that [`PaintStamp::apply`] feeds them.
-///
-/// Almost all of those disagreements are invisible here, because only the
-/// boolean `hypot(dx, dy) > R` is used and the two values straddle `R` only
-/// when the true distance is *exactly* `R`. That needs `dx² + dy² == R²` — a
-/// Pythagorean triple. The smallest one this brush can reach is
-/// **(35, 120, 125)**: the true distance is exactly 125, so `f64::hypot`
-/// returns `125.0` and the cell is painted, while V8 returns
-/// `125.00000000000001421` and the reference **skips** it. An exhaustive scan
-/// of every integer radius `1..=512` finds 25 such radii, the first at
-/// `R = 125`, and none below it.
-///
-/// The reference's own sliders cap `_paintRadius` at 40 and `_civTerRadius` at
-/// 20, so the divergence is unreachable *through its UI* — but [`PaintStamp`]
-/// takes an uncapped `f64`, so the invariant that saves it is "R < 125", not
-/// "R is an integer" as this module previously claimed. Reproducing V8 removes
-/// the need for the invariant at all.
-///
-/// The infinity/NaN ordering is the spec's (`Math.hypot(∞, NaN)` is `∞`, not
-/// `NaN`), which the scaling loop alone would get wrong. `dx`/`dy` here are
-/// always finite integers, so that path is unreachable from this module; it is
-/// written correctly anyway so this copy cannot be the odd one out if it is
-/// ever reused (`JS_SEMANTICS_AUDIT.md` catalogues the copies that are).
-fn js_hypot(x: f64, y: f64) -> f64 {
-    if x.is_infinite() || y.is_infinite() {
-        return f64::INFINITY;
-    }
-    if x.is_nan() || y.is_nan() {
-        return f64::NAN;
-    }
-    let (ax, ay) = (x.abs(), y.abs());
-    let max = if ay > ax { ay } else { ax };
-    if max == 0.0 {
-        return 0.0;
-    }
-    let mut sum = 0.0f64;
-    let mut compensation = 0.0f64;
-    for v in [ax, ay] {
-        let n = v / max;
-        let summand = n * n - compensation;
-        let preliminary = sum + summand;
-        compensation = (preliminary - sum) - summand;
-        sum = preliminary;
-    }
-    sum.sqrt() * max
-}
+// V8's `Math.hypot`, from `cartalith-jsmath`. `_paintAt`'s brush gate is
+// `if(Math.hypot(dx,dy)>R) continue`, and `JS_SEMANTICS_AUDIT.md` §2.1 found
+// that `f64::hypot` skips a different set of rim cells: the two disagree on
+// 1 398 of the 4 096 integer offsets in `[0,64)^2`, and an exhaustive scan of
+// every integer radius `1..=512` finds 25 radii where a painted cell actually
+// changes, the first at `R = 125` on the Pythagorean triple `(35, 120)`. The
+// exhaustive tests below are this module's own and stay here.
+use cartalith_jsmath::js_hypot;
 
 /// One override grid: `0` = unpainted, else a 1-based palette index.
 ///

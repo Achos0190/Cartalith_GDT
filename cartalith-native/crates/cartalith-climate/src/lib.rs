@@ -160,12 +160,8 @@ pub fn compute_temperature(
     temp
 }
 
-/// Mirrors JS `Math.round` (ties toward `+Infinity`) — same trap
-/// `cartalith-terrain::js_round` exists for; duplicated here (one line)
-/// rather than adding a dependency purely for it.
-fn js_round(x: f64) -> f64 {
-    (x + 0.5).floor()
-}
+// `Math.round` (ties toward `+Infinity`), from `cartalith-jsmath`.
+use cartalith_jsmath::js_round;
 
 /// `circulationCells()` (reference HTML lines 5299-5302): planet
 /// rotation/size/gravity set how many latitude wind bands the planet

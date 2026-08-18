@@ -90,64 +90,21 @@ fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t
 }
 
-/// V8's `Math.hypot`, which is **not** `sqrt(x*x + y*y)`: it divides by the
-/// larger magnitude and Kahan-compensates the sum of squares (V8's
-/// `Builtins::MathHypot`). Ported verbatim on the
-/// `cartalith-rust-conventions` rule — match the JS engine's precision,
-/// don't improve on it.
-///
-/// **Honesty note, measured not assumed**: swapping this for plain
-/// `sqrt(x*x + y*y)` was tried, and `tests/golden_parity_sculpt.rs` still
-/// passes bit-exactly on all 23 cases. So this is *not* test-enforced
-/// today. It is kept anyway because it is what the reference's runtime
-/// actually computes, and because the risk it guards against is real even
-/// if these fixtures miss it: [`nearest_on_stroke`] picks a segment with a
-/// `dist < best` comparison, so one ULP can change which segment wins and
-/// with it the *sign* of `sd`, which Cliff and Canyon read directly.
-/// Anyone tempted to simplify it should add a fixture that distinguishes
-/// the two first.
-pub(crate) fn js_hypot(x: f64, y: f64) -> f64 {
-    js_hypot_n(&[x.abs(), y.abs()])
-}
-
-/// The same compensated sum for any argument count -- `Math.hypot` is variadic
-/// and `renderHeightTileRGBA` calls it with three. Factored out rather than
-/// copied so the two-argument and three-argument forms can never drift; for two
-/// arguments the arithmetic is unchanged, operation for operation.
-#[inline]
-pub(crate) fn js_hypot_n(mags: &[f64]) -> f64 {
-    // ECMA-262 21.3.2.18 pins this ahead of the scaling loop, and the loop
-    // on its own gets both wrong: an infinite argument makes `v / max` a
-    // NaN, and a NaN argument loses the `v > max` comparison so `max` stays
-    // 0. `Math.hypot(inf, NaN)` is `inf`, not NaN -- infinity is checked
-    // first. (`JS_SEMANTICS_AUDIT.md` §3.2 found this preamble missing from
-    // three of the four copies of this function.)
-    if mags.iter().any(|v| v.is_infinite()) {
-        return f64::INFINITY;
-    }
-    if mags.iter().any(|v| v.is_nan()) {
-        return f64::NAN;
-    }
-    let mut max = 0.0f64;
-    for &v in mags {
-        if v > max {
-            max = v;
-        }
-    }
-    if max == 0.0 {
-        return 0.0;
-    }
-    let mut sum = 0.0f64;
-    let mut compensation = 0.0f64;
-    for &v in mags {
-        let n = v / max;
-        let summand = n * n - compensation;
-        let preliminary = sum + summand;
-        compensation = (preliminary - sum) - summand;
-        sum = preliminary;
-    }
-    max * sum.sqrt()
-}
+// V8's compensated `Math.hypot`, and its variadic form. Both were written
+// here on `UNIFIED_TOOL_PLAN.md` milestone B and re-derived in four other
+// crates afterwards; `JS_SEMANTICS_AUDIT.md` §3.2 found three of the four
+// copies had lost the specification preamble along the way. One
+// implementation now, in `cartalith-jsmath`.
+//
+// Re-exported rather than imported so `sculpt::js_hypot` keeps meaning what it
+// meant to `amplify` and `tile_render`, which both reach it by that path. The
+// honesty note milestone B attached still holds and is worth keeping: swapping
+// this for plain `sqrt(x*x + y*y)` leaves all 23 cases of
+// `tests/golden_parity_sculpt.rs` passing bit-exactly, so it is not
+// test-enforced *here*; `cartalith-civ` milestone D found the fixture that
+// does enforce it, and `nearest_on_stroke`'s `dist < best` is the comparison
+// that would bite if it were simplified.
+pub(crate) use cartalith_jsmath::js_hypot;
 
 // ---------------------------------------------------------------------------
 // Noise: the three sculpt-specific FBM families
@@ -1634,37 +1591,6 @@ mod tests {
     use super::*;
     use cartalith_spatial::{DirtyTracker, PassBuffer};
 
-    /// The `Math.hypot` cases ECMA-262 21.3.2.18 pins, which the bare
-    /// scaling loop got wrong until `JS_SEMANTICS_AUDIT.md` §3.2 found
-    /// this copy missing the preamble. Every expectation is `node`
-    /// v24.19.0's own output. No live call site can reach an infinite or
-    /// NaN argument today -- this test is what keeps that from mattering
-    /// if one ever does.
-    #[test]
-    fn js_hypot_follows_the_spec_on_infinity_and_nan() {
-        assert_eq!(js_hypot(f64::INFINITY, 3.0), f64::INFINITY);
-        assert_eq!(js_hypot(3.0, f64::INFINITY), f64::INFINITY);
-        assert_eq!(js_hypot(f64::NEG_INFINITY, 3.0), f64::INFINITY);
-        // Infinity wins over NaN, in either argument order.
-        assert_eq!(js_hypot(f64::INFINITY, f64::NAN), f64::INFINITY);
-        assert_eq!(js_hypot(f64::NAN, f64::INFINITY), f64::INFINITY);
-        assert!(js_hypot(f64::NAN, 0.0).is_nan());
-        assert!(js_hypot(0.0, f64::NAN).is_nan());
-        assert!(js_hypot(f64::NAN, f64::NAN).is_nan());
-        // The ordinary path is unchanged: V8's one-ulp-high 3root2.
-        assert_eq!(js_hypot(0.0, 0.0), 0.0);
-        assert_eq!(js_hypot(3.0, 3.0), 4.242640687119286);
-    }
-
-    /// The variadic form carries the same guard, so the three-argument
-    /// call `renderHeightTileRGBA` makes is covered too.
-    #[test]
-    fn js_hypot_n_follows_the_spec_on_infinity_and_nan() {
-        assert_eq!(js_hypot_n(&[f64::INFINITY, 1.0, 2.0]), f64::INFINITY);
-        assert!(js_hypot_n(&[f64::NAN, 1.0, 2.0]).is_nan());
-        assert_eq!(js_hypot_n(&[1.0, 2.0, 2.0]), 3.0);
-    }
-
     fn flat(w: usize, h: usize, v: f32) -> Vec<f32> {
         vec![v; w * h]
     }
@@ -2224,13 +2150,6 @@ mod tests {
     }
 
     // ---- helpers ----
-
-    #[test]
-    fn js_hypot_matches_the_pythagorean_answer_on_exact_cases() {
-        assert_eq!(js_hypot(3.0, 4.0), 5.0);
-        assert_eq!(js_hypot(0.0, 0.0), 0.0);
-        assert_eq!(js_hypot(-5.0, 0.0), 5.0);
-    }
 
     #[test]
     fn smoothstep_substitutes_for_a_zero_width_band() {

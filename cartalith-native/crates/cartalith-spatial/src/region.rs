@@ -46,14 +46,16 @@ impl Region {
     }
 }
 
-/// `Math.round` — round half **up** (toward `+∞`), not Rust's round-half-away-
-/// from-zero. The two disagree at exactly `-0.5`-style inputs, which
-/// [`crate::region`]'s own callers cannot reach but the icon brush's
+/// `Math.round` — round half **up** (toward `+inf`), not Rust's
+/// round-half-away-from-zero. The two disagree at exactly `-0.5`-style inputs,
+/// which [`crate::region`]'s own callers cannot reach but the icon brush's
 /// `Math.round(cx + cos(ang)*rad)` very much can.
-#[inline]
-pub fn js_round(v: f64) -> f64 {
-    (v + 0.5).floor()
-}
+///
+/// Re-exported rather than defined: this crate's copy was one of the six
+/// `(x + 0.5).floor()` forms `JS_SEMANTICS_AUDIT.md` §3.1 measured against V8,
+/// and the single implementation in `cartalith-jsmath` is the fractional-part
+/// form that also gets `0.49999999999999994` right.
+pub use cartalith_jsmath::js_round;
 
 /// `normRegion(x0,y0,x1,y1,W,H,minW,minH)` (reference line 11569).
 ///
@@ -236,15 +238,6 @@ mod tests {
     fn a_square_selection_takes_the_aspect_ge_one_branch() {
         let d = tile_dims(&Region { x: 0, y: 0, w: 33, h: 33 }, 3, 3, 256);
         assert_eq!(d, TileDims { w: 256, h: 256 });
-    }
-
-    #[test]
-    fn js_round_is_half_up_not_half_away_from_zero() {
-        assert_eq!(js_round(0.5), 1.0);
-        assert_eq!(js_round(1.5), 2.0);
-        // Rust's own f64::round would give -1.0 here; JS gives -0.
-        assert_eq!(js_round(-0.5), 0.0);
-        assert_eq!(js_round(-1.5), -1.0);
     }
 
     #[test]

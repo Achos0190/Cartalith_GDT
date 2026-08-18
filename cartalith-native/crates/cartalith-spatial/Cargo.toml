@@ -10,6 +10,7 @@ description = "standalone tiling/spatial-index data structures for a future LOD/
 name = "cartalith_spatial"
 
 [dependencies]
+cartalith-jsmath = { path = "../cartalith-jsmath" }
 serde = { version = "1.0.229", features = ["derive"] }
 
 [dev-dependencies]
