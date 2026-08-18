@@ -677,7 +677,8 @@ verify per-feature `apply()` math against the reference's own formulas
 (direct algebraic port, checkable by unit test at fixed inputs) rather than
 attempting stroke-sequence parity.
 
-**Milestone C — Water & ecology group.** River/water's special commit path
+**Milestone C — Water & ecology group. DONE 2026-08-18 — see "Milestone C as
+built" below.** River/water's special commit path
 (`enforceChannelDescent` reuse, the lake `waterOnly` dry-run ordering) on
 top of Milestone B's stamp pipeline — real but genuinely more delicate than
 a generic terrain feature, kept as its own milestone rather than folded
@@ -1025,3 +1026,261 @@ water gate at all — a real new feature, not a port), stroke capture and
 simplification (`rdpSimplify`/`catmullRomSample` are input routing,
 Godot-side), the `SCULPT_COLORS` overlay palette, and all shell wiring
 (milestone F).
+
+## Milestone C as built (2026-08-18)
+
+The Water & ecology group's engine half: River/Lake's commit hooks and the
+Cartography paint brush, both golden-verified, both wired to milestone A's
+`PassBuffer` and to nothing else. Same "primitive ahead of orchestration"
+precedent as A and B — no Godot scene, `main.gd` or `cartalith-godot` file
+was touched.
+
+**Where it landed, and why.**
+
+- `cartalith-spatial/src/paint.rs` — `PaintStamp`, `PaintLayer` (21 unit
+  tests).
+- `cartalith-spatial/tests/golden_parity_paint.rs` — 7 golden tests.
+- `cartalith-hydrology/src/lib.rs` — `enforce_river_channels`.
+- `cartalith-engine/src/sculpt_commit.rs` — `WaterState`,
+  `commit_sculpt_pass`, `SculptCommitSummary` (10 unit tests).
+- `cartalith-engine/tests/golden_parity_sculpt_water.rs` — 11 golden tests.
+- `cartalith-civ/src/lib.rs` — `apply_force_lake` (3 unit tests), closing a
+  gap this milestone itself opened; see below.
+
+Three placements, each following the A/B precedent rather than defaulting:
+
+1. **The paint brush is generic machinery, so it is in `cartalith-spatial`.**
+   A hard-edged categorical disc over a `u8` grid, gated by a caller-supplied
+   exclusion mask, contains no Cartalith semantics — the module never learns
+   what a biome is, only that `0` means unpainted. Milestone A's `pass.rs`
+   module doc had already anticipated exactly this type (*"a biome-paint
+   disc, a territory-paint disc, and a 13-feature landform stamp can all
+   implement it"*), and the palettes it indexes stay in `cartalith-civ` where
+   Journey Planner milestone 5 ported them. This also means milestone D's
+   Territory paint needs no new stamp type at all.
+2. **The water commit path is orchestration, so it is in `cartalith-engine`.**
+   It composes three crates' primitives (`PassBuffer` from spatial,
+   `SculptStamp` from terrain, `enforce_channel_descent` from hydrology) and
+   computes nothing new. *"`cartalith-engine` orchestrates; it does not
+   compute"* points here, and it is the only crate that already depends on
+   all three.
+3. **`enforce_river_channels` is hydrology-domain, so it is in
+   `cartalith-hydrology`** — three lines from `enforce_channel_descent` in
+   this port, as it is three lines from it in the reference.
+
+### What River/water's "special commit path" actually is
+
+The plan named it and left it there. Read directly (reference lines
+9318-9346), it is a fixed five-step sequence, and **every step's ordering is
+load-bearing**:
+
+1. **Bake the whole stack** — every feature, not just the water ones. This is
+   `PassBuffer::commit` unchanged; nothing in milestone C reimplements
+   baking, ordering, hidden-stamp skipping or tile marking.
+2. **`enforceRiverChannels()`** — re-clamp cells locked by an *earlier*
+   commit (or by generation's own `carve_river_valleys`) back to their
+   recorded floor. **After the bake, before this batch's carving**, and the
+   reference's comment says exactly why: a non-river stamp *"can raise
+   terrain over an already-locked river channel ... re-clamp locked cells
+   back to their floor before this batch's own river hook carves+locks any
+   NEW cells."* Run it before the bake instead and a Mountains stamp painted
+   across an old river buries it. This is the step a naive port drops, so it
+   has two tests: one that the re-clamp holds, and one proving the same stamp
+   *does* raise those cells when no lock is recorded — otherwise the first
+   test would pass against a no-op.
+3. **Per river stamp, in stack order**: `enforce_channel_descent` over the
+   stamp's own stroke, then lock every carved cell into
+   `river_mask`/`river_floor`.
+4. **Lake, last, as a `water_only` dry run** against the already-final
+   height, depositing into `lake_mask`.
+5. **One `computeFlow(true)`, one `refreshClimate()`** — *not* ported, by
+   design. See point 3 below.
+
+**Corrections and additions reading the reference made to the plan.**
+
+1. **`half_w` is the brush, not the discharge.** The plan says River's commit
+   reuses *"the same precedent `carveRiverValleys()` established"*, which is
+   true of the carve-and-lock *mechanism* but not of its width.
+   `carveRiverValleys` derives `halfW` from Strahler order and a real-km
+   scale (`(0.8+0.5*(o-1))*widthK`, capped); `sculptCommit` uses
+   `max(1, brushSize*0.13)`. That is the right difference, not an
+   inconsistency — a hand-painted river has no drainage area to derive a
+   width from — but porting the generated formula here would have silently
+   changed every hand-painted river's channel.
+2. **`enforceChannelDescent` walks the stroke's own points and never
+   resamples.** This is the finding that changed the test fixtures. A
+   two-point stroke carves at exactly two sites and locks **3 cells**; the
+   same stroke as 23 points two cells apart locks **46**. The reference gets
+   away with it because a captured pointer polyline is already dense and
+   `rdpSimplify` only removes near-collinear points. It is a real constraint
+   on milestone F: **stroke capture must not decimate hard**, or a river will
+   carve visibly but lock almost nothing, and later erosion will refill it.
+   Testing only the coarse stroke would have exercised the lock barely at
+   all, so both fixtures ship.
+3. **Steps 2-4 are part of the edit; step 5 is downstream recompute.** The
+   plan groups all five as "the commit path" and separately says staleness
+   must stay deferred, without saying where the line falls. It falls here:
+   2-4 write `field`/`river_mask`/`river_floor`/`lake_mask` — the state a
+   commit *produces* — and are local to the stamps' own footprints. Flow and
+   climate are whole-field recomputes of downstream stages, and milestone A's
+   `StageGraph` exists precisely so they do not run at commit time. So
+   `commit_sculpt_pass` runs 1-4 and marks tiles, and never calls
+   `compute_flow`.
+4. **A draft with no water stamps is bit-identical to a plain commit**, and
+   there is a test comparing raw `f32` bit patterns rather than trusting it.
+   Callers therefore never have to choose between two commit functions.
+
+### How Biome paint's override layer works — and three things the plan had wrong
+
+The plan's core claim is right: it is a separate override array, not a
+mutation of the classifier, `0` = unpainted, and the land-only gate is hard
+rather than a toggle. Reading `_paintAt` and its consumers corrected three
+things around it, one of them materially.
+
+1. **There are three paint layers, not one.** The plan describes only
+   `paintBiome`. The reference ships `paintBiome`, `paintSplat` (asset-pack
+   ground textures) and `paintTerrain` (`CART_TERRAINS`, the "surface
+   underfoot" palette) as three peer `Uint8Array(GW*GH)` arrays driven by one
+   brush and switched by `_paintLayer`. They differ only in which palette the
+   value indexes, so one `PaintStamp` serves all three and `PaintLayer` is
+   instantiated per layer. Getting this wrong would have built a
+   biome-shaped type that the terrain and splat layers then could not use.
+2. **The merge is two different operations at two different altitudes, and
+   the plan describes the rarer one.** The plan says painted values win
+   per-cell and asks for *"an audit of every current `classify_biome` call
+   site ... don't assume it's only render-time."* The audit's answer:
+   - **Per-cell replace** (`mb[i] = paintBiome[i]`) happens in exactly **one**
+     place — the Cartalith editor export (line 12435), which copies
+     `buildCartBiome()`/`buildCartTerrain()` and overwrites painted cells
+     before encoding. That is `PaintLayer::merge_over`.
+   - **The renderer does not replace anything.** `landColorCore` (lines
+     7898-7900) takes `pBio`/`pTer`/`pSplat` as three extra arguments and
+     alpha-blends the painted index's palette colour over the *fully shaded*
+     procedural colour at weight **0.60**, deliberately *"not a rewrite of
+     the `materialWeights` mix ... so hillshade/AO/crest/splat/haze still
+     show through and painted cells don't read as flat pasted stickers."*
+   - **No analysis consumer merges at all.** `buildEcoregions` and every
+     Journey Planner `currentCartBiome()`/`currentCartTerrain()` reader take
+     the unpainted classifier output, checked at each site rather than
+     assumed. Painted overrides are presentation and export in the reference,
+     never an input to simulation.
+
+   So the plan's phrasing — merge at *"every render/query site that currently
+   calls `classify_biome`"* — would have changed behaviour the reference does
+   not have. The rasters those overrides sit on are the ones Journey Planner
+   milestone 5 ported (`build_cart_biome`/`build_cart_terrain`, 1-based
+   `Vec<u8>` output), which is exactly `PaintLayer`'s shape, so the two fit
+   without an adapter.
+3. **The gate is `wb[i] !== 0`, not `wb[i] === 1`.** The reference's own
+   comment insists this *"excludes BOTH ocean(1) and lake(2), never a bare
+   `field[i] < sea` check, which misses above-sea-level lakes."* A port
+   gating on ocean alone would pass every ocean test and silently paint over
+   lakes, so the golden fixture classifies its water band as **2**.
+
+**Also built, straight from the reference rather than the plan:**
+`_paintSampleAt`'s deliberately **nearest-neighbour** sampling (bilinear
+*"would blend two unrelated palette entries into a meaningless third index"*),
+`getPaintLayer`'s lazy allocation with the v0.148 length guard that a
+resolution change must reallocate, and `state.cartoPaint`'s sparse
+`[index, value, ...]` persistence including its own drop-out-of-range rule.
+
+**One deliberate new affordance, flagged as new.** `PaintStamp::mask` is
+`Option`, and `None` means "no gate". The reference always gates — this
+exists because `UI_SHELL_DESIGN.md`'s tool options bar shows a *"respect
+water mask"* switch the reference has no equivalent for, the same
+mockup-vs-reference gap milestone B recorded for Freehand raise/lower.
+Leaving the gate optional makes that switch buildable without a redesign.
+The Cartography constructor `PaintStamp::new` requires a mask; the ungated
+one is a separate, separately-named constructor, so parity is the default
+and the addition is opt-in (`DECISIONS.md` §7d).
+
+**One open question left open, deliberately.** The reference clears painted
+overrides on terrain rebuild (`paintBiome=null`, *"hand-painted Cartography
+overrides don't survive a terrain rebuild"*). It only ever had one
+`generate()`; this port now has *incremental* terrain edits, and whether a
+Sculpt commit that changes the temperature/moisture inputs under a painted
+cell should also clear that cell has no reference answer. `PaintLayer::clear`
+implements the reference-faithful floor (clear on full regenerate) and its
+doc names the question. The deciding caller is the shell, which does not
+exist yet; inventing a policy for it now would be guessing.
+
+### A gap this milestone opened and then closed
+
+`cartalith_civ::build_water_bodies` had **deliberately omitted** the
+reference's `forceLake` option, with a stated and, at the time, correct
+reason: *"no painting UI exists in this port, so it would be an
+always-false input with no caller ever setting it."* Milestone C is the
+producer that reasoning was waiting for — the Lake stamp's commit hook
+writes `lake_mask`, and `forceLake` is its only consumer, the thing that
+makes a painted lake classify as a lake even when its basin is above sea
+level or too arid to pool. Without it, `lake_mask` would have been dead
+output.
+
+It ships as `apply_force_lake`, a post-pass rather than a new parameter, and
+that is bit-equivalent rather than an approximation: in the reference,
+`force` is applied after the depression-pooling pass and is the **last**
+mutation of `out` (the only statement after it writes the independent
+`fillOut` raster). The post-pass form also leaves `build_water_bodies`'
+signature and all of its callers alone — one of which is in
+`cartalith-godot`, which this milestone must not touch.
+
+### Verified
+
+**18 golden-parity tests, every one bit-exact on the first run** — 11 for the
+water commit path, 7 for the paint brush — against the real reference under a
+Node `vm.runInContext` harness. Six contiguous line slices (2292-2293,
+7568-7569, 8304, **8725-8745**, 8821-9081, **4758-4795**), each with a
+block-comment balance assertion and start- *and* end-of-slice top-level
+boundary checks. Both new slices sit hard against comment boundaries:
+`enforceChannelDescent` is preceded by a four-line block comment and
+`enforceRiverChannels` is followed by one, and the paint block has a comment
+opening on the line above it and another on the line below.
+
+The assertions caught two things, in the two different ways they can:
+
+- The **end-of-slice** check threw on `hash/vnoise` — a one-line function
+  whose closing brace is not at column 0. A false positive, but the class of
+  thing it exists to surface, and fixing it properly (strip trailing line
+  comments, require a closing brace, semicolon or comment terminator) rather
+  than deleting the check kept it useful for the two genuinely tight new
+  slices.
+- A failure the balance check is **not** designed to catch, and which
+  produced *silently empty* output rather than an error: the reference
+  declares `paintBiome`/`_paintLayer`/`_paintValue`/`_paintRadius` with
+  `let`, which in a `vm` script are lexical bindings, **not** properties of
+  the context object. Setting `ctx._paintRadius` from the host created a
+  shadow the reference code never read, so `_paintAt` ran against defaults.
+  Everything now drives `_paintAt` from inside the context. This is the same
+  class as Journey Planner milestone 5's silently-empty stage list: the
+  harness lied quietly rather than throwing.
+
+`sculptCommit`'s water-hook body is **transcribed, not sliced** — the
+function opens with `_sculptEditorActive()` and closes with `computeFlow`/
+`refreshClimate`/`renderNow`/`sculptSyncUI`, all DOM or whole-pipeline
+recompute. Lines 9320-9346 are copied verbatim with `sculptStamps` as a
+parameter and those calls dropped. Disclosed rather than implied, because a
+transcription is weaker evidence than a slice.
+
+**Milestone B's two fixture findings held.** The base field is built in `f64`
+and rounded once at the `f32` store. **No tolerance was needed anywhere** —
+heights compare as raw `f32` bit patterns folded FNV-1a-64 over all 4096
+cells, and the paint layers are integers. One cross-check worth naming: the
+`hidden_river_is_skipped` case reproduces milestone B's own `mountains`
+golden hash **exactly**, which is independent evidence that the water hooks
+are genuinely inert rather than merely usually harmless.
+
+Unit tests: 21 new in `cartalith-spatial` (88 total, up from 67), 10 new in
+`cartalith-engine`, 2 new in `cartalith-hydrology`, 3 new in `cartalith-civ`
+(197 total).
+
+**Not built, deliberately.** The tools' *interaction* halves — stroke and tap
+capture, the layer/value/radius pickers, the active-layer switch — are input
+routing and belong to milestone F. Also not built: the `biomes`/`terrains`
+pack-image decode, which `cartalith-godot/src/pack.rs` skipped because
+*"there is no producer of a painted-cell array anywhere in this workspace"*
+and which named "a future milestone that ports the Cartography paint-brush
+tool" as the place to resume — that producer now exists, but the consumer is
+a `cartalith-godot` render change this milestone is scoped out of. The 0.60
+painted-colour blend in `land_color` is the same case. And automatic river
+tooling is untouched: this milestone adds the *manual* stamp path into the
+same structures, exactly as the plan said.

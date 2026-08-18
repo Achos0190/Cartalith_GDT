@@ -474,10 +474,53 @@ pub fn enforce_channel_descent(
     out
 }
 
+/// `enforceRiverChannels()` (reference HTML lines 8742-8745): clamp every
+/// locked river cell back down to its carved floor.
+///
+/// The reference's own framing is "England-style entrenchment" — protect a
+/// carved channel from being refilled by later deposition, isostatic rebound
+/// or (`UNIFIED_TOOL_PLAN.md` milestone C, the new caller) a Sculpt stamp
+/// that raises terrain straight over an already-locked channel. It is a
+/// no-op until something has actually locked cells, which is what
+/// `_riverAny` guards; here the caller's `river_any` flag carries that, and
+/// an all-zero mask makes the loop a no-op anyway.
+///
+/// Deliberately one-directional: it only ever *lowers*. A cell that erosion
+/// cut *below* its recorded floor keeps the deeper value.
+pub fn enforce_river_channels(field: &mut [f32], river_mask: &[u8], river_floor: &[f32]) {
+    for i in 0..field.len().min(river_mask.len()).min(river_floor.len()) {
+        if river_mask[i] != 0 && field[i] > river_floor[i] {
+            field[i] = river_floor[i];
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::enforce_river_channels;
+
     #[test]
     fn crate_compiles_and_tests_run() {
         assert_eq!(2 + 2, 4);
+    }
+
+    #[test]
+    fn enforce_river_channels_clamps_only_raised_masked_cells() {
+        let mut field = vec![0.9f32, 0.9, 0.9, 0.1];
+        let mask = vec![1u8, 0, 1, 1];
+        let floor = vec![0.3f32, 0.3, 0.3, 0.3];
+        enforce_river_channels(&mut field, &mask, &floor);
+        assert_eq!(field[0], 0.3, "masked and raised -> clamped");
+        assert_eq!(field[1], 0.9, "unmasked -> untouched");
+        assert_eq!(field[2], 0.3);
+        assert_eq!(field[3], 0.1, "already below the floor -> kept deeper");
+    }
+
+    #[test]
+    fn enforce_river_channels_is_a_no_op_on_an_empty_mask() {
+        let mut field = vec![0.9f32; 4];
+        let before = field.clone();
+        enforce_river_channels(&mut field, &[0u8; 4], &[0f32; 4]);
+        assert_eq!(field, before);
     }
 }

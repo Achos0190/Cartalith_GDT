@@ -48,9 +48,11 @@
 //! `mark_dirty` already is the "my data changed here, here's why, bump the
 //! version" primitive both editing and recomputation need.
 
+pub mod paint;
 pub mod pass;
 pub mod staleness;
 
+pub use paint::{PaintLayer, PaintStamp};
 pub use pass::{CommitSummary, PassBuffer, PassEntry, Stamp};
 pub use staleness::{StageGraph, StageId, Staleness};
 

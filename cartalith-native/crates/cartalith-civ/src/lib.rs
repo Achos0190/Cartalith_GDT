@@ -415,10 +415,15 @@ fn cc_visit(nx: isize, ny: isize, gw: isize, gh: isize, world: bool, sea: f64, f
 /// `geo` (per-cell sea-level offset/geoid) does not exist in this port yet
 /// -- treated as always-absent, matching the reference's own
 /// `geo ? geo[i] : 0` null guard (`hE(i) = fld[i]` here, unconditionally).
-/// `forceLake` (user-painted lakes) is omitted entirely: no painting UI
-/// exists in this port, so it would be an always-false input with no
-/// caller ever setting it -- `PHASE2_SCOPE.md`'s own guidance against
-/// half-porting a feature nothing calls.
+/// `forceLake` (user-painted lakes) is not a parameter here. It was
+/// originally omitted outright -- "no painting UI exists in this port, so it
+/// would be an always-false input with no caller ever setting it",
+/// `PHASE2_SCOPE.md`'s guidance against half-porting a feature nothing
+/// calls. `UNIFIED_TOOL_PLAN.md` milestone C built the producer (the Lake
+/// stamp's commit hook), so it now ships as the post-pass
+/// [`apply_force_lake`] -- bit-equivalent, because `force` is the last
+/// mutation the reference makes to `out`, and it leaves this signature and
+/// every caller alone.
 pub fn build_water_bodies(field: &[f32], gw: usize, gh: usize, sea: f64, world: bool, rain: Option<&[f32]>) -> WaterBodies {
     let n = gw * gh;
     let gw_i = gw as isize;
@@ -516,6 +521,38 @@ pub fn build_water_bodies(field: &[f32], gw: usize, gh: usize, sea: f64, world: 
     }
 
     WaterBodies { classification: out, fill_level: filled }
+}
+
+/// `buildWaterBodies`' `opts.forceLake` (reference HTML lines 5808-5809):
+/// user-deposited lakes are classified as lakes unconditionally, whether or
+/// not their floor ends up below sea level or holds enough rain to pool.
+///
+/// **[`build_water_bodies`]' doc comment says `force_lake` is "omitted
+/// entirely: no painting UI exists in this port, so it would be an
+/// always-false input with no caller ever setting it". That reasoning has
+/// now expired** -- `UNIFIED_TOOL_PLAN.md` milestone C ports the Lake
+/// stamp's commit hook, whose whole output is exactly this array
+/// (`cartalith_engine::sculpt_commit::WaterState::lake_mask`). Without this
+/// function that output has no consumer and a painted lake would silently
+/// not be a lake.
+///
+/// A separate post-pass rather than a `build_water_bodies` parameter, and
+/// that is **bit-equivalent, not an approximation**: in the reference,
+/// `force` is applied after the depression-pooling pass and is the last
+/// mutation of `out`; the only statement after it writes the independent
+/// `fillOut` raster. So folding it in afterwards produces the identical
+/// classification, and every existing caller keeps its signature (one of
+/// them lives in `cartalith-godot`, which this milestone must not touch).
+///
+/// `force` shorter than the classification is tolerated the way the
+/// reference's own `if(force[i])` on a `Uint8Array` is -- missing entries
+/// simply do not force.
+pub fn apply_force_lake(classification: &mut [u8], force: &[u8]) {
+    for (c, &f) in classification.iter_mut().zip(force.iter()) {
+        if f != 0 {
+            *c = 2;
+        }
+    }
 }
 
 /// `BIOME_KEYS` (reference line 6796) -- frozen, append-only. `BIOME_INDEX`
@@ -10507,6 +10544,40 @@ mod tests {
         let rain_dry = vec![0.05f32; 25];
         let wb_dry = build_water_bodies(&field, 5, 5, 0.05, false, Some(&rain_dry));
         assert_eq!(wb_dry.classification[12], 0, "an arid basin below lakeRain must stay dry land, not a lake");
+    }
+
+    #[test]
+    fn apply_force_lake_overrides_the_arid_basin_the_classifier_left_dry() {
+        // The same arid basin as above -- the one the rain gate keeps as dry
+        // land. A painted lake must win anyway, which is exactly what
+        // `forceLake` exists for.
+        let mut field = vec![0.9f32; 25];
+        field[12] = 0.5;
+        let rain_dry = vec![0.05f32; 25];
+        let mut wb = build_water_bodies(&field, 5, 5, 0.05, false, Some(&rain_dry));
+        assert_eq!(wb.classification[12], 0);
+
+        let mut force = vec![0u8; 25];
+        force[12] = 1;
+        apply_force_lake(&mut wb.classification, &force);
+        assert_eq!(wb.classification[12], 2, "a painted lake is a lake regardless of rain");
+        assert_eq!(wb.classification[0], 0, "unforced cells are untouched");
+    }
+
+    #[test]
+    fn apply_force_lake_is_a_no_op_on_an_empty_mask() {
+        let mut c = vec![0u8, 1, 2, 0];
+        apply_force_lake(&mut c, &[0, 0, 0, 0]);
+        assert_eq!(c, vec![0, 1, 2, 0]);
+    }
+
+    #[test]
+    fn apply_force_lake_overrides_ocean_too() {
+        // The reference's `out[i]=2` is unconditional -- it overwrites an
+        // existing ocean(1) classification, not just land(0).
+        let mut c = vec![1u8, 1, 0];
+        apply_force_lake(&mut c, &[1, 0, 1]);
+        assert_eq!(c, vec![2, 1, 2]);
     }
 
     #[test]

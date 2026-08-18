@@ -83,6 +83,10 @@
 /// does not consult it yet.
 pub mod staleness;
 
+/// `sculptCommit`'s River/Lake water hooks (`UNIFIED_TOOL_PLAN.md`
+/// milestone C). Unwired: the pipeline below does not call it yet.
+pub mod sculpt_commit;
+
 use cartalith_climate::{
     apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
     WeatherParams,
