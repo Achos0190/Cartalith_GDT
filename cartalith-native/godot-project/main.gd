@@ -22,19 +22,27 @@ extends Control
 ## pass-buffer/commit/discard/map-editing exists yet. Same "shell now, wire
 ## later" discipline GUI_SHELL_SCOPE.md milestone 1 already established.
 ##
-## Category-1 parity-audit items folded into this rebuild while these
-## controls were already being touched (GUI_FEATURE_PARITY_SCOPE.md):
-## #1 (asset-pack import, now real: File > Import asset pack), #9 (layer
-## granularity: Settlements/Roads/Sea routes are now three independent
-## toggles instead of one that hid all of map_overlay together), #10
-## (click-to-pin selection: the Properties dock now holds a settlement's
-## causal "why here?" chain after a click, independent of the transient
-## Sample dock's live hover data). Left for later: #2-5 (settlements
-## table/economy panel/province list/culture-fit -- each needs its own real
-## table UI, not a drive-by wiring), #6 (planet params setter), #7 (GPU
-## toggle/readout -- GPU_LAYER_INTEGRATION_SCOPE.md's own current milestone
-## is still the noise redesign, wiring a toggle ahead of that would surface
-## an incomplete path), #8 (World Structure raw sliders).
+## Category-1 parity-audit items (GUI_FEATURE_PARITY_SCOPE.md), now closed
+## except one. Folded into this rebuild while these controls were already
+## being touched: #1 (asset-pack import, real: File > Import asset pack),
+## #9 (layer granularity: Settlements/Roads/Sea routes are three
+## independent toggles instead of one that hid all of map_overlay
+## together), #10 (click-to-pin selection: the Properties dock holds a
+## settlement's causal "why here?" chain after a click, independent of the
+## transient Sample dock's live hover data). Closed by the generation-
+## parameter API and the Generate stage dialogs: #6 (planet gravity/day
+## length/axial tilt -- the Climate stage's PLANET section) and #8 (the
+## five raw World-Structure knobs -- the Tectonics stage's WORLD STRUCTURE
+## section), both now real live sliders read from the engine's own table.
+## Closed by the world-data browser and performance readout at the bottom
+## of this file: #2 (settlements table), #3 (economy/trade balances), #4
+## (province list), #7's readout half (which GPU-eligible stages actually
+## ran on GPU). Still open, and genuinely Category 2 rather than 1: #5
+## (faction culture-terrain-fit) -- civ_culture_terrain_fit is real and
+## unit-tested, but it needs a per-faction terrain-mix aggregation
+## ECONOMY_SCOPE.md still lists as unstarted, so there is no argument to
+## call it with yet. #7's toggle half stays deferred with its reason on
+## screen (see the performance readout's own header comment).
 ##
 ## DCC_SHELL_SCOPE.md milestone 3 turns that New World dialog into a real
 ## world-setup gate: map width in km, working resolution, extent mode and
@@ -737,6 +745,13 @@ func _on_tool_selected(tool_name: String, btn: Button) -> void:
 const ID_FILE_NEW_WORLD := 1
 const ID_FILE_OPEN_PROJECT := 2
 const ID_FILE_IMPORT_ASSET_PACK := 3
+## Explicit ids start at 100 so they can't collide with the sequential ids
+## PopupMenu.add_item() assigns to the inert rows around them. Disabled
+## items never emit id_pressed, so a collision is currently harmless -- but
+## it stops being harmless the first time one of them is enabled.
+const ID_SIM_ECONOMY := 100
+const ID_SIM_STATISTICS := 101
+const ID_VIEW_PERFORMANCE := 100
 const ID_HELP_CREDITS := 1
 
 func _build_menus() -> void:
@@ -818,11 +833,32 @@ func _build_generate_menu() -> void:
 	popup.id_pressed.connect(_on_generate_menu_id)
 
 
+## Economy and Statistics are real: both read data every generate already
+## computes and nothing has ever displayed (GUI_FEATURE_PARITY_SCOPE.md
+## Category-1 items #2/#3/#4). The other three stay honestly inert -- they
+## describe a temporal simulation this engine deliberately isn't.
 func _build_simulate_menu() -> void:
 	var popup := simulate_menu.get_popup()
 	var tip := "The engine is a one-shot static generator, not a continuous simulation (HARDWARE_ACCELERATION.md's own scope correction)."
-	for item in ["Time controls", "Collapse / recovery", "Economy", "Statistics", "Logistics"]:
-		_add_inert_item(popup, item, tip)
+	_add_inert_item(popup, "Time controls", tip)
+	_add_inert_item(popup, "Collapse / recovery", tip)
+	popup.add_separator()
+	popup.add_item("Economy...", ID_SIM_ECONOMY)
+	popup.set_item_tooltip(popup.item_count - 1,
+		"Per-settlement resource exports and imports (cartalith_civ::civ_resource_trade_balance), computed by every generate.")
+	popup.add_item("Statistics...", ID_SIM_STATISTICS)
+	popup.set_item_tooltip(popup.item_count - 1,
+		"The settlement roster and the province list this world actually produced.")
+	popup.add_separator()
+	_add_inert_item(popup, "Logistics",
+		"Journey Planner is engine-complete (JOURNEY_PLANNER_SCOPE.md, 65 of 74 functions) but has no GUI yet -- it is an interactive, user-driven tool, so its interface is its own milestone, not a table of already-computed values.")
+	popup.id_pressed.connect(_on_simulate_menu_id)
+
+
+func _on_simulate_menu_id(id: int) -> void:
+	match id:
+		ID_SIM_ECONOMY: _open_world_data(WD_ECONOMY)
+		ID_SIM_STATISTICS: _open_world_data(WD_SETTLEMENTS)
 
 
 func _build_render_menu() -> void:
@@ -853,7 +889,15 @@ func _build_view_menu() -> void:
 	_add_inert_item(popup, "Panel visibility")
 	_add_inert_item(popup, "Workspace tabs")
 	_add_inert_item(popup, "Analysis field overlay")
-	_add_inert_item(popup, "Performance readout", "No live CPU/GPU/memory #[func] exists yet (GUI_FEATURE_PARITY_SCOPE.md).")
+	popup.add_item("Performance readout...", ID_VIEW_PERFORMANCE)
+	popup.set_item_tooltip(popup.item_count - 1,
+		"Which GPU-eligible generation stages actually ran on GPU last generate (WorldGen.get_gpu_stages_used), plus Godot's own runtime numbers.")
+	popup.id_pressed.connect(_on_view_menu_id)
+
+
+func _on_view_menu_id(id: int) -> void:
+	if id == ID_VIEW_PERFORMANCE:
+		_open_performance_readout()
 
 
 func _build_help_menu() -> void:
@@ -1715,3 +1759,600 @@ func _on_asset_pack_file_selected(path: String) -> void:
 		shell_status_label.text = "asset pack loaded: %s (has_asset_pack=%s)" % [path.get_file(), world_gen.has_asset_pack()]
 	else:
 		shell_status_label.text = "asset pack import failed — see console"
+
+
+## ── World data browser: Settlements · Provinces · Economy ───────────────
+## GUI_FEATURE_PARITY_SCOPE.md Category-1 items #2, #3 and #4 — the last
+## three rows of that table with real, tested Rust behind them and no GUI
+## consumer at all. WorldGen.get_settlements()/get_provinces()/
+## get_trade_balances() have each been computed by every single generate
+## since Phase 2 landed; until now only get_settlements() was ever read,
+## and only for map markers and a hover card.
+##
+## Placement follows UI_SHELL_DESIGN.md's governing rule rather than the
+## parity audit's own Category-3 recommendations, which were written
+## against the previous panel-browser shell: menu items open dialogs, never
+## persistent side panels, and the right dock is Layers/Properties/Sample
+## only. So these are one dialog behind two Simulate-menu items (Economy,
+## Statistics — both names come from that document's own Simulate list, and
+## both are things the reference app genuinely reported), not three new dock
+## panels.
+##
+## One dialog with a tab row rather than three near-identical dialogs: the
+## sort/filter/fill machinery is written once, and the three subjects are
+## the same world's civilisation layer seen three ways. The tab row reuses
+## the flat-toggle-button pattern the workspace tabs already established
+## rather than a TabContainer, which has no entry in dark_theme.tres and
+## would arrive in Godot's default chrome (the same Category-4 gap the
+## parity audit already found for PopupMenu/tooltips/scrollbars).
+##
+## Nothing here derives a fact. Every value shown is a field the engine
+## returned; GDScript formats, sorts and filters it (ARCHITECTURE.md:
+## "Godot computes nothing beyond layout"). The one exception is the
+## summary line's counts, which count the rows on screen — presentation of
+## displayed data, not a new engine claim.
+
+const WD_SETTLEMENTS := 0
+const WD_PROVINCES := 1
+const WD_ECONOMY := 2
+const WD_TAB_NAMES: Array[String] = ["SETTLEMENTS", "PROVINCES", "ECONOMY"]
+const WORLD_DATA_SIZE := Vector2i(940, 660)
+
+## Column specs. `key` indexes the row Dictionary built in
+## _refresh_world_data(); `num` selects numeric rather than alphabetical
+## sorting; `faction` tints the cell with map_overlay's own faction palette
+## so a row's colour matches its marker on the map.
+const WD_COLUMNS := {
+	WD_SETTLEMENTS: [
+		{"title": "Name", "key": "name", "width": 170, "expand": true},
+		{"title": "Tier", "key": "kind", "width": 84, "expand": false},
+		{"title": "Population", "key": "population", "width": 96, "expand": false, "num": true, "right": true},
+		{"title": "Faction", "key": "faction", "width": 74, "expand": false, "num": true, "right": true, "faction": true},
+		{"title": "Coastal", "key": "coastal", "width": 74, "expand": false},
+		{"title": "Cell X", "key": "x", "width": 74, "expand": false, "num": true, "right": true},
+		{"title": "Cell Y", "key": "y", "width": 74, "expand": false, "num": true, "right": true},
+	],
+	WD_PROVINCES: [
+		{"title": "Province", "key": "name", "width": 200, "expand": true},
+		{"title": "ID", "key": "id", "width": 70, "expand": false, "num": true, "right": true},
+		{"title": "Faction", "key": "faction", "width": 74, "expand": false, "num": true, "right": true, "faction": true},
+		{"title": "Capital settlement", "key": "capital", "width": 200, "expand": true},
+	],
+	WD_ECONOMY: [
+		{"title": "Settlement", "key": "name", "width": 170, "expand": true},
+		{"title": "Faction", "key": "faction", "width": 74, "expand": false, "num": true, "right": true, "faction": true},
+		{"title": "Exports", "key": "exports", "width": 250, "expand": true},
+		{"title": "Imports", "key": "imports", "width": 250, "expand": true},
+	],
+}
+
+## Only the settlements tab gets a text filter — the reference's own hint
+## text ("a dedicated searchable/sortable table here is not yet built")
+## named search and sort together, and a 400-row settlement roster is the
+## only one of the three long enough to need it.
+const WD_FILTERABLE := {WD_SETTLEMENTS: true, WD_PROVINCES: false, WD_ECONOMY: true}
+
+const WD_EMPTY_TEXT := {
+	WD_SETTLEMENTS: "No settlements. Generate a world first (File ▸ New world), or note that a loaded .zip save carries terrain only — the reference's save format stores no civilisation layer, so load-save leaves this empty by design.",
+	WD_PROVINCES: "No provinces. Provinces are subdivided from the settlement set during generation, so this fills at the same time the Province boundaries layer does.",
+	WD_ECONOMY: "No trade balances. These are derived per settlement from the local resource field against the world mean, so they appear with the settlements.",
+}
+
+const WD_NOTES := {
+	WD_SETTLEMENTS: "Every settlement the current world placed. Click a row to pin it in the Properties dock with its full causal \"why here?\" chain — the same chain clicking its marker on the map gives. Click a column heading to sort.",
+	WD_PROVINCES: "Provinces (cartalith_civ::civ_generate_provinces): the sub-partition of each faction's territory, seeded from a capital settlement. Their boundaries draw on the map via the Layers dock's \"Province boundaries\" toggle; this is their identity — name, owning faction, and which settlement each was grown from.",
+	WD_ECONOMY: "Per-settlement resource trade balance (cartalith_civ::civ_resource_trade_balance, the reference's own _civPlaceTrade hinterland term): which of the 15 resource keys this settlement's hinterland has a real surplus or deficit of against the world mean. An empty cell is a real outcome — no strong local surplus means no trade relationship — not missing data. The faction-level aggregation (_civFactionAggregates: population, tax, the five-axis power heuristic) is not ported; this is the settlement-level half only.",
+}
+
+var _world_data_dialog: AcceptDialog
+var _wd_tab_buttons: Array = []
+var _wd_pages: Array = []
+var _wd_trees: Dictionary = {}       ## tab -> Tree
+var _wd_summaries: Dictionary = {}   ## tab -> Label
+var _wd_empties: Dictionary = {}     ## tab -> Label
+var _wd_filters: Dictionary = {}     ## tab -> LineEdit
+var _wd_rows: Dictionary = {}        ## tab -> Array[Dictionary], unsorted engine order
+var _wd_sort: Dictionary = {}        ## tab -> [column index, ascending]
+var _wd_tab := WD_SETTLEMENTS
+
+
+func _open_world_data(tab: int) -> void:
+	if _world_data_dialog == null:
+		_world_data_dialog = _build_world_data_dialog()
+	_refresh_world_data()
+	_wd_select_tab(tab)
+	_world_data_dialog.popup_centered(WORLD_DATA_SIZE)
+
+
+func _build_world_data_dialog() -> AcceptDialog:
+	var dialog := AcceptDialog.new()
+	dialog.title = "World data"
+	dialog.theme = theme
+	## Same trap the stage dialogs already pay for: wrap_controls on makes
+	## AcceptDialog grow to its content's minimum height, and an autowrap
+	## Label reports the height it would need wrapping at its longest word.
+	dialog.wrap_controls = false
+	add_child(dialog)
+
+	var margin := MarginContainer.new()
+	for side in ["left", "top", "right", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 8)
+	dialog.add_child(margin)
+
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 10)
+	margin.add_child(root)
+
+	var tab_row := HBoxContainer.new()
+	tab_row.add_theme_constant_override("separation", 4)
+	root.add_child(tab_row)
+
+	var stack := Control.new()
+	stack.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(stack)
+
+	for tab in [WD_SETTLEMENTS, WD_PROVINCES, WD_ECONOMY]:
+		var btn := Button.new()
+		btn.text = WD_TAB_NAMES[tab]
+		btn.flat = true
+		btn.custom_minimum_size = Vector2(0, 30)
+		btn.add_theme_font_size_override("font_size", 10)
+		btn.pressed.connect(_wd_select_tab.bind(tab))
+		tab_row.add_child(btn)
+		_wd_tab_buttons.append(btn)
+		_wd_pages.append(_build_world_data_page(tab, stack))
+
+	root.add_child(HSeparator.new())
+	root.add_child(_hint_label(
+		"Read-only. These are outputs of the last generate, not controls — regenerating replaces every row.",
+		WORLD_DATA_SIZE.x - 60))
+	return dialog
+
+
+func _build_world_data_page(tab: int, stack: Control) -> Control:
+	var page := VBoxContainer.new()
+	page.add_theme_constant_override("separation", 8)
+	stack.add_child(page)
+	page.set_anchors_preset(Control.PRESET_FULL_RECT)
+
+	page.add_child(_hint_label(String(WD_NOTES[tab]), WORLD_DATA_SIZE.x - 60))
+
+	var bar := HBoxContainer.new()
+	bar.add_theme_constant_override("separation", 10)
+	page.add_child(bar)
+
+	var summary := Label.new()
+	summary.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	summary.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	summary.add_theme_color_override("font_color", Color(0.878431, 0.639216, 0.290196))
+	summary.add_theme_font_size_override("font_size", 12)
+	bar.add_child(summary)
+	_wd_summaries[tab] = summary
+
+	if WD_FILTERABLE[tab]:
+		var filter := LineEdit.new()
+		filter.custom_minimum_size = Vector2(260, 34)
+		filter.placeholder_text = "Filter by name…"
+		filter.clear_button_enabled = true
+		filter.text_changed.connect(func(_t: String): _wd_fill(tab))
+		bar.add_child(filter)
+		_wd_filters[tab] = filter
+
+	var tree := Tree.new()
+	tree.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tree.hide_root = true
+	tree.select_mode = Tree.SELECT_ROW
+	tree.allow_reselect = true
+	tree.column_titles_visible = true
+	var cols: Array = WD_COLUMNS[tab]
+	tree.columns = cols.size()
+	for c in cols.size():
+		var spec: Dictionary = cols[c]
+		tree.set_column_title(c, String(spec["title"]))
+		tree.set_column_expand(c, bool(spec.get("expand", false)))
+		tree.set_column_custom_minimum_width(c, int(spec["width"]))
+		tree.set_column_clip_content(c, true)
+		## Titles sit over their own cells: Tree centres them by default,
+		## which reads as a heading for the wrong column once a wide name
+		## column sits next to a narrow numeric one.
+		tree.set_column_title_alignment(c,
+			HORIZONTAL_ALIGNMENT_RIGHT if bool(spec.get("right", false)) else HORIZONTAL_ALIGNMENT_LEFT)
+	## Godot has no Tree entry in dark_theme.tres, so its default chrome
+	## would arrive light-grey inside this shell. Overridden here rather
+	## than in the theme resource: the parity audit's Category-4 sweep owns
+	## dark_theme.tres, and one dialog's table shouldn't pre-empt it.
+	var panel := StyleBoxFlat.new()
+	panel.bg_color = Color(0.0627451, 0.0666667, 0.0705882, 1)
+	panel.border_color = Color(1, 1, 1, 0.10)
+	panel.set_border_width_all(1)
+	tree.add_theme_stylebox_override("panel", panel)
+	tree.add_theme_color_override("font_color", Color(0.784314, 0.796078, 0.803922))
+	tree.add_theme_color_override("font_selected_color", Color(0.0627451, 0.0666667, 0.0705882))
+	tree.add_theme_color_override("title_button_color", Color(0.552941, 0.576471, 0.588235))
+	var sel := StyleBoxFlat.new()
+	sel.bg_color = Color(0.878431, 0.639216, 0.290196)
+	tree.add_theme_stylebox_override("selected", sel)
+	tree.add_theme_stylebox_override("selected_focus", sel)
+	tree.column_title_clicked.connect(_wd_on_title_clicked.bind(tab))
+	tree.item_selected.connect(_wd_on_row_selected.bind(tab))
+	page.add_child(tree)
+	_wd_trees[tab] = tree
+
+	var empty := _hint_label(String(WD_EMPTY_TEXT[tab]), WORLD_DATA_SIZE.x - 60)
+	page.add_child(empty)
+	_wd_empties[tab] = empty
+
+	_wd_sort[tab] = [-1, true]
+	return page
+
+
+func _wd_select_tab(tab: int) -> void:
+	_wd_tab = tab
+	for i in _wd_pages.size():
+		(_wd_pages[i] as Control).visible = i == tab
+		(_wd_tab_buttons[i] as Button).add_theme_color_override("font_color",
+			Color(0.878431, 0.639216, 0.290196) if i == tab else Color(0.552941, 0.576471, 0.588235))
+
+
+## Pulls all three datasets straight from the engine. Called on every open,
+## so a regenerate needs no invalidation bookkeeping — the dialog can never
+## show a world that isn't the one on screen.
+func _refresh_world_data() -> void:
+	var settlements: Array = world_gen.get_settlements()
+
+	var s_rows: Array = []
+	for i in settlements.size():
+		var s: Dictionary = settlements[i]
+		s_rows.append({
+			"name": String(s["name"]), "kind": String(s["kind"]).capitalize(),
+			"population": int(s["population"]), "faction": int(s["faction"]),
+			"coastal": "yes" if s["coastal"] else "no",
+			"x": int(s["x"]), "y": int(s["y"]), "_index": i,
+		})
+	_wd_rows[WD_SETTLEMENTS] = s_rows
+
+	var p_rows: Array = []
+	for p: Dictionary in world_gen.get_provinces():
+		var cap := int(p["capital_settlement_index"])
+		p_rows.append({
+			"name": String(p["name"]), "id": int(p["id"]), "faction": int(p["faction"]),
+			"capital": String((settlements[cap] as Dictionary)["name"]) if cap >= 0 and cap < settlements.size() else "—",
+			"_index": cap if cap >= 0 and cap < settlements.size() else -1,
+		})
+	_wd_rows[WD_PROVINCES] = p_rows
+
+	var e_rows: Array = []
+	var balances: Array = world_gen.get_trade_balances()
+	for i in mini(balances.size(), settlements.size()):
+		var b: Dictionary = balances[i]
+		var s: Dictionary = settlements[i]
+		e_rows.append({
+			"name": String(s["name"]), "faction": int(s["faction"]),
+			"exports": _wd_resources(b["exports"]), "imports": _wd_resources(b["imports"]),
+			"_index": i,
+		})
+	_wd_rows[WD_ECONOMY] = e_rows
+
+	for tab in [WD_SETTLEMENTS, WD_PROVINCES, WD_ECONOMY]:
+		_wd_fill(tab)
+
+
+## The engine's resource keys are stable lowercase ids ("buildstone"); the
+## UI capitalises them for reading, same division of labour SUIT_TERM_LABELS
+## already follows.
+func _wd_resources(keys) -> String:
+	var out: Array[String] = []
+	for k in keys:
+		out.append(String(k).capitalize())
+	return ", ".join(out) if not out.is_empty() else "—"
+
+
+## Display text for one cell. Only counts get thousand separators -- a
+## faction id or a grid coordinate is an identifier, not a quantity, and
+## "1 024" would read as a number to compare rather than a cell to find.
+func _wd_cell_text(spec: Dictionary, value) -> String:
+	if String(spec["key"]) == "population":
+		return _wd_group_digits(int(value))
+	return str(value)
+
+
+func _wd_group_digits(n: int) -> String:
+	var digits := str(absi(n))
+	var out := ""
+	for i in digits.length():
+		if i > 0 and (digits.length() - i) % 3 == 0:
+			out += " "
+		out += digits[i]
+	return ("-" + out) if n < 0 else out
+
+
+func _wd_on_title_clicked(column: int, mouse_button: int, tab: int) -> void:
+	if mouse_button != MOUSE_BUTTON_LEFT:
+		return
+	var state: Array = _wd_sort[tab]
+	_wd_sort[tab] = [column, not state[1]] if state[0] == column else [column, true]
+	_wd_fill(tab)
+
+
+## Clicking a row pins that settlement in the Properties dock — the same
+## causal chain clicking its map marker gives, so the table is a second way
+## into the inspector rather than a parallel display of the same facts.
+func _wd_on_row_selected(tab: int) -> void:
+	var item: TreeItem = (_wd_trees[tab] as Tree).get_selected()
+	if item == null:
+		return
+	var index := int(item.get_metadata(0))
+	if index < 0:
+		return
+	var settlements: Array = world_gen.get_settlements()
+	if index < settlements.size():
+		_on_settlement_selected(settlements[index], index)
+
+
+## Free-text filter across a row's textual columns only -- matching a cell
+## X coordinate or a faction number against typed text would be noise.
+const WD_TEXT_KEYS: Array[String] = ["name", "kind", "capital", "exports", "imports"]
+
+func _wd_row_matches(row: Dictionary, cols: Array, needle: String) -> bool:
+	for spec: Dictionary in cols:
+		var key := String(spec["key"])
+		if WD_TEXT_KEYS.has(key) and String(row[key]).to_lower().contains(needle):
+			return true
+	return false
+
+
+func _wd_less(a: Dictionary, b: Dictionary, key: String, numeric: bool, ascending: bool) -> bool:
+	if numeric:
+		return float(a[key]) < float(b[key]) if ascending else float(a[key]) > float(b[key])
+	var cmp := String(a[key]).naturalnocasecmp_to(String(b[key]))
+	return cmp < 0 if ascending else cmp > 0
+
+
+func _wd_fill(tab: int) -> void:
+	var tree: Tree = _wd_trees[tab]
+	tree.clear()
+	var cols: Array = WD_COLUMNS[tab]
+	var rows: Array = (_wd_rows.get(tab, []) as Array).duplicate()
+
+	var needle := ""
+	if _wd_filters.has(tab):
+		needle = (_wd_filters[tab] as LineEdit).text.strip_edges().to_lower()
+	if not needle.is_empty():
+		var kept: Array = []
+		for row: Dictionary in rows:
+			if _wd_row_matches(row, cols, needle):
+				kept.append(row)
+		rows = kept
+
+	var sort_state: Array = _wd_sort[tab]
+	if sort_state[0] >= 0 and sort_state[0] < cols.size():
+		var spec: Dictionary = cols[sort_state[0]]
+		rows.sort_custom(_wd_less.bind(String(spec["key"]), bool(spec.get("num", false)), bool(sort_state[1])))
+
+	var root := tree.create_item()
+	for row: Dictionary in rows:
+		var item := tree.create_item(root)
+		item.set_metadata(0, int(row.get("_index", -1)))
+		for c in cols.size():
+			var spec: Dictionary = cols[c]
+			var key := String(spec["key"])
+			item.set_text(c, _wd_cell_text(spec, row[key]))
+			if bool(spec.get("right", false)):
+				item.set_text_alignment(c, HORIZONTAL_ALIGNMENT_RIGHT)
+			if bool(spec.get("faction", false)):
+				item.set_custom_color(c, _faction_color(int(row[key])))
+
+	var total: int = (_wd_rows.get(tab, []) as Array).size()
+	var shown := rows.size()
+	var summary: Label = _wd_summaries[tab]
+	if total == 0:
+		summary.text = "—"
+	elif shown == total:
+		summary.text = "%d %s" % [total, "row" if total == 1 else "rows"]
+	else:
+		summary.text = "%d of %d rows" % [shown, total]
+	(_wd_empties[tab] as Label).visible = total == 0
+	tree.visible = total > 0
+
+	## Sort arrows live in the title text: Tree has no built-in indicator,
+	## and a column you can sort but can't tell the direction of is worse
+	## than one you can't sort at all.
+	for c in cols.size():
+		var mark := ""
+		if sort_state[0] == c:
+			mark = "  ▲" if sort_state[1] else "  ▼"
+		tree.set_column_title(c, String((cols[c] as Dictionary)["title"]) + mark)
+
+
+## map_overlay owns the one faction palette (Okabe-Ito, matched to
+## CIV_FACTION_COUNT); read it from there rather than keeping a second copy
+## that could drift from the markers it is supposed to match.
+func _faction_color(faction: int) -> Color:
+	var palette: Array = map_overlay.FACTION_COLORS
+	return palette[(faction - 1) % palette.size()] if faction >= 1 else Color(0.552941, 0.576471, 0.588235)
+
+
+## ── Performance readout (View ▸ Performance readout) ───────────────────
+## GUI_FEATURE_PARITY_SCOPE.md Category-1 item #7, the readout half.
+## WorldGen.get_gpu_stages_used() has existed as a real #[func] with no
+## caller: it reports which GPU-eligible stages actually ran on GPU last
+## generate, and it is deliberately NOT derivable from the use_gpu
+## parameter — every stage falls back to CPU individually on any GPU
+## init/dispatch failure, so "asked for GPU, got none" is a state the UI
+## has to be able to say out loud.
+##
+## The toggle half stays deferred, and visibly so rather than absent: the
+## use_gpu CheckBox below is present and disabled with the reason on it,
+## the same "visibly present, not hidden" rule the inert menu items follow.
+## GPU_LAYER_INTEGRATION_SCOPE.md's current milestone is still the GPU-safe
+## noise redesign; switching the path on before that lands would produce a
+## different world for the same seed (DECISIONS.md §7c).
+##
+## The runtime block below is an addition, not parity — the reference app
+## reported nothing like it. It needs no Rust: Godot's own Performance and
+## OS singletons already have these numbers (GUI_FEATURE_PARITY_SCOPE.md
+## Category 2 says as much).
+
+const GPU_ELIGIBLE_STAGES: Array = [
+	{"key": "warp", "label": "Domain warp (noise)"},
+	{"key": "heterogeneity", "label": "Lithology heterogeneity"},
+	{"key": "plate_assignment", "label": "Plate assignment"},
+	{"key": "base_field_blur", "label": "Base field blur"},
+	{"key": "weather", "label": "Weather / moisture sim"},
+	{"key": "flow", "label": "Flow accumulation"},
+]
+
+var _perf_dialog: AcceptDialog
+var _perf_stage_labels: Dictionary = {} ## stage key -> Label
+var _perf_gpu_summary: Label
+var _perf_runtime_labels: Dictionary = {} ## row title -> Label
+var _perf_gpu_check: CheckBox
+
+
+func _open_performance_readout() -> void:
+	if _perf_dialog == null:
+		_perf_dialog = _build_performance_dialog()
+	_refresh_performance_readout()
+	_perf_dialog.popup_centered(PERF_DIALOG_SIZE)
+
+
+## Tall enough that the footer hint clears AcceptDialog's own OK button --
+## with wrap_controls off the dialog honours this size exactly, so content
+## that doesn't fit is content that sits under the button.
+const PERF_DIALOG_SIZE := Vector2i(620, 780)
+
+
+func _build_performance_dialog() -> AcceptDialog:
+	var dialog := AcceptDialog.new()
+	dialog.title = "Performance readout"
+	dialog.theme = theme
+	dialog.wrap_controls = false
+	add_child(dialog)
+
+	var margin := MarginContainer.new()
+	for side in ["left", "top", "right", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 8)
+	dialog.add_child(margin)
+
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 10)
+	margin.add_child(root)
+
+	var gpu_header := Label.new()
+	gpu_header.theme_type_variation = &"SectionHeader"
+	gpu_header.text = "GPU ACCELERATION"
+	root.add_child(gpu_header)
+
+	_perf_gpu_check = CheckBox.new()
+	_perf_gpu_check.text = "Use GPU compute where a stage supports it"
+	_perf_gpu_check.custom_minimum_size = Vector2(PERF_DIALOG_SIZE.x - 90, 36)
+	_perf_gpu_check.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_perf_gpu_check.disabled = true
+	_perf_gpu_check.tooltip_text = String(EXCLUDED_KEYS["use_gpu"])
+	root.add_child(_perf_gpu_check)
+	root.add_child(_hint_label(
+		"The switch is real (WorldParams::use_gpu) and deliberately not offered yet: GPU_LAYER_INTEGRATION_SCOPE.md's current milestone is still the GPU-safe noise redesign, so the GPU path would produce a different world for the same seed (DECISIONS.md §7c). What ran is reported below either way.",
+		PERF_DIALOG_SIZE.x - 60))
+
+	_perf_gpu_summary = Label.new()
+	_perf_gpu_summary.add_theme_color_override("font_color", Color(0.878431, 0.639216, 0.290196))
+	_perf_gpu_summary.add_theme_font_size_override("font_size", 12)
+	root.add_child(_perf_gpu_summary)
+
+	var stage_grid := _perf_panel(root)
+	for stage: Dictionary in GPU_ELIGIBLE_STAGES:
+		_perf_stage_labels[String(stage["key"])] = _perf_row(stage_grid, String(stage["label"]))
+
+	root.add_child(_hint_label(
+		"Each stage falls back to CPU individually on any GPU init or dispatch failure (HARDWARE_ACCELERATION.md §27), so this is what actually ran, not what was asked for. Everything reads CPU before the first generate and after loading a save.",
+		PERF_DIALOG_SIZE.x - 60))
+
+	root.add_child(HSeparator.new())
+
+	var rt_header := Label.new()
+	rt_header.theme_type_variation = &"SectionHeader"
+	rt_header.text = "RUNTIME"
+	root.add_child(rt_header)
+
+	var rt_grid := _perf_panel(root)
+	for title in ["Frames per second", "Video adapter", "CPU threads", "Static memory", "Video memory"]:
+		_perf_runtime_labels[title] = _perf_row(rt_grid, title)
+
+	root.add_child(_hint_label(
+		"Godot's own Performance/OS/RenderingServer singletons, not an engine query — an addition this port has and the reference app never did. Updates while this dialog is open.",
+		PERF_DIALOG_SIZE.x - 60))
+
+	## Live while visible only: a readout that stops updating the moment you
+	## look away is what "readout" means here, and a 1 Hz timer costs nothing.
+	var timer := Timer.new()
+	timer.wait_time = 1.0
+	timer.autostart = true
+	timer.timeout.connect(func():
+		if dialog.visible:
+			_refresh_performance_readout())
+	dialog.add_child(timer)
+	return dialog
+
+
+func _perf_panel(parent: Control) -> GridContainer:
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.0627451, 0.0666667, 0.0705882, 1)
+	style.set_content_margin_all(10)
+	panel.add_theme_stylebox_override("panel", style)
+	parent.add_child(panel)
+
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 16)
+	grid.add_theme_constant_override("v_separation", 4)
+	panel.add_child(grid)
+	return grid
+
+
+func _perf_row(grid: GridContainer, title: String) -> Label:
+	var k := Label.new()
+	k.custom_minimum_size = Vector2(200, 0)
+	k.add_theme_font_size_override("font_size", 11)
+	k.add_theme_color_override("font_color", Color(0.552941, 0.576471, 0.588235))
+	k.text = title
+	grid.add_child(k)
+
+	var v := Label.new()
+	v.add_theme_font_size_override("font_size", 12)
+	v.add_theme_color_override("font_color", Color(0.784314, 0.796078, 0.803922))
+	v.text = "—"
+	grid.add_child(v)
+	return v
+
+
+func _refresh_performance_readout() -> void:
+	var used := PackedStringArray()
+	if world_gen.has_method("get_gpu_stages_used"):
+		used = world_gen.get_gpu_stages_used()
+	var requested := bool(world_gen.get_params().get("use_gpu", false)) if _params_available else false
+	_perf_gpu_check.set_pressed_no_signal(requested)
+
+	for stage: Dictionary in GPU_ELIGIBLE_STAGES:
+		var key := String(stage["key"])
+		var on_gpu := used.has(key)
+		var label: Label = _perf_stage_labels[key]
+		label.text = "GPU" if on_gpu else "CPU"
+		label.add_theme_color_override("font_color",
+			Color(0.878431, 0.639216, 0.290196) if on_gpu else Color(0.552941, 0.576471, 0.588235))
+
+	if used.is_empty():
+		_perf_gpu_summary.text = "0 of %d eligible stages ran on GPU — %s" % [
+			GPU_ELIGIBLE_STAGES.size(),
+			"GPU was requested and none was available" if requested else "the whole pipeline ran on CPU, as configured"]
+	else:
+		_perf_gpu_summary.text = "%d of %d eligible stages ran on GPU last generate" % [
+			used.size(), GPU_ELIGIBLE_STAGES.size()]
+
+	_perf_runtime_labels["Frames per second"].text = "%d" % int(Performance.get_monitor(Performance.TIME_FPS))
+	_perf_runtime_labels["Video adapter"].text = "%s (%s)" % [
+		RenderingServer.get_video_adapter_name(), RenderingServer.get_video_adapter_vendor()]
+	_perf_runtime_labels["CPU threads"].text = "%d" % OS.get_processor_count()
+	_perf_runtime_labels["Static memory"].text = String.humanize_size(OS.get_static_memory_usage())
+	_perf_runtime_labels["Video memory"].text = String.humanize_size(
+		int(Performance.get_monitor(Performance.RENDER_VIDEO_MEM_USED)))

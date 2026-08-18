@@ -9911,3 +9911,158 @@ milestone that ports the Cartography paint-brush tool" as the place to resume
 — that producer now exists, but the consumer is a `cartalith-godot` render
 change this milestone is scoped out of. The 0.60 painted-colour blend in
 `land_color` is the same case.
+
+## GUI parity Category-1 sweep: the world data browser and the performance readout (2026-08-18)
+
+`GUI_FEATURE_PARITY_SCOPE.md`'s Category 1 — *"real backing exists, just
+needs wiring"* — closed except for one row, which this pass demotes to
+Category 2 rather than force-fitting.
+
+### What the audit said, versus what was already true
+
+That document was written before three forks landed on the same day, so
+half its Category-1 table had already been closed by work that was not
+about it. Re-verified against the code, not the doc:
+
+| # | Item | State found |
+|---|---|---|
+| 1 | Import asset pack | **Already done** — DCC shell milestone 1, `File ▸ Import asset pack…` with a real `FileDialog` |
+| 2 | Settlements table | Genuinely unwired — **done here** |
+| 3 | Trade balance / Economy | Genuinely unwired — **done here** |
+| 4 | Province list | Genuinely unwired — **done here** |
+| 5 | Faction culture-terrain-fit | Genuinely unwired, and **not Category 1**: see below |
+| 6 | Planet gravity / day length / axial tilt | **Already done** — the generation-parameter API (`88c15f0`) put `planet.g`/`planet.rotation_hours`/`planet.axial_tilt_deg` in the table, and the Generate stage dialogs (`a11c2d7`) render them as the Climate stage's PLANET section |
+| 7 | GPU status / toggle | Readout half genuinely unwired — **done here**; toggle half stays deferred, see below |
+| 8 | World Structure raw sliders | **Already done** — same two commits: `world_structure.*`'s five knobs are the Tectonics stage's WORLD STRUCTURE section, and `apply_archetype()` exists so a preset writes those same five sliders the way the reference's own archetype segment does |
+| 9 | Layer granularity | **Already done** — DCC shell milestone 1, three independent toggles |
+| 10 | Click-to-pin selection | **Already done** — DCC shell milestone 1, the Properties dock |
+
+Item 5 is the honest correction. `civ_culture_terrain_fit` is real and
+unit-tested, but its signature takes a per-faction `terrain_mix` and a
+`world_mean_terrain` — and *nothing computes either*. `ECONOMY_SCOPE.md`
+still lists that aggregation (`_civFactionAggregates`) as unstarted. So
+this is not "a one-line `#[func]` mirroring `set_sea_level`"; it is a real
+`cartalith-civ` milestone with a thin GUI on top. The audit itself hedged
+it as "a half-step into Category 2"; this pass moves it there outright
+rather than adding a `#[func]` with no argument to call it with.
+
+### Built — no Rust changed
+
+Every `#[func]` this needs has existed and been called by nothing:
+`get_settlements()` (read, but only for map markers), `get_provinces()`,
+`get_trade_balances()`, `get_gpu_stages_used()`. So this milestone is
+`main.gd` only — `main.tscn` untouched, no crate touched, following the
+pattern the three preceding forks converged on (dialogs built at runtime
+from what the engine reports, so adding data stays a Rust-side change).
+
+**World data browser** — `Simulate ▸ Economy…` and `Simulate ▸ Statistics…`,
+one dialog with three tabs:
+
+- **Settlements** — every settlement the world placed, sortable on any
+  column and filterable by name. Closes the prior shell's own hint text
+  ("a dedicated searchable/sortable table here is not yet built").
+  Clicking a row pins that settlement in the Properties dock with the full
+  causal "why here?" chain — the same chain clicking its map marker gives,
+  so the table is a second door into the existing inspector rather than a
+  parallel display of the same facts.
+- **Provinces** — `get_provinces()`'s first consumer ever. Province
+  *boundaries* have rendered since milestone 16; province *identity* (name,
+  owning faction, and which settlement each was grown from) has never been
+  shown. The capital column resolves `capital_settlement_index` against
+  `get_settlements()`, so the two queries are visibly the same world.
+- **Economy** — `get_trade_balances()`'s first consumer ever: per
+  settlement, which of the 15 resource keys its hinterland exports and
+  imports against the world mean.
+
+**Performance readout** — `View ▸ Performance readout…`. Names all six
+GPU-eligible stages and says GPU or CPU for each, from
+`get_gpu_stages_used()`. That query is deliberately not derivable from the
+`use_gpu` parameter: every stage falls back to CPU *individually* on any
+GPU init or dispatch failure (`HARDWARE_ACCELERATION.md` §27), so "asked
+for GPU, got none" is a state the UI has to be able to say out loud, and
+the summary line says exactly that when it happens. Plus a runtime block
+(FPS, adapter, threads, static/video memory) from Godot's own
+`Performance`/`OS`/`RenderingServer` singletons — flagged in the dialog
+itself as an addition this port has and the reference never did
+(`DECISIONS.md` §7d), not as parity.
+
+The `use_gpu` **toggle** stays deferred and visibly so: the checkbox is
+present, disabled, and carries the reason.
+`GPU_LAYER_INTEGRATION_SCOPE.md`'s current milestone is still the GPU-safe
+noise redesign, so switching the path on would produce a different world
+for the same seed (`DECISIONS.md` §7c). Same "visibly present, not hidden"
+rule the inert menu items already follow.
+
+### Placement, against a shell the audit predates
+
+`GUI_FEATURE_PARITY_SCOPE.md` was written against the panel-browser shell
+and recommends dock panels in places the DCC shell has none. Its
+Category-1/2 findings are about the Rust engine and survive that; its
+placement recommendations do not. `UI_SHELL_DESIGN.md` governs instead:
+menu items open dialogs, never persistent side panels, and the right dock
+is Layers/Properties/Sample only. Hence dialogs behind menu items whose
+names come from that document's own Simulate list, not three new dock
+panels. One dialog with a tab row rather than three near-identical
+dialogs, so the sort/filter/fill machinery is written once; the tab row
+reuses the flat-toggle-button pattern the workspace tabs already
+established rather than a `TabContainer`, which has no `dark_theme.tres`
+entry and would arrive in Godot's default chrome.
+
+Nothing in the browser derives a fact: every value is a field the engine
+returned, and GDScript formats, sorts and filters it (`ARCHITECTURE.md`).
+The one exception is the summary line's row counts, which count what is on
+screen.
+
+### Verified
+
+- `godot4 --headless --quit main.tscn`: clean load, byte-identical console
+  output to the same run with `HEAD`'s `main.gd` swapped in (including the
+  two pre-existing RID/ObjectDB exit warnings, checked rather than assumed
+  to be mine).
+- `cargo test --workspace` at `HEAD` in a clean worktree: **all green, 0
+  failures**. The working tree could not be tested directly — a concurrent
+  fork is mid-commit in `cartalith-civ` and `cartalith-godot/src/render.rs`
+  (`civ_is_valid_terrain` not yet added, `land_color` grown a `lith`
+  parameter its call site hasn't caught up to), so
+  `cargo build -p cartalith-godot` fails on *their* uncommitted edit.
+  Nothing in this milestone touches Rust, so the worktree baseline is the
+  honest number.
+- **Real windowed app, real world, real data.** Generated 512×328 at seed
+  12345 (40 settlements, 9 provinces) and captured the running window with
+  `PrintWindow`: the settlements tab shows 40 real rows with
+  faction-coloured ids matching the map's own Okabe-Ito markers; sorting by
+  population descending and filtering to "a" gives "39 of 40 rows" with the
+  six capitals on top; provinces shows 9 rows each resolving to a real
+  capital settlement name; economy shows real per-settlement export/import
+  lists; the performance readout shows all six stages CPU with "0 of 6
+  eligible stages ran on GPU — the whole pipeline ran on CPU, as
+  configured", and a live 60 FPS / RX 7800 XT / 16 threads / 73 MiB runtime
+  block.
+- **Province rendering survived both shell rebuilds** — confirmed by
+  screenshot, not by reading the scene file: the Layers dock's "Province
+  boundaries" toggle draws `build_province_boundary_texture()`'s real
+  boundary lines over the territory fill.
+- All three new menu entry points driven by **real mouse clicks** on the
+  running window, not by calling the handlers: `Simulate` opens with
+  Economy…/Statistics… live among the greyed inert rows, clicking Economy
+  opens the dialog on the right tab, and `View ▸ Performance readout…`
+  opens its dialog. Explicit menu ids moved to 100+ so they cannot collide
+  with the sequential ids `PopupMenu.add_item()` hands the inert rows
+  around them — currently harmless since disabled items never emit, and not
+  harmless the first time one is enabled.
+- Two real defects found this way and fixed before commit: the performance
+  dialog's footer hint sat *under* `AcceptDialog`'s own OK button at 620 px
+  tall (the same fixed-height-versus-content tension the autowrap-`Label`
+  trap comes from), and `Tree` centres column titles by default, which
+  reads as a heading for the wrong column once a wide name column sits
+  beside a narrow numeric one.
+- Golden path re-checked in the same run: generation, all five layer
+  toggles, hover sample, click-to-pin Properties, scale bar and status
+  line all unchanged.
+
+### Still open in Category 1
+
+Nothing, except item 5 as re-classified above and item 7's toggle as
+deferred above. `GUI_FEATURE_PARITY_SCOPE.md` is updated in the same commit
+with its whole table re-baselined against the DCC shell, so the next pass
+is not working from a map of a shell that no longer exists.

@@ -1,5 +1,40 @@
 # GUI feature parity: real audit and milestone plan
 
+> **Status, 2026-08-18 — Category 1 is closed; the rest is re-baselined.**
+>
+> **Read this box before the audit below.** This document was written
+> against the *panel-browser* shell (navigator + swapping subject panel).
+> That shell no longer exists: the DCC shell replaced it structurally
+> (`DCC_SHELL_SCOPE.md`, `UI_SHELL_DESIGN.md` — eight menus, five workspace
+> tabs, a left tool rail, and a right dock holding only Layers/Properties/
+> Sample). The audit's findings about **what the Rust engine really has**
+> are unaffected and still accurate — they were checked against `lib.rs`,
+> not against a layout. Its findings about **where a control should live**
+> are not: dock-panel recommendations do not map onto a shell whose
+> governing rule is *menu items open dialogs, never persistent side
+> panels*. Every placement below has been re-stated against
+> `UI_SHELL_DESIGN.md`.
+>
+> **Category 1 (§ below): all ten rows resolved.** Six were already done
+> by other work before this document's own milestone 1 ran — items 1, 9,
+> 10 by DCC shell milestone 1; items 6 and 8 by the generation-parameter
+> API (`88c15f0`) plus the Generate stage dialogs (`a11c2d7`), which put
+> `planet.*` and `world_structure.*` on real live sliders read from the
+> engine's own table. Items 2, 3, 4 and item 7's readout half were
+> genuinely still unwired and were built as the world-data browser and the
+> performance readout (`CHANGELOG.md`, *GUI parity Category-1 sweep*).
+> Item 5 is **re-classified as Category 2**, not done: `civ_culture_
+> terrain_fit` is real, but it takes a per-faction `terrain_mix` and a
+> `world_mean_terrain` that nothing computes, so it needs the
+> `_civFactionAggregates` aggregation `ECONOMY_SCOPE.md` still lists as
+> unstarted — a `cartalith-civ` milestone, not a wiring job. Item 7's
+> *toggle* half stays deferred with its reason on screen (a present,
+> disabled checkbox in the performance readout).
+>
+> **Categories 2, 3 and 4 are unchanged in substance** but their placement
+> lines have been re-pointed at real DCC menus below; the milestone
+> ordering at the end still holds, minus its now-complete step 1.
+
 Owner directive, verbatim: *"work through all phases until feature parity
 with the original project has been established... all options, sliders etc
 [should be] available and... the GUI from claude design [should be]
@@ -52,6 +87,11 @@ load-save, credits, settlement+road+sea-route rendering with hover inspector
 and causal "why here?" chain, territory fill, province boundaries, the
 now-real dark `Theme` resource.
 
+*(2026-08-18: everything in the next paragraph is now GUI-wired except
+`civ_culture_terrain_fit`, and `use_gpu`'s switch stays deliberately
+deferred while its status is reported. Kept as written so the audit's own
+"what was true when" is legible.)*
+
 Confirmed real in Rust but **not GUI-wired at all** (the highest-value
 findings of this audit — see Category 1): asset-pack loading
 (`load_asset_pack`/`has_asset_pack`), province metadata
@@ -79,12 +119,39 @@ heightmap import, GeoJSON export, brush/stamp tools, staleness tracking,
 Narrative/Scenario (`VISION.md`: "a different product, not yet scoped
 anywhere").
 
-## Category 1 — real backing, needs wiring only
+## Category 1 — real backing, needs wiring only — **CLOSED 2026-08-18**
 
 The highest-value, lowest-risk work in this whole document: every row below
 already has correct, tested Rust behind it. "Wiring" ranges from a pure
 GDScript change (a button, a `FileDialog`, a table) to a one-line `#[func]`
 that mirrors an existing pattern (`set_sea_level`, `set_villages_enabled`).
+
+**Outcome table** (the original analysis follows unedited underneath, since
+its reasoning about the engine is what made each row cheap):
+
+| # | Control | Resolution | Where it lives now |
+|---|---|---|---|
+| 1 | Import asset pack | done, DCC shell m1 | `File ▸ Import asset pack…` |
+| 2 | Settlements table | **done, this milestone** | `Simulate ▸ Statistics…`, Settlements tab — sortable, filterable, row click pins the causal chain in Properties |
+| 3 | Trade balance / Economy | **done, this milestone** | `Simulate ▸ Economy…`, Economy tab |
+| 4 | Province list | **done, this milestone** | `Simulate ▸ Statistics…`, Provinces tab (boundaries still render from the Layers dock) |
+| 5 | Faction culture-terrain-fit | **re-classified Category 2** | needs `_civFactionAggregates`' per-faction terrain mix first — see the note below |
+| 6 | Planet gravity / rotation / tilt | done, `88c15f0` + `a11c2d7` | `Generate ▸ Climate…`, PLANET section |
+| 7 | GPU status / toggle | readout **done, this milestone**; toggle deferred | `View ▸ Performance readout…` — six stages, GPU or CPU each; the toggle is a present, disabled checkbox carrying its reason |
+| 8 | World Structure raw sliders | done, `88c15f0` + `a11c2d7` | `Generate ▸ Tectonics…`, WORLD STRUCTURE section (plus `apply_archetype()`, so a preset writes those same five sliders) |
+| 9 | Layer granularity | done, DCC shell m1 | Layers dock — Settlements / Roads & ways / Sea routes as three toggles |
+| 10 | Click-to-pin selection | done, DCC shell m1 | Properties dock |
+
+**Item 5, the one correction to this document's own classification.**
+`civ_culture_terrain_fit`'s signature is
+`(culture_key, terrain_mix, world_mean_terrain)`. Neither map exists
+anywhere in this workspace — computing them *is* the territory-aggregation
+piece `ECONOMY_SCOPE.md` lists as unstarted and this document lists under
+Category 2 medium (`_civFactionAggregates`). So it is not a `#[func]` away;
+adding one would only produce a function with no argument to call it with.
+This row moves to Category 2 and folds into that milestone. The original
+text below already hedged it as "a half-step into Category 2"; this is that
+hedge resolved rather than re-litigated.
 
 | # | Control | Real backing | What's missing |
 |---|---|---|---|
@@ -108,6 +175,33 @@ rendering — all already correctly wired.
 
 Ordered by real size, using each subsystem's own existing scope document
 where one already exists rather than re-deriving size estimates.
+
+**Re-baselined 2026-08-18.** Three changes since this section was written:
+
+- **Faction culture-terrain-fit joins this category** (Category-1 item 5,
+  above) and belongs with `_civFactionAggregates` below, which is the thing
+  that has to exist first.
+- **CPU/GPU/memory live readout is done** — `View ▸ Performance readout…`
+  covers all three numbers (GPU from `get_gpu_stages_used()`, CPU/memory
+  from Godot's own singletons, exactly as this section predicted). Strike it
+  from the small list.
+- **Journey Planner is engine-complete** — `7bd0680` closed the subsystem
+  (65 of 74 functions; `JOURNEY_PLANNER_SCOPE.md`). Its entry under *Large*
+  below is now a GUI-only milestone, and its DCC home is
+  `Simulate ▸ Logistics`, which is present and disabled today with exactly
+  that reason on it. That makes it, not the terrain-appearance GUI, the
+  largest ready-to-build GUI surface in this document.
+
+DCC homes for the rest of this category, replacing the panel-browser
+placements the individual entries name: heightmap import →
+`File ▸ Import heightmap…` (present, disabled); GeoJSON export →
+`File ▸ Export GeoJSON` (present, disabled); route-corridor/travel-cost
+analysis fields → `View ▸ Analysis field overlay`; terrain appearance GUI →
+`Render ▸ Terrain appearance…`; faction roster → `Simulate ▸ Statistics…`
+as a fourth tab beside Settlements/Provinces/Economy, since that dialog is
+now where civilisation-layer rosters live; labels/annotation and manual icon
+placement → the `Label`/`Icon stamp` tools on the left rail plus
+`Render`/`Assets`, not a menu of their own.
 
 ### Small (a few functions to one milestone each)
 
@@ -205,6 +299,21 @@ where one already exists rather than re-deriving size estimates.
 ## Category 3 — mockup inventions with no reference equivalent (`NEW`-tagged)
 
 Per-item recommendation, research-informed where the reference is silent.
+
+**Re-baselined 2026-08-18.** These recommendations were written against the
+old shell's `LayersPanel` and navigator; the reasoning survives, the homes
+change. Per-layer opacity now belongs to the DCC **Layers dock** (which
+already holds the five real toggles) rather than a panel; the measurement
+tool is already a real rail slot (`Measure`, `M`) waiting for a
+pass-buffer, so it is blocked on `UNIFIED_TOOL_PLAN.md`'s tool system, not
+on a place to put it; quality tiers belong under `Render ▸ Render quality`
+(present, disabled); coordinate system / projection has no DCC home at all
+and its "defer" recommendation is unchanged. **Stale-field tracking is no
+longer only a recommendation** — `UNIFIED_TOOL_PLAN.md` milestone A built
+the `PassBuffer`/`StageGraph` staleness core (`97f7333`), so the remaining
+work is surfacing it, and the Generate stage dialogs already carry the
+honest interim affordance (a regenerate-to-apply footer plus a status-bar
+note) instead of a fake per-stage stale pip.
 
 **Worth building — natural fit for a cartographic/terrain tool, cite real precedent:**
 
@@ -337,19 +446,18 @@ existing scope docs rather than re-scoping them), then Category 3's
 build-recommended items, then Category 4 (small, standalone, can run
 anytime — not blocking, not blocked by, anything else here).
 
-1. **Category 1 sweep** — one milestone, all ten rows. Lowest risk in this
-   entire document: items 2-10 are pure GDScript/scene work or a single
-   `#[func]` mirroring an existing pattern (`set_sea_level`); item 1 (asset
-   pack import) alone is worth doing first in isolation since it's the
-   highest-visibility "this menu item does nothing" fix and costs almost
-   nothing (the function already runs correctly today via a debug call).
+1. ~~**Category 1 sweep**~~ — **done 2026-08-18**, across three forks plus
+   one dedicated pass; see the outcome table in Category 1. The prediction
+   held: it needed zero new Rust. One row (5) turned out to be Category 2
+   and moved there.
 2. **Category 4 visual-consistency sweep** — one small milestone,
    independent of everything else, can run in parallel with 1.
 3. **Stale-field tracking** (Category 3) — build this before any Category-2
    Generate-stage slider work, per the menu-structure doc's own reasoning.
 4. **Category 2 small items** — heightmap import (needs its own short
-   investigation first), GeoJSON export, CPU/memory readout (GPU part folds
-   into Category 1 item 7), route-corridor/travel-cost analysis fields.
+   investigation first), GeoJSON export, ~~CPU/memory readout~~ (done — the
+   performance readout covers all three numbers), route-corridor/travel-cost
+   analysis fields.
 5. **Terrain appearance GUI** (Category 2, medium) — the best risk/reward
    ratio in Category 2: the hard rendering work (4 milestones) is already
    done and golden-tested; this is GUI-only on a solid foundation.
@@ -358,10 +466,12 @@ anytime — not blocking, not blocked by, anything else here).
    itself); the aggregation itself is real, bounded, medium work.
 7. **Category 3 build-recommended remainder** — layer opacity (cheap now),
    measurement tool, quality tiers (once 5 exists to gate).
-8. **Large Category 2 items** — Journey Planner (`JOURNEY_PLANNER_SCOPE.md`,
-   milestones 3-6 remaining), Asset Library UI (after the in-progress
-   milestone 7 lands), Simulate playback UI is **not** in this list (see
-   Out of scope), tile/LOD viewport (`LOD_TILING_BASE_SCOPE.md`).
+8. **Large Category 2 items** — Journey Planner: its engine is **complete**
+   as of `7bd0680`, so this is now a pure GUI milestone at
+   `Simulate ▸ Logistics`, and arguably the highest-value one left in this
+   document; Asset Library UI (milestone 7 has landed); Simulate playback UI
+   is **not** in this list (see Out of scope); tile/LOD viewport
+   (`LOD_TILING_BASE_SCOPE.md`).
 
 ## Out of scope, and why
 
