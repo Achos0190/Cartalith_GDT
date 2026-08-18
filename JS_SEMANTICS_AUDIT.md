@@ -969,3 +969,25 @@ runs, the 3x3 block search, the near-parallel edge-delta search, the mutation
 runner) were scratch programs, not checked in — the same convention the
 golden-fixture extraction harnesses follow. Every number in this document is
 reproducible from the description beside it.
+
+### 6.4 First consumer after the consolidation: `cartalith-urban` milestone 7
+
+The organic-growth port (`URBAN_MORPHOLOGY_SCOPE.md` milestone 7, same day) is
+the first milestone written *after* `cartalith-jsmath` existed, so it is the
+first real test of whether the catalogue is complete rather than merely tidy.
+
+**It needed nothing new.** `grow` and its four companions use `js_exp`,
+`js_sin`, `js_cos`, `js_atan2`, `js_min`, `js_max` and `js_round`, all through
+`cartalith-urban::geom`'s re-exports, plus one JS truthiness test —
+`Math.max(1, opts.settlementAge || 300)` — which is `js_truthy_num` used
+directly from the leaf crate. No eighth copy of anything, no ninth FDLIBM site,
+and no new helper. Section 5's recommendation #2 is doing what it was for.
+
+**One boundary confirmed rather than revisited.** `-urban::site::js_or` — the
+general `x || d` on a number, which this section already recorded as
+deliberately *not* moved — is what milestone 7's `settlementAge` fallback would
+have reached for. It did not need it: `js_or(v, d)` is exactly
+`if js_truthy_num(v) { v } else { d }`, so the leaf crate's predicate covers the
+general case and the crate-local helper stays a call-site convenience rather
+than a missing entry. That is the boundary this consolidation drew, tested by a
+consumer instead of asserted.

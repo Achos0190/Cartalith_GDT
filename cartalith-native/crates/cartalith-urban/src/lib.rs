@@ -22,6 +22,8 @@
 //! Milestone 5 adds [`site`], the physical setting every later stage queries.
 //! Milestone 6 adds [`routes`] — the market anchor and the arterial backbone,
 //! the first milestone that produces a real street graph end to end.
+//! Milestone 7 adds [`growth`] — the epoch loop that grows the town onto that
+//! backbone, and the successive-wall-generation machinery it drives.
 //!
 //! **Not wired to anything.** Nothing in this crate is called from
 //! `compute_civilisation()`, `cartalith-godot`, or the GUI — same standing
@@ -30,6 +32,7 @@
 pub mod astar;
 pub mod geom;
 pub mod graph;
+pub mod growth;
 pub mod rng;
 pub mod routes;
 pub mod rules;
@@ -38,6 +41,11 @@ pub mod site;
 pub use astar::astar;
 pub use geom::{Vec2, js_cos, js_exp, js_hypot, js_log, js_max, js_min, js_round, js_sin};
 pub use graph::{Edge, Face, Graph, Node};
+pub use growth::{
+    Gate, GrowOpts, HarbourFront, Occupancy, RecordingWallBuilder, WallBuilder, WallGeneration,
+    WallState, dist_to_line, estimate_carrying_capacity, grow, logistic_ramp, ring_crossings,
+    supersede_wall, wall_occupancy,
+};
 pub use rng::{Substream, fnv1a, stream};
 pub use routes::{Anchors, Route, build_primaries, build_primaries_from_paths, place_anchors};
 pub use site::{

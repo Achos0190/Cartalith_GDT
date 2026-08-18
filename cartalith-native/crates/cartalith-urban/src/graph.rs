@@ -214,7 +214,7 @@ impl Graph {
     /// order; two callers ([`Self::attach_point`]'s first-wins `<` and
     /// [`Self::add_street`]'s stable sort) depend on it, so this returns an
     /// ordered `Vec` rather than a `HashSet`.
-    fn edges_near(&self, a: Vec2, b: Vec2) -> Vec<usize> {
+    pub(crate) fn edges_near(&self, a: Vec2, b: Vec2) -> Vec<usize> {
         let mut seen = std::collections::HashSet::new();
         let mut out = Vec::new();
         for k in self.cells_for_seg(a, b) {
