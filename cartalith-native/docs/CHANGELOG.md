@@ -10547,3 +10547,119 @@ raster), §16 multi-scale detail as an explicit control set, §17 colour
 vibrancy, §19 atmospheric/distance effects, §20 the high-precision display
 pipeline, §21 the GPU rendering path, §29 quality tiers, the GUI editing
 panel (`GUI_SHELL_SCOPE.md`), and milestone 1's elevation-ramp question.
+
+## Phase 5 milestone 4 — generation rules and culture profiles, and the one line that would have built a different town (2026-08-18)
+
+`URBAN_MORPHOLOGY_SCOPE.md` milestone 4: `CULTURE_PROFILES`, `resolveProfile`,
+`DEFAULT_RULES`, `cloneRules`, `resolveRules`, `clamp`, `applyWildness`,
+`applyPlotChaos` — reference lines **28193-28280** — as
+`cartalith-urban::rules`. Dependencies unchanged (`cartalith-rng` only). Wired
+to nothing. 10 new tests, 43 in the crate.
+
+**The stated range was wrong at both ends, in opposite directions**, and this is
+the third range in the plan to need correcting. The plan said 28212-28289. The
+start was 13 lines late — 28212 is `resolveProfile`, so the range **excluded
+`CULTURE_PROFILES` entirely**, the first item the milestone's own list names.
+The end was 9 lines late — 28281 is blank and 28282-28289 is the `V` vector
+helper object, which milestone 1 already shipped. Milestone 5's stated start
+(28557, `shoreFromMask`) was checked as a side effect and is correct.
+
+**The reason this milestone is not "just data".** `clamp` is
+`Math.max(lo, Math.min(hi, v))`, and the obvious Rust transliteration
+`lo.max(hi.min(v))` is wrong: JS `Math.min`/`Math.max` propagate NaN, Rust's
+absorb it. A NaN wildness slider leaves eight NaN street fields in the
+reference; the naive port lands **every clamped field on its own upper bound**
+instead — a maximally-wild rule set that looks entirely plausible, feeds
+straight into `grow` (milestone 7), and produces a town nobody can trace back to
+a rounding rule. Same trap `cartalith-assets` milestone 3 hit from the opposite
+direction. The port routes `clamp` through explicit `js_min`/`js_max` mirroring
+the source expression; `wild_NaN`/`chaos_NaN` goldens pin it and a test carries
+the `js_hypot`-style guard so the simplification fails loudly. One documented,
+unreachable divergence remains, on signed zero — and it is exactly why two
+mutations survive.
+
+**Findings in the data.** `applyWildness` is **not idempotent**: ten of its
+eleven assignments recompute from a hardcoded literal times `w`, but
+`deadEndBias` accumulates off its own current value, walking 0.15 → 0.30 → 0.40
+(capped) under repeated `w = 2` while nothing else moves. It also silently
+overwrites custom values it never reads, and touches neither `settlement` nor
+four named `street` fields. `profile.deadEndBias` **does not exist on either
+live profile**, so milestone 11's
+`clamp((profile.deadEndBias||0)+…, 0, 0.40)` always gets zero from the profile
+side — the capture asserts that absence against the reference's own key list.
+Four profile fields are read by nothing at all (`parcelPattern`, whose death the
+reference documents itself; `orientation`; `civicAnchorLabel`; and
+`defaultWalls`, about which **the reference's own provenance prose is stale** —
+it claims the UI reads it, and v2.10 has zero reads anywhere). Nothing outside
+block 4 uses any of this milestone's exports: the whole host app touches exactly
+three names on `UME`. `resolveProfile` has a **prototype-chain hole** —
+`resolveProfile('toString')` returns a *function*, `'__proto__'` returns
+`Object.prototype`, all truthy, all past the `||` fallback — captured as the
+reference's real behaviour with a golden asserting this port hardens all five to
+`medieval`. `cloneRules` does not survive as a function (`Copy` is the deep
+clone, milestone 2's `gKey` call) but is not quite one either: a NaN
+round-trips to `null` through `JSON.stringify`, pinned, unreachable inside the
+engine, and impossible to reproduce in a typed struct.
+
+**Mutation testing: 120 mutations, 114 died, 4 survived, 2 killed by the
+compiler.** Every numeric literal on a non-comment line perturbed one at a time
+(84), plus 36 structural mutations across both clamp semantics, both comparators,
+every `js_round` alternative, the `deadEndBias` accumulation, the `2-w`
+inversions, both `meta` write-backs, `resolveRules`' merge, `resolveProfile`'s
+fallback and arm order, and eleven profile-table values including the array's
+own order. The two compiler-killed ones are array lengths. The four survivors:
+`js_min`'s `<` → `<=` and `js_max`'s `>` → `>=`, both of which only differ on
+`+0` vs `-0` (the documented unreachable divergence); and the `1.0`/`4.0` clamp
+bounds inside `Math.round(clamp(2*c,1,4))`, which survive a `+0.01` perturbation
+and **die** at `1.0 → 1.6`, `1.0 → 0.0`, `4.0 → 4.6` and `4.0 → 3.0` — shown by
+graded perturbation rather than asserted.
+
+**A fifth survivor was killed by adding scenarios, and it generalises.** The `2`
+multiplier in `clamp(2*c,1,4)` survived the first round for the same reason:
+`subdivisionCap` is a **quantised output**, and a rounded value cannot observe a
+change to its inputs smaller than half its own step. Three scenarios were added
+sitting just *below* the rounding boundaries the existing three sit exactly on
+(`chaos_0p7475`/`chaos_1p2475`/`chaos_1p7475`), and it dies. This is milestone
+3's lesson arriving from the other side — there a quantised *input* was needed
+before a tie-break could be observed; here a quantised *output* hides a
+constant. Both are the same fact: a golden can only test what its inputs let the
+function express.
+
+**A tooling trap worth more than the milestone.** The first combined mutation
+sweep reported **34 survivors**. Every one died when re-run by hand; the
+structural block alone killed 34 of 36; the full 120 killed 114. The sweep had
+been reporting a stale binary from partway through. It was neither of milestone
+3's two traps (the mtime stamp and comment-anchored patterns were both already
+in place and both held), did not reproduce on replay, and most likely came from
+a sibling fork building concurrently in the shared `target/`. The durable
+lesson, now written into the scope doc's verification convention: **re-run every
+survivor in isolation before reporting it** — a "did the tests actually run"
+gate does not catch this, because a stale binary reports a perfectly healthy
+`N passed`. Add the gate anyway; it catches the adjacent case of a filter that
+silently matches nothing.
+
+**Golden verification.** All eight items are on `UME`'s *public* export rather
+than `_test`, so this is the first milestone in the subsystem needing no
+indirection: 53 rule cases, both profiles field by field, 15 `resolveProfile`
+ids. Rule sets are flattened into one canonical field order and compared **bit
+for bit** via `to_bits`, so a NaN must be a NaN and a `-0` could not pass for a
+`+0`; no tolerances. The capture asserts the reference's `DEFAULT_RULES` still
+carries exactly that key set in exactly that order, asserts neither profile
+defines `deadEndBias`, and refuses to write unless the output is populated,
+right-shaped and actually varies. Every golden matched on the first run — which
+is precisely why the mutation testing is the part that counts. The slice
+harness is milestone 3's verbatim (contiguous 28167-31103 plus line 2291,
+balance scan with the orphan-close counter, four structural assertions), re-run
+as a negative control with one new row: a slice starting seven lines early and
+swallowing the end of block 3 escapes the balance scan and is caught by the
+first-line assertion, the same shape as milestone 2's documented residual hole.
+
+**Verified:** `cargo build -p cartalith-urban`, `cargo test -p cartalith-urban`
+(43 passed / 0 failed) and `cargo clippy -p cartalith-urban --all-targets` all
+clean. `cargo build --workspace --exclude cartalith-godot` clean (the two
+remaining warnings are `cartalith-gpu`'s, pre-existing and a sibling fork's).
+`cargo fmt` deliberately not run — the crate and its siblings are already not
+rustfmt-clean, so it would reformat other forks' files.
+
+**Also:** `astar.rs`'s module header still carried the superseded 28514-28556
+line range; corrected to 28514-28547 in line with the scope doc.

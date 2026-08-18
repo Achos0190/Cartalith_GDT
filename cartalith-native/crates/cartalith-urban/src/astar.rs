@@ -1,4 +1,6 @@
-//! A\* over the site cost raster — reference lines 28514-28556, one function.
+//! A\* over the site cost raster — reference lines 28514-28547, one function.
+//! (The scope doc's plan said 28556; the last nine of those lines are
+//! milestone 5's own site-model header comments.)
 //!
 //! `buildPrimaries` (milestone 6) rasterises the site into 8 m cells whose cost
 //! is a Tobler-flavoured slope penalty plus water and bank terms, then runs this

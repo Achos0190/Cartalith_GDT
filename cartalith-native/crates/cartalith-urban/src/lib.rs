@@ -17,7 +17,8 @@
 //! street graph with a uniform-grid spatial index, and the planar face
 //! extraction that turns it into town blocks. Milestone 3 adds [`astar`], the
 //! least-cost search over a site cost raster that milestone 6's primary routes
-//! are traced with.
+//! are traced with. Milestone 4 adds [`rules`] — the culture profiles and the
+//! generation-rule table every later milestone reads its constants out of.
 //!
 //! **Not wired to anything.** Nothing in this crate is called from
 //! `compute_civilisation()`, `cartalith-godot`, or the GUI — same standing
@@ -27,8 +28,14 @@ pub mod astar;
 pub mod geom;
 pub mod graph;
 pub mod rng;
+pub mod rules;
 
 pub use astar::astar;
 pub use geom::Vec2;
 pub use graph::{Edge, Face, Graph, Node};
 pub use rng::{Substream, fnv1a, stream};
+pub use rules::{
+    CULTURE_PROFILES, CultureProfile, DEFAULT_RULES, MEDIEVAL, MetaRules, ParcelRules, Rules,
+    RulesPatch, SettlementRules, StreetRules, VENUS, apply_plot_chaos, apply_wildness, clamp,
+    resolve_profile, resolve_rules,
+};

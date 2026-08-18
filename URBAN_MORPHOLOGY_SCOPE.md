@@ -513,14 +513,275 @@ mtime forward and anchor its patterns on code that cannot appear in prose.
    Build at least one quantised or symmetric fixture per milestone from here on,
    and mutation-check rather than assuming a full state dump is enough.
 
-### Milestone 4 — generation rules + culture profiles (lines 28212-28289, 8 functions)
+### Milestone 4 — generation rules + culture profiles: **done** (2026-08-18)
 
 `CULTURE_PROFILES` (medieval/organic and Venus/radial), `resolveProfile`,
 `DEFAULT_RULES`, `cloneRules`, `resolveRules`, `clamp`, `applyWildness`,
-`applyPlotChaos`. Data, not algorithm, but every later milestone reads
-`rules.street.*`/`rules.parcels.*`, and `applyWildness`/`applyPlotChaos` are
-publicly exported so they golden-verify directly. Small; sequenced here because
-milestone 7 cannot start without it.
+`applyPlotChaos` — reference lines **28193-28280**. Module
+`cartalith-urban::rules`; dependencies still `cartalith-rng` only. 10 new tests
+(43 in the crate), 53 golden rule cases, 2 golden profiles and 15 golden
+`resolveProfile` cases.
+
+**The stated range was wrong at both ends, in opposite directions** — the third
+range in this plan to need correcting, and the first whose *start* was wrong:
+
+| | plan | real | |
+|---|---|---|---|
+| start | 28212 | **28193** (comment) / 28199 (code) | 13 lines late — 28212 is `resolveProfile`, so the stated range **excluded `CULTURE_PROFILES` entirely**, the first item the milestone's own list names |
+| end | 28289 | **28280** | 9 lines late — 28281 is blank and 28282-28289 is the `V` vector helper object, which milestone 1 already shipped |
+
+Nothing else moves; milestone 5's `shoreFromMask` still starts at 28557.
+
+Data, not algorithm — but the milestone turned out to contain **the single most
+dangerous line in the subsystem so far**, and two survivors' worth of honest
+reporting about what a mutation test can and cannot see.
+
+#### `clamp` is where a naive port silently builds a different town
+
+`const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));` The obvious Rust
+transliteration is `lo.max(hi.min(v))`, and it is **wrong**: JS `Math.min` /
+`Math.max` *propagate* NaN, Rust's `f64::min` / `f64::max` *absorb* it and
+return the other operand. So `applyWildness(rules, NaN)` leaves eight NaN
+street fields in the reference, while the naive port's inner `hi.min(NaN)`
+hands back `hi` and the outer `max` keeps it — landing **every clamped field on
+its own upper bound**. A NaN wildness slider becomes a maximally-wild rule set
+that looks entirely plausible, is fed straight into `grow` (milestone 7), and
+produces a town nobody can trace back to a rounding rule.
+
+This is the same trap `cartalith-assets` milestone 3 hit from the opposite
+direction (`f64::min` absorbing a NaN density where `Math.min` propagated it),
+and it is exactly what `cartalith-rust-conventions` exists to catch. The port
+routes `clamp` through explicit `js_min` / `js_max` that mirror the source
+expression, `wild_NaN` and `chaos_NaN` goldens pin it, and a test carries the
+`assert_ne!`-style device `geom::js_hypot` uses so the simplification fails
+loudly and with the reason written out.
+
+Two smaller notes on the same function. `f64::clamp` would in fact have agreed
+on every reachable input (it is written as comparisons, so it propagates NaN
+too) — but it panics when `min > max` where the reference returns `lo`, and it
+would have hidden the question entirely. And there is **one documented,
+unreachable divergence left**: `Math.min(+0,-0)` is `-0` and `Math.max(+0,-0)`
+is `+0`, where the port's comparison form returns whichever operand `<` lands
+on. Only two of the eleven clamps have a zero bound, and neither can reach a
+`-0` argument (`0.10*(2-w)` is `-0` only if `2-w` is, which subtraction of two
+finite doubles never produces; `deadEndBias+(w-1)*0.15` is `+0` at `w == 1`).
+Recorded rather than coded around — and it is precisely why two mutations
+survive, below.
+
+#### Findings in the data itself
+
+1. **`applyWildness` is not idempotent, and only because of one field.** Ten of
+   its eleven assignments recompute from a *hardcoded literal* times `w`, so
+   re-applying the same `w` is a no-op for them. `deadEndBias` is
+   `clamp(s.deadEndBias + (w-1)*0.15, 0, 0.40)` — it reads its own current
+   value and **accumulates**. Applying `w = 2` five times walks it
+   0.15 → 0.30 → 0.40 (capped) while nothing else moves. Golden-pinned three
+   times over (`wildTwice1p5`, `wildThrice2`, `wildFive2`); `applyPlotChaos`
+   by contrast is idempotent.
+2. **The sliders overwrite custom values they never read.** A caller who sets
+   `branchAngleJitter` through `resolveRules` and then calls `applyWildness`
+   loses it, because the formula's base is the literal `0.26`, not the current
+   field. The reference's own comment says the sliders "compute new values for
+   the individual street/parcel fields"; this is what that means in practice.
+   Pinned by `wildOverCustom`.
+3. **Four `street` fields and two whole rule groups are untouched by either
+   slider**: `explorationDecay`, `segmentLengthMedian`, `marketGradientDecay`,
+   `bridgeheadDistance`, and all of `settlement` / the other slider's group.
+   Asserted, so a later milestone that finds one of them moved knows it did not
+   come from here.
+4. **`profile.deadEndBias` does not exist on either live profile.**
+   `privatizeAlleys` (line 30097, **milestone 11**) reads
+   `clamp((profile.deadEndBias||0) + (rules.street.deadEndBias||0), 0, 0.40)`,
+   and the profile side is therefore *always zero* — it was the hook for the
+   removed 17 profiles. The capture asserts the absence against the reference's
+   own key list and fails if a re-freeze ever adds it; the port carries the
+   field as `0.0` so milestone 11 can write the expression as the reference
+   writes it.
+5. **Four profile fields are read by nothing at all**, verified by grep across
+   block 4 *and* the whole host app: `parcelPattern` (the reference documents
+   its own death at lines 30225-30227 — the insula platting method it
+   dispatched went with the other 17 profiles), `orientation`,
+   `civicAnchorLabel`, and `defaultWalls`. **The reference's own provenance
+   prose is stale about the last one**: `venus`'s `prov` says "the UI unchecks
+   the wall box on selecting this profile", and `defaultWalls` has zero reads
+   in v2.10, inside block 4 or out. All four are carried anyway, each with the
+   note that killed it. `defaultWalls` is `Option<bool>` rather than `bool`, so
+   "profile has no opinion" (`medieval`, key absent) stays distinguishable from
+   "profile says no" (`venus`) for whatever eventually honours it; `waterway`,
+   which *is* read and only ever as a truthiness test, is a plain `bool`.
+6. **Nothing outside block 4 uses any of this milestone's exports.** The whole
+   host app touches exactly three names on `UME` — `SITE_WM`, `SITE_HM` and
+   `cityGen`. `CULTURE_PROFILES`, `resolveProfile`, `DEFAULT_RULES`,
+   `resolveRules`, `cloneRules`, `applyWildness` and `applyPlotChaos` are
+   exported for the reference's own headless tests, and consumed internally
+   only by `generate()` at lines 30933-30934.
+7. **`resolveProfile` has a prototype-chain hole, and the port hardens it.**
+   `CULTURE_PROFILES[id]` indexes a plain object literal, so five
+   `Object.prototype` names come back **truthy** and sail past the `||`
+   fallback: `resolveProfile('toString')` returns a *function*,
+   `resolveProfile('__proto__')` returns `Object.prototype`. `generate()` would
+   then read `profile.planning` as `undefined`, take the organic branch, and
+   crash at `profile.wallGates.scheme`. All five are captured as the
+   reference's real behaviour and a golden asserts this port returns `medieval`
+   for every one of them instead. A `match` has no prototype chain; reproducing
+   the hazard would mean building one on purpose.
+8. **`cloneRules` does not survive as a function, and is not quite a deep
+   clone.** It is `JSON.parse(JSON.stringify(r))`, which `#[derive(Clone)]`
+   already is on a well-formed rule set — the same call milestone 2 made about
+   `gKey`. But a NaN round-trips to `null`, and the capture pins that the
+   reference really does this. A typed `Rules` has no `null` to land on, so the
+   port keeps the NaN. Unreachable inside the engine: `resolveRules` clones the
+   all-finite `DEFAULT_RULES` and `Object.assign`s the caller's partial on
+   *top* of the clone, so nothing a caller supplies is ever round-tripped.
+9. **`subdivisionCap` stays an `f64`.** `applyPlotChaos` writes
+   `Math.round(clamp(2*c,1,4))` into it, which is `NaN` for a `NaN` slider, and
+   milestone 12 reads it only through `Math.min(P.subdivisionCap,
+   Math.floor(age/3))` — where a `NaN` makes the whole expression `NaN` and the
+   re-subdivision loop run zero times. Typing it `u32` would have to decide
+   what `NaN` becomes, and every choice is a divergence. `Math.round` itself is
+   safe as `f64::round` here (they differ only on negative halves, and the
+   argument's domain is `[1,4]` plus NaN), and the goldens include the three
+   `c` values that land it on `1.5`, `2.5` and `3.5` exactly.
+10. **`resolveRules`' merge is per *field*, not per group**, and skips a falsy
+    group wholesale (`if(partial[grp])`). Two structural divergences from
+    `Object.assign`, both unobservable: the loop iterates `Object.keys(out)`,
+    so an unknown *group* is ignored (a typed patch has none), and
+    `Object.assign` does copy an unknown *field* inside a known group onto the
+    result, where nothing reads it. Pinned by `resolveUnknownGroup` and
+    `resolveFalsyGroups`.
+
+#### Mutation testing: 120 mutations, 114 dead, 4 survivors, 2 killed by the compiler
+
+Every numeric literal on a non-comment line was perturbed one at a time (84
+mutations), plus 36 hand-written structural mutations covering both clamp
+semantics, both `js_min`/`js_max` comparators, every `js_round` alternative,
+the `deadEndBias` accumulation, the `2-w` inversions, both `meta` write-backs,
+`resolveRules`' per-group and per-field merge, `resolveProfile`'s fallback and
+arm order, and eleven profile-table values including the profile array's own
+order.
+
+**Two mutations are killed by the compiler rather than by a test**, which is
+the strongest outcome available: `[CultureProfile; 2] → 3` and the flattening's
+`[f64; 24] → 25`.
+
+**Four genuine survivors, all reported with the invariant they rest on:**
+
+| survivor | why it survives |
+|---|---|
+| `js_min`'s `b < a` → `b <= a` | the two branches return numerically identical values whenever `a == b`; the only case where *which operand* matters is `+0` vs `-0`, the documented unreachable divergence above |
+| `js_max`'s `b > a` → `b >= a` | same |
+| `clamp(2*c, **1.0**, 4.0)` → `1.01` | `subdivisionCap` is a **quantised output**: a rounded value cannot observe a change to its inputs smaller than half its own step. Shown by graded perturbation — `1.0 → 1.6` and `1.0 → 0.0` both **die**, `1.0 → 1.01` does not |
+| `clamp(2*c, 1.0, **4.0**)` → `4.01` | same; `4.0 → 4.4` survives, `4.0 → 4.6` and `4.0 → 3.0` **die** |
+
+The first mutation round had a **fifth** survivor — the `2` multiplier in
+`clamp(2*c,1,4)` — for the same quantisation reason. That one *is* killable,
+and three scenarios were added to kill it: `chaos_0p7475`, `chaos_1p2475` and
+`chaos_1p7475`, sitting just *below* the rounding boundaries that
+`chaos_0p75`/`chaos_1p25`/`chaos_1p75` sit exactly on. This is milestone 3's
+lesson arriving from the other side — there, a **quantised input** was needed
+before a tie-break could be observed at all; here, a **quantised output** hides
+a constant unless some input sits within half a step of a boundary. Both are
+the same underlying fact: *a golden can only test what its inputs let the
+function express.*
+
+#### A tooling trap worth more than the milestone: false survivors from a shared build
+
+The first combined mutation run reported **34 survivors**. Re-running any one
+of them by hand killed it immediately; re-running the structural block alone
+killed 34 of 36; re-running the whole 120 killed 114. The switch flipped
+mid-run and every mutation after it "survived", so the sweep was reporting a
+stale binary's results, not the mutated code's.
+
+The cause was **not** either of milestone 3's two (the mtime stamp and the
+comment-anchored patterns were both already in place and both held). The most
+likely cause is a sibling fork's concurrent `cargo` activity in the shared
+`target/` directory during that window; it did not reproduce on replay. Two
+things came out of it that later milestones should carry:
+
+- **Re-run every survivor in isolation before reporting it.** That is what
+  caught this, and it is the only check that catches a stale-binary survivor —
+  a "did the tests actually run" gate does not, because a stale binary reports
+  a perfectly healthy `test result: ok. N passed`.
+- **Put an explicit output gate on the mutation runner anyway** (`maxBuffer`
+  large enough for a full failure diff, and a parsed `N passed` count with a
+  floor). It catches the adjacent failure mode — a filter that silently matches
+  zero tests — which is the mutation-harness form of the silently-empty-output
+  problem three subsystems in this project have already shipped.
+
+#### Golden verification
+
+All eight items are on `UME`'s **public** export rather than its `_test` one,
+so this is the first milestone in the subsystem that needed no indirection at
+all. 53 rule cases (defaults, the clone, ten `resolveRules` merge shapes,
+fifteen `applyWildness` arguments including all three non-finite ones, four
+repeat-application cases, seventeen `applyPlotChaos` arguments, and five
+combined sequences), both profiles field by field including the two keys the
+reference leaves off `medieval`, and fifteen `resolveProfile` ids. Rule sets
+are flattened into one canonical field order and compared **bit for bit** via
+`f64::to_bits`, so a NaN must be a NaN and a `-0` could not pass for a `+0`; no
+tolerances anywhere.
+
+The capture asserts the reference's own `DEFAULT_RULES` still carries exactly
+that key set in exactly that order, so a rule added upstream cannot silently
+drop out of the comparison; it asserts neither live profile defines
+`deadEndBias`; and the emptiness / shape gate refuses to write unless there are
+≥40 scenarios, every one is the right width and all-numeric, ≥30 of them differ
+from the defaults, there are exactly two profiles with non-empty provenance
+prose, and `applyWildness(NaN)` really did poison the rule set. **Every golden
+matched on the first run** — which, per milestone 3, is why the mutation
+testing above is the part that matters.
+
+#### The slice assertions, re-run as a negative control
+
+Same 28167-31103 contiguous slice plus line 2291, same balance scan with the
+orphan-close counter, same four structural assertions including milestone 3's
+tightened first-line form and the `mulberry32` negative control. Re-run
+verbatim, with one row added:
+
+| deliberately wrong slice | balance scan | structural asserts |
+|---|---|---|
+| ends inside a block comment | caught (depth 1) | caught |
+| starts 3 lines into the header | caught (1 orphan `*/`) | caught |
+| starts **1** line into the header | not caught | caught |
+| starts at the `<script>` tag | not caught | caught |
+| ends one line early | not caught | caught |
+| **starts 7 lines early, swallowing the end of block 3** | **not caught** | **caught** |
+
+Milestone 2's residual hole is confirmed for the third time, and confirmed
+covered. The new row is the mirror image of it — a slice that begins *before*
+block 4 rather than inside its header — and the balance scan misses that one
+too, for the same reason. The first-line assertion is what pins the boundary in
+every one of the four cases the balance scan cannot see.
+
+#### Corrections to later milestones
+
+1. **Verify each remaining stated range against the code before slicing.**
+   Three for three now (milestone 2 over-claimed by one line, milestone 3 by
+   nine, milestone 4 was wrong at *both* ends and by 13 lines at the start).
+   Milestone 5's `28557-28742` start is confirmed correct as a side effect of
+   this one; the rest are unverified.
+2. **Milestone 7 must read `rules.street` through `resolveRules`, not
+   `DEFAULT_RULES` directly** — except that `grow` itself writes
+   `const rules = opts.rules || DEFAULT_RULES` (line 29446), i.e. it falls back
+   to the **raw** defaults rather than a resolved partial. Reproduce that, do
+   not "fix" it to call `resolveRules`.
+3. **Milestone 11's `privatizeAlleys` gets a zero from the profile side** of
+   `clamp((profile.deadEndBias||0)+…, 0, 0.40)` — see finding 4. Write the
+   expression as the reference writes it; the port carries the field.
+4. **Milestone 12 reads `subdivisionCap` as a float** (finding 9), and
+   `buildParcels`' `Math.min(P.subdivisionCap, Math.floor(age/3))` must keep
+   NaN-propagating semantics if it is ever restructured.
+5. **Milestones 13-15 use `profile.id` as a lookup key** into `GAMES_SPEC`
+   (line 29278) and `FARM_SPEC` (lines 30775, 30887), and milestone 16 surfaces
+   `profile.name` as `cultureName`. Those two strings are load-bearing values,
+   not labels — which is why `CultureProfile`'s fields are `&'static str`, the
+   same call milestone 2 made about `Edge::cls`.
+6. **Every milestone from here that rounds, floors, buckets or otherwise
+   quantises an output** should expect the survivor pattern above: a constant
+   inside a quantiser is invisible to any perturbation smaller than half a
+   step, and the fixture that kills it is one whose input sits just below a
+   boundary. Build one deliberately rather than discovering it in the survivor
+   list.
 
 ### Milestone 5 — site model (lines 28557-28742, 3 functions)
 
@@ -697,12 +958,30 @@ mutation testing that **nine of fifteen** mutations survived them — because a
 continuously-valued input never produces an exact tie, so no tie-break was ever
 observed. Every milestone from here on should mutation-check its constants and
 comparators and should include at least one **quantised or symmetric** fixture
-alongside its random ones. Report survivors rather than hiding them; both
-milestones that have done so found their survivors were genuinely dead branches,
-which is itself worth knowing. Add an explicit **emptiness / shape gate** to the
-capture script too (non-empty output, right endpoints, expected `null`s really
-`null`) — three subsystems in this project have shipped a harness that produced
-silently empty output and passed every structural check.
+alongside its random ones. Report survivors rather than hiding them; all three
+milestones that have done so found their survivors were genuinely dead branches
+or provably unreachable divergences, which is itself worth knowing. Add an
+explicit **emptiness / shape gate** to the capture script too (non-empty output,
+right endpoints, expected `null`s really `null`) — three subsystems in this
+project have shipped a harness that produced silently empty output and passed
+every structural check.
+
+Milestone 4 added two things to this convention, both from its own mutation run:
+
+- **Quantisation hides constants in both directions.** Milestone 3 found that a
+  quantised *input* is needed before a tie-break can be observed. Milestone 4
+  found the mirror: a quantised *output* (anything rounded, floored or bucketed)
+  cannot observe a change to its inputs smaller than half its own step, so a
+  constant inside a quantiser survives every small perturbation. The fixture
+  that kills it is one whose input sits **just below** a boundary — build those
+  deliberately alongside the ones that sit exactly on it.
+- **Re-run every mutation survivor in isolation before reporting it.** One
+  milestone-4 sweep reported 34 survivors that all died individually; the
+  combined run had been reporting a stale binary, most likely because a sibling
+  fork was building in the same shared `target/` at the time. A "did the tests
+  actually run" gate does **not** catch this (a stale binary reports a healthy
+  `N passed`); only the isolated re-run does. Add the gate anyway — it catches
+  the adjacent case of a test filter that silently matches nothing.
 
 Where `_test` or the public export reaches a function, expected values are the
 reference's own output. Where it does not (`polySelfIntersects` is the only
