@@ -20,6 +20,7 @@ mod civ_tools_bridge;
 mod icon_bridge;
 mod infra_tools_bridge;
 mod label_bridge;
+mod lod_bridge;
 mod pack;
 mod paint_bridge;
 mod params;
@@ -4121,5 +4122,70 @@ impl WorldGen {
     #[func]
     fn label_arc_value(&self, cx: f64, cy: f64, grab_angle_deg: f64, side: f64, gx: f64, gy: f64) -> f64 {
         label_bridge::arc_value(cx, cy, grab_angle_deg, side, gx, gy)
+    }
+}
+
+/// `LOD_TILING_INTEGRATION_SCOPE.md` milestone M1: an interactive,
+/// camera-driven caller of `amplify_region`/`refine_tile`, independent of
+/// the `region_export_tiles` export bundle those functions were previously
+/// only reachable through. See `lod_bridge.rs`'s own module doc for the
+/// full "why" — the real-numbers case against tiling the base raster (Z3),
+/// and for tiling the deep-zoom *synthesis* instead (Z2), plus why this
+/// binding computes tile bounds directly rather than routing through a real
+/// `TiledField`/`QuadTree` instance.
+///
+/// `#[godot_api(secondary)]`, not a plain `#[godot_api]`: only the first
+/// `#[godot_api] impl WorldGen` block in the crate may omit `secondary` —
+/// every later one collides with it on the shared signal-registration
+/// machinery `WorldGen`'s `Base<RefCounted>` field generates once, the same
+/// rule every other block below `IRefCounted`'s already follows.
+#[godot_api(secondary)]
+impl WorldGen {
+    /// Coarse grid cells spanned by one deep-zoom tile, along each axis
+    /// (`lod_bridge::TILE_CELLS`) — read this rather than hardcoding the
+    /// number in GDScript, so the viewport's own "which tile index does
+    /// this screen rect touch" arithmetic can never drift from what
+    /// [`Self::lod_synthesize_tile`] actually resolves a given index to.
+    /// `0` has no special meaning here (the constant is not tied to world
+    /// state), so this is safe to call before any `generate()`.
+    #[func]
+    fn lod_tile_cells(&self) -> i32 {
+        lod_bridge::TILE_CELLS as i32
+    }
+
+    /// One synthesized, coloured deep-zoom tile — what `viewport_host.gd`'s
+    /// deep-zoom compositor calls per visible tile once the camera's zoom
+    /// crosses the "more than roughly one screen pixel per grid cell"
+    /// threshold (`LOD_TILING_INTEGRATION_SCOPE.md` milestone M1).
+    /// `tile_x`/`tile_y` are tile-grid indices at `lod_tile_cells()`
+    /// coarse cells each (not pixels, not world km); `detail_level` selects
+    /// the output resolution tier (`lod_bridge::tile_px_for_level` — 256px
+    /// at `0`, doubling per level up to `lod_bridge::MAX_DETAIL_LEVEL`).
+    ///
+    /// Reads height data from whichever `WorldSource` is live — a fresh
+    /// `generate()`/`generate_sized()` or a loaded save both carry a
+    /// heightmap, unlike `civ`/`sculpt`/the tool layers, which a loaded
+    /// save never populates (`SAVEFILE_COMPAT.md`) — the same fallback
+    /// `build_color_texture`/`region_export_tiles` already use. `seed`/
+    /// `sea` come from this world's own state, never a caller-guessed one,
+    /// matching `region_export_tiles`'s own documented convention.
+    ///
+    /// Returns `None` (not a texture Godot would have to special-case) for
+    /// an out-of-range tile index, before any world exists, or on any
+    /// malformed source state `lod_bridge::synthesize_tile_rgba` itself
+    /// guards against — see that function's own doc comment.
+    #[func]
+    fn lod_synthesize_tile(&self, tile_x: i32, tile_y: i32, detail_level: i32) -> Option<Gd<ImageTexture>> {
+        let field: &[f32] = match self.source.as_ref()? {
+            WorldSource::Generated(ws) => &ws.field,
+            WorldSource::Loaded(save) => &save.fields.heightmap,
+        };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let (rgba, out_w, out_h) = lod_bridge::synthesize_tile_rgba(
+            field, gw, gh, tile_x, tile_y, detail_level, self.seed, self.sea_level,
+        )?;
+        let packed = PackedByteArray::from(rgba);
+        let image = Image::create_from_data(out_w as i32, out_h as i32, false, Format::RGBA8, &packed)?;
+        ImageTexture::create_from_image(&image)
     }
 }

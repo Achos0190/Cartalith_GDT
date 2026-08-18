@@ -67,6 +67,62 @@ var _zoom := 1.0
 var _panning := false
 var _pan_last_screen := Vector2.ZERO
 
+# -- Deep-zoom tile compositing (`LOD_TILING_INTEGRATION_SCOPE.md` milestone M1) ---
+#
+## The gap M1 exists to close: `_raster()` below sets `TEXTURE_FILTER_NEAREST`
+## on `map_view`, so the moment a cell occupies more than one screen pixel the
+## base raster shows visibly blocky single-cell squares -- the reference's own
+## owner complaint the scope document quotes verbatim (`docs/HANDOFF.md`,
+## "There is still a certain pixilated quality to the map when we zoom").
+## `_update_lod()` below is what switches the affected screen region over to
+## `amplify_region`/`refine_tile`-synthesized tiles (already ported and
+## golden-tested, `cartalith-terrain::amplify`/`tile_render` -- this file adds
+## no new numerical logic of its own, only screen<->grid geometry, the same
+## kind `_zoom_at` below already does) once that threshold is actually
+## crossed. Below the threshold this is a complete no-op and Z1 (the
+## coordinating session's zoom/pan) is entirely unaffected -- `_lod_active`
+## starts `false` and every early-return path above leaves it that way.
+##
+## Threshold: "more than roughly one screen pixel per grid cell" (the
+## milestone's own wording) is exactly `native_px_per_cell * _zoom > 1.0`,
+## where `native_px_per_cell` is the *unzoomed* fit scale `_update_lod()`
+## computes the same way `map_overlay.gd`'s own `_displayed_rect()` does
+## (`min(control_px / grid_cells)` per axis) -- `_zoom` alone is not
+## sufficient, since a small preset (512) already exceeds one px/cell at
+## `_zoom == 1.0` in most windows, while a large one (8192) needs real zoom
+## to reach it. `LOD_PX_PER_CELL_THRESHOLD` names that "roughly one" plainly
+## rather than burying `1.0` in the formula below.
+const LOD_PX_PER_CELL_THRESHOLD := 1.0
+## `detail_level` doubles the synthesized tile's own resolution once per
+## extra octave past the threshold (`lod_bridge::tile_px_for_level`,
+## 256/512/1024px) -- 2 matches that function's own `MAX_DETAIL_LEVEL`
+## clamp, so this file's idea of "how many tiers exist" cannot drift from
+## the Rust side's.
+const LOD_MAX_DETAIL_LEVEL := 2
+## A real bound, not a cache: right at the threshold crossing is where the
+## *most* tiles are visible at once (zooming in further shows fewer, larger
+## ones), and synthesizing an unbounded burst in one call the instant a fast
+## wheel-scroll crosses the line would stall a frame for no good reason.
+## Capped closest-tile-to-centre-first in `_update_lod()`; a real fix
+## (background synthesis, or the Z5 atlas cache) is out of this milestone's
+## scope (`LOD_TILING_INTEGRATION_SCOPE.md` M3).
+const MAX_LOD_TILES_PER_UPDATE := 48
+
+var _lod_layer: Control   ## Child of `_camera`, drawn above map/territory/
+	## province and below `overlay` -- same z-order the base raster already
+	## has relative to the vector layer, just with a refined terrain image
+	## underneath at deep zoom instead of the blocky one.
+var _lod_tile_cells := 0   ## `EngineBridge.lod_tile_cells()`, fetched once
+	## per world (`0` before any world, or against a binary built before
+	## this milestone -- both make `_update_lod()` a no-op, degrading
+	## cleanly to Z1-only).
+var _lod_tiles: Dictionary = {}   ## `"%d,%d" % [tx, ty]` -> the live
+	## `TextureRect` showing that tile, so a pan/zoom that doesn't touch a
+	## given tile's index leaves its node (and the Rust call that built it)
+	## alone -- see `_update_lod()`'s own doc comment on why this is what
+	## keeps calling it once per mouse-motion sample affordable.
+var _lod_active := false
+
 func setup(bridge: EngineBridge) -> void:
 	_bridge = bridge
 	bridge.generation_finished.connect(func(ok: bool): if ok: refresh())
@@ -95,6 +151,18 @@ func _ready() -> void:
 	_camera.add_child(territory_view)
 	_camera.add_child(province_view)
 
+	## Deep-zoom tile overlay (`LOD_TILING_INTEGRATION_SCOPE.md` milestone
+	## M1) -- above the raster/territory/province layers so a refined tile
+	## covers the blocky base pixels it's standing in for, below `overlay`
+	## so settlements/roads/sea-lanes stay on top exactly as they already
+	## are over the plain raster. Starts fully transparent and empty;
+	## `_update_lod()` is the only thing that ever adds children to it.
+	_lod_layer = Control.new()
+	_lod_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_lod_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_lod_layer.modulate.a = 0.0
+	_camera.add_child(_lod_layer)
+
 	overlay = Control.new()
 	overlay.set_script(OVERLAY_SCRIPT)
 	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -121,6 +189,13 @@ func _ready() -> void:
 		DccTheme.flat(DccTheme.c("panel"), 3))
 	_layers_btn.pressed.connect(func(): layers_button_pressed.emit())
 	add_child(_layers_btn)
+
+	## A resize changes the native fit rect `_update_lod()` positions every
+	## tile against (`displayed_origin`/`displayed_size`, computed from
+	## `size`) -- without this, resizing the window while zoomed in past the
+	## threshold would leave existing tiles positioned against the old
+	## window size until the next zoom/pan event.
+	resized.connect(_update_lod)
 
 	_apply_safe_insets()
 
@@ -166,6 +241,13 @@ func _input(event: InputEvent) -> void:
 			_camera.position += mm.position - _pan_last_screen
 			_pan_last_screen = mm.position
 			get_viewport().set_input_as_handled()
+			## Every motion sample, not just on release: `_update_lod()`'s
+			## own doc comment explains why this is cheap even at that
+			## frequency (only a newly-revealed tile index triggers a real
+			## Rust call) -- and updating live means a fast pan reveals new
+			## deep-zoom tiles as it crosses into them, not only once the
+			## drag ends.
+			_update_lod()
 		else:
 			_pan_last_screen = mm.position
 	elif event is InputEventMagnifyGesture:
@@ -194,6 +276,7 @@ func _zoom_at(screen_pt: Vector2, factor: float) -> void:
 	_zoom = new_zoom
 	_camera.scale = Vector2(_zoom, _zoom)
 	_update_zoom_readout()
+	_update_lod()
 
 ## Back to fit, matching the letterboxed `STRETCH_KEEP_ASPECT_CENTERED` view
 ## every fresh generate/load already rendered before this camera existed --
@@ -204,6 +287,16 @@ func reset_view() -> void:
 	_camera.scale = Vector2.ONE
 	_camera.position = Vector2.ZERO
 	_update_zoom_readout()
+	## Every existing deep-zoom tile belongs to whatever world/size was live
+	## before this reset -- `refresh()` calls this on every new
+	## `generate()`/`load_save()`, so a stale tile from a *different* world
+	## must not survive to be shown (or, worse, silently reused because its
+	## `(tx, ty)` key happens to overlap) against the new one.
+	## `_update_lod()` below repopulates from scratch if the new view still
+	## qualifies for deep zoom (a small preset can, even at `_zoom == 1.0` --
+	## see this file's own `LOD_PX_PER_CELL_THRESHOLD` doc comment).
+	_clear_lod_tiles()
+	_update_lod()
 
 func _update_zoom_readout() -> void:
 	if _bridge == null or not _bridge.has_world:
@@ -341,3 +434,195 @@ func _on_hovered(data: Variant, index: int) -> void:
 func _on_sampled(gx: float, gy: float, valid: bool) -> void:
 	_coords_label.text = "%d, %d" % [int(gx), int(gy)] if valid else ""
 	cursor_sampled.emit(gx, gy, valid)
+
+# -- Deep-zoom tile compositing (`LOD_TILING_INTEGRATION_SCOPE.md` M1) --------
+
+## Recomputes which deep-zoom tiles belong on screen and asks
+## `EngineBridge.lod_synthesize_tile` for any not already displayed. Called
+## from every place the camera or the control's own size can change what's
+## visible: `_zoom_at` (wheel/pinch), the pan branch of `_input`'s
+## `MouseMotion` handling, `reset_view` (new/loaded world), and the
+## `resized` signal (`_ready`).
+##
+## Deliberately **not** debounced to "once per frame" or "only on pan-end":
+## the real cost here is the Rust synthesis call, and that only happens for
+## a tile index this method has not already built a `TextureRect` for
+## (`_lod_tiles`, keyed by tile index) -- a pan or zoom that doesn't cross a
+## tile boundary (`_lod_tile_cells` grid cells, which at any zoom past the
+## threshold is already several hundred screen px) touches no new tiles and
+## makes no Rust call at all, so running this once per input event costs
+## only the screen<->grid geometry below, not a synthesis pass.
+##
+## Which tiles are "visible" is resolved with plain arithmetic here, in
+## GDScript, rather than via `cartalith_spatial::QuadTree::query_region` --
+## see `lod_bridge.rs`'s own module doc for why: building a quadtree over
+## the live height field just to answer a pure index-range question would
+## cost a real O(field size) scan for a query whose real cost, done
+## directly, is O(tiles on screen). This file already owns the
+## camera<->grid transform (`_zoom_at`, `map_overlay.gd`'s
+## `_displayed_rect()`/`_cell_to_screen`) that the same arithmetic needs, so
+## nothing new is invented here, only reused.
+func _update_lod() -> void:
+	if _bridge == null or not _bridge.has_world:
+		_set_lod_active(false)
+		return
+	if _lod_tile_cells <= 0:
+		_lod_tile_cells = _bridge.lod_tile_cells()
+	if _lod_tile_cells <= 0:
+		return   ## Binary built before this milestone -- stay Z1-only.
+
+	var g := _bridge.grid_size()
+	if g.x <= 0 or g.y <= 0 or size.x <= 0.0 or size.y <= 0.0:
+		_set_lod_active(false)
+		return
+
+	## The native (`_zoom == 1.0`) fit rect -- identical math to
+	## `map_overlay.gd`'s own `_displayed_rect()`, computed against `size`
+	## (this control's own, which `_camera`'s always equals -- see its own
+	## doc comment above) since that is the space every tile is positioned
+	## in: `_camera`'s `scale`/`position` transform is what pan/zoom
+	## actually is, so a tile positioned once in native space tracks the
+	## camera for free, the same way `map_view` itself already does.
+	var native_scale := minf(size.x / float(g.x), size.y / float(g.y))
+	if native_scale <= 0.0:
+		_set_lod_active(false)
+		return
+	var screen_px_per_cell := native_scale * _zoom
+	if screen_px_per_cell <= LOD_PX_PER_CELL_THRESHOLD:
+		_set_lod_active(false)
+		return
+
+	var displayed_size := Vector2(g.x, g.y) * native_scale
+	var displayed_origin := (size - displayed_size) * 0.5
+
+	## Screen rect -> `_camera`-local rect, inverting `_zoom_at`'s own
+	## `screen = position + local * zoom` relation.
+	var local_top_left := (Vector2.ZERO - _camera.position) / _zoom
+	var local_bottom_right := (size - _camera.position) / _zoom
+
+	## Local rect -> grid-cell rect: the inverse of `map_overlay.gd`'s
+	## `_cell_to_screen` mapping, minus its marker-placement `+0.5`
+	## centering (irrelevant to the cell/pixel correspondence itself).
+	## Clamped to the real grid -- a non-square map's own letterbox bars,
+	## and panning past the map's edge, both map outside `[0, gw] x [0, gh]`
+	## otherwise.
+	var gx0 := clampf((local_top_left.x - displayed_origin.x) / displayed_size.x * g.x, 0.0, float(g.x))
+	var gy0 := clampf((local_top_left.y - displayed_origin.y) / displayed_size.y * g.y, 0.0, float(g.y))
+	var gx1 := clampf((local_bottom_right.x - displayed_origin.x) / displayed_size.x * g.x, 0.0, float(g.x))
+	var gy1 := clampf((local_bottom_right.y - displayed_origin.y) / displayed_size.y * g.y, 0.0, float(g.y))
+	if gx1 <= gx0 or gy1 <= gy0:
+		_set_lod_active(false)
+		return
+
+	var tx0 := int(floor(gx0 / _lod_tile_cells))
+	var ty0 := int(floor(gy0 / _lod_tile_cells))
+	var tx1 := int(floor(maxf(gx0, gx1 - 0.001) / _lod_tile_cells))
+	var ty1 := int(floor(maxf(gy0, gy1 - 0.001) / _lod_tile_cells))
+
+	## One detail tier per doubling past the threshold, capped at
+	## `LOD_MAX_DETAIL_LEVEL` to match `lod_bridge::MAX_DETAIL_LEVEL` --
+	## `log(x)/log(2.0)` is GDScript's `log2`, since `log()` here is natural
+	## log.
+	var detail_level := clampi(
+		int(floor(log(screen_px_per_cell / LOD_PX_PER_CELL_THRESHOLD) / log(2.0))),
+		0, LOD_MAX_DETAIL_LEVEL)
+
+	var wanted: Dictionary = {}   ## key -> Vector2i tile index
+	for ty in range(ty0, ty1 + 1):
+		for tx in range(tx0, tx1 + 1):
+			wanted["%d,%d" % [tx, ty]] = Vector2i(tx, ty)
+
+	if wanted.size() > MAX_LOD_TILES_PER_UPDATE:
+		wanted = _nearest_tiles(wanted, Vector2((tx0 + tx1) * 0.5, (ty0 + ty1) * 0.5))
+
+	_apply_lod_tiles(wanted, detail_level, g, displayed_origin, displayed_size)
+	_set_lod_active(true)
+
+## Trims `wanted` (key -> `Vector2i` tile index) to `MAX_LOD_TILES_PER_UPDATE`
+## entries closest to `centre` (in tile-index space) -- see
+## `MAX_LOD_TILES_PER_UPDATE`'s own doc comment for why this bound exists at
+## all rather than synthesizing every visible tile unconditionally.
+func _nearest_tiles(wanted: Dictionary, centre: Vector2) -> Dictionary:
+	var keys: Array = wanted.keys()
+	keys.sort_custom(func(a, b) -> bool:
+		var ai: Vector2i = wanted[a]
+		var bi: Vector2i = wanted[b]
+		return Vector2(ai).distance_squared_to(centre) < Vector2(bi).distance_squared_to(centre))
+	var trimmed: Dictionary = {}
+	for i in range(MAX_LOD_TILES_PER_UPDATE):
+		trimmed[keys[i]] = wanted[keys[i]]
+	return trimmed
+
+## Reconciles `_lod_tiles` against `wanted` (key -> `Vector2i` tile index):
+## frees whatever is no longer wanted, repositions whatever already exists
+## (cheap, and correct after a resize -- see `_update_lod`'s own native-space
+## reasoning), and only calls `EngineBridge.lod_synthesize_tile` for a key
+## that isn't in `_lod_tiles` yet.
+func _apply_lod_tiles(wanted: Dictionary, detail_level: int, g: Vector2i, displayed_origin: Vector2, displayed_size: Vector2) -> void:
+	for key in _lod_tiles.keys().duplicate():
+		if not wanted.has(key):
+			(_lod_tiles[key] as TextureRect).queue_free()
+			_lod_tiles.erase(key)
+
+	for key in wanted.keys():
+		var idx: Vector2i = wanted[key]
+		var origin_x := idx.x * _lod_tile_cells
+		var origin_y := idx.y * _lod_tile_cells
+		## Clipped exactly like `lod_bridge::tile_bounds` on the Rust side --
+		## both compute `min(TILE_CELLS, remaining)` from the same `gw`/`gh`,
+		## so this can never disagree with what a tile request actually
+		## returns (this file's own module-doc note on why that's the one
+		## piece of tile-bounds arithmetic duplicated here at all).
+		var tile_w := mini(_lod_tile_cells, g.x - origin_x)
+		var tile_h := mini(_lod_tile_cells, g.y - origin_y)
+		if tile_w <= 0 or tile_h <= 0:
+			continue
+		var rect := Rect2(
+			displayed_origin + Vector2(origin_x, origin_y) / Vector2(g.x, g.y) * displayed_size,
+			Vector2(tile_w, tile_h) / Vector2(g.x, g.y) * displayed_size)
+
+		if _lod_tiles.has(key):
+			var existing := _lod_tiles[key] as TextureRect
+			existing.position = rect.position
+			existing.size = rect.size
+			continue
+
+		var tex := _bridge.lod_synthesize_tile(idx.x, idx.y, detail_level)
+		if tex == null:
+			continue
+		var tile_node := TextureRect.new()
+		tile_node.texture = tex
+		tile_node.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		tile_node.stretch_mode = TextureRect.STRETCH_SCALE
+		## `LINEAR`, not `_raster()`'s `NEAREST` -- the entire reason this
+		## milestone exists is to stop showing blocky single-cell squares at
+		## deep zoom, so the tile that replaces them must not reintroduce
+		## the same artifact at its own, finer texel size.
+		tile_node.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		tile_node.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tile_node.position = rect.position
+		tile_node.size = rect.size
+		_lod_layer.add_child(tile_node)
+		_lod_tiles[key] = tile_node
+
+## Frees every currently-displayed deep-zoom tile. Called on every world
+## reset (`reset_view`, since a stale tile belongs to whatever world/size
+## was live before) and whenever `_set_lod_active(false)` actually changes
+## state (crossing back below the threshold).
+func _clear_lod_tiles() -> void:
+	for key in _lod_tiles.keys():
+		(_lod_tiles[key] as TextureRect).queue_free()
+	_lod_tiles.clear()
+
+## Fades `_lod_layer` in or out and frees its tiles on the way out. A no-op
+## when `active` already matches `_lod_active` -- called from several
+## early-return paths in `_update_lod()` that would otherwise re-trigger the
+## tween on every single call while already below the threshold.
+func _set_lod_active(active: bool) -> void:
+	if active == _lod_active:
+		return
+	_lod_active = active
+	if not active:
+		_clear_lod_tiles()
+	var tw := create_tween()
+	tw.tween_property(_lod_layer, "modulate:a", 1.0 if active else 0.0, 0.15)

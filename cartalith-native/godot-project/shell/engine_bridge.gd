@@ -240,6 +240,25 @@ func reference_grid_height(grid_w: int, world: bool) -> int:
 func color_texture() -> Texture2D:
 	return world_gen.build_color_texture()
 
+## `LOD_TILING_INTEGRATION_SCOPE.md` milestone M1. `has_method` guards match
+## `sized_api`'s own reasoning above: a binary built before this milestone
+## landed simply has no `lod_synthesize_tile`, and `ViewportHost`'s deep-zoom
+## compositor degrades to "off" rather than erroring against it (`0`/`null`
+## are both values that method already treats as "nothing to show").
+func lod_tile_cells() -> int:
+	if not world_gen.has_method("lod_tile_cells"):
+		return 0
+	return world_gen.lod_tile_cells()
+
+## One synthesized, coloured deep-zoom tile (`tile_x`/`tile_y` are tile-grid
+## indices at `lod_tile_cells()` coarse cells each, not pixels) -- `null`
+## for an out-of-range tile, before any world, or against a binary without
+## this milestone's `#[func]`s.
+func lod_synthesize_tile(tile_x: int, tile_y: int, detail_level: int) -> Texture2D:
+	if not world_gen.has_method("lod_synthesize_tile"):
+		return null
+	return world_gen.lod_synthesize_tile(tile_x, tile_y, detail_level)
+
 func territory_texture() -> Texture2D:
 	return world_gen.build_territory_texture()
 
