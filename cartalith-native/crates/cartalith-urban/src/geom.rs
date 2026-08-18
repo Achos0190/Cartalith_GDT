@@ -73,6 +73,178 @@ pub fn js_hypot(x: f64, y: f64) -> f64 {
     sum.sqrt() * max
 }
 
+/// `Math.min(a, b)`, with JS semantics rather than Rust's.
+///
+/// The difference that matters: **JS propagates NaN, Rust absorbs it.**
+/// `Math.min(0.70, NaN)` is `NaN`; `f64::min(0.70, NaN)` is `0.70`.
+///
+/// **One documented divergence, on signed zero.** `Math.min(+0, -0)` is `-0`
+/// and `Math.max(+0, -0)` is `+0`; this returns whichever argument the `<`
+/// comparison happens to land on, since `-0.0 < 0.0` is false. Only two of
+/// `applyWildness`/`applyPlotChaos`'s eleven clamps have a zero bound
+/// (`pierceChance` and `deadEndBias`, both `lo = 0`), and neither can reach a
+/// `-0` argument: `0.10 * (2 - w)` is `-0` only if `2 - w` is `-0`, which
+/// subtraction of two finite doubles never produces, and
+/// `deadEndBias + (w - 1) * 0.15` is `+0` at `w == 1`. So the divergence is
+/// unreachable, and handling it would be four lines of code for a case no
+/// caller can construct. Recorded, not coded around.
+///
+/// Milestone 5 gave these a second set of call sites (`buildSite`'s raster
+/// index clamps and channel-drift bounds, `terrainSuitability`'s flood score),
+/// which is why they live here beside [`js_hypot`] rather than inside
+/// `rules` where milestone 4 first needed them.
+pub fn js_min(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else if b < a {
+        b
+    } else {
+        a
+    }
+}
+
+/// `Math.max(a, b)`, with JS semantics. See [`js_min`] for the NaN rule and the
+/// signed-zero divergence.
+pub fn js_max(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else if b > a {
+        b
+    } else {
+        a
+    }
+}
+
+/// `Math.exp(x)`, with **V8's** result rather than the platform libm's.
+///
+/// The same finding as [`js_hypot`], arriving at milestone 5 and measured the
+/// same way. Every height, every slope falloff and every log-normal draw in
+/// this subsystem runs through `Math.exp`, and Rust's `f64::exp` delegates to
+/// the platform's libm, which is **not** the function V8 calls:
+///
+/// | | disagreements with V8 |
+/// |---|---|
+/// | `f64::exp` (MSVC CRT) | **20,721 of 240,000** random arguments, all by one ulp |
+/// | this function | **0 of 240,000** |
+///
+/// V8 calls `base::ieee754::exp`, which is FDLIBM's `__ieee754_exp` — argument
+/// reduction to `[-0.5 ln2, 0.5 ln2]`, a degree-5 polynomial for the
+/// `x - x*c` correction, and a `2^k` scale — transliterated below with its
+/// integer bit twiddling intact. It is *less* accurate than a good modern libm
+/// (it promises under one ulp, not correct rounding), and that is exactly the
+/// point: `cartalith-rust-conventions`' rule is to match the JS engine, not to
+/// improve on it. Milestone 5's very first golden run failed on a one-ulp
+/// `exp`, the same way milestone 1's first `dist_pt_seg` run failed on a
+/// one-ulp `hypot`.
+///
+/// **One measured special case.** Across 244,000 arguments — 240,000 random,
+/// plus every half- and quarter-integer to +-20, plus `1.0` at +-1 and +-2 ulp
+/// — V8 and FDLIBM agree everywhere except at exactly `x == 1.0`, where V8
+/// returns the correctly-rounded `e` and FDLIBM returns one ulp above it.
+/// Reproduced here because it was measured, not because its cause is known. It
+/// is unreachable from the site model, whose `exp` arguments are all
+/// `-(d^2)/(2*sigma^2)` and therefore never positive.
+// The constants below are FDLIBM's own source text, quoted digit for digit so
+// this can be diffed against `e_exp.c` by eye. Clippy would have them shortened
+// to the same doubles written differently, and `INVLN2` replaced by
+// `f64::consts::LOG2_E` -- both are the same value and both would destroy that
+// property, which is the only defence this function has against a silent edit.
+#[allow(clippy::excessive_precision, clippy::approx_constant)]
+pub fn js_exp(x: f64) -> f64 {
+    const O_THRESHOLD: f64 = 7.09782712893383973096e+02;
+    const U_THRESHOLD: f64 = -7.45133219101941108420e+02;
+    const LN2HI: [f64; 2] = [6.93147180369123816490e-01, -6.93147180369123816490e-01];
+    const LN2LO: [f64; 2] = [1.90821492927058770002e-10, -1.90821492927058770002e-10];
+    const INVLN2: f64 = 1.44269504088896338700e+00;
+    const HALF: [f64; 2] = [0.5, -0.5];
+    const P1: f64 = 1.66666666666666019037e-01;
+    const P2: f64 = -2.77777777770155933842e-03;
+    const P3: f64 = 6.61375632143793436117e-05;
+    const P4: f64 = -1.65339022054652515390e-06;
+    const P5: f64 = 4.13813679705723846039e-08;
+    const TWOM1000: f64 = 9.33263618503218878990e-302;
+    const HUGE: f64 = 1.0e300;
+
+    // The measured divergence above. See the doc comment.
+    if x == 1.0 {
+        return std::f64::consts::E;
+    }
+
+    let bits = x.to_bits();
+    let hx0 = (bits >> 32) as u32;
+    let xsb = ((hx0 >> 31) & 1) as usize; // sign bit of x
+    let hx = hx0 & 0x7fff_ffff; // high word of |x|
+
+    let mut k: i32 = 0;
+    let mut hi = 0.0f64;
+    let mut lo = 0.0f64;
+    let mut x = x;
+
+    // filter out non-finite argument
+    if hx >= 0x4086_2e42 {
+        // |x| >= 709.78...
+        if hx >= 0x7ff0_0000 {
+            let lx = bits as u32;
+            if ((hx & 0x000f_ffff) | lx) != 0 {
+                return x + x; // NaN
+            }
+            return if xsb == 0 { x } else { 0.0 }; // exp(+-inf) = {inf, 0}
+        }
+        if x > O_THRESHOLD {
+            return HUGE * HUGE; // overflow
+        }
+        if x < U_THRESHOLD {
+            return TWOM1000 * TWOM1000; // underflow
+        }
+    }
+
+    // argument reduction
+    if hx > 0x3fd6_2e42 {
+        // |x| > 0.5 ln2
+        if hx < 0x3ff0_a2b2 {
+            // ... and |x| < 1.5 ln2
+            hi = x - LN2HI[xsb];
+            lo = LN2LO[xsb];
+            k = 1 - xsb as i32 - xsb as i32;
+        } else {
+            k = (INVLN2 * x + HALF[xsb]) as i32;
+            let t = k as f64;
+            hi = x - t * LN2HI[0]; // t*ln2HI is exact here
+            lo = t * LN2LO[0];
+        }
+        x = hi - lo;
+    } else if hx < 0x3e30_0000 {
+        // |x| < 2^-28
+        if HUGE + x > 1.0 {
+            return 1.0 + x; // trigger inexact
+        }
+    } else {
+        k = 0;
+    }
+
+    // x is now in the primary range
+    let t = x * x;
+    let twopk = if k >= -1021 {
+        f64::from_bits(((0x3ff + k) as u64) << 52)
+    } else {
+        f64::from_bits(((0x3ff + k + 1000) as u64) << 52)
+    };
+    let c = x - t * (P1 + t * (P2 + t * (P3 + t * (P4 + t * P5))));
+    if k == 0 {
+        return 1.0 - ((x * c) / (c - 2.0) - x);
+    }
+    let y = 1.0 - ((lo - (x * c) / (2.0 - c)) - hi);
+    if k >= -1021 {
+        if k == 1024 {
+            // the one k whose 2^k word would overflow to infinity; scale twice
+            return y * 2.0 * f64::from_bits(0x7fe0_0000_0000_0000);
+        }
+        y * twopk
+    } else {
+        y * twopk * TWOM1000
+    }
+}
+
 /// `V` (reference line 28286): a plain 2-D point/vector. `f64` throughout —
 /// these are JS `Number`s and the engine's thresholds are tuned against their
 /// exact values.
@@ -503,6 +675,52 @@ mod tests {
         // Math.hypot(±∞, NaN) is ∞ per spec, ahead of the NaN rule.
         assert!(js_hypot(f64::INFINITY, f64::NAN).is_infinite());
         assert!(js_hypot(f64::NAN, 1.0).is_nan());
+    }
+
+    #[test]
+    fn golden_js_exp_differs_from_rust_exp() {
+        // Captured from the same Node run. Every row below is one where the
+        // platform `f64::exp` gives a DIFFERENT answer, which the assert at the
+        // end states plainly -- the same device `js_hypot` carries, for the same
+        // reason: this is not an accuracy improvement waiting to be made.
+        const CASES: [(f64, f64); 8] = [
+            (-2.449164366815239, 0.08636572642093979),
+            (-1.529806137084961, 0.21657764962095738),
+            (-2.3961539268493652, 0.0910675329974808),
+            (-1.8253226280212402, 0.16116563918983867),
+            (-2.2492117881774902, 0.10548233422645462),
+            (-1.816183090209961, 0.16264537037235),
+            (-1.0032005310058594, 0.366703913772948),
+            (-1.1515216827392578, 0.3161553150757277),
+        ];
+        let mut differ = 0;
+        for (x, want) in CASES {
+            assert_eq!(js_exp(x), want, "js_exp({x})");
+            if x.exp() != want {
+                differ += 1;
+            }
+        }
+        assert_eq!(differ, CASES.len(), "these rows exist to discriminate; f64::exp now agrees on some");
+
+        // and the rest of the domain, including the special case measured at
+        // exactly 1.0 and the reduction-branch boundaries
+        for (x, want) in [
+            (0.0, 1.0),
+            (-0.0, 1.0),
+            (1.0, std::f64::consts::E),
+            (-1.0, 0.36787944117144233),
+            (2.0, 7.38905609893065),
+            (0.5, 1.6487212707001282),
+            (1e-30, 1.0),
+            (709.78, 1.7928227943945155e308),
+            (-745.2, 0.0),
+        ] {
+            assert_eq!(js_exp(x), want, "js_exp({x})");
+        }
+        assert!(js_exp(709.79).is_infinite());
+        assert!(js_exp(f64::INFINITY).is_infinite());
+        assert_eq!(js_exp(f64::NEG_INFINITY), 0.0);
+        assert!(js_exp(f64::NAN).is_nan());
     }
 
     #[test]

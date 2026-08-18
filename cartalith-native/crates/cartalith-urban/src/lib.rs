@@ -29,11 +29,16 @@ pub mod geom;
 pub mod graph;
 pub mod rng;
 pub mod rules;
+pub mod site;
 
 pub use astar::astar;
-pub use geom::Vec2;
+pub use geom::{Vec2, js_exp, js_hypot, js_max, js_min};
 pub use graph::{Edge, Face, Graph, Node};
 pub use rng::{Substream, fnv1a, stream};
+pub use site::{
+    Economy, Harbour, Hill, Site, SiteOpts, TerrainCtx, WaterCtx, build_site, shore_from_mask,
+    terrain_suitability,
+};
 pub use rules::{
     CULTURE_PROFILES, CultureProfile, DEFAULT_RULES, MEDIEVAL, MetaRules, ParcelRules, Rules,
     RulesPatch, SettlementRules, StreetRules, VENUS, apply_plot_chaos, apply_wildness, clamp,

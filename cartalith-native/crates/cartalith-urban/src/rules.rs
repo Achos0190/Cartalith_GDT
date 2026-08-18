@@ -49,42 +49,7 @@
 //! *top* of the clone, so nothing a caller supplies is ever round-tripped — but
 //! stated rather than hidden.
 
-/// `Math.min(a, b)`, with JS semantics rather than Rust's.
-///
-/// The difference that matters: **JS propagates NaN, Rust absorbs it.**
-/// `Math.min(0.70, NaN)` is `NaN`; `f64::min(0.70, NaN)` is `0.70`.
-///
-/// **One documented divergence, on signed zero.** `Math.min(+0, -0)` is `-0`
-/// and `Math.max(+0, -0)` is `+0`; this returns whichever argument the `<`
-/// comparison happens to land on, since `-0.0 < 0.0` is false. Only two of
-/// `applyWildness`/`applyPlotChaos`'s eleven clamps have a zero bound
-/// (`pierceChance` and `deadEndBias`, both `lo = 0`), and neither can reach a
-/// `-0` argument: `0.10 * (2 - w)` is `-0` only if `2 - w` is `-0`, which
-/// subtraction of two finite doubles never produces, and
-/// `deadEndBias + (w - 1) * 0.15` is `+0` at `w == 1`. So the divergence is
-/// unreachable, and handling it would be four lines of code for a case no
-/// caller can construct. Recorded, not coded around.
-fn js_min(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        f64::NAN
-    } else if b < a {
-        b
-    } else {
-        a
-    }
-}
-
-/// `Math.max(a, b)`, with JS semantics. See [`js_min`] for the NaN rule and the
-/// signed-zero divergence.
-fn js_max(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() {
-        f64::NAN
-    } else if b > a {
-        b
-    } else {
-        a
-    }
-}
+use crate::geom::{js_max, js_min};
 
 /// `const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));` — reference line 28256.
 ///

@@ -783,15 +783,295 @@ every one of the four cases the balance scan cannot see.
    boundary. Build one deliberately rather than discovering it in the survivor
    list.
 
-### Milestone 5 — site model (lines 28557-28742, 3 functions)
+### Milestone 5 — the site model: **done** (2026-08-18)
 
-`shoreFromMask`, `buildSite`, `terrainSuitability`. Defines the input contract
-for everything downstream, including the **real-water and real-terrain raster
-paths** that the host app actually uses. The JS returns closures (`height`,
-`slope`, `isWater`, `riverDist`, `bankSide`); the port needs a `Site` struct
-with methods and an enum for the synthetic-vs-real branch. Golden-verifiable by
-driving `buildSite` with a fixed synthetic seed and with a fixed hand-built
-raster, and comparing sampled fields.
+`shoreFromMask`, `buildSite`, `terrainSuitability` — reference lines
+**28549-28741**. Module `cartalith-urban::site`; dependencies still
+`cartalith-rng` only. 16 new tests (59 in the crate), 19 golden `shoreFromMask`
+scenarios and 36 golden `buildSite` scenarios, each carrying **106 probes** of
+the five field closures plus `terrainSuitability`.
+
+**The stated range was one line long at the end, and its start understated the
+milestone by eight.** `terrainSuitability` ends at **28741**; 28742 is blank.
+28557 is right as the first line of *code*, but 28549-28556 are the site-model
+archetype comment and `shoreFromMask`'s own v0.98 note — the block milestone 3
+already identified as belonging here when it corrected its own range. So the
+real range is **28549-28741**. Four ranges checked, four wrong; **check the
+rest.**
+
+#### `Math.exp` is the second V8 libm divergence, and it is far bigger than the first
+
+Milestone 1 found `Math.hypot`. This milestone found `Math.exp`, and the two are
+not comparable in scale:
+
+| | disagreements with V8 |
+|---|---|
+| `f64::exp` (the platform libm) | **20,721 of 240,000** random arguments |
+| `geom::js_exp` (this milestone) | **0 of 240,000** |
+
+The very first golden run failed on it — `terrainSuitability` at one probe of
+one site, one ulp out — exactly as milestone 1's first `dist_pt_seg` run failed
+on `hypot`. V8 calls `base::ieee754::exp`, which is FDLIBM's `__ieee754_exp`.
+It is *less* accurate than a modern libm (it promises under one ulp, not correct
+rounding), and matching it rather than improving on it is the whole of
+`cartalith-rust-conventions`' float rule. Ported as
+`cartalith-urban::geom::js_exp` beside `js_hypot`, with the same
+`assert_ne!`-style guard: eight golden arguments on which the platform `exp`
+gives a different answer, and a test that fails if it ever stops doing so.
+
+**One measured special case, reported rather than explained.** Across 244,000
+arguments — 240,000 random, every half- and quarter-integer to ±20, and `1.0`
+at ±1 and ±2 ulp — V8 and FDLIBM agree everywhere **except at exactly
+`x == 1.0`**, where V8 returns the correctly-rounded `e` and FDLIBM returns one
+ulp above it. Reproduced because it was measured, not because its cause is
+known. Unreachable from the site model, whose `exp` arguments are all
+`-(d²)/(2σ²)` and therefore never positive.
+
+**This retro-fixes milestone 1.** `rng::logn` is
+`median * Math.exp(sig * norm())` and had been on `f64::exp`. Its milestone-1
+goldens passed, which means they happened to land on values the two libms agree
+about — luck, not safety. It now goes through `js_exp`, and those goldens still
+pass, which is the check. `logn` has **five call sites** in block 4 (29524 in
+`grow`, 30242 and 30288 in `buildParcels`, 30523-30524 in `buildBuildings`), so
+every frontage width, plot depth and building dimension in the town is drawn
+through it. Milestone 12 would otherwise have found this the hard way, against a
+far larger golden surface.
+
+`Math.exp` appears once more after this milestone: `logisticRamp`'s
+`1/(1+Math.exp(...))` at line 29392, **milestone 7**.
+
+#### Findings
+
+1. **`buildSite` is two sites wearing one name, and which one is live is decided
+   per *field*, not per site.** A real water mask with no river centreline still
+   runs the synthetic hills; a real heightfield with no water context still
+   invents a synthetic channel. The port therefore carries `Option<WaterCtx>` /
+   `Option<TerrainCtx>` rather than the one source enum this plan suggested — an
+   enum would have to lie about the mixed cases the host actually produces. Four
+   goldens are mixed on purpose.
+2. **`kind` is not a closed vocabulary, and the difference is observable
+   downstream.** `kind = kind || 'river'` defaults only the falsy case; every
+   unrecognised string falls through to the **coastline** branch while still
+   being returned verbatim — and milestone 9 compares `site.kind === 'coast'`
+   directly (lines 29061, 29081). So an unknown kind and a real coast are
+   different sites. `kind` stays a `String`, the same call milestone 2 made
+   about `Edge::cls`. Pinned by `atoll`, which shares a seed with `coast` and
+   produces a byte-identical shoreline under a different name.
+3. **`!!W.riverPath` is truthy for a path too short to be a river.** A one-point
+   or empty `riverPath` makes the site river-like (`rk`) — four route endpoints,
+   no sea step in `height` — while the water geometry still comes from
+   `shoreFromMask`. Goldens `pathOfOne` and `pathEmpty`.
+4. **A bay draws one fewer number than a coast.** The coastline branch draws its
+   harbour abscissa only when the site is *not* a bay (a bay reuses its own
+   indent centre), so `bay` consumes 31 site-substream draws and `coast` 32, and
+   their `routeEnds` diverge. Invisible to any fixture that does not pair the two
+   on one seed; `bay` and `coast` share seed 5 on purpose, and a test asserts the
+   whole draw budget (12 hills, then the branch's own, then 3 or 4 endpoints) by
+   advancing a fresh stream by hand and rebuilding the endpoints.
+5. **One mask, two different truthiness tests.** `shoreFromMask` takes any
+   non-zero cell as water (JS truthiness); `isWater` tests `=== 1`. A cell
+   holding `2` is water to the shoreline tracer and land to the water query.
+   Reproduced rather than unified — golden `maskTwo`.
+6. **`shoreFromMask`'s principal axis can collapse to `(0, 0)`, and then the
+   sort is a no-op.** One water cell in a 5 × 5 land field leaves four shoreline
+   points whose scatter matrix is perfectly isotropic: `sxy == 0`,
+   `l1 - sxx == 0` **and** `l1 - syy == 0`, so the documented fallback
+   eigenvector is degenerate too, the `|| 1` on the axis length fires, every
+   projection is exactly zero and every comparison ties. The stable sort then
+   returns the raster's own row-major order.
+7. **The fallback eigenvector is not exotic — a plain horizontal shoreline takes
+   it.** With `sxy == 0` and `sxx > syy`, `l1` is exactly `sxx`, so `(sxy,
+   l1-sxx)` is `(0, 0)` and the fallback fires on every symmetric coast. It is
+   still unobservable unless the shore has points in **two** rows, because
+   sorting a row-major list by y is the identity; `twoRowShore` (water along the
+   top edge *and* the bottom two rows) is the fixture that finally sees it.
+8. **Out of bounds is `undefined`, not a panic, and it reaches three ways**: a
+   `NaN` probe coordinate (the clamp propagates it and `arr[NaN]` is
+   `undefined`), a `dt` array shorter than its mask, and a terrain raster with
+   `mw < 2`. All three become `f64::NAN` here, all three are goldens
+   (`shortDt`, `terrainShortGrid`, `terrainOneColumn`), and the port takes the
+   deliberate divergence **the other way** from milestone 3's `astar` — loud
+   there because the case cannot happen, quiet here because it can.
+9. **`bankSide` never returns 0.** `Math.sign(x) || 1` sends a point exactly on
+   the centreline, a `-0` cross product and a `NaN` one all to `+1`. `grow`'s
+   bridgehead rule and `buildWall`'s far-bank test both read it, so the
+   on-the-line case having a definite answer is load-bearing rather than
+   incidental. Swept over every vertex of every golden site.
+10. **The bridge index starts at `-1`, and `Math.max(0, bi)` is the only thing
+    placing the bridge when no slope ever compares.** An all-`NaN` heightfield
+    never satisfies `s < bs`, so `bi` survives the loop and the bridge lands on
+    `river[0]`. Nothing with a finite height field can exercise that line;
+    `terrainAllNaN` exists for it.
+11. **The three analytic hills are drawn even when a real heightfield makes them
+    dead.** Twelve draws nothing reads — but twelve *positions* in the site
+    substream, so a port that skipped them on the real-terrain path would move
+    every route endpoint.
+12. **`waterPoly` is empty on two of the four paths** (landlocked, and coastal
+    with real water) and **nothing inside block 4 ever reads it** — verified by
+    grep across all 2,937 lines. Its only consumer is `generate()`'s return
+    object at line 31081, i.e. the renderer. Milestone 10 must not treat it as
+    the town's water.
+13. **Six `||` defaults, of which only the `NaN` arm ever bites**:
+    `riverWidthM || 20`, `riverOrder || 0`, `seaLakeCells || 0`, `hMax || 0`,
+    `hMin || 0`, and `terrainSuitability`'s `site.riverW || 0`. A `0` width
+    really does become 20 (`widthFallbackZero`) and a `NaN` Strahler order really
+    does become 0 (`orderNaN`).
+
+#### Golden verification
+
+None of the three functions is on `UME`'s public export **or** its `_test` one —
+the first milestone in this subsystem to reach neither. The capture therefore
+adds them to the returned object with a **single anchored replacement** of the
+`return {` line, asserted to match exactly once; the frozen reference file itself
+is never touched, and the injected names are asserted to be functions before
+anything is captured.
+
+The `vm` handoff needed one thing worth writing down: `const UME = (() => {…})()`
+is a **lexical binding, not a property of the vm context's global object**, so
+`ctx.UME` is `undefined` however well the slice ran. This project has shipped
+that exact bug before (it is one of the three silently-empty-output incidents the
+verification convention lists); the capture appends an explicit
+`globalThis.__UME = UME;` and asserts the result before proceeding.
+
+Rasters are **emitted into the golden file** rather than rebuilt on the Rust
+side, so both sides provably run on identical inputs. Everything is compared
+bit for bit through `to_bits`, with no tolerances anywhere — including `height`
+and `slope`, which run through `exp` and `js_hypot`.
+
+The capture's emptiness / shape gate refuses to write unless: there are ≥19
+shore and ≥30 site scenarios; at least three shorelines are `null` and at least
+six are non-trivial; `plusShape` really came back in row-major order (i.e. the
+tie fixture is actually tying); every site's river has ≥2 finite vertices, 3 or
+4 route endpoints and 106 probes; height is not constant across a site's probes;
+some probe is in water and some site is dry everywhere; `bankSide` took both
+signs; `terrainSuitability` reached both 0 and >0.5; the NaN probe really
+produced a NaN; `bay` and `coast` really drew different endpoints; `atoll` really
+took the coast branch under its own name; both `riverWidthM` fallbacks landed on
+20 while an explicit 26 survived; `orderNaN` really zeroed; the all-NaN slope
+field really fell back to `river[0]`; `pathOfOne` really is river-like without
+being the river; `landlocked` really has no harbour and no water polygon; the
+short `dt` really produced a NaN; and a mask of 2s really read as land. The Rust
+side mirrors the shape half of that gate as its own test, so a truncated
+`golden.rs` cannot make the suite vacuously pass.
+
+**Every golden matched on the first run except one probe of one site**, which is
+what surfaced `Math.exp`. After `js_exp` landed, all 36 sites × 106 probes × 6
+fields and all 19 shorelines matched exactly.
+
+The slice harness is milestone 3's, verbatim: contiguous 28167-31103 plus line
+2291, balance scan with milestone 2's orphan-close counter, and the four
+structural assertions including milestone 3's tightened first-line form and the
+`mulberry32` negative control. Re-run as a negative control, it reproduces
+milestone 4's table row for row.
+
+#### Mutation testing
+
+Every numeric literal on a non-comment line of `site.rs` perturbed one at a time
+(207), plus 64 hand-written structural mutations covering every `js_min`/
+`js_max`/`js_hypot`/`js_exp` call site, every comparator and tie-break, both
+Chaikin passes, the draw order and count, all six `||` defaults, the two mask
+truthiness tests, the sort's stability, the fallback eigenvector, and the
+bilinear term order. Patterns are validated to match **exactly once** before the
+sweep starts, replacements are made by `(line, column)` rather than by first
+occurrence, comment and string text is stripped before scanning, and **every
+survivor is re-run in isolation**.
+
+**Two rounds of fixture work came out of it, and the first round is the finding.**
+The first sweep left **46 survivors**, and almost none of them were equivalent
+mutants — they were fixture gaps of two specific shapes:
+
+- **Every water raster was uniform along one axis.** `j >= 9 ? water : land` is
+  the obvious hand-built mask, and it makes *every* mutation of `maskIdx`'s `i`
+  clamp invisible, because column 0 and column 16 hold identical data. Fixed by
+  giving each mask a per-column ripple so **no two adjacent columns agree**.
+- **A fixed fractional probe grid never lands near anything.** The site's own
+  interesting geometry is a 10-40 m wide band around a polyline; a
+  `[0.1, 0.5, 0.9] × [0.1, 0.5, 0.9]` grid essentially never enters it, so the
+  whole `riverW/2 + 2` water band, the shoreline half-plane test and both ends
+  of `yAtX` were unexercised. Fixed by deriving most probes **from the site's own
+  river**: offsets straddling the band boundary at three points along the
+  centreline, and a ladder of points a quarter-metre either side of the real
+  waterline at nine abscissae (`yAtX` is reimplemented in the *capture* for this
+  — fixture code, not ported code).
+
+Probe count went 16 → 65 → 79 → 97 → 106 and scenario count 13/31 → 19/36 across
+those rounds. This generalises the lesson milestones 3 and 4 recorded: **a golden can
+only test what its inputs let the function express**, and for a geometric
+subsystem that means fixtures have to be built *from* the geometry, not sampled
+on a grid that ignores it.
+
+**271 mutations, 240 died (2 of them at the type level), 31 survived** — and all
+31 were re-run in isolation, which milestone 4's stale-binary incident made
+mandatory. This sweep reported no false survivors. The guard still earned its
+place: an *earlier* sweep of this milestone was killed and restarted after a
+hand-check showed a "survivor" dying immediately, which is exactly the failure
+mode the rule exists for.
+
+Two mutations are killed by the compiler rather than by a test — `[Hill; 3] → 4`
+and the transposed raster index — the strongest outcome available.
+
+**The 31 survivors, each with the invariant it rests on.** Nothing is hidden and
+nothing here is a coverage gap a fixture could close; the ones that *were*
+coverage gaps are in the round-by-round list below.
+
+| class | n | why they survive |
+|---|---|---|
+| dead stores | 10 | `[Hill { x: 0.0, y: 0.0, amp: 0.0, rad: 0.0 }; 3]` — four initialiser fields, every one overwritten by the loop immediately below; `harbour_idx`'s declaration and its landlocked assignment (both overwritten, and a landlocked harbour is `{idx: -1}` regardless); the `Harbour { idx: 0, pt: None }` placeholder in the struct literal, replaced at the end of `build_site`; `bi = -1 → -2`, read only through `.max(0)`; and both `Vec::with_capacity(n + 1) → n + 2`, which is capacity, not length |
+| equivalent by the surrounding arithmetic | 6 | `i0 + 1.0 → i0 + 1.5` on both bilinear axes — `i1` is used only as `i1 as usize` and `i0` is integral, so truncation erases the change, and the integral `js_min` bound cannot be crossed by half a step; `if s > 0.0 → s > 1.0` in `bank_side` — the true arm and the final `else` **both return `1.0`**, so any `s ∈ (0, 1]` is unaffected; and all three forms of `vl`'s `|| 1` (the `== 0.0` test, the `1.0` substitute, and removing it outright) — it fires only when the axis length is exactly zero, where `vx` and `vy` are both zero, and `0 / anything` — including `0 / 0`, whose `NaN` comparator differences map to `Ordering::Equal` — leaves every projection tied |
+| boundary tests whose two branches compute the same value | 2 | `y_at_x`'s `x <= c[0].x → <` and `x <= c[i+1].x → <`. At a vertex abscissa exactly, the early return gives `c[i].y` and the interpolation gives `c[i].y + 0 · Δ`; at the far end it gives `c[i+1].y` and the next segment gives `c[i+1].y + 0 · Δ`. The branch taken changes; the number does not |
+| guards against data the reference cannot produce | 6 | the `(c[i+1].x - c[i].x) \|\| 1` denominator, both halves — reachable only with two shoreline vertices at one `x`, and the abscissae are `i/26 · Wm` through two Chaikin passes, strictly increasing; the degenerate-axis test's `1e-9` — observable only if `hypot(sxy, l1-sxx)` lands in `[1e-9, 1.5e-9)`, where every fixture gives exactly `0` or more than `1e-8`; removing `max(0, ·)` from the eigenvalue — `tr²/4 - det` is algebraically `((sxx-syy)/2)² + sxy²` and so never negative, making the `max` purely defensive (**its constant is not** — `0.0 → 1.0` dies on `twoRowMicro`); `river[idx] \|\| river[0]` losing its fallback — `harbour_idx` is a valid index on every path; and the drift clamp switching to `f64::min`/`f64::max`, which differs from `js_min`/`js_max` only on `NaN`, and the drift is a sum of finite draws |
+| need an exact tie a continuous field cannot produce | 4 | the coast harbour search's `<` → `<=` (two shoreline vertices exactly equidistant from a drawn abscissa); `isWater`'s channel band `<` → `<=` (a point-to-polyline distance exactly equal to `riverW/2 + 2`); and `js_hypot → f64::hypot` at two call sites, where a one-ulp difference can only flip a strict `<` if two candidates already agree to within one ulp. **Milestone 3's finding, recurring** — and unlike there it cannot be closed by a quantised raster, because these inputs are polyline distances, not cell costs |
+| unobservable through Rust's stable sort | 3 | `else if d > 0.0 → d > 1.0` in the comparator, the same rewritten to compare projections rather than their difference, and `sort_by → sort_unstable_by`. The first was **checked rather than assumed**: Rust's stable sort reaches every ordering decision through the `Less` arm, so downgrading `Greater` to `Equal` still returns a fully sorted result (verified independently on a 16-element `f64` vector whose gaps sit below the mutated threshold). The second differs from the original only on `NaN`/`±∞` projections. `sort_unstable_by` survives because the only fixture with ties between *distinguishable* points is the fully-degenerate `plusShape`, whose four projections are all zero |
+
+**Fifteen mutations that survived the first sweep were killed by fixture work
+rather than argued away** — the survivor count went **46 → 35 → 31** across three
+rounds, and each round's list was read one entry at a time to decide whether it
+was equivalent or merely untested. The purpose-built fixtures, and the constant
+each exists for:
+
+| fixture | the constant it makes observable |
+|---|---|
+| a per-column ripple in every water mask | both of `mask_idx`'s `i`-axis clamps |
+| probes derived from the site's own river | the whole `riverW/2 + 2` water band, and `bank_side` on both banks |
+| a ±0.25 m ladder around `yAtX(x)` at nine abscissae, plus one probe exactly on it | the sea half-plane's `-1.0` offset and its `>` |
+| `riverCeiling` / `throughCeiling`, found by **scanning** seeds | the channel drift's upper clamp — no hand-picked seed saturates it |
+| `quayLadder`, 18.85 m per segment (five of them = 94.25 m) | the quay walk's 95 m stop and its accumulator's starting value |
+| `twoRowShore` (water along the top edge *and* the bottom rows) | the fallback eigenvector, which a one-row shoreline cannot show because sorting a row-major list by *y* is the identity |
+| `twoRowMicro`, the same cloud at 4 mm cells | the eigenvalue guard's own `0.0`, by pushing the discriminant below 1 |
+| `vertShore`, a vertical real shoreline | the real-water harbour search's reference *y* |
+| `exactlyTwo`, a mask producing exactly two shore points | `pts.len() < 2` |
+| `northWater` / `westWater` | the north and west adjacency tests, individually |
+| `twoPointPath` | `riverPath.length >= 2` |
+
+#### Corrections to later milestones
+
+1. **Milestone 5's own range was 28549-28741**, not 28557-28742. Four for four;
+   verify milestones 6-16's stated ranges before slicing.
+2. **Every milestone from here must use `geom::js_exp` for `Math.exp`**, exactly
+   as it must use `js_hypot` for `Math.hypot` and `js_min`/`js_max` for
+   `Math.min`/`Math.max`. The platform `exp` disagrees with V8 on 8.6% of
+   arguments. Milestone 7's `logisticRamp` is the next direct call site;
+   `rng::logn` (already fixed here) is the indirect one that milestones 12 and 13
+   lean on hardest.
+3. **Milestone 6's `placeAnchors` can reach its literal fallback.**
+   `site.bridgePt || (site.harbour && site.harbour.pt) || {x: Wm*0.52, y: Hm*0.42}`
+   — a landlocked site has `bridgePt = null` *and* `harbour.pt = null`, so the
+   third arm is live, not defensive.
+4. **Milestone 9 compares `site.kind === 'coast'` as a string** (lines 29061,
+   29081). That is why `kind` is a `String` here and not an enum; an enum
+   mapping unknown kinds to `Coast` would silently change those two branches.
+5. **Milestone 10 must not read `site.waterPoly` as "the water".** It is empty on
+   the landlocked and real-water-coastal paths, and nothing in block 4 reads it
+   at all — it exists for the renderer. Use `isWater`/`riverDist`.
+6. **Milestone 12 and 13 draw every parcel and building dimension through
+   `rng::logn`**, which is now on `js_exp`. If either milestone ever sees a
+   whole-town divergence that looks like noise, the libm is the first thing to
+   check, not the last.
+7. **Build fixtures out of the subsystem's own geometry.** Milestone 3 asked for
+   quantised inputs and milestone 4 for just-below-a-boundary inputs; milestone 5
+   adds that for anything with geometry, the probe set must be *derived from the
+   geometry under test*. A grid of round fractions tests almost nothing in a
+   subsystem whose thresholds are metres wide.
 
 ### Milestone 6 — anchors and primary routes (lines 28744-28843, 3 functions)
 
@@ -982,6 +1262,35 @@ Milestone 4 added two things to this convention, both from its own mutation run:
   actually run" gate does **not** catch this (a stale binary reports a healthy
   `N passed`); only the isolated re-run does. Add the gate anyway — it catches
   the adjacent case of a test filter that silently matches nothing.
+
+Milestone 5 added three more, all of which cost it a restart or a sweep:
+
+- **Build the fixtures out of the subsystem's own geometry.** Milestone 3 asked
+  for quantised inputs and milestone 4 for just-below-a-boundary inputs.
+  Milestone 5's first sweep left **46 survivors** and almost none were
+  equivalent mutants: every hand-built water raster was uniform along one axis
+  (so no `i`-clamp mutation was visible), and a `[0.1, 0.5, 0.9]²` probe grid
+  never once entered the 10-40 m band around the river where all the thresholds
+  live. Deriving the probes from the site's own polyline — and giving each mask
+  a per-column ripple — took the survivor count to 31 over three rounds.
+  A grid of round fractions tests almost nothing in a geometric subsystem.
+- **Validate every structural mutation pattern before the sweep runs.** A
+  pattern matching zero times is otherwise silently counted as a kill — the
+  mutation-harness form of the silently-empty-output problem. Milestone 5's
+  runner refuses to start unless every pattern matches **exactly once**.
+- **`const X = ...` in the reference is a lexical binding, not a property of the
+  `vm` context's global object.** `ctx.UME` is `undefined` however well the
+  slice ran, and the capture must append an explicit
+  `globalThis.__UME = UME;` and assert the result. This is one of the three
+  silently-empty-output incidents this project has already shipped, met again
+  head-on; the fourth structural assertion is that the handoff produced a real
+  object with a real `cityGen` on it.
+
+**Where a milestone's functions are on neither `UME`'s public export nor its
+`_test` one** — milestone 5 is the first — the capture may add them to the
+returned object with a **single anchored replacement** of the `return {` line,
+asserted to match exactly once, with the injected names checked to be functions
+before anything is captured. The frozen reference file itself is never edited.
 
 Where `_test` or the public export reaches a function, expected values are the
 reference's own output. Where it does not (`polySelfIntersects` is the only

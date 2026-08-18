@@ -107,8 +107,14 @@ impl Substream {
     }
 
     /// `r.logn(median,sig)` — `median*Math.exp(sig*r.norm())`.
+    ///
+    /// Through [`crate::geom::js_exp`], not `f64::exp`: milestone 5 measured
+    /// the platform libm disagreeing with V8 on **20,721 of 240,000** random
+    /// arguments. Milestone 1's goldens here happened to fall on values the two
+    /// agree about, which is luck, not safety — `buildParcels` (milestone 12)
+    /// draws every frontage width and plot depth through this call.
     pub fn logn(&mut self, median: f64, sig: f64) -> f64 {
-        median * (sig * self.norm()).exp()
+        median * crate::geom::js_exp(sig * self.norm())
     }
 
     /// `r.chance(p)` — `f() < p`.

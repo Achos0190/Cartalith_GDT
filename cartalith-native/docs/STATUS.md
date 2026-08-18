@@ -5,7 +5,23 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-18 (post **unified tool plan milestone E** — the
+Last updated: 2026-08-18 (post **Phase 5 milestone 5** — urban morphology's
+site model, `cartalith-urban::site`: `shoreFromMask`/`buildSite`/
+`terrainSuitability`, the input contract every later stage of a town reads
+the world through, on both the synthetic-seed path and the real-water /
+real-heightfield raster paths the host app actually uses; the stated line
+range was wrong at **both** ends for the fourth milestone running; it found
+**the second V8 libm divergence** — `f64::exp` disagrees with V8 on 20,721 of
+240,000 arguments where the ported FDLIBM `js_exp` disagrees on none, which
+also retro-fixes milestone 1's `rng::logn` and therefore every parcel and
+building dimension milestones 12-13 will draw; 59 tests, 19 + 36 golden
+scenarios at 106 probes each, all bit-exact; **271 mutations, 240 killed, 31
+reported survivors** each with the invariant it rests on — and the *first*
+sweep's 46 survivors turned out to be two fixture gaps rather than equivalent
+mutants, which is the transferable lesson: a geometric subsystem needs its
+fixtures derived from the geometry under test, not sampled on a grid of round
+fractions; tested and unwired, no Godot file touched; see its own section
+below — post **unified tool plan milestone E** — the
 Annotation & measure group, which closes the four tool-group engine halves
 (A-E done, only **F**, shell wiring, remains): Label
 (`cartalith-civ::labels`, arc-text glyph layout split at text measurement so
@@ -491,7 +507,7 @@ Full record: `CHANGELOG.md`'s "GUI decluttering pass" entry,
 
 ## Phase 5 — Urban morphology (`URBAN_MORPHOLOGY_SCOPE.md`, started 2026-08-18)
 
-**~17 milestones. Milestones 1-4 done (2026-08-18).** The scope doc carries the
+**~17 milestones. Milestones 1-5 done (2026-08-18).** The scope doc carries the
 full investigation; the four findings worth knowing without opening it:
 
 1. **The roadmap's "self-contained DOM-free engine" is right, and then some.**
@@ -776,6 +792,98 @@ a real **lookup key** into `GAMES_SPEC`/`FARM_SPEC`, which is why the profile
 fields are `&'static str`; and every milestone from here that rounds, floors or
 buckets an output should build a just-below-a-boundary fixture deliberately
 rather than discovering it in a survivor list.
+
+**Milestone 5 done (2026-08-18)** — the site model (`shoreFromMask`,
+`buildSite`, `terrainSuitability`), reference lines **28549-28741**, as
+`cartalith-urban::site`. 59 tests in the crate (up from 43). Dependencies still
+`cartalith-rng` only. **Not wired to anything.** `buildSite` is the input
+contract for everything downstream: it fixes the 1700 × 1250 m box, decides
+where the water is, and hands back the five field closures (`height`, `slope`,
+`riverDist`, `isWater`, `bankSide`) that anchors, routes, growth, walls, parcels
+and buildings all query.
+
+**The stated range was wrong at both ends again — four for four.** The plan said
+28557-28742: 28742 is blank (`terrainSuitability` ends at 28741), and 28557 is
+the first line of *code* but not of the milestone, since 28549-28556 are the
+site-model archetype comment and `shoreFromMask`'s own v0.98 note. Milestones
+6-16's ranges are still unverified.
+
+**`Math.exp` is the second V8 libm divergence, and it dwarfs `Math.hypot`'s.**
+The first golden run failed on `terrainSuitability` at one probe, one ulp out.
+The platform `f64::exp` disagrees with V8 on **20,721 of 240,000** random
+arguments; V8 calls FDLIBM's `__ieee754_exp`, ported here as `geom::js_exp`,
+which disagrees on **0 of 240,000**. One measured special case is reported
+rather than explained — across 244,000 arguments the two agree everywhere
+**except at exactly `x == 1.0`**, where V8 returns the correctly-rounded `e`;
+reproduced because it was measured, and unreachable from the site model, whose
+`exp` arguments are never positive. **This retro-fixes milestone 1**:
+`rng::logn` had been on `f64::exp` and its goldens passed by luck, and every
+frontage width, plot depth and building dimension in the town is drawn through
+it (five call sites in block 4).
+
+**Findings.** `buildSite` is two sites wearing one name and which is live is
+decided **per field, not per site**, so the port carries `Option<WaterCtx>` /
+`Option<TerrainCtx>` rather than the single source enum the plan proposed.
+`kind` is **not a closed vocabulary** — every unrecognised string takes the
+coastline branch while still being returned verbatim, and milestone 9 compares
+`site.kind === 'coast'` directly, so `kind` stays a `String`. `!!W.riverPath` is
+truthy for a path **too short to be a river**. **A bay draws one fewer number
+than a coast** (31 against 32), so their `routeEnds` diverge. One mask is read
+**two different ways** (truthy in `shoreFromMask`, `=== 1` in `isWater`).
+`shoreFromMask`'s principal axis can **collapse to `(0, 0)`**, after which the
+sort is a no-op — and its fallback eigenvector fires on every plain horizontal
+shoreline, invisible unless the shore has points in two rows. Out of bounds is
+**`undefined`, not a panic**, reachable three ways, and the port diverges *the
+other way* from milestone 3's `astar` — loud there because the case cannot
+happen, quiet here because it can. `bankSide` **never returns 0**. `waterPoly`
+is **empty on two of the four paths and read by nothing inside block 4**.
+
+**Golden verification.** The first milestone here whose functions are on neither
+`UME`'s public export nor its `_test` one, so the capture adds them to the
+returned object with a single anchored replacement of the `return {` line,
+asserted to match exactly once; the frozen reference is never edited. One thing
+worth recording: `const UME = (() => {…})()` is a **lexical binding, not a
+property of the `vm` context's global object**, so `ctx.UME` is `undefined`
+however well the slice ran — the fourth appearance of this project's
+silently-empty-output problem, met with an explicit `globalThis.__UME = UME;`
+and an assertion. 19 shoreline scenarios and 36 site scenarios, each with **106
+probes** of the five closures plus `terrainSuitability`, compared **bit for
+bit** with no tolerances. Every golden matched on the first run except the one
+probe that surfaced `Math.exp`.
+
+**Mutation-tested: 271 mutations, 240 died (2 at the type level), 31 survived**,
+every survivor re-run in isolation per milestone 4's rule. The survivors are
+reported by class with the invariant each rests on: ten dead stores, six
+equivalent by the surrounding arithmetic, two boundary tests whose branches
+compute the same number, six guards against data the reference cannot produce,
+four needing an exact tie a continuous field cannot make, and three unobservable
+through Rust's stable sort (checked, not assumed — the stable sort reaches every
+ordering decision through its `Less` arm).
+
+**The first sweep is the finding.** It left **46** survivors and almost none
+were equivalent mutants — they were two fixture gaps. Every hand-built water
+raster was uniform along one axis, so no `maskIdx` `i`-clamp mutation was
+visible; and a fixed `[0.1, 0.5, 0.9]²` probe grid never once entered the
+10-40 m band around the river where every threshold in this milestone lives.
+Rebuilding the probes **out of the site's own polyline** and rippling every mask
+per column took the count 46 → 35 → 31 over three rounds, killing fifteen
+constants by fixture rather than argument — several needing one built on
+purpose: a **seed scan** for a channel whose drift actually saturates its upper
+clamp, an 18.85 m-per-segment river whose quay walk reaches 94.25 m in five
+steps (just under its own 95 m stop), a two-row shoreline (a one-row one cannot
+show the fallback eigenvector, since sorting a row-major list by *y* is the
+identity), the same cloud at 4 mm cells to push the eigenvalue discriminant
+below 1, and a vertical shoreline so the harbour search's reference *y* decides.
+**Milestone 3 asked for quantised inputs and milestone 4 for
+just-below-a-boundary inputs; milestone 5 adds that a geometric subsystem needs
+its fixtures derived from the geometry under test.**
+
+**Corrections written forward**: every milestone from here must use
+`geom::js_exp` for `Math.exp` (milestone 7's `logisticRamp` is the next direct
+call site); milestone 6's `placeAnchors` can reach its literal market fallback,
+because a landlocked site has neither a `bridgePt` nor a `harbour.pt`; milestone
+9's `site.kind === 'coast'` is a string test an enum would have broken; and
+milestone 10 must not read `site.waterPoly` as the town's water.
 
 ## Phase 4 — Asset Library (`ASSET_LIBRARY_SCOPE.md`, started 2026-08-17, done 2026-08-17)
 

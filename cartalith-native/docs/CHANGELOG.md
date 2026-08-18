@@ -10894,3 +10894,158 @@ milestone, with one correction it will need: its own 44-52 px figures must be
 read as *density-independent* pixels (~86-102 physical px on this device), not
 raw Godot pixels — at raw pixels the new layout would be no better than the
 current one.
+
+## Phase 5 milestone 5 — the site model, and the second V8 libm that is not Rust's (2026-08-18)
+
+`URBAN_MORPHOLOGY_SCOPE.md` milestone 5: `shoreFromMask`, `buildSite`,
+`terrainSuitability` — reference lines **28549-28741** — as
+`cartalith-urban::site`. Dependencies unchanged (`cartalith-rng` only). Wired to
+nothing. 16 new tests, 59 in the crate.
+
+`buildSite` is the input contract for everything downstream: it fixes the
+1700 × 1250 m box, decides where the water is, and hands back the five field
+closures (`height`, `slope`, `riverDist`, `isWater`, `bankSide`) that anchors,
+routes, growth, walls, parcels and buildings all query. Nothing later in the
+subsystem re-derives any of it.
+
+**The stated range was wrong at both ends again** — four for four now. The plan
+said 28557-28742: 28742 is blank (`terrainSuitability` ends at 28741), and 28557
+is the first line of *code* but not of the milestone, since 28549-28556 are the
+site-model archetype comment and `shoreFromMask`'s own v0.98 note — the block
+milestone 3 identified as belonging here when it corrected its own range.
+
+**`Math.exp` is the second V8 libm divergence, and it dwarfs the first.**
+Milestone 1 found `Math.hypot`. This milestone's very first golden run failed on
+`terrainSuitability` at one probe of one site, one ulp out, and the cause was
+`exp`:
+
+| | disagreements with V8 |
+|---|---|
+| `f64::exp` (the platform libm) | **20,721 of 240,000** random arguments |
+| `geom::js_exp` (this milestone) | **0 of 240,000** |
+
+V8 calls `base::ieee754::exp`, which is FDLIBM's `__ieee754_exp` — argument
+reduction to `[-½ln2, ½ln2]`, a degree-5 polynomial correction and a `2^k` scale.
+It is *less* accurate than a modern libm, and matching it rather than improving
+on it is the whole of `cartalith-rust-conventions`' float rule. Ported beside
+`js_hypot`, with the same `assert_ne!`-style guard: eight golden arguments on
+which the platform `exp` gives a different answer, and a test that fails if it
+ever stops doing so. One measured special case is reported rather than
+explained — across 244,000 arguments (240,000 random, every half- and
+quarter-integer to ±20, and `1.0` at ±1 and ±2 ulp) the two agree everywhere
+**except at exactly `x == 1.0`**, where V8 returns the correctly-rounded `e` and
+FDLIBM returns one ulp above it. Reproduced because it was measured; unreachable
+from the site model, whose `exp` arguments are never positive.
+
+**This retro-fixes milestone 1.** `rng::logn` is `median * Math.exp(sig *
+norm())` and had been on `f64::exp`; its milestone-1 goldens passed, which means
+they landed on values the two libms agree about — luck, not safety. It now goes
+through `js_exp` and those goldens still pass, which is the check. `logn` has
+five call sites in block 4 (29524 in `grow`, 30242/30288 in `buildParcels`,
+30523-30524 in `buildBuildings`), so every frontage width, plot depth and
+building dimension in the town is drawn through it; milestone 12 would have
+found this against a far larger golden surface.
+
+**Findings.** `buildSite` is two sites wearing one name and which is live is
+decided **per field, not per site**, so the port carries `Option<WaterCtx>` /
+`Option<TerrainCtx>` rather than the single source enum the plan proposed — an
+enum would have to lie about the mixed cases the host produces. `kind` is **not
+a closed vocabulary**: `kind || 'river'` defaults only the falsy case, every
+unrecognised string falls through to the coastline branch while still being
+returned verbatim, and milestone 9 compares `site.kind === 'coast'` directly —
+so `kind` stays a `String`, the call milestone 2 made about `Edge::cls`.
+`!!W.riverPath` is truthy for a path **too short to be a river**, making a site
+river-like while its water geometry still comes from the mask. **A bay draws one
+fewer number than a coast** (31 draws against 32 — it reuses its own indent
+centre as the harbour), so their `routeEnds` diverge, and the two share a seed on
+purpose. One mask is read **two different ways** (truthy in `shoreFromMask`,
+`=== 1` in `isWater`), so a cell holding `2` is water to one and land to the
+other. `shoreFromMask`'s principal axis can **collapse to `(0, 0)`** on an
+isotropic point cloud, after which the sort is a no-op and the raster's own order
+survives; and the fallback eigenvector is not exotic at all — a plain horizontal
+shoreline takes it every time, it is simply invisible unless the shore has points
+in two rows. Out of bounds is **`undefined`, not a panic**, reachable three ways,
+and the port takes the deliberate divergence *the other way* from milestone 3's
+`astar` — loud there because the case cannot happen, quiet here because it can.
+`bankSide` **never returns 0**. The bridge index starts at `-1` and
+`Math.max(0, bi)` is the only thing placing the bridge when no slope compares.
+The three analytic hills are **drawn even when a real heightfield makes them
+dead**, because twelve draws are twelve positions in the substream.
+`waterPoly` is **empty on two of the four paths and read by nothing inside block
+4** — it exists for the renderer.
+
+**Golden verification.** None of the three functions is on `UME`'s public export
+*or* its `_test` one — the first milestone here to reach neither — so the capture
+adds them to the returned object with a single anchored replacement of the
+`return {` line, asserted to match exactly once; the frozen reference is never
+edited. The `vm` handoff needed one thing worth recording: `const UME = (() =>
+{…})()` is a **lexical binding, not a property of the context's global object**,
+so `ctx.UME` is `undefined` however well the slice ran — one of the three
+silently-empty-output incidents this project has shipped, met head-on with an
+explicit `globalThis.__UME = UME;` and an assertion. Rasters are emitted into the
+golden file rather than rebuilt on the Rust side, so both sides provably run on
+identical inputs. 19 shoreline scenarios and 36 site scenarios, each with **106
+probes** of the five closures plus `terrainSuitability`, compared **bit for bit**
+via `to_bits` with no tolerances anywhere — including `height` and `slope`, which
+run through `exp` and `js_hypot`. The capture's emptiness/shape gate has
+twenty-odd clauses (the tie fixture must really tie, a bay and a coast must
+really differ, `atoll` must really take the coast branch under its own name, the
+all-NaN slope field must really fall back to `river[0]`, a mask of 2s must really
+read as land, …), and the Rust side mirrors the shape half as its own test so a
+truncated `golden.rs` cannot make the suite vacuously pass. Every golden matched
+on the first run **except the one probe that surfaced `Math.exp`**.
+
+**Mutation-tested: 271 mutations, 240 died (2 at the type level), 31 survived**,
+every survivor re-run in isolation per milestone 4's rule. Every numeric literal
+on a non-comment line (207) plus 64 structural mutations covering every
+`js_min`/`js_max`/`js_hypot`/`js_exp` call site, every comparator and tie-break,
+both Chaikin passes, the draw order and count, all six `||` defaults, both mask
+truthiness tests, the sort's stability and the bilinear term order. The survivors
+are reported in the scope doc by class with the invariant each rests on: ten dead
+stores, six equivalent by the surrounding arithmetic, two boundary tests whose
+branches compute the same number, six guards against data the reference cannot
+produce, four needing an exact tie a continuous field cannot make, and three
+unobservable through Rust's stable sort — that last checked rather than assumed
+(the stable sort reaches every ordering decision through its `Less` arm, so
+downgrading `Greater` to `Equal` still returns a sorted result).
+
+**The first sweep is the finding, though.** It left **46** survivors and almost
+none were equivalent mutants — they were two specific fixture gaps. Every
+hand-built water raster was uniform along one axis (`j >= 9 ? water : land`
+makes column 0 and column 16 identical, so no `maskIdx` `i`-clamp mutation is
+visible), and a fixed `[0.1, 0.5, 0.9]²` probe grid never once entered the
+10-40 m band around the river where every threshold in this milestone lives.
+Rebuilding the probes **out of the site's own polyline** — offsets straddling the
+water band at three points along the centreline, and a ±0.25 m ladder either side
+of (and exactly on) the real waterline at nine abscissae — plus a per-column
+ripple in every mask took the count 46 → 35 → 31 over three rounds. Fifteen
+constants were killed by fixtures rather than argued away, including several that
+needed one built on purpose: a **seed scan** for a channel whose drift actually
+saturates its upper clamp (no hand-picked seed does), an 18.85 m-per-segment
+river whose quay walk accumulates 94.25 m in five steps — just under its own 95 m
+stop — a two-row shoreline (a one-row one cannot show the fallback eigenvector,
+because sorting a row-major list by *y* is the identity), the same cloud at 4 mm
+cells to push the eigenvalue discriminant below 1, and a vertical shoreline so
+the harbour search's reference *y* decides. **Milestone 3 asked for quantised
+inputs and milestone 4 for just-below-a-boundary inputs; milestone 5 adds that a
+geometric subsystem needs its fixtures derived from the geometry under test.**
+
+**Corrections written forward**: every milestone from here must use
+`geom::js_exp` for `Math.exp` (milestone 7's `logisticRamp` is the next direct
+call site); milestone 6's `placeAnchors` can reach its literal market fallback,
+because a landlocked site has neither a `bridgePt` nor a `harbour.pt`; milestone
+9's `site.kind === 'coast'` is a string test an enum would have broken; milestone
+10 must not read `site.waterPoly` as the town's water; and milestones 6-16's
+stated ranges are all still unverified.
+
+**Verified:** `cargo build -p cartalith-urban`, `cargo test -p cartalith-urban`
+(59 passed / 0 failed) and `cargo clippy -p cartalith-urban --all-targets` all
+clean. `cargo build --workspace --exclude cartalith-godot` clean (the two
+remaining warnings are `cartalith-gpu`'s, pre-existing and a sibling fork's).
+`cargo fmt` deliberately not run — the crate and its siblings are already not
+rustfmt-clean, so it would reformat other forks' files.
+
+**Also:** `js_min`/`js_max` moved from `rules` to `geom`, beside `js_hypot` and
+now `js_exp` — the site model gave them a second set of call sites and `geom` is
+where the "JS semantics, not Rust's" helpers belong. No behaviour change; the
+milestone-4 tests that document them are untouched and still pass.
