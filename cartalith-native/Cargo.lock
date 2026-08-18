@@ -254,6 +254,7 @@ version = "0.1.0"
 dependencies = [
  "cartalith-noise",
  "cartalith-rng",
+ "cartalith-spatial",
  "rayon",
 ]
 

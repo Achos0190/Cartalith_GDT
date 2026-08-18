@@ -660,7 +660,8 @@ no eager cascading. No UI. Verifiable headlessly: commit/discard round-trip
 tests, staleness-propagation tests against a small synthetic field. This
 is the one milestone every other milestone depends on.
 
-**Milestone B — Terrain group, the Sculpt-editor port.** The largest
+**Milestone B — Terrain group, the Sculpt-editor port. DONE 2026-08-18 —
+see "Milestone B as built" below.** The largest
 single chunk: all thirteen `SCULPT_FEATURES` (`apply()` bodies are small,
 pure, individually portable — parallelizable across sub-agents/sessions by
 feature if useful), the three noise families, the stamp bbox/coverage/
@@ -864,3 +865,163 @@ undo stack exists anywhere in this port — and inventing one before milestone
 B has a real committed edit to undo would be guessing at its granularity.
 `PassBuffer::commit` returns the exact touched-tile list a tile-diff undo
 would need, so the seam is left open rather than filled speculatively.
+
+## Milestone B as built (2026-08-18)
+
+The Terrain group's engine half: the whole thirteen-feature Sculpt registry,
+ported and golden-verified, wired to milestone A's `PassBuffer` and to
+nothing else. Same "primitive ahead of orchestration" precedent — no Godot
+scene, `main.gd` or `cartalith-godot` file was touched.
+
+**Where it landed, and why.**
+
+- `cartalith-terrain/src/sculpt.rs` — the whole port (registry, noise,
+  geometry, stamp, `Stamp` impl, 43 unit tests).
+- `cartalith-terrain/tests/golden_parity_sculpt.rs` — 23 golden tests.
+
+Not a new crate, and not `cartalith-engine`. Milestone A's split (generic
+machinery → `cartalith-spatial`, pipeline knowledge → `cartalith-engine`)
+leaves a third category this belongs to: **subsystem-domain math**. All
+thirteen features are height-field formulas; `ARCHITECTURE.md`'s "one crate
+per subsystem" already names `cartalith-terrain` as the crate that owns the
+height formula, and the reference itself keeps `SCULPT_FEATURES` in script
+block 1 beside tectonics rather than anywhere near its UI. A
+`cartalith-sculpt` crate would have bought a `Cargo.toml` and nothing else —
+no second consumer, no independent test boundary (the tests need
+`cartalith-noise`, which terrain already depends on). `cartalith-engine`
+would be wrong for the mirror-image reason to milestone A's: this is
+computation, and *"`cartalith-engine` orchestrates; it does not compute"*.
+`cartalith-terrain` gains a `cartalith-spatial` dependency, the workspace's
+second (milestone A's `cartalith-engine` edge was the first).
+
+**The real feature registry, as it turned out.** The plan's list above is
+confirmed exactly — thirteen entries in `Object.keys` order (mountains,
+hills, ridge, plateau, cliff, canyon, valley, river, lake, basin, coastline,
+volcano, freehand), eight presets, eight Freehand sub-modes, eight shared
+globals. Three things reading it added:
+
+1. **The registry's *order* is load-bearing.** A stamp's effective noise
+   seed is `(stamp.seed ^ ((index + 1) * 1013)) >>> 0`, where `index` is the
+   feature's position in `Object.keys(SCULPT_FEATURES)`. Reordering the list
+   silently re-randomises every stamp in the file. `FEATURE_KEYS` carries
+   that warning and a test pins the order.
+2. **`edgeChar`/`edgeFreqMul` are per-feature registry data, not derived.**
+   Thirteen hand-tuned pairs (Coastline 1.5/0.55, ragged and slow; Mountains
+   1.4/1.5, tight and fast; River 0.4/0.8, nearly clean because meander
+   already supplies its shape). Ported as data.
+3. **Volcano is the one feature that does not use `brushSize`.**
+   `sculptStampRadius` special-cases it to its own `volcRadius` control,
+   because its cone profile is defined in terms of that radius. Everything
+   else — including Lake, the other radial feature — uses the brush.
+
+**How the brush model actually works**, now that it is real code:
+
+- **Coverage** is `smoothstep(0, 1, (R - dist) / feather)` with
+  `feather = max(floor, R * (1 - hardness))`. The mockup's "falloff: smooth
+  (gauss)" is this smoothstep, and it genuinely is not user-selectable —
+  there is one falloff shape in the whole registry.
+- **`hardness` shapes, `intensity` scales.** Separate multipliers on
+  purpose: coverage decides *where*, `k = cov * intensity` decides *how
+  much*. The mockup's two sliders are the two real parameters.
+- **Two noise passes, not one.** The domain warp displaces the *sample
+  position* (`qx, qy`) before coverage is measured, so the silhouette moves;
+  then a second, 3.4× higher-frequency term roughens `cov` itself, but only
+  where `cov < 1`, so the interior stays solid while only the rim breaks up.
+  Both use `seed + 2100`; the feature bodies' own `fbm`/`ridged`/`billow`
+  use `seed`/`seed + 700`/`seed + 1400`.
+- **`mode` is `add` or `set`, and which one is a feature's defining trait.**
+  `add` → `h0 + k*val`; `set` → `h0 + k*(val - h0)`, a coverage-weighted
+  lerp. Plateau being `set`-to-`max(h0, level)` is exactly why it never
+  lowers terrain and is a flatten/terrace tool rather than another raise
+  brush.
+
+**Corrections and additions this pass made to the plan above.**
+
+1. **The plan's golden-verification note was too pessimistic, and this
+   milestone's headline result is the correction.** It says: *"this is
+   new-to-the-port interactive behavior with no golden JS-array trace to
+   diff against ... verify per-feature `apply()` math against the
+   reference's own formulas (direct algebraic port, checkable by unit test
+   at fixed inputs) rather than attempting stroke-sequence parity."* That
+   conflates two things. A *stroke sequence* is indeed not a reproducible
+   fixture — but a *stamp* is, and the reference stores one as plain data
+   (`{type, seed, pts, g, f}`). Constructing that object directly and
+   calling the real `sculptApplyStamp` under Node needs no pointer events,
+   no DOM and no `generate()` run, because the reference itself marks this
+   block *"pure, DOM-free core"*. So milestone B got real golden-parity
+   after all: **23 cases, every one bit-exact**, not unit-tested algebra.
+2. **The plan says "the three noise families"; there are three FBM families
+   plus a fourth noise consumer.** `sculptFbm`/`sculptRidged`/`sculptBillow`
+   are the three, but the edge warp and the rim-detail term are separate
+   uses of `sculptFbm` at their own seed and frequency, and porting them as
+   "part of the features" would have missed them — they live in
+   `sculptApplyStamp`, not in any `apply()` body.
+3. **Smooth also ignores the `waterOnly` flag.** The plan correctly flags
+   the pre-loop snapshot. It does not mention that the smooth branch
+   `return`s before the water-only check, so a smooth stamp would write
+   height even on a water-only pass. Unreachable in practice (only Lake
+   stamps are ever passed `waterOnly`), ported as-is rather than "fixed",
+   and documented at the site.
+4. **`sculptStampBBox` and `sculptApplyStamp` disagree about `feather`,
+   deliberately kept.** The bbox computes `max(2, rad*(1-hardness))` for
+   every feature; `apply` uses `max(1.5, R*(1-hardness))` for non-radial
+   ones. The bbox's floor is the larger, so the box always covers what
+   `apply` writes — the inconsistency is harmless, and "fixing" it would
+   change which tiles a stamp reports as touched. Ported verbatim.
+5. **One deliberate divergence, forced by milestone A's trait signature.**
+   The reference reads `state.seaLevel` *live* at apply time, so moving the
+   sea-level slider re-renders existing Plateau/Coastline drafts.
+   `Stamp::apply` takes only a destination, so `sea_level` lives on the
+   stamp, with `with_sea_level()` as the explicit re-stamp. Same result, an
+   explicit step instead of an implicit global read. Only two of the
+   thirteen features read it.
+6. **`Math.hypot` is not `sqrt(x*x+y*y)`** — V8 divides by the larger
+   magnitude and Kahan-compensates. Ported as V8 computes it. Measured
+   honestly afterwards: swapping in the naive form still passes all 23
+   golden cases, because the `f32` store absorbs the difference. Kept for
+   fidelity, documented as *not* test-enforced, with the real risk named
+   (`nearest_on_stroke` picks a segment by `dist < best`, so an ULP can flip
+   the sign of `sd`, which Cliff and Canyon read directly).
+7. **`Math.pow`/`Math.exp` needed no tolerance here.** `CHANGELOG.md`
+   records a prior `1e-4` allowance for them; these stamps use both and
+   still diff bit-exactly, because every value is rounded to `f32` at
+   exactly the point the JS `Float32Array` assignment rounds it. (The one
+   razor-thin thing: the *test fixture's own* base field must be built in
+   `f64` and rounded once at the store. Building it in `f32` shifts the
+   field by an ULP and fails all 23 cases — which is how tight this is.)
+8. **A known limitation carried over faithfully, not introduced.**
+   `docs/SCULPT_EDITOR_INTEGRATION_PLAN.md` §6 left an open item: does the
+   stroke-distance code handle world-mode equirectangular wraparound (a
+   stroke crossing the antimeridian)? Reading the shipped
+   `sculptNearestOnStroke` answers it — **no**, there is no wrap handling;
+   the reference shipped without resolving its own open item. This port
+   matches. Worth revisiting when world-mode sculpting becomes real, but
+   inventing wrap behaviour the reference never had would break parity for
+   the common case to fix one nobody has hit.
+
+**Verified.** 43 unit tests in `cartalith-terrain::sculpt` plus 23
+golden-parity tests, all bit-exact against the real reference under a Node
+`vm.runInContext` harness (four contiguous line slices — 2292-2293,
+7568-7569, 8304, 8821-9081 — each with a block-comment balance assertion and
+a top-level-boundary check, the technique Journey Planner milestone 4
+established; it earns its keep here because the 8821-9081 block both opens
+and closes inside a long `/* ... */`, so an off-by-one at either end would
+have silently swallowed code rather than thrown). Cases: the twelve
+non-Freehand features, Freehand's eight sub-modes, the "Alps" preset, Lake's
+commit-time `waterOnly` dry run, and a cross-check that no two features
+produce the same field at the same seed (which a harness carrying the same
+copy-paste error would not catch). `cargo build/test/clippy --all-targets`
+clean on `cartalith-terrain`.
+
+**Not built, deliberately.** `sculptCommit`'s water hooks
+(`enforceRiverChannels`, `enforceChannelDescent` + `riverMask`/`riverFloor`
+locking, the lake→`lakeMask` deposit) are milestone C — though
+`apply_into`'s `water`/`water_only` parameters, the primitive those hooks
+consume, are ported and golden-verified here, because they are one branch
+inside the function this milestone owns and splitting them out would have
+meant porting `sculptApplyStamp` twice. Also not built: the "respect water
+mask" gate the mockup shows for Raise/lower (the reference's Freehand has no
+water gate at all — a real new feature, not a port), stroke capture and
+simplification (`rdpSimplify`/`catmullRomSample` are input routing,
+Godot-side), the `SCULPT_COLORS` overlay palette, and all shell wiring
+(milestone F).

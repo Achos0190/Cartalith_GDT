@@ -6,6 +6,8 @@ use cartalith_noise::{fbm, pfbm, pridged, pvnoise, ridged, vnoise};
 use cartalith_rng::Mulberry32;
 use rayon::prelude::*;
 
+pub mod sculpt;
+
 /// Mirrors JS `Math.round`: ties round toward `+Infinity`, unlike Rust's
 /// `f64::round` (ties away from zero) — `Math.round(-0.5) == 0`, but
 /// `(-0.5_f64).round() == -1.0`. `buildPlates`'s world-wrap math depends

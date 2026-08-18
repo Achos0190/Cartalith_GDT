@@ -5,7 +5,16 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-18 (post **unified tool plan milestone A** — the
+Last updated: 2026-08-18 (post **unified tool plan milestone B** — the
+Sculpt-editor terrain port, the plan's largest single chunk: all thirteen
+`SCULPT_FEATURES` landform stamps, three noise families, the stamp
+bbox/coverage/domain-warp pipeline and the eight presets, in a new
+`cartalith-terrain::sculpt` implementing milestone A's `Stamp` trait;
+golden-verified **bit-exact** over 23 cases against the reference's own
+`sculptApplyStamp` under a Node `vm` harness — which corrects the plan's own
+prediction that no golden path existed here — tested and unwired, no Godot
+file touched; see its own section below — post **unified tool plan
+milestone A** — the
 `PassBuffer`/staleness core, `UNIFIED_TOOL_PLAN.md`'s foundation layer that
 every tool milestone B-F builds on: `PassBuffer<S>`/`Stamp`/`StageGraph` in
 `cartalith-spatial`, Cartalith's own stage chain in `cartalith-engine`,
@@ -1210,11 +1219,63 @@ accumulation, priority-flood, scatter-writes, per-particle/per-iteration
 wavefronts) are the real remaining ceiling, per this scope doc's own
 "Out of scope" section from the first pass.
 
-## Unified tool plan (`UNIFIED_TOOL_PLAN.md`, milestone A done 2026-08-18)
+## Unified tool plan (`UNIFIED_TOOL_PLAN.md`, milestones A-B done 2026-08-18)
 
-The tool system's foundation layer — what every tool in milestones B-F
-shares. **Done: milestone A only.** No tool exists yet; the left rail is
-still honestly inert (DCC shell milestone 1).
+The tool system's foundation layer plus the Terrain group's engine half.
+**Done: milestones A and B.** No tool is *wired* yet; the left rail is still
+honestly inert (DCC shell milestone 1) until milestone F.
+
+### Milestone B — the Sculpt-editor terrain port (done 2026-08-18)
+
+- **Done — the whole thirteen-feature landform registry**, in a new
+  `cartalith-terrain::sculpt` (`crates/cartalith-terrain/src/sculpt.rs`),
+  implementing milestone A's `cartalith_spatial::Stamp`. Covers all four
+  Terrain-group tools at once (Raise/lower, Smooth, Flatten/terrace, Stamp),
+  since they share one registry. `cartalith-terrain` gains a
+  `cartalith-spatial` dependency — the workspace's second.
+- **Placement decided, not defaulted**: `cartalith-terrain`, because the
+  features are height-field math and that crate already owns the height
+  formula; a `cartalith-sculpt` crate would have bought a `Cargo.toml` and
+  nothing else, and `cartalith-engine` orchestrates rather than computes.
+- **The real registry**: mountains, hills, ridge, plateau, cliff, canyon,
+  valley, river, lake, basin, coastline, volcano, freehand (8 sub-modes) —
+  in `Object.keys` order, which is **load-bearing** because a stamp's noise
+  seed is `(seed ^ ((index+1)*1013)) >>> 0`. Plus 8 presets, 8 globals, 38
+  per-feature controls with their real min/max/step/default, and each
+  feature's own `edgeChar`/`edgeFreqMul` edge character. Volcano is the one
+  feature that sizes itself from its own control, not `brushSize`.
+- **Golden-verified bit-exact, 23 cases** — correcting the plan's own
+  prediction that only unit-tested algebra was available here. A stroke
+  *sequence* is not a reproducible fixture, but a *stamp* is: the reference
+  stores one as plain data, so the real `sculptApplyStamp` runs headlessly
+  under `vm.runInContext` with no DOM and no `generate()`. Harness slices
+  four contiguous line blocks with block-comment balance assertions on each.
+- **No tolerance needed** for `Math.pow`/`exp`/`hypot`, unlike this
+  workspace's earlier `1e-4` precedent — the `f32` store absorbs the
+  last-ULP `f64` disagreement. Measured, not assumed: the same absorption
+  means these fixtures do *not* distinguish V8's Kahan `Math.hypot` from
+  naive `sqrt(x*x+y*y)`, and `js_hypot`'s doc says so plainly rather than
+  claiming a guarantee it does not have.
+- **One deliberate divergence**: `sea_level` lives on the stamp, because
+  `Stamp::apply` takes only a destination and cannot read a live global the
+  way the reference does. `with_sea_level()` is the explicit re-stamp.
+- **A limitation carried over faithfully**: no world-mode equirectangular
+  wraparound in stroke distance. `SCULPT_EDITOR_INTEGRATION_PLAN.md` §6 left
+  this as an open item and the reference shipped without resolving it.
+- **Verified**: 43 unit tests + 23 golden tests; `cargo build/test/clippy
+  --all-targets` clean on `cartalith-terrain`. `cargo test --workspace
+  --exclude cartalith-godot` also clean — the `cartalith-civ` build break the
+  milestone-A note below recorded is **gone**; `cartalith-godot` excluded
+  only because a running Godot editor held its `.dll`, and `cargo check -p
+  cartalith-godot` is clean.
+- **Open, deliberately**: the water-commit hooks (milestone C) — though
+  `apply_into`'s `water`/`water_only` primitive is ported and golden-verified
+  here; the mockup's "respect water mask" gate for Raise/lower (a real new
+  feature — the reference's Freehand has no water gate at all); stroke
+  capture/simplification and the overlay palette (Godot-side); shell wiring
+  (milestone F).
+
+### Milestone A — the `PassBuffer`/staleness core (done 2026-08-18)
 
 - **Done — the `PassBuffer`/staleness core**, tested and unwired.
   `cartalith-spatial::pass` (`Stamp` trait, `PassEntry<S>`, `PassBuffer<S>`,
@@ -1239,17 +1300,16 @@ still honestly inert (DCC shell milestone 1).
   crate's "whenever a real large-world need triggers integration" trigger
   turned out to be the tool system, not LOD rendering — see the section
   immediately below, whose "referenced by nothing" line is now history.
-- **Open: milestones B-F** — the Sculpt-editor terrain port (B), water &
-  ecology (C), civilization (D), annotation & measure (E), shell wiring (F).
+- **Open: milestones C-F** — water & ecology (C), civilization (D),
+  annotation & measure (E), shell wiring (F). B is done, above.
   Also deliberately open: the field-level undo snapshot at commit time (no
   undo stack exists in this port yet to snapshot into; `commit` returns the
   touched-tile list a tile-diff undo would need), and tile-incremental
   recompute of hydrology/climate/civ (none are tile-scoped today — staleness
   reports which tiles are stale, stages still recompute globally).
-- **Note for the next session:** `cargo test --workspace` currently fails to
-  build `cartalith-civ` — a sibling fork's mid-edit Journey Planner work
-  (`crates/cartalith-civ/src/lib.rs:8633`), untouched and unrelated here.
-  Every other crate was tested individually, 0 regressions.
+- ~~**Note for the next session:** `cargo test --workspace` currently fails
+  to build `cartalith-civ`~~ — **resolved**: that sibling fork has landed.
+  Milestone B ran `cargo test --workspace --exclude cartalith-godot` clean.
 
 ## LOD/tiling base (`LOD_TILING_BASE_SCOPE.md`, done 2026-08-17; integrated 2026-08-18)
 

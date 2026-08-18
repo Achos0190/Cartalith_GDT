@@ -9140,3 +9140,332 @@ explicitly not port targets.
 `src/lib.rs`, `src/rng.rs`, `src/geom.rs`), `cartalith-native/docs/STATUS.md`,
 `cartalith-native/docs/CHANGELOG.md`. The workspace `Cargo.toml` needs no edit
 — `members = ["crates/*"]` picks the new crate up.
+
+## Unified tool plan milestone B — the Sculpt-editor terrain port (2026-08-18)
+
+`UNIFIED_TOOL_PLAN.md`'s largest single chunk, and the first real *tool*
+engine in this port: the whole thirteen-feature Sculpt registry, its three
+noise families, its stamp bbox/coverage/domain-warp pipeline, and its eight
+presets — ported, golden-verified bit-exact against the reference, and wired
+to milestone A's `PassBuffer` and to nothing else. Shipped **unwired**: no
+Godot scene, `main.gd`, `main.tscn` or `cartalith-godot` file was touched
+(sibling forks are live in `cartalith-godot` and `cartalith-civ`), the same
+"primitive ahead of orchestration" precedent every prior milestone used.
+
+**Where it landed, and why `cartalith-terrain`.**
+
+- `crates/cartalith-terrain/src/sculpt.rs` (new) — the whole port.
+- `crates/cartalith-terrain/tests/golden_parity_sculpt.rs` (new).
+
+Milestone A split generic stack machinery into `cartalith-spatial` and
+Cartalith *pipeline* knowledge into `cartalith-engine`. This is a third
+category neither covers: **subsystem-domain math**. All thirteen features are
+height-field formulas, `ARCHITECTURE.md`'s "one crate per subsystem" already
+names `cartalith-terrain` as the crate that owns the height formula, and the
+reference itself keeps `SCULPT_FEATURES` in script block 1 beside tectonics
+rather than anywhere near its UI. A new `cartalith-sculpt` crate would have
+bought a `Cargo.toml` and nothing else — no second consumer, no independent
+test boundary (these tests need `cartalith-noise`, which terrain already
+depends on), no dependency edge it would break. `cartalith-engine` would be
+wrong for the mirror image of milestone A's reason: this is computation, and
+*"`cartalith-engine` orchestrates; it does not compute"*. `cartalith-terrain`
+gains a `cartalith-spatial` dependency — the workspace's second, after
+milestone A's `cartalith-engine` edge.
+
+**What the real registry turned out to be.** Thirteen entries, in
+`Object.keys(SCULPT_FEATURES)` order: mountains, hills, ridge, plateau,
+cliff, canyon, valley, river, lake, basin, coastline, volcano, freehand.
+Eight `SCULPT_PRESETS` (Rolling Hills, Alps, Rockies, Badlands, Volcanic
+Isle, Mesa, Karst, Glacial Valley), eight Freehand sub-modes (raise, lower,
+smooth, cliff, ridge, canyon, mesa, volcano), eight shared globals
+(`SCULPT_GLOBAL_DEF`: brushSize 32, hardness 0.5, intensity 1.0, noiseScale
+5, octaves 5, persistence 0.5, lacunarity 2.0, edgeNoise 0.55), and 38
+per-feature controls carrying their real min/max/step/default. All of it
+ported as data — the control tuples included, because milestone F's tool
+options bar and Properties panel need exactly those ranges and there is no
+second source for them.
+
+Three properties reading it added that the plan does not state:
+
+1. **The registry's order is load-bearing.** A stamp's effective noise seed
+   is `(stamp.seed ^ ((index + 1) * 1013)) >>> 0`, where `index` is the
+   feature's position in the object literal. Reordering `FEATURE_KEYS`
+   silently re-randomises every stamp in the file. The constant carries that
+   warning, and a test pins the order.
+2. **`edgeChar`/`edgeFreqMul` are per-feature registry data, not derived.**
+   Thirteen hand-tuned pairs giving each landform its own domain-warped edge
+   character — Coastline 1.5/0.55 (ragged, low-frequency), Mountains 1.4/1.5
+   (tight, high-frequency), River 0.4/0.8 (nearly clean, because meander
+   already supplies its shape), Cliff 0.6/0.45 (wanders like a fault trace).
+3. **Volcano is the one feature that does not use `brushSize`.**
+   `sculptStampRadius` special-cases it to its own `volcRadius` control,
+   because its cone profile is defined in terms of that radius. Everything
+   else — including Lake, the other radial feature — uses the brush.
+
+**The brush model, concretely.** Coverage is
+`smoothstep(0, 1, (R - dist) / feather)` with
+`feather = max(floor, R * (1 - hardness))` — one falloff shape for all
+thirteen, genuinely not user-selectable. `hardness` shapes the coverage,
+`intensity` scales it into effect strength (`k = cov * intensity`); two
+independent multipliers, which is why the mockup has two sliders. Then
+**two** noise passes, not one: a domain warp displaces the *sample position*
+before coverage is measured, so the silhouette moves; and a separate 3.4×
+higher-frequency term roughens `cov` itself but only where `cov < 1`, so the
+interior stays solid while only the rim breaks up. Both use `seed + 2100`;
+the feature bodies' own `fbm`/`ridged`/`billow` use `seed`/`+700`/`+1400`.
+Finally each feature returns a `mode` and a `val`: `add` → `h0 + k*val`,
+`set` → `h0 + k*(val - h0)`. Which mode a feature uses is its defining trait
+— Plateau being `set`-to-`max(h0, level)` is exactly why it never lowers
+terrain and is a flatten/terrace tool rather than another raise brush.
+
+**Determinism.** Every noise call goes through `cartalith-noise`'s
+JS-matching `vnoise`/`hash`, never the GPU-safe PCG3D `gpu_vnoise`, and the
+choice was checked against `DECISIONS.md` rather than assumed: §7's
+golden-parity requirement covers any CPU path with a reference ancestor, and
+§7a's principled-equivalence relaxation is scoped to GPU/optimized paths
+specifically. A sculpt stamp has a reference ancestor and runs on the CPU, so
+it must reproduce the reference bit-for-bit — and does.
+
+**Golden verification — and a correction to the plan's own expectation.**
+The plan predicted no golden path was available here: *"new-to-the-port
+interactive behavior with no golden JS-array trace to diff against ...
+verify per-feature `apply()` math ... rather than attempting stroke-sequence
+parity."* That conflates two things. A *stroke sequence* is indeed not a
+reproducible fixture — but a *stamp* is, and the reference stores one as
+plain data (`{type, seed, pts, g, f}`). Constructing that object directly and
+calling the real `sculptApplyStamp` under Node needs no pointer events, no
+DOM, and no `generate()` run, because the reference itself marks the block
+*"pure, DOM-free core"*. So milestone B got real golden parity: **23 cases,
+every one bit-exact.**
+
+Harness (transient, not checked in): Node `vm.runInContext` over four
+contiguous line slices of the real file — 2292-2293 (`hash`/`vnoise`),
+7568-7569 (`clamp01`/`smoothstep`), 8304 (`lerp`), 8821-9081 (the entire
+Sculpt pure core) — each with a **block-comment balance assertion** and a
+"starts at a top-level boundary" check, the technique Journey Planner
+milestone 4 established. It earns its keep here: the 8821-9081 block both
+opens and closes inside a long `/* ... */`, so an off-by-one at either end
+would have spliced a comment open and silently swallowed code rather than
+throwing a syntax error. One shim is disclosed in the test's own header:
+`sculptDefaultParams` (line 9102) sits just past the pure core in the UI
+half, so its three-line body is re-declared rather than widening the slice
+into DOM-dependent code — it reads the registry's own control tuples, so the
+defaults still come from the reference.
+
+Cases: the twelve non-Freehand features, Freehand's eight sub-modes, the
+"Alps" preset run through `Preset::apply` the way the UI runs it, and Lake's
+commit-time `waterOnly` dry run. Each checked with an FNV-1a-64 fold over
+every cell's raw `f32` bit pattern (so a one-ULP difference anywhere in 4096
+cells fails), plus changed-cell count, six sampled cells as raw bits, and the
+bounding box. Fixture field is a deliberately non-flat `f32` sawtooth — a
+flat base would hide every `h0`-dependent branch, and River, Lake, Plateau,
+Coastline and Mesa are all `h0`-dependent. Plus one cross-cutting test a
+harness sharing the same copy-paste error would not catch: no two features
+produce the same field at the same seed.
+
+**Findings worth the record.**
+
+- **`Math.pow`/`Math.exp` needed no tolerance**, despite this CHANGELOG's own
+  earlier `1e-4` allowance for them. Every value is rounded to `f32` at
+  exactly the point the JS `Float32Array` assignment rounds it, which absorbs
+  the last-ULP `f64` disagreement between V8's fdlibm and the platform libm.
+  The one razor-thin thing is the *fixture's own* base field: built in `f32`
+  instead of `f64`-then-store, it shifts by an ULP and all 23 cases fail
+  (which is how the first run failed, and a useful measure of the margin).
+- **`Math.hypot` is not `sqrt(x*x+y*y)`** — V8 divides by the larger
+  magnitude and Kahan-compensates the sum of squares. Ported as V8 computes
+  it, then *measured*: swapping in the naive form still passes all 23 cases,
+  because the `f32` store absorbs the difference too. Kept for fidelity and
+  documented as explicitly **not** test-enforced, with the real risk named
+  rather than implied — `nearest_on_stroke` picks a segment with a
+  `dist < best` comparison, so one ULP can change which segment wins and with
+  it the *sign* of `sd`, which Cliff and Canyon read directly.
+- **Smooth also ignores `waterOnly`.** The plan flags the pre-loop snapshot
+  (Freehand/Smooth is the one feature that bypasses the generic per-pixel
+  path entirely, because a 4-neighbour blur cannot read stable neighbour
+  state off a live-mutating buffer). It does not mention that the branch
+  `return`s *before* the water-only check, so a smooth stamp would write
+  height even on a water-only pass. Unreachable in practice — only Lake
+  stamps are ever passed `waterOnly` — ported as-is rather than "fixed", with
+  the reasoning at the site.
+- **`sculptStampBBox` and `sculptApplyStamp` disagree about `feather`**: the
+  bbox uses `max(2, rad*(1-hardness))` for every feature, `apply` uses
+  `max(1.5, R*(1-hardness))` for non-radial ones. The bbox's floor is the
+  larger, so the box always covers what `apply` writes. Harmless, and
+  "fixing" it would change which tiles a stamp reports as touched. Ported
+  verbatim.
+- **One deliberate divergence, forced by milestone A's trait signature.** The
+  reference reads `state.seaLevel` *live* at apply time, so moving the
+  sea-level slider re-renders existing Plateau/Coastline drafts.
+  `Stamp::apply` takes only a destination, so `sea_level` lives on the stamp,
+  with `SculptStamp::with_sea_level()` as the explicit re-stamp. Same result,
+  an explicit step instead of an implicit global read; only two of the
+  thirteen features read it at all.
+- **A known limitation carried over faithfully, not introduced.**
+  `docs/SCULPT_EDITOR_INTEGRATION_PLAN.md` §6 left an open item — does the
+  stroke-distance code handle world-mode equirectangular wraparound (a stroke
+  crossing the antimeridian)? Reading the shipped `sculptNearestOnStroke`
+  answers it: **no**, there is no wrap handling; the reference shipped
+  without resolving its own open item. This port matches. Inventing wrap
+  behaviour the reference never had would break parity for the common case to
+  fix one nobody has hit.
+
+**Verified.** 43 unit tests in `cartalith-terrain::sculpt` (bounds vs. writes
+for all thirteen features, Plateau's never-lowers monotonicity, Cliff's
+one-sided sign flip, Freehand raise/lower symmetry, the one-point-stroke
+radial degeneration Freehand's tap-once modes rely on, River/Lake as the only
+water writers, the water-only pass not double-carving, and four end-to-end
+`PassBuffer` integrations including preview-equals-commit bit-for-bit and
+discard leaving the field bit-identical) plus the 23 golden tests.
+`cargo build -p cartalith-terrain`, `cargo test -p cartalith-terrain`
+(43 + 23 + the crate's 11 pre-existing golden suites) and
+`cargo clippy -p cartalith-terrain --all-targets` all clean.
+
+`cargo test --workspace --exclude cartalith-godot` also ran clean this
+session — the `cartalith-civ` build break the previous session recorded is
+gone (that fork has landed). `cartalith-godot` was excluded only because its
+`.dll` was locked by a running Godot editor; `cargo check -p cartalith-godot`
+is clean, and nothing in this diff touches it.
+
+**Not built, deliberately.** `sculptCommit`'s water hooks
+(`enforceRiverChannels`, `enforceChannelDescent` + `riverMask`/`riverFloor`
+locking, the lake→`lakeMask` deposit) are milestone C — though `apply_into`'s
+`water`/`water_only` parameters, the primitive those hooks consume, are
+ported and golden-verified here, because they are one branch inside the
+function this milestone owns and splitting them out would have meant porting
+`sculptApplyStamp` twice. Also not built: the "respect water mask" gate the
+mockup shows for Raise/lower (the reference's Freehand has no water gate at
+all — a real new feature, not a port), stroke capture and simplification
+(`rdpSimplify`/`catmullRomSample` are input routing, Godot-side), the
+`SCULPT_COLORS` overlay palette, and all shell wiring (milestone F).
+
+**Files touched**: `cartalith-native/crates/cartalith-terrain/src/sculpt.rs`
+(new), `cartalith-native/crates/cartalith-terrain/tests/golden_parity_sculpt.rs`
+(new), `cartalith-native/crates/cartalith-terrain/src/lib.rs` (one `pub mod`
+line), `cartalith-native/crates/cartalith-terrain/Cargo.toml`
+(`cartalith-spatial` dependency, description), `UNIFIED_TOOL_PLAN.md`,
+`cartalith-native/docs/STATUS.md`, `cartalith-native/docs/CHANGELOG.md`.
+
+## DCC shell milestone 3: the World Setup dialog (2026-08-18)
+
+Owner's own request, verbatim: *"maybe we should start thinking about a
+proper base setup menu where we can pick map size, resolution, dimensions -
+basically expanded from the current html version."* The GUI half of the
+non-square work `22ae75b` landed in Rust. **No Rust changed this pass** — the
+API it needs already existed (`generate_sized`,
+`generate_world_structure_sized`, `reference_grid_height`,
+`get_map_width_km`/`get_map_height_km`).
+
+`UI_SHELL_DESIGN.md` puts "New world" in the File menu and rules that menu
+items open **dialogs, never persistent side panels**, so this grows File ▸
+New world — milestone 1's carry-over home for the generation controls — into
+a real world-setup gate. Full design record and verification table:
+`DCC_SHELL_SCOPE.md`'s milestone 3 section.
+
+**Built:**
+
+- A new first section in the New-world dialog, `MAP SIZE, RESOLUTION &
+  DIMENSIONS`, built at runtime. Four rows in one grammar — **label · guided
+  preset · exact value**: Extent (Region / Whole world), Map width km (six
+  scale presets from Local 200 km to Planet 40 075 km, plus the reference's
+  own free km entry), Resolution/columns (the reference's own
+  512/1K/2K/4K/8K segment plus free entry 4–8192), Aspect/rows (2:1, 16:9,
+  the reference's own 1.5625:1 region frame, 4:3, 1:1, 3:4, 9:16, Custom,
+  plus a free row count). Every preset writes its free entry; typing any
+  other value flips the preset back to *Custom*.
+- A **live derived readout** under them — Grid (cells + total), Extent (km ×
+  km), Cell size (km per cell), Aspect (ratio + landscape/portrait/square) —
+  so picking 1K in region mode shows the real 1024 × 512 grid and the real km
+  extent of both axes before anything is generated.
+- Generation dispatched through `generate_sized()` /
+  `generate_world_structure_sized()`, with the status bar, the top-right
+  readout and the viewport scale bar all reporting the real shape.
+
+**Three engine rules the design is built around** (`GENERATION_PARAMETERS.md`
+"Map dimensions and aspect ratio"), not re-derived here:
+
+1. **Cells are square in km.** Every km↔cell conversion in the workspace
+   comes from the one quotient `map_width_km / gw` applied to both axes, so
+   map height in km is derived (`width_km × gh / gw`). There is deliberately
+   no height-in-km control — it is a readout, and the section's own header
+   text states the reason rather than leaving the absence looking accidental.
+2. **World mode is physically 2:1** (X wraps 360° of longitude, Y spans 180°
+   of latitude). Choosing Whole world pins the aspect to 2:1, takes the row
+   count from `reference_grid_height(gw, true)`, and disables the aspect and
+   row controls **with the physical reason in prose directly above them**.
+3. **Grid height is a call argument, not a stored parameter** — it
+   reallocates every field in the pipeline, so it cannot honour the parameter
+   table's "set once, generate many" contract.
+
+**Nothing the engine owns is copied into GDScript**, the same discipline
+milestone 2 set: both reference `gridH` factors (0.5 / 0.64) are asked of
+`WorldGen.reference_grid_height()`, extent is stored through `set_params({
+"world": …})`, and the post-generation summary reads `get_map_width_km()` /
+`get_map_height_km()` back instead of echoing the request — so a
+setup-readout/engine disagreement would be *visible*. The two scene-authored
+controls the section needs (`%ResolutionInput`, `%WidthInput`) are
+**re-parented** into the new rows rather than duplicated: one node per value.
+
+**`world` now has two surfaces and one node.** It is a real generation
+parameter the Generate ▸ Climate dialog legitimately shows, *and* a
+creation-time shape decision the setup dialog owns. Rather than drop it from
+one side it became a `PROXY_KEYS` entry onto the Extent control — the
+mechanism milestone 2 already used for the four experimental flags, extended
+here to handle an `OptionButton` (assigning `selected` emits no signal, so
+the handler that reaches the engine is called explicitly). Verified live:
+flipping the Climate checkbox moves the Extent selector, writes the engine
+parameter, disables the aspect control and re-derives the grid to 2048 × 1024.
+
+**Honest guidance instead of discovery-by-waiting.** Two conditional warnings
+under the readout: 4K/8K grids are memory- and time-heavy on this port's
+CPU-only pipeline (milestone 1's static hint, now conditional and covering
+the row count too), and aspect ratios past ~16:1 are degenerate —
+non-crashing, but the coarse weather grid loses almost all resolution across
+the short axis and the plate frame swallows a large fraction of the sheet
+(the finding the Rust non-square pass recorded).
+
+**One real bug found in the existing dialog**: `%WidthInput`'s `max_value`
+was 40 000 km, so "Earth's equator" (40 075 km) silently clamped. Raised to
+100 000 with a step of 5. Found by the screenshot verification, not by
+reading.
+
+**Verified:**
+
+- `cargo build -p cartalith-godot`: clean.
+- `cargo test --workspace`: **719 tests across 88 binaries, 0 failures, 0
+  regressions**. (Higher than milestone 2's 563 because sibling forks added
+  `cartalith-urban` and a terrain sculpt module; `cartalith-civ` compiled
+  fine despite the flagged possibility of mid-edit sibling state.)
+- `godot4 --headless --quit main.tscn`: loads clean, warnings byte-identical
+  to the pre-change baseline — checked by stashing the change and re-running,
+  not assumed. (The two RID/ObjectDB lines are pre-existing.)
+- **Real 1920×1080 windowed app**, driven through this dialog, each shape's
+  setup readout compared against `get_map_width_km()`/`get_map_height_km()`
+  after generating:
+
+| Shape | Asked | Engine reported | Rendered |
+|---|---|---|---|
+| 2:1 landscape, Earth-like | 1024 × 512, 2 000 km | 1024 × 512, 2000 × 1000 km | correct 2:1 plate, not stretched |
+| 3:4 portrait, Classic | 768 × 1024, 1 500 km | 768 × 1024, 1500 × 2000 km | correct portrait plate, polar snow at the north edge |
+| Whole world, Earth-like | 1024 × 512, 40 000 km | 1024 × 512, 40000 × 20000 km | 2:1, **visible polar caps top and bottom**, sea lanes wrapping |
+| 16:9, Archipelago | 640 × 360, 1 200 km | 640 × 360, 1200 × 675 km | correct 16:9 plate |
+
+  Every readout matched the engine exactly. `map_overlay.gd` needed no
+  change — its `_displayed_rect()` already fits with
+  `min(size.x/gw, size.y/gh)`, so markers, roads and sea lanes land on the
+  right pixels at any aspect.
+- **Archetype dispatch re-verified** — the `a265b2b` bug, where World Shape
+  silently never reached generation. Earth-like and Archipelago both
+  dispatched through `generate_world_structure_sized` and produced their
+  characteristic worlds with real settlement counts (36 and 25); the call's
+  `bool` return is still surfaced as a visible failure rather than swallowed.
+- **Golden path re-verified, no regressions**: generation from both entry
+  points, all five overlay toggles (territory fill and province boundaries
+  included), the causal-chain Inspector on hover **and** click-to-pin —
+  driven through `map_overlay`'s own real hit test at a settlement's own
+  pixel rather than a hand-made signal emit — all six Generate stage dialogs
+  building, and Credits.
+
+**Deferred, unchanged**: light theme, responsive breakpoints, all tool
+functionality. Saving a *parameter set* as a named preset document is the
+natural follow-up this milestone deliberately does not attempt.
