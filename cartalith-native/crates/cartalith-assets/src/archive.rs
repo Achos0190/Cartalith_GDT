@@ -183,24 +183,42 @@ pub fn read_pack<R: Read + Seek>(
     Ok((manifest, entries))
 }
 
-/// Write entries into a pack `.zip`, in the order given (reference `zipStore`,
-/// line 12009).
+/// `zipStore(entries)` (reference line 12009): write named byte blobs into a
+/// PKZIP, in the order given.
 ///
-/// The caller owns the ordering because the reference's exporter does:
-/// `pack.json` goes last, after the images. [`write_pack`] applies that
-/// ordering for you.
+/// This is the reference's *only* zip writer, and it has three callers there,
+/// not one: the asset-pack exporter, the project `.zip` export, and — since
+/// `UNIFIED_TOOL_PLAN.md` milestone E2 — the region-tile export
+/// (`cartalith_engine::region_export`). So it is spelled once, here, where
+/// milestone 2 already established both of its conventions and verified them
+/// against a real reference-written archive. [`write_pack_entries`] is the
+/// pack-flavoured name for the same function.
 ///
-/// Compression follows the reference's rule — `.png` (case-insensitive) is
-/// STORED, everything else is DEFLATED — and the modification time of every
-/// entry is pinned to 1980-01-01 00:00:00, so exporting the same pack twice
-/// produces the same bytes.
-pub fn write_pack_entries<W: Write + Seek>(
-    writer: W,
-    entries: &[(&str, &[u8])],
-) -> Result<(), ArchiveError> {
+/// Three behaviours, all observable in the bytes:
+///
+/// - **`.png` (case-insensitive) is STORED, never deflated.** A PNG is already
+///   internally DEFLATE-compressed, so re-compressing it is wasted CPU for no
+///   size gain.
+/// - **Anything else is deflated only if that actually makes it smaller**,
+///   otherwise it falls back to STORE. The reference does this too, and it is
+///   not a corner case: a region export's `params.json` is often a few bytes,
+///   where the deflate header alone costs more than it saves. Milestone 2 left
+///   this un-ported (it read as a browser size concern); milestone E2 measured
+///   the reference and found the region export reaches it on its very first
+///   entry, so it is ported now. The decision is made by compressing once with
+///   `flate2` and comparing lengths — the same encoder `zip` itself uses, so
+///   the measurement and the eventual write agree.
+/// - **Every timestamp is 1980-01-01 00:00:00**, because `zipStore` hardcodes
+///   the DOS date word to `0x0021` and the time word to `0`. `zip`'s own
+///   default is the wall clock, which would make two exports of the same data
+///   differ.
+///
+/// Two entries with the same name are written twice, as the reference would;
+/// neither its exporters nor this port's can generate that.
+pub fn zip_store<W: Write + Seek>(writer: W, entries: &[(&str, &[u8])]) -> Result<(), ArchiveError> {
     let mut zw = zip::ZipWriter::new(writer);
     for (name, data) in entries {
-        let method = if name.to_ascii_lowercase().ends_with(".png") {
+        let method = if name.to_ascii_lowercase().ends_with(".png") || !deflate_helps(data) {
             CompressionMethod::Stored
         } else {
             CompressionMethod::Deflated
@@ -217,6 +235,42 @@ pub fn write_pack_entries<W: Write + Seek>(
     }
     zw.finish()?;
     Ok(())
+}
+
+/// [`zip_store`] straight into a `Vec`, which is what every caller in this
+/// port actually wants — the reference hands its result to
+/// `URL.createObjectURL` as one in-memory `Blob`.
+pub fn zip_store_bytes(entries: &[(&str, &[u8])]) -> Result<Vec<u8>, ArchiveError> {
+    let mut buf = Vec::new();
+    zip_store(std::io::Cursor::new(&mut buf), entries)?;
+    Ok(buf)
+}
+
+/// `zipStore`'s `cbytes && cbytes.length < data.length` test: would raw
+/// DEFLATE actually shrink this entry?
+fn deflate_helps(data: &[u8]) -> bool {
+    use flate2::{Compression, write::DeflateEncoder};
+    let mut e = DeflateEncoder::new(Vec::with_capacity(data.len()), Compression::default());
+    if e.write_all(data).is_err() {
+        return false;
+    }
+    match e.finish() {
+        Ok(c) => c.len() < data.len(),
+        Err(_) => false, // the reference's own `catch` -> null -> store
+    }
+}
+
+/// Write entries into a pack `.zip`, in the order given.
+///
+/// The pack-facing name for [`zip_store`], which carries the documentation of
+/// what the format actually does. The caller owns the ordering because the
+/// reference's exporter does: `pack.json` goes last, after the images.
+/// [`write_pack`] applies that ordering for you.
+pub fn write_pack_entries<W: Write + Seek>(
+    writer: W,
+    entries: &[(&str, &[u8])],
+) -> Result<(), ArchiveError> {
+    zip_store(writer, entries)
 }
 
 /// Write a validated manifest and its images back out as a pack `.zip`, the

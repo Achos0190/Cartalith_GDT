@@ -5,7 +5,7 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-18 (post **Phase 2 milestone 20** — `_civFactionAggregates`, the last unstarted piece of the economy layer, ported in full as `cartalith_civ::civ_faction_aggregates` with `_civFactionCapital`, the `CIV_TAX_RATE`/`CIV_PRIMARY_SPECIALISATION` tables and `_civOceanDistField`; taken now because it was a **real blocker for something already built** — the GUI parity audit had re-classified `civ_culture_terrain_fit` from "needs wiring" to genuinely blocked, since its `terrain_mix`/`world_mean_terrain` inputs were computed by nothing, and they are now computed and golden-verified; the heuristic five-axis "power" composite ported **verbatim** rather than simplified (the reference labels it honestly, and simplifying would mean inventing a different heuristic with nothing to check it against); `CIV_MAX_TIER_RANK` is **5, not 4** — the reference normalises by its full ten-entry class table whose top tier this port does not model, and using 4 would have inflated two power axes by 25%; the resource-residency tension `ECONOMY_SCOPE.md` expected to force **does not bind**, because the half that unblocks culture-terrain-fit needs no resource field and `resources` is an `Option` porting the reference's own nullable `pots`; one real JS-semantics trap found by re-reading — **`NaN` is falsy in JS**, so the reference's `p.pop||0` absorbs a bad settlement instead of poisoning a whole faction row, now ported as `js_num_or_zero`/`js_truthy_num`; golden-verified over two fixtures whose shapes reach the edges deliberately, with **six input hashes exact** and a disclosed **pre-existing 1-3 f32 ULP climate divergence** handled by stated tolerances rather than papered over; **58 mutations, 56 killed, 2 equivalent-mutant survivors** — both re-proved genuinely tested with discriminating variants rather than accepted on assertion, and the first pass's other four survivors were real fixture gaps (a saturating power normaliser, the territory guard's untested upper bound, `Math.round`'s negative half, and an elevation-denominator floor no real sea level activates), each closed with a unit test and re-killed; tested and unwired, no Godot file touched; see its own section below — post **Phase 5 milestone 5** — urban morphology's
+Last updated: 2026-08-18 (post **unified tool plan milestone E2** — the deferred half of Region select/export: per-tile PNG (`cartalith-terrain::tile_render`, the hypsometric tint and v1.29 seam-safe hillshade), gzip (`cartalith-io::gzip`), the `.zip` assembly (`cartalith-assets`' `zipStore` **generalised** rather than duplicated — one function in the reference, three callers), `exportGeoJSON` plus its raster-to-vector tracer (`cartalith-spatial::geo` + `cartalith-engine::geojson`) and `regionNewWorldBtn`'s non-UI core; the archive conventions matched `cartalith-assets`' exactly, but **one milestone 2 had deliberately skipped is real** — `zipStore` stores rather than deflates when deflate does not shrink, and a region export hits it on three of four entries; four reference corrections (`Uint8ClampedArray` rounds ties to **even** and is not a cast, `hypso` extrapolates into **negative** channels, `toFixed` rounds ties to the **larger n** where Rust rounds to even, and the tracer's JS-`Map` overwrite yields a genuinely **unclosed** ring); E2 ran the **real** `exportRegionTiles` — which milestone E could not — and a fourth-tile disagreement turned out to be a **harness** bug (block #1's deferred boot `generate()` firing during the `setTimeout(0)` the export awaits between tiles), fixed, after which all four tiles match E's hashes and its disclosure is discharged; 18 golden + 61 unit tests, **everything bit-exact with no tolerance anywhere**, both GeoJSON documents compared as whole strings; **58 mutations, 54 killed, 4 equivalent-mutant survivors**, and the first sweep's ten survivors included **six real fixture gaps** — with degenerate-ring reachability settled by brute-forcing all 65 536 masks on a 4x4 grid through the reference's own tracer rather than argued; tested and unwired, no Godot file touched; the unified tool plan now has **only milestone F** left; see its own section below — post **Phase 2 milestone 20** — `_civFactionAggregates`, the last unstarted piece of the economy layer, ported in full as `cartalith_civ::civ_faction_aggregates` with `_civFactionCapital`, the `CIV_TAX_RATE`/`CIV_PRIMARY_SPECIALISATION` tables and `_civOceanDistField`; taken now because it was a **real blocker for something already built** — the GUI parity audit had re-classified `civ_culture_terrain_fit` from "needs wiring" to genuinely blocked, since its `terrain_mix`/`world_mean_terrain` inputs were computed by nothing, and they are now computed and golden-verified; the heuristic five-axis "power" composite ported **verbatim** rather than simplified (the reference labels it honestly, and simplifying would mean inventing a different heuristic with nothing to check it against); `CIV_MAX_TIER_RANK` is **5, not 4** — the reference normalises by its full ten-entry class table whose top tier this port does not model, and using 4 would have inflated two power axes by 25%; the resource-residency tension `ECONOMY_SCOPE.md` expected to force **does not bind**, because the half that unblocks culture-terrain-fit needs no resource field and `resources` is an `Option` porting the reference's own nullable `pots`; one real JS-semantics trap found by re-reading — **`NaN` is falsy in JS**, so the reference's `p.pop||0` absorbs a bad settlement instead of poisoning a whole faction row, now ported as `js_num_or_zero`/`js_truthy_num`; golden-verified over two fixtures whose shapes reach the edges deliberately, with **six input hashes exact** and a disclosed **pre-existing 1-3 f32 ULP climate divergence** handled by stated tolerances rather than papered over; **58 mutations, 56 killed, 2 equivalent-mutant survivors** — both re-proved genuinely tested with discriminating variants rather than accepted on assertion, and the first pass's other four survivors were real fixture gaps (a saturating power normaliser, the territory guard's untested upper bound, `Math.round`'s negative half, and an elevation-denominator floor no real sea level activates), each closed with a unit test and re-killed; tested and unwired, no Godot file touched; see its own section below — post **Phase 5 milestone 5** — urban morphology's
 site model, `cartalith-urban::site`: `shoreFromMask`/`buildSite`/
 `terrainSuitability`, the input contract every later stage of a town reads
 the world through, on both the synthetic-seed path and the real-water /
@@ -1707,13 +1707,67 @@ accumulation, priority-flood, scatter-writes, per-particle/per-iteration
 wavefronts) are the real remaining ceiling, per this scope doc's own
 "Out of scope" section from the first pass.
 
-## Unified tool plan (`UNIFIED_TOOL_PLAN.md`, milestones A-E done 2026-08-18)
+## Unified tool plan (`UNIFIED_TOOL_PLAN.md`, milestones A-E2 done 2026-08-18)
 
 The tool system's foundation layer plus **all four** tool groups' engine
-halves. **Done: milestones A, B, C, D and E.** No tool is *wired* yet; the left
-rail is still honestly inert (DCC shell milestone 1) until milestone F.
-Remaining: **F** (shell wiring), plus **E2** — the region export's
-PNG/gzip/`.zip`/GeoJSON half, split out of E deliberately (below).
+halves, complete. **Done: milestones A, B, C, D, E and E2.** No tool is *wired*
+yet; the left rail is still honestly inert (DCC shell milestone 1) until
+milestone F. Remaining: **F** (shell wiring) and nothing else.
+
+### Milestone E2 — Region select/export's format-and-pixels half (done 2026-08-18)
+
+- **Done — everything milestone E deferred**, tested and unwired:
+  - **The tile visual** — `cartalith-terrain/src/tile_render.rs`: `hypso`, the
+    `SEA`/`LAND` palettes, the four v1.29 edge extrapolators,
+    `renderHeightTileRGBA`, and ECMA's `ToUint8Clamp`.
+  - **The raster-to-vector tracer** — `cartalith-spatial/src/geo.rs`:
+    `_geoXY`, `_geoTraceMaskRings`, `_geoRingArea`, `_geoPointInRing`,
+    `_geoMaskOutlineCoords`, plus `js_to_fixed`.
+  - **gzip** — `cartalith-io/src/gzip.rs` (`flate2`).
+  - **The `.zip` writer** — `cartalith-assets/src/archive.rs`, generalised:
+    `zipStore` is ONE function in the reference with three callers, so
+    `write_pack_entries` became an alias for a neutral `zip_store`.
+  - **GeoJSON** — `cartalith-engine/src/geojson.rs`: `exportGeoJSON`,
+    `_geoTerritoryFeature`, `_geoProvinceFeature`, and a `JSON.stringify`-exact
+    writer built on `cartalith-io`'s now-public `js_num`/`json_string`.
+  - **The export composition** — `cartalith-engine/src/region_export.rs`:
+    `tilePngBytes` (height branch, via `cartalith_assets::raster::encode_png`),
+    the gzip/PNG loop, `refineBtn`'s `.zip` assembly, and
+    `extract_region_as_world`.
+- **The archive conventions matched `cartalith-assets`' exactly** — same
+  function — but **one milestone 2 had deliberately skipped is real**:
+  `zipStore` stores rather than deflates when deflate does not shrink the
+  entry, and a region-export-shaped archive comes back with **three of four
+  entries STORED**. Ported now. A STORE-only archive is byte-identical to the
+  reference apart from two header fields no reader interprets.
+- **Four reference corrections**: `Uint8ClampedArray` rounds ties to even and
+  is not a cast; `hypso` extrapolates into **negative** channels below its
+  palette; `toFixed` rounds ties to the larger n where Rust rounds to even
+  (reachable at `cellKm == 0.0625`); and the tracer's JS `Map` overwrite
+  produces a genuinely **unclosed** ring at a checkerboard pinch.
+- **`regionNewWorldBtn` is a UI action with a real core.** The button stays
+  unported (UI work is on hold); `extract_region_as_world` is the arithmetic
+  and the amplification, with the live-world orchestration listed rather than
+  half-built.
+- **A harness bug that looked like a reference bug.** E2 ran the real
+  `exportRegionTiles` (which milestone E could not) and it disagreed on the
+  fourth tile — because block #1's deferred boot `generate()` fired during the
+  `setTimeout(0)` the export awaits between tiles and overwrote `field`
+  mid-loop. Fixed in the harness; all four tiles then match milestone E's
+  hashes, **discharging its disclosure**.
+- **Verified:** 18 golden-parity + 61 unit tests, **everything bit-exact with
+  no tolerance anywhere** (both GeoJSON documents compared as whole strings,
+  rasters as FNV-1a-64 over every byte). `Math.sin`/`Math.cos` agree with V8
+  across four azimuths. **58 mutations, 54 killed, 4 equivalent-mutant
+  survivors** — and the first sweep's ten survivors included **six real fixture
+  gaps**, with degenerate ring reachability settled by brute-forcing all 65 536
+  masks on a 4x4 grid through the reference's own tracer. `cargo test
+  --workspace`: 1150 passing, 0 failures.
+- **Not built:** the selection *interaction* (milestone F),
+  `renderBiomeTileRGBA`, `burnChannels` (LOD viewer, not this tool),
+  `params.json`'s contents (`SAVEFILE_COMPAT.md` is read-only here), and every
+  UI surface.
+
 
 ### Milestone E — the Annotation & measure group (done 2026-08-18)
 
@@ -1747,7 +1801,8 @@ PNG/gzip/`.zip`/GeoJSON half, split out of E deliberately (below).
   bit-exact) or a browser API (which cannot be). So **E2** is format-and-pixels
   only: per-tile PNG (`tilePngBytes`), `gzipBytes`, the `.zip` assembly,
   `exportGeoJSON` + its raster-to-vector boundary tracer, and
-  `regionNewWorldBtn`'s replace-the-world path. Smaller than the plan feared.
+  `regionNewWorldBtn`'s replace-the-world path. Smaller than the plan feared —
+  and done, see the E2 section above.
 - **The plan described the wrong icon function.** `_carIconBrushStamp` is a
   dart-throwing blue-noise scatter *brush*, not the single-icon stamp the plan
   calls it; the actual click-to-place path is four lines elsewhere. The brush

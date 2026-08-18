@@ -141,6 +141,7 @@ name = "cartalith-assets"
 version = "0.1.0"
 dependencies = [
  "cartalith-noise",
+ "flate2",
  "image",
  "serde",
  "serde_json",
@@ -171,6 +172,7 @@ dependencies = [
 name = "cartalith-engine"
 version = "0.1.0"
 dependencies = [
+ "cartalith-assets",
  "cartalith-climate",
  "cartalith-erosion",
  "cartalith-gpu",
@@ -178,6 +180,7 @@ dependencies = [
  "cartalith-io",
  "cartalith-spatial",
  "cartalith-terrain",
+ "zip",
 ]
 
 [[package]]
@@ -229,6 +232,7 @@ dependencies = [
 name = "cartalith-io"
 version = "0.1.0"
 dependencies = [
+ "flate2",
  "serde",
  "serde_json",
  "zip",

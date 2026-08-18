@@ -123,6 +123,7 @@ pub mod slots;
 #[cfg(feature = "zip")]
 pub use archive::{
     ArchiveError, PackEntries, read_pack, read_pack_entries, write_pack, write_pack_entries,
+    zip_store, zip_store_bytes,
 };
 pub use library::{
     AssetCollections, AssetDB, DuplicateEntry, ItemRecord, ItemTransform, LIBRARY_POI_SLOTS,

@@ -24,7 +24,18 @@ cartalith-spatial = { path = "../cartalith-spatial" }
 # packHeight16/buildTileManifest with cartalith-terrain's refineTile. io holds
 # no gdext and no pipeline state -- fine per ARCHITECTURE.md's crate rules.
 cartalith-io = { path = "../cartalith-io" }
+# UNIFIED_TOOL_PLAN.md milestone E2: the region export's remaining two steps
+# are a PNG encoder and a `.zip` writer, and cartalith-assets already carries
+# both -- `raster::encode_png` over the `image` crate, and `archive::zip_store`,
+# which IS the reference's own `zipStore` (one function there, three callers,
+# now three here). Reused rather than re-spelled. No gdext, no pipeline state,
+# no cycle -- fine per ARCHITECTURE.md's crate rules.
+cartalith-assets = { path = "../cartalith-assets" }
 # GPU_LAYER_INTEGRATION_SCOPE.md milestone 6: opt-in (WorldParams.use_gpu)
 # partial-GPU substrate path. Neither crate depends on gdext -- fine per
 # ARCHITECTURE.md's crate rules (only cartalith-godot may touch Godot).
 cartalith-gpu = { path = "../cartalith-gpu" }
+
+[dev-dependencies]
+# Reading back an archive `zip_region_export` wrote, in tests only.
+zip = { version = "8.6.0", features = ["deflate"] }

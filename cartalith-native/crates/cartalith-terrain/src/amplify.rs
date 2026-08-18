@@ -71,7 +71,7 @@ impl Default for AmplifyOpts {
 /// case above, and `f64::min` there would silently turn an all-NaN tile into a
 /// plausible-looking one.
 #[inline]
-fn js_min(a: f64, b: f64) -> f64 {
+pub(crate) fn js_min(a: f64, b: f64) -> f64 {
     if a.is_nan() || b.is_nan() {
         f64::NAN
     } else if a < b {
@@ -83,7 +83,7 @@ fn js_min(a: f64, b: f64) -> f64 {
 
 /// `Math.max` with the same NaN propagation as [`js_min`].
 #[inline]
-fn js_max(a: f64, b: f64) -> f64 {
+pub(crate) fn js_max(a: f64, b: f64) -> f64 {
     if a.is_nan() || b.is_nan() {
         f64::NAN
     } else if a > b {

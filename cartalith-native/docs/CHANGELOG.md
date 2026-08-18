@@ -11218,3 +11218,168 @@ both killed.
 no GDScript. All UI work is on hold (owner, 2026-08-18,
 `DCC_SHELL_SCOPE.md`), and the standing "don't wire in what nothing calls"
 rule applies to the engine side too.
+
+## Unified tool plan milestone E2 — Region select/export's format-and-pixels half, plus GeoJSON (2026-08-18)
+
+The other half of the split milestone E made honestly: per-tile PNG, gzip, the
+`.zip` assembly, `exportGeoJSON` with its raster→vector boundary tracer, and
+the non-UI core of `regionNewWorldBtn`. Milestone E predicted *"a smaller E2
+than the plan feared"* and that held — every deferred item is done, and what
+grew was the verification, not the code.
+
+**Ported, and where it landed:**
+
+- `cartalith-terrain/src/tile_render.rs` — `hypso` (8332), the `SEA`/`LAND`
+  palettes (8330-8331), `lerp`/`mix` (8304-8305), the four v1.29 edge
+  extrapolators (11606-11609), `renderHeightTileRGBA` (11610), and ECMA's
+  `ToUint8Clamp`. A height ramp plus a normal-from-height shade is a height
+  formula start to finish — milestone B's subsystem-domain category, and the
+  same reason milestone E put `amplify_region`/`refine_tile` here. Touches no
+  canvas and no encoder. 13 unit tests.
+- `cartalith-spatial/src/geo.rs` — `_geoXY` (12491), `_geoTraceMaskRings`
+  (12500), `_geoRingArea` (12526), `_geoPointInRing` (12527),
+  `_geoMaskOutlineCoords` (12540), plus `js_to_fixed` and an `id_mask` helper.
+  Every one operates on a binary mask over a grid plus a km scale and knows
+  nothing about what the mask means — the reference proves the point by calling
+  one shared helper from both the territory and the province exporter. 15 unit
+  tests.
+- `cartalith-io/src/gzip.rs` — `gzipBytes`/`gunzipBytes` (11582/11585) over
+  `flate2`, beside `pack_height16`, which produces the bytes being compressed.
+  6 unit tests.
+- `cartalith-assets/src/archive.rs` — `zipStore` (12009) **generalised**; see
+  below.
+- `cartalith-engine/src/geojson.rs` — `exportGeoJSON` (12576),
+  `_geoTerritoryFeature` (12557), `_geoProvinceFeature` (12569), and a
+  `JSON.stringify`-exact writer. 9 unit tests.
+- `cartalith-engine/src/region_export.rs` — `tilePngBytes` (11871, height
+  branch), `exportRegionTiles`' gzip and PNG steps, the `refineBtn` handler's
+  `.zip` assembly (13191) minus the download, and `extract_region_as_world`.
+  18 unit tests.
+
+**The zip and PNG conventions matched — because they are the same function.**
+The reference has exactly one zip writer with three callers (the asset-pack
+exporter, the project export, the region export). Rather than write a second,
+`cartalith-assets::archive` grew a neutral `zip_store`/`zip_store_bytes` and
+`write_pack_entries` became a one-line alias; `cartalith-engine` gained a
+`cartalith-assets` dependency, which it needed anyway for `raster::encode_png`
+(Phase 4's `image`-crate encoder, `default-features = false`, `png` only).
+Milestone 2's two recorded conventions carried over unchanged: `.png` entries
+STORED, every timestamp frozen at 1980-01-01.
+
+**One convention milestone 2 had skipped turned out to be reachable.**
+`zipStore` falls back to STORE whenever DEFLATE does not actually shrink the
+entry. Milestone 2 read that as a browser size concern and deliberately did not
+port it. Running the reference's own `zipStore` on a four-entry archive shaped
+like a region export shows **three of four entries come back STORED** — the
+`.png`, a 7-byte `params.json` whose deflate header costs more than it saves,
+and an incompressible blob; only the height tile deflates. `deflate_helps` now
+measures first and chooses second. `cartalith-assets`' existing tests were
+unaffected (a real `pack.json` still deflates), and `archive.rs`' milestone-2
+note is corrected rather than left contradicting the code.
+
+**A STORE-only archive is byte-identical to the reference apart from two fields
+no reader interprets** — the version-needed/made-by word (`zip` writes 1.0 for
+a stored entry, the reference hardcodes 2.0) and the external file attributes
+(`zip` stamps unix 0644, the reference writes 0). The golden normalises exactly
+those and then demands every one of the other 172 bytes match. Deflated
+entries, gzip streams and PNGs cannot match and were never going to
+(`miniz_oxide` here, the browser's zlib and PNG encoder there); for those the
+*decisions* are golden-verified, the *pixels* are golden-verified before
+encoding, and the containers are verified by round trip in both directions.
+Reproducibility survives: gzip's MTIME is pinned to 0, the zip's timestamps to
+1980, so the same export twice is the same bytes.
+
+**Four things the reference corrected:**
+
+1. **`Uint8ClampedArray` is not a cast.** `out[p] = c[0]*s` stores a float, and
+   `ToUint8Clamp` rounds **ties to even** after clamping and mapping NaN to 0.
+   `c[0]*s` is fractional almost everywhere, so `as u8` would be wrong in
+   roughly half of all pixels.
+2. **`hypso` extrapolates past its own palette into negative channels.** The
+   depth ramp is unclamped, so at `sea = 0.3` a `v` of `-0.1` returns
+   `[-0.67, -10.67, -16.67]` — verified, not inferred, and pinned by a golden.
+   Harmless only because the clamped store catches it.
+3. **`Number.prototype.toFixed` rounds ties to the larger n**, where Rust's
+   `{:.3}` rounds to even. Reachable, not theoretical: an 800 km map on a
+   12 800-cell grid has `cellKm == 0.0625`, an exact tie at three decimals — JS
+   says `0.063`, Rust says `0.062`.
+4. **The tracer's JS `Map` semantics are observable.** Ring discovery follows
+   insertion order, and the checkerboard pinch the reference says it *"doesn't
+   disambiguate"* works by one cell's edge overwriting another's at the same
+   key. From outside that is an **unclosed ring**, and `_geoRingArea`'s
+   `i < len-1` then omits its closing segment. Reproduced exactly.
+
+`tilePngBytes`' **biome** branch is deliberately not ported: it needs the whole
+climate stack sampled off the coarse grid, which is a Phase 3 rendering concern.
+The height renderer is the reference's own default and its own fallback.
+
+**`regionNewWorldBtn` is a UI action with a real computational core.** The
+button stays unported (all UI work is on hold — owner, 2026-08-18,
+`DCC_SHELL_SCOPE.md`). `extract_region_as_world` is what it computes before it
+mutates anything: `tileDims(sel,1,1,ts)` for the new grid,
+`max(1, mapWidthKm * sel.w / GW)` against the **old** `GW`, and the amplified
+field. The rest — `allocate()`, `refreshClimate()`, clearing the civ layer,
+`confirm()`, `_setupOpen('calibrate')` — is orchestration over a live world the
+shell owns, and is listed in the function's doc comment rather than half-built.
+Two reference decisions are kept: it deliberately does **not** normalise, and
+clearing civ data is the honest answer rather than a subtly-wrong remap.
+
+**Verified — and one harness bug that looked exactly like a reference bug:**
+
+- Node `vm.runInContext` over whole `<script>` blocks (#1 2084-14556, #2
+  14563-26720), delimiters asserted against the real tags. The block-comment
+  balance assertion ran on both and passed clean this time (1203 and 187 open
+  comments), with milestone E's two skipper fixes still in place.
+- Milestone E disclosed it never invoked `exportRegionTiles` itself. **E2
+  did** — Node has `CompressionStream`, and `tilePngBytes` returns `null`
+  headlessly exactly as the reference documents. The first real call disagreed
+  with milestone E on the **fourth tile only**. Cause: with the DOM stubbed,
+  block #1's boot code schedules a deferred first `generate()` on a timer, and
+  the reference's `microtask()` is literally `setTimeout(r, 0)` — which
+  `exportRegionTiles` awaits between tiles. The boot work fired between tile 3
+  and tile 4 and overwrote `field` mid-loop. `amplifyRegion` called twice in a
+  row is bit-identical; the harness was not. Fixed by making
+  `requestAnimationFrame` inert and draining pending macrotasks before
+  installing any fixture, after which all four tiles match milestone E's
+  recorded hashes exactly — which **discharges milestone E's disclosure**: the
+  assembly matches, not just its four primitives.
+- **18 golden-parity tests + 61 unit tests, everything bit-exact with no
+  tolerance anywhere**: `hypso` as raw `f64` bit patterns, six rasters as
+  FNV-1a-64 over every byte plus their first and last twelve, both GeoJSON
+  documents as whole strings (2136 and 924 characters), and a STORE-only zip as
+  bytes.
+- **The trig agrees.** `renderHeightTileRGBA` calls `Math.sin`/`Math.cos` on
+  the sun azimuth and the byte-exact match holds across four azimuths (0, 45,
+  200, 315) — not one lucky argument. Worth stating given Phase 5 milestone 5
+  found `f64::exp` diverging from V8's on 20 721 of 240 000 arguments.
+- **58 mutations, 54 killed, 4 survivors.** The first sweep started at 47/10
+  and **six of those ten survivors were real fixture gaps**, each a constant no
+  golden could have caught as first written: `_geoXY`'s three decimals (every
+  fixture coordinate was a whole km or a clean `.5`); the tracer's
+  `ring.length >= 4` filter in **both** directions; the shell/hole split's
+  `area > 0`; `v < sea` in the shading branch (no pixel sat exactly at sea
+  level); and `strahlerOrder`'s spelling (the GeoJSON world traced no river).
+  Whether the degenerate ring shapes were even *reachable* was settled by brute
+  force rather than argued — all 65 536 masks on a 4x4 grid through the
+  reference's own tracer, which finds length-4 rings for 1 695 of them,
+  length-3 rings for 8 760, and rings of area exactly zero. All six closed with
+  reference-derived fixtures.
+- The **four remaining survivors are equivalent mutants**, each with its
+  algebra recorded in `UNIFIED_TOOL_PLAN.md`: the smallest-enclosing-shell
+  tie-break (nested shells cannot have equal area), the sea ramp's `d < 0.5`
+  (both branches return `SEA[1]` at exactly 0.5), V8's compensated `Math.hypot`
+  versus the naive form (a ≤2-ULP difference cannot survive an 8-bit quantiser
+  — milestone B's survivor for the same reason), and `tile_dims(sel,1,1,ts)`
+  versus `(2,2,ts)` (the aspect ratio cancels when `cols == rows`; the
+  asymmetric `(2,1)` control **is** killed). Every survivor was re-run in
+  isolation, because a stale binary reports a healthy `N passed`.
+- `cargo build --workspace`, `cargo test --workspace` (**1150 passing, 0
+  failures**) and `cargo clippy --all-targets` on all five touched crates: all
+  clean. The `cartalith_godot.dll` access-denied transient did not appear this
+  run; the `cartalith-engine` GPU-determinism test failed once under full
+  parallelism and passed on its own, the known transient.
+
+**Not wired to any caller** — no `#[func]`, no GDScript, no Godot file touched.
+All UI work is on hold, and the standing "don't wire in what nothing calls"
+rule applies to the engine side too. The unified tool plan now has **only
+milestone F** (shell wiring) left.

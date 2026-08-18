@@ -107,14 +107,27 @@ fn lerp(a: f64, b: f64, t: f64) -> f64 {
 /// Anyone tempted to simplify it should add a fixture that distinguishes
 /// the two first.
 pub(crate) fn js_hypot(x: f64, y: f64) -> f64 {
-    let (ax, ay) = (x.abs(), y.abs());
-    let max = if ax > ay { ax } else { ay };
+    js_hypot_n(&[x.abs(), y.abs()])
+}
+
+/// The same compensated sum for any argument count -- `Math.hypot` is variadic
+/// and `renderHeightTileRGBA` calls it with three. Factored out rather than
+/// copied so the two-argument and three-argument forms can never drift; for two
+/// arguments the arithmetic is unchanged, operation for operation.
+#[inline]
+pub(crate) fn js_hypot_n(mags: &[f64]) -> f64 {
+    let mut max = 0.0f64;
+    for &v in mags {
+        if v > max {
+            max = v;
+        }
+    }
     if max == 0.0 {
         return 0.0;
     }
     let mut sum = 0.0f64;
     let mut compensation = 0.0f64;
-    for v in [ax, ay] {
+    for &v in mags {
         let n = v / max;
         let summand = n * n - compensation;
         let preliminary = sum + summand;

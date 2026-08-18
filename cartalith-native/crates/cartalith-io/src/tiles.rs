@@ -226,7 +226,7 @@ pub fn build_tile_manifest(
 /// going through `serde_json` gives `16.0`. Spelled out explicitly rather than
 /// relying on `Display`'s current behaviour, since the manifest is a file
 /// other tools parse.
-fn js_num(v: f64) -> String {
+pub fn js_num(v: f64) -> String {
     if v.is_nan() {
         return "null".to_string(); // JSON.stringify(NaN) === "null"
     }
@@ -240,13 +240,21 @@ fn js_num(v: f64) -> String {
     }
 }
 
-fn json_string(s: &str) -> String {
+/// A JSON string literal, escaped the way `JSON.stringify` escapes one.
+///
+/// Backspace and form feed get their short forms rather than ``/``,
+/// matching V8's own `QuoteJSONString` table. Shared with the GeoJSON writer in
+/// `cartalith-engine`, where a place name is arbitrary user text rather than a
+/// manifest key.
+pub fn json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
     for ch in s.chars() {
         match ch {
             '"' => out.push_str("\\\""),
             '\\' => out.push_str("\\\\"),
+            '\u{0008}' => out.push_str("\\b"),
+            '\u{000c}' => out.push_str("\\f"),
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),

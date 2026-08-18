@@ -8,6 +8,7 @@ use rayon::prelude::*;
 
 pub mod amplify;
 pub mod sculpt;
+pub mod tile_render;
 
 /// Mirrors JS `Math.round`: ties round toward `+Infinity`, unlike Rust's
 /// `f64::round` (ties away from zero) — `Math.round(-0.5) == 0`, but

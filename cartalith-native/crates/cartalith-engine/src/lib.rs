@@ -87,10 +87,14 @@ pub mod staleness;
 /// milestone C). Unwired: the pipeline below does not call it yet.
 pub mod sculpt_commit;
 
-/// `exportRegionTiles`' assembly of the region-export archive
-/// (`UNIFIED_TOOL_PLAN.md` milestone E). Unwired: nothing calls it yet, and
-/// the PNG/gzip/`.zip` half is milestone E2.
+/// `exportRegionTiles`' assembly of the region-export archive, complete with
+/// its per-tile PNG, gzip and `.zip` steps (`UNIFIED_TOOL_PLAN.md` milestones
+/// E and E2). Unwired: nothing calls it yet.
 pub mod region_export;
+
+/// `exportGeoJSON` and its two feature builders (`UNIFIED_TOOL_PLAN.md`
+/// milestone E2). Unwired: nothing calls it yet.
+pub mod geojson;
 
 use cartalith_climate::{
     apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,

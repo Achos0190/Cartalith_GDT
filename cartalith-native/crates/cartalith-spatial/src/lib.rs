@@ -48,12 +48,14 @@
 //! `mark_dirty` already is the "my data changed here, here's why, bump the
 //! version" primitive both editing and recomputation need.
 
+pub mod geo;
 pub mod measure;
 pub mod paint;
 pub mod pass;
 pub mod region;
 pub mod staleness;
 
+pub use geo::{geo_xy, id_mask, js_to_fixed, mask_outline_coords, point_in_ring, ring_area, trace_mask_rings};
 pub use measure::{cell_km, measure, measure_path, Measurement};
 pub use paint::{PaintLayer, PaintStamp};
 pub use pass::{CommitSummary, PassBuffer, PassEntry, Stamp};
