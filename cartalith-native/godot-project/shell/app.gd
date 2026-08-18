@@ -15,6 +15,7 @@ var menus := DccMenus.new()
 var new_world_dialog: NewWorldDialog
 var world_data_window: WorldDataWindow
 var performance_window: PerformanceWindow
+var right_dock_ctrl: RightDock
 
 var _workspaces: Array = []
 var _region_nodes: Dictionary = {}
@@ -45,6 +46,16 @@ func _ready() -> void:
 	performance_window.setup(bridge)
 
 	_register_workspaces()
+
+	## Owns `right_dock_body`'s content (`DCC_SHELL_SPEC.md` §6, `right_dock.gd`).
+	## Appended to `_workspaces` so `_wire_selection`'s existing forwarding loop
+	## reaches it too -- it implements `on_settlement_selected`/`on_cursor_sampled`
+	## exactly like a workspace does, without needing a rail button of its own.
+	right_dock_ctrl = RightDock.new()
+	add_child(right_dock_ctrl)
+	right_dock_ctrl.setup(self, bridge)
+	_workspaces.append(right_dock_ctrl)
+
 	_wire_status()
 	_wire_selection()
 

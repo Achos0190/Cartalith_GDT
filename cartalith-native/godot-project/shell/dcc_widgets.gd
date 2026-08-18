@@ -65,6 +65,61 @@ static func _toggle_category(entry: Dictionary, group: Array) -> void:
 		b.add_theme_color_override("font_color",
 			DccTheme.c("accent") if on else DccTheme.c("text_bright"))
 
+## A numbered, stateful L2 category -- the Generation Pipeline's own stage row
+## (`DCC_SHELL_SPEC.md` §5.1: "number, state dot, name, state label,
+## disclosure chevron"). `category()`'s single-string title can't host a state
+## marker that changes after the row is built -- a bridge signal can flip a
+## stage stale once the dock already exists -- so this is a genuine second row
+## type, not `category()` restyled. The accordion contract (one open at a
+## time, sharing `group` with any other `category()`/`stage_category()` calls
+## on the same panel) is identical, which is why it reuses `_toggle_category`
+## rather than a parallel implementation.
+## Returns `{"body": VBoxContainer, "state_label": Label}` -- the caller owns
+## updating `state_label.text` / its font colour as the world's state changes.
+static func stage_category(parent: Control, number: String, title: String,
+		group: Array, open: bool = false) -> Dictionary:
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", 0)
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(wrap)
+
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 4)
+	wrap.add_child(head)
+
+	var btn := Button.new()
+	btn.flat = true
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.custom_minimum_size.y = 30
+	btn.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
+	btn.add_theme_color_override("font_color", DccTheme.c("text_bright"))
+	btn.add_theme_stylebox_override("normal", DccTheme.inset(12, 0, 0, 0))
+	btn.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+	btn.add_theme_stylebox_override("pressed", DccTheme.inset(12, 0, 0, 0))
+	head.add_child(btn)
+
+	var state_label := DccTheme.label("", "text_dim", DccTheme.FS_TINY)
+	var state_pad := MarginContainer.new()
+	state_pad.add_theme_constant_override("margin_right", 12)
+	state_pad.add_child(state_label)
+	head.add_child(state_pad)
+
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 0)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.visible = open
+	wrap.add_child(body)
+	wrap.add_child(DccTheme.rule())
+
+	var entry := {"button": btn, "body": body, "title": "%s  %s" % [number, title]}
+	group.append(entry)
+	btn.text = "%s  %s  %s" % [
+		DccIcons.SYMBOLS["caret"] if open else DccIcons.SYMBOLS["submenu"], number, title]
+	btn.pressed.connect(func(): _toggle_category(entry, group))
+	return {"body": body, "state_label": state_label}
+
 # -- L3 section ---------------------------------------------------------------
 
 ## A titled band of rows, always expanded. Returns the body VBox.

@@ -19,6 +19,8 @@ use godot::prelude::*;
 mod pack;
 mod params;
 mod render;
+mod sculpt_bridge;
+use cartalith_terrain::sculpt::{Feature, FeatureParams, FreehandMode, SculptStamp, SCULPT_PRESETS};
 use render::{QualityTier, RenderCtx, SplatTextures, TerrainAppearance};
 use rayon::prelude::*;
 
@@ -533,6 +535,88 @@ fn variant_to_value(v: &Variant) -> Option<params::Value> {
     }
 }
 
+/// A bare number out of a `Variant`, for the Sculpt bridge's globals/
+/// feature-param setters -- unlike `variant_to_value` these have no
+/// `Kind::Bool` case at all (every control `sculpt_bridge` exposes is
+/// numeric), so a bool `Variant` is correctly `None` here rather than
+/// coerced through `params::Value`'s bool branch.
+fn variant_to_num(v: &Variant) -> Option<f64> {
+    match v.get_type() {
+        VariantType::INT => Some(v.to::<i64>() as f64),
+        VariantType::FLOAT => Some(v.to::<f64>()),
+        _ => None,
+    }
+}
+
+/// A `sculpt_bridge::Control` table (either `Feature::meta().controls` or
+/// `sculpt_bridge::global_controls()`) as the `Array<Dictionary>`
+/// `get_sculpt_features`/`get_sculpt_globals_info` both return -- one
+/// `Dictionary` per control with `key`/`label`/`min`/`max`/`step`/
+/// `default`, the same shape `get_param_info` uses per generation
+/// parameter.
+fn control_dict(c: &cartalith_terrain::sculpt::Control) -> VarDictionary {
+    vdict! {
+        "key" => c.key,
+        "label" => c.label,
+        "min" => c.min,
+        "max" => c.max,
+        "step" => c.step,
+        "default" => c.default,
+    }
+}
+
+/// `sculpt_bridge::feature_param_pairs`, as a flat `Dictionary` -- plus
+/// `sub_mode` (Freehand only), which isn't a numeric control and so isn't
+/// in the pairs list at all. Shared by `sculpt_get_feature_params` and
+/// `sculpt_list_stamps`, which both need exactly this shape.
+fn feature_params_dict(p: &FeatureParams) -> VarDictionary {
+    let mut out = VarDictionary::new();
+    for (k, v) in sculpt_bridge::feature_param_pairs(p) {
+        out.set(k, v);
+    }
+    if let FeatureParams::Freehand { sub_mode, .. } = p {
+        out.set("sub_mode", sub_mode.key());
+    }
+    out
+}
+
+/// `sculpt_bridge::global_controls()`'s keys read off `g`, as a flat
+/// `Dictionary` -- shared by `sculpt_get_globals` and `sculpt_list_stamps`
+/// (each stamp keeps its own captured globals, distinct from the live
+/// tool state `sculpt_get_globals` reports).
+fn globals_dict(g: &cartalith_terrain::sculpt::SculptGlobals) -> VarDictionary {
+    let mut out = VarDictionary::new();
+    for c in sculpt_bridge::global_controls() {
+        out.set(c.key, sculpt_bridge::get_global(g, c.key).expect("global_controls key must resolve"));
+    }
+    out
+}
+
+/// Applies a `Dictionary` of key -> value through `set_one`, collecting
+/// `{rejected, clamped}` the same way `set_params` does for generation
+/// parameters. Shared by `sculpt_set_globals` and `sculpt_set_feature_params`
+/// so the two `#[func]`s differ only in which `set_one` they pass.
+fn apply_sculpt_values(
+    values: &VarDictionary,
+    mut set_one: impl FnMut(&str, f64) -> sculpt_bridge::Outcome,
+) -> VarDictionary {
+    let mut rejected = PackedStringArray::new();
+    let mut clamped = PackedStringArray::new();
+    for (k, v) in values.iter_shared() {
+        let key = k.to_string();
+        let outcome = match variant_to_num(&v) {
+            Some(n) => set_one(&key, n),
+            None => sculpt_bridge::Outcome::Rejected,
+        };
+        match outcome {
+            sculpt_bridge::Outcome::Applied => {}
+            sculpt_bridge::Outcome::Clamped => clamped.push(&GString::from(&key)),
+            sculpt_bridge::Outcome::Rejected => rejected.push(&GString::from(&key)),
+        }
+    }
+    dict! { "rejected" => &rejected, "clamped" => &clamped }
+}
+
 /// `MVP_SCOPE.md` points 10-11: basic 2D rendering + minimal UI. Owns the
 /// last `generate_terrain()` result (or loaded save); GDScript drives it via
 /// `generate()`/`generate_sized()`/`load_save()` then `build_color_texture()`.
@@ -640,6 +724,17 @@ struct WorldGen {
     /// owner policy decision, and `get_recommended_quality_tier()` exists so a
     /// caller can offer one rather than have it chosen for them.
     quality: QualityTier,
+    /// `UNIFIED_TOOL_PLAN.md` milestone F (`STRANDED_TOOLS.md` rows 4-8):
+    /// the live, non-destructive Sculpt-editor draft. See
+    /// `sculpt_bridge.rs`'s own module doc for why this lives here rather
+    /// than a second `GodotClass`. `None` before the first successful
+    /// `generate()`/`generate_sized()` call, and after `load_save()` — a
+    /// draft only ever exists over a freshly generated `WorldState` (same
+    /// restriction `civ` already has: a loaded save's format carries no
+    /// `river_mask`/`river_floor` for the water hooks to adopt, the same
+    /// reason `SAVEFILE_COMPAT.md` gives for civ data never existing on
+    /// one either).
+    sculpt: Option<sculpt_bridge::SculptEditor>,
 }
 
 #[godot_api]
@@ -662,6 +757,7 @@ impl IRefCounted for WorldGen {
             seed: 0,
             asset_pack: None,
             quality: QualityTier::Quality,
+            sculpt: None,
         }
     }
 }
@@ -708,6 +804,20 @@ impl WorldGen {
         self.lat_s = p.climate.lat_s;
         self.gpu_stages_used = ws.gpu_stages_used.clone();
         self.civ = Some(compute_civilisation(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, self.villages));
+        // Milestone F: a fresh Sculpt draft over this world's own
+        // dimensions, seeding the water hooks from whatever
+        // carve_river_valleys already locked during generation
+        // (`ws.river_mask`/`river_floor`, `None` when `carve_rivers` was
+        // off) so a hand-painted river's re-clamp step (`SCULPT_FUNCTION_
+        // CHART.md` §7) protects generated channels too, not just ones
+        // painted in this session.
+        self.sculpt = Some(sculpt_bridge::SculptEditor::new(
+            p.gw,
+            p.gh,
+            ws.river_mask.clone(),
+            ws.river_floor.clone(),
+            seed as u32,
+        ));
         self.source = Some(WorldSource::Generated(Box::new(ws)));
         self.seed = seed;
     }
@@ -1159,6 +1269,13 @@ impl WorldGen {
         // A loaded save was not generated by this process at all -- reporting
         // the previous world's GPU stages against it would be a lie.
         self.gpu_stages_used = Vec::new();
+        // Same restriction as `civ` above, for the same reason: a draft's
+        // water hooks need `river_mask`/`river_floor`, which the save
+        // format doesn't carry (`SAVEFILE_COMPAT.md`). Any in-progress
+        // draft over the *previous* world would also silently apply to
+        // the wrong dimensions if kept, so this is a hard reset, not a
+        // narrower "just don't offer commit" gate.
+        self.sculpt = None;
         self.source = Some(WorldSource::Loaded(Box::new(save)));
         true
     }
@@ -1756,5 +1873,669 @@ impl WorldGen {
         let packed = PackedByteArray::from(bytes);
         let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGBA8, &packed)?;
         ImageTexture::create_from_image(&image)
+    }
+
+    // ---- Sculpt editor: registry (UNIFIED_TOOL_PLAN.md milestone F) ----
+    //
+    // Read-only enumeration -- feature list, presets, the shared brush/
+    // noise globals, Freehand's sub-modes -- mirroring params.rs's own
+    // flat-table approach (that file's module doc has the full argument)
+    // so GDScript hardcodes none of the 13 features' ranges/defaults, the
+    // 8 presets' seeded values, or the 8 globals' ranges. Every one of
+    // these methods works before any `generate()` call -- the registry is
+    // static data, not per-world state.
+
+    /// The 13-entry Sculpt feature registry (`cartalith_terrain::sculpt::
+    /// FEATURE_KEYS`, `DCC_SHELL_SPEC.md` §5.2) as an `Array<Dictionary>`,
+    /// one entry per feature in **registry order** -- `index` is that
+    /// order and is load-bearing (`SCULPT_FUNCTION_CHART.md` §2: it feeds
+    /// the stamp's own noise seed, `(seed ^ ((index+1)*1013)) >>> 0`); a
+    /// shell may re-*group* features visually but must send `key` back to
+    /// `sculpt_set_feature`, never a re-sorted `index`. Each entry:
+    /// - `index` (int), `key` (String), `label` (String), `icon` (String,
+    ///   an emoji -- `sculpt_bridge`'s module doc and `SCULPT_FUNCTION_
+    ///   CHART.md` §9 both note the real icon is `shell/dcc_icons.gd`'s
+    ///   own drawn glyph, not this string; kept anyway since it is real
+    ///   registry data, harmless to expose, and a fallback costs nothing),
+    /// - `hint` (String), `radial` (bool -- Lake/Volcano only),
+    /// - `modes` (`PackedStringArray`, empty except Freehand's 8),
+    /// - `controls` (`Array<Dictionary>`, this feature's own parameter
+    ///   table, same shape `get_param_info` uses per generation parameter).
+    #[func]
+    fn get_sculpt_features(&self) -> Array<VarDictionary> {
+        cartalith_terrain::sculpt::FEATURE_KEYS
+            .iter()
+            .enumerate()
+            .map(|(index, &f)| {
+                let m = f.meta();
+                let controls: Array<VarDictionary> = m.controls.iter().map(control_dict).collect();
+                let modes: PackedStringArray = m.modes.iter().map(|s| GString::from(*s)).collect();
+                vdict! {
+                    "index" => index as i32,
+                    "key" => m.key,
+                    "label" => m.label,
+                    "icon" => m.icon,
+                    "hint" => m.hint,
+                    "radial" => m.radial,
+                    "modes" => &modes,
+                    "controls" => &controls,
+                }
+            })
+            .collect()
+    }
+
+    /// The 8 one-click presets (`SCULPT_PRESETS`, `DCC_SHELL_SPEC.md`
+    /// §5.2), each a parameter seed -- **applying one never paints**, the
+    /// caller still draws the stroke (`sculpt_apply_preset` sets the tool
+    /// state; nothing here touches the draft). One `Dictionary` per
+    /// preset, in the reference's own order: `name` (String), `feature`
+    /// (String key, matches `get_sculpt_features`' own `key`),
+    /// `noise_scale` (float -- the one global every preset overrides),
+    /// `params` (`Dictionary`, the feature params this preset seeds, same
+    /// control-key shape `sculpt_get_feature_params` returns).
+    #[func]
+    fn get_sculpt_presets(&self) -> Array<VarDictionary> {
+        SCULPT_PRESETS
+            .iter()
+            .map(|preset| {
+                let mut g = cartalith_terrain::sculpt::SculptGlobals::default();
+                let params = preset.apply(&mut g);
+                vdict! {
+                    "name" => preset.name,
+                    "feature" => preset.feature.meta().key,
+                    "noise_scale" => preset.noise_scale,
+                    "params" => &feature_params_dict(&params),
+                }
+            })
+            .collect()
+    }
+
+    /// The 8 shared brush/noise globals (`SculptGlobals`, `DCC_SHELL_SPEC.md`
+    /// §5.2's "Brush & noise · global" block) as an `Array<Dictionary>`,
+    /// same shape [`WorldGen::get_sculpt_features`]' `controls` use plus a
+    /// `type` field (`"int"` for `octaves`, `"float"` for the other 7).
+    ///
+    /// **`default` is the engine's own `SculptGlobals::default()` value,
+    /// not the design spec's -- settled, not open.** `SCULPT_FUNCTION_
+    /// CHART.md` §4 found five of the eight disagree between
+    /// `DCC_SHELL_SPEC.md` and the golden-pinned `SCULPT_GLOBAL_DEF` this
+    /// reads from; the owner has since resolved it in the engine's favour,
+    /// on a concrete ground beyond precedent: `cartalith-engine/tests/
+    /// golden_parity_sculpt_water.rs` spreads `..SculptGlobals::default()`
+    /// into its own fixtures, so these numbers are golden-parity *inputs*.
+    /// This binding reads them live rather than duplicating them, so this
+    /// table can never silently drift from what the golden suite actually
+    /// depends on. `DCC_SHELL_SPEC.md` §5.2's differing numbers will be
+    /// corrected at the design end, not here.
+    #[func]
+    fn get_sculpt_globals_info(&self) -> Array<VarDictionary> {
+        sculpt_bridge::global_controls()
+            .iter()
+            .map(|c| {
+                vdict! {
+                    "key" => c.key,
+                    "label" => c.label,
+                    "type" => if c.key == "octaves" { "int" } else { "float" },
+                    "min" => c.min,
+                    "max" => c.max,
+                    "step" => c.step,
+                    "default" => c.default,
+                }
+            })
+            .collect()
+    }
+
+    /// Freehand's 8 sub-mode keys, in registry order (`FreehandMode`'s own
+    /// declaration order -- Raise/Lower/Smooth/Cliff/Ridge/Canyon/Mesa/
+    /// Volcano). Pass one to `sculpt_set_freehand_mode`.
+    #[func]
+    fn get_sculpt_freehand_modes(&self) -> PackedStringArray {
+        Feature::Freehand.meta().modes.iter().map(|s| GString::from(*s)).collect()
+    }
+
+    // ---- Sculpt editor: current tool state ----
+
+    /// The 8 shared brush/noise globals' **current** values (see
+    /// `get_sculpt_globals_info` for their ranges/defaults). Empty before
+    /// any `generate()` call.
+    #[func]
+    fn sculpt_get_globals(&self) -> VarDictionary {
+        self.sculpt.as_ref().map_or_else(VarDictionary::new, |s| globals_dict(&s.globals))
+    }
+
+    /// Applies a partial `Dictionary` of global key -> value (keys from
+    /// `get_sculpt_globals_info`). Same "send only what changed, get back
+    /// `{rejected, clamped}`" contract `set_params` documents in full.
+    /// A no-op (both arrays empty) before any `generate()` call.
+    #[func]
+    fn sculpt_set_globals(&mut self, values: VarDictionary) -> VarDictionary {
+        let Some(s) = self.sculpt.as_mut() else {
+            return dict! { "rejected" => &PackedStringArray::new(), "clamped" => &PackedStringArray::new() };
+        };
+        apply_sculpt_values(&values, |key, n| sculpt_bridge::set_global(&mut s.globals, key, n))
+    }
+
+    /// The feature the next stroke will paint (`get_sculpt_features`' own
+    /// `key`). Empty string before any `generate()` call.
+    #[func]
+    fn sculpt_get_feature(&self) -> GString {
+        self.sculpt.as_ref().map_or_else(GString::new, |s| GString::from(s.feature.meta().key))
+    }
+
+    /// Selects the feature the next stroke will paint and resets its
+    /// parameters to that feature's own defaults (the reference's own
+    /// behaviour on a feature switch -- tuning one feature's controls must
+    /// not leak into the next). Returns `false`, changing nothing, for an
+    /// unknown key or before any `generate()` call.
+    #[func]
+    fn sculpt_set_feature(&mut self, feature_key: GString) -> bool {
+        let Some(s) = self.sculpt.as_mut() else { return false };
+        let Some(f) = Feature::from_key(&feature_key.to_string()) else { return false };
+        s.feature = f;
+        s.params = f.default_params();
+        true
+    }
+
+    /// The current feature's own live parameter values (control-key ->
+    /// float, plus `sub_mode` for Freehand) -- empty `Dictionary` before
+    /// any `generate()` call.
+    #[func]
+    fn sculpt_get_feature_params(&self) -> VarDictionary {
+        self.sculpt.as_ref().map_or_else(VarDictionary::new, |s| feature_params_dict(&s.params))
+    }
+
+    /// Applies a partial `Dictionary` of the **current feature's own**
+    /// control key -> value (keys from that feature's entry in
+    /// `get_sculpt_features`' `controls`). Same `{rejected, clamped}`
+    /// contract as `sculpt_set_globals` -- a key belonging to a different
+    /// feature is reported `rejected`, not silently ignored (see
+    /// `sculpt_bridge::set_feature_param`'s own doc comment). Does not
+    /// touch Freehand's `sub_mode` -- see `sculpt_set_freehand_mode`.
+    #[func]
+    fn sculpt_set_feature_params(&mut self, values: VarDictionary) -> VarDictionary {
+        let Some(s) = self.sculpt.as_mut() else {
+            return dict! { "rejected" => &PackedStringArray::new(), "clamped" => &PackedStringArray::new() };
+        };
+        let feature = s.feature;
+        apply_sculpt_values(&values, |key, n| sculpt_bridge::set_feature_param(&mut s.params, feature, key, n))
+    }
+
+    /// Seeds the current feature and its parameters from preset `index`
+    /// (0-7, `get_sculpt_presets`' own order) and writes that preset's
+    /// `noise_scale` into the live globals -- exactly what
+    /// `get_sculpt_presets`' `params`/`noise_scale` describe, applied.
+    /// **Never paints**: the caller still draws the stroke. `false`,
+    /// changing nothing, for an out-of-range index or before any
+    /// `generate()` call.
+    #[func]
+    fn sculpt_apply_preset(&mut self, index: i32) -> bool {
+        let Some(s) = self.sculpt.as_mut() else { return false };
+        let Some(preset) = usize::try_from(index).ok().and_then(|i| SCULPT_PRESETS.get(i)) else {
+            return false;
+        };
+        s.params = preset.apply(&mut s.globals);
+        s.feature = preset.feature;
+        true
+    }
+
+    /// Freehand's current sub-mode key, or an empty string when the
+    /// current feature isn't Freehand (or before any `generate()` call).
+    #[func]
+    fn sculpt_get_freehand_mode(&self) -> GString {
+        let Some(s) = self.sculpt.as_ref() else { return GString::new() };
+        match s.params {
+            FeatureParams::Freehand { sub_mode, .. } => GString::from(sub_mode.key()),
+            _ => GString::new(),
+        }
+    }
+
+    /// Sets Freehand's sub-mode (`get_sculpt_freehand_modes`' own keys).
+    /// `false`, changing nothing, when the current feature isn't Freehand,
+    /// the key isn't one of the 8, or before any `generate()` call.
+    #[func]
+    fn sculpt_set_freehand_mode(&mut self, mode_key: GString) -> bool {
+        let Some(s) = self.sculpt.as_mut() else { return false };
+        let Some(mode) = FreehandMode::from_key(&mode_key.to_string()) else { return false };
+        let FeatureParams::Freehand { sub_mode, .. } = &mut s.params else { return false };
+        *sub_mode = mode;
+        true
+    }
+
+    /// The seed the *next* stroke will capture into its `SculptStamp`
+    /// (`0` before any `generate()` call, otherwise the last generation's
+    /// own seed -- the reference's "project seed" default,
+    /// `DCC_SHELL_SPEC.md` §5.2).
+    #[func]
+    fn sculpt_get_seed(&self) -> i64 {
+        self.sculpt.as_ref().map_or(0, |s| i64::from(s.seed))
+    }
+
+    /// Sets the seed the *next* stroke will capture (a shell's dice button
+    /// calls this with its own random value -- no `sculpt_randomize_seed`
+    /// exists here since picking the random number is a UI concern this
+    /// binding has no reason to own). Truncates like every other
+    /// GDScript-int -> engine-`u32` field in this crate (`params.rs`'s own
+    /// `as usize`/`as i32` casts); a caller sending a real 32-bit value
+    /// round-trips exactly. No-op before any `generate()` call.
+    #[func]
+    fn sculpt_set_seed(&mut self, seed: i64) {
+        if let Some(s) = self.sculpt.as_mut() {
+            s.seed = seed as u32;
+        }
+    }
+
+    // ---- Sculpt editor: stroke capture ----
+    //
+    // A GDScript pointer-drag loop is: begin_stroke() once, add_point()
+    // per captured sample (dense -- `sculpt_commit.rs`'s own doc comment
+    // on `enforce_channel_descent` warns a coarse stroke carves at
+    // coarsely-spaced sites, since neither it nor this binding resamples),
+    // then end_stroke() once on release. cancel_stroke() instead of
+    // end_stroke() drops the points without creating a stamp (a drag that
+    // leaves the canvas, say).
+
+    /// Starts capturing a new stroke -- clears any previously in-progress
+    /// (uncommitted-to-the-draft) points. `false`, nothing cleared, before
+    /// any `generate()` call.
+    #[func]
+    fn sculpt_begin_stroke(&mut self) -> bool {
+        let Some(s) = self.sculpt.as_mut() else { return false };
+        s.points.clear();
+        true
+    }
+
+    /// Appends one point (grid-cell coordinates -- the reference's own
+    /// `evtToGridLOD` convention, so a stroke behaves identically at any
+    /// zoom/LOD) to the in-progress stroke. Returns the new point count,
+    /// or `-1` before any `generate()` call. A non-finite `x`/`y` is
+    /// silently dropped (the point count is unchanged) rather than
+    /// poisoning every stamp built from this stroke with a NaN.
+    #[func]
+    fn sculpt_add_point(&mut self, x: f64, y: f64) -> i32 {
+        let Some(s) = self.sculpt.as_mut() else { return -1 };
+        if x.is_finite() && y.is_finite() {
+            s.points.push(cartalith_terrain::sculpt::Point::new(x, y));
+        }
+        s.points.len() as i32
+    }
+
+    /// The in-progress stroke's point count. `0` before any `generate()`
+    /// call, same as a real empty stroke -- a caller cannot tell the two
+    /// apart from this alone, which is fine since neither has anything to
+    /// end.
+    #[func]
+    fn sculpt_stroke_point_count(&self) -> i32 {
+        self.sculpt.as_ref().map_or(0, |s| s.points.len() as i32)
+    }
+
+    /// Drops the in-progress stroke's points without creating a stamp.
+    #[func]
+    fn sculpt_cancel_stroke(&mut self) {
+        if let Some(s) = self.sculpt.as_mut() {
+            s.points.clear();
+        }
+    }
+
+    /// Freezes the current tool state (feature, its parameters, the live
+    /// globals, the seed) plus the in-progress stroke's points into one
+    /// `SculptStamp` and pushes it onto the draft -- **a draft push, not a
+    /// commit**: nothing touches the real heightfield here
+    /// (`cartalith_spatial::PassBuffer`'s own "nothing here touches field"
+    /// contract). Clears the in-progress points and selects the new stamp.
+    ///
+    /// Returns the new stamp's index (pass to `sculpt_select_stamp` and
+    /// friends), or `-1` if the stroke had zero points (a one-point stroke
+    /// is legal -- it degenerates to a tap, `SCULPT_FUNCTION_CHART.md` §2 --
+    /// only zero is rejected) or before any `generate()` call.
+    #[func]
+    fn sculpt_end_stroke(&mut self) -> i32 {
+        let sea_level = self.sea_level;
+        let Some(s) = self.sculpt.as_mut() else { return -1 };
+        if s.points.is_empty() {
+            return -1;
+        }
+        let stamp = SculptStamp {
+            seed: s.seed,
+            points: std::mem::take(&mut s.points),
+            globals: s.globals,
+            params: s.params,
+            sea_level,
+        };
+        let index = s.draft.push(stamp);
+        s.selected = Some(index);
+        index as i32
+    }
+
+    // ---- Sculpt editor: stamp stack (DCC_SHELL_SPEC.md §6) ----
+
+    /// Number of stamps currently on the draft. `0` before any
+    /// `generate()` call.
+    #[func]
+    fn sculpt_stamp_count(&self) -> i32 {
+        self.sculpt.as_ref().map_or(0, |s| s.draft.len() as i32)
+    }
+
+    /// The draft's stamps **newest-first** (`DCC_SHELL_SPEC.md` §6's own
+    /// "Stamp stack" context), one `Dictionary` per stamp:
+    /// - `index` (int) -- the real draft index; pass this straight to
+    ///   `sculpt_select_stamp`/`sculpt_set_stamp_hidden`/
+    ///   `sculpt_move_stamp_up`/`sculpt_move_stamp_down`/
+    ///   `sculpt_delete_stamp`. **Not** the reversed position in this
+    ///   list -- reordering the *display* must not renumber the stack.
+    /// - `hidden` (bool), `feature` (String key), `label` (String),
+    /// - `point_count` (int),
+    /// - `params` (`Dictionary`, this stamp's own frozen parameter
+    ///   values -- the "parameter summary" §6 asks for, same shape
+    ///   `sculpt_get_feature_params` returns),
+    /// - `globals` (`Dictionary`, this stamp's own frozen brush/noise
+    ///   globals -- distinct from the *live* tool state
+    ///   `sculpt_get_globals` reports, since each stamp captured its own
+    ///   copy at the moment its stroke ended).
+    ///
+    /// Empty before any `generate()` call or while the draft is empty.
+    #[func]
+    fn sculpt_list_stamps(&self) -> Array<VarDictionary> {
+        let Some(s) = self.sculpt.as_ref() else { return Array::new() };
+        s.draft
+            .entries()
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(i, e)| {
+                vdict! {
+                    "index" => i as i32,
+                    "hidden" => e.hidden,
+                    "feature" => e.stamp.feature().meta().key,
+                    "label" => e.stamp.feature().meta().label,
+                    "point_count" => e.stamp.points.len() as i32,
+                    "params" => &feature_params_dict(&e.stamp.params),
+                    "globals" => &globals_dict(&e.stamp.globals),
+                }
+            })
+            .collect()
+    }
+
+    /// The currently selected stamp's draft index, or `-1` for none.
+    #[func]
+    fn sculpt_get_selected_stamp(&self) -> i32 {
+        self.sculpt.as_ref().and_then(|s| s.selected).map_or(-1, |i| i as i32)
+    }
+
+    /// Selects a stamp by draft index (`sculpt_list_stamps`' own `index`),
+    /// so a shell can re-populate the parameter block for re-tuning
+    /// (`SCULPT_FUNCTION_CHART.md` §5's "Re-tune" row) -- note re-tuning
+    /// itself is not implemented by this call: it only records the
+    /// selection, matching `PassBuffer`'s own stack model, which has no
+    /// "edit stamp N in place" operation (delete and re-paint is the real
+    /// affordance today; see this crate's own report for what a live
+    /// re-tune would need). Pass a negative index to deselect. `false` for
+    /// an out-of-range non-negative index or before any `generate()` call.
+    #[func]
+    fn sculpt_select_stamp(&mut self, index: i32) -> bool {
+        let Some(s) = self.sculpt.as_mut() else { return false };
+        if index < 0 {
+            s.selected = None;
+            return true;
+        }
+        let Ok(i) = usize::try_from(index) else { return false };
+        if i >= s.draft.len() {
+            return false;
+        }
+        s.selected = Some(i);
+        true
+    }
+
+    /// Hides or shows a stamp (`DCC_SHELL_SPEC.md` §6's "Hide/show"). A
+    /// hidden stamp is skipped by both preview and commit, but still
+    /// occupies its draft index and still counts in
+    /// `build_sculpt_preview_texture`'s footprint bookkeeping
+    /// (`PassBuffer::set_hidden`'s own doc comment). `false` for an
+    /// out-of-range index or before any `generate()` call.
+    #[func]
+    fn sculpt_set_stamp_hidden(&mut self, index: i32, hidden: bool) -> bool {
+        let Some(s) = self.sculpt.as_mut() else { return false };
+        let Ok(i) = usize::try_from(index) else { return false };
+        if i >= s.draft.len() {
+            return false;
+        }
+        s.draft.set_hidden(i, hidden);
+        true
+    }
+
+    /// Moves a stamp one place earlier in the stack -- stack order is bake
+    /// order, so this changes the result for order-dependent stamps
+    /// (`PassBuffer`'s own test, "reordering really changes the result").
+    /// `false` (no-op) at index 0, an out-of-range index, or before any
+    /// `generate()` call.
+    #[func]
+    fn sculpt_move_stamp_up(&mut self, index: i32) -> bool {
+        let Some(s) = self.sculpt.as_mut() else { return false };
+        let Ok(i) = usize::try_from(index) else { return false };
+        s.draft.move_up(i)
+    }
+
+    /// As `sculpt_move_stamp_up`, one place later. `false` (no-op) at the
+    /// top of the stack, an out-of-range index, or before any `generate()`
+    /// call.
+    #[func]
+    fn sculpt_move_stamp_down(&mut self, index: i32) -> bool {
+        let Some(s) = self.sculpt.as_mut() else { return false };
+        let Ok(i) = usize::try_from(index) else { return false };
+        s.draft.move_down(i)
+    }
+
+    /// Removes a stamp from the draft. Clears the selection if it pointed
+    /// at the removed stamp (an index into a now-shorter stack would
+    /// otherwise silently refer to a different stamp). `false` for an
+    /// out-of-range index or before any `generate()` call.
+    #[func]
+    fn sculpt_delete_stamp(&mut self, index: i32) -> bool {
+        let Some(s) = self.sculpt.as_mut() else { return false };
+        let Ok(i) = usize::try_from(index) else { return false };
+        if i >= s.draft.len() {
+            return false;
+        }
+        s.draft.remove(i);
+        if s.selected == Some(i) {
+            s.selected = None;
+        }
+        true
+    }
+
+    /// Whether `sculpt_undo` would do anything.
+    #[func]
+    fn sculpt_can_undo(&self) -> bool {
+        self.sculpt.as_ref().is_some_and(|s| s.draft.can_undo())
+    }
+
+    /// Whether `sculpt_redo` would do anything.
+    #[func]
+    fn sculpt_can_redo(&self) -> bool {
+        self.sculpt.as_ref().is_some_and(|s| s.draft.can_redo())
+    }
+
+    /// Reverts the last structural edit (add/delete/hide/reorder) to the
+    /// draft -- **draft-scoped only**, this never touches the real
+    /// heightfield, because nothing in the draft ever did
+    /// (`PassBuffer::undo`'s own doc comment). Tier one of the two-tier
+    /// undo model `SCULPT_FUNCTION_CHART.md` §6 describes; tier two (one
+    /// snapshot at Commit) is the shell's own global undo stack, outside
+    /// this binding's scope. `false` at the bottom of draft history or
+    /// before any `generate()` call.
+    #[func]
+    fn sculpt_undo(&mut self) -> bool {
+        self.sculpt.as_mut().is_some_and(|s| s.draft.undo())
+    }
+
+    /// As `sculpt_undo`, forward. `false` with nothing to redo, or a new
+    /// edit already cleared the redo branch (`PassBuffer::push`'s own
+    /// contract), or before any `generate()` call.
+    #[func]
+    fn sculpt_redo(&mut self) -> bool {
+        self.sculpt.as_mut().is_some_and(|s| s.draft.redo())
+    }
+
+    // ---- Sculpt editor: preview, commit, discard ----
+
+    /// A **real, live** colour + hillshade texture for the current Sculpt
+    /// draft, alongside the committed world's own `build_color_texture` --
+    /// the owner's own resolution of the question `SCULPT_FUNCTION_CHART.md`
+    /// §9 left open: *"the fix in this version would be to have all these
+    /// manipulations live, as we have the computational power available
+    /// directly."* The reference's `sculptRenderOverlay` (a translucent
+    /// outline/hatch, its own comment calling it *"a deliberately simpler
+    /// indicator than a full live-recolor"*) is a JavaScript-cost
+    /// compromise this port is not reproducing: this method returns the
+    /// actual drafted colour result, not an outline standing in for one.
+    ///
+    /// Composites the whole stamp stack over a **scratch copy** of the real
+    /// height field (`PassBuffer::preview_into` -- the reference's own
+    /// "nothing here touches field" contract, enforced by the borrow
+    /// checker since the base field is passed as `&[_]`) and renders it
+    /// through the same per-pixel colour pass (`render::cell_color`)
+    /// `build_color_texture` uses, so a preview looks like what committing
+    /// would actually produce.
+    ///
+    /// Deliberately lighter than `build_color_texture`: no channel tint,
+    /// no local-contrast pass, no lithology, no icon compositing. All four
+    /// either key off state a draft cannot have moved (`ws.channels`'
+    /// Strahler mask and the lithology classification are both keyed to
+    /// the *committed* field; a loaded asset pack's icon placement is
+    /// independent of height entirely) or cost a whole-field pass
+    /// (`build_lithology`) that this method would otherwise re-run on
+    /// every brush stroke a caller previews, not just on commit -- the
+    /// same ~7s/2048² measurement `UNIFIED_TOOL_PLAN.md` milestone C cites
+    /// for why commit itself stays deferred applies here to *any* eager
+    /// per-stroke whole-field work.
+    ///
+    /// **Renders the whole grid, not just the draft's touched region.**
+    /// `PassBuffer::touched_bounds` would give the rectangle a bounded
+    /// variant could restrict its own per-pixel colour loop to, but
+    /// `RenderCtx::with_appearance` itself precomputes several derived
+    /// rasters over the **entire** grid unconditionally on construction
+    /// (`smooth_sea_h`, `build_ao`, `build_hydro_wetness`) -- restricting
+    /// only the final per-pixel loop to the touched rectangle would shrink
+    /// the returned image without touching the dominant cost, which would
+    /// be a cosmetic optimisation reported as a real one. A genuinely
+    /// bounded preview needs those three passes reworked to run over a
+    /// caller-supplied window instead of the full field -- real surgery on
+    /// `render.rs`, a file `golden_parity_render.rs` already pins bit-for-
+    /// bit, not a small addition alongside this binding. Left for the
+    /// separate live-preview scope document rather than half-done here.
+    ///
+    /// `None` before any `generate()` call, for a loaded save (no draft
+    /// exists there at all -- see the `sculpt` field's own doc comment),
+    /// or while the draft is empty (nothing would differ from
+    /// `build_color_texture`).
+    #[func]
+    fn build_sculpt_preview_texture(&self) -> Option<Gd<ImageTexture>> {
+        let s = self.sculpt.as_ref()?;
+        if s.draft.is_empty() {
+            return None;
+        }
+        let WorldSource::Generated(ws) = self.source.as_ref()? else { return None };
+        let gw = self.gw as usize;
+        let gh = self.gh as usize;
+        let mut scratch = ws.field.clone();
+        s.draft.preview_into(&ws.field, &mut scratch);
+
+        let appearance = TerrainAppearance::for_tier(self.quality);
+        let ctx = RenderCtx::with_appearance(
+            &scratch,
+            &ws.temperature,
+            &ws.rainfall,
+            Some(ws.flow_discharge.as_slice()),
+            gw,
+            gh,
+            self.sea_level,
+            self.world,
+            self.lat_n,
+            self.lat_s,
+            appearance,
+        );
+        let mut bytes = vec![0u8; gw * gh * 3];
+        bytes.par_chunks_mut(gw * 3).enumerate().for_each(|(y, row)| {
+            for x in 0..gw {
+                let (r, g, b) = render::cell_color(&ctx, x, y);
+                let o = x * 3;
+                row[o] = (r.clamp(0.0, 1.0) * 255.0) as u8;
+                row[o + 1] = (g.clamp(0.0, 1.0) * 255.0) as u8;
+                row[o + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
+            }
+        });
+        let packed = PackedByteArray::from(bytes);
+        let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGB8, &packed)?;
+        ImageTexture::create_from_image(&image)
+    }
+
+    /// Bakes the whole draft into the real heightfield in one pass and
+    /// empties the draft (`cartalith_engine::sculpt_commit::
+    /// commit_sculpt_pass`, unchanged -- see that module's own doc for the
+    /// exact five-step ordering: bake, re-clamp locked river channels,
+    /// carve+lock this batch's own river stamps, deposit lakes against the
+    /// final baked height, and nothing else).
+    ///
+    /// **Deliberately does not re-run erosion, hydrology or climate.**
+    /// `DCC_SHELL_SPEC.md` §5.2's prose still says Commit "re-runs erosion,
+    /// hydrology and climate once" -- that line is stale
+    /// (`SCULPT_FUNCTION_CHART.md` §7 flags it at the design end); the
+    /// eager form was measured at ~7s/stroke at 2048² and rejected in
+    /// `UNIFIED_TOOL_PLAN.md` milestone C. Instead every tile the commit
+    /// touched is marked dirty (`tiles_marked` below) for a caller to
+    /// re-run those stages on its own schedule -- this binding does not
+    /// currently expose an entry point that consumes that dirty set (no
+    /// `#[func]` here re-runs flow/climate/hydrology for a subset of
+    /// tiles); see this crate's own report for that gap.
+    ///
+    /// `reason` is a short caller-chosen string for the dirty-tile record
+    /// (`"sculpt"` is fine). Returns a summary `Dictionary`:
+    /// `stamps_applied`/`stamps_skipped` (int), `tiles_marked`
+    /// (`PackedInt32Array`), `rivers_carved`/`cells_locked` (int, the
+    /// River hook), `lakes_deposited`/`lake_cells` (int, the Lake hook) --
+    /// empty `Dictionary` before any `generate()` call.
+    ///
+    /// Call `build_color_texture()` again afterward to see the result --
+    /// the same "no regeneration needed" contract `set_quality_tier`'s own
+    /// doc comment establishes for a purely presentational change; this one
+    /// really did change the height field, but the render path reads it
+    /// fresh on every call regardless.
+    #[func]
+    fn sculpt_commit(&mut self, reason: GString) -> VarDictionary {
+        let sea_level = self.sea_level;
+        let reason = reason.to_string();
+        let (Some(sculpt), Some(WorldSource::Generated(ws))) = (self.sculpt.as_mut(), self.source.as_mut()) else {
+            return VarDictionary::new();
+        };
+        let summary = sculpt.commit(&mut ws.field, sea_level, &reason);
+        // Keep WorldState's own optional river fields in sync with what the
+        // Sculpt layer has now locked. `WaterState` (`sculpt.water`) is the
+        // real source of truth for river locks from this point on -- both
+        // arrays already exist and are already computed by the commit
+        // above, so writing them back is a relocation, not a recompute.
+        // Without this, a save taken after this call (`cartalith-io`,
+        // `SAVEFILE_COMPAT.md`) would silently drop a hand-painted river's
+        // lock, since it reads `ws.river_mask`/`river_floor` directly.
+        ws.river_mask = Some(sculpt.water.river_mask.clone());
+        ws.river_floor = Some(sculpt.water.river_floor.clone());
+
+        let tiles_marked: PackedInt32Array = summary.pass.tiles_marked.iter().map(|&t| t as i32).collect();
+        dict! {
+            "stamps_applied" => summary.pass.stamps_applied as i64,
+            "stamps_skipped" => summary.pass.stamps_skipped as i64,
+            "tiles_marked" => &tiles_marked,
+            "rivers_carved" => summary.rivers_carved as i64,
+            "cells_locked" => summary.cells_locked as i64,
+            "lakes_deposited" => summary.lakes_deposited as i64,
+            "lake_cells" => summary.lake_cells as i64,
+        }
+    }
+
+    /// Drops the whole draft, touching nothing else (`PassBuffer::
+    /// discard`'s own doc comment: nothing was ever written to the field,
+    /// so there is nothing to undo there either). Returns how many stamps
+    /// were dropped, `0` before any `generate()` call.
+    #[func]
+    fn sculpt_discard(&mut self) -> i32 {
+        self.sculpt.as_mut().map_or(0, |s| s.draft.discard() as i32)
     }
 }

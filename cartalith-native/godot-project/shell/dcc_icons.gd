@@ -41,6 +41,22 @@ const PATHS := {
 	"dice": '<rect x="2.4" y="2.4" width="11.2" height="11.2" rx="2"/><circle cx="5.6" cy="5.6" r="0.7" fill="#ffffff" stroke="none"/><circle cx="10.4" cy="10.4" r="0.7" fill="#ffffff" stroke="none"/><circle cx="8" cy="8" r="0.7" fill="#ffffff" stroke="none"/>',
 	"window": '<rect x="1.6" y="4" width="9.6" height="9.6" rx="1"/><path d="M5.2 4 V2.4 H14.4 V11.6 H12.8"/>',
 
+	# ── Tool palette (§4.5), glyphs described in §12's second table ───────────
+	# One tool is armed at a time, globally; these are what the TOOLS block at
+	# the head of every left dock draws.
+	"tool_inspect": '<path d="M4 2.4 L4 13.2 L6.8 10.6 L8.8 14.4 L10.6 13.4 L8.7 9.9 L12.4 9.4 Z"/>',
+	"tool_measure": '<path d="M1.6 6 H14.4 V10 H1.6 Z"/><path d="M4.8 6 V8.2"/><path d="M8 6 V8.8"/><path d="M11.2 6 V8.2"/>',
+	"tool_region": '<path d="M2 2.6 H5" /><path d="M7 2.6 H9"/><path d="M11 2.6 H14 V5"/><path d="M14 7 V9"/><path d="M14 11 V13.4 H11"/><path d="M9 13.4 H7"/><path d="M5 13.4 H2 V11"/><path d="M2 9 V7"/><path d="M2 5 V2.6"/>',
+	"tool_pan": '<path d="M5.4 8.4 V4.2 A1 1 0 0 1 7.4 4.2 V7.6"/><path d="M7.4 7.4 V3.2 A1 1 0 0 1 9.4 3.2 V7.6"/><path d="M9.4 7.6 V4.4 A1 1 0 0 1 11.4 4.4 V9.6"/><path d="M5.4 8.4 V6.6 A1 1 0 0 0 3.4 6.6 V10 C3.4 12.6 5.4 14.4 8 14.4 C10.6 14.4 11.4 12.4 11.4 10"/>',
+	"tool_paint": '<path d="M5.4 2.6 H10.6 V6.4 A2 2 0 0 1 8.6 8.4 H7.4 A2 2 0 0 1 5.4 6.4 Z"/><path d="M8 8.6 V11.2"/><path d="M8 11.4 C8 11.4 9.2 12.6 9.2 13.3 A1.2 1.2 0 0 1 6.8 13.3 C6.8 12.6 8 11.4 8 11.4 Z"/>',
+	"tool_settlement": '<path d="M2.4 7.6 L8 2.8 L13.6 7.6"/><path d="M4 7 V13.4 H12 V7"/><path d="M6.8 13.4 V9.8 H9.2 V13.4"/>',
+	"tool_poi": '<path d="M8 2.2 L13.8 8 L8 13.8 L2.2 8 Z"/><circle cx="8" cy="8" r="0.7" fill="#ffffff" stroke="none"/>',
+	"tool_territory": '<path d="M2.2 5 L7.6 2.6 L13.8 5.4 L11 13.2 L4 12.4 Z"/><path d="M4 6.6 L6.4 11.8"/><path d="M6.8 5.4 L9.4 12.2"/><path d="M9.6 5.2 L11.4 10.4"/>',
+	"tool_way": '<path d="M4 2.2 V13.8"/><path d="M12 2.2 V13.8"/><path d="M2.6 4.6 H13.4"/><path d="M2.6 8 H13.4"/><path d="M2.6 11.4 H13.4"/>',
+	"tool_route": '<path d="M2 12.6 C2 8.6 4.6 6 8 6"/><path d="M8 6 C10.2 6 11.6 5 12.6 3.6"/><path d="M11 2.6 L13.6 3.4 L12.4 5.8"/>',
+	"tool_label": '<path d="M2.2 6.4 L7.4 2.4 H13 A0.8 0.8 0 0 1 13.8 3.2 V9.2 A0.8 0.8 0 0 1 13 10 H7.4 Z"/><circle cx="10.6" cy="6.2" r="0.8"/>',
+	"tool_icon": '<path d="M8 2.2 L13.8 8 L8 13.8 L2.2 8 Z"/>',
+
 	# ── Domain rail (§3). Not in §12's table; drawn to the same rules. ─────────
 	"domain_world": '<circle cx="8" cy="8" r="6.2"/><path d="M1.8 8 H14.2"/><path d="M8 1.8 C10.4 4 10.4 12 8 14.2 C5.6 12 5.6 4 8 1.8 Z"/>',
 	"domain_civ": '<path d="M2 13.6 V7.4 L5.4 5 L8.8 7.4 V13.6"/><path d="M8.8 13.6 V9 L11.8 7 L14 8.6 V13.6"/><path d="M1.2 13.6 H14.8"/>',

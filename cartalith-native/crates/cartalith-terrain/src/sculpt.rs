@@ -404,6 +404,25 @@ impl FreehandMode {
             Self::Volcano => "volcano",
         }
     }
+
+    /// The reverse of [`FreehandMode::key`] — added for milestone F's
+    /// Godot binding layer, which needs to turn a GDScript-supplied
+    /// sub-mode string back into a `FreehandMode` the same way
+    /// [`Feature::from_key`] already lets it turn a feature string into a
+    /// [`Feature`]. `None` for anything not one of the eight keys.
+    pub fn from_key(key: &str) -> Option<Self> {
+        Some(match key {
+            "raise" => Self::Raise,
+            "lower" => Self::Lower,
+            "smooth" => Self::Smooth,
+            "cliff" => Self::Cliff,
+            "ridge" => Self::Ridge,
+            "canyon" => Self::Canyon,
+            "mesa" => Self::Mesa,
+            "volcano" => Self::Volcano,
+            _ => return None,
+        })
+    }
 }
 
 const FREEHAND_MODES: &[&str] = &[
@@ -1678,6 +1697,15 @@ mod tests {
             assert_eq!(Feature::from_key(f.meta().key), Some(f));
         }
         assert_eq!(Feature::from_key("nope"), None);
+    }
+
+    #[test]
+    fn freehand_mode_from_key_round_trips_every_sub_mode() {
+        for &m in FREEHAND_MODES {
+            let mode = FreehandMode::from_key(m).unwrap_or_else(|| panic!("no FreehandMode for {m}"));
+            assert_eq!(mode.key(), m);
+        }
+        assert_eq!(FreehandMode::from_key("nope"), None);
     }
 
     #[test]

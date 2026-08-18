@@ -1,0 +1,452 @@
+extends Node
+class_name RightDock
+
+## Controller for the right dock's content (`DCC_SHELL_SPEC.md` §6):
+## "contents follow the selection, not the workspace." One instance, wired
+## from `app.gd`, owns `app.right_dock_body` and swaps what's in it whenever
+## the viewport's selection changes -- independent of which domain rail
+## button is active. §3 also says a domain switch "swaps both docks"; that
+## is honoured only in the weak sense that nothing here contradicts it (no
+## domain-specific default view exists to switch to besides Sample), because
+## §6 -- named as this file's own specification -- is unambiguous that the
+## dock tracks selection, not the rail.
+##
+## Ported from `main.gd`'s old Sample panel (`_refresh_sample_panel`, lines
+## ~1567-1600 as last read) and its `_build_causal_chain_text` (the
+## "WHY HERE?" explanation, ~1508-1551): the settlement causal-chain logic
+## is real and unchanged here, only re-hosted under the new dock. Everything
+## else in this file is new: the old Sample panel only ever had cursor
+## position and settlement hover to show, and this dock reads the same
+## `EngineBridge` and finds the same ceiling -- confirmed against every one
+## of `WorldGen`'s 44 exported methods, there is still no per-cell field
+## sampler.
+
+const CTX_SAMPLE := "sample"
+const CTX_SETTLEMENT := "settlement"
+const CTX_ROUTE := "route"
+const CTX_RIVER := "river"
+const CTX_FACTION := "faction"
+
+## Noun phrases for `explain_settlement()`'s suitability term keys. Copied
+## verbatim from `main.gd`'s own `SUIT_TERM_LABELS` -- wording belongs to the
+## UI, not the engine (`ARCHITECTURE.md`), so this is the same wording, not
+## a rewrite.
+const SUIT_TERM_LABELS := {
+	"carrying_capacity": "fertile land",
+	"water_access": "fresh water",
+	"gentle_slope": "gentle terrain",
+	"terrain_form": "terrain form",
+	"coastal_access": "coastal access",
+	"river": "river access",
+	"lake": "lakeside",
+	"minerals": "mineral deposits",
+	"route_corridor": "natural route corridor",
+	"farmland": "farmland",
+	"buildable_ground": "buildable ground",
+	"flood_risk": "flood risk",
+	"islet_penalty": "isolation",
+	"water_bonus": "water",
+}
+
+## The twelve of §6's sixteen Sample fields (elevation is the thirteenth --
+## it gets the accent readout treatment below, not a plain row) that no
+## GDExtension method answers, each with the binding that would be needed.
+## `WorldGen` exports 44 methods (`engine_bridge.gd` wraps every one) and
+## none is a per-cell field query -- every reading below is baked into
+## `build_color_texture()`'s rendered raster and nowhere else.
+const MISSING_SAMPLE_FIELDS := {
+	"Slope": "No slope raster is bound to Godot. cartalith-terrain computes it internally for erosion and never exports it.",
+	"Aspect": "No aspect raster is bound to Godot, same ceiling as slope.",
+	"Plate + type": "Plate id/type live in cartalith-geology and never cross the GDExtension boundary except baked into the colour texture.",
+	"Boundary + distance": "Plate-boundary distance has no per-cell query.",
+	"Resistance": "Rock resistance (the erosion input) has no per-cell query.",
+	"Lithology": "Lithology classification has no per-cell query.",
+	"Temperature": "The climate raster (temperature) has no per-cell query.",
+	"Precipitation": "The climate raster (precipitation) has no per-cell query.",
+	"Drainage": "Hydrology drainage/flow accumulation has no per-cell query.",
+	"Biome": "No general per-cell biome query. explain_settlement() returns biome only for a settlement's own cell, deliberately -- its own doc comment says retaining the rasters for arbitrary-cell queries would cost hundreds of MB at production resolutions.",
+	"Soil": "Soil/fertility has no per-cell query.",
+	"Control": "Political control is only exposed as a rendered overlay (build_territory_texture()), never a per-cell owner query.",
+}
+
+var app: DccApp
+var bridge: EngineBridge
+
+var _context := CTX_SAMPLE
+var _settlement_data: Variant = null
+var _settlement_index := -1
+var _route_entry: Dictionary = {}
+var _route_kind := ""      ## "road" | "sea"
+var _faction_id := -1
+
+## Live-updated in place on every `cursor_sampled` rather than triggering a
+## full `_rebuild()` -- the overlay emits that signal on every mouse-motion
+## event over the viewport, and tearing the dock down and rebuilding it at
+## that rate would be needless churn for three labels.
+var _sample_x: Label
+var _sample_y: Label
+var _sample_nearest: Label
+
+func setup(a: DccApp, b: EngineBridge) -> void:
+	app = a
+	bridge = b
+	bridge.generation_finished.connect(func(_ok: bool): _rebuild())
+	bridge.world_loaded.connect(func(): _rebuild())
+	_rebuild()
+
+# -- Selection API --------------------------------------------------------
+#
+# `on_settlement_selected` / `on_cursor_sampled` match the method names
+# `app.gd`'s `_wire_selection` already forwards to any workspace that has
+# them; this node is added to that same forwarding list (`app.gd`). The
+# other two are called directly by the workspaces that list routes and
+# factions, since no viewport signal exists for either selection yet.
+
+func on_settlement_selected(data: Variant, index: int) -> void:
+	if data == null:
+		_context = CTX_SAMPLE
+		_settlement_data = null
+		_settlement_index = -1
+	else:
+		_context = CTX_SETTLEMENT
+		_settlement_data = data
+		_settlement_index = index
+	_rebuild()
+
+func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
+	if _context != CTX_SAMPLE:
+		return
+	if _sample_x == null:
+		_rebuild()
+		return
+	_sample_x.text = ("%.0f" % gx) if valid else "—"
+	_sample_y.text = ("%.0f" % gy) if valid else "—"
+	_sample_nearest.text = _nearest_settlement_text(gx, gy, valid)
+
+## Called by `infrastructure_workspace.gd` when a road or sea-route row is
+## clicked. `kind` is `"road"` or `"sea"` -- the two calls this dock's Route
+## context actually has (`bridge.roads()` / `bridge.sea_routes()`).
+func show_route(entry: Dictionary, kind: String) -> void:
+	_context = CTX_ROUTE
+	_route_entry = entry
+	_route_kind = kind
+	_rebuild()
+
+## Called by `civilization_workspace.gd` when a faction row is clicked.
+func show_faction(faction_id: int) -> void:
+	_context = CTX_FACTION
+	_faction_id = faction_id
+	_rebuild()
+
+# -- Dispatch ---------------------------------------------------------------
+
+func _rebuild() -> void:
+	if app == null:
+		return
+	var body := app.right_dock_body
+	for child in body.get_children():
+		body.remove_child(child)
+		child.queue_free()
+	_sample_x = null
+	_sample_y = null
+	_sample_nearest = null
+	_dispatch(body)
+
+## Named rather than inlined in `_rebuild()` -- a `match` cannot be the tail
+## statement of a lambda closed with `)` in this GDScript version, and this
+## keeps `_rebuild()`'s teardown loop and this dispatch legible as two
+## separate concerns anyway.
+func _dispatch(body: Control) -> void:
+	match _context:
+		CTX_SETTLEMENT:
+			_build_settlement(body)
+		CTX_ROUTE:
+			_build_route(body)
+		CTX_RIVER:
+			_build_river(body)
+		CTX_FACTION:
+			_build_faction(body)
+		_:
+			_build_sample(body)
+
+# -- Sample -------------------------------------------------------------
+
+func _build_sample(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Sample")
+	var valid: bool = bridge.has_world
+	_sample_x = _field(sec, "X", "—", "Cursor grid-cell X. Live once the cursor is over a generated map.")
+	_sample_y = _field(sec, "Y", "—", "Cursor grid-cell Y. Live once the cursor is over a generated map.")
+
+	_accent_readout(sec, "Elevation", "—",
+		"No per-cell elevation query. WorldGen exposes only build_color_texture() " +
+		"(a rendered RGBA image), never a raw height value at (x, y).")
+
+	for field_name in MISSING_SAMPLE_FIELDS:
+		_field(sec, field_name, "—", MISSING_SAMPLE_FIELDS[field_name], false)
+
+	_sample_nearest = _field(sec, "Nearest settlement", "—",
+		"Computed here from get_settlements()'s x/y against the cursor cell -- the " +
+		"one Sample field the engine's data can answer without a new binding.",
+		valid)
+
+	if not valid:
+		DccWidgets.note(sec, "No world generated -- X, Y and nearest settlement go live once one exists.")
+
+# -- Settlement -----------------------------------------------------------
+
+func _build_settlement(body: Control) -> void:
+	if _settlement_data == null:
+		_build_sample(body)
+		return
+	var s: Dictionary = _settlement_data
+	var sec := DccWidgets.section(body, "Settlement")
+	_field(sec, "Name", String(s.get("name", "—")))
+	_field(sec, "Class", String(s.get("kind", "—")).capitalize())
+	_field(sec, "Population", str(int(s.get("population", 0))))
+	_field(sec, "Faction", str(int(s.get("faction", 0))))
+	_field(sec, "Coastal", "yes" if s.get("coastal", false) else "no")
+	_field(sec, "Capital", "yes" if s.get("capital", false) else "no")
+
+	var why: Dictionary = bridge.explain_settlement(_settlement_index)
+	var water := _term_value(why, "water_access")
+	_field(sec, "Water access", water if water != "" else "—",
+		"" if water != "" else
+			"This settlement's suitability terms carry no water_access entry for this cell.",
+		water != "")
+	_field(sec, "Defensibility", "—",
+		"explain_settlement()'s suitability terms have no defensibility axis -- " +
+		"gentle_slope/terrain_form are the closest inputs but the engine doesn't " +
+		"label either one defensibility.", false)
+	_field(sec, "Routes", "—",
+		"Roads and sea routes carry no settlement index (get_roads()/get_sea_routes() " +
+		"are plain polylines) -- nothing associates a route with this settlement. " +
+		"STRANDED_TOOLS.md row 11.", false)
+
+	var actions := DccWidgets.group(sec, "Actions")
+	for label_text in ["Economy", "Politics", "Logistics"]:
+		var b := DccWidgets.action(actions, label_text, func(): pass)
+		b.disabled = true
+		b.tooltip_text = "No per-settlement %s panel exists yet -- see Data ▸ World data tables for the same fields, read-only." % label_text.to_lower()
+
+	var why_sec := DccWidgets.section(body, "Why here?")
+	var rt := RichTextLabel.new()
+	rt.bbcode_enabled = true
+	rt.fit_content = true
+	rt.scroll_active = false
+	rt.custom_minimum_size.x = 220
+	rt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	rt.add_theme_font_size_override("normal_font_size", DccTheme.FS_SMALL)
+	rt.add_theme_color_override("default_color", DccTheme.c("text"))
+	rt.text = _build_causal_chain_text(s, _settlement_index)
+	why_sec.add_child(rt)
+
+func _term_value(why: Dictionary, key: String) -> String:
+	if why.is_empty() or not why.has("terms"):
+		return ""
+	for t in why["terms"]:
+		var d: Dictionary = t
+		if String(d.get("key", "")) == key:
+			return "%.2f" % float(d["value"])
+	return ""
+
+func _term_strength(value: float) -> String:
+	if value >= 0.75:
+		return "strong"
+	if value >= 0.45:
+		return "moderate"
+	if value > 0.05:
+		return "weak"
+	return "negligible"
+
+func _describe_term(t: Dictionary) -> String:
+	var key := String(t["key"])
+	var label_text: String = SUIT_TERM_LABELS.get(key, key.replace("_", " "))
+	return "%s %s (%.2f)" % [_term_strength(float(t["value"])), label_text, float(t["value"])]
+
+## Ported verbatim from `main.gd`'s `_build_causal_chain_text` -- same
+## thresholds (0.005), same "top 3 positives / top 2 negatives" cap, same
+## wording. Only the surrounding dock changed.
+func _build_causal_chain_text(s: Dictionary, index: int) -> String:
+	var kind_label: String = String(s["kind"]).capitalize()
+	var lines := [
+		"[b]%s[/b] (%s)" % [s["name"], kind_label],
+		"Population: %s" % s["population"],
+		"Faction: %d" % s["faction"],
+		"Coastal: %s" % ("yes" if s["coastal"] else "no"),
+		"Capital: %s" % ("yes" if s["capital"] else "no"),
+	]
+
+	var why: Dictionary = bridge.explain_settlement(index)
+	if not why.is_empty():
+		lines.append("")
+		lines.append("[b]WHY HERE?[/b]")
+		if why.has("excluded"):
+			lines.append("Cell excluded from suitability (%s)." % why["excluded"])
+		else:
+			var terms: Array = why["terms"]
+			var positives: Array[String] = []
+			var negatives: Array[String] = []
+			for t: Dictionary in terms:
+				var c := float(t["contribution"])
+				if c > 0.005 and positives.size() < 3:
+					positives.append(_describe_term(t))
+				elif c < -0.005 and negatives.size() < 2:
+					negatives.append(_describe_term(t))
+			if positives.is_empty():
+				lines.append("No single factor stands out -- placed on broadly average ground.")
+			else:
+				lines.append(" → ".join(positives))
+			if not negatives.is_empty():
+				lines.append("Despite: %s" % ", ".join(negatives))
+			lines.append("Suitability %.2f" % float(why["score"]))
+
+		lines.append("")
+		var ord_i := int(why["river_order"])
+		var river_txt := ("Strahler %d" % ord_i) if ord_i > 0 else "none"
+		var coast_cells := float(why["coast_dist_cells"])
+		lines.append("River: %s · flow %.0f" % [river_txt, float(why["flow"])])
+		lines.append("Distance to water: %.1f cells" % coast_cells)
+		lines.append("Elevation: %.3f (normalised)" % float(why["elevation"]))
+		lines.append("Travel cost: %.2f" % float(why["travel_cost"]))
+
+	return "\n".join(lines)
+
+# -- Route ------------------------------------------------------------------
+
+func _build_route(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Route")
+	var e := _route_entry
+	_field(sec, "Name", String(e.get("name", "—")))
+	_field(sec, "Type", String(e.get("way_type", "")).capitalize() if _route_kind == "road" else "Sea lane")
+
+	var pts: PackedVector2Array = e.get("points", PackedVector2Array())
+	_field(sec, "Points", str(pts.size()))
+	_field(sec, "Length", _route_length_text(pts))
+
+	var unreachable := ["Stages", "Vessels", "Cost trace", "Per-stage overrides", "Daily stages"]
+	for f in unreachable:
+		_field(sec, f, "—",
+			"get_roads()/get_sea_routes() carry only {points, brks, way_type, name} -- " +
+			"the manual-route authoring context (ManualWay/RouteContext, tools.rs) that " +
+			"would supply this has no read surface. STRANDED_TOOLS.md row 11.", false)
+
+func _route_length_text(pts: PackedVector2Array) -> String:
+	if pts.size() < 2:
+		return "—"
+	var cells := 0.0
+	for i in range(1, pts.size()):
+		cells += pts[i - 1].distance_to(pts[i])
+	var gw := bridge.grid_size().x
+	if gw > 0 and bridge.last_width_km > 0.0:
+		return "%.0f km" % (cells * bridge.last_width_km / float(gw))
+	return "%.0f cells" % cells
+
+# -- River --------------------------------------------------------------
+
+## No `get_rivers()` exists and nothing in the viewport can select one --
+## unlike Route, this context has no live trigger today. Implemented anyway
+## so `_dispatch()` is complete and honest rather than silently dropping the
+## branch, matching `§6` and `STRANDED_TOOLS.md`'s own discipline of
+## recording the gap rather than hiding it.
+func _build_river(body: Control) -> void:
+	var sec := DccWidgets.section(body, "River")
+	DccWidgets.note(sec,
+		"No hydrological river entity is exposed to Godot. cartalith-hydrology " +
+		"computes river networks internally (order, discharge, catchment) for " +
+		"erosion and settlement suitability, but the only river-derived output that " +
+		"crosses the GDExtension boundary is baked into build_color_texture()'s " +
+		"rendered raster -- there is no get_rivers() and nothing in the viewport " +
+		"can select one.")
+	for f in ["Name", "Length", "Source elevation", "Discharge", "Catchment", "Tributaries", "Navigation"]:
+		_field(sec, f, "—", "No get_rivers() binding.", false)
+	var actions := DccWidgets.group(sec, "Actions")
+	for label_text in ["Hydrology", "Edit geometry", "Analyse catchment"]:
+		var b := DccWidgets.action(actions, label_text, func(): pass)
+		b.disabled = true
+		b.tooltip_text = "No river binding to act on."
+
+# -- Faction ------------------------------------------------------------
+
+func _build_faction(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Faction")
+	var mine: Array[Dictionary] = []
+	for p in bridge.provinces():
+		var d: Dictionary = p
+		if int(d.get("faction", -1)) == _faction_id:
+			mine.append(d)
+
+	_field(sec, "Faction", str(_faction_id))
+	_field(sec, "Provinces", str(mine.size()))
+
+	var names: Array[String] = []
+	for p in mine:
+		names.append(String(p.get("name", "")))
+	_field(sec, "Roster", ", ".join(names) if not names.is_empty() else "—",
+		"" if not names.is_empty() else "No provinces carry this faction id.",
+		not names.is_empty())
+
+	_field(sec, "Territory", "—",
+		"Territory is only exposed as a rendered overlay (build_territory_texture()) -- " +
+		"no per-faction cell count or area query exists.", false)
+	_field(sec, "State religion", "—",
+		"cartalith-civ computes a has_religion flag internally " +
+		"(civ_faction_aggregates, FactionAggregate) but get_provinces() doesn't carry " +
+		"it and there is no get_faction_aggregates() binding.", false)
+
+# -- Shared row/field vocabulary ------------------------------------------
+#
+# `DccWidgets` has category/section/group/advanced plus slider/toggle/
+# choice/number/action/note -- every one of those either edits a value or
+# explains a rule. A dock built entirely from live readouts needs a plain
+# label:value row that reports rather than edits, which `DccWidgets`
+# doesn't have; adding one there would be adding a control that edits
+# nothing to a file whose whole job is drawing editable rows, so it stays
+# local to the file that actually needs read-only inspection.
+
+const _FIELD_LABEL_W := 116
+
+func _field(parent: Control, label_text: String, value_text: String,
+		tooltip: String = "", reachable: bool = true) -> Label:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size.y = 22
+	row.tooltip_text = tooltip
+	var l := DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL)
+	l.custom_minimum_size.x = _FIELD_LABEL_W
+	l.clip_text = true
+	row.add_child(l)
+	var v := DccTheme.label(value_text, "text" if reachable else "text_ghost", DccTheme.FS_SMALL)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(v)
+	parent.add_child(row)
+	return v
+
+## §6: "elevation (large accent readout)". The only such readout the dock
+## has -- kept even though its value is always "—" today, per §6's own rule
+## that "fields from stale stages read —" rather than the row disappearing.
+func _accent_readout(parent: Control, label_text: String, value_text: String, tooltip: String) -> void:
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", 0)
+	wrap.tooltip_text = tooltip
+	wrap.add_child(DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL))
+	wrap.add_child(DccTheme.label(value_text, "accent", 26))
+	parent.add_child(wrap)
+
+func _nearest_settlement_text(gx: float, gy: float, valid: bool) -> String:
+	if not valid:
+		return "—"
+	var list := bridge.settlements()
+	if list.is_empty():
+		return "—"
+	var best_name := ""
+	var best_d2 := INF
+	for s in list:
+		var d: Dictionary = s
+		var dx := float(d["x"]) - gx
+		var dy := float(d["y"]) - gy
+		var d2 := dx * dx + dy * dy
+		if d2 < best_d2:
+			best_d2 = d2
+			best_name = String(d["name"])
+	return "%s (%.0f cells)" % [best_name, sqrt(best_d2)]

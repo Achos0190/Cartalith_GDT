@@ -61,6 +61,8 @@ var _right_collapsed := false
 var _left_width := float(DccTheme.W_LEFT_DOCK)
 var _right_width := float(DccTheme.W_RIGHT_DOCK)
 var _status_labels: Dictionary = {}    ## slot -> Label
+var _collapse_buttons: Dictionary = {} ## "left"/"right" -> Button, so the chevron can flip
+var _dock_readouts: Dictionary = {}    ## "left"/"right" -> the collapsed-state Label
 var _workspace_panels: Dictionary = {} ## domain id -> Control
 var _touch := false
 
@@ -274,6 +276,7 @@ func _build_left_dock() -> Control:
 	head_pad.add_child(head)
 	col.add_child(head_pad)
 	col.add_child(DccTheme.rule())
+	col.add_child(_dock_readout("left"))
 
 	var scroll := _scroll()
 	left_dock_body = VBoxContainer.new()
@@ -303,6 +306,7 @@ func _build_right_dock() -> Control:
 	head_pad.add_child(head)
 	col.add_child(head_pad)
 	col.add_child(DccTheme.rule())
+	col.add_child(_dock_readout("right"))
 
 	var scroll := _scroll()
 	right_dock_body = VBoxContainer.new()
@@ -331,23 +335,65 @@ func _collapse_button(is_left: bool) -> Button:
 	b.add_theme_color_override("font_color", DccTheme.c("text_faint"))
 	b.custom_minimum_size = Vector2(_scaled(20), _scaled(20))
 	b.pressed.connect(_toggle_dock.bind(is_left))
+	_collapse_buttons["left" if is_left else "right"] = b
 	return b
 
-## §6: a collapsed dock keeps its primary readout visible, so it shrinks to the
-## rail width rather than disappearing.
+## §6's last line: "collapsed, the dock keeps its primary readout visible --
+## elevation for Sample, layer dots for Layers, stamp count for the stack." So a
+## collapsed dock is not an empty 40 px strip; it is a strip that still says the
+## one thing you collapsed it in order to keep watching.
+##
+## The label lives outside the ScrollContainer precisely because collapsing
+## hides that container -- putting the readout inside it would hide the thing
+## the rule exists to preserve.
+func _dock_readout(side: String) -> Control:
+	var l := DccTheme.label("", "text_dim", DccTheme.FS_TINY)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 4)
+	pad.add_theme_constant_override("margin_right", 4)
+	pad.add_theme_constant_override("margin_top", 8)
+	pad.add_child(l)
+	pad.visible = false
+	_dock_readouts[side] = l
+	return pad
+
+## Whatever the dock's current context considers its one essential number. Kept
+## up to date whether or not the dock is collapsed, so collapsing never reveals
+## a stale value.
+func set_dock_readout(side: String, text: String) -> void:
+	if not _dock_readouts.has(side):
+		push_error("DccShell: no dock readout for side '%s'" % side)
+		return
+	(_dock_readouts[side] as Label).text = text
+
+func is_dock_collapsed(side: String) -> bool:
+	return _left_collapsed if side == "left" else _right_collapsed
+
+## A collapsed dock shrinks to the rail width rather than disappearing, and
+## swaps its body for the readout above.
 func _toggle_dock(is_left: bool) -> void:
 	var dock := left_dock if is_left else right_dock
-	var collapsed := _left_collapsed if is_left else _right_collapsed
-	collapsed = not collapsed
-	dock.custom_minimum_size.x = float(DccTheme.W_RAIL_COLLAPSED) if collapsed \
-		else (_left_width if is_left else _right_width)
+	var side := "left" if is_left else "right"
+	var collapsed := not (_left_collapsed if is_left else _right_collapsed)
+	dock.custom_minimum_size.x = float(DccTheme.W_RAIL_COLLAPSED) if collapsed else (_left_width if is_left else _right_width)
 	for child in dock.get_child(0).get_children():
 		if child is ScrollContainer:
 			child.visible = not collapsed
+	(_dock_readouts[side] as Label).get_parent().visible = collapsed
 	if is_left:
+		## The title has no room at 40 px; the chevron is all that fits, and it
+		## is the only affordance for getting the dock back.
+		left_dock_title.visible = not collapsed
 		_left_collapsed = collapsed
 	else:
 		_right_collapsed = collapsed
+	var btn: Button = _collapse_buttons.get(side)
+	if btn != null:
+		var open_glyph: String = DccIcons.SYMBOLS["collapse"] if is_left else DccIcons.SYMBOLS["expand"]
+		var shut_glyph: String = DccIcons.SYMBOLS["expand"] if is_left else DccIcons.SYMBOLS["collapse"]
+		btn.text = shut_glyph if collapsed else open_glyph
 
 # -- §9 Viewport --------------------------------------------------------------
 

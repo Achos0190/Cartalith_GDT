@@ -206,6 +206,8 @@ dependencies = [
  "cartalith-hydrology",
  "cartalith-io",
  "cartalith-noise",
+ "cartalith-spatial",
+ "cartalith-terrain",
  "godot",
  "rayon",
 ]
