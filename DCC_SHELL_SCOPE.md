@@ -1,29 +1,35 @@
 # DCC shell: supersedes GUI_SHELL_SCOPE.md's target, real milestone plan
 
-> ## ⚠ ALL UI WORK IS ON HOLD (owner, 2026-08-18)
+> ## ✅ THE HOLD IS LIFTED — BUILD IT (owner, 2026-08-18, later same day)
 >
-> Owner's words, verbatim: *"There is a android layout in the design for the
-> DCC version. But im reworking the UI completely, so hold off on that work
-> for now."* and *"there is a dedicated android/phone layout. Yet i'm still
-> working things out before its definitive."*
+> Owner's words, verbatim: *"Replace the current GUI and replace it in full by
+> the DCC version including all it's wiring and functionality."* — issued
+> alongside a design sync (2026-08-18T23:05Z) that made the spec definitive.
 >
-> **Do not start any UI/shell/layout work** — not the phone/tablet responsive
-> milestone, not further desktop shell milestones, not tool-system
-> **milestone F (shell wiring)**, which is GUI work by definition and would
-> be wiring tools into a shell that is being redesigned. The design itself is
-> in flux upstream; building against it now produces work that gets thrown
-> away.
+> This **supersedes the hold** recorded earlier the same day (*"im reworking
+> the UI completely, so hold off on that work for now"*). The rework has
+> landed; `DCC_SHELL_SPEC.md` is now a 13-section control-by-control spec with
+> §5.2 rewritten from v2.10's real `SCULPT_FEATURES` registry and a new §12
+> banning emoji in favour of drawn SVG glyphs.
 >
-> **This is a hold, not a cancellation.** Everything below remains the
-> recorded plan and the Android measurements in `ANDROID_BUILD_SCOPE.md`
-> (per-region touch-target percentages, the density-independent-pixel
-> correction) stay valid input for whenever the new design lands.
+> **Scope of the instruction**: full replacement, not an incremental reskin —
+> the shell *and* its wiring and functionality. **Tool-system milestone F
+> (shell wiring) is unblocked** and is part of this work; milestones A-E are
+> engine-complete and golden-verified already.
 >
-> **Still in scope while this hold stands**: engine, generation, verification,
-> and every non-UI milestone — Phase 5 urban morphology, the economy layer,
-> terrain appearance's non-GUI phases, GPU/CPU work, region export's deferred
-> E2 half. Tool-system milestones A-E are all engine-side and already done;
-> only F is blocked.
+> **Read `DCC_CONTROL_INDEX.md` before writing layout code.** It indexes all
+> 452 controls against real engine capability — **wired** / **backed, unwired**
+> / **engine gap** / **new** — so the difference between "wire an existing
+> `#[func]`" and "build a subsystem first" is already known per control. Its
+> largest finding stands until the owner rules otherwise: the spec's ten-stage
+> pipeline assumes **per-stage re-execution**, and `generate_terrain` runs the
+> whole pipeline or none. That is a re-architecture, not a layout, and it sits
+> among the 15 decisions the index refers to the owner.
+>
+> **Still true**: the Android measurements in `ANDROID_BUILD_SCOPE.md` (real
+> per-region touch-target percentages, and the correction that the design's
+> "44-52 px" must be read as *density-independent* pixels — ~86-102 physical
+> on that device) are live input for the phone/tablet breakpoints in §13.
 
 ## The control index comes first (2026-08-18)
 
