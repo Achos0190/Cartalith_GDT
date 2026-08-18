@@ -9,3 +9,23 @@ publish = false
 
 [profile.dev]
 opt-level = 1
+
+# Android debug builds. Godot stores `.so` files uncompressed in the APK, and
+# `[profile.dev]`'s `debug = true` had grown the `cartalith-godot` shared
+# object to ~400 MB of debuginfo — the 2026-08-18 device pass had to
+# `llvm-strip --strip-debug` it by hand (400 MB -> 18 MB, 22x, no behaviour
+# change) before every export. This profile makes that permanent.
+#
+# `debug = "line-tables-only"` keeps panic backtraces resolvable to file and
+# line, which is what on-device diagnosis actually needs (`ANDROID_BUILD_
+# SCOPE.md`'s own logcat workflow), while dropping the type and variable
+# debuginfo that produced the bulk. Inherits `dev`'s `opt-level = 1`, so
+# generation speed on device is unchanged.
+#
+# Use with: cargo ndk -t arm64-v8a --profile android-dev build -p cartalith-godot
+# Owner decision 2026-08-18: dedicated per-platform components are fine as
+# long as the underlying program is the same one — this changes packaging,
+# not behaviour.
+[profile.android-dev]
+inherits = "dev"
+debug = "line-tables-only"

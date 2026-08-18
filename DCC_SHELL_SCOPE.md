@@ -1,5 +1,30 @@
 # DCC shell: supersedes GUI_SHELL_SCOPE.md's target, real milestone plan
 
+> ## ⚠ ALL UI WORK IS ON HOLD (owner, 2026-08-18)
+>
+> Owner's words, verbatim: *"There is a android layout in the design for the
+> DCC version. But im reworking the UI completely, so hold off on that work
+> for now."* and *"there is a dedicated android/phone layout. Yet i'm still
+> working things out before its definitive."*
+>
+> **Do not start any UI/shell/layout work** — not the phone/tablet responsive
+> milestone, not further desktop shell milestones, not tool-system
+> **milestone F (shell wiring)**, which is GUI work by definition and would
+> be wiring tools into a shell that is being redesigned. The design itself is
+> in flux upstream; building against it now produces work that gets thrown
+> away.
+>
+> **This is a hold, not a cancellation.** Everything below remains the
+> recorded plan and the Android measurements in `ANDROID_BUILD_SCOPE.md`
+> (per-region touch-target percentages, the density-independent-pixel
+> correction) stay valid input for whenever the new design lands.
+>
+> **Still in scope while this hold stands**: engine, generation, verification,
+> and every non-UI milestone — Phase 5 urban morphology, the economy layer,
+> terrain appearance's non-GUI phases, GPU/CPU work, region export's deferred
+> E2 half. Tool-system milestones A-E are all engine-side and already done;
+> only F is blocked.
+
 Owner-supplied design import (2026-08-17, same Claude Design project as
 before — "UI mockups planning," via `claude_design` MCP). Owner's own words,
 verbatim: *"to be certain this, the dcc shell, is the design that should be
