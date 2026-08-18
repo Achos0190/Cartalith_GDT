@@ -25,6 +25,27 @@
 > E2 half. Tool-system milestones A-E are all engine-side and already done;
 > only F is blocked.
 
+## The control index comes first (2026-08-18)
+
+Owner's instruction before any implementation: *"Before implementing the GUI I
+want you to properly index all functions and buttons in the design and compare
+it to the current program and functionalities."* Done, as
+**`DCC_CONTROL_INDEX.md`** (repo root) — 452 controls from `DCC_SHELL_SPEC.md`
+§1 through §12, one row each, every one carrying the exact `#[func]`, parameter
+key or crate function behind it and a status of **wired** (79) / **backed,
+unwired** (144) / **engine gap** (143) / **new** (86), plus the summary the
+owner asked for: counts per region, the engine gaps ordered by size, where the
+spec and the engine genuinely disagree, what the shell built so far this design
+deletes or relocates, and the decisions only the owner can make.
+
+Read it before touching any layout code. Two of its findings bear directly on
+this document's own milestone plan: the spec's ten-stage generation pipeline
+does not partition the way `GENERATION_PARAMETERS.md`'s eight engine groups do
+and assumes per-stage re-execution the one-shot `generate_terrain` cannot
+offer; and the design has no surface at all for the ~11 non-terrain tools whose
+engine halves milestones C-E already built, so milestone F's target has changed
+shape, not just its skin.
+
 Owner-supplied design import (2026-08-17, same Claude Design project as
 before — "UI mockups planning," via `claude_design` MCP). Owner's own words,
 verbatim: *"to be certain this, the dcc shell, is the design that should be
