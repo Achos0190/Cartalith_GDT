@@ -102,6 +102,13 @@ real heightfield until an explicit Commit, and no presentation control ever mark
 a generation stage stale. Finalizing a world locks generation and sculpting while
 leaving the 3D viewport and cartography available.
 
+## Drawn, not borrowed
+
+No emoji. Every glyph is a bespoke 1.2 px line drawing in `currentColor`, so it
+inherits the accent when active and the light theme when switched. The thirteen
+sculpt features are drawn as terrain cross-sections and are the only icons that
+carry meaning rather than decoration — see `DCC_SHELL_SPEC.md` §12.
+
 ## Touch targets
 
 Windows is pointer-first: 32 px controls, 26 px status bar.

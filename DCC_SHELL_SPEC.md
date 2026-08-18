@@ -1,15 +1,23 @@
 # DCC shell — implementation spec
 
 > **Imported verbatim from the owner's Claude Design project "UI mockups
-> planning", sync 2026-08-18T21:40Z.** New in that sync; the companion
-> `UI_SHELL_DESIGN.md` was rewritten alongside it as a pure rationale document.
+> planning", sync 2026-08-18T23:05Z** (supersedes the 21:40Z import). Deltas in
+> this revision: **§5.2 Sculpt rewritten from v2.10's real `SCULPT_FEATURES`
+> registry**, a new **§12 Iconography** (no emoji; drawn SVG glyphs), touch
+> behaviour renumbered to §13, and the mockup at 9 screens plus a rule card.
 >
-> **Nothing in this document has been implemented yet.** The shell currently in
-> the repository was built against the *previous* revision of the design and
-> differs structurally — see `DCC_SHELL_SCOPE.md`. **UI work is on hold** at the
-> owner's direction (2026-08-18) and the owner has asked that every control here
-> be indexed and compared against the program's real capabilities *before* any
-> implementation begins.
+> **The UI hold is lifted** — owner, 2026-08-18: *"Replace the current GUI and
+> replace it in full by the DCC version including all it's wiring and
+> functionality."* Read `DCC_CONTROL_INDEX.md` before writing layout code; it
+> indexes every control here against real engine capability.
+>
+> §5.2's rewrite **resolves** the sharpest spec-vs-engine conflict the index
+> recorded: brush size is now 6-200 px (was an abstract 0.05-20.0), intensity
+> 0-1.5 dimensionless (was ±500 m), with 13 features, 8 presets, 8 globals and
+> 8 Freehand sub-modes — matching `cartalith-terrain/src/sculpt.rs` exactly.
+> One conflict survives: the commit prose still says it "re-runs erosion,
+> hydrology and climate once", where `commit_sculpt_pass` deliberately marks
+> tiles stale instead (the eager form measured ~7 s per stroke at 2048²).
 >
 > Path note: the design team writes to a `docs/`-rooted convention. In this
 > repository `docs/` holds the **source project's** own documentation, and two
@@ -29,7 +37,7 @@ way), `UNIFIED_TOOL_PLAN.md` (what a tool is), `GENERATOR_PARAMETERS.md`
 pipeline the Cartography workspace drives).
 
 Reference mockup: `Cartalith DCC Shell.dc.html` in the Omelette project
-*UI mockups planning*, 9 screens:
+*UI mockups planning*, 9 screens plus one rule card:
 
 | Screen (`data-screen-label`) | Shows |
 |---|---|
@@ -42,6 +50,7 @@ Reference mockup: `Cartalith DCC Shell.dc.html` in the Omelette project
 | `Data manager window 1920` | Data manager window, Export ▸ Maps ▸ Leaflet tile pyramid route |
 | `DCC shell tablet 2560` | Tablet parity, Data menu open |
 | `DCC shell android phone` | Phone layout with cutout insets |
+| `Phone inset rules` | The cutout/inset rule card that travels with the phone screen |
 
 ---
 
@@ -289,44 +298,82 @@ politics → Civilization workspace.
 
 ### 5.2 Sculpt
 
-Stamp-based, non-destructive. Replaces v2.10 `#genSculpt`. Groups top to bottom:
+Stamp-based, non-destructive. Ports v2.10 `#genSculpt` and its `SCULPT_FEATURES`
+registry unchanged — the panel is a view onto that registry, so adding a feature
+in code adds it here with no UI work.
 
-**Brush Tools** — Raise · Lower · Smooth · Flatten · Rotate · Scale · Tilt ·
-Push / Pull · Align. One active at a time; the active tool drives the tool
-options bar and the viewport cursor.
+Panel order follows how the tool is actually used: pick the feature, seed it from
+a preset, tune that feature's own parameters, then the shared brush block.
 
-**Grid Tools** — Add · Duplicate · Rotate · Scale · Tilt · Push · Pull · Align.
-Operate on the selected stamp's control grid rather than the heightfield.
+**Geological feature** (`#sculptFeatureSeg`) — 13 entries, each with a bespoke
+line glyph (12 px, 1.2 px stroke, currentColor — no emoji), the registry's label
+and its hint. Selecting one swaps the parameter block below
+and the hint line (`#sculptFeatHint`).
 
-**Actions** — Flip X · Flip Y · Rot Left · Rot Right · Flatten. Immediate,
-applied to the selection, undoable.
+| Feature | Interaction | Mode | Parameters (min–max, default) |
+|---|---|---|---|
+| Mountains | stroke | add | Height 0.10–0.55 (0.42) · Peak sharpness 0.6–3.0 (1.5) · Ridge freq 0.6–5.0 (1.6) · Ruggedness 0–1 (0.55) |
+| Hills | stroke | add | Amplitude 0.02–0.30 (0.11) · Rolling freq 0.5–4.0 (1.4) · Softness 0–1 (0.7) |
+| Ridge | stroke | add | Height 0.02–0.35 (0.15) · Width frac 0.1–0.6 (0.28) · Detail freq 0.5–4.0 (1.5) |
+| Plateau | stroke | set | Rise 0.03–0.45 (0.26) · Terraces 1–8 (4) · Detail freq 0.4–3.0 (1.1) — never lowers existing terrain |
+| Cliff / Escarpment | stroke, direction-sensitive | add | Rise 0.05–0.45 (0.22) · Steepness 0.2–1.0 (0.75) — high side is left of the stroke |
+| Canyon | stroke | add (negative) | Depth 0.03–0.35 (0.18) · Wall steepness 0–1 (0.7) · Meander 0–0.8 (0.35) |
+| Valley | stroke | add (negative) | Depth 0.03–0.30 (0.14) · Width frac 0.3–1.0 (0.85) · Meander 0–0.8 (0.3) |
+| River | stroke | set | Width 2–26 px (7) · Depth 0.02–0.22 (0.09) · Meander 0–0.6 (0.28) · Branch noise 0–1 (0.5) — writes riverMask/riverFloor on commit |
+| Lake | radial, brush = radius | set | Depth 0.03–0.30 (0.13) · Shore 0.05–0.6 (0.25) — fills lakeMask on commit |
+| Basin | stroke | add (negative) | Depth 0.02–0.25 (0.1) · Floor rough 0–1 (0.4) — endorheic, no outlet |
+| Coastline | stroke | set | Amount 0.1–1.0 (0.85) · Raggedness 0.4–4.0 (1.6) — pulls toward sea level |
+| Volcano | radial, brush = radius | add | Cone height 0.15–0.6 (0.45) · Crater depth 0–0.9 (0.5) · Radius 30–200 px (110) · Flank rough 0–1 (0.6) |
+| Freehand | continuous drag or tap | per sub-mode | Amount 0.02–0.30 (0.12) |
 
-**Geological feature** — mountain range, volcano, plateau, rift, canyon, crater,
-island arc, basin, dune field (`#sculptFeatureSeg`). Selecting one swaps the
-feature-parameter set and shows a one-line description (`#sculptFeatHint`).
-Beneath it, presets for that feature (`#sculptPresetSeg`) — e.g. mountain range:
-fold belt, young alpine, eroded massif, coastal scarp. A preset seeds parameters
-only; it never paints.
+**Presets** (`#sculptPresetSeg`) — eight one-click parameter seeds, each bound to
+a feature: Rolling Hills (hills), Alps (mountains), Rockies (mountains),
+Badlands (canyon), Volcanic Isle (volcano), Mesa (plateau), Karst (hills),
+Glacial Valley (valley). A preset sets the feature and its parameters; it never
+paints.
 
-**Brush Settings** —
+**Feature parameters** (`#sculptFeatureControls`) — the selected feature's own
+controls from the table above, titled with the feature name. Radial features show
+their radius control here rather than using the global brush size.
 
-| Control | Range / values | Notes |
-|---|---|---|
-| Falloff profile preview | — | Live curve + brush footprint |
-| Brush shape gallery | 8 built-in shapes | Circle, directional, spatter, spiral, dots, cloud, checker, hatch |
-| Import brush… | `image/*` | Greyscale height stamp, alpha respected |
-| Operation | Set · Add · Subtract · Multiply · Min · Max | Default Set |
-| Falloff | Smooth · Linear · Sharp · Constant · Custom | Default Smooth |
-| Radius | 0.05–20.0 | Default 2.00; `[` `]` adjust |
-| Smooth | 0–1 | Default 0.50 |
-| Strength | ±500 m | Default +120 m; ⇧ inverts |
-| Rotation | 0–360° | Default 0 |
+**Freehand tools · direct drag** (`#sculptModeSeg`, shown only for Freehand) —
+Raise · Lower · Smooth · Cliff · Ridge · Canyon · Mesa · Volcano. Raise/Lower/
+Smooth follow the drag; Cliff/Ridge/Canyon follow its direction; Mesa/Volcano
+stamp once at a tap (a one-point stroke degenerates to radial distance).
 
-Every stroke becomes a live procedural stamp. Nothing touches the real
-heightfield until Commit, which bakes the whole stack in one pass and re-runs
-erosion, hydrology and climate once.
+**Brush & noise · global** — applies to every feature (`#sBrush` … `#sSeed`):
 
----
+| Control | Range | Default | Notes |
+|---|---|---|---|
+| Brush size | 6–200 px | 64 | Shows the km equivalent at the working resolution (`#sBrushKm`) |
+| Hardness | 0–1 | 0.35 | Feather = radius × (1 − hardness) |
+| Intensity | 0–1.5 | 1.00 | Scales the feature's own amplitude |
+| Noise scale | 1–20 | 6.0 | — |
+| Octaves | 1–8 | 5 | — |
+| Persistence | 0.20–0.90 | 0.52 | — |
+| Lacunarity | 1.40–3.20 | 2.00 | — |
+| Edge noise | 0–1 | 0.45 | Multiplied by each feature's `edgeChar` / `edgeFreqMul` |
+| Seed | integer | project seed | Dice button randomises |
+
+**Brush shape** — falloff-profile preview, eight built-in shapes (circle,
+directional, spatter, spiral, dots, cloud, checker, hatch), Import brush…
+(greyscale height stamp, alpha respected), Operation (defaults to the feature's
+own mode — add or set — overridable to subtract/multiply/min/max), Falloff
+(smooth / linear / sharp / constant / custom), Rotation 0–360°, Spacing 0–1,
+Mirror across the stroke axis.
+
+**Stroke & grid** — Add point · Duplicate · Rotate · Scale · Tilt · Push · Pull ·
+Align. These edit the selected stamp's control points, not the heightfield.
+
+**Actions** — Flip X · Flip Y · Rot Left · Rot Right · Flatten selection.
+Immediate, applied to the selection, undoable.
+
+Every stroke becomes a live procedural stamp (`sculptStamps`). Nothing touches
+the real heightfield until Commit (`#sculptCommitBtn`), which bakes the whole
+stack in one pass and re-runs erosion, hydrology and climate once. Discard
+(`#sculptDiscardBtn`) drops the draft. Sculpting is locked while the world is
+finalized (`#sculptFinalizedNote`).
+
 
 ## 6 · Right dock · contexts
 
@@ -515,7 +562,46 @@ No fills on panels: regions are separated by hairlines only. Radius 0 everywhere
 
 ---
 
-## 12 · Touch behaviour
+## 12 · Iconography
+
+No emoji anywhere in the product. Every glyph is a bespoke inline SVG on a
+16 × 16 viewBox, rendered at 12 px in panels and 14–17 px on canvas buttons,
+`fill:none`, `stroke:currentColor`, `stroke-width:1.2`, round caps and joins.
+Because they take `currentColor` they inherit the accent when their row is
+active and invert with the light theme without a second asset.
+
+The thirteen sculpt features are drawn as terrain cross-sections, read as one
+family, and are the only place icons carry meaning rather than decoration:
+
+| Feature | Glyph |
+|---|---|
+| Mountains | Two overlapping peaks, the taller behind |
+| Hills | A rolling profile above a baseline |
+| Ridge | One peak with its strike axis drawn down the centre |
+| Plateau | Flat-topped mesa with the top edge emphasised |
+| Cliff | A single step, high side left |
+| Canyon | Two walls closing to a flat floor |
+| Valley | A U-shaped trough |
+| River | Two braided meanders |
+| Lake | A closed basin with one shoreline mark |
+| Basin | Nested shallow bowls, no outlet |
+| Coastline | A ragged edge above a water line |
+| Volcano | Truncated cone with a crater notch |
+| Freehand | A pencil |
+
+Other drawn glyphs: the layers button (three stacked sheets), the dice on the
+seed row, and the `⧉` window marker in menus. Text symbols stay text — `▾ ▸ ‹ › ⌄
+● ○ ☑ ☐ ✓ ✕ ＋ ⌫ ↶ ↷ ▶ ⏸ ☰ ▤ ⋯ 🔒` — since they are typographic, inherit type
+metrics, and need no drawing.
+
+Rules: one weight only (1.2 px) so a glyph never reads bolder than the hairlines
+around it; no fills except 0.7 px dots where a mark must survive at 12 px; nothing
+inside a glyph smaller than 1 px at render size; and every icon is legible in
+both themes at 12 px before it ships.
+
+---
+
+## 13 · Touch behaviour
 
 Tablet keeps full desktop parity — same regions, same menus, same disclosure
 depth, targets 44–52 px, docks 400 px.
