@@ -1255,9 +1255,30 @@ impl WorldGen {
         let gw = self.gw as usize;
         let gh = self.gh as usize;
         let appearance = TerrainAppearance::default();
+        // Milestone 5 (`TERRAIN_APPEARANCE_SCOPE.md`, research §12): the
+        // world's real rock types. Built here rather than threaded down from
+        // `compute_civilisation` (which builds its own for the soil chain)
+        // because the renderer must also work for a world generated with the
+        // civilisation layer switched off, and because holding a second copy
+        // on `WorldGen` would be a `gw*gh` byte field kept alive for the
+        // lifetime of the world to save one single-pass, neighbour-free
+        // `par_iter` -- the wrong trade at this port's 8192 ceiling.
+        //
+        // `None` for a loaded save: its format stores none of the tectonic
+        // substrate this needs (`SAVEFILE_COMPAT.md`), the same reason
+        // `flow` is `None` there and `CivData` is never computed for one.
+        let lithology = match self.source.as_ref()? {
+            WorldSource::Generated(ws) => Some(cartalith_civ::build_lithology(
+                &ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, self.sea_level,
+            )),
+            WorldSource::Loaded(_) => None,
+        };
         let mut ctx = RenderCtx::with_appearance(
             field, temperature, rainfall, flow, gw, gh, self.sea_level, self.world, self.lat_n, self.lat_s, appearance.clone(),
         );
+        if let Some(lith) = lithology.as_ref() {
+            ctx = ctx.with_lithology(lith);
+        }
         // Milestone 7 (`ASSET_LIBRARY_SCOPE.md`): attach real ground-texture
         // splat channels whenever a pack is loaded. `SplatTextures::default()`
         // (all `None`) is what a pack-less or textures-less pack produces --
@@ -1307,6 +1328,18 @@ impl WorldGen {
                 bytes.push((b.clamp(0.0, 1.0) * 255.0) as u8);
             }
         }
+
+        // Milestone 5 (`TERRAIN_APPEARANCE_SCOPE.md`, research §18): local
+        // contrast. The one appearance stage that cannot live inside
+        // `cell_color`, since it reads a *neighbourhood* of the finished
+        // colour -- see `render::apply_local_contrast`'s own doc comment.
+        //
+        // Placed here deliberately: after the river channel tint (so a
+        // river reads with the same separation from its valley that every
+        // other material gets) and before the icon pass (drawn artwork is
+        // not terrain and has no business being contrast-boosted). A no-op
+        // whenever `local_contrast == 0.0`.
+        render::apply_local_contrast(&appearance, &mut bytes, gw, gh, self.world);
 
         // Milestone 7: `drawMapIcons`' own painter's pass, composited over
         // the finished raster exactly as it is in the reference (a separate

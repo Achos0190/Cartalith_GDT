@@ -69,6 +69,24 @@
 //! Hand-lettered settlement glyphs, the fourth element `VISION.md` names,
 //! are deliberately *not* here: settlement markers are drawn by
 //! `godot-project/map_overlay.gd`, not by this raster.
+//!
+//! ## Geology and local contrast (`TERRAIN_APPEARANCE_SCOPE.md` milestone 5)
+//!
+//! - **Geological material exposure** (§12) — the world's real rock type
+//!   (`cartalith_civ::build_lithology`, seven `LITH_KEYS` types built from
+//!   the tectonic substrate) reaches the image two ways: the rock material's
+//!   own colour blends toward that rock's palette (`rock_material_col`), and
+//!   bedrock shows through thin soil where slope, low vegetation and low
+//!   moisture say the cover is thin (in `land_color`). Attached via
+//!   [`RenderCtx::with_lithology`]; absent for a loaded save, whose format
+//!   stores no tectonic substrate, in which case both stages do nothing.
+//! - **Local contrast** (§18) — [`apply_local_contrast`], the only stage in
+//!   this file that is *not* per-pixel, because a neighbourhood of the
+//!   finished colour cannot exist until the raster does. Runs over the
+//!   output buffer; `cell_color` is untouched by it.
+//!
+//! Both are gated to `0.0` in `js_reference()` and both early-return on that
+//! `0.0`, the same rule every stage since milestone 2 follows.
 
 use cartalith_noise::vnoise;
 
@@ -161,6 +179,15 @@ pub struct TerrainAppearance {
     pub rock_granite: [Rgb; 3],
     pub rock_sandstone: [Rgb; 3],
     pub rock_scree: [Rgb; 3],
+    // ---- Milestone 5: the five rock types the reference's own material
+    // vocabulary never had a colour for. `LITH_KEYS` has seven entries;
+    // granite and sandstone already had palettes above (they are the two
+    // the JS heuristic happened to name), so only five are new.
+    pub rock_basalt: [Rgb; 3],
+    pub rock_andesite: [Rgb; 3],
+    pub rock_limestone: [Rgb; 3],
+    pub rock_shale: [Rgb; 3],
+    pub rock_metamorphic: [Rgb; 3],
     pub snow_seas: [Rgb; 3],
     pub snow_perm: [Rgb; 3],
     pub snow_glac: [Rgb; 3],
@@ -303,6 +330,64 @@ pub struct TerrainAppearance {
     /// pure black rules read as UI chrome, not as ink on a sheet.
     pub border_ink: Rgb,
 
+    // ---- Milestone 5 (`TERRAIN_APPEARANCE_SCOPE.md`): geology (§12) ----
+    /// How far the **rock material's own colour** moves from the reference's
+    /// climate heuristic (`rock_col`: scree above 0.82 relative elevation,
+    /// sandstone when hot and dry, granite otherwise) toward the palette of
+    /// the rock actually under the cell
+    /// (`cartalith_civ::build_lithology`'s seven `LITH_KEYS` types).
+    /// `0.0` disables it and `rock_material_col` early-returns the
+    /// heuristic colour unchanged, which is `js_reference()`'s state; it is
+    /// also inert whenever no lithology field is attached (a loaded save,
+    /// which stores none — `SAVEFILE_COMPAT.md`).
+    ///
+    /// A **blend**, not a replacement: the heuristic still carries the
+    /// climate-and-relief character of the surface (scree really is paler
+    /// and greyer than the parent rock on a shattered summit), and the
+    /// lithology supplies the identity underneath it.
+    pub litho_strength: f64,
+    /// How strongly bedrock shows **through the soil cover**
+    /// (`TERRAIN_APPEARANCE_RESEARCH.md` §12's own list: material visibility
+    /// depends on slope, erosion, elevation, vegetation, moisture,
+    /// lithology). `0.0` disables the stage entirely.
+    ///
+    /// This is the half that answers §12's actual complaint — *"a mountain
+    /// should not simply become brown because it is high; its visible
+    /// material should emerge from the underlying world model"*. It reads
+    /// only values `land_color` already has (`slope`, the vegetation
+    /// potential `w.c`, effective moisture, and the rock/snow fractions),
+    /// so it adds no physical input beyond the lithology index itself, and
+    /// it never touches `material_weights` — the golden-verified fraction
+    /// blend §32 warns is easiest to break.
+    pub litho_exposure: f64,
+
+    // ---- Milestone 5: local contrast (§18) ----
+    /// Local-contrast gain (`TERRAIN_APPEARANCE_RESEARCH.md` §18): how much
+    /// of the band-limited luminance detail is added back to the finished
+    /// image, to make neighbouring terrain materials distinguishable after
+    /// milestone 4's paper wash deliberately took ~13-26% of the chroma out.
+    /// `0.0` disables the whole pass, which early-returns before allocating
+    /// anything.
+    ///
+    /// Not a sharpen. §18's constraints are "avoid excessive sharpening, no
+    /// haloing, no visible edge-detection artifacts", and the response curve
+    /// in `apply_local_contrast` is built to satisfy them literally: the
+    /// gain **falls to zero** on strong edges (coastlines, snowlines), so
+    /// the classic unsharp overshoot has nowhere to form.
+    pub local_contrast: f64,
+    /// Detail-band radius as a fraction of grid width, so "local" is a
+    /// fixed *world* size across this port's 512²-8192² range — the same
+    /// reasoning `ao_radius_frac`, `hydro_wet_radius_frac` and
+    /// `stipple_scale_frac` already use.
+    pub local_contrast_radius_frac: f64,
+    /// The luminance-difference scale (in 0-255 levels) at which the local
+    /// contrast response peaks, and past which it rolls off toward zero.
+    /// Small differences (material texture, a forest edge) get the full
+    /// gain; a coastline's 40-plus-level step gets almost none. This single
+    /// number is what makes §18's "no haloing" a property of the maths
+    /// rather than a hope about the tuning.
+    pub local_contrast_knee: f64,
+
     // ---- Milestone 7 (`ASSET_LIBRARY_SCOPE.md`): ground-texture splat ----
     /// Strength of the ground-texture splat blend (reference `state.viz.
     /// splat`, real default `0.7` — unlike `state.viz.icons`, splat is
@@ -341,6 +426,19 @@ impl Default for TerrainAppearance {
             rock_granite: [(123.0, 117.0, 108.0), (147.0, 139.0, 128.0), (170.0, 161.0, 149.0)],
             rock_sandstone: [(167.0, 122.0, 87.0), (188.0, 141.0, 103.0), (208.0, 159.0, 118.0)],
             rock_scree: [(106.0, 102.0, 95.0), (122.0, 118.0, 110.0), (141.0, 137.0, 128.0)],
+            // Milestone 5 (§12). Chosen for *separation in hue and value*
+            // between the seven types rather than for photographic accuracy:
+            // basalt near-black and cool, limestone pale and warm, shale
+            // dark olive-brown, metamorphic mid grey-green, andesite a
+            // neutral mid grey. Two of §30's anti-list items — "overuse of
+            // brown for mountains" and terrain that reads as decorated
+            // rather than described — are precisely what a single grey
+            // granite for every uplift produces.
+            rock_basalt: [(52.0, 55.0, 60.0), (69.0, 73.0, 79.0), (91.0, 95.0, 102.0)],
+            rock_andesite: [(97.0, 91.0, 92.0), (117.0, 111.0, 111.0), (139.0, 133.0, 133.0)],
+            rock_limestone: [(163.0, 158.0, 141.0), (187.0, 182.0, 164.0), (209.0, 205.0, 188.0)],
+            rock_shale: [(80.0, 77.0, 68.0), (98.0, 94.0, 83.0), (118.0, 113.0, 101.0)],
+            rock_metamorphic: [(97.0, 101.0, 94.0), (117.0, 121.0, 112.0), (139.0, 143.0, 133.0)],
             snow_seas: [(217.0, 215.0, 210.0), (232.0, 231.0, 228.0), (245.0, 245.0, 245.0)],
             snow_perm: [(237.0, 240.0, 242.0), (245.0, 247.0, 248.0), (252.0, 252.0, 252.0)],
             snow_glac: [(184.0, 210.0, 219.0), (203.0, 224.0, 230.0), (221.0, 236.0, 239.0)],
@@ -368,6 +466,11 @@ impl Default for TerrainAppearance {
             stipple_scale_frac: 0.0045,
             border_width_frac: 0.014,
             border_ink: (74.0, 61.0, 47.0),
+            litho_strength: 0.62,
+            litho_exposure: 0.55,
+            local_contrast: 0.55,
+            local_contrast_radius_frac: 0.010,
+            local_contrast_knee: 26.0,
             splat_strength: 0.7,
         }
     }
@@ -410,6 +513,17 @@ impl TerrainAppearance {
             paper_strength: 0.0,
             stipple_strength: 0.0,
             border_width_frac: 0.0,
+            // Milestone 5, same rule again: `rock_material_col` returns the
+            // reference's own `rock_col` before it looks at any palette,
+            // the bedrock-exposure block is inside an `if`, and
+            // `apply_local_contrast` returns before allocating a buffer.
+            // (Lithology is additionally never attached on the parity path
+            // — `RenderCtx::with_lithology` is a builder the golden test
+            // does not call — so §12 is off twice over, by data and by
+            // parameter.)
+            litho_strength: 0.0,
+            litho_exposure: 0.0,
+            local_contrast: 0.0,
             ..TerrainAppearance::default()
         }
     }
@@ -718,6 +832,15 @@ pub struct RenderCtx<'a> {
     /// by `golden_parity_render.rs`, so the pinned JS-parity path never
     /// enters `land_color`'s splat branch at all.
     splat: Option<SplatTextures<'a>>,
+    /// Per-cell rock type (`cartalith_civ::build_lithology`, indices per
+    /// [`LITHO_PALETTE_ORDER`]), `None` by construction — attach with
+    /// [`Self::with_lithology`]. `None` is the honest state for a **loaded
+    /// save**, whose format stores none of the tectonic substrate
+    /// (`SAVEFILE_COMPAT.md`; `CivData`'s own doc comment says the same
+    /// thing about the civilisation layer), exactly as `flow` is already
+    /// `None` there — the geology stages then do nothing rather than
+    /// inventing a rock type.
+    lithology: Option<&'a [u8]>,
 }
 
 impl<'a> RenderCtx<'a> {
@@ -761,7 +884,22 @@ impl<'a> RenderCtx<'a> {
         let ao = build_ao(field, gw, gh, sea_level, world, &appearance);
         let hydro_wet = build_hydro_wetness(flow, gw, gh, world, &appearance);
         let lights = build_lights(&appearance);
-        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, hydro_wet, lights, appearance, splat: None }
+        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, hydro_wet, lights, appearance, splat: None, lithology: None }
+    }
+
+    /// Attach the world's real rock types (milestone 5, §12). A builder for
+    /// the same reason `with_splat` is one: `golden_parity_render.rs`
+    /// constructs its `RenderCtx` positionally, and three milestones of
+    /// leaving that file untouched is a property worth keeping. `len` is
+    /// checked against the grid rather than trusted — a mismatched field
+    /// would otherwise index out of bounds inside the render loop, and a
+    /// panic there crosses the gdext boundary (`cartalith-rust-conventions`).
+    #[allow(dead_code)]
+    pub fn with_lithology(mut self, lithology: &'a [u8]) -> Self {
+        if lithology.len() == self.gw * self.gh {
+            self.lithology = Some(lithology);
+        }
+        self
     }
 
     /// Attach real ground-texture channels (milestone 7). A builder method
@@ -875,6 +1013,39 @@ impl<'a> RenderCtx<'a> {
         sum
     }
 
+    /// The rock type under a cell (milestone 5, §12), sampled through a
+    /// **coherent positional jitter** of a couple of cells rather than
+    /// straight.
+    ///
+    /// `build_lithology` is categorical and single-pass, so its contacts are
+    /// exact grid curves. Sampled straight, a granite/limestone boundary
+    /// would render as a clean vector line across the terrain — §30's
+    /// "artificial outlines" and "hard biome borders" in one. Displacing the
+    /// lookup by a low-frequency noise field breaks that line into a ragged
+    /// natural contact at roughly a ten-cell wavelength, which is exactly
+    /// what `bio_jitter` already does for the reference's own biome
+    /// classification (`state.viz.sharpBiomes`), so this is the renderer's
+    /// established idiom rather than a new one.
+    ///
+    /// Deterministic (§27) — a pure function of the cell coordinates.
+    fn litho_at(&self, x: usize, y: usize) -> Option<u8> {
+        let lith = self.lithology?;
+        if self.appearance.litho_strength <= 0.0 && self.appearance.litho_exposure <= 0.0 {
+            return None;
+        }
+        let (xf, yf) = (x as f64, y as f64);
+        let jx = (vnoise(xf * 0.09, yf * 0.09, 81) - 0.5) * 4.4;
+        let jy = (vnoise(xf * 0.09, yf * 0.09, 83) - 0.5) * 4.4;
+        let (gw, gh) = (self.gw as i64, self.gh as i64);
+        let sx = (xf + jx).round() as i64;
+        let sy = (yf + jy).round() as i64;
+        // X wraps in world mode (the same asymmetry `slope_at` has); Y never
+        // does, since the poles are not adjacent.
+        let sx = if self.world { ((sx % gw) + gw) % gw } else { sx.clamp(0, gw - 1) };
+        let sy = sy.clamp(0, gh - 1);
+        Some(lith[(sy * gw + sx) as usize])
+    }
+
     fn macro_shade(&self, x: usize, y: usize) -> f64 {
         self.shade(x, y, 1)
     }
@@ -922,6 +1093,54 @@ fn rock_col(a: &TerrainAppearance, t: f64, m: f64, r: f64, tt: f64) -> Rgb {
     } else {
         ramp3(&a.rock_granite, tt)
     }
+}
+
+/// The rock-type order this renderer's lithology palettes are indexed by —
+/// **must stay identical to `cartalith_civ::LITH_KEYS`**, which is the
+/// vocabulary `build_lithology` actually emits.
+///
+/// Spelled out here as data rather than imported because `render.rs` is
+/// `#[path]`-included standalone by two test targets (see `SplatChannel`'s
+/// own note); `appearance_ab_dump.rs` — which can see both crates — asserts
+/// the two orders match, so this is a checked duplicate, not a hopeful one.
+#[allow(dead_code)]
+pub const LITHO_PALETTE_ORDER: [&str; 7] = ["granite", "basalt", "andesite", "limestone", "sandstone", "shale", "metamorphic"];
+
+/// The palette for one `LITHO_PALETTE_ORDER` index. Out-of-range falls back
+/// to granite — `build_lithology` cannot emit anything else, but a save
+/// format or a future vocabulary extension could, and a renderer is the
+/// wrong place to panic (`cartalith-rust-conventions`: a panic crossing the
+/// gdext boundary takes the Godot process down).
+fn litho_palette(a: &TerrainAppearance, lith: u8) -> &[Rgb; 3] {
+    match lith {
+        1 => &a.rock_basalt,
+        2 => &a.rock_andesite,
+        3 => &a.rock_limestone,
+        4 => &a.rock_sandstone,
+        5 => &a.rock_shale,
+        6 => &a.rock_metamorphic,
+        _ => &a.rock_granite,
+    }
+}
+
+/// The rock material's colour: the reference's climate/relief heuristic
+/// (`rock_col`), blended toward the palette of the rock actually under the
+/// cell (`TERRAIN_APPEARANCE_RESEARCH.md` §12).
+///
+/// Early-returns the untouched heuristic when there is no lithology field
+/// (a loaded save) or when the blend is off — `js_reference()`'s state —
+/// rather than relying on `mix(.., 0.0)` evaluating to a no-op, the same
+/// discipline `relief_lights <= 1` and the three atlas stages already
+/// follow.
+fn rock_material_col(a: &TerrainAppearance, t: f64, m: f64, r: f64, tt: f64, lith: Option<u8>) -> Rgb {
+    let base = rock_col(a, t, m, r, tt);
+    let Some(li) = lith else {
+        return base;
+    };
+    if a.litho_strength <= 0.0 {
+        return base;
+    }
+    mix(base, ramp3(litho_palette(a, li), tt), a.litho_strength)
 }
 
 fn snow_col(a: &TerrainAppearance, t: f64, tt: f64) -> Rgb {
@@ -1017,7 +1236,7 @@ fn bio_jitter(x: usize, y: usize, gw: usize) -> f64 {
 /// AO/SVF/shadow fields all being off). Every other `state.viz.*`-gated
 /// extra is omitted — see this module's doc comment.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, hydro_wet: f64, x: usize, y: usize, gw: usize, gh: usize, splat: Option<&SplatTextures>) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, hydro_wet: f64, lith: Option<u8>, x: usize, y: usize, gw: usize, gh: usize, splat: Option<&SplatTextures>) -> Rgb {
     let n_low = vnoise(x as f64 * 0.06, y as f64 * 0.06, 11);
     let n_hi = vnoise(x as f64 * 96.0 / gw as f64, y as f64 * 96.0 / gw as f64, 23);
     let n_bio = bio_jitter(x, y, gw);
@@ -1037,7 +1256,7 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         c.2 += m.2 * w;
     };
     add(&mut c, snow_col(appearance, te, tt), w.snow);
-    add(&mut c, rock_col(appearance, te, me, r, tt), w.rock);
+    add(&mut c, rock_material_col(appearance, te, me, r, tt, lith), w.rock);
     add(&mut c, sand_col(appearance, te, me, tt), w.sand);
     add(&mut c, wetland_col(appearance, te, w.is_mangrove, tt), w.wetland);
 
@@ -1067,7 +1286,7 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
             splat_sample(tex, grass_col(appearance, te, me, r, tt), w.grass, x, y, &mut acc, &mut cov);
         }
         if let Some(tex) = splat.rock {
-            splat_sample(tex, rock_col(appearance, te, me, r, tt), w.rock, x, y, &mut acc, &mut cov);
+            splat_sample(tex, rock_material_col(appearance, te, me, r, tt, lith), w.rock, x, y, &mut acc, &mut cov);
         }
         if let Some(tex) = splat.sand {
             splat_sample(tex, sand_col(appearance, te, me, tt), w.sand, x, y, &mut acc, &mut cov);
@@ -1086,6 +1305,55 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
             c.0 = c.0 * (1.0 - k) + (acc.0 / cov) * k;
             c.1 = c.1 * (1.0 - k) + (acc.1 / cov) * k;
             c.2 = c.2 * (1.0 - k) + (acc.2 / cov) * k;
+        }
+    }
+
+    // Milestone 5 (`TERRAIN_APPEARANCE_RESEARCH.md` §12): bedrock showing
+    // through thin soil. §12's complaint is that "a mountain should not
+    // simply become brown because it is high" — its visible material should
+    // emerge from the world model. The rock *fraction* already does emerge
+    // (from `material_weights`, untouched here); what didn't was the rock's
+    // *identity*, and the fact that a grassed slope over shattered basalt
+    // does not look like the same slope over limestone.
+    //
+    // Exposure is built from §12's own list, using only values already in
+    // hand: slope (soil sheds), vegetation potential (`w.c` — root mat and
+    // litter hide the parent rock), and effective moisture (deep wet soils
+    // bury it). It is scaled by the cover fraction that is *not* already
+    // rock or snow, so it is self-limiting: where the surface reads as bare
+    // rock it changes nothing, and it never bleeds through an icecap.
+    //
+    // Every gate is a `smoothstep`, so there are no hard material borders
+    // (§30) — and the lithology index itself is sampled through a coherent
+    // positional jitter in `cell_color`, so a geological contact reads as a
+    // ragged natural boundary rather than a vector line.
+    //
+    // **Slope is normalized by grid width here, unlike everywhere else in
+    // this file.** `slope_at` is a per-*cell* height difference, so the same
+    // mountain measures ~6x steeper at 512² than at 2048² — measured, not
+    // assumed: median land slope over the Classic test world is 0.00354 at
+    // 512² and 0.00054 at 2048². The reference's own `material_weights`
+    // normalizers (`slope/0.04`, `slope/0.08`) inherit that dependence, and
+    // they are golden-verified so they stay exactly as they are; but a *new*
+    // threshold written in raw slope units would have silently gated this
+    // stage down to the steepest ~5% of land at the resolution the app
+    // actually runs at, which is how an effect ends up passing every
+    // mechanical check and being invisible on screen. `slope * gw` is this
+    // project's own established normalization for exactly this
+    // (`cartalith_civ::build_slope_field` stores `slopeAt(x,y)*GW`).
+    if appearance.litho_exposure > 0.0
+        && let Some(li) = lith
+    {
+        let steep = smoothstep(1.5, 9.0, slope * gw as f64);
+        let bare = smoothstep(0.62, 0.10, w.c);
+        let thin = smoothstep(0.55, 0.15, me);
+        let cover = clamp01(1.0 - w.rock - w.snow);
+        let e = appearance.litho_exposure * steep * bare * (0.40 + 0.60 * thin) * cover;
+        if e > 0.0 {
+            let lc = ramp3(litho_palette(appearance, li), tt);
+            c.0 += (lc.0 - c.0) * e;
+            c.1 += (lc.1 - c.1) * e;
+            c.2 += (lc.2 - c.2) * e;
         }
     }
 
@@ -1367,6 +1635,110 @@ fn apply_border(a: &TerrainAppearance, c: Rgb, tone: Rgb, x: usize, y: usize, gw
     out
 }
 
+/// Local contrast (`TERRAIN_APPEARANCE_RESEARCH.md` §18), applied in place
+/// to a finished tightly-packed `RGB8` raster.
+///
+/// **Why this one stage is not per-pixel.** Everything else in this file is
+/// a pure function of one cell, which is what let milestones 2-4 stay inside
+/// `cell_color`. §18 cannot be: "make neighbouring terrain materials
+/// visually distinguishable" is a statement about a *neighbourhood* of the
+/// finished colour, which does not exist until the whole raster does. So
+/// this is a second pass over the output buffer, and `cell_color`'s
+/// signature and behaviour are untouched — `golden_parity_render.rs` never
+/// reaches this code at all, and is additionally off by parameter
+/// (`local_contrast: 0.0` early-returns before allocating).
+///
+/// **How §18's three constraints are satisfied by construction, not by
+/// tuning.**
+///
+/// - *No haloing.* The response `d · exp(-(d/knee)²)` **falls to zero** as
+///   the luminance difference grows, so the strongest edges in the image
+///   (coastline, snowline, the plate neatline) receive essentially no boost.
+///   An unsharp mask's halo is an overshoot proportional to edge strength;
+///   here the gain is inversely related to it, so there is nothing to
+///   overshoot with.
+/// - *No edge-detection artifacts.* The correction is **additive on all
+///   three channels equally** — a pure luminance nudge. A multiplicative or
+///   per-channel version would shift hue at boundaries, which is what makes
+///   naive local contrast look like edge detection.
+/// - *Avoid excessive sharpening.* The detail band is a wide box blur
+///   (`local_contrast_radius_frac` of grid width, ~20 cells at the app's
+///   own 2048²), not a 3×3 kernel, so this acts on material-sized regions
+///   rather than on pixel edges.
+///
+/// It also fades out under the plate frame via `border_cover`, so the bare
+/// margin's paper grain is never amplified — the same rule milestone 4's
+/// own follow-up established for every overlay that draws over the raster.
+// Called from `lib.rs` and the A/B harness; the golden test target compiles
+// this file standalone and never calls it — same situation as `border_cover`.
+#[allow(dead_code)]
+pub fn apply_local_contrast(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh: usize, world: bool) {
+    if a.local_contrast <= 0.0 || gw == 0 || gh == 0 {
+        return;
+    }
+    let n = gw * gh;
+    if rgb.len() < n * 3 {
+        return;
+    }
+
+    // Rec.709 luma of the finished image, in 0-255 levels.
+    let mut luma = vec![0f32; n];
+    for (i, l) in luma.iter_mut().enumerate() {
+        let o = i * 3;
+        *l = (0.2126 * rgb[o] as f64 + 0.7152 * rgb[o + 1] as f64 + 0.0722 * rgb[o + 2] as f64) as f32;
+    }
+
+    // Radius floored at 3 cells (below that this stops being *local*
+    // contrast and becomes sharpening, which §18 forbids) and additionally
+    // capped against the *short* axis: `local_contrast_radius_frac` is keyed
+    // to `gw` like every other radius in this file, and on a very wide
+    // non-square plate a width-derived radius can exceed the whole height,
+    // which turns the "local" mean into a full-column average and the
+    // detail band into global contrast.
+    let rad = ((gw as f64 * a.local_contrast_radius_frac).round() as i64).max(3).min((gh as i64 / 4).max(3));
+
+    // **A band-pass, not a high-pass** — and this is the difference between
+    // local contrast and a noise amplifier.
+    //
+    // `luma - blur(luma)` sweeps in *everything* finer than the radius,
+    // which in this renderer means milestone 4's paper grain (~3-cell
+    // features) and the C¹ seams of the value-noise lattices under the
+    // mottle and the stipple. Boosting those is precisely §30's "random
+    // texture noise", and it was plainly visible as a faint quilting across
+    // land and sea in the first version of this pass — found by looking at
+    // a downsampled real dump, not by any statistic, the same way milestone
+    // 2's AO speckle and milestone 4's halftone stipple were.
+    //
+    // Subtracting a small blur instead of the raw image band-limits the
+    // detail from below as well as above, so the boosted band is the
+    // *material* scale (roughly 6-40 cells at the app's 2048²) and the
+    // sheet's own texture passes through untouched. Same precedent as
+    // `build_ao`'s `r_fine` floor: coherent noise at a couple of cells is
+    // indistinguishable from speckle, so no stage may key off it.
+    let r_inner = (rad / 8).max(2);
+    let fine = blur_once(&luma, gw, gh, r_inner, world);
+    let blurred = blur_once(&luma, gw, gh, rad, world);
+
+    let knee = a.local_contrast_knee.max(1e-3);
+    let inv_knee2 = 1.0 / (knee * knee);
+    for i in 0..n {
+        let d = fine[i] as f64 - blurred[i] as f64;
+        let mut delta = a.local_contrast * d * (-(d * d) * inv_knee2).exp();
+        if delta == 0.0 {
+            continue;
+        }
+        let (x, y) = (i % gw, i / gw);
+        let cover = border_cover(a, x, y, gw, gh);
+        if cover > 0.0 {
+            delta *= 1.0 - cover;
+        }
+        let o = i * 3;
+        for k in 0..3 {
+            rgb[o + k] = (rgb[o + k] as f64 + delta).clamp(0.0, 255.0) as u8;
+        }
+    }
+}
+
 /// Top-level per-cell colour, `[0,1]` per channel — `isWater(v) ?
 /// seaColor(...) : surfaceColor(...)` (`debugBaseColor`'s `'biome'`
 /// branch, 8204; the main renderer's own default mode).
@@ -1396,7 +1768,7 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
         let twi = (a / beta).ln();
         let asp = ctx.aspect_factor(x, y);
         let curv = ctx.curvature_at(x, y);
-        land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, ctx.hydro_wet[i] as f64, x, y, ctx.gw, ctx.gh, ctx.splat.as_ref())
+        land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, ctx.hydro_wet[i] as f64, ctx.litho_at(x, y), x, y, ctx.gw, ctx.gh, ctx.splat.as_ref())
     };
 
     // Milestone 4: the sheet. Applied *here*, after both branches, rather

@@ -196,12 +196,37 @@ owner's call, and it is the single biggest open question this render raises.
    Archipelago (−26% chroma, its bright cyan sea becoming a muted
    teal-grey) than on mountainous Classic (−13%), because the paper acts on
    the whole sheet and that world is mostly ocean.
+   **Milestone 5 done 2026-08-18**: geology and separation. The world's real
+   rock — `cartalith_civ::build_lithology`'s seven types, built from the
+   *tectonic* substrate rather than from anything the renderer could already
+   see — now reaches the image, both as the rock material's own colour and
+   as bedrock showing through thin soil on steep, unvegetated ground. It
+   matters more than it sounds: over Classic's land that vocabulary is 45%
+   shale, 33% metamorphic, 11% basalt, and just **0.4% granite** — and
+   granite is what the ported climate heuristic painted by default, so the
+   map had been showing one rock for a world that has seven. Alongside it,
+   local contrast (a band-passed luminance detail boost whose gain *falls to
+   zero* on strong edges, so §18's "no haloing" is a property of the maths
+   rather than of the tuning) raises interior contrast in all three test
+   worlds — luma sd 31.9→32.9 on Classic, 27.3→28.8 on a non-square plate —
+   while clipping *falls* and chroma is untouched.
+   The looking-not-trusting lesson held a third time, twice over. The
+   geology gate was first written in raw slope units, and raw slope is
+   resolution-dependent — median land slope is 6.6× smaller at 2048² than at
+   512², so the stage silently confined itself to the steepest ~5% of land
+   at the resolution the app actually runs at; normalizing to `slope * gw`
+   (this project's own convention) took the affected pixels from 1.2% to
+   6.6%. And local contrast as a plain high-pass amplified milestone 4's own
+   paper grain into a faint rectangular quilting — the same failure class as
+   the AO speckle and the halftone stipple, found the same way, and fixed by
+   band-passing so the sheet's texture passes through untouched.
    Still ahead for the atlas look proper: hand-lettered settlement glyphs —
    which are drawn by `map_overlay.gd`, not by `render.rs`, so they are a
-   GDScript overlay task rather than a renderer one. The same two overlay
-   systems (that one and `lib.rs`'s river channel tint) also draw over the
-   new plate margin at the extreme map edge, a small real defect recorded
-   in `TERRAIN_APPEARANCE_SCOPE.md`.
+   GDScript overlay task rather than a renderer one. (The plate-margin
+   overlay defect this item used to record was fixed in milestone 4's own
+   follow-up.) Beyond that the remaining research phases are colour vibrancy,
+   atmospheric distance effects, the high-precision display pipeline, the GPU
+   rendering path and quality tiers.
 3. **Layer-stack treatment** — real polish on an already-built panel.
 4. **Journey Planner** milestones 3-6 — already scoped and underway.
 5. **Narrative/Scenario, and the static-vs-temporal question** — needs an

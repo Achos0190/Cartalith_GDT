@@ -10362,3 +10362,188 @@ Escape/commit keybinding, the shared active-faction quick-select, brush-radius
 and way-type pickers, the snap on/off switch) — input routing, milestone F.
 Also `_civCommitRoute`/`civJourneys`, `_civDropPOI` (no POI concept here),
 `_civConnectPlaceToNetwork`, and provinces over a painted territory raster.
+
+## Phase 3 milestone 5: geological material exposure + local contrast (2026-08-18)
+
+`TERRAIN_APPEARANCE_SCOPE.md` milestone 5, from `TERRAIN_APPEARANCE_RESEARCH.md`
+§12 and §18 — the two the previous three milestones each explicitly deferred.
+Presentation only: nothing here touches heightmap, climate, hydrology, biome
+classification, settlement generation, routes or seed.
+
+**Why these two.** Together they answer §30's stated objective from opposite
+directions — §12 puts *more real information* into the image, §18 makes
+information already present easier to separate. Rejected with reasons: §16
+multi-scale detail is largely already delivered by milestone 4's paper grain
+and stipple; §17 colour vibrancy would pull against milestone 4's deliberate
+13-26% chroma reduction two days after making it; §20's high-precision
+pipeline has no consumer in this port yet; §21 GPU is its own milestone; §29
+quality tiers need more stages to tier than exist.
+
+**The §12 plumbing question, checked before committing.** The brief flagged
+Journey Planner milestone 5's `build_cart_terrain`/`CART_TERRAINS` (commit
+`dca5954`). Reading it, that is the wrong source — a party-movement *surface*
+vocabulary (Paved Road, Open Plains, Hills...) derived from field/water/temp/
+rain, i.e. from inputs `render.rs` already reads, so it would have added a
+coarse re-classification rather than new physical information. The right
+source is `cartalith_civ::build_lithology`: seven `LITH_KEYS` rock types built
+from the **tectonic substrate** (`age_field`/`volcanic_field`/`crust_field`/
+`resistance_field`), which the renderer genuinely could not derive. And the
+plumbing already exists — `cartalith-godot` depends on `cartalith-civ` and
+`lib.rs` already calls `build_lithology` for the soil chain — so this is one
+more call in the file that already makes it, not new cross-crate wiring.
+
+It matters more than it sounds. Over the Classic test world's land that
+vocabulary is **shale 45%, metamorphic 33%, basalt 11%, sandstone 7%,
+limestone 4%, granite 0.4%** — and granite is exactly what the ported climate
+heuristic paints by default. The renderer had been showing one rock for a
+world that has seven.
+
+**Built — §12.** Five new rock palettes (`rock_basalt`/`rock_andesite`/
+`rock_limestone`/`rock_shale`/`rock_metamorphic`; granite and sandstone
+already existed), `litho_strength`, `litho_exposure`, and
+`RenderCtx::with_lithology` — a **builder**, like `with_splat`, so
+`golden_parity_render.rs` stays positionally valid and untouched. Two halves:
+`rock_material_col` blends the reference's own `rock_col` toward the real
+rock's palette (a blend, not a replacement — the heuristic still carries
+surface character, the lithology supplies identity), and bedrock **shows
+through thin soil** in `land_color`, gated on §12's own list (slope,
+vegetation potential, effective moisture) and scaled by the cover fraction
+that is not already rock or snow, so it is self-limiting and never bleeds
+through an icecap. Neither touches `material_weights` — five milestones in,
+the golden-verified fraction blend has still never been edited.
+
+The lithology index is sampled through a **coherent positional jitter**
+(`RenderCtx::litho_at`, ~10-cell wavelength) rather than straight:
+`build_lithology` is categorical and single-pass, so a granite/limestone
+contact sampled straight renders as a clean vector line — §30's "artificial
+outlines" and "hard biome borders" at once. Jittering is this renderer's own
+idiom, not a new one; it is what `bio_jitter` already does for the
+reference's biome classification.
+
+**Built — §18.** `apply_local_contrast`, the **first stage in `render.rs`
+that is not per-pixel**, and necessarily so: "make neighbouring terrain
+materials visually distinguishable" is a statement about a neighbourhood of
+the *finished* colour, which does not exist until the raster does. It runs
+over the output byte buffer in `lib.rs`, after the river tint and before the
+icon pass; `cell_color`'s signature and behaviour are untouched. §18's three
+constraints are met by construction, not by tuning: the response is
+`d · exp(−(d/knee)²)` so gain **falls to zero** on strong edges (an unsharp
+halo is an overshoot proportional to edge strength; here gain is inversely
+related to it), the correction is **additive and equal on all three
+channels** so chroma is provably unchanged, and the band is a ~20-cell blur
+at 2048² rather than a 3×3 kernel. It fades out under the plate frame via
+milestone 4's own `border_cover`.
+
+**Two real corrections, caught by measuring and by looking — milestone 3's
+lesson holding for the third milestone running.**
+
+1. *The geology gate was written in raw slope units, and raw slope is
+   resolution-dependent.* `slope_at` is a per-**cell** height difference, so
+   the same mountain measures far shallower on a finer grid: median land
+   slope over Classic is **0.00354 at 512² and 0.00054 at 2048²**, measured
+   rather than assumed. The first `smoothstep(0.008, 0.050, slope)` therefore
+   confined the whole stage to the steepest ~5% of land *at the resolution
+   the app actually runs at*, while looking perfectly reasonable in source.
+   Fixed by normalizing to `slope * gw`, this project's own convention for
+   exactly this (`cartalith_civ::build_slope_field` stores `slopeAt(x,y)*GW`):
+   Classic pixels moved by >3 levels/channel went **1.17% → 6.61%**. The
+   reference's own `material_weights` normalizers inherit the same dependence
+   and were left exactly alone — they are golden-verified.
+2. *Local contrast as a plain high-pass amplified the sheet's own texture.*
+   `luma − blur(luma)` sweeps in everything finer than the radius — here
+   milestone 4's ~3-cell paper grain and the C¹ seams of the value-noise
+   lattices under the mottle — and the first version produced a faint
+   rectangular quilting across land and sea. That is §30's "random texture
+   noise", the same failure class as milestone 2's AO speckle and milestone
+   4's halftone stipple, found the same way: by looking at a downsampled real
+   dump, not at a statistic. Fixed by making it a **band-pass** (subtract a
+   small blur instead of the raw image) so the boosted band is the material
+   scale and the sheet's texture passes through untouched. Benefit intact:
+   luma sd 33.10 before the fix, 33.08 after.
+
+**Measured against §30's anti-list** (2048², seed 12345, frame band excluded;
+"base" is milestone 4's look):
+
+| | Classic base | Classic m5 | Archipelago base | Archipelago m5 | Wide 2048x1024 base | Wide m5 |
+|---|---|---|---|---|---|---|
+| interior luma min | 41.0 | 38.7 | 33.8 | 26.9 | 45.4 | 39.4 |
+| interior luma mean | 132.75 | **131.60** | 105.98 | **105.31** | 136.98 | **135.23** |
+| interior luma sd | 31.94 | **32.85** | 28.34 | **28.98** | 27.28 | **28.80** |
+| interior mean chroma | 51.80 | 51.24 | 51.84 | 51.81 | 52.49 | 51.24 |
+| any-channel clipping | 0.78% | **0.67%** | 0.04% | 0.04% | 0.00% | 0.00% |
+
+Contrast **rises** in all three worlds while mean luma falls about one level
+and clipping *falls* — separation bought from the middle of the range, not by
+pushing anything to black or white. The whole chroma movement belongs to
+geology (rock palettes are less chromatic than the tan they replace): the
+local-contrast-only dump measures 51.79 against a 51.80 base, luminance-only
+by construction as claimed. Luma minimum drops 2-7 levels from local contrast
+deepening the darkest concavity; 26.9/255 at worst is a deep shadow, not a
+black valley.
+
+Which stage carries what (pixels moved >3 levels/channel): geology 6.61% /
+0.94% / 10.75% and local contrast 24.90% / 11.69% / 31.52% for Classic /
+Archipelago / Wide. Within geology the two halves split 0.94% (rock palette)
+to 5.29% (soil show-through) on Classic — the show-through carries most of
+it, because at 2048² the reference's own rock *fraction* is small except near
+summits, the same resolution-dependence finding above.
+
+**Cross-world honesty.** Same direction as milestones 2 and 3, not milestone
+4's inversion: geology is strong on mountainous Classic and the wide plate,
+nearly absent on Archipelago (0.94%) — a low-relief fragmented world simply
+has little steep thin-soiled ground for bedrock to show through, which is the
+honest answer rather than a knob to force. Local contrast is substantial in
+**all three**, because every world has material boundaries whether or not it
+has mountains — which is exactly why it was worth pairing with a relief-keyed
+effect.
+
+**Golden parity: the same gating mechanism, extended a fourth time.**
+`js_reference()` gains `litho_strength: 0.0`, `litho_exposure: 0.0`,
+`local_contrast: 0.0`, and each stage early-returns on its own zero rather
+than evaluating to a no-op — `rock_material_col` returns the reference's
+`rock_col` before touching a palette, the show-through block is inside an
+`if`, `apply_local_contrast` returns before allocating. §12 is additionally
+off *by data*, since `with_lithology` is a builder the golden test never
+calls. **`golden_parity_render.rs` is still completely unmodified and both
+tests still pass at their original `1e-4` tolerance with every expected value
+unchanged** — five milestones in, that file has never been edited.
+
+One new non-`#[ignore]`d test guards the one thing `render.rs` cannot guard
+itself: it is `#[path]`-included standalone by the golden test, so it spells
+the rock-type order out as `LITHO_PALETTE_ORDER` rather than importing
+`LITH_KEYS`. `appearance_ab_dump.rs` sees both crates and asserts they match,
+so the duplicate is checked rather than hoped for.
+
+**Non-square correctness** (commit `22ae75b` made these real). Every radius in
+`render.rs` is keyed to `gw`, so a wide short plate is where a width-derived
+blur radius can exceed the map's own height; the local-contrast radius is
+capped against the short axis for that reason. A 2048x1024 world was added to
+the A/B harness and carried through every measurement above, and the frame
+band on it is **bit-identical** before and after — 0 of 168,896 pixels
+changed, so `border_cover`'s fade is exact rather than approximate.
+
+**Cost.** 2048² render 923 → 1110 ms (Classic, +20%), 607 → 752 ms
+(Archipelago), 501 → 599 ms (Wide). Local contrast is three separable box
+blurs plus one `exp` per pixel; geology is one extra `vnoise` pair and a
+palette blend on land only, plus `build_lithology` (one neighbour-free
+`par_iter` pass). Real-app `build_color_texture` end to end: 1442 / 1085 /
+761 ms. One-shot at generate time.
+
+**Verified.** `cargo check -p cartalith-godot --all-targets` clean; `cargo
+build --release -p cartalith-godot` clean (the debug cdylib hit the known
+`Access is denied` DLL lock from a running editor, so the debug DLL was built
+and exercised in a detached worktree instead); `cargo test --workspace` **572
+passed / 0 failed**, no expected value anywhere modified; `cargo clippy -p
+cartalith-godot --all-targets` clean for this crate's own files (remaining
+warnings are `cartalith-gpu`'s and `cartalith-civ`'s, confirmed unrelated by
+file and line). `godot4 --headless --quit main.tscn` clean load. And the real
+`build_color_texture` path — which the dump harness does *not* exercise,
+since it calls `render.rs` directly — was run headlessly end to end for all
+three worlds and produced correct PNGs with river tint, plate frame and
+non-square aspect intact.
+
+**Still open:** hand-lettered settlement glyphs (`map_overlay.gd`, not this
+raster), §16 multi-scale detail as an explicit control set, §17 colour
+vibrancy, §19 atmospheric/distance effects, §20 the high-precision display
+pipeline, §21 the GPU rendering path, §29 quality tiers, the GUI editing
+panel (`GUI_SHELL_SCOPE.md`), and milestone 1's elevation-ramp question.
