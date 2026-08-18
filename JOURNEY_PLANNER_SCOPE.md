@@ -284,6 +284,161 @@ substitute JP's own uncapped ease. **Not wired to any caller** — no `#[func]`,
 no `compute_civilisation()` integration, per this doc's own "Out of scope for
 all milestones".
 
+## Milestone 5 — route/stage derivation: done (2026-08-18), as three sub-milestones
+
+This doc called it "almost certainly the largest single milestone in this
+whole plan" and that held: it did not survive as one flat pass. It is
+recorded here as the three sub-milestones the real code actually falls into,
+the same honesty milestones 2, 3 and 4 each applied when their own scope
+assumptions met the reference:
+
+- **5a — world sampling.** Everything that turns the world into per-stage
+  facts, and nothing that needs a route chunked yet: `_jp_road_cells` (with
+  `_civWalkWayCells`), `_jp_infra_context`, `_jp_claimed_at`,
+  `_jp_stage_infra`, `_jp_river_condition`, `_jp_sea_condition`,
+  `_jp_coarse_idx`, `_jp_stop_key`, `_jp_mode_for_route`,
+  `_civ_transshipments`/`_civ_transfer_overhead`, `_civ_passed_settlements`.
+- **5b — `_jp_derive_stages`.** The chunker itself: per-point classification,
+  contiguous-run chunking with wrap-aware km and metres of gain/loss, the
+  narrow-water-gap collapse, the sliver absorb, the 14-stage cap, and then
+  the per-stage settlement/claimed/dry-km/midpoint measurement and
+  infra/route-condition resolution.
+- **5c — `_jp_plan`.** The orchestrator: `_jp_effective_stage_plan`,
+  `_jp_ensure_plan`, the v1.52 season-drift pre-pass, the per-stage vessel
+  fallback, the supply forecast, the hazards, the elevation profile, the
+  daily timeline, and the roll-up.
+
+All three shipped in one pass (~1,150 lines of `cartalith-civ` plus tests),
+so the split is a description of the work rather than a schedule — but the
+sub-milestone boundaries are real, and 5c genuinely cannot be attempted
+before 5b, which genuinely cannot be attempted before 5a.
+
+**Four functions this milestone needed that are on no milestone list here.**
+Found by reading, picked up rather than stubbed:
+
+1. **`buildCartBiome`/`buildCartTerrain`** (reference lines 6817/6862) — the
+   Cartalith 15-biome and 13-terrain paint layers. `_jpDeriveStages` samples
+   *both* on every route point, and **this port had never built either**.
+   The existing `build_biome_raster` is the *climate* raster, a different
+   vocabulary (`cartalith-assets` already documents that distinction). Ported
+   as `build_cart_biome`/`build_cart_terrain` alongside `CART_BIOMES`/
+   `CART_TERRAINS` and `jp_legacy_biome_of`. They are small, pure, and read
+   only fields this port already produces. One ordering detail was checked
+   rather than assumed and would have silently broken the port if it had
+   not been: `ELEV_TO_CART` is indexed by `BIOME_INDEX`, whose order puts
+   **shrub before savanna** — which is exactly this port's own `BIOME_*`
+   numbering, so the table transfers unchanged.
+2. **`_civTransshipments`/`_civTransferOverhead`** (19198/19205) — as this
+   doc predicted, `jp_journey_cost` takes the count as an argument and
+   nothing produced it.
+3. **`_civWalkWayCells`** (21766) — `_jpRoadCells` cannot exist without it.
+4. **`_civPassedSettlements`** (21154) — `_jpPlan`'s stops list.
+
+**Three functions on this milestone's own list that are deliberately *not*
+Rust functions, each for a real reason rather than an omission:**
+
+- **`_jp_layovers`** is a JS lazy-init idiom ("give me `jn.layovers`,
+  creating the object if this journey predates the field"). A
+  `HashMap<String, i64>` keyed by `jp_stop_key` needs no such function;
+  shipped as the `JpLayovers` type alias, and `jp_plan` takes one.
+- **`_jp_settlements`** is `state.places.filter(p => CIV_SETTLE_KEYS.has(
+  p.kind))` — a *runtime* type test the reference needs because
+  `state.places` is one untyped array of everything on the map. This port's
+  settlements come out of `place_settlements`/`name_and_populate_settlements`/
+  `civ_seed_villages` already typed as settlements, so the filter has no work
+  left to do. Building the `JpPlace` list *is* the filter.
+- **`_jp_reroute_for_mode`** is genuinely **blocked**, and this is the one
+  real carry-over out of milestone 5. Its whole body is `_civDijkstraPath(s,
+  e, domain)` — and `_civDijkstraPath` (25957) with `_civWaterCostGrid`
+  (21051) and `_civMixedCostGrid` (21090) are **unported**, on no milestone
+  in this document, and are the interactive Route tool's own multi-modal
+  pathfinder rather than anything the Journey Planner owns. Re-routing is
+  also a UI action ("Re-route land-only" button), so it sits on the far side
+  of this doc's own "Out of scope for all milestones" line twice over. Its
+  pure half, `_jp_mode_for_route` (transport → cost domain), **is** ported —
+  that is the part that carries the reference's real reasoning (the
+  disclosed "River Transport prefers rivers, does not require them" scope
+  cut).
+
+`_jp_water_reach_cells` was re-checked before any work: already shipped with
+milestone 4, as this doc's own strikethrough says. Not re-ported.
+
+**How the plan/stage shapes resolved against milestone 4's `JpStage`** — the
+requirement this doc wrote down in advance, answered by building it:
+
+- `_jpDeriveStages` produces a new `JpDerivedStage`, which **does** carry the
+  reference's `mx`/`my`, because they are a genuine map measurement made
+  here. `JpStage` (milestone 4's) correctly does **not**: what the *stage
+  calculators* consume is the finished multiplier the unported
+  ecoregion/species-richness subsystem would produce from those coordinates.
+  `JpDerivedStage::to_stage(wildlife_forage_mod)` is the bridge, and
+  `jp_plan` takes a `&dyn Fn(f64, f64) -> f64` in exactly the reference's own
+  `_jpWildlifeForageMod(mx, my)` position. `|_, _| 1.0` is the reference's
+  own answer on a world with no wildlife layer. No change to `JpStage` was
+  needed — milestone 4 got the shape right.
+- `JpPlan` gained the five `_jpEnsurePlan` defaults milestone 4 had not
+  needed: `route_cond`, `infra`, `stage_overrides`, `season_drift`,
+  `rest_cadence`, plus a new `JpStageOverride` for the sparse per-stage map.
+  `jp_effective_stage_plan` is the reference's `Object.assign({},plan,ov)`
+  with its per-species animal merge preserved.
+- `_jpEnsurePlan`'s remaining debt (this doc's own point (e)) is paid:
+  `jp_ensure_plan` derives the route's real stages and corrects its vessel
+  guess through `jp_auto_pick_vessel`. That function is milestone 2's, and it
+  is ported **here** because `_jpEnsurePlan` cannot exist without it — the
+  same "port what this milestone genuinely needs" rule milestone 4 used for
+  `jp_calc_land`.
+
+**Two reference quirks reproduced as written rather than tidied**, both
+recorded so nobody 'fixes' them later:
+
+- `_jpDeriveStages` falls back to `state.mapWidthKm || 12000` while
+  `_jpInfraContext`, two functions away, uses `|| 800`. Both are kept.
+- `_jpRoadCells` keys its map by JS string concatenation (`x+','+y`), and
+  `_civWalkWayCells` emits a way's *first* and seam-break points
+  **unrounded** — so those writes produce keys like `"12.5,3"` that no
+  integer lookup can ever hit. Reproduced by simply not recording a
+  non-integral emission: same observable behaviour, no float keys.
+
+**Golden-verified against the real reference.** Eight line ranges were sliced
+out of `reference/Cartalith Gen1 v2.10.html` — `riverCoarseEase`/
+`terrainDetailK` (2641-2675), `classifyBiome` (5736-5743), `BIOME_KEYS`/
+`BIOME_INDEX` (6796-6797), the cart paint layers (6810-6877), the whole
+Journey Planner (17297-19419), `_jpModeForRoute` (20368-20379),
+`_civPassedSettlements` (21154-21175) and `_civWalkWayCells` (21766-21777) —
+and evaluated in a bare Node `vm.runInContext` with no DOM. **Milestone 4's
+block-comment balance assertion was applied per slice and earned its keep
+again**: it caught **three** genuine boundary errors here (the
+`riverCoarseEase`, cart-layer and `_civWalkWayCells` slices each ran one line
+into the following comment block), and the JS parser caught a fourth (the
+Journey Planner slice cut `_jpPlan`'s closing brace).
+
+The world driven through it is synthetic but *exactly* reproducible: every
+field is a closed form in `+ - * /` over exact values, with no transcendental
+anywhere, so the Rust test rebuilds the identical `f32` grids rather than
+embedding them and only the **outputs** are embedded. That world is a real
+one for this layer's purposes — a 24x16 map with an ocean margin, a lake, a
+mountain ridge, a river column, a highway, a reference-road spur, claimed
+territory and five settlements, crossed by a 24-point route that derives into
+seven stages (2 sea, 1 river, 4 land), one transshipment, a 41-day timeline
+and a genuinely unmet resupply requirement.
+
+19 new tests. Every expected value is that run's output: all seven stages
+field by field (km, i0/i1, river crossings, gain/loss, settlements, claimed
+fraction, dry km, midpoint), the whole `_jpPlan` roll-up (km, days, food/
+water/fodder, hazards, ascent/descent, transshipment overhead, rest and total
+days, per-leg days and speeds, the resupply-reach measurement, the timeline's
+first/seventh/last day and their camps), plus isolated probes of every
+5a helper.
+
+**Verified**: `cargo build -p cartalith-civ`, `cargo test -p cartalith-civ
+--lib` (184 passed, 0 failed, 19 new), `cargo clippy -p cartalith-civ
+--all-targets` (the new code adds **no** warnings; the remaining ones are
+pre-existing and unrelated — two `needless_range_loop`s in `civ_sea_routes`
+and some float-precision literals in two older golden test files), `cargo
+test --workspace` (0 regressions). **Not wired to any caller** — no `#[func]`,
+no `compute_civilisation()` integration, per this doc's own "Out of scope for
+all milestones".
+
 ## Real milestone breakdown for what remains (not started)
 
 ### Build order — read this before the numbers below
@@ -302,22 +457,41 @@ solves.
 |---|---|---|
 | ~~1st~~ **done** | ~~**4 — Consumption/resupply**~~ | Done 2026-08-18. It did unblock milestone 3's tail and part of milestone 2's, exactly as this row predicted; `jp_fmt_kg` came with it; the wildlife-richness piece was indeed the one real decision (see the milestone 4 section above). |
 | ~~2nd~~ **done** | ~~**3 (tail) + 2 (partial)**~~ | Folded into 4's own verification pass, as this row said to. `jp_calc_land`/`jp_calc_water` and `_jp_best_land_transport_for_stage` all shipped there. |
-| **1st (next)** | **5 — Route/stage derivation** | The orchestration layer; 2-4 are now done as far as they can be without it. Almost certainly the largest single milestone here. Pick up `_civTransshipments` alongside it (on no list, needed by the already-ported `jp_journey_cost`). |
-| 2nd | **6 — Verdict/reporting** | Needs 5's plan output to verify against. Minus `jp_fmt_kg`, already taken by 4. |
-| last | **2 (remainder)** | `jp_auto_pick_transport`/`jp_auto_pick_vessel`/`_jp_best_package_for_stage` all need milestone 5's plan shapes. Re-attempt after 5. |
+| ~~3rd~~ **done** | ~~**5 — Route/stage derivation**~~ | Done 2026-08-18, as three sub-milestones (5a world sampling / 5b `_jpDeriveStages` / 5c `_jpPlan`) — see the milestone 5 section above. `_civTransshipments` came with it as predicted, along with three *other* helpers on no list (`buildCartBiome`/`buildCartTerrain`, `_civWalkWayCells`, `_civPassedSettlements`). One function carried over: `_jp_reroute_for_mode`, blocked on the unported interactive Route-tool pathfinder. |
+| **1st (next)** | **6 — Verdict/reporting** | Needs 5's plan output to verify against — which now exists (`JpJourneyPlan`). Minus `jp_fmt_kg`, already taken by 4. |
+| 2nd | **2 (remainder)** | **Both remaining functions now unblock** — `jp_auto_pick_vessel` shipped with 5 (`_jpEnsurePlan` needs it), and `jp_auto_pick_transport`/`_jp_best_package_for_stage` have everything they need. See milestone 2's own row below. |
+| unscheduled | **`_jp_reroute_for_mode`** | Not a milestone of its own; it needs `_civDijkstraPath`/`_civWaterCostGrid`/`_civMixedCostGrid` (the Route tool's multi-modal pathfinder, unported, on no list here) and is itself a UI action. |
 
-Milestones 1, 3 (in full) and 4 are **done**; see their own sections above.
-Everything that remains is milestone 5, then 6, then milestone 2's last three.
+Milestones 1, 3 (in full), 4 and 5 are **done**; see their own sections above.
+What remains is milestone 6, then milestone 2's last two.
 
 The numbered list that follows preserves the original numbering for
 cross-reference; consult the table above for what to actually build next:
 
-2. ~~**Transport mode selection**~~ — see "Milestone 2" above. **Three**
-   functions remain blocked, not four: `_jp_best_land_transport_for_stage`
-   shipped with milestone 4 (it needed only `jpCalcLand` and a plan).
-   `jp_auto_pick_transport`/`jp_auto_pick_vessel` need milestone 5's
-   `_jpEnsurePlan`/`_jpDeriveStages`; `_jp_best_package_for_stage` needs
-   milestone 5's `_jpEffectiveStagePlan` output shape. Re-attempt after 5.
+2. ~~**Transport mode selection**~~ — see "Milestone 2" above. **Two**
+   functions remain, and **both are now unblocked**, confirmed by reading
+   them again against what milestone 5 actually shipped rather than assumed:
+   - `_jp_best_land_transport_for_stage` shipped with milestone 4.
+   - `jp_auto_pick_vessel` shipped with **milestone 5** — `_jpEnsurePlan`
+     calls it on first plan creation, so milestone 5 could not be finished
+     without it. It is `JP_VESSEL_PREFERENCE.find(jp_vessel_fits)` over the
+     derived water stages, and `jp_vessel_fits` had been ported since
+     milestone 2.
+   - `jp_auto_pick_transport` (17814) needs `_jpEnsurePlan` +
+     `_jpDeriveStages` (both now real) and `jpCapacity`-shaped mass
+     arithmetic inline (milestone 4's, real): **unblocked, not ported**. Its
+     hint strings are HTML and belong to Godot (`ARCHITECTURE.md`); what
+     ports is the structured decision (species pick, count, carts/wagons,
+     the auto-promote flag, and the reference's own analytically-detected
+     `fodderInfeasible` divergence case).
+   - `_jp_best_package_for_stage` (18080) turns out to need only a stage and
+     an `eff` **plan** — no derived route at all, the same finding milestone
+     4 made about `_jpBestLandTransportForStage`. Milestone 5 defining
+     `jp_effective_stage_plan`'s output as simply a `JpPlan` is all it was
+     waiting on: **unblocked, not ported**.
+
+   Both are deliberately left to milestone 2's own remainder rather than
+   absorbed here, since neither is needed by anything milestone 5 built.
 
 3. ~~**Physical travel cost**~~ — see "Milestone 3" above. **Complete as of
    2026-08-18**: seven of eleven shipped in the milestone itself, two
@@ -335,7 +509,18 @@ cross-reference; consult the table above for what to actually build next:
    rather than new world-state plumbing — the reasoning, and why it costs no
    fidelity, is in the milestone 4 section above.
 
-5. **Route/stage derivation** — `_jp_derive_stages`, `_jp_effective_stage_
+5. ~~**Route/stage derivation**~~ — see "Milestone 5" above. **Done
+   2026-08-18** as three sub-milestones. All of the list below shipped except
+   `_jp_reroute_for_mode` (blocked on the unported Route-tool pathfinder),
+   plus `_jp_layovers` and `_jp_settlements`, which are JS idioms with no
+   Rust function to write — reasons in the milestone 5 section. Four helpers
+   on **no** list here came with it: `buildCartBiome`/`buildCartTerrain` (the
+   paint layers `_jpDeriveStages` samples, never built by this port),
+   `_civTransshipments`/`_civTransferOverhead` (predicted in (b) below),
+   `_civWalkWayCells` and `_civPassedSettlements`. Requirement (a) resolved
+   as `JpDerivedStage` carrying `mx`/`my` with `to_stage(wildlife_forage_mod)`
+   bridging to milestone 4's `JpStage` — no change to `JpStage` was needed.
+   Original list, for cross-reference: `_jp_derive_stages`, `_jp_effective_stage_
    plan`, `_jp_plan`, `_jp_ensure_plan`, `_jp_layovers`, `_jp_stop_key`,
    `_jp_road_cells`, `_jp_settlements`, `_jp_infra_context`,
    `_jp_claimed_at`, `_jp_stage_infra`, `_jp_river_condition`,
@@ -382,6 +567,21 @@ cross-reference; consult the table above for what to actually build next:
    helper reproducing JS `toFixed`'s round-half-*away-from-zero* tie-break
    (Rust's `{:.N}` rounds half to even), which `jp_fmt_days` and every other
    verdict string in this milestone should reuse rather than re-derive.
+
+   **Three corrections milestone 5's own reading adds**, all about what this
+   milestone now has to read: (a) the plan object it verifies against is
+   `JpJourneyPlan` (`cartalith-civ`), and every field `_jpVerdict` consults
+   is on it — `blocked_idx`/`results`/`resupply_reach`/`riv_x`/`pass_km`/
+   `desert_km`/`bad_wx_pct`/`stops` — except the reference's own `blockedMsg`,
+   which is deliberately not duplicated (read `results[blocked_idx]`, whose
+   `Err` is a `JpBlocked` with the real message). (b) The reference's
+   `risk` advisory (a four-tier day-threshold caption on `_jpPlan`'s return)
+   is **not** ported — it is a verdict string, so it belongs here, not to
+   milestone 5; the day counts it reads are all on `JpJourneyPlan`. (c) The
+   harness for this milestone is cheap now: milestone 5's slice list already
+   loads everything `_jpVerdict`/`_jpConfidence` need, and a real
+   `JpJourneyPlan` to verify against is one `jp_plan` call on the same
+   synthetic world.
 
 **UI-only, not portable** (`ARCHITECTURE.md`: Godot owns presentation) —
 `_jp_run_auto`, `_jp_refresh`, `_jp_sync_asset_inputs`, `_jp_render_party_
