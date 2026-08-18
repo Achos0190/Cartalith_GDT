@@ -5,7 +5,13 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-18 (post **unified tool plan milestone B** — the
+Last updated: 2026-08-18 (post **DCC shell milestone 3** — the World Setup
+dialog: File ▸ New world grown into a real world-setup gate with map width in
+km, working resolution, extent mode and frame aspect, a live derived
+grid/extent/cell-size readout, and generation dispatched through
+`generate_sized()`, so maps are no longer forced square; the GUI half of
+`22ae75b`, no Rust changed; see its own section below and
+`DCC_SHELL_SCOPE.md` — post **unified tool plan milestone B** — the
 Sculpt-editor terrain port, the plan's largest single chunk: all thirteen
 `SCULPT_FEATURES` landform stamps, three noise families, the stamp
 bbox/coverage/domain-warp pipeline and the eight presets, in a new
@@ -150,10 +156,58 @@ Inspector on hover **and** click-to-pin (pin surviving layer toggles),
 Credits, and the Open-project dialog. Full record: `CHANGELOG.md`'s "DCC
 shell milestone 2" entry.
 
+**Milestone 3 (GUI track) done 2026-08-18 — the World Setup dialog.** Owner's
+own request: *"a proper base setup menu where we can pick map size,
+resolution, dimensions - basically expanded from the current html version."*
+The GUI half of the non-square work `22ae75b` landed in Rust; **no Rust
+changed**, the API already existed. File ▸ New world gains a first section,
+`MAP SIZE, RESOLUTION & DIMENSIONS`, built at runtime, four rows in one
+grammar (**label · guided preset · exact value**): Extent (Region / Whole
+world), Map width km (six scale presets, Local 200 km → Planet 40 075 km,
+beside the reference's own free entry), Resolution/columns (the reference's
+own 512/1K/2K/4K/8K segment + free 4–8192), Aspect/rows (2:1, 16:9, the
+reference's own 1.5625:1 region frame, 4:3, 1:1, 3:4, 9:16, Custom + a free
+row count). Under them a **live derived readout** — Grid, Extent km × km,
+Cell size, Aspect — so a choice's real consequences are legible before
+generating. Generation now dispatches through `generate_sized()` /
+`generate_world_structure_sized()`.
+
+Three engine rules the design is built around, not re-derived
+(`GENERATION_PARAMETERS.md`): **cells are square in km**, so map height in km
+is derived (`width_km × gh / gw`) and is a readout with no setter;
+**world mode is physically 2:1**, so Whole world pins the aspect, takes rows
+from `reference_grid_height(gw, true)`, and disables the aspect/row controls
+**with the reason in prose above them** rather than silently; **grid height
+is a call argument, not a stored parameter**, since it reallocates every
+field. Nothing the engine owns is copied into GDScript — both reference
+`gridH` factors come from `reference_grid_height()`, extent is stored through
+`set_params({"world": …})`, and the post-generation summary reads
+`get_map_width_km()`/`get_map_height_km()` back rather than echoing the
+request. `world` became a `PROXY_KEYS` entry onto the Extent control, so the
+Generate ▸ Climate dialog and the setup dialog drive one node. Two
+conditional warnings surface real constraints: 4K/8K cost, and aspect ratios
+past ~16:1 being degenerate. One real bug found and fixed: `%WidthInput`'s
+`max_value` was 40 000 km, silently clamping Earth's 40 075 km equator.
+
+Verified: `cargo build -p cartalith-godot` clean, `cargo test --workspace`
+**719 tests / 88 binaries / 0 failures / 0 regressions**, `godot4 --headless
+--quit main.tscn` clean with warnings byte-identical to the stashed baseline.
+Real 1920×1080 windowed app driven through the dialog at four shapes, each
+readout matched against the engine exactly: 1024×512 @ 2000×1000 km
+(Earth-like), 768×1024 @ 1500×2000 km portrait (Classic), 1024×512 @
+40000×20000 km Whole world (**visible polar caps top and bottom**), 640×360 @
+1200×675 km 16:9 (Archipelago). None stretched, squashed or wrongly
+letterboxed; `map_overlay.gd` needed no change since its fit is already
+`min(size.x/gw, size.y/gh)`. Archetype dispatch re-verified against the
+`a265b2b` bug. Golden path re-verified with no regressions: both generate
+entry points, all five overlay toggles, the Inspector on hover **and**
+click-to-pin (through the overlay's own real hit test), all six Generate
+stage dialogs, Credits.
+
 **Milestone 2 (parallel track, no code)**: `UNIFIED_TOOL_PLAN.md` —
 investigate the reference's own Sculpt editor, scope Track 2 (the tool
-system itself) honestly. **Milestone 3+ (not yet dispatched)**: the tool
-system, milestoned by whatever that investigation finds.
+system itself) honestly. **The tool system itself (not yet dispatched)**:
+milestoned by whatever that investigation finds.
 
 ## Non-square maps (Rust half done 2026-08-18, `GENERATION_PARAMETERS.md`)
 

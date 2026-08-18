@@ -36,10 +36,18 @@ extends Control
 ## is still the noise redesign, wiring a toggle ahead of that would surface
 ## an incomplete path), #8 (World Structure raw sliders).
 ##
+## DCC_SHELL_SCOPE.md milestone 3 turns that New World dialog into a real
+## world-setup gate: map width in km, working resolution, extent mode and
+## frame aspect, with the derived grid/extent/cell-size shown live, and
+## generation dispatched through WorldGen.generate_sized()/
+## generate_world_structure_sized() so maps are no longer forced square. See
+## the "World setup" section below for the three engine rules that shape it.
+##
 ## Generation still runs on a background Thread (unchanged). WorldGen.
-## generate()/generate_world_structure() are pure Rust computation over
-## plain WorldState, safe off-thread; build_color_texture() and every
-## scene-tree write happen back on the main thread via call_deferred.
+## generate_sized()/generate_world_structure_sized() are pure Rust
+## computation over plain WorldState, safe off-thread; build_color_texture()
+## and every scene-tree write happen back on the main thread via
+## call_deferred.
 
 @onready var seed_input: SpinBox = %SeedInput
 @onready var resolution_input: OptionButton = %ResolutionInput
@@ -61,6 +69,7 @@ extends Control
 @onready var asset_pack_dialog: FileDialog = %AssetPackDialog
 @onready var credits_dialog: AcceptDialog = %CreditsDialog
 @onready var new_world_dialog: AcceptDialog = %NewWorldDialog
+@onready var new_world_list: VBoxContainer = %NewWorldList ## The New-world dialog's scrolling section list; _build_world_setup() prepends to it.
 
 ## Shell chrome, new this milestone.
 @onready var readout_label: Label = %ReadoutLabel
@@ -109,6 +118,103 @@ const WORLD_SHAPE_LABELS: Array[String] = ["Classic", "Earth-like", "Supercontin
 const RESOLUTION_PRESETS: Array[int] = [512, 1024, 2048, 4096, 8192]
 const RESOLUTION_LABELS: Array[String] = ["512", "1K", "2K", "4K", "8K"]
 const RESOLUTION_DEFAULT_INDEX := 2 ## 2K, matching the reference's own default.
+const RESOLUTION_CUSTOM_INDEX := 5 ## Appended after the five presets -- free grid-width entry.
+
+## ── World setup: map size, resolution, dimensions ───────────────────────
+## DCC_SHELL_SCOPE.md milestone 3. Owner's own request: "a proper base setup
+## menu where we can pick map size, resolution, dimensions - basically
+## expanded from the current html version."
+##
+## Built at runtime, and every physical constant it needs comes from the
+## engine rather than from a second copy here: WorldGen.
+## reference_grid_height() owns both of the reference app's own gridH
+## factors (0.5 world / 0.64 region), get_map_width_km()/get_map_height_km()
+## report what actually generated, and set_params({"world": ...}) is the one
+## place the extent mode is stored. GDScript holds only labels and layout
+## (ARCHITECTURE.md: "Godot computes nothing beyond layout").
+##
+## Three engine rules this dialog is built around (GENERATION_PARAMETERS.md
+## "Map dimensions and aspect ratio"):
+##
+## 1. CELLS ARE SQUARE IN KM. Every km<->cell conversion in the workspace
+##    derives from the single quotient map_width_km / gw and applies it to
+##    both axes, so the map's height in km is width_km * gh / gw -- derived,
+##    never independently settable. There is deliberately no map-height-km
+##    control below; the height in km is a readout.
+## 2. WORLD MODE IS PHYSICALLY 2:1. X wraps 360 deg of longitude over gw and
+##    Y spans 180 deg of latitude over gh, so any other ratio silently
+##    stretches the graticule. In Whole-world extent the aspect control is
+##    pinned to 2:1 and the grid height comes from reference_grid_height(gw,
+##    true) -- with the reason stated on screen, not silently disabled.
+## 3. GRID HEIGHT IS A CALL ARGUMENT, NOT A PARAMETER. It reallocates every
+##    field in the pipeline, so it cannot honour the parameter table's "set
+##    once, generate many" contract. It sits beside seed, resolution and
+##    map width as an argument to generate_sized().
+
+## Map-width presets, in km. Real cartographic scales rather than round
+## numbers: the reference ships one free "Map width (km)" number input with
+## no guidance at all, and 800 km (its default) is genuinely hard to place
+## without a scale to compare it against. The free SpinBox beside them is
+## still the authority -- picking a preset only writes it a value, and
+## typing any other value flips the button back to "Custom".
+const SIZE_PRESETS: Array = [
+	{"label": "Local · 200 km", "km": 200.0},
+	{"label": "Province · 800 km", "km": 800.0},
+	{"label": "Region · 2 000 km", "km": 2000.0},
+	{"label": "Subcontinent · 5 000 km", "km": 5000.0},
+	{"label": "Continent · 12 000 km", "km": 12000.0},
+	{"label": "Planet · 40 075 km (Earth's equator)", "km": 40075.0},
+]
+const SIZE_CUSTOM_INDEX := 6
+
+## Aspect presets, width:height. The reference offers no aspect control at
+## all -- its gridH() hardcodes 2:1 in world mode and 1.5625:1 otherwise --
+## so both of those appear here by name, with the frame ratios a
+## cartographic tool is actually asked for around them (DECISIONS.md 7d:
+## improving past the reference is permitted where behaviour is preserved,
+## and both reference ratios remain reachable by name).
+const ASPECT_PRESETS: Array = [
+	{"label": "2:1 · equirectangular", "ratio": 2.0},
+	{"label": "16:9 · widescreen", "ratio": 16.0 / 9.0},
+	{"label": "1.5625:1 · reference region frame", "ratio": 1.5625},
+	{"label": "4:3 · classic landscape", "ratio": 4.0 / 3.0},
+	{"label": "1:1 · square", "ratio": 1.0},
+	{"label": "3:4 · portrait", "ratio": 0.75},
+	{"label": "9:16 · tall portrait", "ratio": 9.0 / 16.0},
+]
+const ASPECT_WORLD_INDEX := 0 ## 2:1 -- the shape world mode is pinned to.
+const ASPECT_REGION_INDEX := 2 ## The reference's own region frame; gh comes from the engine, not from the ratio above.
+const ASPECT_CUSTOM_INDEX := 7
+const ASPECT_DEFAULT_INDEX := ASPECT_REGION_INDEX
+
+const GRID_MIN := 4 ## generate_sized() clamps each dimension to >= 4; match it rather than let the engine clamp behind the dialog's back.
+const GRID_MAX := 8192
+
+## Aspect ratios past this are non-crashing but degenerate: the coarse
+## weather grid loses almost all resolution on the short axis, and the plate
+## frame (a uniform margin in cells keyed to gw) eats a large fraction of
+## the sheet. Found by the Rust non-square pass, surfaced here rather than
+## left to be discovered after a five-minute generate.
+const DEGENERATE_ASPECT := 16.0
+
+const EXTENT_NOTE_REGION := "Region — a framed area of a world. The map's north and south edge latitudes are set in Generate ▸ Climate; X does not wrap. Any aspect ratio is physically fine here."
+const EXTENT_NOTE_WORLD := "Whole world — a seamless equirectangular sheet: X wraps a full 360° of longitude and Y spans 180° of latitude, pole to pole. That fixes the shape at 2:1; any other ratio would stretch the graticule against the terrain, so the aspect is pinned and the grid height comes from the engine's own reference_grid_height(gw, true)."
+
+var extent_input: OptionButton
+var size_preset_input: OptionButton
+var aspect_input: OptionButton
+var grid_w_input: SpinBox
+var grid_h_input: SpinBox
+var extent_note_label: Label
+var dimension_warning_label: Label
+var _derived_labels: Dictionary = {} ## row key -> the value Label
+var _dim_syncing := false
+## Whether this build of the GDExtension carries the non-square API
+## (generate_sized / reference_grid_height / get_map_*_km). False falls back
+## to the square generate() path with the aspect controls disabled, rather
+## than erroring on a stale binary -- same honesty rule _params_available
+## already follows for get_param_info().
+var _sized_api := false
 
 ## ── Workspace tabs ──────────────────────────────────────────────────────
 ## UI_SHELL_DESIGN.md's own workspace row: "what the old navigator's groups
@@ -192,6 +298,7 @@ func _ready() -> void:
 
 	for label in RESOLUTION_LABELS:
 		resolution_input.add_item(label)
+	resolution_input.add_item("Custom")
 	resolution_input.selected = RESOLUTION_DEFAULT_INDEX
 
 	generate_button.pressed.connect(_on_generate_pressed)
@@ -209,12 +316,317 @@ func _ready() -> void:
 
 	_build_workspace_tabs()
 	_build_tool_rail()
+	## Must precede _init_generation_params(): the Climate stage's `world`
+	## row is a proxy onto this section's own Extent control (PROXY_KEYS), so
+	## that control has to exist before any stage dialog can read it.
+	_build_world_setup()
 	## Must precede _build_menus(): the Generate menu asks each stage whether
 	## any of its parameters actually resolved to a real WorldGen setter
 	## before deciding whether that stage opens a dialog or stays inert.
 	_init_generation_params()
 	_build_menus()
 	_select_tab("WORLD")
+
+
+## ── World setup section (File ▸ New world) ──────────────────────────────
+## Prepended to the New-world dialog's own section list, ahead of seed/sea
+## level, world structure and the advanced fold, which stay exactly where
+## they were. The dialog's two existing dimension controls (%ResolutionInput,
+## %WidthInput) are re-parented into the new three-column rows rather than
+## duplicated -- one node per value, so no two controls can disagree.
+func _build_world_setup() -> void:
+	_sized_api = world_gen.has_method("generate_sized") and world_gen.has_method("reference_grid_height")
+	if not _sized_api:
+		push_warning("cartalith: WorldGen has no generate_sized()/reference_grid_height() — World setup falls back to square maps.")
+
+	var section := VBoxContainer.new()
+	section.add_theme_constant_override("separation", 8)
+
+	var header := Label.new()
+	header.theme_type_variation = &"SectionHeader"
+	header.text = "MAP SIZE, RESOLUTION & DIMENSIONS"
+	section.add_child(header)
+	section.add_child(_hint_label(
+		"Map width in kilometres, working resolution in cells, and the frame's shape. Cells are square in kilometres, so the map's height in km is derived — width × rows ÷ columns — and is a readout below, never a separate control: a height that disagreed with it would silently contradict every distance, grade, river threshold and settlement spacing the world is generated from.",
+		NEW_WORLD_HINT_WIDTH))
+
+	## Extent — Region / Whole world. Same two-way choice as the reference's
+	## own extentSeg, but this is the engine's `world` parameter, so it is
+	## written through set_params() and proxied by the Climate stage dialog.
+	extent_input = OptionButton.new()
+	extent_input.add_item("Region")
+	extent_input.add_item("Whole world")
+	extent_input.selected = 1 if bool(world_gen.get_params().get("world", false)) else 0
+	extent_input.tooltip_text = "Reference control #extentSeg. Region = a framed area with user-set latitudes; Whole world = a seamless equirectangular sheet with toroidal X wrap."
+	extent_input.item_selected.connect(_on_extent_selected)
+	section.add_child(_dim_row("Extent", extent_input, null))
+
+	extent_note_label = _hint_label("", NEW_WORLD_HINT_WIDTH)
+	section.add_child(extent_note_label)
+
+	## Map width — preset scales beside the free km entry the reference has.
+	size_preset_input = OptionButton.new()
+	for preset: Dictionary in SIZE_PRESETS:
+		size_preset_input.add_item(String(preset["label"]))
+	size_preset_input.add_item("Custom")
+	size_preset_input.tooltip_text = "Real-world width of the map. Creation-time only: the reference refuses to make this editable mid-project because changing it silently rescales every derived distance, grade, route length and settlement spacing."
+	size_preset_input.item_selected.connect(_on_size_preset_selected)
+	_reparent(width_input)
+	width_input.value_changed.connect(func(_v: float): _refresh_dimensions())
+	section.add_child(_dim_row("Map width (km)", size_preset_input, width_input))
+
+	## Working resolution — the reference's own 512/1K/2K/4K/8K segment,
+	## which sets the grid WIDTH only, plus free entry beside it.
+	_reparent(resolution_input)
+	resolution_input.item_selected.connect(_on_resolution_selected)
+	grid_w_input = _grid_spin(RESOLUTION_PRESETS[RESOLUTION_DEFAULT_INDEX])
+	grid_w_input.tooltip_text = "Grid columns. The reference's Working resolution segment sets this and nothing else; its grid height follows from gridH()."
+	grid_w_input.value_changed.connect(func(_v: float): _refresh_dimensions())
+	section.add_child(_dim_row("Resolution (columns)", resolution_input, grid_w_input))
+
+	## Aspect — the shape of the frame, as a ratio preset or a free row count.
+	aspect_input = OptionButton.new()
+	for preset: Dictionary in ASPECT_PRESETS:
+		aspect_input.add_item(String(preset["label"]))
+	aspect_input.add_item("Custom")
+	aspect_input.selected = ASPECT_DEFAULT_INDEX
+	aspect_input.tooltip_text = "The frame's width:height. The reference has no aspect control — it hardcodes 2:1 in world mode and 1.5625:1 otherwise; both are here by name."
+	aspect_input.item_selected.connect(func(_i: int): _refresh_dimensions())
+	grid_h_input = _grid_spin(1311)
+	grid_h_input.tooltip_text = "Grid rows. A call argument to generate_sized(), not a stored parameter: changing it reallocates every field in the pipeline."
+	grid_h_input.value_changed.connect(_on_grid_h_changed)
+	section.add_child(_dim_row("Aspect (rows)", aspect_input, grid_h_input))
+
+	section.add_child(_build_derived_panel())
+
+	dimension_warning_label = _hint_label("", NEW_WORLD_HINT_WIDTH)
+	dimension_warning_label.add_theme_color_override("font_color", Color(0.878431, 0.639216, 0.290196))
+	section.add_child(dimension_warning_label)
+
+	new_world_list.add_child(section)
+	new_world_list.move_child(section, 0)
+	var divider := HSeparator.new()
+	new_world_list.add_child(divider)
+	new_world_list.move_child(divider, 1)
+
+	## The two rows whose inputs moved up here are now empty shells, and the
+	## static resolution hint has been replaced by the live warning label.
+	_free_leftover("WorldParamsSection/ResolutionRow")
+	_free_leftover("WorldParamsSection/ResolutionHint")
+	_free_leftover("WorldParamsSection/WidthRow")
+	var params_header := new_world_list.get_node_or_null("WorldParamsSection/WorldParamsHeader") as Label
+	if params_header:
+		params_header.text = "SEED & SEA LEVEL"
+
+	if not _sized_api:
+		aspect_input.disabled = true
+		grid_h_input.editable = false
+	_update_extent_state()
+
+
+## A three-column setup row: label, preset chooser, free numeric entry. The
+## second column is always the guided choice and the third always the exact
+## one, so a reader learns the pattern once and it holds for all three rows.
+func _dim_row(label_text: String, preset: Control, exact: Control) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.custom_minimum_size = Vector2(0, 40)
+	row.add_theme_constant_override("separation", 10)
+
+	var label := Label.new()
+	label.custom_minimum_size = Vector2(140, 0)
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.text = label_text
+	row.add_child(label)
+
+	preset.custom_minimum_size = Vector2(0, 40)
+	preset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(preset)
+
+	if exact != null:
+		exact.custom_minimum_size = Vector2(130, 40)
+		## Fixed width, so the guided column keeps the slack -- %WidthInput
+		## arrives here carrying the scene's own EXPAND flag.
+		exact.size_flags_horizontal = Control.SIZE_FILL
+		row.add_child(exact)
+	return row
+
+
+func _grid_spin(initial: int) -> SpinBox:
+	var spin := SpinBox.new()
+	spin.min_value = GRID_MIN
+	spin.max_value = GRID_MAX
+	spin.step = 1
+	spin.set_value_no_signal(initial)
+	return spin
+
+
+## Live derived readout — the part that makes the km/cell relationship
+## legible instead of something a user infers after generating. Every row
+## here is computed from exactly the same quotient the engine uses.
+func _build_derived_panel() -> Control:
+	var panel := PanelContainer.new()
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.0627451, 0.0666667, 0.0705882, 1)
+	style.set_content_margin_all(10)
+	panel.add_theme_stylebox_override("panel", style)
+
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 16)
+	grid.add_theme_constant_override("v_separation", 4)
+	panel.add_child(grid)
+
+	for key in ["Grid", "Extent", "Cell size", "Aspect"]:
+		var k := Label.new()
+		k.custom_minimum_size = Vector2(90, 0)
+		k.add_theme_font_size_override("font_size", 11)
+		k.add_theme_color_override("font_color", Color(0.552941, 0.576471, 0.588235))
+		k.text = key
+		grid.add_child(k)
+
+		var v := Label.new()
+		v.add_theme_font_size_override("font_size", 12)
+		v.add_theme_color_override("font_color", Color(0.878431, 0.639216, 0.290196))
+		v.text = "—"
+		grid.add_child(v)
+		_derived_labels[key] = v
+	return panel
+
+
+## Moves a scene-authored control into the runtime-built layout, keeping the
+## one node (and so its `%` unique name, its @onready reference, and every
+## existing connection) rather than making a second control for one value.
+func _reparent(node: Control) -> void:
+	var parent := node.get_parent()
+	if parent:
+		parent.remove_child(node)
+
+
+func _free_leftover(path: String) -> void:
+	var node := new_world_list.get_node_or_null(path)
+	if node:
+		node.queue_free()
+
+
+## Extent is the engine's `world` parameter, so it is stored the same way
+## every other parameter is. The Climate stage dialog's own `world` row is a
+## PROXY_KEYS entry onto this control, so the two can never disagree.
+func _on_extent_selected(index: int) -> void:
+	world_gen.set_params({"world": index == 1})
+	_refresh_param_control("world")
+	_mark_params_dirty()
+	_update_extent_state()
+
+
+## World mode pins the aspect to 2:1 and says why on screen. The control is
+## disabled rather than removed, and the note above it carries the physical
+## reason -- a silently greyed control reads as a bug.
+func _update_extent_state() -> void:
+	var world := extent_input.selected == 1
+	if world:
+		aspect_input.selected = ASPECT_WORLD_INDEX
+	if _sized_api:
+		aspect_input.disabled = world
+		grid_h_input.editable = not world
+	extent_note_label.text = EXTENT_NOTE_WORLD if world else EXTENT_NOTE_REGION
+	_refresh_dimensions()
+
+
+func _on_size_preset_selected(index: int) -> void:
+	if index < SIZE_PRESETS.size():
+		width_input.set_value_no_signal(float(SIZE_PRESETS[index]["km"]))
+	_refresh_dimensions()
+
+
+func _on_resolution_selected(index: int) -> void:
+	if index < RESOLUTION_PRESETS.size():
+		grid_w_input.set_value_no_signal(RESOLUTION_PRESETS[index])
+	_refresh_dimensions()
+
+
+func _on_grid_h_changed(_value: float) -> void:
+	if _dim_syncing:
+		return
+	## A hand-typed row count is by definition no longer one of the presets.
+	aspect_input.selected = ASPECT_CUSTOM_INDEX
+	_refresh_dimensions()
+
+
+## The grid height the current extent + aspect selection implies. Both
+## reference ratios are asked of the engine (WorldGen.reference_grid_height,
+## the reference app's own gridH) rather than recomputed from the ratio in
+## ASPECT_PRESETS, so the two constants live in exactly one place.
+func _derived_grid_h(gw: int) -> int:
+	if not _sized_api:
+		return gw
+	if extent_input.selected == 1:
+		return world_gen.reference_grid_height(gw, true)
+	if aspect_input.selected == ASPECT_REGION_INDEX:
+		return world_gen.reference_grid_height(gw, false)
+	var ratio := float(ASPECT_PRESETS[aspect_input.selected]["ratio"])
+	return maxi(GRID_MIN, int(round(gw / ratio)))
+
+
+## Single re-entrant-safe sync: preset buttons follow their free entry,
+## the row count follows the aspect selection, and the readout follows both.
+func _refresh_dimensions() -> void:
+	if _dim_syncing:
+		return
+	_dim_syncing = true
+
+	var gw := int(grid_w_input.value)
+	resolution_input.selected = RESOLUTION_PRESETS.find(gw) if RESOLUTION_PRESETS.has(gw) else RESOLUTION_CUSTOM_INDEX
+
+	var km := width_input.value
+	var size_index := SIZE_CUSTOM_INDEX
+	for i in SIZE_PRESETS.size():
+		if is_equal_approx(float(SIZE_PRESETS[i]["km"]), km):
+			size_index = i
+	size_preset_input.selected = size_index
+
+	var gh := int(grid_h_input.value)
+	if aspect_input.selected != ASPECT_CUSTOM_INDEX:
+		gh = _derived_grid_h(gw)
+		grid_h_input.set_value_no_signal(gh)
+
+	_dim_syncing = false
+	_update_derived_readout(gw, gh, km)
+
+
+func _update_derived_readout(gw: int, gh: int, km_w: float) -> void:
+	## The one quotient the whole engine derives distances from.
+	var cell_km := km_w / float(gw)
+	var km_h := cell_km * gh
+	var ratio := float(gw) / float(gh)
+
+	_derived_labels["Grid"].text = "%d × %d cells   (%s)" % [gw, gh, _format_count(gw * gh)]
+	_derived_labels["Extent"].text = "%s km × %s km" % [_format_km(km_w), _format_km(km_h)]
+	_derived_labels["Cell size"].text = "%s km per cell, square" % _format_km(cell_km)
+	var shape := "landscape" if ratio > 1.005 else ("portrait" if ratio < 0.995 else "square")
+	_derived_labels["Aspect"].text = ("%.3f : 1 · %s" % [ratio, shape]) if ratio >= 1.0 \
+		else ("1 : %.3f · %s" % [1.0 / ratio, shape])
+
+	var warnings: Array[String] = []
+	if gw >= 4096 or gh >= 4096:
+		warnings.append("4K/8K grids are memory- and time-heavy on this port's CPU-only pipeline — a single generate at this size runs for minutes and allocates several GB.")
+	if maxf(ratio, 1.0 / ratio) > DEGENERATE_ASPECT:
+		warnings.append("Aspect ratios past about %d:1 are degenerate: the coarse weather grid has almost no resolution across the short axis and the plate frame (a uniform margin in cells) swallows a large fraction of the sheet. It generates without crashing, but the result is not a useful map." % int(DEGENERATE_ASPECT))
+	dimension_warning_label.text = "\n".join(warnings)
+	dimension_warning_label.visible = not warnings.is_empty()
+
+
+func _format_count(n: int) -> String:
+	if n >= 1000000:
+		return "%.2f M cells" % (n / 1000000.0)
+	return "%.1f k cells" % (n / 1000.0)
+
+
+func _format_km(v: float) -> String:
+	if v >= 100.0:
+		return "%.0f" % v
+	if v >= 1.0:
+		return "%.1f" % v
+	return "%.3f" % v
 
 
 ## ── Workspace tabs ──────────────────────────────────────────────────────
@@ -610,11 +1022,16 @@ const EXCLUDED_KEYS := {
 ## set_experimental_flags() call and villages by set_villages_enabled();
 ## these rows drive those CheckBoxes directly so the two surfaces can never
 ## disagree about one value.
+## `world` joined them when File ▸ New world grew its own Extent control:
+## extent is a creation-time shape decision, so it belongs in the setup
+## dialog, but it is also a real generation parameter the Climate stage
+## legitimately shows. Proxying keeps one node behind both surfaces.
 const PROXY_KEYS := {
 	"tect.dynamic_lithology": "dynamic_lithology_check",
 	"volc.provinces": "volc_provinces_check",
 	"climate.terrain_wind_deflection": "wind_deflection_check",
 	"climate.currents": "ocean_currents_check",
+	"world": "extent_input",
 }
 
 ## Rows with no params.rs entry at all -- a real engine capability reached
@@ -708,7 +1125,13 @@ func _param_get(key: String):
 	var info: Dictionary = _param_info[key]
 	if info.has("proxy"):
 		var node: Control = get(String(info["proxy"]))
-		return node.button_pressed if node is CheckBox else node.value
+		if node is CheckBox:
+			return node.button_pressed
+		## The Extent OptionButton's two items are Region / Whole world, in
+		## the same order as the `world` parameter's false / true.
+		if node is OptionButton:
+			return node.selected == 1
+		return node.value
 	return world_gen.get_params().get(key, _param_defaults.get(key, 0.0))
 
 
@@ -725,6 +1148,12 @@ func _param_set(key: String, value) -> void:
 		var node: Control = get(String(info["proxy"]))
 		if node is CheckBox:
 			node.button_pressed = bool(value)
+		elif node is OptionButton:
+			## Assigning `selected` does not emit item_selected, so the
+			## handler that actually reaches the engine is called directly.
+			node.selected = 1 if bool(value) else 0
+			_on_extent_selected(node.selected)
+			return
 		else:
 			node.value = value
 		_mark_params_dirty()
@@ -930,17 +1359,20 @@ func _build_stage_dialog(index: int) -> AcceptDialog:
 
 
 const DIALOG_SIZE := Vector2i(620, 840)
+## The New-world dialog is wider (660 in main.tscn) and its own margins and
+## scrollbar eat a little more, so its hints wrap at their own width.
+const NEW_WORLD_HINT_WIDTH := 590
 
 ## An autowrap Label with no width constraint reports a minimum height for
 ## wrapping at its longest-word width -- hundreds of lines for a paragraph,
 ## which drags the whole dialog past the bottom of a 1080p screen and takes
 ## its own footer buttons with it. Pinning the wrap width fixes the min
 ## height at the height it will actually render.
-func _hint_label(text: String) -> Label:
+func _hint_label(text: String, wrap_width: int = DIALOG_SIZE.x - 60) -> Label:
 	var label := Label.new()
 	label.theme_type_variation = &"HintLabel"
 	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	label.custom_minimum_size = Vector2(DIALOG_SIZE.x - 60, 0)
+	label.custom_minimum_size = Vector2(wrap_width, 0)
 	label.text = text
 	return label
 
@@ -1133,7 +1565,11 @@ func _on_generate_pressed() -> void:
 	shell_status_label.text = "generating..."
 
 	var seed_value := int(seed_input.value)
-	var resolution := RESOLUTION_PRESETS[resolution_input.selected]
+	## Grid dimensions come from the two SpinBoxes, not from the preset
+	## OptionButtons: the buttons are a way of writing those SpinBoxes, and
+	## "Custom" has no preset value to read at all.
+	var grid_w := int(grid_w_input.value)
+	var grid_h := int(grid_h_input.value)
 	var width_km := width_input.value
 	var archetype := WORLD_SHAPES[world_shape_input.selected]
 
@@ -1152,19 +1588,30 @@ func _on_generate_pressed() -> void:
 	## (PROXY_KEYS/EXCLUDED_KEYS record which and why).
 
 	_gen_thread = Thread.new()
-	_gen_thread.start(_generate_worker.bind(seed_value, width_km, resolution, archetype))
+	_gen_thread.start(_generate_worker.bind(seed_value, width_km, grid_w, grid_h, archetype))
 
 
 ## Runs off the main thread. Touches only world_gen (plain Rust state),
-## never a node. generate() and generate_world_structure() are both full,
-## equally expensive generate_terrain() calls that mutate the same
+## never a node. generate_sized() and generate_world_structure_sized() are
+## both full, equally expensive generate_terrain() calls that mutate the same
 ## world_gen state -- this must be the ONE call site.
-func _generate_worker(seed_value: int, width_km: float, resolution: int, archetype: String) -> void:
+##
+## The archetype branch is load-bearing and was silently broken once before
+## (fixed in a265b2b): a non-empty WORLD_SHAPES entry must reach
+## generate_world_structure_sized, or the World-shape choice never affects
+## generation at all. Its bool return is the archetype-name check, surfaced
+## as a real failure below rather than swallowed.
+func _generate_worker(seed_value: int, width_km: float, grid_w: int, grid_h: int, archetype: String) -> void:
 	var ok := true
 	if archetype.is_empty():
-		world_gen.generate(seed_value, width_km, resolution)
+		if _sized_api:
+			world_gen.generate_sized(seed_value, width_km, grid_w, grid_h)
+		else:
+			world_gen.generate(seed_value, width_km, grid_w)
+	elif _sized_api:
+		ok = world_gen.generate_world_structure_sized(seed_value, width_km, grid_w, grid_h, archetype)
 	else:
-		ok = world_gen.generate_world_structure(seed_value, width_km, resolution, archetype)
+		ok = world_gen.generate_world_structure(seed_value, width_km, grid_w, archetype)
 	_on_generate_done.call_deferred(seed_value, width_km, ok)
 
 
@@ -1190,17 +1637,26 @@ func _on_generate_done(seed_value: int, width_km: float, ok: bool) -> void:
 		territory_view.texture = world_gen.build_territory_texture()
 		province_boundary_view.texture = world_gen.build_province_boundary_texture()
 
-		_last_width_km = width_km
+		## Read the real extent back from the engine rather than echoing what
+		## the dialog asked for: get_map_height_km() is derived from the world
+		## actually built (map_width_km * gh / gw), so a mismatch between this
+		## line and the setup dialog's own readout is a real bug, visible.
+		var real_w: float = world_gen.get_map_width_km() if _sized_api else width_km
+		var real_h: float = world_gen.get_map_height_km() if _sized_api else width_km
+		_last_width_km = real_w
 		_update_scale_bar()
 
 		var shape_label := world_shape_input.get_item_text(world_shape_input.selected)
+		var extent_label := extent_input.get_item_text(extent_input.selected)
 		var civ_note := ", %d settlements" % settlements.size() if not settlements.is_empty() else ""
-		var summary := "%dx%d, seed %d, %.0f km, %s%s" % [
-			world_gen.get_width(), world_gen.get_height(), seed_value, width_km, shape_label, civ_note
+		var summary := "%dx%d cells, %.0f x %.0f km, seed %d, %s, %s%s" % [
+			world_gen.get_width(), world_gen.get_height(), real_w, real_h,
+			seed_value, extent_label, shape_label, civ_note
 		]
 		status_label.text = summary
 		shell_status_label.text = summary
-		readout_label.text = "seed %d · %dx%d · %.0f km" % [seed_value, world_gen.get_width(), world_gen.get_height(), width_km]
+		readout_label.text = "seed %d · %dx%d · %.0f x %.0f km" % [
+			seed_value, world_gen.get_width(), world_gen.get_height(), real_w, real_h]
 		## Everything the dialogs hold is now reflected in the world on screen.
 		_clear_params_dirty()
 	else:
@@ -1216,7 +1672,13 @@ func _update_scale_bar() -> void:
 	if _last_width_km <= 0.0 or map_view.size.x <= 0.0:
 		scale_bar_label.text = ""
 		return
-	scale_bar_label.text = "%.0f km across viewport" % _last_width_km
+	var gw := world_gen.get_width()
+	if gw <= 0:
+		scale_bar_label.text = "%.0f km across the map" % _last_width_km
+		return
+	## Cells are square in km, so one quotient describes both axes.
+	scale_bar_label.text = "%.0f km across the map · %s km per cell" % [
+		_last_width_km, _format_km(_last_width_km / float(gw))]
 
 
 ## MVP_SCOPE.md criterion 7: opens a real HTML-app .zip and renders that

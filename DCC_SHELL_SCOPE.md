@@ -348,3 +348,136 @@ Credits, and File > Open project's dialog.
 tool functionality. The pre-existing `dark_theme.tres` unchecked-`CheckBox`
 glyph issue recorded under milestone 1 is unchanged and visible in these
 dialogs too.
+
+## Milestone 3 (GUI track): the World Setup dialog — done (2026-08-18)
+
+Owner's own request, verbatim: *"maybe we should start thinking about a
+proper base setup menu where we can pick map size, resolution, dimensions -
+basically expanded from the current html version."* `UI_SHELL_DESIGN.md`
+puts "New world" in the File menu and rules that menu items open **dialogs,
+never persistent side panels**, so this is File ▸ New world grown from
+milestone 1's parameter carry-over into a real world-setup gate.
+
+It is the GUI half of the non-square work commit `22ae75b` landed on the
+Rust side (`GENERATION_PARAMETERS.md` "Map dimensions and aspect ratio").
+Nothing in Rust changed this pass: the API it needs already existed.
+
+**What the dialog is.** One new section, `MAP SIZE, RESOLUTION &
+DIMENSIONS`, prepended to the existing New-world section list (seed/sea
+level, world structure and the advanced fold stay exactly where milestone 1
+put them). Its rows share one grammar — **label · guided preset · exact
+value** — so the pattern is learned once:
+
+| Row | Preset column | Exact column |
+|---|---|---|
+| Extent | Region / Whole world | — |
+| Map width (km) | Local 200 · Province 800 · Region 2 000 · Subcontinent 5 000 · Continent 12 000 · Planet 40 075 · Custom | the reference's own free km entry |
+| Resolution (columns) | 512 / 1K / 2K / 4K / 8K / Custom — the reference's own segment | free grid width, 4–8192 |
+| Aspect (rows) | 2:1 · 16:9 · 1.5625:1 reference region frame · 4:3 · 1:1 · 3:4 · 9:16 · Custom | free grid height |
+
+Below them a live derived readout — **Grid** (cells and total), **Extent**
+(km × km), **Cell size** (km per cell), **Aspect** (ratio and
+landscape/portrait/square) — recomputed on every change, so picking 1K in
+region mode shows the real 1024 × 512 grid and the real km extent of both
+axes before anything is generated.
+
+**How it expands on the reference.** The reference ships a Working-resolution
+segment that sets the width only, one free "Map width (km)" number input with
+no scale to judge it against, an extent segment, and no aspect control at
+all — its `gridH()` hardcodes 2:1 in world mode and 1.5625:1 otherwise. Both
+of those reference ratios are here **by name**, so nothing the reference does
+became unreachable; the additions are the aspect choice itself, the map-width
+scale presets, free entry beside every preset, and the derived readout.
+`DECISIONS.md` §7d permits this: behaviour is preserved, the superset is
+recorded.
+
+**The three engine rules the design is built around**, taken from
+`GENERATION_PARAMETERS.md` rather than re-derived:
+
+1. **Cells are square in kilometres.** Every km↔cell conversion in the
+   workspace comes from the single quotient `map_width_km / gw` applied to
+   both axes, so map height in km is `width_km × gh / gw` — **derived**.
+   There is deliberately no height-in-km control; it is a readout, and the
+   dialog's own header text says so rather than leaving the absence to look
+   like an oversight.
+2. **World mode is physically 2:1.** X wraps 360° of longitude over `gw`, Y
+   spans 180° of latitude over `gh`. Choosing Whole world pins the aspect to
+   2:1, takes the row count from `WorldGen.reference_grid_height(gw, true)`,
+   and disables the aspect and row controls **with the reason stated in prose
+   directly above them** — a silently greyed control reads as a bug.
+3. **Grid height is a call argument, not a stored parameter**, because it
+   reallocates every field in the pipeline. It sits beside seed, map width
+   and resolution as an argument to `generate_sized()`.
+
+**Built at runtime from the engine's own metadata**, following the pattern
+milestone 2 established: no constant the engine owns is copied into
+GDScript. Both reference `gridH` factors (0.5 / 0.64) are asked of
+`reference_grid_height()`, extent is stored through `set_params({"world":
+…})`, and the post-generation readout reads `get_map_width_km()` /
+`get_map_height_km()` back rather than echoing what the dialog asked for — so
+a disagreement between the setup readout and the generated world would be
+visible instead of assumed away. The two scene-authored controls this section
+needs (`%ResolutionInput`, `%WidthInput`) are **re-parented** into the new
+rows, not duplicated: one node per value.
+
+**One value, two surfaces, one node.** `world` is a real generation
+parameter, so the Generate ▸ Climate dialog legitimately shows it *and* the
+setup dialog owns it as a creation-time shape decision. Rather than exclude
+it from one side, it became a `PROXY_KEYS` entry onto the Extent control —
+the same mechanism milestone 2 already used for the four experimental flags.
+Verified live in the app: flipping the Climate dialog's checkbox moves the
+Extent selector, writes the engine parameter, disables the aspect control and
+re-derives the grid to 2048 × 1024.
+
+**Honest guidance rather than discovery-by-waiting.** Two warnings appear
+under the readout when they apply: 4K/8K grids are memory- and time-heavy on
+this port's CPU-only pipeline (milestone 1's static hint, now conditional and
+covering the row count too), and aspect ratios past ~16:1 are degenerate —
+non-crashing, but the coarse weather grid loses almost all resolution across
+the short axis and the plate frame swallows a large fraction of the sheet
+(the finding the Rust non-square pass recorded).
+
+**One real bug found in the existing dialog**: `%WidthInput`'s `max_value`
+was 40 000 km, so the natural "Earth's equator" figure of 40 075 km silently
+clamped. Raised to 100 000 with a step of 5 (40 075 is a multiple of it).
+Caught by the screenshot verification, not by reading.
+
+**Verification.** `cargo build -p cartalith-godot` clean. `cargo test
+--workspace`: **719 tests across 88 binaries, 0 failures, 0 regressions**
+(the count grew from milestone 2's 563 because sibling forks added
+`cartalith-urban` and a terrain sculpt module; `cartalith-civ` compiled fine
+despite the flagged possibility of mid-edit sibling state).
+`godot4 --headless --quit main.tscn` loads clean, with warnings identical to
+the pre-change baseline (the two RID/ObjectDB lines are pre-existing —
+checked by stashing this change and re-running, not assumed).
+
+Then the load-bearing check — real 1920×1080 windowed app, driven through
+this dialog, each shape's readout compared against what
+`get_map_width_km()`/`get_map_height_km()` reported after generating:
+
+| Shape | Asked | Engine reported | Rendered |
+|---|---|---|---|
+| 2:1 landscape, Earth-like | 1024 × 512, 2 000 km | 1024 × 512, 2000 × 1000 km | correct 2:1 plate, not stretched |
+| 3:4 portrait, Classic | 768 × 1024, 1 500 km | 768 × 1024, 1500 × 2000 km | correct portrait plate, polar snow at the north edge |
+| Whole world, Earth-like | 1024 × 512, 40 000 km | 1024 × 512, 40000 × 20000 km | 2:1 with **visible polar caps top and bottom**, sea lanes wrapping |
+| 16:9, Archipelago | 640 × 360, 1 200 km | 640 × 360, 1200 × 675 km | correct 16:9 plate |
+
+Every readout matched the engine exactly. `map_overlay.gd` needed no change:
+its `_displayed_rect()` already fits with `min(size.x/gw, size.y/gh)`, so
+markers, roads and sea lanes land on the right pixels at any aspect.
+
+**Archetype dispatch re-verified** (the `a265b2b` bug, where World Shape
+silently never reached generation): Earth-like and Archipelago both
+dispatched through `generate_world_structure_sized` and produced their
+characteristic worlds with real settlement counts, and the call's `bool`
+return is still surfaced as a visible failure rather than swallowed.
+
+**Golden path re-verified, no regressions**: generation from both entry
+points, all five overlay toggles (territory fill and province boundaries
+included), the causal-chain Inspector on hover **and** click-to-pin — driven
+through `map_overlay`'s own real hit test at a settlement's own pixel, not a
+hand-made signal emit — all six Generate stage dialogs building, and Credits.
+
+**Still deferred, unchanged**: light theme, responsive breakpoints, and all
+tool functionality. Saving a *parameter set* as a named preset document is
+the natural follow-up this milestone deliberately does not attempt.

@@ -407,9 +407,10 @@ text = "no active tool"
 
 [node name="NewWorldDialog" type="AcceptDialog" parent="."]
 unique_name_in_owner = true
-title = "New World"
+title = "New world — setup"
 initial_position = 1
-size = Vector2i(460, 660)
+size = Vector2i(660, 900)
+wrap_controls = false
 theme = ExtResource("2")
 
 [node name="NewWorldMargin" type="MarginContainer" parent="NewWorldDialog"]
@@ -430,6 +431,7 @@ size_flags_vertical = 3
 horizontal_scroll_mode = 0
 
 [node name="NewWorldList" type="VBoxContainer" parent="NewWorldDialog/NewWorldMargin/NewWorldVBox/NewWorldScroll"]
+unique_name_in_owner = true
 size_flags_horizontal = 3
 theme_override_constants/separation = 14
 
@@ -490,8 +492,8 @@ unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 40)
 size_flags_horizontal = 3
 min_value = 10.0
-max_value = 40000.0
-step = 10.0
+max_value = 100000.0
+step = 5.0
 value = 800.0
 
 [node name="SeaLevelRow" type="HBoxContainer" parent="NewWorldDialog/NewWorldMargin/NewWorldVBox/NewWorldScroll/NewWorldList/WorldParamsSection"]
