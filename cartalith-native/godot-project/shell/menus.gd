@@ -170,11 +170,28 @@ func _data(p: PopupMenu) -> void:
 # -- §2.5 Preferences ---------------------------------------------------------
 
 func _preferences(p: PopupMenu) -> void:
+	## `use_gpu` is a plain entry in the engine's own flat parameter table
+	## (`params.rs`) -- `bridge.param_set("use_gpu", ...)` is the whole
+	## mechanism, identical to every slider in the Generation Pipeline. It was
+	## shipped disabled here on the mistaken assumption that it needed its own
+	## binding; it does not, and disabling a control that already works is
+	## worse than the gap it was meant to be honest about.
+	##
+	## Defaulting it ON in the shell (see `EngineBridge._ready`) is a UI-layer
+	## decision, not an engine one: `WorldParams::default()` stays `false` in
+	## Rust so golden-parity tests keep pinning the CPU path exactly as
+	## `GPU_LAYER_INTEGRATION_SCOPE.md` requires. The tooltip below is the
+	## "honest 'this may produce a different world' messaging" that same
+	## document says a GPU toggle needs before it can be user-facing at all
+	## (`DECISIONS.md` §7c: GPU-path noise is genuinely different, not
+	## tolerance-different, for the same seed).
 	p.add_check_item("GPU acceleration", ID_PREF_GPU)
-	p.set_item_checked(p.item_count - 1, not _bridge.gpu_stages_used().is_empty())
-	p.set_item_tooltip(p.item_count - 1,
-		"Read-only for now: the engine reports which stages ran on the GPU, but the dispatch choice is not switchable from here yet.")
-	p.set_item_disabled(p.item_count - 1, true)
+	var gpu_idx := p.item_count - 1
+	p.set_item_checked(gpu_idx, bool(_bridge.param_get("use_gpu")))
+	p.set_item_tooltip(gpu_idx,
+		"Runs domain warp, crustal heterogeneity, plate assignment and flow accumulation on the GPU. A given seed produces a genuinely different (not just faster) world with this on vs. off -- both are valid, but they don't match each other. Takes effect on the next generate.")
+	p.about_to_popup.connect(func():
+		p.set_item_checked(gpu_idx, bool(_bridge.param_get("use_gpu"))))
 	_todo(p, "Devices", "Multi-GPU device selection is not exposed by the engine yet.")
 	_todo(p, "Multi-GPU mode", "Same.")
 	_todo(p, "CPU worker threads", "Rayon sizes its own pool; no override is exposed.")
@@ -217,6 +234,15 @@ func _preferences(p: PopupMenu) -> void:
 	p.add_submenu_item("Theme", "ThemeChoice")
 	_todo(p, "Units", "The shell is km-only; the reference's mi toggle is not ported.")
 	_todo(p, "Keyboard shortcuts…", "No shortcut table yet.")
+	p.id_pressed.connect(_on_preferences.bind(p))
+
+func _on_preferences(id: int, p: PopupMenu) -> void:
+	if id != ID_PREF_GPU:
+		return
+	var idx := p.get_item_index(ID_PREF_GPU)
+	var on := not bool(_bridge.param_get("use_gpu"))
+	if _bridge.param_set("use_gpu", on):
+		p.set_item_checked(idx, on)
 
 func _on_quality(id: int) -> void:
 	var tiers := _bridge.quality_tiers()

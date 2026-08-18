@@ -32,6 +32,18 @@ func _ready() -> void:
 	viewport_content.add_child(viewport)
 	viewport.setup(bridge)
 
+	## Phone chrome sits on top of an edge-to-edge map (§13); `ViewportHost`'s
+	## own corner chrome needs to know where that chrome's edges are so it
+	## doesn't draw under the app bar/rail/tool sheet. Never runs off the
+	## phone path -- `_phone` is false on desktop/tablet. The first call is
+	## deferred a frame so the tool sheet has already had its one layout pass
+	## when `phone_content_insets()` reads its real height
+	## (`_phone_bottom_reserve()`); `phone_insets_changed` covers every later
+	## change (rotation, and a domain switch resizing the sheet).
+	if _phone:
+		(func(): viewport.set_safe_insets(phone_content_insets())).call_deferred()
+		phone_insets_changed.connect(func(): viewport.set_safe_insets(phone_content_insets()))
+
 	menus.build(self, bridge, self)
 
 	new_world_dialog = NewWorldDialog.new()
@@ -93,37 +105,34 @@ func _register_workspaces() -> void:
 		ws.setup(self, bridge)
 		_workspaces.append(ws)
 
+## There is no staleness state to report: verified live against the reference
+## (Playwright, 2026-08-19) that every generation control regenerates the whole
+## world automatically on release (`tparam()`'s `change` handler, `withBusy
+## ('generating…', generate)`) -- the same mechanism `world_workspace.gd`'s
+## slider/toggle rows now trigger. So the only two states worth telling anyone
+## about are "a regenerate is running" and "here's how long the last one
+## took" -- both live signals, neither an invented dirty flag.
 func _wire_status() -> void:
 	bridge.generation_started.connect(func():
 		set_status("pass", "generating…", "accent")
-		set_status("hint", "", "text_ghost"))
+		set_status("hint", "", "text_ghost")
+		if is_instance_valid(_tool_options_stale):
+			_tool_options_stale.text = "generating…")
 	bridge.generation_finished.connect(func(ok: bool):
 		set_status("pass", "generated" if ok else "generate failed",
 			"text_dim" if ok else "accent")
 		set_status("hint", bridge.last_summary, "text_ghost")
+		set_status("stale", ("%.1fs" % (bridge.last_generate_ms / 1000.0)) if ok else "", "text_faint")
 		var g := bridge.grid_size()
 		set_status("top_world", ("ELDRA · %d" % bridge.world_gen.get_seed()) if ok else "—")
 		set_status("top_res", ("%d×%d working" % [g.x, g.y]) if ok else "")
 		set_status("top_mem", "%.1f GB" % (OS.get_static_memory_usage() / 1073741824.0))
-		_refresh_stale()
+		if is_instance_valid(_tool_options_stale):
+			_tool_options_stale.text = ""
 		_refresh_rail_foot())
-	bridge.params_changed.connect(_refresh_stale)
-	bridge.params_applied.connect(_refresh_stale)
 	bridge.world_loaded.connect(func():
 		set_status("pass", "loaded", "text_dim")
 		set_status("hint", bridge.last_summary, "text_ghost"))
-
-## §7's staleness rule, stated once here so no workspace has to restate it:
-## Cartalith is a one-shot generator, so a moved dial marks the world stale
-## rather than recomputing a stage.
-func _refresh_stale() -> void:
-	if not bridge.has_world:
-		set_status("stale", "")
-		return
-	var text: String = "stale from 01 — regenerate to apply" if bridge.params_dirty else "resolved"
-	set_status("stale", text, "stale" if bridge.params_dirty else "text_faint")
-	if is_instance_valid(_tool_options_stale):
-		_tool_options_stale.text = text
 
 func _wire_selection() -> void:
 	viewport.settlement_selected.connect(func(data, index):
@@ -149,10 +158,15 @@ func _on_workspace_changed(id: String) -> void:
 		"world": _tool_options_generate()
 		"cartography": _tool_options_simple("CARTOGRAPHY · STYLE",
 			"presentation only — no control here marks a generation stage stale")
+		## Settlement/POI/Territory (civ_tools_bridge.rs) and Way/Route/Measure/
+		## Region (infra_tools_bridge.rs) are bound and tested as of 2026-08-19
+		## -- the gap left is §4.5's TOOLS block itself, the GDScript palette
+		## that arms one of them. Wording corrected so it doesn't claim a
+		## binding gap that closed under it.
 		"civilization": _tool_options_simple("CIVIL · INSPECT",
-			"place, territory and route tools need their bindings (STRANDED_TOOLS.md)")
+			"place/territory tools are bound (civ_tools_bridge.rs); the §4.5 tool palette to arm them is not built yet")
 		"infrastructure": _tool_options_simple("INFRA · INSPECT",
-			"way and route tools need their bindings (STRANDED_TOOLS.md)")
+			"way/route tools are bound (infra_tools_bridge.rs); the §4.5 tool palette to arm them is not built yet")
 		"render": _tool_options_simple("RENDER · PREVIEW",
 			"TerrainAppearance is unbound; quality tier lives in Preferences")
 	_refresh_rail_foot()
@@ -164,26 +178,30 @@ func _tool_options_label(row: Control, text: String, token: String) -> void:
 ## run actions, New seed, the stale-from readout, then the finalize action hard
 ## right. Run/Finalize are disabled for the reasons §5.1 records -- the engine
 ## is one-shot and there is no bake pipeline.
+## Matches the reference exactly rather than the DCC mockup's own prose, on
+## direct owner instruction (2026-08-19) after a live Playwright check of
+## `Cartalith Gen1 v2.10.html`: two global buttons (`#genBtn` "Generate
+## world", `#reseedBtn` "New seed"), no per-stage anything -- `grep`-checked,
+## zero buttons anywhere in the DOM match `/run stage|run \d+.*→/i`. The
+## mockup's "Run stage 04 · Run 04 → 10 · stale from 04 Tectonics" describes a
+## partial-recompute capability that exists in neither the reference app nor
+## this engine; building disabled buttons for it was clutter implying a
+## capability that will never exist, not honesty about a gap. Recorded as a
+## correction for the design end in `DCC_SHELL_SPEC.md`'s header, the same
+## treatment §5.2's stale commit-prose correction already got.
 func _tool_options_generate() -> void:
 	set_tool_options(func(row: HBoxContainer):
 		_tool_options_label(row, "GENERATE · WORLD", "accent")
-		## "Run stage N" genuinely has no engine entry point. "Run 01 -> 10"
-		## does: walking the whole chain from the first stage to the last is
-		## exactly what `generate_terrain` is, so it is wired rather than
-		## disabled -- the honest reading of §5.1 rather than the literal one.
-		var one := DccWidgets.action(row, "Run stage 01", func(): pass)
-		one.disabled = true
-		one.tooltip_text = "generate_terrain is one-shot: there is no per-stage recompute entry point. Run 01 -> 10 instead, which regenerates the whole world."
-		DccWidgets.action(row, "Run 01 → 10", _run_pipeline, true)
+		DccWidgets.action(row, "Generate world", _run_pipeline, true)
 		DccWidgets.action(row, "New seed", _new_seed)
-		var stale := DccTheme.mono_label("", "stale", DccTheme.FS_SMALL, 1)
-		_tool_options_stale = stale
-		row.add_child(stale)
+		var busy := DccTheme.mono_label("", "text_ghost", DccTheme.FS_SMALL, 1)
+		_tool_options_stale = busy
+		row.add_child(busy)
 		row.add_child(DccTheme.spacer())
 		var bake := DccWidgets.action(row, "Bake ALL & finalize", func(): pass)
 		bake.disabled = true
 		bake.tooltip_text = "No bake/LOD pipeline exists yet; finalize has nothing to freeze."
-		_refresh_stale()
+		busy.text = "generating…" if bridge.generating else ""
 	)
 
 func _tool_options_simple(context: String, note: String) -> void:

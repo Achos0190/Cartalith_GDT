@@ -45,6 +45,16 @@ func _ready() -> void:
 		and world_gen.has_method("reference_grid_height") \
 		and world_gen.has_method("get_map_height_km")
 	_read_param_table()
+	## `WorldParams::default()` is `false` in Rust, and stays that way: it is
+	## the golden-parity reference path (`GPU_LAYER_INTEGRATION_SCOPE.md`
+	## milestone 9), and the CPU-path tests pin it exactly. This is the
+	## shell's own default instead -- turning on hardware the owner has
+	## repeatedly asked this port to actually use, without touching the
+	## engine's own notion of "default". `Preferences ▸ GPU acceleration`
+	## can turn it back off before the first generate.
+	if _params_available:
+		param_set("use_gpu", true)
+		params_dirty = false
 
 func _exit_tree() -> void:
 	if _thread != null and _thread.is_started():
@@ -87,8 +97,20 @@ func param_get(key: String):
 func param_set(key: String, value) -> bool:
 	if not _params_available:
 		return false
-	var accepted: Dictionary = world_gen.set_params({key: value})
-	var ok: bool = accepted.has(key)
+	## `set_params` (`cartalith-godot/src/lib.rs`) returns `{"rejected": [...],
+	## "clamped": [...]}` -- there is no "accepted" list, so a key only ever
+	## appears here when something went wrong with it. `.has(key)` on that dict
+	## was checking for the key as a top-level entry of `{rejected, clamped}`,
+	## which is never true for any real parameter name -- every call site of
+	## `param_set` has been silently getting `false` back, always, regardless
+	## of whether the write succeeded (it does; `set_params` applies the value
+	## to `self.params` unconditionally on `Applied`/`Clamped`, so the engine
+	## state was correct the whole time -- only the GDScript-side signal that
+	## depends on this return value, `mark_dirty()`, was never firing from it).
+	## Found while wiring the GPU toggle's checkbox feedback, which needed the
+	## real answer to `did this write land`.
+	var result: Dictionary = world_gen.set_params({key: value})
+	var ok: bool = not (result.get("rejected", []) as Array).has(key)
 	if ok:
 		mark_dirty()
 	return ok
@@ -131,10 +153,14 @@ func mark_dirty() -> void:
 ## `request` carries everything the setup surface decided: seed, extent in km,
 ## grid dimensions, archetype (empty for Classic) and the five values that live
 ## outside the parameter table.
+var last_generate_ms := 0
+var _gen_start_msec := 0
+
 func generate(request: Dictionary) -> void:
 	if generating:
 		return
 	generating = true
+	_gen_start_msec = Time.get_ticks_msec()
 	generation_started.emit()
 
 	if world_gen.has_method("set_experimental_flags"):
@@ -180,6 +206,7 @@ func _finish(seed_value: int, width_km: float, ok: bool) -> void:
 	_thread.wait_to_finish()
 	_thread = null
 	generating = false
+	last_generate_ms = Time.get_ticks_msec() - _gen_start_msec
 
 	if not ok or world_gen.get_width() <= 0:
 		last_summary = "generate failed -- see console"

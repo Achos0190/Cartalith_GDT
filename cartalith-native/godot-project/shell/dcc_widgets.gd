@@ -225,11 +225,21 @@ static func _row(parent: Control, label_text: String, tooltip: String) -> HBoxCo
 	return row
 
 ## A continuous value: slider plus a right-aligned numeric readout. `on_change`
-## is called with the new float. Returns a Dictionary of the parts so a caller
+## is called with every value, including mid-drag -- cheap writes only, per
+## `on_release`'s own doc below. Returns a Dictionary of the parts so a caller
 ## can refresh the row when the engine's value changes underneath it.
+##
+## `on_release`, if given, fires once when a drag ends (`Slider.drag_ended`):
+## the `input` vs `change` split the reference's own `tparam()` uses --
+## `input` (every tick) writes the value and updates the label, `change`
+## (release) is where expensive work belongs. `HSlider` has no equivalent
+## one-shot signal for keyboard-driven changes (arrow keys fire `value_changed`
+## per press with no drag to end), so `on_release` does not fire from the
+## keyboard today -- a real, minor gap against a mouse/touch drag, not solved
+## here rather than papered over with a guess at "was this really a release."
 static func slider(parent: Control, label_text: String, minimum: float, maximum: float,
 		step: float, value: float, unit: String, on_change: Callable,
-		tooltip: String = "") -> Dictionary:
+		tooltip: String = "", on_release: Callable = Callable()) -> Dictionary:
 	var row := _row(parent, label_text, tooltip)
 	var s := HSlider.new()
 	s.min_value = minimum
@@ -254,6 +264,8 @@ static func slider(parent: Control, label_text: String, minimum: float, maximum:
 	s.value_changed.connect(func(v: float):
 		readout.text = fmt.call(v)
 		on_change.call(v))
+	if on_release.is_valid():
+		s.drag_ended.connect(func(_value_changed: bool): on_release.call())
 	return {"row": row, "slider": s, "readout": readout, "format": fmt}
 
 static func toggle(parent: Control, label_text: String, value: bool,

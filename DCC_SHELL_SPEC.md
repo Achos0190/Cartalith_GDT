@@ -10,14 +10,38 @@
 > replace it in full by the DCC version including all it's wiring and
 > functionality."*
 >
-> Two conflicts with the engine are recorded rather than silently resolved:
+> Three conflicts with the real product are recorded rather than silently
+> resolved:
 >
 > 1. §5.2's commit prose says it "re-runs erosion, hydrology and climate once".
 >    `commit_sculpt_pass` deliberately marks tiles stale instead. The engine is
 >    right and this line is stale — see `SCULPT_FUNCTION_CHART.md` §7.
-> 2. §5.1's "Run stage *n*" and "Run *n* → 10" have no engine entry point:
->    `generate_terrain` is one-shot, with no per-stage recompute. Those buttons
->    ship disabled with a tooltip saying so.
+> 2. **§5.1's "Run stage *n*", "Run *n* → 10" and "stale from *n* — *k*
+>    downstream stages will re-run" describe a capability that exists nowhere
+>    — not in this engine, not in the reference app being ported.** Superseded
+>    2026-08-19 after the owner's direct instruction to verify the real app's
+>    workflow with Playwright rather than trust the mockup's prose. Both static
+>    reading and a live run of `Cartalith Gen1 v2.10.html` confirm: `generate()`
+>    is monolithic (runs all ten stages, unconditionally, every call — no
+>    branch skips any of them); a DOM sweep for `/run stage|run \d+.*→/i`
+>    matches zero buttons; and every generation control is wired by one shared
+>    helper, `tparam()`, whose `input` handler (continuous, while dragging)
+>    only updates the value label, while its `change` handler (fires once, on
+>    release) applies the value **and calls `generate()` immediately** —
+>    `el.addEventListener('change',()=>{ apply(+el.value);
+>    withBusy('generating…',generate); })`, verbatim. There is no staleness to
+>    surface, because nothing is ever stale for longer than one regenerate: the
+>    map is always current with the sliders, modulo the brief busy window. The
+>    shell now matches this exactly — every generation-stage slider and toggle
+>    regenerates the whole world on release, automatically, with no button; the
+>    tool options bar keeps only the reference's own two global actions,
+>    `#genBtn` ("Generate world") and `#reseedBtn` ("New seed"). §5.1's per-stage
+>    run/stale prose should be corrected at the design end rather than the code
+>    end — it does not describe this or any other real version of the product.
+> 3. §5.2's Brush shape / Stroke & grid / Actions blocks (falloff curves beyond
+>    `smoothstep`, brush shapes, control-point editing, flip/rotate/flatten)
+>    have no engine behind them and are not in the reference either — see
+>    `SCULPT_FUNCTION_CHART.md` §10. New design work, not a port gap.
 >
 > §5.2's global **defaults** also differ from `SculptGlobals::default()` on five
 > of eight. Settled 2026-08-19 (owner: the values are placeholders, pick one):

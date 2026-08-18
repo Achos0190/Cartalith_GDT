@@ -102,15 +102,23 @@ var _pipeline_body: VBoxContainer
 var _sculpt_body: VBoxContainer
 var _stage_state_labels: Array = []  ## stage index -> the trailing state Label.
 
-## GUI-only bookkeeping, not engine state: which stage's row the user last
-## edited. The engine is one-shot (`generate_terrain` runs the whole pipeline
-## or none of it) so there is no per-stage recompute for a "stale" mark to be
-## relative to -- but "you changed stage n, so n and everything after it in
-## dependency order no longer matches the last generate" is true regardless,
-## and is exactly what §5.1's stale-propagation rule describes. This tracks
-## that honestly instead of either faking real per-stage state or dropping
-## the state column main.gd's own comment argued didn't exist.
-var _last_edited_stage := -1
+## There is no staleness state, verified live against the reference
+## (Playwright, 2026-08-19, on direct owner instruction) rather than assumed
+## from the DCC mockup's prose: `tparam()` wires every generation slider so
+## `input` (dragging) only updates its own label, and `change` (release)
+## applies the value AND calls `generate()` immediately --
+## `el.addEventListener('change',()=>{ apply(+el.value); withBusy
+## ('generating…',generate); })`, verbatim. A DOM sweep for anything matching
+## `/run stage|run \d+.*→/i` found zero buttons anywhere in the reference.
+## §5.1's "stale from 04 Tectonics — 6 downstream stages will re-run" and its
+## "Run stage N / Run N → 10" controls describe a partial-recompute capability
+## that exists in neither the reference app nor this engine (`generate_terrain`
+## is one-shot, confirmed by reading `generate()`'s own body: it runs all ten
+## stages unconditionally, every call). Building disabled buttons for that
+## capability was clutter implying it will one day exist; it will not, absent
+## a real engine redesign, so every row below regenerates the whole world on
+## release instead -- the same one call site `_on_generate_pressed` already
+## used, now fired automatically rather than waiting for a button.
 
 func _build() -> void:
 	var switch_row := HBoxContainer.new()
@@ -145,6 +153,7 @@ func _build() -> void:
 	pipeline_btn.pressed.connect(_select_mode.bind("pipeline"))
 	sculpt_btn.pressed.connect(_select_mode.bind("sculpt"))
 
+	bridge.generation_started.connect(_refresh_stage_states)
 	bridge.generation_finished.connect(_on_generation_finished)
 	bridge.world_loaded.connect(_on_world_loaded)
 	_refresh_stage_states()
@@ -154,11 +163,9 @@ func _select_mode(mode: String) -> void:
 	_sculpt_body.visible = mode == "sculpt"
 
 func _on_generation_finished(_ok: bool) -> void:
-	_last_edited_stage = -1
 	_refresh_stage_states()
 
 func _on_world_loaded() -> void:
-	_last_edited_stage = -1
 	_refresh_stage_states()
 
 ## The mockup draws the switch as **tabs**, not as a segmented control: mono
@@ -236,23 +243,6 @@ func _build_stage(parent: Control, index: int) -> void:
 	if not String(stage["gap"]).is_empty():
 		DccWidgets.note(meta, String(stage["gap"]))
 
-	var run_row := HBoxContainer.new()
-	run_row.add_theme_constant_override("separation", 6)
-	var run_pad := MarginContainer.new()
-	run_pad.add_theme_constant_override("margin_left", 14)
-	run_pad.add_theme_constant_override("margin_top", 4)
-	run_pad.add_child(run_row)
-	body.add_child(run_pad)
-
-	var run_tip := "generate_terrain is one-shot: the engine has no per-stage re-execution. Use Run 01 → 10 in the tool options bar, which regenerates the whole world."
-	var run_one := DccWidgets.action(run_row, "Run stage %s" % number, func(): pass)
-	run_one.disabled = true
-	run_one.tooltip_text = run_tip
-	if index < STAGES.size() - 1:
-		var run_chain := DccWidgets.action(run_row, "Run %s → 10" % number, func(): pass)
-		run_chain.disabled = true
-		run_chain.tooltip_text = run_tip
-
 	if index == EROSION_STAGE_INDEX:
 		_build_erosion_passes(body, index)
 		return
@@ -325,51 +315,60 @@ func _build_param_row(parent: Control, key: String, stage_index: int) -> void:
 	var kind := String(info.get("type", "float"))
 
 	if kind == "bool":
+		## A checkbox toggle is atomic -- there is no "dragging" phase to defer
+		## past -- so it regenerates immediately, matching the reference's own
+		## `<input type=checkbox>` `change` handlers (fired on click, not on a
+		## release distinct from a press).
 		DccWidgets.toggle(parent, label, bool(bridge.param_get(key)),
-			_on_bool_row_changed.bind(key, stage_index), hint)
+			_on_bool_row_changed.bind(key), hint)
 		return
 
 	var is_int := kind == "int"
+	## `tparam()`'s exact split: `input` (every drag tick) only updates the
+	## value; `change` (release) applies it and regenerates. `DccWidgets.slider`
+	## already gives the continuous half via `on_change` -- `on_release` is new,
+	## wired to `HSlider.drag_ended`, which is Godot's one-shot release signal.
 	DccWidgets.slider(parent, label, float(info.get("min", 0.0)), float(info.get("max", 1.0)),
 		float(info.get("step", 0.01)), float(bridge.param_get(key)), unit,
-		_on_float_row_changed.bind(key, stage_index, is_int), hint)
+		_on_float_row_input.bind(key, is_int), hint,
+		_on_float_row_released.bind(key, is_int))
 
-## Named rather than inline: a row's callback both writes the engine and
-## touches this dock's own stage-state bookkeeping, and a multi-line lambda
-## that still has to close a call with a trailing argument after it (`hint)`)
-## is exactly the shape that has bitten this project before -- a named method
-## bound with `.bind()` sidesteps the question entirely. `.bind()` appends its
-## arguments AFTER the caller's own, so the changed value comes first here.
-func _on_bool_row_changed(v: bool, key: String, stage_index: int) -> void:
+func _on_bool_row_changed(v: bool, key: String) -> void:
 	bridge.param_set(key, v)
-	_touch_stage(stage_index)
+	_regenerate_live()
 
-func _on_float_row_changed(v: float, key: String, stage_index: int, is_int: bool) -> void:
+## Writes the value continuously (cheap: `param_set` is an in-memory Rust
+## write, no recompute) but does not regenerate -- matches `tparam()`'s
+## `input` handler updating only the label.
+func _on_float_row_input(v: float, key: String, is_int: bool) -> void:
 	bridge.param_set(key, (int(round(v)) if is_int else v))
-	_touch_stage(stage_index)
 
-func _touch_stage(index: int) -> void:
-	_last_edited_stage = index
-	_refresh_stage_states()
+func _on_float_row_released(key: String, is_int: bool) -> void:
+	_regenerate_live()
 
-## §5.1's state column, honestly computed rather than faked: "resolved" means
-## the last full generate covered this stage and nothing since has touched it
-## or anything upstream of it; "editing" is the one row actually just
-## changed; "stale" is every row at or after it in dependency order, per the
-## spec's own propagation rule. There is deliberately no per-stage recompute
-## behind any of this -- it is dock bookkeeping, not an engine capability.
+## The one thing every generation control now triggers on release, exactly
+## like the reference's own `withBusy('generating…', generate)`: the whole
+## world, from stage 01, with whatever the dock's sliders currently say. No
+## staleness to track -- by the time this returns, the map matches the dials
+## again, same as it always did in the app being ported.
+func _regenerate_live() -> void:
+	if app == null or app.new_world_dialog == null or bridge.generating:
+		return
+	bridge.generate(app.new_world_dialog.request())
+
+## §5.1's state column, honestly reduced to what is actually true now that
+## there is no partial-recompute concept: every stage is either not-yet-built,
+## mid-regenerate, or resolved together, because one `generate()` call resolves
+## all ten at once. Nothing here claims per-stage granularity that isn't real.
 func _refresh_stage_states() -> void:
 	for i in _stage_state_labels.size():
 		var lbl: Label = _stage_state_labels[i]
 		if not bridge.has_world:
 			lbl.text = "no world"
 			lbl.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
-		elif _last_edited_stage == i:
-			lbl.text = "%s editing" % DccIcons.SYMBOLS["on"]
+		elif bridge.generating:
+			lbl.text = "%s generating" % DccIcons.SYMBOLS["on"]
 			lbl.add_theme_color_override("font_color", DccTheme.c("accent"))
-		elif (_last_edited_stage >= 0 and i > _last_edited_stage) or bridge.params_dirty:
-			lbl.text = "%s stale" % DccIcons.SYMBOLS["off"]
-			lbl.add_theme_color_override("font_color", DccTheme.c("stale"))
 		else:
 			lbl.text = "%s resolved" % DccIcons.SYMBOLS["tick"]
 			lbl.add_theme_color_override("font_color", DccTheme.c("text_dim"))
@@ -377,28 +376,22 @@ func _refresh_stage_states() -> void:
 
 ## §3's rail-foot stage counter ("04 / 10"), repurposed as the collapsed left
 ## dock's own primary readout (§6: a collapsed dock keeps its one essential
-## number, never blanks). Same honest basis as _refresh_stage_states() above --
-## a count of GUI-tracked stage state, not a real per-stage completion signal.
+## number, never blanks).
 func _push_dock_readout() -> void:
 	if app == null:
 		return
 	if not bridge.has_world:
 		app.set_dock_readout("left", "no world")
-	elif _last_edited_stage >= 0:
-		app.set_dock_readout("left", "%02d / 10 stale" % (_last_edited_stage + 1))
+	elif bridge.generating:
+		app.set_dock_readout("left", "generating…")
 	else:
 		app.set_dock_readout("left", "10 / 10 resolved")
 
-## The dock's own primary action. `generate_sized`/`generate_world_structure_sized`
-## are the ONE call site (`EngineBridge.generate`) -- this just supplies the
-## request dictionary the New World dialog already keeps current, so pressing
-## this after tuning stage rows above regenerates with today's live parameter
-## table plus whatever creation-time shape (seed, extent, resolution, archetype)
-## the dialog last held.
+## The dock's own primary action, mirroring the tool options bar's "Generate
+## world" (`app.gd`'s `_run_pipeline`, `#genBtn` in the reference) -- the same
+## one call site (`EngineBridge.generate`) every live-edit row above also uses.
 func _on_generate_pressed() -> void:
-	if app == null or app.new_world_dialog == null:
-		return
-	bridge.generate(app.new_world_dialog.request())
+	_regenerate_live()
 
 # -- §5.2 Sculpt ----------------------------------------------------------------
 

@@ -350,6 +350,13 @@ func _on_create() -> void:
 ## experimental flags are read live off `bridge` rather than cached locally --
 ## see this file's own header comment on why that keeps this dialog and the
 ## Generation Pipeline's stage rows from ever disagreeing.
+## `#reseedBtn`'s own behaviour, verified live against the reference (Playwright,
+## 2026-08-19): `state.tect.seed=(Math.random()*99999)|0; ...;
+## withBusy('generating…',generate)` -- a reroll and nothing else. No dialog
+## opens; the caller regenerates immediately with the new seed.
+func randomise_seed() -> void:
+	seed_input.value = randi() % 100000
+
 func request() -> Dictionary:
 	return {
 		"seed": int(seed_input.value),
