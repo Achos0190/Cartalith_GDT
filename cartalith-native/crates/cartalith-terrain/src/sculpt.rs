@@ -116,6 +116,18 @@ pub(crate) fn js_hypot(x: f64, y: f64) -> f64 {
 /// arguments the arithmetic is unchanged, operation for operation.
 #[inline]
 pub(crate) fn js_hypot_n(mags: &[f64]) -> f64 {
+    // ECMA-262 21.3.2.18 pins this ahead of the scaling loop, and the loop
+    // on its own gets both wrong: an infinite argument makes `v / max` a
+    // NaN, and a NaN argument loses the `v > max` comparison so `max` stays
+    // 0. `Math.hypot(inf, NaN)` is `inf`, not NaN -- infinity is checked
+    // first. (`JS_SEMANTICS_AUDIT.md` §3.2 found this preamble missing from
+    // three of the four copies of this function.)
+    if mags.iter().any(|v| v.is_infinite()) {
+        return f64::INFINITY;
+    }
+    if mags.iter().any(|v| v.is_nan()) {
+        return f64::NAN;
+    }
     let mut max = 0.0f64;
     for &v in mags {
         if v > max {
@@ -1621,6 +1633,37 @@ impl Stamp for SculptStamp {
 mod tests {
     use super::*;
     use cartalith_spatial::{DirtyTracker, PassBuffer};
+
+    /// The `Math.hypot` cases ECMA-262 21.3.2.18 pins, which the bare
+    /// scaling loop got wrong until `JS_SEMANTICS_AUDIT.md` §3.2 found
+    /// this copy missing the preamble. Every expectation is `node`
+    /// v24.19.0's own output. No live call site can reach an infinite or
+    /// NaN argument today -- this test is what keeps that from mattering
+    /// if one ever does.
+    #[test]
+    fn js_hypot_follows_the_spec_on_infinity_and_nan() {
+        assert_eq!(js_hypot(f64::INFINITY, 3.0), f64::INFINITY);
+        assert_eq!(js_hypot(3.0, f64::INFINITY), f64::INFINITY);
+        assert_eq!(js_hypot(f64::NEG_INFINITY, 3.0), f64::INFINITY);
+        // Infinity wins over NaN, in either argument order.
+        assert_eq!(js_hypot(f64::INFINITY, f64::NAN), f64::INFINITY);
+        assert_eq!(js_hypot(f64::NAN, f64::INFINITY), f64::INFINITY);
+        assert!(js_hypot(f64::NAN, 0.0).is_nan());
+        assert!(js_hypot(0.0, f64::NAN).is_nan());
+        assert!(js_hypot(f64::NAN, f64::NAN).is_nan());
+        // The ordinary path is unchanged: V8's one-ulp-high 3root2.
+        assert_eq!(js_hypot(0.0, 0.0), 0.0);
+        assert_eq!(js_hypot(3.0, 3.0), 4.242640687119286);
+    }
+
+    /// The variadic form carries the same guard, so the three-argument
+    /// call `renderHeightTileRGBA` makes is covered too.
+    #[test]
+    fn js_hypot_n_follows_the_spec_on_infinity_and_nan() {
+        assert_eq!(js_hypot_n(&[f64::INFINITY, 1.0, 2.0]), f64::INFINITY);
+        assert!(js_hypot_n(&[f64::NAN, 1.0, 2.0]).is_nan());
+        assert_eq!(js_hypot_n(&[1.0, 2.0, 2.0]), 3.0);
+    }
 
     fn flat(w: usize, h: usize, v: f32) -> Vec<f32> {
         vec![v; w * h]

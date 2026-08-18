@@ -16,6 +16,11 @@ Audit run 2026-08-18 against all fourteen crates. Every measurement below was
 taken against **V8 itself** (`node` v24.19.0) or against an exhaustive scan —
 none of it is reasoning from a specification alone.
 
+**Follow-up pass, same day:** recommendation #1 was acted on. `js_atan2` is
+ported and `build_channels` is fixed; §2.3, §4.4 and §6 carry the result. The
+document is kept current rather than superseded, because it is meant to be
+read *before* porting, not after.
+
 ---
 
 ## 1. The catalogue
@@ -34,7 +39,7 @@ sweep's own.
 | 6 | `Math.sin` ≠ `f64::sin` | `cartalith-urban::geom::js_sin` (in flight, fork) |
 | 7 | `Math.cos` ≠ `f64::cos` | `cartalith-urban::geom::js_cos` (in flight, fork) |
 | 8 | `Math.log` ≠ `f64::ln` | `cartalith-urban::geom::js_log` (in flight, fork) |
-| 9 | **`Math.atan2` ≠ `f64::atan2`** | **none — nothing has been ported for it** |
+| 9 | `Math.atan2` ≠ `f64::atan2` | `cartalith-hydrology::jsmath::js_atan2` (**ported 2026-08-18**, §2.3) |
 
 ### 1.1 How far apart they actually are
 
@@ -51,13 +56,25 @@ uses, compared bit for bit against V8:
 | `pow` | 79 / 200 000 — 0.04 % |
 | `sqrt` | **0** — IEEE-754 mandates correct rounding, so this one is safe forever |
 | `js_exp` (the ported FDLIBM) | **0 / 200 000** |
+| `js_atan2` (the ported FDLIBM) | **0 / 240 000** (follow-up pass, §2.3) |
 
 Every disagreement is one ulp. That is not a reason to relax: divergence #1's
 own history is a one-ulp `hypot` turning a four-node road graph into a
 three-node one, because 11 m was a snap threshold.
 
-`atan2` is the headline. It is the *largest* divergence in the workspace, it
-has eight live call sites, and no `js_atan2` exists. See §4.4.
+`atan2` is the headline. It is the *largest* divergence in the workspace and it
+had eight live call sites with no `js_atan2` anywhere. It now has one. See
+§2.3 and §4.4.
+
+**A note on the two `atan2` percentages in this document.** The sweep's own
+draw gave 22.98 % over 200 000 arguments; the follow-up pass's independent
+draw gave **17.01 % over 240 000** (40 824 disagreements), across four bands —
+`[-1,1]`, height gradients at `1e-8..1e-1`, coordinate deltas at `±4096`, and
+mixed magnitudes at `2^±40`. Both numbers are real; they differ because the
+divergence rate depends on the argument distribution, and neither sample is
+"the" answer. The conclusion is the same either way, and the figure that
+actually settled the question is the one below it: the ported function
+disagrees with V8 on **zero** arguments in either sample.
 
 ### 1.2 What is safe by construction
 
@@ -81,9 +98,10 @@ Worth knowing so nobody spends a milestone on it:
 
 ## 2. What this sweep changed
 
-Two real bugs, both in `cartalith-spatial`, both proved with a test that fails
-before the fix and passes after, and both with their expected values re-derived
-from V8 rather than read off the new code.
+Three real bugs — two found by the sweep itself (both in `cartalith-spatial`,
+§2.1 and §2.2) and one by the follow-up pass (`cartalith-hydrology`, §2.3).
+Each is proved with a test that fails before the fix and passes after, and each
+has its expected values re-derived from V8 rather than read off the new code.
 
 ### 2.1 `PaintStamp::apply` painted rim cells the reference skips
 
@@ -174,6 +192,94 @@ For confidence that nothing else is wrong there: 60 000 randomised differential
 cases against V8 now agree exactly, for both this function and
 `cartalith-civ::js_fixed`.
 
+### 2.3 `build_channels` steered rivers into the wrong cell
+
+`cartalith-hydrology/src/lib.rs`, the follow-up pass. This is recommendation
+#1, acted on.
+
+**What V8 actually runs.** `Math.atan2` does *not* reach the platform libm.
+V8 ships its own FDLIBM port in `src/base/ieee754.cc` — the same reason
+`js_exp` exists — so the target is `__ieee754_atan2` plus the `atan` it calls.
+Two details decide whether a transcription is right:
+
+* the specification preamble (both signed zeros, each infinity quadrant, NaN);
+* **`m &= 1` in the `|y/x| > 2**60` branch.** That line is the FreeBSD msun
+  correction V8 carries and the original 1993 Sun fdlibm does not. Without it
+  the port disagrees with V8 on **777 of 240 000** arguments — every one of
+  them `x` tiny and negative, `y` large — returning one ulp above `pi/2` where
+  V8 returns `pi/2` exactly. It was found by measurement, not by reading: the
+  first transcription was the 1993 source and the differential run pointed
+  straight at the branch.
+
+**Measured.** Over 240 000 arguments in the four bands named in §1.1,
+`f64::atan2` returns a different double from V8 on **40 824**; `js_atan2`
+returns a different double on **0**. Over the 1 089-pair cross product of 33
+special values (both zeros, both infinities, NaN, subnormals, `f64::MAX/MIN`,
+and each fdlibm reduction boundary), `f64::atan2` differs on **42** and
+`js_atan2` on **0**.
+
+**The bug was live, and the mechanism is structural rather than a coincidence.**
+`build_channels`'s receiver is a discrete argmax — the cell a river flows into
+— so nothing absorbs a one-ulp difference the way an `f32` store does for the
+`exp` sites in §4.2. The reachable case:
+
+1. a cell whose 3x3 is left-right symmetric has `gx == 0.0` **exactly**;
+2. so `aspect = atan2(-gy, -0.0)` lands on the signed-zero branch and comes out
+   at exactly `-pi/2`;
+3. its two symmetric downhill diagonals then have **exactly equal** `drop`, and
+   `|wrap(atan2(dy,dx) - aspect)|` is mathematically `3*pi/4` for both;
+4. so the argmax is settled purely by which of two last bits is larger, and
+   `f64::atan2` settles it differently from V8. `score > best_score` is strict,
+   so the tie goes to whichever neighbour the loop reached first.
+
+That configuration is a ridge, saddle or plateau edge — ordinary terrain, not a
+contrivance. The whole decision for a cell depends on exactly its 3x3 block, so
+the domain can be sampled directly. Over **1 200 000** random 3x3 blocks on a
+quantised height lattice, `f64::atan2` picks a **different receiver from V8 on
+84**; `js_atan2` picks V8's on all 1 200 000. Every one of the 43 divergent
+blocks the search kept was then re-checked against `node` running the
+reference's own channelization loop: **V8 agreed with `js_atan2` on 43 of 43
+and with `f64::atan2` on 0 of 43.** The port was picking the wrong cell.
+
+**`sin`/`cos` are deliberately *not* ported here, and that is a measured
+decision, not an omission.** They diverge from V8 too (2.34 % each) and they
+sit in the same expression. But the wrap `atan2(sin(da), cos(da))` only decides
+the outcome when the two competing `da` are exact negatives of each other, and
+`sin`/`cos` preserve that antisymmetry exactly whatever their accuracy — so the
+divergence cannot reach the argmax. Over **600 000** blocks spanning four
+terrain regimes (uniform random, quantised lattice, near-flat plateau, and
+perturbed-symmetric), `js_atan2` with Rust's own `sin`/`cos` agreed with V8 on
+**every single receiver**. Porting `js_sin`/`js_cos` into this crate would have
+been two hundred lines of unreachable FDLIBM and a ninth copy site.
+
+**Why no existing golden could have caught it.** All three cases in
+`golden_parity_river.rs` pass **unmodified**, which is the proof rather than
+the excuse — but the reason is measurable. Instrumented, the three fixtures
+channelize **365 cells between them, and not one has `gx == 0.0` exactly, nor
+a top-two score gap below `1e-15`.** Their terrain is smooth and asymmetric, so
+the precondition never arises. This is §4's recurring pattern in its sharpest
+form yet: a golden that exercises the *feature* thoroughly and the *branch* not
+at all. It is the same shape as §2.2's `js_to_fixed`, where a fixture chosen to
+cover every feature type covered no rounding branch.
+
+Tests added, all three in `cartalith-hydrology`:
+`js_atan2_matches_v8_on_every_branch` (44 arguments crossing every fdlibm
+reduction interval, both `|y/x|` extremes and the `m &= 1` branch),
+`js_atan2_matches_v8_on_the_spec_pinned_edge_cases` (the 26 cases ECMA-262
+21.3.2.8 names plus the seven NaN combinations), and
+`build_channels_receiver_follows_v8_not_rust_atan2` — two 3x3 grids, one on
+ordinary generated-terrain `f32` values and one on exactly-representable ones,
+which return receiver `8` before the fix and `6` after. V8 returns `6`.
+
+One expectation in that second test was **wrong when first written** and the
+test caught it: an extra hand-added assertion claimed
+`atan2(-0.25, -0.0) == -pi`, reasoning from the signed-zero rules, where V8
+gives `-pi/2` (`x` is a zero of either sign, so the answer is `±pi/2` and the
+sign comes from `y` alone). It was written from reasoning instead of from
+`node` — exactly the failure §5's recommendation #5 exists to prevent, caught
+this time because the recommendation had also produced the habit of running
+`node` before believing the fix.
+
 ---
 
 ## 3. Do the helpers agree with each other?
@@ -196,11 +302,16 @@ x = 0.49999999999999994        (the largest double below 0.5)
   V8 Math.round(x)   = 0
 ```
 
-`cartalith-terrain`'s doc comment calls `(x + 0.5).floor()` "the standard exact
-equivalent". It is not, and the urban copy's own doc says so. **Not fixed:**
-one unreachable input against six cross-crate edits is the wrong trade while
-three forks are active. **Do** use the fractional-part form when writing a new
-one.
+`cartalith-terrain`'s doc comment called `(x + 0.5).floor()` "the standard
+exact equivalent". It is not, and the urban copy's own doc says so.
+
+**Follow-up pass: the false comment is fixed, the six implementations are
+not.** The comment was a documentation defect with zero behavioural risk, and
+leaving a wrong claim in place is how the next reader "cleans up" the correct
+copy to match the incorrect one; it now states the disagreeing input and points
+at the urban form. The implementations stay as they are — one unreachable input
+against six cross-crate edits is still the wrong trade while a fork is active.
+**Do** use the fractional-part form when writing a new one.
 
 ### 3.2 `js_hypot` — NaN and infinity
 
@@ -214,8 +325,28 @@ one.
 | `hypot(∞, NaN)` | ∞ | ∞ | **NaN** |
 
 `hypot(NaN, 0)` → `0` is argument-order dependent: `hypot(0, NaN)` gives NaN in
-all four. No live site can reach a NaN or infinite argument, so this is
-recorded, not fixed. The new copy added in §2.1 has the preamble.
+all four. No live site can reach a NaN or infinite argument. The new copy added
+in §2.1 has the preamble.
+
+**Follow-up pass: fixed in all three.** This one *is* a cheap, safe fix, unlike
+§3.1's: it is additive, it is one place per crate rather than six, and it can
+only change the result for an argument that is infinite or NaN — inputs no live
+site reaches, so no golden can move (and none did). In `cartalith-terrain` the
+guard went into the variadic `js_hypot_n`, so the three-argument form
+`renderHeightTileRGBA` uses is covered by the same code. Each crate gained a
+`js_hypot_follows_the_spec_on_infinity_and_nan` test whose expectations are
+`node`'s output, so a future copy-paste cannot lose the preamble silently
+again.
+
+All seven `js_hypot`-family entry points now agree with V8 on infinity and NaN.
+There are five distinct implementations of the compensated sum
+(`-assets::manual`, `-civ`, `-spatial::paint`, `-terrain::sculpt::js_hypot_n`,
+`-urban::geom`) and two thin wrappers over the terrain one
+(`-terrain::sculpt::js_hypot`, `-terrain::tile_render::js_hypot3`), which
+inherit the guard rather than repeating it. `js_hypot3` is worth naming: the
+sweep's §5 count of "seven copies" included it, but §3.2's four-way table did
+not, and it would have been missed by a fix applied only to the two-argument
+forms.
 
 ### 3.3 `js_min`/`js_max` — signed zero
 
@@ -350,47 +481,71 @@ NaN", which is a whole-pipeline property no test asserts:
 add one debug-only assertion that the pipeline's output fields are NaN-free.
 That converts the whole class from "believed safe" to "checked", at one site.
 
-### 4.4 `f64::atan2` — 8 sites, the largest unswept divergence
+### 4.4 `f64::atan2` — 8 sites, swept
 
-Nothing has been ported for `Math.atan2`, and it disagrees with V8 more than
-any other function here (**22.98 %**).
+`Math.atan2` disagrees with V8 more than any other function here. `js_atan2`
+now exists (`cartalith-hydrology::jsmath`), and every site has a verdict.
 
-The structural one is **`cartalith-hydrology::build_channels`** (lines 241,
-270, 271):
+| site | verdict |
+|---|---|
+| `-hydrology:241, 270, 271` (`build_channels`) | **fixed** — §2.3 |
+| `-terrain:1864, 1865` (`poly_meta`) | **safe, proved** |
+| `-civ::labels:517` (`label_rotate_deg`) | **safe, no reproducible reference** |
+| `-terrain:372` (plate circular mean) | **reported, not changed — cannot be fixed by `js_atan2` alone** |
+| `-urban::graph:607` (`ang`) | **fork territory — audited, not touched; a real hazard** |
 
-```rust
-let aspect = (-gy).atan2(-gx);
-let mut da = (dy as f64).atan2(dx as f64) - aspect;
-da = da.sin().atan2(da.cos()).abs();
-let score = drop * (0.5 + 0.5 * da.cos());
-if score > best_score { best_score = score; best = j; }
-```
+**`-terrain:1864, 1865` — safe with a hard invariant, do not "fix" this one.**
+`poly_meta`'s turning angle takes `atan2` of differences between consecutive
+polyline points, and those points come from `walk()`, which advances one
+8-connected cell at a time. The arguments are therefore always in
+`{-1, 0, 1}²`, and **all eight D8 directions are bit-identical between
+`f64::atan2` and V8** (verified directly, not assumed — the same shape as the
+D8 `hypot` tables in §4.1). Belt and braces: `curvature`, the only value the
+turning angle feeds, has no consumer anywhere in the workspace outside one
+`assert_eq!` in a terrain unit test.
 
-`best` is the cell a river flows into — a discrete argmax, not a shaded value.
-Measured against V8 over 100 000 random aspects:
+**`-civ::labels:517` — safe, but for a different reason worth stating.**
+`label_rotate_deg` converts a live pointer position into a label's rotation in
+degrees. Its input is a mouse drag, not a seeded pipeline value, so there is no
+reproducible reference for it to diverge *from*; two runs of the reference
+itself would not agree either. The output is continuous, feeds a canvas
+rotation, and crosses no threshold. Cosmetic, as the sweep first called it, and
+now with the invariant attached.
 
-- `atan2(dy, dx)` for the eight D8 directions: **0 / 8 differ** (those are
-  exact, so the divergence enters only through `aspect` and the `sin`/`cos`/
-  `atan2` wrap chain);
-- the aspect factor `0.5 + 0.5·cos(da)` as a whole:
-  **12 969 / 100 000 — 12.97 % differ.**
+**`-terrain:372` — reported, not changed, and the reason is the useful part.**
+This is `buildPlates`'s circular mean of a plate's member-cell x positions in
+world-wrap mode: `atan2(Σ sin θ, Σ cos θ)`, scaled by `gw`. **It cannot be made
+V8-faithful by porting `js_atan2`, because the divergence enters upstream of
+`atan2`.** Measured over 2 000 synthetic plates at `gw = 512`: Rust's `sin`/
+`cos` produce a **different `(Σ sin, Σ cos)` pair from V8's on 92 of them**,
+before `atan2` is ever called. Swapping in `js_atan2` alone moves the final
+`plate.x` from 98/2000 disagreeing to 7/2000 — an improvement that leaves the
+site *differently* wrong, which is worse than leaving it alone, since it would
+make the next reader believe the site had been handled.
 
-So one in eight of this function's steering weights is one ulp off V8. The
-argmax flips only when two neighbours' scores land within one ulp of each
-other, which is rare — but when it does, the river takes a different cell and
-everything downstream of it moves. This is the same shape as divergence #1's
-node-graph failure, one probability class quieter.
+Its downstream is worth recording precisely, because it is not uniformly safe:
 
-Other sites: `-civ::labels:517` (a label bearing in degrees — cosmetic),
-`-terrain:372` (a plate seed position, then scaled by `gw` — value only),
-`-terrain:1864, 1865` (a turn angle inside a length accumulation), and
-`-urban::graph:607` (fork territory; `ang` is stored on an edge, and since the
-urban fork is currently porting `js_sin`/`js_cos`/`js_log`, that is the natural
-place for a `js_atan2` to land).
+* `-terrain:385` quantises through `js_round(plate.x).clamp(0, gw-1)`. Over the
+  same 2 000 plates the resulting **cell index differs from V8 zero times**.
+  Safe.
+* `-terrain:347` does **not** quantise — `dx = x as f64 - plate.x` feeds the
+  next Lloyd relaxation iteration's nearest-plate argmin. That is structurally
+  the same hazard as §2.3, one iteration removed.
 
-**Recommendation:** port `js_atan2` next, into the urban fork's FDLIBM block
-where `js_sin`/`js_cos`/`js_log` already are, rather than opening a seventh
-copy site. Then re-verify `build_channels` specifically.
+So: fix this in the same pass that lands `js_sin`/`js_cos`, not before, and fix
+all three together. Until then it is a known, measured, `world`-mode-only gap.
+
+**`-urban::graph:607` — fork territory, and the next one to fix.** `ang` is
+`atan2` of an edge's endpoint delta, stored on a half-edge and used as the
+**sort key** for the half-edges around a node, which is what the face traversal
+walks. `sort_by` is stable, so an exact tie keeps insertion order — but a
+one-ulp difference reorders two edges leaving a node in nearly the same
+direction, and the face traversal then produces a different city block. That is
+the §2.3 argmax hazard in a different costume, and this document's #1 history
+says it will be found the hard way if it is not found deliberately. It was
+audited and **not** edited: the urban fork is live in that crate, and it has
+already added `js_sin`/`js_cos`/`js_log` to `geom.rs`, which is exactly where a
+`js_atan2` belongs. Recommended to that fork rather than done here.
 
 ### 4.5 `f64::round` — 47 sites
 
@@ -441,8 +596,12 @@ class; no live divergence.
 
 ## 5. Recommendations
 
-**1. Port `js_atan2`, and re-verify `build_channels` after.** §4.4. It is the
-biggest measured gap in the workspace and it sits on a discrete argmax.
+**1. ~~Port `js_atan2`, and re-verify `build_channels` after.~~ DONE
+(2026-08-18).** §2.3. It was a live bug, not a latent one: the argmax was
+picking the wrong cell. **What is left of this recommendation** is
+`-urban::graph:607`, the half-edge sort key (§4.4), which belongs to the urban
+fork beside the `js_sin`/`js_cos`/`js_log` it has already added; and
+`-terrain:372`, which needs `js_sin`/`js_cos` before `js_atan2` can help it.
 
 **2. Consolidate the helpers into a `cartalith-jsmath` leaf crate — later, not
 now.** There are 7 copies of `js_hypot`, 7 of `js_round`, 3 of
@@ -458,11 +617,24 @@ does not disturb that ordering, and it is the only shape that reaches all
 fourteen: `cartalith-urban` depends only on `-rng`, and `cartalith-assets` only
 on `-io`/`-noise`, so neither can see `cartalith-spatial`.
 
-**Do not do it yet.** `cartalith-urban::geom` is the file the urban fork is
-actively adding `js_sin`/`js_cos`/`js_log` to; moving it now guarantees a
-collision. The move is mechanical and safe once the three forks have landed,
-and it should be one commit that only relocates code — no behaviour change, so
-every golden must pass untouched.
+**Do not do it yet — re-checked 2026-08-18 and still true.** `cartalith-urban`
+had 607 uncommitted lines in `geom.rs` at the time of the follow-up pass, with
+`js_sin`/`js_cos`/`js_log` freshly added and its own `routes` golden red mid-
+edit. Moving that file now guarantees a collision. The move is mechanical and
+safe once the fork lands, and it should be one commit that only relocates code
+— no behaviour change, so every golden must pass untouched.
+
+**The follow-up pass made the case stronger, and paid the cost it predicted.**
+`js_atan2` went into `cartalith-hydrology` as a private module — an **eighth**
+copy site for the FDLIBM family — because that is where the live bug was and
+because opening a cross-crate refactor under an active sibling is the one thing
+this recommendation says not to do. That is the right call for one pass and the
+wrong steady state: `-terrain:372` and `-urban::graph:607` both still need
+`atan2`, and neither can reach `cartalith-hydrology`'s private module, so the
+next porter faces a ninth and tenth copy or a dependency edge that
+`ARCHITECTURE.md` would not want. When the crate is created, `js_atan2` and its
+`js_atan` should move into it with the rest — the tests move with them
+unchanged, which is the check that the move was pure.
 
 **3. Assert NaN-freedom once instead of clamping 200 times.** §4.3.
 
@@ -494,7 +666,35 @@ written from a paraphrase of ECMA-262 and asserted the bug for two milestones.
   one-line change and re-running the new test.
 - `cargo fmt` was not run.
 
+### 6.1 The follow-up pass (`js_atan2`, same day)
+
+- `cargo test --workspace --exclude cartalith-godot --exclude cartalith-urban`:
+  **1069 passed / 0 failed** across 94 suites, against a **1062 / 0** baseline
+  taken by reverting exactly the five files this pass touched and re-running.
+  The delta is **exactly the seven tests added** and nothing else moved.
+- `cartalith-urban` is excluded from that pair because the sibling fork was
+  editing it *during* the run — its own uncommitted `routes`/`geom`/`rng`
+  goldens went from 1 red to 6 red between the baseline and the after-run,
+  none of them in a crate this pass touched. Including it
+  (`--exclude cartalith-godot` only, `--no-fail-fast`) gives 1130 → 1132 with
+  that moving failure count, which is why the clean comparison excludes it.
+  `cartalith-godot` is excluded for the documented DLL-lock transient.
+- `cargo clippy -p cartalith-hydrology -p cartalith-assets -p cartalith-civ
+  -p cartalith-terrain --all-targets`: **no warning or error in any line this
+  pass wrote.** (The four crates are not warning-free overall — pre-existing
+  `excessive_precision` in `golden_parity_road_network.rs` and two loop-index
+  warnings in `cartalith-civ` — but none is in changed code.)
+- **No existing golden expectation was modified**, including all three cases of
+  `golden_parity_river.rs`, which pass unmodified precisely *because* they
+  cannot observe the bug (§2.3).
+- The `build_channels` fix was confirmed to fail before and pass after by
+  reverting the three call sites and re-running: receiver `8` before, `6`
+  after, and `6` from `node`.
+- `cargo fmt` was not run. Nothing Godot-scene-side was touched (UI hold,
+  `DCC_SHELL_SCOPE.md`). `cartalith-urban` was read and reported on, never
+  edited.
+
 Measurement harnesses (the V8 dumps, the exhaustive scans, the differential
-runs) were scratch programs, not checked in — the same convention the
-golden-fixture extraction harnesses follow. Every number in this document is
-reproducible from the description beside it.
+runs, the 3x3 block search) were scratch programs, not checked in — the same
+convention the golden-fixture extraction harnesses follow. Every number in this
+document is reproducible from the description beside it.

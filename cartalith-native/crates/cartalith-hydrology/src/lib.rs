@@ -4,6 +4,212 @@
 
 use rayon::prelude::*;
 
+/// `Math.atan2`, as V8 actually computes it.
+///
+/// **This is not `f64::atan2`.** V8 does not call the platform libm for
+/// `Math.atan2`; it ships its own copy of FDLIBM's `__ieee754_atan2` in
+/// `src/base/ieee754.cc`, the same way it ships `__ieee754_exp` (which is
+/// why `cartalith-urban::geom::js_exp` exists). Measured against `node`
+/// v24.19.0 over 240 000 arguments drawn in the ranges this engine really
+/// uses, `f64::atan2` returns a different double on **40 824** of them —
+/// 17.0 %, and the largest single divergence in this workspace
+/// (`JS_SEMANTICS_AUDIT.md` §1.1). This function returns V8's double on
+/// **0** of the same 240 000.
+///
+/// It matters here because `build_channels` feeds the result into a
+/// discrete argmax that picks the cell a river flows into, not into a
+/// shaded value — see that function's own note.
+///
+/// Two details are load-bearing and easy to drop:
+///
+/// * the specification preamble (both signed zeros, each infinity
+///   quadrant, NaN). `JS_SEMANTICS_AUDIT.md` §3.2 records three of four
+///   `js_hypot` copies having lost exactly this, so `hypot(inf, 3)`
+///   returned NaN. Every case ECMA-262 21.3.2.8 pins is covered by a test
+///   below, with each expectation read off `node`.
+/// * `m &= 1` in the `|y/x| > 2**60` branch. That line is the FreeBSD msun
+///   correction V8 carries and the original 1993 Sun fdlibm does not;
+///   without it this function disagrees with V8 on 777 of the same
+///   240 000 arguments (all of them `x` tiny and negative, `y` large),
+///   returning one ulp above `pi/2` where V8 returns `pi/2`.
+mod jsmath {
+    // The FDLIBM constants are transcribed verbatim from V8's own source;
+    // `PI_O_2` and friends are deliberately those literals and not
+    // `std::f64::consts::FRAC_PI_2`, and their digit counts are fdlibm's.
+    #![allow(clippy::approx_constant, clippy::excessive_precision)]
+
+    const ATANHI: [f64; 4] = [
+        4.63647609000806093515e-01, // atan(0.5)hi
+        7.85398163397448278999e-01, // atan(1.0)hi
+        9.82793723247329054082e-01, // atan(1.5)hi
+        1.57079632679489655800e+00, // atan(inf)hi
+    ];
+    const ATANLO: [f64; 4] = [
+        2.26987774529616870924e-17, // atan(0.5)lo
+        3.06161699786838301793e-17, // atan(1.0)lo
+        1.39033110312309984516e-17, // atan(1.5)lo
+        6.12323399573676603587e-17, // atan(inf)lo
+    ];
+    const AT: [f64; 11] = [
+        3.33333333333329318027e-01,
+        -1.99999999998764832476e-01,
+        1.42857142725034663711e-01,
+        -1.11111104054623557880e-01,
+        9.09088713343650656196e-02,
+        -7.69187620504482999495e-02,
+        6.66107313738753120669e-02,
+        -5.83357013379057348645e-02,
+        4.97687799461593236017e-02,
+        -3.65315727442169155270e-02,
+        1.62858201153657823623e-02,
+    ];
+
+    /// FDLIBM `atan`. `js_atan2` needs it; V8 reaches it directly for
+    /// `Math.atan` too, but nothing in this crate calls that, so it stays
+    /// private.
+    fn js_atan(x: f64) -> f64 {
+        let hx = (x.to_bits() >> 32) as u32 as i32;
+        let ix = hx & 0x7fff_ffff;
+        if ix >= 0x4410_0000 {
+            // |x| >= 2^66: atan(x) is pi/2 to the last bit (or x is NaN).
+            let low = x.to_bits() as u32;
+            if ix > 0x7ff0_0000 || (ix == 0x7ff0_0000 && low != 0) {
+                return x + x;
+            }
+            return if hx > 0 { ATANHI[3] + ATANLO[3] } else { -ATANHI[3] - ATANLO[3] };
+        }
+        let mut x = x;
+        let id: i32;
+        if ix < 0x3fdc_0000 {
+            // |x| < 0.4375 -- no argument reduction.
+            if ix < 0x3e40_0000 {
+                // |x| < 2^-27: atan(x) == x. (fdlibm's `huge+x>one` guard
+                // exists only to raise the inexact flag, which JS cannot
+                // observe.)
+                return x;
+            }
+            id = -1;
+        } else {
+            x = x.abs();
+            if ix < 0x3ff3_0000 {
+                if ix < 0x3fe6_0000 {
+                    // 7/16 <= |x| < 11/16
+                    id = 0;
+                    x = (2.0 * x - 1.0) / (2.0 + x);
+                } else {
+                    // 11/16 <= |x| < 19/16
+                    id = 1;
+                    x = (x - 1.0) / (x + 1.0);
+                }
+            } else if ix < 0x4003_8000 {
+                // 19/16 <= |x| < 2.4375
+                id = 2;
+                x = (x - 1.5) / (1.0 + 1.5 * x);
+            } else {
+                // 2.4375 <= |x| < 2^66
+                id = 3;
+                x = -1.0 / x;
+            }
+        }
+        let z = x * x;
+        let w = z * z;
+        // The odd/even split of sum(aT[i] * z^(i+1)) fdlibm uses; the
+        // grouping is part of the result, not an optimisation
+        // (`cartalith-rust-conventions`: do not reassociate).
+        let s1 = z * (AT[0] + w * (AT[2] + w * (AT[4] + w * (AT[6] + w * (AT[8] + w * AT[10])))));
+        let s2 = w * (AT[1] + w * (AT[3] + w * (AT[5] + w * (AT[7] + w * AT[9]))));
+        if id < 0 {
+            x - x * (s1 + s2)
+        } else {
+            let z = ATANHI[id as usize] - ((x * (s1 + s2) - ATANLO[id as usize]) - x);
+            if hx < 0 { -z } else { z }
+        }
+    }
+
+    const TINY: f64 = 1.0e-300;
+    const PI_O_4: f64 = 7.8539816339744827900e-01;
+    const PI_O_2: f64 = 1.5707963267948965580e+00;
+    const PI: f64 = 3.1415926535897931160e+00;
+    const PI_LO: f64 = 1.2246467991473531772e-16;
+
+    /// `Math.atan2(y, x)` — argument order is JS's, i.e. the same as
+    /// `y.atan2(x)`, so a call site converts by moving the receiver.
+    pub fn js_atan2(y: f64, x: f64) -> f64 {
+        let (xb, yb) = (x.to_bits(), y.to_bits());
+        let hx = (xb >> 32) as u32 as i32;
+        let lx = xb as u32;
+        let hy = (yb >> 32) as u32 as i32;
+        let ly = yb as u32;
+        let ix = (hx & 0x7fff_ffff) as u32;
+        let iy = (hy & 0x7fff_ffff) as u32;
+
+        // x or y is NaN. `(l | -l) >> 31` is fdlibm's branch-free "low
+        // word is nonzero", which pushes an infinity's high word past
+        // 0x7ff00000 exactly when the mantissa is set.
+        if (ix | ((lx | lx.wrapping_neg()) >> 31)) > 0x7ff0_0000
+            || (iy | ((ly | ly.wrapping_neg()) >> 31)) > 0x7ff0_0000
+        {
+            return x + y;
+        }
+        if (hx.wrapping_sub(0x3ff0_0000) as u32 | lx) == 0 {
+            return js_atan(y); // x == 1.0
+        }
+        // 2*sign(x) + sign(y), i.e. the quadrant.
+        let mut m = ((hy >> 31) & 1) | ((hx >> 30) & 2);
+
+        if (iy | ly) == 0 {
+            return match m {
+                0 | 1 => y, // atan2(+-0, +anything) = +-0
+                2 => PI + TINY, // atan2(+0, -anything) = pi
+                _ => -PI - TINY, // atan2(-0, -anything) = -pi
+            };
+        }
+        if (ix | lx) == 0 {
+            return if hy < 0 { -PI_O_2 - TINY } else { PI_O_2 + TINY };
+        }
+        if ix == 0x7ff0_0000 {
+            if iy == 0x7ff0_0000 {
+                return match m {
+                    0 => PI_O_4 + TINY,
+                    1 => -PI_O_4 - TINY,
+                    2 => 3.0 * PI_O_4 + TINY,
+                    _ => -3.0 * PI_O_4 - TINY,
+                };
+            }
+            return match m {
+                0 => 0.0,
+                1 => -0.0,
+                2 => PI + TINY,
+                _ => -PI - TINY,
+            };
+        }
+        if iy == 0x7ff0_0000 {
+            return if hy < 0 { -PI_O_2 - TINY } else { PI_O_2 + TINY };
+        }
+
+        let k = (iy as i32 - ix as i32) >> 20;
+        let z = if k > 60 {
+            // |y/x| > 2^60. `m &= 1` is the FreeBSD msun correction V8
+            // carries: without it the m=2/m=3 arms below re-add pi to a
+            // value that is already +-pi/2, landing one ulp off V8.
+            m &= 1;
+            PI_O_2 + 0.5 * PI_LO
+        } else if hx < 0 && k < -60 {
+            0.0 // 0 > |y|/x > -2^60
+        } else {
+            js_atan((y / x).abs())
+        };
+        match m {
+            0 => z,
+            1 => -z,
+            2 => PI - (z - PI_LO),
+            _ => (z - PI_LO) - PI,
+        }
+    }
+}
+
+use jsmath::js_atan2;
+
 /// Descending-height, ascending-index-on-tie comparison — the ordering
 /// `_flowRadixSortDesc()` (reference HTML lines 4846-4861) guarantees.
 /// The JS implementation is a radix sort operating on IEEE-754 bit
@@ -170,6 +376,32 @@ pub struct ChannelResult {
 /// because it's what `MVP_SCOPE.md`'s own "Strahler ordering" bullet
 /// names, and because `strahler_from_receivers` needs exactly this
 /// output (`recv`/`chan`) and nothing more.
+///
+/// **The aspect chain uses [`js_atan2`], not `f64::atan2`, and that is
+/// load-bearing.** `best` here is a discrete argmax — the cell a river
+/// flows into — so a one-ulp difference in the steering weight is not
+/// absorbed by a later `f32` store the way most of this workspace's
+/// libm divergences are (`JS_SEMANTICS_AUDIT.md` §4.2). It changes which
+/// cell the river takes, and everything downstream of that cell moves.
+///
+/// The reachable case is narrow but structural, not accidental: when a
+/// cell's 3x3 is left-right symmetric, `gx` is exactly `0.0`, `aspect`
+/// comes out at exactly `-pi/2` off the signed-zero branch, and the two
+/// symmetric downhill diagonals get **exactly equal** `drop` and
+/// mathematically equal `da`. The argmax is then settled by which of two
+/// last bits is larger, and `f64::atan2` settles it differently from V8.
+/// Measured over 1 200 000 randomly generated 3x3 blocks on a quantised
+/// height lattice, `f64::atan2` picks a different receiver from V8 on 84;
+/// `js_atan2` picks V8's on all 1 200 000. See
+/// `build_channels_receiver_follows_v8_not_rust_atan2`.
+///
+/// `sin`/`cos` diverge from V8 too (2.34 % each) and are **not** ported
+/// here, because measurement says they cannot reach this argmax: the wrap
+/// `js_atan2(sin(da), cos(da))` only decides the outcome when the two
+/// competing `da` are exact negatives of each other, and `sin`/`cos`
+/// preserve that antisymmetry exactly whatever their accuracy. Over
+/// 600 000 blocks spanning four terrain regimes, `js_atan2` with Rust's
+/// own `sin`/`cos` agreed with V8 on every single receiver.
 #[allow(clippy::too_many_arguments)]
 pub fn build_channels(
     fld: &[f32],
@@ -238,7 +470,7 @@ pub fn build_channels(
                 chan_row[x] = 1;
 
                 let hh = fld[i] as f64;
-                let aspect = (-gy).atan2(-gx);
+                let aspect = js_atan2(-gy, -gx);
                 let mut best: i64 = -1;
                 let mut best_score = 0.0f64;
                 let mut s_best: i64 = -1;
@@ -267,8 +499,8 @@ pub fn build_channels(
                             s_drop = drop;
                             s_best = j;
                         }
-                        let mut da = (dy as f64).atan2(dx as f64) - aspect;
-                        da = da.sin().atan2(da.cos()).abs();
+                        let mut da = js_atan2(dy as f64, dx as f64) - aspect;
+                        da = js_atan2(da.sin(), da.cos()).abs();
                         let score = drop * (0.5 + 0.5 * da.cos());
                         if score > best_score {
                             best_score = score;
@@ -497,7 +729,200 @@ pub fn enforce_river_channels(field: &mut [f32], river_mask: &[u8], river_floor:
 
 #[cfg(test)]
 mod tests {
-    use super::enforce_river_channels;
+    use super::{build_channels, enforce_river_channels, js_atan2};
+
+    // ---- Math.atan2 fidelity (JS_SEMANTICS_AUDIT.md §4.4) ----------------
+    //
+    // Every expectation below was read off `node` v24.19.0 as raw IEEE-754
+    // bits, never from a paraphrase of ECMA-262 — the audit's §5
+    // recommendation, written after a `toFixed` unit test spent two
+    // milestones asserting a bug it had reasoned its way into.
+
+    /// Ordinary arguments, chosen to cross every branch of FDLIBM's
+    /// `atan` argument reduction (|x| < 2^-27, < 0.4375, the three
+    /// reduced intervals, >= 2^66) and every quadrant of `atan2`.
+    #[test]
+    fn js_atan2_matches_v8_on_every_branch() {
+        let cases: [(f64, f64, u64); 44] = [
+            (1.0, 1.0, 0x3fe921fb54442d18),
+            (1.0, -1.0, 0x4002d97c7f3321d2),
+            (-1.0, 1.0, 0xbfe921fb54442d18),
+            (-1.0, -1.0, 0xc002d97c7f3321d2),
+            (3.0, 4.0, 0x3fe4978fa3269ee1),
+            (-3.0, 4.0, 0xbfe4978fa3269ee1),
+            (3.0, -4.0, 0x4003fc176b7a8560),
+            (-3.0, -4.0, 0xc003fc176b7a8560),
+            (0.5, 0.4375, 0x3feb434ee31013fc),
+            (0.5, 1.1875, 0x3fd9816449b6fd53),
+            (0.5, 2.4375, 0x3fc9e5acd4944285),
+            (-0.5, 0.4375, 0xbfeb434ee31013fc),
+            (1.5, -1.0, 0x400145385fa3af72),
+            (1.5, 2.4375, 0x3fe1a72859945683),
+            (3.0, -2.0, 0x400145385fa3af72),
+            (3.0, 2.4375, 0x3fec6e6d2171bf19),
+            (std::f64::consts::PI, 1.0, 0x3ff433b8a322ddd2),
+            (std::f64::consts::PI, -1.0, 0x3ffe103e05657c5f),
+            (std::f64::consts::PI, -0.5, 0x3ffba87553cd6603),
+            (-std::f64::consts::PI, 2.4375, 0xbfed266448697762),
+            (1e-9, 1.0, 0x3e112e0be826d695),
+            (1.0, 1e-9, 0x3ff921fb53ff74e9),
+            (2.0, 1.0, 0x3ff1b6e192ebbe44),
+            (1.0, 2.0, 0x3fddac670561bb4f),
+            (7.0, 1.0, 0x3ff6dcc57bb565fd),
+            (1.0, 7.0, 0x3fc229aec47638dc),
+            // |y/x| > 2^60 with x negative: the `m &= 1` branch. Drop that
+            // line and these four come back one ulp high.
+            (0.0625, -1e-300, 0x3ff921fb54442d18),
+            (1e300, -1e-300, 0x3ff921fb54442d18),
+            (-1e300, -1e-300, 0xbff921fb54442d18),
+            (1e300, 1e-300, 0x3ff921fb54442d18),
+            (-1e300, 1e-300, 0xbff921fb54442d18),
+            // subnormal and near-subnormal operands
+            (1e-300, -2.2250738585072014e-308, 0x3ff921fb5a3d3c3b),
+            (5e-324, 2.0, 0x0000000000000000),
+            (-5e-324, 2.0, 0x8000000000000000),
+            (2.2250738585072014e-308, -5e-324, 0x3ff921fb54442d1a),
+            (1.0, 1e-320, 0x3ff921fb54442d18),
+            (-1.0, 1e-320, 0xbff921fb54442d18),
+            // |y|/x < -2^60: the `z = 0.0` branch
+            (1e-300, 1e300, 0x0000000000000000),
+            (-1e-300, 1e300, 0x8000000000000000),
+            (1e-300, -1e300, 0x400921fb54442d18),
+            (-1e-300, -1e300, 0xc00921fb54442d18),
+            (123456789.5, -1e-8, 0x3ff921fb54442d19),
+            (-123456789.5, -1e-8, 0xbff921fb54442d19),
+            // x == 1.0 exactly: fdlibm short-circuits straight to atan(y)
+            (0.4374999999999999, 1.0, 0x3fda64eec3cc23fb),
+        ];
+        for (y, x, want) in cases {
+            let got = js_atan2(y, x);
+            assert_eq!(
+                got.to_bits(),
+                want,
+                "js_atan2({y:e}, {x:e}) = {got:e} ({:#018x}), V8 gives {:#018x}",
+                got.to_bits(),
+                want
+            );
+        }
+    }
+
+    /// The cases ECMA-262 21.3.2.8 pins by name: both signed zeros in
+    /// every combination, an infinity in each quadrant, and NaN.
+    ///
+    /// `JS_SEMANTICS_AUDIT.md` §3.2 found three of the four `js_hypot`
+    /// copies had quietly lost exactly this preamble, so `hypot(inf, 3)`
+    /// returned NaN. This test is here so the same cannot happen to
+    /// `js_atan2` unnoticed.
+    #[test]
+    fn js_atan2_matches_v8_on_the_spec_pinned_edge_cases() {
+        let cases: [(f64, f64, u64); 26] = [
+            (0.0, 0.0, 0x0000000000000000),
+            (0.0, -0.0, 0x400921fb54442d18),
+            (-0.0, 0.0, 0x8000000000000000),
+            (-0.0, -0.0, 0xc00921fb54442d18),
+            (0.0, 1.0, 0x0000000000000000),
+            (0.0, -1.0, 0x400921fb54442d18),
+            (-0.0, 1.0, 0x8000000000000000),
+            (-0.0, -1.0, 0xc00921fb54442d18),
+            (1.0, 0.0, 0x3ff921fb54442d18),
+            (-1.0, 0.0, 0xbff921fb54442d18),
+            (1.0, -0.0, 0x3ff921fb54442d18),
+            (-1.0, -0.0, 0xbff921fb54442d18),
+            (f64::INFINITY, f64::INFINITY, 0x3fe921fb54442d18),
+            (f64::INFINITY, f64::NEG_INFINITY, 0x4002d97c7f3321d2),
+            (f64::NEG_INFINITY, f64::INFINITY, 0xbfe921fb54442d18),
+            (f64::NEG_INFINITY, f64::NEG_INFINITY, 0xc002d97c7f3321d2),
+            (f64::INFINITY, 1.0, 0x3ff921fb54442d18),
+            (f64::INFINITY, -1.0, 0x3ff921fb54442d18),
+            (f64::NEG_INFINITY, 1.0, 0xbff921fb54442d18),
+            (f64::NEG_INFINITY, -1.0, 0xbff921fb54442d18),
+            (1.0, f64::INFINITY, 0x0000000000000000),
+            (1.0, f64::NEG_INFINITY, 0x400921fb54442d18),
+            (-1.0, f64::INFINITY, 0x8000000000000000),
+            (-1.0, f64::NEG_INFINITY, 0xc00921fb54442d18),
+            (0.0, f64::INFINITY, 0x0000000000000000),
+            (-0.0, f64::NEG_INFINITY, 0xc00921fb54442d18),
+        ];
+        for (y, x, want) in cases {
+            let got = js_atan2(y, x);
+            assert_eq!(got.to_bits(), want, "js_atan2({y}, {x}) bits");
+        }
+        // The signed zeros above are load-bearing, not decoration: this is
+        // the exact branch `build_channels` reaches on a left-right
+        // symmetric cell, where `gx` is `0.0` and `-gx` is `-0.0`.
+        // `x` is a zero of either sign and `y` is not, so this is the
+        // `(ix|lx) == 0` branch: the answer is +-pi/2 and the sign comes
+        // from `y` alone, never from the zero's sign.
+        assert_eq!(js_atan2(-0.25, -0.0).to_bits(), 0xbff921fb54442d18);
+        assert_eq!(js_atan2(0.25, -0.0).to_bits(), 0x3ff921fb54442d18);
+        assert_eq!(js_atan2(-0.25, 0.0).to_bits(), 0xbff921fb54442d18);
+        assert_eq!(js_atan2(0.25, 0.0).to_bits(), 0x3ff921fb54442d18);
+
+        // JS has one observable NaN, so these are compared as `is_nan`.
+        for (y, x) in [
+            (f64::NAN, 1.0),
+            (1.0, f64::NAN),
+            (f64::NAN, f64::NAN),
+            (f64::NAN, f64::INFINITY),
+            (f64::INFINITY, f64::NAN),
+            (f64::NAN, 0.0),
+            (0.0, f64::NAN),
+        ] {
+            assert!(js_atan2(y, x).is_nan(), "js_atan2({y}, {x}) should be NaN");
+        }
+    }
+
+    /// The whole reason `js_atan2` exists: `build_channels`'s receiver
+    /// argmax picks a **different cell** on a real input, and the cell
+    /// `f64::atan2` picks is the wrong one.
+    ///
+    /// The mechanism is structural, not a freak coincidence. A cell whose
+    /// 3x3 is left-right symmetric has `gx == 0.0` exactly, so
+    /// `aspect = atan2(-gy, -0.0)` lands on the signed-zero branch and
+    /// comes out at exactly `-pi/2`. Its two downhill diagonals then have
+    /// **exactly equal** `drop`, and `|wrap(atan2(dy,dx) - aspect)|` is
+    /// mathematically `3*pi/4` for both — so the argmax is decided purely
+    /// by which of two last bits comes out larger, and `f64::atan2` and V8
+    /// break that tie differently. `score > best_score` is strict, so the
+    /// tie goes to whichever neighbour the loop reached first.
+    ///
+    /// Both fixtures below are 3x3 grids, which makes the centre cell's
+    /// 3x3 neighbourhood the whole grid and the block index equal to the
+    /// grid index. `flow` is zero everywhere but the centre, so only the
+    /// centre channelizes and `recv` is `-1` elsewhere — the assertion is
+    /// on one number, the receiver.
+    ///
+    /// Expected receivers were computed by running the reference's own
+    /// `buildRiverNetwork` channelization loop (HTML lines 4504-4525),
+    /// transcribed verbatim, under `node` v24.19.0 on these exact `f32`
+    /// bit patterns. Before the `js_atan2` change both cases returned `8`;
+    /// V8 returns `6`.
+    #[test]
+    fn build_channels_receiver_follows_v8_not_rust_atan2() {
+        // (a) A near-flat plateau cell — ordinary generated-terrain f32
+        // values, symmetric to the bit in the left/right pairs.
+        // Shortest round-tripping `f32` literals; each is bit-identical to
+        // the value the search produced.
+        let field: Vec<f32> = vec![
+            0.5790264, 0.57902455, 0.5790278, 0.5790286, 0.5790234, 0.5790286, 0.5790227, 0.5790266,
+            0.5790227,
+        ];
+        let flow = vec![0.0f32, 0.0, 0.0, 0.0, 1.0e9, 0.0, 0.0, 0.0, 0.0];
+        let r = build_channels(&field, &flow, 3, 3, 0.0, false, 1.0, 800.0);
+        assert_eq!(r.chan, vec![0u8, 0, 0, 0, 1, 0, 0, 0, 0], "only the centre channelizes");
+        assert_eq!(
+            r.recv,
+            vec![-1i32, -1, -1, -1, 6, -1, -1, -1, -1],
+            "V8 steers the centre cell into cell 6; f64::atan2 steers it into cell 8"
+        );
+
+        // (b) The same mechanism on exactly-representable heights, so the
+        // symmetry is obvious by eye: columns 0 and 2 are equal in the top
+        // and bottom rows, and the middle row is flat.
+        let field: Vec<f32> = vec![0.8125, 0.5, 0.5625, 0.25, 0.25, 0.25, 0.125, 0.625, 0.125];
+        let r = build_channels(&field, &flow, 3, 3, 0.0, false, 1.0, 800.0);
+        assert_eq!(r.recv[4], 6, "V8 picks cell 6; f64::atan2 picks cell 8");
+    }
 
     #[test]
     fn crate_compiles_and_tests_run() {

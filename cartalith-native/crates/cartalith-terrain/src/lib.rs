@@ -14,8 +14,19 @@ pub mod tile_render;
 /// `f64::round` (ties away from zero) — `Math.round(-0.5) == 0`, but
 /// `(-0.5_f64).round() == -1.0`. `buildPlates`'s world-wrap math depends
 /// on the JS behaviour specifically (`cartalith-rust-conventions`: match
-/// precision, don't improve it). `(x + 0.5).floor()` is the standard
-/// exact equivalent.
+/// precision, don't improve it).
+///
+/// `(x + 0.5).floor()` is **not** an exact equivalent, as this comment
+/// used to claim. A sweep of 3 million random values plus every double
+/// within 3 ulp of every half-integer in +-50 finds exactly one input
+/// where it differs (`JS_SEMANTICS_AUDIT.md` §3.1):
+/// `x = 0.49999999999999994`, the largest double below `0.5`, for which
+/// `x + 0.5` rounds up to exactly `1.0` and this returns `1` where
+/// `Math.round(x)` is `0`. No call site can reach that value, and the
+/// same form is used by five other crates, so it is left alone rather
+/// than edited in six places under an active fork -- but a *new*
+/// `js_round` should compare the fractional part, as
+/// `cartalith-urban::geom::js_round` does.
 fn js_round(x: f64) -> f64 {
     (x + 0.5).floor()
 }
