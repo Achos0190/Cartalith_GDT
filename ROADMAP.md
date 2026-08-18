@@ -140,3 +140,17 @@ every other large effort here has used) before any code — the design doc's
 own V1 acceptance criteria assume entity concepts this port may not fully
 have yet (POIs/regions as addressable entities with their own info panel);
 verify before scoping.
+
+**Priority and framing, owner 2026-08-18**: *"Its not a critical part."*
+Stays here, at the end, and does not compete with engine or parity work. The
+target is a **generic Markdown vault** — Obsidian is one compatible vault and
+the owner's own, but nothing may require it and no Obsidian-specific
+behaviour belongs in the core. **An Obsidian plugin is a wish, deferred
+outright.** A refined spec and templates are expected from the owner, so the
+document on file will be replaced or extended before anyone scopes it.
+
+Note that `DCC_SHELL_SPEC.md` §9 puts a vault block in the Data manager that
+assumes more than the V1 design allows (`obsidian://` links, note links in
+exported GeoJSON, two-way sync — the last an explicit V1 non-goal). Treat
+that block as deferred rather than approved; `DCC_CONTROL_INDEX.md` records
+the conflict and `MARKDOWN_VAULT_INTEGRATION.md`'s header resolves it.

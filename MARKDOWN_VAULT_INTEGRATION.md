@@ -1,6 +1,41 @@
 # Cartalith Markdown Vault Integration
 ## Functional & Technical Design Specification
 
+> ## Owner clarification, 2026-08-18 — read before the spec below
+>
+> Verbatim: *"In the spec obsidian is mentioned a lot but it should be a
+> Markdown-vault (i personally use obsidian) as a stretch goal an obsidian
+> plugin is a wish. But that is largely deferred for now. Keep it on the
+> roadmap at the end or an extra. Its not a critical part."*
+>
+> Three things this settles:
+>
+> 1. **The target is a generic Markdown vault, not Obsidian.** The spec below
+>    already says so (§0 terminology, and §10 "the integration should not
+>    require Obsidian"), but it names Obsidian often enough to read as an
+>    Obsidian feature. It is not. Obsidian is one compatible vault, and the
+>    owner's own — nothing may *require* it, and no Obsidian-specific
+>    behaviour belongs in the core.
+> 2. **An Obsidian plugin is a wish, not a deliverable.** Already §33's
+>    non-goal and §34's stretch goal; now confirmed as deferred outright.
+> 3. **Priority is low.** "Not a critical part" — it stays at the end of
+>    `ROADMAP.md`, under "Options kept open, not scheduled", and does not
+>    compete with engine or parity work.
+>
+> **This resolves a real conflict `DCC_CONTROL_INDEX.md` raised.** The newly
+> imported `DCC_SHELL_SPEC.md` §9 puts a *MARKDOWN VAULT · LINKED* block in
+> the Data manager that assumes more than this document scopes: `obsidian://`
+> links written into exported tiles, note links inside exported GeoJSON, and a
+> **two-way sync toggle** — which is an explicit V1 non-goal here (§33). Under
+> this clarification the spec's `obsidian://` scheme is Obsidian-specific and
+> therefore out of core, and two-way sync stays a non-goal. Whoever builds §9
+> should treat that block as **deferred**, not as an approved requirement, and
+> the vault path/note-count readout is the only part of it consistent with V1.
+>
+> **Refined spec and templates are coming from the owner** — expect this
+> document to be replaced or extended. Do not start implementation against the
+> version below.
+
 > Owner-supplied design (2026-08-18), imported verbatim — "Here is another
 > function for on the roadmap." Recorded as a future, unscheduled phase
 > (`ROADMAP.md`'s own "Options kept open" section) — a genuinely new feature,
