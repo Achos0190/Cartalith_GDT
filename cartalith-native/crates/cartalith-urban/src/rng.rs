@@ -94,16 +94,27 @@ impl Substream {
 
     /// `r.norm()` — Box-Muller, **two draws per call**, `u1` clamped up to
     /// `1e-12` before the log. The reference's own comment flags this as
-    /// same-engine deterministic; `ln`/`cos`/`sqrt` are the one place in this
-    /// module where Rust's libm and V8's need not agree to the last ulp (see
-    /// the module test's tolerance note).
+    /// same-engine deterministic.
+    ///
+    /// Through [`crate::geom::js_log`] and [`crate::geom::js_cos`], not
+    /// `f64::ln` / `f64::cos`. Milestone 1 shipped this on the platform libm
+    /// with a documented "they happen to agree" note; milestone 6 measured the
+    /// disagreement — **1,647 of 60,009** arguments for `ln` and **2,160 of
+    /// 80,214** for `cos` — and this is the highest-leverage call site in the
+    /// subsystem, since [`Self::logn`] runs on top of it and draws every
+    /// frontage width, plot depth and building dimension in the town. The
+    /// milestone-1 goldens still pass, which is the check that this is a fix
+    /// and not a change. `sqrt` needs no such treatment: IEEE-754 mandates a
+    /// correctly-rounded square root, so V8's and Rust's agree by
+    /// specification.
     pub fn norm(&mut self) -> f64 {
         let mut u1 = self.u();
         if u1 < 1e-12 {
             u1 = 1e-12;
         }
         let u2 = self.u();
-        (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+        (-2.0 * crate::geom::js_log(u1)).sqrt()
+            * crate::geom::js_cos(2.0 * std::f64::consts::PI * u2)
     }
 
     /// `r.logn(median,sig)` — `median*Math.exp(sig*r.norm())`.
@@ -137,13 +148,15 @@ mod tests {
     /// slice boundary silently swallows the rest of the slice, and the balance
     /// check removes the whole class.
     ///
-    /// Everything is compared **exactly**, including `norm`/`logn`, which run
-    /// through `ln`/`cos`/`sqrt`/`exp` — the one family of operations where
-    /// V8's and Rust's libm are not *required* to agree to the last bit. They
-    /// were checked at zero tolerance and did agree, on every value here, so
-    /// exact is what is asserted. If this ever fails on another platform's
-    /// libm, that is a genuine parity finding worth seeing, not noise to
-    /// paper over with an epsilon.
+    /// Everything is compared **exactly**, including `norm`/`logn`. Those run
+    /// through `log`/`cos`/`exp`, all three of which V8 computes with FDLIBM
+    /// and the platform does not — so all three go through
+    /// [`crate::geom::js_log`], [`crate::geom::js_cos`] and
+    /// [`crate::geom::js_exp`] rather than `f64`'s. Milestone 1 asserted
+    /// exactness here on the platform libm and it passed, which was luck: the
+    /// values below happen to be ones the two agree about. Milestones 5 and 6
+    /// replaced the luck with the right function, and these goldens passing
+    /// unchanged afterwards is the check on that.
     fn eq_exact(a: f64, b: f64) {
         assert_eq!(a, b);
     }

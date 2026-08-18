@@ -117,6 +117,19 @@ pub struct Graph {
     /// is the same partition, and the map is only ever probed by key — its own
     /// iteration order is never used, so no ordering is lost.
     pub grid: HashMap<(i64, i64), Vec<usize>>,
+    /// The reference's `g._fromPaths`, a **dynamic** JS property rather than
+    /// part of `makeGraph`'s literal.
+    ///
+    /// `buildPrimariesFromPaths` sets it (line 28830) when it lays at least one
+    /// injected real-road primary, and `builtMassHull` (line 29709, milestone
+    /// 10) reads it to discount the bare degree-2 vertices a ~55 m resampled
+    /// road drags in — without which the enceinte over-encloses along
+    /// arterials. Milestone 2 deliberately left it out because nothing set or
+    /// read it yet; milestone 6 is the milestone that sets it.
+    ///
+    /// `makeGraph` leaves it absent, and `undefined` is falsy, so `false` is the
+    /// faithful initial value.
+    pub from_paths: bool,
 }
 
 impl Default for Graph {
@@ -128,7 +141,13 @@ impl Default for Graph {
 impl Graph {
     /// `makeGraph()` — an empty graph with the reference's 26 m index cell.
     pub fn new() -> Self {
-        Self { nodes: Vec::new(), edges: Vec::new(), cell: 26.0, grid: HashMap::new() }
+        Self {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            cell: 26.0,
+            grid: HashMap::new(),
+            from_paths: false,
+        }
     }
 
     /// `gridCellsForSeg` (line 28365), collected rather than called back.

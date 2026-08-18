@@ -11772,3 +11772,302 @@ confirmed to fail before and pass after by reverting the three call sites —
 receiver `8` before, `6` after, `6` from `node`. `cargo fmt` not run. Nothing
 Godot-scene-side touched (UI hold, `DCC_SHELL_SCOPE.md`); `cartalith-urban` read
 and reported on, never edited.
+
+## Phase 5 milestone 6 — anchors and primary routes, and three more V8 libms that are not Rust's (2026-08-18)
+
+`URBAN_MORPHOLOGY_SCOPE.md` milestone 6: `placeAnchors`, `buildPrimaries`,
+`buildPrimariesFromPaths` — reference lines **28743-28833** — as
+`cartalith-urban::routes`. Dependencies unchanged (`cartalith-rng` only). Wired
+to nothing. 10 new tests, 69 in the crate.
+
+This is the first milestone that produces a **real street graph end to end**:
+`placeAnchors` picks the one point the whole town is organised around, and the
+two `build_primaries*` functions lay the arterial backbone that milestone 7's
+growth, milestone 10's enceinte and milestone 12's blocks all accrete onto. Its
+golden is therefore a whole-subsystem artefact — market, provenance, every route
+polyline, the entire resulting graph and a hash of the spatial index — rather
+than a function's return value.
+
+**The stated range was wrong again, five for five.** The plan said 28744-28843:
+`buildPrimariesFromPaths` ends at **28833**, 28834 is blank, and 28835-28843 is
+the *radial streets* header comment belonging to milestone 8; and 28743 is the
+`/* ---------------- anchors ---------------- */` section header, which by the
+convention milestones 4 and 5 settled belongs to the milestone it introduces.
+Milestones 7-16 remain unverified, and milestone 8's stated start should be
+28835, not 28844.
+
+### `Math.sin`, `Math.cos` and `Math.log` are the third, fourth and fifth divergences
+
+Milestone 1 found `Math.hypot` and milestone 5 found `Math.exp` — both **after**
+a golden failed. This milestone measured *first*, before writing a line of
+`placeAnchors`, which is why all 35 of its scenarios matched on the first run.
+
+| over 80,214 arguments spanning every reachable reduction branch | disagreements with V8 |
+|---|---|
+| `f64::sin` (the platform libm) | **1,942** |
+| `f64::cos` | **2,160** |
+| `geom::js_sin` / `js_cos` | **0** / **0** |
+
+| over 60,009 arguments across the whole normal range | |
+|---|---|
+| `f64::ln` | **1,647** |
+| `geom::js_log` | **0** |
+
+`Math.sin` and `Math.cos` are the **third and fourth most-used** functions in
+block 4 — 27 and 26 call sites, behind only `Math.min`/`Math.max` — and
+`placeAnchors` calls both on every one of its 400 candidate points. V8 calls
+`base::ieee754::sin`/`cos`/`log`, FDLIBM's `__ieee754_*`: argument reduction mod
+π/2 through `__ieee754_rem_pio2`, then one of two degree-6 kernel polynomials by
+quadrant. Transliterated into `geom` beside `js_hypot` and `js_exp`.
+
+**This retro-fixes milestone 1 a second time.** `rng::norm` is
+`Math.sqrt(-2*Math.log(u1)) * Math.cos(2*PI*u2)` and had been on `f64::ln` and
+`f64::cos` with a documented "they happen to agree" note. They do not agree in
+general; milestone 1's goldens landed on values they agree about, the same luck
+milestone 5 found in `logn`. `norm` is the highest-leverage function in the
+subsystem — `logn` sits on top of it and draws every frontage width, plot depth
+and building dimension in the town. The milestone-1 goldens pass unchanged
+afterwards, which is the check. `Math.sqrt` needs no treatment: IEEE-754
+mandates a correctly-rounded square root, so V8's and Rust's agree by
+specification.
+
+**One branch is deliberately not ported, and says so.** Above `2^19 * π/2`
+(≈8.2e5) FDLIBM switches to Payne-Hanek reduction — `__kernel_rem_pio2`, a
+hundred-odd lines of multi-precision integer arithmetic over a 66-word table of
+2/π. Every trig argument in this subsystem is an angle: `range(-PI, 0)`,
+`i/n * 2PI`, an `atan2` result, a bearing. None can leave `[-4π, 4π]`, so that
+branch would be dead code with a real chance of being silently wrong.
+`js_sin`/`js_cos` hand off to the platform libm above the threshold, a test
+asserts they do, and the doc comment names it as the one input class not
+reproduced.
+
+**The rest of the libm bill, measured now so later milestones do not each
+rediscover it.** `Math.atan2` disagrees with `f64::atan2` on **10,615 of 60,000**
+arguments — 17.7%, the worst yet, with 7 call sites starting at milestone 8.
+`Math.log10` disagrees on 960/60,000 (milestone 15), `Math.acos` on 544/60,000
+(milestone 10). `Math.pow(x, 2)` was measured **bit-identical** to `x * x` on
+60,000 arguments, so `buildPrimaries`' single `Math.pow` needs nothing at all.
+
+### What the milestone actually does
+
+`placeAnchors` sites the market by rejection sampling: 400 seeded candidates on
+the landward half-circle around the break-of-bulk point (the bridge, else the
+quay, else a literal fraction of the box), each scored against slope, distance
+from that point and distance out of the flood band. `buildPrimaries`
+**synthesises** the backbone — an 8 m cost raster whose cost is
+`1 + (slope·3.2)²` plus water and bank terms, then `astar` from each external
+route endpoint to the market, multiplying already-used cells by `0.45` so later
+routes braid onto earlier ones. `buildPrimariesFromPaths` **injects** it
+instead: the host hands over the real inter-settlement roads as metre offsets
+from the settlement, and the town is grown around those; `generate()` prefers
+this whenever `opts.primaryPaths` is non-empty.
+
+### Findings
+
+1. **Neither route builder draws a random number.** Both take a `seed` and
+   neither reads it — verified by grep over both bodies and asserted from the
+   other side by a test that runs each with a wildly different seed and requires
+   a byte-identical graph. `placeAnchors` is the only RNG consumer and draws
+   exactly **800** times, two per candidate, **before** any rejection test, so
+   the sequence is independent of the site's shape.
+2. **Both return values are dead.** `generate()` calls whichever builder applies
+   for its effect on `g` and discards the routes (lines 31021-31022). Returned
+   anyway, because they are what the reference returns and they make a far
+   stricter golden than the graph alone.
+3. **The two builders disagree about their own return shape.**
+   `buildPrimaries` pushes `{pts, i}`; `buildPrimariesFromPaths` pushes `{pts}`
+   with no `i`. Carried as `Route { pts, i: Option<usize> }` rather than erased.
+4. **`riverthrough` shares `river`'s candidate band but not its preferred
+   distance.** `dBand` tests both kinds and widens to `[60, 240]`; the score's
+   `Math.abs(d - (kind === 'river' ? 120 : 100))` tests `'river'` alone. Two
+   fixtures share seed 7 for exactly this; a set with one of the two kinds
+   cannot see it.
+5. **The market reference's third `||` arm is live**, as milestone 5 predicted:
+   a landlocked site has no bridge *and* no quay, so the town centres on the
+   literal `{Wm*0.52, Hm*0.42}`.
+6. **`best === null` is reachable, and only on a small box** — and it is the one
+   place in the subsystem that can put the market **outside the site box** (at
+   150 × 150 it lands at y = −57, with no clamp anywhere).
+7. **The 80 m margin is unobservable on the engine's own box.** At 1700 × 1250
+   the reference point sits at (884, 525) and candidates reach 240 m, so no
+   candidate is ever within 400 m of the margin. It takes a ~520 m box to make
+   the constant do anything, which is what `midBox`/`midBoxRiver` are.
+8. **`Math.max(0, rd − 260)` is dead on every site this engine can build.** The
+   candidate is drawn at most 240 m from a reference point that lies *on* the
+   water on every watered site, so `rd` cannot exceed the draw; and a landlocked
+   site's dummy river at `(−1e4, −1e4)` makes the term a ~81-unit constant that
+   shifts every score equally. A test asserts that invariant across all 35
+   fixtures rather than asserting the dead branch.
+9. **`buildPrimariesFromPaths`' final `sm.length < 2` guard cannot fire**, and
+   its `path.length < 2` guard is redundant with the next one — but its
+   `pts.length < 2` guard is **not**: a path whose second point is outside the
+   box leaves exactly the market in `pts`, which without the guard survives as a
+   degenerate two-identical-point street, adding a **node** and no edge.
+10. **A metre offset added to a metre coordinate cannot express a one-ulp
+    boundary.** Both boundary fixtures needed rebuilding for this:
+    `(386.6 + 1.0000000000000002) − 386.6` is exactly `1.0`. `> 1` is straddled
+    with 1 m and 1.25 m; the 6 m box tolerance with −5, −6 and −7. **Any
+    boundary fixture built by offsetting a large coordinate has to clear that
+    coordinate's own ulp, not the constant's** — which generalises milestone 4's
+    just-below-a-boundary rule, and which milestone 17's adapter will hit
+    because it produces exactly these offsets.
+11. **`toCell`'s clamp absorbs the `Math.round` question.** JS rounds halves
+    toward `+∞` and `f64::round` away from zero; a negative cell index clamps to
+    `1` regardless. `geom::js_round` is written correctly anyway — and `rules`'
+    private copy now routes through it, provably identical on its own `[1, 4]`
+    domain — because the next caller may not clamp.
+12. **The reinforcement's `Set` iteration order cannot matter** (disjoint
+    indices, one multiply each), but the **route order** very much does: a test
+    reverses `site.routeEnds` and requires the town to change, so the `0.45` can
+    never be quietly neutralised.
+
+### Golden verification
+
+Same slice harness as milestones 3-5, verbatim: contiguous 28167-31103 plus line
+2291, the balance scan with milestone 2's orphan-close counter, and the four
+structural assertions including milestone 3's tightened first-line form and the
+`mulberry32` negative control. None of the three functions is on `UME`'s public
+export or its `_test` one, so the capture adds them — with `buildSite` and
+`makeGraph`, which the fixtures need — by milestone 5's single anchored
+replacement of the `return {` line, asserted to match exactly once, with the
+explicit `globalThis.__UME` handoff and its assertion. The frozen reference file
+is never touched.
+
+38 scenarios, compared **bit for bit** with no tolerances anywhere. The spatial
+index is pinned by the reference's **own** `fnv1a` over its own canonical grid
+dump rather than cell by cell — milestone 2 golden-tested the index itself, and
+restating 400-odd cells per scenario would have added 40,000 lines of golden for
+no extra strength.
+
+The capture's emptiness / shape gate refuses to write unless twenty-odd
+conditions hold, each naming the fixture it protects: the 80 m margin rejects
+>20 and admits >20 candidates on the mid-box fixtures and rejects **zero** on
+the full-size one; `lastCandidateWins` really wins on candidate 399;
+`shortDtWater` really admits >100 candidates and then scores every one `NaN`;
+`tinyBox` really takes the `best === null` fallback and `landlocked3` really does
+not; `bay` and `coast` really diverge on one seed while `atoll` and `coast`
+really coincide; `nanCost` really produced no routes; `_fromPaths` agrees with
+the route count everywhere and is false somewhere; the 1 m unshift boundary is
+straddled both ways; the box-edge triple keeps 3 of its 4 points; and
+`bendPath`'s Chaikin corners really separate `simplify(1.2)` from
+`simplify(1.3)`. The Rust side mirrors the shape half as its own test, because
+`zip` stops at the shorter side and a truncated `golden.rs` would otherwise pass
+vacuously.
+
+**Every golden matched on the first run** — all 38 scenarios, every one of the
+four rounds of fixture work included.
+
+### Mutation testing
+
+**Five sweeps: 300 mutations / 98 survivors, then 300 / 79, then 306 / 73, then
+306 / 74, and finally 306 mutations, 233 died, 73 survived.** Every survivor was
+re-run in isolation and **not one false survivor appeared in any round** —
+milestone 4's stale-binary problem, solved by giving the sweep its own
+`CARGO_TARGET_DIR` instead of sharing one with the other forks.
+
+**Six of the 306 are deliberate graded perturbations** — milestone 4's device for
+a constant whose small change is absorbed — and **all six die**: the sea cost
+`240 → 5`, both second-simplify tolerances `1.2 → 4.0`, `toCell`'s lower clamp
+`1 → 3`, the margin `80 → 200` on all four sides at once, and the flood-band
+penalty `260 → 20000`. Each says *this constant is tested; a 37% nudge is simply
+below what the fixture can express*.
+
+**One thing the round-4 sweep taught that no earlier milestone had hit: fixture
+coverage is not monotonic when you *replace* a fixture rather than add one.**
+Round 4 swapped a trig band whose reduced remainder was ~1e-9 for one whose
+remainder is ~1e-13, gaining the third correction round and *losing* the kernels'
+own `|x| < 2^-27` shortcut — two mutants a previous round had killed came back.
+The survivor count went 73 → 74 on a round that was strictly meant to improve
+things. Both bands are now present, which is the final 73.
+
+##### The 19 survivors in `routes.rs`
+
+| class | n | why it survives |
+|---|---|---|
+| the 80 m margin, three of its four sides | 3 | `marginWinner` is a scanned site whose *winning* candidate sits 80-110 m from **one** edge, so only that side's constant is observable; the other three would each need their own scanned site. The graded `80 → 200`, which moves all four at once, **dies** |
+| the flood-band penalty's `0` and `260` | 2 | proven dead rather than argued: a candidate is drawn at most 240 m from a reference point that lies *on* the water, so `rd − 260` is never positive on a watered site; and a landlocked site's dummy river at `(−1e4, −1e4)` makes the term a ~81-unit constant that shifts every score equally. A test asserts that invariant across all 38 fixtures, and the graded `260 → 20000` **dies** |
+| the `240` sea cost | 1 | a **barrier, not a cost**: any value large enough to make a water cell non-optimal produces the same path, so `240 → 328.93` cannot move one. The graded `240 → 5` **dies** |
+| `toCell`'s two `1.0` lower clamps | 2 | the clamp's result is immediately `as usize`, so a change smaller than one whole cell truncates away — milestone 4's quantised-output pattern, third appearance. The graded `1 → 3` **dies** |
+| five comparators that need an exact tie | 5 | the margin's `<` → `<=`, the flood band's `<` → `<=`, the score's `>` → `>=`, the bridge window's `<` → `<=`, the bank band's `<` → `<=`. Every one of those inputs is a continuous distance or score; **milestone 3's finding recurring**, and unlike there it cannot be closed by a quantised raster, because these are polyline distances and sums of RNG draws |
+| `bs = −∞ → −1e308` | 1 | no reachable score is below `−1e308`; the initial value's only job is to lose to the first accepted candidate |
+| `toCell`'s clamp **order** | 1 | `max(1, min(W−2, ·))` and `min(W−2, max(1, ·))` differ only when `W < 3`, i.e. a site box under 24 m |
+| `js_round → f64::round` | 1 | they differ only on negative halves, and a negative cell index clamps to `1` either way. `js_round` is written correctly anyway, because the next caller may not clamp |
+| `fromPaths`' `path.len() < 2` → `is_empty()` | 1 | a one-point path yields a one-point in-box run, which the *next* guard drops. That next guard is **not** redundant, and `pathsOnlyMarket` is the fixture that shows it |
+| `rem_pio2`'s two round triggers, `16 → 17` and `49 → 50` | 2 | see below — both rounds are load-bearing and tested; what no fixture produces is an argument whose exponent gap is *exactly* 17 or *exactly* 50 |
+
+##### The 54 survivors in the FDLIBM block
+
+| class | n | why they survive |
+|---|---|---|
+| dead in **this port's** call path | 11 | `js_sin`/`js_cos` filter `|x| ≤ π/4` and Inf/NaN *before* calling `rem_pio2`, so its own early return and its own Inf/NaN branch are unreachable through the public API (8 mutants); `HUGE_ARG_HI` only decides where the platform hand-off starts (1); and the `ix == 0x3ff921fb` sub-branch needs `|x|` inside a 2.3e-8-wide window at π/2 (2) |
+| `iy` is a flag, not a value | 5 | `kernel_sin`'s third argument is only ever tested `== 0`, so `1 → 2` is the same call at all four sites; and on the `|x| ≤ π/4` short path `y` is unused, so `0.0 → 1.0` is too |
+| ±1-ulp threshold constants | 18 | every `0x…` comparison bound — the four `0x7fff_ffff` absolute-value masks, `0x3e40_0000`, `0x3fd3_3333`, `0x3fe9_0000`, `0x3fe9_21fb`, `0x4002_d97c`, `0x4139_21fb`, `0x7ff0_0000`, `0x0010_0000`, `0x6147a`, `0x6b851`. One ulp of a **high word** only changes behaviour for an argument sitting in that one-ulp window; 54,000 uniform draws never land in one |
+| provably equivalent arithmetic | 13 | `0x95f64` is **even**, so the bit its mask can add to `i0` is one `hx` already carries and the `\|` is a no-op — checked by hand after the runner flagged it, because it looks like it should be catastrophic; `qx`'s `0x0020_0000` cancels in `a − (hz − …)`, which is exactly why FDLIBM may pick `0.28125` arbitrarily; `(x as i32) == 0 → == 1` never takes the tiny-x shortcut and the polynomial returns `x` (or `1.0`) anyway; `hx > 0 → > 1` and `hx < 0 → < 1` sit where `hx ∈ {0, 1}` is unreachable; and `js_log`'s five branch selectors pick between two algebraically identical final formulas |
+| the staged reduction refines the **tail**, not the returned double | 7 | the four `y[0] → y[1]` index mutations in the medium branch, both `0x7ff` exponent masks, and one more trigger form. **Evidence, not assertion**: never running the second round (`i > 100000`) **dies**, always running the third (`i > −1`) **dies**, and always running the second (`i > −1`) **survives**. So both rounds are load-bearing and both are tested; FDLIBM's first round is already "good to 85 bit" against a 53-bit result, so running one round more than needed is free and running one fewer is not |
+
+### Two tooling incidents worth carrying forward
+
+**A dozen hand-picked rows cannot test a bit-twiddling port.** The first sweep
+left **63 survivors inside `js_sin`/`js_cos`/`js_log` alone** — every reduction
+threshold, every `y[0]`/`y[1]` slot, both correction-round triggers and the
+whole `kernel_cos` `qx` split untested, by a golden table built exactly the way
+`js_exp`'s and `js_hypot`'s were. Twelve rows cover twelve paths through a
+branchy function, not its branches. The fix is four lines of golden: an FNV-1a
+**hash** over every result for 54,000 sin arguments, 54,000 cos and 30,000 log,
+with the arguments drawn by the reference's own `mulberry32` so both sides
+provably evaluate the same points, and the bands chosen to enter each reduction
+branch on purpose. It matched V8 on the first run and killed essentially all 63.
+**Any later milestone that ports a libm function should start there** — and
+milestones 8, 10 and 15 each need one.
+
+**Two mutation runners on one target directory left a live mutation in the
+source.** Round 2 was started twice by accident; the first was killed
+mid-mutation, the second read the already-mutated file as its "original" and
+faithfully restored it to that, and `routes.rs` carried `-(s * 5.61)` where the
+reference has `-(s * 4)`. Nothing but the suite failing afterwards said so — a
+per-edit `finally` restore is not enough, because it restores to whatever it
+read. The runner now takes a **pristine snapshot before it writes anything**,
+restores from that snapshot at the end, re-runs the suite as a post-sweep
+baseline, and refuses to start while a lock file exists. Milestone 4's
+stale-binary incident produced the "re-run every survivor in isolation" rule;
+this is its sibling and the more dangerous of the two, because it corrupts the
+**source** rather than the **report**.
+
+(The private `CARGO_TARGET_DIR` this runner uses did solve the original problem:
+**zero false survivors** across 600 mutations, where milestone 4's
+shared-directory run reported 34.)
+
+### Corrections written forward
+
+1. Milestone 6's own range was **28743-28833**; milestone 8's should start at
+   **28835**. Five ranges checked, five wrong — verify the rest before slicing.
+2. Every milestone from here must use `geom::js_sin`/`js_cos` for
+   `Math.sin`/`Math.cos`, exactly as it must use `js_exp`, `js_hypot` and
+   `js_min`/`js_max`. Milestone 8's `buildRadialStreets` is trig-saturated.
+3. **Milestone 8 needs a `js_atan2` and cannot borrow the one that now
+   exists.** A sibling fork landed `cartalith-hydrology::jsmath::js_atan2` the
+   same day; `cartalith-urban` depends on `cartalith-rng` only and must keep
+   doing so, so milestone 8 either copies it into `geom` or the
+   `cartalith-jsmath` leaf crate `JS_SEMANTICS_AUDIT.md` recommends finally gets
+   built. Milestone 10 needs `js_acos` (0.9%) and milestone 15 `js_log10`
+   (1.6%) on the same terms. Port all of them against a bulk hash golden, not a
+   dozen rows.
+4. `Graph::from_paths` exists now, and milestone 10's `builtMassHull` must read
+   it or the enceinte over-encloses along arterials.
+5. Milestone 16 inherits only the graph and `placeAnchors`' 800-draw substream;
+   neither route builder touches the RNG and both return values are discarded.
+6. The market can land **outside the site box** when every candidate is
+   rejected. Milestones 7 and 10 measure everything from `anchors.market`.
+7. **`extractFaces` still sorts half-edges with `f64::atan2`.** Milestone 2 wrote
+   it before anyone had measured `Math.atan2`, and it is now the largest known
+   divergence in the workspace. Not changed here — milestone 6's scope is the
+   three route functions, and the `js_atan2` that landed the same day lives in
+   `cartalith-hydrology`, which this crate must not depend on — but
+   whoever lands `js_atan2` should sweep that call site, re-run milestone 2's 19
+   graph scenarios and report the result. The "it only affects order" argument
+   is the same one that was made for `hypot` before milestone 2 proved `hypot`
+   changes graph *topology*.
+8. **Fixture coverage is not monotonic when a fixture is *replaced* rather than
+   added** — round 4's survivor count went *up*, 73 → 74, on a round meant to
+   improve things, because swapping one trig band for a better one gave up the
+   branch the old one reached. Add; do not substitute.

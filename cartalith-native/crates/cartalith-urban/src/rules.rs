@@ -49,7 +49,7 @@
 //! *top* of the clone, so nothing a caller supplies is ever round-tripped — but
 //! stated rather than hidden.
 
-use crate::geom::{js_max, js_min};
+use crate::geom::{js_max, js_min, js_round};
 
 /// `const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));` — reference line 28256.
 ///
@@ -63,17 +63,6 @@ use crate::geom::{js_max, js_min};
 /// `js_min`/`js_max` question this whole module turns on. Written out.
 pub fn clamp(v: f64, lo: f64, hi: f64) -> f64 {
     js_max(lo, js_min(hi, v))
-}
-
-/// `Math.round(x)` for the one place `applyPlotChaos` needs it.
-///
-/// JS rounds halves toward `+Infinity`; Rust's `f64::round` rounds halves away
-/// from zero. They differ only for negative halves, and this function's only
-/// argument is `clamp(2 * c, 1, 4)`, whose range is `[1, 4]` plus NaN — so
-/// `f64::round` is exact here, and the goldens include the three `c` values
-/// (`0.75`, `1.25`, `1.75`) that land it on `1.5`, `2.5` and `3.5` exactly.
-fn js_round(x: f64) -> f64 {
-    x.round()
 }
 
 // ---------------------------------------------------------------- profiles --

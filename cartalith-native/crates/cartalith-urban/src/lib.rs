@@ -19,6 +19,9 @@
 //! least-cost search over a site cost raster that milestone 6's primary routes
 //! are traced with. Milestone 4 adds [`rules`] — the culture profiles and the
 //! generation-rule table every later milestone reads its constants out of.
+//! Milestone 5 adds [`site`], the physical setting every later stage queries.
+//! Milestone 6 adds [`routes`] — the market anchor and the arterial backbone,
+//! the first milestone that produces a real street graph end to end.
 //!
 //! **Not wired to anything.** Nothing in this crate is called from
 //! `compute_civilisation()`, `cartalith-godot`, or the GUI — same standing
@@ -28,13 +31,15 @@ pub mod astar;
 pub mod geom;
 pub mod graph;
 pub mod rng;
+pub mod routes;
 pub mod rules;
 pub mod site;
 
 pub use astar::astar;
-pub use geom::{Vec2, js_exp, js_hypot, js_max, js_min};
+pub use geom::{Vec2, js_cos, js_exp, js_hypot, js_log, js_max, js_min, js_round, js_sin};
 pub use graph::{Edge, Face, Graph, Node};
 pub use rng::{Substream, fnv1a, stream};
+pub use routes::{Anchors, Route, build_primaries, build_primaries_from_paths, place_anchors};
 pub use site::{
     Economy, Harbour, Hill, Site, SiteOpts, TerrainCtx, WaterCtx, build_site, shore_from_mask,
     terrain_suitability,

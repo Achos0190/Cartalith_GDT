@@ -115,6 +115,26 @@ pub fn js_max(a: f64, b: f64) -> f64 {
     }
 }
 
+/// `Math.round(x)`, with JS semantics — **ties go toward +infinity**, not away
+/// from zero.
+///
+/// `f64::round` rounds `-2.5` to `-3`; `Math.round(-2.5)` is `-2`. The obvious
+/// JS transliteration `(x + 0.5).floor()` is wrong in the other direction: at
+/// `x = 0.49999999999999994` the addition rounds up to exactly `1.0` and the
+/// floor gives `1`, where V8 gives `0`. Comparing the fractional part instead
+/// gets both cases right.
+///
+/// The one difference left is `-0`: `Math.round(-0.5)` is `-0` and this returns
+/// `+0`. Its only call site is `buildPrimaries`' `to_cell`, which immediately
+/// indexes a raster with the result, so the sign of a zero cannot be observed.
+pub fn js_round(x: f64) -> f64 {
+    if !x.is_finite() {
+        return x;
+    }
+    let f = x.floor();
+    if x - f >= 0.5 { f + 1.0 } else { f }
+}
+
 /// `Math.exp(x)`, with **V8's** result rather than the platform libm's.
 ///
 /// The same finding as [`js_hypot`], arriving at milestone 5 and measured the
@@ -242,6 +262,368 @@ pub fn js_exp(x: f64) -> f64 {
         y * twopk
     } else {
         y * twopk * TWOM1000
+    }
+}
+
+/// The two-word view of a `f64` FDLIBM is written against. Kept as three tiny
+/// helpers rather than inlined, because the ported code below reads as the C it
+/// is checked against only if `GET_HIGH_WORD` / `SET_HIGH_WORD` survive as
+/// names.
+fn hi_word(x: f64) -> u32 {
+    (x.to_bits() >> 32) as u32
+}
+
+fn lo_word(x: f64) -> u32 {
+    x.to_bits() as u32
+}
+
+fn from_words(h: u32, l: u32) -> f64 {
+    f64::from_bits((u64::from(h) << 32) | u64::from(l))
+}
+
+/// FDLIBM `__kernel_sin(x, y, iy)` — `sin(x + y)` for `|x| <= pi/4`, with `y`
+/// the tail of the argument reduction and `iy` flagging whether `y` is
+/// significant. Not public: it is only correct inside that interval.
+#[allow(clippy::excessive_precision)]
+fn kernel_sin(x: f64, y: f64, iy: i32) -> f64 {
+    const S1: f64 = -1.66666666666666324348e-01;
+    const S2: f64 = 8.33333333332248946124e-03;
+    const S3: f64 = -1.98412698298579493134e-04;
+    const S4: f64 = 2.75573137070700676789e-06;
+    const S5: f64 = -2.50507602534068634195e-08;
+    const S6: f64 = 1.58969099521155010221e-10;
+
+    let ix = hi_word(x) & 0x7fff_ffff;
+    // |x| < 2^-27: sin(x) == x to double precision. The C is `if((int)x==0)`,
+    // a truncation, and it is written that way here for the same reason.
+    if ix < 0x3e40_0000 && (x as i32) == 0 {
+        return x;
+    }
+    let z = x * x;
+    let v = z * x;
+    let r = S2 + z * (S3 + z * (S4 + z * (S5 + z * S6)));
+    if iy == 0 {
+        x + v * (S1 + z * r)
+    } else {
+        x - ((z * (0.5 * y - v * r) - y) - v * S1)
+    }
+}
+
+/// FDLIBM `__kernel_cos(x, y)` — `cos(x + y)` for `|x| <= pi/4`.
+///
+/// The `qx` split in the second branch is FDLIBM's trick for keeping
+/// `1 - z/2` exact where cancellation would otherwise cost bits; it is the part
+/// a "cleaner" rewrite would drop, and dropping it moves the last bit.
+#[allow(clippy::excessive_precision)]
+fn kernel_cos(x: f64, y: f64) -> f64 {
+    const C1: f64 = 4.16666666666666019037e-02;
+    const C2: f64 = -1.38888888888741095749e-03;
+    const C3: f64 = 2.48015872894767294178e-05;
+    const C4: f64 = -2.75573143513906633035e-07;
+    const C5: f64 = 2.08757232129817482790e-09;
+    const C6: f64 = -1.13596475577881948265e-11;
+
+    let ix = hi_word(x) & 0x7fff_ffff;
+    if ix < 0x3e40_0000 && (x as i32) == 0 {
+        return 1.0;
+    }
+    let z = x * x;
+    let r = z * (C1 + z * (C2 + z * (C3 + z * (C4 + z * (C5 + z * C6)))));
+    if ix < 0x3fd3_3333 {
+        // |x| < 0.3
+        1.0 - (0.5 * z - (z * r - x * y))
+    } else {
+        let qx = if ix > 0x3fe9_0000 {
+            // x > 0.78125
+            0.28125
+        } else {
+            // x/4, with the low word zeroed
+            from_words(ix - 0x0020_0000, 0)
+        };
+        let hz = 0.5 * z - qx;
+        let a = 1.0 - qx;
+        a - (hz - (z * r - x * y))
+    }
+}
+
+/// FDLIBM `__ieee754_rem_pio2(x, y)` — `x mod pi/2`, returning the quadrant
+/// count and writing the head/tail of the remainder into `y`.
+///
+/// # The one branch that is deliberately not ported
+///
+/// For `|x| >= 2^19 * pi/2` (about 8.2e5) FDLIBM switches to Payne-Hanek
+/// reduction — `__kernel_rem_pio2`, a hundred-odd lines of multi-precision
+/// integer arithmetic over a 66-word table of `2/pi`. **Every argument this
+/// subsystem passes to a trig function is an angle**: `r.range(-PI, 0)`,
+/// `i / n * 2 * PI`, an `atan2` result, a bearing. None of them can leave
+/// `[-4*PI, 4*PI]`. Porting a hundred lines of bit-twiddling that no golden
+/// could ever exercise would be dead code with a real chance of being silently
+/// wrong, so the branch falls through to the platform libm and says so here.
+/// It is the only input class on which [`js_sin`] / [`js_cos`] may differ from
+/// V8, and it is the one class the engine cannot produce.
+// `INVPIO2` is 2/pi and `eq_op` fires on FDLIBM's `x - x` idiom for "propagate
+// the NaN, and turn an infinity into one". Both are the C's own text; rewriting
+// either to please the lint would be rewriting the function under test.
+#[allow(clippy::excessive_precision, clippy::approx_constant, clippy::eq_op)]
+fn rem_pio2(x: f64, y: &mut [f64; 2]) -> i32 {
+    const INVPIO2: f64 = 6.36619772367581382433e-01;
+    const PIO2_1: f64 = 1.57079632673412561417e+00;
+    const PIO2_1T: f64 = 6.07710050650619224932e-11;
+    const PIO2_2: f64 = 6.07710050630396597660e-11;
+    const PIO2_2T: f64 = 2.02226624879595063154e-21;
+    const PIO2_3: f64 = 2.02226624871116645580e-21;
+    const PIO2_3T: f64 = 8.47842766036889956997e-32;
+
+    let hx = hi_word(x) as i32;
+    let ix = hx & 0x7fff_ffff;
+
+    // |x| <= pi/4 — nothing to reduce.
+    if ix <= 0x3fe9_21fb {
+        y[0] = x;
+        y[1] = 0.0;
+        return 0;
+    }
+    // |x| < 3*pi/4 — the n = +-1 case, done in 33+53 bit pi (or 33+33+53 right
+    // at pi/2, where the first form loses too much).
+    if ix < 0x4002_d97c {
+        if hx > 0 {
+            let mut z = x - PIO2_1;
+            if ix != 0x3ff9_21fb {
+                y[0] = z - PIO2_1T;
+                y[1] = (z - y[0]) - PIO2_1T;
+            } else {
+                z -= PIO2_2;
+                y[0] = z - PIO2_2T;
+                y[1] = (z - y[0]) - PIO2_2T;
+            }
+            return 1;
+        }
+        let mut z = x + PIO2_1;
+        if ix != 0x3ff9_21fb {
+            y[0] = z + PIO2_1T;
+            y[1] = (z - y[0]) + PIO2_1T;
+        } else {
+            z += PIO2_2;
+            y[0] = z + PIO2_2T;
+            y[1] = (z - y[0]) + PIO2_2T;
+        }
+        return -1;
+    }
+    // |x| <= 2^19 * pi/2 — medium size, up to three correction rounds.
+    if ix <= 0x4139_21fb {
+        let t = x.abs();
+        let n = (t * INVPIO2 + 0.5) as i32;
+        let fnn = f64::from(n);
+        let mut r = t - fnn * PIO2_1;
+        let mut w = fnn * PIO2_1T;
+        let j = ix >> 20;
+        y[0] = r - w;
+        let mut i = j - ((hi_word(y[0]) as i32 >> 20) & 0x7ff);
+        if i > 16 {
+            // 2nd iteration, good to 118 bits
+            let t2 = r;
+            w = fnn * PIO2_2;
+            r = t2 - w;
+            w = fnn * PIO2_2T - ((t2 - r) - w);
+            y[0] = r - w;
+            i = j - ((hi_word(y[0]) as i32 >> 20) & 0x7ff);
+            if i > 49 {
+                // 3rd iteration, 151 bits
+                let t3 = r;
+                w = fnn * PIO2_3;
+                r = t3 - w;
+                w = fnn * PIO2_3T - ((t3 - r) - w);
+                y[0] = r - w;
+            }
+        }
+        y[1] = (r - y[0]) - w;
+        if hx < 0 {
+            y[0] = -y[0];
+            y[1] = -y[1];
+            return -n;
+        }
+        return n;
+    }
+    // Inf or NaN.
+    if ix >= 0x7ff0_0000 {
+        y[0] = x - x;
+        y[1] = y[0];
+        return 0;
+    }
+    // Unreachable: `js_sin` / `js_cos` divert everything past `HUGE_ARG` to the
+    // platform libm before calling here, precisely so this branch never has to
+    // exist. See the doc comment.
+    unreachable!("rem_pio2 was called with |x| >= 2^19 * pi/2 ({x}); js_sin/js_cos divert those")
+}
+
+/// The first argument FDLIBM would send down the Payne-Hanek path — high word
+/// `0x41392200`, i.e. just past `2^19 * pi/2`. Above this [`js_sin`] and
+/// [`js_cos`] hand off to the platform libm; see [`rem_pio2`].
+const HUGE_ARG_HI: u32 = 0x4139_21fb;
+
+/// `Math.sin(x)` as **V8** computes it, not as the platform libm does.
+///
+/// The third measured V8 libm divergence in this port, after
+/// [`js_hypot`] (milestone 1) and [`js_exp`] (milestone 5), and it was found
+/// the same way — by measuring before trusting rather than after a golden
+/// failed. `Math.sin` and `Math.cos` are the *third and fourth most used* math
+/// functions in block 4 (27 and 26 call sites, behind only `Math.min`/`max`),
+/// and `placeAnchors` — milestone 6's first function — calls both on every one
+/// of its 400 candidate points.
+///
+/// | over 80,214 arguments spanning every reachable reduction branch | disagreements with V8 |
+/// |---|---|
+/// | `f64::sin` (the platform libm) | **1,942** |
+/// | `f64::cos` | **2,160** |
+/// | `js_sin` / `js_cos` | **0** / **0** |
+///
+/// V8 calls `base::ieee754::sin` / `cos`, which are FDLIBM's `__ieee754_sin` /
+/// `__ieee754_cos`: reduce the argument mod pi/2 ([`rem_pio2`]), then evaluate
+/// one of two degree-6 kernel polynomials ([`kernel_sin`], [`kernel_cos`])
+/// according to the quadrant. Transliterated below with the bit manipulation
+/// intact, for the reason `cartalith-rust-conventions` gives: match the JS
+/// engine, do not improve on it.
+///
+/// See [`rem_pio2`] for the single input class this does not reproduce
+/// (`|x| >= 2^19 * pi/2`, which no angle in this engine can reach).
+// `x - x` is FDLIBM's own way of writing "NaN, with x's payload if it has one".
+#[allow(clippy::eq_op)]
+pub fn js_sin(x: f64) -> f64 {
+    let ix = hi_word(x) & 0x7fff_ffff;
+    if ix <= 0x3fe9_21fb {
+        return kernel_sin(x, 0.0, 0);
+    }
+    if ix >= 0x7ff0_0000 {
+        return x - x; // sin(Inf) and sin(NaN) are NaN
+    }
+    if ix > HUGE_ARG_HI {
+        return x.sin(); // see `rem_pio2`: the Payne-Hanek branch is not ported
+    }
+    let mut y = [0.0f64; 2];
+    match rem_pio2(x, &mut y) & 3 {
+        0 => kernel_sin(y[0], y[1], 1),
+        1 => kernel_cos(y[0], y[1]),
+        2 => -kernel_sin(y[0], y[1], 1),
+        _ => -kernel_cos(y[0], y[1]),
+    }
+}
+
+/// `Math.cos(x)` as V8 computes it. See [`js_sin`] for the measurement and the
+/// reasoning; this is the same reduction with the quadrant table rotated.
+#[allow(clippy::eq_op)]
+pub fn js_cos(x: f64) -> f64 {
+    let ix = hi_word(x) & 0x7fff_ffff;
+    if ix <= 0x3fe9_21fb {
+        return kernel_cos(x, 0.0);
+    }
+    if ix >= 0x7ff0_0000 {
+        return x - x;
+    }
+    if ix > HUGE_ARG_HI {
+        return x.cos(); // see `rem_pio2`: the Payne-Hanek branch is not ported
+    }
+    let mut y = [0.0f64; 2];
+    match rem_pio2(x, &mut y) & 3 {
+        0 => kernel_cos(y[0], y[1]),
+        1 => -kernel_sin(y[0], y[1], 1),
+        2 => -kernel_cos(y[0], y[1]),
+        _ => kernel_sin(y[0], y[1], 1),
+    }
+}
+
+/// `Math.log(x)` as V8 computes it — FDLIBM's `__ieee754_log`.
+///
+/// The fifth divergence, and the reason it is ported *here* rather than at the
+/// milestone that first needs it: [`crate::rng::Substream::norm`] is
+/// `Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * PI * u2)`, so it runs through
+/// **two** of these — and `norm` feeds `logn`, which draws every frontage
+/// width, plot depth and building dimension in the town (five call sites in
+/// block 4). Milestone 1 shipped `norm` on `f64::ln` and `f64::cos` with a
+/// documented tolerance; milestone 5 removed the tolerance from `exp` and this
+/// removes the last of it.
+///
+/// | over 60,009 arguments across the whole normal range | disagreements with V8 |
+/// |---|---|
+/// | `f64::ln` (the platform libm) | **1,647** |
+/// | `js_log` | **0** |
+///
+/// `Math.sqrt` needs no such treatment: IEEE-754 mandates a correctly-rounded
+/// square root, so V8's and Rust's agree by specification.
+#[allow(clippy::excessive_precision, clippy::eq_op)]
+pub fn js_log(mut x: f64) -> f64 {
+    const LN2_HI: f64 = 6.93147180369123816490e-01;
+    const LN2_LO: f64 = 1.90821492927058770002e-10;
+    const TWO54: f64 = 1.80143985094819840000e+16;
+    const LG1: f64 = 6.666666666666735130e-01;
+    const LG2: f64 = 3.999999999940941908e-01;
+    const LG3: f64 = 2.857142874366239149e-01;
+    const LG4: f64 = 2.222219843214978396e-01;
+    const LG5: f64 = 1.818357216161805012e-01;
+    const LG6: f64 = 1.531383769920937332e-01;
+    const LG7: f64 = 1.479819860511658591e-01;
+
+    let mut hx = hi_word(x) as i32;
+    let lx = lo_word(x);
+    let mut k = 0i32;
+
+    if hx < 0x0010_0000 {
+        // subnormal, zero or negative
+        if ((hx & 0x7fff_ffff) as u32 | lx) == 0 {
+            return -TWO54 / 0.0; // log(+-0) = -inf
+        }
+        if hx < 0 {
+            return (x - x) / 0.0; // log(negative) = NaN
+        }
+        k -= 54;
+        x *= TWO54; // subnormal number, scale up
+        hx = hi_word(x) as i32;
+    }
+    if hx >= 0x7ff0_0000 {
+        return x + x; // Inf or NaN
+    }
+    k += (hx >> 20) - 1023;
+    hx &= 0x000f_ffff;
+    let i0 = (hx + 0x95f64) & 0x0010_0000;
+    x = from_words((hx | (i0 ^ 0x3ff0_0000)) as u32, lo_word(x)); // normalise x or x/2
+    k += i0 >> 20;
+    let f = x - 1.0;
+    let dk = f64::from(k);
+
+    if (0x000f_ffff & (2 + hx)) < 3 {
+        // |f| < 2^-20
+        if f == 0.0 {
+            if k == 0 {
+                return 0.0;
+            }
+            return dk * LN2_HI + dk * LN2_LO;
+        }
+        let r = f * f * (0.5 - 0.33333333333333333 * f);
+        if k == 0 {
+            return f - r;
+        }
+        return dk * LN2_HI - ((r - dk * LN2_LO) - f);
+    }
+
+    let s = f / (2.0 + f);
+    let z = s * s;
+    let mut i = hx - 0x6147a;
+    let w = z * z;
+    let j = 0x6b851 - hx;
+    let t1 = w * (LG2 + w * (LG4 + w * LG6));
+    let t2 = z * (LG1 + w * (LG3 + w * (LG5 + w * LG7)));
+    i |= j;
+    let r = t2 + t1;
+    if i > 0 {
+        let hfsq = 0.5 * f * f;
+        if k == 0 {
+            f - (hfsq - s * (hfsq + r))
+        } else {
+            dk * LN2_HI - ((hfsq - (s * (hfsq + r) + dk * LN2_LO)) - f)
+        }
+    } else if k == 0 {
+        f - s * (f - r)
+    } else {
+        dk * LN2_HI - ((s * (f - r) - dk * LN2_LO) - f)
     }
 }
 
@@ -721,6 +1103,244 @@ mod tests {
         assert!(js_exp(f64::INFINITY).is_infinite());
         assert_eq!(js_exp(f64::NEG_INFINITY), 0.0);
         assert!(js_exp(f64::NAN).is_nan());
+    }
+
+    // `cos(pi/4)` really is one ulp above `FRAC_1_SQRT_2` in V8, which is the
+    // whole point of the row; naming the constant would replace a captured
+    // value with a different number.
+    #[allow(clippy::approx_constant)]
+    #[test]
+    fn golden_js_sin_and_js_cos_differ_from_rust_sin_and_cos() {
+        // Captured from the same Node run, two per reduction branch per
+        // function: |x| <= pi/4 (straight into the kernel polynomial),
+        // pi/4 < |x| < 3pi/4 (rem_pio2's n = +-1 special case), and the medium
+        // branch with its up-to-three correction rounds. Every row is one where
+        // the PLATFORM libm gives a different answer, asserted at the end so
+        // nobody replaces this with `f64::sin`.
+        const SIN: [(f64, f64); 6] = [
+            (-0.1127985306084156, -0.11255948389078078),
+            (-0.6115948781371117, -0.5741739696670092),
+            (1.9793160259723663, 0.9177098794782881),
+            (-1.1484385468065739, -0.9121249937795464),
+            (-122.20573341473937, -0.31112834633397485),
+            (-175.44943382963538, 0.46156164512934583),
+        ];
+        const COS: [(f64, f64); 6] = [
+            (-0.6561320275068283, 0.7923578350894903),
+            (0.6255884654819965, 0.8106186695614905),
+            (-1.4369313605129719, 0.13346551813019575),
+            (-1.9593198783695698, -0.37882242070802385),
+            (178.00320917740464, -0.48225258690906103),
+            (30.05973929539323, 0.21296549854266927),
+        ];
+        let mut differ = 0;
+        for (x, want) in SIN {
+            assert_eq!(js_sin(x), want, "js_sin({x})");
+            if x.sin() != want {
+                differ += 1;
+            }
+        }
+        for (x, want) in COS {
+            assert_eq!(js_cos(x), want, "js_cos({x})");
+            if x.cos() != want {
+                differ += 1;
+            }
+        }
+        assert_eq!(
+            differ,
+            SIN.len() + COS.len(),
+            "these rows exist to discriminate; the platform sin/cos now agrees on some"
+        );
+
+        // and the rest of the domain: exact quadrant boundaries, the tiny-x
+        // shortcut, and the non-finite rules.
+        for (x, s, c) in [
+            (0.0, 0.0, 1.0),
+            (std::f64::consts::PI, 1.2246467991473532e-16, -1.0),
+            (-std::f64::consts::PI, -1.2246467991473532e-16, -1.0),
+            (std::f64::consts::FRAC_PI_2, 1.0, 6.123233995736766e-17),
+            (-std::f64::consts::FRAC_PI_2, -1.0, 6.123233995736766e-17),
+            (std::f64::consts::FRAC_PI_4, 0.7071067811865475, 0.7071067811865476),
+            (std::f64::consts::TAU, -2.4492935982947064e-16, 1.0),
+            (1e-30, 1e-30, 1.0),
+            (1.0, 0.8414709848078965, 0.5403023058681398),
+        ] {
+            assert_eq!(js_sin(x), s, "js_sin({x})");
+            assert_eq!(js_cos(x), c, "js_cos({x})");
+        }
+        assert_eq!(js_sin(-0.0), -0.0);
+        assert!(js_sin(f64::INFINITY).is_nan());
+        assert!(js_cos(f64::NEG_INFINITY).is_nan());
+        assert!(js_sin(f64::NAN).is_nan());
+        assert!(js_cos(f64::NAN).is_nan());
+        // Past 2^19 * pi/2 the Payne-Hanek branch is deliberately not ported
+        // and the platform libm answers instead (see `rem_pio2`). Asserting
+        // that here is what stops a later reader assuming full coverage.
+        let huge = 4.0e6;
+        assert_eq!(js_sin(huge), huge.sin());
+        assert_eq!(js_cos(huge), huge.cos());
+    }
+
+    #[test]
+    fn golden_js_log_differs_from_rust_ln() {
+        const CASES: [(f64, f64); 4] = [
+            (2.6795544533384854, 0.9856505319476128),
+            (0.43189338049297177, -0.8395765256136656),
+            (0.5566417494533674, -0.5858334247022867),
+            (1.6544200123691382, 0.5034505017101765),
+        ];
+        let mut differ = 0;
+        for (x, want) in CASES {
+            assert_eq!(js_log(x), want, "js_log({x})");
+            if x.ln() != want {
+                differ += 1;
+            }
+        }
+        assert_eq!(differ, CASES.len(), "these rows exist to discriminate; f64::ln now agrees on some");
+
+        for (x, want) in [
+            (1.0, 0.0),
+            (2.0, std::f64::consts::LN_2),
+            (0.5, -std::f64::consts::LN_2),
+            (std::f64::consts::E, 1.0),
+            (1e-320, -736.8272408909739), // subnormal: the two54 rescale branch
+            (1e300, 690.7755278982137),
+        ] {
+            assert_eq!(js_log(x), want, "js_log({x})");
+        }
+        assert_eq!(js_log(0.0), f64::NEG_INFINITY);
+        assert_eq!(js_log(-0.0), f64::NEG_INFINITY);
+        assert!(js_log(-1.0).is_nan());
+        assert!(js_log(f64::NAN).is_nan());
+        assert_eq!(js_log(f64::INFINITY), f64::INFINITY);
+    }
+
+    /// The **bulk** libm golden: one FNV-1a hash per function over tens of
+    /// thousands of V8 results, with the arguments drawn by the reference's own
+    /// `mulberry32` so both sides provably evaluate the same points.
+    ///
+    /// This test exists because of a mutation result, and the result is worth
+    /// stating. The hand-picked tables above — a dozen discriminating rows per
+    /// function, chosen exactly the way [`js_exp`]'s and [`js_hypot`]'s were —
+    /// left **63 of milestone 6's mutations alive** inside these three
+    /// functions: every reduction threshold, every `y[0]`/`y[1]` slot, both
+    /// correction-round triggers and the whole `kernel_cos` `qx` split were
+    /// untested. A dozen rows cannot cover branchy bit-manipulation; they cover
+    /// a dozen paths through it. The hash covers every branch the engine can
+    /// reach, in four lines of golden.
+    ///
+    /// The bands are chosen to enter each branch on purpose: `|x| <= pi/4`
+    /// straight into the kernel polynomial, `|x| < 3pi/4` for `rem_pio2`'s
+    /// `n = +-1` case, and two medium bands — one small enough that the first
+    /// correction round suffices, one large enough to need the second and
+    /// third. `log` gets the ordinary range, a band hugging `1.0` (the
+    /// `|f| < 2^-20` shortcut), the top and bottom of the normal range, and a
+    /// subnormal band for the `two54` rescale.
+    #[test]
+    fn golden_js_sin_cos_log_hash_over_every_reduction_branch() {
+        use cartalith_rng::Mulberry32;
+
+        fn fold(mut h: u32, x: f64) -> u32 {
+            for b in x.to_le_bytes() {
+                h ^= u32::from(b);
+                h = h.wrapping_mul(0x0100_0193);
+            }
+            h
+        }
+        const N: usize = 6000;
+        const FNV_OFFSET: u32 = 0x811c_9dc5;
+
+        fn sweep(seed: u32, bands: &[fn(f64) -> f64], f: fn(f64) -> f64) -> (u32, usize, usize) {
+            let mut r = Mulberry32::new(seed);
+            let mut h = FNV_OFFSET;
+            let (mut n, mut finite) = (0, 0);
+            for band in bands {
+                for _ in 0..N {
+                    let v = f(band(r.next_f64()));
+                    h = fold(h, v);
+                    n += 1;
+                    if v.is_finite() {
+                        finite += 1;
+                    }
+                }
+            }
+            (h, n, finite)
+        }
+
+        let trig: [fn(f64) -> f64; 9] = [
+            |u| (u - 0.5) * std::f64::consts::FRAC_PI_2,
+            |u| (u - 0.5) * (3.0 * std::f64::consts::PI),
+            |u| (u - 0.5) * 800.0,
+            |u| (u - 0.5) * 1.6e6,
+            // `rem_pio2`'s SECOND correction round fires when the exponent gap
+            // exceeds 16, around |x| ~ 2^17. Neither band above lands there —
+            // 800 gives a gap of ~9 and 1.6e6 gives ~20 — so `i > 16` was
+            // invisible until this band existed.
+            |u| (u - 0.5) * 3e5,
+            // ...and the gap is `exponent(x) - exponent(y0)`, so 3e5 gives ~19-23
+            // and 800 gives ~10-14. A gap of exactly 17 needs
+            // |x| in [2^16, 2^17) — 1.2e5 is a whole binade short of it.
+            |u| (u - 0.5) * 2.4e5,
+            // The THIRD round needs a gap over 49, i.e. a remainder below about
+            // 2^-32 — and an *added* offset cannot produce one, because at
+            // |x| ~ 6400 the ulp is already 1e-12 and anything smaller is
+            // absorbed. The remainder that is that small is the representation
+            // error of `fl(k * pi/2)` itself, so these bands are exact multiples
+            // with no offset at all.
+            |u| (u * 4096.0).floor() * std::f64::consts::FRAC_PI_2,
+            |u| (u * 1e6).floor() * std::f64::consts::FRAC_PI_2,
+            // ...and one whose reduced remainder is around 1e-9 rather than
+            // 1e-13, because that is the only band that enters the kernels'
+            // own `|x| < 2^-27` shortcut. Dropping it resurrected two mutants
+            // that a previous round had killed, which is why both are here.
+            |u| (u * 4096.0).floor() * std::f64::consts::FRAC_PI_2
+                + ((u * 4096.0) % 1.0 - 0.5) * 1e-9,
+        ];
+        let logs: [fn(f64) -> f64; 5] = [
+            |u| u * 4.0,
+            |u| 1.0 + (u - 0.5) * 1e-6,
+            |u| u * 1e308,
+            |u| u * 1e-305,
+            |u| u * 1e-320,
+        ];
+
+        // Captured from the reference under Node: `Math.sin`/`Math.cos`/
+        // `Math.log` over the identical argument sequence.
+        for (name, seed, hash, count, want, bands) in [
+            ("sin", 0x0005_1ade_u32, 0x9282_6171_u32, 54_000, js_sin as fn(f64) -> f64, &trig[..]),
+            ("cos", 0x00c0_512e, 0x9788_c272, 54_000, js_cos as fn(f64) -> f64, &trig[..]),
+            ("log", 0x0010_9a11, 0x6495_44e2, 30_000, js_log as fn(f64) -> f64, &logs[..]),
+        ] {
+            let (got, n, finite) = sweep(seed, bands, want);
+            // The emptiness / shape gate: a hash proves nothing if the sweep
+            // silently produced a wall of NaN or ran zero iterations.
+            assert_eq!(n, count, "{name}: wrong argument count");
+            assert!(finite * 100 >= n * 99, "{name}: only {finite}/{n} results are finite");
+            assert_ne!(got, FNV_OFFSET, "{name}: the hash never advanced");
+            assert_eq!(got, hash, "{name}: V8 hash over {n} arguments");
+        }
+    }
+
+    /// `js_round` is JS's rounding rule, not Rust's, and the two differ in both
+    /// directions from the obvious transliterations.
+    #[test]
+    fn js_round_is_neither_f64_round_nor_floor_of_x_plus_half() {
+        for (x, want) in [
+            (2.5, 3.0),
+            (-2.5, -2.0),   // f64::round gives -3
+            (-0.5, 0.0),    // f64::round gives -1
+            (0.49999999999999994, 0.0), // (x + 0.5).floor() gives 1
+            (2.4, 2.0),
+            (-2.6, -3.0),
+            (0.0, 0.0),
+            (1e300, 1e300),
+        ] {
+            assert_eq!(js_round(x), want, "js_round({x})");
+        }
+        assert_ne!(js_round(-2.5), (-2.5f64).round());
+        assert_ne!(js_round(0.49999999999999994), (0.49999999999999994f64 + 0.5).floor());
+        assert!(js_round(f64::NAN).is_nan());
+        assert_eq!(js_round(f64::INFINITY), f64::INFINITY);
     }
 
     #[test]
