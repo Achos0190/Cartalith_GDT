@@ -133,6 +133,26 @@ crate happens to be open at the time.
 
 ## 7b. Territory/border generation: cost-distance, strength-weighted (owner decision, 2026-08-16)
 
+> **Correction notice (2026-08-19, cross-repo documentation audit).** The
+> premise below — "no algorithm for this at all" — is **false**. The
+> reference has a real, wired auto-generation function,
+> `_civAutoPolity` (reference HTML line 20665, bound to the "Recalculate
+> Territories" button at line 26662), which runs `buildTravelCost` plus a
+> multi-source binary-heap Dijkstra seeded from **every settlement**
+> (diagonal-weighted, capped at `MAX_REACH = GW*0.35`) and writes the
+> territory raster through the local alias `terr` — the reason an earlier
+> grep for `civTerritory[` write sites (`PHASE2_SCOPE.md` milestone 9)
+> missed it. RC's own vendored `docs/research/political-fragmentation.md:48`
+> already says so plainly. This does not retract the decision below — the
+> port's capital-seeded, population-weighted design is still what's
+> implemented, and may still be the better result — but the "nothing to
+> golden-test against" premise in this section's own **Verification
+> standard** is false: `_civAutoPolity`'s output (all-settlement-seeded,
+> unweighted, reach-capped) is a real comparison point the port never had
+> before. Whether to adopt it, offer it as a second mode, or leave the
+> current design as-is un-reconciled is an open decision for the owner,
+> not something this notice resolves.
+
 The reference has **no algorithm for this at all** — territory ownership
 is set only by hand-painting with a brush tool, or restored from a save
 file (`_civGenerateProvinces` partitions an *already-painted* territory

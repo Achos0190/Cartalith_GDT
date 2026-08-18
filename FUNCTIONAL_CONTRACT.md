@@ -36,6 +36,17 @@ investigation pass this session (`PHASE2_SCOPE.md`, `JOURNEY_PLANNER_SCOPE.md`,
 current external research (QGIS/Mapbox documentation) for every modernize
 recommendation, not assumed superiority.
 
+> **Staleness addendum (2026-08-19, documentation audit).** Several "absent"
+> statuses below were true when written and have since been overtaken by
+> milestones landing on 2026-08-18: the Journey Planner is engine-complete
+> (6/6, `JOURNEY_PLANNER_SCOPE.md` closing status), the Sculpt engine landed
+> as tool-plan milestones B–E (`UNIFIED_TOOL_PLAN.md`), and region-tile
+> export's compute/format core is done and golden-verified (milestone E2;
+> `LOD_TILING_INTEGRATION_SCOPE.md` catalogues it as complete, UI panel
+> pending the milestone-F hold). The rows are left as written — this document
+> is checked against `cartalith-native/docs/STATUS.md`, which is
+> authoritative; treat status cells here as of 2026-08-18 morning.
+
 ## Capability-by-capability contract
 
 ### 1. World generation
@@ -110,25 +121,40 @@ for whoever picks this up, not decided here.
 
 **HTML app**: `_civIterativeAutoWorld` orchestration — settlement placement/
 faction assignment, population/naming, road network (`_civHierarchicalNetwork`
-+ MST + sea-lane routes), territory (interactive paint tool only —
-`_civPaintTerritoryAt`, no algorithmic generation exists in the reference at
-all), province sub-partitioning, village seeding, faction economy aggregates
-and trade, statistics reporting.
++ MST + sea-lane routes), territory (both an interactive paint tool,
+`_civPaintTerritoryAt`, **and** an algorithmic auto-generator,
+`_civAutoPolity` — corrected 2026-08-19, see `DECISIONS.md` §7b's own
+correction notice; an earlier audit of this section's claim missed it),
+province sub-partitioning, village seeding, faction economy aggregates
+and trade, statistics reporting. Also present and untracked by this port
+anywhere until now: a **Timeline/collapse-recovery simulation** layer
+(`civAddYear`/`civGotoYear`, `_civSimulateTimeline`/`_civCollapseStep`/
+`_civRecoveryGrowthStep`/`_civRunCollapseSimulation`, per-year territory
+snapshots, timeline playback — reference lines ~20597-26478) with its own
+design grounding in RC's vendored `docs/research/collapse-timeline-
+dynamics.md` and `settlement-emergence.md` §5-6.
 
 **This port**: **done**, 19 Phase 2 milestones (`PHASE2_SCOPE.md`), each
 golden-verified against the real reference where an execution path exists.
-One genuine, disclosed divergence: territory assignment is **not** a port —
-the reference has none — it's this port's own cost-distance Voronoi design
-(`DECISIONS.md` §7b), built because a real feature (territory ownership,
-visibly present throughout the reference's civ layer) had no algorithmic
-source to port. Economy (`civ_resource_trade_balance`/`get_trade_balances()`)
-and culture-terrain-fit are ported and wired.
+One disclosed divergence, corrected 2026-08-19: territory assignment is
+this port's own cost-distance Voronoi design (`DECISIONS.md` §7b) —
+**not** a from-scratch invention as previously claimed here, since the
+reference does have `_civAutoPolity`, but a deliberately different
+algorithm (capital-seeded + population-weighted, vs. the reference's
+all-settlement-seeded + unweighted + reach-capped), never reconciled
+against it. Economy (`civ_resource_trade_balance`/`get_trade_balances()`)
+and culture-terrain-fit are ported and wired. **Absent**: the Timeline/
+collapse-recovery simulation layer named above — zero of it exists in this
+port (no year snapshots, no collapse/recovery step functions, no
+timeline UI) — untracked anywhere until this correction pass.
 
 **§7d tag**: port as-is for everything with real reference precedent
 (settlements/roads/population/naming/provinces/villages) — already the
-contract's most thoroughly verified layer. Territory is **already a
-modernized implementation** by necessity, not choice — the reference itself
-never solved this algorithmically.
+contract's most thoroughly verified layer. Territory now has real
+reference precedent too (`_civAutoPolity`) that it was never checked
+against — whether to reconcile, offer as a second mode, or leave the
+current design as-is is an open owner decision, not resolved by this
+correction. Timeline/collapse is unscoped, real future-work candidate.
 
 ### 5. Journey Planner
 

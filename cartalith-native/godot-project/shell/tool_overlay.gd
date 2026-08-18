@@ -33,11 +33,35 @@ var brush_visible := false
 var brush_center := Vector2.ZERO   ## Grid coords.
 var brush_radius_cells := 0.0
 
+## Shared by every domain-specific click-chain tool that builds up a path
+## before committing it -- Way/Route (§4.5.4, appended stop by stop via
+## `way_append_point`/`route_append_stop`) and Sculpt's Freehand mode
+## (§5.2, `sculpt_add_point`). One primitive rather than one per domain:
+## none of these three know about each other, and whichever is armed is the
+## only one that ever calls `set_path_preview` at a time (`app.gd`'s
+## armed-tool exclusivity already guarantees that).
+var path_preview: PackedVector2Array = []
+
+## Shared by any tool with on-canvas drag handles beyond Region's own
+## (hardcoded corner handles, drawn separately below) -- primarily the
+## Label tool's resize/rotate/arc handles (`label_handles`'s three
+## `HandleCircle`s, §4.5.5). Each entry is `{x, y, r}` in grid-cell coords,
+## matching `handle_circle_dict`'s own shape exactly so a caller can pass
+## `bridge.label_handles(...)` values through with no reshaping.
+var handles: Array = []
+
 const MEASURE_COLOR := Color(0.878, 0.639, 0.290, 0.95)   ## DccTheme accent.
 const MEASURE_POINT_RADIUS := 3.0
 const REGION_COLOR := Color(0.878, 0.639, 0.290, 0.85)
 const REGION_FILL := Color(0.878, 0.639, 0.290, 0.10)
 const REGION_DASH := 6.0
+## Distinct from `MEASURE_COLOR` (a query tool's ruler) -- this is a
+## construction preview, an in-progress edit, so it reads as "not committed
+## yet" rather than "read-only measurement."
+const PATH_PREVIEW_COLOR := Color(0.427, 0.788, 0.667, 0.9)   ## teal
+const PATH_PREVIEW_POINT_RADIUS := 2.6
+const HANDLE_COLOR := Color(0.549, 0.816, 1.0, 0.95)   ## `#8fd0ff`, matches the reference's own rotate-handle blue
+const HANDLE_OUTLINE := Color(0.031, 0.024, 0.016, 0.8)
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -61,6 +85,21 @@ func set_brush_cursor(visible_: bool, gx: float = 0.0, gy: float = 0.0, radius_c
 	brush_visible = visible_
 	brush_center = Vector2(gx, gy)
 	brush_radius_cells = radius_cells
+	queue_redraw()
+
+func set_path_preview(points: PackedVector2Array) -> void:
+	path_preview = points
+	queue_redraw()
+
+## `raw` is an `Array` of `{x, y, r}` dicts (grid-cell coords) -- exactly
+## `handle_circle_dict`'s shape, so `[bridge.label_handles(...).resize,
+## ...rotate, ...arc]` (each a single dict, not the wrapping dict itself)
+## can be passed straight through. An entry that is an empty `Dictionary`
+## (a `None` handle, e.g. `label_handles` on a `size_mode == "fixed"` label
+## which has no resize handle) is silently skipped, not drawn as a
+## zero-radius circle.
+func set_handles(raw: Array) -> void:
+	handles = raw
 	queue_redraw()
 
 func _grid_to_screen(p: Vector2, rect: Rect2) -> Vector2:
@@ -109,6 +148,24 @@ func _draw() -> void:
 		for sp in screen_pts:
 			draw_circle(sp, MEASURE_POINT_RADIUS, MEASURE_COLOR)
 			draw_circle(sp, MEASURE_POINT_RADIUS, Color(0, 0, 0, 0.6), false, 1.0)
+
+	if path_preview.size() > 0:
+		var pp_screen := PackedVector2Array()
+		for p in path_preview:
+			pp_screen.append(_grid_to_screen(p, rect))
+		if pp_screen.size() > 1:
+			draw_polyline(pp_screen, PATH_PREVIEW_COLOR, 1.8, true)
+		for sp in pp_screen:
+			draw_circle(sp, PATH_PREVIEW_POINT_RADIUS, PATH_PREVIEW_COLOR)
+
+	for h in handles:
+		var hd: Dictionary = h
+		if hd.is_empty():
+			continue
+		var hp := _grid_to_screen(Vector2(hd["x"], hd["y"]), rect)
+		var hr: float = maxf(4.0, float(hd["r"]))
+		draw_circle(hp, hr, HANDLE_COLOR)
+		draw_arc(hp, hr, 0, TAU, 16, HANDLE_OUTLINE, 1.0, true)
 
 func _draw_dashed_rect(r: Rect2, color: Color, width: float, dash: float) -> void:
 	var corners := [r.position, r.position + Vector2(r.size.x, 0), r.position + r.size, r.position + Vector2(0, r.size.y)]

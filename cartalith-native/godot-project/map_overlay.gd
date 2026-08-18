@@ -54,6 +54,33 @@ const SEA_ROUTE_DASH_COLOR := Color(0.118, 0.510, 0.784, 0.7)
 const SEA_ROUTE_DASH_WIDTH := 0.85
 const SEA_ROUTE_DASH_LENGTH := 2.6
 
+## §4.5.5's Icon tool markers, by `icon_dict`'s `family` key
+## (`cartalith_assets::manual::ManualIconFamily::key()`). No texture atlas
+## from the asset pack is wired into Godot yet (`icon_bridge.rs`'s art is
+## rasterised only into the baked terrain texture, never exposed as
+## individually-addressable sprites here) -- these are honest placeholder
+## glyphs distinguishing family and marking real placed positions, not a
+## stand-in for the pack's actual per-slot art.
+const ICON_FAMILY_COLORS := {
+	"settlement": Color(0.835, 0.369, 0.0),
+	"feature": Color(0.0, 0.620, 0.451),
+	"poi": Color(0.941, 0.894, 0.259),
+	"custom": Color(0.337, 0.706, 0.914),
+}
+const ICON_BASE_RADIUS := 5.5
+const ICON_OUTLINE := Color(0.051, 0.043, 0.031, 0.9)
+
+## §4.5.5's Label tool. `color`/`font` are always the label's *effective*
+## value (`label_dict` calls `color_or_default`/`font_or_default`), so no
+## further fallback is needed here. `font` is a CSS font-family list (e.g.
+## `"Georgia, serif"`) -- there is no web-font fallback chain in Godot, so
+## the theme's own default font is used regardless of that string; only
+## size/angle/arc/color are real per-label rendering.
+const LABEL_STROKE_COLOR := Color(0.031, 0.024, 0.016, 0.8)
+const LABEL_ZOOM_BASE_PX_PER_CELL := 2.0 ## tuning constant, see `_label_font_px`
+const LABEL_FONT_PX_MIN := 8.0
+const LABEL_FONT_PX_MAX := 96.0
+
 ## Emitted whenever the hovered settlement changes -- `null` on hover-exit.
 ## Lets `main.gd`'s Sample dock show the same data this overlay's own
 ## `_draw_hover_card` already draws on-canvas, without duplicating the
@@ -118,6 +145,22 @@ var _show_sea_routes := true
 ## (`WorldGen.get_border_inset_frac()`, Phase 3 milestone 4). `0.0` when the
 ## renderer draws no frame, which makes every use of it below an exact no-op.
 var _border_frac := 0.0
+
+## §4.5.5's Icon and Label tools place these; `bridge.icon_list()`/
+## `bridge.label_list()` are this data's only source, both already bound
+## (`icon_bridge.rs`/`label_bridge.rs`) and both wrapped in `engine_bridge.gd`.
+## Set by `ViewportHost.refresh_annotations()`, a lighter call than the full
+## `refresh()` -- placing one icon shouldn't re-fetch the terrain texture.
+var _manual_icons: Array = []
+var _labels: Array = []
+
+func set_manual_icons(icons: Array) -> void:
+	_manual_icons = icons
+	queue_redraw()
+
+func set_labels(labels: Array) -> void:
+	_labels = labels
+	queue_redraw()
 
 
 func _ready() -> void:
@@ -223,7 +266,8 @@ func _point_to_screen(p: Vector2, rect: Rect2) -> Vector2:
 
 
 func _draw() -> void:
-	if _settlements.is_empty() and _roads.is_empty() and _sea_routes.is_empty():
+	if (_settlements.is_empty() and _roads.is_empty() and _sea_routes.is_empty()
+			and _manual_icons.is_empty() and _labels.is_empty()):
 		return
 	var rect := _displayed_rect()
 	if rect.size.x <= 0.0:
@@ -300,6 +344,112 @@ func _draw() -> void:
 
 		if _hover_index >= 0 and _hover_index < _settlements.size():
 			_draw_hover_card(_settlements[_hover_index], rect, interior)
+
+	# Manual annotations (§4.5.5) are independent of the Settlements/Roads/Sea
+	# routes toggles above -- they have no layer-visibility flag of their own
+	# in `DCC_SHELL_SPEC.md`, so they always draw once placed, same as the
+	# Measure/Region tool overlays in `tool_overlay.gd` always draw once armed.
+	_draw_manual_icons(rect, interior)
+	_draw_labels(rect, interior)
+
+
+## §4.5.5's Icon tool: placed markers, by `family` (`icon_dict`'s
+## `{x, y, family, slot, set, scale}`). Positions are continuous
+## full-resolution coordinates (a placement click's own `gx, gy`, not a
+## cell index) -- `_point_to_screen`, not `_cell_to_screen`, matching roads'
+## own reasoning in this file's `set_civ_data` doc comment.
+func _draw_manual_icons(rect: Rect2, interior: Rect2) -> void:
+	for ic: Dictionary in _manual_icons:
+		var pos := _point_to_screen(Vector2(ic["x"], ic["y"]), rect)
+		if not interior.has_point(pos):
+			continue
+		var color: Color = ICON_FAMILY_COLORS.get(ic["family"], Color(0.7, 0.7, 0.7))
+		var r: float = ICON_BASE_RADIUS * maxf(0.2, float(ic["scale"]))
+		match ic["family"]:
+			"settlement":
+				var half := r * 0.85
+				draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), color, true)
+				draw_rect(Rect2(pos - Vector2(half, half), Vector2(half, half) * 2.0), ICON_OUTLINE, false, 1.2)
+			"feature":
+				var pts := PackedVector2Array([
+					pos + Vector2(0, -r), pos + Vector2(r * 0.87, r * 0.5), pos + Vector2(-r * 0.87, r * 0.5)])
+				draw_colored_polygon(pts, color)
+				draw_polyline(PackedVector2Array([pts[0], pts[1], pts[2], pts[0]]), ICON_OUTLINE, 1.2, true)
+			"poi":
+				var pts2 := PackedVector2Array([
+					pos + Vector2(0, -r), pos + Vector2(r, 0), pos + Vector2(0, r), pos + Vector2(-r, 0)])
+				draw_colored_polygon(pts2, color)
+				draw_polyline(PackedVector2Array([pts2[0], pts2[1], pts2[2], pts2[3], pts2[0]]), ICON_OUTLINE, 1.2, true)
+			_: ## "custom", or any future family this build doesn't recognise yet.
+				draw_circle(pos, r, color)
+				draw_arc(pos, r, 0, TAU, 20, ICON_OUTLINE, 1.2, true)
+				draw_arc(pos, r * 0.4, 0, TAU, 12, ICON_OUTLINE, 1.0, true)
+
+
+## §4.5.5's Label tool: user-authored region-name text, angled/arched in the
+## label's own font/color. Ports the reference's `drawArcLabel` (reference
+## HTML line ~15244) character-for-character -- same per-glyph placement on
+## a circle of radius `R`, same `|arc| < 0.01` straight-line fast path --
+## rather than approximating curved text, since a region label's curve is
+## itself user-authored content (dragged into shape via the arc handle),
+## not decoration.
+func _draw_labels(rect: Rect2, interior: Rect2) -> void:
+	if _labels.is_empty():
+		return
+	var font := get_theme_default_font()
+	for lb: Dictionary in _labels:
+		var text: String = lb["text"]
+		if text.is_empty():
+			continue
+		var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
+		if not interior.has_point(pos):
+			continue
+		var font_px := _label_font_px(lb, rect)
+		var fill: Color = Color(String(lb["color"]))
+		var outline_w: int = maxi(1, int(font_px * 0.16))
+		var v_center: float = (font.get_ascent(font_px) - font.get_descent(font_px)) / 2.0
+		var th: float = deg_to_rad(float(lb["angle"]))
+		var a: float = clampf(float(lb["arc"]), -1.0, 1.0)
+
+		if absf(a) < 0.01:
+			var full_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
+			var local_pos := Vector2(-full_w / 2.0, v_center)
+			draw_set_transform(pos, th, Vector2.ONE)
+			draw_string_outline(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, outline_w, LABEL_STROKE_COLOR)
+			draw_string(font, local_pos, text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, fill)
+			continue
+
+		var total_w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
+		var radius: float = maxf(font_px * 1.2, total_w / (2.2 * absf(a)))
+		var dir_sign: float = 1.0 if a > 0.0 else -1.0
+		var acc := -total_w / 2.0
+		for ch in text:
+			var w := font.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
+			var mid := acc + w / 2.0
+			var theta := mid / radius
+			var glyph_local := Vector2(radius * sin(theta), dir_sign * radius * (1.0 - cos(theta)))
+			var world_pt := pos + glyph_local.rotated(th)
+			var local_pos2 := Vector2(-w / 2.0, v_center)
+			draw_set_transform(world_pt, th + dir_sign * theta, Vector2.ONE)
+			draw_string_outline(font, local_pos2, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, outline_w, LABEL_STROKE_COLOR)
+			draw_string(font, local_pos2, ch, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px, fill)
+			acc += w
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## `size_mode == "fixed"` holds a constant on-screen size regardless of
+## zoom (reference: drops its own `_civZoomK()` factor); `"zoom"` grows with
+## the terrain, tied to the current px-per-cell fit (`rect.size.x / _gw`) the
+## same way `tool_overlay.gd`'s brush cursor radius already scales. Clamped
+## to stay legible at extreme zoom in either direction.
+func _label_font_px(lb: Dictionary, rect: Rect2) -> int:
+	var size: float = float(lb["size"])
+	var px: float
+	if lb["size_mode"] == "fixed":
+		px = size
+	else:
+		px = size * (rect.size.x / float(_gw)) / LABEL_ZOOM_BASE_PX_PER_CELL
+	return int(clampf(px, LABEL_FONT_PX_MIN, LABEL_FONT_PX_MAX))
 
 
 ## Draws `points[start:end]` (exclusive) as one stroke, converted to

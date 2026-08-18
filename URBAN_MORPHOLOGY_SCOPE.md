@@ -1853,9 +1853,11 @@ like the reference running on a world where nobody set them.
   threads; whatever scheduling it needs will be designed against those, not
   transliterated.
 - **The removed 17 culture profiles.** The reference documents them as history
-  (docs/07 §3.10) after a post-launch pass found them visually
-  indistinguishable. Only `medieval` and `venus` are live; only those get
-  ported.
+  (the source repo's `urban-morphology/docs/07-culture-architecture.md` §3.10 —
+  one of nine UME design documents under `Cartalith_RC`'s `urban-morphology/docs/`
+  that are **not vendored in this repository**, unlike `docs/`) after a
+  post-launch pass found them visually indistinguishable. Only `medieval` and
+  `venus` are live; only those get ported.
 - **`buildGridStreets` and the palimpsest planning mode** — likewise removed
   upstream, with no live caller.
 - **Wiring into `compute_civilisation()`, `cartalith-godot`, or the GUI.** Same

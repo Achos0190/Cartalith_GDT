@@ -268,6 +268,21 @@ since that loop isn't a standalone callable in the reference).
 
 ## Milestone 9 — investigated, not yet scoped: territory/provinces is a dead end here
 
+> **Correction notice (2026-08-19, cross-repo documentation audit).** "No
+> auto-generation function anywhere" below is **false** — it's a false
+> negative from the grep methodology, not the reference. `_civAutoPolity`
+> (reference HTML line 20665, wired to the "Recalculate Territories"
+> button at line 26662) writes the territory raster through the local
+> alias `terr` (`terr[i]=fac[i]`, line 20696), which a grep for
+> `civTerritory[` doesn't match. It runs `buildTravelCost` plus a
+> multi-source Dijkstra seeded from every settlement, diagonal-weighted,
+> capped at `MAX_REACH = GW*0.35`. RC's vendored
+> `docs/research/political-fragmentation.md:48` already documents this
+> function. See `DECISIONS.md` §7b's own correction notice for what this
+> changes (the port's existing capital-seeded, weighted design now has a
+> real comparison point) and what it doesn't (this notice does not itself
+> decide whether to adopt, offer as an alternate mode, or leave as-is).
+
 Investigated 2026-08-16, before assuming `_civGenerateProvinces`/
 `getCivTerritory` (the natural-looking next target) was reachable: **it
 isn't, and the reason is worth recording rather than discovering again

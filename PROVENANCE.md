@@ -44,6 +44,17 @@ on:
 A Rust port whose constants have no reachable derivation is a port that will be
 "cleaned up" by someone who cannot see why 0.0004 is 0.0004.
 
+**Two of those briefs point one level deeper than this repository holds.**
+`docs/research/gravity-influence.md` and `docs/research/weather-model-v2.md`
+each open by saying they cross-reference an owner-authored note at the *source
+repository's root* — `Gravity influence.md` (546 lines) and `Weather Model.md`
+(737 lines) in `Cartalith_RC` (identical copies also sit in `Cartalith-Gen1`) —
+and neither note was copied here. The briefs carry the implementation path and
+the scaling tables; the full derivations (the geoid-solver levels, the
+intermediate-complexity circulation model the W1–W3 stages were assessed
+against) live only upstream. Copy the two notes in, or keep this paragraph so
+the dangling reference is at least a known one.
+
 Representative citations, so the shape is clear: Braun & Willett (2013) for
 stream-power incision; Strahler (1957) and Leopold & Maddock (1953) for drainage
 order and hydraulic geometry; Mei et al. (2007) for velocity-field erosion;
@@ -54,6 +65,17 @@ Zipf (1946), Verhulst (1838), Tallavaara et al. (2018) for the civilisation
 layer; Diocletian's Price Edict and Broadberry & Gardner (2013) for transport and
 agricultural ratios. The credits modal and `docs/research/` carry the full list —
 this is a sample, not a replacement.
+
+One studied-not-copied source sits outside the academic list **and outside the
+credits modal**: the reference's map-icon placement takes its elevation
+thresholds (`mountainTh: 0.58`, `hillTh: 0.53`, `placeMapIcons`'s own defaults)
+and its ridge-clustering/z-order approach from studying **Nortantis**
+(AGPL-3.0). The reference discloses this only in an inline comment ("the
+Nortantis approach is studied for ALGORITHM only", v2.10 ~line 6915) and in
+`docs/BIOME_AND_VISUALS_PLAN.md` §B3, which chose that framing precisely to
+keep licensing unconstrained. The port inherits the constants (default scatter
+rules, `cartalith-assets/src/scatter.rs`); the disclosure should travel with
+them — the native credits screen is the natural home.
 
 ## 2. Algorithms — what may be swapped for a crate, and what may not
 

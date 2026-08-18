@@ -33,15 +33,16 @@ while the interface is redesigned; see the notice at the top of
 
 ## The workspace
 
-Fourteen crates under `cartalith-native/crates/`, one per subsystem, per
-`ARCHITECTURE.md`. Only `cartalith-godot` depends on `gdext`; everything else
-is plain Rust and testable without Godot.
+Fifteen crates under `cartalith-native/crates/` — one per subsystem, plus the
+dependency-free `cartalith-jsmath` leaf (`ARCHITECTURE.md`). Only
+`cartalith-godot` depends on `gdext`; everything else is plain Rust and
+testable without Godot.
 
-`cartalith-rng` · `cartalith-noise` · `cartalith-terrain` ·
-`cartalith-climate` · `cartalith-erosion` · `cartalith-hydrology` ·
-`cartalith-civ` · `cartalith-engine` · `cartalith-io` · `cartalith-gpu` ·
-`cartalith-spatial` · `cartalith-assets` · `cartalith-urban` ·
-`cartalith-godot`
+`cartalith-jsmath` · `cartalith-rng` · `cartalith-noise` ·
+`cartalith-terrain` · `cartalith-climate` · `cartalith-erosion` ·
+`cartalith-hydrology` · `cartalith-civ` · `cartalith-engine` ·
+`cartalith-io` · `cartalith-gpu` · `cartalith-spatial` ·
+`cartalith-assets` · `cartalith-urban` · `cartalith-godot`
 
 ## Reading order
 
