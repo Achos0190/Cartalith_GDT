@@ -1,23 +1,29 @@
 # DCC shell — implementation spec
 
-> **Imported verbatim from the owner's Claude Design project "UI mockups
-> planning", sync 2026-08-18T23:05Z** (supersedes the 21:40Z import). Deltas in
-> this revision: **§5.2 Sculpt rewritten from v2.10's real `SCULPT_FEATURES`
-> registry**, a new **§12 Iconography** (no emoji; drawn SVG glyphs), touch
-> behaviour renumbered to §13, and the mockup at 9 screens plus a rule card.
+> **Imported from the owner's Claude Design project "UI mockups planning",
+> sync 2026-08-19T00:20Z** (supersedes the 23:05Z import). This revision adds
+> **§4.5 Tool palette** and the twelve tool glyphs in §12, and it closes the gap
+> `STRANDED_TOOLS.md` opened: every tool that had a built engine and no surface
+> now has one.
 >
 > **The UI hold is lifted** — owner, 2026-08-18: *"Replace the current GUI and
 > replace it in full by the DCC version including all it's wiring and
-> functionality."* Read `DCC_CONTROL_INDEX.md` before writing layout code; it
-> indexes every control here against real engine capability.
+> functionality."*
 >
-> §5.2's rewrite **resolves** the sharpest spec-vs-engine conflict the index
-> recorded: brush size is now 6-200 px (was an abstract 0.05-20.0), intensity
-> 0-1.5 dimensionless (was ±500 m), with 13 features, 8 presets, 8 globals and
-> 8 Freehand sub-modes — matching `cartalith-terrain/src/sculpt.rs` exactly.
-> One conflict survives: the commit prose still says it "re-runs erosion,
-> hydrology and climate once", where `commit_sculpt_pass` deliberately marks
-> tiles stale instead (the eager form measured ~7 s per stroke at 2048²).
+> Two conflicts with the engine are recorded rather than silently resolved:
+>
+> 1. §5.2's commit prose says it "re-runs erosion, hydrology and climate once".
+>    `commit_sculpt_pass` deliberately marks tiles stale instead. The engine is
+>    right and this line is stale — see `SCULPT_FUNCTION_CHART.md` §7.
+> 2. §5.1's "Run stage *n*" and "Run *n* → 10" have no engine entry point:
+>    `generate_terrain` is one-shot, with no per-stage recompute. Those buttons
+>    ship disabled with a tooltip saying so.
+>
+> §5.2's global **defaults** also differ from `SculptGlobals::default()` on five
+> of eight. Settled 2026-08-19 (owner: the values are placeholders, pick one):
+> the engine's values win, because `golden_parity_sculpt_water.rs` spreads
+> `..SculptGlobals::default()`, making them golden-parity inputs rather than
+> preferences. A test in `sculpt_bridge.rs` now pins the UI table to them.
 >
 > Path note: the design team writes to a `docs/`-rooted convention. In this
 > repository `docs/` holds the **source project's** own documentation, and two
@@ -225,8 +231,11 @@ vertical labels, active in accent:
 | CARTO | Layer list + layer properties (§7) | Ramp / stop editor |
 | RENDER | Terrain appearance groups | Preview & quality |
 
+Every left dock opens with the TOOLS block described in §4.5; below it comes the
+domain's own structure.
+
 Behaviour: clicking a domain swaps both docks and the tool options bar; the
-viewport, camera, and selection persist. Expanding the rail (`›`) shows the
+viewport, camera, selection and the armed tool persist. Expanding the rail (`›`) shows the
 domain's sub-nodes as a 200 px list. The rail foot shows the active context
 (`TERRAIN`, `SCULPT`, `STYLE`) and, in the World domain, the stage counter
 (`04 / 10`).
@@ -253,6 +262,127 @@ Sculpt: `SCULPT · RAISE` · feature · preset · radius · falloff · mode · �
 
 Cartography: `CARTOGRAPHY · STYLE` · preset chips (Atlas / Parchment / Physical
 / Ink) · `custom — edited since preset` · Reset · Save preset.
+
+---
+
+## 4.5 · Tool palette
+
+Ports v2.10's unified tool palette (`_civTool`, `[data-civtool]`, `_civSetTool`).
+**One tool is armed at a time, globally.** Arming a tool never changes the
+workspace, and switching workspace never disarms the tool — the two are
+orthogonal, which is why the palette is a block and not a mode.
+
+Every left dock opens with a **TOOLS** block: first the four global tools, then
+that domain's own. This does not change what §3 says a dock is for — the dock
+still presents the domain's structure; the palette is how the map is touched.
+
+### 4.5.1 Global tools — every domain
+
+| Tool | Key | Glyph | Drag / click | Tool options row | Right dock |
+|---|---|---|---|---|---|
+| Inspect | V | Arrow | Click selects the topmost object under the cursor — place, POI, label, icon, way, route, faction area, stamp | `INSPECT` · what-to-hit filter chips (places · labels · icons · ways) | The matching inspector from §6. **Inspect is what makes every inspector reachable** — without it armed, clicks pan. |
+| Measure | M | Ruler with ticks | Click to drop points; double-click or Esc ends | `MEASURE` · mode segment / path · running total in project units · clear · ✕ | Segment table (bearing, length), total, straight-line vs along-path difference |
+| Region select | R | Dashed rectangle | Drag a marquee; handles resize it, Esc clears | `REGION` · x / y / w / h in cells and km · lock aspect · snap to tile grid · Use as export extent | Extent in both units, cell count, tile estimate per LOD, and *Send to Data ▸ Export* |
+| Pan / zoom | Space (held), MMB | Hand | Always available as a modifier, even with another tool armed | — | unchanged |
+
+Region select is the marquee §9's export route was missing: dragging it fills the
+route's world-bounds fields, and the route's fields write back to the marquee.
+Neither is authoritative — they are two views of one rect (`region_export.rs`).
+
+### 4.5.2 WORLD tools
+
+| Tool | Key | Drag / click | Tool options row | Right dock |
+|---|---|---|---|---|
+| Sculpt features (13) | — | Stroke or radial per §5.2 | Per §4 | Stamp stack |
+| Freehand | F | Continuous drag / tap | Sub-mode row per §5.2 | Stamp stack |
+| Biome paint | B | Drag paints cells, ⇧ erases | `PAINT · BIOME` · target field · value swatch from the target's legend · radius 6 · hardness · softness · erase · land only · ✓ Commit | Painted-cell count, the target's legend with painted counts per class, Commit / Discard |
+
+Biome paint edits world data, so it belongs to WORLD, not to Cartography — in
+v2.10 the paint brush sat in the Cartography branch (`#carPaintChk`, with value ·
+radius · softness · erase, land only), which the presentation-only rule in §7 now
+forbids. The controls port unchanged; only the home moves.
+
+Paint is draft-then-commit like sculpting: strokes accumulate in a scratch layer,
+Commit writes them and marks stages 09 and 10 stale (a painted biome overrides
+classification for the cells it covers; soils and resources depend on it).
+
+*Answered by the engine, 2026-08-19* — the open question this section raised was
+which fields `PaintStamp` may legally write. Read from `cartalith-spatial/src/
+paint.rs` and the reference it ports (`_paintAt`/`getPaintLayer`, lines
+4754-4795): there are **three** paint layers, not four, and soil, lithology and
+vegetation cover are not among them.
+
+| Target | Palette | Reference array |
+|---|---|---|
+| Biome | `CART_BIOMES` | `paintBiome` |
+| Terrain — surface underfoot | `CART_TERRAINS` | `paintTerrain` |
+| Splat — asset-pack ground texture | `SPLAT_PAINT_SLOTS` | `paintSplat` |
+
+All three are lazily-allocated `u8` grids where **0 means unpainted** and the
+render falls through to the procedural pipeline; any other value is a 1-based
+palette index. They differ only in which palette the value indexes, which is why
+one `PaintStamp` serves all three and the caller owns which array it writes.
+Soil and lithology are *computed* fields with no override array behind them, so
+offering them would be inventing a feature rather than surfacing one. **The
+target selector lists exactly those three.**
+
+### 4.5.3 CIVIL tools
+
+| Tool | Key | Drag / click | Tool options row | Right dock |
+|---|---|---|---|---|
+| Settlement | S | Click drops a place (`civ_drop_place`) | `CIVIL · SETTLEMENT` · class (metropolis / city / town / village / hamlet) · faction · name (blank = generated) · snap to water · pick radius | The new settlement's inspector, live, focused on the name field |
+| POI | P | Click drops a point of interest (`_civDropPOI`) | `CIVIL · POI` · kind · faction · name · snap to way | POI inspector |
+| Territory | T | Drag paints the armed faction's claim (`merge_territory_paint`), ⇧ subtracts | `CIVIL · TERRITORY` · faction swatch · radius · add / subtract · respect coastlines | Faction inspector with live area, claimed-cell count, and contested-cell warning |
+
+Settlement and POI are **two tools, not one** — v2.10 keeps `place` and
+`place_poi` separate because they write different records. Territory paint takes
+pointer capture and is LOD-aware, so it lands on the right cells under deep zoom.
+
+### 4.5.4 INFRA tools
+
+| Tool | Key | Drag / click | Tool options row | Right dock |
+|---|---|---|---|---|
+| Way | W | Click appends a waypoint; Esc commits (`_civCommitWay`) | `INFRA · WAY` · way type (road / track / trail / bridge) · routing mode freehand / snap / least-cost (`DijkstraPath`) · snap to places · ↶ ↷ · ✓ Commit | Way inspector: waypoint list, length, grade profile, surface |
+| Route | ⇧R | Click appends a stop; Esc commits (`_civCommitRoute`) | `INFRA · ROUTE` · vessel / party reference · snap to places · ↶ ↷ · ✓ Commit | Route inspector with the cost trace and break-even from §6, per-stage overrides |
+
+Way and Route are also **two tools**: a way is durable geometry others route
+over, a route is a journey along existing geometry. v2.10 separates them
+(`draw_way` vs `route`) and so does this.
+
+While either is armed, hovering shows the live snap preview — the place or way a
+click would land on is highlighted. Snap to places is a shared modifier, on by
+default.
+
+### 4.5.5 CARTO tools
+
+| Tool | Key | Drag / click | Tool options row | Right dock |
+|---|---|---|---|---|
+| Label | L | Click an empty spot creates a label; click an existing one edits it in place | `CARTO · LABEL` · text · size mode (fixed / scale with zoom) · arc curvature · letter-spacing · anchor · font role | Text field, size, arc, anchor, on-canvas handles for the baseline and its two arc handles |
+| Icon | I | Click stamps the armed icon (`place_manual_icon`) | `CARTO · ICON` · family · variant · scale · rotation · jitter | Placed-icon properties; the armed icon is shown as a chip so it is obvious the map is loaded |
+
+Labels and icons are cartographic annotation, so both are presentation — the
+exception §7's prohibition allows, because they add nothing to and take nothing
+from the world model. Both keep their list panels (`#carLabelList`,
+`#carIconList`) with counts and Clear-all.
+
+The Asset library arms an icon and closes; the Icon tool is what places it. If a
+library slot is armed while no Icon tool is active, arming it switches the tool —
+the two are one gesture.
+
+### 4.5.6 Shared rules
+
+- **Escape** commits an in-progress multi-click tool (way, route, measure) and
+  otherwise disarms back to Inspect.
+- **Delete** removes the current selection: a place, POI, label, icon, way,
+  route, or stamp. Never a generation stage.
+- Arming any tool clears the previous tool's in-progress geometry and its armed
+  icon or paint mode.
+- A tool that writes world data (Biome paint, Settlement, POI, Territory, Way)
+  reports its staleness consequence in the status bar the moment it commits.
+- All tools are locked while the world is finalized, except Inspect, Measure,
+  Region select, Label and Icon.
+- On touch, every armed tool gets the pan joystick (v2.10 `#sculptNavpad`) so a
+  single-finger drag can pan without fighting the stroke.
 
 ---
 
@@ -377,7 +507,9 @@ finalized (`#sculptFinalizedNote`).
 
 ## 6 · Right dock · contexts
 
-Contents follow the selection, not the workspace.
+Contents follow the selection, not the workspace. Selections are made with the
+Inspect tool (§4.5.1); with any other tool armed a click performs that tool's
+action instead.
 
 | Context | Contents |
 |---|---|
@@ -509,6 +641,11 @@ hotkey badges: SURFACE (Relief 1, Biome 2, Political 3), TERRAIN FIELDS
 The active row is filled accent with reversed type. The popover must not overlap
 an open menu; it opens below the menu band.
 
+**Tool overlays** — the measure path with per-segment lengths and bearings, the
+region marquee with corner handles and a live cell/km readout, the brush ring for
+paint and sculpt, the armed-icon ghost under the cursor, and the snap-preview
+highlight while a way or route is being drawn.
+
 **Other viewport furniture** — top-left context readout (active stage or draft
 state), top-right projection/zoom/field, bottom-left scale bar, bottom-right
 cursor coordinates and elevation (`4 812 km E · 1 093 km N · 1 462 m`, showing
@@ -588,6 +725,23 @@ family, and are the only place icons carry meaning rather than decoration:
 | Coastline | A ragged edge above a water line |
 | Volcano | Truncated cone with a crater notch |
 | Freehand | A pencil |
+
+The tool palette adds twelve glyphs, drawn to the same rules:
+
+| Tool | Glyph |
+|---|---|
+| Inspect | A plain arrow cursor |
+| Measure | A ruler edge with three ticks and an end pin |
+| Region select | A dashed rectangle with solid corner ticks |
+| Pan / zoom | An open hand |
+| Biome paint | A round brush head with a single drip |
+| Settlement | A house outline |
+| POI | A diamond with a centre dot |
+| Territory | A hatched quadrilateral |
+| Way | Two rails with three sleepers |
+| Route | A dashed path with an arrowhead |
+| Label | A tag with its hole |
+| Icon | A hollow outlined diamond |
 
 Other drawn glyphs: the layers button (three stacked sheets), the dice on the
 seed row, and the `⧉` window marker in menus. Text symbols stay text — `▾ ▸ ‹ › ⌄

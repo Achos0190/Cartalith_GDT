@@ -432,7 +432,7 @@ for something the reference never had.
 | — engine-only globals the spec drops: noise scale (1–20), octaves (1–8), persistence (0.20–0.90), lacunarity (1.40–3.20), edge noise (0–1) | §5.2 | — | `SculptGlobals::{noise_scale, octaves, persistence, lacunarity, edge_noise}` | backed, unwired | Five real, defaulted, reference-derived controls. The mockup's Properties panel shows `noise scale` and `octaves · persistence`, so they are in the design; §5.2's Brush Settings table omits them. |
 | Every stroke becomes a live procedural stamp; nothing touches the heightfield until Commit | §5.2 | — | `PassBuffer` + `SculptStamp` + `preview_into` | backed, unwired | Exactly the engine's model, exactly the reference's. The strongest agreement in the whole document. |
 | Commit bakes the whole stack in one pass | §5.2 | — | `PassBuffer::commit` / `commit_sculpt_pass` | backed, unwired | |
-| …*and re-runs erosion, hydrology and climate once* | §5.2 | — | `StageGraph::mark_changed_tiles` (marks stale; does **not** re-run) | engine gap | Direct contradiction. The engine's model is deliberately lazy — `UNIFIED_TOOL_PLAN.md` measures the eager version at ~7 s per stroke at 2048² and rejects it explicitly. There is also no per-stage re-run entry point to call. See summary §3. |
+| …*and re-runs erosion, hydrology and climate once* | §5.2 | — | `StageGraph::mark_changed_tiles` (marks stale; does **not** re-run) | engine gap | Direct contradiction. The engine's model is deliberately lazy — `UNIFIED_TOOL_PLAN.md` rejects the eager version explicitly. (Its ~7.07 s figure is a *full generation* at 2048², not a per-stroke commit — see `SCULPT_FUNCTION_CHART.md` §7.) There is also no per-stage re-run entry point to call. See summary §3. |
 
 ---
 

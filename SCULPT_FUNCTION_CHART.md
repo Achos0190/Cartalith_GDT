@@ -113,13 +113,15 @@ the eight defaults do not** — see below.
 | Edge noise | 0–1 | 0.55 | **0.45** | Multiplied by each feature's `edgeChar` / `edgeFreqMul` |
 | Seed | integer | — | project seed | Dice button randomises |
 
-**The five bolded defaults are an open decision.** The engine's column is
-`SCULPT_GLOBAL_DEF` from the reference, verbatim and test-pinned. The spec's
-column is the design team's chosen starting point. Neither is wrong; they must
-not silently diverge. The recommendation is to take the design's defaults, since
-a starting brush of 32 cells is small on a 2048² map, and to record the change
-so nobody later "fixes" it back — but that is the owner's call, and the code
-should read whichever from one place, never from two.
+**Settled 2026-08-19: the engine's column wins, for all eight.** The owner's
+ruling was that the values are placeholders and one set should be picked for
+every value. The engine's set is the pick, on a ground that is not a matter of
+taste: `cartalith-engine/tests/golden_parity_sculpt_water.rs` spreads
+`..SculptGlobals::default()`, so those numbers are golden-parity *inputs*.
+Changing them would invalidate fixtures to gain a nicer starting brush size.
+`sculpt_bridge.rs` now carries a test asserting the UI control table's defaults
+equal `SculptGlobals::default()`, so the two can never drift again. §5.2's table
+is what needs correcting at the design end, not the code.
 
 Three noise families back every feature: `sculptFbm`, `sculptRidged`,
 `sculptBillow` — all reading the same four globals above. That sharing is what
@@ -175,9 +177,21 @@ is the one place the native version deliberately diverges:
 | Undo | one `pushUndo()` | same |
 | Render | one `renderNow()` | same |
 
-**Why the divergence.** The eager form was measured at **~7 s per stroke at
-2048²** and rejected in tool-system milestone C. At the reference's working
-resolutions it is affordable; at ours it makes the tool unusable. `PassBuffer`'s
+**Why the divergence.** Careful about the number here, because it is easy to
+misquote (and was, in an earlier draft of this document). What
+`CPU_MULTITHREADING_SCOPE.md` measured at 2048², Rayon-parallelized, is a **full
+generation**: `cartalith-terrain` alone ~5.1 s, and ~7.07 s once the civ per-cell
+layer is added — a total that explicitly **excludes** climate, erosion and
+hydrology, and excludes civ's own sequential stages. It is not a measurement of
+one commit.
+
+Nobody has measured the per-stroke commit cost. What the plan concluded from the
+full-generation figure is still sound — firing that whole causal chain per stroke
+is not viable at any resolution this engine targets — and the deeper blocker is
+structural rather than numeric: `cartalith-hydrology` and `cartalith-civ` are not
+tile-incremental at all, they operate on the whole field. But "we know the eager
+path is too slow by N seconds" is a claim nobody has earned yet, and the first
+milestone of `SCULPT_LIVE_SCOPE.md` is to earn it. `PassBuffer`'s
 structurally-deferred staleness exists for exactly this, and the status bar
 already reports what is stale. This is a `DECISIONS.md` §7a divergence —
 principled equivalence, same result on demand, different scheduling — not a

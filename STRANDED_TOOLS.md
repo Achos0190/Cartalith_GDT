@@ -1,4 +1,41 @@
-# Stranded tools — engines built, no surface in the DCC design
+# Stranded tools — RESOLVED by the design's §4.5 Tool palette
+
+> **Status: closed, 2026-08-19.** This document reported that seven tools had a
+> working, golden-verified Rust engine and nowhere in the DCC design to invoke
+> them, plus one half-surfaced. The owner took it to the design project, and the
+> revision imported at sync 2026-08-19T00:20Z adds **§4.5 Tool palette** — which
+> gives every one of them a home, adds a tool the report had missed, and splits
+> one row into the two tools the reference actually keeps separate.
+>
+> | Was stranded | Now lives at |
+> |---|---|
+> | Measure | §4.5.1 global tool, key `M` |
+> | Region select / export | §4.5.1 global tool, key `R` — *"the marquee §9's export route was missing"*, two views of one rect |
+> | Biome paint | §4.5.2 WORLD tool, key `B` — moved out of Cartography, because §7's presentation-only rule forbids it there |
+> | Place settlement | §4.5.3 CIVIL tool, key `S` |
+> | Territory paint | §4.5.3 CIVIL tool, key `T` |
+> | Draw route / way | §4.5.4 INFRA — **split into two**, Way (`W`) and Route (`⇧R`), because v2.10 keeps `draw_way` and `route` separate |
+> | Label | §4.5.5 CARTO tool, key `L` |
+> | Icon stamp | §4.5.5 CARTO tool, key `I` — the library arms it, the tool places it |
+>
+> Also added, and absent from this report because the report worked from the
+> engine's tool list rather than the reference's: **POI** (§4.5.3, key `P`,
+> `_civDropPOI`) — a separate record type from a settlement. And **Inspect**
+> (`V`) is named as the thing that makes every §6 inspector reachable at all,
+> which the previous revision left implicit.
+>
+> §12 gained the twelve matching glyphs, so the no-emoji rule still covers the
+> whole product. §3 now states that every left dock opens with the TOOLS block
+> and that the armed tool survives a workspace switch.
+>
+> **The engine question this raised is still open**, and is the real remaining
+> work: none of these tools has a `cartalith-godot` binding. Sculpt now does
+> (34 methods, 2026-08-19), which is the template for the rest. Milestone F is
+> partially done, not done.
+>
+> The original report follows unchanged, as the record of how the gap was found.
+
+---
 
 > Written 2026-08-18 against `DCC_SHELL_SPEC.md` (sync 2026-08-18T23:05Z) and
 > `UNIFIED_TOOL_PLAN.md` milestones A–E. Companion to `DCC_CONTROL_INDEX.md`,
