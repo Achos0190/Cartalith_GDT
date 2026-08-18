@@ -782,7 +782,17 @@ fn box_v(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64) {
 
 /// `smoothSeaH` (7966-7970) — two separable box passes, radius ∝
 /// resolution, flatten the bathymetry into broad shelf/deep/abyss zones.
-fn smooth_sea_h(src: &[f32], gw: usize, gh: usize, world: bool) -> Vec<f32> {
+///
+/// `pub(crate)` rather than private (`SCULPT_LIVE_SCOPE.md` milestone L0):
+/// the L0 timing harness (`tests/sculpt_live_l0_bench.rs`) needs to call
+/// this, `build_ao` and `build_hydro_wetness` in isolation to break down
+/// `with_appearance`'s cost -- the whole point of L0 is measuring whether
+/// these three precomputes really dominate rather than inferring it from
+/// reading the code. Visibility-only change: still unreachable from outside
+/// this crate (this crate is `cdylib`-only per `ARCHITECTURE.md`, so
+/// `pub(crate)` is already as narrow as `pub` would be to any real
+/// consumer), no behaviour differs, `golden_parity_render.rs` is untouched.
+pub(crate) fn smooth_sea_h(src: &[f32], gw: usize, gh: usize, world: bool) -> Vec<f32> {
     let rad = ((gw as f64 / 200.0).round() as i64).max(1);
     let mut a = src.to_vec();
     let mut b = vec![0f32; src.len()];
@@ -825,7 +835,9 @@ fn blur_once(src: &[f32], gw: usize, gh: usize, rad: i64, world: bool) -> Vec<f3
 /// against the world's own relief statistics gives a flat world the same
 /// *relative* depth cue as a mountainous one. Deterministic: a pure
 /// function of the field, per §27.
-fn build_ao(field: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool, a: &TerrainAppearance) -> Vec<f32> {
+/// `pub(crate)` for `SCULPT_LIVE_SCOPE.md` milestone L0 -- see
+/// [`smooth_sea_h`]'s doc comment for why.
+pub(crate) fn build_ao(field: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool, a: &TerrainAppearance) -> Vec<f32> {
     if a.ao_strength <= 0.0 {
         // The reference has no AO; `land_color` used a hardcoded `1.0`
         // before milestone 2, and this reproduces it with no work done.
@@ -889,7 +901,9 @@ fn build_ao(field: &[f32], gw: usize, gh: usize, sea_level: f64, world: bool, a:
 /// the top of that range with a smoothstep so ordinary hillside sheet-flow
 /// doesn't tint the whole map, and blur it into a soft halo rather than a
 /// hard one-cell channel outline.
-fn build_hydro_wetness(flow: Option<&[f32]>, gw: usize, gh: usize, world: bool, a: &TerrainAppearance) -> Vec<f32> {
+/// `pub(crate)` for `SCULPT_LIVE_SCOPE.md` milestone L0 -- see
+/// [`smooth_sea_h`]'s doc comment for why.
+pub(crate) fn build_hydro_wetness(flow: Option<&[f32]>, gw: usize, gh: usize, world: bool, a: &TerrainAppearance) -> Vec<f32> {
     let n = gw * gh;
     if a.hydro_wet_strength <= 0.0 {
         return vec![0f32; n];

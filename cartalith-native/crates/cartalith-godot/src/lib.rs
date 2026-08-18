@@ -16,7 +16,12 @@ use godot::classes::{IRefCounted, INode, Image, ImageTexture, Node, RefCounted};
 use godot::init::{ExtensionLibrary, gdextension};
 use godot::prelude::*;
 
+mod civ_tools_bridge;
+mod icon_bridge;
+mod infra_tools_bridge;
+mod label_bridge;
 mod pack;
+mod paint_bridge;
 mod params;
 mod render;
 mod sculpt_bridge;
@@ -148,6 +153,13 @@ struct CivData {
     /// alive -- see that function's own comment for why this is
     /// per-settlement rather than a general per-cell query.
     explanations: Vec<SettlementExplanation>,
+    /// `build_water_bodies`'s classification (0 = land, 1 = ocean, 2 =
+    /// lake), kept past `compute_civilisation`'s own return so `civ_tools_
+    /// bridge`'s Settlement tool (`WorldGen::civ_drop_settlement`) can call
+    /// `civ_drop_place`/the snap-to-water search without recomputing a full
+    /// `build_water_bodies` flood fill on every click -- it was already
+    /// real, already-computed data this function held anyway.
+    water_bodies: Vec<u8>,
 }
 
 /// One settlement's "why here?" record: the real decomposition of its
@@ -181,6 +193,15 @@ struct SettlementExplanation {
 /// the reference's real `CIV_FACTIONS.length-1` (7 entries including
 /// "Unclaimed" at index 0, reference line ~14568).
 const CIV_FACTION_COUNT: i32 = 6;
+
+/// The six-faction swatch, indexed `faction - 1` (faction `0` is always
+/// "Unclaimed" and never drawn). Hoisted out of `build_territory_texture`
+/// (its original, still-only-real, home) so `get_factions` -- CIVIL
+/// milestone F's Territory tool right dock, `DCC_SHELL_SPEC.md` §4.5.3's
+/// "faction swatch" -- can report the same colours a painted territory
+/// overlay actually renders in, rather than inventing a second palette that
+/// could silently drift from this one.
+const FACTION_RGB: [(u8, u8, u8); 6] = [(230, 159, 0), (86, 180, 233), (0, 158, 115), (240, 228, 66), (0, 114, 178), (213, 94, 0)];
 
 #[allow(clippy::too_many_arguments)]
 fn compute_civilisation(
@@ -464,7 +485,7 @@ fn compute_civilisation(
         settlements.iter().filter(|s| s.placement.coastal).cloned().collect();
     let sea_routes = cartalith_civ::civ_sea_routes(&ports, &ws.field, &wb.classification, gw, gh, world, map_width_km);
 
-    CivData { settlements, ways, sea_routes, territory, provinces, province_list, trade_balances, explanations }
+    CivData { settlements, ways, sea_routes, territory, provinces, province_list, trade_balances, explanations, water_bodies: wb.classification.clone() }
 }
 
 /// Named World-Structure archetype presets (reference HTML `ARCHETYPES`,
@@ -735,6 +756,64 @@ struct WorldGen {
     /// reason `SAVEFILE_COMPAT.md` gives for civ data never existing on
     /// one either).
     sculpt: Option<sculpt_bridge::SculptEditor>,
+    /// `UNIFIED_TOOL_PLAN.md` milestone F, the CARTO domain's Icon tool
+    /// (`DCC_SHELL_SPEC.md` §4.5.5) — every hand-placed icon plus the
+    /// currently-armed gallery selection. See `icon_bridge.rs`'s own module
+    /// doc for why this lives here rather than a second `GodotClass`, the
+    /// same reasoning `sculpt` above already follows. `None` before the
+    /// first successful `generate()`/`generate_sized()` call, and after
+    /// `load_save()` — a loaded save's format carries no manual-icon list
+    /// at all (`SAVEFILE_COMPAT.md` has no `mapIcons` equivalent), the same
+    /// restriction `civ` and `sculpt` already have for the same reason.
+    icons: Option<icon_bridge::IconEditor>,
+    /// `UNIFIED_TOOL_PLAN.md` milestone F, the CIVIL domain's Settlement and
+    /// Territory tools (`DCC_SHELL_SPEC.md` §4.5.3) — the territory-paint
+    /// draft/accumulator and the manual-placement name/population RNG
+    /// stream. See `civ_tools_bridge.rs`'s own module doc for why this
+    /// lives here rather than a second `GodotClass`, the same reasoning
+    /// `sculpt`/`icons` above already follow. `None` before the first
+    /// successful `generate()`/`generate_sized()` call, and after
+    /// `load_save()` — same restriction `civ` itself already has (a loaded
+    /// save carries none of the substrate the civ pipeline needs, so there
+    /// is no `territory` to paint over in the first place).
+    civ_tools: Option<civ_tools_bridge::CivTools>,
+    /// `UNIFIED_TOOL_PLAN.md` milestone F, the WORLD domain's Biome/Terrain/
+    /// Splat paint tool (`DCC_SHELL_SPEC.md` §4.5.2's `PAINT · BIOME` tool
+    /// options row). See `paint_bridge.rs`'s own module doc for why this
+    /// lives here rather than a second `GodotClass`, the same reasoning
+    /// `sculpt`/`icons`/`civ_tools` above already follow. `None` before the
+    /// first successful `generate()`/`generate_sized()` call, and after
+    /// `load_save()` — the land-only gate needs this world's own
+    /// water-body classification, which only a freshly generated
+    /// `WorldState`'s `field`/`rainfall` can compute
+    /// (`paint_bridge::PaintEditor::new`'s own doc comment).
+    paint: Option<paint_bridge::PaintEditor>,
+    /// `UNIFIED_TOOL_PLAN.md` milestone F, the CARTO domain's Label tool
+    /// (`DCC_SHELL_SPEC.md` §4.5.5: "Click an empty spot creates a label;
+    /// click an existing one edits it in place"). See `label_bridge.rs`'s
+    /// own module doc for why this lives here rather than a second
+    /// `GodotClass`, the same reasoning `sculpt`/`icons`/`civ_tools`/
+    /// `paint` above already follow. `None` before the first successful
+    /// `generate()`/`generate_sized()` call, and after `load_save()` — a
+    /// label's own `x`/`y` are grid coordinates over one particular world,
+    /// meaningless carried over to a differently-sized (or entirely
+    /// different) one, the same restriction `icons` already has for the
+    /// same reason.
+    labels: Option<label_bridge::LabelBridge>,
+    /// `UNIFIED_TOOL_PLAN.md` milestone F, the INFRA domain's Way/Route
+    /// tools plus the Measure and Region select global tools
+    /// (`DCC_SHELL_SPEC.md` §4.5.1/§4.5.4) — the in-progress way/route
+    /// draft, every committed hand-drawn way/route, the Measure click
+    /// chain, and the Region select marquee. See `infra_tools_bridge.rs`'s
+    /// own module doc for why all four share one struct and live here
+    /// rather than a second `GodotClass`, the same reasoning `sculpt`/
+    /// `icons`/`civ_tools`/`paint`/`labels` above already follow. `None`
+    /// before the first successful `generate()`/`generate_sized()` call,
+    /// and after `load_save()` — a waypoint, measurement or marquee from
+    /// the *previous* world's grid dimensions is meaningless (and, for the
+    /// marquee, could sit outside the new grid's bounds entirely), the
+    /// same restriction every sibling field above already has.
+    infra: Option<infra_tools_bridge::InfraTools>,
 }
 
 #[godot_api]
@@ -758,6 +837,11 @@ impl IRefCounted for WorldGen {
             asset_pack: None,
             quality: QualityTier::Quality,
             sculpt: None,
+            icons: None,
+            civ_tools: None,
+            paint: None,
+            labels: None,
+            infra: None,
         }
     }
 }
@@ -818,6 +902,45 @@ impl WorldGen {
             ws.river_floor.clone(),
             seed as u32,
         ));
+        // Milestone F: a fresh, empty Icon editor over this world -- a
+        // previous world's placed icons carry grid coordinates meaningless
+        // over a differently-sized (or entirely different) generation, the
+        // same reasoning `SculptEditor::new` above already follows for its
+        // own draft.
+        self.icons = Some(icon_bridge::IconEditor::new());
+        // Milestone F, CIVIL group: a fresh territory-paint draft/accumulator
+        // seeded from THIS generation's own `assign_territory` output (the
+        // pristine base `civ_tools_bridge::CivTools::commit` always rebuilds
+        // from) and a manual-placement name/population RNG stream folded
+        // from this world's own seed -- see `civ_tools_bridge.rs`'s own
+        // module doc for why both exist. `self.civ` was just set above, so
+        // its `territory` is real here.
+        self.civ_tools = Some(civ_tools_bridge::CivTools::new(
+            p.gw,
+            p.gh,
+            self.civ.as_ref().expect("just set above").territory.clone(),
+            seed as u32,
+        ));
+        // Milestone F, WORLD group: a fresh Paint editor over this world.
+        // The land-only gate (`paint_bridge::PaintEditor`'s own module doc)
+        // needs this world's water-body classification -- `compute_civilisation`
+        // above already computed exactly this (`wb.classification`) but never
+        // retains it past its own local scope, so this is a second, cheap
+        // call to the same pure function, not a new algorithm.
+        let wb = cartalith_civ::build_water_bodies(&ws.field, p.gw, p.gh, ws.sea_level, p.world, Some(&ws.rainfall));
+        self.paint = Some(paint_bridge::PaintEditor::new(p.gw, p.gh, std::sync::Arc::from(wb.classification)));
+        // Milestone F, CARTO group: a fresh, empty Label bridge over this
+        // world -- same reasoning `self.icons` above already follows (grid
+        // coordinates from a previous generation are meaningless here).
+        self.labels = Some(label_bridge::LabelBridge::new());
+        // Milestone F, INFRA group + the two global tools: a fresh, empty
+        // tool set over this world. Unlike `sculpt`/`civ_tools`/`paint`
+        // above, nothing here adopts anything from `ws` -- Way, Route,
+        // Measure and Region select are all user-driven from the first
+        // click, so `InfraTools::new()` alone is the right starting state
+        // (see `infra_tools_bridge.rs`'s own module doc, "nothing here is
+        // computed at construction").
+        self.infra = Some(infra_tools_bridge::InfraTools::new());
         self.source = Some(WorldSource::Generated(Box::new(ws)));
         self.seed = seed;
     }
@@ -1276,6 +1399,39 @@ impl WorldGen {
         // the wrong dimensions if kept, so this is a hard reset, not a
         // narrower "just don't offer commit" gate.
         self.sculpt = None;
+        // Same restriction, for the same reason: a loaded save carries no
+        // manual-icon list at all (`SAVEFILE_COMPAT.md`), and any
+        // in-progress icons from the *previous* world would silently carry
+        // grid coordinates over the wrong dimensions if kept.
+        self.icons = None;
+        // Same restriction as `civ` above, for the same reason: a loaded
+        // save has no `territory` for `civ_tools_bridge::CivTools::
+        // territory_base` to be a snapshot OF, and any in-progress paint
+        // draft from the *previous* world would silently apply to the wrong
+        // dimensions if kept.
+        self.civ_tools = None;
+        // Same restriction as `sculpt` above, for the same reason: the
+        // land-only gate's cached water-body classification
+        // (`paint_bridge::PaintEditor`'s own doc comment) is only ever
+        // computed from a freshly generated `WorldState`'s `field`/
+        // `rainfall`, and any in-progress paint draft from the *previous*
+        // world would silently apply to the wrong dimensions if kept.
+        self.paint = None;
+        // Same restriction as `icons` above, for the same reason: a loaded
+        // save carries no label list at all (`SAVEFILE_COMPAT.md`'s "civ
+        // and UI payloads" note is about what the *reference's* save
+        // format holds, not what this port's `load_save` reconstructs --
+        // this loader has never rebuilt `civ`/`sculpt`/`icons`/`civ_tools`
+        // from a save either), and any in-progress labels from the
+        // *previous* world would silently carry grid coordinates over the
+        // wrong dimensions if kept.
+        self.labels = None;
+        // Same restriction as `civ` above, for the same reason: Way/Route
+        // commit both need `self.civ` (never real for a loaded save, see
+        // above), and any in-progress waypoints, measurement or marquee
+        // from the *previous* world would silently carry grid coordinates
+        // over the wrong dimensions if kept.
+        self.infra = None;
         self.source = Some(WorldSource::Loaded(Box::new(save)));
         true
     }
@@ -1576,8 +1732,6 @@ impl WorldGen {
         let civ = self.civ.as_ref()?;
         let gw = self.gw as usize;
         let gh = self.gh as usize;
-        const FACTION_RGB: [(u8, u8, u8); 6] =
-            [(230, 159, 0), (86, 180, 233), (0, 158, 115), (240, 228, 66), (0, 114, 178), (213, 94, 0)];
         const ALPHA: u8 = 82; // ~0.32, low enough for terrain/biome colour to read through
 
         // Same plate-frame rule the river tint follows: this wash is drawn
@@ -2537,5 +2691,1435 @@ impl WorldGen {
     #[func]
     fn sculpt_discard(&mut self) -> i32 {
         self.sculpt.as_mut().map_or(0, |s| s.draft.discard() as i32)
+    }
+}
+
+/// `UNIFIED_TOOL_PLAN.md` milestone F, the CARTO domain's Icon tool
+/// (`DCC_SHELL_SPEC.md` §4.5.5). Thin `Variant`<->Rust conversion over
+/// `icon_bridge::IconEditor` -- see that module's own doc comment for the
+/// state machine, the `family`/`variant` numeric mapping, and which of
+/// `icon_arm`'s five parameters actually reach a placed icon.
+///
+/// `secondary`: gdext allows exactly one *primary* `#[godot_api] impl
+/// WorldGen` block per class (it alone generates the class's
+/// `__registration_storage`/`ImplementsGodotApi` machinery,
+/// `godot-macros`' own `inherent_impl.rs` doc comment on
+/// `InherentImplAttr::secondary`) — the existing block above (`generate`,
+/// the Sculpt milestone F methods, etc.) already is that one. Every
+/// further `#[func]`-bearing block, this one included, must be
+/// `#[godot_api(secondary)]` instead of a second plain `#[godot_api]`, or
+/// the two collide on that shared machinery at compile time.
+#[godot_api(secondary)]
+impl WorldGen {
+    /// Arms `family` (one of `"settlement"`, `"feature"`, `"poi"` --
+    /// `"custom"` is rejected, see `icon_bridge::resolve_variant`'s own doc
+    /// comment) / `variant` (a zero-based index into that family's frozen
+    /// slot vocabulary) for the next `icon_place` call. Requires a real
+    /// asset pack to already be loaded (`has_asset_pack`) -- arming a
+    /// family/slot this port cannot yet draw would let a caller stamp
+    /// icons with nothing to render, silently. `false` and nothing armed
+    /// without a loaded pack, for an unrecognised `family`, or for a
+    /// `variant` outside that family's own vocabulary.
+    #[func]
+    fn icon_arm(&mut self, family: GString, variant: i64, scale: f64, rotation: f64, jitter: f64) -> bool {
+        if !self.has_asset_pack() {
+            return false;
+        }
+        let Some(icons) = self.icons.as_mut() else { return false };
+        icons.arm(&family.to_string(), variant, scale, rotation, jitter)
+    }
+
+    /// The armed selection's chip contents (`DCC_SHELL_SPEC.md` §4.5.5:
+    /// "the armed icon is shown as a chip") -- `family`, `slot`, `scale`,
+    /// `rotation`, `jitter` (`set` omitted: arming can never reach
+    /// `Custom`, see `icon_arm`). Empty `Dictionary` when nothing is
+    /// armed or before any `generate()` call.
+    #[func]
+    fn icon_armed(&self) -> VarDictionary {
+        let Some(a) = self.icons.as_ref().and_then(|i| i.armed.as_ref()) else { return VarDictionary::new() };
+        vdict! {
+            "family" => a.icon.family.key(),
+            "slot" => a.icon.slot.as_str(),
+            "scale" => a.scale,
+            "rotation" => a.rotation,
+            "jitter" => a.jitter,
+        }
+    }
+
+    /// Disarms -- the next `icon_place` call does nothing until `icon_arm`
+    /// is called again. A no-op before any `generate()` call.
+    #[func]
+    fn icon_disarm(&mut self) {
+        if let Some(icons) = self.icons.as_mut() {
+            icons.disarm();
+        }
+    }
+
+    /// Stamps the armed icon at grid cell `(gx, gy)` and selects it
+    /// (`place_manual_icon` plus the arm-time scale override --
+    /// `icon_bridge`'s own doc comment). Returns the new icon's index, or
+    /// `-1` when nothing is armed, the click is off-grid, or before any
+    /// `generate()` call.
+    #[func]
+    fn icon_place(&mut self, gx: f64, gy: f64) -> i64 {
+        let (gw, gh) = (self.gw as usize, self.gh as usize);
+        let Some(icons) = self.icons.as_mut() else { return -1 };
+        icons.place(gx, gy, gw, gh).map_or(-1, |i| i as i64)
+    }
+
+    /// Grid-space hit test against every placed icon's box
+    /// (`icon_bridge::IconEditor::hit_test` -- no on-canvas resize-handle
+    /// geometry yet, box hits only; see that method's own doc comment).
+    /// `(gx, gy)` are grid coordinates, matching `icon_place`'s own
+    /// convention, not screen pixels. Selects and returns the hit icon's
+    /// index on a hit; `-1` on a miss or before any `generate()` call.
+    #[func]
+    fn icon_hit_test(&mut self, gx: f64, gy: f64) -> i64 {
+        let grid_w = self.gw as usize;
+        let Some(icons) = self.icons.as_mut() else { return -1 };
+        let env = cartalith_assets::manual::IconViewEnv { grid_w, zoom_scale: 1.0, icon_scale: 1.0 };
+        icons.hit_test(gx, gy, &env).map_or(-1, |i| i as i64)
+    }
+
+    /// Applies one resize-drag sample to the selected icon's scale
+    /// (`icon_resize_scale`, via `icon_bridge::IconEditor::resize` --
+    /// `index` must already be selected, normally by a prior
+    /// `icon_hit_test` hit on its box; that method's own doc comment
+    /// explains why `start_dist` alone, without a separate `start_scale`
+    /// parameter, is enough for a whole drag). `false` if `index` is not
+    /// currently selected, out of range, or before any `generate()` call.
+    #[func]
+    fn icon_resize(&mut self, index: i64, cx: f64, cy: f64, gx: f64, gy: f64, start_dist: f64) -> bool {
+        let Ok(i) = usize::try_from(index) else { return false };
+        let Some(icons) = self.icons.as_mut() else { return false };
+        icons.resize(i, cx, cy, gx, gy, start_dist)
+    }
+
+    /// One placed icon's properties (`DCC_SHELL_SPEC.md` §4.5.5's right
+    /// dock): `x`, `y`, `family`, `slot`, `set` (empty string outside
+    /// `Custom`), `scale`. Empty `Dictionary` for an out-of-range `index`
+    /// or before any `generate()` call.
+    #[func]
+    fn icon_get(&self, index: i64) -> VarDictionary {
+        let Ok(i) = usize::try_from(index) else { return VarDictionary::new() };
+        let Some(ic) = self.icons.as_ref().and_then(|s| s.icons.get(i)) else { return VarDictionary::new() };
+        icon_dict(ic)
+    }
+
+    /// Removes a placed icon (`DCC_SHELL_SPEC.md` §4.5.6: "Delete removes
+    /// the current selection... an icon"). Clears the selection if it
+    /// pointed at the removed icon; shifts a selection past it down by one
+    /// (`icon_bridge::IconEditor::delete`'s own doc comment). `false` for
+    /// an out-of-range `index` or before any `generate()` call.
+    #[func]
+    fn icon_delete(&mut self, index: i64) -> bool {
+        let Ok(i) = usize::try_from(index) else { return false };
+        let Some(icons) = self.icons.as_mut() else { return false };
+        icons.delete(i)
+    }
+
+    /// Every placed icon, in placement order (`DCC_SHELL_SPEC.md` §4.5.5's
+    /// `#carIconList`), each the same shape `icon_get` returns plus its
+    /// own `index`. Empty before any `generate()` call or while nothing is
+    /// placed.
+    #[func]
+    fn icon_list(&self) -> Array<VarDictionary> {
+        let Some(icons) = self.icons.as_ref() else { return Array::new() };
+        icons
+            .icons
+            .iter()
+            .enumerate()
+            .map(|(i, ic)| {
+                let mut d = icon_dict(ic);
+                d.set("index", i as i64);
+                d
+            })
+            .collect()
+    }
+
+    /// Drops every placed icon (armed selection untouched --
+    /// `icon_bridge::IconEditor::clear_all`'s own doc comment). A no-op
+    /// before any `generate()` call.
+    #[func]
+    fn icon_clear_all(&mut self) {
+        if let Some(icons) = self.icons.as_mut() {
+            icons.clear_all();
+        }
+    }
+}
+
+/// One `ManualIcon`'s fields as a flat `Dictionary` -- shared by `icon_get`
+/// and `icon_list`, which both need exactly this shape (`icon_list` adds
+/// its own `index` on top).
+fn icon_dict(ic: &cartalith_assets::manual::ManualIcon) -> VarDictionary {
+    vdict! {
+        "x" => ic.x,
+        "y" => ic.y,
+        "family" => ic.family.key(),
+        "slot" => ic.slot.as_str(),
+        "set" => ic.set.as_deref().unwrap_or(""),
+        "scale" => ic.scale,
+    }
+}
+
+/// `UNIFIED_TOOL_PLAN.md` milestone F, the CIVIL domain's Settlement and
+/// Territory tools (`DCC_SHELL_SPEC.md` §4.5.3). Thin `Variant`<->Rust
+/// conversion over `civ_tools_bridge` -- see that module's own doc comment
+/// for the territory-paint draft/base/accumulator split, the manual-
+/// placement name/population RNG, and the two honest gaps this binds
+/// around rather than papers over: **POI has no engine counterpart at all**
+/// (`cartalith-civ` never ported `_civDropPOI`), and **"metropolis" is not
+/// a real `SettlementKind`** (the port only has the five tiers
+/// `place_settlements` actually produces). Neither is invented here.
+///
+/// `#[godot_api(secondary)]`, not a plain `#[godot_api]`: only the first
+/// `#[func]`-bearing block for a class with a `Base<T>` field (`WorldGen`
+/// has one) may be the plain form -- every further one collides with it on
+/// the `WithSignals`/`WithUserSignals`/registration-storage machinery that
+/// attribute generates unconditionally (`godot-macros`' own `signal.rs`:
+/// "we always generate a collection struct ... if ... the struct has a
+/// Base<T> field"). The existing block above (`generate`, the Sculpt
+/// milestone F methods, etc.) already is that one plain block; the
+/// `icon_bridge` block below it found this same requirement first.
+#[godot_api(secondary)]
+impl WorldGen {
+    /// Hit-test an existing settlement near `(gx, gy)` -- `cartalith_civ::
+    /// civ_pick_place_at`'s weighted-nearest pick (`tools.rs`: a bigger
+    /// settlement outcompetes a closer small one, `v1.88`), at
+    /// `civ_place_pick_radius`'s base radius. Returns its index, or `-1`
+    /// for no hit, no generated world, or an empty settlement list.
+    ///
+    /// No zoom scaling: `civ_zoom_pick_r` exists in `cartalith-civ` for a
+    /// caller that wants the pick radius to read as a constant *screen*
+    /// size regardless of view zoom, but this method's own signature
+    /// (matching `civ_drop_settlement`'s) has no zoom parameter to feed it
+    /// -- a future overload can thread one through once the shell has a
+    /// view-zoom value to pass. Until then this is the same radius at
+    /// every zoom level, which is exactly what `civ_place_pick_radius`
+    /// alone already gives.
+    #[func]
+    fn civ_pick_place_at(&self, gx: f64, gy: f64) -> i64 {
+        let Some(civ) = self.civ.as_ref() else { return -1 };
+        let pick_r = cartalith_civ::tools::civ_place_pick_radius(self.gw as usize);
+        match cartalith_civ::tools::civ_pick_place_at(&civ.settlements, gx, gy, pick_r) {
+            Some(i) => i as i64,
+            None => -1,
+        }
+    }
+
+    /// `_civDropPlace` (`cartalith_civ::civ_drop_place`) -- the Settlement
+    /// tool's click handler. `kind` is one of the five real tiers
+    /// (`"capital"/"city"/"town"/"village"/"hamlet"`, case-insensitive;
+    /// `"metropolis"` and anything else unrecognised is rejected, see this
+    /// impl block's own header comment). `name` blank (or all whitespace)
+    /// gets an engine-generated one from `civ_settle_name`, matching
+    /// `DCC_SHELL_SPEC.md` §4.5.3's "name (blank = generated)"; population
+    /// always follows the same tier-populated curve auto-populated
+    /// settlements use (`civ_tools_bridge::manual_settlement_pop`).
+    ///
+    /// Returns the new (or, if the click landed on an existing place, the
+    /// already-there) settlement's index into `get_settlements()`'s own
+    /// array -- so a shell can immediately re-read it for §4.5.3's "the new
+    /// settlement's inspector, live, focused on the name field." `-1` for
+    /// an out-of-bounds click, a water refusal, an unrecognised `kind`, a
+    /// non-finite/negative coordinate, or before any `generate()` call.
+    ///
+    /// `snap_to_water`: **a new affordance, not a ported one** -- see
+    /// `civ_tools_bridge::nearest_land_cell`'s own doc comment. When on and
+    /// the raw click cell is water, this searches outward (within
+    /// `civ_snap_radius`'s own base radius) for the nearest dry-land,
+    /// non-water-body cell and places there instead; a click with nothing
+    /// dry in range still refuses exactly as `civ_drop_place` always has.
+    #[func]
+    fn civ_drop_settlement(&mut self, gx: f64, gy: f64, kind: GString, faction: i64, name: GString, snap_to_water: bool) -> i64 {
+        let Some(k) = civ_tools_bridge::kind_from_str(&kind.to_string()) else { return -1 };
+        if !gx.is_finite() || !gy.is_finite() || gx < 0.0 || gy < 0.0 {
+            return -1;
+        }
+        let gw = self.gw as usize;
+        let gh = self.gh as usize;
+        let sea = self.sea_level;
+        let (Some(civ), Some(WorldSource::Generated(ws)), Some(tools)) = (self.civ.as_mut(), self.source.as_mut(), self.civ_tools.as_mut()) else {
+            return -1;
+        };
+        let mut cx = gx.round() as usize;
+        let mut cy = gy.round() as usize;
+        if cx >= gw || cy >= gh {
+            return -1;
+        }
+        if snap_to_water {
+            let max_r = cartalith_civ::tools::civ_snap_radius(gw);
+            if let Some((nx, ny)) = civ_tools_bridge::nearest_land_cell(cx, cy, gw, gh, &ws.field, &civ.water_bodies, sea, max_r) {
+                cx = nx;
+                cy = ny;
+            }
+        }
+        let pick_r = cartalith_civ::tools::civ_place_pick_radius(gw);
+        let name = name.to_string();
+        match civ_tools_bridge::drop_settlement(&mut civ.settlements, &mut tools.name_rng, cx, cy, pick_r, &ws.field, &civ.water_bodies, gw, gh, sea, faction as i32, k, &name) {
+            Some(i) => i as i64,
+            None => -1,
+        }
+    }
+
+    /// One dab of the Territory tool's brush (`merge_territory_paint`, via
+    /// `civ_tools_bridge::CivTools::paint_at`) into the in-progress,
+    /// uncommitted draft -- a no-op before any `generate()` call. `subtract`
+    /// (⇧, `DCC_SHELL_SPEC.md` §4.5.3) erases rather than claims, so the
+    /// affected cells fall through to `assign_territory`'s own computed
+    /// answer on the next commit rather than to bare "unclaimed" -- see
+    /// `civ_tools_bridge.rs`'s own module doc for why that needs
+    /// `territory_base` at all.
+    #[func]
+    fn civ_territory_paint_at(&mut self, gx: f64, gy: f64, faction: i64, radius: f64, subtract: bool) {
+        if let Some(tools) = self.civ_tools.as_mut() {
+            tools.paint_at(gx, gy, faction as i32, radius, subtract);
+        }
+    }
+
+    /// Bakes the in-progress territory draft into the accumulated paint
+    /// layer and rebuilds `get_provinces`/`build_territory_texture`'s own
+    /// `territory` from `territory_base` merged with the full accumulated
+    /// layer -- a no-op with nothing pending, or before any `generate()`
+    /// call.
+    #[func]
+    fn civ_territory_commit(&mut self) {
+        let (Some(civ), Some(tools)) = (self.civ.as_mut(), self.civ_tools.as_mut()) else { return };
+        tools.commit(&mut civ.territory);
+    }
+
+    /// Drops the in-progress territory draft, touching nothing already
+    /// committed -- a no-op before any `generate()` call.
+    #[func]
+    fn civ_territory_discard(&mut self) {
+        if let Some(tools) = self.civ_tools.as_mut() {
+            tools.discard();
+        }
+    }
+
+    /// `DCC_SHELL_SPEC.md` §4.5.3's Territory right dock: live `area_km2`
+    /// (claimed-cell count times this world's own square cell area,
+    /// `(map_width_km/gw)^2`), `claimed_cells` (count of `territory[i] ==
+    /// faction`), and `contested_cells` -- **this bridge's own heuristic**,
+    /// not a reference or engine concept (`civ_tools_bridge::
+    /// contested_cell_count`'s own doc comment: a claimed cell bordering a
+    /// *different* claimed faction, 4-connected). Empty `Dictionary` before
+    /// any `generate()` call.
+    #[func]
+    fn civ_faction_territory_stats(&self, faction: i64) -> VarDictionary {
+        let Some(civ) = self.civ.as_ref() else { return VarDictionary::new() };
+        let gw = self.gw as usize;
+        let gh = self.gh as usize;
+        let f = faction as i32;
+        let claimed = civ.territory.iter().filter(|&&t| t == f).count();
+        let contested = civ_tools_bridge::contested_cell_count(&civ.territory, f, gw, gh);
+        let cell_km = if gw > 0 { self.map_width_km / gw as f64 } else { 0.0 };
+        let area_km2 = claimed as f64 * cell_km * cell_km;
+        dict! {
+            "faction" => faction,
+            "claimed_cells" => claimed as i64,
+            "contested_cells" => contested as i64,
+            "area_km2" => area_km2,
+        }
+    }
+
+    /// Every faction the placement/territory tools can target -- `id`
+    /// (`1..=CIV_FACTION_COUNT`, matching `get_settlements()`/
+    /// `get_provinces()`'s own `faction` field), `culture` (the naming-
+    /// flavour key `civ_default_culture` resolves this faction to -- the
+    /// reference has no faction *name* registry beyond this, so this is
+    /// the honest, real label available, not a placeholder), `color_r`/
+    /// `color_g`/`color_b` (0-255, the exact swatch `build_territory_
+    /// texture` paints this faction's cells in -- `§4.5.3`'s "faction
+    /// swatch"), `settlement_count`, and `claimed_cells`. Empty `Array`
+    /// before any `generate()` call -- there is no `get_factions`-shaped
+    /// method anywhere else in this crate to reuse (`get_provinces()`
+    /// reports a `faction` id per province, not an enumerable faction
+    /// list).
+    #[func]
+    fn get_factions(&self) -> Array<VarDictionary> {
+        let Some(civ) = self.civ.as_ref() else { return Array::new() };
+        (1..=CIV_FACTION_COUNT)
+            .map(|f| {
+                let settlement_count = civ.settlements.iter().filter(|s| s.placement.faction == f).count();
+                let claimed_cells = civ.territory.iter().filter(|&&t| t == f).count();
+                let culture = cartalith_civ::civ_default_culture(f).key;
+                let (r, g, b) = FACTION_RGB[((f - 1) as usize) % FACTION_RGB.len()];
+                dict! {
+                    "id" => f,
+                    "culture" => culture,
+                    "color_r" => r as i64,
+                    "color_g" => g as i64,
+                    "color_b" => b as i64,
+                    "settlement_count" => settlement_count as i64,
+                    "claimed_cells" => claimed_cells as i64,
+                }
+            })
+            .collect()
+    }
+}
+
+/// `UNIFIED_TOOL_PLAN.md` milestone F, the WORLD domain's `PAINT · BIOME`
+/// tool (`DCC_SHELL_SPEC.md` §4.5.2) — see `paint_bridge.rs`'s own module
+/// doc for the state this thin layer wraps, and `WorldGen::paint`'s own
+/// field doc for why it lives on `WorldGen` rather than a second
+/// `GodotClass`. A separate `impl` block, not folded into the Sculpt one
+/// above, since the two tools share nothing but the pattern.
+///
+/// `secondary`, same reason the Icon and Civil-tools blocks above are:
+/// gdext allows exactly one *primary* `#[godot_api] impl WorldGen` block
+/// per class (the existing block containing `generate`/the Sculpt methods
+/// already is that one) — every further `#[func]`-bearing block must say
+/// `#[godot_api(secondary)]` or collide with it on the shared
+/// `__registration_storage` machinery at compile time.
+#[godot_api(secondary)]
+impl WorldGen {
+    // ---- registry: no `generate()` call required ----
+
+    /// The three paint layers (`paint_bridge::PaintTarget::ALL`), in
+    /// `DCC_SHELL_SPEC.md` §4.5.2's own target-table order (Biome, Terrain,
+    /// Splat) — pass one of these back to `paint_set_layer`.
+    #[func]
+    fn get_paint_layers(&self) -> PackedStringArray {
+        paint_bridge::PaintTarget::ALL.iter().map(|t| GString::from(t.key())).collect()
+    }
+
+    /// `layer`'s own legal value range as `{index, label}` entries, 1-based
+    /// (`CART_BIOMES`/`CART_TERRAINS`/`SPLAT_PAINT_SLOTS`' own order) —
+    /// exactly what §4.5.2's value-swatch legend needs, without
+    /// hardcoding any of those three arrays a second time. Biome is 13
+    /// entries, not `CART_BIOMES`'s full 15 (`paint_bridge::PaintTarget::
+    /// palette`'s own doc: water is excluded, "the brush never touches
+    /// water"). Empty `Array` for an unrecognised `layer` key.
+    #[func]
+    fn get_paint_palette(&self, layer: GString) -> Array<VarDictionary> {
+        let Some(target) = paint_bridge::PaintTarget::from_key(&layer.to_string()) else {
+            return Array::new();
+        };
+        target
+            .palette()
+            .into_iter()
+            .enumerate()
+            .map(|(i, label)| vdict! { "index" => (i + 1) as i32, "label" => label })
+            .collect()
+    }
+
+    // ---- current tool state ----
+
+    /// Switches which layer the next `paint_stroke_at` writes to
+    /// (`paint_bridge::PaintEditor::set_layer`, which also clamps the
+    /// brush's stored value into the new layer's own palette range).
+    /// `false` for an unrecognised key or before any `generate()` call —
+    /// the active layer is left unchanged either way.
+    #[func]
+    fn paint_set_layer(&mut self, layer: GString) -> bool {
+        let Some(target) = paint_bridge::PaintTarget::from_key(&layer.to_string()) else { return false };
+        let Some(p) = self.paint.as_mut() else { return false };
+        p.set_layer(target);
+        true
+    }
+
+    /// The brush parameters `DCC_SHELL_SPEC.md` §4.5.2's `PAINT · BIOME`
+    /// tool options row exposes: `value` (a 1-based index into the
+    /// *active* layer's own `get_paint_palette`), `radius` (cells,
+    /// reference default 6, clamped to `_paintRadius`'s own 1..=40),
+    /// `hardness`/`softness` (0..1, stored and echoed back for the row but
+    /// never consumed — `paint_bridge`'s own module doc: painting is a
+    /// hard disc with no soft falloff, unlike Sculpt), `erase` (paints `0`
+    /// regardless of `value`), `land_only` (gates the dab against this
+    /// world's own water-body classification — **a toggle, not the
+    /// reference's hard-always gate**, the flagged new affordance
+    /// `PaintStamp::mask`'s own doc describes; defaults on, matching the
+    /// reference's actual behaviour until a caller turns it off).
+    ///
+    /// Returns what was actually stored after clamping, one dictionary of
+    /// the resulting values — every argument here is positional rather
+    /// than a sparse key/value patch, so this reshapes `sculpt_set_globals`'
+    /// "tell the caller what really happened" contract rather than reusing
+    /// its `{rejected, clamped}` key-list shape verbatim. Empty
+    /// `Dictionary` before any `generate()` call.
+    #[func]
+    fn paint_set_brush(&mut self, value: i64, radius: f64, hardness: f64, softness: f64, erase: bool, land_only: bool) -> VarDictionary {
+        let Some(p) = self.paint.as_mut() else { return VarDictionary::new() };
+        let b = p.set_brush(value, radius, hardness, softness, erase, land_only);
+        vdict! {
+            "value" => b.value as i32,
+            "radius" => b.radius,
+            "hardness" => b.hardness,
+            "softness" => b.softness,
+            "erase" => b.erase,
+            "land_only" => b.land_only,
+        }
+    }
+
+    // ---- drafting ----
+
+    /// One brush dab at grid coordinates `(gx, gy)`, pushed straight onto
+    /// the active layer's own draft (`paint_bridge::PaintEditor::
+    /// stroke_at`). Paint is a continuous drag in the reference (`_paintAt`,
+    /// called once per pointer-move sample) rather than Sculpt's
+    /// captured-polyline-then-`sculpt_end_stroke` model, so there is no
+    /// begin/end pair here: every call is already one complete,
+    /// independently undo-able draft entry. A no-op before any
+    /// `generate()` call.
+    #[func]
+    fn paint_stroke_at(&mut self, gx: f64, gy: f64) {
+        if let Some(p) = self.paint.as_mut() {
+            p.stroke_at(gx, gy);
+        }
+    }
+
+    /// A real overlay raster of the *active* layer's current paint state —
+    /// already-committed cells composited with this session's own pending
+    /// draft (`PassBuffer::preview_into`, never mutating either), full
+    /// grid, RGBA8: alpha `0` at an unpainted cell, alpha `255` at a
+    /// painted one, coloured by `paint_bridge::swatch_color` — **this
+    /// port's own convention, not the reference's**, see that function's
+    /// own doc for why. Meant to be drawn *over* `build_color_texture()`'s
+    /// own output, the same "translucent wash over the finished raster"
+    /// shape `build_territory_texture` already uses for its own overlay.
+    ///
+    /// Full grid rather than a bounded region, unlike the note in
+    /// `build_sculpt_preview_texture` inviting one: this pass is a flat
+    /// per-cell colour lookup with no derived whole-grid rasters
+    /// underneath it (no `RenderCtx`, no AO/wetness/hillshade), so the
+    /// cost a bounded variant would save is negligible here, while a
+    /// bounded texture would need this method to also report an offset
+    /// for the caller to composite it at — a second return value this
+    /// signature doesn't have.
+    ///
+    /// `None` before any `generate()` call, or when the active layer has
+    /// nothing painted and nothing pending (matching nothing would differ
+    /// from a texture that is fully transparent everywhere).
+    #[func]
+    fn build_paint_preview_texture(&self) -> Option<Gd<ImageTexture>> {
+        let p = self.paint.as_ref()?;
+        if p.active_layer().is_empty() && p.active_draft().is_empty() {
+            return None;
+        }
+        let gw = self.gw as usize;
+        let gh = self.gh as usize;
+        let n = gw * gh;
+        let base: Vec<u8> = p.active_layer().cells().map(<[u8]>::to_vec).unwrap_or_else(|| vec![0u8; n]);
+        let mut scratch = vec![0u8; n];
+        p.active_draft().preview_into(&base, &mut scratch);
+        let palette_len = p.layer.palette().len();
+
+        let mut bytes = Vec::with_capacity(n * 4);
+        for &v in &scratch {
+            if v == 0 {
+                bytes.extend_from_slice(&[0, 0, 0, 0]);
+            } else {
+                let (r, g, b) = paint_bridge::swatch_color(v, palette_len);
+                bytes.extend_from_slice(&[r, g, b, 255]);
+            }
+        }
+        let packed = PackedByteArray::from(bytes);
+        let image = Image::create_from_data(gw as i32, gh as i32, false, Format::RGBA8, &packed)?;
+        ImageTexture::create_from_image(&image)
+    }
+
+    /// Per-class painted-cell counts for the active layer, live — the same
+    /// composite `build_paint_preview_texture` renders, summarised instead
+    /// of rasterised (`paint_bridge::PaintEditor::painted_counts`).
+    /// `{"layer": String, "total": int, "counts": {index:int -> count:int}}`
+    /// — `counts` has one entry per legal index of the active layer's own
+    /// palette (`get_paint_palette`'s own `index`), zero-count entries
+    /// included, so a legend can render every class every time rather than
+    /// only the ones currently painted. Empty `Dictionary` before any
+    /// `generate()` call.
+    #[func]
+    fn paint_painted_counts(&self) -> VarDictionary {
+        let Some(p) = self.paint.as_ref() else { return VarDictionary::new() };
+        let n = (self.gw as usize) * (self.gh as usize);
+        let (total, by_class) = p.painted_counts(n);
+        let mut counts = VarDictionary::new();
+        for (i, &c) in by_class.iter().enumerate() {
+            counts.set((i + 1) as i32, c);
+        }
+        vdict! { "layer" => p.layer.key(), "total" => total, "counts" => &counts }
+    }
+
+    // ---- commit / discard ----
+
+    /// Bakes every layer's pending draft into its own override array
+    /// (`paint_bridge::PaintEditor::commit_all`) and clears all three
+    /// drafts. **Deliberately does not touch `field`/`temperature`/
+    /// `rainfall`/`flow_discharge` at all** — `UNIFIED_TOOL_PLAN.md`'s own
+    /// Biome-paint staleness note, *"painting biome does not mark height/
+    /// hydrology/climate dirty (it's downstream, read-only of those)"*,
+    /// holds here by construction: nothing in `PaintEditor::commit_all`
+    /// borrows `WorldState` at all.
+    ///
+    /// `DCC_SHELL_SPEC.md` §4.5.2 names the downstream cost precisely:
+    /// *"Commit ... marks stages 09 and 10 stale (a painted biome
+    /// overrides classification for the cells it covers; soils and
+    /// resources depend on it)."* `stale_stages` below reports exactly
+    /// that pair as **data for a caller's own status bar**, not a live
+    /// call into `cartalith_engine::staleness::StageGraph` — that graph is
+    /// deliberately unwired into `WorldGen` altogether (its own module
+    /// doc: *"milestone A ships the mechanism, and milestones B-F wire it
+    /// to real tools"*), the exact same gap `sculpt_commit`'s own doc
+    /// comment already discloses for the height/hydrology/climate chain.
+    /// Wiring a live graph into `WorldGen` is real follow-up work for
+    /// whichever milestone actually re-runs ecology/resources on demand,
+    /// not something to improvise here.
+    ///
+    /// Returns a summary `Dictionary`: one `{stamps_applied,
+    /// stamps_skipped}` sub-dictionary per layer key (`"biome"`/
+    /// `"terrain"`/`"splat"`), `"tiles_marked"` (`PackedInt32Array`, the
+    /// union across all three — `paint_bridge`'s three drafts share one
+    /// `DirtyTracker`), and `"stale_stages"` (`PackedStringArray`, always
+    /// `["ecology_biomes", "resources_soils"]` when anything was actually
+    /// painted this commit, empty otherwise). Empty `Dictionary` before
+    /// any `generate()` call.
+    #[func]
+    fn paint_commit(&mut self) -> VarDictionary {
+        let Some(p) = self.paint.as_mut() else { return VarDictionary::new() };
+        let n = (self.gw as usize) * (self.gh as usize);
+        let [biome, terrain, splat] = p.commit_all(n);
+
+        let mut tiles: std::collections::BTreeSet<i32> = std::collections::BTreeSet::new();
+        for s in [&biome, &terrain, &splat] {
+            tiles.extend(s.tiles_marked.iter().map(|&t| t as i32));
+        }
+        let tiles_marked: PackedInt32Array = tiles.into_iter().collect();
+
+        let any_applied = biome.stamps_applied > 0 || terrain.stamps_applied > 0 || splat.stamps_applied > 0;
+        let stale_stages: PackedStringArray = if any_applied {
+            ["ecology_biomes", "resources_soils"].iter().map(|s| GString::from(*s)).collect()
+        } else {
+            PackedStringArray::new()
+        };
+
+        fn summary_dict(s: &cartalith_spatial::CommitSummary) -> VarDictionary {
+            vdict! { "stamps_applied" => s.stamps_applied as i64, "stamps_skipped" => s.stamps_skipped as i64 }
+        }
+        vdict! {
+            "biome" => &summary_dict(&biome),
+            "terrain" => &summary_dict(&terrain),
+            "splat" => &summary_dict(&splat),
+            "tiles_marked" => &tiles_marked,
+            "stale_stages" => &stale_stages,
+        }
+    }
+
+    /// Drops every layer's pending draft, touching nothing committed
+    /// (`paint_bridge::PaintEditor::discard_all`). Returns how many dabs
+    /// were dropped in total across all three layers, `0` before any
+    /// `generate()` call.
+    #[func]
+    fn paint_discard(&mut self) -> i32 {
+        self.paint.as_mut().map_or(0, |p| p.discard_all() as i32)
+    }
+}
+
+/// `UNIFIED_TOOL_PLAN.md` milestone F, the INFRA domain's Way/Route tools
+/// plus the two global tools that ride in the same left-dock TOOLS block
+/// (`DCC_SHELL_SPEC.md` §4.5.1 Measure/Region select, §4.5.4 Way/Route) --
+/// see `infra_tools_bridge.rs`'s own module doc for the state this thin
+/// layer wraps, and `WorldGen::infra`'s own field doc for why it lives on
+/// `WorldGen` rather than a second `GodotClass`, the same reasoning
+/// `sculpt`/`icons`/`civ_tools`/`paint`/`labels` above already follow.
+///
+/// Plain (non-`#[func]`) helper shared by every method below -- kept out of
+/// the `#[godot_api(secondary)]` block since it is Rust-internal, the same
+/// split `call_params`/`absorb` use for `generate()`'s own helpers.
+impl WorldGen {
+    /// Snaps a click to the nearest settlement pin or existing way within
+    /// `civ_snap_radius`'s own reach (`cartalith_civ::tools::
+    /// civ_snap_radius`'s base radius, `max(5, GW/70)`, reference line
+    /// 16003) -- the real engine primitive behind `DCC_SHELL_SPEC.md`
+    /// §4.5.4's "snap to places" modifier, applied unconditionally by
+    /// `way_append_point`/`route_append_stop` below. The reference's own
+    /// `_civSnapEnabled` on/off preference (`state.viz.snapWays`, "on by
+    /// default") is a shell toggle this binding does not model a switch
+    /// for -- shipping it unconditionally is what "on by default" gives
+    /// without one.
+    ///
+    /// Considers both the generated road network (`self.civ.ways`) and any
+    /// hand-drawn ways committed so far this session (`self.infra.ways`) --
+    /// a click can snap onto a way it is about to continue past. Returns
+    /// the raw click unchanged before any civ data exists
+    /// (`self.civ.is_none()`, the same gate `way_commit`/`route_commit`
+    /// use) or when nothing is within reach.
+    fn snap_point(&self, gx: f64, gy: f64) -> (f64, f64) {
+        let Some(civ) = self.civ.as_ref() else { return (gx, gy) };
+        let mut ways: Vec<cartalith_civ::tools::WayRef> = civ.ways.iter().map(cartalith_civ::tools::WayRef::from).collect();
+        if let Some(infra) = self.infra.as_ref() {
+            ways.extend(infra.ways.iter().map(cartalith_civ::tools::WayRef::from));
+        }
+        let radius = cartalith_civ::tools::civ_snap_radius(self.gw.max(0) as usize);
+        cartalith_civ::tools::civ_snap_point(&civ.settlements, &ways, gx, gy, radius)
+    }
+}
+
+#[godot_api(secondary)]
+impl WorldGen {
+    // ===================== Way (DCC_SHELL_SPEC.md §4.5.4) =====================
+
+    /// Arms the Way tool with a type (`"road"`/`"track"`/`"sea_lane"`/
+    /// `"ancient"` -- `infra_tools_bridge::parse_way_type`'s own doc
+    /// comment on why this is the engine's real four-entry enum, not
+    /// §4.5.4's differing "road/track/trail/bridge" UI list). `false` for
+    /// an unrecognised string or before any `generate()` call -- no draft
+    /// is started either way.
+    #[func]
+    fn way_begin(&mut self, way_type: GString) -> bool {
+        let Some(t) = infra_tools_bridge::parse_way_type(&way_type.to_string()) else { return false };
+        let Some(infra) = self.infra.as_mut() else { return false };
+        infra.way_begin(t);
+        true
+    }
+
+    /// Appends one waypoint to the in-progress way, snapped to a nearby
+    /// place or way first (`snap_point`, "on by default" per §4.5.4).
+    /// `false` if no Way draft is currently armed.
+    #[func]
+    fn way_append_point(&mut self, gx: f64, gy: f64) -> bool {
+        let (sx, sy) = self.snap_point(gx, gy);
+        self.infra.as_mut().is_some_and(|i| i.way_append_point(sx, sy))
+    }
+
+    /// Commits the in-progress way via real least-cost Dijkstra routing
+    /// (`civ_commit_way`; `infra_tools_bridge`'s module doc explains why
+    /// there is no "freehand" alternative to route through). Returns the
+    /// new way's index (`get_settlements()`/`get_roads()`-style, a plain
+    /// position into the committed list -- there is no getter for the
+    /// manual-ways list itself yet, deliberately out of this milestone's
+    /// exact scope), or `-1` for no draft, fewer than two waypoints, or no
+    /// `generate()` yet. Prints (does not block or discard the way) when
+    /// some leg had to fall back to a straight line across terrain this
+    /// way type is meant to avoid -- `CommitWay::unreachable_legs`'s own
+    /// doc: "the reference alerts and keeps the way."
+    #[func]
+    fn way_commit(&mut self) -> i64 {
+        let Some(mode) = self.infra.as_ref().and_then(|i| i.way_draft_mode()) else { return -1 };
+        let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_ref()) else {
+            if let Some(i) = self.infra.as_mut() {
+                i.way_discard();
+            }
+            return -1;
+        };
+        let inputs = infra_tools_bridge::RouteInputs::build(
+            ws, self.gw as usize, self.gh as usize, self.world, self.map_width_km, self.params.river_density, mode,
+        );
+        // An owned clone, not a borrow of `self.infra.ways` -- so that
+        // borrow ends right here, before `way_commit` below needs
+        // `&mut self.infra` to push the new way onto that same field.
+        let manual_ways = self.infra.as_ref().map(|i| i.ways.clone()).unwrap_or_default();
+        let mut way_refs: Vec<cartalith_civ::tools::WayRef> = civ.ways.iter().map(cartalith_civ::tools::WayRef::from).collect();
+        way_refs.extend(manual_ways.iter().map(cartalith_civ::tools::WayRef::from));
+        let ctx = cartalith_civ::tools::RouteContext {
+            field: &ws.field,
+            water_bodies: &inputs.water_bodies,
+            biome: inputs.biome.as_deref(),
+            river_order: inputs.river_order.as_deref(),
+            places: &civ.settlements,
+            ways: &way_refs,
+            gw: self.gw as usize,
+            gh: self.gh as usize,
+            sea: self.sea_level,
+            world: self.world,
+            map_width_km: self.map_width_km,
+        };
+        let Some(infra) = self.infra.as_mut() else { return -1 };
+        match infra.way_commit(&ctx) {
+            Some((idx, unreachable)) => {
+                if unreachable > 0 {
+                    godot_print!(
+                        "cartalith-godot: way commit has {unreachable} unreachable leg(s) -- straight-line fallback across terrain this way type avoids"
+                    );
+                }
+                idx as i64
+            }
+            None => -1,
+        }
+    }
+
+    /// Discards the in-progress way without committing it.
+    #[func]
+    fn way_discard(&mut self) {
+        if let Some(i) = self.infra.as_mut() {
+            i.way_discard();
+        }
+    }
+
+    // ===================== Route (DCC_SHELL_SPEC.md §4.5.4) =====================
+
+    /// Arms the Route tool with a `RouteMode` (`"land"`/`"water"`/
+    /// `"mixed"`, `"least_cost"`/`"least-cost"` accepted as a `"mixed"`
+    /// alias -- `infra_tools_bridge::parse_route_mode`'s own doc comment on
+    /// why §4.5.4's other two labels, "freehand" and "snap", are not
+    /// accepted: no distinct engine algorithm backs either). `false` for an
+    /// unrecognised string or before any `generate()` call.
+    #[func]
+    fn route_begin(&mut self, mode: GString) -> bool {
+        let Some(m) = infra_tools_bridge::parse_route_mode(&mode.to_string()) else { return false };
+        let Some(infra) = self.infra.as_mut() else { return false };
+        infra.route_begin(m);
+        true
+    }
+
+    /// Appends one stop to the in-progress route, snapped to a nearby place
+    /// or way first, same as `way_append_point`. `false` if no Route draft
+    /// is currently armed.
+    #[func]
+    fn route_append_stop(&mut self, gx: f64, gy: f64) -> bool {
+        let (sx, sy) = self.snap_point(gx, gy);
+        self.infra.as_mut().is_some_and(|i| i.route_append_stop(sx, sy))
+    }
+
+    /// Commits the in-progress route via `civ_join_dijkstra_segs` under the
+    /// mode `route_begin` armed. Same return convention as `way_commit`
+    /// (new index or `-1`), and the same "prints rather than drops the
+    /// route" handling for unreachable legs.
+    #[func]
+    fn route_commit(&mut self) -> i64 {
+        let Some(mode) = self.infra.as_ref().and_then(|i| i.route_draft_mode()) else { return -1 };
+        let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_ref()) else {
+            if let Some(i) = self.infra.as_mut() {
+                i.route_discard();
+            }
+            return -1;
+        };
+        let inputs = infra_tools_bridge::RouteInputs::build(
+            ws, self.gw as usize, self.gh as usize, self.world, self.map_width_km, self.params.river_density, mode,
+        );
+        let manual_ways = self.infra.as_ref().map(|i| i.ways.clone()).unwrap_or_default();
+        let mut way_refs: Vec<cartalith_civ::tools::WayRef> = civ.ways.iter().map(cartalith_civ::tools::WayRef::from).collect();
+        way_refs.extend(manual_ways.iter().map(cartalith_civ::tools::WayRef::from));
+        let ctx = cartalith_civ::tools::RouteContext {
+            field: &ws.field,
+            water_bodies: &inputs.water_bodies,
+            biome: inputs.biome.as_deref(),
+            river_order: inputs.river_order.as_deref(),
+            places: &civ.settlements,
+            ways: &way_refs,
+            gw: self.gw as usize,
+            gh: self.gh as usize,
+            sea: self.sea_level,
+            world: self.world,
+            map_width_km: self.map_width_km,
+        };
+        let Some(infra) = self.infra.as_mut() else { return -1 };
+        match infra.route_commit(&ctx) {
+            Some((idx, unreachable)) => {
+                if unreachable > 0 {
+                    godot_print!("cartalith-godot: route commit has {unreachable} unreachable leg(s) -- straight-line fallback");
+                }
+                idx as i64
+            }
+            None => -1,
+        }
+    }
+
+    /// Discards the in-progress route without committing it.
+    #[func]
+    fn route_discard(&mut self) {
+        if let Some(i) = self.infra.as_mut() {
+            i.route_discard();
+        }
+    }
+
+    // ===================== Measure (DCC_SHELL_SPEC.md §4.5.1, global) =====================
+    //
+    // No golden-parity test exists for this tool and none can (see
+    // `cartalith_spatial::measure`'s own module doc: "zero reference
+    // precedent"); the km scale it reports is real (`cell_km`, the same
+    // expression every route length in this port already uses).
+
+    /// Starts a fresh Measure click chain, discarding any previous one.
+    #[func]
+    fn measure_begin(&mut self) {
+        if let Some(i) = self.infra.as_mut() {
+            i.measure_begin();
+        }
+    }
+
+    /// Appends one point to the Measure chain. No snapping -- Measure is a
+    /// raw ruler, not a routing tool, and §4.5.1's own row lists no snap
+    /// modifier for it (unlike Way/Route's "snap to places").
+    #[func]
+    fn measure_add_point(&mut self, gx: f64, gy: f64) {
+        if let Some(i) = self.infra.as_mut() {
+            i.measure_add_point(gx, gy);
+        }
+    }
+
+    /// The current chain's reading: `segments` (`Array<Dictionary>`, one
+    /// `{cells, km, bearing_deg}` per leg in click order -- `bearing_deg`
+    /// is this bridge's own convention, see `infra_tools_bridge::
+    /// MeasuredLeg`'s doc comment, since no reference bearing readout
+    /// exists to match), `total_cells`/`total_km` (the running total,
+    /// summed along the path), `straight_line_cells`/`straight_line_km`
+    /// (first point to last, direct -- §4.5.1's own right-dock "straight-
+    /// line vs along-path difference"), and `point_count`. Empty
+    /// `Dictionary` before any `generate()` call.
+    #[func]
+    fn measure_result(&self) -> VarDictionary {
+        let Some(infra) = self.infra.as_ref() else { return VarDictionary::new() };
+        let pts = infra.measure_points();
+        let gw = self.gw.max(0) as usize;
+        let legs = infra_tools_bridge::measure_legs(pts, gw, self.map_width_km, self.world);
+        let mut segments: Array<VarDictionary> = Array::new();
+        let mut total_cells = 0.0f64;
+        let mut total_km = 0.0f64;
+        for leg in &legs {
+            total_cells += leg.m.cells;
+            total_km += leg.m.km;
+            segments.push(&dict! {
+                "cells" => leg.m.cells,
+                "km" => leg.m.km,
+                "bearing_deg" => leg.bearing_deg,
+            });
+        }
+        let (straight_cells, straight_km) = match (pts.first(), pts.last()) {
+            (Some(&a), Some(&b)) if pts.len() >= 2 => {
+                let m = cartalith_spatial::measure(a, b, gw, self.map_width_km, self.world);
+                (m.cells, m.km)
+            }
+            _ => (0.0, 0.0),
+        };
+        dict! {
+            "segments" => &segments,
+            "total_cells" => total_cells,
+            "total_km" => total_km,
+            "straight_line_cells" => straight_cells,
+            "straight_line_km" => straight_km,
+            "point_count" => pts.len() as i64,
+        }
+    }
+
+    /// Clears the current Measure chain without ending the tool.
+    #[func]
+    fn measure_clear(&mut self) {
+        if let Some(i) = self.infra.as_mut() {
+            i.measure_clear();
+        }
+    }
+
+    // ===================== Region select (DCC_SHELL_SPEC.md §4.5.1, global) =====================
+    //
+    // "Region select is the marquee §9's export route was missing:
+    // dragging it fills the route's world-bounds fields, and the route's
+    // fields write back to the marquee. Neither is authoritative -- they
+    // are two views of one rect (`region_export.rs`)." `region_set`/
+    // `region_get` below and `region_export_tiles` all read/write the
+    // SAME `self.infra.region`, which is that one rect.
+
+    /// Sets the marquee from a `(gx, gy)` origin and a `(gw, gh)` size (not
+    /// two opposite corners), clamped and normalised to this world's own
+    /// grid via `norm_region` -- the same primitive `export_region_tiles`'s
+    /// own caller-facing selection type is built with, so a marquee this
+    /// sets is guaranteed a legal `region_export_tiles` input. A no-op
+    /// before any `generate()`/`load_save()` call.
+    #[func]
+    fn region_set(&mut self, gx: f64, gy: f64, gw: f64, gh: f64) {
+        if self.gw <= 0 || self.gh <= 0 {
+            return;
+        }
+        let r = cartalith_spatial::norm_region(gx, gy, gx + gw, gy + gh, self.gw as usize, self.gh as usize, None, None);
+        if let Some(infra) = self.infra.as_mut() {
+            infra.region_set(r);
+        }
+    }
+
+    /// The current marquee, or an empty `Dictionary` if none is set (or
+    /// before any `generate()` call): `x`/`y`/`w`/`h` in cells, `x_km`/
+    /// `y_km`/`w_km`/`h_km` in kilometres (`cell_km`), `cell_count`
+    /// (`w * h`), and `tile_estimates` (`Array<Dictionary>`, one
+    /// `{lod, tiles, tile_w, tile_h}` per `infra_tools_bridge::
+    /// REGION_LOD_GRIDS` tier -- see that constant's own doc comment for
+    /// why this port picked a three-tier ladder with no reference
+    /// precedent to match).
+    #[func]
+    fn region_get(&self) -> VarDictionary {
+        let Some(r) = self.infra.as_ref().and_then(|i| i.region) else { return VarDictionary::new() };
+        let km_per_cell = cartalith_spatial::cell_km(self.map_width_km, self.gw.max(1) as usize);
+        let estimates: Array<VarDictionary> = infra_tools_bridge::region_tile_estimate(&r)
+            .into_iter()
+            .map(|(label, tiles, tw, th)| {
+                dict! { "lod" => label, "tiles" => tiles as i64, "tile_w" => tw as i64, "tile_h" => th as i64 }
+            })
+            .collect();
+        dict! {
+            "x" => r.x as i64,
+            "y" => r.y as i64,
+            "w" => r.w as i64,
+            "h" => r.h as i64,
+            "x_km" => r.x as f64 * km_per_cell,
+            "y_km" => r.y as f64 * km_per_cell,
+            "w_km" => r.w as f64 * km_per_cell,
+            "h_km" => r.h as f64 * km_per_cell,
+            "cell_count" => (r.w * r.h) as i64,
+            "tile_estimates" => &estimates,
+        }
+    }
+
+    /// Clears the marquee.
+    #[func]
+    fn region_clear(&mut self) {
+        if let Some(i) = self.infra.as_mut() {
+            i.region_clear();
+        }
+    }
+
+    /// The Data manager's real export route (`DCC_SHELL_SPEC.md` §9) over
+    /// the current marquee -- `export_region_tiles` + `zip_region_export`
+    /// (`cartalith_engine::region_export`), unchanged. Works over either a
+    /// freshly generated world or a loaded save (`field` is read from
+    /// whichever `WorldSource` is live, the same fallback
+    /// `build_color_texture` already uses) -- unlike Way/Route, nothing
+    /// here needs the civ layer.
+    ///
+    /// `opts` keys, all optional: `cols`/`rows`/`tile_size` (int, default
+    /// `4`/`4`/`512`), `gzip`/`ridged`/`visual` (bool, default `false`),
+    /// `version` (String, default `"cartalith-native"`), `detail_freq`/
+    /// `detail_amp` (float, `AmplifyOpts` defaults `1.0`/`0.14`), and, only
+    /// read when `visual` is `true`, `sun_az_deg`/`exag` (float, `315.0`/
+    /// `3.4` -- `TileVisual::default()`'s own values). `seed` and `sea`
+    /// come from this world's own state, not `opts` -- an export must match
+    /// the world it was drawn over, not a caller-guessed one.
+    ///
+    /// Returns the zipped archive's bytes, or an empty `PackedByteArray`
+    /// with no marquee set, no world loaded, or on a zip failure (printed).
+    #[func]
+    fn region_export_tiles(&self, opts: VarDictionary) -> PackedByteArray {
+        let Some(region) = self.infra.as_ref().and_then(|i| i.region) else { return PackedByteArray::new() };
+        let field: &[f32] = match self.source.as_ref() {
+            Some(WorldSource::Generated(ws)) => &ws.field,
+            Some(WorldSource::Loaded(save)) => &save.fields.heightmap,
+            None => return PackedByteArray::new(),
+        };
+        let get_num = |key: &str| opts.get(key).and_then(|v| variant_to_num(&v));
+        let cols = get_num("cols").map(|n| n as usize).filter(|&n| n > 0).unwrap_or(4);
+        let rows = get_num("rows").map(|n| n as usize).filter(|&n| n > 0).unwrap_or(4);
+        let tile_size = get_num("tile_size").map(|n| n as usize).filter(|&n| n > 0).unwrap_or(512);
+        let gzip = opts.get("gzip").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false);
+        let version = opts
+            .get("version")
+            .and_then(|v| v.try_to::<GString>().ok())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "cartalith-native".to_string());
+        let visual = if opts.get("visual").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false) {
+            Some(cartalith_engine::region_export::TileVisual {
+                sea: self.sea_level,
+                sun_az_deg: get_num("sun_az_deg").unwrap_or(315.0),
+                exag: get_num("exag").unwrap_or(3.4),
+            })
+        } else {
+            None
+        };
+        let amplify = cartalith_terrain::amplify::AmplifyOpts {
+            seed: self.seed,
+            detail_freq: get_num("detail_freq").unwrap_or(1.0),
+            detail_amp: get_num("detail_amp").unwrap_or(0.14),
+            sea: self.sea_level,
+            ridged: opts.get("ridged").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false),
+        };
+        let export_opts = cartalith_engine::region_export::RegionExportOpts {
+            cols, rows, tile_size, amplify: &amplify, world: self.world, version: &version, gzip, visual,
+        };
+        let export = cartalith_engine::region_export::export_region_tiles(field, self.gw as usize, self.gh as usize, &region, &export_opts);
+        match cartalith_engine::region_export::zip_region_export(&export, None) {
+            Ok(bytes) => PackedByteArray::from(bytes),
+            Err(e) => {
+                godot_print!("cartalith-godot: region_export_tiles zip failed: {e}");
+                PackedByteArray::new()
+            }
+        }
+    }
+}
+
+/// A bare `String` out of a `Variant`, for the Label bridge's text/font/
+/// color/size_mode setters -- explicit `get_type()` check rather than
+/// `try_to::<GString>()`'s own fallibility, matching `variant_to_value`'s
+/// own reasoning: Godot's `Variant` can stringify almost anything (a bool,
+/// an int, ...), so a naive fallible conversion would silently accept a
+/// wrong-typed value instead of reporting it `rejected`.
+fn variant_to_string(v: &Variant) -> Option<String> {
+    match v.get_type() {
+        VariantType::STRING => Some(v.to::<GString>().to_string()),
+        _ => None,
+    }
+}
+
+/// One `MapLabel`'s fields as a flat `Dictionary` -- shared by `label_get`
+/// and `label_list`, which both need exactly this shape (`label_list` adds
+/// its own `index`/`selected` on top). `font`/`color` are always the
+/// *effective* value (`font_or_default`/`color_or_default`), never an
+/// empty string standing in for "unset".
+fn label_dict(lb: &cartalith_civ::labels::MapLabel) -> VarDictionary {
+    let size_mode = match lb.size_mode {
+        cartalith_civ::labels::LabelSizeMode::Fixed => "fixed",
+        cartalith_civ::labels::LabelSizeMode::Zoom => "zoom",
+    };
+    vdict! {
+        "x" => lb.x,
+        "y" => lb.y,
+        "text" => lb.name.as_str(),
+        "angle" => lb.angle,
+        "arc" => lb.arc,
+        "size" => lb.size,
+        "size_mode" => size_mode,
+        "font" => lb.font_or_default(),
+        "color" => lb.color_or_default(),
+    }
+}
+
+/// One `HandleCircle` as `{"x":.., "y":.., "r":..}`, or an empty
+/// `Dictionary` for `None` -- `label_handles`'s own per-slot shape.
+fn handle_circle_dict(c: Option<cartalith_civ::labels::HandleCircle>) -> VarDictionary {
+    c.map_or_else(VarDictionary::new, |c| vdict! { "x" => c.x, "y" => c.y, "r" => c.r })
+}
+
+/// `UNIFIED_TOOL_PLAN.md` milestone F, the CARTO domain's Label tool
+/// (`DCC_SHELL_SPEC.md` §4.5.5: "Click an empty spot creates a label;
+/// click an existing one edits it in place"). Thin `Variant`<->Rust
+/// conversion over `label_bridge::LabelBridge` -- see that module's own
+/// doc comment for the edit-session semantics (position commits
+/// immediately via `label_move`; the seven style fields are snapshot-and-
+/// revertible via `label_select`/`label_confirm_edit`/`label_cancel_edit`),
+/// the handle-geometry port (`label_bridge::handle_circles`, new to this
+/// milestone -- `labels.rs` itself never had a home for it) and the text-
+/// measurement gap this binding cannot close on its own (`label_hit_test`/
+/// `label_handles` use a disclosed `meas_w = 0` placeholder;
+/// `label_glyph_layout` is the one call that instead requires the caller's
+/// own real measured widths, for the reasons that module's doc explains).
+#[godot_api(secondary)]
+impl WorldGen {
+    /// New label at grid cell `(gx, gy)` with the given text, selected
+    /// immediately (`_civSelectLabel`, reference line 9771's click-on-
+    /// empty-ground branch). Returns the new label's index, or `-1` before
+    /// any `generate()` call.
+    #[func]
+    fn label_create(&mut self, gx: f64, gy: f64, text: GString) -> i64 {
+        let Some(labels) = self.labels.as_mut() else { return -1 };
+        labels.create(gx, gy, text.to_string()) as i64
+    }
+
+    /// `_civLabelDrag`'s per-move assignment (reference line 9718) -- sets
+    /// position directly, unclamped, with **no** selection side effect
+    /// (the reference calls this on every drag sample and only selects
+    /// once, on release -- call `label_select` separately once a drag
+    /// ends, matching `pointerup`'s own `if(moved){ _civSelectLabel(lb);
+    /// }`). `false` for an out-of-range `index`, a non-finite `gx`/`gy`,
+    /// or before any `generate()` call.
+    #[func]
+    fn label_move(&mut self, index: i64, gx: f64, gy: f64) -> bool {
+        let Ok(i) = usize::try_from(index) else { return false };
+        let Some(labels) = self.labels.as_mut() else { return false };
+        labels.move_to(i, gx, gy)
+    }
+
+    /// Selects label `index` for editing, snapshotting its seven style
+    /// fields (`LabelEditSession::select`) -- re-selecting an already-
+    /// selected label does **not** retake the snapshot, so a later
+    /// `label_cancel_edit` always reverts to how it looked when the
+    /// session *started*, not just the most recent tweak. Pass a negative
+    /// index to deselect (matching `sculpt_select_stamp`'s own
+    /// convention). `false` for an out-of-range non-negative index or
+    /// before any `generate()` call.
+    #[func]
+    fn label_select(&mut self, index: i64) -> bool {
+        let Some(labels) = self.labels.as_mut() else { return false };
+        if index < 0 {
+            labels.session.select(&labels.labels, None);
+            return true;
+        }
+        let Ok(i) = usize::try_from(index) else { return false };
+        if i >= labels.labels.len() {
+            return false;
+        }
+        labels.session.select(&labels.labels, Some(i));
+        true
+    }
+
+    /// The currently selected label's index, or `-1` for none (or before
+    /// any `generate()` call).
+    #[func]
+    fn label_get_selected(&self) -> i64 {
+        self.labels.as_ref().and_then(|l| l.session.selected()).map_or(-1, |i| i as i64)
+    }
+
+    /// `_civConfirmLabel()` -- ends the edit session, keeping whatever
+    /// edits were made. A no-op with nothing selected or before any
+    /// `generate()` call.
+    #[func]
+    fn label_confirm_edit(&mut self) {
+        if let Some(labels) = self.labels.as_mut() {
+            labels.session.confirm();
+        }
+    }
+
+    /// `_civCancelLabel()` -- reverts the selected label's seven style
+    /// fields to how they looked when the session started (**not** its
+    /// position -- `label_bridge.rs`'s own doc comment on why `x`/`y` are
+    /// excluded from the snapshot) and ends the session. Returns whether
+    /// anything was actually reverted. `false` with nothing selected or
+    /// before any `generate()` call.
+    #[func]
+    fn label_cancel_edit(&mut self) -> bool {
+        let Some(labels) = self.labels.as_mut() else { return false };
+        labels.session.cancel(&mut labels.labels)
+    }
+
+    /// One label's full state (`DCC_SHELL_SPEC.md` §4.5.5's right dock):
+    /// `x`, `y`, `text`, `angle` (degrees), `arc` (`[-1,1]`), `size`,
+    /// `size_mode` (`"fixed"`/`"zoom"`), `font`, `color` (the last two are
+    /// always the *effective* value, never an empty string for "unset").
+    /// Empty `Dictionary` for an out-of-range `index` or before any
+    /// `generate()` call.
+    #[func]
+    fn label_get(&self, index: i64) -> VarDictionary {
+        let Ok(i) = usize::try_from(index) else { return VarDictionary::new() };
+        let Some(lb) = self.labels.as_ref().and_then(|l| l.labels.get(i)) else { return VarDictionary::new() };
+        label_dict(lb)
+    }
+
+    /// Every label, in storage order (`DCC_SHELL_SPEC.md` §12's
+    /// `#carLabelList`), each the same shape `label_get` returns plus its
+    /// own `index` and `selected` (bool). Empty before any `generate()`
+    /// call or while no labels are placed.
+    #[func]
+    fn label_list(&self) -> Array<VarDictionary> {
+        let Some(labels) = self.labels.as_ref() else { return Array::new() };
+        let selected = labels.session.selected();
+        labels
+            .labels
+            .iter()
+            .enumerate()
+            .map(|(i, lb)| {
+                let mut d = label_dict(lb);
+                d.set("index", i as i64);
+                d.set("selected", selected == Some(i));
+                d
+            })
+            .collect()
+    }
+
+    /// Applies a partial `Dictionary` of style fields: `text` (String),
+    /// `size` (float, clamped `[8,48]`), `size_mode` (String, `"fixed"`/
+    /// `"zoom"`), `arc` (float, clamped `[-1,1]`), `angle` (float,
+    /// degrees, unrestricted), `font`/`color` (String, empty resets to the
+    /// engine default). Position (`x`/`y`) is not settable here -- see
+    /// `label_move`.
+    ///
+    /// **Not modelled**: `DCC_SHELL_SPEC.md` §4.5.5's tool-options row also
+    /// lists "letter-spacing" and "anchor", and calls `font` a "font role".
+    /// `cartalith_civ::labels::MapLabel` has no letter-spacing or anchor
+    /// field at all -- the reference itself has neither (arc placement's
+    /// per-glyph spacing comes entirely from measured widths, not a
+    /// separate spacing knob, and every label anchors at its own stored
+    /// `(x, y)`, full stop) -- and `font` is the literal CSS font string
+    /// the reference stores, not a named-role vocabulary a UI dropdown
+    /// might present. Sending `"letter_spacing"`/`"anchor"` (or any other
+    /// unrecognised key) is reported `rejected`, same as any other unknown
+    /// key, per this codebase's "a typo'd key is a bug worth seeing"
+    /// policy (`set_params`'s own doc comment) -- resolving a role name to
+    /// a font string, if that's ever wanted, is a shell-side lookup this
+    /// binding has no reason to own; sending the literal string via
+    /// `"font"` already works today.
+    ///
+    /// Returns `{"ok": bool, "rejected": PackedStringArray, "clamped":
+    /// PackedStringArray}`. `ok` is `false` (both arrays empty) for an
+    /// out-of-range `index` or before any `generate()` call, matching
+    /// `icon_delete`'s own bool-for-validity convention; when `ok` is
+    /// `true`, `rejected`/`clamped` report per-key outcomes the same way
+    /// `set_params`/`sculpt_set_globals` already do for their own multi-key
+    /// dictionaries.
+    #[func]
+    fn label_set(&mut self, index: i64, values: VarDictionary) -> VarDictionary {
+        let empty =
+            || dict! { "ok" => false, "rejected" => &PackedStringArray::new(), "clamped" => &PackedStringArray::new() };
+        let Ok(i) = usize::try_from(index) else { return empty() };
+        let Some(labels) = self.labels.as_mut() else { return empty() };
+        let Some(lb) = labels.labels.get_mut(i) else { return empty() };
+
+        let mut rejected = PackedStringArray::new();
+        let mut clamped = PackedStringArray::new();
+        for (k, v) in values.iter_shared() {
+            let key = k.to_string();
+            let outcome = match key.as_str() {
+                "text" => variant_to_string(&v).map_or(label_bridge::Outcome::Rejected, |s| label_bridge::set_text(lb, s)),
+                "font" => variant_to_string(&v).map_or(label_bridge::Outcome::Rejected, |s| label_bridge::set_font(lb, s)),
+                "color" => variant_to_string(&v).map_or(label_bridge::Outcome::Rejected, |s| label_bridge::set_color(lb, s)),
+                "size_mode" => variant_to_string(&v)
+                    .map_or(label_bridge::Outcome::Rejected, |s| label_bridge::set_size_mode(lb, &s)),
+                "size" => variant_to_num(&v).map_or(label_bridge::Outcome::Rejected, |n| label_bridge::set_size(lb, n)),
+                "arc" => variant_to_num(&v).map_or(label_bridge::Outcome::Rejected, |n| label_bridge::set_arc(lb, n)),
+                "angle" => variant_to_num(&v).map_or(label_bridge::Outcome::Rejected, |n| label_bridge::set_angle(lb, n)),
+                _ => label_bridge::Outcome::Rejected,
+            };
+            match outcome {
+                label_bridge::Outcome::Applied => {}
+                label_bridge::Outcome::Clamped => clamped.push(&GString::from(&key)),
+                label_bridge::Outcome::Rejected => rejected.push(&GString::from(&key)),
+            }
+        }
+        dict! { "ok" => true, "rejected" => &rejected, "clamped" => &clamped }
+    }
+
+    /// Removes a label. Clearing/keeping the session follows
+    /// `label_bridge::LabelBridge::delete`'s own doc comment (any delete
+    /// at or before the current selection clears the session, rather than
+    /// risk mis-pointing a live revert snapshot at the wrong label).
+    /// `false` for an out-of-range `index` or before any `generate()`
+    /// call.
+    #[func]
+    fn label_delete(&mut self, index: i64) -> bool {
+        let Ok(i) = usize::try_from(index) else { return false };
+        let Some(labels) = self.labels.as_mut() else { return false };
+        labels.delete(i)
+    }
+
+    /// Drops every label and ends any edit session. A no-op before any
+    /// `generate()` call.
+    #[func]
+    fn label_clear_all(&mut self) {
+        if let Some(labels) = self.labels.as_mut() {
+            labels.clear_all();
+        }
+    }
+
+    /// Box-only hit test against every placed label
+    /// (`label_bridge::LabelBridge::hit_test`), selecting the hit label.
+    /// `(gx, gy)` are grid coordinates, matching `label_create`'s/
+    /// `label_move`'s own convention, not screen pixels. `-1` on a miss or
+    /// before any `generate()` call.
+    ///
+    /// **Box hits only** -- matching `icon_hit_test`'s own "no on-canvas
+    /// resize-handle geometry yet" scope, one step further: a *handle* hit
+    /// is the shell's own job here, by comparing the pointer against the
+    /// circles `label_handles` already returns for whichever label is
+    /// selected (those need no separate hit-test call from this side -- a
+    /// handle is only interactive while its owning label is selected and
+    /// visible, which the shell already knows without asking Rust). Uses a
+    /// placeholder text width of `0` for every label's box -- see
+    /// `label_bridge.rs`'s own "text measurement" section; the box narrows
+    /// to a font-height square rather than the label's true rendered width
+    /// until a live `Font` is threaded through.
+    #[func]
+    fn label_hit_test(&mut self, gx: f64, gy: f64) -> i64 {
+        let grid_w = self.gw as usize;
+        let Some(labels) = self.labels.as_mut() else { return -1 };
+        let env = cartalith_civ::labels::LabelViewEnv { grid_w, zoom_scale: 1.0, icon_scale: 1.0 };
+        labels.hit_test(gx, gy, &env).map_or(-1, |i| i as i64)
+    }
+
+    /// The five on-canvas manipulation-box handle circles for label
+    /// `index`'s current box (`label_bridge::handle_circles` --
+    /// resize/rotate/arc/check/cross), each `{"x":.., "y":.., "r":..}` in
+    /// the same coordinate space `label_hit_test`'s `(gx, gy)` and
+    /// `label_resize_size`/`label_rotate_deg`/`label_arc_value`'s own
+    /// `cx`/`cy`/`gx`/`gy` already live in -- a slot is an empty
+    /// `Dictionary` only if `index` itself is invalid (all five are always
+    /// present together otherwise). `zoom` is the raw view scale before
+    /// `_civZoomK`'s own clamp (`civ_zoom_k` applies that internally),
+    /// matching the reference's `viewT.scale`.
+    ///
+    /// Empty top-level `Dictionary` for an out-of-range `index` or before
+    /// any `generate()` call. Uses the same `meas_w = 0` placeholder
+    /// `label_hit_test` does (`label_bridge.rs`'s "text measurement"
+    /// section) -- the handles are still correctly positioned relative to
+    /// *that* box, just not the label's true rendered width.
+    #[func]
+    fn label_handles(&self, index: i64, zoom: f64) -> VarDictionary {
+        let Ok(i) = usize::try_from(index) else { return VarDictionary::new() };
+        let Some(labels) = self.labels.as_ref() else { return VarDictionary::new() };
+        let env = cartalith_civ::labels::LabelViewEnv { grid_w: self.gw as usize, zoom_scale: zoom, icon_scale: 1.0 };
+        let Some(h) = labels.handles(i, &env) else { return VarDictionary::new() };
+        vdict! {
+            "resize" => &handle_circle_dict(h.resize),
+            "rotate" => &handle_circle_dict(h.rotate),
+            "arc" => &handle_circle_dict(h.arc),
+            "check" => &handle_circle_dict(h.check),
+            "cross" => &handle_circle_dict(h.cross),
+        }
+    }
+
+    /// Per-glyph arc placement for label `index`'s current text
+    /// (`arc_label_layout`, via `label_bridge::LabelBridge::glyph_layout`)
+    /// -- **the one Label call that needs real measured text, not a
+    /// placeholder** (`label_bridge.rs`'s own "text measurement" section
+    /// explains why: arc placement is fundamentally about per-glyph
+    /// spacing, so a zero-width placeholder would collapse every glyph
+    /// onto the label's own origin rather than merely under-sizing a box).
+    /// `zoom` feeds this label's own font size exactly like
+    /// `label_handles`' own parameter does.
+    ///
+    /// The caller measures `label_get(index).text` with a live Godot
+    /// `Font` and supplies:
+    /// - `char_widths` -- one entry per **Unicode scalar** of the text, in
+    ///   order (the reference measures one `char` at a time in its own
+    ///   layout loop);
+    /// - `total_w` -- the width of measuring the **whole** string in one
+    ///   call. **Not** the sum of `char_widths`: a kerned font measures a
+    ///   string narrower than its glyphs' own advances added up, and
+    ///   `arc_label_layout` reads each for a different purpose
+    ///   (`labels.rs`'s own emphasis: a port that summed the per-char
+    ///   widths instead drifts on any kerned string).
+    ///
+    /// Returns one `Dictionary` per glyph, each `{"dx": float, "dy":
+    /// float, "rot": float (radians), "straight": bool}` in the label's
+    /// own frame, *before* the whole-label `angle` rotation (exactly
+    /// `ArcGlyph`'s own contract) -- draw each character translated by
+    /// `(dx, dy)` then rotated by `rot`. When `|arc| < 0.01`, this is a
+    /// **single**-entry array with `dx = dy = rot = 0.0` and `straight =
+    /// true`: draw the whole string once at the label's own origin, not
+    /// per-glyph (every other entry this method ever returns has
+    /// `straight = false`). Empty `Array` for an out-of-range `index` or
+    /// before any `generate()` call.
+    #[func]
+    fn label_glyph_layout(&self, index: i64, zoom: f64, char_widths: PackedFloat64Array, total_w: f64) -> Array<VarDictionary> {
+        let Ok(i) = usize::try_from(index) else { return Array::new() };
+        let Some(labels) = self.labels.as_ref() else { return Array::new() };
+        let env = cartalith_civ::labels::LabelViewEnv { grid_w: self.gw as usize, zoom_scale: zoom, icon_scale: 1.0 };
+        let Some(layout) = labels.glyph_layout(i, &env, char_widths.as_slice(), total_w) else { return Array::new() };
+        match layout {
+            cartalith_civ::labels::ArcLayout::Straight => {
+                std::iter::once(vdict! { "dx" => 0.0, "dy" => 0.0, "rot" => 0.0, "straight" => true }).collect()
+            }
+            cartalith_civ::labels::ArcLayout::Arc(glyphs) => glyphs
+                .into_iter()
+                .map(|g| vdict! { "dx" => g.dx, "dy" => g.dy, "rot" => g.rot, "straight" => false })
+                .collect(),
+        }
+    }
+
+    /// The resize handle's live value during a drag
+    /// (`cartalith_civ::labels::label_resize_size`) -- pure per-call math,
+    /// no session kept on this side; the caller holds `start_size`/`cx`/
+    /// `cy`/`start_dist` locally between pointer events (captured once at
+    /// grab time from `label_get`/`label_handles`), the same way
+    /// `icon_resize`'s own caller already must. Clamped to `[8, 48]`
+    /// internally -- feed the result straight into
+    /// `label_set({"size": ...})`.
+    #[func]
+    fn label_resize_size(&self, start_size: f64, cx: f64, cy: f64, gx: f64, gy: f64, start_dist: f64) -> f64 {
+        label_bridge::resize_size(start_size, cx, cy, gx, gy, start_dist)
+    }
+
+    /// The rotate handle's live value during a drag
+    /// (`cartalith_civ::labels::label_rotate_deg`) -- **absolute**, not
+    /// relative to a grab angle: recomputed fresh every call, matching how
+    /// the reference itself behaves (`labels.rs`'s own doc comment). Feed
+    /// the result straight into `label_set({"angle": ...})`.
+    #[func]
+    fn label_rotate_deg(&self, cx: f64, cy: f64, gx: f64, gy: f64) -> f64 {
+        label_bridge::rotate_deg(cx, cy, gx, gy)
+    }
+
+    /// The arc/curve handle's live value during a drag
+    /// (`cartalith_civ::labels::label_arc_value`) -- `grab_angle_deg` and
+    /// `side` are captured once at grab time (the label's own `angle` and
+    /// its box's `side` at that moment; freezing the angle rather than
+    /// reading it live is deliberate -- `label_rotate_deg`'s own "changing
+    /// angle mid-drag would fight this drag" reasoning). Feed the result
+    /// straight into `label_set({"arc": ...})`.
+    #[func]
+    fn label_arc_value(&self, cx: f64, cy: f64, grab_angle_deg: f64, side: f64, gx: f64, gy: f64) -> f64 {
+        label_bridge::arc_value(cx, cy, grab_angle_deg, side, gx, gy)
     }
 }

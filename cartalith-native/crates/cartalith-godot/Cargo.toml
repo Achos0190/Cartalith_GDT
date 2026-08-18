@@ -27,9 +27,30 @@ cartalith-assets = { path = "../cartalith-assets" }
 # itself needed, not the sculpt registry or the raw pass-buffer machinery.
 cartalith-terrain = { path = "../cartalith-terrain" }
 cartalith-spatial = { path = "../cartalith-spatial" }
+# `UNIFIED_TOOL_PLAN.md` milestone F, CIVIL group: `civ_tools_bridge`'s
+# manual-placement name/population RNG stream is a `cartalith_rng::Mulberry32`
+# field (`cartalith_civ::civ_name_rng`'s own return type) that must be named
+# directly outside `cartalith-civ`'s own crate boundary -- a transitive
+# dependency cannot be, so this is a new direct one, same precedent as the
+# `cartalith-terrain`/`cartalith-spatial` pair added above for Sculpt.
+cartalith-rng = { path = "../cartalith-rng" }
 # `TERRAIN_APPEARANCE_SCOPE.md` milestone 6. The per-pixel appearance pass was
 # the last O(gw*gh) loop in the workspace still running on one core, after
 # `CPU_MULTITHREADING_SCOPE.md` milestones 2-3 parallelized civ/climate/
 # erosion/hydrology. Same `rayon = "1"` five sibling crates already declare, so
 # this adds no new dependency to the tree -- only to this crate's own graph.
 rayon = "1"
+
+[dev-dependencies]
+# `SCULPT_LIVE_SCOPE.md` milestone L0's timing harness
+# (`tests/sculpt_live_l0_bench.rs`) needs `compute_temperature`/
+# `simulate_weather`/`apply_climate_moisture_correctors` directly to measure
+# a standalone "climate refresh" the same way `generate_terrain` chains
+# them, and `cartalith-gpu`'s `_with` GPU flow/weather entry points to
+# measure the CPU-vs-GPU comparison the scope asks for. Both are already
+# transitively pulled in via `cartalith-engine` (a regular dependency
+# above); dev-only here, so this adds nothing to the shipped `cdylib`.
+# Same pattern `cartalith-gpu`'s own `Cargo.toml` already uses for its
+# milestone 4/7/9 dev-dependencies.
+cartalith-climate = { path = "../cartalith-climate" }
+cartalith-gpu = { path = "../cartalith-gpu" }
