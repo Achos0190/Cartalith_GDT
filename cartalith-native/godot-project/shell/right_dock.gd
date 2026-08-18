@@ -28,6 +28,7 @@ const CTX_RIVER := "river"
 const CTX_FACTION := "faction"
 const CTX_MEASURE := "measure"
 const CTX_REGION := "region"
+const CTX_SCULPT := "sculpt"
 
 ## Noun phrases for `explain_settlement()`'s suitability term keys. Copied
 ## verbatim from `main.gd`'s own `SUIT_TERM_LABELS` -- wording belongs to the
@@ -157,6 +158,17 @@ func show_region(result: Dictionary) -> void:
 	_region_result = result
 	_rebuild()
 
+## Called by `world_workspace.gd` whenever the Sculpt panel is active or the
+## "sculpt" tool is armed (switching the dock's own Generation pipeline /
+## Sculpt toggle to Sculpt, arming the tool via a feature/preset button, or a
+## stroke ending) -- never on a bare cursor move, so Sample stays the default
+## everywhere else. `_build_sculpt` below reads the stack fresh from
+## `bridge.sculpt_list_stamps()` on every `_rebuild()`, so this setter carries
+## no data of its own the way `show_measure`/`show_region` do.
+func show_sculpt_stack() -> void:
+	_context = CTX_SCULPT
+	_rebuild()
+
 # -- Dispatch ---------------------------------------------------------------
 
 func _rebuild() -> void:
@@ -189,6 +201,8 @@ func _dispatch(body: Control) -> void:
 			_build_measure(body)
 		CTX_REGION:
 			_build_region(body)
+		CTX_SCULPT:
+			_build_sculpt(body)
 		_:
 			_build_sample(body)
 
@@ -475,6 +489,166 @@ func _build_region(body: Control) -> void:
 	var send := DccWidgets.action(actions, "Send to Data ▸ Export", func(): pass)
 	send.disabled = true
 	send.tooltip_text = "region_export_tiles() is bound and tested; the Data Manager panel to call it doesn't exist yet."
+
+# -- Sculpt stamp stack -----------------------------------------------------
+#
+# §6's own table lists this context twice under two names: "Stamp stack
+# (Sculpt)" (stamps, hide/show/move/delete, selected-stamp parameters, undo/
+# redo, commit/discard, finalize-lock) and "Brush / Stamp" (the eight brush/
+# noise globals, "stamp stack, commit / discard"). Built as ONE context, not
+# two: both read the exact same live state (`bridge.sculpt_list_stamps()`,
+# `sculpt_get_globals()`), and the brush/noise globals already have their own
+# live editors in `world_workspace.gd`'s left-dock Sculpt panel -- duplicating
+# eight sliders here under a second name would be two views of one state
+# fighting to be the one a caller edits, not two contexts. This context shows
+# what the left-dock panel doesn't: the stack itself, newest-first, with the
+# per-stamp actions and the selected stamp's own frozen parameters.
+
+func _build_sculpt(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Stamp stack")
+	if not bridge.has_world:
+		DccWidgets.note(sec, "Generate a world first.")
+		return
+	if bridge.sculpt_get_globals().is_empty():
+		DccWidgets.note(sec, "No sculpt editor for this world -- a loaded save has no draft session, only a freshly generated world does.")
+		return
+
+	var stamps: Array = bridge.sculpt_list_stamps()   ## already newest-first
+	var selected := bridge.sculpt_get_selected_stamp()
+	if stamps.is_empty():
+		DccWidgets.note(sec, "No stamps yet -- arm a Sculpt feature (World ▸ Sculpt) and draw a stroke on the map.")
+	else:
+		for s in stamps:
+			var d: Dictionary = s
+			_sculpt_stamp_row(sec, d, selected)
+
+	if selected >= 0:
+		_build_selected_stamp(body, selected, stamps)
+
+	var hist := DccWidgets.group(body, "History")
+	var undo_btn := DccWidgets.action(hist, "%s Undo" % DccIcons.SYMBOLS["undo"], _on_sculpt_stack_undo)
+	undo_btn.disabled = not bridge.sculpt_can_undo()
+	var redo_btn := DccWidgets.action(hist, "%s Redo" % DccIcons.SYMBOLS["redo"], _on_sculpt_stack_redo)
+	redo_btn.disabled = not bridge.sculpt_can_redo()
+	DccWidgets.note(hist, "Draft-scoped only (add/delete/hide/reorder) -- never touches the real heightfield.")
+
+	var actions := DccWidgets.group(body, "Commit")
+	var commit_btn := DccWidgets.action(actions, "%s Commit to map" % DccIcons.SYMBOLS["tick"], _on_sculpt_stack_commit, true)
+	commit_btn.disabled = stamps.is_empty()
+	var discard_btn := DccWidgets.action(actions, "Discard draft", _on_sculpt_stack_discard)
+	discard_btn.disabled = stamps.is_empty()
+	DccWidgets.note(body,
+		"Commit bakes the whole stamp stack into the heightfield and marks the tiles it " +
+		"touched stale -- it does not re-run erosion, hydrology or climate " +
+		"(DCC_SHELL_SPEC.md header correction #1). No finalize/lock state exists in this " +
+		"engine yet -- no bake/LOD pipeline exists to freeze against (world_workspace.gd's " +
+		"own Finalize section has the same gap), so there is nothing real to report for §6's " +
+		"own finalize-lock note.")
+
+func _sculpt_stamp_row(parent: Control, d: Dictionary, selected: int) -> void:
+	var idx := int(d.get("index", -1))
+	var hidden := bool(d.get("hidden", false))
+	var label_text := String(d.get("label", "?"))
+	var pts := int(d.get("point_count", 0))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.custom_minimum_size.y = 20
+	var mark := DccTheme.mono_label(DccIcons.SYMBOLS["off"] if hidden else DccIcons.SYMBOLS["on"],
+		"text_ghost" if hidden else "text_dim", DccTheme.FS_TINY)
+	row.add_child(mark)
+	var text := "#%d %s (%d pt%s)" % [idx, label_text, pts, "" if pts == 1 else "s"]
+	var l := DccTheme.mono_label(text, "accent" if idx == selected else "text", DccTheme.FS_SMALL)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	l.clip_text = true
+	row.add_child(l)
+	var select_btn := Button.new()
+	select_btn.flat = true
+	select_btn.focus_mode = Control.FOCUS_NONE
+	select_btn.text = "selected" if idx == selected else "select"
+	select_btn.disabled = idx == selected
+	select_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	select_btn.pressed.connect(_on_stamp_select.bind(idx))
+	row.add_child(select_btn)
+	parent.add_child(row)
+
+## §6: "selected-stamp parameters (length, width, asymmetry, ridge noise,
+## blend)" -- that exact axis list is main.gd's old sculpt-overlay prose, not
+## this engine's own controls (`SculptStamp`'s frozen `params` are whichever
+## feature it was painted with, per `sculpt_bridge::feature_param_pairs`), so
+## this reads the real per-stamp dictionary instead of reproducing a list
+## that doesn't match what got captured.
+func _build_selected_stamp(parent: Control, selected: int, stamps: Array) -> void:
+	var data: Dictionary = {}
+	for s in stamps:
+		var d: Dictionary = s
+		if int(d.get("index", -1)) == selected:
+			data = d
+			break
+	if data.is_empty():
+		return
+	var sec := DccWidgets.section(parent, "Selected stamp")
+	_field(sec, "Feature", String(data.get("label", "?")))
+	_field(sec, "Points", str(int(data.get("point_count", 0))))
+	var params: Dictionary = data.get("params", {})
+	for key in params.keys():
+		var v = params[key]
+		_field(sec, String(key).capitalize(), ("%.3f" % float(v)) if v is float else str(v))
+
+	var hidden := bool(data.get("hidden", false))
+	var actions := DccWidgets.group(sec, "Actions")
+	DccWidgets.action(actions, "Deselect", _on_stamp_deselect)
+	DccWidgets.action(actions, "Show" if hidden else "Hide", _on_stamp_toggle_hidden.bind(selected, hidden))
+	DccWidgets.action(actions, "Move up", _on_stamp_move_up.bind(selected))
+	DccWidgets.action(actions, "Move down", _on_stamp_move_down.bind(selected))
+	DccWidgets.action(actions, "Delete", _on_stamp_delete.bind(selected))
+
+func _on_sculpt_stack_undo() -> void:
+	bridge.sculpt_undo()
+	show_sculpt_stack()
+
+func _on_sculpt_stack_redo() -> void:
+	bridge.sculpt_redo()
+	show_sculpt_stack()
+
+## `map_view` is written directly (not `ViewportHost.refresh()`, which would
+## also reset the camera to fit) -- the same reasoning
+## `world_workspace.gd`'s own `_on_sculpt_commit` uses.
+func _on_sculpt_stack_commit() -> void:
+	bridge.sculpt_commit("sculpt")
+	if app != null and app.viewport != null:
+		app.viewport.map_view.texture = bridge.color_texture()
+		app.viewport.set_preview_texture(null)
+	show_sculpt_stack()
+
+func _on_sculpt_stack_discard() -> void:
+	bridge.sculpt_discard()
+	if app != null and app.viewport != null:
+		app.viewport.set_preview_texture(null)
+	show_sculpt_stack()
+
+func _on_stamp_select(index: int) -> void:
+	bridge.sculpt_select_stamp(index)
+	show_sculpt_stack()
+
+func _on_stamp_deselect() -> void:
+	bridge.sculpt_select_stamp(-1)
+	show_sculpt_stack()
+
+func _on_stamp_toggle_hidden(index: int, hidden: bool) -> void:
+	bridge.sculpt_set_stamp_hidden(index, not hidden)
+	show_sculpt_stack()
+
+func _on_stamp_move_up(index: int) -> void:
+	bridge.sculpt_move_stamp_up(index)
+	show_sculpt_stack()
+
+func _on_stamp_move_down(index: int) -> void:
+	bridge.sculpt_move_stamp_down(index)
+	show_sculpt_stack()
+
+func _on_stamp_delete(index: int) -> void:
+	bridge.sculpt_delete_stamp(index)
+	show_sculpt_stack()
 
 # -- Shared row/field vocabulary ------------------------------------------
 #

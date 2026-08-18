@@ -18,8 +18,14 @@ class_name WorldWorkspace
 ## Infrastructure, Politics) the spec's Generation Pipeline does not cover at
 ## all -- those live in the CIVIL/INFRA domains, not WORLD, under this spec.
 ##
-## The Sculpt half cannot be wired at all until `cartalith-godot` binds
-## `SculptStamp` -- see `STRANDED_TOOLS.md` rows 4-8.
+## The Sculpt half (§5.2) and the Biome-paint tool (§4.5.2's "Biome paint" row)
+## are both wired now, against `cartalith-godot`'s milestone F bindings
+## (`sculpt_bridge.rs`, `paint_bridge.rs`, exposed through `EngineBridge`'s own
+## "Milestone F tool bindings" section). `_build_sculpt`/`_build_paint` below
+## read every feature/preset/global/palette table live off the engine rather
+## than hardcoding `DCC_SHELL_SPEC.md` §5.2's own table -- `get_sculpt_features`
+## already returns each feature's controls (key/label/min/max/step/default), so
+## there is nothing here that could drift from the engine's own registry.
 
 ## L5 -- the same list main.gd's ADVANCED_KEYS used, for the same reason: a
 ## parameter is Advanced if the reference itself buried it (its own
@@ -100,7 +106,25 @@ const EROSION_STAGE_INDEX := 5 ## Zero-based -- STAGES[5] is "Erosion".
 
 var _pipeline_body: VBoxContainer
 var _sculpt_body: VBoxContainer
+var _paint_body: VBoxContainer
 var _stage_state_labels: Array = []  ## stage index -> the trailing state Label.
+
+## The in-progress Sculpt stroke's captured points (grid-cell coords), tracked
+## here in parallel with the engine the same way `GlobalTools._measure_points`
+## tracks Measure's -- `sculpt_add_point` has no readback of its own, so the
+## drawn path preview needs a local copy of where the clicks actually landed.
+var _sculpt_stroke_points: PackedVector2Array = PackedVector2Array()
+
+## Biome paint's live brush state, mirrored here because `paint_set_brush`'s
+## own contract is "apply and echo back what was stored", not "read the
+## current brush" -- there is no `paint_get_brush`. Defaults match
+## `Brush::default()` in `paint_bridge.rs` exactly, so an untouched panel and
+## an untouched engine agree before the first dab.
+var _paint_layer := "biome"
+var _paint_brush := {
+	"value": 1, "radius": 6.0, "hardness": 1.0, "softness": 0.0,
+	"erase": false, "land_only": true,
+}
 
 ## There is no staleness state, verified live against the reference
 ## (Playwright, 2026-08-19, on direct owner instruction) rather than assumed
@@ -121,6 +145,21 @@ var _stage_state_labels: Array = []  ## stage index -> the trailing state Label.
 ## used, now fired automatically rather than waiting for a button.
 
 func _build() -> void:
+	## §4.5: every left dock opens with the TOOLS block, the four global tools
+	## then the domain's own. WORLD's own row per §4.5.2's table is really
+	## three: "Sculpt features (13)", "Freehand" and "Biome paint" -- but the
+	## first two arm through the Sculpt panel's own feature picker instead of
+	## a TOOLS-block button (`_build_feature_picker` below): each of its 13
+	## icon buttons both selects that feature AND arms the same shared
+	## "sculpt" tool id, since Freehand is simply the 13th entry in
+	## `FEATURE_KEYS`/`get_sculpt_features()` -- a different `FeatureParams`
+	## variant plus an extra sub-mode row, not a structurally separate record
+	## the way Settlement/POI are in CIVIL. So the only button that belongs
+	## here is Biome paint.
+	DccWidgets.tools_block(self, app, app.tool_group, [
+		{"id": "paint", "glyph": "tool_paint", "label": "Biome paint (B)"},
+	])
+
 	var switch_row := HBoxContainer.new()
 	switch_row.add_theme_constant_override("separation", 0)
 	var switch_pad := MarginContainer.new()
@@ -150,8 +189,32 @@ func _build() -> void:
 	add_child(_sculpt_body)
 	_build_sculpt(_sculpt_body)
 
+	## Biome paint has no position of its own in §5's two-button switch
+	## (Generation pipeline | Sculpt) -- per §4.5.2 its real estate is the
+	## tool options bar plus a right-dock legend, and this file's own task
+	## boundary keeps the tool options bar (app.gd) out of scope. Hosted here
+	## instead as its own panel, shown whenever the Biome-paint tool is armed
+	## regardless of which of the two switch positions is selected -- the
+	## same "arming a tool never changes the workspace" independence §4.5
+	## already establishes for every other domain.
+	_paint_body = VBoxContainer.new()
+	_paint_body.add_theme_constant_override("separation", 0)
+	_paint_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_paint_body.visible = false
+	add_child(_paint_body)
+	_build_paint(_paint_body)
+
 	pipeline_btn.pressed.connect(_select_mode.bind("pipeline"))
 	sculpt_btn.pressed.connect(_select_mode.bind("sculpt"))
+
+	app.register_tool_click_handler("sculpt", _sculpt_click)
+	app.register_tool_drag_handler("sculpt", _sculpt_drag)
+	app.register_tool_release_handler("sculpt", _sculpt_release)
+	app.register_tool_escape_handler("sculpt", _sculpt_escape)
+	app.register_tool_click_handler("paint", _paint_click)
+	app.register_tool_drag_handler("paint", _paint_drag)
+	app.register_tool_release_handler("paint", _paint_release)
+	app.tool_armed.connect(_on_tool_armed)
 
 	bridge.generation_started.connect(_refresh_stage_states)
 	bridge.generation_finished.connect(_on_generation_finished)
@@ -161,12 +224,21 @@ func _build() -> void:
 func _select_mode(mode: String) -> void:
 	_pipeline_body.visible = mode == "pipeline"
 	_sculpt_body.visible = mode == "sculpt"
+	if mode == "sculpt" and app.right_dock_ctrl.has_method("show_sculpt_stack"):
+		app.right_dock_ctrl.show_sculpt_stack()
 
+## A new/loaded world means a fresh (or absent) `SculptEditor`/`PaintEditor`
+## on the Rust side -- both panels rebuild from scratch rather than trusting
+## whatever they showed for the previous world.
 func _on_generation_finished(_ok: bool) -> void:
 	_refresh_stage_states()
+	_build_sculpt(_sculpt_body)
+	_build_paint(_paint_body)
 
 func _on_world_loaded() -> void:
 	_refresh_stage_states()
+	_build_sculpt(_sculpt_body)
+	_build_paint(_paint_body)
 
 ## The mockup draws the switch as **tabs**, not as a segmented control: mono
 ## caps, the active half carrying an accent top rule and a slightly lifted
@@ -394,10 +466,509 @@ func _on_generate_pressed() -> void:
 	_regenerate_live()
 
 # -- §5.2 Sculpt ----------------------------------------------------------------
+#
+# Every table this panel draws (features + their own controls, presets, the
+# eight brush/noise globals) comes straight off `bridge.get_sculpt_features()`
+# / `get_sculpt_presets()` / `get_sculpt_globals_info()` -- none of §5.2's own
+# table is hand-copied here, so this panel cannot drift from the registry the
+# way a hardcoded copy could. `parent` is always `_sculpt_body`; this function
+# tears down and rebuilds its whole subtree on every call, the same
+# wholesale-rebuild discipline `right_dock.gd`'s own `_rebuild()` already uses,
+# because a feature switch, a preset, or a stroke ending each change which
+# controls belong on screen, not just a value within them.
 
 func _build_sculpt(parent: Control) -> void:
-	var body := DccWidgets.section(parent, "Sculpt")
-	DccWidgets.note(body,
-		"cartalith-terrain/src/sculpt.rs implements the full registry §5.2 specifies -- all thirteen geological features (Mountains, Hills, Ridge, Plateau, Cliff/Escarpment, Canyon, Valley, River, Lake, Basin, Coastline, Volcano, Freehand), eight presets, eight brush-shape falloffs and eight Freehand sub-modes -- but cartalith-godot exports no sculpt, stamp or commit method. Nothing here can be wired until that binding lands (STRANDED_TOOLS.md rows 4-8, UNIFIED_TOOL_PLAN.md milestone F).")
-	DccWidgets.note(body,
-		"One spec-vs-engine detail worth recording before that binding lands: §5.2's commit prose says it \"re-runs erosion, hydrology and climate once\", but commit_sculpt_pass deliberately marks tiles stale instead -- the eager form measured about 7 s per stroke at 2048².")
+	for child in parent.get_children():
+		parent.remove_child(child)
+		child.queue_free()
+
+	if not bridge.has_world:
+		var sec := DccWidgets.section(parent, "Sculpt")
+		DccWidgets.note(sec, "Generate a world first -- the Sculpt editor is created fresh per generated world (World ▸ Generation pipeline).")
+		return
+	var globals_now := bridge.sculpt_get_globals()
+	if globals_now.is_empty():
+		var sec2 := DccWidgets.section(parent, "Sculpt")
+		DccWidgets.note(sec2, "No sculpt editor for this world -- a loaded save has no draft session, only a freshly generated world does (sculpt_bridge.rs's own field doc).")
+		return
+
+	_build_feature_picker(parent)
+	_build_presets(parent)
+	_build_feature_params(parent)
+	if bridge.sculpt_get_feature() == "freehand":
+		_build_freehand_modes(parent)
+	_build_brush_globals(parent)
+	_build_sculpt_unbuilt_note(parent)
+	_build_sculpt_draft(parent)
+
+## §5.2's `#sculptFeatureSeg` -- 13 icon buttons sharing `app.tool_group`, so
+## exactly one can read "armed" at a time, same as every other tool in the
+## app. Clicking one both selects that feature (`sculpt_set_feature`, which
+## resets its parameters to the registry's own defaults -- the reference's
+## own behaviour on a feature switch) and arms the shared "sculpt" tool.
+func _build_feature_picker(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Geological feature")
+	var current := bridge.sculpt_get_feature()
+	var grid := GridContainer.new()
+	grid.columns = 5
+	grid.add_theme_constant_override("h_separation", 2)
+	grid.add_theme_constant_override("v_separation", 2)
+	sec.add_child(grid)
+	var hint := ""
+	for f in bridge.get_sculpt_features():
+		var d: Dictionary = f
+		var key := String(d.get("key", ""))
+		var label_text := String(d.get("label", key))
+		var feature_hint := String(d.get("hint", ""))
+		if key == current:
+			hint = feature_hint
+		var btn := DccWidgets.tool_button(grid, key, "%s -- %s" % [label_text, feature_hint],
+			app.tool_group, _on_feature_button_armed.bind(key))
+		## `set_pressed_no_signal`, not `.button_pressed =`, so restoring the
+		## visually-armed state on a rebuild never re-fires `toggled` -- that
+		## would call `_on_feature_button_armed` again and reset this
+		## feature's own live parameters back to their registry defaults,
+		## discarding whatever the user had just tuned.
+		if app.armed_tool == "sculpt" and current == key:
+			btn.set_pressed_no_signal(true)
+	if not hint.is_empty():
+		DccWidgets.note(sec, hint)
+
+func _on_feature_button_armed(key: String) -> void:
+	bridge.sculpt_set_feature(key)
+	app.arm_tool("sculpt")
+	_build_sculpt(_sculpt_body)
+
+## §5.2's `#sculptPresetSeg` -- eight one-click parameter seeds. "A preset
+## sets the feature and its parameters; it never paints" (§5.2 verbatim), so
+## this arms the tool the same way a feature button does but draws no stroke.
+func _build_presets(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Presets")
+	var grid := GridContainer.new()
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 4)
+	grid.add_theme_constant_override("v_separation", 2)
+	sec.add_child(grid)
+	var presets := bridge.get_sculpt_presets()
+	for i in presets.size():
+		var d: Dictionary = presets[i]
+		DccWidgets.action(grid, String(d.get("name", "Preset %d" % i)), _on_preset_pressed.bind(i))
+	DccWidgets.note(sec, "A preset seeds the feature and its own parameters -- it never paints; draw the stroke yourself afterward.")
+
+func _on_preset_pressed(index: int) -> void:
+	bridge.sculpt_apply_preset(index)
+	app.arm_tool("sculpt")
+	_build_sculpt(_sculpt_body)
+
+## The currently-selected feature's own registry entry (`get_sculpt_features`'
+## own shape: key/label/hint/radial/modes/controls), or `{}` before any
+## `generate()` call.
+func _current_feature_meta() -> Dictionary:
+	var current := bridge.sculpt_get_feature()
+	for f in bridge.get_sculpt_features():
+		var d: Dictionary = f
+		if String(d.get("key", "")) == current:
+			return d
+	return {}
+
+## §5.2's `#sculptFeatureControls` -- the selected feature's own controls,
+## titled with the feature's name, live values from `sculpt_get_feature_params`.
+func _build_feature_params(parent: Control) -> void:
+	var meta := _current_feature_meta()
+	if meta.is_empty():
+		return
+	var sec := DccWidgets.section(parent, String(meta.get("label", "Feature")) + " parameters")
+	var live := bridge.sculpt_get_feature_params()
+	var controls: Array = meta.get("controls", [])
+	for c in controls:
+		var cd: Dictionary = c
+		var key := String(cd.get("key", ""))
+		var clabel := String(cd.get("label", key))
+		var cmin := float(cd.get("min", 0.0))
+		var cmax := float(cd.get("max", 1.0))
+		var cstep := float(cd.get("step", 0.01))
+		var cval := float(live.get(key, cd.get("default", 0.0)))
+		DccWidgets.slider(sec, clabel, cmin, cmax, cstep, cval, "", _on_feature_param_changed.bind(key))
+
+func _on_feature_param_changed(v: float, key: String) -> void:
+	bridge.sculpt_set_feature_params({key: v})
+
+## §5.2's `#sculptModeSeg`, shown only for Freehand -- "Raise/Lower/Smooth
+## follow the drag; Cliff/Ridge/Canyon follow its direction; Mesa/Volcano
+## stamp once at a tap."
+func _build_freehand_modes(parent: Control) -> void:
+	var modes := bridge.get_sculpt_freehand_modes()
+	if modes.is_empty():
+		return
+	var sec := DccWidgets.section(parent, "Freehand · direct drag")
+	var current := bridge.sculpt_get_freehand_mode()
+	var options: Array = []
+	var selected_index := 0
+	for i in modes.size():
+		options.append(String(modes[i]).capitalize())
+		if String(modes[i]) == current:
+			selected_index = i
+	DccWidgets.choice(sec, "Sub-mode", options, selected_index, _on_freehand_mode_changed.bind(modes))
+	DccWidgets.note(sec, "Raise/Lower/Smooth follow the drag; Cliff/Ridge/Canyon follow its direction; Mesa/Volcano stamp once at a tap.")
+
+func _on_freehand_mode_changed(i: int, modes: PackedStringArray) -> void:
+	bridge.sculpt_set_freehand_mode(String(modes[i]))
+
+## §5.2's "Brush & noise · global" table -- applies to every feature. The
+## eight controls (`#sBrush`…`#sSeed`) come from `get_sculpt_globals_info()`;
+## the seed row is its own thing since a dice button has no `Control` entry.
+func _build_brush_globals(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Brush & noise · global")
+	var live := bridge.sculpt_get_globals()
+	for c in bridge.get_sculpt_globals_info():
+		var cd: Dictionary = c
+		var key := String(cd.get("key", ""))
+		var clabel := String(cd.get("label", key))
+		var cmin := float(cd.get("min", 0.0))
+		var cmax := float(cd.get("max", 1.0))
+		var cstep := float(cd.get("step", 0.01))
+		var cval := float(live.get(key, cd.get("default", 0.0)))
+		var is_int := String(cd.get("type", "float")) == "int"
+		var unit := " px" if key == "brush_size" else ""
+		DccWidgets.slider(sec, clabel, cmin, cmax, cstep, cval, unit, _on_global_changed.bind(key, is_int))
+
+	var seed_row := HBoxContainer.new()
+	seed_row.add_theme_constant_override("separation", 8)
+	seed_row.custom_minimum_size.y = 24
+	sec.add_child(seed_row)
+	var seed_label := DccTheme.mono_label("Seed", "text_dim", DccTheme.FS_SMALL)
+	seed_label.custom_minimum_size.x = DccWidgets.ROW_LABEL_W
+	seed_row.add_child(seed_label)
+	var seed_readout := DccTheme.mono_label(str(bridge.sculpt_get_seed()), "text", DccTheme.FS_SMALL)
+	seed_readout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	seed_row.add_child(seed_readout)
+	var dice := Button.new()
+	dice.icon = DccIcons.get_icon("dice", 12)
+	dice.focus_mode = Control.FOCUS_NONE
+	dice.custom_minimum_size = Vector2(22, 22)
+	dice.tooltip_text = "Randomise the seed the next stroke will capture."
+	dice.add_theme_stylebox_override("normal", DccTheme.empty())
+	dice.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft"), 2))
+	dice.pressed.connect(_on_sculpt_seed_dice)
+	seed_row.add_child(dice)
+
+func _on_global_changed(v: float, key: String, is_int: bool) -> void:
+	bridge.sculpt_set_globals({key: (round(v) if is_int else v)})
+
+func _on_sculpt_seed_dice() -> void:
+	bridge.sculpt_set_seed(randi())
+	_build_sculpt(_sculpt_body)
+
+## Spec header correction #3: Brush shape, Stroke & grid and Actions have no
+## engine behind them and are not in the reference HTML either -- honest
+## prose instead of building fake controls for them.
+func _build_sculpt_unbuilt_note(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Not built")
+	DccWidgets.note(sec,
+		"Brush shape (8 falloff shapes, Import brush, custom Falloff), Stroke & grid " +
+		"(Add point / Duplicate / Rotate / Scale / Tilt / Push / Pull / Align control-point " +
+		"editing) and Actions (Flip X/Y, Rot Left/Right, Flatten) have no engine behind them " +
+		"and are not in the reference HTML either -- DCC_SHELL_SPEC.md header correction #3. " +
+		"New, unscoped design work, not a port gap.")
+
+## The draft/stamp-stack summary and Commit/Discard -- §5.2 places these at
+## the foot of the left dock (`#sculptCommitBtn`/`#sculptDiscardBtn`); the
+## full stamp-by-stamp list with its own Undo/Redo lives in the right dock
+## (§6, `right_dock.gd`'s `_build_sculpt`) since that is where §6 puts it.
+func _build_sculpt_draft(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Draft")
+	var count := bridge.sculpt_stamp_count()
+	DccWidgets.note(sec, "%d stamp%s on the draft." % [count, "" if count == 1 else "s"])
+
+	var actions := DccWidgets.group(sec, "Commit")
+	var commit_btn := DccWidgets.action(actions, "%s Commit to map" % DccIcons.SYMBOLS["tick"], _on_sculpt_commit, true)
+	commit_btn.disabled = count == 0
+	var discard_btn := DccWidgets.action(actions, "Discard draft", _on_sculpt_discard)
+	discard_btn.disabled = count == 0
+	DccWidgets.note(sec,
+		"Commit bakes the whole stamp stack into the heightfield in one pass and marks the " +
+		"tiles it touched stale -- it deliberately does not re-run erosion, hydrology or " +
+		"climate (measured ~7s/stroke at 2048² and rejected on that ground; " +
+		"DCC_SHELL_SPEC.md header correction #1). No finalize/lock state exists to note here " +
+		"either -- see the Finalize section above: no bake/LOD pipeline exists yet.")
+
+func _on_sculpt_commit() -> void:
+	bridge.sculpt_commit("sculpt")
+	## `build_color_texture()` reads the live (now-baked) field fresh on every
+	## call, so setting it directly is enough -- `ViewportHost.refresh()`
+	## would also reset the camera to fit, an unwanted side effect of every
+	## Commit that this avoids by writing the public `map_view` field instead.
+	app.viewport.map_view.texture = bridge.color_texture()
+	app.viewport.set_preview_texture(null)
+	_build_sculpt(_sculpt_body)
+	if app.right_dock_ctrl.has_method("show_sculpt_stack"):
+		app.right_dock_ctrl.show_sculpt_stack()
+
+func _on_sculpt_discard() -> void:
+	bridge.sculpt_discard()
+	app.viewport.set_preview_texture(null)
+	_build_sculpt(_sculpt_body)
+	if app.right_dock_ctrl.has_method("show_sculpt_stack"):
+		app.right_dock_ctrl.show_sculpt_stack()
+
+# -- §5.2 Sculpt: stroke capture (map_clicked/map_dragged/map_released) --------
+#
+# A drag is always `map_clicked` (the press) then zero or more `map_dragged`
+# (each motion sample) then exactly one `map_released` (`viewport_host.gd`'s
+# own signal doc). `sculpt_begin_stroke`/`sculpt_add_point`/`sculpt_end_stroke`
+# map onto that 1:1; `_sculpt_drag`'s own "begin if empty" guard covers the one
+# case where press and drag disagree -- a press that lands off the plate (no
+## `map_clicked` at all, per `map_overlay.gd`) followed by a drag that moves
+# onto it (`map_dragged` fires once valid).
+
+func _sculpt_click(gx: float, gy: float) -> void:
+	bridge.sculpt_begin_stroke()
+	bridge.sculpt_add_point(gx, gy)
+	_sculpt_stroke_points = PackedVector2Array([Vector2(gx, gy)])
+	app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
+
+func _sculpt_drag(gx: float, gy: float) -> void:
+	if _sculpt_stroke_points.is_empty():
+		bridge.sculpt_begin_stroke()
+	bridge.sculpt_add_point(gx, gy)
+	_sculpt_stroke_points.append(Vector2(gx, gy))
+	app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
+
+## `build_sculpt_preview_texture()` is only called here, on release -- calling
+## it mid-drag would show nothing new, since the in-progress stroke isn't a
+## stamp (and so isn't part of the draft the preview composites) until this
+## point; `set_path_preview`'s teal polyline is what shows live progress
+## during the drag itself.
+func _sculpt_release(_gx: float, _gy: float, _valid: bool) -> void:
+	if _sculpt_stroke_points.is_empty():
+		return
+	bridge.sculpt_end_stroke()
+	_sculpt_stroke_points = PackedVector2Array()
+	app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
+	app.viewport.set_preview_texture(bridge.build_sculpt_preview_texture())
+	_build_sculpt(_sculpt_body)
+	if app.right_dock_ctrl.has_method("show_sculpt_stack"):
+		app.right_dock_ctrl.show_sculpt_stack()
+
+## Sculpt isn't one of §4.5.6's three Escape-keeps-tool-armed exceptions
+## (Way/Route/Measure), so this replicates `app.gd`'s own default disarm
+## after cleaning up the in-progress stroke -- the same pattern
+## `GlobalTools._region_escape` already uses for the same reason.
+func _sculpt_escape() -> void:
+	bridge.sculpt_cancel_stroke()
+	_sculpt_stroke_points = PackedVector2Array()
+	app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
+	var btn: BaseButton = app.tool_group.get_pressed_button()
+	if btn != null:
+		btn.button_pressed = false
+	app.arm_tool("inspect")
+
+## Leaving "sculpt" for any other tool must not strand an in-progress stroke
+## (rare -- a hotkey pressed mid-drag -- but `sculpt_cancel_stroke` is a safe
+## no-op otherwise). Arming "sculpt" pins the right dock to the stamp stack;
+## leaving both Sculpt and Paint hides the brush cursor, which only either of
+## those two tools ever shows.
+func _on_tool_armed(id: String) -> void:
+	if id != "sculpt" and not _sculpt_stroke_points.is_empty():
+		bridge.sculpt_cancel_stroke()
+		_sculpt_stroke_points = PackedVector2Array()
+		app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
+	if id != "sculpt" and id != "paint":
+		app.viewport.tool_overlay.set_brush_cursor(false, 0.0, 0.0, 0.0)
+	if id == "sculpt" and app.right_dock_ctrl.has_method("show_sculpt_stack"):
+		app.right_dock_ctrl.show_sculpt_stack()
+
+## §10's brush ring, wired from `on_cursor_sampled` per the tool-arming
+## substrate's own instructions -- `app.gd`'s `_wire_selection` forwards every
+## viewport cursor sample to any workspace that implements this method.
+func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
+	if app == null or app.viewport == null or app.viewport.tool_overlay == null:
+		return
+	var overlay := app.viewport.tool_overlay
+	if app.armed_tool == "sculpt":
+		overlay.set_brush_cursor(valid, gx, gy, _sculpt_brush_radius_cells())
+	elif app.armed_tool == "paint":
+		overlay.set_brush_cursor(valid, gx, gy, float(_paint_brush.get("radius", 6.0)))
+	else:
+		overlay.set_brush_cursor(false, 0.0, 0.0, 0.0)
+
+## §5.2: "Radial features show their radius control here rather than using
+## the global brush size" -- Volcano's own `volcRadius` control is the one
+## case among the 13 with a control literally named that; every other
+## feature (including Lake, whose own table row is "radial, brush = radius"
+## with no radius control of its own) falls back to the shared global
+## `brush_size`. A simplification, not a full per-feature falloff-shape
+## reproduction -- §5.2's Brush shape block is explicitly not built (see
+## `_build_sculpt_unbuilt_note`).
+func _sculpt_brush_radius_cells() -> float:
+	if not bridge.has_world:
+		return 0.0
+	var radius := float(bridge.sculpt_get_globals().get("brush_size", 0.0))
+	var params := bridge.sculpt_get_feature_params()
+	for k in params.keys():
+		if String(k).to_lower().ends_with("radius"):
+			radius = float(params[k])
+	return radius
+
+# -- §4.5.2 Biome paint ---------------------------------------------------------
+#
+# `get_paint_layers()`/`get_paint_palette()` are the live registry (three
+# layers -- Biome/Terrain/Splat, `paint_bridge.rs`'s own "answered" note on
+# which fields `PaintStamp` may legally write); nothing here hardcodes §4.5.2's
+# own target table.
+
+func _build_paint(parent: Control) -> void:
+	for child in parent.get_children():
+		parent.remove_child(child)
+		child.queue_free()
+
+	if not bridge.has_world:
+		var sec := DccWidgets.section(parent, "Biome paint")
+		DccWidgets.note(sec, "Generate a world first.")
+		return
+	var layers := bridge.get_paint_layers()
+	if layers.is_empty():
+		var sec2 := DccWidgets.section(parent, "Biome paint")
+		DccWidgets.note(sec2, "No paint editor for this world -- a loaded save has no draft session, same ceiling as Sculpt.")
+		return
+
+	var sec := DccWidgets.section(parent, "Biome paint")
+	DccWidgets.note(sec,
+		"§4.5.2's PAINT · BIOME tool options row, hosted in this dock -- this port's real " +
+		"tool options bar (app.gd) is outside this file's own task boundary.")
+
+	var layer_options: Array = []
+	var layer_index := 0
+	for i in layers.size():
+		layer_options.append(String(layers[i]).capitalize())
+		if String(layers[i]) == _paint_layer:
+			layer_index = i
+	DccWidgets.choice(sec, "Target field", layer_options, layer_index, _on_paint_layer_changed.bind(layers))
+
+	var palette := bridge.get_paint_palette(_paint_layer)
+	if not palette.is_empty():
+		var value_options: Array = []
+		var value_index := 0
+		for i in palette.size():
+			var pd: Dictionary = palette[i]
+			value_options.append(String(pd.get("label", "?")))
+			if int(pd.get("index", -1)) == int(_paint_brush["value"]):
+				value_index = i
+		DccWidgets.choice(sec, "Value", value_options, value_index, _on_paint_value_changed.bind(palette))
+
+	DccWidgets.slider(sec, "Radius", 1.0, 40.0, 1.0, float(_paint_brush["radius"]), " cells", _on_paint_radius_changed)
+	DccWidgets.slider(sec, "Hardness", 0.0, 1.0, 0.01, float(_paint_brush["hardness"]), "", _on_paint_hardness_changed,
+		"Stored and echoed back but never consumed -- painting is a hard disc with no soft falloff (paint_bridge.rs's own module doc).")
+	DccWidgets.slider(sec, "Softness", 0.0, 1.0, 0.01, float(_paint_brush["softness"]), "", _on_paint_softness_changed,
+		"Stored and echoed back but never consumed, same as Hardness above.")
+	DccWidgets.toggle(sec, "Erase", bool(_paint_brush["erase"]), _on_paint_erase_changed,
+		"Every dab writes 0 (unpainted) regardless of Value. Holding Shift while painting does the same without changing this switch.")
+	DccWidgets.toggle(sec, "Land only", bool(_paint_brush["land_only"]), _on_paint_land_only_changed,
+		"Gates the dab against this world's water-body classification -- a toggle here, unlike the reference's hard-always gate (paint_bridge.rs's own module doc).")
+
+	var counts: Dictionary = bridge.paint_painted_counts()
+	var total := int(counts.get("total", 0))
+	var legend := DccWidgets.group(sec, "Legend · painted counts")
+	if total == 0:
+		DccWidgets.note(legend, "Nothing painted yet on this layer.")
+	else:
+		var by_index: Dictionary = counts.get("counts", {})
+		for i in palette.size():
+			var pd2: Dictionary = palette[i]
+			var idx := int(pd2.get("index", i + 1))
+			var n := int(by_index.get(idx, 0))
+			if n > 0:
+				DccWidgets.note(legend, "%s -- %d" % [String(pd2.get("label", "?")), n])
+
+	var actions := DccWidgets.group(sec, "Commit")
+	var commit_btn := DccWidgets.action(actions, "%s Commit" % DccIcons.SYMBOLS["tick"], _on_paint_commit, true)
+	commit_btn.disabled = total == 0
+	var discard_btn := DccWidgets.action(actions, "Discard draft", _on_paint_discard)
+	discard_btn.disabled = total == 0
+	DccWidgets.note(sec,
+		"Commit writes every layer's pending dabs into their own override arrays and marks " +
+		"ecology/biomes and resources/soils stale -- it never touches height, hydrology or " +
+		"climate. No renderer currently draws a painted cell into the real map; this preview " +
+		"is this port's own overlay convention, not the reference's (paint_bridge.rs's own " +
+		"swatch_color doc).")
+
+func _on_paint_layer_changed(i: int, layers: PackedStringArray) -> void:
+	_paint_layer = String(layers[i])
+	bridge.paint_set_layer(_paint_layer)
+	_paint_brush["value"] = 1
+	_sync_paint_brush()
+	_build_paint(_paint_body)
+
+func _on_paint_value_changed(i: int, palette: Array) -> void:
+	var pd: Dictionary = palette[i]
+	_paint_brush["value"] = int(pd.get("index", 1))
+	_sync_paint_brush()
+
+func _on_paint_radius_changed(v: float) -> void:
+	_paint_brush["radius"] = v
+	_sync_paint_brush()
+
+func _on_paint_hardness_changed(v: float) -> void:
+	_paint_brush["hardness"] = v
+	_sync_paint_brush()
+
+func _on_paint_softness_changed(v: float) -> void:
+	_paint_brush["softness"] = v
+	_sync_paint_brush()
+
+func _on_paint_erase_changed(v: bool) -> void:
+	_paint_brush["erase"] = v
+	_sync_paint_brush()
+
+func _on_paint_land_only_changed(v: bool) -> void:
+	_paint_brush["land_only"] = v
+	_sync_paint_brush()
+
+func _sync_paint_brush() -> void:
+	bridge.paint_set_brush(
+		int(_paint_brush["value"]), float(_paint_brush["radius"]),
+		float(_paint_brush["hardness"]), float(_paint_brush["softness"]),
+		bool(_paint_brush["erase"]), bool(_paint_brush["land_only"]))
+
+func _on_paint_commit() -> void:
+	var summary: Dictionary = bridge.paint_commit()
+	app.viewport.set_preview_texture(bridge.build_paint_preview_texture())
+	var stale: PackedStringArray = summary.get("stale_stages", PackedStringArray())
+	app.set_status("hint", ("painted -- stale: %s" % ", ".join(stale)) if stale.size() > 0 else "painted", "text_ghost")
+	_build_paint(_paint_body)
+
+func _on_paint_discard() -> void:
+	bridge.paint_discard()
+	app.viewport.set_preview_texture(bridge.build_paint_preview_texture())
+	_build_paint(_paint_body)
+
+# -- §4.5.2 Biome paint: stroke capture (map_clicked/map_dragged/map_released) -
+#
+# Paint has no begin/end pair (`paint_stroke_at`'s own doc: every call is
+## already one complete, independently undo-able draft entry), so click and
+# drag both just apply one dab; release only refreshes the panel (painted
+# counts, Commit's disabled state) once per gesture rather than once per
+# motion sample, since the panel rebuild itself is not cheap enough to do on
+# every dab the way the live preview texture already is.
+
+func _paint_apply_dab(gx: float, gy: float) -> void:
+	## §4.5.2: "Drag paints cells, ⇧ erases" -- Shift is a momentary modifier
+	## on top of whatever the Erase toggle already says, not a replacement
+	## for it, so this ORs the two rather than overwriting `_paint_brush`.
+	var shift := Input.is_key_pressed(KEY_SHIFT)
+	bridge.paint_set_brush(
+		int(_paint_brush["value"]), float(_paint_brush["radius"]),
+		float(_paint_brush["hardness"]), float(_paint_brush["softness"]),
+		bool(_paint_brush["erase"]) or shift, bool(_paint_brush["land_only"]))
+	bridge.paint_stroke_at(gx, gy)
+	app.viewport.set_preview_texture(bridge.build_paint_preview_texture())
+
+func _paint_click(gx: float, gy: float) -> void:
+	_paint_apply_dab(gx, gy)
+
+func _paint_drag(gx: float, gy: float) -> void:
+	_paint_apply_dab(gx, gy)
+
+func _paint_release(_gx: float, _gy: float, _valid: bool) -> void:
+	if is_instance_valid(_paint_body):
+		_build_paint(_paint_body)
