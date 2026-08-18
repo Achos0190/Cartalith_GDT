@@ -55,17 +55,56 @@ const LIGHT := {
 
 # ── Type ─────────────────────────────────────────────────────────────────────
 #
-# The mockup runs one sans stack for prose and IBM Plex Mono for anything
-# numeric -- readouts, coordinates, the wordmark. Godot ships no Plex, so the
-# mono role falls back to the editor's own mono font at runtime; the *roles*
-# are what matter, and they are what the rest of the shell asks for.
+# The mockup runs two faces and leans hard on the second: a plain UI sans for
+# prose, and **IBM Plex Mono for every numeric readout, code, shortcut and
+# section label**, at 9-11 px with 0.12-0.22 em letter-spacing. That mono-with-
+# tracking texture is most of what makes the reference look like a DCC tool
+# rather than a form, so it is not optional styling -- it is the design.
+#
+# Plex is bundled (`fonts/`, SIL OFL 1.1) rather than taken from the system:
+# Android has no Plex, and a silent fallback to Roboto would quietly undo the
+# thing this block exists to achieve.
+
+const FONT_MONO := preload("res://fonts/IBMPlexMono-Regular.ttf")
+const FONT_MONO_MED := preload("res://fonts/IBMPlexMono-Medium.ttf")
 
 const FS_MENU := 12
 const FS_BODY := 12
 const FS_SMALL := 11
 const FS_TINY := 10
-const FS_HEADER := 11   ## Section headers, letter-spaced and uppercased.
-const FS_READOUT := 11  ## Mono.
+const FS_MICRO := 9    ## Section labels and the smallest readouts.
+const FS_HEADER := 9   ## §-prefixed section headers, tracked wide.
+const FS_READOUT := 11 ## Mono numerics.
+const FS_HERO := 26    ## The one big accent readout per context (§6's elevation).
+
+static var _tracked: Dictionary = {}  ## spacing px -> FontVariation
+
+## Godot has no letter-spacing property on Label, but `FontVariation` carries
+## `spacing_glyph` -- extra pixels after every glyph, which is exactly tracking.
+## Cached per spacing because a FontVariation is a Resource, not a value.
+static func mono(spacing: int = 0, medium: bool = false) -> Font:
+	var key := "%d/%s" % [spacing, medium]
+	if _tracked.has(key):
+		return _tracked[key]
+	var fv := FontVariation.new()
+	fv.base_font = FONT_MONO_MED if medium else FONT_MONO
+	if spacing != 0:
+		fv.spacing_glyph = spacing
+	## §12 asserts the text symbols "are typographic, inherit type metrics, and
+	## need no drawing". That premise does not hold for Plex Mono, which is
+	## missing seven of them -- checked against the font's own cmap, not
+	## assumed: ✕ (2715), ● (25CF), ○ (25CB), ▾ (25BE), ▸ (25B8), ▶ (25B6) and
+	## ＋ (FF0B). ✓, →, §, ‹, ›, ↶, ↷, ·, • and × are all present.
+	##
+	## A fallback keeps the missing seven rendering in the system face rather
+	## than as tofu. They lose Plex's metrics, which is the cost of §12's
+	## premise being wrong; drawing them instead would be the alternative, and
+	## is recorded in DCC_SHELL_SPEC.md's header as a question for the design.
+	var sys := SystemFont.new()
+	sys.font_names = PackedStringArray(["Segoe UI Symbol", "Segoe UI", "DejaVu Sans"])
+	fv.fallbacks = [sys]
+	_tracked[key] = fv
+	return fv
 
 # ── Geometry (§1) ────────────────────────────────────────────────────────────
 
@@ -149,11 +188,6 @@ static func active_row(bottom_rule: bool = true) -> StyleBoxFlat:
 
 # ── Label helpers ────────────────────────────────────────────────────────────
 
-## §7's section header: uppercase, letter-spaced, faint. Godot has no
-## letter-spacing property on Label, so the spacing is baked into the string.
-static func spaced(text: String) -> String:
-	return " ".join(text.to_upper().split(""))
-
 static func label(text: String, token: String = "text", size: int = FS_BODY) -> Label:
 	var l := Label.new()
 	l.text = text
@@ -161,10 +195,26 @@ static func label(text: String, token: String = "text", size: int = FS_BODY) -> 
 	l.add_theme_font_size_override("font_size", size)
 	return l
 
-static func header(text: String) -> Label:
-	var l := label(text.to_upper(), "text_faint", FS_HEADER)
-	l.add_theme_constant_override("line_spacing", 0)
+## A numeric readout, code, shortcut or anything else the mockup sets in Plex.
+## `spacing` is the tracking in whole pixels -- 1 reads as roughly .12 em at
+## these sizes, 2 as roughly .22 em.
+static func mono_label(text: String, token: String = "text", size: int = FS_READOUT,
+		spacing: int = 0, medium: bool = false) -> Label:
+	var l := label(text, token, size)
+	l.add_theme_font_override("font", mono(spacing, medium))
 	return l
+
+## §11's section header: uppercase Plex Mono, widely tracked, faint. The `§`
+## marker is the disclosure grammar's L3 sigil and is drawn, not implied.
+static func header(text: String, sigil: String = "§") -> Label:
+	var body := text.to_upper()
+	var l := mono_label(("%s %s" % [sigil, body]) if sigil != "" else body,
+		"text_faint", FS_HEADER, 2, true)
+	return l
+
+## The one large accent number a context is collapsed down to (§6's elevation).
+static func hero(text: String) -> Label:
+	return mono_label(text, "accent", FS_HERO, 0, true)
 
 static func rule(vertical: bool = false) -> Control:
 	var r := ColorRect.new()

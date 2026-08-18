@@ -90,7 +90,16 @@ func _raster() -> TextureRect:
 func _chrome(preset: int, align: int) -> Label:
 	var l := DccTheme.label("", "text_faint", DccTheme.FS_SMALL)
 	l.horizontal_alignment = align
-	l.set_anchors_and_offsets_preset(preset, Control.PRESET_MODE_MINSIZE, 10)
+	## PRESET_MODE_MINSIZE bakes offsets from the control's size at call time --
+	## zero, during `_ready` -- and nothing recomputes them on resize, which put
+	## the right-hand readouts off the edge of the viewport. Anchor without
+	## baking, and grow away from the anchored edge.
+	l.set_anchors_preset(preset, true)
+	var right: bool = align == HORIZONTAL_ALIGNMENT_RIGHT
+	var bottom: bool = preset in [Control.PRESET_BOTTOM_LEFT, Control.PRESET_BOTTOM_RIGHT]
+	l.grow_horizontal = Control.GROW_DIRECTION_BEGIN if right else Control.GROW_DIRECTION_END
+	l.grow_vertical = Control.GROW_DIRECTION_BEGIN if bottom else Control.GROW_DIRECTION_END
+	l.position += Vector2(-10.0 if right else 10.0, -10.0 if bottom else 10.0)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(l)
 	return l

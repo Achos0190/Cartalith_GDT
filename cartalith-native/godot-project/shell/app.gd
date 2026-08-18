@@ -19,6 +19,7 @@ var right_dock_ctrl: RightDock
 
 var _workspaces: Array = []
 var _region_nodes: Dictionary = {}
+var _tool_options_stale: Label
 
 func _ready() -> void:
 	super._ready()
@@ -67,6 +68,9 @@ func _ready() -> void:
 		DccMenus.ID_WIN_RAIL: rail_column.get_parent().get_parent(),
 	}
 
+	workspace_changed.connect(_on_workspace_changed)
+	_on_workspace_changed(active_domain())
+
 	set_status("pass", "no world", "text_faint")
 	set_status("hint", "File ▸ New world… to begin", "text_ghost")
 	set_status("top_world", "—")
@@ -98,9 +102,11 @@ func _wire_status() -> void:
 			"text_dim" if ok else "accent")
 		set_status("hint", bridge.last_summary, "text_ghost")
 		var g := bridge.grid_size()
-		set_status("top_world", "seed %d · %d×%d" % [
-			bridge.world_gen.get_seed(), g.x, g.y] if ok else "—")
-		_refresh_stale())
+		set_status("top_world", ("ELDRA · %d" % bridge.world_gen.get_seed()) if ok else "—")
+		set_status("top_res", ("%d×%d working" % [g.x, g.y]) if ok else "")
+		set_status("top_mem", "%.1f GB" % (OS.get_static_memory_usage() / 1073741824.0))
+		_refresh_stale()
+		_refresh_rail_foot())
 	bridge.params_changed.connect(_refresh_stale)
 	bridge.params_applied.connect(_refresh_stale)
 	bridge.world_loaded.connect(func():
@@ -114,9 +120,10 @@ func _refresh_stale() -> void:
 	if not bridge.has_world:
 		set_status("stale", "")
 		return
-	set_status("stale",
-		"parameters changed — regenerate to apply" if bridge.params_dirty else "up to date",
-		"stale" if bridge.params_dirty else "text_faint")
+	var text: String = "stale from 01 — regenerate to apply" if bridge.params_dirty else "resolved"
+	set_status("stale", text, "stale" if bridge.params_dirty else "text_faint")
+	if is_instance_valid(_tool_options_stale):
+		_tool_options_stale.text = text
 
 func _wire_selection() -> void:
 	viewport.settlement_selected.connect(func(data, index):
@@ -128,6 +135,84 @@ func _wire_selection() -> void:
 			if ws.has_method("on_cursor_sampled"):
 				ws.on_cursor_sampled(gx, gy, valid))
 	viewport.layers_button_pressed.connect(func(): _select_domain("cartography"))
+
+
+# -- Contextual chrome --------------------------------------------------------
+
+## §4: the tool options bar "always reflects the active tool or workspace", and
+## §10 says the timeline is "absent from generation and style screens --
+## generation is not time-based". Both are functions of the active domain, so
+## both are driven from one place rather than five workspaces each remembering.
+func _on_workspace_changed(id: String) -> void:
+	timeline_bar.visible = id in ["civilization", "infrastructure"]
+	match id:
+		"world": _tool_options_generate()
+		"cartography": _tool_options_simple("CARTOGRAPHY · STYLE",
+			"presentation only — no control here marks a generation stage stale")
+		"civilization": _tool_options_simple("CIVIL · INSPECT",
+			"place, territory and route tools need their bindings (STRANDED_TOOLS.md)")
+		"infrastructure": _tool_options_simple("INFRA · INSPECT",
+			"way and route tools need their bindings (STRANDED_TOOLS.md)")
+		"render": _tool_options_simple("RENDER · PREVIEW",
+			"TerrainAppearance is unbound; quality tier lives in Preferences")
+	_refresh_rail_foot()
+
+func _tool_options_label(row: Control, text: String, token: String) -> void:
+	row.add_child(DccTheme.mono_label(text, token, DccTheme.FS_SMALL, 2, true))
+
+## §4's Generation Pipeline row, in its specified order: context label, the two
+## run actions, New seed, the stale-from readout, then the finalize action hard
+## right. Run/Finalize are disabled for the reasons §5.1 records -- the engine
+## is one-shot and there is no bake pipeline.
+func _tool_options_generate() -> void:
+	set_tool_options(func(row: HBoxContainer):
+		_tool_options_label(row, "GENERATE · WORLD", "accent")
+		## "Run stage N" genuinely has no engine entry point. "Run 01 -> 10"
+		## does: walking the whole chain from the first stage to the last is
+		## exactly what `generate_terrain` is, so it is wired rather than
+		## disabled -- the honest reading of §5.1 rather than the literal one.
+		var one := DccWidgets.action(row, "Run stage 01", func(): pass)
+		one.disabled = true
+		one.tooltip_text = "generate_terrain is one-shot: there is no per-stage recompute entry point. Run 01 -> 10 instead, which regenerates the whole world."
+		DccWidgets.action(row, "Run 01 → 10", _run_pipeline, true)
+		DccWidgets.action(row, "New seed", _new_seed)
+		var stale := DccTheme.mono_label("", "stale", DccTheme.FS_SMALL, 1)
+		_tool_options_stale = stale
+		row.add_child(stale)
+		row.add_child(DccTheme.spacer())
+		var bake := DccWidgets.action(row, "Bake ALL & finalize", func(): pass)
+		bake.disabled = true
+		bake.tooltip_text = "No bake/LOD pipeline exists yet; finalize has nothing to freeze."
+		_refresh_stale()
+	)
+
+func _tool_options_simple(context: String, note: String) -> void:
+	set_tool_options(func(row: HBoxContainer):
+		_tool_options_label(row, context, "accent")
+		row.add_child(DccTheme.label(note, "text_ghost", DccTheme.FS_MICRO))
+		row.add_child(DccTheme.spacer())
+	)
+
+## The whole chain, which is the only granularity the engine offers.
+func _run_pipeline() -> void:
+	if bridge.generating:
+		return
+	bridge.generate(new_world_dialog.request())
+
+func _new_seed() -> void:
+	if new_world_dialog.has_method("randomise_seed"):
+		new_world_dialog.randomise_seed()
+	else:
+		open_new_world()
+
+## §3: the rail foot carries the active context and, in World, the stage counter.
+func _refresh_rail_foot() -> void:
+	var ctx := {"world": "TERRAIN", "civilization": "CIVIL",
+		"infrastructure": "INFRA", "cartography": "STYLE", "render": "RENDER"}
+	var text: String = ctx.get(active_domain(), "")
+	if active_domain() == "world":
+		text += "   %s / 10" % ("10" if bridge.has_world else "00")
+	set_rail_foot(text)
 
 # -- Menu callbacks -----------------------------------------------------------
 

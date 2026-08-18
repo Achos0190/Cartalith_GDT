@@ -24,15 +24,15 @@ signal tool_changed(tool_id: String)
 # the reason the menu bar below is seven program menus and nothing else.
 
 const DOMAINS: Array = [
-	{"id": "world", "label": "World", "icon": "domain_world",
+	{"id": "world", "label": "World", "rail": "WORLD", "icon": "domain_world",
 		"subtitle": "Terrain, hydrology, climate and ecology"},
-	{"id": "civilization", "label": "Civilization", "icon": "domain_civ",
+	{"id": "civilization", "label": "Civilization", "rail": "CIVIL", "icon": "domain_civ",
 		"subtitle": "Settlements, factions, provinces and trade"},
-	{"id": "infrastructure", "label": "Infrastructure", "icon": "domain_infra",
+	{"id": "infrastructure", "label": "Infrastructure", "rail": "INFRA", "icon": "domain_infra",
 		"subtitle": "Roads, sea routes, bridges and journeys"},
-	{"id": "cartography", "label": "Cartography", "icon": "domain_carto",
+	{"id": "cartography", "label": "Cartography", "rail": "CARTO", "icon": "domain_carto",
 		"subtitle": "Layers, styles, labels and annotation"},
-	{"id": "render", "label": "Render", "icon": "domain_render",
+	{"id": "render", "label": "Render", "rail": "RENDER", "icon": "domain_render",
 		"subtitle": "Lighting, materials, export and 3D"},
 ]
 
@@ -51,10 +51,13 @@ var viewport_area: Control
 var viewport_content: Control          ## The map surface; overlays are children.
 var right_dock: PanelContainer
 var right_dock_body: VBoxContainer
+var timeline_bar: Control
 var timeline_row: HBoxContainer
 var status_row: HBoxContainer
 
+var rail_foot: Label
 var _domain_buttons: Dictionary = {}   ## id -> Button
+var _domain_marks: Dictionary = {}     ## id -> {icon, label}
 var _active_domain := "world"
 var _left_collapsed := false
 var _right_collapsed := false
@@ -95,7 +98,8 @@ func _ready() -> void:
 	main_row.add_child(_build_viewport())
 	main_row.add_child(_build_right_dock())
 
-	shell.add_child(_build_timeline())
+	timeline_bar = _build_timeline()
+	shell.add_child(timeline_bar)
 	shell.add_child(_build_status_bar())
 
 	_select_domain(_active_domain)
@@ -123,8 +127,8 @@ func _build_menu_bar() -> Control:
 	pad.add_child(row)
 	bar.add_child(pad)
 
-	var wordmark := DccTheme.label("C A R T A L I T H", "text_bright", DccTheme.FS_MENU)
-	wordmark.custom_minimum_size.x = 128
+	var wordmark := DccTheme.mono_label("CARTALITH", "text_bright", DccTheme.FS_MENU, 3, true)
+	wordmark.custom_minimum_size.x = 150
 	row.add_child(wordmark)
 
 	menu_bar_row = HBoxContainer.new()
@@ -136,8 +140,8 @@ func _build_menu_bar() -> Control:
 	## The readout cluster: world, pass state, and the three cost meters. §11
 	## keeps these in the menu bar because they describe the *program's* load,
 	## not the world's content.
-	for slot in ["world", "pass", "cpu", "gpu", "mem"]:
-		var l := DccTheme.label("", "text_faint", DccTheme.FS_READOUT)
+	for slot in ["world", "res", "cpu", "gpu", "mem"]:
+		var l := DccTheme.mono_label("", "text_faint", DccTheme.FS_READOUT, 1)
 		_status_labels["top_" + slot] = l
 		row.add_child(l)
 		var gap := Control.new()
@@ -153,6 +157,7 @@ func add_menu(title: String, on_built: Callable) -> MenuButton:
 	mb.flat = true
 	mb.focus_mode = Control.FOCUS_NONE
 	mb.add_theme_font_size_override("font_size", DccTheme.FS_MENU)
+	mb.add_theme_font_override("font", DccTheme.mono(0))
 	mb.add_theme_color_override("font_color", DccTheme.c("text_dim"))
 	mb.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
 	mb.add_theme_stylebox_override("normal", DccTheme.inset(11, 9, 11, 9))
@@ -171,6 +176,8 @@ func style_popup(popup: PopupMenu) -> void:
 	popup.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
 	popup.add_theme_color_override("font_accelerator_color", DccTheme.c("text_faint"))
 	popup.add_theme_font_size_override("font_size", DccTheme.FS_MENU)
+	popup.add_theme_font_override("font", DccTheme.mono(0))
+	popup.add_theme_constant_override("v_separation", 7)
 
 # -- §4 Tool options bar ------------------------------------------------------
 
@@ -211,28 +218,69 @@ func _build_rail() -> Control:
 	rail.add_child(pad)
 
 	for d in DOMAINS:
+		## Icon above a *vertical* label, as in the mockup. Godot rotates a
+		## Control, not a Button's own text, so the label is a child that gets
+		## `rotation` rather than a `Button.text` -- which is also why the
+		## button is a plain container with no text of its own.
 		var b := Button.new()
 		b.tooltip_text = "%s -- %s" % [d.label, d.subtitle]
 		b.flat = true
 		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size.y = _scaled(36)
-		b.icon = DccIcons.get_icon(d.icon, 16 if not _touch else 20)
-		b.expand_icon = false
+		b.custom_minimum_size.y = _scaled(74)
 		b.add_theme_stylebox_override("normal", DccTheme.empty())
 		b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
 		b.pressed.connect(_select_domain.bind(d.id))
+
+		var w := float(_scaled(DccTheme.W_RAIL_COLLAPSED))
+		var px := 14 if not _touch else 18
+		var icon := DccIcons.rect(d.icon, px, "text_faint")
+		icon.position = Vector2((w - px) * 0.5, 7.0)
+		b.add_child(icon)
+
+		## Rotating -90° about the top-left pivot means the glyphs run upward
+		## from `position`, and the text's *height* becomes its horizontal
+		## extent -- so centring it horizontally is `+ half the line height`,
+		## not `- half the width`.
+		var vlabel := DccTheme.mono_label(String(d.rail).to_upper(),
+			"text_faint", DccTheme.FS_MICRO, 2, true)
+		vlabel.rotation = -PI / 2.0
+		vlabel.position = Vector2(w * 0.5 + 6.0, float(_scaled(68)))
+		b.add_child(vlabel)
+
 		_domain_buttons[d.id] = b
+		_domain_marks[d.id] = {"icon": icon, "label": vlabel}
 		rail_column.add_child(b)
+
+	## §3: "the rail foot shows the active context and, in the World domain, the
+	## stage counter (04 / 10)". Vertical, like the labels above it.
+	rail_column.add_child(DccTheme.spacer())
+	rail_foot = DccTheme.mono_label("", "text_ghost", DccTheme.FS_MICRO, 2)
+	rail_foot.rotation = -PI / 2.0
+	var foot_holder := Control.new()
+	foot_holder.custom_minimum_size.y = 64
+	foot_holder.add_child(rail_foot)
+	rail_foot.position = Vector2(_scaled(DccTheme.W_RAIL_COLLAPSED) * 0.5 + 6.0, 60.0)
+	rail_column.add_child(foot_holder)
 	return rail
+
+## The rail foot's two lines, set by whichever workspace owns the context.
+func set_rail_foot(text: String) -> void:
+	if rail_foot != null:
+		rail_foot.text = text
 
 func _select_domain(id: String) -> void:
 	_active_domain = id
 	for key in _domain_buttons:
 		var b: Button = _domain_buttons[key]
 		var on: bool = key == id
-		b.modulate = DccTheme.c("accent") if on else DccTheme.c("text_faint")
 		b.add_theme_stylebox_override("normal",
 			DccTheme.active_row(false) if on else DccTheme.empty())
+		var marks: Dictionary = _domain_marks.get(key, {})
+		if marks.has("icon"):
+			(marks["icon"] as CanvasItem).modulate = DccTheme.c("accent") if on else DccTheme.c("text_faint")
+		if marks.has("label"):
+			(marks["label"] as Label).add_theme_color_override("font_color",
+				DccTheme.c("accent") if on else DccTheme.c("text_faint"))
 	for key in _workspace_panels:
 		(_workspace_panels[key] as Control).visible = key == id
 	for d in DOMAINS:
@@ -266,7 +314,7 @@ func _build_left_dock() -> Control:
 
 	var head := HBoxContainer.new()
 	head.custom_minimum_size.y = 26
-	left_dock_title = DccTheme.header("WORLD")
+	left_dock_title = DccTheme.header("WORLD", "")
 	head.add_child(left_dock_title)
 	head.add_child(DccTheme.spacer())
 	head.add_child(_collapse_button(true))
@@ -298,7 +346,7 @@ func _build_right_dock() -> Control:
 	var head := HBoxContainer.new()
 	head.custom_minimum_size.y = 26
 	head.add_child(_collapse_button(false))
-	head.add_child(DccTheme.header("LAYERS"))
+	head.add_child(DccTheme.header("LAYERS", ""))
 	head.add_child(DccTheme.spacer())
 	var head_pad := MarginContainer.new()
 	head_pad.add_theme_constant_override("margin_left", 6)

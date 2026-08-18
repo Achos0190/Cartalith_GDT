@@ -34,7 +34,8 @@ static func category(parent: Control, title: String, group: Array,
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	btn.custom_minimum_size.y = 30
-	btn.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
+	btn.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	btn.add_theme_font_override("font", DccTheme.mono(1))
 	btn.add_theme_color_override("font_color", DccTheme.c("text_bright"))
 	btn.add_theme_stylebox_override("normal", DccTheme.inset(12, 0, 12, 0))
 	btn.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
@@ -93,14 +94,15 @@ static func stage_category(parent: Control, number: String, title: String,
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	btn.custom_minimum_size.y = 30
-	btn.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
+	btn.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	btn.add_theme_font_override("font", DccTheme.mono(1))
 	btn.add_theme_color_override("font_color", DccTheme.c("text_bright"))
 	btn.add_theme_stylebox_override("normal", DccTheme.inset(12, 0, 0, 0))
 	btn.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
 	btn.add_theme_stylebox_override("pressed", DccTheme.inset(12, 0, 0, 0))
 	head.add_child(btn)
 
-	var state_label := DccTheme.label("", "text_dim", DccTheme.FS_TINY)
+	var state_label := DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO, 1)
 	var state_pad := MarginContainer.new()
 	state_pad.add_theme_constant_override("margin_right", 12)
 	state_pad.add_child(state_label)
@@ -147,15 +149,18 @@ static func section(parent: Control, title: String) -> VBoxContainer:
 
 ## One pass or one tool. Its action button belongs inside the returned body,
 ## never in the section around it.
-static func group(parent: Control, title: String, open: bool = true) -> VBoxContainer:
+static func group(parent: Control, title: String, open: bool = true,
+		sigil: String = "") -> VBoxContainer:
+	var mark: String = sigil if sigil != "" else DccIcons.SYMBOLS["expand"]
 	var btn := Button.new()
 	btn.flat = true
 	btn.focus_mode = Control.FOCUS_NONE
 	btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	btn.custom_minimum_size.y = 24
-	btn.text = "%s %s" % [DccIcons.SYMBOLS["expand"], title]
-	btn.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
-	btn.add_theme_color_override("font_color", DccTheme.c("text_dim"))
+	btn.custom_minimum_size.y = 22
+	btn.text = "%s %s" % [mark, title.to_upper()]
+	btn.add_theme_font_size_override("font_size", DccTheme.FS_HEADER)
+	btn.add_theme_font_override("font", DccTheme.mono(2, true))
+	btn.add_theme_color_override("font_color", DccTheme.c("text_faint"))
 	btn.add_theme_stylebox_override("normal", DccTheme.empty())
 	btn.add_theme_stylebox_override("hover", DccTheme.empty())
 	btn.add_theme_stylebox_override("pressed", DccTheme.empty())
@@ -170,29 +175,49 @@ static func group(parent: Control, title: String, open: bool = true) -> VBoxCont
 	parent.add_child(pad)
 	btn.pressed.connect(func():
 		body.visible = not body.visible
-		btn.text = "%s %s" % [
-			DccIcons.SYMBOLS["caret"] if body.visible else DccIcons.SYMBOLS["expand"], title])
+		btn.text = "%s %s" % [mark, title.to_upper()])
 	return body
 
 # -- L5 advanced --------------------------------------------------------------
 
 ## Expert dials, closed by default. If a value in here has to be changed for a
 ## normal result, the default above it is wrong -- fix the default instead.
-static func advanced(parent: Control) -> VBoxContainer:
-	var body := group(parent, "advanced", false)
-	return body
+static func advanced(parent: Control, title: String = "advanced") -> VBoxContainer:
+	return group(parent, title, false, "＋")
 
 # -- Rows ---------------------------------------------------------------------
 
 const ROW_LABEL_W := 132
 const ROW_VALUE_W := 56
 
+
+## §11: "no fills on panels; regions are separated by hairlines only. Radius 0
+## everywhere." A slider follows the same rule -- a 2 px rule, the travelled
+## part in accent, and **no grabber**. Godot's default is a thick track with a
+## round knob, which reads as a web form rather than a tool.
+static func _style_slider(s: HSlider) -> void:
+	var track := StyleBoxFlat.new()
+	track.bg_color = DccTheme.c("line")
+	track.content_margin_top = 1
+	track.content_margin_bottom = 1
+	s.add_theme_stylebox_override("slider", track)
+	var filled := StyleBoxFlat.new()
+	filled.bg_color = DccTheme.c("accent")
+	s.add_theme_stylebox_override("grabber_area", filled)
+	s.add_theme_stylebox_override("grabber_area_highlight", filled)
+	## An empty texture is how a grabber is removed; setting a size of zero
+	## still draws the theme default.
+	s.add_theme_icon_override("grabber", ImageTexture.new())
+	s.add_theme_icon_override("grabber_highlight", ImageTexture.new())
+	s.add_theme_icon_override("grabber_disabled", ImageTexture.new())
+	s.add_theme_constant_override("center_grabber", 1)
+
 static func _row(parent: Control, label_text: String, tooltip: String) -> HBoxContainer:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	row.custom_minimum_size.y = 24
 	row.tooltip_text = tooltip
-	var l := DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL)
+	var l := DccTheme.mono_label(label_text, "text_dim", DccTheme.FS_SMALL, 0)
 	l.custom_minimum_size.x = ROW_LABEL_W
 	l.clip_text = true
 	row.add_child(l)
@@ -212,9 +237,12 @@ static func slider(parent: Control, label_text: String, minimum: float, maximum:
 	s.step = step
 	s.value = value
 	s.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	s.custom_minimum_size.y = 16
+	s.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	s.custom_minimum_size.y = 14
+	s.focus_mode = Control.FOCUS_NONE
+	_style_slider(s)
 	row.add_child(s)
-	var readout := DccTheme.label("", "text", DccTheme.FS_SMALL)
+	var readout := DccTheme.mono_label("", "text", DccTheme.FS_SMALL, 0)
 	readout.custom_minimum_size.x = ROW_VALUE_W
 	readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(readout)
@@ -276,6 +304,7 @@ static func action(parent: Control, text: String, on_press: Callable,
 	b.focus_mode = Control.FOCUS_NONE
 	b.custom_minimum_size.y = 26
 	b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	b.add_theme_font_override("font", DccTheme.mono(1))
 	if primary:
 		b.add_theme_color_override("font_color", DccTheme.c("bg"))
 		b.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("accent"), 2))
@@ -292,7 +321,7 @@ static func action(parent: Control, text: String, on_press: Callable,
 ## Prose that explains a rule rather than labelling a control. Kept narrow so a
 ## dock at its minimum width still wraps sensibly.
 static func note(parent: Control, text: String) -> Label:
-	var l := DccTheme.label(text, "text_ghost", DccTheme.FS_TINY)
+	var l := DccTheme.label(text, "text_ghost", DccTheme.FS_MICRO)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.custom_minimum_size.x = 240
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL

@@ -25,6 +25,15 @@
 > `..SculptGlobals::default()`, making them golden-parity inputs rather than
 > preferences. A test in `sculpt_bridge.rs` now pins the UI table to them.
 >
+> **§12's text-symbol premise is partly false, found by building it.** §12 says
+> the text symbols "stay text… since they are typographic, inherit type metrics,
+> and need no drawing". IBM Plex Mono — the face §11 specifies for exactly these
+> contexts — is missing seven of them, checked against the font's own cmap
+> rather than assumed: **✕ ● ○ ▾ ▸ ▶ ＋**. Present: ✓ → § ‹ › ↶ ↷ · • ×. The
+> shell falls those seven back to a system face, so they render but lose Plex's
+> metrics; the state dots ● / ○ that §5.1 leans on are among them. Drawing them
+> as glyphs is the alternative and is a question for the design.
+>
 > Path note: the design team writes to a `docs/`-rooted convention. In this
 > repository `docs/` holds the **source project's** own documentation, and two
 > filenames collide (`UNIFIED_TOOL_PLAN.md`, `ROADMAP.md`) — `docs/README.md`

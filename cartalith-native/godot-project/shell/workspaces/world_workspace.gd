@@ -161,12 +161,14 @@ func _on_world_loaded() -> void:
 	_last_edited_stage = -1
 	_refresh_stage_states()
 
-## Deliberately NOT `flat = true`: `DccWidgets.action()`'s own primary button
-## (the "Generate world" bar below) proves solid custom styleboxes render
-## correctly without it, and `flat` on a toggle_mode button suppressed the
-## "pressed" stylebox entirely in practice -- the active half of the switch
-## drew with no accent background at all. Explicit normal/pressed/hover
-## overrides carry the same "flat until interacted" look on their own.
+## The mockup draws the switch as **tabs**, not as a segmented control: mono
+## caps, the active half carrying an accent top rule and a slightly lifted
+## ground, both halves sitting on the dock's own hairline. A filled amber pill
+## was the first attempt and read as a call-to-action button, which is the one
+## thing this control is not -- it is a view selector.
+##
+## Deliberately not `flat = true`: on a `toggle_mode` button that suppresses the
+## "pressed" stylebox entirely, so the active tab drew with no accent at all.
 func _switch_button(text: String, active: bool, group: ButtonGroup) -> Button:
 	var b := Button.new()
 	b.text = text.to_upper()
@@ -175,22 +177,29 @@ func _switch_button(text: String, active: bool, group: ButtonGroup) -> Button:
 	b.button_group = group
 	b.focus_mode = Control.FOCUS_NONE
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.custom_minimum_size.y = 28
-	b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
-	b.add_theme_color_override("font_color", DccTheme.c("text_dim"))
-	b.add_theme_color_override("font_pressed_color", DccTheme.c("bg"))
+	b.custom_minimum_size.y = 30
+	b.add_theme_font_size_override("font_size", DccTheme.FS_HEADER)
+	b.add_theme_font_override("font", DccTheme.mono(2, true))
+	b.add_theme_color_override("font_color", DccTheme.c("text_faint"))
+	b.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
 	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
-	b.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("sunken")))
-	b.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("accent")))
-	b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("raised")))
+
+	var rest := StyleBoxFlat.new()
+	rest.bg_color = DccTheme.c("panel_alt")
+	rest.border_width_bottom = 1
+	rest.border_color = DccTheme.c("line")
+	var on := StyleBoxFlat.new()
+	on.bg_color = DccTheme.c("accent_wash")
+	on.border_width_top = 1
+	on.border_color = DccTheme.c("accent")
+	b.add_theme_stylebox_override("normal", rest)
+	b.add_theme_stylebox_override("pressed", on)
+	b.add_theme_stylebox_override("hover", rest)
 	return b
 
 # -- §5.1 Generation Pipeline --------------------------------------------------
 
 func _build_pipeline(parent: Control) -> void:
-	DccWidgets.action(parent, "Generate world", _on_generate_pressed, true)
-	parent.add_child(DccTheme.rule())
-
 	for i in STAGES.size():
 		_build_stage(parent, i)
 
@@ -210,10 +219,22 @@ func _build_stage(parent: Control, index: int) -> void:
 	var body: VBoxContainer = head["body"]
 	_stage_state_labels.append(head["state_label"])
 
-	DccWidgets.note(body, "needs — %s" % String(stage["needs"]))
-	DccWidgets.note(body, "produces — %s" % String(stage["produces"]))
+	## The mockup indents a stage's `needs`/`produces` under its title rather
+	## than running them to the dock's own edge, which is what `note()` on a
+	## bare body does.
+	var meta := VBoxContainer.new()
+	meta.add_theme_constant_override("separation", 1)
+	var meta_pad := MarginContainer.new()
+	meta_pad.add_theme_constant_override("margin_left", 14)
+	meta_pad.add_theme_constant_override("margin_right", 12)
+	meta_pad.add_theme_constant_override("margin_bottom", 2)
+	meta_pad.add_child(meta)
+	body.add_child(meta_pad)
+
+	DccWidgets.note(meta, "needs — %s" % String(stage["needs"]))
+	DccWidgets.note(meta, "produces — %s" % String(stage["produces"]))
 	if not String(stage["gap"]).is_empty():
-		DccWidgets.note(body, String(stage["gap"]))
+		DccWidgets.note(meta, String(stage["gap"]))
 
 	var run_row := HBoxContainer.new()
 	run_row.add_theme_constant_override("separation", 6)
@@ -223,7 +244,7 @@ func _build_stage(parent: Control, index: int) -> void:
 	run_pad.add_child(run_row)
 	body.add_child(run_pad)
 
-	var run_tip := "generate_terrain is one-shot: the engine has no per-stage re-execution. Use Generate world above to run the whole pipeline."
+	var run_tip := "generate_terrain is one-shot: the engine has no per-stage re-execution. Use Run 01 → 10 in the tool options bar, which regenerates the whole world."
 	var run_one := DccWidgets.action(run_row, "Run stage %s" % number, func(): pass)
 	run_one.disabled = true
 	run_one.tooltip_text = run_tip
