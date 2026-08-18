@@ -9469,3 +9469,100 @@ reading.
 **Deferred, unchanged**: light theme, responsive breakpoints, all tool
 functionality. Saving a *parameter set* as a named preset document is the
 natural follow-up this milestone deliberately does not attempt.
+
+## Journey Planner milestone 6 + milestone 2's remainder — the subsystem closes (2026-08-18)
+
+The last two open milestones of `JOURNEY_PLANNER_SCOPE.md`, in the order its
+build-order table set: **6 (verdict/reporting)** first, because it needed
+milestone 5's plan output to verify against, then **2's remainder**, which
+milestone 5 unblocked.
+
+**Ported (`cartalith-civ`):**
+
+- **Milestone 6** — `jp_verdict`/`JpVerdict` (v1.49's interpretive layer: the
+  five-band read of a finished plan, with every contributing signal returned
+  by name), `jp_confidence`/`JpConfidence` (the asymmetric honesty band on the
+  day count), `jp_pack_range`/`JpPackRange` (the wagon-equation ceiling),
+  `jp_fmt_days`, and `jp_risk` — the campaign-duration advisory milestone 5
+  deliberately left here because it is a verdict string, not part of the
+  roll-up. `jp_fmt_kg` had already shipped with milestone 4 and was not
+  re-ported.
+- **Milestone 2's remainder** — `jp_auto_pick_transport`/`JpAutoTransport` (the
+  whole route's transport/animal/vehicle mix, including v1.48's analytically
+  detected `fodderInfeasible` divergence and the Walking→Baggage Train
+  auto-promote, which adds the one missing `_jpEnsurePlan` default,
+  `JpPlan::auto_promote`) and `jp_best_package_for_stage`/`JpPackageFix` (v1.66's
+  per-stage species+vehicle suggestion, on the same "measure, never silently
+  apply" contract as `jp_best_land_transport_for_stage`).
+
+Both reference functions build HTML hint strings; those are **not** ported —
+presentation is Godot's (`ARCHITECTURE.md`), and every value the hints print
+is a field on the returns above. `jp_auto_pick_transport` mutates the plan
+exactly as the reference mutates `jn.plan`.
+
+**A real bug found in a shared helper, by this milestone's own golden run.**
+`js_fixed` — milestone 4's reproduction of JS `toFixed`'s round-half-*away
+from zero* tie-break — was computing the tie by scaling: `(v*10^d +
+0.5).floor()`. That **fabricates** ties. `61.5/30` is `2.0499999999999998`,
+which JS renders `"2.0"`, but `2.0499999999999998 * 10` rounds to exactly
+`20.5` in `f64` and the `+0.5` then carried it to `"2.1"`. `jp_fmt_days(61.5)`
+was the case that caught it. Rewritten to decide the tie on the value's
+**exact** decimal expansion — a double is a dyadic rational, so a genuine tie
+at place `d+1` means the expansion ends in a 5 there — and to lean on Rust's
+own `{:.N}` (already the correctly-rounded exact decimal) for everything else.
+Verified against `Number.prototype.toFixed` on 30 cases including the pairs
+that look identical and are not (`1.25` is a real tie, `2.05` is not) and
+`jp_fmt_kg(1250.0)` = `"1.3 t"`, the tie that reaches a user-visible string.
+No existing test changed its expected value.
+
+**`_jp_reroute_for_mode` remains the one unported function, and the finding
+was re-checked rather than inherited**: its whole body is
+`_civDijkstraPath(s,e,domain)`, and that function with `_civWaterCostGrid` and
+`_civMixedCostGrid` is the interactive Route tool's own multi-modal
+pathfinder — unported, on no milestone in the scope doc, and a UI action
+besides ("Re-route land-only"). Its pure half, `jp_mode_for_route`, shipped
+with milestone 5. Nothing here invents a pathfinder to close it.
+
+**Golden-verified against the real reference**, through milestone 5's own
+harness and fixture: eight line ranges sliced out of `reference/Cartalith Gen1
+v2.10.html` into a bare Node `vm.runInContext` with no DOM, each carrying the
+**block-comment balance assertion** on its own boundaries. All eight balanced
+first time — including the one that moved, the Journey Planner slice extended
+from 17297-19419 to **17297-19532** to take v1.49's verdict layer with it. The
+harness did surface one error of a *different* class, which the balance check
+is not designed to catch and the JS parser could not either: the milestone-5
+slice `2641-2675` starts one line **below** `TERRAIN_DETAIL_MAX_K`, which
+`riverCoarseEase` reads, and `_jpDeriveStages` catches its own exceptions and
+returns an empty stage list — so the whole world silently derived to zero
+stages with no error anywhere. Found by instrumenting that `catch`; the slice
+is now `2640-2675`.
+
+The world, route and party are milestone 5's fixture unchanged, and reproduce
+its values exactly (760.847480700888… km, 41.317750030325… days, seven
+stages). The m5 route cannot reach every verdict band on its own — its
+resupply requirement is genuinely unmet, which alone forces `severe` — so each
+band probe edits exactly the signals `_jpVerdict` reads on a **real** plan, and
+the harness made the identical edits to the identical fields.
+
+**Verified**: `cargo build -p cartalith-civ`; `cargo test -p cartalith-civ`
+(**194 passed, 0 failed, 10 new**) — every expected string and number is the
+reference run's output, covering all five verdict levels and both Strained
+texts, all fourteen contributing reasons, every `_jpConfidence` threshold from
+both sides, `_jpPackRange` across species/grazing/desert, `jpFmtDays`' three
+unit bands and its rounding edges, all four risk tiers, nine
+`jpAutoPickTransport` configurations (counts, carts, wagons, promotion,
+divergence) and thirteen `_jpBestPackageForStage` cases;
+`cargo clippy -p cartalith-civ --all-targets` (the new code adds no warnings;
+the remaining ones are the same pre-existing, unrelated set); `cargo test
+--workspace` (0 regressions — `cartalith-urban`'s two failures are a sibling
+fork's uncommitted work in the same tree, and that crate depends only on
+`cartalith-rng`).
+
+**Not wired to any caller** — no `#[func]`, no `compute_civilisation()`
+integration. See `JOURNEY_PLANNER_SCOPE.md`'s closing status for what
+integration would actually mean.
+
+**Journey Planner engine work is complete.** All ~70 real `jp*`/`_jp*`
+functions are ported bar `_jp_reroute_for_mode`; the seven UI-only ones the
+scope doc names were never portable; what remains is the interactive GUI that
+would give a player somewhere to type a journey into.

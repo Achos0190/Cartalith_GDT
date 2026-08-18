@@ -6317,13 +6317,51 @@ pub fn jp_fmt_kg(kg: f64) -> String {
 /// used for verdict/blocked-message text, but those strings are compared
 /// against the reference's own output in the tests below, so the tie-breaking
 /// rule has to match.
+///
+/// The tie is decided on the value's **exact** decimal expansion, never by
+/// scaling. Milestone 6 found the earlier `(v*10^d + 0.5).floor()` form
+/// fabricating ties: `61.5/30` is `2.0499999999999998`, which JS renders
+/// `"2.0"`, but `2.0499999999999998 * 10` rounds to exactly `20.5` in `f64` and
+/// the `+0.5` then carried it to `"2.1"`. Rust's own `{:.N}` already prints the
+/// correctly-rounded exact decimal, so all this has to do is spot a genuine tie
+/// and step it away from zero instead of to even.
 fn js_fixed(v: f64, digits: u32) -> String {
     if !v.is_finite() {
         return format!("{v}");
     }
-    let p = 10f64.powi(digits as i32);
-    let rounded = (v.abs() * p + 0.5).floor() / p * v.signum();
-    format!("{:.*}", digits as usize, rounded)
+    let d = digits as usize;
+    // A double is a dyadic rational, so its decimal expansion terminates; a tie
+    // at place `d+1` therefore means digit `d+1` is 5 and the expansion ends
+    // there. Eighteen guard digits is far past the point where two neighbouring
+    // doubles could both look like one.
+    let exact = format!("{:.*}", d + 18, v.abs());
+    let frac = &exact[exact.find('.').expect("a fractional part was requested") + 1..];
+    let tie = frac.as_bytes()[d] == b'5' && frac.as_bytes()[d + 1..].iter().all(|&b| b == b'0');
+    if !tie {
+        return format!("{:.*}", d, v);
+    }
+    // Away from zero: increment the last kept decimal digit, carrying.
+    let dot = exact.find('.').expect("checked above");
+    let mut kept: Vec<u8> = exact[..dot].bytes().chain(frac[..d].bytes()).collect();
+    let mut i = kept.len();
+    loop {
+        if i == 0 {
+            kept.insert(0, b'1');
+            break;
+        }
+        i -= 1;
+        if kept[i] == b'9' {
+            kept[i] = b'0';
+        } else {
+            kept[i] += 1;
+            break;
+        }
+    }
+    let split = kept.len() - d;
+    let int_part = String::from_utf8(kept[..split].to_vec()).expect("ascii digits");
+    let frac_part = String::from_utf8(kept[split..].to_vec()).expect("ascii digits");
+    let sign = if v < 0.0 { "-" } else { "" };
+    if d == 0 { format!("{sign}{int_part}") } else { format!("{sign}{int_part}.{frac_part}") }
 }
 
 /// `JP_BIOMES` (reference line 17487), the four columns milestones 2 and 3
@@ -6814,6 +6852,10 @@ pub struct JpPlan {
     pub season_drift: bool,
     /// v1.52 rest cadence; `None` is the reference's own `"auto"`.
     pub rest_cadence: Option<String>,
+    /// Milestone 2. `plan.autoPromote` -- may [`jp_auto_pick_transport`] turn
+    /// an overloaded Walking party into a Baggage Train, or must it report the
+    /// overload and change nothing? Defaults to the reference's own `false`.
+    pub auto_promote: bool,
 }
 
 /// One entry of `plan.stageOverrides` (reference: a sparse
@@ -6875,6 +6917,7 @@ impl Default for JpPlan {
             stage_overrides: std::collections::HashMap::new(),
             season_drift: true,
             rest_cadence: None,
+            auto_promote: false,
         }
     }
 }
@@ -9478,7 +9521,616 @@ pub fn jp_plan(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan, layovers: &Jp
     })
 }
 
+// ----------------------------------------------------------------------------
+// Journey Planner milestone 6 -- verdict / reporting (v1.49's interpretive
+// layer), plus the campaign-duration advisory milestone 5 deliberately left
+// here because it is a verdict string rather than part of the roll-up.
+//
+// The reference's own framing (line 19420): the planner computes an
+// extensively-calibrated physical model and then presents it as bare numbers.
+// These are *pure readers* over the finished plan -- they add no modelling and
+// no state, they only say out loud what the existing numbers already imply.
+//
+// `jp_fmt_kg` shipped with milestone 4 (both stage calculators format their
+// overload/hold text with it) and is not re-ported here; `js_fixed`, which it
+// carries, is what every string below rounds through.
+// ----------------------------------------------------------------------------
 
+/// `_jpVerdict`'s return (reference line 19433).
+#[derive(Debug, Clone, PartialEq)]
+pub struct JpVerdict {
+    /// `"blocked"` / `"severe"` / `"strained"` / `"moderate"` / `"favourable"`.
+    pub level: &'static str,
+    pub label: &'static str,
+    pub text: String,
+    /// Every contributing signal, by name. A verdict that cannot say *why* it
+    /// said that is worse than no verdict -- the user cannot otherwise tell a
+    /// real problem from a threshold quirk.
+    pub reasons: Vec<String>,
+}
+
+/// `_jpVerdict` (reference line 19433, v1.49): the overall read of a finished
+/// plan. Every level is driven by a signal the plan already carries.
+///
+/// The reference's `!plan` guard has no Rust equivalent -- a `&JpJourneyPlan`
+/// is always a plan -- and its `blockedMsg` is read back off the blocking
+/// stage's own [`JpBlocked`] rather than duplicated onto the roll-up.
+pub fn jp_verdict(plan: &JpJourneyPlan) -> JpVerdict {
+    if let Some(bi) = plan.blocked_idx {
+        let text = plan.results[bi]
+            .blocked()
+            .map(|b| b.reason.clone())
+            .unwrap_or_else(|| "A stage on this route cannot be travelled as configured.".to_string());
+        return JpVerdict { level: "blocked", label: "Impassable", text, reasons: Vec::new() };
+    }
+
+    // `sev`: severity votes, 0 = fine, 3 = severe.
+    let mut sev: Vec<u8> = Vec::new();
+    let mut reasons: Vec<String> = Vec::new();
+    let mut push = |w: u8, txt: String| {
+        sev.push(w);
+        reasons.push(txt);
+    };
+
+    // Load: the v1.48 solver's own capacity verdict for the worst land stage.
+    if let Some(l) = plan.worst_land.and_then(|i| plan.results[i].land()) {
+        let r = l.load_ratio;
+        if r > 1.0 {
+            push(3, format!("overloaded — the worst land stage carries {}% of capacity", js_fixed(r * 100.0, 0)));
+        } else if r > 0.85 {
+            push(2, format!("heavily loaded ({}% of capacity on the worst stage)", js_fixed(r * 100.0, 0)));
+        }
+        if l.cap.draft_shortfall > 0 {
+            push(3, format!("{} draft animal(s) short for the vehicles taken", l.cap.draft_shortfall));
+        }
+    }
+
+    // Carrying feasibility (v1.31's per-stage assessment). v1.51: this used to
+    // read "cannot be resupplied from settlements in reach" while `feasible` is
+    // set solely by totalMass > capacity -- it named a constraint it did not
+    // measure. It now says what it tests, and `cause` separates an overloaded
+    // pack from a genuinely waterless stretch.
+    let over_cap: Vec<&JpResupply> = plan
+        .results
+        .iter()
+        .filter(|r| r.blocked().is_none())
+        .filter_map(|r| match &r.calc {
+            Ok(JpLegCalc::Land(l)) => l.resupply.as_ref(),
+            Ok(JpLegCalc::Water(w)) => Some(&w.resupply),
+            Err(_) => None,
+        })
+        .filter(|rs| !rs.feasible)
+        .collect();
+    let water_bound = over_cap.iter().filter(|rs| rs.cause == Some("water")).count();
+    let load_bound = over_cap.len() - water_bound;
+    if water_bound > 0 {
+        push(3, format!("{water_bound} stage(s) cross more waterless ground than any party could carry water for"));
+    }
+    if load_bound > 0 {
+        push(3, format!("{load_bound} stage(s) need more supplies than the party can physically carry"));
+    }
+
+    // v1.51: the requirement measured against the map ([`jp_resupply_reach`]) --
+    // the real "settlements in reach" test, which until then did not exist.
+    if let Some(rr) = &plan.resupply_reach {
+        if rr.unmet {
+            push(
+                3,
+                format!(
+                    "the longest stretch with no settlement is {} km, but the party can only carry {} km of supplies ({}× short)",
+                    js_fixed(rr.max_gap_km, 0),
+                    js_fixed(rr.required_km, 0),
+                    js_fixed(rr.shortfall, 1)
+                ),
+            );
+        } else if rr.carry_food && rr.shortfall > 0.75 {
+            push(
+                1,
+                format!(
+                    "supplies just reach between settlements ({} km gap vs {} km carried)",
+                    js_fixed(rr.max_gap_km, 0),
+                    js_fixed(rr.required_km, 0)
+                ),
+            );
+        }
+    }
+
+    // A column long enough to lose real distance to its own passage.
+    let worst_col = plan
+        .results
+        .iter()
+        .filter(|r| r.cat == "land")
+        .filter_map(|r| r.land())
+        .min_by(|a, b| a.col_mod.total_cmp(&b.col_mod));
+    if let Some(c) = worst_col
+        && c.col_mod < 0.75
+    {
+        push(
+            2,
+            format!(
+                "the column is {} km long — it loses {}% of each day to its own passage",
+                js_fixed(c.col_km, 1),
+                js_fixed((1.0 - c.col_mod) * 100.0, 0)
+            ),
+        );
+    }
+
+    // Environment: only counted when it is a real share of the route, not a
+    // token kilometre.
+    let km = plan.km.max(1.0);
+    if plan.desert_km / km > 0.30 {
+        push(2, format!("{}% of the route crosses desert", js_fixed(plan.desert_km / km * 100.0, 0)));
+    }
+    if plan.pass_km / km > 0.30 {
+        push(2, format!("{}% of the route is mountain", js_fixed(plan.pass_km / km * 100.0, 0)));
+    }
+    if plan.bad_wx_pct >= 40.0 {
+        push(2, format!("{}% storm/snow odds for the season chosen", js_fixed(plan.bad_wx_pct, 0)));
+    } else if plan.bad_wx_pct >= 22.0 {
+        push(1, format!("{}% storm/snow odds", js_fixed(plan.bad_wx_pct, 0)));
+    }
+    if plan.riv_x >= 6 {
+        push(1, format!("{} river crossings", plan.riv_x));
+    }
+    // Duration is a risk multiplier in its own right (see [`jp_confidence`]).
+    if plan.days > 60.0 {
+        push(2, "a season-scale duration, where attrition dominates".to_string());
+    } else if plan.days > 21.0 {
+        push(1, "a multi-week duration, where small failures compound".to_string());
+    }
+
+    let worst = sev.iter().copied().max().unwrap_or(0);
+    let load = sev.iter().filter(|&&v| v >= 2).count();
+    let (level, label, text) = if worst >= 3 {
+        ("severe", "Severe", "This journey is not viable as configured — at least one hard constraint is unmet. Fix the items below before trusting any figure above.")
+    } else if worst >= 2 && load >= 2 {
+        ("strained", "Strained", "Workable but with little margin: several stressors stack on this route. Expect the optimistic end of the estimate to slip.")
+    } else if worst >= 2 {
+        ("strained", "Strained", "Workable, but one factor is pressing hard enough to shape the trip. Plan around it.")
+    } else if worst >= 1 {
+        ("moderate", "Moderate", "An ordinary journey of its kind — nothing here is unusual for the route and season.")
+    } else {
+        ("favourable", "Favourable", "Well within the party’s means: light load, forgiving ground, and a season that co-operates.")
+    };
+    JpVerdict { level, label, text: text.to_string(), reasons }
+}
+
+/// `_jpConfidence`'s return (reference line 19498).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JpConfidence {
+    pub lo_days: f64,
+    pub hi_days: f64,
+    pub lo: f64,
+    pub hi: f64,
+    pub note: &'static str,
+}
+
+/// `_jpConfidence` (reference line 19498): an honesty band on the day count,
+/// and it says so -- deliberately *not* a simulated distribution.
+///
+/// The per-stage model is a best case (every day a travel day at the stage's
+/// own pace, no sick animal, no washed-out ford, no waiting on weather), and
+/// the historical logistics literature is consistent that this optimism *grows*
+/// with duration (ACOUP's logistics series; the "tyranny of the wagon
+/// equation"). So the band is asymmetric and widens with days: the downside is
+/// always larger than the upside.
+///
+/// `None` on a blocked or non-finite journey -- there is nothing to band.
+pub fn jp_confidence(plan: &JpJourneyPlan) -> Option<JpConfidence> {
+    if plan.blocked_idx.is_some() || !plan.days.is_finite() {
+        return None;
+    }
+    let d = plan.days;
+    let (lo, hi, note) = if d < 7.0 {
+        (0.97, 1.10, "Short trip — the per-stage figures should hold closely.")
+    } else if d < 14.0 {
+        (0.95, 1.18, "Over a week — minor attrition and rest days start to tell.")
+    } else if d < 21.0 {
+        (0.93, 1.28, "Multi-week — maintenance debt and organisational drag accumulate.")
+    } else if d < 60.0 {
+        (0.90, 1.42, "Campaign scale — small failures cascade; treat the low end as unlikely.")
+    } else {
+        (0.85, 1.60, "Season scale — historically these run well over plan; the figure above is the optimistic bound, not the expected outcome.")
+    };
+    let base = plan.total_days.unwrap_or(d);
+    Some(JpConfidence { lo_days: base * lo, hi_days: base * hi, lo, hi, note })
+}
+
+/// `_jpPackRange`'s return (reference line 19518).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JpPackRange {
+    pub key: &'static str,
+    pub label: &'static str,
+    /// Grazing covers all fodder, so no ceiling exists: `max_days` is infinite
+    /// and `ratio` is therefore 0. The reference omits `supplyDays`/`ratio`
+    /// entirely on this branch; computing them uniformly gives the same
+    /// answers rather than a second shape to destructure.
+    pub unlimited: bool,
+    pub max_days: f64,
+    pub fodder_frac: f64,
+    pub supply_days: i64,
+    pub ratio: f64,
+}
+
+/// `_jpPackRange` (reference line 19518): the wagon-equation ceiling, stated
+/// *before* the user configures their way past it (v1.48 only caught it after
+/// the fact). A pack animal carries its own fodder, so with no grazing there is
+/// a hard duration past which its whole capacity is its own food and it can
+/// carry nothing else.
+///
+/// Mirrors exactly the inputs [`jp_auto_pick_transport`]'s `fodder_infeasible`
+/// guard tests, so the number shown here *is* the threshold that guard fires at
+/// -- one source of truth, not a second estimate of the same thing.
+///
+/// The reference reads `plan.plan` and `plan.hasDesert` off the finished
+/// journey; [`JpJourneyPlan`] deliberately does not carry the party plan back
+/// out (the caller already owns it), so both are parameters here. `None` when
+/// no pack animal is in use.
+pub fn jp_pack_range(plan: &JpPlan, has_desert: bool) -> Option<JpPackRange> {
+    // The reference's own `['donkey','mule','camel','horse'].find(...)`: first
+    // species present in key order, not the largest contingent.
+    let key = [
+        ("donkey", plan.party.donkey),
+        ("mule", plan.party.mule),
+        ("camel", plan.party.camel),
+        ("horse", plan.party.horse),
+    ]
+    .into_iter()
+    .find(|(_, c)| *c > 0)
+    .map(|(k, _)| k)?;
+    let a = jp_animal_stats(key)?;
+    let (_, fodder_frac) = jp_grazing(&plan.grazing);
+    let supply_days = plan.supply_days.max(1);
+    if fodder_frac <= 0.0 {
+        return Some(JpPackRange {
+            key,
+            label: a.label,
+            unlimited: true,
+            max_days: f64::INFINITY,
+            fodder_frac,
+            supply_days,
+            ratio: 0.0,
+        });
+    }
+    let dm_food = if has_desert { jp_desert_animal_mod(key).0 } else { 1.0 };
+    let per_day = a.food_kg_day * dm_food * fodder_frac;
+    if per_day <= 0.0 {
+        return None;
+    }
+    let max_days = a.cap_kg / per_day;
+    Some(JpPackRange {
+        key,
+        label: a.label,
+        unlimited: false,
+        max_days,
+        fodder_frac,
+        supply_days,
+        ratio: supply_days as f64 / max_days,
+    })
+}
+
+/// `jpFmtDays` (reference line 17606): a duration as a human-readable string.
+/// `null` in the reference and any non-finite value here both give `"—"`.
+/// Rounds through [`js_fixed`], not Rust's `{:.N}` -- JS `toFixed` breaks a tie
+/// away from zero where Rust breaks it to even.
+pub fn jp_fmt_days(d: f64) -> String {
+    if !d.is_finite() {
+        return "—".to_string();
+    }
+    if d < 1.0 {
+        return format!("{} h", ((d * 24.0 + 0.5).floor()).max(1.0));
+    }
+    if d < 60.0 {
+        return format!("{} days", js_fixed(d, 1));
+    }
+    format!("{} months", js_fixed(d / 30.0, 1))
+}
+
+/// The campaign-duration advisory on `_jpPlan`'s return (reference line 19385,
+/// a port of V1.915's `assessCampaignRisk` tiers). It is a *verdict string*, so
+/// it belongs to this milestone rather than to the roll-up milestone 5 built --
+/// [`JpJourneyPlan`] carries the day count, not the caption.
+pub fn jp_risk(days: f64) -> Option<&'static str> {
+    if days <= 10.0 {
+        None
+    } else if days <= 30.0 {
+        Some("Long journey — schedule rest days; minor attrition expected.")
+    } else if days <= 90.0 {
+        Some("Extended campaign — significant fatigue/attrition risk; plan resupply depots.")
+    } else {
+        Some("Season-scale expedition — attrition, weather windows and supply lines dominate planning.")
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Journey Planner milestone 2 (remainder) -- the two functions milestone 5's
+// plan/stage derivation unblocked.
+//
+// `jp_auto_pick_vessel` shipped with milestone 5 (`_jpEnsurePlan` calls it on
+// first plan creation) and `_jp_best_land_transport_for_stage` with milestone 4;
+// these are the last two.
+//
+// Both reference functions build HTML hint strings. Those are presentation and
+// belong to Godot (`ARCHITECTURE.md`); what ports is the structured decision,
+// and every value the hints print is a field on the returns below.
+// ----------------------------------------------------------------------------
+
+/// `jpAutoPickTransport`'s decision (reference line 17814). The reference
+/// returns `{ok, hint, warn, promoted}` for the UI; this is the same decision
+/// without the HTML.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JpAutoTransport {
+    /// `{ok:false}` -- the route has no land stages, so there is nothing to
+    /// auto-pick.
+    NoLandStages,
+    /// `{ok:false}` -- auto-pick applies to Walking / Mounted Rider / Baggage
+    /// Train; a water leg picks its vessel through [`jp_auto_pick_vessel`].
+    NotALandMode,
+    /// Walking, and the load fits within porter capacity: every animal and
+    /// vehicle is cleared.
+    Walking { total_need: f64, porter_cap: f64 },
+    /// Walking, over porter capacity, with auto-promote off (the reference's
+    /// `warn:true`). Animals and vehicles are still cleared -- the party
+    /// genuinely cannot carry this, and pretending otherwise by inventing a
+    /// pack train the user did not ask for is what `auto_promote` is for.
+    WalkingOverloaded { total_need: f64, porter_cap: f64 },
+    /// Mounted Rider: only the mount species is chosen.
+    Mount { pick: SpeciesPick },
+    /// Baggage Train, directly or auto-promoted from an overloaded Walking.
+    BaggageTrain {
+        pick: SpeciesPick,
+        count: i64,
+        carts: i64,
+        wagons: i64,
+        promoted: bool,
+        /// v1.48 (owner report: "250 kg of cargo now necessitates roughly 213
+        /// mules"). `count` feeds back into its *own* fodder cost -- a
+        /// fixed-point iteration with **no solution** once one animal's
+        /// capacity can no longer cover its own fodder for the whole trip
+        /// (`animal_food × supply_days × fodder_frac >= cap`: a 110 kg mule
+        /// eating 5 kg/day breaks even at 22 days with zero grazing). Past that
+        /// point every animal *added* makes the shortfall worse, so the
+        /// divergence is detected analytically up front rather than by watching
+        /// the loop fail, and `count` is then an honest floor (cargo +
+        /// supplies alone), not an answer.
+        fodder_infeasible: bool,
+    },
+}
+
+/// `jpAutoPickTransport` (reference line 17814): pick the transport / animal /
+/// vehicle mix for the whole plan against the derived route, mutating `plan`
+/// exactly as the reference mutates `jn.plan`.
+///
+/// The reference opens with `_jpEnsurePlan(jn)`; here the caller already holds
+/// a [`JpPlan`], which is what that call returns for any journey that has one.
+pub fn jp_auto_pick_transport(world: &JpWorld, pts: &[(f64, f64)], plan: &mut JpPlan) -> JpAutoTransport {
+    let stages = jp_derive_stages(world, pts, plan);
+    let land: Vec<&JpDerivedStage> = stages.iter().filter(|s| s.cat == "land").collect();
+    if land.is_empty() {
+        return JpAutoTransport::NoLandStages;
+    }
+    if plan.transport != "Walking" && plan.transport != "Mounted Rider" && plan.transport != "Baggage Train" {
+        return JpAutoTransport::NotALandMode;
+    }
+
+    let people = plan.party.group_size.max(1) as f64;
+    let cargo = plan.party.cargo_kg.max(0.0);
+    let supply_days = plan.supply_days.max(1);
+    let (_, fodder_frac) = jp_grazing(&plan.grazing);
+    // The longest land stretch stands in for "the route" wherever a single
+    // biome/terrain is needed (V1.915's one-stage-one-terrain model).
+    let dominant = land.iter().skip(1).fold(land[0], |a, b| if b.km > a.km { b } else { a });
+    let biome_key = dominant.biome.clone();
+    let desert_like = jp_biome(&biome_key).is_some_and(|b| b.desert_like);
+
+    let clear = |p: &mut JpPlan| {
+        p.party.donkey = 0;
+        p.party.mule = 0;
+        p.party.camel = 0;
+        p.party.horse = 0;
+        p.party.carts = 0;
+        p.party.wagons = 0;
+        p.party.travois = 0;
+        p.party.sleds = 0;
+    };
+
+    let mut promoted = false;
+    if plan.transport == "Walking" {
+        let carry_days = jp_human_water_carry_days(&biome_key, supply_days);
+        let rate = jp_human_water_rate(&biome_key);
+        let supply_mass = people * JP_HUMAN_FOOD * supply_days as f64 + people * rate * carry_days;
+        let total_need = cargo + supply_mass;
+        let porter_cap = people * JP_HUMAN_PORTER;
+        if total_need <= porter_cap {
+            clear(plan);
+            return JpAutoTransport::Walking { total_need, porter_cap };
+        }
+        if !plan.auto_promote {
+            clear(plan);
+            return JpAutoTransport::WalkingOverloaded { total_need, porter_cap };
+        }
+        // Auto-promote: fall through to the Baggage Train picker below.
+        plan.transport = "Baggage Train".to_string();
+        promoted = true;
+    }
+
+    let land_stages: Vec<LandStage> =
+        land.iter().map(|s| LandStage { terrain: s.terrain.clone(), biome_key: s.biome.clone(), km: s.km }).collect();
+    let pick = jp_pick_species_for_route(&land_stages);
+
+    if plan.transport == "Mounted Rider" {
+        plan.mount_animal = Some(pick.key.to_string());
+        return JpAutoTransport::Mount { pick };
+    }
+
+    // Baggage Train (direct, or promoted from an overloaded Walking).
+    let a = jp_animal_stats(pick.key).expect("JP_ANIMAL_KEYS are all real keys");
+    let human_water_carry_days = jp_human_water_carry_days(&biome_key, supply_days);
+    let animal_water_carry_days = jp_animal_water_carry_days(&biome_key, supply_days);
+    let human_water_rate = jp_human_water_rate(&biome_key);
+    let human_food = people * JP_HUMAN_FOOD * supply_days as f64;
+    let human_water = people * human_water_rate * human_water_carry_days;
+    let (dm_food, dm_water) = if desert_like { jp_desert_animal_mod(pick.key) } else { (1.0, 1.0) };
+    let animal_food = a.food_kg_day * dm_food;
+    let animal_water = a.water_l_day * dm_water;
+    let human_carry = people * JP_HUMAN_PORTER;
+
+    let per_animal_fodder = animal_food * supply_days as f64 * fodder_frac;
+    let fodder_infeasible = fodder_frac > 0.0 && per_animal_fodder >= a.cap_kg;
+
+    let mut count = (((cargo + human_food + human_water - human_carry) / (a.cap_kg * 0.7).max(50.0)).ceil() as i64).max(1);
+    if !fodder_infeasible {
+        for _ in 0..6 {
+            let fodder = count as f64 * animal_food * supply_days as f64 * fodder_frac;
+            let animal_water_t = count as f64 * animal_water * animal_water_carry_days;
+            let total_need = cargo + human_food + human_water + fodder + animal_water_t;
+            let needed = (total_need - human_carry).max(0.0);
+            let next = ((needed / a.cap_kg).ceil() as i64).max(1);
+            if next == count {
+                break;
+            }
+            count = next;
+        }
+    }
+
+    // Carts/wagons only if EVERY land stage still allows wheels -- a single
+    // wheel-blocked stretch (a forest path, a ford) would strand a wagon
+    // mid-journey.
+    let wheels_ok = land.iter().all(|s| jp_can_use_wheels(&s.terrain));
+    let (mut wagons, mut carts) = (0i64, 0i64);
+    if wheels_ok {
+        if cargo >= 1200.0 && plan.party.group_size >= 8 {
+            wagons = ((cargo / 2000.0).ceil() as i64).max(1);
+        } else if cargo >= 400.0 && plan.party.group_size >= 4 {
+            carts = ((cargo / 1500.0).ceil() as i64).max(1);
+        }
+        let draft_need = wagons * JP_WAGON_DRAFT + carts * JP_CART_DRAFT;
+        if draft_need > 0 {
+            let cargo_leftover = (cargo - (wagons as f64 * JP_WAGON_CAP + carts as f64 * JP_CART_CAP)).max(0.0);
+            let total_need2 = cargo_leftover + human_food + human_water;
+            let mut c2 = ((((total_need2 - human_carry) / (a.cap_kg * 0.7).max(50.0)).ceil()) as i64).max(1);
+            if !fodder_infeasible {
+                for _ in 0..4 {
+                    let fodder = (c2 + draft_need) as f64 * animal_food * supply_days as f64 * fodder_frac;
+                    let water = (c2 + draft_need) as f64 * animal_water * animal_water_carry_days;
+                    let need = (cargo_leftover + human_food + human_water + fodder + water - human_carry).max(0.0);
+                    let next = ((need / a.cap_kg).ceil() as i64).max(1);
+                    if next == c2 {
+                        break;
+                    }
+                    c2 = next;
+                }
+            }
+            count = c2;
+        }
+    }
+
+    plan.party.donkey = if pick.key == "donkey" { count } else { 0 };
+    plan.party.mule = if pick.key == "mule" { count } else { 0 };
+    plan.party.camel = if pick.key == "camel" { count } else { 0 };
+    plan.party.horse = if pick.key == "horse" { count } else { 0 };
+    plan.party.carts = carts;
+    plan.party.wagons = wagons;
+    plan.party.travois = 0;
+    plan.party.sleds = 0;
+    JpAutoTransport::BaggageTrain { pick, count, carts, wagons, promoted, fodder_infeasible }
+}
+
+/// `_jpBestPackageForStage`'s return (reference line 18080).
+#[derive(Debug, Clone, PartialEq)]
+pub struct JpPackageFix {
+    /// The species this stage's own terrain/biome rewards, when it differs from
+    /// the one the party is carrying.
+    pub species_fix: Option<&'static str>,
+    /// `"travois"` or `"carts"` -- deliberately narrow (see
+    /// [`jp_best_package_for_stage`]).
+    pub vehicle_fix: Option<&'static str>,
+    pub best_species: AnimalPick,
+    pub cur_species: Option<&'static str>,
+    /// `"wagons"` / `"carts"` / `"travois"` / `"sleds"`, in the reference's own
+    /// precedence order.
+    pub cur_vehicle: Option<&'static str>,
+    /// The plan the suggestion would produce, ready to be applied into the same
+    /// `stage_overrides` map the manual per-stage picker writes.
+    pub candidate: JpPlan,
+}
+
+/// `_jpBestPackageForStage` (reference line 18080, v1.66): the species+vehicle
+/// twin of [`jp_best_land_transport_for_stage`] -- same "measure, never
+/// silently apply" contract, testing which *species* and *vehicle* this one
+/// stage's terrain/biome rewards.
+///
+/// Species comes from [`jp_best_animal_for_context`], the same primitive
+/// [`jp_pick_species_for_route`] uses per stage internally, so a verdict here
+/// can never disagree with the route-wide auto-picker's own scoring. The
+/// vehicle recommendation is deliberately narrow: travois only when the current
+/// wheeled vehicle cannot legally cross this terrain, cart only when the party
+/// is on travois and wheels are viable again. It never decides whether a
+/// vehicle should exist at all or sizes one from cargo -- that stays
+/// [`jp_auto_pick_transport`]'s job for the whole route.
+///
+/// `None` when there is nothing to suggest, which includes every non-land stage
+/// and every party that is not a Baggage Train with pack animals.
+pub fn jp_best_package_for_stage(st: &JpStage, eff: &JpPlan) -> Option<JpPackageFix> {
+    if st.cat != "land" || eff.transport != "Baggage Train" {
+        return None;
+    }
+    let counts = [
+        ("donkey", eff.party.donkey),
+        ("mule", eff.party.mule),
+        ("camel", eff.party.camel),
+        ("horse", eff.party.horse),
+    ];
+    let pack_animals: i64 = counts.iter().map(|(_, c)| *c).sum();
+    if pack_animals <= 0 {
+        return None;
+    }
+    let cur_species = counts.iter().find(|(_, c)| *c > 0).map(|(k, _)| *k);
+    let best = jp_best_animal_for_context(&st.terrain, &st.biome);
+    let wheels_ok = jp_can_use_wheels(&st.terrain);
+    let cur_vehicle = if eff.party.wagons > 0 {
+        Some("wagons")
+    } else if eff.party.carts > 0 {
+        Some("carts")
+    } else if eff.party.travois > 0 {
+        Some("travois")
+    } else if eff.party.sleds > 0 {
+        Some("sleds")
+    } else {
+        None
+    };
+    let wheeled = matches!(cur_vehicle, Some("carts") | Some("wagons"));
+    let vehicle_fix = if !wheels_ok && wheeled {
+        Some("travois")
+    } else if wheels_ok && cur_vehicle == Some("travois") && st.terrain != "Snow / Ice" {
+        Some("carts")
+    } else {
+        None
+    };
+    let species_fix = (Some(best.key) != cur_species).then_some(best.key);
+    if species_fix.is_none() && vehicle_fix.is_none() {
+        return None;
+    }
+    let mut candidate = eff.clone();
+    if let Some(k) = species_fix {
+        candidate.party.donkey = if k == "donkey" { pack_animals } else { 0 };
+        candidate.party.mule = if k == "mule" { pack_animals } else { 0 };
+        candidate.party.camel = if k == "camel" { pack_animals } else { 0 };
+        candidate.party.horse = if k == "horse" { pack_animals } else { 0 };
+    }
+    if let Some(v) = vehicle_fix {
+        let v_total = eff.party.vehicles().max(1);
+        candidate.party.carts = 0;
+        candidate.party.wagons = 0;
+        candidate.party.travois = 0;
+        candidate.party.sleds = 0;
+        match v {
+            "travois" => candidate.party.travois = v_total,
+            _ => candidate.party.carts = v_total,
+        }
+    }
+    Some(JpPackageFix { species_fix, vehicle_fix, best_species: best, cur_species, cur_vehicle, candidate })
+}
 
 #[cfg(test)]
 mod tests {
@@ -12619,4 +13271,579 @@ mod tests {
         assert_eq!(hits, vec![(1.0, 0.0), (23.0, 0.0)]);
     }
 
+    // ========================================================================
+    // Journey Planner milestone 6 (verdict/reporting) + milestone 2's
+    // remainder (`jp_auto_pick_transport`, `jp_best_package_for_stage`).
+    //
+    // Golden-verified against the frozen reference through the same harness
+    // milestone 5 used, with its block-comment balance assertion on every
+    // slice boundary. Only one slice moved: the `riverCoarseEase` slice was
+    // widened by one line to 2640-2675 to take `TERRAIN_DETAIL_MAX_K` with it,
+    // which that function reads -- a dependency error rather than a comment
+    // one, and invisible until instrumented, because `_jpDeriveStages` catches
+    // its own exceptions and returns an empty stage list.
+    //
+    // The world, route and party are milestone 5's own fixture, unchanged and
+    // reproducing its values exactly (km 760.847480700888..., 41 days, 7
+    // stages). The m5 route cannot reach every verdict band on its own -- its
+    // resupply requirement is genuinely unmet, which alone forces `severe` --
+    // so each band probe edits exactly the signals `_jpVerdict` reads on a real
+    // plan, and the harness made the identical edits to the identical fields.
+    // ========================================================================
+
+    /// The land calculation of one result, for the probes that edit a signal
+    /// `jp_verdict` reads off a stage rather than off the roll-up.
+    fn m6_land_mut(p: &mut JpJourneyPlan, i: usize) -> &mut JpLandCalc {
+        match &mut p.results[i].calc {
+            Ok(JpLegCalc::Land(l)) => l,
+            _ => panic!("result {i} is not a computed land stage"),
+        }
+    }
+
+    fn m6_plan(f: &M5Fields) -> JpJourneyPlan {
+        jp_plan(&m5_world(f), &m5_pts(), &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).expect("plan")
+    }
+
+    /// The one edit every non-severe probe needs.
+    fn m6_fix_rr(p: &mut JpJourneyPlan) {
+        let rr = p.resupply_reach.as_mut().expect("the route states a requirement");
+        rr.unmet = false;
+        rr.shortfall = 0.1;
+    }
+
+    fn m6_short(p: &mut JpJourneyPlan) {
+        p.days = 5.0;
+        p.total_days = Some(6.0);
+    }
+
+    #[test]
+    fn m6_verdict_reads_the_real_plan_as_the_reference_does() {
+        let f = m5_fields();
+        let v = jp_verdict(&m6_plan(&f));
+        assert_eq!((v.level, v.label), ("severe", "Severe"));
+        assert_eq!(v.text, "This journey is not viable as configured — at least one hard constraint is unmet. Fix the items below before trusting any figure above.");
+        assert_eq!(
+            v.reasons,
+            vec![
+                "the longest stretch with no settlement is 198 km, but the party can only carry 70 km of supplies (2.8× short)".to_string(),
+                "a multi-week duration, where small failures compound".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn m6_verdict_reaches_every_band_on_the_signals_that_drive_it() {
+        let f = m5_fields();
+        let base = m6_plan(&f);
+        let probe = |edit: &dyn Fn(&mut JpJourneyPlan)| {
+            let mut p = base.clone();
+            edit(&mut p);
+            jp_verdict(&p)
+        };
+
+        // Favourable: nothing pressing at all.
+        let v = probe(&|p| {
+            m6_fix_rr(p);
+            m6_short(p);
+        });
+        assert_eq!((v.level, v.label), ("favourable", "Favourable"));
+        assert_eq!(v.text, "Well within the party’s means: light load, forgiving ground, and a season that co-operates.");
+        assert!(v.reasons.is_empty());
+
+        // Moderate: one weight-1 signal, four different ways.
+        let v = probe(&m6_fix_rr);
+        assert_eq!(v.level, "moderate");
+        assert_eq!(v.text, "An ordinary journey of its kind — nothing here is unusual for the route and season.");
+        assert_eq!(v.reasons, vec!["a multi-week duration, where small failures compound".to_string()]);
+
+        let v = probe(&|p| {
+            m6_fix_rr(p);
+            m6_short(p);
+            p.riv_x = 7;
+        });
+        assert_eq!((v.level, v.reasons.as_slice()), ("moderate", ["7 river crossings".to_string()].as_slice()));
+
+        let v = probe(&|p| {
+            m6_fix_rr(p);
+            m6_short(p);
+            p.bad_wx_pct = 30.0;
+        });
+        assert_eq!((v.level, v.reasons.as_slice()), ("moderate", ["30% storm/snow odds".to_string()].as_slice()));
+
+        // v1.51's "just reach" band: met, but only barely.
+        let v = probe(&|p| {
+            let rr = p.resupply_reach.as_mut().unwrap();
+            rr.unmet = false;
+            rr.shortfall = 0.8;
+            m6_short(p);
+        });
+        assert_eq!(
+            (v.level, v.reasons.as_slice()),
+            ("moderate", ["supplies just reach between settlements (198 km gap vs 70 km carried)".to_string()].as_slice())
+        );
+
+        // Strained, one weight-2 factor -- five different ways.
+        let one_factor = "Workable, but one factor is pressing hard enough to shape the trip. Plan around it.";
+        for (edit, reason) in [
+            (&(|p: &mut JpJourneyPlan| p.bad_wx_pct = 45.0) as &dyn Fn(&mut JpJourneyPlan), "45% storm/snow odds for the season chosen"),
+            (&|p: &mut JpJourneyPlan| m6_land_mut(p, 6).load_ratio = 0.9, "heavily loaded (90% of capacity on the worst stage)"),
+            (
+                &|p: &mut JpJourneyPlan| {
+                    let l = m6_land_mut(p, 3);
+                    l.col_mod = 0.6;
+                    l.col_km = 3.5;
+                },
+                "the column is 3.5 km long — it loses 40% of each day to its own passage",
+            ),
+            (&|p: &mut JpJourneyPlan| p.pass_km = p.km * 0.5, "50% of the route is mountain"),
+            (&|p: &mut JpJourneyPlan| p.desert_km = p.km * 0.5, "50% of the route crosses desert"),
+        ] {
+            let v = probe(&|p| {
+                m6_fix_rr(p);
+                m6_short(p);
+                edit(p);
+            });
+            assert_eq!((v.level, v.label), ("strained", "Strained"), "{reason}");
+            assert_eq!(v.text, one_factor, "{reason}");
+            assert_eq!(v.reasons, vec![reason.to_string()]);
+        }
+
+        // Two weight-2 factors take the harsher of the two Strained texts, and
+        // the reasons keep the order the checks run in (desert before weather).
+        let v = probe(&|p| {
+            m6_fix_rr(p);
+            m6_short(p);
+            p.bad_wx_pct = 45.0;
+            p.desert_km = p.km * 0.5;
+        });
+        assert_eq!(v.level, "strained");
+        assert_eq!(v.text, "Workable but with little margin: several stressors stack on this route. Expect the optimistic end of the estimate to slip.");
+        assert_eq!(
+            v.reasons,
+            vec!["50% of the route crosses desert".to_string(), "45% storm/snow odds for the season chosen".to_string()]
+        );
+
+        // A season-scale duration is a weight-2 signal on its own.
+        let v = probe(&|p| {
+            m6_fix_rr(p);
+            p.days = 70.0;
+            p.total_days = Some(80.0);
+        });
+        assert_eq!((v.level, v.reasons.as_slice()), ("strained", ["a season-scale duration, where attrition dominates".to_string()].as_slice()));
+
+        // Severe: any weight-3 signal at all.
+        let severe_text = "This journey is not viable as configured — at least one hard constraint is unmet. Fix the items below before trusting any figure above.";
+        for (edit, reason) in [
+            (
+                &(|p: &mut JpJourneyPlan| m6_land_mut(p, 6).load_ratio = 1.2) as &dyn Fn(&mut JpJourneyPlan),
+                "overloaded — the worst land stage carries 120% of capacity",
+            ),
+            (&|p: &mut JpJourneyPlan| m6_land_mut(p, 6).cap.draft_shortfall = 2, "2 draft animal(s) short for the vehicles taken"),
+        ] {
+            let v = probe(&|p| {
+                m6_fix_rr(p);
+                m6_short(p);
+                edit(p);
+            });
+            assert_eq!((v.level, v.label, v.text.as_str()), ("severe", "Severe", severe_text));
+            assert_eq!(v.reasons, vec![reason.to_string()]);
+        }
+
+        // v1.51's two named causes: an overloaded pack and a waterless stretch
+        // are different problems, and only one is fixed by rerouting.
+        let v = probe(&|p| {
+            m6_fix_rr(p);
+            m6_short(p);
+            let l = m6_land_mut(p, 3);
+            let r = l.resupply.as_mut().expect("a land stage assesses resupply");
+            r.feasible = false;
+            r.cause = Some("water");
+            let l = m6_land_mut(p, 4);
+            let r = l.resupply.as_mut().unwrap();
+            r.feasible = false;
+            r.cause = Some("capacity");
+        });
+        assert_eq!(v.level, "severe");
+        assert_eq!(
+            v.reasons,
+            vec![
+                "1 stage(s) cross more waterless ground than any party could carry water for".to_string(),
+                "1 stage(s) need more supplies than the party can physically carry".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn m6_verdict_on_a_blocked_journey_quotes_the_stage_that_blocked_it() {
+        let f = m5_fields();
+        let world = m5_world(&f);
+        // A donkey train carrying all its own fodder cannot lift the load.
+        let plan = JpPlan {
+            party: JpParty { donkey: 5, mule: 0, horse: 0, carts: 0, ..m5_plan().party },
+            grazing: "None — carry all fodder".to_string(),
+            ..m5_plan()
+        };
+        let p = jp_plan(&world, &m5_pts(), &plan, &JpLayovers::new(), &|_, _| 1.0).expect("plan");
+        assert!(p.blocked_idx.is_some());
+        let v = jp_verdict(&p);
+        assert_eq!((v.level, v.label), ("blocked", "Impassable"));
+        assert_eq!(v.text, "Overloaded 156% of capacity (1.2 t carried vs 740 kg rated) — no party departs in this state. Assign pack animals or a cart/wagon for this stage, reduce cargo, or split the load across a resupply stop.");
+        assert!(v.reasons.is_empty());
+        // A blocked journey has no honest band on its day count.
+        assert_eq!(jp_confidence(&p), None);
+    }
+
+    #[test]
+    fn m6_confidence_widens_asymmetrically_with_duration() {
+        let f = m5_fields();
+        let base = m6_plan(&f);
+        let band = |days: f64, total: Option<f64>| {
+            let mut p = base.clone();
+            p.days = days;
+            p.total_days = total;
+            jp_confidence(&p).expect("not blocked, finite")
+        };
+        // (days, totalDays) -> (lo, hi, loDays, hiDays), every threshold and
+        // both sides of it.
+        let cases: [(f64, f64, f64, f64, f64, f64); 9] = [
+            (6.9, 8.0, 0.97, 1.10, 7.76, 8.8),
+            (7.0, 8.0, 0.95, 1.18, 7.6, 9.44),
+            (13.9, 15.0, 0.95, 1.18, 14.25, 17.7),
+            (14.0, 15.0, 0.93, 1.28, 13.950_000_000_000_001, 19.2),
+            (20.9, 22.0, 0.93, 1.28, 20.46, 28.16),
+            (21.0, 22.0, 0.90, 1.42, 19.8, 31.24),
+            (59.9, 61.0, 0.90, 1.42, 54.9, 86.619_999_999_999_99),
+            (60.0, 61.0, 0.85, 1.60, 51.85, 97.600_000_000_000_01),
+            (120.0, 130.0, 0.85, 1.60, 110.5, 208.0),
+        ];
+        for (d, td, lo, hi, lo_days, hi_days) in cases {
+            let c = band(d, Some(td));
+            near5(c.lo, lo, &format!("lo at {d} d"));
+            near5(c.hi, hi, &format!("hi at {d} d"));
+            near5(c.lo_days, lo_days, &format!("loDays at {d} d"));
+            near5(c.hi_days, hi_days, &format!("hiDays at {d} d"));
+            // The downside is always larger than the upside -- that asymmetry
+            // is the whole point, not a rounding artefact.
+            assert!(hi - 1.0 > 1.0 - lo, "band at {d} d must lean pessimistic");
+        }
+        assert_eq!(band(6.9, Some(8.0)).note, "Short trip — the per-stage figures should hold closely.");
+        assert_eq!(band(7.0, Some(8.0)).note, "Over a week — minor attrition and rest days start to tell.");
+        assert_eq!(band(14.0, Some(15.0)).note, "Multi-week — maintenance debt and organisational drag accumulate.");
+        assert_eq!(band(21.0, Some(22.0)).note, "Campaign scale — small failures cascade; treat the low end as unlikely.");
+        assert_eq!(
+            band(60.0, Some(61.0)).note,
+            "Season scale — historically these run well over plan; the figure above is the optimistic bound, not the expected outcome."
+        );
+        // No total (blocked-adjacent or unmeasured) falls back to travel days.
+        let c = band(12.0, None);
+        near5(c.lo_days, 11.399_999_999_999_999, "loDays with no total");
+        near5(c.hi_days, 14.16, "hiDays with no total");
+        // A non-finite day count has nothing to band.
+        let mut p = base.clone();
+        p.days = f64::INFINITY;
+        assert_eq!(jp_confidence(&p), None);
+    }
+
+    #[test]
+    fn m6_pack_range_is_the_same_wagon_equation_ceiling_the_autopicker_guards_on() {
+        let party = |donkey, mule, camel, horse| JpParty { donkey, mule, camel, horse, ..JpParty::default() };
+        let plan = |p: JpParty, grazing: &str, supply_days: i64| JpPlan {
+            party: p,
+            grazing: grazing.to_string(),
+            supply_days,
+            ..JpPlan::default()
+        };
+        let partial = "Partial — graze at camp";
+        let none = "None — carry all fodder";
+
+        let r = jp_pack_range(&plan(party(0, 8, 0, 2), partial, 7), false).expect("a pack animal is in use");
+        assert_eq!((r.key, r.label, r.unlimited), ("mule", "Mule", false));
+        near5(r.max_days, 44.0, "mule maxDays");
+        near5(r.fodder_frac, 0.5, "fodderFrac");
+        assert_eq!(r.supply_days, 7);
+        near5(r.ratio, 0.159_090_909_090_909_1, "mule ratio");
+
+        // The species is the first present in key order, not the largest
+        // contingent -- one donkey outvotes eight mules, as the reference does.
+        let r = jp_pack_range(&plan(party(1, 8, 0, 0), partial, 7), false).expect("pack animal");
+        assert_eq!(r.key, "donkey");
+        near5(r.max_days, 40.0, "donkey maxDays");
+        near5(r.ratio, 0.175, "donkey ratio");
+
+        // Desert multiplies an animal's own food need, so the ceiling moves --
+        // and moves the opposite way for a camel than for a horse.
+        let r = jp_pack_range(&plan(party(0, 0, 3, 0), none, 7), false).expect("pack animal");
+        near5(r.max_days, 50.0, "camel maxDays, temperate");
+        let r = jp_pack_range(&plan(party(0, 0, 3, 0), none, 7), true).expect("pack animal");
+        near5(r.max_days, 55.555_555_555_555_55, "camel maxDays, desert");
+        near5(r.ratio, 0.126, "camel ratio, desert");
+        let r = jp_pack_range(&plan(party(0, 0, 0, 4), none, 7), true).expect("pack animal");
+        assert_eq!(r.key, "horse");
+        near5(r.max_days, 13.186_813_186_813_188, "horse maxDays, desert");
+        near5(r.ratio, 0.530_833_333_333_333_3, "horse ratio, desert");
+
+        // Full grazing: no fodder is carried, so no ceiling exists at all.
+        let r = jp_pack_range(&plan(party(0, 8, 0, 0), "Full — graze on route", 7), false).expect("pack animal");
+        assert!(r.unlimited && r.max_days.is_infinite() && r.ratio == 0.0);
+        near5(r.fodder_frac, 0.0, "fodderFrac when grazing covers everything");
+
+        // No pack animal, no ceiling to state.
+        assert_eq!(jp_pack_range(&plan(party(0, 0, 0, 0), partial, 7), false), None);
+
+        // Longer unsupported legs eat into the same ceiling.
+        let r = jp_pack_range(&plan(party(0, 8, 0, 0), partial, 30), false).expect("pack animal");
+        near5(r.ratio, 0.681_818_181_818_181_8, "30-day ratio");
+    }
+
+    #[test]
+    fn m6_fmt_days_matches_js_tofixed_including_its_tie_break() {
+        for (d, s) in [
+            (f64::NAN, "—"),
+            (f64::INFINITY, "—"),
+            (f64::NEG_INFINITY, "—"),
+            (0.020_833_333, "1 h"),
+            (0.1, "2 h"),
+            (0.5, "12 h"),
+            (0.999_9, "24 h"),
+            (1.0, "1.0 days"),
+            (1.04, "1.0 days"),
+            (1.05, "1.1 days"),
+            (2.25, "2.3 days"),
+            (59.94, "59.9 days"),
+            (59.95, "60.0 days"),
+            (60.0, "2.0 months"),
+            (61.5, "2.0 months"),
+            (90.0, "3.0 months"),
+            (365.25, "12.2 months"),
+        ] {
+            assert_eq!(jp_fmt_days(d), s, "jp_fmt_days({d})");
+        }
+    }
+
+    #[test]
+    fn m6_js_fixed_matches_tofixed_on_real_ties_and_on_near_ties() {
+        // Every expected string is `Number.prototype.toFixed`'s own output from
+        // the same Node run. The interesting cases are the pairs that look
+        // identical and are not: 1.25 IS an exact tie (JS steps away from zero,
+        // Rust's `{:.1}` would step to even and give "1.2"), while 2.05 only
+        // looks like one -- it is 2.0499999999999998, and the old scaling form
+        // fabricated a tie out of it.
+        let cases: [(f64, u32, &str); 30] = [
+            (0.0, 0, "0"),
+            (0.0, 2, "0.00"),
+            (1.25, 1, "1.3"),
+            (1.25, 2, "1.25"),
+            (2.05, 1, "2.0"),
+            (2.05, 2, "2.05"),
+            (61.5 / 30.0, 1, "2.0"),
+            (0.5, 0, "1"),
+            (1.5, 0, "2"),
+            (2.5, 0, "3"),
+            (3.5, 0, "4"),
+            (4.5, 0, "5"),
+            (-1.25, 1, "-1.3"),
+            (-2.05, 1, "-2.0"),
+            (-1.25, 0, "-1"),
+            (0.125, 1, "0.1"),
+            (0.125, 2, "0.13"),
+            (0.135, 2, "0.14"),
+            (1.005, 2, "1.00"),
+            (1.045, 2, "1.04"),
+            (99.95, 0, "100"),
+            (99.95, 1, "100.0"),
+            (0.045, 2, "0.04"),
+            (1234.5, 0, "1235"),
+            (123_456_789.987_654_33, 2, "123456789.99"),
+            (1.0 / 3.0, 2, "0.33"),
+            (2.0 / 3.0, 1, "0.7"),
+            (7.105, 2, "7.11"),
+            (0.35, 1, "0.3"),
+            (0.45, 1, "0.5"),
+        ];
+        for (v, d, s) in cases {
+            assert_eq!(js_fixed(v, d), s, "js_fixed({v}, {d})");
+        }
+        // 1.25 t is the tie that reaches a user-visible string.
+        assert_eq!(jp_fmt_kg(1250.0), "1.3 t");
+    }
+
+    #[test]
+    fn m6_risk_tiers_are_the_references_own_four() {
+        assert_eq!(jp_risk(0.0), None);
+        assert_eq!(jp_risk(10.0), None);
+        assert_eq!(jp_risk(10.1), Some("Long journey — schedule rest days; minor attrition expected."));
+        assert_eq!(jp_risk(30.0), Some("Long journey — schedule rest days; minor attrition expected."));
+        assert_eq!(jp_risk(30.1), Some("Extended campaign — significant fatigue/attrition risk; plan resupply depots."));
+        assert_eq!(jp_risk(90.0), Some("Extended campaign — significant fatigue/attrition risk; plan resupply depots."));
+        assert_eq!(jp_risk(90.1), Some("Season-scale expedition — attrition, weather windows and supply lines dominate planning."));
+        // The m5 journey's own 41 travel days.
+        let f = m5_fields();
+        assert_eq!(jp_risk(m6_plan(&f).days), Some("Extended campaign — significant fatigue/attrition risk; plan resupply depots."));
+    }
+
+    // ---- milestone 2's remainder -------------------------------------------
+
+    #[test]
+    fn m2_auto_pick_transport_sizes_the_train_against_the_real_route() {
+        let f = m5_fields();
+        let world = m5_world(&f);
+        let pts = m5_pts();
+
+        // A Baggage Train carrying 900 kg for 12 people.
+        let mut plan = m5_plan();
+        let r = jp_auto_pick_transport(&world, &pts, &mut plan);
+        match r {
+            JpAutoTransport::BaggageTrain { ref pick, count, carts, wagons, promoted, fodder_infeasible } => {
+                assert_eq!(pick.key, "mule");
+                assert_eq!((count, carts, wagons), (1, 1, 0));
+                assert!(!promoted && !fodder_infeasible);
+                assert!(pick.switched.is_none(), "no bottleneck switch on this route");
+            }
+            other => panic!("expected a baggage train, got {other:?}"),
+        }
+        assert_eq!((plan.party.mule, plan.party.donkey, plan.party.camel, plan.party.horse), (1, 0, 0, 0));
+        assert_eq!((plan.party.carts, plan.party.wagons, plan.party.travois, plan.party.sleds), (1, 0, 0, 0));
+
+        // Walking, light enough to porter.
+        let mut plan = JpPlan { transport: "Walking".to_string(), party: JpParty { group_size: 6, cargo_kg: 30.0, ..JpParty::default() }, ..m5_plan() };
+        let r = jp_auto_pick_transport(&world, &pts, &mut plan);
+        match r {
+            JpAutoTransport::Walking { total_need, porter_cap } => {
+                near5(porter_cap, 180.0, "porter capacity");
+                assert_eq!(jp_fmt_kg(total_need), "93 kg");
+                assert_eq!(jp_fmt_kg(porter_cap), "180 kg");
+            }
+            other => panic!("expected walking, got {other:?}"),
+        }
+
+        // Walking, overloaded, auto-promote off: reported, not silently fixed.
+        let mut plan = JpPlan { transport: "Walking".to_string(), party: JpParty { group_size: 6, cargo_kg: 900.0, ..JpParty::default() }, ..m5_plan() };
+        let r = jp_auto_pick_transport(&world, &pts, &mut plan);
+        match r {
+            JpAutoTransport::WalkingOverloaded { total_need, porter_cap } => {
+                assert_eq!((jp_fmt_kg(total_need), jp_fmt_kg(porter_cap)), ("963 kg".to_string(), "180 kg".to_string()));
+            }
+            other => panic!("expected an overloaded walking party, got {other:?}"),
+        }
+        assert_eq!(plan.transport, "Walking", "auto-promote off must not change the mode");
+
+        // ...and the same party with auto-promote on becomes a baggage train.
+        let mut plan = JpPlan {
+            transport: "Walking".to_string(),
+            party: JpParty { group_size: 6, cargo_kg: 900.0, ..JpParty::default() },
+            auto_promote: true,
+            ..m5_plan()
+        };
+        let r = jp_auto_pick_transport(&world, &pts, &mut plan);
+        match r {
+            JpAutoTransport::BaggageTrain { count, carts, wagons, promoted, .. } => {
+                assert_eq!((count, carts, wagons, promoted), (1, 1, 0, true));
+            }
+            other => panic!("expected a promoted baggage train, got {other:?}"),
+        }
+        assert_eq!(plan.transport, "Baggage Train");
+
+        // Mounted Rider picks only a mount.
+        let mut plan = JpPlan { transport: "Mounted Rider".to_string(), ..m5_plan() };
+        let before = plan.party;
+        let r = jp_auto_pick_transport(&world, &pts, &mut plan);
+        assert!(matches!(r, JpAutoTransport::Mount { ref pick } if pick.key == "mule"));
+        assert_eq!(plan.mount_animal.as_deref(), Some("mule"));
+        assert_eq!(plan.party, before, "a mount pick touches no animal or vehicle count");
+
+        // A water mode declines: vessels are jp_auto_pick_vessel's business.
+        let mut plan = JpPlan { transport: "Sea Faring".to_string(), ..m5_plan() };
+        assert_eq!(jp_auto_pick_transport(&world, &pts, &mut plan), JpAutoTransport::NotALandMode);
+        assert_eq!(plan.party, m5_plan().party, "a declined pick changes nothing");
+
+        // v1.48's analytically-detected divergence: 60 unsupported days with no
+        // grazing has NO pack-train size that closes the gap.
+        let mut plan = JpPlan { supply_days: 60, grazing: "None — carry all fodder".to_string(), ..m5_plan() };
+        let r = jp_auto_pick_transport(&world, &pts, &mut plan);
+        match r {
+            JpAutoTransport::BaggageTrain { count, fodder_infeasible, carts, .. } => {
+                assert!(fodder_infeasible, "a mule eats more in fodder than it can carry over 60 days");
+                assert_eq!((count, carts), (12, 1), "the count is an honest floor, not an answer");
+            }
+            other => panic!("expected a baggage train, got {other:?}"),
+        }
+
+        // Cargo sizes the vehicles: wagons at 4 t with 12 people...
+        let mut plan = JpPlan { party: JpParty { cargo_kg: 4000.0, ..m5_plan().party }, ..m5_plan() };
+        let r = jp_auto_pick_transport(&world, &pts, &mut plan);
+        assert!(matches!(r, JpAutoTransport::BaggageTrain { count: 21, carts: 0, wagons: 2, .. }), "{r:?}");
+        // ...carts at 800 kg with 6.
+        let mut plan = JpPlan { party: JpParty { group_size: 6, cargo_kg: 800.0, ..JpParty::default() }, ..m5_plan() };
+        let r = jp_auto_pick_transport(&world, &pts, &mut plan);
+        assert!(matches!(r, JpAutoTransport::BaggageTrain { count: 1, carts: 1, wagons: 0, .. }), "{r:?}");
+
+        // A route with no land stages has nothing to pick.
+        let sea_only: Vec<(f64, f64)> = (0..6).map(|k| (1.0 + k as f64 * 0.5, 2.0)).collect();
+        let mut plan = m5_plan();
+        assert_eq!(jp_auto_pick_transport(&world, &sea_only, &mut plan), JpAutoTransport::NoLandStages);
+    }
+
+    #[test]
+    fn m2_best_package_for_stage_measures_but_never_applies() {
+        let stage = |terrain: &str, biome: &str| JpStage {
+            km: 40.0,
+            cat: "land".to_string(),
+            terrain: terrain.to_string(),
+            biome: biome.to_string(),
+            ..JpStage::default()
+        };
+        let eff = |donkey, mule, camel, horse, carts, wagons, travois, sleds| JpPlan {
+            transport: "Baggage Train".to_string(),
+            party: JpParty { donkey, mule, camel, horse, carts, wagons, travois, sleds, group_size: 12, cargo_kg: 900.0 },
+            ..JpPlan::default()
+        };
+        let m5_party = || eff(0, 8, 0, 2, 2, 0, 0, 0);
+
+        // Deep sand rewards camels, and strands the carts the party is on.
+        let r = jp_best_package_for_stage(&stage("Deep Sand", "Hot Desert"), &m5_party()).expect("a real suggestion");
+        assert_eq!((r.species_fix, r.vehicle_fix), (Some("camel"), Some("travois")));
+        assert_eq!((r.best_species.key, r.cur_species, r.cur_vehicle), ("camel", Some("mule"), Some("carts")));
+        // Every pack animal moves to the one species; the vehicle count is
+        // carried across, not re-sized -- sizing stays the route-wide picker's.
+        assert_eq!((r.candidate.party.camel, r.candidate.party.mule, r.candidate.party.horse), (10, 0, 0));
+        assert_eq!((r.candidate.party.travois, r.candidate.party.carts, r.candidate.party.wagons), (2, 0, 0));
+
+        // A single wagon becomes a single travois.
+        let r = jp_best_package_for_stage(&stage("Deep Sand", "Hot Desert"), &eff(0, 8, 0, 2, 0, 1, 0, 0)).expect("suggestion");
+        assert_eq!((r.cur_vehicle, r.vehicle_fix, r.candidate.party.travois), (Some("wagons"), Some("travois"), 1));
+
+        // Marsh wants donkeys; forest path wants the mules the party already
+        // has, so only the wheels are the problem.
+        let r = jp_best_package_for_stage(&stage("Swamp / Marsh", "Wetlands / Marshes"), &m5_party()).expect("suggestion");
+        assert_eq!((r.species_fix, r.vehicle_fix, r.candidate.party.donkey), (Some("donkey"), Some("travois"), 10));
+        let r = jp_best_package_for_stage(&stage("Forest Path", "Temperate Forest"), &m5_party()).expect("suggestion");
+        assert_eq!((r.species_fix, r.vehicle_fix), (None, Some("travois")));
+        assert_eq!((r.candidate.party.mule, r.candidate.party.horse), (8, 2), "no species fix leaves the mix alone");
+
+        // Open steppe wants horses, and wheels are fine there.
+        let r = jp_best_package_for_stage(&stage("Open Plains", "Steppe / Grassland"), &m5_party()).expect("suggestion");
+        assert_eq!((r.species_fix, r.vehicle_fix, r.candidate.party.horse, r.candidate.party.carts), (Some("horse"), None, 10, 2));
+
+        // Travois on ground that takes wheels again -> cart. Snow/Ice is the
+        // reference's own explicit exception, and stays on travois.
+        let r = jp_best_package_for_stage(&stage("Hills", "Boreal Taiga"), &eff(0, 8, 0, 2, 0, 0, 3, 0)).expect("suggestion");
+        assert_eq!((r.species_fix, r.vehicle_fix, r.candidate.party.carts), (None, Some("carts"), 3));
+        assert_eq!(jp_best_package_for_stage(&stage("Snow / Ice", "Tundra / Polar"), &eff(0, 8, 0, 2, 0, 0, 2, 0)), None);
+
+        // Sleds are neither wheeled nor travois, so only the species is judged.
+        let r = jp_best_package_for_stage(&stage("Swamp / Marsh", "Wetlands / Marshes"), &eff(0, 8, 0, 2, 0, 0, 0, 2)).expect("suggestion");
+        assert_eq!((r.cur_vehicle, r.vehicle_fix, r.candidate.party.sleds), (Some("sleds"), None, 2));
+
+        // A party with no vehicle at all can still be told to change species.
+        let r = jp_best_package_for_stage(&stage("Deep Sand", "Hot Desert"), &eff(0, 8, 0, 2, 0, 0, 0, 0)).expect("suggestion");
+        assert_eq!((r.cur_vehicle, r.vehicle_fix, r.species_fix), (None, None, Some("camel")));
+
+        // Nothing to suggest: right species, legal wheels.
+        assert_eq!(jp_best_package_for_stage(&stage("Deep Sand", "Hot Desert"), &eff(0, 0, 6, 0, 0, 0, 2, 0)), None);
+        // ...and every gate that returns early.
+        assert_eq!(jp_best_package_for_stage(&stage("Deep Sand", "Hot Desert"), &JpPlan { transport: "Mounted Rider".to_string(), ..m5_party() }), None);
+        assert_eq!(jp_best_package_for_stage(&stage("Deep Sand", "Hot Desert"), &eff(0, 0, 0, 0, 2, 0, 0, 0)), None);
+        let sea = JpStage { cat: "sea".to_string(), terrain: "Open Sea".to_string(), ..stage("Open Sea", "Coastal Lowland") };
+        assert_eq!(jp_best_package_for_stage(&sea, &m5_party()), None);
+    }
 }
