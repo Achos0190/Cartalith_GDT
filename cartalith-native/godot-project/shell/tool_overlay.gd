@@ -23,6 +23,16 @@ var measure_points: PackedVector2Array = []
 var region_rect := Rect2()   ## Grid-cell coords; zero size means "none".
 var region_dragging := false
 
+## §10's "brush ring for paint and sculpt" -- a hollow circle at the cursor,
+## radius in grid cells so it scales correctly under zoom the same way the
+## brush itself does. Any tool that paints/stamps calls `set_brush_cursor()`
+## from its own `on_cursor_sampled` (every `Workspace` already gets this
+## forwarded, see `app.gd`'s `_wire_selection`); nothing here knows which
+## tool is asking.
+var brush_visible := false
+var brush_center := Vector2.ZERO   ## Grid coords.
+var brush_radius_cells := 0.0
+
 const MEASURE_COLOR := Color(0.878, 0.639, 0.290, 0.95)   ## DccTheme accent.
 const MEASURE_POINT_RADIUS := 3.0
 const REGION_COLOR := Color(0.878, 0.639, 0.290, 0.85)
@@ -45,6 +55,12 @@ func set_measure_points(points: PackedVector2Array) -> void:
 func set_region(rect: Rect2, dragging: bool = false) -> void:
 	region_rect = rect
 	region_dragging = dragging
+	queue_redraw()
+
+func set_brush_cursor(visible_: bool, gx: float = 0.0, gy: float = 0.0, radius_cells: float = 0.0) -> void:
+	brush_visible = visible_
+	brush_center = Vector2(gx, gy)
+	brush_radius_cells = radius_cells
 	queue_redraw()
 
 func _grid_to_screen(p: Vector2, rect: Rect2) -> Vector2:
@@ -74,6 +90,15 @@ func _draw() -> void:
 		for corner in [screen_rect.position, screen_rect.position + Vector2(screen_rect.size.x, 0),
 				screen_rect.position + screen_rect.size, screen_rect.position + Vector2(0, screen_rect.size.y)]:
 			draw_rect(Rect2(corner - Vector2(3, 3), Vector2(6, 6)), REGION_COLOR, true)
+
+	if brush_visible and brush_radius_cells > 0.0:
+		var center_screen := _grid_to_screen(brush_center, rect)
+		## Radius scales by the SAME fit factor the rest of this control
+		## already uses (`rect.size.x / _gw`), not a fixed pixel size --
+		## a brush is a real distance on the map, so it has to shrink/grow
+		## with zoom exactly like the terrain under it does.
+		var px_radius: float = brush_radius_cells * (rect.size.x / float(_gw))
+		draw_arc(center_screen, px_radius, 0, TAU, 48, MEASURE_COLOR, 1.2, true)
 
 	if measure_points.size() > 0:
 		var screen_pts := PackedVector2Array()

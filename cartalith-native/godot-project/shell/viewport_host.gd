@@ -28,6 +28,7 @@ var territory_view: TextureRect
 var province_view: TextureRect
 var overlay: Control
 var tool_overlay: ToolOverlay
+var _preview_layer: TextureRect   ## Sculpt/Paint's live draft raster. See `set_preview_texture()`.
 
 var _scale_label: Label
 var _readout_label: Label
@@ -166,6 +167,16 @@ func _ready() -> void:
 	_lod_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_lod_layer.modulate.a = 0.0
 	_camera.add_child(_lod_layer)
+
+	## One shared draft-preview layer for every tool whose result is a full
+	## raster (`build_sculpt_preview_texture`, `build_paint_preview_texture`)
+	## rather than vector geometry `tool_overlay` already covers -- so Sculpt/
+	## Paint (and anything landing later) never need their own `TextureRect`
+	## wired into this file. Above `_lod_layer` and below `overlay`, matching
+	## the same "raster first, vectors on top" order the base layers already
+	## use. Empty texture = invisible; nothing shows until a caller sets one.
+	_preview_layer = _raster()
+	_camera.add_child(_preview_layer)
 
 	overlay = Control.new()
 	overlay.set_script(OVERLAY_SCRIPT)
@@ -431,6 +442,13 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 		"roads": overlay.set_show_roads(shown)
 		"sea_routes": overlay.set_show_sea_routes(shown)
 		_: push_error("ViewportHost: unknown layer '%s'" % layer)
+
+## Sculpt/Paint's shared draft-preview raster (`_preview_layer`, built in
+## `_ready()`). Pass `null` to clear it -- an armed tool's own disarm handler
+## is expected to do this, the same way `GlobalTools` clears `tool_overlay`'s
+## geometry on disarm, so a stale draft never lingers after switching tools.
+func set_preview_texture(tex: Texture2D) -> void:
+	_preview_layer.texture = tex
 
 func _update_scale_bar() -> void:
 	if _width_km <= 0.0:
