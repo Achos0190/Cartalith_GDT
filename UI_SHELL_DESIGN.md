@@ -1,122 +1,123 @@
 # UI shell design — DCC-style editor
 
-> Imported verbatim from the owner's Claude Design project "UI mockups
-> planning" (2026-08-17). The design team's own `github.md` places this at
-> `docs/UI_SHELL_DESIGN.md`; this repo keeps its scope/decision documents at
-> the root (`GUI_SHELL_SCOPE.md`, `VISION.md`, `ARCHITECTURE.md`, etc.) rather
-> than in a `docs/` folder — `cartalith-native/docs/` is reserved for the
-> living `CHANGELOG.md`/`STATUS.md`. Placed here to match this repo's actual
-> convention; content otherwise unedited. See `DCC_SHELL_SCOPE.md` for how
-> this maps onto the current Godot port, what it supersedes, and the real
-> milestone plan.
+> **Imported verbatim from the owner's Claude Design project "UI mockups
+> planning", sync 2026-08-18T21:40Z.** This **replaces** the 2026-08-17
+> version that was previously here: the design team rewrote it as a pure
+> rationale document, moving all control-by-control detail into the new
+> `DCC_SHELL_SPEC.md` (also imported, repo root).
+>
+> **The shell changed structurally in this revision** — see `DCC_SHELL_SCOPE.md`
+> for what that means for the code already built. In short: the menu bar is now
+> program-scope only with **seven** menus, and Generate / Simulate / Render /
+> View became **workspaces on a domain rail** rather than menus.
+>
+> Path note: the design team writes to a `docs/`-rooted convention
+> (`docs/UI_SHELL_DESIGN.md`). This repository keeps its scope and design
+> documents at the root — `docs/` here holds the *source project's* own
+> documentation (see `docs/README.md`). References below to
+> `UNIFIED_TOOL_PLAN.md`, `GENERATOR_PARAMETERS.md`, `MENU_STRUCTURE.md`,
+> `BIOME_AND_VISUALS_PLAN.md`, `ATLAS_ARCHITECTURE.md` and
+> `SCULPT_EDITOR_INTEGRATION_PLAN.md` follow that convention; in this repo the
+> port's own equivalents are `UNIFIED_TOOL_PLAN.md` and
+> `GENERATION_PARAMETERS.md` at the root, while the source project's versions
+> live under `docs/`. **They are different documents with the same names** —
+> `docs/README.md` records which is which.
 
-The native port's screen layout. Supersedes the HTML app's single scrolling
-control column: Cartalith becomes a **map editor with a toolchain**, in the
+Why the editor is arranged the way it is. Supersedes the HTML app's single
+scrolling control column: Cartalith is a **map editor with a toolchain**, in the
 lineage of Nortantis, terrain editors, image editors and 3D DCC applications,
 rather than a form with a preview attached.
 
-Mockups live outside this repository (Omelette project *UI mockups planning*):
-`Cartalith DCC Shell.dc.html` holds all three references — 1920×1080 desktop,
-2560×1600 tablet, and 393×852 Android phone — in that order in the one file.
-Read it for exact spacing, type sizes and colour values; this document is the
-rule set.
+Control-by-control detail lives in **`DCC_SHELL_SPEC.md`** — every menu item,
+every button, every range, and the v2.10 element each one replaces. This
+document is the rule set that spec obeys; where the two disagree, the spec is
+newer.
+
+Reference mockup: `Cartalith DCC Shell.dc.html` in the Omelette project
+*UI mockups planning* — nine screens covering the default shell (dark and
+light), Generate → World, Generate → Sculpt, Cartography → Style, the Asset
+library and Data manager windows, tablet, and phone.
 
 ## The governing split
 
 | Region | Owns | Never holds |
 |---|---|---|
-| **Top menu bar** | program functions — files, save locations, import/export, asset manager, graphics and rendering options, session | anything you use while your hand is on the map |
-| **Left tool rail** | the map-editing toolchain — one icon per tool, always visible, keyboard-bound | settings, values, lists |
-| **Tool options bar** | the active tool's frequently-changed values, horizontally, plus its commit/discard | anything belonging to a different tool |
-| **Right dock** | Layers, Properties (active tool or selection), Sample, History, Assets | tool invocation |
-| **Viewport** | the map, the brush cursor, scale bar, projection/zoom readout, cursor coordinates | chrome that could live in the docks |
-| **Status bar** | pass state, autosave, tile cache, the active tool's modifier hints | controls |
+| **Top menu bar** | program functions — files and save locations, data import/export, the asset manager, graphics/performance preferences, window layout | anything you use while your hand is on the map |
+| **Domain rail** | which workspace is active — World, Civilization, Infrastructure, Cartography, Render | values, lists, one-shot commands |
+| **Tool options bar** | the active tool or workspace's frequently-changed values, horizontally, plus its commit/discard | anything belonging to a different tool |
+| **Left dock** | the active workspace's own structure — the generation pipeline, the sculpt tool set, the layer list | program settings |
+| **Right dock** | Layers, Properties, Sample, stamp stack, selection inspectors | tool invocation |
+| **Viewport** | the map, the brush cursor, the layers button, scale bar, projection/zoom readout, cursor coordinates | chrome that could live in a dock |
+| **Timeline bar** | simulation transport and simulation-layer toggles | anything not time-based |
+| **Status bar** | pass state, staleness, autosave, tile cache, the active tool's modifier hints | controls |
 
 The load-bearing rule: **the top bar is about the program, the map is about the
-world.** A control that changes the world belongs to a tool or a dock; a control
-that changes the program belongs to a menu. `docs/UNIFIED_TOOL_PLAN.md` decides
-what a tool *is*; this document decides where it appears.
+world.** A control that changes the world belongs to a workspace; a control that
+changes the program belongs to a menu. `UNIFIED_TOOL_PLAN.md` decides what a tool
+*is*; this document decides where it appears.
 
-## Top menu bar
+## Consequences of that rule
 
-Eight menus. Every item resolves to a dialog, a submenu, or a mode toggle — none
-of them open a persistent side panel.
+Seven menus — File, Edit, Assets, Data, Preferences, Window, Help — and no
+Generate, Simulate, Render or View menu: those are workspaces, reached from the
+domain rail. Conversely GPU acceleration, multi-GPU dispatch, render quality,
+lighting defaults, tiled LOD and the atlas cache are *program* settings and live
+under Preferences, not beside the terrain sliders they used to sit next to.
 
-| Menu | Contents |
-|---|---|
-| **File** | New world, Open project `.zip`, Save, Save as, Recent, Import heightmap, Import asset pack, Export image/tiles, Export GeoJSON, Export region, Project settings |
-| **Edit** | Undo, Redo, Undo history, Preferences, Theme |
-| **Generate** | The pipeline stages in order — Tectonics, Volcanism, Erosion, Glacial & coastal, Hydrology, Climate, Ecology, Settlements, Infrastructure, Politics; each opens its parameter dialog and reports staleness |
-| **Simulate** | Time controls, Collapse/recovery, Economy, Statistics, Logistics |
-| **Render** | Map mode, Style preset, Terrain appearance, Painter styles (NPR), Lighting & shadows, 3D viewport, Tiled LOD & atlas cache, Render quality, Bake image/tiles |
-| **Assets** | Asset library, Sprite sheet slicer, Asset pack (validate/import/export), assets by domain |
-| **View** | Panel visibility, workspace tabs, analysis field overlay, performance readout |
-| **Help** | Credits & academic principles, references, keyboard map |
+Anything with a browsable body of content or a multi-field job gets its own
+window rather than a dropdown, marked `⧉` in the menu: the Asset library and the
+Data manager. The dropdown that opens a window is a shortcut into it, never a
+second implementation of it.
 
-Disclosure inside a menu keeps the five-level grammar from
-`Cartalith Menu Structure v2`: menu → category → section → sub-group →
-advanced. A submenu arrow is level 3; a dialog's collapsed *Advanced* block is
-level 5 and holds only dials whose defaults are already correct.
+## Disclosure grammar
 
-## Left tool rail
+Five levels, no deeper. `MENU_STRUCTURE.md` and the mockup's structure sheet
+carry the full tree.
 
-Grouped by what the tool touches, thin hairline separators between groups.
+| Level | Form | Rule |
+|---|---|---|
+| L1 | domain | Owns a workspace, never a mode |
+| L2 | ▾ category | One open at a time; state persists per domain |
+| L3 | § section | Always expanded — a titled band of rows |
+| L4 | › group | One pass or one tool; its action button sits inside it |
+| L5 | + advanced | Expert dials only, closed by default, defaults already correct |
 
-1. **Navigate & inspect** — Select/inspect `V`, Pan `H`, Point sample `I`
-2. **Terrain** — Raise/lower `B`, Smooth `S`, Flatten/terrace `F`, Stamp (landform library)
-3. **Water & ecology** — River/water `R`, Biome paint `P`
-4. **Civilization** — Place settlement, Draw route/way, Territory/faction
-5. **Annotation & measure** — Label `T`, Icon stamp, Measure `M`, Region select/export
+A sixth level means the L2 category is wrong and should be split. A group gated
+by a checkbox renders at L4 and is hidden, not disabled, when off.
 
-Tool preferences pin to the bottom. Only one tool is active; the active tool
-owns the tool options bar, the Properties panel, and the viewport cursor.
+## Dependency order beats menu order
 
-## Workspace tabs
+The generation pipeline is sorted by what informs what — Planet → Extent & scale
+→ World structure → Tectonics → Volcanism → Erosion → Hydrology → Climate →
+Ecology → Resources — and each stage states what it needs and what it produces.
+Editing a stage marks everything downstream stale rather than silently
+invalidating it. This is the one place in the UI where order carries meaning, so
+it is never re-sorted alphabetically or by frequency of use.
 
-WORLD · CIVILIZATION · INFRASTRUCTURE · CARTOGRAPHY · RENDER, under the menu
-bar. A tab swaps which tools and dock panels are shown around the same viewport
-— it never swaps the application, and never changes the map. This is where the
-HTML app's left navigator went; expressed as workspace switching, it costs one
-row instead of a permanent column.
+## Non-destructive by default
 
-## Editing model
-
-- A tool's stroke goes into a **pass buffer** and is visible immediately.
-- **Commit pass** writes it to the field; **Discard** drops the buffer.
-- Downstream stages are marked stale rather than recomputed mid-stroke; the
-  status bar names what is deferred (`rivers · deferred`).
-- Undo granularity is one committed pass, not one stroke.
-- Presentation-only controls (Render → Terrain appearance and everything under
-  it) never mark a stage stale and never touch heightmap, climate, hydrology,
-  biome classification, settlements, routes or seed.
+Sculpting, painting and styling all produce drafts. Strokes become live
+procedural stamps; style edits change only what is drawn. Nothing reaches the
+real heightfield until an explicit Commit, and no presentation control ever marks
+a generation stage stale. Finalizing a world locks generation and sculpting while
+leaving the 3D viewport and cartography available.
 
 ## Touch targets
 
-Windows is pointer-first: 32px rail icons, 26px status bar. Tablet and Android
-keep the same six regions and the same tool grouping; only the target size and,
-on phone, the rail's edge change.
+Windows is pointer-first: 32 px controls, 26 px status bar.
 
-**Tablet (2560×1600 landscape)** — full desktop parity. Menu bar, workspace
-tabs, tool options bar and left rail all scale to 44–52px targets (rail icons
-48px in a 64px column); the right dock widens to 400px so Layers, Properties
-and Sample stay two-column at the larger type size. Nothing is dropped or
-tucked into a sheet.
+**Tablet (2560×1600 landscape)** — full desktop parity. Menu bar, tool options
+bar, domain rail and docks all scale to 44–52 px targets; docks widen to 400 px
+so two-column readouts survive the larger type. Nothing is dropped or tucked
+into a sheet.
 
-**Android phone (393×852 portrait)** — the left tool rail has no room as a
-column, so it moves to a 64px bottom bar (52px icons, horizontally scrollable)
-directly below the viewport; this is the one region allowed to relocate rather
-than resize. Workspace tabs collapse to short labels in a single row under the
-app bar. The tool options bar becomes a bottom sheet anchored above the tool
-bar, open whenever a tool is active, with 44px controls — same fields as
-desktop (hardness, intensity, raise/lower/smooth, commit/discard), stacked
-instead of inlined. Layers/Properties/Sample are reached from the app bar's
-panel icon as their own full-height sheet, one panel at a time; the five
-disclosure levels survive unchanged inside it.
+**Android phone (393×852 portrait)** — reorganises rather than truncates. The
+map draws edge-to-edge behind every inset; the top 44 px is keep-clear for a
+notch or punch-hole with a 108 px centre lane reserved and a gradient scrim
+instead of an opaque bar; the app bar below it is the first row allowed to hold
+controls; the domain rail is a 44 px column; tool options become a bottom sheet
+and docks become full-height sheets, one at a time, with all five disclosure
+levels intact; the bottom 26 px gesture inset holds no targets. In landscape the
+cutout moves to a side edge and the same reserve applies horizontally.
 
-## Visual language
-
-Dark neutral `#0d0e0f`, hairline rules at `rgba(255,255,255,.10)` and no panel
-fills, one amber accent `#e0a34a` reserved for the active tool, the active
-layer, and committed-action affordances. Numeric readouts in a monospace face;
-labels in the UI sans. A light theme (`#f4f2ee` paper, `#a4650f` accent) maps
-one-for-one. Nothing in the chrome competes with the map for saturation.
+Minimum target 44 px, measured inside the safe area, with no exceptions.
