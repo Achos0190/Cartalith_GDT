@@ -1768,7 +1768,6 @@ milestone F. Remaining: **F** (shell wiring) and nothing else.
   `params.json`'s contents (`SAVEFILE_COMPAT.md` is read-only here), and every
   UI surface.
 
-
 ### Milestone E — the Annotation & measure group (done 2026-08-18)
 
 - **Done — all four tools' engine halves**, across six crates, tested and
