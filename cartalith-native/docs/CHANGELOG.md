@@ -8983,3 +8983,160 @@ two older golden test files); `cargo test --workspace` (0 regressions).
 integration, per the scope doc's own "Out of scope for all milestones": the
 Journey Planner is interactive per-journey tooling whose real integration is
 future GUI work.
+
+## Phase 5 milestone 1: urban morphology investigated; `cartalith-urban`'s RNG + geometry kernel (2026-08-18)
+
+`ROADMAP.md`'s Phase 5 entry — "already a self-contained DOM-free engine […]
+which suggests it ports cleanly into `cartalith-urban`, depending on
+`cartalith-civ` for settlement context" — was written before anyone read the
+code. Verified rather than inherited, the same way this project has already had
+to correct the Journey Planner ("small" → ~70 functions), the Asset Library
+("arbitrary named images" → a frozen ordered vocabulary) and territory
+generation ("an algorithm" → no implementation at all). New scope doc:
+`URBAN_MORPHOLOGY_SCOPE.md`.
+
+**Three claims checked; two hold, one is wrong.**
+
+- **"Self-contained DOM-free engine" — confirmed, unusually strongly.** Script
+  block 4 (lines 28166-31104, 2,937 lines of body) is a single
+  `const UME = (() => {…})()` IIFE. Grepping its range for `document`,
+  `window`, `canvas`, `ctx.`, `getElementById`, `localStorage` and
+  `requestAnimationFrame` returns **zero hits** — the sole match in the range is
+  the word "context" inside a comment. It ends with
+  `if(typeof module!=='undefined'&&module.exports)module.exports=UME;`, exposes
+  fourteen internals via a `_test` export, and ships `hashModel(m)` (line
+  31087), a stable FNV serialisation of graph/blocks/parcels/buildings which the
+  reference's own comment labels "for determinism goldens". The reference's
+  authors already ran this headlessly (`tests/run_um.sh`, named in the HTML
+  comment above the block). Golden verification here did not have to be
+  invented.
+- **"Does not consume asset packs" — confirmed independently.** Phase 4's own
+  milestone-1 investigation had recorded this; re-checked from scratch,
+  `assetPack`/`AssetLibrary`/`AssetDB` are all zero hits in block 4. It emits
+  geometry with **kind tags** (`b.kind`, `par.district`), never image
+  references. Phase 4's finding stands unamended.
+- **"Depending on `cartalith-civ` for settlement context" — wrong.** The engine
+  takes **no civ types at all**. `generate(seed, opts)`'s entire input surface
+  is a seed, numbers (`pop`, `epochs`, `settlementAge`), strings from fixed
+  vocabularies (`culture`, `site`, `faith`, `civicStyle`, `wallStyle`),
+  booleans (`walls`, `fortified`, `ruined`, `terrainAware`, `wallGenerations`),
+  two plain rasters (`opts.water` = mask + distance transform + river
+  centreline; `opts.terrain` = heightfield), and two point-list hooks
+  (`routeEnds`, `primaryPaths`). The civ coupling is real but lives **one layer
+  up**, in script block 2's `_um*` adapter (lines ~22036-22960, 28 functions,
+  925 lines), which turns a settlement into that opts object. So
+  **`cartalith-urban` depends on `cartalith-rng` and nothing else** — which is
+  also what let this milestone be built and verified while `cartalith-civ` was
+  mid-edit by a sibling fork.
+
+**"Ports cleanly" is true of the boundary and false of the effort.** Measured:
+
+| subsystem | functions | lines | milestones |
+|---|---|---|---|
+| Journey Planner | ~70 | ~3,100 | 6 |
+| Asset Library | 19 top-level | ~2,250 | 7 |
+| **urban morphology, engine** | **92** | **2,937** | **~13** |
+| **plus the civ adapter** | **+28** | **+925** | **+2** |
+| **Phase 5 total** | **120** | **~3,860** | **~17** |
+
+and block 4 is denser per line than the Journey Planner — `buildWall` alone is
+~190 lines of one algorithm, `grow` ~167, `buildBuildings` ~148, `applyStarFort`
+~100. **Phase 5 is the largest single unported subsystem remaining.** What it
+generates is correspondingly broad: A* primary routes over a slope-cost raster,
+an epoch-loop organic growth model (or concentric radial rings for the Venus
+culture), curtain walls and bastioned star forts, **planar face extraction** for
+blocks, **vertex-bisector series platting** for parcels, building footprints by
+grammar, districts, harbours, bridges, markets, faith sites, games, farmland and
+a decay pass.
+
+**RNG, proved rather than assumed** (the care Phase 2 milestone 9 took over
+`_civRng`): block 4's own header says `mulberry32` is "intentionally NOT
+redefined here … it falls through to the byte-identical module-scope copy
+already in script block 1". Verified — no `mulberry32` anywhere in 28166-31104,
+and block 1's line 2291 is the one `cartalith-rng` already golden-verifies. So
+this is not merely the same algorithm under a different wrapper; it is the same
+function. What is new is the **seed derivation**: `stream(seed,label)` =
+`mulberry32((seed>>>0) ^ fnv1a(label))`, labelled substreams (`'site'`,
+`'grow/e3'`, `'parcels/blk7'`) so each stage draws independently from one town
+seed. `fnv1a` has no Gen1 equivalent and is ported here.
+
+**Built — milestone 1, the foundation every later milestone reads:** new crate
+`cartalith-urban` (no `gdext`, no civ, following `cartalith-spatial`/
+`cartalith-assets`' standalone precedent), two modules.
+
+- `rng.rs` — `fnv1a` (over UTF-16 code units, since JS `charCodeAt` is UTF-16),
+  `stream`, and `Substream`'s `u`/`range`/`int`/`pick`/`norm`/`logn`/`chance`.
+  Draw order is load-bearing and is pinned: `norm()` is Box-Muller and consumes
+  **two** draws, and `pick` consumes a draw **even on an empty array** (the JS
+  evaluates `f()` before indexing) — a port that short-circuited would
+  desynchronise every later draw in the same substream.
+- `geom.rs` — `js_hypot`, `Vec2` (with `Add`/`Sub`/`Mul<f64>`), `poly_area`,
+  `poly_centroid`, `point_in_poly`, `seg_int`, `dist_pt_seg`,
+  `poly_self_intersects`, `chaikin`, `simplify` (Douglas-Peucker), `ensure_ccw`,
+  `inset_poly`, `clip_convex`, `convex_hull`.
+
+**One real parity trap, found the hard way and worth the whole pass:**
+`V.len`/`V.dist` are `Math.hypot`, and **V8's `Math.hypot` is not correctly
+rounded**. ECMA-262 leaves it implementation-approximated; V8 scales by the
+largest magnitude and Kahan-sums the squared ratios, so `Math.hypot(3,3)` =
+4.2426406871192856585 while Rust's `f64::hypot(3,3)` = 4.2426406871192847703
+(the correctly-rounded value) — one ulp apart on an input as ordinary as (3,3).
+The **first** golden run of `dist_pt_seg` failed on exactly that case. Every
+distance in this engine flows through `Math.hypot`, and many are threshold
+comparisons — `attachPoint`'s 11 m snap, `rawEdge`'s 3.5 m minimum segment,
+`nearestNode`'s search radius — where being *more* accurate than the reference
+is the wrong answer (`cartalith-rust-conventions`: match the JS engine, do not
+improve on it). `geom::js_hypot` reproduces V8's algorithm including the spec's
+∞-before-NaN ordering, is golden-tested against twelve captured values, and
+carries an explicit `assert_ne!` against `f64::hypot` so nobody "simplifies" it
+back later. Left undetected it would have silently degraded every later
+milestone's parity for reasons unrelated to correctness.
+
+**Two reference behaviours pinned as behaviours, not fixed as bugs**, since
+downstream code is tuned around both: `clipConvex` intersects against the clip
+**segment** rather than the clip line, so clipping a shape that pokes past the
+window's corners can collapse to empty (golden-asserted: a triangle clipped by
+an overlapping square really does come back empty); and `insetPoly` returns
+*nothing at all* — not a degenerate polygon — when the result's area is below 15
+or it self-intersects at ≤60 vertices, which `buildBlocks` reads as "this block
+cannot be built on".
+
+**Verified — golden, not hand arithmetic.** The harness slices lines
+**28167-31103 as one contiguous block**, plus line 2291 for `mulberry32`, and
+evaluates them in a bare Node `vm.runInContext` with no DOM, with a
+**block-comment balance assertion on both slice boundaries** — Journey Planner
+milestone 4's design, adopted for the same reason (an unterminated block-comment
+opener at a boundary silently swallows the rest of the slice; one contiguous
+slice plus a balance assert removes the class), plus two assertions that the
+slice really starts at the IIFE and ends at the export. 18 of the 19 tests are
+that run's output, reached through the reference's own `_test`/public exports.
+The nineteenth (`poly_self_intersects`) is a real unit test, documented as such
+because that function is not on the `_test` export — the precedent territory,
+provinces and `cartalith-spatial` set. The `norm`/`logn` values run through
+`ln`/`cos`/`sqrt`/`exp`, the one family where V8's and Rust's libm need not
+agree to the last bit; they were checked at **zero** tolerance and did agree, so
+exact is what is asserted rather than an epsilon that would hide a future
+divergence.
+
+`cargo build -p cartalith-urban`, `cargo test -p cartalith-urban` (19 passed, 0
+failed), `cargo clippy -p cartalith-urban --all-targets` (clean, no warnings).
+`cargo build --workspace --exclude cartalith-godot` clean and
+`cargo check -p cartalith-godot` clean — the full `--workspace` **build** stops
+at `error: failed to remove file … cartalith_godot.dll — Access is denied`,
+which is the Godot editor holding the DLL open, not a compile error and not
+introduced here. Note the task's expected transient (`cartalith-civ` mid-edit,
+not compiling) had already cleared: `cartalith-civ` builds.
+
+**Not wired to anything** — no `#[func]`, no `compute_civilisation()`
+integration, no GUI. Per `URBAN_MORPHOLOGY_SCOPE.md`'s own "Out of scope for
+every milestone": urban morphology's real integration is a rendering decision
+that does not exist yet, and the block-2/block-1 drawing code
+(`_umDrawLayout`, `_umDrawLayoutPreview`, `_umLayoutAlpha`, the LOD hook near
+line 15606) plus the browser-thread LRU/`setTimeout(…,0)` generation queue are
+explicitly not port targets.
+
+**Files touched**: `URBAN_MORPHOLOGY_SCOPE.md` (new),
+`cartalith-native/crates/cartalith-urban/` (new crate: `Cargo.toml`,
+`src/lib.rs`, `src/rng.rs`, `src/geom.rs`), `cartalith-native/docs/STATUS.md`,
+`cartalith-native/docs/CHANGELOG.md`. The workspace `Cargo.toml` needs no edit
+— `members = ["crates/*"]` picks the new crate up.

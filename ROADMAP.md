@@ -60,6 +60,20 @@ Block 4, procedural city layouts. Already a self-contained DOM-free engine in th
 JS codebase, which suggests it ports cleanly into `cartalith-urban`, depending on
 `cartalith-civ` for settlement context.
 
+**Started 2026-08-18. Two corrections to the paragraph above, from actually
+reading the code — see `URBAN_MORPHOLOGY_SCOPE.md`:**
+
+- "DOM-free" is right (zero hits for any browser API in block 4's whole range),
+  but **"ports cleanly" is true of the boundary and false of the effort**: 92
+  engine functions / 2,937 lines plus a 28-function / 925-line civ adapter —
+  ~3,860 lines, **the largest single unported subsystem left**, bigger than the
+  Journey Planner and the Asset Library. ~17 milestones, not one phase-sized
+  push.
+- **"depending on `cartalith-civ`" is wrong for the engine.** `generate(seed,
+  opts)` takes only scalars and two plain rasters; no civ types anywhere. The
+  civ coupling lives one layer up in block 2's `_um*` adapter. `cartalith-urban`
+  depends on `cartalith-rng` alone.
+
 ## Not a phase: LOD and large worlds
 
 The tiled-LOD deep-zoom system matters as worlds grow. Godot's terrain plugins may
