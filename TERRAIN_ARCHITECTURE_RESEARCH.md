@@ -1,5 +1,18 @@
 # Terrain architecture research (owner-supplied, 2026-08-17)
 
+> **One of three owner-supplied architecture documents, in lineage order:**
+> `HARDWARE_ACCELERATION.md` (2026-08-16, GPU/adaptive compute) → **this
+> document** (v1.0, tiling/LOD/clipmaps) → `HETEROGENEOUS_COMPUTE_RESEARCH.md`
+> (v3.0, which explicitly integrates and extends this one). They overlap
+> heavily. If you are reading only one, read v3.0 — but note that each carries
+> its own applicability annotation, because they were written against
+> assumptions this port does not share (see below).
+>
+> **What has actually been built from this line of research**: the
+> `cartalith-spatial` crate (`LOD_TILING_BASE_SCOPE.md`) — `TiledField`,
+> a packed `QuadTree`, `DirtyTracker` — which the tool system's milestone A
+> then became the first real consumer of. Nothing else here is scheduled.
+
 Preserved verbatim below. This is real, well-sourced research and a legitimate
 reference for **Phase 3 (3D, `ROADMAP.md`) and the "Not a phase: LOD and large
 worlds" contingency** — not a scope decision that's been made. See the note

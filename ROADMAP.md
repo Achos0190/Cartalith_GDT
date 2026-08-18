@@ -4,7 +4,16 @@ A sketch, deliberately not over-planned. Each phase gets its own scope document 
 as `MVP_SCOPE.md` serves Phase 1 — written when it starts, informed by what the
 previous phase actually taught.
 
+**This file is the plan, not the state.** Each phase below carries a one-line
+status, but the authority is `cartalith-native/docs/STATUS.md`; the per-phase
+scope documents carry the milestone-by-milestone record. Where a phase
+description below was written before the work started and the work then
+contradicted it, the correction is recorded in the phase's own section rather
+than by quietly rewriting the original text.
+
 ## Phase 0 — Walking skeleton
+
+**Status: done.**
 
 No engine logic. Prove `gdext` + Godot + Rust builds and runs on all three targets
 with placeholder content: a triangle, a button, a printed line. Steps in
@@ -16,6 +25,9 @@ discovering it mid-Phase 1.
 
 ## Phase 1 — Terrain MVP
 
+**Status: done** — all seven criteria in `MVP_SCOPE.md`, plus both closeout
+items named below (credits screen, crate licence audit).
+
 Scope in `MVP_SCOPE.md`. The full pipeline — tectonics, height, climate, erosion,
 hydrology — parity-verified (`PARITY_TESTING.md`), rendered in 2D, reading HTML
 saves (`SAVEFILE_COMPAT.md`), shipping as an `.exe` and `.apk` confirmed on the
@@ -25,6 +37,13 @@ Two things belong in the definition of done and are easy to forget: the **credit
 screen** and a **licence check** over the crates pulled in (`PROVENANCE.md`).
 
 ## Phase 2 — Civilisation layer
+
+**Status: done** — `PHASE2_SCOPE.md` carries the milestone record. The
+Journey Planner advice below proved right and was followed: it became its own
+sub-phase (`JOURNEY_PLANNER_SCOPE.md`, six milestones) and is engine-complete
+at 65 of the reference's 74 `jp*` functions — 6 UI-only, 2 JS idioms with no
+Rust function to write, 1 blocked on a Route-tool pathfinder since ported.
+Economy aggregation (`ECONOMY_SCOPE.md`) closed the last piece.
 
 Block 2: factions, settlements, territory, roads, provinces, economy. A new
 `cartalith-civ` crate depending on `cartalith-engine`'s terrain without modifying
@@ -40,6 +59,14 @@ rather than bundling it.
 
 ## Phase 3 — Rendering and 3D
 
+**Status: partial.** The 2D-fidelity half is well underway —
+`TERRAIN_APPEARANCE_SCOPE.md` milestones 1-5 (multidirectional hillshade,
+ambient occlusion, hydrology tint, the atlas look, geological exposure and
+local contrast). **The 3D drape is not started.** The UI/UX half went further
+than this entry anticipated — a full DCC-style shell was designed and built
+(`DCC_SHELL_SCOPE.md`) and is now **on hold** at the owner's direction while
+the interface is redesigned.
+
 Brings back the 3D drape deferred in `DECISIONS.md` §4, and the point to evaluate
 `Terrain3D` and `godot_heightmap_plugin` (`REFERENCES.md`) — as a dependency or as
 reference for a Godot-idiomatic clipmap renderer.
@@ -49,6 +76,19 @@ multi-octave grain, hillshade quality, NPR styles. And the moment to install a
 UI/UX skill (`SKILLS.md`), once the interface outgrows four controls.
 
 ## Phase 4 — Asset Library
+
+**Status: done** — all seven milestones, `ASSET_LIBRARY_SCOPE.md`. Started on
+the owner's explicit direction, which satisfied the "confirm before starting"
+below; it did **not** wait for Phase 3, and that turned out fine because the
+dependency this entry assumed doesn't exist (see the correction below).
+
+**Two corrections to the paragraph below, from reading the real code:** an
+asset is not arbitrary art but one PNG bound to a slot in a **frozen, ordered
+vocabulary**, and an asset pack is a real shipping serialization format
+(PKZIP + `pack.json`/`pack.csv`), not a proposal. The renderer genuinely
+draws pack sprites; the vector glyphs are the *fallback*. Also confirmed:
+Phase 5's urban morphology does **not** consume asset packs, so the two are
+independent.
 
 Block 3, the sprite and texture pack system. Lower priority unless custom art
 becomes a near-term goal — and probably better after Phase 3 establishes what art

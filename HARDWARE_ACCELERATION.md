@@ -1,5 +1,19 @@
 # Hardware Acceleration & Adaptive Compute Architecture
 
+> **The earliest of three owner-supplied architecture documents, in lineage
+> order: this one** (2026-08-16) → `TERRAIN_ARCHITECTURE_RESEARCH.md` (v1.0,
+> tiling/LOD/clipmaps) → `HETEROGENEOUS_COMPUTE_RESEARCH.md` (v3.0, which
+> explicitly integrates both). The later two supersede much of what follows.
+> Kept because it is the owner's original stated intent and because the scope
+> correction recorded below — static one-shot generation, not continuous
+> simulation — is the single most load-bearing fact about all three.
+>
+> **What was actually built from this line of research**:
+> `GPU_LAYER_INTEGRATION_SCOPE.md` (nine milestones) and
+> `GPU_COMPUTE_PILOT_SCOPE.md` before it. No capability-tier classifier,
+> diagnostics panel, telemetry system or adaptive scheduler exists, and none
+> is scheduled.
+
 **Status: proposed, not yet scoped or implemented.** Supplied by the owner
 2026-08-16 as a `/goal` directive; the command itself failed to register
 (26,845 characters against the harness's 4,000-character `/goal` limit), so

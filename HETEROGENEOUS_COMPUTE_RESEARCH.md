@@ -1,5 +1,23 @@
 # Heterogeneous compute architecture research (owner-supplied, v3.0, 2026-08-17)
 
+> **The latest of three owner-supplied architecture documents, in lineage
+> order:** `HARDWARE_ACCELERATION.md` (2026-08-16, GPU/adaptive compute) →
+> `TERRAIN_ARCHITECTURE_RESEARCH.md` (v1.0, tiling/LOD/clipmaps) → **this
+> document** (v3.0), which explicitly integrates both. If you read only one of
+> the three, read this one — but read its applicability annotation below
+> first, because it assumes a continuously-scheduled interactive engine and
+> Cartalith is a one-shot batch generator by design.
+>
+> **What has actually been built across this whole line of research**: the
+> `cartalith-spatial` crate (`LOD_TILING_BASE_SCOPE.md`), and the GPU work in
+> `GPU_LAYER_INTEGRATION_SCOPE.md` — nine milestones, including a genuinely
+> redesigned parallel flow accumulation. Notably, that GPU effort's real
+> findings ran *counter* to this document's framing: the bottleneck was
+> per-dispatch context creation and kernel working-set size, not the absence
+> of a capability-tiered scheduler, and two kernels were honestly recorded as
+> "verified on GPU, shouldn't run there". No capability-tier classifier or
+> adaptive scheduler has been built, and none is scheduled.
+
 Preserved verbatim below. This is a direct continuation of
 `TERRAIN_ARCHITECTURE_RESEARCH.md` (v1.0, saved earlier the same day) — same
 author, explicitly building on it ("INTEGRATED RESEARCH AND ARCHITECTURAL
