@@ -56,7 +56,7 @@ const GRID_MAX := 8192
 const DEGENERATE_ASPECT := 16.0 ## Past this, the coarse weather grid loses almost all resolution on the short axis.
 
 const EXTENT_NOTE_REGION := "Region — a framed area of a world. The map's north and south edge latitudes are set in the Climate stage. X does not wrap. Any aspect ratio is physically fine here."
-const EXTENT_NOTE_WORLD := "Whole world — a seamless equirectangular sheet: X wraps a full 360° of longitude and Y spans 180° of latitude, pole to pole. That fixes the shape at 2:1; any other ratio would stretch the graticule against the terrain, so the aspect is pinned and the grid height comes from the engine's own reference_grid_height(gw, true)."
+const EXTENT_NOTE_WORLD := "Whole world -- a seamless equirectangular sheet: X wraps a full 360° of longitude and Y spans 180° of latitude, pole to pole. 2:1 is the ratio that keeps the graticule true; anything else stretches it against the terrain. Advisory, not enforced -- pick any size you want."
 
 ## `earth`/`supercontinent`/… (`bridge.archetypes()`) with the reference's own
 ## friendlier names -- a display concern, so it lives here rather than in Rust.
@@ -210,16 +210,23 @@ func _on_extent_selected(index: int) -> void:
 	bridge.param_set("world", index == 1)
 	_update_extent_state()
 
-## World mode pins the aspect to 2:1 and says why on screen -- the control is
-## disabled rather than removed, and the note above it carries the physical
-## reason, so a greyed control never reads as a bug.
+## Choosing world extent *suggests* 2:1 and explains why; it does not lock the
+## dimensions (owner, 2026-08-19: "don't lock out map sizes based on the choice
+## of region or world map"). An earlier version disabled the aspect control and
+## the row count in world mode. The physics that motivated it is real -- a
+## seamless equirectangular sheet spans 360° of longitude against 180° of
+## latitude, so anything but 2:1 stretches the graticule against the terrain --
+## but that is a reason to *warn*, not to take the control away. The engine
+## accepts any grid either way, so the only thing the lock bought was a
+## narrower tool.
 func _update_extent_state() -> void:
 	var world := extent_input.selected == 1
-	if world:
+	if world and aspect_input.selected == ASPECT_REGION_INDEX:
+		## Move off the region default to the world one, once, as a starting
+		## point. A deliberate choice made afterwards is left alone.
 		aspect_input.selected = ASPECT_WORLD_INDEX
-	if bridge.sized_api:
-		aspect_input.disabled = world
-		grid_h_input.editable = not world
+	aspect_input.disabled = false
+	grid_h_input.editable = true
 	extent_note_label.text = EXTENT_NOTE_WORLD if world else EXTENT_NOTE_REGION
 	_refresh_dimensions()
 
@@ -247,10 +254,15 @@ func _on_grid_h_changed(_value: float) -> void:
 func _derived_grid_h(gw: int) -> int:
 	if not bridge.sized_api:
 		return gw
-	if extent_input.selected == 1:
+	## Both reference ratios are still asked of the engine, but only when the
+	## matching preset is actually selected -- world extent no longer forces
+	## its own answer over a chosen aspect.
+	if aspect_input.selected == ASPECT_WORLD_INDEX and extent_input.selected == 1:
 		return bridge.reference_grid_height(gw, true)
 	if aspect_input.selected == ASPECT_REGION_INDEX:
 		return bridge.reference_grid_height(gw, false)
+	if aspect_input.selected == ASPECT_CUSTOM_INDEX:
+		return maxi(GRID_MIN, int(grid_h_input.value))
 	var ratio := float(ASPECT_PRESETS[aspect_input.selected]["ratio"])
 	return maxi(GRID_MIN, int(round(gw / ratio)))
 

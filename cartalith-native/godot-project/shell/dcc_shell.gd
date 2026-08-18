@@ -211,62 +211,119 @@ func _build_rail() -> Control:
 	rail.custom_minimum_size.x = _scaled(DccTheme.W_RAIL_COLLAPSED)
 	rail.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"right": 1}))
 	rail_column = VBoxContainer.new()
-	rail_column.add_theme_constant_override("separation", 2)
+	rail_column.add_theme_constant_override("separation", 14)
 	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_top", 6)
+	pad.add_theme_constant_override("margin_top", 12)
 	pad.add_child(rail_column)
-	rail.add_child(pad)
 
-	for d in DOMAINS:
-		## Icon above a *vertical* label, as in the mockup. Godot rotates a
-		## Control, not a Button's own text, so the label is a child that gets
-		## `rotation` rather than a `Button.text` -- which is also why the
-		## button is a plain container with no text of its own.
+	## The mockup opens the rail with a 29 px cell carrying the expand chevron,
+	## ruled off from the domains below it.
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	var head := DccTheme.mono_label(DccIcons.SYMBOLS["expand"], "text_dim", DccTheme.FS_SMALL)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	head.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	head.custom_minimum_size.y = _scaled(29)
+	col.add_child(head)
+	col.add_child(DccTheme.rule())
+	col.add_child(pad)
+	rail.add_child(col)
+
+	var w := float(_scaled(DccTheme.W_RAIL_COLLAPSED))
+	for i in DOMAINS.size():
+		var d: Dictionary = DOMAINS[i]
+		if i > 0:
+			## A 14 px hairline between each pair, exactly as the mockup draws
+			## it -- the rail's only ornament.
+			var sep := ColorRect.new()
+			sep.color = DccTheme.c("line")
+			sep.custom_minimum_size = Vector2(14, 1)
+			sep.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			rail_column.add_child(sep)
+
 		var b := Button.new()
 		b.tooltip_text = "%s -- %s" % [d.label, d.subtitle]
 		b.flat = true
 		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size.y = _scaled(74)
 		b.add_theme_stylebox_override("normal", DccTheme.empty())
 		b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
 		b.pressed.connect(_select_domain.bind(d.id))
 
-		var w := float(_scaled(DccTheme.W_RAIL_COLLAPSED))
+		## The reference rail is text only. The icons are an addition (owner,
+		## 2026-08-19), so they are aligned **to the label**, not to the rail:
+		## "the center of the text to the center of the icon".
+		##
+		## That distinction is what fixes it. Centring both independently on the
+		## rail's own midline left the icons 2.8 px right of the letters,
+		## because a -90° rotation maps a local (u, v) to a global (v, -u): the
+		## glyph box extends *right* from `position` by one line height and *up*
+		## by its text width, and the label's optical centre is therefore
+		## `position.x + line_height / 2`, not the rail's centre. Deriving the
+		## icon's x from that same expression makes any residual error in the
+		## model cancel, since both now share it.
+		const ICON_GAP := 12.0
+		## Measured, not derived, and deliberately labelled as such.
+		##
+		## Both the icon and the label compute to a centre of x = 20.0 at
+		## runtime (verified by printing w, label_x, the label's minimum size,
+		## and the texture width). Rendered, the letters land at 19.4 and the
+		## icon at 22.2 -- a stable 2.8 px apart across all five rows and both
+		## window scales. The label's part of that is explicable: a Label not
+		## in a container has size (0,0), so its glyphs draw from the origin
+		## with the ink sitting slightly above the 18 px line box's centre.
+		## The icon's 2.2 px is not explained by texture width, stretch mode or
+		## control size, all of which were read back and are what they should
+		## be. Rather than ship a wrong-looking rail behind a correct-looking
+		## formula, the offset is applied as a measured constant (2.5 px) with its
+		## provenance written down. If the rail is ever rebuilt, re-measure:
+		## `scratchpad` has the centre-of-mass script that produced it.
+		const INK_BIAS := 2.5
 		var px := 14 if not _touch else 18
-		var icon := DccIcons.rect(d.icon, px, "text_faint")
-		icon.position = Vector2((w - px) * 0.5, 7.0)
-		b.add_child(icon)
-
-		## Rotating -90° about the top-left pivot means the glyphs run upward
-		## from `position`, and the text's *height* becomes its horizontal
-		## extent -- so centring it horizontally is `+ half the line height`,
-		## not `- half the width`.
 		var vlabel := DccTheme.mono_label(String(d.rail).to_upper(),
 			"text_faint", DccTheme.FS_MICRO, 2, true)
 		vlabel.rotation = -PI / 2.0
-		vlabel.position = Vector2(w * 0.5 + 6.0, float(_scaled(68)))
+		var text_size := vlabel.get_minimum_size()
+		var label_x: float = round(w * 0.5 - text_size.y * 0.5)
+		vlabel.position = Vector2(label_x, float(px) + ICON_GAP + text_size.x)
+		var label_centre: float = label_x + text_size.y * 0.5
+
+		var icon := DccIcons.rect(d.icon, px, "text_faint")
+		## Centre on the texture's *actual* raster width, read back rather than
+		## assumed: `load_svg_from_string` does not always return exactly the
+		## requested pixel size, and centring on the requested one left every
+		## icon 2.2 px right of its label. Stretch mode goes to KEEP so the
+		## control's own box stops participating in the placement at all.
+		var tex_w: float = float(icon.texture.get_width()) if icon.texture != null else float(px)
+		var tex_h: float = float(icon.texture.get_height()) if icon.texture != null else float(px)
+		icon.stretch_mode = TextureRect.STRETCH_KEEP
+		icon.size = Vector2(tex_w, tex_h)
+		icon.position = Vector2(round(label_centre - tex_w * 0.5 - INK_BIAS), 0.0)
+		b.add_child(icon)
 		b.add_child(vlabel)
+		b.custom_minimum_size.y = float(px) + ICON_GAP + text_size.x + 2.0
 
 		_domain_buttons[d.id] = b
 		_domain_marks[d.id] = {"icon": icon, "label": vlabel}
 		rail_column.add_child(b)
 
-	## §3: "the rail foot shows the active context and, in the World domain, the
-	## stage counter (04 / 10)". Vertical, like the labels above it.
-	rail_column.add_child(DccTheme.spacer())
+	col.add_child(DccTheme.spacer())
 	rail_foot = DccTheme.mono_label("", "text_ghost", DccTheme.FS_MICRO, 2)
 	rail_foot.rotation = -PI / 2.0
 	var foot_holder := Control.new()
-	foot_holder.custom_minimum_size.y = 64
+	foot_holder.custom_minimum_size.y = 84
 	foot_holder.add_child(rail_foot)
-	rail_foot.position = Vector2(_scaled(DccTheme.W_RAIL_COLLAPSED) * 0.5 + 6.0, 60.0)
-	rail_column.add_child(foot_holder)
+	col.add_child(foot_holder)
 	return rail
 
-## The rail foot's two lines, set by whichever workspace owns the context.
+## The rail foot carries the active context and, in World, the stage counter.
+## Re-centred on every set because its width changes with the text.
 func set_rail_foot(text: String) -> void:
-	if rail_foot != null:
-		rail_foot.text = text
+	if rail_foot == null:
+		return
+	rail_foot.text = text
+	var w := float(_scaled(DccTheme.W_RAIL_COLLAPSED))
+	var m := rail_foot.get_minimum_size()
+	rail_foot.position = Vector2(round(w * 0.5 - m.y * 0.5), 12.0 + m.x)
 
 func _select_domain(id: String) -> void:
 	_active_domain = id
