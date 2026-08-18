@@ -10795,3 +10795,102 @@ milestone F; milestone E2 in full; the *rendering* of labels and icons (a
 `cartalith-godot` change this milestone is scoped out of); and persistence of
 `state.labels`/`state.mapIcons`, since `SAVEFILE_COMPAT.md` is read-only here
 and adding a writer is its own decision.
+
+## Second real Android device pass — the numbers moved, and the phone UI is honestly unusable (2026-08-18)
+
+Not a milestone. A **verification pass** on the same OnePlus 6T the
+2026-08-17 pass used, re-run because an enormous amount had landed since and
+none of it had been on hardware: the GUI replaced twice (panel-browser shell,
+then the DCC editor shell, plus the Fable-5 declutter), 57 generation controls
+plus a File ▸ New world dialog, independent `gw`/`gh` (non-square maps), four
+new crates (`cartalith-spatial`, `-assets`, `-urban`, tool-system code), and
+terrain appearance milestones 2-5's per-pixel work in `render.rs`. Full record
+in `ANDROID_BUILD_SCOPE.md`'s new dated section.
+
+**No code was changed.** Nothing crashed, so nothing needed fixing, and the
+one layout problem found is a real deferred milestone that this pass
+deliberately did not start.
+
+**Build and install still work.** `cargo ndk -t arm64-v8a build -p
+cartalith-godot` is clean against the grown workspace; the APK exports
+(68 MB, debug-signed) and installs first try. One new step is now effectively
+required: the debug `.so` has reached **400 MB** of debuginfo (`[profile.dev]`
+carries `opt-level = 1` but leaves `debug = true`), and Godot stores `.so`
+files uncompressed, so it was stripped with the NDK's `llvm-strip
+--strip-debug` down to 18 MB before export. Noted rather than fixed — the
+real fix is a dedicated Android profile, which is a decision, not a chore.
+
+**Golden path runs on device, driven entirely by touch.** Generate → render →
+Layers overlays (Territory faction fill, Province boundaries) → settlement
+selection with the **WHY HERE causal-chain explainer** populating correctly →
+tool rail switching the tool options bar to `RAISE / LOWER` → View ▸
+Performance readout → a `Generate — Climate` slider dragged by swipe. No
+`FATAL`, no `ANR`, no `lowmemorykiller`, empty crash buffer, 60 FPS throughout
+(generation is on a background `Thread`). The Performance readout reports
+`0 of 6 eligible stages ran on GPU` — the GPU path is correctly inert on
+Android.
+
+**Memory has grown materially, and it is measured, not guessed.** Same
+`dumpsys meminfo` / `TOTAL PSS` method as the previous pass. Like-for-like at
+512x512: **peak 283,326 KB → 395,756 KB (+40%)**, steady-state 271,290 KB →
+316,200 KB (+17%). At the app's *own default* of 2048x1311 (2.68 M cells) the
+phone reaches **894,968 KB peak (874 MB) over ~31 s** — it completes and
+renders correctly, but that is a large fraction of a mid-range device's budget
+with no progress indication. **No leak**: regenerating at 512x512 after the
+2.68 M-cell world returned steady-state to 309,200 KB, marginally *below* the
+same session's first 512x512 run.
+
+Timing scales with cell count: 3.2 s at 131 k, 4.5 s at 262 k, 8-9 s at 466 k,
+31 s at 2.68 M. The 512x512 figure is *faster* than the previous pass's ~7-9 s
+— read as "not slower", since both are inferred from the memory trace rather
+than an instrumented timer.
+
+**Non-square maps work on device, all four shapes.** 512x512 1:1, 512x256 2:1
+with Extent = **Whole world** (which correctly pins the aspect to 2:1 and
+disables the Aspect control), 512x910 9:16 tall portrait, and 2048x1311
+1.5625:1. Each aspect-fits the viewport correctly and reports the right cells
+and kilometres in the header and status bar. No bug found.
+
+**The phone UI: structurally intact, physically unusable by finger.** The
+finding is more nuanced than expected and both halves matter.
+
+What does *not* break: the app is orientation-locked to landscape (Godot's
+default `display/window/handheld/orientation`; `project.godot` has no
+`[display]` section), so the shell gets a **2340x1080** surface — *wider* than
+the 1920x1080 it was designed at and exactly as tall. Nothing reflows, nothing
+clips, all six regions hold their proportions, the right dock keeps its full
+296 px, and **every runtime-built dialog fits inside 1080 and scrolls
+internally** — the 1080p dialog overflow a sibling fork reported is **not**
+reproduced here. This is a load-bearing accident: unlocking orientation before
+the responsive milestone ships would hand the shell a 1080x2340 portrait
+surface and break all of it.
+
+What does break: absolute pixel sizes against a 403 dpi panel. In its
+landscape configuration this display puts Android's 48 dp minimum touch target
+at **94 physical pixels**. The shell offers 26-44. Menu bar 34 px (2.15 mm,
+36% of minimum), left tool rail 44 px wide with ~35 px pitch (2.78 mm / 2.2 mm,
+47%), Layers rows 32 px (34%), status bar 26 px (28%), dropdown rows ~22 px
+(1.39 mm, 23%), slider grabbers ~12 px (0.76 mm, 13%). Body text is 10-13 px
+against a 24 px (12 sp) minimum. A fingertip contact patch is 110-160 physical
+pixels — one touch spans the menu bar plus the workspace tabs plus the tool
+options bar, or five dropdown rows, or three Layers checkboxes.
+
+Every interaction in this pass succeeded, and that is **not** evidence a person
+can perform them: `adb shell input tap` is a zero-area point at a pixel
+computed from a screenshot. What it does prove is that Android *event routing*
+is sound — taps land on the right controls, swipes drive sliders, popups open
+and dismiss. The interaction model works; the target geometry does not.
+Verdict: drivable with a stylus or fingernail, effectively undrivable by
+fingertip, and the dock/status bar/tool options text (0.45-0.8 mm cap heights)
+is below normal acuity at arm's length. Worst regions in order: the left tool
+rail, menu and dropdown popups, the status bar. Best behaved: the dialogs.
+
+**Deliberately not fixed.** `DCC_SHELL_SCOPE.md` and `UI_SHELL_DESIGN.md` both
+scope a real 393x852 phone layout (bottom tool bar, bottom-sheet tool options,
+full-height panel sheets, 44-52 px targets) and both defer it. Building any of
+it here would leave the half-migrated state this project has avoided
+throughout. The measurements are recorded as the spec input for that
+milestone, with one correction it will need: its own 44-52 px figures must be
+read as *density-independent* pixels (~86-102 physical px on this device), not
+raw Godot pixels — at raw pixels the new layout would be no better than the
+current one.
