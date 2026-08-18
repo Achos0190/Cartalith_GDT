@@ -46,6 +46,27 @@ var _safe_insets := {"left": 10.0, "top": 10.0, "right": 10.0, "bottom": 10.0}
 ## only pointer-first Windows keeps the original compact 26 px hit box.
 var _touch := DisplayServer.is_touchscreen_available() and OS.has_feature("mobile")
 
+# -- Camera (§4.5.1 Pan / zoom) ------------------------------------------------
+#
+# `LOD_TILING_BASE_SCOPE.md` (2026-08-17) deliberately kept `cartalith-spatial`'s
+## tiling standalone -- "no camera... revisit when a concrete need appears
+## rather than building it speculatively." That need was named directly
+## (owner, 2026-08-19: "don't forget to wire zoom/pan"), and §4.5.1 has always
+## specified it as a global tool, present in every domain. This is that wiring
+## -- a camera transform over the single existing raster, nothing about tiled
+## LOD, which is its own, separately scoped decision
+## (`LOD_TILING_INTEGRATION_SCOPE.md`).
+var _camera: Control    ## Hosts map_view/territory_view/province_view/overlay;
+	## `scale`/`position` on THIS node is the whole transform. Chrome
+	## (`_scale_label` etc.) stays a direct child of `self`, outside it, so it
+	## is never itself panned or zoomed.
+const ZOOM_MIN := 0.4
+const ZOOM_MAX := 8.0
+const ZOOM_WHEEL_STEP := 1.15   ## Multiplicative per wheel notch.
+var _zoom := 1.0
+var _panning := false
+var _pan_last_screen := Vector2.ZERO
+
 func setup(bridge: EngineBridge) -> void:
 	_bridge = bridge
 	bridge.generation_finished.connect(func(ok: bool): if ok: refresh())
@@ -55,19 +76,29 @@ func _ready() -> void:
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_PASS
 
+	## `_camera`'s own logical `size` always equals the viewport's real size
+	## (full-rect, same as before) -- `scale`/`position` handle zoom/pan on top
+	## of that, which is why `overlay`'s existing `_displayed_rect()` fit-scale
+	## math (written entirely in its own local space) needed no changes at all
+	## to keep working under a scaled parent.
+	_camera = Control.new()
+	_camera.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_camera.mouse_filter = Control.MOUSE_FILTER_PASS
+	add_child(_camera)
+
 	map_view = _raster()
 	territory_view = _raster()
 	province_view = _raster()
 	territory_view.visible = false
 	province_view.visible = false
-	add_child(map_view)
-	add_child(territory_view)
-	add_child(province_view)
+	_camera.add_child(map_view)
+	_camera.add_child(territory_view)
+	_camera.add_child(province_view)
 
 	overlay = Control.new()
 	overlay.set_script(OVERLAY_SCRIPT)
 	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
-	add_child(overlay)
+	_camera.add_child(overlay)
 	overlay.settlement_selected.connect(func(d, i): settlement_selected.emit(d, i))
 	overlay.settlement_hovered.connect(_on_hovered)
 	overlay.cursor_sampled.connect(_on_sampled)
@@ -92,6 +123,94 @@ func _ready() -> void:
 	add_child(_layers_btn)
 
 	_apply_safe_insets()
+
+## `_input`, not `_gui_input` or `_unhandled_input` -- verified empirically,
+## not assumed: `overlay` sits in front with `MOUSE_FILTER_STOP` for its own
+## hover/click handling, and Godot's real dispatch order is `_input` (every
+## node, tree order) -> GUI dispatch (`_gui_input`, front-to-back, stops at
+## the first `MOUSE_FILTER_STOP` control) -> `_unhandled_input`. A first
+## attempt at `_unhandled_input` logged the wheel event but never the MMB
+## press or its motion -- GUI dispatch had already consumed them, since
+## `MOUSE_FILTER_STOP` swallows every mouse event over a control's rect for
+## dispatch purposes, not only the ones its own script chooses to act on.
+## `_input` runs before that dispatch, so it sees everything unconditionally;
+## `set_input_as_handled()` is then called only for the specific events this
+## node actually consumes (wheel, MMB, magnify, and a motion event only while
+## actively panning), so plain hover motion still reaches `overlay`'s own
+## `_gui_input` exactly as before -- no change needed to `map_overlay.gd`.
+##
+## Pan is a held modifier (MMB, or Space+LMB), per §4.5.1 exactly: *"Pan / zoom
+## | Space (held), MMB | Hand | Always available as a modifier, even with
+## another tool armed."* Deliberately not bare LMB-drag -- that would collide
+## with every future tool that drags with the primary button (Sculpt, Biome
+## paint, Territory), which is precisely why the spec calls it a modifier and
+## not a default drag.
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
+			_zoom_at(mb.position, ZOOM_WHEEL_STEP)
+			get_viewport().set_input_as_handled()
+		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
+			_zoom_at(mb.position, 1.0 / ZOOM_WHEEL_STEP)
+			get_viewport().set_input_as_handled()
+		elif mb.button_index == MOUSE_BUTTON_MIDDLE:
+			_panning = mb.pressed
+			_pan_last_screen = mb.position
+			if mb.pressed:
+				get_viewport().set_input_as_handled()
+	elif event is InputEventMouseMotion:
+		var mm := event as InputEventMouseMotion
+		var space_held := Input.is_key_pressed(KEY_SPACE)
+		if _panning or (space_held and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0):
+			_camera.position += mm.position - _pan_last_screen
+			_pan_last_screen = mm.position
+			get_viewport().set_input_as_handled()
+		else:
+			_pan_last_screen = mm.position
+	elif event is InputEventMagnifyGesture:
+		## Two-finger pinch, synthesized by the platform on touch. Single-
+		## finger drag-to-pan is deliberately not wired on touch yet: it would
+		## collide with a future armed tool's own drag the same way bare
+		## LMB-drag would on desktop, and there is no tool palette yet to
+		## arm/disarm Pan explicitly the way §4.5.1 intends. Pinch has no such
+		## conflict -- nothing else uses two fingers -- so it is safe now.
+		var mg := event as InputEventMagnifyGesture
+		_zoom_at(mg.position, mg.factor)
+		get_viewport().set_input_as_handled()
+
+## Zooms so the world point under `screen_pt` stays under it: with `pan` the
+## camera's position and `zoom` its scale, a local point maps to screen space
+## as `screen = pan + local * zoom`. Solving for the new pan that keeps the
+## same local point fixed under `screen_pt` after rescaling gives this directly
+## -- no pivot_offset needed, which sidesteps Control's own layout-vs-transform
+## interactions around pivot entirely.
+func _zoom_at(screen_pt: Vector2, factor: float) -> void:
+	var new_zoom: float = clampf(_zoom * factor, ZOOM_MIN, ZOOM_MAX)
+	if is_equal_approx(new_zoom, _zoom):
+		return
+	var local_pt := (screen_pt - _camera.position) / _zoom
+	_camera.position = screen_pt - local_pt * new_zoom
+	_zoom = new_zoom
+	_camera.scale = Vector2(_zoom, _zoom)
+	_update_zoom_readout()
+
+## Back to fit, matching the letterboxed `STRETCH_KEEP_ASPECT_CENTERED` view
+## every fresh generate/load already rendered before this camera existed --
+## called from `refresh()` so a new world never opens scrolled off into
+## whatever corner the previous one was zoomed into.
+func reset_view() -> void:
+	_zoom = 1.0
+	_camera.scale = Vector2.ONE
+	_camera.position = Vector2.ZERO
+	_update_zoom_readout()
+
+func _update_zoom_readout() -> void:
+	if _bridge == null or not _bridge.has_world:
+		return
+	var g := _bridge.grid_size()
+	_readout_label.text = "%d x %d  ·  %.0f x %.0f km  ·  z%.1f" % [
+		g.x, g.y, _bridge.last_width_km, _bridge.last_height_km, _zoom]
 
 ## Phone chrome (`DccShell._build_phone_shell()`) sits on top of this node's
 ## own edges once the map is edge-to-edge behind it (inset rule "DRAW
@@ -185,8 +304,14 @@ func refresh() -> void:
 		_bridge.sea_routes(), g.x, g.y, _bridge.border_inset_frac())
 	_width_km = _bridge.last_width_km
 	_update_scale_bar()
-	_readout_label.text = "%d x %d  ·  %.0f x %.0f km" % [
-		g.x, g.y, _bridge.last_width_km, _bridge.last_height_km]
+	reset_view()   ## Also sets `_readout_label`'s text -- see its own doc.
+	## Belt-and-suspenders after the two lines above change `_scale_label`'s
+	## and `_readout_label`'s text (and so their minimum size): the fixed
+	## edge each already has should carry Godot's own grow-direction resize
+	## correctly on its own (see `_apply_safe_insets()`'s comment), but a full
+	## recompute against the now-current size costs nothing and doesn't rely
+	## on trusting that reasoning held.
+	_apply_safe_insets()
 
 func set_layer_visible(layer: String, shown: bool) -> void:
 	match layer:
