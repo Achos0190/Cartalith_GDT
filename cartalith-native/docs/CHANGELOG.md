@@ -10066,3 +10066,158 @@ Nothing, except item 5 as re-classified above and item 7's toggle as
 deferred above. `GUI_FEATURE_PARITY_SCOPE.md` is updated in the same commit
 with its whole table re-baselined against the DCC shell, so the next pass
 is not working from a map of a shell that no longer exists.
+
+## Phase 5 milestone 3 — A\* over the site cost raster, and the golden suite that wasn't testing anything (2026-08-18)
+
+`URBAN_MORPHOLOGY_SCOPE.md` milestone 3: `astar`, reference lines
+**28514-28547**, as `cartalith-urban::astar`. Dependencies unchanged
+(`cartalith-rng` only). Wired to nothing, per the standing discipline. 7 new
+tests, 33 in the crate.
+
+The plan said lines 28514-28556. `astar`'s last line is
+`path.reverse();return path;}` at **28547**; 28548-28556 is a blank line plus
+the *site model* header comments that belong to milestone 5's range. The scope
+doc is corrected. (Milestone 5's own 28557-28742 is right — `shoreFromMask`
+really does start at 28557.)
+
+### What was ported
+
+One function, ~34 dense lines: a hand-rolled binary heap, an 8-connected
+neighbourhood with `Math.SQRT2` diagonals, trapezoidal edge costs
+(`dl * 0.5 * (cost[i] + cost[ni])`), and a `0.9`-weighted Euclidean heuristic
+measured in cells. Ported literally rather than swapped for `BinaryHeap`,
+because the heap's tie-break is what makes the path reproducible: sift-up stops
+on `<=` (an equal-`f` newcomer stays below its parent) and sift-down uses a
+strict `<` (a tie prefers the left child). `BinaryHeap` has neither property.
+
+Every distance goes through `geom::js_hypot`, not `f64::hypot`.
+
+### The verification is the story
+
+Seventeen scenarios were written by hand first and **all seventeen reproduced
+the reference exactly on the first run**: degenerate 9x1 and 3x17 strips, both
+rectangle orientations, a 500-cost wall with one gap, an infinite moat, a NaN
+band and a NaN seal, a zero-cost field, start-equals-goal, adjacent and
+diagonally-adjacent goals, two rasters filled by the reference's own exported
+`stream`, and a sweep taking **every** cell of a 6x5 raster as the goal in turn.
+
+Then fifteen mutations of the ported algorithm were run against them and **nine
+survived**: the `0.9` weight, the `0.5` trapezoid factor, the `DIRS` order, all
+three heap comparators, `js_hypot` vs `f64::hypot`, the `i == gi` early break,
+and the dead `INFINITY` guard. Nine of the twelve behaviours that make this
+function reproducible were untested, by a suite that looked thorough and passed.
+
+**The cause generalises well past this milestone:** a *continuously-valued* cost
+raster essentially never produces two frontier entries with exactly equal `f`,
+so it cannot observe a tie-break at all. Only a *quantised* raster can. An
+exhaustive search over ~800,000 (raster family x size x endpoint) combinations
+found a discriminator for every survivor, and every tie-break discriminator came
+from a quantised field — costs drawn from `{0.5, 1}`, `{1, 2}` or
+`{1, 2, 3, 4}`. Eight such scenarios were added (`tiesHalf`, `tiesLeft`,
+`tiesRight`, `tiesWide`, `tiesDiag`, `nearAdmissible`, `trapezoidal`,
+`greedyTrap`), captured from the reference like every other. **Fourteen of
+fifteen mutations now die.**
+
+That regime is not artificial. `buildPrimaries` builds its raster as
+`(1 + (slope*3.2)^2) * 8`, and slope over most of a site is flat — so the real
+8 m cost field is *mostly constant* away from the river and the bridge band.
+Ties are the normal case there, not the exotic one.
+
+**The one surviving mutation is reported, not hidden.** Deleting
+`if (g0[i] === Infinity) continue;` changes nothing, because the branch is
+unreachable in the reference too: `g0[ni]` is written on the line before every
+`push`, and `g0[si]` before the start's own push. The line is kept because it is
+what the reference writes; a test asserts the invariant it rests on (no
+relaxation ever writes a non-finite `g`) across the infinity and NaN scenarios,
+rather than pretending to cover a dead branch.
+
+### `js_hypot`, quantified
+
+Milestone 1 found the V8 discrepancy; milestone 2 proved it changes graph
+*topology*. Milestone 3 adds the frequency: over the 4,096 integer offsets a
+64x64 raster produces, `js_hypot` and `f64::hypot` disagree on **1,398** —
+better than a third, all by one ulp. It still took a 64x48 quantised raster
+(`tiesWide`) to build a golden that notices, because one ulp only bites when it
+makes or breaks an exact tie. Asserted directly as well as golden-enforced.
+
+### What the reference's A\* actually is
+
+Written down so nobody "fixes" it: the heuristic is `0.9 x` Euclidean distance
+**in cells** while a step costs the trapezoidal mean of two *metres-scaled*
+raster values (order 8-2000), so it is wildly under-weighted normally and
+over-weighted wherever the raster is cheap; there is **no closed set** and no
+stale-entry check, so cells are re-expanded; and `if (i === gi) break` stops on
+the first *pop* of the goal, which under an inadmissible heuristic need not be
+its cheapest path. The search is **reproducible, not optimal**, and the golden
+path is the specification — a correctness-improving rewrite would move every
+primary route, and with it every block, parcel and building grown against it.
+
+### `null` comes only from non-finite cost
+
+An 8-connected full grid has no unreachable cell, so `astar` returns `null` only
+by arithmetic: an `Infinity` tentative cost fails `c < g0[ni]`, and a `NaN` one
+fails it too — every NaN comparison is false in Rust exactly as in JS. Both
+pinned by goldens (`moat`, `nanSeals`), and the NaN case is one of the few
+places in this port where JS/Rust NaN agreement is load-bearing rather than
+incidental (`cartalith-rust-conventions`).
+
+### One deliberate divergence
+
+An out-of-range `start`/`goal` **panics** here. The reference reads past its
+typed arrays, gets `undefined`, and — since `undefined === Infinity` is false —
+sails past its own guard into nonsense. Its only caller (`buildPrimaries`'
+`toCell`) clamps to `[1, W-2] x [1, H-2]` first, so the branch is unreachable in
+the engine; loud beats silent for something that cannot happen.
+
+### Harness changes worth inheriting
+
+Same contiguous 28167-31103 slice plus line 2291, same balance scan with
+milestone 2's orphan-close counter, re-run as a negative control (the
+one-line-late hole is confirmed still present and still covered). Two
+improvements:
+
+- The first structural assertion is tightened from "the slice *contains* the
+  `UME` IIFE header" to "**the slice's first line is** block 4's header comment
+  opening" — which catches the one-line-late case directly rather than by luck.
+- A fourth assertion runs as a live negative control in the other direction:
+  block 4 must **not** define `mulberry32`, since the whole reason line 2291 is
+  spliced in is that it falls through to block 1.
+
+The capture also refuses to write a file unless every path is non-empty, starts
+at its start cell, ends at its goal cell, the two sealed scenarios really
+returned `null`, and the capture exceeds 300 path cells — the explicit emptiness
+gate three earlier subsystems in this project needed and did not have.
+
+### One tooling trap
+
+The first mutation run reported two **false** survivors. Cause: `cargo`'s
+freshness check is mtime-based and a mutation written in the same second as the
+previous build was silently not rebuilt; and one pattern (`dl * 0.5 *`) matched
+inside the function's own **doc comment** before it matched the code, so
+`String.replace`'s first-occurrence rule mutated prose and nothing else. Both
+found by hand-checking a "survivor" and watching it die immediately. Any later
+milestone that mutation-tests should stamp the file's mtime forward and anchor
+its patterns on code that cannot appear in a comment.
+
+### Corrections written forward
+
+- **Milestone 6 must not "improve" the search.** `buildPrimaries` runs `astar`
+  once per external route endpoint over a *copy* of the raster with already-used
+  cells multiplied by `0.45`, so reinforcement is order-dependent on
+  `site.routeEnds` and each run inherits the previous run's exact cell set. Any
+  change to which cells a path occupies compounds across routes.
+- **Milestone 6 owns the clamp.** This port's `astar` takes `(usize, usize)`
+  cells and panics out of range; `toCell`'s `max(1, min(W-2, round(p.x/CS)))`
+  must be reproduced at the call site.
+- **Milestones 12 and 13 will hit the same coverage trap.** `buildBlocks` and
+  `buildParcels` compare areas and lengths against thresholds; goldens built
+  only on continuous random inputs will not exercise their tie-breaks either.
+  Build at least one quantised or symmetric fixture per milestone from here on.
+
+### Verified
+
+- `cargo build -p cartalith-urban`, `cargo test -p cartalith-urban` (33 pass),
+  `cargo clippy -p cartalith-urban --all-targets` — all clean.
+- 25 golden scenarios plus a 30-goal sweep, every path compared exactly against
+  the reference's own `UME._test.astar` output. No tolerances anywhere.
+- Mutation-checked: 14 of 15 mutations killed, the survivor documented above.

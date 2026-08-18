@@ -350,13 +350,168 @@ recording plainly: the balance assert is necessary, not sufficient.
    and the strict `>` makes the *lowest-indexed* one outer. `buildBlocks`
    (milestone 12) skips the outer face, so this is not cosmetic.
 
-### Milestone 3 — A\* over the cost raster (lines 28514-28556, 1 function)
+### Milestone 3 — A\* over the cost raster: **done** (2026-08-18)
 
-`astar`. Small, isolated, exported from `_test`, and needed by milestone 5. A
-hand-rolled binary heap with a 0.9-weighted Euclidean heuristic and
-trapezoidal edge costs — the tie-breaking behaviour of that heap is what makes
+`astar`, reference lines **28514-28547** (the plan said 28514-28556; `astar`'s
+last line is `path.reverse();return path;}` at 28547, and 28548-28556 is a blank
+line plus the *site model* header comments that belong to milestone 5's range —
+so the stated range over-claimed by nine lines, the same shape of off-by-a-few
+the milestone-2 range had). Module `cartalith-urban::astar`; dependencies still
+`cartalith-rng` only. 7 new tests (33 in the crate), 25 golden scenarios plus a
+30-goal sweep inside two of them.
+
+The plan's own sentence — "the tie-breaking behaviour of that heap is what makes
 the path reproducible, so it is ported literally rather than swapped for
-`BinaryHeap`.
+`BinaryHeap`" — turned out to be exactly right, and this milestone is the first
+in the project that **proved** such a claim instead of asserting it. It is also
+the milestone where the verification method itself failed first and had to be
+fixed, which is the more useful finding.
+
+#### The goldens were vacuous, and mutation testing is what said so
+
+Seventeen scenarios were written by hand first: degenerate 9 × 1 and 3 × 17
+strips, both rectangle orientations, a 500-cost wall with one gap, an infinite
+moat, a NaN band and a NaN seal, a zero-cost field, a start-equals-goal case,
+two RNG-driven rasters filled by the reference's own exported `stream`, and a
+sweep taking **every** cell of a 6 × 5 raster as the goal in turn. All of them
+reproduced the reference's paths exactly on the first run.
+
+Then fifteen mutations of the ported algorithm were run against them and **nine
+survived**: the `0.9` heuristic weight, the `0.5` trapezoid factor, the `DIRS`
+order, all three heap-comparator tie-breaks, `js_hypot` vs `f64::hypot`, the
+`if (i === gi) break` early exit, and the dead `INFINITY` guard. Nine of the
+twelve behaviours that make this function's output reproducible were not being
+tested at all, by a suite that looked thorough and passed.
+
+**The reason is one fact, and it generalises well past this milestone:**
+
+> A **continuously-valued** cost raster essentially never produces two frontier
+> entries with exactly equal `f`, so it cannot observe a tie-break at all. Only
+> a **quantised** raster can.
+
+An exhaustive search over roughly 800,000 (raster family × size × endpoint pair)
+combinations found a discriminator for every surviving mutation, and every
+tie-break discriminator came from a quantised field — costs drawn from
+`{0.5, 1}`, `{1, 2}` or `{1, 2, 3, 4}`. Eight such scenarios were added
+(`tiesHalf`, `tiesLeft`, `tiesRight`, `tiesWide`, `tiesDiag`, `nearAdmissible`,
+`trapezoidal`, `greedyTrap`), captured from the reference like all the others.
+With them, **fourteen of fifteen mutations die**.
+
+This is not an artificial regime. `buildPrimaries` builds its raster as
+`(1 + (slope·3.2)²)·8` and slope over most of a site is flat, so the real 8 m
+cost field is *mostly constant* away from the river and the bridge band — the
+tie-heavy case is the normal one, not the exotic one.
+
+The single surviving mutation is deleting `if (g0[i] === Infinity) continue;`
+from the expansion loop. That is reported rather than papered over: it is
+**unreachable in the reference too** — `g0[ni]` is assigned on the line before
+every `push`, and `g0[si]` before the start's own push, so no popped index can
+still hold the fill value. The line is kept because it is what the reference
+writes, and a test asserts the invariant it depends on (no relaxation ever
+writes a non-finite `g`) across the infinity and NaN scenarios rather than
+asserting the dead branch.
+
+#### `js_hypot` is not a rounding detail here either
+
+Milestone 1 found the V8 discrepancy and milestone 2 proved it changes graph
+*topology*. Milestone 3 adds the frequency: over the 4,096 integer offsets a
+64 × 64 raster produces, `js_hypot` and `f64::hypot` disagree on **1,398** —
+better than a third, all by one ulp. It still took a 64 × 48 quantised raster
+(`tiesWide`) to build a golden that notices, because a one-ulp difference only
+bites when it makes or breaks an exact `f` tie. The requirement is therefore
+asserted directly as well as golden-enforced.
+
+#### What the reference's A\* actually is
+
+Worth writing down, because a later reader will otherwise "fix" it:
+
+- The heuristic is `0.9 ×` Euclidean distance **in cells**, while a step costs
+  the trapezoidal mean of two raster values that are metres-scaled (`c·CS`, on
+  the order of 8-2000). It is therefore wildly *under*-weighted normally and
+  *over*-weighted wherever the raster is cheap.
+- There is **no closed set** and no stale-entry check, so cells are re-expanded.
+- `if (i === gi) break` stops on the first *pop* of the goal, which under an
+  inadmissible heuristic need not be its cheapest path.
+
+So the search is **reproducible, not optimal**, and the golden path is the
+specification. A correctness-improving rewrite would silently move every primary
+route, and with it every block, parcel and building grown against it.
+
+#### Non-finite cost is the only route to `null`
+
+An 8-connected full grid has no unreachable cell, so `astar` can only return
+`null` by arithmetic: an `Infinity` tentative cost fails `c < g0[ni]`, and a
+`NaN` one fails it too — every comparison against NaN is false in Rust exactly
+as in JS. Both are pinned by goldens (`moat`, `nanSeals`), and the NaN case is
+one of the few places in this port where JS and Rust NaN semantics agreeing is
+load-bearing rather than incidental.
+
+#### One deliberate divergence, stated plainly
+
+An out-of-range `start`/`goal` **panics** in this port. The reference reads past
+its typed arrays, gets `undefined`, and — because `undefined === Infinity` is
+false — sails past its own guard and produces nonsense. Its only caller
+(`buildPrimaries`' `toCell`) clamps to `[1, W-2] × [1, H-2]` first, so the branch
+is unreachable in the engine; loud beats silent for a case that cannot happen.
+
+#### The slice assertions, and one improvement over milestone 2's
+
+Same contiguous 28167-31103 slice plus line 2291, same balance scan with
+milestone 2's orphan-close counter. Re-run as a negative control:
+
+| deliberately wrong slice | balance scan | structural asserts |
+|---|---|---|
+| ends inside a block comment | caught (depth 1) | caught |
+| starts 3 lines into the header | caught (1 orphan `*/`) | caught |
+| starts **1** line into the header | **not caught** | **caught** |
+| starts at the `<script>` tag | not caught | caught |
+| ends one line early | not caught | caught |
+
+Milestone 2's residual hole is confirmed to still exist and is confirmed to be
+covered. The improvement made here: the first structural assertion is tightened
+from "the slice *contains* the `UME` IIFE header" to "**the slice's first line
+is** block 4's header comment opening", which is what catches the one-line-late
+case directly rather than by luck. A fourth assertion was added as a live
+negative control in the other direction — block 4 must **not** define
+`mulberry32`, since the whole reason line 2291 is spliced in is that it falls
+through to block 1.
+
+The capture also refuses to write a file unless every path is non-empty, starts
+at its start cell, ends at its goal cell, the two deliberately-sealed scenarios
+really returned `null`, and the whole capture exceeds 300 path cells — the
+explicit emptiness gate that three earlier subsystems in this project needed and
+did not have.
+
+#### One tooling trap worth recording
+
+The first mutation run reported two false survivors. Cause: `cargo`'s freshness
+check is mtime-based, and a mutation written into the same second as the
+previous build was silently not rebuilt; and one mutation pattern
+(`dl * 0.5 *`) matched inside the function's **doc comment** before it matched
+the code, so `String.replace`'s first-occurrence rule mutated a comment and
+nothing else. Both were caught by hand-checking a "survivor" and finding it dies
+immediately. Any later milestone that mutation-tests should stamp the file's
+mtime forward and anchor its patterns on code that cannot appear in prose.
+
+#### Corrections to later milestones
+
+1. **Milestone 5's range is right; milestone 3's was not.** `astar` ends at
+   28547, not 28556. Nothing else moves — `shoreFromMask` really does start at
+   28557.
+2. **Milestone 6 must not "improve" the search.** `buildPrimaries` runs `astar`
+   once per external route endpoint over a **copy** of the cost raster with the
+   already-used cells multiplied by `0.45`, so the reinforcement is order-
+   dependent on `site.routeEnds` and each run inherits the previous run's exact
+   cell set. Any change to which cells a path occupies compounds across routes.
+3. **The port's `astar` takes `(usize, usize)` cell coordinates and panics out
+   of range.** Milestone 6 must reproduce `toCell`'s clamp
+   (`max(1, min(W-2, round(p.x/CS)))`) itself rather than relying on the search
+   to tolerate a stray endpoint.
+4. **Milestone 12 and 13 will hit the same coverage trap.** `buildBlocks` and
+   `buildParcels` compare areas and lengths against thresholds; goldens built
+   only on continuous random inputs will not exercise their tie-breaks either.
+   Build at least one quantised or symmetric fixture per milestone from here on,
+   and mutation-check rather than assuming a full state dump is enough.
 
 ### Milestone 4 — generation rules + culture profiles (lines 28212-28289, 8 functions)
 
@@ -526,6 +681,28 @@ counter was added — it catches the three-lines-late variant — and the residu
 hole is covered by the two structural assertions, which are what actually pin
 the boundary. See milestone 2's section for the table. **The balance assert is
 necessary, not sufficient; keep the structural asserts.**
+
+Milestone 3 re-ran the same negative control (confirming the hole is still
+there and still covered) and **tightened the first structural assertion**: from
+"the slice *contains* the `UME` IIFE header" to "**the slice's first line is**
+block 4's header comment opening", which catches the one-line-late case directly
+rather than incidentally. It also added a fourth assertion as a live negative
+control in the other direction — block 4 must **not** define `mulberry32`, since
+the entire reason line 2291 is spliced in is that it falls through to block 1.
+Use that version.
+
+**And a golden that passes is not a golden that tests anything.** Milestone 3
+wrote seventeen scenarios that reproduced the reference exactly, then found by
+mutation testing that **nine of fifteen** mutations survived them — because a
+continuously-valued input never produces an exact tie, so no tie-break was ever
+observed. Every milestone from here on should mutation-check its constants and
+comparators and should include at least one **quantised or symmetric** fixture
+alongside its random ones. Report survivors rather than hiding them; both
+milestones that have done so found their survivors were genuinely dead branches,
+which is itself worth knowing. Add an explicit **emptiness / shape gate** to the
+capture script too (non-empty output, right endpoints, expected `null`s really
+`null`) — three subsystems in this project have shipped a harness that produced
+silently empty output and passed every structural check.
 
 Where `_test` or the public export reaches a function, expected values are the
 reference's own output. Where it does not (`polySelfIntersects` is the only
