@@ -11528,3 +11528,101 @@ exit 0. Eight new tests in `tests/appearance_tiers.rs` (synthetic 128×79 field,
 no generator, 40 ms — belongs in the ordinary sweep). Mutation-tested: forcing
 `paper_tone`'s mottle branch off and collapsing `Balanced` into `Quality` were
 each introduced deliberately and each caught by the intended test.
+
+## JS-semantics fidelity audit — the whole workspace, at last (2026-08-18)
+
+Not a milestone: a verification pass. Five JS-vs-Rust semantic divergences had
+been found over this port's life, each by whichever milestone tripped over it,
+each *after* the code had passed golden tests, and nobody had ever swept all
+fourteen crates for the rest of them. `JS_SEMANTICS_AUDIT.md` (new, repo root)
+is that sweep and is written to be read *before* porting, not after a fixture
+disagrees.
+
+**Two real bugs found and fixed, both in `cartalith-spatial`, both proved with
+a test that fails before and passes after.**
+
+1. **`PaintStamp::apply` painted rim cells the reference skips.** `_paintAt`'s
+   gate is `Math.hypot(dx,dy) > R`, and the module comment said the exact rim
+   set depends on it — then used `f64::hypot`, which disagrees with V8 on
+   **1 398 of the 4 096** integer offsets in `[0,64)²`. An exhaustive scan of
+   every integer radius `1..=512` finds 25 radii where a *cell* actually
+   changes, the first at `R = 125`: `35² + 120² = 125²`, so the true distance
+   is exactly the radius, `f64::hypot` returns `125.0` and paints, and V8
+   returns `125.00000000000001421` and skips. Eight cells per stamp. Not live
+   (the reference's sliders cap the radius at 40 and 20), but `PaintStamp::new`
+   takes an uncapped `f64`, and the invariant the module claimed — "for every
+   integer radius … identical" — was simply false; the real one was "R < 125".
+   Fixed by computing V8's `Math.hypot`.
+
+2. **`js_to_fixed` rounded down on roughly one value in ten.** The
+   `Number.prototype.toFixed` behind **every GeoJSON coordinate and way
+   length**. `round_up = first > 5 || (tie && !neg)` carried two bugs: a first
+   dropped digit of `5` with any nonzero tail rounded *down* (`9.051 -> 9.0`
+   where V8 gives `9.1`; `286.4957967118851 -> 286.49` where V8 gives
+   `286.50`), and a negative tie rounded toward zero (`-0.0625 -> -0.062`;
+   ECMA-262 21.1.3.3 step 6 strips the sign *before* picking "the larger n", so
+   V8 gives `-0.063`). Both collapse to one rule — round the magnitude, ties
+   away from zero — so the fix is `round_up = first >= 5`.
+
+   **`golden_parity_geojson.rs` calls this function on every feature it exports
+   and could not see either bug**, and passes unmodified now: its world is
+   600 km over 12 cells, so `cell_km` is exactly `50` and every coordinate it
+   rounds is already an integer, and its one fractional value (`38.4567` km)
+   has `6` as its first dropped digit — the branch that was right. A fixture
+   chosen to cover every *feature type* covered no *rounding branch*. Worse, a
+   unit test asserted `js_to_fixed(-0.0625, 3) == -0.062`, pinning the second
+   bug: it had been written from a paraphrase of the spec rather than from
+   `node`. That assertion is the only expected value this pass changed, and its
+   replacement is V8's own output.
+
+**One new divergence found, not yet ported — and it is the largest in the
+workspace.** `Math.atan2` disagrees with `f64::atan2` on **22.98 %** of
+arguments (200 000 samples against `node`), versus 9.52 % for `exp`, 3.40 % for
+`ln` and 2.34 % for `sin`/`cos`. Eight live sites, no `js_atan2` anywhere. The
+structural one is `cartalith-hydrology::build_channels`, whose
+`0.5 + 0.5·cos(da)` steering factor differs from V8 on **12.97 %** of aspects
+and feeds a `score > best_score` argmax that picks the cell a river flows into.
+Recommended as the next thing to port, into the urban fork's FDLIBM block
+beside the `js_sin`/`js_cos`/`js_log` it is currently adding.
+
+**The helpers disagree with each other, in three measured ways, none live.**
+`js_round`: six crates use `(x + 0.5).floor()`, which differs from V8 on
+**exactly one** double, `0.49999999999999994` (`cartalith-terrain`'s comment
+calling it "the standard exact equivalent" is wrong). `js_hypot`: three of the
+four copies lack the spec preamble, so `hypot(∞, 3)` gives `NaN` instead of `∞`
+and `hypot(NaN, 0)` gives `0` instead of `NaN`. `js_min`: `-terrain::amplify`
+and `-urban`/`-civ` disagree on `min(+0, -0)`. All recorded rather than fixed —
+six cross-crate edits for one unreachable input is the wrong trade with three
+forks in flight.
+
+**Recommended, deliberately not done: a `cartalith-jsmath` leaf crate.** Seven
+copies of `js_hypot`, seven of `js_round`, three of `js_min`/`js_max`, two of
+`toFixed`. A dependency-free crate below `-noise`/`-rng` is the only shape that
+reaches all fourteen (`-urban` sees only `-rng`; `-assets` only `-io`/`-noise`),
+and it does not disturb `ARCHITECTURE.md`'s one-way ordering. Blocked on the
+urban fork, which is actively editing the file that would move.
+
+**Reviewed and believed safe, with the invariant, so the next reader does not
+re-derive it.** The D8 neighbour tables in `-erosion`/`-gpu`/`-hydrology` are
+`hypot(dx,dy)` for `dx,dy ∈ {-1,0,1}` and are **bit-identical** to V8 on all
+nine values. `f64::clamp` already propagates NaN exactly as
+`Math.max(lo, Math.min(hi, x))` does, which is why divergence #3 has almost no
+live surface left — only two hand-written `lo.max(hi.min(x))` sites remain, and
+neither is NaN-reachable. Every `0/0` candidate feeding a clamp is guarded at
+the *source* (`flow_max`'s `if raw > 0.0`, `slope_max`'s constant `4.0`). And
+`build_npp`'s `exp` was measured rather than assumed: over **10 million**
+temperature samples, swapping `f64::exp` for `js_exp` changed the stored `f32`
+zero times, because an `f32` store is 10⁸ times coarser than the divergence.
+The full site-by-site verdict list, including the sites that are *probably*
+fine and cannot be proved so, is §4 of the audit.
+
+**Verified.** `cargo test --workspace --exclude cartalith-godot`: **1131 passed
+/ 0 failed** across 96 suites, against a **1128 / 0** baseline taken
+immediately before — the delta is exactly the three tests added, and no
+pre-existing golden moved. `cargo clippy -p cartalith-spatial --all-targets`
+clean, zero warnings. Both fixes confirmed to fail before and pass after by
+reverting the one-line change and re-running. `cartalith-godot` excluded for
+the documented DLL-lock transient. `cargo fmt` not run. Nothing Godot-scene-side
+was touched (UI hold, `DCC_SHELL_SCOPE.md`), and `cartalith-urban` and
+`cartalith-godot/src/render.rs` were audited and reported on but not edited, so
+the two active forks are untouched.

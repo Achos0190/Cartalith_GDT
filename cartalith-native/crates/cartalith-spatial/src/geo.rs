@@ -62,6 +62,35 @@ pub type Ring = Vec<(i32, i32)>;
 /// would need ~26 more fractional bits that are all zero — impossible. So
 /// formatting to 30 places and rounding the *string* is exact, not an
 /// approximation.
+///
+/// # Two rounding bugs the `JS_SEMANTICS_AUDIT.md` sweep found here
+///
+/// Both were in one expression, `round_up = first > 5 || (tie && !neg)`.
+///
+/// 1. **A first dropped digit of `5` with a nonzero tail rounded *down*.**
+///    `9.051` came out `9.0` where V8 gives `9.1`, and `286.4957967118851`
+///    came out `286.49` where V8 gives `286.50`. This is not a last-place
+///    nicety: it is a whole unit in the last kept place, and it fires on
+///    roughly one value in ten, because it only needs the first dropped digit
+///    to be `5` and anything after it to be nonzero. Every GeoJSON coordinate
+///    and every way length passes through here.
+/// 2. **A tie on a negative value rounded toward zero.** ECMA-262 21.1.3.3
+///    strips the sign at step 6 and picks "the larger n" against the
+///    *magnitude*, so `(-0.0625).toFixed(3)` is `"-0.063"`, not `"-0.062"` —
+///    the same direction as the positive tie, not the mirror of it.
+///
+/// Neither could be caught by `golden_parity_geojson.rs`, and the reason is
+/// worth keeping: its world is 600 km over 12 cells, so `cell_km` is exactly
+/// `50` and **every coordinate it rounds is already an integer**. Its one
+/// deliberately-fractional value, a way of `38.4567` km, has `6` as its first
+/// dropped digit — the branch that was correct. The fixture reaches the
+/// function on every feature and still cannot see either bug.
+///
+/// `cartalith-civ`'s own `js_fixed`, written independently for the same
+/// conversion, has neither bug; 60 000 differential cases against V8 agree
+/// with it exactly.
+///
+/// [`geo_xy`]: crate::geo::geo_xy
 pub fn js_to_fixed(v: f64, d: usize) -> f64 {
     if !v.is_finite() {
         return v;
@@ -72,14 +101,24 @@ pub fn js_to_fixed(v: f64, d: usize) -> f64 {
     let digits: Vec<u8> = s.bytes().filter(|b| b.is_ascii_digit()).map(|b| b - b'0').collect();
     let int_len = dot;
     let keep = int_len + d; // how many digits survive
-    // Round half-up on the magnitude. ECMA's "larger n" is half-up on the
-    // SIGNED value, so a negative ties toward zero -- which is half-down on
-    // the magnitude.
+    // Round the MAGNITUDE to nearest, ties away from zero -- which is what
+    // ECMA-262 21.1.3.3's "pick the larger n" comes to once step 6 has stripped
+    // the sign ("If x < 0, then set s to \"-\" and x to -x"). `n` is chosen
+    // against |x| and the "-" is re-attached afterwards, so both halves of the
+    // rule are decided on the magnitude:
+    //
+    // - remainder > 1/2 (first dropped digit > 5, or == 5 with any nonzero
+    //   digit after it) -> up;
+    // - remainder == 1/2 exactly (first dropped digit 5, all zeroes after)
+    //   -> up as well, because the tie goes away from zero on both signs;
+    // - remainder < 1/2 -> down.
+    //
+    // Those three collapse to `first >= 5`, with no special case for the tie
+    // and none for the sign.
     let mut out = digits[..keep].to_vec();
     let rest = &digits[keep..];
     let first = rest.first().copied().unwrap_or(0);
-    let tie = first == 5 && rest[1..].iter().all(|&x| x == 0);
-    let round_up = first > 5 || (tie && !neg);
+    let round_up = first >= 5;
     if round_up {
         let mut i = keep;
         loop {
@@ -365,9 +404,79 @@ mod tests {
         assert_eq!(js_to_fixed(0.0625, 3), 0.063);
         assert_eq!(format!("{:.3}", 0.0625_f64), "0.062"); // what NOT to use
         assert_eq!(js_to_fixed(0.1875, 3), 0.188);
-        // ...and the signed rule: "the larger n" means a negative tie goes
-        // toward zero, not away from it.
-        assert_eq!(js_to_fixed(-0.0625, 3), -0.062);
+    }
+
+    /// Every branch of `Number.prototype.toFixed`'s rounding, against V8.
+    ///
+    /// Two of these could not pass before the `JS_SEMANTICS_AUDIT.md` sweep,
+    /// because `round_up` was `first > 5 || (tie && !neg)`:
+    ///
+    /// - **first dropped digit `5` with a nonzero tail rounded DOWN.**
+    ///   `9.051 -> 9.0` (V8: `9.1`), `286.4957967118851 -> 286.49`
+    ///   (V8: `286.50`). A whole unit in the last kept place, on roughly one
+    ///   value in ten, on every exported coordinate and way length.
+    /// - **a negative tie rounded toward zero.** `-0.0625 -> -0.062`
+    ///   (V8: `-0.063`). ECMA-262 21.1.3.3 strips the sign at step 6, so
+    ///   "the larger n" is chosen against the magnitude and the tie goes away
+    ///   from zero on both signs.
+    ///
+    /// Every expectation is `+v.toFixed(d)` read off `node`, not this port's
+    /// output. `0.12345 -> 0.123` and `0.15 -> 0.1` look like counterexamples
+    /// and are not: the nearest doubles to those decimals are *below* them
+    /// (`0.1234499999...`, `0.1499999999...`), so neither is a tie and neither
+    /// rounds up — which is exactly why the rule has to be read off the exact
+    /// binary expansion rather than the decimal literal.
+    ///
+    /// `golden_parity_geojson.rs` reaches this function on every feature it
+    /// exports and still cannot see either bug: its world is 600 km over 12
+    /// cells, so `cell_km` is exactly `50` and every coordinate it rounds is
+    /// an integer, and its one fractional value (`38.4567` km) has `6` as its
+    /// first dropped digit — the branch that was right.
+    #[test]
+    fn js_to_fixed_matches_v8_on_every_rounding_branch() {
+        #[rustfmt::skip]
+        const CASES: &[(f64, usize, f64)] = &[
+            // first dropped digit 5, nonzero tail -> up (bug 1)
+            (9.051_f64, 1, 9.1_f64),
+            (-9.051_f64, 1, -9.1_f64),
+            (286.4957967118851_f64, 2, 286.5_f64),
+            (-286.4957967118851_f64, 2, -286.5_f64),
+            // exact tie -> away from zero, both signs (bug 2 on the negatives)
+            (0.0625_f64, 3, 0.063_f64),
+            (-0.0625_f64, 3, -0.063_f64),
+            (0.1875_f64, 3, 0.188_f64),
+            (-0.1875_f64, 3, -0.188_f64),
+            (2.5_f64, 0, 3.0_f64),
+            (-2.5_f64, 0, -3.0_f64),
+            (1.5_f64, 0, 2.0_f64),
+            (-1.5_f64, 0, -2.0_f64),
+            (1.25_f64, 1, 1.3_f64),
+            (-1.25_f64, 1, -1.3_f64),
+            // first dropped digit > 5 -> up (the branch that always worked)
+            (38.4567_f64, 2, 38.46_f64),
+            (-38.4567_f64, 2, -38.46_f64),
+            (9.9999_f64, 3, 10.0_f64), // carry all the way out
+            (-9.9999_f64, 3, -10.0_f64),
+            // first dropped digit < 5 -> down
+            (0.12345_f64, 3, 0.123_f64),
+            (-0.12345_f64, 3, -0.123_f64),
+            (0.4999_f64, 0, 0.0_f64),
+            (-0.4999_f64, 0, 0.0_f64),
+            (0.15_f64, 1, 0.1_f64),
+            (-0.15_f64, 1, -0.1_f64),
+            (0.05_f64, 1, 0.1_f64),
+            (-0.05_f64, 1, -0.1_f64),
+            // cell_km values a non-power-of-two map really produces
+            (3.3333333333333335_f64, 3, 3.333_f64),  // 1000 km / 300 cells
+            (-3.3333333333333335_f64, 3, -3.333_f64),
+            (24.030927835051546_f64, 2, 24.03_f64),  // 3 * (777 / 97)
+            (-24.030927835051546_f64, 2, -24.03_f64),
+            (1.953125_f64, 3, 1.953_f64),            // 1000 km / 512 cells
+            (50.0_f64, 3, 50.0_f64),                 // 600 km / 12 cells
+        ];
+        for &(v, d, want) in CASES {
+            assert_eq!(js_to_fixed(v, d), want, "js_to_fixed({v}, {d})");
+        }
     }
 
     #[test]

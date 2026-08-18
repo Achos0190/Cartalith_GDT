@@ -80,6 +80,9 @@ pub struct PaintStamp {
     /// fractional value degrades sensibly instead. For every integer radius,
     /// which is every radius the reference can produce, the two are
     /// identical.
+    ///
+    /// The distance test itself uses [`js_hypot`], not `f64::hypot` — see
+    /// that function for the measured rim-cell divergence this fixes.
     pub radius: f64,
     /// The 1-based palette index to write, or `0` to erase (`_paintErase`).
     pub value: u8,
@@ -168,8 +171,9 @@ impl Stamp for PaintStamp {
                     continue;
                 }
                 // JS `Math.hypot(dx,dy) > R` -- the comparison, and so the
-                // exact set of rim cells, is on the raw radius.
-                if (dx as f64).hypot(dy as f64) > self.radius {
+                // exact set of rim cells, is on the raw radius, and on V8's
+                // `Math.hypot` rather than Rust's (see `js_hypot`).
+                if js_hypot(dx as f64, dy as f64) > self.radius {
                     continue;
                 }
                 let i = y as usize * width + x as usize;
@@ -182,6 +186,58 @@ impl Stamp for PaintStamp {
             }
         }
     }
+}
+
+/// `Math.hypot(x, y)` as V8 computes it — **not** `f64::hypot`.
+///
+/// V8 scales by the larger magnitude and Kahan-sums the squared ratios
+/// (`max * sqrt(Σ (vᵢ/max)²)`); Rust's `f64::hypot` is a different, correctly
+/// rounded algorithm. They disagree on **1,398 of the 4,096** integer offsets
+/// `(dx, dy) ∈ [0, 64)²` that [`PaintStamp::apply`] feeds them.
+///
+/// Almost all of those disagreements are invisible here, because only the
+/// boolean `hypot(dx, dy) > R` is used and the two values straddle `R` only
+/// when the true distance is *exactly* `R`. That needs `dx² + dy² == R²` — a
+/// Pythagorean triple. The smallest one this brush can reach is
+/// **(35, 120, 125)**: the true distance is exactly 125, so `f64::hypot`
+/// returns `125.0` and the cell is painted, while V8 returns
+/// `125.00000000000001421` and the reference **skips** it. An exhaustive scan
+/// of every integer radius `1..=512` finds 25 such radii, the first at
+/// `R = 125`, and none below it.
+///
+/// The reference's own sliders cap `_paintRadius` at 40 and `_civTerRadius` at
+/// 20, so the divergence is unreachable *through its UI* — but [`PaintStamp`]
+/// takes an uncapped `f64`, so the invariant that saves it is "R < 125", not
+/// "R is an integer" as this module previously claimed. Reproducing V8 removes
+/// the need for the invariant at all.
+///
+/// The infinity/NaN ordering is the spec's (`Math.hypot(∞, NaN)` is `∞`, not
+/// `NaN`), which the scaling loop alone would get wrong. `dx`/`dy` here are
+/// always finite integers, so that path is unreachable from this module; it is
+/// written correctly anyway so this copy cannot be the odd one out if it is
+/// ever reused (`JS_SEMANTICS_AUDIT.md` catalogues the copies that are).
+fn js_hypot(x: f64, y: f64) -> f64 {
+    if x.is_infinite() || y.is_infinite() {
+        return f64::INFINITY;
+    }
+    if x.is_nan() || y.is_nan() {
+        return f64::NAN;
+    }
+    let (ax, ay) = (x.abs(), y.abs());
+    let max = if ay > ax { ay } else { ax };
+    if max == 0.0 {
+        return 0.0;
+    }
+    let mut sum = 0.0f64;
+    let mut compensation = 0.0f64;
+    for v in [ax, ay] {
+        let n = v / max;
+        let summand = n * n - compensation;
+        let preliminary = sum + summand;
+        compensation = (preliminary - sum) - summand;
+        sum = preliminary;
+    }
+    sum.sqrt() * max
 }
 
 /// One override grid: `0` = unpainted, else a 1-based palette index.
@@ -341,6 +397,69 @@ mod tests {
 
     const W: usize = 16;
     const H: usize = 16;
+
+    /// The rim-cell divergence [`js_hypot`] exists for, at the smallest radius
+    /// that can reach it.
+    ///
+    /// `(35, 120, 125)` is a Pythagorean triple, so the true distance from the
+    /// brush centre to those cells is *exactly* the radius. V8's `Math.hypot`
+    /// is one ulp high there — `125.00000000000001421` — so `_paintAt`'s
+    /// `if(Math.hypot(dx,dy)>R) continue` **skips** them. Rust's `f64::hypot`
+    /// is correctly rounded, returns exactly `125.0`, and paints them. Eight
+    /// cells per stamp, on the exact rim the module doc claims to reproduce.
+    ///
+    /// Verified against V8 directly (`node -e "Math.hypot(35,120)"`), not
+    /// against this port's own output.
+    ///
+    /// No pre-existing fixture could have caught this: every `PaintStamp` test
+    /// in this crate, and `cartalith-civ`'s territory-brush golden, uses a
+    /// radius of 6 or less, and an exhaustive scan of `1..=512` shows the
+    /// first radius where the two algorithms disagree *about a cell* is 125.
+    #[test]
+    fn rim_cells_on_a_pythagorean_triple_follow_v8_not_rust_hypot() {
+        const G: usize = 251; // 2*125 + 1
+        const C: i64 = 125;
+        let mut dst = vec![0u8; G * G];
+        PaintStamp::ungated(C, C, 125.0, 7).apply(&mut dst, G, G);
+
+        let at = |dx: i64, dy: i64| dst[((C + dy) as usize) * G + (C + dx) as usize];
+        for (dx, dy) in [(35, 120), (120, 35)] {
+            for (sx, sy) in [(1, 1), (1, -1), (-1, 1), (-1, -1)] {
+                assert_eq!(
+                    at(dx * sx, dy * sy),
+                    0,
+                    "cell ({}, {}) is at distance exactly 125; V8's Math.hypot                      reports 125.00000000000001421, so the reference skips it",
+                    dx * sx,
+                    dy * sy
+                );
+            }
+        }
+        // ... and the cells just inside it are still painted, so the test is
+        // not passing because the whole stamp went missing.
+        assert_eq!(at(35, 119), 7);
+        assert_eq!(at(34, 120), 7);
+        assert_eq!(at(0, 125), 7); // exactly on the rim, but not a triple
+    }
+
+    /// The other half of the same claim: for every radius the reference's own
+    /// sliders can produce (`_paintRadius` 1..=40, `_civTerRadius` 1..=20),
+    /// [`js_hypot`] and `f64::hypot` choose the *same* cells — so this change
+    /// cannot have moved any existing golden.
+    #[test]
+    fn below_radius_125_the_two_hypots_agree_on_every_cell() {
+        for r in 1..=124i64 {
+            for dx in -r..=r {
+                for dy in -r..=r {
+                    let (a, b) = (dx as f64, dy as f64);
+                    assert_eq!(
+                        js_hypot(a, b) > r as f64,
+                        a.hypot(b) > r as f64,
+                        "r={r} dx={dx} dy={dy}"
+                    );
+                }
+            }
+        }
+    }
 
     fn land() -> Arc<[u8]> {
         vec![0u8; W * H].into()
