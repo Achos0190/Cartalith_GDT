@@ -1,2 +1,5 @@
 # Parallel-agent worktrees — local scratch, not source.
 .claude/worktrees/
+
+# Export artifacts — built locally per platform, not source.
+cartalith-native/builds/
