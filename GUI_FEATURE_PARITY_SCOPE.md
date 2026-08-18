@@ -23,11 +23,16 @@
 > engine's own table. Items 2, 3, 4 and item 7's readout half were
 > genuinely still unwired and were built as the world-data browser and the
 > performance readout (`CHANGELOG.md`, *GUI parity Category-1 sweep*).
-> Item 5 is **re-classified as Category 2**, not done: `civ_culture_
+> Item 5 was **re-classified as Category 2**, not done: `civ_culture_
 > terrain_fit` is real, but it takes a per-faction `terrain_mix` and a
-> `world_mean_terrain` that nothing computes, so it needs the
-> `_civFactionAggregates` aggregation `ECONOMY_SCOPE.md` still lists as
-> unstarted — a `cartalith-civ` milestone, not a wiring job. Item 7's
+> `world_mean_terrain` that nothing computed, so it needed the
+> `_civFactionAggregates` aggregation `ECONOMY_SCOPE.md` then listed as
+> unstarted — a `cartalith-civ` milestone, not a wiring job. **That
+> milestone has since landed** (Phase 2 milestone 20, 2026-08-18):
+> `cartalith_civ::civ_faction_aggregates` computes both maps, golden-verified,
+> and its own golden test calls `civ_culture_terrain_fit` straight off the
+> result. Item 5 is a **wiring job again** — a `#[func]` and a panel — held
+> only by the owner's UI hold, not by a missing engine piece. Item 7's
 > *toggle* half stays deferred with its reason on screen (a present,
 > disabled checkbox in the performance readout).
 >
@@ -135,23 +140,32 @@ its reasoning about the engine is what made each row cheap):
 | 2 | Settlements table | **done, this milestone** | `Simulate ▸ Statistics…`, Settlements tab — sortable, filterable, row click pins the causal chain in Properties |
 | 3 | Trade balance / Economy | **done, this milestone** | `Simulate ▸ Economy…`, Economy tab |
 | 4 | Province list | **done, this milestone** | `Simulate ▸ Statistics…`, Provinces tab (boundaries still render from the Layers dock) |
-| 5 | Faction culture-terrain-fit | **re-classified Category 2** | needs `_civFactionAggregates`' per-faction terrain mix first — see the note below |
+| 5 | Faction culture-terrain-fit | **engine unblocked 2026-08-18**, GUI still to build | `_civFactionAggregates` is ported (`civ_faction_aggregates`), so both maps exist; a `#[func]` + a panel is all that is left — see the note below |
 | 6 | Planet gravity / rotation / tilt | done, `88c15f0` + `a11c2d7` | `Generate ▸ Climate…`, PLANET section |
 | 7 | GPU status / toggle | readout **done, this milestone**; toggle deferred | `View ▸ Performance readout…` — six stages, GPU or CPU each; the toggle is a present, disabled checkbox carrying its reason |
 | 8 | World Structure raw sliders | done, `88c15f0` + `a11c2d7` | `Generate ▸ Tectonics…`, WORLD STRUCTURE section (plus `apply_archetype()`, so a preset writes those same five sliders) |
 | 9 | Layer granularity | done, DCC shell m1 | Layers dock — Settlements / Roads & ways / Sea routes as three toggles |
 | 10 | Click-to-pin selection | done, DCC shell m1 | Properties dock |
 
-**Item 5, the one correction to this document's own classification.**
-`civ_culture_terrain_fit`'s signature is
-`(culture_key, terrain_mix, world_mean_terrain)`. Neither map exists
-anywhere in this workspace — computing them *is* the territory-aggregation
-piece `ECONOMY_SCOPE.md` lists as unstarted and this document lists under
-Category 2 medium (`_civFactionAggregates`). So it is not a `#[func]` away;
-adding one would only produce a function with no argument to call it with.
-This row moves to Category 2 and folds into that milestone. The original
-text below already hedged it as "a half-step into Category 2"; this is that
-hedge resolved rather than re-litigated.
+**Item 5, the one correction to this document's own classification —
+and its resolution.** `civ_culture_terrain_fit`'s signature is
+`(culture_key, terrain_mix, world_mean_terrain)`. When this sweep ran,
+neither map existed anywhere in this workspace — computing them *is* the
+territory-aggregation piece `ECONOMY_SCOPE.md` listed as unstarted and this
+document lists under Category 2 medium (`_civFactionAggregates`). So it was
+not a `#[func]` away; adding one would only have produced a function with no
+argument to call it with. This row moved to Category 2 and folded into that
+milestone.
+
+**Resolved 2026-08-18** by Phase 2 milestone 20, which ported
+`_civFactionAggregates` in full as `cartalith_civ::civ_faction_aggregates`
+(`ECONOMY_SCOPE.md`). `FactionAggregate::terrain_mix` and
+`FactionAggregates::world_mean_terrain` are real, golden-verified
+`HashMap<&str, f64>`s that drop straight into the existing signature — the
+milestone's own golden test calls exactly that, for seven cultures across
+seven factions in two fixtures. The engine half is done; what is left is the
+`#[func]` and the panel, deferred only by the owner's UI hold
+(`DCC_SHELL_SCOPE.md`, 2026-08-18), not by anything missing underneath.
 
 | # | Control | Real backing | What's missing |
 |---|---|---|---|
@@ -159,7 +173,7 @@ hedge resolved rather than re-litigated.
 | 2 | **Settlements table** (`CIVILIZATION:Settlements`) | `get_settlements()` returns full per-settlement data today | Only a hover card + Inspector panel exist; no persistent, sortable/searchable table (the hint text itself says "a dedicated searchable/sortable table here is not yet built") |
 | 3 | **Trade balance / Economy panel** (`CIVILIZATION:Economy`) | `get_trade_balances()` — real, per-settlement export/import lists, computed every generate, zero GUI consumer anywhere | An Economy panel listing exports/imports per settlement (or aggregated) |
 | 4 | **Province list** (`CIVILIZATION` — no current subject owns this) | `get_provinces()` — real, id/faction/name/capital-settlement-index per province, computed every generate | No UI reads it at all; province *boundaries* render (checkbox), but no province *identity* (name, owning faction) is ever shown |
-| 5 | **Faction culture-terrain-fit** | `cartalith_civ::civ_culture_terrain_fit` — ported, real-unit-tested, **no `#[func]` yet** | Needs a `#[func]` plus the small per-faction terrain-mix aggregation `ECONOMY_SCOPE.md` flags as still-unstarted — this one is a half-step into Category 2, noted honestly rather than force-fit |
+| 5 | **Faction culture-terrain-fit** | `cartalith_civ::civ_culture_terrain_fit` — ported, real-unit-tested, **no `#[func]` yet**; its two inputs now exist too (`civ_faction_aggregates`, Phase 2 m20, 2026-08-18) | Needs a `#[func]` plus a panel. The terrain-mix aggregation this row used to be blocked on is **done and golden-verified**; only the wiring is left |
 | 6 | **Planet parameters** (gravity, day length, axial tilt — `World` menu's "Planet" section) | `PlanetParams { g, rotation_hours, axial_tilt_deg }` — real fields, `axial_tilt_deg` confirmed live in climate (`compute_temperature`/`simulate_weather` call sites) | No `WorldGen` setter exists at all — `WorldParams::defaults` hardcodes `g:1.0, rotation:24h, tilt:23.4°` for every generate. A `set_planet_params(g, rotation_hours, axial_tilt_deg)` mirroring `set_sea_level`'s own shape is close to the entire fix. |
 | 7 | **GPU acceleration status/toggle** (`World` menu's "Source & resolution" section) | `WorldParams::use_gpu` — real, `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6, per-stage CPU fallback already implemented, `WorldState.gpu_stages_used` already records which path ran | `WorldGen` never sets this to `true`, and nothing surfaces `gpu_stages_used` to the GUI. A checkbox + a readout line, no new engine work. |
 | 8 | **World Structure raw sliders** (`World` menu's "World structure" section: continentality/fragmentation/tectonic energy/ocean depth/hotspot density) | `WorldStructureParams` already takes five raw `f64`s — `generate_world_structure()`'s `#[func]` hardcodes exactly five named presets and has no path for caller-supplied raw values | A `generate_world_structure_custom(seed, width_km, resolution, continentality, fragmentation, tectonic_energy, ocean_depth, hotspot_density)` `#[func]` (or an optional-override variant of the existing one) plus five sliders. The reference's own presets are almost certainly *also* just named points on these same five sliders — worth confirming against `reference/Cartalith Gen1 v2.10.html`'s own World-Structure panel before building, but the Rust-side gap is exactly this narrow. |
@@ -238,12 +252,17 @@ placement → the `Label`/`Icon stamp` tools on the left rail plus
   cheap to port (arbitrary labels, not simulation), while the roster
   *mechanics* (add/remove, persistent identity across a session) are new
   Rust-side state that doesn't exist yet.
-- **`_civFactionAggregates`** (population, tax, five-axis "power" heuristic,
-  sector output, territory-fit) — the 165-line piece `ECONOMY_SCOPE.md`
-  explicitly deferred as its own milestone. Real, medium-sized, blocked on
-  deciding how much of the heuristic "power" composite is worth porting
-  verbatim vs. simplifying (the reference's own comment already calls parts
-  of it an explicitly-labeled heuristic, not simulation).
+- ~~**`_civFactionAggregates`**~~ **— done 2026-08-18** (Phase 2 milestone
+  20, `ECONOMY_SCOPE.md`). Population, tax, the five-axis "power" heuristic,
+  sector output and territory-fit are all ported as
+  `cartalith_civ::civ_faction_aggregates`, golden-verified over two fixtures
+  plus 8 unit tests and a mutation sweep. The open question this row named —
+  port the heuristic "power" composite verbatim or simplify it — was decided
+  **verbatim**: the reference labels it honestly as derived/heuristic, and
+  simplifying would have meant inventing a different heuristic with nothing
+  to check it against. What remains here is GUI only: a faction roster,
+  whose *mechanics* (add/remove, persistent identity) are still new Rust-side
+  state that does not exist.
 - **Terrain appearance GUI** (`Map > Terrain appearance`, all of §5b in
   `design/cartalith-menu-structure.md`) — `TERRAIN_APPEARANCE_SCOPE.md`
   milestones 1-4 built real, tested, CPU-only rendering improvements (relief
@@ -461,9 +480,11 @@ anytime — not blocking, not blocked by, anything else here).
 5. **Terrain appearance GUI** (Category 2, medium) — the best risk/reward
    ratio in Category 2: the hard rendering work (4 milestones) is already
    done and golden-tested; this is GUI-only on a solid foundation.
-6. **Faction roster + `_civFactionAggregates`** (Category 2, medium) —
-   roster "flavor" fields are cheap (confirmed UI-only in the reference
-   itself); the aggregation itself is real, bounded, medium work.
+6. **Faction roster + ~~`_civFactionAggregates`~~** (Category 2, medium) —
+   the aggregation is **done** (Phase 2 m20, 2026-08-18), so this is now
+   GUI-plus-roster-state only: roster "flavor" fields are cheap (confirmed
+   UI-only in the reference itself), roster mechanics are the real remaining
+   Rust-side work.
 7. **Category 3 build-recommended remainder** — layer opacity (cheap now),
    measurement tool, quality tiers (once 5 exists to gate).
 8. **Large Category 2 items** — Journey Planner: its engine is **complete**

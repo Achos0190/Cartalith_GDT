@@ -828,6 +828,12 @@ territory-based aggregation `ECONOMY_SCOPE.md` flags as milestone 3 of its
 own remaining work — same "ship the primitive ahead of the orchestration"
 precedent as `civ_resource_trade_balance`.
 
+**Update (2026-08-18)**: the GUI parity audit (`d84dfd0`) found this made
+the function *unexposable*, not merely unwired, and correctly re-classified
+it. **Milestone 20 fixes that**: `_civFactionAggregates` is now ported, both
+maps are real and golden-verified, and the milestone's own golden test calls
+`civ_culture_terrain_fit` straight off them. This loop is closed.
+
 **Also found and correctly ruled out of Phase 2's scope**: a completely
 unrelated, much larger "culture" concept exists in the reference at lines
 28193+ (`docs/07-culture-architecture.md`, urban-morphology "culture
@@ -854,3 +860,46 @@ scheduling, season drift over long journeys, mountain-pass and sea-lane
 winter closures). 22 real unit tests. Not wired to any caller — the real
 route/plan orchestration (`JOURNEY_PLANNER_SCOPE.md`'s milestones 2-6) is
 real, substantial, unstarted future work.
+
+## Milestone 20 — `_civFactionAggregates`: the economy layer's last unstarted piece: **done** (2026-08-18)
+
+Full reasoning stays in `ECONOMY_SCOPE.md` (repo root) — this entry is the
+pointer. Summary: ported `civ_faction_aggregates` (reference line 23575,
+v1.16 + v1.55) with `_civFactionCapital`, the `CIV_TAX_RATE`/
+`CIV_PRIMARY_SPECIALISATION` tables and `_civOceanDistField`, closing
+`ECONOMY_SCOPE.md`'s own "real next milestones" item 3 and with it the
+faction/settlement economy layer's remaining scope.
+
+**Why now**: it is a real blocker for something already built. Milestone 18
+shipped `civ_culture_terrain_fit` deliberately ahead of its caller; the GUI
+parity audit (`d84dfd0`) then found it **cannot be exposed at all**, because
+its `terrain_mix`/`world_mean_terrain` inputs are `_civFactionAggregates`'s
+own v1.55 "Territory Fit" output and nothing computed them. That is now
+computed, and the golden test calls `civ_culture_terrain_fit` straight off
+the aggregate output for all seven cultures × all seven factions in both
+fixtures, matching the reference's own `_civCultureTerrainFit` over the same
+aggregates. **Milestone 18's one open loop is closed.**
+
+**The tension milestone 17 recorded does not bind here.** The half of
+`_civFactionAggregates` that unblocks culture-terrain-fit needs no resource
+field, and `resources` is an `Option` porting the reference's own nullable
+`pots` — so `compute_civilisation()`'s six-field free stays exactly where the
+memory-optimization pass put it, and the decision moves to whoever adds a
+real caller (a one-line move of that free, if that caller wants the resource
+means).
+
+Golden-verified against the real reference over two fixtures whose shapes
+reach the edges deliberately (empty faction, territory-without-settlements
+faction, single-settlement faction, zero-population settlement, unmapped
+specialisation, out-of-range faction id, seam-spanning territory and
+settlements), plus 15 unit tests for what a golden cannot reach (`NaN`
+absorption at the place, the pre-world guard, a wrong-length territory
+raster, `Math.round`'s negative half, the absent-resource path, the religion
+flag and its weights) and a 58-mutation sweep — 56 killed, 2 equivalent
+mutants, and four real fixture gaps found and closed. Not wired to any caller — no `#[func]`, no
+GDScript; all UI work is on hold (owner, 2026-08-18).
+
+**Phase 2's economy layer is therefore closed** except for the four
+settlement-level functions `ECONOMY_SCOPE.md` still lists (`_civPlaceSmelting`
+and the food-surplus cluster), which are separate, smaller, and now fully
+unblocked.

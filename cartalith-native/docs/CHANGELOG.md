@@ -11049,3 +11049,172 @@ rustfmt-clean, so it would reformat other forks' files.
 now `js_exp` — the site model gave them a second set of call sites and `geom` is
 where the "JS semantics, not Rust's" helpers belong. No behaviour change; the
 milestone-4 tests that document them are untouched and still pass.
+
+## Phase 2 milestone 20 — `_civFactionAggregates`, and the blocker it clears (2026-08-18)
+
+The last unstarted piece of Phase 2's economy work (`ECONOMY_SCOPE.md`'s own
+"real next milestones" item 3), taken now because it is a real blocker for
+something already built: the GUI parity audit (`d84dfd0`) had to re-classify
+`civ_culture_terrain_fit` from "just needs wiring" to genuinely blocked,
+because it takes a per-faction `terrain_mix` and a `world_mean_terrain` that
+**nothing computed**. That is `_civFactionAggregates`.
+
+**Ported** (`cartalith-civ`, reference lines 23575 / 23566 / 23557 / 23553 /
+22450):
+
+- `civ_faction_aggregates` + `FactionAggregatesInput`/`FactionPlace`/
+  `FactionAggregate`/`FactionAggregates`/`FactionPower`/`SectorOutput` — the
+  one `O(GW·GH + nPlaces)` pass: per-faction population, territory km², food
+  production capacity and surplus, trade volume, mean economic importance,
+  fortified fraction, tax income, 15-key resource means, six-way sector
+  output, craft share, the export/import/strategic lists, the capital pick,
+  and v1.55's five-axis "Territory Fit" terrain mix — plus the world means of
+  both the 15 resource keys and the 5 terrain axes.
+- `civ_tax_rate` (`CIV_TAX_RATE`), `CIV_PRIMARY_SPECIALISATION`,
+  `CIV_TERRAIN_MIX_KEYS`, `civ_ocean_dist_field` (`_civOceanDistField` — the
+  coast axis needs an ocean-only chamfer DT, and this crate had `chamfer_dist`
+  only as a private helper), and `js_min`/`js_max` (this crate did not have
+  them; `cartalith-terrain` and `cartalith-urban` each carry their own).
+
+**The design decisions, and what they were weighed against.**
+
+- **The five-axis "power" composite is ported verbatim**, not simplified. It
+  is the one place `ECONOMY_SCOPE.md` flagged as needing a real judgement
+  call. The reference labels it honestly rather than dressing it up
+  ("explicitly derived/heuristic, never presented as simulated"; `cultural`
+  carries its own "population-proportional placeholder — no spread/
+  assimilation model exists"). Simplifying it would have meant inventing a
+  *different* heuristic with nothing to check it against — strictly worse
+  than porting a disclosed one faithfully.
+- **`CIV_MAX_TIER_RANK` is 5, not 4.** The reference's `maxRank` is taken
+  over its *full* ten-entry `CIV_SETTLEMENT_CLASSES` table, whose top entry is
+  `metropolis` at rank 5 — a tier this port does not model. Normalising by 4
+  (this port's own highest tier, `capital`) would have inflated every
+  faction's `capitalTierNorm`, and with it the military and political axes, by
+  25%. Caught by reading the reference's `Math.max(1,...map(c=>c.rank))`
+  rather than by assuming the port's own enum was the whole table; pinned by
+  a unit test and killed by a mutation.
+- **Four fields this port does not have are caller-supplied, not invented.**
+  Verified by grep across every crate: `p.tradeVolume`,
+  `p.economicImportance`, `p.specialisation` and `_umInferWalls(p)` have no
+  producer anywhere here. They are fields on `FactionPlace`, and
+  `FactionPlace::from_settlement` fills each with the value the reference
+  itself computes when the field is absent (`||0`, `||'craft'`, `false`). The
+  golden harness captured the reference's own `_umInferWalls` verdict per
+  place and feeds the same booleans in, so `fortifiedFraction` and the
+  military axis are genuinely tested rather than trivially zero on both sides.
+
+- **One real JS-semantics trap, found by re-reading rather than by a test.**
+  The reference guards every per-place number with `||0` and every
+  divide-by-max with a truthiness check. **`NaN` is falsy in JS**, so a `NaN`
+  population is absorbed *at the place*; a plain Rust read of the same `f64`
+  would carry it forward and turn a faction's whole row into `NaN`s the
+  reference never produces. Ported as `js_num_or_zero`/`js_truthy_num` with a
+  unit test on the absorbed case. Disclosed consequence: because those
+  coercions land first, no `NaN` can reach the power clamp through any
+  caller-supplied field, so `js_min`/`js_max`'s NaN behaviour is proved by
+  direct unit tests on them rather than through the aggregate.
+
+**The resource-residency tension does not bind here** — checked against what
+the code actually does, not inherited. `compute_civilisation()` still frees
+the six unused resource fields immediately *before* `assign_territory`, so the
+tension is live for any caller wanting the resource means. But the half of
+`_civFactionAggregates` that unblocks `civ_culture_terrain_fit` — Territory
+Fit — needs no resource field at all, and `resources` is an `Option` that
+directly ports the reference's own nullable `pots` (every use guarded by
+`if(pots)`), with its absent branch a real tested path. So the memory
+decision stays with whoever adds a real caller, where it is exactly one line
+(move that free below `assign_territory`), rather than being paid for now on
+speculation.
+
+**`civ_culture_terrain_fit` is now genuinely callable**, and the golden test
+proves it rather than asserting it: it is invoked for all seven cultures ×
+all seven factions in both fixtures, straight off the aggregate output, and
+compared against the reference's own `_civCultureTerrainFit` over the same
+aggregates (`common`/`imperial` correctly `None` on both sides).
+`GUI_FEATURE_PARITY_SCOPE.md`'s item 5 is a wiring job again rather than a
+blocked one.
+
+**Verified.**
+
+- **Golden-parity**, two cases, Node `vm.runInContext` over whole `<script>`
+  blocks #1 (2084-14556) and #2 (14563-26720) asserted by their real
+  delimiters, with the standing block-comment-balance check — which earned
+  its keep twice by being **wrong**: a false "newline in regex" on
+  `raw[i]/=cRange` (a `/` after `]` is division), then a false one inside
+  `_jpPackRange`'s hint builder, where a `${...}` substitution was closed by
+  the first `}` inside it, so an IIFE's `try{...}` ended the substitution
+  early and the rest of the template literal was scanned as code. Fixed with
+  a per-substitution brace-depth counter, not by deleting the check. Both
+  blocks additionally compile through `new vm.Script(...)` first.
+- **Six input hashes exact** (field, biome raster, lithology, water access,
+  ocean distance transform, river mask) plus the territory raster. **Two are
+  not, disclosed rather than papered over**: `tempField`/`rainField` differ
+  from this port's by 1–3 f32 ULP in a minority of cells (case 0: 1
+  temperature cell of 432, 178 rainfall cells, max relative 2.7e-7) — a
+  **pre-existing** climate-chain property entirely upstream of this milestone
+  — which propagates into carrying capacity, NPP, population density and the
+  resource potentials. It changes nothing categorical (no river cell crosses
+  the flow threshold, no biome class changes, no lithology class changes; all
+  three hashes are exact). So density/flow are compared by land-cell sum at
+  1e-6 relative, resource means at 1e-6, the two `Math.round`ed density sums
+  to ±1, and everything else at 1e-9 or exactly.
+- **Fixture shapes reach the edges on purpose**: a faction with neither
+  territory nor settlements, one with territory but no settlement, one with
+  exactly one settlement, a zero-population hamlet, an unmapped
+  specialisation, an out-of-range faction id, and (both cases) a faction whose
+  territory spans the x=0/x=gw−1 seam — case 1 additionally has settlements on
+  both sides of it. Non-emptiness asserted explicitly.
+- **15 unit tests** for what a golden from a real world cannot reach: `NaN`
+  absorption at the place (`||0`) and NaN propagation through the power clamp
+  (`js_min`/`js_max` vs `f64::min`/`f64::max`), the pre-world guard including
+  the reference's own `worldMeanResource == {}` / zero-filled
+  `worldMeanTerrain` asymmetry, a wrong-length territory raster, territory ids
+  at or past the faction count, `Math.round`'s negative half, the
+  elevation-denominator floor, the absent-resource path, the religion flag
+  (every fresh world is all-`'none'`), the capital tie-break, the craft fold,
+  `from_settlement`'s defaults, and `civ_ocean_dist_field`'s ocean-only vs.
+  fallback distinction.
+- **Mutation testing**: 58 mutations across the new
+constants and branches, each applied to a unique **code-only** anchor
+(checked to occur exactly once outside any comment line -- the
+"pattern matched inside a comment" trap), each run **alone with a full
+rebuild**, never as a combined sweep, because a stale binary reports a
+healthy `N passed`. **56 killed.**
+
+The first pass's six survivors were not six equivalent mutants. **Four were
+real fixture gaps**, closed with new unit tests and then re-killed:
+
+1. The religious axis's `0.7/0.3` weights were invisible because the only
+   fixture exercising them had both normalisers saturating to 1, where
+   `0.7+0.3` and `0.6+0.4` are the same number. Fixed with unequal
+   populations.
+2. The territory guard's **upper** bound (`f >= nF`) was never exercised --
+   the synthetic raster only ever assigns valid ids. Fixed with a raster
+   containing `nF` itself and a far-out id.
+3. `Math.round` is round-half-**up** (toward +inf); Rust's `f64::round` is
+   round-half-away-from-zero. They differ only on a negative half, and
+   `foodSurplus` is the only rounded value here that can go negative. No
+   generated world lands on an exact half; a unit test now does.
+4. The `Math.max(1e-6, 1-sea)` elevation-denominator floor never activates
+   at a real sea level. Fixed with a near-ceiling `sea` where it does.
+
+**Two are genuine equivalent mutants**, and both were *proved* genuinely
+tested with discriminating variants rather than accepted on assertion:
+`coast <= 1.5 -> 1.6` cannot change anything, because a chamfer distance is
+a sum of 1s and sqrt(2)s and `(1.5, 1.6]` is empty (`1.4` and `2.5` both
+kill); `flow > thresh -> >=` cannot, because no accumulated discharge lands
+exactly on the threshold (`x2` and `/2` both kill).
+
+Two further mutations reported **stale anchors** rather than results --
+caused by this milestone's own mid-sweep addition of the `||0` coercions,
+which renamed the lines they targeted. Re-run against the corrected anchors;
+both killed.
+- `cargo build -p cartalith-civ`, `cargo test -p cartalith-civ`,
+  `cargo clippy -p cartalith-civ --all-targets` clean,
+  `cargo test --workspace` 0 regressions.
+
+**Not wired to any caller** — `compute_civilisation()` untouched, no `#[func]`,
+no GDScript. All UI work is on hold (owner, 2026-08-18,
+`DCC_SHELL_SCOPE.md`), and the standing "don't wire in what nothing calls"
+rule applies to the engine side too.

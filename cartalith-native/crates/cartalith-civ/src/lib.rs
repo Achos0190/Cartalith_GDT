@@ -1797,6 +1797,582 @@ pub fn civ_place_resource_context(
     out
 }
 
+// ===================== Faction aggregates (`ECONOMY_SCOPE.md`) =====================
+//
+// `_civFactionAggregates` (reference line 23575, v1.16, extended by v1.55's
+// "Territory Fit"). The reference's own header comment (line 23530) is the
+// scope statement: *"Pure UI/data-exposure layer ... NOT new simulation.
+// Every number below is either a direct read of existing state ... a cheap
+// on-demand aggregation of already-computed per-cell fields ... or an
+// explicitly-labeled heuristic composite"*. Ported as exactly that: one
+// `O(GW*GH + nPlaces)` pass over fields this crate already builds, no new
+// simulation and no new upstream stage.
+//
+// **What the port does not have, and how that is handled.** Three of the
+// reference's per-settlement reads have no equivalent anywhere in this
+// workspace (verified by grep across every crate): `p.tradeVolume` and
+// `p.economicImportance` (persisted by the reference's own Auto-Populate/
+// Generate-Roads passes, which this port has not ported), `p.specialisation`,
+// and `_umInferWalls(p)` (the reference's `_umWallSpec` inference, which
+// lives in the urban-morphology block). None of them are invented here: they
+// are caller-supplied fields on [`FactionPlace`], defaulting to
+// zero/`None`/`false` -- which is precisely what the reference itself
+// computes for a place that lacks them (`p.tradeVolume||0`,
+// `CIV_PRIMARY_SPECIALISATION[undefined]||'craft'`). A caller with real
+// values gets the real aggregation; this port's own `NamedSettlement`
+// currently supplies none, so `FactionPlace::from_settlement` fills the
+// defaults explicitly rather than pretending.
+//
+// **Resource residency.** `resources` is `Option`, mirroring the
+// reference's own nullable `pots` (`const pots=(typeof
+// currentResourcePotentials==='function')?currentResourcePotentials():null`
+// and every use of it guarded by `if(pots)`). That is not a convenience:
+// the full 15-key `CIV_RESOURCE_KEYS` aggregation is the *only* part of
+// this function that needs the six fields `compute_civilisation()` frees
+// (clay/buildstone/flint/obsidian/sulfur/alum, `MEMORY_OPTIMIZATION_SCOPE.md`),
+// and the terrain-mix half -- the half that actually unblocks
+// `civ_culture_terrain_fit` -- needs no resource field at all. So a caller
+// that only wants Territory Fit passes `None` and the memory decision never
+// comes up; a caller that wants the resource means must keep them resident
+// past `assign_territory`, which is a one-line move of that free and a
+// deliberate choice for whoever adds that caller, not something taken here
+// on speculation.
+
+/// `CIV_PRIMARY_SPECIALISATION` (reference line 23553): the specialisation
+/// keys that map onto a named primary-sector total. Every other
+/// specialisation (`none`/`vineyard`/`trade_hub`/`monastic`/`garrison`, and
+/// an absent one) folds into `craft` -- the one sector with no direct
+/// backing signal, which the reference itself labels "(approximate)".
+pub const CIV_PRIMARY_SPECIALISATION: [(&str, &str); 5] =
+    [("fishing", "fishing"), ("grain", "agriculture"), ("pastoral", "livestock"), ("timber", "forestry"), ("mining", "mining")];
+
+/// `CIV_TAX_RATE` (reference line 23557): per-tier tax rate on population,
+/// an administrative-capacity heuristic, not a simulated fiscal model. The
+/// reference's table has ten entries; this port's `SettlementKind` has the
+/// five tiers `place_settlements` actually produces and their rates match
+/// exactly. The five the port does not model (metropolis 0.10, monastery
+/// 0.03, fortress 0.04, university 0.06, industrial 0.08) are listed here
+/// for provenance but not approximated, and the reference's `!=null?...:0.04`
+/// fallback is unreachable through an exhaustive enum.
+pub fn civ_tax_rate(kind: SettlementKind) -> f64 {
+    match kind {
+        SettlementKind::Hamlet => 0.02,
+        SettlementKind::Village => 0.03,
+        SettlementKind::Town => 0.05,
+        SettlementKind::City => 0.07,
+        SettlementKind::Capital => 0.09,
+    }
+}
+
+/// `CIV_SETTLEMENT_CLASSES[].rank` (reference line 14674) for the five tiers
+/// this port models. **`CIV_MAX_TIER_RANK` is 5, not 4**: the reference's
+/// `maxRank` is `Math.max(1, ...CIV_SETTLEMENT_CLASSES.map(c=>c.rank))` over
+/// its *full* ten-entry table, whose top entry is `metropolis` at rank 5.
+/// Normalising by 4 (this port's own highest tier) would silently inflate
+/// every faction's `capitalTierNorm` -- and with it the military and
+/// political power axes -- by 25%.
+fn civ_tier_rank(kind: SettlementKind) -> f64 {
+    match kind {
+        SettlementKind::Hamlet => 0.0,
+        SettlementKind::Village => 1.0,
+        SettlementKind::Town => 2.0,
+        SettlementKind::City => 3.0,
+        SettlementKind::Capital => 4.0,
+    }
+}
+const CIV_MAX_TIER_RANK: f64 = 5.0;
+
+/// `Math.min(a, b)` -- JS propagates `NaN`, Rust's `f64::min` absorbs it.
+/// The whole power breakdown below is `Math.max(0,Math.min(1,...))`, so a
+/// `NaN` reaching it (an empty faction's `0/0` mean, a `NaN` density cell)
+/// must come out `NaN`, not silently clamp to a plausible-looking number.
+fn js_min(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() { f64::NAN } else if b < a { b } else { a }
+}
+
+/// `Math.max(a, b)`, same NaN rule as [`js_min`].
+fn js_max(a: f64, b: f64) -> f64 {
+    if a.is_nan() || b.is_nan() { f64::NAN } else if b > a { b } else { a }
+}
+
+/// JS `x || 0`. **`NaN` is falsy in JS**, so `NaN || 0` is `0` -- not `NaN`,
+/// which is what a plain Rust read of the same field would give. The
+/// reference guards every per-place number this way (`p.pop||0`,
+/// `p.tradeVolume||0`, `p.economicImportance||0`, and both sides of
+/// `_civFactionCapital`'s comparison), and the effect is real: a `NaN`
+/// population is absorbed at the place, so it can never reach the power
+/// clamp downstream. Dropping this would let one bad settlement turn a
+/// whole faction's aggregate row into `NaN`s the reference never produces.
+fn js_num_or_zero(x: f64) -> f64 {
+    if x.is_nan() { 0.0 } else { x }
+}
+
+/// JS truthiness of a number used as a divide-by guard (`maxPop ? a/maxPop
+/// : 0`): `0`, `-0` and `NaN` are all falsy. `x != 0.0` alone would take the
+/// true branch on `NaN` and divide by it.
+fn js_truthy_num(x: f64) -> bool {
+    x != 0.0 && !x.is_nan()
+}
+
+/// `_civOceanDistField` (reference line 22450): the cached chamfer distance
+/// transform to the nearest **ocean** cell (`wb[i]===1`, ocean only -- lakes
+/// are not coast, matching `_civIsCoastal`'s own convention). Falls back to
+/// `field[i] < sea` when no water-body classification is available, exactly
+/// as the reference's `wb?...:...` does.
+pub fn civ_ocean_dist_field(water_bodies: Option<&[u8]>, field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32> {
+    let n = gw * gh;
+    let mut src = vec![0u8; n];
+    for (i, s) in src.iter_mut().enumerate() {
+        *s = match water_bodies {
+            Some(wb) => u8::from(wb[i] == 1),
+            None => u8::from((field[i] as f64) < sea),
+        };
+    }
+    chamfer_dist(&src, gw, gh)
+}
+
+/// The five terrain-mix axes (`_civFactionAggregates`'s v1.55 Territory Fit),
+/// in the reference's own `worldTerrainSum` declaration order. These are the
+/// keys `civ_culture_terrain_fit` looks up.
+pub const CIV_TERRAIN_MIX_KEYS: [&str; 5] = ["river", "coast", "arid", "forest", "hills"];
+
+/// A settlement as `_civFactionAggregates`'s `state.places` loop reads it.
+/// `trade_volume`/`economic_importance`/`specialisation`/`fortified` have no
+/// producer in this port yet (see this section's own header comment); their
+/// zero/`None`/`false` defaults reproduce the reference's behaviour for a
+/// place that lacks the fields, which is what `from_settlement` builds.
+///
+/// The reference filters `p.category!=='settlement'` before this point;
+/// this port has no non-settlement place category, so callers simply do not
+/// put one in the slice.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FactionPlace<'a> {
+    pub faction: i32,
+    pub pop: f64,
+    pub kind: SettlementKind,
+    pub trade_volume: f64,
+    pub economic_importance: f64,
+    pub specialisation: Option<&'a str>,
+    pub fortified: bool,
+}
+
+impl FactionPlace<'_> {
+    /// This port's real settlement data, with every field it does not have
+    /// left at the reference's own absent-field value.
+    pub fn from_settlement(s: &NamedSettlement) -> Self {
+        FactionPlace {
+            faction: s.placement.faction,
+            pop: s.pop as f64,
+            kind: s.placement.kind,
+            trade_volume: 0.0,
+            economic_importance: 0.0,
+            specialisation: None,
+            fortified: false,
+        }
+    }
+}
+
+/// The five-axis "power" composite. **Explicitly a labeled heuristic, never
+/// a simulation** -- the reference's own words; `cultural` is a
+/// population-proportional placeholder because no spread/assimilation model
+/// exists, and `religious` is the same expression gated on the faction
+/// having a religion at all.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FactionPower {
+    pub military: f64,
+    pub economic: f64,
+    pub political: f64,
+    pub cultural: f64,
+    pub religious: f64,
+    pub overall: f64,
+}
+
+/// Primary-sector production proxy, weighted by the reference's own
+/// `tradeVolume` formula (`pop*(0.4+0.6*economicImportance)`) -- a
+/// production proxy reusing an established shape, not a new model.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct SectorOutput {
+    pub fishing: f64,
+    pub agriculture: f64,
+    pub livestock: f64,
+    pub forestry: f64,
+    pub mining: f64,
+    pub craft: f64,
+}
+
+impl SectorOutput {
+    /// `Object.values(b.sectorOutput).reduce((s,v)=>s+v,0)` -- declaration
+    /// order, which is the summation order, which is the float result.
+    fn total(&self) -> f64 {
+        ((((self.fishing + self.agriculture) + self.livestock) + self.forestry) + self.mining) + self.craft
+    }
+
+    fn add(&mut self, sector: &str, v: f64) {
+        match sector {
+            "fishing" => self.fishing += v,
+            "agriculture" => self.agriculture += v,
+            "livestock" => self.livestock += v,
+            "forestry" => self.forestry += v,
+            "mining" => self.mining += v,
+            _ => self.craft += v,
+        }
+    }
+}
+
+/// One faction's row of `_civFactionAggregates`' `byFaction` output.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FactionAggregate {
+    pub pop: f64,
+    pub territory_km2: f64,
+    pub food_production_capacity: f64,
+    pub food_surplus: f64,
+    pub trade_volume: f64,
+    pub mean_importance: f64,
+    pub fortified_fraction: f64,
+    pub settlement_count: usize,
+    /// Index into the caller's `places` slice, `_civFactionCapital`'s pick.
+    pub capital: Option<usize>,
+    pub resource_potential: std::collections::HashMap<&'static str, f64>,
+    pub power: FactionPower,
+    pub tax_income: f64,
+    pub imports: Vec<&'static str>,
+    pub exports: Vec<&'static str>,
+    pub strategic_resources: Vec<&'static str>,
+    pub sector_output: SectorOutput,
+    pub craft_share: f64,
+    pub terrain_mix: std::collections::HashMap<&'static str, f64>,
+}
+
+/// `_civFactionAggregates`' full return value.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FactionAggregates {
+    pub by_faction: Vec<FactionAggregate>,
+    pub max_pop: f64,
+    pub max_trade_volume: f64,
+    pub max_territory_km2: f64,
+    pub max_settlement_count: usize,
+    pub world_mean_resource: std::collections::HashMap<&'static str, f64>,
+    pub world_mean_terrain: std::collections::HashMap<&'static str, f64>,
+}
+
+/// Everything `_civFactionAggregates` reads out of module state, threaded
+/// explicitly. Every `Option` here is a real `null` guard in the reference,
+/// not a Rust convenience -- `dens`, `pots`, `terr`, `_tmBio`, `flowField`
+/// and `_tmOceanDT` are each separately allowed to be absent there, and each
+/// absence has its own defined behaviour (no food capacity, no resource
+/// means, world sums only and no per-faction rows, biome index 0, no river
+/// cells, no coast cells respectively).
+#[derive(Clone, Copy)]
+pub struct FactionAggregatesInput<'a> {
+    /// `CIV_FACTIONS.length` -- index 0 is "Unclaimed" and, per the
+    /// reference's own `if(f<=0||f>=nF) continue`, never accumulates
+    /// territory (it can still accumulate settlements).
+    pub faction_count: usize,
+    pub gw: usize,
+    pub gh: usize,
+    pub sea: f64,
+    pub map_width_km: f64,
+    pub field: &'a [f32],
+    /// `civTerritory`: faction index per cell, `0` = unclaimed.
+    pub territory: Option<&'a [i32]>,
+    /// `currentPopulationDensity()` (persons/km^2).
+    pub density: Option<&'a [f32]>,
+    pub resources: Option<&'a ResourcePotentials>,
+    /// `buildBiomeRaster()`.
+    pub biome: Option<&'a [u8]>,
+    /// `flowField` plus `riverFlowThresh(GW,GH)` -- a cell is "river" when
+    /// its discharge exceeds the threshold.
+    pub flow: Option<&'a [f32]>,
+    pub flow_thresh: f64,
+    /// `_civOceanDistField()` (see [`civ_ocean_dist_field`]).
+    pub ocean_dist: Option<&'a [f32]>,
+    /// `civFactionReligion[f] !== 'none'`, per faction. Absent (or short)
+    /// means every faction is on the reference's own module-load default
+    /// `'none'`, which zeroes the religious axis.
+    pub faction_has_religion: Option<&'a [bool]>,
+}
+
+/// `_civFactionAggregates` (reference line 23575). See this section's header
+/// comment for what is and is not ported, and why.
+///
+/// Deliberately **not** cached: the reference memoises on
+/// `[_civAggGen,_civTerrGen,_fieldGen,CIV_FACTIONS.length]` because it is
+/// called from UI render paths that can fire many times per interaction.
+/// A pure function with explicit inputs has no such call pattern and no
+/// module state to key a cache on; a caller that needs one caches the
+/// result it already holds.
+pub fn civ_faction_aggregates(input: &FactionAggregatesInput, places: &[FactionPlace]) -> FactionAggregates {
+    let n_f = input.faction_count;
+    let (gw, gh, sea) = (input.gw, input.gh, input.sea);
+    let n = gw * gh;
+    let cell_km = input.map_width_km / gw as f64;
+    let cell_km2 = cell_km * cell_km;
+
+    // The reference's v1.55 "called before any world exists" guard
+    // (`field.length!==GW*GH`). Its companion `plates.length` check is a
+    // JS boot-order artifact with no analogue here -- this function cannot
+    // be reached before its inputs are built. Note `worldMeanResource` is
+    // `{}` (genuinely empty, not zero-filled) on this path, while
+    // `worldMeanTerrain` is zero-filled; that asymmetry is the reference's.
+    if input.field.len() != n || n == 0 {
+        let empty_terrain: std::collections::HashMap<&'static str, f64> =
+            CIV_TERRAIN_MIX_KEYS.iter().map(|&k| (k, 0.0)).collect();
+        return FactionAggregates {
+            by_faction: (0..n_f)
+                .map(|_| FactionAggregate {
+                    pop: 0.0,
+                    territory_km2: 0.0,
+                    food_production_capacity: 0.0,
+                    food_surplus: 0.0,
+                    trade_volume: 0.0,
+                    mean_importance: 0.0,
+                    fortified_fraction: 0.0,
+                    settlement_count: 0,
+                    capital: None,
+                    resource_potential: std::collections::HashMap::new(),
+                    power: FactionPower::default(),
+                    tax_income: 0.0,
+                    imports: Vec::new(),
+                    exports: Vec::new(),
+                    strategic_resources: Vec::new(),
+                    sector_output: SectorOutput::default(),
+                    craft_share: 0.0,
+                    terrain_mix: empty_terrain.clone(),
+                })
+                .collect(),
+            max_pop: 0.0,
+            max_trade_volume: 0.0,
+            max_territory_km2: 0.0,
+            max_settlement_count: 0,
+            world_mean_resource: std::collections::HashMap::new(),
+            world_mean_terrain: empty_terrain,
+        };
+    }
+
+    // ---- accumulators, one row per faction ----
+    const NK: usize = CIV_RESOURCE_KEYS.len();
+    let mut territory_cells = vec![0f64; n_f];
+    let mut food_capacity = vec![0f64; n_f];
+    let mut resource_sum = vec![[0f64; NK]; n_f];
+    let mut terrain_cells = vec![[0f64; 5]; n_f]; // river, coast, arid, forest, hills
+    let mut world_resource_sum = [0f64; NK];
+    let mut world_terrain_sum = [0f64; 5];
+    let mut world_land_cells = 0f64;
+
+    // `terr=(civTerritory&&civTerritory.length===GW*GH)?civTerritory:null`
+    // (reference line 23636). A wrong-length raster is treated as absent,
+    // not indexed into -- the reference guards it because a resolution
+    // change can leave a stale one behind, and here it is also the
+    // difference between "no per-faction rows" and a panic.
+    let territory = input.territory.filter(|t| t.len() == n);
+    let res_fields: Option<Vec<&[f32]>> = input.resources.map(|r| CIV_RESOURCE_KEYS.iter().map(|&k| resource_field_all(r, k)).collect());
+    // `_tmElevDenom=Math.max(1e-6,1-sea)`.
+    let elev_denom = js_max(1e-6, 1.0 - sea);
+
+    for i in 0..n {
+        if (input.field[i] as f64) < sea {
+            continue;
+        }
+        world_land_cells += 1.0;
+        if let Some(rf) = res_fields.as_ref() {
+            for k in 0..NK {
+                world_resource_sum[k] += rf[k][i] as f64;
+            }
+        }
+        let is_river = input.flow.is_some_and(|f| (f[i] as f64) > input.flow_thresh);
+        let is_coast = input.ocean_dist.is_some_and(|d| (d[i] as f64) <= 1.5);
+        let bi = input.biome.map_or(0u8, |b| b[i]);
+        let is_arid = bi == BIOME_DESERT || bi == BIOME_SAVANNA || bi == BIOME_TROP_DRY;
+        let is_forest = bi == BIOME_CONIFER || bi == BIOME_TEMP_FOREST || bi == BIOME_TEMP_RAIN || bi == BIOME_TROP_WET;
+        // `_civPlaceDefensibility`'s own mild-upland relative-elevation cut,
+        // reused rather than inventing a second "hills" threshold.
+        let is_hill = ((input.field[i] as f64 - sea) / elev_denom) > 0.35;
+        let flags = [is_river, is_coast, is_arid, is_forest, is_hill];
+        for (t, &on) in world_terrain_sum.iter_mut().zip(flags.iter()) {
+            if on {
+                *t += 1.0;
+            }
+        }
+        let Some(terr) = territory else { continue };
+        let f = terr[i];
+        if f <= 0 || f as usize >= n_f {
+            continue;
+        }
+        let f = f as usize;
+        territory_cells[f] += 1.0;
+        if let Some(d) = input.density {
+            food_capacity[f] += d[i] as f64 * cell_km2;
+        }
+        if let Some(rf) = res_fields.as_ref() {
+            for k in 0..NK {
+                resource_sum[f][k] += rf[k][i] as f64;
+            }
+        }
+        for (t, &on) in terrain_cells[f].iter_mut().zip(flags.iter()) {
+            if on {
+                *t += 1.0;
+            }
+        }
+    }
+
+    let mut world_mean_resource: std::collections::HashMap<&'static str, f64> = std::collections::HashMap::with_capacity(NK);
+    for (k, &key) in CIV_RESOURCE_KEYS.iter().enumerate() {
+        world_mean_resource.insert(key, if world_land_cells > 0.0 { world_resource_sum[k] / world_land_cells } else { 0.0 });
+    }
+    let mut world_mean_terrain: std::collections::HashMap<&'static str, f64> = std::collections::HashMap::with_capacity(5);
+    for (t, &key) in CIV_TERRAIN_MIX_KEYS.iter().enumerate() {
+        world_mean_terrain.insert(key, if world_land_cells > 0.0 { world_terrain_sum[t] / world_land_cells } else { 0.0 });
+    }
+    let territory_km2: Vec<f64> = territory_cells.iter().map(|&c| js_round(c * cell_km2)).collect();
+
+    // ---- one pass over places ----
+    let mut pop = vec![0f64; n_f];
+    let mut trade_volume = vec![0f64; n_f];
+    let mut importance_sum = vec![0f64; n_f];
+    let mut tax_income = vec![0f64; n_f];
+    let mut settlement_count = vec![0usize; n_f];
+    let mut fortified_count = vec![0usize; n_f];
+    let mut sector_output = vec![SectorOutput::default(); n_f];
+    for p in places {
+        let fid = p.faction;
+        if fid < 0 || fid as usize >= n_f {
+            continue;
+        }
+        let f = fid as usize;
+        // `pop=p.pop||0`, `p.tradeVolume||0`, `p.economicImportance||0` --
+        // see [`js_num_or_zero`] for why the coercion is load-bearing.
+        let p_pop = js_num_or_zero(p.pop);
+        let p_imp = js_num_or_zero(p.economic_importance);
+        settlement_count[f] += 1;
+        pop[f] += p_pop;
+        trade_volume[f] += js_num_or_zero(p.trade_volume);
+        importance_sum[f] += p_imp;
+        if p.fortified {
+            fortified_count[f] += 1;
+        }
+        tax_income[f] += p_pop * civ_tax_rate(p.kind);
+        let prod_weight = p_pop * (0.4 + 0.6 * p_imp);
+        let sector = p
+            .specialisation
+            .and_then(|s| CIV_PRIMARY_SPECIALISATION.iter().find(|&&(k, _)| k == s).map(|&(_, v)| v))
+            .unwrap_or("craft");
+        sector_output[f].add(sector, prod_weight);
+    }
+
+    // `_civFactionCapital` (reference line 23566): highest-pop settlement of
+    // kind capital/metropolis if the faction has one, else highest-pop of any
+    // kind. Strict `>` -- a tie keeps the earlier place, matching the
+    // reference's own `if((p.pop||0)>(best.pop||0))`.
+    let capital: Vec<Option<usize>> = (0..n_f)
+        .map(|f| {
+            let list: Vec<usize> = places.iter().enumerate().filter(|(_, p)| p.faction == f as i32).map(|(i, _)| i).collect();
+            if list.is_empty() {
+                return None;
+            }
+            let seats: Vec<usize> = list.iter().copied().filter(|&i| places[i].kind == SettlementKind::Capital).collect();
+            let pool = if seats.is_empty() { &list } else { &seats };
+            let mut best = pool[0];
+            for &i in pool {
+                if js_num_or_zero(places[i].pop) > js_num_or_zero(places[best].pop) {
+                    best = i;
+                }
+            }
+            Some(best)
+        })
+        .collect();
+
+    let mut max_pop = 0f64;
+    let mut max_trade_volume = 0f64;
+    let mut max_territory_km2 = 0f64;
+    let mut max_settlement_count = 0usize;
+    for f in 0..n_f {
+        max_pop = js_max(max_pop, pop[f]);
+        max_trade_volume = js_max(max_trade_volume, trade_volume[f]);
+        max_territory_km2 = js_max(max_territory_km2, territory_km2[f]);
+        max_settlement_count = max_settlement_count.max(settlement_count[f]);
+    }
+
+    let by_faction = (0..n_f)
+        .map(|f| {
+            let norm_pop = if js_truthy_num(max_pop) { pop[f] / max_pop } else { 0.0 };
+            let norm_trade = if js_truthy_num(max_trade_volume) { trade_volume[f] / max_trade_volume } else { 0.0 };
+            let norm_terr = if js_truthy_num(max_territory_km2) { territory_km2[f] / max_territory_km2 } else { 0.0 };
+            let norm_settle = if max_settlement_count != 0 { settlement_count[f] as f64 / max_settlement_count as f64 } else { 0.0 };
+            let fortified_fraction = if settlement_count[f] != 0 { fortified_count[f] as f64 / settlement_count[f] as f64 } else { 0.0 };
+            let mean_importance = if settlement_count[f] != 0 { importance_sum[f] / settlement_count[f] as f64 } else { 0.0 };
+            let cap_rank = capital[f].map_or(0.0, |i| civ_tier_rank(places[i].kind));
+            let capital_tier_norm = cap_rank / CIV_MAX_TIER_RANK;
+
+            // Power breakdown (0-100 each) -- explicitly heuristic, never
+            // presented as simulated (the reference's own words).
+            let military = 100.0 * js_max(0.0, js_min(1.0, 0.45 * norm_pop + 0.35 * fortified_fraction + 0.20 * capital_tier_norm));
+            let economic = 100.0 * js_max(0.0, js_min(1.0, 0.40 * norm_trade + 0.30 * norm_pop + 0.30 * mean_importance));
+            let political =
+                100.0 * js_max(0.0, js_min(1.0, 0.35 * norm_terr + 0.30 * capital_tier_norm + 0.20 * norm_settle + 0.15 * mean_importance));
+            let cultural = 100.0 * js_max(0.0, js_min(1.0, 0.7 * norm_pop + 0.3 * norm_settle));
+            let has_religion = input.faction_has_religion.and_then(|r| r.get(f).copied()).unwrap_or(false);
+            let religious = if has_religion { 100.0 * js_max(0.0, js_min(1.0, 0.7 * norm_pop + 0.3 * norm_settle)) } else { 0.0 };
+            let overall = (military + economic + political + cultural + religious) / 5.0;
+
+            let mut resource_mean: std::collections::HashMap<&'static str, f64> = std::collections::HashMap::with_capacity(NK);
+            for (k, &key) in CIV_RESOURCE_KEYS.iter().enumerate() {
+                resource_mean.insert(key, if territory_cells[f] != 0.0 { resource_sum[f][k] / territory_cells[f] } else { 0.0 });
+            }
+            let food_surplus = js_round(food_capacity[f] - pop[f]);
+            let bal = civ_resource_trade_balance(&resource_mean, &world_mean_resource);
+            let mut exports = bal.exports;
+            let mut imports = bal.imports;
+            if food_surplus > 0.0 {
+                exports.push("food");
+            } else if food_surplus < 0.0 {
+                imports.push("food");
+            }
+            let strategic_resources: Vec<&'static str> = CIV_RESOURCE_KEYS
+                .iter()
+                .copied()
+                .filter(|k| resource_mean.get(k).copied().unwrap_or(0.0) > 0.4)
+                .collect();
+            let sector_total = sector_output[f].total();
+            let craft_share = if js_truthy_num(sector_total) { sector_output[f].craft / sector_total } else { 0.0 };
+            let mut terrain_mix: std::collections::HashMap<&'static str, f64> = std::collections::HashMap::with_capacity(5);
+            for (t, &key) in CIV_TERRAIN_MIX_KEYS.iter().enumerate() {
+                terrain_mix.insert(key, if territory_cells[f] != 0.0 { terrain_cells[f][t] / territory_cells[f] } else { 0.0 });
+            }
+
+            FactionAggregate {
+                pop: js_round(pop[f]),
+                territory_km2: territory_km2[f],
+                food_production_capacity: js_round(food_capacity[f]),
+                food_surplus,
+                trade_volume: js_round(trade_volume[f]),
+                mean_importance,
+                fortified_fraction,
+                settlement_count: settlement_count[f],
+                capital: capital[f],
+                resource_potential: resource_mean,
+                power: FactionPower { military, economic, political, cultural, religious, overall },
+                tax_income: js_round(tax_income[f]),
+                imports,
+                exports,
+                strategic_resources,
+                sector_output: sector_output[f],
+                craft_share,
+                terrain_mix,
+            }
+        })
+        .collect();
+
+    FactionAggregates {
+        by_faction,
+        max_pop,
+        max_trade_volume,
+        max_territory_km2,
+        max_settlement_count,
+        world_mean_resource,
+        world_mean_terrain,
+    }
+}
+
 /// `SUIT_W_BASE` (reference line 6307): the five-weight legacy set used
 /// only when `ctx` is absent -- `currentSettlementSuitability()` always
 /// supplies `ctx`, so production never takes this branch, but it's ported
@@ -14016,4 +14592,372 @@ mod tests {
         let sea = JpStage { cat: "sea".to_string(), terrain: "Open Sea".to_string(), ..stage("Open Sea", "Coastal Lowland") };
         assert_eq!(jp_best_package_for_stage(&sea, &m5_party()), None);
     }
+
+    // ===================== `civ_faction_aggregates` =====================
+    //
+    // Golden-parity coverage lives in
+    // `tests/golden_parity_faction_aggregates.rs`. These are the cases a
+    // golden fixture built from a real generated world cannot reach: NaN
+    // inputs, the pre-world guard, an absent resource field, and the
+    // religion flag (the reference's own module-load default is `'none'`
+    // for every faction, so no fixture from a fresh world can exercise the
+    // other branch).
+
+    fn agg_place(faction: i32, pop: f64, kind: SettlementKind) -> FactionPlace<'static> {
+        FactionPlace { faction, pop, kind, trade_volume: 0.0, economic_importance: 0.0, specialisation: None, fortified: false }
+    }
+
+    /// One land cell, one faction owning it -- the smallest input that
+    /// still reaches every branch of the per-faction row builder.
+    fn agg_input<'a>(field: &'a [f32], territory: &'a [i32], faction_count: usize) -> FactionAggregatesInput<'a> {
+        FactionAggregatesInput {
+            faction_count,
+            gw: field.len(),
+            gh: 1,
+            sea: 0.42,
+            map_width_km: 800.0,
+            field,
+            territory: Some(territory),
+            density: None,
+            resources: None,
+            biome: None,
+            flow: None,
+            flow_thresh: 1.0,
+            ocean_dist: None,
+            faction_has_religion: None,
+        }
+    }
+
+    /// `Math.max(0,Math.min(1,NaN))` is `NaN` in JS; Rust's own
+    /// `f64::min(1.0, NaN)` is `1.0`, which would turn an unusable input
+    /// into a confident-looking full-strength power score. The clamp is
+    /// therefore written with `js_min`/`js_max`, and these are the direct
+    /// tests of that -- the aggregate itself cannot reach the asymmetry,
+    /// because the `||0` coercions below absorb `NaN` first.
+    #[test]
+    fn js_min_max_propagate_nan_where_rusts_own_would_not() {
+        assert!(js_min(1.0, f64::NAN).is_nan());
+        assert!(js_max(0.0, f64::NAN).is_nan());
+        assert!(f64::min(1.0, f64::NAN) == 1.0, "this is the Rust behaviour being avoided");
+        assert_eq!(js_min(1.0, 0.5), 0.5);
+        assert_eq!(js_max(0.0, 3.0), 3.0);
+        assert!(js_truthy_num(1.0) && !js_truthy_num(0.0) && !js_truthy_num(-0.0) && !js_truthy_num(f64::NAN));
+    }
+
+    /// **`NaN` is falsy in JS**, so the reference's `pop=p.pop||0` /
+    /// `p.tradeVolume||0` / `p.economicImportance||0` absorb a `NaN` field
+    /// at the place, and a plain Rust read of the same field would not. The
+    /// visible consequence: one bad settlement contributes nothing instead of
+    /// turning its faction's whole row -- population, tax, sector output and
+    /// all five power axes -- into `NaN`s the reference never produces.
+    #[test]
+    fn a_nan_place_field_is_absorbed_the_way_js_absorbs_it() {
+        let field = [0.9f32, 0.9];
+        let territory = [1i32, 1];
+        let places = [
+            FactionPlace { trade_volume: f64::NAN, economic_importance: f64::NAN, ..agg_place(1, f64::NAN, SettlementKind::Town) },
+            agg_place(1, 1000.0, SettlementKind::City),
+        ];
+        let out = civ_faction_aggregates(&agg_input(&field, &territory, 2), &places);
+        let b = &out.by_faction[1];
+        assert_eq!(b.pop, 1000.0, "the NaN place must contribute 0, not poison the sum");
+        assert_eq!(b.trade_volume, 0.0);
+        assert_eq!(b.tax_income, js_round(1000.0 * 0.07));
+        assert_eq!(b.mean_importance, 0.0);
+        assert_eq!(b.sector_output.craft, 0.4 * 1000.0, "the NaN place's prodWeight is 0*(0.4+0.6*0)");
+        let p = b.power;
+        for (axis, v) in [("military", p.military), ("economic", p.economic), ("political", p.political), ("cultural", p.cultural), ("overall", p.overall)] {
+            assert!(v.is_finite(), "{axis} must stay finite, got {v}");
+        }
+        // `_civFactionCapital` compares `(p.pop||0)>(best.pop||0)`, so the
+        // real settlement wins over the NaN one rather than the comparison
+        // silently returning false and keeping index 0.
+        assert_eq!(b.capital, Some(1));
+    }
+
+    /// The reference's v1.55 "called before any world exists" guard. Note
+    /// the asymmetry, which is the reference's own: `worldMeanResource` is
+    /// genuinely `{}` on this path while `worldMeanTerrain` is zero-filled.
+    #[test]
+    fn faction_aggregates_pre_world_guard_returns_empty_rows() {
+        let field = [0.9f32];
+        let territory = [1i32];
+        let mut input = agg_input(&field, &territory, 3);
+        input.gh = 7; // field.len() != gw*gh
+        let out = civ_faction_aggregates(&input, &[agg_place(1, 500.0, SettlementKind::City)]);
+        assert_eq!(out.by_faction.len(), 3);
+        assert!(out.world_mean_resource.is_empty(), "worldMeanResource is `{{}}` on the guard path");
+        assert_eq!(out.world_mean_terrain.len(), 5);
+        assert!(out.world_mean_terrain.values().all(|&v| v == 0.0));
+        for b in &out.by_faction {
+            assert_eq!(b.pop, 0.0);
+            assert_eq!(b.settlement_count, 0, "the places loop must not run at all on the guard path");
+            assert_eq!(b.capital, None);
+            assert!(b.exports.is_empty() && b.imports.is_empty());
+            assert!(b.terrain_mix.values().all(|&v| v == 0.0));
+        }
+        assert_eq!(out.max_pop, 0.0);
+    }
+
+    /// `pots === null`: the world sums stay zero, every faction's resource
+    /// mean is zero, and the trade-balance rule finds nothing -- both means
+    /// being zero puts every key on the "essentially absent worldwide"
+    /// branch with nothing above its `0.05` floor.
+    #[test]
+    fn faction_aggregates_without_resource_fields_reports_no_trade() {
+        let field = [0.9f32, 0.9, 0.9];
+        let territory = [1i32, 1, 0];
+        let out = civ_faction_aggregates(&agg_input(&field, &territory, 2), &[agg_place(1, 100.0, SettlementKind::Village)]);
+        assert!(out.world_mean_resource.values().all(|&v| v == 0.0));
+        assert!(out.by_faction[1].resource_potential.values().all(|&v| v == 0.0));
+        assert!(out.by_faction[1].exports.is_empty(), "no resource field means no export claim");
+        assert!(out.by_faction[1].strategic_resources.is_empty());
+        // No density field either -> zero capacity, so a populated faction
+        // is in food deficit; `food` is the one import left, and it comes
+        // from the food branch, not from the resource rule.
+        assert_eq!(out.by_faction[1].food_production_capacity, 0.0);
+        assert_eq!(out.by_faction[1].food_surplus, -100.0);
+        assert_eq!(out.by_faction[1].imports, vec!["food"]);
+    }
+
+    /// `civFactionReligion[f]==='none'` zeroes the religious axis; anything
+    /// else makes it the same expression as `cultural`. Every fresh world
+    /// starts all-`'none'`, so only a loaded save reaches the other branch.
+    #[test]
+    fn faction_religion_flag_gates_the_religious_axis() {
+        let field = [0.9f32, 0.9];
+        let territory = [1i32, 2];
+        let places = [agg_place(1, 1000.0, SettlementKind::Town), agg_place(2, 1000.0, SettlementKind::Town)];
+        let mut input = agg_input(&field, &territory, 3);
+        let religion = [false, false, true];
+        input.faction_has_religion = Some(&religion);
+        let out = civ_faction_aggregates(&input, &places);
+        assert_eq!(out.by_faction[1].power.religious, 0.0);
+        assert_eq!(out.by_faction[2].power.religious, out.by_faction[2].power.cultural);
+        assert!(out.by_faction[2].power.religious > 0.0);
+        // The religious axis is one fifth of `overall`, so the two factions
+        // are otherwise identical yet score differently.
+        assert!(out.by_faction[2].power.overall > out.by_faction[1].power.overall);
+    }
+
+    /// `_civFactionCapital`: capital-tier settlements win over higher-pop
+    /// non-capital ones; within the winning pool the pick is by population
+    /// with a strict `>`, so a tie keeps the earlier place.
+    #[test]
+    fn faction_capital_prefers_the_seat_tier_then_population_with_a_stable_tie() {
+        let field = [0.9f32];
+        let territory = [1i32];
+        let places = [
+            agg_place(1, 9000.0, SettlementKind::City),
+            agg_place(1, 100.0, SettlementKind::Capital),
+            agg_place(2, 500.0, SettlementKind::Town),
+            agg_place(2, 500.0, SettlementKind::Town),
+        ];
+        let out = civ_faction_aggregates(&agg_input(&field, &territory, 3), &places);
+        assert_eq!(out.by_faction[1].capital, Some(1), "a 100-soul capital outranks a 9000-soul city");
+        assert_eq!(out.by_faction[2].capital, Some(2), "an exact tie keeps the earlier place");
+        assert_eq!(out.by_faction[0].capital, None);
+        // `capitalTierNorm` normalises by the reference's own ten-entry
+        // table (metropolis, rank 5), not by this port's own top tier.
+        assert!((out.by_faction[1].power.military - 100.0 * (0.45 + 0.20 * 4.0 / 5.0)).abs() < 1e-12);
+    }
+
+    /// `CIV_PRIMARY_SPECIALISATION` maps five keys; every other value --
+    /// and an absent one -- folds into `craft`.
+    #[test]
+    fn sector_output_folds_unmapped_specialisations_into_craft() {
+        let field = [0.9f32];
+        let territory = [1i32];
+        let mut places = Vec::new();
+        for (spec, pop) in [(Some("fishing"), 10.0), (Some("grain"), 20.0), (Some("pastoral"), 30.0), (Some("timber"), 40.0), (Some("mining"), 50.0)] {
+            places.push(FactionPlace { specialisation: spec, pop, ..agg_place(1, pop, SettlementKind::Town) });
+        }
+        places.push(FactionPlace { specialisation: Some("trade_hub"), pop: 60.0, ..agg_place(1, 60.0, SettlementKind::Town) });
+        places.push(FactionPlace { specialisation: None, pop: 70.0, ..agg_place(1, 70.0, SettlementKind::Town) });
+        let out = civ_faction_aggregates(&agg_input(&field, &territory, 2), &places);
+        let s = out.by_faction[1].sector_output;
+        // prodWeight = pop*(0.4+0.6*0) = 0.4*pop.
+        assert_eq!(s.fishing, 4.0);
+        assert_eq!(s.agriculture, 8.0);
+        assert_eq!(s.livestock, 12.0);
+        assert_eq!(s.forestry, 16.0);
+        assert_eq!(s.mining, 20.0);
+        assert_eq!(s.craft, 0.4 * 60.0 + 0.4 * 70.0);
+        assert!((out.by_faction[1].craft_share - s.craft / s.total()).abs() < 1e-15);
+    }
+
+    /// This port's real settlement data carries none of the four fields the
+    /// reference's places do; `from_settlement` fills the reference's own
+    /// absent-field values rather than inventing any.
+    #[test]
+    fn faction_place_from_settlement_invents_nothing() {
+        let s = NamedSettlement {
+            placement: SettlementPlacement {
+                x: 3,
+                y: 4,
+                suit: 0.5,
+                faction: 2,
+                capital: true,
+                kind: SettlementKind::Capital,
+                coastal: false,
+            },
+            name: "Anywhere".to_string(),
+            pop: 1234,
+        };
+        let p = FactionPlace::from_settlement(&s);
+        assert_eq!(p.faction, 2);
+        assert_eq!(p.pop, 1234.0);
+        assert_eq!(p.kind, SettlementKind::Capital);
+        assert_eq!(p.trade_volume, 0.0);
+        assert_eq!(p.economic_importance, 0.0);
+        assert_eq!(p.specialisation, None);
+        assert!(!p.fortified);
+    }
+
+    /// `_civOceanDistField` is **ocean-only** (`wb[i]===1`), matching
+    /// `_civIsCoastal`'s convention: a lake shore is not a coast. Without a
+    /// classification it falls back to "anything below sea level".
+    #[test]
+    fn ocean_dist_field_ignores_lakes_but_the_fallback_does_not() {
+        // 5x1: [ocean, land, lake, land, land]
+        let field = [0.1f32, 0.9, 0.3, 0.9, 0.9];
+        let wb = [1u8, 0, 2, 0, 0];
+        let with_wb = civ_ocean_dist_field(Some(&wb), &field, 5, 1, 0.42);
+        assert_eq!(with_wb[0], 0.0);
+        assert!(with_wb[2] > 1.0, "the lake cell is not a distance-zero source, got {}", with_wb[2]);
+        let without = civ_ocean_dist_field(None, &field, 5, 1, 0.42);
+        assert_eq!(without[2], 0.0, "the fallback treats every sub-sea cell as ocean");
+    }
+
+    /// A faction that owns nothing and holds nothing still produces a row,
+    /// and that row is not silently all-zero: with a real world mean above
+    /// it, its zero resource means read as standing import dependencies.
+    #[test]
+    fn empty_faction_still_reports_import_dependencies() {
+        let field = [0.9f32, 0.9];
+        let territory = [1i32, 1];
+        let mut res = ResourcePotentials {
+            copper: vec![0.5, 0.5],
+            tin: vec![0.0; 2],
+            iron: vec![0.5, 0.5],
+            gold: vec![0.0; 2],
+            salt: vec![0.0; 2],
+            timber: vec![0.0; 2],
+            lead: vec![0.0; 2],
+            silver: vec![0.0; 2],
+            clay: vec![0.0; 2],
+            buildstone: vec![0.0; 2],
+            flint: vec![0.0; 2],
+            obsidian: vec![0.0; 2],
+            gems: vec![0.5, 0.5],
+            sulfur: vec![0.0; 2],
+            alum: vec![0.0; 2],
+        };
+        res.timber = vec![0.9, 0.9];
+        let mut input = agg_input(&field, &territory, 3);
+        input.resources = Some(&res);
+        let out = civ_faction_aggregates(&input, &[]);
+        // Faction 2 owns no cell at all.
+        let b = &out.by_faction[2];
+        assert_eq!(b.settlement_count, 0);
+        assert_eq!(b.territory_km2, 0.0);
+        assert!(b.terrain_mix.values().all(|&v| v == 0.0));
+        assert!(b.exports.is_empty());
+        assert_eq!(b.imports, vec!["copper", "iron", "timber"], "only CONSUMED resources can be imports -- never `gems`");
+        assert!(b.strategic_resources.is_empty());
+    }
+
+
+    /// `if(f<=0||f>=nF) continue` -- **both** bounds. The golden fixtures'
+    /// synthetic territory never assigns an out-of-range id, so the upper
+    /// bound was an untested branch until a mutation survived and said so.
+    #[test]
+    fn territory_ids_at_or_past_the_faction_count_are_ignored() {
+        let field = [0.9f32, 0.9, 0.9];
+        // 3 = the faction count itself (one past the last valid index), 9 =
+        // well past it, 1 = the only cell that may be counted.
+        let territory = [3i32, 9, 1];
+        let out = civ_faction_aggregates(&agg_input(&field, &territory, 3), &[]);
+        let cell_km2 = (800.0f64 / 3.0) * (800.0 / 3.0);
+        assert_eq!(out.by_faction[1].territory_km2, js_round(cell_km2));
+        assert_eq!(out.by_faction[0].territory_km2, 0.0);
+        assert_eq!(out.by_faction[2].territory_km2, 0.0);
+        // The world sums still see all three land cells -- the guard skips
+        // only the per-faction accumulation, exactly like the reference's
+        // `continue` placement after `worldLandCells++`.
+        assert_eq!(out.world_mean_terrain["hills"], 1.0);
+    }
+
+    /// `_tmElevDenom=Math.max(1e-6,1-sea)` only bites when sea level is
+    /// within 1e-6 of the ceiling -- which no generated world is, so the
+    /// golden fixtures cannot distinguish the floor's value. This does: at
+    /// `sea=0.9999` the true denominator is 1e-4, and a coarser floor would
+    /// divide by 1e-3 instead and report flat ground where the reference
+    /// reports hills.
+    #[test]
+    fn the_elevation_denominator_floor_only_matters_at_a_near_ceiling_sea_level() {
+        let field = [1.0f32];
+        let territory = [1i32];
+        let mut input = agg_input(&field, &territory, 2);
+        input.sea = 0.9999;
+        let out = civ_faction_aggregates(&input, &[]);
+        // (1.0 - 0.9999) / max(1e-6, 1e-4) = 1.0 > 0.35.
+        assert_eq!(out.by_faction[1].terrain_mix["hills"], 1.0);
+        assert_eq!(out.world_mean_terrain["hills"], 1.0);
+    }
+
+    /// `Math.round` is `floor(x+0.5)` -- **half rounds up, toward +inf**,
+    /// where Rust's `f64::round` rounds half *away from zero*. The two agree
+    /// on every positive value and disagree on every negative half, and
+    /// `foodSurplus` is the one rounded value here that can go negative (a
+    /// faction whose settlements outgrow what its territory can feed). No
+    /// generated-world fixture happens to land on an exact half, so this is
+    /// the test that pins it.
+    #[test]
+    fn food_surplus_rounds_a_negative_half_the_way_js_does() {
+        let field = [0.9f32];
+        let territory = [1i32];
+        // No density field -> capacity 0, so surplus is exactly -pop.
+        let out = civ_faction_aggregates(&agg_input(&field, &territory, 2), &[agg_place(1, 100.5, SettlementKind::Town)]);
+        assert_eq!(out.by_faction[1].food_surplus, -100.0, "Math.round(-100.5) is -100, not -101");
+        assert_eq!(out.by_faction[1].pop, 101.0, "Math.round(100.5) is 101");
+        assert_eq!(out.by_faction[1].imports, vec!["food"]);
+    }
+
+    /// The religious axis is the same expression as `cultural`, so a fixture
+    /// where both weights saturate to 1 cannot tell `0.7/0.3` from `0.6/0.4`
+    /// -- which is exactly what a surviving mutation reported. Unequal
+    /// populations make the split observable.
+    #[test]
+    fn the_religious_axis_uses_the_same_weights_as_cultural_and_they_are_observable() {
+        let field = [0.9f32, 0.9];
+        let territory = [1i32, 2];
+        let places = [agg_place(1, 1000.0, SettlementKind::Town), agg_place(2, 250.0, SettlementKind::Town)];
+        let mut input = agg_input(&field, &territory, 3);
+        let religion = [false, false, true];
+        input.faction_has_religion = Some(&religion);
+        let out = civ_faction_aggregates(&input, &places);
+        // norm_pop = 250/1000 = 0.25, norm_settle = 1/1 = 1.
+        let expected = 100.0 * (0.7 * 0.25 + 0.3 * 1.0);
+        assert!((out.by_faction[2].power.cultural - expected).abs() < 1e-12, "cultural: {}", out.by_faction[2].power.cultural);
+        assert_eq!(out.by_faction[2].power.religious, out.by_faction[2].power.cultural);
+        assert_eq!(out.by_faction[1].power.religious, 0.0);
+    }
+
+
+    /// `terr=(civTerritory&&civTerritory.length===GW*GH)?civTerritory:null`
+    /// -- a wrong-length raster is treated as absent (the reference guards
+    /// against a stale one surviving a resolution change). The world sums
+    /// still accumulate; only the per-faction rows go empty.
+    #[test]
+    fn a_wrong_length_territory_raster_is_treated_as_absent() {
+        let field = [0.9f32, 0.9, 0.9];
+        let short = [1i32, 1];
+        let out = civ_faction_aggregates(&agg_input(&field, &short, 2), &[agg_place(1, 100.0, SettlementKind::Town)]);
+        assert_eq!(out.by_faction[1].territory_km2, 0.0, "no per-faction territory from a stale raster");
+        assert!(out.by_faction[1].terrain_mix.values().all(|&v| v == 0.0));
+        assert_eq!(out.world_mean_terrain["hills"], 1.0, "the world sums still see all three land cells");
+        assert_eq!(out.by_faction[1].settlement_count, 1, "the places loop is unaffected");
+    }
+
 }
