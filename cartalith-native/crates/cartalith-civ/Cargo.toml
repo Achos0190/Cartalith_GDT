@@ -15,3 +15,9 @@ cartalith-hydrology = { path = "../cartalith-hydrology" }
 cartalith-rng = { path = "../cartalith-rng" }
 cartalith-terrain = { path = "../cartalith-terrain" }
 rayon = "1"
+
+[dev-dependencies]
+# Milestone D only: pinning that the Territory brush really is milestone C's
+# PaintStamp::ungated rather than a second disc implementation. The library
+# itself takes a plain `&[u8]` override, so this is not a real dependency.
+cartalith-spatial = { path = "../cartalith-spatial" }

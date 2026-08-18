@@ -354,10 +354,11 @@ Rust functions, each for a real reason rather than an omission:**
   settlements come out of `place_settlements`/`name_and_populate_settlements`/
   `civ_seed_villages` already typed as settlements, so the filter has no work
   left to do. Building the `JpPlace` list *is* the filter.
-- **`_jp_reroute_for_mode`** is genuinely **blocked**, and this is the one
-  real carry-over out of milestone 5. Its whole body is `_civDijkstraPath(s,
+- **`_jp_reroute_for_mode`** was genuinely **blocked**, and this was the one
+  real carry-over out of milestone 5. (**Unblocked 2026-08-18** — see
+  "Closing status".) Its whole body is `_civDijkstraPath(s,
   e, domain)` — and `_civDijkstraPath` (25957) with `_civWaterCostGrid`
-  (21051) and `_civMixedCostGrid` (21090) are **unported**, on no milestone
+  (21051) and `_civMixedCostGrid` (21090) were **unported**, on no milestone
   in this document, and are the interactive Route tool's own multi-modal
   pathfinder rather than anything the Journey Planner owns. Re-routing is
   also a UI action ("Re-route land-only" button), so it sits on the far side
@@ -571,7 +572,7 @@ solves.
 | ~~3rd~~ **done** | ~~**5 — Route/stage derivation**~~ | Done 2026-08-18, as three sub-milestones (5a world sampling / 5b `_jpDeriveStages` / 5c `_jpPlan`) — see the milestone 5 section above. `_civTransshipments` came with it as predicted, along with three *other* helpers on no list (`buildCartBiome`/`buildCartTerrain`, `_civWalkWayCells`, `_civPassedSettlements`). One function carried over: `_jp_reroute_for_mode`, blocked on the unported interactive Route-tool pathfinder. |
 | ~~4th~~ **done** | ~~**6 — Verdict/reporting**~~ | Done 2026-08-18. `_jpVerdict`/`_jpConfidence`/`_jpPackRange`/`jpFmtDays`, plus the `risk` advisory correction (b) below. It did need 5's plan output, exactly as this row said, and 5's own fixture drove it unchanged. |
 | ~~5th~~ **done** | ~~**2 (remainder)**~~ | Done 2026-08-18, in the same pass as 6. Both were unblocked as this row predicted; `jp_auto_pick_transport` needed one `_jpEnsurePlan` default milestone 5 had not built (`plan.autoPromote`). |
-| unscheduled | **`_jp_reroute_for_mode`** | Not a milestone of its own; it needs `_civDijkstraPath`/`_civWaterCostGrid`/`_civMixedCostGrid` (the Route tool's multi-modal pathfinder, unported, on no list here) and is itself a UI action. |
+| unscheduled | **`_jp_reroute_for_mode`** | Not a milestone of its own; it needed `_civDijkstraPath`/`_civWaterCostGrid`/`_civMixedCostGrid` (the Route tool's multi-modal pathfinder). **Unblocked 2026-08-18**: `UNIFIED_TOOL_PLAN.md` milestone D ported all three as `cartalith_civ::tools::civ_dijkstra_path`, with the `reachable` flag this function exists to check. What is left is a `reachable` check, a call and three field assignments — still a UI action, so still unscheduled here. |
 
 **Every milestone is done**; see their own sections above. The one function
 still unported, `_jp_reroute_for_mode`, was never on a milestone list — see
@@ -748,7 +749,9 @@ exactly rather than re-estimated, the frozen reference defines **74**
   `JpLayovers` alias) and `_jpSettlements` (a *runtime* kind filter over the
   reference's one untyped `state.places` array; this port's settlements are
   already typed, so building the `JpPlace` list **is** the filter).
-- **Blocked, and still blocked: one.** `_jpRerouteForMode`.
+- **Blocked at closeout, unblocked 2026-08-18: one.** `_jpRerouteForMode` —
+  its dependency, the Route tool's multi-modal pathfinder, was ported by
+  `UNIFIED_TOOL_PLAN.md` milestone D. See "Closing status" below.
 
 65 + 6 + 2 + 1 = 74, with nothing unaccounted for.
 
@@ -763,7 +766,12 @@ Planner overhead.
 
 ### The one remaining gap
 
-**`_jp_reroute_for_mode` is unported and stays unported.** Milestone 6
+**`_jp_reroute_for_mode` was blocked; it is UNBLOCKED as of 2026-08-18
+(`UNIFIED_TOOL_PLAN.md` milestone D).** What follows is the closeout's original
+finding, kept because it was correct and because the resolution only makes
+sense against it:
+
+> **`_jp_reroute_for_mode` is unported and stays unported.** Milestone 6
 re-checked the finding rather than inheriting it, and it holds: the function's
 whole body is `_civDijkstraPath(s, e, domain)`, and `_civDijkstraPath` (25957)
 with `_civWaterCostGrid` (21051) and `_civMixedCostGrid` (21090) are the
@@ -778,6 +786,32 @@ them"), shipped with milestone 5.
 Closing it means porting the Route tool's pathfinder, which is its own scope
 document, not a Journey Planner milestone. **No pathfinder was invented here to
 make the list look finished.**
+
+**Resolution (2026-08-18).** The pathfinder was ported, as predicted, by
+something that is not a Journey Planner milestone: `UNIFIED_TOOL_PLAN.md`
+milestone D, the Civilization tool group, whose Draw route/way tool needs the
+same function. `cartalith_civ::tools::civ_dijkstra_path` ships all three of the
+reference's domains (`RouteMode::Land`/`Water`/`Mixed`, i.e.
+`_civLandCostGrid`/`_civWaterCostGrid`/`_civMixedCostGrid`) **and** the `v1.47`
+`reachable` flag — which is exactly the piece `_jpRerouteForMode` needs, since
+it *"never silently accepts `_civDijkstraPath`'s straight-line fallback as if
+it were a real path"*. Golden-verified bit-exact against the reference over 16
+cases, including negative controls for both unreachable directions.
+
+That milestone also recorded a correction this document's readers should know:
+`_civDijkstraPath` is **not** `road_dijkstra`. `road_dijkstra` is the bare
+relaxation kernel; the cost grids, the existing-way discount, settlement
+gravity, wrap-aware smoothing and the `reachable` flag are all in the wrapper.
+Anyone who read this doc's "unported pathfinder" note as "one function" was
+reading it correctly by name and by an order of magnitude too small by volume.
+
+**What is left for `_jp_reroute_for_mode` is no longer a pathfinder.** It is:
+`jp_mode_for_route` (already shipped with milestone 5), a `reachable` check, a
+call, and the assignment of `jn.pts`/`jn.km`/`jn.brks` — plus the `forceMode`
+override and the two failure messages. All of that is small and none of it is
+blocked. It remains a **UI action**, so it still sits on the far side of this
+doc's "Out of scope for all milestones" line — but only once over now, not
+twice.
 
 Two quality ceilings, both disclosed where they were found, neither a blocker:
 
@@ -806,8 +840,12 @@ inventing a journey nobody asked for.
 Making it a real user-facing feature therefore needs, in order:
 
 1. **A route to plan.** `jp_plan` takes a polyline. The reference gets one
-   from the interactive Route tool, which is unported (and is the same
-   pathfinder `_jpRerouteForMode` is blocked on). Until a user can draw or
+   from the interactive Route tool. Its *pathfinder* is now ported
+   (`civ_dijkstra_path`, `UNIFIED_TOOL_PLAN.md` milestone D — the same
+   function `_jpRerouteForMode` was blocked on), and so is way commitment
+   (`civ_commit_way`); what is still missing is the **waypoint-capture
+   interaction** and `_civCommitRoute`'s own `civJourneys` push, both
+   milestone F. Until a user can draw or
    solve a route, there is no input.
 2. **A `JpWorld` assembled from live state.** Every field it borrows is real
    and already computed by this port — `field`, `temp`, `rain`, flow, water

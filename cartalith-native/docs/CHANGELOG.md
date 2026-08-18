@@ -10221,3 +10221,144 @@ its patterns on code that cannot appear in a comment.
 - 25 golden scenarios plus a 30-goal sweep, every path compared exactly against
   the reference's own `UME._test.astar` output. No tolerances anywhere.
 - Mutation-checked: 14 of 15 mutations killed, the survivor documented above.
+
+## Unified tool plan milestone D — the Civilization group (2026-08-18)
+
+`UNIFIED_TOOL_PLAN.md`'s milestone D: Place settlement's manual-insertion path,
+Draw route/way's pathfinder and snap interaction, and Territory/faction's
+override mechanism — all three golden-verified against the real reference.
+Shipped **unwired**, the same "primitive ahead of orchestration" precedent
+milestones A-C used: no Godot scene, `main.gd`, `main.tscn`, `render.rs` or any
+`cartalith-godot` file was touched. `UNIFIED_TOOL_PLAN.md` gained a "Milestone D
+as built" section with the full findings; this entry is the summary.
+
+**Built:**
+
+- `cartalith-civ/src/tools.rs` — the whole milestone. `merge_territory_paint`;
+  `civ_place_pick_weight`/`civ_pick_place_at`/`civ_drop_place` (+ `DropPlace`)
+  and the two zoom-scaled pick radii; `civ_nearest_on_way`/
+  `civ_find_snap_target`/`civ_snap_point` (+ `SnapTarget`/`SnapKind`);
+  `civ_dijkstra_path` with its three cost grids, the existing-way discount and
+  the `reachable` flag (+ `RouteContext`/`RouteMode`/`WayRef`/`DijkstraPath`);
+  `civ_join_dijkstra_segs`; `civ_commit_way` (+ `ManualWay`/`ManualWayType`).
+- `cartalith-civ/tests/golden_parity_civ_tools.rs` — 16 golden tests.
+- `cartalith-civ/src/lib.rs` — `TerrainValid` widened from a `bool` to the
+  reference's four real modes, `js_hypot`, and a real bug fix in
+  `civ_smooth_path` (below).
+
+**The headline finding: `_civDijkstraPath` is not `road_dijkstra`.** The plan
+said the pathing primitive was already ported and only the interaction, the
+`ManualWay` struct and the unreachable-leg warning were new. Checked against the
+reference: that is wrong, and the gap is most of the tool. `road_dijkstra` is the
+reference's `roadDijkstra` — the bare single-source relaxation kernel over a
+caller-supplied cost array, in script block 1, ~22 500 lines earlier.
+`_civDijkstraPath` is one of its *callers* and calls it at exactly one line;
+everything that makes a route a route is in the wrapper and was unported: three
+cost grids (`_civLandCostGrid`/`_civWaterCostGrid`/`_civMixedCostGrid`, with
+`_CIV_SEA_COST = 0.6` deliberately *below* the flat-land baseline), the
+existing-way ×0.25 discount and its polyline rasterizer, settlement gravity,
+reconstruction into world coordinates, wrap-aware smoothing with a mode-matched
+terrain-validity repair, and the `reachable` flag.
+
+**This unblocks the Journey Planner.** `JOURNEY_PLANNER_SCOPE.md`'s closeout
+listed `_jpRerouteForMode` as the subsystem's one still-blocked function,
+because its whole body is `_civDijkstraPath`. That function now exists, with all
+three domains and the `reachable` flag `_jpRerouteForMode` exists to check.
+`JOURNEY_PLANNER_SCOPE.md` is updated; what remains there is a three-line
+transport→domain mapping and a UI action.
+
+**Territory/faction is an addition, not parity — flagged as such.** The
+reference has only a paint brush (`_civPaintTerritoryAt`); `PHASE2_SCOPE.md`'s
+milestone-9 investigation already found it never had algorithmic territory
+generation at all. This port does (`assign_territory`, `DECISIONS.md` §7b), so
+the tool paints over a base the reference never had — a superset under
+`DECISIONS.md` §7d. The brush itself needed **no new code**: milestone C's
+`PaintStamp::ungated` *is* `_civPaintTerritoryAt` (the reference's own
+`_paintAt` comment calls itself "a direct lift of `_civPaintTerritoryAt`'s
+geometry"), exactly as milestone C predicted. `ungated` and not `new` because
+`_civPaintTerritoryAt` has no land/water gate — a faction can own coastal water.
+The whole new surface is a five-line `merge_territory_paint`.
+
+**Three more things reading the reference corrected:**
+
+1. **`_civCommitRoute` sits eighteen lines above `_civCommitWay`** and looks
+   nearly identical, but routes `'mixed'` into `civJourneys` instead of
+   `'land'`/`'water'` into `civWays`. The plan warns about conflating
+   `_civOpenRouteEditor`; this is the closer trap, and porting it would let a
+   hand-drawn road cut across a bay.
+2. **The unreachable fallback is not a straight line from start to end.**
+   `_civSmoothPath` splits runs at any `|Δx| > GW/2` jump — unconditionally,
+   world mode or not — and the reconstruction's start→target-cell hop is such a
+   jump, so the run holding the start is dropped and the drawn stub sits at the
+   *target* end with the start absent. Pinned by a test so nobody "fixes" the
+   port into disagreeing with the reference; the shell's warning must not
+   promise a line between the user's two waypoints.
+3. **`_civDropPlace` checks select-near-existing *before* the water refusal**,
+   so a settlement whose terrain changed under it stays selectable.
+
+**Two bugs found in already-shipped, already-golden-verified code**, both latent
+because no prior fixture in this crate had a wrapped route, both fixed with every
+pre-existing golden still passing:
+
+1. **`civ_smooth_path` summed `km` across run boundaries.** The reference's
+   `if(k > 0)` guard is per-run, deliberately excluding the seam jump a `brks`
+   entry marks; the port used "if anything has been pushed". Milestone D's
+   world-wrap fixture reported 876.8 km for a route the reference measures at
+   136.6 km — one whole map width per seam crossing. Affected every consumer of
+   a wrapped way's length (`civ_consolidate_and_smooth_ways`, `civ_sea_routes`).
+2. **`Math.hypot` is now genuinely test-enforced.** Milestone B ported V8's
+   compensated version and honestly recorded that its fixtures could not tell it
+   from `sqrt(x²+y²)`, because an `f32` store absorbed the difference.
+   `_civSmoothPath` accumulates `km` in `f64` across dozens of segments with no
+   rounding step, so one ULP survives: `610.6390435628962` (Rust's `hypot`) vs
+   `610.6390435628963` (the reference). `cartalith-civ` now has its own
+   `js_hypot` across the route-geometry chain. The crate's other `.hypot()`
+   sites are deliberately left alone — covered by their own passing goldens, and
+   editing verified code on an unmeasured hunch is what this discipline exists
+   to prevent.
+
+**No `PassBuffer` anywhere, deliberately.** The plan predicted this for two of
+the three tools; it held for all three. Placing a settlement is one atomic
+append; the in-progress waypoint chain *is* Draw way's pass-buffer unit and
+`civ_commit_way` takes it as a plain slice; Territory paint's staging is
+milestone C's `PaintLayer`.
+
+**Verified:**
+
+- **16 golden-parity tests, every one bit-exact.** `km` compared as raw `f64`
+  bit patterns, not with a tolerance; the territory raster as an FNV-1a-64 over
+  all its bytes. No tolerance anywhere.
+- Harness: Node `vm.runInContext` over **whole `<script>` blocks** (#1
+  2084-14556, #2 14563-26720), asserted by their real `<script>`/`</script>`
+  delimiters — a stronger boundary guarantee than milestones B/C's line slices.
+  The balance/orphan-close checks ran anyway and fired twice, **both times
+  wrongly**: nested template literals desynchronised a crude string skipper, and
+  regex literals containing a bare `"` were read as string openers. Both fixed
+  properly rather than deleted.
+- **Emptiness assertions and real negative controls**, the class of failure that
+  has now bitten three subsystems: every "should route" case asserted ≥ 2 points
+  and `km > 0`, every "should not route" case asserted `reachable === false`,
+  the brush asserted a nonzero painted count, the drop tool exactly one place,
+  the unreachable commit a non-empty warning.
+- The world under the tools was checked first: `field`, water bodies, biome
+  raster and Strahler order all FNV-matched this port's own `generate_terrain`
+  pipeline exactly, in both cases, as did the land/ocean/lake counts. Both
+  fixtures carry real ocean, land and lakes; case 1 has 42 lake cells and an
+  ocean connected only through the seam.
+- Everything driven from **inside** the vm context (milestone C's lesson):
+  `civWays`, `_civActiveFaction`, `_civTerRadius`, `_civWayWaypoints` and
+  `civTerritory` are `let` bindings, not context properties.
+- Six presentation-only functions were neutralised inside the context by
+  reassignment — disclosed, but no tool body was transcribed or edited, and none
+  of the six touches routing, placement or paint state.
+- 28 new unit tests in `cartalith-civ` (225 total, up from 197).
+  `cargo build`/`cargo test`/`cargo clippy --all-targets` clean on
+  `cartalith-civ`. `cargo test --workspace`: 842 passing, 0 failures. (One
+  transient `cartalith-engine` GPU-determinism failure under full-workspace
+  parallelism cleared on rerun and in isolation; unrelated to this work.)
+
+**Not built, deliberately:** the interaction halves (waypoint capture, the
+Escape/commit keybinding, the shared active-faction quick-select, brush-radius
+and way-type pickers, the snap on/off switch) — input routing, milestone F.
+Also `_civCommitRoute`/`civJourneys`, `_civDropPOI` (no POI concept here),
+`_civConnectPlaceToNetwork`, and provinces over a painted territory raster.

@@ -687,7 +687,8 @@ integration into every current `classify_biome` call site (an audit of
 those call sites is real work here — confirm the full list before wiring,
 don't assume it's only render-time).
 
-**Milestone D — Civilization group.** Place settlement's manual-insertion
+**Milestone D — Civilization group. DONE 2026-08-18 — see "Milestone D as
+built" below.** Place settlement's manual-insertion
 path into the existing `SettlementPlacement`/`NamedSettlement` pipeline.
 Draw route/way's waypoint-collection + snap-to-target interaction, reusing
 `road_dijkstra` as-is, plus the new `ManualWay` type and the unreachable-
@@ -1284,3 +1285,345 @@ a `cartalith-godot` render change this milestone is scoped out of. The 0.60
 painted-colour blend in `land_color` is the same case. And automatic river
 tooling is untouched: this milestone adds the *manual* stamp path into the
 same structures, exactly as the plan said.
+
+## Milestone D as built (2026-08-18)
+
+The Civilization group's engine half: Place settlement's manual-insertion
+path, Draw route/way's whole pathfinder and snap interaction, and Territory/
+faction's override mechanism — all three golden-verified against the real
+reference, all three wired to nothing. Same "primitive ahead of
+orchestration" precedent as A-C: no Godot scene, `main.gd`, `main.tscn`,
+`render.rs` or any `cartalith-godot` file was touched.
+
+**Where it landed, and why.**
+
+- `cartalith-civ/src/tools.rs` — the whole milestone (28 unit tests).
+- `cartalith-civ/tests/golden_parity_civ_tools.rs` — 16 golden tests.
+- `cartalith-civ/src/lib.rs` — a widened `TerrainValid` (was a `bool`),
+  `js_hypot`, and a real bug fix in `civ_smooth_path` (both below).
+
+One file, one crate, and deliberately so. Milestone A's split (generic →
+`cartalith-spatial`, pipeline → `cartalith-engine`) and milestone B's third
+category (subsystem-domain math → the owning crate) put all three tools in
+`cartalith-civ`, and not merely by elimination: **every one of them is a
+manual entry point into a pipeline this crate already owns.** Manual
+settlement insertion appends into the same `Vec<NamedSettlement>`
+`place_settlements`/`name_and_populate_settlements` produce, so naming,
+roads and territory cannot tell a hand-placed settlement from a generated
+one. Manual ways reuse `road_dijkstra`, `civ_routing_grid`,
+`civ_apply_settlement_gravity` and `civ_smooth_path` — four helpers that are
+**private to this crate**, which a `cartalith-civ-tools` crate could not
+even see. Territory paint merges over `assign_territory`'s own output.
+`cartalith-engine` is wrong for milestone B's reason (*"`cartalith-engine`
+orchestrates; it does not compute"*); `cartalith-spatial` is wrong for
+milestone C's (a Dijkstra that knows about factions, settlement tiers and
+sea lanes is not generic machinery).
+
+**Milestone C's prediction held exactly, and it is why this milestone is
+tiny in one place and large in another.** Milestone C wrote: *"this also
+means milestone D's Territory paint needs no new stamp type at all."* True —
+`PaintStamp::ungated` **is** `_civPaintTerritoryAt`, cell for cell, because
+`_paintAt`'s own comment calls itself *"a direct lift of
+`_civPaintTerritoryAt`'s geometry"* and milestone C ported `_paintAt`. So
+the entire new surface territory painting needs is a five-line
+`merge_territory_paint`, golden-verified by hashing the whole raster against
+the reference's own `civTerritory`. Draw route/way, by contrast, turned out
+to be the largest single item in this group by a wide margin — the next
+section is the headline correction.
+
+### The headline correction: `_civDijkstraPath` is not `road_dijkstra`
+
+The plan says, of Draw route/way: *"the pathing primitive is not new —
+`road_dijkstra` (`cartalith-civ/src/lib.rs:3269`) is exactly this same
+Dijkstra-over-terrain-cost, already ported and golden-verified for
+`build_road_network`. What's genuinely new is: (a) a waypoint-collection
+interaction, (b) a `ManualWay` struct ... and (c) the unreachable-leg
+fallback-to-straight-line-and-warn behaviour."*
+
+Checked against the reference, as the brief asked: **that is wrong, and the
+gap is most of the tool.** This port's `road_dijkstra` is the reference's
+`roadDijkstra` (line 3275) — the bare single-source relaxation kernel over a
+caller-supplied cost array. `_civDijkstraPath` (line 25957) is one of its
+*callers*, and calls it at exactly one line. Everything that makes a route a
+route lives in the wrapper, and none of it was ported:
+
+1. **Three cost grids, not one.** `_civLandCostGrid` (21035: slope cost with
+   *all* water impassable — sea via `buildTravelCost`, above-sea lakes via
+   the water-body overlay, because a bare `field < sea` check misses those),
+   `_civWaterCostGrid` (21051: the mirror image — any water flat-cost 1, land
+   impassable, lakes deliberately included unlike `_civMstRoutes`' ocean-only
+   grid), and `_civMixedCostGrid` (21090: land+water so a route crosses open
+   water when that is genuinely cheaper — slope × biome friction × the shared
+   navigable-river discount, with `_CIV_SEA_COST = 0.6` *below* the flat-land
+   baseline, v0.94's deliberate correction).
+2. **The existing-way discount** (`_civMarkWaysOnGrid`/
+   `_civMarkWayNeighborhood`/`_civWalkWayCells`, 21757/21752/21766, and
+   `_CIV_EXISTING_WAY_DISCOUNT = 0.25`). `_civWalkWayCells` in particular is
+   not "iterate `pts`": it *rasterizes the segments between* the sparse
+   smoothed sample points, because `pts` alone is gappy on long straights and
+   routers used to ignore half a road.
+3. **Settlement gravity** — already ported
+   (`civ_apply_settlement_gravity`), but never before called from a manual
+   tool.
+4. **Path reconstruction into world coordinates**, `((rx+0.5)/sc,
+   (ry+0.5)/sc)` per routing cell, with the caller's own exact endpoints
+   restored at full precision.
+5. **Wrap-aware smoothing with a *mode-matched* validity repair pass**,
+   which needed two `_civTerrainValidTest` modes this crate did not have.
+6. **The `reachable` flag** (v1.47) — the only way a caller can tell a real
+   path from the synthesized fallback.
+
+The port is `civ_dijkstra_path`; the plan's (a)-(c) are all real, and all the
+small part. Two of the reference's own signals make the distinction visible
+in hindsight: `roadDijkstra` sits in script block 1 beside `buildTravelCost`,
+~22 500 lines before `_civDijkstraPath`, and `_civDijkstraPath`'s own header
+says it *"mirrors buildRoadsOp"* — it mirrors a *caller*, not the kernel.
+
+**This unblocks the Journey Planner.** `JOURNEY_PLANNER_SCOPE.md`'s closeout
+recorded `_jpRerouteForMode` as the subsystem's one still-blocked function,
+because *"its whole body is `_civDijkstraPath`, the Route tool's unported
+multi-modal pathfinder."* That pathfinder now exists, with all three of its
+domains and its `reachable` flag — precisely what `_jpRerouteForMode` checks,
+since it *"never silently accepts `_civDijkstraPath`'s straight-line fallback
+as if it were a real path."* `JOURNEY_PLANNER_SCOPE.md` is updated. What is
+left there is `_jpModeForRoute`'s three-line transport→domain mapping and the
+re-route action itself, which is UI.
+
+### What the reference corrected, tool by tool
+
+**Place settlement.**
+
+1. **The gate order is load-bearing and is not the obvious one.** Bounds,
+   then **select-near-existing**, *then* the water refusal. A settlement whose
+   terrain later changed under it is still selectable — the reference's own
+   v1.86 comment worries about exactly that. A port that checked water first
+   would make such a settlement unclickable.
+2. **`_civPlacePickWeight` is a prominence weighting, not nearest-pixel**
+   (v1.88): the winner minimises `d² / weight²` with `weight = 4 + rank`,
+   mirroring `drawCivLayer`'s own pin-size formula, so a big city beats a
+   small hamlet that is slightly closer. The absolute pick radius is unchanged
+   by it. This port models five of the reference's ten settlement classes and
+   has no POI concept, so the two special-kind ranks and the POI's flat weight
+   of 5 are absent rather than approximated.
+3. **Three fields the reference's place object does not carry.** Its place is
+   `{x, y, name:'', kind:'town', faction, pop:1000, traits:[]}`; this port's
+   `SettlementPlacement` stores `suit`, `capital` and `coastal`, which the
+   reference recomputes on demand. `capital` follows from `kind`; `coastal`
+   uses the same `civ_is_coastal(.., ocean_only = true)` call and the same
+   `max(6, gw/60)` radius `place_settlements` uses, so a hand-placed port is
+   coastal on the same test a generated one is; `suit` is the caller's, which
+   may sample its own suitability raster.
+4. **Name and population stay the reference's placeholder**, `""` and `1000`
+   — deliberately **not** `civ_base_pop_for_kind`. The plan floated running a
+   hand-placed settlement through `civ_settle_name`/`civ_base_pop_for_kind`
+   immediately. Both are public and a shell may do exactly that, but doing it
+   *inside* `civ_drop_place` would consume draws from `civ_name_rng`'s stream
+   out of band and silently rename every subsequently generated settlement. It
+   has to be the caller's explicit step.
+
+**Draw route/way.**
+
+1. **The plan's conflation warning is confirmed — and there is a second,
+   closer trap it does not name.** The plan flags `_civOpenRouteEditor` (the
+   Journey Planner's editor over an *existing* journey); the real match is
+   `_civTool === 'draw_way'` → `_civCommitWay`. Correct. But
+   **`_civCommitRoute` sits eighteen lines above `_civCommitWay` in the same
+   file**, looks nearly identical, and is a different tool: it routes
+   `'mixed'` and pushes to `civJourneys`, while `_civCommitWay` routes
+   `'water'` for sea lanes and `'land'` for everything else and pushes to
+   `civWays`. Porting the wrong one would let a hand-drawn road cut across a
+   bay *and* file the result in the Journey Planner's list.
+2. **The unreachable fallback is *not* a straight line from start to end.**
+   The v1.99 comment says *"a straight line was drawn there instead"*, and the
+   plan repeats it. What actually happens: the `{pts: fp, ...}` straight-line
+   branch only runs when `_civSmoothPath` returns `null`, and for a distant
+   unreachable target it does not. The reconstruction produces
+   `[start, targetCell, end]`; `_civSmoothPath` splits runs at any
+   `|Δx| > GW/2` jump — **unconditionally, world mode or not** — the
+   start→target-cell hop *is* such a jump, and the run holding the start has
+   length 1 and is dropped entirely. The drawn stub therefore sits at the
+   **target** end and the start point is absent. Golden-verified, and pinned
+   by a test asserting the start really is missing so nobody later "fixes" the
+   port into disagreeing with the reference. It also means the shell's warning
+   must not promise the user a line between their two waypoints.
+3. **`_civTerrainValidTest` needed all four of its modes.** This crate had
+   two (`'land'` with no exception, `'ocean'`), inlined as an `is_sea: bool`
+   on `civ_smooth_path`. `civ_dijkstra_path` needs `'water'` (ocean *or*
+   lake), `'land'` **with the v1.99 sea-lane ferry exception**, and
+   `undefined` (mixed repairs nothing, having no forbidden terrain). The ferry
+   exception is not decoration: land mode's own discount block is *the only
+   place in the whole reference where a land-mode `Infinity` cell becomes
+   finite*, so without the matching exception the repair pass would drag a
+   legitimate ferry leg back onto dry land. There is a golden test for exactly
+   that, and its negative half (the same pair is unreachable with no lane).
+4. **`_civWalkWayCells` is used twice with a deliberate asymmetry.**
+   `_civMarkWaysOnGrid` skips `w.hidden`; the sea-lane-cell collection inside
+   `_civTerrainValidTest` does not. Ported as written, with the asymmetry
+   commented at the site rather than smoothed over.
+5. **`state.roads.edges` has no equivalent here.** `_civDijkstraPath` also
+   discounts that array — `buildRoadsOp`'s legacy Edit-tab output, which this
+   port never had. A caller's generated `Way`s go through the same `ways`
+   slice instead, reaching the same cells by a different route. Named rather
+   than silently dropped.
+6. **Rebuilding the cost grid per leg is kept.** `civ_join_dijkstra_segs`
+   calls `civ_dijkstra_path` once per leg, so an n-waypoint way builds n−1
+   grids — the reference's own behaviour. Hoisting would be a real
+   optimisation *and* a real divergence, since the way discount and settlement
+   gravity both mutate the grid in place.
+
+**Territory/faction — flagged as an addition, not parity.**
+
+The reference has a territory *paint brush* and nothing else.
+`PHASE2_SCOPE.md`'s milestone-9 investigation (re-checked here, not
+re-derived) found `getCivTerritory()` only lazily zero-allocates the array,
+and its sole writers are `_civPaintTerritoryAt` and a save/load deserializer
+— **the reference never had algorithmic territory generation at all**. This
+port does (`assign_territory`, `DECISIONS.md` §7b, its own design). So this
+tool paints over a computed base the reference never had: a superset under
+`DECISIONS.md` §7d, recorded as an addition. The *brush* is a faithful port;
+what it composites onto is new. Two specifics:
+
+- **`ungated`, not `new`.** `_civPaintTerritoryAt` has **no land/water
+  gate**, unlike `_paintAt`'s hard `wb[i] !== 0` refusal — a faction can own
+  coastal water and lake surface. Milestone C's `PaintStamp::ungated`
+  constructor, added there for the mockup's *"respect water mask"* switch,
+  turns out to be the reference-faithful choice here.
+- **Faction ids widen at the merge.** `civTerritory` is a `Uint8Array` in the
+  reference; `assign_territory` returns `Vec<i32>`. A `u8` override layer
+  therefore covers every faction the reference could express, and the widening
+  happens at `merge_territory_paint` and nowhere else.
+
+### Two bugs found in already-shipped, already-golden-verified code
+
+Both were latent because no prior fixture in this crate had a **wrapped**
+route, and both are fixed with every pre-existing golden test still passing.
+
+1. **`civ_smooth_path` summed `km` across run boundaries.** The reference
+   guards the accumulation with `if(k > 0)` — `k` being the index *within the
+   current run* — so the jump from one run to the next, exactly the seam a
+   `brks` entry marks, is deliberately excluded. The port used "if anything
+   has been pushed", which is the same thing for a single-run path and wrong
+   for every multi-run one. Milestone D's case 1 is the first wrapped fixture
+   this function has ever had: it reported 876.8 km for a route the reference
+   measures at 136.6 km — one whole map width, added per seam crossing. Every
+   consumer of a wrapped way's length (`civ_consolidate_and_smooth_ways`,
+   `civ_sea_routes`, and now manual ways) was affected.
+2. **`Math.hypot` is now genuinely test-enforced.** Milestone B ported V8's
+   compensated `Math.hypot` and recorded, honestly, that its own fixtures
+   could not distinguish it from `sqrt(x²+y²)` — every case still passed with
+   the naive form, because an `f32` store absorbed the difference. Milestone D
+   found the fixture that can. `_civSmoothPath` accumulates `km` in `f64`
+   across dozens of segments with no rounding step anywhere, so one ULP
+   survives to the result: case 1's unreachable land route is
+   `610.6390435628962` with Rust's `f64::hypot` and `610.6390435628963` — the
+   reference's own value — with V8's. `cartalith-civ` now has its own
+   `js_hypot` (identical to `cartalith-terrain`'s) applied across the
+   route-geometry chain: `civ_rdp_simplify`, `civ_catmull_rom_sample`,
+   `civ_smooth_path`, and `civ_dijkstra_path`'s fallback. The crate's other
+   `.hypot()` sites (slope gradients, the Journey Planner's wrap-aware leg
+   lengths) are deliberately **not** changed: they are covered by their own
+   passing goldens, and editing verified code on an unmeasured hunch is the
+   thing this project's discipline exists to prevent. Worth a sweep the day a
+   fixture distinguishes them there too.
+
+### No `PassBuffer` anywhere in this milestone, deliberately
+
+The plan predicted this for two of the three tools; it held for all three.
+Place settlement is *"a discrete, already-atomic action (append one struct),
+not a brush stroke needing preview-before-commit"*. Draw route/way's
+*"in-progress waypoint chain is itself the natural pass-buffer unit"*, and
+`civ_commit_way` takes that chain as a plain slice — the reference's
+`_civWayWaypoints`, exactly. Territory paint's staging is `PaintLayer`, which
+milestone C already built; adding `PassBuffer<PaintStamp>` on top would have
+been a second staging mechanism over the same data with nobody asking for it.
+
+### Verified
+
+**16 golden-parity tests, every one bit-exact** — including `km` compared as
+raw `f64` bit patterns rather than with a tolerance, and the territory raster
+compared as an FNV-1a-64 over all its bytes. **No tolerance was needed
+anywhere.**
+
+The harness is a Node `vm.runInContext` run of **whole `<script>` blocks, not
+line slices**: blocks #1 (2084-14556) and #2 (14563-26720), the same
+boundaries `golden_parity_hierarchical_network.rs` documents. That is a
+materially stronger boundary guarantee than milestones B/C's contiguous
+slices — the delimiters are the real `<script>`/`</script>` tags, and the
+harness asserts exactly that (the line before each slice *is* `<script>`, the
+line after *is* `</script>`) rather than inferring a top-level boundary from
+indentation.
+
+The block-comment balance assertion and Urban M2's orphan-close counter ran
+anyway, and **both times they fired they were wrong** — which is how a check
+of this kind proves it is looking at all:
+
+- Two false orphan `*/` in block 2, both real comments. Cause: a crude "scan
+  to the next quote of the same kind" string skipper desynchronises on
+  **nested template literals**, of which this reference has many. Fixed with a
+  real template-literal stack, not by deleting the check.
+- Then an unbalanced-backtick report. Cause: **regex literals containing a
+  bare `"`** (`k.replace(/"/g, '&quot;')`), read as a string opener. Fixed
+  with a regex-literal skipper.
+
+**Emptiness assertions, because three subsystems have now been bitten by
+silently-empty output that passed every structural check.** Before any golden
+value was written down, the extraction asserted: every "should route" path has
+≥ 2 points and `km > 0`; every "should not route" path reports
+`reachable === false` (real negative controls, not absent assertions); the
+territory brush painted a nonzero cell count; the drop tool appended exactly
+one place; the unreachable commit produced a non-empty warning. All are
+re-asserted on the Rust side.
+
+**The world under the tools is bit-identical, checked before trusting
+anything.** The harness's `field`, water-body classification, biome raster and
+Strahler river order were FNV-1a-64'd over their raw bytes and compared
+against this port's own `generate_terrain` + `build_water_bodies` +
+`build_biome_raster` + `fresh_river_order`. All four hashes matched exactly in
+both cases, as did the land/ocean/lake cell counts. Both fixtures contain real
+ocean, real land and at least one real lake, so the ocean-vs-lake distinction
+every water gate turns on is genuinely exercised — case 1 has 42 lake cells.
+
+Case 0 (`gw=24 gh=18 seed=24601 world=false`): a western landmass, an ocean,
+an eastern strip — so a land route between two western points is real, a land
+route east is genuinely unreachable, and `mixed` connects them by crossing
+water. Case 1 (`gw=20 gh=16 seed=314159 world=true`) wraps, and its ocean is
+connected *only through the seam*, so both its land and its water route come
+back carrying a `brks` entry — the wrap-aware smoothing path that found bug 1
+above, and which no fixture in this crate had ever reached.
+
+Six presentation-only functions (`_civRenderPlaceEditor`, `_civRenderWayList`,
+`_civRenderJourneyList`, `_civUpdatePlannerPanel`, `drawCivLayerAuto`,
+`renderNow`) are neutralised **inside** the context by reassigning their
+bindings. Disclosed because it modifies the reference environment — but note
+what it is not: no tool body is transcribed or edited (unlike milestone C's
+`sculptCommit`, which had to be), and none of the six touches routing,
+placement or paint state. `_civRenderPlaceEditor` reaches `_umSiteProfile`,
+which lives in script block #3 and is deliberately not loaded.
+
+Everything is driven from **inside** the context — milestone C's lesson.
+`civWays`, `_civActiveFaction`, `_civTerRadius`, `_civWayWaypoints` and
+`civTerritory` are all `let` declarations, which in a `vm` script are lexical
+bindings rather than context properties; setting them from the host would have
+created shadows the reference never reads, and the failure mode would again
+have been silently-empty output.
+
+Unit tests: 28 new in `cartalith-civ` (225 total, up from 197). `cargo build`
+/ `cargo test` / `cargo clippy --all-targets` clean on `cartalith-civ` (two
+pre-existing `needless_range_loop` warnings predate this work and are
+untouched). `cargo test --workspace`: 842 passing, 0 failures.
+
+### Not built, deliberately
+
+The tools' **interaction** halves — waypoint capture and the Escape/commit
+keybinding, the active-faction quick-select the plan notes Place settlement
+and Territory should share, the brush-radius and way-type pickers, the
+snap-on/off switch (`state.viz.snapWays`) — are input routing and belong to
+milestone F. `civ_zoom_pick_r` is exposed so the shell supplies its own zoom
+rather than the engine inventing a view model.
+
+Also not built: `_civCommitRoute` and `civJourneys` (the general Route tool —
+a Journey Planner surface, not one of this group's three), `_civDropPOI` (this
+port has no POI concept), `_civConnectPlaceToNetwork` (the "connect a
+hand-placed settlement to the network" spur — a real function with a real port
+ahead of it, but not one of the rail's fifteen tools), and
+`_civGenerateProvinces` consuming a *painted* territory raster.

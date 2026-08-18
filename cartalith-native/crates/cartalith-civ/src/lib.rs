@@ -14,6 +14,8 @@
 use cartalith_engine::WorldState;
 use rayon::prelude::*;
 
+pub mod tools;
+
 /// `LITH_KEYS` (reference line 5830) -- frozen, append-only.
 pub const LITH_KEYS: [&str; 7] =
     ["granite", "basalt", "andesite", "limestone", "sandstone", "shale", "metamorphic"];
@@ -2444,7 +2446,7 @@ pub enum SettlementKind {
 /// ocean-port flag. Reference `_civIterativeAutoWorld` (~lines 25366-
 /// 25425), stopping before population/naming (culture/economy,
 /// `PHASE2_SCOPE.md` milestone 9+, out of scope here).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SettlementPlacement {
     pub x: usize,
     pub y: usize,
@@ -3122,7 +3124,7 @@ pub fn civ_base_pop_for_kind(kind: SettlementKind) -> f64 {
 /// `place_settlements`'s output (milestone 8) with the rest of
 /// `_civIterativeAutoWorld`'s own `places.map(...)` closure (reference
 /// lines ~25409-25444).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct NamedSettlement {
     pub placement: SettlementPlacement,
     pub name: String,
@@ -4504,6 +4506,49 @@ fn js_round(x: f64) -> f64 {
     (x + 0.5).floor()
 }
 
+/// V8's `Math.hypot`, which is **not** `sqrt(x*x + y*y)` and is not
+/// bit-identical to Rust's `f64::hypot` either: it divides by the larger
+/// magnitude and Kahan-compensates the sum of squares (V8's
+/// `Builtins::MathHypot`). Identical to `cartalith-terrain`'s own
+/// `sculpt::js_hypot`, ported there by `UNIFIED_TOOL_PLAN.md` milestone B.
+///
+/// Milestone B recorded, honestly, that its fixtures could *not* tell the
+/// two apart -- every one of its 23 golden cases still passed with the
+/// naive form, because an `f32` store absorbed the difference. Milestone D
+/// found the fixture that can: `_civSmoothPath` accumulates `km` in `f64`
+/// across dozens of segments with no rounding step anywhere, so a single
+/// ULP survives to the result. Case 1's unreachable land route comes out
+/// `610.6390435628962` with Rust's `hypot` and `610.6390435628963` -- the
+/// reference's own value -- with this. So this is now genuinely
+/// test-enforced, in this crate, by
+/// `tests/golden_parity_civ_tools.rs::case1_land_and_water_negative_controls`.
+///
+/// Applied to the path-smoothing chain (`civ_rdp_simplify`,
+/// `civ_catmull_rom_sample`, `civ_smooth_path`) and `civ_dijkstra_path`'s
+/// straight-line fallback -- every `Math.hypot` on the route-geometry path.
+/// The crate's other `.hypot()` sites (slope gradients, wrap-aware leg
+/// lengths in the Journey Planner) are deliberately left alone: they are
+/// covered by their own passing golden tests, and changing them here would
+/// be an unmeasured edit to verified code. Worth a sweep of its own if a
+/// future fixture ever distinguishes them there too.
+pub(crate) fn js_hypot(x: f64, y: f64) -> f64 {
+    let (ax, ay) = (x.abs(), y.abs());
+    let max = if ax > ay { ax } else { ay };
+    if max == 0.0 {
+        return 0.0;
+    }
+    let mut sum = 0.0f64;
+    let mut compensation = 0.0f64;
+    for v in [ax, ay] {
+        let n = v / max;
+        let summand = n * n - compensation;
+        let preliminary = sum + summand;
+        compensation = (preliminary - sum) - summand;
+        sum = preliminary;
+    }
+    max * sum.sqrt()
+}
+
 /// `rdpSimplify` (reference line 8701): Ramer-Douglas-Peucker line
 /// simplification, explicit-stack form matching the reference's own
 /// (not recursion) -- though for this algorithm the final `keep` set is
@@ -4527,7 +4572,7 @@ fn civ_rdp_simplify(pts: &[(f64, f64)], eps: f64) -> Vec<(f64, f64)> {
         let mut worst = usize::MAX;
         let mut wd = -1.0f64;
         for (i, &(px, py)) in pts.iter().enumerate().take(b).skip(a + 1) {
-            let d = if l2 < 1e-12 { (px - ax).hypot(py - ay) } else { (dx * (py - ay) - dy * (px - ax)).abs() / l2.sqrt() };
+            let d = if l2 < 1e-12 { js_hypot(px - ax, py - ay) } else { (dx * (py - ay) - dy * (px - ax)).abs() / l2.sqrt() };
             if d > wd {
                 wd = d;
                 worst = i;
@@ -4556,7 +4601,7 @@ fn civ_catmull_rom_sample(pts: &[(f64, f64)], step: f64) -> Vec<(f64, f64)> {
     p.extend_from_slice(pts);
     p.push((2.0 * pts[n - 1].0 - pts[n - 2].0, 2.0 * pts[n - 1].1 - pts[n - 2].1));
 
-    let dist = |a: (f64, f64), b: (f64, f64)| (b.0 - a.0).hypot(b.1 - a.1);
+    let dist = |a: (f64, f64), b: (f64, f64)| js_hypot(b.0 - a.0, b.1 - a.1);
     let mut out = Vec::new();
     for s in 0..(n - 1) {
         let (p0, p1, p2, p3) = (p[s], p[s + 1], p[s + 2], p[s + 3]);
@@ -4586,24 +4631,70 @@ fn civ_catmull_rom_sample(pts: &[(f64, f64)], step: f64) -> Vec<(f64, f64)> {
     out
 }
 
-/// `_civTerrainValidTest('land')` narrowed to this network's one real call
-/// shape (see this section's own header comment): land iff not water,
-/// against milestone 2's real water-body classification.
-/// `_civTerrainValidTest('land')`/`'ocean'` (reference line 21843,
-/// narrowed to the two modes this crate's callers actually use). `land`:
-/// dry ground only (`water_bodies==0`). `ocean`: navigable ocean only
-/// (`water_bodies==1`), excluding lakes (`==2`) -- `_civMstRoutes`'s own
-/// comment on why: inland seas/lakes are separate unconnected water
-/// bodies with no path to ocean ports, and letting a sea route snap into
-/// one produced zero connectable pairs.
-fn civ_is_valid_terrain(x: f64, y: f64, gw: usize, gh: usize, water_bodies: &[u8], is_sea: bool) -> bool {
-    let xi = if x < 0.0 { 0 } else if x >= gw as f64 { gw - 1 } else { js_round(x) as usize };
-    let yi = if y < 0.0 { 0 } else if y >= gh as f64 { gh - 1 } else { js_round(y) as usize };
-    let wb = water_bodies[yi * gw + xi];
-    if is_sea {
-        wb == 1
-    } else {
-        wb == 0
+/// `_civTerrainValidTest` (reference line 21843): the ONE definition of
+/// "what is passable" per routing mode, reused for the smoothing repair
+/// pass and matching the cost grid that produced the path.
+///
+/// All four of the reference's real shapes, because milestone D's
+/// `civ_dijkstra_path` needs the two this crate previously did not:
+/// - `Ocean` -- `'ocean'`, `wb == 1`. Navigable ocean only, excluding
+///   lakes (`== 2`): `_civMstRoutes`'s own comment on why -- inland seas
+///   are separate unconnected bodies with no path to ocean ports, and
+///   letting a sea route snap into one produced zero connectable pairs.
+/// - `Water` -- `'water'`, `wb != 0`. Ocean OR lake; manual sea-lane ways
+///   deliberately treat a lake as just as sailable as the sea.
+/// - `Land(None)` -- `'land'` with no ferry exception, `wb == 0`.
+/// - `Land(Some(lane_cells))` -- `'land'` with `opts.allowSeaLanes`
+///   (v1.99). `civ_dijkstra_path`'s own land-mode cost grid is the ONLY
+///   cost-grid builder that turns an `Infinity` water cell finite (a cell
+///   on an existing sea-lane way becomes a traversable ferry crossing), so
+///   its own repair pass must honour that same exception or it would
+///   "fix" a legitimate ferry leg back onto dry land. Passing it anywhere
+///   else would silently legalise a corner-cut through open water.
+/// - `Unchecked` -- the reference's `undefined`: `'mixed'` routing has no
+///   forbidden terrain to repair against and always omits the test.
+#[derive(Clone, Copy)]
+pub(crate) enum TerrainValid<'a> {
+    Unchecked,
+    Ocean,
+    Water,
+    Land(Option<&'a HashSet<usize>>),
+}
+
+impl TerrainValid<'_> {
+    /// The reference's returned closure. `Unchecked` never reaches here
+    /// (callers skip the repair entirely), and answers `true` if it does,
+    /// so no point is ever moved.
+    fn check(&self, x: f64, y: f64, gw: usize, gh: usize, water_bodies: &[u8]) -> bool {
+        let xi = if x < 0.0 { 0 } else if x >= gw as f64 { gw - 1 } else { js_round(x) as usize };
+        let yi = if y < 0.0 { 0 } else if y >= gh as f64 { gh - 1 } else { js_round(y) as usize };
+        let i = yi * gw + xi;
+        let wb = water_bodies[i];
+        match self {
+            TerrainValid::Unchecked => true,
+            TerrainValid::Ocean => wb == 1,
+            TerrainValid::Water => wb != 0,
+            TerrainValid::Land(lanes) => {
+                if wb == 0 {
+                    return true;
+                }
+                let Some(lanes) = lanes else { return false };
+                // Small fixed radius: quantisation between the way's own
+                // rounded points and this test's rounding, not a search.
+                for dy in -2i64..=2 {
+                    for dx in -2i64..=2 {
+                        let (nx, ny) = (xi as i64 + dx, yi as i64 + dy);
+                        if nx < 0 || ny < 0 || nx >= gw as i64 || ny >= gh as i64 {
+                            continue;
+                        }
+                        if lanes.contains(&(ny as usize * gw + nx as usize)) {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
+        }
     }
 }
 
@@ -4612,7 +4703,7 @@ fn civ_is_valid_terrain(x: f64, y: f64, gw: usize, gh: usize, water_bodies: &[u8
 /// (matching the reference's own -- redundant but correctness-preserving
 /// -- structure) so the first match in row-major (dy outer, dx inner)
 /// order is returned, not necessarily the Euclidean-nearest one.
-fn civ_nearest_valid_pt(x: i64, y: i64, gw: usize, gh: usize, water_bodies: &[u8], max_r: i64, is_sea: bool) -> (i64, i64) {
+fn civ_nearest_valid_pt(x: i64, y: i64, gw: usize, gh: usize, water_bodies: &[u8], max_r: i64, valid: &TerrainValid) -> (i64, i64) {
     for r in 1..=max_r {
         for dy in -r..=r {
             for dx in -r..=r {
@@ -4620,9 +4711,7 @@ fn civ_nearest_valid_pt(x: i64, y: i64, gw: usize, gh: usize, water_bodies: &[u8
                 if nx < 0 || ny < 0 || nx >= gw as i64 || ny >= gh as i64 {
                     continue;
                 }
-                let wb = water_bodies[ny as usize * gw + nx as usize];
-                let valid = if is_sea { wb == 1 } else { wb == 0 };
-                if valid {
+                if valid.check(nx as f64, ny as f64, gw, gh, water_bodies) {
                     return (nx, ny);
                 }
             }
@@ -4642,12 +4731,13 @@ struct SmoothedPath {
 /// samples each run independently, repairs any resulting point that lands
 /// off-terrain back onto valid ground, then restores the run's own
 /// supplied full-precision endpoints (never moved by the repair pass).
-/// `is_sea`: land routes (milestone 14) repair onto dry land; sea routes
-/// (milestone 13) repair onto navigable ocean (reference:
-/// `_civTerrainValidTest(isSea?'ocean':'land')`, passed to this function
-/// as a validity closure -- inlined here as a bool since this crate's
-/// only two real call shapes are exactly those two modes).
-fn civ_smooth_path(raw: &[(f64, f64)], gw: usize, gh: usize, water_bodies: &[u8], map_width_km: f64, is_sea: bool) -> Option<SmoothedPath> {
+/// `valid` is the reference's own `isValid(x,y)` closure argument, here a
+/// `TerrainValid` mode (see its doc): land routes (milestone 14) repair
+/// onto dry land, sea routes (milestone 13) onto navigable ocean, and
+/// milestone D's `civ_dijkstra_path` adds `Water`, the sea-lane ferry
+/// exception, and `Unchecked` (the reference's `undefined`, which skips
+/// the repair pass entirely for `'mixed'` routing).
+fn civ_smooth_path(raw: &[(f64, f64)], gw: usize, gh: usize, water_bodies: &[u8], map_width_km: f64, valid: &TerrainValid) -> Option<SmoothedPath> {
     if raw.is_empty() {
         return None;
     }
@@ -4683,14 +4773,21 @@ fn civ_smooth_path(raw: &[(f64, f64)], gw: usize, gh: usize, water_bodies: &[u8]
             brks.push(pts.len());
         }
         let run_start = pts.len();
-        for &s in &smooth {
+        for (k, &s) in smooth.iter().enumerate() {
             let mut p = (js_round(s.0), js_round(s.1));
-            if !civ_is_valid_terrain(p.0, p.1, gw, gh, water_bodies, is_sea) {
-                let (nx, ny) = civ_nearest_valid_pt(p.0 as i64, p.1 as i64, gw, gh, water_bodies, 16, is_sea);
+            if !matches!(valid, TerrainValid::Unchecked) && !valid.check(p.0, p.1, gw, gh, water_bodies) {
+                let (nx, ny) = civ_nearest_valid_pt(p.0 as i64, p.1 as i64, gw, gh, water_bodies, 16, valid);
                 p = (nx as f64, ny as f64);
             }
-            if let Some(&prev) = pts.last() {
-                km += (p.0 - prev.0).hypot(p.1 - prev.1) * map_width_km / gw as f64;
+            // `if(k > 0)` in the reference, NOT "if anything has been
+            // pushed": the km sum deliberately excludes the jump between
+            // one run and the next, which is exactly the seam a `brks`
+            // entry marks. Summing across it inflated a wrapped world-mode
+            // route by the whole map width -- caught by milestone D's
+            // case 1, the first wrapped route fixture this function has had.
+            if k > 0 {
+                let prev = *pts.last().expect("k > 0 means a point was pushed in this run");
+                km += js_hypot(p.0 - prev.0, p.1 - prev.1) * map_width_km / gw as f64;
             }
             pts.push(p);
         }
@@ -4831,7 +4928,7 @@ pub fn civ_consolidate_and_smooth_ways(
             if r[r.len() - 1] == path[path.len() - 1] {
                 raw[last] = (pb.placement.x as f64, pb.placement.y as f64);
             }
-            let Some(sm) = civ_smooth_path(&raw, gw, gh, water_bodies, map_width_km, false) else {
+            let Some(sm) = civ_smooth_path(&raw, gw, gh, water_bodies, map_width_km, &TerrainValid::Land(None)) else {
                 continue;
             };
             if sm.pts.len() < 2 {
@@ -5082,7 +5179,7 @@ pub fn civ_sea_routes(
         if raw.len() < 2 {
             continue;
         }
-        let Some(sm) = civ_smooth_path(&raw, gw, gh, water_bodies, map_width_km, true) else {
+        let Some(sm) = civ_smooth_path(&raw, gw, gh, water_bodies, map_width_km, &TerrainValid::Ocean) else {
             continue;
         };
         if sm.pts.len() < 2 {
