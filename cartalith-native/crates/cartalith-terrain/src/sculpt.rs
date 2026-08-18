@@ -106,7 +106,7 @@ fn lerp(a: f64, b: f64, t: f64) -> f64 {
 /// with it the *sign* of `sd`, which Cliff and Canyon read directly.
 /// Anyone tempted to simplify it should add a fixture that distinguishes
 /// the two first.
-fn js_hypot(x: f64, y: f64) -> f64 {
+pub(crate) fn js_hypot(x: f64, y: f64) -> f64 {
     let (ax, ay) = (x.abs(), y.abs());
     let max = if ax > ay { ax } else { ay };
     if max == 0.0 {

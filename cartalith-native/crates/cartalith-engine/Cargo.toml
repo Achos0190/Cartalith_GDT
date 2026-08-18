@@ -20,6 +20,10 @@ cartalith-erosion = { path = "../cartalith-erosion" }
 # integration". The DCC tool system is that trigger. Pure data structures,
 # no gdext -- fine per ARCHITECTURE.md's crate rules.
 cartalith-spatial = { path = "../cartalith-spatial" }
+# UNIFIED_TOOL_PLAN.md milestone E: region_export composes cartalith-io's
+# packHeight16/buildTileManifest with cartalith-terrain's refineTile. io holds
+# no gdext and no pipeline state -- fine per ARCHITECTURE.md's crate rules.
+cartalith-io = { path = "../cartalith-io" }
 # GPU_LAYER_INTEGRATION_SCOPE.md milestone 6: opt-in (WorldParams.use_gpu)
 # partial-GPU substrate path. Neither crate depends on gdext -- fine per
 # ARCHITECTURE.md's crate rules (only cartalith-godot may touch Godot).

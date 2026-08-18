@@ -87,6 +87,11 @@ pub mod staleness;
 /// milestone C). Unwired: the pipeline below does not call it yet.
 pub mod sculpt_commit;
 
+/// `exportRegionTiles`' assembly of the region-export archive
+/// (`UNIFIED_TOOL_PLAN.md` milestone E). Unwired: nothing calls it yet, and
+/// the PNG/gzip/`.zip` half is milestone E2.
+pub mod region_export;
+
 use cartalith_climate::{
     apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
     WeatherParams,

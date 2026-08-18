@@ -175,6 +175,7 @@ dependencies = [
  "cartalith-erosion",
  "cartalith-gpu",
  "cartalith-hydrology",
+ "cartalith-io",
  "cartalith-spatial",
  "cartalith-terrain",
 ]

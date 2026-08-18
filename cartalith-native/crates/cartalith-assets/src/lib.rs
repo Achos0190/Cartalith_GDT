@@ -113,6 +113,7 @@
 pub mod archive;
 pub mod library;
 pub mod manifest;
+pub mod manual;
 pub mod ordered_map;
 pub mod placement;
 pub mod raster;

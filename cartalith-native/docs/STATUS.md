@@ -5,7 +5,29 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-18 (post **unified tool plan milestone D** — the
+Last updated: 2026-08-18 (post **unified tool plan milestone E** — the
+Annotation & measure group, which closes the four tool-group engine halves
+(A-E done, only **F**, shell wiring, remains): Label
+(`cartalith-civ::labels`, arc-text glyph layout split at text measurement so
+the crate still never touches a canvas), Icon stamp
+(`cartalith-assets::manual`), Measure (`cartalith-spatial::measure`, **an
+addition** — the reference has no measuring tool, so it has no golden test and
+cannot), and Region select/export's compute + encoding core
+(`cartalith-spatial::region`, `cartalith-terrain::amplify`,
+`cartalith-io::tiles`, `cartalith-engine::region_export`); **the plan
+described the wrong icon function** — `_carIconBrushStamp` is a dart-throwing
+scatter *brush*, not a single-icon stamp, and it is deliberately unseeded, so
+parity needed an injected RNG on both sides; `amplifyRegion` turns out to have
+a **real division by zero** (`outW == 1` returns an all-NaN tile), ported
+rather than fixed and pinned by a golden; **Region select/export was split** —
+its PNG/gzip/`.zip`/GeoJSON half is now **milestone E2**, smaller than the plan
+feared because the geometry is done; 49 golden tests, everything exact except
+**two ULPs** in one arc label from `Math.sin`, pinned exactly; **89 mutations,
+86 killed, 3 equivalent-mutant survivors**, and the first pass exposed ten real
+fixture-shape gaps including five brush constants no golden *could* have caught
+because a dart always lands on an integer cell; tested and unwired, no Godot
+file touched; see its own section below — post **unified tool plan milestone
+D** — the
 Civilization group: Place settlement's manual-insertion path, Draw route/way's
 whole pathfinder and Territory/faction's override, all in a new
 `cartalith-civ::tools`; the plan's claim that `road_dijkstra` already covered
@@ -1577,13 +1599,71 @@ accumulation, priority-flood, scatter-writes, per-particle/per-iteration
 wavefronts) are the real remaining ceiling, per this scope doc's own
 "Out of scope" section from the first pass.
 
-## Unified tool plan (`UNIFIED_TOOL_PLAN.md`, milestones A-D done 2026-08-18)
+## Unified tool plan (`UNIFIED_TOOL_PLAN.md`, milestones A-E done 2026-08-18)
 
-The tool system's foundation layer plus the Terrain, Water & ecology and
-Civilization groups' engine halves. **Done: milestones A, B, C and D.** No
-tool is *wired* yet; the left rail is still honestly inert (DCC shell
-milestone 1) until milestone F. Remaining: **E** (annotation & measure) and
-**F** (shell wiring).
+The tool system's foundation layer plus **all four** tool groups' engine
+halves. **Done: milestones A, B, C, D and E.** No tool is *wired* yet; the left
+rail is still honestly inert (DCC shell milestone 1) until milestone F.
+Remaining: **F** (shell wiring), plus **E2** — the region export's
+PNG/gzip/`.zip`/GeoJSON half, split out of E deliberately (below).
+
+### Milestone E — the Annotation & measure group (done 2026-08-18)
+
+- **Done — all four tools' engine halves**, across six crates, tested and
+  unwired:
+  - **Label** — `cartalith-civ/src/labels.rs`: `MapLabel`,
+    `arc_label_layout`, `label_font_size`/`label_box`, `label_hit_test`,
+    `LabelEditSession`, and the resize/rotate/arc handle formulas.
+  - **Icon stamp** — `cartalith-assets/src/manual.rs`: `ManualIcon`,
+    `place_manual_icon`, `icon_brush_rule`, `icon_brush_stamp`, `icon_box`,
+    `icon_hit_test`, `icon_resize_scale`.
+  - **Measure** — `cartalith-spatial/src/measure.rs`: `measure`,
+    `measure_path`, `cell_km`.
+  - **Region select/export (core)** — `cartalith-spatial/src/region.rs`
+    (`norm_region`, `tile_dims`, `FloatRegion`),
+    `cartalith-terrain/src/amplify.rs` (`amplify_region`, `refine_tile`),
+    `cartalith-io/src/tiles.rs` (`pack_height16`/`unpack_height16`,
+    `TileManifest`, `manifest_json`),
+    `cartalith-engine/src/region_export.rs` (`export_region_tiles`).
+- **Placement decided, not defaulted**, on A-D's rule each time: Label to
+  `cartalith-civ` (the reference's own `_civ` family, beside the settlements
+  and ways this crate owns), Icon stamp to `cartalith-assets` (the manual half
+  of the rule-driven placement already there, same `ScatterRule` table),
+  Measure and the region rectangle to `cartalith-spatial` (generic machinery),
+  the amplification to `cartalith-terrain` (milestone B's subsystem-domain
+  category — it is a height formula), the encodings to `cartalith-io` and the
+  composition to `cartalith-engine`. `cartalith-engine` gains a
+  `cartalith-io` dependency, its first.
+- **Region select/export was split, honestly.** `exportRegionTiles` is four
+  calls and a loop; everything hard in it is either pure geometry (shipped,
+  bit-exact) or a browser API (which cannot be). So **E2** is format-and-pixels
+  only: per-tile PNG (`tilePngBytes`), `gzipBytes`, the `.zip` assembly,
+  `exportGeoJSON` + its raster-to-vector boundary tracer, and
+  `regionNewWorldBtn`'s replace-the-world path. Smaller than the plan feared.
+- **The plan described the wrong icon function.** `_carIconBrushStamp` is a
+  dart-throwing blue-noise scatter *brush*, not the single-icon stamp the plan
+  calls it; the actual click-to-place path is four lines elsewhere. The brush
+  is deliberately unseeded (the reference's own reasoning: a brush stroke is an
+  authoring action), so `icon_brush_stamp` takes its RNG as a parameter and the
+  harness overrode `Math.random` inside the vm context to match.
+- **`amplifyRegion` has a real division by zero** — `outW == 1` with a region
+  spanning more than one cell returns an all-NaN tile. Ported as written,
+  pinned by a golden, and it forced `js_min`/`js_max` because Rust's
+  `f64::min` swallows NaN where JS propagates it.
+- **Measure is an addition, flagged as one** (`DECISIONS.md` §7d): the
+  reference has no measuring tool, so this module has **no golden-parity test
+  and cannot have one**. Its km scale is the same expression
+  `civ_smooth_path` uses, compared as raw `f64` bits.
+- **Verified:** 49 golden-parity tests + 132 unit tests. Everything exact with
+  no tolerance except **two ULPs** in one 36-glyph arc label (`Math.sin`;
+  `dy`/`rot` exact at the same glyphs, so `theta` is bit-identical), pinned to
+  exactly those two indices. **89 mutations, 86 killed, 3 survivors, all three
+  shown equivalent**; the first pass exposed ten real fixture-shape gaps,
+  including five brush constants no golden *could* catch because a dart always
+  lands on an integer cell. `cargo test --workspace`: 1034 passing, 0 failures.
+- **Not built:** every tool's interaction half (milestone F), E2 in full, label
+  and icon *rendering* (a `cartalith-godot` change this milestone is scoped out
+  of), and persistence of `state.labels`/`state.mapIcons`.
 
 ### Milestone D — the Civilization group (done 2026-08-18)
 

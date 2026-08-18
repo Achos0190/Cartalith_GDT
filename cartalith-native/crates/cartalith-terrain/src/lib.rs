@@ -6,6 +6,7 @@ use cartalith_noise::{fbm, pfbm, pridged, pvnoise, ridged, vnoise};
 use cartalith_rng::Mulberry32;
 use rayon::prelude::*;
 
+pub mod amplify;
 pub mod sculpt;
 
 /// Mirrors JS `Math.round`: ties round toward `+Infinity`, unlike Rust's

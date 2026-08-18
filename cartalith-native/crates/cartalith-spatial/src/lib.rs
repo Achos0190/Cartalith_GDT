@@ -48,12 +48,16 @@
 //! `mark_dirty` already is the "my data changed here, here's why, bump the
 //! version" primitive both editing and recomputation need.
 
+pub mod measure;
 pub mod paint;
 pub mod pass;
+pub mod region;
 pub mod staleness;
 
+pub use measure::{cell_km, measure, measure_path, Measurement};
 pub use paint::{PaintLayer, PaintStamp};
 pub use pass::{CommitSummary, PassBuffer, PassEntry, Stamp};
+pub use region::{js_round, norm_region, tile_dims, FloatRegion, TileDims};
 pub use staleness::{StageGraph, StageId, Staleness};
 
 use serde::{Deserialize, Serialize};

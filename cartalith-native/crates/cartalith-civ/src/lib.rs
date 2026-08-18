@@ -14,6 +14,8 @@
 use cartalith_engine::WorldState;
 use rayon::prelude::*;
 
+/// Region-name labels (`UNIFIED_TOOL_PLAN.md` milestone E). Unwired.
+pub mod labels;
 pub mod tools;
 
 /// `LITH_KEYS` (reference line 5830) -- frozen, append-only.

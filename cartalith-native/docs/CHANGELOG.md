@@ -10663,3 +10663,135 @@ rustfmt-clean, so it would reformat other forks' files.
 
 **Also:** `astar.rs`'s module header still carried the superseded 28514-28556
 line range; corrected to 28514-28547 in line with the scope doc.
+
+## Unified tool plan milestone E — the Annotation & measure group (2026-08-18)
+
+`UNIFIED_TOOL_PLAN.md` milestone E: the last of the four tool-group engine
+halves. Label, Icon stamp, Measure, and the compute/encoding core of Region
+select/export — all golden-verified, all wired to nothing, same
+"primitive ahead of orchestration" precedent as A-D. No Godot scene, `main.gd`,
+`main.tscn`, `render.rs` or any `cartalith-godot` file was touched;
+`cartalith-urban` (a sibling fork's milestone 4) was left alone.
+
+**Built, across six crates** — placement argued from A-D's rule each time
+(generic machinery → `cartalith-spatial`, pipeline knowledge →
+`cartalith-engine`, subsystem-domain math → the owning crate):
+
+- `cartalith-civ/src/labels.rs` — `MapLabel`, `arc_label_layout`, `label_box`,
+  `label_hit_test`, `LabelEditSession`, and the three handle formulas. The
+  reference's own `_civ`-prefixed family, beside the settlements, ways and
+  territory this crate already owns.
+- `cartalith-assets/src/manual.rs` — `ManualIcon`, `place_manual_icon`,
+  `icon_brush_rule`, `icon_brush_stamp`, `icon_box`, `icon_hit_test`,
+  `icon_resize_scale`. The manual half of the rule-driven placement this crate
+  already ships, reading the same `ScatterRule` table.
+- `cartalith-spatial/src/measure.rs` — the Measure tool. **An addition, not a
+  port** (`DECISIONS.md` §7d): the reference has no measuring tool at all.
+- `cartalith-spatial/src/region.rs` — `norm_region`, `tile_dims`,
+  `FloatRegion`, `js_round`.
+- `cartalith-terrain/src/amplify.rs` — `amplify_region`, `refine_tile`.
+- `cartalith-io/src/tiles.rs` — `pack_height16`/`unpack_height16`,
+  `TileManifest`, `build_tile_manifest`, `manifest_json`.
+- `cartalith-engine/src/region_export.rs` — `export_region_tiles`.
+  `cartalith-engine` gains a `cartalith-io` dependency, its first.
+
+**Region select/export needed a split, and it is recorded.** The plan asked for
+one if the item stayed large. It does, but not where the name suggests:
+`exportRegionTiles` is four calls and a loop, and everything hard in it is
+either pure geometry (shipped here, bit-exact) or a browser API (which cannot
+be). **Milestone E2** is therefore entirely format-and-pixels: per-tile PNG
+(`tilePngBytes`), `gzipBytes`, the `.zip` assembly, `exportGeoJSON` with its
+raster-to-vector boundary tracer, and `regionNewWorldBtn`'s replace-the-world
+path. Smaller than the plan feared, and named in full in
+`UNIFIED_TOOL_PLAN.md`'s "Milestone E as built".
+
+**Three places reading the reference corrected the plan.**
+
+1. **The plan describes the wrong icon function.** It calls
+   `_carIconBrushStamp` *"stamp mode (place one icon by hand at a clicked
+   point)"*. It is not: there are **three** placement paths, and the manual
+   half is two of them — a four-line click-to-place branch (9776-9784) *and* a
+   dart-throwing blue-noise scatter **brush**, which the plan does not mention.
+   The brush is deliberately unseeded (*"a brush stroke is an authoring ACTION
+   ... re-painting the same spot should add new icons"*), so `icon_brush_stamp`
+   takes its randomness as a parameter and the harness overrode `Math.random`
+   inside the vm context with a matching LCG.
+2. **`amplifyRegion` has a real division by zero.** `outH == 1` with `rh > 1`
+   evaluates `0/0` and returns an all-`NaN` tile. Verified against the
+   reference, ported as written, pinned by a golden — and it forced `js_min`/
+   `js_max`, because `Math.min(1, NaN)` is `NaN` in JS while Rust's `f64::min`
+   returns the other operand and would have hidden it.
+3. **Measure really has zero precedent**, so it ships flagged as an addition
+   with no golden test and cannot have one. Its km scale is not invented: it is
+   the same `hypot(dx,dy) * map_width_km / gw` `civ_smooth_path` uses, compared
+   as raw `f64` bits by a test.
+
+**Golden verification — 49 tests, everything exact but two ULPs.** Node
+`vm.runInContext` over whole `<script>` blocks #1 and #2, delimiters asserted
+against the real tags (milestone D's technique). Two environment modifications,
+both disclosed: a recording Canvas-2D stub (`drawArcLabel`/`_civLabelBox` need
+one; no function body is transcribed) and the seeded `Math.random`. The
+block-comment balance check **fired twice and was wrong both times** — a `}`
+closing an arrow body inside a `${ }` substitution, then a regex-literal
+skipper whose "does a value precede this `/`?" test matched only a single
+identifier character — and both were fixed rather than deleted. The documented
+apostrophe-in-prose blind spot showed up as a *symptom* of the first.
+
+Shape assertions ran before any golden was written down (non-constant
+amplifications, an exactly-zero tile seam delta, both branches of the arc
+layout, hits *and* misses *and* an overlap in the label hit test, two
+legitimately-empty brush runs as negative controls, every brushed icon on land
+and in bounds). The fixture field is synthetic and **pure arithmetic** — no
+`sin`/`cos`/`exp`, so libm cannot disagree about the input — with a quantised
+`% 11` term and both land and water in quantity; both sides FNV-1a-64 it and
+every golden file asserts that hash first.
+
+The one inexactness, measured rather than assumed: a 36-glyph arc label matches
+on 106 of 108 values and is **one ULP** out on two `dx` values, both from
+`r * sin(theta)`, with `dy` and `rot` exact at the same glyphs — so `theta` is
+bit-identical and the gap is purely V8's `Math.sin` against Rust's. The test
+pins exactly which two, so it cannot grow. Nothing branches on a glyph
+position. Everything else compares with **no tolerance anywhere**.
+
+**Mutation testing — 89 mutations, 86 killed, 3 survivors, all three shown
+equivalent.** 81 killed by a golden, 5 by a unit test. Both of milestone 3's
+false-survivor traps were guarded: the runner asserts cargo actually recompiled
+(a missing `Compiling` line is BROKEN, not a survivor), and mutations are
+applied by a `sed` address that skips comment lines with a pre-check that the
+needle occurs in code.
+
+The first pass exposed **ten real fixture-shape gaps**, every one fixed by
+adding a differently-*shaped* fixture rather than by weakening the mutation:
+five in the region geometry (a fractional drag too small for the minimum to
+stop masking `ceil`; no explicit minimum of 0 or 1; an aspect-1 case at a tile
+size where the two branches happen to agree; a region and output not collapsed
+together; a hit-test probe table whose only miss was far outside every box) and
+five brush constants that no golden *could* have caught — a dart always lands
+on an integer cell, so no dart-versus-dart fixture can see a spacing constant
+of 3.0 versus 2.9, and `max(1.2, 3/sqrt(d))` reaches its floor only above a
+density the reference's own slider cannot reach. Those five are now killed by
+scripted-RNG unit tests that observe each constant on its own.
+
+The three survivors are equivalent mutants with the algebra written out:
+`base < sea` vs `<=` (the taken branch computes 0 at equality, which is the
+else branch's value), `x + w > gw` vs `>=` (the clamp body is a no-op at
+equality), and `js_round`'s half-up rule inside `region.rs` (its only caller
+feeds it positive values, where the two roundings agree — the *other*
+`js_round`, in `manual.rs`, does see negatives and is killed).
+
+**Verified:** `cargo build` / `cargo test` / `cargo clippy --all-targets` clean
+on all six crates' new code. `cargo test --workspace`: 1034 passing, 0
+failures. `cargo build --workspace` hit the known
+`cartalith_godot.dll — Access is denied` transient (a Godot editor holding the
+DLL), so it was run as `--exclude cartalith-godot` plus
+`cargo check -p cartalith-godot`, both clean. `cargo fmt` deliberately not run:
+several crates are already not rustfmt-clean and it would reformat sibling
+forks' files.
+
+**Not built, deliberately:** every tool's interaction half (label drag/rotate/
+arc capture, the icon gallery arm/disarm, the measure tool's click capture, the
+region drag-rectangle and its dashed overlay) is input routing and belongs to
+milestone F; milestone E2 in full; the *rendering* of labels and icons (a
+`cartalith-godot` change this milestone is scoped out of); and persistence of
+`state.labels`/`state.mapIcons`, since `SAVEFILE_COMPAT.md` is read-only here
+and adding a writer is its own decision.
