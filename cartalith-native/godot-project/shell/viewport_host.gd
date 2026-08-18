@@ -28,8 +28,23 @@ var overlay: Control
 var _scale_label: Label
 var _readout_label: Label
 var _coords_label: Label
+var _layers_btn: Button
 var _bridge: EngineBridge
 var _width_km := 0.0
+
+## Default matches the original hardcoded 10 px inset every corner label and
+## the layers button used before phone chrome existed. `DccShell` overrides
+## this (`set_safe_insets()`) once it knows its own chrome's edges -- on
+## phone the map (and this node with it) is edge-to-edge behind that chrome,
+## so a flat 10 px would land this node's own chrome under the app bar/rail/
+## tool sheet instead of in the visible gap between them.
+var _safe_insets := {"left": 10.0, "top": 10.0, "right": 10.0, "bottom": 10.0}
+
+## §13's 44 px floor applies here too -- this button is real, on-screen, and
+## tappable on phone, not workspace/dock content this file is exempt from
+## touching. Tablet gets the same floor (its own target range is "44-52 px");
+## only pointer-first Windows keeps the original compact 26 px hit box.
+var _touch := DisplayServer.is_touchscreen_available() and OS.has_feature("mobile")
 
 func setup(bridge: EngineBridge) -> void:
 	_bridge = bridge
@@ -62,19 +77,70 @@ func _ready() -> void:
 	_readout_label = _chrome(Control.PRESET_TOP_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
 	_coords_label = _chrome(Control.PRESET_BOTTOM_RIGHT, HORIZONTAL_ALIGNMENT_RIGHT)
 
-	var layers_btn := Button.new()
-	layers_btn.flat = true
-	layers_btn.focus_mode = Control.FOCUS_NONE
-	layers_btn.icon = DccIcons.get_icon("layers", 15)
-	layers_btn.tooltip_text = "Layers"
-	layers_btn.modulate = DccTheme.c("text_dim")
-	layers_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
-	layers_btn.position = Vector2(10, 10)
-	layers_btn.custom_minimum_size = Vector2(26, 26)
-	layers_btn.add_theme_stylebox_override("normal",
+	_layers_btn = Button.new()
+	_layers_btn.flat = true
+	_layers_btn.focus_mode = Control.FOCUS_NONE
+	_layers_btn.icon = DccIcons.get_icon("layers", 15)
+	_layers_btn.tooltip_text = "Layers"
+	_layers_btn.modulate = DccTheme.c("text_dim")
+	_layers_btn.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	var hit := 44 if _touch else 26
+	_layers_btn.custom_minimum_size = Vector2(hit, hit)
+	_layers_btn.add_theme_stylebox_override("normal",
 		DccTheme.flat(DccTheme.c("panel"), 3))
-	layers_btn.pressed.connect(func(): layers_button_pressed.emit())
-	add_child(layers_btn)
+	_layers_btn.pressed.connect(func(): layers_button_pressed.emit())
+	add_child(_layers_btn)
+
+	_apply_safe_insets()
+
+## Phone chrome (`DccShell._build_phone_shell()`) sits on top of this node's
+## own edges once the map is edge-to-edge behind it (inset rule "DRAW
+## EDGE-TO-EDGE, PAD BY INSET") -- without this, the layers button and the
+## coordinate/scale-bar labels would land under the app bar, the rail or the
+## tool sheet instead of in the visible gap between them. Desktop/tablet never
+## call this, so `_safe_insets` stays at its flat 10 px default there.
+func set_safe_insets(insets: Dictionary) -> void:
+	_safe_insets = insets
+	_apply_safe_insets()
+
+## Sets offsets directly rather than `.position` -- found by screenshot that
+## `.position` doesn't hold up here: it's computed against the control's
+## *current* size, and for `_readout_label`/`_scale_label` that's still (0, 0)
+## the first time this runs (before `refresh()` has ever set their text).
+## `grow_horizontal`/`grow_vertical` then auto-expand the rect the next time
+## the text changes, growing from whatever edge was implied by that stale
+## zero-size baseline -- which, worked through by hand, is exactly the wrong
+## edge for a right/bottom-anchored label, and landed the readout ~139 px off
+## the left edge of a 393 px screen. Computing both edges from
+## `get_minimum_size()` every call sidesteps the growth direction machinery
+## entirely instead of trying to keep it fed a correct baseline.
+func _apply_safe_insets() -> void:
+	if _scale_label == null:
+		return  ## Not built yet -- `_ready()` applies the default once itself.
+	var l := float(_safe_insets.get("left", 10.0))
+	var t := float(_safe_insets.get("top", 10.0))
+	var r := float(_safe_insets.get("right", 10.0))
+	var b := float(_safe_insets.get("bottom", 10.0))
+
+	var scale_size := _scale_label.get_minimum_size()
+	_scale_label.offset_left = l
+	_scale_label.offset_right = l + scale_size.x
+	_scale_label.offset_top = -b - scale_size.y
+	_scale_label.offset_bottom = -b
+
+	var readout_size := _readout_label.get_minimum_size()
+	_readout_label.offset_right = -r
+	_readout_label.offset_left = -r - readout_size.x
+	_readout_label.offset_top = t
+	_readout_label.offset_bottom = t + readout_size.y
+
+	var coords_size := _coords_label.get_minimum_size()
+	_coords_label.offset_right = -r
+	_coords_label.offset_left = -r - coords_size.x
+	_coords_label.offset_top = -b - coords_size.y
+	_coords_label.offset_bottom = -b
+
+	_layers_btn.position = Vector2(l, t)
 
 func _raster() -> TextureRect:
 	var t := TextureRect.new()
@@ -99,7 +165,9 @@ func _chrome(preset: int, align: int) -> Label:
 	var bottom: bool = preset in [Control.PRESET_BOTTOM_LEFT, Control.PRESET_BOTTOM_RIGHT]
 	l.grow_horizontal = Control.GROW_DIRECTION_BEGIN if right else Control.GROW_DIRECTION_END
 	l.grow_vertical = Control.GROW_DIRECTION_BEGIN if bottom else Control.GROW_DIRECTION_END
-	l.position += Vector2(-10.0 if right else 10.0, -10.0 if bottom else 10.0)
+	## Positioned properly by `_apply_safe_insets()`, called once at the end of
+	## `_ready()` (and again by `set_safe_insets()` on phone rotation) -- left
+	## at the anchor's own baseline here rather than duplicating the inset math.
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(l)
 	return l

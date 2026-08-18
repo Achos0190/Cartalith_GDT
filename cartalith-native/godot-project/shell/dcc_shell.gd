@@ -16,6 +16,9 @@ class_name DccShell
 
 signal workspace_changed(id: String)
 signal tool_changed(tool_id: String)
+signal phone_insets_changed()  ## §13: fires whenever a rotation changes where
+	## the phone chrome's edges sit, so `ViewportHost`'s own corner chrome
+	## (built and owned by `app.gd`, not this file) can re-read `phone_content_insets()`.
 
 # -- Workspaces (§3) ----------------------------------------------------------
 #
@@ -69,10 +72,57 @@ var _dock_readouts: Dictionary = {}    ## "left"/"right" -> the collapsed-state 
 var _workspace_panels: Dictionary = {} ## domain id -> Control
 var _touch := false
 
+# -- Phone layout (§13) --------------------------------------------------------
+#
+# `_touch` alone can't tell a tablet from a phone -- both are touch devices.
+# The discriminator is the screen's own aspect: `min(w,h)/max(w,h)` is
+# order-independent, so it survives rotation without flip-flopping between the
+# two compositions (a phone rotated to landscape is still ~0.46, a tablet
+# rotated to portrait is still ~0.625). `_phone` is decided once, at boot,
+# because a device's form factor never changes at runtime; `_landscape` is
+# re-decided on every resize, because rotation genuinely does, and §13 asks
+# for a distinct landscape treatment.
+const _PHONE_ASPECT_MAX := 0.6  ## Midpoint-ish between 19.5:9 (~0.46) phones
+	## and 16:10 (~0.625) tablets -- every common handset aspect sits under it.
+var _phone := false
+var _landscape := false
+var _phone_scale := 1.0  ## Maps `DccTheme.PHONE_REF_SHORT` phone-px onto the
+	## real device's short side. Clamped to >= 1.0: the mockup's own numbers
+	## already clear the 44 px floor at scale 1, so this only ever scales up,
+	## never shrinks a target below spec.
+
+# Phone region handles, built only when `_phone` is true.
+var _phone_root: Control
+var _phone_top_safe: Control
+var _phone_side_safe: Control
+var _phone_chrome_margin: MarginContainer  ## Shifts right in landscape so the
+	## rail and app bar clear `_phone_side_safe` -- "the domain rail shifts
+	## inward" (Phone inset rules, LANDSCAPE).
+var _phone_content_gap: Control            ## Hosts the floating rail; its own
+	## rect is the visible gap between the app bar and the tool sheet.
+var _phone_tool_sheet: PanelContainer
+var _phone_gesture_inset: Control
+var _phone_clock_label: Label
+var _phone_battery_label: Label
+var _phone_side_clock_label: Label     ## Landscape's rotated-pocket twins of
+var _phone_side_battery_label: Label   ## the two above -- see `_build_phone_side_safe()`.
+var _phone_drawer: Control
+var _phone_panel_picker: Control
+var _phone_overflow: Control
+var _left_sheet_open := false
+var _right_sheet_open := false
+
 # -- Build --------------------------------------------------------------------
 
 func _ready() -> void:
-	_touch = DisplayServer.is_touchscreen_available() and OS.has_feature("mobile")
+	## `--force-touch`: a testing-only override, same pattern as `_shot.gd`'s
+	## own `--generate` flag. Real touch hardware is never present in this
+	## dev/CI environment, so without it the phone/tablet composition below is
+	## simply unreachable from `--resolution WxH` alone -- there is no device-
+	## preview loop, and `--resolution` is otherwise the only lever the
+	## verification harness has to exercise §13 at all.
+	_touch = (DisplayServer.is_touchscreen_available() and OS.has_feature("mobile")) \
+		or "--force-touch" in OS.get_cmdline_user_args()
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	var ground := ColorRect.new()
 	ground.color = DccTheme.c("bg")
@@ -80,6 +130,25 @@ func _ready() -> void:
 	ground.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(ground)
 
+	## Phone-vs-tablet is decided once, here, off the boot window size -- a
+	## device's own form factor is not something that changes at runtime.
+	## Orientation (`_landscape`) *is* re-decided on every resize below, which
+	## is the half of §13 that genuinely needs to react live.
+	_compute_layout_mode()
+
+	if _phone:
+		_build_phone_shell()
+	else:
+		_build_desktop_shell()
+
+	get_tree().root.size_changed.connect(_on_window_resized)
+	_select_domain(_active_domain)
+
+## The pointer-first / tablet composition: one continuous vertical stack of
+## fixed-height bars around a horizontal row of rail/docks/viewport. This is
+## the shell as it existed before phone support -- `_scaled()` already makes
+## it tablet-safe, so nothing here is phone-aware.
+func _build_desktop_shell() -> void:
 	var shell := VBoxContainer.new()
 	shell.set_anchors_preset(Control.PRESET_FULL_RECT)
 	shell.add_theme_constant_override("separation", 0)
@@ -102,14 +171,46 @@ func _ready() -> void:
 	shell.add_child(timeline_bar)
 	shell.add_child(_build_status_bar())
 
-	_select_domain(_active_domain)
-
 func _scaled(px: int) -> int:
-	## §13: tablet and phone scale every fixed height, with a 44 px floor on
-	## anything tappable. Windows is pointer-first and takes the raw value.
+	## §13: tablet scales every fixed height, with a 44 px floor on anything
+	## tappable. Windows is pointer-first and takes the raw value. Phone does
+	## not use this at all for its own chrome -- see `_pscale()`/`_ptap()` --
+	## but still calls it for the desktop-shaped bars (menu bar, status bar)
+	## that phone relocates into the ⋯ overflow sheet unmodified.
 	if not _touch:
 		return px
 	return maxi(44, int(round(px * DccTheme.TOUCH_SCALE)))
+
+# -- §13 Phone layout mode ------------------------------------------------
+
+## Order-independent aspect: see the field comment on `_phone` above for why.
+func _compute_layout_mode() -> void:
+	var size: Vector2 = get_viewport_rect().size
+	if size.x <= 0.0 or size.y <= 0.0:
+		return
+	var short_side: float = minf(size.x, size.y)
+	var long_side: float = maxf(size.x, size.y)
+	_phone = _touch and (short_side / long_side) < _PHONE_ASPECT_MAX
+	_landscape = size.x > size.y
+	_phone_scale = maxf(1.0, short_side / DccTheme.PHONE_REF_SHORT)
+
+func _on_window_resized() -> void:
+	if not _phone:
+		return  ## Tablet/desktop windows resizing is not this shell's concern.
+	var was_landscape := _landscape
+	_compute_layout_mode()
+	if _landscape != was_landscape:
+		_apply_phone_orientation()
+
+## Phone-only geometry: scaled off the real device's short side, no 44 px
+## floor -- for chrome that is deliberately *not* tappable (the top safe area,
+## the gesture inset) a floor would be wrong.
+func _pscale(px: float) -> int:
+	return maxi(1, int(round(px * _phone_scale)))
+
+## Phone-only geometry for anything tappable: §13's floor, no exceptions.
+func _ptap(px: float) -> int:
+	return maxi(DccTheme.PHONE_TAP_MIN, _pscale(px))
 
 # -- §2 Menu bar: program scope only ------------------------------------------
 
@@ -203,6 +304,13 @@ func set_tool_options(build: Callable) -> void:
 		tool_options_row.remove_child(child)
 		child.queue_free()
 	build.call(tool_options_row)
+	## Phone only: the tool sheet's height tracks its content
+	## (`_build_phone_tool_sheet()` sets no fixed height), so a domain switch
+	## can change how far `ViewportHost`'s corner chrome needs to clear it.
+	## Deferred one frame so `_phone_bottom_reserve()` reads the sheet's real
+	## post-layout size rather than its size from before this rebuild.
+	if _phone:
+		(func(): phone_insets_changed.emit()).call_deferred()
 
 # -- §3 Domain rail -----------------------------------------------------------
 
@@ -249,61 +357,23 @@ func _build_rail() -> Control:
 		b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
 		b.pressed.connect(_select_domain.bind(d.id))
 
-		## The reference rail is text only. The icons are an addition (owner,
-		## 2026-08-19), so they are aligned **to the label**, not to the rail:
-		## "the center of the text to the center of the icon".
-		##
-		## That distinction is what fixes it. Centring both independently on the
-		## rail's own midline left the icons 2.8 px right of the letters,
-		## because a -90° rotation maps a local (u, v) to a global (v, -u): the
-		## glyph box extends *right* from `position` by one line height and *up*
-		## by its text width, and the label's optical centre is therefore
-		## `position.x + line_height / 2`, not the rail's centre. Deriving the
-		## icon's x from that same expression makes any residual error in the
-		## model cancel, since both now share it.
-		const ICON_GAP := 12.0
-		## Measured, not derived, and deliberately labelled as such.
-		##
-		## Both the icon and the label compute to a centre of x = 20.0 at
-		## runtime (verified by printing w, label_x, the label's minimum size,
-		## and the texture width). Rendered, the letters land at 19.4 and the
-		## icon at 22.2 -- a stable 2.8 px apart across all five rows and both
-		## window scales. The label's part of that is explicable: a Label not
-		## in a container has size (0,0), so its glyphs draw from the origin
-		## with the ink sitting slightly above the 18 px line box's centre.
-		## The icon's 2.2 px is not explained by texture width, stretch mode or
-		## control size, all of which were read back and are what they should
-		## be. Rather than ship a wrong-looking rail behind a correct-looking
-		## formula, the offset is applied as a measured constant (2.5 px) with its
-		## provenance written down. If the rail is ever rebuilt, re-measure:
-		## `scratchpad` has the centre-of-mass script that produced it.
-		const INK_BIAS := 2.5
-		var px := 14 if not _touch else 18
+		## The reference rail is text only -- verified twice: once by reading
+		## `design/Cartalith DCC Shell.dc.html`'s own markup (`writing-mode:
+		## vertical-rl` labels, no icon element anywhere in the rail), and once
+		## by the owner directly, after an earlier revision added icons anyway:
+		## "those icons don't exist." Removed rather than hidden behind a flag --
+		## an addition the design does not specify does not get to linger.
 		var vlabel := DccTheme.mono_label(String(d.rail).to_upper(),
 			"text_faint", DccTheme.FS_MICRO, 2, true)
 		vlabel.rotation = -PI / 2.0
 		var text_size := vlabel.get_minimum_size()
 		var label_x: float = round(w * 0.5 - text_size.y * 0.5)
-		vlabel.position = Vector2(label_x, float(px) + ICON_GAP + text_size.x)
-		var label_centre: float = label_x + text_size.y * 0.5
-
-		var icon := DccIcons.rect(d.icon, px, "text_faint")
-		## Centre on the texture's *actual* raster width, read back rather than
-		## assumed: `load_svg_from_string` does not always return exactly the
-		## requested pixel size, and centring on the requested one left every
-		## icon 2.2 px right of its label. Stretch mode goes to KEEP so the
-		## control's own box stops participating in the placement at all.
-		var tex_w: float = float(icon.texture.get_width()) if icon.texture != null else float(px)
-		var tex_h: float = float(icon.texture.get_height()) if icon.texture != null else float(px)
-		icon.stretch_mode = TextureRect.STRETCH_KEEP
-		icon.size = Vector2(tex_w, tex_h)
-		icon.position = Vector2(round(label_centre - tex_w * 0.5 - INK_BIAS), 0.0)
-		b.add_child(icon)
+		vlabel.position = Vector2(label_x, 12.0)
 		b.add_child(vlabel)
-		b.custom_minimum_size.y = float(px) + ICON_GAP + text_size.x + 2.0
+		b.custom_minimum_size.y = text_size.x + 24.0
 
 		_domain_buttons[d.id] = b
-		_domain_marks[d.id] = {"icon": icon, "label": vlabel}
+		_domain_marks[d.id] = {"label": vlabel}
 		rail_column.add_child(b)
 
 	col.add_child(DccTheme.spacer())
@@ -333,8 +403,6 @@ func _select_domain(id: String) -> void:
 		b.add_theme_stylebox_override("normal",
 			DccTheme.active_row(false) if on else DccTheme.empty())
 		var marks: Dictionary = _domain_marks.get(key, {})
-		if marks.has("icon"):
-			(marks["icon"] as CanvasItem).modulate = DccTheme.c("accent") if on else DccTheme.c("text_faint")
 		if marks.has("label"):
 			(marks["label"] as Label).add_theme_color_override("font_color",
 				DccTheme.c("accent") if on else DccTheme.c("text_faint"))
@@ -360,27 +428,42 @@ func active_domain() -> String:
 
 # -- §6 Docks -----------------------------------------------------------------
 
-func _build_left_dock() -> Control:
+## `as_sheet`: §13's phone treatment -- "docks become full-height sheets, one
+## at a time". The header swaps its collapse chevron for a close button and
+## the dock stops claiming a fixed desktop width, but the body underneath
+## (`left_dock_body`, where every workspace attaches its panel) is built
+## exactly as it is for desktop/tablet, unchanged -- this is the "minimal or
+## no change" reuse the phone chrome depends on.
+func _build_left_dock(as_sheet: bool = false) -> Control:
 	left_dock = PanelContainer.new()
-	left_dock.custom_minimum_size.x = _left_width
-	left_dock.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"right": 1}))
+	if not as_sheet:
+		left_dock.custom_minimum_size.x = _left_width
+	left_dock.add_theme_stylebox_override("panel",
+		DccTheme.panel("panel") if as_sheet else DccTheme.panel("panel", {"right": 1}))
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
 	left_dock.add_child(col)
 
 	var head := HBoxContainer.new()
-	head.custom_minimum_size.y = 26
+	head.custom_minimum_size.y = _ptap(44) if as_sheet else 26
 	left_dock_title = DccTheme.header("WORLD", "")
 	head.add_child(left_dock_title)
 	head.add_child(DccTheme.spacer())
-	head.add_child(_collapse_button(true))
+	if as_sheet:
+		head.add_child(_sheet_close_button(func(): _set_sheet_open("left", false)))
+	else:
+		head.add_child(_collapse_button(true))
 	var head_pad := MarginContainer.new()
 	head_pad.add_theme_constant_override("margin_left", 12)
 	head_pad.add_theme_constant_override("margin_right", 6)
 	head_pad.add_child(head)
 	col.add_child(head_pad)
 	col.add_child(DccTheme.rule())
+	## Always built, even in sheet mode, so `set_dock_readout("left", …)`
+	## (`world_workspace.gd`) never hits the "no dock readout" error -- it just
+	## stays permanently hidden, since a sheet has no collapsed state to
+	## surface it in.
 	col.add_child(_dock_readout("left"))
 
 	var scroll := _scroll()
@@ -391,20 +474,28 @@ func _build_left_dock() -> Control:
 	col.add_child(scroll)
 	return left_dock
 
-func _build_right_dock() -> Control:
+## `as_sheet`: see `_build_left_dock()` -- identical treatment, mirrored.
+func _build_right_dock(as_sheet: bool = false) -> Control:
 	right_dock = PanelContainer.new()
-	right_dock.custom_minimum_size.x = _right_width
-	right_dock.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"left": 1}))
+	if not as_sheet:
+		right_dock.custom_minimum_size.x = _right_width
+	right_dock.add_theme_stylebox_override("panel",
+		DccTheme.panel("panel") if as_sheet else DccTheme.panel("panel", {"left": 1}))
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
 	right_dock.add_child(col)
 
 	var head := HBoxContainer.new()
-	head.custom_minimum_size.y = 26
-	head.add_child(_collapse_button(false))
-	head.add_child(DccTheme.header("LAYERS", ""))
-	head.add_child(DccTheme.spacer())
+	head.custom_minimum_size.y = _ptap(44) if as_sheet else 26
+	if as_sheet:
+		head.add_child(DccTheme.header("LAYERS", ""))
+		head.add_child(DccTheme.spacer())
+		head.add_child(_sheet_close_button(func(): _set_sheet_open("right", false)))
+	else:
+		head.add_child(_collapse_button(false))
+		head.add_child(DccTheme.header("LAYERS", ""))
+		head.add_child(DccTheme.spacer())
 	var head_pad := MarginContainer.new()
 	head_pad.add_theme_constant_override("margin_left", 6)
 	head_pad.add_theme_constant_override("margin_right", 12)
@@ -562,3 +653,753 @@ func set_status(slot: String, text: String, token: String = "text_faint") -> voi
 	var l: Label = _status_labels[slot]
 	l.text = text
 	l.add_theme_color_override("font_color", DccTheme.c(token))
+
+# -- §13 Phone chrome -----------------------------------------------------
+#
+# Phone reorganises rather than truncates: this is a distinct composition,
+# not `_build_desktop_shell()` with `_scaled()` turned up further. It targets
+# the same contract every workspace already depends on --
+# `left_dock_body`/`right_dock_body` (workspaces attach here via
+# `register_workspace()` and `right_dock.gd`), `tool_options_row`
+# (`set_tool_options()`), `timeline_row`, `rail_column`/`_domain_buttons`/
+# `_domain_marks` (`_select_domain()`) and `menu_bar_row`/`status_row`
+# (`add_menu()`/`set_status()`) -- so nothing downstream of the frame needs to
+# know which composition it is standing in. That contract is also this
+# section's limit: the *content* those containers hold is reused verbatim,
+# unchanged, from whatever `app.gd` and the workspaces already build for
+# desktop/tablet. Only the frame around it differs.
+#
+# Z-order (back to front, matching draw order in `design/Cartalith DCC
+# Shell.dc.html`'s "DCC shell android phone" screen):
+#   1. The map, edge-to-edge, full rect -- underneath everything (inset rule
+#      "DRAW EDGE-TO-EDGE, PAD BY INSET").
+#   2. A gradient scrim over the top band (inset rule "SCRIM, NOT A BAR").
+#   3. The chrome column: top safe area → app bar → [the rail floats over the
+#      gap below it] → tool sheet → timeline → bottom gesture inset. Wrapped
+#      in `_phone_chrome_margin`, whose left margin is what shifts in
+#      landscape to clear the side safe area.
+#   4. Overlays, all full-rect, all hidden until opened: the side safe area
+#      (landscape only), the ☰ domain drawer, the ▤ panel picker, the ⋯
+#      overflow sheet, and the left/right dock sheets.
+#
+# What this section does NOT build, named rather than silently skipped
+# (`menus.gd`'s own discipline for what it can't honour):
+#   - Any slide/drag animation. The mockup pictures exactly one static sheet
+#     state; nothing here answers a drag gesture on the tool-sheet handle or
+#     the gesture-inset handle -- both are decorative, matching what's shown.
+#   - Touch-pan-while-drawing (v2.10's `#sculptNavpad` precedent, §13 alludes
+#     to it via the sculpt tool options the phone tool sheet would host).
+#     `main.gd` carries no such handling to port forward -- grepped for
+#     sculpt/navpad/joystick/pan and found nothing -- so this is a genuine
+#     gap for whoever wires sculpt-tool touch input, not a chrome omission.
+#   - The mockup's decorative notch/punch-hole graphic (dashed box + dot,
+#     lines 1452-1455 of the mockup). That reads as a mockup-authoring aid
+#     showing where a *real* device's hardware cutout sits, not something a
+#     shipped app should paint a fake copy of over an arbitrary point on an
+#     arbitrary screen. The 108 px keep-clear reserve is honoured -- nothing
+#     is ever placed there -- just not decorated.
+
+func _build_phone_shell() -> void:
+	_phone_root = Control.new()
+	_phone_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_phone_root.mouse_filter = Control.MOUSE_FILTER_PASS
+	add_child(_phone_root)
+
+	var vp := _build_viewport()
+	vp.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_phone_root.add_child(vp)
+
+	_phone_root.add_child(_build_phone_scrim())
+
+	## Menu bar and status bar keep their exact desktop construction --
+	## `add_menu()`/`set_status()` stay phone-unaware -- and relocate into the
+	## ⋯ overflow sheet, built *first* so the app bar's own title label
+	## (built after, below) claims the "top_world" status slot last and wins
+	## it. Both builders register a Label under that key
+	## (`_build_menu_bar()`'s status-readout loop, and the app bar's
+	## subtitle); `_status_labels` keeps only the most recently registered
+	## one live, so this ordering is load-bearing, not incidental.
+	var menu_bar := _build_menu_bar()
+	var status_bar := _build_status_bar()
+	_phone_overflow = _build_phone_overflow(menu_bar, status_bar)
+	_phone_root.add_child(_phone_overflow)
+
+	_phone_chrome_margin = MarginContainer.new()
+	_phone_chrome_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_phone_root.add_child(_phone_chrome_margin)
+
+	var chrome := VBoxContainer.new()
+	chrome.add_theme_constant_override("separation", 0)
+	_phone_chrome_margin.add_child(chrome)
+
+	_phone_top_safe = _build_phone_top_safe()
+	chrome.add_child(_phone_top_safe)
+
+	chrome.add_child(_build_phone_app_bar())
+
+	## The gap between the app bar and the tool sheet. The rail floats over
+	## it (`PRESET_LEFT_WIDE`, below) rather than sharing a row with it,
+	## because the map underneath is meant to show through the rail's own
+	## translucent background here, not stop at a container edge.
+	_phone_content_gap = Control.new()
+	_phone_content_gap.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_phone_content_gap.mouse_filter = Control.MOUSE_FILTER_PASS
+	chrome.add_child(_phone_content_gap)
+	_phone_content_gap.add_child(_build_phone_rail())
+
+	_phone_tool_sheet = _build_phone_tool_sheet()
+	chrome.add_child(_phone_tool_sheet)
+
+	timeline_bar = _build_timeline()
+	chrome.add_child(timeline_bar)
+
+	_phone_gesture_inset = _build_phone_gesture_inset()
+	chrome.add_child(_phone_gesture_inset)
+
+	_phone_side_safe = _build_phone_side_safe()
+	_phone_root.add_child(_phone_side_safe)
+
+	_phone_drawer = _build_phone_drawer()
+	_phone_root.add_child(_phone_drawer)
+
+	_phone_panel_picker = _build_phone_panel_picker()
+	_phone_root.add_child(_phone_panel_picker)
+
+	## Full-height sheets (§13), built by the exact same functions the
+	## desktop/tablet dock uses -- `as_sheet = true` only swaps the header's
+	## collapse chevron for a close button and drops the fixed desktop width.
+	## `left_dock_body`/`right_dock_body` (what every workspace and
+	## `right_dock.gd` actually attach content to) are unaffected either way.
+	_phone_root.add_child(_build_left_dock(true))
+	left_dock.set_anchors_preset(Control.PRESET_FULL_RECT)
+	left_dock.visible = false
+	_phone_root.add_child(_build_right_dock(true))
+	right_dock.set_anchors_preset(Control.PRESET_FULL_RECT)
+	right_dock.visible = false
+
+	_apply_phone_orientation()
+
+## Legibility over imagery without an opaque strip (inset rule "SCRIM, NOT A
+## BAR"). A `GradientTexture2D`, not a flat colour -- the fade is the point,
+## the map should still show faintly through the scrim's lower half. Height
+## 96 px = the 44 px safe area plus the 52 px app bar, so the fade finishes
+## exactly where the app bar's own opaque background takes over.
+func _build_phone_scrim() -> Control:
+	var grad := Gradient.new()
+	grad.colors = PackedColorArray([
+		Color(DccTheme.c("bg"), 0.94),
+		Color(DccTheme.c("bg"), 0.86),
+		Color(DccTheme.c("bg"), 0.0),
+	])
+	grad.offsets = PackedFloat32Array([0.0, 0.46, 1.0])
+	var tex := GradientTexture2D.new()
+	tex.gradient = grad
+	tex.width = 4
+	tex.height = 128
+	tex.fill_from = Vector2(0, 0)
+	tex.fill_to = Vector2(0, 1)
+
+	var scrim := TextureRect.new()
+	scrim.texture = tex
+	scrim.stretch_mode = TextureRect.STRETCH_SCALE
+	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	scrim.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	scrim.offset_left = 0
+	scrim.offset_right = 0
+	scrim.offset_top = 0
+	scrim.offset_bottom = _pscale(DccTheme.H_PHONE_TOP_SCRIM)
+	return scrim
+
+## Inset rule "TOP 44 PX · KEEP CLEAR": glyphs only, in left/right pockets,
+## nothing centred. The 108 px centre lane isn't modelled as a literal spacer
+## -- there is simply nothing placed there, which trivially satisfies "nothing
+## is centred there" -- so a plain two-child row with an expanding gap between
+## does the whole job.
+func _build_phone_top_safe() -> Control:
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", _pscale(16))
+	pad.add_theme_constant_override("margin_right", _pscale(16))
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var row := HBoxContainer.new()
+	row.custom_minimum_size.y = _pscale(DccTheme.H_PHONE_TOP_SAFE)
+	pad.add_child(row)
+
+	_phone_clock_label = DccTheme.mono_label("", "text_dim", _pscale(11))
+	_phone_clock_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(_phone_clock_label)
+	row.add_child(DccTheme.spacer())
+	_phone_battery_label = DccTheme.mono_label("", "text_faint", _pscale(11))
+	_phone_battery_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(_phone_battery_label)
+
+	var timer := Timer.new()
+	timer.wait_time = 30.0
+	timer.autostart = true
+	timer.timeout.connect(_refresh_phone_status_glyphs)
+	pad.add_child(timer)
+	_refresh_phone_status_glyphs()
+	return pad
+
+## The clock is the real system time (`Time`, not the mockup's static "9:41").
+## Battery/signal/Wi-Fi stay the mockup's own decorative placeholder glyphs --
+## checked against this Godot build's own `OS` class (`ClassDB.class_get_method_list`)
+## rather than assumed: there is no `power`/`battery` method on it at all, so
+## there is nothing real to back these three with cross-platform. Only the
+## clock gets the honest-data treatment.
+func _refresh_phone_status_glyphs() -> void:
+	var t := Time.get_time_dict_from_system()
+	var clock_text := "%02d:%02d" % [int(t["hour"]), int(t["minute"])]
+	var battery_text := "▲ ▮▮ --"
+	if _phone_clock_label != null:
+		_phone_clock_label.text = clock_text
+	if _phone_battery_label != null:
+		_phone_battery_label.text = battery_text
+	if _phone_side_clock_label != null:
+		_phone_side_clock_label.text = clock_text
+	if _phone_side_battery_label != null:
+		_phone_side_battery_label.text = battery_text
+
+## Landscape's side safe area (inset rule "LANDSCAPE": "the cutout moves to a
+## side edge: apply the same reserve horizontally"). Judgment call, undocumented
+## by the mockup (it only pictures the portrait screen): the cutout is placed
+## on the *left* edge, and the portrait top row's "left/right pockets" become
+## this column's "top/bottom pockets" -- the same pocket structure, rotated,
+## rather than a different rule invented for landscape. The rail "shifts
+## inward" (same inset rule) for free: it floats inside `_phone_chrome_margin`,
+## whose left margin grows by this column's width in `_apply_phone_orientation()`.
+func _build_phone_side_safe() -> Control:
+	var wrap := Control.new()
+	wrap.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	wrap.offset_left = 0
+	wrap.offset_right = _pscale(DccTheme.H_PHONE_TOP_SAFE)
+	wrap.offset_top = 0
+	wrap.offset_bottom = 0
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.visible = false
+
+	var bg := ColorRect.new()
+	bg.color = Color(DccTheme.c("bg"), 0.9)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(bg)
+
+	var col := VBoxContainer.new()
+	col.set_anchors_preset(Control.PRESET_FULL_RECT)
+	col.add_theme_constant_override("separation", 0)
+	wrap.add_child(col)
+
+	var top_pad := MarginContainer.new()
+	top_pad.add_theme_constant_override("margin_top", _pscale(10))
+	_phone_side_clock_label = DccTheme.mono_label("", "text_dim", _pscale(10))
+	_phone_side_clock_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	top_pad.add_child(_phone_side_clock_label)
+	col.add_child(top_pad)
+	col.add_child(DccTheme.spacer())
+	## The keep-clear reserve -- see the "notch graphic" note in the section
+	## header comment above: nothing is placed here, deliberately undecorated.
+	var dead := Control.new()
+	dead.custom_minimum_size.y = _pscale(DccTheme.W_PHONE_CUTOUT)
+	col.add_child(dead)
+	col.add_child(DccTheme.spacer())
+	var bot_pad := MarginContainer.new()
+	bot_pad.add_theme_constant_override("margin_bottom", _pscale(10))
+	_phone_side_battery_label = DccTheme.mono_label("", "text_faint", _pscale(9))
+	_phone_side_battery_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	bot_pad.add_child(_phone_side_battery_label)
+	col.add_child(bot_pad)
+	return wrap
+
+## The app bar (inset rule / §13: "the first row allowed to hold controls" --
+## ☰ domain drawer, title + seed, ▤ panels, ⋯ overflow). All four hit boxes
+## are exactly 44 px, per the mockup's own app-bar row (lines 1466-1474).
+func _build_phone_app_bar() -> Control:
+	var bar := PanelContainer.new()
+	bar.custom_minimum_size.y = _ptap(DccTheme.H_PHONE_APP_BAR)
+	bar.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"bottom": 1}))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", _pscale(10))
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", _pscale(10))
+	pad.add_theme_constant_override("margin_right", _pscale(10))
+	pad.add_child(row)
+	bar.add_child(pad)
+
+	row.add_child(_phone_bar_button(DccIcons.SYMBOLS["drawer"], "Domains",
+		func(): _set_drawer_open(true)))
+
+	var title_col := VBoxContainer.new()
+	title_col.add_theme_constant_override("separation", 0)
+	title_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	title_col.add_child(DccTheme.mono_label("CARTALITH", "text_bright", _pscale(12), 3, true))
+	## Reuses the same "top_world" status slot the desktop menu bar's readout
+	## cluster fills (`_wire_status()` in `app.gd` calls
+	## `set_status("top_world", "ELDRA · %d" % seed)`) -- no phone-aware
+	## branch needed in `app.gd` for this to stay live.
+	var subtitle := DccTheme.mono_label("", "text_faint", _pscale(9), 1)
+	_status_labels["top_world"] = subtitle
+	title_col.add_child(subtitle)
+	row.add_child(title_col)
+
+	row.add_child(_phone_bar_button(DccIcons.SYMBOLS["panels"], "Panels",
+		func(): _set_panel_picker_open(true), "accent"))
+	row.add_child(_phone_bar_button(DccIcons.SYMBOLS["overflow"], "Menu",
+		func(): _set_overflow_open(true)))
+	return bar
+
+func _phone_bar_button(glyph: String, tip: String, on_press: Callable,
+		token: String = "text_dim") -> Button:
+	var b := Button.new()
+	b.text = glyph
+	b.flat = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.tooltip_text = tip
+	b.custom_minimum_size = Vector2(_ptap(44), _ptap(44))
+	b.add_theme_font_size_override("font_size", _pscale(16))
+	b.add_theme_font_override("font", DccTheme.mono())
+	b.add_theme_color_override("font_color", DccTheme.c(token))
+	b.add_theme_stylebox_override("normal", DccTheme.empty())
+	b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+	b.pressed.connect(on_press)
+	return b
+
+## The domain rail (§13: "a 44 px column with each domain in a 44 px hit
+## box"). The mockup's phone screen draws the rail *and* the ☰ drawer
+## together (lines 1467 and 1477-1489) -- the drawer is not a replacement for
+## the rail, it's a second, larger-target way to reach the same five domains.
+## Unlike the desktop rail (`_build_rail()`), the phone cells are text-only:
+## no icon, no measured icon/label offset math -- just a centred vertical
+## label in a plain 44×44 box, so the centring formula is the simple case
+## `_build_rail()`'s own long comment sets up for the icon-biased one: a Label
+## rotated -90° about its own top-left corner maps local (u, v) to global
+## (v, -u), so its rotated box spans x:[0, text_size.y], y:[-text_size.x, 0]
+## relative to `position`. Solving for the position that puts each axis's
+## midpoint at the cell's own centre gives the two lines below.
+func _build_phone_rail() -> Control:
+	var rail := PanelContainer.new()
+	rail.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"right": 1}))
+	rail.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	rail.offset_left = 0
+	rail.offset_right = _ptap(DccTheme.W_PHONE_RAIL)
+	rail.offset_top = 0
+	rail.offset_bottom = 0
+
+	rail_column = VBoxContainer.new()
+	rail_column.add_theme_constant_override("separation", 0)
+	rail_column.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rail.add_child(rail_column)
+
+	var cell_w := float(_ptap(DccTheme.W_PHONE_RAIL))
+	var cell_h := float(_ptap(44))
+	for i in DOMAINS.size():
+		var d: Dictionary = DOMAINS[i]
+		if i > 0:
+			var sep := ColorRect.new()
+			sep.color = DccTheme.c("line")
+			sep.custom_minimum_size = Vector2(_pscale(14), 1)
+			sep.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+			rail_column.add_child(sep)
+
+		var b := Button.new()
+		b.tooltip_text = "%s -- %s" % [d.label, d.subtitle]
+		b.flat = true
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size.y = cell_h
+		b.add_theme_stylebox_override("normal", DccTheme.empty())
+		b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+		b.pressed.connect(_select_domain.bind(d.id))
+
+		var vlabel := DccTheme.mono_label(String(d.rail).to_upper(),
+			"text_faint", _pscale(9), 2, true)
+		vlabel.rotation = -PI / 2.0
+		var text_size := vlabel.get_minimum_size()
+		vlabel.position = Vector2(cell_w * 0.5 - text_size.y * 0.5,
+			cell_h * 0.5 + text_size.x * 0.5)
+		b.add_child(vlabel)
+
+		_domain_buttons[d.id] = b
+		_domain_marks[d.id] = {"label": vlabel}
+		rail_column.add_child(b)
+
+	rail_column.add_child(DccTheme.spacer())
+	## The mockup's own bottom "›" (line 1488) -- decorative on the desktop
+	## rail too (`_build_rail()`'s equivalent head chevron is a bare Label,
+	## never wired to a `pressed` signal). Matched here rather than invented
+	## new behaviour for it.
+	var foot := DccTheme.mono_label("›", "text_dim", _pscale(12))
+	foot.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	foot.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	foot.custom_minimum_size.y = _pscale(32)
+	rail_column.add_child(foot)
+	return rail
+
+## §13: "tool options become a bottom sheet". The drag handle is decorative --
+## the mockup pictures exactly one static sheet state, so nothing here answers
+## a drag gesture (inventing one would be behaviour the design doesn't show).
+## `tool_options_row` is the same `HBoxContainer` `set_tool_options()` already
+## rebuilds from `app.gd` -- wrapped in a horizontal `ScrollContainer` here
+## because its desktop-tuned content (a run-pipeline row with several buttons
+## and spacers) is wider than 393 px and would otherwise clip. No fixed sheet
+## height is set; it hugs the handle plus that one content row.
+func _build_phone_tool_sheet() -> PanelContainer:
+	var sheet := PanelContainer.new()
+	sheet.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"top": 1}))
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	sheet.add_child(col)
+
+	var handle_wrap := Control.new()
+	handle_wrap.custom_minimum_size.y = _pscale(20)
+	var handle := ColorRect.new()
+	handle.color = Color(1, 1, 1, 0.22)
+	var hw := _pscale(38)
+	var hh := _pscale(4)
+	handle.set_anchors_preset(Control.PRESET_CENTER)
+	handle.size = Vector2(hw, hh)
+	handle.position = Vector2(-hw / 2.0, -hh / 2.0)
+	handle_wrap.add_child(handle)
+	col.add_child(handle_wrap)
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.add_theme_stylebox_override("panel", DccTheme.empty())
+	tool_options_row = HBoxContainer.new()
+	tool_options_row.add_theme_constant_override("separation", 14)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 14)
+	pad.add_theme_constant_override("margin_right", 14)
+	pad.add_theme_constant_override("margin_bottom", 10)
+	pad.add_child(tool_options_row)
+	scroll.add_child(pad)
+	col.add_child(scroll)
+	return sheet
+
+## §13: "bottom 26 px is the gesture inset -- no tappable target inside it."
+## `MOUSE_FILTER_IGNORE` all the way down enforces that structurally, not just
+## visually -- there is nothing here a tap could hit even by accident.
+func _build_phone_gesture_inset() -> Control:
+	var wrap := Control.new()
+	wrap.custom_minimum_size.y = _pscale(DccTheme.H_PHONE_GESTURE)
+	wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bg := ColorRect.new()
+	bg.color = Color(DccTheme.c("bg"), 0.9)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(bg)
+	var handle := ColorRect.new()
+	handle.color = Color(1, 1, 1, 0.26)
+	var hw := _pscale(110)
+	var hh := _pscale(4)
+	handle.set_anchors_preset(Control.PRESET_CENTER)
+	handle.size = Vector2(hw, hh)
+	handle.position = Vector2(-hw / 2.0, -hh / 2.0)
+	handle.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wrap.add_child(handle)
+	return wrap
+
+# -- Phone overlays: drawer, panel picker, overflow, dock sheets ----------
+#
+# None of these four states are pictured in the mockup -- it ships exactly
+# one static screen, chrome closed. Their *triggers* (☰/▤/⋯) and their
+# *destination* (the reused dock/menu-bar/status-bar content) are spec'd;
+# the overlay presentation itself is this file's own construction, built to
+# the same visual language (colour tokens, hairlines, Plex Mono) as
+# everything else in `DccTheme`/`DccWidgets` rather than invented from
+# scratch. Said plainly because the rest of this file can cite a mockup line
+# for nearly every choice, and these four can't.
+
+## A dimmed full-rect scrim that closes its overlay when tapped outside the
+## panel placed on top of it. Named handler rather than an inline lambda --
+## `gui_input`'s own event argument plus a multi-statement body closed by the
+## outer `connect(...)`'s `)` on the same line is the exact shape the
+## match-in-a-lambda gotcha warns about, just with `if` instead of `match`.
+func _phone_scrim_tap(ev: InputEvent, on_tap: Callable) -> void:
+	var tapped: bool = (ev is InputEventMouseButton and ev.pressed) \
+		or (ev is InputEventScreenTouch and ev.pressed)
+	if tapped:
+		on_tap.call()
+
+func _phone_overlay_scrim(on_tap: Callable) -> Control:
+	var wrap := Control.new()
+	wrap.set_anchors_preset(Control.PRESET_FULL_RECT)
+	var dim := ColorRect.new()
+	dim.color = Color(0, 0, 0, 0.55)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_STOP
+	dim.gui_input.connect(_phone_scrim_tap.bind(on_tap))
+	wrap.add_child(dim)
+	return wrap
+
+func _sheet_close_button(on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = DccIcons.SYMBOLS["cross"]
+	b.flat = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.tooltip_text = "Close"
+	b.custom_minimum_size = Vector2(_ptap(44), _ptap(44))
+	b.add_theme_color_override("font_color", DccTheme.c("text_faint"))
+	b.add_theme_stylebox_override("normal", DccTheme.empty())
+	b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+	b.pressed.connect(on_press)
+	return b
+
+## A tappable title/subtitle row, shared by the drawer's domain list and the
+## panel picker's two entries. `rpad`'s own full-rect anchors are what make it
+## fill `row` -- `Button` isn't a `Container`, so a child's anchors resolve
+## against its rect like any other Control parent, they just aren't
+## auto-assigned the way a container's children would be.
+func _phone_list_row(title: String, subtitle: String, on_press: Callable) -> Control:
+	var row := Button.new()
+	row.flat = true
+	row.focus_mode = Control.FOCUS_NONE
+	row.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	row.custom_minimum_size.y = _ptap(52)
+	row.add_theme_stylebox_override("normal", DccTheme.empty())
+	row.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+
+	var rc := VBoxContainer.new()
+	rc.add_theme_constant_override("separation", 1)
+	rc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	rc.add_child(DccTheme.mono_label(title.to_upper(), "text_bright", _pscale(11), 1, true))
+	rc.add_child(DccTheme.label(subtitle, "text_faint", _pscale(9)))
+	var rpad := MarginContainer.new()
+	rpad.add_theme_constant_override("margin_left", _pscale(14))
+	rpad.add_child(rc)
+	row.add_child(rpad)
+	rpad.set_anchors_preset(Control.PRESET_FULL_RECT)
+
+	row.pressed.connect(on_press)
+	return row
+
+func _pick_drawer_domain(id: String) -> void:
+	_select_domain(id)
+	_set_drawer_open(false)
+
+## ☰ domain drawer: the same five `DOMAINS`, as full label + subtitle rows
+## rather than the rail's tracked abbreviations -- a second, more legible way
+## in, not a replacement for the rail (see `_build_phone_rail()`'s comment).
+func _build_phone_drawer() -> Control:
+	var overlay := _phone_overlay_scrim(func(): _set_drawer_open(false))
+
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", DccTheme.panel("raised", {"right": 1}))
+	panel.set_anchors_preset(Control.PRESET_LEFT_WIDE)
+	panel.offset_left = 0
+	panel.offset_right = _pscale(300)
+	panel.offset_top = 0
+	panel.offset_bottom = 0
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	panel.add_child(col)
+
+	var head := HBoxContainer.new()
+	head.custom_minimum_size.y = _ptap(44)
+	head.add_child(DccTheme.header("Domains", ""))
+	head.add_child(DccTheme.spacer())
+	head.add_child(_sheet_close_button(func(): _set_drawer_open(false)))
+	var hp := MarginContainer.new()
+	hp.add_theme_constant_override("margin_left", 14)
+	hp.add_theme_constant_override("margin_right", 6)
+	hp.add_child(head)
+	col.add_child(hp)
+	col.add_child(DccTheme.rule())
+
+	## Named rather than an inline lambda: a multi-statement lambda body on
+	## one line is exactly the shape `DCC_SHELL_SPEC.md`-adjacent GDScript
+	## gotchas live in, and a lambda closing over a `for` loop's own variable
+	## is a second, separate risk -- `_build_rail()`'s desktop equivalent
+	## already avoids both by binding rather than closing over `d`.
+	for d in DOMAINS:
+		col.add_child(_phone_list_row(String(d.label), String(d.subtitle),
+			_pick_drawer_domain.bind(d.id)))
+		col.add_child(DccTheme.rule())
+
+	overlay.add_child(panel)
+	overlay.visible = false
+	return overlay
+
+## ▤ panel picker: which dock to open as a full-height sheet. Anchored to the
+## bottom rather than the drawer's side-panel treatment, so ☰ and ▤ read as
+## two distinct affordances rather than the same drawer twice.
+func _build_phone_panel_picker() -> Control:
+	var overlay := _phone_overlay_scrim(func(): _set_panel_picker_open(false))
+
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", DccTheme.panel("raised", {"top": 1}))
+	panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	panel.offset_left = 0
+	panel.offset_right = 0
+	panel.offset_top = -_pscale(160)
+	panel.offset_bottom = -_pscale(DccTheme.H_PHONE_GESTURE)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	panel.add_child(col)
+	col.add_child(_phone_list_row("Left panel", "The active domain's workspace tools",
+		func(): _set_sheet_open("left", true)))
+	col.add_child(DccTheme.rule())
+	col.add_child(_phone_list_row("Right panel", "Layers and selection detail",
+		func(): _set_sheet_open("right", true)))
+
+	overlay.add_child(panel)
+	overlay.visible = false
+	return overlay
+
+## ⋯ overflow: the desktop menu bar and status bar, relocated unmodified. Both
+## are wrapped for width -- the menu bar's seven `MenuButton`s plus its
+## wordmark and readout cluster are sized for a ~1500 px+ desktop bar and
+## overflow 393 px, so it scrolls horizontally; each `MenuButton` still opens
+## its own popup normally once tapped. The status bar's few short labels fit
+## without one.
+func _build_phone_overflow(menu_bar: Control, status_bar: Control) -> Control:
+	var overlay := _phone_overlay_scrim(func(): _set_overflow_open(false))
+
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", DccTheme.panel("raised", {"top": 1}))
+	panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	panel.offset_left = 0
+	panel.offset_right = 0
+	panel.offset_top = -_pscale(220)
+	panel.offset_bottom = -_pscale(DccTheme.H_PHONE_GESTURE)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	panel.add_child(col)
+
+	var head := HBoxContainer.new()
+	head.custom_minimum_size.y = _ptap(44)
+	head.add_child(DccTheme.header("Menu", ""))
+	head.add_child(DccTheme.spacer())
+	head.add_child(_sheet_close_button(func(): _set_overflow_open(false)))
+	var hp := MarginContainer.new()
+	hp.add_theme_constant_override("margin_left", 14)
+	hp.add_theme_constant_override("margin_right", 6)
+	hp.add_child(head)
+	col.add_child(hp)
+	col.add_child(DccTheme.rule())
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.add_theme_stylebox_override("panel", DccTheme.empty())
+	scroll.add_child(menu_bar)
+	col.add_child(scroll)
+	col.add_child(DccTheme.rule())
+	col.add_child(status_bar)
+
+	overlay.add_child(panel)
+	overlay.visible = false
+	return overlay
+
+# -- Phone overlay state ---------------------------------------------------
+#
+# Every phone overlay is mutually exclusive -- opening any one closes all the
+# others, including a dock sheet -- so there is exactly one state variable per
+# overlay and one shared teardown rather than a general stack.
+
+func _close_all_phone_overlays() -> void:
+	if _phone_drawer != null:
+		_phone_drawer.visible = false
+	if _phone_panel_picker != null:
+		_phone_panel_picker.visible = false
+	if _phone_overflow != null:
+		_phone_overflow.visible = false
+	if left_dock != null:
+		left_dock.visible = false
+	if right_dock != null:
+		right_dock.visible = false
+	_left_sheet_open = false
+	_right_sheet_open = false
+
+func _set_drawer_open(open: bool) -> void:
+	_close_all_phone_overlays()
+	_phone_drawer.visible = open
+
+func _set_panel_picker_open(open: bool) -> void:
+	_close_all_phone_overlays()
+	_phone_panel_picker.visible = open
+
+func _set_overflow_open(open: bool) -> void:
+	_close_all_phone_overlays()
+	_phone_overflow.visible = open
+
+func _set_sheet_open(side: String, open: bool) -> void:
+	if open:
+		_close_all_phone_overlays()
+	if side == "left":
+		_left_sheet_open = open
+		left_dock.visible = open
+	else:
+		_right_sheet_open = open
+		right_dock.visible = open
+
+## Re-applied on every resize while `_phone` is true (`_on_window_resized()`),
+## which is the one part of the phone/tablet decision that genuinely must be
+## live -- a device rotates at runtime even though its form factor never
+## does. Only safe-area visibility, the chrome column's left margin, and the
+## two dock sheets' rects change between orientations; the drawer/panel-
+## picker/overflow overlays and the tool sheet/timeline/rail are unaffected,
+## so this never touches anything a workspace has attached content to.
+func _apply_phone_orientation() -> void:
+	if _phone_top_safe == null:
+		return  ## Not built yet -- called once more at the end of `_build_phone_shell()`.
+	_phone_top_safe.visible = not _landscape
+	_phone_side_safe.visible = _landscape
+
+	## "The domain rail shifts inward" (inset rule, LANDSCAPE): the rail
+	## floats inside this margin, so growing it by the side safe area's own
+	## width is the entire mechanism -- no separate rail repositioning code.
+	var side_reserve := _pscale(DccTheme.H_PHONE_TOP_SAFE) if _landscape else 0
+	_phone_chrome_margin.add_theme_constant_override("margin_left", side_reserve)
+
+	var safe_top := 0 if _landscape else _pscale(DccTheme.H_PHONE_TOP_SAFE)
+	for sheet in [left_dock, right_dock]:
+		if sheet == null:
+			continue
+		sheet.offset_left = side_reserve
+		sheet.offset_right = 0
+		sheet.offset_top = safe_top
+		sheet.offset_bottom = -_pscale(DccTheme.H_PHONE_GESTURE)
+
+	phone_insets_changed.emit()
+
+## What `ViewportHost`'s own corner chrome (layers button, coord readout,
+## scale bar -- all built by `viewport_host.gd`, unchanged) should treat as
+## "inside the safe area" now that the phone chrome sits on top of an
+## edge-to-edge map instead of a flow container sizing the viewport to the
+## gap between docks. `app.gd` calls this once, deferred, after building
+## `ViewportHost` (deferred so the tool sheet has had one layout pass -- see
+## `_phone_bottom_reserve()`), and again on every `phone_insets_changed`
+## (rotation, and any tool-sheet content change -- `set_tool_options()` fires
+## it too).
+func phone_content_insets() -> Dictionary:
+	if not _phone:
+		return {"left": 10.0, "top": 10.0, "right": 10.0, "bottom": 10.0}
+	var left := float(_ptap(DccTheme.W_PHONE_RAIL))
+	if _landscape:
+		left += float(_pscale(DccTheme.H_PHONE_TOP_SAFE))
+	var top := float(_ptap(DccTheme.H_PHONE_APP_BAR))
+	if not _landscape:
+		top += float(_pscale(DccTheme.H_PHONE_TOP_SAFE))
+	return {"left": left, "top": top, "right": 0.0, "bottom": _phone_bottom_reserve()}
+
+## The tool sheet's real height depends on whatever `tool_options_row`
+## currently holds -- domain content this frame doesn't own -- so this reads
+## the sheet's own actual size once it has one (non-zero after a layout pass)
+## rather than guessing it. Before that first pass (the un-deferred instant
+## `_build_phone_shell()` finishes in), falls back to a fixed estimate biased
+## generous on purpose: an *under*-estimate leaves the coordinate readout and
+## scale bar hidden behind the opaque sheet (found by screenshot -- the
+## original flat 44 px guess did exactly this), while an *over*-estimate only
+## leaves them floating a bit higher than strictly necessary. Wrong in the
+## safe direction, in other words.
+func _phone_bottom_reserve() -> float:
+	if _phone_tool_sheet != null and _phone_tool_sheet.size.y > 0.0:
+		var h := _phone_tool_sheet.size.y + float(_pscale(DccTheme.H_PHONE_GESTURE))
+		if timeline_bar != null and timeline_bar.visible:
+			h += timeline_bar.size.y
+		return h + float(_pscale(8))
+	return float(_pscale(20 + 90 + DccTheme.H_PHONE_GESTURE))

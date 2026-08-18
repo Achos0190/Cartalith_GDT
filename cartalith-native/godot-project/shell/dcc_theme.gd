@@ -125,6 +125,24 @@ const W_RIGHT_DOCK_MAX := 460
 ## enforces a 44 px floor on every hit box when the platform is not pointer-first.
 const TOUCH_SCALE := 1.53  ## 34 -> 52, 26 -> 40, matching the tablet column.
 
+## Phone geometry (§13, `design/…dc.html`'s "DCC shell android phone" and
+## "Phone inset rules" cards). Tablet reuses the desktop constants above
+## through `TOUCH_SCALE`; phone is a distinct composition with its own fixed
+## pixel budget, read directly off the 393×852 mockup rather than derived
+## from the desktop numbers, because none of the desktop regions survive
+## phone width unchanged.
+const PHONE_REF_SHORT := 393.0   ## The mockup's own short-side width -- the
+	## scale of "1 phone pixel" that every constant below is authored at.
+	## `DccShell._phone_scale` maps it onto the real device's short side.
+const H_PHONE_TOP_SAFE := 44     ## Keep-clear status row: glyphs only.
+const H_PHONE_TOP_SCRIM := 96    ## The gradient reaches past the safe area
+	## itself so the fade reads as atmosphere, not a hard edge at 44 px.
+const W_PHONE_CUTOUT := 108      ## Centre lane reserved for a notch/punch-hole.
+const H_PHONE_APP_BAR := 52      ## ☰ / title+seed / ▤ / ⋯.
+const W_PHONE_RAIL := 44         ## Domain rail column width == its hit height.
+const H_PHONE_GESTURE := 26      ## Bottom gesture inset -- no tappable target.
+const PHONE_TAP_MIN := 44        ## §13's floor, with no exceptions.
+
 # ── Active palette ───────────────────────────────────────────────────────────
 
 static var _dark := true

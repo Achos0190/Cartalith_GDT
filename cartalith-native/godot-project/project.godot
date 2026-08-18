@@ -15,6 +15,22 @@ run/main_scene="res://shell/app.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
 config/icon="res://icon.png"
 
+[display]
+
+## §13: the phone mockup (`design/Cartalith DCC Shell.dc.html`, "DCC shell
+## android phone") is a 393×852 *portrait* screen, but this key was never set
+## before phone chrome existed -- Godot's own unset default is "landscape",
+## which is exactly the "full desktop menu bar/docks/rail crammed onto the
+## screen" bug this port was built to fix (confirmed on a OnePlus 6T: the app
+## booted landscape with no phone-specific chrome at all). "sensor" rather
+## than a fixed "portrait" lock, because §13 also specifies a distinct
+## landscape treatment ("the cutout moves to a side edge") that
+## `DccShell._landscape`/`_apply_phone_orientation()` implements at runtime --
+## locking the OS orientation would make that code unreachable on a real
+## device. A phone naturally rests in portrait, so "sensor" still boots there
+## most of the time without forcing it.
+display/window/handheld/orientation="sensor"
+
 [gui]
 
 theme/custom="res://theme/dark_theme.tres"
