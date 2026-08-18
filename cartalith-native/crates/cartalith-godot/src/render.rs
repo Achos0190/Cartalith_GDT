@@ -89,6 +89,12 @@
 //! `0.0`, the same rule every stage since milestone 2 follows.
 
 use cartalith_noise::vnoise;
+// Milestone 6 (§21/§23): the per-pixel appearance pass and the
+// whole-raster local-contrast pass are element-wise over the grid, so they
+// parallelize without changing a single float. Every sibling engine crate
+// already does this (`CPU_MULTITHREADING_SCOPE.md` milestones 2-3); this
+// renderer was the last O(gw*gh) loop in the workspace still on one core.
+use rayon::prelude::*;
 
 type Rgb = (f64, f64, f64);
 
@@ -476,7 +482,171 @@ impl Default for TerrainAppearance {
     }
 }
 
+/// `TERRAIN_APPEARANCE_RESEARCH.md` §29's four quality presets, as a real
+/// mechanism rather than a policy. **Which tier a given device should get is
+/// the owner's decision**, so this type only *provides* the ladder and a
+/// recommendation; nothing here changes what the app renders by default.
+///
+/// [`QualityTier::Quality`] is exactly [`TerrainAppearance::default()`],
+/// bit-for-bit -- the tier ladder was introduced without moving the look the
+/// previous five milestones tuned. `Performance`/`Balanced` step *down* from
+/// it and `Ultra` steps up.
+///
+/// The ladder drops **texture, never identity**: every tier keeps the paper
+/// tint, the paper wash and the plate frame, because those are what make the
+/// sheet read as an atlas plate (`VISION.md`) and they are also nearly free --
+/// the tint and the wash are a handful of multiplies, and the frame reads no
+/// world data at all. What the cheap tiers give up is the per-pixel
+/// coherent-noise work (paper fibre/mottle, forest stipple, the lithology
+/// jitter lookup), the AO/hydrology precomputes, the extra light directions
+/// and the whole-raster local-contrast pass -- i.e. exactly the stages whose
+/// cost scales with `gw*gh` and whose absence degrades the image gracefully
+/// instead of breaking it.
+// `golden_parity_render.rs` `#[path]`-includes this file standalone, with no
+// `lib.rs` to construct tiers from -- the same reason `js_reference()` and
+// `border_cover` already carry this attribute, in reverse.
+#[allow(dead_code)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum QualityTier {
+    /// §29's "basic colour relief... minimal microvariation", **re-derived
+    /// from this renderer's own measured stage costs** rather than taken
+    /// literally. Everything that measured at or below the noise floor stays
+    /// -- the full six-direction relief, AO, the hydrology tint -- and
+    /// everything that measured as real time goes: a smooth (untextured)
+    /// sheet, no stipple, no geology, no local contrast.
+    Performance,
+    /// §29: "colour relief, multidirectional shading, slope modulation,
+    /// lightweight AO". Exactly `Quality` minus the two stages the cost table
+    /// puts at the top: the whole-raster local-contrast pass and the
+    /// sheet-scale paper mottle.
+    Balanced,
+    /// §29's "full material modulation, multidirectional hillshade, AO,
+    /// curvature, multi-scale detail" -- and this port's own default look as
+    /// milestones 1-5 left it. Bit-identical to `TerrainAppearance::default()`.
+    Quality,
+    /// §29: "highest available precision, enhanced AO, full material/lighting
+    /// pipeline, wide gamut/HDR where supported". The first two are real here
+    /// (ten light directions instead of six, stronger AO, higher local
+    /// contrast); **the precision/HDR half is not** -- that is research §20's
+    /// high-precision display pipeline, which this port has not built, and
+    /// claiming it here would be dishonest.
+    Ultra,
+}
+
+#[allow(dead_code)]
+impl QualityTier {
+    /// Cheapest first. The order is load-bearing: `TERRAIN_APPEARANCE_SCOPE.md`
+    /// milestone 6's cost table and the tier-monotonicity test both walk it.
+    pub const ALL: [QualityTier; 4] = [QualityTier::Performance, QualityTier::Balanced, QualityTier::Quality, QualityTier::Ultra];
+
+    /// Stable lowercase identifier -- what crosses the gdext boundary
+    /// (`WorldGen::set_quality_tier`) and what a preset file would store.
+    pub fn name(self) -> &'static str {
+        match self {
+            QualityTier::Performance => "performance",
+            QualityTier::Balanced => "balanced",
+            QualityTier::Quality => "quality",
+            QualityTier::Ultra => "ultra",
+        }
+    }
+
+    /// Case-insensitive parse of [`Self::name`]. `None` for anything else --
+    /// the caller decides what to do rather than being silently handed a
+    /// default it did not ask for.
+    pub fn from_name(s: &str) -> Option<Self> {
+        QualityTier::ALL.into_iter().find(|t| t.name().eq_ignore_ascii_case(s))
+    }
+}
+
+/// A tier this machine can plausibly afford, for a caller that wants to
+/// *offer* one. Deliberately **not applied anywhere**: `WorldGen` still
+/// starts at `Quality` on every device, and picking a device-appropriate
+/// default is an owner policy decision, not this function's.
+///
+/// The renderer's per-pixel pass is `rayon`-parallel as of milestone 6, so
+/// the honest predictor of what a device can afford is its core count: two
+/// cores at the app's own 2048x1311 is roughly eight times the wall clock of
+/// sixteen. Android is capped one rung below what its core count suggests,
+/// because a phone's cores are neither as fast nor as sustainably clocked as
+/// the count implies -- the real device pass measured ~31 s for a single
+/// 2048x1311 generation.
+///
+/// Never returns `Ultra`: that tier costs more than `Quality` for a
+/// difference only a deliberate choice justifies.
+#[allow(dead_code)]
+pub fn recommended_quality_tier() -> QualityTier {
+    let cores = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
+    let tier = if cores <= 2 {
+        QualityTier::Performance
+    } else if cores <= 6 {
+        QualityTier::Balanced
+    } else {
+        QualityTier::Quality
+    };
+    if cfg!(target_os = "android") && tier == QualityTier::Quality { QualityTier::Balanced } else { tier }
+}
+
 impl TerrainAppearance {
+    /// The appearance data for one §29 quality tier.
+    ///
+    /// `Quality` returns `default()` **unchanged and unreconstructed**, so
+    /// the tier ladder cannot drift from the look milestones 1-5 tuned even
+    /// by a typo; the other three are written as struct-update expressions
+    /// over it, so any field nobody tiers is by construction identical in
+    /// every tier.
+    #[allow(dead_code)]
+    pub fn for_tier(tier: QualityTier) -> Self {
+        let q = TerrainAppearance::default();
+        match tier {
+            QualityTier::Quality => q,
+            QualityTier::Performance => TerrainAppearance {
+                // **The ladder drops stages in measured cost order**, and the
+                // measurement is this milestone's own `cost_table` in
+                // `appearance_ab_dump.rs` (best of three, all three test
+                // worlds, at the app's own 2048x2048). Marginal cost of each
+                // stage, largest first: local contrast 30-53 ms, the paper's
+                // four `vnoise` calls 6-18 ms, stipple 3-6 ms, geology 0-6 ms
+                // -- and then hydrology, AO and the five extra light
+                // directions, all of which sit **at or below the noise floor
+                // of the measurement itself**.
+                //
+                // That is the opposite of research §29's own Performance
+                // recipe ("basic hillshade, no expensive AO"), which assumes
+                // a raymarched AO and a per-light full shading pass. Here AO
+                // is one separable box blur computed once, and the extra
+                // lights are five dot products against a normal that is
+                // computed anyway. Dropping them would have surrendered the
+                // whole of milestone 2's relief legibility to buy nothing
+                // measurable, so this tier keeps them and gives up the
+                // texture and the second pass instead.
+                paper_grain: 0.0,
+                paper_mottle: 0.0,
+                stipple_strength: 0.0,
+                litho_strength: 0.0,
+                litho_exposure: 0.0,
+                local_contrast: 0.0,
+                ..q
+            },
+            QualityTier::Balanced => TerrainAppearance {
+                // Exactly `Quality` minus the two most expensive stages, and
+                // nothing else -- lightening a stage that costs 3 ms would be
+                // giving up image for no time. The sheet-scale ageing mottle
+                // is half of the paper's `vnoise` bill and the least legible
+                // of the sheet's cues at a glance; the fibre, which is what
+                // actually reads as paper, survives.
+                paper_mottle: 0.0,
+                local_contrast: 0.0,
+                ..q
+            },
+            QualityTier::Ultra => TerrainAppearance {
+                relief_lights: 10,
+                ao_strength: 0.32,
+                local_contrast: 0.62,
+                ..q
+            },
+        }
+    }
+
     /// The reference HTML's exact default-settings shading: one sun, no
     /// ambient occlusion, the original light curve. Produces **bit-identical
     /// output to this renderer before milestone 2** — `relief_lights: 1`
@@ -557,9 +727,14 @@ fn ramp3(p: &[Rgb; 3], t: f64) -> Rgb {
 /// sliding-window accumulator. `f32` storage throughout (`dst` writes),
 /// matching JS's `Float32Array` truncate-on-every-store semantics
 /// (`cartalith-rust-conventions`).
+// Milestone 6: row-parallel. Each row runs its own independent sliding-window
+// accumulator over its own `w` source values and writes its own `w`
+// destination values, so the split reassociates nothing -- this stays
+// bit-identical, which matters because `smooth_sea_h` (and therefore every
+// ocean pixel on the JS-parity path) goes through here.
 fn box_h(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64, wrap: bool) {
     let norm = 1.0 / (2 * r + 1) as f64;
-    for y in 0..h {
+    dst[..w * h].par_chunks_mut(w).enumerate().for_each(|(y, drow)| {
         let row = y * w;
         let mut acc = 0.0f64;
         let idx = |k: i64| -> usize {
@@ -572,15 +747,22 @@ fn box_h(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64, wrap: bool) {
         for k in -r..=r {
             acc += src[row + idx(k)] as f64;
         }
-        for x in 0..w {
-            dst[row + x] = (acc * norm) as f32;
+        for (x, d) in drow.iter_mut().enumerate() {
+            *d = (acc * norm) as f32;
             let o = idx(x as i64 - r);
             let i = idx(x as i64 + r + 1);
             acc += src[row + i] as f64 - src[row + o] as f64;
         }
-    }
+    });
 }
 
+// Deliberately **not** parallelized, unlike `box_h`: this pass walks columns,
+// so each task would need `&mut` to a disjoint *stride* of every row, which
+// rayon cannot express over a flat buffer without `unsafe`. The honest trade
+// is that half of each separable blur is parallel and half is not; the
+// alternative (blur-transpose-blur-transpose) would double the memory traffic
+// and touch `smooth_sea_h`, which is on the JS-parity path. Revisit only if a
+// profile says the serial half still dominates.
 fn box_v(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64) {
     let norm = 1.0 / (2 * r + 1) as f64;
     let clamp_y = |k: i64| -> usize { k.clamp(0, h as i64 - 1) as usize };
@@ -1507,14 +1689,32 @@ fn paper_tone(a: &TerrainAppearance, x: usize, y: usize, gw: usize) -> Rgb {
     let luma = (0.2126 * t.0 + 0.7152 * t.1 + 0.0722 * t.2).max(1e-6);
     let t = (t.0 / luma, t.1 / luma, t.2 / luma);
 
-    let tooth = vnoise(xf * 0.31, yf * 0.31, 61);
-    // Stretched along Y: laid lines. Cheap, and it's the single cue that
-    // reads as "sheet" rather than "noise overlay" at a glance.
-    let laid = vnoise(xf * 0.27, yf * 0.075, 63);
-    let grain = ((tooth - 0.5) * 0.55 + (laid - 0.5) * 0.45) * 2.0;
-    let mottle = 0.65 * vnoise(xf / gwf * 5.0, yf / gwf * 5.0, 65) + 0.35 * vnoise(xf / gwf * 13.0, yf / gwf * 13.0, 67);
+    // Milestone 6 (§29): the fibre and the mottle each early-return on
+    // **their own** zero, not just on `paper_strength`. The two of them are
+    // four `vnoise` calls on every pixel of the sheet, ocean included —
+    // measured at milestone 4 as the whole 598→915 ms jump at 2048² — and
+    // they are what the `Performance`/`Balanced` tiers drop while keeping
+    // the tint, the wash and the frame. This is the same per-stage gating
+    // rule milestone 2 established (`relief_lights <= 1`), applied one level
+    // finer; the arithmetic is unchanged when both are on, so
+    // `TerrainAppearance::default()` stays bit-identical.
+    let grain = if a.paper_grain > 0.0 {
+        let tooth = vnoise(xf * 0.31, yf * 0.31, 61);
+        // Stretched along Y: laid lines. Cheap, and it's the single cue that
+        // reads as "sheet" rather than "noise overlay" at a glance.
+        let laid = vnoise(xf * 0.27, yf * 0.075, 63);
+        ((tooth - 0.5) * 0.55 + (laid - 0.5) * 0.45) * 2.0
+    } else {
+        0.0
+    };
+    let mottle_dev = if a.paper_mottle > 0.0 {
+        let mottle = 0.65 * vnoise(xf / gwf * 5.0, yf / gwf * 5.0, 65) + 0.35 * vnoise(xf / gwf * 13.0, yf / gwf * 13.0, 67);
+        (mottle - 0.5) * 2.0
+    } else {
+        0.0
+    };
 
-    let v = 1.0 + grain * a.paper_grain + (mottle - 0.5) * 2.0 * a.paper_mottle;
+    let v = 1.0 + grain * a.paper_grain + mottle_dev * a.paper_mottle;
     let s = a.paper_strength;
     (1.0 + (t.0 * v - 1.0) * s, 1.0 + (t.1 * v - 1.0) * s, 1.0 + (t.2 * v - 1.0) * s)
 }
@@ -1681,11 +1881,18 @@ pub fn apply_local_contrast(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh
         return;
     }
 
-    // Rec.709 luma of the finished image, in 0-255 levels.
+    // Rec.709 luma of the finished image, in 0-255 levels. Milestone 6: this
+    // and the correction loop below are `rayon`-parallel — both are
+    // element-wise over the raster, so the result is bit-identical to the
+    // serial version regardless of how the work is split (§27 determinism is
+    // a property of the maths here, not of the schedule).
     let mut luma = vec![0f32; n];
-    for (i, l) in luma.iter_mut().enumerate() {
-        let o = i * 3;
-        *l = (0.2126 * rgb[o] as f64 + 0.7152 * rgb[o + 1] as f64 + 0.0722 * rgb[o + 2] as f64) as f32;
+    {
+        let src: &[u8] = rgb;
+        luma.par_iter_mut().enumerate().for_each(|(i, l)| {
+            let o = i * 3;
+            *l = (0.2126 * src[o] as f64 + 0.7152 * src[o + 1] as f64 + 0.0722 * src[o + 2] as f64) as f32;
+        });
     }
 
     // Radius floored at 3 cells (below that this stops being *local*
@@ -1715,28 +1922,31 @@ pub fn apply_local_contrast(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh
     // sheet's own texture passes through untouched. Same precedent as
     // `build_ao`'s `r_fine` floor: coherent noise at a couple of cells is
     // indistinguishable from speckle, so no stage may key off it.
+    // The two blurs read the same buffer and write their own, so they are
+    // independent whole passes -- worth a `join` on top of `box_h`'s own
+    // row-parallelism, since this stage measured as the largest single
+    // remaining cost in the appearance pipeline once `cell_color` went
+    // parallel (milestone 6's own cost table).
     let r_inner = (rad / 8).max(2);
-    let fine = blur_once(&luma, gw, gh, r_inner, world);
-    let blurred = blur_once(&luma, gw, gh, rad, world);
+    let (fine, blurred) = rayon::join(|| blur_once(&luma, gw, gh, r_inner, world), || blur_once(&luma, gw, gh, rad, world));
 
     let knee = a.local_contrast_knee.max(1e-3);
     let inv_knee2 = 1.0 / (knee * knee);
-    for i in 0..n {
+    rgb[..n * 3].par_chunks_mut(3).enumerate().for_each(|(i, px)| {
         let d = fine[i] as f64 - blurred[i] as f64;
         let mut delta = a.local_contrast * d * (-(d * d) * inv_knee2).exp();
         if delta == 0.0 {
-            continue;
+            return;
         }
         let (x, y) = (i % gw, i / gw);
         let cover = border_cover(a, x, y, gw, gh);
         if cover > 0.0 {
             delta *= 1.0 - cover;
         }
-        let o = i * 3;
-        for k in 0..3 {
-            rgb[o + k] = (rgb[o + k] as f64 + delta).clamp(0.0, 255.0) as u8;
+        for c in px.iter_mut() {
+            *c = (*c as f64 + delta).clamp(0.0, 255.0) as u8;
         }
-    }
+    });
 }
 
 /// Top-level per-cell colour, `[0,1]` per channel — `isWater(v) ?

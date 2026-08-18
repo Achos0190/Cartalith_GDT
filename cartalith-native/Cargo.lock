@@ -203,6 +203,7 @@ dependencies = [
  "cartalith-io",
  "cartalith-noise",
  "godot",
+ "rayon",
 ]
 
 [[package]]

@@ -220,13 +220,43 @@ owner's call, and it is the single biggest open question this render raises.
    paper grain into a faint rectangular quilting — the same failure class as
    the AO speckle and the halftone stipple, found the same way, and fixed by
    band-passing so the sheet's texture passes through untouched.
+   **Milestone 6 done 2026-08-18**: the GPU question, answered by measuring
+   rather than by building. GPU compute is genuinely reachable — through the
+   standalone `wgpu` instance `cartalith-gpu` already owns, not through
+   Godot's own renderer — and a 2048² noise kernel runs there in 2.8 ms
+   against 36.8 ms of single-thread CPU. But the renderer turned out not to
+   be GPU-bound at all: after five milestones of appearance work its
+   per-pixel loop had grown to ~1 s at 2048² **on one core**, the last
+   O(gw·gh) serial loop left in a workspace whose engine crates have been
+   Rayon-parallel for days. Parallelizing it took `cell_color` from 1040 to
+   125 ms (8.3×) and the real app's whole `build_color_texture` from 955 to
+   293 ms (3.3×) at the app's own 2048×1311 — bit-identical output, proven by
+   re-diffing all 48 A/B dumps byte-for-byte. That also *settled* the GPU
+   question for now: the appearance pass is 5% of the time to a new world,
+   down from 15%, so a WGSL port of the whole material-synthesis kernel would
+   buy about 5% in exchange for a second renderer permanently diverging from
+   the golden-verified one. Recorded, with `apply_local_contrast` named as
+   the natural beachhead if it is ever picked up.
+   Alongside it, quality tiers — Performance/Balanced/Quality/Ultra, offered
+   to Godot but **never applied automatically**, because what a phone should
+   default to is the owner's call. Their design is the milestone's other real
+   finding: a measured cost table shows that dropping five of the six light
+   directions and switching off ambient occlusion — precisely what the
+   research doc's own Performance recipe prescribes — saves *nothing
+   measurable* in this renderer, while local contrast alone costs 30-53 ms.
+   So the cheap tier keeps the relief that makes the map legible and gives up
+   texture instead, and it is 2.2-3.3× cheaper for it. `Quality` is the
+   milestone-5 look returned unchanged, byte for byte.
    Still ahead for the atlas look proper: hand-lettered settlement glyphs —
    which are drawn by `map_overlay.gd`, not by `render.rs`, so they are a
    GDScript overlay task rather than a renderer one. (The plate-margin
    overlay defect this item used to record was fixed in milestone 4's own
    follow-up.) Beyond that the remaining research phases are colour vibrancy,
-   atmospheric distance effects, the high-precision display pipeline, the GPU
-   rendering path and quality tiers.
+   atmospheric distance effects, the high-precision display pipeline and the
+   GPU rendering path itself — plus one pre-existing artifact milestone 6
+   found by looking and deliberately did not fix: rectangular blockiness in
+   the open ocean, inherited from the reference HTML's own low-frequency
+   sea-colour noise lattice and *more* visible there than here.
 3. **Layer-stack treatment** — real polish on an already-built panel.
 4. **Journey Planner** milestones 3-6 — already scoped and underway.
 5. **Narrative/Scenario, and the static-vs-temporal question** — needs an

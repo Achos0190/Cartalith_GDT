@@ -792,6 +792,331 @@ vibrancy, §19 atmospheric/distance effects, §20 the high-precision display
 pipeline, §21 the GPU rendering path, §29 quality tiers, the GUI editing
 panel (`GUI_SHELL_SCOPE.md`), and milestone 1's elevation-ramp question.
 
+## Milestone 6 — the GPU question, answered by measurement; and §29 quality tiers (done 2026-08-18)
+
+**What was chosen, and why these two.** §21 (the GPU rendering path) and §29
+(quality tiers) — the two remaining items with a real consumer, picked over
+§16/§17/§20 for reasons recorded below. §21 was the largest thing left and the
+brief for this milestone said in as many words to *verify what is reachable
+before committing to it*. That verification is the milestone's central finding
+and it changed what got built:
+
+- **GPU compute is genuinely reachable** — not through Godot's renderer
+  (`STATUS.md`'s own recorded finding that `gl_compatibility` cannot dispatch
+  `RenderingDevice` compute still stands) but through the standalone `wgpu`
+  instance `cartalith-gpu` already owns. Measured on this session's real
+  adapter, at the app's own 2048²: GPU-safe noise **2.8 ms** against 36.8 ms
+  of single-thread CPU, domain warp **8.0 ms** against 794 ms. The path works
+  and it is fast.
+- **But the renderer was not GPU-bound. It was single-core-bound.** Five
+  milestones of appearance work had grown `build_color_texture`'s per-pixel
+  loop into ~1 s at 2048², running on **one thread**, while every engine crate
+  feeding it has been Rayon-parallel since `CPU_MULTITHREADING_SCOPE.md`
+  milestones 2-3. That is the last O(gw·gh) serial loop in the workspace, and
+  it was costing more than any GPU kernel would have saved.
+
+So the milestone built the parallel CPU path and the tier ladder, and did
+**not** start a WGSL port. The honest arithmetic behind that decision is in
+"The §21 verdict" below.
+
+Rejected, with reasons: **§17 (colour vibrancy)** — milestone 5 already
+rejected it because milestone 4 deliberately *removed* 13-26% of the chroma to
+make the sheet read as pigment; nothing has changed, and this milestone's own
+tier table shows chroma is already the most stable statistic in the renderer
+(51.3-52.8 across every world and every tier). **§16 (multi-scale detail)** —
+still largely delivered by milestone 4's paper grain and mottle, which are
+literally "deterministic coherent noise modulating colour subtly" at two
+scales; an explicit macro/meso/micro control set would be relabelling, not
+building. **§20 (high-precision/tone-mapping pipeline)** — real architectural
+work whose payoff is HDR/wide-gamut output nothing in this port consumes; and
+this milestone's own measurements show clipping *falling* (0.78% → 0.68% on
+Classic), so the problem tone mapping solves is not currently present.
+
+### Built — the parallel appearance pass
+
+`cartalith-godot` gains `rayon = "1"` (the same declaration five sibling
+crates already carry, so nothing new enters the dependency tree). Three loops
+became parallel:
+
+- `build_color_texture`'s per-pixel loop in `lib.rs` — `par_chunks_mut(gw*3)`
+  over rows, body unchanged including the river channel tint.
+- `apply_local_contrast`'s luma build and correction loop in `render.rs`.
+- `box_h`, the horizontal half of every separable box blur in the file — which
+  also speeds up `build_ao`, `build_hydro_wetness` and `smooth_sea_h`. The two
+  independent `blur_once` calls inside `apply_local_contrast` additionally run
+  under a `rayon::join`.
+
+`box_v` is deliberately **not** parallelized: it walks columns, so each task
+would need `&mut` to a disjoint stride of every row, which rayon cannot express
+over a flat buffer without `unsafe`. Half of each separable blur is parallel
+and half is not; the alternative (blur-transpose-blur-transpose) doubles the
+memory traffic and touches `smooth_sea_h`, which is on the JS-parity path.
+Flagged rather than reached for.
+
+**Bit-identical, and proven three ways rather than asserted.** `cell_color` is
+a pure function of `(&ctx, x, y)`, every row writes disjoint bytes, and no
+float is reassociated by the split — so §27 determinism holds by construction.
+It is checked by (1) a new non-`#[ignore]`d test that renders all four tiers
+serially and in parallel and compares byte arrays; (2) the A/B harness, which
+now renders each world both ways and `assert_eq!`s them at 2048²; and (3) a
+direct re-run of all **48** dumps after the `box_h` change, diffed against the
+pre-change files: 48 of 48 byte-identical.
+
+| | Classic 2048² | Archipelago 2048² | Wide 2048×1024 |
+|---|---|---|---|
+| `cell_color` serial | 1040 ms | 665 ms | 583 ms |
+| `cell_color` parallel | **125 ms** | **70 ms** | **61 ms** |
+| speedup | 8.3× | 9.5× | 9.5× |
+
+And end to end in the **real app** (headless Godot, the same debug DLL, the
+same generated world at the app's own 2048×1311, `RAYON_NUM_THREADS=1` versus
+unset — a true A/B in one binary rather than a comparison against a number
+from a previous session):
+
+| `build_color_texture` | 1 thread | all threads |
+|---|---|---|
+| performance | 626 ms | **242 ms** |
+| balanced | 809 ms | **252 ms** |
+| quality | 955 ms | **293 ms** |
+| ultra | 1008 ms | **289 ms** |
+
+3.3× at Quality. Lower than the harness's 8-9× because the real path also
+builds the lithology field, copies into a `PackedByteArray`, constructs the
+`Image`, and runs the still-serial `box_v` halves — all of which the harness's
+`cell_color`-only timing excludes. The 955 ms single-thread figure also
+confirms the baseline: milestone 5 published 1442 ms at 2048², which scales to
+~924 ms at this resolution.
+
+### Built — §29 quality tiers, designed from a measurement that contradicts §29
+
+`QualityTier` (`Performance`/`Balanced`/`Quality`/`Ultra`) with `name`,
+`from_name`, `ALL`, plus `TerrainAppearance::for_tier` and a free
+`recommended_quality_tier()`. Surfaced across the gdext boundary as
+`get_quality_tier`/`set_quality_tier`/`list_quality_tiers`/
+`get_recommended_quality_tier` on `WorldGen`.
+
+**`Quality` is `TerrainAppearance::default()` returned unchanged and
+unreconstructed** — not a re-listing of its fields, so the ladder cannot drift
+from the look milestones 1-5 tuned even by a typo. Verified two ways: a test
+comparing rendered bytes, and the three 2048² tier dumps, each byte-identical
+to that world's existing `after` dump.
+
+**The tier table is built from measured stage costs, and the measurement
+contradicts research §29's own recipe.** New `cost_table` in
+`appearance_ab_dump.rs` renders the full default look with exactly one stage
+disabled at a time, best of three, at 2048². Marginal cost, largest first:
+
+| stage | Classic | Archipelago | Wide |
+|---|---|---|---|
+| local contrast (§18) | 53 ms | 53 ms | 30 ms |
+| paper grain + mottle (§16-ish) | ~18 ms | ~18 ms | ~6 ms |
+| stipple | 3 ms | 6 ms | 6 ms |
+| geology (§12) | ~0 ms | 0 ms | 6 ms |
+| hydrology tint (§13) | ~2 ms | ~0 ms | ~0 ms |
+| ambient occlusion (§15) | ~0 ms | ~0 ms | ~2 ms |
+| relief lights 6→1 (§14) | ~0 ms | ~0 ms | ~0 ms |
+
+The bottom four rows sit **at or below the noise floor of a single-machine
+wall-clock measurement** — the first version of this table, taken from single
+samples, produced *negative* marginal costs, which is the measurement telling
+you it is not a measurement. Best-of-three fixed the sign but not the fact that
+those stages are free.
+
+§29 prescribes a Performance tier with "basic hillshade, no expensive AO",
+which assumes raymarched AO and a full shading pass per light. Neither is what
+this renderer does: AO is one separable box blur computed once, and the extra
+lights are five dot products against a normal computed anyway. Building the
+tier from §29's text would have surrendered the whole of milestone 2's relief
+legibility to buy nothing. So the ladder drops stages in **measured cost
+order**:
+
+- **Performance** — no local contrast, no paper fibre or mottle, no stipple,
+  no geology. Keeps all six light directions, AO and the hydrology tint.
+- **Balanced** — exactly `Quality` minus the two most expensive stages (local
+  contrast, paper mottle) and nothing else. Lightening a 3 ms stage would give
+  up image for no time.
+- **Quality** — `default()`, unchanged.
+- **Ultra** — ten light directions, `ao_strength` 0.32, `local_contrast` 0.62.
+
+**The ladder drops texture, never identity.** Every tier keeps the paper tint,
+the paper wash and the plate frame — what makes the sheet read as an atlas
+plate (`VISION.md`) — because those are multiplies and a border composite, not
+per-pixel noise. A test asserts it.
+
+Measured cost of the ladder (parallel, 2048², including the local-contrast
+pass): Classic **74 / 101 / 162 / 163 ms**, Archipelago **38 / 58 / 127 /
+130 ms**, Wide **40 / 53 / 88 / 89 ms**. Performance is 2.2-3.3× cheaper than
+Quality. Ultra costs **the same as Quality** — an honest result, and the reason
+`recommended_quality_tier()` never proposes it: it is a quality choice, not a
+performance tier.
+
+**Policy stayed with the owner.** `WorldGen` still starts at `Quality` on every
+device. `recommended_quality_tier()` reads `available_parallelism()` (and caps
+Android one rung lower) and is wired to a getter that *offers* a tier;
+**nothing applies it**. The Android device pass's 874 MB / ~31 s at 2048×1311
+is the real consumer here, and this milestone gives it two independent levers —
+a 3.3× parallel render and a 2.4× cheaper tier — without deciding which the app
+should default to.
+
+### Golden-parity: the same gating mechanism, extended a fifth time
+
+`paper_tone`'s fibre and mottle now **each early-return on their own zero**
+rather than sharing `paper_strength`'s single gate — the same rule
+`relief_lights <= 1` established in milestone 2, applied one level finer, and
+the thing that makes a smooth-sheet Performance tier cost nothing instead of
+computing four `vnoise` calls and multiplying them by 0. The arithmetic when
+both are on is unchanged, so `default()` is bit-identical.
+
+`js_reference()` needed **no new fields**: it sets `paper_strength: 0.0`, which
+short-circuits ahead of both new gates, and it is not a tier — `for_tier` is
+never on the parity path. `golden_parity_render.rs` is **still completely
+unmodified** and both tests still pass at their original `1e-4` tolerance with
+every expected value unchanged. Six milestones in, that file has still never
+been edited.
+
+### The §21 verdict, with the arithmetic
+
+A GPU appearance path would still win on raw kernel time — the adapter numbers
+above are unambiguous. It is nevertheless **not the next thing to build**, and
+the reason is the ratio, not the ideology:
+
+- Before this milestone: ~955 ms of appearance inside a ~6.5 s generate+render
+  at 2048×1311 — 15%, and worth a large, risky port.
+- After: **293 ms of ~5.9 s — 5%.** A perfect GPU port that took the render to
+  zero would now save about 5% of the time to a new world.
+- Against that: a WGSL port of `cell_color` means porting `material_weights`,
+  25 palettes, the jittered `ramp3` micro-ramps, ten distinct `vnoise` call
+  sites, the lithology jitter and the AO/hydrology tables — in `f32`, since
+  WGSL has no `f64` — producing a second renderer that **diverges from the
+  golden-verified CPU one** under `DECISIONS.md` §7c, and that has to be kept
+  in step with every future appearance milestone. `cartalith-gpu`'s own
+  milestone 7 already reported one kernel that lost to CPU; this would be a
+  much larger surface than that one.
+
+If it is picked up later, the natural beachhead is **`apply_local_contrast`**,
+not `cell_color`: it is the single largest stage (30-53 ms), it is a
+self-contained whole-raster pass, it reads no world fields at all — just the
+finished RGB buffer — so it needs one upload and one download and no material
+logic, and its output feeding a `u8` buffer makes `f32` divergence bounded by
+construction. Recorded here so the next pass does not have to re-derive it.
+
+### Measured against §30's anti-list — all four tiers, three worlds
+
+All at 2048² (Wide at 2048×1024), seed 12345, 40-cell frame band excluded.
+"moved vs Q" is the share of interior pixels differing from `Quality` by more
+than 3 levels in any channel.
+
+| world | tier | luma min | luma mean | luma sd | chroma | clip % | moved vs Q |
+|---|---|---|---|---|---|---|---|
+| Classic | performance | 42.5 | 132.60 | 31.48 | 51.82 | 0.78 | 47.4% |
+| Classic | balanced | 41.0 | 132.05 | 31.35 | 51.27 | 0.78 | 31.5% |
+| Classic | **quality** | 38.7 | 131.92 | **32.79** | 51.40 | 0.68 | — |
+| Classic | ultra | 38.0 | 131.63 | **33.06** | 51.30 | 0.68 | 3.8% |
+| Archipelago | performance | 33.9 | 105.81 | 27.73 | 51.83 | 0.04 | 30.2% |
+| Archipelago | balanced | 33.8 | 105.76 | 27.76 | 51.80 | 0.04 | 16.1% |
+| Archipelago | **quality** | 26.9 | 105.55 | **28.93** | 51.93 | 0.04 | — |
+| Archipelago | ultra | 26.8 | 105.51 | **29.01** | 51.92 | 0.04 | 0.2% |
+| Wide | performance | 47.1 | 137.56 | 26.82 | 52.84 | 0.00 | 52.7% |
+| Wide | balanced | 45.5 | 136.37 | 26.82 | 51.56 | 0.00 | 37.5% |
+| Wide | **quality** | 39.4 | 135.61 | **28.60** | 51.47 | 0.00 | — |
+| Wide | ultra | 38.4 | 135.21 | **29.13** | 51.33 | 0.00 | 6.2% |
+
+Every tier is a real, visible image change (16-53% of pixels), so none of them
+is a placebo. Contrast (`luma sd`) rises up the ladder in all three worlds and
+clipping never rises with it — Classic actually *falls*, 0.78% → 0.68%. Chroma
+moves by at most 1.5 out of ~52 across the entire ladder, which is the point:
+the tiers trade texture and separation, not colour. Luma minimum falls up the
+ladder (deeper concavities from AO and local contrast) but never below 26.8/255
+— a deep shadow, not a black valley.
+
+One honest non-monotonicity: on Classic, Balanced's `luma sd` (31.35) is
+slightly *below* Performance's (31.68). That is not a defect — Balanced adds
+geology, whose rock palettes are less contrasty than the uniform tan they
+replace, while still lacking the local-contrast pass that is what actually
+raises `sd`. `sd` is a consequence of the ladder, not its ordering.
+
+### Real crops, actually looked at, across all three worlds
+
+Every crop taken at the **maximum-difference window** (a 256² integral-image
+search, not a guessed "looks interesting" spot — milestone 3's lesson), shown
+at 3×:
+
+- **Classic, Performance vs Quality.** Performance keeps everything that
+  matters structurally: the glacial tongue, the shaded ridge flanks, the
+  coastal escarpment and the settlement dot are all legible. What it loses is
+  the sheet's fibre, the rock-colour variety (the sandstone warmth on the
+  eastern scarp is flat tan) and the crispness local contrast gives the
+  snow/rock boundary. This is exactly the trade a cheap tier should make, and
+  it is the crop that justified keeping the six lights and the AO.
+- **Archipelago, Performance vs Quality.** The clearest case for the stipple:
+  Performance renders the island interior as one smooth green wash, Quality as
+  real clumped canopy with visible separation between stands. Both are honest
+  maps; only one is an atlas plate.
+- **Wide (2048×1024), Performance vs Quality.** Landed on an impact crater —
+  Quality shows the rim in pale limestone-grey with a sandstone patch inside
+  it, Performance in uniform tan. Both read correctly at 2:1, and the plate
+  frame is correct on all four sides at the non-square aspect.
+- **Quality vs Ultra**, all three worlds: barely separable at 3× even at the
+  maximum-difference window. Ultra deepens the strongest shadows very slightly
+  and nothing else. Reported as it measured (0.2-6.2% of pixels) rather than
+  dressed up.
+
+**One real pre-existing artifact found by looking, and deliberately not
+fixed.** The full-sheet downsample shows visible **rectangular blockiness in
+the open ocean** — squares roughly 80 cells across at 2048². It is not this
+milestone's, and it is not milestone 4's or 5's: it is present in the
+`js_reference` dump too, and *more* visible there, because milestone 4's paper
+wash mutes it. The source is `seaColorCore`'s own `n_low` term, a value-noise
+sample at `25.6/gw` — a lattice whose cells are ~80 grid cells wide, with the
+C¹ seams value noise has at low frequency. It is on §30's anti-list
+("artificial", "banding that looks artificial"), it is inherited from the
+reference HTML rather than introduced here, and fixing it means deviating from
+the golden-verified path under `DECISIONS.md` §7d. Recorded as a real, scoped
+finding for a future milestone rather than changed inside a milestone about
+performance.
+
+### Verified
+
+`cargo build -p cartalith-godot` clean (debug and release); `cargo test
+--workspace` **1156 passed / 0 failed** across 89 suites, no expected value
+anywhere modified; `cargo clippy -p cartalith-godot --all-targets` **clean —
+zero warnings for this crate**, including its test targets (the remaining
+workspace warnings are `cartalith-gpu`'s two dead-code items and
+`cartalith-civ`'s two `needless_range_loop`s, both concurrent forks', confirmed
+by file and line). `godot4 --headless --quit main.tscn` clean load, exit 0.
+
+The real `build_color_texture` path — which the dump harness does not exercise,
+since it calls `render.rs` directly — was driven headlessly through Godot at
+2048×1311 for all four tiers, twice (one thread and all threads), producing
+correct PNGs each time with the river tint, the plate frame and the non-square
+aspect intact, and exercising all four new `#[func]`s including the
+unknown-name rejection path.
+
+Eight new tests in `tests/appearance_tiers.rs` (synthetic 128×79 field, no
+generator, runs in 40 ms so it belongs in the ordinary sweep):
+`quality_tier_is_exactly_the_default_look`,
+`render_parallel_matches_serial_bit_for_bit`,
+`every_tier_renders_a_distinct_image`,
+`every_tiered_stage_gate_is_load_bearing`, `every_ultra_tier_knob_is_load_bearing`,
+`tier_table_is_monotone_in_cost`, `tier_names_round_trip_and_reject_junk`,
+`recommendation_never_proposes_ultra`.
+
+**Mutation-tested, per the convention that has now found real gaps in six
+milestones.** Two deliberate breakages were introduced and confirmed to fail:
+forcing `paper_tone`'s mottle branch off (caught by
+`every_tiered_stage_gate_is_load_bearing`) and collapsing `Balanced` into
+`Quality` (caught by `every_tier_renders_a_distinct_image`). A third, sloppier
+mutation attempt passed — and the reason was that the mutation itself was
+incomplete, which is worth recording: a mutation test only tests what the
+mutation actually changed.
+
+**Still open**: hand-lettered settlement glyphs (`map_overlay.gd`, not this
+raster), §16 multi-scale detail as an explicit control set, §17 colour
+vibrancy, §19 atmospheric/distance effects, §20 the high-precision display
+pipeline, §21 the GPU rendering path (with `apply_local_contrast` named as its
+beachhead), the ocean value-noise lattice above, the GUI editing panel (all UI
+work on hold, `DCC_SHELL_SCOPE.md`), and milestone 1's elevation-ramp question.
+
 <!-- A duplicate, shorter "Milestone 3" section briefly existed here,
 committed by a concurrent fork that picked up this milestone's
 in-progress render.rs changes from the shared working tree at an

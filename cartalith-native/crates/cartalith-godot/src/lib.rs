@@ -19,7 +19,8 @@ use godot::prelude::*;
 mod pack;
 mod params;
 mod render;
-use render::{RenderCtx, SplatTextures, TerrainAppearance};
+use render::{QualityTier, RenderCtx, SplatTextures, TerrainAppearance};
+use rayon::prelude::*;
 
 struct CartalithExtension;
 
@@ -624,6 +625,21 @@ struct WorldGen {
     /// `load_asset_pack`; consumed by `build_color_texture` for both real
     /// sprite compositing and ground-texture splat.
     asset_pack: Option<pack::LoadedPack>,
+    /// `TERRAIN_APPEARANCE_RESEARCH.md` §29's quality tier for the *appearance*
+    /// pass only (`TERRAIN_APPEARANCE_SCOPE.md` milestone 6). Purely
+    /// presentation: it feeds `TerrainAppearance::for_tier` inside
+    /// `build_color_texture` and touches nothing the world model computes, so
+    /// changing it and re-calling `build_color_texture()` re-renders the same
+    /// world at a different cost -- research §23's "do not regenerate the
+    /// entire world whenever a visual parameter changes", satisfied literally.
+    ///
+    /// Defaults to `Quality`, which is `TerrainAppearance::default()`
+    /// bit-for-bit, so an untouched `WorldGen` renders exactly what it
+    /// rendered before this field existed. **Deliberately not
+    /// `recommended_quality_tier()`**: what a phone should default to is an
+    /// owner policy decision, and `get_recommended_quality_tier()` exists so a
+    /// caller can offer one rather than have it chosen for them.
+    quality: QualityTier,
 }
 
 #[godot_api]
@@ -645,6 +661,7 @@ impl IRefCounted for WorldGen {
             civ: None,
             seed: 0,
             asset_pack: None,
+            quality: QualityTier::Quality,
         }
     }
 }
@@ -1191,6 +1208,52 @@ impl WorldGen {
         self.asset_pack.is_some()
     }
 
+    /// The active §29 appearance quality tier (`TERRAIN_APPEARANCE_SCOPE.md`
+    /// milestone 6), as its stable lowercase name. `"quality"` until a
+    /// caller sets otherwise.
+    #[func]
+    fn get_quality_tier(&self) -> GString {
+        GString::from(self.quality.name())
+    }
+
+    /// Set the appearance quality tier by name (see `list_quality_tiers`).
+    /// Returns `false` and changes nothing for an unrecognised name --
+    /// silently falling back to a default would hide a typo in a settings
+    /// file and render a world at a quality nobody asked for.
+    ///
+    /// **Presentation only.** This never touches the heightmap, climate,
+    /// hydrology, biome classification, settlements, routes or the seed: it
+    /// selects which appearance stages `build_color_texture` runs. Call
+    /// `build_color_texture()` again afterwards to see it -- no regeneration
+    /// is needed, which is research §23's performance rule.
+    #[func]
+    fn set_quality_tier(&mut self, name: GString) -> bool {
+        match QualityTier::from_name(&name.to_string()) {
+            Some(t) => {
+                self.quality = t;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Every tier name, cheapest first -- so a caller can build a control
+    /// without duplicating the vocabulary.
+    #[func]
+    fn list_quality_tiers(&self) -> PackedStringArray {
+        QualityTier::ALL.iter().map(|t| GString::from(t.name())).collect()
+    }
+
+    /// A tier this device can plausibly afford, as a **suggestion**. Nothing
+    /// applies it: `WorldGen` starts at `"quality"` on every device, and what
+    /// a phone should default to is an owner policy decision, not this
+    /// crate's. A caller that wants a device-appropriate default calls this
+    /// and then `set_quality_tier`.
+    #[func]
+    fn get_recommended_quality_tier(&self) -> GString {
+        GString::from(render::recommended_quality_tier().name())
+    }
+
     #[func]
     fn get_width(&self) -> i32 {
         self.gw
@@ -1222,7 +1285,7 @@ impl WorldGen {
         if gw == 0 || gh == 0 {
             return 0.0;
         }
-        render::border_width_cells(&TerrainAppearance::default(), gw, gh) / gw as f64
+        render::border_width_cells(&TerrainAppearance::for_tier(self.quality), gw, gh) / gw as f64
     }
 
     /// Builds a colour + hillshade texture from the last `generate()`
@@ -1254,7 +1317,7 @@ impl WorldGen {
             };
         let gw = self.gw as usize;
         let gh = self.gh as usize;
-        let appearance = TerrainAppearance::default();
+        let appearance = TerrainAppearance::for_tier(self.quality);
         // Milestone 5 (`TERRAIN_APPEARANCE_SCOPE.md`, research §12): the
         // world's real rock types. Built here rather than threaded down from
         // `compute_civilisation` (which builds its own for the soil chain)
@@ -1296,8 +1359,26 @@ impl WorldGen {
             ctx = ctx.with_splat(splat);
         }
 
-        let mut bytes = Vec::with_capacity(gw * gh * 3);
-        for y in 0..gh {
+        // Milestone 6 (`TERRAIN_APPEARANCE_SCOPE.md`, research §21/§23): one
+        // `rayon` row-parallel pass instead of one serial `for y`. Five
+        // milestones of appearance work had grown this loop from a hillshade
+        // and a palette lookup into ~1.1 s of `vnoise`, `exp` and `smoothstep`
+        // at the app's own 2048x1311 -- on a single core, while the generation
+        // pipeline feeding it has been Rayon-parallel since
+        // `CPU_MULTITHREADING_SCOPE.md` milestones 2-3.
+        //
+        // **Bit-identical, not approximately so.** `cell_color` is a pure
+        // function of `(&ctx, x, y)` -- it reads only shared immutable
+        // slices and precomputed tables, accumulates nothing across pixels,
+        // and no float is reassociated by the split. Each row writes its own
+        // disjoint `gw * 3` bytes, so the output does not depend on how rayon
+        // schedules the chunks (verified by
+        // `render_parallel_matches_serial` in `tests/appearance_tiers.rs`).
+        // §27's determinism therefore holds by construction, not by
+        // convention -- the same standard `DECISIONS.md` §7a asks of the
+        // parity path.
+        let mut bytes = vec![0u8; gw * gh * 3];
+        bytes.par_chunks_mut(gw * 3).enumerate().for_each(|(y, row)| {
             for x in 0..gw {
                 let i = y * gw + x;
                 let (mut r, mut g, mut b) = render::cell_color(&ctx, x, y);
@@ -1323,11 +1404,12 @@ impl WorldGen {
                     }
                 }
 
-                bytes.push((r.clamp(0.0, 1.0) * 255.0) as u8);
-                bytes.push((g.clamp(0.0, 1.0) * 255.0) as u8);
-                bytes.push((b.clamp(0.0, 1.0) * 255.0) as u8);
+                let o = x * 3;
+                row[o] = (r.clamp(0.0, 1.0) * 255.0) as u8;
+                row[o + 1] = (g.clamp(0.0, 1.0) * 255.0) as u8;
+                row[o + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
             }
-        }
+        });
 
         // Milestone 5 (`TERRAIN_APPEARANCE_SCOPE.md`, research §18): local
         // contrast. The one appearance stage that cannot live inside
@@ -1386,7 +1468,7 @@ impl WorldGen {
         // the sheet edge would otherwise colour the bare-paper margin.
         // `border_cover` is `0.0` across the whole interior (and everywhere
         // when there is no frame), so `alpha` is untouched there.
-        let appearance = TerrainAppearance::default();
+        let appearance = TerrainAppearance::for_tier(self.quality);
         let mut bytes = Vec::with_capacity(gw * gh * 4);
         for (i, &f) in civ.territory.iter().enumerate() {
             let cover = render::border_cover(&appearance, i % gw, i / gw, gw, gh);
@@ -1653,7 +1735,7 @@ impl WorldGen {
         // tint and the territory wash: this line is drawn over the finished
         // raster, so it fades out as the bare-paper margin fades in rather
         // than ruling straight across it. No-op without a frame.
-        let appearance = TerrainAppearance::default();
+        let appearance = TerrainAppearance::for_tier(self.quality);
         let mut bytes = vec![0u8; gw * gh * 4];
         for y in 0..gh {
             for x in 0..gw {
