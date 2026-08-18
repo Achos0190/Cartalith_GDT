@@ -35,6 +35,37 @@
 > **Refined spec and templates are coming from the owner** — expect this
 > document to be replaced or extended. Do not start implementation against the
 > version below.
+>
+> ### Templates received, and four answers that change §23
+>
+> The owner's real authoring templates are on file at
+> `design/vault-templates/` (Settlement, Landmark, Regional Overview, Regional
+> Culture) with a field-by-field map of which fields Cartalith can honestly
+> derive and which are purely authorial. Four owner answers, 2026-08-18:
+>
+> - **Folder structure is not meaningful** — an artefact of the zip. A region
+>   is a *file*, so §11's `KnowledgeLink` (`vaultId` + `relativePath`) is
+>   correct as written.
+> - **Identical files are just duplicates** — a landmark's path carries no
+>   region membership.
+> - **POI and Landmark are interchangeable** — §3's naming is a non-issue.
+> - **Cartalith gets its own block *and* copies information into relevant
+>   fields.** Verbatim: *"cartalith gets its own block and information that it
+>   can/should copy to relevant fields."*
+>
+> That last one **modifies §23**. As written, §23 says *"User content outside
+> the block is immutable from Cartalith's perspective."* The owner wants
+> Cartalith to also populate the author's own fields — Population, Biome,
+> Terrain, Climate, Key Resources and the rest of the derivable set. Both
+> mechanisms exist:
+>
+> | Mechanism | Scope | Rewrite policy |
+> |---|---|---|
+> | The delimited `CARTALITH:BEGIN/END` block | Machine-owned | Regenerated unattended; §23's rules stand unchanged |
+> | Field population in the author's own template | Author-owned | **Offered and explicitly confirmed, never silent** — consistent with §17's Explicit Write Principle and §16's preview-and-confirm. Must not clobber a field the author has already filled. |
+>
+> Whoever writes `MARKDOWN_VAULT_SCOPE.md` should reconcile §23's text against
+> this rather than leaving the contradiction in place.
 
 > Owner-supplied design (2026-08-18), imported verbatim — "Here is another
 > function for on the roadmap." Recorded as a future, unscheduled phase
