@@ -434,6 +434,25 @@ func refresh() -> void:
 	## on trusting that reasoning held.
 	_apply_safe_insets()
 
+## §4.5.5's Icon/Label tools (`UNIFIED_TOOL_PLAN.md` milestone F) -- lighter
+## than `refresh()`: placing/editing one icon or label shouldn't re-fetch the
+## terrain texture or civ data, only push the updated lists into `overlay`'s
+## own annotation layers. See `map_overlay.gd`'s own `_manual_icons`/`_labels`
+## doc comment, which already names this method.
+func refresh_annotations() -> void:
+	if _bridge == null or not _bridge.has_world:
+		return
+	overlay.set_manual_icons(_bridge.icon_list())
+	overlay.set_labels(_bridge.label_list())
+
+## The current pan/zoom camera scale (`_zoom`, `_zoom_at`'s own factor) --
+## read-only exposure for `label_handles(index, zoom)` callers (`DCC_SHELL_
+## SPEC.md` §4.5.5's Label tool), which need the real camera zoom so a
+## selected label's on-canvas handles size and stem-offset consistently with
+## how large the label itself is currently drawn.
+func zoom() -> float:
+	return _zoom
+
 func set_layer_visible(layer: String, shown: bool) -> void:
 	match layer:
 		"territory": territory_view.visible = shown
