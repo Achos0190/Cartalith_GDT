@@ -21,6 +21,79 @@ var _workspaces: Array = []
 var _region_nodes: Dictionary = {}
 var _tool_options_stale: Label
 
+# -- §4.5 Tool palette ---------------------------------------------------------
+#
+# One shared `ButtonGroup` across every domain's TOOLS block is the entire
+# mechanism `UI_SHELL_DESIGN.md`'s "one tool is armed at a time, globally" and
+# "switching workspace never disarms it" both need -- see `DccWidgets.
+# tool_button()`'s own doc comment for why. A domain workspace never talks to
+# another domain's tool; it registers a click/drag handler under its own tool
+# id and never learns whether anyone else's tool exists.
+
+signal tool_armed(id: String)
+
+var tool_group := ButtonGroup.new()
+var armed_tool := "inspect"
+
+## tool id -> Callable(gx: float, gy: float). Populated by each workspace's
+## own `setup()`. A click/drag while Inspect (or an unregistered id) is armed
+## does nothing here -- Inspect's own behaviour is `overlay`'s unconditional
+## `settlement_selected` emission, already wired in `_wire_selection()`, not a
+## registered handler.
+var _click_handlers: Dictionary = {}
+var _drag_handlers: Dictionary = {}
+var _release_handlers: Dictionary = {}   ## Callable(gx, gy, valid) -- a drag gesture's end.
+## tool id -> Callable(), called on Escape instead of the default disarm, for
+## a multi-click tool that needs Escape to commit in-progress geometry first
+## (§4.5.6: Way, Route). Returning nothing and not disarming is up to the
+## handler; most tools don't need one and just fall through to the default.
+var _escape_handlers: Dictionary = {}
+
+func arm_tool(id: String) -> void:
+	if armed_tool == id:
+		return
+	armed_tool = id
+	tool_armed.emit(id)
+	set_status("hint", "" if id == "inspect" else "%s armed — Esc to release" % id.capitalize(), "text_ghost")
+
+func register_tool_click_handler(id: String, handler: Callable) -> void:
+	_click_handlers[id] = handler
+
+func register_tool_drag_handler(id: String, handler: Callable) -> void:
+	_drag_handlers[id] = handler
+
+func register_tool_escape_handler(id: String, handler: Callable) -> void:
+	_escape_handlers[id] = handler
+
+func register_tool_release_handler(id: String, handler: Callable) -> void:
+	_release_handlers[id] = handler
+
+func _on_map_clicked(gx: float, gy: float) -> void:
+	if _click_handlers.has(armed_tool):
+		_click_handlers[armed_tool].call(gx, gy)
+
+func _on_map_dragged(gx: float, gy: float) -> void:
+	if _drag_handlers.has(armed_tool):
+		_drag_handlers[armed_tool].call(gx, gy)
+
+func _on_map_released(gx: float, gy: float, valid: bool) -> void:
+	if _release_handlers.has(armed_tool):
+		_release_handlers[armed_tool].call(gx, gy, valid)
+
+## §4.5.6: "Escape commits an in-progress multi-click tool... and otherwise
+## disarms back to Inspect." A key, not a mouse button, so it belongs on
+## `_unhandled_key_input` regardless of which control has focus.
+func _unhandled_key_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		if _escape_handlers.has(armed_tool):
+			_escape_handlers[armed_tool].call()
+		else:
+			var btn: BaseButton = tool_group.get_pressed_button()
+			if btn != null:
+				btn.button_pressed = false
+			arm_tool("inspect")
+		get_viewport().set_input_as_handled()
+
 func _ready() -> void:
 	super._ready()
 
@@ -71,6 +144,7 @@ func _ready() -> void:
 
 	_wire_status()
 	_wire_selection()
+	GlobalTools.install(self)
 
 	_region_nodes = {
 		DccMenus.ID_WIN_LEFT: left_dock,
@@ -144,6 +218,9 @@ func _wire_selection() -> void:
 			if ws.has_method("on_cursor_sampled"):
 				ws.on_cursor_sampled(gx, gy, valid))
 	viewport.layers_button_pressed.connect(func(): _select_domain("cartography"))
+	viewport.map_clicked.connect(_on_map_clicked)
+	viewport.map_dragged.connect(_on_map_dragged)
+	viewport.map_released.connect(_on_map_released)
 
 
 # -- Contextual chrome --------------------------------------------------------

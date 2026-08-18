@@ -26,6 +26,8 @@ const CTX_SETTLEMENT := "settlement"
 const CTX_ROUTE := "route"
 const CTX_RIVER := "river"
 const CTX_FACTION := "faction"
+const CTX_MEASURE := "measure"
+const CTX_REGION := "region"
 
 ## Noun phrases for `explain_settlement()`'s suitability term keys. Copied
 ## verbatim from `main.gd`'s own `SUIT_TERM_LABELS` -- wording belongs to the
@@ -78,6 +80,8 @@ var _settlement_index := -1
 var _route_entry: Dictionary = {}
 var _route_kind := ""      ## "road" | "sea"
 var _faction_id := -1
+var _measure_result: Dictionary = {}
+var _region_result: Dictionary = {}
 
 ## Live-updated in place on every `cursor_sampled` rather than triggering a
 ## full `_rebuild()` -- the overlay emits that signal on every mouse-motion
@@ -138,6 +142,21 @@ func show_faction(faction_id: int) -> void:
 	_faction_id = faction_id
 	_rebuild()
 
+## Called by `GlobalTools` on every point added to (or cleared from) the
+## Measure chain -- `result` is `measure_result()`'s own dict, straight
+## through.
+func show_measure(result: Dictionary) -> void:
+	_context = CTX_MEASURE
+	_measure_result = result
+	_rebuild()
+
+## Called by `GlobalTools` when a Region marquee commits -- `result` is
+## `region_get()`'s own dict.
+func show_region(result: Dictionary) -> void:
+	_context = CTX_REGION
+	_region_result = result
+	_rebuild()
+
 # -- Dispatch ---------------------------------------------------------------
 
 func _rebuild() -> void:
@@ -166,6 +185,10 @@ func _dispatch(body: Control) -> void:
 			_build_river(body)
 		CTX_FACTION:
 			_build_faction(body)
+		CTX_MEASURE:
+			_build_measure(body)
+		CTX_REGION:
+			_build_region(body)
 		_:
 			_build_sample(body)
 
@@ -392,6 +415,66 @@ func _build_faction(body: Control) -> void:
 		"cartalith-civ computes a has_religion flag internally " +
 		"(civ_faction_aggregates, FactionAggregate) but get_provinces() doesn't carry " +
 		"it and there is no get_faction_aggregates() binding.", false)
+
+# -- Measure --------------------------------------------------------------
+
+## §4.5.1's own right-dock spec: "Segment table (bearing, length), total,
+## straight-line vs along-path difference." `measure_result()` carries every
+## field this needs directly (`segments`, `total_km`, `straight_line_km`) --
+## nothing here is derived a second time.
+func _build_measure(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Measure")
+	var segments: Array = _measure_result.get("segments", [])
+	if segments.is_empty():
+		DccWidgets.note(sec, "Click the map to drop points; Esc clears the chain.")
+	else:
+		for i in segments.size():
+			var seg: Dictionary = segments[i]
+			_field(sec, "Segment %d" % (i + 1),
+				"%.1f km · %d°" % [float(seg.get("km", 0.0)), int(round(float(seg.get("bearing_deg", 0.0))))])
+	sec.add_child(DccTheme.rule())
+	_field(sec, "Total", "%.1f km" % float(_measure_result.get("total_km", 0.0)))
+	var straight: float = float(_measure_result.get("straight_line_km", 0.0))
+	var total: float = float(_measure_result.get("total_km", 0.0))
+	var diff := total - straight
+	_field(sec, "Straight line", "%.1f km" % straight,
+		"Along-path exceeds straight-line by %.1f km." % diff if diff > 0.01 else "", diff <= 0.01 or straight > 0.0)
+	var clear := DccWidgets.action(sec, "Clear", func(): bridge.measure_clear(); show_measure({}))
+	clear.disabled = segments.is_empty()
+
+# -- Region select --------------------------------------------------------
+
+## §4.5.1's own right-dock spec: "Extent in both units, cell count, tile
+## estimate per LOD, and Send to Data > Export." `region_get()`'s
+## `tile_estimates` is `infra_tools_bridge::REGION_LOD_GRIDS`' own three-tier
+## ladder -- see that constant's doc comment for why this port picked one
+## with no reference precedent to match.
+func _build_region(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Region select")
+	if _region_result.is_empty():
+		DccWidgets.note(sec, "Drag a marquee on the map to select a region.")
+		return
+	_field(sec, "Extent",
+		"%d × %d cells" % [int(_region_result.get("w", 0)), int(_region_result.get("h", 0))])
+	_field(sec, "Extent (km)",
+		"%.0f × %.0f km" % [float(_region_result.get("w_km", 0.0)), float(_region_result.get("h_km", 0.0))])
+	_field(sec, "Cells", str(int(_region_result.get("cell_count", 0))))
+	sec.add_child(DccTheme.rule())
+	var estimates: Array = _region_result.get("tile_estimates", [])
+	for e in estimates:
+		var d: Dictionary = e
+		_field(sec, String(d.get("lod", "")).capitalize(),
+			"%d tiles (%d×%d)" % [int(d.get("tiles", 0)), int(d.get("tile_w", 0)), int(d.get("tile_h", 0))])
+	## Not wired to `app.open_world_data()`: that window is the settlement/
+	## province/economy tables (`world_data_window.gd`), not §9's tile-pyramid
+	## export route -- `region_export_tiles()` is bound and tested
+	## (`LOD_TILING_INTEGRATION_SCOPE.md`'s M2, "Z4 is done"), but the Data
+	## Manager panel that would call it doesn't exist. Honest disable rather
+	## than a button that opens the wrong window.
+	var actions := DccWidgets.group(sec, "Actions")
+	var send := DccWidgets.action(actions, "Send to Data ▸ Export", func(): pass)
+	send.disabled = true
+	send.tooltip_text = "region_export_tiles() is bound and tested; the Data Manager panel to call it doesn't exist yet."
 
 # -- Shared row/field vocabulary ------------------------------------------
 #

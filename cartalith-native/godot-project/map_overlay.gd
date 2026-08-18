@@ -79,6 +79,27 @@ signal settlement_selected(data: Variant, index: int)
 ## engine doesn't expose per-cell yet.
 signal cursor_sampled(gx: float, gy: float, valid: bool)
 
+## §4.5's tool palette: the two primitives every armed tool needs, and
+## nothing more specific than that -- a click-placement tool (Settlement,
+## POI, Icon, Label, a Way/Route waypoint) wants `map_clicked`; a
+## drag-painting tool (Biome paint, Territory, a Sculpt/Freehand stroke)
+## wants `map_dragged`, which fires on every motion sample while the left
+## button is held so a caller can accumulate a stroke or dab a brush
+## continuously. Both fire in real grid-cell coordinates, the same values
+## `cursor_sampled` already computes -- `_grid_point()` below is the one
+## place that math lives now, shared by all three signals.
+##
+## This control stays tool-agnostic on purpose: it always emits both the
+## selection signals above AND these two, on every click/drag, regardless of
+## which tool is armed. The dispatch decision -- "is Inspect armed, so treat
+## this as a selection, or is Settlement armed, so treat it as a placement"
+## -- belongs to whoever owns the armed-tool state (`DccApp`), not here. That
+## keeps this file ignorant of the tool system entirely, the same boundary
+## `cursor_sampled`'s own doc comment already draws for per-cell fields.
+signal map_clicked(gx: float, gy: float)
+signal map_dragged(gx: float, gy: float)
+signal map_released(gx: float, gy: float, valid: bool)   ## LMB release, ends a drag gesture.
+
 var _settlements: Array = []
 var _roads: Array = []
 var _sea_routes: Array = []
@@ -162,6 +183,14 @@ func _displayed_rect() -> Rect2:
 	var displayed_size := Vector2(_gw, _gh) * scale
 	var origin := (size - displayed_size) * 0.5
 	return Rect2(origin, displayed_size)
+
+## Public alias of the above -- `ViewportHost`'s tool overlays (the Measure
+## ruler, the Region marquee) need the exact same fit rect this control's own
+## drawing already computes, and duplicating the letterbox math a second place
+## would be the kind of drift `js_hypot`-style bugs come from. Grid-to-screen,
+## not the reverse -- see `_grid_point()` for the inverse.
+func displayed_rect() -> Rect2:
+	return _displayed_rect()
 
 
 ## The plate *interior*: `_displayed_rect()` minus the frame the terrain
@@ -407,6 +436,20 @@ func _hit_test_settlement(mouse: Vector2, interior: Rect2, rect: Rect2) -> int:
 	return closest
 
 
+## Returns `{valid, gx, gy}` -- the inverse of `_cell_to_screen`, shared by
+## `cursor_sampled`, `map_clicked` and `map_dragged` so the coordinate math
+## exists in exactly one place. `valid` is false outside the plate interior
+## (bare paper, no world coordinate under it) or before anything has
+## generated.
+func _grid_point(mouse: Vector2, rect: Rect2, interior: Rect2) -> Dictionary:
+	if _gw <= 0 or _gh <= 0 or not interior.has_point(mouse):
+		return {"valid": false, "gx": 0.0, "gy": 0.0}
+	return {
+		"valid": true,
+		"gx": (mouse.x - rect.position.x) / rect.size.x * _gw,
+		"gy": (mouse.y - rect.position.y) / rect.size.y * _gh,
+	}
+
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion:
 		var rect := _displayed_rect()
@@ -414,7 +457,8 @@ func _gui_input(event: InputEvent) -> void:
 			cursor_sampled.emit(0.0, 0.0, false)
 			return
 		var interior := _interior_rect(rect)
-		var mouse: Vector2 = event.position
+		var mm := event as InputEventMouseMotion
+		var mouse: Vector2 = mm.position
 
 		var closest := _hit_test_settlement(mouse, interior, rect)
 		if closest != _hover_index:
@@ -422,26 +466,35 @@ func _gui_input(event: InputEvent) -> void:
 			queue_redraw()
 			settlement_hovered.emit(_settlements[closest] if closest != -1 else null, closest)
 
-		# Real grid-cell coordinates under the cursor, inverse of
-		# `_cell_to_screen` -- feeds the viewport's corner readout and the
-		# Sample dock. `valid` only inside the plate interior; off-plate is
-		# bare paper with no world coordinate under it.
-		if _gw > 0 and _gh > 0 and interior.has_point(mouse):
-			var gx := (mouse.x - rect.position.x) / rect.size.x * _gw
-			var gy := (mouse.y - rect.position.y) / rect.size.y * _gh
-			cursor_sampled.emit(gx, gy, true)
-		else:
-			cursor_sampled.emit(0.0, 0.0, false)
+		var p := _grid_point(mouse, rect, interior)
+		cursor_sampled.emit(p["gx"], p["gy"], p["valid"])
+		if p["valid"] and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+			map_dragged.emit(p["gx"], p["gy"])
 
 	elif event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed:
-			var rect := _displayed_rect()
-			if rect.size.x <= 0.0:
-				return
-			var interior := _interior_rect(rect)
+		if mb.button_index != MOUSE_BUTTON_LEFT:
+			return
+		var rect := _displayed_rect()
+		if rect.size.x <= 0.0:
+			return
+		var interior := _interior_rect(rect)
+		if mb.pressed:
 			var hit := _hit_test_settlement(mb.position, interior, rect)
 			settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
+			var p := _grid_point(mb.position, rect, interior)
+			if p["valid"]:
+				map_clicked.emit(p["gx"], p["gy"])
+		else:
+			## §4.5.1's Region select needs the release, not the press --
+			## `map_dragged` already reported every point along the way, but
+			## nothing marked the gesture's *end*, which is where a marquee
+			## commits. `p["valid"]` is intentionally not required here: a
+			## drag that ends off-plate still has to end the drag, or a
+			## caller's own latched origin (`GlobalTools._region_origin`)
+			## would never clear.
+			var p := _grid_point(mb.position, rect, interior)
+			map_released.emit(p["gx"], p["gy"], p["valid"])
 
 
 func _notification(what: int) -> void:

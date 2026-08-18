@@ -328,3 +328,499 @@ func load_asset_pack(path: String) -> bool:
 
 func has_asset_pack() -> bool:
 	return world_gen.has_asset_pack()
+
+# -- Milestone F tool bindings ------------------------------------------------
+#
+# One thin wrapper per bound-but-unwired #[func], added together so no domain
+# workspace needs to touch this file at all -- every wrapper follows sized_api's
+# own established shape (`has_method` guard, safe default on an older binary),
+# so a workspace built against these never crashes against a GDExtension that
+# predates one specific tool's binding.
+
+# sculpt_bridge.rs
+func get_sculpt_features() -> Array:
+	if not world_gen.has_method("get_sculpt_features"):
+		return []
+	return world_gen.get_sculpt_features()
+
+func get_sculpt_presets() -> Array:
+	if not world_gen.has_method("get_sculpt_presets"):
+		return []
+	return world_gen.get_sculpt_presets()
+
+func get_sculpt_globals_info() -> Array:
+	if not world_gen.has_method("get_sculpt_globals_info"):
+		return []
+	return world_gen.get_sculpt_globals_info()
+
+func get_sculpt_freehand_modes() -> PackedStringArray:
+	if not world_gen.has_method("get_sculpt_freehand_modes"):
+		return PackedStringArray()
+	return world_gen.get_sculpt_freehand_modes()
+
+func sculpt_get_globals() -> Dictionary:
+	if not world_gen.has_method("sculpt_get_globals"):
+		return {}
+	return world_gen.sculpt_get_globals()
+
+func sculpt_set_globals(values: Dictionary) -> Dictionary:
+	if not world_gen.has_method("sculpt_set_globals"):
+		return {}
+	return world_gen.sculpt_set_globals(values)
+
+func sculpt_get_feature() -> String:
+	if not world_gen.has_method("sculpt_get_feature"):
+		return ""
+	return world_gen.sculpt_get_feature()
+
+func sculpt_set_feature(feature_key: String) -> bool:
+	if not world_gen.has_method("sculpt_set_feature"):
+		return false
+	return world_gen.sculpt_set_feature(feature_key)
+
+func sculpt_get_feature_params() -> Dictionary:
+	if not world_gen.has_method("sculpt_get_feature_params"):
+		return {}
+	return world_gen.sculpt_get_feature_params()
+
+func sculpt_set_feature_params(values: Dictionary) -> Dictionary:
+	if not world_gen.has_method("sculpt_set_feature_params"):
+		return {}
+	return world_gen.sculpt_set_feature_params(values)
+
+func sculpt_apply_preset(index: int) -> bool:
+	if not world_gen.has_method("sculpt_apply_preset"):
+		return false
+	return world_gen.sculpt_apply_preset(index)
+
+func sculpt_get_freehand_mode() -> String:
+	if not world_gen.has_method("sculpt_get_freehand_mode"):
+		return ""
+	return world_gen.sculpt_get_freehand_mode()
+
+func sculpt_set_freehand_mode(mode_key: String) -> bool:
+	if not world_gen.has_method("sculpt_set_freehand_mode"):
+		return false
+	return world_gen.sculpt_set_freehand_mode(mode_key)
+
+func sculpt_get_seed() -> int:
+	if not world_gen.has_method("sculpt_get_seed"):
+		return -1
+	return world_gen.sculpt_get_seed()
+
+func sculpt_set_seed(seed: int) -> void:
+	if not world_gen.has_method("sculpt_set_seed"):
+		return
+	world_gen.sculpt_set_seed(seed)
+
+func sculpt_begin_stroke() -> bool:
+	if not world_gen.has_method("sculpt_begin_stroke"):
+		return false
+	return world_gen.sculpt_begin_stroke()
+
+func sculpt_add_point(x: float, y: float) -> int:
+	if not world_gen.has_method("sculpt_add_point"):
+		return -1
+	return world_gen.sculpt_add_point(x, y)
+
+func sculpt_stroke_point_count() -> int:
+	if not world_gen.has_method("sculpt_stroke_point_count"):
+		return -1
+	return world_gen.sculpt_stroke_point_count()
+
+func sculpt_cancel_stroke() -> void:
+	if not world_gen.has_method("sculpt_cancel_stroke"):
+		return
+	world_gen.sculpt_cancel_stroke()
+
+func sculpt_end_stroke() -> int:
+	if not world_gen.has_method("sculpt_end_stroke"):
+		return -1
+	return world_gen.sculpt_end_stroke()
+
+func sculpt_stamp_count() -> int:
+	if not world_gen.has_method("sculpt_stamp_count"):
+		return -1
+	return world_gen.sculpt_stamp_count()
+
+func sculpt_list_stamps() -> Array:
+	if not world_gen.has_method("sculpt_list_stamps"):
+		return []
+	return world_gen.sculpt_list_stamps()
+
+func sculpt_get_selected_stamp() -> int:
+	if not world_gen.has_method("sculpt_get_selected_stamp"):
+		return -1
+	return world_gen.sculpt_get_selected_stamp()
+
+func sculpt_select_stamp(index: int) -> bool:
+	if not world_gen.has_method("sculpt_select_stamp"):
+		return false
+	return world_gen.sculpt_select_stamp(index)
+
+func sculpt_set_stamp_hidden(index: int, hidden: bool) -> bool:
+	if not world_gen.has_method("sculpt_set_stamp_hidden"):
+		return false
+	return world_gen.sculpt_set_stamp_hidden(index, hidden)
+
+func sculpt_move_stamp_up(index: int) -> bool:
+	if not world_gen.has_method("sculpt_move_stamp_up"):
+		return false
+	return world_gen.sculpt_move_stamp_up(index)
+
+func sculpt_move_stamp_down(index: int) -> bool:
+	if not world_gen.has_method("sculpt_move_stamp_down"):
+		return false
+	return world_gen.sculpt_move_stamp_down(index)
+
+func sculpt_delete_stamp(index: int) -> bool:
+	if not world_gen.has_method("sculpt_delete_stamp"):
+		return false
+	return world_gen.sculpt_delete_stamp(index)
+
+func sculpt_can_undo() -> bool:
+	if not world_gen.has_method("sculpt_can_undo"):
+		return false
+	return world_gen.sculpt_can_undo()
+
+func sculpt_can_redo() -> bool:
+	if not world_gen.has_method("sculpt_can_redo"):
+		return false
+	return world_gen.sculpt_can_redo()
+
+func sculpt_undo() -> bool:
+	if not world_gen.has_method("sculpt_undo"):
+		return false
+	return world_gen.sculpt_undo()
+
+func sculpt_redo() -> bool:
+	if not world_gen.has_method("sculpt_redo"):
+		return false
+	return world_gen.sculpt_redo()
+
+func build_sculpt_preview_texture() -> Texture2D:
+	if not world_gen.has_method("build_sculpt_preview_texture"):
+		return null
+	return world_gen.build_sculpt_preview_texture()
+
+func sculpt_commit(reason: String) -> Dictionary:
+	if not world_gen.has_method("sculpt_commit"):
+		return {}
+	return world_gen.sculpt_commit(reason)
+
+func sculpt_discard() -> int:
+	if not world_gen.has_method("sculpt_discard"):
+		return -1
+	return world_gen.sculpt_discard()
+
+
+# icon_bridge.rs
+func icon_arm(family: String, variant: int, scale: float, rotation: float, jitter: float) -> bool:
+	if not world_gen.has_method("icon_arm"):
+		return false
+	return world_gen.icon_arm(family, variant, scale, rotation, jitter)
+
+func icon_armed() -> Dictionary:
+	if not world_gen.has_method("icon_armed"):
+		return {}
+	return world_gen.icon_armed()
+
+func icon_disarm() -> void:
+	if not world_gen.has_method("icon_disarm"):
+		return
+	world_gen.icon_disarm()
+
+func icon_place(gx: float, gy: float) -> int:
+	if not world_gen.has_method("icon_place"):
+		return -1
+	return world_gen.icon_place(gx, gy)
+
+func icon_hit_test(gx: float, gy: float) -> int:
+	if not world_gen.has_method("icon_hit_test"):
+		return -1
+	return world_gen.icon_hit_test(gx, gy)
+
+func icon_resize(index: int, cx: float, cy: float, gx: float, gy: float, start_dist: float) -> bool:
+	if not world_gen.has_method("icon_resize"):
+		return false
+	return world_gen.icon_resize(index, cx, cy, gx, gy, start_dist)
+
+func icon_get(index: int) -> Dictionary:
+	if not world_gen.has_method("icon_get"):
+		return {}
+	return world_gen.icon_get(index)
+
+func icon_delete(index: int) -> bool:
+	if not world_gen.has_method("icon_delete"):
+		return false
+	return world_gen.icon_delete(index)
+
+func icon_list() -> Array:
+	if not world_gen.has_method("icon_list"):
+		return []
+	return world_gen.icon_list()
+
+func icon_clear_all() -> void:
+	if not world_gen.has_method("icon_clear_all"):
+		return
+	world_gen.icon_clear_all()
+
+
+# civ_bridge.rs
+func civ_pick_place_at(gx: float, gy: float) -> int:
+	if not world_gen.has_method("civ_pick_place_at"):
+		return -1
+	return world_gen.civ_pick_place_at(gx, gy)
+
+func civ_drop_settlement(gx: float, gy: float, kind: String, faction: int, name: String, snap_to_water: bool) -> int:
+	if not world_gen.has_method("civ_drop_settlement"):
+		return -1
+	return world_gen.civ_drop_settlement(gx, gy, kind, faction, name, snap_to_water)
+
+func civ_territory_paint_at(gx: float, gy: float, faction: int, radius: float, subtract: bool) -> void:
+	if not world_gen.has_method("civ_territory_paint_at"):
+		return
+	world_gen.civ_territory_paint_at(gx, gy, faction, radius, subtract)
+
+func civ_territory_commit() -> void:
+	if not world_gen.has_method("civ_territory_commit"):
+		return
+	world_gen.civ_territory_commit()
+
+func civ_territory_discard() -> void:
+	if not world_gen.has_method("civ_territory_discard"):
+		return
+	world_gen.civ_territory_discard()
+
+func civ_faction_territory_stats(faction: int) -> Dictionary:
+	if not world_gen.has_method("civ_faction_territory_stats"):
+		return {}
+	return world_gen.civ_faction_territory_stats(faction)
+
+func get_factions() -> Array:
+	if not world_gen.has_method("get_factions"):
+		return []
+	return world_gen.get_factions()
+
+
+# paint_bridge.rs
+func get_paint_layers() -> PackedStringArray:
+	if not world_gen.has_method("get_paint_layers"):
+		return PackedStringArray()
+	return world_gen.get_paint_layers()
+
+func get_paint_palette(layer: String) -> Array:
+	if not world_gen.has_method("get_paint_palette"):
+		return []
+	return world_gen.get_paint_palette(layer)
+
+func paint_set_layer(layer: String) -> bool:
+	if not world_gen.has_method("paint_set_layer"):
+		return false
+	return world_gen.paint_set_layer(layer)
+
+func paint_set_brush(value: int, radius: float, hardness: float, softness: float, erase: bool, land_only: bool) -> Dictionary:
+	if not world_gen.has_method("paint_set_brush"):
+		return {}
+	return world_gen.paint_set_brush(value, radius, hardness, softness, erase, land_only)
+
+func paint_stroke_at(gx: float, gy: float) -> void:
+	if not world_gen.has_method("paint_stroke_at"):
+		return
+	world_gen.paint_stroke_at(gx, gy)
+
+func build_paint_preview_texture() -> Texture2D:
+	if not world_gen.has_method("build_paint_preview_texture"):
+		return null
+	return world_gen.build_paint_preview_texture()
+
+func paint_painted_counts() -> Dictionary:
+	if not world_gen.has_method("paint_painted_counts"):
+		return {}
+	return world_gen.paint_painted_counts()
+
+func paint_commit() -> Dictionary:
+	if not world_gen.has_method("paint_commit"):
+		return {}
+	return world_gen.paint_commit()
+
+func paint_discard() -> int:
+	if not world_gen.has_method("paint_discard"):
+		return -1
+	return world_gen.paint_discard()
+
+
+# way_bridge.rs
+func way_begin(way_type: String) -> bool:
+	if not world_gen.has_method("way_begin"):
+		return false
+	return world_gen.way_begin(way_type)
+
+func way_append_point(gx: float, gy: float) -> bool:
+	if not world_gen.has_method("way_append_point"):
+		return false
+	return world_gen.way_append_point(gx, gy)
+
+func way_commit() -> int:
+	if not world_gen.has_method("way_commit"):
+		return -1
+	return world_gen.way_commit()
+
+func way_discard() -> void:
+	if not world_gen.has_method("way_discard"):
+		return
+	world_gen.way_discard()
+
+
+# route_bridge.rs
+func route_begin(mode: String) -> bool:
+	if not world_gen.has_method("route_begin"):
+		return false
+	return world_gen.route_begin(mode)
+
+func route_append_stop(gx: float, gy: float) -> bool:
+	if not world_gen.has_method("route_append_stop"):
+		return false
+	return world_gen.route_append_stop(gx, gy)
+
+func route_commit() -> int:
+	if not world_gen.has_method("route_commit"):
+		return -1
+	return world_gen.route_commit()
+
+func route_discard() -> void:
+	if not world_gen.has_method("route_discard"):
+		return
+	world_gen.route_discard()
+
+
+# measure_bridge.rs
+func measure_begin() -> void:
+	if not world_gen.has_method("measure_begin"):
+		return
+	world_gen.measure_begin()
+
+func measure_add_point(gx: float, gy: float) -> void:
+	if not world_gen.has_method("measure_add_point"):
+		return
+	world_gen.measure_add_point(gx, gy)
+
+func measure_result() -> Dictionary:
+	if not world_gen.has_method("measure_result"):
+		return {}
+	return world_gen.measure_result()
+
+func measure_clear() -> void:
+	if not world_gen.has_method("measure_clear"):
+		return
+	world_gen.measure_clear()
+
+
+# region_bridge.rs
+func region_set(gx: float, gy: float, gw: float, gh: float) -> void:
+	if not world_gen.has_method("region_set"):
+		return
+	world_gen.region_set(gx, gy, gw, gh)
+
+func region_get() -> Dictionary:
+	if not world_gen.has_method("region_get"):
+		return {}
+	return world_gen.region_get()
+
+func region_clear() -> void:
+	if not world_gen.has_method("region_clear"):
+		return
+	world_gen.region_clear()
+
+func region_export_tiles(opts: Dictionary) -> PackedByteArray:
+	if not world_gen.has_method("region_export_tiles"):
+		return PackedByteArray()
+	return world_gen.region_export_tiles(opts)
+
+
+# label_bridge.rs
+func label_create(gx: float, gy: float, text: String) -> int:
+	if not world_gen.has_method("label_create"):
+		return -1
+	return world_gen.label_create(gx, gy, text)
+
+func label_move(index: int, gx: float, gy: float) -> bool:
+	if not world_gen.has_method("label_move"):
+		return false
+	return world_gen.label_move(index, gx, gy)
+
+func label_select(index: int) -> bool:
+	if not world_gen.has_method("label_select"):
+		return false
+	return world_gen.label_select(index)
+
+func label_get_selected() -> int:
+	if not world_gen.has_method("label_get_selected"):
+		return -1
+	return world_gen.label_get_selected()
+
+func label_confirm_edit() -> void:
+	if not world_gen.has_method("label_confirm_edit"):
+		return
+	world_gen.label_confirm_edit()
+
+func label_cancel_edit() -> bool:
+	if not world_gen.has_method("label_cancel_edit"):
+		return false
+	return world_gen.label_cancel_edit()
+
+func label_get(index: int) -> Dictionary:
+	if not world_gen.has_method("label_get"):
+		return {}
+	return world_gen.label_get(index)
+
+func label_list() -> Array:
+	if not world_gen.has_method("label_list"):
+		return []
+	return world_gen.label_list()
+
+func label_set(index: int, values: Dictionary) -> Dictionary:
+	if not world_gen.has_method("label_set"):
+		return {}
+	return world_gen.label_set(index, values)
+
+func label_delete(index: int) -> bool:
+	if not world_gen.has_method("label_delete"):
+		return false
+	return world_gen.label_delete(index)
+
+func label_clear_all() -> void:
+	if not world_gen.has_method("label_clear_all"):
+		return
+	world_gen.label_clear_all()
+
+func label_hit_test(gx: float, gy: float) -> int:
+	if not world_gen.has_method("label_hit_test"):
+		return -1
+	return world_gen.label_hit_test(gx, gy)
+
+func label_handles(index: int, zoom: float) -> Dictionary:
+	if not world_gen.has_method("label_handles"):
+		return {}
+	return world_gen.label_handles(index, zoom)
+
+func label_glyph_layout(index: int, zoom: float, char_widths: PackedFloat64Array, total_w: float) -> Array:
+	if not world_gen.has_method("label_glyph_layout"):
+		return []
+	return world_gen.label_glyph_layout(index, zoom, char_widths, total_w)
+
+func label_resize_size(start_size: float, cx: float, cy: float, gx: float, gy: float, start_dist: float) -> float:
+	if not world_gen.has_method("label_resize_size"):
+		return 0.0
+	return world_gen.label_resize_size(start_size, cx, cy, gx, gy, start_dist)
+
+func label_rotate_deg(cx: float, cy: float, gx: float, gy: float) -> float:
+	if not world_gen.has_method("label_rotate_deg"):
+		return 0.0
+	return world_gen.label_rotate_deg(cx, cy, gx, gy)
+
+func label_arc_value(cx: float, cy: float, grab_angle_deg: float, side: float, gx: float, gy: float) -> float:
+	if not world_gen.has_method("label_arc_value"):
+		return 0.0
+	return world_gen.label_arc_value(cx, cy, grab_angle_deg, side, gx, gy)
+

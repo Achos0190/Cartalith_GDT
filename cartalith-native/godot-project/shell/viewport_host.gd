@@ -17,6 +17,9 @@ signal settlement_selected(data: Variant, index: int)
 signal settlement_hovered(data: Variant, index: int)
 signal cursor_sampled(gx: float, gy: float, valid: bool)
 signal layers_button_pressed()
+signal map_clicked(gx: float, gy: float)   ## §4.5 tool click-placement primitive.
+signal map_dragged(gx: float, gy: float)   ## §4.5 tool drag-paint primitive.
+signal map_released(gx: float, gy: float, valid: bool)   ## §4.5 tool drag-end primitive.
 
 const OVERLAY_SCRIPT := preload("res://map_overlay.gd")
 
@@ -24,6 +27,7 @@ var map_view: TextureRect
 var territory_view: TextureRect
 var province_view: TextureRect
 var overlay: Control
+var tool_overlay: ToolOverlay
 
 var _scale_label: Label
 var _readout_label: Label
@@ -170,6 +174,18 @@ func _ready() -> void:
 	overlay.settlement_selected.connect(func(d, i): settlement_selected.emit(d, i))
 	overlay.settlement_hovered.connect(_on_hovered)
 	overlay.cursor_sampled.connect(_on_sampled)
+	overlay.map_clicked.connect(func(gx, gy): map_clicked.emit(gx, gy))
+	overlay.map_dragged.connect(func(gx, gy): map_dragged.emit(gx, gy))
+	overlay.map_released.connect(func(gx, gy, valid): map_released.emit(gx, gy, valid))
+
+	## §4.5.1's tool feedback (Region marquee, Measure ruler) -- above
+	## `overlay` in draw order so it's never hidden behind terrain/vector
+	## data, `MOUSE_FILTER_IGNORE` always so it never competes with
+	## `overlay`'s own hit-testing for the click that feeds it.
+	tool_overlay = ToolOverlay.new()
+	tool_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	tool_overlay.overlay = overlay
+	_camera.add_child(tool_overlay)
 
 	## §9's chrome, all corner-anchored so it survives any dock width.
 	_scale_label = _chrome(Control.PRESET_BOTTOM_LEFT, HORIZONTAL_ALIGNMENT_LEFT)
@@ -395,6 +411,7 @@ func refresh() -> void:
 	var g := _bridge.grid_size()
 	overlay.set_civ_data(_bridge.settlements(), _bridge.roads(),
 		_bridge.sea_routes(), g.x, g.y, _bridge.border_inset_frac())
+	tool_overlay.set_grid(g.x, g.y)
 	_width_km = _bridge.last_width_km
 	_update_scale_bar()
 	reset_view()   ## Also sets `_readout_label`'s text -- see its own doc.

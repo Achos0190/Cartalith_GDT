@@ -330,6 +330,61 @@ static func action(parent: Control, text: String, on_press: Callable,
 	parent.add_child(b)
 	return b
 
+## §4.5's tool palette. One square icon button, toggle-style, joined into
+## `group` (a shared `ButtonGroup` -- `DccApp.tool_group`, the SAME instance
+## across every domain's TOOLS block) so arming a tool anywhere disarms it
+## everywhere else, and switching domains never loses the armed state: the
+## button that's actually pressed simply isn't present in whichever domain's
+## dock isn't currently visible. That is the whole mechanism `UI_SHELL_DESIGN
+## .md`'s "one tool is armed at a time, globally" needs -- no extra
+## bookkeeping beyond every tool button belonging to one group.
+static func tool_button(parent: Control, glyph: String, label_text: String,
+		group: ButtonGroup, on_armed: Callable) -> Button:
+	var b := Button.new()
+	b.toggle_mode = true
+	b.button_group = group
+	b.focus_mode = Control.FOCUS_NONE
+	b.tooltip_text = label_text
+	b.custom_minimum_size = Vector2(30, 30)
+	b.icon = DccIcons.get_icon(glyph, 15)
+	b.expand_icon = false
+	b.add_theme_stylebox_override("normal", DccTheme.empty())
+	b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft"), 2))
+	b.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("accent_wash"), 2))
+	b.add_theme_color_override("icon_normal_color", DccTheme.c("text_dim"))
+	b.add_theme_color_override("icon_hover_color", DccTheme.c("text_bright"))
+	b.add_theme_color_override("icon_pressed_color", DccTheme.c("accent"))
+	b.toggled.connect(func(on: bool): if on: on_armed.call())
+	parent.add_child(b)
+	return b
+
+## The TOOLS block itself (§4.5: "every left dock opens with a TOOLS block:
+## first the four global tools, then that domain's own"). `global_only` skips
+## the domain-specific row for a caller with none yet. `entries` is
+## `[{glyph, label, id}, ...]`; arming calls `app.arm_tool(id)`.
+static func tools_block(parent: Control, app, group: ButtonGroup,
+		domain_entries: Array = []) -> void:
+	var sec := section(parent, "Tools")
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 2)
+	sec.add_child(row)
+	for e in GLOBAL_TOOL_ENTRIES:
+		tool_button(row, e["glyph"], e["label"], group, func(): app.arm_tool(e["id"]))
+	if not domain_entries.is_empty():
+		var row2 := HBoxContainer.new()
+		row2.add_theme_constant_override("separation", 2)
+		sec.add_child(row2)
+		for e in domain_entries:
+			tool_button(row2, e["glyph"], e["label"], group, func(): app.arm_tool(e["id"]))
+	parent.add_child(DccTheme.rule())
+
+## §4.5.1 -- present in every domain, identical everywhere.
+const GLOBAL_TOOL_ENTRIES: Array = [
+	{"id": "inspect", "glyph": "tool_inspect", "label": "Inspect (V)"},
+	{"id": "measure", "glyph": "tool_measure", "label": "Measure (M)"},
+	{"id": "region", "glyph": "tool_region", "label": "Region select (R)"},
+]
+
 ## Prose that explains a rule rather than labelling a control. Kept narrow so a
 ## dock at its minimum width still wraps sensibly.
 static func note(parent: Control, text: String) -> Label:
