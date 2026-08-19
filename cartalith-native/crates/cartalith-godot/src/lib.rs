@@ -1201,6 +1201,20 @@ struct WorldGen {
     /// marquee, could sit outside the new grid's bounds entirely), the
     /// same restriction every sibling field above already has.
     infra: Option<infra_tools_bridge::InfraTools>,
+    /// `TRAVEL_LIBRARY_SPEC.md`: user-editable project state, not
+    /// civ-generation output -- unlike `civ`/`sculpt`/`icons`/`civ_tools`/
+    /// `paint`/`labels`/`infra` above, this field is **not reset by
+    /// `absorb()`**. It survives a re-generate the same way `asset_pack`
+    /// and `quality` already do (loaded/set once, independent of any one
+    /// `WorldState`), because a custom animal/vehicle/vessel/party-preset
+    /// definition describes the *world's setting*, not something the
+    /// terrain pipeline produced -- regenerating the map has no more
+    /// reason to discard a hand-defined pack mule than it does to discard
+    /// a loaded asset pack. Bootstrapped with stock content in `init()`
+    /// below, so it is real and queryable even before the first
+    /// `generate()` call, unlike every `Option<...>` field above that
+    /// needs a generated world to mean anything.
+    travel_library: travel_bridge::TravelLibrary,
 }
 
 #[godot_api]
@@ -1229,6 +1243,7 @@ impl IRefCounted for WorldGen {
             paint: None,
             labels: None,
             infra: None,
+            travel_library: travel_bridge::TravelLibrary::new(),
         }
     }
 }
@@ -5155,7 +5170,25 @@ impl WorldGen {
 
         // `|_, _| 1.0`: the reference's own answer on a world whose wildlife
         // layer was never built, and what an exactly-average region gives.
-        let Some(journey) = cartalith_civ::jp_plan(&world, &pts, &plan, &layovers, &|_, _| 1.0) else {
+        //
+        // `jp_plan_ex` with a live Travel Library resolver, not the plain
+        // `jp_plan` this called before this dispatch -- `TRAVEL_LIBRARY_
+        // SPEC.md` §6, `travel_bridge.rs`'s own module doc's "What a later
+        // `#[func]` layer still needs to add". `animal_overrides()` is empty
+        // whenever no custom entry duplicates one of the four built-in
+        // species, and `resolve_animal_stats`/`resolve_animal_terrain_mod`
+        // (`cartalith-civ`) fall back to the built-in table for exactly the
+        // fields an empty (or partially-incomplete) override map does not
+        // answer -- so a stock-only Travel Library changes nothing about
+        // this call's output versus the plain `jp_plan` it replaces (see
+        // `regression_stock_only_travel_library_matches_pre_dispatch_jp_plan`
+        // in this file's own test module).
+        let overrides = self.travel_library.animal_overrides();
+        let (stats_fn, terrain_fn) = cartalith_civ::travel_library::animal_resolver_fns(&overrides);
+        let resolver = cartalith_civ::JpAnimalResolver { stats: &*stats_fn, terrain_mod: &*terrain_fn };
+        let Some(journey) =
+            cartalith_civ::jp_plan_ex(&world, &pts, &plan, &layovers, &|_, _| 1.0, Some(&resolver))
+        else {
             return vdict! { "ok" => false, "error" => "no derivable stages for that route", "rejected" => &rejected };
         };
         let v = cartalith_civ::jp_verdict(&journey);
@@ -5178,6 +5211,456 @@ impl WorldGen {
             "verdict" => &verdict,
             "confidence" => &confidence,
         }
+    }
+}
+
+/// `TRAVEL_LIBRARY_SPEC.md`'s `#[func]` boundary -- omission O1 / gap
+/// register row DM-15. `travel_bridge.rs` owns every real behaviour (CRUD,
+/// validation, usage tracking, the `Variant`-shaped field pairs); this block
+/// is the thin `kind: GString` ("animal"/"vehicle"/"vessel"/"preset")
+/// dispatch plus `Dictionary` flattening `ARCHITECTURE.md` assigns to this
+/// crate, mirroring `jp_options`/`jp_compute` above's own division of labour
+/// with `journey_bridge.rs`.
+///
+/// `#[godot_api(secondary)]`, not a plain `#[godot_api]`: only the first
+/// `#[godot_api] impl WorldGen` block in the crate may omit `secondary` --
+/// `WorldGen` has a `Base<RefCounted>` field, and a second primary block
+/// collides on the shared registration machinery (`E0119`/`E0592`/`E0034`),
+/// exactly as every sibling bridge block above already documents.
+#[godot_api(secondary)]
+impl WorldGen {
+    /// `{kind: {"total": int, "custom": int, "stock": int}}` for all four
+    /// definition types -- the tab counts §2's own mockup shows
+    /// (`"ANIMALS & MOUNTS · 11"` etc). Callable before `generate()`: the
+    /// library is real, stock-seeded state from `init()` onward.
+    #[func]
+    fn tl_counts(&self) -> VarDictionary {
+        fn one<T: travel_bridge::TravelEntry>(set: &travel_bridge::EntrySet<T>) -> VarDictionary {
+            let total = set.iter().count();
+            let custom = set.iter().filter(|e| e.origin() == cartalith_civ::travel_library::EntryOrigin::Custom).count();
+            vdict! { "total" => total as i64, "custom" => custom as i64, "stock" => (total - custom) as i64 }
+        }
+        vdict! {
+            "animal" => &one(&self.travel_library.animals),
+            "vehicle" => &one(&self.travel_library.vehicles),
+            "vessel" => &one(&self.travel_library.vessels),
+            "preset" => &one(&self.travel_library.presets),
+        }
+    }
+
+    /// Every entry of one definition type (`kind`: `"animal"` / `"vehicle"`
+    /// / `"vessel"` / `"preset"`), stock entries first in bootstrap order
+    /// then custom entries in add order (`EntrySet`'s own iteration order --
+    /// the list rail's own CUSTOM-then-STOCK section split is a GDScript
+    /// grouping of this same flat array, not a second server-side order).
+    /// Each row: `id`, `name`, `origin` (`"stock"`/`"custom"`), `editable`
+    /// (bool), `subtitle`, `species_key` (animals only, else `""`),
+    /// `validation_state` (`"ok"`/`"incomplete"`/`"conflicting"`),
+    /// `validation_missing`/`validation_conflicts` (`PackedStringArray`),
+    /// `usage_presets`/`usage_journeys` (int; always `0` for vehicles/
+    /// vessels/presets themselves -- see `tl_get`'s own doc comment).
+    /// Empty `Array` for an unrecognised `kind`.
+    #[func]
+    fn tl_list(&self, kind: GString) -> Array<VarDictionary> {
+        let lib = &self.travel_library;
+        match kind.to_string().as_str() {
+            "animal" => lib
+                .animals
+                .iter()
+                .map(|a| {
+                    tl_meta_dict(
+                        &a.id,
+                        &a.name,
+                        a.origin,
+                        &travel_bridge::animal_subtitle(a),
+                        &cartalith_civ::travel_library::validate_animal(a),
+                        lib.animal_usage_in_presets(&a.id),
+                        lib.animal_usage_in_journeys(&a.id),
+                        a.species_key.unwrap_or(""),
+                    )
+                })
+                .collect(),
+            "vehicle" => lib
+                .vehicles
+                .iter()
+                .map(|v| {
+                    tl_meta_dict(
+                        &v.id,
+                        &v.name,
+                        v.origin,
+                        &travel_bridge::vehicle_subtitle(v),
+                        &cartalith_civ::travel_library::validate_vehicle(v),
+                        0,
+                        0,
+                        "",
+                    )
+                })
+                .collect(),
+            "vessel" => lib
+                .vessels
+                .iter()
+                .map(|v| {
+                    tl_meta_dict(
+                        &v.id,
+                        &v.name,
+                        v.origin,
+                        &travel_bridge::vessel_subtitle(v),
+                        &cartalith_civ::travel_library::validate_vessel(v),
+                        0,
+                        0,
+                        "",
+                    )
+                })
+                .collect(),
+            "preset" => lib
+                .presets
+                .iter()
+                .map(|p| {
+                    tl_meta_dict(
+                        &p.id,
+                        &p.name,
+                        p.origin,
+                        &travel_bridge::preset_subtitle(p),
+                        &cartalith_civ::travel_library::validate_party_preset(p),
+                        0,
+                        0,
+                        "",
+                    )
+                })
+                .collect(),
+            _ => Array::new(),
+        }
+    }
+
+    /// One entry's full detail: `tl_list`'s own per-row keys plus every
+    /// field `TRAVEL_LIBRARY_SPEC.md` §3 lists for that `kind`, flattened by
+    /// `animal_to_pairs`/`vehicle_to_pairs`/`vessel_to_pairs`/
+    /// `preset_to_pairs` (`travel_bridge.rs`) -- an unset optional field is
+    /// simply **absent** from the returned `Dictionary`, matching §3's own
+    /// "a field left unset is incomplete, not zero" (an inspector should
+    /// test `has()`, not read a fabricated default). `{"ok": false}` for an
+    /// unknown `kind` or `id`.
+    ///
+    /// `usage_presets`/`usage_journeys` are always `0` for vehicles/vessels/
+    /// presets themselves: no `vehicle_key`/`vessel_key` equivalent to
+    /// `AnimalDef::species_key` exists to attribute a `JpParty` vehicle
+    /// count (`carts`/`wagons`/`sleds`/`travois`) back to one specific
+    /// `VehicleDef` id, and a party preset does not reference itself --
+    /// disclosed here rather than approximated, the same honesty
+    /// `TravelLibrary::animal_usage_in_journeys` already applies to §4's
+    /// "saved journeys" count.
+    #[func]
+    fn tl_get(&self, kind: GString, id: GString) -> VarDictionary {
+        let lib = &self.travel_library;
+        let id = id.to_string();
+        match kind.to_string().as_str() {
+            "animal" => {
+                let Some(a) = lib.animals.get(&id) else { return vdict! { "ok" => false } };
+                let mut d = tl_meta_dict(
+                    &a.id,
+                    &a.name,
+                    a.origin,
+                    &travel_bridge::animal_subtitle(a),
+                    &cartalith_civ::travel_library::validate_animal(a),
+                    lib.animal_usage_in_presets(&a.id),
+                    lib.animal_usage_in_journeys(&a.id),
+                    a.species_key.unwrap_or(""),
+                );
+                merge_pairs(&mut d, &travel_bridge::animal_to_pairs(a));
+                d.set("ok", true);
+                d
+            }
+            "vehicle" => {
+                let Some(v) = lib.vehicles.get(&id) else { return vdict! { "ok" => false } };
+                let mut d = tl_meta_dict(
+                    &v.id,
+                    &v.name,
+                    v.origin,
+                    &travel_bridge::vehicle_subtitle(v),
+                    &cartalith_civ::travel_library::validate_vehicle(v),
+                    0,
+                    0,
+                    "",
+                );
+                merge_pairs(&mut d, &travel_bridge::vehicle_to_pairs(v));
+                d.set("ok", true);
+                d
+            }
+            "vessel" => {
+                let Some(v) = lib.vessels.get(&id) else { return vdict! { "ok" => false } };
+                let mut d = tl_meta_dict(
+                    &v.id,
+                    &v.name,
+                    v.origin,
+                    &travel_bridge::vessel_subtitle(v),
+                    &cartalith_civ::travel_library::validate_vessel(v),
+                    0,
+                    0,
+                    "",
+                );
+                merge_pairs(&mut d, &travel_bridge::vessel_to_pairs(v));
+                d.set("ok", true);
+                d
+            }
+            "preset" => {
+                let Some(p) = lib.presets.get(&id) else { return vdict! { "ok" => false } };
+                let mut d = tl_meta_dict(
+                    &p.id,
+                    &p.name,
+                    p.origin,
+                    &travel_bridge::preset_subtitle(p),
+                    &cartalith_civ::travel_library::validate_party_preset(p),
+                    0,
+                    0,
+                    "",
+                );
+                merge_pairs(&mut d, &travel_bridge::preset_to_pairs(p));
+                d.set("ok", true);
+                d
+            }
+            _ => vdict! { "ok" => false },
+        }
+    }
+
+    /// Clones `id` (stock or custom) into a new custom entry --
+    /// `TRAVEL_LIBRARY_SPEC.md`'s "duplicate to edit", the only way to get
+    /// an editable copy of a stock entry. `{"ok": true, "id": new_id}`, or
+    /// `{"ok": false, "error": ...}` for an unknown `kind` or source `id`.
+    #[func]
+    fn tl_duplicate(&mut self, kind: GString, id: GString) -> VarDictionary {
+        let id = id.to_string();
+        let new_id = self.travel_library.fresh_id();
+        let ok = match kind.to_string().as_str() {
+            "animal" => self.travel_library.animals.duplicate(&id, new_id.clone()).is_some(),
+            "vehicle" => self.travel_library.vehicles.duplicate(&id, new_id.clone()).is_some(),
+            "vessel" => self.travel_library.vessels.duplicate(&id, new_id.clone()).is_some(),
+            "preset" => self.travel_library.presets.duplicate(&id, new_id.clone()).is_some(),
+            _ => false,
+        };
+        if ok {
+            vdict! { "ok" => true, "id" => new_id.as_str(), "error" => "" }
+        } else {
+            vdict! { "ok" => false, "error" => "unknown kind or source id", "id" => "" }
+        }
+    }
+
+    /// A brand-new custom entry with every field unset --
+    /// `TRAVEL_LIBRARY_SPEC.md`'s "New blank definition…". `{"ok": true,
+    /// "id": new_id}`.
+    #[func]
+    fn tl_add_blank(&mut self, kind: GString, name: GString) -> VarDictionary {
+        let new_id = self.travel_library.fresh_id();
+        let name_s = name.to_string();
+        let ok = match kind.to_string().as_str() {
+            "animal" => self
+                .travel_library
+                .animals
+                .add(cartalith_civ::travel_library::AnimalDef::blank(new_id.clone(), name_s))
+                .is_some(),
+            "vehicle" => self
+                .travel_library
+                .vehicles
+                .add(cartalith_civ::travel_library::VehicleDef::blank(new_id.clone(), name_s))
+                .is_some(),
+            "vessel" => self
+                .travel_library
+                .vessels
+                .add(cartalith_civ::travel_library::VesselDef::blank(new_id.clone(), name_s))
+                .is_some(),
+            "preset" => self
+                .travel_library
+                .presets
+                .add(cartalith_civ::travel_library::PartyPreset::blank(new_id.clone(), name_s))
+                .is_some(),
+            _ => false,
+        };
+        if ok {
+            vdict! { "ok" => true, "id" => new_id.as_str(), "error" => "" }
+        } else {
+            vdict! { "ok" => false, "error" => "kind must be animal/vehicle/vessel/preset", "id" => "" }
+        }
+    }
+
+    /// Deletes a custom entry. No-op (`"ok": false`) on an unknown id or a
+    /// stock one -- `TRAVEL_LIBRARY_SPEC.md` §3's "stock entries are
+    /// read-only", enforced by `EntrySet::delete` itself, not re-checked
+    /// here.
+    #[func]
+    fn tl_delete(&mut self, kind: GString, id: GString) -> VarDictionary {
+        let id = id.to_string();
+        let ok = match kind.to_string().as_str() {
+            "animal" => self.travel_library.animals.delete(&id),
+            "vehicle" => self.travel_library.vehicles.delete(&id),
+            "vessel" => self.travel_library.vessels.delete(&id),
+            "preset" => self.travel_library.presets.delete(&id),
+            _ => false,
+        };
+        vdict! { "ok" => ok }
+    }
+
+    /// Discards every custom entry of one `kind`, restoring the stock-only
+    /// bootstrap -- `TRAVEL_LIBRARY_SPEC.md`'s "Reset to stock
+    /// definitions…".
+    #[func]
+    fn tl_reset_to_stock(&mut self, kind: GString) -> VarDictionary {
+        match kind.to_string().as_str() {
+            "animal" => self.travel_library.animals.reset_to_stock(),
+            "vehicle" => self.travel_library.vehicles.reset_to_stock(),
+            "vessel" => self.travel_library.vessels.reset_to_stock(),
+            "preset" => self.travel_library.presets.reset_to_stock(),
+            _ => return vdict! { "ok" => false },
+        }
+        vdict! { "ok" => true }
+    }
+
+    /// Applies a partial `fields` `Dictionary` (exactly `tl_get`'s own key
+    /// vocabulary for `kind`) onto an existing **custom** entry -- stock
+    /// entries are read-only (`"ok": false`, per §3; duplicate first).
+    /// Every field `fields` does not mention keeps its current value
+    /// (`travel_bridge.rs`'s `_apply_pairs` functions' own "partial edit
+    /// preserves the rest" contract). Returns `{"ok", "error", "rejected"
+    /// (PackedStringArray of unrecognised/wrong-typed keys), "validation_state",
+    /// "validation_missing", "validation_conflicts"}` -- the entry's *new*
+    /// validation, computed immediately, so the caller can show a banner
+    /// without a second round trip.
+    #[func]
+    fn tl_edit(&mut self, kind: GString, id: GString, fields: VarDictionary) -> VarDictionary {
+        let id = id.to_string();
+        let (pairs, bad_keys) = jp_dict_to_pairs(&fields);
+        let mut rejected: PackedStringArray = bad_keys.iter().map(GString::from).collect();
+        let fail = |msg: &str, rejected: &PackedStringArray| {
+            vdict! { "ok" => false, "error" => msg, "rejected" => rejected }
+        };
+        match kind.to_string().as_str() {
+            "animal" => {
+                let Some(existing) = self.travel_library.animals.get(&id).cloned() else {
+                    return fail("no such animal id", &rejected);
+                };
+                if existing.origin != cartalith_civ::travel_library::EntryOrigin::Custom {
+                    return fail("stock entries are read-only -- duplicate to edit", &rejected);
+                }
+                let (updated, more) = travel_bridge::animal_apply_pairs(&existing, &pairs);
+                rejected.extend_array(&more.iter().map(GString::from).collect());
+                *self.travel_library.animals.get_mut(&id).expect("just confirmed custom") = updated;
+                let validation = self.travel_library.animal_validation(&id).expect("just stored above");
+                tl_edit_result(&rejected, &validation)
+            }
+            "vehicle" => {
+                let Some(existing) = self.travel_library.vehicles.get(&id).cloned() else {
+                    return fail("no such vehicle id", &rejected);
+                };
+                if existing.origin != cartalith_civ::travel_library::EntryOrigin::Custom {
+                    return fail("stock entries are read-only -- duplicate to edit", &rejected);
+                }
+                let (updated, more) = travel_bridge::vehicle_apply_pairs(&existing, &pairs);
+                rejected.extend_array(&more.iter().map(GString::from).collect());
+                *self.travel_library.vehicles.get_mut(&id).expect("just confirmed custom") = updated;
+                let validation = self.travel_library.vehicle_validation(&id).expect("just stored above");
+                tl_edit_result(&rejected, &validation)
+            }
+            "vessel" => {
+                let Some(existing) = self.travel_library.vessels.get(&id).cloned() else {
+                    return fail("no such vessel id", &rejected);
+                };
+                if existing.origin != cartalith_civ::travel_library::EntryOrigin::Custom {
+                    return fail("stock entries are read-only -- duplicate to edit", &rejected);
+                }
+                let (updated, more) = travel_bridge::vessel_apply_pairs(&existing, &pairs);
+                rejected.extend_array(&more.iter().map(GString::from).collect());
+                *self.travel_library.vessels.get_mut(&id).expect("just confirmed custom") = updated;
+                let validation = self.travel_library.vessel_validation(&id).expect("just stored above");
+                tl_edit_result(&rejected, &validation)
+            }
+            "preset" => {
+                let Some(existing) = self.travel_library.presets.get(&id).cloned() else {
+                    return fail("no such preset id", &rejected);
+                };
+                if existing.origin != cartalith_civ::travel_library::EntryOrigin::Custom {
+                    return fail("stock entries are read-only -- duplicate to edit", &rejected);
+                }
+                let (updated, more) = travel_bridge::preset_apply_pairs(&existing, &pairs);
+                rejected.extend_array(&more.iter().map(GString::from).collect());
+                *self.travel_library.presets.get_mut(&id).expect("just confirmed custom") = updated;
+                let validation = self.travel_library.preset_validation(&id).expect("just stored above");
+                tl_edit_result(&rejected, &validation)
+            }
+            _ => fail("kind must be animal/vehicle/vessel/preset", &rejected),
+        }
+    }
+
+    /// `TRAVEL_LIBRARY_SPEC.md`'s "Capture party from planner": a new
+    /// custom party preset from the planner's current form, in
+    /// `jp_default_plan()`/`jp_compute`'s own `plan` key vocabulary (a
+    /// subset is fine -- unmentioned fields keep `JpPlan::default()`).
+    /// `{"ok": true, "id": new_id, "rejected": [...]}`.
+    #[func]
+    fn tl_capture_preset_from_plan(&mut self, name: GString, plan: VarDictionary) -> VarDictionary {
+        let (pairs, bad) = jp_dict_to_pairs(&plan);
+        let (parsed_plan, more_bad) = journey_bridge::plan_from_pairs(&pairs);
+        let rejected: PackedStringArray = bad.into_iter().chain(more_bad).map(|k| GString::from(&k)).collect();
+        let new_id = self.travel_library.fresh_id();
+        let preset =
+            cartalith_civ::travel_library::PartyPreset::from_jp_plan(new_id.clone(), name.to_string(), &parsed_plan);
+        self.travel_library.presets.add(preset);
+        vdict! { "ok" => true, "id" => new_id.as_str(), "rejected" => &rejected }
+    }
+}
+
+/// `tl_list`/`tl_get`'s shared per-entry metadata -- every key both
+/// functions report about an entry regardless of `kind`, so `kind`-specific
+/// field data (`tl_get` only) is simply merged on top rather than
+/// duplicating this block four times.
+fn tl_meta_dict(
+    id: &str,
+    name: &str,
+    origin: cartalith_civ::travel_library::EntryOrigin,
+    subtitle: &str,
+    validation: &cartalith_civ::travel_library::ValidationState,
+    usage_presets: usize,
+    usage_journeys: usize,
+    species_key: &str,
+) -> VarDictionary {
+    let (state, missing, conflicts) = travel_bridge::validation_state_parts(validation);
+    let missing_arr: PackedStringArray = missing.iter().map(GString::from).collect();
+    let conflicts_arr: PackedStringArray = conflicts.iter().map(GString::from).collect();
+    vdict! {
+        "id" => id,
+        "name" => name,
+        "origin" => if origin == cartalith_civ::travel_library::EntryOrigin::Stock { "stock" } else { "custom" },
+        "editable" => origin == cartalith_civ::travel_library::EntryOrigin::Custom,
+        "subtitle" => subtitle,
+        "species_key" => species_key,
+        "validation_state" => state,
+        "validation_missing" => &missing_arr,
+        "validation_conflicts" => &conflicts_arr,
+        "usage_presets" => usage_presets as i64,
+        "usage_journeys" => usage_journeys as i64,
+    }
+}
+
+/// `tl_get`'s field-data merge step: every `(key, JpValue)` pair from a
+/// `*_to_pairs` function, set onto an already-built metadata `Dictionary`.
+/// Reuses `jp_pairs_dict` (already generic over `journey_bridge::JpValue`)
+/// rather than a second flattening loop.
+fn merge_pairs<S: AsRef<str>>(d: &mut VarDictionary, pairs: &[(S, journey_bridge::JpValue)]) {
+    for (k, v) in jp_pairs_dict(pairs).iter_shared() {
+        d.set(&k, &v);
+    }
+}
+
+/// `tl_edit`'s shared success-path result `Dictionary` -- built once here
+/// rather than four times inline across the `kind` match arms.
+fn tl_edit_result(rejected: &PackedStringArray, validation: &cartalith_civ::travel_library::ValidationState) -> VarDictionary {
+    let (state, missing, conflicts) = travel_bridge::validation_state_parts(validation);
+    let missing_arr: PackedStringArray = missing.iter().map(GString::from).collect();
+    let conflicts_arr: PackedStringArray = conflicts.iter().map(GString::from).collect();
+    vdict! {
+        "ok" => true,
+        "error" => "",
+        "rejected" => rejected,
+        "validation_state" => state,
+        "validation_missing" => &missing_arr,
+        "validation_conflicts" => &conflicts_arr,
     }
 }
 

@@ -18,6 +18,17 @@ cartalith-noise = { path = "../cartalith-noise" }
 cartalith-civ = { path = "../cartalith-civ" }
 cartalith-hydrology = { path = "../cartalith-hydrology" }
 cartalith-assets = { path = "../cartalith-assets" }
+# `sample_bridge.rs`'s Wind/Ocean-currents debug views (layer-visualization
+# pass, `CHANGELOG.md`): `current_wind_field`/`ocean_sst_anomaly` are real
+# functions this crate now calls at debug-view-select time, not just under
+# `[dev-dependencies]` test harnesses -- promoted from dev-only to a regular
+# dependency for exactly that reason.
+cartalith-climate = { path = "../cartalith-climate" }
+# Same views' coarse-grid sizing (`WW=min(GW,240), WH=round(WW*GH/GW)`,
+# reference HTML line 5557) needs `Math.round`'s own tie-break (`js_round`),
+# not Rust's `f64::round` -- `cartalith-rust-conventions`' own "V8's libm is
+# not Rust's" rule, applied to rounding rather than a transcendental.
+cartalith-jsmath = { path = "../cartalith-jsmath" }
 # `UNIFIED_TOOL_PLAN.md` milestone F (`STRANDED_TOOLS.md` rows 4-8): the
 # Sculpt editor binding needs the feature/preset/stamp registry directly
 # (`cartalith-terrain::sculpt`) and the non-destructive draft stack it
@@ -46,11 +57,11 @@ rayon = "1"
 # (`tests/sculpt_live_l0_bench.rs`) needs `compute_temperature`/
 # `simulate_weather`/`apply_climate_moisture_correctors` directly to measure
 # a standalone "climate refresh" the same way `generate_terrain` chains
-# them, and `cartalith-gpu`'s `_with` GPU flow/weather entry points to
-# measure the CPU-vs-GPU comparison the scope asks for. Both are already
-# transitively pulled in via `cartalith-engine` (a regular dependency
-# above); dev-only here, so this adds nothing to the shipped `cdylib`.
-# Same pattern `cartalith-gpu`'s own `Cargo.toml` already uses for its
-# milestone 4/7/9 dev-dependencies.
-cartalith-climate = { path = "../cartalith-climate" }
+# them (`cartalith-climate` itself moved to `[dependencies]` above once
+# `sample_bridge.rs` started calling it outside tests too), and
+# `cartalith-gpu`'s `_with` GPU flow/weather entry points to measure the
+# CPU-vs-GPU comparison the scope asks for -- already transitively pulled in
+# via `cartalith-engine` (a regular dependency above); dev-only here, so this
+# adds nothing to the shipped `cdylib`. Same pattern `cartalith-gpu`'s own
+# `Cargo.toml` already uses for its milestone 4/7/9 dev-dependencies.
 cartalith-gpu = { path = "../cartalith-gpu" }

@@ -69,10 +69,51 @@
 //!   ramps are this port's own; every other view's ramp is ported from the
 //!   reference's own debug-overlay pixel loop (lines 8470-8530) and its
 //!   palette constants, so a view that exists in both looks the same.
+//!
+//! ## The layer-visualization audit (2026-08-19)
+//!
+//! An owner report that Ocean currents/Wind were missing prompted a full
+//! re-check of `LAYER_GROUPS` against the reference's **real** one
+//! (reference HTML line 13639-13646, 32 rows across the same six headings
+//! this port already uses) rather than trusting this module's own prior
+//! 18-view list. The reference has 31 named views (plus `off`); this port
+//! had 13 of them. Seven were genuinely buildable from already-retained or
+//! cheaply-derived `WorldState`/`CivData` fields and are added below
+//! (**Wind**, **Ocean currents**, **Water access**, **Flood**,
+//! **Resources**, **Carrying capacity**, **Settlement suitability**) — see
+//! each view's own match arm in [`debug_raster`] for its source fields.
+//!
+//! **Wind and Ocean currents are drawn as scalar/hue rasters, not arrows.**
+//! The reference's own pixel loop (lines 8510-8521) colours Wind by
+//! hue-by-bearing + lightness-by-speed (`hsl`, the same idiom this port's
+//! own Aspect view already uses) and Ocean currents by a warm/cool
+//! SST-anomaly colour derived *from* the current field, not the current
+//! vectors' hue directly. Neither is an arrow/streamline overlay in the
+//! reference, so neither is one here — a directional-*looking* raster
+//! technique is the faithful port, not a `_draw()` glyph layer this
+//! reference view never had.
+//!
+//! **The remaining eighteen reference rows are genuine engine gaps, not
+//! unexposed data**, confirmed by grepping every subsystem crate for the
+//! reference's own algorithm name and finding none: Köppen classification,
+//! Orogeny (the *signed* preview value needs the boundary-polyline
+//! structure `generate_terrain` folds into height and never retains —
+//! distinct from `crust_field`/`boundary_type`, which *are* retained),
+//! Geoid, Tides (both `PlanetParams`' own doc comment already says are
+//! unported, matching the reference's own `enabled:false` default),
+//! river Velocity-erosion ("Pillar 2", `cartalith-erosion` has no velocity
+//! field at all), Fjord probability, Landform classification (R5),
+//! regional Population density, the Site-profile composite, Wildlife
+//! ecoregions, and Wind-throw hazard. `LAYER_GROUPS` lists all eighteen, in
+//! the reference's own relative order, `available: false` with the real
+//! reason in each row's hint — disclosed, not omitted, per this shell's
+//! `_todo()` convention (`menus.gd`).
 
 use cartalith_civ::{
-    build_cart_biome, build_cart_terrain, build_lithology, build_slope_field, build_soil_fertility, classify_biome, BIOME_KEYS,
-    BIOME_LAKE, BIOME_OCEAN, CART_BIOMES, CART_TERRAINS, LITH_NAMES,
+    build_biome_raster, build_cart_biome, build_cart_terrain, build_carrying_capacity, build_coast_sdf, build_flood_field,
+    build_lithology, build_raw_slope_field, build_resource_potentials, build_settlement_suitability, build_slope_field,
+    build_soil_fertility, build_water_access, classify_biome, SuitabilityCtx, BIOME_KEYS, BIOME_LAKE, BIOME_OCEAN, CART_BIOMES,
+    CART_TERRAINS, LITH_NAMES,
 };
 
 /// How far a boundary-distance query searches before giving up. A ring
@@ -106,12 +147,34 @@ pub struct FieldRefs<'a> {
     pub crust_field: &'a [f32],
     pub resistance_field: &'a [f32],
     pub volcanic_field: &'a [f32],
+    /// `StressResult::shear_field` — already retained on `WorldState` for
+    /// `cartalith-civ`'s own `buildResourcePotentials` port (Phase 2
+    /// milestone 5), reused here by the Resources debug view for exactly
+    /// the same reason.
+    pub shear_field: &'a [f32],
     /// `CivData::water_bodies` — `None` for a loaded save (which carries no
     /// civilisation layer at all), which is exactly when biome/control read
     /// `—` in the dock rather than a fabricated value.
     pub water_bodies: Option<&'a [u8]>,
     /// `CivData::territory` — same `None` condition as `water_bodies`.
     pub territory: Option<&'a [i32]>,
+    /// `state.climate`/`state.planet` (`cartalith_engine::ClimateInputParams`/
+    /// `PlanetParams`) — needed only by the Wind/Ocean-currents debug views
+    /// below, which recompute a coarse wind/current field on demand rather
+    /// than reading one off `WorldState` (nothing retains one; see this
+    /// module's own memory-table doc comment and `current_wind_field`'s own
+    /// "deliberately uncached" note in `cartalith-climate`).
+    pub lat_n: f64,
+    pub lat_s: f64,
+    pub equator_temp: f64,
+    pub pole_temp: f64,
+    pub tilt_deg: f64,
+    pub rotation_hours: f64,
+    pub lapse_rate: f64,
+    pub wind_manual: bool,
+    pub wind_dir_deg: f64,
+    pub press_k: f64,
+    pub current_k: f64,
 }
 
 impl FieldRefs<'_> {
@@ -397,15 +460,20 @@ pub fn biome_name(b: u8) -> &'static str {
 /// rows.
 pub type LayerGroup = (&'static str, &'static [(&'static str, &'static str, &'static str)]);
 
-/// The reference's own `LAYER_GROUPS` (HTML line 13639), restricted to the
-/// views this port can actually draw from retained state, plus the four it
-/// adds for Sample fields the reference never had a view for (elevation,
-/// slope, aspect, resistance — flagged in each row's blurb).
+/// The reference's own `LAYER_GROUPS` (HTML line 13639-13646), in its exact
+/// row order within each heading, plus the five rows this port adds for
+/// Sample fields the reference never had a view for (elevation, resistance,
+/// slope, aspect, control — flagged in each row's blurb, kept at the tail of
+/// their group so the reference's own rows stay in their original relative
+/// order ahead of them). Rows whose engine equivalent is a genuine,
+/// confirmed gap (not merely unexposed — see this module's own "layer-
+/// visualization audit" doc section above) are still listed, `available:
+/// false` always, with the real reason in the hint.
 ///
-/// `(group, [(id, label, blurb)])`. The order is the reference's, so a user
-/// who knows the original finds the same views in the same places; the
-/// reference's Base/Climate/Tectonics/Hydrology/Surface/Civilization
-/// headings are kept verbatim.
+/// `(group, [(id, label, blurb)])`. The reference's
+/// Base/Climate/Tectonics/Hydrology/Surface/Civilization headings are kept
+/// verbatim, so a user who knows the original finds the same views in the
+/// same places.
 pub const LAYER_GROUPS: [LayerGroup; 6] = [
     (
         "Base",
@@ -422,7 +490,22 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
         "Climate",
         &[
             ("temp", "Temperature", "tempColor(): -30 C blue through +35 C red."),
+            (
+                "koppen",
+                "Köppen climate",
+                "Not available: no Köppen classification (koppenField/koppenColor) exists in this engine.",
+            ),
             ("rain", "Rainfall", "rainColor(): arid tan through wet blue. Land only."),
+            (
+                "wind",
+                "Wind",
+                "current_wind_field(): hue = bearing, brightness = speed (the reference's own hsl-by-direction idiom, not arrows — computed fresh on pick, matching the reference's own uncached currentWindField()).",
+            ),
+            (
+                "ocean",
+                "Ocean currents",
+                "ocean_sst_anomaly(): warm poleward current -> orange/red, cold equatorward -> blue/cyan. A scalar SST-anomaly colour derived from the real current field, matching the reference's own currentOceanField() view exactly (not a vector-hue raster).",
+            ),
         ],
     ),
     (
@@ -431,8 +514,23 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
             ("plates", "Plates", "Plate partition; boundary cells darkened."),
             ("bounds", "Plate boundaries", "Boundary cells only: red convergent, blue divergent (by stress sign)."),
             ("btype", "Tectonic type", "BTYPE_COLS: collision, subduction, island arc, rift, transform."),
+            (
+                "oro",
+                "Orogeny",
+                "Not available: the signed orogeny preview needs the boundary-polyline structure generate_terrain folds into height and never retains (distinct from crust_field/boundary_type, which are retained).",
+            ),
             ("stress", "Stress", "divColor(): warm convergent, cool divergent."),
             ("age", "Crust age", "Dark young (near a boundary), light old."),
+            (
+                "geoid",
+                "Geoid",
+                "Not available: this port has no geoid field (PlanetParams omits it; the reference itself defaults it off).",
+            ),
+            (
+                "tides",
+                "Tides",
+                "Not available: this port has no tidal-range field (PlanetParams omits it; the reference itself defaults it off).",
+            ),
             (
                 "resistance",
                 "Rock resistance",
@@ -445,6 +543,13 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
         &[
             ("flow", "River flow", "Log-scaled flow discharge over dim land; hypsometric water."),
             ("strahler", "Strahler order", "Stream order, headwaters to trunk. Empty when river extraction was off."),
+            (
+                "velo",
+                "Velocity",
+                "Not available: no hydraulic velocity-erosion pass (the reference's own \"Pillar 2\") exists in cartalith-erosion.",
+            ),
+            ("fjord", "Fjord mask", "Not available: no fjord-probability field exists in this engine."),
+            ("flood", "Flood", "build_flood_field(): topographic-wetness + discharge + lowland proximity. Land only."),
         ],
     ),
     (
@@ -453,7 +558,9 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
             ("bclass", "Biomes", "buildCartBiome()'s 15-class paint grid, CART_BIOME_COLS."),
             ("cterrain", "Terrain", "buildCartTerrain()'s 13-class paint grid, CART_TERRAIN_COLS."),
             ("lith", "Lithology", "LITH_COLS: the seven rock types."),
+            ("landform", "Landforms", "Not available: no landform classification (the reference's own R5 pass) exists in this engine."),
             ("soil", "Soil fertility", "Pale to rich green. Land only."),
+            ("water", "Water access", "build_water_access(): dry tan near nothing, blue near rivers/coast."),
             (
                 "slope",
                 "Slope",
@@ -468,9 +575,42 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
     ),
     (
         "Civilization",
-        &[("control", "Political control", "assign_territory()'s owner per cell, in the faction swatch.")],
+        &[
+            (
+                "rsrc",
+                "Resources",
+                "build_resource_potentials(): highest of copper/tin/iron/gold/salt/timber at each cell, RESOURCE_COLS.",
+            ),
+            ("carry", "Carrying capacity", "build_carrying_capacity(): dark to green, land only."),
+            (
+                "popdensity",
+                "Pop density (persons/km²)",
+                "Not available: no regional population-density estimator exists in this engine.",
+            ),
+            (
+                "settle",
+                "Settlement suitability",
+                "build_settlement_suitability(): dark to warm orange. Full-context scoring minus the reference's own natural-route-corridor term, which this engine doesn't compute.",
+            ),
+            (
+                "siteprofile",
+                "Site profile (buildability)",
+                "Not available: the flood + slope buildability composite has no Rust equivalent beyond its two inputs individually.",
+            ),
+            ("wildlife", "Wildlife", "Not available: no wildlife-ecoregion classification exists in this engine."),
+            ("windthrow", "Wind-throw", "Not available: no wind-throw hazard model exists in this engine."),
+            ("control", "Political control", "assign_territory()'s owner per cell, in the faction swatch."),
+        ],
     ),
 ];
+
+/// The eighteen reference rows this engine has no computation for at all —
+/// not "unretained", genuinely never ported (this module's own "layer-
+/// visualization audit" doc section above). Always unavailable, on every
+/// world, which is why these are a flat id list rather than a per-world
+/// input check like every other row below.
+const GAP_LAYERS: &[&str] =
+    &["koppen", "oro", "geoid", "tides", "velo", "fjord", "landform", "popdensity", "siteprofile", "wildlife", "windthrow"];
 
 /// Whether `id` can be drawn for this world, **without building it**.
 ///
@@ -482,6 +622,9 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
 /// against the real one, so the two cannot disagree.
 pub fn layer_available(f: &FieldRefs, id: &str) -> bool {
     if f.gw == 0 || f.gh == 0 {
+        return false;
+    }
+    if GAP_LAYERS.contains(&id) {
         return false;
     }
     match id {
@@ -602,6 +745,19 @@ pub const LITH_COLS: [(u8, u8, u8); 7] = [
 pub const BTYPE_COLS: [(u8, u8, u8); 6] =
     [(120, 120, 120), (235, 96, 40), (186, 82, 212), (58, 205, 182), (70, 130, 235), (235, 212, 72)];
 
+/// The first six of `RESOURCE_COLS` (reference HTML line 6032) — the only
+/// ones the Resources debug view ever shows (`rkeys` at line 8494 hard-codes
+/// exactly these six; the nine v1.31 scarcity-thinned additions have no
+/// debug-view row in the reference either). Order matches [`RESOURCE_NAMES`]
+/// and `ResourcePotentials`' own field order for the same six.
+pub const RESOURCE_COLS: [(u8, u8, u8); 6] =
+    [(184, 108, 40), (148, 148, 160), (108, 88, 72), (212, 180, 40), (220, 210, 160), (48, 100, 56)];
+
+/// Legend captions for [`RESOURCE_COLS`] (reference HTML line 9894's own
+/// legend text).
+pub const RESOURCE_NAMES: [&str; 6] =
+    ["Copper (subduction/arc)", "Tin (old granite)", "Iron (cratons/bog)", "Gold (transform faults)", "Salt (evaporite basins)", "Timber (closed canopy)"];
+
 /// `CART_BIOME_COLS` (reference HTML line 6813), 1-based like `CART_BIOMES`.
 pub const CART_BIOME_COLS: [(u8, u8, u8); 15] = [
     (90, 147, 184),
@@ -684,6 +840,20 @@ pub fn legend(id: &str) -> Vec<(u8, u8, u8, String)> {
         "resistance" => vec![sw((60.0, 62.0, 74.0), "weak rock"), sw((236.0, 226.0, 196.0), "hard basement")],
         "slope" => vec![sw((52.0, 74.0, 60.0), "flat"), sw((222.0, 196.0, 96.0), "~25 deg"), sw((214.0, 78.0, 62.0), "45 deg+")],
         "flow" => vec![sw((28.0, 96.0, 205.0), "high discharge"), sw((120.0, 138.0, 120.0), "dry land")],
+        // hue-by-bearing legends read as a compass ring, not three swatches
+        // -- the ramp caption ("hue = bearing, brightness = speed") already
+        // says more than picking three arbitrary directions would.
+        "wind" => vec![sw(hsl(0.0, 0.68, 0.55), "N"), sw(hsl(0.25, 0.68, 0.55), "E"), sw(hsl(0.5, 0.68, 0.55), "S"), sw(hsl(0.75, 0.68, 0.55), "W")],
+        "ocean" => vec![sw((220.0, 110.0, 50.0), "warm current"), sw((26.0, 28.0, 34.0), "land / calm"), sw((30.0, 140.0, 210.0), "cold current")],
+        "water" => vec![sw((30.0, 90.0, 150.0), "at water"), sw((110.0, 152.0, 174.0), "moderate"), sw((200.0, 198.0, 158.0), "far from water")],
+        "flood" => vec![sw((40.0, 95.0, 150.0), "dry"), sw((70.0, 130.0, 250.0), "flood-prone")],
+        "rsrc" => RESOURCE_COLS
+            .iter()
+            .zip(RESOURCE_NAMES.iter())
+            .map(|(&c, &l)| (c.0, c.1, c.2, l.to_string()))
+            .collect(),
+        "carry" => vec![sw((30.0, 80.0, 30.0), "low"), sw((60.0, 220.0, 60.0), "high carrying capacity")],
+        "settle" => vec![sw((80.0, 40.0, 20.0), "poor"), sw((240.0, 140.0, 50.0), "highly suitable")],
         _ => Vec::new(),
     }
 }
@@ -697,6 +867,35 @@ fn push(out: &mut Vec<u8>, c: Rgb) {
 
 fn u8c(c: (u8, u8, u8)) -> Rgb {
     (c.0 as f64, c.1 as f64, c.2 as f64)
+}
+
+/// `bilC` (reference HTML line 5537): bilinear sample of a coarse `ww*wh`
+/// grid at a fractional `(fx, fy)`, with optional x-wrap. The Wind/Ocean
+/// debug views are the only callers -- both source fields live on a coarse
+/// grid (`min(GW,240)` wide) the way the reference's own `wind`/`ocean`
+/// preview objects do, and this is how the reference upsamples that coarse
+/// grid back onto the full `GW*GH` raster.
+fn bil_c(a: &[f32], fx: f64, fy: f64, ww: usize, wh: usize, wrap_x: bool) -> f64 {
+    if ww == 0 || wh == 0 {
+        return 0.0;
+    }
+    let fx = if wrap_x {
+        fx.rem_euclid(ww as f64)
+    } else {
+        fx.clamp(0.0, (ww - 1) as f64)
+    };
+    let fy = fy.clamp(0.0, (wh - 1) as f64);
+    let x0 = fx as usize;
+    let y0 = fy as usize;
+    let x1 = if x0 + 1 >= ww { if wrap_x { 0 } else { ww - 1 } } else { x0 + 1 };
+    let y1 = if y0 + 1 >= wh { wh - 1 } else { y0 + 1 };
+    let tx = fx - x0 as f64;
+    let ty = fy - y0 as f64;
+    let v00 = a[y0 * ww + x0] as f64;
+    let v01 = a[y0 * ww + x1] as f64;
+    let v10 = a[y1 * ww + x0] as f64;
+    let v11 = a[y1 * ww + x1] as f64;
+    (v00 * (1.0 - tx) + v01 * tx) * (1.0 - ty) + (v10 * (1.0 - tx) + v11 * tx) * ty
 }
 
 /// One debug view as a `gw * gh` RGBA8 byte buffer, ready for
@@ -919,6 +1118,225 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
                 }
             }
         }
+        // ---- The layer-visualization audit's seven additions (module doc). ----
+        "wind" => {
+            let wf = cartalith_climate::current_wind_field(
+                f.gw,
+                f.gh,
+                f.field,
+                sea,
+                f.peak_m,
+                f.world,
+                f.lat_n,
+                f.lat_s,
+                f.equator_temp,
+                f.pole_temp,
+                f.tilt_deg,
+                f.rotation_hours,
+                f.lapse_rate,
+                f.wind_manual,
+                f.wind_dir_deg,
+                f.press_k,
+            );
+            let wrap_x = f.world;
+            for y in 0..f.gh {
+                let fy = y as f64 / (f.gh as f64 - 1.0).max(1.0) * (wf.wh as f64 - 1.0);
+                for x in 0..f.gw {
+                    let i = y * f.gw + x;
+                    let fx = x as f64 / (f.gw as f64 - 1.0).max(1.0) * (wf.ww as f64 - 1.0);
+                    let u = bil_c(&wf.u, fx, fy, wf.ww, wf.wh, wrap_x);
+                    let v = bil_c(&wf.v, fx, fy, wf.ww, wf.wh, wrap_x);
+                    let sp = u.hypot(v);
+                    // `hsl`, hue = bearing (reference line 8513), the same
+                    // idiom this port's own Aspect view already uses.
+                    let bearing = (v.atan2(u) / (2.0 * std::f64::consts::PI) + 0.5).rem_euclid(1.0);
+                    let sat = if is_water(i) { 0.5 } else { 0.68 };
+                    let light = 0.20 + 0.55 * (sp / wf.max_speed).min(1.0);
+                    let c = hsl(bearing, sat, light);
+                    let c = if is_water(i) { (c.0 * 0.82 + 12.0, c.1 * 0.82 + 18.0, c.2 * 0.82 + 30.0) } else { c };
+                    push(&mut out, c);
+                }
+            }
+        }
+        "ocean" => {
+            let ww = f.gw.min(240);
+            let wh = (cartalith_jsmath::js_round(ww as f64 * f.gh as f64 / f.gw.max(1) as f64) as usize).max(2);
+            let wrap_x = f.world;
+            let sst = cartalith_climate::ocean_sst_anomaly(
+                f.gw,
+                f.gh,
+                f.field,
+                ww,
+                wh,
+                wrap_x,
+                3.0,
+                sea,
+                f.world,
+                f.lat_n,
+                f.lat_s,
+                f.equator_temp,
+                f.pole_temp,
+                f.tilt_deg,
+                f.rotation_hours,
+                f.wind_manual,
+                f.wind_dir_deg,
+                f.press_k,
+                f.current_k,
+            );
+            // `ocean_sst_anomaly` already zeroes land cells internally, so
+            // the max-abs here matches the reference's own `maxAnom` (which
+            // only scans `cur.ocean` cells) without needing that mask too.
+            let max_anom = sst.iter().fold(1e-6f64, |acc, &v| acc.max((v as f64).abs()));
+            for y in 0..f.gh {
+                let fy = y as f64 / (f.gh as f64 - 1.0).max(1.0) * (wh as f64 - 1.0);
+                for x in 0..f.gw {
+                    let i = y * f.gw + x;
+                    if is_water(i) {
+                        let fx = x as f64 / (f.gw as f64 - 1.0).max(1.0) * (ww as f64 - 1.0);
+                        let a = bil_c(&sst, fx, fy, ww, wh, wrap_x);
+                        let t = (a / max_anom).clamp(-1.0, 1.0);
+                        if t >= 0.0 {
+                            push(&mut out, (40.0 + t * 180.0, 70.0 + t * 40.0, 90.0 - t * 40.0));
+                        } else {
+                            let u2 = -t;
+                            push(&mut out, (30.0, 80.0 + u2 * 60.0, 120.0 + u2 * 90.0));
+                        }
+                    } else {
+                        push(&mut out, (26.0, 28.0, 34.0));
+                    }
+                }
+            }
+        }
+        "water" => {
+            let flow_thresh = cartalith_hydrology::river_flow_thresh(f.gw, f.gh, f.gw, f.map_width_km);
+            let water = build_water_access(f.flow_discharge, f.field, f.gw, f.gh, sea, flow_thresh);
+            for (i, &wv) in water.iter().enumerate().take(n) {
+                if is_water(i) {
+                    push(&mut out, (30.0, 90.0, 150.0));
+                } else {
+                    let u = wv as f64;
+                    push(&mut out, (200.0 - u * 150.0, 198.0 - u * 58.0, 158.0 + u * 62.0));
+                }
+            }
+        }
+        "flood" => {
+            let raw_slope = build_raw_slope_field(f.field, f.gw, f.gh, f.world);
+            let flood = build_flood_field(f.field, f.flow_discharge, &raw_slope, f.gw, f.gh, sea);
+            for (i, &fv) in flood.iter().enumerate().take(n) {
+                if is_water(i) {
+                    let c = hypso(f.field[i] as f64, sea);
+                    push(&mut out, (c.0 * 0.7, c.1 * 0.75, c.2));
+                } else {
+                    let u = fv as f64;
+                    push(&mut out, (40.0 + u * 30.0, 95.0 + u * 35.0, 150.0 + u * 100.0));
+                }
+            }
+        }
+        "rsrc" => {
+            let lith = build_lithology(f.field, f.age_field, f.volcanic_field, f.crust_field, f.resistance_field, f.rainfall, sea);
+            let biome = f.water_bodies.map(|wb| build_biome_raster(wb, f.temperature, f.rainfall));
+            let rp = build_resource_potentials(
+                &lith,
+                Some(f.boundary_type),
+                Some(f.shear_field),
+                Some(f.flow_discharge),
+                biome.as_deref(),
+                f.field,
+                f.rainfall,
+                f.age_field,
+                f.gw,
+                f.gh,
+                sea,
+                Some(f.volcanic_field),
+                true,
+                false,
+            );
+            // Only the six the reference's own `rsrc` view shows (line
+            // 8494's `rkeys`) -- the nine v1.31 scarcity-thinned resources
+            // have no debug-view row in the reference either.
+            let keys: [&[f32]; 6] = [&rp.copper, &rp.tin, &rp.iron, &rp.gold, &rp.salt, &rp.timber];
+            for i in 0..n {
+                let mut best = -1.0f64;
+                let mut bi = 0usize;
+                for (k, arr) in keys.iter().enumerate() {
+                    let v = arr[i] as f64;
+                    if v > best {
+                        best = v;
+                        bi = k;
+                    }
+                }
+                if best > 0.01 {
+                    let cf = u8c(RESOURCE_COLS[bi]);
+                    push(&mut out, (cf.0 * best + 40.0 * (1.0 - best), cf.1 * best + 40.0 * (1.0 - best), cf.2 * best + 40.0 * (1.0 - best)));
+                } else {
+                    push(&mut out, (40.0, 40.0, 40.0));
+                }
+            }
+        }
+        "carry" => {
+            let lith = build_lithology(f.field, f.age_field, f.volcanic_field, f.crust_field, f.resistance_field, f.rainfall, sea);
+            let slope_n_field = build_slope_field(f.field, f.gw, f.gh, f.world);
+            let soil = build_soil_fertility(&lith, f.temperature, f.rainfall, &slope_n_field, f.age_field);
+            let flow_thresh = cartalith_hydrology::river_flow_thresh(f.gw, f.gh, f.gw, f.map_width_km);
+            let water = build_water_access(f.flow_discharge, f.field, f.gw, f.gh, sea, flow_thresh);
+            let biome = f.water_bodies.map(|wb| build_biome_raster(wb, f.temperature, f.rainfall));
+            let carry = build_carrying_capacity(&soil, &water, biome.as_deref(), f.temperature, f.field, sea, 0.0, None);
+            for &cv in carry.iter().take(n) {
+                let v = cv as f64;
+                push(&mut out, (30.0 + 30.0 * v, 80.0 + 140.0 * v, 30.0 + 30.0 * v));
+            }
+        }
+        "settle" => {
+            let lith = build_lithology(f.field, f.age_field, f.volcanic_field, f.crust_field, f.resistance_field, f.rainfall, sea);
+            let slope_n_field = build_slope_field(f.field, f.gw, f.gh, f.world);
+            let raw_slope = build_raw_slope_field(f.field, f.gw, f.gh, f.world);
+            let soil = build_soil_fertility(&lith, f.temperature, f.rainfall, &slope_n_field, f.age_field);
+            let flow_thresh = cartalith_hydrology::river_flow_thresh(f.gw, f.gh, f.gw, f.map_width_km);
+            let water = build_water_access(f.flow_discharge, f.field, f.gw, f.gh, sea, flow_thresh);
+            let biome = f.water_bodies.map(|wb| build_biome_raster(wb, f.temperature, f.rainfall));
+            let carry = build_carrying_capacity(&soil, &water, biome.as_deref(), f.temperature, f.field, sea, 0.0, None);
+            let flood = build_flood_field(f.field, f.flow_discharge, &raw_slope, f.gw, f.gh, sea);
+            let coast_sdf = build_coast_sdf(f.field, f.gw, f.gh, sea);
+            let rp = build_resource_potentials(
+                &lith,
+                Some(f.boundary_type),
+                Some(f.shear_field),
+                Some(f.flow_discharge),
+                biome.as_deref(),
+                f.field,
+                f.rainfall,
+                f.age_field,
+                f.gw,
+                f.gh,
+                sea,
+                Some(f.volcanic_field),
+                true,
+                false,
+            );
+            // Every `ctx` field the engine can supply, except `corridor`/
+            // `landmass` (the reference's own "natural route corridor"
+            // affordance -- a real, disclosed gap, not core to placement
+            // scoring the way the rest of `ctx` is; see this view's own
+            // `LAYER_GROUPS` hint).
+            let ctx = SuitabilityCtx {
+                water_bodies: f.water_bodies,
+                corridor: None,
+                landmass: None,
+                flow: Some(f.flow_discharge),
+                river_order: f.stream_order,
+                coast_sdf: Some(&coast_sdf),
+                resources: Some(&rp),
+                rain: Some(f.rainfall),
+                flood: Some(&flood),
+                slope_raw: Some(&raw_slope),
+                flow_thresh,
+            };
+            let suit = build_settlement_suitability(&soil, &water, &carry, f.field, &slope_n_field, f.gw, f.gh, sea, Some(&ctx));
+            for &sv in suit.iter().take(n) {
+                let v = (sv as f64).clamp(0.0, 1.0);
+                push(&mut out, (80.0 + 160.0 * v, 40.0 + 100.0 * (1.0 - v), 20.0 + 30.0 * (1.0 - v)));
+            }
+        }
         _ => return None,
     }
     Some(out)
@@ -946,6 +1364,7 @@ mod tests {
         crust: Vec<f32>,
         resist: Vec<f32>,
         volc: Vec<f32>,
+        shear: Vec<f32>,
         plate: Vec<usize>,
         mask: Vec<u8>,
         btype: Vec<u8>,
@@ -974,6 +1393,10 @@ mod tests {
             resist: (0..n).map(|i| (i % 7) as f32 / 6.0).collect(),
             // Straddles `volc_th` (0.35).
             volc: (0..n).map(|i| (i % 11) as f32 / 10.0).collect(),
+            // Shear, for `build_resource_potentials`' gold/silver veins --
+            // straddles the same order of magnitude the reference's own
+            // shear thresholds sit at.
+            shear: (0..n).map(|i| (i % 8) as f32 / 7.0).collect(),
             plate: (0..n).map(|i| i % 3).collect(),
             mask: (0..n).map(|i| u8::from(i % 11 == 0)).collect(),
             btype: (0..n).map(|i| (i % 6) as u8).collect(),
@@ -1007,8 +1430,20 @@ mod tests {
             crust_field: &o.crust,
             resistance_field: &o.resist,
             volcanic_field: &o.volc,
+            shear_field: &o.shear,
             water_bodies: if civ { Some(&o.wb) } else { None },
             territory: if civ { Some(&o.terr) } else { None },
+            lat_n: 40.0,
+            lat_s: -10.0,
+            equator_temp: 28.0,
+            pole_temp: -20.0,
+            tilt_deg: 23.4,
+            rotation_hours: 24.0,
+            lapse_rate: 6.5,
+            wind_manual: false,
+            wind_dir_deg: 0.0,
+            press_k: 1.0,
+            current_k: 1.0,
         }
     }
 
@@ -1127,8 +1562,20 @@ mod tests {
             crust_field: &ones,
             resistance_field: &ones,
             volcanic_field: &ones,
+            shear_field: &ones,
             water_bodies: None,
             territory: None,
+            lat_n: 40.0,
+            lat_s: -10.0,
+            equator_temp: 28.0,
+            pole_temp: -20.0,
+            tilt_deg: 23.4,
+            rotation_hours: 24.0,
+            lapse_rate: 6.5,
+            wind_manual: false,
+            wind_dir_deg: 0.0,
+            press_k: 1.0,
+            current_k: 1.0,
         };
         let s = sample_cell(&f, 4, 4).unwrap();
         assert!(s.aspect_deg.is_none());
@@ -1172,8 +1619,20 @@ mod tests {
             crust_field: &ones,
             resistance_field: &ones,
             volcanic_field: &ones,
+            shear_field: &ones,
             water_bodies: None,
             territory: None,
+            lat_n: 40.0,
+            lat_s: -10.0,
+            equator_temp: 28.0,
+            pole_temp: -20.0,
+            tilt_deg: 23.4,
+            rotation_hours: 24.0,
+            lapse_rate: 6.5,
+            wind_manual: false,
+            wind_dir_deg: 0.0,
+            press_k: 1.0,
+            current_k: 1.0,
         };
         let d = boundary_dist_cells(&f, 16, 16).expect("a seed exists within the cap");
         assert!((d - 4.0).abs() < 1e-12, "expected the true nearest 4.0, got {d}");
@@ -1209,8 +1668,20 @@ mod tests {
             crust_field: &ones,
             resistance_field: &ones,
             volcanic_field: &ones,
+            shear_field: &ones,
             water_bodies: None,
             territory: None,
+            lat_n: 40.0,
+            lat_s: -10.0,
+            equator_temp: 28.0,
+            pole_temp: -20.0,
+            tilt_deg: 23.4,
+            rotation_hours: 24.0,
+            lapse_rate: 6.5,
+            wind_manual: false,
+            wind_dir_deg: 0.0,
+            press_k: 1.0,
+            current_k: 1.0,
         };
         assert!(boundary_dist_cells(&f, 4, 4).is_none());
     }
@@ -1222,8 +1693,8 @@ mod tests {
         for (_, items) in LAYER_GROUPS.iter() {
             for (id, label, _) in items.iter() {
                 assert!(!label.is_empty());
-                if *id == "off" {
-                    assert!(debug_raster(&f, id).is_none(), "off draws nothing");
+                if *id == "off" || GAP_LAYERS.contains(id) {
+                    assert!(debug_raster(&f, id).is_none(), "{id} draws nothing (off, or a disclosed engine gap)");
                     continue;
                 }
                 let px = debug_raster(&f, id).unwrap_or_else(|| panic!("{id} produced no raster"));
@@ -1315,10 +1786,90 @@ mod tests {
         assert_eq!(legend("lith").len(), 7);
         assert_eq!(legend("bclass").len(), 15);
         assert_eq!(legend("btype").len(), 5, "BTYPE 0 (none) is never a boundary colour");
+        assert_eq!(legend("rsrc").len(), 6, "only the six the reference's own rsrc view shows");
         assert!(legend("off").is_empty());
         for (r, g, b, label) in legend("lith") {
             assert!(!label.is_empty());
             assert!(LITH_COLS.contains(&(r, g, b)));
+        }
+    }
+
+    /// The eighteen genuine engine gaps (`GAP_LAYERS`) must never advertise
+    /// as available, and must never draw -- with or without a civilisation
+    /// layer, with or without river extraction. A gap that silently became
+    /// "available" (e.g. because some future match arm's id collided) would
+    /// be exactly the kind of faked-looking-real regression this pass was
+    /// commissioned to fix in the first place.
+    #[test]
+    fn gap_layers_are_always_unavailable_and_never_draw() {
+        let o = owned(10, 8);
+        for civ in [true, false] {
+            let mut f = view(&o, civ);
+            for rivers in [true, false] {
+                f.stream_order = if rivers { Some(&o.order) } else { None };
+                for id in GAP_LAYERS {
+                    assert!(!layer_available(&f, id), "{id} must never be available (civ={civ}, rivers={rivers})");
+                    assert!(debug_raster(&f, id).is_none(), "{id} must never draw (civ={civ}, rivers={rivers})");
+                }
+            }
+        }
+        // Every gap id must actually be listed somewhere in LAYER_GROUPS --
+        // a typo'd id here would silently test nothing.
+        for id in GAP_LAYERS {
+            assert!(
+                LAYER_GROUPS.iter().any(|(_, items)| items.iter().any(|(k, _, _)| k == id)),
+                "{id} in GAP_LAYERS must also appear in LAYER_GROUPS"
+            );
+        }
+    }
+
+    /// Wind/Ocean/Water access/Flood/Resources/Carrying capacity all read
+    /// only `WorldState`-sourced fields (`FieldRefs` requires none of them
+    /// as `Option`), so they must work on a freshly generated world with no
+    /// civilisation layer at all -- unlike bclass/cterrain/control, which
+    /// genuinely do need one. Settlement suitability also works without a
+    /// civ layer (its own `ctx.water_bodies` is simply `None` then, the
+    /// same graceful-degradation `build_settlement_suitability` already
+    /// documents for a `None` `ctx` entirely).
+    #[test]
+    fn new_hydrology_and_civ_affordance_views_work_without_a_civ_layer() {
+        let o = owned(14, 10);
+        let f = view(&o, false);
+        for id in ["wind", "ocean", "water", "flood", "rsrc", "carry", "settle"] {
+            assert!(layer_available(&f, id), "{id} should not require a civilisation layer");
+            let px = debug_raster(&f, id).unwrap_or_else(|| panic!("{id} produced no raster without a civ layer"));
+            assert_eq!(px.len(), o.gw * o.gh * 4, "{id} wrong buffer size");
+        }
+    }
+
+    /// Wind's hue-by-bearing raster must actually vary with speed/direction
+    /// (not paint one flat colour), and must be deterministic across two
+    /// derivations of the same world -- `current_wind_field` is recomputed
+    /// fresh on every call, matching the reference's own uncached
+    /// `currentWindField()`, so a real, non-random field must reproduce
+    /// exactly.
+    #[test]
+    fn wind_view_is_deterministic_across_repeated_derivation() {
+        let o = owned(16, 12);
+        let f = view(&o, true);
+        let a = debug_raster(&f, "wind").unwrap();
+        let b = debug_raster(&f, "wind").unwrap();
+        assert_eq!(a, b, "current_wind_field must be deterministic, not resampled differently each call");
+    }
+
+    /// Ocean currents only colour ocean cells (the reference's own
+    /// `isWater(vw)` gate, line 8516) -- land must stay the flat "land /
+    /// calm" grey regardless of the underlying SST anomaly.
+    #[test]
+    fn ocean_view_only_colours_water_cells() {
+        let o = owned(16, 12);
+        let f = view(&o, true);
+        let px = debug_raster(&f, "ocean").unwrap();
+        for (i, c) in px.chunks(4).enumerate() {
+            let is_water = (o.field[i] as f64) < 0.42;
+            if !is_water {
+                assert_eq!((c[0], c[1], c[2]), (26, 28, 34), "land cell {i} must be the flat land colour");
+            }
         }
     }
 

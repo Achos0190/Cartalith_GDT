@@ -545,6 +545,91 @@ fn build_wind(
     (wx, wy)
 }
 
+/// The Wind debug view's own field (`u`/`v` plus the sampling grid and peak
+/// speed), mirroring `currentWindField()` (reference HTML lines 5555-5569)
+/// exactly: the same coarse `ww`×`wh` grid every other debug preview in this
+/// port uses (`min(GW,240)`), a lapse-rate-cooled sea-level temperature
+/// proxy (elevation above sea, no geoid term — this port has no geoid field,
+/// `cartalith-engine`'s own `PlanetParams` doc comment already gives the
+/// reasoning for why that's bit-identical to the reference's own
+/// `geoidField` being absent), fed through the same [`build_wind`] the live
+/// weather simulation uses.
+///
+/// **Deliberately uncached, matching the reference's own cost.**
+/// `currentWindField()` is called fresh every render frame the Wind view is
+/// active (`renderNow`'s own `dbg==='wind'` branch reads it, not a
+/// once-per-pick cache) — this mirrors that, and every caller in this port
+/// only calls it when the Wind debug view is actually selected, the same
+/// "derive when picked, keep nothing after" rule [`ocean_sst_anomaly`] and
+/// `sample_bridge`'s own debug rasters already follow.
+pub struct WindFieldResult {
+    pub u: Vec<f32>,
+    pub v: Vec<f32>,
+    pub ww: usize,
+    pub wh: usize,
+    pub max_speed: f64,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn current_wind_field(
+    gw: usize,
+    gh: usize,
+    field: &[f32],
+    sea: f64,
+    peak_m: f64,
+    world: bool,
+    lat_n: f64,
+    lat_s: f64,
+    equator_temp: f64,
+    pole_temp: f64,
+    tilt_deg: f64,
+    rotation_hours: f64,
+    lapse_rate: f64,
+    wind_manual: bool,
+    wind_dir_deg: f64,
+    press_k: f64,
+) -> WindFieldResult {
+    let ww = gw.min(240);
+    let wh = (js_round(ww as f64 * gh as f64 / gw.max(1) as f64) as usize).max(2);
+    let n = ww * wh;
+    let step = 3.0;
+    // `climEffectiveEquatorTemp()`/`metersPerUnit()` (reference HTML lines
+    // 5115/4951) — the same two helpers `ocean_sst_anomaly` and
+    // `sample_bridge::FieldRefs::elevation_m` already use, not restated.
+    let eq_eff = clim_effective_equator_temp(equator_temp, pole_temp, tilt_deg, rotation_hours);
+    let mpu = peak_m / if (1.0 - sea) != 0.0 { 1.0 - sea } else { 1e-6 };
+
+    let lat_of = |y: usize| -> f64 {
+        if world {
+            90.0 - (y as f64 / (wh.max(1) as f64 - 1.0).max(1.0)) * 180.0
+        } else {
+            lat_n + (y as f64 / (wh.max(1) as f64 - 1.0).max(1.0)) * (lat_s - lat_n)
+        }
+    };
+
+    let mut tc = vec![0f32; n];
+    let mut elev_c = vec![0f32; n];
+    tc.par_chunks_mut(ww).zip(elev_c.par_chunks_mut(ww)).enumerate().for_each(|(y, (tc_row, elev_row))| {
+        let lat_r = lat_of(y) * std::f64::consts::PI / 180.0;
+        let t_sea = pole_temp + (eq_eff - pole_temp) * lat_r.cos().max(0.0);
+        for x in 0..ww {
+            let fx = x as f64 / (ww as f64 - 1.0) * (gw as f64 - 1.0);
+            let fy = y as f64 / (wh as f64 - 1.0) * (gh as f64 - 1.0);
+            let h = sample_arr(field, fx, fy, gw, gh);
+            elev_row[x] = h as f32;
+            tc_row[x] = (t_sea - lapse_rate * (h - sea).max(0.0) * mpu / 1000.0) as f32;
+        }
+    });
+
+    let (u, v) = build_wind(
+        ww, wh, step, Some(&tc), 0.0, world, lat_n, lat_s, wind_manual, wind_dir_deg, press_k, rotation_hours,
+        Some((&elev_c, sea)),
+    );
+    let max_speed =
+        u.par_iter().zip(v.par_iter()).map(|(&uu, &vv)| (uu as f64).hypot(vv as f64)).reduce(|| 1e-6, f64::max);
+    WindFieldResult { u, v, ww, wh, max_speed }
+}
+
 /// Tuning knobs `computeOceanCurrent()`'s own `opts` bag takes (reference
 /// HTML lines 5368-5369) — this port's one call site (`ocean_sst_anomaly`)
 /// passes JS's own defaults (an empty `{}` in JS resolves to
@@ -1441,9 +1526,59 @@ pub fn apply_climate_moisture_correctors(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn crate_compiles_and_tests_run() {
         assert_eq!(2 + 2, 4);
+    }
+
+    /// `current_wind_field` backs the port's new Wind debug view
+    /// (`sample_bridge.rs`, `LAYER_GROUPS`'s Climate group) — this is not a
+    /// golden-parity fixture (no JS `vm` extraction harness for it exists
+    /// yet, unlike `build_wind`/`compute_ocean_current` themselves, which
+    /// this function only composes), but it must still produce a real,
+    /// non-degenerate, deterministic field over a non-trivial world, the
+    /// same "shape fixtures to reach the code" rule every other view in this
+    /// port's own debug-raster suite follows.
+    #[test]
+    fn current_wind_field_is_real_non_uniform_and_deterministic() {
+        let (gw, gh) = (48usize, 32usize);
+        let n = gw * gh;
+        // A diagonal ramp with land and water both present, and latitude
+        // spanning both hemispheres via lat_n/lat_s -- the same fixture
+        // shape `sample_bridge`'s own tests use for exactly this reason.
+        let field: Vec<f32> = (0..n).map(|i| (((i % gw) + (i / gw)) as f32) / ((gw + gh) as f32)).collect();
+
+        let r1 = current_wind_field(gw, gh, &field, 0.42, 4000.0, false, 40.0, -10.0, 28.0, -20.0, 23.4, 24.0, 6.5, false, 0.0, 1.0);
+        assert_eq!(r1.ww, gw.min(240));
+        assert_eq!(r1.wh.max(2), r1.wh);
+        assert_eq!(r1.u.len(), r1.ww * r1.wh);
+        assert_eq!(r1.v.len(), r1.ww * r1.wh);
+        assert!(r1.max_speed > 1e-6, "a real wind field must have non-negligible speed somewhere");
+
+        let first = (r1.u[0], r1.v[0]);
+        assert!(r1.u.iter().zip(r1.v.iter()).any(|(&u, &v)| (u, v) != first), "wind must vary across latitude bands, not paint one flat vector");
+
+        let r2 = current_wind_field(gw, gh, &field, 0.42, 4000.0, false, 40.0, -10.0, 28.0, -20.0, 23.4, 24.0, 6.5, false, 0.0, 1.0);
+        assert_eq!(r1.u, r2.u, "deterministic for the same inputs");
+        assert_eq!(r1.v, r2.v);
+    }
+
+    /// `wind_manual` (a fixed user-chosen direction, `!world` only) must
+    /// actually override the latitude-band circulation -- every cell's
+    /// pre-Coriolis wind should point the same way before terrain
+    /// deflection perturbs it.
+    #[test]
+    fn current_wind_field_wind_manual_sets_a_uniform_direction_over_flat_ground() {
+        let (gw, gh) = (16usize, 16usize);
+        let field = vec![0.6f32; gw * gh]; // flat, above sea -- no terrain deflection to perturb the direction
+        let r = current_wind_field(gw, gh, &field, 0.42, 4000.0, false, 40.0, 20.0, 28.0, -20.0, 23.4, 24.0, 6.5, true, 90.0, 0.0);
+        // wind_dir_deg=90 (JS convention: 0=+x/east). cos(90)~0, sin(90)=1.
+        for (&u, &v) in r.u.iter().zip(r.v.iter()) {
+            assert!(u.abs() < 1e-3, "east component should be ~0 at 90 deg, got {u}");
+            assert!(v > 0.0, "north component should be positive at 90 deg, got {v}");
+        }
     }
 }
 

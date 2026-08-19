@@ -33,18 +33,16 @@
 //! `cartalith_civ::jp_plan`. [`tests::a_custom_animal_override_changes_a_computed_journey`]
 //! below exercises exactly that call chain end to end, proving it is real.
 
-// Not yet consumed by `lib.rs` (no `#[func]` layer exists this dispatch --
-// see the module doc's "What a later `#[func]` layer still needs to add"),
-// so every item here is otherwise dead code from `cargo build`'s point of
-// view. Exercised fully by this module's own `#[cfg(test)]` suite below.
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 
 use cartalith_civ::travel_library::{
-    AnimalDef, EntryOrigin, PartyPreset, ValidationState, VehicleDef, VesselDef, stock_animals,
+    AnimalDef, AnimalRole, Availability, EntryOrigin, GrazingTolerance, PartyPreset,
+    RoadRequirement, TL_TERRAIN_KEYS, TerrainAffinity, ValidationState, VehicleClass, VehicleDef,
+    VesselDef, VesselMode, SailingWindow, WaterRating, DraftRequirement, stock_animals,
     stock_party_presets, stock_vehicles, stock_vessels,
 };
+
+use crate::journey_bridge::JpValue;
 
 /// The common shape [`EntrySet`]'s generic CRUD needs from all four
 /// definition types -- an id, a mutable origin, and the ability to be
@@ -284,10 +282,588 @@ fn species_count(party: &cartalith_civ::JpParty, species_key: &str) -> i64 {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Variant-shaped field pairs for the `#[func]` boundary
+// ---------------------------------------------------------------------------
+//
+// `lib.rs`'s `#[func]` layer needs a flat `Variant`-shaped view of each
+// definition type -- a `Dictionary` a GDScript inspector can build a form
+// row from and, for edits, send a partial one back. This module stays
+// `godot`-free (this file's own doc comment), so what lives here is the
+// narrower thing that isolation actually requires: each field as a
+// `(key, journey_bridge::JpValue)` pair, the exact shape `journey_bridge`'s
+// own `plan_to_pairs`/`plan_from_pairs` already established for the Journey
+// Planner's own plan/party form and that `lib.rs`'s `jp_pairs_dict`/
+// `jp_dict_to_pairs` already flatten to and from a real `Dictionary`. Reusing
+// that machinery here (rather than inventing a second flattening convention)
+// is what lets `lib.rs`'s Travel Library `#[func]`s stay thin.
+//
+// Every `_to_pairs` function below emits only the fields **currently
+// `Some`/present** in an optional field -- an absent key in the output
+// `Dictionary` is `TRAVEL_LIBRARY_SPEC.md` §3's own "a field left unset is
+// incomplete, not zero", surfaced honestly rather than as a fabricated `0`.
+// Every `_apply_pairs` function starts from a **clone of the existing
+// entry**, not a blank one (unlike `journey_bridge::plan_from_pairs`, which
+// starts from `JpPlan::default()` because a plan is always sent whole) --
+// a partial edit here must leave every field the caller did not touch
+// exactly as it was, the same "partial is legal" contract `set_params` and
+// `jp_compute`'s own `plan` dictionary already establish elsewhere in this
+// crate.
+
+/// [`TL_TERRAIN_KEYS`] <-> the lowercase/underscore wire key each row uses
+/// as `"terrain.<slug>"` in every `_to_pairs`/`_apply_pairs` pair below --
+/// a raw key with an embedded space (`"terrain.High Pass"`) round-trips
+/// through a `Dictionary` fine, but a slug reads better from GDScript and
+/// matches every other snake_case key this boundary already uses.
+const TERRAIN_SLUGS: [(&str, &str); 10] = [
+    ("Plains", "plains"),
+    ("Steppe", "steppe"),
+    ("Forest", "forest"),
+    ("Hills", "hills"),
+    ("Mountain", "mountain"),
+    ("Marsh", "marsh"),
+    ("Desert", "desert"),
+    ("High Pass", "high_pass"),
+    ("Snowfield", "snowfield"),
+    ("River Ford", "river_ford"),
+];
+
+fn terrain_slug(key: &str) -> &'static str {
+    TERRAIN_SLUGS
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, s)| *s)
+        .expect("every TL_TERRAIN_KEYS row has a slug")
+}
+
+fn terrain_key_from_slug(slug: &str) -> Option<&'static str> {
+    TERRAIN_SLUGS.iter().find(|(_, s)| *s == slug).map(|(k, _)| *k)
+}
+
+fn affinity_out(a: &TerrainAffinity) -> JpValue {
+    match a {
+        TerrainAffinity::Multiplier(m) => JpValue::Num(*m),
+        TerrainAffinity::Blocked => JpValue::Str("blocked".to_string()),
+    }
+}
+
+/// Accepts either a number (a multiplier) or the literal string `"blocked"`
+/// -- exactly [`affinity_out`]'s own two output shapes, so a value this
+/// module just emitted always parses back.
+fn affinity_in(v: &JpValue) -> Option<TerrainAffinity> {
+    match v {
+        JpValue::Str(s) if s == "blocked" => Some(TerrainAffinity::Blocked),
+        _ => v.num().map(TerrainAffinity::Multiplier),
+    }
+}
+
+fn role_slug(r: &AnimalRole) -> &'static str {
+    match r {
+        AnimalRole::Pack => "pack",
+        AnimalRole::Mount => "mount",
+        AnimalRole::Draft => "draft",
+    }
+}
+
+fn roles_out(roles: &[AnimalRole]) -> JpValue {
+    JpValue::Str(roles.iter().map(|r| role_slug(r)).collect::<Vec<_>>().join(","))
+}
+
+fn roles_in(s: &str) -> Vec<AnimalRole> {
+    s.split(',')
+        .filter_map(|t| match t.trim() {
+            "pack" => Some(AnimalRole::Pack),
+            "mount" => Some(AnimalRole::Mount),
+            "draft" => Some(AnimalRole::Draft),
+            _ => None,
+        })
+        .collect()
+}
+
+fn grazing_out(g: Option<GrazingTolerance>) -> JpValue {
+    JpValue::Str(
+        match g {
+            Some(GrazingTolerance::Unrestricted) => "unrestricted",
+            Some(GrazingTolerance::GrasslandOnly) => "grassland_only",
+            Some(GrazingTolerance::None) => "none",
+            None => "",
+        }
+        .to_string(),
+    )
+}
+
+fn grazing_in(s: &str) -> Option<GrazingTolerance> {
+    match s {
+        "unrestricted" => Some(GrazingTolerance::Unrestricted),
+        "grassland_only" => Some(GrazingTolerance::GrasslandOnly),
+        "none" => Some(GrazingTolerance::None),
+        _ => None,
+    }
+}
+
+fn availability_kind_out(a: &Option<Availability>) -> JpValue {
+    JpValue::Str(
+        match a {
+            Some(Availability::Global) => "global",
+            Some(Availability::Regional(_)) => "regional",
+            None => "",
+        }
+        .to_string(),
+    )
+}
+
+fn availability_region_out(a: &Option<Availability>) -> JpValue {
+    JpValue::Str(match a {
+        Some(Availability::Regional(r)) => r.clone(),
+        _ => String::new(),
+    })
+}
+
+/// §4's ok/incomplete/conflicting, flattened to what `lib.rs` needs to hand
+/// a `Dictionary` its three separate keys without depending on this crate's
+/// own `ValidationState` shape.
+pub fn validation_state_parts(v: &ValidationState) -> (&'static str, Vec<String>, Vec<String>) {
+    match v {
+        ValidationState::Ok => ("ok", Vec::new(), Vec::new()),
+        ValidationState::Incomplete(missing) => {
+            ("incomplete", missing.iter().map(|s| s.to_string()).collect(), Vec::new())
+        }
+        ValidationState::Conflicting(reasons) => ("conflicting", Vec::new(), reasons.clone()),
+    }
+}
+
+// ---- 3.1 Animals & mounts ----
+
+/// The list rail's subtitle for an animal entry -- its roles, joined
+/// (`"pack · mount"`), or `"—"` for a blank entry with none set yet.
+pub fn animal_subtitle(a: &AnimalDef) -> String {
+    if a.roles.is_empty() {
+        "—".to_string()
+    } else {
+        a.roles.iter().map(|r| role_slug(r)).collect::<Vec<_>>().join(" · ")
+    }
+}
+
+pub fn animal_to_pairs(a: &AnimalDef) -> Vec<(String, JpValue)> {
+    let mut out = vec![
+        ("name".to_string(), JpValue::Str(a.name.clone())),
+        ("roles".to_string(), roles_out(&a.roles)),
+        ("substitutes_for".to_string(), JpValue::Str(a.substitutes_for.clone().unwrap_or_default())),
+        ("size_class".to_string(), JpValue::Str(a.size_class.clone().unwrap_or_default())),
+        ("availability_kind".to_string(), availability_kind_out(&a.availability)),
+        ("availability_region".to_string(), availability_region_out(&a.availability)),
+        ("grazing_tolerance".to_string(), grazing_out(a.grazing_tolerance)),
+        ("yokeable_to_wheeled".to_string(), JpValue::Bool(a.yokeable_to_wheeled)),
+        ("requires_road_to_tow".to_string(), JpValue::Bool(a.requires_road_to_tow)),
+        ("blocked_by_seasonal_closures".to_string(), JpValue::Bool(a.blocked_by_seasonal_closures)),
+        ("carryable_aboard_vessel".to_string(), JpValue::Bool(a.carryable_aboard_vessel)),
+        ("usable_as_mount".to_string(), JpValue::Bool(a.usable_as_mount)),
+    ];
+    for (k, v) in [
+        ("load_capacity_kg", a.load_capacity_kg),
+        ("draft_pull_kg", a.draft_pull_kg),
+        ("base_speed_kmh", a.base_speed_kmh),
+        ("sustainable_hours_day", a.sustainable_hours_day),
+        ("forced_pace_cap", a.forced_pace_cap),
+        ("fodder_need_kg_day", a.fodder_need_kg_day),
+        ("water_need_l_day", a.water_need_l_day),
+        ("waterless_limit_days", a.waterless_limit_days),
+        ("handlers_required_per_n_head", a.handlers_required_per_n_head),
+        ("upkeep_sp_day_head", a.upkeep_sp_day_head),
+    ] {
+        if let Some(n) = v {
+            out.push((k.to_string(), JpValue::Num(n)));
+        }
+    }
+    for &tl_key in &TL_TERRAIN_KEYS {
+        if let Some(aff) = a.terrain.get(tl_key) {
+            out.push((format!("terrain.{}", terrain_slug(tl_key)), affinity_out(aff)));
+        }
+    }
+    out
+}
+
+/// `base` cloned, then every recognised key in `pairs` applied on top --
+/// every field `base` already carried that `pairs` does not mention is
+/// untouched, including `id`/`origin`/`species_key` (none of which is a
+/// key this function recognises at all, so they can never be overwritten
+/// by a client dictionary). Returns the updated entry plus every
+/// unrecognised or wrong-typed key, this codebase's usual "a typo'd key is
+/// a bug worth seeing" contract.
+pub fn animal_apply_pairs(base: &AnimalDef, pairs: &[(String, JpValue)]) -> (AnimalDef, Vec<String>) {
+    let mut a = base.clone();
+    let mut rejected = Vec::new();
+    for (k, v) in pairs {
+        let applied = match k.as_str() {
+            "name" => v.text().map(|s| a.name = s.to_string()).is_some(),
+            "roles" => v.text().map(|s| a.roles = roles_in(s)).is_some(),
+            "substitutes_for" => {
+                v.text().map(|s| a.substitutes_for = (!s.is_empty()).then(|| s.to_string())).is_some()
+            }
+            "size_class" => v.text().map(|s| a.size_class = (!s.is_empty()).then(|| s.to_string())).is_some(),
+            "availability_kind" => v
+                .text()
+                .map(|s| {
+                    a.availability = match s {
+                        "global" => Some(Availability::Global),
+                        "regional" => Some(Availability::Regional(match &a.availability {
+                            Some(Availability::Regional(r)) => r.clone(),
+                            _ => String::new(),
+                        })),
+                        _ => None,
+                    };
+                })
+                .is_some(),
+            "availability_region" => v
+                .text()
+                .map(|s| {
+                    if !s.is_empty() || matches!(a.availability, Some(Availability::Regional(_))) {
+                        a.availability = Some(Availability::Regional(s.to_string()));
+                    }
+                })
+                .is_some(),
+            "load_capacity_kg" => v.num().map(|n| a.load_capacity_kg = Some(n)).is_some(),
+            "draft_pull_kg" => v.num().map(|n| a.draft_pull_kg = Some(n)).is_some(),
+            "base_speed_kmh" => v.num().map(|n| a.base_speed_kmh = Some(n)).is_some(),
+            "sustainable_hours_day" => v.num().map(|n| a.sustainable_hours_day = Some(n)).is_some(),
+            "forced_pace_cap" => v.num().map(|n| a.forced_pace_cap = Some(n)).is_some(),
+            "fodder_need_kg_day" => v.num().map(|n| a.fodder_need_kg_day = Some(n)).is_some(),
+            "water_need_l_day" => v.num().map(|n| a.water_need_l_day = Some(n)).is_some(),
+            "grazing_tolerance" => v.text().map(|s| a.grazing_tolerance = grazing_in(s)).is_some(),
+            "waterless_limit_days" => v.num().map(|n| a.waterless_limit_days = Some(n)).is_some(),
+            "yokeable_to_wheeled" => v.flag().map(|b| a.yokeable_to_wheeled = b).is_some(),
+            "requires_road_to_tow" => v.flag().map(|b| a.requires_road_to_tow = b).is_some(),
+            "blocked_by_seasonal_closures" => v.flag().map(|b| a.blocked_by_seasonal_closures = b).is_some(),
+            "carryable_aboard_vessel" => v.flag().map(|b| a.carryable_aboard_vessel = b).is_some(),
+            "usable_as_mount" => v.flag().map(|b| a.usable_as_mount = b).is_some(),
+            "handlers_required_per_n_head" => v.num().map(|n| a.handlers_required_per_n_head = Some(n)).is_some(),
+            "upkeep_sp_day_head" => v.num().map(|n| a.upkeep_sp_day_head = Some(n)).is_some(),
+            _ if k.starts_with("terrain.") => match (terrain_key_from_slug(&k["terrain.".len()..]), affinity_in(v)) {
+                (Some(tl_key), Some(aff)) => {
+                    a.terrain.insert(tl_key, aff);
+                    true
+                }
+                _ => false,
+            },
+            _ => false,
+        };
+        if !applied {
+            rejected.push(k.clone());
+        }
+    }
+    (a, rejected)
+}
+
+// ---- 3.2 Vehicles ----
+
+pub fn vehicle_subtitle(v: &VehicleDef) -> String {
+    match v.class {
+        Some(VehicleClass::Wheeled) => "wheeled".to_string(),
+        Some(VehicleClass::Dragged) => "dragged".to_string(),
+        None => "—".to_string(),
+    }
+}
+
+fn class_out(c: Option<VehicleClass>) -> JpValue {
+    JpValue::Str(
+        match c {
+            Some(VehicleClass::Wheeled) => "wheeled",
+            Some(VehicleClass::Dragged) => "dragged",
+            None => "",
+        }
+        .to_string(),
+    )
+}
+fn class_in(s: &str) -> Option<VehicleClass> {
+    match s {
+        "wheeled" => Some(VehicleClass::Wheeled),
+        "dragged" => Some(VehicleClass::Dragged),
+        _ => None,
+    }
+}
+fn road_req_out(r: Option<RoadRequirement>) -> JpValue {
+    JpValue::Str(
+        match r {
+            Some(RoadRequirement::None) => "none",
+            Some(RoadRequirement::Track) => "track",
+            Some(RoadRequirement::Road) => "road",
+            None => "",
+        }
+        .to_string(),
+    )
+}
+fn road_req_in(s: &str) -> Option<RoadRequirement> {
+    match s {
+        "none" => Some(RoadRequirement::None),
+        "track" => Some(RoadRequirement::Track),
+        "road" => Some(RoadRequirement::Road),
+        _ => None,
+    }
+}
+
+pub fn vehicle_to_pairs(v: &VehicleDef) -> Vec<(String, JpValue)> {
+    let mut out = vec![
+        ("name".to_string(), JpValue::Str(v.name.clone())),
+        ("class".to_string(), class_out(v.class)),
+        ("road_requirement".to_string(), road_req_out(v.road_requirement)),
+        ("carryable_aboard_vessel".to_string(), JpValue::Bool(v.carryable_aboard_vessel)),
+    ];
+    if let Some(n) = v.load_kg {
+        out.push(("load_kg".to_string(), JpValue::Num(n)));
+    }
+    if let Some(d) = &v.draft_head_required {
+        out.push(("draft_count".to_string(), JpValue::Int(i64::from(d.count))));
+        out.push(("draft_role".to_string(), JpValue::Str(d.role.clone())));
+    }
+    if let Some(n) = v.speed_mult {
+        out.push(("speed_mult".to_string(), JpValue::Num(n)));
+    }
+    if let Some(a) = &v.off_road {
+        out.push(("off_road".to_string(), affinity_out(a)));
+    }
+    if let Some(a) = &v.ford {
+        out.push(("ford".to_string(), affinity_out(a)));
+    }
+    out
+}
+
+pub fn vehicle_apply_pairs(base: &VehicleDef, pairs: &[(String, JpValue)]) -> (VehicleDef, Vec<String>) {
+    let mut v = base.clone();
+    let mut rejected = Vec::new();
+    let mut draft_count = v.draft_head_required.as_ref().map(|d| d.count);
+    let mut draft_role = v.draft_head_required.as_ref().map(|d| d.role.clone());
+    for (k, val) in pairs {
+        let applied = match k.as_str() {
+            "name" => val.text().map(|s| v.name = s.to_string()).is_some(),
+            "class" => val.text().map(|s| v.class = class_in(s)).is_some(),
+            "load_kg" => val.num().map(|n| v.load_kg = Some(n)).is_some(),
+            "draft_count" => val.int().map(|n| draft_count = Some(n.max(0) as u32)).is_some(),
+            "draft_role" => val.text().map(|s| draft_role = Some(s.to_string())).is_some(),
+            "speed_mult" => val.num().map(|n| v.speed_mult = Some(n)).is_some(),
+            "road_requirement" => val.text().map(|s| v.road_requirement = road_req_in(s)).is_some(),
+            "off_road" => affinity_in(val).map(|a| v.off_road = Some(a)).is_some(),
+            "ford" => affinity_in(val).map(|a| v.ford = Some(a)).is_some(),
+            "carryable_aboard_vessel" => val.flag().map(|b| v.carryable_aboard_vessel = b).is_some(),
+            _ => false,
+        };
+        if !applied {
+            rejected.push(k.clone());
+        }
+    }
+    if draft_count.is_some() || draft_role.is_some() {
+        v.draft_head_required =
+            Some(DraftRequirement { count: draft_count.unwrap_or(0), role: draft_role.unwrap_or_default() });
+    }
+    (v, rejected)
+}
+
+// ---- 3.3 Vessels ----
+
+pub fn vessel_subtitle(v: &VesselDef) -> String {
+    if v.modes.is_empty() {
+        "—".to_string()
+    } else {
+        v.modes
+            .iter()
+            .map(|m| match m {
+                VesselMode::River => "river",
+                VesselMode::Sea => "sea",
+            })
+            .collect::<Vec<_>>()
+            .join(" · ")
+    }
+}
+
+fn modes_out(m: &[VesselMode]) -> JpValue {
+    JpValue::Str(
+        m.iter()
+            .map(|x| match x {
+                VesselMode::River => "river",
+                VesselMode::Sea => "sea",
+            })
+            .collect::<Vec<_>>()
+            .join(","),
+    )
+}
+fn modes_in(s: &str) -> Vec<VesselMode> {
+    s.split(',')
+        .filter_map(|t| match t.trim() {
+            "river" => Some(VesselMode::River),
+            "sea" => Some(VesselMode::Sea),
+            _ => None,
+        })
+        .collect()
+}
+fn water_rating_out(w: Option<WaterRating>) -> JpValue {
+    JpValue::Str(
+        match w {
+            Some(WaterRating::Sheltered) => "sheltered",
+            Some(WaterRating::Coastal) => "coastal",
+            Some(WaterRating::Open) => "open",
+            None => "",
+        }
+        .to_string(),
+    )
+}
+fn water_rating_in(s: &str) -> Option<WaterRating> {
+    match s {
+        "sheltered" => Some(WaterRating::Sheltered),
+        "coastal" => Some(WaterRating::Coastal),
+        "open" => Some(WaterRating::Open),
+        _ => None,
+    }
+}
+fn sailing_window_out(w: Option<SailingWindow>) -> JpValue {
+    JpValue::Str(
+        match w {
+            Some(SailingWindow::Daylight) => "daylight",
+            Some(SailingWindow::Continuous) => "continuous",
+            None => "",
+        }
+        .to_string(),
+    )
+}
+fn sailing_window_in(s: &str) -> Option<SailingWindow> {
+    match s {
+        "daylight" => Some(SailingWindow::Daylight),
+        "continuous" => Some(SailingWindow::Continuous),
+        _ => None,
+    }
+}
+
+pub fn vessel_to_pairs(v: &VesselDef) -> Vec<(String, JpValue)> {
+    let mut out = vec![
+        ("name".to_string(), JpValue::Str(v.name.clone())),
+        ("modes".to_string(), modes_out(&v.modes)),
+        ("water_rating".to_string(), water_rating_out(v.water_rating)),
+        ("sailing_window".to_string(), sailing_window_out(v.sailing_window)),
+        ("portage_capable".to_string(), JpValue::Bool(v.portage_capable)),
+    ];
+    if let Some(n) = v.hold_kg {
+        out.push(("hold_kg".to_string(), JpValue::Num(n)));
+    }
+    if let Some(n) = v.crew_required {
+        out.push(("crew_required".to_string(), JpValue::Int(i64::from(n))));
+    }
+    if let Some(n) = v.base_speed_kmh {
+        out.push(("base_speed_kmh".to_string(), JpValue::Num(n)));
+    }
+    out
+}
+
+pub fn vessel_apply_pairs(base: &VesselDef, pairs: &[(String, JpValue)]) -> (VesselDef, Vec<String>) {
+    let mut v = base.clone();
+    let mut rejected = Vec::new();
+    for (k, val) in pairs {
+        let applied = match k.as_str() {
+            "name" => val.text().map(|s| v.name = s.to_string()).is_some(),
+            "modes" => val.text().map(|s| v.modes = modes_in(s)).is_some(),
+            "hold_kg" => val.num().map(|n| v.hold_kg = Some(n)).is_some(),
+            "crew_required" => val.int().map(|n| v.crew_required = Some(n.max(0) as u32)).is_some(),
+            "base_speed_kmh" => val.num().map(|n| v.base_speed_kmh = Some(n)).is_some(),
+            "water_rating" => val.text().map(|s| v.water_rating = water_rating_in(s)).is_some(),
+            "sailing_window" => val.text().map(|s| v.sailing_window = sailing_window_in(s)).is_some(),
+            "portage_capable" => val.flag().map(|b| v.portage_capable = b).is_some(),
+            _ => false,
+        };
+        if !applied {
+            rejected.push(k.clone());
+        }
+    }
+    (v, rejected)
+}
+
+// ---- 3.4 Party set-ups ----
+
+pub fn preset_subtitle(p: &PartyPreset) -> String {
+    p.transport.clone()
+}
+
+/// Reuses `journey_bridge::plan_to_pairs` rather than re-listing the same
+/// twenty field names a third time: [`PartyPreset::apply_to`] already
+/// projects a preset onto a full `JpPlan`, so running that through the
+/// Journey Planner's own flattener and keeping only the party-form keys
+/// (`PRESET_FIELD_KEYS`) is `PartyPreset::apply_to`'s own inverse, not a
+/// parallel implementation that could drift from it.
+pub const PRESET_FIELD_KEYS: [&str; 20] = [
+    "transport",
+    "mount_animal",
+    "vessel",
+    "hours",
+    "pace",
+    "season",
+    "supply_days",
+    "carry_food",
+    "grazing",
+    "foraging",
+    "group_size",
+    "cargo_kg",
+    "donkey",
+    "mule",
+    "camel",
+    "horse",
+    "carts",
+    "wagons",
+    "sleds",
+    "travois",
+];
+
+pub fn preset_to_pairs(p: &PartyPreset) -> Vec<(String, JpValue)> {
+    let plan = p.apply_to(&cartalith_civ::JpPlan::default());
+    let mut out = vec![("name".to_string(), JpValue::Str(p.name.clone()))];
+    for (k, v) in crate::journey_bridge::plan_to_pairs(&plan) {
+        if PRESET_FIELD_KEYS.contains(&k) {
+            out.push((k.to_string(), v));
+        }
+    }
+    out
+}
+
+/// Deliberately does **not** route through `journey_bridge::plan_from_pairs`
+/// (which always starts from `JpPlan::default()`, right for a whole plan
+/// submission but wrong for a partial preset edit that must preserve every
+/// untouched field) -- these match arms are `plan_from_pairs`'s own party-
+/// field subset, applied onto a clone of `base` instead of a fresh default,
+/// the same "partial edit preserves the rest" contract every other
+/// `_apply_pairs` function in this module already follows.
+pub fn preset_apply_pairs(base: &PartyPreset, pairs: &[(String, JpValue)]) -> (PartyPreset, Vec<String>) {
+    let mut p = base.clone();
+    let mut rejected = Vec::new();
+    for (k, v) in pairs {
+        let applied = match k.as_str() {
+            "name" => v.text().map(|s| p.name = s.to_string()).is_some(),
+            "transport" => v.text().map(|s| p.transport = s.to_string()).is_some(),
+            "mount_animal" => v.text().map(|s| p.mount_animal = (!s.is_empty()).then(|| s.to_string())).is_some(),
+            "vessel" => v.text().map(|s| p.vessel = s.to_string()).is_some(),
+            "hours" => v.num().map(|n| p.hours = n).is_some(),
+            "pace" => v.text().map(|s| p.pace = s.to_string()).is_some(),
+            "season" => v.text().map(|s| p.season = s.to_string()).is_some(),
+            "supply_days" => v.int().map(|n| p.supply_days = n).is_some(),
+            "carry_food" => v.flag().map(|b| p.carry_food = b).is_some(),
+            "grazing" => v.text().map(|s| p.grazing = s.to_string()).is_some(),
+            "foraging" => v.text().map(|s| p.foraging = s.to_string()).is_some(),
+            "group_size" => v.int().map(|n| p.party.group_size = n).is_some(),
+            "cargo_kg" => v.num().map(|n| p.party.cargo_kg = n).is_some(),
+            "donkey" => v.int().map(|n| p.party.donkey = n).is_some(),
+            "mule" => v.int().map(|n| p.party.mule = n).is_some(),
+            "camel" => v.int().map(|n| p.party.camel = n).is_some(),
+            "horse" => v.int().map(|n| p.party.horse = n).is_some(),
+            "carts" => v.int().map(|n| p.party.carts = n).is_some(),
+            "wagons" => v.int().map(|n| p.party.wagons = n).is_some(),
+            "sleds" => v.int().map(|n| p.party.sleds = n).is_some(),
+            "travois" => v.int().map(|n| p.party.travois = n).is_some(),
+            _ => false,
+        };
+        if !applied {
+            rejected.push(k.clone());
+        }
+    }
+    (p, rejected)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cartalith_civ::travel_library::{GrazingTolerance, TerrainAffinity};
 
     // ---------- CRUD round trips ----------
 
@@ -633,5 +1209,181 @@ mod tests {
             blocked.blocked_idx.is_some(),
             "the donkey's own Travel Library entry marks {terrain} blocked"
         );
+    }
+
+    // ---------- the #[func] boundary's pairs conversion (this dispatch) ----------
+
+    #[test]
+    fn animal_pairs_round_trip_through_a_partial_edit() {
+        let donkey = stock_animals().into_iter().find(|a| a.id == "donkey").unwrap();
+        let pairs = animal_to_pairs(&donkey);
+        // Every constraint field the stock donkey carries is present (no
+        // field is silently dropped by the flattener).
+        assert!(pairs.iter().any(|(k, _)| k == "load_capacity_kg"));
+        assert!(pairs.iter().any(|(k, _)| k == "terrain.hills"));
+
+        // A partial edit -- only two keys -- leaves everything else as it was.
+        let edit = vec![
+            ("load_capacity_kg".to_string(), JpValue::Num(999.0)),
+            ("terrain.marsh".to_string(), JpValue::Str("blocked".to_string())),
+        ];
+        let (edited, rejected) = animal_apply_pairs(&donkey, &edit);
+        assert!(rejected.is_empty());
+        assert_eq!(edited.load_capacity_kg, Some(999.0));
+        assert_eq!(edited.terrain.get("Marsh"), Some(&TerrainAffinity::Blocked));
+        assert_eq!(edited.base_speed_kmh, donkey.base_speed_kmh, "untouched field is preserved");
+        assert_eq!(edited.name, donkey.name);
+        assert_eq!(edited.id, donkey.id, "id is not a recognised key -- never overwritten");
+        assert_eq!(edited.species_key, donkey.species_key, "species_key is not a recognised key either");
+    }
+
+    #[test]
+    fn animal_apply_pairs_reports_unknown_and_wrong_typed_keys_as_rejected() {
+        let donkey = stock_animals().into_iter().find(|a| a.id == "donkey").unwrap();
+        let edit = vec![
+            ("no_such_field".to_string(), JpValue::Bool(true)),
+            ("load_capacity_kg".to_string(), JpValue::Str("not a number".to_string())),
+        ];
+        let (_, rejected) = animal_apply_pairs(&donkey, &edit);
+        assert_eq!(rejected, vec!["no_such_field", "load_capacity_kg"]);
+    }
+
+    #[test]
+    fn a_blank_animal_emits_no_optional_field_keys_at_all() {
+        let blank = AnimalDef::blank("t", "Blank");
+        let pairs = animal_to_pairs(&blank);
+        assert!(
+            !pairs.iter().any(|(k, _)| k == "load_capacity_kg" || k.starts_with("terrain.")),
+            "an unset field is absent from the pairs, not emitted as a zero"
+        );
+    }
+
+    #[test]
+    fn vehicle_pairs_round_trip_and_draft_requirement_survives_a_partial_edit() {
+        let cart = stock_vehicles().into_iter().find(|v| v.id == "cart").unwrap();
+        let (edited, rejected) = vehicle_apply_pairs(&cart, &[("load_kg".to_string(), JpValue::Num(1234.0))]);
+        assert!(rejected.is_empty());
+        assert_eq!(edited.load_kg, Some(1234.0));
+        assert_eq!(
+            edited.draft_head_required.as_ref().map(|d| d.count),
+            cart.draft_head_required.as_ref().map(|d| d.count),
+            "draft_head_required is untouched when neither draft_count nor draft_role is sent"
+        );
+    }
+
+    #[test]
+    fn vessel_pairs_round_trip() {
+        let cog = stock_vessels().into_iter().find(|v| v.id == "cog").unwrap();
+        let pairs = vessel_to_pairs(&cog);
+        assert!(pairs.iter().any(|(k, v)| k == "modes" && *v == JpValue::Str("sea".to_string())));
+        let (edited, rejected) =
+            vessel_apply_pairs(&cog, &[("base_speed_kmh".to_string(), JpValue::Num(20.0))]);
+        assert!(rejected.is_empty());
+        assert_eq!(edited.base_speed_kmh, Some(20.0));
+        assert_eq!(edited.hold_kg, cog.hold_kg);
+    }
+
+    #[test]
+    fn preset_pairs_round_trip_and_omit_route_only_fields() {
+        let preset = stock_party_presets().into_iter().find(|p| p.id == "heavy_wagon_caravan").unwrap();
+        let pairs = preset_to_pairs(&preset);
+        for key in ["desert_water", "weather_override", "route_cond", "infra", "seasonal_closures", "auto_promote"] {
+            assert!(!pairs.iter().any(|(k, _)| k == key), "{key} is route-only, not a party-form field");
+        }
+        assert!(pairs.iter().any(|(k, v)| k == "horse" && *v == JpValue::Int(6)));
+
+        let (edited, rejected) = preset_apply_pairs(&preset, &[("group_size".to_string(), JpValue::Int(30))]);
+        assert!(rejected.is_empty());
+        assert_eq!(edited.party.group_size, 30);
+        assert_eq!(edited.party.horse, preset.party.horse, "untouched party count is preserved");
+        assert_eq!(edited.transport, preset.transport);
+    }
+
+    #[test]
+    fn validation_state_parts_covers_all_three_states() {
+        assert_eq!(validation_state_parts(&ValidationState::Ok), ("ok", vec![], vec![]));
+        assert_eq!(
+            validation_state_parts(&ValidationState::Incomplete(vec!["load capacity kg"])),
+            ("incomplete", vec!["load capacity kg".to_string()], vec![])
+        );
+        assert_eq!(
+            validation_state_parts(&ValidationState::Conflicting(vec!["a conflict".to_string()])),
+            ("conflicting", vec![], vec!["a conflict".to_string()])
+        );
+    }
+
+    // ---------- the jp_compute wiring regression (this dispatch) ----------
+
+    /// This dispatch changed `lib.rs`'s `jp_compute` from calling
+    /// `cartalith_civ::jp_plan` to building a resolver from the live Travel
+    /// Library and calling `jp_plan_ex(..., Some(&resolver))` unconditionally
+    /// -- every call, not just when a custom override exists. This test is
+    /// the constraint the dispatch brief itself named: "any change to
+    /// `jp_compute`'s existing behavior when no custom entries exist must be
+    /// provably identical to before". A fresh `TravelLibrary::new()` has
+    /// stock content only, so `animal_overrides()` is empty and
+    /// `animal_resolver_fns`'s two closures return `None` for every query --
+    /// `cartalith_civ::resolve_animal_stats`/`resolve_animal_terrain_mod`
+    /// then fall back to the built-in table exactly as if `animals` were
+    /// `None`, which is what this test proves end to end rather than by
+    /// reading the fallback code and trusting it.
+    #[test]
+    fn regression_stock_only_travel_library_matches_pre_dispatch_jp_plan() {
+        let (field, water_bodies, temp, rain, gw, gh) = tiny_land_world();
+        let jw = crate::journey_bridge::JourneyWorld::build(
+            &field, &water_bodies, &temp, &rain, gw, gh, false, 0.30, &[], &[],
+        );
+        let world = cartalith_civ::JpWorld {
+            gw,
+            gh,
+            world: false,
+            map_width_km: 1200.0,
+            sea_level: 0.30,
+            peak_m: 4000.0,
+            field: &field,
+            cart_biome: &jw.cart_biome,
+            cart_terrain: &jw.cart_terrain,
+            temp: &temp,
+            rain: &rain,
+            flow_field: None,
+            flow_thresh: 300.0,
+            water_bodies: Some(&water_bodies),
+            territory: None,
+            places: &jw.places,
+            road_cells: &jw.road_cells,
+            ocean_field: None,
+            wind_field: None,
+        };
+        let pts: Vec<(f64, f64)> = (4..=18).map(|x| (x as f64, 8.0)).collect();
+        let plan = cartalith_civ::JpPlan {
+            transport: "Mounted Rider".into(),
+            mount_animal: Some("donkey".into()),
+            ..cartalith_civ::JpPlan::default()
+        };
+        let layovers = cartalith_civ::JpLayovers::new();
+
+        // Pre-dispatch: `jp_plan` (== `jp_plan_ex(..., None)`).
+        let baseline = cartalith_civ::jp_plan(&world, &pts, &plan, &layovers, &|_, _| 1.0)
+            .expect("a 14-cell land traverse plans");
+
+        // Post-dispatch: exactly `jp_compute`'s own new call chain, over a
+        // fresh, untouched (stock-only) `TravelLibrary`.
+        let lib = TravelLibrary::new();
+        let overrides = lib.animal_overrides();
+        assert!(overrides.is_empty(), "a fresh library has no custom entries to override anything");
+        let (stats_fn, terrain_fn) = cartalith_civ::travel_library::animal_resolver_fns(&overrides);
+        let resolver = cartalith_civ::JpAnimalResolver { stats: &*stats_fn, terrain_mod: &*terrain_fn };
+        let stock_only = cartalith_civ::jp_plan_ex(&world, &pts, &plan, &layovers, &|_, _| 1.0, Some(&resolver))
+            .expect("still plans");
+
+        assert_eq!(baseline, stock_only, "a stock-only Travel Library must not change jp_compute's output at all");
+    }
+
+    #[test]
+    fn every_terrain_slug_round_trips_to_its_own_key() {
+        for &tl_key in &TL_TERRAIN_KEYS {
+            let slug = terrain_slug(tl_key);
+            assert_eq!(terrain_key_from_slug(slug), Some(tl_key));
+        }
     }
 }

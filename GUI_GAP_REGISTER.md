@@ -182,7 +182,7 @@ disabled item.
 
 | # | Missing surface | Designed in | Class |
 |---|---|---|---|
-| O1 | **`Data ▸ ⧉ Travel library… ⇧L`** — the whole menu item and window | `DCC_SHELL_SPEC.md` §2.4's 2026-08-19 addition; `TRAVEL_LIBRARY_SPEC.md` in full | (B) small |
+| O1 | **`Data ▸ ⧉ Travel library… ⇧L`** — the whole menu item and window | `DCC_SHELL_SPEC.md` §2.4's 2026-08-19 addition; `TRAVEL_LIBRARY_SPEC.md` in full | **done, 2026-08-19** — see DM-15 |
 | O2 | **`Assets ▸ Asset pack ▸`** — the entire submenu (Active pack / Pack metadata… / Edit / Batch / Build / Clear library…), 24 controls | `DCC_SHELL_SPEC.md` §2.3.1 | (B) wrapper |
 | O3 | **`Preferences ▸ Performance ▸ Fallback when VRAM full`** | `DCC_SHELL_SPEC.md` §2.5 | (B) large |
 | O4 | **`Preferences ▸ Application ▸ Theme ▸ follow system`** | `DCC_SHELL_SPEC.md` §2.5 | (A) |
@@ -273,7 +273,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | DM-12 | Foot: "last run (`14:02 · 62 MB`)" | 160 | no export has run yet — said plainly rather than invented | yes | §9 | (B) small — needs a run-history store |
 | DM-13 | §9's route pane: TILES / PROJECTION / LAYERS INCLUDED / OUTPUT / ESTIMATE / RECENT RUNS | *absent* | the pane shows the route's reason instead | n/a | §9, designed in full | (B) large — gated on DM-02 |
 | DM-14 | §9's **MARKDOWN VAULT · LINKED** block | *absent* | — | — | §9 designs it; `MARKDOWN_VAULT_INTEGRATION.md` is explicitly *"Not started; no code exists"* and its §33 lists two-way sync as a V1 **non-goal** | **(D)** — owner decisions 3 and 4, `DCC_CONTROL_INDEX.md` summary §5 |
-| DM-15 | **`Data ▸ ⧉ Travel library… ⇧L`** | *absent — omission O1* | none | — | §2.4's addition + `TRAVEL_LIBRARY_SPEC.md` in full (fields, validation states, placement, and its own §6 build-status) | (B) small — `cartalith-godot/src/travel_bridge.rs` holds the whole mutable store, CRUD, validation and usage tracking, with tests; `lib.rs`'s `WorldGen` has **no `travel_library` field and no `#[func]`**, and `jp_compute` calls `jp_plan` rather than `jp_plan_ex` with a resolver. That module's own doc names the exact wiring. |
+| DM-15 | **`Data ▸ ⧉ Travel library… ⇧L`** | **done, 2026-08-19** | real | — | §2.4's addition + `TRAVEL_LIBRARY_SPEC.md` in full (fields, validation states, placement, §6 build-status) | **Done.** `lib.rs`'s `WorldGen` now carries a live `travel_library` field (persists across a re-generate, like `asset_pack`) and a full `tl_*` `#[func]` CRUD+query surface; `jp_compute` builds a `JpAnimalResolver` from it and calls `jp_plan_ex` unconditionally (a stock-only library is regression-tested identical to the old `jp_plan` call). `travel_library_window.gd` is the real `2a`/`2b` window, wired at `⇧L`. See `TRAVEL_LIBRARY_SPEC.md` §6 for the full record and the two things still honestly not wired (the planner's own party-form dropdown does not yet offer a custom entry; only the four built-in species can affect a computed plan). |
 
 ### 6.5 Preferences menu — `menus.gd`
 
@@ -336,7 +336,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
 | JP-01 | Carriage **Auto** pick | 366 | `jpAutoPickTransport` has no Rust port | yes | `JOURNEY_PLANNER_SPEC.md` §5 ("in auto, counts are computed (terrain × biome, km-weighted) and read-only") | (B) small — a real, bounded port of one reference function |
-| JP-02 | Party preset | 394, 1315 | `JP_PRESETS` is JS-only; no `jp_presets()` binding | **stale**: `TRAVEL_LIBRARY_SPEC.md` §3.4 designs "Party set-ups" as exactly this, and `cartalith_civ::travel_library::stock_party_presets()` plus `travel_bridge.rs`'s `PartyPreset` CRUD are **built and tested** | §5 + `TRAVEL_LIBRARY_SPEC.md` §3.4 | (B) small — same `#[func]` layer DM-15 needs; not corrected in-place because the honest correction is "see the Travel library", which does not exist as a surface yet |
+| JP-02 | Party preset | 394, 1315 | `JP_PRESETS` is JS-only; no `jp_presets()` binding | **unblocked, not yet wired (2026-08-19)**: DM-15's `#[func]` layer landed (`tl_list("preset")`/`tl_get("preset", id)`/`tl_capture_preset_from_plan`, all real), and `travel_library_window.gd`'s own Party set-ups tab reads/writes it. What's still missing is specifically *this* control — the Journey Planner's own party form (`journey_planner_view.gd`, deliberately untouched this pass, mid-edit by a concurrent dispatch) does not yet offer "apply a saved preset" or "capture current form as a preset" itself | §5 + `TRAVEL_LIBRARY_SPEC.md` §3.4 | (B) small — the `#[func]`s exist now; this is a `journey_planner_view.gd`-only wiring pass |
 | JP-03 | Re-route for `<mode>`… | 1320 | `jpAutoPickTransport`/`_jpRerouteForMode` have no Rust port | yes | §6's "faster-mode advisories… with a **use here** action" | (B) small — sibling of JP-01 |
 | JP-04 | **Cost** group | 1519 | **corrected — S3** | yes, now | §8 designs it in full (food/fodder · wages · tolls/ferry · animal upkeep · total · per km and per day) | (B) **wrapper** — `jp_journey_cost` is ported and golden-tested; `jp_compute` never calls it. **The single cheapest (B) in the register.** |
 | JP-05 | Calculation trace ⧉ | 1553-1555 | no trace window; the `formula` string is deliberately not carried across the boundary (`jp_land_calc_dict`'s own doc: presentation, not engine) | yes | §8 says *"opens in its own window (⧉)"* and nothing about its contents | **(C)** → §7.12 |
@@ -390,7 +390,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | IN-03 | Way / Route ↶ ↷ (per-waypoint undo) | 232-236 (comment) | no per-waypoint undo in the engine; `InfraTools` only discards the whole draft | yes | §4.5.4 lists ↶ ↷ | (B) small |
 | IN-04 | Way ▸ routing mode (freehand / snap / least-cost) | 229-231 (comment) | `infra_tools_bridge`'s own doc: *"nothing to build a 'freehand' or distinct 'snap' routing mode out of"*; snap is real but automatic | yes | §4.5.4 | **(D)** — engine truth, recorded in-file |
 | IN-05 | Way types: spec says road/track/trail/bridge, engine has road/track/sea_lane/ancient | 42-49 (comment) | `parse_way_type`'s own doc calls the spec list wrong against the tested four-entry enum | yes | §4.5.4 | **(D)** — spec/engine disagreement, resolved in the engine's favour and recorded |
-| IN-06 | Route ▸ vessel / party reference in the options row | 252-256 (comment) | the journey planner exported nothing past the crate boundary when written | **stale**: `jp_options()` now returns the vessel and transport vocabularies, and `TRAVEL_LIBRARY_SPEC.md` §3.3 designs the vessel definitions | §4.5.4 | (B) small — gated on DM-15's `#[func]` layer |
+| IN-06 | Route ▸ vessel / party reference in the options row | 252-256 (comment) | the journey planner exported nothing past the crate boundary when written | **unblocked, not yet wired (2026-08-19)**: DM-15's `#[func]` layer landed (`tl_list("vessel")`/`tl_get("vessel", id)` are real, and the Travel Library window's own Vessels tab reads/writes them), but no vessel definition has a computational hook onto `jp_ship_stats` yet (`TRAVEL_LIBRARY_SPEC.md` §6's own disclosure) and this route/infra options row still doesn't reference the library at all | §4.5.4 | (B) small — the `#[func]`s exist now; wiring this row is real, bounded follow-up |
 | IN-07 | Trade ▸ route assignment | 370-373 | nothing ties a trade relationship to the road or sea lane that would carry it | yes | §3 lists Trade | (B) large |
 
 ### 6.13 CARTO workspace — `cartography_workspace.gd`
@@ -1066,7 +1066,7 @@ documented divergences and one omission:
 | `Storage locations` merged §2.1's two items (`Storage locations` + `Change locations…`) into one | `menus.gd:123-128` | Owner feedback, 2026-08-19 — recorded in-file |
 | `Import ▸ …` / `Export ▸ …` etc. carry their sub-items inline in the label (`Import ▸ Maps · Heightmaps · GIS · World data`) rather than as real submenus | `menus.gd:273-277` | The Data dropdown is a shortcut into one window, per §2.4; inline labels avoid a submenu that duplicates the window's own rail |
 | `⧉ Sprite sheet slicer (▦)` keeps both markers | `menus.gd:199` | Fixed in `595582d` to use the spec's own `⧉` window marker |
-| **`⧉ Travel library… ⇧L` missing** | — | Omission O1 |
+| **`⧉ Travel library… ⇧L`** | `menus.gd`'s `_data()` | Built, 2026-08-19 — Omission O1 / DM-15, closed |
 
 **So there is no naming drift to report against the spec.** The naming questions
 worth raising are all questions about the spec itself.

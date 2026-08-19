@@ -102,7 +102,10 @@ pub enum JpValue {
 }
 
 impl JpValue {
-    fn num(&self) -> Option<f64> {
+    /// `pub(crate)`: `travel_bridge.rs` reuses these four narrowing
+    /// accessors for its own field-pair parsers rather than duplicating the
+    /// same four match arms a second time.
+    pub(crate) fn num(&self) -> Option<f64> {
         match self {
             JpValue::Num(n) => Some(*n),
             JpValue::Int(n) => Some(*n as f64),
@@ -113,7 +116,7 @@ impl JpValue {
     /// JS's own `|0` on every count the reference reads: truncation toward
     /// zero, not rounding. `plan.supplyDays|0` and `(a.donkey|0)` are the
     /// two shapes this covers.
-    fn int(&self) -> Option<i64> {
+    pub(crate) fn int(&self) -> Option<i64> {
         match self {
             JpValue::Int(n) => Some(*n),
             JpValue::Num(n) => Some(*n as i64),
@@ -121,14 +124,14 @@ impl JpValue {
         }
     }
 
-    fn text(&self) -> Option<&str> {
+    pub(crate) fn text(&self) -> Option<&str> {
         match self {
             JpValue::Str(s) => Some(s.as_str()),
             _ => None,
         }
     }
 
-    fn flag(&self) -> Option<bool> {
+    pub(crate) fn flag(&self) -> Option<bool> {
         match self {
             JpValue::Bool(b) => Some(*b),
             _ => None,

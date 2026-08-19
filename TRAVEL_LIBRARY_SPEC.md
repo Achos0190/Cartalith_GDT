@@ -84,7 +84,76 @@ Blocked stages, the "faster mode available" advisory and the better-animal/vehic
 advisory in the planner are all derived from these same fields. An entry without them
 would not merely look unfinished — it would plan silently wrong.
 
-## 6 · Build status (Rust half, 2026-08-19)
+## 6 · Build status (2026-08-19, updated same day: the `#[func]` boundary and the window)
+
+**The whole spec is now real, engine to Godot to GDScript.** The gap this
+section used to describe -- no `#[func]` boundary, no window -- is closed:
+
+- **`cartalith-godot/src/lib.rs`'s `WorldGen` now carries a live
+  `travel_library: travel_bridge::TravelLibrary` field**, bootstrapped with
+  stock content in `init()` and, deliberately, **not reset by `absorb()`** on
+  a re-generate -- it is user-editable project state, not civ-generation
+  output, so it persists across `generate()`/`generate_world_structure()`
+  the same way `asset_pack`/`quality` already do.
+- **A full `#[func]` CRUD+query surface** (`lib.rs`'s Travel Library
+  `#[godot_api(secondary)]` block): `tl_counts`, `tl_list`, `tl_get`,
+  `tl_duplicate`, `tl_add_blank`, `tl_delete`, `tl_reset_to_stock`,
+  `tl_edit`, `tl_capture_preset_from_plan` -- one dispatch over
+  `kind: "animal"|"vehicle"|"vessel"|"preset"` for all four §3 types rather
+  than four times the surface. The thin `Variant`<->Rust flattening lives in
+  `lib.rs`; every real CRUD/validation/usage call underneath is
+  `travel_bridge.rs`'s own, unchanged by this pass. `travel_bridge.rs`
+  gained the `Variant`-shaped field-pairs layer this boundary needed
+  (`animal_to_pairs`/`animal_apply_pairs` and the vehicle/vessel/preset
+  siblings), reusing `journey_bridge::JpValue`/`jp_pairs_dict`/
+  `jp_dict_to_pairs` rather than inventing a second flattening convention.
+- **`jp_compute` is wired live**, not just proven in a Rust-internal test:
+  it now builds a `JpAnimalResolver` from
+  `self.travel_library.animal_overrides()` via
+  `cartalith_civ::travel_library::animal_resolver_fns` and calls
+  `jp_plan_ex(..., Some(&resolver))` unconditionally, in place of the old
+  `jp_plan` call. A stock-only library is provably identical to the old
+  behaviour (`resolve_animal_stats`/`resolve_animal_terrain_mod` fall back
+  to the built-in table exactly as if `animals` were `None`) --
+  `travel_bridge.rs`'s own
+  `regression_stock_only_travel_library_matches_pre_dispatch_jp_plan` test
+  asserts full structural equality (`assert_eq!`) between `jp_plan(...)` and
+  the new call chain over a fresh, untouched library, not merely "close
+  enough".
+- **The `2a`/`2b` window is built**:
+  `godot-project/shell/travel_library_window.gd`, wired at `Data ▸ ⧉ Travel
+  library… (⇧L)` (`menus.gd`, `app.gd`) -- own popup window (not an
+  in-shell takeover, per the mockup's own "⇧L · own window" annotation),
+  tabbed by definition type, each tab a Custom/Stock entries rail (filter,
+  ＋ new blank / ⧉ duplicate / ✕ delete) plus a grouped field inspector
+  (exactly §3's own group names per type) with save/duplicate/revert and
+  ok/incomplete/conflicting validation banners styled off `DccTheme`'s
+  `warn`/`water`/`block` tokens (the mockup's own `#e0a840`/`#7d9dae`/
+  `#b55950`, already-named shell-wide tokens, not re-hardcoded here).
+  Edits are staged locally and committed with "save definition", matching
+  the mockup's own footer exactly. The inspector says plainly, per entry,
+  when a definition has no live computational effect yet (see below) rather
+  than implying it already changes a plan.
+
+**Still honestly not live**, unchanged from before this pass and explicitly
+out of its scope (`GUI_GAP_REGISTER.md` JP-02/IN-06, marked "unblocked, not
+yet wired"):
+
+- The Journey Planner's own party form does not yet *offer* a custom Travel
+  Library entry as a selectable Transport/mount option -- creating and
+  validating one is real; picking it in the planner's own dropdown is the
+  next dispatch (a different file, `journey_planner_view.gd`, was mid-edit
+  by another concurrent pass during this one and deliberately left
+  untouched).
+- Only the four built-in party-form species (donkey/mule/camel/horse) can
+  override a computed journey at all -- a wholly new species (the stock
+  Ox/Yak/Reindeer) and every vehicle/vessel definition remain real,
+  validated, inspectable data with no live engine hook, said plainly in the
+  window's own inspector note rather than approximated.
+- §4's "saved journeys" usage count is still honestly always `0` (no
+  persistent, referenceable saved journey exists in this port at all).
+
+## 6a · Build status (Rust half only, 2026-08-19, superseded by §6 above)
 
 The data model, stock content, CRUD and validation described above are real, in
 `cartalith-native/crates/cartalith-civ/src/travel_library.rs` (data shapes, §4

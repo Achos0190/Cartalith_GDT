@@ -39,6 +39,7 @@ const ID_DATA_MGR_EXPORT := 43
 const ID_DATA_MGR_SOURCES := 44
 const ID_DATA_MGR_CONVERSION := 45
 const ID_DATA_MGR_VALIDATION := 46
+const ID_TRAVEL_LIBRARY := 48
 
 const ID_PREF_GPU := 50
 const ID_PREF_THEME_DARK := 51
@@ -274,12 +275,14 @@ func _on_assets(id: int) -> void:
 ## §2.4's own 2026-08-19 addition (`DCC_SHELL_SPEC.md`, reconciled from
 ## `JOURNEY_PLANNER_SPEC.md`): Journey planner sits above the five Data
 ## manager groups, alongside World data tables, and arms the INFRA JOURNEY
-## tool takeover rather than opening a window -- Travel library (⇧L) is the
-## sibling addition that DOES stay a real window, and is separate, later work
-## per this port's own scope note; not added here.
+## tool takeover rather than opening a window. Travel library (⇧L,
+## `TRAVEL_LIBRARY_SPEC.md`) is the sibling addition that DOES open its own
+## window -- `2a`'s own mockup places it directly below Journey planner,
+## in its own bracket, above the Data manager's five groups.
 func _data(p: PopupMenu) -> void:
 	_live(p, "World data tables…", ID_DATA_MANAGER)
 	_live(p, "Journey planner…", ID_JOURNEY_PLANNER, KEY_MASK_SHIFT | KEY_J)
+	_live(p, "Travel library…", ID_TRAVEL_LIBRARY, KEY_MASK_SHIFT | KEY_L)
 	p.add_separator()
 	_live(p, "Import ▸ Maps · Heightmaps · GIS · World data", ID_DATA_MGR_IMPORT)
 	_live(p, "Export ▸ Maps · GIS · World data · Asset pack", ID_DATA_MGR_EXPORT)
@@ -290,6 +293,7 @@ func _data(p: PopupMenu) -> void:
 		match id:
 			ID_DATA_MANAGER: _host.open_world_data()
 			ID_JOURNEY_PLANNER: _host.open_journey_planner()
+			ID_TRAVEL_LIBRARY: _host.open_travel_library()
 			ID_DATA_MGR_IMPORT: _host.open_data_manager("Import")
 			ID_DATA_MGR_EXPORT: _host.open_data_manager("Export")
 			ID_DATA_MGR_SOURCES: _host.open_data_manager("Sources")
@@ -502,6 +506,7 @@ func _refresh_open_windows() -> void:
 		["Performance", _host.performance_window],
 		["Data manager", _host.data_manager_window],
 		["Asset library", _host.asset_library_window],
+		["Travel library", _host.travel_library_window],
 	]:
 		var dlg: Window = entry[1]
 		if dlg != null and dlg.visible:

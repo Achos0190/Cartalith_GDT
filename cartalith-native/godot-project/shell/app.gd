@@ -20,6 +20,7 @@ var layers_popover: LayersPopover
 var right_dock_ctrl: RightDock
 var data_manager_window: DataManagerWindow
 var asset_library_window: AssetLibraryWindow
+var travel_library_window: TravelLibraryWindow
 
 ## The path `bridge.load_save(path)` last succeeded with, remembered here
 ## (Godot-side only, no Rust change) so File ▸ Show project on disk and
@@ -148,6 +149,10 @@ func _ready() -> void:
 	asset_library_window = AssetLibraryWindow.new()
 	add_child(asset_library_window)
 	asset_library_window.setup(self, bridge)
+
+	travel_library_window = TravelLibraryWindow.new()
+	add_child(travel_library_window)
+	travel_library_window.setup(self, bridge)
 
 	layers_popover = LayersPopover.new()
 	add_child(layers_popover)
@@ -419,6 +424,12 @@ func open_data_manager(group: String = "") -> void:
 ## per §2.3's "opens the library window with the slicer modal already open."
 func open_asset_library(family_key: String = "", open_slicer: bool = false) -> void:
 	asset_library_window.open(family_key, open_slicer)
+
+## Data ▸ Travel library… (⇧L, `TRAVEL_LIBRARY_SPEC.md`). `kind` optionally
+## scopes the initial tab ("animal"/"vehicle"/"vessel"/"preset"), empty opens
+## on whichever tab was last selected (or Animals & mounts, the first time).
+func open_travel_library(kind: String = "") -> void:
+	travel_library_window.open(kind)
 
 # -- Storage locations (`DCC_SHELL_SPEC.md` §2.1, §2.5's "Same modal as File") --
 

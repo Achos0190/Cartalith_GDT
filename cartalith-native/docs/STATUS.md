@@ -5,7 +5,86 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-19 (post **Journey planner: timeline band,
+Last updated: 2026-08-19 (post **Layer-visualization audit + seven new
+debug views** (owner report: Ocean currents/Wind were missing from the
+prior pass) — re-checked the reference's *real* `LAYER_GROUPS` (reference
+HTML line 13639-13646: 32 rows, not the prior pass's 18-view list) directly
+against the file rather than trusting that summary. Seven genuinely
+buildable views added to `sample_bridge.rs`/`layers_popover.gd`: **Wind**
+and **Ocean currents** (the two named examples — both drawn as the
+reference's own hue-by-bearing/SST-anomaly colour rasters, *not* arrows;
+verified against the reference's own pixel loop, lines 8510-8521; a new
+`cartalith_climate::current_wind_field` plus the existing
+`ocean_sst_anomaly`, both recomputed on demand rather than retained, matching
+the reference's own uncached `currentWindField()`/`currentOceanField()`),
+**Water access**, **Flood**, **Resources**, **Carrying capacity**, and
+**Settlement suitability** (all reuse already golden-tested `cartalith-civ`
+builder functions over already-retained `WorldState` fields — none need a
+civilisation layer). The other eighteen reference rows are confirmed,
+disclosed engine gaps, not unexposed data (grepped every subsystem crate for
+each): Köppen, Orogeny's signed preview (needs the boundary-polyline
+structure `generate_terrain` folds into height and never retains), Geoid,
+Tides (both already-disclosed-unported per `PlanetParams`), river
+Velocity-erosion, Fjord, Landform, Population density, Site profile,
+Wildlife, Wind-throw — listed in `LAYER_GROUPS`, `available: false` always,
+the real reason in each hint, never faked. `FieldRefs` gained `shear_field`
+plus the climate/planet params the two new views need; `cartalith-climate`
+promoted from a `[dev-dependencies]`-only to a regular `cartalith-godot`
+dependency. **Verified**: `cartalith-climate`'s full suite passes (2 new
+`current_wind_field` tests); `cartalith-godot --lib` 215/215 tests pass (20
+in `sample_bridge`, 6 new this pass); `cargo build -p cartalith-godot` and a
+Windows headless boot (`--headless --path godot-project --quit`) both clean;
+a scripted headless drive (temporary, not committed, same convention the
+Journey Planner pass below already used) generated a real world, called
+`build_debug_texture` through the real gdext boundary for all seven new
+views (confirmed non-uniform `ImageTexture` output, not a placeholder), and
+confirmed all eleven gap views report `available: false` and build no
+texture. `cartalith-godot/src/lib.rs`'s own small wiring addition (the
+`FieldRefs` construction site in `sample_refs()`) sits alongside the
+concurrently in-progress Travel Library pass's own edits to that same file
+(see the entry directly below) — that file is left for whoever lands it to
+commit with both diffs together; everything else this pass touched
+(`cartalith-climate`, `cartalith-godot/Cargo.toml`, `sample_bridge.rs`, this
+file, `CHANGELOG.md`) is committed on its own. — previously, post **Travel Library: the `#[func]` boundary, a
+live `jp_compute` wiring, and the `Data ▸ Travel library…` window**
+(`TRAVEL_LIBRARY_SPEC.md` §6, `GUI_GAP_REGISTER.md` DM-15/O1 done, JP-02/IN-06
+unblocked) — milestone 1 (data model, stock content, validation, the
+`jp_plan_ex`/`JpAnimalResolver` Rust-internal wiring) landed earlier the same
+day; this pass is milestone 2, the boundary and the GUI. `WorldGen` gained a
+`travel_library: travel_bridge::TravelLibrary` field, bootstrapped with stock
+content in `init()` and **not reset by `absorb()`** — a deliberate choice
+(user-editable project state, not civ-generation output, so it survives a
+re-generate the same way `asset_pack`/`quality` already do). A full `tl_*`
+`#[func]` surface (`tl_counts`/`tl_list`/`tl_get`/`tl_duplicate`/
+`tl_add_blank`/`tl_delete`/`tl_reset_to_stock`/`tl_edit`/
+`tl_capture_preset_from_plan`) dispatches over `kind` for all four §3
+definition types rather than four separate surfaces; `travel_bridge.rs`
+gained the `Variant`-shaped field-pairs conversion layer this needed
+(`animal_to_pairs`/`animal_apply_pairs` and three siblings), reusing
+`journey_bridge::JpValue`/`jp_pairs_dict`/`jp_dict_to_pairs` rather than a
+second flattening convention — `journey_bridge.rs`'s own `JpValue::num/int/
+text/flag` went from private to `pub(crate)` for exactly this reuse.
+**`jp_compute` now actually calls `jp_plan_ex` with a resolver built from the
+live library**, unconditionally — a stock-only library is regression-tested
+(`assert_eq!`, full structural equality) identical to the old `jp_plan` call
+it replaced. `travel_library_window.gd` is the real `2a`/`2b` window from the
+mockup: `Data ▸ ⧉ Travel library… ⇧L` (own popup window, `menus.gd`/`app.gd`),
+tabbed by type, Custom/Stock entries rail with filter/add/duplicate/delete,
+a grouped field inspector matching §3's own group names, save/duplicate/
+revert staged-edit footer, and ok/incomplete/conflicting validation banners
+using `DccTheme`'s `warn`/`water`/`block` tokens (the mockup's own exact
+hex, already-named tokens rather than re-hardcoded). Honestly disclosed in
+the window itself, unchanged from before: the planner's own party form does
+not yet offer a custom entry as a Transport/mount option
+(`journey_planner_view.gd` was mid-edit by a concurrent pass and
+deliberately untouched); only the four built-in species affect a computed
+plan; vehicles/vessels are still data-only. `cargo test -p cartalith-civ -p
+cartalith-godot`: 335 + 215 passed, 0 failed (civ's own suite grew during
+this session from unrelated concurrent work; the godot suite's travel_bridge
+module alone is 22 tests, up from 15). `cargo build -p cartalith-godot` and a
+headless Godot boot (`--quit-after 60`, both before and after the concurrent
+work in this shared tree finished landing) are clean. — previously, post
+**Journey planner: timeline band,
 blocked-stage inline resolutions, supply-reach per-leg bar, `auto ·
 <resolved>` party-form labels** (`GUI_GAP_REGISTER.md` §6.9/§10 JP-12, JP-13,
 JP-14, JP-15) — GDScript-only, `journey_planner_view.gd`: **JP-13** —

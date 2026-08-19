@@ -956,3 +956,72 @@ func civ_run_collapse_simulation(request: Dictionary) -> Dictionary:
 	if not world_gen.has_method("civ_run_collapse_simulation"):
 		return {"ok": false, "error": "civ_run_collapse_simulation not available on this binary"}
 	return world_gen.civ_run_collapse_simulation(request)
+
+
+# travel_bridge.rs / lib.rs's Travel Library #[func] block (TRAVEL_LIBRARY_SPEC.md,
+# GUI_GAP_REGISTER.md DM-15/O1). `kind` is one of "animal"/"vehicle"/"vessel"/"preset"
+# throughout. `has_method` guards match every wrapper above: a binary built before this
+# landed simply has no `tl_*` methods, and `travel_library_window.gd` falls back to an
+# empty library rather than erroring.
+
+## `{kind: {"total": int, "custom": int, "stock": int}}` for all four definition types.
+func tl_counts() -> Dictionary:
+	if not world_gen.has_method("tl_counts"):
+		return {}
+	return world_gen.tl_counts()
+
+## Every entry of one definition type, stock-then-custom order, each row carrying
+## `id`/`name`/`origin`/`editable`/`subtitle`/`species_key`/`validation_state`/
+## `validation_missing`/`validation_conflicts`/`usage_presets`/`usage_journeys`.
+func tl_list(kind: String) -> Array:
+	if not world_gen.has_method("tl_list"):
+		return []
+	return world_gen.tl_list(kind)
+
+## One entry's full detail -- `tl_list`'s own per-row keys plus every field
+## `TRAVEL_LIBRARY_SPEC.md` §3 lists for `kind`. An unset optional field is simply
+## absent from the returned Dictionary -- test `has()`, don't assume a default.
+func tl_get(kind: String, id: String) -> Dictionary:
+	if not world_gen.has_method("tl_get"):
+		return {"ok": false}
+	return world_gen.tl_get(kind, id)
+
+## Clones `id` (stock or custom) into a new editable custom entry.
+## `{"ok": true, "id": new_id}` or `{"ok": false, "error": ...}`.
+func tl_duplicate(kind: String, id: String) -> Dictionary:
+	if not world_gen.has_method("tl_duplicate"):
+		return {"ok": false, "error": "tl_duplicate not available on this binary"}
+	return world_gen.tl_duplicate(kind, id)
+
+## A brand-new custom entry with every field unset. `{"ok": true, "id": new_id}`.
+func tl_add_blank(kind: String, name: String) -> Dictionary:
+	if not world_gen.has_method("tl_add_blank"):
+		return {"ok": false, "error": "tl_add_blank not available on this binary"}
+	return world_gen.tl_add_blank(kind, name)
+
+## Deletes a custom entry. No-op on an unknown id or a stock one.
+func tl_delete(kind: String, id: String) -> Dictionary:
+	if not world_gen.has_method("tl_delete"):
+		return {"ok": false}
+	return world_gen.tl_delete(kind, id)
+
+## Discards every custom entry of one kind, restoring the stock-only bootstrap.
+func tl_reset_to_stock(kind: String) -> Dictionary:
+	if not world_gen.has_method("tl_reset_to_stock"):
+		return {"ok": false}
+	return world_gen.tl_reset_to_stock(kind)
+
+## Applies a partial `fields` Dictionary onto an existing custom entry (stock entries
+## are read-only -- duplicate first). Returns `{"ok", "error", "rejected",
+## "validation_state", "validation_missing", "validation_conflicts"}`.
+func tl_edit(kind: String, id: String, fields: Dictionary) -> Dictionary:
+	if not world_gen.has_method("tl_edit"):
+		return {"ok": false, "error": "tl_edit not available on this binary", "rejected": []}
+	return world_gen.tl_edit(kind, id, fields)
+
+## "Capture party from planner": a new custom party preset from `plan`, in
+## `jp_default_plan()`/`jp_compute`'s own `plan` key vocabulary.
+func tl_capture_preset_from_plan(name: String, plan: Dictionary) -> Dictionary:
+	if not world_gen.has_method("tl_capture_preset_from_plan"):
+		return {"ok": false, "error": "tl_capture_preset_from_plan not available on this binary"}
+	return world_gen.tl_capture_preset_from_plan(name, plan)
