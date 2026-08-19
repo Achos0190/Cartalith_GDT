@@ -1084,6 +1084,187 @@
   </div>
 </div>
 
+<!-- ══════════════ MODAL · OPEN PROJECT · visual gallery, replaces the stock tree-view file picker ══════════════ -->
+<div data-screen-label="Open project dialog 1920" style="width:1920px;height:1080px;background:#0d0e0f;color:#c8cbcd;font:11px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;position:relative;overflow:hidden;margin-top:40px">
+
+  <div style="height:34px;flex:none;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10)">
+    <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec">CARTALITH</div>
+  </div>
+
+  <!-- dim + blurred shell behind the modal -->
+  <div style="position:absolute;inset:34px 0 0;background:radial-gradient(1200px 700px at 50% 40%,#17191a,#0d0e0f 70%);filter:blur(2px);opacity:.5"></div>
+  <div style="position:absolute;inset:0;background:rgba(6,7,7,.62)"></div>
+
+  <!-- ═ modal ═ -->
+  <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:1180px;height:760px;background:#121314;border:1px solid rgba(255,255,255,.14);box-shadow:0 40px 90px rgba(0,0,0,.65);display:flex;flex-direction:column">
+
+    <div style="flex:none;padding:22px 30px 16px;display:flex;align-items:baseline;gap:14px;border-bottom:1px solid rgba(255,255,255,.08)">
+      <div style="font:500 16px 'Helvetica Neue',Helvetica,sans-serif;color:#e8ebec">Open project</div>
+      <div style="color:#5f6468;font-size:11.5px">choose a world to continue, or bring one in from disk</div>
+      <div style="flex:1"></div>
+      <div style="color:#5f6468;font-size:16px;cursor:pointer">✕</div>
+    </div>
+
+    <div style="flex:none;padding:16px 30px 0;display:flex;align-items:center;gap:12px">
+      <div style="flex:1;display:flex;align-items:center;gap:9px;border:1px solid rgba(255,255,255,.16);padding:8px 12px;color:#5f6468;font-size:12px"><span>⌕</span><span>Search worlds by name, seed or region…</span></div>
+      <div style="display:flex;gap:2px;font:10px 'IBM Plex Mono',monospace;color:#8d9296">
+        <span style="padding:6px 12px;border:1px solid #e0a34a;color:#e0a34a">Recent</span>
+        <span style="padding:6px 12px;border:1px solid rgba(255,255,255,.16)">All worlds</span>
+        <span style="padding:6px 12px;border:1px solid rgba(255,255,255,.16)">Shared</span>
+      </div>
+    </div>
+
+    <!-- ═ gallery grid — thumbnails, not a tree list ═ -->
+    <div style="flex:1;min-height:0;overflow-y:auto;padding:22px 30px 8px;display:grid;grid-template-columns:repeat(4,1fr);gap:18px;align-content:start">
+
+      <!-- import tile — drop zone, first so it reads as an action not a browse row -->
+      <div style="aspect-ratio:16/11.5;border:1px dashed rgba(224,163,74,.5);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:#e0a34a">
+        <div style="font-size:26px;line-height:1">⤓</div>
+        <div style="font-size:12px;text-align:center;line-height:1.5">Drop a <span style="font:10.5px 'IBM Plex Mono',monospace">.zip</span> save<br>or click to browse a folder</div>
+      </div>
+
+      <div style="aspect-ratio:16/11.5;background:#1a1c1d;border:1px solid #e0a34a;display:flex;flex-direction:column;overflow:hidden">
+        <div style="flex:1;background:radial-gradient(140px 100px at 42% 40%,#3a3226,#241f19 70%);position:relative">
+          <div style="position:absolute;left:8px;top:8px;font:9px 'IBM Plex Mono',monospace;color:#e0a34a;background:rgba(0,0,0,.4);padding:2px 6px">CURRENT</div>
+        </div>
+        <div style="padding:9px 11px;border-top:1px solid rgba(255,255,255,.08)">
+          <div style="color:#e8ebec;font-size:12.5px">Eldra</div>
+          <div style="color:#6f7478;font:10px 'IBM Plex Mono',monospace;margin-top:2px">483920 · edited 4 min ago</div>
+        </div>
+      </div>
+
+      <div style="aspect-ratio:16/11.5;background:#1a1c1d;border:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;overflow:hidden">
+        <div style="flex:1;background:radial-gradient(140px 100px at 58% 46%,#1f3a3a,#182424 70%)"></div>
+        <div style="padding:9px 11px;border-top:1px solid rgba(255,255,255,.08)">
+          <div style="color:#c8cbcd;font-size:12.5px">Vessik Reach</div>
+          <div style="color:#6f7478;font:10px 'IBM Plex Mono',monospace;margin-top:2px">210044 · edited yesterday</div>
+        </div>
+      </div>
+
+      <div style="aspect-ratio:16/11.5;background:#1a1c1d;border:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;overflow:hidden">
+        <div style="flex:1;background:radial-gradient(140px 100px at 50% 55%,#3a2420,#241a18 70%)"></div>
+        <div style="padding:9px 11px;border-top:1px solid rgba(255,255,255,.08)">
+          <div style="color:#c8cbcd;font-size:12.5px">Kharet Basin</div>
+          <div style="color:#6f7478;font:10px 'IBM Plex Mono',monospace;margin-top:2px">009214 · edited 3 days ago</div>
+        </div>
+      </div>
+
+      <div style="aspect-ratio:16/11.5;background:#1a1c1d;border:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;overflow:hidden">
+        <div style="flex:1;background:radial-gradient(140px 100px at 46% 50%,#20303a,#182024 70%)"></div>
+        <div style="padding:9px 11px;border-top:1px solid rgba(255,255,255,.08)">
+          <div style="color:#c8cbcd;font-size:12.5px">Sea of Veld</div>
+          <div style="color:#6f7478;font:10px 'IBM Plex Mono',monospace;margin-top:2px">771205 · edited 1 week ago</div>
+        </div>
+      </div>
+
+      <div style="aspect-ratio:16/11.5;background:#1a1c1d;border:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;overflow:hidden">
+        <div style="flex:1;background:radial-gradient(140px 100px at 60% 42%,#2c3a1f,#1d2416 70%)"></div>
+        <div style="padding:9px 11px;border-top:1px solid rgba(255,255,255,.08)">
+          <div style="color:#c8cbcd;font-size:12.5px">Ashfeld Delta</div>
+          <div style="color:#6f7478;font:10px 'IBM Plex Mono',monospace;margin-top:2px">338841 · edited 2 weeks ago</div>
+        </div>
+      </div>
+
+      <div style="aspect-ratio:16/11.5;background:#1a1c1d;border:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;overflow:hidden;opacity:.7">
+        <div style="flex:1;background:radial-gradient(140px 100px at 50% 50%,#2a2a2a,#191919 70%)"></div>
+        <div style="padding:9px 11px;border-top:1px solid rgba(255,255,255,.08)">
+          <div style="color:#c8cbcd;font-size:12.5px">Untitled world</div>
+          <div style="color:#6f7478;font:10px 'IBM Plex Mono',monospace;margin-top:2px">920103 · never finalized</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="flex:none;border-top:1px solid rgba(255,255,255,.08);padding:14px 30px;display:flex;align-items:center;gap:10px">
+      <div style="color:#5f6468;font:10px 'IBM Plex Mono',monospace">projects read from <span style="color:#8d9296">~/Cartalith/Worlds</span></div>
+      <div style="flex:1"></div>
+      <div style="padding:8px 18px;border:1px solid rgba(255,255,255,.16);color:#c8cbcd;font-size:12px">Cancel</div>
+      <div style="padding:8px 18px;border:1px solid #e0a34a;color:#e0a34a;font-size:12px">Open selected</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ MODAL · SELECT FOLDER · open breadcrumb browser, replaces the stock OS tree picker ══════════════ -->
+<div data-screen-label="Select folder dialog 1920" style="width:1920px;height:1080px;background:#0d0e0f;color:#c8cbcd;font:11px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;position:relative;overflow:hidden;margin-top:40px">
+
+  <div style="height:34px;flex:none;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10)">
+    <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec">CARTALITH</div>
+  </div>
+
+  <div style="position:absolute;inset:34px 0 0;background:radial-gradient(1200px 700px at 50% 40%,#17191a,#0d0e0f 70%);filter:blur(2px);opacity:.5"></div>
+  <div style="position:absolute;inset:0;background:rgba(6,7,7,.62)"></div>
+
+  <!-- ═ modal ═ -->
+  <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:760px;height:640px;background:#121314;border:1px solid rgba(255,255,255,.14);box-shadow:0 40px 90px rgba(0,0,0,.65);display:flex;flex-direction:column">
+
+    <div style="flex:none;padding:22px 28px 16px;display:flex;align-items:baseline;gap:14px;border-bottom:1px solid rgba(255,255,255,.08)">
+      <div style="font:500 16px 'Helvetica Neue',Helvetica,sans-serif;color:#e8ebec">Select markdown vault folder</div>
+      <div style="flex:1"></div>
+      <div style="color:#5f6468;font-size:16px;cursor:pointer">✕</div>
+    </div>
+
+    <!-- open breadcrumb path — click any segment to jump, no nested tree -->
+    <div style="flex:none;padding:14px 28px 0;display:flex;align-items:center;gap:6px;font:11.5px 'IBM Plex Mono',monospace">
+      <span style="color:#8d9296">Home</span><span style="color:#5f6468">›</span>
+      <span style="color:#8d9296">Documents</span><span style="color:#5f6468">›</span>
+      <span style="color:#e0a34a">Cartalith</span>
+      <div style="flex:1"></div>
+      <span style="color:#5f6468">⌂ Home</span>
+    </div>
+
+    <!-- current-folder path bar — typeable, not required -->
+    <div style="flex:none;padding:12px 28px 0">
+      <div style="border:1px solid rgba(255,255,255,.16);padding:8px 12px;color:#c8cbcd;font:11.5px 'IBM Plex Mono',monospace">~/Documents/Cartalith</div>
+    </div>
+
+    <!-- ═ open row list — flat, generous rows instead of a dense collapsed tree ═ -->
+    <div style="flex:1;min-height:0;overflow-y:auto;padding:16px 28px 8px;display:flex;flex-direction:column;gap:2px">
+
+      <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid #e0a34a;background:rgba(224,163,74,.08)">
+        <span style="font-size:16px;color:#e0a34a">▸</span>
+        <span style="flex:1;color:#e8ebec;font-size:13px">Vault</span>
+        <span style="color:#e0a34a;font:10px 'IBM Plex Mono',monospace">selected</span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:12px;padding:11px 14px">
+        <span style="font-size:16px;color:#5f6468">▸</span>
+        <span style="flex:1;color:#c8cbcd;font-size:13px">Worlds</span>
+        <span style="color:#5f6468;font:10px 'IBM Plex Mono',monospace">14 items</span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:12px;padding:11px 14px">
+        <span style="font-size:16px;color:#5f6468">▸</span>
+        <span style="flex:1;color:#c8cbcd;font-size:13px">Exports</span>
+        <span style="color:#5f6468;font:10px 'IBM Plex Mono',monospace">6 items</span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:12px;padding:11px 14px">
+        <span style="font-size:16px;color:#5f6468">▸</span>
+        <span style="flex:1;color:#c8cbcd;font-size:13px">Packs</span>
+        <span style="color:#5f6468;font:10px 'IBM Plex Mono',monospace">3 items</span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;color:#5f6468">
+        <span style="font-size:14px">◆</span>
+        <span style="flex:1;font-size:12.5px">worldgen.log</span>
+        <span style="font:10px 'IBM Plex Mono',monospace">file · dimmed, not selectable</span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px dashed rgba(255,255,255,.2);color:#8d9296;margin-top:8px">
+        <span style="font-size:14px;color:#e0a34a">＋</span>
+        <span style="font-size:12.5px">New folder…</span>
+      </div>
+    </div>
+
+    <div style="flex:none;border-top:1px solid rgba(255,255,255,.08);padding:14px 28px;display:flex;align-items:center;gap:10px">
+      <div style="color:#5f6468;font:10px 'IBM Plex Mono',monospace">vault notes write to <span style="color:#8d9296">~/Documents/Cartalith/Vault</span></div>
+      <div style="flex:1"></div>
+      <div style="padding:8px 18px;border:1px solid rgba(255,255,255,.16);color:#c8cbcd;font-size:12px">Cancel</div>
+      <div style="padding:8px 18px;border:1px solid #e0a34a;color:#e0a34a;font-size:12px">Use this folder</div>
+    </div>
+  </div>
+</div>
+
 <!-- ══════════════ DESKTOP · LIGHT THEME · same shell, paper surface ══════════════ -->
 <div data-screen-label="DCC shell 1920 light" style="width:1920px;height:1080px;background:#f4f2ee;color:#23241f;font:11px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden;position:relative">
 
