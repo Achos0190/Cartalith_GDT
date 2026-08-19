@@ -31,10 +31,51 @@ const FACTION_COLORS: Array[Color] = [
 	Color(0.835, 0.369, 0.0),   # vermillion
 ]
 
-## Marker radius (px) and stroke width by settlement tier -- capitals
-## must read as visually more important than a hamlet at a glance.
-const TIER_RADIUS := {"capital": 9.0, "city": 6.5, "town": 5.0, "village": 3.8, "hamlet": 2.8}
+## Reference's `CIV_SETTLEMENT_CLASSES` (line 14674), restricted to the five
+## tiers `SettlementKind` -- and so `get_settlements()`'s own `kind` field --
+## can actually produce (`civ_tools_bridge.rs`'s own doc comment: metropolis
+## and the monastery/fortress/university/industrial special kinds are never
+## assigned to a real settlement, only to the manual-icon slot vocabulary).
+## `rank` drives `_civDrawSettlementPin`'s own size formula (`(4+klass.rank)
+## *sc`, reference line 15166) exactly; `glyph` is the same per-tier
+## character the reference draws centred on the pin (line 15180), reused
+## here now that this control draws more than a flat circle. Replaces the
+## old hardcoded `TIER_RADIUS` px dict -- radius is now derived below
+## (`_settlement_pin_radius`), not looked up from an arbitrary constant.
+const SETTLEMENT_CLASS := {
+	"hamlet":  {"rank": 0, "glyph": "⌂"},
+	"village": {"rank": 1, "glyph": "●"},
+	"town":    {"rank": 2, "glyph": "◉"},
+	"city":    {"rank": 3, "glyph": "⬣"},
+	"capital": {"rank": 4, "glyph": "✦"},
+}
+## `sc`, screen px per size-formula rank-unit. Reference: `sc=max(1,GW/512)*
+## civZoomK()*civIconScale()` (line 15165) -- a canvas-resolution term times
+## an inverse-CSS-zoom term times a user icon-scale, so a pin holds roughly
+## the same ON-SCREEN size regardless of grid resolution or camera zoom
+## (`_civZoomK`'s own comment, line 14976-14978: "shrinking in canvas-space
+## as you zoom in so the on-screen size ... stays roughly constant"). This
+## control has no separate canvas/CSS-zoom split to reproduce: `_displayed_
+## rect()`'s fit rect already IS screen space, and camera zoom is a plain
+## transform `ViewportHost` applies to this whole control, the same role the
+## reference's CSS transform plays over its canvas. The one piece worth
+## porting is the resolution term -- tying `sc` to `rect.size.x` ALONE (not
+## `rect.size.x/_gw`, unlike `tool_overlay.gd`'s brush-cursor radius) keeps a
+## pin's on-screen size independent of grid resolution, matching what the
+## reference's own `GW/512` term is actually for; a literal `radius_cells*
+## (rect.size.x/_gw)` port would instead shrink pins on a bigger grid, which
+## is right for a brush (a real world-space distance) but wrong for a pin's
+## glyph size (not a world-space quantity at all). `PIN_SCALE_REF_PX` is a
+## tuned constant this port chose (not a reference value -- there is no
+## equivalent number to port), sized so a typical dock-width viewport lands
+## close to the pre-formula `TIER_RADIUS` constants it replaces.
+const PIN_SCALE_REF_PX := 1400.0
 const CAPITAL_RING_WIDTH := 2.5
+## Reference's settlement-label fill (`#f6ecd4`, line 15206) -- close enough
+## to `LABEL_STROKE_COLOR` below's own outline colour (`rgba(8,6,4,.85)`,
+## line 15198) that this control's existing region-label palette already
+## matches it; only the fill needed a name of its own.
+const SETTLEMENT_LABEL_FILL := Color(0.965, 0.925, 0.831)
 ## By `way_type` (`cartalith_civ::WayType`, peak-corridor-usage
 ## classification, Phase 2 milestone 14) -- a highway should read as more
 ## prominent than a track, the same "tier implies visual weight" principle
@@ -265,6 +306,61 @@ func _point_to_screen(p: Vector2, rect: Rect2) -> Vector2:
 	return rect.position + Vector2(p.x / _gw, p.y / _gh) * rect.size
 
 
+## `(4+klass.rank)*sc` -- the reference's own settlement-pin size formula
+## (`_civDrawSettlementPin`, line 15166), `sc` per `PIN_SCALE_REF_PX`'s own
+## doc comment above. Shared by `_draw()`'s settlement loop and `_hit_test_
+## settlement` so the drawn pin and its click/hover target never disagree.
+func _settlement_pin_radius(kind: String, rect: Rect2) -> float:
+	var klass: Dictionary = SETTLEMENT_CLASS.get(kind, SETTLEMENT_CLASS["town"])
+	return (4.0 + float(klass["rank"])) * (rect.size.x / PIN_SCALE_REF_PX)
+
+
+## Reference lines 15716-15721 (`lblCandidates`): the four label positions a
+## settlement name is tried at, above -> below -> right -> left, as screen-
+## space boxes centred on the pin. `gap` matches the reference's own `2*sc`
+## clearance between the pin edge and the label box.
+func _settlement_label_candidates(pos: Vector2, radius: float, sc: float, w: float, h: float) -> Array[Rect2]:
+	var gap := 2.0 * sc
+	return [
+		Rect2(pos - Vector2(w / 2.0, radius + gap + h), Vector2(w, h)),  # above
+		Rect2(pos + Vector2(-w / 2.0, radius + gap), Vector2(w, h)),     # below
+		Rect2(pos + Vector2(radius + gap, -h / 2.0), Vector2(w, h)),     # right
+		Rect2(pos - Vector2(radius + gap + w, h / 2.0), Vector2(w, h)),  # left
+	]
+
+
+## Pre-seeds this frame's label-occupancy set with every manual icon's and
+## user-authored label's own approximate footprint, so a settlement's
+## auto-placed name never overlaps annotation the user placed deliberately
+## -- the same reasoning the reference reserves region-label boxes before
+## its own settlement loop runs for (line 15722-15728: "user-placed region
+## names are DELIBERATE cartography -- they must not be silently suppressed
+## by an auto-placed settlement label"). Approximate rather than exact for
+## icons (whose real footprint depends on family/shape, drawn in
+## `_draw_manual_icons`, not recomputed here) -- close enough to keep a
+## label from visibly overlapping an icon, which is all this simplified
+## system claims to do; see `_draw()`'s own settlement-loop comment for the
+## full scope of the simplification against the reference's real occupancy
+## grid (`_civLblOcc`).
+func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
+	var boxes: Array[Rect2] = []
+	var font := get_theme_default_font()
+	for lb: Dictionary in _labels:
+		var text: String = lb["text"]
+		if text.is_empty():
+			continue
+		var pos := _point_to_screen(Vector2(lb["x"], lb["y"]), rect)
+		var font_px := _label_font_px(lb, rect)
+		var w := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x
+		var h := float(font_px) * 1.3
+		boxes.append(Rect2(pos - Vector2(w, h) / 2.0, Vector2(w, h)))
+	for ic: Dictionary in _manual_icons:
+		var pos2 := _point_to_screen(Vector2(ic["x"], ic["y"]), rect)
+		var r: float = ICON_BASE_RADIUS * maxf(0.2, float(ic["scale"]))
+		boxes.append(Rect2(pos2 - Vector2(r, r), Vector2(r, r) * 2.0))
+	return boxes
+
+
 func _draw() -> void:
 	if (_settlements.is_empty() and _roads.is_empty() and _sea_routes.is_empty()
 			and _manual_icons.is_empty() and _labels.is_empty()):
@@ -319,7 +415,40 @@ func _draw() -> void:
 			_draw_way_segment(points, start2, points.size(), rect, width)
 
 	if _show_settlements:
-		for i in _settlements.size():
+		var sc: float = rect.size.x / PIN_SCALE_REF_PX
+		var font := get_theme_default_font()
+		# Trait badges (§4.5.3's own reference behaviour, `_civDrawTraitBadges`,
+		# reference line 15101) are a disclosed gap, not an oversight: `get_
+		# settlements()` (`lib.rs`) emits {x, y, name, population, kind,
+		# faction, capital, coastal} only -- no `traits` field -- and nothing
+		# in `cartalith-civ`'s own `NamedSettlement` models a trait list at
+		# all (grepped: the string "traits" appears exactly once in that
+		# crate, in a doc comment quoting the REFERENCE's own JS object
+		# shape). There is no data to draw a badge from, so none are drawn.
+		#
+		# Auto-label placement below is a deliberately simplified stand-in
+		# for the reference's real system (`_civLblOcc`, an occupancy GRID
+		# tested/marked per label-sized bucket, reference lines 15668-15781):
+		# a plain per-frame `Array[Rect2]` of already-placed boxes, tested by
+		# `Rect2.intersects` rather than a spatial grid. Fine at settlement-
+		# roster scale (dozens to a few hundred -- an occupancy grid exists to
+		# make THOUSANDS cheap, which no generated world here produces), and
+		# it reproduces the essential behaviour: higher tiers are drawn (and
+		# so win label placement) first, the same four candidate positions in
+		# the same above/below/right/left order, and a label that fits
+		# nowhere is dropped -- but its pin is always still drawn. No LOD
+		# gating either (`LOD_TILING_INTEGRATION_SCOPE.md` milestone M1 is a
+		# separate, already-built deep-zoom raster system with no settlement-
+		# marker LOD concept to hook into -- out of scope here per this
+		# task's own instruction).
+		var occupied: Array[Rect2] = _seed_label_occupancy(rect)
+		var draw_order := range(_settlements.size())
+		draw_order.sort_custom(func(a, b):
+			var ra: int = SETTLEMENT_CLASS.get(_settlements[a]["kind"], SETTLEMENT_CLASS["town"])["rank"]
+			var rb: int = SETTLEMENT_CLASS.get(_settlements[b]["kind"], SETTLEMENT_CLASS["town"])["rank"]
+			return ra > rb)
+
+		for i in draw_order:
 			var s: Dictionary = _settlements[i]
 			var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
 			# A settlement whose cell is under the frame has no visible terrain
@@ -333,7 +462,8 @@ func _draw() -> void:
 				continue
 			var faction: int = s["faction"]
 			var color: Color = FACTION_COLORS[(faction - 1) % FACTION_COLORS.size()] if faction > 0 else Color(0.5, 0.5, 0.5)
-			var radius: float = TIER_RADIUS.get(s["kind"], 3.0)
+			var klass: Dictionary = SETTLEMENT_CLASS.get(s["kind"], SETTLEMENT_CLASS["town"])
+			var radius: float = (4.0 + float(klass["rank"])) * sc
 			if i == _hover_index:
 				radius += 1.5
 
@@ -341,6 +471,45 @@ func _draw() -> void:
 			draw_arc(pos, radius, 0, TAU, 24, MARKER_OUTLINE, 1.2, true)
 			if s["capital"]:
 				draw_arc(pos, radius + CAPITAL_RING_WIDTH, 0, TAU, 28, color, CAPITAL_RING_WIDTH, true)
+
+			# Glyph (reference: `ctx.fillText(klass.glyph,px,py)`, line 15178-
+			# 15180) -- the one per-tier visual distinguisher beyond size,
+			# centred on the pin exactly like `_draw_labels`' own straight-text
+			# path centres a region label (`v_center` trick, same reasoning).
+			# Godot's built-in theme font may not carry every one of these five
+			# dingbat glyphs (⌂●◉⬣✦) -- a missing one falls back to whatever
+			# Godot's own tofu/replacement glyph is, same disclosed limitation
+			# `_draw_labels`' own doc comment already accepts for `font` (no
+			# web-font fallback chain exists in Godot either).
+			var glyph: String = klass["glyph"]
+			var glyph_px: int = maxi(8, int(radius + 2.0 * sc))
+			var glyph_w := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px).x
+			var glyph_v_center: float = (font.get_ascent(glyph_px) - font.get_descent(glyph_px)) / 2.0
+			draw_string(font, pos + Vector2(-glyph_w / 2.0, glyph_v_center), glyph,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px, Color.WHITE)
+
+			# Auto-placed name label -- see this block's own top comment for
+			# the simplified-occupancy-set reasoning.
+			var name: String = s.get("name", "")
+			if not name.is_empty():
+				var label_px: int = maxi(9, int(radius + sc))
+				var lw := font.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px).x
+				var lh := float(label_px) * 1.3
+				for box in _settlement_label_candidates(pos, radius, sc, lw, lh):
+					var fits := true
+					for occ in occupied:
+						if occ.intersects(box):
+							fits = false
+							break
+					if not fits:
+						continue
+					occupied.append(box)
+					var v_center: float = (font.get_ascent(label_px) - font.get_descent(label_px)) / 2.0
+					var draw_pos := Vector2(box.position.x, box.position.y + box.size.y / 2.0 + v_center)
+					var outline_w: int = maxi(1, int(2.5 * sc))
+					draw_string_outline(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, outline_w, LABEL_STROKE_COLOR)
+					draw_string(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, SETTLEMENT_LABEL_FILL)
+					break
 
 		if _hover_index >= 0 and _hover_index < _settlements.size():
 			_draw_hover_card(_settlements[_hover_index], rect, interior)
@@ -578,7 +747,7 @@ func _hit_test_settlement(mouse: Vector2, interior: Rect2, rect: Rect2) -> int:
 		# paper.
 		if not interior.has_point(pos):
 			continue
-		var radius: float = TIER_RADIUS.get(s["kind"], 3.0) + HOVER_RADIUS_PAD
+		var radius: float = _settlement_pin_radius(s["kind"], rect) + HOVER_RADIUS_PAD
 		var d := mouse.distance_to(pos)
 		if d <= radius and d < closest_dist:
 			closest = i
