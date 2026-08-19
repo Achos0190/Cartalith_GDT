@@ -5,7 +5,54 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-20 (post **In-shell file dialogs: the world gallery and
+Last updated: 2026-08-20 (post **Asset Library: a real `#[func]` surface**
+— closes `GUI_GAP_REGISTER.md` AS-01..AS-08/AS-13/DM-05. New
+`cartalith-godot/src/asset_bridge.rs` (`AssetLibrarySession`: a live
+`AssetDB` plus a parallel decoded-pixel store) behind a 20-function `as_*`
+`#[func]` surface on `WorldGen` (a field that survives a re-generate, like
+`travel_library`) — import, per-slot fill state, real baked thumbnails,
+inspector queries, pack metadata, validate, export (`archive::write_pack`),
+apply-to-map (the reference's own `applyToMap()`, no round trip through a
+file), and five batch ops (tag/collect/rename/duplicate/delete) read
+directly off the reference's own `alBatch*` handlers. One small new
+`cartalith-assets` accessor, `AssetDB::item_mut`, for frozen-slot batch
+rename (which renames item *variants*, not the slot — frozen slot names are
+the constant `slot_title`, never editable, an honest spec/engine
+disagreement kept rather than papered over). `asset_library_window.gd`'s
+grid now shows real fill state/thumbnails instead of a permanent
+checkerboard; `engine_bridge.gd` gained `has_method`-guarded `as_*`
+wrappers (the `tl_*` convention); `menus.gd`'s `_assets()` gained the
+`Assets ▸ Asset pack ▸` submenu (AS-13/omission O2); `data_manager_window
+.gd`'s Export ▸ Assets route (DM-05) now routes to the real export. Still
+gap, honestly: the sprite-sheet slicer's actual slice operation (AS-09/10/
+11 — a real engine gap, out of this pass's scope) and per-item scale/pan
+*editing* (reading is real, no `as_set_item_transform` writes one back
+yet). Verified: 238 Rust tests passing (12 new), `cargo build -p
+cartalith-godot` clean, a headless `WorldGen`-direct `--script` drive
+printing `ALL PASS` over the full import→fill→thumbnail→batch→validate→
+export→disk-round-trip→apply-to-map→delete→clear cycle, and a full shell
+boot (`app.tscn`) with zero script errors — all run in an isolated `git
+worktree` since a concurrent session held the shared build lock.
+`ASSET_LIBRARY_SCOPE.md` §10 and `GUI_GAP_REGISTER.md` §6.3/§6.4 carry the
+full record.
+— previously, post **"Layers don't work" — LOD tile layer occluded
+every overlay** (owner report, verbatim: *"the version i seem to open with godot
+seems rather crude and incomplete. a host of options such as layers dont
+work"*) — GDScript-only, no Rust. `viewport_host.gd`'s `_lod_layer` was added
+to `_camera` after `territory_view`/`province_view`/`_debug_layer` and so drew
+over all three at full opacity; `_update_lod()` activates at any fit scale above
+1 px/cell, which the common small presets already exceed at `_zoom == 1.0`, so
+every Layers field view, the faction fill and the province boundaries were being
+covered from the first frame after each generate — measured as literally **0**
+differing screen pixels between `off` and `temp` before the fix, 32,750 after.
+`_lod_layer` moved directly above `map_view`; `layers_popover.gd`'s hotkey
+badges now skip permanently-unavailable rows (digit `4` had been landing on
+Köppen, a gap row, since the seven new Climate views landed). `TOOLCHAIN.md`
+gained the two build hazards the investigation turned up: the running editor
+locks `target/debug/cartalith_godot.dll` so `cargo build` fails while the stale
+DLL keeps loading, and the debug entry is what every routine run takes. See the
+section below for what is left open (`main.tscn`). — previously, post
+**In-shell file dialogs: the world gallery and
 the breadcrumb browser** — GDScript-only, no Rust. The re-vendored
 `design/Cartalith DCC Shell.dc.html` (commit `419be0d`) gained two screens,
 **"Open project dialog 1920"** and **"Select folder dialog 1920"**, both built
@@ -2874,6 +2921,59 @@ Two passes landed the same day. The first built the ~430-line `journey_planner_w
 **Verified**: headless boot clean (`--headless --path . --quit`, zero errors). A scripted smoke run (generated a small world, committed a real route, armed the tool, confirmed both docks + centre swap and the map hide, confirmed a real `jp_compute` result with 14 derived stages, applied a stage override and confirmed recompute, disarmed and confirmed full restoration, then re-armed on a different domain and confirmed the view stayed hidden until the domain switched back to INFRA) — all passed, script discarded (not committed, matching this port's "no test scaffolding left behind" convention for one-off harnesses).
 
 **Not attempted this pass, disclosed**: light theme (spec §10's own "still to build" list), the 2560 tablet breakpoint, and the blocked-stage inspector's own distinct visual state beyond the block-token colouring already applied throughout.
+
+## "Layers don't work" — LOD tile layer occluded every overlay (owner report, fixed 2026-08-20)
+
+- [x] **Root cause, verified live.** `viewport_host.gd` added `_lod_layer`
+      (deep-zoom tiles) to `_camera` *after* `territory_view`, `province_view`
+      and `_debug_layer`, so at `modulate.a == 1.0` it drew over all three.
+      `_update_lod()` activates whenever the fit scale exceeds
+      `LOD_PX_PER_CELL_THRESHOLD` (1.0 px/cell), which a 384x256 grid in a
+      ~900 px viewport already does at `_zoom == 1.0` — so the tile layer was
+      opaque from the first frame after every generate at the common small
+      presets, with no zooming involved. Picking a field view lit the row,
+      built a real texture, echoed its id back from `debug_view()`, and
+      changed **0** screen pixels.
+- [x] **Fixed** by moving `_lod_layer` to sit directly above `map_view` and
+      below the three overlays. A refined tile *is* the base map at deep zoom;
+      the other three are overlays that happen to be rasters. Incident
+      recorded in the node's own doc comment.
+- [x] **Hotkey badges no longer land on dead rows.** `layers_popover.gd`
+      badged by position across all rows including the 11 permanent
+      `GAP_LAYERS`; the seven new Climate views (2026-08-19) pushed Köppen into
+      slot 4, so `4` had been a silent no-op since. Badges now skip
+      unavailable rows: `1..8` = `off, elevation, temp, rain, wind, ocean,
+      plates, bounds`.
+- [x] **Measured on the real rendered frame**, windowed 1600x1000, real
+      `app.tscn`, real 384x256 world, differing-pixel counts on a 4-px
+      sampling grid (~33,000 samples over the map region). Before: `off` vs
+      `temp` = 0. After: all 25 available views 32,734-32,750 each; territory
+      fill 24,061; province boundaries 2,151; opacity 100% = 32,750 and
+      0% = 0.
+- [x] `cargo test -p cartalith-godot --release --lib` 227/227. No Rust
+      changed — `sample_bridge`'s layer table was cleared by the
+      investigation, not modified. Headless boot (`--quit-after 30`) clean.
+- [ ] **Open, reported not fixed:** `godot-project/main.tscn` + `main.gd` (the
+      superseded pre-DCC shell, 2,358 lines, referenced by nothing under
+      `shell/`) are still in the project and are the editor's only entry in
+      `.godot/editor/project_metadata.cfg`'s `recent_files`. Running that
+      scene (F6) shows a five-checkbox LAYERS dock, no popover, no field
+      views — a second, independent way to see "crude and incomplete" where
+      layers do not work. `project.godot`'s `run/main_scene` is correctly
+      `res://shell/app.tscn`. Deleting the pair is left to the owner: it is a
+      2,400-line removal and `main.gd` is cited across the port's docs as the
+      source the current shell was ported from.
+- [ ] **Open, hygiene:** the untracked
+      `godot-project/android/build/src/instrumented/assets/project.godot`
+      export artifact still names `res://main.tscn`, so a locally-installed
+      APK predating the shell switch runs the old shell. Re-export to clear.
+- [x] **Build hazards documented** in `TOOLCHAIN.md` (new section under
+      Windows): the editor holds `target/debug/cartalith_godot.dll` open and
+      `cargo build -p cartalith-godot` then fails with `Access is denied. (os
+      error 5)` while the stale DLL keeps loading (reproduced live against the
+      owner's running editor); and everything routine — editor, Play, every
+      `--headless` scripted drive — loads the **debug** entry, not release, so
+      both profiles need building when a change is meant to reach an export.
 
 ## Sample panel + Layers popover (`DCC_SHELL_SPEC.md` §6/§9, done 2026-08-19)
 

@@ -54,8 +54,18 @@ var _rows: Dictionary = {}   ## view id -> its Button
 ## non-adjacent groups with no visual grouping to match -- a bigger, riskier
 ## change than this badge itself. Badging the first 8 rows in their real,
 ## already-built order instead (`DCC_CONTROL_INDEX.md`'s own tolerance for
-## "uncertain" mappings), so: 1 off, 2 elevation, 3 temp, 4 rain, 5 plates,
-## 6 bounds, 7 btype, 8 stress. Noted here and in `GUI_GAP_REGISTER.md`.
+## "uncertain" mappings). Noted here and in `GUI_GAP_REGISTER.md`.
+##
+## **Only *available* rows are badged**, which is why `rebuild()` counts them
+## itself rather than badging `LAYER_GROUPS`' first eight entries outright.
+## The unavailable rows are the eleven permanent engine gaps (`GAP_LAYERS`,
+## `sample_bridge.rs`) -- they are disabled on every world that will ever
+## exist, so a digit spent on one is a digit that does nothing, forever.
+## Counting positionally did exactly that: when the seven new Climate views
+## landed (Wind, Ocean currents, ...), Köppen -- a gap row -- shifted into
+## slot 4, and pressing `4` silently no-opped from then on. Skipping
+## unavailable rows keeps all eight digits live, and keeps them stable
+## against a future row landing in the middle of a group.
 const HOTKEY_COUNT := 8
 const HOTKEY_ACTIONS: Array[String] = [
 	"layers_hotkey_1", "layers_hotkey_2", "layers_hotkey_3", "layers_hotkey_4",
@@ -139,19 +149,21 @@ func rebuild() -> void:
 		return
 
 	var current := host.debug_view()
-	var row_i := 0   ## Running index across every group -- `HOTKEY_ACTIONS`'
-		## own doc comment on why this badges the first 8 in build order
-		## rather than the spec's own SURFACE/TERRAIN FIELDS/CLIMATE grouping.
+	var row_i := 0   ## Running count of *available* rows across every group --
+		## `HOTKEY_ACTIONS`' own doc comment on why this badges the first 8 in
+		## build order rather than the spec's own SURFACE/TERRAIN FIELDS/
+		## CLIMATE grouping, and why a disabled row never consumes a digit.
 	for g in groups:
 		var group: Dictionary = g
 		var body := DccWidgets.section(_list, String(group["group"]))
 		for it in group["items"]:
 			var item: Dictionary = it
-			var hotkey := row_i if row_i < HOTKEY_COUNT else -1
-			if hotkey >= 0:
+			var hotkey := -1
+			if bool(item["available"]) and row_i < HOTKEY_COUNT:
+				hotkey = row_i
 				_hotkey_ids.append(String(item["id"]))
+				row_i += 1
 			_rows[String(item["id"])] = _row(body, item, current, hotkey)
-			row_i += 1
 	_refresh_legend(_legend_for(current, groups))
 
 func _row(parent: Control, item: Dictionary, current: String, hotkey: int = -1) -> Button:

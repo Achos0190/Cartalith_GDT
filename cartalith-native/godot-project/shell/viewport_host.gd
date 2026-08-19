@@ -140,10 +140,11 @@ const MAX_LOD_TILES_PER_UPDATE := 48
 ## tiles over a couple of seconds without itself becoming a per-frame stall.
 const MAX_LOD_TILES_PER_CATCHUP := 6
 
-var _lod_layer: Control   ## Child of `_camera`, drawn above map/territory/
-	## province and below `overlay` -- same z-order the base raster already
-	## has relative to the vector layer, just with a refined terrain image
-	## underneath at deep zoom instead of the blocky one.
+var _lod_layer: Control   ## Child of `_camera`, drawn directly above
+	## `map_view` and below every overlay (territory, provinces, the Layers
+	## debug raster, previews, vectors) -- it replaces the base raster at deep
+	## zoom rather than sitting on top of the stack. See its `_ready()`
+	## construction site for why that distinction is load-bearing.
 var _lod_tile_cells := 0   ## `EngineBridge.lod_tile_cells()`, fetched once
 	## (`0` before any world, or against a binary built before this
 	## milestone -- both make `_update_lod()` a no-op, degrading cleanly to
@@ -206,11 +207,38 @@ func _ready() -> void:
 	add_child(_camera)
 
 	map_view = _raster()
+	_camera.add_child(map_view)
+
+	## Deep-zoom tile overlay (`LOD_TILING_INTEGRATION_SCOPE.md` milestone
+	## M1): directly over `map_view` and under *every* overlay, because a
+	## refined tile stands in for the blocky base pixels -- it is the base
+	## map at deep zoom, not something drawn on top of it. Starts fully
+	## transparent and empty; `_update_lod()` is the only thing that ever
+	## adds children to it.
+	##
+	## **This node's position in the stack is load-bearing, and once got it
+	## wrong.** It used to be added after `territory_view`, `province_view`
+	## and `_debug_layer`, on the reading that "above the base raster" meant
+	## "above everything raster." It does not: those three are overlays that
+	## happen to be rasters. `_update_lod()` turns this layer on whenever the
+	## fit scale exceeds one screen pixel per cell -- which a 384x256 grid in
+	## a 900px-wide viewport already does at `_zoom == 1.0`, no zooming
+	## needed -- and at `modulate.a == 1.0` its opaque tiles then covered the
+	## faction fill, the province boundaries and every one of the Layers
+	## popover's field views completely. The popover still highlighted the
+	## picked row, `debug_view()` still echoed it back, and the map did not
+	## change: the owner's "a host of options such as layers dont work"
+	## (2026-08-20), reproduced live and fixed by these four lines moving up.
+	_lod_layer = Control.new()
+	_lod_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_lod_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_lod_layer.modulate.a = 0.0
+	_camera.add_child(_lod_layer)
+
 	territory_view = _raster()
 	province_view = _raster()
 	territory_view.visible = false
 	province_view.visible = false
-	_camera.add_child(map_view)
 	_camera.add_child(territory_view)
 	_camera.add_child(province_view)
 
@@ -222,18 +250,6 @@ func _ready() -> void:
 	## picked, and `modulate.a` is what the popover's opacity slider drives.
 	_debug_layer = _raster()
 	_camera.add_child(_debug_layer)
-
-	## Deep-zoom tile overlay (`LOD_TILING_INTEGRATION_SCOPE.md` milestone
-	## M1) -- above the raster/territory/province layers so a refined tile
-	## covers the blocky base pixels it's standing in for, below `overlay`
-	## so settlements/roads/sea-lanes stay on top exactly as they already
-	## are over the plain raster. Starts fully transparent and empty;
-	## `_update_lod()` is the only thing that ever adds children to it.
-	_lod_layer = Control.new()
-	_lod_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
-	_lod_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_lod_layer.modulate.a = 0.0
-	_camera.add_child(_lod_layer)
 
 	## One shared draft-preview layer for every tool whose result is a full
 	## raster (`build_sculpt_preview_texture`, `build_paint_preview_texture`)

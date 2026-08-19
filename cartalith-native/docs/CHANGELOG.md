@@ -15900,3 +15900,216 @@ of still-parented children (now `remove_child` first, in both dialogs).
 `cartalith-native/godot-project/shell/dcc_widgets.gd`,
 `cartalith-native/godot-project/shell/dcc_icons.gd`, this file,
 `docs/STATUS.md`.
+
+## "Layers don't work": the deep-zoom tile layer was drawing over every overlay (owner report, 2026-08-20)
+
+Owner report, verbatim: *"the version i seem to open with godot seems rather
+crude and incomplete. a host of options such as layers dont work"*.
+
+**Root cause — found by driving the real app, not by reading code.** The
+Layers popover, all 26 buildable field views, the faction-territory fill and
+the province-boundary raster were all *working*; nothing about them reached
+the screen, because `viewport_host.gd`'s deep-zoom LOD tile layer
+(`_lod_layer`, `LOD_TILING_INTEGRATION_SCOPE.md` milestone M1) was added to
+`_camera` **after** `territory_view`, `province_view` and `_debug_layer`, and
+therefore drew on top of all three at `modulate.a == 1.0`.
+
+The failure needed no zooming to trigger. `_update_lod()` turns the layer on
+whenever the native fit scale exceeds `LOD_PX_PER_CELL_THRESHOLD` (`1.0`
+screen pixel per cell) — a 384x256 grid in a ~900 px-wide viewport is already
+2.31 px/cell at `_zoom == 1.0`, so the tile layer was opaque and covering the
+map from the first frame after every generate at the common small presets.
+Picking a view therefore did precisely nothing visible: the popover lit the
+row, `set_debug_layer()` built a real `ImageTexture`, `debug_view()` echoed
+the id back, and the map did not change. Exactly the shape of report that
+reads as "the option is dead."
+
+The stack order was a misreading of one word, not an oversight: the layer's
+own comment said it belonged "above the raster/territory/province layers so a
+refined tile covers the blocky base pixels it's standing in for." A refined
+tile does stand in for `map_view`'s blocky pixels — it *is* the base map at
+deep zoom. `territory_view`, `province_view` and `_debug_layer` are not base
+pixels; they are overlays that happen to be rasters. Moved `_lod_layer` to sit
+directly above `map_view` and below all three, with the incident recorded in
+its doc comment so the next reader does not re-derive it.
+
+**Second fix, same file's neighbourhood.** `layers_popover.gd` assigned its
+eight hotkey badges by position across all rows, including the eleven
+permanent engine gaps (`GAP_LAYERS`). When the seven new Climate views landed
+(`Layer-visualization audit + seven new debug views`, 2026-08-19), Köppen — a
+gap row, `available: false` on every world that will ever exist — shifted into
+slot 4, so pressing `4` silently no-opped from that commit onward. Badges now
+skip unavailable rows: `1..8` are `off, elevation, temp, rain, wind, ocean,
+plates, bounds`, all live.
+
+**Verified — measured on the real rendered frame, before and after.** A
+temporary windowed harness (not committed, the same "scripted headless drive"
+convention this file's Journey Planner and domain-merge entries already use)
+booted the real `app.tscn` at 1600x1000, generated a real 384x256 world, and
+compared `get_viewport().get_texture().get_image()` between layer states,
+counting differing pixels on a 4-px sampling grid (~40,000 samples, of which
+the map region is ~33,000):
+
+- **Before:** `off` vs `temp` differed in **0** pixels. So did swapping the
+  temp raster into `map_view` itself — which is what first proved the
+  occluder was above `map_view` too, and pointed at `_lod_layer`
+  (`_lod_active == true`, `modulate.a == 1.0`, 24 tiles, `_zoom == 1.0`).
+- **After:** all 25 available non-`off` views differ from the base by
+  32,734-32,750 pixels each — i.e. essentially the entire map region, none
+  below 200. Territory fill: 24,061. Province boundaries: 2,151 (thin lines,
+  correctly small). Opacity slider: `temp` at 100% differs by 32,750, at 0%
+  by exactly 0 — it blends rather than toggling, as the reference's own
+  `#dbgOpacity` does.
+
+Also re-confirmed live through the real gdext boundary, unchanged and already
+correct before this fix: `debug_layers()` returns all 6 groups / 37 rows;
+every one of the 26 `available: true` rows builds a non-uniform
+`ImageTexture` (162-1,997 distinct colours sampled per raster, never flat);
+all 11 gap rows report `available: false` and build nothing; `set_debug_layer`
+round-trips its id for every available view and falls back to `"off"` for
+every unavailable one.
+
+`cargo test -p cartalith-godot --release --lib`: 227 passed, 0 failed. No Rust
+changed this pass — the tests are the guard on `sample_bridge`'s layer table,
+which the investigation cleared rather than modified. Headless boot
+(`--headless --path godot-project --quit-after 30`): clean, zero script
+errors.
+
+**Two operational hazards found in the same investigation, documented rather
+than coded around** (`TOOLCHAIN.md`, new "Which `.dll` a Godot run actually
+loads" section):
+
+1. **The editor holds `target/debug/cartalith_godot.dll` open, and cargo then
+   cannot replace it.** Reproduced live against the owner's running editor:
+   `cargo build -p cartalith-godot` fails with `failed to remove file ... 
+   Access is denied. (os error 5)`. The stale DLL stays on disk and keeps
+   loading, and `engine_bridge.gd`'s `has_method()` guards — correct, and what
+   lets an older binary boot at all — then degrade every missing binding into
+   a control that exists, responds, and does nothing. Close the editor before
+   rebuilding; check for `Finished`, not just for the absence of red.
+2. **The `.gdextension`'s `windows.debug` entry is what everything routine
+   loads.** Godot chooses by whether the loading *binary* is debug-featured:
+   the editor, Play/Run Project from it, and every `--headless` scripted
+   drive all take `target/debug/`; only an exported build on a release
+   template takes `target/release/`. At the start of this pass the release DLL
+   was a day behind the debug one (no `Wind-throw` string in it). Build both
+   when a native change is meant to reach an export.
+
+**Still open, reported not fixed** — `godot-project/main.tscn` +
+`main.gd`, the superseded pre-DCC shell (2,358 lines, last touched
+2026-08-18, referenced by nothing under `shell/`), are still in the project,
+and `.godot/editor/project_metadata.cfg`'s `recent_files` lists
+`res://main.tscn` as the editor's only recent scene. Booting it renders a
+LAYERS dock of five checkboxes, no popover, no field views, and a tool bar
+reading "no live tool parameters -- tool system not implemented yet" — a
+second, independent way to see something that "seems rather crude and
+incomplete" where layers do not work, one keystroke (F6, Run Current Scene)
+away. `project.godot`'s `run/main_scene` is correctly `res://shell/app.tscn`;
+the untracked `godot-project/android/build/.../project.godot` export artifact
+still says `res://main.tscn`, so any locally-installed APK predating the shell
+switch shows the old shell too. Deleting the pair is the obvious fix and was
+left to the owner: it is a 2,400-line removal, and `main.gd` is cited across
+the port's documentation as the source the current shell's code was ported
+from.
+
+**Files touched:** `cartalith-native/godot-project/shell/viewport_host.gd`,
+`cartalith-native/godot-project/shell/layers_popover.gd`, `TOOLCHAIN.md`,
+this file, `docs/STATUS.md`.
+
+## Asset Library: a real `#[func]` surface, closing `GUI_GAP_REGISTER.md` AS-01..AS-08/AS-13/DM-05 (2026-08-20)
+
+`ASSET_LIBRARY_SCOPE.md` §9 (2026-08-19) found the Asset library window real
+but pixel-blind: `cartalith-godot` exposed exactly two asset `#[func]`s
+(`load_asset_pack`/`has_asset_pack`), so the window's grid was a permanent
+checkerboard and Apply/Export/Validate/Clear/batch-edit were all disclosed
+gaps for the same reason -- no in-memory `AssetDB` on the Godot side. This
+pass closes that gap.
+
+**New**: `cartalith-godot/src/asset_bridge.rs` -- a godot-free
+`AssetLibrarySession` (`cartalith_assets::AssetDB` plus a parallel decoded-
+pixel store, since `AssetDB` itself deliberately carries no pixels; the two
+stay index-parallel, same uid/order/length, in every mutating method).
+`WorldGen` carries one as a field (`asset_library`, bootstrapped in `init()`,
+not reset by `absorb()` -- survives a re-generate like `travel_library`
+does, since an authored library describes the setting, not one generation's
+output). Twenty `as_*` `#[func]`s in a new `#[godot_api(secondary)]` block
+in `lib.rs`: import (`as_import_item`/`as_add_custom_slot`), per-slot fill
+state (`as_family_slots`), real baked thumbnails (`as_thumbnail_png`, via
+`render_item` -- the reference's own shared thumbnail/preview/export-bake
+core), inspector queries (`as_slot_summary`/`as_item_summary`), pack
+metadata (`as_pack_info`/`as_set_pack_info`), removal/clearing
+(`as_remove_item`/`as_clear_library`), validation (`as_validate`), export
+(`as_export_pack_bytes` -- bakes every item, builds a schema-2 manifest,
+`archive::write_pack`), apply-to-map (`as_apply_to_map` -- the reference's
+own `applyToMap()`: build the pack in memory and load it straight into
+`self.asset_pack`, no round trip through a file), and five batch operations
+(`as_batch_tag`/`_collect`/`_rename`/`_duplicate`/`_delete`) read directly
+off the reference's own `alBatch*` handlers (`Cartalith Gen1 v2.10.html`
+~line 28045-28090), not guessed from button labels. Batch Rename is
+honestly split exactly as the reference splits it: a custom slot is renamed
+for real; a frozen slot instead renames its *item variants* in place, via
+one small new accessor this pass added to `cartalith-assets`,
+`AssetDB::item_mut` -- frozen slot names are the constant `slot_title`,
+never editable at all, a real spec/engine disagreement `GUI_GAP_REGISTER.md`
+AS-06 had already named and this pass does not paper over.
+
+**GDScript**: `asset_library_window.gd` -- real per-slot fill state and
+baked thumbnails replace the permanent checkerboard; the inspector shows
+real file/scale/tags/pack-metadata (editing scale/pan is not yet wired, no
+`as_set_item_transform` exists, disclosed honestly rather than silently
+missing); Import image… targets whichever slot is focused in the grid;
+Apply to map / Export pack .zip… / Validate / Clear library all call the
+engine directly; the five batch buttons drive real multi-select operations
+through `_prompt_text()`, a small reusable single-line text-input modal
+this pass built (Godot has no `prompt()` equivalent). `engine_bridge.gd`
+gained one `has_method`-guarded wrapper per `as_*` `#[func]`, the same
+convention `tl_*` already established for the Travel Library. `menus.gd`'s
+`_assets()` gained the `Assets ▸ Asset pack ▸` submenu `GUI_GAP_REGISTER.md`
+AS-13 named as omission O2 (`DCC_CONTROL_INDEX.md` §2.3.1, "19
+backed-unwired against 1 engine gap") -- Active pack stats, Pack metadata…,
+and the Build group call the engine directly; Edit and Batch open the real
+window, since every one of their controls genuinely needs slot/selection
+context only the grid provides (real navigation, not a disabled item).
+`data_manager_window.gd`'s `export_assets` route (DM-05) changed from
+`"gap"` to `"route"`, mirroring `import_assets`'s existing shape: it opens
+the Asset library window and calls its real `export_pack_now()`.
+
+**Still honestly a gap**: the sprite-sheet slicer's actual slice operation
+(AS-09/AS-10/AS-11) -- `cartalith-assets::raster` still only decodes/
+encodes whole PNGs, no sheet-splitting function exists anywhere in the
+crate, and this was explicitly out of scope for this pass (a real engine
+gap, not a binding gap). AS-12's "Unassigned imports" bucket is still
+unmodeled (no slot-less bucket in the engine to bind it to). Per-item
+scale/pan editing, as above.
+
+**Verified.** `cargo test -p cartalith-assets -p cartalith-godot --lib`:
+238 tests, all passing, including 12 new `asset_bridge` tests and one new
+`AssetDB::item_mut` test; zero regressions. `cargo build -p cartalith-godot`
+succeeds cleanly. `cargo clippy --no-deps` on both crates: no new warnings
+(the three pre-existing `too_many_arguments` warnings elsewhere in the
+crate are untouched by this pass). A concurrent session held the shared
+`target/debug/cartalith_godot.dll` open for this pass's whole duration, so
+the build and the drive below both ran in an isolated `git worktree` with
+its own `CARGO_TARGET_DIR` -- same source files this repository ships, only
+the verification build's target directory was temporary. A headless
+`--script` drive (`WorldGen.new()` directly, no scene tree, no editor)
+exercised the full authoring cycle end to end and printed `ALL PASS`:
+import into a frozen slot, real fill state and a real 32×32 PNG thumbnail,
+a custom-slot import, batch tag, batch duplicate (which correctly tripped a
+live "Identical images" validation warning -- `duplicate_groups` working
+against real content hashes, not fixtures), pack-metadata round-trip,
+validate, a 6454-byte real export, a disk round trip through
+`load_asset_pack` on a *second* `WorldGen`, apply-to-map, batch delete
+(frozen slot emptied, not removed, custom slot removed entirely), and clear
+library. Separately, a plain `--headless --path godot-project --quit` boot
+of the whole shell (`app.tscn`) loaded and ran every touched `.gd` file
+with zero script errors.
+
+**Files touched:** `cartalith-native/crates/cartalith-assets/src/library.rs`
+(`AssetDB::item_mut` + one test), `cartalith-native/crates/cartalith-godot/
+src/asset_bridge.rs` (new), `cartalith-native/crates/cartalith-godot/
+src/lib.rs`, `cartalith-native/godot-project/shell/asset_library_window.gd`,
+`cartalith-native/godot-project/shell/engine_bridge.gd`,
+`cartalith-native/godot-project/shell/menus.gd`,
+`cartalith-native/godot-project/shell/data_manager_window.gd`,
+`ASSET_LIBRARY_SCOPE.md`, `GUI_GAP_REGISTER.md`, this file, `docs/STATUS.md`.
