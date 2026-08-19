@@ -84,6 +84,7 @@ starting work — not this file, which is a map rather than a state.
 | `DCC_SHELL_SCOPE.md` | how that shell maps onto the port — **carries the UI hold** |
 | `GUI_SHELL_SCOPE.md` | the superseded panel-browser shell; history only |
 | `GUI_FEATURE_PARITY_SCOPE.md` | the gap audit between engine capability and GUI |
+| `GUI_GAP_REGISTER.md` | every disconnected control in the shipped shell, classified by whether a design exists; comparable-app research where none does; the menu-naming audit |
 | `MARKDOWN_VAULT_INTEGRATION.md` | owner-supplied design for a future, unscheduled feature |
 | `HARDWARE_ACCELERATION.md` | owner-supplied GPU architecture, annotated with a major scope correction |
 | `TERRAIN_ARCHITECTURE_RESEARCH.md` | owner-supplied; tiling/LOD/clipmaps, mostly Phase-3-or-later |

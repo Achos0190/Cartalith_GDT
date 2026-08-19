@@ -14587,3 +14587,117 @@ investigation. `cargo build -p cartalith-godot` and `cargo build --release
 -p cartalith-godot` both re-run clean after the revert, and `godot4
 --headless --path godot-project --quit main.tscn` boots clean.
 
+
+## GUI gap register — every disconnected control, its design, and where none exists (owner request, 2026-08-19)
+
+Owner request, verbatim: *"verify that all GUI elements are tested, connected
+and where it doesn't connect to other menus or functions designs have been made
+to be implemented. If not, research the menu naming, documentation in the
+design, and where you still have gaps find references in similar
+applications."*
+
+**The premise does not hold, and that is by design.** The shell has **123
+catalogued disconnected surfaces**, every one added deliberately disabled with a
+stated reason, per `menus.gd`'s own honesty rule. So this pass built the "if
+not" branch: a new root-level `GUI_GAP_REGISTER.md` that classifies every gap
+by whether a real design already exists, and where none does, researches how
+established applications solve the same problem and proposes one.
+
+**Built — `GUI_GAP_REGISTER.md`, three layers:**
+
+- **Layer 1, the catalogue.** All 18 files under `godot-project/shell/` and
+  `shell/workspaces/` (13 112 lines) read in full, not grepped. 123 entries in
+  15 tables — where the gap is (file:line), its UI label, its current disclosed
+  reason, **whether that reason is still accurate**, and its classification.
+- **Layer 2, design coverage.** Each entry classified **(A)** designed +
+  engine-ready (17), **(B)** designed but engine-blocked (71, each naming the
+  *specific* missing capability, verified by opening the crate), **(C)**
+  undesigned (23), **(D)** deliberate owner decision (12, no design proposed).
+  (B) carries a second axis — **wrapper / small / large** — and **22 of the 71
+  are wrapper-cost**, i.e. waiting on a boundary crossing rather than a
+  capability. That is `DCC_CONTROL_INDEX.md` summary §1's finding measured
+  against the shipped shell rather than the design.
+- **Layer 3, comparable-application research** for all 23 (C) entries — 10 web
+  searches across Blender, Photoshop, Krita, DaVinci Resolve, QGIS, ArcGIS Pro,
+  Mapbox Studio, Gaea, World Machine, Unreal, Wonderdraft and Inkarnate, each
+  claim carrying its source URL, each ending in a concrete proposal precise
+  enough to build from without re-researching. Several recommend **cutting**
+  rather than building: Data ▸ Conversion (no GIS application of consequence has
+  such a route — conversion is an export parameter and a project property),
+  §5.2's Stroke & grid block (no comparable edits a stroke's control points;
+  vector tools do, and a sculpt stamp is not a vector path), and Sources'
+  third row.
+- **A menu-naming audit** against both `DCC_SHELL_SPEC.md`'s own prescribed
+  names and the comparables. The shipped vocabulary matches the spec exactly
+  (three documented divergences, one omission), so the findings are about the
+  spec: **`Data` is overloaded** (seven items across three unrelated concerns,
+  and `Journey planner… ⇧J` is a *tool* — the only menu item in the shell that
+  arms one); **`Preferences` mixes application and project scope** where every
+  comparable splits them (QGIS's Options vs Project Properties is the clearest);
+  **`Edit` is ten disabled items and nothing else**; **`CIVIL` is ambiguous
+  against `INFRA`** (recommend `CIV`, matching `cartalith-civ`); and
+  **CARTO vs RENDER contradict each other** over who owns terrain appearance,
+  which RN-01 needs settled. Recommendations only — renaming is an owner
+  decision and `DCC_SHELL_SPEC.md` is owner-supplied.
+
+**Five stale disclosed reasons found and corrected** (reason text only — no
+control changed state, no behaviour changed). None overlaps `595582d`'s six:
+
+1. `right_dock.gd` Faction ▸ Territory said *"no per-faction cell count or area
+   query exists"*. **Two now exist**: `civ_faction_territory_stats(faction)`
+   (claimed cells / km² / contested) and `get_factions()`'s own `claimed_cells`.
+   `civilization_workspace.gd` had already flagged this in a comment but could
+   not edit the file.
+2. `app.gd`'s CIVIL/INFRA idle tool-options text said *"the §4.5 tool palette to
+   arm them is not built yet"* — it **is** built, in both docks; both workspace
+   files say so in their own comments and note `app.gd` was out of their scope.
+3. `journey_planner_view.gd`'s Cost group said the reference's cost model *"has
+   no Rust port"*. **False**: `cartalith_civ::jp_journey_cost`
+   (`cartalith-civ/src/lib.rs:6885`, from `jpJourneyCost` reference line 18873)
+   computes carriage/wages/crew/upkeep/tolls/transship/total/per-tonne-km/
+   break-even with golden tests, and every input it needs is already computed
+   inside `jp_plan` (`JpDerivedStage::claimed_frac`,
+   `JpJourneyPlan::transshipments`, per-leg km/days/crew). It is simply never
+   called. **The cheapest (B) in the register** — a boundary gap, not a model
+   gap.
+4. `menus.gd`'s Tiled LOD tooltip said *"No tile atlas yet."* Stale in part:
+   deep-zoom LOD tiling is live and automatic (`lod_synthesize_tile`, driven by
+   `viewport_host.gd`'s `_lod_backlog`); what is absent is §2.5's controls and
+   the persistent on-disk cache.
+5. `world_workspace.gd`'s Finalize tooltip said `cartalith-spatial` *"exists
+   standalone, unintegrated"* — stale since 2026-08-18. The bake/freeze half of
+   the claim is still true and is kept.
+
+**Nine omissions found** — designed surfaces absent entirely, so a reader of the
+menus cannot learn the port owes them (the honesty rule's second half, *never
+omitted*). Chief among them: **`Data ▸ ⧉ Travel library… ⇧L`** (specified in
+`DCC_SHELL_SPEC.md` §2.4's own addition and `TRAVEL_LIBRARY_SPEC.md` in full,
+with the whole mutable store, CRUD, validation and usage tracking already built
+and tested in `cartalith-godot/src/travel_bridge.rs` — no `#[func]` layer, no
+menu item); **`Assets ▸ Asset pack ▸`**, the entire 24-control submenu §2.3.1
+designs; the Journey Planner's **timeline band** (`JOURNEY_PLANNER_SPEC.md` §2 —
+and `timeline_bar` is currently drawn *visible and empty* in INFRA); its
+**blocked-stage inline resolutions** (§9); and the right dock's **`Layers`
+context** (§6 lists eight contexts, seven are built).
+
+**One real defect found and deliberately not fixed**, because the fix is a
+design change rather than a factual correction: `timeline_bar` is visible and
+empty in CIVIL and INFRA. `app.gd` shows it for both; `dcc_shell.gd` builds an
+empty `timeline_row`; `TIMELINE_SCOPE.md` §4 explains why milestone 6 built its
+own panel instead. The result is a 70 px empty strip with no disclosure — the
+one place the shell shows a region with nothing in it and says nothing about
+why. Recorded as the recommended first follow-up.
+
+**Verified:**
+
+- **Engine claims opened, not inferred.** The complete `#[func]` surface was
+  enumerated from all 15 modules under `cartalith-godot/src/` — **151 methods**,
+  against the 38 `DCC_CONTROL_INDEX.md` counted when it was written, which is
+  why several of its "backed, unwired" rows have moved. Every (B) row names the
+  specific missing item; the eight claims that changed a classification are
+  listed with their line numbers in the register's own §12.
+- **Headless Godot 4.7.1 boot clean** after all five edits (`--headless --path
+  godot-project --quit`), no parse errors and no missing-method warnings.
+- **No Rust changed, no GUI behaviour changed.** `git diff` over
+  `cartalith-native/crates/` is empty; the five GDScript edits are all string
+  literals and comments.

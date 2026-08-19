@@ -5,7 +5,42 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-19 (post **two owner-reported rendering bugs: deep-zoom
+Last updated: 2026-08-19 (post **GUI gap register** (`GUI_GAP_REGISTER.md`,
+new, repo root) — the owner asked to verify every GUI element is tested and
+connected, and where not, that a design exists; the premise does not hold and
+that is by design, so this pass built the "if not" branch: **123 catalogued
+disconnected surfaces**, each classified **(A)** designed + engine-ready (17),
+**(B)** designed but engine-blocked (71, each naming the specific missing
+capability, with a wrapper/small/large cost axis — **22 are wrapper-cost**,
+waiting on a boundary crossing rather than a capability), **(C)** undesigned
+(23, each researched against Blender/Photoshop/Krita/Resolve/QGIS/ArcGIS Pro/
+Mapbox/Gaea/World Machine/Wonderdraft/Inkarnate with a concrete proposal and
+source URLs), **(D)** deliberate owner decision (12, no design proposed); plus
+a **menu-naming audit** (findings all against the spec, not the shell, which
+matches it exactly: `Data` is overloaded and carries `Journey planner… ⇧J`
+which is a *tool*; `Preferences` mixes application and project scope where
+every comparable splits them; `Edit` is ten disabled items and nothing else;
+`CIVIL` reads ambiguously against `INFRA`; CARTO vs RENDER contradict each
+other over terrain appearance); **five stale disclosed reasons corrected**
+(reason text only — Faction ▸ Territory's "no per-faction query exists" when
+`civ_faction_territory_stats` and `get_factions().claimed_cells` both exist;
+`app.gd`'s "the §4.5 tool palette is not built yet" when both docks build one;
+the Journey Planner's "the cost model has no Rust port" when
+`cartalith_civ::jp_journey_cost` is ported, golden-tested and simply never
+called; "No tile atlas yet" when deep-zoom LOD tiling is live; and
+`cartalith-spatial` "standalone, unintegrated" since 2026-08-18); **nine
+omissions found** — designed surfaces absent entirely, chief among them
+`Data ▸ ⧉ Travel library… ⇧L` (whole store built and tested in
+`travel_bridge.rs`, no `#[func]`, no menu item), `Assets ▸ Asset pack ▸`'s
+entire 24-control submenu, the Journey Planner's timeline band, and the right
+dock's `Layers` context; **one real defect found and left for its own
+dispatch**: `timeline_bar` is drawn visible and empty in CIVIL and INFRA, the
+one place the shell shows a region with nothing in it and no disclosure; the
+`#[func]` surface was re-enumerated at **151 methods across 15 modules**
+against the 38 `DCC_CONTROL_INDEX.md` counted, which is why several of its
+"backed, unwired" rows have moved; no Rust changed, no GUI behaviour changed,
+headless Godot 4.7.1 boot clean; see its own section below — previously, same
+day, post **two owner-reported rendering bugs: deep-zoom
 tile drops, settlement-pin fidelity** — both root-caused against real
 headless repros rather than assumed, both fixed, GDScript-only:
 `viewport_host.gd`'s `MAX_LOD_TILES_PER_UPDATE`-capped deep-zoom tiles were
@@ -3268,6 +3303,65 @@ built 127/9/128 real rows across its three tabs, `PerformanceWindow` opened
 with real content both from its own `open()` and via the new Preferences
 menu item, and `DataManagerWindow`'s corrected reason string read back
 exactly as written. No Rust touched.
+
+## GUI gap register (`GUI_GAP_REGISTER.md`, owner request, done 2026-08-19)
+
+- [x] **Layer 1 — the complete verified catalogue.** All 18 files under
+      `godot-project/shell/` + `shell/workspaces/` (13 112 lines) read in
+      full. **123 catalogued gap entries** in 15 tables, each with file:line,
+      UI label, current disclosed reason, and **whether that reason is still
+      accurate**. Raw count of individually disabled controls is ~180.
+- [x] **Layer 2 — design coverage**, every entry classified:
+      **(A) 17** designed + engine-ready · **(B) 71** designed but
+      engine-blocked (each naming the specific missing function/crate/`#[func]`,
+      verified by opening the crate; second axis **wrapper 22 / small 21 /
+      large 28**) · **(C) 23** undesigned · **(D) 12** deliberate owner
+      decision, no design proposed.
+- [x] **Layer 3 — comparable-application research** for all 23 (C) entries.
+      10 web searches; every attributed claim carries its source URL; every
+      entry ends in a proposal precise enough to build from. Three of them
+      recommend **cutting** rather than building (Data ▸ Conversion, §5.2's
+      Stroke & grid block, Sources' third row).
+- [x] **Menu-naming audit** against `DCC_SHELL_SPEC.md`'s own names and the
+      comparables. The shipped shell matches the spec exactly (three
+      documented divergences, one omission), so every finding is about the
+      spec — recommendations only, renaming is an owner decision.
+- [x] **Five stale disclosed reasons corrected** (reason text only; no control
+      changed state, no behaviour changed; none overlaps `595582d`'s six):
+      `right_dock.gd` Faction ▸ Territory, `app.gd`'s CIVIL/INFRA idle
+      tool-options text, `journey_planner_view.gd`'s Cost group, `menus.gd`'s
+      Tiled LOD tooltip, `world_workspace.gd`'s Finalize tooltip.
+- [x] **Verified**: `#[func]` surface re-enumerated across all 15 modules
+      (**151 methods**, vs the 38 `DCC_CONTROL_INDEX.md` counted); eight
+      classification-changing claims opened line-by-line and cited in the
+      register's §12; headless Godot 4.7.1 boot clean after all five edits;
+      `git diff` over `cartalith-native/crates/` empty.
+- [ ] **Follow-up, recommended first**: `timeline_bar` is drawn **visible and
+      empty** in CIVIL and INFRA (`app.gd`'s `_on_workspace_changed`;
+      `dcc_shell.gd`'s `_build_timeline()` builds an empty `timeline_row`;
+      `TIMELINE_SCOPE.md` §4 explains why milestone 6 built its own panel
+      instead). A 70 px empty strip with no disclosure — the one place the
+      shell shows a region with nothing in it and says nothing about why. Two
+      honest fixes exist (hide it until something fills it, or put a one-line
+      `_todo()`-style disclosure in it); the register's (A) item **JP-13**
+      fills it outright for INFRA.
+- [ ] **The (A) list — 17 entries, no Rust needed**, in the register's §10
+      priority order. Top five: wire Settlement ▸ Economy/Politics/**Logistics**
+      to destinations that all now exist (Logistics → `open_journey_planner()`);
+      Faction ▸ Territory/Roster onto `civ_faction_territory_stats()`/
+      `get_factions()`; the Journey Planner's timeline band; its blocked-stage
+      inline resolutions; and the right dock's collapsed primary readout
+      (`set_dock_readout("right", …)` exists and is wired for the left dock
+      only). Plus the **light theme** (`DccTheme.LIGHT` is fully defined; only
+      the build-once stylebox pass blocks it) — the largest visible change
+      available with no engine work.
+- [ ] **Nine omissions** — designed surfaces absent entirely, so the menus
+      cannot teach a reader that the port owes them: `Data ▸ ⧉ Travel
+      library… ⇧L`; `Assets ▸ Asset pack ▸`'s whole 24-control submenu;
+      `Preferences ▸ Fallback when VRAM full`; `Theme ▸ follow system`;
+      `Window ▸` workspace list and open-windows list; the New world dialog's
+      project **name** field; the Journey Planner's timeline band and
+      blocked-stage resolutions; and the right dock's `Layers` context.
 
 ## Known-open items (not owner-blocked, just not done yet)
 

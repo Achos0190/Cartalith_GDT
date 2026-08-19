@@ -289,7 +289,7 @@ func _build_pipeline(parent: Control) -> void:
 	var foot := DccWidgets.section(parent, "Finalize")
 	var bake := DccWidgets.action(foot, "Finalize · LOD 0–3 · bake & freeze", func(): pass)
 	bake.disabled = true
-	bake.tooltip_text = "No bake pipeline exists: nothing writes a frozen LOD tile atlas yet (cartalith-spatial exists standalone, unintegrated -- LOD_TILING_BASE_SCOPE.md). Finalizing would lock stages 01-10 and Sculpt; there is nothing here to lock against yet."
+	bake.tooltip_text = "No bake pipeline exists: LOD tiles are synthesized on demand at deep zoom (lod_synthesize_tile, LOD_TILING_INTEGRATION_SCOPE.md) and never written anywhere, so there is no frozen atlas to bake into and no finalize-lock state to enter. Finalizing would lock stages 01-10 and Sculpt; there is nothing here to lock against yet."
 
 func _build_stage(parent: Control, index: int) -> void:
 	var stage: Dictionary = STAGES[index]

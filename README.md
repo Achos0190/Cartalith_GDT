@@ -72,6 +72,9 @@ reference actually turned out to do, and what remains:
 **Reference and direction** — inputs, not plans: `FUNCTIONAL_CONTRACT.md`
 (what the HTML app does, capability by capability), `VISION.md`,
 `UI_SHELL_DESIGN.md`, `DCC_SHELL_SCOPE.md`, `GUI_FEATURE_PARITY_SCOPE.md`,
+`GUI_GAP_REGISTER.md` (every disconnected control in the shipped shell,
+classified against the design; comparable-app research where no design
+exists; the menu-naming audit),
 `MARKDOWN_VAULT_INTEGRATION.md`, and the three owner-supplied research
 documents (`TERRAIN_ARCHITECTURE_RESEARCH.md`,
 `HETEROGENEOUS_COMPUTE_RESEARCH.md`, `TERRAIN_APPEARANCE_RESEARCH.md`), each

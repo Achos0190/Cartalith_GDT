@@ -335,7 +335,8 @@ func _preferences(p: PopupMenu) -> void:
 	_todo(p, "3D viewport defaults", "No 3D viewport yet.")
 	_todo(p, "Lighting rig defaults", "No lighting rig yet.")
 	p.add_separator()
-	_todo(p, "Tiled LOD · tile size · atlas cache", "No tile atlas yet.")
+	_todo(p, "Tiled LOD · tile size · atlas cache",
+		"Deep-zoom LOD tiling is live and automatic (lod_synthesize_tile/lod_tile_cells, driven by viewport_host.gd) -- what does not exist is any of §2.5's controls over it: no auto/manual switch, no tile-size or LOD-level choice, and no persistent atlas cache to cap or clear (tiles are synthesized on demand and never written to disk).")
 	_todo(p, "Undo history", "No undo stack yet.")
 	## §2.5's Memory group has three items -- Undo history (above, a real
 	## gap), Working set and Clear caches -- but only the first ever made it

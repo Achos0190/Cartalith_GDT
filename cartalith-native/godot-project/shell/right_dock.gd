@@ -606,8 +606,11 @@ func _build_faction(body: Control) -> void:
 		not names.is_empty())
 
 	_field(sec, "Territory", "—",
-		"Territory is only exposed as a rendered overlay (build_territory_texture()) -- " +
-		"no per-faction cell count or area query exists.", false)
+		"Not read here yet. The queries now exist -- civ_faction_territory_stats(faction) " +
+		"returns claimed cells, km² and contested cells, and get_factions() carries " +
+		"claimed_cells per faction -- but this dock predates both and still only shows " +
+		"the rendered overlay's provinces. The live numbers are shown today in CIVIL ▸ " +
+		"Territory's own tool options row.", false)
 	_field(sec, "State religion", "—",
 		"cartalith-civ computes a has_religion flag internally " +
 		"(civ_faction_aggregates, FactionAggregate) but get_provinces() doesn't carry " +

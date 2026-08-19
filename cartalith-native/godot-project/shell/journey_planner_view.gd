@@ -1516,7 +1516,7 @@ func _build_supply_group(body: Control, plan: Dictionary) -> void:
 
 func _build_cost_group(body: Control) -> void:
 	var g := DccWidgets.section(body, "Cost")
-	DccWidgets.note(g, "jp_plan returns no monetary figures (checked against the full jp_journey_plan_dict field list) -- the reference's own cost model, if any exists past the HTML's own UI layer, has no Rust port. Not shown rather than invented.")
+	DccWidgets.note(g, "jp_plan returns no monetary figures, so nothing here can be filled today -- but the cost model itself IS ported: cartalith_civ::jp_journey_cost (jpJourneyCost, reference line 18873) computes carriage, wages, crew, upkeep, tolls, transshipment, total, per-tonne-km and break-even, with golden tests. It is simply never called: jp_compute/jp_journey_plan_dict don't invoke it and no #[func] exposes it. Every input it needs is already computed inside jp_plan (per-leg km/days/crew, JpDerivedStage::claimed_frac, JpJourneyPlan::transshipments), so this is a boundary gap, not a model gap. Not invented here.")
 
 func _build_vessels_group(body: Control, plan: Dictionary) -> void:
 	var g := DccWidgets.section(body, "Vessels · water legs")

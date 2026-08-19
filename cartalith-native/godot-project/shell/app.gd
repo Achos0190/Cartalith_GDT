@@ -274,14 +274,18 @@ func _on_workspace_changed(id: String) -> void:
 		"cartography": _tool_options_simple("CARTOGRAPHY · STYLE",
 			"presentation only — no control here marks a generation stage stale")
 		## Settlement/POI/Territory (civ_tools_bridge.rs) and Way/Route/Measure/
-		## Region (infra_tools_bridge.rs) are bound and tested as of 2026-08-19
-		## -- the gap left is §4.5's TOOLS block itself, the GDScript palette
-		## that arms one of them. Wording corrected so it doesn't claim a
-		## binding gap that closed under it.
+		## Region (infra_tools_bridge.rs) are bound and tested as of 2026-08-19,
+		## and §4.5's TOOLS block that arms them now exists in both docks
+		## (`civilization_workspace.gd`/`infrastructure_workspace.gd`'s own
+		## `_build_tools()`). The earlier wording here claimed the palette "is
+		## not built yet" and was stale the moment those two files shipped --
+		## both of them say so in their own comments. These strings are only the
+		## idle default a domain switch lands on; each workspace reclaims the bar
+		## with its own richer row the moment one of its tools arms.
 		"civilization": _tool_options_simple("CIVIL · INSPECT",
-			"place/territory tools are bound (civ_tools_bridge.rs); the §4.5 tool palette to arm them is not built yet")
+			"Settlement and Territory tools are armed from the TOOLS block in the dock. POI has no engine call (civ_tools_bridge.rs) and is not offered.")
 		"infrastructure": _tool_options_simple("INFRA · INSPECT",
-			"way/route tools are bound (infra_tools_bridge.rs); the §4.5 tool palette to arm them is not built yet")
+			"Way, Route and Journey are armed from the TOOLS block in the dock; Measure and Region select are global tools.")
 		"render": _tool_options_simple("RENDER · PREVIEW",
 			"TerrainAppearance is unbound; quality tier lives in Preferences")
 	_refresh_rail_foot()
