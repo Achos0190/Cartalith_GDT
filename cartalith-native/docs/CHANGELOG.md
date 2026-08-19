@@ -16083,7 +16083,8 @@ unmodeled (no slot-less bucket in the engine to bind it to). Per-item
 scale/pan editing, as above.
 
 **Verified.** `cargo test -p cartalith-assets -p cartalith-godot --lib`:
-238 tests, all passing, including 12 new `asset_bridge` tests and one new
+344 tests across the two crates, all passing (227 in `cartalith-godot`, 117
+in `cartalith-assets`), including 12 new `asset_bridge` tests and one new
 `AssetDB::item_mut` test; zero regressions. `cargo build -p cartalith-godot`
 succeeds cleanly. `cargo clippy --no-deps` on both crates: no new warnings
 (the three pre-existing `too_many_arguments` warnings elsewhere in the

@@ -16,6 +16,7 @@ use godot::classes::{IRefCounted, INode, Image, ImageTexture, Node, RefCounted};
 use godot::init::{ExtensionLibrary, gdextension};
 use godot::prelude::*;
 
+mod asset_bridge;
 mod civ_tools_bridge;
 mod icon_bridge;
 mod infra_tools_bridge;
@@ -1218,6 +1219,14 @@ struct WorldGen {
     /// `generate()` call, unlike every `Option<...>` field above that
     /// needs a generated world to mean anything.
     travel_library: travel_bridge::TravelLibrary,
+    /// `ASSET_LIBRARY_SCOPE.md` / `GUI_GAP_REGISTER.md` AS-01..AS-08/AS-13,
+    /// DM-05: the live, in-memory Asset Library authoring session (`AssetDB`
+    /// plus its decoded pixels) that `asset_library_window.gd` edits. Not
+    /// `Option` and not reset by `absorb()` — same reasoning
+    /// `travel_library` above already carries: an authored library describes
+    /// the *setting*, not one generation's output, so it survives a
+    /// re-generate and is real even before the first `generate()` call.
+    asset_library: asset_bridge::AssetLibrarySession,
 }
 
 #[godot_api]
@@ -1247,6 +1256,7 @@ impl IRefCounted for WorldGen {
             labels: None,
             infra: None,
             travel_library: travel_bridge::TravelLibrary::new(),
+            asset_library: asset_bridge::AssetLibrarySession::new(),
         }
     }
 }
@@ -6089,4 +6099,279 @@ fn sim_dict_to_pairs(d: &VarDictionary) -> (Vec<(String, timeline_bridge::SimVal
         }
     }
     (pairs, rejected)
+}
+
+/// `ASSET_LIBRARY_SCOPE.md` / `GUI_GAP_REGISTER.md` rows AS-01..AS-08/AS-13,
+/// DM-05: the Asset Library authoring session's `#[func]` surface, a thin
+/// `Variant`<->Rust layer over `asset_bridge::AssetLibrarySession` --
+/// `travel_bridge.rs`'s `tl_*` block just above is the precedent this
+/// mirrors (pure logic in a godot-free module, conversion here).
+///
+/// `#[godot_api(secondary)]`, not a plain `#[godot_api]`: only the first
+/// `#[godot_api] impl WorldGen` block in the crate may omit `secondary` --
+/// `WorldGen` has a `Base<RefCounted>` field, and a second primary block
+/// collides on the shared registration machinery (`E0119`/`E0592`/`E0034`),
+/// exactly as every sibling bridge block above already documents.
+#[godot_api(secondary)]
+impl WorldGen {
+    /// Decode `bytes` as a PNG and add it as a new item on `uid` --
+    /// `AssetImporter.intake`'s per-file half (AS-01). `{"ok": true}` or
+    /// `{"ok": false, "error": ...}` for an unknown uid or bytes that fail
+    /// to decode as a PNG.
+    #[func]
+    fn as_import_item(&mut self, uid: GString, name: GString, bytes: PackedByteArray) -> VarDictionary {
+        match self.asset_library.import_item(&uid.to_string(), name.to_string(), bytes.as_slice()) {
+            Ok(()) => vdict! { "ok" => true, "error" => "" },
+            Err(e) => vdict! { "ok" => false, "error" => e },
+        }
+    }
+
+    /// Add (or return the existing) custom slot -- `AssetDB::addCustomSlot`
+    /// (AS-01, AS-12's own "Unassigned imports" note: this is the real
+    /// engine call a future such bucket would sit on top of). `set_name`
+    /// empty means the reference's own `"Default"` fallback.
+    #[func]
+    fn as_add_custom_slot(&mut self, name: GString, set_name: GString) -> VarDictionary {
+        let set = set_name.to_string();
+        let set_opt = if set.trim().is_empty() { None } else { Some(set.as_str()) };
+        let uid = self.asset_library.add_custom_slot(&name.to_string(), set_opt);
+        vdict! { "ok" => true, "uid" => uid.as_str() }
+    }
+
+    /// Every slot in `family_key`'s registry, in the same order
+    /// `AssetDB::slots_in_family` returns (frozen vocabulary order for the
+    /// seven closed families, add order for `"custom"`, which starts empty
+    /// every session until something is imported/duplicated into it) --
+    /// AS-08's real per-slot fill state and AS-13's "filled slots" readout,
+    /// both sourced from here. Each row: `uid`, `id`, `name`, `item_count`,
+    /// `filled` (bool), `has_dupe` (bool, `AssetValidator.slotHasDupe`).
+    /// Empty `Array` for an unrecognised `family_key`.
+    #[func]
+    fn as_family_slots(&self, family_key: GString) -> Array<VarDictionary> {
+        let Some(family) = cartalith_assets::Family::from_key(&family_key.to_string()) else {
+            return Array::new();
+        };
+        let db = &self.asset_library.db;
+        db.slots_in_family(family)
+            .into_iter()
+            .map(|slot| {
+                let count = db.items(&slot.uid).len();
+                vdict! {
+                    "uid" => slot.uid.as_str(),
+                    "id" => slot.id.as_str(),
+                    "name" => slot.name.as_str(),
+                    "item_count" => count as i64,
+                    "filled" => count > 0,
+                    "has_dupe" => cartalith_assets::slot_has_dupe(db, &slot.uid),
+                }
+            })
+            .collect()
+    }
+
+    /// One slot's full inspector detail (AS-07): id/name/family/set, tags,
+    /// collection membership, and the free-form `SlotMeta` fields.
+    /// `{"ok": false}` for an unknown uid.
+    #[func]
+    fn as_slot_summary(&self, uid: GString) -> VarDictionary {
+        let uid_s = uid.to_string();
+        let db = &self.asset_library.db;
+        let Some(slot) = db.get(&uid_s) else { return vdict! { "ok" => false } };
+        let tags: PackedStringArray = slot.meta.tags.iter().map(GString::from).collect();
+        let collections: PackedStringArray = db.collections.membership(&uid_s).iter().map(|s| GString::from(*s)).collect();
+        vdict! {
+            "ok" => true,
+            "id" => slot.id.as_str(),
+            "name" => slot.name.as_str(),
+            "family" => slot.family.key(),
+            "set" => slot.set.clone().unwrap_or_default().as_str(),
+            "item_count" => db.items(&uid_s).len() as i64,
+            "has_dupe" => cartalith_assets::slot_has_dupe(db, &uid_s),
+            "tags" => &tags,
+            "collections" => &collections,
+            "meta_author" => slot.meta.author.as_str(),
+            "meta_copyright" => slot.meta.copyright.as_str(),
+            "meta_license" => slot.meta.license.as_str(),
+            "meta_source" => slot.meta.source.as_str(),
+            "meta_notes" => slot.meta.notes.as_str(),
+            "meta_version" => slot.meta.version.as_str(),
+        }
+    }
+
+    /// One item's inspector detail (AS-07): name, transform (`scale`/
+    /// `pan_x`/`pan_y`), decoded size, and its content hash. `{"ok": false}`
+    /// for an unknown uid/index.
+    #[func]
+    fn as_item_summary(&self, uid: GString, index: i32) -> VarDictionary {
+        if index < 0 {
+            return vdict! { "ok" => false };
+        }
+        let uid_s = uid.to_string();
+        let idx = index as usize;
+        let Some(item) = self.asset_library.db.items(&uid_s).get(idx) else {
+            return vdict! { "ok" => false };
+        };
+        let (w, h) = self.asset_library.image(&uid_s, idx).map(|img| (img.w, img.h)).unwrap_or((0, 0));
+        vdict! {
+            "ok" => true,
+            "name" => item.name.as_str(),
+            "scale" => item.transform.scale,
+            "pan_x" => item.transform.pan_x,
+            "pan_y" => item.transform.pan_y,
+            "w" => w as i64,
+            "h" => h as i64,
+            "hash" => item.hash.as_str(),
+        }
+    }
+
+    /// A `render_item`-baked, PNG-encoded thumbnail for one stored item
+    /// (AS-08's real per-slot art, replacing the grid's checkerboard
+    /// placeholder). Empty `PackedByteArray` when the uid/index doesn't
+    /// resolve.
+    #[func]
+    fn as_thumbnail_png(&self, uid: GString, index: i32, size: i32) -> PackedByteArray {
+        if index < 0 || size <= 0 {
+            return PackedByteArray::new();
+        }
+        match self.asset_library.thumbnail_png(&uid.to_string(), index as usize, size as u32) {
+            Some(bytes) => PackedByteArray::from(bytes),
+            None => PackedByteArray::new(),
+        }
+    }
+
+    /// Pack-level metadata and totals (AS-13's "Active pack" header):
+    /// name/author/license plus `total_items`/`total_slots_filled`.
+    #[func]
+    fn as_pack_info(&self) -> VarDictionary {
+        let db = &self.asset_library.db;
+        vdict! {
+            "name" => db.pack.name.as_str(),
+            "author" => db.pack.author.as_str(),
+            "license" => db.pack.license.as_str(),
+            "total_items" => db.total_items() as i64,
+        }
+    }
+
+    /// Set the pack's name/author/license fields directly (AS-13's "Pack
+    /// metadata…"). Always succeeds -- these are free-form strings with no
+    /// validation on the reference's own side either.
+    #[func]
+    fn as_set_pack_info(&mut self, name: GString, author: GString, license: GString) -> bool {
+        self.asset_library.db.pack.name = name.to_string();
+        self.asset_library.db.pack.author = author.to_string();
+        self.asset_library.db.pack.license = license.to_string();
+        true
+    }
+
+    /// Remove one item from a slot, keeping the pixel store in lockstep.
+    #[func]
+    fn as_remove_item(&mut self, uid: GString, index: i32) -> bool {
+        index >= 0 && self.asset_library.remove_item(&uid.to_string(), index as usize)
+    }
+
+    /// Reset the whole session to a fresh, empty library (AS-03).
+    #[func]
+    fn as_clear_library(&mut self) -> bool {
+        self.asset_library.clear();
+        true
+    }
+
+    /// `AssetValidator.run()` (AS-05): the real, ordered warning strings.
+    #[func]
+    fn as_validate(&self) -> PackedStringArray {
+        self.asset_library.validate().iter().map(GString::from).collect()
+    }
+
+    /// Bake every stored item, build a schema-2 manifest, and write the pack
+    /// `.zip` bytes (AS-04, DM-05). `{"ok": false, "error": ...}` on an
+    /// empty library or an encode/archive failure; otherwise `{"ok": true,
+    /// "name": <pack name>, "bytes": PackedByteArray}`. The caller (GDScript)
+    /// writes `bytes` to disk via `FileAccess` -- this crate's own convention
+    /// for export surfaces (`region_export_tiles` does the same) is to hand
+    /// back bytes rather than touch a user-chosen path from Rust.
+    #[func]
+    fn as_export_pack_bytes(&mut self) -> VarDictionary {
+        match self.asset_library.export_pack_bytes() {
+            Ok((name, bytes)) => {
+                let packed = PackedByteArray::from(bytes);
+                vdict! { "ok" => true, "error" => "", "name" => name.as_str(), "bytes" => &packed }
+            }
+            Err(e) => {
+                let packed = PackedByteArray::new();
+                vdict! { "ok" => false, "error" => e, "name" => "", "bytes" => &packed }
+            }
+        }
+    }
+
+    /// `AssetLibrary.applyToMap()` (AS-02): compile the current session into
+    /// a pack (same bake `as_export_pack_bytes` does) and load it straight
+    /// into `self.asset_pack` -- the reference's own `loadAssetPack(blob)`
+    /// call, minus the round trip through a file. `{"ok": false, "error":
+    /// ...}` on an empty library or a decode failure; `{"ok": true}` once
+    /// the map is rendering these sprites/textures.
+    #[func]
+    fn as_apply_to_map(&mut self) -> VarDictionary {
+        let (_, bytes) = match self.asset_library.export_pack_bytes() {
+            Ok(pair) => pair,
+            Err(e) => return vdict! { "ok" => false, "error" => e },
+        };
+        match pack::load_pack_from_bytes(bytes) {
+            Ok(loaded) => {
+                self.asset_pack = Some(loaded);
+                vdict! { "ok" => true, "error" => "" }
+            }
+            Err(e) => vdict! { "ok" => false, "error" => e },
+        }
+    }
+
+    /// `alBatchTag` (AS-06): comma-separated `tags_csv` onto every uid in
+    /// `uids`.
+    #[func]
+    fn as_batch_tag(&mut self, uids: PackedStringArray, tags_csv: GString) -> VarDictionary {
+        let uid_vec: Vec<String> = uids.as_slice().iter().map(GString::to_string).collect();
+        let tags: Vec<String> = tags_csv.to_string().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        let tagged = self.asset_library.batch_tag(&uid_vec, &tags);
+        vdict! { "ok" => true, "tagged" => tagged as i64 }
+    }
+
+    /// `alBatchColl` (AS-06): add every uid in `uids` to collection `name`.
+    #[func]
+    fn as_batch_collect(&mut self, uids: PackedStringArray, name: GString) -> VarDictionary {
+        let uid_vec: Vec<String> = uids.as_slice().iter().map(GString::to_string).collect();
+        self.asset_library.batch_collect(&name.to_string(), &uid_vec);
+        vdict! { "ok" => true }
+    }
+
+    /// `alBatchRename` (AS-06): `{base}_01`, `{base}_02`, … over `uids` in
+    /// order. `remap` carries `old_uid -> new_uid` for every custom slot
+    /// whose uid changed (a caller's selection set needs to follow it) --
+    /// frozen slots rename their item variants in place and keep their uid.
+    #[func]
+    fn as_batch_rename(&mut self, uids: PackedStringArray, base: GString) -> VarDictionary {
+        let uid_vec: Vec<String> = uids.as_slice().iter().map(GString::to_string).collect();
+        let (renamed, remap) = self.asset_library.batch_rename(&uid_vec, &base.to_string());
+        let mut remap_dict = VarDictionary::new();
+        for (old, new) in &remap {
+            remap_dict.set(old.as_str(), new.as_str());
+        }
+        vdict! { "ok" => true, "renamed" => renamed as i64, "remap" => &remap_dict }
+    }
+
+    /// `alBatchDup` (AS-06): clone every slot in `uids` carrying at least
+    /// one item into a new custom slot under `"Duplicates"`.
+    #[func]
+    fn as_batch_duplicate(&mut self, uids: PackedStringArray) -> VarDictionary {
+        let uid_vec: Vec<String> = uids.as_slice().iter().map(GString::to_string).collect();
+        let made = self.asset_library.batch_duplicate(&uid_vec);
+        vdict! { "ok" => true, "made" => made as i64 }
+    }
+
+    /// `alBatchDel` (AS-06): custom slots in `uids` are removed entirely;
+    /// frozen slots have their items cleared (a frozen slot can never be
+    /// removed).
+    #[func]
+    fn as_batch_delete(&mut self, uids: PackedStringArray) -> VarDictionary {
+        let uid_vec: Vec<String> = uids.as_slice().iter().map(GString::to_string).collect();
+        let deleted = self.asset_library.batch_delete(&uid_vec);
+        vdict! { "ok" => true, "deleted" => deleted as i64 }
+    }
 }

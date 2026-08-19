@@ -29,12 +29,17 @@ class_name DataManagerWindow
 ##   (`cartalith-io/src/lib.rs::tests::build_test_zip`) -- there is no
 ##   production save writer. Confirmed by reading the crate directly this
 ##   pass, not assumed from an old comment.
-## - **Import ▸ Maps/Heightmaps/GIS**, **Export ▸ Maps/GIS**, **Export ▸
-##   Assets**, **Sources**, **Conversion**, **Validation** are all disclosed
-##   gaps: no image/heightmap/GeoJSON import, no tile/GIS export, no source
-##   registry, no coordinate/format conversion, and no validation pass exist
-##   anywhere in the workspace (`load_save` returns a plain bool, nothing a
-##   warning count could be read from).
+## - **Export ▸ Assets** is real as a routing shortcut too (DM-05, since
+##   2026-08-20): it calls the Asset library window's own real
+##   `export_pack_now()` (AS-04, `as_export_pack_bytes` ->
+##   `archive::write_pack`), the same "routes, doesn't reimplement" shape
+##   `import_assets` above already has.
+## - **Import ▸ Maps/Heightmaps/GIS**, **Export ▸ Maps/GIS**, **Sources**,
+##   **Conversion**, **Validation** are all disclosed gaps: no image/
+##   heightmap/GeoJSON import, no tile/GIS export, no source registry, no
+##   coordinate/format conversion, and no validation pass exist anywhere in
+##   the workspace (`load_save` returns a plain bool, nothing a warning count
+##   could be read from).
 
 var _host: DccApp
 var _bridge: EngineBridge
@@ -54,8 +59,7 @@ const ROUTES: Array[Dictionary] = [
 		"reason": "cartalith-engine::geojson exports region GeoJSON for the Region-select tool only, with no route into this window and no CRS/world-file support."},
 	{"group": "Export", "id": "export_world", "label": "World Data", "kind": "gap",
 		"reason": "cartalith-io reads .zip saves but does not write them -- the only zip::ZipWriter in the crate lives in its own #[cfg(test)] fixture builder, not production code. A save writer is a separate, larger piece of work, out of scope here."},
-	{"group": "Export", "id": "export_assets", "label": "Assets (pack .zip)", "kind": "gap",
-		"reason": "Routes to the Asset library window's own Export pack .zip button (Assets ▸ ⧉ Asset library, §8's window bar) -- itself disabled there for the same reason: cartalith-assets can write a pack (archive.rs::write_pack/zip_store) but no #[func] exposes it, and there is no in-memory library session to export from."},
+	{"group": "Export", "id": "export_assets", "label": "Assets (pack .zip)", "kind": "route"},
 	{"group": "Sources", "id": "sources_external", "label": "External Sources", "kind": "gap", "reason": "No source registry exists."},
 	{"group": "Sources", "id": "sources_connected", "label": "Connected Sources", "kind": "gap", "reason": "Same -- no source registry exists."},
 	{"group": "Sources", "id": "sources_registry", "label": "Source Registry", "kind": "gap", "reason": "Same -- no source registry exists."},
@@ -234,6 +238,18 @@ func _select_route(id: String) -> void:
 					DccWidgets.action(_pane_body, "Import asset pack .zip…", func():
 						hide()
 						_host.open_asset_pack_picker())
+				"export_assets":
+					## DM-05: routes to the Asset library window's own real
+					## Export pack .zip… (AS-04, `as_export_pack_bytes` ->
+					## `archive::write_pack`) -- §2.4's own table calls this a
+					## shortcut, not a second implementation, same as
+					## `import_assets` above.
+					DccWidgets.note(_pane_body,
+						"Routes to the Asset library window's own Export pack .zip… (Assets ▸ ⧉ Asset library, §8's window bar) -- real now (as_export_pack_bytes -> archive::write_pack).")
+					DccWidgets.action(_pane_body, "Export pack .zip…", func():
+						hide()
+						_host.open_asset_library()
+						_host.asset_library_window.export_pack_now())
 		_:
 			var reason := String(route.get("reason", "Not implemented."))
 			DccWidgets.note(_pane_body, reason)

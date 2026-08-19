@@ -31,6 +31,9 @@ const ID_IMPORT_IMAGE := 32
 const ID_IMPORT_PACK := 33
 const ID_APPLY_LIBRARY := 36
 const ID_CLEAR_LIBRARY := 37
+const ID_AP_VALIDATE := 38
+const ID_AP_EXPORT := 39
+const ID_AP_PACK_META := 49
 
 const ID_DATA_MANAGER := 40
 const ID_JOURNEY_PLANNER := 41
@@ -69,6 +72,12 @@ var _quality_popup: PopupMenu
 var _recent_popup: PopupMenu
 var _icon_families_popup: PopupMenu
 var _texture_sets_popup: PopupMenu
+## AS-13 / omission O2: `Assets ▸ Asset pack ▸`, `DCC_CONTROL_INDEX.md` §2.3.1.
+var _asset_pack_popup: PopupMenu
+var _ap_edit_popup: PopupMenu
+var _ap_batch_popup: PopupMenu
+var _ap_build_popup: PopupMenu
+var _ap_stats_idx: int = -1
 var _theme_popup: PopupMenu
 var _theme_mode := "dark"  ## "dark" / "light" / "system" -- which of the three
 	## radio rows shows checked. Not persisted (`DccSettings` carries no theme
@@ -210,8 +219,11 @@ func _assets(p: PopupMenu) -> void:
 	_live(p, "⧉ Asset library", ID_ASSET_LIBRARY, KEY_MASK_SHIFT | KEY_A)
 	_live(p, "⧉ Sprite sheet slicer (▦)", ID_SLICER)
 	p.add_separator()
-	_todo(p, "Import image…",
-		"The asset-library window (§8) is built, but landing a loose image in an Unassigned-imports custom slot needs AssetDB::addCustomSlot -- no #[func] exposes it.")
+	## `AssetDB::add_item`/`raster::decode_png` are real and bound now
+	## (`as_import_item`) -- the window's own slot grid is where a target
+	## slot gets focused, so this opens straight to it rather than
+	## duplicating slot-selection at the menu level.
+	_live(p, "Import image…", ID_IMPORT_IMAGE)
 	_live(p, "Import asset pack .zip…", ID_IMPORT_PACK)
 	p.add_separator()
 
@@ -250,16 +262,124 @@ func _assets(p: PopupMenu) -> void:
 	_texture_sets_popup.id_pressed.connect(func(i: int): _host.open_asset_library(tex_keys[i]))
 
 	p.add_separator()
-	_todo(p, "Apply library to map",
-		"Verified against the live engine (2026-08-19): cartalith-godot exposes load_asset_pack(path) only -- loading a pack FROM DISK. There is no in-memory library-editing session on the Godot side to compile and apply.")
-	_todo(p, "Clear library…",
-		"Same verification: no AssetDB.clear() equivalent is exposed -- there is no live library state here to clear.")
+	_live(p, "Apply library to map", ID_APPLY_LIBRARY)
+	_live(p, "Clear library…", ID_CLEAR_LIBRARY)
+	p.add_separator()
+	_build_asset_pack_submenu(p)
 	p.id_pressed.connect(_on_assets)
+
+## AS-13 / omission O2: the `Assets ▸ Asset pack ▸` submenu
+## `DCC_CONTROL_INDEX.md` §2.3.1 describes (24 controls, "19 backed-unwired
+## against 1 engine gap") -- most of it real once `asset_bridge.rs`'s
+## session exists. Laid out in its own four groups (Active pack / Edit /
+## Batch / Build) the same way §2.3.1's own table does.
+##
+## The Edit ▸ and Batch ▸ groups need a *selected slot* (Edit) or a
+## *multi-selection* (Batch) neither of which a flat `PopupMenu` item has --
+## both open the real window, where that context lives, rather than
+## duplicating slot/selection state at the menu level (real navigation to a
+## real control, not a `_todo()` gap). Build ▸'s four items and the
+## top-level Pack metadata/Clear library actions below need no such context,
+## so they call straight into the engine.
+func _build_asset_pack_submenu(p: PopupMenu) -> void:
+	_asset_pack_popup = PopupMenu.new()
+	_asset_pack_popup.name = "AssetPack"
+	_shell.style_popup(_asset_pack_popup)
+	p.add_child(_asset_pack_popup)
+	p.add_submenu_item("Asset pack ▸", "AssetPack")
+
+	var ap := _asset_pack_popup
+	## Active pack -- name/author/license/schema/filled-slots, live values
+	## refreshed on every `about_to_popup` (the same pattern `_quality_popup`'s
+	## own live-check row and `_refresh_recent_worlds()` already use).
+	ap.add_item("Active pack")
+	ap.set_item_disabled(ap.item_count - 1, true)
+	_ap_stats_idx = ap.item_count
+	ap.add_item("— loading —")
+	ap.set_item_disabled(ap.item_count - 1, true)
+	ap.add_item("Schema 2 · STORED zip (frozen timestamps, byte-reproducible)")
+	ap.set_item_disabled(ap.item_count - 1, true)
+	ap.add_separator()
+	ap.add_item("Pack metadata… (name / author / license)", ID_AP_PACK_META)
+	ap.add_separator()
+
+	_ap_edit_popup = PopupMenu.new()
+	_ap_edit_popup.name = "APEdit"
+	_shell.style_popup(_ap_edit_popup)
+	ap.add_child(_ap_edit_popup)
+	ap.add_submenu_item("Edit", "APEdit")
+	for row in [
+		["Open library workspace", ID_ASSET_LIBRARY],
+		["Import image into slot…", ID_IMPORT_IMAGE],
+		["Sprite sheet slicer…", ID_SLICER],
+		["Add variant to slot", ID_IMPORT_IMAGE],
+		["Replace / delete slot art", ID_ASSET_LIBRARY],
+		["Slot transform (scale · fit · reset)", -1],
+		["Preview background", ID_ASSET_LIBRARY],
+	]:
+		var wid: int = row[1]
+		if wid < 0:
+			_todo(_ap_edit_popup, String(row[0]),
+				"ItemTransform is real and shown in the inspector now, but no as_set_item_transform #[func] exists yet to write a new scale/pan back -- reading it is done, editing it is a smaller follow-on.")
+		else:
+			_ap_edit_popup.add_item(String(row[0]), wid)
+			_ap_edit_popup.set_item_tooltip(_ap_edit_popup.item_count - 1,
+				"Opens the Asset Library window -- every Edit control needs a focused slot, which only the window's own grid provides.")
+	_ap_edit_popup.id_pressed.connect(_on_ap_edit)
+
+	_ap_batch_popup = PopupMenu.new()
+	_ap_batch_popup.name = "APBatch"
+	_shell.style_popup(_ap_batch_popup)
+	ap.add_child(_ap_batch_popup)
+	ap.add_submenu_item("Batch", "APBatch")
+	for label in ["Tag…", "Collect into set…", "Rename…", "Duplicate", "Delete ⌫"]:
+		_ap_batch_popup.add_item(label, ID_ASSET_LIBRARY)
+		_ap_batch_popup.set_item_tooltip(_ap_batch_popup.item_count - 1,
+			"Opens the Asset Library window -- every batch op needs a multi-selection, which only the window's own grid (⇧-click ranges, ⌘/Ctrl-click adds) provides. All five are real there.")
+	_ap_batch_popup.id_pressed.connect(func(_id: int): _host.open_asset_library())
+
+	_ap_build_popup = PopupMenu.new()
+	_ap_build_popup.name = "APBuild"
+	_shell.style_popup(_ap_build_popup)
+	ap.add_child(_ap_build_popup)
+	ap.add_submenu_item("Build", "APBuild")
+	_ap_build_popup.add_item("Validate pack (warning count)", ID_AP_VALIDATE)
+	_ap_build_popup.add_item("Apply to map", ID_APPLY_LIBRARY)
+	_ap_build_popup.add_item("Import pack .zip…", ID_IMPORT_PACK)
+	_ap_build_popup.add_item("Export pack .zip… ⌘⇧P", ID_AP_EXPORT)
+	_ap_build_popup.set_item_accelerator(_ap_build_popup.item_count - 1, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_P)
+	_ap_build_popup.id_pressed.connect(_on_assets)
+
+	ap.about_to_popup.connect(_refresh_asset_pack_stats)
+
+func _refresh_asset_pack_stats() -> void:
+	if _ap_stats_idx < 0:
+		return
+	var info: Dictionary = _bridge.as_pack_info()
+	var total := int(info.get("total_items", 0))
+	var pn := String(info.get("name", ""))
+	_asset_pack_popup.set_item_text(_ap_stats_idx, "%s · %s · %s · %d item%s" % [
+		pn if pn != "" else "(unnamed)",
+		String(info.get("author", "")) if String(info.get("author", "")) != "" else "(no author)",
+		String(info.get("license", "")) if String(info.get("license", "")) != "" else "(no license)",
+		total, "" if total == 1 else "s"])
+
+func _on_ap_edit(id: int) -> void:
+	match id:
+		ID_SLICER: _host.open_asset_library("", true)
+		_: _host.open_asset_library()
 
 func _on_assets(id: int) -> void:
 	match id:
 		ID_IMPORT_PACK: _host.open_asset_pack_picker()
+		ID_IMPORT_IMAGE: _host.open_asset_library()
 		ID_ASSET_LIBRARY: _host.open_asset_library()
+		ID_SLICER: _host.open_asset_library("", true)
+		ID_APPLY_LIBRARY: _host.asset_library_window.apply_to_map_now()
+		ID_CLEAR_LIBRARY: _host.asset_library_window.clear_library_now()
+		ID_AP_VALIDATE: _host.asset_library_window.validate_now()
+		ID_AP_EXPORT: _host.asset_library_window.export_pack_now()
+		ID_AP_PACK_META: _host.open_asset_library()
 		ID_SLICER: _host.open_asset_library("", true)
 
 # -- §2.4 Data ----------------------------------------------------------------

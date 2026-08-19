@@ -1025,3 +1025,125 @@ func tl_capture_preset_from_plan(name: String, plan: Dictionary) -> Dictionary:
 	if not world_gen.has_method("tl_capture_preset_from_plan"):
 		return {"ok": false, "error": "tl_capture_preset_from_plan not available on this binary"}
 	return world_gen.tl_capture_preset_from_plan(name, plan)
+
+
+# `asset_bridge.rs` / `lib.rs`'s Asset Library #[func] block (`GUI_GAP_REGISTER.md`
+# AS-01..AS-08/AS-13, DM-05). `has_method` guards match every wrapper above: a binary
+# built before this landed simply has no `as_*` methods, and `asset_library_window.gd`
+# falls back to an empty/disabled state rather than erroring.
+
+## Decode `bytes` as a PNG and add it as a new item on `uid`. `{"ok": true}` or
+## `{"ok": false, "error": ...}`.
+func as_import_item(uid: String, item_name: String, bytes: PackedByteArray) -> Dictionary:
+	if not world_gen.has_method("as_import_item"):
+		return {"ok": false, "error": "as_import_item not available on this binary"}
+	return world_gen.as_import_item(uid, item_name, bytes)
+
+## Add (or return the existing) custom slot. `{"ok": true, "uid": ...}`.
+func as_add_custom_slot(slot_name: String, set_name: String) -> Dictionary:
+	if not world_gen.has_method("as_add_custom_slot"):
+		return {"ok": false, "error": "as_add_custom_slot not available on this binary"}
+	return world_gen.as_add_custom_slot(slot_name, set_name)
+
+## Every slot in `family_key`'s registry with real fill state -- each row carries
+## `uid`/`id`/`name`/`item_count`/`filled`/`has_dupe`. Empty on an older binary.
+func as_family_slots(family_key: String) -> Array:
+	if not world_gen.has_method("as_family_slots"):
+		return []
+	return world_gen.as_family_slots(family_key)
+
+## One slot's inspector detail: id/name/family/set, tags, collections, meta fields.
+func as_slot_summary(uid: String) -> Dictionary:
+	if not world_gen.has_method("as_slot_summary"):
+		return {"ok": false}
+	return world_gen.as_slot_summary(uid)
+
+## One item's inspector detail: name, scale/pan_x/pan_y, decoded w/h, hash.
+func as_item_summary(uid: String, index: int) -> Dictionary:
+	if not world_gen.has_method("as_item_summary"):
+		return {"ok": false}
+	return world_gen.as_item_summary(uid, index)
+
+## A real, baked PNG thumbnail for one stored item. Empty on a miss or an older binary.
+func as_thumbnail_png(uid: String, index: int, size: int) -> PackedByteArray:
+	if not world_gen.has_method("as_thumbnail_png"):
+		return PackedByteArray()
+	return world_gen.as_thumbnail_png(uid, index, size)
+
+## Pack-level metadata and totals: name/author/license/total_items.
+func as_pack_info() -> Dictionary:
+	if not world_gen.has_method("as_pack_info"):
+		return {"name": "", "author": "", "license": "", "total_items": 0}
+	return world_gen.as_pack_info()
+
+## Sets the pack's name/author/license fields directly.
+func as_set_pack_info(pack_name: String, author: String, license: String) -> bool:
+	if not world_gen.has_method("as_set_pack_info"):
+		return false
+	return world_gen.as_set_pack_info(pack_name, author, license)
+
+## Removes one item from a slot.
+func as_remove_item(uid: String, index: int) -> bool:
+	if not world_gen.has_method("as_remove_item"):
+		return false
+	return world_gen.as_remove_item(uid, index)
+
+## Resets the whole session to a fresh, empty library.
+func as_clear_library() -> bool:
+	if not world_gen.has_method("as_clear_library"):
+		return false
+	return world_gen.as_clear_library()
+
+## `AssetValidator.run()`'s real, ordered warning strings.
+func as_validate() -> PackedStringArray:
+	if not world_gen.has_method("as_validate"):
+		return PackedStringArray()
+	return world_gen.as_validate()
+
+## Bakes every stored item and writes the pack `.zip` bytes.
+## `{"ok": true, "name": ..., "bytes": PackedByteArray}` or `{"ok": false, "error": ...}`.
+func as_export_pack_bytes() -> Dictionary:
+	if not world_gen.has_method("as_export_pack_bytes"):
+		return {"ok": false, "error": "as_export_pack_bytes not available on this binary"}
+	return world_gen.as_export_pack_bytes()
+
+## Compiles the current session into a pack and loads it straight into the renderer
+## -- the reference's own `applyToMap()`, same bake `as_export_pack_bytes` does.
+func as_apply_to_map() -> Dictionary:
+	if not world_gen.has_method("as_apply_to_map"):
+		return {"ok": false, "error": "as_apply_to_map not available on this binary"}
+	var result: Dictionary = world_gen.as_apply_to_map()
+	if bool(result.get("ok", false)):
+		world_loaded.emit()
+	return result
+
+## Comma-separated `tags_csv` onto every uid in `uids`.
+func as_batch_tag(uids: PackedStringArray, tags_csv: String) -> Dictionary:
+	if not world_gen.has_method("as_batch_tag"):
+		return {"ok": false}
+	return world_gen.as_batch_tag(uids, tags_csv)
+
+## Adds every uid in `uids` to collection `coll_name`.
+func as_batch_collect(uids: PackedStringArray, coll_name: String) -> Dictionary:
+	if not world_gen.has_method("as_batch_collect"):
+		return {"ok": false}
+	return world_gen.as_batch_collect(uids, coll_name)
+
+## `{base}_01`, `{base}_02`, ... over `uids` in order. `remap` carries
+## `old_uid -> new_uid` for every custom slot whose uid changed.
+func as_batch_rename(uids: PackedStringArray, base: String) -> Dictionary:
+	if not world_gen.has_method("as_batch_rename"):
+		return {"ok": false, "renamed": 0, "remap": {}}
+	return world_gen.as_batch_rename(uids, base)
+
+## Clones every slot in `uids` carrying at least one item into a new custom slot.
+func as_batch_duplicate(uids: PackedStringArray) -> Dictionary:
+	if not world_gen.has_method("as_batch_duplicate"):
+		return {"ok": false, "made": 0}
+	return world_gen.as_batch_duplicate(uids)
+
+## Custom slots in `uids` are removed entirely; frozen slots have their items cleared.
+func as_batch_delete(uids: PackedStringArray) -> Dictionary:
+	if not world_gen.has_method("as_batch_delete"):
+		return {"ok": false, "deleted": 0}
+	return world_gen.as_batch_delete(uids)

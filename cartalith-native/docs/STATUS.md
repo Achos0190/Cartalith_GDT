@@ -27,7 +27,7 @@ wrappers (the `tl_*` convention); `menus.gd`'s `_assets()` gained the
 gap, honestly: the sprite-sheet slicer's actual slice operation (AS-09/10/
 11 — a real engine gap, out of this pass's scope) and per-item scale/pan
 *editing* (reading is real, no `as_set_item_transform` writes one back
-yet). Verified: 238 Rust tests passing (12 new), `cargo build -p
+yet). Verified: 344 Rust tests passing across both crates (13 new), `cargo build -p
 cartalith-godot` clean, a headless `WorldGen`-direct `--script` drive
 printing `ALL PASS` over the full import→fill→thumbnail→batch→validate→
 export→disk-round-trip→apply-to-map→delete→clear cycle, and a full shell

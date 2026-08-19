@@ -544,6 +544,16 @@ impl AssetDB {
         })
     }
 
+    /// Mutable access to one stored item, if both `uid` and `index` are
+    /// valid — the equivalent surface for the reference's own direct
+    /// `store[uid][i].name=...` assignment (e.g. the Asset Library's batch
+    /// rename, which renames a *frozen* slot's item variants rather than the
+    /// slot itself; see `AssetDB::rename_custom_slot` for the custom-slot
+    /// half of that same operation).
+    pub fn item_mut(&mut self, uid: &str, index: usize) -> Option<&mut LibraryItem> {
+        self.store.get_mut(uid).and_then(|v| v.get_mut(index))
+    }
+
     /// Get-or-lazily-attach a slot's scatter rule — the reference's
     /// `slotRules(fam,slot)`. `None` for a family that cannot scatter
     /// ([`fam_scatters`]). On first call for a scatterable slot with no rule
@@ -1376,6 +1386,18 @@ mod tests {
         assert!(db.slot_rules("structures:hamlet").is_none() || db.get("settlement:hamlet").is_none());
         assert!(db.slot_rules("settlement:hamlet").is_none());
         assert!(db.slot_rules("poi:lake").is_none());
+    }
+
+    #[test]
+    fn item_mut_allows_renaming_in_place_without_disturbing_order() {
+        let mut db = AssetDB::new();
+        db.add_item("icons:mountain", LibraryItem::new("a.png", "h1"));
+        db.add_item("icons:mountain", LibraryItem::new("b.png", "h2"));
+        db.item_mut("icons:mountain", 0).unwrap().name = "renamed_01".to_string();
+        assert_eq!(db.items("icons:mountain")[0].name, "renamed_01");
+        assert_eq!(db.items("icons:mountain")[1].name, "b.png", "order and sibling untouched");
+        assert!(db.item_mut("icons:mountain", 5).is_none(), "out of range -> None");
+        assert!(db.item_mut("nope:nope", 0).is_none(), "unknown uid -> None");
     }
 
     #[test]

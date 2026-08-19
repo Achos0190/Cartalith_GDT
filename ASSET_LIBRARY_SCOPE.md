@@ -1011,3 +1011,81 @@ no sheet-splitting function anywhere in the crate.
 None of this needed a new `#[func]` or touched any Rust file. Closing the gap
 above -- a `#[func]` surface for `AssetDB` query/mutation -- is real, scoped
 future work, not filed here as a blocker to §8's "done means."
+
+## 10. The gap §9 named is closed (2026-08-20)
+
+`cartalith-godot/src/asset_bridge.rs` is new: a godot-free
+`AssetLibrarySession` wrapping a live `AssetDB` plus a parallel decoded-pixel
+store (`AssetDB` itself carries no pixels by design -- see `library.rs`'s own
+module doc; every real operation below needs the actual bytes behind an
+item, so the session keeps them index-parallel to `AssetDB`'s own
+`store[uid]`, always the same uid/order/length). `WorldGen` carries one as a
+field (`asset_library`) that survives a re-generate the same way
+`travel_library` does -- an authored library describes the setting, not one
+generation's output.
+
+Twenty `as_*` `#[func]`s in `lib.rs` (`#[godot_api(secondary)]`) expose it:
+import (`as_import_item`/`as_add_custom_slot`), per-slot fill state
+(`as_family_slots`), inspector queries (`as_slot_summary`/`as_item_summary`),
+real baked thumbnails (`as_thumbnail_png`, `render_item` -- the same shared
+core the reference itself uses for thumbnails/preview/export bake), pack
+metadata (`as_pack_info`/`as_set_pack_info`), removal/clearing
+(`as_remove_item`/`as_clear_library`), validation (`as_validate` ->
+`library::run`), export (`as_export_pack_bytes` -> bakes every item, builds a
+schema-2 manifest, writes it with `archive::write_pack`), apply-to-map
+(`as_apply_to_map` -- the reference's own `applyToMap()`: build the pack in
+memory and load it straight into the renderer, no round trip through a
+file), and the five batch operations (`as_batch_tag`/`_collect`/`_rename`/
+`_duplicate`/`_delete`), each read directly off the reference's own
+`alBatch*` handlers (`Cartalith Gen1 v2.10.html` ~line 28045-28090) rather
+than guessed from the button labels -- batch Rename in particular is
+honestly split exactly as the reference itself splits it: a custom slot is
+renamed for real (`AssetDB::rename_custom_slot`), a frozen slot instead
+renames its *item variants* in place (`AssetDB::item_mut`, a small new
+accessor this pass added -- frozen slot names are the constant `slot_title`,
+not editable at all).
+
+`asset_library_window.gd` is wired against all twenty: real per-slot fill
+state and baked thumbnails replace the permanent checkerboard; the inspector
+shows real file/scale/tags/pack-metadata; Import image… targets whichever
+slot is focused in the grid; the five batch buttons drive real multi-select
+operations through a small reusable text-prompt dialog (no Godot
+`prompt()` equivalent exists, so this pass built one); Validate/Clear
+library/Export pack .zip…/Apply to map all call straight into the engine.
+`engine_bridge.gd` gained one `has_method`-guarded wrapper per `as_*`
+`#[func]`, the same convention `tl_*` already established for the Travel
+Library. `menus.gd`'s `_assets()` gained the `Assets ▸ Asset pack ▸`
+submenu §2's own omission O2 named (`DCC_CONTROL_INDEX.md` §2.3.1, "19
+backed-unwired against 1 engine gap") -- Active pack stats, Pack metadata…,
+and the Build group (Validate/Apply/Import/Export) call the engine directly;
+Edit and Batch open the real window, since both genuinely need slot/
+selection context only the grid provides (real navigation to a real
+control, not a disabled item).
+
+**What's still honestly a gap, and why**: the sprite-sheet slicer's actual
+slice operation (AS-09/AS-10/AS-11) -- `cartalith-assets::raster` still only
+decodes/encodes whole PNGs, no sheet-splitting function exists anywhere in
+the crate, and inventing one was explicitly out of this dispatch's scope, a
+real engine gap not a binding gap. Per-item scale/pan **editing** -- the
+inspector now shows the real `ItemTransform`, but no `as_set_item_transform`
+writes a new one back; reading it is done, writing it is a smaller
+follow-on. AS-12's "Unassigned imports" bucket is still unmodeled (the
+engine has no slot-less bucket to bind it to); AS-14/AS-15/AS-16 are (D)
+owner decisions, not gaps, unchanged from §9.
+
+**Verified**: `cargo test -p cartalith-assets -p cartalith-godot --lib` --
+344 tests across the two crates, all passing (227 in `cartalith-godot`, 117
+in `cartalith-assets`), including 12 new `asset_bridge` tests and one new
+`item_mut` test. `cargo build -p cartalith-godot` succeeds. A headless
+`--script` drive (`WorldGen.new()` directly, no scene tree) ran the full
+authoring cycle end to end and printed `ALL PASS`: import into a frozen
+slot, real fill state and a real 32×32 thumbnail, a custom slot import,
+batch tag, batch duplicate (which correctly tripped a live "Identical
+images" validation warning), pack metadata round-trip, validate, export
+6454 real bytes, a disk round trip through `load_asset_pack` on a *second*
+`WorldGen`, apply-to-map, batch delete (frozen slot emptied, not removed),
+and clear library. A concurrent session held the shared
+`target/debug/cartalith_godot.dll` open for the whole pass, so this build
+and drive ran in an isolated `git worktree` with its own `CARGO_TARGET_DIR`
+-- the source changes are the same files this repository ships; only the
+verification build's target directory was temporary.

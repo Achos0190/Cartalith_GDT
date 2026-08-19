@@ -24,36 +24,43 @@ class_name AssetLibraryWindow
 ##
 ## ## What is real vs. disclosed gap, control by control
 ##
-## `cartalith-godot/src/lib.rs` was grepped for every `#[func]` this pass.
-## Exactly two touch assets: `load_asset_pack(path) -> bool` and
-## `has_asset_pack() -> bool`. `pack.rs`'s `LoadedPack` (milestone 7, the
-## sprite/splat compositor) decodes real pixels but lives only inside the
-## render path with no `#[func]` of its own; there is no live `AssetDB` on
-## the Godot side of the boundary at all. Concretely:
+## `GUI_GAP_REGISTER.md` rows AS-01..AS-08/AS-13/DM-05 (verified 2026-08-20):
+## `cartalith-godot` now carries a real, live Asset Library authoring session
+## (`asset_bridge::AssetLibrarySession`, a `WorldGen` field that survives a
+## re-generate like `travel_library` does) behind an `as_*` `#[func]` surface
+## -- import, per-slot fill state + real thumbnails, the inspector's file/
+## scale/tags/pack-metadata queries, batch tag/collect/rename/duplicate/
+## delete, Validate, Clear library, Export pack .zip, and Apply to map are
+## all real engine calls now, not disclosed gaps. Concretely:
 ##
-## - **Real**: the family list and each family's frozen slot ids/titles
-##   (verbatim from `slots.rs`/`library.rs`'s own constants, since those are
-##   documented as invariant, not generated); each family's anchor/bake-size/
-##   variant metadata (`Family::anchor()`/`size()`/`is_multi()`); searching
-##   and sorting that real list; multi-select in the slot grid (client-side
-##   UI state); the zoom control; the inspector's preview-background swatches
-##   (presentation only); Import asset pack .zip… (`bridge.load_asset_pack`,
-##   the same path the Assets menu already had); the pack-loaded status line
-##   (`bridge.has_asset_pack()`); the sprite-sheet slicer's image load,
-##   dimension readout, and its columns/rows/margin/spacing grid overlay
-##   (Godot's own `Image` loader plus arithmetic -- no engine call needed).
-## - **Disclosed gap**: per-slot fill state and thumbnails (no `AssetDB`
-##   query exposed -- the grid shows every slot as a checkerboard, honestly,
-##   rather than guessing empty vs. filled); item variants, scale/anchor-as-
-##   per-item, tags, pack metadata (name/author/license); batch edit
-##   (tag/collect/rename/duplicate/delete); Validate / Clear library; Apply
-##   to map / Export pack .zip (no in-memory library session exists to
-##   compile or export -- `load_asset_pack` loads a pack from disk for
-##   rendering, it does not give this window anything to edit); the slicer's
-##   actual slice operation, trim/skip toggles, and assign-to-family/fill-from
+## - **Real**: everything the previous pass already had (family list, slot
+##   ids/titles, anchor/bake-size/variant metadata, search/sort, the zoom
+##   control, preview-background swatches, Import asset pack .zip…, the
+##   sprite-sheet slicer's image load/grid-overlay arithmetic) **plus**:
+##   Import image… into the focused slot (`as_import_item`/`as_add_custom_slot`);
+##   per-slot fill state and a real baked thumbnail for every filled slot
+##   (`as_family_slots`/`as_thumbnail_png`); the inspector's file/scale/tags
+##   readout (`as_slot_summary`/`as_item_summary`) and pack metadata fields
+##   (`as_pack_info`/`as_set_pack_info`); the four batch operations
+##   (`as_batch_tag`/`as_batch_collect`/`as_batch_rename`/`as_batch_duplicate`/
+##   `as_batch_delete`) -- batch Rename is honestly split: a custom slot is
+##   renamed for real, a frozen slot instead renames its *item variants*
+##   (frozen slot names are engine constants, `slot_title`, not editable --
+##   a real spec/engine disagreement `GUI_GAP_REGISTER.md` AS-06 already
+##   named); Validate (`as_validate`); Clear library… (`as_clear_library`);
+##   Export pack .zip… (`as_export_pack_bytes`, bytes written to disk here
+##   via `FileAccess`); Apply to map (`as_apply_to_map`, the reference's own
+##   `applyToMap()` -- compiles the session and loads it straight into the
+##   renderer, no round trip through a file).
+## - **Disclosed gap, still honest**: the sprite-sheet slicer's actual slice
+##   operation, trim/skip toggles, and assign-to-family/fill-from
 ##   (`cartalith-assets::raster` decodes/encodes whole images only -- checked
 ##   `raster.rs`/`manifest.rs`/`archive.rs` directly, no sheet-splitting
-##   function exists anywhere in the crate).
+##   function exists anywhere in the crate; AS-09/AS-10/AS-11, a real engine
+##   gap, not a binding gap); per-item scale/pan editing (the inspector shows
+##   the real transform now but does not yet let it be dragged/typed -- no
+##   `as_set_item_transform` exists; a smaller follow-on than this dispatch's
+##   scope, left disabled with that reason).
 ##
 ## Every disabled control below carries its reason as a tooltip, the same
 ## `_todo()`-with-tooltip convention `menus.gd` uses at the menu level.
@@ -122,6 +129,9 @@ class SlotCell extends Control:
 	var selected := false
 	var bg_mode := "checker"   ## "checker" | "color"
 	var bg_color := Color(1, 1, 1)
+	## A real baked thumbnail (`as_thumbnail_png`) once one has loaded --
+	## `null` means "no art data queried/found yet", still the checkerboard.
+	var thumb: ImageTexture
 
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
@@ -143,6 +153,8 @@ class SlotCell extends Control:
 				yy += cell
 		else:
 			draw_rect(r, bg_color, true)
+		if thumb != null:
+			draw_texture_rect(thumb, r, false)
 		draw_rect(r, DccTheme.c("line"), false, 1.0)
 		if selected:
 			draw_rect(r, DccTheme.c("accent"), false, 2.0)
@@ -219,6 +231,19 @@ var _grid_header: Label
 var _select_count_label: Label
 var _inspector_body: VBoxContainer
 
+## Real per-slot state from the last `as_family_slots(family_key)` call --
+## uid -> {"item_count","filled","has_dupe"} -- rebuilt on every `_refresh_grid()`.
+var _slot_state: Dictionary = {}
+var _apply_btn: Button
+var _export_btn: Button
+var _import_btn: Button
+var _validate_btn: Button
+var _clear_btn: Button
+var _batch_buttons: Dictionary = {}   ## "tag"/"collect"/"rename"/"duplicate"/"delete" -> Button
+var _pack_name_field: LineEdit
+var _pack_author_field: LineEdit
+var _pack_license_field: LineEdit
+
 var _slicer: AcceptDialog
 var _sheet_image: Image
 var _sheet_preview: SheetPreview
@@ -244,6 +269,22 @@ func setup(host: DccApp, bridge: EngineBridge) -> void:
 	_bridge.world_loaded.connect(func(): _refresh_pack_status())
 	_build()
 	_build_slicer_modal()
+
+## AS-13's `Assets ▸ Asset pack ▸` submenu (`menus.gd`'s `_assets()`) drives
+## these four global, no-slot-context actions through the window's own real
+## handlers rather than duplicating the dialog logic at the menu level.
+func validate_now() -> void:
+	_on_validate()
+
+func apply_to_map_now() -> void:
+	_on_apply_to_map()
+	_refresh_pack_status()
+
+func export_pack_now() -> void:
+	_on_export_pack()
+
+func clear_library_now() -> void:
+	_on_clear_library()
 
 func _family_by_key(key: String) -> Dictionary:
 	for f in FAMILIES:
@@ -279,6 +320,7 @@ func _build() -> void:
 
 	_status_label = DccTheme.label("", "text_ghost", DccTheme.FS_MICRO)
 	outer.add_child(_status_label)
+	outer.add_child(_build_pack_info_row())
 
 	var main := HBoxContainer.new()
 	main.add_theme_constant_override("separation", 0)
@@ -316,16 +358,14 @@ func _build_window_bar() -> Control:
 	_select_mode_btn = Button.new()
 	_select_mode_btn.toggle_mode = true
 	_select_mode_btn.focus_mode = Control.FOCUS_NONE
-	_select_mode_btn.tooltip_text = "Batch selection is client-side UI state only -- the batch actions it feeds (Tag/Collect/Rename/Duplicate/Delete) have no engine call behind them yet."
+	_select_mode_btn.tooltip_text = "Batch selection driving Tag/Collect/Rename/Duplicate/Delete below."
 	_select_mode_btn.toggled.connect(func(on: bool): _select_mode = on; _update_select_count())
 	row.add_child(_select_mode_btn)
 
 	row.add_child(DccTheme.spacer())
 
-	_gap_button(row, "Apply to map",
-		"cartalith-godot exposes load_asset_pack(path) only -- loading a pack FROM DISK, not compiling this window's edits. There is no in-memory library session here (no AssetDB on the Godot side) for \"apply\" to compile.")
-	_gap_button(row, "Export pack .zip",
-		"cartalith-assets can write a pack (archive.rs::write_pack/zip_store) but no #[func] exposes it, and there is no in-memory library session here to export.")
+	_apply_btn = DccWidgets.action(row, "Apply to map", func(): _on_apply_to_map())
+	_export_btn = DccWidgets.action(row, "Export pack .zip", func(): _on_export_pack())
 
 	var close_btn := Button.new()
 	close_btn.text = "Close"
@@ -358,7 +398,7 @@ func _build_family_rail() -> Control:
 	note_pad.add_theme_constant_override("margin_top", 8)
 	note_pad.add_theme_constant_override("margin_right", 10)
 	var note := DccWidgets.note(note_pad,
-		"8 families, frozen against the reference engine (cartalith-assets::slots/library) -- not this spec's own 24; see ASSET_LIBRARY_SCOPE.md §1. Capacity below is real; fill counts aren't (no AssetDB query is exposed).")
+		"8 families, frozen against the reference engine (cartalith-assets::slots/library) -- not this spec's own 24; see ASSET_LIBRARY_SCOPE.md §1. Capacity and fill counts below are both real (AssetDB::slots_in_family/filled state).")
 	note.custom_minimum_size.x = 220
 	col.add_child(note_pad)
 
@@ -378,15 +418,13 @@ func _build_family_rail() -> Control:
 			btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			btn.focus_mode = Control.FOCUS_NONE
 			btn.custom_minimum_size.y = 26
-			var cap: int = (fam["slots"] as Array).size()
-			var cap_text := "open vocabulary" if bool(fam.get("custom", false)) else "— / %d" % cap
-			btn.text = "%s   %s   %s" % [String(fam["code"]), String(fam["title"]), cap_text]
 			btn.add_theme_font_override("font", DccTheme.mono(0))
 			btn.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
 			btn.add_theme_color_override("font_color", DccTheme.c("text"))
 			btn.pressed.connect(_select_family.bind(String(fam["key"])))
 			_rail_buttons[String(fam["key"])] = btn
 			body.add_child(btn)
+	_refresh_rail_counts()
 
 	col.add_child(DccTheme.rule())
 	var foot_pad := MarginContainer.new()
@@ -399,8 +437,8 @@ func _build_family_rail() -> Control:
 	foot_pad.add_child(foot)
 	col.add_child(foot_pad)
 
-	_gap_button(foot, "Import image…",
-		"No image-import call exists: landing a loose PNG in an Unassigned-imports custom slot needs AssetDB::addCustomSlot, which isn't exposed to Godot.")
+	_import_btn = DccWidgets.action(foot, "Import image…", func(): _on_import_image())
+	_refresh_import_button()
 	var import_pack_btn := Button.new()
 	import_pack_btn.text = "Import pack…"
 	import_pack_btn.focus_mode = Control.FOCUS_NONE
@@ -408,6 +446,63 @@ func _build_family_rail() -> Control:
 	foot.add_child(import_pack_btn)
 
 	return wrap
+
+## Real fill counts (AS-08) on the rail itself, not just the grid --
+## `as_family_slots` once per family, cheap enough to run on every
+## `_refresh_pack_status()` (window open, and after `world_loaded`).
+func _refresh_rail_counts() -> void:
+	for fam in FAMILIES:
+		var key := String(fam["key"])
+		var btn: Button = _rail_buttons.get(key)
+		if btn == null:
+			continue
+		var slots: Array = _bridge.as_family_slots(key)
+		var filled := 0
+		for s in slots:
+			if bool(s.get("filled", false)):
+				filled += 1
+		var cap_text: String
+		if bool(fam.get("custom", false)):
+			cap_text = "%d items" % slots.size() if not slots.is_empty() else "open vocabulary"
+		else:
+			cap_text = "%d / %d" % [filled, (fam["slots"] as Array).size()]
+		btn.text = "%s   %s   %s" % [String(fam["code"]), String(fam["title"]), cap_text]
+
+## "Import image…" targets whichever slot is focused in the grid -- real once
+## a slot is selected, honestly disabled ("select a slot first") otherwise.
+func _refresh_import_button() -> void:
+	if _import_btn == null:
+		return
+	if _focused_uid == "":
+		_import_btn.disabled = true
+		_import_btn.tooltip_text = "Select a slot in the grid first -- Import image… lands the file on the focused slot."
+	else:
+		_import_btn.disabled = false
+		_import_btn.tooltip_text = "Import a PNG into %s." % _focused_uid
+
+func _on_import_image() -> void:
+	if _focused_uid == "":
+		return
+	var target_uid := _focused_uid
+	var d := FileDialog.new()
+	d.title = "Import image"
+	d.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	d.access = FileDialog.ACCESS_FILESYSTEM
+	d.add_filter("*.png ; PNG image")
+	d.file_selected.connect(func(path: String):
+		var bytes := FileAccess.get_file_as_bytes(path)
+		var result: Dictionary = _bridge.as_import_item(target_uid, path.get_file(), bytes)
+		if bool(result.get("ok", false)):
+			_host.set_status("hint", "imported %s" % path.get_file(), "accent")
+			_refresh_grid()
+			_refresh_inspector()
+			_refresh_rail_counts()
+		else:
+			_host.set_status("hint", "import failed — %s" % String(result.get("error", "unknown error")), "warn")
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered_ratio(0.6)
 
 func _build_slot_grid() -> Control:
 	var wrap := VBoxContainer.new()
@@ -433,9 +528,12 @@ func _build_slot_grid() -> Control:
 	var batch_row := HBoxContainer.new()
 	batch_row.add_theme_constant_override("separation", 4)
 	batch_pad.add_child(batch_row)
-	for label in ["Tag…", "Collect…", "Rename…", "Duplicate", "Delete"]:
-		_gap_button(batch_row, label,
-			"Batch editing has no engine call -- AssetDB's add/rename/remove/collection methods aren't exposed to Godot (there is no in-memory library session here at all).")
+	_batch_buttons["tag"] = DccWidgets.action(batch_row, "Tag…", func(): _on_batch_tag())
+	_batch_buttons["collect"] = DccWidgets.action(batch_row, "Collect…", func(): _on_batch_collect())
+	_batch_buttons["rename"] = DccWidgets.action(batch_row, "Rename…", func(): _on_batch_rename())
+	_batch_buttons["duplicate"] = DccWidgets.action(batch_row, "Duplicate", func(): _on_batch_duplicate())
+	_batch_buttons["delete"] = DccWidgets.action(batch_row, "Delete", func(): _on_batch_delete())
+	_refresh_batch_buttons()
 	wrap.add_child(batch_pad)
 	wrap.add_child(DccTheme.rule())
 
@@ -508,10 +606,8 @@ func _build_inspector() -> Control:
 	var foot := HBoxContainer.new()
 	foot.add_theme_constant_override("separation", 6)
 	foot_pad.add_child(foot)
-	_gap_button(foot, "Validate",
-		"AssetValidator::run() exists in cartalith-assets but isn't exposed to Godot -- no warning count to show.")
-	_gap_button(foot, "Clear library…",
-		"No AssetDB.clear() equivalent is exposed; there is no live library state here to clear.")
+	_validate_btn = DccWidgets.action(foot, "Validate", func(): _on_validate())
+	_clear_btn = DccWidgets.action(foot, "Clear library…", func(): _on_clear_library())
 	wrap.add_child(foot_pad)
 
 	var outer := PanelContainer.new()
@@ -535,6 +631,7 @@ func _select_family(key: String) -> void:
 	_focused_uid = ""
 	_refresh_grid()
 	_refresh_inspector()
+	_refresh_import_button()
 
 func _humanize(id: String) -> String:
 	var parts := id.split("_")
@@ -556,17 +653,37 @@ func _refresh_grid() -> void:
 		_grid_header.text = ""
 		return
 
-	var ids: Array = fam["slots"]
+	# AS-08: real per-slot fill state from the live session, keyed by uid.
+	_slot_state.clear()
+	var server_slots: Array = _bridge.as_family_slots(_current_family)
+	for s in server_slots:
+		_slot_state[String(s["uid"])] = s
+
 	var q := _search_text.to_lower()
 	var entries: Array = []
-	for i in ids.size():
-		var id := String(ids[i])
-		var name := _humanize(id)
-		var code := "%s-%02d" % [String(fam["code"]), i + 1]
-		var uid := "%s:%s" % [String(fam["key"]), id]
-		if q != "" and id.to_lower().find(q) < 0 and name.to_lower().find(q) < 0 and code.to_lower().find(q) < 0:
-			continue
-		entries.append({"uid": uid, "id": id, "name": name, "code": code})
+	var is_custom := bool(fam.get("custom", false))
+	if is_custom:
+		# The custom family has no frozen id list (`fam["slots"]` is empty by
+		# design -- see this file's own header note) -- its entries are
+		# whatever custom slots the live session actually has.
+		for i in server_slots.size():
+			var s: Dictionary = server_slots[i]
+			var name := String(s["name"])
+			var code := "%s-%02d" % [String(fam["code"]), i + 1]
+			var uid := String(s["uid"])
+			if q != "" and name.to_lower().find(q) < 0 and code.to_lower().find(q) < 0:
+				continue
+			entries.append({"uid": uid, "id": String(s["id"]), "name": name, "code": code})
+	else:
+		var ids: Array = fam["slots"]
+		for i in ids.size():
+			var id := String(ids[i])
+			var name := _humanize(id)
+			var code := "%s-%02d" % [String(fam["code"]), i + 1]
+			var uid := "%s:%s" % [String(fam["key"]), id]
+			if q != "" and id.to_lower().find(q) < 0 and name.to_lower().find(q) < 0 and code.to_lower().find(q) < 0:
+				continue
+			entries.append({"uid": uid, "id": id, "name": name, "code": code})
 	if _sort_mode == 1:
 		entries.sort_custom(func(a, b): return String(a["name"]) < String(b["name"]))
 	_slot_order = entries
@@ -575,9 +692,13 @@ func _refresh_grid() -> void:
 		_grid.add_child(_build_cell(entry))
 
 	var shown := entries.size()
-	var total: int = (fam["slots"] as Array).size()
-	_grid_header.text = "%s · %s · %d OF %d SHOWN (fill state not exposed)" % [
-		String(fam["code"]), String(fam["title"]).to_upper(), shown, total]
+	var total: int = server_slots.size() if is_custom else (fam["slots"] as Array).size()
+	var filled := 0
+	for s in server_slots:
+		if bool(s.get("filled", false)):
+			filled += 1
+	_grid_header.text = "%s · %s · %d OF %d SHOWN · %d FILLED" % [
+		String(fam["code"]), String(fam["title"]).to_upper(), shown, total, filled]
 	_refresh_selection_visuals()
 
 func _build_cell(entry: Dictionary) -> Control:
@@ -585,14 +706,25 @@ func _build_cell(entry: Dictionary) -> Control:
 	wrap.add_theme_constant_override("separation", 2)
 	var cell := SlotCell.new()
 	cell.custom_minimum_size = Vector2(_cell_px, _cell_px)
-	cell.uid = String(entry["uid"])
-	cell.gui_input.connect(_on_cell_input.bind(String(entry["uid"])))
+	var uid := String(entry["uid"])
+	cell.uid = uid
+	var state: Dictionary = _slot_state.get(uid, {})
+	if bool(state.get("filled", false)):
+		var png: PackedByteArray = _bridge.as_thumbnail_png(uid, 0, 128)
+		if png.size() > 0:
+			var img := Image.new()
+			if img.load_png_from_buffer(png) == OK:
+				cell.thumb = ImageTexture.create_from_image(img)
+	cell.gui_input.connect(_on_cell_input.bind(uid))
 	wrap.add_child(cell)
-	var lbl := DccTheme.mono_label("%s %s" % [String(entry["code"]), String(entry["name"])], "text_dim", DccTheme.FS_TINY)
+	var count := int(state.get("item_count", 0))
+	var suffix := " ×%d" % count if count > 1 else ""
+	var dupe_mark := " ⚠" if bool(state.get("has_dupe", false)) else ""
+	var lbl := DccTheme.mono_label("%s %s%s%s" % [String(entry["code"]), String(entry["name"]), suffix, dupe_mark], "text_dim", DccTheme.FS_TINY)
 	lbl.clip_text = true
 	lbl.custom_minimum_size.x = _cell_px
 	wrap.add_child(lbl)
-	_cells[String(entry["uid"])] = cell
+	_cells[uid] = cell
 	return wrap
 
 func _on_cell_input(ev: InputEvent, uid: String) -> void:
@@ -621,6 +753,7 @@ func _on_cell_input(ev: InputEvent, uid: String) -> void:
 	_focused_uid = uid
 	_refresh_selection_visuals()
 	_refresh_inspector()
+	_refresh_import_button()
 
 func _refresh_selection_visuals() -> void:
 	for uid in _cells:
@@ -634,6 +767,114 @@ func _update_select_count() -> void:
 	if _select_mode_btn:
 		_select_mode_btn.text = "%s Select (%d)" % [
 			DccIcons.SYMBOLS["checked"] if _select_mode else DccIcons.SYMBOLS["unchecked"], _selected.size()]
+	_refresh_batch_buttons()
+
+## The five batch actions all need at least one selected uid; disabled
+## (with a real reason) otherwise rather than silently doing nothing.
+func _refresh_batch_buttons() -> void:
+	var has_sel := not _selected.is_empty()
+	for key in _batch_buttons:
+		var b: Button = _batch_buttons[key]
+		b.disabled = not has_sel
+		b.tooltip_text = "" if has_sel else "Select at least one slot in the grid first."
+
+func _selected_uids() -> PackedStringArray:
+	var out := PackedStringArray()
+	for uid in _selected.keys():
+		out.append(String(uid))
+	return out
+
+## A minimal single-line text-input modal -- the reference's own `prompt()`
+## has no Godot equivalent, so this is the reusable stand-in every batch
+## handler below shares.
+func _prompt_text(title: String, label_text: String, default_text: String, on_confirm: Callable) -> void:
+	var d := ConfirmationDialog.new()
+	d.title = title
+	d.min_size = Vector2i(360, 0)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 6)
+	body.add_child(DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL))
+	var le := LineEdit.new()
+	le.text = default_text
+	le.select_all_on_focus = true
+	body.add_child(le)
+	d.add_child(body)
+	d.confirmed.connect(func():
+		var t := le.text.strip_edges()
+		if t != "":
+			on_confirm.call(t)
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered()
+	le.grab_focus.call_deferred()
+
+func _on_batch_tag() -> void:
+	var uids := _selected_uids()
+	if uids.is_empty():
+		return
+	_prompt_text("Tag %d asset(s)" % uids.size(), "Add tag(s) -- comma-separated:", "", func(t: String):
+		var result: Dictionary = _bridge.as_batch_tag(uids, t)
+		_host.set_status("hint", "tagged %d asset(s)" % int(result.get("tagged", 0)), "accent")
+		_refresh_inspector())
+
+func _on_batch_collect() -> void:
+	var uids := _selected_uids()
+	if uids.is_empty():
+		return
+	_prompt_text("Collect %d asset(s)" % uids.size(), "Add to collection:", "Fantasy Pack", func(t: String):
+		_bridge.as_batch_collect(uids, t)
+		_host.set_status("hint", "added %d asset(s) to \"%s\"" % [uids.size(), t], "accent")
+		_refresh_inspector())
+
+func _on_batch_rename() -> void:
+	var uids := _selected_uids()
+	if uids.is_empty():
+		return
+	_prompt_text("Rename %d asset(s)" % uids.size(),
+			"Rename pattern -- selected assets become \"Base_01\", \"Base_02\", …\n(custom slots are renamed; frozen slots rename their variants)", "Village",
+			func(t: String):
+		var result: Dictionary = _bridge.as_batch_rename(uids, t)
+		_host.set_status("hint", "renamed %d asset(s)" % int(result.get("renamed", 0)), "accent")
+		var remap: Dictionary = result.get("remap", {})
+		if remap.has(_focused_uid):
+			_focused_uid = String(remap[_focused_uid])
+		_selected.clear()
+		for old_uid in uids:
+			var s := String(old_uid)
+			_selected[String(remap.get(s, s))] = true
+		_refresh_grid()
+		_refresh_inspector())
+
+func _on_batch_duplicate() -> void:
+	var uids := _selected_uids()
+	if uids.is_empty():
+		return
+	var result: Dictionary = _bridge.as_batch_duplicate(uids)
+	var made := int(result.get("made", 0))
+	_host.set_status("hint",
+		("duplicated %d asset(s) → Custom/Duplicates" % made) if made > 0 else "nothing to duplicate", "accent")
+	_refresh_grid()
+	_refresh_rail_counts()
+
+func _on_batch_delete() -> void:
+	var uids := _selected_uids()
+	if uids.is_empty():
+		return
+	var d := ConfirmationDialog.new()
+	d.title = "Delete %d asset(s)?" % uids.size()
+	d.dialog_text = "Delete images of %d selected asset(s)? (custom slots are removed entirely; frozen slots are emptied, not removed.)" % uids.size()
+	d.confirmed.connect(func():
+		var result: Dictionary = _bridge.as_batch_delete(uids)
+		_host.set_status("hint", "deleted %d asset(s)" % int(result.get("deleted", 0)), "accent")
+		_selected.clear()
+		_refresh_grid()
+		_refresh_inspector()
+		_refresh_rail_counts()
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered()
 
 # ---------------------------------------------------------------------------
 # Slot inspector
@@ -648,15 +889,27 @@ func _refresh_inspector() -> void:
 		DccWidgets.note(_inspector_body, "Select a slot to inspect it.")
 		return
 
-	var colon := _focused_uid.find(":")
-	var fam_key := _focused_uid.substr(0, colon)
-	var id := _focused_uid.substr(colon + 1)
+	# AS-07: real slot/item/pack queries -- `as_slot_summary` is the source
+	# of truth (it also confirms the slot still exists, e.g. after a batch
+	# delete/rename elsewhere).
+	var summary: Dictionary = _bridge.as_slot_summary(_focused_uid)
+	if not bool(summary.get("ok", false)):
+		DccWidgets.note(_inspector_body, "This slot no longer exists in the live session (removed by a batch edit).")
+		return
+
+	var fam_key := String(summary.get("family", ""))
 	var fam := _family_by_key(fam_key)
 	if fam.is_empty():
 		return
-	var idx: int = (fam["slots"] as Array).find(id)
-	var code := "%s-%02d" % [String(fam["code"]), idx + 1]
-	var name := _humanize(id)
+
+	var entry: Dictionary = {}
+	for e in _slot_order:
+		if String(e["uid"]) == _focused_uid:
+			entry = e
+			break
+	var code := String(entry.get("code", "—"))
+	var name := String(summary.get("name", ""))
+	var item_count := int(summary.get("item_count", 0))
 
 	_inspector_body.add_child(DccTheme.mono_label("%s  %s" % [code, name], "accent", DccTheme.FS_HEADER, 2, true))
 	_inspector_body.add_child(DccTheme.label(String(fam["title"]), "text_dim", DccTheme.FS_SMALL))
@@ -666,6 +919,12 @@ func _refresh_inspector() -> void:
 	preview.custom_minimum_size = Vector2(0, 160)
 	preview.bg_mode = _preview_bg
 	preview.bg_color = _preview_color
+	if item_count > 0:
+		var preview_png: PackedByteArray = _bridge.as_thumbnail_png(_focused_uid, 0, 256)
+		if preview_png.size() > 0:
+			var pimg := Image.new()
+			if pimg.load_png_from_buffer(preview_png) == OK:
+				preview.thumb = ImageTexture.create_from_image(pimg)
 	_inspector_body.add_child(preview)
 
 	var sw_row := HBoxContainer.new()
@@ -687,24 +946,42 @@ func _refresh_inspector() -> void:
 				preview.queue_redraw())
 		sw_row.add_child(b)
 
-	DccWidgets.note(_inspector_body,
-		"No art data: the engine composites a loaded pack's sprites at render time only (pack.rs::LoadedPack) -- nothing exposes a decoded image or per-slot fill state to Godot.")
+	if item_count == 0:
+		DccWidgets.note(_inspector_body, "No art stored in this slot yet -- focus it and use Import image… (family rail foot) to add one.")
+	elif item_count > 1:
+		DccWidgets.note(_inspector_body, "%d variants stored; the preview and File/Scale rows below show variant 1." % item_count)
 
 	_inspector_body.add_child(DccTheme.rule())
 	var anchor_labels := {"none": "tiled, not anchored", "bottom": "bottom-anchored (base on the cell)", "center": "centre-anchored"}
 	var anchor_label: String = anchor_labels.get(String(fam["anchor"]), "?")
 	_kv_row(_inspector_body, "Anchor", "%s (fixed by family, not a per-slot setting)" % anchor_label)
 	_kv_row(_inspector_body, "Bake size", "%dpx %s" % [int(fam["size"]), "opaque, seamless tile" if bool(fam["texture"]) else "RGBA, straight alpha"])
-	_kv_row(_inspector_body, "Variants",
-		"single image (ground textures hold one)" if bool(fam["texture"]) else "up to N, picked deterministically by map position")
+	_kv_row(_inspector_body, "Variants", "%d stored" % item_count)
 
 	_inspector_body.add_child(DccTheme.rule())
-	DccWidgets.note(_inspector_body,
-		"File readout, scale, tags, per-item variants and pack metadata all need a live AssetDB/PackInfo query. cartalith-godot exposes only load_asset_pack()/has_asset_pack() -- no #[func] surfaces AssetDB::get/items/pack -- so none of the fields below can show a real value.")
-	_gap_kv_row(_inspector_body, "File", "No decoded-image query exposed.")
-	_gap_kv_row(_inspector_body, "Scale", "No ItemTransform query exposed.")
-	_gap_kv_row(_inspector_body, "Tags", "No SlotMeta query exposed.")
-	_gap_kv_row(_inspector_body, "Pack metadata", "No PackInfo query exposed.")
+	if item_count > 0:
+		var item: Dictionary = _bridge.as_item_summary(_focused_uid, 0)
+		if bool(item.get("ok", false)):
+			_kv_row(_inspector_body, "File", "%s · %d×%d px" % [String(item.get("name", "")), int(item.get("w", 0)), int(item.get("h", 0))])
+			_kv_row(_inspector_body, "Scale",
+				"×%.2f · pan (%.0f, %.0f)" % [float(item.get("scale", 1.0)), float(item.get("pan_x", 0.0)), float(item.get("pan_y", 0.0))])
+		else:
+			_kv_row(_inspector_body, "File", "—")
+			_kv_row(_inspector_body, "Scale", "—")
+	else:
+		_gap_kv_row(_inspector_body, "File", "This slot has no items yet.")
+		_gap_kv_row(_inspector_body, "Scale", "This slot has no items yet.")
+	_gap_kv_row(_inspector_body, "Edit scale/pan", "as_set_item_transform not yet exposed -- reading the transform is real, dragging/typing a new one is a smaller follow-on.")
+
+	var tags: PackedStringArray = summary.get("tags", PackedStringArray())
+	_kv_row(_inspector_body, "Tags", ", ".join(tags) if tags.size() > 0 else "none -- Batch ▸ Tag… adds one")
+
+	var pack_info: Dictionary = _bridge.as_pack_info()
+	var pn := String(pack_info.get("name", ""))
+	var pa := String(pack_info.get("author", ""))
+	var pl := String(pack_info.get("license", ""))
+	_kv_row(_inspector_body, "Pack metadata", "%s · %s · %s" % [
+		pn if pn != "" else "(unnamed)", pa if pa != "" else "(no author)", pl if pl != "" else "(no license)"])
 
 func _kv_row(parent: Control, label_text: String, value: String) -> void:
 	var row := HBoxContainer.new()
@@ -728,17 +1005,143 @@ func _gap_kv_row(parent: Control, label_text: String, reason: String) -> void:
 	row.add_child(DccTheme.label("—", "text_ghost", DccTheme.FS_SMALL))
 	parent.add_child(row)
 
+## `AssetValidator.run()` -- the real, ordered warning list, shown in a
+## simple modal (the reference's own `alert`-style summary).
+func _on_validate() -> void:
+	var warnings: PackedStringArray = _bridge.as_validate()
+	var d := AcceptDialog.new()
+	d.title = "Validation"
+	d.min_size = Vector2i(420, 0)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 4)
+	if warnings.is_empty():
+		body.add_child(DccTheme.label("✓ No issues found.", "accent", DccTheme.FS_SMALL))
+	else:
+		for w in warnings:
+			var l := DccTheme.label("⚠ %s" % String(w), "warn", DccTheme.FS_SMALL)
+			l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			body.add_child(l)
+	d.add_child(body)
+	d.confirmed.connect(func(): d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered()
+
+func _on_clear_library() -> void:
+	var d := ConfirmationDialog.new()
+	d.title = "Clear the asset library?"
+	d.dialog_text = "Clear the entire asset library? This removes every imported item and custom slot."
+	d.confirmed.connect(func():
+		_bridge.as_clear_library()
+		_selected.clear()
+		_focused_uid = ""
+		_refresh_grid()
+		_refresh_inspector()
+		_refresh_import_button()
+		_refresh_pack_status()
+		_host.set_status("hint", "asset library cleared", "accent")
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered()
+
 # ---------------------------------------------------------------------------
-# Pack status
+# Pack status / pack metadata (AS-13's "Active pack" header)
 # ---------------------------------------------------------------------------
 
 func _refresh_pack_status() -> void:
 	if _status_label == null:
 		return
-	_status_label.text = (
-		"a pack is loaded for rendering -- its slots aren't queryable from this window (no AssetDB exposed)"
-		if _bridge.has_asset_pack() else
-		"no pack loaded -- Import pack… loads one for rendering only")
+	var info: Dictionary = _bridge.as_pack_info()
+	var total := int(info.get("total_items", 0))
+	_status_label.text = "%s in the editing session · %s for rendering" % [
+		("%d item%s" % [total, "" if total == 1 else "s"]) if total > 0 else "empty library",
+		"a pack is loaded" if _bridge.has_asset_pack() else "no pack loaded (Import pack… loads one)"]
+	_refresh_pack_info_fields(info)
+	_refresh_rail_counts()
+
+func _build_pack_info_row() -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 4)
+	pad.add_theme_constant_override("margin_bottom", 4)
+	pad.add_child(row)
+
+	var mk := func(label_text: String, w: float) -> LineEdit:
+		var l := DccTheme.mono_label(label_text, "text_faint", DccTheme.FS_MICRO, 1)
+		row.add_child(l)
+		var le := LineEdit.new()
+		le.custom_minimum_size.x = w
+		row.add_child(le)
+		return le
+	_pack_name_field = mk.call("NAME", 160)
+	_pack_author_field = mk.call("AUTHOR", 120)
+	_pack_license_field = mk.call("LICENSE", 80)
+	for le in [_pack_name_field, _pack_author_field, _pack_license_field]:
+		var field: LineEdit = le
+		field.text_submitted.connect(func(_t: String): _commit_pack_info())
+		field.focus_exited.connect(func(): _commit_pack_info())
+	return pad
+
+func _refresh_pack_info_fields(info: Dictionary) -> void:
+	if _pack_name_field == null:
+		return
+	# Don't clobber text the user is actively editing.
+	if not _pack_name_field.has_focus():
+		_pack_name_field.text = String(info.get("name", ""))
+	if not _pack_author_field.has_focus():
+		_pack_author_field.text = String(info.get("author", ""))
+	if not _pack_license_field.has_focus():
+		_pack_license_field.text = String(info.get("license", ""))
+
+func _commit_pack_info() -> void:
+	_bridge.as_set_pack_info(_pack_name_field.text, _pack_author_field.text, _pack_license_field.text)
+
+func _on_apply_to_map() -> void:
+	var result: Dictionary = _bridge.as_apply_to_map()
+	if bool(result.get("ok", false)):
+		_host.set_status("hint", "asset pack applied to the map", "accent")
+	else:
+		_host.set_status("hint", "apply failed — %s" % String(result.get("error", "unknown error")), "warn")
+	_refresh_pack_status()
+
+func _on_export_pack() -> void:
+	var result: Dictionary = _bridge.as_export_pack_bytes()
+	if not bool(result.get("ok", false)):
+		_host.set_status("hint", "export failed — %s" % String(result.get("error", "unknown error")), "warn")
+		return
+	var bytes: PackedByteArray = result.get("bytes", PackedByteArray())
+	var suggested := "%s.zip" % _slug_name(String(result.get("name", "asset_pack")))
+	var d := FileDialog.new()
+	d.title = "Export pack .zip"
+	d.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	d.access = FileDialog.ACCESS_FILESYSTEM
+	d.add_filter("*.zip ; Asset pack")
+	d.current_file = suggested
+	d.file_selected.connect(func(path: String):
+		var f := FileAccess.open(path, FileAccess.WRITE)
+		if f == null:
+			_host.set_status("hint", "export failed — could not open %s for writing" % path.get_file(), "warn")
+		else:
+			f.store_buffer(bytes)
+			f.close()
+			_host.set_status("hint", "exported %s (%d bytes)" % [path.get_file(), bytes.size()], "accent")
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered_ratio(0.6)
+
+## The reference's own `slugName` (`Cartalith Gen1 v2.10.html` line ~27011):
+## lowercase, collapse every non-alphanumeric run to `_`, trim the ends, fall
+## back to `"asset_pack"`.
+func _slug_name(s: String) -> String:
+	var out := s.to_lower()
+	var re := RegEx.new()
+	re.compile("[^a-z0-9]+")
+	out = re.sub(out, "_", true)
+	out = out.strip_edges().lstrip("_").rstrip("_")
+	return out if out != "" else "asset_pack"
 
 # ---------------------------------------------------------------------------
 # Sprite-sheet slicer modal

@@ -138,6 +138,13 @@ count of individually disabled controls is ~180).
 | **small** | 21 | |
 | **large** | 28 | Dominated by five subsystems: the save writer, global undo + selection, the Data manager's import/conversion/validation routes, the colour-ramp/separable-layer system, and river-as-entity. |
 
+**Stale as of 2026-08-20**: ten of the (B)-wrapper rows counted above
+(AS-01 through AS-08, AS-13, DM-05) moved to done in this pass
+(`ASSET_LIBRARY_SCOPE.md` §10) — the totals/percentages in this section are
+not yet re-derived across the whole 123-entry register to reflect that; §6.3
+and §6.4's own rows are the accurate, current source for the Assets/Data
+sections specifically.
+
 **The shape.** Only 19 % of the shell's disclosed gaps are genuinely undesigned.
 58 % have a design and are waiting on the engine — and **31 % of those (22 of 71)
 are waiting on a boundary wrapper, not a capability**. That is the same finding
@@ -236,19 +243,19 @@ classification with the design cited.
 
 | # | UI label | Where | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
-| AS-01 | Import image… | `menus.gd:201`, `asset_library_window.gd:402` | needs `AssetDB::addCustomSlot`, no `#[func]` | yes | §2.3, §8 | (B) wrapper — `raster::decode_png` + `AssetDB::add_item` are real |
-| AS-02 | Apply library to map | `menus.gd:241`, `asset_library_window.gd:325` | only `load_asset_pack(path)` is exposed; no in-memory library session | yes (verified 2026-08-19) | §2.3, §8 | (B) wrapper — `apply_library_file_with_items` exists |
-| AS-03 | Clear library… | `menus.gd:243`, `asset_library_window.gd:513` | no `AssetDB.clear()` equivalent exposed | yes | §2.3, §8 | (B) wrapper |
-| AS-04 | Export pack .zip | `asset_library_window.gd:327` | `archive.rs::write_pack`/`zip_store` exist, no `#[func]` | yes | §8 | (B) wrapper — round-trip verified against a reference pack |
-| AS-05 | Validate | `asset_library_window.gd:511` | `AssetValidator::run()` exists, not exposed | yes | §8 | (B) wrapper |
-| AS-06 | Tag… / Collect… / Rename… / Duplicate / Delete (batch) | `asset_library_window.gd:436` | no engine call; `AssetDB`'s add/rename/remove/collection methods aren't exposed | yes | §8, §2.3.1 | (B) wrapper — note `rename` is engine-defined **only for custom slots** (a real spec/engine disagreement, `DCC_CONTROL_INDEX.md` §2.3.1) |
-| AS-07 | Slot inspector: File / Scale / Tags / Pack metadata | `asset_library_window.gd:704-707` | need a live `AssetDB`/`PackInfo` query | yes | §8 | (B) wrapper |
-| AS-08 | Per-slot fill state + thumbnails (grid is always a checkerboard) | `asset_library_window.gd:579, 690` | no `AssetDB` query exposed | yes | §8 | (B) wrapper — `filled_count`/`render_item` are real |
-| AS-09 | Sprite-sheet **Slice** | `asset_library_window.gd:830` | `cartalith-assets` has no sheet-splitting function anywhere (`raster.rs`/`manifest.rs`/`archive.rs` checked) | yes | §8's slicer modal, in full | (B) small — no scope doc; `DCC_CONTROL_INDEX.md` summary §2 item 12 |
-| AS-10 | Slicer: Trim transparent edges / Skip empty cells | `asset_library_window.gd:797-801` | no slice operation to apply them to | yes | §8 | (B) small — same |
-| AS-11 | Slicer: Assign to family / Fill from | `asset_library_window.gd:810-813` | no in-memory library session for a result to land in | yes | §8 | (B) small — same |
-| AS-12 | Family rail: **Collections** and **Unassigned imports** | *absent* | none | — | §8's rail lists both | (B) small — `AssetCollections` is real; "Unassigned imports" is a slot-less bucket the model does not have |
-| AS-13 | **`Assets ▸ Asset pack ▸` submenu** (24 controls) | *absent — omission O2* | none | — | §2.3.1 in full | (B) wrapper — `DCC_CONTROL_INDEX.md` §2.3.1 scores it **19 backed-unwired against 1 engine gap** |
+| AS-01 | Import image… | `menus.gd:201`, `asset_library_window.gd:402` | **done, 2026-08-20** | real | §2.3, §8 | `as_import_item`/`as_add_custom_slot` (`asset_bridge.rs`) are wired; targets whichever slot is focused in the grid |
+| AS-02 | Apply library to map | `menus.gd:241`, `asset_library_window.gd:325` | **done, 2026-08-20** | real | §2.3, §8 | `as_apply_to_map` — the reference's own `applyToMap()`: bake the session in memory (`export_pack_bytes`), load it straight into the renderer, no round trip through a file |
+| AS-03 | Clear library… | `menus.gd:243`, `asset_library_window.gd:513` | **done, 2026-08-20** | real | §2.3, §8 | `as_clear_library` -> `AssetDB::clear` |
+| AS-04 | Export pack .zip | `asset_library_window.gd:327` | **done, 2026-08-20** | real | §8 | `as_export_pack_bytes` — bakes every item, builds a schema-2 manifest, `archive::write_pack`; disk round-trip verified headlessly (`ASSET_LIBRARY_SCOPE.md` §10) |
+| AS-05 | Validate | `asset_library_window.gd:511` | **done, 2026-08-20** | real | §8 | `as_validate` -> `library::run`, shown in a modal |
+| AS-06 | Tag… / Collect… / Rename… / Duplicate / Delete (batch) | `asset_library_window.gd:436` | **done, 2026-08-20** | real | §8, §2.3.1 | `as_batch_tag`/`_collect`/`_rename`/`_duplicate`/`_delete`, each read off the reference's own `alBatch*` handlers. `rename` stays honestly split: a custom slot is renamed for real, a frozen slot renames its *item variants* (`AssetDB::item_mut`, new this pass) — frozen slot names are the constant `slot_title`, not editable at all (the real spec/engine disagreement is unchanged, just no longer blocked on a missing binding) |
+| AS-07 | Slot inspector: File / Scale / Tags / Pack metadata | `asset_library_window.gd:704-707` | **done, 2026-08-20** | real | §8 | `as_slot_summary`/`as_item_summary`/`as_pack_info` — File/Scale/Tags/Pack metadata all show real values now. Editing scale/pan is not yet wired (no `as_set_item_transform`); noted honestly in the inspector, not silently absent |
+| AS-08 | Per-slot fill state + thumbnails (grid is always a checkerboard) | `asset_library_window.gd:579, 690` | **done, 2026-08-20** | real | §8 | `as_family_slots`/`as_thumbnail_png` — every filled slot shows a real `render_item`-baked thumbnail; empty slots still show the honest checkerboard |
+| AS-09 | Sprite-sheet **Slice** | `asset_library_window.gd:830` | `cartalith-assets` has no sheet-splitting function anywhere (`raster.rs`/`manifest.rs`/`archive.rs` checked) | yes, still (checked again 2026-08-20) | §8's slicer modal, in full | (B) small — no scope doc; `DCC_CONTROL_INDEX.md` summary §2 item 12; not this dispatch's scope (a real engine gap, not a binding gap — explicitly excluded per the dispatch brief) |
+| AS-10 | Slicer: Trim transparent edges / Skip empty cells | `asset_library_window.gd:797-801` | no slice operation to apply them to | yes, still | §8 | (B) small — same |
+| AS-11 | Slicer: Assign to family / Fill from | `asset_library_window.gd:810-813` | no in-memory library session for a result to land in | **stale** — a session exists now (`asset_library`), but there is still no slice *result* to assign, since AS-09 is unbuilt | §8 | (B) small — blocked on AS-09, not on the session anymore |
+| AS-12 | Family rail: **Collections** and **Unassigned imports** | *absent* | none | — | §8's rail lists both | (B) small — `AssetCollections` is real and now reachable (`as_batch_collect`/`as_slot_summary`'s `collections` field), but the rail still has no **Collections** browse row and "Unassigned imports" is still a slot-less bucket the model does not have; unchanged from 2026-08-19, out of this dispatch's named scope (AS-01..AS-08/AS-13/DM-05) |
+| AS-13 | **`Assets ▸ Asset pack ▸` submenu** (24 controls) | *absent — omission O2* | **done, 2026-08-20** | real | §2.3.1 in full | `menus.gd::_build_asset_pack_submenu` — Active pack (live name/author/license/schema/filled-item stats), Pack metadata…, Build ▸ (Validate/Apply to map/Import pack/Export pack, all direct engine calls), Edit ▸ and Batch ▸ (both open the real window, since every one of their controls needs slot/selection context only the grid provides — real navigation, not a disabled item). The one still-gap item (Slot transform editing) is disabled with its real reason, matching AS-07's note |
 | AS-14 | Variants strip / "active variant" | *absent* | none | — | §8 | **(D)** — engine truth: variant choice at render time is weighted and seeded (`pick_weighted_variant`); a user-picked "active variant" has no counterpart. `DCC_CONTROL_INDEX.md` §3(f). |
 | AS-15 | Per-slot Anchor (top/centre/base) | *absent* | none | — | §8 | **(D)** — engine truth: `Anchor` is a **family** property `sprite_draw_rect` depends on, not per-slot. §3(f). |
 | AS-16 | 24-family rail vs the shipped 8 | `asset_library_window.gd:8-23, 360` | disclosed in the window's own note and header comment | yes | §8 says 24; mockup shows 11; engine has 8 | **(D)** — owner decision, `DCC_CONTROL_INDEX.md` summary §5 item 9 |
@@ -263,7 +270,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | DM-02 | Export ▸ Maps (image · tiles) | 51 | `tile_render` draws per-tile PNGs; nothing assembles a Leaflet-style pyramid | yes | §9's route pane, **the one fully-designed route in the window** | (B) large — `region_export_tiles` is bound and tested; XYZ/TMS/WMTS addressing is new |
 | DM-03 | Export ▸ GIS / GeoJSON | 53 | `cartalith-engine::geojson` exports region GeoJSON for Region-select only, no route in, no CRS | yes | §2.4 | (B) wrapper — `export_geojson` is golden-verified; needs one `#[func]` plus assembling `GeoJsonWorld` |
 | DM-04 | Export ▸ World Data | 55 | no save writer | yes | §2.4 | (B) large — FI-01's writer |
-| DM-05 | Export ▸ Assets (pack .zip) | 57 | routes to AS-04, itself disabled | yes | §2.4 | (B) wrapper — same as AS-04 |
+| DM-05 | Export ▸ Assets (pack .zip) | 57 | **done, 2026-08-20** | real | §2.4 | now a `"route"` (was `"gap"`) into the Asset library window's real `export_pack_now()`, same "routes, doesn't reimplement" shape as `import_assets` — same as AS-04 |
 | DM-06 | Sources ▸ External / Connected / Registry | 59-61 | no source registry exists | yes | §2.4 names three rows; **§9 designs no pane for any of them** | **(C)** → §7.3 |
 | DM-07 | Conversion ▸ Coordinate Systems (EPSG ▸) | 62 | no CRS conversion; the engine works in one flat km projection | yes | §2.4 names it | **(D)** — owner decision, `DCC_CONTROL_INDEX.md` summary §5 item 8. Its pane is also (C); see §7.4 for what a CRS route would have to look like *if* the decision goes that way. |
 | DM-08 | Conversion ▸ Format Conversion | 64 | no format-conversion routes | yes | **the spec itself leaves it undefined** — "which formats, to which" (`DCC_CONTROL_INDEX.md` §2.4) | **(C)** → §7.4 |
