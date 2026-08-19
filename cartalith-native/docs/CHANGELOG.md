@@ -13625,3 +13625,182 @@ the Godot boundary (milestone 5), and UI playback controls (milestone 6)
 are equally untouched. Nothing in this workspace calls any of this
 milestone's five new functions yet.
 
+## Timeline milestone 4 — snapshot data model + orchestrator (`TIMELINE_SCOPE.md` milestone 4, 2026-08-19)
+
+Two pieces, split exactly along the crate boundary `TIMELINE_SCOPE.md` §5
+predicted: the pure orchestrator and snapshot/diff logic in
+`cartalith-civ::timeline`, and the real mutable state (a `Vec` of year
+snapshots plus the active-year cursor) on `CivData` in
+`cartalith-godot/src/lib.rs`, with thin methods calling into the pure
+functions — `cartalith-civ` stays stateless (`ARCHITECTURE.md`), matching
+`journey_bridge.rs`'s own established precedent for a Godot-side crate
+owning mutable state over an engine crate's pure functions.
+
+**`civ_assign_tid`/`civ_resync_next_tid` were already half-satisfied by
+milestone 1** — exactly as the task brief predicted checking for.
+Milestone 1 already built both as pure functions in `timeline.rs` (eager
+assignment at placement time, not the reference's lazy first-touch — logged
+there already). What milestone 1 *couldn't* build yet was the timeline-
+history half of `_civResyncNextTid` (reference lines 20569-20571 scan every
+`civTimeline` entry's own `places`/`ways`, not just the live arrays) —
+`TimelineSnapshot` didn't exist until this milestone. Rather than widen
+`civ_resync_next_tid`'s signature (real callers/tests already depend on its
+two-argument shape, and a fresh `compute_civilisation` run legitimately has
+no timeline to scan), this milestone adds a sibling,
+**`civ_resync_next_tid_with_timeline`**, folding in every snapshot's
+settlements/ways on top of the same live-array scan. No caller wires it in
+yet (nothing in this port reloads/rebuilds settlement lists out from under
+the counter today — the same gap milestone 1's own doc comment already
+flagged) — it exists ready for whichever future pass adds save-format
+persistence or a "resync after external edit" path.
+
+**Built in `cartalith-civ::timeline`** (pure, stateless, takes/returns
+explicit values — no crate-level mutable state):
+
+- **`TimelineSnapshot { year, territory, settlements, ways }`** — one
+  recorded year. Deliberately NOT the reference's own `{...p}` loosely-typed
+  spread, and deliberately missing `provinces`/`trade_balances`/
+  `explanations` — confirmed by reading `civSnapshotSave` directly (lines
+  20596-20604) that the reference's own snapshot never captured them either.
+  `territory` is a dense `Vec<i32>` clone, not the reference's sparse
+  `[i, factionId, ...]` pair encoding (reference line 20598) — that
+  encoding exists to shrink the reference's own save-file payload, a
+  concern this in-memory struct doesn't share (`TIMELINE_SCOPE.md` §9
+  defers persistence entirely); disclosed simplification, not a silent one.
+- **`civ_year_diff`** (`_civYearDiff`, 20580-20595): diffs a year's
+  snapshot against the chronologically-previous recorded one by tid set —
+  `present`/`removed`/`added`, as `BTreeSet<u64>`. No memoization cache
+  (the reference's own `_civYearDiffCacheYear`/`_civYearDiffCache` needs an
+  explicit invalidation call at five separate sites to stay correct; a
+  `BTreeSet` diff over two small vecs is cheap enough not to need one) — a
+  caller wanting memoization can add it at the `CivData` boundary.
+- **`civ_snapshot_save`**/**`civ_snapshot_load`** (`civSnapshotSave`/
+  `civSnapshotLoad`, 20596-20614): upsert-and-sort into a `&mut
+  Vec<TimelineSnapshot>`; restore territory only, filling `0` first
+  (reference: `terr.fill(0)`) — never touches settlements/ways, the
+  reference's own emphasis (lines 20559-20561) that those stay the single
+  always-current, always-editable arrays.
+- **`civ_simulate_timeline`** (`_civSimulateTimeline`, 24875-24892): the
+  pure orchestrator. Runs `opts.steps` collapse-or-recovery steps from a
+  starting `CollapsePlace` array (milestone 3's `civ_collapse_step`/
+  `civ_recovery_growth_step`), returning one `TimelineStepSnapshot{places,
+  stats}` per step. Never touches any timeline/live state — `SimulateMode`/
+  `SimulateWorldParams`/`SimulateTimelineOpts` bundle the reference's own
+  `opts` bag plus the seven `dens`/`field`/`gw`/`gh`/`sea`/`world_wrap`/
+  `map_width_km` world-sampling parameters both step functions need, since
+  those are stable for a whole simulation run rather than re-derived per
+  step. `baseline_norm_b` is captured ONLY at step `t==0` and reused
+  unchanged for every later step — read directly off the reference's
+  `if(t===0) baselineNormB=r.normBByTid...` (conditioned on `t` inside the
+  loop, not reassigned every iteration), a detail easy to get wrong by
+  assuming each step re-baselines against its own predecessor.
+
+**Built on `CivData` in `cartalith-godot/src/lib.rs`** — two new fields
+(`timeline: Vec<TimelineSnapshot>`, `year: i64`, both reset to
+empty/`0` in `compute_civilisation`, matching the reference's own
+`generate()` wrapper clearing `civTerritory`/`civTimeline`/`civYear` on
+every fresh procedural generation) and an `impl CivData` block of plain
+methods — no `#[func]`, no `Variant`, no godot-visible surface, per this
+milestone's own explicit scope:
+
+- **`civ_goto_year`** (`civGotoYear`, 20615-20617, minus the UI rebuild
+  call — milestone 6): sets the cursor, restores territory via
+  `civ_snapshot_load`.
+- **`civ_add_year`** (`civAddYear`, 20618-20634): the empty-timeline seed
+  case (reference's own v0.62 fix, avoiding a phantom "0 AD" entry at the
+  init `civYear=0`), the "snapshot the currently-active year from live
+  state first, so it's never lost" step, the "don't clobber an already-
+  recorded year" bail, and the "carry forward from the nearest earlier
+  recorded year" case — all four read directly off the reference, not
+  inferred from the scope doc's summary.
+- **`civ_remove_year`** (`civRemoveYear`, 20635-20641, minus the UI
+  rebuild): falls back to the earliest remaining year (`self.timeline`
+  stays sorted by construction, so `.first()` suffices), or year `0` if
+  none remain (reference: `next?next.year:0`).
+- **`civ_year_diff`**: thin passthrough to the pure function above.
+
+**A deliberate deviation, logged per `TIMELINE_SCOPE.md` §9's own
+in-flight decision, not silently matched**: `civ_add_year` caps recorded
+years at `TIMELINE_MAX_YEARS = 2000` (a no-op past the cap — the
+currently-active year's live state is already safely snapshotted before
+the check runs in every code path, so refusing to grow further never loses
+data). The reference stores an unbounded `civTimeline` with no eviction.
+
+**Golden-verified against the real reference**
+(`cartalith-civ/tests/golden_parity_timeline_orchestrator.rs`, 4 tests): a
+Node `vm.runInContext` harness (transient, not checked in, same convention
+as milestones 1-3) sliced the population-ceiling chain (23407-23434 +
+23461-23512, skipping the real cached `currentAgrarianDensity` body in
+between since the harness stubs that function directly) and the v0.85
+stepper block **plus the orchestrator itself** (24614-24892) into a context
+stubbed the same way milestone 3's own harness was. One early false start
+worth recording: the first harness run produced all-zero stats for every
+step — `_civCollapseStep` filters `places` down to
+`p.category==='settlement'` before doing anything, and the harness's first
+place fixtures didn't set that field, so every step silently ran on zero
+settlements (`n=0`, early-return branch). Caught by inspecting the
+suspiciously-uniform zero output, not by a passing-but-wrong test — exactly
+the "watch for silently-empty golden output" failure mode this repo's own
+root `CLAUDE.md` names.
+
+Fixtures, reusing (not re-deriving) milestone 3's own already-verified
+HUB/DENSE/UNDEFENDED/FORTRESS base places and ruins+fortified-Town recovery
+fixture, since this milestone's job is proving the ORCHESTRATOR's
+step-to-step wiring, not the step math again:
+
+- **Collapse, `mixed` character, 3 steps**: proves `baseline_norm_b`
+  threading — step 0's `died`/`unplaced`/`failed` (365/368/1) match
+  milestone 3's own single-step golden numbers for this exact fixture
+  exactly, and steps 1-2's own `died`/`migrated`/`unplaced`/`failed`
+  (122/17/107/0, then 49/21/30/0) come from the SAME t=0 baseline reused,
+  not re-captured each step, which the harness's real output confirms.
+- **Collapse, `trade` character, 2 steps, a different severity (0.8)**: an
+  independent second configuration.
+- **Recovery, 2 steps of 50 years each**: final pop/kind (6211/City) match
+  `golden_parity_timeline_collapse.rs`'s own single-100-year-step number
+  for the identical starting fixture *exactly* — confirming the
+  orchestrator's step-to-step `cur=r.places` chaining is equivalent to
+  running the same total duration in one step, not an assumption.
+- **`opts.steps` omitted (`0`)**: clamps to exactly 1 step
+  (`Math.max(1,opts.steps||1)`), matching milestone 3's own `conflict`
+  character single-step numbers verbatim.
+
+Plus 6 new unit tests in `timeline.rs` (snapshot save upserts and re-sorts;
+snapshot load restores territory only and fills `0` for an unrecorded
+year; year-diff tid-vs-name disambiguation — `TIMELINE_SCOPE.md` §7 success
+criterion 3's own named case, a settlement that disappears and a
+same-name/same-position DIFFERENT settlement that appears in its place,
+tid correctly showing removed+added rather than "persisted"; year-diff
+against the earliest recorded year has no previous, so every present tid
+reads as "added" — read directly off the reference's `tidsOf(null)`
+behavior, not assumed empty; year-diff for an unrecorded year is empty;
+`civ_resync_next_tid_with_timeline` folding in snapshot history the
+milestone-1 version is blind to) and 8 new unit tests in
+`cartalith-godot/src/lib.rs`'s own `civ_timeline_tests` module covering
+`TIMELINE_SCOPE.md` §7 success criterion 2 directly: adding a year never
+loses the currently-active year's live edits, `civ_goto_year` never
+mutates settlements/ways (a fixture where the live array is deliberately
+diverged from BOTH recorded snapshots, so a bug that restored settlements
+from a snapshot would be caught even though the two snapshots'
+`settlements` happen to agree with each other), and `civ_remove_year`
+falls back to the earliest remaining year or `0`.
+
+**Verified**: `cargo build -p cartalith-godot` (the cdylib) and a headless
+Godot 4.7.1 boot (`--headless --path godot-project --quit`) both clean
+(exit 0, no errors, extension loads). `cargo test -p cartalith-civ`: 309
+lib tests (up from 303; +6 this milestone) plus the new 4-test golden file,
+0 regressions. `cargo test -p cartalith-godot`: 178 lib tests (up from
+170; +8 this milestone), 0 regressions. `cargo clippy -p cartalith-civ -p
+cartalith-godot --all-targets`: clean — every warning shown is pre-existing
+in files this milestone didn't touch (`golden_parity_road_network.rs`
+excessive-precision literals, two pre-existing `identity_op` findings in
+test index arithmetic, two pre-existing `too_many_arguments` findings).
+
+**Out of scope, per `TIMELINE_SCOPE.md`**: the Godot boundary
+(`timeline_bridge.rs`, `#[func]` surface — milestone 5) and UI playback
+controls (milestone 6) are both untouched; nothing in this workspace calls
+`civ_add_year`/`civ_remove_year`/`civ_year_diff`/`civ_simulate_timeline`
+yet outside this milestone's own tests. Save-format persistence of
+`civTimeline`/`civYear` remains deferred, as `TIMELINE_SCOPE.md` §9 already
+recorded.
+

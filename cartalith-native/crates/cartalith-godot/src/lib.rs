@@ -176,6 +176,317 @@ struct CivData {
     /// decision (why eager assignment, not the reference's lazy
     /// first-touch).
     next_tid: u64,
+    /// `TIMELINE_SCOPE.md` milestone 4's own recorded-year history -- the
+    /// reference's `civTimeline` (reference line 14756: `let civTimeline=[]`).
+    /// Empty until the first `civ_add_year`/`civ_run_collapse_simulation`
+    /// call (the latter is milestone 5's job, not built yet). Every entry's
+    /// `settlements`/`ways` are frozen COPIES made at save time
+    /// (`cartalith_civ::timeline::civ_snapshot_save`) -- `settlements`/`ways`
+    /// above stay the single always-current, always-editable arrays, exactly
+    /// as the reference's own `state.places`/`civWays` do (reference lines
+    /// 20559-20561). Capped at `TIMELINE_MAX_YEARS` entries -- `TIMELINE_
+    /// SCOPE.md` §9's own "Snapshot cap" decision, a deliberate deviation
+    /// from the reference's unbounded storage
+    /// (`MEMORY_OPTIMIZATION_SCOPE.md`'s existing budget discipline).
+    timeline: Vec<cartalith_civ::timeline::TimelineSnapshot>,
+    /// `TIMELINE_SCOPE.md` milestone 4's active-year cursor -- the
+    /// reference's `civYear` (reference line 14757: `let civYear=0`). `0`
+    /// before any year has ever been added, matching the reference's own
+    /// init value. No reader yet -- milestone 5's `#[func]` boundary
+    /// (`timeline_bridge.rs`) is what will expose it to GDScript; this field
+    /// is written by every method below regardless.
+    #[allow(dead_code)]
+    year: i64,
+}
+
+/// `TIMELINE_SCOPE.md` §9's own "Snapshot cap" decision: a generous ceiling
+/// on recorded timeline years, bounding this struct's own memory use rather
+/// than matching the reference's unbounded `civTimeline` growth. Logged here
+/// (and in `cartalith-native/docs/CHANGELOG.md`) as a deliberate deviation,
+/// not a silent one -- `civ_add_year`'s own doc comment is where it's
+/// enforced.
+#[allow(dead_code)] // read by `CivData::civ_add_year` below; the lint can't see through `impl` gating
+const TIMELINE_MAX_YEARS: usize = 2000;
+
+/// This milestone (`TIMELINE_SCOPE.md` milestone 4) deliberately stops at
+/// plain Rust methods over `CivData` -- no `#[func]`/`Variant` surface, per
+/// its own scope ("Do NOT start milestone 5"). Every method below is
+/// consequently unreachable from anywhere in this crate yet (nothing calls
+/// `civ_add_year`/`civ_remove_year`/`civ_year_diff` until milestone 5 wires a
+/// `#[func]` to each) -- `#[allow(dead_code)]` on the block disclosing why,
+/// rather than scattering it per-method.
+#[allow(dead_code)]
+impl CivData {
+    /// `civGotoYear` (reference lines 20615-20617, minus `_civBuildTimelineUI()`
+    /// -- UI wiring is milestone 6's job). Sets the active-year cursor and
+    /// restores `territory` from that year's recorded snapshot
+    /// (`cartalith_civ::timeline::civ_snapshot_load`) -- never touches
+    /// `settlements`/`ways`, matching `TIMELINE_SCOPE.md` §7 success
+    /// criterion 2.
+    fn civ_goto_year(&mut self, year: i64) {
+        self.year = year;
+        cartalith_civ::timeline::civ_snapshot_load(&self.timeline, year, &mut self.territory);
+    }
+
+    /// `civAddYear` (reference lines 20618-20634): if the timeline is empty,
+    /// seeds the requested `year` with the LIVE state and jumps to it
+    /// (reference's own v0.62 fix, its comment lines 20619-20622 -- avoids
+    /// conjuring a phantom "0 AD" entry at the init `civYear=0`). Otherwise,
+    /// first snapshots the CURRENTLY ACTIVE year from live state (so it is
+    /// never lost -- `TIMELINE_SCOPE.md` §7 success criterion 2), then, if
+    /// `year` isn't already recorded, creates a new entry carrying forward
+    /// territory/settlements/ways from the nearest EARLIER recorded year (or
+    /// empty, if none exists), and jumps to it.
+    ///
+    /// A no-op past `TIMELINE_MAX_YEARS` recorded years (this port's own
+    /// deliberate cap, `TIMELINE_SCOPE.md` §9 -- the reference has no
+    /// equivalent limit) -- the currently-active year's live state was
+    /// already safely snapshotted above in every case before this check, so
+    /// refusing to grow the timeline further never loses data, it just stops
+    /// recording new ones.
+    fn civ_add_year(&mut self, year: i64) {
+        if self.timeline.is_empty() {
+            cartalith_civ::timeline::civ_snapshot_save(
+                &mut self.timeline,
+                year,
+                self.territory.clone(),
+                self.settlements.clone(),
+                self.ways.clone(),
+            );
+            self.civ_goto_year(year);
+            return;
+        }
+        cartalith_civ::timeline::civ_snapshot_save(
+            &mut self.timeline,
+            self.year,
+            self.territory.clone(),
+            self.settlements.clone(),
+            self.ways.clone(),
+        );
+        if self.timeline.iter().any(|s| s.year == year) {
+            return;
+        }
+        if self.timeline.len() >= TIMELINE_MAX_YEARS {
+            return;
+        }
+        let prev = self
+            .timeline
+            .iter()
+            .filter(|s| s.year <= year)
+            .max_by_key(|s| s.year);
+        let (territory, settlements, ways) = match prev {
+            Some(p) => (p.territory.clone(), p.settlements.clone(), p.ways.clone()),
+            None => (Vec::new(), Vec::new(), Vec::new()),
+        };
+        self.timeline
+            .push(cartalith_civ::timeline::TimelineSnapshot {
+                year,
+                territory,
+                settlements,
+                ways,
+            });
+        self.timeline.sort_by_key(|s| s.year);
+        self.civ_goto_year(year);
+    }
+
+    /// `civRemoveYear` (reference lines 20635-20641, minus `_civBuildTimelineUI()`
+    /// -- milestone 6). A no-op if `year` was never recorded. Removing the
+    /// active year falls back to the earliest remaining one (or year `0` if
+    /// none remain, matching the reference's own `next?next.year:0`) --
+    /// `TIMELINE_SCOPE.md` §7 success criterion 2. `self.timeline` stays
+    /// sorted by construction (every write path above sorts), so `.first()`
+    /// is always the earliest remaining year.
+    fn civ_remove_year(&mut self, year: i64) {
+        let Some(idx) = self.timeline.iter().position(|s| s.year == year) else {
+            return;
+        };
+        self.timeline.remove(idx);
+        if self.year == year {
+            let next_year = self.timeline.first().map(|s| s.year).unwrap_or(0);
+            self.civ_goto_year(next_year);
+        }
+    }
+
+    /// `_civYearDiff` (reference lines 20580-20595) over this instance's own
+    /// timeline -- thin passthrough to `cartalith_civ::timeline::civ_year_diff`,
+    /// kept as a method for callers that only have a `CivData`, not the raw
+    /// timeline vec.
+    fn civ_year_diff(&self, year: i64) -> cartalith_civ::timeline::YearDiff {
+        cartalith_civ::timeline::civ_year_diff(&self.timeline, year)
+    }
+}
+
+/// `TIMELINE_SCOPE.md` §7 success criterion 2: `civ_add_year`/`civ_goto_year`/
+/// `civ_remove_year` must reproduce the reference's own snapshot semantics.
+/// Runs under plain `cargo test -p cartalith-godot` with no Godot runtime
+/// involved -- `CivData` itself has no `godot` type anywhere in it, matching
+/// `journey_bridge.rs`'s own precedent for testing Godot-adjacent state
+/// without a live engine.
+#[cfg(test)]
+mod civ_timeline_tests {
+    use super::CivData;
+    use cartalith_civ::{NamedSettlement, SettlementKind, SettlementPlacement};
+
+    fn mk_settlement(tid: u64, x: usize, name: &str) -> NamedSettlement {
+        NamedSettlement {
+            tid,
+            placement: SettlementPlacement {
+                x,
+                y: 0,
+                suit: 0.5,
+                faction: 1,
+                capital: false,
+                kind: SettlementKind::Village,
+                coastal: false,
+            },
+            name: name.to_string(),
+            pop: 100,
+        }
+    }
+
+    fn empty_civ(settlements: Vec<NamedSettlement>, territory: Vec<i32>) -> CivData {
+        CivData {
+            settlements,
+            ways: Vec::new(),
+            sea_routes: Vec::new(),
+            territory,
+            provinces: Vec::new(),
+            province_list: Vec::new(),
+            trade_balances: Vec::new(),
+            explanations: Vec::new(),
+            water_bodies: Vec::new(),
+            next_tid: 1,
+            timeline: Vec::new(),
+            year: 0,
+        }
+    }
+
+    #[test]
+    fn add_year_on_an_empty_timeline_seeds_it_with_the_live_state_and_jumps_to_it() {
+        let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![0, 3, 0]);
+        civ.civ_add_year(-1200);
+        assert_eq!(civ.year, -1200);
+        assert_eq!(civ.timeline.len(), 1);
+        let snap = &civ.timeline[0];
+        assert_eq!(snap.year, -1200);
+        assert_eq!(snap.settlements.len(), 1);
+        assert_eq!(snap.settlements[0].name, "Alpha");
+        // civGotoYear's own snapshot-load roundtrip must not have altered the
+        // live territory it was just captured from.
+        assert_eq!(civ.territory, vec![0, 3, 0]);
+    }
+
+    #[test]
+    fn add_year_never_loses_the_currently_active_years_live_edits() {
+        let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![1, 0, 0]);
+        civ.civ_add_year(0); // seeds year 0 with the live state above
+
+        // Live-edit the always-current arrays (simulating manual editing while
+        // year 0 is active) -- exactly what civAddYear's own carry-forward
+        // step must snapshot before jumping away.
+        civ.settlements.push(mk_settlement(2, 9, "Bravo"));
+        civ.territory = vec![1, 0, 2];
+
+        civ.civ_add_year(100); // jump to a brand new year
+        assert_eq!(civ.year, 100);
+
+        // Year 0's recorded snapshot must reflect the live edit made while it
+        // was active, not the stale state from when it was first added --
+        // `TIMELINE_SCOPE.md` §7 success criterion 2, verbatim ("adding a
+        // year never loses the currently-active year's state").
+        let y0 = civ.timeline.iter().find(|s| s.year == 0).unwrap();
+        assert_eq!(y0.settlements.len(), 2, "year 0 must carry the Bravo edit");
+        assert_eq!(y0.territory, vec![1, 0, 2]);
+
+        // The live arrays themselves are untouched by any of this -- only
+        // `territory` changes on a goto (civGotoYear never touches
+        // settlements/ways).
+        assert_eq!(civ.settlements.len(), 2);
+    }
+
+    #[test]
+    fn add_year_carries_forward_from_the_nearest_earlier_recorded_year() {
+        let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![7, 7, 7]);
+        civ.civ_add_year(0);
+        civ.civ_add_year(500); // no year <=500 other than 0 -> carries year 0 forward
+
+        let y500 = civ.timeline.iter().find(|s| s.year == 500).unwrap();
+        assert_eq!(y500.settlements.len(), 1);
+        assert_eq!(y500.settlements[0].name, "Alpha");
+        assert_eq!(y500.territory, vec![7, 7, 7]);
+    }
+
+    #[test]
+    fn add_year_on_an_already_recorded_year_does_not_duplicate_or_move_the_cursor() {
+        let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![0, 0, 0]);
+        civ.civ_add_year(0);
+        civ.civ_add_year(200);
+        civ.civ_goto_year(0); // move the cursor away from 200
+        civ.civ_add_year(200); // 200 already exists -- must be a no-op past the resnapshot
+        assert_eq!(civ.timeline.len(), 2);
+        assert_eq!(
+            civ.year, 0,
+            "civ_add_year on an existing year must not move the cursor"
+        );
+    }
+
+    #[test]
+    fn goto_year_never_mutates_settlements_or_ways_only_territory() {
+        let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![0, 0, 0]);
+        civ.civ_add_year(0); // year 0 snapshot: settlements=[Alpha], territory=[0,0,0]
+        civ.civ_add_year(100); // year 100 carries [Alpha]/[0,0,0] forward unchanged; cursor=100
+
+        // Diverge the LIVE arrays from BOTH recorded snapshots, so a goto that
+        // incorrectly restored settlements from year 0's snapshot would be
+        // caught (year 0's own snapshot still says "Alpha", never "live only").
+        civ.settlements[0].name = "live only".to_string();
+        civ.territory = vec![9, 9, 9];
+
+        civ.civ_goto_year(0);
+        assert_eq!(
+            civ.territory,
+            vec![0, 0, 0],
+            "territory restored from year 0's snapshot"
+        );
+        assert_eq!(
+            civ.settlements[0].name, "live only",
+            "goto must never touch the live settlements array"
+        );
+    }
+
+    #[test]
+    fn remove_year_falls_back_to_the_earliest_remaining_year() {
+        let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![0, 0, 0]);
+        civ.civ_add_year(0);
+        civ.civ_add_year(100);
+        civ.civ_add_year(200);
+        assert_eq!(civ.year, 200);
+        civ.civ_remove_year(200); // removing the ACTIVE year
+        assert_eq!(
+            civ.year, 0,
+            "must fall back to the earliest remaining year, not the next one"
+        );
+        assert_eq!(civ.timeline.len(), 2);
+    }
+
+    #[test]
+    fn remove_year_falls_back_to_zero_when_none_remain() {
+        let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![0, 0, 0]);
+        civ.civ_add_year(50);
+        civ.civ_remove_year(50);
+        assert_eq!(civ.year, 0, "reference: `next?next.year:0`");
+        assert!(civ.timeline.is_empty());
+    }
+
+    #[test]
+    fn remove_year_on_an_unrecorded_year_is_a_no_op() {
+        let mut civ = empty_civ(vec![mk_settlement(1, 5, "Alpha")], vec![0, 0, 0]);
+        civ.civ_add_year(50);
+        let cursor_before = civ.year;
+        civ.civ_remove_year(9999);
+        assert_eq!(civ.year, cursor_before);
+        assert_eq!(civ.timeline.len(), 1);
+    }
 }
 
 /// One settlement's "why here?" record: the real decomposition of its
@@ -518,7 +829,27 @@ fn compute_civilisation(
         w.tid = cartalith_civ::timeline::civ_assign_tid(w.tid, &mut next_tid);
     }
 
-    CivData { settlements, ways, sea_routes, territory, provinces, province_list, trade_balances, explanations, water_bodies: wb.classification.clone(), next_tid }
+    // `TIMELINE_SCOPE.md` §1 Cluster D: the reference's own `generate()` wrapper clears
+    // `civTerritory`/`civTimeline`/`civYear` back to empty on every fresh procedural
+    // generation -- this is that same reset, for the one function that (re)builds `CivData`
+    // from scratch. A loaded save never reaches this function at all (`self.civ` is only
+    // ever set here, never restored from `SaveData` -- this struct's own top-of-file doc
+    // comment), so there is no case where a real recorded timeline needs preserving across
+    // this call.
+    CivData {
+        settlements,
+        ways,
+        sea_routes,
+        territory,
+        provinces,
+        province_list,
+        trade_balances,
+        explanations,
+        water_bodies: wb.classification.clone(),
+        next_tid,
+        timeline: Vec::new(),
+        year: 0,
+    }
 }
 
 /// Named World-Structure archetype presets (reference HTML `ARCHETYPES`,

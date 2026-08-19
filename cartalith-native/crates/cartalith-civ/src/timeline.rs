@@ -1257,6 +1257,345 @@ pub fn civ_recovery_growth_step(
     }
 }
 
+// ===================== Milestone 4: snapshot data model + orchestrator =====================
+//
+// `TIMELINE_SCOPE.md` §5 milestone 4 -- the pure orchestrator `_civSimulateTimeline` (reference
+// lines 24875-24892) plus the snapshot/diff logic behind `civTimeline`/`civYear`/
+// `civSnapshotSave`/`civSnapshotLoad`/`civGotoYear`/`civAddYear`/`civRemoveYear`/`_civYearDiff`
+// (reference lines 20563-20662, "Cluster A" in the scope doc). `_civAssignTid`/
+// `_civResyncNextTid` are milestone 1's own [`civ_assign_tid`]/[`civ_resync_next_tid`] above, not
+// duplicated here -- see [`civ_resync_next_tid_with_timeline`]'s own doc comment for the one
+// extension this milestone makes to that pair (folding in snapshot history, which didn't exist to
+// scan when milestone 1 was built).
+//
+// `CivData` itself (the actual mutable `Vec<TimelineSnapshot>` + `year` cursor) lives in
+// `cartalith-godot/src/lib.rs` -- `cartalith-civ` stays stateless (`ARCHITECTURE.md`). Every
+// function below takes/returns explicit values (a `&mut Vec<TimelineSnapshot>`, a places/ways
+// slice, a year) rather than owning any of it, matching the rest of this crate's shape and
+// `journey_bridge.rs`'s own precedent of the Godot-side crate owning the actual mutable state
+// while the engine crate stays a set of pure functions over it.
+
+/// One recorded timeline year -- reference `civTimeline[i]`, minus the fields its own
+/// `civSnapshotSave` never captured (`provinces`/`trade_balances`/`explanations` -- confirmed at
+/// reference lines 20596-20604: only `territory`/`places`/`ways` are ever read into a snapshot,
+/// `TIMELINE_SCOPE.md` milestone 4's own framing of this).
+///
+/// `territory` is a dense per-cell `Vec<i32>` clone of `CivData::territory`, not the reference's
+/// sparse `[i, factionId, ...]` pair encoding (reference `civSnapshotSave` line 20598). That
+/// encoding exists to shrink the reference's own `.zip`/JSON save payload -- a concern this
+/// in-memory Rust struct doesn't share (`TIMELINE_SCOPE.md` §9 defers persisting `civTimeline` to
+/// disk at all, and its own §9 "Snapshot cap" note already accepts a bounded per-year memory cost
+/// as the deliberate tradeoff for this feature). Disclosed deviation, not a silent one --
+/// [`civ_snapshot_load`] reproduces the reference's own "fill with 0, then paint what the
+/// snapshot recorded" restore semantics regardless of storage shape.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimelineSnapshot {
+    pub year: i64,
+    pub territory: Vec<i32>,
+    pub settlements: Vec<NamedSettlement>,
+    pub ways: Vec<Way>,
+}
+
+/// `_civYearDiff`'s return shape (reference lines 20580-20595), minus `curEntry`/`prevEntry` --
+/// the reference keeps those around for its own UI convenience (rendering an overlay straight off
+/// them); this port's callers already hold the timeline vec [`civ_year_diff`] was given, so they
+/// index into it themselves rather than this pure function cloning two whole snapshots into its
+/// answer.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct YearDiff {
+    pub present: BTreeSet<u64>,
+    pub removed: BTreeSet<u64>,
+    pub added: BTreeSet<u64>,
+}
+
+/// Collects a snapshot's place+way tids into one set (reference `tidsOf`, lines 20585-20588).
+/// `0` (the unassigned sentinel) is never inserted -- matching the reference's own `p.tid!=null`
+/// guard (an object nothing ever stamped a real tid onto contributes nothing to the diff, though
+/// in practice every entry reaching a snapshot already carries one -- this port assigns eagerly,
+/// see this module's own top-of-file doc comment).
+fn civ_snapshot_tids(snap: &TimelineSnapshot) -> BTreeSet<u64> {
+    let mut s = BTreeSet::new();
+    for p in &snap.settlements {
+        if p.tid != 0 {
+            s.insert(p.tid);
+        }
+    }
+    for w in &snap.ways {
+        if w.tid != 0 {
+            s.insert(w.tid);
+        }
+    }
+    s
+}
+
+/// `_civYearDiff` (reference lines 20580-20595): diffs `year`'s snapshot against the
+/// chronologically-previous recorded year (by `.year`, not by array position -- `timeline` need
+/// not already be sorted; this function sorts its own working copy of references, matching the
+/// reference's own `[...civTimeline].sort(...)` before searching). No entry for `year` gives an
+/// empty `present` (an absent `cur`, reference `idx<0?...:null` -> `tidsOf(null)` -> empty set);
+/// no chronologically-earlier entry gives an empty `prev` the same way -- both are legitimate
+/// outcomes (the very first recorded year has no predecessor), not errors.
+///
+/// This port has no memoization cache (reference `_civYearDiffCacheYear`/`_civYearDiffCache`) --
+/// diffing two small `BTreeSet`s is cheap enough that inventing a cache the caller didn't ask for
+/// would just be a second source of staleness bugs (the reference's own cache needs an explicit
+/// `_civYearDiffInvalidate()` call at every one of five call sites to stay correct). A caller that
+/// wants memoization can add it at the `CivData` boundary, keyed the same way the reference's own
+/// invalidation trigger already implies: "call this again after `civ_snapshot_save`/
+/// `civ_add_year`/`civ_remove_year` changes the timeline."
+pub fn civ_year_diff(timeline: &[TimelineSnapshot], year: i64) -> YearDiff {
+    let mut sorted: Vec<&TimelineSnapshot> = timeline.iter().collect();
+    sorted.sort_by_key(|s| s.year);
+    let idx = sorted.iter().position(|s| s.year == year);
+    let cur = idx.map(|i| sorted[i]);
+    let prev = idx.filter(|&i| i > 0).map(|i| sorted[i - 1]);
+    let present = cur.map(civ_snapshot_tids).unwrap_or_default();
+    let prev_tids = prev.map(civ_snapshot_tids).unwrap_or_default();
+    let removed: BTreeSet<u64> = prev_tids.difference(&present).copied().collect();
+    let added: BTreeSet<u64> = present.difference(&prev_tids).copied().collect();
+    YearDiff {
+        present,
+        removed,
+        added,
+    }
+}
+
+/// `civSnapshotSave` (reference lines 20596-20606): captures `territory`/`settlements`/`ways` --
+/// the live, always-current civ state -- into (or over) `timeline`'s entry for `year`, then
+/// re-sorts by year (reference: `civTimeline.sort((a,b)=>a.year-b.year)`).
+///
+/// `tid` assignment is the CALLER's job here, not this function's -- the reference's own
+/// `civSnapshotSave` calls `_civAssignTid` on every place/way as it copies them (lines
+/// 20599-20600), lazily stamping anything untouched so far; this port assigns eagerly instead, at
+/// placement/road-generation time (`compute_civilisation`) and at every manual-insertion point
+/// (`civ_tools_bridge::drop_settlement`) -- see this module's own top-of-file doc comment for the
+/// full decision. By the time anything reaches this function, every settlement/way it's handed
+/// already carries a real `tid`.
+pub fn civ_snapshot_save(
+    timeline: &mut Vec<TimelineSnapshot>,
+    year: i64,
+    territory: Vec<i32>,
+    settlements: Vec<NamedSettlement>,
+    ways: Vec<Way>,
+) {
+    match timeline.iter_mut().find(|s| s.year == year) {
+        Some(existing) => {
+            existing.territory = territory;
+            existing.settlements = settlements;
+            existing.ways = ways;
+        }
+        None => timeline.push(TimelineSnapshot {
+            year,
+            territory,
+            settlements,
+            ways,
+        }),
+    }
+    timeline.sort_by_key(|s| s.year);
+}
+
+/// `civSnapshotLoad`'s territory-restore half (reference lines 20607-20614): fills `territory`
+/// (the live grid) with `0`, then paints in whatever `year`'s snapshot recorded. Never touches
+/// `settlements`/`ways` -- those stay the single always-current, always-editable arrays (reference
+/// comment lines 20559-20561), matching `TIMELINE_SCOPE.md`'s own emphasis (success criterion 2).
+///
+/// Unlike the reference's sparse `[i, factionId, ...]` encoding, this port's
+/// [`TimelineSnapshot::territory`] is already a dense per-cell array the same length as the live
+/// grid, so "paint what the snapshot recorded" is a direct copy, not a decode loop -- see that
+/// field's own doc comment on this simplification. A snapshot recorded against a different-sized
+/// grid than the live `territory` (never reachable via this port's own callers, since a fresh
+/// `generate()` always clears the timeline -- `TIMELINE_SCOPE.md` §1 Cluster D -- but not
+/// re-validated here) copies only the overlapping prefix rather than panicking; an index-length
+/// mismatch is a caller bug, matching this crate's general preference (e.g. [`civ_gravity_migrate`]'s
+/// own doc comment) for not runtime-guarding a contract only the caller can violate.
+pub fn civ_snapshot_load(timeline: &[TimelineSnapshot], year: i64, territory: &mut [i32]) {
+    territory.fill(0);
+    if let Some(snap) = timeline.iter().find(|s| s.year == year) {
+        let n = territory.len().min(snap.territory.len());
+        territory[..n].copy_from_slice(&snap.territory[..n]);
+    }
+}
+
+/// Milestone 4's own extension of [`civ_resync_next_tid`]: also folds in every recorded
+/// [`TimelineSnapshot`]'s own `settlements`/`ways`, matching the reference's real
+/// `_civResyncNextTid` (lines 20565-20574), which scans `civTimeline` entries too -- milestone 1's
+/// version here couldn't, since `TimelineSnapshot` didn't exist yet (see that function's own doc
+/// comment, and this file's top-of-file "milestone-1 scope" note pointing at this exact gap). A
+/// sibling function rather than widening [`civ_resync_next_tid`]'s own signature -- that one
+/// already has real callers/tests and a legitimate no-timeline case (a fresh `compute_civilisation`
+/// run, before any year has ever been recorded, `cartalith-godot/src/lib.rs`).
+pub fn civ_resync_next_tid_with_timeline(
+    settlements: &[NamedSettlement],
+    ways: &[Way],
+    timeline: &[TimelineSnapshot],
+) -> u64 {
+    let mut mx = 0u64;
+    for s in settlements {
+        mx = mx.max(s.tid);
+    }
+    for w in ways {
+        mx = mx.max(w.tid);
+    }
+    for snap in timeline {
+        for p in &snap.settlements {
+            mx = mx.max(p.tid);
+        }
+        for w in &snap.ways {
+            mx = mx.max(w.tid);
+        }
+    }
+    mx + 1
+}
+
+/// `_civSimulateTimeline`'s `opts.mode` (reference: `opts.mode||'collapse'`). A closed enum
+/// instead of a string with a fallback -- once the type only admits these two values, the
+/// reference's own "anything that isn't exactly `'recovery'` behaves as collapse" fallback is
+/// unreachable, matching this crate's general preference for parsed types over re-validated
+/// strings (this module's own [`CollapseCharacter`] doc comment makes the same call).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimulateMode {
+    Collapse,
+    Recovery,
+}
+
+/// The "world" inputs both [`civ_collapse_step`] and [`civ_recovery_growth_step`] need on every
+/// step call ([`civ_settlement_population`]'s own `dens`/`field`/`gw`/`gh`/`sea`/`world_wrap`/
+/// `map_width_km` parameters) -- stable for a whole simulation run (the reference re-reads its own
+/// module globals `currentCarryingCapacity()`/`state.mapWidthKm`/`GW` fresh on every step call,
+/// but none of them change mid-run: nothing in the collapse/recovery model edits terrain), so this
+/// orchestrator takes them once rather than re-threading seven parameters through every iteration
+/// of the loop below.
+#[derive(Debug, Clone, Copy)]
+pub struct SimulateWorldParams<'a> {
+    pub dens: &'a [f32],
+    pub field: &'a [f32],
+    pub gw: usize,
+    pub gh: usize,
+    pub sea: f64,
+    pub world_wrap: bool,
+    pub map_width_km: f64,
+}
+
+/// `_civSimulateTimeline`'s `opts` (reference lines 24875-24892), plus the world-sampling
+/// parameters above bundled in rather than threaded as seven more function arguments.
+///
+/// Every field is read unconditionally by the orchestrator, whichever `mode` runs -- matching
+/// [`civ_collapse_step`]/[`civ_recovery_growth_step`]'s own already-established "defaulting is the
+/// caller's job" precedent (both functions' own doc comments), not the reference's single shared
+/// `opts` bag whose collapse-only/recovery-only fields are simply ignored by whichever step
+/// function doesn't read them.
+pub struct SimulateTimelineOpts<'a> {
+    pub mode: SimulateMode,
+    /// Reference: `Math.max(1,opts.steps||1)` -- the clamp is reproduced by
+    /// [`civ_simulate_timeline`] itself, not required of the caller (it's part of the
+    /// orchestrator's own body, not the outer wiring's defaulting).
+    pub steps: u32,
+    pub step_years: u32,
+    /// Collapse-mode only; ignored in `Recovery` mode (matching the reference, which never reads
+    /// `opts.character` inside `_civRecoveryGrowthStep`).
+    pub character: CollapseCharacter,
+    /// Collapse-mode only.
+    pub severity: f64,
+    /// Collapse-mode only.
+    pub k_nearest: usize,
+    /// Collapse-mode only.
+    pub max_link_km: f64,
+    /// Recovery-mode only; ignored in `Collapse` mode.
+    pub rate: f64,
+    pub world: SimulateWorldParams<'a>,
+}
+
+/// One step's snapshot (reference `{places,stats}`). `stats` is mode-tagged rather than the
+/// reference's own untyped object -- [`CollapseStepStats`] and [`RecoveryStepStats`] are different
+/// shapes, and a caller always knows which one to expect from the `mode` it chose once for the
+/// whole run ([`SimulateTimelineOpts::mode`] never varies step-to-step, matching the reference,
+/// where `opts.mode` is read once outside the loop).
+#[derive(Debug, Clone)]
+pub struct TimelineStepSnapshot {
+    pub places: Vec<CollapsePlace>,
+    pub stats: TimelineStepStats,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum TimelineStepStats {
+    Collapse(CollapseStepStats),
+    Recovery(RecoveryStepStats),
+}
+
+/// `_civSimulateTimeline` (reference lines 24875-24892): the pure orchestrator. Runs
+/// `opts.steps` collapse-or-recovery steps starting from `start_places`, returning one snapshot
+/// per step. Never mutates `start_places` (each step operates on the PREVIOUS step's own output,
+/// starting from a copy of the input -- reference: `cur=startPlaces.map(p=>({...p}))`) and never
+/// touches any timeline/live state itself -- the caller (`_civRunCollapseSimulation`'s Rust
+/// equivalent, milestone 5, not built in this pass) is what writes results into `CivData`'s own
+/// timeline.
+///
+/// `baseline_norm_b` is captured ONLY at step `t==0` and reused UNCHANGED for every later step
+/// (reference: `if(t===0) baselineNormB=r.normBByTid...`, conditioned on `t` inside the loop, not
+/// reassigned every iteration) -- ported exactly, including recovery mode never touching
+/// `baseline_norm_b` at all (the logistic regrowth model has no stress/centrality-loss term to
+/// baseline against).
+pub fn civ_simulate_timeline(
+    start_places: &[CollapsePlace],
+    opts: &SimulateTimelineOpts,
+) -> Vec<TimelineStepSnapshot> {
+    let steps = opts.steps.max(1);
+    let mut cur: Vec<CollapsePlace> = start_places.to_vec();
+    let mut snapshots = Vec::with_capacity(steps as usize);
+    let mut baseline_norm_b: Option<HashMap<u64, f64>> = None;
+    let w = &opts.world;
+    for t in 0..steps {
+        match opts.mode {
+            SimulateMode::Recovery => {
+                let r = civ_recovery_growth_step(
+                    &cur,
+                    opts.rate,
+                    opts.step_years,
+                    w.dens,
+                    w.field,
+                    w.gw,
+                    w.gh,
+                    w.sea,
+                    w.world_wrap,
+                    w.map_width_km,
+                );
+                cur = r.places.clone();
+                snapshots.push(TimelineStepSnapshot {
+                    places: r.places,
+                    stats: TimelineStepStats::Recovery(r.stats),
+                });
+            }
+            SimulateMode::Collapse => {
+                let r = civ_collapse_step(
+                    &cur,
+                    opts.character,
+                    opts.severity,
+                    opts.step_years,
+                    opts.k_nearest,
+                    opts.max_link_km,
+                    baseline_norm_b.as_ref(),
+                    w.dens,
+                    w.field,
+                    w.gw,
+                    w.gh,
+                    w.sea,
+                    w.world_wrap,
+                    w.map_width_km,
+                );
+                if t == 0 {
+                    baseline_norm_b = Some(r.norm_b_by_tid.clone());
+                }
+                cur = r.places.clone();
+                snapshots.push(TimelineStepSnapshot {
+                    places: r.places,
+                    stats: TimelineStepStats::Collapse(r.stats),
+                });
+            }
+        }
+    }
+    snapshots
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1834,5 +2173,195 @@ mod tests {
         // Recovery never demotes -- kind stays City even though
         // `civ_tier_for_population(1)` would say Hamlet.
         assert_eq!(r.places[0].kind, SettlementKind::City);
+    }
+
+    // ---------- milestone 4: snapshot data model ----------
+    // Reference-exact orchestrator numbers live in
+    // `tests/golden_parity_timeline_orchestrator.rs`; these are the
+    // snapshot/diff/resync plumbing's own structural tests -- `civSnapshotSave`/
+    // `civSnapshotLoad`/`_civYearDiff`'s semantics don't need the reference to
+    // state (they're pure bookkeeping over whatever this port hands them), but
+    // `TIMELINE_SCOPE.md` §7 success criterion 3 specifically calls for a
+    // tid-based (not name-based) diff fixture, which is what
+    // `year_diff_uses_tid_not_name_to_disambiguate_a_replaced_settlement` below
+    // is for.
+
+    use super::super::SettlementPlacement;
+
+    fn mk_settlement(tid: u64, x: usize, y: usize, name: &str, pop: u32) -> NamedSettlement {
+        NamedSettlement {
+            tid,
+            placement: SettlementPlacement {
+                x,
+                y,
+                suit: 0.5,
+                faction: 1,
+                capital: false,
+                kind: SettlementKind::Village,
+                coastal: false,
+            },
+            name: name.to_string(),
+            pop,
+        }
+    }
+
+    #[test]
+    fn snapshot_save_pushes_new_years_and_updates_existing_ones_sorted_by_year() {
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(
+            &mut timeline,
+            100,
+            vec![1, 0, 2],
+            vec![mk_settlement(1, 5, 5, "Alpha", 10)],
+            vec![],
+        );
+        civ_snapshot_save(
+            &mut timeline,
+            0,
+            vec![],
+            vec![mk_settlement(2, 1, 1, "Origin", 5)],
+            vec![],
+        );
+        // Inserted out of order -- civ_snapshot_save must keep the vec sorted by year
+        // (reference: `civTimeline.sort((a,b)=>a.year-b.year)` runs every call).
+        assert_eq!(
+            timeline.iter().map(|s| s.year).collect::<Vec<_>>(),
+            vec![0, 100]
+        );
+
+        // Re-saving an existing year overwrites in place rather than duplicating
+        // (reference: `civTimeline.find(...)` -> mutate in place if found).
+        civ_snapshot_save(
+            &mut timeline,
+            100,
+            vec![9, 9, 9],
+            vec![mk_settlement(1, 5, 5, "Alpha Renamed", 20)],
+            vec![],
+        );
+        assert_eq!(timeline.len(), 2);
+        let y100 = timeline.iter().find(|s| s.year == 100).unwrap();
+        assert_eq!(y100.territory, vec![9, 9, 9]);
+        assert_eq!(y100.settlements[0].name, "Alpha Renamed");
+    }
+
+    #[test]
+    fn snapshot_load_restores_territory_only_never_settlements_or_ways() {
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(
+            &mut timeline,
+            50,
+            vec![7, 8, 9],
+            vec![mk_settlement(1, 5, 5, "Alpha", 10)],
+            vec![],
+        );
+        let mut live_territory = vec![0, 0, 0];
+        civ_snapshot_load(&timeline, 50, &mut live_territory);
+        assert_eq!(live_territory, vec![7, 8, 9]);
+
+        // A year with no recorded snapshot fills territory with 0 (reference:
+        // `terr.fill(0)` runs unconditionally before the conditional paint) --
+        // not left as whatever the caller's live grid already held.
+        live_territory = vec![1, 2, 3];
+        civ_snapshot_load(&timeline, 999, &mut live_territory);
+        assert_eq!(live_territory, vec![0, 0, 0]);
+    }
+
+    #[test]
+    fn year_diff_uses_tid_not_name_to_disambiguate_a_replaced_settlement() {
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(
+            &mut timeline,
+            0,
+            vec![],
+            vec![
+                mk_settlement(1, 5, 5, "Riverside", 10),
+                mk_settlement(2, 8, 8, "Hillcrest", 8),
+            ],
+            vec![],
+        );
+        civ_snapshot_save(
+            &mut timeline,
+            100,
+            vec![],
+            // B (tid=2, "Hillcrest") disappeared; a DIFFERENT settlement (tid=3) that
+            // happens to share B's exact name/position takes its place -- a naive
+            // name/position diff would read this as "Hillcrest persisted"; tid must
+            // show it as removed+added instead (TIMELINE_SCOPE.md §7 success
+            // criterion 3, verbatim).
+            vec![
+                mk_settlement(1, 5, 5, "Riverside", 12),
+                mk_settlement(3, 8, 8, "Hillcrest", 3),
+            ],
+            vec![],
+        );
+        let diff = civ_year_diff(&timeline, 100);
+        assert_eq!(diff.present, BTreeSet::from([1, 3]));
+        assert_eq!(diff.removed, BTreeSet::from([2]));
+        assert_eq!(diff.added, BTreeSet::from([3]));
+    }
+
+    #[test]
+    fn year_diff_against_the_earliest_year_has_no_previous_and_no_removed_or_added() {
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(
+            &mut timeline,
+            -1200,
+            vec![],
+            vec![mk_settlement(1, 1, 1, "First", 1)],
+            vec![],
+        );
+        let diff = civ_year_diff(&timeline, -1200);
+        assert_eq!(diff.present, BTreeSet::from([1]));
+        assert!(diff.removed.is_empty());
+        // No prior year exists to diff against (reference: `prevEntry=null` ->
+        // `tidsOf(null)` -> empty set), so EVERY present tid reads as "added" --
+        // the earliest recorded year showing its own settlements as newly
+        // appearing is the reference's own real behavior, not a bug this port
+        // should paper over.
+        assert_eq!(diff.added, BTreeSet::from([1]));
+    }
+
+    #[test]
+    fn year_diff_for_an_unrecorded_year_is_empty() {
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(
+            &mut timeline,
+            0,
+            vec![],
+            vec![mk_settlement(1, 1, 1, "A", 1)],
+            vec![],
+        );
+        let diff = civ_year_diff(&timeline, 42);
+        assert!(diff.present.is_empty());
+        assert!(diff.removed.is_empty());
+        assert!(diff.added.is_empty());
+    }
+
+    #[test]
+    fn resync_next_tid_with_timeline_folds_in_snapshot_history_the_milestone_1_version_cannot_see()
+    {
+        let live_settlements = [mk_settlement(5, 0, 0, "Live", 1)];
+        let live_ways: [Way; 0] = [];
+        // The live state's own highest tid is 5, but an OLDER recorded year carries a
+        // higher tid (12) that has since been overwritten/removed from the live
+        // arrays -- milestone 1's `civ_resync_next_tid` can't see it (it only scans
+        // live settlements/ways); this extension must.
+        let mut timeline: Vec<TimelineSnapshot> = Vec::new();
+        civ_snapshot_save(
+            &mut timeline,
+            50,
+            vec![],
+            vec![mk_settlement(12, 1, 1, "Ghost", 1)],
+            vec![],
+        );
+        assert_eq!(
+            civ_resync_next_tid(&live_settlements, &live_ways),
+            6,
+            "milestone 1's own scan is blind to snapshot history"
+        );
+        assert_eq!(
+            civ_resync_next_tid_with_timeline(&live_settlements, &live_ways, &timeline),
+            13
+        );
     }
 }
