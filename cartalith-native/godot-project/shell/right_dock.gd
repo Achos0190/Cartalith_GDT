@@ -169,6 +169,12 @@ func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 	_sample_nearest.text = _nearest_settlement_text(gx, gy, valid)
 	var cell: Dictionary = bridge.sample_cell(int(round(gx)), int(round(gy))) if valid else {}
 	_sample_elev.text = _elevation_text(cell)
+	## RD-11: live-updated in place for the same reason the rows above are --
+	## a full `_rebuild()` on every mouse-motion event would be needless
+	## churn, and the collapsed dock's one number is this same elevation
+	## reading, not a stale one from the moment the dock last rebuilt.
+	if app != null:
+		app.set_dock_readout("right", _sample_elev.text)
 	for f in SAMPLE_FIELDS:
 		var row: Label = _sample_rows.get(f["label"])
 		if row == null:
@@ -280,6 +286,7 @@ func _rebuild() -> void:
 	_sample_rows.clear()
 	_dispatch(body)
 	app.set_right_dock_title(_current_title())
+	_push_dock_readout()
 
 ## `_build_settlement`/`_build_journey` both fall back to `_build_sample()`
 ## when their own data is missing (a settlement deselected out from under the
@@ -291,6 +298,52 @@ func _current_title() -> String:
 	if _context == CTX_JOURNEY and _journey_view == null:
 		return "Sample"
 	return String(CTX_TITLES.get(_context, "Sample"))
+
+## RD-11: §6's own last line -- "elevation for Sample, layer dots for
+## Layers, stamp count for the stack" -- is the right dock's collapsed
+## primary readout, and `DccShell.set_dock_readout("right", …)` already
+## exists for it, kept current whether or not the dock is actually
+## collapsed (`dcc_shell.gd`'s own doc comment). `world_workspace
+## ._push_dock_readout()` calls the left dock's equivalent on every
+## rebuild; this dock never called the right-dock one at all. No "Layers"
+## context exists here yet (RD-10 is still an omission), so this reads one
+## honest number per context that DOES exist rather than inventing the
+## missing one.
+func _push_dock_readout() -> void:
+	if app == null:
+		return
+	app.set_dock_readout("right", _dock_readout_text())
+
+func _dock_readout_text() -> String:
+	match _context:
+		CTX_SETTLEMENT:
+			if _settlement_data == null:
+				return _sample_elev.text if _sample_elev != null else "—"
+			return String((_settlement_data as Dictionary).get("name", "—"))
+		CTX_ROUTE:
+			return _route_length_text(_route_entry.get("points", PackedVector2Array()))
+		CTX_RIVER:
+			return "no rivers"
+		CTX_FACTION:
+			var culture := ""
+			for f in bridge.get_factions():
+				var d: Dictionary = f
+				if int(d.get("id", -1)) == _faction_id:
+					culture = String(d.get("culture", ""))
+					break
+			return ("%d · %s" % [_faction_id, culture.capitalize()]) if culture != "" else "faction %d" % _faction_id
+		CTX_MEASURE:
+			return ("%.1f km" % float(_measure_result.get("total_km", 0.0))) if not _measure_result.is_empty() else "no chain"
+		CTX_REGION:
+			return ("%d cells" % int(_region_result.get("cell_count", 0))) if not _region_result.is_empty() else "no region"
+		CTX_SCULPT:
+			return ("%d stamps" % bridge.sculpt_list_stamps().size()) if bridge.has_world else "no world"
+		CTX_JOURNEY:
+			if _journey_view == null:
+				return _sample_elev.text if _sample_elev != null else "—"
+			return _journey_view.readout_text()
+		_:
+			return _sample_elev.text if _sample_elev != null else "—"
 
 ## Named rather than inlined in `_rebuild()` -- a `match` cannot be the tail
 ## statement of a lambda closed with `)` in this GDScript version, and this
@@ -442,11 +495,21 @@ func _build_settlement(body: Control) -> void:
 		"are plain polylines) -- nothing associates a route with this settlement. " +
 		"STRANDED_TOOLS.md row 11.", false)
 
+	## RD-03: all three destinations now exist, so these are live rather than
+	## disabled placeholders. Economy opens `world_data_window`'s own Economy
+	## tab, scoped by name (`WorldDataWindow.open(tab)`, mirroring
+	## `DataManagerWindow.open(group)`'s "scope to X" shape) -- the uncapped
+	## settlement/province/trade tables §6 itself points Economy at. Politics
+	## reuses this same dock's own Faction context (`show_faction()`, already
+	## wired from `civilization_workspace.gd`'s Roster and Territory rows) for
+	## this settlement's faction. Logistics arms the Journey Planner tool
+	## takeover (`app.open_journey_planner()` -> `journey_planner_view.open()`
+	## -> `app.arm_tool("journey")`, `DCC_SHELL_SPEC.md` §4.5.4's 2026-08-19
+	## addition) rather than opening a dialog.
 	var actions := DccWidgets.group(sec, "Actions")
-	for label_text in ["Economy", "Politics", "Logistics"]:
-		var b := DccWidgets.action(actions, label_text, func(): pass)
-		b.disabled = true
-		b.tooltip_text = "No per-settlement %s panel exists yet -- see Data ▸ World data tables for the same fields, read-only." % label_text.to_lower()
+	DccWidgets.action(actions, "Economy", func(): app.open_world_data("Economy"))
+	DccWidgets.action(actions, "Politics", func(): show_faction(int(s.get("faction", 0))))
+	DccWidgets.action(actions, "Logistics", func(): app.open_journey_planner())
 
 	var why_sec := DccWidgets.section(body, "Why here?")
 	var rt := RichTextLabel.new()
@@ -595,26 +658,76 @@ func _build_faction(body: Control) -> void:
 		if int(d.get("faction", -1)) == _faction_id:
 			mine.append(d)
 
+	## RD-08: this used to list province names under "Roster" -- a list of
+	## who claims the faction, not a reading of the faction itself. §6 calls
+	## for a "roster entry", singular: `get_factions()` (lib.rs:3442) carries
+	## the real per-faction culture/colour/settlement_count, so that's what
+	## fills this section now.
+	var roster: Dictionary = {}
+	for f in bridge.get_factions():
+		var d: Dictionary = f
+		if int(d.get("id", -1)) == _faction_id:
+			roster = d
+			break
+
 	_field(sec, "Faction", str(_faction_id))
+	if roster.is_empty():
+		_field(sec, "Culture", "—",
+			"No get_factions() entry for faction %d -- generate a world first." % _faction_id, false)
+		_field(sec, "Settlements", "—", "", false)
+	else:
+		_field(sec, "Culture", String(roster.get("culture", "?")).capitalize())
+		_faction_colour_row(sec, roster)
+		_field(sec, "Settlements", str(int(roster.get("settlement_count", 0))))
+
+	## RD-06: `civ_faction_territory_stats(faction)` is real and live now --
+	## same call `civilization_workspace.gd`'s `_tool_options_territory()`
+	## already reads for the CIVIL ▸ Territory options row. Reads — only when
+	## the faction has committed no territory (an empty dict, not a zeroed
+	## one, so a genuine zero-cells faction doesn't read as "not read here").
+	var stats := bridge.civ_faction_territory_stats(_faction_id)
+	_field(sec, "Territory",
+		("%d cells · %.0f km² · %d contested" % [
+			int(stats.get("claimed_cells", 0)), float(stats.get("area_km2", 0.0)),
+			int(stats.get("contested_cells", 0))]) if not stats.is_empty() else "—",
+		"" if not stats.is_empty() else
+			"civ_faction_territory_stats() returned nothing for this faction -- no committed territory yet.",
+		not stats.is_empty())
 	_field(sec, "Provinces", str(mine.size()))
-
-	var names: Array[String] = []
-	for p in mine:
-		names.append(String(p.get("name", "")))
-	_field(sec, "Roster", ", ".join(names) if not names.is_empty() else "—",
-		"" if not names.is_empty() else "No provinces carry this faction id.",
-		not names.is_empty())
-
-	_field(sec, "Territory", "—",
-		"Not read here yet. The queries now exist -- civ_faction_territory_stats(faction) " +
-		"returns claimed cells, km² and contested cells, and get_factions() carries " +
-		"claimed_cells per faction -- but this dock predates both and still only shows " +
-		"the rendered overlay's provinces. The live numbers are shown today in CIVIL ▸ " +
-		"Territory's own tool options row.", false)
 	_field(sec, "State religion", "—",
 		"cartalith-civ computes a has_religion flag internally " +
 		"(civ_faction_aggregates, FactionAggregate) but get_provinces() doesn't carry " +
 		"it and there is no get_faction_aggregates() binding.", false)
+
+## Colour swatch + hex -- the same 11×11 `ColorRect` legend `layers_popover
+## .gd`'s `_refresh_legend` already uses for a faction/layer colour, just
+## right-aligned to match `_field()`'s own value column instead of a
+## left-aligned legend list. `_field()` itself can't carry a swatch (its
+## value is one `Label`), so this is a second, small row builder local to
+## the one context that needs one.
+func _faction_colour_row(parent: Control, roster: Dictionary) -> void:
+	var r := int(roster.get("color_r", 0))
+	var g := int(roster.get("color_g", 0))
+	var b := int(roster.get("color_b", 0))
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	row.custom_minimum_size.y = 22
+	var l := DccTheme.label("Colour", "text_dim", DccTheme.FS_SMALL)
+	l.custom_minimum_size.x = _FIELD_LABEL_W
+	l.clip_text = true
+	row.add_child(l)
+	var trail := HBoxContainer.new()
+	trail.add_theme_constant_override("separation", 6)
+	trail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	trail.alignment = BoxContainer.ALIGNMENT_END
+	var sw := ColorRect.new()
+	sw.color = Color8(r, g, b)
+	sw.custom_minimum_size = Vector2(11, 11)
+	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	trail.add_child(sw)
+	trail.add_child(DccTheme.label("#%02X%02X%02X" % [r, g, b], "text", DccTheme.FS_SMALL))
+	row.add_child(trail)
+	parent.add_child(row)
 
 # -- Measure --------------------------------------------------------------
 

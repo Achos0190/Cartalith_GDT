@@ -5,7 +5,25 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-19 (post **GUI gap register** (`GUI_GAP_REGISTER.md`,
+Last updated: 2026-08-19 (post **right dock: RD-03/RD-06/RD-08/RD-11 wired**
+(`GUI_GAP_REGISTER.md` §10 ranks 1, 2, 5) — the register's own top of the (A)
+list, done in one pass, GDScript-only: Settlement ▸ Economy/Politics/
+Logistics now open `world_data_window`'s Economy tab (new `WorldDataWindow
+.open(tab)`/`DccApp.open_world_data(tab)` param, mirroring
+`DataManagerWindow.open(group)`'s own "scope to X" shape), this dock's own
+Faction context (`show_faction()`), and the Journey Planner tool takeover
+(`app.open_journey_planner()`) respectively; Faction ▸ Territory/Roster now
+read `civ_faction_territory_stats()`/`get_factions()` for real (culture,
+colour swatch, settlement count, claimed cells/area/contested) instead of a
+"—" placeholder and a bare province-name list; and `right_dock.gd` now calls
+`DccShell.set_dock_readout("right", …)` at the end of every `_rebuild()` (and
+live on every cursor sample, matching the elevation label it mirrors) —
+elevation for Sample, settlement name for Settlement, faction culture for
+Faction, route length for Route, chain/region/stamp counts elsewhere. See
+"Right dock: RD-03/RD-06/RD-08/RD-11" below. No Rust touched; headless Godot
+4.7.1 boot clean; a scripted drive (temporary, not committed) generated a
+world and exercised all four live — see that section for the exact readback;
+previously, same day, post **GUI gap register** (`GUI_GAP_REGISTER.md`,
 new, repo root) — the owner asked to verify every GUI element is tested and
 connected, and where not, that a design exists; the premise does not hold and
 that is by design, so this pass built the "if not" branch: **123 catalogued
@@ -3304,6 +3322,70 @@ with real content both from its own `open()` and via the new Preferences
 menu item, and `DataManagerWindow`'s corrected reason string read back
 exactly as written. No Rust touched.
 
+## Right dock: RD-03/RD-06/RD-08/RD-11 (`GUI_GAP_REGISTER.md` §10 ranks 1, 2, 5, done 2026-08-19)
+
+- [x] **RD-03 — Settlement ▸ Economy / Politics / Logistics.** Were three
+      permanently-`disabled` buttons (`right_dock.gd:447-449`) with the
+      reason "no per-settlement panel exists yet" — accurate when written,
+      obsolete once `world_data_window`/`show_faction()`/
+      `open_journey_planner()` all shipped. Now live: **Economy** →
+      `app.open_world_data("Economy")`, a new `tab` parameter on both
+      `DccApp.open_world_data()` and `WorldDataWindow.open()` that selects a
+      tab by title, mirroring `DataManagerWindow.open(group)`'s existing
+      "scope to X, empty picks the default" shape (`app.gd`,
+      `world_data_window.gd`); **Politics** → `show_faction(int(s.get
+      ("faction", 0)))`, this same file's own Faction context; **Logistics**
+      → `app.open_journey_planner()`, which was already updated ahead of this
+      pass (`DCC_SHELL_SPEC.md` §4.5.4, 2026-08-19) to arm the JOURNEY tool
+      takeover rather than open a dialog — confirmed, not re-built.
+- [x] **RD-06 — Faction ▸ Territory.** Was a permanent "—" with a comment
+      explaining the queries now exist but the dock predates them
+      (`right_dock.gd:608`). Now reads `bridge.civ_faction_territory_stats
+      (faction)` live — `"%d cells · %.0f km² · %d contested"`, the same
+      call and format `civilization_workspace.gd`'s own CIVIL ▸ Territory
+      tool-options row already uses — with an honest "—" only when the
+      faction has committed no territory at all (empty dict, not a zeroed
+      one).
+- [x] **RD-08 — Faction ▸ Roster.** Read a comma-joined list of province
+      names, which said who claims the faction, not anything about the
+      faction itself. §6 calls the field a "roster entry" (singular) —
+      switched to `bridge.get_factions()`'s real per-faction row: Culture
+      (capitalised `culture` key), a Colour row (new `_faction_colour_row()`,
+      an 11×11 `ColorRect` + hex label, same swatch shape `layers_popover
+      .gd`'s own legend already uses), and Settlements (`settlement_count`).
+      Provinces (the count, not names) stayed as its own field.
+- [x] **RD-11 — Right dock's collapsed primary readout.** `DccShell
+      .set_dock_readout("right", …)` existed and was wired for the left dock
+      only (`world_workspace._push_dock_readout()`); `right_dock.gd` never
+      called it. New `_push_dock_readout()` / `_dock_readout_text()` at the
+      end of every `_rebuild()`, plus a live update inside `on_cursor_sampled`
+      so the Sample elevation reading doesn't go stale between rebuilds (the
+      same live-in-place pattern the row labels themselves already use). One
+      real reading per context that actually exists: elevation (Sample),
+      settlement name (Settlement), faction id + culture (Faction), route
+      length (Route), chain/region/stamp counts (Measure/Region/Sculpt),
+      journey days·km (Journey, via a new `JourneyPlannerView.readout_text()`
+      that reads its own private `_last_result` rather than exposing it). No
+      "Layers" context exists yet (RD-10, still an omission), so §6's "layer
+      dots for Layers" line has nothing to read from.
+
+**Verified**: all three edited files (`right_dock.gd`, `app.gd`,
+`world_data_window.gd`) plus the one-method addition to
+`journey_planner_view.gd` re-read after editing. Headless Godot 4.7.1 boot
+(`--headless --path godot-project --quit`) clean. A scripted drive
+(temporary `_rd_audit.gd`, not committed, same pattern `595582d`'s own
+changelog entry describes) booted the real `app.tscn` shell, generated a
+64×64/200 km world, selected a real settlement, and exercised all four
+fixes by calling into the live tree: clicking Economy opened
+`world_data_window` already on its Economy tab; clicking Politics switched
+the dock to `CTX_FACTION` with the settlement's real faction id and a
+`FACTION` chrome title; clicking Logistics set `armed_tool` to `"journey"`;
+the Faction field dump read `Culture: Imperial`, `Settlements: 5`,
+`Territory: 180 cells · 1758 km² · 0 contested`, `Provinces: 1`, and a
+`#E69F00` colour swatch; and the right-dock readout read `"1 · Imperial"` in
+Faction context, `"—"` after deselecting back to an empty Sample, and
+`"-154 m · ocean"` after one cursor sample. No Rust touched.
+
 ## GUI gap register (`GUI_GAP_REGISTER.md`, owner request, done 2026-08-19)
 
 - [x] **Layer 1 — the complete verified catalogue.** All 18 files under
@@ -3345,16 +3427,19 @@ exactly as written. No Rust touched.
       honest fixes exist (hide it until something fills it, or put a one-line
       `_todo()`-style disclosure in it); the register's (A) item **JP-13**
       fills it outright for INFRA.
-- [ ] **The (A) list — 17 entries, no Rust needed**, in the register's §10
-      priority order. Top five: wire Settlement ▸ Economy/Politics/**Logistics**
-      to destinations that all now exist (Logistics → `open_journey_planner()`);
-      Faction ▸ Territory/Roster onto `civ_faction_territory_stats()`/
-      `get_factions()`; the Journey Planner's timeline band; its blocked-stage
-      inline resolutions; and the right dock's collapsed primary readout
-      (`set_dock_readout("right", …)` exists and is wired for the left dock
-      only). Plus the **light theme** (`DccTheme.LIGHT` is fully defined; only
-      the build-once stylebox pass blocks it) — the largest visible change
-      available with no engine work.
+- [x] **The (A) list, ranks 1, 2 and 5 — RD-03, RD-06, RD-08, RD-11, done
+      2026-08-19.** Settlement ▸ Economy/Politics/Logistics now open their
+      real destinations; Faction ▸ Territory/Roster now read
+      `civ_faction_territory_stats()`/`get_factions()` live; the right dock's
+      collapsed primary readout is wired. See "Right dock: RD-03/RD-06/
+      RD-08/RD-11" above.
+- [ ] **The (A) list, remaining 13 entries**, in the register's §10 priority
+      order: the Journey Planner's timeline band (rank 3); its blocked-stage
+      inline resolutions (rank 4); the **light theme** (rank 6,
+      `DccTheme.LIGHT` is fully defined — only the build-once stylebox pass
+      blocks it, the largest visible change available with no engine work);
+      the Window menu's workspace list/open-windows list/dock-width dragging
+      (rank 7); and eight more, §10's own table has the full list.
 - [ ] **Nine omissions** — designed surfaces absent entirely, so the menus
       cannot teach a reader that the port owes them: `Data ▸ ⧉ Travel
       library… ⇧L`; `Assets ▸ Asset pack ▸`'s whole 24-control submenu;

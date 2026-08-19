@@ -1386,6 +1386,22 @@ func build_results(body: Control) -> void:
 	_build_vessels_group(body, plan)
 	_build_trace_group(body)
 
+## `right_dock.gd`'s RD-11 collapsed-readout call (`_dock_readout_text()`) --
+## the one number worth keeping visible when Journey is the active right-dock
+## context and the dock is collapsed. Reads `_last_result` rather than
+## exposing it, matching this file's own convention that every other reader
+## of the plan (`build_results` and its `_build_*_group` helpers) goes
+## through a method here instead of the underscore-prefixed field directly.
+func readout_text() -> String:
+	if _route_index < 0:
+		return "no route"
+	if _last_result.is_empty() or not bool(_last_result.get("ok", false)):
+		return "no result"
+	var plan: Dictionary = _last_result.get("plan", {})
+	var days := float(plan.get("total_days", -1.0))
+	var km := float(plan.get("km", 0.0))
+	return ("%.0f d · %.0f km" % [days, km]) if days >= 0.0 else "%.0f km" % km
+
 func _build_verdict_card(body: Control, plan: Dictionary, verdict: Dictionary, confidence: Dictionary) -> void:
 	var level := String(verdict.get("level", ""))
 	var token := "block" if level in ["severe", "blocked"] else ("warn" if level == "strained" else "accent")

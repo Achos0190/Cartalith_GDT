@@ -205,6 +205,17 @@ func _rebuild_trade() -> void:
 	if shown == 0:
 		DccWidgets.note(body, "No settlement matches \"%s\" with a trade relationship." % _filter if _filter != "" else "No settlement carries a trade relationship.")
 
-func open() -> void:
+## `tab`, if given, selects that tab by its title ("Settlements" -- the
+## default TabContainer selection, "Provinces", "Economy") rather than always
+## landing on the first one -- RD-03's Settlement ▸ Economy button opens
+## straight to the Economy tab instead of making the caller re-click after
+## the window opens. Mirrors `DataManagerWindow.open(group)`'s own "scope to
+## X, empty picks the default" shape.
+func open(tab: String = "") -> void:
 	_rebuild()
+	if tab != "":
+		for i in _tabs.get_tab_count():
+			if _tabs.get_tab_title(i) == tab:
+				_tabs.current_tab = i
+				break
 	popup_centered()

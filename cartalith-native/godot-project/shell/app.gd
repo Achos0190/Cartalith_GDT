@@ -397,8 +397,12 @@ func _pick_file(title: String, filters: Array, on_pick: Callable) -> void:
 	add_child(d)
 	d.popup_centered_ratio(0.6)
 
-func open_world_data() -> void:
-	world_data_window.open()
+## `tab`, if given, opens `world_data_window` scoped straight to that tab
+## ("Settlements" / "Provinces" / "Economy") -- `right_dock.gd`'s RD-03
+## Settlement ▸ Economy button is the one caller that needs this; every
+## other caller (the Data menu) still gets the default first-tab open.
+func open_world_data(tab: String = "") -> void:
+	world_data_window.open(tab)
 
 func open_performance() -> void:
 	performance_window.open()

@@ -14701,3 +14701,71 @@ why. Recorded as the recommended first follow-up.
 - **No Rust changed, no GUI behaviour changed.** `git diff` over
   `cartalith-native/crates/` is empty; the five GDScript edits are all string
   literals and comments.
+
+## Right dock: RD-03, RD-06, RD-08, RD-11 wired (`GUI_GAP_REGISTER.md` §10 ranks 1, 2, 5, 2026-08-19)
+
+The register's own top of the (A) list — real design in `DCC_SHELL_SPEC.md`
+§6/§4.5.3/§4.5.4, everything the engine needs already exposed. All four in
+`right_dock.gd`, GDScript-only.
+
+1. **RD-03 — Settlement ▸ Economy / Politics / Logistics.** Three buttons
+   were permanently `disabled` (`right_dock.gd:447-449`) with "no
+   per-settlement panel exists yet" — true when written, obsolete once
+   `world_data_window`, `show_faction()` and the Journey Planner tool
+   takeover all shipped. Wired to their real destinations:
+   - **Economy** → `app.open_world_data("Economy")`. `WorldDataWindow.open()`
+     and `DccApp.open_world_data()` both gained a `tab: String = ""`
+     parameter that selects a tab by title before `popup_centered()`,
+     mirroring `DataManagerWindow.open(group)`'s existing "scope to X, empty
+     picks the default" shape rather than inventing a second one.
+   - **Politics** → `show_faction(int(s.get("faction", 0)))`, this file's own
+     Faction context, already the target `civilization_workspace.gd`'s
+     Roster/Territory rows use.
+   - **Logistics** → `app.open_journey_planner()`. Checked rather than
+     assumed: this already calls `journey_planner_view.open()`, which arms
+     the JOURNEY tool (`app.arm_tool("journey")`) per `DCC_SHELL_SPEC.md`
+     §4.5.4's 2026-08-19 addition — the Journey Planner stopped being a
+     dialog before this pass started, so no change was needed there.
+2. **RD-06 — Faction ▸ Territory.** Was a permanent "—" whose tooltip already
+   said the query exists but the dock hadn't been updated to use it
+   (`right_dock.gd:608`). Now reads `bridge.civ_faction_territory_stats
+   (faction)` — `"%d cells · %.0f km² · %d contested"`, the identical call
+   and format `civilization_workspace.gd`'s CIVIL ▸ Territory tool-options
+   row already uses — with "—" only when the dict comes back empty (no
+   committed territory), not for a genuine zero.
+3. **RD-08 — Faction ▸ Roster.** Read a comma-joined list of province names —
+   who claims the faction, not a reading of the faction. §6 calls this field
+   a "roster entry," singular; `get_factions()` (`lib.rs:3442`) carries the
+   real per-faction `culture`/`color_r,g,b`/`settlement_count`. Swapped in:
+   a Culture field, a new `_faction_colour_row()` (11×11 `ColorRect` + hex
+   label, the same swatch shape `layers_popover.gd`'s legend already draws),
+   and a Settlements field. Provinces (the count) stayed, unchanged.
+4. **RD-11 — Right dock's collapsed primary readout.** `DccShell
+   .set_dock_readout("right", …)` existed and was wired for the left dock
+   only. New `_push_dock_readout()`/`_dock_readout_text()` called at the end
+   of `_rebuild()`, plus a live write inside `on_cursor_sampled` so Sample's
+   elevation reading doesn't go stale between full rebuilds. One honest
+   number per context that exists: elevation (Sample), settlement name
+   (Settlement), faction id + culture (Faction), route length (Route),
+   chain/region/stamp counts (Measure/Region/Sculpt), and journey days·km
+   (Journey, via a new one-method `JourneyPlannerView.readout_text()` that
+   keeps `_last_result` private rather than exposing it to the dock). No
+   "Layers" context exists yet (RD-10 is still an omission), so §6's "layer
+   dots for Layers" line has nothing to read.
+
+**Verified:** `right_dock.gd`, `app.gd`, `world_data_window.gd` and the one
+new method in `journey_planner_view.gd` all re-read after editing. Headless
+Godot 4.7.1 boot (`--headless --path godot-project --quit`) clean. A scripted
+drive (temporary `_rd_audit.gd`, not committed — same pattern `595582d`'s own
+entry above used) booted the real `app.tscn` shell, generated a 64×64/200 km
+world, and exercised all four fixes against the live tree rather than reading
+the source and trusting it: clicking Economy opened `world_data_window`
+already on its Economy tab (`current_tab_title=Economy`); clicking Politics
+switched the dock to `CTX_FACTION` with the settlement's real faction id and
+a `FACTION` chrome title; clicking Logistics set `armed_tool` to `"journey"`;
+the Faction context read `Culture: Imperial`, `Settlements: 5`,
+`Territory: 180 cells · 1758 km² · 0 contested`, `Provinces: 1`, and a
+`#E69F00` colour swatch; and the right-dock readout read `"1 · Imperial"` in
+Faction context, `"—"` after deselecting back to an empty Sample, and
+`"-154 m · ocean"` after one cursor sample. No Rust file touched anywhere in
+this pass; `GUI_GAP_REGISTER.md` §10/§6.8 updated to mark all four done.
