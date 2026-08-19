@@ -14520,3 +14520,70 @@ so `_process()`/backlog draining and camera-zoom pushes were called
 explicitly rather than relying on real engine frame ticks) to produce every
 before/after number quoted above.
 
+## Investigated: "only GPU active, no parallelisation" — confirmed working as designed (`CPU_MULTITHREADING_SCOPE.md`, 2026-08-19)
+
+Owner report: watching Task Manager during a real generate shows GPU
+utilization but no visible multi-core CPU activity, despite the three
+completed CPU-multithreading passes already in this file. Investigated live
+through the actual loaded GDExtension (`Godot_v4.7.1-stable_win64_console.exe`,
+a temporary headless `SceneTree` script driving `WorldGen.generate_sized()`
+directly — not `cargo run`/`cargo bench`, a different process context for
+Rayon's lazy thread-pool init) rather than trusting the scope doc's own
+historical numbers to still hold.
+
+**Rayon itself is fine** — `rayon::current_num_threads()`, logged from
+inside the real running extension, reported the true 16 on this machine
+every time (release, debug, `use_gpu` on or off). No thread-pool bug, no
+fix needed there. **No regression either** — `rayon = "1"` and real
+`par_iter`/`into_par_iter` call sites are still present in all six crates
+milestones 1-3 touched (`cartalith-terrain` 8, `cartalith-civ` 25,
+`cartalith-climate` 44, `cartalith-erosion` 13, `cartalith-hydrology` 5),
+confirmed by count, not by name alone.
+
+**The real explanation**: `use_gpu` defaults **on** in the shell
+(`engine_bridge.gd`'s `_ready()`, a deliberate choice already documented
+there) and dispatches most of the heavy substrate work — warp, plate
+assignment, base-field blur, heterogeneity, flow, weather — to the GPU.
+`compute_height`/`compute_resistance` stay unconditionally CPU+Rayon (no
+`if p.use_gpu` wrapper, confirmed by reading the full `generate_terrain`
+body, not just the tectonics section a partial read had spot-checked). Real
+timing at 2048x2048 through the real extension: `use_gpu=true` totals
+6.31s (2.80s GPU-heavy `generate_terrain`, 3.03s `compute_civilisation` —
+of which ~2.2s is genuine 16-thread Rayon work and ~0.8s is the
+deliberately-sequential civ stages: water-body flood-fill, road-network
+graph algorithm, settlement placement/naming). `use_gpu=false` totals
+9.25s with the same civ-stage split. So real, verified 16-core Rayon work
+is roughly **35% of total wall clock even with GPU on** — not negligible.
+What actually produces the "only GPU, no CPU" impression is **temporal
+segmentation**: a GPU-heavy phase, then a Rayon-heavy phase (real, but runs
+with no GPU activity, so it doesn't visually register as part of
+"generation" to a casual glance), then a single-threaded phase (the
+functions milestones 1-3 correctly left sequential — genuine cross-cell
+dependencies, not oversights). A snapshot glance during either the first or
+third phase shows exactly what the owner reported, even though the middle
+phase is real and substantial. Full breakdown, the 512x512 comparison
+(where the effect is worse — GPU dispatch overhead and the sequential
+road-network graph dominate more at small sizes), and the ruled-out
+hypotheses are in `CPU_MULTITHREADING_SCOPE.md`'s new "Investigated
+(2026-08-19)" section.
+
+**No code fix applied** — this is a real "working as designed" finding, not
+a bug, and reworking the GPU/CPU stage branching to reduce the sequential
+share is a separate, larger scoping question flagged there, not undertaken
+here per this investigation's own scope. One unrelated, real inefficiency
+was found and recorded (not fixed): `WorldGen::absorb()` calls
+`build_water_bodies` a second time for `PaintEditor`, recomputing ~440ms of
+already-known priority-flood/flood-fill work at 2048x2048 instead of
+reusing `compute_civilisation`'s own result — a good small follow-up, left
+for its own pass.
+
+**Verified**: the `rayon::current_num_threads()`/per-stage `Instant`-timer
+instrumentation used to gather the numbers above (temporary edits to
+`generate_sized`/`compute_civilisation` in `cartalith-godot/src/lib.rs`,
+plus a temporary `_perf_probe.gd`) was fully reverted (`git checkout` on
+the touched files, the probe script deleted) before this commit — `git
+diff`/`git status` show zero Rust or GDScript changes from this
+investigation. `cargo build -p cartalith-godot` and `cargo build --release
+-p cartalith-godot` both re-run clean after the revert, and `godot4
+--headless --path godot-project --quit main.tscn` boots clean.
+

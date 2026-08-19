@@ -2004,6 +2004,26 @@ accumulation, priority-flood, scatter-writes, per-particle/per-iteration
 wavefronts) are the real remaining ceiling, per this scope doc's own
 "Out of scope" section from the first pass.
 
+**Investigated (2026-08-19): owner report "only gpu active and no
+parallelisation."** Verified live through the real loaded GDExtension
+(not `cargo run`) rather than trusting the milestone numbers above still
+held. **Not a bug**: `rayon::current_num_threads()` correctly reports 16
+inside the running extension (release and debug, `use_gpu` on or off), and
+every crate's `rayon` dependency and `par_iter` call sites are still
+present — no thread-pool bug, no regression. Root cause: `use_gpu`
+defaults **on** in the shell, and real timing at 2048² shows the timeline
+is GPU-heavy (44%) → genuinely 16-thread-Rayon-heavy (35%, real, but no
+GPU activity during it so it doesn't visually read as "generation") →
+single-threaded (21%, the deliberately-sequential civ stages above). A
+casual Task Manager glance during the first or third phase alone produces
+exactly the reported symptom even though the real parallel work — over a
+third of total wall clock — is genuinely there. No code fix applied (this
+is "working as designed"); one unrelated small inefficiency found and
+recorded, not fixed (`WorldGen::absorb()` recomputes `build_water_bodies`
+a redundant second time, ~440ms at 2048²). Full account:
+`CPU_MULTITHREADING_SCOPE.md`'s "Investigated (2026-08-19)" section and
+`cartalith-native/docs/CHANGELOG.md`'s matching entry.
+
 ## Unified tool plan (`UNIFIED_TOOL_PLAN.md`, milestones A-E2 done 2026-08-18)
 
 The tool system's foundation layer plus **all four** tool groups' engine

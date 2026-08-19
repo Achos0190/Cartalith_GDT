@@ -452,3 +452,142 @@ real idea for later — the CPU-multithreading work above is the higher-
 value, lower-risk win to pursue first, especially given GPU milestone 6's
 own finding that a single dedicated-GPU path already loses to CPU below
 2048² today.
+
+## Investigated (2026-08-19): "it seems that there is only gpu active and no parallelisation as we stated at the start"
+
+The owner watched Task Manager during a real generate and saw GPU
+utilization but no visible multi-core CPU activity, despite the three
+completed passes above. Investigated live, through the actual loaded
+GDExtension (not `cargo run`/`cargo bench`, a different process context) --
+four real hypotheses were checked; two are ruled out, one is real but not
+causal, and one is the genuine explanation. No bug was found in Rayon
+itself; nothing was reverted from milestones 1-3; no code changes were kept
+in the workspace from this investigation (a temporary `eprintln!`
+instrumentation pass -- `rayon::current_num_threads()` plus per-stage
+`Instant` timers in `generate_sized`/`compute_civilisation` -- was added,
+used to gather the real numbers below, then fully reverted; `git diff` was
+clean against the commit this entry lands in before committing).
+
+**Method**: a temporary headless `SceneTree` script (`_perf_probe.gd`,
+deleted before commit) drove `WorldGen.generate_sized()` directly through
+`Godot_v4.7.1-stable_win64_console.exe --headless --path . --script
+_perf_probe.gd` -- the real loaded `cartalith_godot.dll`, not a separate
+Rust process -- at 2048x2048 and 512x512, seed 12345, `use_gpu=true` then
+`use_gpu=false`, on this same 16-logical-core machine.
+
+**Hypothesis 1 (Rayon's lazy global thread pool sizing wrong inside the
+loaded `cdylib`) -- ruled out.** `rayon::current_num_threads()`, logged
+from inside `generate_sized` at the moment of the very first `generate()`
+call in the process, reported **16** every time: release build, debug
+build, `use_gpu` on, `use_gpu` off. Rayon's `available_parallelism()`
+heuristic reads the real core count correctly inside a Godot-hosted
+GDExtension on this machine -- no thread-pool bug, no `RAYON_NUM_THREADS`
+surprise, no affinity-mask truncation. No fix needed or applied.
+
+**Hypothesis 3 (a regression silently reverted a `par_iter` call or a
+`Cargo.toml` dependency) -- ruled out.** `rayon = "1"` is still present in
+`cartalith-terrain`, `cartalith-civ`, `cartalith-climate`,
+`cartalith-erosion`, `cartalith-hydrology` and `cartalith-godot`'s own
+`Cargo.toml` (six crates, matching every crate milestones 1-3 named).
+Recursive `par_iter`/`into_par_iter`/`par_chunks`/`par_sort` call-site
+counts: `cartalith-terrain` 8, `cartalith-civ` 25, `cartalith-climate` 44,
+`cartalith-erosion` 13, `cartalith-hydrology` 5 -- all present, none zero.
+`git log` on each crate's `src/lib.rs` since the milestone-3 commit
+(`47563e8`) shows only new-feature commits (Journey Planner, timeline,
+unified tool plan groups, etc.), nothing that touches the parallelized
+functions' bodies.
+
+**Hypothesis 4 (stale/debug build) -- a real, separate, non-causal
+finding.** Running `Godot_v4.7.1-stable_win64.exe`/`_console.exe` directly
+against `godot-project` (the normal day-to-day workflow -- not an exported
+release template) loads `windows.debug.x86_64` per `cartalith.gdextension`,
+i.e. `target/debug/cartalith_godot.dll` -- confirmed live
+(`debug_assertions = true` logged from inside the running extension). This
+is real: debug `generate_terrain` at 2048x2048/`use_gpu=false` took 5.50s
+vs release's 4.83s (~14% slower). But it does **not** explain the reported
+symptom -- Rayon still reports 16 threads and still dispatches across all
+of them in a debug build; unoptimized code just makes each unit of work
+slower, which if anything makes a CPU-bound phase take *longer* (more
+visible on Task Manager), not less. Not fixed -- this is normal Godot
+behaviour (the editor / un-exported project always loads the
+debug-tagged library; only an actual release export template loads the
+release one) and not a bug in this project's code. Noted here so it isn't
+mistaken for the cause.
+
+**Hypothesis 2 (`use_gpu=true`, the shell's own default since
+`engine_bridge.gd`'s `_ready()`, dispatches most of the heavy substrate
+work to the GPU, and the remaining/interleaved CPU+Rayon work is real but
+temporally segmented from the GPU phase) -- confirmed as the real
+explanation, and it is working as designed, not a bug.** Verified
+`generate_terrain`'s full body (not just the tectonics section spot-check
+that prompted this investigation): `compute_height` and
+`compute_resistance` are indeed unconditional -- no `if p.use_gpu` wrapper,
+always CPU+Rayon, matching the partial read that triggered this
+investigation. Full real timing at 2048x2048 (release build, best of the
+runs logged above):
+
+| Phase | `use_gpu=true` | `use_gpu=false` |
+|---|---|---|
+| `generate_terrain` total | 2.80s | 4.89s |
+| -- of which GPU-dispatched | warp, plate_assignment, base_field_blur, heterogeneity, flow, weather | (none -- CPU+Rayon fallback for all) |
+| `compute_civilisation` (`absorb`, always CPU) | 3.03s | 3.79s |
+| -- parallel (Rayon) portion (`build_lithology`...`build_settlement_suitability`, `assign_territory`'s inner loop) | ~2.2s | ~2.7s |
+| -- sequential portion (`build_water_bodies`'s priority-flood/flood-fill, `civ_hierarchical_network_topology`'s graph algorithm, settlement placement/naming, `civ_generate_provinces`, way consolidation, sea routes) | ~0.8s | ~1.0s |
+| rest of `absorb` (editor/bridge setup, incl. a **second** `build_water_bodies` call for `PaintEditor` -- see below) | ~0.47s | ~0.57s |
+| **Total wall clock** | **6.31s** | **9.25s** |
+
+So even with GPU on, genuine 16-thread Rayon work (`compute_civilisation`'s
+per-cell functions) accounts for roughly **35% of total wall-clock time** --
+not negligible, contradicting this investigation's own leading guess that
+it might be "too brief to register." The real reason a casual Task Manager
+glance sees "only GPU, no CPU parallelism" is **temporal segmentation, not
+absence**: the timeline is GPU-heavy (44%) -> Rayon-heavy (35%) ->
+single-threaded (21%, the genuine cross-cell-dependency functions
+milestones 1-3 correctly left sequential: flood-fill/priority-flood
+water-body classification, the road-network graph algorithm, settlement
+placement/naming). A snapshot glance during the first or third phase shows
+"no CPU parallelism"; only a glance during the (real, correct, substantial)
+middle phase would show it -- and that phase runs with no GPU activity at
+all, so it doesn't visually register as part of "generation," making it
+easy to miss entirely in a few seconds of watching. At 512x512 the effect
+is worse: the parallel-per-cell block is ~82ms out of a ~1.1s total (~7%)
+because the sequential road-network graph algorithm (~430ms, the single
+largest civ line item at this size) and GPU dispatch overhead dominate
+proportionally more at small sizes -- consistent with GPU milestone 6's own
+finding that GPU loses to CPU below 2048² (confirmed again here: 1.11s
+with `use_gpu=true` vs 0.90s with it off, at 512x512).
+
+**No fix applied** -- this is the "working as designed, here's why it looks
+the way it does" outcome the investigation was scoped to allow for. The
+GPU/CPU stage branching itself is a legitimate design (GPU wins decisively
+above 2048², CPU+Rayon fallback is correct below it and for the
+GPU-ineligible stages) and reworking *when* GPU vs. CPU runs, or
+restructuring the sequential civ stages to reduce their share, is a real,
+larger scoping question -- explicitly out of scope for this investigation
+per its own brief (no unilateral redesign of the GPU/CPU branching).
+
+**One incidental, unrelated inefficiency found and recorded, not fixed**:
+`WorldGen::absorb()` (`cartalith-godot/src/lib.rs`) calls
+`cartalith_civ::build_water_bodies` a **second** time, purely to seed
+`PaintEditor`, even though `compute_civilisation` already computed the
+identical result a few lines above and discards it. Its own doc comment
+calls this "a second, cheap call to the same pure function, not a new
+algorithm" -- measured here at **~440ms at 2048x2048** (a real, entirely
+sequential priority-flood + flood-fill pass, not cheap), which is ~7% of
+total wall-clock time in the `use_gpu=true` run above. Threading
+`wb.classification` out of `compute_civilisation`'s return value instead of
+recomputing it would remove this for free and slightly shrink the
+sequential fraction of every generate -- a real, small, worthwhile
+follow-up, deliberately not taken here (this investigation's own scope:
+verify and report, keep any fix small and targeted to the actual reported
+symptom, not open a second unrelated change while investigating a specific
+report).
+
+**Verified**: `git status`/`git diff` clean against this commit -- the
+instrumentation used to gather the numbers above was added, run, and fully
+reverted (`git checkout` on the two touched files), then both `cargo build
+-p cartalith-godot` and `cargo build --release -p cartalith-godot` re-run
+clean to confirm no drift, and `godot4 --headless --path godot-project
+--quit main.tscn` boots clean. No `cargo test` regression is possible since
+no source diff was kept -- the working tree was identical to before this
+investigation started at the point this entry was committed.
