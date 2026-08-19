@@ -12515,3 +12515,146 @@ failed) and `cargo clippy -p cartalith-urban --all-targets` all clean.
 before the milestone, with the delta accounted for. `cargo fmt` not run. No
 Godot file touched (UI hold). Nothing wired into `compute_civilisation()`,
 `cartalith-godot` or the GUI.
+
+## Journey Planner — the Godot boundary (`JOURNEY_PLANNER_SCOPE.md` closing-status steps 1, 2 and 4, 2026-08-19)
+
+`JOURNEY_PLANNER_SCOPE.md` closed on 2026-08-18 with the engine done and the
+feature not: 65 of the reference's 74 `jp*`/`_jp*` functions ported and
+golden-tested in `cartalith-civ`, and **zero `#[func]`s for any of them**. Its
+own closing section listed five things making it real would need, in order.
+Three are now built. Nothing here is new modelling — the algorithms were already
+golden-verified, and this pass adds none.
+
+### What was exposed
+
+One new `#[godot_api(secondary)]` block in `cartalith-godot/src/lib.rs`:
+
+- **`jp_options() -> Dictionary`** — every dropdown vocabulary, keyed by the same
+  field names `jp_compute` accepts, so a form is built by walking it rather than
+  by hard-coding a second copy of the vocabulary in GDScript. `route_cond` nests
+  one level deeper (`{land, river, sea}`) because a "Maintained" road condition
+  cannot describe a sea leg and `_jpDeriveStages` rejects it when it tries;
+  `reference` carries the terrain/biome/category/animal tables a *results* panel
+  needs to label what came back. Pure — callable before `generate()`.
+- **`jp_default_plan() -> Dictionary`** — `JpPlan::default()` (the reference's
+  own `_jpEnsurePlan` default block) flat, 28 keys plus `party_fields`.
+- **`jp_compute(request: Dictionary) -> Dictionary`** — `jp_plan` → `jp_verdict`
+  → `jp_confidence`. `request` takes `route` (an int index into the committed
+  routes) or `points` (a `PackedVector2Array`), plus optional `plan`,
+  `stage_overrides` (`{stage_index: {field: value}}`) and `layovers`
+  (`{stop_key: days}`, keyed by the `key` each returned stop carries).
+
+Plus two in the existing INFRA block — **`route_count()`** and
+**`route_get(index)`** (`{points, brks, km, mode, unreachable_legs}`).
+
+And five wrappers in `godot-project/shell/engine_bridge.gd`, `has_method()`-guarded
+like the other ~94. **No workspace script calls any of them** — the party form
+and results panel are a separate, deliberate follow-up (steps 3 and 5).
+
+### The route-getter gap was real
+
+`UNIFIED_TOOL_PLAN.md` milestone F's own note — *"there is no getter for the
+manual-ways list itself yet, deliberately out of this milestone's exact scope"* —
+still held: `route_commit()` returned an index into a list nothing could read
+back. `route_get`/`route_count` close it for routes, and `jp_compute`'s `route`
+key is the first consumer. It is preferred over `points` precisely because it
+reads the route's own `f64` grid coordinates; `PackedVector2Array` is `f32`, so a
+route round-tripped through Godot is a rounded copy of itself.
+
+### `JpWorld` needed no new pipeline state
+
+The scope document claimed every field it borrows was already computed by this
+port. That checked out. `field`/`temperature`/`rainfall`/`flow_discharge` come
+from `WorldState`; `water_bodies`/`territory`/`ways`/`settlements` from
+`CivData`; `peak_m` from `WorldParams`; `flow_thresh` from the same
+`cartalith_hydrology::river_flow_thresh` call `compute_civilisation` already
+makes. Its prediction about the two exceptions also held exactly:
+`build_cart_biome`/`build_cart_terrain` still have no pipeline-stage caller, so
+`journey_bridge::JourneyWorld` computes them per call from rasters that already
+exist, alongside `jp_road_cells`. **No generation stage was added.**
+
+### Three inputs are empty on purpose, and say so
+
+- **`ocean_field`/`wind_field` are `None`.** This port's climate stage computes
+  the ocean-current vector field *inside* `cartalith_climate::ocean_sst_anomaly`
+  and discards it — nothing in `WorldState` retains a `u`/`v` pair at any
+  resolution, so there is no `currentOceanField()`/`currentWindField()` to hand
+  over. `None` is `jp_sea_condition`'s own supported input: a sea leg reads its
+  structural condition and skips the wind/current term rather than reading an
+  invented one. A third entry for the scope document's "quality ceilings" list.
+- **`road_cells` sees the generated way network only.** `jp_road_cells` takes
+  `&[Way]`; hand-drawn ways are `tools::ManualWay`, whose `Ancient` variant
+  `jp_road_cells` has no branch for — the reference's `_jpRoadCells` *does*
+  (`'ancient' → ["Dirt Track","Deteriorated"]`), because its one `civWays` array
+  holds both kinds. Widening `jp_road_cells` is a `cartalith-civ` change against
+  golden-tested code; reported, not approximated.
+- **`road_edges` is empty.** `build_road_network`'s `RoadEdge` list is not
+  retained by `compute_civilisation` and has no live equivalent to the
+  reference's `state.roads.edges`.
+
+`wildlife_forage_mod` is `|_, _| 1.0` — the reference's own answer on a world
+with no wildlife layer, already disclosed by the scope document.
+
+### One reference behaviour preserved rather than "fixed"
+
+`jp_claimed_at` tests `territory[i] >= 0`, and this port's `assign_territory`
+uses `0` for unowned — so every cell reads as claimed. That is exactly what the
+reference does: its `civTerritory` is a `Uint8Array`, so `>= 0` is likewise
+always true. `civ.territory` is passed through unchanged. Remapping it here would
+have been a silent divergence from a golden-verified consumer, dressed up as a
+bug fix.
+
+### Where the work actually was
+
+Not the plumbing. `JpJourneyPlan` is `stages` + `results` + `timeline` + `stops`
+plus ~25 scalars, and each `JpLegResult` carries a whole second `JpPlan` (the
+*effective* plan that leg was computed under, which season drift and the
+per-stage vessel fallback can both have altered) alongside its own land or water
+calculation and that calculation's own `JpCapacity`/`JpResupply`. Nine helper
+functions in `lib.rs`, following `icon_dict`/`label_dict`'s existing `vdict!`
+pattern at each nesting depth. The scope document's guess that step 4 would be
+*"small once 1-3 exist"* was half right.
+
+`journey_bridge.rs` itself is **`godot`-free**, the same isolation
+`sculpt_bridge`/`civ_tools_bridge`/`infra_tools_bridge` established: it owns the
+plan/party form parser and its inverse, the `JourneyWorld` buffers and the option
+tables; `lib.rs` owns the `Variant` conversion and the flattening.
+
+### Verification
+
+- 28 new plain-Rust tests in `journey_bridge.rs` — no Godot runtime, run by
+  `cargo test -p cartalith-godot`'s ordinary unit pass. The form parse, the
+  flatten/reparse round trip (both a fully-populated plan and the default),
+  per-stage overrides, and the `Int`/`Num` acceptance rule.
+- **One recogniser test per option table, pinned against the engine's own
+  lookup.** This is the failure mode worth the tests: a dropdown offering a key
+  the engine does not recognise never errors — it falls through to `?? 1.0` and
+  reports a plausible number computed from the wrong row. Five of the tables
+  (`JP_PACE`, `JP_GRAZING`, `JP_FORAGING`, `JP_REST_CADENCES`, `JP_ROUTE`) are
+  `match` arms rather than `pub const`s, so a transcription typo is otherwise
+  invisible. Where the lookup is private (`jp_grazing`) the test proves
+  recognition indirectly and says how: an unrecognised key collapses onto the
+  same fodder fraction as the first key, so three *distinct* fodder masses is
+  exactly the proof.
+- One end-to-end test that the assembled `JourneyWorld` really drives `jp_plan`
+  over synthetic rasters of the shapes `WorldGen` holds — a real 14-cell land
+  traverse with both endpoint settlements appearing in `stops` — rather than
+  merely producing non-empty buffers.
+- `cargo build -p cartalith-godot` clean; `cargo clippy -p cartalith-godot
+  --all-targets` clean for the new code. **`cargo clean -p cartalith-godot`
+  followed by a full rebuild**, then `cargo test -p cartalith-godot`: 153 unit
+  tests + 31 integration tests, 0 failed — the stale-`.rlib` failure mode this
+  project has documented, ruled out rather than assumed away.
+- Godot 4.7.1 headless boot of `godot-project` clean, extension initialised. A
+  scripted headless smoke run confirmed all five methods register and work end to
+  end: generate → `route_begin`/`route_append_stop`/`route_commit` → `route_get`
+  (1157 km, 35 points, `land`) → `jp_compute` (11 stages, 3 stops, 24.0 travel
+  days, verdict `severe`, confidence band 25.2-39.8 days), with a deliberately
+  bogus plan key correctly reported in `rejected` and the per-leg `eff` season
+  reflecting the request. The smoke script was removed after the run.
+- No golden tests added, and none needed: the `jp_*` functions underneath are
+  already golden-verified and this pass adds no algorithm.
+- `reference/Cartalith Gen1 v2.10.html` untouched. No file under
+  `godot-project/shell/workspaces/`, `map_overlay.gd`, `tool_overlay.gd` or
+  `right_dock.gd` touched — the UI hold and the deliberate step-3/step-5
+  boundary both respected.

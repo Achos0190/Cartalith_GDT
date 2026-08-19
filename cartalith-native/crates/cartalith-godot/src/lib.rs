@@ -19,6 +19,7 @@ use godot::prelude::*;
 mod civ_tools_bridge;
 mod icon_bridge;
 mod infra_tools_bridge;
+mod journey_bridge;
 mod label_bridge;
 mod lod_bridge;
 mod pack;
@@ -3523,6 +3524,52 @@ impl WorldGen {
         }
     }
 
+    /// How many routes have been committed this session. `0` before any
+    /// `generate()` call.
+    ///
+    /// `way_commit`/`route_commit` return an index into a list nothing
+    /// could read back until now -- the INFRA milestone disclosed that gap
+    /// rather than inventing a getter for it, and the Journey Planner
+    /// binding below is its first real consumer (`jp_compute`'s `route`
+    /// key names a committed route by exactly this index).
+    #[func]
+    fn route_count(&self) -> i64 {
+        self.infra.as_ref().map_or(0, |i| i.routes.len() as i64)
+    }
+
+    /// One committed route: `{"points": PackedVector2Array, "brks":
+    /// PackedInt32Array, "km": float, "mode": String, "unreachable_legs":
+    /// int}` -- `civ_join_dijkstra_segs`' own `{pts, brks, km}` shape plus
+    /// the `RouteMode` it was solved under and how many legs fell back to a
+    /// straight line. Empty `Dictionary` for an out-of-range index or
+    /// before any `generate()` call, the same convention `icon_get`/
+    /// `label_get` use.
+    ///
+    /// `points` is `PackedVector2Array`, matching `get_roads()`/
+    /// `get_sea_routes()`, so it is `f32` -- fine to draw with, and fine to
+    /// feed back to `jp_compute` via its own `points` key, but `jp_compute`
+    /// prefers the `route` index precisely so the planner samples the
+    /// route's real `f64` grid coordinates rather than a rounded copy.
+    #[func]
+    fn route_get(&self, index: i64) -> VarDictionary {
+        let Ok(i) = usize::try_from(index) else { return VarDictionary::new() };
+        let Some(r) = self.infra.as_ref().and_then(|t| t.routes.get(i)) else { return VarDictionary::new() };
+        let points: PackedVector2Array = r.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
+        let brks: PackedInt32Array = r.brks.iter().map(|&b| b as i32).collect();
+        let mode = match r.mode {
+            cartalith_civ::tools::RouteMode::Land => "land",
+            cartalith_civ::tools::RouteMode::Water => "water",
+            cartalith_civ::tools::RouteMode::Mixed => "mixed",
+        };
+        vdict! {
+            "points" => &points,
+            "brks" => &brks,
+            "km" => r.km,
+            "mode" => mode,
+            "unreachable_legs" => r.unreachable_legs as i64,
+        }
+    }
+
     // ===================== Measure (DCC_SHELL_SPEC.md §4.5.1, global) =====================
     //
     // No golden-parity test exists for this tool and none can (see
@@ -4187,5 +4234,549 @@ impl WorldGen {
         let packed = PackedByteArray::from(rgba);
         let image = Image::create_from_data(out_w as i32, out_h as i32, false, Format::RGBA8, &packed)?;
         ImageTexture::create_from_image(&image)
+    }
+}
+
+// ============================================================================
+// Journey Planner (`JOURNEY_PLANNER_SCOPE.md`) -- the boundary its own
+// "Closing status" section calls for, steps 2 and 4.
+//
+// The engine half has been complete since 2026-08-18: 65 of the reference's
+// 74 `jp*`/`_jp*` functions are ported and golden-tested in `cartalith-civ`,
+// and none of it had ever been reachable from Godot. What follows is
+// plumbing, not new modelling -- `journey_bridge.rs` owns everything
+// expressible without `godot`, and these three `#[func]`s own the `Variant`
+// conversion plus the flattening of `JpJourneyPlan`, which is a deep
+// structure (stages, per-leg results with their own effective plans,
+// timeline, stops) that gdext needs as nested `VarDictionary`/`Array`.
+// ============================================================================
+
+/// A `(key, JpValue)` list as a flat `VarDictionary` -- the one place the
+/// `godot`-free `journey_bridge::JpValue` becomes a real `Variant`.
+fn jp_pairs_dict<S: AsRef<str>>(pairs: &[(S, journey_bridge::JpValue)]) -> VarDictionary {
+    let mut d = VarDictionary::new();
+    for (k, v) in pairs {
+        match v {
+            journey_bridge::JpValue::Int(n) => d.set(k.as_ref(), *n),
+            journey_bridge::JpValue::Num(n) => d.set(k.as_ref(), *n),
+            journey_bridge::JpValue::Str(s) => d.set(k.as_ref(), s.as_str()),
+            journey_bridge::JpValue::Bool(b) => d.set(k.as_ref(), *b),
+        }
+    }
+    d
+}
+
+/// One `Variant` as the three kinds a plan/party form uses, or `None` for
+/// anything else (an array, a `Vector2`, a null) -- which the caller reports
+/// `rejected`, the same as an unknown key.
+fn variant_to_jp_value(v: &Variant) -> Option<journey_bridge::JpValue> {
+    match v.get_type() {
+        VariantType::INT => Some(journey_bridge::JpValue::Int(v.to::<i64>())),
+        VariantType::FLOAT => Some(journey_bridge::JpValue::Num(v.to::<f64>())),
+        VariantType::STRING => Some(journey_bridge::JpValue::Str(v.to::<GString>().to_string())),
+        VariantType::BOOL => Some(journey_bridge::JpValue::Bool(v.to::<bool>())),
+        _ => None,
+    }
+}
+
+/// A `Dictionary` as the `(key, JpValue)` list `journey_bridge`'s parsers
+/// take, plus every key whose value was not a number/string/bool at all.
+fn jp_dict_to_pairs(d: &VarDictionary) -> (Vec<(String, journey_bridge::JpValue)>, Vec<String>) {
+    let mut pairs = Vec::new();
+    let mut rejected = Vec::new();
+    for (k, v) in d.iter_shared() {
+        let key = k.to_string();
+        match variant_to_jp_value(&v) {
+            Some(val) => pairs.push((key, val)),
+            None => rejected.push(key),
+        }
+    }
+    (pairs, rejected)
+}
+
+/// `JpCapacity` -- the whole mass model, flat (the JS nests its five mass
+/// terms under `breakdown`; `cartalith-civ` already flattened them).
+fn jp_capacity_dict(c: &cartalith_civ::JpCapacity) -> VarDictionary {
+    vdict! {
+        "total_mass" => c.total_mass,
+        "capacity" => c.capacity,
+        "draft_shortfall" => c.draft_shortfall,
+        "cargo" => c.cargo,
+        "human_food" => c.human_food,
+        "human_water" => c.human_water,
+        "fodder" => c.fodder,
+        "animal_water" => c.animal_water,
+        "animal_food_daily" => c.animal_food_daily,
+        "animal_water_daily" => c.animal_water_daily,
+        "draft_food_daily" => c.draft_food_daily,
+        "draft_water_daily" => c.draft_water_daily,
+        "human_water_rate" => c.human_water_rate,
+        "mount_credit" => c.mount_credit,
+    }
+}
+
+/// `jpAssessResupply`'s verdict. `stops_needed`/`limited_by`/`cause` and the
+/// two intervals are all genuinely `None` on some paths; `-1` and `""` are
+/// the absent markers, matching `region_get`/`icon_armed`'s own convention of
+/// never emitting a null into a `Dictionary` a GDScript caller must
+/// type-test.
+fn jp_resupply_dict(r: &cartalith_civ::JpResupply) -> VarDictionary {
+    vdict! {
+        "feasible" => r.feasible,
+        "stops_needed" => r.stops_needed.unwrap_or(-1),
+        "limited_by" => r.limited_by.clone().unwrap_or_default(),
+        "cause" => r.cause.unwrap_or_default(),
+        "binding_interval" => r.binding_interval.unwrap_or(-1.0),
+        "interval_km" => r.interval_km.unwrap_or(-1.0),
+        "verdict" => r.verdict.as_str(),
+    }
+}
+
+/// `jpCalcLand`'s return, minus the reference's `formula` trace string --
+/// presentation, which `ARCHITECTURE.md` assigns to Godot, and every value it
+/// prints is a key here.
+fn jp_land_calc_dict(l: &cartalith_civ::JpLandCalc) -> VarDictionary {
+    let (desert_tier, desert_tier_auto) = l.desert_tier.map_or(("", false), |(label, auto)| (label, auto));
+    let capacity = jp_capacity_dict(&l.cap);
+    let resupply = l.resupply.as_ref().map_or_else(VarDictionary::new, jp_resupply_dict);
+    vdict! {
+        "daily_km" => l.daily_km,
+        "days" => l.days,
+        "load_ratio" => l.load_ratio,
+        "capacity" => &capacity,
+        "resupply" => &resupply,
+        "transport_label" => l.transport_label.as_str(),
+        "mount_key" => l.mount_key.unwrap_or_default(),
+        "is_desert" => l.is_desert,
+        "col_km" => l.col_km,
+        "col_mod" => l.col_mod,
+        "dry_km" => l.dry_km,
+        "water_gap_days" => l.water_gap_days,
+        "supply_days" => l.supply_days,
+        "portage" => l.portage,
+        "desert_tier" => desert_tier,
+        "desert_tier_auto" => desert_tier_auto,
+    }
+}
+
+/// `jpCalcWater`'s return, same `formula` omission.
+fn jp_water_calc_dict(w: &cartalith_civ::JpWaterCalc) -> VarDictionary {
+    let resupply = jp_resupply_dict(&w.resupply);
+    vdict! {
+        "daily_km" => w.daily_km,
+        "days" => w.days,
+        "load_ratio" => w.load_ratio,
+        "resupply" => &resupply,
+        "transport_label" => w.transport_label.as_str(),
+        "crew" => w.crew as i64,
+        "hold_kg" => w.hold_kg,
+        "food_needed" => w.food_needed,
+        "water_needed" => w.water_needed,
+    }
+}
+
+/// One `_jpDeriveStages` stage: what the route *is*, measured against the
+/// world, before any party is applied to it.
+fn jp_stage_dict(s: &cartalith_civ::JpDerivedStage) -> VarDictionary {
+    vdict! {
+        "cat" => s.cat.as_str(),
+        "biome" => s.biome.as_str(),
+        "terrain" => s.terrain.as_str(),
+        "route_cond" => s.route_cond.as_str(),
+        "derived_cond" => s.derived_cond.clone().unwrap_or_default(),
+        "infra" => s.infra.as_str(),
+        "km" => s.km,
+        "i0" => s.i0 as i64,
+        "i1" => s.i1 as i64,
+        "river_crossings" => s.rx as i64,
+        "gain" => s.gain,
+        "loss" => s.loss,
+        "settlements" => s.settlements as i64,
+        "claimed_frac" => s.claimed_frac,
+        "dry_km" => s.dry_km,
+        "mx" => s.mx,
+        "my" => s.my,
+    }
+}
+
+/// One entry of `plan.results`: the stage's own calculation plus the
+/// effective plan it was computed under. `blocked` is `true` exactly when the
+/// stage could not be travelled as configured, and `land`/`water` is then
+/// absent -- `JpLegResult::calc` is a `Result`, so a blocked stage cannot be
+/// read as a computed one by accident, and this shape keeps that property
+/// across the boundary.
+fn jp_leg_result_dict(r: &cartalith_civ::JpLegResult) -> VarDictionary {
+    let eff = jp_pairs_dict(&journey_bridge::plan_to_pairs(&r.eff));
+    let mut d = vdict! {
+        "cat" => r.cat.as_str(),
+        "km" => r.km,
+        "days" => r.days(),
+        "daily_km" => r.daily_km(),
+        "eff" => &eff,
+    };
+    match &r.calc {
+        Ok(cartalith_civ::JpLegCalc::Land(l)) => {
+            d.set("blocked", false);
+            d.set("land", &jp_land_calc_dict(l));
+        }
+        Ok(cartalith_civ::JpLegCalc::Water(w)) => {
+            d.set("blocked", false);
+            d.set("water", &jp_water_calc_dict(w));
+        }
+        Err(b) => {
+            d.set("blocked", true);
+            d.set("blocked_reason", b.reason.as_str());
+            d.set("blocked_seasonal", b.seasonal);
+        }
+    }
+    d
+}
+
+fn jp_timeline_dict(t: &cartalith_civ::JpTimelineDay) -> VarDictionary {
+    vdict! {
+        "day" => t.day,
+        "km" => t.km,
+        "terrain" => t.terrain.as_str(),
+        "biome" => t.biome.as_str(),
+        "camp" => t.camp.clone().unwrap_or_default(),
+    }
+}
+
+fn jp_stop_dict(s: &cartalith_civ::JpStop) -> VarDictionary {
+    vdict! {
+        "key" => s.key.as_str(),
+        "name" => s.name.as_str(),
+        "kind" => s.kind.as_str(),
+        "x" => s.x,
+        "y" => s.y,
+        "layover_days" => s.layover_days,
+    }
+}
+
+/// `_jpResupplyReach` -- v1.51's headline finding: `jpAssessResupply` states
+/// a requirement computed purely from what the party can carry, and this is
+/// what compares it with the settlements the route actually passes.
+fn jp_resupply_reach_dict(r: &cartalith_civ::ResupplyReach) -> VarDictionary {
+    vdict! {
+        "required_km" => r.required_km,
+        "max_gap_km" => r.max_gap_km,
+        "gap_at_km" => r.gap_at_km,
+        "total_km" => r.total_km,
+        "stops" => r.stops as i64,
+        "unmet" => r.unmet,
+        "carry_food" => r.carry_food,
+        "shortfall" => r.shortfall,
+    }
+}
+
+/// `_jpPlan`'s whole return, flattened. Nested arrays keep their own depth:
+/// `stages`/`results`/`timeline`/`stops` are `Array[Dictionary]`, and each
+/// leg result nests its own `land`/`water` calculation and effective plan.
+fn jp_journey_plan_dict(p: &cartalith_civ::JpJourneyPlan) -> VarDictionary {
+    let stages: Array<VarDictionary> = p.stages.iter().map(jp_stage_dict).collect();
+    let results: Array<VarDictionary> = p.results.iter().map(jp_leg_result_dict).collect();
+    let timeline: Array<VarDictionary> = p.timeline.iter().map(jp_timeline_dict).collect();
+    let stops: Array<VarDictionary> = p.stops.iter().map(jp_stop_dict).collect();
+    let profile: PackedFloat64Array = p.profile.iter().copied().collect();
+    let day_fracs: PackedFloat64Array = p.day_fracs.iter().copied().collect();
+    let seasons: PackedStringArray = p.seasons_crossed.iter().map(GString::from).collect();
+    let reach = p.resupply_reach.as_ref().map_or_else(VarDictionary::new, jp_resupply_reach_dict);
+    vdict! {
+        "stages" => &stages,
+        "results" => &results,
+        "timeline" => &timeline,
+        "stops" => &stops,
+        "km" => p.km,
+        // `days` is TRAVEL days only -- rest days and layovers are calendar
+        // time laid on top (v1.52). `total_days` is the sum, and is `-1` on a
+        // blocked journey because there is no honest total for one.
+        "days" => p.days,
+        "avg_km_day" => p.avg_km_day,
+        "blocked" => p.blocked_idx.is_some(),
+        "blocked_idx" => p.blocked_idx.map_or(-1, |i| i as i64),
+        "food_kg" => p.food_kg,
+        "water_l" => p.water_l,
+        "fodder_kg" => p.fodder_kg,
+        "river_crossings" => p.riv_x as i64,
+        "pass_km" => p.pass_km,
+        "desert_km" => p.desert_km,
+        "bad_wx_pct" => p.bad_wx_pct,
+        "profile" => &profile,
+        "day_fracs" => &day_fracs,
+        "ascent" => p.ascent,
+        "descent" => p.descent,
+        "hi_m" => p.hi_m,
+        "lo_m" => p.lo_m,
+        "worst_land" => p.worst_land.map_or(-1, |i| i as i64),
+        "transshipments" => p.transshipments,
+        "transfer_overhead" => p.transfer_overhead,
+        "handling_days" => p.handling_days,
+        "layover_days" => p.layover_days,
+        "travel_days" => p.travel_days,
+        "rest_days" => p.rest_days,
+        "rest_every" => p.rest.every,
+        "rest_basis" => p.rest.basis.as_str(),
+        "total_days" => p.total_days.unwrap_or(-1.0),
+        "seasons_crossed" => &seasons,
+        "season_drift" => p.season_drift,
+        "resupply_reach" => &reach,
+        "has_desert" => p.has_desert,
+        "has_water" => p.has_water,
+        "has_land" => p.has_land,
+    }
+}
+
+/// `#[godot_api(secondary)]`, not a plain `#[godot_api]`: only the first
+/// `#[godot_api] impl WorldGen` block in the crate may omit `secondary` --
+/// `WorldGen` has a `Base<RefCounted>` field, and a second primary block
+/// collides on the shared registration machinery (`E0119`/`E0592`/`E0034`),
+/// exactly as every sibling bridge block above already documents.
+#[godot_api(secondary)]
+impl WorldGen {
+    /// Every dropdown the party/plan form needs, as
+    /// `{field_key: PackedStringArray}` -- plus `"route_cond"`, nested one
+    /// level deeper (`{"land": [...], "river": [...], "sea": [...]}`)
+    /// because a route condition is only legal for its own travel category,
+    /// and `"reference"`, the vocabularies a *results* panel needs to label
+    /// what came back (terrain, biome, category, animal).
+    ///
+    /// The field keys are exactly the ones `jp_compute`'s `plan` dictionary
+    /// accepts, so a form can be built by walking this rather than by
+    /// hard-coding a second copy of the vocabulary in GDScript -- which is
+    /// the failure this exists to prevent: an option string the engine does
+    /// not recognise does not error, it falls through to a `?? 1.0` default
+    /// and reports a plausible number computed from the wrong row.
+    ///
+    /// Pure: no world state is read, so this is callable before
+    /// `generate()`.
+    #[func]
+    fn jp_options(&self) -> VarDictionary {
+        let mut out = VarDictionary::new();
+        for (field, opts) in journey_bridge::option_tables() {
+            let arr: PackedStringArray = opts.iter().map(|s| GString::from(*s)).collect();
+            out.set(field, &arr);
+        }
+        let mut conds = VarDictionary::new();
+        for cat in ["land", "river", "sea"] {
+            let arr: PackedStringArray = journey_bridge::route_cond_keys(cat).iter().map(|s| GString::from(*s)).collect();
+            conds.set(cat, &arr);
+        }
+        out.set("route_cond", &conds);
+        let mut reference = VarDictionary::new();
+        for (name, opts) in journey_bridge::reference_tables() {
+            let arr: PackedStringArray = opts.iter().map(|s| GString::from(*s)).collect();
+            reference.set(name, &arr);
+        }
+        out.set("reference", &reference);
+        out
+    }
+
+    /// The reference's own default plan (`_jpEnsurePlan`'s default block),
+    /// flat, in exactly the key vocabulary `jp_compute`'s `plan` dictionary
+    /// takes back -- so a party form can seed itself from the engine rather
+    /// than restating the defaults, and a partial `plan` sent to `jp_compute`
+    /// fills its gaps from precisely these values.
+    ///
+    /// `"party_fields"` lists the ten numeric party keys in form order, so a
+    /// spinner row can be generated rather than hand-listed. Pure: callable
+    /// before `generate()`.
+    #[func]
+    fn jp_default_plan(&self) -> VarDictionary {
+        let plan = cartalith_civ::JpPlan::default();
+        let mut d = jp_pairs_dict(&journey_bridge::plan_to_pairs(&plan));
+        let party: PackedStringArray =
+            journey_bridge::party_count_pairs(&plan.party).iter().map(|(k, _)| GString::from(*k)).collect();
+        d.set("party_fields", &party);
+        d
+    }
+
+    /// Plans one journey: `jp_plan` -> `jp_verdict` -> `jp_confidence`, over
+    /// a route and a party/plan form.
+    ///
+    /// `request` keys, all optional except that one of `route`/`points` must
+    /// resolve to at least two points:
+    ///
+    /// * `route` (int) -- index into the committed routes (`route_commit()`'s
+    ///   own return, readable via `route_get`). The preferred input: the
+    ///   planner then samples the route's real `f64` grid coordinates.
+    /// * `points` (`PackedVector2Array`) -- an explicit polyline in grid
+    ///   coordinates, used instead of `route` when present. `f32`, so a route
+    ///   round-tripped through here is a rounded copy of itself.
+    /// * `plan` (Dictionary) -- the ~20 plan fields plus the ten party
+    ///   counts, in `jp_default_plan()`'s vocabulary. Partial is legal;
+    ///   anything omitted keeps the reference default.
+    /// * `stage_overrides` (Dictionary) -- `{stage_index: {field: value}}`,
+    ///   the sparse per-stage override map. Every field left out cascades
+    ///   from the shared plan.
+    /// * `layovers` (Dictionary) -- `{stop_key: days}`, keyed by the `key`
+    ///   each entry of the returned `stops` array carries.
+    ///
+    /// Returns `{"ok": bool, "error": String, "rejected": PackedStringArray,
+    /// "plan": {...}, "verdict": {...}, "confidence": {...}}`. `rejected`
+    /// lists every key that was unrecognised or wrong-typed, per this
+    /// codebase's "a typo'd key is a bug worth seeing" policy -- a rejected
+    /// key changes nothing, so a plan can come back `ok` *with* rejections
+    /// and still be a real plan computed from the defaults. `confidence` is
+    /// an empty `Dictionary` on a blocked or non-finite journey, which is
+    /// `jp_confidence`'s own `None`: there is nothing honest to band.
+    ///
+    /// `ok` is `false` (with `error` set) before any `generate()` call, on a
+    /// loaded save (which carries none of the civ substrate), for a route
+    /// index that does not exist, for a polyline under two points, and for
+    /// the reference's own "no derivable stages" `return null`.
+    #[func]
+    fn jp_compute(&self, request: VarDictionary) -> VarDictionary {
+        let fail = |msg: &str| vdict! { "ok" => false, "error" => msg, "rejected" => &PackedStringArray::new() };
+        let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_ref()) else {
+            return fail("no generated world -- call generate() first (a loaded save carries no civilisation layer)");
+        };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw == 0 || gh == 0 {
+            return fail("no generated world -- call generate() first");
+        }
+
+        let mut rejected = PackedStringArray::new();
+
+        // ---- the route ----
+        let pts: Vec<(f64, f64)> = if let Some(v) = request.get("points") {
+            let Ok(arr) = v.try_to::<PackedVector2Array>() else {
+                return fail("`points` must be a PackedVector2Array of grid coordinates");
+            };
+            arr.as_slice().iter().map(|p| (p.x as f64, p.y as f64)).collect()
+        } else {
+            let Some(idx) = request.get("route").and_then(|v| v.try_to::<i64>().ok()) else {
+                return fail("give either `route` (an int index from route_commit) or `points` (a PackedVector2Array)");
+            };
+            let Ok(i) = usize::try_from(idx) else {
+                return fail("`route` must be a non-negative index");
+            };
+            let Some(r) = self.infra.as_ref().and_then(|t| t.routes.get(i)) else {
+                return fail("no committed route at that index -- see route_count()");
+            };
+            r.pts.clone()
+        };
+        if pts.len() < 2 {
+            return fail("a journey needs at least two route points");
+        }
+
+        // ---- the plan, its per-stage overrides and the layover map ----
+        let mut plan = cartalith_civ::JpPlan::default();
+        if let Some(v) = request.get("plan") {
+            let Ok(d) = v.try_to::<VarDictionary>() else { return fail("`plan` must be a Dictionary") };
+            let (pairs, bad) = jp_dict_to_pairs(&d);
+            let (parsed, more_bad) = journey_bridge::plan_from_pairs(&pairs);
+            for k in bad.into_iter().chain(more_bad) {
+                rejected.push(&GString::from(&k));
+            }
+            plan = parsed;
+        }
+        if let Some(v) = request.get("stage_overrides") {
+            let Ok(d) = v.try_to::<VarDictionary>() else {
+                return fail("`stage_overrides` must be a Dictionary keyed by stage index");
+            };
+            for (k, ov) in d.iter_shared() {
+                let idx = k.try_to::<i64>().ok().and_then(|n| usize::try_from(n).ok());
+                let inner = ov.try_to::<VarDictionary>().ok();
+                let (Some(idx), Some(inner)) = (idx, inner) else {
+                    rejected.push(&GString::from(&format!("stage_overrides[{k}]")));
+                    continue;
+                };
+                let (pairs, bad) = jp_dict_to_pairs(&inner);
+                let (parsed, more_bad) = journey_bridge::stage_override_from_pairs(&pairs);
+                for b in bad.into_iter().chain(more_bad) {
+                    rejected.push(&GString::from(&format!("stage_overrides[{idx}].{b}")));
+                }
+                plan.stage_overrides.insert(idx, parsed);
+            }
+        }
+        let mut layovers = cartalith_civ::JpLayovers::new();
+        if let Some(v) = request.get("layovers") {
+            let Ok(d) = v.try_to::<VarDictionary>() else {
+                return fail("`layovers` must be a Dictionary of {stop_key: days}");
+            };
+            for (k, days) in d.iter_shared() {
+                match (k.get_type(), days.try_to::<i64>()) {
+                    (VariantType::STRING, Ok(n)) => {
+                        layovers.insert(k.to::<GString>().to_string(), n);
+                    }
+                    _ => rejected.push(&GString::from(&format!("layovers[{k}]"))),
+                }
+            }
+        }
+        for (k, _) in request.iter_shared() {
+            let key = k.to_string();
+            if !matches!(key.as_str(), "route" | "points" | "plan" | "stage_overrides" | "layovers") {
+                rejected.push(&GString::from(&key));
+            }
+        }
+
+        // ---- the world ----
+        //
+        // Every raster below already exists on this `WorldGen`; `JourneyWorld`
+        // derives only the three tables no pipeline stage produces, and
+        // `journey_bridge`'s module doc lists the whole mapping plus the three
+        // inputs this port genuinely does not have.
+        let jw = journey_bridge::JourneyWorld::build(
+            &ws.field,
+            &civ.water_bodies,
+            &ws.temperature,
+            &ws.rainfall,
+            gw,
+            gh,
+            self.world,
+            self.sea_level,
+            &civ.ways,
+            &civ.settlements,
+        );
+        let world = cartalith_civ::JpWorld {
+            gw,
+            gh,
+            world: self.world,
+            map_width_km: self.map_width_km,
+            sea_level: self.sea_level,
+            peak_m: self.params.peak_m,
+            field: &ws.field,
+            cart_biome: &jw.cart_biome,
+            cart_terrain: &jw.cart_terrain,
+            temp: &ws.temperature,
+            rain: &ws.rainfall,
+            flow_field: Some(&ws.flow_discharge),
+            flow_thresh: cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km),
+            water_bodies: Some(&civ.water_bodies),
+            territory: Some(&civ.territory),
+            places: &jw.places,
+            road_cells: &jw.road_cells,
+            // No retained coarse current/wind field exists in this port --
+            // `journey_bridge`'s module doc has the full disclosure. `None` is
+            // `jp_sea_condition`'s own supported input, not a stand-in value.
+            ocean_field: None,
+            wind_field: None,
+        };
+
+        // `|_, _| 1.0`: the reference's own answer on a world whose wildlife
+        // layer was never built, and what an exactly-average region gives.
+        let Some(journey) = cartalith_civ::jp_plan(&world, &pts, &plan, &layovers, &|_, _| 1.0) else {
+            return vdict! { "ok" => false, "error" => "no derivable stages for that route", "rejected" => &rejected };
+        };
+        let v = cartalith_civ::jp_verdict(&journey);
+        let reasons: PackedStringArray = v.reasons.iter().map(GString::from).collect();
+        let verdict = vdict! {
+            "level" => v.level,
+            "label" => v.label,
+            "text" => v.text.as_str(),
+            "reasons" => &reasons,
+        };
+        let confidence = cartalith_civ::jp_confidence(&journey).map_or_else(VarDictionary::new, |c| {
+            vdict! { "lo_days" => c.lo_days, "hi_days" => c.hi_days, "lo" => c.lo, "hi" => c.hi, "note" => c.note }
+        });
+        let plan_dict = jp_journey_plan_dict(&journey);
+        vdict! {
+            "ok" => true,
+            "error" => "",
+            "rejected" => &rejected,
+            "plan" => &plan_dict,
+            "verdict" => &verdict,
+            "confidence" => &confidence,
+        }
     }
 }

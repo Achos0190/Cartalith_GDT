@@ -868,3 +868,113 @@ Making it a real user-facing feature therefore needs, in order:
 
 Steps 1 and 3 are the substantial ones, and both are GUI work. **The engine is
 done; the feature is not, and the gap between them is a user interface.**
+
+## Update (2026-08-19) — steps 1, 2 and 4 are done; "none of this is wired to anything" no longer holds
+
+The section above ends with *"None of this is wired to anything"* and a five-step
+list of what making it a real feature would need. Three of those five are now
+built, and this section records exactly which, so the list above is read as
+history rather than as current state.
+
+**Step 1 — a route to plan: done.** `UNIFIED_TOOL_PLAN.md` milestone F built the
+INFRA domain's Route tool (`route_begin`/`route_append_stop`/`route_commit`/
+`route_discard`), which is the waypoint-capture interaction this section named as
+the missing half. It committed routes into `infra_tools_bridge::InfraTools::
+routes` and returned an index — but **nothing could read that list back**, a gap
+that milestone disclosed rather than papering over. `route_count()` and
+`route_get(index) -> {points, brks, km, mode, unreachable_legs}` close it, and
+`jp_compute`'s own `route` key is the first consumer.
+
+**Step 2 — a `JpWorld` assembled from live state: done, and this section's claim
+about it was correct.** Every field it borrows really was already computed:
+`field`/`temp`/`rain`/`flow_field` from `WorldState`, `water_bodies`/`territory`/
+`ways`/`settlements` from `CivData`, `peak_m` from `WorldParams`, `flow_thresh`
+from the same `cartalith_hydrology::river_flow_thresh` call
+`compute_civilisation` already makes. And the prediction about the two
+exceptions held exactly: `build_cart_biome`/`build_cart_terrain` still have no
+pipeline-stage caller, so `journey_bridge::JourneyWorld` computes them at call
+time from rasters that already exist, alongside `jp_road_cells`. **No generation
+stage was added.**
+
+Three inputs turned out to be genuinely unavailable and are passed empty rather
+than invented — all three disclosed in `journey_bridge.rs`'s own module doc:
+
+- **`ocean_field`/`wind_field` are `None`.** This port's climate stage computes
+  the ocean-current vector field *inside* `cartalith_climate::ocean_sst_anomaly`
+  and discards it; nothing in `WorldState` retains a `u`/`v` pair at any
+  resolution, so there is no `currentOceanField()`/`currentWindField()`
+  equivalent to hand over. `None` is `jp_sea_condition`'s own supported input,
+  so a sea leg reads its structural condition and skips the wind/current term
+  rather than reading a fabricated one. Retaining those coarse fields past
+  generation is real `cartalith-engine` work, not something to improvise at the
+  boundary — a third entry for this document's "quality ceilings", alongside
+  wildlife richness and `_civSeaTimeEdgeCost`.
+- **`road_cells` sees the generated way network only.** `jp_road_cells` takes
+  `&[Way]`; hand-drawn ways are `tools::ManualWay`, a different type whose
+  `Ancient` variant `jp_road_cells` has no branch for — the reference's
+  `_jpRoadCells` *does* (`'ancient' → ["Dirt Track","Deteriorated"]`), because
+  its one `civWays` array holds generated and manual ways together. Widening
+  `jp_road_cells` is a `cartalith-civ` change against golden-tested code, so the
+  gap is reported here instead of being closed with an invented type mapping.
+- **`road_edges` is empty.** The reference's second road source is
+  `state.roads.edges`; `build_road_network`'s `RoadEdge` list is not retained by
+  `compute_civilisation` and has no live equivalent.
+
+One reference behaviour was preserved rather than "fixed": `jp_claimed_at` tests
+`territory[i] >= 0`, and this port's `assign_territory` uses `0` for unowned, so
+every cell reads as claimed. That is precisely what the reference does — its
+`civTerritory` is a `Uint8Array`, so `>= 0` is always true there too. `territory`
+is passed through unchanged; "correcting" it at this boundary would have been a
+silent divergence from a golden-verified consumer.
+
+**Step 4 — `#[func]`s over the boundary: done.** A new `journey_bridge.rs`
+(`godot`-free, same isolation `sculpt_bridge`/`civ_tools_bridge`/
+`infra_tools_bridge` established) owns the plan/party form parser, its inverse,
+the `JourneyWorld` buffers and the option tables; `lib.rs` owns the `Variant`
+conversion and the flattening. Three methods:
+
+- `jp_options() -> Dictionary` — every dropdown vocabulary, keyed by the same
+  field names `jp_compute` accepts, with `route_cond` nested per travel category
+  (a "Maintained" road condition cannot describe a sea leg) and a `reference`
+  sub-dictionary of the terrain/biome/category/animal tables a results panel
+  needs to *label* what came back.
+- `jp_default_plan() -> Dictionary` — `JpPlan::default()` flat, 28 keys plus
+  `party_fields`, so a form seeds itself from the engine rather than restating
+  `_jpEnsurePlan`'s defaults in GDScript.
+- `jp_compute(request) -> Dictionary` — `jp_plan` → `jp_verdict` →
+  `jp_confidence`, flattened. `request` takes `route` (an int index) or `points`
+  (a `PackedVector2Array`), plus optional `plan`, `stage_overrides` and
+  `layovers`. The return nests to the depth the data actually has: `stages`,
+  `results` (each with its own `land`/`water` calculation *and* the effective
+  plan that leg was computed under, which season drift and the per-stage vessel
+  fallback can both have altered), `timeline` and `stops`.
+
+This section's own prediction that step 4 would be *"small once 1-3 exist"* was
+half right. The plumbing is small; the serialization is not — `JpJourneyPlan`
+flattens through nine helper functions, and the per-leg `eff` plan is a whole
+second `JpPlan` per stage.
+
+Unknown or wrong-typed keys are reported in `rejected` rather than ignored, per
+this codebase's "a typo'd key is a bug worth seeing" policy — so a plan can come
+back `ok` *with* rejections and still be a real plan computed from the defaults.
+
+**Steps 3 and 5 remain open, deliberately.** The party form and the presentation
+(HTML hint strings, `formula` traces, the elevation-profile chart) are GUI work,
+and nothing under `godot-project/shell/workspaces/` calls any of this yet.
+`engine_bridge.gd` carries the five wrappers so that work can start against a
+finished boundary. The gap between the engine and the feature is still a user
+interface — but it is now *only* a user interface.
+
+**Testing.** No new golden tests: the `jp_*` functions underneath are already
+golden-verified, and this pass adds no algorithm. What it does add is 28
+plain-Rust tests in `journey_bridge.rs` (run by `cargo test -p cartalith-godot`,
+no Godot runtime): the form parse, the flatten/reparse round trip, per-stage
+overrides, and **one recogniser test per option table, pinned against the
+engine's own lookup** — because a dropdown offering a key the engine does not
+recognise never errors, it falls through to `?? 1.0` and reports a plausible
+number computed from the wrong row. Five of the tables (`JP_PACE`, `JP_GRAZING`,
+`JP_FORAGING`, `JP_REST_CADENCES`, `JP_ROUTE`) are `match` arms rather than
+`pub const`s, so those tests are the only thing standing between a transcription
+typo and a silently wrong journey. Plus one end-to-end test that the assembled
+`JourneyWorld` genuinely drives `jp_plan` — not merely that its buffers are
+non-empty.

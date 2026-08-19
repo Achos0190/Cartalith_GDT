@@ -693,6 +693,16 @@ func route_discard() -> void:
 		return
 	world_gen.route_discard()
 
+func route_count() -> int:
+	if not world_gen.has_method("route_count"):
+		return 0
+	return world_gen.route_count()
+
+func route_get(index: int) -> Dictionary:
+	if not world_gen.has_method("route_get"):
+		return {}
+	return world_gen.route_get(index)
+
 
 # measure_bridge.rs
 func measure_begin() -> void:
@@ -824,3 +834,19 @@ func label_arc_value(cx: float, cy: float, grab_angle_deg: float, side: float, g
 		return 0.0
 	return world_gen.label_arc_value(cx, cy, grab_angle_deg, side, gx, gy)
 
+
+# journey_bridge.rs
+func jp_options() -> Dictionary:
+	if not world_gen.has_method("jp_options"):
+		return {}
+	return world_gen.jp_options()
+
+func jp_default_plan() -> Dictionary:
+	if not world_gen.has_method("jp_default_plan"):
+		return {}
+	return world_gen.jp_default_plan()
+
+func jp_compute(request: Dictionary) -> Dictionary:
+	if not world_gen.has_method("jp_compute"):
+		return {}
+	return world_gen.jp_compute(request)
