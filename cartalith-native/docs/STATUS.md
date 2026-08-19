@@ -3667,6 +3667,57 @@ Faction context, `"—"` after deselecting back to an empty Sample, and
 
 - **The New world dialog's default resolution (2048×1311, 2.68 M cells) costs 874 MB peak and ~31 s on a real phone**, with no progress indication. It completes and renders correctly and nothing kills it, but that is a large fraction of a mid-range Android per-app budget. Worth revisiting before Android is treated as a supported target rather than a verified one.
 
+## Settlement placement fix, click/zoom investigation, richer pin rendering (owner report, 2026-08-19)
+
+Full detail in `CHANGELOG.md`'s matching entry. Summary:
+
+- [x] **Placement misfire — real root cause found and fixed.** The
+      reference has a second, later snap step (`_civSnapToWaterEdge`,
+      v1.36/v1.39 — a bounded, tolerance-gated nudge onto the nearest real
+      water edge) that milestone 8 deliberately never ported. Ported now as
+      `place_settlements_with_water_edge_snap` (`cartalith-civ`), 8 new
+      golden-parity unit tests extracted directly from the reference. The
+      `coastal` flag now recomputes on final post-snap geometry (a
+      disclosed, zero-cost improvement over the reference's own pre-snap
+      ordering).
+- [x] **"Not visible at all" — investigated live, confirmed FALSE.** A
+      headless drive against a real 200-settlement world found every pin
+      well-formed (non-zero radius, real on-screen position, valid faction
+      colour). What was real: only 2.5% flagged coastal (pre-fix), and
+      every settlement always drew at full size regardless of zoom (fixed
+      below).
+- [x] **Zoom-dependent settlement tiering ported** (`CIV_LOD_PLACE`,
+      owner: "a zoom dependent second layer of settlements... quite nice to
+      have in the html version"). New `SETTLEMENT_LOD`/
+      `_settlement_below_lod()` in `map_overlay.gd`: capital/city always
+      full-size, town/village/hamlet gate on raw camera zoom (0.4/0.7/1.4),
+      a small faction-tinted dot below threshold rather than hiding
+      outright — the same importance-tiered LOD reveal OpenStreetMap Carto
+      and the Mapbox/MapLibre style spec both use (cited in the CHANGELOG
+      entry). Hit-test radius stays in sync automatically
+      (`_settlement_pin_radius` is the one shared source both `_draw()` and
+      `_hit_test_settlement` read).
+- [x] **Richer pin rendering** — soft drop-shadow (legibility against pale
+      biome colours) + a real-data-grounded coastal "harbour" badge
+      (`get_settlements()`'s own `coastal` field). No real per-slot
+      settlement texture is exposed to GDScript yet (`PACK_SETTLEMENT_SLOTS`
+      names the vocabulary; no `#[func]` returns the art), so this is
+      enhanced vector, not asset-pack art — checked honestly, not assumed.
+- [x] **Settlement-click "pop-up" — confirmed working as designed.** It is
+      `_draw_hover_card()` (real name/kind/population data), showing
+      because the mouse is already over the pin at click-time; the right
+      dock is populated separately via `settlement_selected`. No stray
+      dialog exists. No change made.
+- [ ] **Still open: the `cartalith-godot` bridge call site.** `lib.rs`
+      (~line 639) still calls the old `place_settlements` (kept, unchanged,
+      for exactly this reason) — a concurrent Travel Library `#[func]`
+      pass had that file (and `journey_bridge.rs`) dirty for this entire
+      pass, so it could not be touched. One-line swap to
+      `place_settlements_with_water_edge_snap` once that file is clean
+      again, threading `flood`/`ws.flow_discharge`/`flow_thresh`/
+      `map_width_km` (all already computed at that call site). Until then
+      the live game runs the pre-fix placement path.
+
 ## Owner-only items
 
 - None currently open. Criterion 4 (real Android device build/install/launch/golden-path) was fully closed 2026-08-17 once the owner unlocked the connected phone mid-session, and **re-verified end to end on 2026-08-18** against everything landed since — see `ANDROID_BUILD_SCOPE.md`.

@@ -49,6 +49,39 @@ const SETTLEMENT_CLASS := {
 	"city":    {"rank": 3, "glyph": "⬣"},
 	"capital": {"rank": 4, "glyph": "✦"},
 }
+
+## `CIV_LOD_PLACE` (reference line 15373): the minimum RAW camera zoom
+## (`_camera_zoom` itself -- the same un-clamped scale `_civZoomK()`/
+## `_civZoomRaw()` both start from before either clamps or inverts it,
+## reference line 15003) at which a tier's full pin+glyph+label shows.
+## Below it the reference does not hide the place outright -- it draws a
+## small faction-tinted dot instead (reference lines 15744-15757: "render a
+## small faction-tinted dot instead of hiding the place entirely -- road
+## endpoints stay anchored to a visible marker at any zoom"), so a capital
+## or city (threshold 0) is always full-size, town needs a little zoom-in,
+## and village/hamlet need progressively more -- restricted here to the
+## five tiers `SettlementKind` (and so `SETTLEMENT_CLASS` above) actually
+## produces; the reference's own dict also carries monastery/fortress/
+## ruin/etc. this port's settlements never have.
+##
+## This is not a port invention: it is the same population/importance-
+## tiered LOD reveal real map renderers use for POI/place density --
+## OpenStreetMap Carto renders cities/towns from ~z9, villages from ~z12,
+## hamlets from ~z14 (github.com/gravitystorm/openstreetmap-carto), and the
+## Mapbox/MapLibre style spec's `minzoom`/`maxzoom` per symbol layer is the
+## same mechanism generalised (maplibre.org/maplibre-style-spec/layers/).
+const SETTLEMENT_LOD := {
+	"capital": 0.0,
+	"city":    0.0,
+	"town":    0.4,
+	"village": 0.7,
+	"hamlet":  1.4,
+}
+## Reference's own low-zoom fallback dot (line 15752-15756):
+## `dr=(isPoi?1.4:1.9)*lsc` plus a `+0.6*lsc` dark outline ring -- `lsc`
+## there is this file's own per-frame `sc`.
+const LOD_DOT_RADIUS_SC := 1.9
+const LOD_DOT_OUTLINE_SC := 0.6
 ## `sc`, screen px per size-formula rank-unit. Reference: `sc=max(1,GW/512)*
 ## civZoomK()*civIconScale()` (line 15165) -- a canvas-resolution term times
 ## an inverse-CSS-zoom term times a user icon-scale, so a pin holds roughly
@@ -96,6 +129,30 @@ const SETTLEMENT_CLASS := {
 ## pre-formula `TIER_RADIUS` constants it replaces.
 const PIN_SCALE_REF_PX := 1400.0
 const CAPITAL_RING_WIDTH := 2.5
+
+## Soft drop-shadow under each full-tier pin (2026-08-19, "settlement
+## rendering could be made graphically more interesting" pass, explicit
+## owner latitude to improve past the reference's own plain filled-circle
+## baseline -- `DECISIONS.md` §7a "principled equivalence" room, same as
+## this session's own Asset Library/Travel Library work). A flat faction-
+## coloured fill alone reads ambiguously against some of this renderer's
+## own biome colours (pale sand, snow, light grassland) without a dark halo
+## under it; the reference (`_civDrawSettlementPin`) draws no shadow at
+## all, so this is a genuine addition, not a port of anything.
+const PIN_SHADOW_COLOR := Color(0.0, 0.0, 0.0, 0.28)
+const PIN_SHADOW_OFFSET_SC := 0.6
+
+## A small water-blue "harbour" badge at a coastal pin's lower-right --
+## grounded in real, derived engine data (`get_settlements()`'s own
+## `coastal` field, `civ_is_coastal` in `cartalith-civ`, re-verified against
+## final placement geometry by this same pass's Part 1 fix), not invented
+## decoration. River adjacency has no equivalent per-settlement flag
+## anywhere in `cartalith-civ` (`NamedSettlement` carries no river bool),
+## so only the coastal case gets a badge -- a river indicator would have no
+## real data backing it.
+const COASTAL_BADGE_COLOR := Color(0.337, 0.706, 0.914, 0.95) ## FACTION_COLORS[1]'s sky blue -- reads as "water" at a glance
+const COASTAL_BADGE_OUTLINE := Color(0.051, 0.043, 0.031, 0.9)
+const COASTAL_BADGE_R_SC := 0.55
 ## Reference's settlement-label fill (`#f6ecd4`, line 15206) -- close enough
 ## to `LABEL_STROKE_COLOR` below's own outline colour (`rgba(8,6,4,.85)`,
 ## line 15198) that this control's existing region-label palette already
@@ -360,13 +417,31 @@ func _point_to_screen(p: Vector2, rect: Rect2) -> Vector2:
 	return rect.position + Vector2(p.x / _gw, p.y / _gh) * rect.size
 
 
+## True below `kind`'s own `SETTLEMENT_LOD` threshold -- the raw camera
+## zoom, not `_civ_zoom_k()`'s clamped/inverted screen-size compensation,
+## matching the reference's own `zoom<lodMin` test (`zoom` there is
+## `_civZoomRaw()`, the un-clamped `viewT.scale`). An unrecognised kind
+## defaults to `0.5` (town/village straddle), same fallback
+## `CIV_LOD_PLACE[p.kind]!=null?...:0.5` uses in the reference.
+func _settlement_below_lod(kind: String) -> bool:
+	return _camera_zoom < float(SETTLEMENT_LOD.get(kind, 0.5))
+
+
 ## `(4+klass.rank)*sc` -- the reference's own settlement-pin size formula
 ## (`_civDrawSettlementPin`, line 15166), `sc` per `PIN_SCALE_REF_PX`'s own
 ## doc comment above. Shared by `_draw()`'s settlement loop and `_hit_test_
 ## settlement` so the drawn pin and its click/hover target never disagree.
+## Below the tier's own zoom threshold this instead returns the small
+## fallback-dot radius (`LOD_DOT_RADIUS_SC`) -- the pin `_draw()` actually
+## renders at low zoom is the dot, so the hit target must shrink with it,
+## the same "drawn size is picked size" invariant this function already
+## keeps for the full pin.
 func _settlement_pin_radius(kind: String, rect: Rect2) -> float:
+	var sc: float = (rect.size.x / PIN_SCALE_REF_PX) * _civ_zoom_k()
+	if _settlement_below_lod(kind):
+		return LOD_DOT_RADIUS_SC * sc
 	var klass: Dictionary = SETTLEMENT_CLASS.get(kind, SETTLEMENT_CLASS["town"])
-	return (4.0 + float(klass["rank"])) * (rect.size.x / PIN_SCALE_REF_PX) * _civ_zoom_k()
+	return (4.0 + float(klass["rank"])) * sc
 
 
 ## Reference lines 15716-15721 (`lblCandidates`): the four label positions a
@@ -495,11 +570,12 @@ func _draw() -> void:
 		# it reproduces the essential behaviour: higher tiers are drawn (and
 		# so win label placement) first, the same four candidate positions in
 		# the same above/below/right/left order, and a label that fits
-		# nowhere is dropped -- but its pin is always still drawn. No LOD
-		# gating either (`LOD_TILING_INTEGRATION_SCOPE.md` milestone M1 is a
-		# separate, already-built deep-zoom raster system with no settlement-
-		# marker LOD concept to hook into -- out of scope here per this
-		# task's own instruction).
+		# nowhere is dropped -- but its pin is always still drawn (once past
+		# its own `SETTLEMENT_LOD` threshold -- see the dot-fallback branch
+		# below). This is a different LOD from `LOD_TILING_INTEGRATION_SCOPE
+		# .md` milestone M1 (that one raster-tiles the TERRAIN at deep zoom;
+		# this one is `CIV_LOD_PLACE`, the reference's own zoom-gated
+		# settlement-pin importance tiering, owner-requested 2026-08-19).
 		var occupied: Array[Rect2] = _seed_label_occupancy(rect)
 		var draw_order := range(_settlements.size())
 		draw_order.sort_custom(func(a, b):
@@ -521,7 +597,25 @@ func _draw() -> void:
 				continue
 			var faction: int = s["faction"]
 			var color: Color = FACTION_COLORS[(faction - 1) % FACTION_COLORS.size()] if faction > 0 else Color(0.5, 0.5, 0.5)
-			var klass: Dictionary = SETTLEMENT_CLASS.get(s["kind"], SETTLEMENT_CLASS["town"])
+			var kind: String = s["kind"]
+
+			# `CIV_LOD_PLACE` (reference line 15373, see `SETTLEMENT_LOD`'s own
+			# doc comment above for the full derivation and real-world-mapping
+			# citations): below this tier's own zoom threshold, draw a small
+			# faction-tinted dot instead of the full pin -- never hide the
+			# place outright (a road still needs a visible anchor at any
+			# zoom), but keep a low-zoom view from drowning in city-sized
+			# hamlet icons and labels. No glyph, no name label, no hover-
+			# radius bump, no capital ring -- all reference behaviour for the
+			# dot branch (reference lines 15747-15756 draw nothing else for
+			# it either).
+			if _settlement_below_lod(kind):
+				var dot_r: float = LOD_DOT_RADIUS_SC * sc
+				draw_circle(pos, dot_r + LOD_DOT_OUTLINE_SC * sc, Color(0.047, 0.039, 0.027, 0.65), true, -1.0, true)
+				draw_circle(pos, dot_r, color, true, -1.0, true)
+				continue
+
+			var klass: Dictionary = SETTLEMENT_CLASS.get(kind, SETTLEMENT_CLASS["town"])
 			var radius: float = (4.0 + float(klass["rank"])) * sc
 			if i == _hover_index:
 				radius += 1.5
@@ -534,10 +628,20 @@ func _draw() -> void:
 			## width=-1.0` spelled out are just `draw_circle`'s own defaults,
 			## kept explicit because GDScript has no keyword-argument syntax
 			## to set only the trailing one.
+			##
+			## Shadow first (drawn behind, offset straight down) so the fill
+			## and outline composite over it exactly like the reference's own
+			## layering, just with one extra pass underneath.
+			draw_circle(pos + Vector2(0, PIN_SHADOW_OFFSET_SC * sc), radius, PIN_SHADOW_COLOR, true, -1.0, true)
 			draw_circle(pos, radius, color, true, -1.0, true)
 			draw_arc(pos, radius, 0, TAU, 24, MARKER_OUTLINE, 1.2, true)
 			if s["capital"]:
 				draw_arc(pos, radius + CAPITAL_RING_WIDTH, 0, TAU, 28, color, CAPITAL_RING_WIDTH, true)
+			if s.get("coastal", false):
+				var badge_r: float = COASTAL_BADGE_R_SC * sc
+				var badge_pos := pos + Vector2(radius, radius) * 0.62
+				draw_circle(badge_pos, badge_r + 0.5, COASTAL_BADGE_OUTLINE, true, -1.0, true)
+				draw_circle(badge_pos, badge_r, COASTAL_BADGE_COLOR, true, -1.0, true)
 
 			# Glyph (reference: `ctx.fillText(klass.glyph,px,py)`, line 15178-
 			# 15180) -- the one per-tier visual distinguisher beyond size,

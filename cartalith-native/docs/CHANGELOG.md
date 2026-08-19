@@ -14273,6 +14273,184 @@ their as-written formatting and every edit to `lib.rs`/`travel_library.rs`/
 worth a note in `README.md`'s working discipline for the next session that
 runs `cargo fmt` blind.
 
+## Travel Library milestone 2 — the `#[func]` boundary, live `jp_compute` wiring, and the Data ▸ Travel library window (`TRAVEL_LIBRARY_SPEC.md`, 2026-08-19)
+
+The GDScript-visible half of `TRAVEL_LIBRARY_SPEC.md`, on top of milestone
+1's data model/store (previous entry): the boundary that entry's own "not
+yet wired" section named exactly, plus the `2a`/`2b` window itself. Prompted
+directly by the owner: *"the new [Journey Planner] gui also introduces some
+new functions, do implement those (specifically the ability for a user to
+create custom modes of transport)."*
+
+**`cartalith-godot/src/lib.rs`'s `WorldGen` gained a live
+`travel_library: travel_bridge::TravelLibrary` field**, bootstrapped with
+stock content in `init()`. A deliberate placement decision, checked against
+precedent rather than defaulted: `absorb()` (the function every
+`generate()`/`generate_world_structure()` call routes through to reset
+per-generation state — `civ`/`sculpt`/`icons`/`civ_tools`/`paint`/`labels`/
+`infra` all go through it) does **not** touch `travel_library`. Reasoning:
+`asset_pack` and `quality` already establish the precedent this field
+follows — user-set/loaded state that describes the world's *setting*, not
+something the terrain pipeline computed, survives a re-generate. A custom
+pack mule definition has no more reason to vanish on regenerate than a
+loaded asset pack does.
+
+**A full `tl_*` `#[func]` CRUD+query surface**, one dispatch over
+`kind: "animal"|"vehicle"|"vessel"|"preset"` rather than four times the
+surface:
+
+- `tl_counts()` — `{kind: {total, custom, stock}}` for all four types (the
+  window's own tab counts).
+- `tl_list(kind)` — every entry (stock-then-custom, `EntrySet`'s own
+  order), each row: id/name/origin/editable/subtitle/species_key/
+  validation_state/validation_missing/validation_conflicts/usage_presets/
+  usage_journeys.
+- `tl_get(kind, id)` — `tl_list`'s row plus every §3 field, flattened by
+  new `travel_bridge.rs` functions (below). An unset optional field is
+  **absent** from the returned `Dictionary`, not a fabricated zero — §3's
+  own "a field left unset is incomplete, not zero" holds at the boundary,
+  not just in the data model.
+- `tl_duplicate(kind, id)` / `tl_add_blank(kind, name)` / `tl_delete(kind,
+  id)` / `tl_reset_to_stock(kind)` — thin wrappers over `TravelLibrary`'s
+  existing `EntrySet` methods, already real and tested since milestone 1.
+- `tl_edit(kind, id, fields)` — applies a **partial** `fields` dictionary
+  onto an existing **custom** entry (stock stays read-only, `"ok": false`);
+  every field not mentioned keeps its current value. Returns the entry's
+  *new* validation (`ok`/`incomplete`/`conflicting`) computed immediately,
+  so the window can show a banner without a second round trip.
+- `tl_capture_preset_from_plan(name, plan)` — §2's "Capture party from
+  planner", reusing `journey_bridge::plan_from_pairs` on the same `plan`
+  vocabulary `jp_compute` already accepts.
+
+**`travel_bridge.rs` gained the `Variant`-shaped field-pairs layer this
+boundary needed** — `animal_to_pairs`/`animal_apply_pairs` and the vehicle/
+vessel/preset siblings, all built on `journey_bridge::JpValue` (its four
+narrowing accessors, `num`/`int`/`text`/`flag`, went from private to
+`pub(crate)` for exactly this reuse) and `lib.rs`'s existing
+`jp_pairs_dict`/`jp_dict_to_pairs` — the same flattening convention
+`jp_compute`'s own `plan` dictionary already established, not a second one
+invented for this feature. Every `_to_pairs` function emits only fields
+that are currently `Some`; every `_apply_pairs` function clones the
+existing entry and applies only the keys present, so a partial edit never
+clobbers an untouched field (unlike `journey_bridge::plan_from_pairs`,
+which starts from `JpPlan::default()` because a plan submission is always
+whole — presets' own `preset_apply_pairs` deliberately does **not** route
+through it, for exactly this reason). The ten terrain rows use a
+lowercase/underscore wire slug (`"terrain.high_pass"`) reversibly mapped to
+`TL_TERRAIN_KEYS`; a cell is either a `JpValue::Num` multiplier or the
+literal `JpValue::Str("blocked")`, both parseable back through the same
+function. 9 new unit tests (round trips for all four types, rejected-key
+reporting, terrain slug reversibility, `ValidationState` flattening).
+
+**`jp_compute` is now provably wired live**, not merely proven in a
+Rust-internal test as milestone 1 left it: it builds a `JpAnimalResolver`
+from `self.travel_library.animal_overrides()` via
+`cartalith_civ::travel_library::animal_resolver_fns` and calls
+`jp_plan_ex(..., Some(&resolver))` unconditionally, replacing the old
+`jp_plan` call. This is a real, disclosed behaviour change to existing
+code, so the discipline this port's own `CLAUDE.md` calls for applies: a
+regression test, not an assumption. `travel_bridge.rs`'s new
+`regression_stock_only_travel_library_matches_pre_dispatch_jp_plan`
+constructs a fresh, untouched `TravelLibrary`, runs the exact new call
+chain, and asserts full structural equality (`assert_eq!` on the whole
+`JpJourneyPlan`, not a spot-check) against the old `jp_plan(...)` call —
+passing, because `resolve_animal_stats`/`resolve_animal_terrain_mod`
+(`cartalith-civ`) fall back to the built-in table field-by-field whenever
+the resolver's closures return `None`, exactly `animals: None`'s own
+behaviour. A live before/after through the actual boundary (not the
+already-existing Rust-internal test): duplicating the stock donkey,
+setting `load_capacity_kg` to 500 and `base_speed_kmh` to 1.5 through
+`tl_duplicate`/`tl_edit`, then calling `jp_compute` with `mount_animal:
+"donkey"` changes the computed `days`/`avg_km_day` versus the same request
+before the edit — the exact proof milestone 1's own Rust-internal test
+established, now reachable from GDScript.
+
+**`godot-project/shell/travel_library_window.gd`** (new, ~800 lines): the
+real `2a`/`2b` window from `design/Journey Planner DCC.dc.html`. Read
+literally against the mockup's own inline styles: own popup window (not an
+in-shell takeover, per its own "⇧L · own window" annotation), a top tab
+strip (Animals & mounts / Vehicles / Vessels / Party set-ups, each with a
+live count from `tl_counts()`), a 286px entries rail (filter box, ＋ new
+blank / ⧉ duplicate / ✕ delete, a Custom section then a Stock section, each
+with its own count, a footer note "stock entries are read-only — duplicate
+to edit"), and a field inspector grouped exactly as `TRAVEL_LIBRARY_SPEC.md`
+§3 groups each type (Classification / Capacity & speed / Sustenance /
+Terrain constraints / Requirements & prohibitions / Cost for animals; the
+narrower analogous groups for vehicles/vessels/presets). Field specs are
+data-driven (`ANIMAL_GROUPS`/`VEHICLE_GROUPS`/`VESSEL_GROUPS`/
+`PRESET_GROUPS` constants, one generic `_build_field` walker) rather than
+four hand-written forms. Edits are staged locally (`_draft`) and committed
+with the footer's own save/duplicate/revert row, matching the mockup's
+footer exactly (`"changes apply at next plan"`, verbatim). Validation
+banners reuse `DccTheme`'s `warn` (`#e0a840`)/`water` (`#7d9dae`)/`block`
+(`#b55950`) tokens — the mockup's own incomplete/info/conflict banner hex
+values are these three shell-wide tokens exactly, not re-hardcoded hex.
+Two honesty notes are built into the inspector itself, not left implicit:
+a wholly-new animal species (no `species_key`) and any vehicle/vessel say
+plainly that they have no live computational effect yet, per §6's own
+disclosure, rather than implying every entry already changes a plan.
+
+Wired at `Data ▸ ⧉ Travel library… (⇧L)` — `menus.gd`'s `_data()` gained
+`ID_TRAVEL_LIBRARY`/`_live(..., KEY_MASK_SHIFT | KEY_L)`, and `app.gd`
+registers `travel_library_window` the same way `asset_library_window`/
+`data_manager_window` already are (`add_child`/`setup`/`open`). Also added
+to the Window menu's "Open windows" live list.
+
+**What this milestone deliberately does NOT do, and why**: does not touch
+`journey_planner_view.gd` at all — a separate, concurrent dispatch was
+mid-edit in that exact file for the whole duration of this one (`git
+status` checked before touching anything, and again before every commit).
+This means the planner's own party form does not yet *offer* a custom
+Travel Library entry as a selectable Transport/mount option — real,
+disclosed follow-up work (`GUI_GAP_REGISTER.md` JP-02/IN-06, marked
+"unblocked, not yet wired"). Does not widen `JpParty`/`JpPlan` to a generic
+animal-count map — wholly-new species and every vehicle/vessel stay real,
+validated, inspectable data with no live engine effect, exactly milestone
+1's own disclosed boundary, unmoved by this pass on purpose.
+
+**Verified:** `cargo test -p cartalith-civ -p cartalith-godot` — 335 + 215
+passed, 0 failed, 0 ignored beyond the suite's own pre-existing `--ignored`
+fixtures (civ's own count grew during this session from unrelated
+concurrent work in the same tree, not this milestone's own change surface,
+which is confined to `cartalith-godot`; `travel_bridge`'s own module alone
+carries 22 tests, up from milestone 1's 13). `cargo build -p
+cartalith-godot`: clean, zero warnings from any file this milestone
+touched. `Godot_v4.7.1-stable_win64_console.exe --headless --path
+godot-project --quit-after 60`: clean, zero script errors, both before and
+after a concurrent, unrelated in-progress change elsewhere in the shared
+tree (`cartalith-civ`'s `place_settlements`/`sample_bridge::FieldRefs`,
+someone else's work, not this milestone's) landed mid-session — confirmed
+the transient build failure it caused was never this milestone's own code
+by checking every failing call site against what this milestone actually
+touched, and re-ran the full check again once the tree stabilized.
+
+**A second, disclosed concurrent-editing hazard this session, handled the
+same way milestone 1's own tail paragraph already established a precedent
+for**: by the time this milestone's `git status` was checked immediately
+before staging, ten `cartalith-civ` files (including `src/lib.rs`,
+`labels.rs`, `tools.rs`, two golden-parity test fixtures already staged by
+the other process) and `DECISIONS.md` were modified or staged in the
+shared working tree/index by the concurrent pass above — none of it this
+milestone's own work. Every file this commit touches was verified via
+`git diff`, hunk by hunk, to contain only this milestone's own changes
+before staging (`git apply --cached` against a hand-trimmed patch for the
+two files — `cartalith-godot/src/lib.rs`, `docs/STATUS.md` — that had a
+concurrent, unrelated hunk interleaved in the same file); anything staged
+by the other process that did not belong to this milestone was unstaged
+with `git restore --staged` (non-destructive — the other process's own
+working-tree content was never touched) rather than included or reverted.
+
+**Files touched:** `cartalith-native/crates/cartalith-godot/src/lib.rs`,
+`cartalith-native/crates/cartalith-godot/src/travel_bridge.rs`,
+`cartalith-native/crates/cartalith-godot/src/journey_bridge.rs`
+(`JpValue`'s four accessors made `pub(crate)`),
+`cartalith-native/godot-project/shell/travel_library_window.gd` (new),
+`cartalith-native/godot-project/shell/engine_bridge.gd`,
+`cartalith-native/godot-project/shell/menus.gd`,
+`cartalith-native/godot-project/shell/app.gd`, `TRAVEL_LIBRARY_SPEC.md`
+(§6 extended, not replaced), `GUI_GAP_REGISTER.md` (DM-15/O1 marked done,
+JP-02/IN-06 marked unblocked), this file, `docs/STATUS.md`.
+
 ## DCC shell GUI audit — the class of bug `f274d13` found once, hunted across the whole shell (2026-08-19)
 
 Owner request, verbatim: a full audit of the GUI now that the §4.5 tool
@@ -15126,3 +15304,345 @@ No Rust file touched.
 
 **Files touched:** `cartalith-native/godot-project/shell/
 journey_planner_view.gd`, `GUI_GAP_REGISTER.md`, this file, `docs/STATUS.md`.
+
+## Settlement placement fix, click/zoom investigation, and richer pin rendering (owner report, 2026-08-19)
+
+Three-part owner report: settlements flagged coastal/river-adjacent not
+actually landing on the water; a claim settlement pins "aren't visible at
+all"; and a request to make settlement rendering "graphically more
+interesting" (explicit permission to improve past the reference's own
+plain-circle baseline this time, `DECISIONS.md` §7a territory). Mid-pass,
+the owner added two more: a small pop-up on settlement click, and
+zoom-dependent settlement-tier visibility ("a second layer of settlements"
+in the HTML version).
+
+**1. Placement — real gap found and fixed, not a guess.** The reference's
+settlement-placement pipeline has TWO snap steps, not one:
+`_civSnapLand`/`_civSnapCoast` (early, small-radius, reference line 20747/
+20841 — already ported, `PHASE2_SCOPE.md` milestone 8) and
+`_civSnapToWaterEdge` (reference line 20787, added in v1.36/v1.39 for the
+near-identical earlier owner report "settlements with a port still sit
+inland" / "villages don't tend to render correctly to map and terrain/sea
+alignment") — a SEPARATE, later, bounded post-process that nudges a
+suitability-chosen site onto the nearest actual river/lake/coast edge, but
+ONLY if the edge cell scores no worse than `tolerance` (0.80 normally, 0.60
+when already near the sea) times the site's own suitability. Milestone 8's
+own golden-parity harness deliberately scoped `_civSnapToWaterEdge` OUT
+(its own doc comment says so) as DOM-coupled reference logic
+(`currentWaterBodies`/`currentFloodField`/`flowField`) rather than a pure
+per-cell formula — leaving `place_settlements` never calling it at all.
+That is the real root cause: not a port-parity bug (both existing snap
+steps already match the reference exactly, radius-for-radius,
+tie-break-for-tie-break) but a genuinely incomplete port of a real
+reference mechanism, confirmed by direct comparison, not assumed.
+
+The `coastal` flag itself was already computed from real final-position
+geometry (`civ_is_coastal` on the chosen cell, not from the suitability
+score) — no separate flag bug existed.
+
+**Fixed**: ported `civ_snap_to_water_edge` (`cartalith-civ/src/lib.rs`)
+verbatim from the reference, including its `on_edge` idempotency check, its
+flood-zone exclusion (`SETTLE_FLOOD_SAFE=0.55`), its `is_water`/`is_river`
+"waterish" union (ocean, lake, AND river all count, not ocean-only like
+`civ_snap_coast`), and its scan-order tie-breaking (ties within 0.5 cells of
+the true nearest resolved by ascending row-then-column scan order when
+suitability doesn't discriminate — verified as a REAL reference quirk, not
+a bug, via a small hand-built Node harness copying the function body
+verbatim against synthetic grids; see the new
+`tests::civ_snap_to_water_edge_matches_reference_*` unit tests in
+`cartalith-civ/src/lib.rs`, 8 cases, all extracted from the real reference).
+New `place_settlements_with_water_edge_snap` calls it for every candidate
+after tier classification, using the same `seaNear` widened-tolerance
+branch the reference does (reference line 25574) — computed here from the
+already-ported `civ_ocean_dist_field` rather than porting `_umSiteProfile`
+(urban-morphology apparatus this port doesn't have) for one scalar.
+`coastal` is now recomputed on the FINAL post-snap position rather than the
+reference's own pre-snap position (reference computes it once, before the
+snap, and never re-checks — reference lines 25423 vs 25558) — a deliberate,
+disclosed, zero-cost improvement (the position and `civ_is_coastal` both
+already exist at that point) removing any latent chance of the flag going
+stale relative to where the pin actually renders, logged here rather than
+silently changed per `DECISIONS.md` §7a's own pattern.
+
+**Deliberately out of scope** (separate, larger, not-yet-ported reference
+features, confirmed real but distinct from the geometry bug reported): the
+v1.46 landmass-scoped coastal-PREFERENCE swap (reference line 25447,
+redistributes WHICH settlements are coastal to hit a per-landmass target
+share — an abundance/distribution concern, not a misfired-geometry one) and
+crossroads-settlement promotion (reference line ~25607, a separate
+settlement-creation mechanism). Both left for a future pass if wanted.
+
+**Backward compatibility, forced by the concurrent-edit constraint**: the
+Travel Library `#[func]` boundary pass was mid-edit on
+`cartalith-godot/src/lib.rs`/`journey_bridge.rs` throughout this pass (real,
+confirmed via `git status`, not assumed) — those two files could not be
+touched. Since `place_settlements`'s old 10-argument signature is that
+bridge's own call site (`lib.rs:639` area), the fix is a NEW function
+(`place_settlements_with_water_edge_snap`, 14 arguments) rather than an
+in-place signature change; the original `place_settlements` is kept
+byte-for-byte unchanged as a real, still-used alias so the concurrent edit
+keeps compiling against it untouched. **Still open**: the bridge's own call
+site needs a one-line swap (`place_settlements` →
+`place_settlements_with_water_edge_snap`, threading `flood`/
+`ws.flow_discharge`/`flow_thresh`/`map_width_km` — all already computed at
+that call site for other purposes) once `cartalith-godot` goes clean. Until
+then, the live game still runs the pre-fix placement path.
+
+**2. "Not visible at all" — investigated live, found FALSE.** A scripted
+headless drive (temporary `_settlement_pin_audit.gd`, not committed, same
+convention this project's own earlier passes use) generated a real 512×328/
+800 km world (seed 424242) through the actual compiled extension, called
+`get_settlements()` (200 real settlements came back), then called
+`map_overlay.gd`'s own `_displayed_rect()`/`_civ_zoom_k()`/
+`_cell_to_screen()`/`_settlement_pin_radius()` directly — the exact
+functions `_draw()` itself uses — for each one. Every settlement produced a
+non-zero radius (6.0-9.6 px at default zoom), a real on-screen position (16
+of the first 20 landed inside the plate interior; the other 4 were
+genuinely off the visible frame, not a bug — `_draw()`'s own documented
+behaviour for a settlement whose cell sits under the border), and a valid
+faction-indexed colour. **Not a real regression** — the claim does not hold
+literally. What IS real: only 5/200 settlements (2.5%) were flagged
+coastal under the pre-fix placement path, and the reference's own
+`CIV_LOD_PLACE` zoom-gated tiering (see part 4 below) was entirely UNPORTED
+before this pass, meaning at any zoom every one of 200 settlements always
+rendered at full size — genuinely easy to read as "cluttered/unremarkable"
+at a glance on a dense world, which is report #3's territory, not literal
+invisibility.
+
+**3. Richer rendering — vector, not real pack art (checked honestly).**
+`PACK_SETTLEMENT_SLOTS` (`cartalith-assets/src/slots.rs`) names a real
+9-slot settlement icon vocabulary, but no `#[func]` anywhere in
+`cartalith-godot` exposes a per-slot texture to GDScript (grepped both
+`icon_bridge.rs` and `lib.rs`; the Asset Library window's own slot grid is
+a slicer/preview tool, not a render-time texture source) — and adding one
+would mean a new `#[func]`, exactly the class of edit this pass could not
+make to the blocked files. Genuinely no usable art path exists yet, so this
+is enhanced vector, grounded in real per-settlement data already available:
+a soft drop-shadow under every full-tier pin (flat faction-colour fills
+read ambiguously against this renderer's own pale-biome colours without
+one; the reference draws none at all, a real addition) and a small
+water-blue "harbour" badge at a coastal pin's lower-right, driven by
+`get_settlements()`'s own real `coastal` field (the same one Part 1
+re-verified against final geometry) — no river badge, because
+`cartalith-civ` carries no per-settlement river-adjacency flag anywhere to
+ground one in.
+
+**4. Zoom-dependent settlement tiering — the reference's own
+`CIV_LOD_PLACE`, ported.** The reference (`CIV_LOD_PLACE`, line 15373) gates
+each settlement tier's full pin+glyph+label on a minimum raw camera zoom
+(capital/city always show, town needs 0.4, village 0.7, hamlet 1.4); below
+threshold it draws a small faction-tinted dot instead of hiding the place
+outright (reference lines 15744-15756), so a road endpoint always has a
+visible anchor. This was entirely unported before this pass — every
+settlement always drew at full size regardless of zoom, exactly what makes
+a dense world "graphically unremarkable" (see part 2). This is the same
+population/importance-tiered LOD reveal real map renderers use: OpenStreetMap
+Carto renders cities/towns from ~z9, villages from ~z12, hamlets from ~z14
+([github.com/gravitystorm/openstreetmap-carto](https://github.com/gravitystorm/openstreetmap-carto/issues/2688));
+the Mapbox/MapLibre style spec's per-layer `minzoom`/`maxzoom`
+([maplibre.org/maplibre-style-spec/layers](https://maplibre.org/maplibre-style-spec/layers/))
+is the same mechanism generalised. New `SETTLEMENT_LOD` const (the five real
+`SettlementKind` tiers only — the reference's dict also carries monastery/
+fortress/etc. this port's settlements never have) and
+`_settlement_below_lod()`, read by both `_draw()`'s dot-fallback branch and
+`_settlement_pin_radius()` — the same "drawn size is picked size" invariant
+this file's own hit-test already kept for the full pin now extends to the
+dot. The reference's own deeper `CIV_VILLAGE_ADDON_LOD` layer (an opt-in,
+denser hamlet addon, off by default even in the reference) is a separate,
+larger feature and not addressed here.
+
+**5. Settlement-click pop-up — investigated, confirmed working as
+designed.** `_draw_hover_card()` (`map_overlay.gd`) draws a small on-canvas
+card (name, kind, population — real fields, not placeholders) whenever
+`_hover_index >= 0`, which is set by mouse MOTION, not by click — a click
+lands on a settlement the mouse is already over, so the card is already
+showing at click-time, easy to read as "clicking produced a pop-up." A
+separate signal, `settlement_selected`, fires only on click and drives the
+full right-dock inspector (`right_dock.gd`'s `on_settlement_selected`,
+wired through `app.gd`/`viewport_host.gd`). No stray/leftover dialog exists
+anywhere in the shell (grepped every `PopupPanel`/`AcceptDialog` site in
+`shell/*.gd`; none is settlement-click-specific). This is a legitimate,
+common map-tool pattern — a quick on-canvas glance plus a fuller side-panel
+inspector, the same two-tier information density Google Maps' own info
+window + side panel uses — showing real data, not a bug. No change made.
+
+**Verified**: `cargo build -p cartalith-civ` clean; `cargo test -p
+cartalith-civ` — 335 lib tests + 2 (placement) + 3 (naming) + 2
+(suitability) golden-parity tests, all passing, zero regressions (the tiny
+14×11/16×12 golden fixtures happen to already sit on/near the water edge,
+so the new snap step is a correctness-preserving no-op on both — confirmed
+by inspection, not just by the tests staying green); `cargo clippy -p
+cartalith-civ --lib` clean on this pass's own new code (two pre-existing,
+unrelated `needless_range_loop` warnings elsewhere untouched; a pre-existing,
+unrelated `cartalith-gpu` dead-code error blocks a full-workspace `-D
+warnings` clippy run regardless of this pass, confirmed via `git diff`
+showing `cartalith-gpu` untouched by anyone this session).
+`cargo build -p cartalith-godot` **not run to a clean result** — it was
+already failing on the concurrent session's own in-progress, unrelated
+`sample_bridge::FieldRefs` edit before and after this pass's changes
+(confirmed identical failure either way; grepped the build output for
+`place_settlements`, zero matches). `Godot_v4.7.1-stable_win64_console.exe
+--headless --path godot-project --quit`: clean, zero errors, before and
+after the GDScript changes. The headless pin-radius/LOD audit above ran
+against the currently-compiled `cartalith_godot.dll` (built by the
+concurrent session, reflects the PRE-fix Rust placement path since the
+bridge wiring is the one piece still blocked) — real engine data, not
+fixtures, for everything the dll could still answer (pin geometry, LOD
+gating, hit-test radii); the placement fix itself is verified via
+extraction-based golden-parity tests instead, per this project's own
+"golden-matching is necessary" discipline, since the live end-to-end path
+is blocked until the bridge call site is switched over.
+
+**Files touched:** `cartalith-native/crates/cartalith-civ/src/lib.rs`,
+`cartalith-native/crates/cartalith-civ/tests/
+golden_parity_settlement_placement.rs`, `cartalith-native/crates/
+cartalith-civ/tests/golden_parity_settlement_naming.rs`,
+`cartalith-native/godot-project/map_overlay.gd`, this file, `docs/STATUS.md`.
+No Rust file in `cartalith-godot` touched (blocked by a concurrent edit,
+see above).
+
+## Layer-visualization audit + seven new debug views (owner report: Ocean currents/Wind missing, 2026-08-19)
+
+The prior Sample panel + Layers popover pass (above, "§6's twelve dashed
+fields, and no new retention") ported 18 debug views without checking them
+against the reference's own full list. The owner reported two specific
+misses — ocean currents, wind — and asked for a complete re-audit, not just
+those two.
+
+**The real inventory.** The reference's `LAYER_GROUPS` (HTML line
+13639-13646) has 32 rows across the same six headings this port already
+used (Base/Climate/Tectonics/Hydrology/Surface/Civilization): `off`; `temp`,
+`koppen`, `rain`, `wind`, `ocean`; `plates`, `bounds`, `btype`, `oro`,
+`stress`, `age`, `geoid`, `tides`; `flow`, `strahler`, `velo`, `fjord`,
+`flood`; `bclass`, `cterrain`, `lith`, `landform`, `soil`, `water`; `rsrc`,
+`carry`, `popdensity`, `settle`, `siteprofile`, `wildlife`, `windthrow`. The
+port had 13 of the 31 named rows (plus 5 of its own additions with no
+reference counterpart: elevation, resistance, slope, aspect, control).
+
+**Wind and Ocean currents are scalar/hue rasters in the reference, not
+arrows.** Checked the reference's own debug pixel loop directly (lines
+8510-8521) rather than assuming: Wind colours by `hsl(hue=bearing,
+sat, lightness=speed)` — the same hue-by-direction idiom this port's own
+Aspect view already uses — and Ocean currents colours by a warm/cool
+SST-anomaly value *derived from* the current field (`ocean.sst`, itself
+built by advecting a coarse temperature field through the real current
+vectors), not the current vectors' hue directly. Neither is a
+directional-glyph overlay in the reference, so `sample_bridge.rs`'s existing
+per-cell RGBA raster technique is the faithful port for both — no new
+`_draw()` arrow layer needed.
+
+**Both are computed on demand, matching the reference's own cost.** The
+reference's `currentWindField()`/`currentOceanField()` (lines 5555-5598) are
+called fresh every time the debug pixel loop runs while that view is active
+— not cached, not retained on `state`. This port does the same:
+`cartalith_climate::current_wind_field` (new, mirrors `currentWindField()`
+exactly — coarse `min(GW,240)` grid, lapse-rate-cooled sea-level temperature
+proxy, `build_wind`) and the already-existing `ocean_sst_anomaly` (mirrors
+`currentOceanField()`'s own SST derivation) are both called inside
+`debug_raster()` per view-pick, nothing added to `WorldState`/`WorldGen`.
+`build_wind`/`compute_ocean_current` themselves were already real, tested,
+already-parallelized functions (`CPU_MULTITHREADING_SCOPE.md`) — this pass
+added the missing on-demand wrapper and wiring, not new physics.
+
+**Five more were genuinely buildable from already-retained/cheaply-derived
+data and are added too**: Water access (`build_water_access`), Flood
+(`build_flood_field`), Resources (`build_resource_potentials`, the
+reference's own six-key `rkeys` subset — copper/tin/iron/gold/salt/timber —
+highest-value-wins colouring, `RESOURCE_COLS`), Carrying capacity
+(`build_carrying_capacity`), and Settlement suitability
+(`build_settlement_suitability` with a real `SuitabilityCtx` — water bodies,
+flow, river order, a fresh `build_coast_sdf`, the just-computed
+`ResourcePotentials`, rainfall, the just-computed flood field, raw slope,
+`flow_thresh` — everything the engine can supply except `corridor`/
+`landmass`, the reference's own natural-route-corridor affordance, which
+this engine doesn't compute; a disclosed simplification, not a silent one).
+All five are already golden-parity-tested `cartalith-civ` functions; none
+needed a new formula, only on-demand full-grid derivation over fields
+`WorldState` already retains — the same pattern `sample_bridge.rs`'s
+existing `bclass`/`cterrain`/`soil` views already establish. None require a
+civilisation layer (their inputs are all `Option`-safe), unlike
+`bclass`/`cterrain`/`control`.
+
+**Eighteen rows are genuine, disclosed engine gaps — grepped, not
+assumed.** Searched every subsystem crate for the reference's own algorithm
+name and found no Rust equivalent at all for: Köppen classification
+(`koppenField`/`koppenColor`), Orogeny's *signed* preview value (`oro` —
+distinct from the retained `crust_field`/`boundary_type`: the signed value
+needs the boundary-polyline structure `generate_terrain` folds into height
+and never keeps), Geoid, Tides (both already documented as unported in
+`cartalith-engine`'s own `PlanetParams` doc comment — the reference itself
+defaults both `enabled: false`), river Velocity-erosion (the reference's own
+"Pillar 2" hydraulic pass — `cartalith-erosion` has no velocity field at
+all), Fjord probability, Landform classification (R5), regional Population
+density, the Site-profile buildability composite, Wildlife ecoregions, and
+Wind-throw hazard. All eighteen are listed in `LAYER_GROUPS`, in the
+reference's own relative order, `available: false` unconditionally (`GAP_
+LAYERS`, checked ahead of every other `layer_available` branch), with the
+real reason in the row's hint — the `_todo()`-with-tooltip convention
+`menus.gd` already uses, applied to a picker row instead of a menu item.
+Nothing here is faked: a gap view builds no raster and cannot be picked.
+
+**Rust changes**: `FieldRefs` (`sample_bridge.rs`) gained `shear_field`
+(already on `WorldState`, needed by `build_resource_potentials`) and the ten
+climate/planet scalars Wind/Ocean need (`lat_n`/`lat_s`/`equator_temp`/
+`pole_temp`/`tilt_deg`/`rotation_hours`/`lapse_rate`/`wind_manual`/
+`wind_dir_deg`/`press_k`/`current_k`), wired from `WorldGen.params` in
+`lib.rs`'s `sample_refs()`. `cartalith-climate` gained `current_wind_field`/
+`WindFieldResult` (new, ~70 lines, two new unit tests: non-uniform +
+deterministic, and `wind_manual` actually overrides direction over flat
+ground) and moved from `cartalith-godot`'s `[dev-dependencies]` to
+`[dependencies]` (production code calls it now, not just test harnesses);
+`cartalith-jsmath` was added as a new direct dependency of `cartalith-godot`
+for `js_round`'s `Math.round` tie-break, matching the coarse-grid sizing the
+reference itself uses. A private `bil_c` helper (`sample_bridge.rs`) ports
+the reference's own `bilC` bilinear sampler, the one piece both new views
+need that neither existing view did.
+
+**Verified — real engine data, not fixtures:**
+
+- `cargo test -p cartalith-climate`: full suite passes, including the two
+  new `current_wind_field` tests.
+- `cargo test -p cartalith-godot --lib`: **215/215 pass** (20 in
+  `sample_bridge`, 6 new this pass: `gap_layers_are_always_unavailable_and_
+  never_draw`, `new_hydrology_and_civ_affordance_views_work_without_a_civ_
+  layer`, `wind_view_is_deterministic_across_repeated_derivation`,
+  `ocean_view_only_colours_water_cells`, plus the existing
+  `every_advertised_layer_draws_and_only_advertised_ones_do`/`available_
+  matches_debug_raster` extended to cover all 24 real + 11 gap ids). Every
+  `FieldRefs` test fixture in the file updated for the new required fields.
+- `cargo clippy -p cartalith-climate` and `cargo clippy -p cartalith-godot
+  --lib`: clean (the four `needless_range_loop` lints the new match arms
+  first triggered were fixed with `.iter().enumerate()`/`.iter()`, not
+  suppressed; `cartalith-gpu`'s two pre-existing unrelated `dead_code`
+  warnings, confirmed untouched by this pass, are the only reason `--
+  all-targets -D warnings` doesn't pass clean across the whole crate --
+  a dev-dependency unification artifact, not a regression).
+- `cargo build -p cartalith-godot`: clean.
+- `Godot_v4.7.1-stable_win64_console.exe --headless --path godot-project
+  --quit`: clean, zero errors.
+- A scripted headless drive (temporary `layer_view_smoke_test.gd`, not
+  committed, same convention prior passes in this file use): generated a
+  real 96×96/800 km world (seed 424242), read `debug_layers()`, and called
+  `build_debug_texture()` through the real gdext boundary for all seven new
+  views — each returned a real, correctly-sized, non-uniform `ImageTexture`
+  (sampled 40 pixels per view, confirmed not a flat colour). All eleven gap
+  ids correctly reported `available: false` and `build_debug_texture`
+  returned `null` for every one, with the real per-row hint text readable
+  back through the same `#[func]` surface the popover uses.
+
+**A concurrent-edit note, not a defect.** `cartalith-godot/src/lib.rs`'s own
+wiring addition (the `sample_refs()` `FieldRefs` construction, ~15 lines)
+landed alongside a separate concurrently in-progress Travel Library pass's
+own edits to that same file (`TRAVEL_LIBRARY_SPEC.md` §6) — confirmed via
+`git diff --stat`/hunk inspection that the two edits touch disjoint regions
+of the file before editing, then re-verified with a full build and the
+complete `cartalith-godot` test suite once both were present. That file is
+left for whoever lands the Travel Library pass to commit with both diffs
+together, rather than this pass committing over in-progress work in a
+shared file; every other file this pass touched is committed on its own.
+
+**Files touched:** `cartalith-native/crates/cartalith-climate/src/lib.rs`,
+`cartalith-native/crates/cartalith-godot/Cargo.toml`,
+`cartalith-native/crates/cartalith-godot/src/sample_bridge.rs`,
+`cartalith-native/crates/cartalith-godot/src/lib.rs` (uncommitted, see
+above), this file, `docs/STATUS.md`.
