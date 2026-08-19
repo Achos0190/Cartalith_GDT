@@ -636,7 +636,10 @@ fn compute_civilisation(
     // earlier pass used before this real call site existed to check against.
     let seeds = cartalith_civ::find_settlement_seeds(&suit, gw, gh, 0.42, (gw as f64 / 22.0).floor().max(6.0));
 
-    let placements = cartalith_civ::place_settlements(&seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, CIV_FACTION_COUNT);
+    let placements = cartalith_civ::place_settlements_with_water_edge_snap(
+        &seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, CIV_FACTION_COUNT,
+        &flood, &ws.flow_discharge, flow_thresh, map_width_km,
+    );
 
     // Real auto-populate road network, not `build_road_network` (that's
     // `buildRoadNetwork`, the reference's *manual*-placement-tool
