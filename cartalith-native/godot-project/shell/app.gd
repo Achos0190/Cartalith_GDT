@@ -19,6 +19,7 @@ var journey_planner_view: JourneyPlannerView
 var layers_popover: LayersPopover
 var right_dock_ctrl: RightDock
 var data_manager_window: DataManagerWindow
+var asset_library_window: AssetLibraryWindow
 
 ## The path `bridge.load_save(path)` last succeeded with, remembered here
 ## (Godot-side only, no Rust change) so File ▸ Show project on disk and
@@ -143,6 +144,10 @@ func _ready() -> void:
 	data_manager_window = DataManagerWindow.new()
 	add_child(data_manager_window)
 	data_manager_window.setup(self, bridge)
+
+	asset_library_window = AssetLibraryWindow.new()
+	add_child(asset_library_window)
+	asset_library_window.setup(self, bridge)
 
 	layers_popover = LayersPopover.new()
 	add_child(layers_popover)
@@ -399,6 +404,13 @@ func open_performance() -> void:
 ## on its first route.
 func open_data_manager(group: String = "") -> void:
 	data_manager_window.open(group)
+
+## Assets ▸ ⧉ Asset library / ▦ Sprite sheet slicer, and the Icon families ▸ /
+## Texture sets ▸ submenus (`menus.gd`) all converge here. `family_key` scopes
+## the family rail's selection; `open_slicer` opens the slicer modal on top,
+## per §2.3's "opens the library window with the slicer modal already open."
+func open_asset_library(family_key: String = "", open_slicer: bool = false) -> void:
+	asset_library_window.open(family_key, open_slicer)
 
 # -- Storage locations (`DCC_SHELL_SPEC.md` §2.1, §2.5's "Same modal as File") --
 

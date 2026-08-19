@@ -13326,3 +13326,97 @@ snapshot data model/orchestrator (milestone 4), the Godot boundary
 (milestone 5), and UI playback controls (milestone 6) — none of that is
 touched here. Nothing in this workspace calls either new function yet.
 
+## Asset library window — closing the GUI gap `ASSET_LIBRARY_SCOPE.md` left open (`DCC_SHELL_SPEC.md` §2.3/§8, 2026-08-19)
+
+`ASSET_LIBRARY_SCOPE.md` marked Phase 4's engine side (`cartalith-assets`)
+complete on 2026-08-17 but explicitly carved the authoring UI out as later
+work. `menus.gd`'s `_assets()` had every item except "Import asset pack
+.zip…" disabled with "the asset-library window is not built yet." This pass
+builds that window (`shell/asset_library_window.gd`, `AssetLibraryWindow`,
+~830 lines, one file per this codebase's convention for a window this size)
+and wires `⧉ Asset library` (⇧A) / `▦ Sprite sheet slicer` to it.
+
+**A real discrepancy found reading the crate, not the mockup**: §8 describes
+"24 families... Settlements, Terrain, Cartography, plus Collections."
+`cartalith-assets/src/slots.rs` + `library.rs` define **eight** —
+`ASSET_LIBRARY_SCOPE.md` §1 already said so ("eight families, seven of them
+closed vocabularies") when Phase 4 shipped; this pass re-confirmed it by
+reading both files directly and by a headless smoke run that opened every
+one of the eight and asserted each grid populates with the real frozen slot
+count (textures 7, biomes 15, terrains 13, icons 10, settlement 9, trait 7,
+poi 10 — the Library's own 10-slot list, not the pack-import 8 — custom
+0/open, 71 frozen slots total). §8's 24-family rail is the mockup's own
+finer subdivision with no Rust type behind it; the window's family rail
+lists the real eight, grouped the way the crate itself groups them
+(`Family::is_texture()`, the `structures.*` trio: settlement/trait/poi).
+
+**What's real vs. disclosed gap, and why it's mostly gap**:
+`cartalith-godot/src/lib.rs` was grepped for every `#[func]` this pass.
+Exactly two touch assets — `load_asset_pack(path) -> bool` and
+`has_asset_pack() -> bool`. `pack.rs`'s `LoadedPack` (milestone 7) decodes
+real pixels but only inside the render path, with no `#[func]` of its own —
+there is no live `AssetDB` on the Godot side of the boundary at all.
+Concretely:
+
+- **Real**: the family list and each family's frozen slot ids (verbatim
+  from `slots.rs`/`library.rs`'s invariant constants); each family's
+  anchor/bake-size/variant metadata (`Family::anchor()`/`size()`/
+  `is_multi()`); search and sort over that real list; multi-select in the
+  slot grid (⇧-range, ⌘/Ctrl-add — client-side UI state, real interaction);
+  the zoom control; the inspector's preview-background swatches
+  (presentation only, the spec's own five swatch values); Import asset pack
+  .zip… (the same `bridge.load_asset_pack` path the Assets menu already
+  had); the pack-loaded status line (`bridge.has_asset_pack()`); the
+  sprite-sheet slicer's image load, dimension readout, and its columns/
+  rows/margin/spacing grid overlay (Godot's own `Image` loader plus
+  arithmetic, no engine call needed) plus a real (sampled, honestly labelled
+  "not an exact pixel scan") non-empty-cell count.
+- **Disclosed gap** (a `_gap_button`/`_gap_kv_row` with a real reason as its
+  tooltip, `menus.gd`'s own `_todo()` convention extended to a window body):
+  per-slot fill state and thumbnails — the slot grid draws every slot as a
+  checkerboard on principle, never guessing empty vs. filled; item variants,
+  per-item scale, tags, pack metadata (name/author/license); batch edit
+  (Tag/Collect/Rename/Duplicate/Delete); Validate/Clear library; Apply to
+  map/Export pack .zip (no in-memory library session exists anywhere to
+  compile or export — `load_asset_pack` loads a pack from disk for
+  rendering only); the slicer's actual slice operation, its trim/skip
+  toggles, and assign-to-family/fill-from (`raster.rs`/`manifest.rs`/
+  `archive.rs` checked directly: whole-image decode/encode only, no
+  sheet-splitting function anywhere in the crate).
+
+**`menus.gd`**: `⧉ Asset library`/`▦ Sprite sheet slicer` promoted `_live`.
+`Icon families ▸`/`Texture sets ▸` are now real submenus (split by
+`Family::is_texture()`, matching the crate's own split) that open the
+window scoped to one family — real, since scoping which family the rail
+selects needs no engine query. `Apply library to map`/`Clear library…` stay
+`_todo`, their reasons updated from "requires the window" (now built) to
+the real finding above. `Import image…` stays `_todo`: the window exists,
+but landing a loose image in an Unassigned-imports custom slot needs
+`AssetDB::addCustomSlot`, which isn't exposed.
+
+**Constraint honoured**: no Rust file touched (`git diff --stat --
+cartalith-native/crates` empty at the end of this pass) — two other agents
+were concurrently editing `cartalith-civ`/`cartalith-godot` Timeline work at
+the same time. Everything above is real against the existing bridge surface
+(`bridge.load_asset_pack`, `bridge.has_asset_pack`, `bridge.world_loaded`)
+with no new `#[func]` needed anywhere; where a query genuinely doesn't
+exist, it's disclosed rather than invented (no per-slot fill state was
+approximated, no fabricated thumbnails, no fake pack metadata).
+
+**Verified**: `asset_library_window.gd` parses under a headless `--import`
+rescan (two bugs the first `--quit` boot caught and this pass fixed:
+`DccWidgets.spacer()` doesn't exist — the real static is `DccTheme.spacer()`
+— and an untyped `Dictionary.get()` result tripped this project's
+warnings-as-errors inferred-Variant-type check, fixed by typing the
+intermediate variable explicitly). A scripted, discarded smoke run
+(`_smoke_asset_lib.gd`/`.tscn`, deleted after, along with the `.uid` file
+Godot generates for a new script — noticed and removed so a real future
+session starts clean) instantiated a real `DccApp`, opened the asset
+library window, selected all eight families in turn and asserted each
+grid's real child count against the frozen slot count above, exercised
+single-click and ⇧-range multi-select on the icons family (confirmed the
+selection dictionary held exactly the expected two uids after each step),
+opened the sprite-sheet slicer modal, and read `has_asset_pack()` — all
+without error. Headless Godot 4.7.1 boot (`--headless --path godot-project
+--quit`) clean with the smoke files removed, confirmed as the final step.
+

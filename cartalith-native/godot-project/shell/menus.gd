@@ -65,6 +65,8 @@ var _bridge: EngineBridge
 var _host: Node                 ## Where dialogs are parented and callbacks live.
 var _quality_popup: PopupMenu
 var _recent_popup: PopupMenu
+var _icon_families_popup: PopupMenu
+var _texture_sets_popup: PopupMenu
 
 func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
 	_shell = shell
@@ -181,23 +183,60 @@ func _edit(p: PopupMenu) -> void:
 # -- §2.3 Assets --------------------------------------------------------------
 
 func _assets(p: PopupMenu) -> void:
-	_todo(p, "%s Asset library" % DccIcons.SYMBOLS["panels"],
-		"The asset-library window is not built yet; packs load through Import below.")
-	_todo(p, "%s Sprite sheet slicer" % DccIcons.SYMBOLS["panels"], "Requires the asset-library window.")
+	_live(p, "%s Asset library" % DccIcons.SYMBOLS["panels"], ID_ASSET_LIBRARY, KEY_MASK_SHIFT | KEY_A)
+	_live(p, "%s Sprite sheet slicer" % DccIcons.SYMBOLS["panels"], ID_SLICER)
 	p.add_separator()
-	_todo(p, "Import image…", "Requires the asset-library window.")
+	_todo(p, "Import image…",
+		"The asset-library window (§8) is built, but landing a loose image in an Unassigned-imports custom slot needs AssetDB::addCustomSlot -- no #[func] exposes it.")
 	_live(p, "Import asset pack .zip…", ID_IMPORT_PACK)
 	p.add_separator()
-	_todo(p, "Icon families", "Requires the asset-library window.")
-	_todo(p, "Texture sets", "Requires the asset-library window.")
+
+	## §2.3: "Submenu listing the 24 families with filled/capacity counts."
+	## `cartalith-assets` ships EIGHT families, not 24 -- verified reading
+	## `slots.rs`/`library.rs` directly (`ASSET_LIBRARY_SCOPE.md` §1 already
+	## recorded this: "eight families, seven of them closed vocabularies").
+	## These two submenus list the real eight, split the way the crate itself
+	## splits them (`Family::is_texture()`); each entry is a real scoped-open
+	## shortcut into `AssetLibraryWindow` -- capacity is real (the frozen slot
+	## count), fill count is not shown because no query for it is exposed.
+	_icon_families_popup = PopupMenu.new()
+	_icon_families_popup.name = "IconFamilies"
+	_shell.style_popup(_icon_families_popup)
+	p.add_child(_icon_families_popup)
+	p.add_submenu_item("Icon families", "IconFamilies")
+	var icon_keys: Array[String] = []
+	for fam in AssetLibraryWindow.FAMILIES:
+		if not bool(fam.get("texture", false)):
+			_icon_families_popup.add_item(
+				"%s (%d)" % [String(fam["title"]), (fam["slots"] as Array).size()], icon_keys.size())
+			icon_keys.append(String(fam["key"]))
+	_icon_families_popup.id_pressed.connect(func(i: int): _host.open_asset_library(icon_keys[i]))
+
+	_texture_sets_popup = PopupMenu.new()
+	_texture_sets_popup.name = "TextureSets"
+	_shell.style_popup(_texture_sets_popup)
+	p.add_child(_texture_sets_popup)
+	p.add_submenu_item("Texture sets", "TextureSets")
+	var tex_keys: Array[String] = []
+	for fam in AssetLibraryWindow.FAMILIES:
+		if bool(fam.get("texture", false)):
+			_texture_sets_popup.add_item(
+				"%s (%d)" % [String(fam["title"]), (fam["slots"] as Array).size()], tex_keys.size())
+			tex_keys.append(String(fam["key"]))
+	_texture_sets_popup.id_pressed.connect(func(i: int): _host.open_asset_library(tex_keys[i]))
+
 	p.add_separator()
-	_todo(p, "Apply library to map", "Requires the asset-library window.")
-	_todo(p, "Clear library…", "Requires the asset-library window.")
+	_todo(p, "Apply library to map",
+		"Verified against the live engine (2026-08-19): cartalith-godot exposes load_asset_pack(path) only -- loading a pack FROM DISK. There is no in-memory library-editing session on the Godot side to compile and apply.")
+	_todo(p, "Clear library…",
+		"Same verification: no AssetDB.clear() equivalent is exposed -- there is no live library state here to clear.")
 	p.id_pressed.connect(_on_assets)
 
 func _on_assets(id: int) -> void:
-	if id == ID_IMPORT_PACK:
-		_host.open_asset_pack_picker()
+	match id:
+		ID_IMPORT_PACK: _host.open_asset_pack_picker()
+		ID_ASSET_LIBRARY: _host.open_asset_library()
+		ID_SLICER: _host.open_asset_library("", true)
 
 # -- §2.4 Data ----------------------------------------------------------------
 #

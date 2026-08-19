@@ -969,3 +969,45 @@ with the reference's own warnings, and rendered onto the map — sprites for the
 slots it carries, procedural art for the slots it does not — with a pack-less
 render staying bit-identical to today's. The Library workspace that *authors*
 such a pack is a separate, later GUI effort tracked in `GUI_SHELL_SCOPE.md`.
+
+## 9. The GUI window now exists (2026-08-19), and what it found
+
+`DCC_SHELL_SPEC.md` §8's Asset library window is now built
+(`cartalith-native/godot-project/shell/asset_library_window.gd`,
+`AssetLibraryWindow`) — `Assets ▸ ⧉ Asset library` / `▦ Sprite sheet slicer`
+are `_live` in `menus.gd`, no longer `_todo`. This section is that pass's own
+honest close-out, in the same voice as §§1-8 above, not a rewrite of them.
+
+**A real discrepancy confirmed against the live engine, not the mockup**: §8's
+own prose describes "24 families... Settlements, Terrain, Cartography, plus
+Collections." `cartalith-assets` ships **eight**, exactly as §1 above already
+said ("eight families, seven of them closed vocabularies") — re-verified this
+pass by reading `slots.rs`/`library.rs` directly and by a headless smoke run
+that opened every one of the eight and confirmed each grid populates with the
+real frozen slot count (textures 7, biomes 15, terrains 13, icons 10,
+settlement 9, trait 7, poi 10 — the Library's own 10-slot `poi` list, not the
+8-slot pack-import one — custom 0/open). The 24-family, four-group rail is the
+mockup's own finer subdivision; nothing in the shipped crate draws that line,
+so the window's family rail groups the real eight the way the crate itself
+groups them (`Family::is_texture()`, the `structures.*` trio) rather than
+inventing a fifth grouping to hit 24.
+
+**What the window can honestly show, and what it can't, comes down to one
+gap**: `cartalith-godot/src/lib.rs` exposes exactly two asset-related
+`#[func]`s -- `load_asset_pack(path)` and `has_asset_pack()`. There is no live
+`AssetDB` on the Godot side of the boundary, so per-slot fill state,
+thumbnails, item variants, tags, scale, and pack metadata (name/author/
+license) are all disclosed gaps in the window, not guessed values -- the slot
+grid shows every slot as a checkerboard on principle, never as "empty" or
+"filled," because the engine genuinely cannot say which from here. Apply to
+map / Export pack .zip / batch edit / Validate / Clear library are gaps for
+the same reason: there is no in-memory library-editing session anywhere in
+this workspace for any of them to act on. The sprite-sheet slicer modal's
+image load, dimension readout, and columns/rows/margin/spacing grid overlay
+are real (Godot's own `Image` loader plus arithmetic); the slice operation
+itself is a gap -- `cartalith-assets::raster` decodes/encodes whole PNGs with
+no sheet-splitting function anywhere in the crate.
+
+None of this needed a new `#[func]` or touched any Rust file. Closing the gap
+above -- a `#[func]` surface for `AssetDB` query/mutation -- is real, scoped
+future work, not filed here as a blocker to §8's "done means."

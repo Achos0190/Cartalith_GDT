@@ -2796,6 +2796,41 @@ real caller of both new functions), snapshot data model (milestone 4),
 Godot boundary (milestone 5), UI (milestone 6). Nothing calls either new
 function yet.
 
+## Asset library window — closing the GUI gap (`DCC_SHELL_SPEC.md` §2.3/§8, 2026-08-19)
+
+`ASSET_LIBRARY_SCOPE.md` closed Phase 4's engine side 2026-08-17 but carved
+the authoring UI out as later work. That window now exists
+(`shell/asset_library_window.gd`, `AssetLibraryWindow`) — `Assets ▸
+⧉ Asset library` (⇧A) / `▦ Sprite sheet slicer` are `_live` in `menus.gd`.
+
+**Confirmed discrepancy**: §8's own prose says "24 families." The shipped
+`cartalith-assets` (`slots.rs`/`library.rs`) has **eight** — `textures`,
+`biomes`, `terrains`, `icons`, `settlement`, `trait`, `poi`, `custom` —
+already recorded by `ASSET_LIBRARY_SCOPE.md` §1 and re-verified this pass by
+a headless smoke run asserting each family's grid populates with the real
+frozen slot count (7/15/13/10/9/7/10/0-open, 71 frozen slots total). The
+window's family rail lists the real eight, grouped by `Family::is_texture()`
+and the `structures.*` trio, not the mockup's uncoded 24.
+
+**Almost everything is a disclosed gap, and the reason is one gap**:
+`cartalith-godot/src/lib.rs` exposes exactly two asset `#[func]`s —
+`load_asset_pack(path)` and `has_asset_pack()`. No live `AssetDB` crosses the
+Godot boundary, so per-slot fill state, thumbnails, variants, tags, scale,
+and pack metadata are all disclosed rather than guessed (the slot grid draws
+every slot as a checkerboard on principle). Apply to map, Export pack .zip,
+batch edit, Validate and Clear library are gaps for the same reason — there
+is no in-memory library session for any of them to act on. **Real**: the
+family/slot list and metadata (verbatim frozen constants), search/sort,
+multi-select, the pack-loaded status line, Import asset pack .zip…, and the
+sprite-sheet slicer's image load + grid-overlay math (Godot's own `Image`
+loader, no engine call). The slicer's actual slice op is a gap — no
+sheet-splitting function exists anywhere in `cartalith-assets`.
+
+No Rust file touched (verified via `git diff --stat -- cartalith-native/
+crates`, empty). Headless Godot 4.7.1 boot clean; a scripted, discarded
+smoke run opened the window, selected all eight families, exercised
+click/⇧-range multi-select, and opened the slicer modal without error.
+
 ## Known-open items (not owner-blocked, just not done yet)
 
 - Real Fira Sans/Fira Code font files for the UI theme (design-system match found the pairing; sourcing + OFL-license verification deferred).
