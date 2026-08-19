@@ -12920,3 +12920,142 @@ tablet breakpoint, and a blocked-stage inspector state visually distinct from
 the `block`-token colouring already applied throughout the stage inspector,
 matrix, profile band and route map.
 
+## Timeline milestone 1 — the `_civSettlementPopulation` dependency chain, shared tier tables, stable ids (`TIMELINE_SCOPE.md` milestone 1, 2026-08-19)
+
+The shared prerequisite both later Timeline/collapse-recovery milestones
+(proximity graph, the actual collapse/recovery stepper, the snapshot data
+model) are blocked on. `TIMELINE_SCOPE.md` itself is the freshly-written
+scoping pass this milestone follows; its §9 "Decisions" section resolved
+three open questions in-flight (recorded there and repeated here per this
+port's own discipline of not letting a design choice live in only one
+document).
+
+**Built** — a new `cartalith-civ::timeline` module:
+
+- **The population-ceiling chain** (reference lines 23313-23512):
+  `subsistenceModeAt`/`agrarianDensityKm2` (the land-use-mode density
+  bands), `currentAgrarianDensity` (the per-cell field, normalised onto the
+  pre-v1.31 `Σ K×AGRARIAN_MAX_KM2` basis — ported without the reference's
+  own per-world cache, matching this crate's existing stateless-field-
+  builder convention), `_civCatchmentDensityMean`/`_civCatchmentPop`
+  (world-wrap-aware disc-mean over a settlement's catchment), the
+  `_CIV_SURPLUS_FRACTION`/`_CIV_TRADE_K` tables, and `_civSettlementPopulation`
+  itself. Built on the two pieces `TIMELINE_SCOPE.md` §3 identified as
+  already-real and reusable: `build_carrying_capacity` (the `K` field) and
+  `civ_catchment_km2`/`civ_catchment_radius_cells`.
+  - **One parameter dropped, not silently**: the reference's own `K`
+    argument to `_civCatchmentPop` only feeds its dead fallback branch
+    (`typeof currentAgrarianDensity==='function'` is always true — a
+    hoisted top-level function declaration — so the `K`-based fallback
+    path can never execute). `civ_catchment_pop` takes `dens: &[f32]`
+    directly instead; `K` still shapes the answer, just one level removed
+    (it's what `civ_current_agrarian_density` builds `dens` from).
+- **The shared tier tables**: `_CIV_TIER_ORDER`/`_CIV_TIER_FLOOR`/
+  `_civTierForPopulation`, and `_CIV_RECOVERY_FRAC`/`_CIV_RECOVERY_NAME` as
+  a `RecoveryPhase` enum (ported because milestone 1's own scope bullet
+  names them as shared with `_civApplyRecovery`, even though nothing
+  constructs a `RecoveryPhase` yet — see the `_civApplyRecovery` decision
+  below).
+- **A stable id (`tid`)** on `NamedSettlement`/`Way` (`cartalith-civ/src/
+  lib.rs`), plus `civ_assign_tid`/`civ_resync_next_tid` in the new module.
+
+**Three decisions made in-flight** (`TIMELINE_SCOPE.md` §9), recorded here
+per this port's discipline of never letting a design choice live in only
+one document:
+
+- **Metropolis tier: capped at `Capital`.** The reference's ported tier
+  table has six entries (`metropolis` highest, floor 150000); this port's
+  `_CIV_TIER_ORDER`/`_CIV_TIER_FLOOR` have five, stopping at `Capital` —
+  `SettlementKind` gets no `Metropolis` variant in this pass.
+  `_civSelectMetropolises` (the promotion pass that would produce one) is a
+  separate, still-unported gap (`PHASE2_SCOPE.md`), tracked there, not
+  invented here. The cap needs no special-casing: `civ_tier_for_population`
+  walks the order high-to-low, and `Capital`'s own floor (30000) is still
+  the first satisfied entry for a population the reference would have
+  called `metropolis` (verified up to 5,000,000 in the golden test below).
+- **`_civApplyRecovery`: out of scope.** The v0.82 static/instant recovery
+  pass (`_civIterativeAutoWorld`'s auto-populate "Recovery phase" dropdown)
+  is adjacent — it shares the tier tables with this milestone's own
+  population chain, which is why `RecoveryPhase` is ported here — but
+  porting the pass itself is left for a future `PHASE2_SCOPE.md` addendum,
+  not bundled in.
+- **Stable id (`tid`) design: eager assignment, not the reference's lazy
+  first-touch.** The reference's own `_civAssignTid` only ever stamps an
+  object's `tid` the first time something touches it (empirically,
+  `civSnapshotSave`, milestone 4's own territory). This port assigns
+  eagerly instead — at settlement-placement/road-generation time
+  (`compute_civilisation`, `cartalith-godot/src/lib.rs`) and at every later
+  manual-insertion point (`civ_tools_bridge::drop_settlement`) — because
+  `cartalith-civ` is stateless (`ARCHITECTURE.md`) and the reference's lazy
+  trigger has no clean pure-function home here, while "assign it when the
+  object is created" does. `0` is the "unassigned" sentinel (`tid==null`'s
+  Rust analogue); `civ_assign_tid` is idempotent, so a later touch-point
+  (milestone 4's snapshot save, if it wants one) is safe to add without
+  double-assigning. The counter (`next_tid`) lives on `CivData`
+  (`cartalith-godot`) — the one place this port's civ state is actually
+  mutable — with `civ_resync_next_tid` (milestone-1 scope: scans live
+  settlements/ways only, not yet timeline snapshot history, which doesn't
+  exist until milestone 4) as the pure rescan `_civResyncNextTid` mirrors.
+  New design, not a reference algorithm to golden-match (`DECISIONS.md`
+  §7a "principled equivalence").
+
+**Every construction site of `NamedSettlement`/`Way` updated**, grepped
+across the whole workspace (`cartalith-civ`'s own `lib.rs`/`tools.rs` and
+every `tests/` fixture, `cartalith-godot`'s `civ_tools_bridge.rs`/
+`infra_tools_bridge.rs`/`journey_bridge.rs`/`lib.rs`) — production sites get
+`tid: 0` at construction (assigned for real one step later, at the
+`compute_civilisation`/`drop_settlement` boundary); test fixtures that don't
+exercise tid semantics get `tid: 0` and stay that way.
+
+**Golden-verified against the real reference**: a Node `vm.runInContext`
+harness (transient, not checked in) sliced the exact verified line ranges
+(23313-23512, 24614-24618) and ran them with `currentCarryingCapacity`/
+`currentWaterAccess`/`buildBiomeRaster`/`currentAgrarianDensity` stubbed to
+return hand-picked arrays — legitimate because every function under test is
+"pure over the supplied per-cell field" per its own reference doc comment,
+so feeding a known-good input directly is `PARITY_TESTING.md`'s own "one
+test per pipeline stage" guidance, not a shortcut around it. 9 tests, 25
+individual golden comparisons, real reference numbers (`cartalith-civ/
+tests/golden_parity_settlement_population.rs`):
+
+- `subsistenceModeAt`/`agrarianDensityKm2`: 11 cases across all four
+  biome-excluded codes (ocean/ice/tundra/desert) and both boundaries of
+  every mode transition (e.g. `k=0.45,water=0.35,rain=0.249999` → short
+  fallow density `17.55`, one float below the `rain=0.25` annual-
+  cultivation threshold's `72.0`), plus a `NaN` k case (`0.0`, matching
+  JS's `K||0`).
+- `currentAgrarianDensity`: a 3-cell mixed land/sea fixture — reference
+  answer `[210.07957458496094, 9.920424461364746, 0]` (`Float32Array` in
+  the reference, so already f32-rounded) — plus an all-sea fixture
+  confirming the `rawSum>0?refSum/rawSum:1` fallback, not a divide by zero.
+- `_civCatchmentDensityMean`: a sea-cell-excluded disc mean (`11.75`), a
+  world-wrap-vs-not pair on the same fixture (`4.8` vs `4.25`), and an
+  all-sea zero.
+- `_civCatchmentPop`/`_civSettlementPopulation`: all five `SettlementKind`s
+  on a uniform-density fixture where every kind's catchment radius floors
+  to 1 cell — isolating the per-tier catchment-area scaling
+  (hamlet 60 → capital 14000) and the surplus/trade-concentration formula
+  at `normB=0` and `normB=1` (e.g. capital: `1540` → `4466`) — plus a
+  `NaN normB` / all-sea zero case.
+- `_civTierForPopulation`: every floor boundary from `hamlet` through
+  `capital`, plus the two rows (150000, 5000000) where the reference says
+  `"metropolis"` and this port's capped table says `Capital` — the
+  documented divergence point, asserted rather than silently matched.
+
+**Verified**: `cargo build -p cartalith-godot` (the cdylib, not just `cargo
+test`) and a headless Godot 4.7.1 boot (`--headless --path godot-project
+--quit`) both clean. `cargo test -p cartalith-civ -p cartalith-godot`: all
+passing (291 + 9 new golden tests in `cartalith-civ`, 170 + 4 tid-focused
+tests in `cartalith-godot`, including a new `drop_settlement` test pinning
+that a hand-placed settlement gets a real monotonically-increasing tid and
+that re-selecting an existing settlement never advances the counter).
+Clippy clean on the new code (one pre-existing-style `1 * gw` readability
+warning left as-is, matching this crate's own established grid-indexing
+convention elsewhere).
+
+**Out of scope, per `TIMELINE_SCOPE.md`**: the proximity graph/betweenness
+centrality (milestone 2), the collapse/recovery step functions (milestone
+3), the snapshot data model/orchestrator (milestone 4), the Godot boundary
+(milestone 5), and UI playback controls (milestone 6) — none of that is
+touched here.
+

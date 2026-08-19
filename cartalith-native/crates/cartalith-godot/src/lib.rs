@@ -163,6 +163,19 @@ struct CivData {
     /// `build_water_bodies` flood fill on every click -- it was already
     /// real, already-computed data this function held anyway.
     water_bodies: Vec<u8>,
+    /// `TIMELINE_SCOPE.md` milestone 1's stable-id counter -- the reference's
+    /// `_civNextTid`, moved here because `cartalith-civ` is stateless
+    /// (`ARCHITECTURE.md`) and this is the one place civ state is actually
+    /// mutable. Every `settlements`/`ways` entry above is assigned a real
+    /// `tid` (`cartalith_civ::timeline::civ_assign_tid`) right here in
+    /// `compute_civilisation`, before this struct is built, so `next_tid`
+    /// always starts past every id already in use. `civ_tools_bridge::
+    /// drop_settlement` (the Settlement tool's manual-insertion path) draws
+    /// from this same counter for anything appended afterward. See
+    /// `cartalith_civ::timeline`'s own module doc for the full design
+    /// decision (why eager assignment, not the reference's lazy
+    /// first-touch).
+    next_tid: u64,
 }
 
 /// One settlement's "why here?" record: the real decomposition of its
@@ -366,6 +379,7 @@ fn compute_civilisation(
         // hamlet, which is what the reference's own hamlet-tier tagging
         // for these already implies.
         settlements.extend(villages.into_iter().map(|v| cartalith_civ::NamedSettlement {
+            tid: 0,
             placement: cartalith_civ::SettlementPlacement {
                 x: v.x,
                 y: v.y,
@@ -476,7 +490,7 @@ fn compute_civilisation(
     // are into the pre-village `placements` order, which `settlements`
     // preserves as its own prefix (villages are appended after, never
     // interleaved), so indexing stays valid whether or not villages ran.
-    let ways = cartalith_civ::civ_consolidate_and_smooth_ways(&topology, &settlements, &ws.field, &wb.classification, gw, gh, map_width_km);
+    let mut ways = cartalith_civ::civ_consolidate_and_smooth_ways(&topology, &settlements, &ws.field, &wb.classification, gw, gh, map_width_km);
 
     // Sea routes (milestone 13): reference calls `_civMstRoutes(ports,true)`
     // unconditionally whenever >=2 port-tagged settlements exist, over the
@@ -488,7 +502,23 @@ fn compute_civilisation(
         settlements.iter().filter(|s| s.placement.coastal).cloned().collect();
     let sea_routes = cartalith_civ::civ_sea_routes(&ports, &ws.field, &wb.classification, gw, gh, world, map_width_km);
 
-    CivData { settlements, ways, sea_routes, territory, provinces, province_list, trade_balances, explanations, water_bodies: wb.classification.clone() }
+    // `TIMELINE_SCOPE.md` milestone 1: stamp every settlement/way with a
+    // real `tid` right here -- the "placement/road-generation time" this
+    // port chose over the reference's lazy first-touch (see `cartalith_civ::
+    // timeline`'s module doc). Every entry above was freshly constructed
+    // with `tid: 0` (the crate's own unassigned sentinel), so a simple
+    // counter starting at 1 assigns every one of them in one pass; nothing
+    // here can already carry a nonzero tid, but `civ_assign_tid` is
+    // idempotent regardless.
+    let mut next_tid = 1u64;
+    for s in settlements.iter_mut() {
+        s.tid = cartalith_civ::timeline::civ_assign_tid(s.tid, &mut next_tid);
+    }
+    for w in ways.iter_mut() {
+        w.tid = cartalith_civ::timeline::civ_assign_tid(w.tid, &mut next_tid);
+    }
+
+    CivData { settlements, ways, sea_routes, territory, provinces, province_list, trade_balances, explanations, water_bodies: wb.classification.clone(), next_tid }
 }
 
 /// Named World-Structure archetype presets (reference HTML `ARCHETYPES`,
@@ -2959,7 +2989,22 @@ impl WorldGen {
         }
         let pick_r = cartalith_civ::tools::civ_place_pick_radius(gw);
         let name = name.to_string();
-        match civ_tools_bridge::drop_settlement(&mut civ.settlements, &mut tools.name_rng, cx, cy, pick_r, &ws.field, &civ.water_bodies, gw, gh, sea, faction as i32, k, &name) {
+        match civ_tools_bridge::drop_settlement(
+            &mut civ.settlements,
+            &mut civ.next_tid,
+            &mut tools.name_rng,
+            cx,
+            cy,
+            pick_r,
+            &ws.field,
+            &civ.water_bodies,
+            gw,
+            gh,
+            sea,
+            faction as i32,
+            k,
+            &name,
+        ) {
             Some(i) => i as i64,
             None => -1,
         }

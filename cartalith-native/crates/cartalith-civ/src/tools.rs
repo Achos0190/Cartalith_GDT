@@ -255,6 +255,7 @@ pub fn civ_drop_place(
     let coast_r: isize = ((gw as f64 / 60.0) as isize).max(6);
     let coastal = civ_is_coastal(gx, gy, coast_r, true, field, Some(water_bodies), gw, gh, sea);
     DropPlace::Placed(Box::new(NamedSettlement {
+        tid: 0,
         placement: SettlementPlacement { x: gx, y: gy, suit, faction, capital: kind == SettlementKind::Capital, kind, coastal },
         name: String::new(),
         pop: 1000,
@@ -917,6 +918,7 @@ mod tests {
 
     fn settlement(x: usize, y: usize, kind: SettlementKind) -> NamedSettlement {
         NamedSettlement {
+            tid: 0,
             placement: SettlementPlacement { x, y, suit: 0.5, faction: 1, capital: kind == SettlementKind::Capital, kind, coastal: false },
             name: String::new(),
             pop: 1000,

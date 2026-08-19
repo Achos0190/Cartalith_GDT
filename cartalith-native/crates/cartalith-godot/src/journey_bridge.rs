@@ -837,6 +837,7 @@ mod tests {
         let rain: Vec<f32> = (0..n).map(|i| 0.8 - 0.1 * (i % gw) as f32).collect();
         let places = vec![
             NamedSettlement {
+                tid: 0,
                 placement: cartalith_civ::SettlementPlacement {
                     x: 3,
                     y: 2,
@@ -850,6 +851,7 @@ mod tests {
                 pop: 9000,
             },
             NamedSettlement {
+                tid: 0,
                 placement: cartalith_civ::SettlementPlacement {
                     x: 6,
                     y: 4,
@@ -864,6 +866,7 @@ mod tests {
             },
         ];
         let ways = vec![Way {
+            tid: 0,
             pts: vec![(2.0, 1.0), (2.0, 2.0), (2.0, 3.0)],
             brks: vec![],
             km: 30.0,
@@ -933,6 +936,7 @@ mod tests {
         let territory: Vec<i32> = vec![0; n];
         let places = vec![
             NamedSettlement {
+                tid: 0,
                 placement: cartalith_civ::SettlementPlacement {
                     x: 4,
                     y: 8,
@@ -946,6 +950,7 @@ mod tests {
                 pop: 12000,
             },
             NamedSettlement {
+                tid: 0,
                 placement: cartalith_civ::SettlementPlacement {
                     x: 18,
                     y: 8,

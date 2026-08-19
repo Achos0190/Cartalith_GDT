@@ -621,6 +621,7 @@ mod tests {
         // `NamedSettlement` itself, so this only guards against the type
         // import silently rotting).
         let _s = NamedSettlement {
+            tid: 0,
             placement: SettlementPlacement { x: 0, y: 0, suit: 0.0, faction: 0, capital: false, kind: SettlementKind::Hamlet, coastal: false },
             name: String::new(),
             pop: 0,

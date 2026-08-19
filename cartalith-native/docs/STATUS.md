@@ -2610,6 +2610,53 @@ children under Terrain) is a different thing from this canvas popover and is
 not built; §7's Layer-properties/ramp-editor panes still have no
 `TerrainAppearance` binding behind them, unchanged by this pass.
 
+## Timeline milestone 1 — shared prerequisites (`TIMELINE_SCOPE.md`, done 2026-08-19)
+
+Population-ceiling chain + shared tier tables + stable ids, the dependency
+every later Timeline milestone (proximity graph, collapse/recovery stepper,
+snapshot data model, Godot boundary, UI) is blocked on. Milestones 2-6 are
+**not started**.
+
+**New `cartalith-civ::timeline` module**: `civ_subsistence_mode_at`/
+`civ_agrarian_density_km2`/`civ_current_agrarian_density` (the land-use-mode
+density chain, `agrarianDensityKm2`/`currentAgrarianDensity`),
+`civ_catchment_density_mean`/`civ_catchment_pop`/`civ_settlement_population`
+(`_civCatchmentDensityMean`/`_civCatchmentPop`/`_civSettlementPopulation`),
+`civ_surplus_fraction`/`civ_trade_k` (`_CIV_SURPLUS_FRACTION`/`_CIV_TRADE_K`),
+`civ_tier_floor`/`civ_tier_for_population`/`CIV_TIER_ORDER`
+(`_CIV_TIER_FLOOR`/`_civTierForPopulation`/`_CIV_TIER_ORDER`, capped at
+`Capital` — see below), `RecoveryPhase` (`_CIV_RECOVERY_FRAC`/
+`_CIV_RECOVERY_NAME`, unconsumed until `_civApplyRecovery` lands), and
+`civ_assign_tid`/`civ_resync_next_tid` (`_civAssignTid`/`_civResyncNextTid`).
+
+**Stable id (`tid`)**: `NamedSettlement`/`Way` (`cartalith-civ/src/lib.rs`)
+both gained a `pub tid: u64` field, `0` = unassigned (matches JS `tid==null`).
+Every construction site across the workspace updated. Real assignment is
+eager, not the reference's lazy first-touch: `compute_civilisation`
+(`cartalith-godot/src/lib.rs`) stamps every settlement/way right after
+generation, and `civ_tools_bridge::drop_settlement` draws from the same
+counter for a hand-placed settlement. The counter (`next_tid: u64`) is a new
+field on `CivData` — `cartalith-civ` stays stateless per `ARCHITECTURE.md`.
+This is new design (`DECISIONS.md` §7a), not a reference algorithm ported
+1:1 — logged in `CHANGELOG.md`.
+
+**Two decisions recorded** (`TIMELINE_SCOPE.md` §9, repeated in
+`CHANGELOG.md` per this port's discipline): the tier table caps at
+`Capital` (no `Metropolis` variant — `_civSelectMetropolises` is a separate,
+still-unported gap); `_civApplyRecovery` (the v0.82 static recovery pass)
+stays out of scope, left for a `PHASE2_SCOPE.md` addendum.
+
+**Golden-verified**: `cartalith-civ/tests/golden_parity_settlement_population.rs`,
+9 tests / 25 comparisons against real reference numbers (Node `vm`
+extraction, transient harness, not checked in) — every function in the
+chain, boundary cases on every mode/tier transition, and the documented
+`metropolis`→`Capital` divergence at population 150000/5,000,000.
+
+**Verified**: `cargo build -p cartalith-godot` (cdylib) + headless Godot
+4.7.1 boot clean. `cargo test -p cartalith-civ -p cartalith-godot`: all
+passing (368 across `cartalith-civ`'s lib + integration suites, 201 across
+`cartalith-godot`'s). Clippy clean.
+
 ## Known-open items (not owner-blocked, just not done yet)
 
 - Real Fira Sans/Fira Code font files for the UI theme (design-system match found the pairing; sourcing + OFL-license verification deferred).

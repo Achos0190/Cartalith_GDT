@@ -16,6 +16,10 @@ use rayon::prelude::*;
 
 /// Region-name labels (`UNIFIED_TOOL_PLAN.md` milestone E). Unwired.
 pub mod labels;
+/// `TIMELINE_SCOPE.md` milestone 1 -- the `_civSettlementPopulation`
+/// dependency chain, the shared tier tables, and the stable-id (`tid`)
+/// helpers `NamedSettlement`/`Way` carry.
+pub mod timeline;
 pub mod tools;
 
 /// `LITH_KEYS` (reference line 5830) -- frozen, append-only.
@@ -3685,6 +3689,18 @@ pub fn civ_base_pop_for_kind(kind: SettlementKind) -> f64 {
 /// lines ~25409-25444).
 #[derive(Debug, Clone, PartialEq)]
 pub struct NamedSettlement {
+    /// Stable id, playing the reference's `tid`'s role
+    /// (`timeline::civ_assign_tid`/`_civAssignTid`, reference line 20564) --
+    /// lets milestone 4's diff logic tell "same settlement, renamed/moved"
+    /// from "different settlement" across timeline snapshots. `0` is the
+    /// "unassigned" sentinel (matching JS's `tid==null`); every function in
+    /// this crate that constructs a fresh `NamedSettlement` leaves it `0`
+    /// -- `cartalith-civ` is stateless and holds no id counter
+    /// (`ARCHITECTURE.md`), so real assignment happens at the
+    /// `cartalith-godot` boundary (`timeline::civ_assign_tid`, called from
+    /// `compute_civilisation`/`civ_tools_bridge::drop_settlement`). See
+    /// `timeline`'s own module doc for the full design decision.
+    pub tid: u64,
     pub placement: SettlementPlacement,
     pub name: String,
     pub pop: u32,
@@ -3718,7 +3734,7 @@ pub fn name_and_populate_settlements_with_rng(
             let name = civ_settle_name(rng, p.faction);
             let base_pop = civ_base_pop_for_kind(p.kind);
             let pop = (base_pop * (0.7 + p.suit * 0.8) * (0.8 + rng.next_f64() * 0.4)).round() as u32;
-            NamedSettlement { placement: *p, name, pop }
+            NamedSettlement { tid: 0, placement: *p, name, pop }
         })
         .collect()
 }
@@ -5362,6 +5378,10 @@ fn civ_classify_way(max_usage: u16) -> WayType {
 /// draw -- reference `_civHierarchicalNetwork`'s own `ways` output shape.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Way {
+    /// Stable id -- see [`NamedSettlement::tid`]'s doc comment for the full
+    /// design decision (same `0`-is-unassigned sentinel, same
+    /// `timeline::civ_assign_tid` assignment point).
+    pub tid: u64,
     pub pts: Vec<(f64, f64)>,
     pub brks: Vec<usize>,
     pub km: f64,
@@ -5467,11 +5487,12 @@ pub fn civ_consolidate_and_smooth_ways(
             if sm.pts.len() < 2 {
                 continue;
             }
-            ways.push(Way { pts: sm.pts, brks: sm.brks, km: sm.km, name: name.clone(), way_type, a_idx: a, b_idx: b, hidden: false });
+            ways.push(Way { tid: 0, pts: sm.pts, brks: sm.brks, km: sm.km, name: name.clone(), way_type, a_idx: a, b_idx: b, hidden: false });
             emitted = true;
         }
         if !emitted {
             ways.push(Way {
+                tid: 0,
                 pts: vec![(pa.placement.x as f64, pa.placement.y as f64), (pb.placement.x as f64, pb.placement.y as f64)],
                 brks: Vec::new(),
                 km: 0.0,
@@ -11510,6 +11531,7 @@ mod tests {
 
     fn named_capital(x: usize, y: usize, faction: i32, pop: u32) -> NamedSettlement {
         NamedSettlement {
+            tid: 0,
             placement: SettlementPlacement { x, y, suit: 0.5, faction, capital: true, kind: SettlementKind::Capital, coastal: false },
             name: "Test".to_string(),
             pop,
@@ -11518,6 +11540,7 @@ mod tests {
 
     fn named_settlement(x: usize, y: usize, faction: i32, kind: SettlementKind, pop: u32, name: &str) -> NamedSettlement {
         NamedSettlement {
+            tid: 0,
             placement: SettlementPlacement { x, y, suit: 0.5, faction, capital: kind == SettlementKind::Capital, kind, coastal: false },
             name: name.to_string(),
             pop,
@@ -11595,6 +11618,7 @@ mod tests {
     fn assign_territory_no_capitals_leaves_everything_unowned() {
         let cost = vec![1.0f32; 9];
         let non_capital = NamedSettlement {
+            tid: 0,
             placement: SettlementPlacement { x: 1, y: 1, suit: 0.5, faction: 1, capital: false, kind: SettlementKind::Town, coastal: false },
             name: "Test".to_string(),
             pop: 1500,
@@ -11795,6 +11819,7 @@ mod tests {
         suit[far_i] = 0.50;
 
         let places = vec![NamedSettlement {
+            tid: 0,
             placement: SettlementPlacement { x: 20, y: 20, suit: 0.9, faction: 1, capital: true, kind: SettlementKind::Capital, coastal: false },
             name: "Capital".to_string(),
             pop: 15000,
@@ -13434,7 +13459,7 @@ mod tests {
         let cart_biome = build_cart_biome(&field, &water_bodies, &temp, &rain, M5_GW, M5_GH, false, M5_SEA);
         let cart_terrain = build_cart_terrain(&field, &water_bodies, &temp, &rain, M5_GW, M5_GH, false, M5_SEA);
 
-        let way = |pts: Vec<(f64, f64)>, way_type: WayType| Way { pts, brks: Vec::new(), km: 0.0, name: String::new(), way_type, a_idx: 0, b_idx: 1, hidden: false };
+        let way = |pts: Vec<(f64, f64)>, way_type: WayType| Way { tid: 0, pts, brks: Vec::new(), km: 0.0, name: String::new(), way_type, a_idx: 0, b_idx: 1, hidden: false };
         let ways = vec![
             way(vec![(9.0, 6.0), (14.0, 6.0), (20.0, 6.0)], WayType::Highway),
             way(vec![(16.0, 9.0), (19.0, 12.0)], WayType::Track),
@@ -14702,6 +14727,7 @@ mod tests {
     #[test]
     fn faction_place_from_settlement_invents_nothing() {
         let s = NamedSettlement {
+            tid: 0,
             placement: SettlementPlacement {
                 x: 3,
                 y: 4,

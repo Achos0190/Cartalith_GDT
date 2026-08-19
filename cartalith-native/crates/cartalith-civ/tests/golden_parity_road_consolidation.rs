@@ -49,6 +49,7 @@
 
 fn named(x: usize, y: usize, faction: i32, name: &str, pop: u32) -> cartalith_civ::NamedSettlement {
     cartalith_civ::NamedSettlement {
+        tid: 0,
         placement: cartalith_civ::SettlementPlacement {
             x,
             y,

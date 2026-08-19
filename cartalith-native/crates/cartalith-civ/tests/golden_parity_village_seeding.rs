@@ -74,6 +74,7 @@ fn village_seeding_two_isolated_hotspots_no_roads() {
     let places: Vec<cartalith_civ::NamedSettlement> = [(7usize, 2usize, 1i32), (9, 3, 2), (6, 2, 3)]
         .iter()
         .map(|&(x, y, faction)| cartalith_civ::NamedSettlement {
+            tid: 0,
             placement: cartalith_civ::SettlementPlacement {
                 x,
                 y,

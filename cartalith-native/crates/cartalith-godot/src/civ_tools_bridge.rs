@@ -212,6 +212,7 @@ pub fn manual_settlement_pop(kind: SettlementKind, suit: f64, rng: &mut cartalit
 #[allow(clippy::too_many_arguments)]
 pub fn drop_settlement(
     settlements: &mut Vec<NamedSettlement>,
+    next_tid: &mut u64,
     name_rng: &mut cartalith_rng::Mulberry32,
     gx: usize,
     gy: usize,
@@ -230,6 +231,10 @@ pub fn drop_settlement(
         DropPlace::Placed(mut s) => {
             s.name = manual_settlement_name(name, faction, name_rng);
             s.pop = manual_settlement_pop(kind, 0.0, name_rng);
+            // `TIMELINE_SCOPE.md` milestone 1: a hand-placed settlement is
+            // exactly the "placement time" this port's `tid` design assigns
+            // at -- see `cartalith_civ::timeline`'s module doc.
+            s.tid = cartalith_civ::timeline::civ_assign_tid(s.tid, next_tid);
             settlements.push(*s);
             Some(settlements.len() - 1)
         }
@@ -461,7 +466,8 @@ mod tests {
     fn drop_settlement_appends_and_names_a_blank_placement() {
         let (mut places, field, wb, gw, gh, sea) = drop_fixture();
         let mut rng = cartalith_civ::civ_name_rng();
-        let idx = super::drop_settlement(&mut places, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, 2, SettlementKind::Town, "");
+        let mut next_tid = 1u64;
+        let idx = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, 2, SettlementKind::Town, "");
         assert_eq!(idx, Some(0));
         assert_eq!(places.len(), 1);
         assert!(!places[0].name.is_empty());
@@ -472,8 +478,9 @@ mod tests {
     fn drop_settlement_refuses_water_and_out_of_bounds() {
         let (mut places, field, wb, gw, gh, sea) = drop_fixture();
         let mut rng = cartalith_civ::civ_name_rng();
-        assert_eq!(super::drop_settlement(&mut places, &mut rng, 1, 1, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, ""), None);
-        assert_eq!(super::drop_settlement(&mut places, &mut rng, 99, 1, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, ""), None);
+        let mut next_tid = 1u64;
+        assert_eq!(super::drop_settlement(&mut places, &mut next_tid, &mut rng, 1, 1, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, ""), None);
+        assert_eq!(super::drop_settlement(&mut places, &mut next_tid, &mut rng, 99, 1, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, ""), None);
         assert!(places.is_empty());
     }
 
@@ -481,10 +488,33 @@ mod tests {
     fn drop_settlement_selects_an_existing_place_instead_of_stacking() {
         let (mut places, field, wb, gw, gh, sea) = drop_fixture();
         let mut rng = cartalith_civ::civ_name_rng();
-        let first = super::drop_settlement(&mut places, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, "First").unwrap();
-        let second = super::drop_settlement(&mut places, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, "");
+        let mut next_tid = 1u64;
+        let first = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, "First").unwrap();
+        let second = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, "");
         assert_eq!(second, Some(first));
         assert_eq!(places.len(), 1, "clicking an existing place must not stack a second settlement");
+    }
+
+    /// `TIMELINE_SCOPE.md` milestone 1: a hand-placed settlement gets a
+    /// real, nonzero, monotonically-increasing `tid` from the shared
+    /// counter -- not the crate's `0` "unassigned" sentinel -- and re-
+    /// clicking an existing settlement (the `Selected` branch) never
+    /// consumes the counter.
+    #[test]
+    fn drop_settlement_assigns_a_real_tid_and_reuses_the_counter_across_drops() {
+        let (mut places, field, wb, gw, gh, sea) = drop_fixture();
+        let mut rng = cartalith_civ::civ_name_rng();
+        let mut next_tid = 1u64;
+        let first = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, "First").unwrap();
+        assert_eq!(places[first].tid, 1);
+        assert_eq!(next_tid, 2);
+        let second = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 7, 2, 1.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Village, "Second").unwrap();
+        assert_eq!(places[second].tid, 2);
+        assert_eq!(next_tid, 3);
+        // Re-clicking the first settlement selects it (no new tid drawn).
+        let reselect = super::drop_settlement(&mut places, &mut next_tid, &mut rng, 5, 2, 5.0, &field, &wb, gw, gh, sea, 1, SettlementKind::Town, "");
+        assert_eq!(reselect, Some(first));
+        assert_eq!(next_tid, 3, "reselecting an existing settlement must not advance the counter");
     }
 
     // ---------- contested_cell_count ----------

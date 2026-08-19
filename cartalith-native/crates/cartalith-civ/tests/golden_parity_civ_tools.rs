@@ -143,6 +143,7 @@ impl World {
 
 fn town(x: usize, y: usize, kind: SettlementKind, faction: i32, pop: u32) -> NamedSettlement {
     NamedSettlement {
+        tid: 0,
         placement: SettlementPlacement { x, y, suit: 0.0, faction, capital: kind == SettlementKind::Capital, kind, coastal: false },
         name: String::new(),
         pop,
