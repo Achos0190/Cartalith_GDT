@@ -13214,3 +13214,115 @@ junk in its own recent-worlds list. Headless Godot 4.7.1 boot
 (`--headless --path godot-project --quit`) clean with the smoke files
 removed, confirmed as the final step.
 
+## Timeline milestone 2 — the proximity graph and Brandes betweenness, genuinely new Rust (`TIMELINE_SCOPE.md` milestone 2, 2026-08-19)
+
+Fully self-contained per the scope doc — a places array + `cellKm` in,
+adjacency/betweenness out, no dependency on milestone 1's population-ceiling
+chain despite sharing `cartalith-civ::timeline`. Confirmed before writing
+anything: no Brandes betweenness-centrality implementation existed anywhere
+in this workspace (`_civNetworkMetrics`, the reference's other user of the
+same algorithm, is not ported either) — this is new Rust, not a port of
+something already half-there.
+
+**Built** — two new functions in `cartalith-civ::timeline`:
+
+- **`civ_proximity_adjacency`** (`_civProximityAdjacency`, reference lines
+  24672-24683): a symmetric k-nearest-neighbour graph among settlement
+  positions, real km via `cell_km`, world-wrap aware on the X seam. Takes
+  bare `(x, y)` pairs rather than a `NamedSettlement`/domain struct — the
+  reference itself only ever reads `.x`/`.y` off each place, and this
+  matches the crate's existing "just positions" idiom
+  (`civ_passed_settlements`'s `pts: &[(f64,f64)]`, `jp_resupply_reach`'s
+  `pts`). `world_wrap`/`gw` are caller-supplied parameters (mirroring
+  `civ_catchment_density_mean`'s own `world_wrap` from milestone 1 and
+  `civ_passed_settlements`'s `world`), not read from a global, since
+  `cartalith-civ` is stateless. Distance uses `js_hypot`/`js_min`
+  (`cartalith-jsmath`) call-for-call against the reference's
+  `Math.hypot`/`Math.min` — new code with no existing golden coverage to
+  weigh against changing it, unlike the crate's other `.hypot()` sites
+  (`lib.rs` ~5094-5098, left alone on that same reasoning in reverse).
+  Returns one sorted, deduplicated neighbour list per node — a `Vec` playing
+  the reference's `Set`'s dedup role; the sort doesn't change downstream
+  betweenness, since Brandes' shortest-path counts are sums over the edge
+  set, not order-sensitive on how a node's own list is arranged.
+- **`civ_betweenness_from_adjacency`** (`_civBetweennessFromAdjacency`,
+  reference lines 24687-24709): textbook Brandes (2001) unweighted
+  betweenness centrality — the reference's own comment calls it "the same
+  algorithm `_civNetworkMetrics` uses," confirmed by reading the ported
+  lines directly rather than trusting the scope doc's summary; it is
+  standard BFS-plus-dependency-accumulation, not a simplified/approximate
+  variant. Returns **raw, un-normalised** betweenness, summed over both
+  directions of every pair with no divide-by-2 for the graph being
+  undirected — ported exactly as the reference computes it, not "corrected"
+  to the more common convention. One parameter dropped, not silently: the
+  reference's own `(n, adj)` signature carries `n` only because
+  `_civCollapseStep` (milestone 3, unported) happens to have `settlements
+  .length` sitting in scope when it calls this — `n` is always `adj.length`
+  at the only real call site, so the port takes `adj: &[Vec<usize>]` alone
+  and reads `adj.len()`, the same "drop a provably-redundant parameter"
+  move milestone 1 already made for `_civCatchmentPop`'s dead `K` fallback.
+
+**World-wrap distance**: grepped this crate first per the task's own
+instruction rather than inventing a helper — `civ_passed_settlements`
+(`lib.rs` ~9174) already has the exact pattern (`dx.min(gw as f64 - dx)`
+gated by a caller-supplied `world: bool`), reused here as
+`js_min(dx, gw - dx)` gated by `world_wrap`, matching the reference's own
+`!!state.world` semantics call-for-call rather than the crate's several
+always-on wrap sites (`lib.rs` lines 8414/8477/9473, which don't gate on a
+flag because their own callers are always in a wrap-relevant context).
+
+**Golden-verified against the real reference**
+(`cartalith-civ/tests/golden_parity_timeline_graph.rs`, 6 tests): a Node
+`vm.runInContext` harness (transient, not checked in, same convention as
+milestone 1's own) sliced lines 24672-24709 verbatim into a context stubbed
+with `state={world:false}`/`GW=<fixture width>`, ran every fixture below,
+and every adjacency list and betweenness number below is the reference's
+own output, not hand-computed and not re-derived independently except where
+stated:
+
+- **A 3-node hand-checkable path** (points at x=0,10,20, k=1, maxKm=15):
+  adjacency `[1]/[0,2]/[1]`, raw betweenness `[0,2,0]` — also independently
+  hand-derived via Brandes' own recurrence (not just asserted against the
+  harness), confirming the "no divide-by-2" reading of the reference is
+  correct and not a misreading of the ported lines.
+- **A 5-node chain** (x=0,5,10,15,20, k=2): the path 0-1-2-3-4 with no
+  shortcuts, betweenness `[0,0,8,0,0]` — the centre carries the whole load.
+- **A world-wrap pair** (GW=100, points at x=2 and x=98, maxKm=20, k=1):
+  empty graph without wrap (raw distance 96 exceeds 20), the pair becomes
+  each other's sole neighbour with wrap on (wrap distance `min(96,4)=4`) —
+  proving `world_wrap` changes which edges exist, not just that the flag is
+  threaded through.
+- **A world-wrap 4-cycle** (GW=100, points at x=0,25,50,75, k=2, maxKm=30):
+  without wrap, the same positions form the path 0-1-2-3 (betweenness
+  `[0,4,4,0]`); with wrap, the seam edge (75→0, wrap distance 25) closes a
+  clean 4-cycle (betweenness ties at `[1,1,1,1]`, each node sitting on
+  exactly one of the two tied shortest routes between the "opposite" pairs).
+- **An 8-settlement real-scale fixture** (512x328 grid, 800 km width →
+  `cellKm=1.5625`, the engine's own default extent; `maxLinkKm =
+  cellKm*GW*0.5`, the reference's own default from `_civCollapseStep` line
+  24794, reused here as the realistic default even though milestone 3 that
+  formula belongs to isn't ported yet): `k=4` (the reference's own default)
+  gives one connected graph where a bridging settlement and a cluster hub
+  both carry the graph's entire betweenness load (`9` each, everyone else
+  `0`); `k=2` on the identical positions splits into two disconnected
+  components — exercising Brandes across multiple components in one call,
+  confirming no node ever accrues cross-component betweenness.
+
+**Verified**: `cargo build -p cartalith-godot` (the cdylib) and a headless
+Godot 4.7.1 boot (`--headless --path godot-project --quit`) both clean.
+`cargo test -p cartalith-civ`: all passing (21 `timeline` unit tests + 6 new
+golden tests in `golden_parity_timeline_graph.rs`, 0 regressions elsewhere
+in the crate). Clippy clean on every line touched by this milestone
+(`cargo clippy -p cartalith-civ --no-deps -- -D warnings`, filtered to this
+milestone's own line ranges) — two pre-existing `needless_range_loop`
+findings in `lib.rs` (unrelated code this milestone never touches) and the
+one pre-existing `1 * gw` readability finding milestone 1's own entry
+already logged are all outside this milestone's additions, left as-is.
+
+**Out of scope, per `TIMELINE_SCOPE.md`**: the collapse/recovery step
+functions (milestone 3, which is what actually calls
+`civ_proximity_adjacency`/`civ_betweenness_from_adjacency` for real), the
+snapshot data model/orchestrator (milestone 4), the Godot boundary
+(milestone 5), and UI playback controls (milestone 6) — none of that is
+touched here. Nothing in this workspace calls either new function yet.
+

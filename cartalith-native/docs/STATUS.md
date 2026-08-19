@@ -2614,8 +2614,8 @@ not built; §7's Layer-properties/ramp-editor panes still have no
 
 Population-ceiling chain + shared tier tables + stable ids, the dependency
 every later Timeline milestone (proximity graph, collapse/recovery stepper,
-snapshot data model, Godot boundary, UI) is blocked on. Milestones 2-6 are
-**not started**.
+snapshot data model, Godot boundary, UI) is blocked on. Milestone 2 is done
+(below); milestones 3-6 are **not started**.
 
 **New `cartalith-civ::timeline` module**: `civ_subsistence_mode_at`/
 `civ_agrarian_density_km2`/`civ_current_agrarian_density` (the land-use-mode
@@ -2753,6 +2753,48 @@ polluted the real `user://cartalith_settings.cfg` with fake recent-project
 paths — noticed and deleted afterward so a real session starts clean.
 Headless Godot 4.7.1 boot (`--headless --path godot-project --quit`) clean
 with the smoke files removed.
+
+## Timeline milestone 2 — proximity graph + Brandes betweenness (`TIMELINE_SCOPE.md`, done 2026-08-19)
+
+Fully self-contained (places array + `cellKm` in, adjacency/betweenness
+out) — no dependency on milestone 1 despite sharing `cartalith-civ::
+timeline`. Genuinely new Rust: no Brandes betweenness-centrality
+implementation existed anywhere in the workspace before this.
+
+**New functions**: `civ_proximity_adjacency` (`_civProximityAdjacency`,
+reference lines 24672-24683 — symmetric k-nearest-neighbour graph among
+settlement positions in real km, world-wrap aware; takes bare `(x,y)` pairs
+rather than a domain struct, matching the crate's existing "just positions"
+idiom) and `civ_betweenness_from_adjacency` (`_civBetweennessFromAdjacency`,
+24687-24709 — textbook unweighted Brandes 2001, raw/un-normalised, no
+divide-by-2 for the undirected graph, matching the reference exactly; the
+reference's redundant `n` parameter dropped in favour of `adj.len()`).
+World-wrap distance reuses this crate's existing pattern
+(`civ_passed_settlements`'s `dx.min(gw-dx)` gated by a caller-supplied
+bool), not a newly invented helper. `js_hypot`/`js_min` (`cartalith-jsmath`)
+used call-for-call against the reference's `Math.hypot`/`Math.min`.
+
+**Golden-verified**: `cartalith-civ/tests/golden_parity_timeline_graph.rs`,
+6 tests against real reference output (Node `vm` extraction, transient
+harness) — a 3-node path (also independently hand-derived, betweenness
+`[0,2,0]`, confirming the no-divide-by-2 reading), a 5-node chain, a
+world-wrap pair (adjacent only with wrap on), a world-wrap 4-cycle (closes
+into a cycle only with wrap on, betweenness ties `[1,1,1,1]` vs. the
+no-wrap path's `[0,4,4,0]`), and an 8-settlement 512×328/800km fixture at
+two `k` values, one of which produces a disconnected graph (Brandes across
+multiple components, no cross-component leakage).
+
+**Verified**: `cargo build -p cartalith-godot` (cdylib) + headless Godot
+4.7.1 boot clean. `cargo test -p cartalith-civ`: all passing (21 `timeline`
+unit tests + 6 new golden tests, 0 regressions). Clippy clean on every line
+this milestone added (two pre-existing `needless_range_loop` findings in
+unrelated `lib.rs` code, and the one pre-existing `1 * gw` finding
+milestone 1 already logged, are untouched by this milestone).
+
+**Out of scope**: the collapse/recovery step functions (milestone 3 — the
+real caller of both new functions), snapshot data model (milestone 4),
+Godot boundary (milestone 5), UI (milestone 6). Nothing calls either new
+function yet.
 
 ## Known-open items (not owner-blocked, just not done yet)
 

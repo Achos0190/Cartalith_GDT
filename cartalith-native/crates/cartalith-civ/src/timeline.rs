@@ -62,7 +62,9 @@
 //! signature (or add a sibling overload) to also fold in snapshot history
 //! rather than quietly duplicating the scan.
 
-use cartalith_jsmath::{js_max, js_min, js_num_or_zero};
+use std::collections::{BTreeSet, VecDeque};
+
+use cartalith_jsmath::{js_hypot, js_max, js_min, js_num_or_zero};
 
 use super::{
     BIOME_DESERT, BIOME_ICE, BIOME_OCEAN, BIOME_TUNDRA, NamedSettlement, SettlementKind, Way,
@@ -421,6 +423,155 @@ pub fn civ_resync_next_tid(settlements: &[NamedSettlement], ways: &[Way]) -> u64
     mx + 1
 }
 
+// ===================== Milestone 2: proximity graph + betweenness centrality =====================
+//
+// `TIMELINE_SCOPE.md` §5 milestone 2 -- `_civProximityAdjacency` (reference
+// lines 24672-24683) and `_civBetweennessFromAdjacency` (24687-24709), the
+// v0.85 collapse stepper's own network representation. Fully self-contained
+// per the scope doc: a places array (here, bare positions -- see
+// [`civ_proximity_adjacency`]'s own doc comment) + `cellKm` in, adjacency/
+// betweenness out. No dependency on milestone 1's population-ceiling chain
+// or stable-id work above, despite sharing this file.
+//
+// Both reference functions are "deterministic and side-effect-free... read
+// [only] the module globals GW/state.world... for scale [and] wrap" (the
+// reference's own v0.85 block comment, line 24646-24648) -- no RNG, so
+// there is no seed-alignment risk in golden-testing either.
+//
+// `_civBetweennessFromAdjacency` is textbook Brandes (2001) unweighted
+// betweenness centrality over a prebuilt adjacency list -- the reference's
+// own comment calls it "the same algorithm `_civNetworkMetrics` uses", not
+// a simplified/approximate variant, confirmed by reading the ported lines
+// directly rather than assumed from the doc's summary. It returns raw
+// (un-normalised) betweenness, summed over every ordered source (both
+// directions of each pair, never divided by 2 for the graph being
+// undirected) -- ported as-is, not "corrected" to the more common
+// divide-by-2 convention (`cartalith-rust-conventions`: match the
+// reference, do not improve on it).
+
+/// `_civProximityAdjacency` (reference lines 24672-24683): a symmetric
+/// k-nearest-neighbour graph among settlement positions, computed in real
+/// km via `cell_km`, world-wrap aware on the X seam.
+///
+/// The reference takes a `places` array and reads only `.x`/`.y` off each
+/// entry (`distKm` above). This port takes bare `(x, y)` pairs instead of a
+/// `NamedSettlement`/domain struct -- decoupling the graph algorithm from
+/// any particular place representation, which is what the scope doc's own
+/// framing ("places array + cellKm in, adjacency/betweenness out") already
+/// implies at the type level, and matches this crate's existing "just
+/// positions" idiom (`civ_passed_settlements`'s `pts: &[(f64, f64)]`,
+/// `jp_resupply_reach`'s `pts`, both in `lib.rs`). `world_wrap` mirrors the
+/// reference's own `!!state.world` and `gw` its module-global `GW` (grid
+/// width in cells) -- both caller-supplied here, matching
+/// [`civ_catchment_density_mean`]'s and `civ_passed_settlements`'s own
+/// `world_wrap`/`world` parameters rather than reading a global.
+///
+/// Distance uses [`js_hypot`] (V8's `Math.hypot`, not `f64::hypot` --
+/// `cartalith-rust-conventions`'s own standing warning, `js_hypot`'s own
+/// doc comment) and [`js_min`] for the wrap-distance choice, matching the
+/// reference's `Math.hypot`/`Math.min` call-for-call since this is new
+/// code with no existing golden coverage to weigh against changing it
+/// (unlike the crate's other `.hypot()` sites, `lib.rs` lines ~5094-5098).
+///
+/// Returns one neighbour list per position, sorted ascending and
+/// deduplicated. The reference stores each node's list as a `Set` --
+/// symmetric completion naturally revisits an edge from both endpoints'
+/// own passes (`i`'s pass adds `j`, and `j`'s own later pass may attempt to
+/// add `i` again), and a `Set.add` on an existing member is a no-op. A
+/// sorted `Vec` here plays the same role; the sort itself doesn't change
+/// [`civ_betweenness_from_adjacency`]'s answer, since Brandes' shortest-path
+/// counts and dependency accumulation are sums over the edge set, not
+/// order-sensitive on how each node's own edge list is arranged.
+pub fn civ_proximity_adjacency(
+    positions: &[(f64, f64)],
+    k: usize,
+    max_km: f64,
+    cell_km: f64,
+    gw: f64,
+    world_wrap: bool,
+) -> Vec<Vec<usize>> {
+    let n = positions.len();
+    let mut adj: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); n];
+    for i in 0..n {
+        let (xi, yi) = positions[i];
+        let mut ds: Vec<(usize, f64)> = Vec::new();
+        for (j, &(xj, yj)) in positions.iter().enumerate() {
+            if j == i {
+                continue;
+            }
+            let mut dx = (xi - xj).abs();
+            if world_wrap {
+                dx = js_min(dx, gw - dx);
+            }
+            let dy = yi - yj;
+            let d = js_hypot(dx, dy) * cell_km;
+            if d <= max_km {
+                ds.push((j, d));
+            }
+        }
+        // Stable sort by distance -- ties keep ascending-`j` order, matching
+        // V8's own stable `Array.prototype.sort` (ES2019+) over the same
+        // ascending-`j` insertion order `ds` was built in.
+        ds.sort_by(|a, b| a.1.total_cmp(&b.1));
+        for &(j, _) in ds.iter().take(k) {
+            adj[i].insert(j);
+            adj[j].insert(i);
+        }
+    }
+    adj.into_iter().map(|s| s.into_iter().collect()).collect()
+}
+
+/// `_civBetweennessFromAdjacency` (reference lines 24687-24709): Brandes
+/// (2001) betweenness centrality over a prebuilt adjacency list -- one BFS
+/// (unweighted shortest paths) plus one reverse-order dependency-
+/// accumulation pass per source node, `O(n*(n+e))`. Pure; returns raw,
+/// un-normalised betweenness per node (see this section's own top-of-block
+/// note on the missing divide-by-2).
+///
+/// The reference's own signature is `(n, adj)`; `n` is always
+/// `adj.length` at both real call sites (`_civCollapseStep` builds `adj`
+/// from `settlements` and passes `settlements.length` as `n` in the same
+/// breath) -- a redundant parameter, dropped here in favour of `adj.len()`,
+/// the same "internal restructuring that preserves output" milestone 1
+/// already applied to `_civCatchmentPop`'s dead `K` fallback parameter.
+pub fn civ_betweenness_from_adjacency(adj: &[Vec<usize>]) -> Vec<f64> {
+    let n = adj.len();
+    let mut btw = vec![0.0f64; n];
+    for s in 0..n {
+        let mut stack: Vec<usize> = Vec::new();
+        let mut pred: Vec<Vec<usize>> = vec![Vec::new(); n];
+        let mut sigma = vec![0.0f64; n];
+        sigma[s] = 1.0;
+        let mut dist: Vec<i64> = vec![-1; n];
+        dist[s] = 0;
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        queue.push_back(s);
+        while let Some(v) = queue.pop_front() {
+            stack.push(v);
+            for &w in &adj[v] {
+                if dist[w] < 0 {
+                    dist[w] = dist[v] + 1;
+                    queue.push_back(w);
+                }
+                if dist[w] == dist[v] + 1 {
+                    sigma[w] += sigma[v];
+                    pred[w].push(v);
+                }
+            }
+        }
+        let mut delta = vec![0.0f64; n];
+        while let Some(w) = stack.pop() {
+            for &v in &pred[w] {
+                delta[v] += (sigma[v] / js_max(1e-9, sigma[w])) * (1.0 + delta[w]);
+            }
+            if w != s {
+                btw[w] += delta[w];
+            }
+        }
+    }
+    btw
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -767,5 +918,80 @@ mod tests {
         // The max can live on either side.
         let ways2 = vec![way_with_tid(100)];
         assert_eq!(civ_resync_next_tid(&settlements, &ways2), 101);
+    }
+
+    // ---------- milestone 2: proximity adjacency / betweenness ----------
+    // Golden-parity numbers against the real reference live in
+    // `tests/golden_parity_timeline_graph.rs`; these are structural/self-
+    // consistency checks that don't need the reference to state.
+
+    #[test]
+    fn proximity_adjacency_is_always_symmetric() {
+        // Any k/maxKm/wrap combination: if j is in i's list, i must be in
+        // j's -- the reference's own symmetric-completion invariant.
+        let positions = [
+            (0.0, 0.0),
+            (5.0, 1.0),
+            (9.0, -3.0),
+            (2.0, 8.0),
+            (20.0, 20.0),
+        ];
+        let adj = civ_proximity_adjacency(&positions, 2, 1_000.0, 1.0, 100.0, false);
+        for (i, neighbours) in adj.iter().enumerate() {
+            for &j in neighbours {
+                assert!(
+                    adj[j].contains(&i),
+                    "edge {i}->{j} not symmetric: adj[{j}]={:?}",
+                    adj[j]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn proximity_adjacency_respects_max_km_and_is_empty_for_one_place() {
+        let positions = [(0.0, 0.0), (1_000.0, 0.0)];
+        let adj = civ_proximity_adjacency(&positions, 5, 10.0, 1.0, 2_000.0, false);
+        assert_eq!(adj, vec![Vec::<usize>::new(), Vec::<usize>::new()]);
+
+        let single = [(0.0, 0.0)];
+        let adj_single = civ_proximity_adjacency(&single, 5, 10.0, 1.0, 100.0, false);
+        assert_eq!(adj_single, vec![Vec::<usize>::new()]);
+
+        let empty: [(f64, f64); 0] = [];
+        assert_eq!(
+            civ_proximity_adjacency(&empty, 5, 10.0, 1.0, 100.0, false),
+            Vec::<Vec<usize>>::new()
+        );
+    }
+
+    #[test]
+    fn betweenness_is_zero_on_an_empty_or_edgeless_graph() {
+        assert_eq!(civ_betweenness_from_adjacency(&[]), Vec::<f64>::new());
+        let adj = vec![Vec::new(), Vec::new(), Vec::new()];
+        assert_eq!(civ_betweenness_from_adjacency(&adj), vec![0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn betweenness_on_a_3_node_path_matches_hand_derivation() {
+        // 0-1-2: every shortest path between the two endpoints (both
+        // directions) passes through node 1, and only node 1 -- raw
+        // (un-halved) betweenness is 2, matching this module's own hand
+        // derivation (also cross-checked against the reference directly in
+        // `tests/golden_parity_timeline_graph.rs::path_graph_3_matches_the_
+        // reference_and_a_hand_derivation`).
+        let adj = vec![vec![1], vec![0, 2], vec![1]];
+        assert_eq!(civ_betweenness_from_adjacency(&adj), vec![0.0, 2.0, 0.0]);
+    }
+
+    #[test]
+    fn betweenness_on_disconnected_components_never_crosses_them() {
+        // {0,1} and {2,3} are two disjoint edges -- no path between the
+        // components exists, so nothing is ever an intermediate node.
+        let adj = vec![vec![1], vec![0], vec![3], vec![2]];
+        assert_eq!(
+            civ_betweenness_from_adjacency(&adj),
+            vec![0.0, 0.0, 0.0, 0.0]
+        );
     }
 }
