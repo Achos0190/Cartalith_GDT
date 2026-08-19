@@ -5,7 +5,48 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-20 (post **Domain rail merge: five domains to three**
+Last updated: 2026-08-20 (post **In-shell file dialogs: the world gallery and
+the breadcrumb browser** — GDScript-only, no Rust. The re-vendored
+`design/Cartalith DCC Shell.dc.html` (commit `419be0d`) gained two screens,
+**"Open project dialog 1920"** and **"Select folder dialog 1920"**, both built
+now; **no stock Godot `FileDialog` survives on any path this pass owns**. Open
+project is a *world gallery*, not a browser (its own mockup comment: "gallery
+grid — thumbnails, not a tree list"): search well, `Recent`/`All worlds`/
+`Shared` scope chips, a four-column tile grid whose first cell is a dashed
+`.zip` drop zone, `CURRENT` badge, `seed · edited N ago` captions, foot naming
+the projects root — `open_project_dialog.gd` (`OpenProjectDialog`). Select
+folder is the *breadcrumb browser* ("replaces the stock OS tree picker"):
+clickable breadcrumb with `⌂ Home`, typeable path well, flat rows with an
+`N items` meta, selected row accent-outlined with a `selected` tag, files
+dimmed, a `＋ New folder…` row, `Cancel` / `Use this folder` —
+`browse_dialog.gd` (`DccBrowseDialog`), with a `PickKind` of `FOLDERS` or
+`FILES` (`Mode` is taken by `Window`; the clash was caught at boot). **Call
+sites**: `app.gd::open_project_picker()` → gallery; `app.gd::_browse_root()`
+(all four storage roots) → `choose_folder`; `app.gd::open_asset_pack_picker()`
+→ `choose_file` filtered to `.zip`; `_pick_file()` deleted. Callback shapes
+unchanged, so `menus.gd`/`data_manager_window.gd` needed no edit. **Asset
+packs deliberately get the browser, not the gallery** — the gallery is
+world-shaped in every part the design draws (seeds, edit times, a `CURRENT`
+badge, a title reading "choose a world to continue"). Backing is real
+`DirAccess`/`FileAccess`; `DccSettings.recent_projects()` feeds `Recent`, the
+projects root feeds `All worlds`, and seeds are read from each save's
+`params.json` via `ZIPReader`, cached per path+mtime. Three disclosed gaps,
+not faked: `Shared` is drawn and disabled (no shared/remote project concept
+exists), thumbnails are path-hashed radial gradients (a `.zip` save stores no
+preview image), and the mockup's dashed borders are solid at the same colour
+and weight (`StyleBoxFlat` has no dash pattern). Shared additions:
+`DccTheme.FS_MODAL_TITLE`, `DccTheme.outline()`, `DccWidgets.modal_button()`,
+and two drawn `DccIcons` glyphs (`search`/`import`, because U+2315 and U+2913
+are tofu in Plex Mono *and* the fallback chain). **Verified**: a temporary
+`_dialog_probe.gd` (deleted after use) built a real directory tree plus a
+`ZIPPacker`-written save carrying seed `483920` and drove **25 checks, all
+passing** — listing, dimming, breadcrumb navigation in and out, child-row and
+current-folder confirms, file-mode enable/disable and extension rejection,
+typed-path navigation, seed extraction, scope filtering, tile counts, search
+match and non-match. Two real bugs caught by that drive and fixed:
+`JSON.parse_string` rendering the seed as `483920.0`, and `queue_free()`'s
+end-of-frame deferral letting two same-frame refreshes stack children.
+— previously, post **Domain rail merge: five domains to three**
 (owner instruction verbatim: *"Infra can be dropped as a name and can be
 absorbed by civil"*, then *"And render into carto."*) — GDScript-only, no
 Rust. `dcc_shell.gd`'s `DOMAINS` const goes from 5 entries to 3

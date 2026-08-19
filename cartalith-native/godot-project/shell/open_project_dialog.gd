@@ -1,0 +1,560 @@
+extends AcceptDialog
+class_name OpenProjectDialog
+
+## File ▸ Open project…, drawn from the "Open project dialog 1920" screen in
+## `design/Cartalith DCC Shell.dc.html`.
+##
+## The screen is emphatically **not** a file browser. Its own inline comment
+## says so -- *"gallery grid — thumbnails, not a tree list"* -- and every part
+## of it is world-shaped rather than disk-shaped: a search well that offers to
+## match *"by name, seed or region"*, three scope chips (`Recent`, `All
+## worlds`, `Shared`), tiles captioned with a seed and a relative edit time, a
+## `CURRENT` badge on the world already open, and a foot that names the folder
+## projects are read from. A `.zip` on some other volume is reached through
+## the one dashed tile that is an action rather than a row: *"Drop a `.zip`
+## save or click to browse a folder"*, which hands off to `DccBrowseDialog`.
+##
+## | mockup element | here |
+## |---|---|
+## | modal 1180 x 760 | `size` / `min_size` |
+## | title + `choose a world to continue, or bring one in from disk` + `✕` | `_build_head()` |
+## | `⌕` search well | `_search` |
+## | `Recent` / `All worlds` / `Shared` chips, active one accent-outlined | `_build_scopes()` |
+## | 4-column tile grid, `16/11.5` tiles | `_grid` |
+## | dashed import tile, first | `_build_import_tile()` |
+## | `CURRENT` badge, name, `seed · edited 4 min ago` | `_build_tile()` |
+## | foot: `projects read from …`, `Cancel`, `Open selected` | `_build_foot()` |
+##
+## **What is real and what is disclosed.** Following this shell's own habit of
+## saying where an affordance has nothing behind it rather than drawing chrome
+## that implies one:
+##
+## - **Recent** is `DccSettings.recent_projects()`, filtered to paths that
+##   still exist -- the same list `Data ▸ Recent worlds` reads.
+## - **All worlds** lists `*.zip` directly inside `DccSettings.storage_root
+##   ("projects")`. Not recursive: the storage root is a flat worlds folder by
+##   construction (`dcc_settings.gd`'s `_default_root`), and walking a tree
+##   the design never draws would be inventing a capability.
+## - **Shared** is a disclosed gap. Nothing in this port has any notion of a
+##   shared, multi-user or remote project; the chip is drawn as the mockup
+##   draws it, disabled, saying so on hover.
+## - **Thumbnails are generated, not stored.** A `.zip` save carries
+##   `params.json` plus raw fields (`SAVEFILE_COMPAT.md`) and no preview
+##   image, so there is nothing to show. Rather than four identical grey
+##   rectangles, each tile takes a radial gradient hued from a hash of its own
+##   path -- stable per world, distinct between worlds, and honest about being
+##   an identicon rather than a render. When the port grows a thumbnail on
+##   save, this is the one function to replace.
+## - **Seed and edit time are real.** The time is the file's own mtime; the
+##   seed is read out of the save's `params.json` (`state.tect.seed`), which
+##   is display metadata, not a computation -- nothing downstream reads it.
+
+const TILE_MIN := Vector2(232, 186)
+const GRID_COLUMNS := 4
+
+var _host: DccApp
+
+var _search: LineEdit
+var _grid: GridContainer
+var _foot_note: Label
+var _open_btn: Button
+var _scope := "recent"
+var _scope_buttons: Dictionary = {}   ## scope id -> Button
+var _selected := ""
+var _tiles: Dictionary = {}           ## path -> PanelContainer
+
+## path -> {seed, modified, size}. Keyed by path *and* mtime so a re-saved
+## world re-reads rather than showing a stale seed; opening a `.zip` per tile
+## is cheap but not free, and the gallery rebuilds on every keystroke in the
+## search well.
+static var _meta_cache: Dictionary = {}
+
+# ---------------------------------------------------------------------------
+# Setup
+# ---------------------------------------------------------------------------
+
+func setup(host: DccApp) -> void:
+	_host = host
+	title = "Open project"
+	get_ok_button().hide()   ## the mockup's own foot row replaces it.
+	size = Vector2i(1180, 760)
+	min_size = Vector2i(880, 560)
+	_build()
+	## The dashed tile is a drop target, and a drop lands on the *window*, not
+	## on the control under the cursor -- Godot reports files at window level.
+	## Guarded on visibility so a drop onto the shell while this dialog is
+	## closed is not silently swallowed by a hidden dialog.
+	files_dropped.connect(_on_files_dropped)
+
+func open() -> void:
+	_selected = ""
+	popup_centered()
+	_refresh()
+
+# ---------------------------------------------------------------------------
+# Layout
+# ---------------------------------------------------------------------------
+
+func _build() -> void:
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 0)
+	add_child(outer)
+
+	outer.add_child(_build_head())
+	outer.add_child(DccTheme.rule())
+	outer.add_child(_build_toolbar())
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 30)
+	pad.add_theme_constant_override("margin_top", 22)
+	pad.add_theme_constant_override("margin_right", 30)
+	pad.add_theme_constant_override("margin_bottom", 8)
+	pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(pad)
+	_grid = GridContainer.new()
+	_grid.columns = GRID_COLUMNS
+	_grid.add_theme_constant_override("h_separation", 18)
+	_grid.add_theme_constant_override("v_separation", 18)
+	_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pad.add_child(_grid)
+	outer.add_child(scroll)
+
+	outer.add_child(DccTheme.rule())
+	outer.add_child(_build_foot())
+
+func _build_head() -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	row.add_child(DccTheme.label("Open project", "text_bright", DccTheme.FS_MODAL_TITLE))
+	row.add_child(DccTheme.label("choose a world to continue, or bring one in from disk",
+		"text_ghost", DccTheme.FS_SMALL))
+	row.add_child(DccTheme.spacer())
+	var close := Button.new()
+	close.text = DccIcons.SYMBOLS["cross"]
+	close.flat = true
+	close.focus_mode = Control.FOCUS_NONE
+	close.add_theme_font_override("font", DccTheme.mono())
+	close.add_theme_font_size_override("font_size", DccTheme.FS_MODAL_TITLE)
+	close.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+	close.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	close.pressed.connect(func(): hide())
+	row.add_child(close)
+	return _pad(row, 30, 22, 30, 16)
+
+func _build_toolbar() -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+
+	var well := PanelContainer.new()
+	well.add_theme_stylebox_override("panel", DccTheme.outline("line"))
+	well.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var well_row := HBoxContainer.new()
+	well_row.add_theme_constant_override("separation", 9)
+	var well_pad := MarginContainer.new()
+	well_pad.add_theme_constant_override("margin_left", 12)
+	well_pad.add_theme_constant_override("margin_right", 12)
+	well_pad.add_theme_constant_override("margin_top", 8)
+	well_pad.add_theme_constant_override("margin_bottom", 8)
+	well_pad.add_child(well_row)
+	well.add_child(well_pad)
+	well_row.add_child(DccIcons.rect("search", 12, "text_ghost"))
+	_search = LineEdit.new()
+	_search.placeholder_text = "Search worlds by name, seed or region…"
+	_search.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_search.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
+	_search.add_theme_stylebox_override("normal", DccTheme.empty())
+	_search.add_theme_stylebox_override("focus", DccTheme.empty())
+	_search.text_changed.connect(func(_t: String): _refresh())
+	well_row.add_child(_search)
+	row.add_child(well)
+
+	row.add_child(_build_scopes())
+	return _pad(row, 30, 16, 30, 0)
+
+func _build_scopes() -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 2)
+	for entry in [
+		{"id": "recent", "label": "Recent", "reason": ""},
+		{"id": "all", "label": "All worlds", "reason": ""},
+		## §-less disclosed gap: no sharing, sync or remote-project concept
+		## exists anywhere in the workspace, so the chip is present (the
+		## design draws it) and inert (nothing can answer it).
+		{"id": "shared", "label": "Shared",
+			"reason": "No shared or remote project concept exists in this port — projects are local .zip saves only."},
+	]:
+		var scope: Dictionary = entry
+		var b := Button.new()
+		b.text = String(scope["label"])
+		b.focus_mode = Control.FOCUS_NONE
+		b.add_theme_font_override("font", DccTheme.mono())
+		b.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+		if String(scope["reason"]) != "":
+			b.disabled = true
+			b.tooltip_text = String(scope["reason"])
+		else:
+			b.pressed.connect(func(): _set_scope(String(scope["id"])))
+		_scope_buttons[String(scope["id"])] = b
+		row.add_child(b)
+		_paint_scope(String(scope["id"]))
+	return row
+
+func _paint_scope(id: String) -> void:
+	var b: Button = _scope_buttons[id]
+	var on := _scope == id
+	var box := DccTheme.outline("accent" if on else "line")
+	box.content_margin_left = 12
+	box.content_margin_right = 12
+	box.content_margin_top = 6
+	box.content_margin_bottom = 6
+	for state in ["normal", "hover", "pressed", "disabled"]:
+		b.add_theme_stylebox_override(state, box)
+	b.add_theme_color_override("font_color",
+		DccTheme.c("accent") if on else DccTheme.c("text_dim"))
+	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+
+func _set_scope(id: String) -> void:
+	if _scope == id:
+		return
+	_scope = id
+	for key in _scope_buttons:
+		_paint_scope(String(key))
+	_refresh()
+
+func _build_foot() -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	_foot_note = DccTheme.mono_label("", "text_ghost", DccTheme.FS_TINY)
+	_foot_note.clip_text = true
+	row.add_child(_foot_note)
+	row.add_child(DccTheme.spacer())
+	DccWidgets.modal_button(row, "Cancel", func(): hide())
+	_open_btn = DccWidgets.modal_button(row, "Open selected", _confirm, true)
+	_open_btn.disabled = true
+	return _pad(row, 30, 14, 30, 14)
+
+# ---------------------------------------------------------------------------
+# Content
+# ---------------------------------------------------------------------------
+
+## The paths the active scope offers, newest first. `Recent` keeps the recency
+## order `DccSettings` already maintains; `All worlds` has no such order of its
+## own, so it sorts by mtime -- the same "most recently touched first" the
+## recents list means.
+func _paths() -> Array:
+	var out: Array = []
+	if _scope == "recent":
+		for p in DccSettings.recent_projects():
+			if FileAccess.file_exists(String(p)):
+				out.append(String(p))
+	elif _scope == "all":
+		var root := DccSettings.storage_root("projects")
+		for f in DirAccess.get_files_at(root):
+			if String(f).get_extension().to_lower() == "zip":
+				out.append(root.path_join(String(f)))
+		out.sort_custom(func(a: String, b: String):
+			return FileAccess.get_modified_time(a) > FileAccess.get_modified_time(b))
+	return out
+
+func _refresh() -> void:
+	## `remove_child` before `queue_free`: freeing alone is deferred to the end
+	## of the frame, so two refreshes inside one frame (opening the dialog and
+	## the first keystroke in the search well) would rebuild the gallery on top
+	## of tiles that are still parented.
+	for c in _grid.get_children():
+		_grid.remove_child(c)
+		c.queue_free()
+	_tiles.clear()
+
+	_grid.add_child(_build_import_tile())
+
+	var query := _search.text.strip_edges().to_lower()
+	var shown := 0
+	for path in _paths():
+		var meta := _project_meta(String(path))
+		if query != "" and not _matches(String(path), meta, query):
+			continue
+		_grid.add_child(_build_tile(String(path), meta))
+		shown += 1
+
+	var root := DccSettings.storage_root("projects")
+	if _scope == "shared":
+		_foot_note.text = "Shared projects are not a concept in this port"
+	elif shown == 0 and query != "":
+		_foot_note.text = "no match · projects read from %s" % root
+	elif shown == 0:
+		_foot_note.text = "nothing here yet · projects read from %s" % root
+	else:
+		_foot_note.text = "projects read from %s" % root
+	_refresh_open_button()
+
+## The search well offers "name, seed or region". Name and seed are real
+## fields; "region" has no equivalent -- a save carries no region name -- so
+## the path itself stands in for it, which is what a folder-per-region layout
+## would make the query mean anyway.
+static func _matches(path: String, meta: Dictionary, query: String) -> bool:
+	if path.to_lower().contains(query):
+		return true
+	return String(meta.get("seed", "")).to_lower().contains(query)
+
+func _build_import_tile() -> Control:
+	var wrap := PanelContainer.new()
+	wrap.custom_minimum_size = TILE_MIN
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## The mockup's `1px dashed rgba(224,163,74,.5)`. `StyleBoxFlat` has no
+	## dash pattern and a custom `_draw` for one tile is not worth the second
+	## drawing path, so this keeps the colour and weight and loses the dashes.
+	var box := DccTheme.outline("accent")
+	box.border_color = Color(DccTheme.c("accent"), 0.5)
+	wrap.add_theme_stylebox_override("panel", box)
+
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 10)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 16)
+	pad.add_theme_constant_override("margin_right", 16)
+	pad.add_child(col)
+	wrap.add_child(pad)
+
+	var glyph := DccIcons.rect("import", 26, "accent")
+	glyph.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	col.add_child(glyph)
+	var line := DccTheme.label("Drop a .zip save\nor click to browse a folder",
+		"accent", DccTheme.FS_BODY)
+	line.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(line)
+
+	_ignore_mouse(wrap)
+	wrap.gui_input.connect(func(event: InputEvent):
+		if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+			_browse_from_disk())
+	return wrap
+
+func _build_tile(path: String, meta: Dictionary) -> Control:
+	var current := _host != null and _host.current_project_path == path
+	var wrap := PanelContainer.new()
+	wrap.custom_minimum_size = TILE_MIN
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wrap.add_theme_stylebox_override("panel",
+		DccTheme.outline("accent" if current else "line", "panel"))
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	wrap.add_child(col)
+
+	## The generated identicon. See this file's header for why there is no
+	## real thumbnail to draw.
+	var thumb := Control.new()
+	thumb.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	thumb.custom_minimum_size.y = 128
+	thumb.clip_contents = true
+	var tex := TextureRect.new()
+	tex.texture = _identicon(path)
+	tex.set_anchors_preset(Control.PRESET_FULL_RECT)
+	tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	tex.stretch_mode = TextureRect.STRETCH_SCALE
+	tex.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	thumb.add_child(tex)
+	if current:
+		var badge := PanelContainer.new()
+		badge.position = Vector2(8, 8)
+		badge.add_theme_stylebox_override("panel", DccTheme.flat(Color(0, 0, 0, 0.4)))
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var badge_pad := MarginContainer.new()
+		badge_pad.add_theme_constant_override("margin_left", 6)
+		badge_pad.add_theme_constant_override("margin_right", 6)
+		badge_pad.add_theme_constant_override("margin_top", 2)
+		badge_pad.add_theme_constant_override("margin_bottom", 2)
+		badge_pad.add_child(DccTheme.mono_label("CURRENT", "accent", DccTheme.FS_MICRO, 1))
+		badge.add_child(badge_pad)
+		thumb.add_child(badge)
+	col.add_child(thumb)
+	col.add_child(DccTheme.rule())
+
+	var caption := VBoxContainer.new()
+	caption.add_theme_constant_override("separation", 2)
+	var cap_pad := MarginContainer.new()
+	cap_pad.add_theme_constant_override("margin_left", 11)
+	cap_pad.add_theme_constant_override("margin_right", 11)
+	cap_pad.add_theme_constant_override("margin_top", 9)
+	cap_pad.add_theme_constant_override("margin_bottom", 9)
+	cap_pad.add_child(caption)
+	col.add_child(cap_pad)
+
+	var title_label := DccTheme.label(path.get_file().get_basename(),
+		"text_bright" if current else "text", DccTheme.FS_BODY)
+	title_label.name = "Title"
+	title_label.clip_text = true
+	caption.add_child(title_label)
+	caption.add_child(DccTheme.mono_label(
+		"%s · %s" % [meta.get("seed", "seed unread"), meta.get("edited", "")],
+		"text_faint", DccTheme.FS_TINY))
+
+	_ignore_mouse(wrap)
+	wrap.gui_input.connect(func(event: InputEvent):
+		if not (event is InputEventMouseButton):
+			return
+		var mb := event as InputEventMouseButton
+		if not (mb.pressed and mb.button_index == MOUSE_BUTTON_LEFT):
+			return
+		_select(path)
+		if mb.double_click:
+			_confirm())
+	_tiles[path] = wrap
+	if _selected == path:
+		_paint_tile(path, true)
+	return wrap
+
+func _select(path: String) -> void:
+	var previous := _selected
+	_selected = path
+	if previous != path and _tiles.has(previous):
+		_paint_tile(previous, false)
+	if _tiles.has(path):
+		_paint_tile(path, true)
+	_refresh_open_button()
+
+func _paint_tile(path: String, on: bool) -> void:
+	var wrap: PanelContainer = _tiles[path]
+	var current := _host != null and _host.current_project_path == path
+	wrap.add_theme_stylebox_override("panel", DccTheme.outline(
+		"accent" if (on or current) else "line", "raised" if on else "panel"))
+	var title_label := wrap.find_child("Title", true, false) as Label
+	if title_label != null:
+		title_label.add_theme_color_override("font_color",
+			DccTheme.c("text_bright") if (on or current) else DccTheme.c("text"))
+
+func _refresh_open_button() -> void:
+	_open_btn.disabled = _selected == "" or not FileAccess.file_exists(_selected)
+
+func _confirm() -> void:
+	if _selected == "" or not FileAccess.file_exists(_selected):
+		return
+	var path := _selected
+	hide()
+	_host.open_recent_project(path)
+
+# ---------------------------------------------------------------------------
+# Bringing one in from disk
+# ---------------------------------------------------------------------------
+
+## The dashed tile's click half. A file browse, not a folder browse, despite
+## the tile's own "click to browse a folder" wording -- what it returns has to
+## be a `.zip` save, and `DccBrowseDialog` browses folders on the way to one.
+func _browse_from_disk() -> void:
+	DccBrowseDialog.choose_file(self, "Open project — browse", PackedStringArray(["zip"]),
+		DccSettings.storage_root("projects"),
+		"Cartalith projects are .zip saves", func(path: String):
+			hide()
+			_host.open_recent_project(path))
+
+func _on_files_dropped(files: PackedStringArray) -> void:
+	if not visible:
+		return
+	for f in files:
+		if String(f).get_extension().to_lower() == "zip":
+			hide()
+			_host.open_recent_project(String(f))
+			return
+	_foot_note.text = "that is not a .zip save"
+
+# ---------------------------------------------------------------------------
+# Per-project metadata
+# ---------------------------------------------------------------------------
+
+## `{seed, edited}` for one save. Both are display strings; nothing reads them
+## back. The seed comes from the save's own `params.json` (`SAVEFILE_COMPAT.md`
+## §`params.json`: `state.tect.seed`) via `ZIPReader`, which is a read of a
+## stored value rather than a re-derivation of one -- the distinction the
+## `godot-shell` skill's "keep logic out of GDScript" rule turns on.
+static func _project_meta(path: String) -> Dictionary:
+	var modified := FileAccess.get_modified_time(path)
+	var key := "%s@%d" % [path, modified]
+	if _meta_cache.has(key):
+		return _meta_cache[key]
+	var meta := {"seed": "seed unread", "edited": _relative_time(modified)}
+	var zip := ZIPReader.new()
+	if zip.open(path) == OK:
+		if zip.file_exists("params.json"):
+			var parsed = JSON.parse_string(zip.read_file("params.json").get_string_from_utf8())
+			if parsed is Dictionary:
+				var state = (parsed as Dictionary).get("state", {})
+				if state is Dictionary:
+					var tect = (state as Dictionary).get("tect", {})
+					if tect is Dictionary and (tect as Dictionary).has("seed"):
+						meta["seed"] = _plain_number((tect as Dictionary)["seed"])
+		zip.close()
+	_meta_cache[key] = meta
+	return meta
+
+## JSON has one number type, so `JSON.parse_string` hands back every seed as a
+## float and `str()` renders it `483920.0`. The mockup's caption reads
+## `483920 · edited 4 min ago`, and a seed is an integer everywhere else in
+## this port, so an integral value prints without the tail. A non-integral one
+## is left exactly as it came, rather than being rounded into a lie.
+static func _plain_number(value) -> String:
+	if value is float and is_equal_approx(value, floor(value)):
+		return "%d" % int(value)
+	return str(value)
+
+## "edited 4 min ago" -- the mockup's own phrasing, in its own units.
+static func _relative_time(unix: int) -> String:
+	if unix <= 0:
+		return "never opened"
+	var delta := int(Time.get_unix_time_from_system()) - unix
+	if delta < 60:
+		return "edited just now"
+	if delta < 3600:
+		return "edited %d min ago" % int(delta / 60.0)
+	if delta < 86400:
+		return "edited %d h ago" % int(delta / 3600.0)
+	if delta < 172800:
+		return "edited yesterday"
+	if delta < 604800:
+		return "edited %d days ago" % int(delta / 86400.0)
+	if delta < 2419200:
+		return "edited %d weeks ago" % int(delta / 604800.0)
+	return "edited " + Time.get_date_string_from_unix_time(unix)
+
+## A stable, per-world radial wash. Hue from the path's hash so the same world
+## always reads the same colour and two worlds rarely collide; saturation and
+## value are fixed low, because these tiles sit behind an accent selection
+## border and must never compete with it.
+static func _identicon(path: String) -> Texture2D:
+	var hue := float(abs(path.hash()) % 360) / 360.0
+	var g := Gradient.new()
+	g.set_color(0, Color.from_hsv(hue, 0.30, 0.22))
+	g.set_color(1, Color.from_hsv(hue, 0.22, 0.11))
+	var t := GradientTexture2D.new()
+	t.gradient = g
+	t.fill = GradientTexture2D.FILL_RADIAL
+	t.fill_from = Vector2(0.46, 0.42)
+	t.fill_to = Vector2(1.0, 1.0)
+	t.width = 96
+	t.height = 72
+	return t
+
+## A whole tile is one click target, so nothing inside it may eat the event.
+## Godot's default `mouse_filter` is `STOP` on every `Control`, containers
+## included, which means an unattended `VBoxContainer` silently swallows the
+## click the tile around it is listening for. Every clickable composite in this
+## shell that is built from containers rather than from a `Button` needs this.
+static func _ignore_mouse(node: Node) -> void:
+	for child in node.get_children():
+		if child is Control:
+			(child as Control).mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_ignore_mouse(child)
+
+func _pad(child: Control, l: int, t: int, r: int, b: int) -> MarginContainer:
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_left", l)
+	m.add_theme_constant_override("margin_top", t)
+	m.add_theme_constant_override("margin_right", r)
+	m.add_theme_constant_override("margin_bottom", b)
+	m.add_child(child)
+	return m

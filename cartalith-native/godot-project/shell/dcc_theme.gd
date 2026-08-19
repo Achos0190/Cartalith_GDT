@@ -94,6 +94,13 @@ const FS_MICRO := 9    ## Section labels and the smallest readouts.
 const FS_HEADER := 9   ## §-prefixed section headers, tracked wide.
 const FS_READOUT := 11 ## Mono numerics.
 const FS_HERO := 26    ## The one big accent readout per context (§6's elevation).
+## The one size the shell's *modal* screens set their own title in -- both the
+## "Open project dialog 1920" and "Select folder dialog 1920" cards in
+## `design/Cartalith DCC Shell.dc.html` open with `font:500 16px` prose, a
+## step above anything a dock ever draws. A modal title is the only place in
+## the design where 16 px appears, which is why it is its own token rather
+## than an off-by-one reuse of `FS_HERO`.
+const FS_MODAL_TITLE := 16
 
 static var _tracked: Dictionary = {}  ## spacing px -> FontVariation
 
@@ -217,6 +224,24 @@ static func panel(token: String = "panel", border: Dictionary = {}) -> StyleBoxF
 	sb.border_width_right = border.get("right", 0)
 	sb.border_width_top = border.get("top", 0)
 	sb.border_width_bottom = border.get("bottom", 0)
+	return sb
+
+## A hairline *outline* box: border on all four sides, optional fill.
+##
+## `panel()` above draws a filled region with the one edge that faces its
+## neighbour; this draws the other thing the mockup uses constantly -- a chip,
+## a path well, a gallery tile, a selected row -- where the whole rectangle is
+## outlined and the fill is either nothing or a wash. `border_token` is a
+## palette token so the accent-outlined variants (the mockup's active filter
+## chip, its selected folder row, its "Open selected" button) go through the
+## same call as the quiet `line` ones instead of hand-rolling a StyleBoxFlat
+## per site. Radius stays 0 per §11.
+static func outline(border_token: String = "line", bg_token: String = "",
+		width: int = 1) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = c(bg_token) if bg_token != "" else Color(0, 0, 0, 0)
+	sb.border_color = c(border_token)
+	sb.set_border_width_all(width)
 	return sb
 
 static func flat(color: Color, radius: int = 0) -> StyleBoxFlat:

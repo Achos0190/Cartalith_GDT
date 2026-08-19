@@ -41,6 +41,17 @@ const PATHS := {
 	"dice": '<rect x="2.4" y="2.4" width="11.2" height="11.2" rx="2"/><circle cx="5.6" cy="5.6" r="0.7" fill="#ffffff" stroke="none"/><circle cx="10.4" cy="10.4" r="0.7" fill="#ffffff" stroke="none"/><circle cx="8" cy="8" r="0.7" fill="#ffffff" stroke="none"/>',
 	"window": '<rect x="1.6" y="4" width="9.6" height="9.6" rx="1"/><path d="M5.2 4 V2.4 H14.4 V11.6 H12.8"/>',
 
+	## The two file-dialog screens' own marks (`design/Cartalith DCC Shell.
+	## dc.html`, "Open project dialog 1920"): `⌕` on the search well and `⤓` on
+	## the import/drop tile. Drawn rather than left as text -- unlike the
+	## symbols in `SYMBOLS` below, U+2315 and U+2913 are missing from Plex Mono
+	## *and* from the Segoe UI Symbol / DejaVu fallback chain `mono()` installs,
+	## so as text they render as tofu on at least one target platform. §12's
+	## "typographic symbols stay text" premise holds only for glyphs that
+	## actually exist somewhere in the chain.
+	"search": '<circle cx="7" cy="7" r="4.4"/><path d="M10.2 10.2 L14.2 14.2"/>',
+	"import": '<path d="M8 2.4 V10.4"/><path d="M4.8 7.4 L8 10.6 L11.2 7.4"/><path d="M2.6 13.4 H13.4"/>',
+
 	# ── Tool palette (§4.5), glyphs described in §12's second table ───────────
 	# One tool is armed at a time, globally; these are what the TOOLS block at
 	# the head of every left dock draws.

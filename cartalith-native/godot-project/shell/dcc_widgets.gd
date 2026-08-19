@@ -330,6 +330,46 @@ static func action(parent: Control, text: String, on_press: Callable,
 	parent.add_child(b)
 	return b
 
+## The button a *modal* commits or dismisses with -- "Cancel" / "Open
+## selected" / "Use this folder" on the two file-dialog screens in
+## `design/Cartalith DCC Shell.dc.html`.
+##
+## Deliberately not `action(primary: true)`: that draws a filled accent slab,
+## which is the left dock's own "run this pass" affordance. Both modal screens
+## draw their primary as `border:1px solid #e0a34a` with accent *text* on the
+## modal ground -- an outline, one weight quieter, because a dialog's primary
+## is a confirmation and not a computation. Keeping the two distinct is the
+## point; unifying them would flatten a distinction the design makes twice.
+static func modal_button(parent: Control, text: String, on_press: Callable,
+		primary: bool = false) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(0, 30)
+	b.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
+	var token := "accent" if primary else "line"
+	var fg := "accent" if primary else "text"
+	b.add_theme_color_override("font_color", DccTheme.c(fg))
+	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	var rest := DccTheme.outline(token)
+	rest.content_margin_left = 18
+	rest.content_margin_right = 18
+	rest.content_margin_top = 8
+	rest.content_margin_bottom = 8
+	b.add_theme_stylebox_override("normal", rest)
+	b.add_theme_stylebox_override("pressed", rest)
+	b.add_theme_stylebox_override("disabled", rest)
+	var hover := DccTheme.outline(token, "accent_wash" if primary else "line_soft")
+	hover.content_margin_left = 18
+	hover.content_margin_right = 18
+	hover.content_margin_top = 8
+	hover.content_margin_bottom = 8
+	b.add_theme_stylebox_override("hover", hover)
+	b.pressed.connect(on_press)
+	parent.add_child(b)
+	return b
+
 ## §4.5's tool palette. One square icon button, toggle-style, joined into
 ## `group` (a shared `ButtonGroup` -- `DccApp.tool_group`, the SAME instance
 ## across every domain's TOOLS block) so arming a tool anywhere disarms it

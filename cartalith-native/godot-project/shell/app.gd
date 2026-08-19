@@ -21,6 +21,10 @@ var right_dock_ctrl: RightDock
 var data_manager_window: DataManagerWindow
 var asset_library_window: AssetLibraryWindow
 var travel_library_window: TravelLibraryWindow
+## Long-lived, unlike `DccBrowseDialog` (which spawns and frees per pick):
+## the gallery holds a scope chip and a search query worth keeping between
+## opens, exactly like every other window on this list.
+var open_project_dialog: OpenProjectDialog
 
 ## The path `bridge.load_save(path)` last succeeded with, remembered here
 ## (Godot-side only, no Rust change) so File ▸ Show project on disk and
@@ -153,6 +157,10 @@ func _ready() -> void:
 	travel_library_window = TravelLibraryWindow.new()
 	add_child(travel_library_window)
 	travel_library_window.setup(self, bridge)
+
+	open_project_dialog = OpenProjectDialog.new()
+	add_child(open_project_dialog)
+	open_project_dialog.setup(self)
 
 	layers_popover = LayersPopover.new()
 	add_child(layers_popover)
@@ -367,9 +375,14 @@ func _refresh_rail_foot() -> void:
 func open_new_world() -> void:
 	new_world_dialog.popup_centered()
 
+## File ▸ Open project… (`DCC_SHELL_SPEC.md` §2.1). The generic Godot
+## `FileDialog` this used to pop is gone: `design/Cartalith DCC Shell.dc.html`
+## gained an "Open project dialog 1920" screen that is a world *gallery* --
+## recents, seeds, edit times, a `CURRENT` badge -- not a file tree, and
+## `open_project_dialog.gd` draws exactly that. Its own dashed import tile is
+## the route to a `.zip` sitting somewhere else on disk.
 func open_project_picker() -> void:
-	_pick_file("Open project", ["*.zip ; Cartalith project"], func(path: String):
-		_load_project(path))
+	open_project_dialog.open()
 
 ## Shared by the file-picker path above and `Data ▸ Recent worlds` / the
 ## Data manager window's own Import ▸ World Data route -- one place remembers
@@ -389,24 +402,20 @@ func _load_project(path: String) -> void:
 func open_recent_project(path: String) -> void:
 	_load_project(path)
 
+## Assets ▸ Import pack… Deliberately *not* the gallery above: the mockup's
+## Open-project screen is world-shaped throughout (it captions tiles with a
+## seed and an edit time, it is titled "choose a world to continue", its foot
+## names the projects root), and an asset pack is none of those things. It
+## gets the other new screen instead -- `DccBrowseDialog` in file mode, which
+## is the "Select folder dialog 1920" browser with its file rows live rather
+## than dimmed -- so no stock `FileDialog` survives on this path either.
 func open_asset_pack_picker() -> void:
-	_pick_file("Import asset pack", ["*.zip ; Asset pack"], func(path: String):
-		if not bridge.load_asset_pack(path):
-			set_status("hint", "asset pack failed — see console", "accent"))
-
-func _pick_file(title: String, filters: Array, on_pick: Callable) -> void:
-	var d := FileDialog.new()
-	d.title = title
-	d.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-	d.access = FileDialog.ACCESS_FILESYSTEM
-	for f in filters:
-		d.add_filter(f)
-	d.file_selected.connect(func(path: String):
-		on_pick.call(path)
-		d.queue_free())
-	d.canceled.connect(func(): d.queue_free())
-	add_child(d)
-	d.popup_centered_ratio(0.6)
+	DccBrowseDialog.choose_file(self, "Import asset pack", PackedStringArray(["zip"]),
+		DccSettings.storage_root("asset_packs"),
+		"asset packs read from %s" % DccSettings.storage_root("asset_packs"),
+		func(path: String):
+			if not bridge.load_asset_pack(path):
+				set_status("hint", "asset pack failed — see console", "accent"))
 
 ## `tab`, if given, opens `world_data_window` scoped straight to that tab
 ## ("Settlements" / "Provinces" / "Economy") -- `right_dock.gd`'s RD-03
@@ -497,21 +506,22 @@ func open_storage_locations() -> void:
 
 	d.popup_centered()
 
+## The storage-locations rows' own Browse… button. This is the call site
+## "Select folder dialog 1920" was drawn for -- the mockup even titles itself
+## "Select markdown vault folder", one of the roots this shell will grow
+## (`MARKDOWN_VAULT_INTEGRATION.md`), and its foot states where the chosen
+## folder's contents will be written. `DccBrowseDialog.choose_folder`'s
+## callback takes the same single absolute path `FileDialog.dir_selected` did,
+## so this function's body is otherwise unchanged.
 func _browse_root(key: String, readout: Label) -> void:
-	var fd := FileDialog.new()
-	fd.title = "Choose folder — %s" % String(DccSettings.ROOT_LABELS[key])
-	fd.file_mode = FileDialog.FILE_MODE_OPEN_DIR
-	fd.access = FileDialog.ACCESS_FILESYSTEM
-	var current := DccSettings.storage_root(key)
-	if DirAccess.dir_exists_absolute(current):
-		fd.current_dir = current
-	fd.dir_selected.connect(func(path: String):
-		DccSettings.set_storage_root(key, path)
-		readout.text = path
-		fd.queue_free())
-	fd.canceled.connect(func(): fd.queue_free())
-	add_child(fd)
-	fd.popup_centered_ratio(0.6)
+	DccBrowseDialog.choose_folder(self,
+		"Select %s folder" % String(DccSettings.ROOT_LABELS[key]).to_lower(),
+		DccSettings.storage_root(key),
+		"%s currently written to %s" % [String(DccSettings.ROOT_LABELS[key]),
+			DccSettings.storage_root(key)],
+		func(path: String):
+			DccSettings.set_storage_root(key, path)
+			readout.text = path)
 
 ## File ▸ Show project on disk (`DCC_SHELL_SPEC.md` §2.1) -- reveals
 ## `current_project_path`'s containing folder in the real OS file manager.

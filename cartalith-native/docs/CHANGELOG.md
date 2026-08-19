@@ -15771,3 +15771,132 @@ removed.
 `cartalith-native/godot-project/shell/workspaces/cartography_workspace.gd`,
 `cartalith-native/godot-project/shell/workspaces/render_workspace.gd`,
 `DCC_SHELL_SPEC.md`, `GUI_GAP_REGISTER.md`, this file, `docs/STATUS.md`.
+
+## In-shell file dialogs: the world gallery and the breadcrumb browser (2026-08-20)
+
+GDScript only, no Rust. `design/Cartalith DCC Shell.dc.html` (re-vendored at
+`419be0d`) gained two screens — **"Open project dialog 1920"** and **"Select
+folder dialog 1920"** — whose whole purpose is to retire the stock Godot
+`FileDialog` the shell still popped in three places. Both are now built, and
+no `FileDialog` remains on any path this pass owns.
+
+**What the two screens actually are.** They are not one dialog drawn twice:
+
+- **Open project** is a *world gallery*, not a file browser. Its own inline
+  comment says so — `gallery grid — thumbnails, not a tree list`. A 1180x760
+  modal: title plus `choose a world to continue, or bring one in from disk`,
+  a `⌕` search well offering to match `by name, seed or region`, three scope
+  chips (`Recent` accent-outlined and active, `All worlds`, `Shared`), a
+  four-column tile grid at `aspect-ratio:16/11.5`, and a foot reading
+  `projects read from ~/Cartalith/Worlds` beside `Cancel` / `Open selected`.
+  The **first** grid cell is not a world: it is a dashed accent drop zone
+  (`⤓`, *"Drop a .zip save or click to browse a folder"*), placed first so it
+  reads as an action rather than a browse row. World tiles carry a radial
+  thumbnail, an optional `CURRENT` badge, a name, and a mono
+  `483920 · edited 4 min ago` caption.
+- **Select folder** is the *breadcrumb browser* (its own comment: *"open
+  breadcrumb browser, replaces the stock OS tree picker"*). A 760x640 modal:
+  title `Select markdown vault folder`, an open breadcrumb (`Home ›
+  Documents › Cartalith`, last segment accent) with `⌂ Home` at the right, a
+  typeable current-folder path well, then flat generous rows — `▸ Vault` with
+  a right-hand `14 items`, the selected row accent-outlined and washed with a
+  mono `selected` tag, files explicitly `dimmed, not selectable` — a dashed
+  `＋ New folder…` row, and a foot naming where the chosen folder's contents
+  will be written beside `Cancel` / `Use this folder`.
+
+**Built.**
+
+- `godot-project/shell/open_project_dialog.gd` (`OpenProjectDialog`) — the
+  gallery. Two files rather than one `file_dialogs.gd`: the two screens share
+  a modal chrome and nothing else, and one `class_name` per file is the
+  shell's existing convention for every other window.
+- `godot-project/shell/browse_dialog.gd` (`DccBrowseDialog`) — the browser,
+  with a `PickKind` of `FOLDERS` (the mockup exactly) or `FILES` (same pixels,
+  file rows live instead of dimmed). Enum named `PickKind` because `Window`
+  already owns `Mode` and a clashing enum shadows it — caught at boot, not
+  guessed. Spawned per invocation through `choose_folder()`/`choose_file()`
+  static factories and freed on close, matching the lifetime of the
+  `FileDialog` it replaces; the gallery is long-lived like every other window
+  because it holds a scope chip and a search query worth keeping.
+
+**Call sites replaced** (`app.gd`): `open_project_picker()` now opens the
+gallery; `_browse_root()` (all four storage roots, File ▸ Storage locations)
+now opens `choose_folder`; `open_asset_pack_picker()` now opens `choose_file`
+filtered to `.zip`. `_pick_file()` is deleted — it had no other caller.
+Callback shapes are unchanged (one absolute path), so `data_manager_window.gd`
+and `menus.gd` needed no edit at all.
+
+**The asset-pack decision, stated.** Asset packs get the *browser*, not the
+gallery. The gallery is world-shaped in every part the design draws — seed
+and edit-time captions, a `CURRENT` badge for the open world, a foot naming
+the projects root, a title reading *"choose a world to continue"* — and an
+asset pack is none of those. Giving it the same screen with different filters
+would have meant showing packs with fake seeds under a heading about worlds.
+
+**Real, not chrome.** Directory listing, navigation, extension filtering,
+selection, folder creation and choose-this-folder all run on `DirAccess` /
+`FileAccess`. `DccSettings.recent_projects()` backs the `Recent` scope
+(filtered to paths that still exist — the same list `Data ▸ Recent worlds`
+reads); `All worlds` lists `*.zip` in `DccSettings.storage_root("projects")`
+sorted by mtime; every foot line names the real root. Seeds are read out of
+each save's own `params.json` (`state.tect.seed`, `SAVEFILE_COMPAT.md`) with
+`ZIPReader`, cached per path+mtime — a read of a stored value, not a
+re-derivation, which is the line the `godot-shell` skill's "keep logic out of
+GDScript" rule draws. Drops are wired to `Window.files_dropped`, guarded on
+visibility.
+
+**Disclosed gaps, said rather than faked.** (a) **Shared** is drawn as the
+mockup draws it and disabled, with the reason on hover: no shared, synced or
+remote project concept exists anywhere in this port. (b) **Thumbnails are
+generated, not stored** — a `.zip` save carries `params.json` and raw fields
+and no preview image, so each tile takes a radial gradient hued from a hash
+of its own path: stable per world, distinct between worlds, and documented in
+the one function to replace when saves grow a real thumbnail. (c) **Dashes
+are approximated** — `StyleBoxFlat` has no dash pattern, so the mockup's two
+dashed borders keep their colour and weight and lose the dashes rather than
+gaining a second custom drawing path for two rectangles.
+
+**Shared-file additions**, each because no token existed and hard-coding the
+hex would have violated the shell's own rule: `DccTheme.FS_MODAL_TITLE` (16 —
+the only place the design uses that size, both modal titles);
+`DccTheme.outline()` (a four-sided hairline box with an optional wash, which
+is how the mockup draws every chip, well, tile and selected row — `panel()`
+draws the *other* thing, a filled region with one neighbour-facing edge);
+`DccWidgets.modal_button()` (outlined, deliberately not `action(primary)`'s
+filled accent slab — both screens draw a dialog's primary one weight
+quieter); and `DccIcons` glyphs `search` and `import`, drawn rather than left
+as text because U+2315 and U+2913 are missing from Plex Mono *and* from the
+`SystemFont` fallback chain, so as text they are tofu on at least one target.
+
+**Verified — actually driven, not just parsed.** A temporary
+`_dialog_probe.gd` (deleted after use, the same scripted-headless-drive
+convention prior passes used; windows only exist once the tree runs, so its
+body defers to the first processed frame) built a real directory tree with
+three subfolders, a `.log` and a real `ZIPPacker`-written `Eldra.zip` holding
+`{"state":{"tect":{"seed":483920}}}`, then ran **25 checks, all passing**:
+folder mode lists all four entries and marks the `.log` non-live; navigating
+into `Vault` and back out through the breadcrumb lands on the right `_cwd`;
+selecting a child row and confirming returns that child, while confirming
+with nothing selected returns the current folder (the mockup's "Use this
+folder" reading correctly both ways) and the folder-mode primary is never
+disabled; file mode disables its primary until a pick, lists the `.zip`,
+returns it on confirm, rejects a `.log` by extension, and navigates on a
+typed path; the gallery reads `483920` out of the real zip, formats a
+relative edit time, finds the save through the `All worlds` scope, builds
+import-tile-plus-one, enables `Open selected` only after a pick, keeps the
+`Shared` chip disabled, matches a seed-string search, and empties on a
+non-matching one.
+
+Two real bugs the drive caught and fixed before commit: `JSON.parse_string`
+returns every number as a float, so the seed rendered `483920.0` (now printed
+plain when integral, left alone when not); and `queue_free()` alone defers to
+end-of-frame, so two refreshes inside one frame rebuilt a gallery/list on top
+of still-parented children (now `remove_child` first, in both dialogs).
+
+**Files touched:** `cartalith-native/godot-project/shell/open_project_dialog.gd`
+(new), `cartalith-native/godot-project/shell/browse_dialog.gd` (new),
+`cartalith-native/godot-project/shell/app.gd`,
+`cartalith-native/godot-project/shell/dcc_theme.gd`,
+`cartalith-native/godot-project/shell/dcc_widgets.gd`,
+`cartalith-native/godot-project/shell/dcc_icons.gd`, this file,
+`docs/STATUS.md`.
