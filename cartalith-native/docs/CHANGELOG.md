@@ -13927,3 +13927,153 @@ these 7 methods yet. Save-format persistence of `civTimeline`/`civYear`
 remains deferred, as `TIMELINE_SCOPE.md` §9 already recorded. The
 `fortified`/`ruins` snapshot gap above is disclosed, not fixed, in this pass.
 
+## Timeline milestone 6 — UI playback controls, the shell (`TIMELINE_SCOPE.md` milestone 6, 2026-08-19)
+
+Closes `TIMELINE_SCOPE.md`'s milestone list. GDScript only — no Rust file
+touched (a separate, concurrent, unrelated pass had `cartalith-civ/src/
+lib.rs` and `cartalith-godot/src/lib.rs` modified-but-uncommitted in the
+working tree throughout this dispatch; left untouched and not staged into
+this milestone's commit).
+
+**Where it lives, and why not where the brief's own precedent pointed**: a
+new sixth `DccWidgets.category()` — "Timeline" — in `civilization_workspace
+.gd`'s left dock, alongside the file's existing Settlements/Population/
+Economy/Politics/Culture categories, rather than a new `right_dock.gd` CTX_*
+context (`CTX_SCULPT`/`CTX_JOURNEY` were the dispatch's own suggested
+precedent). Both of those are driven by an actual map TOOL arming
+(`app.tool_armed`) tied to viewport interaction; Timeline has no map click of
+its own — add year / goto year / run simulation are pure state edits, the
+same shape this file's own Settlements/Population/Politics categories
+already are (click a row, act, done) — so `DccWidgets.category()`, this
+file's own established vocabulary (used five times before this milestone),
+is the correctly-scoped precedent instead. Also deliberately **not** wired
+into `dcc_shell.gd`'s own `timeline_bar`/`timeline_row` — the empty bottom
+strip `DCC_CONTROL_INDEX.md` §10 reserves and shows for civilization/
+infrastructure (`app.gd`'s `_on_workspace_changed`) — per `TIMELINE_SCOPE.md`
+§4's own instruction to default to a dedicated panel rather than risk
+building into the still-undecided six-toggle continuous-simulation region;
+that bar is one fixed-height row with no room for everything below, and §10
+never says whether its own scrub track means this discrete `civTimeline` or
+the other feature. Left untouched.
+
+**Built, all six of the brief's own numbered pieces**:
+
+1. **Years pill row + Add year** — one pill per `get_civ_timeline_years()`
+   entry, `_civFormatYear` ported verbatim (`-1200 → "1200 BC"`, `450 →
+   "450 AD"`) as `_tl_format_year`; clicking a pill calls `civ_goto_year`,
+   its own ✕ calls `civ_remove_year`. A year-value `SpinBox` (default `100`,
+   the reference's own `#civTlYear` default) plus an Add year button calls
+   `civ_add_year`.
+2. **Scrub track** — real time-scale, matching the reference's v0.91
+   behavior verified against the reference directly (`_civWireYearSlider`,
+   lines 26451-26474): min/max are the actual lowest/highest recorded years,
+   not a snapshot-count index, and dragging snaps to the nearest recorded
+   year every tick (`_tl_nearest_year`), with a full pill-row/active-year
+   refresh on release (`drag_ended`) rather than every tick, mirroring the
+   reference's own `oninput`-snaps/`onchange`-rebuilds split.
+3. **Playback transport** — Play/Pause via a real `Timer` (`wait_time =
+   1.2`, the reference's own 1200ms interval verbatim) advancing to the next
+   recorded year and auto-stopping at the end (`_civTlStartPlay`/
+   `_civTlStopPlay`, lines 26424-26440, ported behavior-for-behavior), plus
+   a Step button (this milestone's own addition — the brief asked for
+   Play/Pause/**Step**, which the reference's markup doesn't have as a
+   separate control) that advances one recorded year without arming the
+   timer.
+4. **The three filter checkboxes** — exist-only/ghost/highlight toggle real
+   `bool` state and the panel calls `civ_year_diff()` for a live present/
+   removed/added tid-set count readout underneath them (verified against a
+   real multi-year, multi-settlement fixture in the headless smoke run
+   below — real, non-zero, changing numbers). **They do not filter/ghost/
+   highlight individual settlement pins on the map** — a real, disclosed
+   gap, not a faked one: `get_settlements()` (`lib.rs`) carries no `tid`
+   field, even though `NamedSettlement` gained one at the Rust level in
+   milestone 1 (confirmed by reading `get_settlements()`'s own `#[func]`
+   doc comment and its dict-building body directly — no `"tid"` key
+   anywhere in `lib.rs`, `map_overlay.gd`'s `_settlements` array carries no
+   tid either). Nothing on the Godot side can therefore tell which drawn pin
+   any of `civ_year_diff()`'s tids refers to; matching by name/position
+   would be exactly the kind of fake disambiguation `TIMELINE_SCOPE.md`'s
+   own module doc warns tid exists to avoid (a same-named settlement can be
+   a genuinely different object). Closing this needs a Rust-side change —
+   `get_settlements()` (and/or a new per-year snapshot-settlements getter,
+   since `civ_goto_year` deliberately never touches live `settlements`
+   either) exposing `tid` — explicitly out of this GDScript-only milestone's
+   own constraint ("no Rust files"). Stated in-product (a note under the
+   checkboxes) and here, not silently worked around.
+5. **The collapse-simulation form** — Mode (collapse/recovery) · Character
+   (mixed/trade/disease/conflict, collapse-only) · Severity (0-100%,
+   collapse-only) or Regrowth rate (0.1-3.0%/yr, recovery-only, reproducing
+   the reference's own tenths-of-percent slider granularity in percent units
+   directly rather than porting its raw 1-30 tick scale) · Start year ·
+   Duration · Step years · a primary Simulate button calling
+   `civ_run_collapse_simulation`, and an output note reproducing the
+   reference's own `civSimOut` wording per mode (died/migrated/unplaced/
+   failed for collapse, settlements-remain-and-regrow for recovery). The
+   `needs_confirm`/`clobber_years` response is handled with a real
+   `ConfirmationDialog` (title, the reference's own overwrite-count/year-list
+   wording, an "Overwrite" OK button, Cancel/close as No) added to `app` —
+   this shell's own `AcceptDialog`-on-`app`-root convention
+   (`app.gd`'s `open_storage_locations`/`open_credits`, `cartography_
+   workspace.gd`'s `_prompt_label_name`), extended to `ConfirmationDialog`
+   since none of those needed a real two-way choice before. Confirming
+   re-sends the identical request with `confirm_overwrite: true`.
+6. **Gating verified against the reference, not assumed**: `_civBuildExplore
+   TimelineUI` (line 26481) hides the slider/playback row unless
+   `civTimeline.length>1`; the scrub and playback sections here both early-
+   return under the same `years.size() < 2` guard, and the years section
+   itself (Add year) never gates — matching the reference's own comment at
+   line 1885-1887 ("adding the first year has to start somewhere").
+
+**Territory-view refresh, found while wiring, not in the brief's own
+checklist**: every call that moves the timeline cursor (`civ_goto_year`, via
+a pill click, a scrub drag, Step, a playback tick, or the end-of-simulation
+`civ_goto_year(end_year)` `civ_run_collapse_simulation` performs internally)
+reloads the engine's `territory` grid but does not itself touch the rendered
+texture. `_tl_refresh_territory_view()` writes `app.viewport.territory_view
+.texture = bridge.territory_texture()` after every one of those calls — the
+same direct-field-write-without-`ViewportHost.refresh()`'s-camera-reset
+pattern `_commit_territory()`/`_refresh_civ_data()` in this same file already
+use, for the same reason (a camera snap on every scrub tick would be
+disorienting).
+
+**Verified**: every modified file parses (`godot --headless --check-only
+--script` conceptually covered by the full boot below, since this pass
+touched only one file). A first headless boot (`--headless --path
+godot-project --quit`) was clean before any new code, confirming the
+baseline. After the change: a second `--headless --path godot-project
+--import` rescan (no new `class_name` added this pass, so not strictly
+required, but run anyway per this project's own "worth remembering" note)
+and a further `--headless --path godot-project --quit` boot, both clean, no
+parse or registration errors. **A scripted, discarded smoke scene**
+(`_smoke_timeline.gd`/`.tscn`, deleted after this pass, same precedent as
+the Data-manager and Journey-planner milestones' own smoke runs) instanced
+the real `app.tscn`, generated a real 160×160/300 km world, and drove the
+new code paths directly (the same handlers the buttons call, not simulated
+clicks): `civ_add_year(50)` then `civ_add_year(150)` — years list becomes
+`[50, 150]`, active year tracks each add; `civ_goto_year(50)` — active year
+updates, pill row builds 10 children with no error; `civ_year_diff(150)` —
+returned real non-zero counts (`141 present / 0 removed / 0 added`, a real
+settlement roster existing by year 150 with nothing to compare against
+before it); `Step` — advances to 150; a collapse simulation (character
+conflict, severity 0.8, start 150, duration 20, step 10) against the real
+generated settlements — real output: `"Simulated 2 steps (10 yr each), 150
+AD -> 170 AD. 9 settlements remain. 57111 died, 15086 migrated (53494 lost
+in transit/diaspora), 125 settlements failed/abandoned."`, and two new
+timeline years (160, 170) appended; **re-running the identical request
+correctly returned `needs_confirm` and left `_tl_sim_out` unchanged** (the
+real `ConfirmationDialog` was constructed and popped with no error headless
+— exercising that codepath, not just the data layer), then **re-running with
+`confirm_overwrite: true` succeeded and overwrote in place**; Play/Stop
+toggled `_tl_playing` correctly; `civ_remove_year(50)` left `[150, 160,
+170]`. No crash anywhere in the sequence. Smoke files deleted before this
+commit — `git status` shows only `civilization_workspace.gd` plus this
+milestone's doc updates from this pass.
+
+**Out of scope, per `TIMELINE_SCOPE.md` §4/§6**: the DCC shell's own
+six-toggle continuous-simulation Timeline region (`DCC_CONTROL_INDEX.md`
+§10's Climate/Population/Economy/Politics/Infrastructure/Warfare toggles)
+and Warfare — untouched, still the owner's open product decision.
+Save-format persistence of `civTimeline`/`civYear` remains deferred per §9.
+The settlement-pin tid gap (item 4 above) is a real, disclosed, Rust-side
+follow-up, not fixed here.
+

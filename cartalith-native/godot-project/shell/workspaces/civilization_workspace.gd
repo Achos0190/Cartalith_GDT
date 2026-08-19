@@ -56,6 +56,26 @@ var _territory_faction := 1
 var _territory_radius := 5.0
 var _territory_subtract := false
 
+## -- Timeline state (`TIMELINE_SCOPE.md` milestone 6). See the Timeline
+## section's own header comment, below `_build_culture()`, for why this is a
+## sixth `DccWidgets.category()` here rather than a new `right_dock.gd` CTX_*
+## context. --
+var _tl_body: VBoxContainer
+var _tl_add_year := 100                 ## Reference default (`#civTlYear` value="100").
+var _tl_playing := false
+var _tl_play_timer: Timer
+var _tl_sim_mode := "collapse"          ## "collapse" | "recovery"
+var _tl_sim_character := "mixed"        ## "mixed" | "trade" | "disease" | "conflict"
+var _tl_sim_severity := 0.5             ## fraction [0,1] -- reference slider/100
+var _tl_sim_rate := 0.01                ## fraction/yr -- reference slider(tenths-%)/1000
+var _tl_sim_start_year := 0
+var _tl_sim_duration := 100
+var _tl_sim_step_years := 10
+var _tl_filter_exist_only := false
+var _tl_filter_ghost := false
+var _tl_filter_highlight := false
+var _tl_sim_out := ""
+
 
 func _build() -> void:
 	_build_tools()
@@ -64,6 +84,7 @@ func _build() -> void:
 	_build_economy()
 	_build_politics()
 	_build_culture()
+	_build_timeline()
 
 # -- Tools (§4.5.3: Settlement, Territory) -------------------------------
 
@@ -500,3 +521,409 @@ func _build_culture() -> void:
 		"get_settlements()/get_provinces() carry no culture field, and there is no " +
 		"get_cultures() to read one from. Nothing here can be honest until that binding " +
 		"lands.")
+
+# -- Timeline (`TIMELINE_SCOPE.md` milestone 6) --------------------------------
+#
+# Built as a sixth L2 category in THIS workspace's left dock, alongside
+# Settlements/Population/Economy/Politics/Culture above, rather than a new
+# `right_dock.gd` CTX_* context. `right_dock.gd`'s own CTX_SCULPT/CTX_JOURNEY
+# (the precedent this milestone's own brief pointed at) are both driven by an
+# actual map TOOL arming (`app.tool_armed`) tied to viewport interaction --
+# Sculpt shows the live stamp stack while the Sculpt tool is armed or a
+# stroke just ended; Journey swaps the whole INFRA region while the JOURNEY
+# tool is armed. Timeline has no map click of its own: add year / goto year /
+# run simulation are all pure state edits with no tool to arm, exactly like
+# THIS FILE's own Settlements/Population/Politics categories already are
+# (click a row, pin something, done). Given that, `DccWidgets.category()` --
+# this file's own established vocabulary, used five times already above -- is
+# the correctly-scoped precedent, not `right_dock.gd`'s tool-armed dispatch.
+#
+# Also deliberately NOT wired into `dcc_shell.gd`'s own `timeline_bar`/
+# `timeline_row` (`_build_timeline()` there -- the empty bottom strip
+# `DCC_CONTROL_INDEX.md` §10 reserves, shown for civilization/infrastructure,
+# `app.gd`'s `_on_workspace_changed` line ~271). `TIMELINE_SCOPE.md` §4's own
+# words: "if you're unsure whether a given shell region is the discrete
+# scrub mechanism vs the continuous six-toggle feature, stop and default to
+# building your own dedicated panel rather than risking the wrong one." That
+# bar is one fixed-height HBox row -- no room for a year-pill list, an add-
+# year field, three filter checkboxes AND the whole collapse-sim form -- and
+# §10 never disambiguates whether ITS OWN scrub track is meant for this
+# discrete `civTimeline` or the still-open six-toggle continuous simulation.
+# Left untouched rather than risk building into the wrong one; this category
+# is the "dedicated panel" that note calls for instead.
+#
+# Real, disclosed gap (`_build_timeline_filters` below carries the same note
+# in-product): `get_settlements()` (`lib.rs`) carries no `tid` field even
+# though `NamedSettlement` gained one at the Rust level (`TIMELINE_SCOPE.md`
+# milestone 1, `timeline_bridge.rs`'s own top-of-file doc comment says so
+# outright). So the three filter checkboxes below drive `civ_year_diff()` for
+# real -- the present/removed/added counts they show are live engine output
+# -- but nothing on the Godot side can tell which drawn settlement PIN any of
+# those tids refers to, so exist-only/ghost/highlight cannot filter or style
+# individual pins on the map yet. That is real Rust-side work
+# (`get_settlements()`'s own `#[func]`), out of scope for this GDScript-only
+# milestone -- disclosed here and in `CHANGELOG.md`, not silently faked.
+
+func _build_timeline() -> void:
+	var cat := DccWidgets.category(self, "Timeline", categories)
+	_tl_body = cat
+	bridge.generation_finished.connect(func(ok: bool): if ok: _tl_on_world_changed())
+	bridge.world_loaded.connect(func(): _tl_on_world_changed())
+	_rebuild_timeline()
+
+## A fresh generate/loaded save invalidates any in-flight playback and the
+## last simulation's own readout -- same reasoning `right_dock.gd`'s
+## `_rebuild()` already applies on the same two signals.
+func _tl_on_world_changed() -> void:
+	_tl_playing = false
+	if _tl_play_timer != null:
+		_tl_play_timer.stop()
+	_tl_sim_out = ""
+	_rebuild_timeline()
+
+## Tears down and rebuilds just this category's body -- the same "whole-
+## section rebuild on every action" discipline `right_dock.gd`'s own
+## `_rebuild()`/`show_sculpt_stack()` pair already establishes, scoped to
+## `_tl_body` rather than the whole workspace so Settlements/Population/etc.
+## above are untouched.
+func _rebuild_timeline() -> void:
+	if _tl_body == null:
+		return
+	for c in _tl_body.get_children():
+		_tl_body.remove_child(c)
+		c.queue_free()
+	if not bridge.has_world:
+		DccWidgets.note(_tl_body, "Generate a world first.")
+		return
+	_build_timeline_years(_tl_body)
+	_build_timeline_scrub(_tl_body)
+	_build_timeline_playback(_tl_body)
+	_build_timeline_filters(_tl_body)
+	_build_timeline_sim(_tl_body)
+
+## `_civFormatYear` (reference line 20644), ported verbatim: negative years
+## are BC.
+static func _tl_format_year(year: int) -> String:
+	return ("%d BC" % -year) if year < 0 else ("%d AD" % year)
+
+## `get_civ_timeline_years()` is already ascending (`lib.rs`'s own doc
+## comment) -- re-sorted defensively rather than trusted blindly, since
+## nothing here is on a hot path.
+func _tl_years() -> Array:
+	var out: Array = Array(bridge.get_civ_timeline_years())
+	out.sort()
+	return out
+
+func _tl_nearest_year(years: Array, target: int) -> int:
+	var nearest: int = years[0]
+	for y in years:
+		if absi(int(y) - target) < absi(nearest - target):
+			nearest = int(y)
+	return nearest
+
+## Same reasoning as `_refresh_civ_data()`/`_commit_territory()` above: every
+## call that moves the timeline cursor (`civGotoYear`) reloads `territory`
+## engine-side but does not itself touch the rendered texture -- this is the
+## direct field write that does, without `ViewportHost.refresh()`'s camera-
+## reset side effect.
+func _tl_refresh_territory_view() -> void:
+	if app != null and app.viewport != null and app.viewport.territory_view != null:
+		app.viewport.territory_view.texture = bridge.territory_texture()
+
+func _tl_goto_year(year: int) -> void:
+	bridge.civ_goto_year(year)
+	_tl_refresh_territory_view()
+
+func _tl_add_year_action() -> void:
+	bridge.civ_add_year(_tl_add_year)
+	_tl_refresh_territory_view()
+	_rebuild_timeline()
+
+func _tl_remove_year_action(year: int) -> void:
+	bridge.civ_remove_year(year)
+	_tl_refresh_territory_view()
+	_rebuild_timeline()
+
+# -- Years pill row + Add year (Cluster A: civAddYear/civRemoveYear/civGotoYear) --
+
+func _build_timeline_years(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Years")
+	var add_row := HBoxContainer.new()
+	add_row.add_theme_constant_override("separation", 6)
+	var yi := SpinBox.new()
+	yi.min_value = -9999
+	yi.max_value = 9999
+	yi.step = 1
+	yi.value = _tl_add_year
+	yi.custom_minimum_size.x = 90
+	yi.value_changed.connect(func(v: float): _tl_add_year = int(v))
+	add_row.add_child(yi)
+	DccWidgets.action(add_row, "Add year", _tl_add_year_action)
+	sec.add_child(add_row)
+
+	var years := _tl_years()
+	if years.is_empty():
+		DccWidgets.note(sec, "No years added yet.")
+	else:
+		var flow := HFlowContainer.new()
+		flow.add_theme_constant_override("h_separation", 4)
+		flow.add_theme_constant_override("v_separation", 4)
+		var cur := bridge.get_civ_year()
+		for y in years:
+			flow.add_child(_tl_year_pill(int(y), int(y) == cur))
+		sec.add_child(flow)
+		DccWidgets.note(sec, "Active year: %s" % _tl_format_year(cur))
+	DccWidgets.note(sec,
+		"Each year stores a snapshot of the territory paint plus which settlements/roads " +
+		"existed then. Negative years are BC. Tap a pill to jump to that era, or %s to remove it." %
+			DccIcons.SYMBOLS["cross"])
+
+func _tl_year_pill(year: int, active: bool) -> Control:
+	var pill := HBoxContainer.new()
+	pill.add_theme_constant_override("separation", 1)
+	var go := Button.new()
+	go.text = _tl_format_year(year)
+	go.flat = true
+	go.focus_mode = Control.FOCUS_NONE
+	go.custom_minimum_size.y = 22
+	go.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	go.add_theme_font_override("font", DccTheme.mono(1))
+	go.add_theme_color_override("font_color", DccTheme.c("bg") if active else DccTheme.c("text"))
+	go.add_theme_color_override("font_hover_color", DccTheme.c("bg") if active else DccTheme.c("text_bright"))
+	go.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("accent") if active else DccTheme.c("sunken"), 2))
+	go.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("accent").lightened(0.1) if active else DccTheme.c("raised"), 2))
+	go.tooltip_text = "Jump to %s (civ_goto_year)." % _tl_format_year(year)
+	go.pressed.connect(func(): _tl_goto_year(year); _rebuild_timeline())
+	pill.add_child(go)
+	var rm := Button.new()
+	rm.text = DccIcons.SYMBOLS["cross"]
+	rm.flat = true
+	rm.focus_mode = Control.FOCUS_NONE
+	rm.custom_minimum_size = Vector2(18, 22)
+	rm.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	rm.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
+	rm.add_theme_color_override("font_hover_color", DccTheme.c("accent"))
+	rm.tooltip_text = "Remove %s (civ_remove_year)." % _tl_format_year(year)
+	rm.pressed.connect(func(): _tl_remove_year_action(year))
+	pill.add_child(rm)
+	return pill
+
+# -- Scrub track (Cluster C: _civWireYearSlider, v0.91 real time-scale) --------
+
+func _build_timeline_scrub(body: Control) -> void:
+	var years := _tl_years()
+	if years.size() < 2:
+		return   ## Gated exactly like the reference's #explTimelineSliderRow (>1 recorded year).
+	var sec := DccWidgets.section(body, "Scrub")
+	var lo: int = years[0]
+	var hi: int = years[years.size() - 1]
+	var cur := bridge.get_civ_year()
+	var caps := HBoxContainer.new()
+	caps.add_child(DccTheme.mono_label(_tl_format_year(lo), "text_ghost", DccTheme.FS_TINY))
+	caps.add_child(DccTheme.spacer())
+	caps.add_child(DccTheme.mono_label(_tl_format_year(hi), "text_ghost", DccTheme.FS_TINY))
+	sec.add_child(caps)
+	DccWidgets.slider(sec, "Year", float(lo), float(hi), 1.0, float(cur), "",
+		func(v: float): _tl_goto_year(_tl_nearest_year(years, int(round(v)))),
+		"Real time-scale -- min/max/value are the actual recorded years, not a snapshot-count " +
+			"index (reference v0.91). Dragging snaps to the nearest recorded year.",
+		func(): _rebuild_timeline())
+	DccWidgets.note(sec, "Active year: %s" % _tl_format_year(cur))
+
+# -- Playback transport (Cluster C: _civTlStartPlay/_civTlStopPlay, 1200ms) ----
+
+func _build_timeline_playback(body: Control) -> void:
+	var years := _tl_years()
+	if years.size() < 2:
+		return   ## Same gate as the scrub row -- reference shares one markup section for both.
+	var sec := DccWidgets.section(body, "Playback")
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var label_text := ("%s Stop" % DccIcons.SYMBOLS["pause"]) if _tl_playing else ("%s Animate" % DccIcons.SYMBOLS["play"])
+	DccWidgets.action(row, label_text, func(): _tl_stop_play() if _tl_playing else _tl_start_play())
+	DccWidgets.action(row, "Step", _tl_step)
+	sec.add_child(row)
+
+func _tl_ensure_timer() -> void:
+	if _tl_play_timer == null:
+		_tl_play_timer = Timer.new()
+		_tl_play_timer.wait_time = 1.2   ## Reference's own 1200ms interval, verbatim.
+		_tl_play_timer.one_shot = false
+		_tl_play_timer.timeout.connect(_tl_on_play_tick)
+		add_child(_tl_play_timer)
+
+func _tl_start_play() -> void:
+	var years := _tl_years()
+	if years.size() < 2:
+		return
+	_tl_ensure_timer()
+	_tl_playing = true
+	_tl_play_timer.start()
+	_rebuild_timeline()
+
+func _tl_stop_play() -> void:
+	_tl_playing = false
+	if _tl_play_timer != null:
+		_tl_play_timer.stop()
+	_rebuild_timeline()
+
+func _tl_on_play_tick() -> void:
+	var years := _tl_years()
+	if years.size() < 2:
+		_tl_stop_play()
+		return
+	var cur := bridge.get_civ_year()
+	var idx := years.find(cur)
+	var next: int = (idx + 1) if idx >= 0 else 0
+	if next >= years.size():
+		_tl_stop_play()
+		return
+	_tl_goto_year(int(years[next]))
+	if next == years.size() - 1:
+		_tl_stop_play()
+	else:
+		_rebuild_timeline()
+
+func _tl_step() -> void:
+	var years := _tl_years()
+	if years.size() < 2:
+		return
+	var cur := bridge.get_civ_year()
+	var idx := years.find(cur)
+	var next: int = (idx + 1) if idx >= 0 else 0
+	if next >= years.size():
+		return
+	_tl_goto_year(int(years[next]))
+	_rebuild_timeline()
+
+# -- Filters (Cluster C: explTlExistOnly/Ghost/Highlight, _civYearDiff) --------
+
+func _build_timeline_filters(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Filters")
+	DccWidgets.toggle(sec, "Exist only", _tl_filter_exist_only,
+		func(v: bool): _tl_filter_exist_only = v,
+		"Reference: hide anything not present in the selected year (civ_year_diff().present).")
+	DccWidgets.toggle(sec, "Ghost removed", _tl_filter_ghost,
+		func(v: bool): _tl_filter_ghost = v,
+		"Reference: fade objects removed since the previous recorded year (civ_year_diff().removed).")
+	DccWidgets.toggle(sec, "Highlight new", _tl_filter_highlight,
+		func(v: bool): _tl_filter_highlight = v,
+		"Reference: halo objects added since the previous recorded year (civ_year_diff().added).")
+	var years := _tl_years()
+	if not years.is_empty():
+		var diff: Dictionary = bridge.civ_year_diff(bridge.get_civ_year())
+		var present: int = (diff.get("present", PackedInt64Array()) as PackedInt64Array).size()
+		var removed: int = (diff.get("removed", PackedInt64Array()) as PackedInt64Array).size()
+		var added: int = (diff.get("added", PackedInt64Array()) as PackedInt64Array).size()
+		DccWidgets.note(sec,
+			"%d present, %d removed, %d added vs. the previous recorded year -- real, live civ_year_diff() output." %
+				[present, removed, added])
+	DccWidgets.note(sec,
+		"Not yet wired to the map: get_settlements() carries no tid even though " +
+		"NamedSettlement gained one in Rust (TIMELINE_SCOPE.md milestone 1) -- nothing on " +
+		"this side can tell which drawn pin any of civ_year_diff()'s tids refers to, so " +
+		"these checkboxes read real state above but cannot filter/ghost/highlight " +
+		"individual settlement pins on the map yet. A real, disclosed Rust-side gap " +
+		"(get_settlements()'s own #[func], lib.rs), not faked here.")
+
+# -- Collapse / recovery simulator form (Cluster B/impure wiring) -------------
+
+func _build_timeline_sim(body: Control) -> void:
+	var grp := DccWidgets.group(body, "Simulate collapse / recovery", false)
+	DccWidgets.choice(grp, "Mode", ["Collapse (decline + migration)", "Recovery (regrowth)"],
+		0 if _tl_sim_mode == "collapse" else 1,
+		func(i: int): _tl_sim_mode = ("collapse" if i == 0 else "recovery"); _rebuild_timeline())
+	if _tl_sim_mode == "collapse":
+		var chars := ["mixed", "trade", "disease", "conflict"]
+		DccWidgets.choice(grp, "Character",
+			["Mixed (default)", "Trade -- hubs fall hardest", "Disease -- dense/connected fall first",
+				"Conflict -- undefended fall first"],
+			maxi(0, chars.find(_tl_sim_character)),
+			func(i: int): _tl_sim_character = chars[i])
+		DccWidgets.slider(grp, "Severity", 0.0, 100.0, 1.0, _tl_sim_severity * 100.0, "%",
+			func(v: float): _tl_sim_severity = v / 100.0)
+	else:
+		DccWidgets.slider(grp, "Regrowth rate", 0.1, 3.0, 0.1, _tl_sim_rate * 100.0, "%/yr",
+			func(v: float): _tl_sim_rate = v / 100.0)
+	DccWidgets.number(grp, "Start year", -9999.0, 9999.0, 1.0, float(_tl_sim_start_year),
+		func(v: float): _tl_sim_start_year = int(v))
+	DccWidgets.number(grp, "Duration (yr)", 1.0, 1000000.0, 1.0, float(_tl_sim_duration),
+		func(v: float): _tl_sim_duration = int(v))
+	DccWidgets.number(grp, "Step years", 1.0, 1000000.0, 1.0, float(_tl_sim_step_years),
+		func(v: float): _tl_sim_step_years = int(v))
+	DccWidgets.action(grp, "Simulate", func(): _tl_run_simulation(false), true)
+	DccWidgets.note(grp,
+		"Runs a year-by-year simulation from the CURRENT settlements and writes one " +
+		"timeline entry per step. Collapse: each settlement's stress (trade/density/ " +
+		"undefended exposure, weighted by Character) drives mortality and gravity-model " +
+		"out-migration each step; a nucleus below its tier's floor demotes or is " +
+		"abandoned. Recovery: logistic regrowth toward each settlement's catchment " +
+		"ceiling. See docs/research/collapse-timeline-dynamics.md.")
+	if _tl_sim_out != "":
+		DccWidgets.note(grp, _tl_sim_out)
+
+func _tl_run_simulation(confirm_overwrite: bool) -> void:
+	var request := {
+		"mode": _tl_sim_mode,
+		"character": _tl_sim_character,
+		"severity": _tl_sim_severity,
+		"rate": _tl_sim_rate,
+		"start_year": _tl_sim_start_year,
+		"duration": _tl_sim_duration,
+		"step_years": _tl_sim_step_years,
+		"confirm_overwrite": confirm_overwrite,
+	}
+	var result: Dictionary = bridge.civ_run_collapse_simulation(request)
+	if not bool(result.get("ok", false)):
+		if bool(result.get("needs_confirm", false)):
+			_tl_show_confirm(result)
+			return
+		_tl_sim_out = String(result.get("error", "Simulation failed."))
+		_rebuild_timeline()
+		return
+	_tl_sim_out = _tl_format_sim_result(result)
+	_tl_refresh_territory_view()
+	_rebuild_timeline()
+
+## `_civRunCollapseSimulation`'s own blocking `confirm()` (reference line
+## 24911), reimplemented as a real Yes/No dialog -- this shell's own
+## precedent is `AcceptDialog` built by hand and `add_child`ed onto `app`
+## (`app.gd`'s `open_storage_locations`/`open_credits`, `cartography_
+## workspace.gd`'s `_prompt_label_name`), none of which needed a Cancel path.
+## `ConfirmationDialog` (a built-in `AcceptDialog` subclass adding exactly
+## that Cancel/close-as-No button) is the closest match to that convention
+## for a real two-way choice.
+func _tl_show_confirm(result: Dictionary) -> void:
+	var years: PackedInt64Array = result.get("clobber_years", PackedInt64Array())
+	var parts: Array[String] = []
+	for y in years:
+		parts.append(_tl_format_year(int(y)))
+	var dlg := ConfirmationDialog.new()
+	dlg.title = "Overwrite recorded years?"
+	dlg.dialog_text = "Simulation will overwrite %d existing timeline year%s (%s).\n\nContinue?" % [
+		years.size(), "" if years.size() == 1 else "s", ", ".join(parts)]
+	dlg.get_ok_button().text = "Overwrite"
+	dlg.confirmed.connect(func(): _tl_run_simulation(true); dlg.queue_free())
+	dlg.canceled.connect(dlg.queue_free)
+	app.add_child(dlg)
+	dlg.popup_centered()
+
+## Reference's own `civSimOut` innerHTML (lines 24940-24949), ported field-
+## for-field -- `fmt()`'s k/M abbreviation is skipped (this port's numbers
+## are small enough in practice, and DccTheme has no established large-number
+## abbreviation convention elsewhere to match).
+func _tl_format_sim_result(r: Dictionary) -> String:
+	var steps := int(r.get("steps", 0))
+	var end_year := int(r.get("end_year", 0))
+	var final_n := int(r.get("final_settlements", 0))
+	var head := "Simulated %d step%s (%d yr each), %s -> %s. %d settlements remain." % [
+		steps, "" if steps == 1 else "s", _tl_sim_step_years,
+		_tl_format_year(_tl_sim_start_year), _tl_format_year(end_year), final_n]
+	if _tl_sim_mode == "recovery":
+		return head
+	var died := int(r.get("died", 0))
+	var migrated := int(r.get("migrated", 0))
+	var unplaced := int(r.get("unplaced", 0))
+	var failed := int(r.get("failed", 0))
+	return "%s %d died, %d migrated (%d lost in transit/diaspora), %d settlement%s failed/abandoned." % [
+		head, died, migrated, unplaced, failed, "" if failed == 1 else "s"]

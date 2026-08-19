@@ -412,7 +412,7 @@ with `lib.rs` owning the thin `#[func]`/`Variant` conversion layer exactly as
 (no Godot runtime) for the request/response shapes, following that
 milestone's own precedent rather than inventing a new boundary style.
 
-### Milestone 6 — UI playback controls
+### Milestone 6 — UI playback controls (done, 2026-08-19)
 
 `_civTlStartPlay`/`_civTlStopPlay`/`_civWireYearSlider`/
 `_civBuildExploreTimelineUI` and the markup at lines 1888-1952, reimagined
@@ -421,8 +421,33 @@ rather than ported as literal HTML/JS. Read §4 above before starting — this
 closes part of §10's gap list (scrub track, play/pause/step) but explicitly
 **not** the six-toggle continuous-simulation feature or Warfare, which stay
 the owner's open decision. Per this project's own standing practice, this
-is a dedicated UI/UX pass (ui-ux-pro-max), not raw sliders bolted onto
-`right_dock.gd`.
+is a dedicated UI/UX pass, not raw sliders bolted onto `right_dock.gd`.
+
+**Built as a sixth `DccWidgets.category()` ("Timeline") in
+`civilization_workspace.gd`'s left dock** — not a new `right_dock.gd` CTX_*
+context, despite that being this milestone's own dispatch's suggested
+precedent (`CTX_SCULPT`/`CTX_JOURNEY`). Both of those are driven by an
+actual map tool arming (`app.tool_armed`); Timeline has no map click of its
+own, so `DccWidgets.category()` — this file's own established vocabulary,
+already used five times — is the correctly-scoped precedent instead.
+Deliberately **not** wired into `dcc_shell.gd`'s own `timeline_bar`/
+`timeline_row` (the empty bottom strip §10 reserves) — this section's own §4
+warning was heeded literally: "if you're unsure ... default to building your
+own dedicated panel." All six of the milestone's numbered deliverables are
+real: years pill row + Add year, a real-time-scale scrub slider, Play/Pause
+(a real 1200ms `Timer`) plus a Step button (this milestone's own addition,
+not in the reference markup), the three filter checkboxes driving a live
+`civ_year_diff()` count readout, and the full collapse-simulation form with
+a real `ConfirmationDialog` for the overwrite-warning path.
+
+**One real, disclosed gap, not closed here**: the filter checkboxes cannot
+filter/ghost/highlight individual settlement PINS on the map, because
+`get_settlements()` never exposes the `tid` field `NamedSettlement` gained
+in milestone 1 — a Rust-side fix, out of this GDScript-only milestone's own
+"no Rust files" constraint. Recorded in `STATUS.md`'s Known-open items.
+
+Full detail: `cartalith-native/docs/CHANGELOG.md`, "Timeline milestone 6 —
+UI playback controls, the shell."
 
 ## 6. Out of scope for all milestones above
 
@@ -471,6 +496,13 @@ is a dedicated UI/UX pass (ui-ux-pro-max), not raw sliders bolted onto
    visible ghost/highlight/exist-only filtering — confirmed in the editor,
    with the same "cannot confirm real on-device performance from this
    session" caveat this project's other UI milestones already carry.
+   **Partially met (2026-08-19, milestone 6)**: add-year/goto-year/scrub/
+   playback/simulate-with-confirm are all real and exercised end to end (a
+   scripted headless smoke run, `cartalith-native/docs/CHANGELOG.md`'s
+   "Timeline milestone 6" entry). Ghost/highlight/exist-only filtering is
+   NOT visible on the map — a real, disclosed gap (`get_settlements()`
+   exposes no `tid`, see milestone 6's own writeup and `STATUS.md`'s
+   Known-open items), not silently dropped.
 6. The metropolis-tier and `_civApplyRecovery` decisions from milestone 1
    are recorded in `CHANGELOG.md`, not silently made.
 
