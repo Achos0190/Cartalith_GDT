@@ -41,9 +41,32 @@ var _list: VBoxContainer
 var _legend: VBoxContainer
 var _rows: Dictionary = {}   ## view id -> its Button
 
+## Hotkey badges 1-8 (`DCC_SHELL_SPEC.md` §10: "grouped rows with hotkey
+## badges: SURFACE (Relief 1, Biome 2, Political 3), TERRAIN FIELDS
+## (Elevation 4, Slope 5, Flow accumulation 6), CLIMATE (Temperature 7,
+## Rainfall 8)"). That grouping does not exist in this popover's own data:
+## `LAYER_GROUPS` (`sample_bridge.rs`) is the *reference's* verbatim
+## Base/Climate/Tectonics/Hydrology/Surface/Civilization order (this file's
+## own header comment above explains why it stays that way), which has no
+## "Relief" row at all (the closest is `off`, "No overlay (base map)") and
+## puts Political under Civilization, last, not third. Re-sorting rows
+## client-side to chase the spec's naming would scatter hotkeys 1-8 across
+## non-adjacent groups with no visual grouping to match -- a bigger, riskier
+## change than this badge itself. Badging the first 8 rows in their real,
+## already-built order instead (`DCC_CONTROL_INDEX.md`'s own tolerance for
+## "uncertain" mappings), so: 1 off, 2 elevation, 3 temp, 4 rain, 5 plates,
+## 6 bounds, 7 btype, 8 stress. Noted here and in `GUI_GAP_REGISTER.md`.
+const HOTKEY_COUNT := 8
+const HOTKEY_ACTIONS: Array[String] = [
+	"layers_hotkey_1", "layers_hotkey_2", "layers_hotkey_3", "layers_hotkey_4",
+	"layers_hotkey_5", "layers_hotkey_6", "layers_hotkey_7", "layers_hotkey_8",
+]
+var _hotkey_ids: Array = []   ## index 0-7 -> the row id badged with that digit.
+
 func setup(b: EngineBridge, h: ViewportHost) -> void:
 	bridge = b
 	host = h
+	_register_hotkeys()
 	add_theme_stylebox_override("panel",
 		DccTheme.panel("panel", {"left": 1, "right": 1, "top": 1, "bottom": 1}))
 
@@ -106,6 +129,7 @@ func rebuild() -> void:
 		_list.remove_child(child)
 		child.queue_free()
 	_rows.clear()
+	_hotkey_ids.clear()
 
 	var groups := bridge.debug_layers()
 	if groups.is_empty():
@@ -115,15 +139,22 @@ func rebuild() -> void:
 		return
 
 	var current := host.debug_view()
+	var row_i := 0   ## Running index across every group -- `HOTKEY_ACTIONS`'
+		## own doc comment on why this badges the first 8 in build order
+		## rather than the spec's own SURFACE/TERRAIN FIELDS/CLIMATE grouping.
 	for g in groups:
 		var group: Dictionary = g
 		var body := DccWidgets.section(_list, String(group["group"]))
 		for it in group["items"]:
 			var item: Dictionary = it
-			_rows[String(item["id"])] = _row(body, item, current)
+			var hotkey := row_i if row_i < HOTKEY_COUNT else -1
+			if hotkey >= 0:
+				_hotkey_ids.append(String(item["id"]))
+			_rows[String(item["id"])] = _row(body, item, current, hotkey)
+			row_i += 1
 	_refresh_legend(_legend_for(current, groups))
 
-func _row(parent: Control, item: Dictionary, current: String) -> Button:
+func _row(parent: Control, item: Dictionary, current: String, hotkey: int = -1) -> Button:
 	var id := String(item["id"])
 	var available: bool = bool(item["available"])
 	var b := Button.new()
@@ -139,13 +170,101 @@ func _row(parent: Control, item: Dictionary, current: String) -> Button:
 	b.add_theme_color_override("font_color",
 		DccTheme.c("text" if available else "text_ghost"))
 	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	var font_color := DccTheme.c("text" if available else "text_ghost")
 	if id == current:
 		b.add_theme_stylebox_override("normal", DccTheme.active_row())
 		b.add_theme_color_override("font_color", DccTheme.c("accent"))
+		font_color = DccTheme.c("accent")
 	if available:
 		b.pressed.connect(_on_pick.bind(id))
 	parent.add_child(b)
+	if hotkey >= 0:
+		_add_hotkey_badge(b, hotkey, font_color, id == current)
 	return b
+
+## The mockup's own badge markup (`design/Cartalith DCC Shell.dc.html`, the
+## Layers popover's Relief/Biome/Political/... rows): `font:9px 'IBM Plex
+## Mono'`, `border:1px solid currentColor`, `padding:0 4px`, opacity .75 on
+## the active row and .55 otherwise -- reproduced directly rather than
+## invented, down to the opacity split. `currentColor` becomes `font_color`
+## (the same colour the row's own label was just set to) at reduced alpha,
+## since Godot StyleBox/Label colours have no "inherit the text colour"
+## concept.
+##
+## A child of the row `Button`, not a sibling in a wrapping `HBoxContainer`:
+## a `Button` is not itself a layout container, but it *is* a plain
+## `Control`, so anchoring a child directly to its right edge reaches the
+## same visual result -- flush against the row's own right edge, inside its
+## already-existing background/hover/active stylebox -- without splitting
+## the row's hit box in two. Anchors are computed from `get_minimum_size()`
+## rather than baked via `set_anchors_preset()`, the same trap
+## `ViewportHost._chrome()`'s own doc comment names: a preset call bakes
+## offsets from the control's size *at that moment*, which is zero before
+## the button has ever been laid out.
+func _add_hotkey_badge(button: Button, hotkey: int, font_color: Color, is_active: bool) -> void:
+	var badge := Label.new()
+	badge.text = str(hotkey + 1)
+	badge.add_theme_font_override("font", DccTheme.mono())
+	badge.add_theme_font_size_override("font_size", DccTheme.FS_MICRO)
+	var badge_color := font_color
+	badge_color.a = 0.75 if is_active else 0.55
+	badge.add_theme_color_override("font_color", badge_color)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0, 0, 0, 0)
+	sb.border_color = badge_color
+	sb.set_border_width_all(1)
+	sb.content_margin_left = 4
+	sb.content_margin_right = 4
+	badge.add_theme_stylebox_override("normal", sb)
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(badge)
+
+	badge.anchor_left = 1.0
+	badge.anchor_right = 1.0
+	badge.anchor_top = 0.5
+	badge.anchor_bottom = 0.5
+	badge.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	var sz := badge.get_minimum_size()
+	badge.offset_right = -10.0
+	badge.offset_left = -10.0 - sz.x
+	badge.offset_top = -sz.y * 0.5
+	badge.offset_bottom = sz.y * 0.5
+
+## Runs once -- `app.gd` builds exactly one `LayersPopover` and never frees
+## it, so `setup()` (its one-time init point, matching every other method in
+## this file) only ever calls this once per session. Guarded on `has_action`
+## anyway, cheaply, rather than trusting that.
+##
+## Registered at runtime rather than declared in `project.godot`: this
+## popover is the only place these eight digits mean anything, and `_input()`
+## below already scopes them to "popover visibly open," so a project-wide
+## `[input]` entry would only invite a second, unintended consumer.
+func _register_hotkeys() -> void:
+	for i in range(HOTKEY_ACTIONS.size()):
+		var action := HOTKEY_ACTIONS[i]
+		if InputMap.has_action(action):
+			continue
+		InputMap.add_action(action)
+		var ev := InputEventKey.new()
+		ev.physical_keycode = KEY_1 + i
+		InputMap.action_add_event(action, ev)
+
+## Hotkey badges 1-8 pick the same row their click already does. Scoped to
+## "popover visibly open" by the `visible` guard below -- a `PopupPanel`
+## stays in the scene tree while hidden (this node is never freed), so
+## without that check the digit keys would fire from anywhere in the shell,
+## which is not what a popover-local hotkey means.
+func _input(event: InputEvent) -> void:
+	if not visible:
+		return
+	for i in range(_hotkey_ids.size()):
+		if event.is_action_pressed(HOTKEY_ACTIONS[i]):
+			var id: String = _hotkey_ids[i]
+			var row: Button = _rows.get(id)
+			if row != null and not row.disabled:
+				_on_pick(id)
+			get_viewport().set_input_as_handled()
+			return
 
 func _on_pick(id: String) -> void:
 	host.set_debug_layer(id)

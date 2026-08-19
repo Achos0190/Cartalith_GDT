@@ -600,8 +600,70 @@ func _on_hovered(data: Variant, index: int) -> void:
 	settlement_hovered.emit(data, index)
 
 func _on_sampled(gx: float, gy: float, valid: bool) -> void:
-	_coords_label.text = "%d, %d" % [int(gx), int(gy)] if valid else ""
+	_coords_label.text = _coords_text(gx, gy) if valid else ""
 	cursor_sampled.emit(gx, gy, valid)
+
+## §10's bottom-right readout (`4 812 km E · 1 093 km N · 1 462 m`): a real
+## world-space position from the same km-per-cell conversion
+## `_update_scale_bar()` already trusts ("cells are square in km, so one
+## quotient describes both axes"), plus the *committed* elevation at that
+## cell (`EngineBridge.sample_cell()`'s `elevation_m`). Grid row 0 is the
+## map's north edge (screen-up, same convention `map_overlay.gd` draws
+## against), so "km N" counts up from the *south* edge -- `(gh - gy)`, not
+## `gy` -- the way a real northing reads on a map, increasing northward.
+## `""` before any world, matching this label's own previous behaviour.
+##
+## **The design's own `→ 1 582 m` draft-stamp suffix
+## (`DCC_SHELL_SPEC.md` §10) is deliberately not built here.**
+## `sample_cell()` reads only `WorldState::field` -- `sample_bridge.rs`'s own
+## `sample_refs()` wires `field: &ws.field` and nothing from `self.sculpt`'s
+## draft `PassBuffer` -- so it can never see an uncommitted stroke.
+## `build_sculpt_preview_texture()` does composite the draft, but only into a
+## full-grid *colourised* RGB texture (`RenderCtx::with_appearance`'s
+## hillshade/AO/appearance pipeline runs first); there is no `#[func]` that
+## returns the draft's raw elevation at one cell, and reverse-engineering an
+## elevation out of already-shaded pixel colour is not a real reading. This
+## needs one new Rust entry point (something like `sample_bridge::
+## sample_cell` but reading `scratch` -- the sculpt draft's own
+## `preview_into` output -- instead of `ws.field`); `GUI_GAP_REGISTER.md`
+## classified SH-06 (A) on the premise that this call already existed. It
+## doesn't -- corrected there and in `CHANGELOG.md`.
+func _coords_text(gx: float, gy: float) -> String:
+	if _bridge == null or not _bridge.has_world:
+		return ""
+	var g := _bridge.grid_size()
+	if g.x <= 0 or g.y <= 0 or _width_km <= 0.0:
+		return ""
+	var per_cell := _width_km / float(g.x)
+	var east_km := gx * per_cell
+	var north_km := float(g.y - gy) * per_cell
+	var text := "%s km E  ·  %s km N" % [_fmt_thousands(east_km, 0), _fmt_thousands(north_km, 0)]
+	var cell := _bridge.sample_cell(int(round(gx)), int(round(gy)))
+	if cell.has("elevation_m"):
+		text += "  ·  %s m" % _fmt_thousands(float(cell["elevation_m"]), 0)
+	return text
+
+## Space-grouped thousands ("4 812"), matching the design mockup's own
+## formatting. The same small helper as `journey_planner_view.gd`'s own
+## `_fmt_thousands` -- duplicated rather than shared, matching this
+## project's existing pattern of a private per-file formatter rather than a
+## new cross-file utility for one call site each.
+func _fmt_thousands(v: float, decimals: int) -> String:
+	var s := ("%.*f" % [decimals, v])
+	var neg := s.begins_with("-")
+	if neg:
+		s = s.substr(1)
+	var dot := s.find(".")
+	var int_part := s if dot < 0 else s.substr(0, dot)
+	var frac_part := "" if dot < 0 else s.substr(dot)
+	var out := ""
+	var count := 0
+	for i in range(int_part.length() - 1, -1, -1):
+		out = int_part[i] + out
+		count += 1
+		if count % 3 == 0 and i > 0:
+			out = " " + out
+	return ("-" if neg else "") + out + frac_part
 
 # -- Deep-zoom tile compositing (`LOD_TILING_INTEGRATION_SCOPE.md` M1) --------
 

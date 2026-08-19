@@ -5,7 +5,38 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-19 (post **right dock: RD-03/RD-06/RD-08/RD-11 wired**
+Last updated: 2026-08-19 (post **Layers popover hotkey badges + viewport
+coordinates/elevation readout** (`GUI_GAP_REGISTER.md` §6.15/§10 SH-05, SH-06)
+— GDScript-only: `layers_popover.gd` now badges its first 8 rows with digits
+1-8 (`_add_hotkey_badge`, the mockup's own `border:1px solid currentColor`/
+opacity-.75-active-.55-inactive badge markup reproduced exactly) and wires
+real runtime `InputMap` actions (`layers_hotkey_1`..`_8`, `KEY_1`..`KEY_8`,
+registered once in `_register_hotkeys()`) scoped to "popover visibly open" by
+a `visible` guard in a new `_input()`; the badge order is the popover's own
+real build order (`LAYER_GROUPS`' verbatim Base/Climate/Tectonics/Hydrology/
+Surface/Civilization, ported from the reference on purpose — see that file's
+own header) rather than `DCC_SHELL_SPEC.md` §10's SURFACE/TERRAIN FIELDS/
+CLIMATE grouping, which has no matching data (no "Relief" row exists at all,
+"Political" sits under Civilization, last) — re-sorting client-side would
+scatter the eight hotkeys across non-adjacent groups with nothing on screen
+to explain the jump, a materially riskier change than the badge itself, so
+this was noted rather than forced; **SH-06 turned out to be a real (B), not
+the register's (A)** — `viewport_host.gd`'s bottom-right cursor readout
+previously showed bare grid indices (`"%d, %d"`, no km, no elevation at all,
+contradicting `DCC_CONTROL_INDEX.md`'s stale claim that it already read
+`E · N (cell)`) and now shows the real thing (`4 812 km E · 1 093 km N ·
+1 462 m`, `_coords_text()`, using `_width_km`/`grid_size()` for the
+conversion and `EngineBridge.sample_cell()`'s `elevation_m` for the
+committed elevation), but the design's own `→ 1 582 m` draft-stamp suffix
+could not be built: `sample_cell()` reads only `WorldState::field`, never
+`self.sculpt`'s draft `PassBuffer`, and `build_sculpt_preview_texture()`
+composites the draft only into a full-grid *colourised* texture through the
+appearance/hillshade pipeline — there is no `#[func]` that returns the
+draft's raw elevation at one cell. Left honestly absent rather than faked;
+closing it needs one new Rust entry point. `GUI_GAP_REGISTER.md` corrected in
+place. No Rust touched; headless Godot 4.7.1 boot clean
+(`--headless --path godot-project --quit`) — previously, same day, post
+**right dock: RD-03/RD-06/RD-08/RD-11 wired**
 (`GUI_GAP_REGISTER.md` §10 ranks 1, 2, 5) — the register's own top of the (A)
 list, done in one pass, GDScript-only: Settlement ▸ Economy/Politics/
 Logistics now open `world_data_window`'s Economy tab (new `WorldDataWindow

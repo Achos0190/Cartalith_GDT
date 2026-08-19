@@ -14769,3 +14769,83 @@ the Faction context read `Culture: Imperial`, `Settlements: 5`,
 Faction context, `"—"` after deselecting back to an empty Sample, and
 `"-154 m · ocean"` after one cursor sample. No Rust file touched anywhere in
 this pass; `GUI_GAP_REGISTER.md` §10/§6.8 updated to mark all four done.
+
+## Layers popover hotkey badges + viewport coordinates/elevation readout (`GUI_GAP_REGISTER.md` §6.15/§10 SH-05, SH-06, 2026-08-19)
+
+Both classified **(A)** by the register: real design (`DCC_SHELL_SPEC.md` §10),
+everything the engine needs already exists, zero Rust. One held; the other
+turned out not to.
+
+1. **SH-05 — Layers popover hotkey badges 1-8.** §10: *"grouped rows with
+   hotkey badges: SURFACE (Relief 1, Biome 2, Political 3), TERRAIN FIELDS
+   (Elevation 4, Slope 5, Flow accumulation 6), CLIMATE (Temperature 7,
+   Rainfall 8)."* `layers_popover.gd` already enumerated every view from
+   `bridge.debug_layers()`; this pass added the badge and the key.
+   - **Badge** (`_add_hotkey_badge`): reproduces the mockup's own markup
+     (`design/Cartalith DCC Shell.dc.html`'s Layers-popover rows) exactly —
+     `font: 9px IBM Plex Mono`, `border: 1px solid currentColor`, `padding:
+     0 4px`, `opacity .75` on the active row and `.55` otherwise — as a
+     `Label` child anchored to the row `Button`'s own right edge (a `Button`
+     is not a layout container, so the badge is positioned with explicit
+     anchors + `get_minimum_size()`-derived offsets, the same "don't bake
+     offsets from a zero-size rect" rule `ViewportHost._chrome()`'s own doc
+     comment already established, not `set_anchors_preset()`).
+   - **Hotkeys**: real runtime `InputMap` actions (`layers_hotkey_1`..`_8`,
+     `KEY_1`..`KEY_8`, registered once in `_register_hotkeys()` — declared at
+     runtime rather than in `project.godot`'s `[input]` section, since this
+     popover is the only consumer). A new `_input()` checks
+     `event.is_action_pressed(...)` and calls the same `_on_pick(id)` a click
+     already does, gated by `if not visible: return` at the top — the popover
+     is a `PopupPanel` that stays in the scene tree while hidden, so without
+     that guard the digits would fire shell-wide.
+   - **The badge order is not the spec's SURFACE/TERRAIN FIELDS/CLIMATE
+     grouping.** `LAYER_GROUPS` (`sample_bridge.rs`) is the reference's own
+     verbatim Base/Climate/Tectonics/Hydrology/Surface/Civilization order,
+     kept deliberately (this file's own header comment) so a user who knows
+     the original finds the same views in the same places. It has no row
+     literally named "Relief" (the closest is `off`, "No overlay (base
+     map)") and puts "Political control" under Civilization, last rather
+     than third — re-sorting rows client-side to chase the spec's naming
+     would scatter the eight hotkeys across non-adjacent groups with nothing
+     on screen to explain the jump, a materially riskier change than the
+     badge itself. Badged the first 8 rows in their real build order instead:
+     **1 off, 2 elevation, 3 temp, 4 rain, 5 plates, 6 bounds, 7 btype,
+     8 stress.**
+2. **SH-06 — viewport `→ 1 582 m` draft-stamp elevation under the cursor.**
+   §10: *"bottom-right cursor coordinates and elevation (`4 812 km E · 1 093
+   km N · 1 462 m`, showing `→ 1 582 m` while a draft stamp is under the
+   cursor)."* Checking `viewport_host.gd` against this design surfaced two
+   things the register's classification had wrong:
+   - **The baseline readout didn't exist either.** `_coords_label` showed
+     bare grid indices (`"%d, %d"`) — no km conversion, no elevation at all —
+     contradicting `DCC_CONTROL_INDEX.md`'s claim that it already read
+     `E · N (cell)` (stale; corrected there too). Built for real: a new
+     `_coords_text()` converts the cursor's grid position to km using the
+     same "cells are square in km" quotient `_update_scale_bar()` already
+     trusts (`_width_km / grid_size().x`), with `north_km` counted up from
+     the grid's south edge (`gh - gy`, row 0 being the map's north edge) so
+     it reads like a real northing, then appends the *committed* elevation
+     at that cell from `EngineBridge.sample_cell()`'s `elevation_m`. A
+     `_fmt_thousands()` helper (the same small space-grouping formatter
+     `journey_planner_view.gd` already has, duplicated per this project's
+     existing per-file-formatter pattern rather than newly shared) produces
+     the mockup's own `"4 812"` grouping.
+   - **The `→ 1 582 m` draft suffix genuinely could not be built — a real
+     (B), not the register's (A).** `sample_cell()`'s `sample_refs()` wires
+     `field: &ws.field`, the *committed* heightfield, and nothing from
+     `self.sculpt`'s draft `PassBuffer` — it can never see an uncommitted
+     stroke. `build_sculpt_preview_texture()` does composite the draft
+     (`PassBuffer::preview_into`), but only into a full-grid *colourised*
+     RGB texture, after `RenderCtx::with_appearance`'s hillshade/AO pipeline
+     runs — there is no `#[func]` that returns the draft's raw elevation at
+     one cell, and reading it back out of already-shaded pixel colour is not
+     a real elevation. Per this task's own instruction, left honestly
+     absent — no suffix text, no placeholder — rather than faked; the code
+     comment on `_coords_text()` names exactly what a fix needs (a sibling
+     to `sample_bridge::sample_cell` reading the draft's `preview_into`
+     scratch buffer instead of `ws.field`). `GUI_GAP_REGISTER.md`'s SH-06 row
+     and §10 rank corrected to (B) in place.
+
+**Verified:** both files re-read after editing. Headless Godot 4.7.1 boot
+(`--headless --path godot-project --quit`) clean — no parse errors, no
+missing-method warnings. No Rust file touched.
