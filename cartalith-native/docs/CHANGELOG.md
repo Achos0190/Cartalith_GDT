@@ -14992,3 +14992,137 @@ exercised all five interactive pieces and read back exact values:
   `.visible`, and "No windows open" (disabled) once it was hidden again.
 
 No Rust file touched.
+
+## Journey planner: timeline band, blocked-stage resolutions, supply-reach bar, auto-field labels (`GUI_GAP_REGISTER.md` §6.9/§10 JP-12, JP-13, JP-14, JP-15, 2026-08-19)
+
+Four (A) rows from the register's §10 top-priority list, all GDScript-only in
+`journey_planner_view.gd` (`right_dock.gd`/`dcc_shell.gd`/`DccTheme` read for
+their existing shape, not touched). JP-01/JP-02/JP-03/JP-04/JP-07/JP-09/
+JP-10/JP-11 — the register's separate (B) rows needing real Rust — were left
+exactly as disclosed; this pass changed none of them.
+
+1. **JP-13 — the timeline band.** The register's own #1 priority: `timeline_
+   bar` was drawn visible and empty in INFRA the whole time JOURNEY was
+   armed — "the one place in the shell showing an empty region with no
+   explanation" (§11). `_rebuild_timeline_band()` now populates `app.
+   timeline_row` (called from `_apply_result()`, cleared in `_hide()` so it
+   never leaks into CIVIL, which CV-09 deliberately still leaves empty) with
+   a `_draw()`-based day-band strip (`_TimelineBandView`, same convention as
+   `_RouteMapView`/`_ProfileView` in this file) plus "day 1"/"day N" labels
+   and a legend. Segments are real: `results[i].days` per stage, coloured
+   `accent` for land and the `water` token for river/sea, plus one trailing
+   `text_dim` block for `rest_days + layover_days` combined — combined, not
+   interleaved, because `JpJourneyPlan::days`'s own doc comment says rest and
+   layover are calendar time laid on top of travel, not assigned to specific
+   days, so a trailing block is what that model already means, not an
+   approximation of something more precise. "Weather hold" — one of the
+   spec's four categories, and lit in the mockup's own legend (`design/
+   Journey Planner DCC.dc.html:494`, colours read directly off it: travel
+   `accent`, water `water`, weather hold `block`, rest/layover `text_dim`) —
+   is never drawn: `jp_plan` reports no discrete weather-hold day count
+   anywhere; weather is `jp_weather_factor`'s continuous per-leg speed
+   multiplier, already folded into each stage's own `days`. The legend still
+   names it, with a tooltip stating why, rather than silently dropping one of
+   the four categories. Before any compute, or on a blocked journey
+   (`total_days == -1`), the row shows one honest line instead of a stale or
+   empty band.
+2. **JP-14 — blocked-stage inline resolutions.** §9: "offers its resolutions
+   inline (turn off closures, re-route land-only, depart earlier)."
+   `_blocked_resolution_row()` builds up to three buttons — shown in the
+   verdict card (`_build_verdict_card`, at the blocked stage) and in the
+   stage inspector's own `BLOCKED:` box when the selected stage is the
+   blocked one — each a `_plan_values` edit plus `_plan_value_changed(true)`
+   (a `_compute()` recall), no engine work: **turn off seasonal closures**
+   (only offered when `blocked_seasonal` is true), **force Walking
+   (land-only)** (`transport = "Walking"` *and* `carts = wagons = 0` — the
+   wheeled-vehicle block is gated on cart/wagon count, not on `transport`,
+   so the mode flip alone clears the Mounted-Rider/Baggage-Train block
+   reasons but not that one; both together clear all three land-vehicle
+   block messages `jp_calc_land_ex` can raise), and **depart in `<previous
+   season>` instead** (only offered when the current season isn't already
+   first in `jp_options()`'s own list). Deliberately NOT a port of v2.10's
+   own "re-route journey, land-only" (`_jpRerouteForMode`) — that quick fix
+   replaces the drawn path with a fresh Dijkstra land route, real pathfinding
+   work with no Rust port, and stays exactly where JP-01/JP-03 already left
+   it.
+3. **JP-12 — supply-reach per-leg bar with resupply ticks.** §8.
+   `resupply_reach` carries `required_km`/`max_gap_km`/`stops`/`unmet` as
+   route-wide scalars, not per-stop positions, but `plan.stops` does, via the
+   same `_stop_fractions()` chord-length projection the stops strip already
+   uses. `_build_reach_bar()` draws one segment per gap between consecutive
+   resupply stops (the route's own ends counting as the first/last
+   boundary), lit `block` when that specific leg's own distance would exceed
+   `required_km` and `accent` otherwise, with a tick between every pair of
+   segments marking the stop itself — real per-leg geometry, not the single
+   worst-gap figure the existing kv rows already showed.
+4. **JP-15 — `auto · <resolved>` in the party form.** §5: "Auto-valued
+   fields show `auto · <resolved value>` so the resolved value is never
+   hidden" — already true for stage overrides (`_inherit_label`), not for
+   the party form. `_auto_label()`/`_party_auto_resolved()` read the first
+   stage/leg carrying a real answer for `route_cond`, `infra`, `rest_
+   cadence` (`plan.rest_basis`), `mount_animal` (`land.mount_key`) and
+   `desert_water` (`land.desert_tier`, only when `desert_tier_auto` is
+   true) — the same "first applicable leg" convention `_pack_range_note()`
+   above already uses. `weather_override` stays plain `"Auto"`: its auto
+   value is `jp_weather_factor`'s continuous blend across every condition,
+   not one chosen condition, so there is nothing honest to print.
+   `_refresh_auto_labels()` relabels each tracked `OptionButton`'s item 0 in
+   place after every compute (`_auto_obs: {key: OptionButton}`, populated by
+   `_choice_field`/`_route_cond_field`, cleared at the top of `_rebuild_
+   party_form()`) rather than calling `_rebuild_party_form()` — a full
+   rebuild would drop focus out of whatever `SpinBox` the party is mid-edit
+   in, the same reason `_plan_value_changed`'s structural/non-structural
+   split exists.
+
+**Verified — real engine data, not fixtures.** `Godot_v4.7.1-stable_win64_
+console.exe --headless --path godot-project --quit`: clean, zero errors/
+warnings, before and after. Beyond the boot check, a scripted headless drive
+(temporary, not committed — instantiated `app.tscn` under a custom
+`SceneTree` script, generated a real 192×192/380 km world seed 424242 with
+`use_gpu` forced off first — headless has no GPU device, and leaving the
+shell's own GPU-on-by-default (`EngineBridge._ready()`) on hung the process
+silently, caught and fixed before the real run) and drove the actual
+`JourneyPlannerView`/`RightDock` instances:
+
+- Committed a real 14-stage, ~469 km mixed route between the two
+  farthest-apart settlements. The *default* plan was itself genuinely
+  blocked on it (`Overloaded 167% of capacity (200 kg carried vs 120 kg
+  rated)` at stage 4) — clicking the one applicable JP-14 button ("force
+  Walking (land-only)") correctly left it blocked (an overload isn't a
+  transport-mode block, exactly the case its own doc comment calls out) and
+  the timeline band correctly showed "journey blocked -- no calendar to
+  show" the whole time, never a stale or wrong band.
+- Clearing the overload the honest way (solo foot party, no cargo) reached a
+  real feasible plan: `total_days=21.4728…`, `rest_days=3`, `layover_days=0`.
+  The timeline band held 15 real segments — 7 `accent` (land) + 7 `water`
+  (river/sea) stage segments plus one trailing `text_dim` block of exactly
+  `3.0` days (`rest_days + layover_days`) — summing to `21.4728…`, bit for
+  bit equal to `plan.total_days`. The legend's four swatches read back the
+  exact `DccTheme` RGBA for `accent`/`water`/`block`/`text_dim`.
+- JP-15: on that same feasible plan, `rest_cadence` read `"Auto · auto — 1
+  rest day per 5 travel days"`, `route_cond` `"Auto · Maintained"`, `infra`
+  `"Auto · Stable Settlements"`, `desert_water` `"Auto · Dense Oasis Route"`
+  (this route crossed a real desert leg), and `weather_override` stayed the
+  plain `"Auto"` it should.
+- JP-12: `resupply_reach` on the same plan — `required_km=352.8`,
+  `max_gap_km=269.0`, `stops=5`, `unmet=false`. Walked the real dock tree and
+  found the bar's actual `ColorRect` children: 9 total, alternating tick/
+  segment, 4 lit `accent` (`block` never lit — `unmet` was false) and 5 ticks
+  — only 4 of the 6 possible leg segments rendered because two of the five
+  boundary gaps were zero-width (the route's own start point coincided with
+  one of the five settlement stops it threads through, a real geometric
+  coincidence, correctly skipped by the `seg_frac > 0.0` guard rather than
+  drawn as a degenerate sliver).
+- JP-14 again, deliberately forcing a second, unrelated block (`cargo_kg` =
+  5 000 t, zero carriers): `blocked_reason` read the real "Overloaded
+  16666671% of capacity…" string, `blocked_seasonal=false`, and the row
+  offered exactly `["force Walking (land-only)", "depart in Spring
+  instead"]` — no seasonal button, matching `blocked_seasonal`. Clicking
+  "force Walking" recomputed and the block correctly persisted (still
+  overloaded), confirming the row's own honesty claim under a second,
+  independent scenario.
+
+No Rust file touched.
+
+**Files touched:** `cartalith-native/godot-project/shell/
+journey_planner_view.gd`, `GUI_GAP_REGISTER.md`, this file, `docs/STATUS.md`.

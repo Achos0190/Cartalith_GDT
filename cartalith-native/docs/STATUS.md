@@ -5,7 +5,48 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-19 (post **Light theme + follow system, Window menu
+Last updated: 2026-08-19 (post **Journey planner: timeline band,
+blocked-stage inline resolutions, supply-reach per-leg bar, `auto ·
+<resolved>` party-form labels** (`GUI_GAP_REGISTER.md` §6.9/§10 JP-12, JP-13,
+JP-14, JP-15) — GDScript-only, `journey_planner_view.gd`: **JP-13** —
+`app.timeline_row`, drawn visible and empty in INFRA the whole time JOURNEY
+was armed (the register's own #1 priority, §11: "the one place in the shell
+showing an empty region with no explanation"), now carries a real
+`_draw()`-based day-band strip (`_TimelineBandView`, same convention as this
+file's own `_RouteMapView`/`_ProfileView`) built from `results[i].days` per
+stage (`accent` land / `water` token river-sea) plus one trailing `text_dim`
+block for `rest_days + layover_days` combined — combined because the
+engine's own model treats them as calendar time laid on top of travel, not
+assigned to specific days. "Weather hold" (one of the spec's four
+categories) is never lit: `jp_plan` carries no discrete weather-hold day
+count anywhere, only `jp_weather_factor`'s continuous per-leg multiplier
+already folded into `days` — the legend still names it, with a tooltip
+saying why. **JP-14** — up to three inline buttons at a blocked stage (verdict
+card + stage inspector), each a `_plan_values` edit plus a `_compute()`
+recall: turn off seasonal closures (only when `blocked_seasonal`), force
+Walking land-only (transport flip *and* zeroing carts/wagons — the
+wheeled-vehicle block reads cart/wagon count, not `transport`), depart a
+season earlier (only when not already first in the list). Deliberately not a
+port of v2.10's real-pathfinding "re-route land-only" — that stays exactly
+where JP-01/JP-03 already left it. **JP-12** — a real per-leg supply-reach
+bar with resupply ticks, `_stop_fractions()` (already used by the stops
+strip) turning `plan.stops`' positions into leg boundaries, each leg lit
+`block` when its own km exceeds `resupply_reach.required_km`. **JP-15** —
+party-form auto fields (`rest_cadence`/`route_cond`/`infra`/`mount_animal`/
+`desert_water`) now show `Auto · <resolved>` (`weather_override` stays plain
+`Auto` — its auto is a continuous blend, no single resolved value exists),
+refreshed post-compute by relabelling the tracked `OptionButton`s in place
+rather than a full `_rebuild_party_form()`, which would drop focus mid-edit.
+No Rust touched. Headless boot clean; a scripted headless drive (temporary,
+not committed) generated a real world, committed a real 14-stage route, hit
+a genuinely blocked default plan (`Overloaded 167%…`), confirmed the JP-14
+button correctly left it blocked (not a transport-mode cause) with the band
+showing the disclosure line throughout, then cleared it to a real feasible
+plan (`total_days=21.47`, `rest_days=3`) and read back 15 real timeline
+segments summing exactly to `total_days`, real `Auto · <value>` labels, and
+the reach bar's real `ColorRect` children (4 lit, 5 ticks, 2 legitimately
+zero-width where the route's start coincided with a stop). — previously,
+post **Light theme + follow system, Window menu
 workspace/open-windows lists, dock width dragging, rail expansion sub-node
 list** (`GUI_GAP_REGISTER.md` §6.5/§6.6/§6.15 PR-13, PR-14, WI-02, WI-03,
 WI-04, SH-01) — GDScript-only, `dcc_shell.gd`/`menus.gd`/`dcc_theme.gd`:

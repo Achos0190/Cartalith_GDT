@@ -115,6 +115,7 @@ var _active := false
 var _left_panel: VBoxContainer
 var _left_route_section: VBoxContainer
 var _left_party_body: VBoxContainer
+var _auto_obs: Dictionary = {}   ## JP-15: field_key (String) -> OptionButton, the party form's own "Auto" fields -- refreshed post-compute by `_refresh_auto_labels()` rather than rebuilt, so a live numeric edit elsewhere in the form never loses focus.
 
 var _center_panel: Control
 var _route_map: _RouteMapView
@@ -125,6 +126,7 @@ var _stops_note: Label
 var _inspector_body: VBoxContainer
 var _matrix_body: VBoxContainer
 var _matrix_problem_count: Label
+var _timeline_view: _TimelineBandView   ## JP-13: lives in `app.timeline_row`, not under `_center_panel` -- see `_rebuild_timeline_band()`.
 
 # ================================================================= Setup ====
 
@@ -186,6 +188,15 @@ func _hide() -> void:
 		infra_panel.visible = true
 	if app.right_dock_ctrl != null:
 		app.right_dock_ctrl.clear_journey()
+	## JP-13: this view is the only thing that ever populates `timeline_row`
+	## (CV-09 -- `GUI_GAP_REGISTER.md` §11 -- leaves it deliberately empty in
+	## CIVIL); clear it back to that empty state on disarm so Journey content
+	## never leaks into a domain switch.
+	if app.timeline_row != null:
+		for c in app.timeline_row.get_children():
+			app.timeline_row.remove_child(c)
+			c.queue_free()
+		_timeline_view = null
 
 # ============================================================ Left panel ====
 
@@ -278,7 +289,7 @@ func _choice_field(parent: Control, label_text: String, key: String, opts: Packe
 	var labels: Array = []
 	var raw: Array = []
 	if allow_auto:
-		labels.append("Auto")
+		labels.append(_auto_label(key))
 		raw.append("")
 	for o in opts:
 		labels.append(String(o))
@@ -287,15 +298,17 @@ func _choice_field(parent: Control, label_text: String, key: String, opts: Packe
 	var idx: int = raw.find(current)
 	if idx < 0:
 		idx = 0
-	DccWidgets.choice(parent, label_text, labels, idx,
+	var ob := DccWidgets.choice(parent, label_text, labels, idx,
 		func(i: int):
 			_plan_values[key] = raw[i]
 			_plan_value_changed(structural),
 		tooltip)
+	if allow_auto:
+		_auto_obs[key] = ob
 
 func _route_cond_field(parent: Control, label_text: String, key: String, current: String,
 		on_pick: Callable, tooltip: String = "") -> void:
-	var labels: Array = ["Auto"]
+	var labels: Array = [_auto_label(key)]
 	var raw: Array = [""]
 	var conds: Dictionary = _options.get("route_cond", {})
 	for cat in ["land", "river", "sea"]:
@@ -306,7 +319,65 @@ func _route_cond_field(parent: Control, label_text: String, key: String, current
 	var idx: int = raw.find(current)
 	if idx < 0:
 		idx = 0
-	DccWidgets.choice(parent, label_text, labels, idx, func(i: int): on_pick.call(raw[i]), tooltip)
+	var ob := DccWidgets.choice(parent, label_text, labels, idx, func(i: int): on_pick.call(raw[i]), tooltip)
+	_auto_obs[key] = ob
+
+## JP-15 (`JOURNEY_PLANNER_SPEC.md` §5: "Auto-valued fields show `auto ·
+## <resolved value>` so the resolved value is never hidden") -- already true
+## for stage overrides via `_inherit_label` above; this is its party-form
+## sibling. `"Auto"` alone when nothing has been computed yet, or when this
+## field genuinely has no single resolved value to show (`weather_override`:
+## `jp_weather_factor`'s auto is a continuous blend across every condition,
+## not one chosen condition -- there is nothing honest to print).
+func _auto_label(key: String) -> String:
+	var resolved := _party_auto_resolved(key)
+	return ("Auto · %s" % resolved) if resolved != "" else "Auto"
+
+## The real resolved value behind one auto-valued party-form field, read from
+## the last compute -- the party form is journey-wide, so this reads the
+## first stage/leg carrying a real answer, the same "first applicable leg"
+## convention `_pack_range_note()` above already uses (a per-stage breakdown
+## already exists, in the stage inspector's own `_inherit_label`).
+func _party_auto_resolved(key: String) -> String:
+	if _last_result.is_empty() or not bool(_last_result.get("ok", false)):
+		return ""
+	var plan: Dictionary = _last_result.get("plan", {})
+	match key:
+		"rest_cadence":
+			return String(plan.get("rest_basis", ""))
+		"route_cond", "infra":
+			var stages: Array = plan.get("stages", [])
+			for st in stages:
+				var v := String((st as Dictionary).get(key, ""))
+				if v != "":
+					return v
+		"mount_animal":
+			for r in plan.get("results", []):
+				var land: Dictionary = (r as Dictionary).get("land", {})
+				var mk := String(land.get("mount_key", ""))
+				if mk != "":
+					return mk
+		"desert_water":
+			for r in plan.get("results", []):
+				var land: Dictionary = (r as Dictionary).get("land", {})
+				if land.is_empty() or not bool(land.get("is_desert", false)) or not bool(land.get("desert_tier_auto", false)):
+					continue
+				var tier := String(land.get("desert_tier", ""))
+				if tier != "":
+					return tier
+	return ""
+
+## Cheap post-compute refresh for the party form's own "Auto" fields --
+## relabels item 0 in place rather than calling `_rebuild_party_form()`,
+## which would rebuild every SpinBox in the form and drop focus out of
+## whichever one the party is mid-edit in (`_plan_value_changed`'s
+## structural/non-structural split exists for exactly this reason).
+func _refresh_auto_labels() -> void:
+	for key in _auto_obs.keys():
+		var ob: OptionButton = _auto_obs[key]
+		if not is_instance_valid(ob) or ob.item_count == 0:
+			continue
+		ob.set_item_text(0, _auto_label(key))
 
 func _rebuild_party_form() -> void:
 	if not _bound or _left_party_body == null:
@@ -314,6 +385,7 @@ func _rebuild_party_form() -> void:
 	for c in _left_party_body.get_children():
 		_left_party_body.remove_child(c)
 		c.queue_free()
+	_auto_obs.clear()
 
 	if _plan_values.is_empty():
 		for key in _default_plan.keys():
@@ -477,6 +549,8 @@ func _apply_result() -> void:
 	_rebuild_stops(plan)
 	_rebuild_inspector(plan)
 	_rebuild_matrix(plan)
+	_rebuild_timeline_band(plan)
+	_refresh_auto_labels()
 	if app != null and app.right_dock_ctrl != null:
 		app.right_dock_ctrl.refresh_journey()
 
@@ -519,6 +593,93 @@ func _rebuild_profile(plan: Dictionary) -> void:
 	_profile.selected_idx = _selected_stage
 	_profile.isolated_idx = _isolated_stage
 	_profile.queue_redraw()
+
+## JP-13 (`JOURNEY_PLANNER_SPEC.md` §2: "Timeline bar carries the journey
+## calendar: one band per day, coloured travel / water / weather hold /
+## rest-layover") -- `app.timeline_row` sat visible and empty in INFRA while
+## JOURNEY was armed (`GUI_GAP_REGISTER.md` JP-13, §11: "the one place in the
+## shell showing an empty region with no explanation"). Lives in
+## `app.timeline_row`, not `_center_panel`, because that container belongs to
+## `DccShell`/`DccApp`, not this file -- see this file's own class doc for
+## why every other region this view takes over is reached the same
+## read-only way.
+func _rebuild_timeline_band(plan: Dictionary) -> void:
+	if not _bound or app == null or app.timeline_row == null:
+		return
+	for c in app.timeline_row.get_children():
+		app.timeline_row.remove_child(c)
+		c.queue_free()
+	_timeline_view = null
+
+	if _route_index < 0:
+		app.timeline_row.add_child(DccTheme.mono_label(
+			"no committed route selected", "text_ghost", DccTheme.FS_TINY))
+		return
+	var total_days := float(plan.get("total_days", -1.0))
+	if plan.is_empty() or total_days < 0.0:
+		var reason := "journey blocked -- no calendar to show" if not plan.is_empty() else "no result yet"
+		app.timeline_row.add_child(DccTheme.mono_label(reason, "block" if not plan.is_empty() else "text_ghost", DccTheme.FS_TINY))
+		return
+
+	## Real segments only: `results[i].days` per stage (land -> accent, water
+	## and river -> the water token) plus one trailing block for
+	## `rest_days + layover_days` combined (`text_dim`). Combined, not
+	## interleaved, because the engine's own model already treats rest and
+	## layover as calendar time laid on top of travel rather than assigned to
+	## specific days (`JpJourneyPlan::days`'s own doc comment, v1.52: "rest
+	## days and layovers are calendar time laid on top") -- a trailing block
+	## is not an approximation of something more precise the data could give,
+	## it is what "laid on top" means. "Weather hold" is never drawn: `jp_plan`
+	## carries no discrete weather-hold day count anywhere -- weather is
+	## `jp_weather_factor`'s continuous per-leg speed multiplier, already
+	## folded into each stage's own `days` below -- the legend still names it
+	## (per the spec and the mockup's own legend), with a tooltip stating why
+	## no segment is ever lit for it rather than silently dropping one of the
+	## spec's four categories.
+	var stages: Array = plan.get("stages", [])
+	var results: Array = plan.get("results", [])
+	var segments: Array = []
+	for i in stages.size():
+		var s: Dictionary = stages[i]
+		var r: Dictionary = results[i] if i < results.size() else {}
+		var d := float(r.get("days", 0.0))
+		if d <= 0.0:
+			continue
+		var cat := String(s.get("cat", "land"))
+		segments.append({"days": d, "token": "water" if cat != "land" else "accent"})
+	var rest_layover := float(plan.get("rest_days", 0)) + float(plan.get("layover_days", 0))
+	if rest_layover > 0.0:
+		segments.append({"days": rest_layover, "token": "text_dim"})
+
+	app.timeline_row.add_child(DccTheme.mono_label("day 1", "text_faint", DccTheme.FS_TINY))
+	_timeline_view = _TimelineBandView.new()
+	_timeline_view.segments = segments
+	_timeline_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_timeline_view.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_timeline_view.custom_minimum_size = Vector2(0, 8)
+	app.timeline_row.add_child(_timeline_view)
+	app.timeline_row.add_child(DccTheme.mono_label("day %d" % int(roundf(total_days)), "text_faint", DccTheme.FS_TINY))
+
+	var legend := HBoxContainer.new()
+	legend.add_theme_constant_override("separation", 10)
+	_timeline_legend_item(legend, "accent", "travel")
+	_timeline_legend_item(legend, "water", "water")
+	var wx := _timeline_legend_item(legend, "block", "weather hold")
+	wx.tooltip_text = "jp_plan reports no discrete weather-hold day count -- weather is a continuous per-leg speed multiplier, already folded into each stage's own travel days to the left. Never lit."
+	_timeline_legend_item(legend, "text_dim", "rest / layover")
+	app.timeline_row.add_child(legend)
+
+func _timeline_legend_item(parent: Control, token: String, label_text: String) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	var sw := ColorRect.new()
+	sw.custom_minimum_size = Vector2(7, 7)
+	sw.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	sw.color = DccTheme.c(token)
+	row.add_child(sw)
+	row.add_child(DccTheme.mono_label(label_text, "text_ghost", DccTheme.FS_MICRO))
+	parent.add_child(row)
+	return row
 
 # ============================================================ Center panel ====
 
@@ -1446,6 +1607,55 @@ func _build_verdict_card(body: Control, plan: Dictionary, verdict: Dictionary, c
 		rl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		card.add_child(rl)
 
+	var blocked_idx := int(plan.get("blocked_idx", -1))
+	if blocked_idx >= 0:
+		var results: Array = plan.get("results", [])
+		var br: Dictionary = results[blocked_idx] if blocked_idx < results.size() else {}
+		card.add_child(DccTheme.mono_label("RESOLVE INLINE · STAGE %02d" % (blocked_idx + 1), "text_ghost", DccTheme.FS_MICRO, 1, true))
+		card.add_child(_blocked_resolution_row(br))
+
+## JP-14 (`JOURNEY_PLANNER_SPEC.md` §9: "offers its resolutions inline (turn
+## off closures, re-route land-only, depart earlier)") -- three `_plan_values`
+## edits plus a `_compute()` recall, not a route-level reroute. v2.10's own
+## "re-route journey, land-only" quick fix (`_jpRerouteForMode`) replaces the
+## drawn path with a fresh Dijkstra land route -- real pathfinding work with
+## no Rust port (`GUI_GAP_REGISTER.md` JP-01/JP-03, deliberately left alone
+## by this pass, not reimplemented under a different row's name here).
+## What genuinely IS a plain plan edit, and resolves the three land-stage
+## block reasons that name it in their own text ("Switch to Walking or
+## reroute", "Remove carts/wagons or reroute", "Add travois or pack animals,
+## or reroute" -- `cartalith-civ/src/lib.rs`'s own `jp_calc_land_ex`):
+## forcing the party's transport to Walking AND zeroing carts/wagons -- the
+## wheeled-vehicle block is gated on cart/wagon *count*, not on `transport`
+## (`jp_calc_land_ex`: `(wagons>0||carts>0) && JP_WHEEL_BLOCKED.contains
+## (terrain)`, checked independently of which mode is selected), so the
+## transport flip alone clears the Mounted-Rider and Baggage-Train reasons
+## but not this one; both together clear all three. It does nothing for a
+## genuinely blocked WATER leg (`jp_calc_water` never reads `plan.transport`,
+## only `plan.vessel`) -- offered anyway, since recomputing is how the party
+## finds that out, not a claim this always resolves it.
+func _blocked_resolution_row(r: Dictionary) -> Control:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 8)
+	if bool(r.get("blocked_seasonal", false)):
+		DccWidgets.action(row, "turn off seasonal closures", func():
+			_plan_values["seasonal_closures"] = false
+			_plan_value_changed(true))
+	DccWidgets.action(row, "force Walking (land-only)", func():
+		_plan_values["transport"] = "Walking"
+		_plan_values["carts"] = 0
+		_plan_values["wagons"] = 0
+		_plan_value_changed(true))
+	var seasons: PackedStringArray = _options.get("season", PackedStringArray())
+	var cur := String(_plan_values.get("season", ""))
+	var si: int = seasons.find(cur)
+	if si > 0:
+		var earlier := String(seasons[si - 1])
+		DccWidgets.action(row, "depart in %s instead" % earlier, func():
+			_plan_values["season"] = earlier
+			_plan_value_changed(true))
+	return row
+
 func _kv_row(parent: Control, label_text: String, value_text: String, token: String = "text") -> void:
 	var row := HBoxContainer.new()
 	row.custom_minimum_size.y = 18
@@ -1528,7 +1738,51 @@ func _build_supply_group(body: Control, plan: Dictionary) -> void:
 	_kv_row(g, "longest gap", "%.1f d · %s km" % [gap_days, _fmt_thousands(gap, 0)], "warn" if bool(reach.get("unmet", false)) else "text")
 	_kv_row(g, "desert km", "%s km" % _fmt_thousands(float(plan.get("desert_km", 0.0)), 0))
 	_kv_row(g, "stops needed", str(int(reach.get("stops", 0))), "block" if bool(reach.get("unmet", false)) else "text")
+	_build_reach_bar(g, plan, reach)
 	DccWidgets.note(g, "Foraging offset is not broken out as a separate figure by jp_plan -- it is already folded into the food/water totals above.")
+
+## JP-12 (§8: "per-leg bar with resupply ticks") -- `resupply_reach` itself
+## carries no per-stop positions (`required_km`/`max_gap_km`/`stops`/`unmet`
+## are route-wide scalars), but `plan.stops` does, via the same
+## `_stop_fractions()` chord-length projection the stops strip above already
+## uses. One segment per gap between consecutive resupply stops (route ends
+## counting as the first/last boundary), lit `block` when that specific leg's
+## own distance would outrun `required_km` -- the carry range this journey's
+## `supply_days` actually give it -- `accent` otherwise, with a tick between
+## every pair of segments marking the stop itself. Real geometry, not the
+## single worst-gap figure the kv rows above already show; this is what
+## "per-leg", plural, adds.
+func _build_reach_bar(parent: Control, plan: Dictionary, reach: Dictionary) -> void:
+	var stops: Array = plan.get("stops", [])
+	var total_km := float(plan.get("km", 0.0))
+	if stops.is_empty() or total_km <= 0.0 or _route_index < 0:
+		return
+	var pts: PackedVector2Array = bridge.route_get(_route_index).get("points", PackedVector2Array())
+	var fracs := _stop_fractions(stops, pts)
+	var required_km := float(reach.get("required_km", 0.0))
+
+	var track := HBoxContainer.new()
+	track.custom_minimum_size.y = 6
+	track.add_theme_constant_override("separation", 0)
+	var bounds := PackedFloat64Array([0.0])
+	bounds.append_array(fracs)
+	bounds.append(1.0)
+	for i in range(bounds.size() - 1):
+		var seg_frac: float = bounds[i + 1] - bounds[i]
+		if seg_frac > 0.0:
+			var seg_km: float = seg_frac * total_km
+			var seg := ColorRect.new()
+			seg.color = DccTheme.c("block") if (required_km > 0.0 and seg_km > required_km) else DccTheme.c("accent")
+			seg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			seg.size_flags_stretch_ratio = maxf(0.001, seg_frac)
+			seg.tooltip_text = "%s km leg" % _fmt_thousands(seg_km, 0)
+			track.add_child(seg)
+		if i < bounds.size() - 2:   ## a tick at every interior boundary -- a real stop, not a route end
+			var tick := ColorRect.new()
+			tick.color = DccTheme.c("bg")
+			tick.custom_minimum_size.x = 2
+			track.add_child(tick)
+	parent.add_child(track)
 
 func _build_cost_group(body: Control) -> void:
 	var g := DccWidgets.section(body, "Cost")
@@ -1720,3 +1974,33 @@ class _ProfileView extends Control:
 			var col := DccTheme.c("block") if bool(b.get("blocked", false)) else (DccTheme.c("accent") if i == selected_idx else DccTheme.c("text_ghost"))
 			draw_string(ThemeDB.fallback_font, Vector2(x0 + 3, h - 4), label_text,
 				HORIZONTAL_ALIGNMENT_LEFT, maxf(4.0, (float(b.get("end", 1.0)) - float(b.get("start", 0.0))) * w - 4.0), 9, col)
+
+## JP-13's day-band strip -- see `_rebuild_timeline_band()`'s own doc comment
+## for what each segment means and why "weather hold" never lights up. Same
+## `_draw()` convention as `_RouteMapView`/`_ProfileView` above.
+class _TimelineBandView extends Control:
+	var segments: Array = []   ## [{days: float, token: String}], route order
+
+	func _ready() -> void:
+		resized.connect(func(): queue_redraw())
+
+	func _draw() -> void:
+		var w := size.x
+		var h := size.y
+		if w <= 0.0 or h <= 0.0:
+			return
+		var total := 0.0
+		for seg in segments:
+			total += float((seg as Dictionary).get("days", 0.0))
+		if total <= 0.0:
+			draw_rect(Rect2(0, 0, w, h), DccTheme.c("line"))
+			return
+		var x := 0.0
+		for i in segments.size():
+			var seg: Dictionary = segments[i]
+			var frac: float = float(seg.get("days", 0.0)) / total
+			var sw: float = frac * w
+			draw_rect(Rect2(x, 0, sw, h), DccTheme.c(String(seg.get("token", "accent"))))
+			x += sw
+			if i + 1 < segments.size() and sw > 1.5:
+				draw_line(Vector2(x, 0), Vector2(x, h), DccTheme.c("bg"), 1.0)
