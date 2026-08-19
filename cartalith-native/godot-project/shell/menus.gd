@@ -48,6 +48,7 @@ const ID_PREF_UNITS_KM := 54
 const ID_PREF_UNITS_MI := 55
 const ID_PREF_STORAGE := 56
 const ID_PREF_WORKING_SET := 57
+const ID_PREF_THEME_SYSTEM := 58
 
 const ID_WIN_LEFT := 60
 const ID_WIN_RIGHT := 61
@@ -67,11 +68,21 @@ var _quality_popup: PopupMenu
 var _recent_popup: PopupMenu
 var _icon_families_popup: PopupMenu
 var _texture_sets_popup: PopupMenu
+var _theme_popup: PopupMenu
+var _theme_mode := "dark"  ## "dark" / "light" / "system" -- which of the three
+	## radio rows shows checked. Not persisted (`DccSettings` carries no theme
+	## key yet): §2.5's "follow system" is explicitly a one-shot resolve, not a
+	## live subscription, so there is no ongoing mode to save beyond the plain
+	## dark/light bit `DccTheme.is_dark()` already is.
+var _workspace_popup: PopupMenu
+var _windows_popup: PopupMenu
+var _open_windows: Array = []  ## the live `AcceptDialog`s behind `_windows_popup`, index-parallel to its items
 
 func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
 	_shell = shell
 	_bridge = bridge
 	_host = host
+	_theme_mode = "dark" if DccTheme.is_dark() else "light"
 	shell.add_menu("File", _file)
 	shell.add_menu("Edit", _edit)
 	shell.add_menu("Assets", _assets)
@@ -354,17 +365,25 @@ func _preferences(p: PopupMenu) -> void:
 	## `DccApp.open_storage_locations()` is the one method both call.
 	_live(p, "Storage locations…", ID_PREF_STORAGE)
 
-	var theme_menu := PopupMenu.new()
-	theme_menu.name = "ThemeChoice"
-	theme_menu.add_radio_check_item("Dark", ID_PREF_THEME_DARK)
-	theme_menu.add_radio_check_item("Light", ID_PREF_THEME_LIGHT)
-	theme_menu.set_item_checked(0, DccTheme.is_dark())
-	theme_menu.set_item_checked(1, not DccTheme.is_dark())
-	theme_menu.set_item_disabled(1, true)
-	theme_menu.set_item_tooltip(1,
-		"The light palette is defined (DccTheme.LIGHT) but the shell builds its styleboxes once at startup; live swapping needs a rebuild pass.")
-	_shell.style_popup(theme_menu)
-	p.add_child(theme_menu)
+	## PR-13/PR-14: `DccTheme.LIGHT` was always fully defined -- §11's own
+	## light token column -- the blocker was that `DccShell` built every
+	## stylebox once at startup with no rebuild path. `DccShell.rebuild_theme()`
+	## is that path now, so Light is live rather than disabled, and Follow
+	## system (previously absent, §2.5's third choice) resolves the OS
+	## preference once through it too.
+	_theme_popup = PopupMenu.new()
+	_theme_popup.name = "ThemeChoice"
+	_theme_popup.add_radio_check_item("Dark", ID_PREF_THEME_DARK)
+	_theme_popup.add_radio_check_item("Light", ID_PREF_THEME_LIGHT)
+	_theme_popup.add_radio_check_item("Follow system", ID_PREF_THEME_SYSTEM)
+	if not DisplayServer.is_dark_mode_supported():
+		_theme_popup.set_item_disabled(2, true)
+		_theme_popup.set_item_tooltip(2,
+			"This platform/build reports no OS dark-mode preference (DisplayServer.is_dark_mode_supported() is false).")
+	_refresh_theme_menu()
+	_theme_popup.id_pressed.connect(_on_theme_choice)
+	_shell.style_popup(_theme_popup)
+	p.add_child(_theme_popup)
 	p.add_submenu_item("Theme", "ThemeChoice")
 	_todo(p, "Units", "The shell is km-only; the reference's mi toggle is not ported.")
 	_todo(p, "Keyboard shortcuts…", "No shortcut table yet.")
@@ -383,6 +402,37 @@ func _on_preferences(id: int, p: PopupMenu) -> void:
 	var on := not bool(_bridge.param_get("use_gpu"))
 	if _bridge.param_set("use_gpu", on):
 		p.set_item_checked(idx, on)
+
+func _refresh_theme_menu() -> void:
+	_theme_popup.set_item_checked(0, _theme_mode == "dark")
+	_theme_popup.set_item_checked(1, _theme_mode == "light")
+	_theme_popup.set_item_checked(2, _theme_mode == "system")
+
+## Dark/Light set the mode and the palette directly; Follow system resolves
+## `DisplayServer`'s own preference once and applies it -- §2.5's "dark ·
+## light · follow system" as three discrete choices, not a live subscription:
+## nothing here re-checks it if the OS preference changes later, matching the
+## owner's own "does not need to live-watch it".
+func _on_theme_choice(id: int) -> void:
+	var want_dark: bool
+	match id:
+		ID_PREF_THEME_DARK:
+			_theme_mode = "dark"
+			want_dark = true
+		ID_PREF_THEME_LIGHT:
+			_theme_mode = "light"
+			want_dark = false
+		ID_PREF_THEME_SYSTEM:
+			_theme_mode = "system"
+			want_dark = DisplayServer.is_dark_mode() if DisplayServer.is_dark_mode_supported() \
+				else DccTheme.is_dark()
+		_:
+			return
+	_refresh_theme_menu()
+	if want_dark != DccTheme.is_dark():
+		var was_dark := DccTheme.is_dark()
+		DccTheme.apply_theme(want_dark)
+		_shell.rebuild_theme(was_dark)
 
 func _on_quality(id: int) -> void:
 	var tiers := _bridge.quality_tiers()
@@ -404,9 +454,70 @@ func _window(p: PopupMenu) -> void:
 		p.add_check_item(entry[0], entry[1])
 		p.set_item_checked(p.item_count - 1, true)
 	p.add_separator()
+
+	## WI-02: a real submenu over `DccShell.DOMAINS` -- the list itself is
+	## fixed so it's built once, like `_quality_popup`'s own tier list;
+	## `about_to_popup` only refreshes which row shows as the active domain,
+	## the same split the GPU checkbox above already uses for "static rows,
+	## live check".
+	_workspace_popup = PopupMenu.new()
+	_workspace_popup.name = "WorkspaceList"
+	_shell.style_popup(_workspace_popup)
+	p.add_child(_workspace_popup)
+	p.add_submenu_item("Workspace", "WorkspaceList")
+	for i in DccShell.DOMAINS.size():
+		_workspace_popup.add_radio_check_item(String(DccShell.DOMAINS[i].label), i)
+	_workspace_popup.about_to_popup.connect(func():
+		for i in DccShell.DOMAINS.size():
+			_workspace_popup.set_item_checked(i, DccShell.DOMAINS[i].id == _shell.active_domain()))
+	_workspace_popup.id_pressed.connect(func(i: int):
+		_shell.select_domain(String(DccShell.DOMAINS[i].id)))
+
+	## WI-03: `DccApp`'s own `AcceptDialog`s, listed live while `visible` and
+	## cleared+rebuilt on every `about_to_popup` -- the same rebuild-on-popup
+	## convention `_refresh_recent_worlds()` already uses above, because
+	## unlike the workspace list this one genuinely changes between opens.
+	_windows_popup = PopupMenu.new()
+	_windows_popup.name = "OpenWindows"
+	_shell.style_popup(_windows_popup)
+	p.add_child(_windows_popup)
+	p.add_submenu_item("Open windows", "OpenWindows")
+	_windows_popup.about_to_popup.connect(_refresh_open_windows)
+	_windows_popup.id_pressed.connect(_on_open_window)
+
+	p.add_separator()
 	_live(p, "Reset layout", ID_WIN_RESET)
 	_todo(p, "Save layout as…", "No layout store yet.")
 	p.id_pressed.connect(func(id: int): _host.toggle_region(id))
+
+## `_host` is `DccApp` (`app.gd`); these five fields are its own public
+## `AcceptDialog`s, none reached through any new API. Grepped against
+## `app.gd` rather than trusted from memory -- the list has grown before.
+func _refresh_open_windows() -> void:
+	_windows_popup.clear()
+	_open_windows.clear()
+	for entry in [
+		["New world…", _host.new_world_dialog],
+		["World data tables", _host.world_data_window],
+		["Performance", _host.performance_window],
+		["Data manager", _host.data_manager_window],
+		["Asset library", _host.asset_library_window],
+	]:
+		var dlg: Window = entry[1]
+		if dlg != null and dlg.visible:
+			_windows_popup.add_check_item(String(entry[0]), _open_windows.size())
+			_windows_popup.set_item_checked(_open_windows.size(), true)
+			_open_windows.append(dlg)
+	if _open_windows.is_empty():
+		_windows_popup.add_item("No windows open")
+		_windows_popup.set_item_disabled(0, true)
+
+## Brings an already-open window to front. `popup_centered()` on a `Window`
+## that's already visible re-centres and raises it -- there is no separate
+## "just raise, don't move" call on `AcceptDialog`.
+func _on_open_window(id: int) -> void:
+	if id >= 0 and id < _open_windows.size():
+		(_open_windows[id] as Window).popup_centered()
 
 # -- §2.7 Help ----------------------------------------------------------------
 

@@ -14849,3 +14849,146 @@ turned out not to.
 **Verified:** both files re-read after editing. Headless Godot 4.7.1 boot
 (`--headless --path godot-project --quit`) clean — no parse errors, no
 missing-method warnings. No Rust file touched.
+
+## Light theme + follow system, Window menu workspace/open-windows lists, dock width dragging, rail expansion sub-node list (`GUI_GAP_REGISTER.md` §6.5/§6.6/§6.15 PR-13, PR-14, WI-02, WI-03, WI-04, SH-01, 2026-08-19)
+
+All six classified **(A)** by the register: real design already exists,
+everything the engine needs already exists, zero Rust. GDScript-only —
+`dcc_shell.gd`, `menus.gd`, `dcc_theme.gd`.
+
+1. **PR-13 — Theme ▸ Light.** `DccTheme.LIGHT` was always complete — §11's
+   own light token column — the actual blocker, verified by reading
+   `dcc_shell.gd` in full first, was that every stylebox and colour override
+   in the shell got baked in once, at `_ready()`, as a plain `Color` value
+   with no live link back to `DccTheme`'s dictionaries. Flipping `_dark` did
+   nothing to anything already built. Two new pieces close that:
+   - `DccTheme.apply_theme(is_dark: bool)` replaces the previously-unused
+     (grepped: zero callers anywhere) `set_dark()` — same job, re-pointing
+     which palette `c()` resolves against.
+   - `DccTheme.remap(value: Color, old_pal: Dictionary) -> Variant` is the
+     new piece: the reverse of `c()`. Given a colour a node already has and
+     the *old* palette it was painted under, it finds which token in that
+     old palette produced it and returns that same token's colour under
+     whichever palette is active *now* — `null` if `value` matches no token
+     at all (a literal, e.g. a phone overlay's plain dim scrim), so those are
+     left untouched rather than guessed at. Tries an exact RGBA match first,
+     then RGB-only, so an alpha-blended derivative like `Color(c("bg"), 0.9)`
+     keeps its own alpha instead of inheriting the token's.
+   - `DccShell.rebuild_theme(was_dark: bool)` is what actually repaints
+     anything: a recursive walk (`_recolor_subtree`) over the *entire* tree
+     under the shell root — not just the frame chrome `DccShell` itself
+     builds, but every workspace panel, popup and already-open dialog too,
+     since they're all still descendants of this same root. For each
+     `Control`/`Window` node it checks a fixed, **exhaustively grepped** list
+     of the theme-override names this codebase actually uses (`grep -rhoE
+     'add_theme_(color|stylebox)_override\("[^"]+"' godot-project/shell` —
+     Godot exposes no "list every override on this node" call, so this stood
+     in for one) and, for each present override, calls `DccTheme.remap()` and
+     repaints in place if it found a match; `StyleBoxFlat.bg_color`/
+     `border_color` and bare `ColorRect.color` (used for every hairline and
+     rule) get the same treatment. Mutating the `StyleBox` resources in place
+     works because every stylebox in this codebase is built fresh
+     per-call (`DccTheme.panel()`/`.flat()`/etc. all `.new()`) rather than
+     shared/cached, so there is no risk of one mutation bleeding into an
+     unrelated control.
+   - Preferences ▸ Theme ▸ Light dropped its "styleboxes are built once"
+     disabled tooltip and is now a live radio choice.
+2. **PR-14 — Theme ▸ Follow system.** Previously absent (register omission
+   O4). `DisplayServer.is_dark_mode()`/`is_dark_mode_supported()` (checked
+   against this Godot 4.7.1 build's own `ClassDB`, not assumed) resolve the
+   OS preference; a new third radio item calls it once and applies the
+   result through the same `apply_theme()`/`rebuild_theme()` pair — §2.5's
+   "dark · light · follow system" as three discrete choices, deliberately
+   *not* a live subscription (the item is disabled with a tooltip if
+   `is_dark_mode_supported()` is false).
+3. **WI-02 — Window ▸ Workspace.** Previously absent (omission O5). A real
+   submenu over the five `DccShell.DOMAINS`, built once (the list is fixed)
+   with its checkmarks refreshed on `about_to_popup` to track
+   `active_domain()`. Needed one small addition to `dcc_shell.gd`: a public
+   `select_domain(id)` wrapper around the existing (but underscore-named,
+   i.e. file-internal by convention) `_select_domain()`, so `menus.gd` isn't
+   reaching across the file boundary at a "private" method.
+4. **WI-03 — Window ▸ Open windows.** Previously absent (omission O5).
+   `DccApp` turned out to carry **five** `AcceptDialog`s, not the four the
+   dispatch brief named — `new_world_dialog` had joined `world_data_window`/
+   `performance_window`/`data_manager_window`/`asset_library_window` since
+   that count was last written down. All five are listed, but only while
+   `.visible`; rebuilt on every `about_to_popup`, mirroring `Recent worlds`'
+   own rebuild-on-popup convention immediately above it in `menus.gd`.
+   Picking a listed window calls `popup_centered()` on it again, which
+   re-centres and raises an already-visible `Window`.
+5. **WI-04 — dock width dragging.** Previously absent entirely. §1's real
+   geometry table (re-verified against the spec text, not paraphrased):
+   left dock 372 px, min 300/max 520; right dock 300 px, min 260/max 460.
+   Both docks gained a real 6 px grip (`Control.CURSOR_HSPLIT`) carved out of
+   their own existing reserved width — carried inside a new `HBoxContainer`
+   wrapper alongside the dock's pre-existing content column, so
+   `_left_width`/`_right_width` still mean exactly what they always have and
+   no dock grows past its own allocated width. The grip's `gui_input`
+   handler keeps receiving mouse-motion events even once the cursor drifts
+   off its own thin rect — this is not custom capture logic, it's the same
+   mechanism Godot's own `SplitContainer` dragger relies on (a Control that
+   received the initial press keeps `gui_input` routing to it until
+   release, regardless of pointer position) — clamped live to the min/max
+   pair above and written straight into `_left_width`/`_right_width`, the
+   same fields `_toggle_dock()` already reads when restoring a dock's width
+   after un-collapsing it.
+6. **SH-01 — rail expansion `›` → real sub-node list.** Previously a bare,
+   never-wired `Label` (`dcc_shell.gd:333-337` before this pass).
+   `GUI_GAP_REGISTER.md` §7.17 reads this as VS Code's per-activity-sidebar
+   model against a spec that "never enumerates the sub-nodes," and proposes
+   reusing `_phone_list_row()` verbatim as the (A)-buildable path — taken
+   literally: the chevron is now a real `Button` that grows the rail from
+   `W_RAIL_COLLAPSED` (40 px) to `W_RAIL_EXPANDED` (200 px) and swaps the
+   domain-button column (now wrapped as `_rail_collapsed_body`, one `visible`
+   flip) for `_rail_subnodes_body` — one `_phone_list_row()` row per domain,
+   titled with the domain's label and subtitled with its **real** dock
+   sub-structure rather than an invented category list. `DOMAINS` gained a
+   `subnodes` field per entry, sourced from each domain's own left-dock
+   builder, not the spec: WORLD's "Generation pipeline · Sculpt · Biome
+   paint" (its two-mode switch plus the one TOOLS-block button
+   `world_workspace.gd::_build`'s own comment says is "the only button that
+   belongs here"), CIVIL's six `DccWidgets.category()` accordion titles
+   (Settlements/Population/Economy/Politics/Culture/Timeline), INFRA's five
+   (Roads/Rivers/Ports/Trade/Logistics), CARTO's three (Layers/Layer
+   properties/Annotation), RENDER's one (`_not_built("Terrain appearance",
+   …)` is the whole dock today). Picking a row jumps to that domain
+   (`_pick_rail_domain`) and collapses the rail back, mirroring
+   `_pick_drawer_domain()`'s own close-after-pick on the phone drawer — there
+   is no engine hook to scroll a dock to one specific L2 category, so
+   "select the domain" is the honest ceiling of what a row can do.
+
+**Known gap, disclosed rather than silently partial:** `rebuild_theme()`'s
+token-match walk only repaints nodes that already exist in the tree when it
+runs, using colours it can trace back to a token. Inspection of every
+`add_theme_*_override`/`ColorRect.color` call in `godot-project/shell` found
+none that use a hardcoded literal instead of `DccTheme.c(...)`, but that is
+not an exhaustive proof for files outside this dispatch's ownership — a
+future file that paints a literal colour would silently not flip.
+
+**Verified:** both files (`dcc_shell.gd`, `menus.gd`) and `dcc_theme.gd`
+re-read after editing. Headless Godot 4.7.1 boot (`--headless --path
+godot-project --quit`) clean — zero errors, zero warnings. Beyond the boot
+check, a scripted headless drive (temporary, not committed — instantiates
+`app.tscn` directly under a custom `SceneTree` script and calls into the
+shell's own methods, since no display is available in this session) actually
+exercised all five interactive pieces and read back exact values:
+- Rail: `_toggle_rail_expansion()` → panel width 40→200, `_rail_subnodes_body`
+  visible with 10 children (5 rows + 5 rules), `_rail_collapsed_body` hidden;
+  `_pick_rail_domain("civilization")` → `active_domain()` became
+  `"civilization"` and the rail re-collapsed in the same call.
+- Dock drag: simulated `InputEventMouseMotion` with `relative.x = 15` while
+  `_dragging_dock = "left"` moved `_left_width` 372→387 and
+  `left_dock.custom_minimum_size.x` matched; forcing it near `W_LEFT_DOCK_MAX`
+  and repeating confirmed the clamp holds at exactly 520.
+- Theme: before/after `left_dock`'s own `"panel"` stylebox `bg_color` matched
+  `DccTheme.DARK["panel"]` then, after `apply_theme(false)` +
+  `rebuild_theme(true)`, matched `DccTheme.LIGHT["panel"]` exactly (both RGB
+  and alpha); the ground `ColorRect`'s colour flipped and reverted correctly
+  alongside it.
+- Window menu: `_workspace_popup`'s five rows tracked `active_domain()`
+  correctly (World checked at boot); `_refresh_open_windows()` showed exactly
+  one row ("World data tables", checked) while `world_data_window` was
+  `.visible`, and "No windows open" (disabled) once it was hidden again.
+
+No Rust file touched.

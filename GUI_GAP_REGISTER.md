@@ -291,8 +291,8 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | PR-10 | Tiled LOD · tile size · atlas cache | 338 | **corrected — S4** | yes, now | §2.5 gives four rows of values | **(C)** for the atlas-cache design → §7.7 |
 | PR-11 | Memory ▸ Undo history | 339 | no undo stack | yes | §2.5 gives a range and a default | **(C)** — depends on ED-02's undesigned model → §7.1 |
 | PR-12 | Memory ▸ Clear caches… | 348 | no atlas or field cache exists to clear | yes | §2.5 | (B) small — gated on PR-10 |
-| PR-13 | Theme ▸ Light | 362 | the light palette is defined (`DccTheme.LIGHT`) but styleboxes are built once at startup | yes | §2.5 + §11's full light token column | **(A)** — a rebuild pass in `DccTheme`/`DccShell`, no engine at all |
-| PR-14 | Theme ▸ follow system | *absent — omission O4* | none | — | §2.5 | **(A)** — Godot exposes the OS preference; the rebuild pass is PR-13's |
+| PR-13 | Theme ▸ Light | 362 | **done 2026-08-19** — `DccTheme.apply_theme()`/`remap()` + `DccShell.rebuild_theme()` walk the tree and repaint every token-derived colour in place; Light is a live radio choice | yes | §2.5 + §11's full light token column | **(A)** — a rebuild pass in `DccTheme`/`DccShell`, no engine at all |
+| PR-14 | Theme ▸ follow system | **done 2026-08-19** — a third radio item, `DisplayServer.is_dark_mode()` resolved once | none | — | §2.5 | **(A)** — Godot exposes the OS preference; the rebuild pass is PR-13's |
 | PR-15 | Units (km · mi) | 368 | the shell is km-only; the reference's mi toggle is not ported | yes | §2.5 gives two values, **and §5.1 stage 02 gives the same control a second home** — an unresolved ownership collision (`DCC_CONTROL_INDEX.md` §3(j), owner decision 15) | **(C)** → §7.8 |
 | PR-16 | Keyboard shortcuts… | 369 | no shortcut table yet | yes | §2.5 says *"Editable table, per-context"* and nothing more | **(C)** → §7.9 |
 
@@ -301,9 +301,9 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | # | UI label | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
 | WI-01 | Save layout as… | 407 | no layout store yet | yes | §2.6 names it | **(C)** → §7.10 |
-| WI-02 | The workspace list | *absent — omission O5* | none | — | §2.6 | **(A)** — `_select_domain()` and `DOMAINS` already exist |
-| WI-03 | Open windows listed while open | *absent — omission O5* | none | — | §2.6 | **(A)** — four windows exist and all are `AcceptDialog`s on `DccApp` |
-| WI-04 | Dock width dragging (§1: "user-draggable within min/max") | *absent* | none | — | §1's geometry table gives min/max for both docks | **(A)** — pure GDScript; the collapse chevron already exists |
+| WI-02 | The workspace list | **done 2026-08-19** — Window ▸ Workspace submenu over `DccShell.DOMAINS`, via a new public `select_domain()` | none | — | §2.6 | **(A)** — `_select_domain()` and `DOMAINS` already exist |
+| WI-03 | Open windows listed while open | **done 2026-08-19** — Window ▸ Open windows, rebuilt every `about_to_popup`; the count is five now, not four (`new_world_dialog` had joined the other four) | none | — | §2.6 | **(A)** — four windows exist and all are `AcceptDialog`s on `DccApp` |
+| WI-04 | Dock width dragging (§1: "user-draggable within min/max") | **done 2026-08-19** — a real 6 px grip per dock, clamped to §1's min/max | none | — | §1's geometry table gives min/max for both docks | **(A)** — pure GDScript; the collapse chevron already exists |
 
 ### 6.7 Help menu — `menus.gd`
 
@@ -418,7 +418,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
-| SH-01 | Rail expansion `›` → 200 px sub-node list | `dcc_shell.gd:333-337` (a bare `Label`, never wired) | none | — | §3 names it | **(C)** — `DCC_CONTROL_INDEX.md`: *"Sub-node lists per domain are not enumerated in the spec; the builder has no source for them"* → §7.17 |
+| SH-01 | Rail expansion `›` → 200 px sub-node list | **done 2026-08-19** — a real `Button`, growing the rail to `W_RAIL_EXPANDED` and listing each domain's real dock sub-structure via `_phone_list_row()` (§7.17's own proposal) | none | — | §3 names it | **(C)** — `DCC_CONTROL_INDEX.md`: *"Sub-node lists per domain are not enumerated in the spec; the builder has no source for them"* → §7.17 |
 | SH-02 | Phone: tool-sheet drag, gesture-inset handle | 1056-1058, 1099-1101 | *"the mockup pictures exactly one static sheet state; nothing here answers a drag gesture"* | yes | §13 | **(D)** — deliberate: inventing a gesture the design does not show |
 | SH-03 | Phone: touch-pan-while-drawing (v2.10 `#sculptNavpad`) | 710-714 | `main.gd` carries no such handling to port forward — grepped | yes | §4.5.6 requires it | (B) small — a genuine gap for whoever wires sculpt touch input |
 | SH-04 | Phone: battery / signal glyphs | 863-868 | checked against this Godot build's own `OS` class: no `power`/`battery` method exists | yes | §13's mockup | **(D)** — nothing real to back them cross-platform; only the clock gets real data |
@@ -1262,13 +1262,13 @@ by value delivered per unit of work.
 | 3 | **JP-13** | Journey Planner's **timeline band** — one band per day, coloured travel / water / weather hold / rest-layover | `timeline_bar` is currently drawn **visible and empty** while JOURNEY is armed — the one place in the shell showing an empty region with no explanation. All the data is in `plan`. | `JOURNEY_PLANNER_SPEC.md` §2 |
 | 4 | **JP-14** | Blocked-stage **inline resolutions** (turn off closures · re-route land-only · depart earlier) | A blocked journey currently ends in a dead end. All three are `_plan_values` edits plus `_compute()`. | `JOURNEY_PLANNER_SPEC.md` §9 |
 | 5 | **RD-11** — **done 2026-08-19** | Right dock's collapsed **primary readout** | §6's own last line; `set_dock_readout()` exists and is wired for the left dock only. One call. | §6 |
-| 6 | **PR-13 + PR-14** | **Light theme** + follow-system | `DccTheme.LIGHT` is fully defined and §11 gives the complete light token column; only the build-once stylebox pass blocks it. The single largest *visible* change available with no engine work. | §2.5, §11 |
-| 7 | **WI-02 + WI-03 + WI-04** | Window menu: workspace list, open-windows list, **dock width dragging** | Three omissions against §1/§2.6; all three read state that already exists. | §1, §2.6 |
+| 6 | **PR-13 + PR-14** — **done 2026-08-19** | **Light theme** + follow-system | `DccTheme.LIGHT` is fully defined and §11 gives the complete light token column; only the build-once stylebox pass blocks it. The single largest *visible* change available with no engine work. | §2.5, §11 |
+| 7 | **WI-02 + WI-03 + WI-04** — **done 2026-08-19** | Window menu: workspace list, open-windows list, **dock width dragging** | Three omissions against §1/§2.6; all three read state that already exists. | §1, §2.6 |
 | 8 | **CA-05** | Icon **on-canvas resize handle** | `icon_resize`/`icon_hit_test` are exposed; the drag math already exists on the Label tool and can be copied. Handle geometry derives from `icon_get()`. | §4.5.5 |
 | 9 | **JP-12 + JP-15** | Supply-reach **per-leg bar with resupply ticks**; party-form fields showing `auto · <resolved>` | `resupply_reach` and each result's `eff` dict already carry every value. | `JOURNEY_PLANNER_SPEC.md` §5, §8 |
 | 10 | **SH-05** — **done 2026-08-19** | Layers popover **hotkey badges 1–8** | The popover already enumerates every view; badges plus `InputMap` entries. | §10 |
 | 11 | **SH-06** — **baseline done 2026-08-19, suffix reclassified (B)** | Viewport `4 812 km E · 1 093 km N · 1 462 m` cursor coordinates + elevation | `sample_cell` gives the committed elevation; the `→ 1 582 m` draft-stamp suffix turned out to need a new Rust entry point (`sample_cell` never reads the sculpt draft) — see the §6.15 row's own note. | §10 |
-| 12 | **SH-01** | Rail expansion showing label + subtitle at 200 px | Reuses `_phone_list_row()` verbatim; see §7.17 for why this reading beats the spec's unenumerated one. | §3 |
+| 12 | **SH-01** — **done 2026-08-19** | Rail expansion showing label + subtitle at 200 px | Reuses `_phone_list_row()` verbatim; see §7.17 for why this reading beats the spec's unenumerated one. | §3 |
 
 Four more become (A) **the moment their design lands** and are the best return on
 a design decision rather than a build: **ED-05 Find on map** (§7.2 — every source

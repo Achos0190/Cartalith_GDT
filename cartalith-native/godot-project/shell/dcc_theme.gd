@@ -165,11 +165,36 @@ const PHONE_TAP_MIN := 44        ## §13's floor, with no exceptions.
 
 static var _dark := true
 
-static func set_dark(dark: bool) -> void:
-	_dark = dark
+## PR-13/PR-14: flips the active token set. This alone repaints nothing --
+## every node that already called `c()` baked a `Color` value into its own
+## override, not a live reference to this dictionary. `DccShell.rebuild_theme()`
+## is the other half: it walks the tree and repaints what this call only
+## re-pointed.
+static func apply_theme(is_dark: bool) -> void:
+	_dark = is_dark
 
 static func is_dark() -> bool:
 	return _dark
+
+## The reverse of `c()`. Given a colour some node already has (painted under
+## `old_pal`, the palette that was active when it was built) and that same
+## `old_pal`, returns the colour the *token that produced it* now resolves to
+## under the palette active this instant -- or `null` if `value` matches no
+## token at all (a literal, non-token colour, e.g. a phone overlay's plain
+## dim scrim). Tried as an exact RGBA match first, then RGB-only so an
+## alpha-blended derivative (`Color(c("bg"), 0.9)`) keeps its own alpha
+## rather than inheriting the token's.
+static func remap(value: Color, old_pal: Dictionary) -> Variant:
+	for token in old_pal:
+		if (old_pal[token] as Color).is_equal_approx(value):
+			return c(token)
+	for token in old_pal:
+		var tv: Color = old_pal[token]
+		if is_equal_approx(tv.r, value.r) and is_equal_approx(tv.g, value.g) \
+				and is_equal_approx(tv.b, value.b):
+			var nc: Color = c(token)
+			return Color(nc.r, nc.g, nc.b, value.a)
+	return null
 
 static func c(token: String) -> Color:
 	var pal: Dictionary = DARK if _dark else LIGHT

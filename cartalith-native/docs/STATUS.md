@@ -5,7 +5,56 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-19 (post **Layers popover hotkey badges + viewport
+Last updated: 2026-08-19 (post **Light theme + follow system, Window menu
+workspace/open-windows lists, dock width dragging, rail expansion sub-node
+list** (`GUI_GAP_REGISTER.md` §6.5/§6.6/§6.15 PR-13, PR-14, WI-02, WI-03,
+WI-04, SH-01) — GDScript-only, `dcc_shell.gd`/`menus.gd`/`dcc_theme.gd`:
+**PR-13/PR-14** — `DccTheme.apply_theme(is_dark)` re-points the active
+palette; `DccShell.rebuild_theme(was_dark)` is the other half the old code
+never had — it walks the whole tree (frame chrome, workspace panels, popups,
+already-open dialogs alike) and, for the exhaustive grepped set of theme
+override names this codebase actually uses, calls the new `DccTheme.remap()`
+to reverse-derive each node's *token* from the colour it already has under
+the *old* palette and repaint it with that token's colour under the new one
+— a colour that matches no token (a bare literal) is left alone. Preferences
+▸ Theme ▸ Light is live rather than permanently disabled, and a third
+**Follow system** choice reads `DisplayServer.is_dark_mode()` once and
+applies it (§2.5's "three discrete choices, not a live subscription" — it
+does not watch for a later OS change). **WI-02/WI-03** — the Window menu
+gained two real submenus: **Workspace** (the five `DccShell.DOMAINS`, jumping
+to one via a new public `DccShell.select_domain()`) and **Open windows**
+(`DccApp`'s five `AcceptDialog`s — it had grown from four — listed live only
+while `.visible`, rebuilt every `about_to_popup` like `Recent worlds`
+already does; picking one calls `popup_centered()` again to raise it).
+**WI-04** — both docks got a real 6 px drag grip at their inner edge
+(`Control.CURSOR_HSPLIT`, mouse-focus-follows-the-initial-press the same way
+`SplitContainer`'s own dragger works), clamped live to §1's real min/max
+(left 300-520, right 260-460) and writing straight into the existing
+`_left_width`/`_right_width` fields `_toggle_dock()` already trusted.
+**SH-01** — the rail's expand chevron is a real button now: pressed, it
+grows the rail to `W_RAIL_EXPANDED` (200 px) and swaps the domain-button
+column for a `_phone_list_row()`-built list (the register's own §7.17
+proposal, reused verbatim per its own recommendation) — one row per domain,
+titled with its label and subtitled with its *real* dock sub-structure
+(`DOMAINS[i].subnodes`, sourced from each workspace's own build order:
+WORLD's Generation pipeline/Sculpt/Biome paint switch, CIVIL's six
+`DccWidgets.category()` accordions, INFRA's five, CARTO's three, RENDER's
+one) rather than invented categories; picking a row jumps to that domain and
+collapses the rail back, mirroring the phone drawer's own close-after-pick.
+No Rust touched; headless Godot 4.7.1 boot clean (`--headless --path
+godot-project --quit`, zero errors/warnings); a scripted headless drive
+(temporary, not committed) instantiated `app.tscn` directly and called into
+all five features programmatically — rail toggle (40→200px, 10 rows),
+dock drag (372→387px on a +15px delta, clamps at 520), theme rebuild (left
+dock panel bg flipped from the dark `panel` token's exact RGB to the light
+token's, and back), and both new Window submenus (workspace check-marks
+tracked the active domain; the open-windows list showed exactly the one
+open dialog, then "No windows open") — all read back exactly as built. Known
+gap, disclosed rather than silently partial: `rebuild_theme()`'s token-match
+walk only repaints nodes that already exist in the tree; a workspace panel
+or dialog that used a hardcoded literal instead of `DccTheme.c()` (none
+found by inspection, but not exhaustively proven) would not flip. — previously,
+same day, post **Layers popover hotkey badges + viewport
 coordinates/elevation readout** (`GUI_GAP_REGISTER.md` §6.15/§10 SH-05, SH-06)
 — GDScript-only: `layers_popover.gd` now badges its first 8 rows with digits
 1-8 (`_add_hotkey_badge`, the mockup's own `border:1px solid currentColor`/

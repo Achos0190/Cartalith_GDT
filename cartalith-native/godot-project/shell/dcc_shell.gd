@@ -26,17 +26,32 @@ signal phone_insets_changed()  ## §13: fires whenever a rotation changes where
 # menus in this shell -- that is the structural change this revision makes, and
 # the reason the menu bar below is seven program menus and nothing else.
 
+## `subnodes`: SH-01's rail-expansion sub-node list -- each domain's *real*
+## top-level dock structure, not invented categories. Read off the domain's
+## own left-dock builder rather than the spec (`DCC_CONTROL_INDEX.md`: "the
+## builder has no source for them" -- this is that source): WORLD's two-mode
+## switch plus its one TOOLS-block button (`world_workspace.gd::_build`, "the
+## only button that belongs here is Biome paint"), and CIVIL/INFRA/CARTO's own
+## `DccWidgets.category()` L2 accordion titles, grepped verbatim from
+## `workspaces/*.gd` (`_build_settlements`/`_build_population`/… etc.). RENDER
+## has exactly one thing in its dock today (`render_workspace.gd`'s
+## `_not_built("Terrain appearance", …)`), so its list is length one.
 const DOMAINS: Array = [
 	{"id": "world", "label": "World", "rail": "WORLD", "icon": "domain_world",
-		"subtitle": "Terrain, hydrology, climate and ecology"},
+		"subtitle": "Terrain, hydrology, climate and ecology",
+		"subnodes": "Generation pipeline · Sculpt · Biome paint"},
 	{"id": "civilization", "label": "Civilization", "rail": "CIVIL", "icon": "domain_civ",
-		"subtitle": "Settlements, factions, provinces and trade"},
+		"subtitle": "Settlements, factions, provinces and trade",
+		"subnodes": "Settlements · Population · Economy · Politics · Culture · Timeline"},
 	{"id": "infrastructure", "label": "Infrastructure", "rail": "INFRA", "icon": "domain_infra",
-		"subtitle": "Roads, sea routes, bridges and journeys"},
+		"subtitle": "Roads, sea routes, bridges and journeys",
+		"subnodes": "Roads · Rivers · Ports · Trade · Logistics"},
 	{"id": "cartography", "label": "Cartography", "rail": "CARTO", "icon": "domain_carto",
-		"subtitle": "Layers, styles, labels and annotation"},
+		"subtitle": "Layers, styles, labels and annotation",
+		"subnodes": "Layers · Layer properties · Annotation"},
 	{"id": "render", "label": "Render", "rail": "RENDER", "icon": "domain_render",
-		"subtitle": "Lighting, materials, export and 3D"},
+		"subtitle": "Lighting, materials, export and 3D",
+		"subnodes": "Terrain appearance"},
 ]
 
 # -- Region handles -----------------------------------------------------------
@@ -73,6 +88,16 @@ var _collapse_buttons: Dictionary = {} ## "left"/"right" -> Button, so the chevr
 var _dock_readouts: Dictionary = {}    ## "left"/"right" -> the collapsed-state Label
 var _workspace_panels: Dictionary = {} ## domain id -> Control
 var _touch := false
+
+# -- SH-01 rail expansion ------------------------------------------------------
+var _rail_panel: PanelContainer
+var _rail_collapsed_body: VBoxContainer  ## The domain-button column + spacer + foot -- hidden while expanded.
+var _rail_subnodes_body: VBoxContainer   ## The expanded state's per-domain row list -- hidden while collapsed.
+var _rail_expand_button: Button
+var _rail_expanded := false
+
+# -- WI-04 dock width dragging --------------------------------------------------
+var _dragging_dock := ""  ## "", "left" or "right" -- which handle (if any) owns the current drag.
 
 # -- Phone layout (§13) --------------------------------------------------------
 #
@@ -282,6 +307,73 @@ func style_popup(popup: PopupMenu) -> void:
 	popup.add_theme_font_override("font", DccTheme.mono(0))
 	popup.add_theme_constant_override("v_separation", 7)
 
+# -- PR-13/PR-14 Theme rebuild --------------------------------------------------
+#
+# `DccTheme.apply_theme()` only re-points which palette `c()` resolves
+# against; it repaints nothing, because every node that already called `c()`
+# baked a plain `Color` value into its own `add_theme_*_override`, not a live
+# reference. This is the other half: walk the whole tree and re-derive every
+# one of those baked values from the token that produced it.
+#
+# Godot exposes no "list every override this node has" call, so the two
+# arrays below are the exhaustive set of override *names* this codebase
+# actually uses -- grepped, not guessed:
+#   grep -rhoE 'add_theme_(color|stylebox)_override\("[^"]+"' godot-project/shell
+# The *values* need no such list: `DccTheme.remap()` reverse-looks-up
+# whichever token in the *old* palette produced the colour already sitting on
+# a node, and repaints it with that same token's new value. A colour that
+# matches no token (a literal, e.g. the phone drawer's plain black scrim) is
+# left alone -- there is nothing to remap it to.
+#
+# This walks every node under the shell root, so it reaches workspace panels,
+# popups and dialogs too, not just the frame chrome `DccShell` itself builds
+# -- but only nodes that already exist. A dialog that has never been opened
+# yet builds itself fresh from `DccTheme.c()` the first time it opens, which
+# already picks up the new palette; nothing extra is needed for those.
+
+const _THEME_COLOR_OVERRIDES := [
+	"default_color", "font_accelerator_color", "font_color", "font_disabled_color",
+	"font_hover_color", "font_pressed_color", "icon_hover_color", "icon_normal_color",
+	"icon_pressed_color",
+]
+const _THEME_STYLEBOX_OVERRIDES := [
+	"grabber_area", "grabber_area_highlight", "hover", "normal", "panel", "pressed", "slider",
+]
+
+## Called by `menus.gd` immediately after `DccTheme.apply_theme()`, passing
+## whichever palette was active a moment ago (`was_dark`) so the walk knows
+## what it's reversing.
+func rebuild_theme(was_dark: bool) -> void:
+	var old_pal: Dictionary = DccTheme.DARK if was_dark else DccTheme.LIGHT
+	_recolor_subtree(self, old_pal)
+
+func _recolor_subtree(node: Node, old_pal: Dictionary) -> void:
+	if node is Control or node is Window:
+		for name in _THEME_COLOR_OVERRIDES:
+			if node.has_theme_color_override(name):
+				var nc = DccTheme.remap(node.get_theme_color(name), old_pal)
+				if nc != null:
+					node.add_theme_color_override(name, nc)
+		for name in _THEME_STYLEBOX_OVERRIDES:
+			if node.has_theme_stylebox_override(name):
+				var sb: StyleBox = node.get_theme_stylebox(name)
+				if sb is StyleBoxFlat:
+					_recolor_stylebox(sb, old_pal)
+	if node is ColorRect:
+		var nc = DccTheme.remap((node as ColorRect).color, old_pal)
+		if nc != null:
+			(node as ColorRect).color = nc
+	for child in node.get_children():
+		_recolor_subtree(child, old_pal)
+
+func _recolor_stylebox(sb: StyleBoxFlat, old_pal: Dictionary) -> void:
+	var new_bg = DccTheme.remap(sb.bg_color, old_pal)
+	if new_bg != null:
+		sb.bg_color = new_bg
+	var new_border = DccTheme.remap(sb.border_color, old_pal)
+	if new_border != null:
+		sb.border_color = new_border
+
 # -- §4 Tool options bar ------------------------------------------------------
 
 func _build_tool_options_bar() -> Control:
@@ -318,6 +410,7 @@ func set_tool_options(build: Callable) -> void:
 
 func _build_rail() -> Control:
 	var rail := PanelContainer.new()
+	_rail_panel = rail
 	rail.custom_minimum_size.x = _scaled(DccTheme.W_RAIL_COLLAPSED)
 	rail.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"right": 1}))
 	rail_column = VBoxContainer.new()
@@ -327,16 +420,54 @@ func _build_rail() -> Control:
 	pad.add_child(rail_column)
 
 	## The mockup opens the rail with a 29 px cell carrying the expand chevron,
-	## ruled off from the domains below it.
+	## ruled off from the domains below it. SH-01: now a real button -- pressing
+	## it grows the rail to `W_RAIL_EXPANDED` (200 px, §1) and swaps the
+	## collapsed domain-button column for `_rail_subnodes_body` below.
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
-	var head := DccTheme.mono_label(DccIcons.SYMBOLS["expand"], "text_dim", DccTheme.FS_SMALL)
-	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	head.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var head := Button.new()
+	head.flat = true
+	head.focus_mode = Control.FOCUS_NONE
+	head.text = DccIcons.SYMBOLS["expand"]
+	head.tooltip_text = "Expand rail"
+	head.add_theme_font_override("font", DccTheme.mono())
+	head.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	head.add_theme_color_override("font_color", DccTheme.c("text_dim"))
+	head.add_theme_stylebox_override("normal", DccTheme.empty())
+	head.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
 	head.custom_minimum_size.y = _scaled(29)
+	head.pressed.connect(_toggle_rail_expansion)
+	_rail_expand_button = head
 	col.add_child(head)
 	col.add_child(DccTheme.rule())
-	col.add_child(pad)
+
+	## SH-01 (`GUI_GAP_REGISTER.md` §7.17): the register's own proposal --
+	## "reuses `_phone_list_row()` verbatim" -- extended per owner instruction
+	## to carry each domain's *real* sub-structure (`DOMAINS[i].subnodes`, see
+	## that const's own header comment) as the row's subtitle line rather than
+	## the tooltip blurb the phone drawer uses. There is no destination deeper
+	## than the domain itself to jump to -- no engine hook exists to scroll a
+	## dock to one specific L2 category -- so a row's only real action is what
+	## the phone drawer's own row already does: select that domain, then
+	## collapse the rail back (`_pick_rail_domain`), mirroring
+	## `_pick_drawer_domain`'s own close-after-pick.
+	_rail_subnodes_body = VBoxContainer.new()
+	_rail_subnodes_body.add_theme_constant_override("separation", 0)
+	_rail_subnodes_body.visible = false
+	for d in DOMAINS:
+		_rail_subnodes_body.add_child(_phone_list_row(String(d.label), String(d.subnodes),
+			_pick_rail_domain.bind(d.id)))
+		_rail_subnodes_body.add_child(DccTheme.rule())
+	col.add_child(_rail_subnodes_body)
+
+	## Everything the collapsed rail shows -- the domain-button column, the
+	## spacer, and the rail foot -- lives in one wrapper so expansion can hide
+	## and restore it in a single `visible` flip rather than three.
+	_rail_collapsed_body = VBoxContainer.new()
+	_rail_collapsed_body.add_theme_constant_override("separation", 0)
+	_rail_collapsed_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_rail_collapsed_body.add_child(pad)
+	col.add_child(_rail_collapsed_body)
 	rail.add_child(col)
 
 	var w := float(_scaled(DccTheme.W_RAIL_COLLAPSED))
@@ -378,14 +509,34 @@ func _build_rail() -> Control:
 		_domain_marks[d.id] = {"label": vlabel}
 		rail_column.add_child(b)
 
-	col.add_child(DccTheme.spacer())
+	_rail_collapsed_body.add_child(DccTheme.spacer())
 	rail_foot = DccTheme.mono_label("", "text_ghost", DccTheme.FS_MICRO, 2)
 	rail_foot.rotation = -PI / 2.0
 	var foot_holder := Control.new()
 	foot_holder.custom_minimum_size.y = 84
 	foot_holder.add_child(rail_foot)
-	col.add_child(foot_holder)
+	_rail_collapsed_body.add_child(foot_holder)
 	return rail
+
+## SH-01: toggles the rail between the collapsed domain-button column and the
+## expanded 200 px sub-node list. Symmetric with `_toggle_dock()`'s own
+## chevron-flip pattern, just on the rail instead of a dock.
+func _toggle_rail_expansion() -> void:
+	_rail_expanded = not _rail_expanded
+	_rail_panel.custom_minimum_size.x = float(_scaled(DccTheme.W_RAIL_EXPANDED)) \
+		if _rail_expanded else float(_scaled(DccTheme.W_RAIL_COLLAPSED))
+	_rail_collapsed_body.visible = not _rail_expanded
+	_rail_subnodes_body.visible = _rail_expanded
+	_rail_expand_button.text = DccIcons.SYMBOLS["collapse"] if _rail_expanded else DccIcons.SYMBOLS["expand"]
+	_rail_expand_button.tooltip_text = "Collapse rail" if _rail_expanded else "Expand rail"
+
+## A row in the expanded rail's sub-node list was pressed: jump to that
+## domain, then close back to the collapsed rail, mirroring
+## `_pick_drawer_domain()`'s own close-after-pick on the phone drawer.
+func _pick_rail_domain(id: String) -> void:
+	_select_domain(id)
+	if _rail_expanded:
+		_toggle_rail_expansion()
 
 ## The rail foot carries the active context and, in World, the stage counter.
 ## Re-centred on every set because its width changes with the text.
@@ -428,6 +579,12 @@ func register_workspace(id: String, panel: Control) -> void:
 func active_domain() -> String:
 	return _active_domain
 
+## WI-02's public entry point: `menus.gd`'s Window ▸ Workspace submenu jumps
+## here rather than calling the underscore-prefixed `_select_domain()`
+## directly across a file boundary.
+func select_domain(id: String) -> void:
+	_select_domain(id)
+
 ## §6's right-dock header -- see `_build_right_dock()`'s own comment on why
 ## this exists instead of a fixed "LAYERS" label. `text` is already the
 ## upper-cased section name; `DccTheme.header()` built the sigil-free label
@@ -453,7 +610,20 @@ func _build_left_dock(as_sheet: bool = false) -> Control:
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
-	left_dock.add_child(col)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if as_sheet:
+		left_dock.add_child(col)
+	else:
+		## WI-04 (§1: "user-draggable within min/max"): a 6 px grip at the
+		## dock's inner edge, facing the viewport -- carved out of the dock's
+		## own reserved width rather than added to it, so `_left_width` still
+		## means what it always has. `_dock_drag_handle()` owns the drag math;
+		## the right dock mirrors this with the handle on its other side.
+		var body_row := HBoxContainer.new()
+		body_row.add_theme_constant_override("separation", 0)
+		body_row.add_child(col)
+		body_row.add_child(_dock_drag_handle(true))
+		left_dock.add_child(body_row)
 
 	var head := HBoxContainer.new()
 	head.custom_minimum_size.y = _ptap(44) if as_sheet else 26
@@ -494,7 +664,17 @@ func _build_right_dock(as_sheet: bool = false) -> Control:
 
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
-	right_dock.add_child(col)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if as_sheet:
+		right_dock.add_child(col)
+	else:
+		## `as_sheet`: see `_build_left_dock()`'s own drag-handle comment --
+		## identical treatment, mirrored so the grip faces the viewport here too.
+		var body_row := HBoxContainer.new()
+		body_row.add_theme_constant_override("separation", 0)
+		body_row.add_child(_dock_drag_handle(false))
+		body_row.add_child(col)
+		right_dock.add_child(body_row)
 
 	## §6's own header carries whatever context is showing (Sample, Settlement,
 	## Route...), not a fixed label -- "Layers" was this dock's mockup-pictured
@@ -542,6 +722,49 @@ func _scroll() -> ScrollContainer:
 	s.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	s.add_theme_stylebox_override("panel", DccTheme.empty())
 	return s
+
+## WI-04: the drag grip itself, a bare 6 px strip that lights up on hover so
+## it reads as an affordance without adding chrome the spec doesn't draw.
+## `is_left` picks which dock it belongs to -- purely to route the drag delta
+## and to know which of `_left_width`/`_right_width` and which min/max pair
+## (§1's geometry table) apply, since dragging right *widens* the left dock
+## but *narrows* the right one.
+func _dock_drag_handle(is_left: bool) -> Control:
+	var handle := PanelContainer.new()
+	handle.custom_minimum_size.x = 6
+	handle.mouse_default_cursor_shape = Control.CURSOR_HSPLIT
+	handle.mouse_filter = Control.MOUSE_FILTER_STOP
+	handle.add_theme_stylebox_override("panel", DccTheme.empty())
+	handle.mouse_entered.connect(func(): handle.add_theme_stylebox_override(
+		"panel", DccTheme.flat(DccTheme.c("line_soft"))))
+	handle.mouse_exited.connect(func():
+		if _dragging_dock == "":
+			handle.add_theme_stylebox_override("panel", DccTheme.empty()))
+	handle.gui_input.connect(_on_dock_drag_input.bind(is_left))
+	return handle
+
+## Godot routes mouse motion to whichever Control had the initial press even
+## once the cursor drifts off its rect (the same mechanism `SplitContainer`'s
+## own internal dragger relies on), so this needs no separate `_input`
+## override to track a drag past the handle's own 6 px width.
+func _on_dock_drag_input(ev: InputEvent, is_left: bool) -> void:
+	var side := "left" if is_left else "right"
+	if is_dock_collapsed(side):
+		return
+	if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
+		_dragging_dock = side if ev.pressed else ""
+	elif ev is InputEventMouseMotion and _dragging_dock == side:
+		## Dragging right widens the left dock (its handle sits on its right
+		## edge) but narrows the right dock (its handle sits on its left edge).
+		var delta: float = ev.relative.x if is_left else -ev.relative.x
+		if is_left:
+			_left_width = clampf(_left_width + delta,
+				float(DccTheme.W_LEFT_DOCK_MIN), float(DccTheme.W_LEFT_DOCK_MAX))
+			left_dock.custom_minimum_size.x = _left_width
+		else:
+			_right_width = clampf(_right_width + delta,
+				float(DccTheme.W_RIGHT_DOCK_MIN), float(DccTheme.W_RIGHT_DOCK_MAX))
+			right_dock.custom_minimum_size.x = _right_width
 
 func _collapse_button(is_left: bool) -> Button:
 	var b := Button.new()
