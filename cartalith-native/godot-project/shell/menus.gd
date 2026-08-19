@@ -20,6 +20,7 @@ const ID_SAVE_AS := 13
 const ID_REVERT := 15
 const ID_CLOSE := 16
 const ID_STORAGE := 17
+const ID_CHANGE_LOCATIONS := 18
 const ID_SHOW_ON_DISK := 19
 
 const ID_UNDO := 20
@@ -34,6 +35,11 @@ const ID_CLEAR_LIBRARY := 37
 
 const ID_DATA_MANAGER := 40
 const ID_JOURNEY_PLANNER := 41
+const ID_DATA_MGR_IMPORT := 42
+const ID_DATA_MGR_EXPORT := 43
+const ID_DATA_MGR_SOURCES := 44
+const ID_DATA_MGR_CONVERSION := 45
+const ID_DATA_MGR_VALIDATION := 46
 
 const ID_PREF_GPU := 50
 const ID_PREF_THEME_DARK := 51
@@ -41,6 +47,7 @@ const ID_PREF_THEME_LIGHT := 52
 const ID_PREF_QUALITY := 53
 const ID_PREF_UNITS_KM := 54
 const ID_PREF_UNITS_MI := 55
+const ID_PREF_STORAGE := 56
 
 const ID_WIN_LEFT := 60
 const ID_WIN_RIGHT := 61
@@ -57,6 +64,7 @@ var _shell: DccShell
 var _bridge: EngineBridge
 var _host: Node                 ## Where dialogs are parented and callbacks live.
 var _quality_popup: PopupMenu
+var _recent_popup: PopupMenu
 
 func build(shell: DccShell, bridge: EngineBridge, host: Node) -> void:
 	_shell = shell
@@ -88,7 +96,19 @@ func _live(p: PopupMenu, text: String, id: int, accel: Key = KEY_NONE) -> void:
 func _file(p: PopupMenu) -> void:
 	_live(p, "New world…", ID_NEW_WORLD, KEY_MASK_CTRL | KEY_N)
 	_live(p, "Open project…", ID_OPEN_PROJECT, KEY_MASK_CTRL | KEY_O)
-	_todo(p, "Recent worlds", "No project registry yet -- projects are opened by path.")
+
+	## A real submenu, per §2.1: "last 10 projects, path shown as secondary
+	## text." Rebuilt on every `about_to_popup` -- unlike `_quality_popup`'s
+	## fixed tier list, the recent list changes as projects are opened, so
+	## the cached-once-at-build-time pattern those other submenus use would
+	## go stale.
+	_recent_popup = PopupMenu.new()
+	_recent_popup.name = "RecentWorlds"
+	_shell.style_popup(_recent_popup)
+	p.add_child(_recent_popup)
+	p.add_submenu_item("Recent worlds", "RecentWorlds")
+	_recent_popup.id_pressed.connect(_on_recent_world)
+
 	p.add_separator()
 	_todo(p, "Save project", "The engine reads .zip saves but does not write them yet (cartalith-io is read-only).")
 	_todo(p, "Save as…", "Same: no save writer yet.")
@@ -97,18 +117,49 @@ func _file(p: PopupMenu) -> void:
 	p.add_separator()
 	_todo(p, "Close project", "No project lifecycle yet; the shell holds one world at a time.")
 	p.add_separator()
-	_todo(p, "Storage locations", "The four storage roots are not configurable yet.")
-	_todo(p, "Show project on disk", "Requires a project path.")
+
+	_live(p, "Storage locations", ID_STORAGE)
+	_live(p, "Change locations…", ID_CHANGE_LOCATIONS)
+	_live(p, "Show project on disk", ID_SHOW_ON_DISK)
+	var show_idx := p.item_count - 1
+	p.set_item_tooltip(show_idx,
+		"Reveals the project's folder in the OS file manager. Disabled until a project has been opened this session.")
+
 	p.add_separator()
 	## §2.1's static note: imports do not live in File.
 	p.add_item("Imports live under Data ▸ Import; asset packs under Assets")
 	p.set_item_disabled(p.item_count - 1, true)
+
+	p.about_to_popup.connect(func():
+		_refresh_recent_worlds()
+		p.set_item_disabled(show_idx, _host.current_project_path == ""))
 	p.id_pressed.connect(_on_file)
+
+func _refresh_recent_worlds() -> void:
+	_recent_popup.clear()
+	var recents: Array = DccSettings.recent_projects()
+	if recents.is_empty():
+		_recent_popup.add_item("No recent projects")
+		_recent_popup.set_item_disabled(0, true)
+		_recent_popup.set_item_tooltip(0, "Projects are opened by path -- this fills in as File ▸ Open project… is used.")
+		return
+	for i in recents.size():
+		var path := String(recents[i])
+		_recent_popup.add_item(path.get_file(), i)
+		_recent_popup.set_item_tooltip(i, path)
+
+func _on_recent_world(id: int) -> void:
+	var recents: Array = DccSettings.recent_projects()
+	if id >= 0 and id < recents.size():
+		_host.open_recent_project(String(recents[id]))
 
 func _on_file(id: int) -> void:
 	match id:
 		ID_NEW_WORLD: _host.open_new_world()
 		ID_OPEN_PROJECT: _host.open_project_picker()
+		ID_STORAGE: _host.open_storage_locations()
+		ID_CHANGE_LOCATIONS: _host.open_change_locations()
+		ID_SHOW_ON_DISK: _host.show_project_on_disk()
 
 # -- §2.2 Edit ----------------------------------------------------------------
 
@@ -151,9 +202,12 @@ func _on_assets(id: int) -> void:
 # -- §2.4 Data ----------------------------------------------------------------
 #
 # §2.4: the dropdown mirrors the Data manager window's five groups and is a
-# shortcut into it, never a second implementation. The window does not exist
-# yet, so the whole menu is honest about that -- except the world-data tables,
-# which do exist and are reachable.
+# shortcut into it, never a second implementation. The window (`§9`,
+# `data_manager_window.gd`) now exists -- each group item below opens it
+# scoped to that group's first route. Most routes inside are still disclosed
+# gaps (see that file's own header comment for the full breakdown); what
+# changed here is that the item now opens a real window that is honest about
+# which of its own routes work, rather than being disabled at the menu level.
 
 ## §2.4's own 2026-08-19 addition (`DCC_SHELL_SPEC.md`, reconciled from
 ## `JOURNEY_PLANNER_SPEC.md`): Journey planner sits above the five Data
@@ -165,15 +219,20 @@ func _data(p: PopupMenu) -> void:
 	_live(p, "World data tables…", ID_DATA_MANAGER)
 	_live(p, "Journey planner…", ID_JOURNEY_PLANNER, KEY_MASK_SHIFT | KEY_J)
 	p.add_separator()
-	_todo(p, "Import ▸ Maps · Heightmaps · GIS · World data", "No import routes yet.")
-	_todo(p, "Export ▸ Maps · GIS · World data · Asset pack", "No export routes yet.")
-	_todo(p, "Sources ▸ External · Connected · Registry", "No source registry yet.")
-	_todo(p, "Conversion ▸ Coordinate systems · Formats", "No conversion routes yet.")
-	_todo(p, "Validation ▸ Check data · Repair", "No validation pass yet.")
+	_live(p, "Import ▸ Maps · Heightmaps · GIS · World data", ID_DATA_MGR_IMPORT)
+	_live(p, "Export ▸ Maps · GIS · World data · Asset pack", ID_DATA_MGR_EXPORT)
+	_live(p, "Sources ▸ External · Connected · Registry", ID_DATA_MGR_SOURCES)
+	_live(p, "Conversion ▸ Coordinate systems · Formats", ID_DATA_MGR_CONVERSION)
+	_live(p, "Validation ▸ Check data · Repair", ID_DATA_MGR_VALIDATION)
 	p.id_pressed.connect(func(id: int) -> void:
 		match id:
 			ID_DATA_MANAGER: _host.open_world_data()
 			ID_JOURNEY_PLANNER: _host.open_journey_planner()
+			ID_DATA_MGR_IMPORT: _host.open_data_manager("Import")
+			ID_DATA_MGR_EXPORT: _host.open_data_manager("Export")
+			ID_DATA_MGR_SOURCES: _host.open_data_manager("Sources")
+			ID_DATA_MGR_CONVERSION: _host.open_data_manager("Conversion")
+			ID_DATA_MGR_VALIDATION: _host.open_data_manager("Validation")
 	)
 
 # -- §2.5 Preferences ---------------------------------------------------------
@@ -229,6 +288,11 @@ func _preferences(p: PopupMenu) -> void:
 	_todo(p, "Undo history", "No undo stack yet.")
 	p.add_separator()
 
+	## §2.5's Application group: "Storage locations… — Same modal as File."
+	## Genuinely the same dialog `File ▸ Storage locations` opens --
+	## `DccApp.open_storage_locations()` is the one method both call.
+	_live(p, "Storage locations…", ID_PREF_STORAGE)
+
 	var theme_menu := PopupMenu.new()
 	theme_menu.name = "ThemeChoice"
 	theme_menu.add_radio_check_item("Dark", ID_PREF_THEME_DARK)
@@ -246,6 +310,9 @@ func _preferences(p: PopupMenu) -> void:
 	p.id_pressed.connect(_on_preferences.bind(p))
 
 func _on_preferences(id: int, p: PopupMenu) -> void:
+	if id == ID_PREF_STORAGE:
+		_host.open_storage_locations()
+		return
 	if id != ID_PREF_GPU:
 		return
 	var idx := p.get_item_index(ID_PREF_GPU)

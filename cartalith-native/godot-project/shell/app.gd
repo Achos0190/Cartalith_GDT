@@ -18,6 +18,13 @@ var performance_window: PerformanceWindow
 var journey_planner_view: JourneyPlannerView
 var layers_popover: LayersPopover
 var right_dock_ctrl: RightDock
+var data_manager_window: DataManagerWindow
+
+## The path `bridge.load_save(path)` last succeeded with, remembered here
+## (Godot-side only, no Rust change) so File ▸ Show project on disk and
+## Data ▸ Recent worlds have something real to act on --
+## `DCC_SHELL_SPEC.md` §2.1. Empty until a project has been opened.
+var current_project_path := ""
 
 var _workspaces: Array = []
 var _region_nodes: Dictionary = {}
@@ -132,6 +139,10 @@ func _ready() -> void:
 	performance_window = PerformanceWindow.new()
 	add_child(performance_window)
 	performance_window.setup(bridge)
+
+	data_manager_window = DataManagerWindow.new()
+	add_child(data_manager_window)
+	data_manager_window.setup(self, bridge)
 
 	layers_popover = LayersPopover.new()
 	add_child(layers_popover)
@@ -338,8 +349,25 @@ func open_new_world() -> void:
 
 func open_project_picker() -> void:
 	_pick_file("Open project", ["*.zip ; Cartalith project"], func(path: String):
-		if not bridge.load_save(path):
-			set_status("hint", "load failed — see console", "accent"))
+		_load_project(path))
+
+## Shared by the file-picker path above and `Data ▸ Recent worlds` / the
+## Data manager window's own Import ▸ World Data route -- one place remembers
+## `current_project_path` and updates the recent-projects list
+## (`DCC_SHELL_SPEC.md` §2.1) so neither caller has to duplicate the
+## bookkeeping.
+func _load_project(path: String) -> void:
+	if bridge.load_save(path):
+		current_project_path = path
+		DccSettings.remember_project(path)
+	else:
+		set_status("hint", "load failed — see console", "accent")
+
+## `Data ▸ Recent worlds` submenu entries all call this (`menus.gd`'s
+## `_on_recent_world`) -- the exact same load path `open_project_picker()`'s
+## own callback uses, just without the file dialog in front of it.
+func open_recent_project(path: String) -> void:
+	_load_project(path)
 
 func open_asset_pack_picker() -> void:
 	_pick_file("Import asset pack", ["*.zip ; Asset pack"], func(path: String):
@@ -365,6 +393,127 @@ func open_world_data() -> void:
 
 func open_performance() -> void:
 	performance_window.open()
+
+## `Data`'s five group items (`menus.gd`) all converge here -- `group` is one
+## of the five `DataManagerWindow.GROUP_ORDER` names, empty opens the window
+## on its first route.
+func open_data_manager(group: String = "") -> void:
+	data_manager_window.open(group)
+
+# -- Storage locations (`DCC_SHELL_SPEC.md` §2.1, §2.5's "Same modal as File") --
+
+## File ▸ Storage locations and Preferences ▸ Application ▸ Storage
+## locations… both call this -- the spec's own "Same modal as File" -- a
+## read-only list of the four roots, current values from `DccSettings`.
+func open_storage_locations() -> void:
+	var d := AcceptDialog.new()
+	d.title = "Storage locations"
+	d.size = Vector2i(600, 300)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 10)
+	add_child(d)
+	d.add_child(body)
+
+	var note := DccTheme.label(
+		"Read-only. File ▸ Change locations… edits these.", "text_ghost", DccTheme.FS_MICRO)
+	body.add_child(note)
+	body.add_child(DccTheme.rule())
+
+	for key in DccSettings.ROOT_KEYS:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		row.custom_minimum_size.y = 22
+		var lbl := DccTheme.mono_label(String(DccSettings.ROOT_LABELS[key]), "text_dim", DccTheme.FS_SMALL)
+		lbl.custom_minimum_size.x = 150
+		row.add_child(lbl)
+		var val := DccTheme.mono_label(DccSettings.storage_root(key), "text", DccTheme.FS_SMALL)
+		val.autowrap_mode = TextServer.AUTOWRAP_OFF
+		val.clip_text = true
+		val.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(val)
+		body.add_child(row)
+
+	var footnote := DccTheme.label(
+		"Defaults derive from OS.get_user_data_dir() -- §2.1's own \"~/Cartalith/...\" paths are macOS-flavored prose that does not hold on every platform this shell runs on.",
+		"text_ghost", DccTheme.FS_MICRO)
+	footnote.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	footnote.custom_minimum_size.x = 560
+	body.add_child(footnote)
+
+	d.popup_centered()
+
+## §2.1: "Modal, one folder picker per root." Each row browses independently
+## and writes back to `DccSettings` immediately on pick -- there is no
+## separate confirm step, matching the read-only dialog above being the
+## place that shows the committed result.
+func open_change_locations() -> void:
+	var d := AcceptDialog.new()
+	d.title = "Change locations…"
+	d.size = Vector2i(680, 340)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 8)
+	add_child(d)
+	d.add_child(body)
+
+	body.add_child(DccTheme.label(
+		"One folder picker per root. Each change saves immediately.", "text_ghost", DccTheme.FS_MICRO))
+	body.add_child(DccTheme.rule())
+
+	for key in DccSettings.ROOT_KEYS:
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		row.custom_minimum_size.y = 24
+		var lbl := DccTheme.mono_label(String(DccSettings.ROOT_LABELS[key]), "text_dim", DccTheme.FS_SMALL)
+		lbl.custom_minimum_size.x = 140
+		row.add_child(lbl)
+		var readout := DccTheme.mono_label(DccSettings.storage_root(key), "text", DccTheme.FS_SMALL)
+		readout.clip_text = true
+		readout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(readout)
+		DccWidgets.action(row, "Browse…", func(): _browse_root(key, readout))
+		body.add_child(row)
+		if key == "atlas_cache":
+			## §2.1: "Moving the atlas root invalidates the cache." No tile
+			## atlas/cache concept exists in this port yet (Preferences ▸
+			## Tiled LOD is itself still _todo, `menus.gd`), so there is
+			## nothing to invalidate -- said plainly rather than inventing
+			## cache-invalidation logic for a cache that isn't built.
+			var cache_note := DccTheme.label(
+				"No tile atlas cache exists yet (Preferences ▸ Tiled LOD is not built) -- moving this root has nothing to invalidate.",
+				"text_ghost", DccTheme.FS_MICRO)
+			cache_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			cache_note.custom_minimum_size.x = 560
+			body.add_child(cache_note)
+
+	d.popup_centered()
+
+func _browse_root(key: String, readout: Label) -> void:
+	var fd := FileDialog.new()
+	fd.title = "Choose folder — %s" % String(DccSettings.ROOT_LABELS[key])
+	fd.file_mode = FileDialog.FILE_MODE_OPEN_DIR
+	fd.access = FileDialog.ACCESS_FILESYSTEM
+	var current := DccSettings.storage_root(key)
+	if DirAccess.dir_exists_absolute(current):
+		fd.current_dir = current
+	fd.dir_selected.connect(func(path: String):
+		DccSettings.set_storage_root(key, path)
+		readout.text = path
+		fd.queue_free())
+	fd.canceled.connect(func(): fd.queue_free())
+	add_child(fd)
+	fd.popup_centered_ratio(0.6)
+
+## File ▸ Show project on disk (`DCC_SHELL_SPEC.md` §2.1) -- reveals
+## `current_project_path`'s containing folder in the real OS file manager.
+## `OS.shell_show_in_file_manager` (Godot 4.4+) is preferred; a version that
+## predates it falls back to `shell_open` on the folder URI.
+func show_project_on_disk() -> void:
+	if current_project_path == "":
+		return
+	if OS.has_method("shell_show_in_file_manager"):
+		OS.shell_show_in_file_manager(current_project_path)
+	else:
+		OS.shell_open("file://" + current_project_path.get_base_dir())
 
 ## `DCC_SHELL_SPEC.md` §4.5.4's 2026-08-19 addition: Journey is an INFRA tool
 ## takeover, not a dialog -- this arms it exactly like any other tool

@@ -1,0 +1,255 @@
+extends AcceptDialog
+class_name DataManagerWindow
+
+## §9's Data manager window -- Data ▸ Import/Export/Sources/Conversion/
+## Validation's actual destination. `world_data_window.gd`'s own doc comment
+## draws the line this file is the other side of: that window is the
+## settlement/province/economy table browser (`Data ▸ World data tables…`,
+## §9's own related-but-distinct sibling), unrelated to and untouched by this
+## file.
+##
+## Titled `⧉ DATA MANAGER`, subtitle "import · export · sources · conversion
+## · validation" (§9, verbatim). Structure per §9: a routes rail (the five
+## groups from §2.4's table) and a route pane showing the selected route's
+## real controls.
+##
+## **What is real vs. disclosed gap, route by route** -- most of §9 has no
+## engine behind it, and this file says so per-route rather than building
+## chrome that implies a capability that doesn't exist:
+##
+## - **Import ▸ World Data (.zip · fields)** is real: it routes to the exact
+##   same `bridge.load_save(path)` / `DccApp.open_project_picker()` path File
+##   ▸ Open project… already uses, not a second implementation.
+## - **Import ▸ Assets** is real as a routing shortcut: it calls
+##   `DccApp.open_asset_pack_picker()` directly, per §2.4's own table
+##   ("Assets (routes to the Assets menu)").
+## - **Export ▸ World Data** stays a disclosed gap: `cartalith-io` reads
+##   `.zip` saves (`load_save`) but the only `zip::ZipWriter` in the crate is
+##   inside its own `#[cfg(test)]` fixture builder
+##   (`cartalith-io/src/lib.rs::tests::build_test_zip`) -- there is no
+##   production save writer. Confirmed by reading the crate directly this
+##   pass, not assumed from an old comment.
+## - **Import ▸ Maps/Heightmaps/GIS**, **Export ▸ Maps/GIS**, **Export ▸
+##   Assets**, **Sources**, **Conversion**, **Validation** are all disclosed
+##   gaps: no image/heightmap/GeoJSON import, no tile/GIS export, no source
+##   registry, no coordinate/format conversion, and no validation pass exist
+##   anywhere in the workspace (`load_save` returns a plain bool, nothing a
+##   warning count could be read from).
+
+var _host: DccApp
+var _bridge: EngineBridge
+
+## `[{group, id, label, kind, reason}]`. `kind` is "live" (real control),
+## "route" (a real shortcut into another menu) or "gap" (disclosed, no
+## engine support -- `reason` is shown verbatim, mirroring `menus.gd`'s own
+## `_todo()` tooltip convention for a window rather than a popup item).
+const ROUTES: Array[Dictionary] = [
+	{"group": "Import", "id": "import_maps", "label": "Maps · Heightmaps (PNG · TIFF) · GIS / GeoJSON", "kind": "gap",
+		"reason": "No image, heightmap or GeoJSON import path exists anywhere in the workspace (grepped cartalith-io, cartalith-spatial, cartalith-assets)."},
+	{"group": "Import", "id": "import_world", "label": "World Data (.zip · fields)", "kind": "live"},
+	{"group": "Import", "id": "import_assets", "label": "Assets (routes to the Assets menu)", "kind": "route"},
+	{"group": "Export", "id": "export_maps", "label": "Maps (image · tiles)", "kind": "gap",
+		"reason": "No tile-pyramid or image export exists. cartalith-terrain::tile_render draws per-tile PNGs for Region select/export (unified tool plan milestone E2), but nothing assembles a Leaflet-style pyramid from it."},
+	{"group": "Export", "id": "export_gis", "label": "GIS / GeoJSON", "kind": "gap",
+		"reason": "cartalith-engine::geojson exports region GeoJSON for the Region-select tool only, with no route into this window and no CRS/world-file support."},
+	{"group": "Export", "id": "export_world", "label": "World Data", "kind": "gap",
+		"reason": "cartalith-io reads .zip saves but does not write them -- the only zip::ZipWriter in the crate lives in its own #[cfg(test)] fixture builder, not production code. A save writer is a separate, larger piece of work, out of scope here."},
+	{"group": "Export", "id": "export_assets", "label": "Assets (pack .zip)", "kind": "gap",
+		"reason": "Routes to Assets ▸ Asset pack ▸ Build ▸ Export pack .zip…, which is itself _todo in menus.gd -- it needs the asset-library window, which is not built."},
+	{"group": "Sources", "id": "sources_external", "label": "External Sources", "kind": "gap", "reason": "No source registry exists."},
+	{"group": "Sources", "id": "sources_connected", "label": "Connected Sources", "kind": "gap", "reason": "Same -- no source registry exists."},
+	{"group": "Sources", "id": "sources_registry", "label": "Source Registry", "kind": "gap", "reason": "Same -- no source registry exists."},
+	{"group": "Conversion", "id": "conv_crs", "label": "Coordinate Systems (EPSG ▸)", "kind": "gap",
+		"reason": "No CRS/coordinate-system conversion exists; the engine works in one flat km projection throughout."},
+	{"group": "Conversion", "id": "conv_format", "label": "Format Conversion", "kind": "gap", "reason": "No format-conversion routes exist."},
+	{"group": "Conversion", "id": "conv_transform", "label": "Data Transformation", "kind": "gap", "reason": "No data-transformation routes exist."},
+	{"group": "Validation", "id": "val_check", "label": "Check Data", "kind": "gap",
+		"reason": "load_save() returns pass/fail only (cartalith-godot's load_save binding) -- no warning collection exists anywhere to surface a count from."},
+	{"group": "Validation", "id": "val_repair", "label": "Repair / Normalize", "kind": "gap", "reason": "No validation pass exists to repair against."},
+]
+
+const GROUP_ORDER: Array[String] = ["Import", "Export", "Sources", "Conversion", "Validation"]
+
+var _pane_body: VBoxContainer
+var _breadcrumb: Label
+var _rail_buttons: Dictionary = {}   ## route id -> Button
+var _selected_id := ""
+
+func setup(host: DccApp, bridge: EngineBridge) -> void:
+	_host = host
+	_bridge = bridge
+	title = "⧉ DATA MANAGER"
+	size = Vector2i(920, 600)
+	min_size = Vector2i(760, 480)
+	_build()
+
+func _build() -> void:
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 6)
+	add_child(outer)
+
+	outer.add_child(DccTheme.mono_label("import · export · sources · conversion · validation",
+		"text_faint", DccTheme.FS_MICRO, 2))
+	outer.add_child(DccTheme.rule())
+
+	var main := HBoxContainer.new()
+	main.add_theme_constant_override("separation", 0)
+	main.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_child(main)
+
+	main.add_child(_build_rail())
+	main.add_child(DccTheme.rule(true))
+	main.add_child(_build_pane())
+
+func _build_rail() -> Control:
+	var wrap := PanelContainer.new()
+	wrap.custom_minimum_size.x = 260
+	wrap.add_theme_stylebox_override("panel", DccTheme.panel("panel_alt", {"right": 1}))
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	wrap.add_child(scroll)
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(col)
+
+	var by_group: Dictionary = {}
+	for r in ROUTES:
+		var g := String(r["group"])
+		if not by_group.has(g):
+			by_group[g] = []
+		(by_group[g] as Array).append(r)
+
+	for g in GROUP_ORDER:
+		var body := DccWidgets.section(col, g)
+		for r in by_group.get(g, []):
+			var route: Dictionary = r
+			var btn := Button.new()
+			btn.text = String(route["label"])
+			btn.flat = true
+			btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			btn.focus_mode = Control.FOCUS_NONE
+			btn.custom_minimum_size.y = 26
+			btn.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+			btn.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+			btn.add_theme_color_override("font_color",
+				DccTheme.c("text_dim") if String(route["kind"]) == "gap" else DccTheme.c("text"))
+			btn.pressed.connect(_select_route.bind(route["id"]))
+			_rail_buttons[route["id"]] = btn
+			body.add_child(btn)
+
+	var foot := VBoxContainer.new()
+	foot.add_theme_constant_override("separation", 2)
+	var foot_pad := MarginContainer.new()
+	foot_pad.add_theme_constant_override("margin_left", 14)
+	foot_pad.add_theme_constant_override("margin_top", 10)
+	foot_pad.add_theme_constant_override("margin_bottom", 10)
+	foot_pad.add_theme_constant_override("margin_right", 10)
+	foot_pad.add_child(foot)
+	col.add_child(DccTheme.rule())
+	col.add_child(foot_pad)
+	foot.add_child(DccTheme.mono_label("EXPORTS ROOT", "text_faint", DccTheme.FS_HEADER, 2, true))
+	var exports_label := DccTheme.label(DccSettings.storage_root("exports"), "text_dim", DccTheme.FS_TINY)
+	exports_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	foot.add_child(exports_label)
+	## §9: "Foot: exports root and last run (`14:02 · 62 MB`)." No export
+	## capability exists yet (every Export route above is a disclosed gap),
+	## so there is genuinely no run to report -- said plainly rather than
+	## inventing a placeholder timestamp.
+	foot.add_child(DccTheme.label("no export has run yet", "text_ghost", DccTheme.FS_TINY))
+
+	return wrap
+
+func _build_pane() -> Control:
+	var wrap := VBoxContainer.new()
+	wrap.add_theme_constant_override("separation", 8)
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var head_pad := MarginContainer.new()
+	head_pad.add_theme_constant_override("margin_left", 16)
+	head_pad.add_theme_constant_override("margin_top", 12)
+	head_pad.add_theme_constant_override("margin_right", 16)
+	_breadcrumb = DccTheme.mono_label("", "accent", DccTheme.FS_HEADER, 2, true)
+	head_pad.add_child(_breadcrumb)
+	wrap.add_child(head_pad)
+	wrap.add_child(DccTheme.rule())
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	wrap.add_child(scroll)
+
+	var body_pad := MarginContainer.new()
+	body_pad.add_theme_constant_override("margin_left", 16)
+	body_pad.add_theme_constant_override("margin_top", 10)
+	body_pad.add_theme_constant_override("margin_right", 16)
+	body_pad.add_theme_constant_override("margin_bottom", 10)
+	scroll.add_child(body_pad)
+
+	_pane_body = VBoxContainer.new()
+	_pane_body.add_theme_constant_override("separation", 8)
+	_pane_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body_pad.add_child(_pane_body)
+
+	return wrap
+
+func _route_by_id(id: String) -> Dictionary:
+	for r in ROUTES:
+		if String(r["id"]) == id:
+			return r
+	return {}
+
+func _select_route(id: String) -> void:
+	var route := _route_by_id(id)
+	if route.is_empty():
+		return
+	_selected_id = id
+	for rid in _rail_buttons:
+		var b: Button = _rail_buttons[rid]
+		b.add_theme_color_override("font_color",
+			DccTheme.c("accent") if rid == id else
+			(DccTheme.c("text_dim") if String(_route_by_id(rid).get("kind", "gap")) == "gap" else DccTheme.c("text")))
+
+	_breadcrumb.text = "%s ▸ %s" % [String(route["group"]).to_upper(), String(route["label"]).to_upper()]
+
+	for c in _pane_body.get_children():
+		_pane_body.remove_child(c)
+		c.queue_free()
+
+	match String(route.get("kind", "gap")):
+		"live":
+			match id:
+				"import_world":
+					DccWidgets.note(_pane_body,
+						"Opens the same .zip project picker as File ▸ Open project… -- routed here per §9, not reimplemented.")
+					DccWidgets.action(_pane_body, "Open project…", func():
+						hide()
+						_host.open_project_picker())
+		"route":
+			match id:
+				"import_assets":
+					DccWidgets.note(_pane_body,
+						"Routes to Assets ▸ Import asset pack .zip… -- §2.4's own table calls this item a shortcut, not a second implementation.")
+					DccWidgets.action(_pane_body, "Import asset pack .zip…", func():
+						hide()
+						_host.open_asset_pack_picker())
+		_:
+			var reason := String(route.get("reason", "Not implemented."))
+			DccWidgets.note(_pane_body, reason)
+
+## `group`, if given, selects that group's first route; empty selects the
+## very first route overall. Both `menus.gd`'s five Data-menu group items and
+## a bare "open the window" caller go through this one entry point.
+func open(group: String = "") -> void:
+	popup_centered()
+	var target := ""
+	if group != "":
+		for r in ROUTES:
+			if String(r["group"]) == group:
+				target = String(r["id"])
+				break
+	if target == "" and not ROUTES.is_empty():
+		target = String(ROUTES[0]["id"])
+	if target != "":
+		_select_route(target)

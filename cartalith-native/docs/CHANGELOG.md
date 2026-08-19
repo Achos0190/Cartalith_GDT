@@ -13059,3 +13059,158 @@ centrality (milestone 2), the collapse/recovery step functions (milestone
 (milestone 5), and UI playback controls (milestone 6) — none of that is
 touched here.
 
+## DCC shell: Storage locations, Recent worlds, Data manager window (`DCC_SHELL_SPEC.md` §2.1/§2.4/§2.5/§9, 2026-08-19)
+
+The owner asked specifically about the original DCC shell design's file/
+folder-browsing menus and wanted them built now. `menus.gd`'s own honesty
+convention (`_live()` wired to real behaviour, `_todo()` disabled with the
+reason attached, never enabled-and-inert, never silently omitted) is
+preserved exactly — this pass flips several long-standing `_todo()` items
+live because they now have real behaviour, and leaves every genuine gap
+disclosed with a reason verified against the actual code rather than
+inherited from an older comment.
+
+**Built:**
+
+- **`shell/dcc_settings.gd` (`DccSettings`)** — a new persistence layer, the
+  first thing in this shell that writes to `user://` (confirmed nothing
+  existed by grepping `ConfigFile`/`user://`/`OS.get_user_data_dir` across
+  `shell/` first). One `ConfigFile` at `user://cartalith_settings.cfg` holds:
+  - The four storage roots from §2.1 (projects, tile atlas cache, asset
+    packs, exports), defaulting to `OS.get_user_data_dir()`-relative paths
+    (`Worlds`, `Cache/atlas`, `Packs`, `Exports`) rather than §2.1's own
+    literal `~/Cartalith/Worlds` etc. — that prose is macOS-flavored (`~` as
+    a home directory) and does not hold on Windows, where
+    `get_user_data_dir()` is already the cross-platform-correct answer. Read
+    as directive intent (four separate, sensible, per-purpose roots), not
+    literal paths to reproduce, and said so in the file's own header.
+  - The recent-projects list, capped at 10 (§2.1: "last 10 projects"),
+    de-duplicating a re-opened path by moving it to the front rather than
+    appending a second copy.
+- **File ▸ Storage locations** (was `_todo`, "not configurable yet") — now
+  opens a real read-only `AcceptDialog` listing the four current root paths.
+- **File ▸ Change locations…** (new item; §2.1 lists it but it wasn't in the
+  menu at all before this pass) — a modal with one `FileDialog`
+  (`FILE_MODE_OPEN_DIR`) per root; picking a folder writes back to
+  `DccSettings` immediately, no separate confirm step, and the readout
+  updates in place. §2.1's own "moving the atlas root invalidates the cache"
+  is handled by disclosure rather than by inventing cache logic: no tile
+  atlas/cache concept exists anywhere in this port yet (Preferences ▸ Tiled
+  LOD is itself still `_todo`), so the dialog says exactly that next to the
+  atlas-cache row instead of pretending to invalidate something that isn't
+  built.
+- **File ▸ Show project on disk** (was `_todo`, "requires a project path") —
+  now real. `DccApp` gained `current_project_path: String`, set by a new
+  `_load_project()` helper that both `open_project_picker()`'s file-dialog
+  callback and the new `open_recent_project()` funnel through, so there is
+  exactly one place that remembers "what's open" and one place that updates
+  the recent list. Reveals the folder via `OS.shell_show_in_file_manager`
+  (Godot 4.4+, confirmed present in this project's 4.7.1) with an
+  `OS.shell_open("file://...")` fallback for an older GDExtension build.
+  Disabled with a tooltip until a project has actually been opened this
+  session.
+- **Preferences ▸ Application ▸ Storage locations…** (§2.5 lists this row;
+  it wasn't in `_preferences()` at all before this pass) — added as a `_live`
+  item that opens the exact same dialog `File ▸ Storage locations` does,
+  matching §2.5's own "Same modal as File."
+- **Data ▸ Recent worlds** (was `_todo`, "no project registry yet") — a real
+  submenu, rebuilt on every `about_to_popup` (unlike the fixed-content
+  `_quality_popup`/theme submenus already in this file, the recent list
+  changes between menu opens, so the cached-once pattern those use would go
+  stale). Each entry shows the file name with the full path as its tooltip
+  and calls `open_recent_project()` on click.
+- **`shell/data_manager_window.gd` (`DataManagerWindow`)** — §9's Data
+  manager window, which did not exist in any form before this pass (the old
+  comment in `menus.gd` said so plainly: "the whole menu is honest about
+  that"). An `AcceptDialog` matching `world_data_window.gd`/
+  `performance_window.gd`'s own construction convention, titled
+  `⧉ DATA MANAGER`, subtitle "import · export · sources · conversion ·
+  validation" verbatim. Structure per §9: a routes rail (the five §2.4
+  groups, each with its listed sub-items as real rail buttons) and a route
+  pane that rebuilds its content — breadcrumb plus body — on selection.
+  `menus.gd`'s five Data-menu group items (Import/Export/Sources/Conversion/
+  Validation) now open this window scoped to that group's first route via a
+  new `DccApp.open_data_manager(group)`, instead of being disabled at the
+  menu level.
+
+  Route by route, what's real and what's disclosed:
+
+  - **Import ▸ World Data (.zip · fields)** — real. Opens the exact same
+    `.zip` project picker `File ▸ Open project…` already uses
+    (`_host.open_project_picker()`), not a second implementation.
+  - **Import ▸ Assets** — real as a routing shortcut, per §2.4's own table
+    ("Assets (routes to the Assets menu)"): calls
+    `_host.open_asset_pack_picker()` directly.
+  - **Export ▸ World Data** — disclosed gap, **re-verified against the crate
+    directly this pass** rather than trusted from an older comment:
+    `cartalith-io` reads `.zip` saves (`load_save`) but its only
+    `zip::ZipWriter` call lives inside its own `#[cfg(test)]` fixture builder
+    (`tests::build_test_zip`), not production code. Confirmed by reading
+    `cartalith-io/src/lib.rs` directly. A save writer is a separate, larger
+    piece of work and stayed out of scope, per this dispatch's own
+    instruction not to add Rust while a concurrent pass owned
+    `cartalith-civ`/`cartalith-godot`.
+  - **Import ▸ Maps/Heightmaps (PNG · TIFF)/GIS · GeoJSON**, **Export ▸
+    Maps (image · tiles)**, **Export ▸ GIS / GeoJSON**, **Export ▸ Assets
+    (pack .zip)**, **Sources** (External/Connected/Registry), **Conversion**
+    (Coordinate systems/Format/Data transformation), **Validation** (Check
+    data/Repair · Normalize) — all disclosed gaps, each with its own reason
+    checked against the real workspace rather than assumed: no image/
+    heightmap/GeoJSON import path exists anywhere (grepped `cartalith-io`,
+    `cartalith-spatial`, `cartalith-assets`); no tile-pyramid/GIS export
+    assembler exists even though `cartalith-terrain::tile_render` already
+    draws per-tile PNGs for the unrelated Region-select tool; Export ▸ Assets
+    routes to Assets ▸ Asset pack ▸ Build ▸ Export pack .zip…, which is
+    itself `_todo` (needs the still-unbuilt asset-library window); no source
+    registry exists; no CRS/format conversion exists (the engine works in
+    one flat km projection throughout); and `load_save()` returns a plain
+    bool with no warning collection anywhere a "Check data" count could read
+    from.
+  - The rail's own foot shows the real exports-root path
+    (`DccSettings.storage_root("exports")`) and states plainly that no
+    export has run yet, rather than inventing the `14:02 · 62 MB`-style
+    placeholder §9's own mockup prose shows.
+
+- `Data ▸ World data tables…` untouched — `world_data_window.gd`'s own doc
+  comment already draws the line this pass respects: that window is the
+  settlement/province/economy table browser, §9's related-but-distinct
+  sibling, not the Data manager window this pass built.
+
+**Not built, and why** (every one of these was `_todo` before this pass and
+stays `_todo`, unchanged): Save project/Save as…/Autosave/Revert to last
+save/Close project (all need a save writer or a project lifecycle, neither
+exists); everything under Edit; the asset-library window and everything that
+depends on it. None of these were in scope for this dispatch.
+
+**Constraint honoured**: no Rust file touched. A separate, concurrent pass
+was editing `cartalith-civ`/`cartalith-godot` for a stable-id field at the
+same time (`git status` showed `cartalith-civ/src/timeline.rs` modified by
+that work, not this one, throughout). Everything above is real against the
+existing bridge surface — `bridge.load_save`, `open_asset_pack_picker` — with
+no new `#[func]` needed anywhere.
+
+**Verified**: every new/modified `.gd` file parses. A first `--headless
+--path . --quit` boot failed with "Identifier ... not declared in the
+current scope" for the two new `class_name` scripts (`DataManagerWindow`,
+`DccSettings`) — a `--headless --path . --import` rescan (which regenerates
+the global script-class cache) fixed it; worth remembering for the next new
+`class_name` file added to this project, since it is not obvious from the
+error message alone. A scripted, discarded smoke scene (`_smoke_data_mgr.gd`/
+`.tscn`, deleted after this pass) exercised: the storage-root read/write
+round-trip; `open_storage_locations`/`open_change_locations` opened and
+closed back-to-back without a stale exclusive-window conflict (Godot raises
+one if a second modal opens while an earlier one is still visible — the
+harness had to close each dialog itself between calls, which is exactly what
+a real user does by clicking OK, not a bug in the shipped code); recent-
+projects dedup (re-opening an already-present path moves it to front,
+`item_count` stays correct, asserted in-test); the Data manager window
+opened on all five groups and every one of its 15 routes clicked in turn,
+confirming the breadcrumb and pane content match each route's `kind`
+(`live`/`route`/`gap`); `show_project_on_disk` no-ops cleanly with no
+project open. The smoke run wrote real fake recent-project paths into the
+actual `user://cartalith_settings.cfg` — noticed and the file deleted
+afterward so a genuine future session starts clean rather than seeing test
+junk in its own recent-worlds list. Headless Godot 4.7.1 boot
+(`--headless --path godot-project --quit`) clean with the smoke files
+removed, confirmed as the final step.
+
