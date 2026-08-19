@@ -62,9 +62,9 @@
 //! signature (or add a sibling overload) to also fold in snapshot history
 //! rather than quietly duplicating the scan.
 
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 
-use cartalith_jsmath::{js_hypot, js_max, js_min, js_num_or_zero};
+use cartalith_jsmath::{js_hypot, js_max, js_min, js_num_or_zero, js_round, js_truthy_num};
 
 use super::{
     BIOME_DESERT, BIOME_ICE, BIOME_OCEAN, BIOME_TUNDRA, NamedSettlement, SettlementKind, Way,
@@ -572,6 +572,691 @@ pub fn civ_betweenness_from_adjacency(adj: &[Vec<usize>]) -> Vec<f64> {
     btw
 }
 
+// ===================== Milestone 3: collapse and recovery step functions =====================
+//
+// `TIMELINE_SCOPE.md` §5 milestone 3 -- `_civSettlementStress` (reference
+// lines 24713-24723), `_civMortalityMigrationRates` (24726-24731),
+// `_civGravityMigrate` (24738-24778), `_civCollapseStep` (24785-24848) and
+// `_civRecoveryGrowthStep` (24852-24870). The mechanistic core of the v0.85
+// stepper: fully deterministic, no RNG anywhere in this block (the
+// reference's own comment on `_civSimulateTimeline`, confirmed by reading
+// every one of these five functions directly -- none reads `Math.random`,
+// an RNG closure, or any other non-deterministic source).
+//
+// ## `CollapsePlace`: a new type, not `NamedSettlement`
+//
+// The reference's `places` array holds loosely-typed objects the whole civ
+// system shares (settlements AND non-settlement POIs, filtered by
+// `p.category==='settlement'` at the top of `_civCollapseStep`). This port's
+// `NamedSettlement` (`lib.rs`) has no `traits`/`ruins` fields -- those are
+// new surface the stepper itself needs (a settlement demoted from an
+// exchange tier gains a persistent 'fortified' trait and a `ruins` flag
+// neither `NamedSettlement` nor any other milestone produces or consumes
+// today) -- and `CivData` (`cartalith-godot`) holds no mixed "places"
+// collection at all, only `settlements: Vec<NamedSettlement>`. Rather than
+// bolt stepper-only fields onto `NamedSettlement` (which every OTHER
+// subsystem in this crate also constructs and would have to carry two dead
+// fields), this milestone defines its own `CollapsePlace`, matching
+// milestone 2's own precedent of decoupling the graph algorithm's input
+// from any particular domain struct (`civ_proximity_adjacency`'s bare
+// `(f64, f64)` positions, this module's own doc comment on that function).
+// `CollapsePlace` uses `x`/`y: usize` (not `f64`, unlike milestone 2's
+// bare positions) because [`civ_settlement_population`] -- which this
+// section's step functions call for the migration-headroom/regrowth
+// ceiling -- takes grid-index `usize` coordinates, matching
+// `SettlementPlacement::x`/`::y`'s own representation.
+//
+// Because this port's place type is settlements-only (no POI passthrough
+// entries to preserve), `civ_collapse_step`/`civ_recovery_growth_step` skip
+// the reference's `p.category==='settlement'` filter-and-reassemble dance
+// entirely -- every input entry is a settlement, and the output preserves
+// input order with failed/abandoned entries dropped, which is exactly what
+// the reference's own reassembly produces for the settlement subset of a
+// mixed array. This is a structural simplification enabled by this port's
+// own type boundary, not a behavior change -- disclosed here per the
+// porting-discipline skill rather than silently folded in.
+//
+// ## The dropped `_K` fallback branch
+//
+// Both `_civCollapseStep` (line 24802-24803) and `_civRecoveryGrowthStep`
+// (line 24854) guard `currentCarryingCapacity` with
+// `typeof currentCarryingCapacity==='function'`, matching milestone 1's own
+// already-documented precedent (`civ_catchment_pop`'s dropped dead `K`
+// fallback, this module's top-of-file doc comment): `currentCarryingCapacity`
+// is a hoisted top-level function declaration, always defined, so the
+// `_K?...:...` ternary's false branch (`(p.pop||0)*1.05` /
+// `(q.pop||1)*2`) never executes in the real reference app. This port's
+// step functions always compute the capacity-grounded ceiling via
+// [`civ_settlement_population`] -- the caller (a golden test today,
+// milestone 5's Godot boundary later) is responsible for supplying real
+// `dens`/`field` arrays, the same responsibility milestone 1's own
+// `civ_settlement_population` already places on its callers.
+
+/// A settlement as the v0.85 collapse/recovery stepper sees it. See this
+/// section's own top-of-block doc comment for why this is a new type
+/// rather than [`NamedSettlement`].
+///
+/// `fortified` mirrors the reference's own persistent `'fortified'` trait
+/// (reference: `p.traits.includes('fortified')`) -- distinct from
+/// "currently an exchange tier," which [`civ_settlement_stress`]/
+/// [`civ_gravity_migrate`] both also treat as fortified
+/// (`exchangeTier||fortified` in the reference) without it being recorded
+/// on the place itself. Once set (on demotion from an exchange tier,
+/// [`civ_collapse_step`]), `fortified` is never cleared -- matching the
+/// reference, which never removes a trait once added; only `ruins` clears,
+/// on promotion back into an exchange tier ([`civ_recovery_growth_step`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CollapsePlace {
+    /// `0` is the "unassigned" sentinel, matching every other `tid` field
+    /// in this crate ([`civ_assign_tid`]'s own doc comment).
+    pub tid: u64,
+    pub x: usize,
+    pub y: usize,
+    pub kind: SettlementKind,
+    /// The reference's `p.pop` is a loosely-typed JS number; between steps
+    /// it always holds a `Math.round`-ed value (every step function ends by
+    /// rounding it), but intermediate per-step math (survivors, migrant
+    /// pools) is fractional, so this is `f64` throughout rather than
+    /// rounded to an integer type at the struct boundary.
+    pub pop: f64,
+    pub fortified: bool,
+    pub ruins: bool,
+}
+
+/// `_CIV_COLLAPSE_CHAR_WEIGHTS` keys (reference line 24653-24658) as a
+/// closed Rust enum instead of a string lookup with a `mixed` fallback for
+/// an unrecognised key -- the fallback is unreachable once the type system
+/// only admits the four real values, matching this crate's general
+/// preference for parsed types over re-validated strings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollapseCharacter {
+    Trade,
+    Disease,
+    Conflict,
+    Mixed,
+}
+
+/// `_CIV_COLLAPSE_CHAR_WEIGHTS`'s per-character weight triple (`wL` trade-
+/// dependency-loss, `wD` density/connectivity exposure, `wV` undefended-
+/// violence exposure) -- each row sums to 1 (reference comment, line 24651).
+#[derive(Debug, Clone, Copy)]
+pub struct CollapseCharWeights {
+    pub w_l: f64,
+    pub w_d: f64,
+    pub w_v: f64,
+}
+
+impl CollapseCharacter {
+    /// `_CIV_COLLAPSE_CHAR_WEIGHTS[character]` (reference lines 24653-24658).
+    pub fn weights(self) -> CollapseCharWeights {
+        match self {
+            CollapseCharacter::Trade => CollapseCharWeights {
+                w_l: 0.70,
+                w_d: 0.05,
+                w_v: 0.25,
+            },
+            CollapseCharacter::Disease => CollapseCharWeights {
+                w_l: 0.05,
+                w_d: 0.70,
+                w_v: 0.25,
+            },
+            CollapseCharacter::Conflict => CollapseCharWeights {
+                w_l: 0.15,
+                w_d: 0.05,
+                w_v: 0.80,
+            },
+            CollapseCharacter::Mixed => CollapseCharWeights {
+                w_l: 0.35,
+                w_d: 0.25,
+                w_v: 0.40,
+            },
+        }
+    }
+
+    /// `_CIV_COLLAPSE_MIGRATION_BIAS[character]` (reference line 24663).
+    pub fn migration_bias(self) -> f64 {
+        match self {
+            CollapseCharacter::Trade => 1.0,
+            CollapseCharacter::Disease => 0.6,
+            CollapseCharacter::Conflict => 1.4,
+            CollapseCharacter::Mixed => 1.0,
+        }
+    }
+}
+
+/// `_CIV_COLLAPSE_MAX_MORTALITY` (reference line 24662).
+pub const CIV_COLLAPSE_MAX_MORTALITY: f64 = 0.15;
+/// `_CIV_COLLAPSE_MAX_MIGRATION` (reference line 24662).
+pub const CIV_COLLAPSE_MAX_MIGRATION: f64 = 0.25;
+/// `_CIV_MIGRATE_BETA` (reference line 24664): gravity-model distance-decay
+/// exponent (Zipf 1946 / Ravenstein 1885, literature-typical 1-2).
+pub const CIV_MIGRATE_BETA: f64 = 1.5;
+/// `_CIV_ABANDON_FLOOR` (reference line 24665).
+pub const CIV_ABANDON_FLOOR: f64 = 20.0;
+/// `_CIV_FORTIFIED_BONUS` (reference line 24666): migration destination
+/// attractiveness bonus for fortified/exchange-tier centres.
+pub const CIV_FORTIFIED_BONUS: f64 = 0.5;
+
+/// A settlement counts as an "exchange tier" nucleus (reference:
+/// `kind==='city'||kind==='capital'||kind==='metropolis'`) for both the
+/// stress model's fortification default and the gravity model's
+/// attractiveness bonus. Capped at `Capital` -- this module's own top-of-
+/// file metropolis-tier decision (no `SettlementKind::Metropolis` exists to
+/// check for).
+fn civ_is_exchange_tier(kind: SettlementKind) -> bool {
+    matches!(kind, SettlementKind::City | SettlementKind::Capital)
+}
+
+/// `_CIV_TIER_ORDER.indexOf(kind)` -- every `SettlementKind` variant is
+/// listed in [`CIV_TIER_ORDER`], so this never actually falls through to
+/// the `expect`.
+fn civ_tier_rank(kind: SettlementKind) -> usize {
+    CIV_TIER_ORDER
+        .iter()
+        .position(|&k| k == kind)
+        .expect("SettlementKind is exhaustively listed in CIV_TIER_ORDER")
+}
+
+/// `_civSettlementStress` (reference lines 24713-24723): per-settlement
+/// stress in `[0,1]`, blending three exposure terms by the active
+/// character's weight triple.
+///
+/// - `L` (trade-dependency loss): how much of the settlement's ORIGINAL
+///   (`baseline_norm_b`) betweenness centrality it has lost by this step.
+///   `None`/absent (no baseline captured yet -- always true at a
+///   simulation's very first step) or a near-zero baseline both give `L=0`
+///   ("no loss to measure yet", reference comment line 24711) rather than a
+///   division blow-up.
+/// - `D` (density/connectivity exposure): half current normalised
+///   betweenness, half population rank (`pop / max_pop_now`, capped at 1).
+/// - `V` (undefended-violence exposure): `0.3` if fortified (explicit
+///   `fortified` trait OR currently an exchange tier), else `1.0`.
+///
+/// `baseline_norm_b` is a plain caller-supplied `tid -> normB` map --
+/// milestone 4's orchestrator is what threads a REAL prior step's own
+/// [`CollapseStepResult::norm_b_by_tid`] through as this parameter across a
+/// multi-step run (reference: `_civSimulateTimeline`'s own
+/// `Object.assign({},opts,{baselineNormB})`, out of this milestone's
+/// scope); this function itself is agnostic to where the map came from.
+pub fn civ_settlement_stress(
+    place: &CollapsePlace,
+    norm_b_now: f64,
+    baseline_norm_b: Option<&HashMap<u64, f64>>,
+    max_pop_now: f64,
+    character: CollapseCharacter,
+) -> f64 {
+    let w = character.weights();
+    let b0 = if place.tid != 0 {
+        baseline_norm_b.and_then(|m| m.get(&place.tid).copied())
+    } else {
+        None
+    };
+    let l = match b0 {
+        Some(b) if b > 1e-9 => js_max(0.0, js_min(1.0, 1.0 - (norm_b_now / b))),
+        _ => 0.0,
+    };
+    let pop = js_num_or_zero(place.pop);
+    let pop_rank = if max_pop_now > 0.0 {
+        js_min(1.0, pop / max_pop_now)
+    } else {
+        0.0
+    };
+    let d = js_max(0.0, js_min(1.0, 0.5 * norm_b_now + 0.5 * pop_rank));
+    let fortified = place.fortified || civ_is_exchange_tier(place.kind);
+    let v = if fortified { 0.3 } else { 1.0 };
+    js_max(0.0, js_min(1.0, w.w_l * l + w.w_d * d + w.w_v * v))
+}
+
+/// `_civMortalityMigrationRates` (reference lines 24726-24731): stress ×
+/// severity × character -> this step's ANNUAL excess-mortality fraction
+/// (`m`, of current population) and out-migration fraction (`g`, of
+/// SURVIVORS, applied after mortality -- [`civ_collapse_step`] compounds
+/// both over `stepYears`, since the calibration in doc §4 is per-year).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MortalityMigrationRates {
+    pub m: f64,
+    pub g: f64,
+}
+
+pub fn civ_mortality_migration_rates(
+    stress: f64,
+    severity: f64,
+    character: CollapseCharacter,
+) -> MortalityMigrationRates {
+    let bias = character.migration_bias();
+    let m = js_max(
+        0.0,
+        js_min(0.95, CIV_COLLAPSE_MAX_MORTALITY * severity * stress),
+    );
+    let g = js_max(
+        0.0,
+        js_min(0.95, CIV_COLLAPSE_MAX_MIGRATION * severity * stress * bias),
+    );
+    MortalityMigrationRates { m, g }
+}
+
+/// `_civGravityMigrate`'s return shape (reference: `{received, unplaced}`).
+#[derive(Debug, Clone)]
+pub struct GravityMigrateResult {
+    pub received: Vec<f64>,
+    pub unplaced: f64,
+}
+
+/// `_civGravityMigrate` (reference lines 24738-24778): Zipf/Ravenstein
+/// gravity-model migration redistribution. Each origin's migrant pool
+/// (`migrants_of(i)`) is split across every OTHER place proportional to
+/// `headroom(j) * fortifiedBonus(j) / distance(i,j)^β`, up to 4 saturation-
+/// aware passes (a destination that saturates mid-split has its capped
+/// remainder re-offered to the still-open destinations on the next pass);
+/// whatever a step's total remaining headroom can't absorb becomes
+/// system-wide unplaced transit/diaspora loss.
+///
+/// `cap_field` (per-settlement headroom ceiling, persons) and `places` MUST
+/// be the same length -- this mirrors the reference's own implicit
+/// same-array-position contract (`capField[j]` indexed by the same `j` as
+/// `places[j]`), not re-validated here (an index-position mismatch is a
+/// caller bug, not a runtime-recoverable condition).
+#[allow(clippy::too_many_arguments)]
+pub fn civ_gravity_migrate(
+    places: &[CollapsePlace],
+    migrants_of: impl Fn(usize) -> f64,
+    cap_field: &[f64],
+    cell_km: f64,
+    gw: f64,
+    world_wrap: bool,
+) -> GravityMigrateResult {
+    let n = places.len();
+    let mut headroom: Vec<f64> = (0..n)
+        .map(|j| {
+            js_max(
+                0.0,
+                js_num_or_zero(cap_field[j]) - js_num_or_zero(places[j].pop),
+            )
+        })
+        .collect();
+    let bonus_factor: Vec<f64> = places
+        .iter()
+        .map(|p| {
+            let fortified = p.fortified || civ_is_exchange_tier(p.kind);
+            1.0 + if fortified { CIV_FORTIFIED_BONUS } else { 0.0 }
+        })
+        .collect();
+
+    let mut received = vec![0.0f64; n];
+    let mut total_unplaced = 0.0f64;
+    for i in 0..n {
+        let mut remaining = migrants_of(i);
+        // `!(remaining > 0.0)`, not `remaining <= 0.0` -- deliberately also
+        // catches NaN (JS `!(remaining>0)` is true for NaN too, matching
+        // `remaining>0` false ⇒ skip this origin), where `<= 0.0` would be
+        // false for NaN and let a NaN migrant pool fall through instead.
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
+        if !(remaining > 0.0) {
+            continue;
+        }
+        // 1/d^β, fixed per origin -- only attractiveness (via `headroom`,
+        // which depletes across passes) changes between passes.
+        let mut dist_w = vec![0.0f64; n];
+        for j in 0..n {
+            if j == i {
+                continue;
+            }
+            let mut dx = (places[i].x as f64 - places[j].x as f64).abs();
+            if world_wrap {
+                dx = js_min(dx, gw - dx);
+            }
+            let dy = places[i].y as f64 - places[j].y as f64;
+            let d_km = js_max(1e-6, js_hypot(dx, dy) * cell_km);
+            dist_w[j] = 1.0 / d_km.powf(CIV_MIGRATE_BETA);
+        }
+        for _pass in 0..4 {
+            // Same NaN-inclusive reasoning as the guard above.
+            #[allow(clippy::neg_cmp_op_on_partial_ord)]
+            if !(remaining > 1e-9) {
+                break;
+            }
+            let mut wsum = 0.0f64;
+            let mut weights = vec![0.0f64; n];
+            for j in 0..n {
+                if j == i {
+                    continue;
+                }
+                let a = headroom[j] * bonus_factor[j];
+                if a <= 0.0 {
+                    continue;
+                }
+                let w = a * dist_w[j];
+                weights[j] = w;
+                wsum += w;
+            }
+            if wsum <= 0.0 {
+                break;
+            }
+            let mut placed = 0.0f64;
+            for j in 0..n {
+                if weights[j] <= 0.0 {
+                    continue;
+                }
+                let want = remaining * (weights[j] / wsum);
+                let take = js_min(want, headroom[j]);
+                received[j] += take;
+                headroom[j] -= take;
+                placed += take;
+            }
+            remaining -= placed;
+            if placed <= 1e-12 {
+                break;
+            }
+        }
+        total_unplaced += js_max(0.0, remaining);
+    }
+    GravityMigrateResult {
+        received,
+        unplaced: total_unplaced,
+    }
+}
+
+/// `_civCollapseStep`'s stats shape (reference:
+/// `{died, migrated, unplaced, failed}`, each already `Math.round`-ed
+/// except `failed`, which is a plain integer counter).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CollapseStepStats {
+    pub died: i64,
+    pub migrated: i64,
+    pub unplaced: i64,
+    pub failed: u32,
+}
+
+/// `_civCollapseStep`'s return shape (reference:
+/// `{places, stats, normBByTid}`).
+#[derive(Debug, Clone)]
+pub struct CollapseStepResult {
+    pub places: Vec<CollapsePlace>,
+    pub stats: CollapseStepStats,
+    /// Every INPUT settlement's normalised betweenness this step (failed
+    /// ones included -- reference comment line 24783: "so the t=0 caller
+    /// can seed the baseline for doc §3's 'loss relative to ORIGINAL
+    /// centrality'"). Thread unchanged into every subsequent step's
+    /// `baseline_norm_b` (milestone 4's job).
+    pub norm_b_by_tid: HashMap<u64, f64>,
+}
+
+/// `_civCollapseStep` (reference lines 24785-24848): one `step_years`-long
+/// collapse step. Rebuilds the proximity graph + betweenness ([`civ_proximity_adjacency`]/
+/// [`civ_betweenness_from_adjacency`], milestone 2) from `places`' OWN
+/// positions this step (deliberately decoupled from any stale `ways`
+/// index, reference comment lines 24668-24670) -- NOT threaded from a
+/// previous step's graph. Computes stress/mortality/migration per
+/// settlement, redistributes migrants via [`civ_gravity_migrate`],
+/// re-derives tiers (demoting -- never promoting -- and marking `ruins`
+/// where a former exchange-tier nucleus falls below its floor, milestone
+/// 1's [`civ_tier_for_population`]/[`CIV_TIER_ORDER`]), and drops anything
+/// under `CIV_ABANDON_FLOOR`.
+///
+/// `character`/`severity` are required, plain (not `Option`) parameters --
+/// matching milestone 1's own established precedent
+/// (`civ_settlement_population`'s `norm_b`): the reference's own
+/// `opts.character||'mixed'`/`opts.severity!=null?opts.severity:0.5`
+/// defaulting is the CALLER's job here, not this function's.
+///
+/// `k_nearest`/`max_link_km` DO reproduce the reference's own internal
+/// defaulting (`opts.kNearest||4`/`opts.maxLinkKm||(cellKm*GW*0.5)`,
+/// literally part of `_civCollapseStep`'s own body, not the outer wiring)
+/// -- pass `0`/a non-finite-or-non-positive value respectively to get the
+/// reference's own default, matching its `||` falsy-fallback exactly
+/// (including the reference's own quirk that an explicit `0` also falls
+/// back to the default, not a "real" `kNearest=0`).
+///
+/// `dens`/`field`/`gw`/`gh`/`sea`/`world_wrap`/`map_width_km` feed
+/// [`civ_settlement_population`] for the per-settlement migration-headroom
+/// ceiling (`capField`, reference lines 24799-24803) -- see this section's
+/// own top-of-block doc comment on why the reference's `_K`-null fallback
+/// branch is dropped rather than ported.
+#[allow(clippy::too_many_arguments)]
+pub fn civ_collapse_step(
+    places: &[CollapsePlace],
+    character: CollapseCharacter,
+    severity: f64,
+    step_years: u32,
+    k_nearest: usize,
+    max_link_km: f64,
+    baseline_norm_b: Option<&HashMap<u64, f64>>,
+    dens: &[f32],
+    field: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world_wrap: bool,
+    map_width_km: f64,
+) -> CollapseStepResult {
+    let step_years = step_years.max(1);
+    let n = places.len();
+    if n == 0 {
+        return CollapseStepResult {
+            places: Vec::new(),
+            stats: CollapseStepStats::default(),
+            norm_b_by_tid: HashMap::new(),
+        };
+    }
+    let cell_km = map_width_km / gw as f64;
+    let k_nearest = if k_nearest == 0 { 4 } else { k_nearest };
+    let max_link_km = if js_truthy_num(max_link_km) {
+        max_link_km
+    } else {
+        cell_km * gw as f64 * 0.5
+    };
+
+    let positions: Vec<(f64, f64)> = places.iter().map(|p| (p.x as f64, p.y as f64)).collect();
+    let adj = civ_proximity_adjacency(
+        &positions,
+        k_nearest,
+        max_link_km,
+        cell_km,
+        gw as f64,
+        world_wrap,
+    );
+    let btw_raw = civ_betweenness_from_adjacency(&adj);
+    let max_btw = btw_raw.iter().copied().fold(1e-9f64, js_max);
+    let norm_b: Vec<f64> = btw_raw.iter().map(|b| b / max_btw).collect();
+    let max_pop_now = places
+        .iter()
+        .map(|p| js_num_or_zero(p.pop))
+        .fold(1.0f64, js_max);
+
+    // Headroom ceiling deliberately excludes the trade-derived urban-pool
+    // boost (normB:0) -- during collapse, a destination's ability to feed
+    // refugees is about local food production, not a network-health
+    // figure that's circular in a collapse scenario (reference comment
+    // lines 24799-24801).
+    let cap_field: Vec<f64> = places
+        .iter()
+        .map(|p| {
+            civ_settlement_population(
+                p.kind,
+                p.x,
+                p.y,
+                dens,
+                field,
+                gw,
+                gh,
+                sea,
+                world_wrap,
+                map_width_km,
+                0.0,
+            )
+        })
+        .collect();
+
+    let mut died = 0.0f64;
+    let mut stayers = vec![0.0f64; n];
+    let mut migrant_pool = vec![0.0f64; n];
+    for i in 0..n {
+        let stress = civ_settlement_stress(
+            &places[i],
+            norm_b[i],
+            baseline_norm_b,
+            max_pop_now,
+            character,
+        );
+        let rates = civ_mortality_migration_rates(stress, severity, character);
+        let surv_frac = (1.0 - rates.m).powf(f64::from(step_years));
+        let mig_frac = 1.0 - (1.0 - rates.g).powf(f64::from(step_years));
+        let pop0 = js_num_or_zero(places[i].pop);
+        let survivors = pop0 * surv_frac;
+        died += pop0 - survivors;
+        stayers[i] = survivors * (1.0 - mig_frac);
+        migrant_pool[i] = survivors * mig_frac;
+    }
+
+    let gm = civ_gravity_migrate(
+        places,
+        |i| migrant_pool[i],
+        &cap_field,
+        cell_km,
+        gw as f64,
+        world_wrap,
+    );
+
+    let mut migrated = 0.0f64;
+    let mut failed = 0u32;
+    let mut out_places: Vec<CollapsePlace> = Vec::with_capacity(n);
+    for i in 0..n {
+        let mut p = places[i];
+        let new_pop = js_round(stayers[i] + gm.received[i]);
+        // Counted whether or not the destination survives this step --
+        // the migrants genuinely moved, even if their new home also fails
+        // this same step (reference: `migrated+=received[i]` happens
+        // BEFORE the abandonment check, line 24822-24823).
+        migrated += gm.received[i];
+        if new_pop < CIV_ABANDON_FLOOR {
+            failed += 1;
+            continue;
+        }
+        let new_kind = civ_tier_for_population(new_pop);
+        let was_exchange = civ_is_exchange_tier(p.kind);
+        // Collapse only ever DEMOTES within a step, never promotes, even if
+        // a settlement's new population would nominally clear a higher
+        // tier's floor (reference: `demoted` is the only branch that
+        // updates `p.kind`; ported exactly, not "corrected" to also allow
+        // promotion here).
+        let demoted = civ_tier_rank(new_kind) > civ_tier_rank(p.kind);
+        p.pop = new_pop;
+        if demoted {
+            p.kind = new_kind;
+            if was_exchange {
+                p.ruins = true;
+                p.fortified = true;
+            }
+        }
+        out_places.push(p);
+    }
+
+    let mut norm_b_by_tid = HashMap::with_capacity(n);
+    for i in 0..n {
+        if places[i].tid != 0 {
+            norm_b_by_tid.insert(places[i].tid, norm_b[i]);
+        }
+    }
+
+    CollapseStepResult {
+        places: out_places,
+        stats: CollapseStepStats {
+            died: js_round(died) as i64,
+            migrated: js_round(migrated) as i64,
+            unplaced: js_round(gm.unplaced) as i64,
+            failed,
+        },
+        norm_b_by_tid,
+    }
+}
+
+/// `_civRecoveryGrowthStep`'s stats shape (reference: `{grew}`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RecoveryStepStats {
+    pub grew: u32,
+}
+
+/// `_civRecoveryGrowthStep`'s return shape (reference: `{places, stats}`).
+#[derive(Debug, Clone)]
+pub struct RecoveryStepResult {
+    pub places: Vec<CollapsePlace>,
+    pub stats: RecoveryStepStats,
+}
+
+/// `_civRecoveryGrowthStep` (reference lines 24852-24870): one
+/// `step_years`-long logistic (Verhulst 1838) regrowth step toward each
+/// settlement's own catchment ceiling ([`civ_settlement_population`], with
+/// its CURRENT `kind` -- not any target/promoted kind, so a settlement's
+/// growth this step is bounded by what its PRESENT tier's catchment
+/// formula supports, matching the reference exactly). Compounds `rate`
+/// internally `step_years` times (logistic growth isn't linear in time,
+/// reference comment line 24850). Re-derives tiers UPWARD only (never
+/// demotes -- the mirror-image restriction to [`civ_collapse_step`]'s
+/// demote-only rule), clearing `ruins` on promotion back into an exchange
+/// tier. `fortified` is never cleared, even on promotion -- the reference
+/// never removes a trait once added; only `ruins` clears (matching real-
+/// world "the old fortifications are still there").
+///
+/// `rate` is a required plain parameter -- the reference's own
+/// `opts.rate!=null?opts.rate:0.01` default is the caller's job, matching
+/// [`civ_collapse_step`]'s `severity`/`character`.
+#[allow(clippy::too_many_arguments)]
+pub fn civ_recovery_growth_step(
+    places: &[CollapsePlace],
+    rate: f64,
+    step_years: u32,
+    dens: &[f32],
+    field: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world_wrap: bool,
+    map_width_km: f64,
+) -> RecoveryStepResult {
+    let step_years = step_years.max(1);
+    let mut out = Vec::with_capacity(places.len());
+    for &p0 in places {
+        let mut q = p0;
+        // `q.pop||1` -- read once, reused for both the ceiling floor and
+        // the growth loop's starting value (reference: both sites read the
+        // same `q.pop||1` expression, before `pop` is ever mutated).
+        let pop_or_1 = if js_truthy_num(q.pop) { q.pop } else { 1.0 };
+        let ceiling_pop = civ_settlement_population(
+            q.kind,
+            q.x,
+            q.y,
+            dens,
+            field,
+            gw,
+            gh,
+            sea,
+            world_wrap,
+            map_width_km,
+            0.0,
+        );
+        let ceiling = js_max(pop_or_1, ceiling_pop);
+        let mut pop = pop_or_1;
+        for _ in 0..step_years {
+            pop += rate * pop * (1.0 - pop / js_max(1.0, ceiling));
+        }
+        q.pop = js_round(js_max(1.0, pop));
+        let new_kind = civ_tier_for_population(q.pop);
+        let promoted = civ_tier_rank(new_kind) < civ_tier_rank(q.kind);
+        if promoted {
+            q.kind = new_kind;
+            if civ_is_exchange_tier(new_kind) {
+                q.ruins = false;
+            }
+        }
+        out.push(q);
+    }
+    let grew = out.len() as u32;
+    RecoveryStepResult {
+        places: out,
+        stats: RecoveryStepStats { grew },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -993,5 +1678,161 @@ mod tests {
             civ_betweenness_from_adjacency(&adj),
             vec![0.0, 0.0, 0.0, 0.0]
         );
+    }
+
+    // ---------- milestone 3: collapse/recovery step functions ----------
+    // Reference-exact numbers live in `tests/golden_parity_timeline_collapse.rs`;
+    // these are structural/self-consistency checks that don't need the
+    // reference to state.
+
+    fn cp(tid: u64, kind: SettlementKind, pop: f64, fortified: bool) -> CollapsePlace {
+        CollapsePlace {
+            tid,
+            x: 0,
+            y: 0,
+            kind,
+            pop,
+            fortified,
+            ruins: false,
+        }
+    }
+
+    #[test]
+    fn collapse_character_weights_each_sum_to_one() {
+        for character in [
+            CollapseCharacter::Trade,
+            CollapseCharacter::Disease,
+            CollapseCharacter::Conflict,
+            CollapseCharacter::Mixed,
+        ] {
+            let w = character.weights();
+            let sum = w.w_l + w.w_d + w.w_v;
+            assert!(
+                (sum - 1.0).abs() < 1e-9,
+                "{character:?} weights sum to {sum}, want 1.0"
+            );
+        }
+    }
+
+    #[test]
+    fn settlement_stress_is_zero_baseline_when_no_map_is_supplied() {
+        // No baselineNormB at all (a simulation's very first step, per the
+        // reference's own `_civSimulateTimeline`) must give L=0, not panic
+        // on a missing map.
+        let p = cp(1, SettlementKind::Hamlet, 100.0, false);
+        let stress = civ_settlement_stress(&p, 0.5, None, 1000.0, CollapseCharacter::Trade);
+        // wL*0 + wD*(0.5*0.5+0.5*0.1) + wV*1.0 = 0.05*0.3 + 0.25*1.0
+        let expect = 0.70 * 0.0 + 0.05 * (0.5 * 0.5 + 0.5 * (100.0 / 1000.0)) + 0.25 * 1.0;
+        assert!((stress - expect).abs() < 1e-9, "got {stress} want {expect}");
+    }
+
+    #[test]
+    fn settlement_stress_ignores_an_unassigned_tid_baseline_lookup() {
+        // tid=0 is the "unassigned" sentinel -- even with a baseline map
+        // present, an unassigned place must never look itself up in it
+        // (mirrors the reference's own `place.tid!=null` guard).
+        let mut baseline = HashMap::new();
+        baseline.insert(0u64, 1.0);
+        let p = cp(0, SettlementKind::Hamlet, 0.0, false);
+        let stress = civ_settlement_stress(&p, 0.0, Some(&baseline), 1.0, CollapseCharacter::Trade);
+        // L must be 0 (no baseline lookup happened) -- with pop=0 and
+        // normBNow=0, D=0 too, so only wV*V=0.25*1.0 remains.
+        assert!((stress - 0.25).abs() < 1e-9, "got {stress}");
+    }
+
+    #[test]
+    fn gravity_migrate_is_a_no_op_when_nobody_migrates() {
+        let places = [
+            cp(1, SettlementKind::Town, 0.0, false),
+            cp(2, SettlementKind::Town, 0.0, false),
+        ];
+        let cap_field = [0.0, 500.0];
+        let r = civ_gravity_migrate(&places, |_| 0.0, &cap_field, 10.0, 100.0, false);
+        assert_eq!(r.received, vec![0.0, 0.0]);
+        assert_eq!(r.unplaced, 0.0);
+    }
+
+    #[test]
+    fn collapse_step_on_an_empty_places_array_is_a_no_op() {
+        let dens = vec![10.0f32; 100];
+        let field = vec![0.6f32; 100];
+        let r = civ_collapse_step(
+            &[],
+            CollapseCharacter::Mixed,
+            0.5,
+            1,
+            0,
+            0.0,
+            None,
+            &dens,
+            &field,
+            10,
+            10,
+            0.42,
+            false,
+            800.0,
+        );
+        assert!(r.places.is_empty());
+        assert_eq!(r.stats, CollapseStepStats::default());
+        assert!(r.norm_b_by_tid.is_empty());
+    }
+
+    #[test]
+    fn collapse_step_never_promotes_even_if_population_would_clear_a_higher_floor() {
+        // Zero severity -> zero mortality/migration -> the settlement's
+        // population is untouched this step. Start it well above its own
+        // kind's floor already (as if it had been mis-tagged Village at a
+        // City-scale population) -- collapse must never re-tier UPWARD, so
+        // it stays Village even though `civ_tier_for_population` would call
+        // this population City.
+        let dens = vec![10.0f32; 100];
+        let field = vec![0.6f32; 100];
+        let places = [CollapsePlace {
+            tid: 1,
+            x: 5,
+            y: 5,
+            kind: SettlementKind::Village,
+            pop: 50_000.0,
+            fortified: false,
+            ruins: false,
+        }];
+        let r = civ_collapse_step(
+            &places,
+            CollapseCharacter::Mixed,
+            0.0,
+            1,
+            0,
+            0.0,
+            None,
+            &dens,
+            &field,
+            10,
+            10,
+            0.42,
+            false,
+            800.0,
+        );
+        assert_eq!(r.places[0].kind, SettlementKind::Village);
+        assert_eq!(r.places[0].pop, 50_000.0);
+    }
+
+    #[test]
+    fn recovery_growth_step_never_demotes_even_if_population_would_clear_a_lower_floor() {
+        let dens = vec![0.0f32; 100]; // zero density -> zero ceiling -> zero growth
+        let field = vec![0.6f32; 100];
+        let places = [CollapsePlace {
+            tid: 1,
+            x: 5,
+            y: 5,
+            kind: SettlementKind::City,
+            pop: 1.0, // far below City's own floor
+            fortified: false,
+            ruins: false,
+        }];
+        let r =
+            civ_recovery_growth_step(&places, 0.0, 1, &dens, &field, 10, 10, 0.42, false, 800.0);
+        // Recovery never demotes -- kind stays City even though
+        // `civ_tier_for_population(1)` would say Hamlet.
+        assert_eq!(r.places[0].kind, SettlementKind::City);
     }
 }

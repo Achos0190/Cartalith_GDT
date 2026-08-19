@@ -13420,3 +13420,208 @@ opened the sprite-sheet slicer modal, and read `has_asset_pack()` — all
 without error. Headless Godot 4.7.1 boot (`--headless --path godot-project
 --quit`) clean with the smoke files removed, confirmed as the final step.
 
+## Timeline milestone 3 — the collapse and recovery step functions, the mechanistic core of the v0.85 stepper (`TIMELINE_SCOPE.md` milestone 3, 2026-08-19)
+
+Depends on milestones 1 (population-ceiling chain, tier tables, stable
+`tid`) and 2 (proximity graph, Brandes betweenness) — both already landed in
+`cartalith-civ::timeline`. Per the scope doc's own framing, this is "the
+core of the subsystem and the highest-value golden-parity target" because
+it is fully deterministic (no RNG anywhere in the block, confirmed by
+reading all five functions directly, not assumed from the reference's own
+comment on a sibling function).
+
+**Built** — five new functions plus a settlement-only place type in
+`cartalith-civ::timeline`:
+
+- **`CollapsePlace`**: `tid`/`x`/`y`/`kind`/`pop`/`fortified`/`ruins`. NOT
+  `NamedSettlement` — the reference's `places` array mixes settlements with
+  non-settlement POIs (filtered by `p.category==='settlement'` at the top
+  of `_civCollapseStep`), and this port's `NamedSettlement` has no
+  `traits`/`ruins` fields to carry the stepper's own new surface (a
+  persistent `'fortified'` trait, a `ruins` flag). Rather than bolt two
+  dead fields onto a struct every other subsystem in the crate also
+  constructs, this milestone defines its own type — the same decoupling
+  precedent milestone 2 set for `civ_proximity_adjacency`'s bare `(f64,
+  f64)` positions. Because this port's place type is settlements-only,
+  `civ_collapse_step`/`civ_recovery_growth_step` skip the reference's
+  `p.category==='settlement'` filter-and-reassemble dance over a mixed
+  array entirely — a disclosed structural simplification (every input
+  entry already is a settlement, output preserves input order with
+  failed/abandoned entries dropped, which is what the reference's own
+  reassembly produces for the settlement subset), not a behavior change.
+- **`CollapseCharacter`** (`_CIV_COLLAPSE_CHAR_WEIGHTS`/
+  `_CIV_COLLAPSE_MIGRATION_BIAS`, reference lines 24653-24663): a closed
+  Rust enum (`Trade`/`Disease`/`Conflict`/`Mixed`) in place of the
+  reference's string-keyed lookup with a `mixed` fallback for an
+  unrecognised key — the fallback is unreachable once the type only admits
+  four real values.
+- **`civ_settlement_stress`** (`_civSettlementStress`, 24713-24723):
+  per-settlement stress in `[0,1]`, blending trade-dependency loss `L`
+  (needs a caller-supplied `baseline_norm_b: Option<&HashMap<u64,f64>>` —
+  `None`/absent, or a near-zero baseline, both give `L=0`, matching the
+  reference's own "no loss to measure yet" comment), density/connectivity
+  exposure `D` (half normalised betweenness, half population rank), and
+  undefended-violence exposure `V` (`0.3` fortified, `1.0` not — fortified
+  meaning the explicit trait OR currently an exchange tier, capped at
+  `Capital` per milestone 1's metropolis decision), by the active
+  character's weight triple.
+- **`civ_mortality_migration_rates`** (`_civMortalityMigrationRates`,
+  24726-24731): stress × severity × character → this step's ANNUAL
+  excess-mortality fraction `m` and out-migration fraction `g`, using the
+  rate-ceiling constants (`CIV_COLLAPSE_MAX_MORTALITY=0.15`,
+  `CIV_COLLAPSE_MAX_MIGRATION=0.25`) and the character's migration bias.
+- **`civ_gravity_migrate`** (`_civGravityMigrate`, 24738-24778):
+  Zipf/Ravenstein (1946/1885) gravity-model migration redistribution —
+  each origin's migrant pool split across every other place proportional
+  to `headroom × fortifiedBonus / distance^β` (`CIV_MIGRATE_BETA=1.5`), up
+  to 4 saturation-aware passes (a destination that caps mid-split has its
+  clipped remainder re-offered to the still-open ones on the next pass),
+  system-wide overflow becoming unplaced transit/diaspora loss.
+  `cap_field`/`places` share an implicit same-length, same-index contract
+  (documented, not re-validated — an index mismatch is a caller bug).
+- **`civ_collapse_step`** (`_civCollapseStep`, 24785-24848): one
+  `step_years`-long collapse step. Rebuilds the proximity graph +
+  betweenness from `places`' own positions this step (milestone 2's
+  functions, deliberately decoupled from any stale `ways` index),
+  computes stress/mortality/migration per settlement, redistributes
+  migrants via `civ_gravity_migrate`, re-derives tiers (see the demote-only
+  finding below), drops anything under `CIV_ABANDON_FLOOR=20`. Returns the
+  new places array, `{died, migrated, unplaced, failed}` stats, and
+  `norm_b_by_tid` (every INPUT settlement's normalised betweenness this
+  step, threaded forward as the next step's stress baseline — the reason
+  milestone 1's stable `tid` field exists).
+- **`civ_recovery_growth_step`** (`_civRecoveryGrowthStep`, 24852-24870):
+  one `step_years`-long logistic (Verhulst 1838) regrowth step toward each
+  settlement's own-kind catchment ceiling (`civ_settlement_population`,
+  milestone 1), compounding `rate` internally `step_years` times (logistic
+  growth isn't linear in time), re-deriving tiers upward (see the
+  promote-only finding below).
+
+**A real algorithmic surprise, verified against the actual reference lines
+rather than trusted from `TIMELINE_SCOPE.md`'s own summary**: the scope doc
+describes both step functions as "re-deriv[ing] tiers" without stating
+direction. Reading the reference directly settles it exactly:
+`_civCollapseStep` line 24826 computes `demoted =
+_CIV_TIER_ORDER.indexOf(newKind) > _CIV_TIER_ORDER.indexOf(p.kind)` and
+**only** updates `p.kind` inside the `demoted` branch — so a collapse step
+can never promote a settlement's tier upward within that same step, even
+if its post-mortality/migration population would nominally clear a higher
+tier's floor. `_civRecoveryGrowthStep` (line 24863) is the exact mirror —
+`promoted` gates the only branch that updates `q.kind`, so recovery can
+never demote. Both are now named, tested invariants in `timeline.rs`'s own
+unit tests
+(`collapse_step_never_promotes_even_if_population_would_clear_a_higher_floor`
+/ `recovery_growth_step_never_demotes_even_if_population_would_clear_a_lower_floor`),
+not an assumption carried forward from the scope doc.
+
+**`fortified` is sticky, `ruins` is not**: on demotion, a former exchange-
+tier (`City`/`Capital`) nucleus gains both `ruins=true` and
+`fortified=true` (reference: `p.ruins=true; ...traits.push('fortified')`);
+on promotion back into an exchange tier, `ruins` clears (reference:
+`delete q.ruins`) but `fortified` never does — the reference never removes
+a trait once added, matching real-world "the old fortifications are still
+there." Golden-verified both directions: a `ruins`+`fortified` Town with
+high enough local density (its OWN Town-kind catchment ceiling clearing the
+City floor) promotes into City over 100 years of 5%/yr regrowth, clearing
+`ruins` while keeping `fortified`; the same shape at lower density promotes
+only into Town — not an exchange tier — and `ruins` correctly stays set.
+
+**The reference's dead `_K`-null fallback branches dropped**, extending
+milestone 1's already-logged precedent (`civ_catchment_pop`'s dropped dead
+`K` parameter): both `_civCollapseStep` (line 24802) and
+`_civRecoveryGrowthStep` (line 24854) guard `currentCarryingCapacity` with
+`typeof===  'function'`, which is always true in the real app (a hoisted
+top-level declaration) — so the `_K?...:...` false branch
+(`(p.pop||0)*1.05` / `(q.pop||1)*2`) never executes. This port's step
+functions always compute the capacity-grounded ceiling via
+`civ_settlement_population`; supplying real `dens`/`field` arrays is the
+caller's responsibility, same contract milestone 1 already placed on that
+function's own callers.
+
+**Golden-verified against the real reference**
+(`cartalith-civ/tests/golden_parity_timeline_collapse.rs`, 9 tests): a Node
+`vm.runInContext` harness (transient, not checked in, same convention as
+milestones 1-2) sliced the milestone-1 population-ceiling chain (lines
+23407-23512) and the whole v0.85 stepper block (24614-24870) verbatim into
+a context stubbed with `state`/`GW`/`GH`/`field` and
+`currentAgrarianDensity`/`currentCarryingCapacity` returning caller-supplied
+arrays. Fixtures shaped to reach real branches, per this project's own
+working rule:
+
+- **The abandonment floor, exactly**: a single isolated settlement (no
+  destination to migrate to, so every migrant becomes unplaced diaspora
+  loss) at three starting populations chosen so the post-step population
+  lands at 19 (one below `CIV_ABANDON_FLOOR=20` — abandoned, `failed=1`),
+  20 (exactly at the floor — survives, the check is strictly `<`), and 21
+  (one above — survives).
+- **A fortified-vs-unfortified pair at equal distance (400km) and equal
+  headroom (500)**, isolating `civ_gravity_migrate` alone: the fortified
+  destination receives exactly `1.5x` what the unfortified one does
+  (`received[1]/received[2] == 1.5`, not merely "more") — proving
+  `CIV_FORTIFIED_BONUS` actually changes destination weighting, in a
+  single saturation-free pass so the ratio is clean.
+- **The gravity model's multi-pass saturation genuinely engaging**: a near
+  destination (headroom 50) and a far one (headroom 2000) — a single
+  proportional pass would over-allocate to the near one, so the algorithm
+  must cap it and re-offer the clipped remainder to the far one on a later
+  pass (`received == [50, 950]`, `unplaced == 0`); a second fixture with
+  both destinations' combined headroom (150) below the migrant pool (1000)
+  proves the unplaced/diaspora-loss statistic actually accumulates what
+  neither can absorb (`received == [50, 100]`, `unplaced == 850`).
+- **All four collapse characters on one HUB/DENSE/UNDEFENDED/FORTRESS
+  fixture** — at the raw-stress level first, with a caller-supplied
+  synthetic `baseline_norm_b` (disclosed as such — not derived from an
+  actual prior simulated step, which is milestone 4's orchestrator's job;
+  `civ_settlement_stress`'s real signature takes an arbitrary map, so this
+  is a legitimate test of that signature) giving only HUB a real `L`
+  trade-loss term: trade ranks HUB most-stressed (0.951), disease
+  *inverts* the ranking entirely — HUB drops to second-lowest (0.318) while
+  the genuinely dense/connected settlements become most stressed (0.600,
+  0.617) — the design doc's own central claim (trade and disease archetypes
+  point opposite directions), proven in real numbers, not asserted. Then
+  end-to-end through `civ_collapse_step` on the identical fixture (severity
+  0.5, `t=0`, no baseline — `L=0` for everyone, isolating `D`/`V`):
+  `failed` counts of **0** (trade — nobody fails when there's no loss yet
+  to measure), **1** (disease — only the high-centrality bridge),
+  **2** (conflict — both unfortified low-D settlements, sparing the
+  fortified one despite its identical low-D profile), **1** (mixed, same
+  survivor set as disease but different exact numbers) — with exact
+  `died`/`migrated`/`unplaced` stats and exact surviving tids/populations
+  for each character.
+- **Recovery promoting a `ruins`-flagged settlement into an exchange
+  tier**, contrasted with one promoting into a non-exchange tier, as
+  detailed above.
+
+Plus 7 new unit tests in `timeline.rs` itself (character weights each sum
+to 1; an unassigned `tid=0` never performs a baseline lookup even when a
+populated map is supplied — mirrors the reference's own `place.tid!=null`
+guard; `civ_collapse_step` on an empty places array is a true no-op;
+`civ_gravity_migrate` is a true no-op when nobody migrates; both the
+demote-only and promote-only invariants above).
+
+**Verified**: `cargo build -p cartalith-godot` (the cdylib) and a headless
+Godot 4.7.1 boot (`--headless --path godot-project --quit`) both clean
+(exit 0, no errors). `cargo test -p cartalith-civ`: all passing (303 lib
+tests including 28 `timeline` unit tests, 9 new golden tests in
+`golden_parity_timeline_collapse.rs`, 0 regressions elsewhere in the
+crate). Clippy clean (`cargo clippy -p cartalith-civ --all-targets`) — two
+`neg_cmp_op_on_partial_ord` findings in `civ_gravity_migrate` kept and
+narrowly `#[allow]`ed with a comment rather than rewritten: `!(remaining >
+0.0)` is not the same as `remaining <= 0.0` when `remaining` can be NaN
+(the reference's own `!(remaining>0)` falsy-check is NaN-inclusive, and a
+naive `<=` rewrite would silently drop that reading), per
+`cartalith-rust-conventions`'s own NaN-comparison-awareness rule. One
+collateral-damage note: an initial `cargo fmt -p cartalith-civ` run
+reformatted every file in the crate (6,000+ lines of churn in `lib.rs`
+alone, from a repo that evidently doesn't keep the whole crate
+`rustfmt`-clean) — reverted everything outside `timeline.rs`/this
+milestone's own new test file before committing, so this commit's diff is
+exactly this milestone's own work.
+
+**Out of scope, per `TIMELINE_SCOPE.md`**: `_civSimulateTimeline` (the pure
+orchestrator) and `_civRunCollapseSimulation` (the impure wiring) —
+milestone 4's job, not this one's. The snapshot data model (milestone 4),
+the Godot boundary (milestone 5), and UI playback controls (milestone 6)
+are equally untouched. Nothing in this workspace calls any of this
+milestone's five new functions yet.
+
