@@ -152,6 +152,10 @@ crate happens to be open at the time.
 > before. Whether to adopt it, offer it as a second mode, or leave the
 > current design as-is un-reconciled is an open decision for the owner,
 > not something this notice resolves.
+>
+> **Resolved (2026-08-19, owner decision).** The current design stays as
+> the only mode. No reconciliation against `_civAutoPolity`, no second
+> mode offered. Closed — do not revisit without new owner direction.
 
 The reference has **no algorithm for this at all** — territory ownership
 is set only by hand-painting with a brush tool, or restored from a save

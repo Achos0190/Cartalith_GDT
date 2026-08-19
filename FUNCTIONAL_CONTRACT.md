@@ -152,9 +152,10 @@ timeline UI) — untracked anywhere until this correction pass.
 (settlements/roads/population/naming/provinces/villages) — already the
 contract's most thoroughly verified layer. Territory now has real
 reference precedent too (`_civAutoPolity`) that it was never checked
-against — whether to reconcile, offer as a second mode, or leave the
-current design as-is is an open owner decision, not resolved by this
-correction. Timeline/collapse is unscoped, real future-work candidate.
+against — **resolved 2026-08-19 (owner decision)**: the current design
+stays as the only mode, un-reconciled, closed (`DECISIONS.md` §7b).
+Timeline/collapse is **approved for build, 2026-08-19 (owner decision)**
+— see `TIMELINE_SCOPE.md` once scoped.
 
 ### 5. Journey Planner
 
