@@ -882,3 +882,77 @@ func debug_texture(view: String) -> Texture2D:
 	if not world_gen.has_method("build_debug_texture"):
 		return null
 	return world_gen.build_debug_texture(view)
+
+
+# timeline_bridge.rs
+#
+# `TIMELINE_SCOPE.md` §5 milestone 5's Godot-facing surface: manual timeline
+# authoring, the ghost/highlight/exist-only overlay's own diff source, and the
+# mechanistic collapse/recovery simulator. `has_method` guards match every
+# wrapper above -- a binary built before this landed simply has no timeline
+# methods at all. Milestone 6 (UI playback controls) is what will actually
+# call these from a dock; nothing in this shell does yet.
+
+## `civAddYear`: snapshots the currently-active year (never losing its live
+## edits), then creates -- or jumps to, if already recorded -- an entry for
+## `year`, carrying territory/settlements/ways forward from the nearest
+## earlier recorded year. A no-op before any generate.
+func civ_add_year(year: int) -> void:
+	if not world_gen.has_method("civ_add_year"):
+		return
+	world_gen.civ_add_year(year)
+
+## `civGotoYear`: moves the active-year cursor and restores `territory` from
+## that year's recorded snapshot. Never touches settlements/ways. A no-op
+## before any generate.
+func civ_goto_year(year: int) -> void:
+	if not world_gen.has_method("civ_goto_year"):
+		return
+	world_gen.civ_goto_year(year)
+
+## `civRemoveYear`: deletes a recorded year. If it was the active year, falls
+## back to the earliest remaining one (or year 0 if none remain). A no-op
+## before any generate or for a year that was never recorded.
+func civ_remove_year(year: int) -> void:
+	if not world_gen.has_method("civ_remove_year"):
+		return
+	world_gen.civ_remove_year(year)
+
+## The active timeline cursor (reference `civYear`). `0` before any
+## generate/`civ_add_year` call.
+func get_civ_year() -> int:
+	if not world_gen.has_method("get_civ_year"):
+		return 0
+	return world_gen.get_civ_year()
+
+## Every recorded timeline year, ascending -- the pill list's own data source.
+func get_civ_timeline_years() -> PackedInt64Array:
+	if not world_gen.has_method("get_civ_timeline_years"):
+		return PackedInt64Array()
+	return world_gen.get_civ_timeline_years()
+
+## `_civYearDiff`: `{"present": PackedInt64Array, "removed": PackedInt64Array,
+## "added": PackedInt64Array}` of settlement/way tids, diffing `year` against
+## the chronologically-previous recorded year -- the ghost/highlight/
+## exist-only overlay's own data source. Empty sets (not an error) before any
+## generate or for an unrecorded year.
+func civ_year_diff(year: int) -> Dictionary:
+	if not world_gen.has_method("civ_year_diff"):
+		return {}
+	return world_gen.civ_year_diff(year)
+
+## `_civRunCollapseSimulation`: runs the mechanistic collapse/recovery
+## timeline simulator over the live settlements and writes one timeline entry
+## per step. `request` keys (all optional): `mode` ("collapse"/"recovery"),
+## `character` ("mixed"/"trade"/"disease"/"conflict", collapse-mode only),
+## `severity` (float 0-1, collapse-mode only), `rate` (float, fraction/year,
+## recovery-mode only), `start_year`/`duration`/`step_years` (int),
+## `confirm_overwrite` (bool). If the run would overwrite already-recorded
+## years, the first call (without `confirm_overwrite`) returns
+## `{"ok": false, "needs_confirm": true, "clobber_years": [...]}` instead of
+## running -- re-send the same request with `confirm_overwrite: true` to
+## proceed. On success, the timeline cursor is left at the run's `end_year`.
+func civ_run_collapse_simulation(request: Dictionary) -> Dictionary:
+	if not world_gen.has_method("civ_run_collapse_simulation"):
+		return {"ok": false, "error": "civ_run_collapse_simulation not available on this binary"}
+	return world_gen.civ_run_collapse_simulation(request)

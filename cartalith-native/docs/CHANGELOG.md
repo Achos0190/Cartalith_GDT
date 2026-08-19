@@ -13804,3 +13804,126 @@ yet outside this milestone's own tests. Save-format persistence of
 `civTimeline`/`civYear` remains deferred, as `TIMELINE_SCOPE.md` §9 already
 recorded.
 
+## Timeline milestone 5 — the Godot boundary (`TIMELINE_SCOPE.md` milestone 5, 2026-08-19)
+
+New `cartalith-godot/src/timeline_bridge.rs` module, godot-free (`cargo test
+-p cartalith-godot --lib` runs its 11 tests with no Godot runtime), following
+`journey_bridge.rs`'s exact precedent: the module owns the sim-panel request
+parser and the impure wiring; `lib.rs` owns the thin `Variant`<->Rust
+conversion and the `#[func]` surface, in a new `#[godot_api(secondary)]`
+block (`WorldGen` has a `Base<RefCounted>` field, so only the crate's first
+`#[godot_api] impl WorldGen` block may omit `secondary`).
+
+**`#[func]` surface added to `WorldGen`** (7 methods — the 5 the task brief
+named, plus 2 small getters milestone 6 will want):
+
+- **`civ_add_year(year)`/`civ_goto_year(year)`/`civ_remove_year(year)`** —
+  thin wrappers over `CivData`'s already-built milestone-4 methods. No new
+  logic; a no-op before any `generate()`.
+- **`get_civ_year()`**/**`get_civ_timeline_years()`** — the active cursor and
+  the sorted list of recorded years, so a future dock can build the pill
+  list/slider without a per-year round trip.
+- **`civ_year_diff(year)`** — `{"present"/"removed"/"added":
+  PackedInt64Array}` of tids, thin passthrough to `CivData::civ_year_diff`
+  (milestone 4).
+- **`civ_run_collapse_simulation(request)`** — the one real new wiring this
+  milestone adds: `timeline_bridge::run_collapse_simulation`, a straight port
+  of `_civRunCollapseSimulation`'s impure half (reference lines 24896-24950).
+
+**Request/response shape** (`timeline_bridge::CollapseSimRequest`, parsed
+from a flat `Dictionary` the same way `journey_bridge::plan_from_pairs`
+parses the Journey Planner's form — a partial request is legal, an unknown or
+wrong-typed key is reported in `rejected` rather than silently ignored):
+`mode` (`"collapse"`/`"recovery"`), `character`
+(`"mixed"`/`"trade"`/`"disease"`/`"conflict"`), `severity`/`rate` (already
+real units — `[0,1]`/fraction-per-year — not raw 0-100/1-30 slider ticks,
+since this port has no slider yet to divide; a future milestone-6 UI does
+that division on its own side), `start_year`/`duration`/`step_years`, and
+`confirm_overwrite`.
+
+**The warn-before-overwrite case** (reference lines 24910-24911, a blocking
+`confirm()` dialog): this boundary can't block on one, so instead of asking a
+question mid-call, a first call whose simulated years would land on
+already-recorded entries returns `{"ok": false, "needs_confirm": true,
+"clobber_years": [...]}` **without writing anything** — the caller re-sends
+the identical request with `confirm_overwrite: true` to proceed. Checked
+first: this port has no prior "confirm-before-overwrite" case to match
+(`grep -i confirm` over every bridge module turned up only unrelated hits —
+label-editor confirm/cancel, a doc-comment "confirm the extension loaded") —
+so this is new design, following the same "a response field the caller
+checks" shape `jp_compute`'s own `rejected` array already establishes for
+"something needs the caller's attention, not a hard failure."
+
+**The anchor/carry-forward behavior, verified against the real reference
+before trusting the task brief's own summary of it** (reference lines
+24915-24925): the currently-active year is snapshotted from live state first
+(never lost), then a "before" frame is written at the simulation's own
+`start_year` **only if none exists there yet** — and because that write
+always happens before the anchor search runs, `anchor=civTimeline.filter(y
+<= startYear)...[0]` always resolves to exactly the `start_year` entry.
+Territory/ways for every simulated year come from that one anchor entry,
+copied unchanged — "collapse doesn't redraw political borders," confirmed
+verbatim in the reference's own comment, not just the task brief's
+paraphrase of it. One real, testable consequence: if `start_year` already
+carries a manually-authored (or previously-simulated) territory, a new
+simulation run preserves it rather than silently replacing it with whatever
+the live grid currently shows — the whole point of the guard, and the thing
+`territory_and_ways_carry_forward_unchanged_from_the_nearest_prior_entry`
+actually exercises (an earlier draft of that test picked an anchor year
+*before* `start_year`, which is unreachable in practice: the write above
+guarantees an entry sits at `start_year` itself before the search runs, so
+`anchor` can only ever be "the pre-existing start-year entry" or "the live
+state just captured there" — caught by the test itself failing, not assumed
+correct).
+
+**A disclosed, out-of-scope gap found while wiring this up**:
+`CollapsePlace` (milestone 3) carries `fortified`/`ruins`, but
+`TimelineSnapshot` stores `Vec<NamedSettlement>` (milestone 4), and
+`NamedSettlement` (Phase 2, predating Timeline) has neither field. Extending
+`NamedSettlement` would ripple into every other subsystem that constructs one
+— real work, and explicitly out of this milestone's own scope ("do NOT touch
+milestones 1-4's already-committed functions"). `fortified`/`ruins` stay
+correctly threaded through every step *within* one simulation run (the
+orchestrator chains `Vec<CollapsePlace>`, never touching `NamedSettlement`
+until the final per-step write), but do not survive into what gets stored
+for later scrubbing/redisplay. Inert today — nothing reads it, milestone 6
+isn't built — flagged in `timeline_bridge.rs`'s own module doc for whichever
+future milestone extends `NamedSettlement`/`TimelineSnapshot` to close it.
+
+**One additive change to already-committed code, not a refactor of it**:
+`CivData` gains a `dens: Vec<f32>` field (`currentAgrarianDensity()`'s
+per-cell output, `cartalith_civ::timeline::civ_current_agrarian_density`),
+computed once in `compute_civilisation` from `carrying_cap`/`water_access`/
+`biome` — locals that function already builds for suitability scoring — and
+retained past its own return, exactly the "it was already real,
+already-computed data this function held anyway" reasoning `water_bodies`
+was kept for. Without it, `civ_run_collapse_simulation` would have had to
+re-run the soil/water-access/biome sub-pipeline on every simulate call.
+Milestone 1-4 functions/methods themselves are untouched — only `CivData`'s
+struct (already extended by milestones 1 and 4) and `compute_civilisation`
+(Phase 2 infrastructure, not a Timeline milestone deliverable) gained one
+more field/computation, the same kind of growth those milestones already
+did.
+
+**GDScript**: all 7 methods wired into `godot-project/shell/engine_bridge.gd`
+with the `has_method()` guard this project uses everywhere for
+GDExtension-version-skew safety, ready for milestone 6 to consume — no UI
+built here.
+
+**Verified**: `cargo test -p cartalith-godot --lib` — 189 lib tests (up from
+178; +11 this milestone), 0 regressions, no Godot runtime involved for any of
+them. `cargo test -p cartalith-civ --lib` — 309 tests, 0 regressions (this
+milestone calls but does not modify `cartalith-civ`). `cargo build -p
+cartalith-godot` (the cdylib, not just `cargo test`) and a headless Godot
+4.7.1 boot (`--headless --path godot-project --quit`) both clean. `godot
+--headless --check-only --script shell/engine_bridge.gd` — the GDScript
+addition parses with no errors. `cargo clippy -p cartalith-godot
+--all-targets`: clean — every warning shown is pre-existing in files this
+milestone didn't touch.
+
+**Out of scope, per `TIMELINE_SCOPE.md`**: milestone 6 (UI playback
+controls) is untouched — nothing in the actual Godot shell calls any of
+these 7 methods yet. Save-format persistence of `civTimeline`/`civYear`
+remains deferred, as `TIMELINE_SCOPE.md` §9 already recorded. The
+`fortified`/`ruins` snapshot gap above is disclosed, not fixed, in this pass.
+

@@ -28,6 +28,7 @@ mod params;
 mod render;
 mod sample_bridge;
 mod sculpt_bridge;
+mod timeline_bridge;
 use cartalith_terrain::sculpt::{Feature, FeatureParams, FreehandMode, SculptStamp, SCULPT_PRESETS};
 use render::{QualityTier, RenderCtx, SplatTextures, TerrainAppearance};
 use rayon::prelude::*;
@@ -197,6 +198,17 @@ struct CivData {
     /// is written by every method below regardless.
     #[allow(dead_code)]
     year: i64,
+    /// `TIMELINE_SCOPE.md` milestone 5's own addition -- `currentAgrarianDensity()`'s
+    /// per-cell output (`cartalith_civ::timeline::civ_current_agrarian_density`),
+    /// computed once here from `carrying_cap`/`water_access`/`biome` (already-live
+    /// locals of `compute_civilisation`, the same "it was already real, already-
+    /// computed data this function held anyway" reasoning `water_bodies` above was
+    /// kept for) and retained so `timeline_bridge::run_collapse_simulation` doesn't
+    /// have to re-run the soil/water-access/biome sub-pipeline on every simulate
+    /// call. Feeds `cartalith_civ::timeline::civ_settlement_population`'s `dens`
+    /// parameter -- the collapse stepper's migration-headroom ceiling and the
+    /// recovery stepper's logistic regrowth ceiling both key off it.
+    dens: Vec<f32>,
 }
 
 /// `TIMELINE_SCOPE.md` §9's own "Snapshot cap" decision: a generous ceiling
@@ -358,6 +370,7 @@ mod civ_timeline_tests {
             next_tid: 1,
             timeline: Vec::new(),
             year: 0,
+            dens: Vec::new(),
         }
     }
 
@@ -829,6 +842,14 @@ fn compute_civilisation(
         w.tid = cartalith_civ::timeline::civ_assign_tid(w.tid, &mut next_tid);
     }
 
+    // `TIMELINE_SCOPE.md` milestone 5: `currentAgrarianDensity()`'s per-cell output,
+    // computed here (not in `timeline_bridge.rs`) because `carrying_cap`/`water_access`/
+    // `biome` are already-live locals of THIS function -- exactly the reasoning
+    // `water_bodies` above already documents for its own retention past this point.
+    let dens = cartalith_civ::timeline::civ_current_agrarian_density(
+        &carrying_cap, &water_access, Some(&biome), &ws.rainfall, &ws.field, sea_level,
+    );
+
     // `TIMELINE_SCOPE.md` §1 Cluster D: the reference's own `generate()` wrapper clears
     // `civTerritory`/`civTimeline`/`civYear` back to empty on every fresh procedural
     // generation -- this is that same reset, for the one function that (re)builds `CivData`
@@ -849,6 +870,7 @@ fn compute_civilisation(
         next_tid,
         timeline: Vec::new(),
         year: 0,
+        dens,
     }
 }
 
@@ -5364,4 +5386,204 @@ impl WorldGen {
             territory: self.civ.as_ref().map(|c| c.territory.as_slice()),
         })
     }
+}
+
+/// `TIMELINE_SCOPE.md` §5 milestone 5 -- the Godot-facing surface for Timeline's manual
+/// authoring (`civ_add_year`/`civ_goto_year`/`civ_remove_year`, thin wrappers over
+/// `CivData`'s already-built milestone-4 methods above), the ghost/highlight/exist-only
+/// overlay's own data source (`civ_year_diff`), and the mechanistic collapse/recovery
+/// simulator (`civ_run_collapse_simulation`, `timeline_bridge::run_collapse_simulation`
+/// -- the one real new wiring this milestone adds).
+///
+/// `#[godot_api(secondary)]`, not a plain `#[godot_api]`: only the first `#[godot_api]
+/// impl WorldGen` block in the crate may omit `secondary` -- `WorldGen` has a
+/// `Base<RefCounted>` field, and a second primary block collides on the shared
+/// registration machinery (`E0119`/`E0592`/`E0034`), exactly as every sibling bridge
+/// block above already documents.
+#[godot_api(secondary)]
+impl WorldGen {
+    /// `civAddYear` (reference lines 20618-20634) -- see `CivData::civ_add_year`'s own
+    /// doc comment for the full semantics. A no-op before any `generate()` call.
+    #[func]
+    fn civ_add_year(&mut self, year: i64) {
+        if let Some(civ) = self.civ.as_mut() {
+            civ.civ_add_year(year);
+        }
+    }
+
+    /// `civGotoYear` (reference lines 20615-20617) -- never touches settlements/ways,
+    /// only `territory`. A no-op before any `generate()` call.
+    #[func]
+    fn civ_goto_year(&mut self, year: i64) {
+        if let Some(civ) = self.civ.as_mut() {
+            civ.civ_goto_year(year);
+        }
+    }
+
+    /// `civRemoveYear` (reference lines 20635-20641). A no-op before any `generate()`
+    /// call or for a year that was never recorded.
+    #[func]
+    fn civ_remove_year(&mut self, year: i64) {
+        if let Some(civ) = self.civ.as_mut() {
+            civ.civ_remove_year(year);
+        }
+    }
+
+    /// The active timeline cursor (`CivData::year`, reference `civYear`). `0` before
+    /// any `generate()`/`civ_add_year` call, matching the reference's own init value.
+    #[func]
+    fn get_civ_year(&self) -> i64 {
+        self.civ.as_ref().map_or(0, |c| c.year)
+    }
+
+    /// Every recorded timeline year, ascending -- lets a shell build the pill list
+    /// (`_civBuildTimelineUI`, milestone 6's own job) without needing a per-year
+    /// getter. Empty before any `generate()`/`civ_add_year` call.
+    #[func]
+    fn get_civ_timeline_years(&self) -> PackedInt64Array {
+        self.civ.as_ref().map_or_else(PackedInt64Array::new, |c| c.timeline.iter().map(|s| s.year).collect())
+    }
+
+    /// `_civYearDiff` (reference lines 20580-20595) -- the ghost/highlight/exist-only
+    /// overlay's own data source, milestone 6's future consumer. Returns
+    /// `{"present": PackedInt64Array, "removed": PackedInt64Array, "added":
+    /// PackedInt64Array}`, each ascending (tids, milestone 1's stable ids --
+    /// disambiguates "same settlement, renamed" from "different settlement" the way
+    /// name/position matching cannot). Empty sets (not an error) before any
+    /// `generate()` call or for an unrecorded year -- both legitimate per
+    /// `civ_year_diff`'s own doc comment.
+    #[func]
+    fn civ_year_diff(&self, year: i64) -> VarDictionary {
+        let diff = self.civ.as_ref().map(|c| c.civ_year_diff(year)).unwrap_or_default();
+        let present: PackedInt64Array = diff.present.iter().map(|&t| t as i64).collect();
+        let removed: PackedInt64Array = diff.removed.iter().map(|&t| t as i64).collect();
+        let added: PackedInt64Array = diff.added.iter().map(|&t| t as i64).collect();
+        vdict! { "present" => &present, "removed" => &removed, "added" => &added }
+    }
+
+    /// `_civRunCollapseSimulation` (reference lines 24896-24950) -- the mechanistic
+    /// collapse/recovery timeline simulator. `request` keys, all optional --
+    /// unrecognised/wrong-typed ones fall back to the reference's own defaults and are
+    /// reported in `rejected`, matching `jp_compute`'s own "typo'd key is a bug worth
+    /// seeing" policy (see `timeline_bridge::CollapseSimRequest`'s own doc comment for
+    /// the full vocabulary and unit conventions):
+    ///
+    /// * `mode` (String) -- `"collapse"` (default) or `"recovery"`.
+    /// * `character` (String) -- `"mixed"` (default)/`"trade"`/`"disease"`/`"conflict"`,
+    ///   collapse-mode only.
+    /// * `severity` (float, `[0,1]`, default `0.5`) -- collapse-mode only.
+    /// * `rate` (float, fraction/year, default `0.01`) -- recovery-mode only.
+    /// * `start_year`/`duration`/`step_years` (int, default `0`/`100`/`10`).
+    /// * `confirm_overwrite` (bool, default `false`) -- see the `needs_confirm`
+    ///   response below.
+    ///
+    /// Returns one of:
+    /// * `{"ok": false, "error": "..."}` -- no generated world, or no settlements to
+    ///   simulate (reference's own `alert(...)`, surfaced as an error string here).
+    /// * `{"ok": false, "needs_confirm": true, "clobber_years": PackedInt64Array,
+    ///   "error": "..."}` -- the reference's own blocking `confirm()` dialog (line
+    ///   24911), reported instead of blocked: re-send the SAME request with
+    ///   `confirm_overwrite: true` to proceed.
+    /// * `{"ok": true, "rejected": PackedStringArray, "steps": int, "end_year": int,
+    ///   "died": int, "migrated": int, "unplaced": int, "failed": int, "grew": int,
+    ///   "final_settlements": int}` on success -- the timeline cursor is left at
+    ///   `end_year` (`CivData::civ_goto_year`, reusing milestone 4's own method, so
+    ///   `territory` is already reloaded for that year by the time this returns).
+    #[func]
+    fn civ_run_collapse_simulation(&mut self, request: VarDictionary) -> VarDictionary {
+        let fail = |msg: &str| vdict! { "ok" => false, "error" => msg };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw == 0 || gh == 0 {
+            return fail("no generated world -- call generate() first");
+        }
+        let sea_level = self.sea_level;
+        let world_wrap = self.world;
+        let map_width_km = self.map_width_km;
+
+        let (pairs, mut rejected_vec) = sim_dict_to_pairs(&request);
+        let (req, more_rejected) = timeline_bridge::collapse_sim_request_from_pairs(&pairs);
+        rejected_vec.extend(more_rejected);
+        let rejected: PackedStringArray = rejected_vec.iter().map(GString::from).collect();
+
+        let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_mut()) else {
+            return fail("no generated world -- call generate() first (a loaded save carries no civilisation layer)");
+        };
+        let active_year = civ.year;
+        let world = cartalith_civ::timeline::SimulateWorldParams {
+            dens: &civ.dens,
+            field: &ws.field,
+            gw,
+            gh,
+            sea: sea_level,
+            world_wrap,
+            map_width_km,
+        };
+        let outcome =
+            timeline_bridge::run_collapse_simulation(&mut civ.timeline, active_year, &civ.settlements, &civ.ways, &civ.territory, &world, &req);
+        match outcome {
+            timeline_bridge::CollapseSimOutcome::NoSettlements => {
+                fail("No settlements to simulate. Auto-populate the world first.")
+            }
+            timeline_bridge::CollapseSimOutcome::NeedsConfirmation { clobber_years } => {
+                let years: PackedInt64Array = clobber_years.iter().copied().collect();
+                vdict! {
+                    "ok" => false,
+                    "needs_confirm" => true,
+                    "clobber_years" => &years,
+                    "error" => format!(
+                        "Simulation will overwrite {} existing timeline year{}.",
+                        clobber_years.len(),
+                        if clobber_years.len() == 1 { "" } else { "s" }
+                    ),
+                }
+            }
+            timeline_bridge::CollapseSimOutcome::Ran(report) => {
+                // Reuses milestone 4's own `civ_goto_year` (never duplicated here) --
+                // sets the cursor AND reloads `territory` for `end_year` in one call.
+                civ.civ_goto_year(report.end_year);
+                vdict! {
+                    "ok" => true,
+                    "rejected" => &rejected,
+                    "steps" => i64::from(report.steps),
+                    "end_year" => report.end_year,
+                    "died" => report.died,
+                    "migrated" => report.migrated,
+                    "unplaced" => report.unplaced,
+                    "failed" => i64::from(report.failed),
+                    "grew" => i64::from(report.grew),
+                    "final_settlements" => report.final_settlement_count as i64,
+                }
+            }
+        }
+    }
+}
+
+/// One `Variant` as the four kinds a Timeline sim-panel request uses, or `None` for
+/// anything else (an array, a `Vector2`, a null) -- which the caller reports
+/// `rejected`, the same as an unknown key. Mirrors `variant_to_jp_value`'s own shape
+/// for `journey_bridge::JpValue`.
+fn variant_to_sim_value(v: &Variant) -> Option<timeline_bridge::SimValue> {
+    match v.get_type() {
+        VariantType::INT => Some(timeline_bridge::SimValue::Int(v.to::<i64>())),
+        VariantType::FLOAT => Some(timeline_bridge::SimValue::Num(v.to::<f64>())),
+        VariantType::STRING => Some(timeline_bridge::SimValue::Str(v.to::<GString>().to_string())),
+        VariantType::BOOL => Some(timeline_bridge::SimValue::Bool(v.to::<bool>())),
+        _ => None,
+    }
+}
+
+/// A `Dictionary` as the `(key, SimValue)` list `timeline_bridge`'s own parser takes,
+/// plus every key whose value was not a number/string/bool at all. Mirrors
+/// `jp_dict_to_pairs`'s own shape.
+fn sim_dict_to_pairs(d: &VarDictionary) -> (Vec<(String, timeline_bridge::SimValue)>, Vec<String>) {
+    let mut pairs = Vec::new();
+    let mut rejected = Vec::new();
+    for (k, v) in d.iter_shared() {
+        let key = k.to_string();
+        match variant_to_sim_value(&v) {
+            Some(val) => pairs.push((key, val)),
+            None => rejected.push(key),
+        }
+    }
+    (pairs, rejected)
 }
