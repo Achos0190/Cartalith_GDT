@@ -14077,3 +14077,199 @@ Save-format persistence of `civTimeline`/`civYear` remains deferred per §9.
 The settlement-pin tid gap (item 4 above) is a real, disclosed, Rust-side
 follow-up, not fixed here.
 
+## Travel Library milestone 1 — data model, stock content, validation, and real `jp_plan` wiring (`TRAVEL_LIBRARY_SPEC.md`, 2026-08-19)
+
+The Rust half of `Data ▸ Travel library…`: a genuinely new, owner-supplied
+addition to the DCC shell (`TRAVEL_LIBRARY_SPEC.md`'s own opening line —
+"not part of `DCC_SHELL_SPEC.md` and does not exist in Cartalith Gen1
+v2.10"). No golden-parity target exists for any of it. The paired GDScript
+window (`design/Journey Planner DCC.dc.html` sections `2a`/`2b`) is a
+separate, later dispatch; nothing GDScript-visible is added here by design.
+
+**Where it lives, and why:** split exactly along `ARCHITECTURE.md`'s
+stateless-`cartalith-civ`/stateful-`cartalith-godot` line, the same split
+every other subsystem in this port uses.
+
+- `cartalith-civ/src/travel_library.rs` (new, godot-free, `pub mod
+  travel_library` off the crate root): the four §3 definition types
+  (`AnimalDef`/`VehicleDef`/`VesselDef`/`PartyPreset`), §4's three-state
+  `ValidationState` (ok/incomplete/conflicting) with a `validate_*` function
+  per type, the stock content, and the §6 resolver-building functions. Pure
+  data and pure functions — no mutable store, matching `cartalith-assets`'
+  slot/library split conceptually but keeping the *mutable* half out of this
+  crate per this port's own rule (`ARCHITECTURE.md`), since
+  `jp_capacity_ex`/`jp_calc_land_ex`/`jp_plan_ex` (below) need to be
+  computable from this data with no Godot runtime.
+- `cartalith-godot/src/travel_bridge.rs` (new, also godot-free —
+  `journey_bridge.rs`'s exact isolation pattern, no `#[func]`s this
+  dispatch): `TravelEntry` + a generic `EntrySet<T>` (stock bootstrap, add/
+  duplicate/edit/delete, `reset_to_stock`) wrapping all four definition
+  types identically rather than four hand-written CRUD blocks, `TravelLibrary`
+  bundling the four sets plus fresh-id generation, per-entry validation
+  passthroughs, usage tracking, and `animal_overrides()` — the map
+  `cartalith_civ::travel_library::animal_resolver_fns` turns into the two
+  closures `jp_plan_ex` consumes.
+
+**The four field lists, as implemented** (§3): Animals & mounts —
+classification (name, role\[multi\], substitutes-for, size class,
+availability), capacity & speed (load capacity kg, draft pull kg, base speed
+km/h, sustainable hours/day, forced-pace cap), sustenance (fodder kg/day,
+water L/day, grazing tolerance, waterless limit days), a ten-row terrain
+table (`TL_TERRAIN_KEYS`: Plains/Steppe/Forest/Hills/Mountain/Marsh/Desert/
+High Pass/Snowfield/River Ford, each a multiplier or `blocked`), requirements
+& prohibitions (yokeable/requires-road/seasonal-closure-blocked/carryable-
+aboard-vessel/usable-as-mount/handlers-per-N-head), cost (upkeep sp/day/head).
+Vehicles — class, load kg, draft head required (count + role), speed
+multiplier, road requirement, off-road and ford (each multiplier-or-blocked),
+carryable aboard vessel. Vessels — mode\[multi\], hold kg, crew required,
+base speed, water rating (sheltered/coastal/open), sailing window
+(daylight/continuous), portage capable. Party set-ups — the party-form-only
+subset of `JpPlan`/`JpParty` reused directly rather than re-invented
+(transport, mount animal, vessel, hours, pace, season, supply days, carry
+food, grazing, foraging, and all ten party counts), with
+`PartyPreset::from_jp_plan`/`apply_to` being the spec's own "Capture party
+from planner" and "apply a set-up leaves per-stage overrides untouched".
+
+**Stock data, and what's borrowed vs. new**: 7 animals (Donkey/Mule/Camel/
+Horse/Ox/Yak/Reindeer, per §3.1's own mockup examples). The first four
+mirror `cartalith_civ::jp_animal_stats`'s own golden-tested `cap_kg`/
+`food_kg_day`/`water_l_day`/`mounted_speed_kmh` figures exactly, and their
+terrain rows mirror `jp_animal_terrain_mod`'s built-in per-species overrides
+— existing golden data, not invented a second time. Ox/Yak/Reindeer are
+genuinely new content: plausible, internally-consistent draft-animal figures
+(ox: slow/huge pull/cheap keep; yak: high-altitude affinity; reindeer: fast
+on snow, minimal fodder from lichen grazing) grounded in common domain
+knowledge, not academic citation, per this milestone's own framing for new
+design. 5 vehicles (Handcart/Cart/Wagon/Sledge/Travois) mirror `jp_capacity`'s
+own `JP_CART_CAP`/`JP_WAGON_CAP`/`JP_SLED_CAP`/`JP_TRAVOIS_CAP`/draft-head
+constants exactly. 11 vessels mirror `jp_ship_stats`'s full roster
+(`speed_kmh`/`cargo_kg`/`crew` exactly; `water_rating` derived from its
+`river`/`sea`/`open_sea` flags; `sailing_window`/`portage_capable` are new
+fields with no engine equivalent, a plausible oared-vs-sailing split). 2
+stock party presets (Light Pack Column, Heavy Wagon Caravan) span the party
+form's own extremes.
+
+**Validation** (§4): `Incomplete` always takes priority over `Conflicting` —
+checking a conflict over data that isn't even fully present would itself be
+a guess (unit-tested explicitly:
+`incomplete_takes_priority_over_a_conflict_that_would_otherwise_fire`). Two
+mechanically-checkable conflict rules for `AnimalDef`: §4's own worked
+example (grazing tolerance restricted to grassland while a non-grassland
+terrain row still carries a real, non-zero, non-blocked multiplier), and a
+new one this field list implies (`roles` claims `Mount` but `usable_as_mount`
+disagrees, or the reverse). One each for `VehicleDef` (`road_requirement ==
+None` but `off_road == Blocked` — a vehicle that needs no road yet cannot
+move without one) and `VesselDef` (`water_rating == Sheltered` but `modes`
+claims `Sea`). Every stock entry validates `Ok` (unit-tested per type), so
+duplicating one starts clean, exactly as the Asset Library's own stock
+entries do.
+
+**The terrain-vocabulary seam, found while wiring**: the spec's ten-category
+terrain table (§3.1) is coarser than and not identical to the engine's real
+per-stage terrain strings (`CART_TERRAINS`, 13 keys including two road
+surfaces). `tl_terrain_key_for_engine` is the documented, one-way mapping:
+`"Paved Road"`/`"Dirt Track"` are deliberately excluded (matching
+`jp_animal_terrain_mod`'s own built-in convention — no species entry ever
+overrides either road surface), `"Ruins / Debris"` has no ten-category row,
+and `"Steppe"`/`"River Ford"` are two spec rows with no engine terrain that
+maps back to them (the engine has no distinct grassland surface, and a river
+ford is a crossing-count hazard, not a `terrain` string) — both fields are
+still stored and validated, only their consumption is inert.
+
+**The engine wiring — real, not decorative:** `jp_capacity`/`jp_calc_land`/
+`jp_plan` each gained an `_ex` sibling (`jp_capacity_ex`/`jp_calc_land_ex`/
+`jp_plan_ex`) taking an `Option<&JpAnimalResolver>` — two closures
+(`stats`/`terrain_mod`) that return `None` for "no override, use the
+built-in table". `resolve_animal_stats`/`resolve_animal_terrain_mod` are the
+one central fallback point, so a partially-incomplete override (say,
+`load_capacity_kg` unset) degrades field-by-field to the built-in figure
+rather than an all-or-nothing swap. The original three functions are now
+one-line wrappers passing `None` — **confirmed byte-for-byte unchanged**:
+the full existing Journey Planner test suite (`cargo test -p cartalith-civ`,
+`cargo test -p cartalith-godot`) passes unmodified, 0 regressions.
+`jp_calc_land_ex`'s terrain block gained one real new branch: a `blocked`
+terrain for the pace-setting animal now returns a hard `JpBlocked`, the same
+shape as the existing wheeled-vehicle/mount-terrain checks, not merely a
+very small multiplier.
+
+Two `travel_bridge.rs` integration tests prove the whole chain
+(`TravelLibrary::animal_overrides` → `animal_resolver_fns` →
+`JpAnimalResolver` → `jp_plan_ex`) against a real, synthetic-but-real land
+world: `a_custom_animal_override_changes_a_computed_journey` — a custom
+donkey (500 kg capacity vs. stock 80 kg, 1.5 km/h vs. stock 4.0 km/h) makes
+`jp_plan_ex`'s `days` strictly increase and `avg_km_day` strictly decrease
+versus the identical call with `None`; `a_blocked_terrain_override_actually_
+blocks_the_stage` — marking the route's own terrain `blocked` on a custom
+donkey makes `jp_plan_ex` return a journey with `blocked_idx.is_some()`.
+
+**Disclosed, named gaps, not approximated:**
+
+1. **Only the four built-in party-form species can override anything.**
+   `AnimalDef::species_key` is `Some("donkey"|"mule"|"camel"|"horse")` for an
+   entry representing one of `JP_ANIMAL_KEYS`, `None` otherwise. `JpParty` is
+   a fixed four-field struct with no generic animal-count map, so the stock
+   Ox/Yak/Reindeer entries (and any wholly new custom species) are real,
+   validated, inspectable data with **no live engine hook** — a genuinely
+   larger change to a golden-tested type, correctly out of this milestone's
+   scope.
+2. **Vehicles and vessels are data-only.** `jp_capacity`'s cart/wagon/sled/
+   travois mass constants and `jp_ship_stats`' vessel table are still the
+   fixed built-ins; no `animal_resolver_fns`-shaped bridge exists for either.
+3. **No `#[func]` boundary exists yet, by design.** `cartalith-godot/src/
+   lib.rs`'s `WorldGen`/`jp_compute` are untouched — no `travel_library`
+   field, no GDScript-visible surface. The shape a later dispatch adds is
+   documented in `travel_bridge.rs`'s own module doc: build
+   `TravelLibrary::animal_overrides()` → `animal_resolver_fns` →
+   `JpAnimalResolver`, pass `Some(&resolver)` to `jp_plan_ex` in place of
+   today's `jp_plan` at the `jp_compute` call site.
+4. **"Saved journeys" do not exist as a referenceable, persistent thing
+   anywhere in this port**, checked rather than assumed:
+   `WorldGen.infra.routes`/`route_get` are drawn polylines with no attached
+   party plan, and `jp_compute` computes and returns a plan without storing
+   it. §4's "how many saved journeys ... reference it" usage count is
+   therefore always `0` — `TravelLibrary::animal_usage_in_journeys` says so
+   explicitly rather than inventing a count. Party-set-up usage tracking
+   (`animal_usage_in_presets`) *is* real, since presets are the library's
+   own stored rows.
+
+**A stale-info check, not assumed from this dispatch's own brief**: the
+brief that started this milestone described `JOURNEY_PLANNER_SCOPE.md` as
+"6 of 10 transport modes built, 4 correctly deferred on unbuilt
+dependencies" and asked whether any of those four were about to close
+because of the Travel Library. Re-reading that document directly (not
+trusted from the brief) shows this description is **already stale**: its
+own milestone 2 section opens with "**Its last two landed with milestone
+6's pass**... fully complete 2026-08-18" — `jp_auto_pick_transport`,
+`jp_auto_pick_vessel`, `jp_best_land_transport_for_stage` and
+`jp_best_package_for_stage` are **all four already ported and
+golden-verified**, one day before this milestone started, unrelated to
+Travel Library work. There is nothing left to close on that front, and
+nothing this milestone did closes anything either way — none of the four
+consume `AnimalDef`/`VehicleDef`/`VesselDef` or the new resolver. Recorded
+here so a future session reads the current top-of-section note rather than
+the original per-milestone write-up further down the same document, which
+is exactly the trap `JOURNEY_PLANNER_SCOPE.md`'s own structure (a live
+correction note followed by an intentionally unedited original) warns
+against silently falling into.
+
+**Verified**: `cargo build -p cartalith-godot` (the cdylib, not just `cargo
+test`) and a headless Godot 4.7.1 boot (`--headless --path godot-project
+--quit`) both clean, no parse/registration errors, `Initialize godot-rust`
+in the log. `cargo test -p cartalith-civ`/`cargo test -p cartalith-godot`
+(full workspace suites, not just `--lib`) both 0 failures. 18 new
+`cartalith-civ` lib tests (327 total, +18 from 309), 13 new `cartalith-godot`
+lib tests (202 total, +13 from 189). `cargo clippy --all-targets` on both
+crates: clean on every line this milestone touched (one `type_complexity`
+lint on `animal_resolver_fns`' return type fixed with two named type
+aliases; the one pre-existing warning elsewhere in `cartalith-civ` predates
+this milestone and was left alone). `cargo fmt` was **not** run
+project-wide this pass — the workspace has no `rustfmt.toml`, and a default
+100-column pass reformatted dozens of unrelated files across both crates
+(other agents' in-flight work included); the two new files were kept at
+their as-written formatting and every edit to `lib.rs`/`travel_library.rs`/
+`travel_bridge.rs` in this milestone is a clean, minimal diff against
+`HEAD` (94 lines in `cartalith-civ/src/lib.rs`, 1 line in
+`cartalith-godot/src/lib.rs`, both new files untouched by anyone else) —
+worth a note in `README.md`'s working discipline for the next session that
+runs `cargo fmt` blind.
+

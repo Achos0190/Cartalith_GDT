@@ -83,3 +83,46 @@ warns that editing capacity, fodder or a constraint re-plans them.
 Blocked stages, the "faster mode available" advisory and the better-animal/vehicle
 advisory in the planner are all derived from these same fields. An entry without them
 would not merely look unfinished — it would plan silently wrong.
+
+## 6 · Build status (Rust half, 2026-08-19)
+
+The data model, stock content, CRUD and validation described above are real, in
+`cartalith-native/crates/cartalith-civ/src/travel_library.rs` (data shapes, §4
+validation, stock content, the resolver-building functions) and
+`cartalith-native/crates/cartalith-godot/src/travel_bridge.rs` (the mutable
+stock-plus-custom store, usage tracking). Full record —
+`cartalith-native/docs/CHANGELOG.md`'s "Travel Library milestone 1" entry,
+`STATUS.md`'s matching section.
+
+**Real, and wired into an actual computed plan**: a custom Travel Library entry
+overriding one of the four built-in party-form species (donkey/mule/camel/horse) —
+duplicate the stock entry, edit `load_capacity_kg`/`base_speed_kmh`/`fodder_need_kg_day`/
+`water_need_l_day`/a terrain row — changes `jp_plan`'s computed `days`/`avg_km_day`,
+and a terrain marked `blocked` on that entry's own ten-row table hard-blocks that stage,
+exactly §5's own claim. Proved by two integration tests, not merely round-tripped data.
+
+**Not yet wired, disclosed rather than approximated:**
+
+- **No GUI exists yet.** This spec's `2a`/`2b` window (menu item, list + inspector) is
+  unbuilt — a separate, later dispatch, against the Rust surface above.
+- **No `#[func]` boundary exists yet either.** `cartalith-godot/src/lib.rs`'s
+  `WorldGen`/`jp_compute` do not hold a `TravelLibrary` and do not read one. The exact
+  shape the GUI dispatch needs to add — `TravelLibrary::animal_overrides()` →
+  `cartalith_civ::travel_library::animal_resolver_fns` → `JpAnimalResolver` → pass
+  `Some(&resolver)` to `jp_plan_ex` in place of today's `jp_plan` — is documented in
+  `travel_bridge.rs`'s own module doc.
+- **Only the four built-in species can override anything.** A wholly new species (the
+  stock Ox/Yak/Reindeer §3.1 itself names as mockup examples) has no `JpParty` slot to
+  occupy — that struct is four fixed fields, not a generic animal-count map — so those
+  three stock entries are real, validated, inspectable data with no live engine effect.
+  Widening `JpParty`/`JpPlan` to a generic shape is real, larger work against
+  golden-tested types, correctly left for a future milestone.
+- **Vehicles and vessels are data-only.** §3.2/§3.3's field lists, stock content and §4
+  validation are all real; no resolver equivalent to the animal one exists yet for
+  `jp_capacity`'s cart/wagon/sled/travois constants or `jp_ship_stats`' vessel table.
+- **§4's "usage in saved journeys" is honestly always `0`.** No persistent,
+  referenceable "saved journey" exists anywhere in this port — `route_get`/
+  `WorldGen.infra.routes` are drawn polylines with no attached party plan, and
+  `jp_compute` computes and returns a plan without storing it. Party-set-up usage
+  *is* real (`TravelLibrary::animal_usage_in_presets`), since presets are the
+  library's own stored rows.

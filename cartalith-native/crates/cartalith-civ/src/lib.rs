@@ -21,6 +21,12 @@ pub mod labels;
 /// helpers `NamedSettlement`/`Way` carry.
 pub mod timeline;
 pub mod tools;
+/// `TRAVEL_LIBRARY_SPEC.md` -- the Travel Library data model, validation,
+/// stock content and the `jp_capacity_ex`/`jp_calc_land_ex`/`jp_plan_ex`
+/// resolver-building functions. See that module's own doc comment for the
+/// full picture, including exactly what is and is not wired into
+/// computation yet.
+pub mod travel_library;
 
 /// `LITH_KEYS` (reference line 5830) -- frozen, append-only.
 pub const LITH_KEYS: [&str; 7] =
@@ -7609,11 +7615,52 @@ pub struct JpCapacity {
     pub mount_credit: f64,
 }
 
+/// A Travel Library's per-species overrides for the two built-in animal
+/// tables [`jp_capacity`]/[`jp_calc_land`] otherwise resolve from
+/// [`JP_ANIMAL_KEYS`]' fixed data ([`jp_animal_stats`]/
+/// [`jp_animal_terrain_mod`]) -- `cartalith-godot`'s `travel_bridge` builds
+/// one of these from a world's custom Travel Library entries.
+///
+/// Both closures return `None` for "no override, use the built-in table" --
+/// every call that never receives a resolver ([`jp_capacity`],
+/// [`jp_calc_land`], [`jp_plan`]) is therefore untouched, byte for byte, and
+/// every override query still falls back to the built-in table centrally
+/// ([`resolve_animal_stats`]/[`resolve_animal_terrain_mod`]) rather than
+/// depending on the closure's own author remembering to.
+pub struct JpAnimalResolver<'a> {
+    pub stats: &'a dyn Fn(&str) -> Option<AnimalStats>,
+    /// `Some(Some(mult))` overrides the multiplier; `Some(None)` means the
+    /// terrain is impassable for this species (`TRAVEL_LIBRARY_SPEC.md`
+    /// §3.1's `blocked`); `None` means "no override, use
+    /// `jp_animal_terrain_mod`".
+    pub terrain_mod: &'a dyn Fn(&str, &str) -> Option<Option<f64>>,
+}
+
+fn resolve_animal_stats(key: &str, animals: Option<&JpAnimalResolver>) -> Option<AnimalStats> {
+    animals.and_then(|a| (a.stats)(key)).or_else(|| jp_animal_stats(key))
+}
+
+/// `Err(())` means the terrain is blocked outright for this species.
+fn resolve_animal_terrain_mod(key: &str, terrain: &str, animals: Option<&JpAnimalResolver>) -> Result<f64, ()> {
+    match animals.and_then(|a| (a.terrain_mod)(key, terrain)) {
+        Some(Some(m)) => Ok(m),
+        Some(None) => Err(()),
+        None => Ok(jp_animal_terrain_mod(key, terrain)),
+    }
+}
+
 /// `jpCapacity` (reference line 18177, a port of V1.915's `calcCapacity`):
 /// the whole mass model -- seasonal physiology, desert food/water
 /// multipliers, phantom-draft-animal shortfall, and v1.83's saddlebag credit
 /// for a rider's own mount.
 pub fn jp_capacity(plan: &JpPlan, biome_key: &str, season: &str) -> JpCapacity {
+    jp_capacity_ex(plan, biome_key, season, None)
+}
+
+/// [`jp_capacity`] plus a Travel Library animal-stat override -- Travel
+/// Library milestone 1's own wiring (`TRAVEL_LIBRARY_SPEC.md` §6). Identical
+/// to [`jp_capacity`] when `animals` is `None`.
+pub fn jp_capacity_ex(plan: &JpPlan, biome_key: &str, season: &str, animals: Option<&JpAnimalResolver>) -> JpCapacity {
     let people = plan.party.group_size.max(1) as f64;
     let cargo = plan.party.cargo_kg.max(0.0);
     let supply_days = plan.supply_days.max(1) as f64;
@@ -7639,19 +7686,19 @@ pub fn jp_capacity(plan: &JpPlan, biome_key: &str, season: &str) -> JpCapacity {
     // `dm` is null outside a desert biome, `sa` null for an unknown season --
     // both switch the whole term off rather than defaulting per field.
     let af = |k: &str| -> f64 {
-        let a = jp_animal_stats(k).expect("JP_ANIMAL_KEYS are all real keys");
+        let a = resolve_animal_stats(k, animals).expect("JP_ANIMAL_KEYS are all real keys");
         let dm = if desert_like { jp_desert_animal_mod(k).0 } else { 1.0 };
         let sa = jp_seasonal_animal(season, k).map(|(_, f, _)| f).unwrap_or(1.0);
         a.food_kg_day * dm * sa
     };
     let aw = |k: &str| -> f64 {
-        let a = jp_animal_stats(k).expect("JP_ANIMAL_KEYS are all real keys");
+        let a = resolve_animal_stats(k, animals).expect("JP_ANIMAL_KEYS are all real keys");
         let dm = if desert_like { jp_desert_animal_mod(k).1 } else { 1.0 };
         let sa = jp_seasonal_animal(season, k).map(|(_, _, w)| w).unwrap_or(1.0);
         a.water_l_day * dm * sa
     };
     let ac = |k: &str| -> f64 {
-        let a = jp_animal_stats(k).expect("JP_ANIMAL_KEYS are all real keys");
+        let a = resolve_animal_stats(k, animals).expect("JP_ANIMAL_KEYS are all real keys");
         let sa = jp_seasonal_animal(season, k).map(|(c, _, _)| c).unwrap_or(1.0);
         a.cap_kg * sa
     };
@@ -7688,7 +7735,7 @@ pub fn jp_capacity(plan: &JpPlan, biome_key: &str, season: &str) -> JpCapacity {
     if plan.transport == "Mounted Rider" {
         let mk = plan.resolve_mount();
         let m_count = (people - counts(mk)).max(0.0);
-        mount_credit = m_count * jp_animal_stats(mk).expect("resolve_mount returns a real key").cap_kg * JP_MOUNT_SADDLEBAG_FRAC;
+        mount_credit = m_count * resolve_animal_stats(mk, animals).expect("resolve_mount returns a real key").cap_kg * JP_MOUNT_SADDLEBAG_FRAC;
     }
     let capacity = counts("donkey") * ac("donkey")
         + counts("mule") * ac("mule")
@@ -7908,6 +7955,13 @@ pub struct JpWaterCalc {
 /// feasibility blocks, the speed chain, and v1.51's supply/load/speed
 /// convergence loop.
 pub fn jp_calc_land(st: &JpStage, plan: &JpPlan) -> Result<JpLandCalc, JpBlocked> {
+    jp_calc_land_ex(st, plan, None)
+}
+
+/// [`jp_calc_land`] plus a Travel Library animal-stat/terrain override --
+/// see [`JpAnimalResolver`]. Identical to [`jp_calc_land`] when `animals` is
+/// `None`.
+pub fn jp_calc_land_ex(st: &JpStage, plan: &JpPlan, animals: Option<&JpAnimalResolver>) -> Result<JpLandCalc, JpBlocked> {
     let blocked = |reason: String| JpBlocked { reason, seasonal: false };
     let distance = st.km;
     let terrain = st.terrain.as_str();
@@ -7937,7 +7991,7 @@ pub fn jp_calc_land(st: &JpStage, plan: &JpPlan) -> Result<JpLandCalc, JpBlocked
     }
 
     let mount_key = if transport == "Mounted Rider" { Some(plan.resolve_mount()) } else { None };
-    let mount_anim = mount_key.and_then(jp_animal_stats);
+    let mount_anim = mount_key.and_then(|k| resolve_animal_stats(k, animals));
     // v1.43: the pace-setting animal is resolved whenever the party HAS
     // animals, not only for a Mounted Rider -- a ten-camel caravan gets the
     // camel's desert affinity (and its marsh penalty) just as a lone rider does.
@@ -7947,7 +8001,17 @@ pub fn jp_calc_land(st: &JpStage, plan: &JpPlan) -> Result<JpLandCalc, JpBlocked
 
     let w_w = jp_weather_factor(plan.weather_override.as_deref(), biome_key, season, pace_anim_key);
     let mut t_mod = match pace_anim_key {
-        Some(k) => jp_animal_terrain_mod(k, terrain),
+        Some(k) => match resolve_animal_terrain_mod(k, terrain, animals) {
+            Ok(m) => m,
+            // TRAVEL_LIBRARY_SPEC.md §3.1's per-terrain `blocked` -- a real
+            // hard block, the same shape as the wheeled-vehicle/mount checks
+            // above, not merely a very small multiplier.
+            Err(()) => {
+                return Err(blocked(format!(
+                    "{k} cannot cross {terrain} -- its Travel Library entry marks this terrain blocked. Choose a different animal, or reroute."
+                )));
+            }
+        },
         None => jp_terrain_land_mod(terrain),
     };
     t_mod = jp_surface_gain(t_mod, animal_paced);
@@ -7996,7 +8060,7 @@ pub fn jp_calc_land(st: &JpStage, plan: &JpPlan) -> Result<JpLandCalc, JpBlocked
         (None, Some(t)) => t.kmh,
         (None, None) => jp_land_transport_kmh(transport).unwrap_or(4.0),
     };
-    let cap = jp_capacity(plan, biome_key, season);
+    let cap = jp_capacity_ex(plan, biome_key, season, animals);
     let ratio0 = if cap.capacity > 0.0 { cap.total_mass / cap.capacity } else { 0.0 };
     // v1.63: a stage this overloaded cannot depart at all, Haste included.
     // Checked on the un-iterated ratio, whose driver (cargo) never shrinks.
@@ -9855,6 +9919,20 @@ const JP_TIMELINE_MAX_ENTRIES: i64 = 400;
 /// Returns `None` on a route with no drawn path or no derivable stages, both
 /// of the reference's own `return null` cases.
 pub fn jp_plan(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan, layovers: &JpLayovers, wildlife_forage_mod: &dyn Fn(f64, f64) -> f64) -> Option<JpJourneyPlan> {
+    jp_plan_ex(world, pts, plan, layovers, wildlife_forage_mod, None)
+}
+
+/// [`jp_plan`] plus a Travel Library animal-stat/terrain override applied to
+/// every land stage's [`jp_calc_land`] -- see [`JpAnimalResolver`]. Identical
+/// to [`jp_plan`] when `animals` is `None`.
+pub fn jp_plan_ex(
+    world: &JpWorld,
+    pts: &[(f64, f64)],
+    plan: &JpPlan,
+    layovers: &JpLayovers,
+    wildlife_forage_mod: &dyn Fn(f64, f64) -> f64,
+    animals: Option<&JpAnimalResolver>,
+) -> Option<JpJourneyPlan> {
     if pts.len() < 2 {
         return None;
     }
@@ -9878,7 +9956,7 @@ pub fn jp_plan(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan, layovers: &Jp
 
     let calc = |st: &JpStage, cat: &str, eff: &JpPlan| -> Result<JpLegCalc, JpBlocked> {
         if cat == "land" {
-            jp_calc_land(st, eff).map(|l| JpLegCalc::Land(Box::new(l)))
+            jp_calc_land_ex(st, eff, animals).map(|l| JpLegCalc::Land(Box::new(l)))
         } else {
             jp_calc_water(st, eff).map(JpLegCalc::Water)
         }
