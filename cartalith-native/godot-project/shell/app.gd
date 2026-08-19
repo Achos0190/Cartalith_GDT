@@ -415,52 +415,18 @@ func open_asset_library(family_key: String = "", open_slicer: bool = false) -> v
 # -- Storage locations (`DCC_SHELL_SPEC.md` §2.1, §2.5's "Same modal as File") --
 
 ## File ▸ Storage locations and Preferences ▸ Application ▸ Storage
-## locations… both call this -- the spec's own "Same modal as File" -- a
-## read-only list of the four roots, current values from `DccSettings`.
+## locations… both call this -- the spec's own "Same modal as File".
+##
+## Originally two separate dialogs (a read-only list, and a second "Change
+## locations…" item with the actual Browse buttons) -- merged into one on
+## owner feedback (2026-08-19): showing the same four rows twice across two
+## menu items was redundant menu surface, not two distinct capabilities.
+## One dialog, one row per root, each with its own Browse… button that
+## writes back to `DccSettings` immediately on pick -- no separate confirm
+## step, the readout itself is the committed value.
 func open_storage_locations() -> void:
 	var d := AcceptDialog.new()
 	d.title = "Storage locations"
-	d.size = Vector2i(600, 300)
-	var body := VBoxContainer.new()
-	body.add_theme_constant_override("separation", 10)
-	add_child(d)
-	d.add_child(body)
-
-	var note := DccTheme.label(
-		"Read-only. File ▸ Change locations… edits these.", "text_ghost", DccTheme.FS_MICRO)
-	body.add_child(note)
-	body.add_child(DccTheme.rule())
-
-	for key in DccSettings.ROOT_KEYS:
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 12)
-		row.custom_minimum_size.y = 22
-		var lbl := DccTheme.mono_label(String(DccSettings.ROOT_LABELS[key]), "text_dim", DccTheme.FS_SMALL)
-		lbl.custom_minimum_size.x = 150
-		row.add_child(lbl)
-		var val := DccTheme.mono_label(DccSettings.storage_root(key), "text", DccTheme.FS_SMALL)
-		val.autowrap_mode = TextServer.AUTOWRAP_OFF
-		val.clip_text = true
-		val.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(val)
-		body.add_child(row)
-
-	var footnote := DccTheme.label(
-		"Defaults derive from OS.get_user_data_dir() -- §2.1's own \"~/Cartalith/...\" paths are macOS-flavored prose that does not hold on every platform this shell runs on.",
-		"text_ghost", DccTheme.FS_MICRO)
-	footnote.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	footnote.custom_minimum_size.x = 560
-	body.add_child(footnote)
-
-	d.popup_centered()
-
-## §2.1: "Modal, one folder picker per root." Each row browses independently
-## and writes back to `DccSettings` immediately on pick -- there is no
-## separate confirm step, matching the read-only dialog above being the
-## place that shows the committed result.
-func open_change_locations() -> void:
-	var d := AcceptDialog.new()
-	d.title = "Change locations…"
 	d.size = Vector2i(680, 340)
 	var body := VBoxContainer.new()
 	body.add_theme_constant_override("separation", 8)
@@ -496,6 +462,13 @@ func open_change_locations() -> void:
 			cache_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			cache_note.custom_minimum_size.x = 560
 			body.add_child(cache_note)
+
+	var footnote := DccTheme.label(
+		"Defaults derive from OS.get_user_data_dir() -- §2.1's own \"~/Cartalith/...\" paths are macOS-flavored prose that does not hold on every platform this shell runs on.",
+		"text_ghost", DccTheme.FS_MICRO)
+	footnote.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	footnote.custom_minimum_size.x = 620
+	body.add_child(footnote)
 
 	d.popup_centered()
 

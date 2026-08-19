@@ -20,7 +20,6 @@ const ID_SAVE_AS := 13
 const ID_REVERT := 15
 const ID_CLOSE := 16
 const ID_STORAGE := 17
-const ID_CHANGE_LOCATIONS := 18
 const ID_SHOW_ON_DISK := 19
 
 const ID_UNDO := 20
@@ -120,8 +119,12 @@ func _file(p: PopupMenu) -> void:
 	_todo(p, "Close project", "No project lifecycle yet; the shell holds one world at a time.")
 	p.add_separator()
 
+	## One item, one dialog with an inline Browse… per root (`DccApp.
+	## open_storage_locations()`) -- was two items (a read-only list plus a
+	## separate "Change locations…" item) opening two dialogs that showed the
+	## same four rows; merged on owner feedback (2026-08-19) as redundant
+	## menu surface, not two distinct capabilities.
 	_live(p, "Storage locations", ID_STORAGE)
-	_live(p, "Change locations…", ID_CHANGE_LOCATIONS)
 	_live(p, "Show project on disk", ID_SHOW_ON_DISK)
 	var show_idx := p.item_count - 1
 	p.set_item_tooltip(show_idx,
@@ -160,7 +163,6 @@ func _on_file(id: int) -> void:
 		ID_NEW_WORLD: _host.open_new_world()
 		ID_OPEN_PROJECT: _host.open_project_picker()
 		ID_STORAGE: _host.open_storage_locations()
-		ID_CHANGE_LOCATIONS: _host.open_change_locations()
 		ID_SHOW_ON_DISK: _host.show_project_on_disk()
 
 # -- §2.2 Edit ----------------------------------------------------------------
