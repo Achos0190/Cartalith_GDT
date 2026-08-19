@@ -374,14 +374,26 @@ func _build_trade() -> void:
 
 # -- Logistics ----------------------------------------------------------
 
+## `JOURNEY_PLANNER_SCOPE.md`'s own "Update (2026-08-19)" closed the engine
+## boundary (`jp_options`/`jp_default_plan`/`jp_compute`, `route_count`/
+## `route_get`) -- this file's own older doc comment above ("exports nothing
+## past the Rust crate boundary") is now stale for Logistics specifically; the
+## party form and results panel live in `journey_planner_window.gd` (too big
+## for a dock panel, same "AcceptDialog window" precedent as `world_data_
+## window.gd`/`performance_window.gd`), opened from here.
 func _build_logistics() -> void:
 	var cat := DccWidgets.category(self, "Logistics", categories)
 	var sec := DccWidgets.section(cat, "Journey planning")
-	DccWidgets.note(sec,
-		"The journey planner (JOURNEY_PLANNER_SCOPE.md) is engine-complete -- cost " +
-		"rasters, stage breakdown, vessel legs -- but exports nothing past the Rust " +
-		"crate boundary. No GDExtension method returns a journey, a cost trace or a " +
-		"stage list, so nothing here can be honest until one does.")
+	var count := bridge.route_count()
+	if count == 0:
+		DccWidgets.note(sec,
+			"No committed routes yet -- draw one with the Route tool above (arm " +
+			"Route, click waypoints, ✓ Commit), then open the Journey Planner.")
+	else:
+		DccWidgets.note(sec, "%d committed route%s available to plan a journey along." %
+			[count, "" if count == 1 else "s"])
+	var g := DccWidgets.group(sec, "Journey Planner")
+	DccWidgets.action(g, "Open Journey Planner", func(): app.open_journey_planner(), true)
 
 # -- Shared ---------------------------------------------------------------
 

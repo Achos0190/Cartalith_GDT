@@ -15,6 +15,7 @@ var menus := DccMenus.new()
 var new_world_dialog: NewWorldDialog
 var world_data_window: WorldDataWindow
 var performance_window: PerformanceWindow
+var journey_planner_window: JourneyPlannerWindow
 var right_dock_ctrl: RightDock
 
 var _workspaces: Array = []
@@ -130,6 +131,10 @@ func _ready() -> void:
 	performance_window = PerformanceWindow.new()
 	add_child(performance_window)
 	performance_window.setup(bridge)
+
+	journey_planner_window = JourneyPlannerWindow.new()
+	add_child(journey_planner_window)
+	journey_planner_window.setup(bridge)
 
 	_register_workspaces()
 
@@ -343,6 +348,9 @@ func open_world_data() -> void:
 
 func open_performance() -> void:
 	performance_window.open()
+
+func open_journey_planner() -> void:
+	journey_planner_window.open()
 
 ## `credits.gd` extends AcceptDialog and fills `%CreditsText` from `_ready`, so
 ## the scroll and the label have to exist *before* the script runs -- hence
