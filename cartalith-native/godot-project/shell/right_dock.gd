@@ -32,6 +32,7 @@ const CTX_FACTION := "faction"
 const CTX_MEASURE := "measure"
 const CTX_REGION := "region"
 const CTX_SCULPT := "sculpt"
+const CTX_JOURNEY := "journey"
 
 ## Noun phrases for `explain_settlement()`'s suitability term keys. Copied
 ## verbatim from `main.gd`'s own `SUIT_TERM_LABELS` -- wording belongs to the
@@ -115,6 +116,7 @@ var _route_kind := ""      ## "road" | "sea"
 var _faction_id := -1
 var _measure_result: Dictionary = {}
 var _region_result: Dictionary = {}
+var _journey_view: JourneyPlannerView = null   ## CTX_JOURNEY delegate -- see `show_journey()`.
 
 ## Live-updated in place on every `cursor_sampled` rather than triggering a
 ## full `_rebuild()` -- the overlay emits that signal on every mouse-motion
@@ -222,6 +224,36 @@ func show_sculpt_stack() -> void:
 	_context = CTX_SCULPT
 	_rebuild()
 
+## Called by `journey_planner_view.gd` when the JOURNEY tool arms -- claims
+## `right_dock_body` for the results panel (`JOURNEY_PLANNER_SPEC.md` §8),
+## delegating the actual content back to `view.build_results()` rather than
+## duplicating its rendering here. Mirrors `show_sculpt_stack()`'s own
+## delegation shape (that one re-reads `bridge.sculpt_*` fresh each rebuild;
+## this one re-reads `view`'s own cached compute result, since a fresh
+## `jp_compute()` per rebuild would be a wasted boundary crossing on every
+## unrelated `right_dock.gd` refresh).
+func show_journey(view: JourneyPlannerView) -> void:
+	_context = CTX_JOURNEY
+	_journey_view = view
+	_rebuild()
+
+## Called by `journey_planner_view.gd` after every recompute, while Journey
+## is still the active context -- cheaper than `show_journey()` re-running
+## the whole dispatch when only the numbers changed, and a no-op otherwise
+## (Journey no longer armed, or something else grabbed the dock meanwhile).
+func refresh_journey() -> void:
+	if _context == CTX_JOURNEY:
+		_rebuild()
+
+## Called by `journey_planner_view.gd` when the JOURNEY tool disarms --
+## returns the dock to Sample rather than leaving a stale results panel
+## behind once there is nothing live driving it.
+func clear_journey() -> void:
+	if _context == CTX_JOURNEY:
+		_journey_view = null
+		_context = CTX_SAMPLE
+		_rebuild()
+
 # -- Dispatch ---------------------------------------------------------------
 
 func _rebuild() -> void:
@@ -258,6 +290,8 @@ func _dispatch(body: Control) -> void:
 			_build_region(body)
 		CTX_SCULPT:
 			_build_sculpt(body)
+		CTX_JOURNEY:
+			_build_journey(body)
 		_:
 			_build_sample(body)
 
@@ -616,6 +650,14 @@ func _build_region(body: Control) -> void:
 	var send := DccWidgets.action(actions, "Send to Data ▸ Export", func(): pass)
 	send.disabled = true
 	send.tooltip_text = "region_export_tiles() is bound and tested; the Data Manager panel to call it doesn't exist yet."
+
+# -- Journey (delegate to journey_planner_view.gd) --------------------------
+
+func _build_journey(body: Control) -> void:
+	if _journey_view == null:
+		_build_sample(body)
+		return
+	_journey_view.build_results(body)
 
 # -- Sculpt stamp stack -----------------------------------------------------
 #

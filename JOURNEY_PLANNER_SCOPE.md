@@ -958,12 +958,10 @@ Unknown or wrong-typed keys are reported in `rejected` rather than ignored, per
 this codebase's "a typo'd key is a bug worth seeing" policy — so a plan can come
 back `ok` *with* rejections and still be a real plan computed from the defaults.
 
-**Steps 3 and 5 remain open, deliberately.** The party form and the presentation
-(HTML hint strings, `formula` traces, the elevation-profile chart) are GUI work,
-and nothing under `godot-project/shell/workspaces/` calls any of this yet.
-`engine_bridge.gd` carries the five wrappers so that work can start against a
-finished boundary. The gap between the engine and the feature is still a user
-interface — but it is now *only* a user interface.
+**Steps 3 and 5 remained open at the time this section was written.** They
+closed the same day, twice — first as a popup window, then as the shell
+takeover this doc's own mockup asks for. See "Redesign: the distance spine"
+below.
 
 **Testing.** No new golden tests: the `jp_*` functions underneath are already
 golden-verified, and this pass adds no algorithm. What it does add is 28
@@ -978,3 +976,43 @@ number computed from the wrong row. Five of the tables (`JP_PACE`, `JP_GRAZING`,
 typo and a silently wrong journey. Plus one end-to-end test that the assembled
 `JourneyWorld` genuinely drives `jp_plan` — not merely that its buffers are
 non-empty.
+
+## Redesign: the distance spine (2026-08-19)
+
+Steps 3 and 5 above closed twice the same day. First as `journey_planner_
+window.gd` (`extends AcceptDialog`) — a real, working party form, per-stage
+overrides and results panel, but a popup modal over the map. Then, once
+`JOURNEY_PLANNER_SPEC.md` (this document, vendored from the owner's design
+project the same day) specified direction 1a in full, that dialog was
+deleted and replaced by `journey_planner_view.gd`: Journey is now a third
+INFRA tool (`DCC_SHELL_SPEC.md` §4.5.4's own addition), arming a full
+in-shell takeover of the viewport region — map, both docks, tool options bar
+— for the distance-spine layout this spec's §3 lays out, rather than staying
+a dialog or drawing a map overlay. Full build record, including exactly
+what's real vs. disclosed, in `cartalith-native/docs/CHANGELOG.md`'s "Journey
+Planner — distance-spine takeover" entry and `STATUS.md`'s matching section.
+
+Two things worth recording here specifically, since they concern this
+document's own numbers rather than the shell:
+
+- **§5's "all 26" party fields is a undercount.** The live `jp_default_plan()`
+  call returns 28 real fields (`plan_to_pairs`' own list; `STATUS.md`'s
+  Journey Planner Godot boundary section already had this right). The
+  mockup's own left dock (`design/Journey Planner DCC.dc.html` lines
+  238-297) groups them into four sections — Traveler, Season & weather,
+  Carriage, Route conditions — with **no fifth "Stops" group**; Stops is
+  §3's own separate 32px centre strip, not a left-dock group. §5's prose
+  should read "28", not "26"; left uncorrected in place above (§5 predates
+  this note and this document's own discipline is to record a correction
+  rather than silently edit history) but the real count is 28, verified
+  against the live boundary rather than assumed.
+- **§10's "still to build" list is unchanged by this pass**: light theme,
+  blocked-stage inspector state, journey list/picker (the redesign's
+  "Journeys" section lists *committed routes*, since no persisted named-
+  journey registry exists engine-side — a real, disclosed simplification,
+  not the list §10 has in mind), and the 2560 tablet breakpoint. Also newly
+  disclosed by this pass: Carriage Auto mode's own picker
+  (`jpAutoPickTransport`) and re-route-for-mode (`_jpRerouteForMode`) have
+  no Rust port at all — checked against `cartalith-civ` and
+  `journey_bridge.rs` directly, not assumed — so both controls exist in the
+  tool options bar but are disabled with that reason stated.

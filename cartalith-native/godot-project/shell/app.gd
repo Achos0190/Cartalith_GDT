@@ -15,7 +15,7 @@ var menus := DccMenus.new()
 var new_world_dialog: NewWorldDialog
 var world_data_window: WorldDataWindow
 var performance_window: PerformanceWindow
-var journey_planner_window: JourneyPlannerWindow
+var journey_planner_view: JourneyPlannerView
 var layers_popover: LayersPopover
 var right_dock_ctrl: RightDock
 
@@ -133,10 +133,6 @@ func _ready() -> void:
 	add_child(performance_window)
 	performance_window.setup(bridge)
 
-	journey_planner_window = JourneyPlannerWindow.new()
-	add_child(journey_planner_window)
-	journey_planner_window.setup(bridge)
-
 	layers_popover = LayersPopover.new()
 	add_child(layers_popover)
 	layers_popover.setup(bridge, viewport)
@@ -166,6 +162,17 @@ func _ready() -> void:
 
 	workspace_changed.connect(_on_workspace_changed)
 	_on_workspace_changed(active_domain())
+
+	## Built and connected last, deliberately after the `workspace_changed`
+	## connection two lines up: `JourneyPlannerView` listens to that same
+	## signal to reclaim the tool options bar / dock swap after a domain
+	## switch (`journey_planner_view.gd`'s own class doc), and GDScript signal
+	## handlers run in connection order -- so this must connect after
+	## `_on_workspace_changed` for its own re-application to win rather than
+	## be immediately overwritten by `_on_workspace_changed`'s INFRA branch.
+	journey_planner_view = JourneyPlannerView.new()
+	add_child(journey_planner_view)
+	journey_planner_view.setup(self, bridge)
 
 	set_status("pass", "no world", "text_faint")
 	set_status("hint", "File ▸ New world… to begin", "text_ghost")
@@ -359,8 +366,14 @@ func open_world_data() -> void:
 func open_performance() -> void:
 	performance_window.open()
 
+## `DCC_SHELL_SPEC.md` §4.5.4's 2026-08-19 addition: Journey is an INFRA tool
+## takeover, not a dialog -- this arms it exactly like any other tool
+## (`journey_planner_view.gd` does the actual region swap, listening to
+## `tool_armed`). Both real entry points converge here: `Data ▸ Journey
+## planner… ⇧J` (`menus.gd`) and the INFRA dock's own Logistics button
+## (`infrastructure_workspace.gd`).
 func open_journey_planner() -> void:
-	journey_planner_window.open()
+	journey_planner_view.open()
 
 ## `credits.gd` extends AcceptDialog and fills `%CreditsText` from `_ready`, so
 ## the scroll and the label have to exist *before* the script runs -- hence

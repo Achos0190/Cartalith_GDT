@@ -377,10 +377,19 @@ func _build_trade() -> void:
 ## `JOURNEY_PLANNER_SCOPE.md`'s own "Update (2026-08-19)" closed the engine
 ## boundary (`jp_options`/`jp_default_plan`/`jp_compute`, `route_count`/
 ## `route_get`) -- this file's own older doc comment above ("exports nothing
-## past the Rust crate boundary") is now stale for Logistics specifically; the
-## party form and results panel live in `journey_planner_window.gd` (too big
-## for a dock panel, same "AcceptDialog window" precedent as `world_data_
-## window.gd`/`performance_window.gd`), opened from here.
+## past the Rust crate boundary") is now stale for Logistics specifically.
+##
+## **2026-08-19 redesign**: the party form and results panel no longer live
+## in a popup window -- `DCC_SHELL_SPEC.md` §4.5.4's own addition makes
+## Journey a third INFRA tool, arming a full in-shell takeover
+## (`journey_planner_view.gd`). This button is one of the two real entry
+## points that arm it (the other is `Data ▸ Journey planner… ⇧J`,
+## `menus.gd`) -- the mockup's own "rail-foot slot" phrasing describes where
+## the tool's *context readout* lives while armed (`app.gd`'s `set_rail_foot`,
+## already wired), not a second clickable target: `DccShell.rail_foot` is a
+## plain `Label` shared by every domain's context text, and making only
+## INFRA's foot cell clickable would be a shared-base-class change for no
+## capability this dock button doesn't already provide.
 func _build_logistics() -> void:
 	var cat := DccWidgets.category(self, "Logistics", categories)
 	var sec := DccWidgets.section(cat, "Journey planning")

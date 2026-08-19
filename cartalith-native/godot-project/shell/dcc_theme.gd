@@ -31,6 +31,17 @@ const DARK := {
 	"accent_wash": Color("#e0a34a14"), ## 8% -- the active menu/tool background.
 	"stale": Color("#b9a878"),       ## "downstream is stale" marks.
 	"stale_wash": Color("#3d3226"),
+	## Read off `design/Journey Planner DCC.dc.html`'s own inline styles
+	## (`JOURNEY_PLANNER_SPEC.md` §3: "warn #e0a840, block #b55950, water
+	## #7d9dae"), added here rather than left as hard-coded hex in
+	## `journey_planner_view.gd` because §6's disclosure grammar and this
+	## file's own header both say colour is a shell-wide token, not a
+	## per-feature constant. Not yet used anywhere else in the shell -- the
+	## journey planner is the first feature to need "strained"/"blocked"/
+	## "water leg" as distinct from the existing `accent`/`stale` pair.
+	"warn": Color("#e0a840"),
+	"block": Color("#b55950"),
+	"water": Color("#7d9dae"),
 }
 
 const LIGHT := {
@@ -51,6 +62,13 @@ const LIGHT := {
 	"accent_wash": Color("#a4650f1a"),
 	"stale": Color("#7a6a4a"),
 	"stale_wash": Color("#e2d7bd"),
+	## The dark-mode journey planner hex values, unchanged. `JOURNEY_PLANNER_
+	## SPEC.md` §10 lists light theme as still to build for this feature --
+	## these three tokens exist so `c()` never errors under light mode, not
+	## because they were tuned against a light mockup that doesn't exist yet.
+	"warn": Color("#e0a840"),
+	"block": Color("#b55950"),
+	"water": Color("#7d9dae"),
 }
 
 # ── Type ─────────────────────────────────────────────────────────────────────

@@ -21,7 +21,7 @@ class_name LayersPopover
 ## retains, plus four it adds for Sample fields the reference never had a
 ## view for (elevation, slope, aspect, resistance -- each says so in its own
 ## hint). The engine owns that table; this file never restates it, which is
-## the same rule `journey_planner_window.gd` follows for `jp_options()`.
+## the same rule `journey_planner_view.gd` follows for `jp_options()`.
 ##
 ## **Rows that cannot work are disabled, not hidden.** A view whose one input
 ## this world lacks (Strahler order without river extraction, biomes/terrain/

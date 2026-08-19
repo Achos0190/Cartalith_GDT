@@ -33,6 +33,7 @@ const ID_APPLY_LIBRARY := 36
 const ID_CLEAR_LIBRARY := 37
 
 const ID_DATA_MANAGER := 40
+const ID_JOURNEY_PLANNER := 41
 
 const ID_PREF_GPU := 50
 const ID_PREF_THEME_DARK := 51
@@ -154,8 +155,15 @@ func _on_assets(id: int) -> void:
 # yet, so the whole menu is honest about that -- except the world-data tables,
 # which do exist and are reachable.
 
+## §2.4's own 2026-08-19 addition (`DCC_SHELL_SPEC.md`, reconciled from
+## `JOURNEY_PLANNER_SPEC.md`): Journey planner sits above the five Data
+## manager groups, alongside World data tables, and arms the INFRA JOURNEY
+## tool takeover rather than opening a window -- Travel library (⇧L) is the
+## sibling addition that DOES stay a real window, and is separate, later work
+## per this port's own scope note; not added here.
 func _data(p: PopupMenu) -> void:
 	_live(p, "World data tables…", ID_DATA_MANAGER)
+	_live(p, "Journey planner…", ID_JOURNEY_PLANNER, KEY_MASK_SHIFT | KEY_J)
 	p.add_separator()
 	_todo(p, "Import ▸ Maps · Heightmaps · GIS · World data", "No import routes yet.")
 	_todo(p, "Export ▸ Maps · GIS · World data · Asset pack", "No export routes yet.")
@@ -163,8 +171,9 @@ func _data(p: PopupMenu) -> void:
 	_todo(p, "Conversion ▸ Coordinate systems · Formats", "No conversion routes yet.")
 	_todo(p, "Validation ▸ Check data · Repair", "No validation pass yet.")
 	p.id_pressed.connect(func(id: int) -> void:
-		if id == ID_DATA_MANAGER:
-			_host.open_world_data()
+		match id:
+			ID_DATA_MANAGER: _host.open_world_data()
+			ID_JOURNEY_PLANNER: _host.open_journey_planner()
 	)
 
 # -- §2.5 Preferences ---------------------------------------------------------

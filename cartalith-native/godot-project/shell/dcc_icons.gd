@@ -54,6 +54,10 @@ const PATHS := {
 	"tool_territory": '<path d="M2.2 5 L7.6 2.6 L13.8 5.4 L11 13.2 L4 12.4 Z"/><path d="M4 6.6 L6.4 11.8"/><path d="M6.8 5.4 L9.4 12.2"/><path d="M9.6 5.2 L11.4 10.4"/>',
 	"tool_way": '<path d="M4 2.2 V13.8"/><path d="M12 2.2 V13.8"/><path d="M2.6 4.6 H13.4"/><path d="M2.6 8 H13.4"/><path d="M2.6 11.4 H13.4"/>',
 	"tool_route": '<path d="M2 12.6 C2 8.6 4.6 6 8 6"/><path d="M8 6 C10.2 6 11.6 5 12.6 3.6"/><path d="M11 2.6 L13.6 3.4 L12.4 5.8"/>',
+	## A distance-spine glyph -- a path with elevation ticks along it, matching
+	## `JOURNEY_PLANNER_SPEC.md` §3's own "route map and terrain profile share
+	## one distance axis" (`DCC_SHELL_SPEC.md` §4.5.4's 2026-08-19 addition).
+	"tool_journey": '<path d="M1.6 12.4 C4.4 8.4 6 8.4 8 11 C10 13.6 11.6 6 14.4 3.6"/><path d="M4.4 12.4 V9.8"/><path d="M8.2 12.4 V10.2"/><path d="M11.8 12.4 V7.6"/>',
 	"tool_label": '<path d="M2.2 6.4 L7.4 2.4 H13 A0.8 0.8 0 0 1 13.8 3.2 V9.2 A0.8 0.8 0 0 1 13 10 H7.4 Z"/><circle cx="10.6" cy="6.2" r="0.8"/>',
 	"tool_icon": '<path d="M8 2.2 L13.8 8 L8 13.8 L2.2 8 Z"/>',
 
@@ -109,4 +113,8 @@ const SYMBOLS := {
 	"delete": "\u232B", "undo": "\u21B6", "redo": "\u21B7", "play": "\u25B6",
 	"pause": "\u23F8", "drawer": "\u2630", "panels": "\u25A4", "overflow": "\u22EF",
 	"locked": "\U0001F512",
+	## The journey planner mockup's own three severity glyphs (`design/Journey
+	## Planner DCC.dc.html`), used verbatim -- dingbat-class Unicode symbols
+	## like the rest of this table, not colour emoji.
+	"blocked": "\u26D4", "warn_tri": "\u26A0", "bolt": "\u26A1",
 }

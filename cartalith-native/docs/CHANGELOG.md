@@ -12781,3 +12781,142 @@ children under Terrain) is a different thing from this canvas popover and is
 not built; §7's Layer-properties/ramp-editor panes still have no
 `TerrainAppearance` binding behind them, unchanged by this pass.
 
+## Journey Planner — distance-spine takeover, replacing the AcceptDialog (`JOURNEY_PLANNER_SPEC.md`, 2026-08-19)
+
+Same day, second pass. The party form + results window built earlier
+(`journey_planner_window.gd`, `extends AcceptDialog`) was real and working —
+route picker, the full plan form seeded from `jp_default_plan()`, per-stage
+overrides, a results panel — but a popup modal over the map, exactly the
+layout the owner's new mockup (`design/Journey Planner DCC.dc.html`, screen
+`1a`) replaces. `DCC_SHELL_SPEC.md` §4.5.4 got a same-day correction note
+recording the architecture: Journey is a third INFRA tool (alongside Way,
+Route), armed via the rail-foot context slot, with **no map click/drag
+gesture** — arming it swaps the entire INFRA viewport region (map, both
+docks, tool options bar) for the mockup's distance-spine planner in place,
+rather than drawing an overlay on the map the way Way/Route do, and unlike
+Travel library (a real separate window, later work, not touched here).
+
+**`journey_planner_window.gd` is deleted.** Its field-binding and results-
+rendering logic was carried forward into the new `journey_planner_view.gd`
+(not rewritten from scratch) — the route picker, the `_choice_field`/
+`_number_field`/`_toggle_field`/`_route_cond_field` vocabulary, the
+`stage_overrides` request shape, and the verdict/confidence/totals/stage/
+stops/timeline rendering all reappear here, re-laid-out into the mockup's
+regions rather than re-derived.
+
+**Architecture**: one new class, `JourneyPlannerView`, builds three region
+roots once at `setup()` time and hides them — `_left_panel` appended to
+`app.left_dock_body` (journeys list + the party form, grouped exactly as the
+mockup: Traveler / Season & weather / Carriage / Route conditions), a
+full-rect `_center_panel` appended to `app.viewport_content` next to
+`app.viewport` (route map, terrain profile, stops strip, stage inspector,
+stage matrix), and a delegate into `right_dock.gd`'s existing dispatch (a new
+`CTX_JOURNEY`, mirroring the `CTX_SCULPT` precedent already there, so
+`right_dock_body`'s single owner is never fought over). Visibility is
+recomputed off two signals that already existed, `app.tool_armed` and
+`app.workspace_changed`, as `armed_tool == "journey" && active_domain() ==
+"infrastructure"` — not a single stored flag — so switching domains away and
+back while Journey stays armed (the "one tool armed at a time, globally" rule
+every other tool already lives under) restores the swap instead of leaving
+stale chrome. Verified by a scripted headless run, described below.
+
+**What's real, traced to a live call**:
+
+- Route map and terrain-profile stage bands: `route_get()`'s own points,
+  sliced per `plan.stages[i].{i0, i1}` — the exact index range `jp_plan`
+  derived that stage over — coloured by category (land/river/sea/blocked),
+  not a decorative SVG curve. Settlement markers are `plan.stops[]`'s real
+  x/y, fit to the same bounding-box transform.
+- The elevation sparkline: `plan.profile`'s real 0-1 normalised samples,
+  drawn for the first time — the AcceptDialog pass reported the array's
+  presence and stopped (`plan.day_fracs`/`plan.results[i].eff` were the
+  disclosed leftovers too, but the profile was the one worth closing once
+  the view was being rebuilt anyway).
+- Stops-strip x-position: the nearest route point's cumulative chord length
+  over the route's total chord length — exact for position purposes, since
+  `map_width_km` is uniform across the grid, so chord-length fraction and
+  km fraction are the same number.
+- Stage inspector's 15 override fields (§6) and the stage matrix's editable
+  mode/pace/hours columns both write into `jp_compute`'s real
+  `stage_overrides` map and trigger a real recompute.
+- Results panel: verdict/confidence/Time/Load/Supply reach/Vessels all read
+  real `jp_compute` fields; a stage-table CSV export goes to the OS
+  clipboard (no file-writer exists to save it to disk, same gap as every
+  other save action in this shell).
+
+**What's disclosed rather than faked** (checked against `journey_bridge.rs`
+and `cartalith-civ`, not guessed):
+
+- **Carriage Auto mode** has no Rust port of the reference's own
+  `jpAutoPickTransport` (reference HTML ~line 19617) — no auto-carriage
+  function exists anywhere in `cartalith-civ`. Selecting Auto disables
+  editing the animal/vehicle counts and states the gap; it does not compute
+  a plausible-looking pick.
+- **Party presets** (`JP_PRESETS`, reference-JS-only, no `jp_presets()`
+  binding) and **re-route-for-mode** (`_jpRerouteForMode`, same gap) are
+  both present in the tool options bar, disabled, with the reason stated.
+- **Cost** results group: `jp_journey_plan_dict`'s full field list (checked
+  line by line against `lib.rs`) carries no monetary figures at all — no
+  food/fodder/wages/tolls/upkeep sums exist to show.
+- **⇧-drag spine trim** is deferred, not faked — `jp_compute` has no request
+  field a trim gesture could feed; click-to-select and ⌥-click-isolate are
+  both real and implemented.
+- **Calculation trace** (`⧉`) is a disabled stub, matching this shell's own
+  precedent for every genuinely-unbuilt window.
+
+**One field-count question resolved, not guessed at**: `JOURNEY_PLANNER_SPEC
+.md` §5 says "all 26, unchanged from v2.10" party fields. The live
+`jp_default_plan()` call returns 28 real plan fields (`plan_to_pairs`' own
+28-entry list, already correctly documented in `STATUS.md`'s Journey Planner
+Godot boundary section as "28 keys + `party_fields`") grouped into the
+mockup's own four left-dock sections — Traveler, Season & weather, Carriage,
+Route conditions. The mockup itself (`design/Journey Planner DCC.dc.html`
+lines 238-297, read literally rather than from the prose spec) has **no
+fifth "Stops" group in the left dock at all** — Stops is the separate 32px
+centre strip §3's own region table already lists on its own row. The spec's
+prose undercount is corrected here rather than propagated into the build.
+
+**Wiring**: `Data ▸ Journey planner… ⇧J` (`menus.gd`, new
+`ID_JOURNEY_PLANNER`) and the INFRA dock's own Logistics "Open Journey
+Planner" button (`infrastructure_workspace.gd`, call site unchanged) both
+resolve to `app.open_journey_planner() -> journey_planner_view.open() ->
+app.arm_tool("journey")`. The mockup's own "rail-foot slot" phrasing is
+honoured as the tool's context readout (`app.set_rail_foot("JOURNEY")`,
+reusing `DccShell`'s existing shared `rail_foot` Label) rather than built out
+as a second independently-clickable target — `dcc_shell.gd`'s `rail_foot` is
+shared across every domain's context text, and making only INFRA's foot cell
+clickable would be a shared-base-class change for a capability the dock
+button already provides. Recorded as a real, disclosed deviation from a
+literal reading of "tool-foot slot" as its own entry point, not a silent
+skip.
+
+**Also added**: three colour tokens (`warn` #e0a840, `block` #b55950, `water`
+#7d9dae) to `DccTheme`, read off the mockup's own inline styles — the shell
+had `accent`/`stale` but nothing for "strained"/"blocked"/"water leg" before
+this feature needed them, in both palettes so light mode (not yet designed
+for this feature, §10's own "still to build" list) never hits `DccTheme.c()`'s
+unknown-token error. A `tool_journey` glyph and three text symbols
+(`blocked`/`warn_tri`/`bolt`, the mockup's own ⛔/⚠/⚡) in `DccIcons`.
+
+**Verified**: headless boot clean (`--headless --path . --quit`, zero parse
+or runtime errors) after fixing two real Variant-typing issues the strict
+warnings-as-errors build caught (`Callable.call()`'s return is always
+`Variant`; two `_draw()` sites needed an explicit `: Vector2` annotation
+rather than `:=`). A scripted smoke run (written to `_journey_test.gd`,
+exercised, then deleted — not committed, matching this port's convention of
+not leaving one-off harnesses behind) generated a small world, committed a
+real two-point route, armed the tool and confirmed both docks plus the
+centre region swapped while `app.viewport` hid, confirmed a real
+`jp_compute` result (14 derived stages, `ok: true`), selected a stage and
+applied a real `pace` override with a confirmed recompute, disarmed and
+confirmed full restoration (map visible again, left panel hidden), then
+armed again while on the `world` domain (confirmed the view correctly stayed
+hidden) and switched back to `infrastructure` (confirmed it reappeared
+without re-arming) — every step passed.
+
+**Not attempted this pass, disclosed rather than silently skipped**: light
+theme (`JOURNEY_PLANNER_SPEC.md` §10's own "still to build" list), the 2560
+tablet breakpoint, and a blocked-stage inspector state visually distinct from
+the `block`-token colouring already applied throughout the stage inspector,
+matrix, profile band and route map.
+
