@@ -53,6 +53,8 @@ var left_dock_body: VBoxContainer      ## Workspace panels attach here.
 var viewport_area: Control
 var viewport_content: Control          ## The map surface; overlays are children.
 var right_dock: PanelContainer
+var right_dock_title: Label          ## §6: contents follow the selection, not a fixed
+	## "Layers" chrome label -- kept live by `right_dock.gd`'s own `set_right_dock_title()` call at the end of every `_rebuild()`.
 var right_dock_body: VBoxContainer
 var timeline_bar: Control
 var timeline_row: HBoxContainer
@@ -426,6 +428,14 @@ func register_workspace(id: String, panel: Control) -> void:
 func active_domain() -> String:
 	return _active_domain
 
+## §6's right-dock header -- see `_build_right_dock()`'s own comment on why
+## this exists instead of a fixed "LAYERS" label. `text` is already the
+## upper-cased section name; `DccTheme.header()` built the sigil-free label
+## once with an initial value, this just updates its text in place.
+func set_right_dock_title(text: String) -> void:
+	if right_dock_title != null:
+		right_dock_title.text = text.to_upper()
+
 # -- §6 Docks -----------------------------------------------------------------
 
 ## `as_sheet`: §13's phone treatment -- "docks become full-height sheets, one
@@ -486,15 +496,25 @@ func _build_right_dock(as_sheet: bool = false) -> Control:
 	col.add_theme_constant_override("separation", 0)
 	right_dock.add_child(col)
 
+	## §6's own header carries whatever context is showing (Sample, Settlement,
+	## Route...), not a fixed label -- "Layers" was this dock's mockup-pictured
+	## *default* state, not its permanent chrome title; a bare "LAYERS" left
+	## painted here regardless of context was misleading once every other
+	## context (Sample, Settlement, Route, River, Faction, Measure, Region
+	## select, Stamp stack, Journey) had its own real section header one
+	## scroll-step below it saying something else. `right_dock.gd`'s
+	## `_rebuild()` keeps this in sync via `set_right_dock_title()`, the same
+	## pattern `left_dock_title` already follows for the domain name.
+	right_dock_title = DccTheme.header("SAMPLE", "")
 	var head := HBoxContainer.new()
 	head.custom_minimum_size.y = _ptap(44) if as_sheet else 26
 	if as_sheet:
-		head.add_child(DccTheme.header("LAYERS", ""))
+		head.add_child(right_dock_title)
 		head.add_child(DccTheme.spacer())
 		head.add_child(_sheet_close_button(func(): _set_sheet_open("right", false)))
 	else:
 		head.add_child(_collapse_button(false))
-		head.add_child(DccTheme.header("LAYERS", ""))
+		head.add_child(right_dock_title)
 		head.add_child(DccTheme.spacer())
 	var head_pad := MarginContainer.new()
 	head_pad.add_theme_constant_override("margin_left", 6)

@@ -47,6 +47,7 @@ const ID_PREF_QUALITY := 53
 const ID_PREF_UNITS_KM := 54
 const ID_PREF_UNITS_MI := 55
 const ID_PREF_STORAGE := 56
+const ID_PREF_WORKING_SET := 57
 
 const ID_WIN_LEFT := 60
 const ID_WIN_RIGHT := 61
@@ -185,8 +186,17 @@ func _edit(p: PopupMenu) -> void:
 # -- §2.3 Assets --------------------------------------------------------------
 
 func _assets(p: PopupMenu) -> void:
-	_live(p, "%s Asset library" % DccIcons.SYMBOLS["panels"], ID_ASSET_LIBRARY, KEY_MASK_SHIFT | KEY_A)
-	_live(p, "%s Sprite sheet slicer" % DccIcons.SYMBOLS["panels"], ID_SLICER)
+	## §2.3's own table: "⧉ Asset library (⇧A)" / "⧉ Sprite sheet slicer (▦)"
+	## -- ⧉ is the "opens a dedicated window" marker (§2, §12: "the ⧉ window
+	## marker in menus"), not the phone app-bar's "panels" glyph (▤) these two
+	## items were built with; the literal Unicode "⧉" is already how every
+	## window this shell opens marks its own title (`asset_library_window.gd`'s
+	## "⧉ ASSET LIBRARY", `data_manager_window.gd`'s "⧉ DATA MANAGER"), so this
+	## matches that convention rather than reaching for `DccIcons`, whose own
+	## `PATHS` has no path a `PopupMenu` text item could render anyway --
+	## every glyph elsewhere in this menu is plain text, never `add_icon_item`.
+	_live(p, "⧉ Asset library", ID_ASSET_LIBRARY, KEY_MASK_SHIFT | KEY_A)
+	_live(p, "⧉ Sprite sheet slicer (▦)", ID_SLICER)
 	p.add_separator()
 	_todo(p, "Import image…",
 		"The asset-library window (§8) is built, but landing a loose image in an Unassigned-imports custom slot needs AssetDB::addCustomSlot -- no #[func] exposes it.")
@@ -327,6 +337,15 @@ func _preferences(p: PopupMenu) -> void:
 	p.add_separator()
 	_todo(p, "Tiled LOD · tile size · atlas cache", "No tile atlas yet.")
 	_todo(p, "Undo history", "No undo stack yet.")
+	## §2.5's Memory group has three items -- Undo history (above, a real
+	## gap), Working set and Clear caches -- but only the first ever made it
+	## into this menu; the other two were missing outright, not even as
+	## honest `_todo()`s, found in the 2026-08-19 GUI audit alongside the
+	## orphaned `PerformanceWindow` this now opens. Working set is real:
+	## `OS.get_static_memory_usage()`, the same source the menu bar's own
+	## `top_mem` readout already uses (`app.gd`'s `_wire_status()`).
+	_live(p, "Working set…", ID_PREF_WORKING_SET)
+	_todo(p, "Clear caches…", "No atlas or field cache exists yet to clear (Preferences ▸ Tiled LOD is itself not built).")
 	p.add_separator()
 
 	## §2.5's Application group: "Storage locations… — Same modal as File."
@@ -353,6 +372,9 @@ func _preferences(p: PopupMenu) -> void:
 func _on_preferences(id: int, p: PopupMenu) -> void:
 	if id == ID_PREF_STORAGE:
 		_host.open_storage_locations()
+		return
+	if id == ID_PREF_WORKING_SET:
+		_host.open_performance()
 		return
 	if id != ID_PREF_GPU:
 		return

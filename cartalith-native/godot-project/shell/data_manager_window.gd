@@ -55,7 +55,7 @@ const ROUTES: Array[Dictionary] = [
 	{"group": "Export", "id": "export_world", "label": "World Data", "kind": "gap",
 		"reason": "cartalith-io reads .zip saves but does not write them -- the only zip::ZipWriter in the crate lives in its own #[cfg(test)] fixture builder, not production code. A save writer is a separate, larger piece of work, out of scope here."},
 	{"group": "Export", "id": "export_assets", "label": "Assets (pack .zip)", "kind": "gap",
-		"reason": "Routes to Assets ▸ Asset pack ▸ Build ▸ Export pack .zip…, which is itself _todo in menus.gd -- it needs the asset-library window, which is not built."},
+		"reason": "Routes to the Asset library window's own Export pack .zip button (Assets ▸ ⧉ Asset library, §8's window bar) -- itself disabled there for the same reason: cartalith-assets can write a pack (archive.rs::write_pack/zip_store) but no #[func] exposes it, and there is no in-memory library session to export from."},
 	{"group": "Sources", "id": "sources_external", "label": "External Sources", "kind": "gap", "reason": "No source registry exists."},
 	{"group": "Sources", "id": "sources_connected", "label": "Connected Sources", "kind": "gap", "reason": "Same -- no source registry exists."},
 	{"group": "Sources", "id": "sources_registry", "label": "Source Registry", "kind": "gap", "reason": "Same -- no source registry exists."},

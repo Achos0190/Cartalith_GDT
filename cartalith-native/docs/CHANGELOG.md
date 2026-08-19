@@ -14273,3 +14273,127 @@ their as-written formatting and every edit to `lib.rs`/`travel_library.rs`/
 worth a note in `README.md`'s working discipline for the next session that
 runs `cargo fmt` blind.
 
+## DCC shell GUI audit — the class of bug `f274d13` found once, hunted across the whole shell (2026-08-19)
+
+Owner request, verbatim: a full audit of the GUI now that the §4.5 tool
+palette, Journey Planner, Timeline, and the Data manager/Asset Library
+windows had all landed in rapid succession this session, specifically for
+the shape of bug `f274d13` (`git show f274d13`) already found and fixed once
+— `File ▸ Storage locations` and `Change locations…` opening two dialogs
+that showed the same four rows redundantly. Read `DCC_SHELL_SPEC.md` and
+`DCC_CONTROL_INDEX.md` in full as ground truth, then every menu/window/
+workspace file under `godot-project/shell/` (`menus.gd`, `app.gd`,
+`dcc_shell.gd`, `dcc_settings.gd`, `right_dock.gd`, `world_data_window.gd`,
+`data_manager_window.gd`, `asset_library_window.gd`,
+`journey_planner_view.gd`, `layers_popover.gd`, `dcc_widgets.gd`,
+`dcc_theme.gd`, `dcc_icons.gd`, `global_tools.gd`, `new_world_dialog.gd`,
+`performance_window.gd`, and every file under `workspaces/`) — roughly
+12,000 lines, cross-referenced against the spec's own prose section by
+section. `viewport_host.gd`/`map_overlay.gd` were explicitly out of scope: a
+concurrent agent was fixing two unrelated rendering bugs in exactly those
+two files during this pass.
+
+**The overwhelming finding: this shell is unusually self-consistent.** Every
+file already follows `menus.gd`'s own honesty convention (a control with no
+engine behind it ships disabled, with an accurate tooltip, never silently
+inert), `DccTheme`/`DccWidgets` are used uniformly with no ad hoc
+`Label.new()`/hardcoded-colour drift found anywhere outside the two
+`RichTextLabel`s that genuinely need BBCode, and dozens of disclosed-gap
+tooltips were individually re-verified against the real Rust source this
+pass (grepping `cartalith-godot/src/lib.rs` for the `#[func]` each one
+claims is missing) and found still accurate. Six real findings survived that
+bar, all fixed:
+
+1. **Right dock chrome title hardcoded `"LAYERS"`** (`dcc_shell.gd`'s
+   `_build_right_dock`) regardless of which context `right_dock.gd` actually
+   dispatches — Sample, Settlement, Route, River, Faction, Measure, Region
+   select, Stamp stack, Journey. None of those is ever "Layers" (the Layers
+   popover is a wholly separate canvas control, `layers_popover.gd`); the
+   mockup's own "Layers" screen was this dock's *pictured default state*,
+   not its permanent chrome label, and every other context already drew its
+   own real section header one scroll-step below the stale one. Fixed with
+   a new `DccShell.right_dock_title` field and `set_right_dock_title()`
+   method, kept in sync by `RightDock._rebuild()`'s own new
+   `CTX_TITLES`/`_current_title()` (which also correctly falls back to
+   "Sample" for `CTX_SETTLEMENT`/`CTX_JOURNEY`'s own no-data fallback paths,
+   not just the happy path).
+2. **`Assets ▸ ⧉ Asset library` / `⧉ Sprite sheet slicer` used the wrong
+   glyph.** `menus.gd` prefixed both with `DccIcons.SYMBOLS["panels"]` (▤) —
+   the phone app-bar's own "Panels" button glyph, reused here by mistake —
+   instead of §2.3's own literal `⧉` "opens a dedicated window" marker,
+   which every window this shell actually opens already carries in its own
+   title (`"⧉ ASSET LIBRARY"`, `"⧉ DATA MANAGER"`). `DccIcons.PATHS` does
+   carry a drawn `"window"` glyph matching the concept, but nothing in this
+   codebase ever calls `PopupMenu.add_icon_item` — every menu glyph
+   elsewhere is plain Unicode text — so the fix follows that established
+   convention (`"⧉ Asset library"`, `"⧉ Sprite sheet slicer (▦)"`) rather
+   than introducing a new one for two menu rows.
+3. **`data_manager_window.gd`'s `export_assets` route reason was stale.**
+   It named `Assets ▸ Asset pack ▸ Build ▸ Export pack .zip…` — a submenu
+   path that was never actually built into `menus.gd` (only Icon families ▸/
+   Texture sets ▸ exist there) — and claimed "it needs the asset-library
+   window, which is not built," true when that sentence was presumably
+   written, false since `asset_library_window.gd` shipped earlier this
+   session with its own real (and honestly disabled, for a still-real
+   reason) Export pack .zip button. Corrected to name that real button.
+4. **`PerformanceWindow` was built, wired into `app.gd`'s `_ready()`, and
+   completely unreachable** — `DccApp.open_performance()` existed and
+   nothing anywhere called it, and the window itself was a bare "Being
+   ported from main.gd's performance dialog" placeholder despite real,
+   already-exposed data sitting unused directly beside it:
+   `EngineBridge.gpu_stages_used()` (backed by the real `#[func]`
+   `get_gpu_stages_used`), `quality_tier()`/`quality_tiers()`/
+   `recommended_quality_tier()` (four real `#[func]`s already driving
+   `menus.gd`'s own Render quality submenu), and Godot's
+   `OS.get_static_memory_usage()` (the same source the menu bar's own
+   `top_mem` readout already uses). Rebuilt with real content from all
+   three, and wired to a new, real `Preferences ▸ Memory ▸ Working set…`
+   item — closing part of finding 6 below at the same time.
+5. **`Data ▸ World data tables…` was the one live, enabled menu item in
+   this shell that opened a window delivering nothing** — also a bare
+   "Being ported from main.gd's world-data dialog" placeholder, but unlike
+   `PerformanceWindow` this one had a real, non-`_todo()`'d entry point
+   already pointed at it, which is exactly the "enabled and silently inert"
+   shape `menus.gd`'s own header comment says this shell must never ship.
+   Rebuilt as three real, filterable tables (Settlements/Provinces/
+   Economy) reading `bridge.settlements()`/`provinces()`/`trade_balances()`
+   directly — the identical real data `civilization_workspace.gd`'s own
+   Settlements/Politics/Economy categories already read and cap at a top-N
+   summary; this window is the uncapped, name-filterable view those
+   categories point at, not a second implementation of the same query.
+6. **Preferences ▸ Memory was missing two of its own three items.** §2.5
+   names Undo history, Working set and Clear caches; only the first ever
+   made it into `menus.gd`, not even as disabled placeholders for the other
+   two. Fixed alongside finding 4: Working set is now a real, live item;
+   Clear caches is now an honest `_todo()` (no atlas/field cache exists yet
+   to clear).
+
+**Findings considered and not changed, with why:** the combined
+`_todo(p, "Tiled LOD · tile size · atlas cache", ...)` single menu item
+(spec lists Tiled LOD / Tile size · LOD levels / Atlas cache / Chunk debug
+overlay as four rows) reads as a deliberate compression of four
+identically-blocked items into one disabled line rather than clutter, not a
+coverage gap — left alone. The unused `ID_PREF_UNITS_KM`/`ID_PREF_UNITS_MI`
+constants in `menus.gd` (declared, never referenced — Units is a single
+`_todo()`'d item instead) are dead code, not a user-facing bug; left alone
+rather than risk widening this pass into a km/mi feature build. §4.5.4's
+"road / track / trail / bridge" way-type vocabulary in the spec disagrees
+with the engine's real `ManualWayType` (road/track/sea_lane/ancient) —
+already disclosed accurately, in detail, by `infrastructure_workspace.gd`'s
+own doc comment (checked against `infra_tools_bridge::parse_way_type`
+directly); already correct, not a finding.
+
+**Verified**: every modified file re-read after editing. A headless Godot
+4.7.1 boot (`--headless --path godot-project --quit`) clean — "Initialize
+godot-rust" in the log, no parse or registration errors. A scripted drive
+(a temporary `_audit_check.tscn`/`.gd` pair, not committed) booted the real
+shell, generated a small world, and exercised all six fixes directly rather
+than trusting a read-through: the right-dock title read `SAMPLE`, then
+`SETTLEMENT` on `on_settlement_selected`, then `SAMPLE` again on
+deselection; `WorldDataWindow` built 127/9/128 real rows across its three
+tabs against that world; `PerformanceWindow` opened with real content both
+from its own `open()` and via the new Preferences menu dispatch path; and
+`DataManagerWindow`'s corrected `export_assets` reason string read back
+exactly as written, confirming the dictionary edit took. No Rust file
+touched anywhere in this pass.
+

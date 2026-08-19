@@ -256,6 +256,16 @@ func clear_journey() -> void:
 
 # -- Dispatch ---------------------------------------------------------------
 
+## §6's own per-context header title, mirroring `DccWidgets.section()`'s title
+## one call below it -- kept as one table here rather than a `match` inline in
+## `_rebuild()` so a new `CTX_*` can't add a body section without this table
+## reminding whoever adds it that the dock chrome needs the same name.
+const CTX_TITLES := {
+	CTX_SETTLEMENT: "Settlement", CTX_ROUTE: "Route", CTX_RIVER: "River",
+	CTX_FACTION: "Faction", CTX_MEASURE: "Measure", CTX_REGION: "Region select",
+	CTX_SCULPT: "Stamp stack", CTX_JOURNEY: "Journey",
+}
+
 func _rebuild() -> void:
 	if app == null:
 		return
@@ -269,6 +279,18 @@ func _rebuild() -> void:
 	_sample_nearest = null
 	_sample_rows.clear()
 	_dispatch(body)
+	app.set_right_dock_title(_current_title())
+
+## `_build_settlement`/`_build_journey` both fall back to `_build_sample()`
+## when their own data is missing (a settlement deselected out from under the
+## dock, or Journey armed with no `_journey_view` yet) -- mirrored here so the
+## header never claims a context the body didn't actually draw.
+func _current_title() -> String:
+	if _context == CTX_SETTLEMENT and _settlement_data == null:
+		return "Sample"
+	if _context == CTX_JOURNEY and _journey_view == null:
+		return "Sample"
+	return String(CTX_TITLES.get(_context, "Sample"))
 
 ## Named rather than inlined in `_rebuild()` -- a `match` cannot be the tail
 ## statement of a lambda closed with `)` in this GDScript version, and this
