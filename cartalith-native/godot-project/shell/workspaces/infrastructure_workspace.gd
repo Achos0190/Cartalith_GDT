@@ -1,8 +1,24 @@
 extends Workspace
 class_name InfrastructureWorkspace
 
-## INFRA domain (§3): roads, rivers, ports, trade, logistics, and the Way/
-## Route drawing tools (§4.5.4).
+## Roads, rivers, ports, trade, logistics, and the Way/Route drawing tools
+## (§4.5.4) -- formerly the standalone INFRA rail domain (§3).
+##
+## **Domain merge (2026-08-20, owner instruction: "Infra can be dropped as a
+## name and can be absorbed by civil").** INFRA no longer has its own rail
+## button. This class is unchanged in what it does -- it still owns its own
+## category builders below and its own Way/Route tool click/drag/escape
+## handlers -- but it is now composed *into* `CivilizationWorkspace`
+## (`civilization_workspace.gd`'s own `_infra` field) as a nested
+## `VBoxContainer` appended after CIVIL's own five categories, instead of
+## getting an `app.register_workspace()` call and a rail button of its own.
+## `_nested` (set true by `civilization_workspace.gd` before calling
+## `setup()`) is the only behavioural difference this composition needs:
+## CIVIL's own `_build_tools()` already draws ONE combined TOOLS block
+## carrying Settlement/Territory *and* Way/Route in a single row, so this
+## file's own `_build_tools()` must not draw a second, duplicate one -- it
+## still registers the Way/Route click/drag/escape handlers either way, since
+## those are independent of which file drew the buttons.
 ##
 ## Roads and sea routes are read from the engine today (`get_roads`,
 ## `get_sea_routes`) -- those two calls are this whole file's read-only data
@@ -68,6 +84,11 @@ var _way_points: PackedVector2Array = PackedVector2Array()
 var _route_points: PackedVector2Array = PackedVector2Array()
 var _way_type := "road"
 
+## Set true by `civilization_workspace.gd` before `setup()`, when this
+## instance is composed into CIVIL's own dock rather than standing alone --
+## see this file's own class doc for why.
+var _nested := false
+
 func _build() -> void:
 	_build_tools()
 	_build_roads()
@@ -79,14 +100,18 @@ func _build() -> void:
 # -- Tools (§4.5.4: Way, Route) ------------------------------------------
 
 ## §4.5's TOOLS block: the three global tools (Inspect/Measure/Region,
-## `GlobalTools.install`) plus this domain's own two. Built first, matching
-## `render_workspace.gd`'s ordering (§4.5: "every left dock opens with a
-## TOOLS block").
+## `GlobalTools.install`) plus this domain's own two. Skipped when `_nested`
+## -- `civilization_workspace.gd`'s own combined TOOLS block already drew
+## these same two buttons (plus Settlement/Territory) in one row, so drawing
+## a second row here would duplicate them. The handler registration below
+## still runs unconditionally: it is what makes the *buttons CIVIL drew*
+## actually do something when clicked, regardless of which file drew them.
 func _build_tools() -> void:
-	DccWidgets.tools_block(self, app, app.tool_group, [
-		{"id": "way", "glyph": "tool_way", "label": "Way (W)"},
-		{"id": "route", "glyph": "tool_route", "label": "Route (⇧R)"},
-	])
+	if not _nested:
+		DccWidgets.tools_block(self, app, app.tool_group, [
+			{"id": "way", "glyph": "tool_way", "label": "Way (W)"},
+			{"id": "route", "glyph": "tool_route", "label": "Route (⇧R)"},
+		])
 	app.register_tool_click_handler("way", func(gx, gy): _way_click(gx, gy))
 	app.register_tool_click_handler("route", func(gx, gy): _route_click(gx, gy))
 	## §4.5.6 lists Way, Route and Measure together as needing special Escape

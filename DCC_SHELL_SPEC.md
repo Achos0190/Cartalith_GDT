@@ -58,6 +58,25 @@
 > metrics; the state dots ● / ○ that §5.1 leans on are among them. Drawing them
 > as glyphs is the alternative and is a question for the design.
 >
+> **Domain merge (2026-08-20), owner instruction verbatim**: *"Infra can be
+> dropped as a name and can be absorbed by civil"*, followed by *"And render
+> into carto."* §3's domain rail goes from five domains to three — **WORLD /
+> CIVIL / CARTO**. INFRA's entire content (Roads/Rivers/Ports/Trade/Logistics,
+> and the Way/Route tools §4.5.4 below describes) now lives under CIVIL;
+> RENDER's entire content (Terrain appearance groups) now lives under CARTO.
+> This is a rename+merge, not a deletion: every tool, dock section and piece
+> of functionality this document describes still exists and still works, just
+> reached through CIVIL or CARTO instead of a rail button of its own. §3's
+> table below is edited in place to show three domains with the merged
+> content folded into CIVIL's and CARTO's own rows. §4.5.4's own heading is
+> left in place rather than renumbered away, so existing cross-references
+> (`GUI_GAP_REGISTER.md`'s own IN-0x rows cite it by number) still resolve —
+> its content is now presented as CIVIL's second tool group rather than a
+> separate domain's, and a note at its top says so. This also directly
+> resolves the CA-01/RN-01 contradiction `GUI_GAP_REGISTER.md` §8.6 flagged:
+> CARTO and RENDER were both proposing to own the same future
+> `set_appearance()`-shaped `#[func]`; merging the domains removes the split.
+>
 > Path note: the design team writes to a `docs/`-rooted convention. In this
 > repository `docs/` holds the **source project's** own documentation, and two
 > filenames collide (`UNIFIED_TOOL_PLAN.md`, `ROADMAP.md`) — `docs/README.md`
@@ -264,16 +283,16 @@ Documentation, Keyboard shortcuts, Credits & academic principles
 
 ## 3 · Domain rail
 
-40 px collapsed column between the frame edge and the left dock. Five domains,
-vertical labels, active in accent:
+40 px collapsed column between the frame edge and the left dock. **Three**
+domains (was five before the 2026-08-20 merge disclosed at this document's own
+top — INFRA folded into CIVIL, RENDER folded into CARTO), vertical labels,
+active in accent:
 
 | Domain | Left dock shows | Right dock shows |
 |---|---|---|
 | WORLD | Generation Pipeline / Sculpt switch (§5) | Sample readout |
-| CIVIL | Settlements, population, economy, politics, culture | Selection inspector |
-| INFRA | Roads, rivers, ports, trade, logistics | Route/journey inspector |
-| CARTO | Layer list + layer properties (§7) | Ramp / stop editor |
-| RENDER | Terrain appearance groups | Preview & quality |
+| CIVIL | Settlements, population, economy, politics, culture — *and, since the merge,* roads, rivers, ports, trade, logistics | Selection inspector, route/journey inspector |
+| CARTO | Layer list + layer properties (§7) — *and, since the merge,* terrain appearance groups | Ramp / stop editor, preview & quality |
 
 Every left dock opens with the TOOLS block described in §4.5; below it comes the
 domain's own structure.
@@ -285,8 +304,8 @@ domain's sub-nodes as a 200 px list. The rail foot shows the active context
 (`04 / 10`).
 
 Nothing else is a workspace. Rendering, LOD and 3D belong to Preferences ▸
-Graphics / Tiles & LOD; settlements and routes to CIVIL; terrain appearance to
-CARTO.
+Graphics / Tiles & LOD; settlements, routes and terrain appearance to CIVIL and
+CARTO respectively, per the row above.
 
 ---
 
@@ -382,7 +401,17 @@ Settlement and POI are **two tools, not one** — v2.10 keeps `place` and
 `place_poi` separate because they write different records. Territory paint takes
 pointer capture and is LOD-aware, so it lands on the right cells under deep zoom.
 
+**Since the 2026-08-20 merge, CIVIL's TOOLS block also carries §4.5.4's Way,
+Route and Journey below** — one combined row, not two stacked ones. §4.5.4
+keeps its own heading and number (cross-referenced by `GUI_GAP_REGISTER.md`'s
+own IN-0x rows) rather than being folded bodily into this table.
+
 ### 4.5.4 INFRA tools
+
+> **Domain merge (2026-08-20)**: INFRA is no longer a rail domain of its own
+> — see this document's own top-of-file correction notice and §3. The three
+> tools below are unchanged in every particular; they now arm from CIVIL's
+> TOOLS block (§4.5.3) instead of a domain of their own.
 
 | Tool | Key | Drag / click | Tool options row | Right dock |
 |---|---|---|---|---|
@@ -393,12 +422,14 @@ Way and Route are also **two tools**: a way is durable geometry others route
 over, a route is a journey along existing geometry. v2.10 separates them
 (`draw_way` vs `route`) and so does this.
 
-> **Addition (2026-08-19)**: a third INFRA tool, **Journey** (rail-foot slot,
-> below the domain buttons, no dedicated hotkey of its own beyond `Data ▸
-> Journey planner… ⇧J`) — arming it swaps the whole INFRA viewport region
-> (map, both docks, tool options bar) for the distance-spine planner laid out
-> in `JOURNEY_PLANNER_SPEC.md`, rather than drawing an overlay on the map like
-> Way/Route/Settlement do. It is not a drag/click tool in the §4.5.1 sense —
+> **Addition (2026-08-19)**: a third tool from this group, **Journey**
+> (rail-foot slot, below the domain buttons, no dedicated hotkey of its own
+> beyond `Data ▸ Journey planner… ⇧J`) — arming it swaps the whole viewport
+> region it lives under (map, both docks, tool options bar) for the
+> distance-spine planner laid out in `JOURNEY_PLANNER_SPEC.md`, rather than
+> drawing an overlay on the map like Way/Route/Settlement do. **Since the
+> 2026-08-20 merge, that region is CIVIL's** (was INFRA's, before INFRA had
+> its own rail domain to swap). It is not a drag/click tool in the §4.5.1 sense —
 > no map gesture is bound to it — so it has no drag/click column here; its
 > own controls live entirely inside the swapped-in view. Reconciled from
 > `JOURNEY_PLANNER_SPEC.md` §2, which this vendored spec predates.
@@ -408,6 +439,13 @@ click would land on is highlighted. Snap to places is a shared modifier, on by
 default.
 
 ### 4.5.5 CARTO tools
+
+> **Domain merge (2026-08-20)**: RENDER's one subject, Terrain appearance
+> groups, now lives in CARTO's left dock (§3) alongside Layers/Layer
+> properties/Annotation below. RENDER never had a tools section of its own to
+> merge here — its dock held no §4.5.x-designed tool, only the three global
+> ones every domain gets (§4.5.1) — so this table is unchanged; only §3's
+> domain table moved.
 
 | Tool | Key | Drag / click | Tool options row | Right dock |
 |---|---|---|---|---|

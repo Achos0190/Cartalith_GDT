@@ -5,7 +5,61 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-19 (post **Layer-visualization audit + seven new
+Last updated: 2026-08-20 (post **Domain rail merge: five domains to three**
+(owner instruction verbatim: *"Infra can be dropped as a name and can be
+absorbed by civil"*, then *"And render into carto."*) — GDScript-only, no
+Rust. `dcc_shell.gd`'s `DOMAINS` const goes from 5 entries to 3
+(WORLD/CIVIL/CARTO); the surviving ids are `"civilization"` and
+`"cartography"`, unchanged, so every existing `active_domain() ==
+"civilization"` check stays correct. `InfrastructureWorkspace` and
+`RenderWorkspace` are **not deleted** — both still own their real category
+builders and tool click/drag/escape handlers, unmodified — they are now
+*composed into* `CivilizationWorkspace`/`CartographyWorkspace` as nested
+`VBoxContainer` children (`_infra`/`_render` fields) rather than getting their
+own `app.gd::_register_workspaces()` entry and rail button. Both nested
+classes gained one `_nested: bool` field: when true, their own
+`_build_tools()` skips drawing a second, duplicate TOOLS row, since the host
+(`civilization_workspace.gd`) now draws ONE combined row (Settlement ·
+Territory · Way · Route) — the nested class still registers its own Way/Route
+click/drag/escape handlers regardless, since those don't care which file drew
+the button. CARTO's merge is simpler: RENDER never had a domain-specific tool
+(`render_workspace.gd`'s own comment always said so), so nesting it only
+adds its one "Terrain appearance" disclosed-placeholder section after CARTO's
+three categories, no tools-row surgery needed. `app.gd` updated in three
+places: `_register_workspaces()` (3 entries now), `_on_workspace_changed()`
+(dropped the `"infrastructure"`/`"render"` match arms, merged their idle-state
+text into the `"civilization"`/`"cartography"` arms), `_refresh_rail_foot()`'s
+context dict. `journey_planner_view.gd`'s tool-takeover check
+(`app.active_domain() == "infrastructure"`) and its two
+`app._workspace_panels.get("infrastructure")` reads both moved to
+`"civilization"` — Journey now correctly hides the *whole* CIVIL panel
+(including the nested INFRA content) while armed, matching its own
+documented contract ("swaps the whole domain viewport region"), not just an
+INFRA slice of it as before. `DCC_SHELL_SPEC.md` (owner-supplied, explicitly
+authorized for this one edit) and `GUI_GAP_REGISTER.md` both carry disclosed
+correction notices, not silent rewrites — §3's domain table now shows three
+rows, §4.5.4 (INFRA tools) and §4.5.5 (CARTO tools) keep their numbers and
+gained a merge note each so `GUI_GAP_REGISTER.md`'s own IN-0x cross-references
+still resolve. **Verified**: `select:` grep of the whole `godot-project/`
+tree for `"infrastructure"`/`"render"` as domain-id string literals found
+only comments (all updated) once the change was complete. A real headless
+run (`Godot_v4.7.1-stable_win64_console.exe --headless --path godot-project
+--script res://_domain_merge_check.gd`, temporary script, deleted after use
+per this project's own "scripted headless drive" convention) instantiated the
+real `app.tscn`, waited for `_ready()`, then confirmed live, not just
+parsed: exactly 3 `_domain_buttons` (`world`/`civilization`/`cartography`);
+selecting `civilization` shows all four tool tooltips (`Settlement (S)` /
+`Territory (T)` / `Way (W)` / `Route (⇧R)`) in one row plus all seven
+categories (Settlements/Population/Economy/Politics/Culture/Timeline/Roads/
+Rivers/Ports/Trade/Logistics — the last five nested); selecting `cartography`
+shows `Icon (I)`/`Label (L)` tools, Layers/Layer properties/Annotation
+categories, and a `§ TERRAIN APPEARANCE` section with its real disclosed-gap
+note; arming `journey` while `active_domain() == "civilization"` set
+`journey_planner_view._active = true`, hid the civilization panel and the
+map viewport, showed the Journey left panel and the timeline band, and
+disarming restored both correctly. Plain `--headless --path godot-project
+--quit` (no script) also exits 0 with zero script errors both before and
+after the temporary check script's removal. — previously, post **Layer-visualization audit + seven new
 debug views** (owner report: Ocean currents/Wind were missing from the
 prior pass) — re-checked the reference's *real* `LAYER_GROUPS` (reference
 HTML line 13639-13646: 32 rows, not the prior pass's 18-view list) directly

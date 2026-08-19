@@ -15646,3 +15646,128 @@ shared file; every other file this pass touched is committed on its own.
 `cartalith-native/crates/cartalith-godot/src/sample_bridge.rs`,
 `cartalith-native/crates/cartalith-godot/src/lib.rs` (uncommitted, see
 above), this file, `docs/STATUS.md`.
+
+## Domain rail merge: five domains to three (owner instruction, 2026-08-20)
+
+The owner's direct instruction, verbatim: *"Infra can be dropped as a name
+and can be absorbed by civil."* Followed shortly after by: *"And render into
+carto."* Confirmed interpretation: the domain rail goes from five entries
+(WORLD/CIVIL/INFRA/CARTO/RENDER) to three (**WORLD / CIVIL / CARTO**). INFRA's
+entire content merges into CIVIL; RENDER's entire content merges into CARTO.
+A rename+merge, not a deletion — every tool, dock section and piece of
+functionality that lived under INFRA or RENDER still exists and works,
+reached through CIVIL or CARTO instead. This also directly resolves a real
+ambiguity `GUI_GAP_REGISTER.md` had already flagged on its own: CARTO and
+RENDER were contradicting each other over who owns terrain-appearance
+binding (`CA-01` vs `RN-01`, both wanting the same `set_appearance()`-shaped
+`#[func]`, not yet built) — merging the domains removes the split. GDScript
+only, no Rust.
+
+**Surviving domain ids.** `"civilization"` and `"cartography"`, unchanged —
+every pre-existing `active_domain() == "civilization"` check elsewhere in the
+shell stayed correct with no edit. `"infrastructure"` and `"render"` no
+longer exist as domain ids anywhere; `dcc_shell.gd`'s `DOMAINS` const shrank
+from 5 entries to 3, and every place that built UI or dispatched off it
+(`_build_rail()`, the phone rail, the phone drawer, `menus.gd`'s Window ▸
+Workspace submenu) needed no change at all, because all of them already
+iterated `DOMAINS` rather than hardcoding a count of five.
+
+**Composition, not deletion.** `InfrastructureWorkspace`
+(`infrastructure_workspace.gd`) and `RenderWorkspace` (`render_workspace.gd`)
+still exist as their own classes, unmodified in what they build — their own
+category builders (Roads/Rivers/Ports/Trade/Logistics; the one disclosed
+"Terrain appearance" placeholder) and their own tool click/drag/escape
+handlers (Way/Route) are untouched. What changed is who instantiates them:
+`CivilizationWorkspace` now creates an `InfrastructureWorkspace` in its own
+`_build()`, sets a new `_nested = true` flag on it, appends it as a nested
+`VBoxContainer` child after its own six categories, and calls its `setup()`
+— the same `add_child()`-then-`setup()` order `app.gd`'s own
+`_register_workspaces()` already used for top-level workspaces.
+`CartographyWorkspace` does the identical thing with a `RenderWorkspace`
+instance after its own three categories. Neither nested class gets an
+`app.register_workspace()` call or a rail button of its own anymore —
+`app.gd::_register_workspaces()` now registers 3 workspaces (world,
+civilization, cartography), not 5.
+
+**One combined TOOLS block, not two stacked ones.** Before the merge, CIVIL's
+dock drew one TOOLS row (Settlement, Territory) and INFRA's drew a separate
+one (Way, Route) — two separate top-level workspaces, two separate rows, no
+conflict. Nested, that would have meant two "TOOLS" headers stacked with a
+duplicated Inspect/Measure/Region global row in each — visual clutter with no
+functional benefit. Instead, `civilization_workspace.gd`'s own
+`_build_tools()` now draws ONE row with all four domain buttons (Settlement ·
+Territory · Way · Route); `InfrastructureWorkspace._build_tools()` gained the
+`_nested` flag specifically to skip drawing its own half of that row when
+composed this way, while still unconditionally registering the Way/Route
+click/drag/escape handlers — button-drawing and handler-registration were
+already two independent halves of that function, so splitting them was a
+non-invasive change. `RenderWorkspace` got the same `_nested` flag for
+symmetry, though CARTO's case needed less surgery: RENDER never had a
+domain-specific tool to begin with (`render_workspace.gd`'s own comment
+always said so — its dock only ever carried the three tools every domain
+gets), so nesting it just skips one now-redundant global-tools-only row and
+appends its one "Terrain appearance" section after CARTO's own three
+categories.
+
+**Journey Planner's tool-takeover check moved, and got more correct doing
+it.** `journey_planner_view.gd`'s `_recompute_visibility()` gated on
+`app.active_domain() == "infrastructure"`; its `_show()`/`_hide()` reached
+`app._workspace_panels.get("infrastructure")` to hide/restore just the INFRA
+panel while Journey's own in-shell takeover was active. Both now read
+`"civilization"` instead. This is not a mechanical rename: the class's own
+doc comment says Journey "swaps the whole INFRA viewport region (map, both
+docks, tool options bar)" — under the merge, that whole region is CIVIL's,
+including the nested INFRA content, Settlement/Territory tools and Timeline
+alike. Hiding just an inner INFRA slice (as a literal string-substitution fix
+would have done, if `_workspace_panels` still held a key called
+"infrastructure") would have left CIVIL's own settlement/territory/timeline
+chrome showing behind the Journey takeover — a regression the merge would
+have introduced silently. Reading `"civilization"` and hiding that whole
+panel instead is what actually keeps Journey's documented "whole region
+swap" contract true post-merge.
+
+**Documentation**, per the owner's explicit authorization to edit the
+owner-supplied spec for this one change: `DCC_SHELL_SPEC.md` gained a new
+correction-notice blockquote at the top (same style as its existing six),
+and its §3 domain table now shows three rows with INFRA's/RENDER's content
+folded into CIVIL's/CARTO's own; §4.5.3 (CIVIL tools), §4.5.4 (INFRA tools)
+and §4.5.5 (CARTO tools) each gained a short merge note but kept their
+section numbers, so `GUI_GAP_REGISTER.md`'s own IN-0x cross-references by
+number still resolve. `GUI_GAP_REGISTER.md` §6.11-§6.14's own headers gained
+matching cross-reference notes (INFRA/RENDER's rows are unchanged and still
+accurate — the file/line numbers they cite still resolve, since
+`infrastructure_workspace.gd`/`render_workspace.gd` were repositioned, not
+rewritten).
+
+**Verified.** Grepped the whole `godot-project/` tree for `"infrastructure"`
+and `"render"` as domain-id string literals before and after — before:
+`app.gd`, `dcc_shell.gd`, `journey_planner_view.gd`; after: only prose
+comments documenting the merge itself, zero live code. A real headless run
+(temporary `_domain_merge_check.gd`, deleted after use, same "scripted
+headless drive" convention prior passes used) instantiated the actual
+`app.tscn`, waited for `_ready()` to complete (nodes added during
+`SceneTree._initialize()` do not get `_ready()` until the tree starts
+processing — the script defers its checks to `_process()`, frame 5), then
+confirmed live, not merely parsed: exactly 3 `_domain_buttons`
+(`world`/`civilization`/`cartography`); selecting `civilization` shows
+`Settlement (S)`/`Territory (T)`/`Way (W)`/`Route (⇧R)` tool tooltips in one
+row plus all eleven categories (its own six, plus INFRA's five nested);
+selecting `cartography` shows `Icon (I)`/`Label (L)` tools, its own three
+categories, and a `§ TERRAIN APPEARANCE` section carrying the real disclosed
+gap note; arming `journey` while `active_domain() == "civilization"` set
+`journey_planner_view._active = true`, hid the civilization panel (INFRA
+content included) and the map viewport, showed the Journey left panel
+(`Journeys`/`Party` sections) and the timeline band; disarming restored the
+civilization panel and hid the Journey panel again. Plain `--headless --path
+godot-project --quit` (no script) exits 0 with zero script errors, both
+before this pass's own temporary check script was added and after it was
+removed.
+
+**Files touched:** `cartalith-native/godot-project/shell/dcc_shell.gd`,
+`cartalith-native/godot-project/shell/app.gd`,
+`cartalith-native/godot-project/shell/journey_planner_view.gd`,
+`cartalith-native/godot-project/shell/workspaces/civilization_workspace.gd`,
+`cartalith-native/godot-project/shell/workspaces/infrastructure_workspace.gd`,
+`cartalith-native/godot-project/shell/workspaces/cartography_workspace.gd`,
+`cartalith-native/godot-project/shell/workspaces/render_workspace.gd`,
+`DCC_SHELL_SPEC.md`, `GUI_GAP_REGISTER.md`, this file, `docs/STATUS.md`.

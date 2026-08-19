@@ -23,6 +23,19 @@ class_name CivilizationWorkspace
 ## pins it into the right dock (`right_dock.gd`'s Settlement/Faction
 ## contexts) exactly like clicking it on the map does. Only the TOOLS block
 ## writes to `bridge`.
+##
+## **Domain merge (2026-08-20, owner instruction: "Infra can be dropped as a
+## name and can be absorbed by civil").** This dock now also carries the
+## former INFRA domain's five subjects and its Way/Route tools, via `_infra`
+## below -- a real `InfrastructureWorkspace` instance, unmodified in what it
+## does, appended as a nested `VBoxContainer` after this file's own six
+## categories. `_build_tools()` draws ONE combined TOOLS block (Settlement ·
+## Territory · Way · Route) rather than two stacked ones; `_infra`'s own
+## `_build_tools()` (called from its own `setup()`, `_nested = true`) skips
+## drawing its half of that row but still registers the Way/Route click/drag/
+## escape handlers, since those don't care which file drew the button. See
+## `InfrastructureWorkspace`'s own class doc for the mechanism, and
+## `DCC_SHELL_SPEC.md`'s correction notice for the disclosure.
 
 const KIND_ORDER := ["capital", "city", "town", "village", "hamlet"]
 const KIND_PLURAL := {
@@ -76,8 +89,15 @@ var _tl_filter_ghost := false
 var _tl_filter_highlight := false
 var _tl_sim_out := ""
 
+## The former INFRA domain, nested into this dock -- see this file's own
+## class doc and `InfrastructureWorkspace`'s own class doc for the mechanism.
+var _infra: InfrastructureWorkspace
+
 
 func _build() -> void:
+	_infra = InfrastructureWorkspace.new()
+	_infra._nested = true
+
 	_build_tools()
 	_build_settlements()
 	_build_population()
@@ -86,13 +106,28 @@ func _build() -> void:
 	_build_culture()
 	_build_timeline()
 
-# -- Tools (§4.5.3: Settlement, Territory) -------------------------------
+	## Appended last, after CIVIL's own six categories -- `_infra.setup()`
+	## calls its own `_build()`, which adds its five categories (Roads/
+	## Rivers/Ports/Trade/Logistics) as children of `_infra` itself, and
+	## registers the Way/Route handlers `_build_tools()` above already drew
+	## buttons for. One rule marks the seam so the merge reads as two grouped
+	## subjects, not one undifferentiated list.
+	add_child(DccTheme.rule())
+	add_child(_infra)
+	_infra.setup(app, bridge)
+
+# -- Tools (§4.5.3: Settlement, Territory -- and, since the 2026-08-20 merge,
+# §4.5.4: Way, Route) -----------------------------------------------------
 
 ## §4.5's TOOLS block: the three global tools (`GlobalTools.install`) plus
-## this domain's own two, built first -- matching `infrastructure_workspace
-## .gd`'s own ordering (§4.5: "every left dock opens with a TOOLS block").
+## this domain's own four, built first (§4.5: "every left dock opens with a
+## TOOLS block"). One combined row rather than two stacked ones -- Settlement
+## and Territory are this file's own; Way and Route belong to `_infra`
+## (`InfrastructureWorkspace`, composed in via `_build()` above since the
+## 2026-08-20 domain merge) and are registered by its own `_build_tools()`
+## when `_infra.setup()` runs, `_nested = true` so it draws no second row.
 ##
-## POI is not a third button here: §4.5.3's own table lists it ("Click drops
+## POI is not a fifth button here: §4.5.3's own table lists it ("Click drops
 ## a point of interest, `_civDropPOI`"), but `civ_tools_bridge.rs`'s own
 ## module doc says outright that POI "is not a ported concept" -- no Rust
 ## function anywhere in this workspace drops one, so there is nothing an
@@ -103,6 +138,8 @@ func _build_tools() -> void:
 	DccWidgets.tools_block(self, app, app.tool_group, [
 		{"id": "settlement", "glyph": "tool_settlement", "label": "Settlement (S)"},
 		{"id": "territory", "glyph": "tool_territory", "label": "Territory (T)"},
+		{"id": "way", "glyph": "tool_way", "label": "Way (W)"},
+		{"id": "route", "glyph": "tool_route", "label": "Route (⇧R)"},
 	])
 	app.register_tool_click_handler("settlement", func(gx, gy): _settlement_click(gx, gy))
 	app.register_tool_drag_handler("territory", func(gx, gy): _territory_drag(gx, gy))
@@ -540,8 +577,10 @@ func _build_culture() -> void:
 #
 # Also deliberately NOT wired into `dcc_shell.gd`'s own `timeline_bar`/
 # `timeline_row` (`_build_timeline()` there -- the empty bottom strip
-# `DCC_CONTROL_INDEX.md` §10 reserves, shown for civilization/infrastructure,
-# `app.gd`'s `_on_workspace_changed` line ~271). `TIMELINE_SCOPE.md` §4's own
+# `DCC_CONTROL_INDEX.md` §10 reserves, shown for civilization (was
+# civilization/infrastructure before the 2026-08-20 domain merge -- one
+# surviving id already covers both), `app.gd`'s `_on_workspace_changed`).
+# `TIMELINE_SCOPE.md` §4's own
 # words: "if you're unsure whether a given shell region is the discrete
 # scrub mechanism vs the continuous six-toggle feature, stop and default to
 # building your own dedicated panel rather than risking the wrong one." That

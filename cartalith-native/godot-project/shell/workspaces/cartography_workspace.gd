@@ -25,6 +25,15 @@ class_name CartographyWorkspace
 ## (`app.set_tool_options`) carries only the fast, frequently-changed subset
 ## the spec's own table names -- the two overlap by design, matching how the
 ## reference itself gives Label both a toolbar row and a fuller side panel.
+##
+## **Domain merge (2026-08-20, owner instruction: "And render into carto").**
+## This dock now also carries the former RENDER domain's one subject
+## (terrain appearance groups), via `_render` below -- a real
+## `RenderWorkspace` instance, unmodified in what it does, appended as a
+## nested `VBoxContainer` after this file's own three categories. This
+## directly resolves the CA-01/RN-01 ambiguity `GUI_GAP_REGISTER.md` §8.6
+## flagged: CARTO and RENDER were both proposing to own the same future
+## `set_appearance()`-shaped `#[func]`; merging the domains removes the split.
 
 ## The five layers the shell can actually toggle, in §7's own draw order:
 ## topmost first, matching how the layer list reads.
@@ -90,8 +99,15 @@ var _label_drag_side := 0.0
 var _label_list_body: VBoxContainer
 var _label_edit_body: VBoxContainer
 
+## The former RENDER domain, nested into this dock -- see this file's own
+## class doc and `RenderWorkspace`'s own class doc for the mechanism.
+var _render: RenderWorkspace
+
 
 func _build() -> void:
+	_render = RenderWorkspace.new()
+	_render._nested = true
+
 	DccWidgets.tools_block(self, app, app.tool_group, [
 		{"id": "icon", "glyph": "tool_icon", "label": "Icon (I)"},
 		{"id": "label", "glyph": "tool_label", "label": "Label (L)"},
@@ -116,6 +132,14 @@ func _build() -> void:
 	var annot := DccWidgets.category(self, "Annotation", categories, true)
 	_build_icon_panel(annot)
 	_build_label_panel(annot)
+
+	## Appended last, after CARTO's own three categories -- `_render.setup()`
+	## calls its own `_build()`, which adds its one "Terrain appearance"
+	## section as a child of `_render` itself. One rule marks the seam, same
+	## as `civilization_workspace.gd`'s own INFRA composition.
+	add_child(DccTheme.rule())
+	add_child(_render)
+	_render.setup(app, bridge)
 
 	_register_tools()
 	bridge.generation_finished.connect(func(ok: bool): if ok: _on_world_changed())

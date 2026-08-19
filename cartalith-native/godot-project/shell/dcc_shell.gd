@@ -31,27 +31,32 @@ signal phone_insets_changed()  ## §13: fires whenever a rotation changes where
 ## own left-dock builder rather than the spec (`DCC_CONTROL_INDEX.md`: "the
 ## builder has no source for them" -- this is that source): WORLD's two-mode
 ## switch plus its one TOOLS-block button (`world_workspace.gd::_build`, "the
-## only button that belongs here is Biome paint"), and CIVIL/INFRA/CARTO's own
+## only button that belongs here is Biome paint"), and CIVIL/CARTO's own
 ## `DccWidgets.category()` L2 accordion titles, grepped verbatim from
-## `workspaces/*.gd` (`_build_settlements`/`_build_population`/… etc.). RENDER
-## has exactly one thing in its dock today (`render_workspace.gd`'s
-## `_not_built("Terrain appearance", …)`), so its list is length one.
+## `workspaces/*.gd` (`_build_settlements`/`_build_population`/… etc.).
+##
+## **Domain merge (2026-08-20, owner instruction: "Infra can be dropped as a
+## name and can be absorbed by civil... And render into carto.")** Five
+## domains become three. INFRA's five subjects (Roads/Rivers/Ports/Trade/
+## Logistics) and its Way/Route tools now live under CIVIL, via
+## `civilization_workspace.gd` composing an `InfrastructureWorkspace` instance
+## into its own dock rather than that class getting its own rail button.
+## RENDER's one subject (Terrain appearance) now lives under CARTO the same
+## way, via `cartography_workspace.gd` composing a `RenderWorkspace` instance.
+## Nothing was deleted -- both classes still exist, still own their own
+## category builders and tool click handlers, they are just reached through a
+## different rail button now. See `DCC_SHELL_SPEC.md`'s own correction notice
+## for the full disclosure and `GUI_GAP_REGISTER.md` §6.11-§6.14.
 const DOMAINS: Array = [
 	{"id": "world", "label": "World", "rail": "WORLD", "icon": "domain_world",
 		"subtitle": "Terrain, hydrology, climate and ecology",
 		"subnodes": "Generation pipeline · Sculpt · Biome paint"},
 	{"id": "civilization", "label": "Civilization", "rail": "CIVIL", "icon": "domain_civ",
-		"subtitle": "Settlements, factions, provinces and trade",
-		"subnodes": "Settlements · Population · Economy · Politics · Culture · Timeline"},
-	{"id": "infrastructure", "label": "Infrastructure", "rail": "INFRA", "icon": "domain_infra",
-		"subtitle": "Roads, sea routes, bridges and journeys",
-		"subnodes": "Roads · Rivers · Ports · Trade · Logistics"},
+		"subtitle": "Settlements, factions, provinces, trade, roads, sea routes and journeys",
+		"subnodes": "Settlements · Population · Economy · Politics · Culture · Timeline · Roads · Rivers · Ports · Trade · Logistics"},
 	{"id": "cartography", "label": "Cartography", "rail": "CARTO", "icon": "domain_carto",
-		"subtitle": "Layers, styles, labels and annotation",
-		"subnodes": "Layers · Layer properties · Annotation"},
-	{"id": "render", "label": "Render", "rail": "RENDER", "icon": "domain_render",
-		"subtitle": "Lighting, materials, export and 3D",
-		"subnodes": "Terrain appearance"},
+		"subtitle": "Layers, styles, labels, annotation and terrain appearance",
+		"subnodes": "Layers · Layer properties · Annotation · Terrain appearance"},
 ]
 
 # -- Region handles -----------------------------------------------------------

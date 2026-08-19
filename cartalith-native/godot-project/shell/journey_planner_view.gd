@@ -15,11 +15,21 @@ class_name JourneyPlannerView
 ## `app.workspace_changed`) rather than inventing a second dispatch
 ## mechanism:
 ##
+## **Domain merge (2026-08-20).** INFRA (and the Way/Route/Journey tools with
+## it) merged into CIVIL -- `dcc_shell.gd`'s `DOMAINS` doc comment. Journey
+## still swaps the *whole* domain region it lives under, which is now
+## `"civilization"`, not `"infrastructure"`; every reference to that domain
+## id below was updated to match, and the swap now hides all of CIVIL's own
+## content (Settlement/Territory/Roads/Rivers/... alike), not just the
+## INFRA slice of it -- correct under the merge, since Journey's own contract
+## was always "the whole domain region", never "just the INFRA half of it".
+##
 ## - `_left_panel` is appended to `app.left_dock_body` alongside every
 ##   domain's `register_workspace()` panel, but is never registered as one --
-##   it is shown/hidden by this file directly, and `InfrastructureWorkspace`'s
-##   own panel is hidden the same way while Journey is active (reached via
-##   `app._workspace_panels["infrastructure"]`; a leading-underscore, same-
+##   it is shown/hidden by this file directly, and `CivilizationWorkspace`'s
+##   own panel (which now also contains the nested `InfrastructureWorkspace`)
+##   is hidden the same way while Journey is active (reached via
+##   `app._workspace_panels["civilization"]`; a leading-underscore, same-
 ##   layer read, not a public API this file invented).
 ## - `_center_panel` is appended to `app.viewport_content` next to
 ##   `app.viewport` (the map surface) and swaps places with it -- `app.viewport
@@ -40,7 +50,8 @@ class_name JourneyPlannerView
 ##
 ## Visibility is computed, not stored as a single flag: `_active` is true
 ## exactly when `app.armed_tool == "journey"` AND `app.active_domain() ==
-## "infrastructure"`, recomputed on both `tool_armed` and `workspace_changed`
+## "civilization"` (was `"infrastructure"` before the 2026-08-20 domain
+## merge), recomputed on both `tool_armed` and `workspace_changed`
 ## so switching domains away and back while Journey stays armed (the "one
 ## tool armed at a time, globally" rule every other tool already lives under)
 ## restores the swap correctly instead of leaving stale chrome.
@@ -156,7 +167,7 @@ func open() -> void:
 	app.arm_tool("journey")
 
 func _recompute_visibility() -> void:
-	var should_show := _bound and app.armed_tool == "journey" and app.active_domain() == "infrastructure"
+	var should_show := _bound and app.armed_tool == "journey" and app.active_domain() == "civilization"
 	if should_show == _active:
 		return
 	_active = should_show
@@ -166,9 +177,13 @@ func _recompute_visibility() -> void:
 		_hide()
 
 func _show() -> void:
-	var infra_panel: Control = app._workspace_panels.get("infrastructure")
-	if infra_panel != null:
-		infra_panel.visible = false
+	## Hides the WHOLE civilization panel -- which now nests
+	## `InfrastructureWorkspace` too (2026-08-20 domain merge) -- not just an
+	## INFRA slice of it. Matches Journey's own contract of swapping the whole
+	## domain region it lives under.
+	var civ_panel: Control = app._workspace_panels.get("civilization")
+	if civ_panel != null:
+		civ_panel.visible = false
 	app.viewport.visible = false
 	_left_panel.visible = true
 	_center_panel.visible = true
@@ -183,9 +198,9 @@ func _hide() -> void:
 	_left_panel.visible = false
 	_center_panel.visible = false
 	app.viewport.visible = true
-	var infra_panel: Control = app._workspace_panels.get("infrastructure")
-	if infra_panel != null and app.active_domain() == "infrastructure":
-		infra_panel.visible = true
+	var civ_panel: Control = app._workspace_panels.get("civilization")
+	if civ_panel != null and app.active_domain() == "civilization":
+		civ_panel.visible = true
 	if app.right_dock_ctrl != null:
 		app.right_dock_ctrl.clear_journey()
 	## JP-13: this view is the only thing that ever populates `timeline_row`

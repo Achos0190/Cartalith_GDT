@@ -369,6 +369,16 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 
 ### 6.11 CIVIL workspace — `civilization_workspace.gd`
 
+> **Domain merge (2026-08-20, owner instruction: "Infra can be dropped as a
+> name and can be absorbed by civil"):** INFRA is no longer a rail domain —
+> §6.12 below is now reached through CIVIL, via `civilization_workspace.gd`
+> composing an `InfrastructureWorkspace` instance into its own dock rather
+> than that class getting a rail button of its own. §6.12's own rows are
+> otherwise unchanged; the file and line numbers they cite still resolve,
+> since `infrastructure_workspace.gd` itself was not rewritten, only
+> repositioned. See `DCC_SHELL_SPEC.md`'s own correction notice for the full
+> disclosure.
+
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
 | CV-01 | **POI tool** | 94-101 (comment) | omitted, not built inert: `civ_tools_bridge.rs` says POI *"is not a ported concept"*; no Rust function drops one | yes | §4.5.3 designs it in full (kind · faction · name · snap to way, plus a POI inspector) | (B) small — one `civ_drop_poi` mirroring `civ_drop_settlement`; `cartalith-assets`' `poi` family already carries the 10-slot vocabulary |
@@ -381,7 +391,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | CV-08 | `_civApplyRecovery` / auto-populate's static "Recovery phase" | *absent* | none | — | `design/cartalith-menu-structure.md` §4 names it | **(D)** — `TIMELINE_SCOPE.md` §6: *"adjacent, see §3 point 5. Its own scoping (if any) belongs to `PHASE2_SCOPE.md`, not here"* |
 | CV-09 | The timeline bar's **six simulation-layer toggles** (Climate · Population · Economy · Politics · Infrastructure · Warfare) | `dcc_shell.gd:628-641` builds an empty `timeline_row` | none in-product — `TIMELINE_SCOPE.md` §4 explains why the bar was left untouched | yes | §10 designs the whole region | **(D)** — `DCC_CONTROL_INDEX.md` summary §5 item 5 and `VISION.md`: the engine is a one-shot static generator by explicit, repeated owner decision. **The bar is drawn and empty in CIVIL/INFRA** — see §11. |
 
-### 6.12 INFRA workspace — `infrastructure_workspace.gd`
+### 6.12 INFRA workspace — `infrastructure_workspace.gd` (now composed into CIVIL, §6.11)
 
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
@@ -394,6 +404,13 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | IN-07 | Trade ▸ route assignment | 370-373 | nothing ties a trade relationship to the road or sea lane that would carry it | yes | §3 lists Trade | (B) large |
 
 ### 6.13 CARTO workspace — `cartography_workspace.gd`
+
+> **Domain merge (2026-08-20, owner instruction: "And render into carto."):**
+> RENDER is no longer a rail domain — §6.14 below is now reached through
+> CARTO, via `cartography_workspace.gd` composing a `RenderWorkspace`
+> instance into its own dock. This also directly resolves the CA-01/RN-01
+> row below: CARTO and RENDER are no longer two domains disagreeing about who
+> owns `set_appearance()` — they are the same dock now.
 
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
@@ -408,7 +425,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | CA-09 | Layer list ▸ search field; footer tabs **Blocks / Verticality** | *absent* | none | — | §7 names them | **(C)** — `DCC_CONTROL_INDEX.md` marks Blocks/Verticality **uncertain**: *"undefined in the spec beyond the two words"* → §7.16 |
 | CA-10 | Layer properties ▸ **Visualization dropdown** | *absent* here; `layers_popover.gd` covers it with 18 debug views | the popover's own footer explains the split | yes | §7 lists it; §10's popover overlaps it | **(D)** — deliberately resolved as one popover rather than two competing pickers (`layers_popover.gd:10-15`) |
 
-### 6.14 RENDER workspace — `render_workspace.gd`
+### 6.14 RENDER workspace — `render_workspace.gd` (now composed into CARTO, §6.13)
 
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|

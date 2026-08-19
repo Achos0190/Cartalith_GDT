@@ -199,6 +199,13 @@ func _ready() -> void:
 	set_status("hint", "File ▸ New world… to begin", "text_ghost")
 	set_status("top_world", "—")
 
+## Three rail buttons, not five (`dcc_shell.gd`'s own `DOMAINS` doc comment:
+## 2026-08-20 domain merge). `InfrastructureWorkspace` and `RenderWorkspace`
+## still exist and still build their own real content -- they are just
+## composed *into* `CivilizationWorkspace`/`CartographyWorkspace` now
+## (`civilization_workspace.gd`'s own `_infra` field,
+## `cartography_workspace.gd`'s own `_render` field) rather than getting a
+## `register_workspace()` call of their own here.
 func _register_workspaces() -> void:
 	## Each workspace builds its own left-dock panel and, where it has one, its
 	## own right-dock contribution. They are constructed up front and hidden,
@@ -207,9 +214,7 @@ func _register_workspaces() -> void:
 	for entry in [
 		["world", WorldWorkspace.new()],
 		["civilization", CivilizationWorkspace.new()],
-		["infrastructure", InfrastructureWorkspace.new()],
 		["cartography", CartographyWorkspace.new()],
-		["render", RenderWorkspace.new()],
 	]:
 		var ws: Control = entry[1]
 		ws.name = String(entry[0]).capitalize() + "Workspace"
@@ -273,26 +278,28 @@ func _wire_selection() -> void:
 ## generation is not time-based". Both are functions of the active domain, so
 ## both are driven from one place rather than five workspaces each remembering.
 func _on_workspace_changed(id: String) -> void:
-	timeline_bar.visible = id in ["civilization", "infrastructure"]
+	## Was `id in ["civilization", "infrastructure"]` -- INFRA merged into
+	## CIVIL 2026-08-20 (`dcc_shell.gd`'s `DOMAINS` doc comment), so the one
+	## surviving id already covers both.
+	timeline_bar.visible = id == "civilization"
 	match id:
 		"world": _tool_options_generate()
+		## CARTO absorbed RENDER's one subject (terrain appearance, unbound)
+		## the same pass -- see the note appended below.
 		"cartography": _tool_options_simple("CARTOGRAPHY · STYLE",
-			"presentation only — no control here marks a generation stage stale")
+			"presentation only — no control here marks a generation stage stale. Terrain appearance (formerly the RENDER domain) is real in render.rs but unbound to Godot; quality tier lives in Preferences.")
 		## Settlement/POI/Territory (civ_tools_bridge.rs) and Way/Route/Measure/
 		## Region (infra_tools_bridge.rs) are bound and tested as of 2026-08-19,
-		## and §4.5's TOOLS block that arms them now exists in both docks
-		## (`civilization_workspace.gd`/`infrastructure_workspace.gd`'s own
-		## `_build_tools()`). The earlier wording here claimed the palette "is
-		## not built yet" and was stale the moment those two files shipped --
-		## both of them say so in their own comments. These strings are only the
+		## and §4.5's TOOLS block that arms them now exists in this dock
+		## (`civilization_workspace.gd`'s own `_build_tools()`, which composes
+		## `infrastructure_workspace.gd`'s Way/Route buttons into the same row
+		## since the 2026-08-20 domain merge). The earlier wording here claimed
+		## the palette "is not built yet" and was stale the moment that file
+		## shipped -- it says so in its own comments. These strings are only the
 		## idle default a domain switch lands on; each workspace reclaims the bar
 		## with its own richer row the moment one of its tools arms.
 		"civilization": _tool_options_simple("CIVIL · INSPECT",
-			"Settlement and Territory tools are armed from the TOOLS block in the dock. POI has no engine call (civ_tools_bridge.rs) and is not offered.")
-		"infrastructure": _tool_options_simple("INFRA · INSPECT",
-			"Way, Route and Journey are armed from the TOOLS block in the dock; Measure and Region select are global tools.")
-		"render": _tool_options_simple("RENDER · PREVIEW",
-			"TerrainAppearance is unbound; quality tier lives in Preferences")
+			"Settlement, Territory, Way and Route tools are armed from the TOOLS block in the dock. POI has no engine call (civ_tools_bridge.rs) and is not offered.")
 	_refresh_rail_foot()
 
 func _tool_options_label(row: Control, text: String, token: String) -> void:
@@ -349,8 +356,7 @@ func _new_seed() -> void:
 
 ## §3: the rail foot carries the active context and, in World, the stage counter.
 func _refresh_rail_foot() -> void:
-	var ctx := {"world": "TERRAIN", "civilization": "CIVIL",
-		"infrastructure": "INFRA", "cartography": "STYLE", "render": "RENDER"}
+	var ctx := {"world": "TERRAIN", "civilization": "CIVIL", "cartography": "STYLE"}
 	var text: String = ctx.get(active_domain(), "")
 	if active_domain() == "world":
 		text += "   %s / 10" % ("10" if bridge.has_world else "00")
