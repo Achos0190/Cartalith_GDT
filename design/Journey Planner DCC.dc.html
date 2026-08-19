@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><meta name="design_doc_mode" content="canvas"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet"><style>html,body{margin:0;background:#0a0b0c}a{color:#e0a34a;text-decoration:none;border-bottom:1px solid rgba(224,163,74,.35)}a:hover{color:#f0bd6e}</style></helmet>
+
+<section style="display:flex;flex-direction:column;gap:22px;padding:34px;font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:#8d9296">
+  <div style="display:flex;flex-direction:column;gap:7px;max-width:1120px">
+    <span style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#e8ebec">TURN 2 · DATA ▸ TRAVEL LIBRARY</span>
+    <span style="display:inline-flex;align-self:flex-start;padding:3px 9px;border:1px solid #7d9dae;color:#9fbccb;font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em">ADDITION TO THE ORIGINAL DCC GUI — NOT PART OF THE SHELL SPEC</span>
+    <span style="font-size:12px;color:#6f7478;text-wrap:pretty">Reached from <b style="color:#a9adb0">Data</b> in the top menu bar, alongside Data manager. This is an information layer only: it declares the classifications and constraints the planner computes from, and nothing else — no map, no charts, no illustration. Every entry defined here becomes a selectable option in the planner's party form. <a href="#2a">2a</a> menu item · <a href="#2b">2b</a> library window — entry list and constraints inspector.</span>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:30px;align-items:flex-start">
+
+    <div id="2a" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline;gap:12px;max-width:1240px">
+        <span style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#12100b;background:#e0a34a;padding:3px 8px">2a</span>
+        <span style="color:#e8ebec;font-size:13px">Data menu · Travel library item</span>
+        <span style="color:#6f7478">Opens the window directly (⇧L) — no submenu; definition types are tabs inside. Menu geometry taken verbatim from the shell's Assets menu.</span>
+      </div>
+
+      <div data-screen-label="2a data menu 1240" style="width:1240px;height:640px;background:#0d0e0f;color:#c8cbcd;font:11px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden;position:relative">
+        <div style="height:34px;flex:none;display:flex;align-items:center;gap:0;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10);position:relative;z-index:30">
+          <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec;margin-right:22px">CARTALITH</div>
+          <div style="display:flex;font-size:11.5px;color:#a9adb0">
+            <span style="padding:9px 11px">File</span><span style="padding:9px 11px">Edit</span><span style="padding:9px 11px">Assets</span><span style="padding:9px 11px;color:#e0a34a;background:rgba(224,163,74,.08);border-bottom:1px solid #e0a34a">Data</span><span style="padding:9px 11px">Preferences</span><span style="padding:9px 11px">Window</span><span style="padding:9px 11px">Help</span>
+          </div>
+          <div style="flex:1"></div>
+          <div style="display:flex;gap:22px;font:11px 'IBM Plex Mono',monospace;color:#6f7478"><span>ELDRA · 483920</span><span>finalized · L4 baked</span><span>1.6 GB</span></div>
+        </div>
+
+        <div style="position:absolute;top:34px;left:255px;width:266px;background:#121314;border:1px solid rgba(255,255,255,.14);box-shadow:0 14px 34px rgba(0,0,0,.55);z-index:40;font-size:11.5px;padding:5px 0">
+          <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span><span style="color:#e0a34a">⧉</span> Data manager</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">⇧D · own window</span></div>
+          <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span><span style="color:#e0a34a">⧉</span> Journey planner</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">⇧J</span></div>
+          <div style="height:1px;background:rgba(255,255,255,.09);margin:5px 0"></div>
+          <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px;background:rgba(224,163,74,.10);color:#e8ebec"><span><span style="color:#e0a34a">⧉</span> Travel library…</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">⇧L · own window</span></div>
+          <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span>Settlements &amp; ways</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">▸</span></div>
+          <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span>Trade goods &amp; prices</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">▸</span></div>
+          <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span>Calendar &amp; seasons</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">▸</span></div>
+          <div style="height:1px;background:rgba(255,255,255,.09);margin:5px 0"></div>
+          <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span>Import table .csv…</span></div>
+          <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span>Export world data…</span></div>
+          <div style="height:1px;background:rgba(255,255,255,.09);margin:5px 0"></div>
+          <div style="padding:6px 14px;display:flex;justify-content:space-between;gap:16px"><span>Recompute derived data</span><span style="color:#6f7478;font:10.5px 'IBM Plex Mono',monospace">model V1.915</span></div>
+        </div>
+
+
+        <div style="flex:1;position:relative;background:radial-gradient(900px 600px at 42% 46%,#17191a 0%,#101112 58%,#0d0e0f 100%)">
+          <div style="position:absolute;right:14px;bottom:12px;font:10px 'IBM Plex Mono',monospace;color:#5f6468">map dimmed while a menu is open</div>
+        </div>
+      </div>
+    </div>
+    <div id="2b" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline;gap:12px;max-width:1320px">
+        <span style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#12100b;background:#e0a34a;padding:3px 8px">2b</span>
+        <span style="color:#e8ebec;font-size:13px">Travel library · list + inspector</span>
+        <span style="color:#6f7478">One entry at a time, all its constraints in a flat field table.</span>
+      </div>
+
+      <div data-screen-label="2b travel library 1320" style="width:1320px;height:800px;background:#0d0e0f;color:#c8cbcd;font:11px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+        <div style="height:30px;flex:none;display:flex;align-items:center;gap:12px;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+          <span style="color:#e0a34a;letter-spacing:.14em">⧉ TRAVEL LIBRARY</span>
+          <span style="color:#5f6468">Data ▸ Travel library</span>
+          <div style="flex:1"></div>
+          <span style="color:#5f6468">definitions only · read by the planner at plan time</span>
+          <span style="color:#6f7478">— □ ✕</span>
+        </div>
+
+        <div style="height:27px;flex:none;display:flex;align-items:center;border-bottom:1px solid rgba(255,255,255,.10);font:10px 'IBM Plex Mono',monospace;color:#6f7478">
+          <span style="padding:0 14px;height:100%;display:flex;align-items:center;color:#e0a34a;border-bottom:1px solid #e0a34a;background:rgba(224,163,74,.07);letter-spacing:.14em">ANIMALS &amp; MOUNTS · 11</span>
+          <span style="padding:0 14px;height:100%;display:flex;align-items:center;letter-spacing:.14em">VEHICLES · 6</span>
+          <span style="padding:0 14px;height:100%;display:flex;align-items:center;letter-spacing:.14em">VESSELS · 9</span>
+          <span style="padding:0 14px;height:100%;display:flex;align-items:center;letter-spacing:.14em">PARTY SET-UPS · 7</span>
+          <div style="flex:1"></div>
+          <span style="padding-right:14px;color:#5f6468">⚠ 3 entries incomplete</span>
+        </div>
+
+        <div style="flex:1;display:flex;min-height:0">
+          <div style="width:286px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;min-height:0">
+            <div style="height:26px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 11px;border-bottom:1px solid rgba(255,255,255,.07);font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296"><span>ENTRIES</span><span style="color:#5f6468">＋ ⧉ ✕</span></div>
+            <div style="padding:6px 11px;border-bottom:1px solid rgba(255,255,255,.07)"><span style="display:block;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:10px 'IBM Plex Mono',monospace;color:#5f6468">filter…</span></div>
+            <div style="flex:1;min-height:0;display:flex;flex-direction:column;font-size:11px">
+              <div style="padding:7px 11px 4px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468">CUSTOM · 4</div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 11px;background:rgba(224,163,74,.09);border-left:2px solid #e0a34a"><span style="flex:1;color:#e8ebec">Kharen dray-ox</span><span style="font:9px 'IBM Plex Mono',monospace;color:#e0a34a">draft</span></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 11px;border-left:2px solid transparent"><span style="flex:1">Hill pony</span><span style="font:9px 'IBM Plex Mono',monospace;color:#6f7478">mount</span></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 11px;border-left:2px solid transparent"><span style="flex:1;color:#c9a765">Sand strider ⚠</span><span style="font:9px 'IBM Plex Mono',monospace;color:#e0a840">incomplete</span></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 11px;border-left:2px solid transparent"><span style="flex:1">Marsh buffalo</span><span style="font:9px 'IBM Plex Mono',monospace;color:#6f7478">pack</span></div>
+              <div style="padding:9px 11px 4px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468;border-top:1px solid rgba(255,255,255,.07)">STOCK · 7</div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 11px;color:#8d9296"><span style="flex:1">Donkey</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">pack</span></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 11px;color:#8d9296"><span style="flex:1">Mule</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">pack · in use</span></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 11px;color:#8d9296"><span style="flex:1">Horse</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">mount</span></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 11px;color:#8d9296"><span style="flex:1">Camel</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">pack</span></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 11px;color:#8d9296"><span style="flex:1">Ox</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">draft</span></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 11px;color:#8d9296"><span style="flex:1">Yak</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">pack</span></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:4px 11px;color:#8d9296"><span style="flex:1">Reindeer</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">draft</span></div>
+              <div style="flex:1"></div>
+              <div style="padding:8px 11px;border-top:1px solid rgba(255,255,255,.07);font:9px 'IBM Plex Mono',monospace;color:#5f6468;text-wrap:pretty">stock entries are read-only — duplicate to edit</div>
+            </div>
+          </div>
+
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column;min-height:0">
+            <div style="height:26px;flex:none;display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.07);font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#8d9296"><span style="color:#e0a34a">KHAREN DRAY-OX</span><span style="letter-spacing:.04em;color:#6f7478">custom · edited 3 days ago</span><div style="flex:1"></div><span style="letter-spacing:.04em;color:#6f7478">in use by 2 journeys · 1 party set-up</span></div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0;flex:1;min-height:0">
+              <div style="border-right:1px solid rgba(255,255,255,.07);display:flex;flex-direction:column">
+                <div style="padding:9px 14px 5px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468">CLASSIFICATION</div>
+                <div style="display:grid;grid-template-columns:132px 1fr;gap:4px 10px;padding:0 14px 12px;align-items:center;font-size:11px">
+                  <span>Name</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#e8ebec">Kharen dray-ox</span>
+                  <span>Role</span><span style="display:flex;gap:2px;font:10px 'IBM Plex Mono',monospace"><span style="padding:2px 8px;border:1px solid rgba(255,255,255,.14);color:#6f7478">pack</span><span style="padding:2px 8px;border:1px solid rgba(255,255,255,.14);color:#6f7478">mount</span><span style="padding:2px 8px;border:1px solid #e0a34a;color:#e0a34a">draft</span></span>
+                  <span>Substitutes for</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#c8cbcd;display:flex;justify-content:space-between">Ox<span style="color:#5f6468">▾</span></span>
+                  <span>Size class</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#c8cbcd;display:flex;justify-content:space-between">Large<span style="color:#5f6468">▾</span></span>
+                  <span>Availability</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#c8cbcd;display:flex;justify-content:space-between">Regional — Kharet basin<span style="color:#5f6468">▾</span></span>
+                </div>
+
+                <div style="padding:6px 14px 5px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468;border-top:1px solid rgba(255,255,255,.07)">CAPACITY &amp; SPEED</div>
+                <div style="display:grid;grid-template-columns:132px 1fr;gap:4px 10px;padding:0 14px 12px;align-items:center;font-size:11px">
+                  <span>Load capacity</span><span style="display:flex;align-items:center;gap:6px"><span style="width:76px;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec">240</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">kg</span></span>
+                  <span>Draft pull</span><span style="display:flex;align-items:center;gap:6px"><span style="width:76px;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec">900</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">kg towed</span></span>
+                  <span>Base speed</span><span style="display:flex;align-items:center;gap:6px"><span style="width:76px;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec">3.2</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">km/h</span></span>
+                  <span>Sustainable hours</span><span style="display:flex;align-items:center;gap:6px"><span style="width:76px;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec">8</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">h/day</span></span>
+                  <span>Forced-pace cap</span><span style="display:flex;align-items:center;gap:6px"><span style="width:76px;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec">1.05</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">× base</span></span>
+                </div>
+
+                <div style="padding:6px 14px 5px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468;border-top:1px solid rgba(255,255,255,.07)">SUSTENANCE</div>
+                <div style="display:grid;grid-template-columns:132px 1fr;gap:4px 10px;padding:0 14px 12px;align-items:center;font-size:11px">
+                  <span>Fodder need</span><span style="display:flex;align-items:center;gap:6px"><span style="width:76px;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec">11</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">kg/day</span></span>
+                  <span>Water need</span><span style="display:flex;align-items:center;gap:6px"><span style="width:76px;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec">34</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">L/day</span></span>
+                  <span>Grazing tolerance</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#c8cbcd;display:flex;justify-content:space-between">Full — grasslands only<span style="color:#5f6468">▾</span></span>
+                  <span>Waterless limit</span><span style="display:flex;align-items:center;gap:6px"><span style="width:76px;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec">1.5</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">days</span></span>
+                </div>
+                <div style="flex:1"></div>
+              </div>
+
+              <div style="display:flex;flex-direction:column">
+                <div style="padding:9px 14px 5px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468">TERRAIN CONSTRAINTS · MULTIPLIER, OR BLOCKED</div>
+                <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:2px;font:10.5px 'IBM Plex Mono',monospace">
+                  <div style="display:grid;grid-template-columns:1fr 58px 1fr 58px;gap:3px 12px;color:#8d9296">
+                    <span>plains</span><span style="color:#c8cbcd;text-align:right">1.00</span><span>marsh</span><span style="color:#c8cbcd;text-align:right">0.55</span>
+                    <span>steppe</span><span style="color:#c8cbcd;text-align:right">0.95</span><span>desert</span><span style="color:#b55950;text-align:right">blocked</span>
+                    <span>forest</span><span style="color:#c8cbcd;text-align:right">0.70</span><span>high pass</span><span style="color:#b55950;text-align:right">blocked</span>
+                    <span>hills</span><span style="color:#c8cbcd;text-align:right">0.80</span><span>snowfield</span><span style="color:#c8cbcd;text-align:right">0.40</span>
+                    <span>mountain</span><span style="color:#c8cbcd;text-align:right">0.50</span><span>river ford</span><span style="color:#c8cbcd;text-align:right">0.85</span>
+                  </div>
+                </div>
+
+                <div style="padding:6px 14px 5px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468;border-top:1px solid rgba(255,255,255,.07)">REQUIREMENTS &amp; PROHIBITIONS</div>
+                <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:5px;font-size:11px">
+                  <span style="display:flex;align-items:center;gap:7px;color:#a9adb0"><span style="width:11px;height:11px;flex:none;background:#e0a34a;color:#12100b;font-size:9px;text-align:center;line-height:11px">✓</span>Can be yoked to wheeled vehicles</span>
+                  <span style="display:flex;align-items:center;gap:7px;color:#a9adb0"><span style="width:11px;height:11px;flex:none;background:#e0a34a;color:#12100b;font-size:9px;text-align:center;line-height:11px">✓</span>Requires a road or track for towing</span>
+                  <span style="display:flex;align-items:center;gap:7px;color:#a9adb0"><span style="width:11px;height:11px;flex:none;background:#e0a34a;color:#12100b;font-size:9px;text-align:center;line-height:11px">✓</span>Blocked by seasonal pass closures</span>
+                  <span style="display:flex;align-items:center;gap:7px;color:#6f7478"><span style="width:11px;height:11px;flex:none;border:1px solid rgba(255,255,255,.2)"></span>Can be carried aboard a vessel</span>
+                  <span style="display:flex;align-items:center;gap:7px;color:#6f7478"><span style="width:11px;height:11px;flex:none;border:1px solid rgba(255,255,255,.2)"></span>Usable as a mount</span>
+                  <div style="display:grid;grid-template-columns:132px 1fr;gap:4px 10px;align-items:center;margin-top:3px">
+                    <span>Handlers required</span><span style="display:flex;align-items:center;gap:6px"><span style="width:76px;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec">1</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">per 4 head</span></span>
+                    <span>Cost · upkeep</span><span style="display:flex;align-items:center;gap:6px"><span style="width:76px;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec">2.4</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">sp/day/head</span></span>
+                  </div>
+                </div>
+
+                <div style="padding:6px 14px 5px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468;border-top:1px solid rgba(255,255,255,.07)">VALIDATION</div>
+                <div style="padding:0 14px 12px;display:flex;flex-direction:column;gap:7px;font-size:10.5px">
+                  <div style="border-left:2px solid #e0a840;padding:4px 8px;background:rgba(224,168,64,.07);color:#c9a765;text-wrap:pretty">Grazing tolerance is <b>Full — grasslands only</b> but two terrain multipliers are non-zero outside grassland biomes. The planner will treat those stages as fodder-carrying.</div>
+                  <div style="border-left:2px solid #7d9dae;padding:4px 8px;background:rgba(125,157,174,.07);color:#9fbccb;text-wrap:pretty">Selectable in the party form as <b>Draft animal ▸ Kharen dray-ox</b>. Changing capacity or fodder re-plans 2 saved journeys.</div>
+                </div>
+                <div style="flex:1"></div>
+                <div style="padding:8px 14px;border-top:1px solid rgba(255,255,255,.07);display:flex;gap:9px;font:10px 'IBM Plex Mono',monospace"><span style="padding:2px 9px;border:1px solid #e0a34a;color:#e0a34a">save definition</span><span style="padding:2px 9px;border:1px solid rgba(255,255,255,.16);color:#a9adb0">duplicate</span><span style="padding:2px 9px;border:1px solid rgba(255,255,255,.16);color:#a9adb0">revert</span><div style="flex:1"></div><span style="color:#5f6468">changes apply at next plan</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+  </div>
+</section>
+
+<section style="display:flex;flex-direction:column;gap:22px;padding:34px;font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;color:#8d9296">
+  <div style="display:flex;flex-direction:column;gap:6px;max-width:1080px">
+    <span style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#e8ebec">TURN 1 · JOURNEY PLANNER · DCC SHELL</span>
+    <span style="font-size:12px;color:#6f7478;text-wrap:pretty">Every v2.10 field kept — party form, per-stage overrides, stops/layovers, results — on the DCC shell's own menu bar and domain rail. Direction: <a href="#1a">1a</a> distance spine — route map and terrain profile on one distance axis, the profile acting as the stage selector.</span>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:30px;align-items:flex-start">
+
+    <div id="1a" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:baseline;gap:12px;max-width:1920px">
+        <span style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#12100b;background:#e0a34a;padding:3px 8px">1a</span>
+        <span style="color:#e8ebec;font-size:13px">Distance spine</span>
+        <span style="color:#6f7478">Route map and terrain profile share one distance axis; the profile is the stage selector. Party in the left dock, results right, selected stage's full override set below the spine.</span>
+      </div>
+
+      <div data-screen-label="1a planner dark 1920" style="width:1920px;height:1080px;background:#0d0e0f;color:#c8cbcd;font:11px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+
+        <div style="height:34px;flex:none;display:flex;align-items:center;gap:0;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10)">
+          <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec;margin-right:22px">CARTALITH</div>
+          <div style="display:flex;font-size:11.5px;color:#a9adb0">
+            <span style="padding:9px 11px">File</span><span style="padding:9px 11px">Edit</span><span style="padding:9px 11px">Assets</span><span style="padding:9px 11px">Data</span><span style="padding:9px 11px">Preferences</span><span style="padding:9px 11px">Window</span><span style="padding:9px 11px">Help</span>
+          </div>
+          <div style="flex:1"></div>
+          <div style="display:flex;gap:22px;font:11px 'IBM Plex Mono',monospace;color:#6f7478"><span>ELDRA · 483920</span><span>finalized · L4 baked</span><span>CPU 38</span><span>GPU 71</span><span>1.6 GB</span></div>
+        </div>
+
+        <div style="height:34px;flex:none;display:flex;align-items:center;gap:18px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+          <span style="color:#e0a34a;letter-spacing:.14em">JOURNEY PLANNER</span>
+          <span style="display:flex;align-items:center;gap:7px">journey <span style="color:#c8cbcd">Ashfeld → Tal Vurun</span><span style="color:#5f6468">▾</span></span>
+          <span style="display:flex;align-items:center;gap:7px">preset <span style="color:#c8cbcd">Merchant caravan</span><span style="color:#5f6468">▾</span></span>
+          <span style="display:flex;align-items:center;gap:7px">carriage <span style="display:flex;gap:2px"><span style="padding:3px 9px;border:1px solid #e0a34a;color:#e0a34a">auto</span><span style="padding:3px 9px;border:1px solid rgba(255,255,255,.16)">manual</span></span></span>
+          <span style="padding:3px 9px;border:1px solid rgba(255,255,255,.16)">re-route for Baggage Train…</span>
+          <span style="color:#5f6468">⇧ drag spine to trim · ⌥ click isolates a stage</span>
+          <div style="flex:1"></div>
+          <span style="padding:3px 11px;border:1px solid #e0a34a;color:#e0a34a">save journey</span>
+          <span style="padding:3px 11px;border:1px solid rgba(255,255,255,.16)">export table</span>
+        </div>
+
+        <div style="flex:1;display:flex;min-height:0">
+
+          <div style="width:40px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;align-items:center">
+            <div style="height:29px;width:100%;flex:none;display:flex;align-items:center;justify-content:center;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">›</div>
+            <div style="padding:12px 0;display:flex;flex-direction:column;gap:14px;align-items:center;font:10px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#5f6468">
+              <div style="writing-mode:vertical-rl">WORLD</div>
+              <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+              <div style="writing-mode:vertical-rl">CIVIL</div>
+              <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+              <div style="writing-mode:vertical-rl;color:#e0a34a">INFRA</div>
+              <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+              <div style="writing-mode:vertical-rl">CARTO</div>
+              <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+              <div style="writing-mode:vertical-rl">RENDER</div>
+            </div>
+            <div style="flex:1"></div>
+            <div style="padding:0 0 12px;font:10px 'IBM Plex Mono',monospace;color:#5f6468;writing-mode:vertical-rl;letter-spacing:.12em">JOURNEY</div>
+          </div>
+          <div style="width:340px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;min-height:0">
+            <div style="height:29px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 11px;border-bottom:1px solid rgba(255,255,255,.10);font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296"><span>JOURNEYS · 3</span><span style="color:#5f6468">＋ ⧉ ✕</span></div>
+            <div style="flex:none;border-bottom:1px solid rgba(255,255,255,.10);padding-bottom:3px">
+              <div style="display:flex;align-items:center;gap:8px;padding:5px 11px;background:rgba(224,163,74,.08)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec">Ashfeld → Tal Vurun</span><span style="font:10px 'IBM Plex Mono',monospace;color:#e0a34a">41 d</span></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:5px 11px;color:#a9adb0"><span style="color:#5f6468">○</span><span style="flex:1">Coast run · Miraz</span><span style="font:10px 'IBM Plex Mono',monospace;color:#6f7478">9 d</span></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:5px 11px;color:#a9adb0"><span style="color:#5f6468">○</span><span style="flex:1">Kharet pass crossing</span><span style="font:10px 'IBM Plex Mono',monospace;color:#b55950">⛔</span></div>
+            </div>
+
+            <div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column">
+              <div style="padding:8px 11px 6px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.07)"><span>PARTY · TRAVELER</span><span style="color:#5f6468">⌄</span></div>
+              <div style="display:grid;grid-template-columns:113px 1fr;gap:3px 8px;padding:8px 11px;align-items:center;font-size:11px">
+                <span>Group size</span><span style="display:flex;align-items:center;gap:5px"><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec">64</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">people</span></span>
+                <span>Pace</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#c8cbcd;display:flex;justify-content:space-between">Steady<span style="color:#5f6468">▾</span></span>
+                <span>Hours/day <span style="color:#5f6468">land</span></span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec">9</span>
+                <span>Trade cargo</span><span style="display:flex;align-items:center;gap:5px"><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec">7 200</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">kg</span></span>
+                <span>Supplies carried</span><span style="display:flex;align-items:center;gap:5px"><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec">14</span><span style="font:9px 'IBM Plex Mono',monospace;color:#5f6468">days</span></span>
+              </div>
+              <div style="margin:0 11px 7px;padding:5px 7px;border-left:2px solid #e0a840;background:rgba(224,168,64,.07);font-size:10.5px;color:#c9a765;text-wrap:pretty">A mule carries at most <b style="color:#e0a840">~19 days</b> of its own fodder at this grazing setting. You are close to that ceiling.</div>
+              <div style="display:grid;grid-template-columns:113px 1fr;gap:3px 8px;padding:0 11px 9px;align-items:center;font-size:11px">
+                <span>Carry food</span><span style="display:flex;align-items:center;gap:6px"><span style="width:11px;height:11px;flex:none;background:#e0a34a;color:#12100b;font-size:9px;text-align:center;line-height:11px">✓</span><span style="color:#8d9296;font-size:10.5px">off = live off the land</span></span>
+                <span>Grazing</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#c8cbcd;display:flex;justify-content:space-between">Partial<span style="color:#5f6468">▾</span></span>
+                <span>Foraging</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#c8cbcd;display:flex;justify-content:space-between">Light<span style="color:#5f6468">▾</span></span>
+              </div>
+
+              <div style="padding:7px 11px 6px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,.07);border-bottom:1px solid rgba(255,255,255,.07)"><span>SEASON &amp; WEATHER</span><span style="color:#5f6468">⌄</span></div>
+              <div style="display:grid;grid-template-columns:113px 1fr;gap:3px 8px;padding:8px 11px 7px;align-items:center;font-size:11px">
+                <span>Season</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#c8cbcd;display:flex;justify-content:space-between">Late spring<span style="color:#5f6468">▾</span></span>
+                <span>Weather</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#e0a34a;display:flex;justify-content:space-between">auto<span style="color:#5f6468">▾</span></span>
+                <span>Rest days</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#e0a34a;display:flex;justify-content:space-between">auto · 1 in 4<span style="color:#5f6468">▾</span></span>
+              </div>
+              <div style="padding:0 11px 8px;display:flex;flex-direction:column;gap:4px;font-size:10.5px;color:#6f7478">
+                <span style="text-wrap:pretty">Weighted by the season's own weather odds for this biome.</span>
+                <span style="display:flex;align-items:center;gap:6px;color:#a9adb0"><span style="width:11px;height:11px;flex:none;background:#e0a34a;color:#12100b;font-size:9px;text-align:center;line-height:11px">✓</span>Season advances during the journey</span>
+              </div>
+
+              <div style="padding:7px 11px 6px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,.07);border-bottom:1px solid rgba(255,255,255,.07)"><span>CARRIAGE</span><span style="display:flex;gap:2px;font:9px 'IBM Plex Mono',monospace"><span style="padding:1px 6px;border:1px solid #e0a34a;color:#e0a34a">AUTO</span><span style="padding:1px 6px;border:1px solid rgba(255,255,255,.14);color:#6f7478">MANUAL</span></span></div>
+              <div style="display:grid;grid-template-columns:113px 1fr;gap:3px 8px;padding:8px 11px 6px;align-items:center;font-size:11px">
+                <span>Transport</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#c8cbcd;display:flex;justify-content:space-between">Baggage Train<span style="color:#5f6468">▾</span></span>
+                <span>Donkeys / Mules</span><span style="display:flex;gap:4px"><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;font:11px 'IBM Plex Mono',monospace;color:#6f7478">0</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;font:11px 'IBM Plex Mono',monospace;color:#8d9296">36</span></span>
+                <span>Camels / Horses</span><span style="display:flex;gap:4px"><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;font:11px 'IBM Plex Mono',monospace;color:#6f7478">0</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;font:11px 'IBM Plex Mono',monospace;color:#6f7478">4</span></span>
+                <span>Carts / Wagons</span><span style="display:flex;gap:4px"><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;font:11px 'IBM Plex Mono',monospace;color:#8d9296">2</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;font:11px 'IBM Plex Mono',monospace;color:#6f7478">0</span></span>
+                <span>Travois / Sleds</span><span style="display:flex;gap:4px"><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;font:11px 'IBM Plex Mono',monospace;color:#6f7478">0</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;font:11px 'IBM Plex Mono',monospace;color:#6f7478">0</span></span>
+              </div>
+              <div style="padding:0 11px 8px;display:flex;flex-direction:column;gap:5px;font-size:10.5px">
+                <span style="display:flex;align-items:center;gap:6px;color:#a9adb0"><span style="width:11px;height:11px;flex:none;background:#e0a34a;color:#12100b;font-size:9px;text-align:center;line-height:11px">✓</span>Auto-promote Walking → Baggage Train if overloaded</span>
+                <span style="color:#6f7478;text-wrap:pretty">Auto picked <b style="color:#a9adb0">36 mules + 2 carts</b> — best for this route's terrain × biome, km-weighted.</span>
+              </div>
+
+              <div style="padding:7px 11px 6px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,.07);border-bottom:1px solid rgba(255,255,255,.07)"><span>ROUTE CONDITIONS</span><span style="color:#5f6468">⌄</span></div>
+              <div style="display:grid;grid-template-columns:113px 1fr;gap:3px 8px;padding:8px 11px 6px;align-items:center;font-size:11px">
+                <span>Road quality</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#e0a34a;display:flex;justify-content:space-between">auto · Track<span style="color:#5f6468">▾</span></span>
+                <span>Infrastructure</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#e0a34a;display:flex;justify-content:space-between">auto · Sparse<span style="color:#5f6468">▾</span></span>
+                <span>Desert water</span><span style="padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#e0a34a;display:flex;justify-content:space-between">auto · 2-day run<span style="color:#5f6468">▾</span></span>
+              </div>
+              <div style="padding:0 11px 9px;display:flex;align-items:center;gap:6px;font-size:10.5px;color:#a9adb0"><span style="width:11px;height:11px;flex:none;background:#e0a34a;color:#12100b;font-size:9px;text-align:center;line-height:11px">✓</span>Respect seasonal closures (winter passes)</div>
+
+              <div style="flex:1"></div>
+              <div style="padding:8px 11px;border-top:1px solid rgba(255,255,255,.07);font:10px 'IBM Plex Mono',monospace;color:#5f6468">preset: Merchant caravan · 3 fields changed from preset</div>
+            </div>
+          </div>
+          <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+
+            <div style="height:236px;flex:none;display:flex;border-bottom:1px solid rgba(255,255,255,.10);min-width:0">
+              <div style="flex:1;position:relative;background:radial-gradient(900px 600px at 40% 46%,#17191a 0%,#101112 60%,#0d0e0f 100%);min-width:0;overflow:hidden">
+                <div style="position:absolute;inset:0;background:radial-gradient(300px 200px at 30% 40%,rgba(224,163,74,.05),transparent 70%),radial-gradient(420px 260px at 70% 66%,rgba(120,150,170,.05),transparent 70%)"></div>
+                <div style="position:absolute;left:14px;top:10px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#8d9296">ROUTE · 1 482 KM · 11 STAGES</div>
+                <svg viewBox="0 0 900 236" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+                  <path d="M60 168 C 150 150, 190 96, 268 92 S 372 128, 452 104 C 520 84, 560 132, 632 140 S 742 96, 836 76" fill="none" stroke="#e0a34a" stroke-width="1.6"></path>
+                  <path d="M452 104 C 520 84, 560 132, 632 140" fill="none" stroke="#7d9dae" stroke-width="3"></path>
+                  <path d="M268 92 S 372 128, 452 104" fill="none" stroke="#e0a34a" stroke-width="4.5" opacity=".95"></path>
+                  <g fill="none" stroke="rgba(255,255,255,.07)" stroke-width="1"><path d="M0 190 C 200 176, 320 206, 520 186 S 780 200, 900 182"></path><path d="M0 58 C 180 44, 300 74, 520 52 S 760 70, 900 48"></path></g>
+                  <g font-family="IBM Plex Mono, monospace" font-size="9" fill="#6f7478"><text x="70" y="186">Ashfeld</text><text x="262" y="80">Valdrin</text><text x="440" y="94">Ferrun Ford</text><text x="628" y="158">Miraz</text><text x="782" y="66">Tal Vurun</text></g>
+                  <g fill="#0d0e0f" stroke="#e0a34a" stroke-width="1.4"><circle cx="60" cy="168" r="3.5"></circle><circle cx="268" cy="92" r="3"></circle><circle cx="452" cy="104" r="3"></circle><circle cx="632" cy="140" r="3"></circle><circle cx="836" cy="76" r="3.5"></circle></g>
+                </svg>
+                <div style="position:absolute;left:14px;bottom:12px;font:10px 'IBM Plex Mono',monospace;color:#6f7478;display:flex;align-items:center;gap:9px"><span style="width:70px;height:1px;background:#8d9296;position:relative"><span style="position:absolute;left:0;top:-3px;width:1px;height:7px;background:#8d9296"></span><span style="position:absolute;right:0;top:-3px;width:1px;height:7px;background:#8d9296"></span></span>200 km</div>
+                <div style="position:absolute;right:14px;bottom:12px;font:10px 'IBM Plex Mono',monospace;color:#6f7478">stage 3 highlighted · water leg in blue</div>
+              </div>
+              <div style="width:196px;flex:none;border-left:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column">
+                <div style="padding:7px 11px 5px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#8d9296;border-bottom:1px solid rgba(255,255,255,.07)">ROUTE TOTALS</div>
+                <div style="padding:9px 11px;display:flex;flex-direction:column;gap:6px;font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+                  <div style="display:flex;justify-content:space-between"><span>distance</span><span style="color:#c8cbcd">1 482 km</span></div>
+                  <div style="display:flex;justify-content:space-between"><span>land · water</span><span style="color:#c8cbcd">1 194 · 288</span></div>
+                  <div style="display:flex;justify-content:space-between"><span>ascent</span><span style="color:#c8cbcd">6 410 m</span></div>
+                  <div style="display:flex;justify-content:space-between"><span>high point</span><span style="color:#c8cbcd">2 240 m</span></div>
+                  <div style="display:flex;justify-content:space-between"><span>stages</span><span style="color:#c8cbcd">11 · 1 blocked</span></div>
+                  <div style="display:flex;justify-content:space-between"><span>settlements</span><span style="color:#c8cbcd">4 on path</span></div>
+                  <div style="height:1px;background:rgba(255,255,255,.07)"></div>
+                  <div style="display:flex;justify-content:space-between"><span>mean speed</span><span style="color:#e0a34a">31.4 km/d</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div style="height:150px;flex:none;border-bottom:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;min-width:0">
+              <div style="height:22px;flex:none;display:flex;align-items:center;gap:14px;padding:0 12px;font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9296;border-bottom:1px solid rgba(255,255,255,.07)"><span>PROFILE · STAGE SELECTOR</span><span style="color:#5f6468;letter-spacing:.05em">click a band to inspect · elevation left axis · km/day track below</span></div>
+              <div style="flex:1;position:relative;min-width:0">
+                <svg viewBox="0 0 1180 128" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">
+                  <g stroke="rgba(255,255,255,.06)" stroke-width="1"><path d="M0 24H1180"></path><path d="M0 56H1180"></path><path d="M0 88H1180"></path></g>
+                  <path d="M0 104 L70 96 L150 74 L232 44 L300 30 L360 52 L432 62 L520 60 L560 84 L640 88 L700 74 L760 46 L840 34 L900 58 L980 70 L1060 62 L1120 44 L1180 40 L1180 128 L0 128Z" fill="rgba(224,163,74,.10)" stroke="none"></path>
+                  <path d="M0 104 L70 96 L150 74 L232 44 L300 30 L360 52 L432 62 L520 60 L560 84 L640 88 L700 74 L760 46 L840 34 L900 58 L980 70 L1060 62 L1120 44 L1180 40" fill="none" stroke="#e0a34a" stroke-width="1.4"></path>
+                  <rect x="232" y="0" width="128" height="128" fill="rgba(224,163,74,.13)"></rect>
+                  <rect x="232" y="0" width="128" height="128" fill="none" stroke="#e0a34a" stroke-width="1"></rect>
+                  <rect x="520" y="0" width="120" height="128" fill="rgba(120,150,170,.10)"></rect>
+                  <rect x="900" y="0" width="80" height="128" fill="rgba(181,89,80,.12)"></rect>
+                  <g stroke="rgba(255,255,255,.09)" stroke-width="1"><path d="M70 0V128"></path><path d="M150 0V128"></path><path d="M232 0V128"></path><path d="M360 0V128"></path><path d="M432 0V128"></path><path d="M520 0V128"></path><path d="M640 0V128"></path><path d="M760 0V128"></path><path d="M900 0V128"></path><path d="M980 0V128"></path><path d="M1060 0V128"></path></g>
+                  <g font-family="IBM Plex Mono, monospace" font-size="8.5" fill="#5f6468"><text x="4" y="12">2 400 m</text><text x="4" y="124">0</text></g>
+                </svg>
+                <div style="position:absolute;left:0;right:0;bottom:0;height:15px;display:flex;font:9px 'IBM Plex Mono',monospace;color:#5f6468">
+                  <span style="width:5.9%;border-right:1px solid rgba(255,255,255,.07);padding-left:4px">1</span>
+                  <span style="width:6.8%;border-right:1px solid rgba(255,255,255,.07);padding-left:4px">2</span>
+                  <span style="width:10.8%;border-right:1px solid rgba(255,255,255,.07);padding-left:4px;color:#e0a34a">3 · Kharet pass</span>
+                  <span style="width:6.1%;border-right:1px solid rgba(255,255,255,.07);padding-left:4px">4</span>
+                  <span style="width:7.5%;border-right:1px solid rgba(255,255,255,.07);padding-left:4px">5</span>
+                  <span style="width:10.2%;border-right:1px solid rgba(255,255,255,.07);padding-left:4px;color:#7d9dae">6 · river</span>
+                  <span style="width:10.2%;border-right:1px solid rgba(255,255,255,.07);padding-left:4px">7</span>
+                  <span style="width:11.9%;border-right:1px solid rgba(255,255,255,.07);padding-left:4px">8</span>
+                  <span style="width:6.8%;border-right:1px solid rgba(255,255,255,.07);padding-left:4px;color:#b55950">9 ⛔</span>
+                  <span style="width:6.8%;border-right:1px solid rgba(255,255,255,.07);padding-left:4px">10</span>
+                  <span style="flex:1;padding-left:4px">11</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="height:32px;flex:none;display:flex;align-items:center;gap:14px;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.10);min-width:0">
+              <span style="font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#8d9296;flex:none">STOPS · LAYOVER DAYS</span>
+              <div style="flex:1;display:flex;gap:8px;min-width:0">
+                <span style="display:flex;align-items:center;gap:6px;font-size:11px"><span style="color:#a9adb0">Ashfeld</span><span style="width:34px;padding:2px 6px;border:1px solid rgba(255,255,255,.10);background:#0f1011;font:11px 'IBM Plex Mono',monospace;color:#6f7478;text-align:right">0</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">d</span></span>
+                <span style="display:flex;align-items:center;gap:6px;font-size:11px"><span style="color:#a9adb0">Valdrin</span><span style="width:34px;padding:2px 6px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec;text-align:right">2</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">d</span></span>
+                <span style="display:flex;align-items:center;gap:6px;font-size:11px"><span style="color:#a9adb0">Ferrun Ford</span><span style="width:34px;padding:2px 6px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec;text-align:right">1</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">d</span></span>
+                <span style="display:flex;align-items:center;gap:6px;font-size:11px"><span style="color:#a9adb0">Miraz</span><span style="width:34px;padding:2px 6px;border:1px solid rgba(255,255,255,.14);background:#111314;font:11px 'IBM Plex Mono',monospace;color:#e8ebec;text-align:right">3</span><span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468">d</span></span>
+              </div>
+              <span style="font:10px 'IBM Plex Mono',monospace;color:#5f6468;flex:none">6 layover days · placed at the settlements the route already threads</span>
+            </div>
+
+            <div style="flex:1;min-height:0;display:flex;min-width:0">
+              <div style="flex:1;min-width:0;display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,.10)">
+                <div style="height:26px;flex:none;display:flex;align-items:center;gap:12px;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.07);font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#8d9296"><span style="color:#e0a34a">STAGE 3 · KHARET PASS</span><span style="letter-spacing:.05em;color:#6f7478">mountain · 160 km · 2 240 m · montane</span><div style="flex:1"></div><span style="color:#5f6468;letter-spacing:.05em">overrides on this stage: 2</span></div>
+
+                <div style="margin:10px 12px 0;padding:7px 9px;border-left:2px solid #e0a34a;background:rgba(224,163,74,.07);display:flex;align-items:center;gap:10px;font-size:11px;color:#c9a765;text-wrap:pretty">
+                  <span style="flex:1">⚡ <b>Mounted Rider</b> would be ~18% faster here (37.1 vs 31.4 km/day) — same people and cargo, different marching order.</span>
+                  <span style="padding:2px 9px;border:1px solid #e0a34a;color:#e0a34a;font:10px 'IBM Plex Mono',monospace;flex:none">use here</span>
+                </div>
+
+                <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:3px 16px;padding:11px 12px;align-items:center;font-size:11px;min-width:0">
+                  <span style="grid-column:1/-1;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468;padding-bottom:3px">OVERRIDES · BLANK INHERITS THE PARTY FORM</span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Travel mode</span><span style="flex:1;padding:3px 7px;border:1px solid #e0a34a;background:#141311;color:#e8ebec;display:flex;justify-content:space-between">Mounted Rider<span style="color:#5f6468">▾</span></span></span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Group size</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;color:#5f6468;font:11px 'IBM Plex Mono',monospace">64 (inherit)</span></span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Cargo (kg)</span><span style="flex:1;padding:3px 7px;border:1px solid #e0a34a;background:#141311;color:#e8ebec;font:11px 'IBM Plex Mono',monospace">4 800</span></span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Pace</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;color:#5f6468;display:flex;justify-content:space-between">Inherit (Steady)<span>▾</span></span></span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Hours/day</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;color:#5f6468;font:11px 'IBM Plex Mono',monospace">9 (inherit)</span></span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Weather</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;color:#5f6468;display:flex;justify-content:space-between">Inherit (auto)<span>▾</span></span></span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Carry food</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;color:#5f6468;display:flex;justify-content:space-between">Inherit (Yes)<span>▾</span></span></span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Supplies (d)</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;color:#5f6468;font:11px 'IBM Plex Mono',monospace">14 (inherit)</span></span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Road quality</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;color:#5f6468;display:flex;justify-content:space-between">Auto (Path)<span>▾</span></span></span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Infrastructure</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;color:#5f6468;display:flex;justify-content:space-between">Auto (None)<span>▾</span></span></span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Grazing</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;color:#5f6468;display:flex;justify-content:space-between">Inherit (Partial)<span>▾</span></span></span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Foraging</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;color:#5f6468;display:flex;justify-content:space-between">Inherit (Light)<span>▾</span></span></span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Mount</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.14);background:#111314;color:#c8cbcd;display:flex;justify-content:space-between">Hill pony<span style="color:#5f6468">▾</span></span></span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Desert water</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.10);background:#0f1011;color:#5f6468;display:flex;justify-content:space-between">Auto (n/a)<span>▾</span></span></span>
+                  <span style="display:flex;align-items:center;gap:8px;min-width:0"><span style="width:82px;flex:none;color:#8d9296">Vessel</span><span style="flex:1;padding:3px 7px;border:1px solid rgba(255,255,255,.06);background:#0f1011;color:#3f4448;display:flex;justify-content:space-between">— land stage<span>▾</span></span></span>
+                </div>
+
+                <div style="margin:2px 12px 0;display:flex;gap:8px;font:10px 'IBM Plex Mono',monospace"><span style="padding:2px 9px;border:1px solid rgba(255,255,255,.16);color:#a9adb0">clear overrides</span><span style="padding:2px 9px;border:1px solid rgba(255,255,255,.16);color:#a9adb0">copy to all land stages</span><span style="padding:2px 9px;border:1px solid rgba(255,255,255,.16);color:#a9adb0">isolate stage</span></div>
+
+                <div style="flex:1"></div>
+                <div style="border-top:1px solid rgba(255,255,255,.07);padding:8px 12px;display:flex;gap:24px;font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+                  <span>this stage <span style="color:#e8ebec">5.1 d</span></span><span>km/day <span style="color:#e8ebec">31.4</span></span><span>load <span style="color:#e0a840">92%</span></span><span>ascent <span style="color:#e8ebec">1 640 m</span></span><span>arrive <span style="color:#e8ebec">day 14</span></span>
+                </div>
+              </div>
+
+              <div style="width:642px;flex:none;display:flex;flex-direction:column;min-height:0">
+                <div style="height:26px;flex:none;display:flex;align-items:center;gap:12px;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.07);font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#8d9296"><span>STAGE MATRIX</span><span style="letter-spacing:.04em;color:#5f6468">lit cell = override · dim = computed by the model, read-only</span><div style="flex:1"></div><span style="color:#b55950;letter-spacing:.04em">⛔ 1</span></div>
+                <div style="flex:1;min-height:0;overflow:hidden;font:10px 'IBM Plex Mono',monospace">
+                  <div style="display:grid;grid-template-columns:112px 74px 46px 40px 76px 74px 58px 56px 46px 44px;background:rgba(255,255,255,.03);color:#5f6468;border-bottom:1px solid rgba(255,255,255,.09)"><span style="padding:5px 8px">stage</span><span style="padding:5px 5px;border-left:1px solid rgba(224,163,74,.25)">mode</span><span style="padding:5px 5px">pace</span><span style="padding:5px 5px">hrs</span><span style="padding:5px 5px;border-left:1px solid rgba(255,255,255,.09)">terrain · biome</span><span style="padding:5px 5px">weather</span><span style="padding:5px 5px;text-align:right">cargo kg</span><span style="padding:5px 5px;text-align:right">supply d</span><span style="padding:5px 5px;text-align:right">km/d</span><span style="padding:5px 5px;text-align:right">days</span></div>
+                  <div style="display:grid;grid-template-columns:112px 74px 46px 40px 76px 74px 58px 56px 46px 44px;background:rgba(255,255,255,.02);color:#5f6468;border-bottom:1px solid rgba(255,255,255,.07);font-size:9px;letter-spacing:.1em"><span style="padding:3px 8px">route order</span><span style="padding:3px 5px;border-left:1px solid rgba(224,163,74,.25);color:#e0a34a">OVERRIDES</span><span style="padding:3px 5px"></span><span style="padding:3px 5px"></span><span style="padding:3px 5px;border-left:1px solid rgba(255,255,255,.09)">MODEL · PER STAGE</span><span style="padding:3px 5px"></span><span style="padding:3px 5px"></span><span style="padding:3px 5px"></span><span style="padding:3px 5px"></span><span style="padding:3px 5px"></span></div>
+                  <div style="display:grid;grid-template-columns:112px 74px 46px 40px 76px 74px 58px 56px 46px 44px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(181,89,80,.10);color:#8d9296"><span style="padding:5px 8px;color:#b55950">09 high pass ⛔</span><span style="padding:5px 5px;color:#e8ebec;background:rgba(224,163,74,.14);border-left:1px solid rgba(224,163,74,.25)">Walking</span><span style="padding:5px 5px"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px;border-left:1px solid rgba(255,255,255,.09)">pass · alpine</span><span style="padding:5px 5px;color:#b55950">snowbound</span><span style="padding:5px 5px;text-align:right">—</span><span style="padding:5px 5px;text-align:right">—</span><span style="padding:5px 5px;text-align:right">—</span><span style="padding:5px 5px;text-align:right;color:#b55950">—</span></div>
+                  <div style="display:grid;grid-template-columns:112px 74px 46px 40px 76px 74px 58px 56px 46px 44px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(224,163,74,.10);color:#8d9296"><span style="padding:5px 8px;color:#e0a34a">03 Kharet pass ⚠</span><span style="padding:5px 5px;color:#e8ebec;background:rgba(224,163,74,.16);border-left:1px solid rgba(224,163,74,.25)">Mounted</span><span style="padding:5px 5px"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px;border-left:1px solid rgba(255,255,255,.09)">mountain · montane</span><span style="padding:5px 5px">cold · gale</span><span style="padding:5px 5px;text-align:right;color:#e8ebec;background:rgba(224,163,74,.16)">4 800</span><span style="padding:5px 5px;text-align:right;color:#e0a840">6.1</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">31.4</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">5.1</span></div>
+                  <div style="display:grid;grid-template-columns:112px 74px 46px 40px 76px 74px 58px 56px 46px 44px;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="padding:5px 8px">01 plains</span><span style="padding:5px 5px;border-left:1px solid rgba(224,163,74,.25)"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px;border-left:1px solid rgba(255,255,255,.09)">plains · grass</span><span style="padding:5px 5px">mild</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">7 200</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">12.1</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">34.2</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">2.1</span></div>
+                  <div style="display:grid;grid-template-columns:112px 74px 46px 40px 76px 74px 58px 56px 46px 44px;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="padding:5px 8px">02 foothills</span><span style="padding:5px 5px;border-left:1px solid rgba(224,163,74,.25)"></span><span style="padding:5px 5px;color:#e8ebec;background:rgba(224,163,74,.14)">Easy</span><span style="padding:5px 5px"></span><span style="padding:5px 5px;border-left:1px solid rgba(255,255,255,.09)">hills · scrub</span><span style="padding:5px 5px">mild · rain</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">7 060</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">9.5</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">29.8</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">2.6</span></div>
+                  <div style="display:grid;grid-template-columns:112px 74px 46px 40px 76px 74px 58px 56px 46px 44px;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="padding:5px 8px">04 valley</span><span style="padding:5px 5px;border-left:1px solid rgba(224,163,74,.25)"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px;border-left:1px solid rgba(255,255,255,.09)">valley · wood</span><span style="padding:5px 5px">mild</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">4 800</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">4.2</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">33.0</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">1.9</span></div>
+                  <div style="display:grid;grid-template-columns:112px 74px 46px 40px 76px 74px 58px 56px 46px 44px;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="padding:5px 8px">05 steppe</span><span style="padding:5px 5px;border-left:1px solid rgba(224,163,74,.25)"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px;color:#e8ebec;background:rgba(224,163,74,.14)">11</span><span style="padding:5px 5px;border-left:1px solid rgba(255,255,255,.09)">steppe · grass</span><span style="padding:5px 5px">dry · wind</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">4 620</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">13.8</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">36.1</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">3.4</span></div>
+                  <div style="display:grid;grid-template-columns:112px 74px 46px 40px 76px 74px 58px 56px 46px 44px;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="padding:5px 8px;color:#7d9dae">06 river · barge</span><span style="padding:5px 5px;border-left:1px solid rgba(224,163,74,.25)"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px;color:#3f4448">—</span><span style="padding:5px 5px;border-left:1px solid rgba(255,255,255,.09);color:#7d9dae">river · riparian</span><span style="padding:5px 5px">mild</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">4 400</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">11.6</span><span style="padding:5px 5px;text-align:right;color:#7d9dae">52.0</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">2.2</span></div>
+                  <div style="display:grid;grid-template-columns:112px 74px 46px 40px 76px 74px 58px 56px 46px 44px;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="padding:5px 8px">07 forest</span><span style="padding:5px 5px;border-left:1px solid rgba(224,163,74,.25)"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px;border-left:1px solid rgba(255,255,255,.09)">forest · taiga</span><span style="padding:5px 5px">cool · rain</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">4 180</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">7.4</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">24.6</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">4.0</span></div>
+                  <div style="display:grid;grid-template-columns:112px 74px 46px 40px 76px 74px 58px 56px 46px 44px;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="padding:5px 8px">08 arid flats</span><span style="padding:5px 5px;border-left:1px solid rgba(224,163,74,.25)"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px;border-left:1px solid rgba(255,255,255,.09)">flats · arid</span><span style="padding:5px 5px;color:#e8ebec;background:rgba(224,163,74,.14)">Dry heat</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">3 900</span><span style="padding:5px 5px;text-align:right;color:#e0a840">2.6</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">27.9</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">4.6</span></div>
+                  <div style="display:grid;grid-template-columns:112px 74px 46px 40px 76px 74px 58px 56px 46px 44px;border-bottom:1px solid rgba(255,255,255,.05);color:#8d9296"><span style="padding:5px 8px">10 upland</span><span style="padding:5px 5px;border-left:1px solid rgba(224,163,74,.25)"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px;border-left:1px solid rgba(255,255,255,.09)">upland · heath</span><span style="padding:5px 5px">cool</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">3 640</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">9.8</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">30.2</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">2.8</span></div>
+                  <div style="display:grid;grid-template-columns:112px 74px 46px 40px 76px 74px 58px 56px 46px 44px;color:#8d9296"><span style="padding:5px 8px">11 coast road</span><span style="padding:5px 5px;border-left:1px solid rgba(224,163,74,.25)"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px"></span><span style="padding:5px 5px;border-left:1px solid rgba(255,255,255,.09)">coast · maritime</span><span style="padding:5px 5px">mild · fog</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">3 400</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">6.2</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">35.8</span><span style="padding:5px 5px;text-align:right;color:#c8cbcd">3.1</span></div>
+                </div>
+                <div style="flex:none;padding:7px 12px;border-top:1px solid rgba(255,255,255,.07);display:flex;align-items:center;gap:8px;font:10px 'IBM Plex Mono',monospace"><span style="padding:2px 8px;border:1px solid rgba(255,255,255,.16);color:#a9adb0">clear column</span><span style="padding:2px 8px;border:1px solid rgba(255,255,255,.16);color:#a9adb0">fill down</span><span style="padding:2px 8px;border:1px solid rgba(255,255,255,.16);color:#a9adb0">9 more fields ›</span><div style="flex:1"></div><span style="color:#5f6468">cargo and supply columns run cumulatively down the route</span></div>
+              </div>
+            </div>
+          </div>
+          <div style="width:312px;flex:none;border-left:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;min-height:0">
+            <div style="flex:none;padding:11px 13px 12px;border-bottom:1px solid rgba(255,255,255,.10);background:rgba(224,163,74,.05)">
+              <div style="display:flex;align-items:center;gap:8px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296"><span style="color:#e0a840">⚠</span>FEASIBLE — STRAINED</div>
+              <div style="display:flex;align-items:baseline;gap:6px;margin-top:8px"><span style="font:500 34px/1 'IBM Plex Mono',monospace;color:#e8ebec">41</span><span style="font:11px 'IBM Plex Mono',monospace;color:#8d9296">calendar days</span></div>
+              <div style="display:flex;gap:14px;margin-top:7px;font:10px 'IBM Plex Mono',monospace;color:#8d9296"><span>32 travel</span><span>9 rest / layover</span><span style="color:#c8cbcd">± 4 d</span></div>
+              <div style="margin-top:9px;height:3px;background:rgba(255,255,255,.10);position:relative"><span style="position:absolute;left:0;top:0;height:3px;width:78%;background:#e0a34a"></span><span style="position:absolute;left:70%;top:-2px;width:1px;height:7px;background:#e8ebec"></span></div>
+              <div style="margin-top:6px;font-size:10.5px;color:#c9a765;text-wrap:pretty">Load is at 92% of capacity on two stages, and stage 9 is impassable under seasonal closures. Confidence band widens past day 28 as the season drifts.</div>
+            </div>
+
+            <div style="flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden">
+              <div style="padding:7px 13px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.07)"><span>TIME</span><span style="color:#5f6468">⌄</span></div>
+              <div style="padding:8px 13px;display:flex;flex-direction:column;gap:5px;font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+                <div style="display:flex;justify-content:space-between"><span>travel days</span><span style="color:#c8cbcd">32.4</span></div>
+                <div style="display:flex;justify-content:space-between"><span>rest days · 1 in 4</span><span style="color:#c8cbcd">8</span></div>
+                <div style="display:flex;justify-content:space-between"><span>layovers</span><span style="color:#c8cbcd">6 at 4 stops</span></div>
+                <div style="display:flex;justify-content:space-between"><span>mean · best · worst</span><span style="color:#c8cbcd">41 · 37 · 48</span></div>
+                <div style="display:flex;justify-content:space-between"><span>arrival season</span><span style="color:#e0a34a">early autumn</span></div>
+              </div>
+
+              <div style="padding:7px 13px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,.07);border-bottom:1px solid rgba(255,255,255,.07)"><span>LOAD</span><span style="color:#e0a840">92% ⌄</span></div>
+              <div style="padding:8px 13px;display:flex;flex-direction:column;gap:6px;font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+                <div style="height:5px;background:rgba(255,255,255,.10);position:relative"><span style="position:absolute;left:0;top:0;height:5px;width:64%;background:#e0a34a"></span><span style="position:absolute;left:64%;top:0;height:5px;width:28%;background:#e0a840"></span><span style="position:absolute;left:100%;top:-2px;width:1px;height:9px;background:#b55950"></span></div>
+                <div style="display:flex;justify-content:space-between"><span>cargo · supplies</span><span style="color:#c8cbcd">7 200 · 3 150 kg</span></div>
+                <div style="display:flex;justify-content:space-between"><span>capacity</span><span style="color:#c8cbcd">11 240 kg</span></div>
+                <div style="display:flex;justify-content:space-between"><span>carriers</span><span style="color:#c8cbcd">36 mules · 2 carts</span></div>
+                <div style="display:flex;justify-content:space-between"><span>speed penalty</span><span style="color:#e0a840">−11%</span></div>
+              </div>
+
+              <div style="padding:7px 13px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,.07);border-bottom:1px solid rgba(255,255,255,.07)"><span>SUPPLY REACH</span><span style="color:#5f6468">⌄</span></div>
+              <div style="padding:8px 13px;display:flex;flex-direction:column;gap:6px;font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+                <div style="display:flex;justify-content:space-between"><span>carried</span><span style="color:#c8cbcd">14 d · 440 km</span></div>
+                <div style="display:flex;justify-content:space-between"><span>longest gap</span><span style="color:#e0a840">11.4 d · Ferrun → Miraz</span></div>
+                <div style="display:flex;justify-content:space-between"><span>water · arid runs</span><span style="color:#c8cbcd">2-day max</span></div>
+                <div style="display:flex;justify-content:space-between"><span>foraging offset</span><span style="color:#c8cbcd">+1.8 d</span></div>
+                <div style="display:flex;gap:1px;height:7px;margin-top:2px"><span style="flex:3;background:rgba(224,163,74,.5)"></span><span style="flex:1;background:#e0a34a"></span><span style="flex:4;background:rgba(224,163,74,.5)"></span><span style="flex:1;background:#e0a34a"></span><span style="flex:5;background:rgba(224,168,64,.55)"></span><span style="flex:1;background:#e0a34a"></span><span style="flex:3;background:rgba(224,163,74,.5)"></span></div>
+                <span style="font-size:10px;color:#5f6468">bars = supply legs · ticks = resupply stops</span>
+              </div>
+
+              <div style="padding:7px 13px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,.07);border-bottom:1px solid rgba(255,255,255,.07)"><span>COST</span><span style="color:#5f6468">⌄</span></div>
+              <div style="padding:8px 13px;display:flex;flex-direction:column;gap:5px;font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+                <div style="display:flex;justify-content:space-between"><span>food · fodder</span><span style="color:#c8cbcd">318 sp</span></div>
+                <div style="display:flex;justify-content:space-between"><span>wages · 64 people</span><span style="color:#c8cbcd">1 640 sp</span></div>
+                <div style="display:flex;justify-content:space-between"><span>tolls · ferry</span><span style="color:#c8cbcd">96 sp</span></div>
+                <div style="display:flex;justify-content:space-between"><span>animal upkeep</span><span style="color:#c8cbcd">204 sp</span></div>
+                <div style="display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,.07);padding-top:5px"><span style="color:#c8cbcd">total</span><span style="color:#e0a34a">2 258 sp</span></div>
+                <div style="display:flex;justify-content:space-between"><span>per km · per day</span><span style="color:#c8cbcd">1.52 · 55 sp</span></div>
+              </div>
+
+              <div style="padding:7px 13px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:#8d9296;display:flex;justify-content:space-between;border-top:1px solid rgba(255,255,255,.07);border-bottom:1px solid rgba(255,255,255,.07)"><span>VESSELS · WATER LEGS</span><span style="color:#5f6468">›</span></div>
+              <div style="padding:8px 13px;display:flex;flex-direction:column;gap:5px;font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+                <div style="display:flex;justify-content:space-between"><span>stage 6 · river</span><span style="color:#c8cbcd">River barge</span></div>
+                <div style="display:flex;justify-content:space-between"><span>hold used</span><span style="color:#c8cbcd">7 200 / 12 000 kg</span></div>
+                <div style="display:flex;justify-content:space-between"><span>sailing window</span><span style="color:#c8cbcd">daylight · 11 h</span></div>
+              </div>
+              <div style="flex:1"></div>
+              <div style="padding:8px 13px;border-top:1px solid rgba(255,255,255,.07);font:10px 'IBM Plex Mono',monospace;color:#5f6468;display:flex;justify-content:space-between"><span>calculation trace</span><span style="color:#a9adb0">open ⧉</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="height:30px;flex:none;display:flex;align-items:center;gap:16px;padding:0 14px;border-top:1px solid rgba(255,255,255,.10);font:10px 'IBM Plex Mono',monospace;color:#6f7478">
+          <span>day 1</span>
+          <span style="flex:1;height:8px;display:flex;gap:1px;align-items:stretch">
+            <span style="flex:6;background:rgba(224,163,74,.55)"></span><span style="flex:1;background:rgba(255,255,255,.14)"></span><span style="flex:5;background:rgba(224,163,74,.55)"></span><span style="flex:2;background:rgba(120,150,170,.5)"></span><span style="flex:1;background:rgba(255,255,255,.14)"></span><span style="flex:7;background:rgba(224,163,74,.55)"></span><span style="flex:3;background:rgba(181,89,80,.55)"></span><span style="flex:1;background:rgba(255,255,255,.14)"></span><span style="flex:6;background:rgba(224,163,74,.55)"></span><span style="flex:2;background:rgba(120,150,170,.5)"></span><span style="flex:7;background:rgba(224,163,74,.55)"></span>
+          </span>
+          <span>day 41</span>
+          <span style="color:#5f6468">■ travel <span style="color:rgba(120,150,170,.9)">■</span> water <span style="color:#b55950">■</span> weather hold <span style="color:#8d9296">■</span> rest / layover</span>
+        </div>
+      </div>
+    </div>
+
+    
+
+  </div>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:2000,&quot;height&quot;:1300}}"></script>
+</body>
+</html>

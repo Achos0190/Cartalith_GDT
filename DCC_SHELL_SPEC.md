@@ -203,6 +203,17 @@ Dropdown mirrors the window's five groups. Every item opens the Data manager
 window (§9) on the matching route; the dropdown is a shortcut, not a second
 implementation.
 
+> **Addition (2026-08-19), reconciled from `JOURNEY_PLANNER_SPEC.md`/
+> `TRAVEL_LIBRARY_SPEC.md`.** Two more items sit above the five groups, in the
+> Data dropdown alongside Data manager: **Journey planner** (⇧J, no "own
+> window" — arms the JOURNEY tool in INFRA, §4.5.4, and takes over the
+> viewport in place, the same way any other tool does) and **⧉ Travel
+> library…** (⇧L, own window, tabbed by definition type — an addition to
+> this shell, not part of Cartalith Gen1 v2.10, specified in full in
+> `TRAVEL_LIBRARY_SPEC.md`). This vendored spec predates that reconciliation
+> and didn't carry either item; recorded here rather than left silently
+> stale, per this port's own documentation discipline.
+
 | Group | Items |
 |---|---|
 | Import | Maps · Heightmaps (PNG · TIFF) · GIS / GeoJSON · World Data (.zip · fields) · Assets (routes to the Assets menu) |
@@ -381,6 +392,16 @@ pointer capture and is LOD-aware, so it lands on the right cells under deep zoom
 Way and Route are also **two tools**: a way is durable geometry others route
 over, a route is a journey along existing geometry. v2.10 separates them
 (`draw_way` vs `route`) and so does this.
+
+> **Addition (2026-08-19)**: a third INFRA tool, **Journey** (rail-foot slot,
+> below the domain buttons, no dedicated hotkey of its own beyond `Data ▸
+> Journey planner… ⇧J`) — arming it swaps the whole INFRA viewport region
+> (map, both docks, tool options bar) for the distance-spine planner laid out
+> in `JOURNEY_PLANNER_SPEC.md`, rather than drawing an overlay on the map like
+> Way/Route/Settlement do. It is not a drag/click tool in the §4.5.1 sense —
+> no map gesture is bound to it — so it has no drag/click column here; its
+> own controls live entirely inside the swapped-in view. Reconciled from
+> `JOURNEY_PLANNER_SPEC.md` §2, which this vendored spec predates.
 
 While either is armed, hovering shows the live snap preview — the place or way a
 click would land on is highlighted. Snap to places is a shared modifier, on by
