@@ -29,16 +29,30 @@ pub mod tools;
 pub mod travel_library;
 
 /// `LITH_KEYS` (reference line 5830) -- frozen, append-only.
-pub const LITH_KEYS: [&str; 7] =
-    ["granite", "basalt", "andesite", "limestone", "sandstone", "shale", "metamorphic"];
+pub const LITH_KEYS: [&str; 7] = [
+    "granite",
+    "basalt",
+    "andesite",
+    "limestone",
+    "sandstone",
+    "shale",
+    "metamorphic",
+];
 
 /// `LITH_WEATHER` (line 5831) -- weatherability \[0,1\] (Jenny): granite/
 /// metamorphic weather slowly, basalt/limestone quickly.
 pub const LITH_WEATHER: [f64; 7] = [0.35, 0.85, 0.70, 0.80, 0.55, 0.65, 0.30];
 
 /// `LITH_NAMES` (line 5848).
-pub const LITH_NAMES: [&str; 7] =
-    ["Granite / shield", "Basalt (oceanic)", "Andesite (arc)", "Limestone", "Sandstone", "Shale", "Metamorphic"];
+pub const LITH_NAMES: [&str; 7] = [
+    "Granite / shield",
+    "Basalt (oceanic)",
+    "Andesite (arc)",
+    "Limestone",
+    "Sandstone",
+    "Shale",
+    "Metamorphic",
+];
 
 /// `buildLithology` (reference HTML line 5835): categorical rock type from
 /// the engine's tectonic proxies. Pure, single-pass, no neighbour reads.
@@ -106,9 +120,15 @@ fn slope_at(field: &[f32], gw: usize, gh: usize, world: bool, x: usize, y: usize
     let (xl, xr) = if world {
         ((x + gw - 1) % gw, (x + 1) % gw)
     } else {
-        (if x > 0 { x - 1 } else { x }, if x + 1 < gw { x + 1 } else { x })
+        (
+            if x > 0 { x - 1 } else { x },
+            if x + 1 < gw { x + 1 } else { x },
+        )
     };
-    let (yu, yd) = (if y > 0 { y - 1 } else { y }, if y + 1 < gh { y + 1 } else { y });
+    let (yu, yd) = (
+        if y > 0 { y - 1 } else { y },
+        if y + 1 < gh { y + 1 } else { y },
+    );
     let l = field[y * gw + xl] as f64;
     let r = field[y * gw + xr] as f64;
     let u = field[yu * gw + x] as f64;
@@ -131,7 +151,13 @@ pub fn build_slope_field(field: &[f32], gw: usize, gh: usize, world: bool) -> Ve
 /// `buildSoilFertility` (reference HTML line 5852): pedological interaction
 /// (Jenny 1941) -- climate bell x moisture x lithology-weatherability x
 /// slope-shedding x age-development.
-pub fn build_soil_fertility(lith: &[u8], temp: &[f32], rain: &[f32], slope_n: &[f32], age: &[f32]) -> Vec<f32> {
+pub fn build_soil_fertility(
+    lith: &[u8],
+    temp: &[f32],
+    rain: &[f32],
+    slope_n: &[f32],
+    age: &[f32],
+) -> Vec<f32> {
     let n = lith.len();
     let mut out = vec![0f32; n];
     let slope_k = 1.5;
@@ -220,7 +246,14 @@ fn chamfer_dist(src: &[u8], w: usize, h: usize) -> Vec<f32> {
 /// is the caller-supplied `riverFlowThresh()` value (`cartalith_hydrology::
 /// river_flow_thresh`) -- threaded explicitly rather than recomputed here,
 /// matching this port's existing convention of passing former-globals in.
-pub fn build_water_access(flow: &[f32], field: &[f32], gw: usize, gh: usize, sea: f64, flow_thresh: f64) -> Vec<f32> {
+pub fn build_water_access(
+    flow: &[f32],
+    field: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    flow_thresh: f64,
+) -> Vec<f32> {
     let n = gw * gh;
     let lam = (gw as f64 / 64.0).max(3.0);
     let mut src = vec![0u8; n];
@@ -254,7 +287,13 @@ pub struct AffordanceFields {
 /// `world`/`map_width_km` are `WorldParams` fields the caller already has
 /// (not stored on `WorldState` itself) -- threaded explicitly rather than
 /// duplicated onto `WorldState`.
-pub fn compute_affordance_fields(state: &WorldState, gw: usize, gh: usize, world: bool, map_width_km: f64) -> AffordanceFields {
+pub fn compute_affordance_fields(
+    state: &WorldState,
+    gw: usize,
+    gh: usize,
+    world: bool,
+    map_width_km: f64,
+) -> AffordanceFields {
     let lithology = build_lithology(
         &state.field,
         &state.age_field,
@@ -266,12 +305,29 @@ pub fn compute_affordance_fields(state: &WorldState, gw: usize, gh: usize, world
     );
 
     let slope_field = build_slope_field(&state.field, gw, gh, world);
-    let soil_fertility = build_soil_fertility(&lithology, &state.temperature, &state.rainfall, &slope_field, &state.age_field);
+    let soil_fertility = build_soil_fertility(
+        &lithology,
+        &state.temperature,
+        &state.rainfall,
+        &slope_field,
+        &state.age_field,
+    );
 
     let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
-    let water_access = build_water_access(&state.flow_discharge, &state.field, gw, gh, state.sea_level, flow_thresh);
+    let water_access = build_water_access(
+        &state.flow_discharge,
+        &state.field,
+        gw,
+        gh,
+        state.sea_level,
+        flow_thresh,
+    );
 
-    AffordanceFields { lithology, soil_fertility, water_access }
+    AffordanceFields {
+        lithology,
+        soil_fertility,
+        water_access,
+    }
 }
 
 /// `buildWaterBodies` output (reference HTML line 5753): per-cell
@@ -304,7 +360,10 @@ struct MinHeap {
 
 impl MinHeap {
     fn with_capacity(cap: usize) -> Self {
-        MinHeap { p: Vec::with_capacity(cap), v: Vec::with_capacity(cap) }
+        MinHeap {
+            p: Vec::with_capacity(cap),
+            v: Vec::with_capacity(cap),
+        }
     }
 
     fn size(&self) -> usize {
@@ -374,7 +433,17 @@ fn wb_seed(i: usize, filled: &[f32], done: &mut [bool], heap: &mut MinHeap) {
 /// hydrology/terrain flood-style code follows -- an explicit parameter
 /// instead of a closure recreated per neighbour).
 #[allow(clippy::too_many_arguments)]
-fn wb_visit(nx: isize, ny: isize, cur: f64, gw: isize, gh: isize, world: bool, filled: &mut [f32], done: &mut [bool], heap: &mut MinHeap) {
+fn wb_visit(
+    nx: isize,
+    ny: isize,
+    cur: f64,
+    gw: isize,
+    gh: isize,
+    world: bool,
+    filled: &mut [f32],
+    done: &mut [bool],
+    heap: &mut MinHeap,
+) {
     let nx = if world {
         ((nx % gw) + gw) % gw
     } else {
@@ -402,7 +471,18 @@ fn wb_visit(nx: isize, ny: isize, cur: f64, gw: isize, gh: isize, world: bool, f
 /// distinct from `wb_visit`'s priority-flood one -- same neighbour-offset
 /// shape, different guard: below-sea-and-unlabelled instead of not-yet-done).
 #[allow(clippy::too_many_arguments)]
-fn cc_visit(nx: isize, ny: isize, gw: isize, gh: isize, world: bool, sea: f64, field: &[f32], lab: &mut [i32], comp: i32, stack: &mut Vec<usize>) {
+fn cc_visit(
+    nx: isize,
+    ny: isize,
+    gw: isize,
+    gh: isize,
+    world: bool,
+    sea: f64,
+    field: &[f32],
+    lab: &mut [i32],
+    comp: i32,
+    stack: &mut Vec<usize>,
+) {
     let nx = if world {
         ((nx % gw) + gw) % gw
     } else {
@@ -438,7 +518,14 @@ fn cc_visit(nx: isize, ny: isize, gw: isize, gh: isize, world: bool, sea: f64, f
 /// [`apply_force_lake`] -- bit-equivalent, because `force` is the last
 /// mutation the reference makes to `out`, and it leaves this signature and
 /// every caller alone.
-pub fn build_water_bodies(field: &[f32], gw: usize, gh: usize, sea: f64, world: bool, rain: Option<&[f32]>) -> WaterBodies {
+pub fn build_water_bodies(
+    field: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    rain: Option<&[f32]>,
+) -> WaterBodies {
     let n = gw * gh;
     let gw_i = gw as isize;
     let gh_i = gh as isize;
@@ -462,10 +549,54 @@ pub fn build_water_bodies(field: &[f32], gw: usize, gh: usize, sea: f64, world: 
             cnt += 1;
             let x = (i % gw) as isize;
             let y = (i / gw) as isize;
-            cc_visit(x - 1, y, gw_i, gh_i, world, sea, field, &mut lab, comp, &mut stack);
-            cc_visit(x + 1, y, gw_i, gh_i, world, sea, field, &mut lab, comp, &mut stack);
-            cc_visit(x, y - 1, gw_i, gh_i, world, sea, field, &mut lab, comp, &mut stack);
-            cc_visit(x, y + 1, gw_i, gh_i, world, sea, field, &mut lab, comp, &mut stack);
+            cc_visit(
+                x - 1,
+                y,
+                gw_i,
+                gh_i,
+                world,
+                sea,
+                field,
+                &mut lab,
+                comp,
+                &mut stack,
+            );
+            cc_visit(
+                x + 1,
+                y,
+                gw_i,
+                gh_i,
+                world,
+                sea,
+                field,
+                &mut lab,
+                comp,
+                &mut stack,
+            );
+            cc_visit(
+                x,
+                y - 1,
+                gw_i,
+                gh_i,
+                world,
+                sea,
+                field,
+                &mut lab,
+                comp,
+                &mut stack,
+            );
+            cc_visit(
+                x,
+                y + 1,
+                gw_i,
+                gh_i,
+                world,
+                sea,
+                field,
+                &mut lab,
+                comp,
+                &mut stack,
+            );
         }
         sizes.push(cnt);
         comp += 1;
@@ -511,10 +642,50 @@ pub fn build_water_bodies(field: &[f32], gw: usize, gh: usize, sea: f64, world: 
         let x = (i % gw) as isize;
         let y = (i / gw) as isize;
         let cur = filled[i] as f64;
-        wb_visit(x - 1, y, cur, gw_i, gh_i, world, &mut filled, &mut done, &mut heap);
-        wb_visit(x + 1, y, cur, gw_i, gh_i, world, &mut filled, &mut done, &mut heap);
-        wb_visit(x, y - 1, cur, gw_i, gh_i, world, &mut filled, &mut done, &mut heap);
-        wb_visit(x, y + 1, cur, gw_i, gh_i, world, &mut filled, &mut done, &mut heap);
+        wb_visit(
+            x - 1,
+            y,
+            cur,
+            gw_i,
+            gh_i,
+            world,
+            &mut filled,
+            &mut done,
+            &mut heap,
+        );
+        wb_visit(
+            x + 1,
+            y,
+            cur,
+            gw_i,
+            gh_i,
+            world,
+            &mut filled,
+            &mut done,
+            &mut heap,
+        );
+        wb_visit(
+            x,
+            y - 1,
+            cur,
+            gw_i,
+            gh_i,
+            world,
+            &mut filled,
+            &mut done,
+            &mut heap,
+        );
+        wb_visit(
+            x,
+            y + 1,
+            cur,
+            gw_i,
+            gh_i,
+            world,
+            &mut filled,
+            &mut done,
+            &mut heap,
+        );
     }
 
     let lake_depth = 0.004_f64;
@@ -534,7 +705,10 @@ pub fn build_water_bodies(field: &[f32], gw: usize, gh: usize, sea: f64, world: 
         }
     }
 
-    WaterBodies { classification: out, fill_level: filled }
+    WaterBodies {
+        classification: out,
+        fill_level: filled,
+    }
 }
 
 /// `buildWaterBodies`' `opts.forceLake` (reference HTML lines 5808-5809):
@@ -575,7 +749,19 @@ pub fn apply_force_lake(classification: &mut [u8], force: &[u8]) {
 /// is appended for `buildWaterBodies` overrides only -- `classifyBiome`
 /// itself never returns it (reference's own comment, line 6796).
 pub const BIOME_KEYS: [&str; 13] = [
-    "ice", "tundra", "boreal", "conifer", "tempForest", "tempRain", "grass", "shrub", "desert", "savanna", "tropDry", "tropWet", "lake",
+    "ice",
+    "tundra",
+    "boreal",
+    "conifer",
+    "tempForest",
+    "tempRain",
+    "grass",
+    "shrub",
+    "desert",
+    "savanna",
+    "tropDry",
+    "tropWet",
+    "lake",
 ];
 
 /// Index constants matching `BIOME_INDEX` (reference line 6797) --
@@ -676,26 +862,36 @@ pub fn build_biome_raster(water_bodies: &[u8], temp: &[f32], rain: &[f32]) -> Ve
 /// `biome_idx - 1`. `tropWet` (index 11) is the lowest non-ocean entry --
 /// the reference's own "rainforest paradox" comment (pathogen suppression,
 /// Tallavaara 2018).
-pub const BIOME_DENSITY_RESIDUAL: [f64; 13] = [0.60, 0.65, 0.85, 0.85, 1.00, 0.90, 0.90, 0.95, 0.55, 0.80, 0.75, 0.55, 0.00];
+pub const BIOME_DENSITY_RESIDUAL: [f64; 13] = [
+    0.60, 0.65, 0.85, 0.85, 1.00, 0.90, 0.90, 0.95, 0.55, 0.80, 0.75, 0.55, 0.00,
+];
 
 /// `biomeDensityResidual` (reference line 6193).
 pub fn biome_density_residual(biome_idx: u8) -> f64 {
     if biome_idx == 0 {
         return 0.0;
     }
-    BIOME_DENSITY_RESIDUAL.get((biome_idx - 1) as usize).copied().unwrap_or(0.9)
+    BIOME_DENSITY_RESIDUAL
+        .get((biome_idx - 1) as usize)
+        .copied()
+        .unwrap_or(0.9)
 }
 
 /// `BIOME_INTENSIFY_ELIGIBLE` (reference line 6198): how transformative
 /// irrigation/wetland farming was per biome, same `BIOME_KEYS` indexing.
-pub const BIOME_INTENSIFY_ELIGIBLE: [f64; 13] = [0.10, 0.10, 0.20, 0.20, 0.30, 0.30, 0.50, 0.40, 1.00, 0.50, 0.60, 0.90, 0.00];
+pub const BIOME_INTENSIFY_ELIGIBLE: [f64; 13] = [
+    0.10, 0.10, 0.20, 0.20, 0.30, 0.30, 0.50, 0.40, 1.00, 0.50, 0.60, 0.90, 0.00,
+];
 
 /// `biomeIntensifyEligible` (reference line 6199).
 pub fn biome_intensify_eligible(biome_idx: u8) -> f64 {
     if biome_idx == 0 {
         return 0.0;
     }
-    BIOME_INTENSIFY_ELIGIBLE.get((biome_idx - 1) as usize).copied().unwrap_or(0.3)
+    BIOME_INTENSIFY_ELIGIBLE
+        .get((biome_idx - 1) as usize)
+        .copied()
+        .unwrap_or(0.3)
 }
 
 /// `WETLAND_DENSITY_RESIDUAL`/`WETLAND_INTENSIFY_ELIGIBLE` (reference lines
@@ -712,7 +908,13 @@ pub const WETLAND_INTENSIFY_ELIGIBLE: f64 = 0.95;
 /// not exist in this port -- treated as always-zero, matching milestone
 /// 2's own `geo`-absent precedent (`build_water_bodies`'s doc comment).
 /// `slope_n` is `build_slope_field`'s output (already `slopeAt(x,y)*GW`).
-pub fn build_wetland_mask(water_bodies: &[u8], field: &[f32], rain: &[f32], slope_n: &[f32], sea: f64) -> Vec<u8> {
+pub fn build_wetland_mask(
+    water_bodies: &[u8],
+    field: &[f32],
+    rain: &[f32],
+    slope_n: &[f32],
+    sea: f64,
+) -> Vec<u8> {
     let n = water_bodies.len();
     let mut out = vec![0u8; n];
     let denom = (1.0 - sea).max(1e-6);
@@ -771,7 +973,11 @@ pub fn build_carrying_capacity(
         {
             resid = WETLAND_DENSITY_RESIDUAL;
         }
-        let b_m = if biome_k != 0.0 && biome.is_some() { 1.0 - biome_k + biome_k * resid } else { 1.0 };
+        let b_m = if biome_k != 0.0 && biome.is_some() {
+            1.0 - biome_k + biome_k * resid
+        } else {
+            1.0
+        };
         *o = (soil[i] as f64 * t_f * w_mod * b_m).clamp(0.0, 1.0) as f32;
     });
     out
@@ -784,7 +990,13 @@ pub fn build_carrying_capacity(
 /// caller-configurable equivalent yet, so callers should pass `3000.0`
 /// until one exists, rather than this function guessing at a knob nothing
 /// can turn.
-pub fn build_npp(temp: &[f32], rain: &[f32], field: &[f32], sea: f64, max_rain_mm: f64) -> Vec<f32> {
+pub fn build_npp(
+    temp: &[f32],
+    rain: &[f32],
+    field: &[f32],
+    sea: f64,
+    max_rain_mm: f64,
+) -> Vec<f32> {
     let n = field.len();
     let mut out = vec![0f32; n];
     out.par_iter_mut().enumerate().for_each(|(i, o)| {
@@ -850,7 +1062,8 @@ pub fn estimate_regional_density_km2(
             iw = WETLAND_INTENSIFY_ELIGIBLE;
         }
         let w = water[i] as f64;
-        let ceiling = RAINFED_CEILING_KM2 + (INTENSIVE_CEILING_KM2 - RAINFED_CEILING_KM2) * iw * w * w;
+        let ceiling =
+            RAINFED_CEILING_KM2 + (INTENSIVE_CEILING_KM2 - RAINFED_CEILING_KM2) * iw * w * w;
         let npp_v = npp.map(|p| p[i] as f64).unwrap_or(0.0);
         *o = (forager_floor_km2(npp_v) + k[i] as f64 * ceiling) as f32;
     });
@@ -864,7 +1077,21 @@ pub fn estimate_regional_density_km2(
 /// `SUIT_RESOURCE_KEYS` (settlement suitability's copy, line 6294) is a
 /// smaller 9-key ore-only subset -- neither is this milestone's concern.
 pub const RESOURCE_KEYS: [&str; 15] = [
-    "copper", "tin", "iron", "gold", "salt", "timber", "lead", "silver", "clay", "buildstone", "flint", "obsidian", "gems", "sulfur", "alum",
+    "copper",
+    "tin",
+    "iron",
+    "gold",
+    "salt",
+    "timber",
+    "lead",
+    "silver",
+    "clay",
+    "buildstone",
+    "flint",
+    "obsidian",
+    "gems",
+    "sulfur",
+    "alum",
 ];
 
 /// `RESOURCE_NAMES` (reference line 6029).
@@ -952,7 +1179,10 @@ pub fn apply_resource_scarcity(arr: &mut [f32], field: &[f32], sea: f64, cut: f6
     if vals.is_empty() {
         return;
     }
-    let land = field[..n].par_iter().filter(|&&h| (h as f64) >= sea).count();
+    let land = field[..n]
+        .par_iter()
+        .filter(|&&h| (h as f64) >= sea)
+        .count();
     let keep = ((land as f64 * cut).round() as usize).max(1);
     if vals.len() <= keep {
         return; // already rarer than its ceiling
@@ -1058,8 +1288,14 @@ pub fn build_resource_potentials(
     let mut sulfur = vec![0f32; n];
     let mut alum = vec![0f32; n];
 
-    let flow_max_raw = flow.map(|f| f.iter().fold(0.0f64, |m, &v| m.max(v as f64))).unwrap_or(0.0);
-    let flow_max = if flow_max_raw > 0.0 { flow_max_raw } else { 1.0 };
+    let flow_max_raw = flow
+        .map(|f| f.iter().fold(0.0f64, |m, &v| m.max(v as f64)))
+        .unwrap_or(0.0);
+    let flow_max = if flow_max_raw > 0.0 {
+        flow_max_raw
+    } else {
+        1.0
+    };
 
     // 15 outputs written per cell, no cross-cell dependency (`silver`/`clay`'s
     // kaolin bonus read this SAME index's just-written value only) -- computed
@@ -1151,14 +1387,21 @@ pub fn build_resource_potentials(
             }) as f32;
 
             // silver: byproduct of argentiferous galena -- lead's terrain, scaled down.
-            let silver_v = if lead_v > 0.0 { lead_v as f64 * 0.55 } else { 0.0 } as f32;
+            let silver_v = if lead_v > 0.0 {
+                lead_v as f64 * 0.55
+            } else {
+                0.0
+            } as f32;
 
             // clay: riverine/floodplain/lake-margin, near-universal on lowlands with real drainage.
             let mut clay_v = 0f32;
             {
-                let wet = flow.map(|f| ((1.0 + f[i] as f64).ln() / (1.0 + flow_max * 0.05).ln()).min(1.0)).unwrap_or(0.0);
+                let wet = flow
+                    .map(|f| ((1.0 + f[i] as f64).ln() / (1.0 + flow_max * 0.05).ln()).min(1.0))
+                    .unwrap_or(0.0);
                 if r < 0.35 {
-                    let v = 0.30 + 0.50 * wet + 0.25 * (ri * 1.6).min(1.0) - if li == 0 { 0.25 } else { 0.0 };
+                    let v = 0.30 + 0.50 * wet + 0.25 * (ri * 1.6).min(1.0)
+                        - if li == 0 { 0.25 } else { 0.0 };
                     clay_v = v.clamp(0.0, 1.0) as f32;
                 }
             }
@@ -1198,7 +1441,11 @@ pub fn build_resource_potentials(
             }) as f32;
 
             // sulfur: volcanic/hot-spring/fumarole zones.
-            let sulfur_v = if vv > 0.35 { (0.25 + 0.75 * vv).min(1.0) } else { 0.0 } as f32;
+            let sulfur_v = if vv > 0.35 {
+                (0.25 + 0.75 * vv).min(1.0)
+            } else {
+                0.0
+            } as f32;
 
             // alum: volcanic OR sedimentary evaporite route (shares salt's arid-evaporite logic).
             let alum_v = (if vv > 0.30 {
@@ -1210,8 +1457,21 @@ pub fn build_resource_potentials(
             }) as f32;
 
             [
-                copper_v, tin_v, iron_v, gold_v, salt_v, timber_v, lead_v, silver_v, clay_v, buildstone_v, flint_v, obsidian_v, gems_v,
-                sulfur_v, alum_v,
+                copper_v,
+                tin_v,
+                iron_v,
+                gold_v,
+                salt_v,
+                timber_v,
+                lead_v,
+                silver_v,
+                clay_v,
+                buildstone_v,
+                flint_v,
+                obsidian_v,
+                gems_v,
+                sulfur_v,
+                alum_v,
             ]
         })
         .collect();
@@ -1266,7 +1526,23 @@ pub fn build_resource_potentials(
         }
     }
 
-    ResourcePotentials { copper, tin, iron, gold, salt, timber, lead, silver, clay, buildstone, flint, obsidian, gems, sulfur, alum }
+    ResourcePotentials {
+        copper,
+        tin,
+        iron,
+        gold,
+        salt,
+        timber,
+        lead,
+        silver,
+        clay,
+        buildstone,
+        flint,
+        obsidian,
+        gems,
+        sulfur,
+        alum,
+    }
 }
 
 /// `currentSlopeField()` (reference HTML line 5661): raw `slopeAt(x,y)` per
@@ -1302,7 +1578,16 @@ pub const CORRIDOR_KNEE: f64 = 0.45;
 /// `build_water_access`/`build_resource_potentials` convention of threading
 /// former-globals in explicitly.
 #[allow(clippy::too_many_arguments)]
-pub fn build_route_corridors(field: &[f32], slope: &[f32], flow: Option<&[f32]>, gw: usize, gh: usize, sea: f64, world: bool, flow_hi: f64) -> Vec<f32> {
+pub fn build_route_corridors(
+    field: &[f32],
+    slope: &[f32],
+    flow: Option<&[f32]>,
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    flow_hi: f64,
+) -> Vec<f32> {
     let n = gw * gh;
     let slope_k = gw as f64;
     let r_reach = ((gw as f64 / 64.0).round() as i64).max(2);
@@ -1316,7 +1601,11 @@ pub fn build_route_corridors(field: &[f32], slope: &[f32], flow: Option<&[f32]>,
             return;
         }
         let sl = ((slope[i] as f64) * slope_k / 6.0).min(1.0);
-        let riv = if flow.is_some_and(|f| (f[i] as f64) > flow_hi) { 0.55 } else { 0.0 };
+        let riv = if flow.is_some_and(|f| (f[i] as f64) > flow_hi) {
+            0.55
+        } else {
+            0.0
+        };
         *c = (sl * 0.85 + riv).clamp(0.0, 1.0) as f32;
     });
 
@@ -1363,7 +1652,11 @@ pub fn build_route_corridors(field: &[f32], slope: &[f32], flow: Option<&[f32]>,
                 best_gap = gap;
             }
         }
-        *o = if best_gap > CORRIDOR_KNEE { ((best_gap - CORRIDOR_KNEE) / (1.0 - CORRIDOR_KNEE)).min(1.0) as f32 } else { 0.0 };
+        *o = if best_gap > CORRIDOR_KNEE {
+            ((best_gap - CORRIDOR_KNEE) / (1.0 - CORRIDOR_KNEE)).min(1.0) as f32
+        } else {
+            0.0
+        };
     });
     let _ = world; // `wrap` is not read by the reference's own buildRouteCorridors -- land-only, no x-wrap in the flanking scan.
     out
@@ -1393,7 +1686,14 @@ pub struct LandmassQuality {
 /// RELATIVE to the world's own largest landmass (log-scaled area score),
 /// not an absolute cutoff -- an archipelago world is legitimately all
 /// small islands.
-pub fn build_landmass_quality(field: &[f32], carrying_cap: Option<&[f32]>, gw: usize, gh: usize, sea: f64, world: bool) -> LandmassQuality {
+pub fn build_landmass_quality(
+    field: &[f32],
+    carrying_cap: Option<&[f32]>,
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+) -> LandmassQuality {
     let n = gw * gh;
     let mut comp = vec![-1i32; n];
     let mut sizes: Vec<usize> = Vec::new();
@@ -1426,7 +1726,11 @@ pub fn build_landmass_quality(field: &[f32], carrying_cap: Option<&[f32]>, gw: u
                     if ny < 0 || ny >= gh as i64 {
                         continue;
                     }
-                    let nx = if world { ((cx + dx) % gw as i64 + gw as i64) % gw as i64 } else { cx + dx };
+                    let nx = if world {
+                        ((cx + dx) % gw as i64 + gw as i64) % gw as i64
+                    } else {
+                        cx + dx
+                    };
                     if !world && (nx < 0 || nx >= gw as i64) {
                         continue;
                     }
@@ -1445,7 +1749,12 @@ pub fn build_landmass_quality(field: &[f32], carrying_cap: Option<&[f32]>, gw: u
 
     let mut out = vec![0f32; n];
     if n_comp == 0 {
-        return LandmassQuality { quality: out, comp, sizes, count: 0 };
+        return LandmassQuality {
+            quality: out,
+            comp,
+            sizes,
+            count: 0,
+        };
     }
     let max_size = *sizes.iter().max().unwrap() as f64;
     let area_score: Vec<f64> = sizes
@@ -1455,7 +1764,11 @@ pub fn build_landmass_quality(field: &[f32], carrying_cap: Option<&[f32]>, gw: u
             ((r.log10() + 3.0) / 3.0).clamp(0.0, 1.0)
         })
         .collect();
-    let cap_mean: Vec<f64> = sizes.iter().zip(cap_sum.iter()).map(|(&sz, &cs)| if sz > 0 { cs / sz as f64 } else { 0.0 }).collect();
+    let cap_mean: Vec<f64> = sizes
+        .iter()
+        .zip(cap_sum.iter())
+        .map(|(&sz, &cs)| if sz > 0 { cs / sz as f64 } else { 0.0 })
+        .collect();
     let best_cap = cap_mean.iter().cloned().fold(1e-6, f64::max);
     // Only this final per-cell fold is parallelized -- `comp`'s own flood
     // fill above is a genuine sequential graph traversal (connected
@@ -1469,7 +1782,12 @@ pub fn build_landmass_quality(field: &[f32], carrying_cap: Option<&[f32]>, gw: u
         let c = comp[i] as usize;
         *o = (0.65 * area_score[c] + 0.35 * (cap_mean[c] / best_cap)).clamp(0.0, 1.0) as f32;
     });
-    LandmassQuality { quality: out, comp, sizes, count: n_comp as usize }
+    LandmassQuality {
+        quality: out,
+        comp,
+        sizes,
+        count: n_comp as usize,
+    }
 }
 
 /// `jfaDist` (reference HTML line 7444): Jump Flooding Algorithm (Rong &
@@ -1563,7 +1881,11 @@ pub fn build_coast_sdf(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32
     let d_to_water = jfa_dist(&water, gw, gh);
     let mut sdf = vec![0f32; n];
     for i in 0..n {
-        sdf[i] = if (field[i] as f64) < sea { d_to_land[i] } else { -d_to_water[i] };
+        sdf[i] = if (field[i] as f64) < sea {
+            d_to_land[i]
+        } else {
+            -d_to_water[i]
+        };
     }
     sdf
 }
@@ -1585,7 +1907,14 @@ fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
 /// `field[i]-geoAt(i)` becomes just `field[i]`, matching the reference's
 /// own `geoAt(i)==0` behaviour when no geoid is active. Feeds
 /// `build_settlement_suitability`'s flood penalty term.
-pub fn build_flood_field(field: &[f32], flow: &[f32], slope_raw: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32> {
+pub fn build_flood_field(
+    field: &[f32],
+    flow: &[f32],
+    slope_raw: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+) -> Vec<f32> {
     let n = gw * gh;
     let mut out = vec![0f32; n];
     let log_max = (1.0 + (gw * gh) as f64).ln();
@@ -1633,9 +1962,32 @@ fn terrain_ruggedness_d(r: f64) -> f64 {
 /// 24263) is the subset of `CIV_RESOURCE_KEYS` an import can ever apply
 /// to; the other seven keys can only ever be exports.
 pub const CIV_RESOURCE_KEYS: [&str; 15] = [
-    "copper", "tin", "iron", "gold", "salt", "timber", "lead", "silver", "clay", "buildstone", "flint", "obsidian", "gems", "sulfur", "alum",
+    "copper",
+    "tin",
+    "iron",
+    "gold",
+    "salt",
+    "timber",
+    "lead",
+    "silver",
+    "clay",
+    "buildstone",
+    "flint",
+    "obsidian",
+    "gems",
+    "sulfur",
+    "alum",
 ];
-const CIV_CONSUMED_RESOURCES: [&str; 8] = ["iron", "salt", "timber", "copper", "clay", "buildstone", "alum", "lead"];
+const CIV_CONSUMED_RESOURCES: [&str; 8] = [
+    "iron",
+    "salt",
+    "timber",
+    "copper",
+    "clay",
+    "buildstone",
+    "alum",
+    "lead",
+];
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct TradeBalance {
@@ -1643,7 +1995,10 @@ pub struct TradeBalance {
     pub imports: Vec<&'static str>,
 }
 
-pub fn civ_resource_trade_balance(mean: &std::collections::HashMap<&str, f64>, world_mean: &std::collections::HashMap<&str, f64>) -> TradeBalance {
+pub fn civ_resource_trade_balance(
+    mean: &std::collections::HashMap<&str, f64>,
+    world_mean: &std::collections::HashMap<&str, f64>,
+) -> TradeBalance {
     let mut out = TradeBalance::default();
     if mean.is_empty() || world_mean.is_empty() {
         return out;
@@ -1716,7 +2071,12 @@ pub fn civ_world_mean_resources(
     field: &[f32],
     sea: f64,
 ) -> std::collections::HashMap<&'static str, f64> {
-    let land: Vec<usize> = field.iter().enumerate().filter(|&(_, &h)| (h as f64) >= sea).map(|(i, _)| i).collect();
+    let land: Vec<usize> = field
+        .iter()
+        .enumerate()
+        .filter(|&(_, &h)| (h as f64) >= sea)
+        .map(|(i, _)| i)
+        .collect();
     let mut out = std::collections::HashMap::with_capacity(CIV_RESOURCE_KEYS.len());
     if land.is_empty() {
         for &k in CIV_RESOURCE_KEYS.iter() {
@@ -1801,7 +2161,11 @@ pub fn civ_place_resource_context(
     let mut out = std::collections::HashMap::with_capacity(CIV_RESOURCE_KEYS.len());
     for &k in CIV_RESOURCE_KEYS.iter() {
         let f = resource_field_all(res, k);
-        let mean = if cells.is_empty() { 0.0 } else { cells.iter().map(|&i| f[i] as f64).sum::<f64>() / cells.len() as f64 };
+        let mean = if cells.is_empty() {
+            0.0
+        } else {
+            cells.iter().map(|&i| f[i] as f64).sum::<f64>() / cells.len() as f64
+        };
         out.insert(k, mean);
     }
     out
@@ -1853,8 +2217,13 @@ pub fn civ_place_resource_context(
 /// specialisation (`none`/`vineyard`/`trade_hub`/`monastic`/`garrison`, and
 /// an absent one) folds into `craft` -- the one sector with no direct
 /// backing signal, which the reference itself labels "(approximate)".
-pub const CIV_PRIMARY_SPECIALISATION: [(&str, &str); 5] =
-    [("fishing", "fishing"), ("grain", "agriculture"), ("pastoral", "livestock"), ("timber", "forestry"), ("mining", "mining")];
+pub const CIV_PRIMARY_SPECIALISATION: [(&str, &str); 5] = [
+    ("fishing", "fishing"),
+    ("grain", "agriculture"),
+    ("pastoral", "livestock"),
+    ("timber", "forestry"),
+    ("mining", "mining"),
+];
 
 /// `CIV_TAX_RATE` (reference line 23557): per-tier tax rate on population,
 /// an administrative-capacity heuristic, not a simulated fiscal model. The
@@ -1910,7 +2279,13 @@ use cartalith_jsmath::{js_max, js_min, js_num_or_zero, js_truthy_num};
 /// are not coast, matching `_civIsCoastal`'s own convention). Falls back to
 /// `field[i] < sea` when no water-body classification is available, exactly
 /// as the reference's `wb?...:...` does.
-pub fn civ_ocean_dist_field(water_bodies: Option<&[u8]>, field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32> {
+pub fn civ_ocean_dist_field(
+    water_bodies: Option<&[u8]>,
+    field: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+) -> Vec<f32> {
     let n = gw * gh;
     let mut src = vec![0u8; n];
     for (i, s) in src.iter_mut().enumerate() {
@@ -1995,7 +2370,8 @@ impl SectorOutput {
     /// `Object.values(b.sectorOutput).reduce((s,v)=>s+v,0)` -- declaration
     /// order, which is the summation order, which is the float result.
     fn total(&self) -> f64 {
-        ((((self.fishing + self.agriculture) + self.livestock) + self.forestry) + self.mining) + self.craft
+        ((((self.fishing + self.agriculture) + self.livestock) + self.forestry) + self.mining)
+            + self.craft
     }
 
     fn add(&mut self, sector: &str, v: f64) {
@@ -2092,7 +2468,10 @@ pub struct FactionAggregatesInput<'a> {
 /// A pure function with explicit inputs has no such call pattern and no
 /// module state to key a cache on; a caller that needs one caches the
 /// result it already holds.
-pub fn civ_faction_aggregates(input: &FactionAggregatesInput, places: &[FactionPlace]) -> FactionAggregates {
+pub fn civ_faction_aggregates(
+    input: &FactionAggregatesInput,
+    places: &[FactionPlace],
+) -> FactionAggregates {
     let n_f = input.faction_count;
     let (gw, gh, sea) = (input.gw, input.gh, input.sea);
     let n = gw * gh;
@@ -2156,7 +2535,12 @@ pub fn civ_faction_aggregates(input: &FactionAggregatesInput, places: &[FactionP
     // change can leave a stale one behind, and here it is also the
     // difference between "no per-faction rows" and a panic.
     let territory = input.territory.filter(|t| t.len() == n);
-    let res_fields: Option<Vec<&[f32]>> = input.resources.map(|r| CIV_RESOURCE_KEYS.iter().map(|&k| resource_field_all(r, k)).collect());
+    let res_fields: Option<Vec<&[f32]>> = input.resources.map(|r| {
+        CIV_RESOURCE_KEYS
+            .iter()
+            .map(|&k| resource_field_all(r, k))
+            .collect()
+    });
     // `_tmElevDenom=Math.max(1e-6,1-sea)`.
     let elev_denom = js_max(1e-6, 1.0 - sea);
 
@@ -2170,11 +2554,16 @@ pub fn civ_faction_aggregates(input: &FactionAggregatesInput, places: &[FactionP
                 world_resource_sum[k] += rf[k][i] as f64;
             }
         }
-        let is_river = input.flow.is_some_and(|f| (f[i] as f64) > input.flow_thresh);
+        let is_river = input
+            .flow
+            .is_some_and(|f| (f[i] as f64) > input.flow_thresh);
         let is_coast = input.ocean_dist.is_some_and(|d| (d[i] as f64) <= 1.5);
         let bi = input.biome.map_or(0u8, |b| b[i]);
         let is_arid = bi == BIOME_DESERT || bi == BIOME_SAVANNA || bi == BIOME_TROP_DRY;
-        let is_forest = bi == BIOME_CONIFER || bi == BIOME_TEMP_FOREST || bi == BIOME_TEMP_RAIN || bi == BIOME_TROP_WET;
+        let is_forest = bi == BIOME_CONIFER
+            || bi == BIOME_TEMP_FOREST
+            || bi == BIOME_TEMP_RAIN
+            || bi == BIOME_TROP_WET;
         // `_civPlaceDefensibility`'s own mild-upland relative-elevation cut,
         // reused rather than inventing a second "hills" threshold.
         let is_hill = ((input.field[i] as f64 - sea) / elev_denom) > 0.35;
@@ -2206,15 +2595,34 @@ pub fn civ_faction_aggregates(input: &FactionAggregatesInput, places: &[FactionP
         }
     }
 
-    let mut world_mean_resource: std::collections::HashMap<&'static str, f64> = std::collections::HashMap::with_capacity(NK);
+    let mut world_mean_resource: std::collections::HashMap<&'static str, f64> =
+        std::collections::HashMap::with_capacity(NK);
     for (k, &key) in CIV_RESOURCE_KEYS.iter().enumerate() {
-        world_mean_resource.insert(key, if world_land_cells > 0.0 { world_resource_sum[k] / world_land_cells } else { 0.0 });
+        world_mean_resource.insert(
+            key,
+            if world_land_cells > 0.0 {
+                world_resource_sum[k] / world_land_cells
+            } else {
+                0.0
+            },
+        );
     }
-    let mut world_mean_terrain: std::collections::HashMap<&'static str, f64> = std::collections::HashMap::with_capacity(5);
+    let mut world_mean_terrain: std::collections::HashMap<&'static str, f64> =
+        std::collections::HashMap::with_capacity(5);
     for (t, &key) in CIV_TERRAIN_MIX_KEYS.iter().enumerate() {
-        world_mean_terrain.insert(key, if world_land_cells > 0.0 { world_terrain_sum[t] / world_land_cells } else { 0.0 });
+        world_mean_terrain.insert(
+            key,
+            if world_land_cells > 0.0 {
+                world_terrain_sum[t] / world_land_cells
+            } else {
+                0.0
+            },
+        );
     }
-    let territory_km2: Vec<f64> = territory_cells.iter().map(|&c| js_round(c * cell_km2)).collect();
+    let territory_km2: Vec<f64> = territory_cells
+        .iter()
+        .map(|&c| js_round(c * cell_km2))
+        .collect();
 
     // ---- one pass over places ----
     let mut pop = vec![0f64; n_f];
@@ -2245,7 +2653,12 @@ pub fn civ_faction_aggregates(input: &FactionAggregatesInput, places: &[FactionP
         let prod_weight = p_pop * (0.4 + 0.6 * p_imp);
         let sector = p
             .specialisation
-            .and_then(|s| CIV_PRIMARY_SPECIALISATION.iter().find(|&&(k, _)| k == s).map(|&(_, v)| v))
+            .and_then(|s| {
+                CIV_PRIMARY_SPECIALISATION
+                    .iter()
+                    .find(|&&(k, _)| k == s)
+                    .map(|&(_, v)| v)
+            })
             .unwrap_or("craft");
         sector_output[f].add(sector, prod_weight);
     }
@@ -2256,11 +2669,20 @@ pub fn civ_faction_aggregates(input: &FactionAggregatesInput, places: &[FactionP
     // reference's own `if((p.pop||0)>(best.pop||0))`.
     let capital: Vec<Option<usize>> = (0..n_f)
         .map(|f| {
-            let list: Vec<usize> = places.iter().enumerate().filter(|(_, p)| p.faction == f as i32).map(|(i, _)| i).collect();
+            let list: Vec<usize> = places
+                .iter()
+                .enumerate()
+                .filter(|(_, p)| p.faction == f as i32)
+                .map(|(i, _)| i)
+                .collect();
             if list.is_empty() {
                 return None;
             }
-            let seats: Vec<usize> = list.iter().copied().filter(|&i| places[i].kind == SettlementKind::Capital).collect();
+            let seats: Vec<usize> = list
+                .iter()
+                .copied()
+                .filter(|&i| places[i].kind == SettlementKind::Capital)
+                .collect();
             let pool = if seats.is_empty() { &list } else { &seats };
             let mut best = pool[0];
             for &i in pool {
@@ -2285,29 +2707,91 @@ pub fn civ_faction_aggregates(input: &FactionAggregatesInput, places: &[FactionP
 
     let by_faction = (0..n_f)
         .map(|f| {
-            let norm_pop = if js_truthy_num(max_pop) { pop[f] / max_pop } else { 0.0 };
-            let norm_trade = if js_truthy_num(max_trade_volume) { trade_volume[f] / max_trade_volume } else { 0.0 };
-            let norm_terr = if js_truthy_num(max_territory_km2) { territory_km2[f] / max_territory_km2 } else { 0.0 };
-            let norm_settle = if max_settlement_count != 0 { settlement_count[f] as f64 / max_settlement_count as f64 } else { 0.0 };
-            let fortified_fraction = if settlement_count[f] != 0 { fortified_count[f] as f64 / settlement_count[f] as f64 } else { 0.0 };
-            let mean_importance = if settlement_count[f] != 0 { importance_sum[f] / settlement_count[f] as f64 } else { 0.0 };
+            let norm_pop = if js_truthy_num(max_pop) {
+                pop[f] / max_pop
+            } else {
+                0.0
+            };
+            let norm_trade = if js_truthy_num(max_trade_volume) {
+                trade_volume[f] / max_trade_volume
+            } else {
+                0.0
+            };
+            let norm_terr = if js_truthy_num(max_territory_km2) {
+                territory_km2[f] / max_territory_km2
+            } else {
+                0.0
+            };
+            let norm_settle = if max_settlement_count != 0 {
+                settlement_count[f] as f64 / max_settlement_count as f64
+            } else {
+                0.0
+            };
+            let fortified_fraction = if settlement_count[f] != 0 {
+                fortified_count[f] as f64 / settlement_count[f] as f64
+            } else {
+                0.0
+            };
+            let mean_importance = if settlement_count[f] != 0 {
+                importance_sum[f] / settlement_count[f] as f64
+            } else {
+                0.0
+            };
             let cap_rank = capital[f].map_or(0.0, |i| civ_tier_rank(places[i].kind));
             let capital_tier_norm = cap_rank / CIV_MAX_TIER_RANK;
 
             // Power breakdown (0-100 each) -- explicitly heuristic, never
             // presented as simulated (the reference's own words).
-            let military = 100.0 * js_max(0.0, js_min(1.0, 0.45 * norm_pop + 0.35 * fortified_fraction + 0.20 * capital_tier_norm));
-            let economic = 100.0 * js_max(0.0, js_min(1.0, 0.40 * norm_trade + 0.30 * norm_pop + 0.30 * mean_importance));
-            let political =
-                100.0 * js_max(0.0, js_min(1.0, 0.35 * norm_terr + 0.30 * capital_tier_norm + 0.20 * norm_settle + 0.15 * mean_importance));
+            let military = 100.0
+                * js_max(
+                    0.0,
+                    js_min(
+                        1.0,
+                        0.45 * norm_pop + 0.35 * fortified_fraction + 0.20 * capital_tier_norm,
+                    ),
+                );
+            let economic = 100.0
+                * js_max(
+                    0.0,
+                    js_min(
+                        1.0,
+                        0.40 * norm_trade + 0.30 * norm_pop + 0.30 * mean_importance,
+                    ),
+                );
+            let political = 100.0
+                * js_max(
+                    0.0,
+                    js_min(
+                        1.0,
+                        0.35 * norm_terr
+                            + 0.30 * capital_tier_norm
+                            + 0.20 * norm_settle
+                            + 0.15 * mean_importance,
+                    ),
+                );
             let cultural = 100.0 * js_max(0.0, js_min(1.0, 0.7 * norm_pop + 0.3 * norm_settle));
-            let has_religion = input.faction_has_religion.and_then(|r| r.get(f).copied()).unwrap_or(false);
-            let religious = if has_religion { 100.0 * js_max(0.0, js_min(1.0, 0.7 * norm_pop + 0.3 * norm_settle)) } else { 0.0 };
+            let has_religion = input
+                .faction_has_religion
+                .and_then(|r| r.get(f).copied())
+                .unwrap_or(false);
+            let religious = if has_religion {
+                100.0 * js_max(0.0, js_min(1.0, 0.7 * norm_pop + 0.3 * norm_settle))
+            } else {
+                0.0
+            };
             let overall = (military + economic + political + cultural + religious) / 5.0;
 
-            let mut resource_mean: std::collections::HashMap<&'static str, f64> = std::collections::HashMap::with_capacity(NK);
+            let mut resource_mean: std::collections::HashMap<&'static str, f64> =
+                std::collections::HashMap::with_capacity(NK);
             for (k, &key) in CIV_RESOURCE_KEYS.iter().enumerate() {
-                resource_mean.insert(key, if territory_cells[f] != 0.0 { resource_sum[f][k] / territory_cells[f] } else { 0.0 });
+                resource_mean.insert(
+                    key,
+                    if territory_cells[f] != 0.0 {
+                        resource_sum[f][k] / territory_cells[f]
+                    } else {
+                        0.0
+                    },
+                );
             }
             let food_surplus = js_round(food_capacity[f] - pop[f]);
             let bal = civ_resource_trade_balance(&resource_mean, &world_mean_resource);
@@ -2324,10 +2808,22 @@ pub fn civ_faction_aggregates(input: &FactionAggregatesInput, places: &[FactionP
                 .filter(|k| resource_mean.get(k).copied().unwrap_or(0.0) > 0.4)
                 .collect();
             let sector_total = sector_output[f].total();
-            let craft_share = if js_truthy_num(sector_total) { sector_output[f].craft / sector_total } else { 0.0 };
-            let mut terrain_mix: std::collections::HashMap<&'static str, f64> = std::collections::HashMap::with_capacity(5);
+            let craft_share = if js_truthy_num(sector_total) {
+                sector_output[f].craft / sector_total
+            } else {
+                0.0
+            };
+            let mut terrain_mix: std::collections::HashMap<&'static str, f64> =
+                std::collections::HashMap::with_capacity(5);
             for (t, &key) in CIV_TERRAIN_MIX_KEYS.iter().enumerate() {
-                terrain_mix.insert(key, if territory_cells[f] != 0.0 { terrain_cells[f][t] / territory_cells[f] } else { 0.0 });
+                terrain_mix.insert(
+                    key,
+                    if territory_cells[f] != 0.0 {
+                        terrain_cells[f][t] / territory_cells[f]
+                    } else {
+                        0.0
+                    },
+                );
             }
 
             FactionAggregate {
@@ -2341,7 +2837,14 @@ pub fn civ_faction_aggregates(input: &FactionAggregatesInput, places: &[FactionP
                 settlement_count: settlement_count[f],
                 capital: capital[f],
                 resource_potential: resource_mean,
-                power: FactionPower { military, economic, political, cultural, religious, overall },
+                power: FactionPower {
+                    military,
+                    economic,
+                    political,
+                    cultural,
+                    religious,
+                    overall,
+                },
                 tax_income: js_round(tax_income[f]),
                 imports,
                 exports,
@@ -2397,11 +2900,38 @@ pub const ISLET_KNEE: f64 = 0.55;
 /// `SETTLE_SEED_THRESH` (reference line 6415).
 pub const SETTLE_SEED_THRESH: f64 = 0.42;
 
+/// `SETTLE_WATER_SNAP_KM` (reference line 20778): how far
+/// [`civ_snap_to_water_edge`] may nudge a site toward water -- "a
+/// morning's walk".
+const SETTLE_WATER_SNAP_KM: f64 = 12.0;
+
+/// `SETTLE_FLOOD_SAFE` (reference line 20779): above this flood exposure a
+/// cell is channel bottom, not terrace, and [`civ_snap_to_water_edge`]
+/// refuses to land a settlement there.
+const SETTLE_FLOOD_SAFE: f64 = 0.55;
+
+/// `_civSnapToWaterEdge`'s own default `opts.tolerance` (reference line
+/// 20829's `opts.tolerance!=null?opts.tolerance:0.80` fallback) -- how much
+/// suitability a site may trade away for guaranteed waterfront access.
+const SETTLE_WATER_SNAP_DEFAULT_TOLERANCE: f64 = 0.80;
+
+/// `SETTLE_COAST_SWAP_TOLERANCE` (reference line 20786): the wider
+/// tolerance `_civIterativeAutoWorld` passes when a site is already close
+/// to the sea (reference line 25574's `seaNear` branch) -- the ONE
+/// "suitability traded for guaranteed coastal access" number the v1.46
+/// coastal-preference swap and `_civSnapToWaterEdge`'s own seaNear override
+/// share (a real reference quirk: the comment at that line notes the two
+/// call sites read the SAME 0.60 literal, distinct from this function's own
+/// 0.80 default above).
+const SETTLE_COAST_SWAP_TOLERANCE: f64 = 0.60;
+
 /// `SUIT_RESOURCE_KEYS` (reference line 6294): the ORE subset of
 /// `RESOURCE_KEYS` that feeds the mineral term -- clay/buildstone/flint/
 /// obsidian/sulfur/alum are ubiquitous-enough materials that including
 /// them would flatten the term, per the reference's own comment.
-pub const SUIT_RESOURCE_KEYS: [&str; 9] = ["copper", "tin", "iron", "gold", "salt", "timber", "lead", "silver", "gems"];
+pub const SUIT_RESOURCE_KEYS: [&str; 9] = [
+    "copper", "tin", "iron", "gold", "salt", "timber", "lead", "silver", "gems",
+];
 
 /// The optional context rasters `buildSettlementSuitability` reads when
 /// `ctx` is supplied (reference lines 6328-6333) -- every field is
@@ -2598,16 +3128,22 @@ pub fn build_settlement_suitability(
 
                 let fl = c.flood.map(|f| f[i] as f64).unwrap_or(0.0);
                 let build = if let Some(slope_raw) = c.slope_raw {
-                    ((1.0 - (slope_raw[i] as f64 * gw as f64 / slope_max).min(1.0)) * (1.0 - fl)).clamp(0.0, 1.0)
+                    ((1.0 - (slope_raw[i] as f64 * gw as f64 / slope_max).min(1.0)) * (1.0 - fl))
+                        .clamp(0.0, 1.0)
                 } else {
                     a * (1.0 - fl)
                 };
 
                 let corr = c.corridor.map(|cr| cr[i] as f64).unwrap_or(0.0);
 
-                let islet = c.landmass.map(|lm| (1.0 - lm[i] as f64 / ISLET_KNEE).max(0.0)).unwrap_or(0.0);
+                let islet = c
+                    .landmass
+                    .map(|lm| (1.0 - lm[i] as f64 / ISLET_KNEE).max(0.0))
+                    .unwrap_or(0.0);
 
-                z += SUIT_W_FULL_COAST * coast + SUIT_W_FULL_RIVER * river + SUIT_W_FULL_LAKE * lake
+                z += SUIT_W_FULL_COAST * coast
+                    + SUIT_W_FULL_RIVER * river
+                    + SUIT_W_FULL_LAKE * lake
                     + SUIT_W_FULL_MINERAL * mineral
                     + SUIT_W_FULL_CORRIDOR * corr
                     + SUIT_W_FULL_AGRI * agri
@@ -2711,16 +3247,35 @@ pub fn explain_settlement_suitability(
     let i = y * gw + x;
     let mut terms: Vec<SuitTerm> = Vec::new();
     let push = |terms: &mut Vec<SuitTerm>, key: &'static str, value: f64, weight: f64| {
-        terms.push(SuitTerm { key, value, weight, contribution: weight * value });
+        terms.push(SuitTerm {
+            key,
+            value,
+            weight,
+            contribution: weight * value,
+        });
     };
 
     if (field[i] as f64) < sea {
-        return SuitExplanation { x, y, score: 0.0, z: 0.0, terms, excluded: Some("below_sea_level") };
+        return SuitExplanation {
+            x,
+            y,
+            score: 0.0,
+            z: 0.0,
+            terms,
+            excluded: Some("below_sea_level"),
+        };
     }
     if let Some(wb) = ctx.and_then(|c| c.water_bodies)
         && wb[i] != 0
     {
-        return SuitExplanation { x, y, score: 0.0, z: 0.0, terms, excluded: Some("water_body") };
+        return SuitExplanation {
+            x,
+            y,
+            score: 0.0,
+            z: 0.0,
+            terms,
+            excluded: Some("water_body"),
+        };
     }
 
     let slope_max = 4.0;
@@ -2837,7 +3392,10 @@ pub fn explain_settlement_suitability(
 
             let mut mineral = 0.0;
             if let Some(res) = c.resources {
-                let s: f64 = SUIT_RESOURCE_KEYS.iter().map(|k| resource_field(res, k)[i] as f64).sum();
+                let s: f64 = SUIT_RESOURCE_KEYS
+                    .iter()
+                    .map(|k| resource_field(res, k)[i] as f64)
+                    .sum();
                 mineral = (s / (SUIT_RESOURCE_KEYS.len() as f64 / 3.0)).min(1.0);
             }
 
@@ -2858,13 +3416,17 @@ pub fn explain_settlement_suitability(
 
             let fl = c.flood.map(|f| f[i] as f64).unwrap_or(0.0);
             let build = if let Some(slope_raw) = c.slope_raw {
-                ((1.0 - (slope_raw[i] as f64 * gw as f64 / slope_max).min(1.0)) * (1.0 - fl)).clamp(0.0, 1.0)
+                ((1.0 - (slope_raw[i] as f64 * gw as f64 / slope_max).min(1.0)) * (1.0 - fl))
+                    .clamp(0.0, 1.0)
             } else {
                 a * (1.0 - fl)
             };
 
             let corr = c.corridor.map(|cr| cr[i] as f64).unwrap_or(0.0);
-            let islet = c.landmass.map(|lm| (1.0 - lm[i] as f64 / ISLET_KNEE).max(0.0)).unwrap_or(0.0);
+            let islet = c
+                .landmass
+                .map(|lm| (1.0 - lm[i] as f64 / ISLET_KNEE).max(0.0))
+                .unwrap_or(0.0);
 
             push(&mut terms, "coastal_access", coast, SUIT_W_FULL_COAST);
             push(&mut terms, "river", river, SUIT_W_FULL_RIVER);
@@ -2876,7 +3438,9 @@ pub fn explain_settlement_suitability(
             push(&mut terms, "flood_risk", fl, -SUIT_W_FULL_FLOOD);
             push(&mut terms, "islet_penalty", islet, -SUIT_W_FULL_ISLET);
 
-            z += SUIT_W_FULL_COAST * coast + SUIT_W_FULL_RIVER * river + SUIT_W_FULL_LAKE * lake
+            z += SUIT_W_FULL_COAST * coast
+                + SUIT_W_FULL_RIVER * river
+                + SUIT_W_FULL_LAKE * lake
                 + SUIT_W_FULL_MINERAL * mineral
                 + SUIT_W_FULL_CORRIDOR * corr
                 + SUIT_W_FULL_AGRI * agri
@@ -2914,7 +3478,13 @@ pub struct SettlementSeed {
 /// any already-accepted seed, sorted by score descending. Never places
 /// settlements -- purely advisory. Pure post-processing over `suit`, no
 /// new affordance data needed.
-pub fn find_settlement_seeds(suit: &[f32], gw: usize, gh: usize, thresh: f64, supp_r: f64) -> Vec<SettlementSeed> {
+pub fn find_settlement_seeds(
+    suit: &[f32],
+    gw: usize,
+    gh: usize,
+    thresh: f64,
+    supp_r: f64,
+) -> Vec<SettlementSeed> {
     let mut cands = Vec::new();
     for y in 1..gh.saturating_sub(1) {
         for x in 1..gw.saturating_sub(1) {
@@ -2972,8 +3542,26 @@ pub fn find_settlement_seeds(suit: &[f32], gw: usize, gh: usize, thresh: f64, su
 /// `strahler_from_receivers` directly rather than porting a second
 /// receiver-tree implementation.
 #[allow(clippy::too_many_arguments)]
-pub fn fresh_river_order(field: &[f32], flow: &[f32], gw: usize, gh: usize, sea: f64, world: bool, river_density: f64, map_width_km: f64) -> Vec<i16> {
-    let ch = cartalith_hydrology::build_channels(field, flow, gw, gh, sea, world, river_density, map_width_km);
+pub fn fresh_river_order(
+    field: &[f32],
+    flow: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    river_density: f64,
+    map_width_km: f64,
+) -> Vec<i16> {
+    let ch = cartalith_hydrology::build_channels(
+        field,
+        flow,
+        gw,
+        gh,
+        sea,
+        world,
+        river_density,
+        map_width_km,
+    );
     cartalith_hydrology::strahler_from_receivers(&ch.recv, flow, &ch.chan)
 }
 
@@ -3035,7 +3623,13 @@ pub struct SettlementPlacement {
 /// reference's `wrapX=!!state.world`. DFS via an explicit stack, matching
 /// the reference's own `q.push`/`q.pop()` (used as a stack despite the
 /// name) -- scan order and traversal order both preserved for determinism.
-pub fn label_land_components(field: &[f32], gw: usize, gh: usize, sea: f64, world: bool) -> Vec<i32> {
+pub fn label_land_components(
+    field: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+) -> Vec<i32> {
     let n = gw * gh;
     let mut comp = vec![-1i32; n];
     let mut n_comp: i32 = 0;
@@ -3083,7 +3677,15 @@ pub fn label_land_components(field: &[f32], gw: usize, gh: usize, sea: f64, worl
 /// neighbouring lake's pooled fill level, so it reads dry on the map but
 /// wet once a sub-cell renderer floods the shoreline band. `lake_fill` is
 /// `WaterBodies::fill_level` (milestone 2's `build_water_bodies` output).
-fn civ_lake_flooded(x: usize, y: usize, field: &[f32], wb: &[u8], lake_fill: &[f32], gw: usize, gh: usize) -> bool {
+fn civ_lake_flooded(
+    x: usize,
+    y: usize,
+    field: &[f32],
+    wb: &[u8],
+    lake_fill: &[f32],
+    gw: usize,
+    gh: usize,
+) -> bool {
     let h = field[y * gw + x];
     for dy in -1isize..=1 {
         for dx in -1isize..=1 {
@@ -3109,13 +3711,25 @@ fn civ_lake_flooded(x: usize, y: usize, field: &[f32], wb: &[u8], lake_fill: &[f
 /// are unwrapped, bounded strictly by grid edges regardless of
 /// `state.world`.
 #[allow(clippy::too_many_arguments)]
-fn civ_snap_land(x: usize, y: usize, max_r: isize, field: &[f32], wb: &[u8], lake_fill: &[f32], gw: usize, gh: usize, sea: f64) -> Option<(usize, usize)> {
+fn civ_snap_land(
+    x: usize,
+    y: usize,
+    max_r: isize,
+    field: &[f32],
+    wb: &[u8],
+    lake_fill: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+) -> Option<(usize, usize)> {
     let dry = |xx: isize, yy: isize| -> bool {
         if xx < 0 || xx >= gw as isize || yy < 0 || yy >= gh as isize {
             return false;
         }
         let i = yy as usize * gw + xx as usize;
-        (field[i] as f64) >= sea && wb[i] == 0 && !civ_lake_flooded(xx as usize, yy as usize, field, wb, lake_fill, gw, gh)
+        (field[i] as f64) >= sea
+            && wb[i] == 0
+            && !civ_lake_flooded(xx as usize, yy as usize, field, wb, lake_fill, gw, gh)
     };
     if dry(x as isize, y as isize) {
         return Some((x, y));
@@ -3137,13 +3751,191 @@ fn civ_snap_land(x: usize, y: usize, max_r: isize, field: &[f32], wb: &[u8], lak
     None
 }
 
+/// `_civSnapToWaterEdge` (reference line 20787, v1.36/v1.39): nudges a
+/// site onto the nearest habitable water-edge cell within
+/// `SETTLE_WATER_SNAP_KM` (`opts.maxKm` in the reference; `max_km` here),
+/// if -- and only if -- that cell scores no worse than `tolerance` times
+/// the site's own suitability. Ocean, lake, AND river all count as
+/// "water" (`is_water`/`is_river`/`waterish`), unlike [`civ_snap_coast`]
+/// above, which is ocean-shore-only; `habitable` additionally excludes the
+/// flood zone (`SETTLE_FLOOD_SAFE`) -- the intent is the historical
+/// waterfront-for-transport rule, "the bank terrace, not the channel".
+///
+/// This is the reference's real two-phase settlement-placement design:
+/// suitability alone chooses WHERE (soil, defensibility, resources,
+/// carrying capacity -- [`build_settlement_suitability`]), and only once
+/// that region is chosen does this bounded, separate post-process decide
+/// whether nudging the site a short distance toward water is worth the
+/// (capped) suitability cost. It is not a snap-to-nearest-water step
+/// layered indiscriminately onto every candidate: `on_edge` makes it a
+/// no-op for a site already on the water, and the final `there <
+/// here*tolerance` check refuses any move that would cost the site more
+/// than that budget -- so a materially better inland site is never dragged
+/// to a mediocre waterfront just to touch it.
+///
+/// `PHASE2_SCOPE.md` milestone 8's own golden-parity harness deliberately
+/// scoped this function OUT of [`place_settlements`] (see that function's
+/// own doc comment: only `_civSnapLand`/`_civSnapCoast`/`_civIsCoastal`/
+/// `_civAssignLandmassFactions` were wired in) as reference logic reaching
+/// into cached DOM/global state (`currentWaterBodies`/`currentFloodField`/
+/// `flowField`) rather than a pure per-cell formula. That scoping left a
+/// real gap: `place_settlements` never applied this snap, so a settlement
+/// whose suitability optimum sat a cell or two off the actual coastline or
+/// riverbank stayed there -- the coastal FLAG (`civ_is_coastal`, a wider
+/// radius than this snap ever reaches) could still read true from water
+/// merely being nearby, while the pin itself was visibly not on the water
+/// once zoomed in. Ported and wired into `place_settlements` below as the
+/// fix for that gap (owner report 2026-08-19), matching the reference's
+/// own v1.36 changelog numbers for the same complaint ("79.3% of
+/// settlements on the water edge vs 65.5%, mean river distance
+/// 16.3 -> 3.6 km").
+///
+/// Loop order matters for parity, not just for correctness: ties within
+/// half a cell of the true nearest distance are broken by ascending
+/// row-then-column scan order when suitability doesn't discriminate
+/// (verified against the real reference via a small hand-built harness --
+/// see this file's own `tests::civ_snap_to_water_edge_matches_reference_*`
+/// unit tests below), so `dy` must be the outer loop and `dx` the inner
+/// one, both ascending, exactly as here.
+#[allow(clippy::too_many_arguments)]
+fn civ_snap_to_water_edge(
+    gx: usize,
+    gy: usize,
+    field: &[f32],
+    wb: &[u8],
+    lake_fill: &[f32],
+    flood: Option<&[f32]>,
+    flow: Option<&[f32]>,
+    flow_thresh: f64,
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    suit: Option<&[f32]>,
+    max_km: f64,
+    cell_km: f64,
+    tolerance: f64,
+) -> Option<(usize, usize)> {
+    let max_r = (((max_km / cell_km.max(1e-6)).round()) as isize).max(1);
+    let x0 = gx.min(gw.saturating_sub(1));
+    let y0 = gy.min(gh.saturating_sub(1));
+    let i0 = y0 * gw + x0;
+
+    let is_water = |x: isize, y: isize| -> bool {
+        if x < 0 || y < 0 || x >= gw as isize || y >= gh as isize {
+            return false;
+        }
+        let i = y as usize * gw + x as usize;
+        (field[i] as f64) < sea || wb[i] == 2
+    };
+    let is_river = |x: isize, y: isize| -> bool {
+        let Some(flow) = flow else { return false };
+        if x < 0 || y < 0 || x >= gw as isize || y >= gh as isize {
+            return false;
+        }
+        (flow[y as usize * gw + x as usize] as f64) > flow_thresh
+    };
+    let waterish = |x: isize, y: isize| is_water(x, y) || is_river(x, y);
+    let habitable = |x: isize, y: isize| -> bool {
+        if x < 0 || y < 0 || x >= gw as isize || y >= gh as isize {
+            return false;
+        }
+        let (ux, uy) = (x as usize, y as usize);
+        let i = uy * gw + ux;
+        if (field[i] as f64) < sea {
+            return false;
+        }
+        if wb[i] != 0 {
+            return false;
+        }
+        if civ_lake_flooded(ux, uy, field, wb, lake_fill, gw, gh) {
+            return false;
+        }
+        if let Some(fl) = flood
+            && (fl[i] as f64) > SETTLE_FLOOD_SAFE
+        {
+            return false;
+        }
+        true
+    };
+    let on_edge = |x: isize, y: isize| -> bool {
+        if !habitable(x, y) {
+            return false;
+        }
+        for dy in -1..=1 {
+            for dx in -1..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                if waterish(x + dx, y + dy) {
+                    return true;
+                }
+            }
+        }
+        false
+    };
+
+    if on_edge(x0 as isize, y0 as isize) {
+        return None;
+    }
+
+    let mut best: Option<(usize, usize)> = None;
+    let mut best_d = f64::INFINITY;
+    let mut best_s = f64::NEG_INFINITY;
+    for dy in -max_r..=max_r {
+        let yy = y0 as isize + dy;
+        if yy < 0 || yy >= gh as isize {
+            continue;
+        }
+        for dx in -max_r..=max_r {
+            let xx = x0 as isize + dx;
+            if xx < 0 || xx >= gw as isize {
+                continue;
+            }
+            let d = ((dx * dx + dy * dy) as f64).sqrt();
+            if d > max_r as f64 || d == 0.0 {
+                continue;
+            }
+            if !on_edge(xx, yy) {
+                continue;
+            }
+            let sv = suit.map_or(0.0, |s| s[yy as usize * gw + xx as usize] as f64);
+            if d < best_d - 0.5 || ((d - best_d).abs() <= 0.5 && sv > best_s) {
+                best = Some((xx as usize, yy as usize));
+                best_d = d;
+                best_s = sv;
+            }
+        }
+    }
+    let (bx, by) = best?;
+    if let Some(s) = suit {
+        let here = s[i0] as f64;
+        let there = s[by * gw + bx] as f64;
+        if there < here * tolerance {
+            return None;
+        }
+    }
+    Some((bx, by))
+}
+
 /// `_civSnapCoast` (reference line 20841): if (x,y) sits within `max_r`
 /// cells of the ocean (water-body class 1), relocate to the best SHORE
 /// cell (dry land 4-adjacent to ocean) by highest suitability, nearest
 /// wins ties. `used` prevents two seeds converging on the same shore
 /// cell (mutated in place, matching the reference's shared `Set`).
 #[allow(clippy::too_many_arguments)]
-fn civ_snap_coast(x: usize, y: usize, max_r: isize, suit: &[f32], used: &mut HashSet<usize>, field: &[f32], wb: &[u8], gw: usize, gh: usize, sea: f64, world: bool) -> Option<(usize, usize)> {
+fn civ_snap_coast(
+    x: usize,
+    y: usize,
+    max_r: isize,
+    suit: &[f32],
+    used: &mut HashSet<usize>,
+    field: &[f32],
+    wb: &[u8],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+) -> Option<(usize, usize)> {
     const DX4: [isize; 4] = [1, -1, 0, 0];
     const DY4: [isize; 4] = [0, 0, 1, -1];
     let mut best: Option<(usize, usize, usize)> = None;
@@ -3208,7 +4000,17 @@ fn civ_snap_coast(x: usize, y: usize, max_r: isize, suit: &[f32], used: &mut Has
 /// preserved exactly as a real reference quirk, not "fixed" for
 /// consistency with the sibling function.
 #[allow(clippy::too_many_arguments)]
-fn civ_is_coastal(x: usize, y: usize, r: isize, ocean_only: bool, field: &[f32], wb: Option<&[u8]>, gw: usize, gh: usize, sea: f64) -> bool {
+fn civ_is_coastal(
+    x: usize,
+    y: usize,
+    r: isize,
+    ocean_only: bool,
+    field: &[f32],
+    wb: Option<&[u8]>,
+    gw: usize,
+    gh: usize,
+    sea: f64,
+) -> bool {
     let wb = if ocean_only { wb } else { None };
     for dy in -r..=r {
         let ny = y as isize + dy;
@@ -3243,7 +4045,10 @@ fn civ_is_coastal(x: usize, y: usize, r: isize, ocean_only: bool, field: &[f32],
 /// finds enough), then assigns every other candidate on that landmass to
 /// its nearest seed. Deterministic by construction (fixed iteration over
 /// ascending-sorted landmass ids, no RNG) -- golden-verified bit-exact.
-pub fn assign_landmass_factions(candidates: &[SettlementCandidate], faction_count: i32) -> (Vec<i32>, Vec<bool>) {
+pub fn assign_landmass_factions(
+    candidates: &[SettlementCandidate],
+    faction_count: i32,
+) -> (Vec<i32>, Vec<bool>) {
     let mut by_cont: BTreeMap<i32, Vec<usize>> = BTreeMap::new();
     for (idx, c) in candidates.iter().enumerate() {
         by_cont.entry(c.cont_id).or_default().push(idx);
@@ -3260,8 +4065,18 @@ pub fn assign_landmass_factions(candidates: &[SettlementCandidate], faction_coun
         }
     }
 
-    let capacity_of: HashMap<i32, f64> =
-        cont_ids.iter().map(|&cid| (cid, by_cont[&cid].iter().map(|&i| candidates[i].suit.max(0.05)).sum())).collect();
+    let capacity_of: HashMap<i32, f64> = cont_ids
+        .iter()
+        .map(|&cid| {
+            (
+                cid,
+                by_cont[&cid]
+                    .iter()
+                    .map(|&i| candidates[i].suit.max(0.05))
+                    .sum(),
+            )
+        })
+        .collect();
     let mut seats_of: HashMap<i32, i32> = cont_ids.iter().map(|&cid| (cid, 1)).collect();
     let mut spare_seats = (faction_count - l).max(0);
     while spare_seats > 0 {
@@ -3314,7 +4129,12 @@ pub fn assign_landmass_factions(candidates: &[SettlementCandidate], faction_coun
         let mut ranked = idxs.clone();
         ranked.sort_by(|&a, &b| candidates[b].suit.partial_cmp(&candidates[a].suit).unwrap());
 
-        let (mut min_x, mut max_x, mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+        let (mut min_x, mut max_x, mut min_y, mut max_y) = (
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        );
         for &i in idxs {
             let (x, y) = (candidates[i].x as f64, candidates[i].y as f64);
             min_x = min_x.min(x);
@@ -3383,11 +4203,183 @@ pub fn assign_landmass_factions(candidates: &[SettlementCandidate], faction_coun
 /// The pure, non-DOM-coupled core of `_civIterativeAutoWorld` (reference
 /// ~lines 25336-25425, stopping before population/naming): land-component
 /// labelling, snap seeds onto land then coast, faction assignment by
-/// landmass, settlement tier classification, ocean-port detection.
-/// `max_places = min(40, max(8, (gw*gh/65536*20)|0))` matches the
-/// reference's own default -- the `wantCounts` DOM-input branch that
-/// overrides it in production is out of scope here (no Godot UI exposes
-/// user-fixed tier counts in this port).
+/// landmass, settlement tier classification, ocean-port detection, and
+/// (owner report 2026-08-19, `PHASE2_SCOPE.md` milestone 8's own
+/// deliberately-scoped-out step, ported here) the water-edge snap
+/// (`_civSnapToWaterEdge`, reference line 25558's "v1.39: water-edge snap"
+/// block) that nudges the final site onto an actual river/lake/coast edge
+/// when that costs little suitability -- see [`civ_snap_to_water_edge`]'s
+/// own doc comment for why this closes a real placement-fidelity gap, not
+/// a cosmetic one. `max_places = min(40, max(8, (gw*gh/65536*20)|0))`
+/// matches the reference's own default -- the `wantCounts` DOM-input
+/// branch that overrides it in production is out of scope here (no Godot
+/// UI exposes user-fixed tier counts in this port). The v1.46
+/// landmass-scoped coastal-PREFERENCE swap (reference line 25447,
+/// redistributing WHICH settlements are coastal to hit a per-landmass
+/// target share) and the crossroads-settlement promotion pass (reference
+/// line ~25607) are both separate, larger, not-yet-ported reference
+/// features and out of scope for this fix -- this only corrects the
+/// GEOMETRY of a chosen site, it does not change which sites get chosen.
+///
+/// `coastal` is computed from the FINAL (post-water-edge-snap) position,
+/// a deliberate departure from the reference's own statement order (which
+/// computes `_civIsCoastal` once, before `_civSnapToWaterEdge` runs, and
+/// never re-checks it -- reference lines 25423 vs 25558). Recomputing here
+/// costs nothing extra (the position and `civ_is_coastal` both already
+/// exist) and removes any chance of the flag going stale relative to
+/// where the pin actually renders -- `DECISIONS.md` §7a "principled
+/// equivalence" territory: the reference's own ordering is a latent
+/// inconsistency (never observed to matter in practice, since the snap
+/// only ever moves a site closer to water) rather than an intentional
+/// design the port needs to preserve bit-for-bit.
+///
+/// Named `_with_water_edge_snap` rather than replacing the original
+/// `place_settlements` in place: `cartalith-godot`'s bridge call site
+/// (`lib.rs`) was mid-edit by a concurrent session when this fix landed
+/// (Travel Library `#[func]` boundary, unrelated) and could not safely be
+/// touched. [`place_settlements`] below is kept as an exact, unchanged
+/// alias of the old (pre-fix) behaviour so that in-flight edit keeps
+/// compiling against it; the bridge should switch its call site to this
+/// function once that edit lands (see `STATUS.md`'s note on this pass for
+/// the exact one-line change still needed there).
+#[allow(clippy::too_many_arguments)]
+pub fn place_settlements_with_water_edge_snap(
+    seeds: &[SettlementSeed],
+    suit: &[f32],
+    field: &[f32],
+    wb: &[u8],
+    lake_fill: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    world: bool,
+    faction_count: i32,
+    flood: &[f32],
+    flow: &[f32],
+    flow_thresh: f64,
+    map_width_km: f64,
+) -> Vec<SettlementPlacement> {
+    let max_places = (((gw * gh) as f64 / 65536.0 * 20.0) as i64).clamp(8, 40) as usize;
+
+    let comp = label_land_components(field, gw, gh, sea, world);
+
+    let coast_snap_r: isize = ((gw as f64 / 160.0) as isize).max(4);
+    let mut used_shore: HashSet<usize> = HashSet::new();
+
+    let mut candidates: Vec<SettlementCandidate> = Vec::new();
+    for s in seeds.iter().take(max_places) {
+        let Some((sx, sy)) = civ_snap_land(s.x, s.y, 6, field, wb, lake_fill, gw, gh, sea) else {
+            continue;
+        };
+        let (fx, fy) = civ_snap_coast(
+            sx,
+            sy,
+            coast_snap_r,
+            suit,
+            &mut used_shore,
+            field,
+            wb,
+            gw,
+            gh,
+            sea,
+            world,
+        )
+        .unwrap_or((sx, sy));
+        let cont_id = comp[fy * gw + fx];
+        if cont_id < 0 {
+            continue;
+        }
+        candidates.push(SettlementCandidate {
+            x: fx,
+            y: fy,
+            suit: s.score as f64,
+            cont_id,
+        });
+    }
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+
+    let (faction_of, capital_of) = assign_landmass_factions(&candidates, faction_count);
+
+    let coast_r: isize = ((gw as f64 / 60.0) as isize).max(6);
+    let cell_km = (map_width_km / gw as f64).max(1e-6);
+    // `_umSiteProfile(pl).coastDistKm` (reference line 25574's `seaNear`
+    // gate) is urban-morphology apparatus this port hasn't built; the same
+    // "how far is the real ocean, in km" scalar is already available from
+    // the ocean chamfer distance field this crate ports elsewhere
+    // (`civ_ocean_dist_field`), so that's what drives the seaNear widening
+    // here instead of porting `_umSiteProfile` for one number.
+    let ocean_dist = civ_ocean_dist_field(Some(wb), field, gw, gh, sea);
+
+    candidates
+        .iter()
+        .enumerate()
+        .map(|(rank, c)| {
+            let is_capital = capital_of[rank];
+            let is_city = !is_capital && rank < 4;
+            let is_town = !is_capital && !is_city && rank < 12;
+            let is_village = !is_capital && !is_city && !is_town && rank < 24;
+            let kind = if is_capital {
+                SettlementKind::Capital
+            } else if is_city {
+                SettlementKind::City
+            } else if is_town {
+                SettlementKind::Town
+            } else if is_village {
+                SettlementKind::Village
+            } else {
+                SettlementKind::Hamlet
+            };
+            let sea_near =
+                (ocean_dist[c.y * gw + c.x] as f64) * cell_km <= SETTLE_WATER_SNAP_KM * 2.5;
+            let (max_km, tolerance) = if sea_near {
+                (SETTLE_WATER_SNAP_KM * 2.5, SETTLE_COAST_SWAP_TOLERANCE)
+            } else {
+                (SETTLE_WATER_SNAP_KM, SETTLE_WATER_SNAP_DEFAULT_TOLERANCE)
+            };
+            let (fx, fy) = civ_snap_to_water_edge(
+                c.x,
+                c.y,
+                field,
+                wb,
+                lake_fill,
+                Some(flood),
+                Some(flow),
+                flow_thresh,
+                gw,
+                gh,
+                sea,
+                Some(suit),
+                max_km,
+                cell_km,
+                tolerance,
+            )
+            .unwrap_or((c.x, c.y));
+            let coastal = civ_is_coastal(fx, fy, coast_r, true, field, Some(wb), gw, gh, sea);
+            SettlementPlacement {
+                x: fx,
+                y: fy,
+                suit: c.suit,
+                faction: faction_of[rank],
+                capital: is_capital,
+                kind,
+                coastal,
+            }
+        })
+        .collect()
+}
+
+/// The original (pre-water-edge-snap) `place_settlements` -- land-component
+/// labelling, snap seeds onto land then coast, faction assignment by
+/// landmass, settlement tier classification, ocean-port detection, and
+/// nothing past that. Kept byte-for-byte as it was before this pass so
+/// every existing caller (in particular `cartalith-godot`'s bridge, which
+/// could not be touched this pass -- see
+/// [`place_settlements_with_water_edge_snap`]'s own doc comment) keeps
+/// compiling and behaving exactly as before. New callers should prefer
+/// `place_settlements_with_water_edge_snap`, which additionally closes the
+/// real placement-fidelity gap that function documents.
 #[allow(clippy::too_many_arguments)]
 pub fn place_settlements(
     seeds: &[SettlementSeed],
@@ -3413,13 +4405,30 @@ pub fn place_settlements(
         let Some((sx, sy)) = civ_snap_land(s.x, s.y, 6, field, wb, lake_fill, gw, gh, sea) else {
             continue;
         };
-        let (fx, fy) =
-            civ_snap_coast(sx, sy, coast_snap_r, suit, &mut used_shore, field, wb, gw, gh, sea, world).unwrap_or((sx, sy));
+        let (fx, fy) = civ_snap_coast(
+            sx,
+            sy,
+            coast_snap_r,
+            suit,
+            &mut used_shore,
+            field,
+            wb,
+            gw,
+            gh,
+            sea,
+            world,
+        )
+        .unwrap_or((sx, sy));
         let cont_id = comp[fy * gw + fx];
         if cont_id < 0 {
             continue;
         }
-        candidates.push(SettlementCandidate { x: fx, y: fy, suit: s.score as f64, cont_id });
+        candidates.push(SettlementCandidate {
+            x: fx,
+            y: fy,
+            suit: s.score as f64,
+            cont_id,
+        });
     }
     if candidates.is_empty() {
         return Vec::new();
@@ -3449,7 +4458,15 @@ pub fn place_settlements(
                 SettlementKind::Hamlet
             };
             let coastal = civ_is_coastal(c.x, c.y, coast_r, true, field, Some(wb), gw, gh, sea);
-            SettlementPlacement { x: c.x, y: c.y, suit: c.suit, faction: faction_of[rank], capital: is_capital, kind, coastal }
+            SettlementPlacement {
+                x: c.x,
+                y: c.y,
+                suit: c.suit,
+                faction: faction_of[rank],
+                capital: is_capital,
+                kind,
+                coastal,
+            }
         })
         .collect()
 }
@@ -3478,63 +4495,75 @@ pub const CIV_CULTURES: [Culture; 7] = [
     Culture {
         key: "common",
         syl: &[
-            "ar", "bel", "cor", "dun", "el", "far", "gol", "hal", "ith", "kor", "lan", "mor", "nor", "os", "par",
-            "quel", "ral", "sen", "tor", "ul", "val", "wyn", "yr", "zan", "aer", "bri", "cas", "dor", "eth", "fen",
-            "gal", "hur", "ire", "kar", "las", "mel", "nar", "osh", "pre", "ris", "syl", "tur", "vol", "war", "xan",
-            "yel", "zel",
+            "ar", "bel", "cor", "dun", "el", "far", "gol", "hal", "ith", "kor", "lan", "mor",
+            "nor", "os", "par", "quel", "ral", "sen", "tor", "ul", "val", "wyn", "yr", "zan",
+            "aer", "bri", "cas", "dor", "eth", "fen", "gal", "hur", "ire", "kar", "las", "mel",
+            "nar", "osh", "pre", "ris", "syl", "tur", "vol", "war", "xan", "yel", "zel",
         ],
         sfx: &[
-            "", "", "", "heim", "ford", "burg", "ton", "vale", "moor", "fell", "wick", "stead", "holt", "crest",
-            "mere", "haven",
+            "", "", "", "heim", "ford", "burg", "ton", "vale", "moor", "fell", "wick", "stead",
+            "holt", "crest", "mere", "haven",
         ],
     },
     Culture {
         key: "imperial",
         syl: &[
-            "aur", "cas", "dom", "flav", "gal", "imp", "jun", "luc", "marc", "nov", "oct", "pris", "quin", "reg",
-            "sev", "tib", "ulp", "val", "arc", "cor",
+            "aur", "cas", "dom", "flav", "gal", "imp", "jun", "luc", "marc", "nov", "oct", "pris",
+            "quin", "reg", "sev", "tib", "ulp", "val", "arc", "cor",
         ],
-        sfx: &["ium", "ora", "ara", "um", "opolis", "ica", "iana", "forum", "portus", "castra"],
+        sfx: &[
+            "ium", "ora", "ara", "um", "opolis", "ica", "iana", "forum", "portus", "castra",
+        ],
     },
     Culture {
         key: "highland",
         syl: &[
-            "brak", "dun", "gorm", "krag", "thorn", "bruk", "garn", "hask", "krun", "morg", "stok", "vrag", "and",
-            "bald", "crun", "dagr", "forn", "grim", "hurn", "kar",
+            "brak", "dun", "gorm", "krag", "thorn", "bruk", "garn", "hask", "krun", "morg", "stok",
+            "vrag", "and", "bald", "crun", "dagr", "forn", "grim", "hurn", "kar",
         ],
-        sfx: &["dun", "crag", "hold", "fell", "stone", "peak", "ridge", "cairn", "tor", "ward"],
+        sfx: &[
+            "dun", "crag", "hold", "fell", "stone", "peak", "ridge", "cairn", "tor", "ward",
+        ],
     },
     Culture {
         key: "desert",
         syl: &[
-            "ash", "bahr", "dahn", "far", "ghal", "har", "irs", "kad", "mir", "nash", "qir", "rah", "sah", "taz",
-            "ush", "wah", "zaf", "abed", "yus", "omar",
+            "ash", "bahr", "dahn", "far", "ghal", "har", "irs", "kad", "mir", "nash", "qir", "rah",
+            "sah", "taz", "ush", "wah", "zaf", "abed", "yus", "omar",
         ],
-        sfx: &["abad", "sar", "ir", "oasis", "dune", "well", "rest", "march", "gate", "span"],
+        sfx: &[
+            "abad", "sar", "ir", "oasis", "dune", "well", "rest", "march", "gate", "span",
+        ],
     },
     Culture {
         key: "riverlands",
         syl: &[
-            "aven", "bryn", "del", "esh", "flor", "ila", "lor", "mira", "ness", "ova", "rev", "sila", "tam", "ula",
-            "ves", "wela", "isla", "oren", "anwe", "ely",
+            "aven", "bryn", "del", "esh", "flor", "ila", "lor", "mira", "ness", "ova", "rev",
+            "sila", "tam", "ula", "ves", "wela", "isla", "oren", "anwe", "ely",
         ],
-        sfx: &["ford", "mere", "brook", "wick", "vale", "mill", "reach", "wash", "bend", "shallows"],
+        sfx: &[
+            "ford", "mere", "brook", "wick", "vale", "mill", "reach", "wash", "bend", "shallows",
+        ],
     },
     Culture {
         key: "sylvan",
         syl: &[
-            "a'el", "el'a", "fae", "ily", "leth", "mira", "nym", "ora", "sil", "thal", "vel", "wyn", "ael", "ith",
-            "lor", "sae", "tael", "yl", "enne", "iel",
+            "a'el", "el'a", "fae", "ily", "leth", "mira", "nym", "ora", "sil", "thal", "vel",
+            "wyn", "ael", "ith", "lor", "sae", "tael", "yl", "enne", "iel",
         ],
-        sfx: &["leaf", "thorn", "wood", "glen", "bough", "dell", "shade", "bloom", "hollow", "rest"],
+        sfx: &[
+            "leaf", "thorn", "wood", "glen", "bough", "dell", "shade", "bloom", "hollow", "rest",
+        ],
     },
     Culture {
         key: "maritime",
         syl: &[
-            "bjor", "fjor", "hald", "kell", "lund", "nord", "skal", "torv", "vik", "yorn", "bren", "fjal", "holv",
-            "karsk", "morn", "sker", "torg", "ulve", "vann", "yist",
+            "bjor", "fjor", "hald", "kell", "lund", "nord", "skal", "torv", "vik", "yorn", "bren",
+            "fjal", "holv", "karsk", "morn", "sker", "torg", "ulve", "vann", "yist",
         ],
-        sfx: &["holm", "ness", "bay", "port", "haven", "skerry", "sound", "strand", "wick", "fjord"],
+        sfx: &[
+            "holm", "ness", "bay", "port", "haven", "skerry", "sound", "strand", "wick", "fjord",
+        ],
     },
 ];
 
@@ -3576,8 +4605,13 @@ pub fn civ_default_culture(faction: i32) -> &'static Culture {
 /// of its real caller, matches this session's own established precedent
 /// (`civ_resource_trade_balance` shipped the same way, one pass before
 /// `compute_civilisation()` had settlements to feed it).
-pub const CIV_CULTURE_TERRAIN_KEY: [(&str, &str); 5] =
-    [("highland", "hills"), ("desert", "arid"), ("riverlands", "river"), ("sylvan", "forest"), ("maritime", "coast")];
+pub const CIV_CULTURE_TERRAIN_KEY: [(&str, &str); 5] = [
+    ("highland", "hills"),
+    ("desert", "arid"),
+    ("riverlands", "river"),
+    ("sylvan", "forest"),
+    ("maritime", "coast"),
+];
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CultureTerrainFit {
@@ -3593,7 +4627,10 @@ pub fn civ_culture_terrain_fit(
     terrain_mix: &std::collections::HashMap<&str, f64>,
     world_mean_terrain: &std::collections::HashMap<&str, f64>,
 ) -> Option<CultureTerrainFit> {
-    let tk = CIV_CULTURE_TERRAIN_KEY.iter().find(|&&(c, _)| c == culture_key)?.1;
+    let tk = CIV_CULTURE_TERRAIN_KEY
+        .iter()
+        .find(|&&(c, _)| c == culture_key)?
+        .1;
     let value = *terrain_mix.get(tk).unwrap_or(&0.0);
     let world_mean = *world_mean_terrain.get(tk).unwrap_or(&0.0);
     let ratio = if world_mean > 1e-6 {
@@ -3603,8 +4640,20 @@ pub fn civ_culture_terrain_fit(
     } else {
         1.0
     };
-    let verdict = if ratio >= 1.15 { "match" } else if ratio <= 0.85 { "mismatch" } else { "typical" };
-    Some(CultureTerrainFit { key: tk, value, world_mean, ratio, verdict })
+    let verdict = if ratio >= 1.15 {
+        "match"
+    } else if ratio <= 0.85 {
+        "mismatch"
+    } else {
+        "typical"
+    };
+    Some(CultureTerrainFit {
+        key: tk,
+        value,
+        world_mean,
+        ratio,
+        verdict,
+    })
 }
 
 /// `_civIterativeAutoWorld`'s settlement-naming RNG seed input
@@ -3635,7 +4684,9 @@ pub const CIV_NAME_RNG_SEED_INPUT: u32 = 12345;
 /// derived seed is exactly `0`). Reuses `cartalith_rng::Mulberry32`
 /// directly rather than a second hand-rolled generator.
 pub fn civ_name_rng() -> cartalith_rng::Mulberry32 {
-    let raw = CIV_NAME_RNG_SEED_INPUT.wrapping_mul(31337).wrapping_add(999);
+    let raw = CIV_NAME_RNG_SEED_INPUT
+        .wrapping_mul(31337)
+        .wrapping_add(999);
     let seed = if raw == 0 { 1 } else { raw };
     cartalith_rng::Mulberry32::new(seed)
 }
@@ -3739,8 +4790,14 @@ pub fn name_and_populate_settlements_with_rng(
         .map(|p| {
             let name = civ_settle_name(rng, p.faction);
             let base_pop = civ_base_pop_for_kind(p.kind);
-            let pop = (base_pop * (0.7 + p.suit * 0.8) * (0.8 + rng.next_f64() * 0.4)).round() as u32;
-            NamedSettlement { tid: 0, placement: *p, name, pop }
+            let pop =
+                (base_pop * (0.7 + p.suit * 0.8) * (0.8 + rng.next_f64() * 0.4)).round() as u32;
+            NamedSettlement {
+                tid: 0,
+                placement: *p,
+                name,
+                pop,
+            }
         })
         .collect()
 }
@@ -3786,7 +4843,10 @@ struct DijkstraHeap {
 
 impl DijkstraHeap {
     fn with_capacity(cap: usize) -> Self {
-        DijkstraHeap { p: Vec::with_capacity(cap), v: Vec::with_capacity(cap) }
+        DijkstraHeap {
+            p: Vec::with_capacity(cap),
+            v: Vec::with_capacity(cap),
+        }
     }
 
     fn size(&self) -> usize {
@@ -3859,10 +4919,26 @@ pub fn build_travel_cost(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f
             *c = f32::INFINITY;
             return;
         }
-        let xl = if x > 0 { field[i - 1] as f64 } else { field[i] as f64 };
-        let xr = if x < gw - 1 { field[i + 1] as f64 } else { field[i] as f64 };
-        let yt = if y > 0 { field[i - gw] as f64 } else { field[i] as f64 };
-        let yb = if y < gh - 1 { field[i + gw] as f64 } else { field[i] as f64 };
+        let xl = if x > 0 {
+            field[i - 1] as f64
+        } else {
+            field[i] as f64
+        };
+        let xr = if x < gw - 1 {
+            field[i + 1] as f64
+        } else {
+            field[i] as f64
+        };
+        let yt = if y > 0 {
+            field[i - gw] as f64
+        } else {
+            field[i] as f64
+        };
+        let yb = if y < gh - 1 {
+            field[i + gw] as f64
+        } else {
+            field[i] as f64
+        };
         let slope = ((xr - xl) * 0.5).hypot((yb - yt) * 0.5);
         *c = (1.0 + SLOPE_K * slope * slope) as f32;
     });
@@ -3886,7 +4962,14 @@ pub fn build_travel_cost(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f
 /// reference's own comment confirms every such call site is bit-identical
 /// to the unconditional `(dx&&dy?SQ2:1)*0.5*(cost[i]+cost[j])` path ported
 /// here.
-fn road_dijkstra(cost: &[f32], gw: usize, gh: usize, sx: usize, sy: usize, world: bool) -> (Vec<f32>, Vec<i32>) {
+fn road_dijkstra(
+    cost: &[f32],
+    gw: usize,
+    gh: usize,
+    sx: usize,
+    sy: usize,
+    world: bool,
+) -> (Vec<f32>, Vec<i32>) {
     // Bit-identical to the reference's own literal `1.4142135623730951`
     // (both parse to the same nearest f64) -- named per clippy's
     // approx_constant lint rather than kept as a literal.
@@ -3930,7 +5013,9 @@ fn road_dijkstra(cost: &[f32], gw: usize, gh: usize, sx: usize, sy: usize, world
                     continue;
                 }
                 let j = ny as usize * gw + nx as usize;
-                let step = (if dx != 0 && dy != 0 { SQ2 } else { 1.0 }) * 0.5 * (cost[i] as f64 + cost[j] as f64);
+                let step = (if dx != 0 && dy != 0 { SQ2 } else { 1.0 })
+                    * 0.5
+                    * (cost[i] as f64 + cost[j] as f64);
                 let nd = d + step;
                 if nd < dist[j] as f64 {
                     dist[j] = nd as f32;
@@ -3967,7 +5052,13 @@ pub struct RoadEdge {
 /// `places[s].x`/`.y` throughout) -- callers pass `SettlementPlacement`
 /// for ergonomic real-pipeline use, not because every other field
 /// matters here.
-pub fn build_road_network(places: &[SettlementPlacement], cost: &[f32], gw: usize, gh: usize, world: bool) -> Vec<RoadEdge> {
+pub fn build_road_network(
+    places: &[SettlementPlacement],
+    cost: &[f32],
+    gw: usize,
+    gh: usize,
+    world: bool,
+) -> Vec<RoadEdge> {
     let p_count = places.len();
     if p_count < 2 {
         return Vec::new();
@@ -4225,7 +5316,14 @@ fn civ_enhanced_travel_cost(
 /// every settlement in the network build (this port has no separate
 /// "labels/non-settlement places" concept the reference's own
 /// `CIV_SETTLE_KEYS` filter exists to exclude).
-fn civ_apply_settlement_gravity(cost: &mut [f32], rw: usize, rh: usize, sc: f64, places: &[SettlementPlacement], world: bool) {
+fn civ_apply_settlement_gravity(
+    cost: &mut [f32],
+    rw: usize,
+    rh: usize,
+    sc: f64,
+    places: &[SettlementPlacement],
+    world: bool,
+) {
     const G: f64 = 0.5;
     let rg = ((rw as f64 / 80.0).round() as isize).max(3);
     if places.is_empty() {
@@ -4273,7 +5371,14 @@ fn civ_apply_settlement_gravity(cost: &mut [f32], rw: usize, rh: usize, sc: f64,
 /// a ring-based rewrite would return a different cell on ties whenever more
 /// than one finite cell exists at the same minimal `r`, since the
 /// reference's own row-major first-match order is the tie-break.
-fn civ_snap_finite(cost: &[f32], rw: usize, rh: usize, rx: usize, ry: usize, max_r: isize) -> usize {
+fn civ_snap_finite(
+    cost: &[f32],
+    rw: usize,
+    rh: usize,
+    rx: usize,
+    ry: usize,
+    max_r: isize,
+) -> usize {
     if cost[ry * rw + rx].is_finite() {
         return ry * rw + rx;
     }
@@ -4345,7 +5450,11 @@ pub fn civ_hierarchical_network_topology(
 ) -> HierarchicalNetworkResult {
     let n = places.len();
     if n < 2 {
-        return HierarchicalNetworkResult { edges: Vec::new(), usage_count: Vec::new(), degree_of: vec![0; n] };
+        return HierarchicalNetworkResult {
+            edges: Vec::new(),
+            usage_count: Vec::new(),
+            degree_of: vec![0; n],
+        };
     }
     let grid = civ_routing_grid(field, gw, gh);
     let (rw, rh, sc) = (grid.rw, grid.rh, grid.sc);
@@ -4356,7 +5465,20 @@ pub fn civ_hierarchical_network_topology(
     let mut all_edges: Vec<RoadEdge> = Vec::new();
 
     // --- PASS 1: no-reuse cost -> Prim MST -> mark usage ---
-    let mut cost1 = civ_enhanced_travel_cost(&grid.dfld, rw, rh, sea, None, gw, gh, Some(water_bodies), Some(flow), flow_thresh, Some(river_order), Some(biome));
+    let mut cost1 = civ_enhanced_travel_cost(
+        &grid.dfld,
+        rw,
+        rh,
+        sea,
+        None,
+        gw,
+        gh,
+        Some(water_bodies),
+        Some(flow),
+        flow_thresh,
+        Some(river_order),
+        Some(biome),
+    );
     civ_apply_settlement_gravity(&mut cost1, rw, rh, sc, places, world);
     let rp1: Vec<usize> = places
         .iter()
@@ -4366,7 +5488,10 @@ pub fn civ_hierarchical_network_topology(
             civ_snap_finite(&cost1, rw, rh, rx, ry, 6)
         })
         .collect();
-    let res1: Vec<(Vec<f32>, Vec<i32>)> = rp1.iter().map(|&ri| road_dijkstra(&cost1, rw, rh, ri % rw, ri / rw, world)).collect();
+    let res1: Vec<(Vec<f32>, Vec<i32>)> = rp1
+        .iter()
+        .map(|&ri| road_dijkstra(&cost1, rw, rh, ri % rw, ri / rw, world))
+        .collect();
 
     {
         let mut in_tree = vec![false; n];
@@ -4411,7 +5536,20 @@ pub fn civ_hierarchical_network_topology(
     }
 
     // --- PASS 2: reuse cost -> fill minimum degree by tier ---
-    let mut cost2 = civ_enhanced_travel_cost(&grid.dfld, rw, rh, sea, Some(&usage_count), gw, gh, Some(water_bodies), Some(flow), flow_thresh, Some(river_order), Some(biome));
+    let mut cost2 = civ_enhanced_travel_cost(
+        &grid.dfld,
+        rw,
+        rh,
+        sea,
+        Some(&usage_count),
+        gw,
+        gh,
+        Some(water_bodies),
+        Some(flow),
+        flow_thresh,
+        Some(river_order),
+        Some(biome),
+    );
     civ_apply_settlement_gravity(&mut cost2, rw, rh, sc, places, world);
     let rp2: Vec<usize> = places
         .iter()
@@ -4421,9 +5559,15 @@ pub fn civ_hierarchical_network_topology(
             civ_snap_finite(&cost2, rw, rh, rx, ry, 6)
         })
         .collect();
-    let res2: Vec<(Vec<f32>, Vec<i32>)> = rp2.iter().map(|&ri| road_dijkstra(&cost2, rw, rh, ri % rw, ri / rw, world)).collect();
+    let res2: Vec<(Vec<f32>, Vec<i32>)> = rp2
+        .iter()
+        .map(|&ri| road_dijkstra(&cost2, rw, rh, ri % rw, ri / rw, world))
+        .collect();
 
-    let mut edge_set: std::collections::HashSet<usize> = all_edges.iter().map(|e| e.a.min(e.b) * n + e.a.max(e.b)).collect();
+    let mut edge_set: std::collections::HashSet<usize> = all_edges
+        .iter()
+        .map(|e| e.a.min(e.b) * n + e.a.max(e.b))
+        .collect();
 
     let min_deg = |k: SettlementKind| -> u32 {
         match k {
@@ -4441,7 +5585,8 @@ pub fn civ_hierarchical_network_topology(
             continue;
         }
         let mut by_dist: Vec<(usize, f64)> = Vec::new();
-        #[allow(clippy::needless_range_loop)] // bi indexes both places and rp2 by settlement id, not a single array being iterated
+        #[allow(clippy::needless_range_loop)]
+        // bi indexes both places and rp2 by settlement id, not a single array being iterated
         for bi in 0..n {
             if bi == ai {
                 continue;
@@ -4475,16 +5620,23 @@ pub fn civ_hierarchical_network_topology(
     {
         let edge_cost = |a: usize, b: usize| -> f64 {
             let d = res2[a].0[rp2[b]] as f64;
-            if d.is_finite() {
-                d
-            } else {
-                f64::INFINITY
-            }
+            if d.is_finite() { d } else { f64::INFINITY }
         };
-        let mut edge_list: Vec<(usize, usize, f64)> = all_edges.iter().map(|e| (e.a, e.b, edge_cost(e.a, e.b))).collect();
-        let mut sorted: Vec<f64> = edge_list.iter().map(|e| e.2).filter(|w| w.is_finite()).collect();
+        let mut edge_list: Vec<(usize, usize, f64)> = all_edges
+            .iter()
+            .map(|e| (e.a, e.b, edge_cost(e.a, e.b)))
+            .collect();
+        let mut sorted: Vec<f64> = edge_list
+            .iter()
+            .map(|e| e.2)
+            .filter(|w| w.is_finite())
+            .collect();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let med = if !sorted.is_empty() { sorted[sorted.len() / 2] } else { f64::INFINITY };
+        let med = if !sorted.is_empty() {
+            sorted[sorted.len() / 2]
+        } else {
+            f64::INFINITY
+        };
         let near = med * 2.5;
         const DETOUR: f64 = 1.7;
         let max_add = ((n as f64 / 6.0).round() as usize).max(2);
@@ -4555,7 +5707,11 @@ pub fn civ_hierarchical_network_topology(
         }
     }
 
-    HierarchicalNetworkResult { edges: all_edges, usage_count, degree_of }
+    HierarchicalNetworkResult {
+        edges: all_edges,
+        usage_count,
+        degree_of,
+    }
 }
 
 // ===================== Milestone 10: territory assignment =====================
@@ -4626,7 +5782,13 @@ fn territory_weight(pop: u32) -> f64 {
 /// population rival; unowned cells are exactly the unreachable ones) and by
 /// visual inspection on real generated worlds, per §7a/§7b's stated
 /// standard.
-pub fn assign_territory(settlements: &[NamedSettlement], cost: &[f32], gw: usize, gh: usize, world: bool) -> Vec<i32> {
+pub fn assign_territory(
+    settlements: &[NamedSettlement],
+    cost: &[f32],
+    gw: usize,
+    gh: usize,
+    world: bool,
+) -> Vec<i32> {
     let n = gw * gh;
     let mut owner = vec![0i32; n];
     let mut best_effective = vec![f64::INFINITY; n];
@@ -4760,7 +5922,12 @@ pub fn civ_generate_provinces(
         let mut seed_indices: Vec<usize> = indices
             .iter()
             .copied()
-            .filter(|&i| matches!(settlements[i].placement.kind, SettlementKind::Capital | SettlementKind::City))
+            .filter(|&i| {
+                matches!(
+                    settlements[i].placement.kind,
+                    SettlementKind::Capital | SettlementKind::City
+                )
+            })
             .collect();
         if seed_indices.is_empty() {
             // Fallback: single highest-population settlement of this faction
@@ -4778,7 +5945,12 @@ pub fn civ_generate_provinces(
                 name: format!("{} Province", s.name),
                 capital_settlement_index: idx,
             });
-            seeds.push(Seed { x: s.placement.x, y: s.placement.y, province: province_id, faction: *fid });
+            seeds.push(Seed {
+                x: s.placement.x,
+                y: s.placement.y,
+                province: province_id,
+                faction: *fid,
+            });
         }
     }
 
@@ -4857,7 +6029,13 @@ fn suppression_radius_cells(spacing_km: f64, gw: usize, map_width_km: f64) -> f6
 /// threshold; the two combine via `max` so either alone can qualify a
 /// candidate -- road proximity can only ever RAISE a candidate's odds,
 /// never lower it below what suitability alone earns.
-pub fn civ_village_accept_prob(road_dist: f64, suit_score: f64, road_falloff: f64, suit_lo: f64, suit_hi: f64) -> f64 {
+pub fn civ_village_accept_prob(
+    road_dist: f64,
+    suit_score: f64,
+    road_falloff: f64,
+    suit_lo: f64,
+    suit_hi: f64,
+) -> f64 {
     let road_prob = (-road_dist / road_falloff).exp();
     let suit_prob = ((suit_score - suit_lo) / (suit_hi - suit_lo)).clamp(0.0, 1.0);
     road_prob.max(suit_prob)
@@ -4885,7 +6063,14 @@ struct RoadProximityIndex {
 }
 
 impl RoadProximityIndex {
-    fn build(edges: &[RoadEdge], routing_rw: usize, routing_sc: f64, gw: usize, gh: usize, cell: f64) -> Self {
+    fn build(
+        edges: &[RoadEdge],
+        routing_rw: usize,
+        routing_sc: f64,
+        gw: usize,
+        gh: usize,
+        cell: f64,
+    ) -> Self {
         let bw = ((gw as f64 / cell).ceil() as usize).max(1);
         let bh = ((gh as f64 / cell).ceil() as usize).max(1);
         let mut buckets: Vec<Vec<(f64, f64)>> = vec![Vec::new(); bw * bh];
@@ -4902,7 +6087,13 @@ impl RoadProximityIndex {
                 any = true;
             }
         }
-        Self { buckets, bw, bh, cell, any }
+        Self {
+            buckets,
+            bw,
+            bh,
+            cell,
+            any,
+        }
     }
 
     /// `Infinity` when no road data exists at all (reference: `if(!any)
@@ -5043,21 +6234,33 @@ pub fn civ_seed_villages(
         if !fits(cx, cy, &reject_buckets) || !is_dry(c.x, c.y) {
             continue;
         }
-        let accept_prob = civ_village_accept_prob(road_index.nearest_dist(cx, cy), c.score as f64, road_falloff, suit_lo, suit_hi);
+        let accept_prob = civ_village_accept_prob(
+            road_index.nearest_dist(cx, cy),
+            c.score as f64,
+            road_falloff,
+            suit_lo,
+            suit_hi,
+        );
         if rng.next_f64() >= accept_prob {
             continue; // soft reject -- no hard road/no-road cutoff
         }
         let mut faction = 1;
         let mut fd = f64::INFINITY;
         for p in places {
-            let d = ((p.placement.x as f64 - cx).powi(2) + (p.placement.y as f64 - cy).powi(2)).sqrt();
+            let d =
+                ((p.placement.x as f64 - cx).powi(2) + (p.placement.y as f64 - cy).powi(2)).sqrt();
             if d < fd {
                 fd = d;
                 faction = p.placement.faction;
             }
         }
         let name = civ_settle_name(rng, faction);
-        added.push(VillageSettlement { x: c.x, y: c.y, name, faction });
+        added.push(VillageSettlement {
+            x: c.x,
+            y: c.y,
+            name,
+            faction,
+        });
         let (bx, by) = bucket_of(cx, cy);
         reject_buckets[by * bw + bx].push((cx, cy));
     }
@@ -5127,7 +6330,11 @@ fn civ_rdp_simplify(pts: &[(f64, f64)], eps: f64) -> Vec<(f64, f64)> {
         let mut worst = usize::MAX;
         let mut wd = -1.0f64;
         for (i, &(px, py)) in pts.iter().enumerate().take(b).skip(a + 1) {
-            let d = if l2 < 1e-12 { js_hypot(px - ax, py - ay) } else { (dx * (py - ay) - dy * (px - ax)).abs() / l2.sqrt() };
+            let d = if l2 < 1e-12 {
+                js_hypot(px - ax, py - ay)
+            } else {
+                (dx * (py - ay) - dy * (px - ax)).abs() / l2.sqrt()
+            };
             if d > wd {
                 wd = d;
                 worst = i;
@@ -5139,7 +6346,11 @@ fn civ_rdp_simplify(pts: &[(f64, f64)], eps: f64) -> Vec<(f64, f64)> {
             stack.push((worst, b));
         }
     }
-    pts.iter().zip(keep.iter()).filter(|&(_, &k)| k).map(|(&p, _)| p).collect()
+    pts.iter()
+        .zip(keep.iter())
+        .filter(|&(_, &k)| k)
+        .map(|(&p, _)| p)
+        .collect()
 }
 
 /// `catmullRomSample` (reference line 8790): chord-length-parameterized
@@ -5154,7 +6365,10 @@ fn civ_catmull_rom_sample(pts: &[(f64, f64)], step: f64) -> Vec<(f64, f64)> {
     let mut p: Vec<(f64, f64)> = Vec::with_capacity(n + 2);
     p.push((2.0 * pts[0].0 - pts[1].0, 2.0 * pts[0].1 - pts[1].1));
     p.extend_from_slice(pts);
-    p.push((2.0 * pts[n - 1].0 - pts[n - 2].0, 2.0 * pts[n - 1].1 - pts[n - 2].1));
+    p.push((
+        2.0 * pts[n - 1].0 - pts[n - 2].0,
+        2.0 * pts[n - 1].1 - pts[n - 2].1,
+    ));
 
     let dist = |a: (f64, f64), b: (f64, f64)| js_hypot(b.0 - a.0, b.1 - a.1);
     let mut out = Vec::new();
@@ -5173,7 +6387,10 @@ fn civ_catmull_rom_sample(pts: &[(f64, f64)], step: f64) -> Vec<(f64, f64)> {
         for i in 0..add_pt {
             let t = t1 + (t2 - t1) * (i as f64) / (n_steps as f64);
             let lerp = |a: (f64, f64), b: (f64, f64), t: f64, t_a: f64, t_b: f64| {
-                (a.0 + (b.0 - a.0) * (t - t_a) / (t_b - t_a), a.1 + (b.1 - a.1) * (t - t_a) / (t_b - t_a))
+                (
+                    a.0 + (b.0 - a.0) * (t - t_a) / (t_b - t_a),
+                    a.1 + (b.1 - a.1) * (t - t_a) / (t_b - t_a),
+                )
             };
             let a1 = lerp(p0, p1, t, t0, t1);
             let a2 = lerp(p1, p2, t, t1, t2);
@@ -5221,8 +6438,20 @@ impl TerrainValid<'_> {
     /// (callers skip the repair entirely), and answers `true` if it does,
     /// so no point is ever moved.
     fn check(&self, x: f64, y: f64, gw: usize, gh: usize, water_bodies: &[u8]) -> bool {
-        let xi = if x < 0.0 { 0 } else if x >= gw as f64 { gw - 1 } else { js_round(x) as usize };
-        let yi = if y < 0.0 { 0 } else if y >= gh as f64 { gh - 1 } else { js_round(y) as usize };
+        let xi = if x < 0.0 {
+            0
+        } else if x >= gw as f64 {
+            gw - 1
+        } else {
+            js_round(x) as usize
+        };
+        let yi = if y < 0.0 {
+            0
+        } else if y >= gh as f64 {
+            gh - 1
+        } else {
+            js_round(y) as usize
+        };
         let i = yi * gw + xi;
         let wb = water_bodies[i];
         match self {
@@ -5258,7 +6487,15 @@ impl TerrainValid<'_> {
 /// (matching the reference's own -- redundant but correctness-preserving
 /// -- structure) so the first match in row-major (dy outer, dx inner)
 /// order is returned, not necessarily the Euclidean-nearest one.
-fn civ_nearest_valid_pt(x: i64, y: i64, gw: usize, gh: usize, water_bodies: &[u8], max_r: i64, valid: &TerrainValid) -> (i64, i64) {
+fn civ_nearest_valid_pt(
+    x: i64,
+    y: i64,
+    gw: usize,
+    gh: usize,
+    water_bodies: &[u8],
+    max_r: i64,
+    valid: &TerrainValid,
+) -> (i64, i64) {
     for r in 1..=max_r {
         for dy in -r..=r {
             for dx in -r..=r {
@@ -5292,7 +6529,14 @@ struct SmoothedPath {
 /// milestone D's `civ_dijkstra_path` adds `Water`, the sea-lane ferry
 /// exception, and `Unchecked` (the reference's `undefined`, which skips
 /// the repair pass entirely for `'mixed'` routing).
-fn civ_smooth_path(raw: &[(f64, f64)], gw: usize, gh: usize, water_bodies: &[u8], map_width_km: f64, valid: &TerrainValid) -> Option<SmoothedPath> {
+fn civ_smooth_path(
+    raw: &[(f64, f64)],
+    gw: usize,
+    gh: usize,
+    water_bodies: &[u8],
+    map_width_km: f64,
+    valid: &TerrainValid,
+) -> Option<SmoothedPath> {
     if raw.is_empty() {
         return None;
     }
@@ -5330,8 +6574,11 @@ fn civ_smooth_path(raw: &[(f64, f64)], gw: usize, gh: usize, water_bodies: &[u8]
         let run_start = pts.len();
         for (k, &s) in smooth.iter().enumerate() {
             let mut p = (js_round(s.0), js_round(s.1));
-            if !matches!(valid, TerrainValid::Unchecked) && !valid.check(p.0, p.1, gw, gh, water_bodies) {
-                let (nx, ny) = civ_nearest_valid_pt(p.0 as i64, p.1 as i64, gw, gh, water_bodies, 16, valid);
+            if !matches!(valid, TerrainValid::Unchecked)
+                && !valid.check(p.0, p.1, gw, gh, water_bodies)
+            {
+                let (nx, ny) =
+                    civ_nearest_valid_pt(p.0 as i64, p.1 as i64, gw, gh, water_bodies, 16, valid);
                 p = (nx as f64, ny as f64);
             }
             // `if(k > 0)` in the reference, NOT "if anything has been
@@ -5341,7 +6588,9 @@ fn civ_smooth_path(raw: &[(f64, f64)], gw: usize, gh: usize, water_bodies: &[u8]
             // route by the whole map width -- caught by milestone D's
             // case 1, the first wrapped route fixture this function has had.
             if k > 0 {
-                let prev = *pts.last().expect("k > 0 means a point was pushed in this run");
+                let prev = *pts
+                    .last()
+                    .expect("k > 0 means a point was pushed in this run");
                 km += js_hypot(p.0 - prev.0, p.1 - prev.1) * map_width_km / gw as f64;
             }
             pts.push(p);
@@ -5421,7 +6670,12 @@ pub fn civ_consolidate_and_smooth_ways(
         .edges
         .iter()
         .map(|e| {
-            let max_u = e.path.iter().map(|&ci| topology.usage_count[ci]).max().unwrap_or(0);
+            let max_u = e
+                .path
+                .iter()
+                .map(|&ci| topology.usage_count[ci])
+                .max()
+                .unwrap_or(0);
             (e.a, e.b, e.path.as_slice(), max_u)
         })
         .collect();
@@ -5478,8 +6732,10 @@ pub fn civ_consolidate_and_smooth_ways(
             if r.len() < 2 {
                 continue;
             }
-            let mut raw: Vec<(f64, f64)> =
-                r.iter().map(|&ci| (((ci % rw) as f64 + 0.5) / sc, ((ci / rw) as f64 + 0.5) / sc)).collect();
+            let mut raw: Vec<(f64, f64)> = r
+                .iter()
+                .map(|&ci| (((ci % rw) as f64 + 0.5) / sc, ((ci / rw) as f64 + 0.5) / sc))
+                .collect();
             if r[0] == path[0] {
                 raw[0] = (pa.placement.x as f64, pa.placement.y as f64);
             }
@@ -5487,19 +6743,39 @@ pub fn civ_consolidate_and_smooth_ways(
             if r[r.len() - 1] == path[path.len() - 1] {
                 raw[last] = (pb.placement.x as f64, pb.placement.y as f64);
             }
-            let Some(sm) = civ_smooth_path(&raw, gw, gh, water_bodies, map_width_km, &TerrainValid::Land(None)) else {
+            let Some(sm) = civ_smooth_path(
+                &raw,
+                gw,
+                gh,
+                water_bodies,
+                map_width_km,
+                &TerrainValid::Land(None),
+            ) else {
                 continue;
             };
             if sm.pts.len() < 2 {
                 continue;
             }
-            ways.push(Way { tid: 0, pts: sm.pts, brks: sm.brks, km: sm.km, name: name.clone(), way_type, a_idx: a, b_idx: b, hidden: false });
+            ways.push(Way {
+                tid: 0,
+                pts: sm.pts,
+                brks: sm.brks,
+                km: sm.km,
+                name: name.clone(),
+                way_type,
+                a_idx: a,
+                b_idx: b,
+                hidden: false,
+            });
             emitted = true;
         }
         if !emitted {
             ways.push(Way {
                 tid: 0,
-                pts: vec![(pa.placement.x as f64, pa.placement.y as f64), (pb.placement.x as f64, pb.placement.y as f64)],
+                pts: vec![
+                    (pa.placement.x as f64, pa.placement.y as f64),
+                    (pb.placement.x as f64, pb.placement.y as f64),
+                ],
                 brks: Vec::new(),
                 km: 0.0,
                 name,
@@ -5515,7 +6791,9 @@ pub fn civ_consolidate_and_smooth_ways(
     // point onto its own edge's settlement (a_idx/b_idx) if within a
     // bounded, generous threshold -- corridor consolidation can leave a
     // visible run starting a routing-cell or two short of the pin.
-    let snap_t2 = (6.0f64.max(4.0 / sc)).min((gw as f64 / 30.0) * 0.45).powi(2);
+    let snap_t2 = (6.0f64.max(4.0 / sc))
+        .min((gw as f64 / 30.0) * 0.45)
+        .powi(2);
     for w in &mut ways {
         if w.hidden || w.pts.len() < 2 {
             continue;
@@ -5614,7 +6892,11 @@ pub fn civ_sea_routes(
             let fx = ((x as f64 / sc) as usize).min(gw - 1);
             let fy = ((y as f64 / sc) as usize).min(gh - 1);
             let fi = fy * gw + fx;
-            cost[y * rw + x] = if water_bodies[fi] == 1 { 1.0 } else { f32::INFINITY };
+            cost[y * rw + x] = if water_bodies[fi] == 1 {
+                1.0
+            } else {
+                f32::INFINITY
+            };
         }
     }
 
@@ -5632,8 +6914,10 @@ pub fn civ_sea_routes(
         })
         .collect();
 
-    let results: Vec<(Vec<f32>, Vec<i32>)> =
-        rp.iter().map(|&ri| road_dijkstra(&cost, rw, rh, ri % rw, ri / rw, world)).collect();
+    let results: Vec<(Vec<f32>, Vec<i32>)> = rp
+        .iter()
+        .map(|&ri| road_dijkstra(&cost, rw, rh, ri % rw, ri / rw, world))
+        .collect();
 
     // Prim's MST using Dijkstra distances (same loop shape as milestone
     // 12's own two passes).
@@ -5684,7 +6968,11 @@ pub fn civ_sea_routes(
     // only via a long detour through the tree's spine also get the
     // direct, economically-real short hop.
     if n > 2 {
-        let cap = if mst_max > 0.0 { mst_max * 1.15 } else { f64::INFINITY };
+        let cap = if mst_max > 0.0 {
+            mst_max * 1.15
+        } else {
+            f64::INFINITY
+        };
         for u in 0..n {
             let mut bv: i32 = -1;
             let mut bd = cap;
@@ -5739,7 +7027,14 @@ pub fn civ_sea_routes(
         if raw.len() < 2 {
             continue;
         }
-        let Some(sm) = civ_smooth_path(&raw, gw, gh, water_bodies, map_width_km, &TerrainValid::Ocean) else {
+        let Some(sm) = civ_smooth_path(
+            &raw,
+            gw,
+            gh,
+            water_bodies,
+            map_width_km,
+            &TerrainValid::Ocean,
+        ) else {
             continue;
         };
         if sm.pts.len() < 2 {
@@ -5753,7 +7048,12 @@ pub fn civ_sea_routes(
         } else {
             name_b.to_string()
         };
-        routes.push(SeaRoute { pts: sm.pts, brks: sm.brks, km: sm.km, name });
+        routes.push(SeaRoute {
+            pts: sm.pts,
+            brks: sm.brks,
+            km: sm.km,
+            name,
+        });
     }
     routes
 }
@@ -5793,15 +7093,30 @@ pub struct LoadPenalty {
 /// bands. `ratio` is cargo weight / rated carrying capacity.
 pub fn jp_load_penalty(ratio: f64) -> LoadPenalty {
     if ratio <= 0.80 {
-        LoadPenalty { load_mod: 1.00, label: "Well loaded" }
+        LoadPenalty {
+            load_mod: 1.00,
+            label: "Well loaded",
+        }
     } else if ratio <= 1.00 {
-        LoadPenalty { load_mod: 0.93, label: "Near capacity" }
+        LoadPenalty {
+            load_mod: 0.93,
+            label: "Near capacity",
+        }
     } else if ratio <= 1.20 {
-        LoadPenalty { load_mod: 0.80, label: "Overloaded" }
+        LoadPenalty {
+            load_mod: 0.80,
+            label: "Overloaded",
+        }
     } else if ratio <= 1.50 {
-        LoadPenalty { load_mod: 0.65, label: "Heavily overloaded" }
+        LoadPenalty {
+            load_mod: 0.65,
+            label: "Heavily overloaded",
+        }
     } else {
-        LoadPenalty { load_mod: 0.45, label: "Near immobile" }
+        LoadPenalty {
+            load_mod: 0.45,
+            label: "Near immobile",
+        }
     }
 }
 
@@ -5828,7 +7143,13 @@ pub fn jp_surface_gain(t_mod: f64, animal_paced: bool) -> f64 {
 
 /// `JP_WHEEL_BLOCKED` (reference line 17472): terrain a wheeled vehicle
 /// cannot cross at all.
-const JP_WHEEL_BLOCKED: [&str; 5] = ["Mountain Trails", "Swamp / Marsh", "Deep Sand", "Forest Path", "Ruins / Debris"];
+const JP_WHEEL_BLOCKED: [&str; 5] = [
+    "Mountain Trails",
+    "Swamp / Marsh",
+    "Deep Sand",
+    "Forest Path",
+    "Ruins / Debris",
+];
 
 /// `jpCanUseWheels` (reference line 17750).
 pub fn jp_can_use_wheels(terrain: &str) -> bool {
@@ -5875,7 +7196,11 @@ pub fn jp_rest_days(travel_days: f64, cadence_key: Option<&str>, animal_paced: b
     // `!(world > 0.002)`.
     #[allow(clippy::neg_cmp_op_on_partial_ord)]
     if !(travel_days > 0.0) {
-        return RestDays { rest_days: 0, every: 0, basis: "no travel days".to_string() };
+        return RestDays {
+            rest_days: 0,
+            every: 0,
+            basis: "no travel days".to_string(),
+        };
     }
     if let Some(key) = cadence_key.filter(|&k| k != "auto") {
         let every = match key {
@@ -5883,21 +7208,42 @@ pub fn jp_rest_days(travel_days: f64, cadence_key: Option<&str>, animal_paced: b
             "Light — 1 in 7" => 7,
             "Standard — 1 in 5" => 5,
             "Heavy — 1 in 3" => 3,
-            _ => return RestDays { rest_days: 0, every: 0, basis: key.to_string() },
+            _ => {
+                return RestDays {
+                    rest_days: 0,
+                    every: 0,
+                    basis: key.to_string(),
+                };
+            }
         };
         if every == 0 {
-            return RestDays { rest_days: 0, every: 0, basis: key.to_string() };
+            return RestDays {
+                rest_days: 0,
+                every: 0,
+                basis: key.to_string(),
+            };
         }
-        return RestDays { rest_days: (travel_days / every as f64).floor() as i64, every, basis: key.to_string() };
+        return RestDays {
+            rest_days: (travel_days / every as f64).floor() as i64,
+            every,
+            basis: key.to_string(),
+        };
     }
     if travel_days < JP_REST_MIN_TRIP_DAYS {
         return RestDays {
             rest_days: 0,
             every: 0,
-            basis: format!("under {} days — no rest day scheduled", JP_REST_MIN_TRIP_DAYS as i64),
+            basis: format!(
+                "under {} days — no rest day scheduled",
+                JP_REST_MIN_TRIP_DAYS as i64
+            ),
         };
     }
-    let every = if animal_paced && travel_days > 20.0 { 4 } else { 5 };
+    let every = if animal_paced && travel_days > 20.0 {
+        4
+    } else {
+        5
+    };
     RestDays {
         rest_days: (travel_days / every as f64).floor() as i64,
         every,
@@ -5914,11 +7260,17 @@ const JP_WINTER_CLOSED_BIOMES: [&str; 3] = ["Mountain Highland", "Tundra / Polar
 /// in Winter. `seasonal_closures_enabled` mirrors `plan.seasonalClosures`
 /// (default-on; the reference's own `plan&&plan.seasonalClosures===false`
 /// guard, i.e. only an explicit `false` disables it).
-pub fn jp_seasonal_closure(terrain: &str, biome_key: &str, season: &str, seasonal_closures_enabled: bool) -> Option<String> {
+pub fn jp_seasonal_closure(
+    terrain: &str,
+    biome_key: &str,
+    season: &str,
+    seasonal_closures_enabled: bool,
+) -> Option<String> {
     if !seasonal_closures_enabled || season != "Winter" {
         return None;
     }
-    if !JP_WINTER_CLOSED_TERRAIN.contains(&terrain) || !JP_WINTER_CLOSED_BIOMES.contains(&biome_key) {
+    if !JP_WINTER_CLOSED_TERRAIN.contains(&terrain) || !JP_WINTER_CLOSED_BIOMES.contains(&biome_key)
+    {
         return None;
     }
     Some(format!(
@@ -5933,14 +7285,20 @@ const JP_WINTER_CLOSED_WATER: [&str; 2] = ["Open Sea", "Rough Open Sea"];
 /// analogue -- open-water shipping shuts for Winter, coastal cabotage does
 /// not (gated on the water-type vocabulary already used everywhere else in
 /// this system, not a Mediterranean-specific rule).
-pub fn jp_sea_closure(terrain: &str, season: &str, seasonal_closures_enabled: bool) -> Option<String> {
+pub fn jp_sea_closure(
+    terrain: &str,
+    season: &str,
+    seasonal_closures_enabled: bool,
+) -> Option<String> {
     if !seasonal_closures_enabled || season != "Winter" {
         return None;
     }
     if !JP_WINTER_CLOSED_WATER.contains(&terrain) {
         return None;
     }
-    Some(format!("{terrain} is closed to shipping in Winter (the sailing season is shut). Sail in another season, hug the coast instead, or turn off seasonal closures in the party form."))
+    Some(format!(
+        "{terrain} is closed to shipping in Winter (the sailing season is shut). Sail in another season, hug the coast instead, or turn off seasonal closures in the party form."
+    ))
 }
 
 // ----------------------------------------------------------------------------
@@ -5974,10 +7332,34 @@ pub const JP_ANIMAL_KEYS: [&str; 4] = ["donkey", "mule", "camel", "horse"];
 
 pub fn jp_animal_stats(key: &str) -> Option<AnimalStats> {
     Some(match key {
-        "donkey" => AnimalStats { cap_kg: 80.0, food_kg_day: 4.0, water_l_day: 15.0, mounted_speed_kmh: 4.0, label: "Donkey" },
-        "mule" => AnimalStats { cap_kg: 110.0, food_kg_day: 5.0, water_l_day: 20.0, mounted_speed_kmh: 5.0, label: "Mule" },
-        "camel" => AnimalStats { cap_kg: 300.0, food_kg_day: 6.0, water_l_day: 30.0, mounted_speed_kmh: 4.5, label: "Camel" },
-        "horse" => AnimalStats { cap_kg: 120.0, food_kg_day: 7.0, water_l_day: 25.0, mounted_speed_kmh: 6.0, label: "Horse" },
+        "donkey" => AnimalStats {
+            cap_kg: 80.0,
+            food_kg_day: 4.0,
+            water_l_day: 15.0,
+            mounted_speed_kmh: 4.0,
+            label: "Donkey",
+        },
+        "mule" => AnimalStats {
+            cap_kg: 110.0,
+            food_kg_day: 5.0,
+            water_l_day: 20.0,
+            mounted_speed_kmh: 5.0,
+            label: "Mule",
+        },
+        "camel" => AnimalStats {
+            cap_kg: 300.0,
+            food_kg_day: 6.0,
+            water_l_day: 30.0,
+            mounted_speed_kmh: 4.5,
+            label: "Camel",
+        },
+        "horse" => AnimalStats {
+            cap_kg: 120.0,
+            food_kg_day: 7.0,
+            water_l_day: 25.0,
+            mounted_speed_kmh: 6.0,
+            label: "Horse",
+        },
         _ => return None,
     })
 }
@@ -6092,9 +7474,17 @@ pub struct AnimalPick {
 /// biome's own preferred-animals list, then a versatile default.
 pub fn jp_best_animal_for_context(terrain: &str, biome_key: &str) -> AnimalPick {
     if terrain == "Deep Sand" || terrain == "Desert Hardpack" {
-        return AnimalPick { key: "camel", reason: "camels dominate desert travel — water efficiency and load stability on sand.".to_string() };
+        return AnimalPick {
+            key: "camel",
+            reason: "camels dominate desert travel — water efficiency and load stability on sand."
+                .to_string(),
+        };
     }
-    if terrain == "Mountain Trails" || terrain == "Rocky Terrain" || terrain == "Mountain Pass" || terrain == "Hills" {
+    if terrain == "Mountain Trails"
+        || terrain == "Rocky Terrain"
+        || terrain == "Mountain Pass"
+        || terrain == "Hills"
+    {
         return AnimalPick { key: "mule", reason: "mules are sure-footed and rated for rough/upland terrain where horses and camels falter.".to_string() };
     }
     if terrain == "Swamp / Marsh" {
@@ -6107,17 +7497,34 @@ pub fn jp_best_animal_for_context(terrain: &str, biome_key: &str) -> AnimalPick 
         return AnimalPick { key: "mule", reason: "mules tolerate cold and rough surfaces better than horses; donkeys struggle in deep snow.".to_string() };
     }
     if terrain == "Forest Path" {
-        return AnimalPick { key: "mule", reason: "mules carry well through narrow forest tracks where wagons cannot enter.".to_string() };
+        return AnimalPick {
+            key: "mule",
+            reason: "mules carry well through narrow forest tracks where wagons cannot enter."
+                .to_string(),
+        };
     }
     let (desert_like, best) = jp_biome_desert_like_and_best(biome_key);
     if desert_like {
-        return AnimalPick { key: "camel", reason: "arid biome — camels minimise water consumption and tolerate heat.".to_string() };
+        return AnimalPick {
+            key: "camel",
+            reason: "arid biome — camels minimise water consumption and tolerate heat.".to_string(),
+        };
     }
     if !biome_key.is_empty() {
-        let label = jp_animal_stats(best).map(|a| a.label).unwrap_or(best).to_lowercase();
-        return AnimalPick { key: best, reason: format!("{label}s are the typical workhorses for this biome.") };
+        let label = jp_animal_stats(best)
+            .map(|a| a.label)
+            .unwrap_or(best)
+            .to_lowercase();
+        return AnimalPick {
+            key: best,
+            reason: format!("{label}s are the typical workhorses for this biome."),
+        };
     }
-    AnimalPick { key: "mule", reason: "mules are the versatile default — workable across most temperate terrain.".to_string() }
+    AnimalPick {
+        key: "mule",
+        reason: "mules are the versatile default — workable across most temperate terrain."
+            .to_string(),
+    }
 }
 
 /// `jpPickSpeciesForRoute`'s land-stage input (reference's own per-stage
@@ -6159,13 +7566,19 @@ pub struct SpeciesSwitch {
 /// whole route switches to whichever animal minimises total travel time.
 pub fn jp_pick_species_for_route(land_stages: &[LandStage]) -> SpeciesPick {
     if land_stages.is_empty() {
-        return SpeciesPick { key: "mule", reason: "no land stages on this route — mule is the versatile default.".to_string(), switched: None };
+        return SpeciesPick {
+            key: "mule",
+            reason: "no land stages on this route — mule is the versatile default.".to_string(),
+            switched: None,
+        };
     }
     let total_km: f64 = land_stages.iter().map(|s| s.km.max(0.01)).sum();
 
     let mut tally: std::collections::HashMap<&'static str, f64> = std::collections::HashMap::new();
-    let mut reason_of: std::collections::HashMap<&'static str, String> = std::collections::HashMap::new();
-    let mut reason_km: std::collections::HashMap<&'static str, f64> = std::collections::HashMap::new();
+    let mut reason_of: std::collections::HashMap<&'static str, String> =
+        std::collections::HashMap::new();
+    let mut reason_km: std::collections::HashMap<&'static str, f64> =
+        std::collections::HashMap::new();
     for s in land_stages {
         let pick = jp_best_animal_for_context(&s.terrain, &s.biome_key);
         let km = s.km.max(0.01);
@@ -6175,10 +7588,17 @@ pub fn jp_pick_species_for_route(land_stages: &[LandStage]) -> SpeciesPick {
             reason_of.insert(pick.key, pick.reason.clone());
         }
     }
-    let naive = *tally.iter().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).map(|(k, _)| k).unwrap();
+    let naive = *tally
+        .iter()
+        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+        .map(|(k, _)| k)
+        .unwrap();
 
     let time_for = |a: &str| -> f64 {
-        land_stages.iter().map(|s| s.km.max(0.01) / jp_animal_terrain_mod(a, &s.terrain).max(0.05)).sum()
+        land_stages
+            .iter()
+            .map(|s| s.km.max(0.01) / jp_animal_terrain_mod(a, &s.terrain).max(0.05))
+            .sum()
     };
 
     let mut worst: Option<(String, f64, f64)> = None; // (terrain, km, penalty)
@@ -6188,22 +7608,46 @@ pub fn jp_pick_species_for_route(land_stages: &[LandStage]) -> SpeciesPick {
             continue;
         }
         let mine = jp_animal_terrain_mod(naive, &s.terrain);
-        let best = JP_ANIMAL_KEYS.iter().map(|a| jp_animal_terrain_mod(a, &s.terrain)).fold(f64::MIN, f64::max);
-        let penalty = if best > 0.0 { (best - mine) / best } else { 0.0 };
+        let best = JP_ANIMAL_KEYS
+            .iter()
+            .map(|a| jp_animal_terrain_mod(a, &s.terrain))
+            .fold(f64::MIN, f64::max);
+        let penalty = if best > 0.0 {
+            (best - mine) / best
+        } else {
+            0.0
+        };
         if penalty >= JP_BOTTLENECK_PENALTY && worst.as_ref().is_none_or(|w| penalty > w.2) {
             worst = Some((s.terrain.clone(), km, penalty));
         }
     }
     let Some((worst_terrain, worst_km, worst_penalty)) = worst else {
-        return SpeciesPick { key: naive, reason: reason_of.get(naive).cloned().unwrap_or_default(), switched: None };
+        return SpeciesPick {
+            key: naive,
+            reason: reason_of.get(naive).cloned().unwrap_or_default(),
+            switched: None,
+        };
     };
 
-    let winner = *JP_ANIMAL_KEYS.iter().min_by(|a, b| time_for(a).partial_cmp(&time_for(b)).unwrap()).unwrap();
+    let winner = *JP_ANIMAL_KEYS
+        .iter()
+        .min_by(|a, b| time_for(a).partial_cmp(&time_for(b)).unwrap())
+        .unwrap();
     if winner == naive {
-        return SpeciesPick { key: naive, reason: reason_of.get(naive).cloned().unwrap_or_default(), switched: None };
+        return SpeciesPick {
+            key: naive,
+            reason: reason_of.get(naive).cloned().unwrap_or_default(),
+            switched: None,
+        };
     }
-    let winner_label = jp_animal_stats(winner).map(|a| a.label).unwrap_or(winner).to_lowercase();
-    let naive_label = jp_animal_stats(naive).map(|a| a.label).unwrap_or(naive).to_lowercase();
+    let winner_label = jp_animal_stats(winner)
+        .map(|a| a.label)
+        .unwrap_or(winner)
+        .to_lowercase();
+    let naive_label = jp_animal_stats(naive)
+        .map(|a| a.label)
+        .unwrap_or(naive)
+        .to_lowercase();
     SpeciesPick {
         key: winner,
         reason: format!(
@@ -6211,7 +7655,13 @@ pub fn jp_pick_species_for_route(land_stages: &[LandStage]) -> SpeciesPick {
             worst_km.round() as i64,
             (worst_penalty * 100.0).round() as i64
         ),
-        switched: Some(SpeciesSwitch { from: naive, to: winner, terrain: worst_terrain, km: worst_km, penalty: worst_penalty }),
+        switched: Some(SpeciesSwitch {
+            from: naive,
+            to: winner,
+            terrain: worst_terrain,
+            km: worst_km,
+            penalty: worst_penalty,
+        }),
     }
 }
 
@@ -6219,20 +7669,33 @@ pub fn jp_pick_species_for_route(land_stages: &[LandStage]) -> SpeciesPick {
 /// sets the mounted pace (a column moves at its slowest member). Caller
 /// supplies the plan's own animal counts and mount-animal override, rather
 /// than the full JS `plan` object.
-pub fn jp_resolve_mount(animal_counts: &std::collections::HashMap<&str, i32>, mount_animal_override: Option<&str>) -> &'static str {
-    let present: Vec<&str> = JP_ANIMAL_KEYS.iter().copied().filter(|k| *animal_counts.get(k).unwrap_or(&0) > 0).collect();
+pub fn jp_resolve_mount(
+    animal_counts: &std::collections::HashMap<&str, i32>,
+    mount_animal_override: Option<&str>,
+) -> &'static str {
+    let present: Vec<&str> = JP_ANIMAL_KEYS
+        .iter()
+        .copied()
+        .filter(|k| *animal_counts.get(k).unwrap_or(&0) > 0)
+        .collect();
     if !present.is_empty() {
         return present
             .into_iter()
             .reduce(|s, k| {
-                let s_speed = jp_animal_stats(s).map(|a| a.mounted_speed_kmh).unwrap_or(f64::MAX);
-                let k_speed = jp_animal_stats(k).map(|a| a.mounted_speed_kmh).unwrap_or(f64::MAX);
+                let s_speed = jp_animal_stats(s)
+                    .map(|a| a.mounted_speed_kmh)
+                    .unwrap_or(f64::MAX);
+                let k_speed = jp_animal_stats(k)
+                    .map(|a| a.mounted_speed_kmh)
+                    .unwrap_or(f64::MAX);
                 if k_speed < s_speed { k } else { s }
             })
             .unwrap();
     }
     match mount_animal_override {
-        Some(k) if JP_ANIMAL_KEYS.contains(&k) => JP_ANIMAL_KEYS.iter().find(|&&a| a == k).copied().unwrap(),
+        Some(k) if JP_ANIMAL_KEYS.contains(&k) => {
+            JP_ANIMAL_KEYS.iter().find(|&&a| a == k).copied().unwrap()
+        }
         _ => "horse",
     }
 }
@@ -6249,22 +7712,121 @@ pub struct ShipStats {
     pub invalid_water: &'static [&'static str],
 }
 
-pub const JP_VESSEL_PREFERENCE: [&str; 11] =
-    ["Fishing Vessel", "Keelboat", "River Barge", "Dhow", "Cog", "Caravel", "River Galley", "Longship", "Fluyt", "Carrack", "Galleon"];
+pub const JP_VESSEL_PREFERENCE: [&str; 11] = [
+    "Fishing Vessel",
+    "Keelboat",
+    "River Barge",
+    "Dhow",
+    "Cog",
+    "Caravel",
+    "River Galley",
+    "Longship",
+    "Fluyt",
+    "Carrack",
+    "Galleon",
+];
 
 pub fn jp_ship_stats(name: &str) -> Option<ShipStats> {
     Some(match name {
-        "River Barge" => ShipStats { speed_kmh: 2.0, cargo_kg: 30000.0, crew: 12, river: true, sea: false, open_sea: false, invalid_water: &["River with Rapids"] },
-        "Keelboat" => ShipStats { speed_kmh: 4.0, cargo_kg: 8000.0, crew: 8, river: true, sea: true, open_sea: false, invalid_water: &[] },
-        "River Galley" => ShipStats { speed_kmh: 5.0, cargo_kg: 3000.0, crew: 30, river: true, sea: false, open_sea: false, invalid_water: &["River with Rapids"] },
-        "Fishing Vessel" => ShipStats { speed_kmh: 8.0, cargo_kg: 1500.0, crew: 4, river: false, sea: true, open_sea: false, invalid_water: &["Open Sea", "Rough Open Sea"] },
-        "Longship" => ShipStats { speed_kmh: 11.0, cargo_kg: 5000.0, crew: 40, river: true, sea: true, open_sea: true, invalid_water: &[] },
-        "Cog" => ShipStats { speed_kmh: 10.0, cargo_kg: 80000.0, crew: 20, river: false, sea: true, open_sea: true, invalid_water: &[] },
-        "Dhow" => ShipStats { speed_kmh: 12.0, cargo_kg: 20000.0, crew: 15, river: false, sea: true, open_sea: true, invalid_water: &[] },
-        "Caravel" => ShipStats { speed_kmh: 13.0, cargo_kg: 30000.0, crew: 20, river: false, sea: true, open_sea: true, invalid_water: &[] },
-        "Carrack" => ShipStats { speed_kmh: 11.0, cargo_kg: 200000.0, crew: 80, river: false, sea: true, open_sea: true, invalid_water: &[] },
-        "Galleon" => ShipStats { speed_kmh: 13.0, cargo_kg: 300000.0, crew: 150, river: false, sea: true, open_sea: true, invalid_water: &[] },
-        "Fluyt" => ShipStats { speed_kmh: 11.0, cargo_kg: 250000.0, crew: 50, river: false, sea: true, open_sea: true, invalid_water: &[] },
+        "River Barge" => ShipStats {
+            speed_kmh: 2.0,
+            cargo_kg: 30000.0,
+            crew: 12,
+            river: true,
+            sea: false,
+            open_sea: false,
+            invalid_water: &["River with Rapids"],
+        },
+        "Keelboat" => ShipStats {
+            speed_kmh: 4.0,
+            cargo_kg: 8000.0,
+            crew: 8,
+            river: true,
+            sea: true,
+            open_sea: false,
+            invalid_water: &[],
+        },
+        "River Galley" => ShipStats {
+            speed_kmh: 5.0,
+            cargo_kg: 3000.0,
+            crew: 30,
+            river: true,
+            sea: false,
+            open_sea: false,
+            invalid_water: &["River with Rapids"],
+        },
+        "Fishing Vessel" => ShipStats {
+            speed_kmh: 8.0,
+            cargo_kg: 1500.0,
+            crew: 4,
+            river: false,
+            sea: true,
+            open_sea: false,
+            invalid_water: &["Open Sea", "Rough Open Sea"],
+        },
+        "Longship" => ShipStats {
+            speed_kmh: 11.0,
+            cargo_kg: 5000.0,
+            crew: 40,
+            river: true,
+            sea: true,
+            open_sea: true,
+            invalid_water: &[],
+        },
+        "Cog" => ShipStats {
+            speed_kmh: 10.0,
+            cargo_kg: 80000.0,
+            crew: 20,
+            river: false,
+            sea: true,
+            open_sea: true,
+            invalid_water: &[],
+        },
+        "Dhow" => ShipStats {
+            speed_kmh: 12.0,
+            cargo_kg: 20000.0,
+            crew: 15,
+            river: false,
+            sea: true,
+            open_sea: true,
+            invalid_water: &[],
+        },
+        "Caravel" => ShipStats {
+            speed_kmh: 13.0,
+            cargo_kg: 30000.0,
+            crew: 20,
+            river: false,
+            sea: true,
+            open_sea: true,
+            invalid_water: &[],
+        },
+        "Carrack" => ShipStats {
+            speed_kmh: 11.0,
+            cargo_kg: 200000.0,
+            crew: 80,
+            river: false,
+            sea: true,
+            open_sea: true,
+            invalid_water: &[],
+        },
+        "Galleon" => ShipStats {
+            speed_kmh: 13.0,
+            cargo_kg: 300000.0,
+            crew: 150,
+            river: false,
+            sea: true,
+            open_sea: true,
+            invalid_water: &[],
+        },
+        "Fluyt" => ShipStats {
+            speed_kmh: 11.0,
+            cargo_kg: 250000.0,
+            crew: 50,
+            river: false,
+            sea: true,
+            open_sea: true,
+            invalid_water: &[],
+        },
         _ => return None,
     })
 }
@@ -6316,13 +7878,24 @@ fn jp_terrain_water_mod(cat: &str, terrain: &str) -> f64 {
 /// `_jpVesselWaterBlock` (reference line 17956): why (if at all) a vessel
 /// cannot enter this water -- the single source of truth both the auto-
 /// picker and the manual-plan validator read from.
-pub fn jp_vessel_water_block(ship: &ShipStats, cat: &str, terrain: &str, vessel_name: &str) -> Option<String> {
+pub fn jp_vessel_water_block(
+    ship: &ShipStats,
+    cat: &str,
+    terrain: &str,
+    vessel_name: &str,
+) -> Option<String> {
     if !jp_ship_mode_ok(ship, cat) {
-        let water = if cat == "river" { "rivers/lakes" } else { "the open sea" };
+        let water = if cat == "river" {
+            "rivers/lakes"
+        } else {
+            "the open sea"
+        };
         return Some(format!("{vessel_name} cannot operate on {water}."));
     }
     if cat == "sea" && !ship.open_sea && (terrain == "Open Sea" || terrain == "Rough Open Sea") {
-        return Some(format!("{vessel_name} is not rated for open-sea conditions on this leg."));
+        return Some(format!(
+            "{vessel_name} is not rated for open-sea conditions on this leg."
+        ));
     }
     if ship.invalid_water.contains(&terrain) {
         return Some(format!("{vessel_name} cannot navigate {terrain}."));
@@ -6368,9 +7941,23 @@ pub struct VesselMatrixBest {
 /// `jpVesselMatrix` (reference line 17984): every vessel × every water type,
 /// plus which vessel is fastest on each one -- "what is actually fast HERE",
 /// not the same vessel everywhere.
-pub fn jp_vessel_matrix() -> (Vec<VesselMatrixRow>, std::collections::HashMap<(&'static str, &'static str), VesselMatrixBest>) {
-    const RIVER_TERRAINS: [&str; 5] = ["Calm River", "Moderate River", "River with Shallows", "River Delta", "River with Rapids"];
-    const SEA_TERRAINS: [&str; 4] = ["Sheltered Bay", "Coastal Waters", "Open Sea", "Rough Open Sea"];
+pub fn jp_vessel_matrix() -> (
+    Vec<VesselMatrixRow>,
+    std::collections::HashMap<(&'static str, &'static str), VesselMatrixBest>,
+) {
+    const RIVER_TERRAINS: [&str; 5] = [
+        "Calm River",
+        "Moderate River",
+        "River with Shallows",
+        "River Delta",
+        "River with Rapids",
+    ];
+    const SEA_TERRAINS: [&str; 4] = [
+        "Sheltered Bay",
+        "Coastal Waters",
+        "Open Sea",
+        "Rough Open Sea",
+    ];
     let waters: Vec<(&str, &str)> = std::iter::empty()
         .chain(RIVER_TERRAINS.iter().map(|&t| ("river", t)))
         .chain(SEA_TERRAINS.iter().map(|&t| ("sea", t)))
@@ -6378,11 +7965,19 @@ pub fn jp_vessel_matrix() -> (Vec<VesselMatrixRow>, std::collections::HashMap<(&
 
     let mut rows = Vec::with_capacity(JP_VESSEL_PREFERENCE.len());
     for &name in JP_VESSEL_PREFERENCE.iter() {
-        let ship = jp_ship_stats(name).expect("JP_VESSEL_PREFERENCE names are all real JP_SHIPS keys");
-        let cells: Vec<(&str, &str, Option<f64>)> = waters.iter().map(|&(cat, terrain)| (cat, terrain, jp_vessel_day_km(name, cat, terrain))).collect();
-        let usable: Vec<&(&str, &str, Option<f64>)> = cells.iter().filter(|c| c.2.is_some()).collect();
+        let ship =
+            jp_ship_stats(name).expect("JP_VESSEL_PREFERENCE names are all real JP_SHIPS keys");
+        let cells: Vec<(&str, &str, Option<f64>)> = waters
+            .iter()
+            .map(|&(cat, terrain)| (cat, terrain, jp_vessel_day_km(name, cat, terrain)))
+            .collect();
+        let usable: Vec<&(&str, &str, Option<f64>)> =
+            cells.iter().filter(|c| c.2.is_some()).collect();
         let best_kmday = usable.iter().filter_map(|c| c.2).fold(0.0_f64, f64::max);
-        let best_water = usable.iter().max_by(|a, b| a.2.unwrap().partial_cmp(&b.2.unwrap()).unwrap()).map(|c| c.1);
+        let best_water = usable
+            .iter()
+            .max_by(|a, b| a.2.unwrap().partial_cmp(&b.2.unwrap()).unwrap())
+            .map(|c| c.1);
         let mut modes: Vec<&str> = Vec::new();
         if ship.river {
             modes.push("river");
@@ -6391,7 +7986,12 @@ pub fn jp_vessel_matrix() -> (Vec<VesselMatrixRow>, std::collections::HashMap<(&
             modes.push("sea");
         }
         modes.sort_unstable();
-        let range = modes.join("+") + if ship.open_sea { " (open-sea rated)" } else { "" };
+        let range = modes.join("+")
+            + if ship.open_sea {
+                " (open-sea rated)"
+            } else {
+                ""
+            };
         rows.push(VesselMatrixRow {
             name,
             cruise_kmh: ship.speed_kmh,
@@ -6404,7 +8004,8 @@ pub fn jp_vessel_matrix() -> (Vec<VesselMatrixRow>, std::collections::HashMap<(&
         });
     }
 
-    let mut best: std::collections::HashMap<(&str, &str), VesselMatrixBest> = std::collections::HashMap::new();
+    let mut best: std::collections::HashMap<(&str, &str), VesselMatrixBest> =
+        std::collections::HashMap::new();
     for &(cat, terrain) in &waters {
         let mut bn: Option<&'static str> = None;
         let mut bv = -1.0_f64;
@@ -6416,7 +8017,13 @@ pub fn jp_vessel_matrix() -> (Vec<VesselMatrixRow>, std::collections::HashMap<(&
                 bn = Some(name);
             }
         }
-        best.insert((cat, terrain), VesselMatrixBest { name: bn, kmday: if bv > 0.0 { Some(bv) } else { None } });
+        best.insert(
+            (cat, terrain),
+            VesselMatrixBest {
+                name: bn,
+                kmday: if bv > 0.0 { Some(bv) } else { None },
+            },
+        );
     }
     (rows, best)
 }
@@ -6433,14 +8040,21 @@ pub struct WaterStage {
 /// through the exact same rules the manual-plan validator enforces, so an
 /// auto-selected vessel is provably never one the validator would flag.
 pub fn jp_vessel_fits(name: &str, water_stages: &[WaterStage]) -> bool {
-    let Some(ship) = jp_ship_stats(name) else { return false };
-    water_stages.iter().all(|s| jp_vessel_water_block(&ship, &s.cat, &s.terrain, name).is_none())
+    let Some(ship) = jp_ship_stats(name) else {
+        return false;
+    };
+    water_stages
+        .iter()
+        .all(|s| jp_vessel_water_block(&ship, &s.cat, &s.terrain, name).is_none())
 }
 
 /// `_jpAutoStageVessel` (reference line 18040): the first vessel (in
 /// preference order) that fits one single stage.
 pub fn jp_auto_stage_vessel(stage: &WaterStage) -> Option<&'static str> {
-    JP_VESSEL_PREFERENCE.iter().find(|&&name| jp_vessel_fits(name, std::slice::from_ref(stage))).copied()
+    JP_VESSEL_PREFERENCE
+        .iter()
+        .find(|&&name| jp_vessel_fits(name, std::slice::from_ref(stage)))
+        .copied()
 }
 
 // ----------------------------------------------------------------------------
@@ -6546,17 +8160,35 @@ pub struct TrainPace {
 /// set the pace when nothing else is carrying.
 pub fn jp_train_pace(party: &JpParty) -> TrainPace {
     if party.wagons > 0 {
-        TrainPace { kmh: JP_TRAIN_PACE_WAGON, label: "wagon-limited" }
+        TrainPace {
+            kmh: JP_TRAIN_PACE_WAGON,
+            label: "wagon-limited",
+        }
     } else if party.carts > 0 {
-        TrainPace { kmh: JP_TRAIN_PACE_CART, label: "cart-limited" }
+        TrainPace {
+            kmh: JP_TRAIN_PACE_CART,
+            label: "cart-limited",
+        }
     } else if party.sleds > 0 {
-        TrainPace { kmh: JP_TRAIN_PACE_CART, label: "sled-limited" }
+        TrainPace {
+            kmh: JP_TRAIN_PACE_CART,
+            label: "sled-limited",
+        }
     } else if party.travois > 0 {
-        TrainPace { kmh: JP_TRAIN_PACE_TRAVOIS, label: "travois-limited" }
+        TrainPace {
+            kmh: JP_TRAIN_PACE_TRAVOIS,
+            label: "travois-limited",
+        }
     } else if party.pack_animals() > 0 {
-        TrainPace { kmh: JP_TRAIN_PACE_PACK, label: "pack-animal" }
+        TrainPace {
+            kmh: JP_TRAIN_PACE_PACK,
+            label: "pack-animal",
+        }
     } else {
-        TrainPace { kmh: JP_TRAIN_PACE_PORTER, label: "porter-borne" }
+        TrainPace {
+            kmh: JP_TRAIN_PACE_PORTER,
+            label: "porter-borne",
+        }
     }
 }
 
@@ -6616,7 +8248,10 @@ const JP_WEATHER_MODS: [f64; 5] = [1.00, 0.90, 0.65, 0.50, 0.40];
 /// `JP_WEATHER[cond]`, `None` for an unrecognised condition (the reference's
 /// `??` fallthrough depends on that distinction).
 pub fn jp_weather_mod(condition: &str) -> Option<f64> {
-    JP_WEATHER_KEYS.iter().position(|&k| k == condition).map(|i| JP_WEATHER_MODS[i])
+    JP_WEATHER_KEYS
+        .iter()
+        .position(|&k| k == condition)
+        .map(|i| JP_WEATHER_MODS[i])
 }
 
 /// `JP_ANIMAL_WEATHER_OVERRIDE` (reference line 17411): per-species weather
@@ -6734,7 +8369,9 @@ pub fn jp_wx_weighted(biome_key: &str, season: &str, mount_key: Option<&str>) ->
     };
     let mut t = 0.0;
     for (i, &condition) in JP_WEATHER_KEYS.iter().enumerate() {
-        let m = mount_key.and_then(|k| jp_animal_weather_override(k, condition)).unwrap_or(JP_WEATHER_MODS[i]);
+        let m = mount_key
+            .and_then(|k| jp_animal_weather_override(k, condition))
+            .unwrap_or(JP_WEATHER_MODS[i]);
         t += (dist[i] / 100.0) * m;
     }
     t
@@ -6748,7 +8385,12 @@ pub fn jp_wx_weighted(biome_key: &str, season: &str, mount_key: Option<&str>) ->
 /// animal's affinity for it, so a camel train in a forced sandstorm gets
 /// 0.70, not the generic 0.40. An unrecognised override falls back to the
 /// weighted average (the reference's `??`).
-pub fn jp_weather_factor(weather_override: Option<&str>, biome_key: &str, season: &str, mount_key: Option<&str>) -> f64 {
+pub fn jp_weather_factor(
+    weather_override: Option<&str>,
+    biome_key: &str,
+    season: &str,
+    mount_key: Option<&str>,
+) -> f64 {
     let Some(ov) = weather_override.filter(|&o| !o.is_empty() && o != "auto") else {
         return jp_wx_weighted(biome_key, season, mount_key);
     };
@@ -6797,7 +8439,9 @@ pub fn jp_column_length_km(party: &JpParty, terrain: &str) -> f64 {
     let animals = party.pack_animals() as f64;
     let vehicles = party.vehicles() as f64;
     let v_files = files.clamp(1.0, 2.0);
-    let m = (people / files) * JP_RANK_SPACING_M + (animals / v_files) * JP_ANIMAL_ROAD_M + (vehicles / v_files) * JP_VEHICLE_ROAD_M;
+    let m = (people / files) * JP_RANK_SPACING_M
+        + (animals / v_files) * JP_ANIMAL_ROAD_M
+        + (vehicles / v_files) * JP_VEHICLE_ROAD_M;
     m / 1000.0
 }
 
@@ -6916,9 +8560,14 @@ pub fn jp_journey_cost(
 
     let wages = people * total_days * JP_COST_WAGE_DAY;
     let crew = crew_days * JP_COST_CREW_DAY;
-    let upkeep = (party.pack_animals() as f64 * JP_COST_ANIMAL_DAY + party.vehicles() as f64 * JP_COST_VEHICLE_DAY) * total_days;
+    let upkeep = (party.pack_animals() as f64 * JP_COST_ANIMAL_DAY
+        + party.vehicles() as f64 * JP_COST_VEHICLE_DAY)
+        * total_days;
 
-    let borders = claimed_frac.windows(2).filter(|w| (w[0] > 0.5) != (w[1] > 0.5)).count();
+    let borders = claimed_frac
+        .windows(2)
+        .filter(|w| (w[0] > 0.5) != (w[1] > 0.5))
+        .count();
     let tolls = borders as f64 * JP_COST_TOLL_PER_BORDER;
     let transship = transshipments.max(0) as f64 * JP_COST_TRANSSHIP;
 
@@ -7039,7 +8688,15 @@ pub struct JpBiome {
 /// own `undefined` -- every caller here forks on exactly that.
 pub fn jp_biome(biome_key: &str) -> Option<JpBiome> {
     let b = |water_lo, water_hi, forage, water_forage, grazing, desert_like, best_animal| {
-        Some(JpBiome { water_lo, water_hi, forage, water_forage, grazing, desert_like, best_animal })
+        Some(JpBiome {
+            water_lo,
+            water_hi,
+            forage,
+            water_forage,
+            grazing,
+            desert_like,
+            best_animal,
+        })
     };
     match biome_key {
         "Temperate Forest" => b(2.0, 3.0, 0.55, 0.12, 0.60, false, "mule"),
@@ -7289,8 +8946,12 @@ fn jp_mount_blocked(terrain: &str) -> bool {
 /// `JP_DESERT_WATER` (reference line 17525) as `(gap_days, reserve, speed)`,
 /// in the reference's own key order -- which `_jpDesertTierForGap` walks, so
 /// it is load-bearing, not cosmetic.
-pub const JP_DESERT_WATER_KEYS: [&str; 4] =
-    ["Dense Oasis Route", "Established Caravan Route", "Sparse Wells", "Deep Desert Crossing"];
+pub const JP_DESERT_WATER_KEYS: [&str; 4] = [
+    "Dense Oasis Route",
+    "Established Caravan Route",
+    "Sparse Wells",
+    "Deep Desert Crossing",
+];
 
 fn jp_desert_water(key: &str) -> Option<(f64, f64, f64)> {
     match key {
@@ -7308,7 +8969,11 @@ fn jp_desert_water(key: &str) -> Option<(f64, f64, f64)> {
 /// tier whose own gap covers the measured one; the last tier otherwise.
 pub fn jp_desert_tier_for_gap(gap_days: f64) -> &'static str {
     for k in JP_DESERT_WATER_KEYS {
-        if jp_desert_water(k).expect("JP_DESERT_WATER_KEYS are all real keys").0 >= gap_days {
+        if jp_desert_water(k)
+            .expect("JP_DESERT_WATER_KEYS are all real keys")
+            .0
+            >= gap_days
+        {
             return k;
         }
     }
@@ -7372,8 +9037,15 @@ pub struct ConsumptionFactors {
 pub fn jp_consumption_factors(terrain: &str, pace_key: &str) -> ConsumptionFactors {
     let (tf_food, tf_water) = jp_terrain_consumption(terrain);
     let pm = jp_pace_mod(pace_key);
-    let vm = if pm > 1.0 { 1.0 + (pm - 1.0).powi(2) * 2.0 } else { 1.0 };
-    ConsumptionFactors { food: tf_food * vm, water: tf_water * vm }
+    let vm = if pm > 1.0 {
+        1.0 + (pm - 1.0).powi(2) * 2.0
+    } else {
+        1.0
+    };
+    ConsumptionFactors {
+        food: tf_food * vm,
+        water: tf_water * vm,
+    }
 }
 
 /// `_jpWorldMeanRichness` (reference line 18128): the world's own mean
@@ -7433,12 +9105,25 @@ pub struct Foraging {
 /// fallback exactly. It deliberately does not touch `water_reduction`: fauna
 /// density is a food proxy, and real water *sources* are the separate
 /// `jp_stage_dry_km` hydrology measurement.
-pub fn jp_foraging(mode: &str, biome_key: &str, terrain: &str, season: &str, people: i64, wildlife_mod: f64) -> Foraging {
-    let none = Foraging { move_mod: 1.0, reduction: 0.0, water_reduction: 0.0 };
+pub fn jp_foraging(
+    mode: &str,
+    biome_key: &str,
+    terrain: &str,
+    season: &str,
+    people: i64,
+    wildlife_mod: f64,
+) -> Foraging {
+    let none = Foraging {
+        move_mod: 1.0,
+        reduction: 0.0,
+        water_reduction: 0.0,
+    };
     if mode == "None" {
         return none;
     }
-    let Some(biome) = jp_biome(biome_key) else { return none };
+    let Some(biome) = jp_biome(biome_key) else {
+        return none;
+    };
     let season_mod = jp_season_mods(season).map(|(f, _)| f).unwrap_or(1.0);
     let terrain_forage = jp_forage_terrain(terrain);
     let gsf = if people <= 1 {
@@ -7455,7 +9140,11 @@ pub fn jp_foraging(mode: &str, biome_key: &str, terrain: &str, season: &str, peo
     let (speed_mod, take_mod) = jp_foraging_mode(mode);
     let take = (biome.forage * wildlife_mod * terrain_forage * gsf * season_mod) * take_mod;
     let water_take = (biome.water_forage * terrain_forage * gsf * season_mod) * take_mod;
-    Foraging { move_mod: speed_mod, reduction: take.min(0.95), water_reduction: water_take.min(0.50) }
+    Foraging {
+        move_mod: speed_mod,
+        reduction: take.min(0.95),
+        water_reduction: water_take.min(0.50),
+    }
 }
 
 /// The subset of the reference's `plan` object the consumption/resupply layer
@@ -7547,7 +9236,10 @@ pub struct JpStageOverride {
 impl Default for JpPlan {
     fn default() -> Self {
         JpPlan {
-            party: JpParty { group_size: 4, ..JpParty::default() },
+            party: JpParty {
+                group_size: 4,
+                ..JpParty::default()
+            },
             transport: "Walking".to_string(),
             mount_animal: Some("horse".to_string()),
             vessel: "Keelboat".to_string(),
@@ -7637,11 +9329,17 @@ pub struct JpAnimalResolver<'a> {
 }
 
 fn resolve_animal_stats(key: &str, animals: Option<&JpAnimalResolver>) -> Option<AnimalStats> {
-    animals.and_then(|a| (a.stats)(key)).or_else(|| jp_animal_stats(key))
+    animals
+        .and_then(|a| (a.stats)(key))
+        .or_else(|| jp_animal_stats(key))
 }
 
 /// `Err(())` means the terrain is blocked outright for this species.
-fn resolve_animal_terrain_mod(key: &str, terrain: &str, animals: Option<&JpAnimalResolver>) -> Result<f64, ()> {
+fn resolve_animal_terrain_mod(
+    key: &str,
+    terrain: &str,
+    animals: Option<&JpAnimalResolver>,
+) -> Result<f64, ()> {
     match animals.and_then(|a| (a.terrain_mod)(key, terrain)) {
         Some(Some(m)) => Ok(m),
         Some(None) => Err(()),
@@ -7660,7 +9358,12 @@ pub fn jp_capacity(plan: &JpPlan, biome_key: &str, season: &str) -> JpCapacity {
 /// [`jp_capacity`] plus a Travel Library animal-stat override -- Travel
 /// Library milestone 1's own wiring (`TRAVEL_LIBRARY_SPEC.md` §6). Identical
 /// to [`jp_capacity`] when `animals` is `None`.
-pub fn jp_capacity_ex(plan: &JpPlan, biome_key: &str, season: &str, animals: Option<&JpAnimalResolver>) -> JpCapacity {
+pub fn jp_capacity_ex(
+    plan: &JpPlan,
+    biome_key: &str,
+    season: &str,
+    animals: Option<&JpAnimalResolver>,
+) -> JpCapacity {
     let people = plan.party.group_size.max(1) as f64;
     let cargo = plan.party.cargo_kg.max(0.0);
     let supply_days = plan.supply_days.max(1) as f64;
@@ -7687,19 +9390,33 @@ pub fn jp_capacity_ex(plan: &JpPlan, biome_key: &str, season: &str, animals: Opt
     // both switch the whole term off rather than defaulting per field.
     let af = |k: &str| -> f64 {
         let a = resolve_animal_stats(k, animals).expect("JP_ANIMAL_KEYS are all real keys");
-        let dm = if desert_like { jp_desert_animal_mod(k).0 } else { 1.0 };
-        let sa = jp_seasonal_animal(season, k).map(|(_, f, _)| f).unwrap_or(1.0);
+        let dm = if desert_like {
+            jp_desert_animal_mod(k).0
+        } else {
+            1.0
+        };
+        let sa = jp_seasonal_animal(season, k)
+            .map(|(_, f, _)| f)
+            .unwrap_or(1.0);
         a.food_kg_day * dm * sa
     };
     let aw = |k: &str| -> f64 {
         let a = resolve_animal_stats(k, animals).expect("JP_ANIMAL_KEYS are all real keys");
-        let dm = if desert_like { jp_desert_animal_mod(k).1 } else { 1.0 };
-        let sa = jp_seasonal_animal(season, k).map(|(_, _, w)| w).unwrap_or(1.0);
+        let dm = if desert_like {
+            jp_desert_animal_mod(k).1
+        } else {
+            1.0
+        };
+        let sa = jp_seasonal_animal(season, k)
+            .map(|(_, _, w)| w)
+            .unwrap_or(1.0);
         a.water_l_day * dm * sa
     };
     let ac = |k: &str| -> f64 {
         let a = resolve_animal_stats(k, animals).expect("JP_ANIMAL_KEYS are all real keys");
-        let sa = jp_seasonal_animal(season, k).map(|(c, _, _)| c).unwrap_or(1.0);
+        let sa = jp_seasonal_animal(season, k)
+            .map(|(c, _, _)| c)
+            .unwrap_or(1.0);
         a.cap_kg * sa
     };
 
@@ -7713,9 +9430,15 @@ pub fn jp_capacity_ex(plan: &JpPlan, biome_key: &str, season: &str, animals: Opt
     }
 
     let real_animals = plan.party.pack_animals();
-    let strict_draft_demand = carts * JP_CART_DRAFT + wagons * JP_WAGON_DRAFT + sleds * JP_SLED_DRAFT;
-    let draft_animals = if real_animals == 0 { 0 } else { (strict_draft_demand - real_animals).max(0) };
-    let draft_food_daily = draft_animals as f64 * JP_DRAFT_FOOD * if desert_like { 1.2 } else { 1.0 };
+    let strict_draft_demand =
+        carts * JP_CART_DRAFT + wagons * JP_WAGON_DRAFT + sleds * JP_SLED_DRAFT;
+    let draft_animals = if real_animals == 0 {
+        0
+    } else {
+        (strict_draft_demand - real_animals).max(0)
+    };
+    let draft_food_daily =
+        draft_animals as f64 * JP_DRAFT_FOOD * if desert_like { 1.2 } else { 1.0 };
     let draft_water_daily = draft_animals as f64 * if desert_like { 35.0 } else { 25.0 };
 
     let human_water_rate = jp_human_water_rate(biome_key);
@@ -7726,7 +9449,8 @@ pub fn jp_capacity_ex(plan: &JpPlan, biome_key: &str, season: &str, animals: Opt
     let human_water_total = people * human_water_rate * human_water_carry_days * sh_water;
     let fodder_total = (animal_food_daily + draft_food_daily) * supply_days * fodder_frac;
     let animal_water_total = (animal_water_daily + draft_water_daily) * animal_water_carry_days;
-    let total_mass = cargo + human_food_total + human_water_total + fodder_total + animal_water_total;
+    let total_mass =
+        cargo + human_food_total + human_water_total + fodder_total + animal_water_total;
 
     // v1.83: a rider's own mount carries saddlebag cargo -- but only when it
     // is not already declared as a full pack animal, or the same physical
@@ -7735,7 +9459,11 @@ pub fn jp_capacity_ex(plan: &JpPlan, biome_key: &str, season: &str, animals: Opt
     if plan.transport == "Mounted Rider" {
         let mk = plan.resolve_mount();
         let m_count = (people - counts(mk)).max(0.0);
-        mount_credit = m_count * resolve_animal_stats(mk, animals).expect("resolve_mount returns a real key").cap_kg * JP_MOUNT_SADDLEBAG_FRAC;
+        mount_credit = m_count
+            * resolve_animal_stats(mk, animals)
+                .expect("resolve_mount returns a real key")
+                .cap_kg
+            * JP_MOUNT_SADDLEBAG_FRAC;
     }
     let capacity = counts("donkey") * ac("donkey")
         + counts("mule") * ac("mule")
@@ -7751,7 +9479,11 @@ pub fn jp_capacity_ex(plan: &JpPlan, biome_key: &str, season: &str, animals: Opt
     JpCapacity {
         total_mass,
         capacity,
-        draft_shortfall: if real_animals > 0 { (strict_draft_demand - real_animals).max(0) } else { 0 },
+        draft_shortfall: if real_animals > 0 {
+            (strict_draft_demand - real_animals).max(0)
+        } else {
+            0
+        },
         cargo,
         human_food: human_food_total,
         human_water: human_water_total,
@@ -7823,9 +9555,17 @@ pub fn jp_assess_resupply(
             },
         };
     }
-    let binding_interval = if carry_food { water_gap_days.min(settlement_days) } else { water_gap_days };
+    let binding_interval = if carry_food {
+        water_gap_days.min(settlement_days)
+    } else {
+        water_gap_days
+    };
     let limited_by = if carry_food {
-        if water_gap_days < settlement_days { "water" } else { "food / settlement" }
+        if water_gap_days < settlement_days {
+            "water"
+        } else {
+            "food / settlement"
+        }
     } else {
         "water (no food carried)"
     };
@@ -7961,45 +9701,95 @@ pub fn jp_calc_land(st: &JpStage, plan: &JpPlan) -> Result<JpLandCalc, JpBlocked
 /// [`jp_calc_land`] plus a Travel Library animal-stat/terrain override --
 /// see [`JpAnimalResolver`]. Identical to [`jp_calc_land`] when `animals` is
 /// `None`.
-pub fn jp_calc_land_ex(st: &JpStage, plan: &JpPlan, animals: Option<&JpAnimalResolver>) -> Result<JpLandCalc, JpBlocked> {
-    let blocked = |reason: String| JpBlocked { reason, seasonal: false };
+pub fn jp_calc_land_ex(
+    st: &JpStage,
+    plan: &JpPlan,
+    animals: Option<&JpAnimalResolver>,
+) -> Result<JpLandCalc, JpBlocked> {
+    let blocked = |reason: String| JpBlocked {
+        reason,
+        seasonal: false,
+    };
     let distance = st.km;
     let terrain = st.terrain.as_str();
     let biome_key = st.biome.as_str();
     let season = plan.season.as_str();
     let group = plan.party.group_size.max(1);
-    let hours_raw = if plan.hours.is_finite() && plan.hours != 0.0 { plan.hours } else { 8.0 };
+    let hours_raw = if plan.hours.is_finite() && plan.hours != 0.0 {
+        plan.hours
+    } else {
+        8.0
+    };
     let hours = hours_raw.clamp(1.0, 16.0);
     let plan_kmh = jp_land_transport_kmh(&plan.transport);
     let portage = plan_kmh.is_none();
-    let transport = if portage { "Walking" } else { plan.transport.as_str() };
-    let (carts, wagons, travois, sleds) = (plan.party.carts, plan.party.wagons, plan.party.travois, plan.party.sleds);
+    let transport = if portage {
+        "Walking"
+    } else {
+        plan.transport.as_str()
+    };
+    let (carts, wagons, travois, sleds) = (
+        plan.party.carts,
+        plan.party.wagons,
+        plan.party.travois,
+        plan.party.sleds,
+    );
     let pack_animals = plan.party.pack_animals();
 
     // hard feasibility blocks
     if (wagons > 0 || carts > 0) && JP_WHEEL_BLOCKED.contains(&terrain) {
-        return Err(blocked(format!("Wheeled vehicles cannot traverse {terrain}. Remove carts/wagons or reroute.")));
+        return Err(blocked(format!(
+            "Wheeled vehicles cannot traverse {terrain}. Remove carts/wagons or reroute."
+        )));
     }
-    if transport == "Baggage Train" && JP_WHEEL_BLOCKED.contains(&terrain) && !(travois > 0 || pack_animals > 0) {
-        return Err(blocked(format!("A baggage train cannot operate on {terrain}. Add travois or pack animals, or reroute.")));
+    if transport == "Baggage Train"
+        && JP_WHEEL_BLOCKED.contains(&terrain)
+        && !(travois > 0 || pack_animals > 0)
+    {
+        return Err(blocked(format!(
+            "A baggage train cannot operate on {terrain}. Add travois or pack animals, or reroute."
+        )));
     }
     if transport == "Mounted Rider" && jp_mount_blocked(terrain) {
-        return Err(blocked(format!("Mounted travel is not viable in {terrain}. Switch to Walking or reroute.")));
+        return Err(blocked(format!(
+            "Mounted travel is not viable in {terrain}. Switch to Walking or reroute."
+        )));
     }
     if let Some(closure) = jp_seasonal_closure(terrain, biome_key, season, plan.seasonal_closures) {
-        return Err(JpBlocked { reason: closure, seasonal: true });
+        return Err(JpBlocked {
+            reason: closure,
+            seasonal: true,
+        });
     }
 
-    let mount_key = if transport == "Mounted Rider" { Some(plan.resolve_mount()) } else { None };
+    let mount_key = if transport == "Mounted Rider" {
+        Some(plan.resolve_mount())
+    } else {
+        None
+    };
     let mount_anim = mount_key.and_then(|k| resolve_animal_stats(k, animals));
     // v1.43: the pace-setting animal is resolved whenever the party HAS
     // animals, not only for a Mounted Rider -- a ten-camel caravan gets the
     // camel's desert affinity (and its marsh penalty) just as a lone rider does.
-    let pace_anim_key = mount_key.or(if pack_animals > 0 { Some(plan.resolve_mount()) } else { None });
-    let train_pace = if transport == "Baggage Train" { Some(jp_train_pace(&plan.party)) } else { None };
-    let animal_paced = mount_anim.is_some() || train_pace.is_some_and(|t| t.label != "porter-borne");
+    let pace_anim_key = mount_key.or(if pack_animals > 0 {
+        Some(plan.resolve_mount())
+    } else {
+        None
+    });
+    let train_pace = if transport == "Baggage Train" {
+        Some(jp_train_pace(&plan.party))
+    } else {
+        None
+    };
+    let animal_paced =
+        mount_anim.is_some() || train_pace.is_some_and(|t| t.label != "porter-borne");
 
-    let w_w = jp_weather_factor(plan.weather_override.as_deref(), biome_key, season, pace_anim_key);
+    let w_w = jp_weather_factor(
+        plan.weather_override.as_deref(),
+        biome_key,
+        season,
+        pace_anim_key,
+    );
     let mut t_mod = match pace_anim_key {
         Some(k) => match resolve_animal_terrain_mod(k, terrain, animals) {
             Ok(m) => m,
@@ -8026,7 +9816,11 @@ pub fn jp_calc_land_ex(st: &JpStage, plan: &JpPlan, animals: Option<&JpAnimalRes
     let (_cls_label, cls_coord) = jp_group_class(group);
     let c_mod = if is_haste { 1.0 } else { cls_coord };
     let f_mod = if is_haste { 1.0 } else { jp_fatigue(hours) };
-    let g_mod = if is_haste { 1.0 } else { jp_grazing(&plan.grazing).0 };
+    let g_mod = if is_haste {
+        1.0
+    } else {
+        jp_grazing(&plan.grazing).0
+    };
     let biome = jp_biome(biome_key);
     let is_desert = biome.is_some_and(|b| b.desert_like);
 
@@ -8040,10 +9834,17 @@ pub fn jp_calc_land_ex(st: &JpStage, plan: &JpPlan, animals: Option<&JpAnimalRes
         let key = plan.desert_water.as_deref().unwrap_or("");
         let (label, dw) = match jp_desert_water(key) {
             Some(dw) => (
-                JP_DESERT_WATER_KEYS.iter().find(|&&k| k == key).copied().expect("matched key"),
+                JP_DESERT_WATER_KEYS
+                    .iter()
+                    .find(|&&k| k == key)
+                    .copied()
+                    .expect("matched key"),
                 dw,
             ),
-            None => ("Established Caravan Route", jp_desert_water("Established Caravan Route").expect("real key")),
+            None => (
+                "Established Caravan Route",
+                jp_desert_water("Established Caravan Route").expect("real key"),
+            ),
         };
         desert_speed = dw.2;
         desert_reserve = dw.1;
@@ -8051,9 +9852,20 @@ pub fn jp_calc_land_ex(st: &JpStage, plan: &JpPlan, animals: Option<&JpAnimalRes
     }
 
     let forage = if is_haste {
-        Foraging { move_mod: 1.0, reduction: 0.0, water_reduction: 0.0 }
+        Foraging {
+            move_mod: 1.0,
+            reduction: 0.0,
+            water_reduction: 0.0,
+        }
     } else {
-        jp_foraging(&plan.foraging, biome_key, terrain, season, group, st.wildlife_forage_mod)
+        jp_foraging(
+            &plan.foraging,
+            biome_key,
+            terrain,
+            season,
+            group,
+            st.wildlife_forage_mod,
+        )
     };
     let base_speed = match (mount_anim, train_pace) {
         (Some(a), _) => a.mounted_speed_kmh,
@@ -8061,7 +9873,11 @@ pub fn jp_calc_land_ex(st: &JpStage, plan: &JpPlan, animals: Option<&JpAnimalRes
         (None, None) => jp_land_transport_kmh(transport).unwrap_or(4.0),
     };
     let cap = jp_capacity_ex(plan, biome_key, season, animals);
-    let ratio0 = if cap.capacity > 0.0 { cap.total_mass / cap.capacity } else { 0.0 };
+    let ratio0 = if cap.capacity > 0.0 {
+        cap.total_mass / cap.capacity
+    } else {
+        0.0
+    };
     // v1.63: a stage this overloaded cannot depart at all, Haste included.
     // Checked on the un-iterated ratio, whose driver (cargo) never shrinks.
     if cap.capacity > 0.0 && ratio0 > JP_LOAD_INVALID_RATIO {
@@ -8089,7 +9905,12 @@ pub fn jp_calc_land_ex(st: &JpStage, plan: &JpPlan, animals: Option<&JpAnimalRes
     // which is what makes the dropdown an override rather than a suggestion.
     let water_days_at = |spd: f64| -> f64 {
         if is_desert && !dw_auto {
-            return plan.desert_water.as_deref().and_then(jp_desert_water).map(|dw| dw.0).unwrap_or(3.0);
+            return plan
+                .desert_water
+                .as_deref()
+                .and_then(jp_desert_water)
+                .map(|dw| dw.0)
+                .unwrap_or(3.0);
         }
         #[allow(clippy::neg_cmp_op_on_partial_ord)]
         if !(dry_km > 0.0) {
@@ -8101,7 +9922,17 @@ pub fn jp_calc_land_ex(st: &JpStage, plan: &JpPlan, animals: Option<&JpAnimalRes
     // The auto tier's input (a gap in days) depends on speed and its output
     // changes speed, so the circle is broken with one pre-pass at the
     // un-modified speed -- enough, because the tier is a 4-step ladder.
-    let raw_no_desert = base_speed * hours * t_mod * r_mod * c_mod * p_mod * i_mod * w_w * f_mod * g_mod * forage.move_mod;
+    let raw_no_desert = base_speed
+        * hours
+        * t_mod
+        * r_mod
+        * c_mod
+        * p_mod
+        * i_mod
+        * w_w
+        * f_mod
+        * g_mod
+        * forage.move_mod;
     if is_desert && dw_auto {
         let k = jp_desert_tier_for_gap(water_days_at(raw_no_desert.max(0.01)));
         let dw = jp_desert_water(k).expect("jp_desert_tier_for_gap returns a real key");
@@ -8139,14 +9970,23 @@ pub fn jp_calc_land_ex(st: &JpStage, plan: &JpPlan, animals: Option<&JpAnimalRes
             let grazed_off = if is_desert {
                 0.0
             } else {
-                biome.map(|b| b.grazing).unwrap_or(0.0) * grazing_mod * (1.0 - jp_grazing(&plan.grazing).1)
+                biome.map(|b| b.grazing).unwrap_or(0.0)
+                    * grazing_mod
+                    * (1.0 - jp_grazing(&plan.grazing).1)
             };
-            let animal_food_net = (cap.animal_food_daily + cap.draft_food_daily) * (1.0 - grazed_off);
-            let food_needed = if carry_food { (human_food_net + animal_food_net) * eff_settlement } else { 0.0 };
+            let animal_food_net =
+                (cap.animal_food_daily + cap.draft_food_daily) * (1.0 - grazed_off);
+            let food_needed = if carry_food {
+                (human_food_net + animal_food_net) * eff_settlement
+            } else {
+                0.0
+            };
             // v1.84: outside an arid biome water contributes zero mass -- it
             // is assumed abundant and collectable as the party goes.
             let water_needed = if is_desert {
-                (group as f64 * cap.human_water_rate + cap.animal_water_daily + cap.draft_water_daily)
+                (group as f64 * cap.human_water_rate
+                    + cap.animal_water_daily
+                    + cap.draft_water_daily)
                     * eff_water_gap
                     * desert_reserve
                     * (1.0 - forage.water_reduction)
@@ -8167,7 +10007,11 @@ pub fn jp_calc_land_ex(st: &JpStage, plan: &JpPlan, animals: Option<&JpAnimalRes
                     cap.capacity,
                     days,
                     daily_km,
-                    if is_desert { water_gap_days } else { f64::INFINITY },
+                    if is_desert {
+                        water_gap_days
+                    } else {
+                        f64::INFINITY
+                    },
                     settlement_days,
                     carry_food,
                     if is_desert { dry_km } else { 0.0 },
@@ -8183,7 +10027,11 @@ pub fn jp_calc_land_ex(st: &JpStage, plan: &JpPlan, animals: Option<&JpAnimalRes
                 cap.capacity,
                 days,
                 daily_km,
-                if is_desert { water_gap_days } else { f64::INFINITY },
+                if is_desert {
+                    water_gap_days
+                } else {
+                    f64::INFINITY
+                },
                 settlement_days,
                 carry_food,
                 if is_desert { dry_km } else { 0.0 },
@@ -8195,7 +10043,11 @@ pub fn jp_calc_land_ex(st: &JpStage, plan: &JpPlan, animals: Option<&JpAnimalRes
             cap.capacity,
             days,
             daily_km,
-            if is_desert { water_gap_days } else { f64::INFINITY },
+            if is_desert {
+                water_gap_days
+            } else {
+                f64::INFINITY
+            },
             settlement_days,
             carry_food,
             if is_desert { dry_km } else { 0.0 },
@@ -8254,7 +10106,10 @@ pub fn jp_calc_land_ex(st: &JpStage, plan: &JpPlan, animals: Option<&JpAnimalRes
 /// deliberately not read here -- how long a hull is under way is a property
 /// of the water (`jp_water_window`, v1.43).
 pub fn jp_calc_water(st: &JpStage, plan: &JpPlan) -> Result<JpWaterCalc, JpBlocked> {
-    let blocked = |reason: String| JpBlocked { reason, seasonal: false };
+    let blocked = |reason: String| JpBlocked {
+        reason,
+        seasonal: false,
+    };
     let distance = st.km;
     let cat = st.cat.as_str();
     let terrain = st.terrain.as_str();
@@ -8275,7 +10130,10 @@ pub fn jp_calc_water(st: &JpStage, plan: &JpPlan) -> Result<JpWaterCalc, JpBlock
     if cat == "sea"
         && let Some(shut) = jp_sea_closure(terrain, season, plan.seasonal_closures)
     {
-        return Err(JpBlocked { reason: shut, seasonal: true });
+        return Err(JpBlocked {
+            reason: shut,
+            seasonal: true,
+        });
     }
     let w_w = jp_weather_factor(plan.weather_override.as_deref(), biome_key, season, None);
     let t_mod = jp_terrain_water_mod(cat, terrain);
@@ -8310,7 +10168,13 @@ pub fn jp_calc_water(st: &JpStage, plan: &JpPlan) -> Result<JpWaterCalc, JpBlock
         water_needed = if cat == "sea" {
             human_water_daily * trip_days * 1.10
         } else {
-            human_water_daily * river_settlement.min(trip_days) * if biome.is_some_and(|b| b.desert_like) { 2.0 } else { 1.10 }
+            human_water_daily
+                * river_settlement.min(trip_days)
+                * if biome.is_some_and(|b| b.desert_like) {
+                    2.0
+                } else {
+                    1.10
+                }
         };
         let total_load = cargo + food_needed + water_needed;
         if total_load > ship.cargo_kg {
@@ -8321,7 +10185,11 @@ pub fn jp_calc_water(st: &JpStage, plan: &JpPlan) -> Result<JpWaterCalc, JpBlock
                 jp_fmt_kg(ship.cargo_kg)
             )));
         }
-        let pen = if is_haste { 1.0 } else { jp_load_penalty(total_load / ship.cargo_kg).load_mod };
+        let pen = if is_haste {
+            1.0
+        } else {
+            jp_load_penalty(total_load / ship.cargo_kg).load_mod
+        };
         let next = base_daily0 * pen;
         let nd = distance / next;
         if (nd - trip_days).abs() < 0.01 {
@@ -8342,17 +10210,37 @@ pub fn jp_calc_water(st: &JpStage, plan: &JpPlan) -> Result<JpWaterCalc, JpBlock
             cause: None,
             binding_interval: None,
             interval_km: None,
-            verdict: format!("Loaded at port — no en-route resupply required ({}% hold).", js_fixed(load_ratio * 100.0, 0)),
+            verdict: format!(
+                "Loaded at port — no en-route resupply required ({}% hold).",
+                js_fixed(load_ratio * 100.0, 0)
+            ),
         }
     } else {
-        jp_assess_resupply(total_load, ship.cargo_kg, trip_days, daily_km, river_settlement, river_settlement, carry_food, 0.0)
+        jp_assess_resupply(
+            total_load,
+            ship.cargo_kg,
+            trip_days,
+            daily_km,
+            river_settlement,
+            river_settlement,
+            carry_food,
+            0.0,
+        )
     };
     Ok(JpWaterCalc {
         daily_km,
         days: trip_days,
         load_ratio,
         resupply,
-        transport_label: format!("{} — {}", if cat == "sea" { "Sea Faring" } else { "River Transport" }, plan.vessel),
+        transport_label: format!(
+            "{} — {}",
+            if cat == "sea" {
+                "Sea Faring"
+            } else {
+                "River Transport"
+            },
+            plan.vessel
+        ),
         crew: ship.crew,
         hold_kg: ship.cargo_kg,
         food_needed,
@@ -8369,7 +10257,10 @@ pub fn jp_calc_water(st: &JpStage, plan: &JpPlan) -> Result<JpWaterCalc, JpBlock
 ///
 /// Measures, never applies -- the reference's own contract: nothing calls it
 /// outside rendering, and it never changes what a plan computes on its own.
-pub fn jp_best_land_transport_for_stage(st: &JpStage, plan: &JpPlan) -> Option<(&'static str, f64)> {
+pub fn jp_best_land_transport_for_stage(
+    st: &JpStage,
+    plan: &JpPlan,
+) -> Option<(&'static str, f64)> {
     if st.cat != "land" {
         return None;
     }
@@ -8377,7 +10268,9 @@ pub fn jp_best_land_transport_for_stage(st: &JpStage, plan: &JpPlan) -> Option<(
     for m in JP_LAND_TRANSPORT_KEYS {
         let mut candidate = plan.clone();
         candidate.transport = m.to_string();
-        let Ok(r) = jp_calc_land(st, &candidate) else { continue };
+        let Ok(r) = jp_calc_land(st, &candidate) else {
+            continue;
+        };
         #[allow(clippy::neg_cmp_op_on_partial_ord)]
         if !(r.daily_km > 0.0) {
             continue;
@@ -8411,7 +10304,11 @@ const JP_DRINKING_COARSE_MAX: f64 = 64.0;
 
 /// `_jpDrinkingCoarseEase` (reference line 18689, v1.101).
 pub fn jp_drinking_coarse_ease(map_width_km: f64) -> f64 {
-    let mwk = if map_width_km > 0.0 { map_width_km } else { 800.0 };
+    let mwk = if map_width_km > 0.0 {
+        map_width_km
+    } else {
+        800.0
+    };
     (mwk / 800.0).clamp(1.0, JP_DRINKING_COARSE_MAX)
 }
 
@@ -8446,7 +10343,10 @@ pub fn jp_stage_dry_km(
         return 0.0;
     }
     let r = jp_water_reach_cells(cell_km).ceil() as i64;
-    let drink_thresh = flow_thresh * (cartalith_terrain::river_coarse_ease(map_width_km) / jp_drinking_coarse_ease(map_width_km)) / JP_DRINKING_FLOW_DIVISOR;
+    let drink_thresh = flow_thresh
+        * (cartalith_terrain::river_coarse_ease(map_width_km)
+            / jp_drinking_coarse_ease(map_width_km))
+        / JP_DRINKING_FLOW_DIVISOR;
     let fresh = |x: i64, y: i64| -> bool {
         for dy in -r..=r {
             for dx in -r..=r {
@@ -8590,7 +10490,11 @@ pub fn jp_resupply_reach(
         stops: stops.len(),
         unmet: carry_food && max_gap_km > required_km * 1.0001,
         carry_food,
-        shortfall: if required_km > 0.0 { max_gap_km / required_km } else { 1.0 },
+        shortfall: if required_km > 0.0 {
+            max_gap_km / required_km
+        } else {
+            1.0
+        },
     })
 }
 
@@ -8674,7 +10578,16 @@ const ELEV_TO_CART: [u8; 12] = [11, 11, 7, 7, 2, 2, 5, 3, 10, 5, 6, 6];
 /// `field[i]-geoAt(i)` becomes plain `field[i]`, the same geoid-off
 /// substitution `build_wetland_mask` and `cartalith-climate` already document.
 #[allow(clippy::too_many_arguments)]
-pub fn build_cart_biome(field: &[f32], water_bodies: &[u8], temp: &[f32], rain: &[f32], gw: usize, gh: usize, world: bool, sea: f64) -> Vec<u8> {
+pub fn build_cart_biome(
+    field: &[f32],
+    water_bodies: &[u8],
+    temp: &[f32],
+    rain: &[f32],
+    gw: usize,
+    gh: usize,
+    world: bool,
+    sea: f64,
+) -> Vec<u8> {
     let n = gw * gh;
     let mut out = vec![0u8; n];
     let denom = (1.0 - sea).max(1e-6);
@@ -8706,11 +10619,7 @@ pub fn build_cart_biome(field: &[f32], water_bodies: &[u8], temp: &[f32], rain: 
             } else {
                 let key = classify_biome(t, m);
                 out[i] = if key == BIOME_DESERT {
-                    if t < 10.0 {
-                        9
-                    } else {
-                        10
-                    }
+                    if t < 10.0 { 9 } else { 10 }
                 } else {
                     ELEV_TO_CART[(key as usize).saturating_sub(1).min(11)]
                 };
@@ -8726,7 +10635,16 @@ pub fn build_cart_biome(field: &[f32], water_bodies: &[u8], temp: &[f32], rain: 
 /// unpainted (0) here, which is why `_jpDeriveStages` never consults it for a
 /// water stage.
 #[allow(clippy::too_many_arguments)]
-pub fn build_cart_terrain(field: &[f32], water_bodies: &[u8], temp: &[f32], rain: &[f32], gw: usize, gh: usize, world: bool, sea: f64) -> Vec<u8> {
+pub fn build_cart_terrain(
+    field: &[f32],
+    water_bodies: &[u8],
+    temp: &[f32],
+    rain: &[f32],
+    gw: usize,
+    gh: usize,
+    world: bool,
+    sea: f64,
+) -> Vec<u8> {
     let n = gw * gh;
     let mut out = vec![0u8; n];
     let denom = (1.0 - sea).max(1e-6);
@@ -8794,7 +10712,12 @@ pub fn jp_legacy_biome_of(cart_biome_id: u8, temp_c: f64, moisture: f64) -> &'st
 /// The callback receives the reference's own unrounded first/break points and
 /// rounded interpolated points -- that difference is load-bearing for
 /// [`jp_road_cells`], see its own note.
-pub fn civ_walk_way_cells(pts: &[(f64, f64)], brks: &[usize], gw: usize, cb: &mut impl FnMut(f64, f64)) {
+pub fn civ_walk_way_cells(
+    pts: &[(f64, f64)],
+    brks: &[usize],
+    gw: usize,
+    cb: &mut impl FnMut(f64, f64),
+) {
     if pts.is_empty() {
         return;
     }
@@ -8845,9 +10768,19 @@ pub struct JpRoadCell {
 /// that no integer lookup can ever hit. That is reproduced here by simply not
 /// recording a non-integral emission -- same observable behaviour, without
 /// carrying float keys around.
-pub fn jp_road_cells(ways: &[Way], road_edges: &[RoadEdge], gw: usize) -> std::collections::HashMap<(i64, i64), JpRoadCell> {
-    let mut map: std::collections::HashMap<(i64, i64), JpRoadCell> = std::collections::HashMap::new();
-    let put = |map: &mut std::collections::HashMap<(i64, i64), JpRoadCell>, x: f64, y: f64, terrain: &'static str, cond: &'static str, pri: u8| {
+pub fn jp_road_cells(
+    ways: &[Way],
+    road_edges: &[RoadEdge],
+    gw: usize,
+) -> std::collections::HashMap<(i64, i64), JpRoadCell> {
+    let mut map: std::collections::HashMap<(i64, i64), JpRoadCell> =
+        std::collections::HashMap::new();
+    let put = |map: &mut std::collections::HashMap<(i64, i64), JpRoadCell>,
+               x: f64,
+               y: f64,
+               terrain: &'static str,
+               cond: &'static str,
+               pri: u8| {
         if x.fract() != 0.0 || y.fract() != 0.0 {
             return; // an unreachable JS string key -- see the doc comment
         }
@@ -8876,7 +10809,14 @@ pub fn jp_road_cells(ways: &[Way], road_edges: &[RoadEdge], gw: usize) -> std::c
     }
     for e in road_edges {
         for &i in &e.path {
-            put(&mut map, (i % gw) as f64, (i / gw) as f64, "Dirt Track", "Standard", 1);
+            put(
+                &mut map,
+                (i % gw) as f64,
+                (i / gw) as f64,
+                "Dirt Track",
+                "Standard",
+                1,
+            );
         }
     }
     map
@@ -8919,13 +10859,33 @@ pub struct JpInfraContext {
 /// `||12000` [`jp_derive_stages`] uses two functions away. Both are reproduced
 /// as written rather than unified: they are the reference's, and unifying them
 /// would change a real (if odd) number on a world with no map width set.
-pub fn jp_infra_context(settlement_count: usize, corridor_km: f64, field: &[f32], gw: usize, gh: usize, sea: f64, map_width_km: f64) -> JpInfraContext {
-    let cell_km = (if map_width_km != 0.0 { map_width_km } else { 800.0 }) / gw as f64;
+pub fn jp_infra_context(
+    settlement_count: usize,
+    corridor_km: f64,
+    field: &[f32],
+    gw: usize,
+    gh: usize,
+    sea: f64,
+    map_width_km: f64,
+) -> JpInfraContext {
+    let cell_km = (if map_width_km != 0.0 {
+        map_width_km
+    } else {
+        800.0
+    }) / gw as f64;
     let cell_km2 = cell_km * cell_km;
-    let land_cells = field.iter().take(gw * gh).filter(|&&h| h as f64 >= sea).count();
+    let land_cells = field
+        .iter()
+        .take(gw * gh)
+        .filter(|&&h| h as f64 >= sea)
+        .count();
     let land_km2 = (land_cells as f64 * cell_km2).max(1.0);
     let expected = (settlement_count as f64 / land_km2) * 2.0 * corridor_km.max(1e-6) * 100.0;
-    JpInfraContext { expected_per_100: expected, land_km2, count: settlement_count }
+    JpInfraContext {
+        expected_per_100: expected,
+        land_km2,
+        count: settlement_count,
+    }
 }
 
 /// `_jpClaimedAt` (reference line 18360): is this grid point inside some
@@ -8944,8 +10904,13 @@ pub fn jp_claimed_at(territory: Option<&[i32]>, gw: usize, gh: usize, gx: f64, g
 
 /// `JP_INFRA_TIERS` (reference line 17593): density ratio to infrastructure
 /// tier, walked in order and taking the first `ratio >= t[0]`.
-pub const JP_INFRA_TIERS: [(f64, &str); 5] =
-    [(2.5, "Operational Waystations"), (1.2, "Stable Settlements"), (0.40, "Sparse Settlements"), (0.12, "Ruined Region"), (-1.0, "Hostile / Dead Zone")];
+pub const JP_INFRA_TIERS: [(f64, &str); 5] = [
+    (2.5, "Operational Waystations"),
+    (1.2, "Stable Settlements"),
+    (0.40, "Sparse Settlements"),
+    (0.12, "Ruined Region"),
+    (-1.0, "Hostile / Dead Zone"),
+];
 
 /// The denominator floor in `_jpStageInfra`: you cannot measure a rate finer
 /// than the sample you have, so a short stage is scored on "one settlement per
@@ -8970,7 +10935,11 @@ pub fn jp_stage_infra(st: &JpDerivedStage, ctx: &JpInfraContext) -> &'static str
     } else {
         0.0
     };
-    let mut tier = JP_INFRA_TIERS.iter().find(|t| ratio >= t.0).unwrap_or(&JP_INFRA_TIERS[JP_INFRA_TIERS.len() - 1]).1;
+    let mut tier = JP_INFRA_TIERS
+        .iter()
+        .find(|t| ratio >= t.0)
+        .unwrap_or(&JP_INFRA_TIERS[JP_INFRA_TIERS.len() - 1])
+        .1;
     let at = |n: &str| JP_INFRA_TIERS.iter().position(|t| t.1 == n).unwrap_or(0);
     if st.claimed_frac >= 0.5 && at(tier) > at("Sparse Settlements") {
         tier = "Sparse Settlements";
@@ -9031,7 +11000,14 @@ pub struct JpCoarseField {
 /// `_jpCoarseIdx` (reference line 18484): full-grid `(px, py)` to a coarse
 /// `ww` x `wh` index, inverting `fx = x/(WW-1)*(GW-1)`. `None` where the
 /// reference returns `-1`.
-pub fn jp_coarse_idx(px: f64, py: f64, ww: usize, wh: usize, gw: usize, gh: usize) -> Option<usize> {
+pub fn jp_coarse_idx(
+    px: f64,
+    py: f64,
+    ww: usize,
+    wh: usize,
+    gw: usize,
+    gh: usize,
+) -> Option<usize> {
     if ww <= 1 || wh <= 1 {
         return None;
     }
@@ -9148,7 +11124,11 @@ pub fn jp_sea_condition(
     }
     let (neutral, span) = jp_rig_neutral_span(&jp_ship_rig(vessel_name));
     let cur_score = (cur_sum / n as f64).clamp(-1.0, 1.0);
-    let wind_score = if rig == "oared" || wind_f.is_none() { 0.0 } else { ((sail_sum / n as f64 - neutral) / span).clamp(-1.0, 1.0) };
+    let wind_score = if rig == "oared" || wind_f.is_none() {
+        0.0
+    } else {
+        ((sail_sum / n as f64 - neutral) / span).clamp(-1.0, 1.0)
+    };
     let score = 0.65 * wind_score + 0.35 * cur_score;
     if score >= JP_SEA_BAND_STRONG && cur_score > 0.05 {
         "Favorable Wind & Current"
@@ -9211,7 +11191,9 @@ pub fn civ_transshipments(stages: &[JpDerivedStage]) -> i64 {
 /// `_civTransferOverhead` (reference line 19205): the compounding fractional
 /// cost overhead `(1+per)^n - 1`. `per` defaults to [`CIV_TRANSSHIP_COST`].
 pub fn civ_transfer_overhead(n_transshipments: i64, per: Option<f64>) -> f64 {
-    (1.0 + per.unwrap_or(CIV_TRANSSHIP_COST)).powi(n_transshipments.max(0).min(i32::MAX as i64) as i32) - 1.0
+    (1.0 + per.unwrap_or(CIV_TRANSSHIP_COST))
+        .powi(n_transshipments.max(0).min(i32::MAX as i64) as i32)
+        - 1.0
 }
 
 /// `_jpModeForRoute` (reference line 20368, v1.47): the `_civDijkstraPath`
@@ -9235,7 +11217,12 @@ pub fn jp_mode_for_route(transport: &str) -> Option<&'static str> {
 /// distinct settlements a route threads through (within `R` of some path
 /// point) -- origin, intermediate stops, destination. Returns indices into
 /// `places`. Wrap-aware on the X seam.
-pub fn civ_passed_settlements(pts: &[(f64, f64)], places: &[JpPlace], gw: usize, world: bool) -> Vec<usize> {
+pub fn civ_passed_settlements(
+    pts: &[(f64, f64)],
+    places: &[JpPlace],
+    gw: usize,
+    world: bool,
+) -> Vec<usize> {
     if pts.len() < 2 || places.is_empty() {
         return Vec::new();
     }
@@ -9379,7 +11366,11 @@ impl JpWorld<'_> {
     /// `(state.mapWidthKm||12000)/GW` -- `_jpDeriveStages`' own fallback,
     /// which differs from `_jpInfraContext`'s `||800` (see there).
     fn cell_km(&self) -> f64 {
-        (if self.map_width_km != 0.0 { self.map_width_km } else { 12000.0 }) / self.gw as f64
+        (if self.map_width_km != 0.0 {
+            self.map_width_km
+        } else {
+            12000.0
+        }) / self.gw as f64
     }
 
     fn clamp_cell(&self, x: f64, y: f64) -> (usize, usize) {
@@ -9391,7 +11382,8 @@ impl JpWorld<'_> {
     /// Metres above sea level at a route point (`hM` in the reference).
     fn height_m(&self, x: f64, y: f64) -> f64 {
         let (xi, yi) = self.clamp_cell(x, y);
-        ((self.field[yi * self.gw + xi] as f64 - self.sea_level) / (1.0 - self.sea_level)).max(0.0) * self.peak_m
+        ((self.field[yi * self.gw + xi] as f64 - self.sea_level) / (1.0 - self.sea_level)).max(0.0)
+            * self.peak_m
     }
 
     /// Rings 1..8 out from a cell to the nearest land (`CART_BIOMES` 1-13);
@@ -9485,34 +11477,70 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
             } else {
                 "Open Sea"
             };
-            info.push(JpPointInfo { cat: "sea", biome: last_land_biome.clone(), terrain: terrain.to_string(), cond: None, riv: false });
+            info.push(JpPointInfo {
+                cat: "sea",
+                biome: last_land_biome.clone(),
+                terrain: terrain.to_string(),
+                cond: None,
+                riv: false,
+            });
         } else if b_idx == 14 {
             let d = world.nearest_land_dist(x, y);
             if d <= 2 {
-                info.push(JpPointInfo { cat: "river", biome: last_land_biome.clone(), terrain: "Calm River".to_string(), cond: None, riv: false });
+                info.push(JpPointInfo {
+                    cat: "river",
+                    biome: last_land_biome.clone(),
+                    terrain: "Calm River".to_string(),
+                    cond: None,
+                    riv: false,
+                });
             } else {
                 let terrain = if d <= 8 { "Coastal Waters" } else { "Open Sea" };
-                info.push(JpPointInfo { cat: "sea", biome: last_land_biome.clone(), terrain: terrain.to_string(), cond: None, riv: false });
+                info.push(JpPointInfo {
+                    cat: "sea",
+                    biome: last_land_biome.clone(),
+                    terrain: terrain.to_string(),
+                    cond: None,
+                    riv: false,
+                });
             }
         } else {
             let biome = jp_legacy_biome_of(b_idx, world.temp[i] as f64, world.rain[i] as f64);
             last_land_biome = biome.to_string();
             let t_idx = world.cart_terrain[i];
-            let mut terrain = if t_idx > 0 { CART_TERRAINS[t_idx as usize - 1] } else { "Open Plains" };
+            let mut terrain = if t_idx > 0 {
+                CART_TERRAINS[t_idx as usize - 1]
+            } else {
+                "Open Plains"
+            };
             let mut cond = None;
             if let Some(road) = world.road_cells.get(&(x as i64, y as i64)) {
                 terrain = road.terrain;
                 cond = Some(road.cond);
             }
-            let riv = world.flow_field.is_some_and(|f| f[i] as f64 > world.flow_thresh);
-            info.push(JpPointInfo { cat: "land", biome: biome.to_string(), terrain: terrain.to_string(), cond, riv });
+            let riv = world
+                .flow_field
+                .is_some_and(|f| f[i] as f64 > world.flow_thresh);
+            info.push(JpPointInfo {
+                cat: "land",
+                biome: biome.to_string(),
+                terrain: terrain.to_string(),
+                cond,
+                riv,
+            });
         }
     }
 
     // -- chunk contiguous runs of identical (cat|biome|terrain|cond) --
     let mut chunks: Vec<JpChunk> = Vec::new();
     for (k, f) in info.iter().enumerate() {
-        let key = format!("{}|{}|{}|{}", f.cat, f.biome, f.terrain, f.cond.unwrap_or(""));
+        let key = format!(
+            "{}|{}|{}|{}",
+            f.cat,
+            f.biome,
+            f.terrain,
+            f.cond.unwrap_or("")
+        );
         if chunks.last().is_none_or(|c| c.key != key) {
             chunks.push(JpChunk {
                 key,
@@ -9535,7 +11563,8 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
             let adx = (pts[k].0 - pts[k - 1].0).abs();
             let dy = pts[k].1 - pts[k - 1].1;
             cur.km += adx.min(gw as f64 - adx).hypot(dy) * cell_km; // wrap-aware (cylinder)
-            let dh = world.height_m(pts[k].0, pts[k].1) - world.height_m(pts[k - 1].0, pts[k - 1].1);
+            let dh =
+                world.height_m(pts[k].0, pts[k].1) - world.height_m(pts[k - 1].0, pts[k - 1].1);
             if dh > 0.0 {
                 cur.gain += dh;
             } else {
@@ -9553,7 +11582,11 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
     }
 
     // -- narrow water gaps on an otherwise-land journey collapse into river crossings --
-    let land_km: f64 = chunks.iter().filter(|c| c.cat == "land").map(|c| c.km).sum();
+    let land_km: f64 = chunks
+        .iter()
+        .filter(|c| c.cat == "land")
+        .map(|c| c.km)
+        .sum();
     let total_km: f64 = chunks.iter().map(|c| c.km).sum();
     if land_km > total_km * 0.5 {
         for i in (0..chunks.len()).rev() {
@@ -9607,7 +11640,15 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
     // -- measure each stage against the world --
     let pick_r = (gw as f64 / 50.0).max(6.0);
     let r2 = pick_r * pick_r;
-    let infra_ctx = jp_infra_context(world.places.len(), pick_r * cell_km, world.field, gw, gh, world.sea_level, world.map_width_km);
+    let infra_ctx = jp_infra_context(
+        world.places.len(),
+        pick_r * cell_km,
+        world.field,
+        gw,
+        gh,
+        world.sea_level,
+        world.map_width_km,
+    );
     let vessel = plan.vessel.as_str();
 
     let mut out: Vec<JpDerivedStage> = Vec::with_capacity(chunks.len());
@@ -9632,7 +11673,18 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
             k += 4;
         }
         let dry_km = if c.cat == "land" {
-            jp_stage_dry_km(pts, c.i0, c.i1, cell_km, world.water_bodies, world.flow_field, gw, gh, world.flow_thresh, world.map_width_km)
+            jp_stage_dry_km(
+                pts,
+                c.i0,
+                c.i1,
+                cell_km,
+                world.water_bodies,
+                world.flow_field,
+                gw,
+                gh,
+                world.flow_thresh,
+                world.map_width_km,
+            )
         } else {
             0.0
         };
@@ -9651,7 +11703,11 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
             gain: c.gain,
             loss: c.loss,
             settlements: seen.len(),
-            claimed_frac: if sampled > 0 { claimed as f64 / sampled as f64 } else { 0.0 },
+            claimed_frac: if sampled > 0 {
+                claimed as f64 / sampled as f64
+            } else {
+                0.0
+            },
             dry_km,
             mx: pts[mid_k].0,
             my: pts[mid_k].1,
@@ -9665,12 +11721,25 @@ pub fn jp_derive_stages(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan) -> V
             _ => None,
         };
         if c.cat == "land" {
-            st.route_cond = manual.map(str::to_string).unwrap_or_else(|| c.cond.unwrap_or("None / Wild").to_string());
+            st.route_cond = manual
+                .map(str::to_string)
+                .unwrap_or_else(|| c.cond.unwrap_or("None / Wild").to_string());
         } else {
             let auto = if c.cat == "river" {
                 jp_river_condition(c.km, c.gain, c.loss).to_string()
             } else {
-                jp_sea_condition(pts, c.i0, c.i1, world.ocean_field, world.wind_field, vessel, gw, gh, world.world).to_string()
+                jp_sea_condition(
+                    pts,
+                    c.i0,
+                    c.i1,
+                    world.ocean_field,
+                    world.wind_field,
+                    vessel,
+                    gw,
+                    gh,
+                    world.world,
+                )
+                .to_string()
             };
             st.route_cond = match manual {
                 Some(m) if jp_route_cond_valid(c.cat, m) => m.to_string(),
@@ -9720,9 +11789,28 @@ pub fn jp_effective_stage_plan(plan: &JpPlan, ov: Option<&JpStageOverride>) -> J
     macro_rules! set_party {
         ($($f:ident),* $(,)?) => { $( if let Some(v) = ov.$f { eff.party.$f = v; } )* };
     }
-    set!(transport, vessel, hours, pace, season, supply_days, carry_food, grazing, foraging, seasonal_closures);
-    set_opt!(mount_animal, desert_water, weather_override, route_cond, infra);
-    set_party!(group_size, cargo_kg, donkey, mule, camel, horse, carts, wagons, sleds, travois);
+    set!(
+        transport,
+        vessel,
+        hours,
+        pace,
+        season,
+        supply_days,
+        carry_food,
+        grazing,
+        foraging,
+        seasonal_closures
+    );
+    set_opt!(
+        mount_animal,
+        desert_water,
+        weather_override,
+        route_cond,
+        infra
+    );
+    set_party!(
+        group_size, cargo_kg, donkey, mule, camel, horse, carts, wagons, sleds, travois
+    );
     eff
 }
 
@@ -9740,12 +11828,17 @@ pub fn jp_auto_pick_vessel(stages: &[JpDerivedStage]) -> Option<&'static str> {
     let water: Vec<WaterStage> = stages
         .iter()
         .filter(|s| s.cat == "river" || s.cat == "sea")
-        .map(|s| WaterStage { cat: s.cat.clone(), terrain: s.terrain.clone() })
+        .map(|s| WaterStage {
+            cat: s.cat.clone(),
+            terrain: s.terrain.clone(),
+        })
         .collect();
     if water.is_empty() {
         return None;
     }
-    JP_VESSEL_PREFERENCE.into_iter().find(|&name| jp_vessel_fits(name, &water))
+    JP_VESSEL_PREFERENCE
+        .into_iter()
+        .find(|&name| jp_vessel_fits(name, &water))
 }
 
 /// `_jpEnsurePlan` (reference line 18256): the plan defaults a journey carries,
@@ -9766,8 +11859,16 @@ pub fn jp_auto_pick_vessel(stages: &[JpDerivedStage]) -> Option<&'static str> {
 /// `Default` impl does not need.
 pub fn jp_ensure_plan(world: &JpWorld, pts: &[(f64, f64)], sea_journey: bool) -> JpPlan {
     let mut plan = JpPlan {
-        transport: if sea_journey { "Sea Faring".to_string() } else { "Walking".to_string() },
-        vessel: if sea_journey { "Cog".to_string() } else { "Keelboat".to_string() },
+        transport: if sea_journey {
+            "Sea Faring".to_string()
+        } else {
+            "Walking".to_string()
+        },
+        vessel: if sea_journey {
+            "Cog".to_string()
+        } else {
+            "Keelboat".to_string()
+        },
         ..JpPlan::default()
     };
     let stages = jp_derive_stages(world, pts, &plan);
@@ -9918,7 +12019,13 @@ const JP_TIMELINE_MAX_ENTRIES: i64 = 400;
 ///
 /// Returns `None` on a route with no drawn path or no derivable stages, both
 /// of the reference's own `return null` cases.
-pub fn jp_plan(world: &JpWorld, pts: &[(f64, f64)], plan: &JpPlan, layovers: &JpLayovers, wildlife_forage_mod: &dyn Fn(f64, f64) -> f64) -> Option<JpJourneyPlan> {
+pub fn jp_plan(
+    world: &JpWorld,
+    pts: &[(f64, f64)],
+    plan: &JpPlan,
+    layovers: &JpLayovers,
+    wildlife_forage_mod: &dyn Fn(f64, f64) -> f64,
+) -> Option<JpJourneyPlan> {
     jp_plan_ex(world, pts, plan, layovers, wildlife_forage_mod, None)
 }
 
@@ -9944,7 +12051,9 @@ pub fn jp_plan_ex(
     // (they are already stage-local fields); every other override flows
     // through the effective per-stage plan below.
     for (i, s) in stages.iter_mut().enumerate() {
-        let Some(ov) = plan.stage_overrides.get(&i) else { continue };
+        let Some(ov) = plan.stage_overrides.get(&i) else {
+            continue;
+        };
         if let Some(rc) = &ov.route_cond {
             s.route_cond = rc.clone();
         }
@@ -9952,7 +12061,10 @@ pub fn jp_plan_ex(
             s.infra = inf.clone();
         }
     }
-    let jp_stages: Vec<JpStage> = stages.iter().map(|s| s.to_stage(wildlife_forage_mod(s.mx, s.my))).collect();
+    let jp_stages: Vec<JpStage> = stages
+        .iter()
+        .map(|s| s.to_stage(wildlife_forage_mod(s.mx, s.my)))
+        .collect();
 
     let calc = |st: &JpStage, cat: &str, eff: &JpPlan| -> Result<JpLegCalc, JpBlocked> {
         if cat == "land" {
@@ -10013,18 +12125,30 @@ pub fn jp_plan_ex(
         // well-understood "reroute or change transport" signal, and
         // auto-substituting it produced a larger party appearing to travel
         // FASTER once one stage silently swapped Baggage Train for Walking.
-        let has_override = cat != "land" && ov.is_some_and(|o| o.vessel.as_deref().is_some_and(|v| !v.is_empty()));
+        let has_override =
+            cat != "land" && ov.is_some_and(|o| o.vessel.as_deref().is_some_and(|v| !v.is_empty()));
         if cat != "land" && r.is_err() && !has_override {
-            let ws = WaterStage { cat: cat.clone(), terrain: st.terrain.clone() };
+            let ws = WaterStage {
+                cat: cat.clone(),
+                terrain: st.terrain.clone(),
+            };
             if let Some(sub) = jp_auto_stage_vessel(&ws) {
-                let eff2 = JpPlan { vessel: sub.to_string(), ..eff.clone() };
+                let eff2 = JpPlan {
+                    vessel: sub.to_string(),
+                    ..eff.clone()
+                };
                 if let Ok(w) = jp_calc_water(st, &eff2) {
                     r = Ok(JpLegCalc::Water(w));
                     eff = eff2;
                 }
             }
         }
-        results.push(JpLegResult { cat, km: st.km, calc: r, eff });
+        results.push(JpLegResult {
+            cat,
+            km: st.km,
+            calc: r,
+            eff,
+        });
     }
 
     let blocked_idx = results.iter().position(|r| r.calc.is_err());
@@ -10050,17 +12174,24 @@ pub fn jp_plan_ex(
         match &r.calc {
             Ok(JpLegCalc::Land(l)) => {
                 let cf = jp_consumption_factors(&stages[i].terrain, &ep.pace);
-                food_kg += ep.party.group_size.max(1) as f64 * JP_HUMAN_FOOD * sh_food * cf.food * l.days;
+                food_kg +=
+                    ep.party.group_size.max(1) as f64 * JP_HUMAN_FOOD * sh_food * cf.food * l.days;
                 fodder_kg += (l.cap.animal_food_daily + l.cap.draft_food_daily) * cf.food * l.days;
                 // v1.84: `is_desert` is checked here too -- otherwise the route
                 // summary would keep reporting a non-zero water figure for a
                 // non-desert stage even though nothing carries that water.
                 if l.is_desert {
-                    water_l += (ep.party.group_size.max(1) as f64 * l.cap.human_water_rate * sh_water + l.cap.animal_water_daily + l.cap.draft_water_daily) * cf.water * l.days;
+                    water_l +=
+                        (ep.party.group_size.max(1) as f64 * l.cap.human_water_rate * sh_water
+                            + l.cap.animal_water_daily
+                            + l.cap.draft_water_daily)
+                            * cf.water
+                            * l.days;
                 }
             }
             Ok(JpLegCalc::Water(w)) => {
-                food_kg += (w.crew as f64 + ep.party.group_size.max(1) as f64) * JP_HUMAN_FOOD * w.days;
+                food_kg +=
+                    (w.crew as f64 + ep.party.group_size.max(1) as f64) * JP_HUMAN_FOOD * w.days;
                 water_l += (w.crew as f64 + ep.party.group_size.max(1) as f64) * 2.5 * w.days;
             }
             Err(_) => {}
@@ -10069,8 +12200,16 @@ pub fn jp_plan_ex(
 
     // Hazards.
     let riv_x: u32 = stages.iter().map(|s| s.rx).sum();
-    let pass_km: f64 = stages.iter().filter(|s| s.terrain == "Mountain Pass" || s.terrain == "Mountain Trails").map(|s| s.km).sum();
-    let desert_km: f64 = stages.iter().filter(|s| s.cat == "land" && jp_biome(&s.biome).is_some_and(|b| b.desert_like)).map(|s| s.km).sum();
+    let pass_km: f64 = stages
+        .iter()
+        .filter(|s| s.terrain == "Mountain Pass" || s.terrain == "Mountain Trails")
+        .map(|s| s.km)
+        .sum();
+    let desert_km: f64 = stages
+        .iter()
+        .filter(|s| s.cat == "land" && jp_biome(&s.biome).is_some_and(|b| b.desert_like))
+        .map(|s| s.km)
+        .sum();
     let mut bad_wx = 0.0;
     for s in &stages {
         if let Some(d) = jp_biome_weather(&s.biome, &plan.season) {
@@ -10084,7 +12223,8 @@ pub fn jp_plan_ex(
         .iter()
         .map(|&(x, y)| {
             let (xi, yi) = world.clamp_cell(x, y);
-            ((world.field[yi * world.gw + xi] as f64 - world.sea_level) / (1.0 - world.sea_level)).max(0.0)
+            ((world.field[yi * world.gw + xi] as f64 - world.sea_level) / (1.0 - world.sea_level))
+                .max(0.0)
         })
         .collect();
     let ascent: f64 = stages.iter().map(|s| s.gain).sum();
@@ -10120,7 +12260,9 @@ pub fn jp_plan_ex(
                 frac_used += step / stage_daily;
                 if frac_used >= 1.0 - 1e-9 {
                     let stage_frac = 1.0 - remaining / st.km.max(1e-9);
-                    let pi = (js_round(st.i0 as f64 + (st.i1 as f64 - st.i0 as f64) * stage_frac) as i64).clamp(0, pts.len() as i64 - 1) as usize;
+                    let pi = (js_round(st.i0 as f64 + (st.i1 as f64 - st.i0 as f64) * stage_frac)
+                        as i64)
+                        .clamp(0, pts.len() as i64 - 1) as usize;
                     let (px, py) = pts[pi];
                     let mut camp: Option<&JpPlace> = None;
                     let mut cd = camp_r2;
@@ -10136,7 +12278,13 @@ pub fn jp_plan_ex(
                         km: km_total,
                         terrain: st.terrain.clone(),
                         biome: st.biome.clone(),
-                        camp: camp.map(|p| if p.name.is_empty() { "settlement".to_string() } else { p.name.clone() }),
+                        camp: camp.map(|p| {
+                            if p.name.is_empty() {
+                                "settlement".to_string()
+                            } else {
+                                p.name.clone()
+                            }
+                        }),
                     });
                     day_fracs.push(km_total / km);
                     day_no += 1;
@@ -10154,7 +12302,10 @@ pub fn jp_plan_ex(
         .enumerate()
         .filter(|(_, r)| r.cat == "land" && r.land().is_some_and(|l| l.cap.capacity > 0.0))
         .max_by(|a, b| {
-            let (la, lb) = (a.1.land().expect("filtered").load_ratio, b.1.land().expect("filtered").load_ratio);
+            let (la, lb) = (
+                a.1.land().expect("filtered").load_ratio,
+                b.1.land().expect("filtered").load_ratio,
+            );
             la.partial_cmp(&lb).unwrap_or(std::cmp::Ordering::Equal)
         })
         .map(|(i, _)| i);
@@ -10173,15 +12324,33 @@ pub fn jp_plan_ex(
             let p = &world.places[i];
             let key = jp_stop_key(&p.name, &p.kind, p.x, p.y);
             let layover_days = layovers.get(&key).copied().unwrap_or(0).max(0);
-            JpStop { key, name: p.name.clone(), kind: p.kind.clone(), x: p.x, y: p.y, layover_days }
+            JpStop {
+                key,
+                name: p.name.clone(),
+                kind: p.kind.clone(),
+                x: p.x,
+                y: p.y,
+                layover_days,
+            }
         })
         .collect();
     let layover_days: i64 = stops.iter().map(|s| s.layover_days).sum();
 
-    let animal_paced = results.iter().any(|r| r.land().is_some_and(|l| l.cap.animal_food_daily > 0.0 || l.cap.draft_food_daily > 0.0));
+    let animal_paced = results.iter().any(|r| {
+        r.land()
+            .is_some_and(|l| l.cap.animal_food_daily > 0.0 || l.cap.draft_food_daily > 0.0)
+    });
     let rest = jp_rest_days(days, plan.rest_cadence.as_deref(), animal_paced);
-    let rest_days = if blocked_idx.is_some() { 0 } else { rest.rest_days };
-    let total_days = if blocked_idx.is_some() { None } else { Some(days + layover_days as f64 + rest_days as f64) };
+    let rest_days = if blocked_idx.is_some() {
+        0
+    } else {
+        rest.rest_days
+    };
+    let total_days = if blocked_idx.is_some() {
+        None
+    } else {
+        Some(days + layover_days as f64 + rest_days as f64)
+    };
 
     let resupply_stages: Vec<ResupplyReachStage> = results
         .iter()
@@ -10193,17 +12362,30 @@ pub fn jp_plan_ex(
         })
         .collect();
     let stop_pts: Vec<(f64, f64)> = stops.iter().map(|s| (s.x, s.y)).collect();
-    let resupply_reach = jp_resupply_reach(pts, world.cell_km(), world.gw, &resupply_stages, &stop_pts, plan.carry_food);
+    let resupply_reach = jp_resupply_reach(
+        pts,
+        world.cell_km(),
+        world.gw,
+        &resupply_stages,
+        &stop_pts,
+        plan.carry_food,
+    );
 
     let seasons_crossed: Vec<String> = if stage_mid_day.is_some() && days > 0.0 {
         let mut seen = std::collections::HashSet::new();
-        results.iter().map(|r| r.eff.season.clone()).filter(|s| seen.insert(s.clone())).collect()
+        results
+            .iter()
+            .map(|r| r.eff.season.clone())
+            .filter(|s| seen.insert(s.clone()))
+            .collect()
     } else {
         vec![plan.season.clone()]
     };
 
     Some(JpJourneyPlan {
-        has_desert: stages.iter().any(|s| s.cat == "land" && jp_biome(&s.biome).is_some_and(|b| b.desert_like)),
+        has_desert: stages
+            .iter()
+            .any(|s| s.cat == "land" && jp_biome(&s.biome).is_some_and(|b| b.desert_like)),
         has_water: stages.iter().any(|s| s.cat != "land"),
         has_land: stages.iter().any(|s| s.cat == "land"),
         stages,
@@ -10281,8 +12463,15 @@ pub fn jp_verdict(plan: &JpJourneyPlan) -> JpVerdict {
         let text = plan.results[bi]
             .blocked()
             .map(|b| b.reason.clone())
-            .unwrap_or_else(|| "A stage on this route cannot be travelled as configured.".to_string());
-        return JpVerdict { level: "blocked", label: "Impassable", text, reasons: Vec::new() };
+            .unwrap_or_else(|| {
+                "A stage on this route cannot be travelled as configured.".to_string()
+            });
+        return JpVerdict {
+            level: "blocked",
+            label: "Impassable",
+            text,
+            reasons: Vec::new(),
+        };
     }
 
     // `sev`: severity votes, 0 = fine, 3 = severe.
@@ -10297,12 +12486,30 @@ pub fn jp_verdict(plan: &JpJourneyPlan) -> JpVerdict {
     if let Some(l) = plan.worst_land.and_then(|i| plan.results[i].land()) {
         let r = l.load_ratio;
         if r > 1.0 {
-            push(3, format!("overloaded — the worst land stage carries {}% of capacity", js_fixed(r * 100.0, 0)));
+            push(
+                3,
+                format!(
+                    "overloaded — the worst land stage carries {}% of capacity",
+                    js_fixed(r * 100.0, 0)
+                ),
+            );
         } else if r > 0.85 {
-            push(2, format!("heavily loaded ({}% of capacity on the worst stage)", js_fixed(r * 100.0, 0)));
+            push(
+                2,
+                format!(
+                    "heavily loaded ({}% of capacity on the worst stage)",
+                    js_fixed(r * 100.0, 0)
+                ),
+            );
         }
         if l.cap.draft_shortfall > 0 {
-            push(3, format!("{} draft animal(s) short for the vehicles taken", l.cap.draft_shortfall));
+            push(
+                3,
+                format!(
+                    "{} draft animal(s) short for the vehicles taken",
+                    l.cap.draft_shortfall
+                ),
+            );
         }
     }
 
@@ -10322,13 +12529,24 @@ pub fn jp_verdict(plan: &JpJourneyPlan) -> JpVerdict {
         })
         .filter(|rs| !rs.feasible)
         .collect();
-    let water_bound = over_cap.iter().filter(|rs| rs.cause == Some("water")).count();
+    let water_bound = over_cap
+        .iter()
+        .filter(|rs| rs.cause == Some("water"))
+        .count();
     let load_bound = over_cap.len() - water_bound;
     if water_bound > 0 {
-        push(3, format!("{water_bound} stage(s) cross more waterless ground than any party could carry water for"));
+        push(
+            3,
+            format!(
+                "{water_bound} stage(s) cross more waterless ground than any party could carry water for"
+            ),
+        );
     }
     if load_bound > 0 {
-        push(3, format!("{load_bound} stage(s) need more supplies than the party can physically carry"));
+        push(
+            3,
+            format!("{load_bound} stage(s) need more supplies than the party can physically carry"),
+        );
     }
 
     // v1.51: the requirement measured against the map ([`jp_resupply_reach`]) --
@@ -10380,40 +12598,92 @@ pub fn jp_verdict(plan: &JpJourneyPlan) -> JpVerdict {
     // token kilometre.
     let km = plan.km.max(1.0);
     if plan.desert_km / km > 0.30 {
-        push(2, format!("{}% of the route crosses desert", js_fixed(plan.desert_km / km * 100.0, 0)));
+        push(
+            2,
+            format!(
+                "{}% of the route crosses desert",
+                js_fixed(plan.desert_km / km * 100.0, 0)
+            ),
+        );
     }
     if plan.pass_km / km > 0.30 {
-        push(2, format!("{}% of the route is mountain", js_fixed(plan.pass_km / km * 100.0, 0)));
+        push(
+            2,
+            format!(
+                "{}% of the route is mountain",
+                js_fixed(plan.pass_km / km * 100.0, 0)
+            ),
+        );
     }
     if plan.bad_wx_pct >= 40.0 {
-        push(2, format!("{}% storm/snow odds for the season chosen", js_fixed(plan.bad_wx_pct, 0)));
+        push(
+            2,
+            format!(
+                "{}% storm/snow odds for the season chosen",
+                js_fixed(plan.bad_wx_pct, 0)
+            ),
+        );
     } else if plan.bad_wx_pct >= 22.0 {
-        push(1, format!("{}% storm/snow odds", js_fixed(plan.bad_wx_pct, 0)));
+        push(
+            1,
+            format!("{}% storm/snow odds", js_fixed(plan.bad_wx_pct, 0)),
+        );
     }
     if plan.riv_x >= 6 {
         push(1, format!("{} river crossings", plan.riv_x));
     }
     // Duration is a risk multiplier in its own right (see [`jp_confidence`]).
     if plan.days > 60.0 {
-        push(2, "a season-scale duration, where attrition dominates".to_string());
+        push(
+            2,
+            "a season-scale duration, where attrition dominates".to_string(),
+        );
     } else if plan.days > 21.0 {
-        push(1, "a multi-week duration, where small failures compound".to_string());
+        push(
+            1,
+            "a multi-week duration, where small failures compound".to_string(),
+        );
     }
 
     let worst = sev.iter().copied().max().unwrap_or(0);
     let load = sev.iter().filter(|&&v| v >= 2).count();
     let (level, label, text) = if worst >= 3 {
-        ("severe", "Severe", "This journey is not viable as configured — at least one hard constraint is unmet. Fix the items below before trusting any figure above.")
+        (
+            "severe",
+            "Severe",
+            "This journey is not viable as configured — at least one hard constraint is unmet. Fix the items below before trusting any figure above.",
+        )
     } else if worst >= 2 && load >= 2 {
-        ("strained", "Strained", "Workable but with little margin: several stressors stack on this route. Expect the optimistic end of the estimate to slip.")
+        (
+            "strained",
+            "Strained",
+            "Workable but with little margin: several stressors stack on this route. Expect the optimistic end of the estimate to slip.",
+        )
     } else if worst >= 2 {
-        ("strained", "Strained", "Workable, but one factor is pressing hard enough to shape the trip. Plan around it.")
+        (
+            "strained",
+            "Strained",
+            "Workable, but one factor is pressing hard enough to shape the trip. Plan around it.",
+        )
     } else if worst >= 1 {
-        ("moderate", "Moderate", "An ordinary journey of its kind — nothing here is unusual for the route and season.")
+        (
+            "moderate",
+            "Moderate",
+            "An ordinary journey of its kind — nothing here is unusual for the route and season.",
+        )
     } else {
-        ("favourable", "Favourable", "Well within the party’s means: light load, forgiving ground, and a season that co-operates.")
+        (
+            "favourable",
+            "Favourable",
+            "Well within the party’s means: light load, forgiving ground, and a season that co-operates.",
+        )
     };
-    JpVerdict { level, label, text: text.to_string(), reasons }
+    JpVerdict {
+        level,
+        label,
+        text: text.to_string(),
+        reasons,
+    }
 }
 
 /// `_jpConfidence`'s return (reference line 19498).
@@ -10443,18 +12713,44 @@ pub fn jp_confidence(plan: &JpJourneyPlan) -> Option<JpConfidence> {
     }
     let d = plan.days;
     let (lo, hi, note) = if d < 7.0 {
-        (0.97, 1.10, "Short trip — the per-stage figures should hold closely.")
+        (
+            0.97,
+            1.10,
+            "Short trip — the per-stage figures should hold closely.",
+        )
     } else if d < 14.0 {
-        (0.95, 1.18, "Over a week — minor attrition and rest days start to tell.")
+        (
+            0.95,
+            1.18,
+            "Over a week — minor attrition and rest days start to tell.",
+        )
     } else if d < 21.0 {
-        (0.93, 1.28, "Multi-week — maintenance debt and organisational drag accumulate.")
+        (
+            0.93,
+            1.28,
+            "Multi-week — maintenance debt and organisational drag accumulate.",
+        )
     } else if d < 60.0 {
-        (0.90, 1.42, "Campaign scale — small failures cascade; treat the low end as unlikely.")
+        (
+            0.90,
+            1.42,
+            "Campaign scale — small failures cascade; treat the low end as unlikely.",
+        )
     } else {
-        (0.85, 1.60, "Season scale — historically these run well over plan; the figure above is the optimistic bound, not the expected outcome.")
+        (
+            0.85,
+            1.60,
+            "Season scale — historically these run well over plan; the figure above is the optimistic bound, not the expected outcome.",
+        )
     };
     let base = plan.total_days.unwrap_or(d);
-    Some(JpConfidence { lo_days: base * lo, hi_days: base * hi, lo, hi, note })
+    Some(JpConfidence {
+        lo_days: base * lo,
+        hi_days: base * hi,
+        lo,
+        hi,
+        note,
+    })
 }
 
 /// `_jpPackRange`'s return (reference line 19518).
@@ -10513,7 +12809,11 @@ pub fn jp_pack_range(plan: &JpPlan, has_desert: bool) -> Option<JpPackRange> {
             ratio: 0.0,
         });
     }
-    let dm_food = if has_desert { jp_desert_animal_mod(key).0 } else { 1.0 };
+    let dm_food = if has_desert {
+        jp_desert_animal_mod(key).0
+    } else {
+        1.0
+    };
     let per_day = a.food_kg_day * dm_food * fodder_frac;
     if per_day <= 0.0 {
         return None;
@@ -10559,7 +12859,9 @@ pub fn jp_risk(days: f64) -> Option<&'static str> {
     } else if days <= 90.0 {
         Some("Extended campaign — significant fatigue/attrition risk; plan resupply depots.")
     } else {
-        Some("Season-scale expedition — attrition, weather windows and supply lines dominate planning.")
+        Some(
+            "Season-scale expedition — attrition, weather windows and supply lines dominate planning.",
+        )
     }
 }
 
@@ -10624,13 +12926,20 @@ pub enum JpAutoTransport {
 ///
 /// The reference opens with `_jpEnsurePlan(jn)`; here the caller already holds
 /// a [`JpPlan`], which is what that call returns for any journey that has one.
-pub fn jp_auto_pick_transport(world: &JpWorld, pts: &[(f64, f64)], plan: &mut JpPlan) -> JpAutoTransport {
+pub fn jp_auto_pick_transport(
+    world: &JpWorld,
+    pts: &[(f64, f64)],
+    plan: &mut JpPlan,
+) -> JpAutoTransport {
     let stages = jp_derive_stages(world, pts, plan);
     let land: Vec<&JpDerivedStage> = stages.iter().filter(|s| s.cat == "land").collect();
     if land.is_empty() {
         return JpAutoTransport::NoLandStages;
     }
-    if plan.transport != "Walking" && plan.transport != "Mounted Rider" && plan.transport != "Baggage Train" {
+    if plan.transport != "Walking"
+        && plan.transport != "Mounted Rider"
+        && plan.transport != "Baggage Train"
+    {
         return JpAutoTransport::NotALandMode;
     }
 
@@ -10640,7 +12949,10 @@ pub fn jp_auto_pick_transport(world: &JpWorld, pts: &[(f64, f64)], plan: &mut Jp
     let (_, fodder_frac) = jp_grazing(&plan.grazing);
     // The longest land stretch stands in for "the route" wherever a single
     // biome/terrain is needed (V1.915's one-stage-one-terrain model).
-    let dominant = land.iter().skip(1).fold(land[0], |a, b| if b.km > a.km { b } else { a });
+    let dominant = land
+        .iter()
+        .skip(1)
+        .fold(land[0], |a, b| if b.km > a.km { b } else { a });
     let biome_key = dominant.biome.clone();
     let desert_like = jp_biome(&biome_key).is_some_and(|b| b.desert_like);
 
@@ -10664,19 +12976,31 @@ pub fn jp_auto_pick_transport(world: &JpWorld, pts: &[(f64, f64)], plan: &mut Jp
         let porter_cap = people * JP_HUMAN_PORTER;
         if total_need <= porter_cap {
             clear(plan);
-            return JpAutoTransport::Walking { total_need, porter_cap };
+            return JpAutoTransport::Walking {
+                total_need,
+                porter_cap,
+            };
         }
         if !plan.auto_promote {
             clear(plan);
-            return JpAutoTransport::WalkingOverloaded { total_need, porter_cap };
+            return JpAutoTransport::WalkingOverloaded {
+                total_need,
+                porter_cap,
+            };
         }
         // Auto-promote: fall through to the Baggage Train picker below.
         plan.transport = "Baggage Train".to_string();
         promoted = true;
     }
 
-    let land_stages: Vec<LandStage> =
-        land.iter().map(|s| LandStage { terrain: s.terrain.clone(), biome_key: s.biome.clone(), km: s.km }).collect();
+    let land_stages: Vec<LandStage> = land
+        .iter()
+        .map(|s| LandStage {
+            terrain: s.terrain.clone(),
+            biome_key: s.biome.clone(),
+            km: s.km,
+        })
+        .collect();
     let pick = jp_pick_species_for_route(&land_stages);
 
     if plan.transport == "Mounted Rider" {
@@ -10691,7 +13015,11 @@ pub fn jp_auto_pick_transport(world: &JpWorld, pts: &[(f64, f64)], plan: &mut Jp
     let human_water_rate = jp_human_water_rate(&biome_key);
     let human_food = people * JP_HUMAN_FOOD * supply_days as f64;
     let human_water = people * human_water_rate * human_water_carry_days;
-    let (dm_food, dm_water) = if desert_like { jp_desert_animal_mod(pick.key) } else { (1.0, 1.0) };
+    let (dm_food, dm_water) = if desert_like {
+        jp_desert_animal_mod(pick.key)
+    } else {
+        (1.0, 1.0)
+    };
     let animal_food = a.food_kg_day * dm_food;
     let animal_water = a.water_l_day * dm_water;
     let human_carry = people * JP_HUMAN_PORTER;
@@ -10699,7 +13027,10 @@ pub fn jp_auto_pick_transport(world: &JpWorld, pts: &[(f64, f64)], plan: &mut Jp
     let per_animal_fodder = animal_food * supply_days as f64 * fodder_frac;
     let fodder_infeasible = fodder_frac > 0.0 && per_animal_fodder >= a.cap_kg;
 
-    let mut count = (((cargo + human_food + human_water - human_carry) / (a.cap_kg * 0.7).max(50.0)).ceil() as i64).max(1);
+    let mut count =
+        (((cargo + human_food + human_water - human_carry) / (a.cap_kg * 0.7).max(50.0)).ceil()
+            as i64)
+            .max(1);
     if !fodder_infeasible {
         for _ in 0..6 {
             let fodder = count as f64 * animal_food * supply_days as f64 * fodder_frac;
@@ -10727,14 +13058,19 @@ pub fn jp_auto_pick_transport(world: &JpWorld, pts: &[(f64, f64)], plan: &mut Jp
         }
         let draft_need = wagons * JP_WAGON_DRAFT + carts * JP_CART_DRAFT;
         if draft_need > 0 {
-            let cargo_leftover = (cargo - (wagons as f64 * JP_WAGON_CAP + carts as f64 * JP_CART_CAP)).max(0.0);
+            let cargo_leftover =
+                (cargo - (wagons as f64 * JP_WAGON_CAP + carts as f64 * JP_CART_CAP)).max(0.0);
             let total_need2 = cargo_leftover + human_food + human_water;
-            let mut c2 = ((((total_need2 - human_carry) / (a.cap_kg * 0.7).max(50.0)).ceil()) as i64).max(1);
+            let mut c2 =
+                ((((total_need2 - human_carry) / (a.cap_kg * 0.7).max(50.0)).ceil()) as i64).max(1);
             if !fodder_infeasible {
                 for _ in 0..4 {
-                    let fodder = (c2 + draft_need) as f64 * animal_food * supply_days as f64 * fodder_frac;
+                    let fodder =
+                        (c2 + draft_need) as f64 * animal_food * supply_days as f64 * fodder_frac;
                     let water = (c2 + draft_need) as f64 * animal_water * animal_water_carry_days;
-                    let need = (cargo_leftover + human_food + human_water + fodder + water - human_carry).max(0.0);
+                    let need = (cargo_leftover + human_food + human_water + fodder + water
+                        - human_carry)
+                        .max(0.0);
                     let next = ((need / a.cap_kg).ceil() as i64).max(1);
                     if next == c2 {
                         break;
@@ -10754,7 +13090,14 @@ pub fn jp_auto_pick_transport(world: &JpWorld, pts: &[(f64, f64)], plan: &mut Jp
     plan.party.wagons = wagons;
     plan.party.travois = 0;
     plan.party.sleds = 0;
-    JpAutoTransport::BaggageTrain { pick, count, carts, wagons, promoted, fodder_infeasible }
+    JpAutoTransport::BaggageTrain {
+        pick,
+        count,
+        carts,
+        wagons,
+        promoted,
+        fodder_infeasible,
+    }
 }
 
 /// `_jpBestPackageForStage`'s return (reference line 18080).
@@ -10850,7 +13193,14 @@ pub fn jp_best_package_for_stage(st: &JpStage, eff: &JpPlan) -> Option<JpPackage
             _ => candidate.party.carts = v_total,
         }
     }
-    Some(JpPackageFix { species_fix, vehicle_fix, best_species: best, cur_species, cur_vehicle, candidate })
+    Some(JpPackageFix {
+        species_fix,
+        vehicle_fix,
+        best_species: best,
+        cur_species,
+        cur_vehicle,
+        candidate,
+    })
 }
 
 #[cfg(test)]
@@ -10893,7 +13243,10 @@ mod tests {
         let mean = tb_map(&[("gold", 0.015)]);
         let world = tb_map(&[("gold", 0.01)]);
         let out = civ_resource_trade_balance(&mean, &world);
-        assert!(out.exports.is_empty(), "ratio clears threshold but absolute mine>0.02 floor must still gate the export");
+        assert!(
+            out.exports.is_empty(),
+            "ratio clears threshold but absolute mine>0.02 floor must still gate the export"
+        );
     }
 
     #[test]
@@ -10912,7 +13265,11 @@ mod tests {
         let mean = tb_map(&[("iron", 0.03), ("gems", 0.03)]);
         let world = tb_map(&[("iron", 0.10), ("gems", 0.10)]);
         let out = civ_resource_trade_balance(&mean, &world);
-        assert_eq!(out.imports, vec!["iron"], "gems is scarce locally too, but it's not a CONSUMED resource so it can never be an import");
+        assert_eq!(
+            out.imports,
+            vec!["iron"],
+            "gems is scarce locally too, but it's not a CONSUMED resource so it can never be an import"
+        );
         assert!(out.exports.is_empty());
     }
 
@@ -10937,8 +13294,21 @@ mod tests {
     fn test_resources(n: usize, fill: f32) -> ResourcePotentials {
         let v = || vec![fill; n];
         ResourcePotentials {
-            copper: v(), tin: v(), iron: v(), gold: v(), salt: v(), timber: v(), lead: v(), silver: v(),
-            clay: v(), buildstone: v(), flint: v(), obsidian: v(), gems: v(), sulfur: v(), alum: v(),
+            copper: v(),
+            tin: v(),
+            iron: v(),
+            gold: v(),
+            salt: v(),
+            timber: v(),
+            lead: v(),
+            silver: v(),
+            clay: v(),
+            buildstone: v(),
+            flint: v(),
+            obsidian: v(),
+            gems: v(),
+            sulfur: v(),
+            alum: v(),
         }
     }
 
@@ -11222,12 +13592,21 @@ mod tests {
         field[12] = 0.5; // centre (2,2): a real pit relative to its rim
         let rain_wet = vec![0.9f32; 25];
         let wb = build_water_bodies(&field, 5, 5, 0.05, false, Some(&rain_wet));
-        assert_eq!(wb.classification[12], 2, "a real pooled depression with enough rain should be a lake");
-        assert!(wb.fill_level[12] > field[12], "fill level must rise above the pit's raw floor");
+        assert_eq!(
+            wb.classification[12], 2,
+            "a real pooled depression with enough rain should be a lake"
+        );
+        assert!(
+            wb.fill_level[12] > field[12],
+            "fill level must rise above the pit's raw floor"
+        );
 
         let rain_dry = vec![0.05f32; 25];
         let wb_dry = build_water_bodies(&field, 5, 5, 0.05, false, Some(&rain_dry));
-        assert_eq!(wb_dry.classification[12], 0, "an arid basin below lakeRain must stay dry land, not a lake");
+        assert_eq!(
+            wb_dry.classification[12], 0,
+            "an arid basin below lakeRain must stay dry land, not a lake"
+        );
     }
 
     #[test]
@@ -11244,7 +13623,10 @@ mod tests {
         let mut force = vec![0u8; 25];
         force[12] = 1;
         apply_force_lake(&mut wb.classification, &force);
-        assert_eq!(wb.classification[12], 2, "a painted lake is a lake regardless of rain");
+        assert_eq!(
+            wb.classification[12], 2,
+            "a painted lake is a lake regardless of rain"
+        );
         assert_eq!(wb.classification[0], 0, "unforced cells are untouched");
     }
 
@@ -11348,7 +13730,8 @@ mod tests {
         // biome_k=0 must ignore the biome/wetland residual entirely (bM=1), matching
         // the reference's own bM=(bK&&biome)?...:1 short-circuit, not just weighting resid to 0.
         let biome = [1u8, BIOME_TROP_WET]; // tropWet has the lowest residual (0.55) -- would visibly lower K if bK weren't truly short-circuited
-        let with_biome_bk_zero = build_carrying_capacity(&soil, &water, Some(&biome), &temp, &field, sea, 0.0, None);
+        let with_biome_bk_zero =
+            build_carrying_capacity(&soil, &water, Some(&biome), &temp, &field, sea, 0.0, None);
         assert_eq!(with_biome_bk_zero[1], no_biome[1]);
     }
 
@@ -11359,9 +13742,19 @@ mod tests {
         let temp = [18.0f32];
         let field = [0.6f32];
         let biome = [BIOME_TROP_WET]; // residual 0.55
-        let base = build_carrying_capacity(&soil, &water, Some(&biome), &temp, &field, 0.4, 1.0, None);
+        let base =
+            build_carrying_capacity(&soil, &water, Some(&biome), &temp, &field, 0.4, 1.0, None);
         let wet = [1u8];
-        let with_wetland = build_carrying_capacity(&soil, &water, Some(&biome), &temp, &field, 0.4, 1.0, Some(&wet));
+        let with_wetland = build_carrying_capacity(
+            &soil,
+            &water,
+            Some(&biome),
+            &temp,
+            &field,
+            0.4,
+            1.0,
+            Some(&wet),
+        );
         // WETLAND_DENSITY_RESIDUAL (0.70) > tropWet's own residual (0.55) -> wetland override raises K here.
         assert!(with_wetland[0] > base[0]);
     }
@@ -11427,7 +13820,10 @@ mod tests {
         let mut arr = [1.0f32, 0.0, 0.0, 0.0];
         let field = vec![0.9f32; 4];
         apply_resource_scarcity(&mut arr, &field, 0.4, 0.5); // ceiling keep=2, only 1 nonzero value
-        assert_eq!(arr[0], 1.0, "a single deposit under a looser ceiling must survive untouched");
+        assert_eq!(
+            arr[0], 1.0,
+            "a single deposit under a looser ceiling must survive untouched"
+        );
     }
 
     #[test]
@@ -11439,9 +13835,30 @@ mod tests {
         let field = vec![0.6f32; n];
         let rain = vec![0.5f32; n];
         let age = vec![0.3f32; n];
-        let rp = build_resource_potentials(&lith, Some(&boundary_type), None, None, None, &field, &rain, &age, 5, 1, 0.4, None, false, false);
-        assert_eq!(rp.copper[2], 1.0, "at the boundary source cell itself, copper should be at its peak (distance 0)");
-        assert!(rp.copper[2] > rp.copper[0], "copper should decay away from the subduction boundary");
+        let rp = build_resource_potentials(
+            &lith,
+            Some(&boundary_type),
+            None,
+            None,
+            None,
+            &field,
+            &rain,
+            &age,
+            5,
+            1,
+            0.4,
+            None,
+            false,
+            false,
+        );
+        assert_eq!(
+            rp.copper[2], 1.0,
+            "at the boundary source cell itself, copper should be at its peak (distance 0)"
+        );
+        assert!(
+            rp.copper[2] > rp.copper[0],
+            "copper should decay away from the subduction boundary"
+        );
     }
 
     #[test]
@@ -11452,7 +13869,22 @@ mod tests {
         let rain = [0.5f32];
         let age = [0.3f32];
         let shear = [0.5f32];
-        let rp = build_resource_potentials(&lith, None, Some(&shear), None, None, &field, &rain, &age, 1, 1, 0.4, None, false, false);
+        let rp = build_resource_potentials(
+            &lith,
+            None,
+            Some(&shear),
+            None,
+            None,
+            &field,
+            &rain,
+            &age,
+            1,
+            1,
+            0.4,
+            None,
+            false,
+            false,
+        );
         assert!(rp.lead[0] > 0.0);
         assert!((rp.silver[0] as f64 - rp.lead[0] as f64 * 0.55).abs() < 1e-6);
     }
@@ -11469,9 +13901,14 @@ mod tests {
         let field = vec![0.6f32; n];
         let rain = vec![0.5f32; n];
         let age = vec![0.3f32; n];
-        let rp = build_resource_potentials(&lith, None, None, None, None, &field, &rain, &age, 10, 10, 0.4, None, true, false);
+        let rp = build_resource_potentials(
+            &lith, None, None, None, None, &field, &rain, &age, 10, 10, 0.4, None, true, false,
+        );
         let buildstone_nonzero = rp.buildstone.iter().filter(|&&v| v > 0.0).count();
-        assert_eq!(buildstone_nonzero, n, "original six (buildstone) must not be scarcity-thinned under production defaults");
+        assert_eq!(
+            buildstone_nonzero, n,
+            "original six (buildstone) must not be scarcity-thinned under production defaults"
+        );
     }
 
     #[test]
@@ -11486,14 +13923,20 @@ mod tests {
         let field = vec![0.9f32, 0.1, 0.1, 0.1, 0.9, 0.1, 0.1, 0.1, 0.1];
         let comp = label_land_components(&field, 3, 3, 0.5, false);
         assert_eq!(comp[0], 0);
-        assert_eq!(comp[4], 1, "diagonal-only neighbour must be a separate 4-connected component");
+        assert_eq!(
+            comp[4], 1,
+            "diagonal-only neighbour must be a separate 4-connected component"
+        );
     }
 
     #[test]
     fn label_land_components_merges_orthogonal_neighbours_into_one() {
         let field = vec![0.9f32, 0.9, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1];
         let comp = label_land_components(&field, 3, 3, 0.5, false);
-        assert_eq!(comp[0], comp[1], "orthogonally-adjacent land cells share one component");
+        assert_eq!(
+            comp[0], comp[1],
+            "orthogonally-adjacent land cells share one component"
+        );
     }
 
     #[test]
@@ -11501,7 +13944,10 @@ mod tests {
         let field = vec![0.9f32; 9];
         let wb = vec![0u8; 9];
         let lake_fill = vec![0f32; 9];
-        assert_eq!(civ_snap_land(1, 1, 6, &field, &wb, &lake_fill, 3, 3, 0.5), Some((1, 1)));
+        assert_eq!(
+            civ_snap_land(1, 1, 6, &field, &wb, &lake_fill, 3, 3, 0.5),
+            Some((1, 1))
+        );
     }
 
     #[test]
@@ -11515,9 +13961,244 @@ mod tests {
         assert_eq!(snapped, Some((1, 2)));
     }
 
+    // civ_snap_to_water_edge golden fixtures -- extracted from the real
+    // reference (`reference/Cartalith Gen1 v2.10.html` line 20787,
+    // `_civSnapToWaterEdge`) via a small transient Node harness that
+    // copies the function body verbatim and drives it against these exact
+    // hand-built 9x9 grids (harness itself not checked in, per this
+    // project's own convention -- see `PARITY_TESTING.md`). All six cases
+    // share `gw=gh=9`, `sea=0.4`, `mapWidthKm=9` (-> `cell_km=1.0`, so
+    // `SETTLE_WATER_SNAP_KM=12` gives `max_r=12`, effectively unclipped on
+    // a 9x9 grid).
+    fn water_snap_fixture_field_wb() -> (Vec<f32>, Vec<u8>) {
+        let mut field = vec![0.6f32; 81];
+        let mut wb = vec![0u8; 81];
+        for y in 0..9 {
+            field[y * 9] = 0.1; // ocean column x=0
+            wb[y * 9] = 1;
+        }
+        (field, wb)
+    }
+
+    #[test]
+    fn civ_snap_to_water_edge_matches_reference_plain_ocean_snap() {
+        // Reference case A: candidate (4,4), no suit field. The real
+        // reference's own scan-order tie-breaking (row-then-column,
+        // ties within 0.5 cells resolved by whichever was found first,
+        // not strict nearest) picks (1,4) here -- verified directly
+        // against the extracted JS, not derived from the Rust formula.
+        let (field, wb) = water_snap_fixture_field_wb();
+        let lake_fill = vec![0f32; 81];
+        let got = civ_snap_to_water_edge(
+            4, 4, &field, &wb, &lake_fill, None, None, 0.0, 9, 9, 0.4, None, 12.0, 1.0, 0.80,
+        );
+        assert_eq!(got, Some((1, 4)));
+    }
+
+    #[test]
+    fn civ_snap_to_water_edge_is_idempotent_already_on_edge() {
+        // Reference case A, second query: (1,4) already touches the ocean
+        // column -- must return None (a settlement already on the water
+        // must not be walked further along the shore on a repeat call).
+        let (field, wb) = water_snap_fixture_field_wb();
+        let lake_fill = vec![0f32; 81];
+        let got = civ_snap_to_water_edge(
+            1, 4, &field, &wb, &lake_fill, None, None, 0.0, 9, 9, 0.4, None, 12.0, 1.0, 0.80,
+        );
+        assert_eq!(got, None);
+    }
+
+    #[test]
+    fn civ_snap_to_water_edge_matches_reference_far_side_scan_order() {
+        // Reference case A, third query: (8,4) -- the real reference
+        // returns (1,2), not the naively-nearest (1,4) (d=7.0 vs d=7.28),
+        // because (1,3)..(1,2) land inside the tie-break's 0.5-cell
+        // window as the row scan (y ascending) walks past them before it
+        // ever reaches row 4, and with no suit field to discriminate
+        // (sv=0 for every candidate) the first cell inside that window
+        // wins and is never displaced. A faithful port must reproduce
+        // this exactly, which is why the loop order (dy outer, dx inner,
+        // both ascending) is load-bearing, not incidental.
+        let (field, wb) = water_snap_fixture_field_wb();
+        let lake_fill = vec![0f32; 81];
+        let got = civ_snap_to_water_edge(
+            8, 4, &field, &wb, &lake_fill, None, None, 0.0, 9, 9, 0.4, None, 12.0, 1.0, 0.80,
+        );
+        assert_eq!(got, Some((1, 2)));
+    }
+
+    #[test]
+    fn civ_snap_to_water_edge_rejects_a_materially_worse_site() {
+        // Reference case B: the water-edge cell (1,4) scores 0.1 against
+        // the candidate's own 1.0 -- below the default 0.80 tolerance, so
+        // the reference (and this port) refuse the move and return None.
+        let (field, wb) = water_snap_fixture_field_wb();
+        let lake_fill = vec![0f32; 81];
+        let mut suit = vec![0.5f32; 81];
+        suit[4 * 9 + 4] = 1.0;
+        suit[4 * 9 + 1] = 0.1;
+        let got = civ_snap_to_water_edge(
+            4,
+            4,
+            &field,
+            &wb,
+            &lake_fill,
+            None,
+            None,
+            0.0,
+            9,
+            9,
+            0.4,
+            Some(&suit),
+            12.0,
+            1.0,
+            0.80,
+        );
+        assert_eq!(got, None);
+    }
+
+    #[test]
+    fn civ_snap_to_water_edge_accepts_a_site_within_tolerance() {
+        // Reference case F: same setup as the rejection case but the
+        // water-edge cell now scores 0.9 (>= 1.0*0.80) -- accepted.
+        let (field, wb) = water_snap_fixture_field_wb();
+        let lake_fill = vec![0f32; 81];
+        let mut suit = vec![0.5f32; 81];
+        suit[4 * 9 + 4] = 1.0;
+        suit[4 * 9 + 1] = 0.9;
+        let got = civ_snap_to_water_edge(
+            4,
+            4,
+            &field,
+            &wb,
+            &lake_fill,
+            None,
+            None,
+            0.0,
+            9,
+            9,
+            0.4,
+            Some(&suit),
+            12.0,
+            1.0,
+            0.80,
+        );
+        assert_eq!(got, Some((1, 4)));
+    }
+
+    #[test]
+    fn civ_snap_to_water_edge_sea_near_widened_tolerance_still_rejects() {
+        // Reference case E: the seaNear branch widens maxKm to 30 and
+        // loosens tolerance to SETTLE_COAST_SWAP_TOLERANCE (0.60), but
+        // 0.5 < 1.0*0.60 still fails -- a wider budget is not an
+        // unconditional snap, it is still a bounded trade.
+        let (field, wb) = water_snap_fixture_field_wb();
+        let lake_fill = vec![0f32; 81];
+        let mut suit = vec![0.5f32; 81];
+        suit[4 * 9 + 4] = 1.0;
+        suit[4 * 9 + 1] = 0.5;
+        let got = civ_snap_to_water_edge(
+            4,
+            4,
+            &field,
+            &wb,
+            &lake_fill,
+            None,
+            None,
+            0.0,
+            9,
+            9,
+            0.4,
+            Some(&suit),
+            30.0,
+            1.0,
+            SETTLE_COAST_SWAP_TOLERANCE,
+        );
+        assert_eq!(got, None);
+    }
+
+    #[test]
+    fn civ_snap_to_water_edge_matches_reference_river_edge_snap() {
+        // Reference case C: no ocean at all -- a high-flow column at x=5
+        // (flow=50, flowThresh=10) is the only water. `habitable()` does
+        // NOT itself exclude river cells (only sea/lake), so a river cell
+        // adjacent to another river cell in the same column also counts
+        // as "on edge" -- a real reference quirk this port reproduces
+        // rather than "fixes", since fixing it would diverge from the
+        // reference's own extracted behaviour. The winner is (4,3), not
+        // the Euclidean-nearest (4,4) (d=2.0 vs d=2.236), for the same
+        // scan-order tie-break reason as the far-side case above.
+        let mut field = vec![0.6f32; 81];
+        let wb = vec![0u8; 81];
+        let lake_fill = vec![0f32; 81];
+        let mut flow = vec![1f32; 81];
+        for y in 0..9 {
+            flow[y * 9 + 5] = 50.0;
+        }
+        field.fill(0.6); // no ocean anywhere in this fixture
+        let got = civ_snap_to_water_edge(
+            2,
+            4,
+            &field,
+            &wb,
+            &lake_fill,
+            None,
+            Some(&flow),
+            10.0,
+            9,
+            9,
+            0.4,
+            None,
+            12.0,
+            1.0,
+            0.80,
+        );
+        assert_eq!(got, Some((4, 3)));
+    }
+
+    #[test]
+    fn civ_snap_to_water_edge_flood_zone_blocks_the_only_reachable_edge() {
+        // Reference case D: the ocean's only dry, adjacent column (x=1)
+        // is entirely flooded (flood>SETTLE_FLOOD_SAFE), so no habitable
+        // water-edge cell exists anywhere in reach -- the reference
+        // returns None here too (a flooded shore is not a valid landing
+        // even though water is close), not "push one cell further" --
+        // there is no further cell that is both dry and adjacent to real
+        // water in this fixture's straight coastline.
+        let (field, wb) = water_snap_fixture_field_wb();
+        let lake_fill = vec![0f32; 81];
+        let mut flood = vec![0f32; 81];
+        for y in 0..9 {
+            flood[y * 9 + 1] = 0.9;
+        }
+        let got = civ_snap_to_water_edge(
+            4,
+            4,
+            &field,
+            &wb,
+            &lake_fill,
+            Some(&flood),
+            None,
+            0.0,
+            9,
+            9,
+            0.4,
+            None,
+            12.0,
+            1.0,
+            0.80,
+        );
+        assert_eq!(got, None);
+    }
+
     #[test]
     fn assign_landmass_factions_single_candidate_landmass_is_its_own_capital() {
-        let candidates = vec![SettlementCandidate { x: 0, y: 0, suit: 0.8, cont_id: 0 }];
+        let candidates = vec![SettlementCandidate {
+            x: 0,
+            y: 0,
+            suit: 0.8,
+            cont_id: 0,
+        }];
         let (faction_of, capital_of) = assign_landmass_factions(&candidates, 6);
         // n=1 candidate caps seats at 1 regardless of factionCount, so this stays
         // a single-seat landmass: one faction, the sole candidate is its capital.
@@ -11528,12 +14209,28 @@ mod tests {
     #[test]
     fn assign_landmass_factions_two_landmasses_get_distinct_primary_ids() {
         let candidates = vec![
-            SettlementCandidate { x: 0, y: 0, suit: 0.8, cont_id: 0 },
-            SettlementCandidate { x: 5, y: 5, suit: 0.7, cont_id: 1 },
+            SettlementCandidate {
+                x: 0,
+                y: 0,
+                suit: 0.8,
+                cont_id: 0,
+            },
+            SettlementCandidate {
+                x: 5,
+                y: 5,
+                suit: 0.7,
+                cont_id: 1,
+            },
         ];
         let (faction_of, capital_of) = assign_landmass_factions(&candidates, 6);
-        assert_ne!(faction_of[0], faction_of[1], "distinct landmasses get distinct faction ids");
-        assert!(capital_of[0] && capital_of[1], "each landmass's sole candidate is its own capital");
+        assert_ne!(
+            faction_of[0], faction_of[1],
+            "distinct landmasses get distinct faction ids"
+        );
+        assert!(
+            capital_of[0] && capital_of[1],
+            "each landmass's sole candidate is its own capital"
+        );
     }
 
     #[test]
@@ -11548,7 +14245,11 @@ mod tests {
         // on the water/land boundary and picks up a real slope term from
         // its water neighbour, which is correct algorithm behaviour, not
         // a bug (verified by hand before writing this fixture).
-        assert!((cost[7] - 1.0).abs() < 1e-6, "flat land cost should be exactly 1.0, got {}", cost[7]);
+        assert!(
+            (cost[7] - 1.0).abs() < 1e-6,
+            "flat land cost should be exactly 1.0, got {}",
+            cost[7]
+        );
     }
 
     #[test]
@@ -11557,9 +14258,17 @@ mod tests {
         let cost = vec![1.0f32; 9];
         let (dist, _prev) = road_dijkstra(&cost, 3, 3, 0, 0, false);
         assert!((dist[0] - 0.0).abs() < 1e-6, "source distance should be 0");
-        assert!((dist[1] - 1.0).abs() < 1e-5, "orthogonal step should cost 1.0, got {}", dist[1]);
+        assert!(
+            (dist[1] - 1.0).abs() < 1e-5,
+            "orthogonal step should cost 1.0, got {}",
+            dist[1]
+        );
         let sq2 = std::f64::consts::SQRT_2 as f32;
-        assert!((dist[4] - sq2).abs() < 1e-4, "diagonal step should cost sqrt(2), got {}", dist[4]);
+        assert!(
+            (dist[4] - sq2).abs() < 1e-4,
+            "diagonal step should cost sqrt(2), got {}",
+            dist[4]
+        );
     }
 
     #[test]
@@ -11568,7 +14277,10 @@ mod tests {
         let cost = vec![1.0f32, f32::INFINITY, 1.0f32];
         let (dist, prev) = road_dijkstra(&cost, 3, 1, 0, 0, false);
         assert!((dist[0] - 0.0).abs() < 1e-6);
-        assert!(dist[2].is_infinite(), "cell past an infinite-cost barrier should stay unreachable");
+        assert!(
+            dist[2].is_infinite(),
+            "cell past an infinite-cost barrier should stay unreachable"
+        );
         assert_eq!(prev[2], -1);
     }
 
@@ -11576,14 +14288,38 @@ mod tests {
     fn build_road_network_two_places_flat_terrain_one_edge() {
         let cost = vec![1.0f32; 25]; // 5x5 flat land
         let places = vec![
-            SettlementPlacement { x: 0, y: 0, suit: 0.5, faction: 1, capital: true, kind: SettlementKind::Capital, coastal: false },
-            SettlementPlacement { x: 4, y: 4, suit: 0.5, faction: 1, capital: false, kind: SettlementKind::Town, coastal: false },
+            SettlementPlacement {
+                x: 0,
+                y: 0,
+                suit: 0.5,
+                faction: 1,
+                capital: true,
+                kind: SettlementKind::Capital,
+                coastal: false,
+            },
+            SettlementPlacement {
+                x: 4,
+                y: 4,
+                suit: 0.5,
+                faction: 1,
+                capital: false,
+                kind: SettlementKind::Town,
+                coastal: false,
+            },
         ];
         let edges = build_road_network(&places, &cost, 5, 5, false);
-        assert_eq!(edges.len(), 1, "two mutually-reachable places should produce exactly one MST edge");
+        assert_eq!(
+            edges.len(),
+            1,
+            "two mutually-reachable places should produce exactly one MST edge"
+        );
         assert_eq!(edges[0].a, 0);
         assert_eq!(edges[0].b, 1);
-        assert_eq!(*edges[0].path.first().unwrap(), 4 * 5 + 4, "path starts at b's cell");
+        assert_eq!(
+            *edges[0].path.first().unwrap(),
+            4 * 5 + 4,
+            "path starts at b's cell"
+        );
         assert_eq!(*edges[0].path.last().unwrap(), 0, "path ends at a's cell");
     }
 
@@ -11592,17 +14328,44 @@ mod tests {
         // 1x5 strip, cell 2 impassable -> splits it into two unreachable halves.
         let cost = vec![1.0f32, 1.0, f32::INFINITY, 1.0, 1.0];
         let places = vec![
-            SettlementPlacement { x: 0, y: 0, suit: 0.5, faction: 1, capital: true, kind: SettlementKind::Capital, coastal: false },
-            SettlementPlacement { x: 4, y: 0, suit: 0.5, faction: 1, capital: false, kind: SettlementKind::Town, coastal: false },
+            SettlementPlacement {
+                x: 0,
+                y: 0,
+                suit: 0.5,
+                faction: 1,
+                capital: true,
+                kind: SettlementKind::Capital,
+                coastal: false,
+            },
+            SettlementPlacement {
+                x: 4,
+                y: 0,
+                suit: 0.5,
+                faction: 1,
+                capital: false,
+                kind: SettlementKind::Town,
+                coastal: false,
+            },
         ];
         let edges = build_road_network(&places, &cost, 5, 1, false);
-        assert!(edges.is_empty(), "places split by an impassable barrier should get no road edge");
+        assert!(
+            edges.is_empty(),
+            "places split by an impassable barrier should get no road edge"
+        );
     }
 
     #[test]
     fn build_road_network_fewer_than_two_places_returns_no_edges() {
         let cost = vec![1.0f32; 9];
-        let places = vec![SettlementPlacement { x: 0, y: 0, suit: 0.5, faction: 1, capital: true, kind: SettlementKind::Capital, coastal: false }];
+        let places = vec![SettlementPlacement {
+            x: 0,
+            y: 0,
+            suit: 0.5,
+            faction: 1,
+            capital: true,
+            kind: SettlementKind::Capital,
+            coastal: false,
+        }];
         assert!(build_road_network(&places, &cost, 3, 3, false).is_empty());
         assert!(build_road_network(&[], &cost, 3, 3, false).is_empty());
     }
@@ -11610,16 +14373,39 @@ mod tests {
     fn named_capital(x: usize, y: usize, faction: i32, pop: u32) -> NamedSettlement {
         NamedSettlement {
             tid: 0,
-            placement: SettlementPlacement { x, y, suit: 0.5, faction, capital: true, kind: SettlementKind::Capital, coastal: false },
+            placement: SettlementPlacement {
+                x,
+                y,
+                suit: 0.5,
+                faction,
+                capital: true,
+                kind: SettlementKind::Capital,
+                coastal: false,
+            },
             name: "Test".to_string(),
             pop,
         }
     }
 
-    fn named_settlement(x: usize, y: usize, faction: i32, kind: SettlementKind, pop: u32, name: &str) -> NamedSettlement {
+    fn named_settlement(
+        x: usize,
+        y: usize,
+        faction: i32,
+        kind: SettlementKind,
+        pop: u32,
+        name: &str,
+    ) -> NamedSettlement {
         NamedSettlement {
             tid: 0,
-            placement: SettlementPlacement { x, y, suit: 0.5, faction, capital: kind == SettlementKind::Capital, kind, coastal: false },
+            placement: SettlementPlacement {
+                x,
+                y,
+                suit: 0.5,
+                faction,
+                capital: kind == SettlementKind::Capital,
+                kind,
+                coastal: false,
+            },
             name: name.to_string(),
             pop,
         }
@@ -11642,8 +14428,15 @@ mod tests {
         let cost = vec![1.0f32; 25];
         let settlements = vec![named_capital(0, 0, 1, 15000), named_capital(4, 4, 2, 15000)];
         let owner = assign_territory(&settlements, &cost, 5, 5, false);
-        assert_eq!(owner[0], 1, "faction 1's own capital cell must be owned by faction 1");
-        assert_eq!(owner[4 * 5 + 4], 2, "faction 2's own capital cell must be owned by faction 2");
+        assert_eq!(
+            owner[0], 1,
+            "faction 1's own capital cell must be owned by faction 1"
+        );
+        assert_eq!(
+            owner[4 * 5 + 4],
+            2,
+            "faction 2's own capital cell must be owned by faction 2"
+        );
     }
 
     #[test]
@@ -11654,12 +14447,18 @@ mod tests {
         // capital's effective reach must extend strictly farther than the exact
         // geometric midpoint an unweighted (equal-population) Voronoi would give.
         let cost = vec![1.0f32; 11];
-        let settlements = vec![named_capital(0, 0, 1, 100_000), named_capital(10, 0, 2, 5_000)];
+        let settlements = vec![
+            named_capital(0, 0, 1, 100_000),
+            named_capital(10, 0, 2, 5_000),
+        ];
         let owner = assign_territory(&settlements, &cost, 11, 1, false);
         // Unweighted, the midpoint (x=5) is equidistant (cost-distance 5 from each
         // capital) and would be a coin-flip; weighted by population, faction 1's
         // far greater weight must win it and push the boundary past the midpoint.
-        assert_eq!(owner[5], 1, "the geometric midpoint must go to the far larger capital once weighted");
+        assert_eq!(
+            owner[5], 1,
+            "the geometric midpoint must go to the far larger capital once weighted"
+        );
         assert_eq!(owner[0], 1);
         assert_eq!(owner[10], 2);
     }
@@ -11670,7 +14469,10 @@ mod tests {
         // boundary: each capital owns its own half up to (not including, since
         // effective distance is strictly less-than to win) the midpoint.
         let cost = vec![1.0f32; 11];
-        let settlements = vec![named_capital(0, 0, 1, 15000), named_capital(10, 0, 2, 15000)];
+        let settlements = vec![
+            named_capital(0, 0, 1, 15000),
+            named_capital(10, 0, 2, 15000),
+        ];
         let owner = assign_territory(&settlements, &cost, 11, 1, false);
         assert_eq!(owner[0], 1);
         assert_eq!(owner[4], 1);
@@ -11688,7 +14490,10 @@ mod tests {
         assert_eq!(owner[0], 1);
         assert_eq!(owner[1], 1);
         assert_eq!(owner[2], 0, "the impassable cell itself must stay unowned");
-        assert_eq!(owner[3], 0, "cut off from the only capital by the impassable cell");
+        assert_eq!(
+            owner[3], 0,
+            "cut off from the only capital by the impassable cell"
+        );
         assert_eq!(owner[4], 0);
     }
 
@@ -11697,12 +14502,23 @@ mod tests {
         let cost = vec![1.0f32; 9];
         let non_capital = NamedSettlement {
             tid: 0,
-            placement: SettlementPlacement { x: 1, y: 1, suit: 0.5, faction: 1, capital: false, kind: SettlementKind::Town, coastal: false },
+            placement: SettlementPlacement {
+                x: 1,
+                y: 1,
+                suit: 0.5,
+                faction: 1,
+                capital: false,
+                kind: SettlementKind::Town,
+                coastal: false,
+            },
             name: "Test".to_string(),
             pop: 1500,
         };
         let owner = assign_territory(&[non_capital], &cost, 3, 3, false);
-        assert!(owner.iter().all(|&f| f == 0), "a non-capital settlement projects no territory of its own");
+        assert!(
+            owner.iter().all(|&f| f == 0),
+            "a non-capital settlement projects no territory of its own"
+        );
     }
 
     #[test]
@@ -11716,7 +14532,11 @@ mod tests {
         ];
         let territory = vec![1i32; 11];
         let (province, provinces) = civ_generate_provinces(&settlements, &territory, 11, 1);
-        assert_eq!(provinces.len(), 2, "two rank>=3 settlements in one faction seed two provinces");
+        assert_eq!(
+            provinces.len(),
+            2,
+            "two rank>=3 settlements in one faction seed two provinces"
+        );
         assert_eq!(province[0], provinces[0].id);
         assert_eq!(province[10], provinces[1].id);
         // x=4/x=6 are unambiguous on either side of the Voronoi boundary
@@ -11739,9 +14559,19 @@ mod tests {
         ];
         let territory = vec![1i32; 5];
         let (province, provinces) = civ_generate_provinces(&settlements, &territory, 5, 1);
-        assert_eq!(provinces.len(), 1, "no rank>=3 seed available -> exactly one fallback province");
-        assert_eq!(provinces[0].capital_settlement_index, 0, "the higher-population settlement (Town, index 0) is the fallback seed");
-        assert!(province.iter().all(|&p| p == provinces[0].id), "with only one seed, the whole owned strip is that one province");
+        assert_eq!(
+            provinces.len(),
+            1,
+            "no rank>=3 seed available -> exactly one fallback province"
+        );
+        assert_eq!(
+            provinces[0].capital_settlement_index, 0,
+            "the higher-population settlement (Town, index 0) is the fallback seed"
+        );
+        assert!(
+            province.iter().all(|&p| p == provinces[0].id),
+            "with only one seed, the whole owned strip is that one province"
+        );
     }
 
     #[test]
@@ -11765,7 +14595,10 @@ mod tests {
             }
             let owning_faction = territory[i];
             let prov = provinces.iter().find(|p| p.id == province[i]).unwrap();
-            assert_eq!(prov.faction, owning_faction, "cell {i}'s province must belong to that cell's own owning faction");
+            assert_eq!(
+                prov.faction, owning_faction,
+                "cell {i}'s province must belong to that cell's own owning faction"
+            );
         }
     }
 
@@ -11781,12 +14614,26 @@ mod tests {
         // matches a seed against `territory[i]`'s own faction (here, always
         // 3, which has no seed at all) -- `civProvince[i]` never gets
         // written for a faction with no seed, so those cells stay 0.
-        let settlements = vec![named_settlement(0, 0, 1, SettlementKind::Capital, 15000, "Elsewhere")];
+        let settlements = vec![named_settlement(
+            0,
+            0,
+            1,
+            SettlementKind::Capital,
+            15000,
+            "Elsewhere",
+        )];
         let territory = vec![3i32; 9];
         let (province, provinces) = civ_generate_provinces(&settlements, &territory, 3, 3);
-        assert_eq!(provinces.len(), 1, "faction 1's capital still seeds a province record even though it owns no territory here");
+        assert_eq!(
+            provinces.len(),
+            1,
+            "faction 1's capital still seeds a province record even though it owns no territory here"
+        );
         assert_eq!(provinces[0].faction, 1);
-        assert!(province.iter().all(|&p| p == 0), "faction 3 owns all the territory but has no settlement to seed a province");
+        assert!(
+            province.iter().all(|&p| p == 0),
+            "faction 3 owns all the territory but has no settlement to seed a province"
+        );
     }
 
     #[test]
@@ -11800,7 +14647,10 @@ mod tests {
         ];
         let territory = vec![1i32; 25]; // whole 5x5 grid owned by faction 1
         let (province, _provinces) = civ_generate_provinces(&settlements, &territory, 5, 5);
-        assert!(province.iter().all(|&p| p != 0), "every cell owned by a faction with a real seed must land in some province");
+        assert!(
+            province.iter().all(|&p| p != 0),
+            "every cell owned by a faction with a real seed must land in some province"
+        );
     }
 
     #[test]
@@ -11810,7 +14660,11 @@ mod tests {
         // territory must be the union of both its capitals' zones, not just
         // whichever one happens to be checked first.
         let cost = vec![1.0f32; 15];
-        let settlements = vec![named_capital(0, 0, 1, 15000), named_capital(14, 0, 1, 15000), named_capital(7, 0, 2, 15000)];
+        let settlements = vec![
+            named_capital(0, 0, 1, 15000),
+            named_capital(14, 0, 1, 15000),
+            named_capital(7, 0, 2, 15000),
+        ];
         let owner = assign_territory(&settlements, &cost, 15, 1, false);
         assert_eq!(owner[0], 1, "faction 1's western capital zone");
         assert_eq!(owner[14], 1, "faction 1's eastern capital zone");
@@ -11830,21 +14684,39 @@ mod tests {
     #[test]
     fn village_accept_prob_at_the_road_is_always_one() {
         // roadDist=0 -> roadProb=exp(0)=1 -> max(1, anything) = 1, regardless of how bad the site is.
-        let p = civ_village_accept_prob(0.0, VILLAGE_SUIT_THRESH, 10.0, VILLAGE_SUIT_THRESH, SETTLE_SEED_THRESH);
+        let p = civ_village_accept_prob(
+            0.0,
+            VILLAGE_SUIT_THRESH,
+            10.0,
+            VILLAGE_SUIT_THRESH,
+            SETTLE_SEED_THRESH,
+        );
         assert!((p - 1.0).abs() < 1e-12);
     }
 
     #[test]
     fn village_accept_prob_at_the_suit_ceiling_is_always_one_even_far_from_any_road() {
         // suitScore == suitHi -> suitProb=1 -> max(anything, 1) = 1, even with roadDist effectively infinite.
-        let p = civ_village_accept_prob(1e6, SETTLE_SEED_THRESH, 10.0, VILLAGE_SUIT_THRESH, SETTLE_SEED_THRESH);
+        let p = civ_village_accept_prob(
+            1e6,
+            SETTLE_SEED_THRESH,
+            10.0,
+            VILLAGE_SUIT_THRESH,
+            SETTLE_SEED_THRESH,
+        );
         assert!((p - 1.0).abs() < 1e-12);
     }
 
     #[test]
     fn village_accept_prob_at_the_suit_floor_and_far_from_road_is_near_zero() {
         // Both signals bottom out: suitScore == suitLo -> suitProb=0; roadDist huge -> roadProb~0.
-        let p = civ_village_accept_prob(1e6, VILLAGE_SUIT_THRESH, 10.0, VILLAGE_SUIT_THRESH, SETTLE_SEED_THRESH);
+        let p = civ_village_accept_prob(
+            1e6,
+            VILLAGE_SUIT_THRESH,
+            10.0,
+            VILLAGE_SUIT_THRESH,
+            SETTLE_SEED_THRESH,
+        );
         assert!(p < 1e-6, "expected near-zero accept probability, got {p}");
     }
 
@@ -11854,9 +14726,19 @@ mod tests {
         // a road never DECREASES the accept probability -- max() semantics, per the reference's own
         // comment ("road proximity can only ever RAISE a candidate's odds, never lower it").
         let suit_mid = (VILLAGE_SUIT_THRESH + SETTLE_SEED_THRESH) / 2.0;
-        let far = civ_village_accept_prob(100.0, suit_mid, 10.0, VILLAGE_SUIT_THRESH, SETTLE_SEED_THRESH);
-        let near = civ_village_accept_prob(1.0, suit_mid, 10.0, VILLAGE_SUIT_THRESH, SETTLE_SEED_THRESH);
-        assert!(near >= far, "closer to a road ({near}) should never score below farther away ({far})");
+        let far = civ_village_accept_prob(
+            100.0,
+            suit_mid,
+            10.0,
+            VILLAGE_SUIT_THRESH,
+            SETTLE_SEED_THRESH,
+        );
+        let near =
+            civ_village_accept_prob(1.0, suit_mid, 10.0, VILLAGE_SUIT_THRESH, SETTLE_SEED_THRESH);
+        assert!(
+            near >= far,
+            "closer to a road ({near}) should never score below farther away ({far})"
+        );
     }
 
     #[test]
@@ -11869,12 +14751,22 @@ mod tests {
     fn road_proximity_index_finds_nearest_real_edge_point() {
         // One edge with a single-cell path at routing-grid index 55 in a 10-wide routing grid
         // (cx=5, cy=5) with sc=1.0 -> full-grid point (5.5, 5.5).
-        let edges = vec![RoadEdge { a: 0, b: 1, path: vec![55] }];
+        let edges = vec![RoadEdge {
+            a: 0,
+            b: 1,
+            path: vec![55],
+        }];
         let idx = RoadProximityIndex::build(&edges, 10, 1.0, 20, 20, 4.0);
         let d = idx.nearest_dist(5.5, 5.5);
-        assert!(d < 1e-9, "querying the exact road point should read ~0 distance, got {d}");
+        assert!(
+            d < 1e-9,
+            "querying the exact road point should read ~0 distance, got {d}"
+        );
         let d_far = idx.nearest_dist(0.0, 0.0);
-        assert!(d_far > 5.0, "far from the only road point should read a real, non-trivial distance, got {d_far}");
+        assert!(
+            d_far > 5.0,
+            "far from the only road point should read a real, non-trivial distance, got {d_far}"
+        );
     }
 
     #[test]
@@ -11898,16 +14790,40 @@ mod tests {
 
         let places = vec![NamedSettlement {
             tid: 0,
-            placement: SettlementPlacement { x: 20, y: 20, suit: 0.9, faction: 1, capital: true, kind: SettlementKind::Capital, coastal: false },
+            placement: SettlementPlacement {
+                x: 20,
+                y: 20,
+                suit: 0.9,
+                faction: 1,
+                capital: true,
+                kind: SettlementKind::Capital,
+                coastal: false,
+            },
             name: "Capital".to_string(),
             pop: 15000,
         }];
         let mut rng = cartalith_rng::Mulberry32::new(1); // arbitrary fixed seed, deterministic
 
-        let added = civ_seed_villages(&places, &[], 1, 1.0, &mut rng, &suit, &field, &water_bodies, &lake_fill, gw, gh, 0.0, 800.0);
+        let added = civ_seed_villages(
+            &places,
+            &[],
+            1,
+            1.0,
+            &mut rng,
+            &suit,
+            &field,
+            &water_bodies,
+            &lake_fill,
+            gw,
+            gh,
+            0.0,
+            800.0,
+        );
 
         assert!(
-            added.iter().all(|v| !(v.x == near_i % gw && v.y == near_i / gw)),
+            added
+                .iter()
+                .all(|v| !(v.x == near_i % gw && v.y == near_i / gw)),
             "a candidate within spacing of the existing capital must never be accepted"
         );
     }
@@ -11928,10 +14844,31 @@ mod tests {
         let suit = vec![SETTLE_SEED_THRESH as f32; n];
         let mut rng = cartalith_rng::Mulberry32::new(7);
 
-        let added = civ_seed_villages(&[], &[], 1, 1.0, &mut rng, &suit, &field, &water_bodies, &lake_fill, gw, gh, 0.0, 800.0);
+        let added = civ_seed_villages(
+            &[],
+            &[],
+            1,
+            1.0,
+            &mut rng,
+            &suit,
+            &field,
+            &water_bodies,
+            &lake_fill,
+            gw,
+            gh,
+            0.0,
+            800.0,
+        );
 
-        assert!(added.len() <= CIV_VILLAGE_CAP, "must never exceed the village cap, got {}", added.len());
-        assert!(!added.is_empty(), "a uniformly-maximal-suitability map with no obstacles should add at least one village");
+        assert!(
+            added.len() <= CIV_VILLAGE_CAP,
+            "must never exceed the village cap, got {}",
+            added.len()
+        );
+        assert!(
+            !added.is_empty(),
+            "a uniformly-maximal-suitability map with no obstacles should add at least one village"
+        );
     }
 
     // -- Journey Planner milestone 1 --------------------------------------
@@ -11963,7 +14900,10 @@ mod tests {
     #[test]
     fn jp_load_penalty_invalid_ratio_matches_curve_top_boundary() {
         assert_eq!(JP_LOAD_INVALID_RATIO, 1.50);
-        assert_eq!(jp_load_penalty(JP_LOAD_INVALID_RATIO).label, "Heavily overloaded");
+        assert_eq!(
+            jp_load_penalty(JP_LOAD_INVALID_RATIO).label,
+            "Heavily overloaded"
+        );
     }
 
     #[test]
@@ -12053,20 +14993,32 @@ mod tests {
 
     #[test]
     fn jp_seasonal_closure_open_outside_winter() {
-        assert_eq!(jp_seasonal_closure("Mountain Pass", "Mountain Highland", "Summer", true), None);
+        assert_eq!(
+            jp_seasonal_closure("Mountain Pass", "Mountain Highland", "Summer", true),
+            None
+        );
     }
 
     #[test]
     fn jp_seasonal_closure_disabled_flag_always_open() {
-        assert_eq!(jp_seasonal_closure("Mountain Pass", "Mountain Highland", "Winter", false), None);
+        assert_eq!(
+            jp_seasonal_closure("Mountain Pass", "Mountain Highland", "Winter", false),
+            None
+        );
     }
 
     #[test]
     fn jp_seasonal_closure_needs_both_terrain_and_biome_match() {
         // Mountain Pass terrain but wrong biome -> not closed.
-        assert_eq!(jp_seasonal_closure("Mountain Pass", "Temperate Forest", "Winter", true), None);
+        assert_eq!(
+            jp_seasonal_closure("Mountain Pass", "Temperate Forest", "Winter", true),
+            None
+        );
         // Right biome but non-closing terrain -> not closed.
-        assert_eq!(jp_seasonal_closure("Plains", "Mountain Highland", "Winter", true), None);
+        assert_eq!(
+            jp_seasonal_closure("Plains", "Mountain Highland", "Winter", true),
+            None
+        );
     }
 
     #[test]
@@ -12165,7 +15117,11 @@ mod tests {
                 let fx = x as f32 / gw as f32;
                 let fy = y as f32 / gh as f32;
                 // Left quarter is ocean; height rises eastward.
-                f.field[i] = if x < 4 { 0.20 + 0.04 * fx } else { 0.45 + 0.5 * fx };
+                f.field[i] = if x < 4 {
+                    0.20 + 0.04 * fx
+                } else {
+                    0.45 + 0.5 * fx
+                };
                 f.coast_sdf[i] = (x as f32) - 4.0; // negative offshore, distance inland
                 f.soil[i] = 0.15 + 0.7 * fy;
                 f.rain[i] = 0.10 + 0.75 * fx;
@@ -12228,25 +15184,53 @@ mod tests {
         let f = suit_fixture();
         let ctx = suit_ctx(&f);
         let real = build_settlement_suitability(
-            &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(&ctx),
+            &f.soil,
+            &f.water,
+            &f.carrying_cap,
+            &f.field,
+            &f.slope_n,
+            f.gw,
+            f.gh,
+            f.sea,
+            Some(&ctx),
         );
         let mut scored = 0usize;
         for y in 0..f.gh {
             for x in 0..f.gw {
                 let e = explain_settlement_suitability(
-                    &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(&ctx), x, y,
+                    &f.soil,
+                    &f.water,
+                    &f.carrying_cap,
+                    &f.field,
+                    &f.slope_n,
+                    f.gw,
+                    f.gh,
+                    f.sea,
+                    Some(&ctx),
+                    x,
+                    y,
                 );
-                assert_eq!(e.score, real[y * f.gw + x], "explanation diverged at ({x},{y})");
+                assert_eq!(
+                    e.score,
+                    real[y * f.gw + x],
+                    "explanation diverged at ({x},{y})"
+                );
                 if e.excluded.is_none() {
                     scored += 1;
                     // A scored cell must also reconstruct z from its own terms.
                     let sum: f64 = e.terms.iter().map(|t| t.contribution).sum();
-                    assert!((sum - e.z).abs() < 1e-12, "terms don't sum to z at ({x},{y})");
+                    assert!(
+                        (sum - e.z).abs() < 1e-12,
+                        "terms don't sum to z at ({x},{y})"
+                    );
                 }
             }
         }
         // Guard against a vacuous pass: the fixture must really have land.
-        assert!(scored > 100, "fixture produced too few scored cells: {scored}");
+        assert!(
+            scored > 100,
+            "fixture produced too few scored cells: {scored}"
+        );
     }
 
     /// Same equality demand on the no-context branch, which uses a
@@ -12254,14 +15238,37 @@ mod tests {
     #[test]
     fn explanation_reconstructs_real_suitability_base_weights() {
         let f = suit_fixture();
-        let real =
-            build_settlement_suitability(&f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, None);
+        let real = build_settlement_suitability(
+            &f.soil,
+            &f.water,
+            &f.carrying_cap,
+            &f.field,
+            &f.slope_n,
+            f.gw,
+            f.gh,
+            f.sea,
+            None,
+        );
         for y in 0..f.gh {
             for x in 0..f.gw {
                 let e = explain_settlement_suitability(
-                    &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, None, x, y,
+                    &f.soil,
+                    &f.water,
+                    &f.carrying_cap,
+                    &f.field,
+                    &f.slope_n,
+                    f.gw,
+                    f.gh,
+                    f.sea,
+                    None,
+                    x,
+                    y,
                 );
-                assert_eq!(e.score, real[y * f.gw + x], "base-weight explanation diverged at ({x},{y})");
+                assert_eq!(
+                    e.score,
+                    real[y * f.gw + x],
+                    "base-weight explanation diverged at ({x},{y})"
+                );
             }
         }
     }
@@ -12273,7 +15280,17 @@ mod tests {
         // Column 0 is ocean: below sea level AND flagged as a water body --
         // the height test runs first, so that's the reason reported.
         let sea_cell = explain_settlement_suitability(
-            &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(&ctx), 0, 0,
+            &f.soil,
+            &f.water,
+            &f.carrying_cap,
+            &f.field,
+            &f.slope_n,
+            f.gw,
+            f.gh,
+            f.sea,
+            Some(&ctx),
+            0,
+            0,
         );
         assert_eq!(sea_cell.excluded, Some("below_sea_level"));
         assert_eq!(sea_cell.score, 0.0);
@@ -12281,7 +15298,17 @@ mod tests {
 
         // The lake block sits above sea level but is a water body.
         let lake_cell = explain_settlement_suitability(
-            &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(&ctx), 11, 4,
+            &f.soil,
+            &f.water,
+            &f.carrying_cap,
+            &f.field,
+            &f.slope_n,
+            f.gw,
+            f.gh,
+            f.sea,
+            Some(&ctx),
+            11,
+            4,
         );
         assert_eq!(lake_cell.excluded, Some("water_body"));
         assert_eq!(lake_cell.score, 0.0);
@@ -12292,9 +15319,23 @@ mod tests {
         let f = suit_fixture();
         let ctx = suit_ctx(&f);
         let e = explain_settlement_suitability(
-            &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(&ctx), 9, 12,
+            &f.soil,
+            &f.water,
+            &f.carrying_cap,
+            &f.field,
+            &f.slope_n,
+            f.gw,
+            f.gh,
+            f.sea,
+            Some(&ctx),
+            9,
+            12,
         );
-        assert!(e.terms.len() >= 13, "expected the full-context term set, got {}", e.terms.len());
+        assert!(
+            e.terms.len() >= 13,
+            "expected the full-context term set, got {}",
+            e.terms.len()
+        );
         for w in e.terms.windows(2) {
             assert!(
                 w[0].contribution.abs() >= w[1].contribution.abs(),
@@ -12314,12 +15355,36 @@ mod tests {
         let ctx = suit_ctx(&f);
         // Row 8 carries the elevated flood value from the fixture.
         let e = explain_settlement_suitability(
-            &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(&ctx), 7, 8,
+            &f.soil,
+            &f.water,
+            &f.carrying_cap,
+            &f.field,
+            &f.slope_n,
+            f.gw,
+            f.gh,
+            f.sea,
+            Some(&ctx),
+            7,
+            8,
         );
-        let flood = e.terms.iter().find(|t| t.key == "flood_risk").expect("flood term present");
-        assert!(flood.value > 0.0 && flood.contribution < 0.0, "flood should penalise: {flood:?}");
-        let islet = e.terms.iter().find(|t| t.key == "islet_penalty").expect("islet term present");
-        assert!(islet.weight < 0.0, "islet weight should be negative: {islet:?}");
+        let flood = e
+            .terms
+            .iter()
+            .find(|t| t.key == "flood_risk")
+            .expect("flood term present");
+        assert!(
+            flood.value > 0.0 && flood.contribution < 0.0,
+            "flood should penalise: {flood:?}"
+        );
+        let islet = e
+            .terms
+            .iter()
+            .find(|t| t.key == "islet_penalty")
+            .expect("islet term present");
+        assert!(
+            islet.weight < 0.0,
+            "islet weight should be negative: {islet:?}"
+        );
     }
 
     /// The mineral term reads only the nine ore keys. The fixture sets
@@ -12331,12 +15396,32 @@ mod tests {
         let ctx = suit_ctx(&f);
         // (5,0): fy=0 so iron/timber contribute little, copper small, gold 0.
         let e = explain_settlement_suitability(
-            &f.soil, &f.water, &f.carrying_cap, &f.field, &f.slope_n, f.gw, f.gh, f.sea, Some(&ctx), 5, 0,
+            &f.soil,
+            &f.water,
+            &f.carrying_cap,
+            &f.field,
+            &f.slope_n,
+            f.gw,
+            f.gh,
+            f.sea,
+            Some(&ctx),
+            5,
+            0,
         );
-        let mineral = e.terms.iter().find(|t| t.key == "minerals").expect("mineral term present");
-        let ore_sum: f64 = SUIT_RESOURCE_KEYS.iter().map(|k| resource_field(&f.res, k)[5] as f64).sum();
+        let mineral = e
+            .terms
+            .iter()
+            .find(|t| t.key == "minerals")
+            .expect("mineral term present");
+        let ore_sum: f64 = SUIT_RESOURCE_KEYS
+            .iter()
+            .map(|k| resource_field(&f.res, k)[5] as f64)
+            .sum();
         let expected = (ore_sum / (SUIT_RESOURCE_KEYS.len() as f64 / 3.0)).min(1.0);
-        assert!((mineral.value - expected).abs() < 1e-12, "clay leaked into the mineral term");
+        assert!(
+            (mineral.value - expected).abs() < 1e-12,
+            "clay leaked into the mineral term"
+        );
     }
 
     // ---- Journey Planner milestone 2: transport mode selection ----
@@ -12375,16 +15460,40 @@ mod tests {
     fn best_animal_for_context_terrain_rules_outrank_biome() {
         // v1.50 audit case: Mountain Pass picks mule even in a desert-like biome
         // (the bug this rule ordering fixed -- a camel used to win there).
-        assert_eq!(jp_best_animal_for_context("Mountain Pass", "Hot Desert").key, "mule");
-        assert_eq!(jp_best_animal_for_context("Deep Sand", "Temperate Forest").key, "camel");
-        assert_eq!(jp_best_animal_for_context("Swamp / Marsh", "Temperate Forest").key, "donkey");
-        assert_eq!(jp_best_animal_for_context("Open Plains", "Steppe / Grassland").key, "horse");
-        assert_eq!(jp_best_animal_for_context("Snow / Ice", "Tundra / Polar").key, "mule");
-        assert_eq!(jp_best_animal_for_context("Forest Path", "Temperate Forest").key, "mule");
+        assert_eq!(
+            jp_best_animal_for_context("Mountain Pass", "Hot Desert").key,
+            "mule"
+        );
+        assert_eq!(
+            jp_best_animal_for_context("Deep Sand", "Temperate Forest").key,
+            "camel"
+        );
+        assert_eq!(
+            jp_best_animal_for_context("Swamp / Marsh", "Temperate Forest").key,
+            "donkey"
+        );
+        assert_eq!(
+            jp_best_animal_for_context("Open Plains", "Steppe / Grassland").key,
+            "horse"
+        );
+        assert_eq!(
+            jp_best_animal_for_context("Snow / Ice", "Tundra / Polar").key,
+            "mule"
+        );
+        assert_eq!(
+            jp_best_animal_for_context("Forest Path", "Temperate Forest").key,
+            "mule"
+        );
         // no terrain rule, desert-like biome -> camel.
-        assert_eq!(jp_best_animal_for_context("Open Plains", "Hot Desert").key, "camel");
+        assert_eq!(
+            jp_best_animal_for_context("Open Plains", "Hot Desert").key,
+            "camel"
+        );
         // no terrain rule, non-desert biome -> biome's own bestAnimals[0].
-        assert_eq!(jp_best_animal_for_context("Open Plains", "Wetlands / Marshes").key, "donkey");
+        assert_eq!(
+            jp_best_animal_for_context("Open Plains", "Wetlands / Marshes").key,
+            "donkey"
+        );
     }
 
     #[test]
@@ -12399,8 +15508,16 @@ mod tests {
         // Two short, low-share stages that don't clear JP_BOTTLENECK_MIN_SHARE
         // (10%) individually can't trigger the veto -- plurality by km wins.
         let stages = [
-            LandStage { terrain: "Open Plains".into(), biome_key: "Steppe / Grassland".into(), km: 100.0 },
-            LandStage { terrain: "Open Plains".into(), biome_key: "Steppe / Grassland".into(), km: 50.0 },
+            LandStage {
+                terrain: "Open Plains".into(),
+                biome_key: "Steppe / Grassland".into(),
+                km: 100.0,
+            },
+            LandStage {
+                terrain: "Open Plains".into(),
+                biome_key: "Steppe / Grassland".into(),
+                km: 50.0,
+            },
         ];
         let pick = jp_pick_species_for_route(&stages);
         assert_eq!(pick.key, "horse");
@@ -12414,11 +15531,21 @@ mod tests {
         // is a real penalty against mule's override (0.85): (0.85-0.65)/0.85
         // = 0.235 >= 0.20 -> fires. Whole-route time then favours mule.
         let stages = [
-            LandStage { terrain: "Open Plains".into(), biome_key: "Steppe / Grassland".into(), km: 100.0 },
-            LandStage { terrain: "Mountain Pass".into(), biome_key: "Steppe / Grassland".into(), km: 30.0 },
+            LandStage {
+                terrain: "Open Plains".into(),
+                biome_key: "Steppe / Grassland".into(),
+                km: 100.0,
+            },
+            LandStage {
+                terrain: "Mountain Pass".into(),
+                biome_key: "Steppe / Grassland".into(),
+                km: 30.0,
+            },
         ];
         let pick = jp_pick_species_for_route(&stages);
-        let switched = pick.switched.expect("a real bottleneck should switch the route");
+        let switched = pick
+            .switched
+            .expect("a real bottleneck should switch the route");
         assert_eq!(switched.from, "horse");
         assert_eq!(switched.to, "mule");
         assert_eq!(switched.terrain, "Mountain Pass");
@@ -12445,15 +15572,31 @@ mod tests {
     #[test]
     fn vessel_water_block_gates_mode_open_sea_rating_and_invalid_water() {
         let river_barge = jp_ship_stats("River Barge").unwrap();
-        assert!(jp_vessel_water_block(&river_barge, "sea", "Coastal Waters", "River Barge").is_some(), "river-only vessel can't take a sea leg");
-        assert!(jp_vessel_water_block(&river_barge, "river", "River with Rapids", "River Barge").is_some(), "explicit invalid_water entry");
+        assert!(
+            jp_vessel_water_block(&river_barge, "sea", "Coastal Waters", "River Barge").is_some(),
+            "river-only vessel can't take a sea leg"
+        );
+        assert!(
+            jp_vessel_water_block(&river_barge, "river", "River with Rapids", "River Barge")
+                .is_some(),
+            "explicit invalid_water entry"
+        );
 
         let fishing = jp_ship_stats("Fishing Vessel").unwrap();
-        assert!(jp_vessel_water_block(&fishing, "sea", "Open Sea", "Fishing Vessel").is_some(), "not open-sea rated");
-        assert!(jp_vessel_water_block(&fishing, "sea", "Coastal Waters", "Fishing Vessel").is_none(), "coastal is fine for a non-open-sea vessel");
+        assert!(
+            jp_vessel_water_block(&fishing, "sea", "Open Sea", "Fishing Vessel").is_some(),
+            "not open-sea rated"
+        );
+        assert!(
+            jp_vessel_water_block(&fishing, "sea", "Coastal Waters", "Fishing Vessel").is_none(),
+            "coastal is fine for a non-open-sea vessel"
+        );
 
         let cog = jp_ship_stats("Cog").unwrap();
-        assert!(jp_vessel_water_block(&cog, "sea", "Open Sea", "Cog").is_none(), "open-sea rated vessel is fine on Open Sea");
+        assert!(
+            jp_vessel_water_block(&cog, "sea", "Open Sea", "Cog").is_none(),
+            "open-sea rated vessel is fine on Open Sea"
+        );
     }
 
     #[test]
@@ -12467,30 +15610,53 @@ mod tests {
 
     #[test]
     fn vessel_fits_and_auto_stage_vessel_respect_preference_order_and_blocking() {
-        let coastal = WaterStage { cat: "sea".into(), terrain: "Coastal Waters".into() };
+        let coastal = WaterStage {
+            cat: "sea".into(),
+            terrain: "Coastal Waters".into(),
+        };
         // Fishing Vessel is first in JP_VESSEL_PREFERENCE and fits a plain coastal leg.
-        assert!(jp_vessel_fits("Fishing Vessel", std::slice::from_ref(&coastal)));
+        assert!(jp_vessel_fits(
+            "Fishing Vessel",
+            std::slice::from_ref(&coastal)
+        ));
         assert_eq!(jp_auto_stage_vessel(&coastal), Some("Fishing Vessel"));
 
-        let open_sea = WaterStage { cat: "sea".into(), terrain: "Open Sea".into() };
-        assert!(!jp_vessel_fits("Fishing Vessel", std::slice::from_ref(&open_sea)), "not open-sea rated");
+        let open_sea = WaterStage {
+            cat: "sea".into(),
+            terrain: "Open Sea".into(),
+        };
+        assert!(
+            !jp_vessel_fits("Fishing Vessel", std::slice::from_ref(&open_sea)),
+            "not open-sea rated"
+        );
         // First preference-order vessel that IS open-sea rated and sea-capable.
         let picked = jp_auto_stage_vessel(&open_sea).expect("some vessel must handle open sea");
         assert!(jp_ship_stats(picked).unwrap().open_sea);
 
-        let rapids = WaterStage { cat: "river".into(), terrain: "River with Rapids".into() };
-        assert!(!jp_vessel_fits("River Barge", std::slice::from_ref(&rapids)), "explicit invalid_water entry");
+        let rapids = WaterStage {
+            cat: "river".into(),
+            terrain: "River with Rapids".into(),
+        };
+        assert!(
+            !jp_vessel_fits("River Barge", std::slice::from_ref(&rapids)),
+            "explicit invalid_water entry"
+        );
     }
 
     #[test]
     fn vessel_matrix_covers_every_preference_vessel_and_finds_a_best_for_open_sea() {
         let (rows, best) = jp_vessel_matrix();
         assert_eq!(rows.len(), JP_VESSEL_PREFERENCE.len());
-        let sea_best = best.get(&("sea", "Open Sea")).expect("Open Sea entry present");
+        let sea_best = best
+            .get(&("sea", "Open Sea"))
+            .expect("Open Sea entry present");
         assert!(sea_best.name.is_some() && sea_best.kmday.unwrap() > 0.0);
         // River Barge's own best water must be a river it can actually navigate.
         let barge_row = rows.iter().find(|r| r.name == "River Barge").unwrap();
-        assert!(matches!(barge_row.best_water, Some("Calm River" | "Moderate River" | "River with Shallows" | "River Delta")));
+        assert!(matches!(
+            barge_row.best_water,
+            Some("Calm River" | "Moderate River" | "River with Shallows" | "River Delta")
+        ));
     }
 
     // ------------------------------------------------------------------------
@@ -12515,26 +15681,90 @@ mod tests {
         // Reference (17303): wheels first, then travois, then pack animals,
         // and porters only when nothing else carries. A wagon wins even when
         // faster carriers are present.
-        let p = JpParty { wagons: 1, carts: 3, mule: 9, ..jp_m3_party() };
-        assert_eq!(jp_train_pace(&p), TrainPace { kmh: 2.2, label: "wagon-limited" });
-        let p = JpParty { carts: 2, mule: 8, ..jp_m3_party() };
-        assert_eq!(jp_train_pace(&p), TrainPace { kmh: 3.6, label: "cart-limited" });
+        let p = JpParty {
+            wagons: 1,
+            carts: 3,
+            mule: 9,
+            ..jp_m3_party()
+        };
+        assert_eq!(
+            jp_train_pace(&p),
+            TrainPace {
+                kmh: 2.2,
+                label: "wagon-limited"
+            }
+        );
+        let p = JpParty {
+            carts: 2,
+            mule: 8,
+            ..jp_m3_party()
+        };
+        assert_eq!(
+            jp_train_pace(&p),
+            TrainPace {
+                kmh: 3.6,
+                label: "cart-limited"
+            }
+        );
         // Sleds share the CART pace but carry their own label -- the
         // reference's own `JP_TRAIN_PACE.cart` on the sled branch, not a typo.
-        let p = JpParty { sleds: 1, ..jp_m3_party() };
-        assert_eq!(jp_train_pace(&p), TrainPace { kmh: 3.6, label: "sled-limited" });
-        let p = JpParty { travois: 4, horse: 2, ..jp_m3_party() };
-        assert_eq!(jp_train_pace(&p), TrainPace { kmh: 3.4, label: "travois-limited" });
-        let p = JpParty { camel: 3, ..jp_m3_party() };
-        assert_eq!(jp_train_pace(&p), TrainPace { kmh: 4.8, label: "pack-animal" });
-        assert_eq!(jp_train_pace(&jp_m3_party()), TrainPace { kmh: 2.6, label: "porter-borne" });
+        let p = JpParty {
+            sleds: 1,
+            ..jp_m3_party()
+        };
+        assert_eq!(
+            jp_train_pace(&p),
+            TrainPace {
+                kmh: 3.6,
+                label: "sled-limited"
+            }
+        );
+        let p = JpParty {
+            travois: 4,
+            horse: 2,
+            ..jp_m3_party()
+        };
+        assert_eq!(
+            jp_train_pace(&p),
+            TrainPace {
+                kmh: 3.4,
+                label: "travois-limited"
+            }
+        );
+        let p = JpParty {
+            camel: 3,
+            ..jp_m3_party()
+        };
+        assert_eq!(
+            jp_train_pace(&p),
+            TrainPace {
+                kmh: 4.8,
+                label: "pack-animal"
+            }
+        );
+        assert_eq!(
+            jp_train_pace(&jp_m3_party()),
+            TrainPace {
+                kmh: 2.6,
+                label: "porter-borne"
+            }
+        );
     }
 
     #[test]
     fn sail_factor_hits_every_control_point_and_interpolates_between_them() {
         // Square rig (Cog) at the five control points, then two midpoints.
-        for (twa, want) in [(0.0, 0.0), (45.0, 0.15), (90.0, 0.85), (135.0, 1.0), (180.0, 0.8)] {
-            assert!((jp_sail_factor("Cog", twa) - want).abs() < JP_M3_EPS, "Cog @{twa}");
+        for (twa, want) in [
+            (0.0, 0.0),
+            (45.0, 0.15),
+            (90.0, 0.85),
+            (135.0, 1.0),
+            (180.0, 0.8),
+        ] {
+            assert!(
+                (jp_sail_factor("Cog", twa) - want).abs() < JP_M3_EPS,
+                "Cog @{twa}"
+            );
         }
         assert!((jp_sail_factor("Cog", 22.5) - 0.075).abs() < JP_M3_EPS);
         assert!((jp_sail_factor("Cog", 67.5) - 0.5).abs() < JP_M3_EPS);
@@ -12577,7 +15807,11 @@ mod tests {
         for (biome, per_season) in CELLS {
             for (i, &season) in JP_SEASON_ORDER.iter().enumerate() {
                 let got = jp_wx_weighted(biome, season, None);
-                assert!((got - per_season[i]).abs() < JP_M3_EPS, "{biome}/{season}: got {got}, want {}", per_season[i]);
+                assert!(
+                    (got - per_season[i]).abs() < JP_M3_EPS,
+                    "{biome}/{season}: got {got}, want {}",
+                    per_season[i]
+                );
             }
         }
     }
@@ -12592,7 +15826,11 @@ mod tests {
         // ...and it cuts both ways: a mule's 0.55 snow affinity beats the
         // generic 0.50 in a 70%-snow boreal winter.
         assert!((jp_wx_weighted("Boreal Taiga", "Winter", None) - 0.6275).abs() < JP_M3_EPS);
-        assert!((jp_wx_weighted("Boreal Taiga", "Winter", Some("mule")) - 0.662_500_000_000_000_1).abs() < JP_M3_EPS);
+        assert!(
+            (jp_wx_weighted("Boreal Taiga", "Winter", Some("mule")) - 0.662_500_000_000_000_1)
+                .abs()
+                < JP_M3_EPS
+        );
         // Horse has an empty override table in the reference -- indistinguishable
         // from having none.
         assert!((jp_wx_weighted("Hot Desert", "Summer", Some("horse")) - 0.873).abs() < JP_M3_EPS);
@@ -12608,37 +15846,81 @@ mod tests {
     fn weather_factor_auto_is_the_weighted_average_and_a_forced_condition_is_not() {
         // v1.44: 'auto' (and absent) must be byte-identical to jpWxWeighted,
         // so a journey that never touches the control is unchanged.
-        assert!((jp_weather_factor(Some("auto"), "Hot Desert", "Summer", Some("camel")) - 0.933).abs() < JP_M3_EPS);
-        assert!((jp_weather_factor(None, "Hot Desert", "Summer", Some("camel")) - 0.933).abs() < JP_M3_EPS);
+        assert!(
+            (jp_weather_factor(Some("auto"), "Hot Desert", "Summer", Some("camel")) - 0.933).abs()
+                < JP_M3_EPS
+        );
+        assert!(
+            (jp_weather_factor(None, "Hot Desert", "Summer", Some("camel")) - 0.933).abs()
+                < JP_M3_EPS
+        );
         // A forced condition still reads the pace animal's own affinity...
-        assert!((jp_weather_factor(Some("Sandstorm"), "Hot Desert", "Summer", Some("camel")) - 0.70).abs() < JP_M3_EPS);
+        assert!(
+            (jp_weather_factor(Some("Sandstorm"), "Hot Desert", "Summer", Some("camel")) - 0.70)
+                .abs()
+                < JP_M3_EPS
+        );
         // ...and falls back to the generic table without one.
-        assert!((jp_weather_factor(Some("Sandstorm"), "Hot Desert", "Summer", None) - 0.40).abs() < JP_M3_EPS);
-        assert!((jp_weather_factor(Some("Snow"), "Boreal Taiga", "Winter", Some("mule")) - 0.55).abs() < JP_M3_EPS);
+        assert!(
+            (jp_weather_factor(Some("Sandstorm"), "Hot Desert", "Summer", None) - 0.40).abs()
+                < JP_M3_EPS
+        );
+        assert!(
+            (jp_weather_factor(Some("Snow"), "Boreal Taiga", "Winter", Some("mule")) - 0.55).abs()
+                < JP_M3_EPS
+        );
         // A condition the animal has no entry for uses the generic value.
-        assert!((jp_weather_factor(Some("Rain"), "Hot Desert", "Summer", Some("camel")) - 0.90).abs() < JP_M3_EPS);
+        assert!(
+            (jp_weather_factor(Some("Rain"), "Hot Desert", "Summer", Some("camel")) - 0.90).abs()
+                < JP_M3_EPS
+        );
         // An unrecognised override falls all the way back to the average --
         // the reference's `??`, for both an empty and a populated animal table.
-        assert!((jp_weather_factor(Some("Hail"), "Hot Desert", "Summer", Some("camel")) - 0.933).abs() < JP_M3_EPS);
-        assert!((jp_weather_factor(Some("Hail"), "Hot Desert", "Summer", Some("horse")) - 0.873).abs() < JP_M3_EPS);
+        assert!(
+            (jp_weather_factor(Some("Hail"), "Hot Desert", "Summer", Some("camel")) - 0.933).abs()
+                < JP_M3_EPS
+        );
+        assert!(
+            (jp_weather_factor(Some("Hail"), "Hot Desert", "Summer", Some("horse")) - 0.873).abs()
+                < JP_M3_EPS
+        );
     }
 
     #[test]
     fn column_length_grows_with_the_party_and_shrinks_with_road_width() {
         // A 30-person merchant caravan is 32 m of road -- below caravan scale
         // this term does essentially nothing, which is the point.
-        let caravan = JpParty { group_size: 30, mule: 8, carts: 2, ..jp_m3_party() };
+        let caravan = JpParty {
+            group_size: 30,
+            mule: 8,
+            carts: 2,
+            ..jp_m3_party()
+        };
         assert!((jp_column_length_km(&caravan, "Dirt Track") - 0.032).abs() < JP_M3_EPS);
         // The "Army column" preset: 400 people, 100 animals, 30 wagons.
-        let army = JpParty { group_size: 400, mule: 20, horse: 80, wagons: 30, ..jp_m3_party() };
+        let army = JpParty {
+            group_size: 400,
+            mule: 20,
+            horse: 80,
+            wagons: 30,
+            ..jp_m3_party()
+        };
         assert!((jp_column_length_km(&army, "Dirt Track") - 0.43).abs() < JP_M3_EPS);
         // Same army on a single-file mountain trail is 2.7x longer.
         assert!((jp_column_length_km(&army, "Mountain Trails") - 1.18).abs() < JP_M3_EPS);
         // Unknown terrain takes the reference's own ||3 file default.
-        let bare = JpParty { group_size: 400, ..jp_m3_party() };
-        assert!((jp_column_length_km(&bare, "Elsewhere") - 0.213_333_333_333_333_37).abs() < JP_M3_EPS);
+        let bare = JpParty {
+            group_size: 400,
+            ..jp_m3_party()
+        };
+        assert!(
+            (jp_column_length_km(&bare, "Elsewhere") - 0.213_333_333_333_333_37).abs() < JP_M3_EPS
+        );
         // Group size floors at 1, so an empty party still occupies 1 rank.
-        let empty = JpParty { group_size: 0, ..jp_m3_party() };
+        let empty = JpParty {
+            group_size: 0,
+            ..jp_m3_party()
+        };
         assert!((jp_column_length_km(&empty, "Open Plains") - 0.0002).abs() < JP_M3_EPS);
     }
 
@@ -12661,14 +15943,44 @@ mod tests {
         // 8 mules + 2 horses + 2 carts, 1000 km over 40 days, one blocked land
         // leg (excluded from carriage), one 500 km sea leg with 20 crew,
         // 3 stages crossing the claimed/unclaimed line twice, 2 transshipments.
-        let party = JpParty { group_size: 12, cargo_kg: 900.0, mule: 8, horse: 2, carts: 2, ..jp_m3_party() };
+        let party = JpParty {
+            group_size: 12,
+            cargo_kg: 900.0,
+            mule: 8,
+            horse: 2,
+            carts: 2,
+            ..jp_m3_party()
+        };
         let legs = vec![
-            JourneyLeg { blocked: false, cat: "land".into(), km: 400.0, crew: 0, days: 20.0 },
-            JourneyLeg { blocked: true, cat: "land".into(), km: 100.0, crew: 0, days: 5.0 },
-            JourneyLeg { blocked: false, cat: "sea".into(), km: 500.0, crew: 20, days: 15.0 },
+            JourneyLeg {
+                blocked: false,
+                cat: "land".into(),
+                km: 400.0,
+                crew: 0,
+                days: 20.0,
+            },
+            JourneyLeg {
+                blocked: true,
+                cat: "land".into(),
+                km: 100.0,
+                crew: 0,
+                days: 5.0,
+            },
+            JourneyLeg {
+                blocked: false,
+                cat: "sea".into(),
+                km: 500.0,
+                crew: 20,
+                days: 15.0,
+            },
         ];
-        let c = jp_journey_cost(&party, &legs, &[0.9, 0.2, 0.8], 40.0, 1000.0, 2).expect("priceable");
-        assert!((c.carriage - 20.7).abs() < JP_M3_EPS, "carriage {}", c.carriage);
+        let c =
+            jp_journey_cost(&party, &legs, &[0.9, 0.2, 0.8], 40.0, 1000.0, 2).expect("priceable");
+        assert!(
+            (c.carriage - 20.7).abs() < JP_M3_EPS,
+            "carriage {}",
+            c.carriage
+        );
         assert!((c.wages - 480.0).abs() < JP_M3_EPS);
         assert!((c.crew - 420.0).abs() < JP_M3_EPS);
         assert!((c.upkeep - 204.0).abs() < JP_M3_EPS);
@@ -12685,8 +15997,17 @@ mod tests {
     fn journey_cost_river_crew_dominates_a_zero_cargo_trip() {
         // River rate is 5x cheaper than land per tonne-km, but with no cargo
         // the whole bill is wages + the barge's mandatory 12 crew.
-        let party = JpParty { group_size: 4, ..jp_m3_party() };
-        let legs = vec![JourneyLeg { blocked: false, cat: "river".into(), km: 300.0, crew: 12, days: 10.0 }];
+        let party = JpParty {
+            group_size: 4,
+            ..jp_m3_party()
+        };
+        let legs = vec![JourneyLeg {
+            blocked: false,
+            cat: "river".into(),
+            km: 300.0,
+            crew: 12,
+            days: 10.0,
+        }];
         let c = jp_journey_cost(&party, &legs, &[0.3], 10.0, 300.0, 0).expect("priceable");
         assert!((c.carriage - 0.0).abs() < JP_M3_EPS);
         assert!((c.wages - 40.0).abs() < JP_M3_EPS);
@@ -12716,7 +16037,14 @@ mod tests {
     /// 17600), which is what the golden harness drove.
     fn jp_m4_plan() -> JpPlan {
         JpPlan {
-            party: JpParty { group_size: 12, cargo_kg: 900.0, mule: 8, horse: 2, carts: 2, ..JpParty::default() },
+            party: JpParty {
+                group_size: 12,
+                cargo_kg: 900.0,
+                mule: 8,
+                horse: 2,
+                carts: 2,
+                ..JpParty::default()
+            },
             transport: "Baggage Train".to_string(),
             mount_animal: Some("horse".to_string()),
             vessel: "Cog".to_string(),
@@ -12735,7 +16063,10 @@ mod tests {
     }
 
     fn jp_m4_stage() -> JpStage {
-        JpStage { km: 200.0, ..JpStage::default() }
+        JpStage {
+            km: 200.0,
+            ..JpStage::default()
+        }
     }
 
     fn near(a: f64, b: f64, what: &str) {
@@ -12761,7 +16092,11 @@ mod tests {
     fn human_water_rate_is_the_biome_midpoint_or_a_flat_fallback() {
         near(jp_human_water_rate("Temperate Forest"), 2.5, "temperate");
         near(jp_human_water_rate("Hot Desert"), 8.0, "hot desert");
-        near(jp_human_water_rate("Cold Desert / Badlands"), 5.5, "cold desert");
+        near(
+            jp_human_water_rate("Cold Desert / Badlands"),
+            5.5,
+            "cold desert",
+        );
         near(jp_human_water_rate("Tropical Jungle"), 4.0, "jungle");
         near(jp_human_water_rate("Wetlands / Marshes"), 3.5, "wetlands");
         // No biome at all -> the reference's own flat 2.5 L/day.
@@ -12775,11 +16110,31 @@ mod tests {
         // stream is always in reach. Deserts cap the reserve at 4 days.
         near(jp_human_water_carry_days("Hot Desert", 7), 4.0, "desert 7d");
         near(jp_human_water_carry_days("Hot Desert", 2), 2.0, "desert 2d");
-        near(jp_human_water_carry_days("Temperate Forest", 7), 0.0, "temperate");
-        near(jp_human_water_carry_days("Nonexistent Biome", 7), 0.0, "unknown");
-        near(jp_animal_water_carry_days("Cold Desert / Badlands", 10), 4.0, "animals desert");
-        near(jp_animal_water_carry_days("Cold Desert / Badlands", 3), 3.0, "animals short supply");
-        near(jp_animal_water_carry_days("Steppe / Grassland", 10), 0.0, "animals non-desert");
+        near(
+            jp_human_water_carry_days("Temperate Forest", 7),
+            0.0,
+            "temperate",
+        );
+        near(
+            jp_human_water_carry_days("Nonexistent Biome", 7),
+            0.0,
+            "unknown",
+        );
+        near(
+            jp_animal_water_carry_days("Cold Desert / Badlands", 10),
+            4.0,
+            "animals desert",
+        );
+        near(
+            jp_animal_water_carry_days("Cold Desert / Badlands", 3),
+            3.0,
+            "animals short supply",
+        );
+        near(
+            jp_animal_water_carry_days("Steppe / Grassland", 10),
+            0.0,
+            "animals non-desert",
+        );
     }
 
     #[test]
@@ -12804,11 +16159,19 @@ mod tests {
         // v1.101 Fix B: identical to the cartographic ease up to its own 16x
         // break point, then keeps going -- a 40,000 km world reads 50, which
         // `river_coarse_ease` would have clamped to 16.
-        near(jp_drinking_coarse_ease(0.0), 1.0, "no width -> 800 km default");
+        near(
+            jp_drinking_coarse_ease(0.0),
+            1.0,
+            "no width -> 800 km default",
+        );
         near(jp_drinking_coarse_ease(400.0), 1.0, "below the default");
         near(jp_drinking_coarse_ease(800.0), 1.0, "at the default");
         near(jp_drinking_coarse_ease(1600.0), 2.0, "2x");
-        near(jp_drinking_coarse_ease(40_000.0), 50.0, "past the cartographic cap");
+        near(
+            jp_drinking_coarse_ease(40_000.0),
+            50.0,
+            "past the cartographic cap",
+        );
         near(jp_drinking_coarse_ease(1e9), 64.0, "ceiling");
         assert!((cartalith_terrain::river_coarse_ease(40_000.0) - 16.0).abs() < JP_M4_EPS);
     }
@@ -12834,18 +16197,90 @@ mod tests {
     #[test]
     fn foraging_matches_the_reference_across_mode_biome_terrain_season_and_group_size() {
         for (mode, biome, terrain, season, people, mv, red, wred) in [
-            ("None", "Temperate Forest", "Forest Path", "Summer", 4, 1.0, 0.0, 0.0),
-            ("Active", "Temperate Forest", "Forest Path", "Summer", 4, 0.88, 0.5843750000000001, 0.1275),
+            (
+                "None",
+                "Temperate Forest",
+                "Forest Path",
+                "Summer",
+                4,
+                1.0,
+                0.0,
+                0.0,
+            ),
+            (
+                "Active",
+                "Temperate Forest",
+                "Forest Path",
+                "Summer",
+                4,
+                0.88,
+                0.5843750000000001,
+                0.1275,
+            ),
             // Winter forage collapses (0.45) and a 200-strong column strips
             // the smallest group-size factor (0.40) on top of it.
-            ("Active", "Temperate Forest", "Forest Path", "Winter", 200, 0.88, 0.09900000000000002, 0.0216),
-            ("Opportunistic", "Hot Desert", "Deep Sand", "Summer", 20, 0.97, 0.00055, 0.0001375),
-            ("Active", "Wetlands / Marshes", "Swamp / Marsh", "Spring", 1, 0.88, 0.385, 0.16940000000000002),
-            ("Active", "Tropical Jungle", "Forest Path", "Summer", 1, 0.88, 0.8125, 0.25),
+            (
+                "Active",
+                "Temperate Forest",
+                "Forest Path",
+                "Winter",
+                200,
+                0.88,
+                0.09900000000000002,
+                0.0216,
+            ),
+            (
+                "Opportunistic",
+                "Hot Desert",
+                "Deep Sand",
+                "Summer",
+                20,
+                0.97,
+                0.00055,
+                0.0001375,
+            ),
+            (
+                "Active",
+                "Wetlands / Marshes",
+                "Swamp / Marsh",
+                "Spring",
+                1,
+                0.88,
+                0.385,
+                0.16940000000000002,
+            ),
+            (
+                "Active",
+                "Tropical Jungle",
+                "Forest Path",
+                "Summer",
+                1,
+                0.88,
+                0.8125,
+                0.25,
+            ),
             // An unrecognised biome forages not at all, and does not even pay
             // the movement cost -- the reference returns before reading mode.
-            ("Active", "Nonexistent Biome", "Forest Path", "Summer", 4, 1.0, 0.0, 0.0),
-            ("Active", "Temperate Forest", "Unknown Terrain", "Autumn", 12, 0.88, 0.1925, 0.041999999999999996),
+            (
+                "Active",
+                "Nonexistent Biome",
+                "Forest Path",
+                "Summer",
+                4,
+                1.0,
+                0.0,
+                0.0,
+            ),
+            (
+                "Active",
+                "Temperate Forest",
+                "Unknown Terrain",
+                "Autumn",
+                12,
+                0.88,
+                0.1925,
+                0.041999999999999996,
+            ),
         ] {
             let f = jp_foraging(mode, biome, terrain, season, people, 1.0);
             let what = format!("{mode}/{biome}/{terrain}/{season}/{people}");
@@ -12862,19 +16297,42 @@ mod tests {
         // the flat JP_BIOMES.forage table meaningful.
         near(jp_wildlife_forage_mod(None, 10.0), 1.0, "no region");
         near(jp_wildlife_forage_mod(Some(4.0), 0.0), 1.0, "no world mean");
-        near(jp_wildlife_forage_mod(Some(10.0), 10.0), 1.0, "exactly average");
+        near(
+            jp_wildlife_forage_mod(Some(10.0), 10.0),
+            1.0,
+            "exactly average",
+        );
         // Golden: richness 4 against a mean of 10 is 0.4, clamped up to the
         // 0.5 floor; 16 against 10 lands on the 1.6 the reference reports.
-        near(jp_wildlife_forage_mod(Some(4.0), 10.0), 0.5, "sparse, clamped");
+        near(
+            jp_wildlife_forage_mod(Some(4.0), 10.0),
+            0.5,
+            "sparse, clamped",
+        );
         near(jp_wildlife_forage_mod(Some(16.0), 10.0), 1.6, "rich");
         near(jp_wildlife_forage_mod(Some(1000.0), 10.0), 1.8, "ceiling");
         // `_jpWorldMeanRichness` skips regions with no wildlife record.
-        near(jp_world_mean_richness(&[Some(4.0), Some(16.0)]), 10.0, "mean");
-        near(jp_world_mean_richness(&[Some(4.0), None, Some(16.0)]), 10.0, "mean skipping nulls");
+        near(
+            jp_world_mean_richness(&[Some(4.0), Some(16.0)]),
+            10.0,
+            "mean",
+        );
+        near(
+            jp_world_mean_richness(&[Some(4.0), None, Some(16.0)]),
+            10.0,
+            "mean skipping nulls",
+        );
         near(jp_world_mean_richness(&[]), 0.0, "no regions at all");
         // A game-rich region forages measurably better -- and only FOOD does:
         // water_reduction is unchanged from the wildlife_mod=1.0 case above.
-        let f = jp_foraging("Active", "Temperate Forest", "Forest Path", "Summer", 4, 1.6);
+        let f = jp_foraging(
+            "Active",
+            "Temperate Forest",
+            "Forest Path",
+            "Summer",
+            4,
+            1.6,
+        );
         near(f.reduction, 0.9350000000000002, "wildlife-modulated food");
         near(f.water_reduction, 0.1275, "water is not wildlife-modulated");
     }
@@ -12889,11 +16347,31 @@ mod tests {
         near(c.human_water, want[5], &format!("{what} human_water"));
         near(c.fodder, want[6], &format!("{what} fodder"));
         near(c.animal_water, want[7], &format!("{what} animal_water"));
-        near(c.animal_food_daily, want[8], &format!("{what} animal_food_daily"));
-        near(c.animal_water_daily, want[9], &format!("{what} animal_water_daily"));
-        near(c.draft_food_daily, want[10], &format!("{what} draft_food_daily"));
-        near(c.draft_water_daily, want[11], &format!("{what} draft_water_daily"));
-        near(c.human_water_rate, want[12], &format!("{what} human_water_rate"));
+        near(
+            c.animal_food_daily,
+            want[8],
+            &format!("{what} animal_food_daily"),
+        );
+        near(
+            c.animal_water_daily,
+            want[9],
+            &format!("{what} animal_water_daily"),
+        );
+        near(
+            c.draft_food_daily,
+            want[10],
+            &format!("{what} draft_food_daily"),
+        );
+        near(
+            c.draft_water_daily,
+            want[11],
+            &format!("{what} draft_water_daily"),
+        );
+        near(
+            c.human_water_rate,
+            want[12],
+            &format!("{what} human_water_rate"),
+        );
         near(c.mount_credit, want[13], &format!("{what} mount_credit"));
     }
 
@@ -12906,19 +16384,51 @@ mod tests {
         assert_capacity(
             &jp_capacity(&p, "Temperate Forest", "Summer"),
             "summer",
-            [1201.7, 2912.0, 0.0, 900.0, 119.69999999999999, 0.0, 182.0, 0.0, 52.0, 244.0, 0.0, 0.0, 2.5, 0.0],
+            [
+                1201.7,
+                2912.0,
+                0.0,
+                900.0,
+                119.69999999999999,
+                0.0,
+                182.0,
+                0.0,
+                52.0,
+                244.0,
+                0.0,
+                0.0,
+                2.5,
+                0.0,
+            ],
         );
         assert_capacity(
             &jp_capacity(&p, "Temperate Forest", "Winter"),
             "winter",
-            [1283.6, 3036.0, 0.0, 900.0, 163.8, 0.0, 219.79999999999998, 0.0, 62.8, 189.0, 0.0, 0.0, 2.5, 0.0],
+            [
+                1283.6,
+                3036.0,
+                0.0,
+                900.0,
+                163.8,
+                0.0,
+                219.79999999999998,
+                0.0,
+                62.8,
+                189.0,
+                0.0,
+                0.0,
+                2.5,
+                0.0,
+            ],
         );
         // An unrecognised season switches the whole seasonal-animal term off
         // rather than defaulting per field (the reference's own `||null`).
         assert_capacity(
             &jp_capacity(&p, "Nonexistent Biome", "Wetseason"),
             "no season, no biome",
-            [1215.0, 2980.0, 0.0, 900.0, 126.0, 0.0, 189.0, 0.0, 54.0, 210.0, 0.0, 0.0, 2.5, 0.0],
+            [
+                1215.0, 2980.0, 0.0, 900.0, 126.0, 0.0, 189.0, 0.0, 54.0, 210.0, 0.0, 0.0, 2.5, 0.0,
+            ],
         );
     }
 
@@ -12928,7 +16438,12 @@ mod tests {
         // both the human and the animal water reserve become real mass
         // (800 kg + 1008 kg of the 6.3 t total), and camels drink at 0.35x.
         let p = JpPlan {
-            party: JpParty { group_size: 20, cargo_kg: 3000.0, camel: 24, ..JpParty::default() },
+            party: JpParty {
+                group_size: 20,
+                cargo_kg: 3000.0,
+                camel: 24,
+                ..JpParty::default()
+            },
             supply_days: 10,
             grazing: "None — carry all fodder".to_string(),
             ..jp_m4_plan()
@@ -12936,7 +16451,10 @@ mod tests {
         assert_capacity(
             &jp_capacity(&p, "Hot Desert", "Summer"),
             "desert caravan",
-            [6324.2, 7800.0, 0.0, 3000.0, 285.0, 800.0, 1231.2, 1008.0, 123.12, 252.0, 0.0, 0.0, 8.0, 0.0],
+            [
+                6324.2, 7800.0, 0.0, 3000.0, 285.0, 800.0, 1231.2, 1008.0, 123.12, 252.0, 0.0, 0.0,
+                8.0, 0.0,
+            ],
         );
     }
 
@@ -12946,7 +16464,11 @@ mod tests {
         // get 10 x 120 kg x 0.3 = 360 kg of saddlebag capacity on top of the
         // flat porter rate...
         let p = JpPlan {
-            party: JpParty { group_size: 10, cargo_kg: 50.0, ..JpParty::default() },
+            party: JpParty {
+                group_size: 10,
+                cargo_kg: 50.0,
+                ..JpParty::default()
+            },
             transport: "Mounted Rider".to_string(),
             supply_days: 4,
             ..jp_m4_plan()
@@ -12954,13 +16476,20 @@ mod tests {
         assert_capacity(
             &jp_capacity(&p, "Steppe / Grassland", "Spring"),
             "mounted riders",
-            [110.0, 660.0, 0.0, 50.0, 60.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.0, 360.0],
+            [
+                110.0, 660.0, 0.0, 50.0, 60.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 4.0, 360.0,
+            ],
         );
         // ...while "Lone courier" (1 person, 1 horse already declared as a
         // pack animal) gets exactly zero extra: the same physical animal is
         // already earning the full pack rate.
         let p = JpPlan {
-            party: JpParty { group_size: 1, cargo_kg: 5.0, horse: 1, ..JpParty::default() },
+            party: JpParty {
+                group_size: 1,
+                cargo_kg: 5.0,
+                horse: 1,
+                ..JpParty::default()
+            },
             transport: "Mounted Rider".to_string(),
             supply_days: 2,
             grazing: "Full — graze on route".to_string(),
@@ -12969,7 +16498,22 @@ mod tests {
         assert_capacity(
             &jp_capacity(&p, "Steppe / Grassland", "Autumn"),
             "lone courier",
-            [8.15, 150.0, 0.0, 5.0, 3.1500000000000004, 0.0, 0.0, 0.0, 7.700000000000001, 23.75, 0.0, 0.0, 4.0, 0.0],
+            [
+                8.15,
+                150.0,
+                0.0,
+                5.0,
+                3.1500000000000004,
+                0.0,
+                0.0,
+                0.0,
+                7.700000000000001,
+                23.75,
+                0.0,
+                0.0,
+                4.0,
+                0.0,
+            ],
         );
     }
 
@@ -12978,7 +16522,14 @@ mod tests {
         // 30 wagons demand 90 draft animals; 100 are present, so there is no
         // shortfall at all.
         let p = JpPlan {
-            party: JpParty { group_size: 400, cargo_kg: 15000.0, mule: 20, horse: 80, wagons: 30, ..JpParty::default() },
+            party: JpParty {
+                group_size: 400,
+                cargo_kg: 15000.0,
+                mule: 20,
+                horse: 80,
+                wagons: 30,
+                ..JpParty::default()
+            },
             supply_days: 12,
             ..jp_m4_plan()
         };
@@ -12986,13 +16537,21 @@ mod tests {
         assert_capacity(
             &c,
             "army column",
-            [29082.0, 54390.0, 0.0, 15000.0, 9360.0, 0.0, 4722.0, 0.0, 787.0, 2160.0, 0.0, 0.0, 4.0, 0.0],
+            [
+                29082.0, 54390.0, 0.0, 15000.0, 9360.0, 0.0, 4722.0, 0.0, 787.0, 2160.0, 0.0, 0.0,
+                4.0, 0.0,
+            ],
         );
         // Two carts and no animals at all: the reference deliberately reports
         // NO shortfall (`realAnimals===0` gate), because a party with zero
         // animals is not "short four donkeys", it is hauling by hand.
         let p = JpPlan {
-            party: JpParty { group_size: 4, cargo_kg: 100.0, carts: 2, ..JpParty::default() },
+            party: JpParty {
+                group_size: 4,
+                cargo_kg: 100.0,
+                carts: 2,
+                ..JpParty::default()
+            },
             ..jp_m4_plan()
         };
         let c = jp_capacity(&p, "Temperate Forest", "Summer");
@@ -13000,7 +16559,13 @@ mod tests {
         near(c.draft_food_daily, 0.0, "no phantom food");
         // One donkey against the same two carts IS short three.
         let p = JpPlan {
-            party: JpParty { group_size: 4, cargo_kg: 100.0, carts: 2, donkey: 1, ..JpParty::default() },
+            party: JpParty {
+                group_size: 4,
+                cargo_kg: 100.0,
+                carts: 2,
+                donkey: 1,
+                ..JpParty::default()
+            },
             ..jp_m4_plan()
         };
         let c = jp_capacity(&p, "Temperate Forest", "Summer");
@@ -13015,7 +16580,11 @@ mod tests {
         // desert water (27.5 kg) puts the load at 43.2 kg. This is exactly the
         // case v1.84 was written about, and it is still real in a desert.
         let p = JpPlan {
-            party: JpParty { group_size: 1, cargo_kg: 10.0, ..JpParty::default() },
+            party: JpParty {
+                group_size: 1,
+                cargo_kg: 10.0,
+                ..JpParty::default()
+            },
             transport: "Walking".to_string(),
             supply_days: 4,
             grazing: "None — carry all fodder".to_string(),
@@ -13024,7 +16593,22 @@ mod tests {
         assert_capacity(
             &jp_capacity(&p, "Cold Desert / Badlands", "Summer"),
             "lone walker",
-            [43.2, 30.0, 0.0, 10.0, 5.699999999999999, 27.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 5.5, 0.0],
+            [
+                43.2,
+                30.0,
+                0.0,
+                10.0,
+                5.699999999999999,
+                27.5,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                5.5,
+                0.0,
+            ],
         );
     }
 
@@ -13038,7 +16622,10 @@ mod tests {
         assert!(!r.feasible && r.stops_needed.is_none());
         assert_eq!(r.limited_by.as_deref(), Some("capacity"));
         assert_eq!(r.cause, Some("load"));
-        assert_eq!(r.verdict, "Cannot carry sufficient supplies — over capacity by 1.0 t.");
+        assert_eq!(
+            r.verdict,
+            "Cannot carry sufficient supplies — over capacity by 1.0 t."
+        );
         let r = jp_assess_resupply(5000.0, 4000.0, 20.0, 25.0, 4.5, 7.0, true, 300.0);
         assert_eq!(r.cause, Some("water"));
         assert_eq!(r.limited_by.as_deref(), Some("water"));
@@ -13055,30 +16642,55 @@ mod tests {
     fn assess_resupply_binds_on_whichever_interval_is_shorter() {
         let r = jp_assess_resupply(900.0, 4000.0, 5.0, 25.0, f64::INFINITY, 7.0, true, 0.0);
         assert_eq!(r.stops_needed, Some(0));
-        assert_eq!(r.verdict, "No stops required — supplies cover the full stage (23% capacity).");
+        assert_eq!(
+            r.verdict,
+            "No stops required — supplies cover the full stage (23% capacity)."
+        );
         let r = jp_assess_resupply(900.0, 4000.0, 30.0, 25.0, f64::INFINITY, 7.0, true, 0.0);
         assert_eq!(r.stops_needed, Some(4));
         assert_eq!(r.limited_by.as_deref(), Some("food / settlement"));
-        assert_eq!(r.verdict, "4 resupply stops — every ~175 km (~7.0 d). Binding: food / settlement.");
+        assert_eq!(
+            r.verdict,
+            "4 resupply stops — every ~175 km (~7.0 d). Binding: food / settlement."
+        );
         // A 3-day water gap beats the 7-day supply interval, so water binds.
         let r = jp_assess_resupply(900.0, 4000.0, 30.0, 25.0, 3.0, 7.0, true, 120.0);
         assert_eq!(r.stops_needed, Some(9));
         assert_eq!(r.limited_by.as_deref(), Some("water"));
-        assert_eq!(r.verdict, "9 resupply stops — every ~75 km (~3.0 d). Binding: water.");
+        assert_eq!(
+            r.verdict,
+            "9 resupply stops — every ~75 km (~3.0 d). Binding: water."
+        );
         // Carrying no food at all leaves water the only interval, and says so.
         let r = jp_assess_resupply(900.0, 4000.0, 30.0, 25.0, 3.0, 7.0, false, 120.0);
         assert_eq!(r.limited_by.as_deref(), Some("water (no food carried)"));
-        assert_eq!(r.verdict, "9 resupply stops — every ~75 km (~3.0 d). Binding: water (no food carried).");
+        assert_eq!(
+            r.verdict,
+            "9 resupply stops — every ~75 km (~3.0 d). Binding: water (no food carried)."
+        );
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn assert_land(c: &JpLandCalc, what: &str, daily_km: f64, days: f64, load_ratio: f64, col_km: f64, col_mod: f64, water_gap_days: f64) {
+    fn assert_land(
+        c: &JpLandCalc,
+        what: &str,
+        daily_km: f64,
+        days: f64,
+        load_ratio: f64,
+        col_km: f64,
+        col_mod: f64,
+        water_gap_days: f64,
+    ) {
         near(c.daily_km, daily_km, &format!("{what} daily_km"));
         near(c.days, days, &format!("{what} days"));
         near(c.load_ratio, load_ratio, &format!("{what} load_ratio"));
         near(c.col_km, col_km, &format!("{what} col_km"));
         near(c.col_mod, col_mod, &format!("{what} col_mod"));
-        near(c.water_gap_days, water_gap_days, &format!("{what} water_gap_days"));
+        near(
+            c.water_gap_days,
+            water_gap_days,
+            &format!("{what} water_gap_days"),
+        );
     }
 
     #[test]
@@ -13102,36 +16714,76 @@ mod tests {
         near(c.cap.capacity, 2912.0, "cap capacity");
         let r = c.resupply.expect("has capacity");
         assert_eq!(r.stops_needed, Some(1));
-        assert_eq!(r.verdict, "1 resupply stop — every ~157 km (~7.0 d). Binding: food / settlement.");
+        assert_eq!(
+            r.verdict,
+            "1 resupply stop — every ~157 km (~7.0 d). Binding: food / settlement."
+        );
     }
 
     #[test]
     fn calc_land_foraging_and_column_length_reach_the_answer() {
         // A 4-person walking party foraging actively across open plains.
-        let st = JpStage { km: 120.0, terrain: "Open Plains".to_string(), ..jp_m4_stage() };
+        let st = JpStage {
+            km: 120.0,
+            terrain: "Open Plains".to_string(),
+            ..jp_m4_stage()
+        };
         let p = JpPlan {
-            party: JpParty { group_size: 4, cargo_kg: 40.0, ..JpParty::default() },
+            party: JpParty {
+                group_size: 4,
+                cargo_kg: 40.0,
+                ..JpParty::default()
+            },
             transport: "Walking".to_string(),
             supply_days: 5,
             foraging: "Active".to_string(),
             ..jp_m4_plan()
         };
         let c = jp_calc_land(&st, &p).expect("not blocked");
-        assert_land(&c, "walkers", 28.3616704, 4.231062497644708, 0.45834800806842935, 0.0008, 0.9999717937122995, 0.5);
+        assert_land(
+            &c,
+            "walkers",
+            28.3616704,
+            4.231062497644708,
+            0.45834800806842935,
+            0.0008,
+            0.9999717937122995,
+            0.5,
+        );
         assert_eq!(c.transport_label, "Walking");
 
         // A 400-strong column with 30 wagons occupies 430 m of road and pays
         // 3.8% of its marching day to its own passage -- the v1.51 physics
         // that stopped bigger parties from being monotonically faster.
-        let st = JpStage { km: 400.0, biome: "Steppe / Grassland".to_string(), ..jp_m4_stage() };
+        let st = JpStage {
+            km: 400.0,
+            biome: "Steppe / Grassland".to_string(),
+            ..jp_m4_stage()
+        };
         let p = JpPlan {
-            party: JpParty { group_size: 400, cargo_kg: 15000.0, mule: 20, horse: 80, wagons: 30, ..JpParty::default() },
+            party: JpParty {
+                group_size: 400,
+                cargo_kg: 15000.0,
+                mule: 20,
+                horse: 80,
+                wagons: 30,
+                ..JpParty::default()
+            },
             supply_days: 12,
             foraging: "Opportunistic".to_string(),
             ..jp_m4_plan()
         };
         let c = jp_calc_land(&st, &p).expect("not blocked");
-        assert_land(&c, "army", 10.822001552000001, 36.96173929360382, 0.5086356912573488, 0.43, 0.9617845769028027, 0.5);
+        assert_land(
+            &c,
+            "army",
+            10.822001552000001,
+            36.96173929360382,
+            0.5086356912573488,
+            0.43,
+            0.9617845769028027,
+            0.5,
+        );
         assert_eq!(c.transport_label, "Baggage Train — wagon-limited");
     }
 
@@ -13149,7 +16801,12 @@ mod tests {
             ..jp_m4_stage()
         };
         let p = JpPlan {
-            party: JpParty { group_size: 20, cargo_kg: 3000.0, camel: 24, ..JpParty::default() },
+            party: JpParty {
+                group_size: 20,
+                cargo_kg: 3000.0,
+                camel: 24,
+                ..JpParty::default()
+            },
             supply_days: 10,
             grazing: "None — carry all fodder".to_string(),
             ..jp_m4_plan()
@@ -13177,14 +16834,28 @@ mod tests {
             ..jp_m4_stage()
         };
         let p = JpPlan {
-            party: JpParty { group_size: 20, cargo_kg: 3000.0, camel: 24, ..JpParty::default() },
+            party: JpParty {
+                group_size: 20,
+                cargo_kg: 3000.0,
+                camel: 24,
+                ..JpParty::default()
+            },
             supply_days: 10,
             grazing: "None — carry all fodder".to_string(),
             desert_water: Some("Sparse Wells".to_string()),
             ..jp_m4_plan()
         };
         let c = jp_calc_land(&st, &p).expect("not blocked");
-        assert_land(&c, "sparse wells", 20.333979989333333, 14.753629154615675, 1.1830769230769231, 0.04133333333333333, 0.9983764623695736, 6.0);
+        assert_land(
+            &c,
+            "sparse wells",
+            20.333979989333333,
+            14.753629154615675,
+            1.1830769230769231,
+            0.04133333333333333,
+            0.9983764623695736,
+            6.0,
+        );
         assert!(c.is_desert);
         assert_eq!(c.desert_tier, Some(("Sparse Wells", false)));
         near(c.dry_km, 180.0, "dry_km");
@@ -13201,21 +16872,45 @@ mod tests {
     #[test]
     fn calc_land_hard_blocks_fire_before_anything_is_computed() {
         let p = jp_m4_plan();
-        let st = JpStage { terrain: "Deep Sand".to_string(), ..jp_m4_stage() };
+        let st = JpStage {
+            terrain: "Deep Sand".to_string(),
+            ..jp_m4_stage()
+        };
         assert_eq!(
             jp_calc_land(&st, &p).expect_err("blocked").reason,
             "Wheeled vehicles cannot traverse Deep Sand. Remove carts/wagons or reroute."
         );
-        let st = JpStage { terrain: "Swamp / Marsh".to_string(), ..jp_m4_stage() };
-        let mounted = JpPlan { transport: "Mounted Rider".to_string(), party: JpParty { carts: 0, ..p.party }, ..p.clone() };
+        let st = JpStage {
+            terrain: "Swamp / Marsh".to_string(),
+            ..jp_m4_stage()
+        };
+        let mounted = JpPlan {
+            transport: "Mounted Rider".to_string(),
+            party: JpParty {
+                carts: 0,
+                ..p.party
+            },
+            ..p.clone()
+        };
         assert_eq!(
             jp_calc_land(&st, &mounted).expect_err("blocked").reason,
             "Mounted travel is not viable in Swamp / Marsh. Switch to Walking or reroute."
         );
         // A closed pass is `seasonal`, which is what tells "wrong month" from
         // "wrong party".
-        let st = JpStage { terrain: "Mountain Pass".to_string(), biome: "Mountain Highland".to_string(), ..jp_m4_stage() };
-        let winter = JpPlan { season: "Winter".to_string(), party: JpParty { carts: 0, ..p.party }, ..p.clone() };
+        let st = JpStage {
+            terrain: "Mountain Pass".to_string(),
+            biome: "Mountain Highland".to_string(),
+            ..jp_m4_stage()
+        };
+        let winter = JpPlan {
+            season: "Winter".to_string(),
+            party: JpParty {
+                carts: 0,
+                ..p.party
+            },
+            ..p.clone()
+        };
         let err = jp_calc_land(&st, &winter).expect_err("blocked");
         assert!(err.seasonal);
         assert_eq!(
@@ -13226,11 +16921,17 @@ mod tests {
         // v1.63: 40 t of cargo against 60 kg of porter capacity cannot depart
         // at any speed, and is caught before the convergence loop ever runs.
         let hopeless = JpPlan {
-            party: JpParty { group_size: 2, cargo_kg: 40000.0, ..JpParty::default() },
+            party: JpParty {
+                group_size: 2,
+                cargo_kg: 40000.0,
+                ..JpParty::default()
+            },
             ..p.clone()
         };
         assert_eq!(
-            jp_calc_land(&jp_m4_stage(), &hopeless).expect_err("blocked").reason,
+            jp_calc_land(&jp_m4_stage(), &hopeless)
+                .expect_err("blocked")
+                .reason,
             "Overloaded 66700% of capacity (40.0 t carried vs 60 kg rated) — no party departs in this state. \
              Assign pack animals or a cart/wagon for this stage, reduce cargo, or split the load across a resupply stop."
         );
@@ -13240,9 +16941,18 @@ mod tests {
     fn calc_land_haste_bypasses_the_soft_modifiers_and_sleds_glide_on_snow() {
         // Haste forces coordination/fatigue/grazing/foraging/load to 1.000 --
         // a lone courier on pavement makes 90 km/day.
-        let st = JpStage { km: 150.0, terrain: "Paved Road".to_string(), ..jp_m4_stage() };
+        let st = JpStage {
+            km: 150.0,
+            terrain: "Paved Road".to_string(),
+            ..jp_m4_stage()
+        };
         let p = JpPlan {
-            party: JpParty { group_size: 1, cargo_kg: 5.0, horse: 1, ..JpParty::default() },
+            party: JpParty {
+                group_size: 1,
+                cargo_kg: 5.0,
+                horse: 1,
+                ..JpParty::default()
+            },
             transport: "Mounted Rider".to_string(),
             pace: "Haste".to_string(),
             hours: 10.0,
@@ -13251,7 +16961,16 @@ mod tests {
             ..jp_m4_plan()
         };
         let c = jp_calc_land(&st, &p).expect("not blocked");
-        assert_land(&c, "haste courier", 90.41448333333334, 1.659026236393911, 0.05688405797101449, 0.0017666666666666666, 0.9999804607394505, 0.5);
+        assert_land(
+            &c,
+            "haste courier",
+            90.41448333333334,
+            1.659026236393911,
+            0.05688405797101449,
+            0.0017666666666666666,
+            0.9999804607394505,
+            0.5,
+        );
         assert_eq!(c.transport_label, "Mounted Rider — Horse");
         assert_eq!(c.mount_key, Some("horse"));
 
@@ -13264,14 +16983,29 @@ mod tests {
             ..jp_m4_stage()
         };
         let p = JpPlan {
-            party: JpParty { group_size: 6, cargo_kg: 500.0, mule: 4, sleds: 2, ..JpParty::default() },
+            party: JpParty {
+                group_size: 6,
+                cargo_kg: 500.0,
+                mule: 4,
+                sleds: 2,
+                ..JpParty::default()
+            },
             season: "Winter".to_string(),
             supply_days: 6,
             seasonal_closures: false,
             ..jp_m4_plan()
         };
         let c = jp_calc_land(&st, &p).expect("not blocked");
-        assert_land(&c, "sleds", 19.427984000000002, 5.147214451072226, 0.403556095382311, 0.0172, 0.9991154622141915, 0.5);
+        assert_land(
+            &c,
+            "sleds",
+            19.427984000000002,
+            5.147214451072226,
+            0.403556095382311,
+            0.0172,
+            0.9991154622141915,
+            0.5,
+        );
         assert_eq!(c.transport_label, "Baggage Train — sled-limited");
     }
 
@@ -13288,7 +17022,11 @@ mod tests {
             ..jp_m4_stage()
         };
         let p = JpPlan {
-            party: JpParty { group_size: 6, cargo_kg: 40000.0, ..JpParty::default() },
+            party: JpParty {
+                group_size: 6,
+                cargo_kg: 40000.0,
+                ..JpParty::default()
+            },
             transport: "Sea Faring".to_string(),
             vessel: "Cog".to_string(),
             supply_days: 14,
@@ -13303,7 +17041,10 @@ mod tests {
         assert_eq!(c.crew, 20);
         assert_eq!(c.transport_label, "Sea Faring — Cog");
         assert_eq!(c.resupply.limited_by, None);
-        assert_eq!(c.resupply.verdict, "Loaded at port — no en-route resupply required (51% hold).");
+        assert_eq!(
+            c.resupply.verdict,
+            "Loaded at port — no en-route resupply required (51% hold)."
+        );
 
         // A Keelboat on a calm river: a 2-day settlement interval, and real
         // resupply stops.
@@ -13315,7 +17056,11 @@ mod tests {
             ..jp_m4_stage()
         };
         let p = JpPlan {
-            party: JpParty { group_size: 4, cargo_kg: 5000.0, ..JpParty::default() },
+            party: JpParty {
+                group_size: 4,
+                cargo_kg: 5000.0,
+                ..JpParty::default()
+            },
             transport: "River Transport".to_string(),
             vessel: "Keelboat".to_string(),
             ..jp_m4_plan()
@@ -13324,12 +17069,20 @@ mod tests {
         near(c.daily_km, 59.28, "keelboat daily_km");
         near(c.days, 3.0364372469635628, "keelboat days");
         near(c.water_needed, 66.0, "keelboat water");
-        assert_eq!(c.resupply.verdict, "1 resupply stop — every ~119 km (~2.0 d). Binding: food / settlement.");
+        assert_eq!(
+            c.resupply.verdict,
+            "1 resupply stop — every ~119 km (~2.0 d). Binding: food / settlement."
+        );
 
         // The same boat through a desert biome carries 2.0x the river water
         // reserve rather than 1.10x -- a hold mid-passage cannot detour to a
         // stream the way a land party can, so jpCalcWater keeps its own rule.
-        let st = JpStage { terrain: "Moderate River".to_string(), route_cond: "Neutral".to_string(), biome: "Hot Desert".to_string(), ..st };
+        let st = JpStage {
+            terrain: "Moderate River".to_string(),
+            route_cond: "Neutral".to_string(),
+            biome: "Hot Desert".to_string(),
+            ..st
+        };
         let c = jp_calc_water(&st, &p).expect("not blocked");
         near(c.water_needed, 384.0, "desert river water");
         near(c.daily_km, 37.7136, "desert river daily_km");
@@ -13347,13 +17100,24 @@ mod tests {
         };
         // The vessel rating is checked BEFORE the sailing season: a hull that
         // could never be here at all reports that first.
-        let p = JpPlan { transport: "Sea Faring".to_string(), vessel: "Keelboat".to_string(), season: "Winter".to_string(), ..jp_m4_plan() };
+        let p = JpPlan {
+            transport: "Sea Faring".to_string(),
+            vessel: "Keelboat".to_string(),
+            season: "Winter".to_string(),
+            ..jp_m4_plan()
+        };
         let err = jp_calc_water(&st, &p).expect_err("blocked");
         assert!(!err.seasonal);
-        assert_eq!(err.reason, "Keelboat is not rated for open-sea conditions on this leg.");
+        assert_eq!(
+            err.reason,
+            "Keelboat is not rated for open-sea conditions on this leg."
+        );
         // With a hull that IS rated, winter closes the lane -- and flags it
         // seasonal.
-        let p = JpPlan { vessel: "Cog".to_string(), ..p };
+        let p = JpPlan {
+            vessel: "Cog".to_string(),
+            ..p
+        };
         let err = jp_calc_water(&st, &p).expect_err("blocked");
         assert!(err.seasonal);
         assert_eq!(
@@ -13363,9 +17127,16 @@ mod tests {
         );
         // A hold that cannot take cargo + supplies is blocked inside the
         // convergence loop, not silently slowed.
-        let st = JpStage { terrain: "Coastal Waters".to_string(), ..st };
+        let st = JpStage {
+            terrain: "Coastal Waters".to_string(),
+            ..st
+        };
         let p = JpPlan {
-            party: JpParty { group_size: 6, cargo_kg: 1400.0, ..JpParty::default() },
+            party: JpParty {
+                group_size: 6,
+                cargo_kg: 1400.0,
+                ..JpParty::default()
+            },
             vessel: "Fishing Vessel".to_string(),
             supply_days: 14,
             season: "Summer".to_string(),
@@ -13376,8 +17147,18 @@ mod tests {
             "Hold overloaded: 1.9 t exceeds Fishing Vessel's 1.5 t capacity."
         );
         // An unnamed vessel is the reference's own "no vessel" verdict.
-        let p = JpPlan { vessel: "Raft".to_string(), party: JpParty { cargo_kg: 0.0, ..p.party }, ..p };
-        assert_eq!(jp_calc_water(&st, &p).expect_err("blocked").reason, "No vessel selected for the water leg.");
+        let p = JpPlan {
+            vessel: "Raft".to_string(),
+            party: JpParty {
+                cargo_kg: 0.0,
+                ..p.party
+            },
+            ..p
+        };
+        assert_eq!(
+            jp_calc_water(&st, &p).expect_err("blocked").reason,
+            "No vessel selected for the water leg."
+        );
     }
 
     #[test]
@@ -13390,13 +17171,27 @@ mod tests {
         near(km, 31.0714, "dirt track best km/day");
         // On Forest Path the wheeled variants are blocked outright, and the
         // measurement simply skips them.
-        let st = JpStage { terrain: "Forest Path".to_string(), ..jp_m4_stage() };
-        let p2 = JpPlan { party: JpParty { carts: 0, travois: 2, ..p.party }, ..p.clone() };
+        let st = JpStage {
+            terrain: "Forest Path".to_string(),
+            ..jp_m4_stage()
+        };
+        let p2 = JpPlan {
+            party: JpParty {
+                carts: 0,
+                travois: 2,
+                ..p.party
+            },
+            ..p.clone()
+        };
         let (mode, km) = jp_best_land_transport_for_stage(&st, &p2).expect("a mode wins");
         assert_eq!(mode, "Mounted Rider");
         near(km, 23.2918, "forest path best km/day");
         // Water stages are not its business.
-        let st = JpStage { cat: "sea".to_string(), terrain: "Coastal Waters".to_string(), ..jp_m4_stage() };
+        let st = JpStage {
+            cat: "sea".to_string(),
+            terrain: "Coastal Waters".to_string(),
+            ..jp_m4_stage()
+        };
         assert!(jp_best_land_transport_for_stage(&st, &p).is_none());
     }
 
@@ -13414,15 +17209,60 @@ mod tests {
         wb[3 * gw + 2] = 2;
         let pts: Vec<(f64, f64)> = (0..gw).map(|x| (x as f64, 3.0)).collect();
         near(
-            jp_stage_dry_km(&pts, 0, gw - 1, 5.0, Some(&wb), Some(&flow), gw, gh, 100.0, 800.0),
+            jp_stage_dry_km(
+                &pts,
+                0,
+                gw - 1,
+                5.0,
+                Some(&wb),
+                Some(&flow),
+                gw,
+                gh,
+                100.0,
+                800.0,
+            ),
             25.0,
             "river + lake",
         );
         // Without the lake the party is dry from the start: 45 km.
-        near(jp_stage_dry_km(&pts, 0, gw - 1, 5.0, None, Some(&flow), gw, gh, 100.0, 800.0), 45.0, "river only");
+        near(
+            jp_stage_dry_km(
+                &pts,
+                0,
+                gw - 1,
+                5.0,
+                None,
+                Some(&flow),
+                gw,
+                gh,
+                100.0,
+                800.0,
+            ),
+            45.0,
+            "river only",
+        );
         // Sub-ranges measure only their own span.
-        near(jp_stage_dry_km(&pts, 0, 5, 5.0, Some(&wb), Some(&flow), gw, gh, 100.0, 800.0), 5.0, "first half");
-        near(jp_stage_dry_km(&pts, 6, 10, 5.0, None, Some(&flow), gw, gh, 100.0, 800.0), 15.0, "middle");
+        near(
+            jp_stage_dry_km(
+                &pts,
+                0,
+                5,
+                5.0,
+                Some(&wb),
+                Some(&flow),
+                gw,
+                gh,
+                100.0,
+                800.0,
+            ),
+            5.0,
+            "first half",
+        );
+        near(
+            jp_stage_dry_km(&pts, 6, 10, 5.0, None, Some(&flow), gw, gh, 100.0, 800.0),
+            15.0,
+            "middle",
+        );
     }
 
     #[test]
@@ -13432,12 +17272,33 @@ mod tests {
         // leave a 2200 km gap. Water stages and blocked stages are ignored.
         let pts: Vec<(f64, f64)> = (0..100).map(|x| (x as f64, 3.0)).collect();
         let stages = vec![
-            ResupplyReachStage { blocked: false, cat: "land".to_string(), daily_km: 20.0, supply_days: 7 },
-            ResupplyReachStage { blocked: false, cat: "land".to_string(), daily_km: 12.0, supply_days: 5 },
-            ResupplyReachStage { blocked: false, cat: "sea".to_string(), daily_km: 60.0, supply_days: 14 },
-            ResupplyReachStage { blocked: true, cat: "land".to_string(), daily_km: 5.0, supply_days: 2 },
+            ResupplyReachStage {
+                blocked: false,
+                cat: "land".to_string(),
+                daily_km: 20.0,
+                supply_days: 7,
+            },
+            ResupplyReachStage {
+                blocked: false,
+                cat: "land".to_string(),
+                daily_km: 12.0,
+                supply_days: 5,
+            },
+            ResupplyReachStage {
+                blocked: false,
+                cat: "sea".to_string(),
+                daily_km: 60.0,
+                supply_days: 14,
+            },
+            ResupplyReachStage {
+                blocked: true,
+                cat: "land".to_string(),
+                daily_km: 5.0,
+                supply_days: 2,
+            },
         ];
-        let r = jp_resupply_reach(&pts, 50.0, 16, &stages, &[(20.0, 3.0), (55.0, 3.0)], true).expect("measurable");
+        let r = jp_resupply_reach(&pts, 50.0, 16, &stages, &[(20.0, 3.0), (55.0, 3.0)], true)
+            .expect("measurable");
         near(r.required_km, 60.0, "required_km");
         near(r.max_gap_km, 2200.0, "max_gap_km");
         near(r.gap_at_km, 2750.0, "gap_at_km");
@@ -13506,7 +17367,8 @@ mod tests {
 
     fn m5_fields() -> M5Fields {
         let n = M5_GW * M5_GH;
-        let (mut field, mut temp, mut rain, mut flow) = (vec![0f32; n], vec![0f32; n], vec![0f32; n], vec![0f32; n]);
+        let (mut field, mut temp, mut rain, mut flow) =
+            (vec![0f32; n], vec![0f32; n], vec![0f32; n], vec![0f32; n]);
         let mut water_bodies = vec![0u8; n];
         let mut territory = vec![-1i32; n];
         for y in 0..M5_GH {
@@ -13534,18 +17396,55 @@ mod tests {
                 }
             }
         }
-        let cart_biome = build_cart_biome(&field, &water_bodies, &temp, &rain, M5_GW, M5_GH, false, M5_SEA);
-        let cart_terrain = build_cart_terrain(&field, &water_bodies, &temp, &rain, M5_GW, M5_GH, false, M5_SEA);
+        let cart_biome = build_cart_biome(
+            &field,
+            &water_bodies,
+            &temp,
+            &rain,
+            M5_GW,
+            M5_GH,
+            false,
+            M5_SEA,
+        );
+        let cart_terrain = build_cart_terrain(
+            &field,
+            &water_bodies,
+            &temp,
+            &rain,
+            M5_GW,
+            M5_GH,
+            false,
+            M5_SEA,
+        );
 
-        let way = |pts: Vec<(f64, f64)>, way_type: WayType| Way { tid: 0, pts, brks: Vec::new(), km: 0.0, name: String::new(), way_type, a_idx: 0, b_idx: 1, hidden: false };
+        let way = |pts: Vec<(f64, f64)>, way_type: WayType| Way {
+            tid: 0,
+            pts,
+            brks: Vec::new(),
+            km: 0.0,
+            name: String::new(),
+            way_type,
+            a_idx: 0,
+            b_idx: 1,
+            hidden: false,
+        };
         let ways = vec![
             way(vec![(9.0, 6.0), (14.0, 6.0), (20.0, 6.0)], WayType::Highway),
             way(vec![(16.0, 9.0), (19.0, 12.0)], WayType::Track),
         ];
-        let edges = vec![RoadEdge { a: 0, b: 1, path: vec![11 * M5_GW + 11, 11 * M5_GW + 12, 11 * M5_GW + 13] }];
+        let edges = vec![RoadEdge {
+            a: 0,
+            b: 1,
+            path: vec![11 * M5_GW + 11, 11 * M5_GW + 12, 11 * M5_GW + 13],
+        }];
         let road_cells = jp_road_cells(&ways, &edges, M5_GW);
 
-        let place = |name: &str, kind: &str, x: f64, y: f64| JpPlace { name: name.to_string(), kind: kind.to_string(), x, y };
+        let place = |name: &str, kind: &str, x: f64, y: f64| JpPlace {
+            name: name.to_string(),
+            kind: kind.to_string(),
+            x,
+            y,
+        };
         let places = vec![
             place("Aldermoor", "city", 9.0, 3.0),
             place("Brackwater", "town", 12.0, 6.0),
@@ -13554,7 +17453,12 @@ mod tests {
             place("", "hamlet", 5.0, 1.0),
         ];
 
-        let (mut ou, mut ov, mut wu, mut wv) = (vec![0f32; 24], vec![0f32; 24], vec![0f32; 24], vec![0f32; 24]);
+        let (mut ou, mut ov, mut wu, mut wv) = (
+            vec![0f32; 24],
+            vec![0f32; 24],
+            vec![0f32; 24],
+            vec![0f32; 24],
+        );
         for k in 0..24usize {
             ou[k] = (0.5 - (k % 3) as f64 * 0.25) as f32;
             ov[k] = (0.25 * ((k % 4) as f64 - 1.0)) as f32;
@@ -13572,8 +17476,20 @@ mod tests {
             cart_terrain,
             road_cells,
             places,
-            ocean: JpCoarseField { ww: 6, wh: 4, u: ou, v: ov, max_speed: 1.0 },
-            wind: JpCoarseField { ww: 6, wh: 4, u: wu, v: wv, max_speed: 1.0 },
+            ocean: JpCoarseField {
+                ww: 6,
+                wh: 4,
+                u: ou,
+                v: ov,
+                max_speed: 1.0,
+            },
+            wind: JpCoarseField {
+                ww: 6,
+                wh: 4,
+                u: wu,
+                v: wv,
+                max_speed: 1.0,
+            },
         }
     }
 
@@ -13602,14 +17518,28 @@ mod tests {
     }
 
     fn m5_pts() -> Vec<(f64, f64)> {
-        (0..=23).map(|k| (2.0 + k as f64 * (20.0 / 23.0), 2.0 + k as f64 * (11.0 / 23.0))).collect()
+        (0..=23)
+            .map(|k| {
+                (
+                    2.0 + k as f64 * (20.0 / 23.0),
+                    2.0 + k as f64 * (11.0 / 23.0),
+                )
+            })
+            .collect()
     }
 
     /// The reference's own "Merchant caravan" party, as the harness drove it,
     /// on the vessel `_jpEnsurePlan` auto-corrected to.
     fn m5_plan() -> JpPlan {
         JpPlan {
-            party: JpParty { group_size: 12, cargo_kg: 900.0, mule: 8, horse: 2, carts: 2, ..JpParty::default() },
+            party: JpParty {
+                group_size: 12,
+                cargo_kg: 900.0,
+                mule: 8,
+                horse: 2,
+                carts: 2,
+                ..JpParty::default()
+            },
             transport: "Baggage Train".to_string(),
             vessel: "Keelboat".to_string(),
             supply_days: 7,
@@ -13623,7 +17553,10 @@ mod tests {
     }
 
     fn near5(a: f64, b: f64, what: &str) {
-        assert!((a - b).abs() <= M5_EPS * b.abs().max(1.0), "{what}: got {a}, reference {b}");
+        assert!(
+            (a - b).abs() <= M5_EPS * b.abs().max(1.0),
+            "{what}: got {a}, reference {b}"
+        );
     }
 
     #[test]
@@ -13644,7 +17577,11 @@ mod tests {
             let i = y * M5_GW + x;
             assert_eq!(f.cart_biome[i], cb, "cart biome at ({x},{y})");
             assert_eq!(f.cart_terrain[i], ct, "cart terrain at ({x},{y})");
-            assert_eq!(jp_legacy_biome_of(f.cart_biome[i], f.temp[i] as f64, f.rain[i] as f64), legacy, "legacy biome at ({x},{y})");
+            assert_eq!(
+                jp_legacy_biome_of(f.cart_biome[i], f.temp[i] as f64, f.rain[i] as f64),
+                legacy,
+                "legacy biome at ({x},{y})"
+            );
         }
         // The `Hills` (13) index is the one that has no JP_BIOMES entry of its
         // own and must be classified from the climate underneath it.
@@ -13669,19 +17606,38 @@ mod tests {
         // The highway along y=6 dilates to y=5..7.
         for y in 5..=7 {
             let c = f.road_cells.get(&(10, y)).expect("highway cell");
-            assert_eq!((c.terrain, c.cond, c.pri), ("Paved Road", "Maintained", 3), "highway at (10,{y})");
+            assert_eq!(
+                (c.terrain, c.cond, c.pri),
+                ("Paved Road", "Maintained", 3),
+                "highway at (10,{y})"
+            );
         }
         // `state.roads.edges`' own path is always a plain dirt track.
         let c = f.road_cells.get(&(10, 11)).expect("reference-road cell");
         assert_eq!((c.terrain, c.cond, c.pri), ("Dirt Track", "Standard", 1));
-        assert!(!f.road_cells.contains_key(&(2, 2)), "open country carries no road");
+        assert!(
+            !f.road_cells.contains_key(&(2, 2)),
+            "open country carries no road"
+        );
     }
 
     #[test]
     fn m5_infra_context_is_the_worlds_own_areal_settlement_density() {
         let f = m5_fields();
-        let ctx = jp_infra_context(f.places.len(), 6.0 * (M5_MAP_WIDTH_KM / M5_GW as f64), &f.field, M5_GW, M5_GH, M5_SEA, M5_MAP_WIDTH_KM);
-        near5(ctx.expected_per_100, 0.789_473_684_210_526_2, "expectedPer100");
+        let ctx = jp_infra_context(
+            f.places.len(),
+            6.0 * (M5_MAP_WIDTH_KM / M5_GW as f64),
+            &f.field,
+            M5_GW,
+            M5_GH,
+            M5_SEA,
+            M5_MAP_WIDTH_KM,
+        );
+        near5(
+            ctx.expected_per_100,
+            0.789_473_684_210_526_2,
+            "expectedPer100",
+        );
         near5(ctx.land_km2, 253_333.333_333_333_37, "landKm2");
         assert_eq!(ctx.count, 5);
     }
@@ -13689,7 +17645,15 @@ mod tests {
     #[test]
     fn m5_stage_infra_applies_all_three_of_the_references_corrections() {
         let f = m5_fields();
-        let ctx = jp_infra_context(f.places.len(), 6.0 * (M5_MAP_WIDTH_KM / M5_GW as f64), &f.field, M5_GW, M5_GH, M5_SEA, M5_MAP_WIDTH_KM);
+        let ctx = jp_infra_context(
+            f.places.len(),
+            6.0 * (M5_MAP_WIDTH_KM / M5_GW as f64),
+            &f.field,
+            M5_GW,
+            M5_GH,
+            M5_SEA,
+            M5_MAP_WIDTH_KM,
+        );
         let base = JpDerivedStage {
             cat: "land".to_string(),
             biome: "Steppe / Grassland".to_string(),
@@ -13710,14 +17674,41 @@ mod tests {
             my: 0.0,
         };
         assert_eq!(jp_stage_infra(&base, &ctx), "Sparse Settlements");
-        assert_eq!(jp_stage_infra(&JpDerivedStage { claimed_frac: 0.6, ..base.clone() }, &ctx), "Sparse Settlements");
+        assert_eq!(
+            jp_stage_infra(
+                &JpDerivedStage {
+                    claimed_frac: 0.6,
+                    ..base.clone()
+                },
+                &ctx
+            ),
+            "Sparse Settlements"
+        );
         // (b): no settlement in reach is NOT a hostile signal on its own.
-        assert_eq!(jp_stage_infra(&JpDerivedStage { settlements: 0, ..base.clone() }, &ctx), "Ruined Region");
+        assert_eq!(
+            jp_stage_infra(
+                &JpDerivedStage {
+                    settlements: 0,
+                    ..base.clone()
+                },
+                &ctx
+            ),
+            "Ruined Region"
+        );
         // (c): open water is not tiered by LAND settlement density at all.
-        let sea = JpDerivedStage { cat: "sea".to_string(), terrain: "Open Sea".to_string(), settlements: 0, ..base.clone() };
+        let sea = JpDerivedStage {
+            cat: "sea".to_string(),
+            terrain: "Open Sea".to_string(),
+            settlements: 0,
+            ..base.clone()
+        };
         assert_eq!(jp_stage_infra(&sea, &ctx), "Stable Settlements");
         // ...but a real hostile signal does reach the bottom tier.
-        let hostile = JpDerivedStage { settlements: 0, terrain: "Ruins / Debris".to_string(), ..base };
+        let hostile = JpDerivedStage {
+            settlements: 0,
+            terrain: "Ruins / Debris".to_string(),
+            ..base
+        };
         assert_eq!(jp_stage_infra(&hostile, &ctx), "Hostile / Dead Zone");
     }
 
@@ -13747,14 +17738,29 @@ mod tests {
     fn m5_sea_condition_reads_the_real_wind_and_current_and_zeroes_an_oared_hull() {
         let f = m5_fields();
         let pts = m5_pts();
-        let cond = |v: &str| jp_sea_condition(&pts, 0, 6, Some(&f.ocean), Some(&f.wind), v, M5_GW, M5_GH, false);
+        let cond = |v: &str| {
+            jp_sea_condition(
+                &pts,
+                0,
+                6,
+                Some(&f.ocean),
+                Some(&f.wind),
+                v,
+                M5_GW,
+                M5_GH,
+                false,
+            )
+        };
         assert_eq!(cond("Cog"), "Favorable Wind & Current");
         assert_eq!(cond("Caravel"), "Favorable Wind");
         // An oared hull scores 0 on wind -- letting the flat oared polar read
         // as "permanently favourable wind" would be a fabricated bonus.
         assert_eq!(cond("River Barge"), "Neutral");
         // With neither field there is nothing to derive from.
-        assert_eq!(jp_sea_condition(&pts, 0, 6, None, None, "Cog", M5_GW, M5_GH, false), "Neutral");
+        assert_eq!(
+            jp_sea_condition(&pts, 0, 6, None, None, "Cog", M5_GW, M5_GH, false),
+            "Neutral"
+        );
     }
 
     #[test]
@@ -13765,23 +17771,180 @@ mod tests {
         let stages = jp_derive_stages(&world, &pts, &m5_plan());
 
         #[allow(clippy::type_complexity)]
-        let expect: [(&str, &str, &str, &str, Option<&str>, &str, f64, usize, usize, u32, f64, f64, usize, f64, f64, f64, f64); 7] = [
-            ("sea", "Coastal Lowland", "Coastal Waters", "Neutral", Some("Neutral"), "Stable Settlements", 165.401_626_239_323_6, 0, 5, 0, 0.0, 0.0, 2, 0.0, 0.0, 3.739_130_434_782_608_4, 2.956_521_739_130_434_6),
-            ("sea", "Coastal Lowland", "Sheltered Bay", "Neutral", Some("Neutral"), "Stable Settlements", 165.401_626_239_323_6, 6, 10, 0, 0.0, 0.0, 3, 0.5, 0.0, 8.956_521_739_130_434, 5.826_086_956_521_739),
-            ("river", "Coastal Lowland", "Calm River", "Neutral", Some("Neutral"), "Stable Settlements", 99.240_975_743_594_19, 11, 13, 0, 469.965_063_292_404_8, 0.0, 2, 1.0, 0.0, 12.434_782_608_695_652, 7.739_130_434_782_609),
-            ("land", "Boreal Taiga", "Hills", "None / Wild", None, "Stable Settlements", 33.080_325_247_864_67, 14, 14, 0, 517.141_407_933_728_5, 0.0, 2, 1.0, 0.0, 14.173_913_043_478_26, 8.695_652_173_913_043),
-            ("land", "Boreal Taiga", "Dirt Track", "Standard", None, "Stable Settlements", 99.240_975_743_594_13, 15, 17, 1, 1_146.826_661_866_286_5, 0.0, 2, 1.0, 0.0, 15.913_043_478_260_87, 9.652_173_913_043_478),
-            ("land", "Mountain Highland", "Dirt Track", "Standard", None, "Stable Settlements", 132.321_300_991_458_94, 18, 21, 0, 1_259.170_318_471_974, 0.0, 2, 1.0, 33.080_325_247_864_75, 18.521_739_130_434_78, 11.086_956_521_739_13),
-            ("land", "Mountain Highland", "Snow / Ice", "None / Wild", None, "Stable Settlements", 66.160_650_495_729_44, 22, 23, 0, 202.298_986_500_708, 0.0, 2, 0.0, 33.080_325_247_864_72, 21.130_434_782_608_695, 12.521_739_130_434_783),
+        let expect: [(
+            &str,
+            &str,
+            &str,
+            &str,
+            Option<&str>,
+            &str,
+            f64,
+            usize,
+            usize,
+            u32,
+            f64,
+            f64,
+            usize,
+            f64,
+            f64,
+            f64,
+            f64,
+        ); 7] = [
+            (
+                "sea",
+                "Coastal Lowland",
+                "Coastal Waters",
+                "Neutral",
+                Some("Neutral"),
+                "Stable Settlements",
+                165.401_626_239_323_6,
+                0,
+                5,
+                0,
+                0.0,
+                0.0,
+                2,
+                0.0,
+                0.0,
+                3.739_130_434_782_608_4,
+                2.956_521_739_130_434_6,
+            ),
+            (
+                "sea",
+                "Coastal Lowland",
+                "Sheltered Bay",
+                "Neutral",
+                Some("Neutral"),
+                "Stable Settlements",
+                165.401_626_239_323_6,
+                6,
+                10,
+                0,
+                0.0,
+                0.0,
+                3,
+                0.5,
+                0.0,
+                8.956_521_739_130_434,
+                5.826_086_956_521_739,
+            ),
+            (
+                "river",
+                "Coastal Lowland",
+                "Calm River",
+                "Neutral",
+                Some("Neutral"),
+                "Stable Settlements",
+                99.240_975_743_594_19,
+                11,
+                13,
+                0,
+                469.965_063_292_404_8,
+                0.0,
+                2,
+                1.0,
+                0.0,
+                12.434_782_608_695_652,
+                7.739_130_434_782_609,
+            ),
+            (
+                "land",
+                "Boreal Taiga",
+                "Hills",
+                "None / Wild",
+                None,
+                "Stable Settlements",
+                33.080_325_247_864_67,
+                14,
+                14,
+                0,
+                517.141_407_933_728_5,
+                0.0,
+                2,
+                1.0,
+                0.0,
+                14.173_913_043_478_26,
+                8.695_652_173_913_043,
+            ),
+            (
+                "land",
+                "Boreal Taiga",
+                "Dirt Track",
+                "Standard",
+                None,
+                "Stable Settlements",
+                99.240_975_743_594_13,
+                15,
+                17,
+                1,
+                1_146.826_661_866_286_5,
+                0.0,
+                2,
+                1.0,
+                0.0,
+                15.913_043_478_260_87,
+                9.652_173_913_043_478,
+            ),
+            (
+                "land",
+                "Mountain Highland",
+                "Dirt Track",
+                "Standard",
+                None,
+                "Stable Settlements",
+                132.321_300_991_458_94,
+                18,
+                21,
+                0,
+                1_259.170_318_471_974,
+                0.0,
+                2,
+                1.0,
+                33.080_325_247_864_75,
+                18.521_739_130_434_78,
+                11.086_956_521_739_13,
+            ),
+            (
+                "land",
+                "Mountain Highland",
+                "Snow / Ice",
+                "None / Wild",
+                None,
+                "Stable Settlements",
+                66.160_650_495_729_44,
+                22,
+                23,
+                0,
+                202.298_986_500_708,
+                0.0,
+                2,
+                0.0,
+                33.080_325_247_864_72,
+                21.130_434_782_608_695,
+                12.521_739_130_434_783,
+            ),
         ];
         assert_eq!(stages.len(), expect.len(), "stage count");
         for (i, e) in expect.iter().enumerate() {
             let s = &stages[i];
-            assert_eq!((s.cat.as_str(), s.biome.as_str(), s.terrain.as_str(), s.route_cond.as_str()), (e.0, e.1, e.2, e.3), "stage {i} strings");
+            assert_eq!(
+                (
+                    s.cat.as_str(),
+                    s.biome.as_str(),
+                    s.terrain.as_str(),
+                    s.route_cond.as_str()
+                ),
+                (e.0, e.1, e.2, e.3),
+                "stage {i} strings"
+            );
             assert_eq!(s.derived_cond.as_deref(), e.4, "stage {i} derivedCond");
             assert_eq!(s.infra, e.5, "stage {i} infra");
             near5(s.km, e.6, &format!("stage {i} km"));
-            assert_eq!((s.i0, s.i1, s.rx), (e.7, e.8, e.9), "stage {i} indices/crossings");
+            assert_eq!(
+                (s.i0, s.i1, s.rx),
+                (e.7, e.8, e.9),
+                "stage {i} indices/crossings"
+            );
             near5(s.gain, e.10, &format!("stage {i} gain"));
             near5(s.loss, e.11, &format!("stage {i} loss"));
             assert_eq!(s.settlements, e.12, "stage {i} settlements");
@@ -13796,7 +17959,15 @@ mod tests {
         // A stage's derived object feeds the calculators unchanged apart from
         // the wildlife multiplier milestone 4 substituted for mx/my.
         let st = stages[5].to_stage(1.0);
-        assert_eq!((st.km, st.terrain.as_str(), st.dry_km, st.wildlife_forage_mod), (stages[5].km, "Dirt Track", stages[5].dry_km, 1.0));
+        assert_eq!(
+            (
+                st.km,
+                st.terrain.as_str(),
+                st.dry_km,
+                st.wildlife_forage_mod
+            ),
+            (stages[5].km, "Dirt Track", stages[5].dry_km, 1.0)
+        );
     }
 
     #[test]
@@ -13805,11 +17976,27 @@ mod tests {
         let world = m5_world(&f);
         let stages = jp_derive_stages(&world, &m5_pts(), &m5_plan());
         assert_eq!(civ_transshipments(&stages), 1);
-        near5(civ_transfer_overhead(1, None), 0.050_000_000_000_000_044, "transferOverhead(1)");
+        near5(
+            civ_transfer_overhead(1, None),
+            0.050_000_000_000_000_044,
+            "transferOverhead(1)",
+        );
         // Compounding, not additive: three transfers are ~15.8%, not 15%.
-        near5(civ_transfer_overhead(3, None), 1.05f64.powi(3) - 1.0, "transferOverhead(3)");
-        assert_eq!(civ_transshipments(&stages[..1]), 0, "one stage cannot transship");
-        assert_eq!(civ_transfer_overhead(-4, None), 0.0, "a negative count is clamped");
+        near5(
+            civ_transfer_overhead(3, None),
+            1.05f64.powi(3) - 1.0,
+            "transferOverhead(3)",
+        );
+        assert_eq!(
+            civ_transshipments(&stages[..1]),
+            0,
+            "one stage cannot transship"
+        );
+        assert_eq!(
+            civ_transfer_overhead(-4, None),
+            0.0,
+            "a negative count is clamped"
+        );
     }
 
     #[test]
@@ -13817,10 +18004,26 @@ mod tests {
         let f = m5_fields();
         let pts = m5_pts();
         let passed = civ_passed_settlements(&pts, &f.places, M5_GW, false);
-        let keys: Vec<String> = passed.iter().map(|&i| jp_stop_key(&f.places[i].name, &f.places[i].kind, f.places[i].x, f.places[i].y)).collect();
+        let keys: Vec<String> = passed
+            .iter()
+            .map(|&i| {
+                jp_stop_key(
+                    &f.places[i].name,
+                    &f.places[i].kind,
+                    f.places[i].x,
+                    f.places[i].y,
+                )
+            })
+            .collect();
         assert_eq!(
             keys,
-            vec!["|hamlet|5.0,1.0", "Aldermoor|city|9.0,3.0", "Brackwater|town|12.0,6.0", "Carrowden|village|17.0,10.0", "Dunmarch|town|21.0,13.0"]
+            vec![
+                "|hamlet|5.0,1.0",
+                "Aldermoor|city|9.0,3.0",
+                "Brackwater|town|12.0,6.0",
+                "Carrowden|village|17.0,10.0",
+                "Dunmarch|town|21.0,13.0"
+            ]
         );
     }
 
@@ -13855,14 +18058,23 @@ mod tests {
     fn m5_effective_stage_plan_is_a_plain_cascade_with_a_per_species_animal_merge() {
         let plan = m5_plan();
         assert_eq!(jp_effective_stage_plan(&plan, None), plan);
-        let ov = JpStageOverride { transport: Some("Walking".to_string()), season: Some("Winter".to_string()), camel: Some(4), infra: Some("Ruined Region".to_string()), ..JpStageOverride::default() };
+        let ov = JpStageOverride {
+            transport: Some("Walking".to_string()),
+            season: Some("Winter".to_string()),
+            camel: Some(4),
+            infra: Some("Ruined Region".to_string()),
+            ..JpStageOverride::default()
+        };
         let eff = jp_effective_stage_plan(&plan, Some(&ov));
         assert_eq!(eff.transport, "Walking");
         assert_eq!(eff.season, "Winter");
         assert_eq!(eff.infra.as_deref(), Some("Ruined Region"));
         // The override touched only the camels; the plan's mules and horses
         // cascade through untouched.
-        assert_eq!((eff.party.camel, eff.party.mule, eff.party.horse), (4, 8, 2));
+        assert_eq!(
+            (eff.party.camel, eff.party.mule, eff.party.horse),
+            (4, 8, 2)
+        );
         // Everything not named is inherited, travel mode included.
         assert_eq!(eff.vessel, plan.vessel);
         assert_eq!(eff.party.cargo_kg, plan.party.cargo_kg);
@@ -13874,7 +18086,8 @@ mod tests {
         let world = m5_world(&f);
         let pts = m5_pts();
         let layovers = JpLayovers::new();
-        let p = jp_plan(&world, &pts, &m5_plan(), &layovers, &|_, _| 1.0).expect("a drawn route with derivable stages");
+        let p = jp_plan(&world, &pts, &m5_plan(), &layovers, &|_, _| 1.0)
+            .expect("a drawn route with derivable stages");
 
         near5(p.km, 760.847_480_700_888_6, "km");
         near5(p.days, 41.317_750_030_325_15, "days");
@@ -13892,18 +18105,35 @@ mod tests {
         near5(p.hi_m, 3_595.402_438_065_101_7, "hiM");
         near5(p.lo_m, 0.0, "loM");
         assert_eq!(p.transshipments, 1);
-        near5(p.transfer_overhead, 0.050_000_000_000_000_044, "transferOverhead");
+        near5(
+            p.transfer_overhead,
+            0.050_000_000_000_000_044,
+            "transferOverhead",
+        );
         near5(p.handling_days, 0.5, "handlingDays");
         assert_eq!(p.layover_days, 0);
         near5(p.travel_days, 41.317_750_030_325_15, "travelDays");
         assert_eq!(p.rest_days, 10);
-        near5(p.total_days.expect("not blocked"), 51.317_750_030_325_15, "totalDays");
+        near5(
+            p.total_days.expect("not blocked"),
+            51.317_750_030_325_15,
+            "totalDays",
+        );
         assert_eq!(p.seasons_crossed, vec!["Summer".to_string()]);
         assert!(!p.season_drift, "a 41-day trip does not cross a season");
         assert!(!p.has_desert);
         assert!(p.has_water && p.has_land);
         assert_eq!(p.worst_land, Some(6));
-        assert_eq!(p.profile[..4].iter().copied().map(|v| v == 0.0).filter(|&b| b).count(), 4, "the route opens below sea level");
+        assert_eq!(
+            p.profile[..4]
+                .iter()
+                .copied()
+                .map(|v| v == 0.0)
+                .filter(|&b| b)
+                .count(),
+            4,
+            "the route opens below sea level"
+        );
 
         // Per-leg days and speeds, leg by leg.
         let legs: [(&str, f64, f64); 7] = [
@@ -13925,23 +18155,51 @@ mod tests {
         }
 
         // v1.51: the resupply requirement finally meets the map.
-        let rr = p.resupply_reach.as_ref().expect("a land stage states a requirement");
+        let rr = p
+            .resupply_reach
+            .as_ref()
+            .expect("a land stage states a requirement");
         near5(rr.required_km, 69.946_266_230_4, "requiredKm");
         near5(rr.max_gap_km, 198.481_951_487_188_27, "maxGapKm");
         near5(rr.gap_at_km, 363.883_577_726_511_9, "gapAtKm");
         near5(rr.shortfall, 2.837_634_689_940_378_6, "shortfall");
-        assert!(rr.unmet, "the route cannot in fact meet what the stages demand");
+        assert!(
+            rr.unmet,
+            "the route cannot in fact meet what the stages demand"
+        );
         assert_eq!(rr.stops, 5);
 
         // The daily timeline, and the camp it places at each day boundary.
         assert_eq!(p.timeline.len(), 41);
         assert_eq!(p.day_fracs.len(), 41);
-        near5(p.timeline[0].km, 24.551_999_999_999_996, "timeline day 1 km");
-        assert_eq!(p.timeline[0].camp.as_deref(), Some("settlement"), "an unnamed place still camps");
-        assert_eq!((p.timeline[6].day, p.timeline[6].camp.as_deref()), (7, Some("Aldermoor")));
-        near5(p.timeline[6].km, 168.750_310_824_401_37, "timeline day 7 km");
-        assert_eq!((p.timeline[40].day, p.timeline[40].camp.as_deref()), (41, Some("Dunmarch")));
-        near5(p.timeline[40].km, 757.672_419_527_196_6, "timeline day 41 km");
+        near5(
+            p.timeline[0].km,
+            24.551_999_999_999_996,
+            "timeline day 1 km",
+        );
+        assert_eq!(
+            p.timeline[0].camp.as_deref(),
+            Some("settlement"),
+            "an unnamed place still camps"
+        );
+        assert_eq!(
+            (p.timeline[6].day, p.timeline[6].camp.as_deref()),
+            (7, Some("Aldermoor"))
+        );
+        near5(
+            p.timeline[6].km,
+            168.750_310_824_401_37,
+            "timeline day 7 km",
+        );
+        assert_eq!(
+            (p.timeline[40].day, p.timeline[40].camp.as_deref()),
+            (41, Some("Dunmarch"))
+        );
+        near5(
+            p.timeline[40].km,
+            757.672_419_527_196_6,
+            "timeline day 41 km",
+        );
         near5(p.day_fracs[0], 0.032_269_279_484_743_55, "dayFracs[0]");
         near5(p.day_fracs[40], 0.995_826_941_332_884_3, "dayFracs[40]");
 
@@ -13960,10 +18218,17 @@ mod tests {
         layovers.insert("Aldermoor|city|9.0,3.0".to_string(), 5);
         layovers.insert("Nowhere|town|0.0,0.0".to_string(), 99);
         let p = jp_plan(&world, &pts, &m5_plan(), &layovers, &|_, _| 1.0).expect("plan");
-        assert_eq!(p.layover_days, 5, "only stops the route actually threads through count");
+        assert_eq!(
+            p.layover_days, 5,
+            "only stops the route actually threads through count"
+        );
         // Travel days are untouched -- that separation is the whole point.
         near5(p.travel_days, 41.317_750_030_325_15, "travelDays");
-        near5(p.total_days.expect("not blocked"), 41.317_750_030_325_15 + 5.0 + 10.0, "totalDays");
+        near5(
+            p.total_days.expect("not blocked"),
+            41.317_750_030_325_15 + 5.0 + 10.0,
+            "totalDays",
+        );
     }
 
     #[test]
@@ -13974,15 +18239,23 @@ mod tests {
         let mut plan = m5_plan();
         plan.stage_overrides.insert(
             5,
-            JpStageOverride { route_cond: Some("Maintained".to_string()), infra: Some("Operational Waystations".to_string()), ..JpStageOverride::default() },
+            JpStageOverride {
+                route_cond: Some("Maintained".to_string()),
+                infra: Some("Operational Waystations".to_string()),
+                ..JpStageOverride::default()
+            },
         );
         let p = jp_plan(&world, &pts, &plan, &JpLayovers::new(), &|_, _| 1.0).expect("plan");
         assert_eq!(p.stages[5].route_cond, "Maintained");
         assert_eq!(p.stages[5].infra, "Operational Waystations");
         // Both are real speed multipliers, so the overridden stage is faster
         // than the same stage without them.
-        let base = jp_plan(&world, &pts, &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).expect("plan");
-        assert!(p.results[5].daily_km() > base.results[5].daily_km(), "a maintained road with waystations is faster");
+        let base =
+            jp_plan(&world, &pts, &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).expect("plan");
+        assert!(
+            p.results[5].daily_km() > base.results[5].daily_km(),
+            "a maintained road with waystations is faster"
+        );
         // Untouched stages are unchanged.
         assert_eq!(p.stages[4].route_cond, base.stages[4].route_cond);
     }
@@ -13991,7 +18264,16 @@ mod tests {
     fn m5_plan_rejects_a_route_with_nothing_to_plan() {
         let f = m5_fields();
         let world = m5_world(&f);
-        assert!(jp_plan(&world, &[(2.0, 2.0)], &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).is_none());
+        assert!(
+            jp_plan(
+                &world,
+                &[(2.0, 2.0)],
+                &m5_plan(),
+                &JpLayovers::new(),
+                &|_, _| 1.0
+            )
+            .is_none()
+        );
         assert!(jp_derive_stages(&world, &[(2.0, 2.0)], &m5_plan()).is_empty());
     }
 
@@ -14002,31 +18284,58 @@ mod tests {
         let pts = m5_pts();
         // "Maintained" is a LAND condition; a sea stage must not silently take
         // it, and falls back to its own derived condition instead.
-        let plan = JpPlan { route_cond: Some("Maintained".to_string()), ..m5_plan() };
+        let plan = JpPlan {
+            route_cond: Some("Maintained".to_string()),
+            ..m5_plan()
+        };
         let stages = jp_derive_stages(&world, &pts, &plan);
         assert_eq!(stages[0].cat, "sea");
-        assert_eq!(stages[0].route_cond, "Neutral", "an illegal override falls back to the derived condition");
-        assert_eq!(stages[3].route_cond, "Maintained", "a land stage does take it");
+        assert_eq!(
+            stages[0].route_cond, "Neutral",
+            "an illegal override falls back to the derived condition"
+        );
+        assert_eq!(
+            stages[3].route_cond, "Maintained",
+            "a land stage does take it"
+        );
         // A legal water condition is honoured.
-        let plan = JpPlan { route_cond: Some("Headwind".to_string()), ..m5_plan() };
+        let plan = JpPlan {
+            route_cond: Some("Headwind".to_string()),
+            ..m5_plan()
+        };
         let stages = jp_derive_stages(&world, &pts, &plan);
         assert_eq!(stages[0].route_cond, "Headwind");
-        assert_eq!(stages[0].derived_cond.as_deref(), Some("Neutral"), "the derived value is still reported");
-        assert!(jp_route_cond_valid("land", "Maintained") && !jp_route_cond_valid("sea", "Maintained"));
+        assert_eq!(
+            stages[0].derived_cond.as_deref(),
+            Some("Neutral"),
+            "the derived value is still reported"
+        );
+        assert!(
+            jp_route_cond_valid("land", "Maintained") && !jp_route_cond_valid("sea", "Maintained")
+        );
     }
 
     #[test]
     fn m5_walk_way_cells_rasterises_between_the_sparse_sample_points() {
         let mut hits: Vec<(f64, f64)> = Vec::new();
-        civ_walk_way_cells(&[(0.0, 0.0), (4.0, 0.0)], &[], 24, &mut |x, y| hits.push((x, y)));
-        assert_eq!(hits, vec![(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (4.0, 0.0)]);
+        civ_walk_way_cells(&[(0.0, 0.0), (4.0, 0.0)], &[], 24, &mut |x, y| {
+            hits.push((x, y))
+        });
+        assert_eq!(
+            hits,
+            vec![(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (4.0, 0.0)]
+        );
         // A seam break emits the endpoint alone rather than a line across the map.
         let mut hits: Vec<(f64, f64)> = Vec::new();
-        civ_walk_way_cells(&[(0.0, 0.0), (10.0, 0.0)], &[1], 24, &mut |x, y| hits.push((x, y)));
+        civ_walk_way_cells(&[(0.0, 0.0), (10.0, 0.0)], &[1], 24, &mut |x, y| {
+            hits.push((x, y))
+        });
         assert_eq!(hits, vec![(0.0, 0.0), (10.0, 0.0)]);
         // ...and so does an X-seam jump, break list or not.
         let mut hits: Vec<(f64, f64)> = Vec::new();
-        civ_walk_way_cells(&[(1.0, 0.0), (23.0, 0.0)], &[], 24, &mut |x, y| hits.push((x, y)));
+        civ_walk_way_cells(&[(1.0, 0.0), (23.0, 0.0)], &[], 24, &mut |x, y| {
+            hits.push((x, y))
+        });
         assert_eq!(hits, vec![(1.0, 0.0), (23.0, 0.0)]);
     }
 
@@ -14060,12 +18369,22 @@ mod tests {
     }
 
     fn m6_plan(f: &M5Fields) -> JpJourneyPlan {
-        jp_plan(&m5_world(f), &m5_pts(), &m5_plan(), &JpLayovers::new(), &|_, _| 1.0).expect("plan")
+        jp_plan(
+            &m5_world(f),
+            &m5_pts(),
+            &m5_plan(),
+            &JpLayovers::new(),
+            &|_, _| 1.0,
+        )
+        .expect("plan")
     }
 
     /// The one edit every non-severe probe needs.
     fn m6_fix_rr(p: &mut JpJourneyPlan) {
-        let rr = p.resupply_reach.as_mut().expect("the route states a requirement");
+        let rr = p
+            .resupply_reach
+            .as_mut()
+            .expect("the route states a requirement");
         rr.unmet = false;
         rr.shortfall = 0.1;
     }
@@ -14080,7 +18399,10 @@ mod tests {
         let f = m5_fields();
         let v = jp_verdict(&m6_plan(&f));
         assert_eq!((v.level, v.label), ("severe", "Severe"));
-        assert_eq!(v.text, "This journey is not viable as configured — at least one hard constraint is unmet. Fix the items below before trusting any figure above.");
+        assert_eq!(
+            v.text,
+            "This journey is not viable as configured — at least one hard constraint is unmet. Fix the items below before trusting any figure above."
+        );
         assert_eq!(
             v.reasons,
             vec![
@@ -14106,28 +18428,43 @@ mod tests {
             m6_short(p);
         });
         assert_eq!((v.level, v.label), ("favourable", "Favourable"));
-        assert_eq!(v.text, "Well within the party’s means: light load, forgiving ground, and a season that co-operates.");
+        assert_eq!(
+            v.text,
+            "Well within the party’s means: light load, forgiving ground, and a season that co-operates."
+        );
         assert!(v.reasons.is_empty());
 
         // Moderate: one weight-1 signal, four different ways.
         let v = probe(&m6_fix_rr);
         assert_eq!(v.level, "moderate");
-        assert_eq!(v.text, "An ordinary journey of its kind — nothing here is unusual for the route and season.");
-        assert_eq!(v.reasons, vec!["a multi-week duration, where small failures compound".to_string()]);
+        assert_eq!(
+            v.text,
+            "An ordinary journey of its kind — nothing here is unusual for the route and season."
+        );
+        assert_eq!(
+            v.reasons,
+            vec!["a multi-week duration, where small failures compound".to_string()]
+        );
 
         let v = probe(&|p| {
             m6_fix_rr(p);
             m6_short(p);
             p.riv_x = 7;
         });
-        assert_eq!((v.level, v.reasons.as_slice()), ("moderate", ["7 river crossings".to_string()].as_slice()));
+        assert_eq!(
+            (v.level, v.reasons.as_slice()),
+            ("moderate", ["7 river crossings".to_string()].as_slice())
+        );
 
         let v = probe(&|p| {
             m6_fix_rr(p);
             m6_short(p);
             p.bad_wx_pct = 30.0;
         });
-        assert_eq!((v.level, v.reasons.as_slice()), ("moderate", ["30% storm/snow odds".to_string()].as_slice()));
+        assert_eq!(
+            (v.level, v.reasons.as_slice()),
+            ("moderate", ["30% storm/snow odds".to_string()].as_slice())
+        );
 
         // v1.51's "just reach" band: met, but only barely.
         let v = probe(&|p| {
@@ -14138,14 +18475,28 @@ mod tests {
         });
         assert_eq!(
             (v.level, v.reasons.as_slice()),
-            ("moderate", ["supplies just reach between settlements (198 km gap vs 70 km carried)".to_string()].as_slice())
+            (
+                "moderate",
+                [
+                    "supplies just reach between settlements (198 km gap vs 70 km carried)"
+                        .to_string()
+                ]
+                .as_slice()
+            )
         );
 
         // Strained, one weight-2 factor -- five different ways.
-        let one_factor = "Workable, but one factor is pressing hard enough to shape the trip. Plan around it.";
+        let one_factor =
+            "Workable, but one factor is pressing hard enough to shape the trip. Plan around it.";
         for (edit, reason) in [
-            (&(|p: &mut JpJourneyPlan| p.bad_wx_pct = 45.0) as &dyn Fn(&mut JpJourneyPlan), "45% storm/snow odds for the season chosen"),
-            (&|p: &mut JpJourneyPlan| m6_land_mut(p, 6).load_ratio = 0.9, "heavily loaded (90% of capacity on the worst stage)"),
+            (
+                &(|p: &mut JpJourneyPlan| p.bad_wx_pct = 45.0) as &dyn Fn(&mut JpJourneyPlan),
+                "45% storm/snow odds for the season chosen",
+            ),
+            (
+                &|p: &mut JpJourneyPlan| m6_land_mut(p, 6).load_ratio = 0.9,
+                "heavily loaded (90% of capacity on the worst stage)",
+            ),
             (
                 &|p: &mut JpJourneyPlan| {
                     let l = m6_land_mut(p, 3);
@@ -14154,8 +18505,14 @@ mod tests {
                 },
                 "the column is 3.5 km long — it loses 40% of each day to its own passage",
             ),
-            (&|p: &mut JpJourneyPlan| p.pass_km = p.km * 0.5, "50% of the route is mountain"),
-            (&|p: &mut JpJourneyPlan| p.desert_km = p.km * 0.5, "50% of the route crosses desert"),
+            (
+                &|p: &mut JpJourneyPlan| p.pass_km = p.km * 0.5,
+                "50% of the route is mountain",
+            ),
+            (
+                &|p: &mut JpJourneyPlan| p.desert_km = p.km * 0.5,
+                "50% of the route crosses desert",
+            ),
         ] {
             let v = probe(&|p| {
                 m6_fix_rr(p);
@@ -14176,10 +18533,16 @@ mod tests {
             p.desert_km = p.km * 0.5;
         });
         assert_eq!(v.level, "strained");
-        assert_eq!(v.text, "Workable but with little margin: several stressors stack on this route. Expect the optimistic end of the estimate to slip.");
+        assert_eq!(
+            v.text,
+            "Workable but with little margin: several stressors stack on this route. Expect the optimistic end of the estimate to slip."
+        );
         assert_eq!(
             v.reasons,
-            vec!["50% of the route crosses desert".to_string(), "45% storm/snow odds for the season chosen".to_string()]
+            vec![
+                "50% of the route crosses desert".to_string(),
+                "45% storm/snow odds for the season chosen".to_string()
+            ]
         );
 
         // A season-scale duration is a weight-2 signal on its own.
@@ -14188,23 +18551,36 @@ mod tests {
             p.days = 70.0;
             p.total_days = Some(80.0);
         });
-        assert_eq!((v.level, v.reasons.as_slice()), ("strained", ["a season-scale duration, where attrition dominates".to_string()].as_slice()));
+        assert_eq!(
+            (v.level, v.reasons.as_slice()),
+            (
+                "strained",
+                ["a season-scale duration, where attrition dominates".to_string()].as_slice()
+            )
+        );
 
         // Severe: any weight-3 signal at all.
         let severe_text = "This journey is not viable as configured — at least one hard constraint is unmet. Fix the items below before trusting any figure above.";
         for (edit, reason) in [
             (
-                &(|p: &mut JpJourneyPlan| m6_land_mut(p, 6).load_ratio = 1.2) as &dyn Fn(&mut JpJourneyPlan),
+                &(|p: &mut JpJourneyPlan| m6_land_mut(p, 6).load_ratio = 1.2)
+                    as &dyn Fn(&mut JpJourneyPlan),
                 "overloaded — the worst land stage carries 120% of capacity",
             ),
-            (&|p: &mut JpJourneyPlan| m6_land_mut(p, 6).cap.draft_shortfall = 2, "2 draft animal(s) short for the vehicles taken"),
+            (
+                &|p: &mut JpJourneyPlan| m6_land_mut(p, 6).cap.draft_shortfall = 2,
+                "2 draft animal(s) short for the vehicles taken",
+            ),
         ] {
             let v = probe(&|p| {
                 m6_fix_rr(p);
                 m6_short(p);
                 edit(p);
             });
-            assert_eq!((v.level, v.label, v.text.as_str()), ("severe", "Severe", severe_text));
+            assert_eq!(
+                (v.level, v.label, v.text.as_str()),
+                ("severe", "Severe", severe_text)
+            );
             assert_eq!(v.reasons, vec![reason.to_string()]);
         }
 
@@ -14226,7 +18602,8 @@ mod tests {
         assert_eq!(
             v.reasons,
             vec![
-                "1 stage(s) cross more waterless ground than any party could carry water for".to_string(),
+                "1 stage(s) cross more waterless ground than any party could carry water for"
+                    .to_string(),
                 "1 stage(s) need more supplies than the party can physically carry".to_string(),
             ]
         );
@@ -14238,7 +18615,13 @@ mod tests {
         let world = m5_world(&f);
         // A donkey train carrying all its own fodder cannot lift the load.
         let plan = JpPlan {
-            party: JpParty { donkey: 5, mule: 0, horse: 0, carts: 0, ..m5_plan().party },
+            party: JpParty {
+                donkey: 5,
+                mule: 0,
+                horse: 0,
+                carts: 0,
+                ..m5_plan().party
+            },
             grazing: "None — carry all fodder".to_string(),
             ..m5_plan()
         };
@@ -14246,7 +18629,10 @@ mod tests {
         assert!(p.blocked_idx.is_some());
         let v = jp_verdict(&p);
         assert_eq!((v.level, v.label), ("blocked", "Impassable"));
-        assert_eq!(v.text, "Overloaded 156% of capacity (1.2 t carried vs 740 kg rated) — no party departs in this state. Assign pack animals or a cart/wagon for this stage, reduce cargo, or split the load across a resupply stop.");
+        assert_eq!(
+            v.text,
+            "Overloaded 156% of capacity (1.2 t carried vs 740 kg rated) — no party departs in this state. Assign pack animals or a cart/wagon for this stage, reduce cargo, or split the load across a resupply stop."
+        );
         assert!(v.reasons.is_empty());
         // A blocked journey has no honest band on its day count.
         assert_eq!(jp_confidence(&p), None);
@@ -14285,10 +18671,22 @@ mod tests {
             // is the whole point, not a rounding artefact.
             assert!(hi - 1.0 > 1.0 - lo, "band at {d} d must lean pessimistic");
         }
-        assert_eq!(band(6.9, Some(8.0)).note, "Short trip — the per-stage figures should hold closely.");
-        assert_eq!(band(7.0, Some(8.0)).note, "Over a week — minor attrition and rest days start to tell.");
-        assert_eq!(band(14.0, Some(15.0)).note, "Multi-week — maintenance debt and organisational drag accumulate.");
-        assert_eq!(band(21.0, Some(22.0)).note, "Campaign scale — small failures cascade; treat the low end as unlikely.");
+        assert_eq!(
+            band(6.9, Some(8.0)).note,
+            "Short trip — the per-stage figures should hold closely."
+        );
+        assert_eq!(
+            band(7.0, Some(8.0)).note,
+            "Over a week — minor attrition and rest days start to tell."
+        );
+        assert_eq!(
+            band(14.0, Some(15.0)).note,
+            "Multi-week — maintenance debt and organisational drag accumulate."
+        );
+        assert_eq!(
+            band(21.0, Some(22.0)).note,
+            "Campaign scale — small failures cascade; treat the low end as unlikely."
+        );
         assert_eq!(
             band(60.0, Some(61.0)).note,
             "Season scale — historically these run well over plan; the figure above is the optimistic bound, not the expected outcome."
@@ -14305,7 +18703,13 @@ mod tests {
 
     #[test]
     fn m6_pack_range_is_the_same_wagon_equation_ceiling_the_autopicker_guards_on() {
-        let party = |donkey, mule, camel, horse| JpParty { donkey, mule, camel, horse, ..JpParty::default() };
+        let party = |donkey, mule, camel, horse| JpParty {
+            donkey,
+            mule,
+            camel,
+            horse,
+            ..JpParty::default()
+        };
         let plan = |p: JpParty, grazing: &str, supply_days: i64| JpPlan {
             party: p,
             grazing: grazing.to_string(),
@@ -14315,7 +18719,8 @@ mod tests {
         let partial = "Partial — graze at camp";
         let none = "None — carry all fodder";
 
-        let r = jp_pack_range(&plan(party(0, 8, 0, 2), partial, 7), false).expect("a pack animal is in use");
+        let r = jp_pack_range(&plan(party(0, 8, 0, 2), partial, 7), false)
+            .expect("a pack animal is in use");
         assert_eq!((r.key, r.label, r.unlimited), ("mule", "Mule", false));
         near5(r.max_days, 44.0, "mule maxDays");
         near5(r.fodder_frac, 0.5, "fodderFrac");
@@ -14342,12 +18747,20 @@ mod tests {
         near5(r.ratio, 0.530_833_333_333_333_3, "horse ratio, desert");
 
         // Full grazing: no fodder is carried, so no ceiling exists at all.
-        let r = jp_pack_range(&plan(party(0, 8, 0, 0), "Full — graze on route", 7), false).expect("pack animal");
+        let r = jp_pack_range(&plan(party(0, 8, 0, 0), "Full — graze on route", 7), false)
+            .expect("pack animal");
         assert!(r.unlimited && r.max_days.is_infinite() && r.ratio == 0.0);
-        near5(r.fodder_frac, 0.0, "fodderFrac when grazing covers everything");
+        near5(
+            r.fodder_frac,
+            0.0,
+            "fodderFrac when grazing covers everything",
+        );
 
         // No pack animal, no ceiling to state.
-        assert_eq!(jp_pack_range(&plan(party(0, 0, 0, 0), partial, 7), false), None);
+        assert_eq!(
+            jp_pack_range(&plan(party(0, 0, 0, 0), partial, 7), false),
+            None
+        );
 
         // Longer unsupported legs eat into the same ceiling.
         let r = jp_pack_range(&plan(party(0, 8, 0, 0), partial, 30), false).expect("pack animal");
@@ -14430,14 +18843,34 @@ mod tests {
     fn m6_risk_tiers_are_the_references_own_four() {
         assert_eq!(jp_risk(0.0), None);
         assert_eq!(jp_risk(10.0), None);
-        assert_eq!(jp_risk(10.1), Some("Long journey — schedule rest days; minor attrition expected."));
-        assert_eq!(jp_risk(30.0), Some("Long journey — schedule rest days; minor attrition expected."));
-        assert_eq!(jp_risk(30.1), Some("Extended campaign — significant fatigue/attrition risk; plan resupply depots."));
-        assert_eq!(jp_risk(90.0), Some("Extended campaign — significant fatigue/attrition risk; plan resupply depots."));
-        assert_eq!(jp_risk(90.1), Some("Season-scale expedition — attrition, weather windows and supply lines dominate planning."));
+        assert_eq!(
+            jp_risk(10.1),
+            Some("Long journey — schedule rest days; minor attrition expected.")
+        );
+        assert_eq!(
+            jp_risk(30.0),
+            Some("Long journey — schedule rest days; minor attrition expected.")
+        );
+        assert_eq!(
+            jp_risk(30.1),
+            Some("Extended campaign — significant fatigue/attrition risk; plan resupply depots.")
+        );
+        assert_eq!(
+            jp_risk(90.0),
+            Some("Extended campaign — significant fatigue/attrition risk; plan resupply depots.")
+        );
+        assert_eq!(
+            jp_risk(90.1),
+            Some(
+                "Season-scale expedition — attrition, weather windows and supply lines dominate planning."
+            )
+        );
         // The m5 journey's own 41 travel days.
         let f = m5_fields();
-        assert_eq!(jp_risk(m6_plan(&f).days), Some("Extended campaign — significant fatigue/attrition risk; plan resupply depots."));
+        assert_eq!(
+            jp_risk(m6_plan(&f).days),
+            Some("Extended campaign — significant fatigue/attrition risk; plan resupply depots.")
+        );
     }
 
     // ---- milestone 2's remainder -------------------------------------------
@@ -14452,22 +18885,59 @@ mod tests {
         let mut plan = m5_plan();
         let r = jp_auto_pick_transport(&world, &pts, &mut plan);
         match r {
-            JpAutoTransport::BaggageTrain { ref pick, count, carts, wagons, promoted, fodder_infeasible } => {
+            JpAutoTransport::BaggageTrain {
+                ref pick,
+                count,
+                carts,
+                wagons,
+                promoted,
+                fodder_infeasible,
+            } => {
                 assert_eq!(pick.key, "mule");
                 assert_eq!((count, carts, wagons), (1, 1, 0));
                 assert!(!promoted && !fodder_infeasible);
-                assert!(pick.switched.is_none(), "no bottleneck switch on this route");
+                assert!(
+                    pick.switched.is_none(),
+                    "no bottleneck switch on this route"
+                );
             }
             other => panic!("expected a baggage train, got {other:?}"),
         }
-        assert_eq!((plan.party.mule, plan.party.donkey, plan.party.camel, plan.party.horse), (1, 0, 0, 0));
-        assert_eq!((plan.party.carts, plan.party.wagons, plan.party.travois, plan.party.sleds), (1, 0, 0, 0));
+        assert_eq!(
+            (
+                plan.party.mule,
+                plan.party.donkey,
+                plan.party.camel,
+                plan.party.horse
+            ),
+            (1, 0, 0, 0)
+        );
+        assert_eq!(
+            (
+                plan.party.carts,
+                plan.party.wagons,
+                plan.party.travois,
+                plan.party.sleds
+            ),
+            (1, 0, 0, 0)
+        );
 
         // Walking, light enough to porter.
-        let mut plan = JpPlan { transport: "Walking".to_string(), party: JpParty { group_size: 6, cargo_kg: 30.0, ..JpParty::default() }, ..m5_plan() };
+        let mut plan = JpPlan {
+            transport: "Walking".to_string(),
+            party: JpParty {
+                group_size: 6,
+                cargo_kg: 30.0,
+                ..JpParty::default()
+            },
+            ..m5_plan()
+        };
         let r = jp_auto_pick_transport(&world, &pts, &mut plan);
         match r {
-            JpAutoTransport::Walking { total_need, porter_cap } => {
+            JpAutoTransport::Walking {
+                total_need,
+                porter_cap,
+            } => {
                 near5(porter_cap, 180.0, "porter capacity");
                 assert_eq!(jp_fmt_kg(total_need), "93 kg");
                 assert_eq!(jp_fmt_kg(porter_cap), "180 kg");
@@ -14476,26 +18946,53 @@ mod tests {
         }
 
         // Walking, overloaded, auto-promote off: reported, not silently fixed.
-        let mut plan = JpPlan { transport: "Walking".to_string(), party: JpParty { group_size: 6, cargo_kg: 900.0, ..JpParty::default() }, ..m5_plan() };
+        let mut plan = JpPlan {
+            transport: "Walking".to_string(),
+            party: JpParty {
+                group_size: 6,
+                cargo_kg: 900.0,
+                ..JpParty::default()
+            },
+            ..m5_plan()
+        };
         let r = jp_auto_pick_transport(&world, &pts, &mut plan);
         match r {
-            JpAutoTransport::WalkingOverloaded { total_need, porter_cap } => {
-                assert_eq!((jp_fmt_kg(total_need), jp_fmt_kg(porter_cap)), ("963 kg".to_string(), "180 kg".to_string()));
+            JpAutoTransport::WalkingOverloaded {
+                total_need,
+                porter_cap,
+            } => {
+                assert_eq!(
+                    (jp_fmt_kg(total_need), jp_fmt_kg(porter_cap)),
+                    ("963 kg".to_string(), "180 kg".to_string())
+                );
             }
             other => panic!("expected an overloaded walking party, got {other:?}"),
         }
-        assert_eq!(plan.transport, "Walking", "auto-promote off must not change the mode");
+        assert_eq!(
+            plan.transport, "Walking",
+            "auto-promote off must not change the mode"
+        );
 
         // ...and the same party with auto-promote on becomes a baggage train.
         let mut plan = JpPlan {
             transport: "Walking".to_string(),
-            party: JpParty { group_size: 6, cargo_kg: 900.0, ..JpParty::default() },
+            party: JpParty {
+                group_size: 6,
+                cargo_kg: 900.0,
+                ..JpParty::default()
+            },
             auto_promote: true,
             ..m5_plan()
         };
         let r = jp_auto_pick_transport(&world, &pts, &mut plan);
         match r {
-            JpAutoTransport::BaggageTrain { count, carts, wagons, promoted, .. } => {
+            JpAutoTransport::BaggageTrain {
+                count,
+                carts,
+                wagons,
+                promoted,
+                ..
+            } => {
                 assert_eq!((count, carts, wagons, promoted), (1, 1, 0, true));
             }
             other => panic!("expected a promoted baggage train, got {other:?}"),
@@ -14503,43 +19000,113 @@ mod tests {
         assert_eq!(plan.transport, "Baggage Train");
 
         // Mounted Rider picks only a mount.
-        let mut plan = JpPlan { transport: "Mounted Rider".to_string(), ..m5_plan() };
+        let mut plan = JpPlan {
+            transport: "Mounted Rider".to_string(),
+            ..m5_plan()
+        };
         let before = plan.party;
         let r = jp_auto_pick_transport(&world, &pts, &mut plan);
         assert!(matches!(r, JpAutoTransport::Mount { ref pick } if pick.key == "mule"));
         assert_eq!(plan.mount_animal.as_deref(), Some("mule"));
-        assert_eq!(plan.party, before, "a mount pick touches no animal or vehicle count");
+        assert_eq!(
+            plan.party, before,
+            "a mount pick touches no animal or vehicle count"
+        );
 
         // A water mode declines: vessels are jp_auto_pick_vessel's business.
-        let mut plan = JpPlan { transport: "Sea Faring".to_string(), ..m5_plan() };
-        assert_eq!(jp_auto_pick_transport(&world, &pts, &mut plan), JpAutoTransport::NotALandMode);
-        assert_eq!(plan.party, m5_plan().party, "a declined pick changes nothing");
+        let mut plan = JpPlan {
+            transport: "Sea Faring".to_string(),
+            ..m5_plan()
+        };
+        assert_eq!(
+            jp_auto_pick_transport(&world, &pts, &mut plan),
+            JpAutoTransport::NotALandMode
+        );
+        assert_eq!(
+            plan.party,
+            m5_plan().party,
+            "a declined pick changes nothing"
+        );
 
         // v1.48's analytically-detected divergence: 60 unsupported days with no
         // grazing has NO pack-train size that closes the gap.
-        let mut plan = JpPlan { supply_days: 60, grazing: "None — carry all fodder".to_string(), ..m5_plan() };
+        let mut plan = JpPlan {
+            supply_days: 60,
+            grazing: "None — carry all fodder".to_string(),
+            ..m5_plan()
+        };
         let r = jp_auto_pick_transport(&world, &pts, &mut plan);
         match r {
-            JpAutoTransport::BaggageTrain { count, fodder_infeasible, carts, .. } => {
-                assert!(fodder_infeasible, "a mule eats more in fodder than it can carry over 60 days");
-                assert_eq!((count, carts), (12, 1), "the count is an honest floor, not an answer");
+            JpAutoTransport::BaggageTrain {
+                count,
+                fodder_infeasible,
+                carts,
+                ..
+            } => {
+                assert!(
+                    fodder_infeasible,
+                    "a mule eats more in fodder than it can carry over 60 days"
+                );
+                assert_eq!(
+                    (count, carts),
+                    (12, 1),
+                    "the count is an honest floor, not an answer"
+                );
             }
             other => panic!("expected a baggage train, got {other:?}"),
         }
 
         // Cargo sizes the vehicles: wagons at 4 t with 12 people...
-        let mut plan = JpPlan { party: JpParty { cargo_kg: 4000.0, ..m5_plan().party }, ..m5_plan() };
+        let mut plan = JpPlan {
+            party: JpParty {
+                cargo_kg: 4000.0,
+                ..m5_plan().party
+            },
+            ..m5_plan()
+        };
         let r = jp_auto_pick_transport(&world, &pts, &mut plan);
-        assert!(matches!(r, JpAutoTransport::BaggageTrain { count: 21, carts: 0, wagons: 2, .. }), "{r:?}");
+        assert!(
+            matches!(
+                r,
+                JpAutoTransport::BaggageTrain {
+                    count: 21,
+                    carts: 0,
+                    wagons: 2,
+                    ..
+                }
+            ),
+            "{r:?}"
+        );
         // ...carts at 800 kg with 6.
-        let mut plan = JpPlan { party: JpParty { group_size: 6, cargo_kg: 800.0, ..JpParty::default() }, ..m5_plan() };
+        let mut plan = JpPlan {
+            party: JpParty {
+                group_size: 6,
+                cargo_kg: 800.0,
+                ..JpParty::default()
+            },
+            ..m5_plan()
+        };
         let r = jp_auto_pick_transport(&world, &pts, &mut plan);
-        assert!(matches!(r, JpAutoTransport::BaggageTrain { count: 1, carts: 1, wagons: 0, .. }), "{r:?}");
+        assert!(
+            matches!(
+                r,
+                JpAutoTransport::BaggageTrain {
+                    count: 1,
+                    carts: 1,
+                    wagons: 0,
+                    ..
+                }
+            ),
+            "{r:?}"
+        );
 
         // A route with no land stages has nothing to pick.
         let sea_only: Vec<(f64, f64)> = (0..6).map(|k| (1.0 + k as f64 * 0.5, 2.0)).collect();
         let mut plan = m5_plan();
-        assert_eq!(jp_auto_pick_transport(&world, &sea_only, &mut plan), JpAutoTransport::NoLandStages);
+        assert_eq!(
+            jp_auto_pick_transport(&world, &sea_only, &mut plan),
+            JpAutoTransport::NoLandStages
+        );
     }
 
     #[test]
@@ -14553,56 +19120,166 @@ mod tests {
         };
         let eff = |donkey, mule, camel, horse, carts, wagons, travois, sleds| JpPlan {
             transport: "Baggage Train".to_string(),
-            party: JpParty { donkey, mule, camel, horse, carts, wagons, travois, sleds, group_size: 12, cargo_kg: 900.0 },
+            party: JpParty {
+                donkey,
+                mule,
+                camel,
+                horse,
+                carts,
+                wagons,
+                travois,
+                sleds,
+                group_size: 12,
+                cargo_kg: 900.0,
+            },
             ..JpPlan::default()
         };
         let m5_party = || eff(0, 8, 0, 2, 2, 0, 0, 0);
 
         // Deep sand rewards camels, and strands the carts the party is on.
-        let r = jp_best_package_for_stage(&stage("Deep Sand", "Hot Desert"), &m5_party()).expect("a real suggestion");
-        assert_eq!((r.species_fix, r.vehicle_fix), (Some("camel"), Some("travois")));
-        assert_eq!((r.best_species.key, r.cur_species, r.cur_vehicle), ("camel", Some("mule"), Some("carts")));
+        let r = jp_best_package_for_stage(&stage("Deep Sand", "Hot Desert"), &m5_party())
+            .expect("a real suggestion");
+        assert_eq!(
+            (r.species_fix, r.vehicle_fix),
+            (Some("camel"), Some("travois"))
+        );
+        assert_eq!(
+            (r.best_species.key, r.cur_species, r.cur_vehicle),
+            ("camel", Some("mule"), Some("carts"))
+        );
         // Every pack animal moves to the one species; the vehicle count is
         // carried across, not re-sized -- sizing stays the route-wide picker's.
-        assert_eq!((r.candidate.party.camel, r.candidate.party.mule, r.candidate.party.horse), (10, 0, 0));
-        assert_eq!((r.candidate.party.travois, r.candidate.party.carts, r.candidate.party.wagons), (2, 0, 0));
+        assert_eq!(
+            (
+                r.candidate.party.camel,
+                r.candidate.party.mule,
+                r.candidate.party.horse
+            ),
+            (10, 0, 0)
+        );
+        assert_eq!(
+            (
+                r.candidate.party.travois,
+                r.candidate.party.carts,
+                r.candidate.party.wagons
+            ),
+            (2, 0, 0)
+        );
 
         // A single wagon becomes a single travois.
-        let r = jp_best_package_for_stage(&stage("Deep Sand", "Hot Desert"), &eff(0, 8, 0, 2, 0, 1, 0, 0)).expect("suggestion");
-        assert_eq!((r.cur_vehicle, r.vehicle_fix, r.candidate.party.travois), (Some("wagons"), Some("travois"), 1));
+        let r = jp_best_package_for_stage(
+            &stage("Deep Sand", "Hot Desert"),
+            &eff(0, 8, 0, 2, 0, 1, 0, 0),
+        )
+        .expect("suggestion");
+        assert_eq!(
+            (r.cur_vehicle, r.vehicle_fix, r.candidate.party.travois),
+            (Some("wagons"), Some("travois"), 1)
+        );
 
         // Marsh wants donkeys; forest path wants the mules the party already
         // has, so only the wheels are the problem.
-        let r = jp_best_package_for_stage(&stage("Swamp / Marsh", "Wetlands / Marshes"), &m5_party()).expect("suggestion");
-        assert_eq!((r.species_fix, r.vehicle_fix, r.candidate.party.donkey), (Some("donkey"), Some("travois"), 10));
-        let r = jp_best_package_for_stage(&stage("Forest Path", "Temperate Forest"), &m5_party()).expect("suggestion");
+        let r =
+            jp_best_package_for_stage(&stage("Swamp / Marsh", "Wetlands / Marshes"), &m5_party())
+                .expect("suggestion");
+        assert_eq!(
+            (r.species_fix, r.vehicle_fix, r.candidate.party.donkey),
+            (Some("donkey"), Some("travois"), 10)
+        );
+        let r = jp_best_package_for_stage(&stage("Forest Path", "Temperate Forest"), &m5_party())
+            .expect("suggestion");
         assert_eq!((r.species_fix, r.vehicle_fix), (None, Some("travois")));
-        assert_eq!((r.candidate.party.mule, r.candidate.party.horse), (8, 2), "no species fix leaves the mix alone");
+        assert_eq!(
+            (r.candidate.party.mule, r.candidate.party.horse),
+            (8, 2),
+            "no species fix leaves the mix alone"
+        );
 
         // Open steppe wants horses, and wheels are fine there.
-        let r = jp_best_package_for_stage(&stage("Open Plains", "Steppe / Grassland"), &m5_party()).expect("suggestion");
-        assert_eq!((r.species_fix, r.vehicle_fix, r.candidate.party.horse, r.candidate.party.carts), (Some("horse"), None, 10, 2));
+        let r = jp_best_package_for_stage(&stage("Open Plains", "Steppe / Grassland"), &m5_party())
+            .expect("suggestion");
+        assert_eq!(
+            (
+                r.species_fix,
+                r.vehicle_fix,
+                r.candidate.party.horse,
+                r.candidate.party.carts
+            ),
+            (Some("horse"), None, 10, 2)
+        );
 
         // Travois on ground that takes wheels again -> cart. Snow/Ice is the
         // reference's own explicit exception, and stays on travois.
-        let r = jp_best_package_for_stage(&stage("Hills", "Boreal Taiga"), &eff(0, 8, 0, 2, 0, 0, 3, 0)).expect("suggestion");
-        assert_eq!((r.species_fix, r.vehicle_fix, r.candidate.party.carts), (None, Some("carts"), 3));
-        assert_eq!(jp_best_package_for_stage(&stage("Snow / Ice", "Tundra / Polar"), &eff(0, 8, 0, 2, 0, 0, 2, 0)), None);
+        let r = jp_best_package_for_stage(
+            &stage("Hills", "Boreal Taiga"),
+            &eff(0, 8, 0, 2, 0, 0, 3, 0),
+        )
+        .expect("suggestion");
+        assert_eq!(
+            (r.species_fix, r.vehicle_fix, r.candidate.party.carts),
+            (None, Some("carts"), 3)
+        );
+        assert_eq!(
+            jp_best_package_for_stage(
+                &stage("Snow / Ice", "Tundra / Polar"),
+                &eff(0, 8, 0, 2, 0, 0, 2, 0)
+            ),
+            None
+        );
 
         // Sleds are neither wheeled nor travois, so only the species is judged.
-        let r = jp_best_package_for_stage(&stage("Swamp / Marsh", "Wetlands / Marshes"), &eff(0, 8, 0, 2, 0, 0, 0, 2)).expect("suggestion");
-        assert_eq!((r.cur_vehicle, r.vehicle_fix, r.candidate.party.sleds), (Some("sleds"), None, 2));
+        let r = jp_best_package_for_stage(
+            &stage("Swamp / Marsh", "Wetlands / Marshes"),
+            &eff(0, 8, 0, 2, 0, 0, 0, 2),
+        )
+        .expect("suggestion");
+        assert_eq!(
+            (r.cur_vehicle, r.vehicle_fix, r.candidate.party.sleds),
+            (Some("sleds"), None, 2)
+        );
 
         // A party with no vehicle at all can still be told to change species.
-        let r = jp_best_package_for_stage(&stage("Deep Sand", "Hot Desert"), &eff(0, 8, 0, 2, 0, 0, 0, 0)).expect("suggestion");
-        assert_eq!((r.cur_vehicle, r.vehicle_fix, r.species_fix), (None, None, Some("camel")));
+        let r = jp_best_package_for_stage(
+            &stage("Deep Sand", "Hot Desert"),
+            &eff(0, 8, 0, 2, 0, 0, 0, 0),
+        )
+        .expect("suggestion");
+        assert_eq!(
+            (r.cur_vehicle, r.vehicle_fix, r.species_fix),
+            (None, None, Some("camel"))
+        );
 
         // Nothing to suggest: right species, legal wheels.
-        assert_eq!(jp_best_package_for_stage(&stage("Deep Sand", "Hot Desert"), &eff(0, 0, 6, 0, 0, 0, 2, 0)), None);
+        assert_eq!(
+            jp_best_package_for_stage(
+                &stage("Deep Sand", "Hot Desert"),
+                &eff(0, 0, 6, 0, 0, 0, 2, 0)
+            ),
+            None
+        );
         // ...and every gate that returns early.
-        assert_eq!(jp_best_package_for_stage(&stage("Deep Sand", "Hot Desert"), &JpPlan { transport: "Mounted Rider".to_string(), ..m5_party() }), None);
-        assert_eq!(jp_best_package_for_stage(&stage("Deep Sand", "Hot Desert"), &eff(0, 0, 0, 0, 2, 0, 0, 0)), None);
-        let sea = JpStage { cat: "sea".to_string(), terrain: "Open Sea".to_string(), ..stage("Open Sea", "Coastal Lowland") };
+        assert_eq!(
+            jp_best_package_for_stage(
+                &stage("Deep Sand", "Hot Desert"),
+                &JpPlan {
+                    transport: "Mounted Rider".to_string(),
+                    ..m5_party()
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            jp_best_package_for_stage(
+                &stage("Deep Sand", "Hot Desert"),
+                &eff(0, 0, 0, 0, 2, 0, 0, 0)
+            ),
+            None
+        );
+        let sea = JpStage {
+            cat: "sea".to_string(),
+            terrain: "Open Sea".to_string(),
+            ..stage("Open Sea", "Coastal Lowland")
+        };
         assert_eq!(jp_best_package_for_stage(&sea, &m5_party()), None);
     }
 
@@ -14617,12 +19294,24 @@ mod tests {
     // other branch).
 
     fn agg_place(faction: i32, pop: f64, kind: SettlementKind) -> FactionPlace<'static> {
-        FactionPlace { faction, pop, kind, trade_volume: 0.0, economic_importance: 0.0, specialisation: None, fortified: false }
+        FactionPlace {
+            faction,
+            pop,
+            kind,
+            trade_volume: 0.0,
+            economic_importance: 0.0,
+            specialisation: None,
+            fortified: false,
+        }
     }
 
     /// One land cell, one faction owning it -- the smallest input that
     /// still reaches every branch of the per-faction row builder.
-    fn agg_input<'a>(field: &'a [f32], territory: &'a [i32], faction_count: usize) -> FactionAggregatesInput<'a> {
+    fn agg_input<'a>(
+        field: &'a [f32],
+        territory: &'a [i32],
+        faction_count: usize,
+    ) -> FactionAggregatesInput<'a> {
         FactionAggregatesInput {
             faction_count,
             gw: field.len(),
@@ -14651,10 +19340,18 @@ mod tests {
     fn js_min_max_propagate_nan_where_rusts_own_would_not() {
         assert!(js_min(1.0, f64::NAN).is_nan());
         assert!(js_max(0.0, f64::NAN).is_nan());
-        assert!(f64::min(1.0, f64::NAN) == 1.0, "this is the Rust behaviour being avoided");
+        assert!(
+            f64::min(1.0, f64::NAN) == 1.0,
+            "this is the Rust behaviour being avoided"
+        );
         assert_eq!(js_min(1.0, 0.5), 0.5);
         assert_eq!(js_max(0.0, 3.0), 3.0);
-        assert!(js_truthy_num(1.0) && !js_truthy_num(0.0) && !js_truthy_num(-0.0) && !js_truthy_num(f64::NAN));
+        assert!(
+            js_truthy_num(1.0)
+                && !js_truthy_num(0.0)
+                && !js_truthy_num(-0.0)
+                && !js_truthy_num(f64::NAN)
+        );
     }
 
     /// **`NaN` is falsy in JS**, so the reference's `pop=p.pop||0` /
@@ -14668,18 +19365,35 @@ mod tests {
         let field = [0.9f32, 0.9];
         let territory = [1i32, 1];
         let places = [
-            FactionPlace { trade_volume: f64::NAN, economic_importance: f64::NAN, ..agg_place(1, f64::NAN, SettlementKind::Town) },
+            FactionPlace {
+                trade_volume: f64::NAN,
+                economic_importance: f64::NAN,
+                ..agg_place(1, f64::NAN, SettlementKind::Town)
+            },
             agg_place(1, 1000.0, SettlementKind::City),
         ];
         let out = civ_faction_aggregates(&agg_input(&field, &territory, 2), &places);
         let b = &out.by_faction[1];
-        assert_eq!(b.pop, 1000.0, "the NaN place must contribute 0, not poison the sum");
+        assert_eq!(
+            b.pop, 1000.0,
+            "the NaN place must contribute 0, not poison the sum"
+        );
         assert_eq!(b.trade_volume, 0.0);
         assert_eq!(b.tax_income, js_round(1000.0 * 0.07));
         assert_eq!(b.mean_importance, 0.0);
-        assert_eq!(b.sector_output.craft, 0.4 * 1000.0, "the NaN place's prodWeight is 0*(0.4+0.6*0)");
+        assert_eq!(
+            b.sector_output.craft,
+            0.4 * 1000.0,
+            "the NaN place's prodWeight is 0*(0.4+0.6*0)"
+        );
         let p = b.power;
-        for (axis, v) in [("military", p.military), ("economic", p.economic), ("political", p.political), ("cultural", p.cultural), ("overall", p.overall)] {
+        for (axis, v) in [
+            ("military", p.military),
+            ("economic", p.economic),
+            ("political", p.political),
+            ("cultural", p.cultural),
+            ("overall", p.overall),
+        ] {
             assert!(v.is_finite(), "{axis} must stay finite, got {v}");
         }
         // `_civFactionCapital` compares `(p.pop||0)>(best.pop||0)`, so the
@@ -14699,12 +19413,18 @@ mod tests {
         input.gh = 7; // field.len() != gw*gh
         let out = civ_faction_aggregates(&input, &[agg_place(1, 500.0, SettlementKind::City)]);
         assert_eq!(out.by_faction.len(), 3);
-        assert!(out.world_mean_resource.is_empty(), "worldMeanResource is `{{}}` on the guard path");
+        assert!(
+            out.world_mean_resource.is_empty(),
+            "worldMeanResource is `{{}}` on the guard path"
+        );
         assert_eq!(out.world_mean_terrain.len(), 5);
         assert!(out.world_mean_terrain.values().all(|&v| v == 0.0));
         for b in &out.by_faction {
             assert_eq!(b.pop, 0.0);
-            assert_eq!(b.settlement_count, 0, "the places loop must not run at all on the guard path");
+            assert_eq!(
+                b.settlement_count, 0,
+                "the places loop must not run at all on the guard path"
+            );
             assert_eq!(b.capital, None);
             assert!(b.exports.is_empty() && b.imports.is_empty());
             assert!(b.terrain_mix.values().all(|&v| v == 0.0));
@@ -14720,10 +19440,21 @@ mod tests {
     fn faction_aggregates_without_resource_fields_reports_no_trade() {
         let field = [0.9f32, 0.9, 0.9];
         let territory = [1i32, 1, 0];
-        let out = civ_faction_aggregates(&agg_input(&field, &territory, 2), &[agg_place(1, 100.0, SettlementKind::Village)]);
+        let out = civ_faction_aggregates(
+            &agg_input(&field, &territory, 2),
+            &[agg_place(1, 100.0, SettlementKind::Village)],
+        );
         assert!(out.world_mean_resource.values().all(|&v| v == 0.0));
-        assert!(out.by_faction[1].resource_potential.values().all(|&v| v == 0.0));
-        assert!(out.by_faction[1].exports.is_empty(), "no resource field means no export claim");
+        assert!(
+            out.by_faction[1]
+                .resource_potential
+                .values()
+                .all(|&v| v == 0.0)
+        );
+        assert!(
+            out.by_faction[1].exports.is_empty(),
+            "no resource field means no export claim"
+        );
         assert!(out.by_faction[1].strategic_resources.is_empty());
         // No density field either -> zero capacity, so a populated faction
         // is in food deficit; `food` is the one import left, and it comes
@@ -14740,13 +19471,19 @@ mod tests {
     fn faction_religion_flag_gates_the_religious_axis() {
         let field = [0.9f32, 0.9];
         let territory = [1i32, 2];
-        let places = [agg_place(1, 1000.0, SettlementKind::Town), agg_place(2, 1000.0, SettlementKind::Town)];
+        let places = [
+            agg_place(1, 1000.0, SettlementKind::Town),
+            agg_place(2, 1000.0, SettlementKind::Town),
+        ];
         let mut input = agg_input(&field, &territory, 3);
         let religion = [false, false, true];
         input.faction_has_religion = Some(&religion);
         let out = civ_faction_aggregates(&input, &places);
         assert_eq!(out.by_faction[1].power.religious, 0.0);
-        assert_eq!(out.by_faction[2].power.religious, out.by_faction[2].power.cultural);
+        assert_eq!(
+            out.by_faction[2].power.religious,
+            out.by_faction[2].power.cultural
+        );
         assert!(out.by_faction[2].power.religious > 0.0);
         // The religious axis is one fifth of `overall`, so the two factions
         // are otherwise identical yet score differently.
@@ -14767,12 +19504,22 @@ mod tests {
             agg_place(2, 500.0, SettlementKind::Town),
         ];
         let out = civ_faction_aggregates(&agg_input(&field, &territory, 3), &places);
-        assert_eq!(out.by_faction[1].capital, Some(1), "a 100-soul capital outranks a 9000-soul city");
-        assert_eq!(out.by_faction[2].capital, Some(2), "an exact tie keeps the earlier place");
+        assert_eq!(
+            out.by_faction[1].capital,
+            Some(1),
+            "a 100-soul capital outranks a 9000-soul city"
+        );
+        assert_eq!(
+            out.by_faction[2].capital,
+            Some(2),
+            "an exact tie keeps the earlier place"
+        );
         assert_eq!(out.by_faction[0].capital, None);
         // `capitalTierNorm` normalises by the reference's own ten-entry
         // table (metropolis, rank 5), not by this port's own top tier.
-        assert!((out.by_faction[1].power.military - 100.0 * (0.45 + 0.20 * 4.0 / 5.0)).abs() < 1e-12);
+        assert!(
+            (out.by_faction[1].power.military - 100.0 * (0.45 + 0.20 * 4.0 / 5.0)).abs() < 1e-12
+        );
     }
 
     /// `CIV_PRIMARY_SPECIALISATION` maps five keys; every other value --
@@ -14782,11 +19529,29 @@ mod tests {
         let field = [0.9f32];
         let territory = [1i32];
         let mut places = Vec::new();
-        for (spec, pop) in [(Some("fishing"), 10.0), (Some("grain"), 20.0), (Some("pastoral"), 30.0), (Some("timber"), 40.0), (Some("mining"), 50.0)] {
-            places.push(FactionPlace { specialisation: spec, pop, ..agg_place(1, pop, SettlementKind::Town) });
+        for (spec, pop) in [
+            (Some("fishing"), 10.0),
+            (Some("grain"), 20.0),
+            (Some("pastoral"), 30.0),
+            (Some("timber"), 40.0),
+            (Some("mining"), 50.0),
+        ] {
+            places.push(FactionPlace {
+                specialisation: spec,
+                pop,
+                ..agg_place(1, pop, SettlementKind::Town)
+            });
         }
-        places.push(FactionPlace { specialisation: Some("trade_hub"), pop: 60.0, ..agg_place(1, 60.0, SettlementKind::Town) });
-        places.push(FactionPlace { specialisation: None, pop: 70.0, ..agg_place(1, 70.0, SettlementKind::Town) });
+        places.push(FactionPlace {
+            specialisation: Some("trade_hub"),
+            pop: 60.0,
+            ..agg_place(1, 60.0, SettlementKind::Town)
+        });
+        places.push(FactionPlace {
+            specialisation: None,
+            pop: 70.0,
+            ..agg_place(1, 70.0, SettlementKind::Town)
+        });
         let out = civ_faction_aggregates(&agg_input(&field, &territory, 2), &places);
         let s = out.by_faction[1].sector_output;
         // prodWeight = pop*(0.4+0.6*0) = 0.4*pop.
@@ -14838,9 +19603,16 @@ mod tests {
         let wb = [1u8, 0, 2, 0, 0];
         let with_wb = civ_ocean_dist_field(Some(&wb), &field, 5, 1, 0.42);
         assert_eq!(with_wb[0], 0.0);
-        assert!(with_wb[2] > 1.0, "the lake cell is not a distance-zero source, got {}", with_wb[2]);
+        assert!(
+            with_wb[2] > 1.0,
+            "the lake cell is not a distance-zero source, got {}",
+            with_wb[2]
+        );
         let without = civ_ocean_dist_field(None, &field, 5, 1, 0.42);
-        assert_eq!(without[2], 0.0, "the fallback treats every sub-sea cell as ocean");
+        assert_eq!(
+            without[2], 0.0,
+            "the fallback treats every sub-sea cell as ocean"
+        );
     }
 
     /// A faction that owns nothing and holds nothing still produces a row,
@@ -14877,10 +19649,13 @@ mod tests {
         assert_eq!(b.territory_km2, 0.0);
         assert!(b.terrain_mix.values().all(|&v| v == 0.0));
         assert!(b.exports.is_empty());
-        assert_eq!(b.imports, vec!["copper", "iron", "timber"], "only CONSUMED resources can be imports -- never `gems`");
+        assert_eq!(
+            b.imports,
+            vec!["copper", "iron", "timber"],
+            "only CONSUMED resources can be imports -- never `gems`"
+        );
         assert!(b.strategic_resources.is_empty());
     }
-
 
     /// `if(f<=0||f>=nF) continue` -- **both** bounds. The golden fixtures'
     /// synthetic territory never assigns an out-of-range id, so the upper
@@ -14932,8 +19707,14 @@ mod tests {
         let field = [0.9f32];
         let territory = [1i32];
         // No density field -> capacity 0, so surplus is exactly -pop.
-        let out = civ_faction_aggregates(&agg_input(&field, &territory, 2), &[agg_place(1, 100.5, SettlementKind::Town)]);
-        assert_eq!(out.by_faction[1].food_surplus, -100.0, "Math.round(-100.5) is -100, not -101");
+        let out = civ_faction_aggregates(
+            &agg_input(&field, &territory, 2),
+            &[agg_place(1, 100.5, SettlementKind::Town)],
+        );
+        assert_eq!(
+            out.by_faction[1].food_surplus, -100.0,
+            "Math.round(-100.5) is -100, not -101"
+        );
         assert_eq!(out.by_faction[1].pop, 101.0, "Math.round(100.5) is 101");
         assert_eq!(out.by_faction[1].imports, vec!["food"]);
     }
@@ -14946,18 +19727,27 @@ mod tests {
     fn the_religious_axis_uses_the_same_weights_as_cultural_and_they_are_observable() {
         let field = [0.9f32, 0.9];
         let territory = [1i32, 2];
-        let places = [agg_place(1, 1000.0, SettlementKind::Town), agg_place(2, 250.0, SettlementKind::Town)];
+        let places = [
+            agg_place(1, 1000.0, SettlementKind::Town),
+            agg_place(2, 250.0, SettlementKind::Town),
+        ];
         let mut input = agg_input(&field, &territory, 3);
         let religion = [false, false, true];
         input.faction_has_religion = Some(&religion);
         let out = civ_faction_aggregates(&input, &places);
         // norm_pop = 250/1000 = 0.25, norm_settle = 1/1 = 1.
         let expected = 100.0 * (0.7 * 0.25 + 0.3 * 1.0);
-        assert!((out.by_faction[2].power.cultural - expected).abs() < 1e-12, "cultural: {}", out.by_faction[2].power.cultural);
-        assert_eq!(out.by_faction[2].power.religious, out.by_faction[2].power.cultural);
+        assert!(
+            (out.by_faction[2].power.cultural - expected).abs() < 1e-12,
+            "cultural: {}",
+            out.by_faction[2].power.cultural
+        );
+        assert_eq!(
+            out.by_faction[2].power.religious,
+            out.by_faction[2].power.cultural
+        );
         assert_eq!(out.by_faction[1].power.religious, 0.0);
     }
-
 
     /// `terr=(civTerritory&&civTerritory.length===GW*GH)?civTerritory:null`
     /// -- a wrong-length raster is treated as absent (the reference guards
@@ -14967,11 +19757,22 @@ mod tests {
     fn a_wrong_length_territory_raster_is_treated_as_absent() {
         let field = [0.9f32, 0.9, 0.9];
         let short = [1i32, 1];
-        let out = civ_faction_aggregates(&agg_input(&field, &short, 2), &[agg_place(1, 100.0, SettlementKind::Town)]);
-        assert_eq!(out.by_faction[1].territory_km2, 0.0, "no per-faction territory from a stale raster");
+        let out = civ_faction_aggregates(
+            &agg_input(&field, &short, 2),
+            &[agg_place(1, 100.0, SettlementKind::Town)],
+        );
+        assert_eq!(
+            out.by_faction[1].territory_km2, 0.0,
+            "no per-faction territory from a stale raster"
+        );
         assert!(out.by_faction[1].terrain_mix.values().all(|&v| v == 0.0));
-        assert_eq!(out.world_mean_terrain["hills"], 1.0, "the world sums still see all three land cells");
-        assert_eq!(out.by_faction[1].settlement_count, 1, "the places loop is unaffected");
+        assert_eq!(
+            out.world_mean_terrain["hills"], 1.0,
+            "the world sums still see all three land cells"
+        );
+        assert_eq!(
+            out.by_faction[1].settlement_count, 1,
+            "the places loop is unaffected"
+        );
     }
-
 }

@@ -292,3 +292,37 @@ feature present and its result equivalent or better?" If yes, the
 implementation is free to differ. If a change would make a described function
 absent or visibly worse, it violates the contract regardless of how modern
 the replacement is.
+
+## 7e. Settlement coastal flag computed from final geometry, not the reference's own pre-snap order (2026-08-19)
+
+Owner report: settlements flagged coastal/river-adjacent weren't actually
+landing on the water. Investigation found the real root cause was a missing
+port of the reference's own `_civSnapToWaterEdge` (a bounded, tolerance-gated
+water-edge snap the reference added in v1.36/v1.39, after milestone 8's
+golden-parity harness had already deliberately scoped it out as DOM-coupled
+logic) — now ported as `place_settlements_with_water_edge_snap`
+(`cartalith-civ`), golden-verified against the real reference via 8 new unit
+tests built from a small hand-copied Node harness, not guessed.
+
+One small, deliberate deviation from the reference's own statement order
+found along the way and disclosed here per this section's own pattern: the
+reference computes a settlement's `coastal` flag (`_civIsCoastal`) ONCE,
+*before* `_civSnapToWaterEdge` runs, and never re-checks it (reference lines
+25423 vs 25558) — meaning the reference itself could, in principle, ship a
+settlement whose flag no longer matches its final post-snap position, even
+though in practice the snap only ever moves a site *closer* to water, so this
+has never been observed to matter. This port recomputes `coastal` on the
+FINAL position instead, in `place_settlements_with_water_edge_snap`, since
+both the position and `civ_is_coastal` already exist at that point and
+recomputing costs nothing extra. This is a correctness improvement with no
+observed behavioral cost, not a redesign — flagged per this project's own
+"never silently change a numerical result" discipline (`README.md`) rather
+than left as an unstated difference from the reference's literal ordering.
+
+Also disclosed: the reference's v1.46 landmass-scoped coastal-PREFERENCE
+swap (reference line 25447 — redistributes WHICH settlements are flagged
+coastal to hit a per-landmass target share, an abundance/distribution
+concern) and its crossroads-settlement promotion pass (reference line
+~25607) remain unported. Both are real, separate reference features,
+confirmed by reading them, not conflated with the geometry bug this entry
+fixes — left for a future pass if the owner wants them.

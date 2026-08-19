@@ -117,11 +117,19 @@ fn assert_named_settlements_match(
     expected: &[(usize, usize, i32, &str, u32)],
     label: &str,
 ) {
-    assert_eq!(actual.len(), expected.len(), "{label}: settlement count mismatch");
-    for (i, (a, &(ex, ey, efaction, ename, epop))) in actual.iter().zip(expected.iter()).enumerate() {
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "{label}: settlement count mismatch"
+    );
+    for (i, (a, &(ex, ey, efaction, ename, epop))) in actual.iter().zip(expected.iter()).enumerate()
+    {
         assert_eq!(a.placement.x, ex, "{label} settlement {i}: x mismatch");
         assert_eq!(a.placement.y, ey, "{label} settlement {i}: y mismatch");
-        assert_eq!(a.placement.faction, efaction, "{label} settlement {i}: faction mismatch");
+        assert_eq!(
+            a.placement.faction, efaction,
+            "{label} settlement {i}: faction mismatch"
+        );
         assert_eq!(a.name, ename, "{label} settlement {i}: name mismatch");
         assert_eq!(a.pop, epop, "{label} settlement {i}: pop mismatch");
     }
@@ -143,7 +151,10 @@ fn settlement_naming_case_0_region() {
     p.world = false;
     p.climate.w_iters = 12;
     let ws = cartalith_engine::generate_terrain(&p);
-    assert!((ws.sea_level - 0.42f64).abs() < 1e-9, "sea_level mismatch, harness assumption broken");
+    assert!(
+        (ws.sea_level - 0.42f64).abs() < 1e-9,
+        "sea_level mismatch, harness assumption broken"
+    );
 
     let named = compute_named_settlements(&ws, 14, 11, false, p.map_width_km, p.river_density);
     assert_named_settlements_match(&named, &expected, "case0_region");
@@ -170,7 +181,10 @@ fn settlement_naming_case_1_world_wrap() {
     p.world = true;
     p.climate.w_iters = 12;
     let ws = cartalith_engine::generate_terrain(&p);
-    assert!((ws.sea_level - 0.42f64).abs() < 1e-9, "sea_level mismatch, harness assumption broken");
+    assert!(
+        (ws.sea_level - 0.42f64).abs() < 1e-9,
+        "sea_level mismatch, harness assumption broken"
+    );
 
     let named = compute_named_settlements(&ws, 16, 12, true, p.map_width_km, p.river_density);
     assert_named_settlements_match(&named, &expected, "case1_world_wrap");
@@ -199,19 +213,53 @@ fn compute_named_settlements(
     map_width_km: f64,
     river_density: f64,
 ) -> Vec<cartalith_civ::NamedSettlement> {
-    let wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, ws.sea_level, world, Some(&ws.rainfall));
-    let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
+    let wb = cartalith_civ::build_water_bodies(
+        &ws.field,
+        gw,
+        gh,
+        ws.sea_level,
+        world,
+        Some(&ws.rainfall),
+    );
+    let biome =
+        cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
 
     let soil_slope = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
     let lithology = cartalith_civ::build_lithology(
-        &ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, ws.sea_level,
+        &ws.field,
+        &ws.age_field,
+        &ws.volcanic_field,
+        &ws.crust_field,
+        &ws.resistance_field,
+        &ws.rainfall,
+        ws.sea_level,
     );
-    let soil = cartalith_civ::build_soil_fertility(&lithology, &ws.temperature, &ws.rainfall, &soil_slope, &ws.age_field);
+    let soil = cartalith_civ::build_soil_fertility(
+        &lithology,
+        &ws.temperature,
+        &ws.rainfall,
+        &soil_slope,
+        &ws.age_field,
+    );
 
     let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
-    let water_access = cartalith_civ::build_water_access(&ws.flow_discharge, &ws.field, gw, gh, ws.sea_level, flow_thresh);
+    let water_access = cartalith_civ::build_water_access(
+        &ws.flow_discharge,
+        &ws.field,
+        gw,
+        gh,
+        ws.sea_level,
+        flow_thresh,
+    );
     let carrying_cap = cartalith_civ::build_carrying_capacity(
-        &soil, &water_access, Some(&biome), &ws.temperature, &ws.field, ws.sea_level, 0.0, None,
+        &soil,
+        &water_access,
+        Some(&biome),
+        &ws.temperature,
+        &ws.field,
+        ws.sea_level,
+        0.0,
+        None,
     );
 
     let resources = cartalith_civ::build_resource_potentials(
@@ -232,12 +280,44 @@ fn compute_named_settlements(
     );
 
     let raw_slope = cartalith_civ::build_raw_slope_field(&ws.field, gw, gh, world);
-    let corridors = cartalith_civ::build_route_corridors(&ws.field, &raw_slope, Some(&ws.flow_discharge), gw, gh, ws.sea_level, world, flow_thresh);
-    let landmass = cartalith_civ::build_landmass_quality(&ws.field, Some(&carrying_cap), gw, gh, ws.sea_level, world);
+    let corridors = cartalith_civ::build_route_corridors(
+        &ws.field,
+        &raw_slope,
+        Some(&ws.flow_discharge),
+        gw,
+        gh,
+        ws.sea_level,
+        world,
+        flow_thresh,
+    );
+    let landmass = cartalith_civ::build_landmass_quality(
+        &ws.field,
+        Some(&carrying_cap),
+        gw,
+        gh,
+        ws.sea_level,
+        world,
+    );
     let coast_sdf = cartalith_civ::build_coast_sdf(&ws.field, gw, gh, ws.sea_level);
-    let flood = cartalith_civ::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, ws.sea_level);
+    let flood = cartalith_civ::build_flood_field(
+        &ws.field,
+        &ws.flow_discharge,
+        &raw_slope,
+        gw,
+        gh,
+        ws.sea_level,
+    );
 
-    let river_order = cartalith_civ::fresh_river_order(&ws.field, &ws.flow_discharge, gw, gh, ws.sea_level, world, river_density, map_width_km);
+    let river_order = cartalith_civ::fresh_river_order(
+        &ws.field,
+        &ws.flow_discharge,
+        gw,
+        gh,
+        ws.sea_level,
+        world,
+        river_density,
+        map_width_km,
+    );
 
     let ctx = cartalith_civ::SuitabilityCtx {
         water_bodies: Some(&wb.classification),
@@ -254,11 +334,37 @@ fn compute_named_settlements(
     };
 
     let slope_n = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
-    let suit = cartalith_civ::build_settlement_suitability(&soil, &water_access, &carrying_cap, &ws.field, &slope_n, gw, gh, ws.sea_level, Some(&ctx));
-    let seeds = cartalith_civ::find_settlement_seeds(&suit, gw, gh, 0.65, (gw as f64 / 20.0).max(4.0));
+    let suit = cartalith_civ::build_settlement_suitability(
+        &soil,
+        &water_access,
+        &carrying_cap,
+        &ws.field,
+        &slope_n,
+        gw,
+        gh,
+        ws.sea_level,
+        Some(&ctx),
+    );
+    let seeds =
+        cartalith_civ::find_settlement_seeds(&suit, gw, gh, 0.65, (gw as f64 / 20.0).max(4.0));
 
     // factionCount = CIV_FACTIONS.length-1 = 7-1 = 6 (reference line 14568).
-    let placements = cartalith_civ::place_settlements(&seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, ws.sea_level, world, 6);
+    let placements = cartalith_civ::place_settlements_with_water_edge_snap(
+        &seeds,
+        &suit,
+        &ws.field,
+        &wb.classification,
+        &wb.fill_level,
+        gw,
+        gh,
+        ws.sea_level,
+        world,
+        6,
+        &flood,
+        &ws.flow_discharge,
+        flow_thresh,
+        map_width_km,
+    );
 
     cartalith_civ::name_and_populate_settlements(&placements)
 }

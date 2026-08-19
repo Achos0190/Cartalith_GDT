@@ -45,8 +45,16 @@ struct ExpectedPlace {
     coastal: bool,
 }
 
-fn assert_places_match(actual: &[cartalith_civ::SettlementPlacement], expected: &[ExpectedPlace], label: &str) {
-    assert_eq!(actual.len(), expected.len(), "{label}: place count mismatch");
+fn assert_places_match(
+    actual: &[cartalith_civ::SettlementPlacement],
+    expected: &[ExpectedPlace],
+    label: &str,
+) {
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "{label}: place count mismatch"
+    );
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         assert_eq!(a.x, e.x, "{label} place {i}: x mismatch");
         assert_eq!(a.y, e.y, "{label} place {i}: y mismatch");
@@ -67,16 +75,40 @@ fn settlement_placement_case_0_region() {
     // 2nd seat and exercises the multi-capital spacing branch; landmass1 (1
     // candidate) stays single-seat.
     let expected = vec![
-        ExpectedPlace { x: 7, y: 2, faction: 1, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
-        ExpectedPlace { x: 9, y: 3, faction: 2, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
-        ExpectedPlace { x: 6, y: 2, faction: 3, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
+        ExpectedPlace {
+            x: 7,
+            y: 2,
+            faction: 1,
+            capital: true,
+            kind: cartalith_civ::SettlementKind::Capital,
+            coastal: true,
+        },
+        ExpectedPlace {
+            x: 9,
+            y: 3,
+            faction: 2,
+            capital: true,
+            kind: cartalith_civ::SettlementKind::Capital,
+            coastal: true,
+        },
+        ExpectedPlace {
+            x: 6,
+            y: 2,
+            faction: 3,
+            capital: true,
+            kind: cartalith_civ::SettlementKind::Capital,
+            coastal: true,
+        },
     ];
 
     let mut p = cartalith_engine::WorldParams::defaults(14, 11, 24601);
     p.world = false;
     p.climate.w_iters = 12;
     let ws = cartalith_engine::generate_terrain(&p);
-    assert!((ws.sea_level - 0.42f64).abs() < 1e-9, "sea_level mismatch, harness assumption broken");
+    assert!(
+        (ws.sea_level - 0.42f64).abs() < 1e-9,
+        "sea_level mismatch, harness assumption broken"
+    );
 
     let places = compute_placements(&ws, 14, 11, false, p.map_width_km, p.river_density);
     assert_places_match(&places, &expected, "case0_region");
@@ -89,18 +121,56 @@ fn settlement_placement_case_1_world_wrap() {
     // > L=1 landmass, so all 5 candidates earn their own seat and every one
     // becomes its own capital -- the K=5 multi-capital spacing branch.
     let expected = vec![
-        ExpectedPlace { x: 9, y: 3, faction: 1, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
-        ExpectedPlace { x: 5, y: 8, faction: 2, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
-        ExpectedPlace { x: 8, y: 9, faction: 3, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
-        ExpectedPlace { x: 10, y: 5, faction: 4, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
-        ExpectedPlace { x: 4, y: 7, faction: 5, capital: true, kind: cartalith_civ::SettlementKind::Capital, coastal: true },
+        ExpectedPlace {
+            x: 9,
+            y: 3,
+            faction: 1,
+            capital: true,
+            kind: cartalith_civ::SettlementKind::Capital,
+            coastal: true,
+        },
+        ExpectedPlace {
+            x: 5,
+            y: 8,
+            faction: 2,
+            capital: true,
+            kind: cartalith_civ::SettlementKind::Capital,
+            coastal: true,
+        },
+        ExpectedPlace {
+            x: 8,
+            y: 9,
+            faction: 3,
+            capital: true,
+            kind: cartalith_civ::SettlementKind::Capital,
+            coastal: true,
+        },
+        ExpectedPlace {
+            x: 10,
+            y: 5,
+            faction: 4,
+            capital: true,
+            kind: cartalith_civ::SettlementKind::Capital,
+            coastal: true,
+        },
+        ExpectedPlace {
+            x: 4,
+            y: 7,
+            faction: 5,
+            capital: true,
+            kind: cartalith_civ::SettlementKind::Capital,
+            coastal: true,
+        },
     ];
 
     let mut p = cartalith_engine::WorldParams::defaults(16, 12, 314159);
     p.world = true;
     p.climate.w_iters = 12;
     let ws = cartalith_engine::generate_terrain(&p);
-    assert!((ws.sea_level - 0.42f64).abs() < 1e-9, "sea_level mismatch, harness assumption broken");
+    assert!(
+        (ws.sea_level - 0.42f64).abs() < 1e-9,
+        "sea_level mismatch, harness assumption broken"
+    );
 
     let places = compute_placements(&ws, 16, 12, true, p.map_width_km, p.river_density);
     assert_places_match(&places, &expected, "case1_world_wrap");
@@ -119,19 +189,53 @@ fn compute_placements(
     map_width_km: f64,
     river_density: f64,
 ) -> Vec<cartalith_civ::SettlementPlacement> {
-    let wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, ws.sea_level, world, Some(&ws.rainfall));
-    let biome = cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
+    let wb = cartalith_civ::build_water_bodies(
+        &ws.field,
+        gw,
+        gh,
+        ws.sea_level,
+        world,
+        Some(&ws.rainfall),
+    );
+    let biome =
+        cartalith_civ::build_biome_raster(&wb.classification, &ws.temperature, &ws.rainfall);
 
     let soil_slope = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
     let lithology = cartalith_civ::build_lithology(
-        &ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, ws.sea_level,
+        &ws.field,
+        &ws.age_field,
+        &ws.volcanic_field,
+        &ws.crust_field,
+        &ws.resistance_field,
+        &ws.rainfall,
+        ws.sea_level,
     );
-    let soil = cartalith_civ::build_soil_fertility(&lithology, &ws.temperature, &ws.rainfall, &soil_slope, &ws.age_field);
+    let soil = cartalith_civ::build_soil_fertility(
+        &lithology,
+        &ws.temperature,
+        &ws.rainfall,
+        &soil_slope,
+        &ws.age_field,
+    );
 
     let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
-    let water_access = cartalith_civ::build_water_access(&ws.flow_discharge, &ws.field, gw, gh, ws.sea_level, flow_thresh);
+    let water_access = cartalith_civ::build_water_access(
+        &ws.flow_discharge,
+        &ws.field,
+        gw,
+        gh,
+        ws.sea_level,
+        flow_thresh,
+    );
     let carrying_cap = cartalith_civ::build_carrying_capacity(
-        &soil, &water_access, Some(&biome), &ws.temperature, &ws.field, ws.sea_level, 0.0, None,
+        &soil,
+        &water_access,
+        Some(&biome),
+        &ws.temperature,
+        &ws.field,
+        ws.sea_level,
+        0.0,
+        None,
     );
 
     let resources = cartalith_civ::build_resource_potentials(
@@ -152,12 +256,44 @@ fn compute_placements(
     );
 
     let raw_slope = cartalith_civ::build_raw_slope_field(&ws.field, gw, gh, world);
-    let corridors = cartalith_civ::build_route_corridors(&ws.field, &raw_slope, Some(&ws.flow_discharge), gw, gh, ws.sea_level, world, flow_thresh);
-    let landmass = cartalith_civ::build_landmass_quality(&ws.field, Some(&carrying_cap), gw, gh, ws.sea_level, world);
+    let corridors = cartalith_civ::build_route_corridors(
+        &ws.field,
+        &raw_slope,
+        Some(&ws.flow_discharge),
+        gw,
+        gh,
+        ws.sea_level,
+        world,
+        flow_thresh,
+    );
+    let landmass = cartalith_civ::build_landmass_quality(
+        &ws.field,
+        Some(&carrying_cap),
+        gw,
+        gh,
+        ws.sea_level,
+        world,
+    );
     let coast_sdf = cartalith_civ::build_coast_sdf(&ws.field, gw, gh, ws.sea_level);
-    let flood = cartalith_civ::build_flood_field(&ws.field, &ws.flow_discharge, &raw_slope, gw, gh, ws.sea_level);
+    let flood = cartalith_civ::build_flood_field(
+        &ws.field,
+        &ws.flow_discharge,
+        &raw_slope,
+        gw,
+        gh,
+        ws.sea_level,
+    );
 
-    let river_order = cartalith_civ::fresh_river_order(&ws.field, &ws.flow_discharge, gw, gh, ws.sea_level, world, river_density, map_width_km);
+    let river_order = cartalith_civ::fresh_river_order(
+        &ws.field,
+        &ws.flow_discharge,
+        gw,
+        gh,
+        ws.sea_level,
+        world,
+        river_density,
+        map_width_km,
+    );
 
     let ctx = cartalith_civ::SuitabilityCtx {
         water_bodies: Some(&wb.classification),
@@ -174,10 +310,36 @@ fn compute_placements(
     };
 
     let slope_n = cartalith_civ::build_slope_field(&ws.field, gw, gh, world);
-    let suit = cartalith_civ::build_settlement_suitability(&soil, &water_access, &carrying_cap, &ws.field, &slope_n, gw, gh, ws.sea_level, Some(&ctx));
-    let seeds = cartalith_civ::find_settlement_seeds(&suit, gw, gh, 0.65, (gw as f64 / 20.0).max(4.0));
+    let suit = cartalith_civ::build_settlement_suitability(
+        &soil,
+        &water_access,
+        &carrying_cap,
+        &ws.field,
+        &slope_n,
+        gw,
+        gh,
+        ws.sea_level,
+        Some(&ctx),
+    );
+    let seeds =
+        cartalith_civ::find_settlement_seeds(&suit, gw, gh, 0.65, (gw as f64 / 20.0).max(4.0));
 
     // factionCount = CIV_FACTIONS.length-1 = 7-1 = 6 (reference line 14568:
     // CIV_FACTIONS has 7 entries, index 0 = "Unclaimed").
-    cartalith_civ::place_settlements(&seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, ws.sea_level, world, 6)
+    cartalith_civ::place_settlements_with_water_edge_snap(
+        &seeds,
+        &suit,
+        &ws.field,
+        &wb.classification,
+        &wb.fill_level,
+        gw,
+        gh,
+        ws.sea_level,
+        world,
+        6,
+        &flood,
+        &ws.flow_discharge,
+        flow_thresh,
+        map_width_km,
+    )
 }
