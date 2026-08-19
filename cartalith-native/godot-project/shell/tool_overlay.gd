@@ -145,9 +145,14 @@ func _draw() -> void:
 			screen_pts.append(_grid_to_screen(p, rect))
 		if screen_pts.size() > 1:
 			draw_polyline(screen_pts, MEASURE_COLOR, 1.6, true)
+		## `antialiased` (`draw_circle`'s trailing positional arg) defaults to
+		## `false` in Godot 4 -- same jagged-edge-at-zoom fidelity issue
+		## `map_overlay.gd`'s settlement pins had (see that file's own
+		## antialiasing comment), fixed here for these point/handle markers
+		## too since they're the same kind of on-canvas circle.
 		for sp in screen_pts:
-			draw_circle(sp, MEASURE_POINT_RADIUS, MEASURE_COLOR)
-			draw_circle(sp, MEASURE_POINT_RADIUS, Color(0, 0, 0, 0.6), false, 1.0)
+			draw_circle(sp, MEASURE_POINT_RADIUS, MEASURE_COLOR, true, -1.0, true)
+			draw_circle(sp, MEASURE_POINT_RADIUS, Color(0, 0, 0, 0.6), false, 1.0, true)
 
 	if path_preview.size() > 0:
 		var pp_screen := PackedVector2Array()
@@ -156,7 +161,7 @@ func _draw() -> void:
 		if pp_screen.size() > 1:
 			draw_polyline(pp_screen, PATH_PREVIEW_COLOR, 1.8, true)
 		for sp in pp_screen:
-			draw_circle(sp, PATH_PREVIEW_POINT_RADIUS, PATH_PREVIEW_COLOR)
+			draw_circle(sp, PATH_PREVIEW_POINT_RADIUS, PATH_PREVIEW_COLOR, true, -1.0, true)
 
 	for h in handles:
 		var hd: Dictionary = h
@@ -164,7 +169,7 @@ func _draw() -> void:
 			continue
 		var hp := _grid_to_screen(Vector2(hd["x"], hd["y"]), rect)
 		var hr: float = maxf(4.0, float(hd["r"]))
-		draw_circle(hp, hr, HANDLE_COLOR)
+		draw_circle(hp, hr, HANDLE_COLOR, true, -1.0, true)
 		draw_arc(hp, hr, 0, TAU, 16, HANDLE_OUTLINE, 1.0, true)
 
 func _draw_dashed_rect(r: Rect2, color: Color, width: float, dash: float) -> void:

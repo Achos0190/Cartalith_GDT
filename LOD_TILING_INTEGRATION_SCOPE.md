@@ -337,6 +337,33 @@ UI toggle for auto/manual (`#lodAutoChk` — pick one behavior, ship it,
 revisit if it's wrong), or a chunk debug overlay (needs Z2 to exist first,
 per the catalogue above).
 
+**M1 status (2026-08-19 bug-fix pass):** shipped 2026-08-18 (`59700ab`), then
+found to have a real gap under real use, not this document's own scope
+question but a correctness bug in the shipped compositor: `_update_lod()`'s
+`MAX_LOD_TILES_PER_UPDATE := 48` per-call synthesis cap silently dropped
+whatever a single `wanted` set exceeded it by — the *cap's own* doc comment
+already flagged "a real fix... is out of this milestone's scope," but the
+consequence was worse than a bounded frame cost: `_apply_lod_tiles`'s
+reconciliation only ever compared the current call's `wanted` against
+`_lod_tiles`, so a dropped tile was never reconsidered once the camera
+stopped moving — permanently missing texture, not merely delayed. Confirmed
+with a real headless repro (grid 512, a 1920×1080 viewport, 64 tiles wanted
+at the default zoom): `built` stuck at exactly 48/64 across five redundant
+`_update_lod()` calls with nothing about the camera changing between them.
+Fixed with a bounded `_lod_backlog` + `_process()` staggered catch-up
+(`viewport_host.gd`) — same-call synthesis stays capped at
+`MAX_LOD_TILES_PER_UPDATE` (the frame-stall reasoning the cap already
+documented still holds), but whatever misses the cap now drains a few tiles
+(`MAX_LOD_TILES_PER_CATCHUP := 6`) per idle frame until the backlog empties
+or the next `_update_lod()` call replaces it. Same repro, post-fix: 48
+built + 16 backlogged immediately, draining to 64/0 over 3 frames, stable
+afterward. A second, independent bug found in the same pass: a tile already
+built at one `detail_level` was never rebuilt when the camera zoomed further
+within the *same* tile index (`_lod_tile_detail` now tracks the tier each
+tile was actually built at, and `_apply_lod_tiles` rebuilds on a mismatch).
+Neither bug is Z5 (the atlas cache) — both are the interactive compositor
+correctly finishing the work it starts, not persisting it across sessions.
+
 **M2 · Nothing — the Data manager export panel, not a new milestone.** Z4 is
 done. When the UI hold lifts and milestone F resumes, the Data manager's
 Leaflet tile-pyramid route is a GDScript panel calling three already-tested

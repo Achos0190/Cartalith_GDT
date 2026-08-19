@@ -54,21 +54,46 @@ const SETTLEMENT_CLASS := {
 ## an inverse-CSS-zoom term times a user icon-scale, so a pin holds roughly
 ## the same ON-SCREEN size regardless of grid resolution or camera zoom
 ## (`_civZoomK`'s own comment, line 14976-14978: "shrinking in canvas-space
-## as you zoom in so the on-screen size ... stays roughly constant"). This
-## control has no separate canvas/CSS-zoom split to reproduce: `_displayed_
-## rect()`'s fit rect already IS screen space, and camera zoom is a plain
-## transform `ViewportHost` applies to this whole control, the same role the
-## reference's CSS transform plays over its canvas. The one piece worth
-## porting is the resolution term -- tying `sc` to `rect.size.x` ALONE (not
-## `rect.size.x/_gw`, unlike `tool_overlay.gd`'s brush-cursor radius) keeps a
-## pin's on-screen size independent of grid resolution, matching what the
-## reference's own `GW/512` term is actually for; a literal `radius_cells*
-## (rect.size.x/_gw)` port would instead shrink pins on a bigger grid, which
-## is right for a brush (a real world-space distance) but wrong for a pin's
-## glyph size (not a world-space quantity at all). `PIN_SCALE_REF_PX` is a
-## tuned constant this port chose (not a reference value -- there is no
-## equivalent number to port), sized so a typical dock-width viewport lands
-## close to the pre-formula `TIER_RADIUS` constants it replaces.
+## as you zoom in so the on-screen size ... stays roughly constant" -- the
+## exact mechanism, verified against the real function rather than trusted
+## from the paraphrase, `_civZoomK()` at line 14980-14983:
+## `1/clamp(viewT.scale, 0.35, 5)`).
+##
+## Correction (2026-08-19, the LOD/settlement-fidelity bug pass): an earlier
+## version of this comment argued the inverse-zoom term could be dropped
+## entirely because "this control has no separate canvas/CSS-zoom split to
+## reproduce... camera zoom is a plain transform `ViewportHost` applies to
+## this whole control, the same role the reference's CSS transform plays
+## over its canvas." That description of the transform was correct and the
+## conclusion drawn from it was backwards: the reference needs `_civZoomK()`
+## *precisely because* its own CSS transform plays that exact role -- the
+## whole job of `civZoomK()` is shrinking the pin in canvas-space so that
+## when the CSS transform (there) / `_camera.scale` (here, `ViewportHost.
+## zoom()`) multiplies the rendered size back out, the two cancel and the
+## ON-SCREEN size stays constant. Without an equivalent term here,
+## `_camera.scale` alone was doing the reference's zoom-transform half of
+## that cancellation with nothing supplying the other half, so a pin's
+## on-screen size grew linearly with `ViewportHost.zoom()` instead of
+## holding steady -- confirmed numerically before this fix (a settlement
+## pin at `zoom=1.0` vs. the same pin at `zoom=4.0` measured 4x the on-screen
+## radius, not the same one). `_civ_zoom_k()` below is the missing term,
+## using the reference's own clamp bounds (0.35-5.0) rather than this port's
+## own, wider `ViewportHost.ZOOM_MIN`/`ZOOM_MAX` (0.4-8.0) -- deliberately:
+## the clamp exists purely so a pin never vanishes at extreme zoom-in nor
+## dominates at extreme zoom-out, a readability bound with no reason to
+## track wherever this port's own pan/zoom range happens to sit.
+##
+## The resolution term is still ported the same way this comment always
+## described: tying `sc` to `rect.size.x` ALONE (not `rect.size.x/_gw`,
+## unlike `tool_overlay.gd`'s brush-cursor radius) keeps a pin's on-screen
+## size independent of grid resolution, matching what the reference's own
+## `GW/512` term is actually for; a literal `radius_cells*(rect.size.x/_gw)`
+## port would instead shrink pins on a bigger grid, which is right for a
+## brush (a real world-space distance) but wrong for a pin's glyph size (not
+## a world-space quantity at all). `PIN_SCALE_REF_PX` is a tuned constant
+## this port chose (not a reference value -- there is no equivalent number
+## to port), sized so a typical dock-width viewport lands close to the
+## pre-formula `TIER_RADIUS` constants it replaces.
 const PIN_SCALE_REF_PX := 1400.0
 const CAPITAL_RING_WIDTH := 2.5
 ## Reference's settlement-label fill (`#f6ecd4`, line 15206) -- close enough
@@ -186,6 +211,35 @@ var _show_sea_routes := true
 ## (`WorldGen.get_border_inset_frac()`, Phase 3 milestone 4). `0.0` when the
 ## renderer draws no frame, which makes every use of it below an exact no-op.
 var _border_frac := 0.0
+
+## The live camera zoom (`ViewportHost.zoom()`/`_zoom`), pushed in by
+## `ViewportHost._zoom_at()`/`reset_view()` every time it changes --
+## `PIN_SCALE_REF_PX`'s own doc comment covers why this is needed at all.
+## Default `1.0` matches `ViewportHost`'s own default zoom, so a pin looks
+## right even in the one frame before the first zoom/reset call ever runs.
+var _camera_zoom := 1.0
+
+func set_camera_zoom(z: float) -> void:
+	if is_equal_approx(z, _camera_zoom):
+		return
+	_camera_zoom = z
+	## Unlike `set_civ_data`/`set_show_settlements`, nothing about `_draw()`'s
+	## own *content* changed here -- only how big the already-drawn geometry
+	## needs to be next time, which only a fresh `_draw()` call can apply.
+	## Godot does not re-run a `CanvasItem`'s draw commands just because an
+	## ancestor's `scale` changed; it only rescales the cached ones, which is
+	## exactly the bug `PIN_SCALE_REF_PX`'s own doc comment fixes -- without
+	## this `queue_redraw()`, `_civ_zoom_k()` would compute the right radius
+	## but never actually get drawn with it until some unrelated redraw
+	## happened to fire.
+	queue_redraw()
+
+## The reference's own `_civZoomK()` (reference line 14980-14983), applied to
+## `sc` so a settlement pin holds a roughly constant ON-SCREEN size across
+## camera zoom -- see `PIN_SCALE_REF_PX`'s own doc comment for the full
+## derivation of why this term is needed at all.
+func _civ_zoom_k() -> float:
+	return 1.0 / clampf(_camera_zoom, 0.35, 5.0)
 
 ## §4.5.5's Icon and Label tools place these; `bridge.icon_list()`/
 ## `bridge.label_list()` are this data's only source, both already bound
@@ -312,7 +366,7 @@ func _point_to_screen(p: Vector2, rect: Rect2) -> Vector2:
 ## settlement` so the drawn pin and its click/hover target never disagree.
 func _settlement_pin_radius(kind: String, rect: Rect2) -> float:
 	var klass: Dictionary = SETTLEMENT_CLASS.get(kind, SETTLEMENT_CLASS["town"])
-	return (4.0 + float(klass["rank"])) * (rect.size.x / PIN_SCALE_REF_PX)
+	return (4.0 + float(klass["rank"])) * (rect.size.x / PIN_SCALE_REF_PX) * _civ_zoom_k()
 
 
 ## Reference lines 15716-15721 (`lblCandidates`): the four label positions a
@@ -415,7 +469,12 @@ func _draw() -> void:
 			_draw_way_segment(points, start2, points.size(), rect, width)
 
 	if _show_settlements:
-		var sc: float = rect.size.x / PIN_SCALE_REF_PX
+		## Same formula `_settlement_pin_radius()` uses -- kept as one inline
+		## `sc` here (rather than calling that function per-settlement) since
+		## `_draw()`'s loop already reuses `sc` for the glyph and label sizing
+		## below it too, exactly like the reference's own `sc` feeds icon,
+		## way and label sizing from one shared value (reference line 15165).
+		var sc: float = (rect.size.x / PIN_SCALE_REF_PX) * _civ_zoom_k()
 		var font := get_theme_default_font()
 		# Trait badges (§4.5.3's own reference behaviour, `_civDrawTraitBadges`,
 		# reference line 15101) are a disclosed gap, not an oversight: `get_
@@ -467,7 +526,15 @@ func _draw() -> void:
 			if i == _hover_index:
 				radius += 1.5
 
-			draw_circle(pos, radius, color)
+			## `antialiased` (the 6th positional arg) defaults to `false` in
+			## Godot 4 -- left implicit here would draw a visibly jagged
+			## circle, worse the more a pin is magnified by camera zoom
+			## (`PIN_SCALE_REF_PX`'s own doc comment covers the zoom side of
+			## "not sharp"; this is the antialiasing side). `filled=true,
+			## width=-1.0` spelled out are just `draw_circle`'s own defaults,
+			## kept explicit because GDScript has no keyword-argument syntax
+			## to set only the trailing one.
+			draw_circle(pos, radius, color, true, -1.0, true)
 			draw_arc(pos, radius, 0, TAU, 24, MARKER_OUTLINE, 1.2, true)
 			if s["capital"]:
 				draw_arc(pos, radius + CAPITAL_RING_WIDTH, 0, TAU, 28, color, CAPITAL_RING_WIDTH, true)
@@ -550,7 +617,7 @@ func _draw_manual_icons(rect: Rect2, interior: Rect2) -> void:
 				draw_colored_polygon(pts2, color)
 				draw_polyline(PackedVector2Array([pts2[0], pts2[1], pts2[2], pts2[3], pts2[0]]), ICON_OUTLINE, 1.2, true)
 			_: ## "custom", or any future family this build doesn't recognise yet.
-				draw_circle(pos, r, color)
+				draw_circle(pos, r, color, true, -1.0, true)   ## See the settlement pin's own antialiasing comment above.
 				draw_arc(pos, r, 0, TAU, 20, ICON_OUTLINE, 1.2, true)
 				draw_arc(pos, r * 0.4, 0, TAU, 12, ICON_OUTLINE, 1.0, true)
 

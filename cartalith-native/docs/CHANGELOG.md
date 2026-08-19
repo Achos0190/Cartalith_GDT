@@ -14397,3 +14397,126 @@ from its own `open()` and via the new Preferences menu dispatch path; and
 exactly as written, confirming the dictionary edit took. No Rust file
 touched anywhere in this pass.
 
+## Two owner-reported rendering bugs: deep-zoom tile drops, settlement-pin fidelity (2026-08-19)
+
+Two independent real bugs, both root-caused against actual behaviour before
+fixing rather than assumed, per the owner's own report of "rendering with
+LOD zoom seems to break with tiles not loading/rendering correctly" and "the
+fidelity of settlement icons is not scaling so they stay sharp at all zoom
+levels." GDScript-only — no Rust file touched, verified via `git status`
+before editing and unchanged throughout.
+
+**Bug 1 — deep-zoom tiles dropped by `MAX_LOD_TILES_PER_UPDATE` were never
+retried, staying permanently missing.** Confirmed root cause exactly as
+`LOD_TILING_INTEGRATION_SCOPE.md`'s own `MAX_LOD_TILES_PER_UPDATE` doc
+comment already predicted it might be: `_apply_lod_tiles`'s reconciliation
+only ever compared the *current* call's trimmed `wanted` set against
+`_lod_tiles`, and the excess tiles above the 48-per-call cap were trimmed
+out of `wanted` itself before that comparison ever ran — so they were never
+`_lod_tiles.has(key)` misses on a *later* call, because nothing about the
+camera stopping ever re-adds them to `wanted`. A second, related defect in
+the same code: `_apply_lod_tiles` also freed already-built, still-visible
+tiles that fell outside the closest-48-to-centre trim, even though they
+cost nothing to keep — a real flicker bug on top of the permanence one.
+Reproduced with a real headless scene (`EngineBridge.generate()` at grid
+512×512, a `ViewportHost` sized to a 1920×1080 viewport, zoomed to the
+default view where 64 tiles are wanted at once): `_lod_tiles.size()` stuck
+at exactly 48/64 across five redundant `_update_lod()` calls with nothing
+about the camera changing between them.
+
+Fixed in `viewport_host.gd` (`shell/viewport_host.gd`): `_update_lod()` now
+computes the full, untrimmed `wanted` set and a separate `missing` subset
+(keys not yet built, or built at the wrong `detail_level` — see the second
+bug below); only `missing` is trimmed to the `MAX_LOD_TILES_PER_UPDATE`
+budget for synthesis, while `wanted` itself (and so the free/reposition
+passes) stays untrimmed, so an already-good tile is never punished for
+falling outside the closest-`N` cut. Whatever misses the trim goes into a
+new `_lod_backlog` dictionary (replaced wholesale on every `_update_lod()`
+call, never merged, so a tile that scrolls back out of view is dropped for
+free rather than wastefully built later); a new `_process()` override
+drains up to `MAX_LOD_TILES_PER_CATCHUP := 6` backlog entries per idle
+frame via a new shared `_build_lod_tile()` helper, disabling its own
+per-frame cost the moment the backlog empties. Same repro, post-fix: 48
+built + 16 backlogged immediately after `refresh()`, draining to 64 built /
+0 backlogged over 3 simulated `_process()` frames, and stable (no
+flicker, no re-synthesis) after a further redundant `_update_lod()` call.
+
+**Second bug found in the same area, while checking for more than the
+hypothesised one (per this pass's own instruction not to stop at the first
+plausible cause):** a tile already synthesized at one `detail_level` was
+never rebuilt when the camera zoomed further *within the same tile index*
+— `_apply_lod_tiles`'s old reconciliation matched purely on tile-index key,
+so a 256px tile stretched to cover an ever-larger screen rect as zoom
+increased past the next detail tier, instead of being replaced by the
+512px/1024px tile that tier calls for. Fixed with a new `_lod_tile_detail`
+dictionary (tile key → the `detail_level` it was actually built at);
+`_apply_lod_tiles` now frees and rebuilds a tile whose stored detail level
+disagrees with the level the current call wants, before falling through to
+the normal build-budget logic.
+
+**Ruled out, not just unchecked:** `_lod_tile_cells` (`EngineBridge.
+lod_tile_cells()`) is fetched once, not once per world, but this is
+harmless — `lod_bridge::TILE_CELLS` is a fixed Rust constant never tied to
+which world is loaded (`WorldGen.lod_tile_cells()`'s own doc comment says
+so), so the cached value can never go stale across a regenerate. Tile
+boundary math (`_lod_tile_rect`, mirroring `lod_bridge::tile_bounds`'s
+`min(TILE_CELLS, remaining)` clipping) and stale-tile cleanup on world
+reset/resize (`_clear_lod_tiles`, `resized.connect(_update_lod)`) were both
+re-checked and are correct as shipped in `59700ab` — not touched.
+
+**Bug 2 — settlement pins had no inverse-zoom compensation, so their
+on-screen size grew unboundedly with camera zoom instead of holding
+roughly constant.** Root-caused against the reference's real formula, not
+the port's own paraphrase of it: `_civZoomK()` (reference HTML line
+14980-14983) is `1/clamp(viewT.scale, 0.35, 5)`, applied to `sc` alongside
+the CSS zoom transform so the two cancel and a pin's ON-SCREEN size stays
+constant regardless of camera zoom. `map_overlay.gd`'s own `PIN_SCALE_
+REF_PX` doc comment had argued this term could be dropped because "camera
+zoom is a plain transform `ViewportHost` applies to this whole control" --
+correct about the transform, backwards about the conclusion: that transform
+is exactly *why* the reference needs the compensating term, and the port's
+`_settlement_pin_radius()` had nothing supplying it, so `_camera.scale`
+alone scaled pins up linearly with zoom. Confirmed numerically with a real
+headless scene: at zoom 8.0 (unfixed formula), a rank-2 pin's on-screen
+radius would have been exactly 8x its zoom-1.0 size (`local_radius`
+constant × `zoom` — read directly from the unpatched formula, `(4+rank) *
+rect.size.x / PIN_SCALE_REF_PX`, no zoom term anywhere in it).
+
+Fixed in `map_overlay.gd`: a new `_camera_zoom` var (default `1.0`, matching
+`ViewportHost`'s own default) and `set_camera_zoom()` setter (calls
+`queue_redraw()`, since Godot rescales a `CanvasItem`'s *cached* draw
+commands by an ancestor's `scale` rather than re-running `_draw()` — the
+radius has to actually change at draw time, not just get uniformly scaled
+by the parent transform); `_civ_zoom_k()` reproduces the reference's own
+`1/clamp(z, 0.35, 5)` using the reference's own clamp bounds, deliberately
+not this port's wider `ZOOM_MIN`/`ZOOM_MAX` (0.4-8.0) — the clamp is a
+readability bound with no reason to track this port's own pan/zoom range.
+`_settlement_pin_radius()` and `_draw()`'s inline `sc` both now multiply by
+`_civ_zoom_k()`. `viewport_host.gd`'s `_zoom_at()` and `reset_view()` push
+the live zoom into `overlay.set_camera_zoom()` on every change. Verified
+numerically post-fix with the same headless scene: on-screen radius at
+zoom 1.0 and 4.0 (both inside the reference's clamp) measured identical —
+4.6286px both times, ratio 1.0000 exactly; at zoom 8.0 (past the
+reference's own 5.0 ceiling) the ratio from zoom 4.0 was 1.6, not 2.0 —
+partial, clamped growth, matching the reference's own documented intent
+("never vanish... never dominate") rather than either unconstrained growth
+or an unconditionally flat size.
+
+**Same pass, same file class of bug:** `draw_circle`'s `antialiased`
+parameter defaults to `false` in Godot 4 — every settlement-pin and
+manual-icon `draw_circle` call in `map_overlay.gd`, and the Measure-point/
+path-preview/label-handle `draw_circle` calls in `tool_overlay.gd`, now
+pass `antialiased = true` explicitly. `draw_arc` calls were already passing
+it; `draw_colored_polygon` has no such parameter to set.
+
+**Verified**: every modified file parses (`--headless --check-only
+--script <file>`) and a full headless boot (`--headless --path
+godot-project --quit`) is clean before and after. Two scripted, discarded
+smoke scenes (`_smoke_lod.gd`/`.tscn`, `_smoke_pin_zoom.gd`/`.tscn`, both
+deleted after this pass, same precedent as this file's other milestones'
+own smoke runs) drove `EngineBridge.generate()` and a manually-`_ready()`'d
+`ViewportHost`/`map_overlay.gd` pair directly (not added to the scene tree,
+so `_process()`/backlog draining and camera-zoom pushes were called
+explicitly rather than relying on real engine frame ticks) to produce every
+before/after number quoted above.
+
