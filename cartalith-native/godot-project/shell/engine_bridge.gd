@@ -850,3 +850,35 @@ func jp_compute(request: Dictionary) -> Dictionary:
 	if not world_gen.has_method("jp_compute"):
 		return {}
 	return world_gen.jp_compute(request)
+
+
+# sample_bridge.rs
+#
+# `DCC_SHELL_SPEC.md` §6's Sample context and the canvas Layers popover.
+# `has_method` guards match every wrapper above: a binary built before this
+# landed simply has no `sample_cell`, and the dock falls back to reading "—"
+# rather than erroring against it.
+
+## Every §6 Sample field for one grid cell, in one call. `{}` before any
+## generate, for an out-of-grid cell, or on an older binary. Keys whose
+## backing data genuinely is not there are **omitted**, never zero-filled --
+## callers must use `has()`/`get(key, null)`, not `get(key, 0.0)`.
+func sample_cell(gx: int, gy: int) -> Dictionary:
+	if not world_gen.has_method("sample_cell"):
+		return {}
+	return world_gen.sample_cell(gx, gy)
+
+## The Layers popover's grouped menu, in the reference's own `LAYER_GROUPS`
+## order. Each item carries `available`, which is false for a view this
+## particular world has no input for.
+func debug_layers() -> Array:
+	if not world_gen.has_method("debug_layers"):
+		return []
+	return world_gen.debug_layers()
+
+## One debug view as a grid-sized `Texture2D`. `null` for "off", an unknown
+## id, or a view this world has no input for.
+func debug_texture(view: String) -> Texture2D:
+	if not world_gen.has_method("build_debug_texture"):
+		return null
+	return world_gen.build_debug_texture(view)

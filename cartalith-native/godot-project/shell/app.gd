@@ -16,6 +16,7 @@ var new_world_dialog: NewWorldDialog
 var world_data_window: WorldDataWindow
 var performance_window: PerformanceWindow
 var journey_planner_window: JourneyPlannerWindow
+var layers_popover: LayersPopover
 var right_dock_ctrl: RightDock
 
 var _workspaces: Array = []
@@ -136,6 +137,10 @@ func _ready() -> void:
 	add_child(journey_planner_window)
 	journey_planner_window.setup(bridge)
 
+	layers_popover = LayersPopover.new()
+	add_child(layers_popover)
+	layers_popover.setup(bridge, viewport)
+
 	_register_workspaces()
 
 	## Owns `right_dock_body`'s content (`DCC_SHELL_SPEC.md` §6, `right_dock.gd`).
@@ -222,7 +227,12 @@ func _wire_selection() -> void:
 		for ws in _workspaces:
 			if ws.has_method("on_cursor_sampled"):
 				ws.on_cursor_sampled(gx, gy, valid))
-	viewport.layers_button_pressed.connect(func(): _select_domain("cartography"))
+	## §9's layers button opens the canvas Layers popover (the reference's own
+	## `#layersPopover`). It used to select the Cartography domain instead --
+	## a stand-in for this, since that workspace's left dock is where the only
+	## layer controls lived. Nothing it reached is gone: those toggles are
+	## still on the rail, and the popover's own footer points at them.
+	viewport.layers_button_pressed.connect(func(): layers_popover.open())
 	viewport.map_clicked.connect(_on_map_clicked)
 	viewport.map_dragged.connect(_on_map_dragged)
 	viewport.map_released.connect(_on_map_released)

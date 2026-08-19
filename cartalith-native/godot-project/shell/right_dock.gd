@@ -16,10 +16,13 @@ class_name RightDock
 ## "WHY HERE?" explanation, ~1508-1551): the settlement causal-chain logic
 ## is real and unchanged here, only re-hosted under the new dock. Everything
 ## else in this file is new: the old Sample panel only ever had cursor
-## position and settlement hover to show, and this dock reads the same
-## `EngineBridge` and finds the same ceiling -- confirmed against every one
-## of `WorldGen`'s 44 exported methods, there is still no per-cell field
-## sampler.
+## position and settlement hover to show.
+##
+## **The per-cell field sampler this file used to say did not exist now
+## does** (`sample_bridge.rs`, `bridge.sample_cell()`), so §6's Sample
+## context is fully live -- see `SAMPLE_FIELDS` below for what each row
+## reads and, in one case, for a correction to what the old comment claimed
+## the ceiling was.
 
 const CTX_SAMPLE := "sample"
 const CTX_SETTLEMENT := "settlement"
@@ -51,26 +54,55 @@ const SUIT_TERM_LABELS := {
 	"water_bonus": "water",
 }
 
-## The twelve of §6's sixteen Sample fields (elevation is the thirteenth --
-## it gets the accent readout treatment below, not a plain row) that no
-## GDExtension method answers, each with the binding that would be needed.
-## `WorldGen` exports 44 methods (`engine_bridge.gd` wraps every one) and
-## none is a per-cell field query -- every reading below is baked into
-## `build_color_texture()`'s rendered raster and nowhere else.
-const MISSING_SAMPLE_FIELDS := {
-	"Slope": "No slope raster is bound to Godot. cartalith-terrain computes it internally for erosion and never exports it.",
-	"Aspect": "No aspect raster is bound to Godot, same ceiling as slope.",
-	"Plate + type": "Plate id/type live in cartalith-geology and never cross the GDExtension boundary except baked into the colour texture.",
-	"Boundary + distance": "Plate-boundary distance has no per-cell query.",
-	"Resistance": "Rock resistance (the erosion input) has no per-cell query.",
-	"Lithology": "Lithology classification has no per-cell query.",
-	"Temperature": "The climate raster (temperature) has no per-cell query.",
-	"Precipitation": "The climate raster (precipitation) has no per-cell query.",
-	"Drainage": "Hydrology drainage/flow accumulation has no per-cell query.",
-	"Biome": "No general per-cell biome query. explain_settlement() returns biome only for a settlement's own cell, deliberately -- its own doc comment says retaining the rasters for arbitrary-cell queries would cost hundreds of MB at production resolutions.",
-	"Soil": "Soil/fertility has no per-cell query.",
-	"Control": "Political control is only exposed as a rendered overlay (build_territory_texture()), never a per-cell owner query.",
-}
+## §6's Sample fields, in the spec's own order, each with the `sample_cell()`
+## key it reads and the tooltip explaining where that reading comes from.
+##
+## **All twelve fields that used to read `—` here are live.** The block this
+## replaces (`MISSING_SAMPLE_FIELDS`) listed each one with "no per-cell query"
+## against a `WorldGen` that exported no field sampler; `sample_bridge.rs` is
+## that sampler, and it needed no new retention anywhere to build -- every
+## reading is either a raster generation already keeps (`WorldState::field`/
+## `temperature`/`rainfall`/`flow_discharge`/`plate_id`/`boundary_mask`/
+## `boundary_type`/`stress_field`/`age_field`/`crust_field`/`resistance_field`,
+## `CivData::water_bodies`/`territory`) or is derived from those at the one
+## queried cell.
+##
+## **One of the old comments was wrong and is corrected rather than deleted
+## quietly.** The Biome row said `explain_settlement()`'s doc comment meant
+## "retaining the rasters for arbitrary-cell queries would cost hundreds of
+## MB". That doc comment is about the *suitability* rasters (coast SDF, river
+## order, travel cost, the weighted terms), which genuinely are computed and
+## dropped inside `compute_civilisation`. Biome is not one of them:
+## `build_water_bodies`' classification is already retained on `CivData` for
+## the Settlement tool's snap-to-water, and `classify_biome(t, m)` is a pure
+## two-argument function over two rasters `WorldState` already holds. Nothing
+## about the memory budget (`MEMORY_OPTIMIZATION_SCOPE.md`) had to move.
+const SAMPLE_FIELDS := [
+	{"label": "Slope", "key": "slope_deg",
+		"tip": "Real ground angle, from the central-difference gradient of the height field at this cell (O(1), no slope raster). The parenthesised figure is slopeAt*GW, the engine's own resolution-independent unit -- the one build_settlement_suitability and buildCartTerrain threshold against."},
+	{"label": "Aspect", "key": "aspect_deg",
+		"tip": "Downslope bearing (the direction the ground faces), from the same gradient. New work: the reference's aspectFactor is a shading scalar, not a bearing, so no parity claim is made. Reads — on perfectly flat ground, where aspect is undefined."},
+	{"label": "Plate + type", "key": "plate",
+		"tip": "WorldState::plate_id, with oceanic/continental from the sign of crust_field (plateCrust() < 0 is oceanic)."},
+	{"label": "Boundary + distance", "key": "boundary_type",
+		"tip": "WorldState::boundary_type at this cell, plus the Euclidean distance to the nearest boundary_mask cell by expanding-ring search. The search is capped at 96 cells so a world with no tagged boundary cannot turn one mouse-move into a full-grid scan; past that it says so rather than reporting a number."},
+	{"label": "Resistance", "key": "resistance",
+		"tip": "WorldState::resistance_field -- the erosion-resistance input, retained since the lithology port needed it."},
+	{"label": "Lithology", "key": "lithology",
+		"tip": "buildLithology() evaluated at this one cell. It is strictly per-cell (its own doc comment: \"Pure, single-pass, no neighbour reads\"), so it is called on one-element slices rather than restating any of its golden-tested branches here."},
+	{"label": "Temperature", "key": "temperature_c",
+		"tip": "WorldState::temperature, degrees Celsius."},
+	{"label": "Precipitation", "key": "precipitation",
+		"tip": "WorldState::rainfall, the engine's normalised [0,1] moisture -- not millimetres, which this port's climate model never computes."},
+	{"label": "Drainage", "key": "drainage",
+		"tip": "WorldState::flow_discharge (upstream accumulation), with the Strahler order from stream_order when river extraction ran."},
+	{"label": "Biome", "key": "biome",
+		"tip": "CivData::water_bodies for ocean/lake, otherwise classifyBiome(temperature, rainfall) at this cell. Reads — on a loaded save, which carries no civilisation layer at all."},
+	{"label": "Soil", "key": "soil",
+		"tip": "buildSoilFertility() at this one cell, over the same one-element-slice call the Lithology row uses."},
+	{"label": "Control", "key": "control",
+		"tip": "CivData::territory -- assign_territory()'s owner per cell, 0 = unowned. Reads — on a loaded save."},
+]
 
 var app: DccApp
 var bridge: EngineBridge
@@ -87,10 +119,16 @@ var _region_result: Dictionary = {}
 ## Live-updated in place on every `cursor_sampled` rather than triggering a
 ## full `_rebuild()` -- the overlay emits that signal on every mouse-motion
 ## event over the viewport, and tearing the dock down and rebuilding it at
-## that rate would be needless churn for three labels.
+## that rate would be needless churn for sixteen labels.
 var _sample_x: Label
 var _sample_y: Label
+var _sample_elev: Label
 var _sample_nearest: Label
+## `SAMPLE_FIELDS` label -> its value `Label`, so one `sample_cell()` dict
+## per motion event fills every row. **One call, not sixteen**: the engine
+## returns the whole cell in one `Dictionary` precisely so this handler
+## never crosses the GDExtension boundary more than once per mouse-move.
+var _sample_rows: Dictionary = {}
 
 func setup(a: DccApp, b: EngineBridge) -> void:
 	app = a
@@ -127,6 +165,21 @@ func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 	_sample_x.text = ("%.0f" % gx) if valid else "—"
 	_sample_y.text = ("%.0f" % gy) if valid else "—"
 	_sample_nearest.text = _nearest_settlement_text(gx, gy, valid)
+	var cell: Dictionary = bridge.sample_cell(int(round(gx)), int(round(gy))) if valid else {}
+	_sample_elev.text = _elevation_text(cell)
+	for f in SAMPLE_FIELDS:
+		var row: Label = _sample_rows.get(f["label"])
+		if row == null:
+			continue
+		var text := _sample_field_text(f["key"], cell)
+		row.text = text
+		## `text_ghost` is this dock's own "nothing behind this row" tone
+		## (`_field`'s `reachable` argument). A row goes ghost when its
+		## reading is genuinely absent for this world -- no civ layer, no
+		## river network, flat ground, no boundary inside the search cap --
+		## not when it is merely off-map.
+		row.add_theme_color_override("font_color",
+			DccTheme.c("text" if text != "—" else "text_ghost"))
 
 ## Called by `infrastructure_workspace.gd` when a road or sea-route row is
 ## clicked. `kind` is `"road"` or `"sea"` -- the two calls this dock's Route
@@ -180,7 +233,9 @@ func _rebuild() -> void:
 		child.queue_free()
 	_sample_x = null
 	_sample_y = null
+	_sample_elev = null
 	_sample_nearest = null
+	_sample_rows.clear()
 	_dispatch(body)
 
 ## Named rather than inlined in `_rebuild()` -- a `match` cannot be the tail
@@ -214,20 +269,92 @@ func _build_sample(body: Control) -> void:
 	_sample_x = _field(sec, "X", "—", "Cursor grid-cell X. Live once the cursor is over a generated map.")
 	_sample_y = _field(sec, "Y", "—", "Cursor grid-cell Y. Live once the cursor is over a generated map.")
 
-	_accent_readout(sec, "Elevation", "—",
-		"No per-cell elevation query. WorldGen exposes only build_color_texture() " +
-		"(a rendered RGBA image), never a raw height value at (x, y).")
+	_sample_elev = _accent_readout(sec, "Elevation", "—",
+		"Metres above sea level at the cursor cell, from WorldState::field through " +
+		"metersPerUnit()'s own anchoring (1 - seaLevel maps to peak altitude). " +
+		"Negative below the waterline, which is the honest reading for an ocean cell.")
 
-	for field_name in MISSING_SAMPLE_FIELDS:
-		_field(sec, field_name, "—", MISSING_SAMPLE_FIELDS[field_name], false)
+	for f in SAMPLE_FIELDS:
+		_sample_rows[f["label"]] = _field(sec, f["label"], "—", f["tip"], false)
 
 	_sample_nearest = _field(sec, "Nearest settlement", "—",
-		"Computed here from get_settlements()'s x/y against the cursor cell -- the " +
-		"one Sample field the engine's data can answer without a new binding.",
+		"Computed here from get_settlements()'s x/y against the cursor cell.",
 		valid)
 
 	if not valid:
-		DccWidgets.note(sec, "No world generated -- X, Y and nearest settlement go live once one exists.")
+		DccWidgets.note(sec, "No world generated -- every field goes live once one exists.")
+	elif bridge.sample_cell(0, 0).is_empty():
+		## A loaded save has no `WorldSource::Generated` behind it, so
+		## `sample_refs()` returns nothing and the whole panel stays dashed.
+		## Said out loud rather than left looking broken.
+		DccWidgets.note(sec,
+			"This world was loaded from a save, which carries none of the substrate " +
+			"fields (crust, boundary type, resistance) the Sample panel reads. " +
+			"Generate a world to sample it.")
+
+## `sample_cell()` omits a key whose backing data genuinely is not there, so
+## every read here is `has()`-guarded and an absent key becomes an em dash --
+## never `get(key, 0.0)`, which would report a real-looking zero for
+## something that was never computed.
+func _sample_field_text(key: String, cell: Dictionary) -> String:
+	if cell.is_empty() or not cell.has(key):
+		return "—"
+	match key:
+		"slope_deg":
+			return "%.1f° · n %.2f" % [float(cell["slope_deg"]), float(cell.get("slope_n", 0.0))]
+		"aspect_deg":
+			return "%s %.0f°" % [String(cell.get("aspect", "?")), float(cell["aspect_deg"])]
+		"plate":
+			return "%d · %s" % [int(cell["plate"]), String(cell.get("plate_type", "?"))]
+		"boundary_type":
+			return _boundary_text(cell)
+		"resistance":
+			return "%.3f" % float(cell["resistance"])
+		"lithology":
+			return String(cell["lithology"])
+		"temperature_c":
+			return "%.1f °C" % float(cell["temperature_c"])
+		"precipitation":
+			return "%.2f" % float(cell["precipitation"])
+		"drainage":
+			return _drainage_text(cell)
+		"biome":
+			return String(cell["biome"]).capitalize()
+		"soil":
+			return "%.2f" % float(cell["soil"])
+		"control":
+			var owner := int(cell["control"])
+			return "unclaimed" if owner <= 0 else "faction %d" % owner
+	return "—"
+
+## §6 asks for "boundary + distance" as one field. On a boundary cell the
+## type is the reading and the distance is zero; off one the type raster is
+## 0 ("none") everywhere, so the distance carries the information. An absent
+## `boundary_dist_cells` means nothing was found inside the engine's own
+## search cap -- reported as such rather than as a number.
+func _boundary_text(cell: Dictionary) -> String:
+	var kind := String(cell.get("boundary_type", "none"))
+	if bool(cell.get("boundary", false)):
+		return "%s · on it" % kind
+	if not cell.has("boundary_dist_cells"):
+		return "none within 96 cells"
+	return "%s · %.1f cells" % [kind, float(cell["boundary_dist_cells"])]
+
+func _drainage_text(cell: Dictionary) -> String:
+	var flow := "%.1f" % float(cell["drainage"])
+	if not cell.has("river_order"):
+		return flow
+	var order := int(cell["river_order"])
+	return flow if order <= 0 else "%s · order %d" % [flow, order]
+
+func _elevation_text(cell: Dictionary) -> String:
+	if cell.is_empty() or not cell.has("elevation_m"):
+		return "—"
+	var suffix := ""
+	match String(cell.get("water", "")):
+		"ocean": suffix = " · ocean"
+		"lake": suffix = " · lake"
+	return "%.0f m%s" % [float(cell["elevation_m"]), suffix]
 
 # -- Settlement -----------------------------------------------------------
 
@@ -680,15 +807,17 @@ func _field(parent: Control, label_text: String, value_text: String,
 	return v
 
 ## §6: "elevation (large accent readout)". The only such readout the dock
-## has -- kept even though its value is always "—" today, per §6's own rule
-## that "fields from stale stages read —" rather than the row disappearing.
-func _accent_readout(parent: Control, label_text: String, value_text: String, tooltip: String) -> void:
+## has. Returns the value `Label` so `on_cursor_sampled` can write metres
+## into it in place, the same way every other Sample row is updated.
+func _accent_readout(parent: Control, label_text: String, value_text: String, tooltip: String) -> Label:
 	var wrap := VBoxContainer.new()
 	wrap.add_theme_constant_override("separation", 0)
 	wrap.tooltip_text = tooltip
 	wrap.add_child(DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL))
-	wrap.add_child(DccTheme.label(value_text, "accent", 26))
+	var v := DccTheme.label(value_text, "accent", 26)
+	wrap.add_child(v)
 	parent.add_child(wrap)
+	return v
 
 func _nearest_settlement_text(gx: float, gy: float, valid: bool) -> String:
 	if not valid:

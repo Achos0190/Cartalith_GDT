@@ -12658,3 +12658,126 @@ tables; `lib.rs` owns the `Variant` conversion and the flattening.
   `godot-project/shell/workspaces/`, `map_overlay.gd`, `tool_overlay.gd` or
   `right_dock.gd` touched — the UI hold and the deliberate step-3/step-5
   boundary both respected.
+
+## Sample panel + Layers popover — §6's twelve dashed fields, and no new retention (2026-08-19)
+
+**All twelve of §6's dashed Sample fields are live, and none of them needed a
+byte of new retention.** `right_dock.gd`'s `MISSING_SAMPLE_FIELDS` listed
+twelve readouts (slope, aspect, plate + type, boundary + distance, resistance,
+lithology, temperature, precipitation, drainage, biome, soil, control) that
+read `—` always, each with "no per-cell query" against a `WorldGen` that
+exported no field sampler. `sample_bridge.rs` is that sampler. Elevation — the
+thirteenth, §6's large accent readout — was dashed too and is now metres above
+sea level.
+
+**Nothing was added to `WorldGen`, `WorldState` or `CivData`.** Every reading
+is either a raster generation already keeps or is derived from those at the
+one queried cell:
+
+| Field | Source | Cost per query |
+|---|---|---|
+| elevation | `WorldState::field` + `metersPerUnit()`'s own anchoring | O(1) |
+| slope, aspect | central difference of `field` at the cell | O(1) |
+| plate + type | `plate_id`, oceanic/continental from `crust_field`'s sign | O(1) |
+| boundary + type | `boundary_mask` + `boundary_type` | O(1) |
+| boundary distance | ring search over `boundary_mask`, capped at 96 cells | O(d²) |
+| resistance, temperature, precipitation, drainage | the same-named `WorldState` fields | O(1) |
+| river order | `WorldState::stream_order` | O(1) |
+| lithology, soil | `build_lithology`/`build_soil_fertility` **called on one-element slices** | O(1) |
+| biome | `CivData::water_bodies` + `classify_biome(t, m)` | O(1) |
+| control | `CivData::territory` | O(1) |
+
+**One prior comment was wrong and is corrected in place, not deleted
+quietly.** The Biome row claimed `explain_settlement()`'s doc comment meant
+"retaining the rasters for arbitrary-cell queries would cost hundreds of MB at
+production resolutions." That doc comment is about the *suitability* rasters
+(coast SDF, river order, travel cost, the weighted terms), which genuinely are
+computed and dropped inside `compute_civilisation`. Biome is not one of them:
+`build_water_bodies`' classification has been retained on `CivData` since the
+Settlement tool needed snap-to-water, and `classify_biome` is a pure
+two-argument function over two rasters `WorldState` already holds. Nothing in
+`MEMORY_OPTIMIZATION_SCOPE.md`'s budget had to move.
+
+**Lithology and soil are derived without copying a single formula.** Both
+`build_lithology` and `build_soil_fertility` are strictly per-cell (the
+lithology port's own doc comment: *"Pure, single-pass, no neighbour reads"*),
+so they are called on one-element slices — bit-identical to indexing the
+full-grid result, with none of their golden-tested branches restated in
+`cartalith-godot`. `one_cell_lithology_and_soil_match_the_full_grid` asserts
+that equality at every cell of a 16×12 fixture.
+
+**Aspect is new work and says so.** The reference's `aspectFactor` (line 7590)
+is a shading scalar — a signed north-south derivative flipped by hemisphere —
+not a compass bearing. The Sample panel's Aspect is the standard GIS downslope
+azimuth off the same central difference. **No parity claim is made for it**,
+and the first implementation was 180° out (it reported the *uphill* bearing);
+`aspect_points_downhill` caught that, which is why the test exists.
+
+**New `#[func]` surface** (`lib.rs`, one new `#[godot_api(secondary)]` block):
+
+| method | what it is |
+|---|---|
+| `sample_cell(gx, gy) -> Dictionary` | every §6 field for one cell in **one** call — `on_cursor_sampled` fires on every mouse-motion event, and sixteen per-field getters would be sixteen boundary crossings per motion. Keys whose backing data genuinely is not there are **omitted, never zero-filled**. `{}` for an out-of-grid cell rather than clamping to an edge and reporting a neighbour's readings. |
+| `debug_layers() -> Array` | the popover's grouped menu in the reference's own `LAYER_GROUPS` order, each row carrying `available` and its legend swatches. |
+| `build_debug_texture(view) -> ImageTexture` | one field view as a grid-sized RGBA texture. **Nothing is cached** — caching all seventeen would be ~270 MB at 2048² — so re-picking re-derives. |
+
+**Debug views: 18, in the reference's own six groups.** Base (no overlay,
+elevation), Climate (temperature, rainfall), Tectonics (plates, boundaries,
+tectonic type, stress, crust age, **resistance**), Hydrology (river flow,
+Strahler order), Surface (biomes, terrain, lithology, soil fertility,
+**slope**, **aspect**), Civilization (political control). Every ramp that
+exists in the reference is ported from its own debug-overlay pixel loop
+(lines 8470-8530) and palette constants — `tempColor`, `rainColor`,
+`divColor`, `hsl`, `hypso`, `LITH_COLS`, `BTYPE_COLS`, `CART_BIOME_COLS`,
+`CART_TERRAIN_COLS` — pinned by `ported_palettes_match_the_reference`. The
+four bold ones have **no reference counterpart** (the reference's base map
+*is* elevation, and it never drew slope, aspect or resistance); their ramps
+are this port's own and each row's hint says so.
+
+**The Layers popover is real.** `layers_popover.gd` (new), opened by §9's
+layers button. It used to emit a signal that `app.gd` answered by selecting
+the Cartography domain — a stand-in for exactly this. Nothing that stand-in
+reached is removed: `cartography_workspace.gd`'s Visible-layers toggles and
+`ViewportHost.set_layer_visible()` are untouched, still on the rail, and the
+popover's footer points at them. The popover carries the grouped picker, the
+active view's legend, and the reference's own `#dbgOpacity` slider blending
+the field raster over the base map. Like the reference's, it stays open across
+picks. A view whose one input this world lacks (Strahler without river
+extraction, biomes/terrain/control on a loaded save) comes back
+`available: false` and is drawn greyed with the reason in its tooltip, rather
+than offered and then silently doing nothing.
+
+**`available` is O(1), deliberately.** The first version answered it by
+building each raster and seeing whether it worked, which at 2048² would have
+derived seventeen full-grid rasters every time the popover opened.
+`layer_available` reads which *inputs* exist instead, and
+`available_matches_debug_raster` pins the cheap answer against the expensive
+one across both civ/no-civ and both rivers/no-rivers fixtures so they cannot
+disagree.
+
+**Nothing was left open for want of retention** — no field required a raster
+this pipeline computes and discards, so there is no disclosed cost estimate to
+report and no `DECISIONS.md`-level change to raise.
+
+**Tests**: 15 new plain-Rust tests in `sample_bridge.rs` (169 unit tests pass
+after `cargo clean -p cartalith-godot` + full rebuild), clippy clean for the
+new code. Two headless smoke runs against a real generated world: a sampler
+run over six cells plus a found plate-boundary cell, asserting plausible
+ranges rather than merely non-crashing (elevation in [0,1], metres in
+±12 km, temperature in [−90, 70] °C, precipitation and soil in [0,1], slope
+in [0, 90]°, aspect in [0, 360), a named lithology, a real plate id, biome and
+control present) and all 18 views drawing at the right size and not as a flat
+colour; and a full-app run that generated a 192² world, drove
+`on_cursor_sampled` and read every Sample row back live (`-124 m · ocean`,
+`Slope 2.1° · n 3.67`, `Aspect SW 233°`, `Plate + type 10 · oceanic`,
+`Boundary + distance transform (shear) · on it`, …), confirmed every row
+resets to `—` when the cursor leaves the map, built the popover's 19 rows,
+picked four views, checked the legend followed, and confirmed the layers
+button opens the popover. Headless Godot 4.7.1 boot clean.
+
+**Still open, deliberately**: `DCC_SHELL_SPEC.md` §6's *Layers* right-dock
+context (the ordered list with per-layer opacity bars and blend modes, nested
+children under Terrain) is a different thing from this canvas popover and is
+not built; §7's Layer-properties/ramp-editor panes still have no
+`TerrainAppearance` binding behind them, unchanged by this pass.
+

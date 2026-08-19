@@ -26,6 +26,7 @@ mod pack;
 mod paint_bridge;
 mod params;
 mod render;
+mod sample_bridge;
 mod sculpt_bridge;
 use cartalith_terrain::sculpt::{Feature, FeatureParams, FreehandMode, SculptStamp, SCULPT_PRESETS};
 use render::{QualityTier, RenderCtx, SplatTextures, TerrainAppearance};
@@ -4778,5 +4779,213 @@ impl WorldGen {
             "verdict" => &verdict,
             "confidence" => &confidence,
         }
+    }
+}
+
+/// `DCC_SHELL_SPEC.md` §6's Sample context and the canvas Layers popover.
+/// See `sample_bridge.rs`'s own module doc for the memory rule this block
+/// was written under -- in particular the table showing that **every one of
+/// §6's sixteen Sample fields is answered from state generation already
+/// retains**, with nothing added to `WorldGen`/`WorldState`/`CivData`.
+///
+/// `#[godot_api(secondary)]`, not a plain `#[godot_api]`: only the first
+/// `#[godot_api] impl WorldGen` block in the crate may omit `secondary` --
+/// `WorldGen` has a `Base<RefCounted>` field, and a second primary block
+/// collides on the shared registration machinery (`E0119`/`E0592`/`E0034`),
+/// exactly as every sibling bridge block above already documents.
+#[godot_api(secondary)]
+impl WorldGen {
+    /// Every field the right dock's Sample panel shows, for one grid cell,
+    /// in **one** call -- deliberately not sixteen per-field getters, since
+    /// `right_dock.gd`'s `on_cursor_sampled` fires on every mouse-motion
+    /// event over the viewport and sixteen round trips per motion event
+    /// would be sixteen times the boundary crossings for one readout.
+    ///
+    /// Returns `{}` before any `generate()` and for an out-of-grid cell (the
+    /// dock shows an em dash rather than this method clamping to an edge
+    /// cell and reporting a neighbour's readings as this cell's). Otherwise
+    /// every key below is present except the ones whose backing data
+    /// genuinely is not there, which are **omitted rather than zero-filled**:
+    ///
+    /// * `x`, `y` (int), `elevation` (raw `[0,1]` field value),
+    ///   `elevation_m` (metres, negative below sea level),
+    ///   `slope_deg` (real ground angle), `slope_n` (`slopeAt*GW`, the
+    ///   engine's own unit), `plate` (int), `plate_type`
+    ///   (`"oceanic"`/`"continental"`), `boundary` (bool), `boundary_type`
+    ///   (String), `stress`, `age`, `resistance`, `lithology` (String),
+    ///   `temperature_c`, `precipitation`, `drainage` (flow discharge),
+    ///   `soil` -- all from `WorldState`, always present.
+    /// * `aspect_deg` + `aspect` (16-point compass) -- omitted on flat
+    ///   ground, where an aspect is undefined rather than zero.
+    /// * `boundary_dist_cells` -- omitted when no tagged boundary lies
+    ///   within `sample_bridge::BOUNDARY_SEARCH_MAX` cells (the search is
+    ///   capped so a world with no boundary at all cannot turn one
+    ///   mouse-motion event into a full-grid scan).
+    /// * `river_order` -- omitted when river extraction did not run
+    ///   (`WorldState::stream_order` is `None`).
+    /// * `water` (`"land"`/`"ocean"`/`"lake"`), `biome`, `control` --
+    ///   omitted without a civilisation layer, i.e. on a loaded save.
+    #[func]
+    fn sample_cell(&self, gx: i32, gy: i32) -> VarDictionary {
+        let Some(f) = self.sample_refs() else { return VarDictionary::new() };
+        let Some(s) = sample_bridge::sample_cell(&f, gx as i64, gy as i64) else { return VarDictionary::new() };
+        let mut d = vdict! {
+            "x" => s.x as i64,
+            "y" => s.y as i64,
+            "elevation" => s.elevation,
+            "elevation_m" => s.elevation_m,
+            "slope_deg" => s.slope_deg,
+            "slope_n" => s.slope_n,
+            "plate" => s.plate,
+            "plate_type" => if s.plate_oceanic { "oceanic" } else { "continental" },
+            "boundary" => s.on_boundary,
+            "boundary_type" => s.boundary_type,
+            "stress" => s.stress,
+            "age" => s.age,
+            "resistance" => s.resistance,
+            "lithology" => s.lithology,
+            "temperature_c" => s.temperature_c,
+            "precipitation" => s.precipitation,
+            "drainage" => s.drainage,
+        };
+        if let Some(a) = s.aspect_deg {
+            d.set("aspect_deg", a);
+            d.set("aspect", sample_bridge::compass(a));
+        }
+        if let Some(bd) = s.boundary_dist_cells {
+            d.set("boundary_dist_cells", bd);
+        }
+        if let Some(o) = s.river_order {
+            d.set("river_order", o);
+        }
+        if let Some(so) = s.soil {
+            d.set("soil", so);
+        }
+        if let Some(w) = s.water_body {
+            d.set(
+                "water",
+                match w {
+                    1 => "ocean",
+                    2 => "lake",
+                    _ => "land",
+                },
+            );
+        }
+        if let Some(b) = s.biome {
+            d.set("biome", b);
+        }
+        if let Some(c) = s.control {
+            d.set("control", c);
+        }
+        d
+    }
+
+    /// The Layers popover's own menu, in the reference's own
+    /// `LAYER_GROUPS` order and headings (reference HTML line 13639):
+    /// an `Array` of `{"group": String, "items": Array[{id, label, hint,
+    /// available: bool, legend: Array[{r,g,b,label}]}]}`.
+    ///
+    /// `available` is real, not decorative: a view whose one input this
+    /// particular world does not have (Strahler order without river
+    /// extraction, biomes/terrain/control on a loaded save) reports
+    /// `false`, so the popover can grey the row out instead of offering a
+    /// pick that would return nothing. Callable before `generate()`, where
+    /// only `"off"` is available.
+    ///
+    /// Answering `available` costs nothing: `layer_available` reads which
+    /// *inputs* exist rather than building each raster to see whether it
+    /// works. At 2048x2048 the try-it-and-see version would have derived
+    /// seventeen full-grid rasters every time the popover opened.
+    #[func]
+    fn debug_layers(&self) -> Array<VarDictionary> {
+        let refs = self.sample_refs();
+        sample_bridge::LAYER_GROUPS
+            .iter()
+            .map(|(group, entries)| {
+                let items: Array<VarDictionary> = entries
+                    .iter()
+                    .map(|(id, label, hint)| {
+                        let available =
+                            refs.as_ref().map(|f| sample_bridge::layer_available(f, id)).unwrap_or(*id == "off");
+                        let legend: Array<VarDictionary> = sample_bridge::legend(id)
+                            .into_iter()
+                            .map(|(r, g, b, text)| {
+                                vdict! { "r" => r as i64, "g" => g as i64, "b" => b as i64, "label" => text.as_str() }
+                            })
+                            .collect();
+                        vdict! {
+                            "id" => *id,
+                            "label" => *label,
+                            "hint" => *hint,
+                            "available" => available,
+                            "legend" => &legend,
+                        }
+                    })
+                    .collect();
+                vdict! { "group" => *group, "items" => &items }
+            })
+            .collect()
+    }
+
+    /// One debug view as an `ImageTexture` the size of the grid, ready to
+    /// stack over `build_color_texture()`'s raster. `null` for `"off"`, an
+    /// unknown id, before any `generate()`, or for a view this world has no
+    /// input for (see `debug_layers`' `available`).
+    ///
+    /// **Nothing is cached.** The buffer is built, handed to Godot, and
+    /// dropped on the Rust side; re-picking a view re-derives it. Caching
+    /// all seventeen would be ~270 MB of RGBA at 2048x2048, which is
+    /// exactly the kind of uncosted retention `MEMORY_OPTIMIZATION_SCOPE.md`
+    /// exists to prevent.
+    #[func]
+    fn build_debug_texture(&self, view: GString) -> Option<Gd<ImageTexture>> {
+        let f = self.sample_refs()?;
+        let bytes = sample_bridge::debug_raster(&f, &view.to_string())?;
+        let packed = PackedByteArray::from(bytes);
+        let image = Image::create_from_data(self.gw, self.gh, false, Format::RGBA8, &packed)?;
+        ImageTexture::create_from_image(&image)
+    }
+}
+
+/// Plain (non-`#[func]`) glue for the block above -- Rust-internal, so it
+/// stays out of the `#[godot_api(secondary)]` block, the same separation
+/// every sibling bridge already uses.
+impl WorldGen {
+    /// Borrows every raster `sample_bridge` reads, straight off this
+    /// instance's live state. `None` before any `generate()` and for a
+    /// loaded save (whose format carries none of the substrate fields --
+    /// `crust_field`, `boundary_type`, `resistance_field` and the rest --
+    /// that both the Sample panel and the debug views read; see
+    /// `SAVEFILE_COMPAT.md`). **Borrows only. Nothing is copied, nothing is
+    /// retained.**
+    fn sample_refs(&self) -> Option<sample_bridge::FieldRefs<'_>> {
+        let Some(WorldSource::Generated(ws)) = self.source.as_ref() else { return None };
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw == 0 || gh == 0 {
+            return None;
+        }
+        Some(sample_bridge::FieldRefs {
+            gw,
+            gh,
+            world: self.world,
+            sea_level: self.sea_level,
+            peak_m: self.params.peak_m,
+            map_width_km: self.map_width_km,
+            field: &ws.field,
+            temperature: &ws.temperature,
+            rainfall: &ws.rainfall,
+            flow_discharge: &ws.flow_discharge,
+            stream_order: ws.stream_order.as_deref(),
+            plate_id: &ws.plate_id,
+            boundary_mask: &ws.boundary_mask,
+            boundary_type: &ws.boundary_type,
+            stress_field: &ws.stress_field,
+            age_field: &ws.age_field,
+            crust_field: &ws.crust_field,
+            resistance_field: &ws.resistance_field,
+            volcanic_field: &ws.volcanic_field,
+            water_bodies: self.civ.as_ref().map(|c| c.water_bodies.as_slice()),
+            territory: self.civ.as_ref().map(|c| c.territory.as_slice()),
+        })
     }
 }

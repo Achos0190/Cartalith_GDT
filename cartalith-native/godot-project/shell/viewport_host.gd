@@ -29,6 +29,8 @@ var province_view: TextureRect
 var overlay: Control
 var tool_overlay: ToolOverlay
 var _preview_layer: TextureRect   ## Sculpt/Paint's live draft raster. See `set_preview_texture()`.
+var _debug_layer: TextureRect     ## The Layers popover's field raster. See `set_debug_layer()`.
+var _debug_view := "off"          ## Which view `_debug_layer` currently holds.
 
 var _scale_label: Label
 var _readout_label: Label
@@ -155,6 +157,15 @@ func _ready() -> void:
 	_camera.add_child(map_view)
 	_camera.add_child(territory_view)
 	_camera.add_child(province_view)
+
+	## The Layers popover's field raster (`sample_bridge.rs`'s debug views),
+	## directly over the three base rasters and under everything vector --
+	## the reference's own debug overlay sits in exactly that slot, blended
+	## over the base map by its `dbgOpacity` slider rather than replacing it.
+	## Empty and fully opaque by default; nothing shows until a view is
+	## picked, and `modulate.a` is what the popover's opacity slider drives.
+	_debug_layer = _raster()
+	_camera.add_child(_debug_layer)
 
 	## Deep-zoom tile overlay (`LOD_TILING_INTEGRATION_SCOPE.md` milestone
 	## M1) -- above the raster/territory/province layers so a refined tile
@@ -419,6 +430,9 @@ func refresh() -> void:
 	map_view.texture = _bridge.color_texture()
 	territory_view.texture = _bridge.territory_texture()
 	province_view.texture = _bridge.province_boundary_texture()
+	## A picked view survives a regenerate: same view id, new world's data.
+	## `set_debug_layer` clears itself if the new world cannot answer it.
+	set_debug_layer(_debug_view)
 	var g := _bridge.grid_size()
 	overlay.set_civ_data(_bridge.settlements(), _bridge.roads(),
 		_bridge.sea_routes(), g.x, g.y, _bridge.border_inset_frac())
@@ -468,6 +482,37 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 ## geometry on disarm, so a stale draft never lingers after switching tools.
 func set_preview_texture(tex: Texture2D) -> void:
 	_preview_layer.texture = tex
+
+## The Layers popover's field raster. `"off"` (or a view this world has no
+## input for) clears it -- the popover reads `debug_view()` back to keep its
+## own selection honest, so a view that could not be drawn does not stay
+## highlighted as though it had been.
+func set_debug_layer(view: String) -> void:
+	if _bridge == null or view == "off" or not _bridge.has_world:
+		_debug_view = "off"
+		_debug_layer.texture = null
+		return
+	var tex := _bridge.debug_texture(view)
+	_debug_layer.texture = tex
+	_debug_view = view if tex != null else "off"
+
+## Which view `set_debug_layer` actually managed to draw.
+func debug_view() -> String:
+	return _debug_view
+
+## The reference's own `#dbgOpacity` (0-100%): blends the active field
+## raster over the base map so terrain reads through it.
+func set_debug_opacity(a: float) -> void:
+	_debug_layer.modulate.a = clampf(a, 0.0, 1.0)
+
+func debug_opacity() -> float:
+	return _debug_layer.modulate.a
+
+## Screen-space rect of the layers button, so a popover can anchor itself to
+## it rather than guessing at the viewport's corner inset (which changes with
+## `set_safe_insets()` on phone).
+func layers_button_rect() -> Rect2i:
+	return Rect2i(Vector2i(_layers_btn.global_position), Vector2i(_layers_btn.size))
 
 func _update_scale_bar() -> void:
 	if _width_km <= 0.0:
