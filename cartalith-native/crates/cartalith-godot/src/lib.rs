@@ -5866,8 +5866,24 @@ impl WorldGen {
             crust_field: &ws.crust_field,
             resistance_field: &ws.resistance_field,
             volcanic_field: &ws.volcanic_field,
+            shear_field: &ws.shear_field,
             water_bodies: self.civ.as_ref().map(|c| c.water_bodies.as_slice()),
             territory: self.civ.as_ref().map(|c| c.territory.as_slice()),
+            // The Wind/Ocean-currents debug views' own inputs (layer-
+            // visualization audit, `sample_bridge.rs`'s module doc) --
+            // `self.params` is only meaningful for a `Generated` source,
+            // which this function already required above.
+            lat_n: self.params.climate.lat_n,
+            lat_s: self.params.climate.lat_s,
+            equator_temp: self.params.climate.equator_temp,
+            pole_temp: self.params.climate.pole_temp,
+            tilt_deg: self.params.planet.axial_tilt_deg,
+            rotation_hours: self.params.planet.rotation_hours,
+            lapse_rate: self.params.climate.lapse_rate,
+            wind_manual: self.params.climate.wind_manual,
+            wind_dir_deg: self.params.climate.wind_dir_deg,
+            press_k: self.params.climate.press_k,
+            current_k: self.params.climate.current_k,
         })
     }
 }

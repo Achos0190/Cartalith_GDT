@@ -207,6 +207,7 @@ dependencies = [
  "cartalith-gpu",
  "cartalith-hydrology",
  "cartalith-io",
+ "cartalith-jsmath",
  "cartalith-noise",
  "cartalith-rng",
  "cartalith-spatial",
