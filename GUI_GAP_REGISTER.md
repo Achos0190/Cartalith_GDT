@@ -286,9 +286,9 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | DM-04 | Export ▸ World Data | 55 | no save writer | yes | §2.4 | (B) large — FI-01's writer |
 | DM-05 | Export ▸ Assets (pack .zip) | 57 | **done, 2026-08-20** | real | §2.4 | now a `"route"` (was `"gap"`) into the Asset library window's real `export_pack_now()`, same "routes, doesn't reimplement" shape as `import_assets` — same as AS-04 |
 | DM-06 | Sources ▸ External / Connected / Registry | 59-61 | no source registry exists | yes | §2.4 names three rows; **§9 designs no pane for any of them** | **(C)** → §7.3 |
-| DM-07 | Conversion ▸ Coordinate Systems (EPSG ▸) | 62 | no CRS conversion; the engine works in one flat km projection | yes | §2.4 names it | **(D)** — owner decision, `DCC_CONTROL_INDEX.md` summary §5 item 8. Its pane is also (C); see §7.4 for what a CRS route would have to look like *if* the decision goes that way. |
-| DM-08 | Conversion ▸ Format Conversion | 64 | no format-conversion routes | yes | **the spec itself leaves it undefined** — "which formats, to which" (`DCC_CONTROL_INDEX.md` §2.4) | **(C)** → §7.4 |
-| DM-09 | Conversion ▸ Data Transformation | 65 | no data-transformation routes | yes | undefined in the spec | **(C)** → §7.4 |
+| DM-07 | Conversion ▸ Coordinate Systems (EPSG ▸) | 62 | ~~no CRS conversion~~ | — | ~~§2.4 names it~~ | **RESOLVED BY DELETION** (owner, 2026-08-20) — §7.4's research accepted in full. The route is gone from `menus.gd::_data()` and from `data_manager_window.gd`'s `ROUTES`/`GROUP_ORDER`; the Data manager now has **four** groups. |
+| DM-08 | Conversion ▸ Format Conversion | 64 | ~~no format-conversion routes~~ | — | ~~undefined even in the spec~~ | **RESOLVED BY DELETION** (owner, 2026-08-20) — same decision, same commit. |
+| DM-09 | Conversion ▸ Data Transformation | 65 | ~~no data-transformation routes~~ | — | ~~undefined in the spec~~ | **RESOLVED BY DELETION** (owner, 2026-08-20) — same decision, same commit. §7.4 recommended dropping this row outright and that is what happened. |
 | DM-10 | Validation ▸ Check Data | 66 | `load_save()` returns pass/fail only; no warning collection anywhere | yes | §2.4 names it ("shows current warning count"); what is validated, and against what invariant, is undefined | **(C)** → §7.5 |
 | DM-11 | Validation ▸ Repair / Normalize | 68 | no validation pass to repair against | yes | undefined | **(C)** → §7.5 |
 | DM-12 | Foot: "last run (`14:02 · 62 MB`)" | 160 | no export has run yet — said plainly rather than invented | yes | §9 | (B) small — needs a run-history store |
@@ -612,6 +612,17 @@ mapping tells you what each one is:
 earns its own route only once something persists across projects.
 
 ### 7.4 Data manager ▸ Conversion — DM-07, DM-08, DM-09
+
+> **Decision, 2026-08-20 (owner): recommendation 1 accepted in full, and
+> recommendation 3 declined.** The Conversion group is **deleted** — all three
+> rows, from `menus.gd::_data()` and from `data_manager_window.gd`'s `ROUTES`
+> and `GROUP_ORDER`. The Data manager has four groups (*in · out · sources ·
+> checks*), which is also what recommendation 1 of §8's menu-shape section
+> asked for. CRS was not kept as a project property either: with one flat km
+> grid there is nothing to transform *between*, exactly as the analysis below
+> says. The research recorded below stands unchanged as the reasoning; nothing
+> here was re-argued after the fact.
+
 
 **QGIS.** There is no "Conversion" menu. Format conversion is *export*
 (`Export ▸ Save Features As…`, driven by GDAL/OGR's driver list) and
@@ -1133,7 +1144,7 @@ worth raising are all questions about the spec itself.
 | Import ▸ | file I/O |
 | Export ▸ | file I/O |
 | Sources ▸ | connections |
-| Conversion ▸ | (undefined — §7.4 recommends deleting) |
+| ~~Conversion ▸~~ | ~~(undefined — §7.4 recommends deleting)~~ — **deleted 2026-08-20**, recommendation accepted |
 | Validation ▸ | a **check over world state** |
 
 Three of those are not data management at all. **Journey planner is a tool** —
@@ -1278,7 +1289,7 @@ for any row here.**
 | ~~CV-04~~ | ~~The **metropolis** settlement tier (`_civSelectMetropolises`)~~ | **ported 2026-08-20** — no longer deferred |
 | ~~CV-08~~ | ~~**`_civApplyRecovery`** (v0.82 static recovery phase)~~ | **ported 2026-08-20** — no longer deferred |
 | PR-02 | Multi-GPU: build device selection / dispatch modes / VRAM budgeting at all? | `DCC_CONTROL_INDEX.md` summary §5 item 2 |
-| DM-07 | Coordinate systems / EPSG as a first-class route | `DCC_CONTROL_INDEX.md` summary §5 item 8 |
+| ~~DM-07~~ | ~~Coordinate systems / EPSG as a first-class route~~ | **deleted 2026-08-20** — owner accepted §7.4; there is no route to defer |
 | DM-14 | Markdown vault: two-way sync, `obsidian://` links in tiles, note links in GeoJSON — all V1 **non-goals** in the vault doc's own §33 | `DCC_CONTROL_INDEX.md` summary §5 items 3-4; `MARKDOWN_VAULT_INTEGRATION.md` §1, §33 |
 | AS-16 | Asset family taxonomy: 24 (spec) vs 11 (mockup) vs 8 (engine, frozen) | `DCC_CONTROL_INDEX.md` summary §5 item 9; `ASSET_LIBRARY_SCOPE.md` §1 |
 | AS-14, AS-15 | Per-slot "active variant" and per-slot Anchor — both contradict load-bearing engine semantics | `DCC_CONTROL_INDEX.md` §3(f) |

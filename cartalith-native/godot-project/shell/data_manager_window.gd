@@ -1,7 +1,7 @@
 extends AcceptDialog
 class_name DataManagerWindow
 
-## §9's Data manager window -- Data ▸ Import/Export/Sources/Conversion/
+## §9's Data manager window -- Data ▸ Import/Export/Sources/
 ## Validation's actual destination. `world_data_window.gd`'s own doc comment
 ## draws the line this file is the other side of: that window is the
 ## settlement/province/economy table browser (`Data ▸ World data tables…`,
@@ -44,12 +44,12 @@ class_name DataManagerWindow
 ##   that is parity, not a shortfall: the reference's file input is
 ##   `accept="image/*"` decoded by the browser, which does not read TIFF
 ##   either.
-## - **Import ▸ Maps/GIS**, **Export ▸ Maps/GIS**, **Sources**,
-##   **Conversion**, **Validation** are all disclosed gaps: no tile-map or
-##   GeoJSON *import*, no tile/GIS export, no source registry, no
-##   coordinate/format conversion, and no validation pass exist anywhere in
-##   the workspace (`load_save` returns a plain bool, nothing a warning count
-##   could be read from).
+## - **Import ▸ Maps/GIS**, **Export ▸ Maps/GIS**, **Sources** and
+##   **Validation** are all disclosed gaps: no tile-map or GeoJSON *import*,
+##   no tile/GIS export, no source registry and no validation pass exist
+##   anywhere in the workspace (`load_save` returns a plain bool, nothing a
+##   warning count could be read from).
+## - **Conversion is gone, not disclosed.** See `GROUP_ORDER` below.
 
 var _host: DccApp
 var _bridge: EngineBridge
@@ -74,16 +74,22 @@ const ROUTES: Array[Dictionary] = [
 	{"group": "Sources", "id": "sources_external", "label": "External Sources", "kind": "gap", "reason": "No source registry exists."},
 	{"group": "Sources", "id": "sources_connected", "label": "Connected Sources", "kind": "gap", "reason": "Same -- no source registry exists."},
 	{"group": "Sources", "id": "sources_registry", "label": "Source Registry", "kind": "gap", "reason": "Same -- no source registry exists."},
-	{"group": "Conversion", "id": "conv_crs", "label": "Coordinate Systems (EPSG ▸)", "kind": "gap",
-		"reason": "No CRS/coordinate-system conversion exists; the engine works in one flat km projection throughout."},
-	{"group": "Conversion", "id": "conv_format", "label": "Format Conversion", "kind": "gap", "reason": "No format-conversion routes exist."},
-	{"group": "Conversion", "id": "conv_transform", "label": "Data Transformation", "kind": "gap", "reason": "No data-transformation routes exist."},
 	{"group": "Validation", "id": "val_check", "label": "Check Data", "kind": "gap",
 		"reason": "load_save() returns pass/fail only (cartalith-godot's load_save binding) -- no warning collection exists anywhere to surface a count from."},
 	{"group": "Validation", "id": "val_repair", "label": "Repair / Normalize", "kind": "gap", "reason": "No validation pass exists to repair against."},
 ]
 
-const GROUP_ORDER: Array[String] = ["Import", "Export", "Sources", "Conversion", "Validation"]
+## **Four groups, not five.** Conversion (Coordinate Systems (EPSG) / Format
+## Conversion / Data Transformation) was deleted 2026-08-20 on the owner's
+## decision: `GUI_GAP_REGISTER.md` §7.4's research found no serious GIS or
+## mapping application carries a top-level Conversion route, because
+## reprojection and format handling belong to the import/export step that is
+## actually reading or writing the file. The three rows were disclosed gaps
+## with no engine work behind them and none planned, so they were removed
+## rather than kept as a standing promise. `DCC_SHELL_SPEC.md` §2.4 carries
+## the correction note; `GUI_GAP_REGISTER.md` DM-07/08/09 are resolved by
+## deletion.
+const GROUP_ORDER: Array[String] = ["Import", "Export", "Sources", "Validation"]
 
 var _pane_body: VBoxContainer
 var _breadcrumb: Label

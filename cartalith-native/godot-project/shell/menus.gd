@@ -40,7 +40,6 @@ const ID_JOURNEY_PLANNER := 41
 const ID_DATA_MGR_IMPORT := 42
 const ID_DATA_MGR_EXPORT := 43
 const ID_DATA_MGR_SOURCES := 44
-const ID_DATA_MGR_CONVERSION := 45
 const ID_DATA_MGR_VALIDATION := 46
 const ID_TRAVEL_LIBRARY := 48
 
@@ -384,7 +383,7 @@ func _on_assets(id: int) -> void:
 
 # -- §2.4 Data ----------------------------------------------------------------
 #
-# §2.4: the dropdown mirrors the Data manager window's five groups and is a
+# §2.4: the dropdown mirrors the Data manager window's four groups and is a
 # shortcut into it, never a second implementation. The window (`§9`,
 # `data_manager_window.gd`) now exists -- each group item below opens it
 # scoped to that group's first route. Most routes inside are still disclosed
@@ -398,7 +397,16 @@ func _on_assets(id: int) -> void:
 ## tool takeover rather than opening a window. Travel library (⇧L,
 ## `TRAVEL_LIBRARY_SPEC.md`) is the sibling addition that DOES open its own
 ## window -- `2a`'s own mockup places it directly below Journey planner,
-## in its own bracket, above the Data manager's five groups.
+## in its own bracket, above the Data manager's four groups.
+## **Conversion is deliberately absent** (owner decision, 2026-08-20). The
+## row used to read "Conversion ▸ Coordinate systems · Formats" and open the
+## Data manager on a three-route group of disclosed gaps. `GUI_GAP_REGISTER
+## .md` §7.4's research found that no serious GIS or mapping application
+## carries a top-level Conversion route -- reprojection and format handling
+## belong to import/export, where the file is actually being read or
+## written -- so the group was removed outright rather than left as three
+## permanently-empty rows promising a shape the product will not take. See
+## `DCC_SHELL_SPEC.md` §2.4's correction note.
 func _data(p: PopupMenu) -> void:
 	_live(p, "World data tables…", ID_DATA_MANAGER)
 	_live(p, "Journey planner…", ID_JOURNEY_PLANNER, KEY_MASK_SHIFT | KEY_J)
@@ -407,7 +415,6 @@ func _data(p: PopupMenu) -> void:
 	_live(p, "Import ▸ Maps · Heightmaps · GIS · World data", ID_DATA_MGR_IMPORT)
 	_live(p, "Export ▸ Maps · GIS · World data · Asset pack", ID_DATA_MGR_EXPORT)
 	_live(p, "Sources ▸ External · Connected · Registry", ID_DATA_MGR_SOURCES)
-	_live(p, "Conversion ▸ Coordinate systems · Formats", ID_DATA_MGR_CONVERSION)
 	_live(p, "Validation ▸ Check data · Repair", ID_DATA_MGR_VALIDATION)
 	p.id_pressed.connect(func(id: int) -> void:
 		match id:
@@ -417,7 +424,6 @@ func _data(p: PopupMenu) -> void:
 			ID_DATA_MGR_IMPORT: _host.open_data_manager("Import")
 			ID_DATA_MGR_EXPORT: _host.open_data_manager("Export")
 			ID_DATA_MGR_SOURCES: _host.open_data_manager("Sources")
-			ID_DATA_MGR_CONVERSION: _host.open_data_manager("Conversion")
 			ID_DATA_MGR_VALIDATION: _host.open_data_manager("Validation")
 	)
 

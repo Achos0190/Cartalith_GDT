@@ -218,7 +218,7 @@ Groups, in order:
 
 ### 2.4 Data — the Data Manager
 
-Dropdown mirrors the window's five groups. Every item opens the Data manager
+Dropdown mirrors the window's four groups. Every item opens the Data manager
 window (§9) on the matching route; the dropdown is a shortcut, not a second
 implementation.
 
@@ -238,8 +238,34 @@ implementation.
 | Import | Maps · Heightmaps (PNG · TIFF) · GIS / GeoJSON · World Data (.zip · fields) · Assets (routes to the Assets menu) |
 | Export | Maps (image · tiles) · GIS / GeoJSON · World Data · Assets (pack .zip) |
 | Sources | External Sources · Connected Sources · Source Registry |
-| Conversion | Coordinate Systems (EPSG ▸) · Format Conversion · Data Transformation |
+| ~~Conversion~~ | ~~Coordinate Systems (EPSG ▸) · Format Conversion · Data Transformation~~ — **deleted, see the correction below** |
 | Validation | Check Data (shows current warning count) · Repair / Normalize |
+
+> **Correction (2026-08-20, owner decision): the Conversion group is deleted.**
+> All three of its rows — Coordinate Systems (EPSG ▸), Format Conversion, Data
+> Transformation — are gone from `menus.gd::_data()` and from
+> `data_manager_window.gd`'s `ROUTES`/`GROUP_ORDER`. The Data manager has
+> **four** groups, and this section's opening line ("the window's five
+> groups") now reads four.
+>
+> The reasoning is `GUI_GAP_REGISTER.md` §7.4's research, accepted in full.
+> Its finding was a naming finding rather than a scheduling one: **no GIS
+> application of consequence has a top-level Conversion route**, because
+> conversion is not a destination — it is a *parameter of an export* (which
+> format?) and a *property of a project* (which CRS?). QGIS, the closest
+> comparable, has no Conversion menu at all: format conversion is
+> `Export ▸ Save Features As…`, reprojection is on-the-fly or a Processing
+> Toolbox algorithm, and datum transformations are a global setting. Two of
+> this group's three rows were undefined *in this spec itself* ("which
+> formats, to which"), which is the symptom of promoting a parameter to a
+> route.
+>
+> The registered gaps DM-07/DM-08/DM-09 are therefore **resolved by
+> deletion**, not by implementation and not by deferral: there is no longer a
+> control promising something the engine does not do. CRS was not kept even as
+> a project property (§7.4's recommendation 3, an explicitly owner-decided
+> branch) — this port works in one flat km projection throughout, so there is
+> nothing to transform *between*.
 
 ### 2.5 Preferences
 
@@ -692,11 +718,11 @@ Status bar: `library edited — apply to map to use it`, unassigned import count
 
 ## 9 · Data manager window
 
-Titled `⧉ DATA MANAGER`, subtitle *import · export · sources · conversion ·
-validation*. Every route in and out of the project; nothing here alters world
-data.
+Titled `⧉ DATA MANAGER`, subtitle *import · export · sources · validation*
+(**was** *… · conversion · validation* — see §2.4's correction). Every route in
+and out of the project; nothing here alters world data.
 
-**Routes rail** — the five groups from §2.4. The Assets rows link back to the
+**Routes rail** — the four groups from §2.4. The Assets rows link back to the
 Assets menu rather than duplicating pack handling. Foot: exports root and last
 run (`14:02 · 62 MB`).
 
