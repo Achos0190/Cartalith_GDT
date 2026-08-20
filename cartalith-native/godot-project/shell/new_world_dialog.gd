@@ -78,12 +78,16 @@ var aspect_input: OptionButton
 var grid_h_input: SpinBox
 var archetype_input: OptionButton
 var villages_check: CheckBox
+var metropolis_check: CheckBox
+var recovery_input: OptionButton
 var dimension_warning_label: Label
 var _derived_labels: Dictionary = {} ## "Grid"/"Extent"/"Cell size"/"Aspect" -> value Label
 
 var _archetype_names: PackedStringArray = []
 var _archetype := "" ## Empty = Classic (World Structure disabled).
 var _villages := false
+var _metropolis := false
+var _recovery_phase := 0
 var _dim_syncing := false
 var _auto_generate := true ## Whether Create also calls bridge.generate() -- see set_auto_generate().
 
@@ -182,6 +186,20 @@ func _build(body: VBoxContainer) -> void:
 	villages_check = DccWidgets.toggle(gen_sec, "Village seeding (additive hamlets)", false,
 		func(v: bool): _villages = v,
 		"Reference civVillagesChk, default off. Seeds an extra tier of hamlets after the main settlement pass.")
+	metropolis_check = DccWidgets.toggle(gen_sec, "Imperial-seat tier (metropolis ★)", false,
+		func(v: bool): _metropolis = v,
+		"Reference civMetropolisChk, default off. After the road network is scored, promotes up to three capitals that are both dominant trade hubs (normalised betweenness >= 0.85) and seats of a large polity (>= 6 settlements) to the metropolis tier -- at most one per faction. Off means auto-populate output is bit-identical to not having the pass at all.")
+	## Filled from the engine's own `_CIV_RECOVERY_NAME` table rather than a
+	## second transcription of it here -- `get_recovery_phase_names()`.
+	var recovery_labels: Array = []
+	if bridge.world_gen != null and bridge.world_gen.has_method("get_recovery_phase_names"):
+		for n in bridge.world_gen.get_recovery_phase_names():
+			recovery_labels.append(String(n))
+	if recovery_labels.is_empty():
+		recovery_labels = ["Stable"]
+	recovery_input = DccWidgets.choice(gen_sec, "Recovery phase", recovery_labels, 0,
+		func(i: int): _recovery_phase = i,
+		"Reference civRecoveryPhase, default Stable. A world that is still recovering from a collapse runs BELOW its ecological ceiling: every settlement's population is scaled by a fraction drawn inside the phase's band, and a nucleus scaled below the labour its tier needs demotes into its own ruins. Phases I and II also abandon tiny settlements that are neither formerly-urban nor ports. Stable is a strict no-op.")
 	DccWidgets.note(gen_sec,
 		"Sea level, dynamic lithology, volcanic provinces, terrain wind deflection and ocean currents are live engine parameters, not dialog state -- edit them in World ▸ Generation Pipeline (stages 02, 04, 05, 08) before or after Create; Create reads whatever they currently hold.")
 
@@ -365,6 +383,8 @@ func request() -> Dictionary:
 		"grid_h": int(grid_h_input.value),
 		"archetype": _archetype,
 		"villages": _villages,
+		"metropolis": _metropolis,
+		"recovery_phase": _recovery_phase,
 		"sea_level": bridge.param_get("sea_level"),
 		"dynamic_lithology": bridge.param_get("tect.dynamic_lithology"),
 		"volcanic_provinces": bridge.param_get("volc.provinces"),

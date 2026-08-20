@@ -351,11 +351,15 @@ impl JourneyWorld {
     }
 }
 
-/// The same five lowercase tier names `get_settlements()` already reports, so
-/// a stop's `kind` in a journey result and the same settlement's `kind` in
-/// the settlement list are one vocabulary rather than two.
+/// The six lowercase tier names `get_settlements()` reports -- one
+/// vocabulary rather than two, so a stop's `kind` in a journey result and
+/// the same settlement's `kind` in the settlement list always agree.
+/// `get_settlements()` calls straight into this function; `map_overlay.gd`'s
+/// `SETTLEMENT_CLASS`/`SETTLEMENT_LOD` dicts are keyed on exactly these
+/// strings, and `civ_tools_bridge::kind_from_str` is the inverse.
 pub fn settlement_kind_key(kind: SettlementKind) -> &'static str {
     match kind {
+        SettlementKind::Metropolis => "metropolis",
         SettlementKind::Capital => "capital",
         SettlementKind::City => "city",
         SettlementKind::Town => "town",

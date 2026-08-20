@@ -178,6 +178,7 @@ func generate(request: Dictionary) -> void:
 			request.get("wind_deflection", false),
 			request.get("ocean_currents", false))
 	world_gen.set_villages_enabled(request.get("villages", true))
+	_apply_civ_options(request)
 	world_gen.set_sea_level(request.get("sea_level", 0.5))
 
 	_thread = Thread.new()
@@ -197,6 +198,19 @@ func generate(request: Dictionary) -> void:
 ## archetype must reach `generate_world_structure_sized`, or the World shape
 ## choice never affects generation at all. Its bool return is the
 ## archetype-name check, surfaced as a real failure rather than swallowed.
+## The two opt-in civ passes the reference gates behind its own auto-populate
+## controls (`civMetropolisChk`, reference line 1409; `civRecoveryPhase`,
+## line 1424). Both default OFF/Stable exactly as the reference's do, and
+## both are `has_method`-guarded so a shell running against an older
+## extension build degrades to the reference's own defaults rather than
+## erroring -- the same shape `set_experimental_flags` above already uses.
+func _apply_civ_options(request: Dictionary) -> void:
+	if world_gen.has_method("set_metropolis_enabled"):
+		world_gen.set_metropolis_enabled(bool(request.get("metropolis", false)))
+	if world_gen.has_method("set_recovery_phase"):
+		world_gen.set_recovery_phase(int(request.get("recovery_phase", 0)))
+
+
 func _worker(seed_value: int, width_km: float, grid_w: int, grid_h: int, archetype: String) -> void:
 	var ok := true
 	if archetype.is_empty():
@@ -258,6 +272,7 @@ func import_heightmap(path: String, request: Dictionary) -> void:
 	generation_started.emit()
 
 	world_gen.set_villages_enabled(request.get("villages", true))
+	_apply_civ_options(request)
 	world_gen.set_sea_level(request.get("sea_level", 0.5))
 
 	_thread = Thread.new()

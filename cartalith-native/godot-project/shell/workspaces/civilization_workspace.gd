@@ -37,8 +37,13 @@ class_name CivilizationWorkspace
 ## `InfrastructureWorkspace`'s own class doc for the mechanism, and
 ## `DCC_SHELL_SPEC.md`'s correction notice for the disclosure.
 
-const KIND_ORDER := ["capital", "city", "town", "village", "hamlet"]
+## The engine's six `SettlementKind` tiers, highest first -- the same order
+## and vocabulary `journey_bridge::settlement_kind_key` emits and
+## `civ_tools_bridge::kind_from_str` accepts. `metropolis` was added
+## 2026-08-20 with the port of `_civSelectMetropolises`.
+const KIND_ORDER := ["metropolis", "capital", "city", "town", "village", "hamlet"]
 const KIND_PLURAL := {
+	"metropolis": "metropolises",
 	"capital": "capitals", "city": "cities", "town": "towns",
 	"village": "villages", "hamlet": "hamlets",
 }
@@ -262,12 +267,11 @@ func _settlement_name_field(row: HBoxContainer) -> void:
 
 ## §4.5.3's Settlement options row: `CIVIL · SETTLEMENT` · class · faction ·
 ## name · snap to water. §4.5.3's own class list ("metropolis / city / town /
-## village / hamlet") is one tier wider than the engine actually models --
-## `civ_tools_bridge::kind_from_str` accepts exactly the five real tiers
-## `SettlementKind` has and rejects "metropolis" like any other unknown
-## string (that module's own doc comment). This dropdown offers only the
-## five it can actually place, reusing `KIND_ORDER` (already this file's own
-## capital-first tier order, `_build_settlements()` above).
+## village / hamlet") used to be one tier wider than the engine modelled;
+## since `_civSelectMetropolises` was ported (2026-08-20) the two agree
+## exactly, and `civ_tools_bridge::kind_from_str` accepts all six tiers.
+## This dropdown reuses `KIND_ORDER` (this file's own highest-first tier
+## order, `_build_settlements()` above) and so offers every one of them.
 ##
 ## No pick-radius control: `civ_drop_settlement` (`lib.rs`) computes its own
 ## pick radius internally (`cartalith_civ::tools::civ_place_pick_radius(gw)`)
@@ -453,11 +457,11 @@ func _build_settlement_gaps(parent: Control) -> void:
 	clear.disabled = true
 	clear.tooltip_text = "The reference's #civClearPlacesBtn. Same shape: no civ_clear_places #[func] exists, and CivData is rebuilt wholesale by generate() rather than mutated in place, so there is no partial teardown to expose. Individual manual drops can still be undone by re-generating."
 	DccWidgets.note(sec,
-		"The placement model's own dials are equally internal: biome carrying-capacity "
-		+ "and the imperial-seat (metropolis) tier are computed inside cartalith-civ with "
-		+ "no parameters, and urban morphology layouts are a separate unported subsystem "
-		+ "(URBAN_MORPHOLOGY_SCOPE.md, Phase 5, in progress). Village seeding is the one "
-		+ "of the four that IS exposed -- as a toggle in File ▸ New world.")
+		"Biome carrying-capacity is computed inside cartalith-civ with no parameters, "
+		+ "and urban morphology layouts are a separate unported subsystem "
+		+ "(URBAN_MORPHOLOGY_SCOPE.md, Phase 5, in progress). Village seeding, the "
+		+ "imperial-seat (metropolis) tier and the post-collapse recovery phase ARE "
+		+ "exposed -- all three in File ▸ New world ▸ Generation.")
 
 func _settlement_row(parent: Control, data: Dictionary, index: int) -> void:
 	var text := "%s -- %s, pop %d" % [data.get("name", "?"), String(data.get("kind", "?")).capitalize(), int(data.get("population", 0))]

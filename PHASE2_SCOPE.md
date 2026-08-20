@@ -729,12 +729,15 @@ re-trusting the earlier note's own summary.
 Vec<Province>)` (`cartalith-civ`): a settlement-seeded Voronoi partition of
 each faction's own owned cells, restricted to same-faction seeds (never
 crosses a territory boundary). Seeds are every `Capital`/`City`-tier
-settlement of a faction (this port's own five-tier `SettlementKind` reduces
-the reference's rank>=3 filter — city=3/capital=4/metropolis=5/
-university=3/industrial=3 — cleanly to "Capital or City," since metropolis/
-university/industrial were never ported into `SettlementKind` in the first
-place; not an approximation, the same filter with tiers this port doesn't
-have removed from the input domain). A faction with no city-tier seed falls
+settlement of a faction (this port's own `SettlementKind` reduces the
+reference's rank>=3 filter — city=3/capital=4/metropolis=5/university=3/
+industrial=3 — cleanly to a tier test, since university/industrial were
+never ported into `SettlementKind` in the first place; not an
+approximation, the same filter with tiers this port doesn't have removed
+from the input domain. **Amended 2026-08-20**: the filter used to read
+"Capital or City" because metropolis was unported too; with milestone 21's
+`civ_select_metropolises` it now reads "Metropolis, Capital or City", and a
+promoted imperial seat correctly seeds a province). A faction with no city-tier seed falls
 back to its single highest-population settlement. A faction that owns
 territory but placed zero settlements gets no province (cells stay `0`,
 matching the reference's own behaviour).
@@ -918,3 +921,74 @@ GDScript; all UI work is on hold (owner, 2026-08-18).
 settlement-level functions `ECONOMY_SCOPE.md` still lists (`_civPlaceSmelting`
 and the food-surplus cluster), which are separate, smaller, and now fully
 unblocked.
+
+
+## Milestone 21 — the two deferred auto-populate passes: `_civSelectMetropolises` + `_civApplyRecovery`: **done** (2026-08-20)
+
+Owner decision, 2026-08-20. Both were long-standing registered gaps —
+`GUI_GAP_REGISTER.md` CV-04 and CV-08, each deferred by `TIMELINE_SCOPE.md`
+§6 with `_civApplyRecovery`'s scoping explicitly assigned *to this document*
+("its own scoping (if any) belongs to `PHASE2_SCOPE.md`, not here"). This is
+that scoping, and the port.
+
+**`_civSelectMetropolises`** (reference **24961-24989** — verified, not
+assumed: the function ends on 24989, and the extraction harness's own
+boundary assertion caught the off-by-one before a single fixture was
+generated). Lawrence et al. 2016's rule as the reference states it: a
+metropolis is a *capital* that is both a dominant trade hub (normalised
+betweenness ≥ 0.85) and the seat of a large polity (its faction holds ≥ 6
+settlements), ranked by centrality, ≤ 1 per faction, ≤ 3 in total, with a
+deterministic x-then-y tie-break. Ported to `cartalith-civ` as
+`civ_select_metropolises`, returning **indices** where the reference returns
+a `Set` of place objects.
+
+That required `SettlementKind::Metropolis`, which in turn required the
+reference's real rank-5 entry in **every** per-tier table this port had
+capped at Capital: `_CIV_CATCHMENT_KM2` 2500, `_CIV_SURPLUS_FRACTION` 0.10,
+`_CIV_TRADE_K` 2.1, `_CIV_BASE_POP_BY_KIND` 45000, `CIV_TAX_RATE` 0.10,
+`CIV_SETTLEMENT_CLASSES` rank 5, `minDeg` 5, `_CIV_TIER_FLOOR` 150000 and
+`_CIV_TIER_ORDER`'s first slot. Three non-exhaustive tier *predicates* also
+moved and the compiler could not find them: the faction-seat filter
+(`kind==='capital'||kind==='metropolis'`), the province rank≥3 seed filter,
+and `civ_is_exchange_tier`. They were found by grep against the reference's
+own `metropolis` occurrences instead.
+
+**`_civApplyRecovery`** (reference 24619-24640), the v0.82 static
+post-collapse re-weighting behind auto-populate's "Recovery phase" dropdown.
+Ported to `cartalith-civ/src/timeline.rs` beside the tier tables
+`TIMELINE_SCOPE.md` §3 point 5 had already identified as shared. Three
+details are load-bearing and each has its own fixture: `was_urban` includes
+**Town** (wider than `civ_is_exchange_tier`); the RNG draw happens **before**
+the abandonment test, so a dropped settlement still consumes one value; and
+the `max(8, pop)` floor is applied **after** the tier decision.
+
+**Wiring.** Both run exactly where the reference runs them inside
+`_civIterativeAutoWorld` — metropolis promotion at line 25711 (after the
+network is scored, before naming/population), recovery at line 25761 (after
+the population pass) — behind `set_metropolis_enabled` /
+`set_recovery_phase`, whose defaults are the reference's own (OFF / Stable),
+so an untouched engine generates exactly what it generated before. The
+metropolis pass needs betweenness that this port has never had a
+`_civNetworkMetrics` for; only the *ratio* `betweenness/max_btw` is read, so
+the `(n-1)(n-2)` normalisation cancels and Brandes over `topology.edges`
+(`timeline::civ_betweenness_from_adjacency`, already in the crate) is
+bit-identical. A golden test pins that reasoning rather than leaving it as a
+comment.
+
+**Two disclosed limitations**, both consistent with boundaries this port
+already records: the reference also pushes `trade_hub`/`administrative`
+traits onto a promoted place and `ruins`/`fortified` onto a demoted one, and
+`NamedSettlement` has no trait vector at all (`timeline_bridge.rs`'s own
+top-of-file gap note). `kind` and `pop` — everything downstream reads —
+survive intact; the trait writes are computed, golden-tested at the pure
+function, and dropped at the Godot boundary.
+
+Golden-verified against the real reference: 28 fixtures in
+`golden_parity_metropolis_recovery.rs`, extracted by a transient Node
+`vm.runInContext` harness over three verbatim slices, plus a **35-mutation
+sweep with every mutant killed**. Two pre-existing golden tests changed —
+both of them pinned this port's own documented *cap* rather than the
+reference, and both were re-extracted rather than hand-edited. Surfaced in
+`File ▸ New world ▸ Generation` as a checkbox and a five-entry dropdown, the
+latter filled from the engine's own `_CIV_RECOVERY_NAME` table. Closes
+`GUI_GAP_REGISTER.md` **CV-04** and **CV-08**.

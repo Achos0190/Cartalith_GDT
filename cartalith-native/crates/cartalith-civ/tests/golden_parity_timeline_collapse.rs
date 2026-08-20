@@ -92,6 +92,9 @@ fn place(
         pop,
         fortified,
         ruins,
+        // `port` (`traits.includes('port')`) is read only by
+        // `civ_apply_recovery`, which this fixture never calls.
+        port: false,
     }
 }
 

@@ -71,13 +71,14 @@ const ICON_FAMILIES: Array = [
 ## `kind` on every row and `get_roads()` a `way_type`, so the filter is a
 ## draw-time test in `map_overlay.gd`, not a missing engine capability.
 ##
-## `SETTLEMENT_KINDS` is the engine's own five tiers in capital-first order
-## (`civ_tools_bridge::kind_from_str` -- there is no `metropolis`, see
-## `GUI_GAP_REGISTER.md` CV-04). `WAY_TYPES` lists only the three LAND types:
+## `SETTLEMENT_KINDS` is the engine's own six tiers in metropolis-first
+## order (`civ_tools_bridge::kind_from_str`). `metropolis` joined it on
+## 2026-08-20 with the port of `_civSelectMetropolises`, closing
+## `GUI_GAP_REGISTER.md` CV-04. `WAY_TYPES` lists only the three LAND types:
 ## `sea_lane` is drawn from `_sea_routes`, which already has its own top-level
 ## row above, so listing it here would give one thing two switches that
 ## disagree.
-const SETTLEMENT_KINDS: Array = ["capital", "city", "town", "village", "hamlet"]
+const SETTLEMENT_KINDS: Array = ["metropolis", "capital", "city", "town", "village", "hamlet"]
 const WAY_TYPES: Array = [
 	{"key": "road", "label": "Roads"},
 	{"key": "track", "label": "Tracks"},

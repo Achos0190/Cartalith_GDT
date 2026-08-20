@@ -5,7 +5,67 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-20 (post **Heightmap import + tectonic inversion, and a
+Last updated: 2026-08-20 (post **the two deferred auto-populate passes —
+`_civSelectMetropolises` + `_civApplyRecovery` — and the deletion of Data ▸
+Conversion**; three owner decisions of 2026-08-20). *Ports*: the v0.75
+imperial-seat tier (reference **24961-24989**; the harness caught that the
+function ends on 24989, not 24988 — the assert-your-line-ranges rule paying
+for itself again) and the v0.82 static recovery phase (24619-24640). The
+metropolis rule is Lawrence et al. 2016 as the reference states it: a
+**capital** that is both a dominant trade hub (normalised betweenness >= 0.85)
+and the seat of a large polity (faction holds >= 6 settlements), at most 1 per
+faction and 3 in total, x-then-y tie-break. That required
+`SettlementKind::Metropolis` and the reference's real rank-5 value in **every**
+per-tier table this port had capped at Capital (catchment 2500, surplus 0.10,
+trade-k 2.1, base pop 45000, tax 0.10, class rank 5, minDeg 5, tier floor
+150000, first slot in `CIV_TIER_ORDER`). `rustc` found nine of those; it could
+not find the three tier **predicates** (`==`/`matches!`: the faction-seat
+filter, the province rank>=3 seed filter, `civ_is_exchange_tier`) — those came
+from grepping the *reference* for its own 30 `metropolis` occurrences. Recovery
+has three load-bearing details, each with its own fixture: `was_urban`
+includes **Town** (wider than `civ_is_exchange_tier`); the RNG draw happens
+**before** the abandonment test, so a dropped settlement still consumes one
+value (every fixture also pins the stream position afterwards); and the
+`max(8, pop)` floor applies **after** the tier decision. Both are wired
+exactly where `_civIterativeAutoWorld` wires them (lines 25711 / 25761) behind
+`set_metropolis_enabled` / `set_recovery_phase`, whose defaults are the
+reference's own OFF/Stable — so an untouched engine still generates what it
+generated before. The metropolis pass needed betweenness this port never built
+a `_civNetworkMetrics` for; only the **ratio** is read, so the `(n-1)(n-2)`
+normalisation cancels and the crate's existing Brandes over `topology.edges`
+is bit-identical (a golden test pins that, rather than leaving it a comment).
+Surfaced in `File ▸ New world ▸ Generation` as a checkbox and a five-entry
+**Recovery phase** dropdown filled from the engine's own `_CIV_RECOVERY_NAME`
+table; `metropolis` also joins `map_overlay.gd` (rank 5, glyph ★, LOD 0), the
+layer popover's per-class filter, the Settlement tool's class dropdown,
+`kind_from_str` and `get_settlements()`'s `kind` string. **Verified**: 28
+golden fixtures from a transient Node `vm.runInContext` harness over three
+verbatim slices, a **35-mutation sweep with every mutant killed**, 730 tests
+green across `cartalith-civ`/`cartalith-godot` with zero regressions, clean
+clippy/build, clean headless boot, and two scripted headless drives —
+promotion produces exactly one metropolis (*Ushirsrest*, faction 3, pop 59 990)
+on seed 31337, recovery phase 0 is bit-for-bit a no-op (20 settlements,
+154 109 people) and phases I-IV move that to 11 769 / 34 087 / 83 588 /
+135 891, strictly monotone. **Two pre-existing golden tests changed** — both
+pinned this port's own documented Capital *cap*, not the reference, on
+`TIMELINE_SCOPE.md` §9's explicit condition that they be revisited when this
+landed; both were re-extracted from the reference, not hand-flipped. *Two
+disclosed limitations*: the reference's `trade_hub`/`administrative` and
+`ruins`/`fortified` trait writes have no home on `NamedSettlement` (the same
+boundary `timeline_bridge.rs` already records) — `kind`/`pop` survive intact.
+*Deletion*: **Data ▸ Conversion is gone** — all three rows, from
+`menus.gd::_data()` and `data_manager_window.gd`'s `ROUTES`/`GROUP_ORDER`; the
+Data manager now has four groups (*in · out · sources · checks*). Owner
+accepted `GUI_GAP_REGISTER.md` §7.4's research, whose finding was a *naming*
+one: no serious GIS app has a top-level Conversion route because conversion is
+a parameter of an export and a property of a project, not a destination — and
+two of the three rows were undefined in `DCC_SHELL_SPEC.md` itself. §7.4's
+recommendation 3 (keep CRS as a project property) was declined: one flat km
+projection, nothing to transform between. Closes `GUI_GAP_REGISTER.md`
+**CV-04** and **CV-08**; **DM-07/08/09** resolved by deletion.
+`PHASE2_SCOPE.md` milestone 21 carries the full record. Not verified: anything
+graphical.
+— previously, post **Heightmap import + tectonic inversion, and a
 startup prompt** — the owner's *"when you open the app you should be prompted
 to either load a project, import a heightmap and infer tectonics etc or
 create a new world (akin to how the html works)"*. **The HTML's cold start

@@ -194,7 +194,9 @@ pub fn collapse_sim_request_from_pairs(pairs: &[(String, SimValue)]) -> (Collaps
 
 /// A live settlement as the collapse/recovery stepper sees it at the START of a run
 /// -- `fortified`/`ruins` both start `false` (a live `NamedSettlement` carries
-/// neither; see this module's own top-of-file doc comment on why).
+/// neither; see this module's own top-of-file doc comment on why). `port` is the
+/// placement pass's own ocean-port flag, which is exactly what the reference's
+/// `traits.includes('port')` records.
 fn collapse_place_from_named_settlement(s: &NamedSettlement) -> CollapsePlace {
     CollapsePlace {
         tid: s.tid,
@@ -204,6 +206,7 @@ fn collapse_place_from_named_settlement(s: &NamedSettlement) -> CollapsePlace {
         pop: f64::from(s.pop),
         fortified: false,
         ruins: false,
+        port: s.placement.coastal,
     }
 }
 

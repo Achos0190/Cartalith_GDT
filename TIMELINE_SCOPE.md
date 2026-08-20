@@ -451,13 +451,32 @@ UI playback controls, the shell."
 
 ## 6. Out of scope for all milestones above
 
-- `_civSelectMetropolises`/the metropolis promotion pass (reference line
+> **Both of the first two entries below were ported on 2026-08-20**, on the
+> owner's direct decision, in a pass of their own outside this document's
+> milestones. They are left in place, struck through, rather than deleted:
+> §9's decisions were made *conditionally* on their absence, and a reader who
+> only saw the amended §9 would not know what the condition had been. See
+> `cartalith-native/docs/CHANGELOG.md` for the port itself and
+> `crates/cartalith-civ/tests/golden_parity_metropolis_recovery.rs` for its
+> golden fixtures.
+
+- ~~`_civSelectMetropolises`/the metropolis promotion pass (reference line
   24961) — a pre-existing, separately-scoped gap, referenced only where §3
-  point 2/milestone 1 need a decision about its absence.
-- `_civApplyRecovery`/auto-populate's static "Recovery phase" dropdown —
+  point 2/milestone 1 need a decision about its absence.~~ **Ported
+  2026-08-20** (reference **24961-24989** — the end line is 24989, not the
+  24988 a first reading of `FUNCTION_INDEX.md` suggests). Lives in
+  `cartalith-civ/src/lib.rs` as `civ_select_metropolises`, with
+  `SettlementKind::Metropolis` and every per-tier table's real rank-5 entry;
+  wired into `compute_civilisation` at the reference's own call site
+  (line 25711), behind `set_metropolis_enabled` (reference default OFF).
+- ~~`_civApplyRecovery`/auto-populate's static "Recovery phase" dropdown —
   adjacent, see §3 point 5. Its own scoping (if any) belongs to
   `PHASE2_SCOPE.md`, not here, unless milestone 1 explicitly chooses to
-  bundle the port.
+  bundle the port.~~ **Ported 2026-08-20** (reference 24619-24640). Lives in
+  `cartalith-civ/src/timeline.rs` as `civ_apply_recovery`, next to the tier
+  tables §3 point 5 correctly identified as shared; wired at the reference's
+  own call site (line 25761) behind `set_recovery_phase`, and surfaced as
+  the **Recovery phase** dropdown in `File ▸ New world ▸ Generation`.
 - The DCC shell's six-toggle continuous simulation-layer feature and
   Warfare (`DCC_CONTROL_INDEX.md` §10/§5) — a distinct, larger, still-open
   product question. See §4.
@@ -541,9 +560,23 @@ port's own discipline:
   `_civSelectMetropolises` itself is ported (tracked where it already was).
   This keeps milestone 1 from inventing behavior for a variant nothing else
   produces yet.
+  > **Superseded 2026-08-20.** The stated condition fired: `_civSelectMetropolises`
+  > is ported, so both tables now carry the reference's own six entries
+  > (`metropolis` first, floor 150000) and `SettlementKind::Metropolis`
+  > exists. Two existing golden tests pinned the *cap* rather than the
+  > reference — `timeline.rs`'s own
+  > `tier_for_population_caps_at_capital_where_the_reference_would_say_metropolis`
+  > and `golden_parity_settlement_population.rs`'s
+  > `tier_for_population_matches_the_reference_up_to_the_capped_metropolis_tier`.
+  > Both were re-extracted from the reference rather than hand-flipped: their
+  > 150000/5000000 rows now read `Metropolis`, which is what the reference
+  > answered all along, and all thirteen boundary samples are re-derived in
+  > `golden_parity_metropolis_recovery.rs`. Nothing else in the timeline
+  > stepper's expectations moved.
 - **`_civApplyRecovery`**: out of scope here. Left for a future
   `PHASE2_SCOPE.md` addendum (auto-populate's own feature), not bundled
   into milestone 1.
+  > **Superseded 2026-08-20.** Ported on the owner's decision — see §6.
 - **Save-format persistence**: deferred. `civTimeline`/`civYear` are not
   added to `cartalith-io`'s save format in this pass. `SAVEFILE_COMPAT.md`
   gets a note recording the gap (the reference does persist these) so the

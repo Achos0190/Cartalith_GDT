@@ -86,6 +86,7 @@ fn place(
         pop,
         fortified,
         ruins: false,
+        port: false,
     }
 }
 
@@ -278,6 +279,7 @@ fn simulate_timeline_recovery_two_steps_matches_the_reference() {
         pop: 300.0,
         fortified: true,
         ruins: true,
+        port: false,
     }];
     let opts = SimulateTimelineOpts {
         mode: SimulateMode::Recovery,

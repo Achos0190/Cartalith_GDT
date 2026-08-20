@@ -130,12 +130,12 @@ pub fn civ_snap_radius(gw: usize) -> f64 {
 /// close pin out-competed a much bigger one slightly farther away.
 ///
 /// The reference's `CIV_SETTLEMENT_CLASSES` has ten entries; this port's
-/// `SettlementKind` has the five tiers `place_settlements` actually
-/// produces, and their ranks match the reference's exactly (hamlet 0 ..
-/// capital 4). The five the port does not model -- metropolis (rank 5) and
-/// the monastery/fortress/university/industrial special kinds -- are not
-/// approximated here; the reference's POI branch (a flat weight of 5) is
-/// likewise absent because this port has no POI concept.
+/// `SettlementKind` has the six tiers the pipeline actually produces, and
+/// their ranks match the reference's exactly (hamlet 0 .. metropolis 5).
+/// The four the port does not model -- the monastery/fortress/university/
+/// industrial special kinds -- are not approximated here; the reference's
+/// POI branch (a flat weight of 5) is likewise absent because this port has
+/// no POI concept.
 pub fn civ_place_pick_weight(kind: SettlementKind) -> f64 {
     let rank = match kind {
         SettlementKind::Hamlet => 0.0,
@@ -143,6 +143,7 @@ pub fn civ_place_pick_weight(kind: SettlementKind) -> f64 {
         SettlementKind::Town => 2.0,
         SettlementKind::City => 3.0,
         SettlementKind::Capital => 4.0,
+        SettlementKind::Metropolis => 5.0,
     };
     4.0 + rank
 }

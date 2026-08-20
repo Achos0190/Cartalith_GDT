@@ -237,14 +237,18 @@ fn settlement_population_is_zero_for_a_nan_norm_b_over_an_all_sea_map() {
 // ---------- _civTierForPopulation ----------
 
 /// The reference's own six-tier table has a `metropolis` entry above
-/// `capital` (floor 150000); this port's ported table caps at `Capital`
-/// (`TIMELINE_SCOPE.md` §9 decision -- `SettlementKind` has no `Metropolis`
-/// variant). The two rows at 150000/5000000 are the reference's own
-/// `"metropolis"` answer, recorded here as the DOCUMENTED divergence point
-/// (asserting this port's own `Capital` answer, not silently matching a
-/// tier this port cannot produce).
+/// `capital` (floor 150000). This test used to stop one tier short and
+/// assert `Capital` on the last two rows -- the DOCUMENTED divergence
+/// `TIMELINE_SCOPE.md` §9 recorded while `SettlementKind` had no
+/// `Metropolis` variant. Porting `_civSelectMetropolises` (owner decision,
+/// 2026-08-20) removed that divergence, so both rows now carry the
+/// reference's own answer, re-extracted rather than hand-flipped:
+/// `golden_parity_metropolis_recovery.rs`'s
+/// `tier_for_population_matches_the_full_six_tier_reference_table` runs all
+/// thirteen boundary samples straight out of the extraction harness, and
+/// this test's two rows are two of them.
 #[test]
-fn tier_for_population_matches_the_reference_up_to_the_capped_metropolis_tier() {
+fn tier_for_population_matches_the_full_reference_table_including_metropolis() {
     let cases: [(f64, SettlementKind); 9] = [
         (0.0, SettlementKind::Hamlet),
         (149.999, SettlementKind::Hamlet),
@@ -259,11 +263,18 @@ fn tier_for_population_matches_the_reference_up_to_the_capped_metropolis_tier() 
     for (pop, want) in cases {
         assert_eq!(civ_tier_for_population(pop), want, "pop={pop}");
     }
-    // Reference answers "metropolis" for both of these; this port's capped
-    // table answers "capital" -- the deliberate, logged divergence.
-    assert_eq!(civ_tier_for_population(150_000.0), SettlementKind::Capital);
+    // The reference answers "metropolis" for both of these, and so does this
+    // port now.
+    assert_eq!(
+        civ_tier_for_population(149_999.999),
+        SettlementKind::Capital
+    );
+    assert_eq!(
+        civ_tier_for_population(150_000.0),
+        SettlementKind::Metropolis
+    );
     assert_eq!(
         civ_tier_for_population(5_000_000.0),
-        SettlementKind::Capital
+        SettlementKind::Metropolis
     );
 }

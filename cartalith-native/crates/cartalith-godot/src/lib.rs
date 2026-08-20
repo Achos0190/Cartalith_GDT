@@ -545,6 +545,37 @@ const CIV_FACTION_COUNT: i32 = 6;
 /// could silently drift from this one.
 const FACTION_RGB: [(u8, u8, u8); 6] = [(230, 159, 0), (86, 180, 233), (0, 158, 115), (240, 228, 66), (0, 114, 178), (213, 94, 0)];
 
+/// The three opt-in civ-layer passes the reference gates behind its own
+/// auto-populate checkboxes/dropdown, carried together rather than as three
+/// more positional `bool`/enum arguments on an already-long signature.
+/// Every default is the reference's own default, so
+/// `CivOptions::default()` reproduces auto-populate's out-of-the-box run
+/// exactly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct CivOptions {
+    /// `_civVillages` (reference line ~6441), default OFF.
+    villages: bool,
+    /// `_civMetropolis` (reference line 6442), default OFF -- "OFF by
+    /// default => auto-populate output bit-identical", the reference's own
+    /// comment.
+    metropolis: bool,
+    /// `_civRecoveryPhase` (reference line 6443), default `Stable` (0),
+    /// which makes `civ_apply_recovery` a strict no-op.
+    recovery: RecoveryPhaseOpt,
+}
+
+/// `RecoveryPhase` with a `Default` -- `cartalith_civ`'s own enum has no
+/// meaningful default to declare (`Stable` is only "the default" from this
+/// caller's point of view), so the defaulting lives here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct RecoveryPhaseOpt(u8);
+
+impl RecoveryPhaseOpt {
+    fn phase(self) -> cartalith_civ::timeline::RecoveryPhase {
+        cartalith_civ::timeline::RecoveryPhase::from_index_clamped(i64::from(self.0))
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn compute_civilisation(
     ws: &cartalith_engine::WorldState,
@@ -553,7 +584,7 @@ fn compute_civilisation(
     world: bool,
     map_width_km: f64,
     river_density: f64,
-    villages_enabled: bool,
+    opts: CivOptions,
 ) -> CivData {
     let sea_level = ws.sea_level;
     let wb = cartalith_civ::build_water_bodies(&ws.field, gw, gh, sea_level, world, Some(&ws.rainfall));
@@ -637,7 +668,7 @@ fn compute_civilisation(
     // earlier pass used before this real call site existed to check against.
     let seeds = cartalith_civ::find_settlement_seeds(&suit, gw, gh, 0.42, (gw as f64 / 22.0).floor().max(6.0));
 
-    let placements = cartalith_civ::place_settlements_with_water_edge_snap(
+    let mut placements = cartalith_civ::place_settlements_with_water_edge_snap(
         &seeds, &suit, &ws.field, &wb.classification, &wb.fill_level, gw, gh, sea_level, world, CIV_FACTION_COUNT,
         &flood, &ws.flow_discharge, flow_thresh, map_width_km,
     );
@@ -654,6 +685,63 @@ fn compute_civilisation(
     let topology = cartalith_civ::civ_hierarchical_network_topology(
         &placements, gw, gh, sea_level, &ws.field, &ws.flow_discharge, &river_order, &biome, &wb.classification, world, map_width_km,
     );
+    // v0.75 imperial-seat promotion (`_civSelectMetropolises`, reference
+    // lines 24961-24989), wired exactly where the reference wires it: inside
+    // auto-populate, AFTER the road network exists and its betweenness has
+    // been measured, BEFORE naming/population -- reference line 25711, whose
+    // own guard is `_civMetropolis && !wantCounts`. This port has no
+    // `wantCounts` (no fixed-tier-count UI, `place_settlements`' own note),
+    // so only the opt-in flag remains, default OFF like the reference's.
+    //
+    // The reference reads betweenness out of `_civNetworkMetrics(places,
+    // ways)` (line 21931), which this port has never needed and does not
+    // have. What `civ_select_metropolises` actually consumes is only the
+    // RATIO `betweenness[i]/max_btw`, so the missing piece is just Brandes
+    // over the ways graph -- which `cartalith-civ` already ships as
+    // `timeline::civ_betweenness_from_adjacency` (its own doc: "the same
+    // algorithm `_civNetworkMetrics` uses"). `_civNetworkMetrics`' own
+    // `(n-1)(n-2)` normalisation cancels in that ratio, so feeding it the
+    // un-normalised values is bit-identical, and
+    // `golden_parity_metropolis_recovery.rs`'s
+    // `betweenness_normalisation_cancels_out` pins exactly that.
+    //
+    // Adjacency is built from `topology.edges`' own place indices (`a`/`b`),
+    // which is what the reference's `w.aIdx`/`w.bIdx` preferred branch uses
+    // too -- its geometric `nearestPlace` fallback exists only for ways that
+    // carry no logical endpoints, a shape this port never produces. Sea
+    // lanes are excluded here for the same reason the reference excludes
+    // them (`if(w.sea) continue`): they are not part of `topology.edges` at
+    // all.
+    if opts.metropolis {
+        let mut adj: Vec<std::collections::BTreeSet<usize>> =
+            vec![Default::default(); placements.len()];
+        for e in &topology.edges {
+            if e.a != e.b && e.a < adj.len() && e.b < adj.len() {
+                adj[e.a].insert(e.b);
+                adj[e.b].insert(e.a);
+            }
+        }
+        let adj: Vec<Vec<usize>> = adj.into_iter().map(|s| s.into_iter().collect()).collect();
+        let btw = cartalith_civ::timeline::civ_betweenness_from_adjacency(&adj);
+        let max_btw = btw.iter().copied().fold(0.0f64, f64::max);
+        // The reference's caller also pushes `trade_hub`/`administrative`
+        // onto the promoted place's `traits` (line 25713-25714). This port
+        // has no per-settlement trait vector at all (`NamedSettlement` is
+        // tid/placement/name/pop) -- the same already-disclosed boundary
+        // `timeline_bridge.rs` records for `fortified`/`ruins` -- so `kind`
+        // is the whole of the promotion here. Nothing downstream in this
+        // port reads either trait.
+        for i in cartalith_civ::civ_select_metropolises(
+            &placements,
+            &btw,
+            max_btw,
+            cartalith_civ::MetropolisOpts::default(),
+        ) {
+            placements[i].kind = cartalith_civ::SettlementKind::Metropolis;
+        }
+    }
+    let placements = placements;
+
     let roads = &topology.edges;
     // Still needed below by `assign_territory` (independent of which road
     // algorithm produced `roads` above -- territory's own Dijkstra runs
@@ -670,10 +758,18 @@ fn compute_civilisation(
     // to every existing golden fixture. `_civVillages` (reference default
     // OFF, Phase 2 milestone 15's own "flagged, not resolved" note): opt-
     // in here too, matching JS's real default.
-    let mut settlements;
-    if villages_enabled {
-        let mut rng = cartalith_civ::civ_name_rng();
-        settlements = cartalith_civ::name_and_populate_settlements_with_rng(&placements, &mut rng);
+    //
+    // The stream is hoisted out of that branch (it used to be created
+    // inside it) because the v0.82 recovery pass below is the reference's
+    // *third* consumer of the same continuous `rng` closure -- reference
+    // line 25761 draws from the very stream naming and village seeding
+    // already drew from. Hoisting is bit-identical for the villages-off
+    // path: `name_and_populate_settlements()` is literally
+    // `civ_name_rng()` followed by the `_with_rng` call now made here.
+    let mut rng = cartalith_civ::civ_name_rng();
+    let mut settlements =
+        cartalith_civ::name_and_populate_settlements_with_rng(&placements, &mut rng);
+    if opts.villages {
         // `civ_seed_villages` needs the downsampled routing grid's
         // (rw, sc) that `civ_hierarchical_network_topology` builds
         // internally (`civ_routing_grid`, private to `cartalith-civ`) --
@@ -721,9 +817,56 @@ fn compute_civilisation(
             name: v.name,
             pop: 0,
         }));
-    } else {
-        settlements = cartalith_civ::name_and_populate_settlements(&placements);
     }
+
+    // v0.82 static post-collapse recovery (`_civApplyRecovery`, reference
+    // lines 24619-24640), wired where the reference wires it: reference line
+    // 25761, `if(_civRecoveryPhase>0) places=_civApplyRecovery(places,
+    // _civRecoveryPhase, rng, {})` -- after the population pass, so tiers and
+    // populations are final before collapse is applied, and drawing from the
+    // same continuous stream. Phase `Stable` is a strict no-op that consumes
+    // nothing, so the default path is byte-identical to not running it.
+    //
+    // `CollapsePlace` is the crate's own type for this pass (shared with the
+    // v0.85 stepper); `timeline_bridge` already owns both conversions, and
+    // the same disclosure applies here as there -- the `ruins`/`fortified`
+    // flags this pass sets have no home on `NamedSettlement`, so they are
+    // computed and then dropped at this boundary. `kind` and `pop`, which
+    // everything downstream actually reads, survive intact.
+    if opts.recovery.phase() != cartalith_civ::timeline::RecoveryPhase::Stable {
+        let before: Vec<cartalith_civ::timeline::CollapsePlace> = settlements
+            .iter()
+            .enumerate()
+            .map(|(i, s)| cartalith_civ::timeline::CollapsePlace {
+                // `tid` is still 0 at this point (assigned further down), so
+                // the index stands in as the identity for the map-back.
+                tid: i as u64,
+                x: s.placement.x,
+                y: s.placement.y,
+                kind: s.placement.kind,
+                pop: f64::from(s.pop),
+                fortified: false,
+                ruins: false,
+                port: s.placement.coastal,
+            })
+            .collect();
+        let after = cartalith_civ::timeline::civ_apply_recovery(
+            &before,
+            opts.recovery.phase(),
+            &mut rng,
+            cartalith_civ::timeline::RecoveryOpts::default(),
+        );
+        settlements = after
+            .into_iter()
+            .map(|p| {
+                let mut s = settlements[p.tid as usize].clone();
+                s.placement.kind = p.kind;
+                s.pop = p.pop.max(0.0).round() as u32;
+                s
+            })
+            .collect();
+    }
+
 
     // Economy (`ECONOMY_SCOPE.md`): per-settlement resource trade balance,
     // `_civPlaceTrade`'s hinterland term against `_civFactionAggregates`'s
@@ -1099,11 +1242,11 @@ struct WorldGen {
     world: bool,
     lat_n: f64,
     lat_s: f64,
-    /// Set via `set_villages_enabled`. Defaults `false`, matching the
-    /// reference's own real `_civVillages` default (Phase 2 milestone 15's
-    /// own "flagged, not resolved" note on this exact toggle) -- disabled
-    /// generation stays bit-identical to every existing golden fixture.
-    villages: bool,
+    /// The three opt-in civ passes, set via `set_villages_enabled` /
+    /// `set_metropolis_enabled` / `set_recovery_phase`. Every default is
+    /// the reference's own, so an untouched engine generates exactly what
+    /// auto-populate generates out of the box.
+    civ_options: CivOptions,
     /// Phase 2 civilisation-layer output for the current `Generated`
     /// source (`None` for a `Loaded` save, or before any `generate()`).
     civ: Option<CivData>,
@@ -1244,7 +1387,7 @@ impl IRefCounted for WorldGen {
             world: false,
             lat_n: 55.0,
             lat_s: 5.0,
-            villages: false,
+            civ_options: CivOptions::default(),
             civ: None,
             seed: 0,
             asset_pack: None,
@@ -1302,7 +1445,7 @@ impl WorldGen {
         self.lat_n = p.climate.lat_n;
         self.lat_s = p.climate.lat_s;
         self.gpu_stages_used = ws.gpu_stages_used.clone();
-        self.civ = Some(compute_civilisation(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, self.villages));
+        self.civ = Some(compute_civilisation(&ws, p.gw, p.gh, p.world, p.map_width_km, p.river_density, self.civ_options));
         // Milestone F: a fresh Sculpt draft over this world's own
         // dimensions, seeding the water hooks from whatever
         // carve_river_valleys already locked during generation
@@ -1543,6 +1686,199 @@ impl WorldGen {
         self.gpu_stages_used.iter().map(GString::from).collect()
     }
 
+    // -- Multi-GPU (`DCC_SHELL_SPEC.md` §2.5, `GUI_GAP_REGISTER.md`
+    //    PR-01/PR-02/PR-04/PR-05) --------------------------------------------
+    //
+    // These read and write a *process-global* preference in `cartalith-gpu`,
+    // not a `WorldParams` field, which is why they are `&self` and why they
+    // are not in `params.rs`'s table: they describe the machine, not the
+    // world. Nothing here is consulted at all while `use_gpu` is off, so the
+    // CPU golden path is untouched.
+
+    /// Every physical GPU this machine exposes, discrete first
+    /// (`DCC_SHELL_SPEC.md` §2.5's "Devices"). One entry per **physical**
+    /// device, not per adapter: a single GPU is typically reachable over
+    /// several backends, and this folds those together.
+    ///
+    /// Each entry: `key` (String — the stable id to pass back to
+    /// `gpu_set_selected_devices`; never store the array index), `name`,
+    /// `kind` (`"discrete"`/`"integrated"`/`"virtual"`/`"software"`/
+    /// `"other"`), `backend` (`"vulkan"`/`"dx12"`/…), `alt_backends`
+    /// (PackedStringArray), `driver`, `driver_info`, `max_buffer_mb` (int),
+    /// `compute` (bool), `software` (bool).
+    ///
+    /// **Empty is a normal answer**, not an error: a headless session or a
+    /// machine with no usable GPU returns an empty array, and the UI should
+    /// say so rather than treating it as a failure.
+    ///
+    /// Deliberately absent: any utilisation percentage. §2.5 sketches
+    /// `GPU 0 · discrete 16 GB 71%`, and neither number is obtainable —
+    /// `wgpu` 30 exposes no VRAM size and no system-wide utilisation on any
+    /// backend. What is real is this application's own allocation total, in
+    /// `gpu_last_device_usage`.
+    #[func]
+    fn gpu_enumerate_devices(&self) -> Array<VarDictionary> {
+        cartalith_gpu::enumerate_devices()
+            .iter()
+            .map(|d| {
+                let alts: PackedStringArray =
+                    d.alternate_backend_strs().into_iter().map(GString::from).collect();
+                vdict! {
+                    "key" => d.key.clone(),
+                    "name" => d.name.clone(),
+                    "kind" => d.kind_str(),
+                    "backend" => d.backend_str(),
+                    "alt_backends" => &alts,
+                    "driver" => d.driver.clone(),
+                    "driver_info" => d.driver_info.clone(),
+                    "max_buffer_mb" => (d.max_buffer_size / (1024 * 1024)) as i64,
+                    "compute" => d.supports_compute,
+                    "software" => d.is_software,
+                }
+            })
+            .collect()
+    }
+
+    /// The device keys dispatch currently uses, in order. **Empty means
+    /// automatic** — the same `PowerPreference::HighPerformance` request
+    /// this port always made — which is the default and is not the same
+    /// thing as "no devices selected".
+    #[func]
+    fn gpu_selected_devices(&self) -> PackedStringArray {
+        cartalith_gpu::preferences().selected_keys.iter().map(GString::from).collect()
+    }
+
+    /// Choose which device(s) dispatch runs on. Order matters in
+    /// `split_tiles` mode (the first device gets the first row band); in
+    /// `single_device` mode only the first entry is used. Pass an empty
+    /// array to return to automatic. Keys come from
+    /// `gpu_enumerate_devices`; an unknown key degrades to automatic rather
+    /// than to no GPU. Takes effect on the next generate.
+    #[func]
+    fn gpu_set_selected_devices(&self, keys: PackedStringArray) {
+        let mut p = cartalith_gpu::preferences();
+        p.selected_keys = keys.as_slice().iter().map(GString::to_string).collect();
+        cartalith_gpu::set_preferences(p);
+    }
+
+    /// `"single_device"` · `"split_tiles"` · `"alternate_frames"`
+    /// (§2.5's "Multi-GPU mode"). Default `"single_device"`.
+    #[func]
+    fn gpu_multi_mode(&self) -> GString {
+        cartalith_gpu::preferences().mode.as_str().into()
+    }
+
+    /// Set the multi-GPU mode. Returns `false` — changing nothing — for an
+    /// unknown name **and** for `"alternate_frames"`, which this port does
+    /// not implement: §2.5's own note is that it "only helps the 3D
+    /// viewport", and there is no 3D viewport. Refusing is the honest
+    /// answer; accepting it and silently behaving as `single_device` is not.
+    #[func]
+    fn gpu_set_multi_mode(&self, mode: GString) -> bool {
+        let Some(m) = cartalith_gpu::MultiGpuMode::parse(&mode.to_string()) else { return false };
+        if !m.is_implemented() {
+            return false;
+        }
+        let mut p = cartalith_gpu::preferences();
+        p.mode = m;
+        cartalith_gpu::set_preferences(p);
+        true
+    }
+
+    /// The VRAM cap in GB, or `0.0` for no cap (the default).
+    ///
+    /// §2.5 specifies "default 75 % of the smallest active device"; that
+    /// default is **not implementable** and is not faked here — `wgpu` 30
+    /// reports no VRAM size for an adapter at all, so there is no quantity
+    /// to take 75 % of.
+    #[func]
+    fn gpu_vram_budget_gb(&self) -> f64 {
+        cartalith_gpu::preferences().vram_budget_bytes as f64 / (1024.0 * 1024.0 * 1024.0)
+    }
+
+    /// Cap the grid size the GPU path will accept, in GB. `0` removes the
+    /// cap. Compared against a documented upper-bound *estimate* of what
+    /// this pipeline allocates for a grid, not against real occupancy —
+    /// see `gpu_vram_estimate`.
+    #[func]
+    fn gpu_set_vram_budget_gb(&self, gb: f64) {
+        let mut p = cartalith_gpu::preferences();
+        p.vram_budget_bytes = if gb <= 0.0 { 0 } else { (gb * 1024.0 * 1024.0 * 1024.0) as u64 };
+        cartalith_gpu::set_preferences(p);
+    }
+
+    /// `"cpu_tile_pass"` · `"reduce_working_res"` · `"fail_with_error"`
+    /// (§2.5's "Fallback when VRAM full"). Default `"cpu_tile_pass"`.
+    #[func]
+    fn gpu_vram_fallback(&self) -> GString {
+        cartalith_gpu::preferences().fallback.as_str().into()
+    }
+
+    /// Set the over-budget fallback. Returns `false` — changing nothing —
+    /// for an unknown name and for `"reduce_working_res"`, which has no
+    /// implementation: nothing in this pipeline computes a stage at a
+    /// reduced grid and resamples back up.
+    #[func]
+    fn gpu_set_vram_fallback(&self, fallback: GString) -> bool {
+        let Some(f) = cartalith_gpu::VramFallback::parse(&fallback.to_string()) else { return false };
+        if !f.is_implemented() {
+            return false;
+        }
+        let mut p = cartalith_gpu::preferences();
+        p.fallback = f;
+        cartalith_gpu::set_preferences(p);
+        true
+    }
+
+    /// What the budget says about the **current** grid size:
+    /// `estimate_mb` (int, this pipeline's upper-bound GPU working set),
+    /// `budget_mb` (int, `0` = uncapped), `over_budget` (bool),
+    /// `action` (`"gpu"` · `"cpu_fallback"` · `"fail"`), `gw`, `gh`.
+    ///
+    /// The shell calls this before generating: with the fallback set to
+    /// `fail_with_error` the *caller* is where the error belongs, since
+    /// `generate_terrain` returns a world rather than a `Result`.
+    #[func]
+    fn gpu_vram_estimate(&self) -> VarDictionary {
+        let (gw, gh) = (self.params.gw, self.params.gh);
+        let need = cartalith_gpu::gpu_working_set_bytes(gw, gh);
+        let budget = cartalith_gpu::preferences().vram_budget_bytes;
+        let verdict = cartalith_gpu::vram_verdict(gw, gh);
+        vdict! {
+            "gw" => gw as i64,
+            "gh" => gh as i64,
+            "estimate_mb" => (need / (1024 * 1024)) as i64,
+            "budget_mb" => (budget / (1024 * 1024)) as i64,
+            "over_budget" => verdict != cartalith_gpu::VramVerdict::Ok,
+            "action" => match verdict {
+                cartalith_gpu::VramVerdict::Ok => "gpu",
+                cartalith_gpu::VramVerdict::FallBackToCpu => "cpu_fallback",
+                cartalith_gpu::VramVerdict::Fail => "fail",
+            },
+        }
+    }
+
+    /// Real, measured GPU memory from the last GPU generation — one entry
+    /// per active device, `name`, `allocated_mb`, `reserved_mb`.
+    ///
+    /// **This application's own allocations**, read from `wgpu`'s allocator,
+    /// not system-wide VRAM occupancy and not a utilisation percentage.
+    /// Empty before the first GPU generation of the session, which the UI
+    /// must show as "not measured yet" rather than as zero.
+    #[func]
+    fn gpu_last_device_usage(&self) -> Array<VarDictionary> {
+        cartalith_gpu::last_usage()
+            .iter()
+            .map(|(name, u)| {
+                vdict! {
+                    "name" => name.clone(),
+                    "allocated_mb" => (u.allocated_bytes / (1024 * 1024)) as i64,
+                    "reserved_mb" => (u.reserved_bytes / (1024 * 1024)) as i64,
+                }
+            })
+            .collect()
+    }
+
     /// The seed the last `generate()`/`generate_world_structure()` used
     /// (reference `state.tect.seed`). `0` before the first call. Seed is a
     /// `generate()` argument, not a settable parameter — this exists so a
@@ -1557,7 +1893,36 @@ impl WorldGen {
     /// not a `WorldParams` field.
     #[func]
     fn get_villages_enabled(&self) -> bool {
-        self.villages
+        self.civ_options.villages
+    }
+
+    /// Whether the v0.75 imperial-seat promotion is on
+    /// (`set_metropolis_enabled`). Same reasoning as
+    /// `get_villages_enabled`: a `cartalith-civ` concern, not a
+    /// `WorldParams` field.
+    #[func]
+    fn get_metropolis_enabled(&self) -> bool {
+        self.civ_options.metropolis
+    }
+
+    /// The v0.82 recovery phase the next `generate()` will apply, as the
+    /// reference's own numeric phase: `0` Stable / `1` Survival /
+    /// `2` Subsistence / `3` Regional / `4` Mature.
+    #[func]
+    fn get_recovery_phase(&self) -> i32 {
+        i32::from(self.civ_options.recovery.0)
+    }
+
+    /// The five `_CIV_RECOVERY_NAME` labels (reference line 24615), in
+    /// phase order, so the shell's dropdown is filled from the engine's own
+    /// table rather than a second transcription of it in GDScript.
+    #[func]
+    fn get_recovery_phase_names(&self) -> PackedStringArray {
+        (0..=4)
+            .map(|i| {
+                GString::from(cartalith_civ::timeline::RecoveryPhase::from_index_clamped(i).name())
+            })
+            .collect()
     }
 
     /// The named World-Structure archetypes `apply_archetype` and
@@ -1599,7 +1964,29 @@ impl WorldGen {
     /// four flags above since it's civ-layer, not terrain-substrate.
     #[func]
     fn set_villages_enabled(&mut self, enabled: bool) {
-        self.villages = enabled;
+        self.civ_options.villages = enabled;
+    }
+
+    /// Reference `_civMetropolis` (line 6442, default OFF) -- the v0.75
+    /// imperial-seat promotion. The reference's own comment on that default
+    /// is the reason it stays OFF here too: "OFF by default => auto-populate
+    /// output bit-identical". When on, the next `generate()` promotes up to
+    /// three high-betweenness capitals of large polities to
+    /// `SettlementKind::Metropolis`, which `get_settlements()` then reports
+    /// as `kind == "metropolis"`.
+    #[func]
+    fn set_metropolis_enabled(&mut self, enabled: bool) {
+        self.civ_options.metropolis = enabled;
+    }
+
+    /// Reference `_civRecoveryPhase` (line 6443, default `0` Stable) -- the
+    /// v0.82 static post-collapse recovery phase the next `generate()`
+    /// applies. Clamped to `0..=4` exactly as the reference's own dropdown
+    /// handler clamps it (`Math.max(0,Math.min(4,rp.value|0))`, line 26643).
+    /// Phase `0` is a strict no-op.
+    #[func]
+    fn set_recovery_phase(&mut self, phase: i32) {
+        self.civ_options.recovery = RecoveryPhaseOpt(i64::from(phase).clamp(0, 4) as u8);
     }
 
     /// `MVP_SCOPE.md` point 9 / `state.seaLevel` -- `sea_level` is the raw
@@ -2246,8 +2633,9 @@ impl WorldGen {
 
     /// Phase 2 civilisation layer (`cartalith-civ`): one `Dictionary` per
     /// settlement with keys `x`/`y` (grid cell, int), `name` (String),
-    /// `population` (int), `kind` (String: "capital"/"city"/"town"/
-    /// "village"/"hamlet"), `faction` (int, `1..=6`, matching
+    /// `population` (int), `kind` (String: "metropolis"/"capital"/"city"/
+    /// "town"/"village"/"hamlet" -- `journey_bridge::settlement_kind_key`
+    /// is the single source of that vocabulary), `faction` (int, `1..=6`, matching
     /// `CIV_FACTION_COUNT`), `capital` (bool), `coastal` (bool). Empty
     /// before any `generate()` call, after `load_save()` (no civ data for
     /// a loaded save, see `load_save`'s own doc comment), or if generation
@@ -2258,13 +2646,7 @@ impl WorldGen {
         civ.settlements
             .iter()
             .map(|s| {
-                let kind_str = match s.placement.kind {
-                    cartalith_civ::SettlementKind::Capital => "capital",
-                    cartalith_civ::SettlementKind::City => "city",
-                    cartalith_civ::SettlementKind::Town => "town",
-                    cartalith_civ::SettlementKind::Village => "village",
-                    cartalith_civ::SettlementKind::Hamlet => "hamlet",
-                };
+                let kind_str = journey_bridge::settlement_kind_key(s.placement.kind);
                 vdict! {
                     "x" => s.placement.x as i32,
                     "y" => s.placement.y as i32,

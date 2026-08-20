@@ -10,24 +10,23 @@
 //! per this repo's working discipline -- a design choice logged once, not
 //! scattered)
 //!
-//! - **Metropolis tier**: `TIMELINE_SCOPE.md` §9 caps the ported
-//!   `_CIV_TIER_ORDER`/`_CIV_TIER_FLOOR` table at [`SettlementKind::Capital`].
-//!   The reference's own six-tier table (`metropolis` highest) is NOT
-//!   reproduced -- this port's `SettlementKind` has no `Metropolis` variant
-//!   (`_civSelectMetropolises`, the promotion pass that would produce one,
-//!   is a separate unported gap, `PHASE2_SCOPE.md`). Capping the floor table
-//!   at Capital means any population that would have read "metropolis" in
-//!   the reference reads "capital" here instead (Capital's floor, 30000, is
-//!   still the first satisfied entry for population >= 150000, since
-//!   `Capital` is checked before anything lower) -- no special-casing
-//!   needed, and no behavior is invented for a tier nothing in this port
-//!   produces yet.
-//! - **`_civApplyRecovery`**: out of scope here (`TIMELINE_SCOPE.md` §9) --
-//!   left for a future `PHASE2_SCOPE.md` addendum. [`RecoveryPhase`] ports
-//!   its own `_CIV_RECOVERY_FRAC`/`_CIV_RECOVERY_NAME` tables (asked for by
-//!   name in milestone 1's own scope bullet, "used by both this subsystem
-//!   and (optionally) `_civApplyRecovery`") but nothing in this pass
-//!   constructs one yet -- it exists for that future consumer, not this one.
+//! - **Metropolis tier** (**cap lifted 2026-08-20**): milestone 1 originally
+//!   capped the ported `_CIV_TIER_ORDER`/`_CIV_TIER_FLOOR` table at
+//!   [`SettlementKind::Capital`], on the explicit condition that it would be
+//!   revisited once `_civSelectMetropolises` -- the promotion pass that
+//!   produces the tier -- was itself ported. That condition has now fired
+//!   (owner decision, 2026-08-20): `SettlementKind::Metropolis` exists,
+//!   [`civ_select_metropolises`](crate::civ_select_metropolises) produces
+//!   it, and both tables carry the reference's own six entries
+//!   (`metropolis` floor 150000, highest in `CIV_TIER_ORDER`). A population
+//!   >= 150000 that read "capital" here before now reads "metropolis",
+//!   matching the reference exactly; every golden expectation that changed
+//!   as a result was re-extracted from the reference, not hand-edited.
+//! - **`_civApplyRecovery`** (**ported 2026-08-20**): milestone 1 deferred
+//!   it and shipped only its shared [`RecoveryPhase`]
+//!   (`_CIV_RECOVERY_FRAC`/`_CIV_RECOVERY_NAME`) tables. The function itself
+//!   now lives in this module as [`civ_apply_recovery`], with the same
+//!   owner decision behind it.
 //! - **Stable id (`tid`)**: the reference's `_civAssignTid` is lazy -- an
 //!   object's `tid` is only ever assigned the first time something touches
 //!   it (empirically, `civSnapshotSave`, milestone 4's territory). This
@@ -253,8 +252,8 @@ pub fn civ_catchment_pop(
 }
 
 /// `_CIV_SURPLUS_FRACTION` (reference line 23411): fraction of the
-/// catchment's supportable population concentrated in the nucleus. No
-/// `metropolis` entry -- see this module's own metropolis-tier decision.
+/// catchment's supportable population concentrated in the nucleus. All six
+/// reference entries.
 pub fn civ_surplus_fraction(kind: SettlementKind) -> f64 {
     match kind {
         SettlementKind::Hamlet => 0.65,
@@ -262,6 +261,7 @@ pub fn civ_surplus_fraction(kind: SettlementKind) -> f64 {
         SettlementKind::Town => 0.16,
         SettlementKind::City => 0.12,
         SettlementKind::Capital => 0.11,
+        SettlementKind::Metropolis => 0.10,
     }
 }
 
@@ -275,6 +275,7 @@ pub fn civ_trade_k(kind: SettlementKind) -> f64 {
         SettlementKind::Town => 1.1,
         SettlementKind::City => 1.7,
         SettlementKind::Capital => 1.9,
+        SettlementKind::Metropolis => 2.1,
     }
 }
 
@@ -319,10 +320,13 @@ pub fn civ_settlement_population(
 
 // ===================== Shared tier tables =====================
 
-/// `_CIV_TIER_FLOOR` (reference line 24617), capped at `Capital` -- see
-/// this module's own metropolis-tier decision at the top of the file.
+/// `_CIV_TIER_FLOOR` (reference line 24617) -- the full six-entry table.
+/// The `Capital` cap that used to sit here was lifted when
+/// [`civ_select_metropolises`](crate::civ_select_metropolises) was ported;
+/// see this module's own metropolis-tier note at the top of the file.
 pub fn civ_tier_floor(kind: SettlementKind) -> f64 {
     match kind {
+        SettlementKind::Metropolis => 150_000.0,
         SettlementKind::Capital => 30000.0,
         SettlementKind::City => 5000.0,
         SettlementKind::Town => 800.0,
@@ -331,9 +335,10 @@ pub fn civ_tier_floor(kind: SettlementKind) -> f64 {
     }
 }
 
-/// `_CIV_TIER_ORDER` (reference line 24616), high to low, capped at
-/// `Capital` (no `metropolis` entry -- see this module's own decision).
-pub const CIV_TIER_ORDER: [SettlementKind; 5] = [
+/// `_CIV_TIER_ORDER` (reference line 24616), high to low -- all six
+/// entries, `metropolis` first, exactly as the reference writes it.
+pub const CIV_TIER_ORDER: [SettlementKind; 6] = [
+    SettlementKind::Metropolis,
     SettlementKind::Capital,
     SettlementKind::City,
     SettlementKind::Town,
@@ -354,10 +359,10 @@ pub fn civ_tier_for_population(pop: f64) -> SettlementKind {
 }
 
 /// `_CIV_RECOVERY_FRAC`/`_CIV_RECOVERY_NAME` (reference lines 24614-24615):
-/// the v0.82 static-recovery phase table, ported here because milestone 1's
-/// own scope bullet names it as shared with the (out-of-scope, see this
-/// module's decision) `_civApplyRecovery`. Nothing in this pass constructs
-/// a `RecoveryPhase` yet.
+/// the v0.82 static-recovery phase table. Its consumer,
+/// [`civ_apply_recovery`], now lives in this module too (it was deferred at
+/// milestone 1 and ported 2026-08-20 -- see this module's own decision
+/// list).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecoveryPhase {
     Stable,
@@ -388,6 +393,34 @@ impl RecoveryPhase {
             RecoveryPhase::Subsistence => "II · Subsistence",
             RecoveryPhase::Regional => "III · Regional",
             RecoveryPhase::Mature => "IV · Mature",
+        }
+    }
+
+    /// The reference's own numeric `phase`, i.e. this variant's index into
+    /// `_CIV_RECOVERY_FRAC`/`_CIV_RECOVERY_NAME`. Load-bearing:
+    /// [`civ_apply_recovery`]'s abandonment prune is gated on `phase<=2`
+    /// (reference line 24621), a comparison on the *number*, not the name.
+    pub fn index(self) -> u8 {
+        match self {
+            RecoveryPhase::Stable => 0,
+            RecoveryPhase::Survival => 1,
+            RecoveryPhase::Subsistence => 2,
+            RecoveryPhase::Regional => 3,
+            RecoveryPhase::Mature => 4,
+        }
+    }
+
+    /// The inverse of [`RecoveryPhase::index`] -- the parse the Godot
+    /// boundary needs for the shell's dropdown, where the reference's own
+    /// `Math.max(0,Math.min(4,rp.value|0))` clamp (line 26643) lives.
+    /// Out-of-range input clamps to the nearest end, matching that clamp.
+    pub fn from_index_clamped(i: i64) -> Self {
+        match i.clamp(0, 4) {
+            0 => RecoveryPhase::Stable,
+            1 => RecoveryPhase::Survival,
+            2 => RecoveryPhase::Subsistence,
+            3 => RecoveryPhase::Regional,
+            _ => RecoveryPhase::Mature,
         }
     }
 }
@@ -645,6 +678,12 @@ pub fn civ_betweenness_from_adjacency(adj: &[Vec<usize>]) -> Vec<f64> {
 /// [`civ_collapse_step`]), `fortified` is never cleared -- matching the
 /// reference, which never removes a trait once added; only `ruins` clears,
 /// on promotion back into an exchange tier ([`civ_recovery_growth_step`]).
+///
+/// `port` mirrors the reference's `p.traits.includes('port')`, read only by
+/// [`civ_apply_recovery`] ("survivors cluster on water", reference line
+/// 24631). At this port's own Godot boundary it is
+/// `SettlementPlacement::coastal`, which *is* the ocean-port flag the
+/// placement pass sets.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CollapsePlace {
     /// `0` is the "unassigned" sentinel, matching every other `tid` field
@@ -661,6 +700,8 @@ pub struct CollapsePlace {
     pub pop: f64,
     pub fortified: bool,
     pub ruins: bool,
+    /// `p.traits.includes('port')` -- see this struct's own doc comment.
+    pub port: bool,
 }
 
 /// `_CIV_COLLAPSE_CHAR_WEIGHTS` keys (reference line 24653-24658) as a
@@ -740,11 +781,12 @@ pub const CIV_FORTIFIED_BONUS: f64 = 0.5;
 /// A settlement counts as an "exchange tier" nucleus (reference:
 /// `kind==='city'||kind==='capital'||kind==='metropolis'`) for both the
 /// stress model's fortification default and the gravity model's
-/// attractiveness bonus. Capped at `Capital` -- this module's own top-of-
-/// file metropolis-tier decision (no `SettlementKind::Metropolis` exists to
-/// check for).
+/// attractiveness bonus. All three tiers, since `Metropolis` now exists.
 fn civ_is_exchange_tier(kind: SettlementKind) -> bool {
-    matches!(kind, SettlementKind::City | SettlementKind::Capital)
+    matches!(
+        kind,
+        SettlementKind::City | SettlementKind::Capital | SettlementKind::Metropolis
+    )
 }
 
 /// `_CIV_TIER_ORDER.indexOf(kind)` -- every `SettlementKind` variant is
@@ -755,6 +797,120 @@ fn civ_tier_rank(kind: SettlementKind) -> usize {
         .iter()
         .position(|&k| k == kind)
         .expect("SettlementKind is exhaustively listed in CIV_TIER_ORDER")
+}
+
+// ===================== v0.82: static post-collapse recovery =====================
+//
+// `_civApplyRecovery` (reference lines 24619-24640), the instant one-shot
+// re-weighting behind auto-populate's "Recovery phase" dropdown -- as
+// distinct from the v0.85 year-stepped simulator in the rest of this
+// module. `TIMELINE_SCOPE.md` §3 point 5 already recorded that the two share
+// the tier tables above; this is the only thing the static pass needs that
+// the stepper had not already built.
+//
+// Same structural simplification the stepper's own top-of-block comment
+// discloses: this port's place type is settlements-only, so the reference's
+// `p.category!=='settlement'` passthrough branch (which pushes POIs through
+// untouched) has no input that can reach it and is not reproduced. The
+// reference draws from `rng` only *inside* the settlement branch, so a
+// settlements-only input consumes exactly one draw per entry either way --
+// the RNG stream is unaffected by dropping the branch.
+
+/// [`civ_apply_recovery`]'s `opts`. The reference's only real knob is
+/// `opts.dropThresh` (default 18); it is `opts`-overridable there
+/// "for testing", and is exposed here for the same reason.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RecoveryOpts {
+    /// `opts.dropThresh` (reference line 24621). Only consulted in phases
+    /// I/II (`phase<=2`); phases III/IV set the threshold to `0`, which
+    /// disables the prune entirely.
+    pub drop_thresh: f64,
+}
+
+impl Default for RecoveryOpts {
+    fn default() -> Self {
+        Self { drop_thresh: 18.0 }
+    }
+}
+
+/// `_civApplyRecovery` (reference lines 24619-24640): the v0.82 static
+/// post-collapse re-weighting. Every settlement's population is scaled by
+/// an independently-drawn fraction inside the phase's band
+/// ([`RecoveryPhase::frac_band`]); a nucleus scaled below the labour its
+/// tier needs **demotes** to whatever tier its new population actually
+/// supports ([`civ_tier_for_population`]), and a former urban nucleus that
+/// demotes is marked `ruins` + `fortified` ("its people clustered in the
+/// defensible ruins", the reference's own framing). In phases I and II
+/// only, a settlement scaled below `opts.drop_thresh` that is neither
+/// formerly-urban nor a port is **abandoned** -- dropped from the output.
+///
+/// Pure and total: phase [`RecoveryPhase::Stable`] is the reference's own
+/// `band==null` no-op and returns the input unchanged **without drawing
+/// from `rng`**, which is what makes phase 0 byte-identical to not running
+/// the pass at all.
+///
+/// Three details that are load-bearing and easy to get wrong:
+///
+/// - **`was_urban` includes `Town`.** It is `town|city|capital|metropolis`
+///   (reference line 24627), a *wider* set than
+///   [`civ_is_exchange_tier`]'s `city|capital|metropolis`. The two are
+///   deliberately different predicates in the reference and stay different
+///   here.
+/// - **The draw happens before the drop test**, so an abandoned settlement
+///   still consumes exactly one value from `rng`. Skipping the draw for
+///   dropped entries would desynchronise every later consumer of the same
+///   stream.
+/// - **The `max(8, pop)` floor is applied after the tier decision**, not
+///   before: `new_kind`, `demoted` and the drop test all read the *unfloored*
+///   rounded population.
+pub fn civ_apply_recovery(
+    places: &[CollapsePlace],
+    phase: RecoveryPhase,
+    rng: &mut cartalith_rng::Mulberry32,
+    opts: RecoveryOpts,
+) -> Vec<CollapsePlace> {
+    let Some((lo, hi)) = phase.frac_band() else {
+        return places.to_vec();
+    };
+    if places.is_empty() {
+        return Vec::new();
+    }
+    // Reference line 24621: `(phase<=2) ? (opts.dropThresh ?? 18) : 0`.
+    let drop_thresh = if phase.index() <= 2 {
+        opts.drop_thresh
+    } else {
+        0.0
+    };
+
+    let mut out: Vec<CollapsePlace> = Vec::with_capacity(places.len());
+    for p in places {
+        let mut p = *p;
+        let frac = lo + (hi - lo) * rng.next_f64();
+        let was_urban = matches!(
+            p.kind,
+            SettlementKind::Town
+                | SettlementKind::City
+                | SettlementKind::Capital
+                | SettlementKind::Metropolis
+        );
+        let pop = js_round(js_num_or_zero(p.pop) * frac);
+        let new_kind = civ_tier_for_population(pop);
+        let demoted = civ_tier_rank(new_kind) > civ_tier_rank(p.kind);
+        let anchored = was_urban || p.port;
+        if drop_thresh > 0.0 && pop < drop_thresh && !anchored {
+            continue;
+        }
+        p.pop = js_max(8.0, pop);
+        if demoted {
+            p.kind = new_kind;
+            if was_urban {
+                p.ruins = true;
+                p.fortified = true;
+            }
+        }
+        out.push(p);
+    }
+    out
 }
 
 /// `_civSettlementStress` (reference lines 24713-24723): per-settlement
@@ -1858,16 +2014,29 @@ mod tests {
         assert_eq!(civ_tier_for_population(30000.0), SettlementKind::Capital);
     }
 
+    /// Was `tier_for_population_caps_at_capital_where_the_reference_would_say_
+    /// metropolis`, and asserted `Capital` on both rows. Those two numbers
+    /// were never reference-derived -- they pinned this port's *own*
+    /// documented divergence (the `TIMELINE_SCOPE.md` §9 cap), on the
+    /// explicit condition that they would be revisited once
+    /// `_civSelectMetropolises` was ported. It now is, so both rows read the
+    /// reference's real answer instead. Extracted, not hand-edited:
+    /// `tests/golden_parity_metropolis_recovery.rs`'s own
+    /// `tier_for_population_matches_the_full_six_tier_reference_table` covers
+    /// all thirteen boundary samples straight out of the harness.
     #[test]
-    fn tier_for_population_caps_at_capital_where_the_reference_would_say_metropolis() {
-        // The reference's own metropolis floor is 150000; this port has no
-        // Metropolis variant (TIMELINE_SCOPE.md §9 decision), so a population
-        // far past that floor still resolves to Capital, not a panic or a
-        // silently-wrong lower tier.
-        assert_eq!(civ_tier_for_population(150_000.0), SettlementKind::Capital);
+    fn tier_for_population_reaches_metropolis_above_its_own_floor() {
+        assert_eq!(
+            civ_tier_for_population(149_999.999),
+            SettlementKind::Capital
+        );
+        assert_eq!(
+            civ_tier_for_population(150_000.0),
+            SettlementKind::Metropolis
+        );
         assert_eq!(
             civ_tier_for_population(5_000_000.0),
-            SettlementKind::Capital
+            SettlementKind::Metropolis
         );
     }
 
@@ -2033,6 +2202,7 @@ mod tests {
             pop,
             fortified,
             ruins: false,
+            port: false,
         }
     }
 
@@ -2134,6 +2304,7 @@ mod tests {
             pop: 50_000.0,
             fortified: false,
             ruins: false,
+            port: false,
         }];
         let r = civ_collapse_step(
             &places,
@@ -2167,6 +2338,7 @@ mod tests {
             pop: 1.0, // far below City's own floor
             fortified: false,
             ruins: false,
+            port: false,
         }];
         let r =
             civ_recovery_growth_step(&places, 0.0, 1, &dens, &field, 10, 10, 0.42, false, 800.0);

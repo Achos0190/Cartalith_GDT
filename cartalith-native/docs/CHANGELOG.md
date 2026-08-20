@@ -16673,3 +16673,219 @@ so PNG-only is parity.
 `GENERATION_PARAMETERS.md` (new heightmap-import section),
 `GUI_GAP_REGISTER.md` (DM-01 → done, new DM-01b, MS-02 → done), this file,
 `docs/STATUS.md`.
+
+## The two deferred auto-populate passes: `_civSelectMetropolises` + `_civApplyRecovery` (2026-08-20)
+
+Owner decision, 2026-08-20: port both, and delete the Data manager's
+Conversion group. Two registered gaps closed (`GUI_GAP_REGISTER.md` **CV-04**,
+**CV-08**) and three resolved by deletion (**DM-07/08/09**).
+`PHASE2_SCOPE.md` milestone 21 carries the full record; this entry is the
+history.
+
+### `_civSelectMetropolises` — the imperial-seat tier
+
+Reference **24961-24989**. The line range was **asserted before slicing**, and
+the assertion earned its keep on the first run: the function ends on 24989,
+not the 24988 that reading `FUNCTION_INDEX.md`'s start line and counting
+suggests. A slice one line short is a syntax error and loud; the same mistake
+at the *start* of a slice silently omits a definition, which is the failure
+mode this repo has been bitten by four times.
+
+The rule, as the reference's own header states it (Lawrence et al. 2016): a
+metropolis is a **capital** that is both a dominant trade hub (normalised
+betweenness >= `btwThr` 0.85) **and** the seat of a large polity (its faction
+holds >= `minFactionSize` 6 settlements) — ranked by centrality, at most 1 per
+faction, at most 3 globally, with a deterministic `x`-then-`y` tie-break.
+Ported as `cartalith_civ::civ_select_metropolises`, returning **indices**
+where the reference returns a `Set` of place objects; `MetropolisOpts` carries
+all four reference defaults, overridable exactly as the reference's `opts` are.
+
+**The tier itself was the larger half of the work.** `SettlementKind` gained
+`Metropolis`, and every per-tier table this port had capped at `Capital`
+gained the reference's real rank-5 entry: `_CIV_CATCHMENT_KM2` **2500**,
+`_CIV_SURPLUS_FRACTION` **0.10**, `_CIV_TRADE_K` **2.1**,
+`_CIV_BASE_POP_BY_KIND` **45000**, `CIV_TAX_RATE` **0.10**,
+`CIV_SETTLEMENT_CLASSES` rank **5**, `minDeg` **5** ("metropolis routes like a
+capital", the reference's own comment), `_CIV_TIER_FLOOR` **150000** and
+`_CIV_TIER_ORDER`'s first slot. `rustc` found nine of those by making the
+`match` non-exhaustive. It could **not** find the three tier *predicates*,
+which are `==`/`matches!` and stayed happily true-or-false: the faction-seat
+filter (`kind==='capital'||kind==='metropolis'`, feeding
+`_civFactionCapital`), `_civGenerateProvinces`' rank>=3 seed filter, and
+`civ_is_exchange_tier`. Those were found by grepping the *reference* for its
+own 30 `metropolis` occurrences and checking each against the port — the only
+method that would have caught them.
+
+`_CIV_BASE_POP_BY_KIND`'s metropolis entry (45000) is ported even though it is
+genuinely unreachable, exactly as the reference's own line-23428 comment
+explains: metropolis is a promotion that runs later in the pipeline than any
+base-population call site. The table is the reference's table, not a subset.
+
+### `_civApplyRecovery` — the v0.82 static recovery phase
+
+Reference 24619-24640, the instant one-shot re-weighting behind
+auto-populate's "Recovery phase" dropdown — as distinct from the v0.85
+year-stepped simulator already ported at `TIMELINE_SCOPE.md` milestones 2-5.
+`TIMELINE_SCOPE.md` §3 point 5 had already established that the two share the
+tier tables, so this was a bounded port into `cartalith-civ/src/timeline.rs`
+beside them: `civ_apply_recovery`, `RecoveryOpts`, and `RecoveryPhase::index`/
+`::from_index_clamped` (the reference's numeric phase, which its own
+`phase<=2` gate compares against, and the `Math.max(0,Math.min(4,…))` clamp
+from its dropdown handler at line 26643).
+
+**Three details are load-bearing and each has its own fixture.**
+
+1. `was_urban` is `town|city|capital|metropolis` — **wider** than
+   `civ_is_exchange_tier`'s `city|capital|metropolis`. The two are different
+   predicates in the reference and stay different here. A town and a village
+   of identical population, drawn consecutively from one stream, prove it: the
+   town anchors against the prune, the village does not.
+2. The RNG draw happens **before** the abandonment test, so a settlement that
+   is dropped still consumes one value. Every recovery fixture therefore also
+   asserts the *next* value the stream yields, against an independently
+   extracted table of raw `mulberry32` draws — the fixture that drops one of
+   six settlements must leave the stream at draw 7, and the phase-0 no-op must
+   leave it at draw 1. Getting this wrong looks entirely plausible in the
+   output and silently desynchronises every later consumer.
+3. The `max(8, pop)` floor is applied **after** the tier decision: `new_kind`,
+   `demoted` and the drop test all read the *unfloored* rounded population.
+
+`CollapsePlace` gained a `port` field for the reference's
+`traits.includes('port')` ("survivors cluster on water"). At the Godot
+boundary that is `SettlementPlacement::coastal`, which *is* the ocean-port
+flag the placement pass sets — not an approximation.
+
+### Wiring — where the reference puts them
+
+Both run exactly where `_civIterativeAutoWorld` runs them: metropolis
+promotion at line **25711** (after the road network is scored, before
+naming/population), recovery at line **25761** (after the population pass).
+Both are behind flags whose defaults are the reference's own —
+`set_metropolis_enabled` OFF, `set_recovery_phase` Stable — so an untouched
+engine generates byte-for-byte what it generated before. The reference's
+second guard on the metropolis pass (`!wantCounts`) has no equivalent: this
+port has no fixed-tier-count UI.
+
+**One thing the reference has that this port did not.** The promotion needs
+betweenness from `_civNetworkMetrics` (line 21931), which this port has never
+had a reason to build. But `civ_select_metropolises` only ever reads the
+**ratio** `betweenness/max_btw`, so `_civNetworkMetrics`' own `(n-1)(n-2)`
+normalisation cancels — and Brandes over the ways graph is already in the
+crate as `timeline::civ_betweenness_from_adjacency` (whose own doc says it is
+"the same algorithm `_civNetworkMetrics` uses"). Adjacency comes from
+`topology.edges`' place indices, which is the reference's own preferred
+`w.aIdx`/`w.bIdx` branch; its geometric `nearestPlace` fallback exists only
+for ways carrying no logical endpoints, a shape this port never produces. Sea
+lanes are excluded for the same reason the reference excludes them. A golden
+test pins the cancellation rather than leaving it as a comment.
+
+`compute_civilisation`'s three opt-in passes now travel as one `CivOptions`
+rather than as three positional arguments, and the naming RNG is hoisted out
+of the villages branch — the recovery pass is the reference's *third*
+consumer of the same continuous stream. Hoisting is bit-identical on the
+villages-off path (`name_and_populate_settlements()` is literally
+`civ_name_rng()` plus the `_with_rng` call now made one line up).
+
+### Two disclosed limitations
+
+The reference also pushes `trade_hub`/`administrative` traits onto a promoted
+place and `ruins`/`fortified` onto a demoted one. `NamedSettlement` has no
+trait vector at all — the boundary `timeline_bridge.rs`'s own top-of-file note
+already records for the v0.85 stepper. `kind` and `pop`, which everything
+downstream reads, survive intact; the trait writes are computed, golden-tested
+at the pure function, and dropped at the Godot boundary. Not silently: stated
+at both call sites.
+
+### Verification
+
+**28 golden fixtures** in
+`crates/cartalith-civ/tests/golden_parity_metropolis_recovery.rs`, extracted
+by a transient Node `vm.runInContext` harness over three verbatim slices
+(`mulberry32` line 2291; the tier tables + `_civTierForPopulation` +
+`_civApplyRecovery` 24614-24640; `_civSelectMetropolises` 24961-24989). The
+harness probes that all four sliced functions are `typeof 'function'` and that
+`_CIV_TIER_ORDER` really has six entries before emitting anything — the
+"silently-empty golden output" rule. Fixtures are shaped to reach real
+branches: the `maxBtw<=0` guard, the non-capital reject, both sides of the
+`minFactionSize` and `btwThr` boundaries (quantised 85/100 so the inclusive
+`>=` is genuinely under test), the per-faction and global caps, and three
+capitals at identical centrality so **only** the tie-break decides who
+survives a `globalCap` of 2.
+
+**A 35-mutation sweep, every mutant killed** — all four `MetropolisOpts`
+defaults, the `>=` threshold direction, the sort direction, the tie-break key
+order, whether `facCount` counts all places or only capitals, the `maxBtw`
+guard's `<=`; `dropThresh` 18, the `phase<=2` gate in both directions, the
+pop floor 8, the `<` drop comparison, `was_urban` losing `Town`, the port
+anchor, the ruins gate, the floor-before-tier ordering, the band's lo/hi
+orientation, all four recovery bands, the metropolis tier floor, its position
+in `CIV_TIER_ORDER`, and all six new per-tier table values.
+
+**Two pre-existing golden tests changed, and both were re-extracted rather
+than hand-edited.** `timeline.rs`'s
+`tier_for_population_caps_at_capital_where_the_reference_would_say_metropolis`
+and `golden_parity_settlement_population.rs`'s
+`tier_for_population_matches_the_reference_up_to_the_capped_metropolis_tier`
+both asserted `Capital` at 150000 and 5000000. Neither number was ever
+reference-derived: they pinned this port's *own* documented cap, on
+`TIMELINE_SCOPE.md` §9's explicit condition that they be revisited when
+`_civSelectMetropolises` landed. It has. Both now read `Metropolis`, which is
+what the reference answered all along, and all thirteen boundary samples are
+re-derived from the harness in the new file. Nothing else in the timeline
+stepper's expectations moved — the stepper's own fixtures never reach a
+population above 150000.
+
+**730 tests passing across `cartalith-civ` and `cartalith-godot`, zero
+failures, zero regressions**; clean clippy and debug build; a clean headless
+boot; and two scripted headless drives through the real gdext boundary. The
+drives confirm: the defaults really are OFF/Stable; the pass OFF produces no
+metropolis; with it ON, seed 31337 at 256x256 promotes exactly one —
+*Ushirsrest*, faction 3, pop 59990, `capital` flag still true — and never more
+than the global cap of 3 (promotion is rare by construction: at ~20
+settlements across 6 factions, most factions never reach `minFactionSize`);
+recovery phase 0 leaves a 20-settlement / 154 109-population world **exactly**
+unchanged, and phases I-IV move it to 11 769 / 34 087 / 83 588 / 135 891, each
+strictly below the ceiling and strictly above the phase before it, with the
+tier mix collapsing and recovering alongside; the phase clamp holds at both
+ends; and `map_overlay.gd` really does carry metropolis at rank 5 / glyph star
+/ LOD 0.
+
+### Data ▸ Conversion — deleted
+
+Owner accepted `GUI_GAP_REGISTER.md` §7.4's research in full. Its finding was
+a *naming* finding, not a scheduling one: no GIS application of consequence
+has a top-level Conversion route, because conversion is not a destination — it
+is a parameter of an export (which format?) and a property of a project (which
+CRS?). QGIS has no Conversion menu at all. Two of the group's three rows were
+undefined **in `DCC_SHELL_SPEC.md` itself**, which is the symptom.
+
+So the whole group is gone — `Coordinate Systems (EPSG)`, `Format Conversion`,
+`Data Transformation` — from `menus.gd::_data()` (row, id constant and match
+arm) and from `data_manager_window.gd`'s `ROUTES` and `GROUP_ORDER`. The Data
+manager now has **four** groups: *in · out · sources · checks*. §7.4's
+recommendation 3 (keep CRS as a project property) was explicitly **declined**:
+this port works in one flat km projection, so there is nothing to transform
+between. DM-07/08/09 are resolved by deletion, not by deferral — there is no
+longer a control promising something the engine does not do.
+`DCC_SHELL_SPEC.md` §2.4 carries the correction blockquote.
+
+**Files:** `cartalith-native/crates/cartalith-civ/src/lib.rs`,
+`crates/cartalith-civ/src/timeline.rs`, `crates/cartalith-civ/src/tools.rs`,
+`crates/cartalith-civ/tests/golden_parity_metropolis_recovery.rs` (new),
+`crates/cartalith-civ/tests/golden_parity_settlement_population.rs`,
+`crates/cartalith-civ/tests/golden_parity_timeline_collapse.rs`,
+`crates/cartalith-civ/tests/golden_parity_timeline_orchestrator.rs`,
+`crates/cartalith-godot/src/lib.rs`,
+`crates/cartalith-godot/src/civ_tools_bridge.rs`,
+`crates/cartalith-godot/src/journey_bridge.rs`,
+`crates/cartalith-godot/src/timeline_bridge.rs`,
+`godot-project/map_overlay.gd`,
+`godot-project/shell/new_world_dialog.gd`,
+`godot-project/shell/engine_bridge.gd`,
+`godot-project/shell/workspaces/cartography_workspace.gd`,
+`godot-project/shell/workspaces/civilization_workspace.gd`,
+`godot-project/shell/menus.gd` (`_data()` only),
+`godot-project/shell/data_manager_window.gd`, `TIMELINE_SCOPE.md` (§6, §9),
+`PHASE2_SCOPE.md` (new milestone 21), `GUI_GAP_REGISTER.md` (CV-04, CV-08 ->
+closed; DM-07/08/09 -> resolved by deletion; §7.4 decision note),
+`DCC_SHELL_SPEC.md` (§2.4, §9), this file, `docs/STATUS.md`.

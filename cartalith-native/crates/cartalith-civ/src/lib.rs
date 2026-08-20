@@ -2034,9 +2034,8 @@ pub fn civ_world_mean_resources(
 }
 
 /// `_CIV_CATCHMENT_KM2` (reference line 23407): per-tier catchment area in
-/// km². No `metropolis` entry -- this port's `SettlementKind` has no
-/// metropolis tier (Phase 2 milestone 9's own note: the promotion that
-/// produces one never reaches this port's pipeline).
+/// km². All six reference entries, `metropolis` included since
+/// [`civ_select_metropolises`] now produces that tier.
 pub fn civ_catchment_km2(kind: SettlementKind) -> f64 {
     match kind {
         SettlementKind::Hamlet => 6.0,
@@ -2044,6 +2043,7 @@ pub fn civ_catchment_km2(kind: SettlementKind) -> f64 {
         SettlementKind::Town => 150.0,
         SettlementKind::City => 800.0,
         SettlementKind::Capital => 1400.0,
+        SettlementKind::Metropolis => 2500.0,
     }
 }
 
@@ -2169,11 +2169,12 @@ pub const CIV_PRIMARY_SPECIALISATION: [(&str, &str); 5] = [
 /// `CIV_TAX_RATE` (reference line 23557): per-tier tax rate on population,
 /// an administrative-capacity heuristic, not a simulated fiscal model. The
 /// reference's table has ten entries; this port's `SettlementKind` has the
-/// five tiers `place_settlements` actually produces and their rates match
-/// exactly. The five the port does not model (metropolis 0.10, monastery
-/// 0.03, fortress 0.04, university 0.06, industrial 0.08) are listed here
-/// for provenance but not approximated, and the reference's `!=null?...:0.04`
-/// fallback is unreachable through an exhaustive enum.
+/// six tiers the pipeline actually produces (five from `place_settlements`,
+/// plus `Metropolis` from [`civ_select_metropolises`]) and their rates match
+/// exactly. The four the port does not model (monastery 0.03, fortress 0.04,
+/// university 0.06, industrial 0.08) are listed here for provenance but not
+/// approximated, and the reference's `!=null?...:0.04` fallback is
+/// unreachable through an exhaustive enum.
 pub fn civ_tax_rate(kind: SettlementKind) -> f64 {
     match kind {
         SettlementKind::Hamlet => 0.02,
@@ -2181,16 +2182,17 @@ pub fn civ_tax_rate(kind: SettlementKind) -> f64 {
         SettlementKind::Town => 0.05,
         SettlementKind::City => 0.07,
         SettlementKind::Capital => 0.09,
+        SettlementKind::Metropolis => 0.10,
     }
 }
 
-/// `CIV_SETTLEMENT_CLASSES[].rank` (reference line 14674) for the five tiers
-/// this port models. **`CIV_MAX_TIER_RANK` is 5, not 4**: the reference's
-/// `maxRank` is `Math.max(1, ...CIV_SETTLEMENT_CLASSES.map(c=>c.rank))` over
-/// its *full* ten-entry table, whose top entry is `metropolis` at rank 5.
-/// Normalising by 4 (this port's own highest tier) would silently inflate
-/// every faction's `capitalTierNorm` -- and with it the military and
-/// political power axes -- by 25%.
+/// `CIV_SETTLEMENT_CLASSES[].rank` (reference line 14674) for the six tiers
+/// this port models. `CIV_MAX_TIER_RANK` is 5 -- the reference's `maxRank`
+/// is `Math.max(1, ...CIV_SETTLEMENT_CLASSES.map(c=>c.rank))` over its
+/// *full* ten-entry table, whose top entry is `metropolis` at rank 5. That
+/// was already the value here before `Metropolis` existed as a variant
+/// (normalising by 4 would have inflated every faction's `capitalTierNorm`
+/// by 25%); it is now also this port's own highest rank, so the two agree.
 fn civ_tier_rank(kind: SettlementKind) -> f64 {
     match kind {
         SettlementKind::Hamlet => 0.0,
@@ -2198,6 +2200,7 @@ fn civ_tier_rank(kind: SettlementKind) -> f64 {
         SettlementKind::Town => 2.0,
         SettlementKind::City => 3.0,
         SettlementKind::Capital => 4.0,
+        SettlementKind::Metropolis => 5.0,
     }
 }
 const CIV_MAX_TIER_RANK: f64 = 5.0;
@@ -2622,7 +2625,12 @@ pub fn civ_faction_aggregates(
             let seats: Vec<usize> = list
                 .iter()
                 .copied()
-                .filter(|&i| places[i].kind == SettlementKind::Capital)
+                .filter(|&i| {
+                    matches!(
+                        places[i].kind,
+                        SettlementKind::Capital | SettlementKind::Metropolis
+                    )
+                })
                 .collect();
             let pool = if seats.is_empty() { &list } else { &seats };
             let mut best = pool[0];
@@ -3530,9 +3538,21 @@ pub struct SettlementCandidate {
 
 /// Settlement tier (reference: the `isCapital`/`isCity`/`isTown`/
 /// `isVillage` rank cascade inline in `_civIterativeAutoWorld`,
-/// ~lines 25409-25421).
+/// ~lines 25409-25421, plus the v0.75 `Metropolis` imperial seat that
+/// [`civ_select_metropolises`] promotes *after* that cascade has run).
+///
+/// `Metropolis` is never produced by the placement cascade itself -- the
+/// reference's own comment (line 23428) makes the same point about
+/// `_CIV_BASE_POP_BY_KIND`: "metropolis is a promotion that runs later in
+/// the pipeline than either of those two call sites". Every per-tier table
+/// in this crate nevertheless carries its real reference value, because a
+/// promoted metropolis flows straight into all of them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettlementKind {
+    /// v0.75 imperial seat (`CIV_SETTLEMENT_CLASSES` rank 5, reference line
+    /// 14680) -- an opt-in promotion of a high-betweenness capital of a
+    /// large polity, never seeded directly. See [`civ_select_metropolises`].
+    Metropolis,
     Capital,
     City,
     Town,
@@ -4664,15 +4684,19 @@ pub fn civ_settle_name(rng: &mut cartalith_rng::Mulberry32, faction: i32) -> Str
 }
 
 /// `_civBasePopForKind` (reference line 23433) / `_CIV_BASE_POP_BY_KIND`
-/// (line 23432). `SettlementKind` has no `Metropolis` variant -- that
-/// tier is a separate opt-in promotion pass (`_civMetropolis`) this port
-/// doesn't build (milestone 8's own scope), so only the five reachable
-/// tiers are represented; the reference's own `!=null?...:120` fallback
-/// (which in practice only ever protects against an unrecognised `kind`
-/// string, impossible here since `SettlementKind` is a closed enum) has
-/// no equivalent needed.
+/// (line 23432) -- all six entries. The reference's own `!=null?...:120`
+/// fallback (which in practice only ever protects against an unrecognised
+/// `kind` string, impossible here since `SettlementKind` is a closed enum)
+/// has no equivalent needed.
+///
+/// The `Metropolis` entry (45000) is genuinely unreachable through
+/// `name_and_populate_settlements`, exactly as the reference's own line
+/// 23428 comment says: metropolis is a promotion that runs *later* in the
+/// pipeline than any base-population call site. It is ported anyway so the
+/// table is the reference's table, not a subset of it.
 pub fn civ_base_pop_for_kind(kind: SettlementKind) -> f64 {
     match kind {
+        SettlementKind::Metropolis => 45000.0,
         SettlementKind::Capital => 15000.0,
         SettlementKind::City => 6000.0,
         SettlementKind::Town => 1500.0,
@@ -4741,6 +4765,114 @@ pub fn name_and_populate_settlements_with_rng(
             }
         })
         .collect()
+}
+
+// ===================== v0.75: imperial-seat (metropolis) promotion =====================
+//
+// `_civSelectMetropolises` (reference lines 24961-24988). Lawrence et al.
+// 2016's thesis, as the reference's own header states it: post-2000 BC
+// settlement growth is driven by administrative/taxation capacity, not
+// local farmland -- which betweenness centrality (trade-through) and
+// polity size proxy for. So a metropolis is a *capital* that is both a
+// dominant trade hub (normalised betweenness >= `btw_thr`) AND the seat of
+// a large polity (its faction holds >= `min_faction_size` settlements).
+// Rare by construction: ranked by centrality, <= `per_faction` per faction,
+// <= `global_cap` total.
+
+/// [`civ_select_metropolises`]'s `opts`. Every field is the reference's own
+/// `opts.X != null ? opts.X : DEFAULT` default (lines 24963-24966), kept
+/// overridable for the same reason the reference keeps them so ("opts
+/// overridable for testing").
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MetropolisOpts {
+    /// `opts.btwThr` (default 0.85): minimum normalised betweenness.
+    pub btw_thr: f64,
+    /// `opts.minFactionSize` (default 6): settlements the candidate's own
+    /// faction must hold.
+    pub min_faction_size: usize,
+    /// `opts.perFaction` (default 1).
+    pub per_faction: usize,
+    /// `opts.globalCap` (default 3).
+    pub global_cap: usize,
+}
+
+impl Default for MetropolisOpts {
+    fn default() -> Self {
+        Self {
+            btw_thr: 0.85,
+            min_faction_size: 6,
+            per_faction: 1,
+            global_cap: 3,
+        }
+    }
+}
+
+/// `_civSelectMetropolises` (reference line 24961): which capitals to
+/// promote to [`SettlementKind::Metropolis`]. Pure -- returns the **indices
+/// into `places`** to promote (the reference returns a `Set` of the place
+/// objects themselves; indices are the same information under Rust's
+/// ownership rules, and the caller mutates through them exactly as the
+/// reference's own caller does at line 25712).
+///
+/// `betweenness` is parallel to `places` -- one raw betweenness per place,
+/// and `max_btw` its maximum. Only the *ratio* `betweenness[i] / max_btw`
+/// is read, so the reference's `_civNetworkMetrics` normalisation
+/// (dividing every entry by `(n-1)(n-2)`, line 21990) cancels out: passing
+/// un-normalised Brandes output and its own max gives bit-identical
+/// answers to passing the normalised pair. `max_btw <= 0` returns nothing,
+/// the reference's own `maxBtwF<=0` guard.
+///
+/// The sort is the reference's exact three-key comparator: normalised
+/// betweenness descending, then `x` ascending, then `y` ascending -- a
+/// deterministic tie-break, which is why this is a stable-sortable total
+/// order and not a `partial_cmp().unwrap()` hazard.
+pub fn civ_select_metropolises(
+    places: &[SettlementPlacement],
+    betweenness: &[f64],
+    max_btw: f64,
+    opts: MetropolisOpts,
+) -> Vec<usize> {
+    if places.is_empty() || max_btw <= 0.0 {
+        return Vec::new();
+    }
+    // `facCount` (reference line 24969): every place counts toward its
+    // faction's size, not just the eligible capitals.
+    let mut fac_count: BTreeMap<i32, usize> = BTreeMap::new();
+    for p in places {
+        *fac_count.entry(p.faction).or_insert(0) += 1;
+    }
+
+    let mut elig: Vec<(usize, i32, f64)> = places
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| p.kind == SettlementKind::Capital)
+        .filter(|(_, p)| fac_count.get(&p.faction).copied().unwrap_or(0) >= opts.min_faction_size)
+        .filter_map(|(i, p)| {
+            let norm_b = betweenness.get(i).copied().unwrap_or(0.0) / max_btw;
+            (norm_b >= opts.btw_thr).then_some((i, p.faction, norm_b))
+        })
+        .collect();
+    // `elig.sort((a,b)=> b.normB-a.normB || (a.place.x-b.place.x) || (a.place.y-b.place.y))`
+    elig.sort_by(|a, b| {
+        b.2.total_cmp(&a.2)
+            .then_with(|| places[a.0].x.cmp(&places[b.0].x))
+            .then_with(|| places[a.0].y.cmp(&places[b.0].y))
+    });
+
+    let mut chosen: Vec<usize> = Vec::new();
+    let mut fac_used: BTreeMap<i32, usize> = BTreeMap::new();
+    for (i, faction, _) in elig {
+        if chosen.len() >= opts.global_cap {
+            break;
+        }
+        let used = fac_used.entry(faction).or_insert(0);
+        if *used >= opts.per_faction {
+            continue;
+        }
+        chosen.push(i);
+        *used += 1;
+    }
+    chosen
 }
 
 // ===================== Milestone 11: road network algorithm =====================
@@ -5510,9 +5642,12 @@ pub fn civ_hierarchical_network_topology(
         .map(|e| e.a.min(e.b) * n + e.a.max(e.b))
         .collect();
 
+    // Reference line 21532: `{metropolis:5,capital:5,city:4,town:3,
+    // village:2,hamlet:1}` -- "v0.75: metropolis routes like a capital
+    // (imperial seat is a top hub)", the reference's own comment.
     let min_deg = |k: SettlementKind| -> u32 {
         match k {
-            SettlementKind::Capital => 5,
+            SettlementKind::Metropolis | SettlementKind::Capital => 5,
             SettlementKind::City => 4,
             SettlementKind::Town => 3,
             SettlementKind::Village => 2,
@@ -5801,13 +5936,14 @@ pub struct Province {
 ///
 /// The reference's rank>=3 seed filter (`CIV_SETTLEMENT_CLASSES`: city=3,
 /// capital=4, metropolis=5, university=3, industrial=3) reduces cleanly to
-/// "Capital or City" under this port's own five-tier `SettlementKind`
-/// (`Capital`=4, `City`=3, `Town`=2, `Village`=1, `Hamlet`=0 -- the exact
-/// same numeric ranks the reference assigns those five tiers). Metropolis/
-/// university/industrial were never ported into `SettlementKind`
-/// (`PHASE2_SCOPE.md`), so there is nothing else rank>=3 could mean here --
-/// not an approximation of the reference's filter, the same filter with
-/// tiers this port never built removed from the input domain entirely.
+/// "Metropolis, Capital or City" under this port's own six-tier
+/// `SettlementKind` (`Metropolis`=5, `Capital`=4, `City`=3, `Town`=2,
+/// `Village`=1, `Hamlet`=0 -- the exact same numeric ranks the reference
+/// assigns those six tiers). University/industrial were never ported into
+/// `SettlementKind` (`PHASE2_SCOPE.md`), so there is nothing else rank>=3
+/// could mean here -- not an approximation of the reference's filter, the
+/// same filter with tiers this port never built removed from the input
+/// domain entirely.
 ///
 /// `territory` must be `assign_territory`'s own per-cell output (Phase 2
 /// milestone 10, `DECISIONS.md` §7b) -- the reference's real `civTerritory`
@@ -5866,7 +6002,7 @@ pub fn civ_generate_provinces(
             .filter(|&i| {
                 matches!(
                     settlements[i].placement.kind,
-                    SettlementKind::Capital | SettlementKind::City
+                    SettlementKind::Metropolis | SettlementKind::Capital | SettlementKind::City
                 )
             })
             .collect();

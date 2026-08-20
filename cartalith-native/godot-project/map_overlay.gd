@@ -31,11 +31,13 @@ const FACTION_COLORS: Array[Color] = [
 	Color(0.835, 0.369, 0.0),   # vermillion
 ]
 
-## Reference's `CIV_SETTLEMENT_CLASSES` (line 14674), restricted to the five
+## Reference's `CIV_SETTLEMENT_CLASSES` (line 14674), restricted to the six
 ## tiers `SettlementKind` -- and so `get_settlements()`'s own `kind` field --
-## can actually produce (`civ_tools_bridge.rs`'s own doc comment: metropolis
-## and the monastery/fortress/university/industrial special kinds are never
-## assigned to a real settlement, only to the manual-icon slot vocabulary).
+## can actually produce. `metropolis` (rank 5, glyph ★) joined the list on
+## 2026-08-20 when `_civSelectMetropolises` was ported: a promoted imperial
+## seat is a real settlement kind now, not just a manual-icon slot. The
+## monastery/fortress/university/industrial special kinds are still never
+## assigned to a real settlement.
 ## `rank` drives `_civDrawSettlementPin`'s own size formula (`(4+klass.rank)
 ## *sc`, reference line 15166) exactly; `glyph` is the same per-tier
 ## character the reference draws centred on the pin (line 15180), reused
@@ -48,6 +50,7 @@ const SETTLEMENT_CLASS := {
 	"town":    {"rank": 2, "glyph": "◉"},
 	"city":    {"rank": 3, "glyph": "⬣"},
 	"capital": {"rank": 4, "glyph": "✦"},
+	"metropolis": {"rank": 5, "glyph": "★"},
 }
 
 ## `CIV_LOD_PLACE` (reference line 15373): the minimum RAW camera zoom
@@ -60,9 +63,10 @@ const SETTLEMENT_CLASS := {
 ## endpoints stay anchored to a visible marker at any zoom"), so a capital
 ## or city (threshold 0) is always full-size, town needs a little zoom-in,
 ## and village/hamlet need progressively more -- restricted here to the
-## five tiers `SettlementKind` (and so `SETTLEMENT_CLASS` above) actually
+## six tiers `SettlementKind` (and so `SETTLEMENT_CLASS` above) actually
 ## produces; the reference's own dict also carries monastery/fortress/
-## ruin/etc. this port's settlements never have.
+## ruin/etc. this port's settlements never have. `metropolis` is `0` in the
+## reference's own dict (line 15374), the same as capital and city.
 ##
 ## This is not a port invention: it is the same population/importance-
 ## tiered LOD reveal real map renderers use for POI/place density --
@@ -71,6 +75,7 @@ const SETTLEMENT_CLASS := {
 ## Mapbox/MapLibre style spec's `minzoom`/`maxzoom` per symbol layer is the
 ## same mechanism generalised (maplibre.org/maplibre-style-spec/layers/).
 const SETTLEMENT_LOD := {
+	"metropolis": 0.0,
 	"capital": 0.0,
 	"city":    0.0,
 	"town":    0.4,

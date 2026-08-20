@@ -24,13 +24,16 @@
 //!   port has no POI concept." `_civDropPOI` has no Rust counterpart
 //!   anywhere in the workspace. This module therefore binds Settlement and
 //!   Territory only — no `civ_drop_poi`, no fabricated POI record type.
-//! - **"Metropolis" is not a placeable kind either.** `civ_place_pick_weight`'s
-//!   own doc: `SettlementKind` has the five tiers `place_settlements`
-//!   actually produces (hamlet..capital); metropolis (reference rank 5) and
-//!   the special kinds are "not approximated here." [`kind_from_str`] below
-//!   accepts exactly those five and rejects `"metropolis"` the same as any
-//!   other unknown string — §4.5.3's own class list ("metropolis / city /
-//!   town / village / hamlet") is one tier wider than the engine.
+//! - **"Metropolis" IS a placeable kind, as of 2026-08-20.** It used not to
+//!   be: `SettlementKind` carried only the five tiers `place_settlements`
+//!   produces, and [`kind_from_str`] rejected `"metropolis"` like any other
+//!   unknown string, leaving §4.5.3's own class list ("metropolis / city /
+//!   town / village / hamlet") one tier wider than the engine. Porting
+//!   `_civSelectMetropolises` (owner decision, 2026-08-20) added
+//!   `SettlementKind::Metropolis` with the reference's real rank-5 tables,
+//!   so the dropdown and the engine now agree exactly and this is no longer
+//!   a gap (`GUI_GAP_REGISTER.md` CV-04). The **special** kinds (monastery/
+//!   fortress/university/industrial) are still not modelled.
 //!
 //! ## Territory paint needs a draft, and needs one more thing besides
 //!
@@ -105,13 +108,15 @@ use cartalith_spatial::{DirtyTracker, PaintLayer, PaintStamp, PassBuffer};
 /// tile or hundreds of tiny ones.
 pub const TERRITORY_TILE_SIZE: usize = 64;
 
-/// `§4.5.3`'s Settlement class dropdown, resolved against the five tiers
+/// `§4.5.3`'s Settlement class dropdown, resolved against the six tiers
 /// `SettlementKind` actually has. Case-insensitive (a shell's own combo box
-/// choice, not reference JS text). `None` for `"metropolis"` and anything
-/// else unrecognised — see this module's own doc comment on why metropolis
-/// is a real, reported gap rather than mapped onto the nearest tier.
+/// choice, not reference JS text). The exact inverse of
+/// `journey_bridge::settlement_kind_key`; `None` for anything unrecognised
+/// (the monastery/fortress/university/industrial special kinds included —
+/// see this module's own doc comment).
 pub fn kind_from_str(s: &str) -> Option<SettlementKind> {
     match s.to_ascii_lowercase().as_str() {
+        "metropolis" => Some(SettlementKind::Metropolis),
         "capital" => Some(SettlementKind::Capital),
         "city" => Some(SettlementKind::City),
         "town" => Some(SettlementKind::Town),
@@ -372,7 +377,11 @@ mod tests {
     // ---------- kind_from_str ----------
 
     #[test]
-    fn kind_from_str_accepts_the_five_real_tiers_case_insensitively() {
+    fn kind_from_str_accepts_the_six_real_tiers_case_insensitively() {
+        assert_eq!(
+            kind_from_str("Metropolis"),
+            Some(SettlementKind::Metropolis)
+        );
         assert_eq!(kind_from_str("Capital"), Some(SettlementKind::Capital));
         assert_eq!(kind_from_str("CITY"), Some(SettlementKind::City));
         assert_eq!(kind_from_str("town"), Some(SettlementKind::Town));
@@ -381,10 +390,30 @@ mod tests {
     }
 
     #[test]
-    fn kind_from_str_rejects_metropolis_and_garbage() {
-        assert_eq!(kind_from_str("metropolis"), None, "a real DCC_SHELL_SPEC option, not a real engine tier -- see the module doc");
+    fn kind_from_str_rejects_the_unported_special_kinds_and_garbage() {
         assert_eq!(kind_from_str("monastery"), None);
+        assert_eq!(kind_from_str("fortress"), None);
+        assert_eq!(kind_from_str("university"), None);
+        assert_eq!(kind_from_str("industrial"), None);
         assert_eq!(kind_from_str(""), None);
+    }
+
+    /// `kind_from_str` and `journey_bridge::settlement_kind_key` must stay
+    /// exact inverses -- `map_overlay.gd` keys its per-tier dicts on the
+    /// latter's output and the Settlement tool feeds the former.
+    #[test]
+    fn kind_from_str_round_trips_every_settlement_kind_key() {
+        for k in [
+            SettlementKind::Metropolis,
+            SettlementKind::Capital,
+            SettlementKind::City,
+            SettlementKind::Town,
+            SettlementKind::Village,
+            SettlementKind::Hamlet,
+        ] {
+            let key = crate::journey_bridge::settlement_kind_key(k);
+            assert_eq!(kind_from_str(key), Some(k), "round trip for {key}");
+        }
     }
 
     // ---------- nearest_land_cell ----------
