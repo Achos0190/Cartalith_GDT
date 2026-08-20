@@ -13,3 +13,59 @@ crate-type = ["cdylib"]
 [dependencies]
 godot = { version = "0.5.5", features = ["api-4-7"] }
 cartalith-engine = { path = "../cartalith-engine" }
+cartalith-io = { path = "../cartalith-io" }
+cartalith-noise = { path = "../cartalith-noise" }
+cartalith-civ = { path = "../cartalith-civ" }
+cartalith-hydrology = { path = "../cartalith-hydrology" }
+cartalith-assets = { path = "../cartalith-assets" }
+# `sample_bridge.rs`'s Wind/Ocean-currents debug views (layer-visualization
+# pass, `CHANGELOG.md`): `current_wind_field`/`ocean_sst_anomaly` are real
+# functions this crate now calls at debug-view-select time, not just under
+# `[dev-dependencies]` test harnesses -- promoted from dev-only to a regular
+# dependency for exactly that reason.
+cartalith-climate = { path = "../cartalith-climate" }
+# Same views' coarse-grid sizing (`WW=min(GW,240), WH=round(WW*GH/GW)`,
+# reference HTML line 5557) needs `Math.round`'s own tie-break (`js_round`),
+# not Rust's `f64::round` -- `cartalith-rust-conventions`' own "V8's libm is
+# not Rust's" rule, applied to rounding rather than a transcendental.
+cartalith-jsmath = { path = "../cartalith-jsmath" }
+# `UNIFIED_TOOL_PLAN.md` milestone F (`STRANDED_TOOLS.md` rows 4-8): the
+# Sculpt editor binding needs the feature/preset/stamp registry directly
+# (`cartalith-terrain::sculpt`) and the non-destructive draft stack it
+# plugs into (`cartalith-spatial::PassBuffer`/`DirtyTracker`). Neither was
+# a direct dependency of this crate before -- `cartalith-engine` already
+# depended on both, but only re-exported the pieces `generate_terrain`
+# itself needed, not the sculpt registry or the raw pass-buffer machinery.
+cartalith-terrain = { path = "../cartalith-terrain" }
+cartalith-spatial = { path = "../cartalith-spatial" }
+# `UNIFIED_TOOL_PLAN.md` milestone F, CIVIL group: `civ_tools_bridge`'s
+# manual-placement name/population RNG stream is a `cartalith_rng::Mulberry32`
+# field (`cartalith_civ::civ_name_rng`'s own return type) that must be named
+# directly outside `cartalith-civ`'s own crate boundary -- a transitive
+# dependency cannot be, so this is a new direct one, same precedent as the
+# `cartalith-terrain`/`cartalith-spatial` pair added above for Sculpt.
+cartalith-rng = { path = "../cartalith-rng" }
+# `TERRAIN_APPEARANCE_SCOPE.md` milestone 6. The per-pixel appearance pass was
+# the last O(gw*gh) loop in the workspace still running on one core, after
+# `CPU_MULTITHREADING_SCOPE.md` milestones 2-3 parallelized civ/climate/
+# erosion/hydrology. Same `rayon = "1"` five sibling crates already declare, so
+# this adds no new dependency to the tree -- only to this crate's own graph.
+rayon = "1"
+
+# Multi-GPU (`GUI_GAP_REGISTER.md` PR-01/PR-02/PR-04/PR-05): this was a
+# dev-dependency while only the L0 timing harness needed it. The `gpu_*`
+# `#[func]` surface (device enumeration, selection, multi-GPU mode, VRAM
+# budget) is library code now, so it moved here. Not a new dependency in
+# the tree either way -- `cartalith-engine` above already pulls it in.
+cartalith-gpu = { path = "../cartalith-gpu" }
+
+[dev-dependencies]
+# `SCULPT_LIVE_SCOPE.md` milestone L0's timing harness
+# (`tests/sculpt_live_l0_bench.rs`) needs `compute_temperature`/
+# `simulate_weather`/`apply_climate_moisture_correctors` directly to measure
+# a standalone "climate refresh" the same way `generate_terrain` chains
+# them (`cartalith-climate` itself moved to `[dependencies]` above once
+# `sample_bridge.rs` started calling it outside tests too), and
+# `cartalith-gpu`'s `_with` GPU flow/weather entry points to measure the
+# CPU-vs-GPU comparison the scope asks for -- now a regular dependency
+# above (see its comment there), so it is no longer listed here.

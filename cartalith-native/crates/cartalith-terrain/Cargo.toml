@@ -4,11 +4,14 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "tectonics, height formula, normalize, volcanism, world-structure archetypes"
+description = "tectonics, height formula, normalize, volcanism, world-structure archetypes, sculpt landform stamps"
 
 [lib]
 name = "cartalith_terrain"
 
 [dependencies]
+cartalith-jsmath = { path = "../cartalith-jsmath" }
 cartalith-noise = { path = "../cartalith-noise" }
 cartalith-rng = { path = "../cartalith-rng" }
+cartalith-spatial = { path = "../cartalith-spatial" }
+rayon = "1"

@@ -2,6 +2,20 @@
 //!
 //! Ported in pipeline order starting Phase 1 (MVP_SCOPE.md).
 
+use rayon::prelude::*;
+
+// `js_atan2` -- `Math.atan2` as V8 computes it, which is FDLIBM's
+// `__ieee754_atan2` and not the platform libm `f64::atan2` reaches. It was
+// written here because this is where the live bug was (`build_channels` below
+// was picking the wrong receiver cell), and `JS_SEMANTICS_AUDIT.md` §5 recorded
+// at the time that a private module here was an *eighth* copy site for the
+// FDLIBM family and the wrong steady state. It now lives in
+// `cartalith-jsmath`, where `cartalith-terrain` and `cartalith-urban` -- which
+// both needed `atan2` and neither of which could see this module -- reach it
+// too. The two `node`-derived goldens moved with it, unchanged, which is the
+// check that the move was pure.
+use cartalith_jsmath::js_atan2;
+
 /// Descending-height, ascending-index-on-tie comparison — the ordering
 /// `_flowRadixSortDesc()` (reference HTML lines 4846-4861) guarantees.
 /// The JS implementation is a radix sort operating on IEEE-754 bit
@@ -38,6 +52,14 @@ fn flow_cmp_desc(a: f32, b: f32) -> std::cmp::Ordering {
 /// a downhill cell can receive accumulated flow from several different
 /// upstream cells, each JS write rounding to `f32` individually. Kept as
 /// per-write rounding here too, not an `f64` accumulator.
+///
+/// NOT parallelized (`CPU_MULTITHREADING_SCOPE.md`): the descending-order
+/// accumulation loop below is exactly the flow-accumulation hazard this
+/// project's own scope docs already named — each cell scatters into its
+/// single downstream receiver in strict descending-height order, a genuine
+/// wavefront dependency, confirmed here rather than assumed. `sm` is also
+/// a running sum (not a max), so left sequential for the same
+/// floating-point-reordering reason `stream_power_kernel::ss` is.
 pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, use_rain: bool, world: bool) -> Vec<f32> {
     let n = gw * gh;
     let mut order: Vec<usize> = (0..n).collect();
@@ -53,9 +75,8 @@ pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, u
             sm += r;
         }
         let k = n as f64 / sm.max(1e-6);
-        for v in &mut acc {
-            *v = (*v as f64 * k) as f32;
-        }
+        // Per-cell rescale, independent -- safe.
+        acc.par_iter_mut().for_each(|v| *v = (*v as f64 * k) as f32);
     } else {
         acc.fill(1.0);
     }
@@ -161,6 +182,32 @@ pub struct ChannelResult {
 /// because it's what `MVP_SCOPE.md`'s own "Strahler ordering" bullet
 /// names, and because `strahler_from_receivers` needs exactly this
 /// output (`recv`/`chan`) and nothing more.
+///
+/// **The aspect chain uses [`js_atan2`], not `f64::atan2`, and that is
+/// load-bearing.** `best` here is a discrete argmax — the cell a river
+/// flows into — so a one-ulp difference in the steering weight is not
+/// absorbed by a later `f32` store the way most of this workspace's
+/// libm divergences are (`JS_SEMANTICS_AUDIT.md` §4.2). It changes which
+/// cell the river takes, and everything downstream of that cell moves.
+///
+/// The reachable case is narrow but structural, not accidental: when a
+/// cell's 3x3 is left-right symmetric, `gx` is exactly `0.0`, `aspect`
+/// comes out at exactly `-pi/2` off the signed-zero branch, and the two
+/// symmetric downhill diagonals get **exactly equal** `drop` and
+/// mathematically equal `da`. The argmax is then settled by which of two
+/// last bits is larger, and `f64::atan2` settles it differently from V8.
+/// Measured over 1 200 000 randomly generated 3x3 blocks on a quantised
+/// height lattice, `f64::atan2` picks a different receiver from V8 on 84;
+/// `js_atan2` picks V8's on all 1 200 000. See
+/// `build_channels_receiver_follows_v8_not_rust_atan2`.
+///
+/// `sin`/`cos` diverge from V8 too (2.34 % each) and are **not** ported
+/// here, because measurement says they cannot reach this argmax: the wrap
+/// `js_atan2(sin(da), cos(da))` only decides the outcome when the two
+/// competing `da` are exact negatives of each other, and `sin`/`cos`
+/// preserve that antisymmetry exactly whatever their accuracy. Over
+/// 600 000 blocks spanning four terrain regimes, `js_atan2` with Rust's
+/// own `sin`/`cos` agreed with V8 on every single receiver.
 #[allow(clippy::too_many_arguments)]
 pub fn build_channels(
     fld: &[f32],
@@ -188,79 +235,88 @@ pub fn build_channels(
         }
     }
 
-    for y in 0..h {
-        for x in 0..w {
-            let i = y * w + x;
-            if (fld[i] as f64) < sea {
-                continue;
-            }
-            let xl = if wrap {
-                (x + w - 1) % w
-            } else if x > 0 {
-                x - 1
-            } else {
-                x
-            };
-            let xr = if wrap {
-                (x + 1) % w
-            } else if x < w - 1 {
-                x + 1
-            } else {
-                x
-            };
-            let gx = (fld[y * w + xr] as f64 - fld[y * w + xl] as f64) * 0.5;
-            let above = if y < h - 1 { fld[(y + 1) * w + x] as f64 } else { fld[i] as f64 };
-            let below = if y > 0 { fld[(y - 1) * w + x] as f64 } else { fld[i] as f64 };
-            let gy = (above - below) * 0.5;
-            let slope_n = gx.hypot(gy) * w as f64;
-            slope[i] = slope_n as f32;
-            if flow[i] as f64 <= channel_threshold(thresh, slope_n, density) {
-                continue;
-            }
-            chan[i] = 1;
+    // Per-cell: writes only `slope[i]`/`chan[i]`/`recv[i]`, reads only a
+    // fixed 3x3 neighbourhood of the frozen `fld`/`flow` inputs -- no
+    // cross-cell write, no dependency on any other output cell. Unlike
+    // `compute_flow` above (a real downstream-accumulation scatter), this
+    // is genuinely independent -- the one real win in this crate.
+    recv.par_chunks_mut(w)
+        .zip(chan.par_chunks_mut(w))
+        .zip(slope.par_chunks_mut(w))
+        .enumerate()
+        .for_each(|(y, ((recv_row, chan_row), slope_row))| {
+            for x in 0..w {
+                let i = y * w + x;
+                if (fld[i] as f64) < sea {
+                    continue;
+                }
+                let xl = if wrap {
+                    (x + w - 1) % w
+                } else if x > 0 {
+                    x - 1
+                } else {
+                    x
+                };
+                let xr = if wrap {
+                    (x + 1) % w
+                } else if x < w - 1 {
+                    x + 1
+                } else {
+                    x
+                };
+                let gx = (fld[y * w + xr] as f64 - fld[y * w + xl] as f64) * 0.5;
+                let above = if y < h - 1 { fld[(y + 1) * w + x] as f64 } else { fld[i] as f64 };
+                let below = if y > 0 { fld[(y - 1) * w + x] as f64 } else { fld[i] as f64 };
+                let gy = (above - below) * 0.5;
+                let slope_n = gx.hypot(gy) * w as f64;
+                slope_row[x] = slope_n as f32;
+                if flow[i] as f64 <= channel_threshold(thresh, slope_n, density) {
+                    continue;
+                }
+                chan_row[x] = 1;
 
-            let hh = fld[i] as f64;
-            let aspect = (-gy).atan2(-gx);
-            let mut best: i64 = -1;
-            let mut best_score = 0.0f64;
-            let mut s_best: i64 = -1;
-            let mut s_drop = 0.0f64;
-            for dy in -1i64..=1 {
-                for dx in -1i64..=1 {
-                    if dx == 0 && dy == 0 {
-                        continue;
-                    }
-                    let mut nx = x as i64 + dx;
-                    let ny = y as i64 + dy;
-                    if wrap {
-                        nx = ((nx % w as i64) + w as i64) % w as i64;
-                    } else if nx < 0 || nx >= w as i64 {
-                        continue;
-                    }
-                    if ny < 0 || ny >= h as i64 {
-                        continue;
-                    }
-                    let j = ny * w as i64 + nx;
-                    let drop = (hh - fld[j as usize] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
-                    if drop <= 0.0 {
-                        continue;
-                    }
-                    if drop > s_drop {
-                        s_drop = drop;
-                        s_best = j;
-                    }
-                    let mut da = (dy as f64).atan2(dx as f64) - aspect;
-                    da = da.sin().atan2(da.cos()).abs();
-                    let score = drop * (0.5 + 0.5 * da.cos());
-                    if score > best_score {
-                        best_score = score;
-                        best = j;
+                let hh = fld[i] as f64;
+                let aspect = js_atan2(-gy, -gx);
+                let mut best: i64 = -1;
+                let mut best_score = 0.0f64;
+                let mut s_best: i64 = -1;
+                let mut s_drop = 0.0f64;
+                for dy in -1i64..=1 {
+                    for dx in -1i64..=1 {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+                        let mut nx = x as i64 + dx;
+                        let ny = y as i64 + dy;
+                        if wrap {
+                            nx = ((nx % w as i64) + w as i64) % w as i64;
+                        } else if nx < 0 || nx >= w as i64 {
+                            continue;
+                        }
+                        if ny < 0 || ny >= h as i64 {
+                            continue;
+                        }
+                        let j = ny * w as i64 + nx;
+                        let drop = (hh - fld[j as usize] as f64) / d8[((dy + 1) * 3 + (dx + 1)) as usize];
+                        if drop <= 0.0 {
+                            continue;
+                        }
+                        if drop > s_drop {
+                            s_drop = drop;
+                            s_best = j;
+                        }
+                        let mut da = js_atan2(dy as f64, dx as f64) - aspect;
+                        da = js_atan2(da.sin(), da.cos()).abs();
+                        let score = drop * (0.5 + 0.5 * da.cos());
+                        if score > best_score {
+                            best_score = score;
+                            best = j;
+                        }
                     }
                 }
+                recv_row[x] = if best >= 0 { best as i32 } else { s_best as i32 };
             }
-            recv[i] = if best >= 0 { best as i32 } else { s_best as i32 };
-        }
-    }
+        });
 
     ChannelResult { recv, chan, slope }
 }
@@ -276,6 +332,13 @@ pub fn build_channels(
 /// relative order; Rust's `sort_by` is also stable, and building `cells`
 /// by iterating `0..n` ascending reproduces the same starting order, so
 /// no explicit index tiebreak is needed in the comparator itself).
+///
+/// NOT parallelized (`CPU_MULTITHREADING_SCOPE.md`): a genuine sequential
+/// graph accumulation — each channel cell's own order depends on
+/// `max_in`/`max_cnt` at its receiver having already been updated by
+/// every one of its own upstream tributaries. Also channel-cell-count
+/// sized, not grid-sized, so the real payoff would be small even if it
+/// were parallelizable.
 pub fn strahler_from_receivers(recv: &[i32], flow: &[f32], chan: &[u8]) -> Vec<i16> {
     let n = chan.len();
     let mut order = vec![0i16; n];
@@ -336,6 +399,11 @@ pub fn river_width_scale_k(map_width_km: f64) -> f64 {
 /// port returns the same as `(f64, f64)` tuples rather than re-threading
 /// a Godot/UI point type through a pure-Rust crate (`ARCHITECTURE.md`:
 /// only `cartalith-godot` may depend on a rendering type).
+///
+/// NOT parallelized (`CPU_MULTITHREADING_SCOPE.md`): a sequential
+/// downstream graph walk per source (`visited` also gates cross-source
+/// sharing, so sources aren't even independent of each other) —
+/// source-count sized, not grid-sized.
 pub fn trace_river_polylines(order: &[i16], recv: &[i32], w: usize, h: usize, min_order: i32) -> Vec<Vec<(f64, f64)>> {
     let min_order = if min_order > 1 { min_order } else { 1 };
     let n = w * h;
@@ -391,6 +459,13 @@ pub fn trace_river_polylines(order: &[i16], recv: &[i32], w: usize, h: usize, mi
 /// parameter rather than an `Option` — this port has no caller yet that
 /// needs a different value, and an unused-override knob would exist
 /// solely to mirror JS's options-object shape.
+///
+/// NOT parallelized (`CPU_MULTITHREADING_SCOPE.md`): each point's `floor`
+/// is bounded by `prev`, the previous (upstream) point's own floor — a
+/// genuine sequential dependency along the polyline. Adjacent points'
+/// `half_w`-radius stamps can also overlap the same cells, a real
+/// scatter-write hazard between iterations. One river's polyline at a
+/// time anyway, not grid-sized.
 pub fn enforce_channel_descent(
     fld: &mut [f32],
     w: usize,
@@ -437,10 +512,112 @@ pub fn enforce_channel_descent(
     out
 }
 
+/// `enforceRiverChannels()` (reference HTML lines 8742-8745): clamp every
+/// locked river cell back down to its carved floor.
+///
+/// The reference's own framing is "England-style entrenchment" — protect a
+/// carved channel from being refilled by later deposition, isostatic rebound
+/// or (`UNIFIED_TOOL_PLAN.md` milestone C, the new caller) a Sculpt stamp
+/// that raises terrain straight over an already-locked channel. It is a
+/// no-op until something has actually locked cells, which is what
+/// `_riverAny` guards; here the caller's `river_any` flag carries that, and
+/// an all-zero mask makes the loop a no-op anyway.
+///
+/// Deliberately one-directional: it only ever *lowers*. A cell that erosion
+/// cut *below* its recorded floor keeps the deeper value.
+pub fn enforce_river_channels(field: &mut [f32], river_mask: &[u8], river_floor: &[f32]) {
+    for i in 0..field.len().min(river_mask.len()).min(river_floor.len()) {
+        if river_mask[i] != 0 && field[i] > river_floor[i] {
+            field[i] = river_floor[i];
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::{build_channels, enforce_river_channels};
+
+    // ---- Math.atan2 fidelity (JS_SEMANTICS_AUDIT.md §4.4) ----------------
+    //
+    // Every expectation below was read off `node` v24.19.0 as raw IEEE-754
+    // bits, never from a paraphrase of ECMA-262 — the audit's §5
+    // recommendation, written after a `toFixed` unit test spent two
+    // milestones asserting a bug it had reasoned its way into.
+
+    /// The whole reason `js_atan2` exists: `build_channels`'s receiver
+    /// argmax picks a **different cell** on a real input, and the cell
+    /// `f64::atan2` picks is the wrong one.
+    ///
+    /// The mechanism is structural, not a freak coincidence. A cell whose
+    /// 3x3 is left-right symmetric has `gx == 0.0` exactly, so
+    /// `aspect = atan2(-gy, -0.0)` lands on the signed-zero branch and
+    /// comes out at exactly `-pi/2`. Its two downhill diagonals then have
+    /// **exactly equal** `drop`, and `|wrap(atan2(dy,dx) - aspect)|` is
+    /// mathematically `3*pi/4` for both — so the argmax is decided purely
+    /// by which of two last bits comes out larger, and `f64::atan2` and V8
+    /// break that tie differently. `score > best_score` is strict, so the
+    /// tie goes to whichever neighbour the loop reached first.
+    ///
+    /// Both fixtures below are 3x3 grids, which makes the centre cell's
+    /// 3x3 neighbourhood the whole grid and the block index equal to the
+    /// grid index. `flow` is zero everywhere but the centre, so only the
+    /// centre channelizes and `recv` is `-1` elsewhere — the assertion is
+    /// on one number, the receiver.
+    ///
+    /// Expected receivers were computed by running the reference's own
+    /// `buildRiverNetwork` channelization loop (HTML lines 4504-4525),
+    /// transcribed verbatim, under `node` v24.19.0 on these exact `f32`
+    /// bit patterns. Before the `js_atan2` change both cases returned `8`;
+    /// V8 returns `6`.
+    #[test]
+    fn build_channels_receiver_follows_v8_not_rust_atan2() {
+        // (a) A near-flat plateau cell — ordinary generated-terrain f32
+        // values, symmetric to the bit in the left/right pairs.
+        // Shortest round-tripping `f32` literals; each is bit-identical to
+        // the value the search produced.
+        let field: Vec<f32> = vec![
+            0.5790264, 0.57902455, 0.5790278, 0.5790286, 0.5790234, 0.5790286, 0.5790227, 0.5790266,
+            0.5790227,
+        ];
+        let flow = vec![0.0f32, 0.0, 0.0, 0.0, 1.0e9, 0.0, 0.0, 0.0, 0.0];
+        let r = build_channels(&field, &flow, 3, 3, 0.0, false, 1.0, 800.0);
+        assert_eq!(r.chan, vec![0u8, 0, 0, 0, 1, 0, 0, 0, 0], "only the centre channelizes");
+        assert_eq!(
+            r.recv,
+            vec![-1i32, -1, -1, -1, 6, -1, -1, -1, -1],
+            "V8 steers the centre cell into cell 6; f64::atan2 steers it into cell 8"
+        );
+
+        // (b) The same mechanism on exactly-representable heights, so the
+        // symmetry is obvious by eye: columns 0 and 2 are equal in the top
+        // and bottom rows, and the middle row is flat.
+        let field: Vec<f32> = vec![0.8125, 0.5, 0.5625, 0.25, 0.25, 0.25, 0.125, 0.625, 0.125];
+        let r = build_channels(&field, &flow, 3, 3, 0.0, false, 1.0, 800.0);
+        assert_eq!(r.recv[4], 6, "V8 picks cell 6; f64::atan2 picks cell 8");
+    }
+
     #[test]
     fn crate_compiles_and_tests_run() {
         assert_eq!(2 + 2, 4);
+    }
+
+    #[test]
+    fn enforce_river_channels_clamps_only_raised_masked_cells() {
+        let mut field = vec![0.9f32, 0.9, 0.9, 0.1];
+        let mask = vec![1u8, 0, 1, 1];
+        let floor = vec![0.3f32, 0.3, 0.3, 0.3];
+        enforce_river_channels(&mut field, &mask, &floor);
+        assert_eq!(field[0], 0.3, "masked and raised -> clamped");
+        assert_eq!(field[1], 0.9, "unmasked -> untouched");
+        assert_eq!(field[2], 0.3);
+        assert_eq!(field[3], 0.1, "already below the floor -> kept deeper");
+    }
+
+    #[test]
+    fn enforce_river_channels_is_a_no_op_on_an_empty_mask() {
+        let mut field = vec![0.9f32; 4];
+        let before = field.clone();
+        enforce_river_channels(&mut field, &[0u8; 4], &[0f32; 4]);
+        assert_eq!(field, before);
     }
 }

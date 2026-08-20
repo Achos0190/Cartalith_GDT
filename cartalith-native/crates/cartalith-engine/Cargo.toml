@@ -10,7 +10,33 @@ description = "orchestrator: owns WorldState, runs the pipeline stages in order"
 name = "cartalith_engine"
 
 [dependencies]
+cartalith-jsmath = { path = "../cartalith-jsmath" }
 cartalith-terrain = { path = "../cartalith-terrain" }
 cartalith-climate = { path = "../cartalith-climate" }
 cartalith-hydrology = { path = "../cartalith-hydrology" }
 cartalith-erosion = { path = "../cartalith-erosion" }
+# UNIFIED_TOOL_PLAN.md milestone A: the first real dependency on
+# cartalith-spatial, which LOD_TILING_BASE_SCOPE.md deliberately left
+# unintegrated "for whenever a real large-world need actually triggers
+# integration". The DCC tool system is that trigger. Pure data structures,
+# no gdext -- fine per ARCHITECTURE.md's crate rules.
+cartalith-spatial = { path = "../cartalith-spatial" }
+# UNIFIED_TOOL_PLAN.md milestone E: region_export composes cartalith-io's
+# packHeight16/buildTileManifest with cartalith-terrain's refineTile. io holds
+# no gdext and no pipeline state -- fine per ARCHITECTURE.md's crate rules.
+cartalith-io = { path = "../cartalith-io" }
+# UNIFIED_TOOL_PLAN.md milestone E2: the region export's remaining two steps
+# are a PNG encoder and a `.zip` writer, and cartalith-assets already carries
+# both -- `raster::encode_png` over the `image` crate, and `archive::zip_store`,
+# which IS the reference's own `zipStore` (one function there, three callers,
+# now three here). Reused rather than re-spelled. No gdext, no pipeline state,
+# no cycle -- fine per ARCHITECTURE.md's crate rules.
+cartalith-assets = { path = "../cartalith-assets" }
+# GPU_LAYER_INTEGRATION_SCOPE.md milestone 6: opt-in (WorldParams.use_gpu)
+# partial-GPU substrate path. Neither crate depends on gdext -- fine per
+# ARCHITECTURE.md's crate rules (only cartalith-godot may touch Godot).
+cartalith-gpu = { path = "../cartalith-gpu" }
+
+[dev-dependencies]
+# Reading back an archive `zip_region_export` wrote, in tests only.
+zip = { version = "8.6.0", features = ["deflate"] }

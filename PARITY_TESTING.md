@@ -1,7 +1,21 @@
 # Parity testing
 
 The port must reproduce the JS engine's numbers at fixed seeds, not merely look
-similar (`DECISIONS.md` §7). This is how.
+similar (`DECISIONS.md` §7). This is how — **for the CPU reference pipeline**,
+which this document still governs in full.
+
+**GPU/optimized paths are a documented exception, not silently unmeasured**
+(`DECISIONS.md` §7a, added 2026-08-16). Where JS-array diffing is genuinely
+impractical — the GPU-compute pilot's `hash()` case, where JS's own
+double-precision rounding at ~2^61 has no `f32`/WGSL equivalent — the bar
+shifts to: same underlying academic principle (cite it, the way
+`PROVENANCE.md` already does), and an equal-or-better visual/qualitative
+result, judged by looking at it, not by an assertion. This is a narrower
+carve-out than it sounds: it applies when a real, understood, reported
+reason blocks numeric comparison, not as a default excuse to skip testing
+because writing a golden test is more work. If a GPU/optimized path *can*
+be tested against the CPU reference at a real tolerance, do that — this
+exception exists for the `hash()`-shaped case, not as blanket permission.
 
 ## Tolerance, not bit-identity
 

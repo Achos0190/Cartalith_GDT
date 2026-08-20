@@ -1,11 +1,20 @@
 #![allow(clippy::excessive_precision)]
 //! Golden-parity test for stamp_volcanoes_simple and stamp_craters (PARITY_TESTING.md).
 //! Reference HTML lines 3466-3497 (volcanism) and 3568-3576 (craters).
-//! stampVolcanoesProvinces (the actual state.volc.provinces:true default) is a
-//! separate, larger clustering algorithm not yet ported -- tracked explicitly,
-//! not silently skipped (see cartalith-native/docs/CHANGELOG.md).
+//!
+//! `stamp_volcanoes_provinces` (the actual `state.volc.provinces: true`
+//! default, reference HTML lines 3507-3556) is ported too, but has NO
+//! golden-parity coverage in this file: this environment has no JS
+//! runtime (`PARITY_TESTING.md`'s own extraction procedure needs one to
+//! run the reference HTML and read back real numbers), so there's nothing
+//! to extract fixtures from. `stamp_volcanoes_provinces_is_deterministic`
+//! below is a same-seed-same-output regression test only -- it catches a
+//! future refactor breaking determinism, NOT a wrong-vs-JS formula, and is
+//! not a substitute for real golden data. `cartalith-engine` keeps
+//! `VolcanismParams::provinces` defaulted to `false` until someone with a
+//! JS runtime extracts real fixtures (its own doc comment covers this).
 
-use cartalith_terrain::{stamp_volcanoes_simple, stamp_craters};
+use cartalith_terrain::{stamp_craters, stamp_volcanoes_provinces, stamp_volcanoes_simple};
 
 #[test]
 fn stamp_volcanoes_simple_case_0() {
@@ -51,5 +60,60 @@ fn stamp_craters_case_1() {
     let expected_impact: Vec<f32> = vec![0.0, 0.0, 0.0, 0.05719095841050148, 0.3333333432674408, 0.05719095841050148, 0.0, 0.3333333432674408, 1.0, 0.3333333432674408, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3333333432674408, 1.0, 0.3333333432674408, 0.0, 0.05719095841050148, 0.3333333432674408, 0.05719095841050148, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.05719095841050148, 0.3333333432674408, 0.05719095841050148, 0.3333333432674408, 0.05719095841050148, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3333333432674408, 1.0, 0.3333333432674408, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.05719095841050148, 0.3333333432674408, 0.05719095841050148, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.05719095841050148, 0.3333333432674408, 0.05719095841050148, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3333333432674408, 1.0, 0.3333333432674408, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.05719095841050148, 0.3333333432674408, 0.05719095841050148, 0.05719095841050148, 0.3333333432674408, 0.05719095841050148, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.3333333432674408, 1.0, 0.3333333432674408, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.05719095841050148, 0.3333333432674408, 0.05719095841050148, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
     assert_eq!(field, expected_field, "field");
     assert_eq!(impact_field, expected_impact, "impact_field");
+}
+
+/// NOT a golden-parity test -- see this file's own header comment. A
+/// same-seed run must produce the same output (catches a future refactor
+/// accidentally introducing nondeterminism, e.g. iterating a HashMap), and
+/// the output must actually differ from the untouched baseline field
+/// (catches a refactor that accidentally makes this a no-op) while staying
+/// within the `[0,1]` height range `stamp_one_volcano`'s own clamp
+/// guarantees.
+#[test]
+fn stamp_volcanoes_provinces_is_deterministic() {
+    use cartalith_terrain::Plate;
+
+    let gw = 20usize;
+    let gh = 16usize;
+    let n = gw * gh;
+    let boundary_mask: Vec<u8> = (0..n).map(|i| if i % 5 == 0 { 1 } else { 0 }).collect();
+    let stress_field: Vec<f32> = (0..n).map(|i| if i % 2 == 0 { 0.3 } else { -0.3 }).collect();
+    let plate_id: Vec<usize> = (0..n).map(|i| i % 4).collect();
+    let plates = vec![
+        Plate { x: 2.0, y: 2.0, vx: 1.0, vy: 0.2, base: 0.1 },
+        Plate { x: 10.0, y: 4.0, vx: -0.5, vy: 0.8, base: -0.2 },
+        Plate { x: 5.0, y: 10.0, vx: 0.3, vy: -0.6, base: 0.05 },
+        Plate { x: 15.0, y: 12.0, vx: -0.2, vy: -0.4, base: -0.1 },
+    ];
+
+    let run = || {
+        let mut field = vec![0.3f32; n];
+        let mut volcanic_field = vec![0.0f32; n];
+        stamp_volcanoes_provinces(
+            gw,
+            gh,
+            12345,
+            800.0,
+            4000.0,
+            &boundary_mask,
+            &stress_field,
+            &plate_id,
+            &plates,
+            20,
+            0.4,
+            &mut field,
+            &mut volcanic_field,
+        );
+        (field, volcanic_field)
+    };
+
+    let (field_a, volcanic_a) = run();
+    let (field_b, volcanic_b) = run();
+    assert_eq!(field_a, field_b, "same seed must reproduce the same field");
+    assert_eq!(volcanic_a, volcanic_b, "same seed must reproduce the same volcanic_field");
+
+    assert!(field_a.iter().any(|&v| v != 0.3), "expected at least one stamped cell to differ from the baseline");
+    assert!(volcanic_a.iter().any(|&v| v > 0.0), "expected at least one nonzero volcanic_field entry");
+    assert!(field_a.iter().all(|&v| (0.0..=1.0).contains(&v)), "field must stay within [0,1]");
 }
 
