@@ -443,3 +443,139 @@ static func stale_mark(parent: Control) -> Label:
 	l.visible = false
 	parent.add_child(l)
 	return l
+
+# ---------------------------------------------------------------------------
+# The design canvas's *window* vocabulary
+#
+# `design/Cartalith DCC Shell.dc.html`'s workspace-window screens (`Asset
+# library window 1920`, `Data manager window 1920`) draw exactly five controls,
+# and none of them is a stock Godot widget:
+#
+#   chip         `padding:4px 9px; border:1px solid rgba(255,255,255,.16)`
+#   segment      the narrower `padding:3px 8px` variant; one of a set is lit
+#   well         a bordered text field, Plex Mono at 10-10.5 px
+#   text button  borderless, ghost -- the grid header's batch verbs
+#   band         a 28 px column header: ground, bottom hairline, padded row
+#
+# These were written as private statics in `asset_library_window.gd` during
+# that window's 2026-08-20 rebuild, with the note *"built here rather than in
+# `dcc_widgets.gd` because nothing else in the shell draws them yet; if a
+# second window needs them, they move."* The Data manager rebuild is that
+# second window, so they moved. `asset_library_window.gd` keeps its private
+# names as one-line delegators, so none of its 74 call sites changed.
+#
+# The docks above use `section`/`group`/`row`; these are for a window's own
+# chrome. Nothing here computes -- every one is presentation only.
+# ---------------------------------------------------------------------------
+
+static func box(border_token: String, bg_token: String, px: int, py: int) -> StyleBoxFlat:
+	var sb := DccTheme.outline(border_token, bg_token)
+	sb.content_margin_left = px
+	sb.content_margin_right = px
+	sb.content_margin_top = py
+	sb.content_margin_bottom = py
+	return sb
+
+## The canvas's ubiquitous outline chip. `accent` swaps both border and text.
+static func chip(parent: Control, text: String, on_press: Callable,
+		accent: bool = false, px: int = 9, py: int = 4) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_override("font", DccTheme.mono(0))
+	b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	var token := "accent" if accent else "line"
+	b.add_theme_color_override("font_color", DccTheme.c("accent") if accent else DccTheme.c("text"))
+	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	var rest := box(token, "", px, py)
+	b.add_theme_stylebox_override("normal", rest)
+	b.add_theme_stylebox_override("pressed", rest)
+	b.add_theme_stylebox_override("disabled", box("line_soft", "", px, py))
+	b.add_theme_stylebox_override("hover",
+		box(token, "accent_wash" if accent else "line_soft", px, py))
+	if on_press.is_valid():
+		b.pressed.connect(on_press)
+	parent.add_child(b)
+	return b
+
+## The narrower `padding:3px 8px` chip -- the canvas's Scheme / Zoom range /
+## CRS / Packaging rows, where one of a set is lit and the rest are quiet.
+static func segment(parent: Control, text: String, on_press: Callable) -> Button:
+	var b := chip(parent, text, on_press, false, 8, 3)
+	b.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	b.add_theme_color_override("font_color", DccTheme.c("text_dim"))
+	return b
+
+## A lit segment has to survive being `disabled` -- Godot resolves the
+## `disabled` stylebox and `font_disabled_color` ahead of the `normal` pair, so
+## a lit-but-disabled segment (the Data manager draws several: the one real
+## scheme among three impossible ones) would otherwise be painted exactly like
+## the impossible ones.
+static func set_segment_on(b: Button, on: bool) -> void:
+	var token := "accent" if on else "line"
+	var fg := DccTheme.c("accent") if on else DccTheme.c("text_dim")
+	for sb_name in ["normal", "pressed", "disabled"]:
+		b.add_theme_stylebox_override(sb_name, box(token, "", 8, 3))
+	b.add_theme_color_override("font_color", fg)
+	b.add_theme_color_override("font_disabled_color",
+		fg if on else DccTheme.c("text_ghost"))
+
+## An outlined text field -- the canvas's Tile size / World bounds /
+## Destination wells and the Asset library's search.
+static func well(le: Control, px: int = 9, py: int = 4, accent: bool = false) -> void:
+	var token := "accent" if accent else "line"
+	le.add_theme_stylebox_override("normal", box(token, "", px, py))
+	le.add_theme_stylebox_override("focus", box("accent", "", px, py))
+	le.add_theme_stylebox_override("read_only", box("line_soft", "", px, py))
+	le.add_theme_font_override("font", DccTheme.mono(0))
+	le.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	le.add_theme_color_override("font_color", DccTheme.c("text"))
+	le.add_theme_color_override("font_placeholder_color", DccTheme.c("text_ghost"))
+	le.add_theme_color_override("font_uneditable_color", DccTheme.c("text_ghost"))
+	le.add_theme_color_override("caret_color", DccTheme.c("accent"))
+
+## Borderless, ghost -- the only place in a window a button carries no outline.
+static func text_button(parent: Control, text: String, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.flat = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_override("font", DccTheme.mono(0))
+	b.add_theme_font_size_override("font_size", DccTheme.FS_MICRO)
+	b.add_theme_color_override("font_color", DccTheme.c("text_dim"))
+	b.add_theme_color_override("font_hover_color", DccTheme.c("accent"))
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	b.add_theme_stylebox_override("normal", DccTheme.empty())
+	b.add_theme_stylebox_override("hover", DccTheme.empty())
+	b.add_theme_stylebox_override("pressed", DccTheme.empty())
+	b.add_theme_stylebox_override("disabled", DccTheme.empty())
+	b.pressed.connect(on_press)
+	parent.add_child(b)
+	return b
+
+## A column header band: ground, a bottom hairline, and a horizontally padded
+## row centred in it. Returns the row to fill. 28 px on both canvas screens.
+static func band(parent: Control, pad_x: int, gap: int = 14, height: int = 28) -> HBoxContainer:
+	var wrap := PanelContainer.new()
+	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"bottom": 1}))
+	wrap.custom_minimum_size.y = height
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", pad_x)
+	pad.add_theme_constant_override("margin_right", pad_x)
+	wrap.add_child(pad)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", gap)
+	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pad.add_child(row)
+	parent.add_child(wrap)
+	return row
+
+static func pad(parent: Control, l: int, t: int, r: int, b: int) -> MarginContainer:
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_left", l)
+	m.add_theme_constant_override("margin_top", t)
+	m.add_theme_constant_override("margin_right", r)
+	m.add_theme_constant_override("margin_bottom", b)
+	parent.add_child(m)
+	return m

@@ -17351,3 +17351,127 @@ but no binding lists them as rail entries); drag-and-drop onto a slot is
 unwired, and the grid footer says so rather than drawing an affordance that
 does nothing; the slicer's canvas interaction (pan/zoom, draggable grid lines,
 click-to-select cells) is still unported.
+
+## Data manager window: rebuilt against the design canvas (2026-08-20)
+
+The Asset library entry above ends on a lesson: *a functional check and a
+visual check are different passes, and a sweep that only runs the first must
+say so rather than record a PASS.* The Data manager is the other window in that
+same sweep with that same history, and it was passed the same way. This entry
+is its rebuild, done by the same method — read the canvas screen and the
+sweep's own screenshot side by side, enumerate the deltas, then let the list
+drive the code.
+
+**Why it drifted.** `data_manager_window.gd` was written from
+`DCC_SHELL_SPEC.md` §9's *prose* while §9's one fully-designed route pane
+(Export ▸ Maps) had no engine it could call. The sweep then checked that the
+routes worked and that the disclosures were honest — both true — and never laid
+the shape against `design/Cartalith DCC Shell.dc.html`'s
+`Data manager window 1920` screen. `GUI_GAP_REGISTER.md` §14.2's row is
+corrected and §14.7 carries the **20-item delta list** in full; the headline
+ones: a floating 920×600 `AcceptDialog` with an OS title bar and a stock OK
+button instead of a full-bleed workspace window with its own 34 px bar and
+26 px status line; a `§`-sigil routes rail of autowrapping flat buttons with no
+badges, no indent and no selected-row ground; and a route pane that showed one
+grey paragraph where the canvas designs seven labelled columns, a bordered
+estimate block and an action footer.
+
+**Rebuilt from the canvas.** Rail 252, bands 28, status 26, row label column
+120, pane padding 18, column gap 34, route rows indented 24 — every number off
+that screen, every colour a `DccTheme` token, no hex in the file.
+
+- **Window bar**: `⧉ DATA MANAGER`, the `import · export · sources ·
+  validation` subtitle (four areas, with the Conversion divergence on its
+  tooltip), and a `Close ✕` chip in place of the OK button.
+- **Routes rail**: a `ROUTES` band, plain tracked group headers, one-line rows
+  carrying the canvas's quiet right-hand badge, an `accent_wash` ground with a
+  brightened name and an accent `▸` on the selected row, and a two-line footer
+  (`exports → …` / `last run …`). Import ▸ Maps and Import ▸ GIS / GeoJSON are
+  two rows again, as the canvas has them.
+- **Route pane**: a 28 px header band with the breadcrumb and a right-hand
+  descriptor, then the canvas's own `1fr 1fr` grid — TILES / PROJECTION /
+  LAYERS INCLUDED left, OUTPUT / ESTIMATE / MARKDOWN VAULT / RECENT RUNS right
+  — over a `120px label · control` row grammar built from segments, wells and
+  `☑`/`☐` rows. A footer of `writes to …` · `Save as preset` · `Dry run` ·
+  accent `Export N tiles`, and a status line that did not exist before.
+- Every other route gets a one-column pane in the same grammar, keeping its
+  live action or its disclosed reason unchanged.
+
+**Export ▸ Maps is now wired.** `region_export_tiles` had been bound and
+golden-tested since the region-export port and had **no caller anywhere in the
+shell** — `right_dock.gd`'s Region select ▸ *Send to Data ▸ Export* was disabled
+with exactly that tooltip. This pane is the caller: it exports the live
+Region-select marquee as a zipped `cols × rows` tile grid, with real controls
+over `cols`/`rows`, `tile_size`, `gzip`, `ridged` and `visual`, a `FileDialog`
+destination, and `FileAccess` doing the write — the same shape
+`asset_library_window.gd::_on_export_pack()` already uses. Verified by writing
+a real archive and reopening it: **33 entries** (16 × `tiles/refined_{r}_{c}
+_rg16.bin`, 16 × `.png`, `tiles/index.json`), 5.17 MB. The dock button is live
+and opens straight onto this route (RD-09 closed; DM-02 half closed, DM-13
+closed).
+
+**The pyramid the canvas draws is not what the engine does, and the pane says
+so.** `export_region_tiles` writes a flat row/column grid plus an index, not an
+XYZ slippy-map pyramid over a projected CRS. So XYZ/TMS/WMTS, every CRS and the
+world file, `folder`/`MBTiles` packaging, `leaflet-preview.html`, `style.json`,
+skip-all-ocean-tiles, and political tint / labels / rivers as export layers are
+all **drawn in their canvas positions and disabled with their reason** rather
+than omitted or faked. The MARKDOWN VAULT block is drawn in the canvas's shape
+but quiet rather than accent-bordered and titled `· NOT LINKED`: the canvas's
+block asserts a live vault and this one cannot have one (DM-14).
+
+**Two canvas numbers replaced by measurements.** `~ 214 MB` and `~ 3 min 40 s`
+are a size *model* this port does not have, so **Dry run** performs the whole
+export and reports the real byte count and elapsed time without writing a file;
+until it has run, the ESTIMATE block reads `measured by Dry run`. RECENT RUNS
+and the rail footer's `last run` are session-scoped and say so.
+
+**The canvas's control vocabulary moved into `dcc_widgets.gd`.**
+`asset_library_window.gd` defined chip / segment / well / text button / band
+privately with the note *"if a second window needs them, they move."* This is
+that second window. The bodies moved; its eight private statics stay as
+one-line delegators so none of its 74 call sites changed in a commit that is
+about a different file.
+
+### Three Godot layout traps, all of which had already shipped
+
+1. **`AcceptDialog` turns `wrap_controls` on in its constructor.** The window
+   then grows to its contents' minimum size on every `child_controls_changed()`
+   — and only ever grows, never shrinks back. Measured here: `_popup_full()`
+   popped the window correctly at 997 px, and it was then grown to **2032 px
+   inside a 1031 px viewport**, putting its own pane footer and status line
+   permanently below the bottom edge, where no scroll could reach them. The
+   window looked plausible and was silently missing two of its regions. Fixed
+   with `wrap_controls = false` on both full-bleed windows, which is correct
+   for a window whose size is dictated by the viewport rather than its content.
+2. **The autowrap-Label trap the Asset library rebuild recorded, again.** A
+   `Label` with `AUTOWRAP_WORD_SMART` and no minimum *width* reports an
+   enormous minimum *height*, because it lays the text out at whatever width it
+   currently has — zero, before the first layout pass. The rail footer's two
+   path labels were the input that fed trap 1. Both now carry
+   `custom_minimum_size.x`.
+3. **`theme/dark_theme.tres` styles `ScrollContainer` with an input well.**
+   `ScrollContainer/styles/panel` reuses `SB_FieldDisabled`:
+   `content_margin_left/right = 10`, `content_margin_top = 6`, a 1 px border
+   and a **4 px corner radius** — on a container that draws no chrome on either
+   canvas screen, and against §11's own "radius 0". Every scrolled region in
+   the shell is therefore inset 10 px against its own header band; here it put
+   the pane's column headers 10 px right of the breadcrumb above them.
+   Overridden per scroll region in this window. **The theme is untouched and
+   still carries this shell-wide** — a global fix would move every dock and
+   belongs in its own pass with its own visual check.
+
+Trap 1 was a **live regression in the shipped Asset library window**, not just
+a hazard: its status line was off the bottom edge on this display too. Fixed
+there in the same commit and confirmed by screenshot.
+
+**Verified by looking.** Non-headless boot on the native GL driver — no
+`opengl3_angle` fallback was needed, so `6a97911`'s launcher fix holds — a real
+2048×1311 world, a real 1024×590-cell marquee set through `region_set`, five
+screenshot/compare iterations against the canvas, node-rect probes that located
+traps 1 and 3, a real export written and reopened with `ZIPReader`, a dry run
+at 5.2 MB / 0.58 s, Escape close driven through `Input.parse_input_event`, the
+Asset library re-shot to confirm the `wrap_controls` fix, and
+`--headless --path . --quit-after 120` clean. Screenshots produced by a
+temporary harness (`_dm_shot.gd`/`.tscn`, uncommitted, same convention as
+`_shot.gd`) — not committed; screenshots are not source.

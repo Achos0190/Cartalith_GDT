@@ -5,7 +5,54 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-20 (post **Asset library window: rebuilt against the
+Last updated: 2026-08-20 (post **Data manager window: rebuilt against the
+design canvas**. The second window from the same visual sweep with the same
+history, passed the same too-lenient way — the sweep checked that the routes
+worked and that the disclosures were honest, and never laid the layout against
+`design/Cartalith DCC Shell.dc.html`'s `Data manager window 1920`.
+`GUI_GAP_REGISTER.md` §14.2's row is corrected and **§14.7** carries the
+20-item delta list. Rebuilt from that screen: a full-bleed window under the
+menu bar with its own 34 px bar and 26 px status line (was a floating 920×600
+`AcceptDialog` with an OS title bar and a stock OK button); a 252 px routes
+rail with a `ROUTES` band, plain tracked group headers, one-line rows with the
+canvas's quiet badges and an `accent_wash`-plus-`▸` selected row (was `§`-sigil
+sections of autowrapping flat buttons); and **§9's route pane, built** — the
+canvas's `1fr 1fr` grid with all seven column blocks (TILES / PROJECTION /
+LAYERS INCLUDED / OUTPUT / ESTIMATE / MARKDOWN VAULT / RECENT RUNS), a
+`120px label · control` row grammar of segments/wells/`☑` rows, and a
+`Save as preset · Dry run · Export N tiles` footer, where the window used to
+show one grey paragraph. **DM-13 closed, DM-02 half closed, DM-12 partly,
+RD-09 closed.** `region_export_tiles` had been bound and golden-tested with
+**no caller anywhere in the shell**; this pane is the caller, exporting the
+live Region-select marquee as a zipped `cols × rows` tile grid — verified by
+writing a real archive and reopening it (33 entries, `tiles/index.json`
+present) — and `right_dock.gd`'s Region select ▸ *Send to Data ▸ Export*, dead
+since it was written, now opens straight onto it. The **pyramid** the canvas
+draws (XYZ/TMS/WMTS, CRS, world file, MBTiles, leaflet preview, ocean-tile
+skipping, political/label/river layers) is not what the engine does and is
+drawn in place and disabled with that reason; the MARKDOWN VAULT block is the
+canvas's shape but quiet and titled `· NOT LINKED` (DM-14). The canvas's
+`~ 214 MB` / `~ 3 min 40 s` estimates are a model this port lacks, so **Dry
+run** measures both for real. The **CONVERSION group stays deleted** — the
+canvas predates `17ccc18` and is not followed there. The chip/segment/well/
+text-button/band vocabulary moved from `asset_library_window.gd` into
+`dcc_widgets.gd`, as that file's own note asked. Three Godot traps found, **all
+already shipped**: `AcceptDialog` enables `wrap_controls`, so the window grows
+to its contents' minimum and never shrinks — this one popped at 997 px and was
+grown to 2032 px inside a 1031 px viewport, dropping its own footer and status
+line off the bottom edge (**a live regression in the Asset library too**, fixed
+in the same commit); the autowrap-`Label`-with-no-min-width trap again, which
+was what fed it; and `theme/dark_theme.tres` styling every `ScrollContainer`
+with `SB_FieldDisabled`, an input well with a 10 px content margin and a 4 px
+radius, which insets every scrolled region in the shell against its own header
+band (overridden here; **the theme still carries it shell-wide**). Verified by
+looking: non-headless boot on the **native GL driver** — no `opengl3_angle`
+fallback needed, `6a97911`'s launcher fix holds — a real 2048×1311 world, a
+real 1024×590-cell marquee, five screenshot/compare iterations, node-rect
+probes that located two of the three traps, a real export and a dry run
+(5.2 MB / 0.58 s), Escape close through `Input.parse_input_event`, and
+`--headless --quit-after 120` clean.
+— previously, post **Asset library window: rebuilt against the
 design canvas**. The owner: *"The asset manager menu looks nothing like the
 DCC work from Claude design."* True — and the visual sweep below had scored
 this surface **PASS**, a wrong verdict reached by checking that the controls

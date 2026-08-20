@@ -810,16 +810,16 @@ func _build_region(body: Control) -> void:
 		var d: Dictionary = e
 		_field(sec, String(d.get("lod", "")).capitalize(),
 			"%d tiles (%d×%d)" % [int(d.get("tiles", 0)), int(d.get("tile_w", 0)), int(d.get("tile_h", 0))])
-	## Not wired to `app.open_world_data()`: that window is the settlement/
-	## province/economy tables (`world_data_window.gd`), not §9's tile-pyramid
-	## export route -- `region_export_tiles()` is bound and tested
-	## (`LOD_TILING_INTEGRATION_SCOPE.md`'s M2, "Z4 is done"), but the Data
-	## Manager panel that would call it doesn't exist. Honest disable rather
-	## than a button that opens the wrong window.
+	## RD-09, live since 2026-08-20. Still deliberately **not**
+	## `app.open_world_data()`: that window is the settlement/province/economy
+	## tables (`world_data_window.gd`), not §9's export route. It now opens the
+	## Data manager straight onto Export ▸ Maps, which is the panel that was
+	## missing -- `region_export_tiles()` was bound and tested
+	## (`LOD_TILING_INTEGRATION_SCOPE.md`'s M2, "Z4 is done") but callerless
+	## until that pane was built.
 	var actions := DccWidgets.group(sec, "Actions")
-	var send := DccWidgets.action(actions, "Send to Data ▸ Export", func(): pass)
-	send.disabled = true
-	send.tooltip_text = "region_export_tiles() is bound and tested; the Data Manager panel to call it doesn't exist yet."
+	DccWidgets.action(actions, "Send to Data ▸ Export", func():
+		app.data_manager_window.open_tile_export())
 
 # -- Journey (delegate to journey_planner_view.gd) --------------------------
 

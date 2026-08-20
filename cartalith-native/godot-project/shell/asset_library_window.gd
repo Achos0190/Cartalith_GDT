@@ -417,114 +417,36 @@ var _slice_overwrite := false
 # 9px; border:1px solid`), a smaller outline **segment** (`3px 8px`, used for
 # anchor/fill-from), an outline **well** (a bordered text field), and a plain
 # **text button** (the grid header's batch verbs, which carry no border at all).
-# They are built here rather than in `dcc_widgets.gd` because nothing else in
-# the shell draws them yet; if a second window needs them, they move.
+#
+# They were written here, with the note *"if a second window needs them, they
+# move."* The 2026-08-20 Data manager rebuild is that second window, so the
+# bodies now live in `dcc_widgets.gd` alongside the dock vocabulary. These
+# eight stay as one-line delegators so none of this file's 74 call sites moved
+# with them -- a rename across a 2 300-line file is churn that would have
+# obscured the diff of a rebuild happening in the very next commit.
 # ---------------------------------------------------------------------------
 
 static func _box(border_token: String, bg_token: String, px: int, py: int) -> StyleBoxFlat:
-	var sb := DccTheme.outline(border_token, bg_token)
-	sb.content_margin_left = px
-	sb.content_margin_right = px
-	sb.content_margin_top = py
-	sb.content_margin_bottom = py
-	return sb
+	return DccWidgets.box(border_token, bg_token, px, py)
 
-## `padding:4px 9px; border:1px solid rgba(255,255,255,.16)` -- the window bar's
-## whole vocabulary, the rail footer's two imports, and the inspector's
-## Fit/Reset/Replace/+Variant row. `accent` swaps both border and text.
 static func _chip(parent: Control, text: String, on_press: Callable,
 		accent: bool = false, px: int = 9, py: int = 4) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.focus_mode = Control.FOCUS_NONE
-	b.add_theme_font_override("font", DccTheme.mono(0))
-	b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
-	var token := "accent" if accent else "line"
-	b.add_theme_color_override("font_color", DccTheme.c("accent") if accent else DccTheme.c("text"))
-	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
-	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
-	var rest := _box(token, "", px, py)
-	b.add_theme_stylebox_override("normal", rest)
-	b.add_theme_stylebox_override("pressed", rest)
-	b.add_theme_stylebox_override("disabled", _box("line_soft", "", px, py))
-	b.add_theme_stylebox_override("hover",
-		_box(token, "accent_wash" if accent else "line_soft", px, py))
-	if on_press.is_valid():
-		b.pressed.connect(on_press)
-	parent.add_child(b)
-	return b
+	return DccWidgets.chip(parent, text, on_press, accent, px, py)
 
-## The narrower `padding:3px 8px` chip the canvas uses for the anchor row and
-## the slicer's Fill-from pair -- one of a set is lit, the rest are quiet.
 static func _segment(parent: Control, text: String, on_press: Callable) -> Button:
-	var b := _chip(parent, text, on_press, false, 8, 3)
-	b.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
-	b.add_theme_color_override("font_color", DccTheme.c("text_dim"))
-	return b
+	return DccWidgets.segment(parent, text, on_press)
 
-## A lit segment has to survive being `disabled` -- the anchor row is disabled
-## by design (AS-15), and Godot resolves the `disabled` stylebox and
-## `font_disabled_color` ahead of the `normal` pair, which is why the real
-## anchor was drawn exactly like the two impossible ones on the first pass.
 static func _set_segment_on(b: Button, on: bool) -> void:
-	var token := "accent" if on else "line"
-	var fg := DccTheme.c("accent") if on else DccTheme.c("text_dim")
-	for sb_name in ["normal", "pressed", "disabled"]:
-		b.add_theme_stylebox_override(sb_name, _box(token, "", 8, 3))
-	b.add_theme_color_override("font_color", fg)
-	b.add_theme_color_override("font_disabled_color",
-		fg if on else DccTheme.c("text_ghost"))
+	DccWidgets.set_segment_on(b, on)
 
-## An outlined text field -- the window bar's search, the inspector's pack
-## metadata, the slicer's numbers.
 static func _well(le: Control, px: int = 9, py: int = 4, accent: bool = false) -> void:
-	var token := "accent" if accent else "line"
-	le.add_theme_stylebox_override("normal", _box(token, "", px, py))
-	le.add_theme_stylebox_override("focus", _box("accent", "", px, py))
-	le.add_theme_stylebox_override("read_only", _box("line_soft", "", px, py))
-	le.add_theme_font_override("font", DccTheme.mono(0))
-	le.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
-	le.add_theme_color_override("font_color", DccTheme.c("text"))
-	le.add_theme_color_override("font_placeholder_color", DccTheme.c("text_ghost"))
-	le.add_theme_color_override("font_uneditable_color", DccTheme.c("text_ghost"))
-	le.add_theme_color_override("caret_color", DccTheme.c("accent"))
+	DccWidgets.well(le, px, py, accent)
 
-## The grid header's `Tag… Collect… Rename… Duplicate Delete` -- borderless,
-## ghost, and the only place in this window a button has no outline.
 static func _text_button(parent: Control, text: String, on_press: Callable) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.flat = true
-	b.focus_mode = Control.FOCUS_NONE
-	b.add_theme_font_override("font", DccTheme.mono(0))
-	b.add_theme_font_size_override("font_size", DccTheme.FS_MICRO)
-	b.add_theme_color_override("font_color", DccTheme.c("text_dim"))
-	b.add_theme_color_override("font_hover_color", DccTheme.c("accent"))
-	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
-	b.add_theme_stylebox_override("normal", DccTheme.empty())
-	b.add_theme_stylebox_override("hover", DccTheme.empty())
-	b.add_theme_stylebox_override("pressed", DccTheme.empty())
-	b.add_theme_stylebox_override("disabled", DccTheme.empty())
-	b.pressed.connect(on_press)
-	parent.add_child(b)
-	return b
+	return DccWidgets.text_button(parent, text, on_press)
 
-## A 28 px column header band: ground, a bottom hairline, and a horizontally
-## padded row centred in it. Returns the row to fill.
 static func _band(parent: Control, pad_x: int, gap: int = 14) -> HBoxContainer:
-	var wrap := PanelContainer.new()
-	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"bottom": 1}))
-	wrap.custom_minimum_size.y = H_BAND
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", pad_x)
-	pad.add_theme_constant_override("margin_right", pad_x)
-	wrap.add_child(pad)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", gap)
-	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	pad.add_child(row)
-	parent.add_child(wrap)
-	return row
+	return DccWidgets.band(parent, pad_x, gap, H_BAND)
 
 static func _rule_soft() -> Control:
 	var r := ColorRect.new()
@@ -563,13 +485,7 @@ static func _insp_row(parent: Control, label_text: String) -> HBoxContainer:
 	return row
 
 static func _pad(parent: Control, l: int, t: int, r: int, b: int) -> MarginContainer:
-	var m := MarginContainer.new()
-	m.add_theme_constant_override("margin_left", l)
-	m.add_theme_constant_override("margin_top", t)
-	m.add_theme_constant_override("margin_right", r)
-	m.add_theme_constant_override("margin_bottom", b)
-	parent.add_child(m)
-	return m
+	return DccWidgets.pad(parent, l, t, r, b)
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -587,6 +503,13 @@ func setup(host: DccApp, bridge: EngineBridge) -> void:
 	add_theme_stylebox_override("panel", DccTheme.panel("bg"))
 	add_theme_constant_override("buttons_min_height", 0)
 	add_theme_constant_override("margin", 0)
+	## `AcceptDialog` enables `wrap_controls` in its constructor: the window
+	## grows to its contents' minimum size on every `child_controls_changed()`,
+	## and only ever grows. A full-bleed window sized by `_popup_full()` must
+	## not, or one oversized child min -- for one frame -- pushes its own status
+	## line past the bottom edge for good. Found on the Data manager rebuild
+	## (2026-08-20); see that file's `setup()` for the measurement.
+	wrap_controls = false
 	size = Vector2i(1180, 760)
 	min_size = Vector2i(1024, 640)
 	_bridge.world_loaded.connect(func(): _refresh_pack_status())
@@ -622,11 +545,21 @@ func _family_by_key(key: String) -> Dictionary:
 ## The canvas's own placement: the window occupies everything below the app
 ## menu bar, which is what "map hidden while open" means in a shell that has no
 ## separate workspace stack for windows.
+##
+## Sized from the host Control's viewport rect, **not** `get_tree().root.size`
+## -- see `data_manager_window.gd::_popup_full()` for the full finding. Short
+## version: `Window.size` is physical pixels, an embedded subwindow's `Rect2i`
+## is the parent viewport's 2D space, and on a HiDPI display the two differ by
+## the content scale, which pops the window at twice the height it should be and
+## drops its own status line off the bottom edge with no scroll that can reach
+## it. Found during the Data manager rebuild (2026-08-20); this file had the
+## same line and the same bug.
 func _popup_full() -> void:
-	var vp: Vector2i = get_tree().root.size
+	var vp: Vector2 = _host.get_viewport_rect().size if _host != null \
+		else Vector2(get_tree().root.get_visible_rect().size)
 	var top := DccTheme.H_MENU_BAR
-	var w: int = maxi(vp.x, min_size.x)
-	var h: int = maxi(vp.y - top, min_size.y)
+	var w: int = maxi(int(vp.x), min_size.x)
+	var h: int = maxi(int(vp.y) - top, min_size.y)
 	popup(Rect2i(0, top, w, h))
 
 ## `family_key` scopes the family rail's selection (Assets ▸ Icon families ▸

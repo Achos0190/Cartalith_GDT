@@ -176,7 +176,7 @@ behaviour changed.** All five are corrections of fact, not design.
 
 ### Borderline, deliberately not edited
 
-- `right_dock.gd:674` Region select ▸ *"the Data Manager panel to call it doesn't exist yet"* — the Data manager **window** now exists, but the Export ▸ Maps **panel** genuinely does not. The wording says "panel". Accurate as written.
+- ~~`right_dock.gd:674` Region select ▸ *"the Data Manager panel to call it doesn't exist yet"* — the Data manager **window** now exists, but the Export ▸ Maps **panel** genuinely does not. The wording says "panel". Accurate as written.~~ **Superseded 2026-08-20**: the Export ▸ Maps panel was built (§14.7), so the sentence stopped being accurate and the disabled button became live. Both the tooltip and the disable are gone — RD-09 above.
 - `cartography_workspace.gd:277` *"no on-canvas resize handle yet for a placed icon (`icon_bridge.rs`'s own acknowledged gap)"* — `icon_resize`/`icon_hit_test` **are** exposed, so the attribution reads as more engine-blocked than it is; but `icon_bridge.rs:216` really does say *"`None` handle — no on-canvas resize-handle geometry"*, i.e. there is no `icon_handles()` to match `label_handles()`. The claim is true; only the emphasis is off. Left alone, recorded as entry **CA-05** below (an (A) item).
 - `infrastructure_workspace.gd:13-14`'s class doc — *"Logistics … exports nothing past that crate boundary"* — is stale, but the same file's `_build_logistics()` says so explicitly two hundred lines later. A code comment, not user-facing text. Left alone.
 
@@ -283,8 +283,8 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | # | Route / control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
 | DM-01 | Import ▸ Heightmaps (PNG) | 52 | **done, 2026-08-20** | real | §2.4 names it | now a `"live"` route: `DccApp.open_heightmap_import()` → `EngineBridge.import_heightmap` → `WorldGen::import_heightmap`, which decodes the PNG (`cartalith-assets::raster::decode_png`), resamples it at the *image's* aspect ratio and runs `cartalith_engine::import::infer_tectonics` under it — MS-02's other half, same pass |
-| DM-01b | Import ▸ Maps (tiles) · GIS / GeoJSON | 53 | no tile-map or GeoJSON **import** path exists; TIFF absent | yes | §2.4 | (B) large — the remainder of DM-01 after the heightmap half landed. **TIFF is now a closed question, not a pending dependency decision**: the reference's own file input is `accept="image/*"` decoded by the browser, which does not read TIFF either, so PNG-only is parity rather than a shortfall |
-| DM-02 | Export ▸ Maps (image · tiles) | 51 | `tile_render` draws per-tile PNGs; nothing assembles a Leaflet-style pyramid | yes | §9's route pane, **the one fully-designed route in the window** | (B) large — `region_export_tiles` is bound and tested; XYZ/TMS/WMTS addressing is new |
+| DM-01b | Import ▸ Maps (tiles) **and** Import ▸ GIS / GeoJSON — two rail rows since 2026-08-20, as the canvas has them (they were one concatenated row) | 53 | no tile-map or GeoJSON **import** path exists; TIFF absent | yes | §2.4 | (B) large — the remainder of DM-01 after the heightmap half landed. **TIFF is now a closed question, not a pending dependency decision**: the reference's own file input is `accept="image/*"` decoded by the browser, which does not read TIFF either, so PNG-only is parity rather than a shortfall |
+| DM-02 | Export ▸ Maps (image · tiles) | 51 | **half done, 2026-08-20** — tile export is real; the *pyramid* is not | partly | §9's route pane, **the one fully-designed route in the window** | **The route is live.** §9's full pane shape is built (§14.7) and calls `region_export_tiles` over the live Region-select marquee, writing a zipped `cols × rows` grid — verified end to end: 33 entries, `tiles/index.json` present. What remains of this row is the *slippy-map* half the canvas draws and the engine has no notion of: XYZ/TMS/WMTS addressing, a zoom ladder, retina @2x variants, ocean-tile skipping, `leaflet-preview.html`/`style.json`. All of those are drawn in the pane and disabled with that reason. Still (B), now medium rather than large |
 | DM-03 | Export ▸ GIS / GeoJSON | 53 | `cartalith-engine::geojson` exports region GeoJSON for Region-select only, no route in, no CRS | yes | §2.4 | (B) wrapper — `export_geojson` is golden-verified; needs one `#[func]` plus assembling `GeoJsonWorld` |
 | DM-04 | Export ▸ World Data | 55 | no save writer | yes | §2.4 | (B) large — FI-01's writer |
 | DM-05 | Export ▸ Assets (pack .zip) | 57 | **done, 2026-08-20** | real | §2.4 | now a `"route"` (was `"gap"`) into the Asset library window's real `export_pack_now()`, same "routes, doesn't reimplement" shape as `import_assets` — same as AS-04 |
@@ -294,9 +294,9 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | DM-09 | Conversion ▸ Data Transformation | 65 | ~~no data-transformation routes~~ | — | ~~undefined in the spec~~ | **RESOLVED BY DELETION** (owner, 2026-08-20) — same decision, same commit. §7.4 recommended dropping this row outright and that is what happened. |
 | DM-10 | Validation ▸ Check Data | 66 | `load_save()` returns pass/fail only; no warning collection anywhere | yes | §2.4 names it ("shows current warning count"); what is validated, and against what invariant, is undefined | **(C)** → §7.5 |
 | DM-11 | Validation ▸ Repair / Normalize | 68 | no validation pass to repair against | yes | undefined | **(C)** → §7.5 |
-| DM-12 | Foot: "last run (`14:02 · 62 MB`)" | 160 | no export has run yet — said plainly rather than invented | yes | §9 | (B) small — needs a run-history store |
-| DM-13 | §9's route pane: TILES / PROJECTION / LAYERS INCLUDED / OUTPUT / ESTIMATE / RECENT RUNS | *absent* | the pane shows the route's reason instead | n/a | §9, designed in full | (B) large — gated on DM-02 |
-| DM-14 | §9's **MARKDOWN VAULT · LINKED** block | *absent* | — | — | §9 designs it; `MARKDOWN_VAULT_INTEGRATION.md` is explicitly *"Not started; no code exists"* and its §33 lists two-way sync as a V1 **non-goal** | **(D)** — owner decisions 3 and 4, `DCC_CONTROL_INDEX.md` summary §5 |
+| DM-12 | Foot: "last run (`14:02 · 62 MB`)" | 160 | **partly done, 2026-08-20** — real, session-scoped | partly | §9 | The rail foot and the RECENT RUNS column both report the real runs of *this session* (stamp, label, measured bytes, ✓/✕) and say plainly that nothing persists across a launch. (B) small — a persisted history is a `DccSettings` section nothing writes yet |
+| DM-13 | §9's route pane: TILES / PROJECTION / LAYERS INCLUDED / OUTPUT / ESTIMATE / RECENT RUNS | **done, 2026-08-20** | real | n/a | §9, designed in full | Built for Export ▸ Maps, the one route §9 designs a pane for: the canvas's two-column grid, all seven column blocks, the `120px label · control` row grammar, the segment/well/`☑` vocabulary, the bordered ESTIMATE block and the `Save as preset · Dry run · Export N tiles` footer. Controls with no engine behind them are drawn in place and disabled with their reason. Every other route keeps a one-column pane in the same grammar. See §14.7 |
+| DM-14 | §9's **MARKDOWN VAULT · LINKED** block | *drawn, quiet, disabled* | — | — | §9 designs it; `MARKDOWN_VAULT_INTEGRATION.md` is explicitly *"Not started; no code exists"* and its §33 lists two-way sync as a V1 **non-goal** | **(D)** — owner decisions 3 and 4, `DCC_CONTROL_INDEX.md` summary §5. Since 2026-08-20 the block exists in the pane in the canvas's shape, but bordered **quiet rather than accent** and reading `MARKDOWN VAULT · NOT LINKED` / `○ no vault linked · 0 notes`: the canvas's block asserts a live link, and drawing that would be the one kind of fiction this window avoids. All six controls disabled with the reason |
 | DM-15 | **`Data ▸ ⧉ Travel library… ⇧L`** | **done, 2026-08-19** | real | — | §2.4's addition + `TRAVEL_LIBRARY_SPEC.md` in full (fields, validation states, placement, §6 build-status) | **Done.** `lib.rs`'s `WorldGen` now carries a live `travel_library` field (persists across a re-generate, like `asset_pack`) and a full `tl_*` `#[func]` CRUD+query surface; `jp_compute` builds a `JpAnimalResolver` from it and calls `jp_plan_ex` unconditionally (a stock-only library is regression-tested identical to the old `jp_plan` call). `travel_library_window.gd` is the real `2a`/`2b` window, wired at `⇧L`. See `TRAVEL_LIBRARY_SPEC.md` §6 for the full record and the two things still honestly not wired (the planner's own party-form dropdown does not yet offer a custom entry; only the four built-in species can affect a computed plan). |
 
 ### 6.5 Preferences menu — `menus.gd`
@@ -349,7 +349,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | RD-06 | Faction ▸ Territory | 608 | **corrected — S1** | yes, now | §6, §4.5.3 | **(A) — done 2026-08-19**: reads `civ_faction_territory_stats(faction)` live, same call/format `civilization_workspace.gd`'s Territory tool-options row uses. |
 | RD-07 | Faction ▸ State religion | 611 | `has_religion` computed internally; `get_provinces()` doesn't carry it and there is no `get_faction_aggregates()` | yes — `get_factions()` carries id/culture/colour/settlement_count/claimed_cells, no religion | §6 | (B) wrapper — `civ_faction_aggregates` is golden-verified and unexposed |
 | RD-08 | Faction ▸ Roster | 604 | reads province names only | n/a — works, but ignores `get_factions()`'s richer row | §6 | **(A) — done 2026-08-19**: reads `get_factions()` for Culture, a colour swatch, and Settlements; Provinces (count) kept separately. |
-| RD-09 | Region select ▸ Send to Data ▸ Export | 672-674 | `region_export_tiles()` is bound and tested; the Data Manager panel to call it doesn't exist | yes | §4.5.1 + §9 | (B) large — gated on DM-02's route pane. *Cheap path*: call `region_export_tiles()` straight to a `FileDialog` save, which is (A); that is a design decision, not a fix. |
+| RD-09 | Region select ▸ Send to Data ▸ Export | 672-674 | **done, 2026-08-20** | real | §4.5.1 + §9 | **Closed.** DM-13's route pane is built, so the button is live and opens the Data manager straight onto Export ▸ Maps with the marquee already read (`DataManagerWindow.open_tile_export()`). Deliberately *not* the cheap path the old note offered (a bare `FileDialog` off the dock button): §4.5.1's own wording is "Send to Data ▸ Export", and the marquee and that route's world-bounds fields are two views of one rect, which only holds if the route is where the export happens. |
 | RD-10 | **`Layers` context** | *absent — omission O9* | none | — | §6 designs it (ordered list, visibility dot, opacity bar, blend mode, nested children under Terrain) | (B) large — opacity is cheap (overlays carry alpha); blend mode and reorder need the three overlays to become independently compositable, an architecture change `GUI_FEATURE_PARITY_SCOPE.md` Category 3 already recommended deferring |
 | RD-11 | Collapsed right dock's primary readout | — | none | — | §6's last line: *"elevation for Sample, layer dots for Layers, stamp count for the stack"*. `DccShell.set_dock_readout("right", …)` exists and **`right_dock.gd` never calls it** — the left dock's is wired (`world_workspace._push_dock_readout`), the right dock's is not | **(A) — done 2026-08-19**: `_push_dock_readout()` called at the end of `_rebuild()` and live from `on_cursor_sampled`; one real reading per existing context (elevation, settlement name, faction id+culture, route length, chain/region/stamp counts, journey days·km). No "Layers" context exists yet (RD-10). |
 | RD-12 | `Brush / Stamp` context | 685-696 | merged into `Stamp stack`, with the reasoning stated in-file | yes | §6 lists both | **(D)** — deliberate: both read the same live state and the eight globals already have live editors in WORLD's dock |
@@ -1660,7 +1660,7 @@ route, and the map at three zoom levels including deep-zoom LOD tiles.
 | Asset library window | ~~PASS~~ → **FAIL (corrected 2026-08-20; rebuilt)** | The original verdict — "family rail (8 families), slot grid, inspector, empty-library state all honest and correctly laid out" — checked that the controls *worked* and that the disclosures were honest. It never checked the layout against the canvas, and the layout did not match: a floating dialog with an OS title bar instead of a full-bleed workspace window, stock Godot slabs instead of the canvas's outline chips, no status line, no window-bar title, tile captions outside their tiles, and an inspector that was a stack of label/value pairs. The owner reported it in exactly those terms. See **§14.6** for the full delta list and the rebuild. |
 | Asset library slicer, real sheet | **PASS** (arithmetic) / **FAIL (corrected; rebuilt)** (layout) | The grid overlay does land exactly on a synthetic 6×4 sprite sheet's cell boundaries and the detection readout is correct — that half of the verdict stands, and the rebuild did not touch the span arithmetic. The modal's *layout* was a single vertical stack of stock widgets wide enough to clip its own labels, against the canvas's 760 px two-column card. See **§14.6**. |
 | Asset library: slicer left open on Close | **DEFECT (fixed)** | See §14.3. |
-| Data manager window | **PASS** (after fix) | Conversion group confirmed gone from the routes rail; the subtitle text still advertising it was the one leftover — see §14.3. |
+| Data manager window | ~~PASS (after fix)~~ → **FAIL (corrected 2026-08-20; rebuilt)** | The original verdict — "Conversion group confirmed gone from the routes rail; the subtitle text still advertising it was the one leftover" — is a *content* check, and it was right as far as it went. It is not a layout check, and the layout did not match: a floating 920×600 `AcceptDialog` with an OS title bar and a stock OK button, a `§`-sigil routes rail of autowrapping flat buttons with no badges and no selected-row ground, no window bar, no pane footer, no status line, and a route pane that showed one grey paragraph where the canvas designs seven labelled columns. Exactly the same class of miss as the Asset library row above, found by the same test the owner applied there. See **§14.7** for the 20-item delta list and the rebuild. |
 | Travel library window | **PASS** | Animals & mounts tab, 7 stock entries, correct read-only-stock footer. |
 | Journey Planner takeover | **PASS** (after correcting the sweep itself) | Full takeover — spine map, profile/stage selector, stage matrix, party form, right-dock journey summary (time/load/supply reach/cost/vessels) — all render correctly once the sweep armed the tool from the CIVIL domain. The first sweep pass armed it from CARTOGRAPHY instead and saw no visible change; that is correct, documented behaviour (`journey_planner_view.gd`'s `_recompute_visibility()`), not a defect — though see JP-VS-01 below for whether it should be. |
 | Map, 3 zoom levels + deep-zoom LOD | **PASS** | Settlement pins and labels tier in correctly with zoom; deep-zoom (z8.0) tiles are visibly pixelated, which is the disclosed, known characteristic `tool_overlay.gd`'s own header comment already quotes the owner on ("there is still a certain pixilated quality to the map when we zoom") — not a new finding. |
@@ -1858,3 +1858,115 @@ CHANGELOG.md` carries the five Godot layout traps this pass surfaced.
 no binding lists them as rail entries); drag-and-drop onto a slot is unwired,
 and the grid footer says so; the slicer's canvas interaction (pan/zoom,
 draggable grid lines, click-to-select cells) is still unported.
+
+### 14.7 · The Data manager window was passed too leniently — corrected and rebuilt (2026-08-20)
+
+§14.6 closed with a lesson: *"a functional check and a visual check are
+different passes, and a sweep that only runs the first must say so rather than
+record a PASS."* The Data manager was the other window in the same sweep with
+the same history — written from `DCC_SHELL_SPEC.md` §9's **prose** before its
+export bindings had a caller — and it was passed the same way, on content
+rather than layout. §14.2's row is corrected in the table above; this section
+is the delta list and the rebuild.
+
+**The 20 deltas**, read off `design/Cartalith DCC Shell.dc.html`'s
+`Data manager window 1920` screen element by element, against the sweep's own
+`09_data_manager_window.png`:
+
+| # | Canvas | What shipped |
+|---|---|---|
+| 1 | Full-bleed workspace window under the app menu bar, with its own 34 px window bar and a 26 px status line | Floating 920×600 `AcceptDialog`, OS title bar, stock **OK** button as the only footer |
+| 2 | Window bar: `⧉ DATA MANAGER` accent · subtitle · spacer · `Close ✕` outline chip | Title in the OS title bar; the subtitle a lone mono label *inside* the body; no Close chip |
+| 3 | Rail is 252 px and opens with a 28 px `ROUTES` band | 260 px, no band |
+| 4 | Group headers are plain tracked `IMPORT` / `EXPORT` / `SOURCES` / `VALIDATION` (`padding:9px 14px 4px`) | `DccWidgets.section()`'s `§ IMPORT` sigil headers — the *dock* L3 grammar, on a window rail |
+| 5 | Route rows `padding:5px 14px 5px 24px`, 11.5 px, one line | Flat 26 px `Button`s at no indent, `AUTOWRAP_WORD_SMART`, wrapping onto two lines |
+| 6 | Rows carry a quiet right-hand badge (`tiles`, `→ Assets`, `.zip`) | The qualifier concatenated into the label itself (`Assets (routes to the Assets menu)`) |
+| 7 | Selected row: `rgba(224,163,74,.09)` ground, brightened name, accent `▸` | Font colour change only — no ground, no caret |
+| 8 | Import ▸ **Maps** and Import ▸ **GIS / GeoJSON** are two rows | Merged into one `Maps (tiles) · GIS / GeoJSON` row |
+| 9 | Rail footer: `exports → …` / `last run 14:02 · 62 MB`, two mono lines under a hairline | A `§ EXPORTS ROOT` sigil header plus a wrapped path plus a third line |
+| 10 | Pane header band, 28 px: breadcrumb left, `web-map ready · XYZ scheme` right | A 12 px-padded breadcrumb, no band, no ground, no right-hand descriptor |
+| 11 | Pane body is `grid-template-columns:1fr 1fr; gap:0 34px` | A single-column stack |
+| 12 | Seven labelled columns — TILES / PROJECTION / LAYERS INCLUDED / OUTPUT / ESTIMATE / MARKDOWN VAULT / RECENT RUNS | One grey paragraph and, at most, one action button — **DM-13** |
+| 13 | Row grammar: `120px label · control`, `padding:4px 0` | No row grammar at all in the pane |
+| 14 | Controls are segments (`3px 9px`, one lit), wells (`4px 9px`, mono) and `☑`/`☐` rows with a right-hand note | None of these existed in this file |
+| 15 | ESTIMATE is a bordered block with four `space-between` rows | Absent |
+| 16 | MARKDOWN VAULT is an accent-bordered block: `●` status, prose, three checks, three equal-flex buttons | Absent — **DM-14** |
+| 17 | RECENT RUNS: three `space-between` mono rows | Absent |
+| 18 | Pane footer under a hairline: `writes to …` · `Save as preset` · `Dry run` · accent `Export 3 619 tiles` | Absent |
+| 19 | Status line: `idle · no pass running` · vault state · `Esc close window` | Absent |
+| 20 | *(divergence, not a delta to fix)* The canvas still carries a **CONVERSION** group in its rail and subtitle | Correctly absent — deleted by owner decision `17ccc18`; the canvas predates it |
+
+**Rebuilt** in `shell/data_manager_window.gd` from that screen: borderless and
+sized under the app menu bar, rail 252, bands 28, status 26, row label column
+120, pane padding 18, column gap 34 — every number off the canvas, every colour
+a `DccTheme` token, no hex in the file. The canvas's chip / segment / well /
+text-button / band vocabulary **moved out of `asset_library_window.gd` into
+`dcc_widgets.gd`** in this pass, which is what that file's own note asked for
+(*"if a second window needs them, they move"*); its eight private statics stay
+as one-line delegators, so none of its 74 call sites moved.
+
+**Export ▸ Maps is now wired — DM-02 partially closed, RD-09 closed.**
+`region_export_tiles` was bound and golden-tested and had **no caller** in the
+shell; this pane is that caller. It exports the live Region-select marquee as a
+zipped `cols × rows` tile grid and the run is real end to end: verified writing
+a 5.17 MB archive of **33 entries** (16 × `tiles/refined_{r}_{c}_rg16.bin`,
+16 × `.png`, plus `tiles/index.json`) through the same button handler a mouse
+click uses. `right_dock.gd`'s Region select ▸ *Send to Data ▸ Export* — disabled
+since it was written, with the tooltip *"the Data Manager panel to call it
+doesn't exist yet"* — now opens this pane.
+
+**What the canvas draws that the engine cannot do, drawn and disabled with its
+reason** rather than omitted or faked: XYZ / TMS / WMTS addressing (the export
+writes a flat row/col grid plus an index, not a slippy-map pyramid), every CRS
+and the world file, `folder` and `MBTiles` packaging, `leaflet-preview.html` and
+`style.json`, skip-all-ocean-tiles, political tint / labels / rivers as export
+layers, and Save as preset. The MARKDOWN VAULT block is drawn in the canvas's
+shape but **quiet rather than accent-bordered** — the canvas's vault is linked
+and this one cannot be (DM-14).
+
+**Two things the canvas invents that this window measures instead.** The
+ESTIMATE block's `~ 214 MB` / `~ 3 min 40 s` are a size *model*; this port has
+none, so **Dry run** performs the whole export and reports the real byte count
+and elapsed time without writing a file, and the block reads `measured by Dry
+run` until it has. RECENT RUNS and the rail footer's `last run` are
+session-scoped and say so (DM-12 wants a persisted history; nothing persists
+one).
+
+**Three Godot traps found, all of which had shipped:**
+
+1. **`AcceptDialog` enables `wrap_controls` in its constructor**, so the window
+   grows to its contents' minimum size on every `child_controls_changed()` —
+   and only ever grows. This window popped correctly at 997 px and was then
+   grown to **2032 px inside a 1031 px viewport**, putting its own pane footer
+   and status line permanently past the bottom edge where no scroll could reach
+   them. `wrap_controls = false` on both full-bleed windows.
+2. **The autowrap-Label trap §14.6 recorded, again.** The rail footer's two
+   autowrap labels had no minimum *width*, so they reported an enormous minimum
+   *height* — which is what fed trap 1.
+3. **`theme/dark_theme.tres` gives `ScrollContainer/styles/panel` the
+   `SB_FieldDisabled` box** — an input-well stylebox, with
+   `content_margin_left/right = 10`, a border and a **4 px corner radius**, on a
+   container that draws no chrome on either canvas screen. Every scrolled region
+   in the shell is inset 10 px against its own header band; here it put the
+   column headers 10 px right of the breadcrumb above them. Overridden per
+   scroll region in this window; **the theme itself is untouched and still has
+   this, shell-wide** — a global fix belongs in its own pass with its own visual
+   check.
+
+Trap 1 was **a live regression in the shipped Asset library window too** — its
+status line was off the bottom edge on this display — and is fixed there in the
+same commit, confirmed by screenshot.
+
+**Verified by looking.** Non-headless boot on the native GL driver (no ANGLE
+fallback needed; `6a97911`'s launcher fix holds), a real 2048×1311 world, a real
+1024×590-cell marquee set through `region_set`, five screenshot/compare
+iterations against the canvas, a real export written and re-opened with
+`ZIPReader` (33 entries, `tiles/index.json` present), a dry run measured at
+5.2 MB / 0.58 s, Escape close driven through `Input.parse_input_event`, the
+Asset library re-shot to confirm the `wrap_controls` fix, and
+`--headless --path . --quit-after 120` clean.
+
+**Still open on this window:** every Sources and Validation route, GIS/GeoJSON
+in both directions, the save writer, and the pyramid half of DM-02 (zoom-level
+addressing, CRS, retina variants, ocean-tile skipping). All are disclosed in
+place, in the canvas's own shape.
