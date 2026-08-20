@@ -372,3 +372,108 @@ single-dedicated-GPU pipeline (context reuse, per `GPU_LAYER_INTEGRATION_
 SCOPE.md`'s own milestone 6 finding) are the higher-value next steps.
 Revisit this once those are real and the actual remaining headroom is
 clearer, not before.
+
+### 2026-08-20 — Multi-GPU: what it enumerates, and what splitting actually buys
+
+The "real idea, not yet scoped" directly above **is now built**, on the
+owner's direct instruction (2026-08-20). `GUI_GAP_REGISTER.md` PR-01/PR-02/
+PR-04/PR-05 are closed; `cartalith-gpu/src/multi.rs` is the code and
+`cartalith-gpu/tests/multi_gpu.rs` produced every number below on this
+machine. Nothing here is projected or scaled from another figure.
+
+**What this machine actually enumerates.** `wgpu` 30 returns **six adapters
+for three physical devices**, which is the first thing anyone building on
+this needs to know:
+
+| Adapter | Backend | Type | vendor:device |
+|---|---|---|---|
+| AMD Radeon RX 7800 XT | Vulkan | Discrete | `1002:747e` |
+| AMD Radeon(TM) Graphics | Vulkan | Integrated | `1002:13c0` |
+| AMD Radeon RX 7800 XT | Dx12 | Discrete | `1002:747e` |
+| AMD Radeon(TM) Graphics | Dx12 | Integrated | `1002:13c0` |
+| Microsoft Basic Render Driver | Dx12 | **Cpu** (software) | `1414:008c` |
+| AMD Radeon RX 7800 XT | Gl | Other | **`0000:0000`** |
+
+Two traps in that table. The OpenGL row reports **zero** vendor and device
+ids, so PCI identity cannot key it — and keying on the *name* instead would
+merge two identical cards, which is the canonical multi-GPU rig. The
+grouping rule in `multi.rs` handles both, and both are unit-tested against
+these exact six rows with no hardware needed.
+`PowerPreference::HighPerformance` resolves to the **Vulkan** discrete row,
+which is why Vulkan is the preferred backend when one GPU is reachable
+several ways: selecting the default device reproduces today's path exactly
+rather than quietly switching backend underneath it.
+
+**Per-device throughput, measured** (`per_device_warp_throughput_measured`,
+whole-grid `gpu_warp` dispatch, warm pipeline):
+
+| grid | RX 7800 XT | integrated Radeon | ratio |
+|---|---|---|---|
+| 1024² | 3.5 ms | 16.1 ms | 0.217 |
+| 2048² | 8.0 ms | 60.3 ms | 0.133 |
+| 4096² | 48.1 ms | 283.3 ms | 0.170 |
+
+The integrated GPU is worth roughly **one sixth** of the discrete one here.
+That number is now `device_weight`'s `IntegratedGpu` constant (0.17, the
+4096² figure), and it is the whole reason split-tiles can win at all: an
+even split would hand the slow device 50 % of the rows and guarantee a loss.
+
+**Split tiles, measured** (`split_tiles_across_two_real_devices_measured`,
+four runs):
+
+| grid | one device | split across both | ratio |
+|---|---|---|---|
+| 512² | 2.1 ms | 2.9 ms | **0.75x** |
+| 1024² | 3.5 ms | 4.4 ms | **0.81x** |
+| 2048² | 8.2 ms | 11.1 ms | **0.73x** |
+| 4096² | 48-56 ms | 36-42 ms | **1.22-1.54x** |
+
+So the honest answer to "does using the iGPU alongside the dedicated GPU
+help": **yes, at 4096² and above; no, below it.** The fixed cost of the
+second device (~1.8 ms, derived by fitting the measured times against the
+per-device model) exceeds a sixth of a small dispatch. The break-even sits
+between 2048² and 4096², and the port's default grids are far below that —
+which is why the shipped default is `single_device`, not §2.5's `split
+tiles`, and why the menu row carries these numbers in its tooltip instead of
+asserting a benefit. One asymmetry was found and removed before drawing this
+conclusion: assembling the split result by concatenating per-band `Vec`s
+charged splitting two whole-grid memcpys (~134 MB at 4096²) the single-device
+path never paid; each band now writes straight into its slice of the final
+buffer, which moved 4096² from 0.87x to 1.25x.
+
+**Only one stage is splittable, and that is a property of the algorithms,
+not of the effort spent.** Splitting a grid across devices is sound only
+where a cell's result depends on nothing outside its band. `gpu_warp`
+qualifies — pure function of `(x, y, seed)`, no input buffers, no neighbour
+reads. `gpu_gauss_blur` needs a halo (`blur_r * 3` is a large fraction of
+the grid at map scale); `gpu_jfa_plates` reads at ever-halving strides
+across the whole grid; `gpu_flow`'s pointer doubling walks a receiver forest
+that spans the grid by construction; `gpu_weather` advects moisture across
+the whole domain. `gpu_heterogeneity`/`gpu_height`/`gpu_resistance` are
+per-cell but read several full input fields, so bands would re-upload data
+they do not use. Splitting is therefore implemented for warp and stated as
+such, rather than implied to cover generation as a whole.
+
+**Determinism.** On one device a band is bit-identical to the same rows of
+the whole grid — asserted with `assert_eq!` on `f32`, no tolerance, because
+the kernel reads nothing but its own coordinates. Across two *different*
+devices the last bits can differ (two shader compilers): measured worst
+absolute divergence 2.9e-3 on an amplitude of 737 at 4096², i.e. ~4e-6
+relative. So a world is reproducible on the device set that made it, and may
+differ in the last bits on another set — the same class of difference
+`DECISIONS.md` §7a already accepts between the CPU and GPU paths, one level
+finer. The `use_gpu = false` path is untouched.
+
+**What `wgpu` 30 genuinely cannot tell us, and what was therefore not
+built.** `DCC_SHELL_SPEC.md` §2.5 designs a device row reading
+`GPU 0 · discrete 16 GB 71%` and a VRAM budget defaulting to "75 % of the
+smallest active device". **Neither number exists in the API**: there is no
+VRAM size on `AdapterInfo`, none derivable from `Adapter::limits()` (which
+is an API limit — this machine reports the same 2 GB `max_buffer_size` for
+the 16 GB discrete card and the shared-memory iGPU), and no system-wide
+utilisation query on any backend. What *is* real is
+`Device::generate_allocator_report()`, verified by running it: a 64 MB
+buffer moved the reported total from 524 728 to 67 633 592 bytes. So the UI
+shows **this application's own allocation total**, labelled as ours, and the
+VRAM budget defaults to *no cap* with the reason stated in the row rather
+than a fabricated percentage of an unknown quantity.

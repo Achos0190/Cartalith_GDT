@@ -1830,17 +1830,25 @@ impl WorldGen {
         true
     }
 
-    /// What the budget says about the **current** grid size:
+    /// What the budget says about a grid size:
     /// `estimate_mb` (int, this pipeline's upper-bound GPU working set),
     /// `budget_mb` (int, `0` = uncapped), `over_budget` (bool),
     /// `action` (`"gpu"` · `"cpu_fallback"` · `"fail"`), `gw`, `gh`.
+    ///
+    /// Pass the grid the **next** generate will use. `0` (or negative) for
+    /// either falls back to the stored parameters — which is only useful
+    /// after a generate has run: `WorldParams`' own `gw`/`gh` are `0` until
+    /// the first `generate*()` call sets them, so asking before then and
+    /// getting a `0x0` estimate back would be a silently useless answer.
+    /// Found by driving this headlessly rather than by reading it.
     ///
     /// The shell calls this before generating: with the fallback set to
     /// `fail_with_error` the *caller* is where the error belongs, since
     /// `generate_terrain` returns a world rather than a `Result`.
     #[func]
-    fn gpu_vram_estimate(&self) -> VarDictionary {
-        let (gw, gh) = (self.params.gw, self.params.gh);
+    fn gpu_vram_estimate(&self, gw: i64, gh: i64) -> VarDictionary {
+        let gw = if gw > 0 { gw as usize } else { self.params.gw };
+        let gh = if gh > 0 { gh as usize } else { self.params.gh };
         let need = cartalith_gpu::gpu_working_set_bytes(gw, gh);
         let budget = cartalith_gpu::preferences().vram_budget_bytes;
         let verdict = cartalith_gpu::vram_verdict(gw, gh);

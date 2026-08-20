@@ -52,6 +52,13 @@ cartalith-rng = { path = "../cartalith-rng" }
 # this adds no new dependency to the tree -- only to this crate's own graph.
 rayon = "1"
 
+# Multi-GPU (`GUI_GAP_REGISTER.md` PR-01/PR-02/PR-04/PR-05): this was a
+# dev-dependency while only the L0 timing harness needed it. The `gpu_*`
+# `#[func]` surface (device enumeration, selection, multi-GPU mode, VRAM
+# budget) is library code now, so it moved here. Not a new dependency in
+# the tree either way -- `cartalith-engine` above already pulls it in.
+cartalith-gpu = { path = "../cartalith-gpu" }
+
 [dev-dependencies]
 # `SCULPT_LIVE_SCOPE.md` milestone L0's timing harness
 # (`tests/sculpt_live_l0_bench.rs`) needs `compute_temperature`/
@@ -60,8 +67,5 @@ rayon = "1"
 # them (`cartalith-climate` itself moved to `[dependencies]` above once
 # `sample_bridge.rs` started calling it outside tests too), and
 # `cartalith-gpu`'s `_with` GPU flow/weather entry points to measure the
-# CPU-vs-GPU comparison the scope asks for -- already transitively pulled in
-# via `cartalith-engine` (a regular dependency above); dev-only here, so this
-# adds nothing to the shipped `cdylib`. Same pattern `cartalith-gpu`'s own
-# `Cargo.toml` already uses for its milestone 4/7/9 dev-dependencies.
-cartalith-gpu = { path = "../cartalith-gpu" }
+# CPU-vs-GPU comparison the scope asks for -- now a regular dependency
+# above (see its comment there), so it is no longer listed here.

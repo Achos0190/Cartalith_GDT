@@ -16889,3 +16889,120 @@ longer a control promising something the engine does not do.
 `PHASE2_SCOPE.md` (new milestone 21), `GUI_GAP_REGISTER.md` (CV-04, CV-08 ->
 closed; DM-07/08/09 -> resolved by deletion; §7.4 decision note),
 `DCC_SHELL_SPEC.md` (§2.4, §9), this file, `docs/STATUS.md`.
+
+## Multi-GPU: enumeration, device selection, split tiles, VRAM budget (2026-08-20)
+
+Closes `GUI_GAP_REGISTER.md` **PR-01 / PR-02 / PR-04 / PR-05** and omission
+**O3**, and answers its own open owner decision — PR-02's *"build device
+selection / dispatch modes / VRAM budgeting at all?"* — with the owner's
+2026-08-20 instruction to build it. Also cashes in
+`CPU_MULTITHREADING_SCOPE.md`'s closing note, which recorded the owner's
+integrated-GPU idea as *"a real, valid idea… recorded for later"*.
+
+Before this, `cartalith-gpu` requested exactly one adapter
+(`PowerPreference::HighPerformance`) and had no enumeration, no choice, no
+accounting, and no partitioning. New `cartalith-gpu/src/multi.rs` is all
+four; `DCC_SHELL_SPEC.md` §2.5's Performance rows are live in
+`Preferences ▸`.
+
+**Enumeration (PR-01).** `enumerate_devices()` folds `wgpu`'s per-*adapter*
+rows into one entry per *physical* GPU. That fold is the whole difficulty,
+and both of its cases came from looking at real output rather than
+imagining it: this machine returns **six adapters for three devices**, and
+the OpenGL row for the discrete card reports `vendor = device = 0`, so PCI
+identity cannot key it — while keying on the *name* instead would have
+merged two identical cards, which is the canonical multi-GPU rig and would
+have made the feature structurally unable to see the second one. So
+grouping keys on `(vendor, device)` where non-zero, and falls back to a
+name match only when it is unambiguous. `group_adapters` is a pure function
+over owned rows, unit-tested against this machine's exact six-row output
+with **no GPU present** — the headless/CI reality. Vulkan is preferred when
+one GPU is reachable several ways, because that is what `HighPerformance`
+already resolves to here (checked by running it), so selecting the default
+device reproduces today's path rather than quietly switching backend. The
+Windows software rasterizer is listed, flagged, and never selectable.
+
+**Selection.** Preferences are process-global in `cartalith-gpu`, not a
+`WorldParams` field, and deliberately: they describe *the machine*, and a
+device key stored per-world would travel in a `.zip` to a machine where it
+names nothing. `WorldParams::default()` and the whole `use_gpu = false`
+golden path are untouched — nothing here is read at all unless `use_gpu` is
+on, and the existing structural CPU-vs-GPU test still passes.
+
+**Split tiles (PR-02), and the honest measurement.** Only **one** stage is
+splittable, and that is a property of the algorithms: a band is sound only
+where a cell reads nothing outside it. `gpu_warp` qualifies (pure function
+of `(x, y, seed)`, no input buffers, no neighbour reads); `gpu_gauss_blur`
+needs a halo, `gpu_jfa_plates` reads at halving strides across the grid,
+`gpu_flow`'s pointer doubling walks a grid-spanning forest, `gpu_weather`
+advects across the whole domain, and the remaining per-cell kernels read
+several full input fields each. The audit is in `warp_grid_gpu_split`'s doc
+comment so nobody re-derives it. Measured on this machine (RX 7800 XT +
+integrated Radeon), four runs: **1.22-1.54x at 4096², but 0.73-0.81x at
+2048² and below** — the second device's ~1.8 ms fixed cost exceeds a sixth
+of a small dispatch, which is `GPU_LAYER_INTEGRATION_SCOPE.md` milestone
+6's overhead finding reappearing one level up. Band sizes come from
+*measured* per-device throughput (a shipped test times each device alone;
+integrated = 0.17 of discrete here), not a guess — an even split would hand
+the slow device half the rows and guarantee a loss at every size. One
+asymmetry was found and removed before drawing the conclusion: assembling
+the result by concatenating per-band `Vec`s charged splitting two
+whole-grid memcpys (~134 MB at 4096²) the single-device path never paid;
+each band now writes straight into its slice of the final buffer via
+`split_at_mut`, which moved 4096² from 0.87x to 1.25x. The shipped default
+is therefore `single device`, **not** §2.5's `split tiles`, with the
+numbers in the menu row's tooltip instead of an asserted benefit.
+**`alternate frames` is refused outright** — §2.5's own note is that it
+only helps the 3D viewport, and there is none.
+
+Determinism: on one device a band is bit-identical to the same rows of the
+whole grid, asserted with `assert_eq!` on `f32` and no tolerance. Across
+two *different* devices the last bits can differ (two shader compilers) —
+worst measured 2.9e-3 on an amplitude of 737, ~4e-6 relative — so a world
+is reproducible on the device set that made it. Same class of difference
+`DECISIONS.md` §7a already accepts between CPU and GPU, one level finer.
+
+**VRAM (PR-04 / PR-05), and two things `wgpu` cannot do.** The budget is
+real as a cap, over a documented upper bound (`gpu_working_set_bytes`: ten
+`f32` grids, derived from the storage-buffer count the heaviest stage binds
+plus staging). But **§2.5's `71%` live utilisation and its "default 75 % of
+the smallest active device" are both unobtainable** — `wgpu` 30 exposes no
+system-wide utilisation and no VRAM size on any backend, and
+`Adapter::limits()` is an API limit (this machine reports the same 2 GB
+`max_buffer_size` for a 16 GB card and a shared-memory iGPU). Neither is
+faked. The default is *no cap*, with the reason in the row; the memory
+readout is `Device::generate_allocator_report()` — verified by running it,
+a 64 MB buffer moved the total by 64 MB — labelled as **this app's own**
+allocations, with both allocated and reserved shown because dispatches free
+their buffers as they return. Of the three fallbacks, `CPU tile pass` is
+already exactly what the engine does on any GPU failure (wiring it
+discloses existing behaviour), `Fail with error` is real and lives in
+`EngineBridge.generate()` because `generate_terrain` returns a world rather
+than a `Result`, and **`Reduce working res` is refused** — nothing here
+computes a stage at a reduced grid and resamples back up.
+
+**Verified.** 54 + 8 `cartalith-gpu` tests (8 new hardware tests, every one
+skipping cleanly with no GPU; the pure grouping/partition/budget logic is
+unit-tested with none); 80 `cartalith-engine` tests including the ignored
+GPU-vs-CPU timing run and the structural `use_gpu` test; 272
+`cartalith-godot` tests across 8 binaries; clean clippy on all three (no
+new warnings); `cargo build -p cartalith-godot`. Then two scripted headless
+drives through the real gdext boundary: one over the `#[func]` surface
+(3 devices enumerated with correct fields, defaults correct, the three
+un-implemented choices all refused, selection round-tripping, a 1 MB cap
+flipping the verdict to `fail`, a real 256-grid generation reporting
+`["warp", "plate_assignment", "base_field_blur", "heterogeneity", "flow",
+"weather"]` and live memory, split mode reporting `warp_split` with **both**
+devices holding memory, and `use_gpu = false` reporting no GPU stages), and
+one booting the **real shell** and walking `Preferences ▸`: all four rows
+live, `Alternate frames`/`Reduce working res` disabled with reasons, and a
+simulated click on two device rows landing in both the engine and
+`user://cartalith_settings.cfg`. One design bug was found by that drive
+rather than by reading: `gpu_vram_estimate` asked `WorldParams`, whose
+`gw`/`gh` are `0` until the first generate, so it now takes the pending
+grid as arguments and the menu says "Estimate available after the first
+generate" instead of showing a `0x0` non-answer. A second was found by a
+test: the working-set assertion claimed 4096² exceeded 2 GB; it is 640 MB.
+
+Not verified: anything graphical. Still open in §2.5: **PR-03** (CPU worker
+threads) is untouched — Rayon still sizes its own pool.

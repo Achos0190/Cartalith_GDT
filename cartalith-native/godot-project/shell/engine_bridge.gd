@@ -52,6 +52,9 @@ func _ready() -> void:
 		and world_gen.has_method("get_map_height_km")
 	import_api = world_gen.has_method("import_heightmap") \
 		and world_gen.has_method("heightmap_grid_size")
+	gpu_api = world_gen.has_method("gpu_enumerate_devices") \
+		and world_gen.has_method("gpu_set_multi_mode")
+	_restore_gpu_prefs()
 	_read_param_table()
 	## `WorldParams::default()` is `false` in Rust, and stays that way: it is
 	## the golden-parity reference path (`GPU_LAYER_INTEGRATION_SCOPE.md`
@@ -166,6 +169,19 @@ var _gen_start_msec := 0
 
 func generate(request: Dictionary) -> void:
 	if generating:
+		return
+	## PR-05, `Fallback when VRAM full ▸ Fail with error`. The check belongs
+	## here rather than in Rust: `generate_terrain` returns a world, not a
+	## `Result`, and "refuse and say why" is a UI act. The other two settings
+	## need nothing here -- `cpu_tile_pass` is the engine silently taking its
+	## existing CPU route, which is correct-by-construction.
+	var vram := gpu_vram_estimate(int(request.get("grid_w", 0)), int(request.get("grid_h", 0)))
+	if String(vram.get("action", "gpu")) == "fail":
+		last_summary = "Refused: the %dx%d grid needs about %d MB of GPU buffers, over the %d MB VRAM budget, and Preferences ▸ Fallback when VRAM full is set to Fail with error." % [
+			int(vram.get("gw", 0)), int(vram.get("gh", 0)),
+			int(vram.get("estimate_mb", 0)), int(vram.get("budget_mb", 0))]
+		push_warning(last_summary)
+		generation_finished.emit(false)
 		return
 	generating = true
 	_gen_start_msec = Time.get_ticks_msec()
@@ -397,6 +413,86 @@ func quality_tiers() -> PackedStringArray:
 
 func recommended_quality_tier() -> String:
 	return world_gen.get_recommended_quality_tier()
+
+# -- Multi-GPU (`DCC_SHELL_SPEC.md` §2.5, `GUI_GAP_REGISTER.md` PR-01/02/04/05)
+
+## Thin pass-throughs, same `has_method` degrade the sized/import APIs use:
+## these landed after earlier GDExtension binaries shipped, and Preferences
+## should disable its rows against an older `.dll` rather than crash on a
+## missing method.
+var gpu_api := false
+
+func gpu_devices() -> Array:
+	return world_gen.gpu_enumerate_devices() if gpu_api else []
+
+func gpu_selected_devices() -> PackedStringArray:
+	return world_gen.gpu_selected_devices() if gpu_api else PackedStringArray()
+
+func gpu_set_selected_devices(keys: PackedStringArray) -> void:
+	if gpu_api:
+		world_gen.gpu_set_selected_devices(keys)
+		DccSettings.set_gpu_devices(keys)
+
+func gpu_multi_mode() -> String:
+	return String(world_gen.gpu_multi_mode()) if gpu_api else "single_device"
+
+func gpu_set_multi_mode(mode: String) -> bool:
+	if not gpu_api:
+		return false
+	var ok: bool = world_gen.gpu_set_multi_mode(mode)
+	if ok:
+		DccSettings.set_gpu_mode(mode)
+	return ok
+
+func gpu_vram_budget_gb() -> float:
+	return float(world_gen.gpu_vram_budget_gb()) if gpu_api else 0.0
+
+func gpu_set_vram_budget_gb(gb: float) -> void:
+	if gpu_api:
+		world_gen.gpu_set_vram_budget_gb(gb)
+		DccSettings.set_gpu_vram_budget_gb(gb)
+
+func gpu_vram_fallback() -> String:
+	return String(world_gen.gpu_vram_fallback()) if gpu_api else "cpu_tile_pass"
+
+func gpu_set_vram_fallback(name: String) -> bool:
+	if not gpu_api:
+		return false
+	var ok: bool = world_gen.gpu_set_vram_fallback(name)
+	if ok:
+		DccSettings.set_gpu_fallback(name)
+	return ok
+
+## `gw`/`gh` are the grid the **next** generate will use. Both `0` asks about
+## the last generated grid instead -- which is `0x0` before the first
+## generate, so callers that know the pending size should pass it.
+func gpu_vram_estimate(gw: int = 0, gh: int = 0) -> Dictionary:
+	return world_gen.gpu_vram_estimate(gw, gh) if gpu_api else {}
+
+func gpu_last_device_usage() -> Array:
+	return world_gen.gpu_last_device_usage() if gpu_api else []
+
+## Push the persisted §2.5 Performance settings into the engine at startup.
+##
+## Order matters: devices before mode, because `split_tiles` only actually
+## splits once at least two devices are selected. A device key that no longer
+## resolves (a GPU removed, a settings file copied between machines) is not
+## an error -- the engine degrades that selection to automatic on its own.
+func _restore_gpu_prefs() -> void:
+	if not gpu_api:
+		return
+	var keys := DccSettings.gpu_devices()
+	if not keys.is_empty():
+		world_gen.gpu_set_selected_devices(keys)
+	var mode := DccSettings.gpu_mode()
+	if mode != "":
+		world_gen.gpu_set_multi_mode(mode)
+	var gb := DccSettings.gpu_vram_budget_gb()
+	if gb > 0.0:
+		world_gen.gpu_set_vram_budget_gb(gb)
+	var fb := DccSettings.gpu_fallback()
+	if fb != "":
+		world_gen.gpu_set_vram_fallback(fb)
 
 # -- Files --------------------------------------------------------------------
 

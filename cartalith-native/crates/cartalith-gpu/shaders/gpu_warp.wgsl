@@ -7,14 +7,24 @@
 // operation-for-operation if either changes, matching that file's own
 // note about staying in lockstep with cartalith-noise's Rust side.
 
+// `band_rows`/`y_offset` are the multi-GPU split-tiles addition
+// (`HARDWARE_ACCELERATION.md`, 2026-08-20 section). The kernel writes a
+// CONTIGUOUS ROW BAND of `band_rows` rows starting at world row
+// `y_offset`, into a buffer sized `width * band_rows` -- so the output
+// index is band-local while the noise coordinate stays world-absolute.
+// `y_offset = 0, band_rows = height` is exactly the whole-grid case, and
+// is bit-identical to the pre-split kernel: `f32(gid.y + 0u)` is
+// `f32(gid.y)`, and `gid.y * width + gid.x` is unchanged. Every
+// single-device caller passes those values, so the existing path's
+// numbers do not move.
 struct WarpParams {
     seed: i32,
     width: u32,
     height: u32,
     wf: f32,
     amp: f32,
-    _pad0: f32,
-    _pad1: f32,
+    y_offset: u32,
+    band_rows: u32,
     _pad2: f32,
 }
 
@@ -81,12 +91,12 @@ fn gpu_fbm(x: f32, y: f32, s: i32) -> f32 {
 
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    if gid.x >= params.width || gid.y >= params.height {
+    if gid.x >= params.width || gid.y >= params.band_rows {
         return;
     }
     let idx = gid.y * params.width + gid.x;
     let xf = f32(gid.x) * params.wf;
-    let yf = f32(gid.y) * params.wf;
+    let yf = f32(gid.y + params.y_offset) * params.wf;
 
     let qx = gpu_fbm(xf, yf, params.seed + 17);
     let qy = gpu_fbm(xf, yf, params.seed + 101);

@@ -5,7 +5,43 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-20 (post **the two deferred auto-populate passes —
+Last updated: 2026-08-20 (post **Multi-GPU: enumeration, device selection,
+split tiles, VRAM budget** — the owner's 2026-08-20 answer to
+`GUI_GAP_REGISTER.md`'s own open decision PR-02, *build it*. Closes
+PR-01/PR-02/PR-04/PR-05 and omission O3. `cartalith-gpu` had requested
+exactly one `PowerPreference::HighPerformance` adapter and had no
+enumeration, no choice, no accounting, no partitioning; new
+`cartalith-gpu/src/multi.rs` is all four, and `Preferences ▸` carries the
+four §2.5 Performance rows for real. This machine enumerates **6 adapter
+rows for 3 physical GPUs** (RX 7800 XT discrete, integrated Radeon, and the
+Windows software rasterizer), and the discrete card's OpenGL row reports
+`vendor = device = 0` — so the physical-device fold keys on PCI identity
+with an unambiguous-name fallback, because keying on name alone would have
+merged two identical cards, which is exactly the rig this feature exists
+for. `split tiles` is real but covers **one** stage (`gpu_warp`, the only
+kernel reading nothing outside its own cell), and the measured answer is
+**1.22-1.54× at 4096² and 0.73-0.81× at 2048² and below**, so the shipped
+default is `single device` rather than §2.5's `split tiles`, with those
+numbers in the row's tooltip rather than an asserted benefit; band sizes
+come from measured per-device throughput (integrated = 0.17 × discrete),
+not a guess. Three §2.5 choices are **refused at the API rather than
+silently accepted**: `alternate frames`, `reduce working res`, and — as
+values that cannot exist — §2.5's `71%` live utilisation and its "VRAM
+budget default 75 % of the smallest active device", since `wgpu` 30 exposes
+no system-wide utilisation and no VRAM size on any backend. What is shown
+instead is `Device::generate_allocator_report()`, this app's own
+allocations, verified by moving it with a real 64 MB buffer. `use_gpu =
+false` is untouched and its structural test still passes. Verified: full
+suites on all three touched crates, clean clippy, and two scripted headless
+drives — one over the `#[func]` surface, one booting the real shell and
+walking the Preferences submenus, with a simulated device click landing in
+both the engine and `user://cartalith_settings.cfg`. Two real bugs were
+found by running rather than reading (`gpu_vram_estimate` was asking
+`WorldParams`, whose grid is `0×0` until the first generate; and a
+working-set assertion claimed 4096² passed 2 GB when it is 640 MB). Still
+open in §2.5: **PR-03**, CPU worker threads. Not verified: anything
+graphical.
+— previously, post **the two deferred auto-populate passes —
 `_civSelectMetropolises` + `_civApplyRecovery` — and the deletion of Data ▸
 Conversion**; three owner decisions of 2026-08-20). *Ports*: the v0.75
 imperial-seat tier (reference **24961-24989**; the harness caught that the
@@ -2469,6 +2505,39 @@ grid at four still-sequential `.iter().map()` call sites — the available
 parallelism is across sources on CPU, not within one traversal on GPU.
 See `GPU_LAYER_INTEGRATION_SCOPE.md`'s milestone 9 section and
 `CHANGELOG.md`'s own entry for the full record.
+
+**Multi-GPU: done (2026-08-20)** — owner instruction, closing
+`GUI_GAP_REGISTER.md` **PR-01/PR-02/PR-04/PR-05** and omission **O3**, and
+cashing in `CPU_MULTITHREADING_SCOPE.md`'s recorded integrated-GPU idea. New
+`cartalith-gpu/src/multi.rs`. **Enumerable on this machine**: 3 physical
+GPUs from 6 adapter rows — RX 7800 XT (discrete, Vulkan; also Dx12 and Gl),
+integrated Radeon (Vulkan; also Dx12), Microsoft Basic Render Driver
+(software, listed but never selectable). The Gl row reports
+`vendor = device = 0`, so grouping keys on PCI identity with an unambiguous
+name fallback — keying on name alone would have merged two identical cards,
+the canonical multi-GPU rig. **Real**: device enumeration + selection
+(each device provably opens), `single device`, `split tiles`, a VRAM cap
+over a documented working-set upper bound, `CPU tile pass` and `fail with
+error`. **Honestly disabled, refused at the API**: `alternate frames`
+(§2.5's own note says it only helps the 3D viewport; there is none) and
+`reduce working res` (nothing here resamples a stage down and back up).
+**Not implementable, and not faked**: §2.5's `71%` live utilisation and its
+"VRAM budget default 75 % of the smallest active device" — `wgpu` 30
+exposes no system-wide utilisation and no VRAM size on any backend
+(`Adapter::limits()` is an API limit: same 2 GB `max_buffer_size` reported
+for the 16 GB card and the shared-memory iGPU). What is shown instead is
+real: `Device::generate_allocator_report()`, this app's own allocations.
+**Split tiles covers exactly one stage** — `gpu_warp`, the only kernel here
+reading nothing outside its own cell (blur needs a halo; JFA, flow and
+weather all read across the grid) — and the measured verdict is
+**1.22-1.54× at 4096², 0.73-0.81× at 2048² and below**, so the shipped
+default is `single device`, not §2.5's `split tiles`, with the numbers in
+the menu tooltip. Band sizes come from measured per-device throughput
+(integrated = 0.17 × discrete here), not a guess. Determinism: bit-exact
+band-vs-whole-grid on one device; ~4e-6 relative across two different
+devices, `DECISIONS.md` §7a one level finer. `use_gpu = false` untouched.
+Still open in §2.5: **PR-03**, CPU worker threads. Full record in
+`HARDWARE_ACCELERATION.md`'s 2026-08-20 section and `CHANGELOG.md`.
 
 ## Memory optimization (`MEMORY_OPTIMIZATION_SCOPE.md`, done 2026-08-16)
 

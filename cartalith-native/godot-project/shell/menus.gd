@@ -77,6 +77,25 @@ var _ap_edit_popup: PopupMenu
 var _ap_batch_popup: PopupMenu
 var _ap_build_popup: PopupMenu
 var _ap_stats_idx: int = -1
+## §2.5 Performance ▸ the four multi-GPU rows (`GUI_GAP_REGISTER.md`
+## PR-01/PR-02/PR-04/PR-05). `_gpu_devices` is cached rather than
+## re-enumerated on every popup: enumeration opens a `wgpu` instance and walks
+## every backend, which is far too much work for a menu that opens on hover.
+## `Rescan devices…` is the explicit refresh, and is the honest place to put
+## the cost.
+var _gpu_devices_popup: PopupMenu
+var _gpu_mode_popup: PopupMenu
+var _gpu_vram_popup: PopupMenu
+var _gpu_fallback_popup: PopupMenu
+var _gpu_devices: Array = []
+const GPU_DEV_AUTO := 0
+const GPU_DEV_RESCAN := 1
+const GPU_DEV_FIRST := 100      ## device i is GPU_DEV_FIRST + i
+## §2.5's "VRAM budget · GB". A fixed ladder rather than a spinner: the value
+## only ever gates whole grid sizes, so a free-form GB field would offer a
+## precision the decision does not have.
+const GPU_VRAM_CHOICES: Array[float] = [0.0, 1.0, 2.0, 4.0, 8.0, 12.0, 16.0, 24.0]
+
 var _theme_popup: PopupMenu
 var _theme_mode := "dark"  ## "dark" / "light" / "system" -- which of the three
 	## radio rows shows checked. Not persisted (`DccSettings` carries no theme
@@ -452,10 +471,23 @@ func _preferences(p: PopupMenu) -> void:
 		"Runs domain warp, crustal heterogeneity, plate assignment and flow accumulation on the GPU. A given seed produces a genuinely different (not just faster) world with this on vs. off -- both are valid, but they don't match each other. Takes effect on the next generate.")
 	p.about_to_popup.connect(func():
 		p.set_item_checked(gpu_idx, bool(_bridge.param_get("use_gpu"))))
-	_todo(p, "Devices", "Multi-GPU device selection is not exposed by the engine yet.")
-	_todo(p, "Multi-GPU mode", "Same.")
+	## PR-01/PR-02/PR-04/PR-05: the four §2.5 Performance rows the engine now
+	## backs. Each is a submenu rather than a dialog -- every one of them is a
+	## small fixed choice, and a modal for four radio lists would be more
+	## chrome than content.
+	if _bridge.gpu_api:
+		_build_gpu_devices_menu(p)
+		_build_gpu_mode_menu(p)
+	else:
+		_todo(p, "Devices", "This GDExtension build predates the multi-GPU API (WorldGen.gpu_enumerate_devices is missing).")
+		_todo(p, "Multi-GPU mode", "Same.")
 	_todo(p, "CPU worker threads", "Rayon sizes its own pool; no override is exposed.")
-	_todo(p, "VRAM budget", "Not exposed.")
+	if _bridge.gpu_api:
+		_build_gpu_vram_menu(p)
+		_build_gpu_fallback_menu(p)
+	else:
+		_todo(p, "VRAM budget", "Same -- this build predates the multi-GPU API.")
+		_todo(p, "Fallback when VRAM full", "Same.")
 	p.add_separator()
 
 	## Render quality is real: the engine ships named tiers and recommends one.
@@ -521,6 +553,231 @@ func _preferences(p: PopupMenu) -> void:
 	_todo(p, "Units", "The shell is km-only; the reference's mi toggle is not ported.")
 	_todo(p, "Keyboard shortcuts…", "No shortcut table yet.")
 	p.id_pressed.connect(_on_preferences.bind(p))
+
+# -- §2.5 Performance ▸ multi-GPU ---------------------------------------------
+
+## §2.5: "Expands to a per-device checklist with live utilisation ... Unchecking
+## a device excludes it from dispatch."
+##
+## The checklist is real. The **utilisation percentage is not, and is not
+## faked**: `wgpu` 30 reports no system-wide GPU utilisation and no VRAM size
+## on any backend, so `GPU 0 · discrete 16 GB 71%` cannot be produced honestly.
+## What each row shows instead is what is genuinely knowable -- class, backend
+## and driver -- and the footer shows the one real memory number there is:
+## this application's own allocation total from the last GPU generation.
+func _build_gpu_devices_menu(p: PopupMenu) -> void:
+	_gpu_devices_popup = PopupMenu.new()
+	_gpu_devices_popup.name = "GpuDevices"
+	_shell.style_popup(_gpu_devices_popup)
+	_gpu_devices_popup.id_pressed.connect(_on_gpu_device_choice)
+	_gpu_devices_popup.about_to_popup.connect(_refresh_gpu_devices_menu)
+	p.add_child(_gpu_devices_popup)
+	p.add_submenu_item("Devices", "GpuDevices")
+	_gpu_devices = _bridge.gpu_devices()
+	_refresh_gpu_devices_menu()
+
+func _refresh_gpu_devices_menu() -> void:
+	var pm := _gpu_devices_popup
+	pm.clear()
+	var selected := _bridge.gpu_selected_devices()
+
+	pm.add_check_item("Automatic (highest-performance GPU)", GPU_DEV_AUTO)
+	pm.set_item_checked(pm.item_count - 1, selected.is_empty())
+	pm.set_item_tooltip(pm.item_count - 1,
+		"The default, and what this port always did: one PowerPreference::HighPerformance adapter. Check a device below to override it.")
+	pm.add_separator()
+
+	if _gpu_devices.is_empty():
+		pm.add_item("No GPU detected")
+		pm.set_item_disabled(pm.item_count - 1, true)
+		pm.set_item_tooltip(pm.item_count - 1,
+			"wgpu enumerated no adapters. Generation runs entirely on the CPU, which is the reference path and produces correct worlds -- just slower on the four GPU-eligible substrate stages.")
+	for i in _gpu_devices.size():
+		var d: Dictionary = _gpu_devices[i]
+		var label := "%s · %s · %s" % [String(d.get("name", "?")), String(d.get("kind", "?")), String(d.get("backend", "?"))]
+		pm.add_check_item(label, GPU_DEV_FIRST + i)
+		var idx := pm.item_count - 1
+		pm.set_item_checked(idx, String(d.get("key", "")) in selected)
+		var alts: PackedStringArray = d.get("alt_backends", PackedStringArray())
+		var alt_txt := (" Also reachable over %s." % ", ".join(alts)) if not alts.is_empty() else ""
+		if bool(d.get("software", false)):
+			pm.set_item_disabled(idx, true)
+			pm.set_item_tooltip(idx,
+				"A software rasterizer, not a GPU. Never dispatched to: it would be slower than the CPU path it is pretending to accelerate. Listed rather than hidden because it is genuinely what the system enumerates.")
+		else:
+			pm.set_item_tooltip(idx,
+				"driver %s %s.%s Max buffer %d MB.%s" % [
+					String(d.get("driver", "?")), String(d.get("driver_info", "")), alt_txt,
+					int(d.get("max_buffer_mb", 0)),
+					"" if bool(d.get("compute", true)) else " No compute-shader support -- cannot run this pipeline."])
+
+	pm.add_separator()
+	## The honest memory readout, in place of §2.5's un-obtainable percentage.
+	var usage := _bridge.gpu_last_device_usage()
+	if usage.is_empty():
+		pm.add_item("Memory: not measured yet")
+		pm.set_item_disabled(pm.item_count - 1, true)
+		pm.set_item_tooltip(pm.item_count - 1,
+			"Measured during a GPU generation, not polled. Generate once with GPU acceleration on and this shows real numbers.")
+	else:
+		for u in usage:
+			pm.add_item("%s: %d MB allocated (%d MB reserved)" % [
+				String(u.get("name", "?")), int(u.get("allocated_mb", 0)), int(u.get("reserved_mb", 0))])
+			pm.set_item_disabled(pm.item_count - 1, true)
+			pm.set_item_tooltip(pm.item_count - 1,
+				"This application's own GPU memory at the end of the last GPU generation, from wgpu's allocator. Not system-wide VRAM use, and not a utilisation percentage -- neither is queryable through wgpu on any backend. Read the two together: every dispatch frees its buffers as it returns, so allocated falls back to the idle baseline while reserved is what the allocator still holds from the driver -- reserved is the number that answers how much of the card this app is occupying.")
+	pm.add_separator()
+	pm.add_item("Rescan devices…", GPU_DEV_RESCAN)
+
+func _on_gpu_device_choice(id: int) -> void:
+	if id == GPU_DEV_RESCAN:
+		_gpu_devices = _bridge.gpu_devices()
+		_refresh_gpu_devices_menu()
+		return
+	if id == GPU_DEV_AUTO:
+		_bridge.gpu_set_selected_devices(PackedStringArray())
+		_refresh_gpu_devices_menu()
+		return
+	var i := id - GPU_DEV_FIRST
+	if i < 0 or i >= _gpu_devices.size():
+		return
+	var key := String((_gpu_devices[i] as Dictionary).get("key", ""))
+	var selected := _bridge.gpu_selected_devices()
+	var at := Array(selected).find(key)
+	if at >= 0:
+		selected.remove_at(at)
+	else:
+		selected.append(key)
+	_bridge.gpu_set_selected_devices(selected)
+	_refresh_gpu_devices_menu()
+
+## §2.5: "`split tiles` (default) · `alternate frames` · `single device`".
+##
+## Two deliberate departures, both disclosed in the rows themselves:
+## `alternate frames` is **disabled** (§2.5's own note is that it only helps
+## the 3D viewport, and there is no 3D viewport), and the default here is
+## `single device` rather than `split tiles`, because splitting was measured
+## on real hardware and only pays above 2048² -- the tooltip carries the
+## numbers rather than asserting a benefit.
+func _build_gpu_mode_menu(p: PopupMenu) -> void:
+	_gpu_mode_popup = PopupMenu.new()
+	_gpu_mode_popup.name = "GpuMultiMode"
+	_shell.style_popup(_gpu_mode_popup)
+	_gpu_mode_popup.add_radio_check_item("Single device", 0)
+	_gpu_mode_popup.set_item_tooltip(0,
+		"Everything on the one selected (or automatic) device. The default.")
+	_gpu_mode_popup.add_radio_check_item("Split tiles", 1)
+	_gpu_mode_popup.set_item_tooltip(1,
+		"Partitions the domain-warp stage into row bands across every selected device, sized by measured per-device throughput. Only that one stage: it is the only GPU stage here whose kernel reads nothing outside its own cell -- blur needs a halo, plate assignment and flow accumulation read across the whole grid. Measured on this machine (RX 7800 XT + integrated Radeon): 1.2-1.5x at 4096 squared, but 0.7-0.8x at 2048 squared and below, where the second device's fixed cost exceeds what it contributes. Needs two devices checked above.")
+	_gpu_mode_popup.add_radio_check_item("Alternate frames", 2)
+	_gpu_mode_popup.set_item_disabled(2, true)
+	_gpu_mode_popup.set_item_tooltip(2,
+		"Not built. The spec's own note is that alternate-frame rendering only helps the 3D viewport, and this port has no 3D viewport (DECISIONS.md section 4 defers 3D to Phase 3). Selecting it would be indistinguishable from Single device while implying otherwise.")
+	_gpu_mode_popup.id_pressed.connect(_on_gpu_mode_choice)
+	_gpu_mode_popup.about_to_popup.connect(_refresh_gpu_mode_menu)
+	_shell.style_popup(_gpu_mode_popup)
+	p.add_child(_gpu_mode_popup)
+	p.add_submenu_item("Multi-GPU mode", "GpuMultiMode")
+	_refresh_gpu_mode_menu()
+
+func _refresh_gpu_mode_menu() -> void:
+	var mode := _bridge.gpu_multi_mode()
+	_gpu_mode_popup.set_item_checked(0, mode == "single_device")
+	_gpu_mode_popup.set_item_checked(1, mode == "split_tiles")
+	_gpu_mode_popup.set_item_checked(2, mode == "alternate_frames")
+
+func _on_gpu_mode_choice(id: int) -> void:
+	var names := ["single_device", "split_tiles", "alternate_frames"]
+	if id < 0 or id >= names.size():
+		return
+	if _bridge.gpu_set_multi_mode(names[id]):
+		_refresh_gpu_mode_menu()
+
+## §2.5: "VRAM budget — GB, default 75 % of the smallest active device."
+##
+## The cap is real; **that default is not implementable and is not faked**.
+## `wgpu` 30 reports no VRAM size for an adapter at all, so there is no
+## quantity to take 75 % of -- the default is "no cap", and the row says so.
+func _build_gpu_vram_menu(p: PopupMenu) -> void:
+	_gpu_vram_popup = PopupMenu.new()
+	_gpu_vram_popup.name = "GpuVramBudget"
+	_shell.style_popup(_gpu_vram_popup)
+	for i in GPU_VRAM_CHOICES.size():
+		var gb: float = GPU_VRAM_CHOICES[i]
+		_gpu_vram_popup.add_radio_check_item("No cap" if gb <= 0.0 else "%d GB" % int(gb), i)
+	_gpu_vram_popup.set_item_tooltip(0,
+		"The default. The spec asks for 75 percent of the smallest active device, which cannot be computed: wgpu exposes no VRAM size for an adapter on any backend, so there is nothing to take a percentage of.")
+	_gpu_vram_popup.id_pressed.connect(_on_gpu_vram_choice)
+	_gpu_vram_popup.about_to_popup.connect(_refresh_gpu_vram_menu)
+	p.add_child(_gpu_vram_popup)
+	p.add_submenu_item("VRAM budget", "GpuVramBudget")
+	_refresh_gpu_vram_menu()
+
+func _refresh_gpu_vram_menu() -> void:
+	var cur := _bridge.gpu_vram_budget_gb()
+	for i in GPU_VRAM_CHOICES.size():
+		_gpu_vram_popup.set_item_checked(i, is_equal_approx(GPU_VRAM_CHOICES[i], cur))
+	## The estimate is the whole reason the cap is meaningful, so it is shown
+	## against the *current* grid rather than left for the user to guess.
+	var est := _bridge.gpu_vram_estimate()
+	var idx := _gpu_vram_popup.get_item_index(GPU_VRAM_CHOICES.size())
+	if idx >= 0:
+		_gpu_vram_popup.remove_item(idx)
+	if not est.is_empty():
+		## `gw`/`gh` are 0 until the first generate -- say that, rather than
+		## printing "0x0 needs about 0 MB", which reads like a measurement.
+		var label := "Current grid %dx%d needs about %d MB" % [
+			int(est.get("gw", 0)), int(est.get("gh", 0)), int(est.get("estimate_mb", 0))]
+		if int(est.get("gw", 0)) <= 0:
+			label = "Estimate available after the first generate"
+		_gpu_vram_popup.add_item(label, GPU_VRAM_CHOICES.size())
+		var i2 := _gpu_vram_popup.item_count - 1
+		_gpu_vram_popup.set_item_disabled(i2, true)
+		_gpu_vram_popup.set_item_tooltip(i2,
+			"An upper bound on what this pipeline's own GPU buffers need, not a measurement of card occupancy: ten f32 grids, the count the heaviest stage (plate assignment) binds plus its staging buffers. Over budget, the fallback below decides what happens.")
+
+func _on_gpu_vram_choice(id: int) -> void:
+	if id < 0 or id >= GPU_VRAM_CHOICES.size():
+		return
+	_bridge.gpu_set_vram_budget_gb(GPU_VRAM_CHOICES[id])
+	_refresh_gpu_vram_menu()
+
+## §2.5: "`CPU tile pass` (default) · `reduce working res` · `fail with error`".
+## The first is already exactly what this port does whenever the GPU path is
+## unavailable, so wiring it discloses existing behaviour; the third is real;
+## the middle one has no implementation and is disabled rather than accepted.
+func _build_gpu_fallback_menu(p: PopupMenu) -> void:
+	_gpu_fallback_popup = PopupMenu.new()
+	_gpu_fallback_popup.name = "GpuVramFallback"
+	_shell.style_popup(_gpu_fallback_popup)
+	_gpu_fallback_popup.add_radio_check_item("CPU tile pass", 0)
+	_gpu_fallback_popup.set_item_tooltip(0,
+		"The default, and already what happens on any GPU failure: the stage runs on the CPU instead. The CPU path is this port's reference implementation, so the world stays correct -- only slower.")
+	_gpu_fallback_popup.add_radio_check_item("Reduce working res", 1)
+	_gpu_fallback_popup.set_item_disabled(1, true)
+	_gpu_fallback_popup.set_item_tooltip(1,
+		"Not built. Nothing in this pipeline computes a stage at a reduced grid and resamples back up -- LOD tile synthesis resamples an already-finished field, which is a different operation. Left visible so the gap is stated rather than silently missing.")
+	_gpu_fallback_popup.add_radio_check_item("Fail with error", 2)
+	_gpu_fallback_popup.set_item_tooltip(2,
+		"Refuse to generate rather than quietly dropping to the CPU. Useful when a benchmark run must be GPU or nothing.")
+	_gpu_fallback_popup.id_pressed.connect(_on_gpu_fallback_choice)
+	_gpu_fallback_popup.about_to_popup.connect(_refresh_gpu_fallback_menu)
+	p.add_child(_gpu_fallback_popup)
+	p.add_submenu_item("Fallback when VRAM full", "GpuVramFallback")
+	_refresh_gpu_fallback_menu()
+
+func _refresh_gpu_fallback_menu() -> void:
+	var cur := _bridge.gpu_vram_fallback()
+	_gpu_fallback_popup.set_item_checked(0, cur == "cpu_tile_pass")
+	_gpu_fallback_popup.set_item_checked(1, cur == "reduce_working_res")
+	_gpu_fallback_popup.set_item_checked(2, cur == "fail_with_error")
+
+func _on_gpu_fallback_choice(id: int) -> void:
+	var names := ["cpu_tile_pass", "reduce_working_res", "fail_with_error"]
+	if id < 0 or id >= names.size():
+		return
+	if _bridge.gpu_set_vram_fallback(names[id]):
+		_refresh_gpu_fallback_menu()
 
 func _on_preferences(id: int, p: PopupMenu) -> void:
 	if id == ID_PREF_STORAGE:

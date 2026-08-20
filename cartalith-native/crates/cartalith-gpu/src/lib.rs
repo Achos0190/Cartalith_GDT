@@ -14,6 +14,12 @@ use std::time::Instant;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
+/// Multi-GPU enumeration, selection, VRAM budgeting and split-tiles
+/// dispatch (`GUI_GAP_REGISTER.md` PR-01/PR-02/PR-04/PR-05). Re-exported
+/// flat, like everything else this crate offers.
+mod multi;
+pub use multi::*;
+
 const SHADER_SRC: &str = include_str!("../shaders/vnoise.wgsl");
 /// Secondary experiment (`init_gpu_f64`): same kernel, `f64` shader
 /// arithmetic, gated behind `wgpu::Features::SHADER_F64` (Vulkan-only,
@@ -222,8 +228,12 @@ struct WarpParams {
     height: u32,
     wf: f32,
     amp: f32,
-    _pad0: f32,
-    _pad1: f32,
+    /// Multi-GPU split-tiles: world row of this band's first row. `0` for
+    /// every single-device caller, which is bit-identical to the
+    /// pre-split kernel -- see the shader's own comment.
+    y_offset: u32,
+    /// Rows this dispatch actually writes (`height` for the whole grid).
+    band_rows: u32,
     _pad2: f32,
 }
 
@@ -813,14 +823,24 @@ fn request_gpu_device(
 ) -> Result<RawGpuDevice, GpuInitError> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
 
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        force_fallback_adapter: false,
-        compatible_surface: None,
-        apply_limit_buckets: false,
-    }))
-    .map_err(|_| GpuInitError::NoAdapter)?;
+    // PR-01: the adapter is now *chosen* rather than always the first
+    // `HighPerformance` match -- but only when a selection exists. With no
+    // preference set (the default), `pick_primary_adapter` makes the exact
+    // same `request_adapter(HighPerformance)` call this function always did.
+    let adapter = multi::pick_primary_adapter(&instance).ok_or(GpuInitError::NoAdapter)?;
+    request_gpu_device_from(adapter, required_features, min_storage_buffers, device_label)
+}
 
+/// [`request_gpu_device`]'s body, for an adapter the caller already chose --
+/// which is what split-tiles needs: `init_gpu_device_set` resolves several
+/// adapters by key and opens a device on each, and none of them is "the
+/// `HighPerformance` one".
+fn request_gpu_device_from(
+    adapter: wgpu::Adapter,
+    required_features: wgpu::Features,
+    min_storage_buffers: u32,
+    device_label: &str,
+) -> Result<RawGpuDevice, GpuInitError> {
     if !adapter.features().contains(required_features) {
         return Err(GpuInitError::NoAdapter);
     }
@@ -1134,10 +1154,67 @@ fn dispatch_gpu(ctx: &GpuContext, width: u32, height: u32, seed: i32, scale: f32
 /// returning `(warp_x, warp_y)` -- one dispatch computes both, matching
 /// `compute_warp`'s own shape (see [`init_gpu_warp`]'s doc comment).
 fn dispatch_gpu_warp(ctx: &GpuContext, width: u32, height: u32, seed: i32, wf: f32, amp: f32) -> (Vec<f32>, Vec<f32>) {
-    let count = (width * height) as usize;
+    dispatch_gpu_warp_band(ctx, width, height, 0, height, seed, wf, amp)
+}
+
+/// The row-band form of [`dispatch_gpu_warp`]: computes rows
+/// `y_offset .. y_offset + band_rows` of a `width` x `height` grid and
+/// returns just that band, `width * band_rows` values per output.
+///
+/// `warp`'s kernel is the one GPU stage in this pipeline with **no**
+/// cross-cell dependency at all -- every output is a pure function of its
+/// own `(x, y, seed)`, with no input buffers and no neighbour reads -- so a
+/// row band computed alone is bit-identical, on the same device, to the
+/// same rows computed as part of the whole grid. That is what makes
+/// [`warp_grid_gpu_split`] a real partition rather than an approximation.
+/// (Across *different* devices the usual GPU-vs-GPU caveat applies; see
+/// that function's own doc comment.)
+#[allow(clippy::too_many_arguments)]
+fn dispatch_gpu_warp_band(
+    ctx: &GpuContext,
+    width: u32,
+    height: u32,
+    y_offset: u32,
+    band_rows: u32,
+    seed: i32,
+    wf: f32,
+    amp: f32,
+) -> (Vec<f32>, Vec<f32>) {
+    let count = (width * band_rows) as usize;
+    let mut bx = vec![0f32; count];
+    let mut by = vec![0f32; count];
+    dispatch_gpu_warp_band_into(ctx, width, height, y_offset, band_rows, seed, wf, amp, &mut bx, &mut by);
+    (bx, by)
+}
+
+/// [`dispatch_gpu_warp_band`] writing straight into caller-owned slices.
+///
+/// This exists for a measured reason, not for style: assembling
+/// [`warp_grid_gpu_split`]'s result by concatenating per-band `Vec`s made
+/// the split path pay two extra whole-grid memcpys (~134 MB at 4096x4096)
+/// that the single-device path does not, which is overhead charged to
+/// splitting rather than a property of it. Writing each band's readback
+/// directly into its slice of the final buffer removes that asymmetry, so
+/// the timing comparison measures the dispatch and not the bookkeeping.
+#[allow(clippy::too_many_arguments)]
+fn dispatch_gpu_warp_band_into(
+    ctx: &GpuContext,
+    width: u32,
+    height: u32,
+    y_offset: u32,
+    band_rows: u32,
+    seed: i32,
+    wf: f32,
+    amp: f32,
+    out_warp_x: &mut [f32],
+    out_warp_y: &mut [f32],
+) {
+    let count = (width * band_rows) as usize;
+    assert_eq!(out_warp_x.len(), count);
+    assert_eq!(out_warp_y.len(), count);
     let byte_len = (count * std::mem::size_of::<f32>()) as u64;
 
-    let params = WarpParams { seed, width, height, wf, amp, _pad0: 0.0, _pad1: 0.0, _pad2: 0.0 };
+    let params = WarpParams { seed, width, height, wf, amp, y_offset, band_rows, _pad2: 0.0 };
     let params_buf = ctx.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("warp params"),
         contents: bytemuck::bytes_of(&params),
@@ -1181,13 +1258,13 @@ fn dispatch_gpu_warp(ctx: &GpuContext, width: u32, height: u32, seed: i32, wf: f
             encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("warp pass"), timestamp_writes: None });
         pass.set_pipeline(&ctx.pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
-        pass.dispatch_workgroups(width.div_ceil(8), height.div_ceil(8), 1);
+        pass.dispatch_workgroups(width.div_ceil(8), band_rows.div_ceil(8), 1);
     }
     encoder.copy_buffer_to_buffer(&out_x, 0, &staging_x, 0, byte_len);
     encoder.copy_buffer_to_buffer(&out_y, 0, &staging_y, 0, byte_len);
     ctx.queue.submit(Some(encoder.finish()));
 
-    let read_back = |staging: &wgpu::Buffer| -> Vec<f32> {
+    let read_back = |staging: &wgpu::Buffer, dst: &mut [f32]| {
         let slice = staging.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |res| {
@@ -1196,12 +1273,12 @@ fn dispatch_gpu_warp(ctx: &GpuContext, width: u32, height: u32, seed: i32, wf: f
         ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
         rx.recv().expect("map_async channel closed").expect("buffer map failed");
         let data = slice.get_mapped_range().expect("get_mapped_range failed");
-        let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
+        dst.copy_from_slice(bytemuck::cast_slice(&data));
         drop(data);
         staging.unmap();
-        result
     };
-    (read_back(&staging_x), read_back(&staging_y))
+    read_back(&staging_x, out_warp_x);
+    read_back(&staging_y, out_warp_y);
 }
 
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 2: dispatch
@@ -2665,6 +2742,122 @@ pub fn assign_plates_grid_gpu(
 pub fn warp_grid_gpu_with(gpu: &GpuDevice, width: u32, height: u32, seed: i32, wf: f32, amp: f32) -> (Vec<f32>, Vec<f32>) {
     let ctx = init_gpu_warp_with(gpu);
     dispatch_gpu_warp(&ctx, width, height, seed, wf, amp)
+}
+
+/// One row band of [`warp_grid_gpu_with`], on one device: rows
+/// `y_offset .. y_offset + rows` of a `width` x `height` grid, returned as
+/// `width * rows` values per output.
+///
+/// The building block [`warp_grid_gpu_split`] dispatches concurrently, and
+/// exposed on its own so the band arithmetic can be verified against the
+/// whole-grid result on a *single* device, where the two are required to be
+/// bit-identical.
+#[allow(clippy::too_many_arguments)]
+pub fn warp_band_gpu_with(
+    gpu: &GpuDevice,
+    width: u32,
+    height: u32,
+    y_offset: u32,
+    rows: u32,
+    seed: i32,
+    wf: f32,
+    amp: f32,
+) -> (Vec<f32>, Vec<f32>) {
+    let ctx = init_gpu_warp_with(gpu);
+    dispatch_gpu_warp_band(&ctx, width, height, y_offset, rows, seed, wf, amp)
+}
+
+/// One device's share of a [`warp_grid_gpu_split`] call: which device, which
+/// rows, and the disjoint slices of the final buffers it writes into.
+struct WarpBandJob<'a> {
+    gpu: &'a GpuDevice,
+    y_offset: u32,
+    rows: u32,
+    out_x: &'a mut [f32],
+    out_y: &'a mut [f32],
+}
+
+/// The `split tiles` multi-GPU mode, for the one stage where a partition is
+/// exact (`DCC_SHELL_SPEC.md` §2.5, `GUI_GAP_REGISTER.md` PR-02).
+///
+/// **Why warp and not another stage.** Splitting a grid across devices is
+/// only sound where a cell's output depends on nothing outside its own
+/// band. Auditing this pipeline's GPU stages against that test:
+///
+/// | Stage | Splittable |
+/// |---|---|
+/// | `gpu_warp` | **yes** — a pure function of `(x, y, seed)`; no input buffers, no neighbour reads at all |
+/// | `gpu_heterogeneity`, `gpu_height`, `gpu_resistance` | per-cell, but every one reads several full input fields, so each band would re-upload data it does not use |
+/// | `gpu_gauss_blur` | no — a radius-wide halo, and `blur_r * 3` at map scale is a large fraction of the grid |
+/// | `gpu_jfa_plates` | no — jump flooding reads at ever-halving strides across the whole grid |
+/// | `gpu_flow` | no — pointer doubling walks a receiver forest that spans the grid by construction |
+/// | `gpu_weather` | no — advection carries moisture across the whole domain |
+///
+/// So warp is not the *convenient* choice, it is the only stage in the
+/// current pipeline where this mode is a real partition rather than an
+/// approximation, and this function says so rather than implying the mode
+/// covers generation as a whole.
+///
+/// **What determinism this keeps, and what it does not.** On one device,
+/// a band computed alone is bit-identical to the same rows computed with
+/// the whole grid — the kernel reads nothing but its own coordinates. Across
+/// *different* devices the ordinary GPU-vs-GPU caveat applies (two shader
+/// compilers may contract multiply-adds differently), so a world generated
+/// with a given device set is reproducible on that same set, and may differ
+/// in the last bits from the same seed on a different set. That is the same
+/// class of difference `DECISIONS.md` §7a already accepts between the CPU
+/// and GPU paths, now one level finer; nothing about the `use_gpu = false`
+/// path is affected.
+///
+/// Bands are sized by [`split_rows`] from [`set_weights`] and dispatched
+/// concurrently, one thread per device — `wgpu`'s `Device`/`Queue` are
+/// `Send + Sync`, and each band's readback blocks its own thread, so
+/// without threads the devices would simply run one after another.
+pub fn warp_grid_gpu_split(
+    set: &GpuDeviceSet,
+    width: u32,
+    height: u32,
+    seed: i32,
+    wf: f32,
+    amp: f32,
+) -> (Vec<f32>, Vec<f32>) {
+    let devices = set.devices();
+    let bands = split_rows(height, &set_weights(set));
+    let n = (width as usize) * (height as usize);
+    let mut out_x = vec![0f32; n];
+    let mut out_y = vec![0f32; n];
+
+    // Hand each thread a disjoint `&mut` slice of the final buffers, so a
+    // band's readback lands where it belongs with no concatenation pass.
+    // `split_at_mut` in a loop is what proves disjointness to the borrow
+    // checker; nothing here needs a lock, and nothing needs `unsafe`.
+    let mut rest_x = out_x.as_mut_slice();
+    let mut rest_y = out_y.as_mut_slice();
+    let mut jobs: Vec<WarpBandJob<'_>> = Vec::with_capacity(devices.len());
+    for (gpu, &(y0, rows)) in devices.iter().zip(bands.iter()) {
+        let take = (width as usize) * (rows as usize);
+        let (mine_x, tail_x) = rest_x.split_at_mut(take);
+        let (mine_y, tail_y) = rest_y.split_at_mut(take);
+        rest_x = tail_x;
+        rest_y = tail_y;
+        jobs.push(WarpBandJob { gpu, y_offset: y0, rows, out_x: mine_x, out_y: mine_y });
+    }
+
+    std::thread::scope(|s| {
+        for job in jobs {
+            if job.rows == 0 {
+                continue;
+            }
+            s.spawn(move || {
+                let ctx = init_gpu_warp_with(job.gpu);
+                dispatch_gpu_warp_band_into(
+                    &ctx, width, height, job.y_offset, job.rows, seed, wf, amp, job.out_x, job.out_y,
+                );
+            });
+        }
+    });
+
+    (out_x, out_y)
 }
 
 /// `_with` sibling of [`heterogeneity_grid_gpu`].

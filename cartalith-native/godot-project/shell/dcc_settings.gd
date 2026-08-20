@@ -21,6 +21,11 @@ class_name DccSettings
 const CONFIG_PATH := "user://cartalith_settings.cfg"
 const _SEC_ROOTS := "storage_roots"
 const _SEC_RECENT := "recent"
+## `DCC_SHELL_SPEC.md` §2.5's Performance group -- the four multi-GPU
+## settings (`GUI_GAP_REGISTER.md` PR-01/PR-02/PR-04/PR-05). Machine state,
+## not world state: it belongs here rather than in a `.zip`, because a device
+## key names hardware this machine has and the next one may not.
+const _SEC_GPU := "gpu"
 const MAX_RECENT := 10
 
 ## Order matches §2.1's own listing.
@@ -93,4 +98,55 @@ static func remember_project(path: String) -> void:
 	if list.size() > MAX_RECENT:
 		list.resize(MAX_RECENT)
 	_cfg.set_value(_SEC_RECENT, "paths", list)
+	_save()
+
+# -- Multi-GPU (§2.5 Performance) ----------------------------------------------
+
+## Selected device keys, in dispatch order. **Empty is the default and means
+## "automatic"** -- not "no device". Keys are `WorldGen.gpu_enumerate_devices`'s
+## own stable ids, never array indices: enumeration order is the driver's, and
+## adding a GPU renumbers it.
+static func gpu_devices() -> PackedStringArray:
+	_ensure_loaded()
+	var raw = _cfg.get_value(_SEC_GPU, "devices", PackedStringArray())
+	var out := PackedStringArray()
+	for k in raw:
+		out.append(String(k))
+	return out
+
+static func set_gpu_devices(keys: PackedStringArray) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_GPU, "devices", keys)
+	_save()
+
+## `"single_device"` / `"split_tiles"` / `"alternate_frames"`. Empty string
+## means "never set", which the bridge treats as "leave the engine default".
+static func gpu_mode() -> String:
+	_ensure_loaded()
+	return String(_cfg.get_value(_SEC_GPU, "mode", ""))
+
+static func set_gpu_mode(mode: String) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_GPU, "mode", mode)
+	_save()
+
+## GB, `0` for no cap (the default -- see the engine's own note on why §2.5's
+## "75 % of the smallest active device" is not implementable).
+static func gpu_vram_budget_gb() -> float:
+	_ensure_loaded()
+	return float(_cfg.get_value(_SEC_GPU, "vram_budget_gb", 0.0))
+
+static func set_gpu_vram_budget_gb(gb: float) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_GPU, "vram_budget_gb", gb)
+	_save()
+
+## `"cpu_tile_pass"` / `"reduce_working_res"` / `"fail_with_error"`.
+static func gpu_fallback() -> String:
+	_ensure_loaded()
+	return String(_cfg.get_value(_SEC_GPU, "fallback", ""))
+
+static func set_gpu_fallback(name: String) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_GPU, "fallback", name)
 	_save()

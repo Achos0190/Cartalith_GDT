@@ -497,7 +497,21 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
     // did before this milestone -- one failure point instead of five
     // independent (and independently wasteful) retries of a failing
     // handshake.
-    let gpu_device = if p.use_gpu { cartalith_gpu::init_gpu_shared_device().ok() } else { None };
+    //
+    // Multi-GPU (`GUI_GAP_REGISTER.md` PR-01/PR-02/PR-04/PR-05): the single
+    // `init_gpu_shared_device()` call became `init_gpu_device_set()`, which
+    // honours the process-wide device selection and multi-GPU mode. With no
+    // preference set -- the default, and what every existing test and every
+    // untouched install has -- the set holds exactly one device, obtained by
+    // the exact same `PowerPreference::HighPerformance` request as before,
+    // so nothing below changes. `gpu_allowed_for_grid` is the VRAM budget
+    // gate and is unconditionally `true` while no budget is set.
+    let gpu_set = if p.use_gpu && cartalith_gpu::gpu_allowed_for_grid(gw, gh) {
+        cartalith_gpu::init_gpu_device_set().ok()
+    } else {
+        None
+    };
+    let gpu_device: Option<&cartalith_gpu::GpuDevice> = gpu_set.as_ref().map(|s| s.primary());
 
     // `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 9: flow accumulation is
     // called up to FOUR times below (structural drainage, discharge-weighted
@@ -507,7 +521,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
     // adapter/device handshake. `None` whenever `use_gpu` is off or the
     // device handshake failed; every call site below falls back to the real
     // `compute_flow` in that case (`HARDWARE_ACCELERATION.md` §27).
-    let gpu_flow = gpu_device.as_ref().map(cartalith_gpu::init_gpu_flow_with);
+    let gpu_flow = gpu_device.map(cartalith_gpu::init_gpu_flow_with);
     let flow_on_gpu = |field: &[f32], rain: Option<&[f32]>, use_rain: bool| -> Option<Vec<f32>> {
         gpu_flow.as_ref().map(|c| cartalith_gpu::dispatch_gpu_flow(c, gw, gh, field, rain, use_rain, world).acc)
     };
@@ -521,10 +535,22 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
             None
         } else {
             let wf = (2.5 / gw as f64) as f32; // non-world branch only, matching compute_warp's own `wf`
-            match gpu_device
-                .as_ref()
-                .map(|gpu| cartalith_gpu::warp_grid_gpu_with(gpu, gw as u32, gh as u32, p.tect.seed, wf, amp))
-            {
+            // PR-02 `split tiles`: warp is the one stage in this pipeline
+            // whose kernel reads nothing outside its own cell, so its row
+            // bands can genuinely run on different devices at once (see
+            // `warp_grid_gpu_split`'s own doc comment for the audit of why
+            // every other GPU stage here cannot). `is_split()` is false
+            // unless the mode is `split_tiles` AND at least two devices
+            // actually opened, so the single-device path below is what runs
+            // by default.
+            match gpu_set.as_ref().map(|set| {
+                if set.is_split() {
+                    gpu_stages_used.push("warp_split".to_string());
+                    cartalith_gpu::warp_grid_gpu_split(set, gw as u32, gh as u32, p.tect.seed, wf, amp)
+                } else {
+                    cartalith_gpu::warp_grid_gpu_with(set.primary(), gw as u32, gh as u32, p.tect.seed, wf, amp)
+                }
+            }) {
                 Some(wxy) => {
                     gpu_stages_used.push("warp".to_string());
                     Some(wxy)
@@ -595,7 +621,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
 
     let base_raw: Vec<f32> = plate_id.iter().map(|&pid| plates[pid].base as f32).collect();
     let base_field = if p.use_gpu {
-        match gpu_device.as_ref().map(|gpu| {
+        match gpu_device.map(|gpu| {
             cartalith_gpu::gauss_blur_grid_gpu_with(gpu, &base_raw, (p.tect.blur_r * 0.35).max(2.0), gw as u32, gh as u32, world)
         }) {
             Some(v) => {
@@ -626,7 +652,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
             zero_wy = vec![0f32; gw * gh];
             (zero_wx.as_slice(), zero_wy.as_slice())
         };
-        match gpu_device.as_ref().map(|gpu| {
+        match gpu_device.map(|gpu| {
             cartalith_gpu::heterogeneity_grid_gpu_with(gpu, gw as u32, gh as u32, hetero_seed, hf / gw as f32, &age_field, wx, wy)
         }) {
             Some(mut out) => {
@@ -842,7 +868,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
     // section for the honest numbers.
     let mut rainfall = if p.use_gpu {
         let grid = cartalith_climate::build_weather_grid(gw, gh, &field, 0.0, &weather_params);
-        match gpu_device.as_ref().map(|gpu| {
+        match gpu_device.map(|gpu| {
             cartalith_gpu::simulate_weather_loop_gpu_with(
                 gpu,
                 &grid.eh,
@@ -1007,7 +1033,7 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         temperature = compute_temperature(gw, gh, &field, None, &climate_params);
         rainfall = if p.use_gpu {
             let grid = cartalith_climate::build_weather_grid(gw, gh, &field, 0.0, &weather_params);
-            match gpu_device.as_ref().map(|gpu| {
+            match gpu_device.map(|gpu| {
                 cartalith_gpu::simulate_weather_loop_gpu_with(
                     gpu,
                     &grid.eh,
@@ -1081,6 +1107,13 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         stream_order = Some(order);
         river_mask = Some(rmask);
         river_floor = Some(rfloor);
+    }
+
+    // PR-04: record each active device's real allocation total *before* the
+    // set is dropped, so Preferences ▸ Devices can show a measured number
+    // without paying its own ~1.3 s adapter/device handshake to ask.
+    if let Some(set) = gpu_set.as_ref() {
+        cartalith_gpu::record_usage(set);
     }
 
     WorldState {
@@ -1162,7 +1195,8 @@ mod tests {
         // Grows by one name per newly-wired stage (milestone 7 added
         // "weather", milestone 9 adds "flow") -- an allow-list that must
         // track reality, not a weakened assertion.
-        let known = ["warp", "heterogeneity", "plate_assignment", "base_field_blur", "weather", "flow"];
+        let known =
+            ["warp", "warp_split", "heterogeneity", "plate_assignment", "base_field_blur", "weather", "flow"];
         for s in &a.gpu_stages_used {
             assert!(known.contains(&s.as_str()), "unexpected gpu_stages_used entry: {s}");
         }
