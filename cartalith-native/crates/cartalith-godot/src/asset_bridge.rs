@@ -34,9 +34,82 @@
 use std::collections::HashMap;
 
 use cartalith_assets::{
-    AssetDB, Anchor, DecodedImage, Family, ItemTransform, LibraryItem, PackEntries, PackManifest,
-    archive, decode_png, encode_png, fit_to_bottom, item_hash, library, render_item,
+    AssetDB, Anchor, ChromaKey, DecodedImage, Family, GridRect, ItemTransform, LibraryItem,
+    PackEntries, PackManifest, SliceCounts, SliceGrid, SliceOptions, archive, compute_cells, count_cells,
+    decode_png, encode_png, fit_to_bottom, item_hash, library, render_item, sheet_base_name,
+    slice_sheet,
 };
+
+/// The sprite-sheet slicer's loaded sheet — the reference's
+/// `SpriteSheetImporter.sheet` (`{img,cv,ctx,w,h,name}`, line 27833), minus
+/// the three canvas handles. Held on the session rather than passed per call
+/// so the modal's live `N cells detected · M non-empty` readout can re-run the
+/// real detection pass on every spinbox change without re-sending a 3072×2048
+/// PNG across the boundary each time.
+pub struct LoadedSheet {
+    pub name: String,
+    pub image: DecodedImage,
+}
+
+/// The slicer modal's four numbers plus its three toggles, in engine terms.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SliceParams {
+    pub cols: i64,
+    pub rows: i64,
+    /// §8's *Margin px* — a uniform inset of the reference's `gridRect`.
+    pub margin: f64,
+    pub spacing: f64,
+    /// `background → transparent` (`#alChEnable`/`#alChTol`), off when `None`.
+    pub chroma: Option<ChromaKey>,
+    /// §8's *Trim transparent edges* — a disclosed port-side addition; see
+    /// `cartalith_assets::slicer`'s module docs.
+    pub trim: bool,
+    /// `#alSlSkip`, on by default in the reference.
+    pub skip_blank: bool,
+}
+
+/// Where a slice's cells land. The first three are the reference's own
+/// `#alSlTarget` options; [`SliceTarget::Family`] is §8's instead — see
+/// [`AssetLibrarySession::apply_slice`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum SliceTarget {
+    Slot { uid: String },
+    NewCustom { name: String, set: String },
+    PerCell { set: String },
+    Family { family: Family, overwrite: bool },
+}
+
+/// Everything the slicer modal redraws on a settings change: the real
+/// detected/non-empty counts, plus the grid lines to draw them against.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SlicePreview {
+    pub counts: SliceCounts,
+    /// `(left, right)` per column, in sheet pixels.
+    pub col_spans: Vec<(f64, f64)>,
+    /// `(top, bottom)` per row, in sheet pixels.
+    pub row_spans: Vec<(f64, f64)>,
+}
+
+/// What a slice actually did — the numbers behind the reference's own
+/// `'Added N cells (M blank skipped) → slot'` toast.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SliceOutcome {
+    pub added: usize,
+    pub skipped_blank: usize,
+    /// Cells that had nowhere to go: a single-image family taking only the
+    /// first, or more cells than the target family has slots.
+    pub unplaced: usize,
+    /// Every slot uid the slice wrote to, in write order.
+    pub uids: Vec<String>,
+}
+
+/// The reference's `(E('alSlSet').value||'Default').trim()||'Default'` (line
+/// 27790) in `add_custom_slot`'s own terms: a blank set name means "let
+/// `AssetDB` apply its own `Default`", not "a set literally named nothing".
+fn set_or_none(set: &str) -> Option<&str> {
+    let t = set.trim();
+    (!t.is_empty()).then_some(t)
+}
 
 /// The live Asset Library: `AssetDB`'s metadata registry plus the decoded
 /// pixels behind every stored item.
@@ -44,6 +117,11 @@ pub struct AssetLibrarySession {
     pub db: AssetDB,
     /// uid -> decoded variants, index-parallel to `db`'s own `items(uid)`.
     images: HashMap<String, Vec<DecodedImage>>,
+    /// The slicer's currently-loaded sheet, if any. **Never** written to by a
+    /// slice: the operation is non-destructive (`DCC_SHELL_SPEC.md` §8), so
+    /// slicing the same sheet twice with different settings is a supported
+    /// thing to do.
+    sheet: Option<LoadedSheet>,
 }
 
 impl Default for AssetLibrarySession {
@@ -54,7 +132,7 @@ impl Default for AssetLibrarySession {
 
 impl AssetLibrarySession {
     pub fn new() -> Self {
-        AssetLibrarySession { db: AssetDB::new(), images: HashMap::new() }
+        AssetLibrarySession { db: AssetDB::new(), images: HashMap::new(), sheet: None }
     }
 
     /// The decoded pixels behind one stored item, if both `uid` and `index`
@@ -72,11 +150,23 @@ impl AssetLibrarySession {
     /// `Err` for an unknown `uid` or bytes that don't decode as a PNG —
     /// never a panic across the boundary.
     pub fn import_item(&mut self, uid: &str, name: String, bytes: &[u8]) -> Result<(), String> {
+        if self.db.get(uid).is_none() {
+            return Err(format!("no such slot: {uid}"));
+        }
+        let decoded = decode_png(bytes).map_err(|e| e.to_string())?;
+        self.insert_decoded(uid, name, decoded)
+    }
+
+    /// The reference's `mkItem` (line 27793) plus the store write: default
+    /// transform, `fitToBottom` on a bottom-anchored family, a real
+    /// [`item_hash`], and both stores advanced together. Shared by
+    /// [`AssetLibrarySession::import_item`] and the slicer, which build the
+    /// same item out of differently-sourced pixels.
+    fn insert_decoded(&mut self, uid: &str, name: String, decoded: DecodedImage) -> Result<(), String> {
         let Some(slot) = self.db.get(uid) else {
             return Err(format!("no such slot: {uid}"));
         };
         let family = slot.family;
-        let decoded = decode_png(bytes).map_err(|e| e.to_string())?;
         let mut transform = ItemTransform::default();
         if family.anchor() == Anchor::Bottom {
             fit_to_bottom(&mut transform, decoded.w, decoded.h, family.size());
@@ -95,6 +185,179 @@ impl AssetLibrarySession {
     /// [`import_item`] has a uid to target.
     pub fn add_custom_slot(&mut self, name: &str, set_name: Option<&str>) -> String {
         self.db.add_custom_slot(name, set_name).uid.clone()
+    }
+
+    // -- Sprite-sheet slicer (`SpriteSheetImporter`) -----------------------
+
+    /// `SpriteSheetImporter.loadSheet` (line 27825): decode a sprite sheet and
+    /// hold it for slicing. Replaces any previously-loaded sheet. `Err` for
+    /// bytes that don't decode as a PNG — never a panic across the boundary.
+    ///
+    /// PNG only, which is narrower than the reference's own
+    /// `png|jpe?g|gif|webp|bmp|svg` accept list: `cartalith-assets` builds
+    /// `image` with the `png` codec alone (its `Cargo.toml` says why), so this
+    /// reports the limit honestly rather than pretending to a decoder that is
+    /// not compiled in.
+    pub fn load_sheet(&mut self, name: String, bytes: &[u8]) -> Result<(u32, u32), String> {
+        let image = decode_png(bytes).map_err(|e| e.to_string())?;
+        let dims = (image.w, image.h);
+        self.sheet = Some(LoadedSheet { name, image });
+        Ok(dims)
+    }
+
+    /// Drop the loaded sheet (the modal closing, or a fresh pick failing).
+    pub fn clear_sheet(&mut self) {
+        self.sheet = None;
+    }
+
+    /// Turn the modal's four numbers into the reference's own grid: `margin`
+    /// insets `gridRect` ([`GridRect::inset`]), `cols`/`rows`/`spacing` go
+    /// through [`SliceGrid::new`]'s ported input guards.
+    fn build_grid(&self, p: &SliceParams) -> Result<(&LoadedSheet, SliceGrid), String> {
+        let Some(sheet) = self.sheet.as_ref() else {
+            return Err("No sprite sheet loaded.".to_string());
+        };
+        let Some(rect) = GridRect::inset(sheet.image.w, sheet.image.h, p.margin) else {
+            return Err("Margin leaves no room to slice.".to_string());
+        };
+        Ok((sheet, SliceGrid::new(rect, p.cols, p.rows, p.spacing)))
+    }
+
+    /// §8's `N cells detected · M non-empty` readout, computed by the real
+    /// detection pass ([`count_cells`]) rather than sampled — same crop, same
+    /// chroma key, same `isBlank` threshold the slice itself would use —
+    /// plus the column/row spans a grid *overlay* needs.
+    ///
+    /// The spans exist so the Godot side never reimplements
+    /// `computeCells`'s half-gutter arithmetic: an overlay drawn from the
+    /// obvious equal-pitch formula sits visibly off the cells the slice
+    /// actually cuts, which is exactly the class of drift the "no numbers in
+    /// GDScript" rule is there to prevent. `2*cols + 2*rows` floats at the
+    /// 128×128 ceiling is 512 — cheap enough to re-send on every spinbox
+    /// change.
+    pub fn slice_preview(&self, p: &SliceParams) -> Result<SlicePreview, String> {
+        let (sheet, grid) = self.build_grid(p)?;
+        let computed = compute_cells(&grid);
+        Ok(SlicePreview {
+            counts: count_cells(&sheet.image, &grid, p.chroma.as_ref()),
+            col_spans: computed.column_spans(),
+            row_spans: computed.row_spans(),
+        })
+    }
+
+    /// Slice the loaded sheet and land the cells in the library — the
+    /// reference's `addSlices()` (line 27782). Non-destructive: the sheet
+    /// stays loaded and untouched, so the same sheet can be re-sliced with
+    /// different settings.
+    ///
+    /// The four targets are the reference's own three plus one this port
+    /// adds:
+    ///
+    /// - [`SliceTarget::Slot`] — `alSlTarget` set to a real slot uid. A
+    ///   multi-variant family takes every cell; a single-image family takes
+    ///   the **first** cell and stops, replacing whatever was there
+    ///   (`store[uid]=[item]`, line 27818).
+    /// - [`SliceTarget::NewCustom`] — the reference's `__new__` + "New name":
+    ///   one new custom slot, every cell as a variant of it.
+    /// - [`SliceTarget::PerCell`] — the reference's `__percell__`: one new
+    ///   custom slot *per cell*, named `cell N` (line 27796).
+    /// - [`SliceTarget::Family`] — **not in the reference.**
+    ///   `DCC_SHELL_SPEC.md` §8's *Assign to family* + *Fill from
+    ///   first-empty/overwrite*, which the reference expresses as a flat slot
+    ///   dropdown instead. One cell per slot, in the family's frozen
+    ///   vocabulary order; `overwrite` starts at the first slot and replaces,
+    ///   otherwise only slots that are currently empty are filled. Composed
+    ///   entirely out of the reference's own primitives (`add_item` into a
+    ///   real slot) — no new arithmetic, nothing golden-covered changes.
+    pub fn apply_slice(&mut self, p: &SliceParams, target: &SliceTarget) -> Result<SliceOutcome, String> {
+        let (sheet, grid) = self.build_grid(p)?;
+        let base = sheet_base_name(&sheet.name);
+        let opts = SliceOptions { chroma: p.chroma, trim: p.trim, skip_blank: p.skip_blank };
+        let cells = slice_sheet(&sheet.image, &grid, &opts);
+        if cells.is_empty() {
+            return Err(if p.skip_blank {
+                "No cells to add — every cell in this grid is empty (or the grid is too dense).".to_string()
+            } else {
+                "No cells to add — the grid is too dense; reduce columns/rows or spacing.".to_string()
+            });
+        }
+        let skipped_blank = if p.skip_blank {
+            let total = (grid.cols as usize) * (grid.rows as usize);
+            total - cells.len()
+        } else {
+            0
+        };
+
+        let mut out = SliceOutcome { added: 0, skipped_blank, unplaced: 0, uids: Vec::new() };
+        match target {
+            SliceTarget::Slot { uid } => {
+                let Some(slot) = self.db.get(uid) else {
+                    return Err(format!("no such slot: {uid}"));
+                };
+                let multi = slot.family.is_multi();
+                if !multi {
+                    // `store[uid]=[item]`: a single-image family holds one.
+                    self.clear_slot_items(uid);
+                }
+                for cell in &cells {
+                    let name = cell.default_name(&base);
+                    self.insert_decoded(uid, name, cell.image.clone())?;
+                    out.added += 1;
+                    if !multi {
+                        break;
+                    }
+                }
+                out.uids.push(uid.clone());
+                out.unplaced = cells.len() - out.added;
+            }
+            SliceTarget::NewCustom { name, set } => {
+                let uid = self.add_custom_slot(name, set_or_none(set));
+                for cell in &cells {
+                    let item_name = cell.default_name(&base);
+                    self.insert_decoded(&uid, item_name, cell.image.clone())?;
+                    out.added += 1;
+                }
+                out.uids.push(uid);
+            }
+            SliceTarget::PerCell { set } => {
+                for cell in &cells {
+                    let name = cell.default_cell_name();
+                    let uid = self.add_custom_slot(&name, set_or_none(set));
+                    self.insert_decoded(&uid, name, cell.image.clone())?;
+                    out.added += 1;
+                    out.uids.push(uid);
+                }
+            }
+            SliceTarget::Family { family, overwrite } => {
+                let mut targets: Vec<String> = self
+                    .db
+                    .slots_in_family(*family)
+                    .into_iter()
+                    .map(|s| s.uid.clone())
+                    .collect();
+                if !overwrite {
+                    targets.retain(|uid| self.db.items(uid).is_empty());
+                }
+                if targets.is_empty() {
+                    return Err(if *overwrite {
+                        format!("The {} family has no slots to fill.", family.key())
+                    } else {
+                        format!("Every slot in the {} family is already filled.", family.key())
+                    });
+                }
+                for (cell, uid) in cells.iter().zip(&targets) {
+                    if *overwrite {
+                        self.clear_slot_items(uid);
+                    }
+                    let name = cell.default_name(&base);
+                    self.insert_decoded(uid, name, cell.image.clone())?;
+                    out.added += 1;
+                    out.uids.push(uid.clone());
+                }
+                out.unplaced = cells.len().saturating_sub(targets.len());
+            }
+        }
+        Ok(out)
     }
 
     // -- Removal / clearing ----------------------------------------------
@@ -506,6 +769,186 @@ mod tests {
         let png = s.thumbnail_png("icons:mountain", 0, 32).unwrap();
         let decoded = decode_png(&png).unwrap();
         assert_eq!((decoded.w, decoded.h), (32, 32));
+    }
+
+    // -- Sprite-sheet slicer ---------------------------------------------
+
+    /// A 4×2 sheet cut 2×1: the left cell opaque, the right cell fully
+    /// transparent — so "skip empty cells" has something real to skip, and
+    /// the non-empty count has a number other than the cell count.
+    fn half_blank_sheet() -> Vec<u8> {
+        let mut rgba = Vec::new();
+        for _y in 0..2 {
+            for x in 0..4u32 {
+                rgba.extend_from_slice(if x < 2 { &[7, 8, 9, 255] } else { &[0, 0, 0, 0] });
+            }
+        }
+        encode_png(&DecodedImage::new(4, 2, rgba).unwrap()).unwrap()
+    }
+
+    fn params(cols: i64, rows: i64) -> SliceParams {
+        SliceParams { cols, rows, margin: 0.0, spacing: 0.0, chroma: None, trim: false, skip_blank: true }
+    }
+
+    #[test]
+    fn slice_preview_reports_the_real_non_empty_count_not_a_sample() {
+        let mut s = AssetLibrarySession::new();
+        s.load_sheet("towns-sheet.png".to_string(), &half_blank_sheet()).unwrap();
+        let p = s.slice_preview(&params(2, 1)).unwrap();
+        assert_eq!((p.counts.total, p.counts.non_empty, p.counts.usable), (2, 1, true));
+        // The overlay spans come back engine-computed, one per column/row.
+        assert_eq!(p.col_spans, vec![(0.0, 2.0), (2.0, 4.0)]);
+        assert_eq!(p.row_spans, vec![(0.0, 2.0)]);
+    }
+
+    #[test]
+    fn slice_preview_without_a_sheet_is_an_error_not_a_panic() {
+        let s = AssetLibrarySession::new();
+        assert!(s.slice_preview(&params(2, 1)).is_err());
+    }
+
+    #[test]
+    fn load_sheet_rejects_non_png_bytes_without_panicking() {
+        let mut s = AssetLibrarySession::new();
+        assert!(s.load_sheet("x.gif".to_string(), b"not a png").is_err());
+    }
+
+    #[test]
+    fn slicing_into_a_multi_family_slot_adds_every_non_blank_cell() {
+        let mut s = AssetLibrarySession::new();
+        s.load_sheet("towns-sheet.png".to_string(), &half_blank_sheet()).unwrap();
+        let out = s
+            .apply_slice(&params(2, 1), &SliceTarget::Slot { uid: "icons:mountain".to_string() })
+            .unwrap();
+        assert_eq!((out.added, out.skipped_blank, out.unplaced), (1, 1, 0));
+        assert_eq!(s.db.items("icons:mountain").len(), 1);
+        // The reference's own `base_r1c1` naming, base = filename sans ext.
+        assert_eq!(s.db.items("icons:mountain")[0].name, "towns-sheet_r1c1");
+        assert_eq!(s.image("icons:mountain", 0).unwrap().rgba[0], 7);
+    }
+
+    #[test]
+    fn slicing_into_a_single_image_family_takes_the_first_cell_and_replaces() {
+        // `textures` is not multi: the reference does `store[uid]=[item]` and
+        // breaks after the first cell.
+        let mut s = AssetLibrarySession::new();
+        s.import_item("textures:grass", "old.png".to_string(), &png_bytes(4, 4, [1, 1, 1, 255])).unwrap();
+        s.load_sheet("t.png".to_string(), &half_blank_sheet()).unwrap();
+        let out = s
+            .apply_slice(
+                &SliceParams { skip_blank: false, ..params(2, 1) },
+                &SliceTarget::Slot { uid: "textures:grass".to_string() },
+            )
+            .unwrap();
+        assert_eq!((out.added, out.unplaced), (1, 1));
+        assert_eq!(s.db.items("textures:grass").len(), 1, "the old item was replaced, not appended to");
+        assert_eq!(s.db.items("textures:grass")[0].name, "t_r1c1");
+    }
+
+    #[test]
+    fn slicing_per_cell_makes_one_custom_slot_per_cell() {
+        let mut s = AssetLibrarySession::new();
+        s.load_sheet("sheet.png".to_string(), &half_blank_sheet()).unwrap();
+        let out = s
+            .apply_slice(&SliceParams { skip_blank: false, ..params(2, 1) }, &SliceTarget::PerCell { set: "Towns".to_string() })
+            .unwrap();
+        assert_eq!(out.added, 2);
+        assert_eq!(out.uids.len(), 2);
+        let names: Vec<&str> = out.uids.iter().map(|u| s.db.get(u).unwrap().name.as_str()).collect();
+        assert_eq!(names, vec!["cell 1", "cell 2"]);
+    }
+
+    #[test]
+    fn slicing_to_a_new_custom_slot_stacks_every_cell_as_a_variant() {
+        let mut s = AssetLibrarySession::new();
+        s.load_sheet("sheet.png".to_string(), &half_blank_sheet()).unwrap();
+        let out = s
+            .apply_slice(
+                &SliceParams { skip_blank: false, ..params(2, 1) },
+                &SliceTarget::NewCustom { name: "Windmill".to_string(), set: String::new() },
+            )
+            .unwrap();
+        assert_eq!((out.added, out.uids.len()), (2, 1));
+        assert_eq!(s.db.items(&out.uids[0]).len(), 2);
+    }
+
+    #[test]
+    fn family_fill_from_first_empty_skips_slots_that_already_have_art() {
+        let mut s = AssetLibrarySession::new();
+        // `settlement`'s first slot is already filled, so a first-empty fill
+        // must start at the second one and leave the first alone.
+        s.import_item("settlement:hamlet", "keep.png".to_string(), &png_bytes(4, 4, [3, 3, 3, 255])).unwrap();
+        s.load_sheet("pins.png".to_string(), &half_blank_sheet()).unwrap();
+        let out = s
+            .apply_slice(
+                &SliceParams { skip_blank: false, ..params(2, 1) },
+                &SliceTarget::Family { family: Family::Settlement, overwrite: false },
+            )
+            .unwrap();
+        assert_eq!(out.added, 2);
+        assert_eq!(s.db.items("settlement:hamlet")[0].name, "keep.png", "the filled slot was untouched");
+        assert_eq!(s.db.items("settlement:village").len(), 1);
+        assert_eq!(s.db.items("settlement:town").len(), 1);
+    }
+
+    #[test]
+    fn family_fill_with_overwrite_starts_at_the_first_slot_and_replaces() {
+        let mut s = AssetLibrarySession::new();
+        s.import_item("settlement:hamlet", "old.png".to_string(), &png_bytes(4, 4, [3, 3, 3, 255])).unwrap();
+        s.load_sheet("pins.png".to_string(), &half_blank_sheet()).unwrap();
+        s.apply_slice(
+            &SliceParams { skip_blank: false, ..params(2, 1) },
+            &SliceTarget::Family { family: Family::Settlement, overwrite: true },
+        )
+        .unwrap();
+        assert_eq!(s.db.items("settlement:hamlet").len(), 1);
+        assert_eq!(s.db.items("settlement:hamlet")[0].name, "pins_r1c1");
+    }
+
+    #[test]
+    fn a_slice_never_consumes_the_sheet() {
+        // Non-destructive per DCC_SHELL_SPEC.md §8: the same sheet slices
+        // twice, with different settings, without being reloaded.
+        let mut s = AssetLibrarySession::new();
+        s.load_sheet("sheet.png".to_string(), &half_blank_sheet()).unwrap();
+        s.apply_slice(&params(2, 1), &SliceTarget::Slot { uid: "icons:mountain".to_string() }).unwrap();
+        let again = s
+            .apply_slice(&params(1, 1), &SliceTarget::Slot { uid: "icons:hill".to_string() })
+            .unwrap();
+        assert_eq!(again.added, 1);
+        assert!(s.slice_preview(&params(2, 1)).is_ok());
+    }
+
+    #[test]
+    fn a_slice_that_would_add_nothing_is_an_error_rather_than_a_silent_no_op() {
+        let mut s = AssetLibrarySession::new();
+        // A fully transparent sheet with skip-empty on: nothing to add.
+        let blank = encode_png(&DecodedImage::new(4, 2, vec![0u8; 4 * 2 * 4]).unwrap()).unwrap();
+        s.load_sheet("blank.png".to_string(), &blank).unwrap();
+        let err = s
+            .apply_slice(&params(2, 1), &SliceTarget::Slot { uid: "icons:mountain".to_string() })
+            .unwrap_err();
+        assert!(err.contains("empty"), "{err}");
+        // And a too-dense grid says so instead.
+        s.load_sheet("sheet.png".to_string(), &half_blank_sheet()).unwrap();
+        let dense = SliceParams { spacing: 500.0, skip_blank: false, ..params(2, 1) };
+        assert!(s.apply_slice(&dense, &SliceTarget::PerCell { set: String::new() }).unwrap_err().contains("dense"));
+    }
+
+    #[test]
+    fn an_impossible_margin_is_an_error_not_a_negative_grid() {
+        let mut s = AssetLibrarySession::new();
+        s.load_sheet("sheet.png".to_string(), &half_blank_sheet()).unwrap();
+        let p = SliceParams { margin: 40.0, ..params(2, 1) };
+        assert!(s.slice_preview(&p).is_err());
+        assert!(s.apply_slice(&p, &SliceTarget::PerCell { set: String::new() }).is_err());
+    }
+
+    #[test]
+    fn slicing_into_an_unknown_slot_is_an_error_not_a_panic() {
+        let mut s = AssetLibrarySession::new();
+        s.load_sheet("sheet.png".to_string(), &half_blank_sheet()).unwrap();
+        assert!(s.apply_slice(&params(2, 1), &SliceTarget::Slot { uid: "nope:nope".to_string() }).is_err());
     }
 
     #[test]

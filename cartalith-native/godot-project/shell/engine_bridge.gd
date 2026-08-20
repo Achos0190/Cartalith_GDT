@@ -1147,3 +1147,37 @@ func as_batch_delete(uids: PackedStringArray) -> Dictionary:
 	if not world_gen.has_method("as_batch_delete"):
 		return {"ok": false, "deleted": 0}
 	return world_gen.as_batch_delete(uids)
+
+## Decodes a sprite sheet and holds it on the session for slicing (AS-09).
+## `{"ok": true, "w", "h", "name"}` or `{"ok": false, "error": ...}`. PNG only.
+func as_load_sheet(sheet_name: String, bytes: PackedByteArray) -> Dictionary:
+	if not world_gen.has_method("as_load_sheet"):
+		return {"ok": false, "error": "as_load_sheet not available on this binary", "w": 0, "h": 0}
+	return world_gen.as_load_sheet(sheet_name, bytes)
+
+## Drops the loaded sheet (the slicer modal closing).
+func as_clear_sheet() -> bool:
+	if not world_gen.has_method("as_clear_sheet"):
+		return false
+	return world_gen.as_clear_sheet()
+
+## The real `N cells detected · M non-empty` pass plus the overlay's grid lines
+## (AS-09). `{"ok", "total", "non_empty", "usable", "col_x0"/"col_x1"/"row_y0"/
+## "row_y1"}` -- the four span arrays are in sheet pixels, engine-computed, so
+## the overlay draws exactly the cells `as_slice_apply` will cut.
+func as_slice_preview(opts: Dictionary) -> Dictionary:
+	if not world_gen.has_method("as_slice_preview"):
+		return {"ok": false, "error": "as_slice_preview not available on this binary",
+			"total": 0, "non_empty": 0, "usable": false, "blank": PackedInt32Array(),
+			"col_x0": PackedFloat64Array(), "col_x1": PackedFloat64Array(),
+			"row_y0": PackedFloat64Array(), "row_y1": PackedFloat64Array()}
+	return world_gen.as_slice_preview(opts)
+
+## Slices the loaded sheet into the library (AS-09/AS-10/AS-11). Non-destructive:
+## the sheet stays loaded. `{"ok", "added", "skipped_blank", "unplaced", "uids"}`
+## or `{"ok": false, "error": ...}`.
+func as_slice_apply(opts: Dictionary) -> Dictionary:
+	if not world_gen.has_method("as_slice_apply"):
+		return {"ok": false, "error": "as_slice_apply not available on this binary",
+			"added": 0, "skipped_blank": 0, "unplaced": 0, "uids": PackedStringArray()}
+	return world_gen.as_slice_apply(opts)

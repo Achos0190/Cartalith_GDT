@@ -101,9 +101,17 @@
 //! `zip` crate, not a hand-port: what is ported is the reference's own
 //! STORE-the-PNGs / frozen-timestamp / `pack.json`-last export behaviour.
 //!
+//! Milestone 8 added [`slicer`]: the sprite-sheet slicer's real arithmetic
+//! and pixel work — `computeCells`'s half-gutter cell geometry,
+//! `cropCell`'s rounding and clipped blit, `applyChroma`'s background key,
+//! and `isBlank`'s alpha-8 threshold, all golden-verified against the
+//! reference — plus [`slicer::trim_transparent_edges`], the one control
+//! `DCC_SHELL_SPEC.md` §8 asks for that the reference does not have (a
+//! disclosed port-side addition; see that module's docs).
+//!
 //! Every part of the library UI, the sprite-sheet slicer's canvas
-//! interaction, and sprite compositing into the actual map render/ground-
-//! texture sampling (milestone 7, genuinely Phase-3-adjacent rendering work
+//! interaction (pan/zoom, draggable grid lines, click-to-select), and sprite
+//! compositing into the actual map render/ground-texture sampling (milestone 7, genuinely Phase-3-adjacent rendering work
 //! in `cartalith-godot`) are later milestones or explicitly out of scope; see
 //! `ASSET_LIBRARY_SCOPE.md`. **Nothing in the workspace depends on this crate
 //! yet** — by design, per this project's "don't wire in what nothing calls"
@@ -118,6 +126,7 @@ pub mod ordered_map;
 pub mod placement;
 pub mod raster;
 pub mod scatter;
+pub mod slicer;
 pub mod slots;
 
 #[cfg(feature = "zip")]
@@ -142,6 +151,12 @@ pub use ordered_map::OrderedMap;
 pub use placement::{
     IconCategory, IconKind, PlaceIconsRuledOpts, PlacedIcon, SpriteRect, icon_slot_for_item,
     place_map_icons_ruled, sprite_draw_rect,
+};
+pub use slicer::{
+    BLANK_ALPHA_THRESHOLD, CellGrid, CellRect, ChromaKey, GridRect, MAX_GRID_COUNT, SliceCounts,
+    SliceGrid, SliceOptions, SlicedCell, apply_chroma, cell_source_rect, clamp_grid_count,
+    compute_cells, count_cells, crop_cell, is_blank, sheet_base_name, slice_sheet,
+    trim_transparent_edges,
 };
 pub use scatter::{
     ScatterMode, ScatterRule, ScatterRuleTable, autopopulate_scatter_rules, current_scatter_rules,

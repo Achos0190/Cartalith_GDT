@@ -16245,3 +16245,142 @@ concurrent sprite-slicer dispatch.
 `cartalith-native/godot-project/shell/workspaces/infrastructure_workspace.gd`,
 `GUI_GAP_REGISTER.md` (new §13, plus a pointer from §5), this file,
 `docs/STATUS.md`.
+
+## Sprite-sheet slicer: the real slice operation (2026-08-20)
+
+`ASSET_LIBRARY_SCOPE.md` §11 (milestone 8); `GUI_GAP_REGISTER.md`
+AS-09/AS-10/AS-11 closed, AS-17 opened.
+
+The owner reported that "the asset slicer and management system lacks the
+functionality the html had". The previous entry's dispatch closed the
+management half (20 `as_*` `#[func]`s making the Asset Library window real).
+This closes the slicer half: `cartalith-assets` had no sheet-splitting
+function anywhere, so the modal's Slice button had nothing to call.
+
+**Ported** — `SpriteSheetImporter`, `Cartalith Gen1 v2.10.html` lines
+**27465-27870** (the whole object literal; `#alSlicerBtn` opens it at 28038):
+
+- `computeCells` (27590) → `slicer::compute_cells`
+- `cropCell` (27773) → `slicer::crop_cell` + `slicer::cell_source_rect`
+- `applyChroma` (27603) → `slicer::apply_chroma`
+- `isBlank` (27768) → `slicer::is_blank`
+- `clampInt` (27580) / `resetLines` (27581) → `slicer::clamp_grid_count`,
+  `SliceGrid::new`
+- `addSlices`'s targets and naming (27782-27824) → `asset_bridge::apply_slice`
+
+**The finding that mattered: spacing is a half-gutter, not a pitch.**
+`computeCells` starts each cell at its uniform division line moved in by
+`spacing/2` *unless it is the first* column/row, and ends it at the next
+division line moved back by `spacing/2` *unless it is the last*. The outer
+cells therefore come out `spacing/2` **wider** than the interior ones, and the
+classic equal-cell formula does not reproduce it — which is exactly what
+`asset_library_window.gd`'s grid overlay carried before this pass, so the
+preview drew a grid the slice would not have followed. Golden fixture
+`6x4 with spacing 8` over 3072px pins it: 508px outer, 504px interior, against
+the equal-cell formula's 505.33 for all six.
+
+**Two deliberate deviations, disclosed here per `CLAUDE.md`'s no-silent-
+deviation rule.** `DCC_SHELL_SPEC.md` §8's control list and the reference's
+own do not match:
+
+1. **`trim_transparent_edges` is an addition, not a port.** §8 asks for "Trim
+   transparent edges"; the reference slicer has no trim operation at all — its
+   second pixel toggle is `background → transparent`, a chroma key. Trim is
+   built out of the reference's *own* `BLANK_ALPHA_THRESHOLD` (alpha > 8) so
+   it can never disagree with `isBlank` about what content is; it has no
+   golden fixtures because there is nothing to be golden against, and nothing
+   that *is* a port depends on it. The reference's real chroma toggle is wired
+   as well, since it is real.
+2. **`SliceTarget::Family` is §8's framing, composed from reference
+   primitives.** §8 asks for "Assign to family" + "Fill from
+   first-empty/overwrite"; the reference expresses the same thing as a flat
+   target-slot dropdown. The family target fills one cell per slot in frozen
+   vocabulary order via `add_item` — no new arithmetic, nothing golden-covered
+   changed. The reference's own three targets are ported exactly, including
+   `store[uid]=[item]`'s replace-and-stop for a single-image family.
+
+§8 also lists a "Margin" control the reference does not have (it has a
+*draggable* `gridRect` instead). `GridRect::inset` expresses margin as the one
+case of `gridRect` it is, so the control is honest rather than invented.
+
+**Boundary**: `asset_bridge.rs` holds the decoded sheet on the session
+(`LoadedSheet`), so the modal's live readout re-runs the real detection pass
+on every spinbox change without re-sending a multi-megabyte PNG each time.
+Four new `#[func]`s — `as_load_sheet`, `as_clear_sheet`, `as_slice_preview`,
+`as_slice_apply` — each returning `{"ok": false, "error": ...}` rather than
+panicking, with every field present on the failure path too.
+`import_item`'s item-construction half was extracted to a shared
+`insert_decoded` (`mkItem` + the store write) rather than duplicated.
+
+**Godot**: the slicer modal is live end to end, and two things it deliberately
+does *not* do in GDScript. The `N cells detected · M non-empty` readout is
+`as_slice_preview`'s real detection pass — the 8×8-sampled GDScript probe it
+replaced was honestly labelled "not an exact pixel scan" and is deleted — and
+the grid overlay draws engine-computed cell spans (`CellGrid::column_spans`/
+`row_spans`, four `PackedFloat64Array`s plus the blank-cell indices) rather
+than recomputing the half-gutter arithmetic, which is precisely the drift the
+"no numbers in GDScript" rule exists to prevent. Slicing is non-destructive:
+the sheet stays loaded for a re-slice, and closing the modal drops it.
+
+**Verified:**
+
+- `tests/golden_parity_slicer.rs` (new), 5 tests: 10 `computeCells` fixtures
+  (220 cells), 6 `cropCell` rounding fixtures, 6 `isBlank`, 5 `applyChroma`.
+  Extracted by a Node `vm` harness (transient, not committed — the same
+  technique every earlier milestone uses) that asserts **both ends** of the
+  27465-27870 range and the presence of all four functions before evaluating
+  anything, per this port's "verify the line range" rule. The fixture tables
+  assert their own size and total cell count, per its "watch for
+  silently-empty golden output" rule. `cropCell`'s pixel *copy* is
+  `ctx.drawImage`, a DOM API with no headless equivalent, so what is golden
+  there is its rounding and clipping geometry — the same carve-out
+  `raster.rs` already draws for `renderItem`/`itemHash` — with the blit
+  covered by real unit tests.
+- **Seven mutations, seven killed**, each re-run against a fresh build per
+  the "a stale binary reports a healthy `N passed`" rule: alpha threshold
+  8→7; chroma `<=`→`<`; interior half-gutter→full gutter; gutter applied to
+  the outer edges too; `index = row*cols+col`→`col*rows+row`; crop extent
+  floor 1→0; count clamp 128→256.
+- `cargo test -p cartalith-assets -p cartalith-godot`: **502 passed, 0
+  failed** — 17 new `slicer` unit tests, 13 new `asset_bridge` ones, zero
+  regressions. `cargo clippy --all-targets` reports nothing in any file this
+  pass touched. `cargo build -p cartalith-godot` clean (debug — the editor
+  lock the previous entry hit was gone, so no isolated worktree was needed;
+  `as_slice_apply`/`as_slice_preview` confirmed present in the rebuilt
+  `target/debug/cartalith_godot.dll` by string grep before driving it).
+- `Godot_v4.7.1-stable_win64_console.exe --headless --path godot-project
+  --quit`: clean, zero errors. A scripted headless drive (temporary, not
+  committed) built a real 64×32 PNG and ran the whole surface through the
+  real gdext boundary: load, and a garbage-bytes rejection
+  (`PNG decode failed: unexpected end of file`); the detection pass
+  (`total=2 non_empty=1 blank=[1]`, spans `[0,32]`/`[32,64]`); the
+  half-gutter model over the boundary (outer 6.67px vs interior 2.67px at 6
+  columns, spacing 8, 64px); a too-dense grid reporting `usable=false`; an
+  impossible margin refused; a family slice (1 added, 1 blank skipped,
+  landing in `settlement:hamlet` with a real 326-byte baked thumbnail); a
+  second slice off the *same* sheet, proving non-destructiveness; trim
+  cropping a 64×32 cell to 32×32; chroma keying every pixel out and being
+  refused rather than silently adding nothing; four malformed targets each
+  returning a real error string; and preview-after-`as_clear_sheet` erroring
+  rather than crashing. A second drive force-parsed and instantiated
+  `asset_library_window.gd` and `engine_bridge.gd`, built the whole modal,
+  and exercised every target's control-enable state.
+
+**Still open, honestly**: the slicer's *canvas interaction* — pan/zoom,
+draggable grid lines, click-to-select individual cells (`GUI_GAP_REGISTER.md`
+AS-17, opened by this pass). The modal slices the whole uniform grid rather
+than a hand-picked selection. `compute_cells` is written against line
+*fractions* rather than `cols`/`rows` specifically so a draggable-line UI can
+supply its own without touching the golden-verified arithmetic. Per-item
+scale/pan **editing** is also still unwritten (no `as_set_item_transform`),
+unchanged from the previous entry.
+
+**Files**: `cartalith-native/crates/cartalith-assets/src/slicer.rs` (new),
+`cartalith-native/crates/cartalith-assets/tests/golden_parity_slicer.rs`
+(new), `cartalith-native/crates/cartalith-assets/src/lib.rs`,
+`cartalith-native/crates/cartalith-godot/src/asset_bridge.rs`,
+`cartalith-native/crates/cartalith-godot/src/lib.rs`,
+`cartalith-native/godot-project/shell/asset_library_window.gd`,
+`cartalith-native/godot-project/shell/engine_bridge.gd`,
+`ASSET_LIBRARY_SCOPE.md` (new §11), `GUI_GAP_REGISTER.md` (AS-09/AS-10/AS-11
+rows, new AS-14), this file, `docs/STATUS.md`.

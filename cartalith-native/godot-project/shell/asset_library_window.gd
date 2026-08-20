@@ -52,15 +52,29 @@ class_name AssetLibraryWindow
 ##   via `FileAccess`); Apply to map (`as_apply_to_map`, the reference's own
 ##   `applyToMap()` -- compiles the session and loads it straight into the
 ##   renderer, no round trip through a file).
-## - **Disclosed gap, still honest**: the sprite-sheet slicer's actual slice
-##   operation, trim/skip toggles, and assign-to-family/fill-from
-##   (`cartalith-assets::raster` decodes/encodes whole images only -- checked
-##   `raster.rs`/`manifest.rs`/`archive.rs` directly, no sheet-splitting
-##   function exists anywhere in the crate; AS-09/AS-10/AS-11, a real engine
-##   gap, not a binding gap); per-item scale/pan editing (the inspector shows
-##   the real transform now but does not yet let it be dragged/typed -- no
-##   `as_set_item_transform` exists; a smaller follow-on than this dispatch's
-##   scope, left disabled with that reason).
+## - **Real, as of the slicer pass (AS-09/AS-10/AS-11 closed)**: the
+##   sprite-sheet slicer, end to end. `cartalith-assets::slicer` now carries a
+##   golden-verified port of the reference's `SpriteSheetImporter` --
+##   `computeCells` (whose spacing is a *half-gutter on interior edges*, not a
+##   pitch), `cropCell`, `applyChroma` and `isBlank`'s alpha>8 threshold -- and
+##   `as_load_sheet`/`as_slice_preview`/`as_slice_apply` expose it. The
+##   `N cells detected · M non-empty` readout is the engine's real detection
+##   pass, not the 8×8 sample it used to be; the grid overlay draws
+##   engine-computed spans, so it shows the exact rectangles the slice cuts;
+##   and slicing is non-destructive (the sheet stays loaded for a re-slice).
+##   Two honest notes: *Trim transparent edges* is a **port-side addition**
+##   (§8 asks for it, the reference has no such operation -- it has
+##   `background → transparent` chroma keying instead, which is also wired
+##   here), and *Assign to family / Fill from* is §8's own framing of what the
+##   reference expresses as a flat target-slot dropdown (all four of its
+##   targets are offered).
+## - **Disclosed gap, still honest**: per-item scale/pan editing (the
+##   inspector shows the real transform now but does not yet let it be
+##   dragged/typed -- no `as_set_item_transform` exists; a smaller follow-on
+##   than this dispatch's scope, left disabled with that reason). The
+##   slicer's *canvas interaction* -- pan/zoom, draggable grid lines,
+##   click-to-select individual cells -- is also unported; the modal slices
+##   the whole uniform grid rather than a hand-picked selection.
 ##
 ## Every disabled control below carries its reason as a tooltip, the same
 ## `_todo()`-with-tooltip convention `menus.gd` uses at the menu level.
@@ -159,14 +173,27 @@ class SlotCell extends Control:
 		if selected:
 			draw_rect(r, DccTheme.c("accent"), false, 2.0)
 
-## The slicer modal's sheet preview -- a real loaded `Image` plus a real
-## columns/rows/margin/spacing grid overlay (arithmetic only; no engine call).
+## The slicer modal's sheet preview -- a real loaded `Image` plus the real cell
+## rectangles the engine will cut.
+##
+## The spans are **not** computed here. `computeCells`'s spacing is a
+## half-gutter on interior edges only, so the outer cells come out wider than
+## the interior ones, and the obvious equal-pitch formula this class used to
+## carry drew a grid the slice did not actually follow. `as_slice_preview`
+## hands back `col_x0`/`col_x1`/`row_y0`/`row_y1` in sheet pixels
+## (`cartalith-assets::slicer::CellGrid::column_spans`), and this only maps
+## them into view space -- the presentation half, which is all that belongs
+## in GDScript.
 class SheetPreview extends Control:
 	var img_tex: ImageTexture
-	var cols := 6
-	var rows := 4
-	var margin := 0.0
-	var spacing := 0.0
+	var col_x0: PackedFloat64Array = PackedFloat64Array()
+	var col_x1: PackedFloat64Array = PackedFloat64Array()
+	var row_y0: PackedFloat64Array = PackedFloat64Array()
+	var row_y1: PackedFloat64Array = PackedFloat64Array()
+	## Cell indices the engine's detection pass found empty, so the overlay can
+	## dim them the way §8's "19 non-empty" readout implies.
+	var blank_cells: Dictionary = {}
+	var usable := true
 
 	func _draw() -> void:
 		var r := Rect2(Vector2.ZERO, size)
@@ -180,27 +207,20 @@ class SheetPreview extends Control:
 		var draw_size := tex_size * scale
 		var origin := r.position + (r.size - draw_size) * 0.5
 		draw_texture_rect(img_tex, Rect2(origin, draw_size), false)
-		if cols <= 0 or rows <= 0:
-			return
-		var cw := (tex_size.x - margin * 2 - spacing * (cols - 1)) / float(cols)
-		var ch := (tex_size.y - margin * 2 - spacing * (rows - 1)) / float(rows)
-		if cw <= 0 or ch <= 0:
+		if not usable or col_x0.is_empty() or row_y0.is_empty():
 			return
 		var line_color := DccTheme.c("accent")
-		var xs: Array = []
-		for i in cols:
-			xs.append(margin + i * (cw + spacing))
-		xs.append(margin + (cols - 1) * (cw + spacing) + cw)
-		for x in xs:
-			var sx: float = origin.x + float(x) * scale
-			draw_line(Vector2(sx, origin.y), Vector2(sx, origin.y + draw_size.y), line_color, 1.0)
-		var ys: Array = []
-		for i in rows:
-			ys.append(margin + i * (ch + spacing))
-		ys.append(margin + (rows - 1) * (ch + spacing) + ch)
-		for y in ys:
-			var sy: float = origin.y + float(y) * scale
-			draw_line(Vector2(origin.x, sy), Vector2(origin.x + draw_size.x, sy), line_color, 1.0)
+		var cols := col_x0.size()
+		for j in row_y0.size():
+			for i in cols:
+				var cell := Rect2(
+					origin.x + float(col_x0[i]) * scale,
+					origin.y + float(row_y0[j]) * scale,
+					float(col_x1[i] - col_x0[i]) * scale,
+					float(row_y1[j] - row_y0[j]) * scale)
+				if blank_cells.has(j * cols + i):
+					draw_rect(cell, Color(0, 0, 0, 0.45), true)
+				draw_rect(cell, line_color, false, 1.0)
 
 # ---------------------------------------------------------------------------
 # State
@@ -246,6 +266,7 @@ var _pack_license_field: LineEdit
 
 var _slicer: AcceptDialog
 var _sheet_image: Image
+var _sheet_loaded := false          ## the engine holds a decoded sheet (`as_load_sheet`)
 var _sheet_preview: SheetPreview
 var _sheet_readout: Label
 var _slicer_cols: SpinBox
@@ -254,6 +275,34 @@ var _slicer_margin: SpinBox
 var _slicer_spacing: SpinBox
 var _slicer_summary: Label
 var _slice_btn: Button
+var _slicer_trim: CheckBox
+var _slicer_skip: CheckBox
+var _slicer_chroma: CheckBox
+var _slicer_chroma_color: ColorPickerButton
+var _slicer_chroma_tol: SpinBox
+var _slicer_target: OptionButton
+var _slicer_family: OptionButton
+var _slicer_fill: OptionButton
+var _slicer_name: LineEdit
+var _slicer_set: LineEdit
+
+var _slice_trim := false
+var _slice_skip_empty := true
+var _slice_chroma := false
+var _slice_target_index := 0
+var _slice_family_index := 0
+var _slice_overwrite := false
+
+## The five places a slice can land, in `as_slice_apply`'s own `target` terms.
+## The first four are the reference's own `#alSlTarget` options; `family` is
+## `DCC_SHELL_SPEC.md` §8's "Assign to family" + "Fill from", which the
+## reference expresses as a flat slot dropdown instead.
+const SLICE_TARGETS: Array[Dictionary] = [
+	{"key": "family", "label": "a family, slot by slot", "needs": ["family", "fill"]},
+	{"key": "slot", "label": "the focused slot", "needs": []},
+	{"key": "new_custom", "label": "one new custom icon", "needs": ["name", "set"]},
+	{"key": "per_cell", "label": "separate custom icons (per cell)", "needs": ["set"]},
+]
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -1151,7 +1200,12 @@ func _build_slicer_modal() -> void:
 	_slicer = AcceptDialog.new()
 	_slicer.title = "▦ SPRITE SHEET SLICER"
 	_slicer.get_ok_button().hide()
-	_slicer.size = Vector2i(780, 660)
+	_slicer.size = Vector2i(820, 720)
+	## Closing by the window's own X (or ESC) must drop the engine-side sheet
+	## just like the Cancel button does, or a ~24MB decoded raster outlives the
+	## modal that owns it.
+	_slicer.close_requested.connect(_close_slicer)
+	_slicer.canceled.connect(_close_slicer)
 	add_child(_slicer)
 
 	var body := VBoxContainer.new()
@@ -1163,7 +1217,7 @@ func _build_slicer_modal() -> void:
 	_slicer.add_child(pad)
 
 	var note := DccTheme.label(
-		"Preview and the grid overlay below are real -- Godot loads the image and computes the grid math. The slice operation itself is unbacked: cartalith-assets decodes/encodes whole PNGs (raster.rs) with no sheet-splitting function, so nothing below can be applied to a slot.",
+		"Every control here is live. The grid, the cell detection and the slice itself all run in the engine (cartalith-assets::slicer, a port of the reference's SpriteSheetImporter); the overlay draws the exact rectangles the slice will cut. Slicing is non-destructive -- the sheet stays loaded, so you can re-slice it with different settings.",
 		"text_ghost", DccTheme.FS_MICRO)
 	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.add_child(note)
@@ -1178,44 +1232,78 @@ func _build_slicer_modal() -> void:
 	body.add_child(_sheet_readout)
 
 	_sheet_preview = SheetPreview.new()
-	_sheet_preview.custom_minimum_size = Vector2(0, 320)
+	_sheet_preview.custom_minimum_size = Vector2(0, 300)
 	_sheet_preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	body.add_child(_sheet_preview)
 
 	var params := HBoxContainer.new()
 	params.add_theme_constant_override("separation", 10)
 	body.add_child(params)
-	_slicer_cols = DccWidgets.number(params, "Columns", 1, 64, 1, 6,
-		func(v: float): _sheet_preview.cols = int(v); _sheet_preview.queue_redraw(); _refresh_slicer_summary())
-	_slicer_rows = DccWidgets.number(params, "Rows", 1, 64, 1, 4,
-		func(v: float): _sheet_preview.rows = int(v); _sheet_preview.queue_redraw(); _refresh_slicer_summary())
-	_slicer_margin = DccWidgets.number(params, "Margin px", 0, 128, 1, 0,
-		func(v: float): _sheet_preview.margin = v; _sheet_preview.queue_redraw(); _refresh_slicer_summary())
-	_slicer_spacing = DccWidgets.number(params, "Spacing px", 0, 64, 1, 0,
-		func(v: float): _sheet_preview.spacing = v; _sheet_preview.queue_redraw(); _refresh_slicer_summary())
+	## 128 is the engine's own ceiling (`clampInt(v,1,128)`, ported as
+	## `slicer::clamp_grid_count`), so the spinbox cannot ask for a grid the
+	## engine would silently clamp behind the user's back.
+	_slicer_cols = DccWidgets.number(params, "Columns", 1, 128, 1, 6, func(_v): _refresh_slicer_summary())
+	_slicer_rows = DccWidgets.number(params, "Rows", 1, 128, 1, 4, func(_v): _refresh_slicer_summary())
+	_slicer_margin = DccWidgets.number(params, "Margin px", 0, 512, 1, 0, func(_v): _refresh_slicer_summary())
+	_slicer_spacing = DccWidgets.number(params, "Spacing px", 0, 256, 1, 0, func(_v): _refresh_slicer_summary())
 
 	var toggles := HBoxContainer.new()
 	toggles.add_theme_constant_override("separation", 12)
 	body.add_child(toggles)
-	var trim := DccWidgets.toggle(toggles, "Trim transparent edges", false, func(_v): pass,
-		"No slice operation exists to apply this to.")
-	trim.disabled = true
-	var skip := DccWidgets.toggle(toggles, "Skip empty cells", false, func(_v): pass,
-		"No slice operation exists to apply this to.")
-	skip.disabled = true
+	_slicer_trim = DccWidgets.toggle(toggles, "Trim transparent edges", false,
+		func(v: bool): _slice_trim = v,
+		"Crops each cell to its content. Note: the reference slicer has no trim -- this is a port-side addition (DCC_SHELL_SPEC.md §8), using the reference's own alpha>8 threshold so it agrees with Skip empty cells about what content is.")
+	_slicer_skip = DccWidgets.toggle(toggles, "Skip empty cells", true,
+		func(v: bool): _slice_skip_empty = v; _refresh_slicer_summary(),
+		"isBlank: a cell with no pixel over alpha 8 is dropped rather than added. On by default, as in the reference.")
+
+	## `background → transparent` -- the reference's *own* second pixel toggle
+	## (`#alChEnable`/`#alChTol`), which §8 omits. Real, so it is here.
+	var chroma_row := HBoxContainer.new()
+	chroma_row.add_theme_constant_override("separation", 12)
+	body.add_child(chroma_row)
+	_slicer_chroma = DccWidgets.toggle(chroma_row, "Background → transparent", false,
+		func(v: bool): _slice_chroma = v; _refresh_slicer_summary(),
+		"applyChroma: pixels within Tolerance of the keyed colour have their alpha zeroed, per cell.")
+	_slicer_chroma_color = ColorPickerButton.new()
+	_slicer_chroma_color.color = Color(1, 1, 1)
+	_slicer_chroma_color.edit_alpha = false
+	_slicer_chroma_color.custom_minimum_size = Vector2(44, 0)
+	_slicer_chroma_color.color_changed.connect(func(_c: Color): _refresh_slicer_summary())
+	chroma_row.add_child(_slicer_chroma_color)
+	_slicer_chroma_tol = DccWidgets.number(chroma_row, "Tolerance", 0, 150, 1, 40,
+		func(_v): _refresh_slicer_summary())
 
 	var assign_row := HBoxContainer.new()
 	assign_row.add_theme_constant_override("separation", 12)
 	body.add_child(assign_row)
-	var fam_names: Array = []
+	var target_labels: Array = []
+	for t in SLICE_TARGETS:
+		target_labels.append(String(t["label"]))
+	_slicer_target = DccWidgets.choice(assign_row, "Assign to", target_labels, 0,
+		func(i: int): _slice_target_index = i; _refresh_slicer_target_controls(),
+		"Where the cells land. The first four are the reference's own targets; \"a family, slot by slot\" is DCC_SHELL_SPEC.md §8's instead.")
+	var fam_labels: Array = []
 	for f in FAMILIES:
-		fam_names.append(String(f["title"]))
-	var assign_ob := DccWidgets.choice(assign_row, "Assign to family", fam_names, 0, func(_i): pass,
-		"No slot target: there is no in-memory library session for a slice result to land in.")
-	assign_ob.disabled = true
-	var fill_ob := DccWidgets.choice(assign_row, "Fill from", ["first empty", "overwrite"], 0, func(_i): pass,
-		"Same -- unreachable without a slice operation.")
-	fill_ob.disabled = true
+		fam_labels.append(String(f["title"]))
+	_slicer_family = DccWidgets.choice(assign_row, "Family", fam_labels, 0,
+		func(i: int): _slice_family_index = i)
+	_slicer_fill = DccWidgets.choice(assign_row, "Fill from", ["first empty", "overwrite"], 0,
+		func(i: int): _slice_overwrite = (i == 1),
+		"first empty leaves already-filled slots alone; overwrite starts at the family's first slot and replaces.")
+
+	var name_row := HBoxContainer.new()
+	name_row.add_theme_constant_override("separation", 10)
+	body.add_child(name_row)
+	var mk_field := func(label_text: String, w: float, initial: String) -> LineEdit:
+		name_row.add_child(DccTheme.mono_label(label_text, "text_faint", DccTheme.FS_MICRO, 1))
+		var le := LineEdit.new()
+		le.custom_minimum_size.x = w
+		le.text = initial
+		name_row.add_child(le)
+		return le
+	_slicer_name = mk_field.call("NEW NAME", 160, "")
+	_slicer_set = mk_field.call("CUSTOM SET", 120, "Default")
 
 	_slicer_summary = DccTheme.mono_label("", "text_dim", DccTheme.FS_SMALL)
 	body.add_child(_slicer_summary)
@@ -1228,15 +1316,26 @@ func _build_slicer_modal() -> void:
 	var cancel_btn := Button.new()
 	cancel_btn.text = "Cancel"
 	cancel_btn.focus_mode = Control.FOCUS_NONE
-	cancel_btn.pressed.connect(func(): _slicer.hide())
+	cancel_btn.pressed.connect(func(): _close_slicer())
 	foot.add_child(cancel_btn)
-	_slice_btn = _gap_button(foot, "Slice",
-		"cartalith-assets has no sheet-slicing function -- checked raster.rs, manifest.rs and archive.rs directly; only whole-image decode/encode exist (decode_png/encode_png/render_item).")
+	_slice_btn = DccWidgets.action(foot, "Slice", func(): _on_slice())
+	_slice_btn.disabled = true
+	_slice_btn.tooltip_text = "Choose a sprite sheet first."
+	_refresh_slicer_target_controls()
 
 func _open_slicer() -> void:
 	if not visible:
 		popup_centered()
+	_refresh_slicer_target_controls()
 	_slicer.popup_centered()
+
+## Closing drops the engine-side sheet too -- a decoded 3072×2048 sheet is
+## ~24MB of RGBA the session has no reason to hold once the modal is gone.
+func _close_slicer() -> void:
+	if _sheet_loaded:
+		_bridge.as_clear_sheet()
+		_sheet_loaded = false
+	_slicer.hide()
 
 func _pick_sheet_image() -> void:
 	var d := FileDialog.new()
@@ -1251,78 +1350,163 @@ func _pick_sheet_image() -> void:
 	_slicer.add_child(d)
 	d.popup_centered_ratio(0.6)
 
+## The image goes to the engine (which owns the slice) *and* to a local
+## `ImageTexture` (which is only ever drawn). Godot's own decoder is not asked
+## for anything the engine then trusts -- if `as_load_sheet` refuses the bytes,
+## the preview is cleared too, so the modal can never show a sheet the engine
+## does not hold.
 func _load_sheet_image(path: String) -> void:
+	var bytes := FileAccess.get_file_as_bytes(path)
+	if bytes.is_empty():
+		_sheet_readout.text = "could not read %s" % path.get_file()
+		return
+	var result: Dictionary = _bridge.as_load_sheet(path.get_file(), bytes)
+	if not bool(result.get("ok", false)):
+		_clear_sheet_preview()
+		_sheet_readout.text = "%s: %s" % [path.get_file(), String(result.get("error", "load failed"))]
+		return
 	var img := Image.new()
-	var err := img.load(path)
-	if err != OK:
-		_sheet_readout.text = "failed to load %s (error %d)" % [path.get_file(), err]
+	if img.load(path) != OK:
+		_clear_sheet_preview()
+		_sheet_readout.text = "%s decoded in the engine but not for preview" % path.get_file()
 		return
 	_sheet_image = img
+	_sheet_loaded = true
 	_sheet_preview.img_tex = ImageTexture.create_from_image(img)
-	_sheet_preview.queue_redraw()
-	_sheet_readout.text = "%s · %d × %d · %s" % [
-		path.get_file(), img.get_width(), img.get_height(), path.get_extension().to_upper()]
+	_sheet_readout.text = "%s · %d × %d" % [
+		path.get_file(), int(result.get("w", 0)), int(result.get("h", 0))]
 	_refresh_slicer_summary()
 
+func _clear_sheet_preview() -> void:
+	_sheet_image = null
+	_sheet_loaded = false
+	_sheet_preview.img_tex = null
+	_sheet_preview.queue_redraw()
+	_refresh_slicer_summary()
+
+## The slicer modal's four numbers and three toggles, in `as_slice_preview`/
+## `as_slice_apply`'s own `opts` shape. One builder for both calls, so the
+## preview can never describe a different grid than the slice cuts.
+func _slice_opts() -> Dictionary:
+	var opts := {
+		"cols": int(_slicer_cols.value),
+		"rows": int(_slicer_rows.value),
+		"margin": _slicer_margin.value,
+		"spacing": _slicer_spacing.value,
+		"trim": _slice_trim,
+		"skip_empty": _slice_skip_empty,
+		"chroma": _slice_chroma,
+	}
+	if _slice_chroma:
+		var c := _slicer_chroma_color.color
+		opts["chroma_r"] = int(roundf(c.r * 255.0))
+		opts["chroma_g"] = int(roundf(c.g * 255.0))
+		opts["chroma_b"] = int(roundf(c.b * 255.0))
+		opts["chroma_tol"] = _slicer_chroma_tol.value
+	return opts
+
+## §8's `N cells detected · M non-empty` readout, and the overlay behind it --
+## both from `as_slice_preview`, the engine's real detection pass (the same
+## crop, chroma key and alpha>8 `isBlank` the slice itself runs). The 8×8
+## GDScript sample this replaced was honest about being approximate; it no
+## longer needs to be.
 func _refresh_slicer_summary() -> void:
-	if _slicer_summary == null:
+	if _slicer_summary == null or _slice_btn == null:
 		return
-	if _sheet_image == null:
+	if not _sheet_loaded:
 		_slicer_summary.text = ""
-		if _slice_btn:
-			_slice_btn.text = "Slice"
+		_slice_btn.text = "Slice"
+		_slice_btn.disabled = true
+		_slice_btn.tooltip_text = "Choose a sprite sheet first."
 		return
-	var cols := int(_slicer_cols.value)
-	var rows := int(_slicer_rows.value)
-	var total := cols * rows
-	var non_empty := _sample_non_empty(cols, rows, _slicer_margin.value, _slicer_spacing.value)
-	_slicer_summary.text = "%d cells detected · ~%d non-empty (8×8-sampled, not an exact pixel scan)" % [total, non_empty]
-	if _slice_btn:
-		_slice_btn.text = "Slice %d cells" % total
+	var p: Dictionary = _bridge.as_slice_preview(_slice_opts())
+	if not bool(p.get("ok", false)):
+		_slicer_summary.text = String(p.get("error", "preview failed"))
+		_sheet_preview.usable = false
+		_sheet_preview.queue_redraw()
+		_slice_btn.text = "Slice"
+		_slice_btn.disabled = true
+		_slice_btn.tooltip_text = String(p.get("error", ""))
+		return
+	var total := int(p.get("total", 0))
+	var non_empty := int(p.get("non_empty", 0))
+	var usable := bool(p.get("usable", false))
+	_sheet_preview.usable = usable
+	_sheet_preview.col_x0 = p.get("col_x0", PackedFloat64Array())
+	_sheet_preview.col_x1 = p.get("col_x1", PackedFloat64Array())
+	_sheet_preview.row_y0 = p.get("row_y0", PackedFloat64Array())
+	_sheet_preview.row_y1 = p.get("row_y1", PackedFloat64Array())
+	var blanks: Dictionary = {}
+	for i in p.get("blank", PackedInt32Array()):
+		blanks[int(i)] = true
+	_sheet_preview.blank_cells = blanks
+	_sheet_preview.queue_redraw()
+	if not usable:
+		_slicer_summary.text = "Grid too dense — reduce columns/rows or spacing."
+		_slice_btn.text = "Slice"
+		_slice_btn.disabled = true
+		_slice_btn.tooltip_text = "The cells would have zero or negative size."
+		return
+	var will_add := non_empty if _slice_skip_empty else total
+	_slicer_summary.text = "%d cells detected · %d non-empty%s" % [
+		total, non_empty, ("  ·  %d will be skipped" % (total - non_empty)) if _slice_skip_empty and total > non_empty else ""]
+	_slice_btn.text = "Slice %d cells" % will_add
+	_slice_btn.disabled = will_add <= 0
+	_slice_btn.tooltip_text = "Every cell is empty." if will_add <= 0 else ""
 
-## A coarse 8x8-sample-per-cell alpha probe -- real (reads the loaded
-## `Image`'s own pixels), but approximate by design rather than a full pixel
-## scan, since nothing downstream consumes the result (the slice op itself
-## is unbacked). Labelled "sampled" in the summary so it never reads as exact.
-func _sample_non_empty(cols: int, rows: int, margin: float, spacing: float) -> int:
-	if _sheet_image == null or cols <= 0 or rows <= 0:
-		return 0
-	var w := _sheet_image.get_width()
-	var h := _sheet_image.get_height()
-	var cw := (w - margin * 2 - spacing * (cols - 1)) / float(cols)
-	var ch := (h - margin * 2 - spacing * (rows - 1)) / float(rows)
-	if cw <= 0 or ch <= 0:
-		return 0
-	var count := 0
-	for ry in rows:
-		for cx in cols:
-			var x0 := margin + cx * (cw + spacing)
-			var y0 := margin + ry * (ch + spacing)
-			var found := false
-			for sy in 8:
-				for sx in 8:
-					var px := int(x0 + (sx + 0.5) / 8.0 * cw)
-					var py := int(y0 + (sy + 0.5) / 8.0 * ch)
-					if px < 0 or py < 0 or px >= w or py >= h:
-						continue
-					if _sheet_image.get_pixel(px, py).a > 0.0:
-						found = true
-						break
-				if found:
-					break
-			if found:
-				count += 1
-	return count
+## Only the fields the chosen target actually uses stay enabled -- the
+## reference greys nothing, but its own three targets read different inputs
+## and leaving all of them live invites filling one the engine will ignore.
+func _refresh_slicer_target_controls() -> void:
+	if _slicer_target == null:
+		return
+	var needs: Array = SLICE_TARGETS[_slice_target_index]["needs"]
+	_slicer_family.disabled = not needs.has("family")
+	_slicer_fill.disabled = not needs.has("fill")
+	_slicer_name.editable = needs.has("name")
+	_slicer_set.editable = needs.has("set")
+	if String(SLICE_TARGETS[_slice_target_index]["key"]) == "slot":
+		_slicer_target.tooltip_text = ("Cells go to %s." % _focused_uid) if _focused_uid != "" \
+			else "No slot is focused — pick one in the grid behind this modal first."
 
-# ---------------------------------------------------------------------------
-# Small helpers
-# ---------------------------------------------------------------------------
-
-## A disabled button carrying its reason as a tooltip -- `menus.gd`'s
-## `_todo()` convention, for a plain `Control` window rather than a
-## `PopupMenu`.
-func _gap_button(parent: Control, text: String, reason: String) -> Button:
-	var b := DccWidgets.action(parent, text, func(): pass)
-	b.disabled = true
-	b.tooltip_text = reason
-	return b
+## `addSlices()`: the real slice. Non-destructive, so the modal stays open with
+## the sheet still loaded and the user can slice it again differently.
+func _on_slice() -> void:
+	if not _sheet_loaded:
+		return
+	var opts := _slice_opts()
+	var target: Dictionary = SLICE_TARGETS[_slice_target_index]
+	var key := String(target["key"])
+	opts["target"] = key
+	match key:
+		"family":
+			opts["family"] = String(FAMILIES[_slice_family_index]["key"])
+			opts["overwrite"] = _slice_overwrite
+		"slot":
+			if _focused_uid == "":
+				_host.set_status("hint", "focus a slot in the grid first", "warn")
+				return
+			opts["uid"] = _focused_uid
+		"new_custom":
+			opts["name"] = _slicer_name.text
+			opts["set"] = _slicer_set.text
+		"per_cell":
+			opts["set"] = _slicer_set.text
+	var result: Dictionary = _bridge.as_slice_apply(opts)
+	if not bool(result.get("ok", false)):
+		_host.set_status("hint", String(result.get("error", "slice failed")), "warn")
+		return
+	var added := int(result.get("added", 0))
+	var skipped := int(result.get("skipped_blank", 0))
+	var unplaced := int(result.get("unplaced", 0))
+	var msg := "sliced %d cell%s" % [added, "" if added == 1 else "s"]
+	if skipped > 0:
+		msg += " (%d blank skipped)" % skipped
+	if unplaced > 0:
+		msg += " — %d had nowhere to go" % unplaced
+	_host.set_status("hint", msg, "accent")
+	_refresh_grid()
+	_refresh_inspector()
+	_refresh_rail_counts()
+	_refresh_pack_status()
+	_refresh_slicer_summary()

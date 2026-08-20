@@ -6374,4 +6374,179 @@ impl WorldGen {
         let deleted = self.asset_library.batch_delete(&uid_vec);
         vdict! { "ok" => true, "deleted" => deleted as i64 }
     }
+
+    // -- Sprite-sheet slicer (AS-09/AS-10/AS-11) --------------------------
+
+    /// `SpriteSheetImporter.loadSheet` (AS-09): decode a sprite sheet and
+    /// hold it on the session for slicing. `{"ok": true, "w", "h", "name"}`,
+    /// or `{"ok": false, "error": ...}` for bytes that don't decode as a PNG.
+    /// PNG only — `cartalith-assets` compiles `image` with the `png` codec
+    /// alone, so this reports the limit rather than pretending otherwise.
+    #[func]
+    fn as_load_sheet(&mut self, name: GString, bytes: PackedByteArray) -> VarDictionary {
+        match self.asset_library.load_sheet(name.to_string(), bytes.as_slice()) {
+            Ok((w, h)) => vdict! { "ok" => true, "error" => "", "w" => w as i64, "h" => h as i64, "name" => &name },
+            Err(e) => vdict! { "ok" => false, "error" => e, "w" => 0, "h" => 0, "name" => "" },
+        }
+    }
+
+    /// Drop the loaded sheet (the slicer modal closing). Always succeeds.
+    #[func]
+    fn as_clear_sheet(&mut self) -> bool {
+        self.asset_library.clear_sheet();
+        true
+    }
+
+    /// The real `N cells detected · M non-empty` detection pass (AS-09) —
+    /// the same crop, chroma key and `isBlank` threshold the slice itself
+    /// would use, not a sample — plus the grid lines to draw it against.
+    /// `{"ok": false, "error"}` with no sheet loaded or a margin that leaves
+    /// no room; otherwise `{"ok": true, "total", "non_empty", "usable",
+    /// "col_x0"/"col_x1"/"row_y0"/"row_y1"}`, where `usable` false is the
+    /// reference's own "Grid too dense" state.
+    ///
+    /// The four span arrays are in **sheet pixels**, one entry per column or
+    /// row, and exist so the overlay never has to reimplement
+    /// `computeCells`'s half-gutter arithmetic in GDScript and drift from
+    /// what the slice actually cuts.
+    #[func]
+    fn as_slice_preview(&self, opts: VarDictionary) -> VarDictionary {
+        let params = slice_params_from(&opts);
+        match self.asset_library.slice_preview(&params) {
+            Ok(p) => {
+                let col_x0: PackedFloat64Array = p.col_spans.iter().map(|s| s.0).collect();
+                let col_x1: PackedFloat64Array = p.col_spans.iter().map(|s| s.1).collect();
+                let row_y0: PackedFloat64Array = p.row_spans.iter().map(|s| s.0).collect();
+                let row_y1: PackedFloat64Array = p.row_spans.iter().map(|s| s.1).collect();
+                let blank: PackedInt32Array = p.counts.blank.iter().map(|&i| i as i32).collect();
+                vdict! {
+                    "ok" => true, "error" => "",
+                    "total" => p.counts.total as i64,
+                    "non_empty" => p.counts.non_empty as i64,
+                    "usable" => p.counts.usable,
+                    "blank" => &blank,
+                    "col_x0" => &col_x0, "col_x1" => &col_x1,
+                    "row_y0" => &row_y0, "row_y1" => &row_y1,
+                }
+            }
+            Err(e) => {
+                let empty = PackedFloat64Array::new();
+                let blank = PackedInt32Array::new();
+                vdict! {
+                    "ok" => false, "error" => e,
+                    "total" => 0, "non_empty" => 0, "usable" => false, "blank" => &blank,
+                    "col_x0" => &empty, "col_x1" => &empty,
+                    "row_y0" => &empty, "row_y1" => &empty,
+                }
+            }
+        }
+    }
+
+    /// `addSlices()` (AS-09/AS-10/AS-11): slice the loaded sheet and land the
+    /// cells in the library. Non-destructive — the sheet stays loaded and
+    /// untouched, so the same sheet can be re-sliced with different settings.
+    ///
+    /// `opts` carries the grid (`cols`, `rows`, `margin`, `spacing`), the
+    /// pixel toggles (`trim`, `skip_empty`, and `chroma`/`chroma_r`/
+    /// `chroma_g`/`chroma_b`/`chroma_tol`), and the target: `target` is one of
+    /// `"slot"` (+`uid`), `"new_custom"` (+`name`, `set`), `"per_cell"`
+    /// (+`set`), or `"family"` (+`family`, `overwrite`). Anything
+    /// unrecognised, a missing sheet, an impossible margin or a too-dense
+    /// grid all come back as `{"ok": false, "error": ...}` — never a panic
+    /// across the boundary.
+    #[func]
+    fn as_slice_apply(&mut self, opts: VarDictionary) -> VarDictionary {
+        let params = slice_params_from(&opts);
+        let target = match slice_target_from(&opts) {
+            Ok(t) => t,
+            Err(e) => return slice_err(e),
+        };
+        match self.asset_library.apply_slice(&params, &target) {
+            Ok(o) => {
+                let uids: PackedStringArray = o.uids.iter().map(GString::from).collect();
+                vdict! {
+                    "ok" => true, "error" => "",
+                    "added" => o.added as i64,
+                    "skipped_blank" => o.skipped_blank as i64,
+                    "unplaced" => o.unplaced as i64,
+                    "uids" => &uids,
+                }
+            }
+            Err(e) => slice_err(e),
+        }
+    }
+}
+
+/// `{"ok": false, ...}` with every field `as_slice_apply` promises, so a
+/// GDScript caller never has to guard a key lookup on the failure path.
+fn slice_err(error: String) -> VarDictionary {
+    let uids = PackedStringArray::new();
+    vdict! {
+        "ok" => false, "error" => error,
+        "added" => 0, "skipped_blank" => 0, "unplaced" => 0, "uids" => &uids,
+    }
+}
+
+/// Read the slicer modal's controls out of a `Dictionary`. Every field has a
+/// defined default, and `cartalith_assets::SliceGrid::new`/`GridRect::inset`
+/// apply the reference's own clamps on top, so no combination of missing or
+/// nonsensical keys can reach the engine as a bad grid.
+fn slice_params_from(opts: &VarDictionary) -> asset_bridge::SliceParams {
+    let int_of = |k: &str, d: i64| opts.get(k).and_then(|v| v.try_to::<i64>().ok()).unwrap_or(d);
+    let f_of = |k: &str, d: f64| opts.get(k).and_then(|v| v.try_to::<f64>().ok()).unwrap_or(d);
+    let b_of = |k: &str, d: bool| opts.get(k).and_then(|v| v.try_to::<bool>().ok()).unwrap_or(d);
+    let chroma = b_of("chroma", false).then(|| cartalith_assets::ChromaKey {
+        color: [
+            int_of("chroma_r", 255).clamp(0, 255) as u8,
+            int_of("chroma_g", 255).clamp(0, 255) as u8,
+            int_of("chroma_b", 255).clamp(0, 255) as u8,
+        ],
+        tol: f_of("chroma_tol", 40.0).max(0.0),
+    });
+    asset_bridge::SliceParams {
+        cols: int_of("cols", 1),
+        rows: int_of("rows", 1),
+        margin: f_of("margin", 0.0),
+        spacing: f_of("spacing", 0.0),
+        chroma,
+        trim: b_of("trim", false),
+        // `#alSlSkip` ships checked in the reference, so that is the default
+        // a caller who omits the key gets.
+        skip_blank: b_of("skip_empty", true),
+    }
+}
+
+/// Read the slicer's target selection out of the same `Dictionary`. An
+/// unrecognised `target`, an unknown family key, or a `"new_custom"` with a
+/// blank name is a real error string rather than a silent fallback -- landing
+/// a slice somewhere the caller did not ask for would be worse than refusing.
+fn slice_target_from(opts: &VarDictionary) -> Result<asset_bridge::SliceTarget, String> {
+    let s_of = |k: &str| opts.get(k).map(|v| v.to_string()).unwrap_or_default();
+    let kind = s_of("target");
+    match kind.as_str() {
+        "slot" => {
+            let uid = s_of("uid");
+            if uid.trim().is_empty() {
+                return Err("Pick a target slot.".to_string());
+            }
+            Ok(asset_bridge::SliceTarget::Slot { uid })
+        }
+        "new_custom" => {
+            let name = s_of("name");
+            if name.trim().is_empty() {
+                return Err("Type a name for the new custom icon.".to_string());
+            }
+            Ok(asset_bridge::SliceTarget::NewCustom { name, set: s_of("set") })
+        }
+        "per_cell" => Ok(asset_bridge::SliceTarget::PerCell { set: s_of("set") }),
+        "family" => {
+            let key = s_of("family");
+            let Some(family) = cartalith_assets::Family::from_key(&key) else {
+                return Err(format!("no such family: {key}"));
+            };
+            let overwrite = opts.get("overwrite").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false);
+            Ok(asset_bridge::SliceTarget::Family { family, overwrite })
+        }
+        other => Err(format!("unrecognised slice target: {other}")),
+    }
 }
