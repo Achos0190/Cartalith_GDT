@@ -227,7 +227,31 @@ func _ready() -> void:
 	## this point in `_ready`, but the guard keeps this honest if a future
 	## autoload restores a session.
 	if not bridge.has_world:
-		open_welcome.call_deferred()
+		_open_welcome_when_drawn()
+
+## `call_deferred` was not enough, and the difference is a hard crash rather
+## than a cosmetic one. It runs at the end of the *current* idle frame, which
+## is still before the renderer has finished standing up: a `Window` (which an
+## `AcceptDialog` is) needs its own render target, and asking GL Compatibility
+## for one that early fails outright --
+## `_update_render_target_color: Could not create render target, status: 0`,
+## preceded by `texture_free_data` on an id the GLES3 allocs cache never got,
+## and followed a few frees later by a signal-11 crash inside
+## `update_texture_atlas`. Reproduced on a real launch (AMD RX 7800 XT,
+## OpenGL 3.3 Core) with the backtrace pointing straight at
+## `open_project_dialog.gd`'s `popup_centered()`.
+##
+## Awaiting `frame_post_draw` puts the popup after a frame has actually been
+## drawn, by which point the render target it needs can be created. Two
+## `process_frame`s first so layout has settled and `popup_centered` centres
+## against a real window size -- the reason the old comment gave for
+## deferring at all, which still holds.
+func _open_welcome_when_drawn() -> void:
+	await get_tree().process_frame
+	await get_tree().process_frame
+	await RenderingServer.frame_post_draw
+	if is_inside_tree() and not bridge.has_world:
+		open_welcome()
 
 ## Three rail buttons, not five (`dcc_shell.gd`'s own `DOMAINS` doc comment:
 ## 2026-08-20 domain merge). `InfrastructureWorkspace` and `RenderWorkspace`

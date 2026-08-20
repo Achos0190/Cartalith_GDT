@@ -88,6 +88,8 @@ var _gpu_mode_popup: PopupMenu
 var _gpu_vram_popup: PopupMenu
 var _gpu_fallback_popup: PopupMenu
 var _gpu_devices: Array = []
+## Whether `gpu_devices()` has run this session. See `_on_gpu_devices_about_to_popup`.
+var _gpu_enumerated := false
 const GPU_DEV_AUTO := 0
 const GPU_DEV_RESCAN := 1
 const GPU_DEV_FIRST := 100      ## device i is GPU_DEV_FIRST + i
@@ -570,10 +572,38 @@ func _build_gpu_devices_menu(p: PopupMenu) -> void:
 	_gpu_devices_popup.name = "GpuDevices"
 	_shell.style_popup(_gpu_devices_popup)
 	_gpu_devices_popup.id_pressed.connect(_on_gpu_device_choice)
-	_gpu_devices_popup.about_to_popup.connect(_refresh_gpu_devices_menu)
+	_gpu_devices_popup.about_to_popup.connect(_on_gpu_devices_about_to_popup)
 	p.add_child(_gpu_devices_popup)
 	p.add_submenu_item("Devices", "GpuDevices")
-	_gpu_devices = _bridge.gpu_devices()
+	## Deliberately NOT enumerated here. `build()` runs inside `DccApp._ready`,
+	## and `gpu_devices()` stands up a `wgpu::Instance` and walks its backends
+	## -- doing that while Godot's own GL Compatibility renderer is still
+	## coming up corrupts its GLES3 resource caches and takes the process down
+	## with a signal-11 inside `update_texture_atlas`, no GDScript frame in the
+	## backtrace. Bisected against a real launch (AMD RX 7800 XT, OpenGL 3.3
+	## Core): stubbing this one call out made the launch clean, and it is the
+	## reason "launching from Godot's launcher stopped working" (owner,
+	## 2026-08-20). Restricting `wgpu` to non-GL backends was tried first and
+	## is *not* sufficient on its own -- kept anyway, in `multi.rs`, because a
+	## second GL context in this process is wrong regardless.
+	##
+	## `about_to_popup` above already refreshes, so the list fills the first
+	## time the submenu is actually opened -- by which point the renderer is
+	## long since up. This also happens to be what this file's own
+	## `_gpu_devices` doc comment asked for: enumeration is "far too much work
+	## for a menu that opens on hover", and now nobody pays it until they ask.
+	_refresh_gpu_devices_menu()
+
+## The only place a *first* enumeration is allowed to happen: a real user
+## opening the submenu, long after the renderer is up. Kept separate from
+## `_refresh_gpu_devices_menu` because that one also runs at build time, where
+## enumerating is exactly the crash `_build_gpu_devices_menu` documents.
+## `_gpu_enumerated` rather than `_gpu_devices.is_empty()` so a machine that
+## genuinely has no adapters does not re-enumerate on every hover.
+func _on_gpu_devices_about_to_popup() -> void:
+	if not _gpu_enumerated:
+		_gpu_enumerated = true
+		_gpu_devices = _bridge.gpu_devices()
 	_refresh_gpu_devices_menu()
 
 func _refresh_gpu_devices_menu() -> void:

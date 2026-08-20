@@ -232,9 +232,40 @@ pub fn group_adapters(rows: Vec<AdapterRow>) -> Vec<GpuDeviceInfo> {
     out
 }
 
+/// Every backend *except* OpenGL. This is not a preference, it is a crash fix.
+///
+/// This crate runs inside the Godot process, and that process's renderer is
+/// GL Compatibility (`project.godot`: `renderer/rendering_method=
+/// "gl_compatibility"`). Asking `wgpu` for the GL backend makes it create its
+/// own OpenGL context in that same process, which leaves Godot's GLES3
+/// resource caches referring to objects the now-current context does not
+/// own. The symptom is not subtle and not immediate: a burst of
+/// `texture_free_data`/`buffer_free_data` "Condition
+/// `!*_allocs_cache.has(p_id)` is true", then
+/// `update_texture_atlas: Could not create texture atlas, status: 0`, then a
+/// signal-11 crash inside Godot's own GLES3 driver, with no GDScript frame
+/// anywhere in the backtrace.
+///
+/// Reproduced on a real launch (AMD RX 7800 XT, OpenGL 3.3 Core Profile) and
+/// bisected to this call: enumeration happens at startup, because
+/// `menus.gd`'s Preferences ▸ Devices submenu is built during `_ready`.
+/// Skipping it made the launch clean; restricting the backend mask fixes it
+/// without giving the row up.
+///
+/// Nothing real is lost. The GL rows this drops were duplicates of devices
+/// Vulkan and DX12 already report -- and the *reason* they were duplicates
+/// mattered even before this bug, since a GL row reports `vendor = device =
+/// 0`, which `group_adapters` already had to work around. Compute dispatch
+/// never used GL either: `init_gpu` asks for `PowerPreference::
+/// HighPerformance`, which resolves to Vulkan on this hardware.
+const ENUMERATION_BACKENDS: wgpu::Backends = wgpu::Backends::VULKAN
+    .union(wgpu::Backends::DX12)
+    .union(wgpu::Backends::METAL)
+    .union(wgpu::Backends::BROWSER_WEBGPU);
+
 fn adapter_rows() -> Vec<AdapterRow> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()))
+    pollster::block_on(instance.enumerate_adapters(ENUMERATION_BACKENDS))
         .iter()
         .map(describe_adapter)
         .collect()
@@ -590,7 +621,7 @@ impl GpuDeviceSet {
 /// enumeration no longer contains it (a GPU was removed, a driver changed,
 /// the preference came from another machine).
 fn adapter_for_key(instance: &wgpu::Instance, key: &str) -> Option<wgpu::Adapter> {
-    let mut matches: Vec<wgpu::Adapter> = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()))
+    let mut matches: Vec<wgpu::Adapter> = pollster::block_on(instance.enumerate_adapters(ENUMERATION_BACKENDS))
         .into_iter()
         .filter(|a| {
             let row = describe_adapter(a);
