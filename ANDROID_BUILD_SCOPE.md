@@ -484,9 +484,13 @@ Travel Library, the Journey Planner work, heightmap import, metropolis/
 recovery, Multi-GPU, the layers z-order fix, and the `6a97911` launcher crash
 fix.
 
-They do now: a current `.so` and a current APK were built and installed. What
-this pass could **not** do is watch it run, for a reason that has nothing to do
-with the code — see §4.
+They do now: a current `.so` and a current APK were built, installed, **and
+driven through a full world generation on the phone**. The run was blocked for
+the first ~5 minutes by the device's fingerprint lock screen (§4); the owner
+unlocked it mid-session and everything after that is real hardware.
+
+**Headline: this is the first time the §13 phone layout has ever run on a
+phone, and it works.** See §4.2.
 
 ## 1. Two real defects found before anything could be built
 
@@ -616,7 +620,7 @@ rebuilt one from `88b4d54`), `travel_library_window.gdc`,
 2026-08-20 09:38. The native library is the 09:37 build. **The APK is built
 from the tree at `6a97911`.**
 
-## 4. The blocker: a fingerprint-secured lock screen, again
+## 4. A fingerprint-secured lock screen, again — and this time it cleared
 
 The app was launched twice (`adb shell monkey -c LAUNCHER`). Both times logcat
 shows the same three lines within ~80 ms of each other:
@@ -628,10 +632,10 @@ V Godot   : OnStop:   GodotFragment{...}
 ```
 
 The activity is backgrounded by the OS before the engine ever creates its GL
-context. Consequently **there is no `Initialize godot-rust` line, no
-`Adreno (TM) 630`, no `OpenGL ES 3.2`** — the GDExtension is never reached, so
-this pass can make **no claim at all** about whether the extension loads, and
-does not.
+context. In **these two locked-screen attempts** there is therefore no
+`Adreno (TM) 630` line and no `OpenGL ES 3.2` line — the GDExtension is never
+reached. (§4.1 below is the successful run once the phone was unlocked; nothing
+in this section should be read as the pass's conclusion.)
 
 Diagnosed rather than assumed:
 
@@ -648,27 +652,164 @@ Diagnosed rather than assumed:
 This is the identical physical-access requirement recorded in the 2026-08-17
 section, and it is not a toolchain, code or export problem. Nothing in `adb`'s
 non-root surface dismisses a fingerprint or PIN credential, and attempting to
-work around one was never appropriate.
+work around one was never appropriate. A poll loop was left watching
+`mDreamingLockscreen` so the smoke test could fire the instant it cleared.
 
-**What is needed: the owner touches the fingerprint sensor.** The APK is
-already installed; tapping the Cartalith icon is sufficient.
+## 4.1 Unblocked: the owner unlocked the phone, and everything works
 
-### What was specifically left unverified
+`mDreamingLockscreen=false` at 09:44. The watcher launched the app immediately.
+Real logcat, real hardware, cleared buffer:
 
-- **The `6a97911` GL-context class of bug.** Android is GL Compatibility too,
-  so the wgpu-enumeration hazard fixed on desktop could in principle bite here.
-  Today's fix should prevent it. **This pass did not reach the point where it
-  would manifest**, so that remains unconfirmed on device — assume nothing.
-- **The §13 `_phone` layout on real hardware.** This is the first build in
-  which it could ever run: `project.godot` now sets `orientation="sensor"`
-  (restored in §1) and the device reports **1080x2340**.
-  `DccShell._compute_layout_mode()` computes `1080/2340 = 0.4615`, under the
-  `_PHONE_ASPECT_MAX = 0.6` threshold, so `_phone` should latch true and
-  `_phone_scale` should come out `1080 / PHONE_REF_SHORT (393) = 2.75`. On
-  paper that puts §13's 44 px minimum target at **~121 physical px**, clearing
-  Android's 94 px (48 dp) floor and directly answering the 2026-08-18 pass's §6
-  finding that the chrome was "physically unusable by finger". **On paper.**
-  Nobody has seen it.
+```
+I godot       : Godot Engine v4.7.1.stable.official.a13da4feb
+I AdrenoGLES-0: Driver Path: /vendor/lib64/egl/libGLESv2_adreno.so
+I godot       : OpenGL API OpenGL ES 3.2 V@0502.0 - Compatibility
+                - Using Device: Qualcomm - Adreno (TM) 630
+```
+
+`OnResume` with **no** following `OnPause`/`OnStop` this time — the activity
+stayed foregrounded and the GL ES 3.2 context was created against the real
+Adreno 630.
+
+**GDExtension load proven, not inferred.** `Godot Engine v…` alone would not
+prove the Rust side loaded, so the process's own address space was read:
+
+```
+7271375000-7272152000 r-xp  .../lib/arm64/libcartalith_godot.so
+```
+
+The library is mapped **executable** into pid 10877. The engine is behind the
+shell.
+
+### The golden path, driven by touch
+
+`File ▸ Open project` came up on its own at boot, offering **Create a new
+world / Import a heightmap / Drop a .zip save** — the heightmap-import entry
+point is itself one of the things the stale APK was missing, so its presence on
+screen is direct evidence the new code shipped.
+
+Tapped **Create a new world** → the `New world` dialog opened fully populated
+(seed 311447, Extent `Region`, Map width `Province · 800 km`, Resolution `2K`,
+grid 2048 x 1311 = 2.68 M cells, cell size 0.391 km, Archetype `Classic`, plus
+the Village-seeding and Imperial-seat-tier toggles) → tapped **Create**.
+
+It generated and rendered: coastlines, rivers, roads, an impact crater, and
+faction-coloured settlement markers with labels (`Haldvannho vnordfjord`,
+`Crungrimcrag`, `Zafashkadrest`, `Yusirsirskadmarch`, …) over the Phase 3 paper
+atlas look. The app bar updated to **`ELDRA · 311447`** and the status readout
+to `2048 x 1311 · 800 x 512 km · z1.0`.
+
+**No `FATAL`, no `SCRIPT ERROR`, no `USER ERROR`, no panic, no ANR, no
+`lowmemorykiller`, nothing in the `crash` buffer** for this package across the
+whole session. The only error line anywhere in logcat was an unrelated
+`bluetooth` file-metadata warning from a system process.
+
+### The `6a97911` GL-context bug does not bite on Android — verified
+
+This was the specific thing the pass was told to watch for: Android is GL
+Compatibility too, so the wgpu-enumeration hazard that killed the desktop
+renderer could in principle recur. **It does not.** The GL ES 3.2 context was
+created cleanly at boot, a 2.68 M-cell generation ran through the full pipeline
+without touching it, and `grep -i wgpu` over the whole logcat is empty. The
+2026-08-18 pass's Performance readout finding — that the GPU path is correctly
+inert on Android and the whole pipeline runs on CPU — is the reason: there is
+no enumeration to go wrong here.
+
+### Memory at the app's own default, vs. the 2026-08-18 baseline
+
+`dumpsys meminfo`, `TOTAL PSS`, sampled every ~2 s through the run, same metric
+as the previous two passes.
+
+| Run | Grid | Peak PSS | Steady PSS |
+|---|---|---|---|
+| 2026-08-18 | 2048x1311 (2.68 M) | 894,968 KB (874 MB) | ~500,040-538,300 KB |
+| **this pass** | 2048x1311 (2.68 M) | **899,089 KB (878 MB)** | **662,793 KB (647 MB)** |
+
+**Peak is flat** — 878 MB against 874 MB, a 0.5% difference on a single
+sample, i.e. unchanged. Everything landed since 2026-08-18 (the three-domain
+shell merge, the rebuilt Asset Library, Travel Library, Journey Planner,
+heightmap import, metropolis/recovery, Multi-GPU) cost essentially nothing at
+the transient peak, which is dominated by the generation pipeline's own
+buffers.
+
+**Steady-state grew ~23%** (≈510 → 647 MB) and that is the honest cost: the
+phone shell builds a second full chrome tree, and the new windows are resident
+once opened. Not a leak — PSS held at 662,79x KB across seven consecutive
+samples with sub-100 KB jitter.
+
+Generation took roughly **16-18 s** wall-clock (peak at t+9-10 s in the trace,
+settled by t+16 s) against the 2026-08-18 pass's ~31 s at the identical grid.
+Read as "not slower"; both are inferred from the shape of the memory trace
+rather than an instrumented timer.
+
+## 4.2 The §13 phone layout, on a phone, for the first time
+
+`project.godot`'s restored `orientation="sensor"` (§1) is what made this
+reachable. The device reported `cur=2340x1080` — the owner has the phone
+physically resting in landscape, and `"sensor"` correctly followed it.
+
+`_compute_layout_mode()`'s aspect test is deliberately order-independent, so
+landscape does not defeat it: `min/max = 1080/2340 = 0.4615`, under
+`_PHONE_ASPECT_MAX = 0.6`, so **`_phone` latched true and the shell built phone
+chrome, not desktop chrome.** Confirmed visually — the screenshots show the
+§13 composition, not the 2026-08-18 pass's crammed desktop shell:
+
+- the **app bar** with hamburger, `CARTALITH` wordmark and world subtitle;
+- the **floating domain rail** with rotated `WORLD` / `CIVIL` / `CARTO` labels
+  and its expand chevron;
+- the **`⋯` overflow** and panel-picker buttons at top right;
+- the **bottom tool sheet** (`GENERATE · WORLD` with `Generate world`,
+  `New seed`, `Center landmasses`, `Bake ALL & finalize`);
+- the **gesture inset** bar;
+- and the landscape treatment specifically: `_phone_side_safe` is the black
+  column down the left edge holding the rotated clock, with the chrome shifted
+  inward to clear it — exactly "the cutout moves to a side edge".
+
+`_phone_scale` comes out `1080 / PHONE_REF_SHORT (393) = 2.75`, putting §13's
+44 px minimum target at **~121 physical px** against Android's 94 px (48 dp)
+floor. **This directly retires the 2026-08-18 pass's §6 finding** that the
+chrome was "structurally intact, physically unusable by finger" — that verdict
+described the desktop shell running on a phone, which is no longer what
+happens.
+
+### Two things that are still wrong, reported not fixed
+
+1. **Runtime-built dialogs do not take the phone treatment.** `Open project`
+   and `New world` render as desktop-sized floating windows (~1020x690 in a
+   2340x1080 surface) with 10-12 px body type — physically ~0.7 mm, well under
+   the ~1.5 mm a normal eye resolves at arm's length. They are *usable* (the
+   `Create` button is a comfortable target and the content scrolls), but they
+   are visibly not part of the phone composition around them. §13 scopes
+   full-height panel sheets and bottom sheets for exactly this.
+2. **`Open project` shows two stacked headers and two close buttons** — an
+   outer `Open project` window title bar with an `✕`, and immediately inside it
+   the dialog's own `Cartalith / start a world, continue one, or bring a
+   heightmap in from disk` header with a second `✕`. Almost certainly the
+   content's branded header colliding with the host `Window`'s chrome rather
+   than a phone-specific bug, but it reads as a duplicated title on any
+   platform.
+
+Neither was touched. Both are layout work with a real design behind them
+(§13 / the DCC shell spec), and inventing a fix inside a verification pass is
+the half-migrated state this project avoids by policy.
+
+### Portrait was not reachable over `adb`
+
+The primary §13 composition is portrait, and it still has not been seen.
+`settings put system user_rotation 0` has no effect here: Godot's
+`orientation="sensor"` sets the activity to `SCREEN_ORIENTATION_SENSOR`, which
+follows the physical accelerometer and overrides the user-rotation setting.
+**Physically rotating the phone is the only way**, which is a five-second
+owner action, not a blocker. (The Android lock screen is itself portrait-pinned,
+which is why the §4 lock-screen capture looked portrait while the app runs
+landscape — those are consistent, not contradictory.)
+
+### Device state touched
+
+`svc power stayon usb` for the session (restored to `false`);
+`accelerometer_rotation` and `user_rotation` were set to `0` during the failed
+portrait attempt and restored to `1` / `0` (auto-rotate on) afterwards.
+`screen_off_timeout` was read but never changed. Nothing else.
 
 ## 5. Unrelated cruft noticed in the APK, flagged not fixed
 
@@ -680,10 +821,11 @@ bytes) and `libsteam_api.so` (526,984 bytes) — about 19 MB of a Steam
 integration and a personal MCP dev tool in a non-Steam Android build.
 
 `.gitignore`'s own comment already says neither belongs in the repo. An
-`exclude_filter` on the Android preset would drop them, but changing export
-filters is a change whose only real test is running the result — which §4 says
-this pass cannot do. **Left alone deliberately**; picking it up belongs with
-the next pass that can actually watch the app boot.
+`exclude_filter` on the Android preset would drop them. **Left alone
+deliberately**: this pass's job was to get current code onto the phone and
+verify it, and re-cutting the export filter is a separate change that wants its
+own build-install-run cycle rather than being smuggled into a verification
+pass. Worth ~19 MB and one line to whoever picks it up.
 
 ## Done means (this pass)
 
@@ -698,7 +840,14 @@ the next pass that can actually watch the app boot.
 | APK carries current code | **Yes**, verified by reading `assets/shell/` out of the archive |
 | Installed on real hardware | **Yes** |
 | Duplicate stale APK path | **Deleted** (`cartalith-native/builds/android/`) |
-| App observed running on device | **NO — blocked by the phone's fingerprint lock screen** |
-| GDExtension load / GL context confirmed | **NO** — never reached |
-| `6a97911` GL-context fix verified on Android | **NO** — unverified, assume nothing |
-| §13 phone layout on real hardware | **NO** — first build capable of it, never seen |
+| App observed running on device | **Yes** — after the owner unlocked the phone (§4.1) |
+| GDExtension actually loaded | **Yes** — `libcartalith_godot.so` mapped `r-xp` into the live process, not inferred |
+| GL context | **Yes** — OpenGL ES 3.2, Adreno (TM) 630, Compatibility |
+| `6a97911` GL-context fix verified on Android | **Yes** — clean context, full generation, zero `wgpu` lines in logcat |
+| Golden path on device | **Yes** — Open project → New world (2048x1311, 2.68 M cells) → Create → world rendered, `ELDRA · 311447` |
+| Crashes / ANRs / script errors / OOM kills | **None** |
+| Memory at 2048x1311 | Peak **899,089 KB (878 MB)**, flat vs. 2026-08-18's 874 MB; steady **662,793 KB (647 MB)**, up ~23%; no leak |
+| §13 phone layout on real hardware | **Yes, and it works** — `_phone` latched, phone chrome built, 44 px targets land at ~121 physical px; retires the 2026-08-18 §6 "unusable by finger" verdict |
+| Phone-layout defects found | **Two, reported not fixed** — runtime dialogs keep desktop sizing; `Open project` shows duplicated header/close (§4.2) |
+| §13 *portrait* composition | **Still unseen** — `"sensor"` follows the accelerometer, so `adb` cannot force it; needs the phone physically rotated |
+| Editor-only addons in the APK | **Flagged, not fixed** — ~19 MB of godotsteam + godot_ai (§5) |
