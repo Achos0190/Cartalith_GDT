@@ -1016,3 +1016,52 @@ document's own numbers rather than the shell:
   no Rust port at all — checked against `cartalith-civ` and
   `journey_bridge.rs` directly, not assumed — so both controls exist in the
   tool options bar but are disabled with that reason stated.
+
+## Update (2026-08-20) — the party form now offers the Travel Library
+
+Two of the disclosures the redesign note above records are no longer true, and
+one new boundary replaces them. Full detail, including the real before/after
+journey numbers, in `TRAVEL_LIBRARY_SPEC.md` §6; what belongs here is what it
+changes about *this* document's own claims.
+
+- **"Party presets: `JP_PRESETS` is JS-only, the control is disabled" — closed.**
+  The tool-options bar carries a live party-set-up dropdown and a
+  `capture party…` action, over the Travel Library's own stored rows
+  (`tl_list`/`tl_get("preset")`, `tl_capture_preset_from_plan`) rather than the
+  reference's JS-side `JP_PRESETS`. That is the strictly larger thing: stock
+  set-ups *and* every set-up a user captures, editable in the ⇧L window.
+  Gap-register JP-02 closed.
+- **The Carriage section's Mount and Vessel pickers are library-backed**, and
+  four new per-species *animal definition* pickers were added beside the
+  counts. Selecting a custom animal re-plans the journey for real, through
+  `jp_compute`'s new `animal_entries` request key. Gap-register IN-06 closed
+  for animals; the Vessel picker lists custom vessels but disables them,
+  because `jp_ship_stats` is still a fixed built-in table.
+- **Carriage Auto mode and re-route-for-mode remain unported.**
+  `jpAutoPickTransport`/`_jpRerouteForMode` still have no `cartalith-civ`
+  equivalent — re-checked this pass, not inherited — so both controls stay
+  disabled with that reason. §10's remaining "still to build" list is
+  otherwise unchanged.
+
+### The `JpParty` widening was re-examined and deliberately declined
+
+This pass was asked to check whether the `_ex`/resolver refactor had made
+widening `JpParty` from four fixed species to a generic animal-count map a
+bounded change. It has not. The blocking reason is a **spec** gap rather than a
+mechanical one: `jp_capacity_ex` reads per-species seasonal physiology
+(`jp_seasonal_animal`, sixteen `(cap, food, water)` rows) and desert food/water
+multipliers (`jp_desert_animal_mod`) for every species it sums, and
+`TRAVEL_LIBRARY_SPEC.md` §3.1 carries fields for **neither** — a wholly new
+species would silently take the neutral `1.0` fallbacks on both, which is
+exactly the "plans silently wrong" failure §5 of that spec exists to prevent.
+Three golden-tested signatures also return `&'static str`
+(`JpPlan::resolve_mount`, `jp_resolve_mount`, `jp_best_animal_for_context`), and
+`jp_capacity_ex`'s summation order is explicitly pinned to `JP_ANIMAL_KEYS`.
+The reference is itself fixed-four, so none of it has a golden target.
+
+What shipped instead is the **substitutes-for path**: a custom entry that
+declares `substitutes for = <one of the four>` occupies that slot with its own
+capacity, speed, fodder, water and ten-row terrain table. What it still borrows
+from the substituted species is precisely what §3.1 has no fields for, and the
+party form says so by name. `TRAVEL_LIBRARY_SPEC.md` §6 carries the full
+evidence and the four-point cost breakdown.

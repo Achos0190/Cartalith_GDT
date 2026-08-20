@@ -18,20 +18,27 @@
 //! split assigns to this crate: add/duplicate/edit/delete, id generation,
 //! and usage counting.
 //!
-//! # What a later `#[func]` layer still needs to add
+//! # How this reaches a computed journey (live as of 2026-08-20)
 //!
-//! Nothing here is wired into `lib.rs`'s `WorldGen` yet -- no
-//! `travel_library: Option<TravelLibrary>` field, no `#[func]` surface, and
-//! `jp_compute` does not read one. That is deliberately out of this
-//! dispatch's scope (`TRAVEL_LIBRARY_SPEC.md`'s own GUI window is a
-//! separate, later dispatch), but the shape a `#[func]` layer would add is
-//! exactly [`TravelLibrary`]'s own public methods plus, at the `jp_compute`
-//! call site, building a [`cartalith_civ::JpAnimalResolver`] from
-//! [`TravelLibrary::animal_overrides`] via
-//! [`cartalith_civ::travel_library::animal_resolver_fns`] and passing
-//! `Some(&resolver)` to `cartalith_civ::jp_plan_ex` in place of today's
-//! `cartalith_civ::jp_plan`. [`tests::a_custom_animal_override_changes_a_computed_journey`]
-//! below exercises exactly that call chain end to end, proving it is real.
+//! `lib.rs`'s `WorldGen` holds a `travel_library: TravelLibrary`, and
+//! `jp_compute` builds a [`cartalith_civ::JpAnimalResolver`] from
+//! [`TravelLibrary::animal_overrides_selected`] via
+//! [`cartalith_civ::travel_library::animal_resolver_fns`], passing
+//! `Some(&resolver)` to `cartalith_civ::jp_plan_ex`.
+//! [`tests::a_custom_animal_override_changes_a_computed_journey`] exercises
+//! that call chain end to end, and
+//! [`tests::regression_stock_only_travel_library_matches_pre_dispatch_jp_plan`]
+//! pins that a stock-only library is byte-identical to the plain
+//! `cartalith_civ::jp_plan` it replaced.
+//!
+//! The party form names its per-species choice explicitly (`jp_compute`'s
+//! own `animal_entries` request key -> [`TravelLibrary::animal_overrides_selected`]),
+//! and [`TravelLibrary::animal_species_slot`] is the one place that decides
+//! which of the four built-in species an entry may occupy -- its own
+//! `species_key`, or the one its `substitutes_for` chain reaches. An entry
+//! that resolves to neither has no `JpParty` slot and is not offered at all;
+//! `TRAVEL_LIBRARY_SPEC.md` §6 records why widening `JpParty` to a generic
+//! animal-count map is not the small change it looks like.
 
 use std::collections::HashMap;
 
@@ -251,13 +258,11 @@ impl TravelLibrary {
     /// Build the species-keyed override map
     /// [`cartalith_civ::travel_library::animal_resolver_fns`] takes: for
     /// each of the four built-in species, the *last-added* custom entry
-    /// whose `species_key` names it, if any. (A UI that lets a party form
-    /// pick a specific custom entry per species, rather than "the newest
-    /// one wins", is real future work this data model does not block --
-    /// see the module doc's "What a later `#[func]` layer still needs to
-    /// add".) Stock entries are never included: by construction they carry
-    /// exactly the built-in figures already, so including them would be an
-    /// inert no-op override.
+    /// whose `species_key` names it, if any. This is the implicit fallback
+    /// only: the party form names its choice per species explicitly, through
+    /// [`Self::animal_overrides_selected`]. Stock entries are never
+    /// included: by construction they carry exactly the built-in figures
+    /// already, so including them would be an inert no-op override.
     pub fn animal_overrides(&self) -> HashMap<String, AnimalDef> {
         let mut out = HashMap::new();
         for a in self.animals.iter() {
@@ -269,6 +274,78 @@ impl TravelLibrary {
             }
         }
         out
+    }
+
+    /// Which of the four built-in party-form species
+    /// (`cartalith_civ::JP_ANIMAL_KEYS`) this entry may occupy: its own
+    /// `species_key`, else the one its `substitutes_for` chain reaches.
+    ///
+    /// `None` for a wholly new species that declares no substitute -- the
+    /// stock Ox/Yak/Reindeer, and every from-blank custom entry until its
+    /// owner fills the "Substitutes for" field in. `JpParty` has four fixed
+    /// species fields and no generic animal-count map, so `None` here is
+    /// precisely "the planner has no slot to offer this in"; see this
+    /// module's own doc comment and `TRAVEL_LIBRARY_SPEC.md` §6 for why
+    /// widening `JpParty` is not the small change it looks like.
+    pub fn animal_species_slot(&self, id: &str) -> Option<&'static str> {
+        let mut cur = self.animals.get(id)?;
+        // `substitutes_for` is free text a user types (the Travel Library
+        // window's own "Substitutes for" row), so the chase is bounded by the
+        // store's own size: a cycle (a -> b -> a) terminates rather than
+        // hanging the planner's form rebuild.
+        for _ in 0..self.animals.iter().count() {
+            if let Some(key) = cur.species_key {
+                return Some(key);
+            }
+            cur = self.animals.get(cur.substitutes_for.as_deref()?)?;
+        }
+        None
+    }
+
+    /// [`Self::animal_overrides`] with the party form's own explicit
+    /// per-species choice applied on top: `selection` maps a built-in
+    /// species key to the id of the Travel Library entry occupying that
+    /// slot. Selecting a **stock** entry means "no override" (the built-in
+    /// table), which is deliberately not the same as leaving the slot
+    /// unnamed -- an unnamed slot keeps whatever [`Self::animal_overrides`]
+    /// resolved, so an empty selection reproduces the pre-selection
+    /// behaviour exactly.
+    ///
+    /// Also returns every selection key that could not be honoured -- an
+    /// unrecognised species, an unknown entry id, or an entry that does not
+    /// resolve to the species it was selected for -- for `jp_compute`'s own
+    /// `rejected` array, rather than silently dropping it. Iteration is over
+    /// `JP_ANIMAL_KEYS` and then the unknown keys sorted, so the rejection
+    /// list is deterministic despite `selection` being a `HashMap`.
+    pub fn animal_overrides_selected(
+        &self,
+        selection: &HashMap<String, String>,
+    ) -> (HashMap<String, AnimalDef>, Vec<String>) {
+        let mut out = self.animal_overrides();
+        let mut rejected: Vec<String> = Vec::new();
+        for species in cartalith_civ::JP_ANIMAL_KEYS {
+            let Some(id) = selection.get(species) else {
+                continue;
+            };
+            match self.animals.get(id) {
+                Some(entry) if self.animal_species_slot(id) == Some(species) => {
+                    if entry.origin == EntryOrigin::Custom {
+                        out.insert(species.to_string(), entry.clone());
+                    } else {
+                        out.remove(species);
+                    }
+                }
+                _ => rejected.push(species.to_string()),
+            }
+        }
+        let mut unknown: Vec<String> = selection
+            .keys()
+            .filter(|k| !cartalith_civ::JP_ANIMAL_KEYS.contains(&k.as_str()))
+            .cloned()
+            .collect();
+        unknown.sort();
+        rejected.extend(unknown);
+        (out, rejected)
     }
 }
 
@@ -1025,6 +1102,129 @@ mod tests {
         let overrides = lib.animal_overrides();
         assert_eq!(overrides.len(), 1);
         assert!(overrides.contains_key("donkey"));
+    }
+
+    // ---------- animal_species_slot / animal_overrides_selected ----------
+
+    #[test]
+    fn species_slot_is_the_own_key_then_the_substitutes_for_chain() {
+        let mut lib = TravelLibrary::new();
+        assert_eq!(lib.animal_species_slot("donkey"), Some("donkey"));
+        assert_eq!(lib.animal_species_slot("horse"), Some("horse"));
+        // The three stock species with no `JpParty` slot at all.
+        for k in ["ox", "yak", "reindeer"] {
+            assert_eq!(lib.animal_species_slot(k), None, "{k}");
+        }
+        assert_eq!(lib.animal_species_slot("no-such-entry"), None);
+
+        // A from-blank custom species declaring a substitute reaches that
+        // species' slot; one declaring nothing still reaches none.
+        let dray = lib.fresh_id();
+        lib.animals
+            .add(AnimalDef::blank(dray.clone(), "Kharen dray-ox"));
+        assert_eq!(lib.animal_species_slot(&dray), None);
+        lib.animals
+            .get_mut(&dray)
+            .expect("just added")
+            .substitutes_for = Some("mule".into());
+        assert_eq!(lib.animal_species_slot(&dray), Some("mule"));
+
+        // Two hops, and a cycle that must terminate rather than hang.
+        let second = lib.fresh_id();
+        lib.animals.add(AnimalDef::blank(second.clone(), "Second"));
+        lib.animals
+            .get_mut(&second)
+            .expect("just added")
+            .substitutes_for = Some(dray.clone());
+        assert_eq!(lib.animal_species_slot(&second), Some("mule"));
+
+        let a = lib.fresh_id();
+        let b = lib.fresh_id();
+        lib.animals.add(AnimalDef::blank(a.clone(), "A"));
+        lib.animals.add(AnimalDef::blank(b.clone(), "B"));
+        lib.animals.get_mut(&a).expect("just added").substitutes_for = Some(b.clone());
+        lib.animals.get_mut(&b).expect("just added").substitutes_for = Some(a.clone());
+        assert_eq!(lib.animal_species_slot(&a), None, "a cycle terminates");
+    }
+
+    #[test]
+    fn an_empty_selection_reproduces_animal_overrides_exactly() {
+        let mut lib = TravelLibrary::new();
+        let id = lib.fresh_id();
+        lib.animals.duplicate("camel", id);
+        let (selected, rejected) = lib.animal_overrides_selected(&HashMap::new());
+        assert!(rejected.is_empty());
+        assert_eq!(selected.len(), lib.animal_overrides().len());
+        assert!(selected.contains_key("camel"));
+    }
+
+    #[test]
+    fn selecting_a_stock_entry_means_no_override_and_a_custom_one_means_that_exact_entry() {
+        let mut lib = TravelLibrary::new();
+        let first = lib.fresh_id();
+        lib.animals.duplicate("mule", first.clone());
+        let second = lib.fresh_id();
+        lib.animals.duplicate("mule", second.clone());
+        lib.animals
+            .get_mut(&second)
+            .expect("just duplicated")
+            .load_capacity_kg = Some(999.0);
+
+        // The implicit pick is the last-added one; naming the first must win.
+        assert_eq!(
+            lib.animal_overrides()
+                .get("mule")
+                .and_then(|a| a.load_capacity_kg),
+            Some(999.0)
+        );
+        let sel = HashMap::from([("mule".to_string(), first.clone())]);
+        let (out, rejected) = lib.animal_overrides_selected(&sel);
+        assert!(rejected.is_empty());
+        assert_eq!(out["mule"].id, first);
+
+        // Naming the *stock* entry drops the override entirely.
+        let sel = HashMap::from([("mule".to_string(), "mule".to_string())]);
+        let (out, rejected) = lib.animal_overrides_selected(&sel);
+        assert!(rejected.is_empty());
+        assert!(!out.contains_key("mule"));
+    }
+
+    #[test]
+    fn a_selection_that_cannot_be_honoured_is_rejected_not_silently_dropped() {
+        let mut lib = TravelLibrary::new();
+        let ox = lib.fresh_id();
+        lib.animals.duplicate("ox", ox.clone()); // no slot at all
+
+        let sel = HashMap::from([
+            ("mule".to_string(), ox.clone()),            // wrong slot
+            ("horse".to_string(), "nope".to_string()),   // unknown id
+            ("ostrich".to_string(), "horse".to_string()), // unknown species
+        ]);
+        let (out, rejected) = lib.animal_overrides_selected(&sel);
+        assert!(out.is_empty());
+        // `JP_ANIMAL_KEYS` order first, then unknown keys sorted.
+        assert_eq!(rejected, vec!["mule", "horse", "ostrich"]);
+    }
+
+    #[test]
+    fn a_substitutes_for_entry_can_occupy_the_slot_it_substitutes_into() {
+        let mut lib = TravelLibrary::new();
+        let dray = lib.fresh_id();
+        lib.animals.duplicate("ox", dray.clone());
+        lib.animals
+            .get_mut(&dray)
+            .expect("just duplicated")
+            .substitutes_for = Some("mule".into());
+
+        let sel = HashMap::from([("mule".to_string(), dray.clone())]);
+        let (out, rejected) = lib.animal_overrides_selected(&sel);
+        assert!(rejected.is_empty());
+        assert_eq!(out["mule"].id, dray);
+        assert_eq!(
+            out["mule"].load_capacity_kg,
+            Some(150.0),
+            "the ox's own capacity, not the mule's 110"
+        );
     }
 
     // ---------- end to end: the proof this is real, not decorative ----------

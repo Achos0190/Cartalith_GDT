@@ -73,9 +73,15 @@ class_name JourneyPlannerView
 ##   fields and disables the picker with a stated reason rather than faking a
 ##   plausible-looking auto-pick; genuinely a Rust-side gap, reported rather
 ##   than invented here per this task's own constraint.
-## - **Party presets**: `JP_PRESETS` (reference HTML ~line 17595) is
-##   JS-side-only; no `jp_presets()` binding exists. The preset control is
-##   present and disabled with that reason.
+## - **Party set-ups**: real as of 2026-08-20 (JP-02). Not the reference's
+##   JS-only `JP_PRESETS` (~line 17595) — the Travel Library's own stored
+##   rows, stock and captured alike (`tl_list`/`tl_get("preset")`,
+##   `tl_capture_preset_from_plan`), which is the strictly larger thing.
+##   Applying one fills the party form; "capture party…" writes the current
+##   form back as a new row (`TRAVEL_LIBRARY_SPEC.md` §3.4).
+## - **Travel Library definitions in the party form**: real as of
+##   2026-08-20 (TL-01) for animals — see the "Travel Library wiring"
+##   section below for exactly what is offerable and what is not, and why.
 ## - **Re-route for <mode>…**: `_jpRerouteForMode`/`jpAutoPickTransport`'s
 ##   sibling -- same gap, same disclosure.
 ## - **Cost group** (food/fodder/wages/tolls/upkeep in currency): `jp_plan`
@@ -118,6 +124,17 @@ var _layovers: Dictionary = {}          ## stop key (String) -> int days
 var _selected_stage := 0
 var _isolated_stage := -1               ## -1 = no isolation
 var _carriage_auto := true              ## View-local only; see class doc's disclosed gap.
+
+## TL-01: which Travel Library animal definition occupies each of the four
+## built-in party-form species slots -- species key (String) -> entry id
+## (String). Sent as `jp_compute`'s own `animal_entries` request key, NOT as
+## a `plan` field: it is a library reference, not one of `JpPlan`'s values,
+## and `plan_from_pairs` would rightly reject it. Defaults to each species'
+## own stock entry (which the engine reads as "no override"), so an untouched
+## form computes exactly what it did before this existed.
+var _animal_entries: Dictionary = {}
+var _library_animals: Array = []   ## last `tl_list("animal")`, refreshed per form rebuild
+var _library_vessels: Array = []   ## last `tl_list("vessel")`
 
 var _active := false
 
@@ -407,6 +424,11 @@ func _rebuild_party_form() -> void:
 			if key != "party_fields":
 				_plan_values[key] = _default_plan[key]
 
+	# The Travel Library is edited in its own window (⇧L), which can be open
+	# alongside this form, so the entry lists are re-read on every rebuild
+	# rather than cached at bind time.
+	_refresh_library()
+
 	# -- Traveler --------------------------------------------------------------
 	var traveler := DccWidgets.section(_left_party_body, "Party · Traveler")
 	_number_field(traveler, "Group size", "group_size", 1.0, 100000.0, 1.0, true, "people")
@@ -456,10 +478,9 @@ func _rebuild_party_form() -> void:
 	_choice_field(carriage, "Transport", "transport", _options.get("transport", PackedStringArray()), false, true)
 	var transport := String(_plan_values.get("transport", "Walking"))
 	if transport == "Mounted Rider":
-		_choice_field(carriage, "Mount", "mount_animal", _options.get("mount_animal", PackedStringArray()), true, false,
-			"Only consulted when the party carries no donkeys/mules/camels/horses of its own.")
+		_mount_field(carriage)
 	if transport == "River Transport" or transport == "Sea Faring":
-		_choice_field(carriage, "Vessel", "vessel", _options.get("vessel", PackedStringArray()), false)
+		_vessel_field(carriage)
 
 	var animals := HBoxContainer.new()
 	animals.add_theme_constant_override("separation", 4)
@@ -468,6 +489,8 @@ func _rebuild_party_form() -> void:
 	_animal_pair(carriage, "Carts / Wagons", "carts", "wagons")
 	_animal_pair(carriage, "Travois / Sleds", "travois", "sleds")
 	_toggle_field(carriage, "Auto-promote Walking → Baggage Train if overloaded", "auto_promote")
+
+	_build_animal_definitions(carriage)
 
 	# -- Route conditions --------------------------------------------------------
 	var route_group := DccWidgets.section(_left_party_body, "Route conditions")
@@ -479,7 +502,8 @@ func _rebuild_party_form() -> void:
 	_toggle_field(route_group, "Respect seasonal closures (winter passes)", "seasonal_closures", true)
 
 	var footer := DccTheme.mono_label(
-		"party preset: not wired — JP_PRESETS has no jp_presets() binding", "text_ghost", DccTheme.FS_TINY)
+		"party set-ups live in Data ▸ Travel library (⇧L); apply or capture one from the tool options bar above",
+		"text_ghost", DccTheme.FS_TINY)
 	footer.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var footer_pad := MarginContainer.new()
 	footer_pad.add_theme_constant_override("margin_left", 14)
@@ -507,6 +531,203 @@ func _animal_pair(parent: Control, label_text: String, key_a: String, key_b: Str
 		sb.value_changed.connect(func(v: float): _plan_values[key] = int(v); _plan_value_changed(false))
 		row.add_child(sb)
 	parent.add_child(row)
+
+# =============================================== Travel Library wiring (TL-01) ====
+#
+# `TRAVEL_LIBRARY_SPEC.md` §1's own promise -- "everything defined here becomes
+# a selectable option in the planner's party form" -- and gap-register rows
+# JP-02/IN-06. Three controls read the live library rather than `jp_options()`'s
+# built-in vocabulary: the per-species animal-definition pickers, the Mount
+# picker, and the Vessel picker.
+#
+# The boundary, and where it is stated: only the four built-in party-form
+# species (donkey/mule/camel/horse) have a `JpParty` slot, so an animal entry
+# is offerable only if it *resolves* to one of them -- its own `species_key`
+# (every stock species entry, and any custom duplicate of one) or the one its
+# "Substitutes for" chain reaches. `tl_list("animal")`'s `species_slot` key is
+# that resolution, computed engine-side by
+# `travel_bridge::TravelLibrary::animal_species_slot`; nothing here re-derives
+# it. Entries that resolve to no slot -- the stock Ox/Yak/Reindeer, and every
+# from-blank custom animal until its owner fills "Substitutes for" in -- are
+# named in `_unslotted_note()` with the fix, rather than silently omitted.
+#
+# Vessels and vehicles remain data-only engine-side (no resolver equivalent to
+# the animal one exists for `jp_ship_stats`/`jp_capacity`'s constants), so the
+# Vessel picker lists every library vessel but leaves the ones with no engine
+# counterpart *disabled with the reason on the item*, which is where a user
+# actually hits the limit.
+
+const _SPECIES := ["donkey", "mule", "camel", "horse"]
+const _SPECIES_LABEL := {"donkey": "Donkey", "mule": "Mule", "camel": "Camel", "horse": "Horse"}
+
+func _refresh_library() -> void:
+	_library_animals = bridge.tl_list("animal") if bridge != null else []
+	_library_vessels = bridge.tl_list("vessel") if bridge != null else []
+	# Seed (and repair) the per-species selection: each species defaults to
+	# its own stock entry, which `animal_overrides_selected` reads as "no
+	# override" -- so an untouched form computes exactly what it always did.
+	for species in _SPECIES:
+		var current := String(_animal_entries.get(species, ""))
+		if current != "" and _library_row(_library_animals, current).size() > 0:
+			continue
+		_animal_entries[species] = _stock_entry_id(species)
+
+func _library_row(rows: Array, id: String) -> Dictionary:
+	for r in rows:
+		if String((r as Dictionary).get("id", "")) == id:
+			return r
+	return {}
+
+func _stock_entry_id(species: String) -> String:
+	for r in _library_animals:
+		var row: Dictionary = r
+		if String(row.get("origin", "")) == "stock" and String(row.get("species_slot", "")) == species:
+			return String(row.get("id", ""))
+	return ""
+
+## Every animal entry that may occupy `species`, in the library's own list
+## order (stock first, then custom in add order).
+func _slot_candidates(species: String) -> Array:
+	var out: Array = []
+	for r in _library_animals:
+		var row: Dictionary = r
+		if String(row.get("species_slot", "")) == species:
+			out.append(row)
+	return out
+
+## One entry's dropdown label. The `· custom` tag is `2b`'s own mono
+## `custom · edited …` treatment, cut to the part that is true here (no edit
+## timestamps exist in this port); `⚠` carries §4's validation state through.
+func _entry_label(row: Dictionary) -> String:
+	var text := String(row.get("name", ""))
+	if String(row.get("origin", "")) == "custom":
+		text += "  · custom"
+	match String(row.get("validation_state", "ok")):
+		"incomplete":
+			text += "  ⚠"
+		"conflicting":
+			text += "  ⚠⚠"
+	return text
+
+## The four per-species definition pickers. Rendered whether or not any
+## custom entry exists: the row is where a user learns the choice is theirs.
+func _build_animal_definitions(parent: Control) -> void:
+	parent.add_child(DccTheme.rule())
+	var head := DccTheme.mono_label("ANIMAL DEFINITIONS · TRAVEL LIBRARY", "text_faint", DccTheme.FS_MICRO, 2)
+	parent.add_child(head)
+	for species in _SPECIES:
+		_animal_entry_field(parent, species)
+	var note := _unslotted_note()
+	if note != "":
+		DccWidgets.note(parent, note)
+
+func _animal_entry_field(parent: Control, species: String) -> void:
+	var candidates := _slot_candidates(species)
+	var labels: Array = []
+	var ids: Array = []
+	for row in candidates:
+		labels.append(_entry_label(row))
+		ids.append(String((row as Dictionary).get("id", "")))
+	if labels.is_empty():
+		# Only reachable if the stock entry for this species was somehow
+		# absent; say so rather than drawing an empty control.
+		DccWidgets.note(parent, "%s: no Travel Library definition available." % _SPECIES_LABEL[species])
+		return
+	var current := String(_animal_entries.get(species, ""))
+	var idx: int = ids.find(current)
+	if idx < 0:
+		idx = 0
+	var ob := DccWidgets.choice(parent, _SPECIES_LABEL[species], labels, idx,
+		func(i: int):
+			_animal_entries[species] = ids[i]
+			_plan_value_changed(true),
+		"Which Travel Library definition this species' capacity, speed, fodder, water and terrain table come from. A stock entry means the built-in figures; a custom one re-plans the journey from its own.")
+	ob.custom_minimum_size.y = 22
+	if String(_library_row(_library_animals, current).get("origin", "")) == "custom":
+		ob.add_theme_color_override("font_color", DccTheme.c("accent"))
+
+## The honest boundary, stated where a user meets it: every custom animal
+## that cannot be offered at all, by name, with the one edit that fixes it.
+func _unslotted_note() -> String:
+	var names: Array[String] = []
+	for r in _library_animals:
+		var row: Dictionary = r
+		if String(row.get("species_slot", "")) != "":
+			continue
+		if String(row.get("origin", "")) != "custom":
+			continue
+		names.append(String(row.get("name", "")))
+	if names.is_empty():
+		return ""
+	return ("Not offerable: %s. JpParty has four fixed species slots (donkey/mule/camel/horse) and no generic animal-count map, so a wholly new species has nowhere to sit. Set \"Substitutes for\" on it (Data ▸ Travel library ⇧L) to the id of the built-in species it stands in for — it then occupies that slot with its own capacity, speed, fodder, water and terrain table. Seasonal physiology and desert food/water multipliers still come from the substituted species: TRAVEL_LIBRARY_SPEC.md §3.1 carries no fields for either." % ", ".join(names))
+
+## Mount picker, library-backed. Selecting a custom entry sets both the
+## engine's `mount_animal` species key AND that species' definition slot --
+## the same two facts one choice implies.
+func _mount_field(parent: Control) -> void:
+	var labels: Array = [_auto_label("mount_animal")]
+	var species_of: Array = [""]
+	var ids: Array = [""]
+	for species in _SPECIES:
+		for r in _slot_candidates(species):
+			var row: Dictionary = r
+			if not bool(row.get("usable_as_mount", false)):
+				continue
+			labels.append("%s  ›  %s" % [_SPECIES_LABEL[species], _entry_label(row)])
+			species_of.append(species)
+			ids.append(String(row.get("id", "")))
+	var current_species := String(_plan_values.get("mount_animal", ""))
+	var current_id := String(_animal_entries.get(current_species, ""))
+	var idx := 0
+	for i in ids.size():
+		if String(species_of[i]) == current_species and String(ids[i]) == current_id:
+			idx = i
+			break
+	var ob := DccWidgets.choice(parent, "Mount", labels, idx,
+		func(i: int):
+			_plan_values["mount_animal"] = species_of[i]
+			if String(species_of[i]) != "":
+				_animal_entries[species_of[i]] = ids[i]
+			_plan_value_changed(true),
+		"Only consulted when the party carries no donkeys/mules/camels/horses of its own. Entries are the Travel Library's own mount-capable definitions (§3.1 'usable as a mount').")
+	_auto_obs["mount_animal"] = ob
+
+## Vessel picker, library-backed. `jp_ship_stats` is still a fixed built-in
+## table (`TRAVEL_LIBRARY_SPEC.md` §6): a vessel definition only reaches the
+## engine when its *name* is one the table knows, so every other entry is
+## listed but disabled, with the reason on the item itself.
+func _vessel_field(parent: Control) -> void:
+	var engine_names: PackedStringArray = _options.get("vessel", PackedStringArray())
+	var labels: Array = []
+	var names: Array = []
+	var live: Array = []
+	for r in _library_vessels:
+		var row: Dictionary = r
+		var vessel_name := String(row.get("name", ""))
+		var hooked := engine_names.has(vessel_name)
+		labels.append(_entry_label(row) if hooked else "%s  — no engine hook" % _entry_label(row))
+		names.append(vessel_name)
+		live.append(hooked)
+	# Any engine vessel with no library row at all still has to be reachable.
+	for n in engine_names:
+		if not names.has(String(n)):
+			labels.append(String(n))
+			names.append(String(n))
+			live.append(true)
+	var current := String(_plan_values.get("vessel", ""))
+	var idx: int = names.find(current)
+	if idx < 0:
+		idx = 0
+	var ob := DccWidgets.choice(parent, "Vessel", labels, idx,
+		func(i: int):
+			if not bool(live[i]):
+				return
+			_plan_values["vessel"] = String(names[i])
+			_plan_value_changed(false),
+		"Stock vessels drive jp_ship_stats. A custom vessel definition is real, validated data with no engine hook yet — no resolver equivalent to the animal one exists for the vessel table (TRAVEL_LIBRARY_SPEC.md §6), so it is listed here but not selectable.")
+	for i in live.size():
+		if not bool(live[i]):
+			ob.set_item_disabled(i, true)
 
 ## `_jpPackRange`'s own ceiling advisory (reference ~line 19661), attached to
 ## the supplies field per `JOURNEY_PLANNER_SPEC.md` §5. `jp_capacity()` is
@@ -541,6 +762,8 @@ func _compute() -> void:
 		_apply_result()
 		return
 	var request: Dictionary = {"route": _route_index, "plan": _plan_values.duplicate(true)}
+	if not _animal_entries.is_empty():
+		request["animal_entries"] = _animal_entries.duplicate()
 	if not _stage_overrides.is_empty():
 		var ov: Dictionary = {}
 		for idx in _stage_overrides:
@@ -1488,9 +1711,7 @@ func _tool_options_journey() -> void:
 				if i < count:
 					_route_index = i
 					_compute())
-		var preset_btn := DccWidgets.action(row, "preset: not wired", func(): pass)
-		preset_btn.disabled = true
-		preset_btn.tooltip_text = "JP_PRESETS is JS-only in the reference; no jp_presets() binding exists."
+		_preset_controls(row)
 		var carriage_lbl := DccTheme.mono_label("carriage: %s" % ("auto" if _carriage_auto else "manual"), "text_ghost", DccTheme.FS_SMALL)
 		row.add_child(carriage_lbl)
 		var reroute_btn := DccWidgets.action(row, "re-route for %s…" % String(_plan_values.get("transport", "Walking")), func(): pass)
@@ -1503,6 +1724,81 @@ func _tool_options_journey() -> void:
 		save_btn.tooltip_text = "No save-writer exists for journeys (or for projects generally -- cartalith-io is read-only)."
 		var export_btn := DccWidgets.action(row, "export table", _export_stage_table)
 	)
+
+# ================================================ Party set-ups (JP-02) ====
+#
+# `TRAVEL_LIBRARY_SPEC.md` §3.4: one row = one preset of *party-form values
+# only*, no route, and applying one leaves per-stage overrides untouched.
+# `tl_get("preset", id)` returns exactly `PRESET_FIELD_KEYS` -- the same
+# twenty keys `_plan_values` already speaks (`travel_bridge::preset_to_pairs`
+# is `PartyPreset::apply_to`'s own inverse) -- so applying is an assignment,
+# not a translation table that could drift.
+#
+# The reference's `JP_PRESETS` (JS-only, ~line 17595) is *not* what this
+# reads: this port's presets are the Travel Library's own stored rows, stock
+# and captured alike, which is the strictly larger thing.
+
+func _preset_controls(row: HBoxContainer) -> void:
+	var presets: Array = bridge.tl_list("preset") if bridge != null else []
+	var labels: Array = ["party set-up…"]
+	var ids: Array = [""]
+	for p in presets:
+		var pr: Dictionary = p
+		labels.append(_entry_label(pr))
+		ids.append(String(pr.get("id", "")))
+	DccWidgets.choice(row, "set-up", labels, 0,
+		func(i: int):
+			if i > 0:
+				_apply_preset(String(ids[i])),
+		"Applies a Travel Library party set-up to the form below (§3.4: party-form values only — no route, and per-stage overrides are left untouched).")
+	DccWidgets.action(row, "capture party…", _capture_preset).tooltip_text = \
+		"Writes the current party form into a new Travel Library party set-up (TRAVEL_LIBRARY_SPEC.md §3.4)."
+
+func _apply_preset(id: String) -> void:
+	if id == "":
+		return
+	var entry: Dictionary = bridge.tl_get("preset", id)
+	if not bool(entry.get("ok", false)):
+		app.set_status("hint", "That party set-up no longer exists.", "warn")
+		return
+	# Only the keys the form itself owns: `tl_get` also returns the entry's
+	# own metadata (`id`/`origin`/`validation_*`/…), which is not plan data.
+	var applied := 0
+	for key in _default_plan.keys():
+		if key == "party_fields" or not entry.has(key):
+			continue
+		_plan_values[key] = entry[key]
+		applied += 1
+	_rebuild_party_form()
+	_compute()
+	app.set_status("hint", "Applied party set-up \"%s\" (%d fields)." % [String(entry.get("name", "")), applied], "accent")
+
+func _capture_preset() -> void:
+	var d := ConfirmationDialog.new()
+	d.title = "Capture party from planner"
+	d.min_size = Vector2i(360, 0)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 6)
+	body.add_child(DccTheme.label("Name for the new party set-up:", "text_dim", DccTheme.FS_SMALL))
+	var le := LineEdit.new()
+	le.text = "Captured party"
+	le.select_all_on_focus = true
+	body.add_child(le)
+	d.add_child(body)
+	d.confirmed.connect(func():
+		var preset_name := le.text.strip_edges()
+		if preset_name != "":
+			var result: Dictionary = bridge.tl_capture_preset_from_plan(preset_name, _plan_values.duplicate(true))
+			if bool(result.get("ok", false)):
+				app.set_status("hint", "Captured party set-up \"%s\"." % preset_name, "accent")
+				_tool_options_journey()
+			else:
+				app.set_status("hint", "Capture failed: %s" % String(result.get("error", "")), "warn")
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered()
+	le.grab_focus.call_deferred()
 
 ## The one export path with real data behind it: the stage matrix as CSV, to
 ## the OS clipboard -- no file-writer exists to save it to disk (same gap the

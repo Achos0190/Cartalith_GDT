@@ -84,7 +84,143 @@ Blocked stages, the "faster mode available" advisory and the better-animal/vehic
 advisory in the planner are all derived from these same fields. An entry without them
 would not merely look unfinished — it would plan silently wrong.
 
-## 6 · Build status (2026-08-19, updated same day: the `#[func]` boundary and the window)
+## 6 · Build status (2026-08-20: the planner's party form now offers the library)
+
+**§1's own promise — "everything defined here becomes a selectable option in
+the planner's party form" — is now true for animals, and stated in-UI where it
+is not.** The `#[func]` boundary and the `2a`/`2b` window landed the day before
+(§6a below, unchanged and still accurate); what this pass added is the last
+connecting piece: the Journey Planner's own party form reading the live library
+and its choice reaching a computed plan.
+
+### What is now selectable, and where
+
+- **Four per-species *animal definition* pickers** (Carriage ▸ "ANIMAL
+  DEFINITIONS · TRAVEL LIBRARY"), one each for donkey/mule/camel/horse. Each
+  lists every library entry that resolves to that species — stock first, then
+  custom in add order — with custom rows tagged `· custom` (the `2b` mockup's
+  own `custom · …` mono treatment, accent-coloured when selected) and ⚠/⚠⚠
+  carrying §4's validation state through.
+- **The Mount picker** is the same list filtered to §3.1's `usable as a mount`,
+  labelled `<species> › <entry>`. One choice sets both facts it implies: the
+  engine's `mount_animal` species key *and* that species' definition slot.
+- **The Vessel picker** lists every library vessel, and **disables** the ones
+  with no engine counterpart with the reason on the item itself
+  (`— no engine hook`). `jp_ship_stats` is still a fixed built-in table; a
+  custom vessel is real, validated data with no resolver. Stated where a user
+  meets it rather than omitted.
+- **Party set-ups** (§3.4, gap-register JP-02) in the tool-options bar: a
+  `set-up` dropdown over `tl_list("preset")` — stock and captured alike, custom
+  tagged — plus `capture party…`, which writes the current form into a new row
+  through `tl_capture_preset_from_plan`. Applying assigns only the twenty keys
+  `tl_get("preset", id)` returns (`PRESET_FIELD_KEYS`, `PartyPreset::apply_to`'s
+  own inverse, so there is no second translation table to drift), and leaves
+  per-stage overrides untouched exactly as §3.4 requires.
+
+### How the choice reaches the engine
+
+`jp_compute` gained one request key, `animal_entries` — `{species_key:
+entry_id}` — which routes through the new
+`travel_bridge::TravelLibrary::animal_overrides_selected` into the resolver
+`jp_plan_ex` already consumed. Three properties are pinned by tests rather than
+asserted here:
+
+- **An absent key changes nothing.** An empty selection reproduces
+  `animal_overrides()` exactly, so
+  `regression_stock_only_travel_library_matches_pre_dispatch_jp_plan` still
+  holds byte for byte against the plain `jp_plan` this replaced.
+- **Naming a *stock* entry means "no override"** — the built-in table —
+  which is deliberately not the same as leaving the slot unnamed. Verified
+  live: the identical journey computes `31.6792` days both ways.
+- **A selection that cannot be honoured is rejected, not silently ignored**
+  (unknown species, unknown id, or an entry that resolves to no slot), landing
+  in `jp_compute`'s own `rejected` array.
+
+`TravelLibrary::animal_species_slot` is the single place that decides which of
+the four built-in species an entry may occupy: its own `species_key`, else the
+one its `substitutes_for` chain reaches (bounded by the store's size, so a
+user-typed cycle terminates). `tl_list("animal")`/`tl_get("animal", …)` expose
+it as `species_slot`, alongside `usable_as_mount`, so the form costs one call
+rather than one per entry.
+
+### Real numbers, not a claim
+
+Headless drive against a generated 96×96 world, a 1082.32 km route, a Baggage
+Train of 6 with 900 kg cargo and 12 mules:
+
+| Mule slot occupied by | days | avg km/day |
+|---|---:|---:|
+| stock **Mule** (baseline, no `animal_entries`) | 31.6792 | 42.1475 |
+| stock **Mule**, named explicitly | 31.6792 | 42.1475 |
+| custom **Kharen dray-mule** (260 kg cap, 9 kg fodder, 34 L water) | 31.1925 | 42.9617 |
+| custom **Kharen dray-ox**, from blank, `substitutes for = mule` (300 kg, own ten-row terrain table) | 48.4610 | 27.4275 |
+
+And a Mounted Rider party of 4, where the entry's own `base speed km/h` is the
+pace-setter rather than `JP_TRAIN_PACE`'s constant:
+
+| Mount | days | avg km/day |
+|---|---:|---:|
+| stock **Horse** (6.0 km/h) | 32.8385 | 40.3270 |
+| custom **Kharen courser** (9.0 km/h, 150 kg) | 18.5708 | 69.5093 |
+
+A custom entry whose ten terrain rows are all `blocked` still hard-blocks the
+stage through the selection path, exactly as it did through the implicit one.
+
+### `JpParty` was re-examined and deliberately NOT widened
+
+This dispatch was asked to check first whether widening `JpParty` to a generic
+animal-count map had become bounded now that the `_ex` resolver refactor exists.
+It has not, and the reason is a **spec** gap rather than a mechanical one:
+
+1. **The data to drive a new species does not exist.** `jp_capacity_ex` reads
+   `jp_seasonal_animal(season, key)` — sixteen `(cap, food, water)` rows, four
+   seasons × four species — and `jp_desert_animal_mod(key)`'s desert
+   food/water pair, for every species it sums. §3.1's field list carries
+   **neither**. A wholly new species would silently take the neutral `1.0`
+   fallbacks on both, which is precisely §5's own "would not merely look
+   unfinished — it would plan silently wrong". Closing that means adding
+   fourteen fields per animal to §3.1, an owner-facing spec change, not a type
+   widening.
+2. **The refactor centralised stat *lookup*, not count *enumeration*.**
+   `resolve_animal_stats`/`resolve_animal_terrain_mod` genuinely do resolve any
+   key. Everything that walks the *counts* is still fixed-four: `JpParty`'s four
+   fields, `JpStageOverride`'s four more, `jp_capacity_ex`'s `counts` closure
+   plus its explicitly order-pinned `JP_ANIMAL_KEYS` summation ("which fixes the
+   float summation order") and its hardcoded four-term capacity sum,
+   `pack_animals()`, `jp_best_animal_for_context`'s `JP_ANIMAL_KEYS` scan, and
+   `journey_bridge`'s flatten/unflatten pair.
+3. **Three golden-tested signatures return `&'static str`** —
+   `JpPlan::resolve_mount`, `jp_resolve_mount`, `jp_best_animal_for_context` —
+   and a user-created species id is not one. Widening forces `String` (or a
+   borrow tied to the plan) through all three and every caller.
+4. **The reference is itself fixed-four** (`JP_ANIMAL_KEYS`), so there is no
+   golden target for any of it: widening is a deliberate deviation to disclose
+   under `DECISIONS.md` §7, not a port.
+
+So the **substitutes-for path** is what shipped, and it is genuinely useful: a
+from-blank "Kharen dray-ox" that declares `substitutes for = mule` occupies the
+mule slot with **its own** capacity, speed, fodder, water and ten-row terrain
+table (the 48.4610-day row above). What it still borrows from the substituted
+species is exactly what §3.1 has no fields for — seasonal physiology and the
+desert multipliers — and the party form says so, by name, in the note under the
+animal-definition pickers.
+
+### Still honestly not live
+
+- **Wholly-new species with no substitute** — the stock Ox/Yak/Reindeer, and
+  every from-blank custom animal until its owner fills "Substitutes for" in —
+  are not offered at all. They are **named in the party form**, with the one
+  edit that fixes them, rather than silently omitted from the dropdowns.
+- **Vehicles and vessels remain data-only.** No resolver equivalent to
+  `animal_resolver_fns` exists for `jp_capacity`'s cart/wagon/sled/travois
+  constants or `jp_ship_stats`' vessel table. The Vessel picker lists them and
+  disables the unhooked ones with the reason; the vehicle counts are still
+  plain `JpParty` spinners.
+- **§4's "saved journeys" usage count is still always `0`** — no persistent,
+  referenceable saved journey exists in this port at all. Party-set-up usage is
+  real.
+
+## 6a · Build status (2026-08-19, the `#[func]` boundary and the window)
 
 **The whole spec is now real, engine to Godot to GDScript.** The gap this
 section used to describe -- no `#[func]` boundary, no window -- is closed:
@@ -153,7 +289,7 @@ yet wired"):
 - §4's "saved journeys" usage count is still honestly always `0` (no
   persistent, referenceable saved journey exists in this port at all).
 
-## 6a · Build status (Rust half only, 2026-08-19, superseded by §6 above)
+## 6b · Build status (Rust half only, 2026-08-19, superseded by §6/§6a above)
 
 The data model, stock content, CRUD and validation described above are real, in
 `cartalith-native/crates/cartalith-civ/src/travel_library.rs` (data shapes, §4

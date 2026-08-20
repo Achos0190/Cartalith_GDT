@@ -140,11 +140,13 @@ count of individually disabled controls is ~180).
 | **large** | 28 | Dominated by five subsystems: the save writer, global undo + selection, the Data manager's import/conversion/validation routes, the colour-ramp/separable-layer system, and river-as-entity. |
 
 **Stale as of 2026-08-20**: ten of the (B)-wrapper rows counted above
-(AS-01 through AS-08, AS-13, DM-05) moved to done in this pass
-(`ASSET_LIBRARY_SCOPE.md` §10) — the totals/percentages in this section are
-not yet re-derived across the whole 123-entry register to reflect that; §6.3
-and §6.4's own rows are the accurate, current source for the Assets/Data
-sections specifically.
+(AS-01 through AS-08, AS-13, DM-05) moved to done in that pass
+(`ASSET_LIBRARY_SCOPE.md` §10), and two more (**JP-02**, **IN-06**) closed
+with the Travel Library's party-form wiring the same day
+(`TRAVEL_LIBRARY_SPEC.md` §6) — the totals/percentages in this section are
+not yet re-derived across the whole 123-entry register to reflect either;
+§6.3, §6.4, §6.9 and §6.12's own rows are the accurate, current source for
+the Assets/Data/Journey/INFRA sections specifically.
 
 **The shape.** Only 19 % of the shell's disclosed gaps are genuinely undesigned.
 58 % have a design and are waiting on the engine — and **31 % of those (22 of 71)
@@ -357,7 +359,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
 | JP-01 | Carriage **Auto** pick | 366 | `jpAutoPickTransport` has no Rust port | yes | `JOURNEY_PLANNER_SPEC.md` §5 ("in auto, counts are computed (terrain × biome, km-weighted) and read-only") | (B) small — a real, bounded port of one reference function |
-| JP-02 | Party preset | 394, 1315 | `JP_PRESETS` is JS-only; no `jp_presets()` binding | **unblocked, not yet wired (2026-08-19)**: DM-15's `#[func]` layer landed (`tl_list("preset")`/`tl_get("preset", id)`/`tl_capture_preset_from_plan`, all real), and `travel_library_window.gd`'s own Party set-ups tab reads/writes it. What's still missing is specifically *this* control — the Journey Planner's own party form (`journey_planner_view.gd`, deliberately untouched this pass, mid-edit by a concurrent dispatch) does not yet offer "apply a saved preset" or "capture current form as a preset" itself | §5 + `TRAVEL_LIBRARY_SPEC.md` §3.4 | (B) small — the `#[func]`s exist now; this is a `journey_planner_view.gd`-only wiring pass |
+| JP-02 | Party set-up picker + capture | `_preset_controls`/`_apply_preset`/`_capture_preset` | `JP_PRESETS` is JS-only; no `jp_presets()` binding | **CLOSED (2026-08-20)**. The tool-options bar now carries a live `set-up` dropdown over `tl_list("preset")` (stock and captured alike, custom rows tagged `· custom` and ⚠-marked by §4 validation state) plus a `capture party…` action writing the current form back through `tl_capture_preset_from_plan`. Deliberately **not** the reference's `JP_PRESETS`: this port's set-ups are the Travel Library's own stored rows, which is the strictly larger thing. Applying assigns only the keys `jp_default_plan()` owns — `tl_get("preset", id)` returns exactly `PRESET_FIELD_KEYS`, `PartyPreset::apply_to`'s own inverse — and leaves per-stage overrides untouched per §3.4 | §5 + `TRAVEL_LIBRARY_SPEC.md` §3.4 | — |
 | JP-03 | Re-route for `<mode>`… | 1320 | `jpAutoPickTransport`/`_jpRerouteForMode` have no Rust port | yes | §6's "faster-mode advisories… with a **use here** action" | (B) small — sibling of JP-01 |
 | JP-04 | **Cost** group | 1519 | **corrected — S3** | yes, now | §8 designs it in full (food/fodder · wages · tolls/ferry · animal upkeep · total · per km and per day) | (B) **wrapper** — `jp_journey_cost` is ported and golden-tested; `jp_compute` never calls it. **The single cheapest (B) in the register.** |
 | JP-05 | Calculation trace ⧉ | 1553-1555 | no trace window; the `formula` string is deliberately not carried across the boundary (`jp_land_calc_dict`'s own doc: presentation, not engine) | yes | §8 says *"opens in its own window (⧉)"* and nothing about its contents | **(C)** → §7.12 |
@@ -421,7 +423,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | IN-03 | Way / Route ↶ ↷ (per-waypoint undo) | 232-236 (comment) | no per-waypoint undo in the engine; `InfraTools` only discards the whole draft | yes | §4.5.4 lists ↶ ↷ | (B) small |
 | IN-04 | Way ▸ routing mode (freehand / snap / least-cost) | 229-231 (comment) | `infra_tools_bridge`'s own doc: *"nothing to build a 'freehand' or distinct 'snap' routing mode out of"*; snap is real but automatic | yes | §4.5.4 | **(D)** — engine truth, recorded in-file |
 | IN-05 | Way types: spec says road/track/trail/bridge, engine has road/track/sea_lane/ancient | 42-49 (comment) | `parse_way_type`'s own doc calls the spec list wrong against the tested four-entry enum | yes | §4.5.4 | **(D)** — spec/engine disagreement, resolved in the engine's favour and recorded |
-| IN-06 | Route ▸ vessel / party reference in the options row | 252-256 (comment) | the journey planner exported nothing past the crate boundary when written | **unblocked, not yet wired (2026-08-19)**: DM-15's `#[func]` layer landed (`tl_list("vessel")`/`tl_get("vessel", id)` are real, and the Travel Library window's own Vessels tab reads/writes them), but no vessel definition has a computational hook onto `jp_ship_stats` yet (`TRAVEL_LIBRARY_SPEC.md` §6's own disclosure) and this route/infra options row still doesn't reference the library at all | §4.5.4 | (B) small — the `#[func]`s exist now; wiring this row is real, bounded follow-up |
+| IN-06 | Route ▸ vessel / party reference in the options row | `journey_planner_view.gd` `_vessel_field`/`_mount_field`/`_build_animal_definitions` | the journey planner exported nothing past the crate boundary when written | **CLOSED where it can be, and the remainder stated in-UI (2026-08-20)**. The party form's Mount picker and its four per-species **animal definition** pickers are now library-backed (`tl_list("animal")`, custom rows tagged `· custom`), and the choice reaches the engine: `jp_compute`'s new `animal_entries` request key → `TravelLibrary::animal_overrides_selected` → `jp_plan_ex`'s resolver, so a custom entry's capacity/speed/fodder/water and its ten-row terrain table re-plan the journey. The **Vessel** picker lists every library vessel but disables the ones with no engine counterpart (`jp_ship_stats` is still a fixed built-in table — `TRAVEL_LIBRARY_SPEC.md` §6), with the reason on the item itself rather than omitted | §4.5.4 | (B) small — remaining: a vessel/vehicle resolver equivalent to the animal one |
 | IN-07 | Trade ▸ route assignment | 370-373 | nothing ties a trade relationship to the road or sea lane that would carry it | yes | §3 lists Trade | (B) large |
 
 ### 6.13 CARTO workspace — `cartography_workspace.gd`

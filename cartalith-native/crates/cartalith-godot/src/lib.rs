@@ -5502,6 +5502,18 @@ impl WorldGen {
     ///   from the shared plan.
     /// * `layovers` (Dictionary) -- `{stop_key: days}`, keyed by the `key`
     ///   each entry of the returned `stops` array carries.
+    /// * `animal_entries` (Dictionary) -- `{species_key: entry_id}`, the
+    ///   Travel Library definition occupying each of the four built-in
+    ///   party-form species slots (`donkey`/`mule`/`camel`/`horse`). Naming a
+    ///   **stock** entry means the built-in table; naming a **custom** one
+    ///   routes that species through
+    ///   `travel_bridge::TravelLibrary::animal_overrides_selected` into
+    ///   `jp_plan_ex`'s resolver, so its capacity/speed/fodder/water and its
+    ///   ten-row terrain table drive the plan. An entry qualifies for a slot
+    ///   through its own `species_key` or its `substitutes_for` chain
+    ///   (`TravelLibrary::animal_species_slot`); anything else is rejected.
+    ///   Omitting the key entirely leaves the pre-selection behaviour
+    ///   (`animal_overrides()`'s own last-added-custom-per-species pick).
     ///
     /// Returns `{"ok": bool, "error": String, "rejected": PackedStringArray,
     /// "plan": {...}, "verdict": {...}, "confidence": {...}}`. `rejected`
@@ -5595,9 +5607,31 @@ impl WorldGen {
                 }
             }
         }
+        // `animal_entries` -- which Travel Library definition occupies each of
+        // the four built-in party-form species slots. Absent (or absent for a
+        // given species) keeps `animal_overrides()`'s own implicit pick, so a
+        // caller that never sends this key is byte-for-byte unaffected.
+        let mut animal_entries: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        if let Some(v) = request.get("animal_entries") {
+            let Ok(d) = v.try_to::<VarDictionary>() else {
+                return fail("`animal_entries` must be a Dictionary of {species_key: entry_id}");
+            };
+            for (k, id) in d.iter_shared() {
+                match (k.get_type(), id.try_to::<GString>()) {
+                    (VariantType::STRING, Ok(s)) => {
+                        animal_entries.insert(k.to::<GString>().to_string(), s.to_string());
+                    }
+                    _ => rejected.push(&GString::from(&format!("animal_entries[{k}]"))),
+                }
+            }
+        }
         for (k, _) in request.iter_shared() {
             let key = k.to_string();
-            if !matches!(key.as_str(), "route" | "points" | "plan" | "stage_overrides" | "layovers") {
+            if !matches!(
+                key.as_str(),
+                "route" | "points" | "plan" | "stage_overrides" | "layovers" | "animal_entries"
+            ) {
                 rejected.push(&GString::from(&key));
             }
         }
@@ -5660,7 +5694,11 @@ impl WorldGen {
         // this call's output versus the plain `jp_plan` it replaces (see
         // `regression_stock_only_travel_library_matches_pre_dispatch_jp_plan`
         // in this file's own test module).
-        let overrides = self.travel_library.animal_overrides();
+        let (overrides, bad_entries) =
+            self.travel_library.animal_overrides_selected(&animal_entries);
+        for b in bad_entries {
+            rejected.push(&GString::from(&format!("animal_entries[{b}]")));
+        }
         let (stats_fn, terrain_fn) = cartalith_civ::travel_library::animal_resolver_fns(&overrides);
         let resolver = cartalith_civ::JpAnimalResolver { stats: &*stats_fn, terrain_mod: &*terrain_fn };
         let Some(journey) =
@@ -5736,7 +5774,8 @@ impl WorldGen {
     /// `validation_missing`/`validation_conflicts` (`PackedStringArray`),
     /// `usage_presets`/`usage_journeys` (int; always `0` for vehicles/
     /// vessels/presets themselves -- see `tl_get`'s own doc comment).
-    /// Empty `Array` for an unrecognised `kind`.
+    /// Animal rows carry two more: `species_slot` and `usable_as_mount` --
+    /// see `tl_animal_slot_keys`. Empty `Array` for an unrecognised `kind`.
     #[func]
     fn tl_list(&self, kind: GString) -> Array<VarDictionary> {
         let lib = &self.travel_library;
@@ -5745,7 +5784,7 @@ impl WorldGen {
                 .animals
                 .iter()
                 .map(|a| {
-                    tl_meta_dict(
+                    let mut d = tl_meta_dict(
                         &a.id,
                         &a.name,
                         a.origin,
@@ -5754,7 +5793,9 @@ impl WorldGen {
                         lib.animal_usage_in_presets(&a.id),
                         lib.animal_usage_in_journeys(&a.id),
                         a.species_key.unwrap_or(""),
-                    )
+                    );
+                    tl_animal_slot_keys(&mut d, lib, a);
+                    d
                 })
                 .collect(),
             "vehicle" => lib
@@ -5844,6 +5885,7 @@ impl WorldGen {
                     a.species_key.unwrap_or(""),
                 );
                 merge_pairs(&mut d, &travel_bridge::animal_to_pairs(a));
+                tl_animal_slot_keys(&mut d, lib, a);
                 d.set("ok", true);
                 d
             }
@@ -6087,6 +6129,26 @@ impl WorldGen {
 /// functions report about an entry regardless of `kind`, so `kind`-specific
 /// field data (`tl_get` only) is simply merged on top rather than
 /// duplicating this block four times.
+/// The two animal-only keys the Journey Planner's party form needs on top of
+/// [`tl_meta_dict`]'s shared metadata, so building the per-species dropdowns
+/// costs one `tl_list("animal")` call rather than one `tl_get` per entry:
+///
+/// * `species_slot` -- which of the four built-in party-form species this
+///   entry may occupy (`TravelLibrary::animal_species_slot`: its own
+///   `species_key`, or the one its `substitutes_for` chain reaches). `""`
+///   means it has no `JpParty` slot and the planner cannot offer it, which
+///   the form states rather than hiding.
+/// * `usable_as_mount` -- §3.1's own flag, the filter the Mount dropdown
+///   applies.
+fn tl_animal_slot_keys(
+    d: &mut VarDictionary,
+    lib: &travel_bridge::TravelLibrary,
+    a: &cartalith_civ::travel_library::AnimalDef,
+) {
+    d.set("species_slot", lib.animal_species_slot(&a.id).unwrap_or(""));
+    d.set("usable_as_mount", a.usable_as_mount);
+}
+
 fn tl_meta_dict(
     id: &str,
     name: &str,

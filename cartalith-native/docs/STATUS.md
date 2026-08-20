@@ -5,7 +5,47 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-20 (post **Multi-GPU: enumeration, device selection,
+Last updated: 2026-08-20 (post **Travel Library → party form: the last
+connecting piece** — `TRAVEL_LIBRARY_SPEC.md` §6, `GUI_GAP_REGISTER.md`
+**JP-02 and IN-06 closed**. §1's own promise ("everything defined here
+becomes a selectable option in the planner's party form") is now true for
+animals: `journey_planner_view.gd`'s Carriage section carries four new
+**per-species animal-definition pickers** plus a library-backed **Mount**
+picker, custom rows tagged `· custom` off `2b`'s own treatment and ⚠-marked
+by §4 validation, and the choice reaches a real plan through `jp_compute`'s
+one new request key `animal_entries` →
+`travel_bridge::TravelLibrary::animal_overrides_selected` → `jp_plan_ex`'s
+existing resolver. **Party set-ups** (JP-02) are live in the tool-options bar
+— a dropdown over `tl_list("preset")` (stock *and* captured) plus
+`capture party…` writing the form back via `tl_capture_preset_from_plan`;
+deliberately not the reference's JS-only `JP_PRESETS`, which is the smaller
+thing. Selecting a **stock** entry means "no override" and reproduces the
+baseline *exactly* (`31.6792` days both ways on the drive below); an empty
+selection reproduces `animal_overrides()`, so
+`regression_stock_only_travel_library_matches_pre_dispatch_jp_plan` still
+holds byte for byte. Real headless numbers, 96×96 world / 1082.32 km route:
+a 12-mule Baggage Train computes **31.6792 d @ 42.1475 km/day** on the stock
+Mule, **31.1925 d @ 42.9617** on a custom `Kharen dray-mule` (260 kg cap),
+and **48.4610 d @ 27.4275** on a from-blank `Kharen dray-ox` whose
+`substitutes for = mule`; a 4-rider Mounted party goes **32.8385 d** on the
+stock Horse vs **18.5708 d @ 69.5093 km/day** on a 9 km/h custom courser.
+**`JpParty` was re-examined and deliberately NOT widened**: the blocker is a
+spec gap, not mechanics — `jp_capacity_ex` reads per-species seasonal
+physiology (`jp_seasonal_animal`, 16 rows) and desert food/water multipliers
+(`jp_desert_animal_mod`) that §3.1 has **no fields for**, so a new species
+would silently take neutral `1.0` on both, exactly §5's "plans silently
+wrong"; three golden-tested signatures also return `&'static str`
+(`resolve_mount`/`jp_resolve_mount`/`jp_best_animal_for_context`) and
+`jp_capacity_ex`'s summation order is explicitly pinned to `JP_ANIMAL_KEYS`.
+The **substitutes-for path** shipped instead, and the party form names every
+still-unofferable custom animal with the one edit that fixes it rather than
+hiding it. Vessels/vehicles stay data-only: the Vessel picker lists custom
+definitions but **disables** them with `— no engine hook` on the item, where
+a user actually meets the limit. Verified: full `cargo test --workspace`
+(zero failures), clean `cargo build -p cartalith-godot`, clean headless boot,
+and a scripted headless drive of all of the above plus the party form's own
+library helpers driven directly. Not verified: anything graphical.
+— previously, post **Multi-GPU: enumeration, device selection,
 split tiles, VRAM budget** — the owner's 2026-08-20 answer to
 `GUI_GAP_REGISTER.md`'s own open decision PR-02, *build it*. Closes
 PR-01/PR-02/PR-04/PR-05 and omission O3. `cartalith-gpu` had requested
