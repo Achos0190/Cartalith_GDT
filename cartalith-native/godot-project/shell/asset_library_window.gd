@@ -5,76 +5,91 @@ class_name AssetLibraryWindow
 ## ⧉ Asset library / ▦ Sprite sheet slicer's actual destination. Replaces
 ## v2.10's `#assetLibrary`.
 ##
-## ## The one finding this file is built around: eight families, not 24
+## ## 2026-08-20: rebuilt against the design canvas, not against §8's prose
 ##
-## §8 says "24 families... Settlements, Terrain, Cartography, plus
-## Collections." That count does not match the shipped engine.
-## `cartalith-assets/src/slots.rs` + `library.rs` (read directly this pass,
-## not assumed from the spec) define **eight** families -- `textures`,
-## `biomes`, `terrains`, `icons`, `settlement`, `trait`, `poi`, `custom` --
-## and `ASSET_LIBRARY_SCOPE.md` §1 already recorded exactly this ("eight
-## families, seven of them closed vocabularies") when Phase 4's engine side
-## was built. §8's 24-family, four-group rail is the mockup's own richer
-## subdivision (splitting e.g. "Feature icons" into "Trees & cover" /
-## "Rock & scree") and was never ported to `cartalith-assets` -- there is no
-## Rust type that draws that finer line. `FAMILIES` below is the real eight,
-## with the real per-family slot count (`slots.size()`), grouped the way the
-## crate itself groups them (`Family::is_texture()`, the `structures.*`
-## trio), not the spec's fictional four.
+## The first version of this file was written from `DCC_SHELL_SPEC.md` §8's
+## *description* of the window, before the engine bindings existed; the real
+## `#[func]`s were then wired into that shape. The result was functionally
+## complete and visually wrong -- default Godot buttons and option buttons on a
+## floating 1180×760 dialog, a pack-metadata row bolted to the top, the family
+## rail opening with a 90 px prose paragraph, batch actions as a row of filled
+## slabs, tile captions floating outside their tiles, and an inspector that was
+## a stack of label/value pairs. The 2026-08-20 visual sweep passed it by
+## checking that the controls *worked*, which is not the same test.
+##
+## This file is now laid out from `design/Cartalith DCC Shell.dc.html`'s own
+## `Asset library window 1920` screen, read as a literal spec: a full-bleed
+## workspace window (borderless, sized under the app menu bar -- the mockup's
+## "map hidden while open"), a 34 px window bar of outline chips, a 266 px
+## family rail, a 6-column slot grid, a 330 px slot inspector and a 26 px
+## status line. Every number below -- band heights, rail/inspector widths,
+## paddings, the 76 px tile art band, the 56 px variant tiles, the 20 px
+## swatches, the two 274/760 slicer columns -- is off that canvas. Every colour
+## is a `DccTheme` token; the canvas and the theme share one palette, so no hex
+## appears here.
+##
+## Four engine realities the mockup does not know about, kept rather than
+## re-drawn (each is a recorded, disclosed decision -- see `GUI_GAP_REGISTER.md`):
+##
+## - **AS-16 · eight families, not 24.** §8 says "24 families… Settlements,
+##   Terrain, Cartography, plus Collections." `cartalith-assets/src/slots.rs` +
+##   `library.rs` define **eight** -- `textures`, `biomes`, `terrains`, `icons`,
+##   `settlement`, `trait`, `poi`, `custom` -- and `ASSET_LIBRARY_SCOPE.md` §1
+##   recorded exactly this when Phase 4's engine side was built. The rail keeps
+##   the mockup's *visual grammar* (group headers, `code · name · filled/
+##   capacity`, accent when incomplete) and lists the real eight; the FAMILIES
+##   band's own tooltip carries the disclosure the old prose paragraph carried.
+## - **AS-15 · anchor is family-level.** The mockup draws a per-slot
+##   top/centre/base segmented control. `Family` fixes the anchor for every slot
+##   in it, so the segment is drawn, the real one is lit, and the other two are
+##   disabled with that reason.
+## - **AS-14 · variants are weighted at render time.** There is no "active
+##   variant", so the VARIANTS strip selects which one the *preview* shows and
+##   says nothing about which one the map draws.
+## - **Per-item scale/pan is read-only.** `as_item_summary` reports the real
+##   transform; no `as_set_item_transform` exists, so Scale/Fit/Reset are drawn
+##   in the mockup's own row shape and disabled with that reason. Replace… and
+##   + Variant in the same row are real (`as_import_item` / `as_remove_item`).
 ##
 ## ## What is real vs. disclosed gap, control by control
 ##
-## `GUI_GAP_REGISTER.md` rows AS-01..AS-08/AS-13/DM-05 (verified 2026-08-20):
-## `cartalith-godot` now carries a real, live Asset Library authoring session
+## `GUI_GAP_REGISTER.md` rows AS-01..AS-08/AS-13/DM-05: `cartalith-godot`
+## carries a real, live Asset Library authoring session
 ## (`asset_bridge::AssetLibrarySession`, a `WorldGen` field that survives a
-## re-generate like `travel_library` does) behind an `as_*` `#[func]` surface
-## -- import, per-slot fill state + real thumbnails, the inspector's file/
-## scale/tags/pack-metadata queries, batch tag/collect/rename/duplicate/
-## delete, Validate, Clear library, Export pack .zip, and Apply to map are
-## all real engine calls now, not disclosed gaps. Concretely:
+## re-generate like `travel_library` does) behind an `as_*` `#[func]` surface.
 ##
-## - **Real**: everything the previous pass already had (family list, slot
-##   ids/titles, anchor/bake-size/variant metadata, search/sort, the zoom
-##   control, preview-background swatches, Import asset pack .zip…, the
-##   sprite-sheet slicer's image load/grid-overlay arithmetic) **plus**:
-##   Import image… into the focused slot (`as_import_item`/`as_add_custom_slot`);
-##   per-slot fill state and a real baked thumbnail for every filled slot
-##   (`as_family_slots`/`as_thumbnail_png`); the inspector's file/scale/tags
-##   readout (`as_slot_summary`/`as_item_summary`) and pack metadata fields
-##   (`as_pack_info`/`as_set_pack_info`); the four batch operations
-##   (`as_batch_tag`/`as_batch_collect`/`as_batch_rename`/`as_batch_duplicate`/
-##   `as_batch_delete`) -- batch Rename is honestly split: a custom slot is
-##   renamed for real, a frozen slot instead renames its *item variants*
-##   (frozen slot names are engine constants, `slot_title`, not editable --
-##   a real spec/engine disagreement `GUI_GAP_REGISTER.md` AS-06 already
-##   named); Validate (`as_validate`); Clear library… (`as_clear_library`);
-##   Export pack .zip… (`as_export_pack_bytes`, bytes written to disk here
-##   via `FileAccess`); Apply to map (`as_apply_to_map`, the reference's own
-##   `applyToMap()` -- compiles the session and loads it straight into the
-##   renderer, no round trip through a file).
-## - **Real, as of the slicer pass (AS-09/AS-10/AS-11 closed)**: the
-##   sprite-sheet slicer, end to end. `cartalith-assets::slicer` now carries a
-##   golden-verified port of the reference's `SpriteSheetImporter` --
-##   `computeCells` (whose spacing is a *half-gutter on interior edges*, not a
-##   pitch), `cropCell`, `applyChroma` and `isBlank`'s alpha>8 threshold -- and
-##   `as_load_sheet`/`as_slice_preview`/`as_slice_apply` expose it. The
-##   `N cells detected · M non-empty` readout is the engine's real detection
-##   pass, not the 8×8 sample it used to be; the grid overlay draws
-##   engine-computed spans, so it shows the exact rectangles the slice cuts;
-##   and slicing is non-destructive (the sheet stays loaded for a re-slice).
-##   Two honest notes: *Trim transparent edges* is a **port-side addition**
-##   (§8 asks for it, the reference has no such operation -- it has
+## - **Real**: the family list, slot ids/titles, anchor/bake-size/variant
+##   metadata, search/sort, the zoom control, the preview-background swatches,
+##   Import asset pack .zip…, Import image… into the focused slot
+##   (`as_import_item`/`as_add_custom_slot`), per-slot fill state and a real
+##   baked thumbnail for every filled slot (`as_family_slots`/
+##   `as_thumbnail_png`), the inspector's file/scale/tags readout
+##   (`as_slot_summary`/`as_item_summary`), pack metadata (`as_pack_info`/
+##   `as_set_pack_info`), the five batch operations (`as_batch_tag`/`collect`/
+##   `rename`/`duplicate`/`delete`) -- batch Rename honestly split: a custom
+##   slot is renamed for real, a frozen slot instead renames its *item
+##   variants* (frozen slot names are engine constants, `slot_title`, not
+##   editable -- AS-06), Validate (`as_validate`), Clear library…
+##   (`as_clear_library`), Export pack .zip… (`as_export_pack_bytes`, bytes
+##   written here via `FileAccess`) and Apply to map (`as_apply_to_map`, the
+##   reference's own `applyToMap()`).
+## - **Real, since the slicer pass (AS-09/AS-10/AS-11)**: the sprite-sheet
+##   slicer, end to end. `cartalith-assets::slicer` carries a golden-verified
+##   port of the reference's `SpriteSheetImporter` -- `computeCells` (whose
+##   spacing is a *half-gutter on interior edges*, not a pitch), `cropCell`,
+##   `applyChroma` and `isBlank`'s alpha>8 threshold -- and `as_load_sheet`/
+##   `as_slice_preview`/`as_slice_apply` expose it. The `N cells detected · M
+##   non-empty` readout is the engine's real detection pass; the grid overlay
+##   draws engine-computed spans, so it shows the exact rectangles the slice
+##   cuts; slicing is non-destructive. Two honest notes: *Trim transparent
+##   edges* is a **port-side addition** (§8 asks for it, the reference has
 ##   `background → transparent` chroma keying instead, which is also wired
-##   here), and *Assign to family / Fill from* is §8's own framing of what the
-##   reference expresses as a flat target-slot dropdown (all four of its
-##   targets are offered).
-## - **Disclosed gap, still honest**: per-item scale/pan editing (the
-##   inspector shows the real transform now but does not yet let it be
-##   dragged/typed -- no `as_set_item_transform` exists; a smaller follow-on
-##   than this dispatch's scope, left disabled with that reason). The
-##   slicer's *canvas interaction* -- pan/zoom, draggable grid lines,
-##   click-to-select individual cells -- is also unported; the modal slices
-##   the whole uniform grid rather than a hand-picked selection.
+##   here), and *Assign to family / Fill from* is §8's framing of what the
+##   reference expresses as a flat target-slot dropdown.
+## - **Disclosed gap, still honest**: per-item scale/pan *editing*; the
+##   slicer's canvas interaction (pan/zoom, draggable grid lines,
+##   click-to-select cells) -- the modal slices the whole uniform grid rather
+##   than a hand-picked selection; drag-and-drop onto a slot.
 ##
 ## Every disabled control below carries its reason as a tooltip, the same
 ## `_todo()`-with-tooltip convention `menus.gd` uses at the menu level.
@@ -130,48 +145,119 @@ const PREVIEW_SWATCHES: Array[Dictionary] = [
 	{"label": "blue", "mode": "color", "color": Color("#3b6fe2")},
 ]
 
+## The five places a slice can land, in `as_slice_apply`'s own `target` terms.
+## The first four are the reference's own `#alSlTarget` options; `family` is
+## `DCC_SHELL_SPEC.md` §8's "Assign to family" + "Fill from", which the
+## reference expresses as a flat slot dropdown instead.
+const SLICE_TARGETS: Array[Dictionary] = [
+	{"key": "family", "label": "a family, slot by slot", "needs": ["family", "fill"]},
+	{"key": "slot", "label": "the focused slot", "needs": []},
+	{"key": "new_custom", "label": "one new custom icon", "needs": ["name", "set"]},
+	{"key": "per_cell", "label": "separate custom icons (per cell)", "needs": ["set"]},
+]
+
 # ---------------------------------------------------------------------------
-# Small drawn controls -- checkerboard-empty slot cell, sheet-slicer preview
+# Geometry, read off `Asset library window 1920`
 # ---------------------------------------------------------------------------
 
-## A slot cell / the inspector's preview: checkerboard by default (honest
-## "no art data" rather than a guessed empty/filled state), or a flat swatch
-## when the inspector's preview-background picker is used. `_draw()` custom
-## canvas, matching how `tool_overlay.gd`/`map_overlay.gd` already draw here.
+const W_RAIL := 266
+const W_INSPECTOR := 330
+const H_BAR := 34          ## window bar
+const H_BAND := 28         ## the three column header bands
+const H_STATUS := 26
+const H_TILE_ART := 76     ## default; the zoom slider drives it
+const TILE_GAP := 12
+const GRID_COLS := 6
+const W_SLICER := 760
+## The canvas's card is 760 × ~390. This port's settings column carries three
+## rows the canvas does not (the reference's own chroma key + tolerance, and
+## the new-name / custom-set fields its flat target dropdown needs), so the
+## card is taller by exactly those rows.
+const H_SLICER := 560
+const W_SLICER_SIDE := 274
+const H_SHEET_PREVIEW := 296
+const W_INSP_LABEL := 70
+const SZ_VARIANT := 56
+const SZ_SWATCH := 20
+
+## The disclosure the family rail used to spend 90 px of prose on. Same words,
+## now on the FAMILIES band's tooltip so the rail can look like the canvas.
+const FAMILIES_NOTE := "Eight families, frozen against the reference engine (cartalith-assets::slots / library) -- not the design canvas's own 24. The canvas subdivides more finely (splitting e.g. \"Feature icons\" into \"Trees & cover\" / \"Rock & scree\"); no Rust type draws that line, and ASSET_LIBRARY_SCOPE.md §1 recorded the real eight when Phase 4's engine side was built. Capacity and fill counts are both real (AssetDB::slots_in_family + per-slot filled state)."
+
+const SCALE_GAP_NOTE := "The transform shown is real (as_item_summary). Editing it is not wired: no as_set_item_transform exists on the engine side yet -- a smaller follow-on than the rest of this window."
+
+# ---------------------------------------------------------------------------
+# Small drawn controls -- slot tile art, preview swatch, sheet-slicer preview
+# ---------------------------------------------------------------------------
+
+## A slot tile's art band, the inspector's preview, and the preview-background
+## swatches are all the same drawing problem: a checkerboard ground (honest "no
+## art data" rather than a guessed empty state) or a flat swatch, optionally
+## with a baked thumbnail over it, plus the canvas's own corner marks. `_draw()`
+## custom canvas, matching how `tool_overlay.gd`/`map_overlay.gd` already draw.
 class SlotCell extends Control:
 	var uid := ""
 	var selected := false
 	var bg_mode := "checker"   ## "checker" | "color"
 	var bg_color := Color(1, 1, 1)
+	var checker_px := 10.0     ## canvas: 10 px in a tile, 12 px in the preview
 	## A real baked thumbnail (`as_thumbnail_png`) once one has loaded --
 	## `null` means "no art data queried/found yet", still the checkerboard.
 	var thumb: ImageTexture
+	## Canvas marks: the word `empty` on an unfilled tile, a `×N` variant badge
+	## bottom-right, a `☑` top-right while selected. `false`/0 draws none.
+	var show_empty := false
+	var variant_count := 0
+	var show_check := false
+	var draw_border := true
+	## The canvas draws a *tile's* art on a flat ground (`#191c1e`) and the
+	## *inspector preview's* art on the checkerboard, so straight alpha is
+	## visible where it matters. One flag, because they are otherwise the same
+	## control.
+	var checker_under_art := false
 
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_STOP
 
 	func _draw() -> void:
 		var r := Rect2(Vector2.ZERO, size)
-		if bg_mode == "checker":
+		if thumb != null and not (checker_under_art and bg_mode == "checker"):
+			draw_rect(r, DccTheme.c("raised") if bg_mode == "checker" else bg_color, true)
+		elif bg_mode == "checker":
+			## `sunken`/`raised`, not `sunken`/`panel_alt`: those two tokens are
+			## one level apart and the checkerboard came out invisible.
 			var a := DccTheme.c("sunken")
-			var b := DccTheme.c("panel_alt")
-			var cell := 8.0
+			var b := DccTheme.c("raised")
 			var yy := 0.0
 			while yy < r.size.y:
 				var xx := 0.0
 				while xx < r.size.x:
-					var idx := int(xx / cell) + int(yy / cell)
-					draw_rect(Rect2(xx, yy, minf(cell, r.size.x - xx), minf(cell, r.size.y - yy)),
+					var idx := int(xx / checker_px) + int(yy / checker_px)
+					draw_rect(Rect2(xx, yy,
+						minf(checker_px, r.size.x - xx), minf(checker_px, r.size.y - yy)),
 						a if idx % 2 == 0 else b, true)
-					xx += cell
-				yy += cell
+					xx += checker_px
+				yy += checker_px
 		else:
 			draw_rect(r, bg_color, true)
 		if thumb != null:
 			draw_texture_rect(thumb, r, false)
-		draw_rect(r, DccTheme.c("line"), false, 1.0)
-		if selected:
-			draw_rect(r, DccTheme.c("accent"), false, 2.0)
+
+		var font := DccTheme.mono(0)
+		if show_empty and thumb == null:
+			draw_string(font, Vector2(0.0, r.size.y * 0.5 + 3.0), "empty",
+				HORIZONTAL_ALIGNMENT_CENTER, r.size.x, DccTheme.FS_MICRO,
+				DccTheme.c("text_ghost"))
+		if variant_count > 1:
+			draw_string(font, Vector2(0.0, r.size.y - 5.0), "×%d" % variant_count,
+				HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 4.0, DccTheme.FS_MICRO,
+				DccTheme.c("accent"))
+		if show_check and selected:
+			draw_string(font, Vector2(0.0, 13.0), DccIcons.SYMBOLS["checked"],
+				HORIZONTAL_ALIGNMENT_RIGHT, r.size.x - 4.0, DccTheme.FS_TINY,
+				DccTheme.c("accent"))
+		if draw_border:
+			draw_rect(r, DccTheme.c("accent") if selected else DccTheme.c("line"), false, 1.0)
 
 ## The slicer modal's sheet preview -- a real loaded `Image` plus the real cell
 ## rectangles the engine will cut.
@@ -183,7 +269,8 @@ class SlotCell extends Control:
 ## hands back `col_x0`/`col_x1`/`row_y0`/`row_y1` in sheet pixels
 ## (`cartalith-assets::slicer::CellGrid::column_spans`), and this only maps
 ## them into view space -- the presentation half, which is all that belongs
-## in GDScript.
+## in GDScript. The canvas draws those spans dashed at 35% accent; that is a
+## stroke change only, and does not touch the arithmetic above.
 class SheetPreview extends Control:
 	var img_tex: ImageTexture
 	var col_x0: PackedFloat64Array = PackedFloat64Array()
@@ -198,6 +285,7 @@ class SheetPreview extends Control:
 	func _draw() -> void:
 		var r := Rect2(Vector2.ZERO, size)
 		draw_rect(r, DccTheme.c("sunken"), true)
+		draw_rect(r, DccTheme.c("line"), false, 1.0)
 		if img_tex == null:
 			return
 		var tex_size := img_tex.get_size()
@@ -210,6 +298,7 @@ class SheetPreview extends Control:
 		if not usable or col_x0.is_empty() or row_y0.is_empty():
 			return
 		var line_color := DccTheme.c("accent")
+		line_color.a = 0.35
 		var cols := col_x0.size()
 		for j in row_y0.size():
 			for i in cols:
@@ -220,7 +309,10 @@ class SheetPreview extends Control:
 					float(row_y1[j] - row_y0[j]) * scale)
 				if blank_cells.has(j * cols + i):
 					draw_rect(cell, Color(0, 0, 0, 0.45), true)
-				draw_rect(cell, line_color, false, 1.0)
+				draw_dashed_line(cell.position + Vector2(cell.size.x, 0.0),
+					cell.position + cell.size, line_color, 1.0, 4.0)
+				draw_dashed_line(cell.position + Vector2(0.0, cell.size.y),
+					cell.position + cell.size, line_color, 1.0, 4.0)
 
 # ---------------------------------------------------------------------------
 # State
@@ -232,24 +324,27 @@ var _bridge: EngineBridge
 var _current_family := ""
 var _search_text := ""
 var _sort_mode := 0          ## 0 = slot order, 1 = name
-var _cell_px := 84.0
+var _cell_px := float(H_TILE_ART)
 var _select_mode := false
 var _selected: Dictionary = {}     ## uid -> true
 var _last_index := -1
 var _focused_uid := ""
+var _preview_index := 0            ## which variant the inspector preview shows (AS-14)
 var _slot_order: Array = []        ## current family's filtered/sorted entries
-var _cells: Dictionary = {}        ## uid -> SlotCell
+var _cells: Dictionary = {}        ## uid -> {"tile": PanelContainer, "cell": SlotCell}
 var _preview_bg := "checker"
 var _preview_color := Color(1, 1, 1)
+## Set by every mutating call, cleared by Apply to map -- the status line's own
+## `● library edited — apply to map to use it`.
+var _dirty := false
 
-var _status_label: Label
 var _sort_button: OptionButton
 var _select_mode_btn: Button
-var _rail_buttons: Dictionary = {}
+var _rail_buttons: Dictionary = {}   ## family key -> {button, code, name, count}
+var _rail_count_label: Label
 var _grid: GridContainer
 var _grid_header: Label
 var _select_count_label: Label
-var _inspector_body: VBoxContainer
 
 ## Real per-slot state from the last `as_family_slots(family_key)` call --
 ## uid -> {"item_count","filled","has_dupe"} -- rebuilt on every `_refresh_grid()`.
@@ -264,6 +359,27 @@ var _pack_name_field: LineEdit
 var _pack_author_field: LineEdit
 var _pack_license_field: LineEdit
 
+## The inspector is built once and refreshed in place -- rebuilding it on every
+## selection is what used to clobber the pack-metadata fields mid-typing.
+var _insp_head: Label
+var _insp_empty: Label
+var _insp_detail: VBoxContainer
+var _insp_preview: SlotCell
+var _insp_file: Label
+var _insp_scale: HSlider
+var _insp_scale_readout: Label
+var _insp_replace_btn: Button
+var _insp_variant_btn: Button
+var _insp_swatches: Array = []        ## SlotCell, parallel to PREVIEW_SWATCHES
+var _insp_anchor_chips: Dictionary = {}
+var _insp_tags: HFlowContainer
+var _insp_variants_head: Label
+var _insp_variants: HBoxContainer
+var _insp_note: Label
+
+var _status_state: Label
+var _status_pack: Label
+
 var _slicer: AcceptDialog
 var _sheet_image: Image
 var _sheet_loaded := false          ## the engine holds a decoded sheet (`as_load_sheet`)
@@ -275,14 +391,14 @@ var _slicer_margin: SpinBox
 var _slicer_spacing: SpinBox
 var _slicer_summary: Label
 var _slice_btn: Button
-var _slicer_trim: CheckBox
-var _slicer_skip: CheckBox
-var _slicer_chroma: CheckBox
+var _slicer_trim: Button
+var _slicer_skip: Button
+var _slicer_chroma: Button
 var _slicer_chroma_color: ColorPickerButton
 var _slicer_chroma_tol: SpinBox
 var _slicer_target: OptionButton
 var _slicer_family: OptionButton
-var _slicer_fill: OptionButton
+var _slicer_fill_chips: Dictionary = {}
 var _slicer_name: LineEdit
 var _slicer_set: LineEdit
 
@@ -293,16 +409,167 @@ var _slice_target_index := 0
 var _slice_family_index := 0
 var _slice_overwrite := false
 
-## The five places a slice can land, in `as_slice_apply`'s own `target` terms.
-## The first four are the reference's own `#alSlTarget` options; `family` is
-## `DCC_SHELL_SPEC.md` §8's "Assign to family" + "Fill from", which the
-## reference expresses as a flat slot dropdown instead.
-const SLICE_TARGETS: Array[Dictionary] = [
-	{"key": "family", "label": "a family, slot by slot", "needs": ["family", "fill"]},
-	{"key": "slot", "label": "the focused slot", "needs": []},
-	{"key": "new_custom", "label": "one new custom icon", "needs": ["name", "set"]},
-	{"key": "per_cell", "label": "separate custom icons (per cell)", "needs": ["set"]},
-]
+# ---------------------------------------------------------------------------
+# The canvas's control vocabulary
+#
+# The `Asset library window 1920` screen draws exactly four kinds of control,
+# and none of them is a stock Godot widget: an outline **chip** (`padding:4px
+# 9px; border:1px solid`), a smaller outline **segment** (`3px 8px`, used for
+# anchor/fill-from), an outline **well** (a bordered text field), and a plain
+# **text button** (the grid header's batch verbs, which carry no border at all).
+# They are built here rather than in `dcc_widgets.gd` because nothing else in
+# the shell draws them yet; if a second window needs them, they move.
+# ---------------------------------------------------------------------------
+
+static func _box(border_token: String, bg_token: String, px: int, py: int) -> StyleBoxFlat:
+	var sb := DccTheme.outline(border_token, bg_token)
+	sb.content_margin_left = px
+	sb.content_margin_right = px
+	sb.content_margin_top = py
+	sb.content_margin_bottom = py
+	return sb
+
+## `padding:4px 9px; border:1px solid rgba(255,255,255,.16)` -- the window bar's
+## whole vocabulary, the rail footer's two imports, and the inspector's
+## Fit/Reset/Replace/+Variant row. `accent` swaps both border and text.
+static func _chip(parent: Control, text: String, on_press: Callable,
+		accent: bool = false, px: int = 9, py: int = 4) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_override("font", DccTheme.mono(0))
+	b.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	var token := "accent" if accent else "line"
+	b.add_theme_color_override("font_color", DccTheme.c("accent") if accent else DccTheme.c("text"))
+	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	var rest := _box(token, "", px, py)
+	b.add_theme_stylebox_override("normal", rest)
+	b.add_theme_stylebox_override("pressed", rest)
+	b.add_theme_stylebox_override("disabled", _box("line_soft", "", px, py))
+	b.add_theme_stylebox_override("hover",
+		_box(token, "accent_wash" if accent else "line_soft", px, py))
+	if on_press.is_valid():
+		b.pressed.connect(on_press)
+	parent.add_child(b)
+	return b
+
+## The narrower `padding:3px 8px` chip the canvas uses for the anchor row and
+## the slicer's Fill-from pair -- one of a set is lit, the rest are quiet.
+static func _segment(parent: Control, text: String, on_press: Callable) -> Button:
+	var b := _chip(parent, text, on_press, false, 8, 3)
+	b.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	b.add_theme_color_override("font_color", DccTheme.c("text_dim"))
+	return b
+
+## A lit segment has to survive being `disabled` -- the anchor row is disabled
+## by design (AS-15), and Godot resolves the `disabled` stylebox and
+## `font_disabled_color` ahead of the `normal` pair, which is why the real
+## anchor was drawn exactly like the two impossible ones on the first pass.
+static func _set_segment_on(b: Button, on: bool) -> void:
+	var token := "accent" if on else "line"
+	var fg := DccTheme.c("accent") if on else DccTheme.c("text_dim")
+	for sb_name in ["normal", "pressed", "disabled"]:
+		b.add_theme_stylebox_override(sb_name, _box(token, "", 8, 3))
+	b.add_theme_color_override("font_color", fg)
+	b.add_theme_color_override("font_disabled_color",
+		fg if on else DccTheme.c("text_ghost"))
+
+## An outlined text field -- the window bar's search, the inspector's pack
+## metadata, the slicer's numbers.
+static func _well(le: Control, px: int = 9, py: int = 4, accent: bool = false) -> void:
+	var token := "accent" if accent else "line"
+	le.add_theme_stylebox_override("normal", _box(token, "", px, py))
+	le.add_theme_stylebox_override("focus", _box("accent", "", px, py))
+	le.add_theme_stylebox_override("read_only", _box("line_soft", "", px, py))
+	le.add_theme_font_override("font", DccTheme.mono(0))
+	le.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	le.add_theme_color_override("font_color", DccTheme.c("text"))
+	le.add_theme_color_override("font_placeholder_color", DccTheme.c("text_ghost"))
+	le.add_theme_color_override("font_uneditable_color", DccTheme.c("text_ghost"))
+	le.add_theme_color_override("caret_color", DccTheme.c("accent"))
+
+## The grid header's `Tag… Collect… Rename… Duplicate Delete` -- borderless,
+## ghost, and the only place in this window a button has no outline.
+static func _text_button(parent: Control, text: String, on_press: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.flat = true
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_override("font", DccTheme.mono(0))
+	b.add_theme_font_size_override("font_size", DccTheme.FS_MICRO)
+	b.add_theme_color_override("font_color", DccTheme.c("text_dim"))
+	b.add_theme_color_override("font_hover_color", DccTheme.c("accent"))
+	b.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	b.add_theme_stylebox_override("normal", DccTheme.empty())
+	b.add_theme_stylebox_override("hover", DccTheme.empty())
+	b.add_theme_stylebox_override("pressed", DccTheme.empty())
+	b.add_theme_stylebox_override("disabled", DccTheme.empty())
+	b.pressed.connect(on_press)
+	parent.add_child(b)
+	return b
+
+## A 28 px column header band: ground, a bottom hairline, and a horizontally
+## padded row centred in it. Returns the row to fill.
+static func _band(parent: Control, pad_x: int, gap: int = 14) -> HBoxContainer:
+	var wrap := PanelContainer.new()
+	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"bottom": 1}))
+	wrap.custom_minimum_size.y = H_BAND
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", pad_x)
+	pad.add_theme_constant_override("margin_right", pad_x)
+	wrap.add_child(pad)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", gap)
+	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pad.add_child(row)
+	parent.add_child(wrap)
+	return row
+
+static func _rule_soft() -> Control:
+	var r := ColorRect.new()
+	r.color = DccTheme.c("line_soft")
+	r.custom_minimum_size = Vector2(0, 1)
+	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	return r
+
+## §11: no fills, radius 0, a 2 px rule with the travelled part in accent.
+## Same treatment `DccWidgets` gives its dock sliders; repeated rather than
+## reached into, because that one is private to its own row builder.
+static func _style_slider(s: HSlider) -> void:
+	var track := StyleBoxFlat.new()
+	track.bg_color = DccTheme.c("line")
+	track.content_margin_top = 1
+	track.content_margin_bottom = 1
+	s.add_theme_stylebox_override("slider", track)
+	var filled := StyleBoxFlat.new()
+	filled.bg_color = DccTheme.c("accent")
+	s.add_theme_stylebox_override("grabber_area", filled)
+	s.add_theme_stylebox_override("grabber_area_highlight", filled)
+	s.add_theme_icon_override("grabber", ImageTexture.new())
+	s.add_theme_icon_override("grabber_highlight", ImageTexture.new())
+	s.add_theme_icon_override("grabber_disabled", ImageTexture.new())
+	s.add_theme_constant_override("center_grabber", 1)
+
+## A `70px label · control` inspector row (`W_INSP_LABEL`, canvas value).
+static func _insp_row(parent: Control, label_text: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var l := DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL)
+	l.custom_minimum_size.x = W_INSP_LABEL
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(l)
+	parent.add_child(row)
+	return row
+
+static func _pad(parent: Control, l: int, t: int, r: int, b: int) -> MarginContainer:
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_left", l)
+	m.add_theme_constant_override("margin_top", t)
+	m.add_theme_constant_override("margin_right", r)
+	m.add_theme_constant_override("margin_bottom", b)
+	parent.add_child(m)
+	return m
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -312,14 +579,21 @@ func setup(host: DccApp, bridge: EngineBridge) -> void:
 	_host = host
 	_bridge = bridge
 	title = "⧉ ASSET LIBRARY"
-	get_ok_button().hide()   ## the window bar's own Close button replaces it.
+	get_ok_button().hide()   ## the window bar's own Close chip replaces it.
+	## The canvas draws this as a full-bleed workspace with its own 34 px window
+	## bar, not as a floating dialog with an OS title bar -- so the OS chrome
+	## comes off and `_popup_full()` below sizes it under the app menu bar.
+	borderless = true
+	add_theme_stylebox_override("panel", DccTheme.panel("bg"))
+	add_theme_constant_override("buttons_min_height", 0)
+	add_theme_constant_override("margin", 0)
 	size = Vector2i(1180, 760)
-	min_size = Vector2i(960, 620)
+	min_size = Vector2i(1024, 640)
 	_bridge.world_loaded.connect(func(): _refresh_pack_status())
 	_build()
 	_build_slicer_modal()
-	## Escape / the titlebar X path -- the explicit Close button above handles
-	## the click path, this handles the other two ways this dialog closes.
+	## Escape / the titlebar X path -- the explicit Close chip handles the click
+	## path, this handles the other two ways this dialog closes.
 	close_requested.connect(_close_slicer)
 	canceled.connect(_close_slicer)
 
@@ -345,12 +619,22 @@ func _family_by_key(key: String) -> Dictionary:
 			return f
 	return {}
 
+## The canvas's own placement: the window occupies everything below the app
+## menu bar, which is what "map hidden while open" means in a shell that has no
+## separate workspace stack for windows.
+func _popup_full() -> void:
+	var vp: Vector2i = get_tree().root.size
+	var top := DccTheme.H_MENU_BAR
+	var w: int = maxi(vp.x, min_size.x)
+	var h: int = maxi(vp.y - top, min_size.y)
+	popup(Rect2i(0, top, w, h))
+
 ## `family_key` scopes the family rail's selection (Assets ▸ Icon families ▸
 ## / Texture sets ▸ open the window this way); `open_slicer` opens the slicer
 ## modal on top, per §2.3's "opens the library window with the slicer modal
 ## already open."
 func open(family_key: String = "", open_slicer: bool = false) -> void:
-	popup_centered()
+	_popup_full()
 	_refresh_pack_status()
 	if family_key != "" and not _family_by_key(family_key).is_empty():
 		_select_family(family_key)
@@ -360,20 +644,15 @@ func open(family_key: String = "", open_slicer: bool = false) -> void:
 		_open_slicer()
 
 # ---------------------------------------------------------------------------
-# Layout
+# Layout -- window bar / rail · grid · inspector / status line
 # ---------------------------------------------------------------------------
 
 func _build() -> void:
 	var outer := VBoxContainer.new()
-	outer.add_theme_constant_override("separation", 6)
+	outer.add_theme_constant_override("separation", 0)
 	add_child(outer)
 
 	outer.add_child(_build_window_bar())
-	outer.add_child(DccTheme.rule())
-
-	_status_label = DccTheme.label("", "text_ghost", DccTheme.FS_MICRO)
-	outer.add_child(_status_label)
-	outer.add_child(_build_pack_info_row())
 
 	var main := HBoxContainer.new()
 	main.add_theme_constant_override("separation", 0)
@@ -381,85 +660,117 @@ func _build() -> void:
 	outer.add_child(main)
 
 	main.add_child(_build_family_rail())
-	main.add_child(DccTheme.rule(true))
 	main.add_child(_build_slot_grid())
-	main.add_child(DccTheme.rule(true))
 	main.add_child(_build_inspector())
 
+	outer.add_child(_build_status_line())
+
+## `⧉ ASSET LIBRARY · map hidden while open │ search · sort · slicer · select
+## … Apply to map · Export pack .zip · Close ✕` -- the canvas's own order and
+## its own chip treatment, not stock buttons.
 func _build_window_bar() -> Control:
+	var wrap := PanelContainer.new()
+	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"bottom": 1}))
+	wrap.custom_minimum_size.y = H_BAR
+	var pad := _pad(wrap, 16, 0, 16, 0)
 	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
+	row.add_theme_constant_override("separation", 14)
+	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pad.add_child(row)
+
+	var title_label := DccTheme.mono_label("⧉ ASSET LIBRARY", "accent", DccTheme.FS_SMALL, 1)
+	title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(title_label)
+	var sub := DccTheme.label("map hidden while open", "text_ghost", DccTheme.FS_SMALL)
+	sub.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(sub)
+
+	var divider := ColorRect.new()
+	divider.color = DccTheme.c("line")
+	divider.custom_minimum_size = Vector2(1, 16)
+	divider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(divider)
 
 	var search := LineEdit.new()
-	search.placeholder_text = "search name · type · category · tag · file"
-	search.custom_minimum_size.x = 260
+	search.placeholder_text = "Search name · type · category · tag · file…"
+	search.custom_minimum_size.x = 340   ## canvas: `flex:1;max-width:340px`
+	_well(search)
 	search.text_changed.connect(func(t: String): _search_text = t; _refresh_grid())
 	row.add_child(search)
 
+	## The canvas draws this as `Sort: slot order ⌄` -- a chip with a caret.
+	## An OptionButton *is* that once its stock slab is replaced, and it keeps
+	## the live `_sort_mode` binding rather than reimplementing a popup.
 	_sort_button = OptionButton.new()
-	_sort_button.add_item("Slot order")
-	_sort_button.add_item("Name")
+	_sort_button.add_item("Sort: slot order")
+	_sort_button.add_item("Sort: name")
+	_sort_button.focus_mode = Control.FOCUS_NONE
+	_sort_button.add_theme_font_override("font", DccTheme.mono(0))
+	_sort_button.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	_sort_button.add_theme_color_override("font_color", DccTheme.c("text"))
+	_sort_button.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+	for sb_name in ["normal", "pressed", "focus"]:
+		_sort_button.add_theme_stylebox_override(sb_name, _box("line", "", 9, 4))
+	_sort_button.add_theme_stylebox_override("hover", _box("line", "line_soft", 9, 4))
 	_sort_button.item_selected.connect(func(i: int): _sort_mode = i; _refresh_grid())
 	row.add_child(_sort_button)
 
-	var slicer_btn := Button.new()
-	slicer_btn.text = "▦ Sprite sheet…"
-	slicer_btn.focus_mode = Control.FOCUS_NONE
-	slicer_btn.pressed.connect(func(): _open_slicer())
-	row.add_child(slicer_btn)
+	_chip(row, "%s Sprite sheet…" % DccIcons.SYMBOLS["panels"], func(): _open_slicer())
 
-	_select_mode_btn = Button.new()
-	_select_mode_btn.toggle_mode = true
-	_select_mode_btn.focus_mode = Control.FOCUS_NONE
-	_select_mode_btn.tooltip_text = "Batch selection driving Tag/Collect/Rename/Duplicate/Delete below."
-	_select_mode_btn.toggled.connect(func(on: bool): _select_mode = on; _update_select_count())
-	row.add_child(_select_mode_btn)
+	_select_mode_btn = _chip(row, "", func(): _toggle_select_mode(), true)
+	_select_mode_btn.tooltip_text = "Batch selection driving Tag/Collect/Rename/Duplicate/Delete in the grid header."
 
 	row.add_child(DccTheme.spacer())
 
-	_apply_btn = DccWidgets.action(row, "Apply to map", func(): _on_apply_to_map())
-	_export_btn = DccWidgets.action(row, "Export pack .zip", func(): _on_export_pack())
+	_apply_btn = _chip(row, "Apply to map", func(): _on_apply_to_map(), false, 10, 4)
+	_export_btn = _chip(row, "Export pack .zip", func(): _on_export_pack(), true, 10, 4)
+	## Visual sweep (2026-08-20) caught the slicer modal left stranded on top of
+	## the whole app -- `_slicer` is a child `Window` of this dialog, and a child
+	## `Window`'s visibility is independent of its parent's, so closing the
+	## library while the slicer was open used to leave it floating over every
+	## surface opened afterward. Closing this window always closes the slicer.
+	var close_chip := _chip(row, "Close %s" % DccIcons.SYMBOLS["cross"],
+		func(): _close_slicer(); hide(), false, 10, 4)
+	close_chip.add_theme_color_override("font_color", DccTheme.c("text_dim"))
 
-	var close_btn := Button.new()
-	close_btn.text = "Close"
-	close_btn.focus_mode = Control.FOCUS_NONE
-	## Visual sweep (2026-08-20) caught the slicer modal left stranded on top
-	## of the whole app -- `_slicer` is a child `Window` of this dialog, and a
-	## child `Window`'s visibility is independent of its parent's, so closing
-	## the library while the slicer was open used to leave it floating over
-	## every surface opened afterward. Closing this window always closes the
-	## slicer with it now.
-	close_btn.pressed.connect(func(): _close_slicer(); hide())
-	row.add_child(close_btn)
+	_update_select_count()
+	return wrap
 
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 4)
-	pad.add_theme_constant_override("margin_top", 4)
-	pad.add_theme_constant_override("margin_right", 4)
-	pad.add_child(row)
-	return pad
+func _toggle_select_mode() -> void:
+	_select_mode = not _select_mode
+	_update_select_count()
+
+# -- family rail --------------------------------------------------------------
 
 func _build_family_rail() -> Control:
 	var wrap := PanelContainer.new()
-	wrap.custom_minimum_size.x = 260
-	wrap.add_theme_stylebox_override("panel", DccTheme.panel("panel_alt", {"right": 1}))
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	wrap.add_child(scroll)
-
+	wrap.custom_minimum_size.x = W_RAIL
+	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"right": 1}))
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
-	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(col)
+	wrap.add_child(col)
 
-	var note_pad := MarginContainer.new()
-	note_pad.add_theme_constant_override("margin_left", 14)
-	note_pad.add_theme_constant_override("margin_top", 8)
-	note_pad.add_theme_constant_override("margin_right", 10)
-	var note := DccWidgets.note(note_pad,
-		"8 families, frozen against the reference engine (cartalith-assets::slots/library) -- not this spec's own 24; see ASSET_LIBRARY_SCOPE.md §1. Capacity and fill counts below are both real (AssetDB::slots_in_family/filled state).")
-	note.custom_minimum_size.x = 220
-	col.add_child(note_pad)
+	var band := _band(col, 14, 9)
+	var head := DccTheme.mono_label("FAMILIES", "text_dim", DccTheme.FS_MICRO, 2, true)
+	head.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	head.tooltip_text = FAMILIES_NOTE
+	head.mouse_filter = Control.MOUSE_FILTER_STOP
+	band.add_child(head)
+	_rail_count_label = DccTheme.mono_label("%d" % FAMILIES.size(), "text_ghost", DccTheme.FS_MICRO)
+	_rail_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_rail_count_label.tooltip_text = FAMILIES_NOTE
+	_rail_count_label.mouse_filter = Control.MOUSE_FILTER_STOP
+	band.add_child(_rail_count_label)
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(scroll)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 0)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(body)
 
 	var by_group: Dictionary = {}
 	for fam in FAMILIES:
@@ -468,64 +779,112 @@ func _build_family_rail() -> Control:
 			by_group[g] = []
 		(by_group[g] as Array).append(fam)
 
+	var first := true
 	for g in GROUP_ORDER:
-		var body := DccWidgets.section(col, g)
+		var gp := _pad(body, 14, 7 if first else 10, 14, 4)
+		gp.add_child(DccTheme.mono_label(String(g).to_upper(), "text_ghost", DccTheme.FS_MICRO, 1))
+		first = false
 		for f in by_group.get(g, []):
-			var fam: Dictionary = f
-			var btn := Button.new()
-			btn.flat = true
-			btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			btn.focus_mode = Control.FOCUS_NONE
-			btn.custom_minimum_size.y = 26
-			btn.add_theme_font_override("font", DccTheme.mono(0))
-			btn.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
-			btn.add_theme_color_override("font_color", DccTheme.c("text"))
-			btn.pressed.connect(_select_family.bind(String(fam["key"])))
-			_rail_buttons[String(fam["key"])] = btn
-			body.add_child(btn)
+			_rail_row(body, f)
 	_refresh_rail_counts()
 
 	col.add_child(DccTheme.rule())
-	var foot_pad := MarginContainer.new()
-	foot_pad.add_theme_constant_override("margin_left", 14)
-	foot_pad.add_theme_constant_override("margin_top", 8)
-	foot_pad.add_theme_constant_override("margin_bottom", 10)
-	foot_pad.add_theme_constant_override("margin_right", 10)
-	var foot := VBoxContainer.new()
-	foot.add_theme_constant_override("separation", 4)
+	var foot_pad := _pad(col, 14, 9, 14, 9)
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", 6)
 	foot_pad.add_child(foot)
-	col.add_child(foot_pad)
-
-	_import_btn = DccWidgets.action(foot, "Import image…", func(): _on_import_image())
+	_import_btn = _chip(foot, "Import image…", func(): _on_import_image(), false, 0, 5)
+	_import_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_import_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
 	_refresh_import_button()
-	var import_pack_btn := Button.new()
-	import_pack_btn.text = "Import pack…"
-	import_pack_btn.focus_mode = Control.FOCUS_NONE
-	import_pack_btn.pressed.connect(func(): _host.open_asset_pack_picker())
-	foot.add_child(import_pack_btn)
+	var import_pack := _chip(foot, "Import pack…", func(): _host.open_asset_pack_picker(),
+		false, 0, 5)
+	import_pack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	import_pack.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
 
 	return wrap
 
+## The canvas's rail row: a 26 px code column, the family name, and the
+## fill/capacity count -- three aligned columns, not one concatenated string.
+## A `Button` hosts them so hover/press/keyboard behaviour is Godot's rather
+## than hand-rolled on a panel.
+func _rail_row(parent: Control, fam: Dictionary) -> void:
+	var key := String(fam["key"])
+	var btn := Button.new()
+	## Deliberately *not* `flat` -- a flat Button draws no stylebox at all, so
+	## the canvas's `background:rgba(224,163,74,.09)` on the selected row (and
+	## the hover wash) simply never appeared. `normal` is an empty box instead,
+	## which is what "flat" was reaching for.
+	btn.focus_mode = Control.FOCUS_NONE
+	btn.custom_minimum_size.y = 24
+	btn.add_theme_stylebox_override("normal", DccTheme.empty())
+	btn.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+	btn.add_theme_stylebox_override("pressed", DccTheme.flat(DccTheme.c("accent_wash")))
+	btn.pressed.connect(_select_family.bind(key))
+
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 9)
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.offset_left = 14
+	row.offset_right = -14
+	btn.add_child(row)
+
+	var code := DccTheme.mono_label(String(fam["code"]), "text_ghost", DccTheme.FS_TINY)
+	code.custom_minimum_size.x = 26
+	code.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	code.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(code)
+	var name_l := DccTheme.label(String(fam["title"]), "text", DccTheme.FS_SMALL)
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	name_l.clip_text = true
+	name_l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(name_l)
+	var count := DccTheme.mono_label("", "text_faint", DccTheme.FS_TINY)
+	count.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	count.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(count)
+
+	_rail_buttons[key] = {"button": btn, "code": code, "name": name_l, "count": count}
+	parent.add_child(btn)
+
 ## Real fill counts (AS-08) on the rail itself, not just the grid --
 ## `as_family_slots` once per family, cheap enough to run on every
-## `_refresh_pack_status()` (window open, and after `world_loaded`).
+## `_refresh_pack_status()` (window open, and after `world_loaded`). The canvas
+## paints an incomplete family's count in accent and a complete one's quiet.
 func _refresh_rail_counts() -> void:
+	var total_filled := 0
+	var total_slots := 0
 	for fam in FAMILIES:
 		var key := String(fam["key"])
-		var btn: Button = _rail_buttons.get(key)
-		if btn == null:
+		var parts: Dictionary = _rail_buttons.get(key, {})
+		if parts.is_empty():
 			continue
 		var slots: Array = _bridge.as_family_slots(key)
 		var filled := 0
 		for s in slots:
 			if bool(s.get("filled", false)):
 				filled += 1
-		var cap_text: String
-		if bool(fam.get("custom", false)):
-			cap_text = "%d items" % slots.size() if not slots.is_empty() else "open vocabulary"
+		var capacity: int = slots.size() if bool(fam.get("custom", false)) \
+			else (fam["slots"] as Array).size()
+		total_filled += filled
+		total_slots += capacity
+		var count_label: Label = parts["count"]
+		if bool(fam.get("custom", false)) and capacity == 0:
+			count_label.text = "open"
+			count_label.add_theme_color_override("font_color", DccTheme.c("text_ghost"))
 		else:
-			cap_text = "%d / %d" % [filled, (fam["slots"] as Array).size()]
-		btn.text = "%s   %s   %s" % [String(fam["code"]), String(fam["title"]), cap_text]
+			count_label.text = "%d/%d" % [filled, capacity]
+			count_label.add_theme_color_override("font_color",
+				DccTheme.c("text_faint") if filled >= capacity else DccTheme.c("accent"))
+	if _status_pack != null:
+		var info: Dictionary = _bridge.as_pack_info()
+		var pack_name := String(info.get("name", ""))
+		_status_pack.text = "%s · %d / %d slots · %d item%s" % [
+			pack_name if pack_name != "" else "unnamed pack",
+			total_filled, total_slots, int(info.get("total_items", 0)),
+			"" if int(info.get("total_items", 0)) == 1 else "s"]
 
 ## "Import image…" targets whichever slot is focused in the grid -- real once
 ## a slot is selected, honestly disabled ("select a slot first") otherwise.
@@ -539,12 +898,16 @@ func _refresh_import_button() -> void:
 		_import_btn.disabled = false
 		_import_btn.tooltip_text = "Import a PNG into %s." % _focused_uid
 
-func _on_import_image() -> void:
+## `replace_first` empties the slot's first variant once the new image is in --
+## the inspector's Replace…, built out of `as_import_item` + `as_remove_item`
+## rather than a binding that does not exist. Import order matters: the new
+## bytes have to land successfully *before* anything is removed.
+func _on_import_image(replace_first: bool = false) -> void:
 	if _focused_uid == "":
 		return
 	var target_uid := _focused_uid
 	var d := FileDialog.new()
-	d.title = "Import image"
+	d.title = "Replace image" if replace_first else "Import image"
 	d.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	d.access = FileDialog.ACCESS_FILESYSTEM
 	d.add_filter("*.png ; PNG image")
@@ -552,10 +915,15 @@ func _on_import_image() -> void:
 		var bytes := FileAccess.get_file_as_bytes(path)
 		var result: Dictionary = _bridge.as_import_item(target_uid, path.get_file(), bytes)
 		if bool(result.get("ok", false)):
+			if replace_first:
+				_bridge.as_remove_item(target_uid, 0)
+			_dirty = true
 			_host.set_status("hint", "imported %s" % path.get_file(), "accent")
+			_preview_index = 0
 			_refresh_grid()
 			_refresh_inspector()
 			_refresh_rail_counts()
+			_refresh_status_line()
 		else:
 			_host.set_status("hint", "import failed — %s" % String(result.get("error", "unknown error")), "warn")
 		d.queue_free())
@@ -563,118 +931,112 @@ func _on_import_image() -> void:
 	add_child(d)
 	d.popup_centered_ratio(0.6)
 
+# -- slot grid ----------------------------------------------------------------
+
 func _build_slot_grid() -> Control:
-	var wrap := VBoxContainer.new()
-	wrap.add_theme_constant_override("separation", 6)
+	var wrap := PanelContainer.new()
 	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"right": 1}))
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	wrap.add_child(col)
 
-	var head_pad := MarginContainer.new()
-	head_pad.add_theme_constant_override("margin_left", 12)
-	head_pad.add_theme_constant_override("margin_top", 10)
-	head_pad.add_theme_constant_override("margin_right", 12)
-	var head_row := HBoxContainer.new()
-	_grid_header = DccTheme.mono_label("", "accent", DccTheme.FS_HEADER, 2, true)
-	head_row.add_child(_grid_header)
-	head_row.add_child(DccTheme.spacer())
-	_select_count_label = DccTheme.mono_label("0 selected", "text_dim", DccTheme.FS_SMALL)
-	head_row.add_child(_select_count_label)
-	head_pad.add_child(head_row)
-	wrap.add_child(head_pad)
-
-	var batch_pad := MarginContainer.new()
-	batch_pad.add_theme_constant_override("margin_left", 12)
-	batch_pad.add_theme_constant_override("margin_right", 12)
-	var batch_row := HBoxContainer.new()
-	batch_row.add_theme_constant_override("separation", 4)
-	batch_pad.add_child(batch_row)
-	_batch_buttons["tag"] = DccWidgets.action(batch_row, "Tag…", func(): _on_batch_tag())
-	_batch_buttons["collect"] = DccWidgets.action(batch_row, "Collect…", func(): _on_batch_collect())
-	_batch_buttons["rename"] = DccWidgets.action(batch_row, "Rename…", func(): _on_batch_rename())
-	_batch_buttons["duplicate"] = DccWidgets.action(batch_row, "Duplicate", func(): _on_batch_duplicate())
-	_batch_buttons["delete"] = DccWidgets.action(batch_row, "Delete", func(): _on_batch_delete())
+	var band := _band(col, 16, 14)
+	_grid_header = DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO, 2, true)
+	_grid_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_grid_header.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	band.add_child(_grid_header)
+	_select_count_label = DccTheme.mono_label("0 SELECTED", "accent", DccTheme.FS_MICRO, 1, true)
+	_select_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	band.add_child(_select_count_label)
+	## The canvas folds the batch verbs into this band as quiet text rather
+	## than giving them a row of filled slabs of their own.
+	var verbs := HBoxContainer.new()
+	verbs.add_theme_constant_override("separation", 2)
+	verbs.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	band.add_child(verbs)
+	_batch_buttons["tag"] = _text_button(verbs, "Tag…", func(): _on_batch_tag())
+	_batch_buttons["collect"] = _text_button(verbs, "Collect…", func(): _on_batch_collect())
+	_batch_buttons["rename"] = _text_button(verbs, "Rename…", func(): _on_batch_rename())
+	_batch_buttons["duplicate"] = _text_button(verbs, "Duplicate", func(): _on_batch_duplicate())
+	_batch_buttons["delete"] = _text_button(verbs, "Delete", func(): _on_batch_delete())
 	_refresh_batch_buttons()
-	wrap.add_child(batch_pad)
-	wrap.add_child(DccTheme.rule())
 
 	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	wrap.add_child(scroll)
-	var grid_pad := MarginContainer.new()
-	grid_pad.add_theme_constant_override("margin_left", 12)
-	grid_pad.add_theme_constant_override("margin_top", 8)
-	grid_pad.add_theme_constant_override("margin_right", 12)
-	grid_pad.add_theme_constant_override("margin_bottom", 8)
-	scroll.add_child(grid_pad)
+	col.add_child(scroll)
+	var grid_pad := _pad(scroll, 16, 16, 16, 16)
+	grid_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_grid = GridContainer.new()
-	_grid.columns = 6
-	_grid.add_theme_constant_override("h_separation", 10)
-	_grid.add_theme_constant_override("v_separation", 10)
+	_grid.columns = GRID_COLS
+	_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_grid.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	_grid.add_theme_constant_override("h_separation", TILE_GAP)
+	_grid.add_theme_constant_override("v_separation", TILE_GAP)
 	grid_pad.add_child(_grid)
 
-	wrap.add_child(DccTheme.rule())
-	var foot_pad := MarginContainer.new()
-	foot_pad.add_theme_constant_override("margin_left", 12)
-	foot_pad.add_theme_constant_override("margin_top", 4)
-	foot_pad.add_theme_constant_override("margin_right", 12)
-	foot_pad.add_theme_constant_override("margin_bottom", 8)
-	var foot_row := HBoxContainer.new()
-	foot_row.add_theme_constant_override("separation", 6)
-	foot_pad.add_child(foot_row)
-	var hint := DccTheme.label("⇧-click ranges · ⌘/Ctrl-click adds · drag-to-fill has no engine call", "text_ghost", DccTheme.FS_MICRO)
-	foot_row.add_child(hint)
-	foot_row.add_child(DccTheme.spacer())
-	foot_row.add_child(DccTheme.mono_label("ZOOM", "text_faint", DccTheme.FS_MICRO, 1))
+	col.add_child(DccTheme.rule())
+	var foot_pad := _pad(col, 16, 8, 16, 8)
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", 22)
+	foot_pad.add_child(foot)
+	var drop_hint := DccTheme.mono_label("drop-to-fill is not wired — use Import image…",
+		"text_faint", DccTheme.FS_TINY)
+	drop_hint.tooltip_text = "The canvas offers drag-and-drop onto a slot; no engine call backs it (as_import_item takes a path chosen in the file dialog). Said plainly rather than drawn as if it worked."
+	drop_hint.mouse_filter = Control.MOUSE_FILTER_STOP
+	foot.add_child(drop_hint)
+	foot.add_child(DccTheme.mono_label("⇧-click ranges · Ctrl-click adds",
+		"text_faint", DccTheme.FS_TINY))
+	foot.add_child(DccTheme.spacer())
+	var zoom_label := DccTheme.mono_label("zoom", "text_faint", DccTheme.FS_TINY)
+	zoom_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	foot.add_child(zoom_label)
 	var zoom := HSlider.new()
 	zoom.min_value = 56
 	zoom.max_value = 132
 	zoom.step = 4
 	zoom.value = _cell_px
-	zoom.custom_minimum_size.x = 100
+	zoom.custom_minimum_size = Vector2(96, 14)
+	zoom.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	zoom.focus_mode = Control.FOCUS_NONE
+	_style_slider(zoom)
 	zoom.value_changed.connect(func(v: float): _cell_px = v; _refresh_grid())
-	foot_row.add_child(zoom)
-	wrap.add_child(foot_pad)
+	foot.add_child(zoom)
 
 	return wrap
 
-func _build_inspector() -> Control:
-	var wrap := VBoxContainer.new()
-	wrap.add_theme_constant_override("separation", 0)
-	wrap.size_flags_vertical = Control.SIZE_EXPAND_FILL
+func _build_status_line() -> Control:
+	var wrap := PanelContainer.new()
+	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg", {"top": 1}))
+	wrap.custom_minimum_size.y = H_STATUS
+	var pad := _pad(wrap, 16, 0, 16, 0)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 22)
+	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	pad.add_child(row)
+	_status_state = DccTheme.mono_label("", "text_faint", DccTheme.FS_TINY)
+	_status_state.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(_status_state)
+	_status_pack = DccTheme.mono_label("", "text_faint", DccTheme.FS_TINY)
+	_status_pack.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(_status_pack)
+	row.add_child(DccTheme.spacer())
+	var keys := DccTheme.mono_label("Esc close window", "text_faint", DccTheme.FS_TINY)
+	keys.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(keys)
+	_refresh_status_line()
+	return wrap
 
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 12)
-	pad.add_theme_constant_override("margin_top", 10)
-	pad.add_theme_constant_override("margin_right", 12)
-	pad.add_theme_constant_override("margin_bottom", 10)
-	scroll.add_child(pad)
-	_inspector_body = VBoxContainer.new()
-	_inspector_body.add_theme_constant_override("separation", 6)
-	pad.add_child(_inspector_body)
-	wrap.add_child(scroll)
-
-	wrap.add_child(DccTheme.rule())
-	var foot_pad := MarginContainer.new()
-	foot_pad.add_theme_constant_override("margin_left", 12)
-	foot_pad.add_theme_constant_override("margin_top", 8)
-	foot_pad.add_theme_constant_override("margin_right", 12)
-	foot_pad.add_theme_constant_override("margin_bottom", 10)
-	var foot := HBoxContainer.new()
-	foot.add_theme_constant_override("separation", 6)
-	foot_pad.add_child(foot)
-	_validate_btn = DccWidgets.action(foot, "Validate", func(): _on_validate())
-	_clear_btn = DccWidgets.action(foot, "Clear library…", func(): _on_clear_library())
-	wrap.add_child(foot_pad)
-
-	var outer := PanelContainer.new()
-	outer.custom_minimum_size.x = 300
-	outer.add_theme_stylebox_override("panel", DccTheme.panel("panel_alt", {"left": 1}))
-	outer.add_child(wrap)
-	_refresh_inspector()
-	return outer
+func _refresh_status_line() -> void:
+	if _status_state == null:
+		return
+	if _dirty:
+		_status_state.text = "%s library edited — apply to map to use it" % DccIcons.SYMBOLS["on"]
+		_status_state.add_theme_color_override("font_color", DccTheme.c("accent"))
+	else:
+		_status_state.text = "%s in sync with the map" % DccIcons.SYMBOLS["off"]
+		_status_state.add_theme_color_override("font_color", DccTheme.c("text_faint"))
 
 # ---------------------------------------------------------------------------
 # Family / grid / selection
@@ -683,11 +1045,19 @@ func _build_inspector() -> Control:
 func _select_family(key: String) -> void:
 	_current_family = key
 	for k in _rail_buttons:
-		var b: Button = _rail_buttons[k]
-		b.add_theme_color_override("font_color", DccTheme.c("accent") if k == key else DccTheme.c("text"))
+		var parts: Dictionary = _rail_buttons[k]
+		var on: bool = k == key
+		var b: Button = parts["button"]
+		b.add_theme_stylebox_override("normal",
+			DccTheme.flat(DccTheme.c("accent_wash")) if on else DccTheme.empty())
+		(parts["code"] as Label).add_theme_color_override("font_color",
+			DccTheme.c("accent") if on else DccTheme.c("text_ghost"))
+		(parts["name"] as Label).add_theme_color_override("font_color",
+			DccTheme.c("text_bright") if on else DccTheme.c("text"))
 	_selected.clear()
 	_last_index = -1
 	_focused_uid = ""
+	_preview_index = 0
 	_refresh_grid()
 	_refresh_inspector()
 	_refresh_import_button()
@@ -727,22 +1097,23 @@ func _refresh_grid() -> void:
 		# whatever custom slots the live session actually has.
 		for i in server_slots.size():
 			var s: Dictionary = server_slots[i]
-			var name := String(s["name"])
+			var slot_name := String(s["name"])
 			var code := "%s-%02d" % [String(fam["code"]), i + 1]
 			var uid := String(s["uid"])
-			if q != "" and name.to_lower().find(q) < 0 and code.to_lower().find(q) < 0:
+			if q != "" and slot_name.to_lower().find(q) < 0 and code.to_lower().find(q) < 0:
 				continue
-			entries.append({"uid": uid, "id": String(s["id"]), "name": name, "code": code})
+			entries.append({"uid": uid, "id": String(s["id"]), "name": slot_name, "code": code})
 	else:
 		var ids: Array = fam["slots"]
 		for i in ids.size():
 			var id := String(ids[i])
-			var name := _humanize(id)
+			var slot_name := _humanize(id)
 			var code := "%s-%02d" % [String(fam["code"]), i + 1]
 			var uid := "%s:%s" % [String(fam["key"]), id]
-			if q != "" and id.to_lower().find(q) < 0 and name.to_lower().find(q) < 0 and code.to_lower().find(q) < 0:
+			if q != "" and id.to_lower().find(q) < 0 and slot_name.to_lower().find(q) < 0 \
+					and code.to_lower().find(q) < 0:
 				continue
-			entries.append({"uid": uid, "id": id, "name": name, "code": code})
+			entries.append({"uid": uid, "id": id, "name": slot_name, "code": code})
 	if _sort_mode == 1:
 		entries.sort_custom(func(a, b): return String(a["name"]) < String(b["name"]))
 	_slot_order = entries
@@ -756,35 +1127,78 @@ func _refresh_grid() -> void:
 	for s in server_slots:
 		if bool(s.get("filled", false)):
 			filled += 1
-	_grid_header.text = "%s · %s · %d OF %d SHOWN · %d FILLED" % [
-		String(fam["code"]), String(fam["title"]).to_upper(), shown, total, filled]
+	## The canvas's own header line: `P · PLACES · 10 OF 12 FILLED`. A search
+	## that narrows the grid appends what it narrowed to, rather than changing
+	## the line's shape.
+	_grid_header.text = "%s · %s · %d OF %d FILLED" % [
+		String(fam["code"]), String(fam["title"]).to_upper(), filled, total]
+	if shown != total:
+		_grid_header.text += " · %d SHOWN" % shown
 	_refresh_selection_visuals()
 
+## The canvas's tile: one bordered box holding a 76 px art band and, inside the
+## same border under a hairline, a `code · name` caption. The caption used to
+## float outside the tile, which is why the grid read as a scatter of squares
+## with text under them rather than as a contact sheet.
 func _build_cell(entry: Dictionary) -> Control:
-	var wrap := VBoxContainer.new()
-	wrap.add_theme_constant_override("separation", 2)
-	var cell := SlotCell.new()
-	cell.custom_minimum_size = Vector2(_cell_px, _cell_px)
 	var uid := String(entry["uid"])
-	cell.uid = uid
 	var state: Dictionary = _slot_state.get(uid, {})
-	if bool(state.get("filled", false)):
+	var filled := bool(state.get("filled", false))
+	var count := int(state.get("item_count", 0))
+
+	var tile := PanelContainer.new()
+	tile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile.add_theme_stylebox_override("panel", _tile_box(false))
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	tile.add_child(col)
+
+	var cell := SlotCell.new()
+	cell.custom_minimum_size.y = _cell_px
+	cell.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cell.uid = uid
+	cell.show_empty = not filled
+	cell.variant_count = count
+	cell.show_check = true
+	cell.draw_border = false
+	if filled:
 		var png: PackedByteArray = _bridge.as_thumbnail_png(uid, 0, 128)
 		if png.size() > 0:
 			var img := Image.new()
 			if img.load_png_from_buffer(png) == OK:
 				cell.thumb = ImageTexture.create_from_image(img)
 	cell.gui_input.connect(_on_cell_input.bind(uid))
-	wrap.add_child(cell)
-	var count := int(state.get("item_count", 0))
-	var suffix := " ×%d" % count if count > 1 else ""
-	var dupe_mark := " ⚠" if bool(state.get("has_dupe", false)) else ""
-	var lbl := DccTheme.mono_label("%s %s%s%s" % [String(entry["code"]), String(entry["name"]), suffix, dupe_mark], "text_dim", DccTheme.FS_TINY)
-	lbl.clip_text = true
-	lbl.custom_minimum_size.x = _cell_px
-	wrap.add_child(lbl)
-	_cells[uid] = cell
-	return wrap
+	col.add_child(cell)
+	col.add_child(_rule_soft())
+
+	var cap_pad := _pad(col, 6, 4, 6, 4)
+	var cap := HBoxContainer.new()
+	cap.add_theme_constant_override("separation", 6)
+	cap_pad.add_child(cap)
+	cap.add_child(DccTheme.mono_label(String(entry["code"]), "text_ghost", DccTheme.FS_MICRO))
+	var dupe_mark := " %s" % DccIcons.SYMBOLS["warn_tri"] if bool(state.get("has_dupe", false)) else ""
+	var name_l := DccTheme.label("%s%s" % [String(entry["name"]), dupe_mark],
+		"text" if filled else "text_ghost", DccTheme.FS_TINY)
+	name_l.clip_text = true
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cap.add_child(name_l)
+
+	_cells[uid] = {"tile": tile, "cell": cell}
+	return tile
+
+## The canvas's selected tile is `border:1px solid accent` plus a 35%-accent
+## outline one pixel out. A StyleBoxFlat shadow is the closest thing Godot has
+## to `outline-offset`, and reads the same at this size -- but only over an
+## opaque fill; on a transparent box the shadow shows *through* the tile and
+## washes the caption strip accent.
+static func _tile_box(selected: bool) -> StyleBoxFlat:
+	var sb := DccTheme.outline("accent" if selected else "line", "bg")
+	if selected:
+		var halo := DccTheme.c("accent")
+		halo.a = 0.35
+		sb.shadow_color = halo
+		sb.shadow_size = 2
+	return sb
 
 func _on_cell_input(ev: InputEvent, uid: String) -> void:
 	if not (ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT):
@@ -810,22 +1224,30 @@ func _on_cell_input(ev: InputEvent, uid: String) -> void:
 		_selected = {uid: true}
 		_last_index = index
 	_focused_uid = uid
+	_preview_index = 0
 	_refresh_selection_visuals()
 	_refresh_inspector()
 	_refresh_import_button()
 
 func _refresh_selection_visuals() -> void:
 	for uid in _cells:
-		var cell: SlotCell = _cells[uid]
-		cell.selected = _selected.has(uid)
+		var parts: Dictionary = _cells[uid]
+		var sel: bool = _selected.has(uid)
+		var cell: SlotCell = parts["cell"]
+		cell.selected = sel
 		cell.queue_redraw()
+		(parts["tile"] as PanelContainer).add_theme_stylebox_override("panel", _tile_box(sel))
 	_update_select_count()
 
 func _update_select_count() -> void:
-	_select_count_label.text = "%d selected" % _selected.size()
-	if _select_mode_btn:
-		_select_mode_btn.text = "%s Select (%d)" % [
-			DccIcons.SYMBOLS["checked"] if _select_mode else DccIcons.SYMBOLS["unchecked"], _selected.size()]
+	if _select_count_label != null:
+		_select_count_label.text = "%d SELECTED" % _selected.size()
+		_select_count_label.add_theme_color_override("font_color",
+			DccTheme.c("accent") if not _selected.is_empty() else DccTheme.c("text_ghost"))
+	if _select_mode_btn != null:
+		_select_mode_btn.text = "%s Select · %d" % [
+			DccIcons.SYMBOLS["checked"] if _select_mode else DccIcons.SYMBOLS["unchecked"],
+			_selected.size()]
 	_refresh_batch_buttons()
 
 ## The five batch actions all need at least one selected uid; disabled
@@ -846,9 +1268,10 @@ func _selected_uids() -> PackedStringArray:
 ## A minimal single-line text-input modal -- the reference's own `prompt()`
 ## has no Godot equivalent, so this is the reusable stand-in every batch
 ## handler below shares.
-func _prompt_text(title: String, label_text: String, default_text: String, on_confirm: Callable) -> void:
+func _prompt_text(prompt_title: String, label_text: String, default_text: String,
+		on_confirm: Callable) -> void:
 	var d := ConfirmationDialog.new()
-	d.title = title
+	d.title = prompt_title
 	d.min_size = Vector2i(360, 0)
 	var body := VBoxContainer.new()
 	body.add_theme_constant_override("separation", 6)
@@ -874,8 +1297,10 @@ func _on_batch_tag() -> void:
 		return
 	_prompt_text("Tag %d asset(s)" % uids.size(), "Add tag(s) -- comma-separated:", "", func(t: String):
 		var result: Dictionary = _bridge.as_batch_tag(uids, t)
+		_dirty = true
 		_host.set_status("hint", "tagged %d asset(s)" % int(result.get("tagged", 0)), "accent")
-		_refresh_inspector())
+		_refresh_inspector()
+		_refresh_status_line())
 
 func _on_batch_collect() -> void:
 	var uids := _selected_uids()
@@ -883,8 +1308,10 @@ func _on_batch_collect() -> void:
 		return
 	_prompt_text("Collect %d asset(s)" % uids.size(), "Add to collection:", "Fantasy Pack", func(t: String):
 		_bridge.as_batch_collect(uids, t)
+		_dirty = true
 		_host.set_status("hint", "added %d asset(s) to \"%s\"" % [uids.size(), t], "accent")
-		_refresh_inspector())
+		_refresh_inspector()
+		_refresh_status_line())
 
 func _on_batch_rename() -> void:
 	var uids := _selected_uids()
@@ -894,6 +1321,7 @@ func _on_batch_rename() -> void:
 			"Rename pattern -- selected assets become \"Base_01\", \"Base_02\", …\n(custom slots are renamed; frozen slots rename their variants)", "Village",
 			func(t: String):
 		var result: Dictionary = _bridge.as_batch_rename(uids, t)
+		_dirty = true
 		_host.set_status("hint", "renamed %d asset(s)" % int(result.get("renamed", 0)), "accent")
 		var remap: Dictionary = result.get("remap", {})
 		if remap.has(_focused_uid):
@@ -903,7 +1331,8 @@ func _on_batch_rename() -> void:
 			var s := String(old_uid)
 			_selected[String(remap.get(s, s))] = true
 		_refresh_grid()
-		_refresh_inspector())
+		_refresh_inspector()
+		_refresh_status_line())
 
 func _on_batch_duplicate() -> void:
 	var uids := _selected_uids()
@@ -911,10 +1340,12 @@ func _on_batch_duplicate() -> void:
 		return
 	var result: Dictionary = _bridge.as_batch_duplicate(uids)
 	var made := int(result.get("made", 0))
+	_dirty = _dirty or made > 0
 	_host.set_status("hint",
 		("duplicated %d asset(s) → Custom/Duplicates" % made) if made > 0 else "nothing to duplicate", "accent")
 	_refresh_grid()
 	_refresh_rail_counts()
+	_refresh_status_line()
 
 func _on_batch_delete() -> void:
 	var uids := _selected_uids()
@@ -925,11 +1356,14 @@ func _on_batch_delete() -> void:
 	d.dialog_text = "Delete images of %d selected asset(s)? (custom slots are removed entirely; frozen slots are emptied, not removed.)" % uids.size()
 	d.confirmed.connect(func():
 		var result: Dictionary = _bridge.as_batch_delete(uids)
+		_dirty = true
 		_host.set_status("hint", "deleted %d asset(s)" % int(result.get("deleted", 0)), "accent")
 		_selected.clear()
+		_focused_uid = ""
 		_refresh_grid()
 		_refresh_inspector()
 		_refresh_rail_counts()
+		_refresh_status_line()
 		d.queue_free())
 	d.canceled.connect(func(): d.queue_free())
 	add_child(d)
@@ -937,147 +1371,388 @@ func _on_batch_delete() -> void:
 
 # ---------------------------------------------------------------------------
 # Slot inspector
+#
+# Built once, refreshed in place. The previous version rebuilt every child on
+# every selection change, which is why the pack-metadata fields needed a
+# has_focus() guard to survive being typed into.
 # ---------------------------------------------------------------------------
 
-func _refresh_inspector() -> void:
-	for c in _inspector_body.get_children():
-		_inspector_body.remove_child(c)
-		c.queue_free()
+func _build_inspector() -> Control:
+	var wrap := PanelContainer.new()
+	wrap.custom_minimum_size.x = W_INSPECTOR
+	wrap.add_theme_stylebox_override("panel", DccTheme.panel("bg"))
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	wrap.add_child(col)
 
+	var band := _band(col, 14)
+	_insp_head = DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO, 2, true)
+	_insp_head.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	band.add_child(_insp_head)
+
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(scroll)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 0)
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(body)
+
+	var empty_pad := _pad(body, 14, 14, 14, 14)
+	_insp_empty = DccTheme.label("Select a slot to inspect it.", "text_ghost", DccTheme.FS_SMALL)
+	_insp_empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	## An autowrapping Label with no minimum width reports a minimum *height*
+	## computed at one character per line, which is how the slicer modal ended
+	## up 1700 px tall on its first run. Every autowrap label in this file
+	## carries an explicit width for that reason -- 52 rather than 28 off the
+	## column, because a `ScrollContainer` folds its own scrollbar width into
+	## the minimum it hands upwards, and 28 pushed the whole inspector 24 px
+	## past the canvas's 330.
+	_insp_empty.custom_minimum_size.x = W_INSPECTOR - 52
+	empty_pad.add_child(_insp_empty)
+
+	_insp_detail = VBoxContainer.new()
+	_insp_detail.add_theme_constant_override("separation", 0)
+	_insp_detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_child(_insp_detail)
+
+	# -- preview + file readout (canvas: 150 px on a 12 px checkerboard) -------
+	var prev_pad := _pad(_insp_detail, 14, 14, 14, 10)
+	var prev_col := VBoxContainer.new()
+	prev_col.add_theme_constant_override("separation", 7)
+	prev_pad.add_child(prev_col)
+	_insp_preview = SlotCell.new()
+	_insp_preview.custom_minimum_size.y = 150
+	_insp_preview.checker_px = 12.0
+	_insp_preview.checker_under_art = true
+	_insp_preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	prev_col.add_child(_insp_preview)
+	_insp_file = DccTheme.mono_label("", "text_faint", DccTheme.FS_TINY)
+	_insp_file.clip_text = true
+	prev_col.add_child(_insp_file)
+
+	# -- Scale / Fit / Reset / Replace / +Variant / bg / anchor / tags ---------
+	var rows_pad := _pad(_insp_detail, 14, 0, 14, 12)
+	var rows := VBoxContainer.new()
+	rows.add_theme_constant_override("separation", 9)
+	rows_pad.add_child(rows)
+
+	var scale_row := _insp_row(rows, "Scale")
+	_insp_scale = HSlider.new()
+	_insp_scale.min_value = 10
+	_insp_scale.max_value = 400
+	_insp_scale.step = 1
+	_insp_scale.value = 100
+	_insp_scale.editable = false
+	_insp_scale.focus_mode = Control.FOCUS_NONE
+	_insp_scale.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_insp_scale.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_insp_scale.custom_minimum_size.y = 14
+	_insp_scale.tooltip_text = SCALE_GAP_NOTE
+	_style_slider(_insp_scale)
+	scale_row.add_child(_insp_scale)
+	_insp_scale_readout = DccTheme.mono_label("—", "text", DccTheme.FS_TINY)
+	_insp_scale_readout.custom_minimum_size.x = 38
+	_insp_scale_readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	_insp_scale_readout.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	scale_row.add_child(_insp_scale_readout)
+
+	var btn_row := HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 5)
+	rows.add_child(btn_row)
+	for gap_label in ["Fit", "Reset"]:
+		var gb := _chip(btn_row, gap_label, Callable())
+		gb.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+		gb.disabled = true
+		gb.tooltip_text = SCALE_GAP_NOTE
+	_insp_replace_btn = _chip(btn_row, "Replace…", func(): _on_import_image(true))
+	_insp_replace_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	_insp_variant_btn = _chip(btn_row, "%s Variant" % DccIcons.SYMBOLS["add"],
+		func(): _on_import_image(false), true)
+	_insp_variant_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	_insp_variant_btn.tooltip_text = "Import another image into this slot. Variants are chosen by weight at render time (AS-14) -- there is no \"active\" one."
+
+	var bg_row := _insp_row(rows, "Preview bg")
+	var sw_box := HBoxContainer.new()
+	sw_box.add_theme_constant_override("separation", 5)
+	bg_row.add_child(sw_box)
+	for i in PREVIEW_SWATCHES.size():
+		var swatch: Dictionary = PREVIEW_SWATCHES[i]
+		var sw := SlotCell.new()
+		sw.custom_minimum_size = Vector2(SZ_SWATCH, SZ_SWATCH)
+		sw.checker_px = 8.0
+		sw.bg_mode = String(swatch["mode"])
+		sw.bg_color = swatch["color"]
+		sw.tooltip_text = String(swatch["label"])
+		sw.selected = String(swatch["mode"]) == _preview_bg
+		var idx := i
+		sw.gui_input.connect(func(ev: InputEvent):
+			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+				_pick_preview_bg(idx))
+		sw_box.add_child(sw)
+		_insp_swatches.append(sw)
+
+	var anchor_row := _insp_row(rows, "Anchor")
+	var anchor_box := HBoxContainer.new()
+	anchor_box.add_theme_constant_override("separation", 2)
+	anchor_row.add_child(anchor_box)
+	## AS-15: the canvas draws this as an editable three-way (top/centre/base).
+	## `Family` fixes the anchor for every slot in it, so the real one is lit and
+	## the other two are disabled with that reason rather than being drawn as
+	## choices. The labels are the engine's own three values, not the canvas's --
+	## `Family::anchor` is `none` (a tiled texture, anchored nowhere), `center`
+	## or `bottom`, and there is no "top" for a label to be honest about.
+	for entry in [["tiled", "none"], ["centre", "center"], ["base", "bottom"]]:
+		var chip := _segment(anchor_box, String(entry[0]), Callable())
+		chip.disabled = true
+		_insp_anchor_chips[String(entry[1])] = chip
+
+	var tag_row := _insp_row(rows, "Tags")
+	_insp_tags = HFlowContainer.new()
+	_insp_tags.add_theme_constant_override("h_separation", 4)
+	_insp_tags.add_theme_constant_override("v_separation", 4)
+	_insp_tags.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tag_row.add_child(_insp_tags)
+
+	_insp_note = DccTheme.label("", "text_ghost", DccTheme.FS_MICRO)
+	_insp_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_insp_note.custom_minimum_size.x = W_INSPECTOR - 52
+	rows.add_child(_insp_note)
+
+	# -- VARIANTS -------------------------------------------------------------
+	_insp_detail.add_child(_rule_soft())
+	var var_pad := _pad(_insp_detail, 14, 11, 14, 11)
+	var var_col := VBoxContainer.new()
+	var_col.add_theme_constant_override("separation", 8)
+	var_pad.add_child(var_col)
+	_insp_variants_head = DccTheme.mono_label("VARIANTS", "text_ghost", DccTheme.FS_MICRO, 1)
+	_insp_variants_head.tooltip_text = "AS-14: the renderer picks a variant by weight, so this strip selects which one the preview above shows -- not which one the map draws."
+	_insp_variants_head.mouse_filter = Control.MOUSE_FILTER_STOP
+	var_col.add_child(_insp_variants_head)
+	_insp_variants = HBoxContainer.new()
+	_insp_variants.add_theme_constant_override("separation", 8)
+	var_col.add_child(_insp_variants)
+
+	# -- PACK METADATA (built once; never rebuilt under the caret) ------------
+	body.add_child(_rule_soft())
+	var pack_pad := _pad(body, 14, 11, 14, 11)
+	var pack_col := VBoxContainer.new()
+	pack_col.add_theme_constant_override("separation", 7)
+	pack_pad.add_child(pack_col)
+	pack_col.add_child(DccTheme.mono_label("PACK METADATA", "text_ghost", DccTheme.FS_MICRO, 1))
+	_pack_name_field = _pack_field(pack_col, "name")
+	_pack_author_field = _pack_field(pack_col, "author")
+	_pack_license_field = _pack_field(pack_col, "license")
+
+	# -- foot -----------------------------------------------------------------
+	col.add_child(DccTheme.rule())
+	var foot_pad := _pad(col, 14, 9, 14, 9)
+	var foot := HBoxContainer.new()
+	foot.add_theme_constant_override("separation", 6)
+	foot_pad.add_child(foot)
+	_validate_btn = _chip(foot, "Validate", func(): _on_validate(), false, 0, 6)
+	_validate_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_validate_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	_clear_btn = _chip(foot, "Clear library…", func(): _on_clear_library(), false, 0, 6)
+	_clear_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_clear_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	_clear_btn.add_theme_color_override("font_color", DccTheme.c("text_dim"))
+
+	_refresh_inspector()
+	return wrap
+
+func _pack_field(parent: Control, label_text: String) -> LineEdit:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var l := DccTheme.mono_label(label_text, "text_faint", DccTheme.FS_TINY)
+	l.custom_minimum_size.x = 52
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(l)
+	var le := LineEdit.new()
+	le.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_well(le, 8, 3)
+	le.text_submitted.connect(func(_t: String): _commit_pack_info())
+	le.focus_exited.connect(func(): _commit_pack_info())
+	row.add_child(le)
+	parent.add_child(row)
+	return le
+
+func _pick_preview_bg(index: int) -> void:
+	var swatch: Dictionary = PREVIEW_SWATCHES[index]
+	_preview_bg = String(swatch["mode"])
+	_preview_color = swatch["color"]
+	for i in _insp_swatches.size():
+		var sw: SlotCell = _insp_swatches[i]
+		sw.selected = i == index
+		sw.queue_redraw()
+	_insp_preview.bg_mode = _preview_bg
+	_insp_preview.bg_color = _preview_color
+	_insp_preview.queue_redraw()
+
+func _refresh_inspector() -> void:
+	if _insp_detail == null:
+		return
 	if _focused_uid == "":
-		DccWidgets.note(_inspector_body, "Select a slot to inspect it.")
+		_insp_head.text = "NO SLOT SELECTED"
+		_insp_empty.visible = true
+		_insp_detail.visible = false
 		return
 
-	# AS-07: real slot/item/pack queries -- `as_slot_summary` is the source
-	# of truth (it also confirms the slot still exists, e.g. after a batch
+	# AS-07: real slot/item/pack queries -- `as_slot_summary` is the source of
+	# truth (it also confirms the slot still exists, e.g. after a batch
 	# delete/rename elsewhere).
 	var summary: Dictionary = _bridge.as_slot_summary(_focused_uid)
 	if not bool(summary.get("ok", false)):
-		DccWidgets.note(_inspector_body, "This slot no longer exists in the live session (removed by a batch edit).")
+		_insp_head.text = "SLOT GONE"
+		_insp_empty.text = "This slot no longer exists in the live session (removed by a batch edit)."
+		_insp_empty.visible = true
+		_insp_detail.visible = false
 		return
+	_insp_empty.visible = false
+	_insp_detail.visible = true
 
 	var fam_key := String(summary.get("family", ""))
 	var fam := _family_by_key(fam_key)
-	if fam.is_empty():
-		return
-
 	var entry: Dictionary = {}
 	for e in _slot_order:
 		if String(e["uid"]) == _focused_uid:
 			entry = e
 			break
 	var code := String(entry.get("code", "—"))
-	var name := String(summary.get("name", ""))
+	var slot_name := String(summary.get("name", ""))
 	var item_count := int(summary.get("item_count", 0))
+	_insp_head.text = "%s · %s" % [code, slot_name.to_upper()]
+	_preview_index = clampi(_preview_index, 0, maxi(item_count - 1, 0))
 
-	_inspector_body.add_child(DccTheme.mono_label("%s  %s" % [code, name], "accent", DccTheme.FS_HEADER, 2, true))
-	_inspector_body.add_child(DccTheme.label(String(fam["title"]), "text_dim", DccTheme.FS_SMALL))
-	_inspector_body.add_child(DccTheme.rule())
-
-	var preview := SlotCell.new()
-	preview.custom_minimum_size = Vector2(0, 160)
-	preview.bg_mode = _preview_bg
-	preview.bg_color = _preview_color
+	# -- preview + file readout ----------------------------------------------
+	_insp_preview.bg_mode = _preview_bg
+	_insp_preview.bg_color = _preview_color
+	_insp_preview.thumb = null
 	if item_count > 0:
-		var preview_png: PackedByteArray = _bridge.as_thumbnail_png(_focused_uid, 0, 256)
+		var preview_png: PackedByteArray = _bridge.as_thumbnail_png(_focused_uid, _preview_index, 256)
 		if preview_png.size() > 0:
 			var pimg := Image.new()
 			if pimg.load_png_from_buffer(preview_png) == OK:
-				preview.thumb = ImageTexture.create_from_image(pimg)
-	_inspector_body.add_child(preview)
+				_insp_preview.thumb = ImageTexture.create_from_image(pimg)
+	_insp_preview.show_empty = item_count == 0
+	_insp_preview.queue_redraw()
 
-	var sw_row := HBoxContainer.new()
-	sw_row.add_theme_constant_override("separation", 4)
-	_inspector_body.add_child(sw_row)
-	for sw in PREVIEW_SWATCHES:
-		var swatch: Dictionary = sw
-		var b := ColorRect.new()
-		b.color = swatch["color"] if swatch["mode"] == "color" else DccTheme.c("sunken")
-		b.custom_minimum_size = Vector2(18, 18)
-		b.tooltip_text = String(swatch["label"])
-		b.mouse_filter = Control.MOUSE_FILTER_STOP
-		b.gui_input.connect(func(ev: InputEvent):
-			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
-				_preview_bg = String(swatch["mode"])
-				_preview_color = swatch["color"]
-				preview.bg_mode = _preview_bg
-				preview.bg_color = _preview_color
-				preview.queue_redraw())
-		sw_row.add_child(b)
-
-	if item_count == 0:
-		DccWidgets.note(_inspector_body, "No art stored in this slot yet -- focus it and use Import image… (family rail foot) to add one.")
-	elif item_count > 1:
-		DccWidgets.note(_inspector_body, "%d variants stored; the preview and File/Scale rows below show variant 1." % item_count)
-
-	_inspector_body.add_child(DccTheme.rule())
-	var anchor_labels := {"none": "tiled, not anchored", "bottom": "bottom-anchored (base on the cell)", "center": "centre-anchored"}
-	var anchor_label: String = anchor_labels.get(String(fam["anchor"]), "?")
-	_kv_row(_inspector_body, "Anchor", "%s (fixed by family, not a per-slot setting)" % anchor_label)
-	_kv_row(_inspector_body, "Bake size", "%dpx %s" % [int(fam["size"]), "opaque, seamless tile" if bool(fam["texture"]) else "RGBA, straight alpha"])
-	_kv_row(_inspector_body, "Variants", "%d stored" % item_count)
-
-	_inspector_body.add_child(DccTheme.rule())
+	var bake_note := "%d px %s" % [int(fam.get("size", 0)),
+		"opaque, seamless tile" if bool(fam.get("texture", false)) else "RGBA, straight alpha"]
 	if item_count > 0:
-		var item: Dictionary = _bridge.as_item_summary(_focused_uid, 0)
+		var item: Dictionary = _bridge.as_item_summary(_focused_uid, _preview_index)
 		if bool(item.get("ok", false)):
-			_kv_row(_inspector_body, "File", "%s · %d×%d px" % [String(item.get("name", "")), int(item.get("w", 0)), int(item.get("h", 0))])
-			_kv_row(_inspector_body, "Scale",
-				"×%.2f · pan (%.0f, %.0f)" % [float(item.get("scale", 1.0)), float(item.get("pan_x", 0.0)), float(item.get("pan_y", 0.0))])
+			## The canvas's line is `capital-star.png · 512 × 512 · PNG · 84 KB`.
+			## The engine reports no stored byte size (`as_item_summary` carries
+			## name/transform/decoded size/hash and nothing else), so the last
+			## field is dropped rather than invented; the rest is real.
+			_insp_file.text = "%s · %d × %d · PNG" % [
+				String(item.get("name", "")), int(item.get("w", 0)), int(item.get("h", 0))]
+			_insp_file.tooltip_text = "Bakes to %s · pan (%.0f, %.0f) · content hash %s" % [
+				bake_note, float(item.get("pan_x", 0.0)), float(item.get("pan_y", 0.0)),
+				String(item.get("hash", "—"))]
+			var pct := float(item.get("scale", 1.0)) * 100.0
+			_insp_scale.value = clampf(pct, _insp_scale.min_value, _insp_scale.max_value)
+			_insp_scale_readout.text = "%d%%" % int(roundf(pct))
 		else:
-			_kv_row(_inspector_body, "File", "—")
-			_kv_row(_inspector_body, "Scale", "—")
+			_insp_file.text = "—"
+			_insp_scale_readout.text = "—"
 	else:
-		_gap_kv_row(_inspector_body, "File", "This slot has no items yet.")
-		_gap_kv_row(_inspector_body, "Scale", "This slot has no items yet.")
-	_gap_kv_row(_inspector_body, "Edit scale/pan", "as_set_item_transform not yet exposed -- reading the transform is real, dragging/typing a new one is a smaller follow-on.")
+		_insp_file.text = "no art in this slot"
+		_insp_file.tooltip_text = "Bakes to %s once an image lands here." % bake_note
+		_insp_scale.value = 100
+		_insp_scale_readout.text = "—"
 
+	_insp_replace_btn.disabled = item_count == 0
+	_insp_replace_btn.tooltip_text = "Nothing to replace yet -- use ＋ Variant to add the first image." \
+		if item_count == 0 else "Import a PNG and drop the slot's current first variant."
+
+	# -- anchor (AS-15) -------------------------------------------------------
+	var real_anchor := String(fam.get("anchor", "center"))
+	for key in _insp_anchor_chips:
+		var chip: Button = _insp_anchor_chips[key]
+		var on: bool = key == real_anchor
+		_set_segment_on(chip, on)
+		chip.tooltip_text = "Anchor is fixed by the family (cartalith-assets::Family), not a per-slot setting -- %s is %s." % [
+			String(fam.get("title", fam_key)), real_anchor]
+
+	# -- tags -----------------------------------------------------------------
+	for c in _insp_tags.get_children():
+		_insp_tags.remove_child(c)
+		c.queue_free()
 	var tags: PackedStringArray = summary.get("tags", PackedStringArray())
-	_kv_row(_inspector_body, "Tags", ", ".join(tags) if tags.size() > 0 else "none -- Batch ▸ Tag… adds one")
+	for t in tags:
+		var tc := _segment(_insp_tags, String(t), Callable())
+		tc.disabled = true
+		tc.tooltip_text = "Tags are added in batch (as_batch_tag); removing one has no binding yet."
+	var add_tag := _segment(_insp_tags, DccIcons.SYMBOLS["add"], func(): _on_tag_focused())
+	add_tag.tooltip_text = "Add tag(s) to this slot (as_batch_tag on the focused slot)."
 
-	var pack_info: Dictionary = _bridge.as_pack_info()
-	var pn := String(pack_info.get("name", ""))
-	var pa := String(pack_info.get("author", ""))
-	var pl := String(pack_info.get("license", ""))
-	_kv_row(_inspector_body, "Pack metadata", "%s · %s · %s" % [
-		pn if pn != "" else "(unnamed)", pa if pa != "" else "(no author)", pl if pl != "" else "(no license)"])
+	# -- disclosure note ------------------------------------------------------
+	if item_count == 0:
+		_insp_note.text = "No art stored yet — ＋ Variant, or Import image… in the rail foot, lands one here."
+	elif item_count > 1:
+		_insp_note.text = "%d variants stored; the renderer picks one by weight (AS-14). The preview shows variant %d." % [
+			item_count, _preview_index + 1]
+	else:
+		_insp_note.text = ""
+	_insp_note.visible = _insp_note.text != ""
 
-func _kv_row(parent: Control, label_text: String, value: String) -> void:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	var l := DccTheme.mono_label(label_text, "text_dim", DccTheme.FS_TINY)
-	l.custom_minimum_size.x = 90
-	row.add_child(l)
-	var v := DccTheme.label(value, "text", DccTheme.FS_SMALL)
-	v.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	row.add_child(v)
-	parent.add_child(row)
+	# -- variants strip -------------------------------------------------------
+	_insp_variants_head.text = "VARIANTS · %d" % item_count
+	for c in _insp_variants.get_children():
+		_insp_variants.remove_child(c)
+		c.queue_free()
+	for i in item_count:
+		var vc := SlotCell.new()
+		vc.custom_minimum_size = Vector2(SZ_VARIANT, SZ_VARIANT)
+		vc.checker_px = 8.0
+		vc.selected = i == _preview_index
+		var vpng: PackedByteArray = _bridge.as_thumbnail_png(_focused_uid, i, 96)
+		if vpng.size() > 0:
+			var vimg := Image.new()
+			if vimg.load_png_from_buffer(vpng) == OK:
+				vc.thumb = ImageTexture.create_from_image(vimg)
+		var idx := i
+		vc.tooltip_text = "Show variant %d in the preview above." % (i + 1)
+		vc.gui_input.connect(func(ev: InputEvent):
+			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+				_preview_index = idx
+				_refresh_inspector())
+		_insp_variants.add_child(vc)
 
-func _gap_kv_row(parent: Control, label_text: String, reason: String) -> void:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
-	row.tooltip_text = reason
-	var l := DccTheme.mono_label(label_text, "text_ghost", DccTheme.FS_TINY)
-	l.custom_minimum_size.x = 90
-	row.add_child(l)
-	row.add_child(DccTheme.label("—", "text_ghost", DccTheme.FS_SMALL))
-	parent.add_child(row)
+	_refresh_pack_info_fields(_bridge.as_pack_info())
+
+func _on_tag_focused() -> void:
+	if _focused_uid == "":
+		return
+	var uids := PackedStringArray([_focused_uid])
+	_prompt_text("Tag %s" % _focused_uid, "Add tag(s) -- comma-separated:", "", func(t: String):
+		_bridge.as_batch_tag(uids, t)
+		_dirty = true
+		_refresh_inspector()
+		_refresh_status_line())
 
 ## `AssetValidator.run()` -- the real, ordered warning list, shown in a
 ## simple modal (the reference's own `alert`-style summary).
 func _on_validate() -> void:
 	var warnings: PackedStringArray = _bridge.as_validate()
+	if _validate_btn != null:
+		_validate_btn.text = "Validate" if warnings.is_empty() \
+			else "Validate · %d warning%s" % [warnings.size(), "" if warnings.size() == 1 else "s"]
 	var d := AcceptDialog.new()
 	d.title = "Validation"
 	d.min_size = Vector2i(420, 0)
 	var body := VBoxContainer.new()
 	body.add_theme_constant_override("separation", 4)
 	if warnings.is_empty():
-		body.add_child(DccTheme.label("✓ No issues found.", "accent", DccTheme.FS_SMALL))
+		body.add_child(DccTheme.label("%s No issues found." % DccIcons.SYMBOLS["tick"],
+			"accent", DccTheme.FS_SMALL))
 	else:
 		for w in warnings:
-			var l := DccTheme.label("⚠ %s" % String(w), "warn", DccTheme.FS_SMALL)
+			var l := DccTheme.label("%s %s" % [DccIcons.SYMBOLS["warn_tri"], String(w)],
+				"warn", DccTheme.FS_SMALL)
 			l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			body.add_child(l)
 	d.add_child(body)
@@ -1092,8 +1767,10 @@ func _on_clear_library() -> void:
 	d.dialog_text = "Clear the entire asset library? This removes every imported item and custom slot."
 	d.confirmed.connect(func():
 		_bridge.as_clear_library()
+		_dirty = true
 		_selected.clear()
 		_focused_uid = ""
+		_preview_index = 0
 		_refresh_grid()
 		_refresh_inspector()
 		_refresh_import_button()
@@ -1109,39 +1786,9 @@ func _on_clear_library() -> void:
 # ---------------------------------------------------------------------------
 
 func _refresh_pack_status() -> void:
-	if _status_label == null:
-		return
-	var info: Dictionary = _bridge.as_pack_info()
-	var total := int(info.get("total_items", 0))
-	_status_label.text = "%s in the editing session · %s for rendering" % [
-		("%d item%s" % [total, "" if total == 1 else "s"]) if total > 0 else "empty library",
-		"a pack is loaded" if _bridge.has_asset_pack() else "no pack loaded (Import pack… loads one)"]
-	_refresh_pack_info_fields(info)
 	_refresh_rail_counts()
-
-func _build_pack_info_row() -> Control:
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 4)
-	pad.add_theme_constant_override("margin_bottom", 4)
-	pad.add_child(row)
-
-	var mk := func(label_text: String, w: float) -> LineEdit:
-		var l := DccTheme.mono_label(label_text, "text_faint", DccTheme.FS_MICRO, 1)
-		row.add_child(l)
-		var le := LineEdit.new()
-		le.custom_minimum_size.x = w
-		row.add_child(le)
-		return le
-	_pack_name_field = mk.call("NAME", 160)
-	_pack_author_field = mk.call("AUTHOR", 120)
-	_pack_license_field = mk.call("LICENSE", 80)
-	for le in [_pack_name_field, _pack_author_field, _pack_license_field]:
-		var field: LineEdit = le
-		field.text_submitted.connect(func(_t: String): _commit_pack_info())
-		field.focus_exited.connect(func(): _commit_pack_info())
-	return pad
+	_refresh_pack_info_fields(_bridge.as_pack_info())
+	_refresh_status_line()
 
 func _refresh_pack_info_fields(info: Dictionary) -> void:
 	if _pack_name_field == null:
@@ -1156,10 +1803,12 @@ func _refresh_pack_info_fields(info: Dictionary) -> void:
 
 func _commit_pack_info() -> void:
 	_bridge.as_set_pack_info(_pack_name_field.text, _pack_author_field.text, _pack_license_field.text)
+	_refresh_rail_counts()
 
 func _on_apply_to_map() -> void:
 	var result: Dictionary = _bridge.as_apply_to_map()
 	if bool(result.get("ok", false)):
+		_dirty = false
 		_host.set_status("hint", "asset pack applied to the map", "accent")
 	else:
 		_host.set_status("hint", "apply failed — %s" % String(result.get("error", "unknown error")), "warn")
@@ -1204,140 +1853,273 @@ func _slug_name(s: String) -> String:
 
 # ---------------------------------------------------------------------------
 # Sprite-sheet slicer modal
+#
+# The canvas draws this as a 760 px card: a title bar with its own ✕, a sheet
+# preview column, and a 274 px settings column that ends in a summary line and
+# a Cancel / Slice pair. It used to be a single vertical stack of stock
+# widgets, wide enough to clip its own labels.
 # ---------------------------------------------------------------------------
 
 func _build_slicer_modal() -> void:
 	_slicer = AcceptDialog.new()
 	_slicer.title = "▦ SPRITE SHEET SLICER"
 	_slicer.get_ok_button().hide()
-	_slicer.size = Vector2i(820, 720)
-	## Closing by the window's own X (or ESC) must drop the engine-side sheet
-	## just like the Cancel button does, or a ~24MB decoded raster outlives the
-	## modal that owns it.
+	_slicer.borderless = true
+	## The canvas floats this card on `box-shadow:0 30px 90px rgba(0,0,0,.7)` --
+	## the one place in the whole shell where anything is raised off the ground.
+	var card := DccTheme.outline("line", "panel")
+	card.shadow_color = Color(0, 0, 0, 0.6)
+	card.shadow_size = 18
+	card.shadow_offset = Vector2(0, 10)
+	_slicer.add_theme_stylebox_override("panel", card)
+	_slicer.add_theme_constant_override("buttons_min_height", 0)
+	_slicer.add_theme_constant_override("margin", 0)
+	_slicer.size = Vector2i(W_SLICER, H_SLICER)
+	## Closing by ESC must drop the engine-side sheet just like Cancel does, or
+	## a ~24MB decoded raster outlives the modal that owns it.
 	_slicer.close_requested.connect(_close_slicer)
 	_slicer.canceled.connect(_close_slicer)
 	add_child(_slicer)
 
-	var body := VBoxContainer.new()
-	body.add_theme_constant_override("separation", 8)
-	var pad := MarginContainer.new()
-	for m in ["margin_left", "margin_top", "margin_right", "margin_bottom"]:
-		pad.add_theme_constant_override(m, 12)
-	pad.add_child(body)
-	_slicer.add_child(pad)
+	var outer := VBoxContainer.new()
+	outer.add_theme_constant_override("separation", 0)
+	_slicer.add_child(outer)
 
-	var note := DccTheme.label(
-		"Every control here is live. The grid, the cell detection and the slice itself all run in the engine (cartalith-assets::slicer, a port of the reference's SpriteSheetImporter); the overlay draws the exact rectangles the slice will cut. Slicing is non-destructive -- the sheet stays loaded, so you can re-slice it with different settings.",
-		"text_ghost", DccTheme.FS_MICRO)
-	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	body.add_child(note)
+	var title_wrap := PanelContainer.new()
+	title_wrap.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"bottom": 1}))
+	var title_pad := _pad(title_wrap, 16, 11, 16, 11)
+	var title_row := HBoxContainer.new()
+	title_pad.add_child(title_row)
+	var t := DccTheme.mono_label("%s SPRITE SHEET SLICER" % DccIcons.SYMBOLS["panels"],
+		"text_bright", DccTheme.FS_MICRO, 2, true)
+	t.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_row.add_child(t)
+	_text_button(title_row, DccIcons.SYMBOLS["cross"], func(): _close_slicer())
+	outer.add_child(title_wrap)
 
-	var choose_btn := Button.new()
-	choose_btn.text = "Choose image…"
-	choose_btn.focus_mode = Control.FOCUS_NONE
-	choose_btn.pressed.connect(_pick_sheet_image)
-	body.add_child(choose_btn)
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 0)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	outer.add_child(body)
 
-	_sheet_readout = DccTheme.mono_label("no sheet chosen", "text_dim", DccTheme.FS_SMALL)
-	body.add_child(_sheet_readout)
-
+	# -- left: sheet preview --------------------------------------------------
+	var left := PanelContainer.new()
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	left.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"right": 1}))
+	var left_pad := _pad(left, 16, 16, 16, 16)
+	var left_col := VBoxContainer.new()
+	left_col.add_theme_constant_override("separation", 9)
+	left_pad.add_child(left_col)
 	_sheet_preview = SheetPreview.new()
-	_sheet_preview.custom_minimum_size = Vector2(0, 300)
+	_sheet_preview.custom_minimum_size = Vector2(0, H_SHEET_PREVIEW)
 	_sheet_preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	body.add_child(_sheet_preview)
+	_sheet_preview.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	left_col.add_child(_sheet_preview)
+	_sheet_readout = DccTheme.mono_label("no sheet chosen", "text_faint", DccTheme.FS_TINY)
+	_sheet_readout.clip_text = true
+	left_col.add_child(_sheet_readout)
+	var choose := _chip(left_col, "Choose image…", func(): _pick_sheet_image())
+	choose.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	body.add_child(left)
 
-	var params := HBoxContainer.new()
-	params.add_theme_constant_override("separation", 10)
-	body.add_child(params)
+	# -- right: settings ------------------------------------------------------
+	var right := PanelContainer.new()
+	right.custom_minimum_size.x = W_SLICER_SIDE
+	right.add_theme_stylebox_override("panel", DccTheme.panel("panel"))
+	var right_pad := _pad(right, 16, 16, 16, 16)
+	var side := VBoxContainer.new()
+	side.add_theme_constant_override("separation", 10)
+	right_pad.add_child(side)
+	body.add_child(right)
+
 	## 128 is the engine's own ceiling (`clampInt(v,1,128)`, ported as
 	## `slicer::clamp_grid_count`), so the spinbox cannot ask for a grid the
 	## engine would silently clamp behind the user's back.
-	_slicer_cols = DccWidgets.number(params, "Columns", 1, 128, 1, 6, func(_v): _refresh_slicer_summary())
-	_slicer_rows = DccWidgets.number(params, "Rows", 1, 128, 1, 4, func(_v): _refresh_slicer_summary())
-	_slicer_margin = DccWidgets.number(params, "Margin px", 0, 512, 1, 0, func(_v): _refresh_slicer_summary())
-	_slicer_spacing = DccWidgets.number(params, "Spacing px", 0, 256, 1, 0, func(_v): _refresh_slicer_summary())
+	_slicer_cols = _slicer_number(side, "Columns", 1, 128, 6)
+	_slicer_rows = _slicer_number(side, "Rows", 1, 128, 4)
+	_slicer_margin = _slicer_number(side, "Margin", 0, 512, 0)
+	_slicer_spacing = _slicer_number(side, "Spacing", 0, 256, 0)
 
-	var toggles := HBoxContainer.new()
-	toggles.add_theme_constant_override("separation", 12)
-	body.add_child(toggles)
-	_slicer_trim = DccWidgets.toggle(toggles, "Trim transparent edges", false,
+	_slicer_trim = _slicer_check(side, "Trim transparent edges", false,
 		func(v: bool): _slice_trim = v,
 		"Crops each cell to its content. Note: the reference slicer has no trim -- this is a port-side addition (DCC_SHELL_SPEC.md §8), using the reference's own alpha>8 threshold so it agrees with Skip empty cells about what content is.")
-	_slicer_skip = DccWidgets.toggle(toggles, "Skip empty cells", true,
+	_slicer_skip = _slicer_check(side, "Skip empty cells", true,
 		func(v: bool): _slice_skip_empty = v; _refresh_slicer_summary(),
 		"isBlank: a cell with no pixel over alpha 8 is dropped rather than added. On by default, as in the reference.")
-
 	## `background → transparent` -- the reference's *own* second pixel toggle
-	## (`#alChEnable`/`#alChTol`), which §8 omits. Real, so it is here.
-	var chroma_row := HBoxContainer.new()
-	chroma_row.add_theme_constant_override("separation", 12)
-	body.add_child(chroma_row)
-	_slicer_chroma = DccWidgets.toggle(chroma_row, "Background → transparent", false,
+	## (`#alChEnable`/`#alChTol`), which the canvas omits. Real, so it is here.
+	_slicer_chroma = _slicer_check(side, "Background → transparent", false,
 		func(v: bool): _slice_chroma = v; _refresh_slicer_summary(),
 		"applyChroma: pixels within Tolerance of the keyed colour have their alpha zeroed, per cell.")
+	var chroma_row := _slicer_row(side, "Key · tol")
 	_slicer_chroma_color = ColorPickerButton.new()
 	_slicer_chroma_color.color = Color(1, 1, 1)
 	_slicer_chroma_color.edit_alpha = false
-	_slicer_chroma_color.custom_minimum_size = Vector2(44, 0)
+	_slicer_chroma_color.custom_minimum_size = Vector2(38, 22)
+	_slicer_chroma_color.focus_mode = Control.FOCUS_NONE
 	_slicer_chroma_color.color_changed.connect(func(_c: Color): _refresh_slicer_summary())
 	chroma_row.add_child(_slicer_chroma_color)
-	_slicer_chroma_tol = DccWidgets.number(chroma_row, "Tolerance", 0, 150, 1, 40,
-		func(_v): _refresh_slicer_summary())
+	_slicer_chroma_tol = SpinBox.new()
+	_slicer_chroma_tol.min_value = 0
+	_slicer_chroma_tol.max_value = 150
+	_slicer_chroma_tol.value = 40
+	_slicer_chroma_tol.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_well(_slicer_chroma_tol.get_line_edit(), 8, 3)
+	_slicer_chroma_tol.value_changed.connect(func(_v): _refresh_slicer_summary())
+	chroma_row.add_child(_slicer_chroma_tol)
 
-	var assign_row := HBoxContainer.new()
-	assign_row.add_theme_constant_override("separation", 12)
-	body.add_child(assign_row)
-	var target_labels: Array = []
-	for t in SLICE_TARGETS:
-		target_labels.append(String(t["label"]))
-	_slicer_target = DccWidgets.choice(assign_row, "Assign to", target_labels, 0,
-		func(i: int): _slice_target_index = i; _refresh_slicer_target_controls(),
-		"Where the cells land. The first four are the reference's own targets; \"a family, slot by slot\" is DCC_SHELL_SPEC.md §8's instead.")
-	var fam_labels: Array = []
+	var target_row := _slicer_row(side, "Assign to")
+	_slicer_target = OptionButton.new()
+	_slicer_target.focus_mode = Control.FOCUS_NONE
+	_slicer_target.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_slicer_target.tooltip_text = "Where the cells land. The first four are the reference's own targets; \"a family, slot by slot\" is DCC_SHELL_SPEC.md §8's instead."
+	for t2 in SLICE_TARGETS:
+		_slicer_target.add_item(String(t2["label"]))
+	_style_option(_slicer_target, true)
+	_slicer_target.item_selected.connect(func(i: int):
+		_slice_target_index = i
+		_refresh_slicer_target_controls())
+	target_row.add_child(_slicer_target)
+
+	var fam_row := _slicer_row(side, "Family")
+	_slicer_family = OptionButton.new()
+	_slicer_family.focus_mode = Control.FOCUS_NONE
+	_slicer_family.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	for f in FAMILIES:
-		fam_labels.append(String(f["title"]))
-	_slicer_family = DccWidgets.choice(assign_row, "Family", fam_labels, 0,
-		func(i: int): _slice_family_index = i)
-	_slicer_fill = DccWidgets.choice(assign_row, "Fill from", ["first empty", "overwrite"], 0,
-		func(i: int): _slice_overwrite = (i == 1),
-		"first empty leaves already-filled slots alone; overwrite starts at the family's first slot and replaces.")
+		_slicer_family.add_item("%s · %s" % [String(f["code"]), String(f["title"])])
+	_style_option(_slicer_family, false)
+	_slicer_family.item_selected.connect(func(i: int): _slice_family_index = i)
+	fam_row.add_child(_slicer_family)
 
-	var name_row := HBoxContainer.new()
-	name_row.add_theme_constant_override("separation", 10)
-	body.add_child(name_row)
-	var mk_field := func(label_text: String, w: float, initial: String) -> LineEdit:
-		name_row.add_child(DccTheme.mono_label(label_text, "text_faint", DccTheme.FS_MICRO, 1))
-		var le := LineEdit.new()
-		le.custom_minimum_size.x = w
-		le.text = initial
-		name_row.add_child(le)
-		return le
-	_slicer_name = mk_field.call("NEW NAME", 160, "")
-	_slicer_set = mk_field.call("CUSTOM SET", 120, "Default")
+	var fill_row := _slicer_row(side, "Fill from")
+	var fill_box := HBoxContainer.new()
+	fill_box.add_theme_constant_override("separation", 2)
+	fill_row.add_child(fill_box)
+	_slicer_fill_chips["first"] = _segment(fill_box, "first empty", func(): _set_fill(false))
+	_slicer_fill_chips["over"] = _segment(fill_box, "overwrite", func(): _set_fill(true))
+	_set_fill(false)
 
-	_slicer_summary = DccTheme.mono_label("", "text_dim", DccTheme.FS_SMALL)
-	body.add_child(_slicer_summary)
+	var name_row := _slicer_row(side, "New name")
+	_slicer_name = LineEdit.new()
+	_slicer_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_well(_slicer_name, 8, 3)
+	name_row.add_child(_slicer_name)
+	var set_row := _slicer_row(side, "Custom set")
+	_slicer_set = LineEdit.new()
+	_slicer_set.text = "Default"
+	_slicer_set.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_well(_slicer_set, 8, 3)
+	set_row.add_child(_slicer_set)
 
-	body.add_child(DccTheme.rule())
+	side.add_child(DccTheme.spacer())
+	_slicer_summary = DccTheme.mono_label("", "text_ghost", DccTheme.FS_TINY)
+	_slicer_summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_slicer_summary.custom_minimum_size.x = W_SLICER_SIDE - 32
+	_slicer_summary.tooltip_text = "Every control here is live. The grid, the cell detection and the slice itself all run in the engine (cartalith-assets::slicer, a port of the reference's SpriteSheetImporter); the overlay draws the exact rectangles the slice will cut. Slicing is non-destructive -- the sheet stays loaded, so you can re-slice it with different settings."
+	side.add_child(_slicer_summary)
+
 	var foot := HBoxContainer.new()
-	foot.add_theme_constant_override("separation", 8)
-	body.add_child(foot)
-	foot.add_child(DccTheme.spacer())
-	var cancel_btn := Button.new()
-	cancel_btn.text = "Cancel"
-	cancel_btn.focus_mode = Control.FOCUS_NONE
-	cancel_btn.pressed.connect(func(): _close_slicer())
-	foot.add_child(cancel_btn)
-	_slice_btn = DccWidgets.action(foot, "Slice", func(): _on_slice())
+	foot.add_theme_constant_override("separation", 6)
+	side.add_child(foot)
+	var cancel := _chip(foot, "Cancel", func(): _close_slicer(), false, 0, 7)
+	cancel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cancel.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	_slice_btn = _chip(foot, "Slice", func(): _on_slice(), true, 0, 7)
+	_slice_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_slice_btn.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
 	_slice_btn.disabled = true
 	_slice_btn.tooltip_text = "Choose a sprite sheet first."
 	_refresh_slicer_target_controls()
+	_refresh_slicer_summary()
+
+## The slicer column's own `66px label · control` row (canvas value).
+static func _slicer_row(parent: Control, label_text: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	var l := DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL)
+	l.custom_minimum_size.x = 66
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(l)
+	parent.add_child(row)
+	return row
+
+func _slicer_number(parent: Control, label_text: String, lo: int, hi: int, value: int) -> SpinBox:
+	var row := _slicer_row(parent, label_text)
+	var sb := SpinBox.new()
+	sb.min_value = lo
+	sb.max_value = hi
+	sb.step = 1
+	sb.value = value
+	sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_well(sb.get_line_edit(), 8, 3)
+	sb.value_changed.connect(func(_v): _refresh_slicer_summary())
+	row.add_child(sb)
+	return sb
+
+## The canvas writes a slicer toggle as an accent `☑` followed by a body-text
+## label -- a typographic mark, not a boxed control, and two colours in one
+## row. Godot's `CheckBox` brings the stock theme's filled slab *and* a system
+## fallback that draws U+2611 as a colour emoji, so this is a borderless toggle
+## `Button` hosting two Plex labels instead (the same trick the family rail
+## uses to get aligned columns inside a button).
+static func _slicer_check(parent: Control, label_text: String, value: bool,
+		on_change: Callable, tip: String) -> Button:
+	var b := Button.new()
+	b.toggle_mode = true
+	b.button_pressed = value
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size.y = 22
+	b.tooltip_text = tip
+	for sb_name in ["normal", "pressed", "hover", "hover_pressed", "focus"]:
+		b.add_theme_stylebox_override(sb_name, DccTheme.empty())
+
+	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_theme_constant_override("separation", 10)
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	b.add_child(row)
+	var mark := DccTheme.mono_label(
+		DccIcons.SYMBOLS["checked"] if value else DccIcons.SYMBOLS["unchecked"],
+		"accent" if value else "text_ghost", DccTheme.FS_SMALL)
+	mark.custom_minimum_size.x = 12
+	mark.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(mark)
+	var l := DccTheme.label(label_text, "text", DccTheme.FS_SMALL)
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(l)
+
+	b.toggled.connect(func(v: bool):
+		mark.text = DccIcons.SYMBOLS["checked"] if v else DccIcons.SYMBOLS["unchecked"]
+		mark.add_theme_color_override("font_color",
+			DccTheme.c("accent") if v else DccTheme.c("text_ghost"))
+		on_change.call(v))
+	parent.add_child(b)
+	return b
+
+static func _style_option(ob: OptionButton, accent: bool) -> void:
+	var token := "accent" if accent else "line"
+	ob.add_theme_font_override("font", DccTheme.mono(0))
+	ob.add_theme_font_size_override("font_size", DccTheme.FS_TINY)
+	ob.add_theme_color_override("font_color",
+		DccTheme.c("text_bright") if accent else DccTheme.c("text"))
+	ob.add_theme_color_override("font_disabled_color", DccTheme.c("text_ghost"))
+	for sb_name in ["normal", "pressed", "focus"]:
+		ob.add_theme_stylebox_override(sb_name, _box(token, "", 9, 4))
+	ob.add_theme_stylebox_override("hover", _box(token, "line_soft", 9, 4))
+	ob.add_theme_stylebox_override("disabled", _box("line_soft", "", 9, 4))
+
+func _set_fill(overwrite: bool) -> void:
+	_slice_overwrite = overwrite
+	_set_segment_on(_slicer_fill_chips["first"], not overwrite)
+	_set_segment_on(_slicer_fill_chips["over"], overwrite)
 
 func _open_slicer() -> void:
 	if not visible:
-		popup_centered()
+		_popup_full()
 	_refresh_slicer_target_controls()
-	_slicer.popup_centered()
+	_slicer.popup_centered(Vector2i(W_SLICER, H_SLICER))
 
 ## Closing drops the engine-side sheet too -- a decoded 3072×2048 sheet is
 ## ~24MB of RGBA the session has no reason to hold once the modal is gone.
@@ -1417,14 +2199,12 @@ func _slice_opts() -> Dictionary:
 
 ## §8's `N cells detected · M non-empty` readout, and the overlay behind it --
 ## both from `as_slice_preview`, the engine's real detection pass (the same
-## crop, chroma key and alpha>8 `isBlank` the slice itself runs). The 8×8
-## GDScript sample this replaced was honest about being approximate; it no
-## longer needs to be.
+## crop, chroma key and alpha>8 `isBlank` the slice itself runs).
 func _refresh_slicer_summary() -> void:
 	if _slicer_summary == null or _slice_btn == null:
 		return
 	if not _sheet_loaded:
-		_slicer_summary.text = ""
+		_slicer_summary.text = "Choose a sheet, then set the grid. Slicing is non-destructive; the sheet stays loaded for a re-slice."
 		_slice_btn.text = "Slice"
 		_slice_btn.disabled = true
 		_slice_btn.tooltip_text = "Choose a sprite sheet first."
@@ -1458,8 +2238,9 @@ func _refresh_slicer_summary() -> void:
 		_slice_btn.tooltip_text = "The cells would have zero or negative size."
 		return
 	var will_add := non_empty if _slice_skip_empty else total
-	_slicer_summary.text = "%d cells detected · %d non-empty%s" % [
-		total, non_empty, ("  ·  %d will be skipped" % (total - non_empty)) if _slice_skip_empty and total > non_empty else ""]
+	_slicer_summary.text = "%d cells detected · %d non-empty%s. Slicing is non-destructive; the sheet stays loaded." % [
+		total, non_empty,
+		("  ·  %d skipped" % (total - non_empty)) if _slice_skip_empty and total > non_empty else ""]
 	_slice_btn.text = "Slice %d cells" % will_add
 	_slice_btn.disabled = will_add <= 0
 	_slice_btn.tooltip_text = "Every cell is empty." if will_add <= 0 else ""
@@ -1472,7 +2253,8 @@ func _refresh_slicer_target_controls() -> void:
 		return
 	var needs: Array = SLICE_TARGETS[_slice_target_index]["needs"]
 	_slicer_family.disabled = not needs.has("family")
-	_slicer_fill.disabled = not needs.has("fill")
+	for key in _slicer_fill_chips:
+		(_slicer_fill_chips[key] as Button).disabled = not needs.has("fill")
 	_slicer_name.editable = needs.has("name")
 	_slicer_set.editable = needs.has("set")
 	if String(SLICE_TARGETS[_slice_target_index]["key"]) == "slot":
@@ -1514,6 +2296,7 @@ func _on_slice() -> void:
 		msg += " (%d blank skipped)" % skipped
 	if unplaced > 0:
 		msg += " — %d had nowhere to go" % unplaced
+	_dirty = _dirty or added > 0
 	_host.set_status("hint", msg, "accent")
 	_refresh_grid()
 	_refresh_inspector()

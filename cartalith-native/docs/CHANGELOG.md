@@ -17212,3 +17212,142 @@ live (the real Close-button handler, a real domain switch away from a
 Sculpt-armed WORLD). 23 screenshots produced by the temporary harness
 (`cartalith-native/godot-project/_visual_sweep.gd`/`.tscn`, uncommitted, same
 convention as `_shot.gd`) — not committed; screenshots are not source.
+
+## Asset library window: rebuilt against the design canvas (2026-08-20)
+
+The owner's report, verbatim: *"The asset manager menu looks nothing like the
+DCC work from Claude design."* Correct, and the 2026-08-20 visual sweep above
+recorded **PASS** for this surface — a genuinely wrong verdict, reached by
+checking that the controls *worked* and that the disclosures were honest
+rather than by comparing the layout to the canvas. §14.2's row is corrected in
+`GUI_GAP_REGISTER.md` and this entry is the rebuild.
+
+**Why it drifted.** `asset_library_window.gd` was written from
+`DCC_SHELL_SPEC.md` §8's *prose* before any of its engine bindings existed;
+the 20+ real `#[func]`s (`8506f13`) and the slicer (`e96a7ae`) were then wired
+into that shape. Nothing ever laid the shape itself against
+`design/Cartalith DCC Shell.dc.html`'s `Asset library window 1920` screen.
+
+**The deltas found, before writing any code** (the sweep's own
+`08_asset_library_window.png`, against that screen read element by element):
+
+1. **A floating 1180×760 `AcceptDialog` with an OS title bar**, not the
+   canvas's full-bleed workspace window with its own 34 px window bar.
+2. **Stock Godot controls throughout** — filled grey button slabs, a stock
+   `OptionButton`, a filled search well — where the canvas draws one
+   vocabulary: `padding:4px 9px; border:1px solid` outline chips in Plex Mono
+   at 11 px.
+3. **No `⧉ ASSET LIBRARY` title, no `map hidden while open`, no divider** in
+   the window bar; `Select (0)` instead of `☑ Select · 0`; `Slot order ⌄`
+   instead of `Sort: slot order ⌄`.
+4. **A pack NAME/AUTHOR/LICENSE row bolted under the window bar.** The canvas
+   has no such row — pack metadata is a block in the *inspector*.
+5. **No status line at all.** The canvas ends the window with a 26 px line
+   (`● library edited — apply to map to use it`, counts, key hints).
+6. **The family rail opened with ~90 px of grey prose** (the eight-vs-24
+   disclosure) before the first family; the canvas opens with a 28 px
+   `FAMILIES · N` band.
+7. **Rail rows were one concatenated string** at one colour, under
+   `DccWidgets.section()`'s `§`-sigil headers. The canvas has plain tracked
+   group headers and three aligned columns: a 26 px code, the name, and a
+   `filled/capacity` count that goes **accent when incomplete**.
+8. **No selected-row treatment** — no `accent_wash` background, no accent
+   code, no brightened name.
+9. **Rail footer stacked vertically**; the canvas puts `Import image…` and
+   `Import pack…` side by side at equal flex.
+10. **Grid header read `… 7 OF 7 SHOWN · 0 FILLED`**; the canvas's line is
+    `P · PLACES · 10 OF 12 FILLED`. Selection count was lowercase
+    `0 selected` in `text_dim`; the canvas has `3 SELECTED` in accent.
+11. **The five batch actions were a row of filled slabs on their own line.**
+    The canvas folds them into the grid header band as quiet text.
+12. **Tile captions floated outside their tiles**, so the grid read as a
+    scatter of squares with text under them rather than as a contact sheet.
+    The canvas's tile is one bordered box: a 76 px art band, a hairline, then
+    a `code · name` caption *inside the same border*.
+13. **No ×N variant badge, no ☑ selection mark, no `empty` word** on the art
+    band — the variant count was appended to the caption string instead.
+14. **The checkerboard was invisible** even where it was drawn: `SlotCell`
+    used `sunken`/`panel_alt`, two tokens one level apart.
+15. **Selected tile was a 2 px accent rect**; the canvas is a 1 px accent
+    border plus a 35 %-accent outline offset one pixel out.
+16. **The grid did not fill six columns** and carried a horizontal scrollbar;
+    the canvas is `grid-template-columns:repeat(6,1fr)`.
+17. **The inspector was a stack of `_kv_row` label/value pairs.** Missing: the
+    `P01 · CAPITAL` band, the 150 px preview on a 12 px checkerboard, the
+    `name · W × H · …` file line, the Scale slider, the
+    Fit/Reset/Replace…/+Variant row, the anchor segmented row, tag chips with
+    `＋`, the VARIANTS strip, the PACK METADATA block, and equal-flex
+    Validate/Clear buttons. Swatches were 18 px with no selected marker.
+18. **The inspector rebuilt every child on every selection change**, which is
+    why the pack fields needed a `has_focus()` guard to survive typing.
+19. **The slicer modal was a single vertical stack** of stock widgets, wide
+    enough that its own labels clipped (`Trim transparent edg`,
+    `Background → transpa`). The canvas is a 760 px card: a title bar with its
+    own `✕`, a preview column, and a 274 px settings column ending in a
+    summary line and a Cancel / Slice pair.
+
+**Rebuilt.** `shell/asset_library_window.gd` now lays out from the canvas:
+borderless and sized under the app menu bar (the canvas's "map hidden while
+open"); a chip / segment / well / text-button vocabulary defined once at the
+top of the file and used everywhere; rail 266, inspector 330, bands 28, tile
+art 76, variants 56, swatches 20, slicer 760/274/296 — every number off the
+canvas, every colour a `DccTheme` token, no hex in the file. The inspector is
+built once and refreshed in place. The slicer keeps its engine-computed grid
+overlay (now drawn dashed at 35 % accent — a stroke change only; the span
+arithmetic is untouched) and the `cd29266` close-with-parent fix.
+
+**Engine realities kept, not re-drawn** — each disclosed rather than faked:
+the real **eight** families, not the canvas's 24 (AS-16; the rail keeps the
+canvas's grammar and the disclosure moved from a prose block to the FAMILIES
+band's tooltip); **family-level anchor** (AS-15 — the three-way segment is
+drawn, the real one lit, the other two disabled with that reason);
+**render-time weighted variants** (AS-14 — the strip picks what the *preview*
+shows, and says so); **read-only per-item transform** (Scale/Fit/Reset drawn
+and disabled; `as_set_item_transform` does not exist). Replace… and ＋ Variant
+in the same row are real, built from `as_import_item` + `as_remove_item`. The
+file readout drops the canvas's `· 84 KB` field because `as_item_summary`
+reports no stored byte size — dropped, not invented. Every live binding stayed
+on the control it was already on.
+
+**Five Godot-specific traps surfaced and fixed during the rebuild**, each
+cheap to state and expensive to rediscover:
+
+- **An autowrapping `Label` with no minimum width reports a minimum
+  *height*** computed at one character per line. The slicer modal came out
+  **1700 px tall** on the first run. Every autowrap label here now carries an
+  explicit `custom_minimum_size.x`.
+- **A `flat` `Button` draws no stylebox at all**, so the rail's selected-row
+  `accent_wash` never appeared. `flat = false` with an empty `normal` box is
+  what "flat" was reaching for.
+- **`disabled` beats `normal`** for both stylebox and font colour, so the lit
+  anchor segment drew exactly like the two impossible ones.
+- **A `StyleBoxFlat` shadow shows *through* a transparent fill**, washing the
+  selected tile's caption strip accent.
+- **`ScrollContainer` folds its own scrollbar width into the minimum it hands
+  upward**, which pushed the inspector 24 px past 330.
+
+**Verified — looked at, not just run.** Non-headless boot of `shell/app.tscn`
+under `--rendering-driver opengl3_angle` (the GLES3/Compatibility crash on
+this AMD GPU is pre-existing; see the sweep entry above), a real 512×512 world
+(`seed 483920`), `reference_pack.zip` loaded on the render side, and 12 real
+items imported into `settlement`/`icons` through `as_import_item` — including
+one slot with three variants, so the ×N badge and the VARIANTS strip both had
+something true to show. Screenshotted and compared against the canvas across
+four iterations; pixel-probed to confirm geometry (rail exactly 266 px;
+inspector 334 vs. the canvas's 330 — scrollbar rounding) and colour (selected
+rail row `(29,26,20)`, the exact `accent_wash` blend over `bg`; the slicer's
+`☑` at `(209,153,70)` = `accent`). Slicer smoke path re-run end to end: the
+modal opens, a real synthetic 6×4 sheet loads, the engine's detection reports
+`24 cells detected · 24 non-empty`, and the overlay lands on the cell
+boundaries. Close paths re-checked — the Close chip, and **Escape** driven
+through `Input.parse_input_event` since the new status line claims it works —
+with the slicer confirmed gone afterwards. `--headless --path . --quit-after
+120` exits 0 with no script errors. Screenshots via a temporary, uncommitted
+harness (`_al_sweep.gd`/`.tscn`, same convention as `_shot.gd`) — not
+committed; screenshots are not source.
+
+**Still open:** no Collections group in the rail (the engine has collections,
+but no binding lists them as rail entries); drag-and-drop onto a slot is
+unwired, and the grid footer says so rather than drawing an affordance that
+does nothing; the slicer's canvas interaction (pan/zoom, draggable grid lines,
+click-to-select cells) is still unported.

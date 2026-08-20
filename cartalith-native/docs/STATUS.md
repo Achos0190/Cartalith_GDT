@@ -5,7 +5,44 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-20 (post **Visual sweep — every major surface driven
+Last updated: 2026-08-20 (post **Asset library window: rebuilt against the
+design canvas**. The owner: *"The asset manager menu looks nothing like the
+DCC work from Claude design."* True — and the visual sweep below had scored
+this surface **PASS**, a wrong verdict reached by checking that the controls
+worked rather than that the layout matched. `GUI_GAP_REGISTER.md` §14.2's
+row is corrected and §14.5 carries the 19-item delta list. The window was
+built from `DCC_SHELL_SPEC.md` §8's prose before its bindings existed and
+never laid against `design/Cartalith DCC Shell.dc.html`'s `Asset library
+window 1920`; it is now, geometry and all — borderless and full-bleed under
+the app menu bar, a chip/segment/well vocabulary replacing stock Godot
+slabs, rail 266 / inspector 330 / bands 28 / tile art 76 / slicer
+760·274·296, every colour a `DccTheme` token and no hex in the file. The
+slot grid is a real contact sheet (captions *inside* the tile, ×N badges, ☑
+marks, visible checkerboard empties, 6 equal columns), the inspector is the
+canvas's preview → file line → Scale/Fit/Reset/Replace/+Variant → swatches
+→ anchor → tags → VARIANTS → PACK METADATA stack built once and refreshed
+in place, and the slicer is the canvas's two-column 760 px card instead of a
+stack that clipped its own labels. **Every live binding stayed on the
+control it was already on**; the four recorded engine realities (AS-16's
+eight families, AS-15's family-level anchor, AS-14's weighted variants,
+read-only per-item transform) are reshaped around, not regressed, and keep
+their honest tooltips. Replace… / ＋ Variant are newly real off
+`as_import_item` + `as_remove_item`. Five Godot traps found and recorded in
+`CHANGELOG.md`: an autowrap `Label` with no min width reports a giant min
+*height* (the slicer first rendered 1700 px tall), a `flat` Button draws no
+stylebox at all, `disabled` beats `normal` for stylebox *and* font colour, a
+`StyleBoxFlat` shadow shows through a transparent fill, and
+`ScrollContainer` folds its scrollbar into the minimum it hands upward.
+Verified by looking: non-headless `opengl3_angle` boot, real 512×512 world,
+`reference_pack.zip` loaded, 12 real items imported (one slot with three
+variants), four screenshot/compare iterations, pixel probes confirming rail
+= 266 px and the selected row's exact `accent_wash` blend, the slicer smoke
+path re-run against a real 6×4 sheet (`24 cells detected · 24 non-empty`,
+overlay on the boundaries), both close paths including Escape driven through
+`Input.parse_input_event`, and `--headless --quit-after 120` clean.
+Screenshots via an uncommitted `_al_sweep.gd`/`.tscn` harness — not
+committed; screenshots are not source.
+— previously, post **Visual sweep — every major surface driven
 and screenshotted** — the first pass that actually looked, rather than
 verifying structurally/headlessly and disclosing "nothing graphical
 verified" like every prior milestone. Booted the real shell non-headlessly

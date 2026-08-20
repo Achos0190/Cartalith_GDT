@@ -42,7 +42,7 @@ the engine as they stand today, and it is the document that goes stale first.
 | [11](#11--out-of-scope) | Out of scope for this register |
 | [12](#12--verification) | Verification |
 | [13](#13--the-v210-menu-structure-audit-2026-08-20) | **The v2.10 menu-structure audit** — `design/Cartalith Menu Structure v2.dc.html` against the shipped shell, and the 17 undisclosed omissions it found |
-| [14](#14--visual-sweep-2026-08-20) | **Visual sweep (2026-08-20)** — the shell driven live, screenshotted, and compared against the DCC Shell / Journey Planner mockups |
+| [14](#14--visual-sweep-2026-08-20) | **Visual sweep (2026-08-20)** — the shell driven live, screenshotted, and compared against the DCC Shell / Journey Planner mockups. **§14.6 corrects one of its own verdicts**: the Asset library window was passed on function rather than layout, and has been rebuilt against the canvas. |
 
 ---
 
@@ -1657,8 +1657,8 @@ route, and the map at three zoom levels including deep-zoom LOD tiles.
 | CIVIL territory overlay | **PASS** (after correcting the sweep itself) | Painting + committing territory does not itself show it — `cartography_workspace.gd`'s "Political — territory" layer defaults off, same as the design's own opt-in layer model. Not a bug; the first sweep pass mistook it for one. |
 | CARTO dock default | **PASS** | Layers/Layer properties/Annotation categories match "Cartography style" screen. |
 | Layers popover + z-order | **PASS** | The popover itself renders correctly on top of the map; a picked debug view (Elevation) stays visibly on top of the map after the popover closes — the z-order fix `CHANGELOG.md` records earlier is confirmed live, not just headlessly. |
-| Asset library window | **PASS** | Family rail (8 families), slot grid, inspector, empty-library state all honest and correctly laid out. |
-| Asset library slicer, real sheet | **PASS** | Grid overlay lands exactly on a synthetic 6×4 sprite sheet's cell boundaries; cell count/detection readout is correct. |
+| Asset library window | ~~PASS~~ → **FAIL (corrected 2026-08-20; rebuilt)** | The original verdict — "family rail (8 families), slot grid, inspector, empty-library state all honest and correctly laid out" — checked that the controls *worked* and that the disclosures were honest. It never checked the layout against the canvas, and the layout did not match: a floating dialog with an OS title bar instead of a full-bleed workspace window, stock Godot slabs instead of the canvas's outline chips, no status line, no window-bar title, tile captions outside their tiles, and an inspector that was a stack of label/value pairs. The owner reported it in exactly those terms. See **§14.6** for the full delta list and the rebuild. |
+| Asset library slicer, real sheet | **PASS** (arithmetic) / **FAIL (corrected; rebuilt)** (layout) | The grid overlay does land exactly on a synthetic 6×4 sprite sheet's cell boundaries and the detection readout is correct — that half of the verdict stands, and the rebuild did not touch the span arithmetic. The modal's *layout* was a single vertical stack of stock widgets wide enough to clip its own labels, against the canvas's 760 px two-column card. See **§14.6**. |
 | Asset library: slicer left open on Close | **DEFECT (fixed)** | See §14.3. |
 | Data manager window | **PASS** (after fix) | Conversion group confirmed gone from the routes rail; the subtitle text still advertising it was the one leftover — see §14.3. |
 | Travel library window | **PASS** | Animals & mounts tab, 7 stock entries, correct read-only-stock footer. |
@@ -1778,3 +1778,83 @@ context on; the candidate fix, if it is an oversight, is one line —
 - **Screenshots**: `cartalith-native/godot-project/_visual_sweep.gd`/`.tscn`
   (temporary harness, uncommitted, same convention as `_shot.gd`) produced 23
   PNGs; not committed to the repo (screenshots are not source).
+
+### 14.6 · The Asset library window was passed too leniently — corrected and rebuilt (2026-08-20)
+
+The owner, after this sweep shipped: *"The asset manager menu looks nothing
+like the DCC work from Claude design."* He is right, and §14.2's row above
+said **PASS**. That verdict is corrected in the table; this section is why it
+was wrong and what replaced it.
+
+**How a passing check missed it.** The sweep asked, of this surface, whether
+the controls were present, whether they were wired to real engine calls, and
+whether the disabled ones carried honest reasons. All three were true, and
+none of them is the test the owner applied. The test he applied — *does it
+look like the canvas* — was never run, because `asset_library_window.gd` was
+written from `DCC_SHELL_SPEC.md` §8's **prose** before its bindings existed
+(the 20+ real `#[func]`s came later in `8506f13`, the slicer in `e96a7ae`),
+and nothing in that history ever laid the shape against
+`design/Cartalith DCC Shell.dc.html`'s `Asset library window 1920` screen.
+The lesson generalises: **a functional check and a visual check are different
+passes, and a sweep that only runs the first must say so rather than record a
+PASS.**
+
+**The 19 deltas**, read off the canvas element by element against the sweep's
+own `08_asset_library_window.png`:
+
+| # | Canvas | What shipped |
+|---|---|---|
+| 1 | Full-bleed workspace window, 34 px window bar of its own | Floating 1180×760 `AcceptDialog` with an OS title bar |
+| 2 | One control vocabulary: `padding:4px 9px; border:1px solid` outline chips, Plex Mono 11 px | Stock Godot filled slabs, stock `OptionButton`, filled search well |
+| 3 | `⧉ ASSET LIBRARY` · `map hidden while open` · divider; `☑ Select · 3`; `Sort: slot order ⌄` | No title, no subtitle, no divider; `Select (0)`; `Slot order ⌄` |
+| 4 | Pack metadata is a block in the **inspector** | A NAME/AUTHOR/LICENSE row bolted under the window bar |
+| 5 | 26 px status line (`● library edited — apply to map to use it`, counts, keys) | Absent entirely |
+| 6 | Rail opens with a 28 px `FAMILIES · N` band | Rail opened with ~90 px of grey disclosure prose |
+| 7 | Plain tracked group headers; rows are 26 px code · name · `filled/capacity`, accent when incomplete | `§`-sigil `DccWidgets.section()` headers; rows one concatenated string at one colour |
+| 8 | Selected row: `accent_wash` ground, accent code, brightened name | No selected-row treatment at all |
+| 9 | `Import image…` / `Import pack…` side by side, equal flex | Stacked vertically, full width |
+| 10 | `P · PLACES · 10 OF 12 FILLED`; `3 SELECTED` in accent | `… 7 OF 7 SHOWN · 0 FILLED`; lowercase `0 selected` in `text_dim` |
+| 11 | Batch verbs folded into the grid header band as quiet text | A row of five filled slabs on their own line |
+| 12 | Tile = one bordered box: 76 px art band, hairline, `code · name` caption **inside** it | Caption floated outside the tile — a scatter of squares with text under them |
+| 13 | `×N` badge, `☑` selection mark, the word `empty` on the art band | None; the variant count was appended to the caption string |
+| 14 | Visible checkerboard on empties | `SlotCell` used `sunken`/`panel_alt` — two tokens one level apart, so it was invisible |
+| 15 | Selected tile: 1 px accent border + 35 %-accent outline, offset 1 | A 2 px accent rect |
+| 16 | `grid-template-columns:repeat(6,1fr)` | Fixed-width cells, unfilled right margin, a horizontal scrollbar |
+| 17 | `P01 · CAPITAL` band, 150 px preview on a 12 px checkerboard, `name · W × H · …` line, Scale slider, Fit/Reset/Replace…/+Variant, 20 px swatches with a selected marker, anchor segment, tag chips with `＋`, VARIANTS strip, PACK METADATA block, equal-flex Validate/Clear | A stack of `_kv_row` label/value pairs; 18 px unmarked swatches |
+| 18 | (implementation) | The inspector rebuilt every child on every selection change — hence the `has_focus()` guard the pack fields needed to survive typing |
+| 19 | Slicer: 760 px card — title bar with `✕`, preview column, 274 px settings column ending in a summary and Cancel / Slice | A single vertical stack of stock widgets, clipping its own labels (`Trim transparent edg`, `Background → transpa`) |
+
+**Rebuilt** in `shell/asset_library_window.gd`, laid out from the canvas:
+borderless and sized under the app menu bar; a chip / segment / well /
+text-button vocabulary defined once and used throughout; rail 266, inspector
+330, bands 28, tile art 76, variants 56, swatches 20, slicer 760·274·296 —
+every number off the canvas, every colour a `DccTheme` token, no hex in the
+file. The inspector is built once and refreshed in place. The slicer keeps its
+engine-computed grid overlay (dashed at 35 % accent now — a stroke change
+only; the span arithmetic is untouched) and the `cd29266` close-with-parent
+fix. **Every live binding stayed on the control it was already on.**
+
+**Not regressed — reshaped around.** AS-16 (eight families, not the canvas's
+24) keeps the canvas's rail grammar while listing the real eight, with the
+disclosure moved from a prose block to the FAMILIES band's tooltip. AS-15
+(family-level anchor) draws the canvas's three-way segment, lights the real
+one, and disables the other two with that reason. AS-14 (render-time weighted
+variants) gets the VARIANTS strip, which selects what the *preview* shows and
+says so. The read-only per-item transform gets the canvas's Scale/Fit/Reset
+row, disabled with its reason. Replace… and ＋ Variant in that same row are
+newly **real**, built from `as_import_item` + `as_remove_item`.
+
+**Verified by looking.** Non-headless `opengl3_angle` boot, a real 512×512
+world, `reference_pack.zip` loaded, 12 real items imported (one slot with
+three variants), four screenshot/compare iterations against the canvas, pixel
+probes confirming rail = exactly 266 px and the selected row's exact
+`accent_wash` blend, the slicer smoke path re-run against a real 6×4 sheet
+(`24 cells detected · 24 non-empty`, overlay on the boundaries), both close
+paths including Escape driven through `Input.parse_input_event`, and
+`--headless --path . --quit-after 120` clean. `cartalith-native/docs/
+CHANGELOG.md` carries the five Godot layout traps this pass surfaced.
+
+**Still open:** no Collections group in the rail (the engine has collections;
+no binding lists them as rail entries); drag-and-drop onto a slot is unwired,
+and the grid footer says so; the slicer's canvas interaction (pan/zoom,
+draggable grid lines, click-to-select cells) is still unported.
