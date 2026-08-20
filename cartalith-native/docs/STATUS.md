@@ -5,7 +5,49 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-20 (post **Travel Library → party form: the last
+Last updated: 2026-08-20 (post **Visual sweep — every major surface driven
+and screenshotted** — the first pass that actually looked, rather than
+verifying structurally/headlessly and disclosing "nothing graphical
+verified" like every prior milestone. Booted the real shell non-headlessly
+(GLES3/Compatibility crashes on this AMD GPU the instant the welcome
+dialog's `popup_centered()` first runs — reproduced against the project's
+own pre-existing `_shot.tscn`, so pre-existing, not introduced here;
+`--rendering-driver opengl3_angle` avoids it with an identical visual
+result and was used throughout), generated a 512×512 world, and drove every
+major surface: welcome prompt, shell default (dark/light), Generate World,
+Generate Sculpt + stamp stack, CIVIL dock + Timeline + a selected
+settlement + territory overlay, CARTO dock + Layers popover + a debug view
+rendered over the map, Asset library + sprite-sheet slicer against a real
+sheet, Data manager, Travel library, a real committed route through the
+Journey Planner takeover, and the map at three zoom levels including
+deep-zoom LOD — each compared against `design/Cartalith DCC Shell.dc.html`
+and `design/Journey Planner DCC.dc.html`. **Three real defects found and
+fixed**, all re-verified live through the exact code path a real user
+triggers: the sprite-sheet slicer stayed open and on top of the entire app
+after closing the Asset Library window (`asset_library_window.gd`'s Close
+button hid only the parent dialog, never the slicer's own independent
+`Window`); the right dock's Stamp Stack panel stayed stuck outside the
+WORLD domain (`right_dock.gd` had no reset for `CTX_SCULPT` on a domain
+switch, despite its own doc comment's stated invariant); and the Data
+manager's header subtitle still advertised the Conversion group that was
+deliberately deleted 2026-08-20, a leftover the deletion pass missed. **One
+defect catalogued, not fixed** — a thin horizontal seam across the map,
+CIVIL-domain-only and reproducible, confirmed *not* caused by any
+difference in the map overlay's own drawable data (byte-identical before
+and after the domain switch) and instead correlated with the letterboxed
+map rect changing size when CIVIL's taller dock resizes the viewport; root
+cause not pinned down within this pass's budget. **One UX question raised,
+not resolved** — arming the Journey Planner from outside CIVIL produces no
+visible change beyond a status-bar string, since the takeover is
+deliberately gated on the active domain; unclear whether that gate itself
+is a considered decision or an oversight. Full verdict table and both
+catalogued items: `GUI_GAP_REGISTER.md` §14. Verified: non-headless boot
+with real GPU-composited frame capture, `--headless --path godot-project
+--quit` clean after all four edits, and the sweep itself re-running
+end-to-end after each fix as the live behaviour check. 23 screenshots via a
+temporary, uncommitted harness (`_visual_sweep.gd`/`.tscn`, same convention
+as `_shot.gd`) — not committed; screenshots are not source.
+— previously, post **Travel Library → party form: the last
 connecting piece** — `TRAVEL_LIBRARY_SPEC.md` §6, `GUI_GAP_REGISTER.md`
 **JP-02 and IN-06 closed**. §1's own promise ("everything defined here
 becomes a selectable option in the planner's party form") is now true for

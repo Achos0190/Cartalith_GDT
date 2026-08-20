@@ -17140,3 +17140,75 @@ actually is the pace-setter, and there the effect is a 43 % cut in days.
 declared substitute have no `JpParty` slot; vehicles and vessels have no
 resolver equivalent to `animal_resolver_fns`; §4's "saved journeys" usage
 count is honestly always `0`. Not verified: anything graphical.
+
+## Visual sweep — every major surface driven and screenshotted (2026-08-20)
+
+The first pass to actually look. Every prior milestone verified structurally
+or headlessly and disclosed "nothing graphical verified" — this dispatch
+booted the real shell non-headlessly, generated a 512×512 world, and drove
+every major surface a temporary harness could reach (welcome prompt, shell
+default in dark/light, Generate World, Generate Sculpt + stamp stack, CIVIL
+dock + Timeline + a selected settlement + territory overlay, CARTO dock +
+Layers popover + a debug view over the map, Asset library + sprite-sheet
+slicer against a real sheet, Data manager, Travel library, a real committed
+route through the Journey Planner takeover, and the map at three zoom levels
+including deep-zoom LOD), comparing each against `design/Cartalith DCC
+Shell.dc.html` and `design/Journey Planner DCC.dc.html`. Full per-surface
+verdict table, defects, and verification in `GUI_GAP_REGISTER.md` §14 — not
+restated here.
+
+**Three real defects found and fixed, all small and re-verified live:**
+
+1. **Sprite-sheet slicer modal stranded on top of the whole app.**
+   `asset_library_window.gd`'s Close button hid only the parent dialog; the
+   slicer is a separate child `Window` with independent visibility and was
+   never told to close too — reproduced via the exact real-user code path
+   (the Close button's own click handler), not a driver-script artifact.
+   Closing the library now closes the slicer with it (Close button, Escape,
+   and the titlebar ✕ all covered).
+2. **Stamp stack stuck in the right dock outside WORLD domain.**
+   `right_dock.gd`'s own doc comment claims Sample is the default everywhere
+   except while Sculpt is active, but nothing reset the context on a domain
+   switch — arm Sculpt, then switch to CIVIL or CARTOGRAPHY, and the Stamp
+   Stack panel stayed put. Fixed with a narrowly-scoped `leave_sculpt_
+   context()`, wired from `app.gd`'s `_on_workspace_changed()`; settlement/
+   route/faction selections are untouched since those stay meaningful across
+   a domain switch by design.
+3. **Data manager subtitle still advertised the deleted Conversion group.**
+   The routes rail correctly shows four groups (Conversion was deleted
+   2026-08-20 on the owner's decision, `GUI_GAP_REGISTER.md` §7.4) but the
+   header subtitle above it, hardcoded from the design spec verbatim, missed
+   that pass and still promised a fifth.
+
+**One defect catalogued, not fixed** — a thin horizontal seam across the map,
+reproducible and CIVIL-domain-only, confirmed NOT caused by any difference in
+the overlay's own drawable data (roads/sea-routes/settlements/flags are
+byte-identical before and after the domain switch) and correlated instead
+with the letterboxed map rect changing size when CIVIL's taller left dock
+resizes the viewport. Root cause not pinned down within this pass's budget;
+`GUI_GAP_REGISTER.md` §14.4 (**CV-VS-01**) carries what was ruled out and the
+strongest remaining lead for whoever picks it up.
+
+**One UX question raised, not resolved** — arming the Journey Planner from
+outside the CIVIL domain (`Data ▸ Journey planner… ⇧J` works from any
+domain) produces no visible change beyond a status-bar string, since the
+takeover is deliberately gated on `active_domain() == "civilization"`.
+Unclear whether this is an oversight or a considered decision this pass
+lacks context on — see `GUI_GAP_REGISTER.md` §14.4 (**JP-VS-01**).
+
+**Renderer note**: this machine's GLES3/Compatibility renderer crashes
+deterministically the first time the welcome dialog's `popup_centered()`
+runs, on this AMD GPU — reproduced against the project's own pre-existing
+`_shot.tscn` harness, so not introduced by this pass. `--rendering-driver
+opengl3_angle` avoids it with an identical visual result and was used for
+every screenshot in this sweep. Worth a `TOOLCHAIN.md` note if another
+AMD/Compatibility-renderer machine hits the same crash.
+
+**Verified**: non-headless boot with real GPU-composited frame capture (not
+a `SubViewport` fallback); `--headless --path godot-project --quit` clean
+after all four edits; the sweep itself re-running end-to-end after each fix
+is the parse/behaviour check, since it exercises the exact fixed code paths
+live (the real Close-button handler, a real domain switch away from a
+Sculpt-armed WORLD). 23 screenshots produced by the temporary harness
+(`cartalith-native/godot-project/_visual_sweep.gd`/`.tscn`, uncommitted, same
+convention as `_shot.gd`) — not committed; screenshots are not source.

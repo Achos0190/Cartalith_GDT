@@ -312,6 +312,8 @@ func _on_workspace_changed(id: String) -> void:
 	## CIVIL 2026-08-20 (`dcc_shell.gd`'s `DOMAINS` doc comment), so the one
 	## surviving id already covers both.
 	timeline_bar.visible = id == "civilization"
+	if id != "world":
+		right_dock_ctrl.leave_sculpt_context()
 	match id:
 		"world": _tool_options_generate()
 		## CARTO absorbed RENDER's one subject (terrain appearance, unbound)

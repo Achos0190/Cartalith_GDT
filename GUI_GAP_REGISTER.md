@@ -42,6 +42,7 @@ the engine as they stand today, and it is the document that goes stale first.
 | [11](#11--out-of-scope) | Out of scope for this register |
 | [12](#12--verification) | Verification |
 | [13](#13--the-v210-menu-structure-audit-2026-08-20) | **The v2.10 menu-structure audit** — `design/Cartalith Menu Structure v2.dc.html` against the shipped shell, and the 17 undisclosed omissions it found |
+| [14](#14--visual-sweep-2026-08-20) | **Visual sweep (2026-08-20)** — the shell driven live, screenshotted, and compared against the DCC Shell / Journey Planner mockups |
 
 ---
 
@@ -1599,3 +1600,181 @@ Two further observations worth recording rather than acting on:
   remove faction · Generate roads · Clear ways & journeys).
 - **Not touched**: `asset_library_window.gd` and `asset_bridge.rs`, both
   mid-edit by a concurrent sprite-slicer dispatch.
+
+---
+
+## 14 · Visual sweep (2026-08-20)
+
+Every prior pass in this register verified structurally or headlessly and
+said so explicitly — "nothing graphical verified." This pass is the first
+that actually looked: a real, non-headless boot of `shell/app.tscn`, a
+512×512 world generated, and every major surface driven and screenshotted,
+compared frame-by-frame against `design/Cartalith DCC Shell.dc.html` and
+`design/Journey Planner DCC.dc.html`.
+
+### 14.1 · Method
+
+**Driver**: a temporary harness scene (`_visual_sweep.gd`/`.tscn`, same
+uncommitted-dev-tooling convention `_shot.gd`/`_shot_phone.gd` already use —
+see those files' own header comments) that instantiates `shell/app.tscn`,
+generates a deterministic world (`seed 483920, 512×512, sea_level 0.42,
+villages on`), and walks every surface listed below, saving a PNG after a
+multi-frame settle.
+
+**Renderer**: this machine's GLES3/Compatibility path (`gl_compatibility` per
+`project.godot`) crashes deterministically on this AMD RX 7800 XT — confirmed
+against the project's own pre-existing `_shot.tscn`, not introduced by this
+pass — with `ERROR: Condition "!texture_allocs_cache.has(p_id)" is true` and a
+segfault, every time `open_project_dialog.gd`'s `popup_centered()` runs for
+the first time (the cold-start welcome prompt). `--rendering-driver
+opengl3_angle` (Godot's bundled ANGLE→D3D11 path) avoids it entirely with an
+identical visual result; a real device/driver combination may not need this
+workaround, but it is the reason this pass's screenshots were captured under
+ANGLE rather than native GLES3, and it is worth a `TOOLCHAIN.md` note if
+another AMD/Compatibility-renderer machine hits the same crash.
+
+**Surfaces swept**: welcome prompt, shell default (empty + generated, dark),
+light theme, Generate World dialog, Generate Sculpt mode + stamp stack, CIVIL
+dock default + Timeline category + a selected settlement's right dock +
+territory overlay, CARTO dock default, Layers popover (open, a view picked,
+and the picked view rendered over the map with the popover closed), Asset
+library window + sprite-sheet slicer with a real loaded sheet, Data manager
+window, Travel library window, Journey Planner takeover with a real committed
+route, and the map at three zoom levels including deep-zoom LOD tiles.
+
+### 14.2 · Per-surface verdict
+
+| Surface | Verdict | Notes |
+|---|---|---|
+| Welcome prompt | **PASS** | Matches "Open project dialog" screen's welcome mode closely: three tiles (Create/Import/Drop a .zip), search well, Recent/All worlds/Shared tabs. |
+| Shell default (dark, generated) | **PASS** | 3-domain rail, menu bar, tool options row, SAMPLE right dock all present and laid out per `DCC_SHELL_SPEC.md`. |
+| Light theme | **PASS** | Full repaint is consistent — no leftover dark-token styleboxes anywhere swept. |
+| Generate World dialog | **PASS** | Matches the "Generate World" mockup's ten-stage pipeline list + Planet sliders. |
+| Generate Sculpt mode | **PASS** | Stamp stack (Undo/Redo/Commit/Discard) appears correctly in the right dock the moment Sculpt mode is selected. |
+| CIVIL dock default | **DEFECT (catalogued)** | See CV-VS-01 below — a thin horizontal seam across the map, CIVIL-domain-only. |
+| CIVIL right dock: stuck Sculpt context | **DEFECT (fixed)** | See §14.3. |
+| CIVIL Timeline category | **PASS** | Expands correctly; years/filters/simulate-collapse rows all present with an honest "not wired to the map" disclosure. |
+| CIVIL territory overlay | **PASS** (after correcting the sweep itself) | Painting + committing territory does not itself show it — `cartography_workspace.gd`'s "Political — territory" layer defaults off, same as the design's own opt-in layer model. Not a bug; the first sweep pass mistook it for one. |
+| CARTO dock default | **PASS** | Layers/Layer properties/Annotation categories match "Cartography style" screen. |
+| Layers popover + z-order | **PASS** | The popover itself renders correctly on top of the map; a picked debug view (Elevation) stays visibly on top of the map after the popover closes — the z-order fix `CHANGELOG.md` records earlier is confirmed live, not just headlessly. |
+| Asset library window | **PASS** | Family rail (8 families), slot grid, inspector, empty-library state all honest and correctly laid out. |
+| Asset library slicer, real sheet | **PASS** | Grid overlay lands exactly on a synthetic 6×4 sprite sheet's cell boundaries; cell count/detection readout is correct. |
+| Asset library: slicer left open on Close | **DEFECT (fixed)** | See §14.3. |
+| Data manager window | **PASS** (after fix) | Conversion group confirmed gone from the routes rail; the subtitle text still advertising it was the one leftover — see §14.3. |
+| Travel library window | **PASS** | Animals & mounts tab, 7 stock entries, correct read-only-stock footer. |
+| Journey Planner takeover | **PASS** (after correcting the sweep itself) | Full takeover — spine map, profile/stage selector, stage matrix, party form, right-dock journey summary (time/load/supply reach/cost/vessels) — all render correctly once the sweep armed the tool from the CIVIL domain. The first sweep pass armed it from CARTOGRAPHY instead and saw no visible change; that is correct, documented behaviour (`journey_planner_view.gd`'s `_recompute_visibility()`), not a defect — though see JP-VS-01 below for whether it should be. |
+| Map, 3 zoom levels + deep-zoom LOD | **PASS** | Settlement pins and labels tier in correctly with zoom; deep-zoom (z8.0) tiles are visibly pixelated, which is the disclosed, known characteristic `tool_overlay.gd`'s own header comment already quotes the owner on ("there is still a certain pixilated quality to the map when we zoom") — not a new finding. |
+
+### 14.3 · Defects found and fixed
+
+**AL-VS-01 — Sprite-sheet slicer modal stranded on top of the whole app.**
+`asset_library_window.gd`'s Close button called only `hide()` on the parent
+`AcceptDialog`; the slicer (`_slicer`, a separate child `Window`) has its own
+independent visibility and was never told to close too. Reproduced with the
+exact same code path a real user's mouse click uses (`close_btn.pressed`),
+not a driver-script artifact: open the library, open the sprite-sheet slicer,
+click the library's own Close button — the slicer remains floating on top of
+*everything* opened afterward (confirmed across Data manager, Travel
+library, and the Journey Planner takeover in the first sweep pass, before
+the fix). Fixed by closing the slicer alongside the library on all three
+paths (Close button, Escape, titlebar ✕) — `close_btn.pressed`,
+`close_requested`, `canceled` all now call `_close_slicer()` before/on
+`hide()`. Re-verified in the second sweep pass: `08c_asset_library_closed_
+slicer_gone_check.png` shows the slicer genuinely gone.
+
+**CV-VS-02 — Stamp stack stuck in the right dock outside WORLD domain.**
+`right_dock.gd`'s `show_sculpt_stack()` claims (in its own doc comment)
+that "Sample stays the default everywhere else" — but nothing ever reset
+`_context` back to `CTX_SAMPLE` on a domain switch. Arm Sculpt mode in
+WORLD (which calls `show_sculpt_stack()`), then switch to CIVIL or
+CARTOGRAPHY: the right dock kept showing the Stamp Stack panel, a World-only
+tool's UI, with no sculpt tool armed and no sculpt panel visible anywhere
+else on screen. Fixed with a narrowly-scoped `leave_sculpt_context()` on
+`RightDock`, called from `app.gd`'s `_on_workspace_changed()` whenever the
+new domain isn't `"world"` — it only resets when the context is specifically
+`CTX_SCULPT`, leaving a real settlement/route/faction selection alone (those
+are meaningful across a domain switch by design, since Inspect's own
+selection is wired domain-independently).
+
+**DM-VS-01 — Data manager subtitle still advertised the deleted Conversion
+group.** `data_manager_window.gd`'s header subtitle hardcoded "import ·
+export · sources · conversion · validation" verbatim from §9 of the design —
+but the Conversion group itself was deliberately deleted 2026-08-20 (this
+same file's own `GROUP_ORDER` doc comment, `DCC_SHELL_SPEC.md` §2.4's
+correction note). The routes rail correctly shows only four groups; the
+subtitle line above it was the one place that missed the deletion pass and
+kept promising a fifth. Fixed: subtitle now reads "import · export · sources
+· validation," matching `GROUP_ORDER`.
+
+### 14.4 · Defects catalogued, not fixed
+
+**CV-VS-01 — A thin horizontal seam across the map, CIVIL-domain-only.**
+Screenshotted consistently in `06_civil_dock_default.png` and
+`06b_civil_timeline_category.png`: a dashed, gold-toned hairline running the
+full visible width of the map at roughly the vertical midpoint of the
+letterboxed map rect. Absent from every WORLD- and CARTOGRAPHY-domain
+screenshot of the identical generated world at the identical camera state.
+Investigated, not blind-fixed, because the cause does not point at an
+obvious one-line change:
+
+- **Not a data/logic bug.** Diagnostic instrumentation (temporary, not
+  committed) confirmed `map_overlay.gd`'s `_roads` (48), `_sea_routes` (4),
+  `_settlements` (240), `_show_roads`/`_show_sea_routes` (both `true`), and
+  `_border_frac` are byte-identical immediately before and immediately after
+  the CIVIL domain switch. Nothing in the overlay's own drawable data
+  changes.
+- **Not the sea-route dash styling**, despite the visual match to
+  `SEA_ROUTE_DASH_COLOR` — the four real sea routes' logged point ranges
+  (e.g. `y: 282→44`, `y: 330→313`) stay within plausible coastal bands, never
+  spanning the map's full width at a near-constant `y` the way the seam does.
+- **Not a transient LOD-backlog mid-rebuild artifact** — persisted unchanged
+  after an extra 1.5s settle (`06z_diag_after_settle.png` in the diagnostic
+  run, not part of the final screenshot set).
+- **Correlates with a real letterbox-rect change.** `ViewportHost`'s
+  displayed map rect measurably differs between domains at the same zoom —
+  `[P: (18.5, 0.0), S: (935, 935)]` in WORLD vs. `[P: (53.5, 0.0), S: (865,
+  865)]` in CIVIL (CIVIL's taller left dock content changes the available
+  viewport width) — which is exactly the kind of resize `map_overlay.gd`'s
+  own `resized.connect(func(): queue_redraw())` reacts to. The seam sits at
+  very close to 50% of the *new* rect's height in both crops examined,
+  which is suspicious but not, on the evidence gathered, conclusively tied
+  to any specific draw call inspected (`_interior_rect`'s clip/inset math
+  was checked and rejected — it insets from all four edges symmetrically,
+  not a midline).
+
+Best next step for whoever picks this up: reproduce interactively with the
+Godot editor's remote scene tree inspector open, or bisect by temporarily
+disabling `map_overlay.gd`'s draw blocks (roads/sea routes/settlements/
+labels) one at a time while resizing into CIVIL, since the resize-correlated
+letterbox change is the strongest lead this pass found.
+
+**JP-VS-01 — Arming Journey from outside CIVIL gives no visible feedback.**
+`journey_planner_view.gd`'s `_recompute_visibility()` deliberately gates the
+takeover on `app.active_domain() == "civilization"` (documented, and reads
+as intentional given the `JP-13` reference in `_hide()`'s own comment) — but
+`Data ▸ Journey planner… ⇧J` and `open_journey_planner()` (`app.gd`) arm the
+tool from *any* domain, with no domain switch and no visual cue beyond a
+status-bar line ("Journey armed — Esc to release") that a user in
+CARTOGRAPHY or WORLD would have no reason to read as "and now go to CIVIL
+to see it." Confirmed directly: the first sweep pass armed Journey from
+CARTOGRAPHY and captured a screenshot with the CARTO dock fully intact and
+only that one status-bar string different — indistinguishable from a broken
+takeover at a glance. Not fixed here because it is unclear whether this is
+an oversight or a considered `JP-13` decision this pass doesn't have full
+context on; the candidate fix, if it is an oversight, is one line —
+`open_journey_planner()` calling `select_domain("civilization")` before
+`journey_planner_view.open()`.
+
+### 14.5 · Verification
+
+- **Non-headless boot**, real GPU-composited frames via
+  `get_viewport().get_texture().get_image()`, not a `SubViewport` fallback.
+- **Parse-check**: the four edited files load and run correctly inside a full
+  app boot (proven by the sweep itself completing end-to-end after each
+  edit, including exercising the exact fixed code paths — `_close_slicer()`
+  via the real Close-button call, `leave_sculpt_context()` via a live domain
+  switch away from a Sculpt-armed WORLD).
+- **Boot-check**: `--headless --path godot-project --quit` — clean, no errors.
+- **Screenshots**: `cartalith-native/godot-project/_visual_sweep.gd`/`.tscn`
+  (temporary harness, uncommitted, same convention as `_shot.gd`) produced 23
+  PNGs; not committed to the repo (screenshots are not source).

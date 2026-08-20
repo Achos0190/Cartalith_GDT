@@ -8,10 +8,14 @@ class_name DataManagerWindow
 ## §9's own related-but-distinct sibling), unrelated to and untouched by this
 ## file.
 ##
-## Titled `⧉ DATA MANAGER`, subtitle "import · export · sources · conversion
-## · validation" (§9, verbatim). Structure per §9: a routes rail (the five
-## groups from §2.4's table) and a route pane showing the selected route's
-## real controls.
+## Titled `⧉ DATA MANAGER`, subtitle was "import · export · sources ·
+## conversion · validation" (§9, verbatim) until the Conversion group itself
+## was deleted (this file's own `GROUP_ORDER` doc comment below) -- the
+## subtitle line missed that pass (caught by the 2026-08-20 visual sweep,
+## `GUI_GAP_REGISTER.md`) and still advertised a fifth area the routes rail
+## no longer has. Now four, matching `GROUP_ORDER`. Structure per §9: a
+## routes rail (`GROUP_ORDER`'s groups) and a route pane showing the
+## selected route's real controls.
 ##
 ## **What is real vs. disclosed gap, route by route** -- most of §9 has no
 ## engine behind it, and this file says so per-route rather than building
@@ -109,7 +113,7 @@ func _build() -> void:
 	outer.add_theme_constant_override("separation", 6)
 	add_child(outer)
 
-	outer.add_child(DccTheme.mono_label("import · export · sources · conversion · validation",
+	outer.add_child(DccTheme.mono_label("import · export · sources · validation",
 		"text_faint", DccTheme.FS_MICRO, 2))
 	outer.add_child(DccTheme.rule())
 

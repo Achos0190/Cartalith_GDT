@@ -230,6 +230,21 @@ func show_sculpt_stack() -> void:
 	_context = CTX_SCULPT
 	_rebuild()
 
+## Visual sweep (2026-08-20): switching away from WORLD while the Sculpt
+## panel had claimed this dock left it stuck showing the Stamp stack in
+## CIVIL/CARTOGRAPHY, contradicting `show_sculpt_stack()`'s own doc comment
+## ("Sample stays the default everywhere else") -- Sculpt is a World-only
+## tool (`world_workspace.gd`) with nothing else that clears the context on
+## a domain switch. Called from `app.gd`'s `_on_workspace_changed`. Settlement/
+## route/faction/measure/region selections are left untouched -- those stay
+## meaningful across a domain switch (Inspect's own selection is wired
+## domain-independently in `app.gd`'s `_wire_selection`), so only Sculpt's
+## own context is domain-bound enough to reset here.
+func leave_sculpt_context() -> void:
+	if _context == CTX_SCULPT:
+		_context = CTX_SAMPLE
+		_rebuild()
+
 ## Called by `journey_planner_view.gd` when the JOURNEY tool arms -- claims
 ## `right_dock_body` for the results panel (`JOURNEY_PLANNER_SPEC.md` §8),
 ## delegating the actual content back to `view.build_results()` rather than

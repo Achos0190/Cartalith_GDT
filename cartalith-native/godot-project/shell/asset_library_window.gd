@@ -318,6 +318,10 @@ func setup(host: DccApp, bridge: EngineBridge) -> void:
 	_bridge.world_loaded.connect(func(): _refresh_pack_status())
 	_build()
 	_build_slicer_modal()
+	## Escape / the titlebar X path -- the explicit Close button above handles
+	## the click path, this handles the other two ways this dialog closes.
+	close_requested.connect(_close_slicer)
+	canceled.connect(_close_slicer)
 
 ## AS-13's `Assets ▸ Asset pack ▸` submenu (`menus.gd`'s `_assets()`) drives
 ## these four global, no-slot-context actions through the window's own real
@@ -419,7 +423,13 @@ func _build_window_bar() -> Control:
 	var close_btn := Button.new()
 	close_btn.text = "Close"
 	close_btn.focus_mode = Control.FOCUS_NONE
-	close_btn.pressed.connect(func(): hide())
+	## Visual sweep (2026-08-20) caught the slicer modal left stranded on top
+	## of the whole app -- `_slicer` is a child `Window` of this dialog, and a
+	## child `Window`'s visibility is independent of its parent's, so closing
+	## the library while the slicer was open used to leave it floating over
+	## every surface opened afterward. Closing this window always closes the
+	## slicer with it now.
+	close_btn.pressed.connect(func(): _close_slicer(); hide())
 	row.add_child(close_btn)
 
 	var pad := MarginContainer.new()
