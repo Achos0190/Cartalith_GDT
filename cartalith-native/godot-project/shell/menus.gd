@@ -470,8 +470,11 @@ func _preferences(p: PopupMenu) -> void:
 	_todo(p, "3D viewport defaults", "No 3D viewport yet.")
 	_todo(p, "Lighting rig defaults", "No lighting rig yet.")
 	p.add_separator()
-	_todo(p, "Tiled LOD · tile size · atlas cache",
-		"Deep-zoom LOD tiling is live and automatic (lod_synthesize_tile/lod_tile_cells, driven by viewport_host.gd) -- what does not exist is any of §2.5's controls over it: no auto/manual switch, no tile-size or LOD-level choice, and no persistent atlas cache to cap or clear (tiles are synthesized on demand and never written to disk).")
+	## The one row `world_workspace.gd`'s "Not a generation stage" note points
+	## at for chunk debug, so its tooltip has to actually name that -- it did
+	## not, which made the pointer dangle (2026-08-20 menu-structure audit).
+	_todo(p, "Tiled LOD · tile size · atlas cache · chunk debug",
+		"Deep-zoom LOD tiling is live and automatic (lod_synthesize_tile/lod_tile_cells, driven by viewport_host.gd) -- what does not exist is any of §2.5's controls over it: no auto/manual switch (#lodAutoChk), no tile-size or LOD-level choice, no Refine detail for the current view (#lodRefineBtn), and no persistent atlas cache to bake into, cap or clear (#lodBakeBtn/#lodClearAtlasBtn -- tiles are synthesized on demand and never written to disk). The reference's two per-tile refinement passes, Burn rivers into tiles and Micro-erode tiles, have no cartalith-engine equivalent either: lod_synthesize_tile resamples the existing field and runs no erosion or river burn-in of its own. The chunk debug overlay (#lodDbgSeg grid / colors / off) and Show tile borders have no draw path -- viewport_host.gd composites LOD tiles into the map layer with no debug visualisation of the tile grid.")
 	_todo(p, "Undo history", "No undo stack yet.")
 	## §2.5's Memory group has three items -- Undo history (above, a real
 	## gap), Working set and Clear caches -- but only the first ever made it

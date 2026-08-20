@@ -16114,3 +16114,134 @@ src/lib.rs`, `cartalith-native/godot-project/shell/asset_library_window.gd`,
 `cartalith-native/godot-project/shell/menus.gd`,
 `cartalith-native/godot-project/shell/data_manager_window.gd`,
 `ASSET_LIBRARY_SCOPE.md`, `GUI_GAP_REGISTER.md`, this file, `docs/STATUS.md`.
+
+## Menu-structure audit: `design/Cartalith Menu Structure v2.dc.html` vs. the shipped shell (2026-08-20)
+
+GDScript-only, no Rust. The owner asked for the vendored menu-structure canvas
+to be implemented; on reading, it is dated relative to `DCC_SHELL_SPEC.md` §2
+(its top bar still shows the earlier seven menus Project/World/Generate/
+Simulate/Map/Assets/View) and relative to the 2026-08-20 domain merge
+(`42547d9`). **So nothing was restructured.** What the canvas is genuinely
+authoritative on is its own stated purpose — *"every surface in v2.10,
+carrying its real disclosure depth"* — which makes it the most complete
+inventory of the **reference app's** control surface this repository holds:
+**202 menu rows across 9 columns and 41 categories**, plus 22 navigator nodes
+and 6 inspector contexts. It was audited against the shipped shell instead.
+
+**The split, row by row**: 71 present and live (35 %), 97 present as an
+honestly-disabled `_todo` / disclosed route / in-product "not ported" note
+(48 %), **17 absent entirely with no disclosure anywhere, including
+`GUI_GAP_REGISTER.md` itself** (8 %), 17 deliberately superseded by a later
+decision (8 %). The honesty rule held for 83 % of the reference's surface
+without anyone having audited for it.
+
+**The 17 cluster, and the cluster is the finding.** Eleven of them are
+whole-network civ operations and generation passes that `generate()` absorbed
+— Auto-populate world, Clear places & routes, Generate roads, Clear ways &
+journeys, Recalculate territories, Clear territory, Generate provinces, Add/
+remove faction, Evolve climate↔terrain, Sediment fill, structured-orogeny
+tuning. A one-shot pipeline hides exactly this kind of gap: there is no button
+missing from a panel, there is a panel that never needed the button, and no
+reader could tell that apart from an oversight.
+
+**Fixed:**
+
+- **Nine became disabled controls with a real, specific reason**, matching
+  `menus.gd`'s `_todo()` convention. Center landmasses (`#centerBtn`, in the
+  GENERATE · WORLD tool-options bar beside Generate world / New seed, which is
+  where the reference puts it); Auto-populate world and Clear places & routes
+  (CIVIL ▸ Settlements ▸ Not built); Recalculate territories, Clear territory,
+  Generate provinces and Add / remove faction (CIVIL ▸ Politics ▸ Not built —
+  the last of those closes `GUI_GAP_REGISTER.md` **CV-07**, previously
+  registered as absent *with no disclosure*); Generate roads and Clear ways &
+  journeys (Roads ▸ Not built).
+- **Seven became in-product prose** in the right home rather than a fake
+  control: stage 04 Tectonics' `gap` string, which was **empty**, now names the
+  three structured-orogeny knobs and why `generate_terrain` hardcodes them;
+  stage 06 Erosion's `gap`, which named five unported passes, now also names
+  Evolve climate↔terrain and Sediment fill and says why they got no honest
+  empty group (they are not passes over that stage's own inputs); the Data
+  manager's `import_maps` reason now names **Infer tectonics from heightmap**
+  (`#inferTectBtn`) as a *second* gap, not a consequence of the first;
+  CARTO ▸ Layers gained a "Not built" section for `#showRivers`/Rivers-as-ways/
+  ecotone sharpening and for CA-04's opacity/order/blend; `right_dock.gd`'s
+  Sample panel gained permanently-dashed **Route cost** and **E–W profile**
+  rows, both in §6's own no-selection list and both simply absent.
+- **A dangling pointer fixed.** `world_workspace.gd`'s "Not a generation stage"
+  note sent readers to *"Preferences ▸ Tiles & LOD"* for chunk debug, and that
+  row's tooltip did not mention it. The row is now titled `Tiled LOD · tile
+  size · atlas cache · chunk debug` and its tooltip names `#lodRefineBtn`,
+  Burn rivers into tiles, Micro-erode tiles, `#lodDbgSeg` and Show tile
+  borders, each with why no draw path exists.
+- **`render_workspace.gd`'s one umbrella note gained an inventory.** Sixty-odd
+  designed controls sat behind a single sentence about `TerrainAppearance`
+  being unbound; the dock now enumerates what that covers (Preset · Colour
+  relief · Colour · Material · Relief · Detail & atmosphere · Preview &
+  quality, plus the reference's own Rendering-advanced and Painter-styles/NPR
+  blocks by name). Prose, not sixty disabled sliders — there is one gap, not
+  sixty.
+
+**Wired live — the only omission whose engine backing already existed:**
+
+- **Per-class settlement and by-way-type road filters**
+  (`#explSettlementFilterList`, `#explShowRoads`'s sub-list). `get_settlements()`
+  emits a `kind` and `get_roads()` a `way_type`, so this is a draw-time test,
+  not a missing capability. `map_overlay.gd` gained two *hidden*-set
+  dictionaries (empty means "show everything", which is what an untouched
+  shell and a freshly-loaded world both are — a shown-set would need seeding
+  from a roster that does not exist until the first generate) and one
+  `continue` per draw loop, the settlement test placed **before** any geometry
+  so a hidden tier never reserves label occupancy a visible place would then be
+  pushed out of. `viewport_host.gd` gained `set_settlement_kind_visible`/
+  `set_way_type_visible`, kept separate from `set_layer_visible` because they
+  take a *sub*-key (one namespace would collide `"settlements"` with
+  `"settlements/hamlet"`). `cartography_workspace.gd` gained two L4 groups
+  under Layers — five settlement tiers, three land way types (`sea_lane` keeps
+  its existing top-level row rather than a second, disagreeing switch). A
+  hidden class stays hoverable and clickable: hiding a tier is a cartographic
+  choice, not a reason to make a place unselectable.
+
+**Verified:**
+
+- Parse-check, all 11 edited files, `--check-only --script`: clean.
+- Boot-check, `--headless --path godot-project --quit`: clean. The main scene
+  is `shell/app.tscn`, so this builds every workspace.
+- **Scripted headless drive**: instantiated the shell, exercised both new
+  filter entry points in both directions, then walked the whole node tree
+  fingerprinting tooltips — all nine new disabled disclosures found and
+  reachable, printed by label.
+- Engine claims opened rather than inferred: the full `#[func]` list
+  re-enumerated from `cartalith-godot/src/` (absence of `civ_populate`,
+  `civ_clear_places`, `civ_auto_routes`, `civ_clear_roads`,
+  `civ_recalc_territory`, `civ_generate_provinces`, `civ_add_faction`
+  confirmed by name); `params.rs`'s 58 entries listed key-by-group and checked
+  against every canvas parameter row; `GENERATION_PARAMETERS.md`'s own
+  "Parameters the reference exposed that this port does not" read in full.
+
+**Still open, deliberately**: the canvas's own naming insights are recorded as
+recommendations in `GUI_GAP_REGISTER.md` §13.6 and **not applied** — "Analysis
+field" reads better than the colliding "Layers popover", the canvas's
+three-row Finalize split beats the shell's one compressed button, and "Frame
+furniture" gives the scale bar a section name it currently lacks. Two
+structural observations are recorded there too: the canvas's L5 rule
+("nothing required to finish a world may sit at Advanced") is stricter than
+the rule `ADVANCED_KEYS` was actually chosen by, and CARTO ▸ Layers now sits
+exactly at the canvas's own five-level depth cap.
+
+**Not touched**: `asset_library_window.gd`, `asset_bridge.rs`,
+`cartalith-assets`' and `cartalith-godot`'s own `lib.rs`, all mid-edit by a
+concurrent sprite-slicer dispatch.
+
+**Files**: `cartalith-native/godot-project/map_overlay.gd`,
+`cartalith-native/godot-project/shell/viewport_host.gd`,
+`cartalith-native/godot-project/shell/app.gd`,
+`cartalith-native/godot-project/shell/menus.gd`,
+`cartalith-native/godot-project/shell/right_dock.gd`,
+`cartalith-native/godot-project/shell/data_manager_window.gd`,
+`cartalith-native/godot-project/shell/workspaces/cartography_workspace.gd`,
+`cartalith-native/godot-project/shell/workspaces/render_workspace.gd`,
+`cartalith-native/godot-project/shell/workspaces/world_workspace.gd`,
+`cartalith-native/godot-project/shell/workspaces/civilization_workspace.gd`,
+`cartalith-native/godot-project/shell/workspaces/infrastructure_workspace.gd`,
+`GUI_GAP_REGISTER.md` (new §13, plus a pointer from §5), this file,
+`docs/STATUS.md`.

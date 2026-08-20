@@ -264,6 +264,20 @@ var _hover_index := -1
 var _show_settlements := true
 var _show_roads := true
 var _show_sea_routes := true
+## Per-class / per-way-type filters -- the reference's own
+## `#explSettlementFilterList` and the by-way-type half of `#explShowRoads`
+## (`design/Cartalith Menu Structure v2.dc.html`, MAP > LAYERS). Stored as
+## *hidden* sets rather than shown sets so an empty dictionary means "show
+## everything", which is what an untouched shell and a freshly-loaded world
+## both are; a shown-set would have to be seeded from a settlement roster
+## that does not exist until the first generate.
+##
+## Purely a draw filter: `_hit_test`/hover/click still see every settlement,
+## the same independence `_show_settlements` above already keeps for the
+## whole layer, because hiding a class is a cartographic choice and should
+## not make a place unselectable.
+var _hidden_settlement_kinds: Dictionary = {}
+var _hidden_way_types: Dictionary = {}
 ## Plate-frame width as a fraction of the terrain texture's own width
 ## (`WorldGen.get_border_inset_frac()`, Phase 3 milestone 4). `0.0` when the
 ## renderer draws no frame, which makes every use of it below an exact no-op.
@@ -362,6 +376,32 @@ func set_show_roads(shown: bool) -> void:
 
 func set_show_sea_routes(shown: bool) -> void:
 	_show_sea_routes = shown
+	queue_redraw()
+
+
+## One settlement tier (`capital`/`city`/`town`/`village`/`hamlet` -- the
+## engine's own five, `get_settlements()`'s `kind`). Independent of
+## `set_show_settlements`, which gates the whole layer: turning the layer on
+## restores whatever per-class state was last set, matching how the
+## reference's own filter popover and its master Settlements checkbox behave.
+func set_settlement_kind_visible(kind: String, shown: bool) -> void:
+	if shown:
+		_hidden_settlement_kinds.erase(kind)
+	else:
+		_hidden_settlement_kinds[kind] = true
+	queue_redraw()
+
+
+## One way type (`road`/`track`/`sea_lane`/`ancient` -- the engine's own four,
+## `infra_tools_bridge::parse_way_type`). Sea lanes are drawn from
+## `_sea_routes`, not `_roads`, so this filter only ever reaches the three
+## land types in practice; it is keyed by the same `way_type` string
+## `get_roads()` returns rather than a separate vocabulary.
+func set_way_type_visible(way_type: String, shown: bool) -> void:
+	if shown:
+		_hidden_way_types.erase(way_type)
+	else:
+		_hidden_way_types[way_type] = true
 	queue_redraw()
 
 
@@ -531,6 +571,8 @@ func _draw() -> void:
 			var points: PackedVector2Array = way["points"]
 			if points.size() < 2:
 				continue
+			if _hidden_way_types.has(way["way_type"]):
+				continue
 			var width: float = ROAD_WIDTH_BY_TYPE.get(way["way_type"], 1.6)
 			var brks: PackedInt32Array = way["brks"]
 			# `brks` marks indices where this way's own path has a real gap
@@ -585,6 +627,11 @@ func _draw() -> void:
 
 		for i in draw_order:
 			var s: Dictionary = _settlements[i]
+			## Per-class filter, tested before any geometry so a hidden tier
+			## costs nothing and, more importantly, never reserves label
+			## occupancy that a *visible* place would then be pushed out of.
+			if _hidden_settlement_kinds.has(s["kind"]):
+				continue
 			var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
 			# A settlement whose cell is under the frame has no visible terrain
 			# beneath it at all, so a marker there points at nothing -- it is off

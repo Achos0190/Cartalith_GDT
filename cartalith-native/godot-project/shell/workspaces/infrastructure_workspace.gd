@@ -313,6 +313,7 @@ func _build_roads() -> void:
 	var roads := bridge.roads()
 	if roads.is_empty():
 		DccWidgets.note(sec, "No roads -- generate a world first (World ▸ Generation Pipeline).")
+		_build_road_gaps(cat)
 		return
 
 	var counts := {}
@@ -330,6 +331,22 @@ func _build_roads() -> void:
 	ranked.sort_custom(func(a, b): return (a as Dictionary).points.size() > (b as Dictionary).points.size())
 	for i in range(mini(6, ranked.size())):
 		_route_row(longest, ranked[i], "road")
+
+	_build_road_gaps(cat)
+
+
+## The reference's two whole-network road operations. Same split as CIVIL's
+## Settlements category: route generation runs inside `generate()`, so there
+## is neither a "build the network now" button nor a partial teardown -- said
+## rather than left as an unexplained absence, per `menus.gd`'s honesty rule.
+func _build_road_gaps(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Not built")
+	var gen := DccWidgets.action(sec, "Generate roads", func(): pass)
+	gen.disabled = true
+	gen.tooltip_text = "The reference's #civAutoRoutesBtn. Route generation is part of compute_civilisation inside generate(); no civ_auto_routes #[func] runs it on its own, and there is no parameter for road density or which tiers get connected (params.rs carries no civ entries). Drawing a way by hand is the wired alternative -- the Way and Route tools in the TOOLS block above."
+	var clear := DccWidgets.action(sec, "Clear ways & journeys", func(): pass)
+	clear.disabled = true
+	clear.tooltip_text = "The reference's #civClearRoadsBtn. CivData::ways/sea_routes are rebuilt wholesale by generate() with no clear #[func]; committed manual ways live in a separate InfraTools store that has no getter yet either (GUI_GAP_REGISTER.md IN-02), so there is nothing here that could honestly claim to clear both."
 
 # -- Rivers ---------------------------------------------------------------
 

@@ -65,6 +65,25 @@ const ICON_FAMILIES: Array = [
 		"battlefield", "shrine", "cave", "other"]},
 ]
 
+## The per-class settlement filter (`#explSettlementFilterList`) and the
+## by-way-type road filter (`#explShowRoads`'s own sub-list) the reference's
+## layer popover carries. Both are real here: `get_settlements()` emits a
+## `kind` on every row and `get_roads()` a `way_type`, so the filter is a
+## draw-time test in `map_overlay.gd`, not a missing engine capability.
+##
+## `SETTLEMENT_KINDS` is the engine's own five tiers in capital-first order
+## (`civ_tools_bridge::kind_from_str` -- there is no `metropolis`, see
+## `GUI_GAP_REGISTER.md` CV-04). `WAY_TYPES` lists only the three LAND types:
+## `sea_lane` is drawn from `_sea_routes`, which already has its own top-level
+## row above, so listing it here would give one thing two switches that
+## disagree.
+const SETTLEMENT_KINDS: Array = ["capital", "city", "town", "village", "hamlet"]
+const WAY_TYPES: Array = [
+	{"key": "road", "label": "Roads"},
+	{"key": "track", "label": "Tracks"},
+	{"key": "ancient", "label": "Ancient ways"},
+]
+
 const ICON_SCALE_MIN := 0.2   ## `cartalith_assets::manual::ICON_SCALE_MIN`.
 const ICON_SCALE_MAX := 4.0   ## `cartalith_assets::manual::ICON_SCALE_MAX`.
 const LABEL_SIZE_MIN := 8.0   ## `cartalith_civ::labels::LABEL_SIZE_MIN`.
@@ -121,6 +140,8 @@ func _build() -> void:
 	DccWidgets.note(body,
 		"Terrain, hillshade and colour relief are one baked raster today, so "
 		+ "they toggle together with the map itself rather than as separate rows.")
+	_build_layer_filters(cat)
+	_build_layer_gaps(cat)
 
 	var props := DccWidgets.category(self, "Layer properties", categories)
 	DccWidgets.note(DccWidgets.section(props, "Fill · light · opacity"),
@@ -144,6 +165,55 @@ func _build() -> void:
 	_register_tools()
 	bridge.generation_finished.connect(func(ok: bool): if ok: _on_world_changed())
 	bridge.world_loaded.connect(_on_world_changed)
+
+
+## The reference's own two sub-filters, wired live (see `SETTLEMENT_KINDS`'
+## doc comment for why these are real rather than engine-blocked). Every row
+## starts on, matching `map_overlay.gd`'s "empty hidden-set means show
+## everything" default -- so an untouched panel and an untouched overlay
+## agree before the first click, the same discipline `world_workspace.gd`'s
+## `_paint_brush` mirror already follows.
+func _build_layer_filters(parent: Control) -> void:
+	var kinds := DccWidgets.group(parent, "Settlements · by class", false)
+	for kind in SETTLEMENT_KINDS:
+		DccWidgets.toggle(kinds, String(kind).capitalize() + "s", true,
+			func(on: bool): app.viewport.set_settlement_kind_visible(String(kind), on))
+	DccWidgets.note(kinds,
+		"A hidden class is not drawn but stays hoverable and clickable -- hiding "
+		+ "a tier is a cartographic choice, not a reason to make a place "
+		+ "unselectable. The master Settlements switch above still gates the "
+		+ "whole layer.")
+
+	var types := DccWidgets.group(parent, "Ways · by type", false)
+	for t in WAY_TYPES:
+		DccWidgets.toggle(types, String(t["label"]), true,
+			func(on: bool): app.viewport.set_way_type_visible(String(t["key"]), on))
+	DccWidgets.note(types,
+		"The engine's own three land way types (infra_tools_bridge::parse_way_type). "
+		+ "Sea lanes have their own row above rather than a fourth switch here.")
+
+
+## Layer surfaces the reference had, or the design asks for, that this shell
+## genuinely does not carry -- stated rather than left to be inferred from
+## their absence, per `menus.gd`'s own honesty rule.
+func _build_layer_gaps(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Not built")
+	DccWidgets.note(sec,
+		"Per-layer opacity, draw order and blend mode (GUI_GAP_REGISTER.md CA-04): "
+		+ "terrain, hillshade and colour relief are composited into one raster by "
+		+ "render.rs before it crosses the boundary, so there are no separable "
+		+ "outputs to order or blend. Opacity alone is cheap once they separate.")
+	DccWidgets.note(sec,
+		"Show rivers in biome view (#showRivers) and Rivers as ways: both are "
+		+ "reference RENDER filters over a river network that never crosses the "
+		+ "GDExtension boundary -- cartalith-hydrology computes it internally and "
+		+ "only the finished raster comes out (there is no get_rivers()). Same "
+		+ "entity gap the Rivers subject and the right dock's River context both "
+		+ "already report.")
+	DccWidgets.note(sec,
+		"Sharper ecotones (biome-detail sharpening) is not parameterised: biome "
+		+ "classification runs off the finished temperature/rainfall fields with no "
+		+ "dials of its own -- see World ▸ 09 Ecology & biomes for the same finding.")
 
 
 # ===========================================================================

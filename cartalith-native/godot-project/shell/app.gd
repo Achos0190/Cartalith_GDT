@@ -333,6 +333,13 @@ func _tool_options_generate() -> void:
 		_tool_options_label(row, "GENERATE · WORLD", "accent")
 		DccWidgets.action(row, "Generate world", _run_pipeline, true)
 		DccWidgets.action(row, "New seed", _new_seed)
+		## The reference's third button in this same group (`#centerBtn`).
+		## Disclosed here rather than omitted: it is the one v2.10 control that
+		## belongs unambiguously next to Generate/New seed and has no home
+		## anywhere else in this shell.
+		var centre := DccWidgets.action(row, "Center landmasses", func(): pass)
+		centre.disabled = true
+		centre.tooltip_text = "The reference's #centerBtn -- it re-rolls the plate seeds until the land mass lands nearer the middle of the sheet, then regenerates. No cartalith-engine equivalent exists: generate_terrain places plate seeds from the seed alone and exposes no centring pass or post-generate offset, so there is nothing here to call."
 		var busy := DccTheme.mono_label("", "text_ghost", DccTheme.FS_SMALL, 1)
 		_tool_options_stale = busy
 		row.add_child(busy)

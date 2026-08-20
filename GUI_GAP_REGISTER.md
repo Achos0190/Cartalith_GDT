@@ -41,6 +41,7 @@ the engine as they stand today, and it is the document that goes stale first.
 | [10](#10--the-actionable-a-list-in-priority-order) | The actionable (A) list, in priority order |
 | [11](#11--out-of-scope) | Out of scope for this register |
 | [12](#12--verification) | Verification |
+| [13](#13--the-v210-menu-structure-audit-2026-08-20) | **The v2.10 menu-structure audit** — `design/Cartalith Menu Structure v2.dc.html` against the shipped shell, and the 17 undisclosed omissions it found |
 
 ---
 
@@ -204,6 +205,17 @@ breaches: the POI tool (`civilization_workspace.gd:94-101` — omitted rather th
 built inert, because no `civ_drop_poi` exists) and the `Brush / Stamp` right-dock
 context (`right_dock.gd:685-696` — merged into `Stamp stack` on the stated
 ground that two views of one state would fight). Both are (D).
+
+> **This list was incomplete, and knowably so: it was derived from
+> `DCC_SHELL_SPEC.md`, which is a design for the shell rather than an inventory
+> of the app being ported.** Auditing the same shell against
+> `design/Cartalith Menu Structure v2.dc.html` — the exhaustive v2.10 surface
+> catalogue — found **seventeen more** omissions of exactly this kind, eleven
+> of them whole-network civ operations and generation passes that `generate()`
+> absorbed. All seventeen are catalogued and closed in **§13**, which is the
+> continuation of this section rather than a separate finding. **CV-07** is the
+> one row this section and §13 share: it was registered here as absent with no
+> disclosure, and now has one.
 
 ---
 
@@ -1373,3 +1385,196 @@ missing-method warnings.
 QGIS, ArcGIS Pro, Mapbox Studio, Gaea, World Machine, Unreal, Wonderdraft and
 Inkarnate. Every claim in §7 that is attributed to a comparable application
 carries its source URL inline.
+
+---
+
+## 13 · The v2.10 menu-structure audit (2026-08-20)
+
+### 13.1 What was audited, and against what
+
+`design/Cartalith Menu Structure v2.dc.html` — one 1920-wide canvas,
+`data-screen-label="Menu structure nested"`, freshly re-checked against the
+live Claude Design project and current — catalogues, in its own words, *"every
+surface in v2.10, carrying its real disclosure depth into the seven domains of
+design 1a."* It is the most complete single inventory of the reference app's
+control surface this repository holds: **202 menu rows across 9 domain columns
+and 41 L2 categories**, plus a 22-node workspace navigator and 6 inspector
+contexts — **230 catalogued entries**. Many rows carry an `n` marker standing
+for *n* sibling sliders in the same v2.10 section, so the underlying control
+count is ~330.
+
+**This is not a request to restructure the shell, and nothing here proposes
+one.** The canvas's top bar shows the earlier seven menus (Project · World ·
+Generate · Simulate · Map · Assets · View); `DCC_SHELL_SPEC.md` §2 replaced
+them with File · Edit · Assets · Data · Preferences · Window · Help plus a
+domain rail, and the owner merged that rail to three domains on 2026-08-20
+(commit `42547d9`). §8.7 above already settles that disagreement in the spec's
+favour, and this audit inherits that ruling. What the canvas is used for here
+is only its **exhaustive surface inventory with disclosure depth** — the
+question "does every control the original app had exist somewhere in this
+shell, live or honestly disabled, or is it simply absent?"
+
+### 13.2 The split
+
+| Class | Rows | Share |
+|---|---:|---:|
+| **(a)** present and live | **71** | 35 % |
+| **(b)** present as an honestly-disabled `_todo`, a disclosed gap route, or an in-product "Not built" note | **97** | 48 % |
+| **(c)** **absent entirely, no disclosure anywhere — including this register** | **17** | 8 % |
+| **(d)** deliberately superseded by a later decision | **17** | 8 % |
+| **Total** | **202** | |
+
+The 22 navigator nodes and 6 inspector contexts are counted separately: the
+navigator's four groups map onto the rail's three domains plus the merged
+INFRA/RENDER subjects (all present); five of six inspector contexts are built
+(§6.8), the sixth is `Layers`, already registered as **RD-10** / omission
+**O9**.
+
+**The headline is that the honesty rule held for 83 % of the reference's own
+surface without anyone auditing for it.** Nearly half the inventory is a
+disabled item, a disclosed Data-manager route or an in-product "not ported"
+note that names the specific missing Rust. The 17 in (c) are the real finding,
+and they cluster: eleven of them are *whole-network civ operations and
+generation passes that `generate()` absorbed*, which is exactly the kind of
+gap a one-shot pipeline hides — there is no button missing from a panel, there
+is a panel that never needed the button, and no reader could tell that apart
+from an oversight.
+
+### 13.3 The (c) list in full — every undisclosed omission
+
+Each row names the reference's own `#id` where it has one, and what was done
+about it in this pass. **Nine became disabled controls with a real reason;
+seven became in-product prose (a stage `gap` string, a route reason, a "Not
+built" note); one pair was wired live.**
+
+| # | Missing surface | Reference `#id` | Where it now lives | Why it could not be wired |
+|---|---|---|---|---|
+| MS-01 | **Center landmasses** | `#centerBtn` | `app.gd` — disabled button in the GENERATE · WORLD tool-options bar, beside Generate world / New seed | `generate_terrain` places plate seeds from the seed alone; no centring pass and no post-generate offset exist |
+| MS-02 | **Infer tectonics from heightmap** | `#inferTectBtn` | `data_manager_window.gd` — folded into `import_maps`' reason, named explicitly as a *second* gap | Two gaps, not one: no heightmap reader (DM-01) **and** no engine function reconstructing plate structure from an arbitrary field |
+| MS-03 | **Fold intensity · trench depth · fault blocks** (structured orogeny) | `foldI`/`trenchD`/`faultB` | `world_workspace.gd` — stage 04 Tectonics' `gap` string, which was **empty** | `generate_terrain` hardcodes the reference's own defaults (0.16, 1.0, 0), so behaviour matches; exposing them threads three fields through `OrogenyParams`' call site |
+| MS-04 | **Evolve climate ↔ terrain · Evolve cycles** | `#evolveBtn`/`#evoCyc` | `world_workspace.gd` — stage 06 Erosion's `gap`, which named five passes and not these | `evolveCoupled()` has no `cartalith-engine` equivalent. It is not one of the five that got an honest empty group, because it is not a pass over this stage's inputs — it re-runs erosion and climate against each other |
+| MS-05 | **Sediment fill** | `#sedimentBtn` | same stage `gap` | same |
+| MS-06 | **Auto-populate world** (+ capitals / towns / hamlets counts) | `#civAutoPopulateBtn` | `civilization_workspace.gd` — disabled button in Settlements ▸ Not built | `compute_civilisation` runs inside `generate()`; no `civ_populate` `#[func]`, and `params.rs`'s 58 entries carry no civ parameter |
+| MS-07 | **Clear places & routes** | `#civClearPlacesBtn` | same | `CivData` is rebuilt wholesale by `generate()`, never mutated in place — there is no partial teardown to expose |
+| MS-08 | **Generate roads** | `#civAutoRoutesBtn` | `infrastructure_workspace.gd` — disabled button in Roads ▸ Not built | same shape as MS-06; the Way/Route tools are the wired alternative |
+| MS-09 | **Clear ways & journeys** | `#civClearRoadsBtn` | same | same shape as MS-07, compounded by **IN-02** (committed manual ways have no getter) |
+| MS-10 | **Recalculate territories** | — | `civilization_workspace.gd` — disabled button in Politics ▸ Not built | `assign_territory()` runs inside `compute_civilisation`; nothing re-runs it against edited settlements |
+| MS-11 | **Clear territory** | — | same | same |
+| MS-12 | **Generate provinces** | — | same | provinces are produced inside `generate()` and only read out. The *tint* half of the canvas's row is live (CARTO ▸ Layers ▸ Political — provinces) |
+| MS-13 | **Add / remove faction** | — | same | **CV-07** was registered as absent-with-no-disclosure; it now has one. `CIV_FACTION_COUNT` is a compile-time constant and factions have no identity across a re-generate |
+| MS-14 | **Show rivers in biome view · Rivers as ways · sharper ecotones** | `#showRivers` | `cartography_workspace.gd` — Layers ▸ Not built | Reference *render* filters over a river network that never crosses the boundary (the same entity gap as **RD-05**/**IN-01**); ecotone sharpening is unparameterised |
+| MS-15 | **Refine detail · Burn rivers into tiles · Micro-erode tiles · Chunk debug overlay · Show tile borders** | `#lodRefineBtn`, `#lodDbgSeg` | `menus.gd` — Preferences ▸ Tiled LOD's tooltip, now also renamed to end `· chunk debug` | `lod_synthesize_tile` resamples the existing field and runs no erosion or river burn-in; nothing draws the tile grid. **This also fixed a dangling pointer**: `world_workspace.gd`'s "Not a generation stage" note sent readers to "Preferences ▸ Tiles & LOD" for chunk debug, and that row did not mention it |
+| MS-16 | **Sample ▸ Route cost** and **Sample ▸ E–W elevation profile** | — | `right_dock.gd` — two permanently-dashed rows in the Sample panel | §6's no-selection list has both. Route cost is per-**leg** inside `jp_plan`, meaningless at one cell. The profile's data all exists (`sample_cell` reads any cell) but there is no row-slice `#[func]`, so drawing it means 1 000–4 000 boundary crossings per mouse-move — a binding gap, not a data gap |
+| MS-17 | **Settlements ▸ per-class filter** and **Ways ▸ by-type filter** | `#explSettlementFilterList`, `#explShowRoads` | **wired live** — see 13.4 | — |
+
+### 13.4 The one thing wired live, and why
+
+**MS-17 was the only (c) row with its engine backing already present**, so it
+was built rather than disclosed. `get_settlements()` emits a `kind` on every
+row and `get_roads()` a `way_type`; the filter is therefore a draw-time test,
+not a missing capability. Three files, ~60 lines:
+
+- `map_overlay.gd` — two *hidden*-set dictionaries (`_hidden_settlement_kinds`,
+  `_hidden_way_types`) and one `continue` in each draw loop. Hidden sets, not
+  shown sets, so an empty dictionary means "show everything" — which is what an
+  untouched shell and a freshly-loaded world both are; a shown-set would need
+  seeding from a roster that does not exist until the first generate. The
+  settlement test sits **before** any geometry, so a hidden tier never reserves
+  label occupancy a visible place would then be pushed out of.
+- `viewport_host.gd` — `set_settlement_kind_visible` / `set_way_type_visible`,
+  kept as separate entry points from `set_layer_visible` because they take a
+  *sub*-key: folding them into one string namespace would collide
+  `"settlements"` with `"settlements/hamlet"`.
+- `cartography_workspace.gd` — two L4 groups under Layers, five settlement
+  tiers and three land way types (`sea_lane` keeps its existing top-level row
+  rather than gaining a second, disagreeing switch).
+
+A hidden class stays hoverable and clickable. Hiding a tier is a cartographic
+choice and is not a reason to make a place unselectable — the same
+independence `_show_settlements` already keeps for the whole layer.
+
+### 13.5 (d) — superseded, with the decision that superseded it
+
+No design is proposed for any of these, per §9's rule.
+
+| Canvas surface | Superseded by |
+|---|---|
+| The seven menus **Project / World / Generate / Simulate / Map / Assets / View** | `DCC_SHELL_SPEC.md` §2 + its header: *"World generation, simulation, rendering and map styling are workspaces reached through the domain rail (§3), never menu items."* §8.7 above |
+| The **six-item mode bar** (WORLD · EDIT · ANALYSIS · SIMULATION · CARTOGRAPHIC · DEBUG) and the **four-group navigator** | The domain rail, merged to three on 2026-08-20 (`42547d9`; `dcc_shell.gd`'s `DOMAINS` doc) |
+| **Phase chip · Atlas / Generate** (`#phaseChip`) | The rail foot's own context + stage counter (`app.gd::_refresh_rail_foot`). The reference's chip tracked its `generate`/`explore` tab pair, which this shell does not have |
+| **Map view ▸ Mode · relief / biome / political** (`#modeSeg`) | The Layers popover's 18 debug views — §8.7's own "arrived, better than specified". Relief is the popover's `off` row (base map); Biome and Political are real rows |
+| **Measurement tool**, marked `new` on the canvas | Already **live** as one of §4.5.1's three global tools (`global_tools.gd`) — the canvas under-counts the shell here, not the reverse |
+| **Simulation layers** (climate · population · economy · politics · infrastructure · warfare) | **CV-09** — the engine is a one-shot static generator by repeated owner decision (`VISION.md`, `TIMELINE_SCOPE.md` §4) |
+| **Imperial-seat tier (metropolis)** | **CV-04** — `TIMELINE_SCOPE.md` §6, a separately-scoped pre-existing gap |
+| **Villages (suitability-weighted)** | Live, but in `File ▸ New world`, not here — `set_villages_enabled` is a creation-time argument |
+| **Way type ▸ trail / bridge** | **IN-05** — spec/engine disagreement resolved in the engine's favour |
+| **Per-stage run controls** implied by the numbered `01…10` stage columns | **WW-11** — `DCC_SHELL_SPEC.md` header correction #2, Playwright-verified against the reference |
+| **Undo history (5 steps)** (`#undoMem`) | **ED-02** + **PR-11**, both disclosed |
+| **Project settings…** | §8.5 — still nowhere in-product, and still a naming/ownership question rather than a build |
+
+### 13.6 Naming recommendations — surfaced, not applied
+
+Per this dispatch's own constraint, nothing below was changed. All three are
+cases where the canvas's wording reads better than the shipped wording.
+
+1. **"Analysis field" beats "Layers popover".** The canvas calls the debug-view
+   picker `VIEW ▸ ANALYSIS FIELD`, which says what the thing *is* — a choice of
+   which field to analyse — where "Layers" collides with CARTO ▸ Layers, a
+   different control governing vector overlays. The popover's own footer
+   already has to explain that collision in prose. Renaming the viewport button
+   to `FIELD` or `ANALYSIS` would remove the need for the footnote.
+2. **"Finalize world" beats "Finalize · LOD 0–3 · bake & freeze".** The canvas
+   splits the reference's three controls cleanly (Bake depth · Bake ALL levels
+   & finalize · Un-finalize); the shell compresses all three into one disabled
+   button whose label reads as a specification rather than an action. When
+   **WW-01** is built, take the canvas's three-row split.
+3. **"Frame furniture" is a better section name than nothing.** Scale bar and
+   the measurement readout currently live as unnamed viewport chrome
+   (`viewport_host.gd`'s `_chrome()`); the canvas groups them under `§ Frame
+   furniture`, which is the standard cartographic term and gives the compass /
+   scale bar / neatline a home to grow into.
+
+Two further observations worth recording rather than acting on:
+
+- **The canvas's `+ ADVANCED` (L5) rule is stronger than the shell's.** It
+  requires *"Advanced holds only dials whose defaults are already correct.
+  Nothing required to finish a world may sit at L5."* `world_workspace.gd`'s
+  `ADVANCED_KEYS` was chosen by a different rule (the reference buried it, or
+  this port surfaces it as a superset). The two agree today by luck; if a
+  future parameter is added to `ADVANCED_KEYS` because the reference hid it
+  *and* it changes whether a world finishes, they will diverge.
+- **The canvas's DEPTH CAP is five levels; the shell reaches six in one place.**
+  CARTO ▸ Layers ▸ *Settlements · by class* ▸ toggle is L1→L2→L3→L4→L5, which
+  is legal — but adding one more nesting level under either new filter group
+  would break the cap, and the canvas's own remedy (*"a sixth means the L2
+  category is wrong and should be split"*) would mean splitting Layers.
+
+### 13.7 Verification
+
+- **The canvas was read in full**, every menu column, nested row and annotation
+  (521 lines of HTML), together with its companion
+  `design/cartalith-menu-structure.md` (203 lines) — the prose version of the
+  same inventory, already cited by §8.7.
+- **Cross-referenced against**: `menus.gd`, `app.gd`, `right_dock.gd`,
+  `layers_popover.gd`, `data_manager_window.gd`, `performance_window.gd`,
+  `global_tools.gd`, `new_world_dialog.gd`, `map_overlay.gd`,
+  `viewport_host.gd` and all five workspace files.
+- **Engine claims opened, not inferred.** The full `#[func]` list was
+  re-enumerated from `cartalith-godot/src/` and the absence of
+  `civ_populate`/`civ_clear_places`/`civ_auto_routes`/`civ_clear_roads`/
+  `civ_recalc_territory`/`civ_generate_provinces`/`civ_add_faction` confirmed
+  by name. `params.rs`'s 58 entries were listed key-by-group and checked
+  against every canvas parameter row;
+  `GENERATION_PARAMETERS.md`'s own "Parameters the reference exposed that this
+  port does not" was read in full and is the source for MS-03/MS-04/MS-05.
+- **Parse-check**: all 11 edited files, `--check-only --script`, clean.
+- **Boot-check**: `--headless --path godot-project --quit` — clean. The main
+  scene is `shell/app.tscn`, so this builds every workspace.
+- **Scripted headless drive**: instantiated the shell, exercised both new
+  filter entry points in both directions, and walked the whole node tree
+  fingerprinting tooltips — **all nine new disabled disclosures found and
+  reachable** (Center landmasses · Auto-populate world · Clear places & routes
+  · Recalculate territories · Clear territory · Generate provinces · Add /
+  remove faction · Generate roads · Clear ways & journeys).
+- **Not touched**: `asset_library_window.gd` and `asset_bridge.rs`, both
+  mid-edit by a concurrent sprite-slicer dispatch.

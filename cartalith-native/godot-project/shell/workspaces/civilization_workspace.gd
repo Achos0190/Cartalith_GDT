@@ -413,6 +413,7 @@ func _build_settlements() -> void:
 	var settlements := bridge.settlements()
 	if settlements.is_empty():
 		DccWidgets.note(sec, "No settlements -- generate a world first (World ▸ Generation Pipeline).")
+		_build_settlement_gaps(cat)
 		return
 
 	var counts := {}
@@ -432,6 +433,31 @@ func _build_settlements() -> void:
 	ranked.sort_custom(func(a, b): return int(a.data.population) > int(b.data.population))
 	for i in range(mini(8, ranked.size())):
 		_settlement_row(by_pop, ranked[i].data, ranked[i].index)
+
+	_build_settlement_gaps(cat)
+
+
+## The reference's own settlement-population operations, which this shell has
+## no equivalent of because the split is different, not because they were
+## forgotten: `generate()` populates the world as part of the one-shot chain
+## (`compute_civilisation`), so there is no separate "populate now" step to
+## press and nothing that clears just the civ layer without re-running the
+## whole pipeline. Said out loud so a reader of this dock can tell that apart
+## from an unfinished panel.
+func _build_settlement_gaps(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Not built")
+	var pop := DccWidgets.action(sec, "Auto-populate world", func(): pass)
+	pop.disabled = true
+	pop.tooltip_text = "The reference's #civAutoPopulateBtn, plus its capitals / towns / hamlets count sliders. In this port settlement placement is not a separate pass: compute_civilisation runs inside generate() and there is no civ_populate #[func] to call on its own, nor any parameter for the three counts (params.rs has 58 entries, none of them civ). Re-generate from World ▸ Generation pipeline to re-place everything."
+	var clear := DccWidgets.action(sec, "Clear places & routes", func(): pass)
+	clear.disabled = true
+	clear.tooltip_text = "The reference's #civClearPlacesBtn. Same shape: no civ_clear_places #[func] exists, and CivData is rebuilt wholesale by generate() rather than mutated in place, so there is no partial teardown to expose. Individual manual drops can still be undone by re-generating."
+	DccWidgets.note(sec,
+		"The placement model's own dials are equally internal: biome carrying-capacity "
+		+ "and the imperial-seat (metropolis) tier are computed inside cartalith-civ with "
+		+ "no parameters, and urban morphology layouts are a separate unported subsystem "
+		+ "(URBAN_MORPHOLOGY_SCOPE.md, Phase 5, in progress). Village seeding is the one "
+		+ "of the four that IS exposed -- as a toggle in File ▸ New world.")
 
 func _settlement_row(parent: Control, data: Dictionary, index: int) -> void:
 	var text := "%s -- %s, pop %d" % [data.get("name", "?"), String(data.get("kind", "?")).capitalize(), int(data.get("population", 0))]
@@ -546,6 +572,24 @@ func _build_politics() -> void:
 		"Territory paint and settlement placement (STRANDED_TOOLS.md rows 10, 12) are wired " +
 		"now -- see the TOOLS block at the top of this dock (§4.5.3's Settlement and " +
 		"Territory tools).")
+
+	var gaps := DccWidgets.section(cat, "Not built")
+	var recalc := DccWidgets.action(gaps, "Recalculate territories", func(): pass)
+	recalc.disabled = true
+	recalc.tooltip_text = "The reference's territory recompute. assign_territory() runs inside compute_civilisation as part of generate(); no #[func] re-runs it against edited settlements, so a manual drop does not redraw the claim map until the next full re-generate (which is what the Settlement tool's own status hint already says). Painting a claim by hand is the wired alternative -- the Territory tool above."
+	var clear_ter := DccWidgets.action(gaps, "Clear territory", func(): pass)
+	clear_ter.disabled = true
+	clear_ter.tooltip_text = "Same: CivData::territory is rebuilt wholesale by generate() and there is no civ_clear_territory #[func]. The Territory tool's own Discard reverts an uncommitted draft only, not the committed claim map."
+	var gen_prov := DccWidgets.action(gaps, "Generate provinces", func(): pass)
+	gen_prov.disabled = true
+	gen_prov.tooltip_text = "The reference's province generator. Provinces are produced inside generate() and only read out (get_provinces()); no #[func] regenerates them. Their map tint IS live -- Cartography ▸ Layers ▸ Political — provinces."
+	var add_fac := DccWidgets.action(gaps, "Add / remove faction", func(): pass)
+	add_fac.disabled = true
+	add_fac.tooltip_text = "GUI_GAP_REGISTER.md CV-07. CIV_FACTION_COUNT is a compile-time constant in cartalith-civ and factions have no persistent identity across a re-generate, so there is no roster to add to or remove from -- get_factions() enumerates a fixed set, it does not own one."
+	DccWidgets.note(gaps,
+		"Diplomatic relations (the design's own per-faction sub-list) is new work with no " +
+		"reference behaviour behind it either -- cartalith-civ models no inter-faction " +
+		"relation of any kind.")
 
 # -- Culture ----------------------------------------------------------------
 

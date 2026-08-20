@@ -561,6 +561,19 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 		"sea_routes": overlay.set_show_sea_routes(shown)
 		_: push_error("ViewportHost: unknown layer '%s'" % layer)
 
+## The per-class / per-way-type half of the reference's own layer filters
+## (`#explSettlementFilterList`, and `#explShowRoads`'s by-way-type list --
+## `design/Cartalith Menu Structure v2.dc.html`, MAP ▸ LAYERS). Passed
+## straight through to `map_overlay.gd`, which owns the draw-time test; kept
+## as separate entry points from `set_layer_visible` above because these take
+## a *sub*-key, not a layer id, and folding them into one string namespace
+## would make "settlements" and "settlements/hamlet" collide.
+func set_settlement_kind_visible(kind: String, shown: bool) -> void:
+	overlay.set_settlement_kind_visible(kind, shown)
+
+func set_way_type_visible(way_type: String, shown: bool) -> void:
+	overlay.set_way_type_visible(way_type, shown)
+
 ## Sculpt/Paint's shared draft-preview raster (`_preview_layer`, built in
 ## `_ready()`). Pass `null` to clear it -- an armed tool's own disarm handler
 ## is expected to do this, the same way `GlobalTools` clears `tool_overlay`'s

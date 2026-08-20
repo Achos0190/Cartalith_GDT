@@ -50,7 +50,7 @@ var _bridge: EngineBridge
 ## `_todo()` tooltip convention for a window rather than a popup item).
 const ROUTES: Array[Dictionary] = [
 	{"group": "Import", "id": "import_maps", "label": "Maps · Heightmaps (PNG · TIFF) · GIS / GeoJSON", "kind": "gap",
-		"reason": "No image, heightmap or GeoJSON import path exists anywhere in the workspace (grepped cartalith-io, cartalith-spatial, cartalith-assets)."},
+		"reason": "No image, heightmap or GeoJSON import path exists anywhere in the workspace (grepped cartalith-io, cartalith-spatial, cartalith-assets). This also blocks the reference's own follow-on operation, Infer tectonics from heightmap (#inferTectBtn) -- which reads an imported heightfield, derives plate boundaries from its ridge/trench structure and writes them back as plate_id/boundary_type. Two gaps, not one: the reader does not exist, and neither does the inference pass (no cartalith-engine function reconstructs tectonics from an arbitrary height field)."},
 	{"group": "Import", "id": "import_world", "label": "World Data (.zip · fields)", "kind": "live"},
 	{"group": "Import", "id": "import_assets", "label": "Assets (routes to the Assets menu)", "kind": "route"},
 	{"group": "Export", "id": "export_maps", "label": "Maps (image · tiles)", "kind": "gap",

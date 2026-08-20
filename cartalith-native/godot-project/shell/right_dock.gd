@@ -390,6 +390,23 @@ func _build_sample(body: Control) -> void:
 		"Computed here from get_settlements()'s x/y against the cursor cell.",
 		valid)
 
+	## §6's no-selection list has two more entries than the rows above, and
+	## both were simply absent rather than disclosed (2026-08-20 menu-structure
+	## audit). Drawn as permanently-dashed rows with their real reason, the
+	## same shape every other unavailable field in this panel already takes.
+	_field(sec, "Route cost", "—",
+		"§6 lists it; nothing computes a per-cell traversal cost. cartalith-civ's route " +
+		"cost lives inside the Journey Planner's own Dijkstra (jp_plan) and is per-LEG, " +
+		"over a chosen party and season -- it has no meaning at one cell with no journey " +
+		"around it, and no #[func] evaluates the cost surface pointwise. Plan a journey " +
+		"(Data ▸ Journey planner, ⇧J) for the real figure.", false)
+	_field(sec, "E–W profile", "—",
+		"§6's elevation profile through the cursor's row. Every input exists -- sample_cell " +
+		"reads any cell -- but drawing it means one call per column on every mouse move " +
+		"(1 000-4 000 boundary crossings per frame at working resolution), and there is no " +
+		"row-slice #[func] to fetch the whole scanline in one call. A real gap in the " +
+		"binding surface, not in the data.", false)
+
 	if not valid:
 		DccWidgets.note(sec, "No world generated -- every field goes live once one exists.")
 	elif bridge.sample_cell(0, 0).is_empty():

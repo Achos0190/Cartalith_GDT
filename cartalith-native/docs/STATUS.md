@@ -5,7 +5,44 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-20 (post **Asset Library: a real `#[func]` surface**
+Last updated: 2026-08-20 (post **Menu-structure audit: the v2.10 surface
+inventory vs. the shipped shell** — GDScript-only, no Rust.
+`design/Cartalith Menu Structure v2.dc.html` catalogues **202 menu rows**
+across 9 columns and 41 categories (plus 22 navigator nodes, 6 inspector
+contexts) — the most complete inventory of the *reference app's* control
+surface this repo holds. It was **audited, not implemented**: its top bar
+still shows the earlier seven menus and `DCC_SHELL_SPEC.md` §2 plus the
+`42547d9` domain merge supersede that, so nothing was restructured. Split:
+**71 live · 97 honestly disclosed · 17 absent with no disclosure anywhere
+(including `GUI_GAP_REGISTER.md` itself) · 17 superseded**. The 17 cluster:
+eleven are whole-network civ operations and generation passes `generate()`
+absorbed, which a one-shot pipeline hides — there is no button missing from
+a panel, there is a panel that never needed it. Nine became **disabled
+controls with a real reason** (Center landmasses `#centerBtn`;
+Auto-populate world; Clear places & routes; Recalculate territories; Clear
+territory; Generate provinces; Add/remove faction — which closes **CV-07**;
+Generate roads; Clear ways & journeys). Seven became **in-product prose**
+(stage 04 Tectonics' `gap` string was *empty* and now names the three
+structured-orogeny knobs; stage 06 Erosion's now also names Evolve
+climate↔terrain and Sediment fill; the Data manager's `import_maps` reason
+names **Infer tectonics from heightmap** as a *second* gap; CARTO ▸ Layers
+gained a "Not built" section; `right_dock.gd`'s Sample panel gained dashed
+**Route cost** and **E–W profile** rows — both in §6's own list, both simply
+absent). One **dangling pointer fixed**: `world_workspace.gd` sent readers
+to Preferences ▸ Tiles & LOD for chunk debug and that tooltip never
+mentioned it. `render_workspace.gd`'s one umbrella note gained an inventory
+of the ~60 designed controls behind it. **Wired live** — the only omission
+whose engine backing already existed: **per-class settlement and
+by-way-type road filters** (`#explSettlementFilterList`/`#explShowRoads`),
+a draw-time test in `map_overlay.gd` (hidden-sets, so empty means show-all)
+behind two new `viewport_host.gd` entry points and two L4 groups in CARTO ▸
+Layers; a hidden class stays hoverable and clickable. Verified: parse-check
+on all 11 edited files clean, headless boot of `shell/app.tscn` clean, and a
+scripted headless drive that exercised both filters in both directions and
+tree-walked tooltips to confirm all nine disclosures reachable. Naming
+insights from the canvas are **recommendations only** in
+`GUI_GAP_REGISTER.md` §13.6, not applied. Full record: that file's new §13.
+— previously, post **Asset Library: a real `#[func]` surface**
 — closes `GUI_GAP_REGISTER.md` AS-01..AS-08/AS-13/DM-05. New
 `cartalith-godot/src/asset_bridge.rs` (`AssetLibrarySession`: a live
 `AssetDB` plus a parallel decoded-pixel store) behind a 20-function `as_*`
