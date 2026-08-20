@@ -7,6 +7,7 @@ use cartalith_rng::Mulberry32;
 use rayon::prelude::*;
 
 pub mod amplify;
+pub mod infer;
 pub mod sculpt;
 pub mod tile_render;
 
@@ -684,7 +685,7 @@ pub mod btype {
 /// `classifyBoundary()` (reference HTML line 2818): shear-dominant pairs
 /// are transforms regardless of crust type; otherwise convergence splits
 /// by ocean/continent combination, divergence is a rift.
-fn classify_boundary(ocean_a: bool, ocean_b: bool, c: f64, s: f64) -> u8 {
+pub(crate) fn classify_boundary(ocean_a: bool, ocean_b: bool, c: f64, s: f64) -> u8 {
     if s.abs() > 1.5 * c.abs() {
         return btype::TRANSFORM;
     }

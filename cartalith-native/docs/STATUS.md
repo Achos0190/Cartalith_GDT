@@ -5,7 +5,59 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-20 (post **Sprite-sheet slicer: the real slice
+Last updated: 2026-08-20 (post **Heightmap import + tectonic inversion, and a
+startup prompt** — the owner's *"when you open the app you should be prompted
+to either load a project, import a heightmap and infer tectonics etc or
+create a new world (akin to how the html works)"*. **The HTML's cold start
+was checked first**: it opens onto a mandatory setup gate (`#onboard`, HTML
+655-667) whose intro step is exactly three buttons — Generate / Load .zip /
+Import a heightmap — so the owner's three options are the reference's three,
+in its order. *Half 1*: `app.gd`'s `_ready()` now opens the world gallery in
+a new **welcome mode** — two extra action tiles (*Create a new world*,
+*Import a heightmap*) ahead of the existing `.zip` tile, a re-worded head,
+and a *Continue without a world* opt-out. A mode rather than a third dialog
+because the gallery already **is** the load-a-project surface and already
+carries one action tile; the two extras appear only in welcome mode, so
+`File ▸ Open project…` is unchanged. One deliberate departure: **not a
+gate** — Escape leaves the empty shell exactly as it was, which a DCC shell
+with eleven windows can afford and a blank web canvas cannot. *Half 2*: a
+real reference feature this port lacked — new `cartalith-terrain/src/infer.rs`
+(the six pure functions of the reference's `v0.106 TECTONIC INVERSION`, HTML
+6641-6752: relief proxy → lowest-relief plate seeds → crust sign from mean
+elevation → stress synthesised from relief and *updip*, since velocity
+inversion is ill-posed → volcanic-arc chamfer decay → plate velocities) and
+`cartalith-engine/src/import.rs` (PNG decode, Rec. 601 luma, aspect-derived
+grid, then the forward machinery **verbatim** and the climate/flow tail).
+**Bit-exact golden parity on the first run** — 4 harness-extracted fixtures
+shaped to reach all six `BTYPE` codes, both wrap modes, both tie-breaks and
+`stamp_volcanic_arcs`' empty early return; `assert_eq!` on `f32`, no
+tolerance. **The mutation pass was the interesting part**: four survivors,
+all real — every default radius is `max(FLOOR, W/DIVISOR)` and at fixture
+widths the FLOOR always won, so a fifth 256×64 digest-pinned case was added;
+two further survivors are documented as genuinely *unobservable* (plate floor
+6→5 yields an identical grid; `js_hypot`/`js_exp` divergence is
+input-specific and pinned by `cartalith-jsmath`'s own tests) rather than
+chased. Two parity details found by reading rather than assuming: the
+moisture correctors legitimately run against a **zero** flow field on this
+path, and grid height comes from the **image's** aspect, not the caller's.
+One disclosed carve-out: the pixel resample cannot be matched (the reference
+goes through a `<canvas>` whose filter is implementation-defined), so
+`PARITY_TESTING.md`'s own carve-out applies — everything downstream of the
+field is exact. Two new `#[func]`s, threaded through `engine_bridge.gd` on
+the existing generation signals; wired to the welcome tile and to
+`Data ▸ Import ▸ Heightmaps (PNG)`, closing `GUI_GAP_REGISTER.md` **DM-01**
+and the menu audit's **MS-02** (*Infer tectonics from heightmap*) — both
+halves of MS-02 in one pass. Verified: 113 test binaries green with zero
+regressions, clean clippy/build, and a scripted headless drive confirming the
+prompt appears and cancels, that the welcome tiles do **not** leak into
+`File ▸ Open project…`, and that a real PNG imports in 302 ms onto the
+correct derived grid producing a live texture and **40 placed settlements**
+— proof the inferred substrate reached the whole civ stack. A 2048×1024 PNG
+imports to 512×256 in 391 ms, to 1024×512 in 988 ms. Still open: tile-map and
+GeoJSON *import* (`DM-01b`); TIFF is now a closed question, not a pending
+dependency decision — the reference's browser decode does not read it either.
+Not verified: anything graphical.
+— previously, post **Sprite-sheet slicer: the real slice
 operation** — closes `GUI_GAP_REGISTER.md` AS-09/AS-10/AS-11, the last
 engine gap behind the owner's "the asset slicer and management system lacks
 the functionality the html had". New `cartalith-assets/src/slicer.rs`: a
@@ -57,7 +109,9 @@ Generate roads; Clear ways & journeys). Seven became **in-product prose**
 (stage 04 Tectonics' `gap` string was *empty* and now names the three
 structured-orogeny knobs; stage 06 Erosion's now also names Evolve
 climate↔terrain and Sediment fill; the Data manager's `import_maps` reason
-names **Infer tectonics from heightmap** as a *second* gap; CARTO ▸ Layers
+named **Infer tectonics from heightmap** as a *second* gap (**both halves
+built 2026-08-20** — see the heightmap-import entry at the top of this file;
+that route is now live and the reason text describes what remains); CARTO ▸ Layers
 gained a "Not built" section; `right_dock.gd`'s Sample panel gained dashed
 **Route cost** and **E–W profile** rows — both in §6's own list, both simply
 absent). One **dangling pointer fixed**: `world_workspace.gd` sent readers
@@ -3272,9 +3326,14 @@ are genuinely real**, reusing rather than reimplementing:
 - **Import ▸ Assets** calls `open_asset_pack_picker()` directly, per §2.4's
   own table describing this item as "routes to the Assets menu."
 
+- **Import ▸ Heightmaps (PNG)** is live as of 2026-08-20: it reads the PNG,
+  takes it as the elevation field and infers a tectonic substrate under it
+  (`cartalith_engine::import`), closing DM-01 and MS-02.
+
 **Every other route stays a disclosed gap**, each with its own reason string
-shown in the pane rather than generic filler: Import Maps/Heightmaps/GIS
-(nothing anywhere in the workspace reads PNG/TIFF/GeoJSON in), Export Maps/
+shown in the pane rather than generic filler: Import Maps (tiles)/GIS
+(nothing reads a tile map or GeoJSON *in*; TIFF is parity-absent, since the
+reference's own browser decode does not read it either), Export Maps/
 GIS/World Data/Assets, Sources (no registry), Conversion (no CRS/format
 conversion — the engine has one flat km projection throughout), and
 Validation (no warning-collection pass exists — `load_save()` returns a plain

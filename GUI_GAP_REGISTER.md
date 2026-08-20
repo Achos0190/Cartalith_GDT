@@ -279,7 +279,8 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 
 | # | Route / control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
-| DM-01 | Import ▸ Maps · Heightmaps (PNG · TIFF) · GIS/GeoJSON | 47 | no image/heightmap/GeoJSON import anywhere in the workspace | yes | §2.4 names them; §9's pane is designed only for *Export ▸ Maps* | (B) large — no reader of any kind; TIFF is a new dependency decision |
+| DM-01 | Import ▸ Heightmaps (PNG) | 52 | **done, 2026-08-20** | real | §2.4 names it | now a `"live"` route: `DccApp.open_heightmap_import()` → `EngineBridge.import_heightmap` → `WorldGen::import_heightmap`, which decodes the PNG (`cartalith-assets::raster::decode_png`), resamples it at the *image's* aspect ratio and runs `cartalith_engine::import::infer_tectonics` under it — MS-02's other half, same pass |
+| DM-01b | Import ▸ Maps (tiles) · GIS / GeoJSON | 53 | no tile-map or GeoJSON **import** path exists; TIFF absent | yes | §2.4 | (B) large — the remainder of DM-01 after the heightmap half landed. **TIFF is now a closed question, not a pending dependency decision**: the reference's own file input is `accept="image/*"` decoded by the browser, which does not read TIFF either, so PNG-only is parity rather than a shortfall |
 | DM-02 | Export ▸ Maps (image · tiles) | 51 | `tile_render` draws per-tile PNGs; nothing assembles a Leaflet-style pyramid | yes | §9's route pane, **the one fully-designed route in the window** | (B) large — `region_export_tiles` is bound and tested; XYZ/TMS/WMTS addressing is new |
 | DM-03 | Export ▸ GIS / GeoJSON | 53 | `cartalith-engine::geojson` exports region GeoJSON for Region-select only, no route in, no CRS | yes | §2.4 | (B) wrapper — `export_geojson` is golden-verified; needs one `#[func]` plus assembling `GeoJsonWorld` |
 | DM-04 | Export ▸ World Data | 55 | no save writer | yes | §2.4 | (B) large — FI-01's writer |
@@ -1448,10 +1449,16 @@ about it in this pass. **Nine became disabled controls with a real reason;
 seven became in-product prose (a stage `gap` string, a route reason, a "Not
 built" note); one pair was wired live.**
 
+> **Update, 2026-08-20.** MS-02 (*Infer tectonics from heightmap*) is no
+> longer on this list — it was built, not disclosed, in the heightmap-import
+> pass. Its row below records what closed it. The counts in the paragraph
+> above are left as the audit found them, since they describe that audit's
+> own result rather than the current state.
+
 | # | Missing surface | Reference `#id` | Where it now lives | Why it could not be wired |
 |---|---|---|---|---|
 | MS-01 | **Center landmasses** | `#centerBtn` | `app.gd` — disabled button in the GENERATE · WORLD tool-options bar, beside Generate world / New seed | `generate_terrain` places plate seeds from the seed alone; no centring pass and no post-generate offset exist |
-| MS-02 | **Infer tectonics from heightmap** | `#inferTectBtn` | `data_manager_window.gd` — folded into `import_maps`' reason, named explicitly as a *second* gap | Two gaps, not one: no heightmap reader (DM-01) **and** no engine function reconstructing plate structure from an arbitrary field |
+| MS-02 | **Infer tectonics from heightmap** | `#inferTectBtn` | **done, 2026-08-20** — `Data ▸ Import ▸ Heightmaps (PNG)`, and the welcome screen's own *Import a heightmap* tile | Both halves closed in one pass. The reader is `cartalith-assets::raster::decode_png` + `cartalith_terrain::infer::heightmap_to_field`; the inference is `cartalith_terrain::infer` (`buildReliefField`/`pickPlateSeeds`/`classifyPlateCrust`/`reconstructBoundaryStress`/`stampVolcanicArcs`/`inferPlateVelocities`, reference HTML 6641-6752) orchestrated by `cartalith_engine::import::infer_tectonics`. Golden-parity tested bit-exact against the reference (`golden_parity_infer.rs`, 8 tests) |
 | MS-03 | **Fold intensity · trench depth · fault blocks** (structured orogeny) | `foldI`/`trenchD`/`faultB` | `world_workspace.gd` — stage 04 Tectonics' `gap` string, which was **empty** | `generate_terrain` hardcodes the reference's own defaults (0.16, 1.0, 0), so behaviour matches; exposing them threads three fields through `OrogenyParams`' call site |
 | MS-04 | **Evolve climate ↔ terrain · Evolve cycles** | `#evolveBtn`/`#evoCyc` | `world_workspace.gd` — stage 06 Erosion's `gap`, which named five passes and not these | `evolveCoupled()` has no `cartalith-engine` equivalent. It is not one of the five that got an honest empty group, because it is not a pass over this stage's inputs — it re-runs erosion and climate against each other |
 | MS-05 | **Sediment fill** | `#sedimentBtn` | same stage `gap` | same |

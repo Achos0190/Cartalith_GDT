@@ -34,9 +34,19 @@ class_name DataManagerWindow
 ##   `export_pack_now()` (AS-04, `as_export_pack_bytes` ->
 ##   `archive::write_pack`), the same "routes, doesn't reimplement" shape
 ##   `import_assets` above already has.
-## - **Import ▸ Maps/Heightmaps/GIS**, **Export ▸ Maps/GIS**, **Sources**,
-##   **Conversion**, **Validation** are all disclosed gaps: no image/
-##   heightmap/GeoJSON import, no tile/GIS export, no source registry, no
+## - **Import ▸ Heightmaps (PNG)** is real (DM-01, since 2026-08-20): it
+##   routes to `DccApp.open_heightmap_import()` ->
+##   `EngineBridge.import_heightmap` -> `WorldGen::import_heightmap`, which
+##   decodes the PNG, takes it as the elevation field and runs
+##   `cartalith_engine::import::infer_tectonics` under it -- the reference's
+##   own `#loadBtn` + `#inferTectBtn` pair, ported and golden-tested
+##   (`cartalith-terrain/tests/golden_parity_infer.rs`). TIFF is absent and
+##   that is parity, not a shortfall: the reference's file input is
+##   `accept="image/*"` decoded by the browser, which does not read TIFF
+##   either.
+## - **Import ▸ Maps/GIS**, **Export ▸ Maps/GIS**, **Sources**,
+##   **Conversion**, **Validation** are all disclosed gaps: no tile-map or
+##   GeoJSON *import*, no tile/GIS export, no source registry, no
 ##   coordinate/format conversion, and no validation pass exist anywhere in
 ##   the workspace (`load_save` returns a plain bool, nothing a warning count
 ##   could be read from).
@@ -49,8 +59,9 @@ var _bridge: EngineBridge
 ## engine support -- `reason` is shown verbatim, mirroring `menus.gd`'s own
 ## `_todo()` tooltip convention for a window rather than a popup item).
 const ROUTES: Array[Dictionary] = [
-	{"group": "Import", "id": "import_maps", "label": "Maps · Heightmaps (PNG · TIFF) · GIS / GeoJSON", "kind": "gap",
-		"reason": "No image, heightmap or GeoJSON import path exists anywhere in the workspace (grepped cartalith-io, cartalith-spatial, cartalith-assets). This also blocks the reference's own follow-on operation, Infer tectonics from heightmap (#inferTectBtn) -- which reads an imported heightfield, derives plate boundaries from its ridge/trench structure and writes them back as plate_id/boundary_type. Two gaps, not one: the reader does not exist, and neither does the inference pass (no cartalith-engine function reconstructs tectonics from an arbitrary height field)."},
+	{"group": "Import", "id": "import_heightmap", "label": "Heightmaps (PNG)", "kind": "live"},
+	{"group": "Import", "id": "import_maps", "label": "Maps (tiles) · GIS / GeoJSON", "kind": "gap",
+		"reason": "No tile-map or GeoJSON *import* path exists (cartalith-engine::geojson only writes region GeoJSON, and nothing reads one back). TIFF is also absent, and deliberately: the reference's own file input is accept=\"image/*\" and decodes through the browser, which does not decode TIFF either -- so PNG is parity, not a shortfall. Heightmap import itself is live now; see the row above."},
 	{"group": "Import", "id": "import_world", "label": "World Data (.zip · fields)", "kind": "live"},
 	{"group": "Import", "id": "import_assets", "label": "Assets (routes to the Assets menu)", "kind": "route"},
 	{"group": "Export", "id": "export_maps", "label": "Maps (image · tiles)", "kind": "gap",
@@ -224,6 +235,16 @@ func _select_route(id: String) -> void:
 	match String(route.get("kind", "gap")):
 		"live":
 			match id:
+				"import_heightmap":
+					if _bridge != null and _bridge.import_api:
+						DccWidgets.note(_pane_body,
+							"Reads a PNG heightmap (white = high), resamples it to the working grid at the image's own aspect ratio, and infers a tectonic substrate from its morphology so lithology, resources and settlement have something to read -- the reference's Import ▸ Load heightmap… followed by Infer tectonics from heightmap. Scale (width, peak) comes from New world…, exactly as the reference's own calibrate step reuses its generate form.")
+						DccWidgets.action(_pane_body, "Import heightmap…", func():
+							hide()
+							_host.open_heightmap_import())
+					else:
+						DccWidgets.note(_pane_body,
+							"This build's GDExtension predates the heightmap-import binding (WorldGen::import_heightmap). Rebuild cartalith-godot to enable it.")
 				"import_world":
 					DccWidgets.note(_pane_body,
 						"Opens the same .zip project picker as File ▸ Open project… -- routed here per §9, not reimplemented.")

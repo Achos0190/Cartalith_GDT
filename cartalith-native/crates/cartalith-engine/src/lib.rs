@@ -96,6 +96,10 @@ pub mod region_export;
 /// milestone E2). Unwired: nothing calls it yet.
 pub mod geojson;
 
+/// Heightmap import + the tectonic-inversion pass that makes an imported
+/// elevation field behave like a generated world (`GENERATION_PARAMETERS.md`).
+pub mod import;
+
 use cartalith_climate::{
     apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
     WeatherParams,

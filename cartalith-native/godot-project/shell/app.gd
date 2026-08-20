@@ -207,6 +207,28 @@ func _ready() -> void:
 	set_status("hint", "File ▸ New world… to begin", "text_ghost")
 	set_status("top_world", "—")
 
+	## The cold start. The reference opens onto a mandatory setup gate whose
+	## intro step is exactly three buttons -- "🌍 Generate a world",
+	## "📂 Load project (.zip)", "🗻 Import a heightmap" (reference HTML lines
+	## 657-666) -- and nothing simulates until one is chosen. This port shows
+	## the same three choices, with two differences, both deliberate:
+	##
+	## - **It is not a gate.** The reference's own comment calls its gate
+	##   mandatory ("No Skip"); here Escape or Cancel closes the prompt and
+	##   leaves the empty shell exactly as it was, with the status hint above
+	##   still standing. A DCC shell with a populated menu bar, a rail and a
+	##   viewport has somewhere to go with no world open; a single-file web
+	##   page with a blank canvas does not. The prompt is a convenience, not
+	##   a lock.
+	## - **It is deferred one frame.** `popup_centered` before the shell has
+	##   laid out once centres against a window that has not been sized yet.
+	##
+	## Suppressed entirely when a world already exists -- nothing does yet at
+	## this point in `_ready`, but the guard keeps this honest if a future
+	## autoload restores a session.
+	if not bridge.has_world:
+		open_welcome.call_deferred()
+
 ## Three rail buttons, not five (`dcc_shell.gd`'s own `DOMAINS` doc comment:
 ## 2026-08-20 domain merge). `InfrastructureWorkspace` and `RenderWorkspace`
 ## still exist and still build their own real content -- they are just
@@ -390,6 +412,38 @@ func open_new_world() -> void:
 ## the route to a `.zip` sitting somewhere else on disk.
 func open_project_picker() -> void:
 	open_project_dialog.open()
+
+## The welcome prompt, shown once on a cold start (see `_ready`). Same
+## dialog as `open_project_picker()`, in its welcome mode -- see
+## `open_project_dialog.gd`'s header for why this is one screen with three
+## actions rather than a second dialog in front of it.
+func open_welcome() -> void:
+	open_project_dialog.open_welcome()
+
+## Import ▸ Load heightmap… — the reference's third route into a world
+## (`#loadBtn` + `#inferTectBtn`, reference HTML lines 534-535). Picks a PNG,
+## then hands it to the engine, which resamples it, takes it as the elevation
+## field and infers a tectonic substrate underneath so every downstream layer
+## has something to read.
+##
+## The scale settings come from `new_world_dialog.request()` rather than from
+## a form of their own, and that mirrors the reference exactly: its own import
+## path reopens the setup gate in `calibrate` mode, which is the *same* form
+## as the new-world one with resolution and extent omitted (`_suCalSync` is
+## literally `_suGenSync`). Grid *height* is the one thing not taken from it —
+## the engine derives that from the image's own aspect ratio.
+func open_heightmap_import() -> void:
+	if not bridge.import_api:
+		set_status("hint", "this build's engine has no heightmap import", "accent")
+		return
+	if bridge.generating:
+		return
+	DccBrowseDialog.choose_file(self, "Import heightmap — browse", PackedStringArray(["png"]),
+		DccSettings.storage_root("projects"),
+		"PNG heightmaps, white = high. Scale comes from New world…'s width and peak.",
+		func(path: String):
+			set_status("hint", "importing %s…" % path.get_file(), "text_ghost")
+			bridge.import_heightmap(path, new_world_dialog.request()))
 
 ## Shared by the file-picker path above and `Data ▸ Recent worlds` / the
 ## Data manager window's own Import ▸ World Data route -- one place remembers

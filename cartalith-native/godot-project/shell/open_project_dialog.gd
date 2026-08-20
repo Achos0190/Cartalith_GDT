@@ -48,6 +48,31 @@ class_name OpenProjectDialog
 ## - **Seed and edit time are real.** The time is the file's own mtime; the
 ##   seed is read out of the save's `params.json` (`state.tect.seed`), which
 ##   is display metadata, not a computation -- nothing downstream reads it.
+##
+## ## Welcome mode
+##
+## `open_welcome()` is the same dialog with the cold-start framing: a
+## different head, two extra action tiles ahead of the gallery, and a foot
+## that says leaving is allowed. `app.gd`'s `_ready` opens it once when no
+## world exists.
+##
+## **Why this and not a separate welcome screen.** The reference's own setup
+## gate (reference HTML lines 657-666) is one card offering three peer
+## choices -- generate, load a `.zip`, import a heightmap. This dialog is
+## already two of those three: it *is* the load-a-project surface, and it
+## already carries one action tile that is not a project (the dashed
+## `.zip`-from-disk tile). Adding "create" and "import a heightmap" beside it
+## gives the reference's exact three choices on one screen, in the visual
+## language this shell already has, and reuses the recents list, the search
+## well, the drop handling and the theme scaffolding. A third dialog would
+## have had to duplicate all of that to say the same thing, and would have
+## put a chooser in front of a gallery that is itself a chooser.
+##
+## The two extra tiles appear **only** in welcome mode. `File ▸ Open
+## project…` is unchanged, because it answers a narrower question ("which of
+## my worlds?") and answering it with two tiles about making a new one would
+## be noise. The heightmap route stays reachable afterwards through
+## `Data ▸ Import ▸ Heightmaps`.
 
 const TILE_MIN := Vector2(232, 186)
 const GRID_COLUMNS := 4
@@ -62,6 +87,13 @@ var _scope := "recent"
 var _scope_buttons: Dictionary = {}   ## scope id -> Button
 var _selected := ""
 var _tiles: Dictionary = {}           ## path -> PanelContainer
+
+## Cold-start framing (see this file's header). Set by `open_welcome()`,
+## cleared by `open()`, read by `_build_head`'s labels and by `_refresh`.
+var _welcome := false
+var _title_label: Label
+var _subtitle_label: Label
+var _cancel_btn: Button
 
 ## path -> {seed, modified, size}. Keyed by path *and* mtime so a re-saved
 ## world re-reads rather than showing a stale seed; opening a `.zip` per tile
@@ -88,6 +120,19 @@ func setup(host: DccApp) -> void:
 
 func open() -> void:
 	_selected = ""
+	_welcome = false
+	popup_centered()
+	_refresh()
+
+## The cold-start prompt: the same gallery, framed as "start here" and
+## carrying the two actions that are not "open one of these". See this
+## file's header for why welcome is a mode rather than its own dialog.
+##
+## Closing it -- Escape, the ✕, or the foot's own opt-out -- leaves the shell
+## exactly as it was. Nothing about this is a gate.
+func open_welcome() -> void:
+	_selected = ""
+	_welcome = true
 	popup_centered()
 	_refresh()
 
@@ -128,9 +173,13 @@ func _build() -> void:
 func _build_head() -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 14)
-	row.add_child(DccTheme.label("Open project", "text_bright", DccTheme.FS_MODAL_TITLE))
-	row.add_child(DccTheme.label("choose a world to continue, or bring one in from disk",
-		"text_ghost", DccTheme.FS_SMALL))
+	## Both are re-worded in welcome mode (`_paint_head`) rather than built
+	## twice -- the row's layout is identical either way.
+	_title_label = DccTheme.label("Open project", "text_bright", DccTheme.FS_MODAL_TITLE)
+	row.add_child(_title_label)
+	_subtitle_label = DccTheme.label("choose a world to continue, or bring one in from disk",
+		"text_ghost", DccTheme.FS_SMALL)
+	row.add_child(_subtitle_label)
 	row.add_child(DccTheme.spacer())
 	var close := Button.new()
 	close.text = DccIcons.SYMBOLS["cross"]
@@ -232,10 +281,26 @@ func _build_foot() -> Control:
 	_foot_note.clip_text = true
 	row.add_child(_foot_note)
 	row.add_child(DccTheme.spacer())
-	DccWidgets.modal_button(row, "Cancel", func(): hide())
+	_cancel_btn = DccWidgets.modal_button(row, "Cancel", func(): hide())
 	_open_btn = DccWidgets.modal_button(row, "Open selected", _confirm, true)
 	_open_btn.disabled = true
 	return _pad(row, 30, 14, 30, 14)
+
+## Welcome mode re-words the head and the opt-out; everything else is the
+## same screen. Called from `_refresh`, so it tracks whichever `open*` ran.
+func _paint_head() -> void:
+	if _welcome:
+		_title_label.text = "Cartalith"
+		_subtitle_label.text = "start a world, continue one, or bring a heightmap in from disk"
+		## Not "Cancel": in welcome mode nothing is being cancelled, and the
+		## wording has to say that closing is a real, supported outcome --
+		## the one place this port deliberately parts company with the
+		## reference's mandatory gate (see `app.gd`'s `_ready`).
+		_cancel_btn.text = "Continue without a world"
+	else:
+		_title_label.text = "Open project"
+		_subtitle_label.text = "choose a world to continue, or bring one in from disk"
+		_cancel_btn.text = "Cancel"
 
 # ---------------------------------------------------------------------------
 # Content
@@ -269,6 +334,29 @@ func _refresh() -> void:
 		_grid.remove_child(c)
 		c.queue_free()
 	_tiles.clear()
+	_paint_head()
+
+	## Welcome mode leads with the two actions the gallery cannot express --
+	## make a world, bring a heightmap in -- so the reference's three choices
+	## read left to right across the first row before any project tile.
+	if _welcome:
+		_grid.add_child(_build_action_tile(
+			"domain_world", "Create a new world",
+			"seed, size and world shape",
+			true, func():
+				hide()
+				_host.open_new_world()))
+		## Hidden outright, not disabled, when the loaded extension has no
+		## import binding: an affordance that cannot work is worse than one
+		## that is absent, and unlike the `Shared` chip above there is no
+		## design element here it would be dishonest to drop.
+		if _host != null and _host.bridge.import_api:
+			_grid.add_child(_build_action_tile(
+				"mountains", "Import a heightmap",
+				"a PNG image, white = high —\ntectonics inferred from it",
+				false, func():
+					hide()
+					_host.open_heightmap_import()))
 
 	_grid.add_child(_build_import_tile())
 
@@ -286,6 +374,10 @@ func _refresh() -> void:
 		_foot_note.text = "Shared projects are not a concept in this port"
 	elif shown == 0 and query != "":
 		_foot_note.text = "no match · projects read from %s" % root
+	elif shown == 0 and _welcome:
+		## The first-ever launch. "nothing here yet" alone reads as a fault;
+		## the two tiles above are the answer, so the foot names them.
+		_foot_note.text = "no saved worlds yet — start one above · projects read from %s" % root
 	elif shown == 0:
 		_foot_note.text = "nothing here yet · projects read from %s" % root
 	else:
@@ -300,6 +392,44 @@ static func _matches(path: String, meta: Dictionary, query: String) -> bool:
 	if path.to_lower().contains(query):
 		return true
 	return String(meta.get("seed", "")).to_lower().contains(query)
+
+## A welcome-mode action tile: same footprint and caption rhythm as a
+## project tile, but a solid outline rather than the dashed-import one and a
+## glyph rather than an identicon, so it reads as an action and not as a
+## world you could select. `primary` gives the accent treatment the mockup's
+## own primary button carries -- exactly one tile has it, matching the
+## reference gate's single `class="accent"` button.
+func _build_action_tile(icon: String, title: String, note: String, primary: bool, on_click: Callable) -> Control:
+	var wrap := PanelContainer.new()
+	wrap.custom_minimum_size = TILE_MIN
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wrap.add_theme_stylebox_override("panel",
+		DccTheme.outline("accent" if primary else "line", "raised" if primary else "panel"))
+
+	var col := VBoxContainer.new()
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 10)
+	var pad := MarginContainer.new()
+	pad.add_theme_constant_override("margin_left", 16)
+	pad.add_theme_constant_override("margin_right", 16)
+	pad.add_child(col)
+	wrap.add_child(pad)
+
+	var glyph := DccIcons.rect(icon, 30, "accent" if primary else "text")
+	glyph.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	col.add_child(glyph)
+	var title_label := DccTheme.label(title, "accent" if primary else "text_bright", DccTheme.FS_BODY)
+	title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(title_label)
+	var note_label := DccTheme.mono_label(note, "text_faint", DccTheme.FS_TINY)
+	note_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(note_label)
+
+	_ignore_mouse(wrap)
+	wrap.gui_input.connect(func(event: InputEvent):
+		if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+			on_click.call())
+	return wrap
 
 func _build_import_tile() -> Control:
 	var wrap := PanelContainer.new()

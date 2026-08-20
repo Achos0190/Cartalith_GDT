@@ -176,70 +176,11 @@ pub fn build_soil_fertility(
     out
 }
 
-/// `chamferDist` (reference HTML line 7423): two-pass (forward, then
-/// backward raster scan) chamfer distance transform from a boolean seed
-/// mask. `d` is `f32` throughout (matching the reference's own
-/// `Float32Array`) -- every cell's stored value is truncated to `f32`
-/// immediately, and later cells read that truncated value back, so the
-/// truncation genuinely participates in the result, not just the final
-/// output (`cartalith-rust-conventions`: compare/accumulate at `f64`,
-/// narrow only at store -- done per-cell here, matching each JS store).
-fn chamfer_dist(src: &[u8], w: usize, h: usize) -> Vec<f32> {
-    const INF: f32 = 1e9;
-    const D1: f64 = 1.0;
-    const D2: f64 = std::f64::consts::SQRT_2;
-    let n = w * h;
-    let mut d = vec![0f32; n];
-    for i in 0..n {
-        d[i] = if src[i] != 0 { 0.0 } else { INF };
-    }
-
-    for y in 0..h {
-        for x in 0..w {
-            let i = y * w + x;
-            if d[i] == 0.0 {
-                continue;
-            }
-            let mut m = d[i] as f64;
-            if x > 0 {
-                m = m.min(d[i - 1] as f64 + D1);
-            }
-            if y > 0 {
-                m = m.min(d[i - w] as f64 + D1);
-            }
-            if x > 0 && y > 0 {
-                m = m.min(d[i - w - 1] as f64 + D2);
-            }
-            if x < w - 1 && y > 0 {
-                m = m.min(d[i - w + 1] as f64 + D2);
-            }
-            d[i] = m as f32;
-        }
-    }
-    for y in (0..h).rev() {
-        for x in (0..w).rev() {
-            let i = y * w + x;
-            if d[i] == 0.0 {
-                continue;
-            }
-            let mut m = d[i] as f64;
-            if x < w - 1 {
-                m = m.min(d[i + 1] as f64 + D1);
-            }
-            if y < h - 1 {
-                m = m.min(d[i + w] as f64 + D1);
-            }
-            if x < w - 1 && y < h - 1 {
-                m = m.min(d[i + w + 1] as f64 + D2);
-            }
-            if x > 0 && y < h - 1 {
-                m = m.min(d[i + w - 1] as f64 + D2);
-            }
-            d[i] = m as f32;
-        }
-    }
-    d
-}
+/// `chamferDist` (reference HTML line 7423). One implementation, in
+/// `cartalith-terrain::infer`, where the tectonic-inversion pass
+/// (`stampVolcanicArcs`) needed the same transform this file was already
+/// carrying privately -- rather than a second copy that could drift.
+use cartalith_terrain::infer::chamfer_dist;
 
 /// `buildWaterAccess` (reference HTML line 5866): exponential distance
 /// decay from rivers + coast (pre-industrial gathering radius). `flow_thresh`

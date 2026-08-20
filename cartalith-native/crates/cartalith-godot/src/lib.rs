@@ -1670,6 +1670,80 @@ impl WorldGen {
         self.absorb(ws, &p, seed);
     }
 
+    /// The reference's **third** way into a world (`Import ▸ Load
+    /// heightmap…` + `Infer tectonics from heightmap`, reference HTML lines
+    /// 534-535): read a PNG heightmap off disk, take it as the elevation
+    /// field, and reconstruct a plausible tectonic substrate underneath it
+    /// so every downstream layer has something coherent to read.
+    ///
+    /// `path` is a native OS filesystem path, exactly as `load_save` takes
+    /// one. Returns `false` on any read or decode error, leaving the
+    /// previous world untouched — the same fail-quietly-check-the-console
+    /// shape `load_save` and `generate` already have. Nothing here can
+    /// panic across the gdext boundary: every fallible step is a `Result`
+    /// converted to a log line and a `false`
+    /// (`cartalith-rust-conventions`).
+    ///
+    /// # Grid shape
+    ///
+    /// **`grid_h` is not a parameter, deliberately.** The reference derives
+    /// the grid height from the *image's own* aspect ratio
+    /// (`GH = max(80, round(GW / (imgW/imgH)))`), because an imported DEM
+    /// has a shape of its own and resampling it into a caller-chosen frame
+    /// would stretch it. `get_grid_size()` reports what was actually used.
+    ///
+    /// # Seed
+    ///
+    /// The inversion is deterministic from the heightmap alone — no RNG.
+    /// `seed` is still taken because one downstream stage the reference
+    /// reuses verbatim (`computeHeterogeneity`) is seeded, and because the
+    /// tool editors `absorb` builds want a stream of their own.
+    #[func]
+    fn import_heightmap(&mut self, path: GString, seed: i32, width_km: f64, grid_w: i32) -> bool {
+        let bytes = match std::fs::read(path.to_string()) {
+            Ok(b) => b,
+            Err(e) => {
+                godot_print!("cartalith-godot: import_heightmap could not read the file: {e}");
+                return false;
+            }
+        };
+        let gw = grid_w.max(4) as usize;
+        // `gh` here is a placeholder: `import_heightmap` overwrites it from
+        // the image aspect and hands the corrected params back.
+        let base = self.call_params(seed, width_km, gw, gw);
+        match cartalith_engine::import::import_heightmap(&bytes, &base) {
+            Ok(out) => {
+                godot_print!(
+                    "cartalith-godot: imported {}x{} heightmap onto a {}x{} grid",
+                    out.source_size.0,
+                    out.source_size.1,
+                    out.params.gw,
+                    out.params.gh
+                );
+                self.absorb(out.state, &out.params, seed);
+                true
+            }
+            Err(e) => {
+                godot_print!("cartalith-godot: import_heightmap failed: {e}");
+                false
+            }
+        }
+    }
+
+    /// What [`Self::import_heightmap`] would resample a given image onto,
+    /// without doing the import — so an import dialog can show the real
+    /// working grid before committing, rather than restating
+    /// `max(80, round(gw / aspect))` in GDScript
+    /// (`ARCHITECTURE.md`: "Godot computes nothing beyond layout").
+    ///
+    /// Returns `Vector2i(gw, gh)`.
+    #[func]
+    fn heightmap_grid_size(&self, grid_w: i32, image_w: i32, image_h: i32) -> Vector2i {
+        let gw = grid_w.max(4) as usize;
+        let gh = cartalith_terrain::infer::heightmap_grid_h(gw, image_w.max(0) as u32, image_h.max(0) as u32);
+        Vector2i::new(gw as i32, gh as i32)
+    }
+
     /// Generates with a named World-Structure archetype (`ARCHETYPES`, the
     /// reference's own five presets) applied for **this call only** — the
     /// stored parameters (`get_params()`) are left exactly as they were, so

@@ -16384,3 +16384,292 @@ unchanged from the previous entry.
 `cartalith-native/godot-project/shell/engine_bridge.gd`,
 `ASSET_LIBRARY_SCOPE.md` (new §11), `GUI_GAP_REGISTER.md` (AS-09/AS-10/AS-11
 rows, new AS-14), this file, `docs/STATUS.md`.
+
+## Heightmap import + tectonic inversion, and a startup prompt (2026-08-20)
+
+The owner's ask, verbatim: *"when you open the app you should be prompted to
+either load a project, import a heightmap and infer tectonics etc or create a
+new world (akin to how the html works)."* Two halves — a cold-start prompt,
+and the heightmap-import capability behind its middle option, which this port
+did not have at all.
+
+**How the HTML actually greets a fresh session** — checked before building
+anything, since "akin to how the html works" is the bar. The reference opens
+onto a **mandatory setup gate** (`#onboard`, reference HTML lines 655-667),
+promoted from onboarding to a hard gate in v0.67: *"nothing simulates until
+the user commits base settings."* Its intro step is exactly three buttons,
+and its own comment says *"No Skip — the gate is mandatory"*:
+
+| Button | id | Goes to |
+|---|---|---|
+| 🌍 Generate a world | `#obGenerate` | the `generate` step (resolution, extent, world shape, seed, scale) → `_suGenCommit` → `generate()` |
+| 📂 Load project (.zip) | `#obLoad` | clicks `#loadZipBtn`; the gate stays up until the load succeeds |
+| 🗻 Import a heightmap | `#obImport` | clicks `#loadBtn`; `loadImage`'s `onload` reopens the gate in `calibrate` mode → `_suCalCommit` → `inferTectonics()` |
+
+So the owner's three options are the reference's three options, in the
+reference's own order. Worth noting for anyone reading this later: the
+*calibrate* step is not a separate form — `_suCalSync()` is defined as
+`_suCalSync(){ _suGenSync(); }`, the same working model with resolution and
+extent omitted. That is why this port's import path takes its scale from the
+New-world dialog rather than growing a second one.
+
+### Half 1 — the startup prompt
+
+`app.gd`'s `_ready()` used to end on a status hint (*"File ▸ New world… to
+begin"*) and an empty shell. It now also opens the world gallery in a new
+**welcome mode**, deferred one frame so `popup_centered` measures a laid-out
+window.
+
+**Why a mode on `OpenProjectDialog` and not a third dialog.** The reference's
+gate is one card offering three peer choices. The gallery is already two of
+those three — it *is* the load-a-project surface, and it already carries one
+tile that is an action rather than a project (the dashed "Drop a `.zip` save
+or click to browse a folder" tile). Adding *Create a new world* and *Import a
+heightmap* beside it produces the reference's exact three choices on one
+screen, in the visual language the shell already has, reusing the recents
+list, the search well, the drop handling and the theme scaffolding. A
+separate welcome screen would have had to duplicate all of that to say the
+same thing, and would have put a chooser in front of a gallery that is itself
+a chooser.
+
+Welcome mode re-words the head (*Cartalith* / *"start a world, continue one,
+or bring a heightmap in from disk"*), prepends the two action tiles, and
+softens the foot's empty state. The two tiles appear **only** in welcome
+mode: `File ▸ Open project…` is byte-for-byte the screen it was, because it
+answers a narrower question and two tiles about making a new world would be
+noise there.
+
+**One deliberate departure from the reference: it is not a gate.** Escape,
+the ✕, or the foot's own *Continue without a world* closes it and leaves the
+empty shell exactly as it was. The reference is a single-file web page whose
+canvas is blank and whose sidebar it explicitly locks (`setup-gated`) until a
+world exists; this is a DCC shell with a populated menu bar, a rail, a
+viewport and eleven windows, which has somewhere to go with no world open.
+The prompt is a convenience, not a lock — and the foot button says so rather
+than reading *Cancel*, which would imply something was being abandoned.
+
+### Half 2 — heightmap import and the tectonic inversion
+
+**What the reference actually does** (reference HTML lines 6622-6797, its own
+`v0.106 — TECTONIC INVERSION` banner). An imported DEM arrives with `field[]`
+populated but every tectonic proxy zeroed and `plates=[]`, so the whole
+affordance stack — lithology, resources, settlement suitability — plus the
+Tect/Lith debug views and exports all read zeros. `inferTectonics()`
+reconstructs a *plausible proxy* from the heightmap's own morphology on this
+premise: **mountains and rifts mark plate boundaries; cratonic plains and
+ocean basins mark plate interiors.** Six pure functions, then the forward
+machinery unchanged:
+
+| Reference | Line | What it does |
+|---|---|---|
+| `buildReliefField` | 6641 | blurred gradient magnitude, normalised — high on orogenic belts and trench scarps, low on plains and abyssal basins |
+| `pickPlateSeeds` | 6659 | one seed per cell of an aspect-preserving grid, at the **lowest-relief** cell in each, so Voronoi edges fall along the relief belts |
+| `classifyPlateCrust` | 6681 | per-plate crust sign from mean elevation; the magnitude spans `0.55`..`1`, matching `buildPlates`' own range |
+| `reconstructBoundaryStress` | 6698 | the novel core — normal stress from relief with its sign from *updip* (margin elevation vs. a wide-blur regional trend: above ⇒ convergent orogen, below ⇒ rift), shear from the along-strike gradient |
+| `stampVolcanicArcs` | 6733 | chamfer decay from subduction/arc cells, so `buildLithology`'s andesite branch lights up |
+| `inferPlateVelocities` | 6745 | unit vector from each plate centre toward its convergent-margin centroid, so the motion arrows aren't dead |
+| `inferTectonics` | 6755 | the orchestrator: the above, then `assignPlates`/`distanceToBoundary`→age/`computeHeterogeneity`/`computeResistance`/`computeFlexure` **verbatim**, then `refreshClimate()` and `computeFlow(true)` |
+
+Velocity is not inverted — the reference says so explicitly, *"velocity
+inversion is ill-posed"* — stress is synthesised directly from relief
+instead. The whole pass is **deterministic from the heightmap alone**, no RNG
+and no seed, which is what makes it golden-testable end to end.
+
+**Ported to `cartalith-terrain/src/infer.rs`** (formulas) and
+`cartalith-engine/src/import.rs` (orchestration), per `ARCHITECTURE.md`'s
+ladder. Most of the downstream machinery was already here and is reused
+unchanged: `assign_plates`, `build_age_field`, `compute_heterogeneity`,
+`compute_resistance`, `compute_flexure`, `gauss_blur`, `classify_boundary`.
+
+**Golden-parity: bit-exact, first run.** A Node harness slices the six
+functions plus `gaussBlur`/`classifyBoundary`/`chamferDist` out of the frozen
+reference by verified line ranges and runs them on four fixtures shaped to
+reach the branches under test. All four matched exactly on the first
+execution — `assert_eq!` on `f32`, no tolerance anywhere, since the pass is
+deterministic arithmetic in a fixed order with `js_hypot`/`js_exp`/`js_round`
+covering the three places V8's libm differs from Rust's.
+
+Fixtures, and why each exists:
+
+- `margin` / `margin_wrap` (24×18) — a basin→shelf ramp with a narrow
+  orogenic ridge and a rift trough, the geometry the pass is *about*. Between
+  them they reach **all six `BTYPE` codes** and both crust signs; they differ
+  only in `wrap`, isolating the seam handling.
+- `plateau` (16×12) — elevations quantised to eighths so many cells tie
+  exactly, reaching both tie-breaks: `pick_plate_seeds`' strict `<` (first
+  wins) and `reconstruct_boundary_stress`' `>=` (last wins). The asymmetry is
+  the reference's and is invisible in continuous data.
+- `flat_no_arcs` (12×9) — entirely above sea level, so every plate is
+  continental and `classify_boundary` can only return collision or rift. Pins
+  `stamp_volcanic_arcs`' empty early return as **correct**, the branch the
+  other three never take.
+- `wide_digest` (256×64) — pinned by exact `f64` sum/min/max plus a
+  prime-strided sample rather than eight inlined arrays. It exists because of
+  a mutation result, below.
+
+**Two process findings worth recording.**
+
+*First*, the harness's own output assertions caught a wrong expectation
+before any Rust was written: the `flat_no_arcs` fixture originally sat
+entirely *below* sea level, which makes every plate oceanic and produces
+ocean-ocean **arcs** — the opposite of the branch it was built to reach. The
+assertion at the foot of the harness failed loudly rather than quietly baking
+a wrong golden value. This is the `CLAUDE.md` "watch for silently-empty
+golden output" discipline paying off in the other direction.
+
+*Second*, **the first mutation run left four survivors, and they were real.**
+Mutating each of the four default radii (`W/128`, `W/24`, `W/40`, `W/80`)
+left every fixture green. The cause: each is `max(FLOOR, W/DIVISOR)`, and at
+widths 24/16/12 the FLOOR always wins, so the divisors never participated at
+all. `W=256` is the smallest power-of-two width where all four beat their
+floor — hence the `wide_digest` case, which killed three of them immediately.
+The remaining two needed a *larger* mutation to die, and the reason is itself
+worth knowing: `gauss_blur` quantises its radius to `round(r/1.6)`, so a
+divisor change smaller than one quantisation step **cannot** change any
+output. `W/40 → W/30` (pr 4→5) and `W/128 → W/64` (pr 1→3) both fail
+correctly. Recorded in the test file rather than left as folklore.
+
+Final mutation results — every constant that is observable at all is pinned:
+
+| Mutation | Killed by |
+|---|---|
+| `updipK` 6→6.5, `shearK` 8→8.5, C offset 0.4→0.45 | 4, 3 and 4 golden cases |
+| crust floor 0.55→0.56, span 0.45→0.44 | 4 cases each |
+| chamfer `D2` full-precision → `1.4142` | 4 cases (the truncated constant belongs to `distanceToBoundary`, *not* `chamferDist` — the reference really does use both) |
+| seed tie-break `<`→`<=`, `domMag` `>=`→`>` | 5 and 2 cases |
+| relief `W/128`, stress `W/40`, broad `W/24`, arc decay `W/80` | `wide_digest` |
+| seed density `/3000` | `wide_digest` |
+| plate cap 40→44, floor 6→4 | `plate_count_clamp_holds_at_both_ends` (exact counts, not bounds — a loose `<= 48` had let 44 survive) |
+| Rec. 601 luma `0.299` | the module's own unit tests |
+
+**Two survivors are documented rather than chased**, because both are
+genuinely unobservable, not merely untested:
+
+- Plate floor `6 → 5` produces an *identical* grid. The count is only ever
+  consumed through `rows = max(2, round(sqrt(n/aspect)))` and
+  `cols = max(2, round(n/rows))`, and `round(5/2) == round(6/2) == 3`. A drop
+  to 4 *is* observable and is pinned.
+- `js_hypot` → `f64::hypot` and `js_exp` → `f64::exp` both survive these
+  fixtures, because V8/Rust divergence is input-specific and none of these
+  inputs hit it. `cartalith-jsmath`'s own golden tests pin the divergence;
+  keeping the `js_*` forms here is defensive correctness against a future
+  fixture that *does* reach one.
+
+**One disclosed parity carve-out.** The resample from source pixels to the
+working grid cannot be matched: the reference goes through a `<canvas>`
+`drawImage`, whose filter is implementation-defined (the HTML spec does not
+pin it; the three major engines disagree), so there is no JS output to be
+bit-identical to. `PARITY_TESTING.md`'s own carve-out for that case applies.
+This port uses a documented box-average downsample, deterministic here; the
+luma weights — the part that *is* specified — are the reference's exact
+Rec. 601 `0.299/0.587/0.114`. Everything downstream of the field is tested
+bit-exact, because it is a pure function of whatever field it is handed.
+
+**Two parity details that would have been easy to get wrong**, both found by
+reading the reference rather than assuming:
+
+1. **The moisture correctors run against a *zero* flow field.** `allocate()`
+   zeroes `flowField`, `loadImage` never fills it, and `inferTectonics` calls
+   `computeFlow(true)` only *after* `refreshClimate()` — whose
+   `applyClimateMoistureCorrectors()` therefore reads all zeros. The
+   reference's own v0.70 comment says as much. Passing a real flow field here
+   would change rainfall for every imported world. `import.rs` names the zero
+   buffer `flow_field_at_corrector_time` so it cannot be mistaken for an
+   oversight, then computes `flow_area` properly *afterwards* — JS has one
+   `flowField` where this port has two, and leaving `flow_area` permanently
+   zero would break every downstream consumer of it (a port-level bug, not
+   fidelity).
+2. **Grid height comes from the image, not the caller.**
+   `GH = max(80, round(GW / (imgW/imgH)))`. `import_heightmap` returns
+   corrected params rather than mutating in place, so a caller cannot keep
+   indexing at the old stride — the `v0.071 warp-cache` bug class this port's
+   own notes warn about.
+
+**The height stages are skipped and must be**: `compute_height`, `normalize`,
+volcano/crater stamping, world-structure sea-level re-anchoring and river
+carving all *write* `field`, and the reference is explicit that
+`inferTectonics` "leaves `field` untouched — only the tectonic/derived
+layers". Enforced structurally: `infer_tectonics` takes the field **by
+value** and returns it inside the `WorldState`.
+
+**Boundary + wiring.** Two new `#[func]`s on `WorldGen`:
+`import_heightmap(path, seed, width_km, grid_w) -> bool` (no `grid_h`,
+deliberately — see above) and the pure
+`heightmap_grid_size(grid_w, image_w, image_h) -> Vector2i` so a dialog can
+show the working grid without importing. Every fallible step is a `Result`
+converted to a log line and a `false`; nothing can unwind across the gdext
+boundary. `engine_bridge.gd` runs it on a `Thread` and reuses
+`generation_started`/`generation_finished`, so the status bar, the busy state
+and the `generating` guard all work with no extra wiring and an import can
+never start mid-generation. Reachable from the welcome screen's tile and from
+`Data ▸ Import ▸ Heightmaps (PNG)`, which was `GUI_GAP_REGISTER.md` DM-01 and
+is now live.
+
+**One small dedup**: `chamfer_dist` existed privately in `cartalith-civ` and
+was needed again here. There is one implementation now, public in
+`cartalith-terrain::infer`, with `cartalith-civ` importing it — rather than a
+second copy free to drift.
+
+**Verified — actually ran, not just compiled:**
+
+- `cargo test --workspace`: **113 test binaries, all green, zero failures,
+  zero regressions.** Every pre-existing golden fixture unmodified.
+- New: 8 golden-parity tests (`golden_parity_infer.rs`), 8 unit tests in
+  `infer.rs`, 6 in `import.rs`.
+- `cargo clippy -p cartalith-terrain -p cartalith-engine --all-targets`:
+  clean on both new files. The one lint (`too_many_arguments` on
+  `reconstruct_boundary_stress`) carries a narrow `#[allow]` and a
+  justification, the same trade `compute_heterogeneity` in this crate already
+  made — bundling the three `opts` values into a struct would still leave
+  eight arguments.
+- `cargo build -p cartalith-godot`: clean (the only warnings are two
+  pre-existing dead-code notices in `cartalith-gpu`).
+- **Scripted headless drive** through the real gdext boundary
+  (`Godot_v4.7.1-stable_win64_console.exe --headless --script`, temporary
+  script deleted after use), instantiating the real `app.tscn`: welcome
+  prompt opens on a cold start with both action tiles *and* the `.zip` tile
+  present and the head re-worded; Escape closes it leaving `has_world` false;
+  reopening as `File ▸ Open project…` shows **neither** action tile and the
+  original head, confirming no leak; `heightmap_grid_size(96, 256×128)`
+  returns `(96, 80)` (aspect gives 48, the floor lifts it); a real
+  Godot-encoded 256×128 PNG imports in **302 ms** onto a 96×80 grid,
+  producing a live colour texture and **40 placed settlements** — proof the
+  inferred substrate propagated through lithology, resources and the whole
+  civ stack, not merely into the debug views; a garbage file fails cleanly
+  (`Invalid PNG signature`) with the previously-imported world intact; and
+  `Data ▸ Import` lands on `IMPORT ▸ HEIGHTMAPS (PNG)` with a live action
+  button.
+- Timings at realistic sizes, same drive: a 2048×1024 PNG → **512×256 in
+  391 ms**, → **1024×512 in 988 ms**, both deriving the correct 2:1 grid.
+
+**Not verified here** (`DECISIONS.md` §5): nothing graphical. The welcome
+screen's *appearance* — tile proportions, glyph weight, how three tiles sit
+against the four-column grid — has been checked only structurally, by walking
+the node tree. A human should look at it.
+
+**Formatting note.** `cargo fmt` was deliberately **not** run: the workspace
+is not fmt-clean under the current rustfmt (283 diffs in `cartalith-civ`
+alone at `HEAD`, before this pass), so formatting these two files would have
+made them the only edition-2024-formatted files in the tree. They match the
+committed house style instead.
+
+**Still open:** `Import ▸ Maps (tiles) · GIS / GeoJSON` remains a disclosed
+gap (`GUI_GAP_REGISTER.md` DM-01b) — but TIFF is now a *closed* question
+rather than a pending dependency decision: the reference's own file input is
+`accept="image/*"` decoded by the browser, which does not read TIFF either,
+so PNG-only is parity.
+
+**Touched:** `cartalith-native/crates/cartalith-terrain/src/infer.rs` (new),
+`cartalith-native/crates/cartalith-terrain/tests/golden_parity_infer.rs`
+(new), `cartalith-native/crates/cartalith-engine/src/import.rs` (new),
+`cartalith-native/crates/cartalith-terrain/src/lib.rs`,
+`cartalith-native/crates/cartalith-engine/src/lib.rs`,
+`cartalith-native/crates/cartalith-civ/src/lib.rs`,
+`cartalith-native/crates/cartalith-godot/src/lib.rs`,
+`cartalith-native/godot-project/shell/app.gd`,
+`cartalith-native/godot-project/shell/engine_bridge.gd`,
+`cartalith-native/godot-project/shell/open_project_dialog.gd`,
+`cartalith-native/godot-project/shell/data_manager_window.gd`,
+`GENERATION_PARAMETERS.md` (new heightmap-import section),
+`GUI_GAP_REGISTER.md` (DM-01 → done, new DM-01b, MS-02 → done), this file,
+`docs/STATUS.md`.

@@ -32,6 +32,12 @@ var last_height_km := 0.0
 ## older binary. `reference_grid_height` is the cheapest probe of the set.
 var sized_api := false
 
+## Same degrade-rather-than-crash probe for the heightmap-import pair
+## (`WorldGen::import_heightmap` / `heightmap_grid_size`). The welcome
+## screen and the Data manager both hide their import affordance outright
+## when this is false, rather than drawing a button that cannot work.
+var import_api := false
+
 var params_dirty := false
 var _param_info: Dictionary = {}     ## key -> the info Dictionary from Rust
 var _param_defaults: Dictionary = {}
@@ -44,6 +50,8 @@ func _ready() -> void:
 	sized_api = world_gen.has_method("generate_sized") \
 		and world_gen.has_method("reference_grid_height") \
 		and world_gen.has_method("get_map_height_km")
+	import_api = world_gen.has_method("import_heightmap") \
+		and world_gen.has_method("heightmap_grid_size")
 	_read_param_table()
 	## `WorldParams::default()` is `false` in Rust, and stays that way: it is
 	## the golden-parity reference path (`GPU_LAYER_INTEGRATION_SCOPE.md`
@@ -226,6 +234,78 @@ func _finish(seed_value: int, width_km: float, ok: bool) -> void:
 		last_width_km, last_height_km, seed_value]
 	generation_finished.emit(true)
 	params_applied.emit()
+
+## The third way into a world, alongside `generate()` and `load_save()`:
+## bring in a PNG heightmap and let the engine infer a tectonic substrate
+## under it (`WorldGen::import_heightmap`, the reference's own `Import ▸ Load
+## heightmap…` + `Infer tectonics from heightmap` pair).
+##
+## Threaded and signalled exactly like `generate()`, because it *is* a
+## generate-scale call -- the inversion is followed by the full climate and
+## flow pipeline. Reusing `generation_started`/`generation_finished` means
+## the status bar, the busy state and the `generating` guard all work with
+## no extra wiring, and the shell can never start an import while a
+## generation is in flight.
+##
+## `grid_h` is deliberately absent from `request`: the engine derives it from
+## the image's own aspect ratio (see `import_heightmap`'s Rust doc), and
+## `grid_size()` reports what was actually used.
+func import_heightmap(path: String, request: Dictionary) -> void:
+	if generating or not import_api:
+		return
+	generating = true
+	_gen_start_msec = Time.get_ticks_msec()
+	generation_started.emit()
+
+	world_gen.set_villages_enabled(request.get("villages", true))
+	world_gen.set_sea_level(request.get("sea_level", 0.5))
+
+	_thread = Thread.new()
+	_thread.start(_import_worker.bind(
+		path,
+		int(request.get("seed", 0)),
+		float(request.get("width_km", 1000.0)),
+		int(request.get("grid_w", 2048))))
+
+## Runs off the main thread. Touches only `world_gen`, never a node -- same
+## contract `_worker` above holds to.
+func _import_worker(path: String, seed_value: int, width_km: float, grid_w: int) -> void:
+	var ok: bool = world_gen.import_heightmap(path, seed_value, width_km, grid_w)
+	_finish_import.call_deferred(path, seed_value, ok)
+
+func _finish_import(path: String, seed_value: int, ok: bool) -> void:
+	_thread.wait_to_finish()
+	_thread = null
+	generating = false
+	last_generate_ms = Time.get_ticks_msec() - _gen_start_msec
+
+	if not ok or world_gen.get_width() <= 0:
+		last_summary = "heightmap import failed -- see console"
+		generation_finished.emit(false)
+		return
+
+	last_width_km = world_gen.get_map_width_km() if sized_api else 0.0
+	last_height_km = world_gen.get_map_height_km() if sized_api else 0.0
+	has_world = true
+	params_dirty = false
+	## Names the source file, because "which heightmap is this?" is the first
+	## question an imported world raises and nothing else on screen answers
+	## it.
+	last_summary = "%s -- %d x %d cells, %.0f x %.0f km, inferred tectonics" % [
+		path.get_file(),
+		world_gen.get_width(), world_gen.get_height(),
+		last_width_km, last_height_km]
+	generation_finished.emit(true)
+	params_applied.emit()
+	world_loaded.emit()
+
+## What `import_heightmap` would resample a given image onto, for a dialog
+## that wants to show the working grid before committing. Returns
+## `Vector2i.ZERO` when the extension predates the import API.
+func heightmap_grid_size(grid_w: int, image_size: Vector2i) -> Vector2i:
+	if not import_api:
+		return Vector2i.ZERO
+	return world_gen.heightmap_grid_size(grid_w, image_size.x, image_size.y)
 
 # -- World state readers ------------------------------------------------------
 

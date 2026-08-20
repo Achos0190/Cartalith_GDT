@@ -385,6 +385,77 @@ deplete.
 
 ---
 
+## Heightmap import — the third entry point (2026-08-20)
+
+`generate*` builds a world from a seed and `load_save` reads one back from a
+`.zip`. **`import_heightmap` is the third way in**, and the reference's own:
+`Import ▸ Load heightmap…` (`#loadBtn`) followed by `Infer tectonics from
+heightmap` (`#inferTectBtn`), reference HTML lines 534-535.
+
+| Signature | Returns |
+|---|---|
+| `import_heightmap(path: String, seed: int, width_km: float, grid_w: int) -> bool` | Decodes a PNG, takes it as the elevation field, infers a tectonic substrate under it, then runs climate and flow. `false` (world untouched) on any read or decode error. |
+| `heightmap_grid_size(grid_w: int, image_w: int, image_h: int) -> Vector2i` | What `import_heightmap` *would* resample onto, without importing — for a dialog that wants to show the working grid first. Pure; touches no state. |
+
+**There is no `grid_h` argument, deliberately.** An imported DEM has a shape
+of its own, and the reference derives the grid height from the *image's*
+aspect ratio rather than the caller's: `GH = max(80, round(GW / (imgW /
+imgH)))` (reference HTML line 4917). Resampling into a caller-chosen frame
+would stretch the terrain. `get_grid_size()` reports what was used.
+
+### Parameters this pass exposes, and the ones it deliberately does not
+
+The inversion itself has four tunables in the reference, all passed as an
+`opts` object that **every call site leaves empty** — `inferTectonics()`
+calls `pickPlateSeeds(relief, W, H, {})`, `reconstructBoundaryStress(…,
+{wrap})` and `stampVolcanicArcs(boundaryType, W, H, {})`. They are reachable
+in Rust (`cartalith_terrain::infer`, each an `Option`) and **not** in the
+parameter table, because adding a control the reference never had would make
+this a superset rather than a port. They are listed here so the decision is
+recorded rather than implied:
+
+| Reference `opts` key | Default | What it does |
+|---|---|---|
+| `count` (`pickPlateSeeds`) | `clamp(round(W·H/3000), 6, 40)` | Inferred plate count. The cap of 40 is the reference's own v0.70 fix — uncapped, a 2K import produced ~900 plates and the pass became unusable. |
+| `blurR` (`buildReliefField`) | `max(1, W/128)` | Smoothing on the gradient-magnitude relief proxy that decides where boundaries fall. |
+| `blurR` (`reconstructBoundaryStress`) | `max(2, W/40)` | Smoothing on the synthesised stress and shear fields. |
+| `updipK` / `shearK` | `6` / `8` | Sensitivity of normal stress to elevation-above-trend, and of shear to the along-strike gradient. |
+| `decay` (`stampVolcanicArcs`) | `max(3, W/80)` | Exponential falloff of the volcanic-arc proxy away from subduction/arc cells. |
+
+**The existing parameters that *do* apply.** `sea_level` decides which plates
+come out oceanic and which continental, so it changes the inferred substrate
+outright and is worth setting before importing rather than after. `map_width_km`
+and `peak_m` are the calibrate step's own two fields — the reference reopens
+its setup gate in `calibrate` mode after a heightmap loads, and that mode is
+*literally the same form* as the new-world one with resolution and extent
+omitted (`_suCalSync` is defined as `_suGenSync`). `tect.seed` still matters
+for one downstream stage, `computeHeterogeneity`, which the reference reuses
+verbatim; the inversion itself uses no RNG at all.
+
+**The height stages are skipped, and must be.** `compute_height`,
+`normalize`, volcano and crater stamping, world-structure sea-level
+re-anchoring and river carving are all *forward* stages that write `field` —
+running them would overwrite the imported elevation. The reference says so
+directly: `inferTectonics` "leaves `field` untouched — only the tectonic/
+derived layers". `impact_field` is therefore zero and `channels`/`river_mask`
+are `None` on an imported world.
+
+**Format: PNG, 8-bit.** The reference's file input is `accept="image/*"`,
+decoded through the browser, so it takes PNG and JPEG and **not** TIFF (no
+browser decodes TIFF natively) — PNG-only here is parity, not a shortfall. A
+16-bit PNG imports fine but at 8-bit precision, because the reference reads
+through a `<canvas>` and cannot see more than 8 bits either. Luma is Rec. 601
+(`0.299 R + 0.587 G + 0.114 B`), the reference's own weights.
+
+**One disclosed parity carve-out.** The resample from source pixels to the
+working grid is browser-implementation-defined in the reference (`<canvas>`
+`drawImage`; the HTML spec does not pin the filter and the three major
+engines disagree), so there is no JS output to be bit-identical to. This port
+uses a documented box-average downsample, deterministic here, under
+`PARITY_TESTING.md`'s own carve-out for that case. Everything *downstream* of
+the field — the whole inversion — is golden-parity tested bit-exact
+(`cartalith-terrain/tests/golden_parity_infer.rs`).
+
 ## Parameters the reference exposed that this port does not
 
 Recorded so the gap is a decision, not an omission. Every one of these belongs
