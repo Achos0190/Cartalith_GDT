@@ -851,3 +851,267 @@ pass. Worth ~19 MB and one line to whoever picks it up.
 | Phone-layout defects found | **Two, reported not fixed** — runtime dialogs keep desktop sizing; `Open project` shows duplicated header/close (§4.2) |
 | §13 *portrait* composition | **Still unseen** — `"sensor"` follows the accelerometer, so `adb` cannot force it; needs the phone physically rotated |
 | Editor-only addons in the APK | **Flagged, not fixed** — ~19 MB of godotsteam + godot_ai (§5) |
+
+---
+
+# Fourth real-device pass (2026-08-20): the four owner-reported defects, and why portrait never worked
+
+Owner, after running the `a80a386` APK on the OnePlus 6T:
+
+1. *"it doesnt switch to portrait mode"*
+2. *"the open project menu doesnt follow the design"*
+3. *"make sure the lightmode version is available everywhere"*
+4. *"the bottom menu butons on phone are near too small to use"*
+
+All four are fixed and verified on the device. A fifth item — *"not much from
+the menus work on android"* — was **diagnosed only**, at the owner's
+instruction, because a proper mobile menu design is being produced separately
+and building one here would be thrown away (§5).
+
+## 1. Portrait: the setting was a string, and Godot 4 wanted an integer
+
+The previous pass concluded portrait "was not reachable over `adb`" and left it
+as a five-second owner action. That was wrong, and so was the hypothesis this
+pass was handed (that `_landscape` latched at boot). **The runtime code was
+never the problem.** `dumpsys window` against the running `a80a386` build:
+
+```
+source=ActivityRecord{... org.cartalith.walkingskeleton/...} SCREEN_ORIENTATION_LANDSCAPE
+```
+
+The activity was requesting **landscape**, hard, despite `project.godot`
+carrying an `orientation` value of `"sensor"`. Android therefore never rotated
+the window, `root.size_changed` never fired, and `_apply_phone_orientation()`
+was unreachable for the entire life of the build.
+
+The cause is that this key changed type between Godot generations. Godot 3
+spelled it as a string; **Godot 4 redeclared it as `TYPE_INT`**:
+
+```
+INFO={ "name": "display/window/handheld/orientation", "type": 2,
+       "hint_string": "Landscape,Portrait,Reverse Landscape,Reverse Portrait,
+                       Sensor Landscape,Sensor Portrait,Sensor" }
+```
+
+`type: 2` is `TYPE_INT`, and `DisplayServer.SCREEN_SENSOR` is `6`. A string
+value is not an error — it is silently discarded, and the setting falls back to
+`0`, which is Landscape. `ProjectSettings.get_setting()` returned `0` against
+the old value and returns `6` against the new one.
+
+**A second, worse hazard was found while fixing it.** The `##` comment block
+that used to sit above this key was not a comment at all:
+
+```
+KEYS_IN_DISPLAY=["the cutout moves to a side edge)that##`DccShell._landscape`…"]
+```
+
+The `[display]` section contained exactly **one** key — the entire comment
+paragraph, whitespace-stripped, with the real key name swallowed onto its tail.
+Only `;` starts a comment in `project.godot`; a `##` line is parsed as data, and
+an unbalanced quote or apostrophe inside one opens a string literal that eats
+every key below it **with no error reported**. The old block happened to have an
+even number of quotes, which is the only reason the key survived at all — and it
+is the same class of failure `CLAUDE.md` already records ("an apostrophe in
+prose defeating a comment scanner"). The section is now written with `;`
+comments and a warning, and `ConfigFile.get_section_keys("display")` returns the
+one key it should.
+
+Verified on the device: the exported manifest now carries
+`android:screenOrientation=13` (`SCREEN_ORIENTATION_FULL_USER`, Godot's mapping
+for `SCREEN_SENSOR`), up from `0`, and the app runs portrait.
+
+**Note for anyone driving rotation over `adb`.** `FULL_USER` respects the user's
+rotation lock, so with auto-rotate off it locks to the *current* rotation and
+`settings put system user_rotation` does nothing. `adb shell wm user-rotation
+lock 1` does work, and is how the landscape captures were taken. The previous
+pass had also left `accelerometer_rotation` at `0` (auto-rotate **off**) while
+recording that it had restored it — so even a correct build would not have
+rotated in the owner's hands. Restored to `1` this pass.
+
+## 2. Open project: two headers, and a desktop dialog inside a phone
+
+Both halves of the previous pass's §4.2 report are fixed.
+
+**The duplicated header** was an `AcceptDialog` drawing the host `Window`'s
+title bar and close button above `_build_head()`'s own branded header and its
+close glyph. The design draws one header, so the window chrome is the one that
+goes: `borderless = true`. This was wrong on every platform, and the desktop
+capture confirms it is now a single header there too.
+
+**The desktop sizing** is fixed by giving the dialog a phone presentation
+(`_present()`), per §13's "docks become full-screen sheets": the window fills
+the screen, and `content_scale_factor` scales the desktop-authored composition
+by the shell's own `_phone_scale`. That is deliberately *not* a second set of
+phone constants — at 2.75 on this handset the layout area works out to
+1080/2.75 = 393 px, which is exactly the mockup's own phone reference width, so
+the existing numbers land on the phone reference by construction.
+
+One content change was needed to make it fit: a `Window` cannot shrink below its
+content's minimum, and the head's subtitle is a single unwrapped `Label` whose
+text alone is ~420 px — wider than the whole phone reference. Phone hides it;
+the three action tiles below say the same thing. The tile grid picks its column
+count from the available width (`_fit_columns`), giving 1 column in portrait and
+3 in landscape, and re-runs on rotation via `phone_insets_changed`.
+
+## 3. Light theme: three separate gaps, only one of which was the documented one
+
+The rebuild pass's own disclosed limitation ("only repaints nodes whose colours
+trace back to a `DccTheme` token") was real but was the *smallest* of three.
+Found by capturing every window under the light palette rather than reasoning
+about the walk.
+
+**(a) The override-name lists had drifted.** `rebuild_theme()` works off two
+hand-maintained arrays of override *names*, and re-running the grep their own
+comment documents found six in use that were not listed —
+`caret_color`, `font_placeholder_color`, `font_uneditable_color` and the
+`disabled` / `focus` / `read_only` styleboxes, all introduced by
+`dcc_widgets.gd`'s text fields after the arrays were written. Every dialog with
+a text well kept dark input chrome under the light palette.
+
+**(b) The project-wide Theme resource was never touched at all.** This is the
+structural one. `project.godot` sets `gui/theme/custom` to `dark_theme.tres`, a
+real hand-authored dark `Theme`, and that resource is the fallback for every
+control state nothing overrides explicitly — disabled buttons, scrollbars,
+`SpinBox`/`OptionButton`/`CheckBox` chrome, bare `Button`s and `LineEdit`s. None
+of it is a per-node override, so the tree walk could never reach it: the colours
+live in a `Resource`. `_recolor_project_theme()` now remaps it in memory (the
+same cached instance the whole tree resolves against, so nothing is written to
+disk). This is what made a disabled `DccWidgets.action()` button — "Bake ALL &
+finalize", and the world workspace's "Finalize · LOD 0-3" — a dark slab on a
+light shell, and what left Travel Library's bare filter field and Close button
+dark.
+
+Six colours in that resource are not `DccTheme` tokens at all, so the reverse
+lookup cannot see them; they are handled by an explicit supplementary table
+(`_theme_extras`), each entry a derivation rather than a new colour: two plain
+surfaces, one token with a one-digit typo (`#8d9396` for `text_dim`'s
+`#8d9296`), and the accent with the same lighten/darken the widgets already
+apply. Two more (`#1a1206`, the near-black for text sitting *on* the amber slab,
+and `#e66b6b`, the error red) are deliberately left alone — they are correct in
+both palettes, the same reasoning `DccTheme` already applies to
+`warn`/`block`/`water`.
+
+**(c) Embedded `Window` chrome came from Godot's built-in theme.**
+`dark_theme.tres` defines no `Window` entries, so every `AcceptDialog`'s title
+bar was Godot's stock dark one — a charcoal bar over light content, and nothing
+to remap. `_style_window_chrome()` now writes those entries from tokens, and is
+called from `_ready()` as well as `rebuild_theme()` so it is right on a cold
+boot in either palette.
+
+Two literal white drag handles in the phone chrome were also re-expressed
+against `text_ghost`; as flat white they stayed white and vanished into a light
+panel.
+
+### Coverage, per window
+
+Captured under the light palette after a live dark-to-light *switch* (not a cold
+boot, which would build every node from `c()` and pass trivially):
+
+| Window | Result |
+|---|---|
+| Main shell (menu bar, docks, rail, timeline, status) | **Correct** |
+| Open project / welcome | **Correct** |
+| New world | **Correct** |
+| Asset library (rebuilt `88b4d54`, after the theme pass) | **Correct** |
+| Travel library | **Correct** after (b) and (c); was the worst offender |
+| Data manager (rebuilt this week) | **Correct** |
+| World data | **Correct** |
+| Performance | **Correct** |
+
+Dark mode re-verified on the same windows: unchanged, no regression. A tree
+audit for nodes still holding an inactive-palette value reports only one class,
+and it is a false positive — `#a4650f` is both `DARK.accent_dim` and
+`LIGHT.accent`, so a correctly-repainted light accent looks like a missed dark
+token to an exact-match scan.
+
+## 4. The bottom sheet buttons: the chrome was scaled, the contents never were
+
+The previous pass computed `_phone_scale = 2.75`, observed 44 px targets landing
+at ~121 physical px, and called the sheet comfortable. That arithmetic was
+correct and measured the wrong thing. It describes the **chrome** —
+`_build_phone_app_bar()`, `_build_phone_rail()` — which does route every size
+through `_ptap()`. The sheet's **contents** never touched `_ptap()` at all.
+
+`tool_options_row` is filled by the workspaces' own
+`_build_*_tool_options_row()` callbacks, which are written against desktop pixel
+constants — `cartography_workspace.gd` sets buttons to a literal
+`Vector2(34, 20)`. Godot's default stretch mode is disabled, so 20 virtual px is
+20 *physical* px: about 1.6 mm on this 314 dpi panel. The owner was right and
+the arithmetic was answering a different question.
+
+Fixed at `set_tool_options()`, the single choke point every workspace already
+passes through, so one pass over the finished row phone-sizes every current and
+future tool row without making a dozen workspace files phone-aware. Existing
+minimum sizes and explicit font-size overrides are scaled; anything tappable is
+then floored at §13's 44 px. The sheet's own padding constants were scaled too —
+left raw they put the first control flush against the screen edge.
+
+## 5. The overflow menu: diagnosed, deliberately not fixed
+
+Owner: *"not much from the menus work on android."* A mobile menu design is
+being produced separately, so this is evidence for that design pass, not a
+repair.
+
+**It is wired to something real.** `_build_phone_overflow()` reparents the
+actual desktop menu bar — all seven genuine program menus (File, Edit, Assets,
+Data, Preferences, Window, Help) are present in the sheet and are the real ones,
+not placeholders. §13's promise that the overflow carries "the full menu bar" is
+kept structurally.
+
+**It is unusable in practice**, for four compounding reasons, all visible in the
+device capture:
+
+1. **Nothing in the menu path is phone-scaled.** `add_menu()` styles each
+   `MenuButton` with `DccTheme.inset(11, 9, 11, 9)` and `FS_MENU` (12 px) — raw
+   desktop values, no `_pscale`/`_ptap`. The row renders at roughly 12 physical
+   px, about 1 mm tall, against §13's 44 px floor. This is the same class of bug
+   as §4 above, in a surface §4's fix deliberately does not touch.
+2. **Desktop status chrome eats the sheet.** The reparented bar also carries the
+   `CARTALITH` wordmark (150 px minimum) and the five readout labels
+   (world/res/cpu/gpu/mem) separated by 22 px gaps. Pre-generation those labels
+   are empty strings, so most of the 220-px-tall sheet is blank space with the
+   menu row squeezed into a strip at the bottom.
+3. **The menus do not respond to touch at all.** Tapping `File` at its centre
+   produced no popup and no pressed state; holding the touch down
+   (`input motionevent DOWN`, captured while held) produced neither. Whatever
+   the precise mechanism — the target is small enough that this was not
+   conclusively separated from a simple miss — the observable result is that the
+   menu is inert by finger on the device. This is the whole of the owner's
+   report.
+4. **15 submenus assume hover.** `menus.gd` uses `add_submenu_*` 15 times.
+   Submenu traversal in a desktop `PopupMenu` opens on hover, which touch does
+   not have, and a nested `PopupMenu` positioned for a pointer has nowhere sane
+   to go on a 1080-wide screen. Even if (1) and (3) were fixed, roughly 41 items
+   behind 15 hover-opened submenus is not a phone menu.
+
+The honest summary for the design brief: **the routing is real and worth
+keeping; the presentation is a desktop menu bar shown at desktop scale inside a
+phone sheet, and no part of it was ever adapted.** A design that keeps the seven
+menus and their ~41 destinations but re-presents them as a full-screen,
+touch-sized, drill-down list would inherit all the existing wiring.
+
+## 6. Device state touched
+
+`svc power stayon usb` for the session (restored to `false`).
+`accelerometer_rotation` was found at `0` — auto-rotate **off**, left that way by
+the previous pass despite its own note saying otherwise — and is restored to `1`.
+`wm user-rotation lock 1` was used to capture landscape and released with
+`wm user-rotation free`. `user_rotation` restored to `0`. Nothing else.
+
+## Done means (this pass)
+
+| Item | Result |
+|---|---|
+| Portrait on device | **Fixed** — root cause was `orientation` being a string where Godot 4 wants int `6`; manifest now `screenOrientation=13` |
+| `project.godot` comment hazard | **Fixed and documented** — `##` is not a comment here; section rewritten with `;` |
+| Open project: duplicated header | **Fixed** — `borderless`; correct on desktop too |
+| Open project: desktop sizing on phone | **Fixed** — full-screen + `content_scale_factor`, responsive column count |
+| Light theme: override-name drift | **Fixed** — six missing names added |
+| Light theme: project Theme resource | **Fixed** — remapped in memory, plus a six-entry derivation table |
+| Light theme: embedded `Window` chrome | **Fixed** — written from tokens, cold-boot safe |
+| Light theme: per-window coverage | **8 of 8 correct**, both palettes, verified by capture |
+| Bottom sheet targets | **Fixed** — scaled at `set_tool_options()`, floored at 44 px |
+| Overflow menu | **Diagnosed, not fixed** (§5), by instruction |
+| Headless smoke test | **PASS** |
+| Desktop windowed launch | **Clean** — world generated, `6a97911` GL fix not regressed |
+| Device install and run | **Clean** — portrait and landscape both captured |

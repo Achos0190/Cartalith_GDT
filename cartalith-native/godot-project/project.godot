@@ -17,19 +17,33 @@ config/icon="res://icon.png"
 
 [display]
 
-## §13: the phone mockup (`design/Cartalith DCC Shell.dc.html`, "DCC shell
-## android phone") is a 393×852 *portrait* screen, but this key was never set
-## before phone chrome existed -- Godot's own unset default is "landscape",
-## which is exactly the "full desktop menu bar/docks/rail crammed onto the
-## screen" bug this port was built to fix (confirmed on a OnePlus 6T: the app
-## booted landscape with no phone-specific chrome at all). "sensor" rather
-## than a fixed "portrait" lock, because §13 also specifies a distinct
-## landscape treatment ("the cutout moves to a side edge") that
-## `DccShell._landscape`/`_apply_phone_orientation()` implements at runtime --
-## locking the OS orientation would make that code unreachable on a real
-## device. A phone naturally rests in portrait, so "sensor" still boots there
-## most of the time without forcing it.
-display/window/handheld/orientation="sensor"
+; ONLY semicolons start a comment in this file. A ## line is NOT a comment --
+; the variant parser behind project.godot reads it as data, and a quote or an
+; apostrophe inside one opens a string literal that silently swallows every
+; key below it to the end of the section, with no error reported. The ##
+; block that used to sit here did exactly that. Keep to semicolons.
+;
+; Section 13: the phone mockup ("DCC shell android phone" in
+; design/Cartalith DCC Shell.dc.html) is a 393x852 portrait screen, but this
+; key was never effective before now, and the unset default is 0, Landscape --
+; which is exactly the "desktop chrome crammed onto the screen" bug the phone
+; composition was built to fix. Sensor rather than a fixed Portrait lock,
+; because section 13 also specifies a distinct landscape treatment that
+; DccShell._landscape / _apply_phone_orientation() implements at runtime;
+; locking the OS orientation would make that code unreachable on a device.
+;
+; 6 is DisplayServer.SCREEN_SENSOR. This key is an int enum in Godot 4, not
+; the Godot 3 string it was previously spelled as. The string form is not an
+; error -- it resolves to 0, Landscape -- so the exported activity requested
+; SCREEN_ORIENTATION_LANDSCAPE, Android never rotated the window,
+; root.size_changed never fired, and _apply_phone_orientation() was
+; unreachable for the whole life of the build. Verified with dumpsys window
+; on the device and with ProjectSettings.get_setting() on the desktop.
+; Full write-up in ANDROID_BUILD_SCOPE.md.
+;
+; Keys are written relative to their section: this is display/window/handheld/
+; orientation, spelled window/handheld/orientation under [display].
+window/handheld/orientation=6
 
 [gui]
 

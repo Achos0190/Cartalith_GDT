@@ -43,6 +43,7 @@ the engine as they stand today, and it is the document that goes stale first.
 | [12](#12--verification) | Verification |
 | [13](#13--the-v210-menu-structure-audit-2026-08-20) | **The v2.10 menu-structure audit** — `design/Cartalith Menu Structure v2.dc.html` against the shipped shell, and the 17 undisclosed omissions it found |
 | [14](#14--visual-sweep-2026-08-20) | **Visual sweep (2026-08-20)** — the shell driven live, screenshotted, and compared against the DCC Shell / Journey Planner mockups. **§14.6 corrects one of its own verdicts**: the Asset library window was passed on function rather than layout, and has been rebuilt against the canvas. |
+| [15](#15--the-phone-overflow-menu-is-wired-but-inoperable-2026-08-20) | **The phone overflow menu (2026-08-20)** — (C): the real menu bar is wired into the phone sheet but is unscaled, buried in desktop status chrome, and inert to touch. Device evidence, kept as the brief for the mobile menu design; **not fixed**. |
 
 ---
 
@@ -1970,3 +1971,47 @@ Asset library re-shot to confirm the `wrap_controls` fix, and
 in both directions, the save writer, and the pyramid half of DM-02 (zoom-level
 addressing, CRS, retina variants, ocean-tile skipping). All are disclosed in
 place, in the canvas's own shape.
+
+---
+
+## 15 · The phone overflow menu is wired but inoperable (2026-08-20)
+
+Classification: **(C)** — a real, connected affordance with no phone design
+behind its presentation. Recorded here as the brief for the mobile menu design
+the owner is having produced separately; **deliberately not fixed**, because
+building one now would be discarded when that design lands.
+
+Owner report, from the OnePlus 6T: *"not much from the menus work on android."*
+
+### What is real
+
+`DccShell._build_phone_overflow()` does not draw a placeholder. It reparents the
+**actual desktop menu bar** into the phone sheet, so all seven genuine program
+menus — File, Edit, Assets, Data, Preferences, Window, Help — and every one of
+their roughly 41 items and 15 submenus are present and connected, exactly as on
+desktop. `DCC_SHELL_SPEC.md` §13's promise that the `⋯` affordance carries "the
+full menu bar" is kept structurally. **The routing is worth keeping; only the
+presentation is missing.**
+
+### What is broken, with device evidence
+
+| # | Fault | Evidence |
+|---|---|---|
+| 1 | Nothing in the menu path is phone-scaled. `add_menu()` uses `DccTheme.inset(11, 9, 11, 9)` and `FS_MENU` (12 px), raw desktop values, no `_pscale`/`_ptap`. | The row renders ~12 physical px tall — about 1 mm at 314 dpi, against §13's 44 px floor. |
+| 2 | Desktop status chrome is reparented with the menus: the `CARTALITH` wordmark (150 px min) and the five `world/res/cpu/gpu/mem` readouts with 22 px gaps. | Pre-generation those labels are empty, so most of the 220-px sheet is blank and the menu row is squeezed into a bottom strip. |
+| 3 | The menus do not respond to touch. | Tapping `File` at its centre produced no popup and no pressed state; holding the touch down (`adb shell input motionevent DOWN`, captured while held) produced neither. Not conclusively separated from a simple miss, given (1) — but the observable result is an inert menu. |
+| 4 | 15 `add_submenu_*` calls assume hover-to-open, which touch does not have; a nested `PopupMenu` positioned for a pointer has nowhere sane to go at 1080 px wide. | Even with (1) and (3) fixed, ~41 items behind 15 hover-opened submenus is not a phone menu. |
+
+### The brief this implies
+
+A phone menu that keeps the seven menus and their ~41 destinations but
+re-presents them as a **full-screen, touch-sized, drill-down list** — one level
+per screen, 44 px minimum rows, back-navigation instead of hover — would inherit
+all the existing wiring in `menus.gd` unchanged. The desktop wordmark and readout
+cluster belong in the app bar or the status sheet, not in the menu surface.
+
+Note that the same root cause was fixed this pass for the *tool* sheet
+(`ANDROID_BUILD_SCOPE.md`, fourth device pass §4): desktop-authored contents
+placed into phone chrome without scaling. The fix there was applied at
+`set_tool_options()`, and deliberately does **not** reach the overflow sheet,
+precisely so it does not pre-empt this design.

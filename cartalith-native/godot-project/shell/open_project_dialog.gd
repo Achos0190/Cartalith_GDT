@@ -109,6 +109,13 @@ func setup(host: DccApp) -> void:
 	_host = host
 	title = "Open project"
 	get_ok_button().hide()   ## the mockup's own foot row replaces it.
+	## The mockup's card is a single branded header with a single `✕`
+	## (`_build_head()`). An `AcceptDialog` also draws the host `Window`'s own
+	## title bar and close button, so the shipped dialog stacked two headers and
+	## two close buttons -- reported from the device pass, but wrong on every
+	## platform, not just phone. The content header is the one the design draws,
+	## so the window chrome is the one that goes.
+	borderless = true
 	size = Vector2i(1180, 760)
 	min_size = Vector2i(880, 560)
 	_build()
@@ -117,11 +124,19 @@ func setup(host: DccApp) -> void:
 	## Guarded on visibility so a drop onto the shell while this dialog is
 	## closed is not silently swallowed by a hidden dialog.
 	files_dropped.connect(_on_files_dropped)
+	## Rotation changes both the screen this fills and how many tiles fit across
+	## it. `phone_insets_changed` is the shell's own "the phone layout moved"
+	## signal, already emitted by `_apply_phone_orientation()`.
+	if _host.is_phone():
+		_host.phone_insets_changed.connect(func():
+			if visible:
+				_present())
 
 func open() -> void:
 	_selected = ""
 	_welcome = false
 	popup_centered()
+	_present()
 	_refresh()
 
 ## The cold-start prompt: the same gallery, framed as "start here" and
@@ -134,7 +149,55 @@ func open_welcome() -> void:
 	_selected = ""
 	_welcome = true
 	popup_centered()
+	_present()
 	_refresh()
+
+## §13's region table sends docks to "full-screen sheets" on a phone; a modal
+## gallery is the same case, and the shipped dialog instead kept its desktop
+## 1180x760 inside a 393-px-wide shell -- most of it simply off-screen, with
+## 10-12 px type on the part that wasn't (device pass, 2026-08-19).
+##
+## Rather than re-author every constant in this file at phone sizes, the window
+## fills the screen and `content_scale_factor` scales the whole desktop-authored
+## composition by the same factor the shell uses for its own chrome. That keeps
+## one layout for both form factors -- the mockup's own phone reference is
+## 393 px wide, which is exactly what `size / _host.phone_scale()` comes to on
+## a real handset, so the desktop numbers land on the phone reference by
+## construction instead of by a second set of constants.
+##
+## Re-run on every open (and on rotation, via `_host.phone_insets_changed`)
+## because the viewport it measures changes with both.
+func _present() -> void:
+	if _host == null or not _host.is_phone():
+		return
+	var scale: float = _host.phone_scale()
+	var screen: Vector2 = _host.get_viewport_rect().size
+	content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	content_scale_aspect = Window.CONTENT_SCALE_ASPECT_IGNORE
+	content_scale_factor = scale
+	## `min_size` is authored for desktop and would otherwise refuse a window
+	## narrower than 880 px, which every phone in portrait is.
+	min_size = Vector2i.ZERO
+	## A `Window` cannot shrink below its content minimum, so full-screen only
+	## takes effect once the widest row can actually fit the column. The head is
+	## that row by a wide margin: the subtitle is a single unwrapped `Label`
+	## whose text alone is ~420 px, more than the entire 393 px phone reference.
+	## It is explanatory prose that the three action tiles underneath already
+	## say in full, so phone drops it -- everything else (the search well, the
+	## clipped foot note) is already shrinkable.
+	_subtitle_label.visible = false
+	size = Vector2i(screen)
+	position = Vector2i.ZERO
+	_fit_columns(screen.x / scale)
+
+## The gallery is a 4-column grid at 1180 px. At the phone reference width it
+## fits one tile, and two in landscape -- computed from the tile's own minimum
+## rather than hard-coded per orientation.
+func _fit_columns(layout_width: float) -> void:
+	if _grid == null:
+		return
+	var usable := layout_width - 60.0   ## `_build()`'s left+right grid padding.
+	_grid.columns = maxi(1, int(floor((usable + 18.0) / (TILE_MIN.x + 18.0))))
 
 # ---------------------------------------------------------------------------
 # Layout

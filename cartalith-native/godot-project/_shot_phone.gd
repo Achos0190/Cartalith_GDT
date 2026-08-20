@@ -31,6 +31,24 @@ func _ready() -> void:
 			await get_tree().create_timer(0.25).timeout
 		await get_tree().create_timer(0.6).timeout
 
+	## `app.gd` opens the welcome dialog whenever no world exists, so without
+	## this every capture is of that dialog rather than of the shell behind it.
+	if "--nowelcome" in OS.get_cmdline_user_args():
+		app.open_project_dialog.hide()
+		await get_tree().process_frame
+
+	## Simulates a device rotation the only way this environment can: resize the
+	## real window to the transposed resolution and let `root.size_changed` fire
+	## exactly as Android's own rotation makes it fire. This is what verifies
+	## `_on_window_resized()` -> `_apply_phone_orientation()` actually re-lays the
+	## shell, as opposed to `--resolution` merely *booting* into an orientation.
+	if "--rotate" in OS.get_cmdline_user_args():
+		var w := get_window()
+		w.size = Vector2i(w.size.y, w.size.x)
+		await get_tree().process_frame
+		await get_tree().process_frame
+		await get_tree().create_timer(0.4).timeout
+
 	if "--drawer" in OS.get_cmdline_user_args():
 		app._set_drawer_open(true)
 	if "--picker" in OS.get_cmdline_user_args():

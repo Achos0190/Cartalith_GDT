@@ -167,6 +167,7 @@ func _ready() -> void:
 	## Orientation (`_landscape`) *is* re-decided on every resize below, which
 	## is the half of §13 that genuinely needs to react live.
 	_compute_layout_mode()
+	_style_window_chrome()
 
 	if _phone:
 		_build_phone_shell()
@@ -336,13 +337,24 @@ func style_popup(popup: PopupMenu) -> void:
 # yet builds itself fresh from `DccTheme.c()` the first time it opens, which
 # already picks up the new palette; nothing extra is needed for those.
 
+## Re-grepped 2026-08-20 (owner: "make sure the lightmode version is available
+## everywhere"). Six names had accumulated since the lists were first written
+## and were therefore never repainted by a theme switch -- exactly the drift
+## the comment above predicts, introduced by the windows built *after* the
+## theme pass. `caret_color`/`font_placeholder_color`/`font_uneditable_color`
+## and the `read_only`/`disabled`/`focus` styleboxes all come from
+## `dcc_widgets.gd`'s text fields, which is why every dialog with a text well
+## (the browse dialogs, the asset library, the data manager, this file's own
+## search) kept dark input wells under the light palette.
 const _THEME_COLOR_OVERRIDES := [
-	"default_color", "font_accelerator_color", "font_color", "font_disabled_color",
-	"font_hover_color", "font_pressed_color", "icon_hover_color", "icon_normal_color",
-	"icon_pressed_color",
+	"caret_color", "default_color", "font_accelerator_color", "font_color",
+	"font_disabled_color", "font_hover_color", "font_placeholder_color",
+	"font_pressed_color", "font_uneditable_color", "icon_hover_color",
+	"icon_normal_color", "icon_pressed_color",
 ]
 const _THEME_STYLEBOX_OVERRIDES := [
-	"grabber_area", "grabber_area_highlight", "hover", "normal", "panel", "pressed", "slider",
+	"disabled", "focus", "grabber_area", "grabber_area_highlight", "hover", "normal",
+	"panel", "pressed", "read_only", "slider",
 ]
 
 ## Called by `menus.gd` immediately after `DccTheme.apply_theme()`, passing
@@ -350,7 +362,134 @@ const _THEME_STYLEBOX_OVERRIDES := [
 ## what it's reversing.
 func rebuild_theme(was_dark: bool) -> void:
 	var old_pal: Dictionary = DccTheme.DARK if was_dark else DccTheme.LIGHT
+	_recolor_project_theme(old_pal)
+	_style_window_chrome()
 	_recolor_subtree(self, old_pal)
+
+## The other half of "everywhere", found 2026-08-20 by capturing every window
+## under the light palette instead of trusting the walk.
+##
+## `project.godot` sets `gui/theme/custom` to a real, hand-authored dark
+## `Theme` resource, and that resource is the fallback for every control state
+## nothing overrides explicitly -- disabled buttons, focus rings, scrollbars,
+## tooltips, popup separators, `SpinBox`/`OptionButton`/`CheckBox` chrome. None
+## of it is a per-node `add_theme_*_override`, so `_recolor_subtree()` below
+## could never have reached any of it: the colours live inside a `Resource`,
+## not on the nodes. That is why a disabled `DccWidgets.action()` button (which
+## sets `normal`/`hover` but no `disabled` stylebox) stayed a dark slab on a
+## light shell -- "Bake ALL & finalize" and the world workspace's own
+## "Finalize · LOD 0-3", both visibly wrong in the light capture.
+##
+## Remapping works because that resource was authored from these exact tokens:
+## its header lists surface `#0d0e0f`, text `#c8cbcd`, accent `#e0a34a` and the
+## rest, which are `DccTheme.DARK`'s values verbatim. So the same reverse
+## lookup the node walk uses converts the whole resource.
+##
+## Mutating it is in-memory only -- `load()` returns the cached instance the
+## whole tree is already resolving against, so this repaints every fallback at
+## once and nothing is written back to disk. Switching back re-runs it with the
+## palettes swapped. A `StyleBoxFlat` shared by several entries is visited more
+## than once, which is harmless: after the first visit its colour no longer
+## matches anything in `old_pal`, so `remap()` returns null and leaves it be.
+func _recolor_project_theme(old_pal: Dictionary) -> void:
+	var path := String(ProjectSettings.get_setting("gui/theme/custom", ""))
+	if path == "":
+		return
+	var th := load(path) as Theme
+	if th == null:
+		return
+	var extras := _theme_extras(was_dark_to_light(old_pal))
+	for type_name in th.get_color_type_list():
+		for color_name in th.get_color_list(type_name):
+			var nc = _remap_theme_color(th.get_color(color_name, type_name), old_pal, extras)
+			if nc != null:
+				th.set_color(color_name, type_name, nc)
+	for type_name in th.get_stylebox_type_list():
+		for box_name in th.get_stylebox_list(type_name):
+			var sb := th.get_stylebox(box_name, type_name)
+			if sb is StyleBoxFlat:
+				var f := sb as StyleBoxFlat
+				var nb = _remap_theme_color(f.bg_color, old_pal, extras)
+				if nb != null:
+					f.bg_color = nb
+				var nr = _remap_theme_color(f.border_color, old_pal, extras)
+				if nr != null:
+					f.border_color = nr
+
+func was_dark_to_light(old_pal: Dictionary) -> bool:
+	return old_pal == DccTheme.DARK
+
+## Embedded `Window` chrome -- the title bar and its close button that every
+## `AcceptDialog` in this shell draws above its own branded header. The project
+## theme resource defines no `Window` entries at all, so that chrome came from
+## Godot's stock built-in theme, which is dark and fixed: under the light
+## palette every dialog wore a charcoal title bar over light content, and no
+## amount of remapping could reach it because there was nothing to remap.
+##
+## Written from tokens rather than remapped, so it is correct on a cold boot in
+## either palette as well as after a switch -- hence the call from `_ready()`
+## as well as from `rebuild_theme()`.
+func _style_window_chrome() -> void:
+	var path := String(ProjectSettings.get_setting("gui/theme/custom", ""))
+	if path == "":
+		return
+	var th := load(path) as Theme
+	if th == null:
+		return
+	th.set_color("title_color", "Window", DccTheme.c("text_bright"))
+	th.set_color("title_outline_modulate", "Window", DccTheme.c("raised"))
+	for box in ["embedded_border", "embedded_unfocused_border"]:
+		th.set_stylebox(box, "Window", DccTheme.panel("raised",
+			{"left": 1, "right": 1, "top": 1, "bottom": 1}))
+
+## `DccTheme.remap()` first, then the supplementary table below for the
+## handful of colours the theme resource uses that are not tokens at all.
+func _remap_theme_color(value: Color, old_pal: Dictionary, extras: Dictionary) -> Variant:
+	var key := value.to_html(false)
+	if extras.has(key):
+		return Color(extras[key] as Color, value.a)
+	return DccTheme.remap(value, old_pal)
+
+## The theme resource predates `DccTheme` and its header claims to use the same
+## values; six of them do not, so the token reverse-lookup cannot see them and
+## they stayed dark under the light palette. Measured by dumping every distinct
+## `Color(...)` in the `.tres` and diffing against both palettes, not guessed.
+##
+## Each entry is a derivation, not a new colour invented here: two are plain
+## surfaces, one is a token with a one-digit typo, and two are the accent with
+## the same lighten/darken the widgets already apply to it
+## (`DccWidgets.action()` uses `c("accent").lightened(0.1)`).
+##
+## Deliberately absent, because they are correct in both palettes and are not
+## misses: `#1a1206`, the near-black used for text sitting *on* the amber slab,
+## which must stay dark on a light ground too, and `#e66b6b`, the error red --
+## the same reasoning `DccTheme` already applies to `warn`/`block`/`water`.
+func _theme_extras(to_light: bool) -> Dictionary:
+	var accent: Color = DccTheme.LIGHT["accent"] if to_light else DccTheme.DARK["accent"]
+	var out := {
+		## Intended as `text_dim`; the resource has 0x96 where the token has
+		## 0x92 in blue, which is enough to defeat an exact-match lookup.
+		"8d9396": "text_dim",
+		"131416": "panel",    ## The panel surface behind field chrome.
+		"1a1b1d": "sunken",   ## Input well, resting.
+		"252729": "raised",   ## Input well, hover.
+	}
+	var pal: Dictionary = DccTheme.LIGHT if to_light else DccTheme.DARK
+	var map := {}
+	for hex in out:
+		map[hex] = pal[out[hex]] as Color
+	map["c48c38"] = accent.darkened(0.125)   ## Accent, pressed.
+	map["edb45f"] = accent.lightened(0.09)   ## Accent, hover.
+	if to_light:
+		return map
+	## Reversing: the light run wrote the light values, so key the table by
+	## those instead. Same four tokens, same two derivations.
+	var rev := {}
+	for hex in out:
+		rev[(DccTheme.LIGHT[out[hex]] as Color).to_html(false)] = pal[out[hex]] as Color
+	rev[(DccTheme.LIGHT["accent"] as Color).darkened(0.125).to_html(false)] = accent.darkened(0.125)
+	rev[(DccTheme.LIGHT["accent"] as Color).lightened(0.09).to_html(false)] = accent.lightened(0.09)
+	return rev
 
 func _recolor_subtree(node: Node, old_pal: Dictionary) -> void:
 	if node is Control or node is Window:
@@ -409,7 +548,56 @@ func set_tool_options(build: Callable) -> void:
 	## Deferred one frame so `_phone_bottom_reserve()` reads the sheet's real
 	## post-layout size rather than its size from before this rebuild.
 	if _phone:
+		_phone_fit_tool_options(tool_options_row)
 		(func(): phone_insets_changed.emit()).call_deferred()
+
+## Owner, 2026-08-20: "the bottom menu butons on phone are near too small to
+## use". They were, and the earlier "44 px lands at ~121 physical px" arithmetic
+## was measuring the wrong thing -- it described the *chrome* (`_build_phone_app
+## _bar()`, `_build_phone_rail()`), which does route every size through
+## `_ptap()`. The sheet's *contents* never touched `_ptap()` at all: they are
+## built by the workspaces' own `_build_*_tool_options_row()` callbacks against
+## desktop pixel constants (`cartography_workspace.gd` sets buttons to a literal
+## `Vector2(34, 20)`), and Godot's default stretch mode is disabled, so 20
+## virtual px is 20 *physical* px -- about 1.6 mm on this 314 dpi panel.
+##
+## Fixed here rather than in the workspaces because `set_tool_options()` is the
+## single choke point all of them already pass through, so one pass over the
+## finished row phone-sizes every current and future tool row without making a
+## dozen workspace files phone-aware (and without touching files another agent
+## may be mid-flight in). Applied after `build.call()` so it sees the real
+## nodes, and re-applied on every rebuild because each one makes fresh ones.
+func _phone_fit_tool_options(node: Node) -> void:
+	for child in node.get_children():
+		if child is Control:
+			var ctl := child as Control
+			## Explicit font-size overrides beat any theme we could hang on the
+			## sheet, so they have to be re-written rather than inherited.
+			if ctl.has_theme_font_size_override("font_size"):
+				ctl.add_theme_font_size_override("font_size",
+					_pscale(ctl.get_theme_font_size("font_size")))
+			## Scale whatever the desktop row asked for, then floor anything
+			## tappable at §13's 44 px -- the floor is the half the owner felt.
+			var min_size := ctl.custom_minimum_size
+			if min_size.x > 0.0:
+				min_size.x = _pscale(min_size.x)
+			if min_size.y > 0.0:
+				min_size.y = _pscale(min_size.y)
+			if ctl is BaseButton or ctl is LineEdit or ctl is Range or ctl is TextEdit:
+				min_size.y = maxf(min_size.y, float(_ptap(DccTheme.PHONE_TAP_MIN)))
+				if min_size.x > 0.0:
+					min_size.x = maxf(min_size.x, float(_ptap(DccTheme.PHONE_TAP_MIN)))
+			ctl.custom_minimum_size = min_size
+		_phone_fit_tool_options(child)
+
+## Read by dialogs that have to present themselves differently on a phone
+## (`open_project_dialog.gd`); `_phone`/`_phone_scale` stay private because
+## nothing outside should be *setting* them.
+func is_phone() -> bool:
+	return _phone
+
+func phone_scale() -> float:
+	return _phone_scale
 
 # -- §3 Domain rail -----------------------------------------------------------
 
@@ -1300,7 +1488,10 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	var handle_wrap := Control.new()
 	handle_wrap.custom_minimum_size.y = _pscale(20)
 	var handle := ColorRect.new()
-	handle.color = Color(1, 1, 1, 0.22)
+	## Token-derived, not a literal white: `DccTheme.remap()` can only repaint a
+	## colour it can trace back to a token, so a flat `Color(1,1,1,0.22)` here
+	## stayed white when the palette went light and vanished into the panel.
+	handle.color = Color(DccTheme.c("text_ghost"), 0.55)
 	var hw := _pscale(38)
 	var hh := _pscale(4)
 	handle.set_anchors_preset(Control.PRESET_CENTER)
@@ -1314,11 +1505,14 @@ func _build_phone_tool_sheet() -> PanelContainer:
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.add_theme_stylebox_override("panel", DccTheme.empty())
 	tool_options_row = HBoxContainer.new()
-	tool_options_row.add_theme_constant_override("separation", 14)
+	## Scaled like everything else in the sheet: left unscaled these read as a
+	## hairline against `_phone_fit_tool_options()`-sized controls, which is
+	## what put the first control flush against the screen edge on the device.
+	tool_options_row.add_theme_constant_override("separation", _pscale(14))
 	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 14)
-	pad.add_theme_constant_override("margin_right", 14)
-	pad.add_theme_constant_override("margin_bottom", 10)
+	pad.add_theme_constant_override("margin_left", _pscale(14))
+	pad.add_theme_constant_override("margin_right", _pscale(14))
+	pad.add_theme_constant_override("margin_bottom", _pscale(10))
 	pad.add_child(tool_options_row)
 	scroll.add_child(pad)
 	col.add_child(scroll)
@@ -1337,7 +1531,8 @@ func _build_phone_gesture_inset() -> Control:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	wrap.add_child(bg)
 	var handle := ColorRect.new()
-	handle.color = Color(1, 1, 1, 0.26)
+	handle.color = Color(DccTheme.c("text_ghost"), 0.6)  ## Token-derived: see the
+		## tool sheet's own handle for why a literal white is wrong here.
 	var hw := _pscale(110)
 	var hh := _pscale(4)
 	handle.set_anchors_preset(Control.PRESET_CENTER)
