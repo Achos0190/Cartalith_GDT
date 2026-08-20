@@ -22,7 +22,12 @@ opt-level = 1
 # debuginfo that produced the bulk. Inherits `dev`'s `opt-level = 1`, so
 # generation speed on device is unchanged.
 #
-# Use with: cargo ndk -t arm64-v8a --profile android-dev build -p cartalith-godot
+# Use with: cargo ndk -t arm64-v8a build --profile android-dev -p cartalith-godot
+# (`--profile` is a `cargo build` flag, so it must follow `build`, not precede
+# it -- `cargo ndk --profile ...` fails with "unexpected argument".)
+# `cartalith.gdextension`'s `android.debug.arm64` points at this profile's
+# output directory, so no hand-copying into `target/aarch64-linux-android/
+# debug/` is needed (or wanted -- that copy is how a stale `.so` ships).
 # Owner decision 2026-08-18: dedicated per-platform components are fine as
 # long as the underlying program is the same one — this changes packaging,
 # not behaviour.

@@ -471,3 +471,234 @@ the phone would not re-lock mid-run; both were restored afterwards
 | Non-square maps | **All four shapes correct**, including Whole world 2:1 pinning |
 | Phone UI | **Structurally intact, physically unusable by finger** — see §6; open item, not fixed |
 | Crashes / ANRs / OOM kills | **None** |
+
+---
+
+# Third real-device pass (2026-08-20): current code rebuilt and installed; the on-device run is blocked by the phone's lock screen
+
+Same phone (OnePlus 6T `9608b26b`, Android 14, USB debugging authorized).
+Prompted by the owner asking whether the new GUI and everything landed since
+2026-08-18 had actually reached the APK. **It had not** — both APKs on disk
+predated the whole three-domain DCC shell merge, the rebuilt Asset Library,
+Travel Library, the Journey Planner work, heightmap import, metropolis/
+recovery, Multi-GPU, the layers z-order fix, and the `6a97911` launcher crash
+fix.
+
+They do now: a current `.so` and a current APK were built and installed. What
+this pass could **not** do is watch it run, for a reason that has nothing to do
+with the code — see §4.
+
+## 1. Two real defects found before anything could be built
+
+Both were in committed-or-working-tree config, both would have produced a
+wrong build, and neither was the thing the pass went looking for.
+
+### `project.godot`'s `[display]` section was corrupted in the working tree
+
+The committed version carries a twelve-line `##` comment block explaining the
+§13 orientation choice, followed by `display/window/handheld/orientation=
+"sensor"`. The working tree had all of it collapsed into a single garbage key:
+
+```
+sensorstillbootsthere##mostofthetimewithoutforcingit.display/window/handheld/orientation="sensor"
+```
+
+A botched edit, uncommitted. Godot's `ConfigFile` parser treats `;` as its
+comment character, not `#`, so this does not fail loudly — it parses as a
+custom project setting with a nonsense name, the real orientation key is never
+set, and the app silently reverts to Godot's unset default of **landscape**.
+That is precisely the "full desktop chrome crammed onto a phone" bug the
+committed comment exists to prevent, and it would have shipped invisibly.
+Restored with `git checkout`; no code change was needed, the committed content
+was already right.
+
+**Lesson, same shape as this project's other recorded ones:** a config file
+that parses is not a config file that is correct. `#` is not a comment
+character in Godot's `ConfigFile`.
+
+### `cartalith.gdextension` pointed Android at a directory nothing builds into
+
+`Cargo.toml` grew a dedicated `[profile.android-dev]` on 2026-08-18 (to make
+the 400 MB to 18 MB `llvm-strip` step permanent rather than manual). Cargo
+writes that profile's output to `target/aarch64-linux-android/android-dev/`.
+But `cartalith.gdextension`'s `android.debug.arm64` still read
+`target/aarch64-linux-android/debug/`, which only the *plain* `dev` profile
+writes.
+
+The 2026-08-18 pass papered over this by hand-copying the stripped `.so` into
+`debug/`. That copy is exactly how a stale library ships: the manifest points
+at a file no build step ever refreshes, so the APK silently keeps whatever was
+copied there last. Confirmed on disk this session — `debug/libcartalith_godot.so`
+was a 20,934,600-byte artifact dated 2026-08-18 22:29 that no current build
+would have touched.
+
+Fixed by pointing `android.debug.arm64` at
+`res://../target/aarch64-linux-android/android-dev/libcartalith_godot.so`, the
+directory the documented profile actually produces. Desktop and release paths
+are unchanged.
+
+### And a documentation bug in the same area
+
+`Cargo.toml`'s own usage line read
+`cargo ndk -t arm64-v8a --profile android-dev build -p cartalith-godot`, which
+**fails**: `--profile` is a `cargo build` flag, so `cargo-ndk` sees it first
+and exits with `unexpected argument '--profile' found`. Corrected in place to
+put `--profile` after `build`, with a note explaining why.
+
+## 2. The stale-artifact scare that turned out to be a non-issue
+
+`godot-project/android/build/src/instrumented/assets/project.godot` was flagged
+before this pass as still naming `res://main.tscn` — a scene deleted in
+`788053b` — with the worry that the export would use it and the APK would fail
+to launch. **Checked, and it is harmless.** That file is not ours: its
+`config/name` is `"Godot App Instrumentation Tests"`, it ships as part of
+Godot's Gradle build template, and its `res://main.tscn` is its own 1,308-byte
+test scene sitting right beside it. Nothing about it refers to this project.
+
+It is also inert twice over: the Android preset has
+`gradle_build/use_gradle_build=false`, so the export uses the prebuilt APK
+template and never enters `android/build/` at all, and `godot-project/android/`
+is `.gitignore`d. **No action taken, correctly.**
+
+The app's real main scene is `res://shell/app.tscn`, which exists and exported
+fine.
+
+## 3. Build, export, install — all three succeeded
+
+- `cargo ndk -t arm64-v8a build --profile android-dev -p cartalith-godot` —
+  **clean, exit 0**, 21.7 s incremental. `cartalith-terrain`, `-erosion`,
+  `-hydrology`, `-climate`, `-gpu`, `-assets`, `-engine`, `-civ` and `-godot`
+  all rebuilt. Only two pre-existing dead-code warnings in `cartalith-gpu`
+  (`dispatch_gpu_height`, `dispatch_gpu_resistance`), unrelated to Android.
+- Result: `target/aarch64-linux-android/android-dev/libcartalith_godot.so`,
+  **156,553,640 bytes**, dated 2026-08-20 09:37.
+- `godot4 --headless --export-debug "Android" builds/android/Cartalith.apk` —
+  **succeeded**, signed with Godot's auto-generated debug keystore. Still no
+  release keystore; still not in scope.
+- `adb install -r` — **Success**, first try, streamed install.
+
+### The `.so` is 156 MB, not the 18 MB the profile was meant to produce
+
+`debug = "line-tables-only"` cut the 2026-08-18 figure from ~400 MB to 156 MB —
+a real 2.5x win, and it did remove the need for a *mandatory* manual strip —
+but it is nowhere near the 18 MB that `llvm-strip --strip-debug` achieved,
+because line tables for a workspace this size are themselves large. Godot
+stores `.so` files uncompressed, so the APK came out **207,106,507 bytes**
+against the 2026-08-18 pass's 68 MB.
+
+**Deliberately not "fixed" this pass.** Adding `strip = "debuginfo"` to the
+profile would get the 18 MB back, but it would also delete the file-and-line
+information the profile's own comment says on-device panic diagnosis needs,
+leaving `debug = "line-tables-only"` as dead config contradicting the line
+below it. Since this pass was specifically watching for a crash class (§4),
+keeping resolvable backtraces was worth the install time. If the size becomes
+the binding constraint, the honest change is to drop `debug` and set
+`strip = "debuginfo"` together, and to say in the comment that backtraces lose
+file and line.
+
+### Which APK is the real one
+
+`export_path="builds/android/Cartalith.apk"` resolves relative to the Godot
+project directory, so the preset writes **`godot-project/builds/android/
+Cartalith.apk`**. The second copy at `cartalith-native/builds/android/` was
+cruft from an older pass that invoked Godot with an explicit path from a
+different working directory; it was stale (2026-08-18 09:20) and had no way of
+ever being refreshed. **Deleted.** Both locations are `.gitignore`d, so nothing
+was committed either way.
+
+### Confirmed the APK carries current code
+
+Not inferred from timestamps — read out of the archive. `assets/shell/`
+contains 57 entries including `asset_library_window.gdc` (53,098 bytes — the
+rebuilt one from `88b4d54`), `travel_library_window.gdc`,
+`journey_planner_view.gdc`, `dcc_shell.gdc` (34,188 bytes),
+`data_manager_window.gdc` and all five workspace scripts, every one stamped
+2026-08-20 09:38. The native library is the 09:37 build. **The APK is built
+from the tree at `6a97911`.**
+
+## 4. The blocker: a fingerprint-secured lock screen, again
+
+The app was launched twice (`adb shell monkey -c LAUNCHER`). Both times logcat
+shows the same three lines within ~80 ms of each other:
+
+```
+V Godot   : OnResume: GodotFragment{...}
+V Godot   : OnPause:  GodotFragment{...}
+V Godot   : OnStop:   GodotFragment{...}
+```
+
+The activity is backgrounded by the OS before the engine ever creates its GL
+context. Consequently **there is no `Initialize godot-rust` line, no
+`Adreno (TM) 630`, no `OpenGL ES 3.2`** — the GDExtension is never reached, so
+this pass can make **no claim at all** about whether the extension loads, and
+does not.
+
+Diagnosed rather than assumed:
+
+- `dumpsys power` gave `mWakefulness=Dozing` initially; raised to `Awake` with
+  `KEYCODE_WAKEUP` and `svc power stayon usb`.
+- `dumpsys window` gave `mDreamingLockscreen=true`, before and after
+  `wm dismiss-keyguard`, which silently no-ops against a real credential.
+- `locksettings get-disabled` returned `false`, i.e. a real lock credential is
+  set.
+- `adb exec-out screencap` returned a genuine 1.58 MB image (not the blanked
+  ~15 KB of the 2026-08-17 pass, because the screen was awake this time) and it
+  shows the lock screen with a **fingerprint prompt**.
+
+This is the identical physical-access requirement recorded in the 2026-08-17
+section, and it is not a toolchain, code or export problem. Nothing in `adb`'s
+non-root surface dismisses a fingerprint or PIN credential, and attempting to
+work around one was never appropriate.
+
+**What is needed: the owner touches the fingerprint sensor.** The APK is
+already installed; tapping the Cartalith icon is sufficient.
+
+### What was specifically left unverified
+
+- **The `6a97911` GL-context class of bug.** Android is GL Compatibility too,
+  so the wgpu-enumeration hazard fixed on desktop could in principle bite here.
+  Today's fix should prevent it. **This pass did not reach the point where it
+  would manifest**, so that remains unconfirmed on device — assume nothing.
+- **The §13 `_phone` layout on real hardware.** This is the first build in
+  which it could ever run: `project.godot` now sets `orientation="sensor"`
+  (restored in §1) and the device reports **1080x2340**.
+  `DccShell._compute_layout_mode()` computes `1080/2340 = 0.4615`, under the
+  `_PHONE_ASPECT_MAX = 0.6` threshold, so `_phone` should latch true and
+  `_phone_scale` should come out `1080 / PHONE_REF_SHORT (393) = 2.75`. On
+  paper that puts §13's 44 px minimum target at **~121 physical px**, clearing
+  Android's 94 px (48 dp) floor and directly answering the 2026-08-18 pass's §6
+  finding that the chrome was "physically unusable by finger". **On paper.**
+  Nobody has seen it.
+
+## 5. Unrelated cruft noticed in the APK, flagged not fixed
+
+`export_filter="all_resources"` pulls the editor-only addons into the shipped
+APK. The archive contains `assets/addons/godotsteam/` and
+`assets/addons/godot_ai/` (including `_cli_exec.gdc`), plus
+`lib/arm64-v8a/libgodotsteam.android.template_debug.arm64.so` (18,695,392
+bytes) and `libsteam_api.so` (526,984 bytes) — about 19 MB of a Steam
+integration and a personal MCP dev tool in a non-Steam Android build.
+
+`.gitignore`'s own comment already says neither belongs in the repo. An
+`exclude_filter` on the Android preset would drop them, but changing export
+filters is a change whose only real test is running the result — which §4 says
+this pass cannot do. **Left alone deliberately**; picking it up belongs with
+the next pass that can actually watch the app boot.
+
+## Done means (this pass)
+
+| Item | Result |
+|---|---|
+| `project.godot` orientation config | **Fixed** — corrupted working-tree `[display]` key restored; landscape regression averted |
+| `.gdextension` Android debug path | **Fixed** — now points at `android-dev/`, the directory the documented profile writes; ends the hand-copy that shipped stale `.so`s |
+| `Cargo.toml` usage line | **Fixed** — `--profile` must follow `build` |
+| Instrumented `main.tscn` artifact | **Non-issue** — Godot's own test project, and `use_gradle_build=false` means it is never read |
+| Rust cdylib cross-compiled for `aarch64-linux-android` | **Yes**, clean, from `6a97911` |
+| APK exported and signed | **Yes** — 207 MB (large; see §3) |
+| APK carries current code | **Yes**, verified by reading `assets/shell/` out of the archive |
+| Installed on real hardware | **Yes** |
+| Duplicate stale APK path | **Deleted** (`cartalith-native/builds/android/`) |
+| App observed running on device | **NO — blocked by the phone's fingerprint lock screen** |
+| GDExtension load / GL context confirmed | **NO** — never reached |
+| `6a97911` GL-context fix verified on Android | **NO** — unverified, assume nothing |
+| §13 phone layout on real hardware | **NO** — first build capable of it, never seen |
