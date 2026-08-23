@@ -610,6 +610,7 @@ func _draw() -> void:
 				_draw_way_segment(points, start2, cut, rect, width)
 				start2 = cut
 			_draw_way_segment(points, start2, points.size(), rect, width)
+
 	## Town layouts sit above the ways -- a town's own high street IS the
 	## through-road, so it must overlay it -- and *replace* the pin of every
 	## place they actually draw (`_urban_revealed`, the reference's
