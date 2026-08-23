@@ -6871,6 +6871,28 @@ impl WorldGen {
         vdict! { "ok" => true }
     }
 
+    /// `alBatchColl`'s read side (AS-12): every collection currently defined
+    /// on this session, in creation order (`AssetCollections::as_map`,
+    /// itself an `OrderedMap` for exactly this reason -- reproducible order,
+    /// not a `HashMap`'s arbitrary one), each with its member uid list.
+    /// Powers the Collections rail row (`asset_library_window.gd`) -- until
+    /// now `as_slot_summary`'s `collections` field could only answer "which
+    /// collections is THIS uid in", with nothing to enumerate every
+    /// collection that exists. Empty before any `as_batch_collect` call.
+    #[func]
+    fn as_collections(&self) -> Array<VarDictionary> {
+        self.asset_library
+            .db
+            .collections
+            .as_map()
+            .iter()
+            .map(|(name, uids)| {
+                let uid_arr: PackedStringArray = uids.iter().map(GString::from).collect();
+                vdict! { "name" => name, "uids" => &uid_arr }
+            })
+            .collect()
+    }
+
     /// `alBatchRename` (AS-06): `{base}_01`, `{base}_02`, … over `uids` in
     /// order. `remap` carries `old_uid -> new_uid` for every custom slot
     /// whose uid changed (a caller's selection set needs to follow it) --
