@@ -4,6 +4,9 @@
 
 use rayon::prelude::*;
 
+pub mod geoid;
+pub mod koppen;
+pub mod tides;
 pub mod windthrow;
 
 /// `smoothstep()` (reference HTML line 7569).
@@ -41,14 +44,14 @@ fn rotation_contrast_k(rotation_hours: f64) -> f64 {
 /// `climEffectiveEquatorTemp()` (reference HTML line 5115): the one place
 /// `equatorTemp`/`poleTemp`'s *contrast* is scaled by planet params —
 /// `poleTemp` stays the fixed anchor, only the spread above it scales.
-fn clim_effective_equator_temp(equator_temp: f64, pole_temp: f64, tilt_deg: f64, rotation_hours: f64) -> f64 {
+pub(crate) fn clim_effective_equator_temp(equator_temp: f64, pole_temp: f64, tilt_deg: f64, rotation_hours: f64) -> f64 {
     pole_temp + (equator_temp - pole_temp) * insolation_contrast_k(tilt_deg) * rotation_contrast_k(rotation_hours)
 }
 
 /// `metersPerUnit()` (reference HTML line 4951): converts the `[0,1]`
 /// height field into real meters, anchored so `1.0 - seaLevel` (the
 /// above-sea fraction of the field's range) maps to `peakM`.
-fn meters_per_unit(peak_m: f64, sea_level: f64) -> f64 {
+pub(crate) fn meters_per_unit(peak_m: f64, sea_level: f64) -> f64 {
     let denom = 1.0 - sea_level;
     let denom = if denom == 0.0 { 1e-6 } else { denom };
     peak_m / denom
@@ -56,7 +59,7 @@ fn meters_per_unit(peak_m: f64, sea_level: f64) -> f64 {
 
 /// `latAt()` (reference HTML line 4965): world mode spans the whole
 /// planet pole-to-pole; a region uses the configured `latN`/`latS` band.
-fn lat_at(y: usize, gh: usize, world: bool, lat_n: f64, lat_s: f64) -> f64 {
+pub(crate) fn lat_at(y: usize, gh: usize, world: bool, lat_n: f64, lat_s: f64) -> f64 {
     let denom = (gh.max(2) - 1) as f64;
     if world {
         90.0 - (y as f64 / denom) * 180.0

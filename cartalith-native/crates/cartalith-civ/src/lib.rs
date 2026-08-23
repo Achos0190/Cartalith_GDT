@@ -36,6 +36,12 @@ pub mod travel_library;
 /// See its own module doc for the exact function-by-function boundary and for
 /// why it is not golden-verified.
 pub mod urban_adapter;
+/// The reference's per-ecoregion wildlife layer (HTML lines 6489-6620 plus
+/// the roster popup's own formatter at 8257). Here rather than in
+/// `cartalith-climate` because every input it needs -- `build_npp`,
+/// `build_cart_biome`, `build_water_access`, `build_carrying_capacity` --
+/// already lives in this crate.
+pub mod wildlife;
 
 /// `LITH_KEYS` (reference line 5830) -- frozen, append-only.
 pub const LITH_KEYS: [&str; 7] = [

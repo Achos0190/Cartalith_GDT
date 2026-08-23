@@ -11,6 +11,10 @@ name = "cartalith_climate"
 
 [dependencies]
 cartalith-jsmath = { path = "../cartalith-jsmath" }
+# `buildGeoid`'s harmonic + mantle terms are the shared `hash`/`fbm`
+# primitives, not a private noise of its own -- one implementation, in
+# `cartalith-noise` (the same edge `cartalith-terrain` already carries).
+cartalith-noise = { path = "../cartalith-noise" }
 cartalith-terrain = { path = "../cartalith-terrain" }
 rayon = "1"
 

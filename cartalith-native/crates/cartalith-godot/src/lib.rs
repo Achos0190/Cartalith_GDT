@@ -6832,6 +6832,92 @@ impl WorldGen {
     /// all seventeen would be ~270 MB of RGBA at 2048x2048, which is
     /// exactly the kind of uncosted retention `MEMORY_OPTIMIZATION_SCOPE.md`
     /// exists to prevent.
+    /// `showWildInfo`'s own data source (reference HTML lines 9785-9791 for
+    /// the pick, 8259-8276 for what the popup shows): the wildlife
+    /// ecoregion whose marker is nearest `(gx, gy)`, or an empty dictionary
+    /// if none is within the reference's own hit radius.
+    ///
+    /// The reference's rules, reproduced: only regions at or above
+    /// `markerMin` cells draw a marker and are therefore clickable, the
+    /// nearest is chosen by squared distance to `(cx, cy)`, and the hit
+    /// radius is `max(8, GW/40)` cells.
+    ///
+    /// Every population figure comes back pre-formatted by `wild_fmt_pop`
+    /// alongside its raw number, so the dock renders the reference's own
+    /// `~4.5M` wording without reimplementing the formatter in GDScript.
+    #[func]
+    fn wildlife_region_at(&self, gx: f32, gy: f32) -> VarDictionary {
+        let Some(f) = self.sample_refs() else {
+            return VarDictionary::new();
+        };
+        let Some(eco) = sample_bridge::wildlife_regions(&f) else {
+            return VarDictionary::new();
+        };
+        let hit_r = (self.gw as f64 / 40.0).max(8.0);
+        let mut best: Option<(&cartalith_civ::wildlife::Ecoregion, f64)> = None;
+        for rec in eco.regions.iter() {
+            if rec.cells < eco.marker_min {
+                continue;
+            }
+            let (dx, dy) = (rec.cx as f64 - gx as f64, rec.cy as f64 - gy as f64);
+            let d = dx * dx + dy * dy;
+            if best.is_none_or(|(_, bd)| d < bd) {
+                best = Some((rec, d));
+            }
+        }
+        let Some((rec, d)) = best else {
+            return VarDictionary::new();
+        };
+        if d > hit_r * hit_r {
+            return VarDictionary::new();
+        }
+        let guilds: Array<VarDictionary> = rec
+            .guilds
+            .iter()
+            .map(|g| {
+                let species: Array<VarDictionary> = g
+                    .species
+                    .iter()
+                    .map(|s| {
+                        dict! {
+                            "name" => s.name,
+                            "mass_kg" => s.mass_kg,
+                            "population_est" => s.population_est,
+                            "population_text" => cartalith_civ::wildlife::wild_fmt_pop(s.population_est),
+                        }
+                    })
+                    .collect();
+                let slot = cartalith_civ::wildlife::WILD_GUILDS.iter().position(|x| *x == g.guild).unwrap_or(0);
+                dict! {
+                    "guild" => g.guild,
+                    "label" => cartalith_civ::wildlife::WILD_GUILD_LABELS[slot],
+                    "biomass_rel" => g.biomass_rel,
+                    "species" => &species,
+                }
+            })
+            .collect();
+        dict! {
+            "id" => rec.id as i64,
+            "biome" => rec.biome as i64,
+            "biome_name" => cartalith_civ::CART_BIOMES[(rec.biome as usize).saturating_sub(1).min(cartalith_civ::CART_BIOMES.len() - 1)],
+            "richness" => rec.richness as i64,
+            "area_km2" => rec.area_km2,
+            "cells" => rec.cells as i64,
+            "summary" => rec.summary.clone(),
+            // The popup's own three readouts (reference line 8267): NPP is
+            // shown de-normalised back to g/m2/yr, exactly as there.
+            "npp" => rec.nppn * 3000.0,
+            "tri" => rec.tri,
+            "water" => rec.water,
+            "lat_abs" => rec.lat_abs,
+            "coastal" => rec.coastal,
+            "rugged" => rec.ridge_frac >= 0.15,
+            "cx" => rec.cx as i64,
+            "cy" => rec.cy as i64,
+            "guilds" => &guilds,
+        }
+    }
+
     #[func]
     fn build_debug_texture(&self, view: GString) -> Option<Gd<ImageTexture>> {
         let f = self.sample_refs()?;
@@ -6897,6 +6983,11 @@ impl WorldGen {
             wind_dir_deg: self.params.climate.wind_dir_deg,
             press_k: self.params.climate.press_k,
             current_k: self.params.climate.current_k,
+            // The Köppen view needs a whole `WeatherParams`; the Geoid and
+            // Tides views need `state.planet.g` and `state.tect.seed`.
+            climate: &self.params.climate,
+            g: self.params.planet.g,
+            seed: self.params.tect.seed,
         })
     }
 }

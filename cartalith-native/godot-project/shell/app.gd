@@ -393,6 +393,19 @@ func _wire_selection() -> void:
 		for ws in _workspaces:
 			if ws.has_method("on_cursor_sampled"):
 				ws.on_cursor_sampled(gx, gy, valid))
+	## The Wildlife debug view's own click behaviour (the reference's
+	## `showWildInfo`/`hideWildInfo` pair, HTML 9785-9791): while that view
+	## is the one actually drawn, a map click picks the nearest ecoregion
+	## marker and hands its roster to the right dock; a click that misses
+	## every marker clears it back to Sample. Gated on `debug_view()` rather
+	## than on a tool being armed, exactly as the reference gates on
+	## `state.debug === 'wildlife'` -- so this adds no behaviour at all to
+	## any other view, and no new tool to the rail.
+	viewport.map_clicked.connect(func(gx, gy):
+		if viewport.debug_view() != "wildlife":
+			return
+		if right_dock_ctrl.has_method("show_wildlife"):
+			right_dock_ctrl.show_wildlife(bridge.wildlife_region_at(gx, gy)))
 	## §9's layers button opens the canvas Layers popover (the reference's own
 	## `#layersPopover`). It used to select the Cartography domain instead --
 	## a stand-in for this, since that workspace's left dock is where the only

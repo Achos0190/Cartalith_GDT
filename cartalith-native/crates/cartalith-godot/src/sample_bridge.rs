@@ -109,13 +109,18 @@
 //! reason in each row's hint — disclosed, not omitted, per this shell's
 //! `_todo()` convention (`menus.gd`).
 
+use cartalith_civ::wildlife::current_wildlife;
 use cartalith_civ::{
     build_biome_raster, build_cart_biome, build_cart_terrain, build_carrying_capacity, build_coast_sdf, build_flood_field,
     build_lithology, build_raw_slope_field, build_resource_potentials, build_settlement_suitability, build_slope_field,
     build_soil_fertility, build_water_access, classify_biome, SuitabilityCtx, BIOME_KEYS, BIOME_LAKE, BIOME_OCEAN, CART_BIOMES,
     CART_TERRAINS, LITH_NAMES,
 };
+use cartalith_climate::geoid::current_geoid_preview;
+use cartalith_climate::koppen::{KOPPEN_KEYS, KoppenParams, compute_seasons, koppen_color};
+use cartalith_climate::tides::{TideParams, current_tide_field};
 use cartalith_climate::windthrow::build_wind_throw_field;
+use cartalith_climate::{ClimateParams, WeatherParams};
 use cartalith_terrain::fjord::{build_fjord_mask, FjordMaskOpts};
 use cartalith_terrain::infer::chamfer_dist;
 use cartalith_terrain::landform::{build_landform_field, LANDFORM_COLS, LANDFORM_NAMES};
@@ -187,6 +192,22 @@ pub struct FieldRefs<'a> {
     pub wind_dir_deg: f64,
     pub press_k: f64,
     pub current_k: f64,
+    /// The whole of `state.climate` (`cartalith_engine::ClimateInputParams`)
+    /// — added for the Köppen view, which needs a full `WeatherParams` to
+    /// run the two solstice weather simulations `computeSeasons` runs. The
+    /// individually-named fields above are older and left alone rather than
+    /// re-routed through this one: every existing view reads them, and a
+    /// mechanical rename would touch far more than this change needs to.
+    pub climate: &'a cartalith_engine::ClimateInputParams,
+    /// `state.planet.g` — the Geoid view's rotational-bulge divisor and the
+    /// Tides view's forcing divisor. Distinct from `ClimateParams::g`'s use
+    /// as a lapse-rate multiplier, which is the same number reaching a
+    /// different formula.
+    pub g: f64,
+    /// `state.tect.seed` — the Geoid view's harmonic phases and mantle
+    /// noise are seeded from it, so a different world gets a different
+    /// geoid rather than the same one everywhere.
+    pub seed: i32,
 }
 
 impl FieldRefs<'_> {
@@ -505,7 +526,7 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
             (
                 "koppen",
                 "Köppen climate",
-                "Not available: no Köppen classification (koppenField/koppenColor) exists in this engine.",
+                "compute_seasons(): the Köppen-Geiger class of every land cell, in the standard Peel et al. 2007 palette. The classifier needs seasonal extremes, so picking this view runs the temperature and weather models twice more (one solstice each) — the same cost the reference's own lazy build pays, and the slowest view here.",
             ),
             ("rain", "Rainfall", "rainColor(): arid tan through wet blue. Land only."),
             (
@@ -536,12 +557,12 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
             (
                 "geoid",
                 "Geoid",
-                "Not available: this port has no geoid field (PlanetParams omits it; the reference itself defaults it off).",
+                "current_geoid_preview(): the J2 rotational bulge plus seeded low-order harmonics plus low-frequency mantle noise, as a local sea-level offset. Previewed at the reference's own 0.015 default amplitude — PlanetParams carries no geoid knobs yet, which is exactly the state the reference previews in too (its own toggle defaults off).",
             ),
             (
                 "tides",
                 "Tides",
-                "Not available: this port has no tidal-range field (PlanetParams omits it; the reference itself defaults it off).",
+                "current_tide_field(): equilibrium spring tidal range from one Earth-Moon-equivalent companion, amplified on shallow shelves (Green's law) and near coasts. Water only. Previewed with the reference's own default moon, since PlanetParams carries no moon roster yet — the same substitution the reference makes while its toggle is off.",
             ),
             (
                 "resistance",
@@ -617,7 +638,11 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
                 "Site profile (buildability)",
                 "Not available: the flood + slope buildability composite has no Rust equivalent beyond its two inputs individually.",
             ),
-            ("wildlife", "Wildlife", "Not available: no wildlife-ecoregion classification exists in this engine."),
+            (
+                "wildlife",
+                "Wildlife",
+                "current_wildlife(): biome regions coloured by species richness, tan (sparse) through deep green. Click a region for its guild roster and population estimates. Needs the civilisation layer's water bodies for the biome raster, so a loaded save cannot draw it.",
+            ),
             (
                 "windthrow",
                 "Wind-throw",
@@ -640,7 +665,16 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
 /// `cartalith_climate::windthrow`). `windthrow` moved to a per-world input
 /// check below rather than to unconditional availability — it needs the
 /// biome raster, which needs the civilisation layer's water bodies.
-const GAP_LAYERS: &[&str] = &["koppen", "oro", "geoid", "tides", "velo", "popdensity", "siteprofile", "wildlife"];
+///
+/// **Four more left it the same day**, from the same audit row: `geoid`,
+/// `tides` and `koppen` (`cartalith_climate::geoid`/`::tides`/`::koppen`)
+/// and `wildlife` (`cartalith_civ::wildlife`), all four golden-verified.
+/// `wildlife` joined `windthrow` on the per-world check below for the same
+/// reason — it needs the Cartalith biome grid, which needs water bodies.
+/// Two remain honestly unavailable for a *missing computation*
+/// (`oro`, `velo`) and two for a missing composite (`popdensity`,
+/// `siteprofile`).
+const GAP_LAYERS: &[&str] = &["oro", "velo", "popdensity", "siteprofile"];
 
 /// Whether `id` can be drawn for this world, **without building it**.
 ///
@@ -660,7 +694,7 @@ pub fn layer_available(f: &FieldRefs, id: &str) -> bool {
     match id {
         "off" => true,
         "strahler" => f.stream_order.is_some(),
-        "bclass" | "cterrain" | "windthrow" => f.water_bodies.is_some(),
+        "bclass" | "cterrain" | "windthrow" | "wildlife" => f.water_bodies.is_some(),
         "control" => f.territory.is_some(),
         other => LAYER_GROUPS.iter().any(|(_, items)| items.iter().any(|(k, _, _)| *k == other)),
     }
@@ -895,7 +929,46 @@ pub fn legend(id: &str) -> Vec<(u8, u8, u8, String)> {
             .map(|(k, c)| (c.0 as u8, c.1 as u8, c.2 as u8, LANDFORM_NAMES[k].to_string()))
             .collect(),
         "windthrow" => vec![sw(WINDTHROW_HI, "high storm-fell risk"), sw((32.0, 44.0, 40.0), "sheltered / open")],
+        "geoid" => vec![
+            sw(div_color(0.9), "bulge (sea stands high)"),
+            sw(div_color(0.0), "mean sea level"),
+            sw(div_color(-0.9), "depression (sea stands low)"),
+        ],
+        "tides" => vec![
+            sw((235.0, 170.0, 30.0), "large range · shelf & coast"),
+            sw((20.0, 70.0, 150.0), "small range · open ocean"),
+            sw((32.0, 35.0, 40.0), "land"),
+        ],
+        // The reference's own five-row Köppen legend (line 9876): one
+        // representative class per main group rather than all thirty, which
+        // would be a wall of swatches.
+        "koppen" => ["Af", "BWh", "Cfb", "Dfc", "ET"]
+            .iter()
+            .map(|k| {
+                let i = KOPPEN_KEYS.iter().position(|x| x == k).expect("legend keys are KOPPEN_KEYS members") + 1;
+                let c = koppen_color(i as u8);
+                (c.0, c.1, c.2, format!("{k} {}", koppen_group_name(k)))
+            })
+            .collect(),
+        "wildlife" => vec![
+            sw((50.0, 110.0, 50.0), "species-rich"),
+            sw((168.0, 150.0, 96.0), "sparse fauna"),
+            sw((60.0, 120.0, 180.0), "lake"),
+            sw((34.0, 74.0, 120.0), "ocean"),
+        ],
         _ => Vec::new(),
+    }
+}
+
+/// The reference's own legend captions for the five Köppen classes it
+/// chooses to show (line 9876) — wording kept verbatim.
+fn koppen_group_name(key: &str) -> &'static str {
+    match key {
+        "Af" => "tropical",
+        "BWh" => "desert",
+        "Cfb" => "oceanic",
+        "Dfc" => "subarctic",
+        _ => "tundra",
     }
 }
 
@@ -1059,6 +1132,90 @@ fn flow_fx_raster(f: &FieldRefs, kind: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// `currentWildlife()`'s exact input chain (reference line 6616): the
+/// Cartalith biome grid, the height field, NPP, TRI, water access and
+/// carrying capacity, segmented into ecoregions and scored.
+///
+/// `None` without a civilisation layer, since `build_cart_biome` needs its
+/// water bodies — the same condition the Biomes and Wind-throw views
+/// already report.
+///
+/// Shared by the Wildlife debug view and by `WorldGen::wildlife_regions()`,
+/// the roster popup's own data source, so the raster a user clicks and the
+/// record they get back cannot come from two different segmentations.
+pub fn wildlife_regions(f: &FieldRefs) -> Option<cartalith_civ::wildlife::Ecoregions> {
+    let wb = f.water_bodies?;
+    let sea = f.sea_level;
+    let cb = build_cart_biome(
+        f.field,
+        wb,
+        f.temperature,
+        f.rainfall,
+        f.gw,
+        f.gh,
+        f.world,
+        sea,
+    );
+    // `state.climate.maxRainMm`'s own literal default -- `build_npp`'s doc
+    // comment already says callers pass 3000 until a knob for it exists.
+    let npp = cartalith_civ::build_npp(f.temperature, f.rainfall, f.field, sea, 3000.0);
+    let tri = cartalith_civ::wildlife::build_tri(f.field, f.gw, f.gh, f.world);
+    // Soil / water access / carrying capacity are built exactly the way the
+    // Carrying-capacity view above builds them -- same arguments, same
+    // `biome_k = 0.0` and same `npp = None` -- so the two views cannot
+    // disagree about the same world.
+    let lith = build_lithology(
+        f.field,
+        f.age_field,
+        f.volcanic_field,
+        f.crust_field,
+        f.resistance_field,
+        f.rainfall,
+        sea,
+    );
+    let slope_n = build_slope_field(f.field, f.gw, f.gh, f.world);
+    let soil = build_soil_fertility(&lith, f.temperature, f.rainfall, &slope_n, f.age_field);
+    let flow_thresh = cartalith_hydrology::river_flow_thresh(f.gw, f.gh, f.gw, f.map_width_km);
+    let water = build_water_access(f.flow_discharge, f.field, f.gw, f.gh, sea, flow_thresh);
+    let biome = build_biome_raster(wb, f.temperature, f.rainfall);
+    let carry = build_carrying_capacity(
+        &soil,
+        &water,
+        Some(&biome),
+        f.temperature,
+        f.field,
+        sea,
+        0.0,
+        None,
+    );
+    let d = (f.gh.max(2) - 1) as f64;
+    let (world, lat_n, lat_s) = (f.world, f.lat_n, f.lat_s);
+    Some(current_wildlife(
+        &cb,
+        f.field,
+        &npp,
+        &tri,
+        &water,
+        &carry,
+        f.gw,
+        f.gh,
+        sea,
+        f.world,
+        if f.gw == 0 {
+            0.0
+        } else {
+            f.map_width_km / f.gw as f64
+        },
+        move |y| {
+            if world {
+                90.0 - (y as f64 / d) * 180.0
+            } else {
+                lat_n + (y as f64 / d) * (lat_s - lat_n)
+            }
+        },
+    ))
+}
+
 /// One debug view as a `gw * gh` RGBA8 byte buffer, ready for
 /// `Image::create_from_data`. `None` for `"off"`, an unknown id, an empty
 /// grid, or a view whose one input this world does not have (Strahler order
@@ -1089,6 +1246,17 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
 
     let sea = f.sea_level;
     let is_water = |i: usize| (f.field[i] as f64) < sea;
+    // `latAt(y)` (reference line 4965), needed by the Geoid view's own
+    // pole-to-pole span. Written here rather than imported: it is three
+    // lines, and `cartalith_climate`'s copy is crate-private.
+    let lat_at = |y: usize| {
+        let d = (f.gh.max(2) - 1) as f64;
+        if f.world {
+            90.0 - (y as f64 / d) * 180.0
+        } else {
+            f.lat_n + (y as f64 / d) * (f.lat_s - f.lat_n)
+        }
+    };
     let mut out: Vec<u8> = Vec::with_capacity(n * 4);
 
     match id {
@@ -1565,6 +1733,158 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
                 }
             }
         }
+        // The exact chain `currentGeoidPreview()` (reference line 5005)
+        // runs while the toggle is off, which is the only state this port
+        // has: `PlanetParams` carries no geoid knobs, so the amplitude is
+        // the reference's own `0.015` fallback and `radiusRel` is 1.
+        "geoid" => {
+            let (gf, amp) = current_geoid_preview(
+                f.gw,
+                f.gh,
+                None,
+                0.015,
+                f.seed,
+                f.rotation_hours,
+                1.0,
+                f.g,
+                lat_at(0),
+                lat_at(f.gh.saturating_sub(1)),
+                f.world,
+            );
+            // Reference line 8481's own ramp: the diverging stress palette
+            // over |offset| / amp, dimmed over water.
+            for i in 0..n {
+                let c = div_color((gf[i] as f64 / amp).clamp(-1.0, 1.0));
+                push(
+                    &mut out,
+                    if is_water(i) {
+                        (c.0 * 0.75, c.1 * 0.78, c.2 * 0.85)
+                    } else {
+                        c
+                    },
+                );
+            }
+        }
+        // `currentTideField()` (reference line 5041), likewise in its
+        // toggle-off preview state: the reference substitutes a single
+        // default moon there, and `PlanetParams` has no roster to override
+        // it with.
+        "tides" => {
+            let (tf, mx) = current_tide_field(
+                f.gw,
+                f.gh,
+                f.field,
+                None,
+                sea,
+                None,
+                &TideParams {
+                    g: f.g,
+                    ..TideParams::default()
+                },
+            );
+            // Reference line 8483: low blue -> high orange/red over water,
+            // flat dark over land (land is exactly 0 in the field itself).
+            for i in 0..n {
+                if is_water(i) {
+                    let u = (tf[i] as f64 / mx).min(1.0);
+                    push(
+                        &mut out,
+                        (20.0 + u * 215.0, 70.0 + u * 100.0, 150.0 - u * 120.0),
+                    );
+                } else {
+                    push(&mut out, (32.0, 35.0, 40.0));
+                }
+            }
+        }
+        // The reference builds this lazily on first pick too (line 8395:
+        // `if(dbg==='koppen' && …) computeSeasons()`), and for the same
+        // reason -- it is two extra weather simulations, by a wide margin
+        // the most expensive view here.
+        "koppen" => {
+            let cp = ClimateParams {
+                world: f.world,
+                lat_n: f.lat_n,
+                lat_s: f.lat_s,
+                pole_temp: f.pole_temp,
+                equator_temp: f.equator_temp,
+                tilt_deg: f.tilt_deg,
+                rotation_hours: f.rotation_hours,
+                lapse_rate: f.lapse_rate,
+                g: f.g,
+                sea_level: sea,
+                peak_m: f.peak_m,
+                // `computeTempInto` never runs the albedo relaxation.
+                albedo_k: 0.0,
+            };
+            let c = f.climate;
+            let wp = WeatherParams {
+                world: f.world,
+                lat_n: c.lat_n,
+                lat_s: c.lat_s,
+                pole_temp: c.pole_temp,
+                equator_temp: c.equator_temp,
+                tilt_deg: f.tilt_deg,
+                rotation_hours: f.rotation_hours,
+                lapse_rate: c.lapse_rate,
+                sea_level: sea,
+                peak_m: f.peak_m,
+                wind_manual: c.wind_manual,
+                wind_dir_deg: c.wind_dir_deg,
+                press_k: c.press_k,
+                ocean_hum: c.ocean_hum,
+                evap: c.evap,
+                ocean: c.ocean,
+                rain_k: c.rain_k,
+                rain_dep: c.rain_dep,
+                bulk_evap: c.bulk_evap,
+                terrain_wind_deflection: c.terrain_wind_deflection,
+                currents: c.currents,
+                current_k: c.current_k,
+            };
+            let kp = KoppenParams {
+                world: f.world,
+                lat_n: f.lat_n,
+                lat_s: f.lat_s,
+                sea_level: sea,
+                max_rain_mm: 3000.0,
+            };
+            let s = compute_seasons(
+                f.gw, f.gh, f.field, None, f.tilt_deg, c.w_iters, &cp, &wp, &kp,
+            );
+            // Reference line 8509: the standard palette over land, the
+            // shared dark blue over water.
+            for i in 0..n {
+                if is_water(i) {
+                    push(&mut out, (18.0, 34.0, 64.0));
+                } else {
+                    push(&mut out, u8c(koppen_color(s.koppen[i])));
+                }
+            }
+        }
+        "wildlife" => {
+            let eco = wildlife_regions(f)?;
+            // Reference line 8503: region colour over hillshade, dim
+            // terrain where no region was kept, blue over water. The
+            // hillshade term is folded to its mid value, the same
+            // simplification the Fjord view above already documents.
+            for i in 0..n {
+                let rid = eco.region_id[i];
+                if rid < 0 {
+                    if is_water(i) {
+                        push(&mut out, (22.0, 40.0, 66.0));
+                    } else {
+                        let cc = f.field[i] as f64 * 235.0 * 0.45;
+                        push(&mut out, (cc * 0.9, cc * 0.93, cc));
+                    }
+                } else {
+                    let c = eco.regions[rid as usize].col;
+                    push(
+                        &mut out,
+                        (c.0 as f64 * 0.725, c.1 as f64 * 0.725, c.2 as f64 * 0.725),
+                    );
+                }
+            }
+        }
         "windthrow" => {
             let biome = build_biome_raster(f.water_bodies?, f.temperature, f.rainfall);
             let wf = cartalith_climate::current_wind_field(
@@ -1604,6 +1924,37 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `state.climate` for the fixture worlds below — the Köppen view is
+    /// the only consumer, and it needs a whole `WeatherParams`. Values are
+    /// this port's own defaults (`cartalith_engine`'s), including
+    /// `terrain_wind_deflection`/`currents` at `false`, whose reasons are
+    /// documented on the fields themselves.
+    static TEST_CLIMATE: cartalith_engine::ClimateInputParams =
+        cartalith_engine::ClimateInputParams {
+            lat_n: 40.0,
+            lat_s: -10.0,
+            equator_temp: 28.0,
+            pole_temp: -20.0,
+            lapse_rate: 6.5,
+            albedo_k: 0.0,
+            zonal_k: 1.0,
+            wind_manual: false,
+            wind_dir_deg: 0.0,
+            press_k: 1.0,
+            ocean_hum: 1.0,
+            evap: 0.12,
+            ocean: 1.0,
+            rain_k: 1.0,
+            rain_dep: 0.35,
+            bulk_evap: true,
+            // Two iterations, not the app's 70: these fixtures are 10x8, and
+            // the Köppen view runs the weather model twice.
+            w_iters: 2,
+            terrain_wind_deflection: false,
+            currents: false,
+            current_k: 1.0,
+        };
 
     /// A tiny, deterministic world: a diagonal ramp with a low corner, so
     /// slope and aspect are non-degenerate and both land and water exist.
@@ -1703,6 +2054,9 @@ mod tests {
             wind_dir_deg: 0.0,
             press_k: 1.0,
             current_k: 1.0,
+            climate: &TEST_CLIMATE,
+            g: 1.0,
+            seed: 24601,
         }
     }
 
@@ -1835,6 +2189,9 @@ mod tests {
             wind_dir_deg: 0.0,
             press_k: 1.0,
             current_k: 1.0,
+            climate: &TEST_CLIMATE,
+            g: 1.0,
+            seed: 24601,
         };
         let s = sample_cell(&f, 4, 4).unwrap();
         assert!(s.aspect_deg.is_none());
@@ -1892,6 +2249,9 @@ mod tests {
             wind_dir_deg: 0.0,
             press_k: 1.0,
             current_k: 1.0,
+            climate: &TEST_CLIMATE,
+            g: 1.0,
+            seed: 24601,
         };
         let d = boundary_dist_cells(&f, 16, 16).expect("a seed exists within the cap");
         assert!((d - 4.0).abs() < 1e-12, "expected the true nearest 4.0, got {d}");
@@ -1941,6 +2301,9 @@ mod tests {
             wind_dir_deg: 0.0,
             press_k: 1.0,
             current_k: 1.0,
+            climate: &TEST_CLIMATE,
+            g: 1.0,
+            seed: 24601,
         };
         assert!(boundary_dist_cells(&f, 4, 4).is_none());
     }

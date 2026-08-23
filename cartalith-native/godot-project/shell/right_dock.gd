@@ -33,6 +33,11 @@ const CTX_MEASURE := "measure"
 const CTX_REGION := "region"
 const CTX_SCULPT := "sculpt"
 const CTX_JOURNEY := "journey"
+## The Wildlife debug view's roster popup -- the reference's own
+## `#wildInfo` panel (`showWildInfo`, HTML 8259), re-hosted here rather than
+## rebuilt as a floating panel: §6 already says this dock's contents follow
+## the selection, and a clicked ecoregion is a selection.
+const CTX_WILDLIFE := "wildlife"
 
 ## Noun phrases for `explain_settlement()`'s suitability term keys. Copied
 ## verbatim from `main.gd`'s own `SUIT_TERM_LABELS` -- wording belongs to the
@@ -116,6 +121,7 @@ var _route_kind := ""      ## "road" | "sea"
 var _faction_id := -1
 var _measure_result: Dictionary = {}
 var _region_result: Dictionary = {}
+var _wildlife_region: Dictionary = {}
 var _journey_view: JourneyPlannerView = null   ## CTX_JOURNEY delegate -- see `show_journey()`.
 
 ## Live-updated in place on every `cursor_sampled` rather than triggering a
@@ -219,6 +225,16 @@ func show_region(result: Dictionary) -> void:
 	_region_result = result
 	_rebuild()
 
+## Called by `app.gd` on a map click while the Wildlife debug view is drawn
+## -- `rec` is `bridge.wildlife_region_at()`'s own dict, straight through.
+## An empty dict is the reference's own `hideWildInfo()`: the click missed
+## every marker, so the dock falls back to Sample rather than keeping a
+## stale roster on screen.
+func show_wildlife(rec: Dictionary) -> void:
+	_wildlife_region = rec
+	_context = CTX_WILDLIFE if not rec.is_empty() else CTX_SAMPLE
+	_rebuild()
+
 ## Called by `world_workspace.gd` whenever the Sculpt panel is active or the
 ## "sculpt" tool is armed (switching the dock's own Generation pipeline /
 ## Sculpt toggle to Sculpt, arming the tool via a feature/preset button, or a
@@ -285,6 +301,7 @@ const CTX_TITLES := {
 	CTX_SETTLEMENT: "Settlement", CTX_ROUTE: "Route", CTX_RIVER: "River",
 	CTX_FACTION: "Faction", CTX_MEASURE: "Measure", CTX_REGION: "Region select",
 	CTX_SCULPT: "Stamp stack", CTX_JOURNEY: "Journey",
+	CTX_WILDLIFE: "Ecoregion",
 }
 
 func _rebuild() -> void:
@@ -351,6 +368,8 @@ func _dock_readout_text() -> String:
 			return ("%.1f km" % float(_measure_result.get("total_km", 0.0))) if not _measure_result.is_empty() else "no chain"
 		CTX_REGION:
 			return ("%d cells" % int(_region_result.get("cell_count", 0))) if not _region_result.is_empty() else "no region"
+		CTX_WILDLIFE:
+			return ("%d species" % int(_wildlife_region.get("richness", 0))) if not _wildlife_region.is_empty() else "no ecoregion"
 		CTX_SCULPT:
 			return ("%d stamps" % bridge.sculpt_list_stamps().size()) if bridge.has_world else "no world"
 		CTX_JOURNEY:
@@ -378,6 +397,8 @@ func _dispatch(body: Control) -> void:
 			_build_measure(body)
 		CTX_REGION:
 			_build_region(body)
+		CTX_WILDLIFE:
+			_build_wildlife(body)
 		CTX_SCULPT:
 			_build_sculpt(body)
 		CTX_JOURNEY:
@@ -829,6 +850,69 @@ func _build_region(body: Control) -> void:
 	var actions := DccWidgets.group(sec, "Actions")
 	DccWidgets.action(actions, "Send to Data ▸ Export", func():
 		app.data_manager_window.open_tile_export())
+
+
+# -- Wildlife ecoregion (the reference's own #wildInfo popup) ---------------
+
+## `showWildInfo` (reference HTML 8259-8269), field for field: the biome
+## heading, the species/area line, the region summary sentence, the
+## NPP/ruggedness/water triple, the lat + coastal + rugged meta line, and
+## then the fauna list -- one heading per guild with its biomass share, and
+## one row per species with the reference's own `~4.5M` population wording
+## (formatted engine-side by `wild_fmt_pop`, so this file does not carry a
+## second copy of that formatter).
+func _build_wildlife(body: Control) -> void:
+	if _wildlife_region.is_empty():
+		_build_sample(body)
+		return
+	var rec := _wildlife_region
+	var sec := DccWidgets.section(body, "%s ecoregion" % String(rec.get("biome_name", "Unknown")))
+	_accent_readout(sec, "Species", "%d" % int(rec.get("richness", 0)),
+		"Species richness: species-area x energy (NPP) x ruggedness x latitude, " +
+		"cut to the biome's Earth-analogue roster.")
+	_field(sec, "Area", "%s km²" % _thousands(float(rec.get("area_km2", 0.0))),
+		"Region area, from its cell count and the map's own km-per-cell.")
+	DccWidgets.note(sec, String(rec.get("summary", "")))
+	sec.add_child(DccTheme.rule())
+	_field(sec, "NPP", "%d g/m²/yr" % int(round(float(rec.get("npp", 0.0)))),
+		"Net primary productivity, Miami model (Lieth 1975) -- the energy the whole food web is built on.")
+	_field(sec, "Ruggedness", "%.3f" % float(rec.get("tri", 0.0)),
+		"Terrain Ruggedness Index (Riley 1999), averaged over the region.")
+	_field(sec, "Water", "%.2f" % float(rec.get("water", 0.0)),
+		"Mean water access across the region: 1 at a river or coast, falling away inland.")
+	var meta := "lat %d°" % int(round(float(rec.get("lat_abs", 0.0))))
+	if bool(rec.get("coastal", false)):
+		meta += " · coastal"
+	if bool(rec.get("rugged", false)):
+		meta += " · rugged"
+	DccWidgets.note(sec, meta)
+
+	var fauna := DccWidgets.group(sec, "Fauna (population estimate)")
+	var guilds: Array = rec.get("guilds", [])
+	if guilds.is_empty():
+		DccWidgets.note(fauna, "No fauna assigned: this biome has no roster entry that clears its terrain gates.")
+		return
+	for g in guilds:
+		var d: Dictionary = g
+		_field(fauna, String(d.get("label", "")), "%d%%" % int(float(d.get("biomass_rel", 0.0)) * 100.0),
+			"Share of the region's total animal biomass.")
+		for sp in (d.get("species", []) as Array):
+			var s: Dictionary = sp
+			_field(fauna, "    " + String(s.get("name", "")), "~" + String(s.get("population_text", "")),
+				"%s kg body mass. Population from the region's energy budget (Lindeman 10%% cascade) over Kleiber metabolic demand." % String.num(float(s.get("mass_kg", 0.0)), 2))
+
+## `Number.toLocaleString()` (reference line 8265's own km² formatting).
+func _thousands(v: float) -> String:
+	var s := "%d" % int(round(v))
+	var neg := s.begins_with("-")
+	if neg:
+		s = s.substr(1)
+	var out := ""
+	for i in range(s.length()):
+		if i > 0 and (s.length() - i) % 3 == 0:
+			out += ","
+		out += s[i]
+	return ("-" + out) if neg else out
 
 # -- Journey (delegate to journey_planner_view.gd) --------------------------
 

@@ -1355,6 +1355,15 @@ func debug_texture(view: String) -> Texture2D:
 		return null
 	return world_gen.build_debug_texture(view)
 
+## The wildlife ecoregion under a click, for the Wildlife view's roster
+## popup (the reference's own `showWildInfo`). `{}` when the click missed
+## every region marker, when the Wildlife view has no world to read, or on
+## an engine build without the binding.
+func wildlife_region_at(gx: float, gy: float) -> Dictionary:
+	if not world_gen.has_method("wildlife_region_at"):
+		return {}
+	return world_gen.wildlife_region_at(gx, gy)
+
 
 # timeline_bridge.rs
 #
