@@ -90,6 +90,11 @@ var _gpu_fallback_popup: PopupMenu
 var _gpu_devices: Array = []
 ## Whether `gpu_devices()` has run this session. See `_on_gpu_devices_about_to_popup`.
 var _gpu_enumerated := false
+## The Preferences rows that must go dark while a generation owns the engine
+## (`engine_bridge.gd`'s `gpu_settings_locked`), with the tooltips to put back
+## afterwards. A submenu row carries no id, so it is tracked by index.
+var _gpu_pref_rows: Array[int] = []
+var _gpu_pref_tips: Array[String] = []
 const GPU_DEV_AUTO := 0
 const GPU_DEV_RESCAN := 1
 const GPU_DEV_FIRST := 100      ## device i is GPU_DEV_FIRST + i
@@ -97,6 +102,9 @@ const GPU_DEV_FIRST := 100      ## device i is GPU_DEV_FIRST + i
 ## only ever gates whole grid sizes, so a free-form GB field would offer a
 ## precision the decision does not have.
 const GPU_VRAM_CHOICES: Array[float] = [0.0, 1.0, 2.0, 4.0, 8.0, 12.0, 16.0, 24.0]
+## The GPU-acceleration row's own tooltip, named because `about_to_popup` has
+## to put it back after a generation released the row.
+const GPU_TOGGLE_TIP := "Runs domain warp, crustal heterogeneity, plate assignment and flow accumulation on the GPU. A given seed produces a genuinely different (not just faster) world with this on vs. off -- both are valid, but they don't match each other. Takes effect on the next generate."
 
 var _theme_popup: PopupMenu
 var _theme_mode := "dark"  ## "dark" / "light" / "system" -- which of the three
@@ -466,13 +474,29 @@ func _preferences(p: PopupMenu) -> void:
 	## document says a GPU toggle needs before it can be user-facing at all
 	## (`DECISIONS.md` §7c: GPU-path noise is genuinely different, not
 	## tolerance-different, for the same seed).
+	_gpu_pref_rows.clear()
+	_gpu_pref_tips.clear()
 	p.add_check_item("GPU acceleration", ID_PREF_GPU)
 	var gpu_idx := p.item_count - 1
 	p.set_item_checked(gpu_idx, bool(_bridge.param_get("use_gpu")))
-	p.set_item_tooltip(gpu_idx,
-		"Runs domain warp, crustal heterogeneity, plate assignment and flow accumulation on the GPU. A given seed produces a genuinely different (not just faster) world with this on vs. off -- both are valid, but they don't match each other. Takes effect on the next generate.")
+	p.set_item_tooltip(gpu_idx, GPU_TOGGLE_TIP)
+	## Every row in this group reaches a `WorldGen` `#[func]`, and a generation
+	## in flight holds that object mutably borrowed on its worker thread --
+	## reaching it anyway is the `Gd<T>::bind() failed, already bound` failure
+	## `engine_bridge.gd`'s multi-GPU block documents. The bridge refuses those
+	## calls; this is where the refusal is made visible, because a control that
+	## silently no-ops is exactly what this file's own honesty rule forbids.
 	p.about_to_popup.connect(func():
-		p.set_item_checked(gpu_idx, bool(_bridge.param_get("use_gpu"))))
+		p.set_item_checked(gpu_idx, bool(_bridge.param_get("use_gpu")))
+		var busy := _bridge.gpu_settings_locked()
+		var why := "A generation is running. Every setting in this group takes effect on the next generate anyway, and the engine object belongs to the worker thread until this one finishes."
+		p.set_item_disabled(gpu_idx, busy)
+		p.set_item_tooltip(gpu_idx, why if busy else GPU_TOGGLE_TIP)
+		for i in _gpu_pref_rows.size():
+			var row: int = _gpu_pref_rows[i]
+			if row < p.item_count:
+				p.set_item_disabled(row, busy)
+				p.set_item_tooltip(row, why if busy else _gpu_pref_tips[i]))
 	## PR-01/PR-02/PR-04/PR-05: the four §2.5 Performance rows the engine now
 	## backs. Each is a submenu rather than a dialog -- every one of them is a
 	## small fixed choice, and a modal for four radio lists would be more
@@ -558,6 +582,16 @@ func _preferences(p: PopupMenu) -> void:
 
 # -- §2.5 Performance ▸ multi-GPU ---------------------------------------------
 
+## Record the row `add_submenu_item` just appended, and give it its tooltip, so
+## `_preferences`' `about_to_popup` can darken it for the duration of a
+## generation and put the real text back afterwards. A submenu row carries no
+## id, so the index is the only handle there is.
+func _track_gpu_pref_row(p: PopupMenu, tip: String) -> void:
+	var i := p.item_count - 1
+	p.set_item_tooltip(i, tip)
+	_gpu_pref_rows.append(i)
+	_gpu_pref_tips.append(tip)
+
 ## §2.5: "Expands to a per-device checklist with live utilisation ... Unchecking
 ## a device excludes it from dispatch."
 ##
@@ -575,6 +609,7 @@ func _build_gpu_devices_menu(p: PopupMenu) -> void:
 	_gpu_devices_popup.about_to_popup.connect(_on_gpu_devices_about_to_popup)
 	p.add_child(_gpu_devices_popup)
 	p.add_submenu_item("Devices", "GpuDevices")
+	_track_gpu_pref_row(p, "Which physical GPU(s) the four GPU-eligible substrate stages dispatch to. Takes effect on the next generate.")
 	## Deliberately NOT enumerated here. `build()` runs inside `DccApp._ready`,
 	## and `gpu_devices()` stands up a `wgpu::Instance` and walks its backends
 	## -- doing that while Godot's own GL Compatibility renderer is still
@@ -600,8 +635,13 @@ func _build_gpu_devices_menu(p: PopupMenu) -> void:
 ## enumerating is exactly the crash `_build_gpu_devices_menu` documents.
 ## `_gpu_enumerated` rather than `_gpu_devices.is_empty()` so a machine that
 ## genuinely has no adapters does not re-enumerate on every hover.
+## A generation in flight owns the engine object outright (see
+## `engine_bridge.gd`'s `_gpu_read` note), so `gpu_devices()` would answer
+## from an empty cache. Latching `_gpu_enumerated` on that answer is what
+## left the submenu permanently reading "No GPU detected" for the rest of the
+## session -- so the latch only closes over a reply that was really enumerated.
 func _on_gpu_devices_about_to_popup() -> void:
-	if not _gpu_enumerated:
+	if not _gpu_enumerated and not _bridge.gpu_settings_locked():
 		_gpu_enumerated = true
 		_gpu_devices = _bridge.gpu_devices()
 	_refresh_gpu_devices_menu()
@@ -708,6 +748,7 @@ func _build_gpu_mode_menu(p: PopupMenu) -> void:
 	_shell.style_popup(_gpu_mode_popup)
 	p.add_child(_gpu_mode_popup)
 	p.add_submenu_item("Multi-GPU mode", "GpuMultiMode")
+	_track_gpu_pref_row(p, "How work is divided when more than one device is selected. Takes effect on the next generate.")
 	_refresh_gpu_mode_menu()
 
 func _refresh_gpu_mode_menu() -> void:
@@ -741,6 +782,7 @@ func _build_gpu_vram_menu(p: PopupMenu) -> void:
 	_gpu_vram_popup.about_to_popup.connect(_refresh_gpu_vram_menu)
 	p.add_child(_gpu_vram_popup)
 	p.add_submenu_item("VRAM budget", "GpuVramBudget")
+	_track_gpu_pref_row(p, "A cap on the GPU working set this pipeline may allocate for a grid. Takes effect on the next generate.")
 	_refresh_gpu_vram_menu()
 
 func _refresh_gpu_vram_menu() -> void:
@@ -794,6 +836,7 @@ func _build_gpu_fallback_menu(p: PopupMenu) -> void:
 	_gpu_fallback_popup.about_to_popup.connect(_refresh_gpu_fallback_menu)
 	p.add_child(_gpu_fallback_popup)
 	p.add_submenu_item("Fallback when VRAM full", "GpuVramFallback")
+	_track_gpu_pref_row(p, "What happens when a grid is over the budget above. Takes effect on the next generate.")
 	_refresh_gpu_fallback_menu()
 
 func _refresh_gpu_fallback_menu() -> void:

@@ -79,6 +79,8 @@ func _read_param_table() -> void:
 	_param_info = world_gen.get_param_info()
 	_param_defaults = world_gen.get_param_defaults()
 	_params_available = not _param_info.is_empty()
+	if _params_available:
+		_params_cache = world_gen.get_params()
 
 func params_available() -> bool:
 	return _params_available
@@ -97,16 +99,32 @@ func param_groups() -> PackedStringArray:
 func param_default(key: String):
 	return _param_defaults.get(key)
 
+## Last `get_params()` answer, so a read during a generation is served without
+## reaching into an engine object the worker thread owns -- see the multi-GPU
+## block's `_gpu_read` note for what happens when one does. Exact rather than
+## approximate: `param_set` is the only writer and it is refused for the same
+## window, so nothing can change the table while this stands in for it.
+var _params_cache: Dictionary = {}
+
 func param_get(key: String):
 	if not _params_available:
 		return null
+	if generating:
+		return _params_cache.get(key)
 	var values: Dictionary = world_gen.get_params()
+	_params_cache = values
 	return values.get(key)
 
 ## Write one parameter. The engine validates and returns the values it actually
 ## took, so a rejected write is visible here rather than silently ignored.
+##
+## Refused outright while a generation is in flight: `generate_terrain` reads
+## the table once at the start of the run, so a write landing mid-run could
+## never have affected the world being built -- and reaching the `#[func]` at
+## all while the worker holds the object is the `Gd<T>::bind()` failure the
+## multi-GPU block documents.
 func param_set(key: String, value) -> bool:
-	if not _params_available:
+	if not _params_available or generating:
 		return false
 	## `set_params` (`cartalith-godot/src/lib.rs`) returns `{"rejected": [...],
 	## "clamped": [...]}` -- there is no "accepted" list, so a key only ever
@@ -183,6 +201,11 @@ func generate(request: Dictionary) -> void:
 		push_warning(last_summary)
 		generation_finished.emit(false)
 		return
+	## Snapshot the parameter table before the worker takes the engine: from
+	## here until `_finish`, `param_get` answers from this and nothing reaches
+	## a `#[func]` on the borrowed object.
+	if _params_available:
+		_params_cache = world_gen.get_params()
 	generating = true
 	_gen_start_msec = Time.get_ticks_msec()
 	generation_started.emit()
@@ -283,6 +306,11 @@ func _finish(seed_value: int, width_km: float, ok: bool) -> void:
 func import_heightmap(path: String, request: Dictionary) -> void:
 	if generating or not import_api:
 		return
+	## Snapshot the parameter table before the worker takes the engine: from
+	## here until `_finish`, `param_get` answers from this and nothing reaches
+	## a `#[func]` on the borrowed object.
+	if _params_available:
+		_params_cache = world_gen.get_params()
 	generating = true
 	_gen_start_msec = Time.get_ticks_msec()
 	generation_started.emit()
@@ -422,55 +450,109 @@ func recommended_quality_tier() -> String:
 ## missing method.
 var gpu_api := false
 
+## Why every row below is guarded on `generating` (2026-08-23 owner crash
+## report, "a crash when you get higher than 2k and start changing settings
+## for resources such as GPU/CPU").
+##
+## `generate()` runs `generate_terrain` on a `Thread`, and gdext holds the
+## **whole `WorldGen`** mutably borrowed for that call's duration. Any
+## `#[func]` reached from the main thread meanwhile fails its own
+## `Gd<T>::bind()`: a Rust panic per call, a garbage default returned to
+## GDScript, and -- because this build does not enable gdext's
+## `experimental-threads`, so the borrow state is a plain non-atomic
+## `Cell` -- two threads read-modify-writing the same counters, which is
+## undefined behaviour rather than a mere error. Measured on a real
+## non-headless run: opening Preferences ▸ Performance during one 4096x2624
+## generation produced 360 `Gd<T>::bind() failed, already bound;
+## T = cartalith_godot::WorldGen` panics and left the Devices submenu latched
+## on an empty list ("No GPU detected") for the rest of the session. Small
+## grids hide it only because they finish before anyone can reach the menu.
+##
+## Serving the readers from a cache is exact rather than approximate: these
+## four settings live in a process-global `RwLock<GpuPreferences>` in
+## `cartalith-gpu`, and this file is the only thing in the shell that writes
+## them. The setters refuse outright and say so -- they take effect on the
+## next generate anyway, so deferring them costs nothing, and `menus.gd`
+## disables the rows for the same reason rather than letting a click no-op
+## silently.
+var _gpu_cache := {}
+
+## Cached read-through. `busy_value` is what to answer while the worker owns
+## the engine and nothing has been cached yet.
+func _gpu_read(key: String, busy_value: Variant, fetch: Callable) -> Variant:
+	if not gpu_api:
+		return busy_value
+	if generating:
+		return _gpu_cache.get(key, busy_value)
+	var v: Variant = fetch.call()
+	_gpu_cache[key] = v
+	return v
+
+## True while a settings write must be refused. Public so `menus.gd` can
+## disable the rows rather than draw a control that silently does nothing.
+func gpu_settings_locked() -> bool:
+	return gpu_api and generating
+
 func gpu_devices() -> Array:
-	return world_gen.gpu_enumerate_devices() if gpu_api else []
+	return _gpu_read("devices", [], func(): return world_gen.gpu_enumerate_devices())
 
 func gpu_selected_devices() -> PackedStringArray:
-	return world_gen.gpu_selected_devices() if gpu_api else PackedStringArray()
+	return _gpu_read("selected", PackedStringArray(), func(): return world_gen.gpu_selected_devices())
 
 func gpu_set_selected_devices(keys: PackedStringArray) -> void:
-	if gpu_api:
+	if gpu_api and not generating:
 		world_gen.gpu_set_selected_devices(keys)
+		_gpu_cache["selected"] = keys
 		DccSettings.set_gpu_devices(keys)
 
 func gpu_multi_mode() -> String:
-	return String(world_gen.gpu_multi_mode()) if gpu_api else "single_device"
+	return _gpu_read("mode", "single_device", func(): return String(world_gen.gpu_multi_mode()))
 
 func gpu_set_multi_mode(mode: String) -> bool:
-	if not gpu_api:
+	if not gpu_api or generating:
 		return false
 	var ok: bool = world_gen.gpu_set_multi_mode(mode)
 	if ok:
+		_gpu_cache["mode"] = mode
 		DccSettings.set_gpu_mode(mode)
 	return ok
 
 func gpu_vram_budget_gb() -> float:
-	return float(world_gen.gpu_vram_budget_gb()) if gpu_api else 0.0
+	return _gpu_read("budget", 0.0, func(): return float(world_gen.gpu_vram_budget_gb()))
 
 func gpu_set_vram_budget_gb(gb: float) -> void:
-	if gpu_api:
+	if gpu_api and not generating:
 		world_gen.gpu_set_vram_budget_gb(gb)
+		_gpu_cache["budget"] = gb
 		DccSettings.set_gpu_vram_budget_gb(gb)
 
 func gpu_vram_fallback() -> String:
-	return String(world_gen.gpu_vram_fallback()) if gpu_api else "cpu_tile_pass"
+	return _gpu_read("fallback", "cpu_tile_pass", func(): return String(world_gen.gpu_vram_fallback()))
 
 func gpu_set_vram_fallback(name: String) -> bool:
-	if not gpu_api:
+	if not gpu_api or generating:
 		return false
 	var ok: bool = world_gen.gpu_set_vram_fallback(name)
 	if ok:
+		_gpu_cache["fallback"] = name
 		DccSettings.set_gpu_fallback(name)
 	return ok
 
 ## `gw`/`gh` are the grid the **next** generate will use. Both `0` asks about
 ## the last generated grid instead -- which is `0x0` before the first
 ## generate, so callers that know the pending size should pass it.
+##
+## Not cached across sizes: the answer depends on the arguments, so while the
+## worker owns the engine this returns `{}` and callers already handle that
+## (`generate()` below defaults its action to `"gpu"`, `menus.gd` skips the
+## estimate row on an empty Dictionary).
 func gpu_vram_estimate(gw: int = 0, gh: int = 0) -> Dictionary:
-	return world_gen.gpu_vram_estimate(gw, gh) if gpu_api else {}
+	if not gpu_api or generating:
+		return {}
+	return world_gen.gpu_vram_estimate(gw, gh)
 
 func gpu_last_device_usage() -> Array:
-	return world_gen.gpu_last_device_usage() if gpu_api else []
+	return _gpu_read("usage", [], func(): return world_gen.gpu_last_device_usage())
 
 ## Push the persisted §2.5 Performance settings into the engine at startup.
 ##

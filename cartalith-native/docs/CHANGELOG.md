@@ -17475,3 +17475,104 @@ Asset library re-shot to confirm the `wrap_controls` fix, and
 `--headless --path . --quit-after 120` clean. Screenshots produced by a
 temporary harness (`_dm_shot.gd`/`.tscn`, uncommitted, same convention as
 `_shot.gd`) — not committed; screenshots are not source.
+
+## The Devices menu crash: the backend mask was on the wrong call (2026-08-23)
+
+Owner: *"There seems to be a crash in the program when you get higher than 2k
+and start changing settings for resources such as GPU/CPU."*
+
+Reproduced, root-caused and fixed. The size is a red herring; the crash is
+**opening `Preferences ▸ Performance ▸ Devices` at all**, and it is the same
+GL-context corruption `6a97911` chased on 2026-08-20 — that commit fixed the
+*launch* by deferring enumeration to the submenu's first open, and in doing so
+moved the crash to the submenu rather than removing it.
+
+### The bug
+
+`multi.rs` passed its non-GL backend mask to `enumerate_adapters`. That is far
+too late. `wgpu::Instance::new` stands up a `hal::Instance` for **every backend
+in its own descriptor's mask**, and every call site in this crate built that
+descriptor with `InstanceDescriptor::new_without_display_handle()`, whose
+`backends` field defaults to `Backends::all()` — GL included. So an OpenGL
+context was created inside Godot's GL-Compatibility process the moment the
+instance was, before a single adapter had been asked for. `6a97911`'s own
+commit message records that restricting the enumeration mask "was tried first,
+still crashed"; this is why.
+
+The fix is one function. `multi::compute_instance()` is now the only place in
+the crate that constructs a `wgpu::Instance`, and it sets
+`backends: COMPUTE_BACKENDS` (Vulkan · DX12 · Metal · BrowserWebGPU) on the
+descriptor. All four construction sites — enumeration, key lookup, the
+split-tiles device set, `request_gpu_device`, `init_gpu_gauss_blur` — go
+through it.
+
+### Reproduction, before the fix
+
+Non-headless, AMD RX 7800 XT, OpenGL 3.3 Core Profile. A harness booted the real shell, called `gpu_devices()` once and then idled.
+**Signal 11 before the first `process_frame` after the call returned** — no
+GLES3 error burst this time (the shell was not creating textures at that
+moment), and no GDScript frame anywhere in the backtrace, which is why it
+looks like nothing is wrong from GDScript's side. Every route into
+enumeration crashed identically and at **every** grid size — 512², 1024²,
+2048², 3072², 4096² — including `Multi-GPU mode ▸ Split tiles`, an explicit
+single-device selection, and a VRAM budget change, because all of them call
+`gpu_enumerate_devices` first. A generation with no menu interaction was
+clean at 4096², which is what made "higher than 2k" look causal: at 512² a
+generation is over before anyone can reach the menu.
+
+### A second, real defect found in the same interaction
+
+`generate()` runs `generate_terrain` on a `Thread`, and gdext holds the whole
+`WorldGen` mutably borrowed for that call. Any `#[func]` reached from the main
+thread meanwhile fails its own `Gd<T>::bind()`. Measured: opening
+Preferences ▸ Performance during one 4096×2624 generation produced **360**
+`Gd<T>::bind() failed, already bound; T = cartalith_godot::WorldGen` panics,
+each returning a default to GDScript — and the Devices submenu latched
+`_gpu_enumerated = true` over that empty answer, so it read "No GPU detected"
+for the rest of the session. This build does not enable gdext's
+`experimental-threads`, so the borrow state behind that check is a plain
+non-atomic `Cell`: two threads read-modify-writing it is undefined behaviour,
+not merely an error. Small grids hide it because they finish first.
+
+Closed at the choke point rather than papered over:
+
+- `engine_bridge.gd` is the only thing in the shell that touches `WorldGen`.
+  Its six multi-GPU readers now serve from a cache while `generating`, which
+  is exact rather than approximate — the four settings live in a
+  process-global `RwLock<GpuPreferences>` in `cartalith-gpu` and this file is
+  their only writer. The setters refuse for the same window; they take effect
+  on the next generate anyway. `param_get` serves from a snapshot taken just
+  before the worker starts, and `param_set` refuses — `generate_terrain` reads
+  the table once at the start of a run, so a mid-run write could never have
+  affected the world being built.
+- `menus.gd` disables the GPU-acceleration row and all four Performance
+  submenu rows while a generation is running, with the reason in the tooltip,
+  rather than letting a click silently no-op — this file's own honesty rule.
+  `_on_gpu_devices_about_to_popup` only latches `_gpu_enumerated` over a reply
+  that was really enumerated.
+
+### Verified non-headlessly, because headless cannot see this bug class
+
+A harness drove the **real menu path** (`MenuButton.get_popup().popup()`, then
+the `GpuDevices` submenu's own `popup()`), not the bridge API:
+
+1. Open Preferences ▸ Devices with nothing running — the reported action.
+   Clean, 20 frames survived, three devices listed (RX 7800 XT · discrete ·
+   vulkan, Radeon Graphics · integrated · vulkan, Basic Render Driver ·
+   software · dx12). This crashed every time before the fix.
+2. Change every GPU setting (two devices selected, `split_tiles`, 4 GB
+   budget, both fallbacks), then generate 4096×2624. Completed in ~22 s.
+   This crashed before the fix at every size tried.
+3. Drive the same menu path **479 times** during that generation: **zero**
+   `bind()` panics, zero Godot errors, zero crashes, and every row correctly
+   disabled.
+4. After it finished: rows re-enabled, three devices still listed, selection /
+   mode / budget intact, estimate live again (410 MB against a 4096 MB cap).
+
+Also: `cargo test -p cartalith-gpu` (54 + 8 multi-GPU, all pass, including
+`split_tiles_across_two_real_devices_measured` and
+`a_split_across_bands_on_one_device_is_bit_identical_to_the_whole_grid`);
+8192×5248 with split tiles completed clean in ~140 s; `_shot.tscn --generate`
+re-shot to confirm the shell and the parameter sliders are unaffected;
+`--headless --quit` clean. The verification harness is uncommitted, the same
+convention `_shot.gd` and `_dm_shot.gd` follow.

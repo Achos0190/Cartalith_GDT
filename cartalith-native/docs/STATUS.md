@@ -5,7 +5,47 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-20 (post **Data manager window: rebuilt against the
+Last updated: 2026-08-23 (post **The Devices menu crash: the backend mask was
+on the wrong call**. Owner: *"There seems to be a crash in the program when you
+get higher than 2k and start changing settings for resources such as GPU/CPU."*
+The size is a red herring — the crash is **opening `Preferences ▸ Performance ▸
+Devices` at all**, at every grid size tried (512² through 4096²), and it is the
+same GL-context corruption `6a97911` chased on 2026-08-20. That commit fixed the
+*launch* by deferring enumeration to the submenu's first open, which moved the
+crash rather than removing it. **`multi.rs` was applying its non-GL backend mask
+to `enumerate_adapters`, which is far too late**: `wgpu::Instance::new` stands up
+a `hal::Instance` for every backend in its own *descriptor's* mask, and
+`InstanceDescriptor::new_without_display_handle()` leaves that at
+`Backends::all()` — so the OpenGL context was created inside Godot's
+GL-Compatibility process the moment the instance was, before a single adapter
+had been asked for. (`6a97911`'s own message records that restricting the
+enumeration mask "was tried first, still crashed"; this is why.) Fixed with one
+function: `multi::compute_instance()` is now the only place in the crate that
+constructs a `wgpu::Instance` and it sets `backends: COMPUTE_BACKENDS` on the
+descriptor; all five construction sites go through it. **A second real defect
+found in the same interaction and closed**: `generate()` runs on a `Thread` and
+gdext holds the whole `WorldGen` mutably borrowed for it, so every `#[func]`
+reached from the main thread meanwhile fails `Gd<T>::bind()` — 360 panics
+measured during one 4096×2624 generation, each returning a default, and the
+Devices submenu latched `_gpu_enumerated` over the empty answer so it read "No
+GPU detected" for the rest of the session. This build has no
+`experimental-threads`, so the borrow state behind that check is a non-atomic
+`Cell` and two threads racing it is UB, not merely an error. `engine_bridge.gd`
+now serves the six multi-GPU readers and `param_get` from a cache for exactly
+that window (exact, not approximate: the settings are process-global and this
+file is their only writer) and refuses the setters, and `menus.gd` disables the
+GPU row plus all four Performance submenu rows with the reason rather than
+letting a click silently no-op. **Verified non-headlessly through the real menu
+path** (`MenuButton.get_popup().popup()` then the `GpuDevices` submenu's own
+`popup()`), because headless cannot see this bug class: opening Devices with
+nothing running is clean and lists three devices; every GPU setting changed and
+a 4096×2624 split-tiles generation completed; the same menu driven **479 times
+during** that generation with **zero** `bind()` panics, zero Godot errors and
+zero crashes, every row correctly disabled; afterwards the rows re-enable and
+selection/mode/budget/estimate are intact. Also 8192×5248 split-tiles clean
+(~140 s), `cargo test -p cartalith-gpu` 54 + 8 green, `_shot.tscn --generate`
+re-shot, `--headless --quit` clean.
+— previously, post **Data manager window: rebuilt against the
 design canvas**. The second window from the same visual sweep with the same
 history, passed the same too-lenient way — the sweep checked that the routes
 worked and that the disclosures were honest, and never laid the layout against

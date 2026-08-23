@@ -696,7 +696,7 @@ pub fn init_gpu_flow_with(gpu: &GpuDevice) -> GpuFlowContext {
 /// a one-off dedicated function is a smaller, clearer diff than
 /// generalizing the shared helper for a single caller.
 pub fn init_gpu_gauss_blur() -> Result<GpuBlurContext, GpuInitError> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let instance = multi::compute_instance();
 
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::HighPerformance,
@@ -821,7 +821,7 @@ fn request_gpu_device(
     min_storage_buffers: u32,
     device_label: &str,
 ) -> Result<RawGpuDevice, GpuInitError> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let instance = multi::compute_instance();
 
     // PR-01: the adapter is now *chosen* rather than always the first
     // `HighPerformance` match -- but only when a selection exists. With no
@@ -3205,7 +3205,7 @@ mod tests {
     /// scope; flagged here as a real door, deliberately not opened.)
     #[test]
     fn f64_wgsl_is_not_implemented_by_naga_even_though_the_gpu_feature_exists() {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let instance = multi::compute_instance();
         let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             force_fallback_adapter: false,

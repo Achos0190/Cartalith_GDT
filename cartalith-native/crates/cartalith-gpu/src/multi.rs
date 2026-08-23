@@ -244,13 +244,27 @@ pub fn group_adapters(rows: Vec<AdapterRow>) -> Vec<GpuDeviceInfo> {
 /// `!*_allocs_cache.has(p_id)` is true", then
 /// `update_texture_atlas: Could not create texture atlas, status: 0`, then a
 /// signal-11 crash inside Godot's own GLES3 driver, with no GDScript frame
-/// anywhere in the backtrace.
+/// anywhere in the backtrace. On a shell that is not creating textures at
+/// that moment there is no error burst at all -- just the signal 11, on the
+/// **very next frame** after the call returns.
 ///
 /// Reproduced on a real launch (AMD RX 7800 XT, OpenGL 3.3 Core Profile) and
 /// bisected to this call: enumeration happens at startup, because
 /// `menus.gd`'s Preferences ▸ Devices submenu is built during `_ready`.
-/// Skipping it made the launch clean; restricting the backend mask fixes it
-/// without giving the row up.
+///
+/// **Where this mask has to be applied is the whole bug** (2026-08-23, owner
+/// report "a crash when you get higher than 2k and start changing settings
+/// for resources such as GPU/CPU"). The 2026-08-20 pass passed it to
+/// `enumerate_adapters`, which is far too late: `wgpu::Instance::new` stands
+/// up a `hal::Instance` for **every backend in its own descriptor's mask**,
+/// and `InstanceDescriptor::new_without_display_handle()` leaves that mask at
+/// `Backends::all()`. The GL context was therefore created the moment the
+/// instance was, before a single adapter had been asked for -- so restricting
+/// enumeration "did not work" (that commit says as much) and deferring
+/// enumeration to the submenu's first open only moved the crash from launch
+/// to the first time anyone opened Preferences ▸ Performance ▸ Devices.
+/// The mask belongs on the descriptor, and [`compute_instance`] is the only
+/// place in this crate that builds one.
 ///
 /// Nothing real is lost. The GL rows this drops were duplicates of devices
 /// Vulkan and DX12 already report -- and the *reason* they were duplicates
@@ -258,14 +272,28 @@ pub fn group_adapters(rows: Vec<AdapterRow>) -> Vec<GpuDeviceInfo> {
 /// 0`, which `group_adapters` already had to work around. Compute dispatch
 /// never used GL either: `init_gpu` asks for `PowerPreference::
 /// HighPerformance`, which resolves to Vulkan on this hardware.
-const ENUMERATION_BACKENDS: wgpu::Backends = wgpu::Backends::VULKAN
+pub const COMPUTE_BACKENDS: wgpu::Backends = wgpu::Backends::VULKAN
     .union(wgpu::Backends::DX12)
     .union(wgpu::Backends::METAL)
     .union(wgpu::Backends::BROWSER_WEBGPU);
 
+/// The **only** way this crate is allowed to create a `wgpu::Instance`.
+///
+/// Every call site went through `InstanceDescriptor::new_without_display_handle()`
+/// before, which defaults `backends` to `Backends::all()` and so created an
+/// OpenGL context inside Godot's own GL-Compatibility process. See
+/// [`COMPUTE_BACKENDS`] for the crash that causes.
+#[must_use]
+pub fn compute_instance() -> wgpu::Instance {
+    wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: COMPUTE_BACKENDS,
+        ..wgpu::InstanceDescriptor::new_without_display_handle()
+    })
+}
+
 fn adapter_rows() -> Vec<AdapterRow> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
-    pollster::block_on(instance.enumerate_adapters(ENUMERATION_BACKENDS))
+    let instance = compute_instance();
+    pollster::block_on(instance.enumerate_adapters(COMPUTE_BACKENDS))
         .iter()
         .map(describe_adapter)
         .collect()
@@ -621,7 +649,7 @@ impl GpuDeviceSet {
 /// enumeration no longer contains it (a GPU was removed, a driver changed,
 /// the preference came from another machine).
 fn adapter_for_key(instance: &wgpu::Instance, key: &str) -> Option<wgpu::Adapter> {
-    let mut matches: Vec<wgpu::Adapter> = pollster::block_on(instance.enumerate_adapters(ENUMERATION_BACKENDS))
+    let mut matches: Vec<wgpu::Adapter> = pollster::block_on(instance.enumerate_adapters(COMPUTE_BACKENDS))
         .into_iter()
         .filter(|a| {
             let row = describe_adapter(a);
@@ -667,7 +695,7 @@ pub fn init_gpu_device_set() -> Result<GpuDeviceSet, GpuInitError> {
         return Ok(GpuDeviceSet { devices: vec![crate::init_gpu_shared_device()?], mode: prefs.mode });
     }
 
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let instance = compute_instance();
     let devices: Vec<GpuDevice> = prefs
         .selected_keys
         .iter()
