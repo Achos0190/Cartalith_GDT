@@ -5,7 +5,46 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **Generation is 27 % faster and every golden
+Last updated: 2026-08-24 (post **The staleness graph gets its consumer** —
+`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §3.2.4's real architectural
+finding, authorised by the owner and now implemented. Until today
+`pipeline_stage_graph` was correct, tested and consumed by nothing, so
+**every post-generation edit stopped at the height field**: sculpt a mountain
+range and the rain shadow behind it never existed. **It now recomputes.**
+`cartalith_engine::staleness::recompute_stale(&mut StageGraph, &WorldParams,
+&mut WorldState)` re-runs exactly the stale downstream stages — hydrology and
+climate, through **one** `refresh_climate` (that function *is* the
+reference's `computeFlow(true); refreshClimate();` tail, so its first
+statement is hydrology's output and a second call would buy a duplicate
+whole-grid `compute_flow`). Wired into `sculpt_commit` (marks `Height` at the
+pass's own tiles), `carve_fjords` (marks `Height` whole-map) and
+`paint_commit` (marks `Civ`, and therefore correctly re-runs **nothing** — a
+mid-chain edit does not make its own upstreams stale), plus a new
+`#[func] recompute_stale_stages()` for deferred/batched cases. All four
+return `recomputed`/`still_stale`. **Deliberately still stale:** civ
+(`compute_civilisation` is in `cartalith-godot`; the eager cascade was
+measured at ~7 s/stroke at 2048² and rejected), the carve-time river network
+(`channels`/`stream_order`/`river_mask`) and `flow_area` — all held to
+`assert_eq!` bit-identity by test, not asserted in prose. **The owner's
+erosion↔climate decision (§4 item 4) is candidate (a): erosion is part of the
+height stage, which internally iterates.** Concretely that means **the graph
+does not change at all** — no `erosion` node, no new edge, no new stage kind;
+`Height` is a source node whose *body* (`generate_terrain`'s carve +
+`evolve_cycles` loop, every iteration ending in `refresh_climate`) contains
+the cycle, which is invisible to the graph because it never crosses a node
+boundary. Pinned by
+`the_owners_erosion_decision_keeps_the_graph_at_four_acyclic_stages`.
+**Measured `--release`: 76.5 ms @512², 97.8 ms @1024², 188.9 ms @2048² —
+18.8× cheaper than the 3.558 s full generation it replaces**, inside the
+research's predicted 131–564 ms. **Verified in the real GPU-backed editor**,
+not only headless: a committed sculpt stroke moved temperature in 48/92
+transect cells (mean 1.42 °C), precipitation in 15/92 and drainage in 79/92,
+all of which were `0/92` by construction before. Workspace suite green, no
+tolerance touched, no fixture regenerated. **No UI was built** — `CLAUDE.md`'s
+hold stands; the future UI wiring is tracked as `GUI_GAP_REGISTER.md`
+**MS-06**. `param_set` is deliberately *not* wired: mapping a dial onto the
+stage it invalidates needs a per-parameter table, which is a design, not an
+improvisation) — previously, post **Generation is 27 % faster and every golden
 value is unchanged** — the two top findings of
 `GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md`, implemented and measured.
 **2048² default generation: 4.8275 s → 3.5181 s (1.37×).** Both are pure

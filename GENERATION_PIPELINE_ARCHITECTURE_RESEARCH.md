@@ -8,10 +8,15 @@
 > carries a stricter evidence discipline: **every claim is tagged**, and the
 > tags mean what they say.
 >
-> **Nothing here has been implemented.** No file under `cartalith-native/` was
-> touched. `README.md`'s Contents table has deliberately *not* been updated to
-> reference this file — integrating it is a decision for whoever picks it up,
-> per `DECISIONS.md`'s own "raise it, then record the reasoning" rule.
+> **Status, updated 2026-08-24: it has since been acted on.** As written,
+> nothing here had been implemented. Since then all four of §4's open
+> questions have been answered by the owner and built: §3.2.1 (the dead
+> pre-carve `compute_flow`, `DECISIONS.md` §7f, commit `ac1de2d`), §3.2.2
+> (the radix sort, commit `ae260cd`) and §3.2.4 with its erosion-cycle design
+> question (`recompute_stale`, §4 items 3 and 4 below). The **analysis** in
+> Parts 1–3 is left exactly as written — it is the record of what was true
+> when the decisions were taken, not a live description of the code — so read
+> §4 first for what has changed underneath it.
 
 ## Evidence tags used throughout
 
@@ -952,22 +957,67 @@ Per `DECISIONS.md`'s convention — raise, do not silently build.
    spend the time, and whether the result should be gated behind a flag or
    taken outright once proven element-identical.
 
-3. **Should the staleness graph be wired at whole-field granularity (§3.2.4)?**
-   This is the real architecture question. It would give `sculpt_commit`,
-   `carve_fjords` and `paint_commit` a "recompute what I invalidated" path at a
-   measured ~131–564 ms at 2048², instead of the current "nothing downstream is
-   ever re-run." **But it is UI-adjacent work, and all UI work is on hold**
-   (`CLAUDE.md`, `DCC_SHELL_SCOPE.md`). Is the *engine-side* half — a
-   `#[func]` that consumes a dirty set and re-runs hydrology+climate — in scope
-   during the hold, or does it wait?
+3. ~~**Should the staleness graph be wired at whole-field granularity
+   (§3.2.4)?**~~ **RESOLVED — owner approved the engine-side half; IMPLEMENTED
+   2026-08-24.**
 
-4. **How should the erosion↔climate cycle be represented?** `staleness.rs`
-   deliberately refuses to model it because a `StageGraph` cannot express a
-   cycle and inventing an edge direction would be guessing. If §3.2.4 proceeds,
-   this has to be answered. Two candidates: (a) treat erosion as *part of* the
-   height stage (a stage that internally iterates), or (b) add an explicit
-   "iterate N times" stage kind. **This is a design decision, not an
-   implementation detail.**
+   `cartalith_engine::staleness::recompute_stale(&mut StageGraph,
+   &WorldParams, &mut WorldState) -> RecomputeReport` is the consumer. It
+   re-runs exactly the stale downstream stages — hydrology and climate,
+   through **one** `refresh_climate` rather than two calls, because that
+   function's first statement already *is* hydrology's output and a second
+   call would buy a duplicate whole-grid `compute_flow`. Civ, the carve-time
+   river network and `flow_area` are left alone deliberately, each for a
+   stated reason, each held to `assert_eq!` bit-identity by test.
+
+   Wired into all three commit paths so the mechanism is not unused a second
+   time: `WorldGen::sculpt_commit` marks `Height` at the pass's own tiles,
+   `carve_fjords` marks `Height` whole-map, `paint_commit` marks `Civ` — and
+   therefore correctly re-runs *nothing*, since a mid-chain edit does not make
+   its own upstreams stale. A new `#[func] recompute_stale_stages()` exposes
+   the same call for deferred or batched cases. **No UI was built**; the hold
+   stands, and the future wiring is tracked as `GUI_GAP_REGISTER.md` MS-06.
+
+   **Measured `--release`: 76.5 ms @512², 97.8 ms @1024², 188.9 ms @2048²** —
+   inside this document's own 131–564 ms prediction and 18.8× cheaper than the
+   3.558 s full generation it replaces. Verified in the real GPU-backed
+   editor, not only headless: a committed sculpt stroke moved temperature in
+   48 of 92 transect cells, precipitation in 15 and drainage in 79, all of
+   which were 0 before. See `cartalith-native/docs/CHANGELOG.md`, "The
+   staleness graph gets its consumer".
+
+   `param_set` is deliberately still unwired: mapping a moved dial onto the
+   stage it invalidates needs a per-parameter → stage table, which is a real
+   design rather than an improvisation, and is not what a commit path needs.
+
+4. ~~**How should the erosion↔climate cycle be represented?**~~ **RESOLVED —
+   owner picked candidate (a); IMPLEMENTED 2026-08-24.**
+
+   > Erosion is part of the height stage, which internally iterates — not a
+   > separate "iterate N times" stage-graph primitive.
+
+   Against the real graph that resolves to something smaller than it sounds:
+
+   - **The graph does not change.** No `erosion` node, no new edge, no new
+     stage kind. `pipeline_stage_graph` is the same four-node graph it was.
+   - **`Height` is a source node whose *body* contains the cycle.** That body
+     is `generate_terrain`'s own carve-and-evolve block — the light
+     stream-power pass, `isostatic_rebound`, and the `evolve_cycles` loop
+     whose every iteration ends in `refresh_climate` so the next cycle's
+     incision reads the rain the last cycle's orography produced. The cycle
+     runs; it is invisible to the graph because it never crosses a node
+     boundary, which is exactly what lets the DAG stay a DAG.
+   - **So the consumer never runs erosion.** By the time `Height` is marked
+     changed, height — erosion included — is whatever it is going to be.
+
+   Candidate (b) would have needed a fixed-point iteration *between* nodes: a
+   new primitive in a data structure whose whole safety argument is that
+   `add_stage` requires its upstreams to already exist. The decision is pinned
+   by `the_owners_erosion_decision_keeps_the_graph_at_four_acyclic_stages` in
+   `cartalith-engine/src/staleness.rs`, so reversing it has to be argued
+   rather than drifted into, and `staleness.rs`'s module doc now carries the
+   reasoning in place of its old "what this deliberately does not model"
+   section.
 
 5. **Does the owner want more feedback anywhere, or less?** The research points
    both ways and the project's direction should decide it, not the research.

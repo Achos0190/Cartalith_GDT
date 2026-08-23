@@ -10,6 +10,7 @@
 //! "Rust never touches the scene tree... only `cartalith-godot` may depend
 //! on `gdext`."
 
+use cartalith_engine::staleness::{pipeline_stage_graph, recompute_stale, PipelineStage};
 use cartalith_engine::{generate_terrain, WorldParams, WorldStructureParams};
 use godot::classes::image::Format;
 use godot::classes::{IRefCounted, INode, Image, ImageTexture, Node, RefCounted};
@@ -1450,6 +1451,24 @@ struct WorldGen {
     /// meaningless over a new one, and at a different resolution it is not
     /// even the right length.
     undo: undo::HeightUndo,
+    /// The live pipeline staleness graph (`cartalith_engine::staleness::
+    /// pipeline_stage_graph`): height → hydrology → climate → civ, over the
+    /// same tiling the Sculpt draft's `PassBuffer`/`DirtyTracker` pair uses,
+    /// so a `CommitSummary::tiles_marked` drops straight into
+    /// `mark_changed_tiles` without a re-tiling step.
+    ///
+    /// Rebuilt by `absorb()` (a graph over the previous world's tile count is
+    /// the wrong size for this one, the same reason `sculpt` and `undo` are
+    /// replaced there). Written by the commit paths that actually invalidate
+    /// something — `sculpt_commit` and `carve_fjords` mark
+    /// `PipelineStage::Height`, `paint_commit` marks `Civ` — and consumed by
+    /// `cartalith_engine::staleness::recompute_stale`, which is what makes an
+    /// edit reach rainfall and discharge instead of stopping at the height
+    /// field.
+    ///
+    /// Not `Option`: a zero-world graph is a legal, harmless empty graph, so
+    /// there is nothing to defer.
+    stages: cartalith_spatial::StageGraph,
 }
 
 #[godot_api]
@@ -1482,6 +1501,7 @@ impl IRefCounted for WorldGen {
             travel_library: travel_bridge::TravelLibrary::new(),
             asset_library: asset_bridge::AssetLibrarySession::new(),
             undo: undo::HeightUndo::new(),
+            stages: pipeline_stage_graph(1),
         }
     }
 }
@@ -1511,6 +1531,58 @@ impl WorldGen {
         p.tect.seed = seed;
         p.map_width_km = if width_km > 0.0 { width_km } else { 800.0 };
         p
+    }
+
+    /// The `WorldParams` describing the world **currently loaded**, for a
+    /// post-generation recompute — `self.params` (the persistent dial state)
+    /// with this world's own `gw`/`gh`/`seed`/`map_width_km` filled back in,
+    /// which `call_params` already is the single place for.
+    ///
+    /// `world` is then pinned to the value `absorb()` snapshotted rather than
+    /// read from `self.params`: it decides whether the grid wraps in
+    /// longitude, so a dial moved after generation must not make a recompute
+    /// describe a different world's *geometry*. The climate dials are
+    /// deliberately **not** pinned — re-running climate with the current
+    /// rainfall/temperature settings is the point of asking for a recompute.
+    fn recompute_params(&self) -> WorldParams {
+        let mut p = self.call_params(
+            self.seed,
+            self.map_width_km,
+            self.gw.max(0) as usize,
+            self.gh.max(0) as usize,
+        );
+        p.world = self.world;
+        p
+    }
+
+    /// Marks `stage` changed at `tiles`, then re-runs whatever that
+    /// invalidated (`cartalith_engine::staleness::recompute_stale`).
+    ///
+    /// This is the one function the commit paths share, so "an edit actually
+    /// takes effect" is decided in a single place rather than restated per
+    /// tool. Returns `(ran, still_stale)` as the two `PackedStringArray`s the
+    /// callers put in their summary dictionaries.
+    fn mark_and_recompute(
+        &mut self,
+        stage: PipelineStage,
+        tiles: impl IntoIterator<Item = usize>,
+        reason: &str,
+    ) -> (PackedStringArray, PackedStringArray) {
+        // `DirtyTracker` indexes by tile, so an out-of-range id would panic
+        // -- and this runs under a `#[func]`, where a panic takes the Godot
+        // process with it. Every producer of these ids tiles at 64 px over
+        // the same grid, so the filter should never drop anything; it is
+        // here so that the day one of them doesn't, the result is a missed
+        // mark rather than a crash.
+        let n = self.stages.tile_count();
+        self.stages.mark_changed_tiles(stage.id(), tiles.into_iter().filter(|&t| t < n), reason);
+        let p = self.recompute_params();
+        let Some(WorldSource::Generated(ws)) = self.source.as_mut() else {
+            return (PackedStringArray::new(), PackedStringArray::new());
+        };
+        let r = recompute_stale(&mut self.stages, &p, ws);
+        let names = |v: Vec<&'static str>| -> PackedStringArray { v.into_iter().map(GString::from).collect() };
+        (names(r.ran), names(r.still_stale))
     }
 
     /// Stores a finished generation: the effective sea level, the render
@@ -1581,6 +1653,15 @@ impl WorldGen {
         // (see `infra_tools_bridge.rs`'s own module doc, "nothing here is
         // computed at construction").
         self.infra = Some(infra_tools_bridge::InfraTools::new());
+        // A fresh staleness graph over this world's own tiling. Sized from
+        // the Sculpt draft's `PassBuffer` rather than recomputed here, so the
+        // tile indices in a `CommitSummary::tiles_marked` mean the same thing
+        // in both -- there is exactly one tiling, not two that agree by
+        // coincidence. Everything starts current: a world that has just
+        // finished generating is, by definition, not stale.
+        self.stages = pipeline_stage_graph(
+            self.sculpt.as_ref().expect("just set above").draft.tile_count(),
+        );
         // Global heightmap undo: a snapshot of the *previous* world's field
         // is meaningless over this one, and at a different resolution it is
         // not even the right length. The reference does not clear here (its
@@ -2272,20 +2353,23 @@ impl WorldGen {
     ///
     /// Returns a summary `Dictionary`: `ok` (bool), `cells_masked` (int,
     /// cells with a non-zero fjord probability), `cells_carved` (int, cells
-    /// the carve actually lowered), `reason` (String, only when `ok` is
+    /// the carve actually lowered), `recomputed`/`still_stale`
+    /// (`PackedStringArray`, see below), `reason` (String, only when `ok` is
     /// false). `cells_carved == 0` on a warm or low-relief world is a real
     /// answer, not a failure: fjords are strictly bound to cold, steep,
     /// competent-rock coast.
     ///
-    /// # What it does not re-run
+    /// # What it re-runs, and what it does not
     ///
-    /// Flow, river extraction and climate are **not** recomputed. The
-    /// reference's own op follows the carve with `enforceRiverChannels()`,
-    /// `computeFlow(true)` and `refreshClimate()`; this port has no
-    /// re-runnable path for those (the same gap [`Self::sculpt_commit`]
-    /// documents, and for the same reason). The height field and every view
-    /// derived from it alone are correct after this call; the flow,
-    /// Strahler and climate rasters are as they were before it.
+    /// Flow and climate **are** recomputed, via the same staleness-graph path
+    /// [`Self::sculpt_commit`] uses: the carve marks `PipelineStage::Height`,
+    /// and `recompute_stale` runs one `refresh_climate` over the carved
+    /// surface. That is two thirds of the reference's own tail
+    /// (`enforceRiverChannels()`, `computeFlow(true)`, `refreshClimate()`).
+    /// The **river extraction** is the missing third: `channels`,
+    /// `stream_order` and the carve-time `river_mask` are as they were
+    /// before this call, since re-deriving the vector network is not part of
+    /// what `refresh_climate` does.
     ///
     /// Preview the mask first with the `fjord` debug view
     /// (`build_debug_texture("fjord")`), which is the exact same
@@ -2343,10 +2427,50 @@ impl WorldGen {
         // nothing.
         self.undo.push("Carve fjords", &ws.field);
         ws.field = carved;
+        let cells_masked = mask.iter().filter(|&&m| m > 0.0).count() as i64;
+        // A coastal carve is not tile-local -- it can touch any coast on the
+        // map -- so the whole graph is marked, which is also all a
+        // whole-field recompute could act on.
+        let all_tiles = 0..self.stages.tile_count();
+        let (recomputed, still_stale) = self.mark_and_recompute(PipelineStage::Height, all_tiles, "carve_fjords");
         dict! {
             "ok" => true,
-            "cells_masked" => mask.iter().filter(|&&m| m > 0.0).count() as i64,
+            "cells_masked" => cells_masked,
             "cells_carved" => cells_carved as i64,
+            "recomputed" => &recomputed,
+            "still_stale" => &still_stale,
+        }
+    }
+
+    /// Re-runs whatever the pipeline currently reports stale, and reports
+    /// what it ran (`cartalith_engine::staleness::recompute_stale` — read
+    /// that function's own doc comment for exactly which stages, and for the
+    /// three things it deliberately leaves alone).
+    ///
+    /// The commit paths ([`Self::sculpt_commit`], [`Self::carve_fjords`],
+    /// [`Self::paint_commit`]) already call this internally, so an edit takes
+    /// effect without anyone calling this at all. It exists as its own
+    /// `#[func]` for the cases the commits don't cover: a caller that
+    /// deferred a recompute, a batch of edits settled in one pass at the end,
+    /// or a "Recompute now" control when one is designed. Calling it with
+    /// nothing stale is a no-op that runs nothing and costs a graph query.
+    ///
+    /// Returns `{"recomputed": PackedStringArray, "still_stale":
+    /// PackedStringArray, "ms": float}` — the stage names that re-ran, the
+    /// ones that did not, and how long it took. `"civ"` in `still_stale` is
+    /// the normal steady state after a terrain edit, not an error: the civ
+    /// layer is re-derived by a full `generate()`, and `UNIFIED_TOOL_PLAN.md`
+    /// milestone C measured why it is not cascaded per stroke.
+    #[func]
+    fn recompute_stale_stages(&mut self) -> VarDictionary {
+        let t0 = std::time::Instant::now();
+        // No stage marked, so nothing is invalidated by the call itself --
+        // this asks the graph what is *already* stale and settles it.
+        let (recomputed, still_stale) = self.mark_and_recompute(PipelineStage::Height, [], "recompute");
+        dict! {
+            "recomputed" => &recomputed,
+            "still_stale" => &still_stale,
+            "ms" => t0.elapsed().as_secs_f64() * 1000.0,
         }
     }
 
@@ -2545,8 +2669,98 @@ impl WorldGen {
         // *previous* world's height field, which is the wrong content and
         // possibly the wrong length over a loaded save.
         self.undo.clear();
+        // The generation parameters this port wrote into the save
+        // (`params::apply_saved_state`, `SAVEFILE_COMPAT.md`). A genuine
+        // HTML-app export carries no such block and leaves every parameter
+        // at its default, exactly as this loader behaved before a writer
+        // existed -- see `apply_saved_state`'s own doc comment for why it
+        // deliberately does not reconstruct them from the reference's
+        // `state` instead.
+        params::apply_saved_state(&mut self.params, &save.state);
+        self.seed = save.params.seed;
         self.source = Some(WorldSource::Loaded(Box::new(save)));
         true
+    }
+
+    /// `GUI_GAP_REGISTER.md` FI-01 (Save project) — writes the current world
+    /// as a `.zip` in the format `SAVEFILE_COMPAT.md` documents, readable
+    /// both by this port's own `load_save` and by the reference HTML app.
+    ///
+    /// `path` is a native OS filesystem path, the same convention
+    /// `load_save`/`load_asset_pack` already use. Returns `false` and leaves
+    /// any existing file **untouched** on any failure: the archive is built
+    /// in memory and only then written, so a full disk or a serialization
+    /// error cannot leave a half-written save where a good one used to be.
+    /// That is the one behaviour a save button must have and the reason this
+    /// does not stream straight to the file.
+    ///
+    /// What travels: the six field entries plus the whole generation
+    /// parameter table. What does **not**: the civilisation layer, labels,
+    /// icons, hand-drawn ways, paint and sculpt drafts. `load_save` clears
+    /// all of those (see its own comments), so writing them would produce a
+    /// file whose contents this port cannot read back — the format has no
+    /// place for them and the loader has nothing to put them in.
+    #[func]
+    fn save_project(&mut self, path: GString) -> bool {
+        let Some(source) = self.source.as_ref() else {
+            godot_print!("cartalith-godot: save_project: no world to save");
+            return false;
+        };
+        let n = (self.gw as usize) * (self.gh as usize);
+        // `strahler_order` is `u8` in the save format (`0` = non-channel);
+        // this port's own `stream_order` is `i16` for a wider internal
+        // range, so it saturates on the way out exactly as the reference's
+        // own exporter does (`so[i] = o > 255 ? 255 : o`, reference line
+        // 12448). A world generated with `carve_rivers` off has no stream
+        // order at all -- an all-zero raster is the honest encoding of
+        // "no channels", and is what the loader reads back.
+        let fields = match source {
+            WorldSource::Generated(ws) => cartalith_io::SaveFields {
+                heightmap: ws.field.clone(),
+                temperature: ws.temperature.clone(),
+                rainfall: ws.rainfall.clone(),
+                volcanic_field: ws.volcanic_field.clone(),
+                impact_field: ws.impact_field.clone(),
+                strahler_order: match ws.stream_order.as_ref() {
+                    Some(order) => order.iter().map(|&o| o.clamp(0, 255) as u8).collect(),
+                    None => vec![0u8; n],
+                },
+            },
+            WorldSource::Loaded(save) => save.fields.clone(),
+        };
+        let params = cartalith_io::SaveParams {
+            gw: self.gw as usize,
+            gh: self.gh as usize,
+            seed: self.seed,
+            map_width_km: self.map_width_km,
+            // The *effective* sea level, not `self.params.sea_level` -- a
+            // World-Structure archetype re-anchors it, and the renderer
+            // reading this save back must classify land the same way this
+            // one does. The user-facing input keeps its own place in the
+            // parameter block.
+            sea_level: self.sea_level,
+            world: self.world,
+        };
+        let state = params::save_state(&self.params);
+
+        let mut buf: Vec<u8> = Vec::new();
+        if let Err(e) =
+            cartalith_io::write_save(std::io::Cursor::new(&mut buf), &cartalith_io::SaveWrite {
+                params: &params,
+                state,
+                fields: &fields,
+            })
+        {
+            godot_print!("cartalith-godot: save_project failed: {e}");
+            return false;
+        }
+        match std::fs::write(path.to_string(), &buf) {
+            Ok(()) => true,
+            Err(e) => {
+                godot_print!("cartalith-godot: save_project write failed: {e}");
+                false
+            }
+        }
     }
 
     /// `ASSET_LIBRARY_SCOPE.md` milestone 7: load a real `.zip` asset pack
@@ -3898,24 +4112,27 @@ impl WorldGen {
     /// carve+lock this batch's own river stamps, deposit lakes against the
     /// final baked height, and nothing else).
     ///
-    /// **Deliberately does not re-run erosion, hydrology or climate.**
-    /// `DCC_SHELL_SPEC.md` §5.2's prose still says Commit "re-runs erosion,
-    /// hydrology and climate once" -- that line is stale
-    /// (`SCULPT_FUNCTION_CHART.md` §7 flags it at the design end); the
-    /// eager form was measured at ~7s/stroke at 2048² and rejected in
-    /// `UNIFIED_TOOL_PLAN.md` milestone C. Instead every tile the commit
-    /// touched is marked dirty (`tiles_marked` below) for a caller to
-    /// re-run those stages on its own schedule -- this binding does not
-    /// currently expose an entry point that consumes that dirty set (no
-    /// `#[func]` here re-runs flow/climate/hydrology for a subset of
-    /// tiles); see this crate's own report for that gap.
+    /// **Then re-runs hydrology and climate, and nothing else.** Every tile
+    /// the commit touched is marked against `PipelineStage::Height` in the
+    /// live staleness graph, and `cartalith_engine::staleness::
+    /// recompute_stale` re-runs exactly the stages that invalidated: one
+    /// `refresh_climate` producing new discharge, temperature and rainfall.
+    /// That is the reference's own post-commit tail (`computeFlow(true);
+    /// refreshClimate();`), not the eager cascade `DCC_SHELL_SPEC.md` §5.2's
+    /// prose describes — erosion does **not** re-run (it is part of the
+    /// height stage, which the user just edited by hand), and civ does not
+    /// either, since the eager form was measured at ~7 s/stroke at 2048² and
+    /// rejected in `UNIFIED_TOOL_PLAN.md` milestone C. `still_stale` below
+    /// reports what was left, for a caller to act on when it chooses.
     ///
     /// `reason` is a short caller-chosen string for the dirty-tile record
     /// (`"sculpt"` is fine). Returns a summary `Dictionary`:
     /// `stamps_applied`/`stamps_skipped` (int), `tiles_marked`
     /// (`PackedInt32Array`), `rivers_carved`/`cells_locked` (int, the
-    /// River hook), `lakes_deposited`/`lake_cells` (int, the Lake hook) --
-    /// empty `Dictionary` before any `generate()` call.
+    /// River hook), `lakes_deposited`/`lake_cells` (int, the Lake hook),
+    /// and `recomputed`/`still_stale` (`PackedStringArray`, the stage names
+    /// that re-ran and the ones still waiting) -- empty `Dictionary` before
+    /// any `generate()` call.
     ///
     /// Call `build_color_texture()` again afterward to see the result --
     /// the same "no regeneration needed" contract `set_quality_tier`'s own
@@ -3949,14 +4166,24 @@ impl WorldGen {
         ws.river_floor = Some(sculpt.water.river_floor.clone());
 
         let tiles_marked: PackedInt32Array = summary.pass.tiles_marked.iter().map(|&t| t as i32).collect();
+        let tiles = summary.pass.tiles_marked.clone();
+        let (applied, skipped) = (summary.pass.stamps_applied as i64, summary.pass.stamps_skipped as i64);
+        let (rivers, locked) = (summary.rivers_carved as i64, summary.cells_locked as i64);
+        let (lakes, lake_cells) = (summary.lakes_deposited as i64, summary.lake_cells as i64);
+        // `ws`/`sculpt` are borrowed from `self` above; every value the
+        // summary contributes is copied out first so those borrows end here
+        // and the recompute can take `self` whole.
+        let (recomputed, still_stale) = self.mark_and_recompute(PipelineStage::Height, tiles, &reason);
         dict! {
-            "stamps_applied" => summary.pass.stamps_applied as i64,
-            "stamps_skipped" => summary.pass.stamps_skipped as i64,
+            "stamps_applied" => applied,
+            "stamps_skipped" => skipped,
             "tiles_marked" => &tiles_marked,
-            "rivers_carved" => summary.rivers_carved as i64,
-            "cells_locked" => summary.cells_locked as i64,
-            "lakes_deposited" => summary.lakes_deposited as i64,
-            "lake_cells" => summary.lake_cells as i64,
+            "rivers_carved" => rivers,
+            "cells_locked" => locked,
+            "lakes_deposited" => lakes,
+            "lake_cells" => lake_cells,
+            "recomputed" => &recomputed,
+            "still_stale" => &still_stale,
         }
     }
 
@@ -4619,6 +4846,17 @@ impl WorldGen {
         let tiles_marked: PackedInt32Array = tiles.into_iter().collect();
 
         let any_applied = biome.stamps_applied > 0 || terrain.stamps_applied > 0 || splat.stamps_applied > 0;
+        // Record it in the live graph too, as `PipelineStage::Civ`'s own
+        // change, and run the same consumer the terrain commits run. This is
+        // what makes the graph's answer to "what must re-run" honest rather
+        // than a special case: a mid-chain edit does not make its own
+        // upstreams stale, so the shared consumer correctly re-runs neither
+        // hydrology nor climate for a painted biome, and `recomputed` comes
+        // back empty. The `stale_stages` list below stays as it was -- it
+        // names the two civ *sub*-stages `DCC_SHELL_SPEC.md` §4.5.2 calls
+        // out, which this four-stage graph does not resolve separately.
+        let tiles: Vec<usize> = tiles_marked.as_slice().iter().map(|&t| t as usize).collect();
+        let (recomputed, still_stale) = self.mark_and_recompute(PipelineStage::Civ, tiles, "paint");
         let stale_stages: PackedStringArray = if any_applied {
             ["ecology_biomes", "resources_soils"].iter().map(|s| GString::from(*s)).collect()
         } else {
@@ -4634,6 +4872,8 @@ impl WorldGen {
             "splat" => &summary_dict(&splat),
             "tiles_marked" => &tiles_marked,
             "stale_stages" => &stale_stages,
+            "recomputed" => &recomputed,
+            "still_stale" => &still_stale,
         }
     }
 

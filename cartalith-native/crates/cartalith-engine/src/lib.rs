@@ -992,46 +992,10 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         None => compute_flow(gw, gh, &field, None, false, world),
     };
 
-    let climate_params = ClimateParams {
-        world,
-        lat_n: p.climate.lat_n,
-        lat_s: p.climate.lat_s,
-        pole_temp: p.climate.pole_temp,
-        equator_temp: p.climate.equator_temp,
-        tilt_deg: p.planet.axial_tilt_deg,
-        rotation_hours: p.planet.rotation_hours,
-        lapse_rate: p.climate.lapse_rate,
-        g: p.planet.g,
-        sea_level,
-        peak_m: p.peak_m,
-        albedo_k: p.climate.albedo_k,
-    };
+    let climate_params = climate_params_for(p, sea_level);
     let mut temperature = compute_temperature(gw, gh, &field, None, &climate_params);
 
-    let weather_params = WeatherParams {
-        world,
-        lat_n: p.climate.lat_n,
-        lat_s: p.climate.lat_s,
-        pole_temp: p.climate.pole_temp,
-        equator_temp: p.climate.equator_temp,
-        tilt_deg: p.planet.axial_tilt_deg,
-        rotation_hours: p.planet.rotation_hours,
-        lapse_rate: p.climate.lapse_rate,
-        sea_level,
-        peak_m: p.peak_m,
-        wind_manual: p.climate.wind_manual,
-        wind_dir_deg: p.climate.wind_dir_deg,
-        press_k: p.climate.press_k,
-        ocean_hum: p.climate.ocean_hum,
-        evap: p.climate.evap,
-        ocean: p.climate.ocean,
-        rain_k: p.climate.rain_k,
-        rain_dep: p.climate.rain_dep,
-        bulk_evap: p.climate.bulk_evap,
-        terrain_wind_deflection: p.climate.terrain_wind_deflection,
-        currents: p.climate.currents,
-        current_k: p.climate.current_k,
-    };
+    let weather_params = weather_params_for(p, sea_level);
     // decl=0: refreshClimate()'s own simulateWeather(state.climate.wIters)
     // call passes no declination argument, which defaults to 0 (annual
     // mean, no seasonal tilt) -- reference HTML line 5154.
@@ -1569,6 +1533,61 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
 /// is always a valid outcome for any stage, and `WorldState.gpu_stages_used`
 /// reports what actually ran rather than what was asked for.
 #[allow(clippy::too_many_arguments)]
+/// The [`ClimateParams`] `generate_terrain` builds, as a function so any
+/// other caller of [`refresh_climate`] gets *the same* struct rather than a
+/// hand-copied second literal that can drift field-by-field. A pure
+/// re-projection of `p` — no arithmetic, so nothing here can move a golden
+/// value.
+///
+/// `sea_level` is separate because it is not `p.sea_level`: a World-Structure
+/// archetype re-anchors it during generation, and `WorldState::sea_level`
+/// carries the value actually used.
+pub fn climate_params_for(p: &WorldParams, sea_level: f64) -> ClimateParams {
+    ClimateParams {
+        world: p.world,
+        lat_n: p.climate.lat_n,
+        lat_s: p.climate.lat_s,
+        pole_temp: p.climate.pole_temp,
+        equator_temp: p.climate.equator_temp,
+        tilt_deg: p.planet.axial_tilt_deg,
+        rotation_hours: p.planet.rotation_hours,
+        lapse_rate: p.climate.lapse_rate,
+        g: p.planet.g,
+        sea_level,
+        peak_m: p.peak_m,
+        albedo_k: p.climate.albedo_k,
+    }
+}
+
+/// [`climate_params_for`]'s sibling for [`WeatherParams`], and for the same
+/// reason.
+pub fn weather_params_for(p: &WorldParams, sea_level: f64) -> WeatherParams {
+    WeatherParams {
+        world: p.world,
+        lat_n: p.climate.lat_n,
+        lat_s: p.climate.lat_s,
+        pole_temp: p.climate.pole_temp,
+        equator_temp: p.climate.equator_temp,
+        tilt_deg: p.planet.axial_tilt_deg,
+        rotation_hours: p.planet.rotation_hours,
+        lapse_rate: p.climate.lapse_rate,
+        sea_level,
+        peak_m: p.peak_m,
+        wind_manual: p.climate.wind_manual,
+        wind_dir_deg: p.climate.wind_dir_deg,
+        press_k: p.climate.press_k,
+        ocean_hum: p.climate.ocean_hum,
+        evap: p.climate.evap,
+        ocean: p.climate.ocean,
+        rain_k: p.climate.rain_k,
+        rain_dep: p.climate.rain_dep,
+        bulk_evap: p.climate.bulk_evap,
+        terrain_wind_deflection: p.climate.terrain_wind_deflection,
+        currents: p.climate.currents,
+        current_k: p.climate.current_k,
+    }
+}
+
 pub fn refresh_climate(
     p: &WorldParams,
     sea_level: f64,

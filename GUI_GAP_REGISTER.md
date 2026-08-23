@@ -2904,3 +2904,45 @@ add any. That is disclosed in the pane and in the document itself.
   box. Numbers render the JS way — `"mapWidthKm":1200`, not `1200.0`. River
   `strahlerOrder` runs 2 · 3 · 4, confirming the export's own min-order of 2
   rather than the pipeline's 1.
+
+## 21 · The staleness consumer is wired; its UI deliberately is not (2026-08-24)
+
+`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §3.2.4 found the pipeline's
+staleness graph (`cartalith_engine::staleness::pipeline_stage_graph`) correct,
+tested and **consumed by nothing**, so every post-generation edit stopped at
+the height field. The owner authorised the engine-side half. That half is now
+built and wired into the commit paths, so an edit takes effect end to end
+without any new control existing:
+
+| Path | Marks | Runs |
+|---|---|---|
+| `WorldGen::sculpt_commit` | `Height`, at the pass's own tiles | hydrology + climate, one `refresh_climate` |
+| `WorldGen::carve_fjords` | `Height`, whole map | hydrology + climate |
+| `WorldGen::paint_commit` | `Civ`, at the painted tiles | nothing — a mid-chain edit does not make its own upstreams stale |
+| `WorldGen::recompute_stale_stages()` (new `#[func]`) | nothing | whatever is already stale |
+
+All four return `recomputed` and `still_stale` as `PackedStringArray`s.
+Measured `--release`: **76.5 ms @512², 97.8 ms @1024², 188.9 ms @2048²** —
+18.8× cheaper than the full generation it replaces. See
+`cartalith-native/docs/CHANGELOG.md`, "The staleness graph gets its consumer".
+
+**No GUI was built for it, on purpose.** `CLAUDE.md`'s UI hold stands, and the
+brief for that work was explicitly out of scope. What the engine half unblocks
+is registered here so it is picked up as a design rather than improvised as a
+button.
+
+### 21.1 · The register
+
+| Tag | What | Backed by | State | Why it is not built |
+|---|---|---|---|---|
+| **SG-01** | A **staleness indicator** — the DCC mockup's own *"downstream update: rivers · deferred"* status line, showing which stages are stale and why | `StageGraph::stale_stages` / `staleness()` return the stage names *and* the most-upstream reason string, already; `sculpt_commit`/`carve_fjords`/`paint_commit` return `still_stale` on every call | **open, no design** | Where it lives (status bar? per-stage chips in the World workspace's stage list? both?) is a shell-layout decision, and `DCC_SHELL_SPEC.md` has no surface for it |
+| **SG-02** | A **"Recompute now"** control for the stages a commit leaves stale — today that is always `civ` | `recompute_stale_stages()` exists and is callable; the civ half additionally needs a `#[func]` that re-runs `compute_civilisation` over the current `WorldState` (it has none — the layer is only ever built inside `generate()`, the same shape MS-06…MS-09 and ED-03d already describe) | **open, engine half incomplete** | Two-part: a control needs somewhere to live, *and* the civ rebuild needs a binding that does not exist. The measured reason it is deferred rather than automatic is `UNIFIED_TOOL_PLAN.md` milestone C's ~7 s/stroke at 2048² |
+| **SG-03** | **`param_set` marking the graph** — a moved dial invalidating the stage it actually affects, instead of `engine_bridge.gd`'s blanket *"a moved dial does not recompute a stage, it marks the world stale until the next full generate"* | Nothing yet: the graph is marked only by the three commit paths | **open, needs a design first** | Needs a per-parameter → stage table over `params.rs`'s entries. That is a real design decision (does `climate.rain_k` invalidate climate only, or civ too? does `tect.seed` invalidate everything, i.e. a full regenerate?), not something to improvise inside a setter |
+
+**Not registered, because it is not a gap:** the carve-time river network
+(`channels`, `stream_order`, `river_mask`) staying as it was after an edit.
+`refresh_climate` re-derives drainage, not the vector network, and neither
+does the reference's own post-edit tail (`computeFlow(true);
+refreshClimate();`). Re-extracting rivers after a sculpt stroke would be a
+*new* behaviour with no reference precedent, and is a separate question from
+wiring a UI to what already runs.

@@ -20710,3 +20710,158 @@ is the same shape every measured pass in this project has found.
 The workspace suite — 1,881 tests across 128 binaries, every golden-parity
 fixture in all fourteen crates — stays green with **no tolerance touched** and
 no fixture regenerated. `cargo clippy` clean on both crates; the cdylib builds.
+
+## The staleness graph gets its consumer: an edit now reaches climate and hydrology (2026-08-24)
+
+`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §3.2.4 found
+`cartalith_engine::staleness::pipeline_stage_graph` correct, tested, and
+consumed by nothing — its own module doc said so ("**Unwired on purpose**"),
+and `sculpt_commit`'s said the matching half: *"this binding does not
+currently expose an entry point that consumes that dirty set."* So every
+post-generation edit path stopped at the height field. Sculpt a mountain
+range and the rain shadow behind it did not exist; carve fjords and the
+drainage still ran through the ridge that had just been cut away.
+
+The owner authorised the engine-side half (§4 item 3) and settled the design
+question it depended on (§4 item 4). Both are now implemented.
+
+**The erosion↔climate cycle: candidate (a), erosion inside the height stage.**
+
+`staleness.rs` refused to model erosion because erosion↔climate is a genuine
+cycle and a `StageGraph` forbids cycles by construction. The owner picked
+"erosion is part of the height stage, which internally iterates" over "add an
+explicit iterate-N-times stage kind". Against the real graph that resolves to
+something smaller than it sounds:
+
+- **The graph does not change.** No `erosion` node, no new edge, no new stage
+  kind. `pipeline_stage_graph` is the same four-node graph it was.
+- **`Height` is a source node whose *body* contains the cycle.** That body is
+  `generate_terrain`'s own carve-and-evolve block — the light stream-power
+  pass, `isostatic_rebound`, and the `evolve_cycles` loop whose every
+  iteration ends in `refresh_climate` so the next cycle's incision reads the
+  rain the last cycle's orography produced. The cycle runs, and it is
+  invisible to the graph because it never crosses a node boundary. That is
+  exactly the property that lets the DAG stay a DAG.
+- **So the consumer never has to run erosion.** By the time `Height` is
+  marked changed, height — erosion included — is whatever it is going to be.
+
+Candidate (b) would have needed a fixed-point iteration *between* nodes: a
+new primitive in a data structure whose whole safety argument is that
+`add_stage` requires its upstreams to already exist.
+`the_owners_erosion_decision_keeps_the_graph_at_four_acyclic_stages` pins the
+decision as an invariant, so reversing it has to be argued rather than
+drifted into.
+
+**Built — `cartalith_engine::staleness::recompute_stale(&mut StageGraph,
+&WorldParams, &mut WorldState) -> RecomputeReport`.**
+
+Given a graph in which a commit has marked a stage changed, it re-runs
+exactly what that invalidated:
+
+- **Hydrology and climate together, through one `refresh_climate`.** That
+  function *is* the reference's own post-edit tail (`computeFlow(true);
+  refreshClimate();`, reference HTML line 5154): its first statement rewrites
+  `flow_discharge` — hydrology's output — and the rest rewrites `temperature`
+  and `rainfall`. Two separate calls would pay for a second whole-grid
+  `compute_flow` to produce a value the first already produced. One call, two
+  `mark_recomputed`s, hydrology first so climate observes hydrology's *new*
+  version and does not immediately report itself stale again.
+- **Nothing when nothing is stale.** The decision to work is made only from
+  what the graph reports. A second call with no intervening edit runs
+  nothing; a commit that touched only a downstream stage runs nothing.
+
+What stays stale, deliberately: **civ** (`compute_civilisation` lives in
+`cartalith-godot` and builds Godot types, so this crate cannot call it — and
+the reference's own `sculptCommit` never cascades into settlements either;
+`UNIFIED_TOOL_PLAN.md` milestone C measured the eager form at ~7 s/stroke at
+2048²); the **carve-time river network** (`channels`, `stream_order`,
+`river_mask` — `refresh_climate` re-derives drainage, not the vector
+network, and neither does the reference's tail); and **`flow_area`**, whose
+only consumer is the first moisture-corrector pass inside `generate_terrain`
+itself.
+
+**Wired, so it is not a second unused mechanism.** `WorldGen` now holds a
+live `StageGraph`, rebuilt by `absorb()` over the Sculpt draft's own
+`PassBuffer` tiling so a `CommitSummary::tiles_marked` drops straight into
+`mark_changed_tiles` — one tiling, not two that agree by coincidence.
+
+| Path | Marks | Runs |
+|---|---|---|
+| `sculpt_commit` | `Height`, at the tiles the pass touched | hydrology + climate |
+| `carve_fjords` | `Height`, whole map (a coastal carve is not tile-local) | hydrology + climate |
+| `paint_commit` | `Civ`, at the painted tiles | nothing — a mid-chain edit does not make its own upstreams stale |
+| `recompute_stale_stages()` (new `#[func]`) | nothing | whatever is already stale |
+
+All four return `recomputed`/`still_stale` as `PackedStringArray`s. The new
+`#[func]` exists for the cases the commits do not cover — a deferred
+recompute, a batch settled at the end, or a "Recompute now" control when one
+is designed. **No UI was built**: `CLAUDE.md`'s UI hold stands, and the
+future wiring is tracked as `GUI_GAP_REGISTER.md` MS-06.
+
+`climate_params_for`/`weather_params_for` were extracted from
+`generate_terrain`'s two struct literals so an outside caller of
+`refresh_climate` gets *the same* structs rather than a hand-copied second
+literal that can drift field by field. Pure re-projection of `WorldParams` —
+no arithmetic, so nothing there can move a golden value, and the whole
+workspace suite confirms it.
+
+**Verified.**
+
+Seven new tests, beyond the graph's existing dozen:
+
+- `the_owners_erosion_decision_keeps_the_graph_at_four_acyclic_stages` — the
+  design decision, pinned.
+- `a_height_edit_recomputes_hydrology_and_climate_and_leaves_civ_stale` —
+  `ran == ["hydrology", "climate"]`, `still_stale == ["civ"]`.
+- `the_recomputed_values_are_right_not_merely_different` — "changed" is not
+  correctness. Two physical invariants derivable without re-running the
+  implementation under test: raising ground must *cool* it (the lapse rate),
+  and a new ridge must *shed* its own drainage. Plus the height field coming
+  back bit-identical, since a recompute reads height and never writes it.
+- `it_recomputes_only_what_it_claims_and_leaves_the_rest_bit_identical` —
+  `channels`, `stream_order`, `river_mask` and `flow_area` unchanged, by
+  `assert_eq!`, not by tolerance.
+- `a_second_call_with_no_intervening_edit_runs_nothing`.
+- `a_downstream_only_edit_recomputes_nothing_upstream_of_it` — the "not
+  everything" half of the contract, decided by the graph rather than by a
+  special case.
+- `a_dimension_mismatch_returns_an_empty_report_rather_than_panicking` — this
+  sits under a `#[func]`, and a panic crossing the gdext boundary takes the
+  Godot process with it (`cartalith-rust-conventions`).
+
+**Measured, `--release`, against the full generation it replaces:**
+
+| Size | `recompute_stale` | `generate_terrain` | Cheaper by |
+|---|---|---|---|
+| 512² | 76.5 ms | 314.9 ms | 4.1× |
+| 1024² | 97.8 ms | 912.3 ms | 9.3× |
+| 2048² | **188.9 ms** | 3.558 s | **18.8×** |
+
+Inside the ~131–564 ms the research predicted at 2048² from
+`SCULPT_LIVE_SCOPE.md`'s L0 numbers, and at the fast end of it because the
+radix-sort pass landed in `compute_flow` the same day.
+
+**Real, non-headless, on the real GPU-backed editor runtime**
+(`_staleness_shot.tscn`, an untracked harness): generate 384×288, sample a
+transect of 92 cells, sculpt a mountain range across it, commit.
+
+```
+STALE commit  recomputed=["hydrology", "climate"] still_stale=["civ"]  (58 ms)
+STALE elevation      moved in  48/ 92 cells, mean |d| = 0.03602
+STALE temperature_c  moved in  48/ 92 cells, mean |d| = 1.42305
+STALE precipitation  moved in  15/ 92 cells, mean |d| = 0.05008
+STALE drainage       moved in  79/ 92 cells, mean |d| = 5.36201
+STALE fjords ok=true carved=511 recomputed=["hydrology", "climate"] still_stale=["civ"]
+STALE idempotent call -> recomputed=[] still_stale=["civ"] (0.0 ms)
+```
+
+Before this change the last three rows were `0/92` by construction — nothing
+in `sculpt_commit` touched `temperature`, `rainfall` or `flow_discharge` at
+all. The whole workspace suite stays green with no tolerance touched and no
+fixture regenerated; `cargo clippy` adds no warning; the cdylib builds and
+the extension loads headless.
+
+**Not done, deliberately:** `param_set` still only marks the world stale
+without touching the graph. Mapping a moved dial onto the stage it
+invalidates needs a per-parameter → stage table, which is a real design, not
+an improvisation — and it is not what a commit path needs.
