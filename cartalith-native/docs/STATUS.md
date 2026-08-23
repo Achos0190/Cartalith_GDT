@@ -5,7 +5,32 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-23 (post **Three stranded items: timeline `tid`, Asset
+Last updated: 2026-08-23 (post **Deep-zoom LOD: the tiles were the reference's
+*Relief* view, not its *Biome* view**. Owner: *"the zoom-lod bug where a zoom
+action exposes the underlying heightmap is still there."* Reproduced on a real
+screen before touching anything — the same camera with the LOD layer shown
+(bare green/gold/grey elevation ramp) and hidden (the full plate: biome colour,
+rivers, hillshade, paper frame). Root cause: the reference chooses its LOD tile
+coloriser by **view mode** (`_lodBuildTileRGBA`, reference 11148 —
+`biome ? renderBiomeTileRGBA : renderHeightTileRGBA`, with `'biome'` the
+default), this port only ever ported the *Relief* half, and `lod_bridge.rs`
+wired the compositor straight to it. Second divergence: deep zoom engaged on
+px-per-cell alone, so it was live at the **fit** view of any world narrower
+than the map rect; the reference also requires camera zoom `> 2.2`
+(`LOD_AUTO_SCALE`, reference 13952). Fixed by making a tile carry only what the
+base raster cannot have — the relief-detail **shade ratio**, `shade_tile(with
+detail) / shade_tile(no detail)` — and multiplying it into `map_view`'s own
+texture through a new `shell/lod_tile.gdshader`, so the two paths agree by
+construction; plus `LOD_AUTO_ZOOM = 2.2`. A tile-boundary misalignment
+(`amplify_region`'s sample convention vs. the raster's texel convention: 1.6%
+stretch plus a half-cell offset) was fixed in the same pass by
+`tile_sample_region` — that is **`GUI_GAP_REGISTER.md` CV-VS-01**, measured at
+8x the local baseline on a `TILE_CELLS` row boundary before, gone after.
+`renderBiomeTileRGBA` itself stays unported and is now the named next milestone
+for this subsystem. Verified: 27 test suites pass (8 new), goldens untouched,
+headless boot clean, and non-headless before/after captures at z1.0/2.31/3.51/
+5.35/8.0 in both WORLD and CIVIL.
+— previously, post **Three stranded items: timeline `tid`, Asset
 Library Collections/drag-and-drop/slicer interaction, Fira fonts**. Three
 independent, previously-disclosed gaps closed together as mechanical wiring,
 not open-ended work — full account in `CHANGELOG.md`. **(1)**
@@ -3502,6 +3527,55 @@ Two passes landed the same day. The first built the ~430-line `journey_planner_w
       owner's running editor); and everything routine — editor, Play, every
       `--headless` scripted drive — loads the **debug** entry, not release, so
       both profiles need building when a change is meant to reach an export.
+
+## Deep-zoom LOD showed the *Relief* tile renderer over the *Biome* map (owner report, fixed 2026-08-23)
+
+- [x] **Reproduced live before anything was changed.** Same seed, same window,
+      same camera, LOD layer shown vs. hidden: shown, a bare green/gold/grey
+      hypsometric ramp over flat blue sea; hidden, the full plate — biome
+      colour, the river network, hillshade, AO, paper frame, neatlines. The
+      owner's "a zoom action exposes the underlying heightmap" is literal.
+- [x] **Root cause: a branch this port never had.** The reference chooses the
+      LOD tile coloriser by view mode — `_lodBuildTileRGBA`, reference 11148,
+      `biome ? renderBiomeTileRGBA : renderHeightTileRGBA`, with `'biome'` the
+      app default (reference 2260). `renderHeightTileRGBA` is *Relief* mode.
+      Only that half was ported, and `lod_bridge.rs` wired the compositor
+      straight to it while the map view is always the biome look.
+- [x] **Second divergence: the entry threshold.** `viewport_host.gd` gated on
+      `native_px_per_cell * zoom > 1.0` alone, true at the **fit** view for any
+      world narrower than the map rect (512 cells in 888 px = 1.73 px/cell), so
+      the wrong renderer was live with no zoom at all. The reference also
+      requires camera zoom `> LOD_AUTO_SCALE = 2.2` (reference 13952/13986).
+      Added as `LOD_AUTO_ZOOM`; both conditions now hold, as there.
+- [x] **Fixed by making a tile carry only what the base raster cannot have.**
+      New `cartalith-terrain::tile_render::shade_tile` (the `s` multiplier
+      `render_height_tile_rgba` applies, on its own — that function itself
+      untouched, goldens unchanged); `lod_bridge::synthesize_tile_rgba` now
+      encodes `shade_tile(with detail) / shade_tile(no detail)`, and the new
+      `shell/lod_tile.gdshader` multiplies it into `map_view`'s own texture
+      (`filter_linear`, which also removes the blocky cells M1 existed for).
+      Where the amplifier adds nothing the ratio is exactly `1.0` and the map
+      is byte-unchanged — pinned by a test, not asserted in prose.
+- [x] **CV-VS-01 (`GUI_GAP_REGISTER.md` §14.4) closed in the same pass.**
+      `amplify_region` samples endpoints-inclusive; the raster draws texels.
+      Passing `bounds.to_float()` straight through stretched `TILE_CELLS`
+      cells of screen over `TILE_CELLS - 1` cells of data and offset it half a
+      cell, so every tile edge was a real discontinuity. `tile_sample_region`
+      fixes the convention; adjacent tiles now sample exactly one texel apart.
+      Measured pre-fix in CIVIL at fit zoom: median row discontinuity 2.26,
+      spiking to 19.03 and 10.30 on two `TILE_CELLS` row boundaries.
+- [x] `cargo test -p cartalith-terrain -p cartalith-godot` 27 suites pass (8
+      new); `--headless --path godot-project --quit` clean; clippy no new
+      warnings; non-headless before/after at z1.0/2.31/3.51/5.35/8.0 in both
+      WORLD and CIVIL.
+- [ ] **Open: `renderBiomeTileRGBA` is still unported.** Tile colour comes from
+      the coarse raster, so sub-cell *colour* variation (landColorCore's
+      slope/curvature rock and scree, its river SDF) is absent — only sub-cell
+      *relief* is there. Closing it needs the climate/lithology fields threaded
+      into `lod_bridge`, i.e. a `#[func]` signature change in `lib.rs`.
+- [ ] **Open: `lib.rs`'s `lod_synthesize_tile` doc comment is now stale** — it
+      still says "one synthesized, **coloured** deep-zoom tile". That file was
+      owned by a concurrent session and was deliberately not edited.
 
 ## Wind / Ocean-currents streak animation (owner report, done 2026-08-23)
 

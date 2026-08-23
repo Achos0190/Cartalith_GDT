@@ -1653,7 +1653,7 @@ route, and the map at three zoom levels including deep-zoom LOD tiles.
 | Light theme | **PASS** | Full repaint is consistent — no leftover dark-token styleboxes anywhere swept. |
 | Generate World dialog | **PASS** | Matches the "Generate World" mockup's ten-stage pipeline list + Planet sliders. |
 | Generate Sculpt mode | **PASS** | Stamp stack (Undo/Redo/Commit/Discard) appears correctly in the right dock the moment Sculpt mode is selected. |
-| CIVIL dock default | **DEFECT (catalogued)** | See CV-VS-01 below — a thin horizontal seam across the map, CIVIL-domain-only. |
+| CIVIL dock default | **DEFECT (fixed 2026-08-23)** | See CV-VS-01 below — a thin horizontal seam across the map, CIVIL-domain-only. It was a deep-zoom LOD tile boundary, visible because the LOD layer was painting the reference's *Relief* ramp over the *Biome* map. |
 | CIVIL right dock: stuck Sculpt context | **DEFECT (fixed)** | See §14.3. |
 | CIVIL Timeline category | **PASS** | Expands correctly; years/filters/simulate-collapse rows all present with an honest "not wired to the map" disclosure. |
 | CIVIL territory overlay | **PASS** (after correcting the sweep itself) | Painting + committing territory does not itself show it — `cartography_workspace.gd`'s "Political — territory" layer defaults off, same as the design's own opt-in layer model. Not a bug; the first sweep pass mistook it for one. |
@@ -1708,9 +1708,46 @@ subtitle line above it was the one place that missed the deletion pass and
 kept promising a fifth. Fixed: subtitle now reads "import · export · sources
 · validation," matching `GROUP_ORDER`.
 
-### 14.4 · Defects catalogued, not fixed
+### 14.4 · Defects catalogued, not fixed at the time
 
-**CV-VS-01 — A thin horizontal seam across the map, CIVIL-domain-only.**
+*(CV-VS-01 has since been fixed — 2026-08-23. JP-VS-01 is still open.)*
+
+**CV-VS-01 — A thin horizontal seam across the map, CIVIL-domain-only.
+FIXED 2026-08-23** — it was a deep-zoom LOD **tile boundary**, and the reason it
+read as a coloured hairline is that the LOD layer was painting a different
+picture from the map underneath it. Two causes, both now removed:
+
+1. `lod_bridge::synthesize_tile_rgba` passed `tile_bounds(...).to_float()`
+   straight to `amplify_region`, whose output index maps to
+   `rx + ox/(out-1)*(rw-1)` — endpoints inclusive, a *sample* convention. The
+   base raster is texels: cell `i` covers screen `[i, i+1)`. So a tile
+   stretched `TILE_CELLS` cells' worth of screen over `TILE_CELLS - 1` cells'
+   worth of data (1.6%) and sat half a cell out of register, leaving a real
+   discontinuity down every tile edge. New `tile_sample_region` solves
+   `cx + 0.5 == bx + (ox + 0.5) * bw / out` instead, so adjacent tiles sample
+   exactly one texel apart across a shared edge — unit-tested at both ends and
+   on an edge-clipped tile.
+2. The LOD layer was rendering the reference's *Relief*-mode tile
+   (`render_height_tile_rgba`'s hypsometric ramp) over the *Biome*-mode base
+   map, so the seam had two differently-coloured sides to be visible between.
+   Gold-toned because the hypso ramp's own `0.38` stop is `[201,178,74]`. Tiles
+   now take their colour from `map_view`'s own texture through
+   `shell/lod_tile.gdshader` and carry only a relief-detail shade ratio.
+
+Measured, not assumed: on the pre-fix build, in CIVIL at the fit view, a
+row-discontinuity scan across the map rect read a **median of 2.26** with
+spikes of **19.03** at y=599 and **10.30** at y=378 — both exactly on a
+`TILE_CELLS` row boundary of that letterbox rect (map top 154, 111 px per tile
+row, boundaries at 265/376/487/598/709). CIVIL-only in the original sweep for
+the reason §14.4 itself suspected: that domain's taller dock changes the
+letterbox rect, which moves a tile row into the conspicuous middle of the
+picture. The original investigation's negative findings all stand — it was
+neither the sea-route dash styling nor a transient backlog artifact, and the
+letterbox-rect correlation was the right lead. Full account in
+`cartalith-native/docs/CHANGELOG.md`, "Deep-zoom LOD: the tiles were the
+reference's *Relief* view, not its *Biome* view".
+
+The original entry, as catalogued:
 Screenshotted consistently in `06_civil_dock_default.png` and
 `06b_civil_timeline_category.png`: a dashed, gold-toned hairline running the
 full visible width of the map at roughly the vertical midpoint of the

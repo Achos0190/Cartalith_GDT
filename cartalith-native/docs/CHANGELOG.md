@@ -17819,3 +17819,145 @@ decode from drifting apart silently.
   controls. `MEMORY.md`'s Phase 3 note (re-run `ui-ux-pro-max` for the
   deferred visualisation controls) is the right place for that, not a raw
   slider bolted on here.
+
+## Deep-zoom LOD: the tiles were the reference's *Relief* view, not its *Biome* view (owner report, 2026-08-23)
+
+Owner: *"the zoom-lod bug where a zoom action exposes the underlying heightmap
+is still there."* Reproduced first, fixed second. `_lodshot.tscn` (uncommitted,
+the convention `_shot.gd` follows) booted the real shell at 1600x1000 on an RX
+7800 XT, generated a 512x384 world and captured the same camera with the LOD
+layer shown and hidden: shown, the map was a bare green/gold/grey elevation
+ramp over flat blue sea; hidden, it was the full cartographic plate — biome
+colour, the river network in blue, hillshade, AO, the paper frame and
+neatlines. Two renderers, two entirely different pictures of the same ground.
+
+### The root cause is a missing branch, not a bug in either renderer
+
+The reference picks its LOD tile coloriser off the **view mode**.
+`_lodBuildTileRGBA` (reference line 11148):
+
+```js
+const baseTileRGBA=(data,w,h,bx,by,bw,bh)=>
+  biome ? renderBiomeTileRGBA(data,w,h,{x:bx,y:by,w:bw,h:bh})
+        : renderHeightTileRGBA(data,w,h);
+```
+
+`biome` is `state.mode==='biome'`, the app's own default (reference 2260), and
+`drawLODView`'s own comment says it plainly: *"tiles follow the View mode —
+Biome = the full landColorCore look, Relief = the height ramp."*
+`renderHeightTileRGBA` is what **Relief** mode draws. This port has only that
+half of the pair — `renderBiomeTileRGBA` was never ported — and its map view is
+always the biome look, so `lod_bridge.rs` wiring the compositor straight to
+`render_height_tile_rgba` guaranteed the deep-zoom path and the base path
+disagreed at every pixel. Nothing was wrong with `render_height_tile_rgba`
+(golden-pinned, untouched here) or with `build_color_texture`. The bug was
+which one a zoomed-in camera got.
+
+A second, independent divergence made it visible with no zoom action at all:
+`viewport_host.gd` entered deep zoom on `native_px_per_cell * zoom > 1.0`
+alone, which a 512-cell world in an 888 px map rect already satisfies at the
+fit view (1.73 px/cell). The reference gates on the camera instead —
+`viewT.scale > LOD_AUTO_SCALE`, `LOD_AUTO_SCALE = 2.2` (reference 13952, tested
+at 13986) — so its LOD viewer never opens until the user actually zooms in.
+Confirmed live: before the fix, `lod_active` was `true` on a freshly generated
+world at `z1.0`.
+
+### The fix: a tile now carries relief, and takes its colour from the base map
+
+Porting `renderBiomeTileRGBA` is a milestone, not a bug fix — it needs
+temperature, rainfall, lithology, flow and the whole `TerrainAppearance` bag at
+sub-cell resolution, none of which reaches `lod_bridge.rs`. It also does not
+need reinventing: the base raster already *is* the biome look, and
+`renderBiomeTileRGBA` samples its own colour inputs (T, M, lithology, biome)
+bilinearly off the same coarse grid anyway — only the height-derived terms run
+at tile resolution. So the tile now carries exactly the part the base raster
+cannot have.
+
+- `cartalith-terrain::tile_render::shade_tile` (new) returns the shade
+  multiplier `render_height_tile_rgba` applies (`s` in its own loop) without
+  the hypsometric tint. Deliberately a copy of that function's arithmetic
+  rather than an extraction from it: the original is pinned byte-for-byte by
+  `golden_parity_tile_render.rs` and is not worth re-proving for an allocation.
+  The new test asserts the copy is the same `s` by reconstruction —
+  `u8_clamped(hypso(v) * shade_tile[i])` must equal the pinned renderer's byte,
+  every pixel, every channel — rather than restating the formula.
+- `lod_bridge::synthesize_tile_rgba` now runs `amplify_region` **twice** over
+  the same region: once with the procedural detail and once with
+  `detail_amp = 0` (the plain bilinear upsample the base raster's own shading
+  already reflects), reduces both with `shade_tile`, and encodes their
+  **ratio** — what the sub-cell detail *adds*, and nothing else. Where the
+  amplifier adds nothing (underwater, plains, wherever `taper` is zero) the
+  ratio is exactly `1.0` and the map is byte-unchanged; a test pins that
+  identity on a deep-water tile. The fixed point is centred
+  (`SHADE_RATIO_MID`/`SHADE_RATIO_GAIN`) rather than a plain `ratio * 128`,
+  which was the first cut and measured wrong: the ratio lives within a few
+  percent of `1.0`, and a scale spanning `[0, 2]` resolved a whole tile into
+  three distinct byte values.
+- `shell/lod_tile.gdshader` (new) multiplies that ratio into
+  `map_view.texture` — the very texture the base map shows — sampled
+  `filter_linear` over the tile's own footprint. The two paths now agree by
+  construction rather than by two palettes happening to match, and the linear
+  sample also removes the blocky single-cell squares that were milestone M1's
+  original reason to exist.
+- `viewport_host.gd` gained `LOD_AUTO_ZOOM = 2.2` beside the existing
+  px-per-cell test. Both must hold, as in the reference: px-per-cell says the
+  detail is *resolvable*, the camera zoom says it was *asked for*.
+
+### A tile-boundary seam fell out of the same pass — this is `GUI_GAP_REGISTER.md`'s CV-VS-01
+
+`amplify_region` maps output index `ox` to source coordinate
+`rx + ox/(out-1)*(rw-1)` — endpoints inclusive, a *sample* convention.
+`lod_bridge` was passing `bounds.to_float()` straight through, so a tile
+stretched `TILE_CELLS` cells' worth of screen over `TILE_CELLS - 1` cells'
+worth of data (1.6% off) and sat half a cell out of register with the base
+raster, leaving a real discontinuity down every tile edge. `tile_sample_region`
+(new, unit-tested at both ends and on an edge-clipped tile) solves
+`cx + 0.5 == bx + (ox + 0.5) * bw / out` instead, so adjacent tiles sample
+exactly one texel apart across a shared edge — no overlap, no gap.
+
+Measured, not asserted. On the pre-fix build, in CIVIL at the fit view, a
+row-discontinuity scan across the map rect (mean per-row deviation from the
+mean of its two neighbours, all three channels) read a median of **2.26** with
+spikes of **19.03** at y=599 and **10.30** at y=378 — both exactly on a
+`TILE_CELLS` row boundary of that letterbox rect (map top 154, 111 px per tile
+row gives 265/376/487/598/709). That is CV-VS-01's mechanism: a hairline at a
+tile seam, gold-toned because the hypso ramp's own 0.38 stop is
+`[201,178,74]`, and conspicuous in CIVIL because that domain's taller dock
+changes the letterbox rect and moves a tile row into the middle of the
+picture — exactly the resize correlation the register recorded. The register's
+"not the sea-route dash styling, not a transient backlog artifact, correlates
+with a real letterbox-rect change" findings all hold; what it could not see was
+that the layer *drawing* the seam was coloured differently from the layer
+underneath, which is what made a sub-pixel misalignment legible at all.
+
+### Verified
+
+- **Non-headless, real GPU frames**, before and after, same seed/window/camera:
+  the fit view (`z1.0`) is now the untouched plate in both WORLD and CIVIL;
+  `z2.31`, `z3.51`, `z5.35` and `z8.0` all show biome colour, rivers and
+  coastline, smoothly upsampled, with visible fine relief — no hypsometric
+  ramp, no visible tile boundary at any tier. The pre-fix build was re-run for
+  the before-shots by reverting only these files, not recalled from memory.
+- `cargo test -p cartalith-terrain -p cartalith-godot` — 27 suites, all pass,
+  including the eight new tests (`shade_tile` equivalence and range,
+  neutral/perturbing tiles, and three on `tile_sample_region`'s alignment).
+  `golden_parity_tile_render.rs` unchanged and still passing:
+  `render_height_tile_rgba` was not touched.
+- `--headless --path godot-project --quit` — clean, no errors.
+- `cargo clippy` — no new warnings.
+
+### Still open
+
+- **`renderBiomeTileRGBA` is still unported.** A tile's colour now comes from
+  the coarse raster, so sub-cell *colour* variation (landColorCore's own
+  slope/curvature-driven rock and scree, its river SDF) is not there — only
+  sub-cell *relief* is. That is a real gap, and the honest place to close it is
+  a milestone that threads the climate/lithology fields into `lod_bridge`,
+  which needs a `#[func]` signature change in `lib.rs`.
+- `lib.rs`'s `lod_synthesize_tile` doc comment still calls its result "one
+  synthesized, **coloured** deep-zoom tile". It is now a shade mask;
+  `lod_bridge.rs`'s module doc says so at length. That file was owned by
+  another session during this fix and was deliberately not edited.
+- The reference's LOD is opt-in with real controls (`lodAutoChk`, `lodChk`,
+  tile size, pyramid depth, refine-now, atlas bake/clear). This port still has
+  none of them — `menus.gd` already discloses that; nothing here changed it.

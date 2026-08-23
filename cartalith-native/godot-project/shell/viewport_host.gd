@@ -22,6 +22,10 @@ signal map_dragged(gx: float, gy: float)   ## §4.5 tool drag-paint primitive.
 signal map_released(gx: float, gy: float, valid: bool)   ## §4.5 tool drag-end primitive.
 
 const OVERLAY_SCRIPT := preload("res://map_overlay.gd")
+## Deep-zoom tile compositing -- see `_build_lod_tile()` and the shader's own
+## header. A tile texture is a relief-detail shade ratio, not a picture; this
+## is what turns it back into map pixels using `map_view`'s own colours.
+const LOD_TILE_SHADER := preload("res://shell/lod_tile.gdshader")
 
 var map_view: TextureRect
 var territory_view: TextureRect
@@ -100,6 +104,18 @@ var _pan_last_screen := Vector2.ZERO
 ## to reach it. `LOD_PX_PER_CELL_THRESHOLD` names that "roughly one" plainly
 ## rather than burying `1.0` in the formula below.
 const LOD_PX_PER_CELL_THRESHOLD := 1.0
+## ...and a second gate the reference has and this file was missing: the
+## camera must actually be zoomed IN. `LOD_AUTO_SCALE = 2.2` (reference
+## 13952), tested against `viewT.scale` in the wheel handler (reference
+## 13986), is a pure camera-zoom threshold, independent of grid resolution.
+## Without it the px-per-cell test alone turns deep zoom on at the *fit* view
+## for any grid narrower than the viewport -- a 512-cell world in a 900 px map
+## rect is already at 1.7 px/cell before the user touches the wheel -- so the
+## LOD layer was live on every freshly generated world, which is half of why
+## the owner's "a zoom action exposes the underlying heightmap" was visible
+## with no zoom action at all. Both conditions must hold, as in the reference:
+## px-per-cell says the detail is *resolvable*, this says it was *asked for*.
+const LOD_AUTO_ZOOM := 2.2
 ## `detail_level` doubles the synthesized tile's own resolution once per
 ## extra octave past the threshold (`lod_bridge::tile_px_for_level`,
 ## 256/512/1024px) -- 2 matches that function's own `MAX_DETAIL_LEVEL`
@@ -215,6 +231,14 @@ func _ready() -> void:
 	## map at deep zoom, not something drawn on top of it. Starts fully
 	## transparent and empty; `_update_lod()` is the only thing that ever
 	## adds children to it.
+	##
+	## Since 2026-08-23 a tile *literally* is the base map: its shader
+	## samples `map_view`'s own texture for colour and uses the tile texture
+	## only as a relief-detail shade ratio (`_build_lod_tile()`,
+	## `lod_bridge.rs`). Before that it carried
+	## `render_height_tile_rgba`'s hypsometric ramp, which is the reference's
+	## *Relief* view mode, and covering the biome-coloured plate with it is
+	## exactly the owner's "a zoom action exposes the underlying heightmap".
 	##
 	## **This node's position in the stack is load-bearing, and once got it
 	## wrong.** It used to be added after `territory_view`, `province_view`
@@ -747,7 +771,7 @@ func _update_lod() -> void:
 		_set_lod_active(false)
 		return
 	var screen_px_per_cell := native_scale * _zoom
-	if screen_px_per_cell <= LOD_PX_PER_CELL_THRESHOLD:
+	if screen_px_per_cell <= LOD_PX_PER_CELL_THRESHOLD or _zoom <= LOD_AUTO_ZOOM:
 		_set_lod_active(false)
 		return
 
@@ -870,6 +894,14 @@ func _apply_lod_tiles(wanted: Dictionary, build_keys: Dictionary, detail_level: 
 					var existing := _lod_tiles[key] as TextureRect
 					existing.position = rect.position
 					existing.size = rect.size
+					## Cheap, and the one thing about an already-built tile
+					## that can go stale without its index or detail level
+					## moving: the shader samples `map_view`'s texture for
+					## colour, and a re-render (quality tier, appearance,
+					## a Sculpt commit) replaces that texture in place.
+					var mat := existing.material as ShaderMaterial
+					if mat != null:
+						mat.set_shader_parameter("base_tex", map_view.texture)
 				continue
 			## Detail level moved on since this tile was built (the camera
 			## zoomed further within the same tile index) -- free the stale
@@ -926,6 +958,24 @@ func _build_lod_tile(key: String, idx: Vector2i, detail_level: int, g: Vector2i,
 	tile_node.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	tile_node.position = rect.position
 	tile_node.size = rect.size
+	## `tex` is a relief-detail shade ratio, not a picture (`lod_bridge.rs`,
+	## "What a tile actually contains"). The shader multiplies it into the
+	## base map's own colour, sampled from `map_view.texture` over this
+	## tile's footprint -- so a deep-zoom tile can no longer disagree with
+	## the map it sits on, which is what the pre-2026-08-23 hypsometric
+	## tile did at every pixel.
+	var origin_x := idx.x * _lod_tile_cells
+	var origin_y := idx.y * _lod_tile_cells
+	var tile_w := mini(_lod_tile_cells, g.x - origin_x)
+	var tile_h := mini(_lod_tile_cells, g.y - origin_y)
+	var mat := ShaderMaterial.new()
+	mat.shader = LOD_TILE_SHADER
+	mat.set_shader_parameter("base_tex", map_view.texture)
+	mat.set_shader_parameter("base_uv0",
+		Vector2(float(origin_x) / g.x, float(origin_y) / g.y))
+	mat.set_shader_parameter("base_uv1",
+		Vector2(float(origin_x + tile_w) / g.x, float(origin_y + tile_h) / g.y))
+	tile_node.material = mat
 	_lod_layer.add_child(tile_node)
 	_lod_tiles[key] = tile_node
 	_lod_tile_detail[key] = detail_level
