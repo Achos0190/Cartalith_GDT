@@ -1333,6 +1333,17 @@ struct WorldGen {
     /// caller can offer one rather than have it chosen for them.
     quality: QualityTier,
     /// `UNIFIED_TOOL_PLAN.md` milestone F (`STRANDED_TOOLS.md` rows 4-8):
+    /// The reference's non-photorealistic block (`render::Npr`,
+    /// `GUI_GAP_REGISTER.md` RN-01): the ten "Painter" hand-drawn styles, the
+    /// coastal wave lines, the multi-sun rig and the animated-water flag.
+    ///
+    /// Every member is off by default, so an untouched `WorldGen` renders
+    /// exactly what it rendered before this field existed. Purely
+    /// presentation, on the same terms as `quality` above: it feeds
+    /// `TerrainAppearance` inside `build_color_texture` and marks no
+    /// generation stage stale, so `set_npr()` + `build_color_texture()`
+    /// re-renders the same world in a different style with no regeneration.
+    npr: render::Npr,
     /// the live, non-destructive Sculpt-editor draft. See
     /// `sculpt_bridge.rs`'s own module doc for why this lives here rather
     /// than a second `GodotClass`. `None` before the first successful
@@ -1460,6 +1471,7 @@ impl IRefCounted for WorldGen {
             asset_pack: None,
             quality: QualityTier::Quality,
             sculpt: None,
+            npr: render::Npr::default(),
             icons: None,
             civ_tools: None,
             paint: None,
@@ -2617,6 +2629,108 @@ impl WorldGen {
     }
 
     /// A tier this device can plausibly afford, as a **suggestion**. Nothing
+    /// The appearance this `WorldGen` renders with: the active Â§29 quality
+    /// tier, carrying the caller's NPR settings.
+    ///
+    /// **The single place the two combine.** Before this existed, five call
+    /// sites each wrote `TerrainAppearance::for_tier(self.quality)` by hand,
+    /// and every one of them would have had to remember the NPR block too --
+    /// which is exactly how a raster and the overlays measured against it end
+    /// up disagreeing about where the plate frame is.
+    /// `Npr::peak_m` is filled in **here, from the world's own parameters**,
+    /// and is deliberately not a `set_npr` key: the reference reads
+    /// `state.peakM` -- the world's peak altitude -- rather than anything the
+    /// Painter panel owns, and a caller who could set it separately could set
+    /// it to something the world is not. It only ever turns a contour
+    /// interval in metres into a fraction of relief.
+    fn appearance(&self) -> TerrainAppearance {
+        let mut npr = self.npr.clone();
+        npr.peak_m = self.params.peak_m;
+        TerrainAppearance { npr, ..TerrainAppearance::for_tier(self.quality) }
+    }
+
+    /// The reference's NPR block (`GUI_GAP_REGISTER.md` RN-01) as a
+    /// `Dictionary`, keyed exactly as `set_npr` reads it -- so a caller can
+    /// round-trip the whole block, and a preset file has one shape to store.
+    #[func]
+    fn get_npr(&self) -> VarDictionary {
+        let n = &self.npr;
+        let mut d = VarDictionary::new();
+        d.set("watercolor", n.watercolor);
+        d.set("contours", n.contours);
+        d.set("contour_m", n.contour_m);
+        d.set("ink", n.ink);
+        d.set("hachure", n.hachure);
+        d.set("cel", n.cel);
+        d.set("crosshatch", n.crosshatch);
+        d.set("stipple", n.stipple);
+        d.set("sepia", n.sepia);
+        d.set("risograph", n.risograph);
+        d.set("pointillism", n.pointillism);
+        d.set("waves", n.waves);
+        d.set("wave_dist", n.wave_dist);
+        d.set("multi_sun", n.multi_sun);
+        d.set("animate_water", n.animate_water);
+        d
+    }
+
+    /// Set the NPR block from a `Dictionary`. **Every key is optional**: a
+    /// missing one keeps its current value, so a caller may send one changed
+    /// slider rather than the whole block. Returns the number of recognised
+    /// keys applied, so a GDScript caller can tell a typo (`0`) from a real
+    /// update without this method having to decide what a typo means.
+    ///
+    /// Intensities are clamped to `[0, 1]` -- the reference's own sliders are
+    /// `0..100 / 100` and several styles multiply an intensity straight into
+    /// a `1 - a` darkening term, where a value above 1 inverts the colour
+    /// rather than intensifying it. Clamping is not "improving on JS": it is
+    /// enforcing the range JS's own UI could only ever produce.
+    ///
+    /// **Presentation only**, on `set_quality_tier`'s exact terms: this never
+    /// touches the heightmap, climate, hydrology, biomes, settlements, routes
+    /// or the seed. Call `build_color_texture()` again to see it; no
+    /// regeneration is needed.
+    #[func]
+    fn set_npr(&mut self, values: VarDictionary) -> i32 {
+        let mut applied = 0i32;
+        {
+            let mut num = |key: &str, slot: &mut f64, clamp: bool| {
+                if let Some(v) = values.get(key)
+                    && let Ok(f) = v.try_to::<f64>()
+                {
+                    *slot = if clamp { f.clamp(0.0, 1.0) } else { f.max(0.0) };
+                    applied += 1;
+                }
+            };
+            num("watercolor", &mut self.npr.watercolor, true);
+            num("contours", &mut self.npr.contours, true);
+            num("ink", &mut self.npr.ink, true);
+            num("hachure", &mut self.npr.hachure, true);
+            num("cel", &mut self.npr.cel, true);
+            num("crosshatch", &mut self.npr.crosshatch, true);
+            num("stipple", &mut self.npr.stipple, true);
+            num("sepia", &mut self.npr.sepia, true);
+            num("risograph", &mut self.npr.risograph, true);
+            num("pointillism", &mut self.npr.pointillism, true);
+            // Not `[0,1]`: a contour interval is metres (the reference's own
+            // slider is 5-50) and the wave reach is a multiplier (0.25-3.0).
+            num("contour_m", &mut self.npr.contour_m, false);
+            num("wave_dist", &mut self.npr.wave_dist, false);
+        }
+        let mut flag = |key: &str, slot: &mut bool| {
+            if let Some(v) = values.get(key)
+                && let Ok(b) = v.try_to::<bool>()
+            {
+                *slot = b;
+                applied += 1;
+            }
+        };
+        flag("waves", &mut self.npr.waves);
+        flag("multi_sun", &mut self.npr.multi_sun);
+        flag("animate_water", &mut self.npr.animate_water);
+        applied
+    }
+
     /// applies it: `WorldGen` starts at `"quality"` on every device, and what
     /// a phone should default to is an owner policy decision, not this
     /// crate's. A caller that wants a device-appropriate default calls this
@@ -2657,7 +2771,7 @@ impl WorldGen {
         if gw == 0 || gh == 0 {
             return 0.0;
         }
-        render::border_width_cells(&TerrainAppearance::for_tier(self.quality), gw, gh) / gw as f64
+        render::border_width_cells(&self.appearance(), gw, gh) / gw as f64
     }
 
     /// Builds a colour + hillshade texture from the last `generate()`
@@ -2689,7 +2803,7 @@ impl WorldGen {
             };
         let gw = self.gw as usize;
         let gh = self.gh as usize;
-        let appearance = TerrainAppearance::for_tier(self.quality);
+        let appearance = self.appearance();
         // Milestone 5 (`TERRAIN_APPEARANCE_SCOPE.md`, research §12): the
         // world's real rock types. Built here rather than threaded down from
         // `compute_civilisation` (which builds its own for the soil chain)
@@ -2838,7 +2952,7 @@ impl WorldGen {
         // the sheet edge would otherwise colour the bare-paper margin.
         // `border_cover` is `0.0` across the whole interior (and everywhere
         // when there is no frame), so `alpha` is untouched there.
-        let appearance = TerrainAppearance::for_tier(self.quality);
+        let appearance = self.appearance();
         let mut bytes = Vec::with_capacity(gw * gh * 4);
         for (i, &f) in civ.territory.iter().enumerate() {
             let cover = render::border_cover(&appearance, i % gw, i / gw, gw, gh);
@@ -3104,7 +3218,7 @@ impl WorldGen {
         // tint and the territory wash: this line is drawn over the finished
         // raster, so it fades out as the bare-paper margin fades in rather
         // than ruling straight across it. No-op without a frame.
-        let appearance = TerrainAppearance::for_tier(self.quality);
+        let appearance = self.appearance();
         let mut bytes = vec![0u8; gw * gh * 4];
         for y in 0..gh {
             for x in 0..gw {
@@ -3691,7 +3805,7 @@ impl WorldGen {
         let mut scratch = ws.field.clone();
         s.draft.preview_into(&ws.field, &mut scratch);
 
-        let appearance = TerrainAppearance::for_tier(self.quality);
+        let appearance = self.appearance();
         let ctx = RenderCtx::with_appearance(
             &scratch,
             &ws.temperature,

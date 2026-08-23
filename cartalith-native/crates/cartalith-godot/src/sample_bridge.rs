@@ -1140,6 +1140,110 @@ fn flow_fx_raster(f: &FieldRefs, kind: &str) -> Option<Vec<u8>> {
 /// water bodies — the same condition the Biomes and Wind-throw views
 /// already report.
 ///
+/// The flow-direction + channel-intensity field behind the **animated water**
+/// overlay (`water_anim_layer.gd`, `GUI_GAP_REGISTER.md` RN-01), packed into
+/// one `gw * gh` RGBA8 buffer:
+///
+/// | byte | contents |
+/// |---|---|
+/// | R | downhill direction `x`, as `(dx * 0.5 + 0.5) * 255` |
+/// | G | downhill direction `y`, same encoding |
+/// | B | 0 (reserved) |
+/// | A | channel intensity, `0` off-channel to `255` on a trunk river |
+///
+/// **Deliberately not [`flow_fx_raster`]'s 12/12/8 packing.** That layout
+/// exists because a wind vector has real magnitude worth four decimal places;
+/// this one carries a **unit** direction, read by a fragment shader rather
+/// than by GDScript. Reassembling 12-bit fields across channels in GLSL means
+/// `round(texel * 255.0)` per byte and hoping the driver agrees â€” a real
+/// hazard for one byte of precision nobody can see in a shimmer. One byte per
+/// component decodes as `t * 2.0 - 1.0` and cannot round-trip wrong.
+///
+/// ## Where the two inputs come from
+///
+/// The reference reads `_veloVx/_veloVy` when a velocity field exists and
+/// falls back to the **downhill gradient of the heightfield** otherwise
+/// (`waterAnimFrame`, line 8686). This port has no velocity field on
+/// `WorldState`, so it takes that documented fallback â€” which is the same
+/// direction the water actually runs, and the only one a loaded save could
+/// answer at all.
+///
+/// Intensity replaces `_riverNet.intensity`, which is a Strahler/Rosgen
+/// network this port has not built as a render input. `flow_discharge` is the
+/// field that network is itself derived from, and the threshold at which a
+/// cell of it *is* a river is already this workspace's own
+/// `cartalith_hydrology::river_flow_thresh` â€” the same call the Water-access,
+/// Landform and Flood views make, and the same one `build_color_texture`'s
+/// channel tint is keyed to. Intensity ramps from that threshold to eight
+/// times it, `smoothstep`ed, so the shimmer reaches full strength on a trunk
+/// and fades out on a headwater. Land cells only â€” the sea has its own surf
+/// line (`npr.waves`).
+///
+/// **A min-max normalisation over the whole grid was tried first and was
+/// wrong** (found by looking, not by a test): `flow_discharge`'s range is set
+/// by its own extremes, so "the top 20% of the range" selected **six cells**
+/// of a 512x384 world and the overlay animated nothing at all. The shared
+/// threshold is both the smaller code and the one that agrees with the rivers
+/// already drawn on the map.
+///
+/// **This is a principled-equivalence path, not a golden one** (`DECISIONS.md`
+/// Â§7a): the picture it drives is a shader animation, and there is no
+/// per-pixel JS output to be bit-identical with.
+fn water_fx_raster(f: &FieldRefs) -> Option<Vec<u8>> {
+    let n = f.gw * f.gh;
+    if n == 0 || f.flow_discharge.len() < n || f.field.len() < n {
+        return None;
+    }
+    let sea = f.sea_level;
+    let thresh = cartalith_hydrology::river_flow_thresh(f.gw, f.gh, f.gw, f.map_width_km).max(1e-6);
+    let span = 8.0_f64.ln();
+
+    let mut out: Vec<u8> = Vec::with_capacity(n * 4);
+    for y in 0..f.gh {
+        for x in 0..f.gw {
+            let i = y * f.gw + x;
+            let h = f.field[i] as f64;
+            // Downhill: the reference's own fallback, sign included
+            // (`dx = left - right`, so the vector points the way water goes).
+            let xl = if f.world {
+                (x + f.gw - 1) % f.gw
+            } else {
+                x.saturating_sub(1)
+            };
+            let xr = if f.world {
+                (x + 1) % f.gw
+            } else {
+                (x + 1).min(f.gw - 1)
+            };
+            let yu = y.saturating_sub(1);
+            let yd = (y + 1).min(f.gh - 1);
+            let dx = f.field[y * f.gw + xl] as f64 - f.field[y * f.gw + xr] as f64;
+            let dy = f.field[yu * f.gw + x] as f64 - f.field[yd * f.gw + x] as f64;
+            let sp = dx.hypot(dy);
+            let (ux, uy) = if sp > 0.0 {
+                (dx / sp, dy / sp)
+            } else {
+                (0.0, 0.0)
+            };
+
+            // Only real channels, and only on land.
+            let q = f.flow_discharge[i] as f64;
+            let t = if h < sea || q <= thresh {
+                0.0
+            } else {
+                let s = ((q / thresh).ln() / span).clamp(0.0, 1.0);
+                s * s * (3.0 - 2.0 * s)
+            };
+
+            out.push(((ux * 0.5 + 0.5) * 255.0).round().clamp(0.0, 255.0) as u8);
+            out.push(((uy * 0.5 + 0.5) * 255.0).round().clamp(0.0, 255.0) as u8);
+            out.push(0);
+            out.push((t * 255.0).round().clamp(0.0, 255.0) as u8);
+        }
+    }
+    Some(out)
+}
+
 /// Shared by the Wildlife debug view and by `WorldGen::wildlife_regions()`,
 /// the roster popup's own data source, so the raster a user clicks and the
 /// record they get back cannot come from two different segmentations.
@@ -1242,6 +1346,11 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
     // from the UI as views.
     if let Some(kind) = id.strip_prefix("flowfx:") {
         return flow_fx_raster(f, kind);
+    }
+    // Same "a data channel, not a view" rule as `flowfx:` above -- the
+    // animated-water overlay's flow/intensity field ([`water_fx_raster`]).
+    if id == "waterfx" {
+        return water_fx_raster(f);
     }
 
     let sea = f.sea_level;

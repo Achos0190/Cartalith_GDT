@@ -19170,21 +19170,38 @@ Tolerance `1e-9` on a 0-255 channel, not `golden_parity_render.rs`'s `1e-4`:
 there is no two-pass canopy closure here for ULPs to compound through, so the
 tighter bound is the honest one rather than a widened one.
 
-Fixtures are **shaped, not sampled** — twelve cells that reach contours on and
+Fixtures are **shaped, not sampled** — sixteen cells that reach contours on and
 off an index line, ink either side of its 0.18 edge gate, hachure either side
 of 0.12, engraving across all three darkness bands, and a fully-black and a
 fully-white cell for the clamps. Each style additionally runs **alone** before
-the two stacked cases, so a broken style cannot hide inside a stack. Two
+the stacked cases, so a broken style cannot hide inside a stack. Two
 non-emptiness assertions (the block must actually move some pixels; the
 distance transform must contain both a zero and something above 2) guard the
 silently-empty failure mode directly.
 
-**Mutation-tested: 17 mutants, 0 survivors** — the sepia matrix, the engraving
-frequency, the chamfer diagonal, the rig's primary weight, the ink wobble
-gain, the hachure frequency, the stipple threshold, the index-line multiplier,
-two noise frequencies, the halftone frequency, the cel level count, the wave
-band and period floors, the foam colour, the fade curve and the crest
-exponent.
+**Mutation-tested: 37 mutants, 0 survivors** — every constant in `apply_npr`,
+`apply_waves`, `coast_distance` and `multi_sun_from_normal` that a wrong port
+could plausibly land on: the sepia matrix, the engraving frequency and all
+three of its darkness gates, the chamfer diagonal, the rig's primary weight,
+fill altitude and ambient floor, the ink wobble gain and edge gate, the
+hachure frequency, gate and slope normaliser, the stipple threshold, the
+index-line multiplier and contour darkening, both ends of the metre-interval
+clamp and its `peakM || 4000` fallback, the legacy 0.05 interval, three noise
+frequencies, the halftone frequency, the cel level count, the wave band and
+period floors, the foam colour, the fade curve and the crest exponent.
+
+**Four of those survived the first sweep, and the fixtures are what changed.**
+`dark > 0.42` -> `0.43`, `edge > 0.18` -> `0.19`, the `4000` peak fallback and
+both ends of `min(0.2, max(0.001, contourM/peakM))` all lived, because the
+original twelve cases crossed those branches without ever landing inside their
+narrow windows. Four cases and three contour settings were added to reach
+them: three neutral greys sitting 0.005 above each engraving gate (a grey's
+luma *is* its channel, so the gate it sits on is exact rather than
+approximate), one cell whose slope saturates `min(1, slope*6)` so its `edge` is
+exactly 0.185, and contour settings at `peakM = 0`, `contourM/peakM = 0.25` and
+`= 0.00025`. That is this repo's own working rule — golden-matching is
+necessary and not sufficient; shape the fixture just below the boundary where
+the constant hides — applied to itself.
 
 ### Animated water is the one that is not in the raster
 
@@ -19218,9 +19235,26 @@ has magnitude worth four decimals, whereas this carries a unit direction read
 by a fragment shader, and reassembling 12-bit fields across channels in GLSL
 means `round(texel * 255.0)` per byte and hoping the driver agrees. Direction
 comes from the heightfield gradient (the reference's own documented fallback
-when no velocity field exists, line 8686) and intensity from log-normalised
-`flow_discharge` (the field the reference's `_riverNet` is itself derived
-from). This is principled equivalence, not a golden path, and says so.
+when no velocity field exists, line 8686) and intensity from `flow_discharge`
+(the field the reference's `_riverNet` is itself derived from), ramped from
+`cartalith_hydrology::river_flow_thresh` to eight times it. This is principled
+equivalence, not a golden path, and says so.
+
+**Intensity was wrong on the first attempt, and only the real app said so.**
+It min-max normalised the log of `flow_discharge` over the whole grid and kept
+the top 20% of that range — a shape borrowed from `build_hydro_wetness`, and
+sound-looking in source. `flow_discharge`'s range is set by its own extremes,
+so on a 512x384 world "the top 20%" selected **six cells** and the overlay
+animated nothing whatsoever; the frame-to-frame measure read a clean `0.0000`
+with the layer present, visible, correctly sized and holding a valid texture.
+The fix is both smaller and better-connected: `river_flow_thresh` is already
+the threshold at which a cell of that field *is* a river — the same call the
+Water-access, Landform and Flood views make, and the one
+`build_color_texture`'s own channel tint is keyed to — so the shimmer now
+lands on exactly the rivers already drawn on the map (5.07% of cells lit,
+peaking at full intensity on the trunks). It is the second time this
+subsystem's own rule has held: a statistic that looks reasonable is not a
+picture, and the picture is what had to be looked at.
 
 Nothing here touches `wgpu` or a `RenderingDevice`: it is an ordinary
 `ShaderMaterial`, which is what keeps it clear of the GL-Compatibility hazard
@@ -19240,7 +19274,11 @@ darkening term where above-1 inverts rather than intensifies.
 block combine; five call sites that each wrote
 `TerrainAppearance::for_tier(self.quality)` by hand now go through it, which is
 how the raster and the overlays measured against it stay agreed about where
-the plate frame is.
+the plate frame is. It is also where `Npr::peak_m` is filled in, from
+`self.params.peak_m` — the reference reads `state.peakM`, the world's own peak
+altitude, so it is deliberately **not** a `set_npr` key a caller could set to
+something the world is not. Without that line the metre-based contour interval
+silently fell back to the reference's `|| 4000` on every world.
 
 `render_workspace.gd` gains **Painter styles** (ten sliders plus a contour
 interval under `advanced`) and **Water & light** (wave lines, wave reach,
@@ -19255,7 +19293,58 @@ an older `.dll`, matching `sized_api`/`import_api`/`gpu_api`.
 The panel's own disclosure was trimmed to what is genuinely still unbuilt, and
 the "Animate water" checkbox unticks itself with a warning if the world has no
 discharge field to animate, rather than sitting on over an effect that is not
-running.
+running. **`npr_api` was guarding on a method that does not exist**
+(`list_npr_styles`, never written), so it evaluated `false` and the whole
+Painter block silently did not build — the exact failure mode a `has_method`
+degrade is supposed to prevent, caused by the degrade itself. It guards on
+`get_npr` now, which is the method the panel's first line actually calls.
+"Wave reach" opens at `1.00x` rather than `0.00x`, because `wave_dist = 0`
+*is* 1x in the engine (the reference's own `waveDist>0?waveDist:1`) and a row
+reading 0 while rendering 1 is a lie about the model.
+
+### Verified
+
+- `cargo test -p cartalith-godot` **316 passed, 0 failed**, including
+  `golden_parity_render.rs` **unmodified** at its original `1e-4` — the
+  default look is bit-untouched, which the harness below also checks from the
+  other end.
+- Clippy clean for this pass's files. Two `#[allow]`s with reasons rather than
+  two rewrites: `approx_constant`/`excessive_precision` on the chamfer
+  diagonal (the reference's own literal, which is what makes the `f32`
+  rounding provably the same) and `manual_clamp` on the contour interval
+  (`max` then `min` is JS's own order, and JS's `Math.min`/`max` do not treat
+  NaN the way `f64::clamp` does).
+- Headless boot clean.
+- **Non-headless, on the real GPU** (Godot 4.7.1, OpenGL compatibility, Radeon
+  RX 7800 XT), via `_npr_shot.gd` — an untracked harness, per this project's
+  convention — on a generated 512x384 world. Each style alone at 0.7, then
+  stacked, then the toggles, measured as *fraction of the raster that moved
+  more than 3 levels* and *mean |d|*, with a PNG saved for every one so the
+  result could be **looked at** rather than inferred:
+  watercolor 28.7%/1.93, contours 12.7%/2.70, ink 0.25%/0.02, hachure
+  6.6%/0.59, cel 74.3%/6.69, engraving 43.4%/9.04, stipple 37.6%/11.21, sepia
+  75.9%/13.38, risograph 75.6%/8.68, pointillism 63.9%/3.85; contours at a
+  25 m interval 46.5%/11.44; the four-style stack 75.6%/11.10; waves
+  2.8%/0.31 and at 2.5x reach 5.6%/0.72; multi-sun 72.4%/5.42.
+- **Every style back to zero returns the byte-identical base raster** —
+  `moved 0.0000%, mean 0.00000`. The off-by-default guarantee is checked in
+  the running app, not only asserted in a unit test.
+- Looked at, not just measured: the 25 m contours draw real isolines dense on
+  the icecaps and open on the plains; the foam at 2.5x reach is unmistakable
+  concentric banding in the bay and along the southern shore; multi-sun is a
+  visibly softer, void-free relief. **Ink at 0.7 moves only 0.25% of the
+  raster** and reads as sparse dark flecks on ridge edges — low, checked
+  against the reference's own formula rather than tuned, and correct: `edge`
+  needs curvature *and* slope together, which little of a 512-cell world has.
+- Animated water measured the way `_flowfx_shot.gd` measures its streaks
+  (consecutive screen captures a third of a second apart): **0.0037 / 0.0043 /
+  0.0053 / 0.0029 with it on, and 0.0000 / 0.0000 / 0.0000 with it off**, at a
+  steady 60 fps. An amplified on-vs-off difference image is the river network
+  and nothing else — the shimmer lands on channels, not on the map.
+- The dock driven **as a dock**: the RENDER panel builds twelve real sliders,
+  and dragging the Sepia one (value, then `drag_ended`, the way a release
+  commits) produced `75.91% / 13.377` — the same raster, to the digit, as
+  calling `set_npr` directly, and `get_npr` read back `0.7`.
 
 ### Still open
 

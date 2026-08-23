@@ -12,11 +12,10 @@
 //! reference renderer supports, all `0`/`false` at JS's own defaults so
 //! omitting them changes nothing about the *default* view.
 //!
-//! Excluded: splat texturing, rockSlope refinement, wetness darkening,
+//! Excluded: rockSlope refinement, wetness darkening,
 //! geology microtexture and dune ripples, procedural texture synthesis,
 //! ridged-relief creases, curvature shading, the paint-brush biome/terrain
-//! override, the "Painter" NPR block (watercolor/contours/ink/hachure),
-//! multi-sun hillshade, AO/SVF/shadow fields, and the coast/river SDF
+//! override, SVF/cast-shadow fields, and the coast/river SDF
 //! tinting plus vector river overlay (the last two depend on subsystems
 //! this port hasn't built yet; the existing simple river channel-mask tint
 //! in `lib.rs` stays as this port's stand-in for "rivers visible",
@@ -25,6 +24,20 @@
 //! Ported despite being extras: the `bioBlend` grey-desaturation blend
 //! (0.90 default) and the edge haze fade, both unconditional in the
 //! reference at its own default settings.
+//!
+//! ## The NPR block ([`Npr`], `GUI_GAP_REGISTER.md` RN-01)
+//!
+//! The ten "Painter" hand-drawn styles, the coastal wave lines and the
+//! multi-sun light rig were on the excluded list above until they were
+//! ported literally (`apply_npr`, `coast_distance`, `multi_sun_from_normal`).
+//! They are `state.viz.*`-gated in the reference and off at every default
+//! here, so this changed no pixel of the shipped look; what it changed is
+//! that they are now reachable, through `WorldGen::set_npr`.
+//!
+//! The eleventh member of that block, **animated water**, is not in this
+//! file at all: it is per-frame rather than per-pixel, and lives on a Godot
+//! overlay (`water_anim_layer.gd` + `water_anim.gdshader`) exactly as the
+//! reference keeps it on its own separate RAF-driven canvas.
 //!
 //! ## `TerrainAppearance` (`TERRAIN_APPEARANCE_SCOPE.md` milestone 1, 2026-08-17)
 //!
@@ -88,7 +101,7 @@
 //! Both are gated to `0.0` in `js_reference()` and both early-return on that
 //! `0.0`, the same rule every stage since milestone 2 follows.
 
-use cartalith_noise::vnoise;
+use cartalith_noise::{fbm, vnoise};
 // Milestone 6 (§21/§23): the per-pixel appearance pass and the
 // whole-raster local-contrast pass are element-wise over the grid, so they
 // parallelize without changing a single float. Every sibling engine crate
@@ -150,6 +163,81 @@ fn splat_sample(tex: &SplatChannel, ramp: Rgb, wt: f64, x: usize, y: usize, acc:
     acc.1 += ramp.1 * g * tex.inv[1] * wt;
     acc.2 += ramp.2 * b * tex.inv[2] * wt;
     *cov += wt;
+}
+
+/// The reference's `state.viz.*` non-photorealistic block: the ten "Painter"
+/// hand-drawn styles (reference HTML lines 7903-7962), the coastal wave lines
+/// (8442-8443, 8555-8558), the multi-sun light rig (8351-8370) and the
+/// animated-water toggle (8667-8690).
+///
+/// **Every field is off at `Default`**, and each style is skipped by its own
+/// `> 0.0` gate exactly as the reference skips it — so
+/// `TerrainAppearance::default()` and `js_reference()` are both bit-identical
+/// to what they produced before this struct existed, and
+/// `golden_parity_render.rs` never enters a single line of it.
+///
+/// The intensities are the reference's own `0..1` slider values, not
+/// renormalised: `contours: 0.5` here means the same picture the HTML app's
+/// "contour veins" slider at 50 produces.
+///
+/// `animate_water` is the one member that this renderer never reads. It is a
+/// **presentation flag carried with the rest of the block** because the effect
+/// it names is per-*frame*, not per-pixel: the reference draws it on a separate
+/// RAF-driven overlay canvas (`waterAnimFrame`) and this port draws it on a
+/// separate Godot overlay too (`water_anim_layer.gd`). Keeping the flag here
+/// means the whole NPR vocabulary crosses the gdext boundary through one
+/// `set_npr()` rather than through one method plus an unrelated second one.
+#[derive(Clone, Default)]
+pub struct Npr {
+    /// `state.viz.contours` — constant-width elevation isolines, every fifth
+    /// an index line.
+    pub contours: f64,
+    /// `state.viz.contourM` — contour interval in **metres** (5-50). `0`
+    /// takes the reference's own legacy fixed `0.05`-of-relief interval, and
+    /// is what `Default` gives.
+    pub contour_m: f64,
+    /// `state.peakM`, needed only to turn [`Self::contour_m`] into a fraction
+    /// of relief. `0` falls back to the reference's own `||4000`.
+    pub peak_m: f64,
+    /// `state.viz.ink` — pen outlines on curvature×slope landform edges.
+    pub ink: f64,
+    /// `state.viz.hachure` — downslope hatching, denser on steep ground.
+    pub hachure: f64,
+    /// `state.viz.watercolor` — pigment pooling, paper granulation, edge blooms.
+    pub watercolor: f64,
+    /// `state.viz.cel` — posterised flat toon bands.
+    pub cel: f64,
+    /// `state.viz.crosshatch` — antique engraving; more hatch directions the
+    /// darker the cell.
+    pub crosshatch: f64,
+    /// `state.viz.stipple` — pen dot-density shading. Distinct from
+    /// [`TerrainAppearance::stipple_strength`], which is milestone 4's
+    /// canopy-driven *forest* stipple: this one is driven by luminance and
+    /// covers all land.
+    pub stipple: f64,
+    /// `state.viz.sepia` — the classic warm ochre toning matrix.
+    pub sepia: f64,
+    /// `state.viz.risograph` — indigo→amber duotone with a halftone screen.
+    pub risograph: f64,
+    /// `state.viz.pointillism` — Seurat-style coloured dot field.
+    pub pointillism: f64,
+    /// `state.viz.waves` — foam contours hugging the shore, fading offshore.
+    /// Water cells only; costs a chamfer distance transform when on and
+    /// nothing at all when off.
+    pub waves: bool,
+    /// `state.viz.waveDist` — how far the foam reaches offshore. `<= 0` means
+    /// the reference's own `1` (its `waveDist>0?waveDist:1`), so `Default`
+    /// needs no non-zero value.
+    pub wave_dist: f64,
+    /// `state.viz.multiSun` — the reference's four-light painterly rig
+    /// (primary at 45°, fill at azimuth+90°/35°, a zenith light, and a 0.10
+    /// ambient floor; weights 0.40/0.30/0.20/0.10). Replaces **only** the
+    /// macro hillshade, exactly as `macroShade` does; the meso shade and the
+    /// sea shade stay single-sun, as they do in the reference.
+    pub multi_sun: bool,
+    /// `state.viz.waterAnim` — see this struct's own doc comment for why a
+    /// flag this renderer never reads lives here.
+    pub animate_water: bool,
 }
 
 /// The renderer's editable colour data and shading constants — what used to
@@ -407,6 +495,10 @@ pub struct TerrainAppearance {
     /// JS-parity-gated stretch feature, since there is no pack-less version
     /// of "blend in a texture that doesn't exist" to be bit-identical with.
     pub splat_strength: f64,
+
+    /// The reference's non-photorealistic block ([`Npr`]) — all off by
+    /// default, so this field changes nothing until a caller sets it.
+    pub npr: Npr,
 }
 
 impl Default for TerrainAppearance {
@@ -478,6 +570,7 @@ impl Default for TerrainAppearance {
             local_contrast_radius_frac: 0.010,
             local_contrast_knee: 26.0,
             splat_strength: 0.7,
+            npr: Npr::default(),
         }
     }
 }
@@ -956,6 +1049,109 @@ fn build_lights(a: &TerrainAppearance) -> Vec<(f64, f64, f64, f64)> {
     out
 }
 
+/// `multiSunFromNormal` (8356-8363) — the reference's four-light "Painter"
+/// rig: a primary sun at the scene azimuth and a fixed 45° altitude, a fill
+/// sun 90° round at 35°, a zenith light, and a constant ambient floor, at
+/// weights 0.40 / 0.30 / 0.20 / 0.10 (Kennelly & Kimerling).
+///
+/// A literal port, constant for constant — including the two **hardcoded**
+/// altitudes, which are the reference's own and are deliberately *not*
+/// `sun_alt_deg`: the rig's softness comes from the fixed 45°/35° pair, and
+/// substituting the scene's own sun altitude would silently make this a
+/// different effect at any altitude but 40°. Only the azimuth is shared.
+///
+/// Distinct from this port's own [`build_lights`] multidirectional relief
+/// (`relief_lights`, six evenly-spaced weighted lights): that one keeps the
+/// primary dominant to reveal ridgelines parallel to the sun, this one
+/// deliberately flattens toward a soft painterly wash with no black voids.
+/// Both exist because they are different pictures and the reference names
+/// this one as its own control.
+pub fn multi_sun_from_normal(a: &TerrainAppearance, nx: f64, ny: f64, nz: f64) -> f64 {
+    let az = a.sun_az_deg.to_radians();
+    let a1 = 45.0_f64.to_radians();
+    let az2 = az + std::f64::consts::FRAC_PI_2;
+    let a2 = 35.0_f64.to_radians();
+    let (l1x, l1y, l1z) = (a1.cos() * az.sin(), -a1.cos() * az.cos(), a1.sin());
+    let (l2x, l2y, l2z) = (a2.cos() * az2.sin(), -a2.cos() * az2.cos(), a2.sin());
+    let s1 = (nx * l1x + ny * l1y + nz * l1z).max(0.0);
+    let s2 = (nx * l2x + ny * l2y + nz * l2z).max(0.0);
+    let sz = nz.max(0.0);
+    (0.40 * s1 + 0.30 * s2 + 0.20 * sz + 0.10).min(1.0)
+}
+
+/// `computeCoastDistance` (7398-7413) — a two-pass chamfer distance
+/// transform giving every **ocean** cell its distance in cells from the
+/// nearest land; land cells stay `0`. Drives the wave/foam contours.
+///
+/// World-wrap is ignored, exactly as the reference ignores it and for the
+/// reference's own stated reason ("the effect is subtle decoration and a
+/// one-cell seam in the bands is imperceptible") — matching rather than
+/// improving, per `cartalith-rust-conventions`.
+///
+/// Built only when `npr.waves` is on; `RenderCtx` holds an empty `Vec`
+/// otherwise, so the whole stage costs nothing at the default settings.
+pub fn coast_distance(field: &[f32], gw: usize, gh: usize, sea: f64) -> Vec<f32> {
+    const D1: f32 = 1.0;
+    // The reference's own decimal literal (7399), deliberately not
+    // `f32::consts::SQRT_2`: in JS it is an f64 constant that lands in a
+    // `Float32Array`, so writing it exactly as the reference writes it is what
+    // makes the two provably the same rounding rather than approximately so.
+    #[allow(clippy::approx_constant, clippy::excessive_precision)]
+    const D2: f32 = 1.4142135623730951;
+    const INF: f32 = 1e9;
+    let n = gw * gh;
+    let mut d: Vec<f32> = field
+        .iter()
+        .map(|&h| if (h as f64) < sea { INF } else { 0.0 })
+        .collect();
+    for y in 0..gh {
+        for x in 0..gw {
+            let i = y * gw + x;
+            if d[i] == 0.0 {
+                continue;
+            }
+            let mut m = d[i];
+            if x > 0 {
+                m = m.min(d[i - 1] + D1);
+            }
+            if y > 0 {
+                m = m.min(d[i - gw] + D1);
+            }
+            if x > 0 && y > 0 {
+                m = m.min(d[i - gw - 1] + D2);
+            }
+            if x + 1 < gw && y > 0 {
+                m = m.min(d[i - gw + 1] + D2);
+            }
+            d[i] = m;
+        }
+    }
+    for y in (0..gh).rev() {
+        for x in (0..gw).rev() {
+            let i = y * gw + x;
+            if d[i] == 0.0 {
+                continue;
+            }
+            let mut m = d[i];
+            if x + 1 < gw {
+                m = m.min(d[i + 1] + D1);
+            }
+            if y + 1 < gh {
+                m = m.min(d[i + gw] + D1);
+            }
+            if x + 1 < gw && y + 1 < gh {
+                m = m.min(d[i + gw + 1] + D2);
+            }
+            if x > 0 && y + 1 < gh {
+                m = m.min(d[i + gw - 1] + D2);
+            }
+            d[i] = m;
+        }
+    }
+    debug_assert_eq!(d.len(), n);
+    d
+}
+
 /// `seaShadeFrom` (8112-8121) — single-sun hillshade of the smoothed
 /// bathymetry, edge-clamped (never wraps, even in world mode, matching the
 /// reference exactly). Deliberately stays single-light even when land
@@ -1017,6 +1213,12 @@ pub struct RenderCtx<'a> {
     hydro_wet: Vec<f32>,
     /// Precomputed weighted light directions (`build_lights`).
     lights: Vec<(f64, f64, f64, f64)>,
+    /// `_coastDCache` (8440) — per-cell distance in cells to the nearest
+    /// land, for the wave/foam contours. **Empty** unless `npr.waves` is on,
+    /// which is what makes the whole stage free at the default settings
+    /// (`cell_color` tests the length, not a flag, so the two can never
+    /// disagree).
+    coast_d: Vec<f32>,
     /// The renderer's colour data/shading constants (`TerrainAppearance`'s
     /// own doc comment). Settable via `with_appearance` as of milestone 2 —
     /// still not wired to any UI/`#[func]` (that's `GUI_SHELL_SCOPE.md`'s
@@ -1080,7 +1282,8 @@ impl<'a> RenderCtx<'a> {
         let ao = build_ao(field, gw, gh, sea_level, world, &appearance);
         let hydro_wet = build_hydro_wetness(flow, gw, gh, world, &appearance);
         let lights = build_lights(&appearance);
-        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, hydro_wet, lights, appearance, splat: None, lithology: None }
+        let coast_d = if appearance.npr.waves { coast_distance(field, gw, gh, sea_level) } else { Vec::new() };
+        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, hydro_wet, lights, coast_d, appearance, splat: None, lithology: None }
     }
 
     /// Attach the world's real rock types (milestone 5, §12). A builder for
@@ -1141,6 +1344,33 @@ impl<'a> RenderCtx<'a> {
         ((r - l) * 0.5).hypot((d - u) * 0.5)
     }
 
+    /// `gradAt` (7586) — ∇field, the hachure's downslope direction. Same
+    /// neighbours and same world-wrap asymmetry as `slope_at` (which is this
+    /// vector's magnitude); kept separate because the reference computes it
+    /// only when hachure is on, and so does `cell_color`.
+    fn grad_at(&self, x: usize, y: usize) -> (f64, f64) {
+        let (gw, gh) = (self.gw, self.gh);
+        let (xl, xr) = if self.world {
+            ((x + gw - 1) % gw, (x + 1) % gw)
+        } else {
+            (
+                if x > 0 { x - 1 } else { x },
+                if x + 1 < gw { x + 1 } else { x },
+            )
+        };
+        let u = if y > 0 {
+            self.h(x, y - 1)
+        } else {
+            self.h(x, y)
+        };
+        let d = if y + 1 < gh {
+            self.h(x, y + 1)
+        } else {
+            self.h(x, y)
+        };
+        ((self.h(xr, y) - self.h(xl, y)) * 0.5, (d - u) * 0.5)
+    }
+
     /// `vignetteAt` (7585).
     fn vignette_at(&self, x: usize, y: usize) -> f64 {
         let vx = x as f64 / (self.gw.max(2) - 1) as f64 - 0.5;
@@ -1187,6 +1417,14 @@ impl<'a> RenderCtx<'a> {
         let (nx, ny, nz) = (-dzdx, -dzdy, 1.0_f64);
         let il = 1.0 / nx.hypot(ny).hypot(nz);
         let (nx, ny, nz) = (nx * il, ny * il, nz * il);
+
+        // `macroShade` (8371): the multi-sun rig replaces the *macro* shade
+        // only, which is what `step == 1` is. The reference's `shadeFactor2`
+        // (meso, `step == 3`) and `seaShadeFrom` both stay single-sun, so
+        // this branch is deliberately narrower than "if multi_sun".
+        if self.appearance.npr.multi_sun && step == 1 {
+            return multi_sun_from_normal(&self.appearance, nx, ny, nz);
+        }
 
         if self.appearance.relief_lights <= 1 {
             // Reference path, byte-for-byte as it was before milestone 2 —
@@ -1432,7 +1670,7 @@ fn bio_jitter(x: usize, y: usize, gw: usize) -> f64 {
 /// AO/SVF/shadow fields all being off). Every other `state.viz.*`-gated
 /// extra is omitted — see this module's doc comment.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, hydro_wet: f64, lith: Option<u8>, x: usize, y: usize, gw: usize, gh: usize, splat: Option<&SplatTextures>) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: usize, y: usize, gw: usize, gh: usize, splat: Option<&SplatTextures>) -> Rgb {
     let n_low = vnoise(x as f64 * 0.06, y as f64 * 0.06, 11);
     let n_hi = vnoise(x as f64 * 96.0 / gw as f64, y as f64 * 96.0 / gw as f64, 23);
     let n_bio = bio_jitter(x, y, gw);
@@ -1636,12 +1874,275 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         l = (l.0 + (target.0 - l.0) * wet, l.1 + (target.1 - l.1) * wet, l.2 + (target.2 - l.2) * wet);
     }
 
+    // The "Painter" NPR block (7903-7962) — land only (`r > 0`), and exactly
+    // here: after every colour and lighting step, before the final
+    // `ao * vignette`. See `apply_npr`. Off at every default, and the whole
+    // call is skipped rather than entered and no-opped.
+    let l = if r > 0.0 && npr_any(&appearance.npr) {
+        apply_npr(appearance, l, r, slope, curv, grad, x, y, gw)
+    } else {
+        l
+    };
+
     // `ao * vignette` (7959-7960). `ao` was a hardcoded `1.0` before
     // milestone 2 (the reference's AO/SVF/shadow fields are all off at its
     // defaults); it now carries `build_ao`'s cavity map, and is still
     // exactly `1.0` under `js_reference()`.
     let k = ao * vig;
     (l.0 * k, l.1 * k, l.2 * k)
+}
+
+/// The reference's `state.viz` **"Painter" NPR block** (7903-7962) — ten
+/// opt-in hand-drawn styles, each with its own intensity, applied in the
+/// reference's own order: watercolor wash → contour veins → ink edges →
+/// hachure → cel → engraving → stipple → sepia → risograph → pointillism.
+///
+/// **A literal per-pixel port, constant for constant.** These are ordinary
+/// arithmetic on the finished land colour — no per-frame state, no
+/// neighbourhood, no texture sampling — so there is nothing here a shader
+/// would do differently, and porting them literally keeps them inside the
+/// `rayon`-parallel `cell_color` pass milestone 6 already built rather than
+/// adding a second compositing stage.
+///
+/// Every style is skipped by its own `> 0.0` gate exactly as the reference
+/// skips it, and the whole block is skipped on water (`r > 0.0`) and when
+/// nothing at all is on — so `TerrainAppearance::default()` and
+/// `js_reference()` are both bit-untouched.
+///
+/// **Position in the pipeline is the reference's**: after every colour and
+/// lighting step and before the final `ao * vignette` multiply, which is why
+/// `land_color` calls this where it does. Styles stack freely, and stacking
+/// them is what the reference's own hint text invites ("stack them freely").
+///
+/// `js_round` rather than `f64::round` for the two rounding sites (the
+/// contour's isoline index and cel's quantiser): JS rounds half toward `+∞`
+/// and Rust rounds half away from zero, which differ for negative inputs, and
+/// a colour channel can sit fractionally below zero after the fine-grain
+/// term. `cartalith-rust-conventions`' "V8's libm is not Rust's", applied to
+/// rounding.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_npr(
+    a: &TerrainAppearance,
+    l: Rgb,
+    r: f64,
+    slope: f64,
+    curv: f64,
+    grad: (f64, f64),
+    x: usize,
+    y: usize,
+    gw: usize,
+) -> Rgb {
+    let n = &a.npr;
+    let (mut l0, mut l1, mut l2) = l;
+    let (px, py) = (x as f64, y as f64);
+    let gwf = if gw == 0 { 1.0 } else { gw as f64 };
+
+    // D-watercolor: pigment pooling + paper granulation + edge blooms.
+    if n.watercolor > 0.0 {
+        let (fx, fy) = (px / gwf, py / gwf);
+        let pool = fbm(fx * 7.0, fy * 7.0, 151) - 0.5;
+        let gran = vnoise(fx * 180.0, fy * 180.0, 153) - 0.5;
+        let m = 1.0 + n.watercolor * (0.18 * pool + 0.10 * gran);
+        l0 *= m;
+        l1 *= m;
+        l2 *= m;
+        let bloom = (curv.abs() * 40.0).min(1.0) * n.watercolor * 0.25;
+        if bloom > 0.0 {
+            l0 *= 1.0 - bloom * 0.40;
+            l1 *= 1.0 - bloom * 0.35;
+            l2 *= 1.0 - bloom * 0.30;
+        }
+    }
+
+    // D-contours: constant-width elevation isolines, every fifth an index
+    // line. `contour_m >= 5` takes the metre-based interval (the reference's
+    // R5 addition); anything else takes its legacy `0.05`-of-relief one, and
+    // `peak_m == 0` falls back to the reference's own `||4000`.
+    if n.contours > 0.0 {
+        let iv = if n.contour_m >= 5.0 {
+            let peak = if n.peak_m > 0.0 { n.peak_m } else { 4000.0 };
+            // `max` then `min`, not `clamp`: the reference writes
+            // `Math.min(0.2, Math.max(0.001, ...))` and JS's `Math.min`/`max`
+            // propagate NaN where `f64::clamp` has its own rule. Same picture
+            // for every real input, and the same one for the unreal ones too.
+            #[allow(clippy::manual_clamp)]
+            (n.contour_m / peak).max(0.001).min(0.2)
+        } else {
+            0.05
+        };
+        let fpos = r / iv;
+        let d = (fpos - cartalith_jsmath::js_round(fpos)).abs() * iv;
+        let cw = (iv * 0.04).max(slope * 0.5);
+        let mut t = 1.0 - (d / cw).min(1.0);
+        t *= t;
+        if t > 0.0 {
+            let idx_line = if (cartalith_jsmath::js_round(fpos) as i64) % 5 == 0 {
+                1.4
+            } else {
+                1.0
+            };
+            let k = (n.contours * 0.55 * t * idx_line).min(0.9);
+            l0 *= 1.0 - k;
+            l1 *= 1.0 - k;
+            l2 *= 1.0 - k;
+        }
+    }
+
+    // D-ink: pen outline on strong landform edges, with hand-drawn wobble.
+    if n.ink > 0.0 {
+        let (fx, fy) = (px / gwf, py / gwf);
+        let wob = 0.7 + 0.6 * fbm(fx * 120.0, fy * 120.0, 161);
+        let edge = (curv.abs() * 55.0 * wob).min(1.0) * (slope * 6.0).min(1.0);
+        if edge > 0.18 {
+            let k = (n.ink * 0.8 * (edge - 0.18)).min(0.9);
+            l0 *= 1.0 - k;
+            l1 *= 1.0 - k;
+            l2 *= 1.0 - k;
+        }
+    }
+
+    // D-hachure: downslope hatching, denser and darker on steeper ground.
+    if n.hachure > 0.0 && (grad.0 != 0.0 || grad.1 != 0.0) {
+        let sl_n = (slope / 0.08).min(1.0);
+        if sl_n > 0.12 {
+            let gl = grad.0.hypot(grad.1);
+            let gl = if gl == 0.0 { 1.0 } else { gl };
+            let u = px * (-grad.1 / gl) + py * (grad.0 / gl);
+            let freq = 0.9 * (0.6 + 0.8 * sl_n);
+            let stroke = (u * freq).sin().max(0.0) * sl_n;
+            let k = (n.hachure * 0.6 * stroke).min(0.85);
+            l0 *= 1.0 - k;
+            l1 *= 1.0 - k;
+            l2 *= 1.0 - k;
+        }
+    }
+
+    // D-cel: posterize the lit colour into flat toon bands.
+    if n.cel > 0.0 {
+        let q = |c: f64| cartalith_jsmath::js_round(c / 255.0 * 4.0) / 4.0 * 255.0;
+        l0 = l0 * (1.0 - n.cel) + q(l0) * n.cel;
+        l1 = l1 * (1.0 - n.cel) + q(l1) * n.cel;
+        l2 = l2 * (1.0 - n.cel) + q(l2) * n.cel;
+    }
+
+    // D-crosshatch: antique engraving — more hatch directions as the cell darkens.
+    if n.crosshatch > 0.0 {
+        let dark = 1.0 - (l0 * 0.3 + l1 * 0.59 + l2 * 0.11) / 255.0;
+        if dark > 0.22 {
+            const F: f64 = 0.7;
+            let mut h = ((px + py) * F).sin().max(0.0);
+            if dark > 0.42 {
+                h = h.max(((px - py) * F).sin());
+            }
+            if dark > 0.62 {
+                h = h.max((px * F * 1.4).sin());
+            }
+            let k = (n.crosshatch * 0.75 * h * ((dark - 0.22) * 2.5).min(1.0)).min(0.85);
+            l0 *= 1.0 - k;
+            l1 *= 1.0 - k;
+            l2 *= 1.0 - k;
+        }
+    }
+
+    // D-stipple: pen stippling — denser dark dots in darker regions.
+    if n.stipple > 0.0 {
+        let dark = 1.0 - (l0 * 0.3 + l1 * 0.59 + l2 * 0.11) / 255.0;
+        let dot = vnoise(px * 0.6, py * 0.6, 171);
+        if dot < dark * 0.85 {
+            let k = (n.stipple * 0.65).min(0.8);
+            l0 *= 1.0 - k;
+            l1 *= 1.0 - k;
+            l2 *= 1.0 - k;
+        }
+    }
+
+    // D-sepia: the classic warm ochre/brown toning matrix.
+    if n.sepia > 0.0 {
+        let (rv, gv, bv) = (l0 / 255.0, l1 / 255.0, l2 / 255.0);
+        let sr = ((rv * 0.393 + gv * 0.769 + bv * 0.189) * 255.0).min(255.0);
+        let sg = ((rv * 0.349 + gv * 0.686 + bv * 0.168) * 255.0).min(255.0);
+        let sb = ((rv * 0.272 + gv * 0.534 + bv * 0.131) * 255.0).min(255.0);
+        l0 = l0 * (1.0 - n.sepia) + sr * n.sepia;
+        l1 = l1 * (1.0 - n.sepia) + sg * n.sepia;
+        l2 = l2 * (1.0 - n.sepia) + sb * n.sepia;
+    }
+
+    // D-risograph: shadow→indigo / highlight→amber duotone + halftone dots.
+    if n.risograph > 0.0 {
+        let lum = ((l0 * 0.3 + l1 * 0.59 + l2 * 0.11) / 255.0).min(1.0);
+        let dot = ((px * 0.70).sin() * (py * 0.70).sin()).max(0.0) * 0.10;
+        let cr = (15.0 * (1.0 - lum) + 245.0 * lum + dot * 90.0).min(255.0);
+        let cg = (25.0 * (1.0 - lum) + 205.0 * lum + dot * 55.0).min(255.0);
+        let cb = (85.0 * (1.0 - lum) + 130.0 * lum + dot * 20.0).min(255.0);
+        l0 = l0 * (1.0 - n.risograph) + cr * n.risograph;
+        l1 = l1 * (1.0 - n.risograph) + cg * n.risograph;
+        l2 = l2 * (1.0 - n.risograph) + cb * n.risograph;
+    }
+
+    // D-pointillism: Seurat coloured dot field, per-dot hue variance.
+    if n.pointillism > 0.0 {
+        let d1 = vnoise(px * 0.28, py * 0.28, 203) - 0.5;
+        let d2 = vnoise(px * 0.70, py * 0.70, 207) - 0.5;
+        let cr = (l0 * (1.0 + d1 * 0.45 + d2 * 0.15)).clamp(0.0, 255.0);
+        let cg = (l1 * (1.0 + d2 * 0.18)).clamp(0.0, 255.0);
+        let cb = (l2 * (1.0 - d1 * 0.35 + d2 * 0.12)).clamp(0.0, 255.0);
+        l0 = l0 * (1.0 - n.pointillism) + cr * n.pointillism;
+        l1 = l1 * (1.0 - n.pointillism) + cg * n.pointillism;
+        l2 = l2 * (1.0 - n.pointillism) + cb * n.pointillism;
+    }
+
+    (l0, l1, l2)
+}
+
+/// B4 coastal wave lines (8442-8443, 8555-8558) — concentric foam contours
+/// hugging the shore and fading into deep water, brighter near the shore.
+/// Water cells only; the caller checks that, exactly as `renderNow` does.
+///
+/// The band width and the contour period are both keyed to grid width, so
+/// the foam is a fixed *world* size across this port's 512²-8192² range —
+/// the reference's own `Math.max(8, GW/40)` / `Math.max(2.5, GW/180)`, floors
+/// included, ported literally.
+pub fn apply_waves(a: &TerrainAppearance, c: Rgb, cd: f64, gw: usize) -> Rgb {
+    let wave_dist = if a.npr.wave_dist > 0.0 {
+        a.npr.wave_dist
+    } else {
+        1.0
+    };
+    let band = (8.0_f64).max(gw as f64 / 40.0) * wave_dist;
+    let per = (2.5_f64).max(gw as f64 / 180.0);
+    if !(cd > 0.0 && cd < band) {
+        return c;
+    }
+    let fade = 1.0 - cd / band;
+    // `cd/WAVE_PER*Math.PI*2`, in that association: `x * PI * 2` is
+    // `(x * PI) * 2` — one rounding then an exact doubling — which is not
+    // always the same double as `x * TAU`.
+    let crest = (cd / per * std::f64::consts::PI * 2.0)
+        .sin()
+        .max(0.0)
+        .powi(3);
+    let w = fade * crest * 0.5 * (0.5 + 0.5 * fade);
+    (
+        c.0 * (1.0 - w) + 222.0 * w,
+        c.1 * (1.0 - w) + 236.0 * w,
+        c.2 * (1.0 - w) + 246.0 * w,
+    )
+}
+
+/// Is any per-pixel Painter style on? Read once per render rather than ten
+/// times per pixel, and the single place `land_color` decides whether to pay
+/// for `grad_at` at all.
+fn npr_any(n: &Npr) -> bool {
+    n.watercolor > 0.0
+        || n.contours > 0.0
+        || n.ink > 0.0
+        || n.hachure > 0.0
+        || n.cel > 0.0
+        || n.crosshatch > 0.0
+        || n.stipple > 0.0
+        || n.sepia > 0.0
+        || n.risograph > 0.0
+        || n.pointillism > 0.0
 }
 
 /// `seaColorCore` (8122-8130).
@@ -1992,7 +2493,21 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
         let twi = (a / beta).ln();
         let asp = ctx.aspect_factor(x, y);
         let curv = ctx.curvature_at(x, y);
-        land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, ctx.hydro_wet[i] as f64, ctx.litho_at(x, y), x, y, ctx.gw, ctx.gh, ctx.splat.as_ref())
+        // `surfaceColor`'s own hachure guard (8160): the gradient is derived
+        // only when hachure is actually on, so the default path pays nothing.
+        let grad = if ctx.appearance.npr.hachure > 0.0 { ctx.grad_at(x, y) } else { (0.0, 0.0) };
+        land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, ctx.hydro_wet[i] as f64, ctx.litho_at(x, y), grad, x, y, ctx.gw, ctx.gh, ctx.splat.as_ref())
+    };
+
+    // B4 coastal wave lines (8555-8558): foam contours hugging the shore and
+    // fading into deep water, brighter near the shore. Water cells only, and
+    // in the reference's own slot — after the colour branches, before the
+    // parchment. `coast_d` is empty unless `npr.waves` is on, so this is a
+    // single length test on every other path.
+    let (r, g, b) = if h < ctx.sea_level && !ctx.coast_d.is_empty() {
+        apply_waves(&ctx.appearance, (r, g, b), ctx.coast_d[i] as f64, ctx.gw)
+    } else {
+        (r, g, b)
     };
 
     // Milestone 4: the sheet. Applied *here*, after both branches, rather

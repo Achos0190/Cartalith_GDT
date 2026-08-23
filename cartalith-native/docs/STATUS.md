@@ -114,8 +114,13 @@ reach the branches** and each style run *alone* before the two stacked cases,
 plus two explicit non-emptiness assertions) extracted by slicing four ranges
 out of the frozen reference under Node's `vm` — with the extractor asserting
 each slice's first and last line and all ten `viz.*` keys before running it,
-which caught one genuinely off-by-a-line slice. **Mutation-tested: 17 mutants,
-0 survivors.** Two float decisions recorded in-file: `js_round` (not
+which caught one genuinely off-by-a-line slice. **Mutation-tested: 37 mutants,
+0 survivors** — four survived the first sweep (`dark > 0.42`, `edge > 0.18`,
+the `peakM || 4000` fallback and both ends of the metre-interval clamp) and
+were killed by *shaping four more fixtures*, not by widening anything: three
+neutral greys sitting 0.005 above each engraving gate, one cell whose `edge`
+is exactly 0.185, and three contour settings that reach the clamp's ends.
+Two float decisions recorded in-file: `js_round` (not
 `f64::round`) at the contour-index and cel-quantiser sites, and
 `x * PI * 2.0` (not `x * TAU`) in the wave crest. **Animated water is the one
 member that is not in the raster** — it is per-frame, so it is a Godot
@@ -132,9 +137,24 @@ NPR block combine — five hand-written `TerrainAppearance::for_tier(...)` call
 sites collapsed into it. Dock: `render_workspace.gd` ▸ **Painter styles** and
 **Water & light**, committing on slider release and calling
 `app.viewport.refresh()` rather than `bridge.mark_dirty()`, because none of it
-invalidates a generation stage. Verified with `cargo build -p cartalith-godot`,
-the two golden suites, and a real windowed pass through every style and
-toggle. — previously, post **Global undo — `Edit ▸ Undo` is live, and it
+invalidates a generation stage. **Verified non-headlessly on the real GPU**
+(`_npr_shot.gd`, untracked): each style alone, stacked, and every toggle, with
+a saved PNG per case — cel 74.3% of the raster moved, sepia 75.9%, multi-sun
+72.4%, ink an honest 0.25%; every style back to zero returns the
+**byte-identical** base raster; animated water reads 0.0037-0.0053
+frame-to-frame with it on and exactly 0.0000 with it off, and an amplified
+on/off difference image is the river network and nothing else; and the dock
+was driven *as a dock* (a real Sepia slider drag reproduced `set_npr`'s raster
+to the digit). **Three real bugs that only the running app could show**: the
+`npr_api` guard named a method that was never written (`list_npr_styles`), so
+the whole panel silently did not build; `Npr::peak_m` was never filled from
+`params.peak_m`, so the metre contour interval always fell back to 4000; and
+`waterfx`'s intensity min-max normalised over the whole grid, which selected
+**six cells** of a 512×384 world and animated nothing — now keyed to
+`cartalith_hydrology::river_flow_thresh`, the same threshold the map's own
+channel tint uses. Plus `cargo test -p cartalith-godot` 316/0, clippy clean
+(two `#[allow]`s with reasons rather than two rewrites away from JS's own
+arithmetic), headless boot clean. — previously, post **Global undo — `Edit ▸ Undo` is live, and it
 was three functions, not a framework**. `GUI_GAP_REGISTER.md` **ED-01's Undo
 half and PR-11 both closed**; ED-02, the history *panel*, stays open and is
 still (C). `PARITY_AUDIT.md` §3.1's last row — "Global heightmap undo

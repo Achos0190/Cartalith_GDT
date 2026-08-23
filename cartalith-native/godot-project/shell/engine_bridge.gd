@@ -54,6 +54,8 @@ func _ready() -> void:
 		and world_gen.has_method("heightmap_grid_size")
 	gpu_api = world_gen.has_method("gpu_enumerate_devices") \
 		and world_gen.has_method("gpu_set_multi_mode")
+	npr_api = world_gen.has_method("set_npr") \
+		and world_gen.has_method("get_npr")
 	_restore_gpu_prefs()
 	_read_param_table()
 	## `WorldParams::default()` is `false` in Rust, and stays that way: it is
@@ -460,6 +462,28 @@ func quality_tiers() -> PackedStringArray:
 
 func recommended_quality_tier() -> String:
 	return world_gen.get_recommended_quality_tier()
+
+# -- NPR / "Painter" styles (`GUI_GAP_REGISTER.md` RN-01) ---------------------
+#
+# `has_method` guards for the same reason every wrapper above has one: these
+# landed after earlier GDExtension binaries shipped, and the RENDER panel
+# should disable its rows against an older `.dll` rather than crash on a
+# missing method. `npr_api` is what the panel reads to decide that.
+var npr_api := false
+
+func npr_settings() -> Dictionary:
+	if not npr_api:
+		return {}
+	return world_gen.get_npr()
+
+## Send one or more changed keys; the rest keep their current value. Returns
+## how many keys the engine recognised, so a typo reads as 0 rather than as a
+## silent no-op.
+func set_npr(values: Dictionary) -> int:
+	if not npr_api:
+		return 0
+	return world_gen.set_npr(values)
+
 
 # -- Multi-GPU (`DCC_SHELL_SPEC.md` §2.5, `GUI_GAP_REGISTER.md` PR-01/02/04/05)
 
