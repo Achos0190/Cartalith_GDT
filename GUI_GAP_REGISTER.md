@@ -148,7 +148,13 @@ with the Travel Library's party-form wiring the same day
 (`TRAVEL_LIBRARY_SPEC.md` §6) — the totals/percentages in this section are
 not yet re-derived across the whole 123-entry register to reflect either;
 §6.3, §6.4, §6.9 and §6.12's own rows are the accurate, current source for
-the Assets/Data/Journey/INFRA sections specifically.
+the Assets/Data/Journey/INFRA sections specifically. **Also stale as of
+2026-08-23**: §6.16 (Urban morphology, `PARITY_AUDIT.md` C3) added three
+more (B)-large entries (UM-01/02/03) that were not previously catalogued
+anywhere in this register, and §5's O4/O5/O7/O8 moved from open to done
+(`PARITY_AUDIT.md` C5) — neither is folded into the totals below either, for
+the same reason: a full re-derivation is `PARITY_AUDIT.md` §8 item 2's own
+recommendation for a dedicated pass, not a mechanical correction.
 
 **The shape.** Only 19 % of the shell's disclosed gaps are genuinely undesigned.
 58 % have a design and are waiting on the engine — and **31 % of those (22 of 71)
@@ -186,22 +192,24 @@ behaviour changed.** All five are corrections of fact, not design.
 ## 5 · Omissions: designed, not present, not even as a disabled item
 
 The honesty rule has two halves — *never enabled-and-inert*, and *never
-omitted*. The first half holds everywhere. The second has **nine breaches**,
-all of them designed surfaces that are simply absent, so a reader of the menus
-cannot learn that the port owes them. Each is catalogued below with its class;
-listed together here because they are a different kind of finding from a
-disabled item.
+omitted*. The first half holds everywhere. The second had **nine breaches**
+when this table was first built; **six are now closed** (O1, O3, O4, O5, O7,
+O8 — O4/O5/O7/O8 corrected 2026-08-23, `PARITY_AUDIT.md` C5, having sat
+marked open here while §6.5/§6.6/§6.9 of this same file already recorded
+them done). **Three remain real breaches**: O2, O6, O9. Each is catalogued
+below with its class; listed together here because they are a different
+kind of finding from a disabled item.
 
 | # | Missing surface | Designed in | Class |
 |---|---|---|---|
 | O1 | **`Data ▸ ⧉ Travel library… ⇧L`** — the whole menu item and window | `DCC_SHELL_SPEC.md` §2.4's 2026-08-19 addition; `TRAVEL_LIBRARY_SPEC.md` in full | **done, 2026-08-19** — see DM-15 |
 | O2 | **`Assets ▸ Asset pack ▸`** — the entire submenu (Active pack / Pack metadata… / Edit / Batch / Build / Clear library…), 24 controls | `DCC_SHELL_SPEC.md` §2.3.1 | (B) wrapper |
 | O3 | **`Preferences ▸ Performance ▸ Fallback when VRAM full`** | `DCC_SHELL_SPEC.md` §2.5 | **done, 2026-08-20** — see PR-05 |
-| O4 | **`Preferences ▸ Application ▸ Theme ▸ follow system`** | `DCC_SHELL_SPEC.md` §2.5 | (A) |
-| O5 | **`Window ▸` the workspace list**, and **open windows listed while open** | `DCC_SHELL_SPEC.md` §2.6 | (A) |
+| O4 | **`Preferences ▸ Application ▸ Theme ▸ follow system`** | `DCC_SHELL_SPEC.md` §2.5 | **done, 2026-08-19** — corrected 2026-08-23 (`PARITY_AUDIT.md` C5); see PR-14 §6.5, verified live via `DisplayServer.is_dark_mode()`/`is_dark_mode_supported()` in `menus.gd:570,890` |
+| O5 | **`Window ▸` the workspace list**, and **open windows listed while open** | `DCC_SHELL_SPEC.md` §2.6 | **done, 2026-08-19** — corrected 2026-08-23 (`PARITY_AUDIT.md` C5); see WI-02/WI-03 §6.6, verified live: `menus.gd:927-937` builds the `Workspace` submenu over `DccShell.DOMAINS`/`select_domain()`, and the Open-windows list rebuilds every `about_to_popup` |
 | O6 | **New world ▸ project *name* field** | `DCC_SHELL_SPEC.md` §2.1 ("Modal: name, seed, extent, working resolution") | (B) small |
-| O7 | **The Journey Planner's timeline band** — "one band per day, coloured travel / water / weather hold / rest-layover". `timeline_bar` is *visible and empty* while JOURNEY is armed. | `JOURNEY_PLANNER_SPEC.md` §2 | (A) |
-| O8 | **Blocked-stage inline resolutions** — "offers its resolutions inline (turn off closures, re-route land-only, depart earlier)" | `JOURNEY_PLANNER_SPEC.md` §9 | (A) |
+| O7 | **The Journey Planner's timeline band** — "one band per day, coloured travel / water / weather hold / rest-layover". `timeline_bar` is *visible and empty* while JOURNEY is armed. | `JOURNEY_PLANNER_SPEC.md` §2 | **done, 2026-08-19** — corrected 2026-08-23 (`PARITY_AUDIT.md` C5); see JP-13 §6.9, verified live: `_rebuild_timeline_band()`/`_TimelineBandView` in `journey_planner_view.gd` |
+| O8 | **Blocked-stage inline resolutions** — "offers its resolutions inline (turn off closures, re-route land-only, depart earlier)" | `JOURNEY_PLANNER_SPEC.md` §9 | **done, 2026-08-19** — corrected 2026-08-23 (`PARITY_AUDIT.md` C5); see JP-14 §6.9, verified live: `_blocked_resolution_row()` in `journey_planner_view.gd` |
 | O9 | **The right dock's `Layers` context** — §6 lists eight contexts; seven are built, `Layers` is not (only the viewport popover and CARTO's toggles exist) | `DCC_SHELL_SPEC.md` §6 | (B) large |
 
 Two more absences are **deliberate and documented in-file**, so they are not
@@ -246,7 +254,7 @@ classification with the design cited.
 |---|---|---|---|---|---|---|
 | ED-01 | Undo / Redo | 172-173 | no undo stack; generation one-shot, sculpt has no Godot binding | **partly stale in flavour, not in fact** — sculpt now has 34 bindings *and* draft-scoped undo/redo wired in `right_dock.gd`; what is absent is *global* undo. The sentence is still true of the global stack. | §2.2 | (B) large — `PassBuffer::undo` is draft-scoped and unlabelled; `FUNCTIONAL_CONTRACT.md` §12 calls global undo "absent entirely… necessarily new" |
 | ED-02 | Undo history… | 174 | same | yes | §2.2 names it in one line; **no panel design exists** | **(C)** → §7.1 |
-| ED-03 | Cut / Copy / Paste / Delete | 176-179 | nothing selectable beyond settlements, which are read-only | **stale**: labels, icons and sculpt stamps are now all individually selectable and deletable through their own panels. What is absent is a *uniform* selection model and a clipboard. | §2.2 | (B) large — one selection abstraction over `MapLabel`/`ManualIcon`/`NamedSettlement`/`SculptStamp` |
+| ED-03 | Cut / Copy / Paste / Delete | 176-179 | nothing selectable beyond settlements, which are read-only | **corrected 2026-08-23** (`PARITY_AUDIT.md` C3/§3.2/§5 item 3) — this was mischaracterized as a clipboard/selection gap. The real finding: `civ_drop_settlement` **creates** a settlement and nothing **edits, moves or deletes** one — there is no place-edit popup (the reference's `placeEditPopup`/`_civPopulatePlaceEditor` has no port, name/kind/faction/pop/specialisation/traits/history/walls-override/delete all absent), no right-click context-menu handler on the map (`_civCtxShow`'s six operations have no counterpart — `PopupMenu` appears only in `menus.gd`/`dcc_shell.gd`, never on `MOUSE_BUTTON_RIGHT` over the viewport), and no `KEY_DELETE` handler anywhere under `godot-project/` (grep confirms). Labels, icons and sculpt stamps genuinely are selectable and deletable through their own panels, which is why the *original* framing looked plausible — but a user who drops a settlement by mistake, or wants to rename/relocate/remove one, has no path to do so at all, not merely a missing uniform selection model. | §2.2 | (B) large — a place-edit popup, a map context menu and a Delete-key handler are three separate missing pieces, not one selection abstraction |
 | ED-04 | Select all / Deselect | 181-182 | same | same | §2.2 | (B) large — same model |
 | ED-05 | Find on map… | 184 | no search index; settlement search lives in the Data manager | yes | §2.2 gives one line; **no search UI design** | **(C)** → §7.2 |
 
@@ -469,6 +477,39 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | SH-07 | Status bar ▸ `autosave` and `atlas` slots | `dcc_shell.gd:657` builds both; nothing writes them | none | — | §10's middle group | (B) small — gated on FI-03 and PR-10 respectively |
 | SH-09 | Layers popover: **Wind / Ocean currents are animated in the reference and were static here** | *done, 2026-08-23* | `shell/wind_fx_layer.gd`, attached from `layers_popover.gd::_attach_flow_fx` | yes | the reference's own `#windFxCanvas` particle-streak overlay (`_windFx*`, HTML lines 2113-2209) — not in any mockup | **(A)**, closed — owner-reported (*"the ocean current layer isnt animated as the HTML version is. (same for wind)"*). The static rasters were correct and are untouched; what was missing is that the reference stacks a **second**, independent overlay on those two views: 260/200 particles advected along the flow field at `0.315` cells/tick, drawn as fading streaks, respawned on leaving the map, ageing out, or (ocean only) beaching. Ported constant-for-constant. The one deliberate technique change is the trail — the reference fades a persistent canvas with `destination-out`; a per-particle history redraw reaches the same streak without a never-cleared `SubViewport` doing GPU work behind a closed layer. Nothing runs while the view is off (verified: 0.0000 frame-to-frame diff) |
 | SH-08 | Menu accelerators for the disabled items (⌘S ⌘⇧S ⌘W ⌘Z ⌘⇧Z ⌘X ⌘C ⌘V ⌫ ⌘A ⌘D ⌘F ⌘⇧P) | `menus.gd` sets only `Ctrl+N`, `Ctrl+O`, `⇧A`, `⇧J` | none | — | §2's tables give every one | **(D)** — an accelerator on a permanently disabled item is dead weight; they arrive with their items |
+
+### 6.16 Urban morphology — added 2026-08-23, previously undisclosed entirely
+
+**Added by this correction pass** (`PARITY_AUDIT.md` C3): before this, this
+2 027-line register had **zero occurrences** of "urban", "city viewer" or
+"town layout" — no coverage anywhere for what `README.md`/`STATUS.md`
+themselves call the largest single unported subsystem. `URBAN_MORPHOLOGY_SCOPE.md`
+is the authoritative status document; this table is this register's
+required cross-reference to it, not a restatement.
+
+`cartalith-urban` is real: 4,516 lines across milestones 1-7 of ~17 (RNG
+substreams, geometry kernel, planar street graph, A\* over the cost raster,
+generation rules + culture profiles, the site model, anchors and primary
+routes, organic growth — each with its own `tests/golden.rs`). **Verified
+for this pass**: it has zero consumers in the workspace —
+`grep -rn 'cartalith-urban' crates/*/Cargo.toml` returns only its own
+manifest, `cartalith-godot/Cargo.toml` does not depend on it, and the only
+mention anywhere under `godot-project/` is a disclosure comment in
+`civilization_workspace.gd:490-491`. Milestones 8-17 (radial streets/plaza/
+waterway, water infrastructure, fortification, graph cleanup, blocks/
+parcels, districts/buildings, amenities, hinterland/decay/details/metrics,
+`generate()`/`hashModel`, and the 28-function civ adapter) are entirely
+unbuilt.
+
+| # | Missing surface | Reference control | Class |
+|---|---|---|---|
+| UM-01 | **Town layouts drawn on the map at deep zoom** | `civUrbanLayoutsChk` | (B) large — no engine output to draw; blocked on milestones 8-17 |
+| UM-02 | **City Viewer modal** — its own canvas, zoom/pan, legend, info panel | `cityViewerModal`, `cvCanvas`/`cvCloseBtn`/`cvLegend`/`cvInfoPanel`, `_cvDrawCity`, `_cvZoomAt` | (B) large — same blocker, plus a whole modal with no design in `DCC_SHELL_SPEC.md` |
+| UM-03 | **Layout thumbnail in the place-edit popup, and its launcher** | `peCityPreview`, `peCityOpen` | (B) large — doubly blocked: no place-edit popup exists at all (ED-03) and no city layout to preview even if it did |
+
+All three are (B) rather than (C) or (D): the reference precedent is exact
+and line-cited (`URBAN_MORPHOLOGY_SCOPE.md`), so this is an engine gap, not
+a design gap — the honest opposite of most of this register's (C) entries.
 
 ---
 
