@@ -85,7 +85,7 @@ annotated with how much of it applies to this port today.
 | Path | What it is |
 |---|---|
 | `cartalith-native/` | the Cargo workspace and the Godot project |
-| `reference/` | the frozen HTML snapshot + its generated function index |
+| `reference/` | the frozen HTML snapshot + `FUNCTION_INDEX.md` — since 2026-08-23 a full checklist: every user-facing control (with backing functions) and a one-line purpose for all 1094 functions |
 | `docs/` | **the source project's own documentation**, kept as provenance — see `docs/README.md`; two filenames collide with the port's |
 | `design/` | owner-supplied UI mockups and handoff specs, imported verbatim |
 | `skills/` | the vendored Claude Code skills this project uses |

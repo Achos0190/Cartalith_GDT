@@ -36,6 +36,15 @@ investigation pass this session (`PHASE2_SCOPE.md`, `JOURNEY_PLANNER_SCOPE.md`,
 current external research (QGIS/Mapbox documentation) for every modernize
 recommendation, not assumed superiority.
 
+> **Cross-reference addendum (2026-08-23, legacy control/function checklist).**
+> `reference/FUNCTION_INDEX.md` has been rewritten from a full end-to-end analyst
+> read of the frozen v2.10 file: it now carries a complete user-facing control
+> checklist (Part 0 — every button, slider, toggle, dialog, keyboard shortcut and
+> canvas interaction, each linked to its backing function) and a one-line purpose
+> for all 1094 indexed functions (Part 1). For fine-grained "does the port cover
+> control X / function Y" checks, walk that checklist; this document remains the
+> capability-level contract and does not duplicate it.
+
 > **Staleness addendum (2026-08-19, documentation audit).** Several "absent"
 > statuses below were true when written and have since been overtaken by
 > milestones landing on 2026-08-18: the Journey Planner is engine-complete

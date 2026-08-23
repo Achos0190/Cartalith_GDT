@@ -1,1132 +1,1799 @@
-# Function index — Cartalith Gen1 v2.10
+# Function index and control checklist — Cartalith Gen1 v2.10
 
-Generated mechanically (regex-scanned for top-level `function name(...)`, `async function name(...)`, `const name = function(...)`, and `const name = (...) => ...` / `const name = x => ...` declarations) against `reference/Cartalith Gen1 v2.10.html` in this folder — the frozen reference copy this port (and this index) are built against, not whatever the live `Cartalith_RC` repo currently has. **If the repo has moved past v2.10 by the time you read this, re-generate this index against the new version rather than trusting a stale one** — same discipline as everywhere else in this folder (see the root `CLAUDE.md`'s own repeated lesson about not trusting a stale assumption).
+Built against `reference/Cartalith Gen1 v2.10.html` in this folder — the frozen reference copy this
+port is built against, not whatever the live `Cartalith_RC` repo currently has. **If the repo has
+moved past v2.10 by the time you read this, re-generate this index against the new version rather
+than trusting a stale one.**
 
-**1094 top-level named functions** across 31107 lines, 4 script blocks. This is a navigational index (name -> line number), not a description of what each function does — with over a thousand functions, inventing a one-line summary for each would mean guessing for most of them, which this project's own discipline (`DECISIONS.md` §7, `README.md`'s working-discipline section) explicitly says not to do. Read the actual function — and the CHANGELOG entries near its own version of introduction, which usually explain *why*, not just *what* — rather than trusting a guessed summary here.
+This file was originally a purely mechanical name→line index whose header explicitly declined to
+write per-function summaries ("inventing a one-line summary for each would mean guessing for most of
+them"). **That rule is superseded by this revision (2026-08-23):** a dedicated analyst pass read the
+legacy file end to end — all 31,107 lines, all four script blocks — specifically so the purpose
+lines below are read, not guessed. Each purpose is a one-line statement of the function's goal,
+distilled from the function body and the extensive in-source commentary (which carries the *why*;
+for full rationale still read the function and the CHANGELOG entries near its version of
+introduction). The line numbers are from the original mechanical scan and remain exact.
 
-**Coverage caveat**: this catches top-level (`^function`/`^const`) declarations only — nested/inner functions (closures defined inside another function) are NOT indexed here. For those, grep the file directly. A small number of functions may also be missed if they use a declaration style the scan patterns above did not anticipate — treat this as a strong starting point, not a guaranteed-complete manifest.
+Contents:
+
+- **Part 0 — user-facing control checklist**: every control in the legacy app (buttons, menus,
+  sliders, toggles, dropdowns, dialogs, panels, keyboard shortcuts, canvas interactions, drag
+  handles), where it lives, what backs it, and what it is for. Controls are listed with their DOM
+  `id` (greppable directly in the HTML) plus the line range of the markup section that declares
+  them; dynamically built controls (no static markup) are listed with the builder function instead.
+- **Part 1 — functions by script block, in file order, with purpose**: 1094 top-level named
+  functions (633 / 350 / 19 / 92 across the four blocks), grouped by subsystem.
+- **Part 2 — alphabetical index**: unchanged from the mechanical scan (name → line → block).
+
+**Coverage caveat (unchanged from the mechanical scan)**: Part 1/2 catch top-level
+(`^function`/`^const`) declarations only — nested/inner closures are not indexed. Part 0 covers
+every control found in the static HTML body (lines 506–2082) plus every dynamically built control,
+keyboard shortcut and canvas interaction found during the full read; the file's own wiring comments
+were used to confirm bindings.
+
+Cross-references: `FUNCTIONAL_CONTRACT.md` at the repo root tags each *capability* with its port
+status; `GUI_GAP_REGISTER.md` classifies the port's own disconnected controls. This file is the
+legacy-side inventory those two documents describe at capability level.
 
 ## How to use this
 
-- **Know the name, want the line?** Use the alphabetical index (Part 2) — or just `grep -n "functionName" "reference/Cartalith Gen1 v2.10.html"` directly, which is usually faster than this file for a single lookup.
-- **Want to see what exists in a given subsystem, in the order it appears?** Use Part 1 (by script block, in file order) — reading a block's section top-to-bottom roughly follows the codebase's own dependency order (helpers before the things that use them, in most but not all cases).
-- **Porting a subsystem?** Cross-reference against `MVP_SCOPE.md`'s pipeline list and `ARCHITECTURE.md`'s proposed crate split — this index is what makes "find every function belonging to stage X" a search instead of a re-read of 31,000 lines.
+- **Know the name, want the line?** Part 2, or `grep -n "name" "reference/Cartalith Gen1 v2.10.html"`.
+- **Porting a subsystem?** Part 1's subsystem groupings make "find every function belonging to
+  stage X" a scan instead of a re-read; cross-reference `MVP_SCOPE.md`'s pipeline list and
+  `ARCHITECTURE.md`'s crate split.
+- **Verifying UI parity?** Part 0 is the checklist: every control, its backing function(s), and its
+  purpose. Walk it against the port's GUI.
 
-## Part 1 — by script block, in file order
+## Part 0 — user-facing control checklist
+
+Layout of the legacy app: a header bar; a central canvas stage (2D map, 3D drape view, civ overlay);
+a right sidebar with two top-level tabs (**Generate**, **Explore**), Generate having four sub-tabs
+(**World**, **Civilization**, **Cartography**, **Sculpt**); a full-workspace **Asset Library** page
+that replaces the map while open; and floating overlays (layers popover, filter funnel, zoom pad,
+busy overlay, popups and modals). Static markup: lines 506–2082.
+
+### 0.1 Header bar (lines 507–581)
+
+| Control | Kind | Backing function(s) | Purpose |
+|---|---|---|---|
+| `panelToggle` | button | inline wiring | Mobile-only hamburger: opens/closes the sidebar drawer on narrow screens. |
+| `phaseChip` | indicator | `applyFinalizedUI` | Shows the world's finalized (baked/locked) state; not clickable. |
+| `undoBtn` (+`undoMem`) | button + label | `undoLast`, `updateUndoUI` | Global heightmap undo (one level per destructive op, memory readout shows the undo buffer's cost); also bound to Ctrl+Z. |
+| `fileMenuBtn` → `fileMenu` | menu button + popover | inline wiring | The File menu: open/close; Escape closes. |
+| `loadBtn` → `#file` | menu item + hidden file input | `loadImage` | Import a grayscale heightmap image as the terrain (headless world, tectonics zeroed until inferred). |
+| `inferTectBtn` | menu item | `inferTectonics` | Reconstruct plates/boundary stress/velocities from an imported DEM so tectonics-dependent layers work. |
+| `loadZipBtn` → `#zipFile` | menu item + hidden file input | `loadZip` | Load a saved project ZIP (params + layers + civ state + assets) and rebuild the world from it. |
+| `packBtn` → `#packFile` | menu item + hidden file input | `loadAssetPack` | Import an asset pack ZIP (textures/icons) for map rendering; since v1.91 also absorbed into the Asset Library. |
+| `bakeRes` | select (2K/4K/8K) | read by `exportZip`/`bakeDims` | Output resolution for the baked export raster. |
+| `bakeTiles` | checkbox | read by `exportZip` | Export the raster as tiles instead of one image. |
+| `chanAtlasChk` | checkbox | `channelAtlasEntries` | Include the packed channel atlas (RGB-packed data fields) in the export ZIP. |
+| `layersPreviewChk` | checkbox | read by `exportZip` | Include human-viewable PNG previews of the f32 data layers. |
+| `exportBtn` (+`bakeProg`) | button + progress row | `exportZip` | Export the full project ZIP: params.json, f32 layers, baked rasters, manifests, features.json. |
+| `exportGeoBtn` | menu item | `exportGeoJSON` | Export rivers/coastlines/places/ways/territory as GeoJSON. |
+| `assetsHeaderBtn` | toggle button | `_carEnterAssetsMode` / `_carExitAssetsMode` | Open/close the full-workspace Asset Library page. |
+| `themeToggleBtn` | toggle button | theme IIFE (localStorage) | Dark/light theme switch, persisted. |
+| `creditsBtn` | button | credits IIFE | Opens `#creditsModal` (static credits and academic principles text; Escape/× closes). |
+
+### 0.2 Canvas stage and floating overlays (lines 583–825)
+
+| Control | Kind | Backing function(s) | Purpose |
+|---|---|---|---|
+| `#view` | canvas | `renderNow`, `drawLODView` | The main 2D map canvas — all terrain rendering and most pointer tools land here. |
+| `#polyOverlay` | canvas | `drawRoadsOverlay`, sculpt overlay fns | Vector overlay above the map: sculpt cursor/stamps, roads debug, region rectangle. |
+| `#civCanvas` | canvas | `drawCivLayer` | The civilization layer: territory, ways, pins, labels, icons, urban layouts. |
+| `#windFxCanvas` | canvas | `_windFx*` | Animated wind/ocean-current particle streaks (only while those debug layers are up). |
+| `#view3d` + `#view3dLabels` | canvas pair | `V3D`, `_v3dDrawLabels` | The 3D drape view and its screen-space label overlay. |
+| `viewDimSeg` | 2D/3D pill | `enter3D` / `exit3D` | Switches between the 2D map and the 3D drape view. |
+| `explFilterFab` | funnel FAB + popover | `_civBuildMapFilterUI` | Map-view filters: territory on/off, per-faction visibility, per-settlement-type visibility, roads master + per-way-type visibility (writes `state.mapFilter`). |
+| `layersFab`/`layersBtn` → `layersPopover` | FAB + popover | `buildLayersPopover`, `_setLayer` | The layer picker: grouped debug/data layers with MRU pins and hotkeys, plus `layersOpacity` slider; proxies the hidden `#debugSeg`. |
+| `#onboard` setup gate | modal wizard | `_setupOpen`/`_suGenCommit`/`_suCalCommit` | First-run gate: Generate (resolution `suResSeg`, extent `suExtentSeg`, `suCenter` chk, world-shape archetypes `suArchSeg` classic/earth/supercontinent/archipelago/volcanic/rift, seed `suSeedN`+`suSeedRand`, units `suUnitSeg`, `suWidth`/`suPeak` scale) / Load / Import branches (`obGenerate`/`obLoad`/`obImport`); calibrate step `suUnitSeg2`/`suWidth2`/`suPeak2` for imported DEMs. |
+| `zoomOverlay` | button cluster | `zoomAt`/`_lodZoomAt`, `resetView` | Mobile-shown zoom pad: `zoomIn`/`zoomOut`/`panBtn` (hold-to-pan toggle)/`zoomReset`; LOD- and 3D-aware. |
+| `sculptNavpad` | touch joystick | `_sculptNav*` | Touch panning while the Sculpt tool has pointer capture. |
+| `scaleBar`, `legend` | indicators | `updateScaleBar`, `updateLegend` | Live distance scale bar and the active layer's legend. |
+| busy overlay (`busyWit`/`busyLabel`) | overlay | `showBusy`/`hideBusy`, `pickLoadingMsg` | Blocking progress overlay with rotating humour lines (`LOAD_MSGS`). |
+| `resOverlay` | overlay | `updateResOverlay`/`toggleResOverlay` | Resource-potential inspection overlay (Shift+D). |
+| `settleInfo` / `wildInfo` | popups | `showSettleInfo`/`showWildInfo` | Click popups explaining a settlement seed's score / a wildlife region's roster. |
+| `placeEditPopup` | floating editor | `_civOpenPlacePopup`, `_civPopulatePlaceEditor` | The settlement/POI edit popup anchored at the place's map position, with town-layout preview canvas (`peCityPreview`) and `peCityOpen` → City Viewer. |
+| `cityViewerModal` | modal | `_civOpenCityViewer`, `_cvDrawCity` | Full-screen town-plan viewer (`cvCanvas`, `cvCloseBtn`, `cvLegend`, `cvInfoPanel`) with LOD-tiered rendering, wheel zoom, drag pan. |
+| `routeEditorModal` | modal | `_civOpenRouteEditor`, `_jpRender*` | The Journey Planner's Route Editor: route map (`reRouteMap`), elevation profile (`reProfileCv`), results (`reResults`), stops/layovers (`reStops`), presets (`rePresetRow`), party form (`reParty`); `reCloseBtn`/Escape closes. |
+
+### 0.3 Asset Library workspace (lines 827–857; UI logic in block 3)
+
+| Control | Kind | Backing function(s) | Purpose |
+|---|---|---|---|
+| `alRail` | category rail | `AssetBrowserUI.buildRail` | Category/collection navigation with fill counts. |
+| `alSearch` / `alSort` | input / select | `visibleSlots` | Filter and sort the asset grid (name/id/code/family/set/tag/item-name search). |
+| `alSlicerBtn` | button | `SpriteSheetImporter.open` | Opens the sprite-sheet slicer modal. |
+| `alSelModeBtn` | toggle | `AssetBrowserUI.refreshSel` | Multi-select mode (Ctrl/Cmd-click also multi-selects). |
+| batch bar: `alSelCount`, `alBatchTag`, `alBatchColl`, `alBatchRename`, `alBatchDup`, `alBatchDel` | buttons | `AssetLibrary.init` handlers | Batch tag / add-to-collection / pattern-rename / duplicate-to-Custom / delete over the multi-selection. |
+| `alGrid` | card grid | `AssetBrowserUI.buildGrid` | Slot cards with thumbnails, variant count badges, duplicate warnings; click selects, drag-drop imports images onto a card. |
+| `alInsp` | inspector panel | `InspectorUI.render` | Selected slot's editor: preview (drag pan / wheel zoom via `ImageEditor`), scale slider, Fit/Reset/`+Variant`/Replace/Delete, preview backgrounds, variants strip + per-variant name, **procedural-scattering rules** (enable, scatter/relief mode, biome checkboxes, min/max size, density, elevation band, wetland-only, variant weights — live-synced to the map via `AssetLibrary.syncToRuntime`), metadata fields, collections membership. |
+| `alSliceModal` | modal | `SpriteSheetImporter.*` | The slicer: drop/browse a sheet, adjustable/draggable grid (cols/rows/spacing, corner+edge handles, movable grid lines), select/grid/pan/pick-bg modes, chroma-key with tolerance, zoom controls, per-cell names, target-slot picker, "Add selected cells". |
+| `alFilePicker`/`alSheetPicker`/`alPackPicker` | hidden file inputs | `AssetLibrary.pickInto`, `loadSheet`, `importPackZip` | File intake for variant add/replace, sheet load, pack import. |
+| `alToast` | toast | `toast` | Transient status/warning messages. |
+
+### 0.4 Sidebar: tabs, inspector, hidden layer seg (lines 863–930)
+
+| Control | Kind | Backing function(s) | Purpose |
+|---|---|---|---|
+| Tab bar (`data-tab`: generate/explore) | tabs | tab handler + `_gpuApplyTabOverride` | Top-level mode switch; also gates which pointer tools are live. |
+| `#genSubBar` (`data-gsub`: world/civ/carto/sculpt) | sub-tabs | sub-tab handler, `_civRefreshActiveSubPage` | Generate's four sub-pages. |
+| `#inspector`/`#inspectorBody` | pinned panel | `_civRenderInspector` | Selection inspector: hosts the label/icon editors (settlements/POIs open the map popup instead). |
+| `debugOverlaySec` → `#debugSeg` | hidden seg (~31 `data-d` buttons) | `_setLayer`, read by `renderNow` | The real layer state: off/temp/koppen/rain/wind/ocean/plates/bounds/btype/oro/stress/age/flow/strahler/velo/geoid/tides/bclass/cterrain/lith/landform/fjord/soil/water/rsrc/carry/settle/siteprofile/windthrow/flood/wildlife/popdensity. Kept hidden; the Layers popover proxies it. `dbgOpacity` sets overlay alpha. |
+
+### 0.5 Generate → World (lines 934–1296)
+
+| Control | Kind | Backing function(s) | Purpose |
+|---|---|---|---|
+| `finalizedBanner` | banner | `applyFinalizedUI` | Explains the finalized/locked state. |
+| `bakeAllDepth` + `bakeAllBtn` | select + button | `bakeAllTiles`, `setFinalized` | Bake the whole atlas to the chosen depth and finalize (lock) the world. |
+| `unfinalizeBtn` | button | `setFinalized(false)` | Unlock a finalized world for further editing. |
+| `genBtn` / `reseedBtn` | buttons | `generate` (via `confirmRegenerate`) | Regenerate the world / reseed then regenerate. |
+| `extentSeg` | seg | regenerates | World extent: region vs wrapped world (cylinder). |
+| `centerBtn` | button | `centerLandmasses` | Rotate the wrapped world so landmasses avoid the seam. |
+| `resSeg` | seg | regenerates | Working grid resolution. |
+| `gpuToggle` + `gpuTag`, `perfV` | toggle + labels | `GPU.*`, `perfShow` | Enable/disable GPU compute path; shows validation status and last-op timing. |
+| Planet: `pg`, `prot`, `ptilt` | sliders | `tparam`/climate refresh | Gravity, day length, axial tilt — ground the climate model physically. |
+| `geoidChk`+`geoidAmp` | chk + slider | `buildGeoid`/`refreshGeoid` | Geoid undulation on/off and amplitude (visual sea-surface variation). |
+| `tidesChk`+`tideMass`/`tideDist`/`tideK2` | chk + sliders | `buildTideField`/`refreshTides` | Tidal field from a companion body: mass, distance, Love number. |
+| `calUnitSeg`, `sea`, `peak` | seg + slider + number | `_setUnits`, sea-level handler, `elevM` | Units (km/mi), sea level, calibrated peak height. |
+| World Structure: `wsEnabled`, `archetypeSeg`, `wsCont`/`wsFrag`/`wsTect`/`wsOcean`/`wsHot` | chk + seg + sliders | `deriveFromWorldStructure`, `syncWSSliders` | High-level world design (continentality/fragmentation/tectonic intensity/ocean fraction/hotspots) that derives the low-level tectonic sliders. |
+| Tectonics: `plates`,`vel`,`warp`,`sigma`,`alpha`,`beta`,`age` | sliders | `tparam` → `generate` | Plate count, velocity scale, domain warp, boundary falloff, uplift blend weights, crust age influence. |
+| Advanced: `flexure`,`hetero`,`resist` | sliders | `computeFlexure`/`computeHeterogeneity`/`computeResistance` | Lithospheric flexure, crustal heterogeneity, erosion-resistance coupling strengths. |
+| `ridged` chk, `tectGraph` chk | checkboxes | height kernel, `currentBoundaryGraph` | Ridged-noise mountains toggle; tectonic-graph orogeny (T1–T5 belt classification) toggle. |
+| `foldI`,`trenchD`,`faultB` | sliders | height kernel params | Fold intensity, trench depth, transform-fault breakup. |
+| `seedN` | number | `generate` | The world seed. |
+| Volcanism: `volc`,`volca`,`volcProv`,`crat`,`crata` | sliders | `stampVolcanoes*`, `stampCraters` | Volcano count/amplitude, province mode, crater count/amplitude. |
+| `carveRiversChk` | checkbox | `carveRiverValleys` | Carve river valleys into the heightfield after network build. |
+| Droplet erosion: `erodeBtn`/`resetBtn`, `drops`,`estr`,`edep`,`ethr`,`etal` | buttons + sliders | `erode`/`erodeAsync`, `dropletParams` | Particle droplet erosion: run/reset; drop count, strength, deposition, thermal threshold, talus. |
+| Hillslope: `diffuseBtn`, `edD`,`edPas` | button + sliders | `hillslopeDiffuse` | Hillslope diffusion smoothing: rate and passes. |
+| Stream power: `streamBtn`, `sUp`,`sK`,`sIt`,`sDep`,`sClim` | button + sliders | `streamPowerErode`(+Async) | Braun–Willett implicit stream-power incision: uplift, erodibility, iterations, deposition, climate coupling. |
+| Velocity: `veloBtn`, `vIt`,`vStr`,`vMnd` | button + sliders | `velocityErode`(+Async) | Mei virtual-pipes water-velocity erosion: iterations, strength, meander bias. |
+| Evolve: `evoCyc`, `evolveBtn`, `sedimentBtn`, `tidalFlatsBtn`, `dynLithChk` | controls | `evolveCoupled`, `routeSediment`/`depositSediment`, `tidalFlats` | Coupled uplift+erosion cycles; sediment routing/deposition; tidal-flat sedimentation; dynamic lithology re-derivation. |
+| Glacial: `glacBtn`/`fjordBtn`, `gSnow`,`gKg`,`gUF`,`gPas` | buttons + sliders | `glacialErode`(+Async), `carveFjordsOp` | Glacial erosion (snowline, erodibility, U-factor, passes) and lithology-aware fjord carving. |
+| Coastal: `coastBtn`, `cWave`,`cEst`,`cMar`,`cPas` | button + sliders | `coastalProcess` | Coastal wave erosion / estuary widening / marsh deposition passes. |
+| Climate: `latN`/`latS`, `teq`/`tpo`, `lapse` | sliders | `computeTemperature`, `refreshClimate` | Mapped latitude band, equator/pole temperatures, lapse rate. |
+| `seasons` chk, `currents` chk, `albedo` | chk + slider | `computeSeasons`, `computeOceanCurrent`, `applyCryosphereAlbedo` | Seasonal Köppen model, ocean-current SST coupling, ice-albedo feedback strength. |
+| Weather: `weatherBtn`, `wIters`,`rainK`,`evap`,`rainDep`,`ocean` | button + sliders | `simulateWeather` | Coarse-grid semi-Lagrangian moisture transport sim: iterations, rain rate, evaporation, depletion, ocean source. |
+| `windModeSeg` (auto/manual), `pressK`,`zonalK`,`windDir` | seg + sliders | `buildWind` | Wind field: physical circulation vs manual direction; pressure-gradient and zonal strength. |
+| Ecology: `showRivers`,`riverWaysChk`,`riverDensR`,`minOrderR`,`sharpBiomes`,`showLakes` | chks + sliders | `buildRiverNetwork`, `drawRiverWays`, `renderNow` | River overlay drawing, river-as-ways rendering, density/min-Strahler-order thresholds, sharp vs blended biome borders, lake display. |
+| 3D view: `v3dExag`,`v3dDetail`,`v3dLightAz`,`v3dFlatSea` | sliders + chk | `V3D`/`_v3dRender` | Vertical exaggeration, mesh detail, light azimuth, flatten-sea toggle. |
+| Tiled LOD: `lodAutoChk`,`lodChk`,`zoomDetailR`,`lodTileSeg`,`lodLevels`,`lodRefineBtn`,`lodBurnChk`,`lodMicroChk` | controls | `enterLodFromView`, `refineVisibleTiles`, `addZoomDetail` | Auto-enter LOD at deep zoom, manual LOD toggle, zoom-detail amount, tile size, pyramid depth, refine-now, channel burn-in, micro-erosion on tiles. |
+| Atlas cache: `lodBakeBtn`,`lodClearAtlasBtn`,`atlasStat`,`lodDbgSeg` | controls | `bakeVisibleTiles`, `atlasClearWorld`, `updateAtlasStatus`, `drawLODChunkDebug` | Bake visible tiles into the IndexedDB atlas, clear it, status readout, chunk-debug overlays (grid/colour/labels). |
+| Region export: `refCols`,`refRows`,`refSize`,`refGzip`,`lodShowGrid`,`tileSizeEst`,`regionBtn`,`refineBtn`,`regionNewWorldBtn` | controls | `setRegionMode`, `exportRegionTiles`, `amplifyRegion`, `updateTileSizeEst` | Select a map rectangle, export it as a gzip tile set, refine (amplify) it in place, or spawn it as a new world. |
+
+### 0.6 Generate → Civilization (lines 1299–1609)
+
+| Control | Kind | Backing function(s) | Purpose |
+|---|---|---|---|
+| Tool palette (`data-civtool`: inspect/place/place_poi/territory/draw_way) | tool buttons | `_civSetTool` | Mutually exclusive civ authoring tools (canvas pointer handlers dispatch on `_civTool`). |
+| `civPoiKind` (in `civPoiTypeRow`) | select | `_civDropPOI` | Which of the 8 POI types the POI tool drops. |
+| `civTerRadius` (in `civTerritoryToolRow`) | slider | `_civPaintTerritoryAt` | Territory paint brush radius. |
+| `civWayType`, `civSnapWayChk`, `civCommitWayBtn` (in `civWayDrawRow`) | select + chk + button | `_civCommitWay`, `_civSnapPoint` | Manual way type (6 types incl. sea-lane), endpoint snap toggle, touch-friendly commit (Escape also commits). |
+| `civSubBar` (factions/generation/settlements/economy/statistics) | sub-sub-tabs | `_civRefreshActiveSubPage` | The Civilization page's five sub-pages. |
+| Generation: `civNCap`,`civNCity`,`civNTown`,`civNVil`,`civNHam` | number inputs | `_civIterativeAutoWorld` | Optional fixed tier counts for Auto-populate (blank = automatic + centrality feedback). |
+| `civAutoPopulateBtn` | button | `_civAutoWorld` → `_civIterativeAutoWorld` | The big one: seed settlements from suitability, build the road network, assign factions, populate, cap by food shed. |
+| `civClearPlacesBtn` | button | wiring (confirm) | Clear all settlements/POIs *and* their ways/journeys. |
+| `civBiomeKChk` | checkbox | wiring (clears affordance caches) | Biome carrying-capacity residual on/off (re-derives K/suitability/density). |
+| `civMetropolisChk` | checkbox | `_civSelectMetropolises` | Opt-in imperial-seat (metropolis) promotion on next Auto-populate. |
+| `civUrbanLayoutsChk` | checkbox | `_umDrawLayout` gate | Draw generated town layouts on the map at deep zoom. |
+| `civDiagnosticsChk` | checkbox | `drawCivLayer` §2.6 | Placement-diagnostics overlay. |
+| `civVillagesChk` | checkbox | `_civSeedVillages` | Additive deep-zoom village layer on next Auto-populate. |
+| `civRecoveryPhase` | select (0–4) | `_civApplyRecovery` | Post-collapse recovery phase — scales populations below ceiling, demotes over-large nuclei. |
+| `civPopEstimateOut` | readout | `_civUpdatePopReadout` | Auto-updated "Land sustains ≈ N" modelled-population readout. |
+| `civAutoRoutesBtn` / `civClearRoadsBtn` | buttons | `_civAutoRoutes` / wiring (confirm) | Regenerate the way network between existing places / clear all ways+journeys. |
+| `#civWayList` | list | `_civRenderWayList` | All ways with per-way rename/hide/delete and the village-tracks disclosure group. |
+| `civAutoPolityBtn` / `civClearTerrBtn` | buttons | `_civAutoPolity` / wiring (confirm) | Recalculate territories (terrain-cost flood fill from settlements) / clear painted territory. |
+| `civProvincesChk` + `civGenProvincesBtn` | chk + button | `_civGenerateProvinces` | Province display toggle and on-demand province derivation. |
+| Display: `civIconScaleR`,`civWayScaleR`,`territoryOpacityR`,`wayOpacityR` | sliders | `drawCivLayer` params | Pin/way scale and territory/way opacity. |
+| Factions: `civFactionPicker` | pill row | `_civBuildFactionPicker` | Select the active faction for painting/dropping (pill 0 = Unclaimed erases); double-click renames (`_civRenameFaction`). |
+| `civAddFactionBtn` / `civRemoveFactionBtn` | buttons | `_civAddFaction`/`_civRemoveFaction` | Grow/shrink the faction roster (remove confirms, reverts uses to Unclaimed). |
+| `civOpenFactionsBtn` → `civFactionsModal` | button + modal | `_civOpenFactionsModal`, `_civRenderFactionList`, `_civPopulateFactionEditor` | Faction Roster pop-up: world overview, per-faction cards, and the Inspector drawer (name/culture/religion/government/ag-tech editors, terrain-fit verdicts, settlement sublist); `cfmCloseBtn`/`civFactionBackBtn`/Escape. |
+| Settlements: `stSearchInput`, `stFilterFaction/Type/EconRole`, `stFilterPopMin/Max`, `stSortKey`, `stSortDirBtn`, `stResultCount`, `stViewport`/`stSpacer` | virtual table | `_st*` family, `_civRenderSettlementTable` | Searchable/filterable/sortable virtualised settlement table; row click selects and opens the place popup. |
+| `stShowPoiChk` → `civPoiList`/`civPoiCount` | chk + list | `_civRenderPoiList` | POI list disclosure. |
+| Economy / Statistics pages | rendered bodies | `_civRenderEconomyPage` / `_civRenderStatisticsPage` | Faction-aggregate economy (sectors, trade, tax, power) and world statistics, from `_civFactionAggregates`. |
+
+### 0.7 Generate → Cartography (lines 1612–1777)
+
+| Control | Kind | Backing function(s) | Purpose |
+|---|---|---|---|
+| Carto palette (inspect/label/icon) | tool buttons | `_civSetTool` | Region-label placement and manual-icon placement tools (unified into the one exclusive tool group). |
+| `carClearLabelsBtn`, `carLabelCount`/`carLabelList` | button + list | `clearLabels`, `_civRenderLabelList` | Clear all region labels; label list with selection → label editor in the inspector. |
+| `carIconFam` + `carIconGallery` | select + gallery | `_carPopulateIconGallery`, `_carIconGalleryPick` | Icon family and variant gallery; picking a tile arms icon placement. |
+| `carIconBrushChk` + `carIconBrushR`/`carIconBrushD` | chk + sliders | `_carIconBrushRule`/`_carIconBrushStamp` | Density-brush mode for icons: radius and density; drag paints icon fields. |
+| `carClearIconsBtn`, `carIconCount`/`carIconList` | button + list | `_carRenderIconList` | Clear all manual icons; icon list with selection → icon editor. |
+| Paint brush: `carPaintChk`, `paintLayerSeg` (biome/splat/terrain), `carPaintValue`, `carPaintRadius`, `carPaintErase`, splat strength, `carPaintClearBtn` | controls | `_paintAt`, `_carPopulatePaintValueSelect` | Hand-paint biome/splat-texture/terrain class rasters over the generated ones; erase mode; clear layer. |
+| `packClearBtn`, `packInfo`, `packGrid` | button + readouts | `clearAssetPack`, `renderPackInspector` | Clear the loaded asset pack; pack summary and thumbnail grid. |
+| Map view: `modeSeg` (biome/hypso/gray/shade), `bioBlend`, `exag`, `sun`, `shadeOnHypso` | seg + sliders | `renderNow` params | Base render mode, biome blend, relief exaggeration, sun azimuth, hillshade-on-hypsometric toggle. |
+| Map style: `stylePresetSeg` (default/antique/ink/watercolor/print) + `styleCustomNote` | seg | `_applyStylePreset`, `_markStyleCustom` | One-click style presets that set the advanced sliders; edits mark the style Custom. |
+| Rendering advanced: `parch`,`aoR`,`crestR`,`rockR`,`texR`,`minorR`,`ridgeR`,`svfR`,`shadowsR`,`curveShadeR`,`geologyR`,`wetnessR`,`seasonR`,`contourMR`,`sdfCoastR`,`sdfRiversR`,`sdfBiomesR` | sliders | `landColorCore` and field builders | Parchment, ambient occlusion, crest light, rock/texture/minor-relief/ridge detail, sky-view factor, cast shadows, curvature shading, geology tint, wetness, season tint, contours, SDF coast/river/biome edge effects. |
+| Painter NPR: `contoursR`,`inkR`,`hachureR`,`watercolorR`,`celR`,`crosshatchR`,`stippleR`,`sepiaR`,`risographR`,`pointillismR` | sliders | painter styles in `renderNow` | Non-photorealistic painterly styles blended over the base render. |
+| Overlays: `iconsChk`,`wavesChk`,`waveDistR`,`waterAnimChk`,`scaleBarChk`,`multiSun` | chks + slider | `drawMapIcons`, `waterAnim*`, `updateScaleBar`, `multiSunShade` | Map icons, coastal wave lines + distance, animated water, scale bar, multi-directional sun shading. |
+
+### 0.8 Generate → Sculpt (lines 1787–1855)
+
+| Control | Kind | Backing function(s) | Purpose |
+|---|---|---|---|
+| `sculptFinalizedNote` | note | `applyFinalizedUI` | Explains sculpting is locked while finalized. |
+| `sculptFeatureSeg` | seg (13 features) | `sculptBuildFeaturePalette`, `SCULPT_FEATURES` | Feature stamp palette: raise/lower/smooth/plateau/mountain/ridge/valley/crater/volcano/island/fjord/dunes/terrace-class stamps (registry-defined). |
+| `sculptPresetSeg` | seg (8 presets) | `sculptBuildPresets`, `SCULPT_PRESETS` | One-click parameter presets per sculpting intent. |
+| Brush: `sBrush`/`sBrushKm`, `sHard`, `sInten` | sliders | `_sculptCurParams` | Brush radius (px + km readout), hardness, intensity. |
+| Noise: `sNoiseScale`,`sOct`,`sPers`,`sLac`,`sEdge`,`sSeed`+`sSeedRand` | sliders + seed | `sculptFbm`/`sculptRidged`/`sculptBillow` | Stamp noise: scale, octaves, persistence, lacunarity, edge falloff, per-stamp seed. |
+| `sculptModeSeg` + `sculptFeatureControls` | seg + dynamic controls | `sculptBuildFeatureControls` | Per-feature mode and dynamically built feature-specific parameters. |
+| Stamp stack: `sculptStampCount`/`sculptStampList`, `sculptDeselectBtn`,`sculptHideBtn`,`sculptUpBtn`,`sculptDownBtn`,`sculptDeleteBtn` | list + buttons | `sculptSyncStampList` | The draft stamp stack: select, hide, reorder, delete stamps before committing. |
+| `sculptUndoBtn`/`sculptRedoBtn` | buttons | `sculptUndo`/`sculptRedo` (also Ctrl+Z / Ctrl+Shift+Z) | Draft-level history. |
+| `sculptCommitBtn`/`sculptDiscardBtn` | buttons | `sculptCommit`/`sculptDiscard` | Bake the draft stack into the heightfield (one global undo step) / throw it away. |
+
+### 0.9 Explore tab (lines 1860–1974)
+
+| Control | Kind | Backing function(s) | Purpose |
+|---|---|---|---|
+| Tools: info / route | tool buttons | `_civSetTool`, `_civInfoAt`, route waypoint handler | Info click-readout tool; Route tool drops waypoints, Dijkstra-joined (mixed land/sea). |
+| `civSnapRouteChk` + `civCommitRouteBtn` | chk + button | `_civSnapPoint`, `_civCommitRoute` | Waypoint snap toggle; commit the in-progress route (Escape also commits). |
+| Timeline: `civTlYear` + `civTlAddYearBtn` | number + button | `civAddYear` | Record the current civ state as a named year snapshot. |
+| `civTimelinePanel` | pill list | `_civBuildTimelineUI` | Recorded years; click to go to (`civGotoYear`), × to remove (`civRemoveYear`). |
+| `explTimelineSlider` (+ticks, `explTlActiveYear`) | real-year slider | `_civWireYearSlider` | Scrub through recorded years at true proportional positions; snaps to nearest recorded year. |
+| `explTlPlayBtn` | button | `_civTlStartPlay`/`_civTlStopPlay` | Animate through the timeline. |
+| `explTlExistOnly`/`explTlGhost`/`explTlHighlight` | checkboxes | `drawCivLayer` (tid diffing via `_civYearDiff`) | Timeline-diff display: hide not-yet-existing, ghost removed, highlight changed. |
+| Simulate: `civSimMode`,`civSimCharacter`,`civSimSeverity`,`civSimRate`,`civSimStartYear`,`civSimDuration`,`civSimStepYears`,`civSimulateBtn`,`civSimOut` | form + button | `_civRunCollapseSimulation` → `_civSimulateTimeline` | Mechanistic collapse/recovery simulator writing year snapshots into the timeline (trade/disease/conflict/mixed characters, severity, rates). |
+| `civInfoSec`/`civInfoPanel` | panel | `_civInfoAt` | The Info tool's terrain/settlement/site/ecology readout. |
+| `#civJourneyList` | list | `_civRenderJourneyList` | Journeys with select/rename/delete; selection drives the planner. |
+| `civPlannerSec`: `jpSummary`, `jpOpenEditorBtn` | panel + button | `_civUpdatePlannerPanel`, `_civOpenRouteEditor` | Journey Planner summary for the selected journey and the Route Editor launcher. |
+
+### 0.10 Assets side panel, readout, generation info, credits (lines 1985–2081)
+
+| Control | Kind | Backing function(s) | Purpose |
+|---|---|---|---|
+| `alPackName`/`alPackAuthor`/`alPackLicense`, `alStats` | inputs + readout | `AssetLibrary`, `PackManifestBuilder` | Pack metadata travelling into exports; library stats. |
+| `alExportBtn` | button | `AssetLibrary.exportPack` | Export the library as a standalone pack ZIP (schema 2). |
+| `alValidateBtn` + `alValidation` | button + readout | `AssetValidator.run` | Pre-export validation: empty slots, bad ids, duplicate images, dangling collections. |
+| `alApplyBtn` | button | `AssetLibrary.applyToMap` | Compile the library to a pack and load it into the engine (same path as pack import). |
+| `alImportPackBtn` | button | `AssetImporter.importPackZip` | Import an existing pack ZIP into the library for editing. |
+| `alClearBtn` | button | `AssetDB.clear` (confirm) | Wipe the whole library. |
+| `#readout` | live readout | `updateReadout` | Cursor cell readout (elevation, temperature, biome, etc.). |
+| `genInfoBtn` → `genInfoPanel`/`genInfoText`/`genInfoCopyBtn` | button + panel | `generationInfoText` | Full parameter dump for bug reports, with copy button. |
+| `#creditsModal` | modal | credits IIFE | Static credits and design-principles text. |
+
+### 0.11 Keyboard shortcuts
+
+| Keys | Handler location | Purpose |
+|---|---|---|
+| Ctrl/Cmd+Z | global keydown (block 1) | `undoLast` — or, while the Sculpt editor is active, draft `sculptUndo`. |
+| Ctrl/Cmd+Shift+Z | same | `sculptRedo` (sculpt draft only). |
+| Space (hold) | global keydown/keyup | Hold-to-pan on the map canvas. |
+| Shift+D | global keydown | `toggleResOverlay` — resource inspection overlay. |
+| `0`, `B`, `T`, `F`, `S`, `W`, `R` | layers-popover hotkey handler (`LAYER_HOTKEYS`) | Quick layer switch (off/biome/temp/flow/settle/wind/rain family) while the layers FAB is visible. |
+| Escape | several handlers | Closes: File menu, filter/layers popovers, credits / City Viewer / Route Editor / Factions modals, context menu; and **commits** an in-progress route (`_civCommitRoute`) or way (`_civCommitWay`) — guarded so a modal's own Escape wins and typing in inputs is ignored. |
+| Delete | civ keydown (block 2, line 26096) | Deletes the selected place (typing-guarded since v1.24 — no deletion while editing text). |
+| Enter / Escape | faction-rename input | Confirm / cancel inline faction rename. |
+| (window blur) | blur handler | Clears space-pan and 3D-drag state so keys never stick. |
+
+### 0.12 Canvas / pointer interactions
+
+| Interaction | Handler / functions | Purpose |
+|---|---|---|
+| Wheel zoom | `zoomAt`, `_lodZoomAt` | Zoom about the cursor (Ctrl = fine step); zooming past ~2.2× auto-enters the tiled-LOD viewer (`lodAutoChk`). |
+| Two-finger pinch/pan | touch handlers | Mobile zoom+pan. |
+| Middle-drag / Space-drag / ✋ mode | pan handlers | Map panning; LOD mode pans the LOD window with debounced refine (`scheduleLodRefine`). |
+| Left click, civ tools armed | block 2 pointerdown (line 25807) | Dispatch on `_civTool`: place drop, POI drop, territory paint (drag), route/way waypoint (with live snap preview `_civSnapHover`), inspect (`_civSelectPlaceAt`, prominence-weighted pick), info (`_civInfoAt`). All LOD-aware via `evtToGridLOD`. |
+| Right click | `contextmenu` handler (line 25888) | Context menu (`_civCtxShow`): Edit/Move-viewer-to/Delete nearest place, Drop settlement, Drop POI (current type), Info here. |
+| Sculpt stroke | `sculptPointerDown/Move`, `sculptFinishStroke` | Capture a brush stroke in world coordinates; becomes a draft stamp. |
+| Paint-brush drag | dedicated pointer block (line 25933) | Continuous biome/splat/terrain painting (`_paintAt`), gated on the Cartography branch. |
+| Label drag/resize/rotate/arc + ✓/✗ | `_civLabelHitTest` + drag handlers, `_civConfirmLabel`/`_civCancelLabel` | Region-label manipulation with on-canvas handles and confirm/cancel buttons. |
+| Icon place/select/drag/resize; density-brush drag | `_carIconHitTest`, `_carIconBrushStamp` | Manual map-icon editing and painted icon fields. |
+| Territory paint drag | `_civPaintTerritoryAt` | Brush-paints faction ownership (faction 0 erases). |
+| Settlement-seed / wildlife-marker click | `showSettleInfo` / `showWildInfo` | Explanatory popups on the respective debug layers. |
+| Region rectangle drag | region pointer handlers, `renderRegionOverlay` | Select the export/refine rectangle in Region mode. |
+| 3D orbit/pan/zoom | `#view3d` pointer handlers, `_cam3dPos` | Camera control in the 3D drape view. |
+| City Viewer wheel/drag | `_cvZoomAt`, `_cvRender` | Zoom/pan the town plan. |
+| Asset drag-drop | card/slicer drop handlers | Drop image files onto slot cards or the slicer. |
+
+### 0.13 Dynamically built controls (no static markup)
+
+| Control | Builder | Purpose |
+|---|---|---|
+| Layers popover content | `buildLayersPopover` | Layer buttons from `LAYER_GROUPS` (Explore shows a curated subset), MRU pins, hotkey labels. |
+| Faction picker pills | `_civBuildFactionPicker` | One pill per faction incl. Unclaimed; rename input swap. |
+| Map filter checkbox lists | `_civBuildMapFilterUI` | Per-faction, per-settlement-class, per-way-type visibility. |
+| Timeline pills + slider | `_civBuildTimelineUI`, `_civBuildExploreTimelineUI` | Recorded-year pills, real-year slider + datalist ticks. |
+| Sculpt feature palette / presets / feature controls | `sculptBuildFeaturePalette`/`sculptBuildPresets`/`sculptBuildFeatureControls` | Built from `SCULPT_FEATURES`/`SCULPT_PRESETS` registries. |
+| Paint value select | `_carPopulatePaintValueSelect` | Value options per selected paint layer (biomes/splats/terrains). |
+| Icon gallery | `_carPopulateIconGallery` | Family-filtered icon variant tiles. |
+| Route Editor internals | `_jpRenderPartyForm`/`_jpRenderStops`/`_jpRenderResults`/`_reDrawRouteMap`/`_civDrawProfile` | Party/transport form, per-stop layover editors, results tables, route mini-map, elevation profile. |
+| Settlement virtual-table rows | `_stRowHtml`/`_stUpdateVisible` | Pooled DOM rows over the filtered index. |
+| Context menu | `_civCtxShow` | Transient right-click menu. |
+| Slicer modal internals | `SpriteSheetImporter.open` | Whole slicer UI built on first open. |
+| Asset Library rail/grid/inspector | `AssetBrowserUI`/`InspectorUI` | Whole library UI built on first open. |
+| Place/label/icon editors | `_civPopulatePlaceEditor`/`_civPopulateLabelEditor`/`_carPopulateIconEditor` | Field-level editors rendered into the popup / pinned inspector. |
+| Faction inspector drawer | `_civPopulateFactionEditor` | Name/culture/religion/government/ag-tech editors + derived readouts. |
+
+### 0.14 Retired / hidden control notes (for the port's reference)
+
+- The legacy **places/roads UI** (buildRoads/clearRoads buttons) was retired in v0.64; the engine
+  functions (`buildRoadsOp`, `buildRoadNetwork`, `clearRoads`, `clearPlaces`) remain and
+  `state.roads` edges still get an infrastructure discount in routing.
+- `#debugSeg` is deliberately hidden; the Layers popover is its only user-facing surface.
+- The old dual timeline slider (`#civTlSlider` in the Polity page) was removed in v0.91; the
+  Explore slider is the only one.
+- Faction culture/religion/government/ag-tech per-pill selects were removed in v1.57; the Faction
+  Inspector drawer is the single edit surface.
+
+## Part 1 — by script block, in file order, with purpose
+
+Line numbers are exact (from the mechanical scan); purposes were written from a full read of the
+file. Sub-headings group functions by subsystem in the order they appear.
 
 ### Script block 1 — Generator engine + app shell (633 functions)
 
-| Line | Function |
-|---|---|
-| 2132 | `_windFxBounds` |
-| 2133 | `_windFxProject` |
-| 2136 | `_windFxSampleAt` |
-| 2141 | `_windFxOceanAt` |
-| 2145 | `_windFxSpawnWind` |
-| 2149 | `_windFxSpawnCur` |
-| 2155 | `_windFxStart` |
-| 2176 | `_windFxStop` |
-| 2182 | `_windFxStep` |
-| 2209 | `_windFxSync` |
-| 2291 | `mulberry32` |
-| 2292 | `hash` |
-| 2293 | `vnoise` |
-| 2294 | `fbm` |
-| 2295 | `ridged` |
-| 2299 | `ridgedFbm` |
-| 2301 | `pvnoise` |
-| 2302 | `pfbm` |
-| 2303 | `pridged` |
-| 2315 | `fillWarpRows` |
-| 2326 | `fillHeteroRows` |
-| 2335 | `fillHeightRows` |
-| 2511 | `boxH` |
-| 2512 | `boxV` |
-| 2513 | `gaussBlur` |
-| 2519 | `v` |
-| 2520 | `lab` |
-| 2528 | `deriveFromWorldStructure` |
-| 2540 | `syncDerivedTectSliders` |
-| 2548 | `syncWSSliders` |
-| 2556 | `generateContinentalityField` |
-| 2603 | `applyWorldStructureSeaLevel` |
-| 2621 | `computeWarpPrep` |
-| 2641 | `terrainDetailK` |
-| 2672 | `riverCoarseEase` |
-| 2700 | `lodDetailFreqK` |
-| 2731 | `riverWidthScaleK` |
-| 2735 | `computeWarp` |
-| 2736 | `computeWarpPool` |
-| 2737 | `warpParams` |
-| 2740 | `buildPlates` |
-| 2771 | `assignPlates` |
-| 2825 | `classifyBoundary` |
-| 2834 | `computeStress` |
-| 2860 | `distanceToBoundary` |
-| 2889 | `thinMask` |
-| 2910 | `_polyMeta` |
-| 2923 | `traceBoundaries` |
-| 2955 | `currentBoundaryGraph` |
-| 2981 | `buildOrogenyField` |
-| 3077 | `smoothOrogeny` |
-| 3083 | `plateCrust` |
-| 3088 | `currentOrogenyField` |
-| 3105 | `computeFlexure` |
-| 3117 | `heteroParams` |
-| 3118 | `_heteroNormalize` |
-| 3119 | `computeHeterogeneity` |
-| 3123 | `computeHeterogeneityPool` |
-| 3132 | `computeResistance` |
-| 3144 | `recomputeResistanceAfterErosion` |
-| 3156 | `bestEmptyColumn` |
-| 3161 | `shiftGridX` |
-| 3171 | `featherSeamX` |
-| 3179 | `centerLandmasses` |
-| 3209 | `buildFjordMask` |
-| 3229 | `carveFjords` |
-| 3240 | `currentFjordMask` |
-| 3245 | `carveFjordsOp` |
-| 3257 | `buildTravelCost` |
-| 3275 | `roadDijkstra` |
-| 3316 | `buildRoadNetwork` |
-| 3334 | `heightParams` |
-| 3335 | `fillHeightPool` |
-| 3339 | `generate` |
-| 3410 | `buildTectonicSubstrate` |
-| 3466 | `stampOneVolcano` |
-| 3474 | `stampVolcanoes` |
-| 3485 | `clampFeatureRadiusCells` |
-| 3487 | `placeSizedVolcano` |
-| 3497 | `stampVolcanoesSimple` |
-| 3508 | `classifyBoundaries` |
-| 3514 | `placeProvinceVolcanoes` |
-| 3540 | `stampVolcanoesProvinces` |
-| 3559 | `stampOneCrater` |
-| 3568 | `stampCraters` |
-| 3584 | `dropletKernel` |
-| 3855 | `perfShow` |
-| 3856 | `erodeThermalCPU` |
-| 3867 | `erodeThermal` |
-| 3872 | `hillslopeDiffuseCPU` |
-| 3883 | `hillslopeDiffuse` |
-| 3889 | `dropletParams` |
-| 3892 | `erodeFinish` |
-| 3898 | `erode` |
-| 3919 | `_bilin` |
-| 3926 | `centrifugalShear` |
-| 3936 | `velocityErodeKernel` |
-| 3995 | `veloParams` |
-| 3998 | `veloFinish` |
-| 4001 | `velocityErode` |
-| 4007 | `velocityEroseAsync` |
-| 4042 | `erodeAsync` |
-| 4082 | `streamPowerKernel` |
-| 4198 | `glacialKernel` |
-| 4260 | `eroFinish` |
-| 4261 | `streamParams` |
-| 4262 | `glacialParams` |
-| 4263 | `streamPowerErode` |
-| 4270 | `evolveCoupled` |
-| 4286 | `routeSediment` |
-| 4310 | `depositSediment` |
-| 4324 | `applyTidalSedimentation` |
-| 4336 | `tidalFlats` |
-| 4337 | `glacialErode` |
-| 4345 | `runErosionWorker` |
-| 4371 | `streamPowerEroseAsync` |
-| 4379 | `glacialEroseAsync` |
-| 4388 | `coastalProcess` |
-| 4407 | `coastalProcessCPU` |
-| 4428 | `isostaticRebound` |
-| 4454 | `strahlerFromReceivers` |
-| 4493 | `riverFlowThresh` |
-| 4494 | `buildRiverNetwork` |
-| 4550 | `channelThreshold` |
-| 4559 | `traceRiverPolylines` |
-| 4596 | `splitRiverPolylines` |
-| 4612 | `riverSinuAmp` |
-| 4615 | `riverSinuosity` |
-| 4633 | `buildFeatureRegistry` |
-| 4697 | `currentFeatures` |
-| 4706 | `featuresNear` |
-| 4715 | `riversInRect` |
-| 4720 | `featureSummary` |
-| 4765 | `getPaintLayer` |
-| 4774 | `_paintSampleAt` |
-| 4783 | `_paintAt` |
-| 4802 | `_carPopulatePaintValueSelect` |
-| 4816 | `buildRoadsOp` |
-| 4826 | `clearRoads` |
-| 4827 | `clearPlaces` |
-| 4828 | `clearLabels` |
-| 4846 | `_flowRadixSortDesc` |
-| 4862 | `computeFlow` |
-| 4908 | `invalidateFieldCaches` |
-| 4914 | `loadImage` |
-| 4930 | `normalize` |
-| 4937 | `allocate` |
-| 4951 | `metersPerUnit` |
-| 4952 | `elevM` |
-| 4960 | `_v3dEffExag` |
-| 4961 | `maxGrade` |
-| 4965 | `latAt` |
-| 4973 | `buildGeoid` |
-| 4996 | `refreshGeoid` |
-| 5003 | `geoAt` |
-| 5005 | `currentGeoidPreview` |
-| 5022 | `tidalForcing` |
-| 5023 | `computeTideField` |
-| 5038 | `buildTideField` |
-| 5039 | `refreshTides` |
-| 5041 | `currentTideField` |
-| 5049 | `gridH` |
-| 5055 | `applyCryosphereAlbedo` |
-| 5096 | `_obliquityS2` |
-| 5098 | `insolationContrastK` |
-| 5102 | `rotationContrastK` |
-| 5115 | `climEffectiveEquatorTemp` |
-| 5119 | `computeTemperature` |
-| 5153 | `recomputeClimate` |
-| 5154 | `refreshClimate` |
-| 5166 | `scheduleRender` |
-| 5177 | `mbuf` |
-| 5178 | `ibuf` |
-| 5179 | `ubuf` |
-| 5188 | `applyClimateMoistureCorrectors` |
-| 5246 | `oceanSSTAnomaly` |
-| 5270 | `applyOceanCurrents` |
-| 5295 | `satCap` |
-| 5299 | `circulationCells` |
-| 5315 | `deflectFlow` |
-| 5368 | `computeOceanCurrent` |
-| 5464 | `buildWind` |
-| 5537 | `bilC` |
-| 5543 | `blurCoarse` |
-| 5555 | `currentWindField` |
-| 5577 | `currentOceanField` |
-| 5604 | `buildWindThrowField` |
-| 5621 | `currentWindThrowField` |
-| 5634 | `buildFloodField` |
-| 5644 | `currentFloodField` |
-| 5661 | `currentSlopeField` |
-| 5670 | `simulateWeather` |
-| 5736 | `classifyBiome` |
-| 5753 | `buildWaterBodies` |
-| 5820 | `currentWaterBodies` |
-| 5835 | `buildLithology` |
-| 5849 | `lithIndexManifest` |
-| 5852 | `buildSoilFertility` |
-| 5866 | `buildWaterAccess` |
-| 5876 | `currentLithology` |
-| 5877 | `currentSoil` |
-| 5878 | `currentWaterAccess` |
-| 5903 | `buildRouteCorridors` |
-| 5950 | `currentRouteCorridors` |
-| 5970 | `buildLandmassQuality` |
-| 6015 | `currentLandmassQuality` |
-| 6055 | `resourceScarcityCut` |
-| 6067 | `applyResourceScarcity` |
-| 6079 | `resourceIndexManifest` |
-| 6085 | `buildResourcePotentials` |
-| 6185 | `foragerFloorKm2` |
-| 6193 | `biomeDensityResidual` |
-| 6199 | `biomeIntensifyEligible` |
-| 6217 | `estimateRegionalDensityKm2` |
-| 6233 | `suppressionRadiusCells` |
-| 6238 | `buildCarryingCapacity` |
-| 6318 | `_civTerrainRuggednessD` |
-| 6319 | `buildSettlementSuitability` |
-| 6418 | `findSettlementSeeds` |
-| 6452 | `currentResourcePotentials` |
-| 6453 | `currentCarryingCapacity` |
-| 6455 | `currentPopulationDensity` |
-| 6462 | `currentSettlementSuitability` |
-| 6497 | `buildNPP` |
-| 6504 | `buildTRI` |
-| 6517 | `guildTrophic` |
-| 6538 | `buildEcoregions` |
-| 6568 | `wildSig2` |
-| 6570 | `regionRichness` |
-| 6578 | `assignWildlife` |
-| 6607 | `wildRegionColor` |
-| 6613 | `currentNPP` |
-| 6614 | `currentTRI` |
-| 6615 | `currentWildlife` |
-| 6641 | `buildReliefField` |
-| 6659 | `pickPlateSeeds` |
-| 6681 | `classifyPlateCrust` |
-| 6698 | `reconstructBoundaryStress` |
-| 6733 | `stampVolcanicArcs` |
-| 6745 | `inferPlateVelocities` |
-| 6755 | `inferTectonics` |
-| 6797 | `BIOME_INDEX` |
-| 6798 | `buildBiomeRaster` |
-| 6817 | `buildCartBiome` |
-| 6833 | `currentCartBiome` |
-| 6839 | `buildWetlandMask` |
-| 6849 | `currentWetlandMask` |
-| 6860 | `buildCartTerrain` |
-| 6877 | `currentCartTerrain` |
-| 6882 | `encodeBiomeRLE` |
-| 6891 | `decodeBiomeRLE` |
-| 6900 | `cartalithGridManifest` |
-| 6907 | `biomeIndexManifest` |
-| 6938 | `defaultScatterRule` |
-| 6952 | `scatterRuleKey` |
-| 6971 | `presetScatterRule` |
-| 6987 | `normalizeScatterRule` |
-| 7014 | `pickWeightedVariant` |
-| 7030 | `currentScatterRules` |
-| 7048 | `applyLibraryAssets` |
-| 7088 | `autopopulateScatterRules` |
-| 7102 | `placeMapIcons` |
-| 7194 | `placeMapIconsRuled` |
-| 7294 | `iconSlotForItem` |
-| 7304 | `iconVariantsFor` |
-| 7315 | `drawIconGlyph` |
-| 7366 | `drawMapIcons` |
-| 7398 | `computeCoastDistance` |
-| 7423 | `chamferDist` |
-| 7444 | `jfaDist` |
-| 7460 | `distMask` |
-| 7462 | `buildCoastSDF` |
-| 7471 | `buildRiverSDF` |
-| 7481 | `buildBiomeBoundaryDist` |
-| 7491 | `computeTempInto` |
-| 7501 | `computeSeasons` |
-| 7515 | `KOPPEN_INDEX` |
-| 7524 | `classifyKoppen` |
-| 7556 | `buildKoppen` |
-| 7560 | `koppenColor` |
-| 7561 | `koppenIndexManifest` |
-| 7568 | `clamp01` |
-| 7569 | `smoothstep` |
-| 7570 | `ramp3` |
-| 7584 | `slopeAt` |
-| 7585 | `vignetteAt` |
-| 7586 | `gradAt` |
-| 7590 | `aspectFactor` |
-| 7599 | `curvatureAt` |
-| 7624 | `curvatureAtF` |
-| 7627 | `aspectFactorF` |
-| 7632 | `grassCol` |
-| 7633 | `forestCol` |
-| 7634 | `sandCol` |
-| 7635 | `rockCol` |
-| 7636 | `snowCol` |
-| 7638 | `wetlandCol` |
-| 7642 | `shadeFactor2` |
-| 7655 | `materialWeights` |
-| 7715 | `bioJitter` |
-| 7720 | `landColorCore` |
-| 7966 | `smoothSeaH` |
-| 7978 | `sharedSeaFields` |
-| 7993 | `aoMul` |
-| 7994 | `buildAOField` |
-| 8008 | `buildCrestField` |
-| 8023 | `applyCrest` |
-| 8032 | `buildSVFField` |
-| 8057 | `buildSunShadowField` |
-| 8083 | `buildLandformField` |
-| 8107 | `currentLandform` |
-| 8112 | `seaShadeFrom` |
-| 8122 | `seaColorCore` |
-| 8133 | `sdfEcoKv` |
-| 8134 | `applyCoastRiverSDFv` |
-| 8145 | `surfaceColor` |
-| 8200 | `debugBaseColor` |
-| 8215 | `settlementSeedInfo` |
-| 8237 | `hideSettleInfo` |
-| 8238 | `showSettleInfo` |
-| 8257 | `wildFmtPop` |
-| 8258 | `hideWildInfo` |
-| 8259 | `showWildInfo` |
-| 8277 | `seaColor` |
-| 8285 | `lakeColor` |
-| 8290 | `lakeColorSampled` |
-| 8296 | `tempColor` |
-| 8299 | `rainColor` |
-| 8304 | `lerp` |
-| 8305 | `mix` |
-| 8318 | `waterShade` |
-| 8326 | `flowMapPhases` |
-| 8332 | `hypso` |
-| 8338 | `divColor` |
-| 8339 | `hsl` |
-| 8342 | `shadeFactor` |
-| 8357 | `multiSunFromNormal` |
-| 8364 | `multiSunShade` |
-| 8371 | `macroShade` |
-| 8374 | `isWater` |
-| 8376 | `renderNow` |
-| 8670 | `waterAnimActive` |
-| 8671 | `stopWaterAnim` |
-| 8672 | `startWaterAnim` |
-| 8673 | `waterAnimFrame` |
-| 8693 | `render` |
-| 8701 | `rdpSimplify` |
-| 8725 | `enforceChannelDescent` |
-| 8742 | `enforceRiverChannels` |
-| 8761 | `carveRiverValleys` |
-| 8790 | `catmullRomSample` |
-| 8837 | `sculptFbm` |
-| 8838 | `sculptRidged` |
-| 8839 | `sculptBillow` |
-| 8845 | `sculptNearestOnStroke` |
-| 9020 | `sculptStampRadius` |
-| 9021 | `sculptStampBBox` |
-| 9033 | `sculptApplyStamp` |
-| 9101 | `_sculptEditorActive` |
-| 9102 | `sculptDefaultParams` |
-| 9103 | `_sculptCurParams` |
-| 9108 | `sculptPointerDown` |
-| 9116 | `sculptPointerMove` |
-| 9123 | `sculptCancelStroke` |
-| 9124 | `sculptFinishStroke` |
-| 9157 | `_sculptNavPanLoop` |
-| 9176 | `_sculptNavSetKnob` |
-| 9197 | `_sculptNavResetKnob` |
-| 9213 | `_sculptNavSync` |
-| 9248 | `sculptClearOverlay` |
-| 9249 | `_sculptDrawStamp` |
-| 9267 | `sculptRenderOverlay` |
-| 9275 | `sculptRenderCursor` |
-| 9286 | `sculptDrawLODOverlay` |
-| 9299 | `sculptSnapshot` |
-| 9300 | `sculptPushHistory` |
-| 9301 | `sculptUndo` |
-| 9308 | `sculptRedo` |
-| 9317 | `sculptCommit` |
-| 9353 | `sculptDiscard` |
-| 9363 | `sculptOnGlobalChange` |
-| 9367 | `sculptOnParamChange` |
-| 9373 | `sculptSyncStampList` |
-| 9389 | `sculptBuildFeaturePalette` |
-| 9400 | `sculptSyncFeatureSeg` |
-| 9405 | `sculptBuildPresets` |
-| 9415 | `sculptSyncGlobalSliders` |
-| 9428 | `sculptBuildFeatureControls` |
-| 9451 | `sculptSyncUI` |
-| 9473 | `drawRiverWays` |
-| 9549 | `pushUndo` |
-| 9554 | `undoLast` |
-| 9559 | `updateUndoUI` |
-| 9570 | `evtToGrid` |
-| 9577 | `evtToGridLOD` |
-| 9587 | `drawRoadsOverlay` |
-| 9602 | `drawExportTileGrid` |
-| 9611 | `renderRegionOverlay` |
-| 9799 | `fmt` |
-| 9800 | `fmtK` |
-| 9801 | `sw` |
-| 9802 | `updateReadout` |
-| 9824 | `generationInfoText` |
-| 9869 | `updateLegend` |
-| 10126 | `pickLoadingMsg` |
-| 10172 | `showBusy` |
-| 10179 | `hideBusy` |
-| 10185 | `updateResOverlay` |
-| 10225 | `toggleResOverlay` |
-| 10234 | `microtask` |
-| 10237 | `canvasWorks` |
-| 10241 | `bakeDims` |
-| 10242 | `sampleArr` |
-| 10252 | `sampleArrRowPrep` |
-| 10255 | `sampleArrRow` |
-| 10265 | `amplifyRegion` |
-| 10307 | `refineTile` |
-| 10317 | `burnChannels` |
-| 10358 | `tileMicroErodeKernel` |
-| 10397 | `tileErode` |
-| 10418 | `sharpDelta` |
-| 10461 | `pyramidDims` |
-| 10467 | `addZoomDetail` |
-| 10496 | `featureDetailPass` |
-| 10575 | `pyramidTile` |
-| 10594 | `pyramidTileBounds` |
-| 10600 | `pyramidLevelForZoom` |
-| 10606 | `lodCacheKey` |
-| 10627 | `lodCacheGet` |
-| 10631 | `lodCachePut` |
-| 10635 | `lodCacheClear` |
-| 10637 | `tilesInView` |
-| 10644 | `collectVisibleTiles` |
-| 10667 | `_lodRenderW` |
-| 10672 | `lodMaxZoom` |
-| 10675 | `lodSpanKm` |
-| 10699 | `atlasMetaKey` |
-| 10700 | `atlasMetaRec` |
-| 10703 | `worldKey` |
-| 10709 | `atlasKeyStr` |
-| 10710 | `atlasChunkKey` |
-| 10712 | `atlasEncodeChunk` |
-| 10713 | `atlasDecodeChunk` |
-| 10715 | `bakedCover` |
-| 10721 | `atlasOpen` |
-| 10731 | `atlasPut` |
-| 10732 | `atlasGet` |
-| 10733 | `atlasDelete` |
-| 10735 | `atlasKeysForWorld` |
-| 10736 | `atlasGetMeta` |
-| 10737 | `atlasPutMeta` |
-| 10738 | `atlasClearWorld` |
-| 10741 | `atlasSyncWorld` |
-| 10748 | `updateAtlasStatus` |
-| 10752 | `atlasLoadImg` |
-| 10765 | `bakeVisibleTiles` |
-| 10809 | `bakeAllTiles` |
-| 10854 | `applyFinalizedUI` |
-| 10872 | `setFinalized` |
-| 10880 | `atlasChunkFile` |
-| 10882 | `buildAtlasManifest` |
-| 10890 | `atlasExportEntries` |
-| 10910 | `atlasImportEntries` |
-| 10936 | `chunkParent` |
-| 10937 | `chunkChildren` |
-| 10938 | `chunkColorHash` |
-| 10939 | `chunkState` |
-| 10946 | `drawLODChunkDebug` |
-| 10972 | `composeEditInto` |
-| 10994 | `composeTileEdits` |
-| 11006 | `lodViewRect` |
-| 11011 | `visibleTileKeys` |
-| 11020 | `lodTileOpts` |
-| 11052 | `refineVisibleTiles` |
-| 11117 | `lodTileCanvasMax` |
-| 11126 | `lodPinMaxZ` |
-| 11144 | `_lodBuildTileRGBA` |
-| 11177 | `_lodScheduleOverviewRebuild` |
-| 11207 | `_lodRenderKey` |
-| 11222 | `_lodTileCacheGet` |
-| 11226 | `_lodTileCacheSet` |
-| 11230 | `drawLODView` |
-| 11457 | `drawLODDebugOverlays` |
-| 11536 | `tileDims` |
-| 11544 | `packHeight16` |
-| 11548 | `unpackHeight16` |
-| 11555 | `buildTileManifest` |
-| 11569 | `normRegion` |
-| 11582 | `gzipBytes` |
-| 11585 | `gunzipBytes` |
-| 11606 | `edgeL` |
-| 11607 | `edgeR` |
-| 11608 | `edgeU` |
-| 11609 | `edgeD` |
-| 11610 | `renderHeightTileRGBA` |
-| 11629 | `renderBiomeTileRGBA` |
-| 11756 | `tileShade` |
-| 11762 | `debugTileContext` |
-| 11792 | `renderAffordanceTileRGBA` |
-| 11871 | `tilePngBytes` |
-| 11891 | `exportRegionTiles` |
-| 11914 | `buildGridFields` |
-| 11931 | `bakePixel` |
-| 11975 | `bakeSingle` |
-| 11982 | `bakeTiled` |
-| 12004 | `CRC_T` |
-| 12005 | `crc32` |
-| 12006 | `deflateRaw` |
-| 12009 | `zipStore` |
-| 12020 | `unzipStore` |
-| 12093 | `parsePackCsv` |
-| 12113 | `parsePackManifest` |
-| 12171 | `pickIconVariant` |
-| 12173 | `spriteDrawRect` |
-| 12187 | `_paintedTex` |
-| 12196 | `finalizePackTexture` |
-| 12200 | `packSummary` |
-| 12210 | `unzipAny` |
-| 12229 | `decodePackImage` |
-| 12238 | `loadAssetPack` |
-| 12273 | `clearAssetPack` |
-| 12278 | `_carRefreshIconAndPaintPickers` |
-| 12284 | `renderPackInspector` |
-| 12299 | `serializeState` |
-| 12300 | `f32bytes` |
-| 12301 | `layerBytes` |
-| 12304 | `setProg` |
-| 12305 | `readme` |
-| 12328 | `_chanEnc` |
-| 12329 | `_chanDec` |
-| 12333 | `packRGB8` |
-| 12341 | `unpackRGB8` |
-| 12354 | `_resourceAtlasGroups` |
-| 12364 | `channelAtlasGroups` |
-| 12387 | `channelAtlasManifest` |
-| 12397 | `rgbaToPngBytes` |
-| 12408 | `channelAtlasEntries` |
-| 12418 | `exportZip` |
-| 12490 | `_geoCellKm` |
-| 12491 | `_geoXY` |
-| 12501 | `_geoTraceMaskRings` |
-| 12529 | `_geoRingArea` |
-| 12530 | `_geoPointInRing` |
-| 12541 | `_geoMaskOutlineCoords` |
-| 12557 | `_geoTerritoryFeature` |
-| 12569 | `_geoProvinceFeature` |
-| 12576 | `exportGeoJSON` |
-| 12623 | `loadZip` |
-| 12648 | `syncUI` |
-| 12714 | `withBusy` |
-| 12718 | `bind` |
-| 12753 | `_tideMoon` |
-| 12754 | `_tideUpdate` |
-| 12784 | `_seasonSliderNote` |
-| 12857 | `_applyStylePreset` |
-| 12870 | `_markStyleCustom` |
-| 12890 | `tparam` |
-| 12921 | `eparam` |
-| 12955 | `cparam` |
-| 12981 | `seg` |
-| 12994 | `confirmRegenerate` |
-| 13110 | `_civSubPageVisible` |
-| 13135 | `_civRefreshActiveSubPage` |
-| 13183 | `setRegionMode` |
-| 13264 | `_viewCoverScale` |
-| 13280 | `_viewFitScale` |
-| 13294 | `_viewFill` |
-| 13295 | `_viewClampFill` |
-| 13329 | `_lodFitCanvas` |
-| 13359 | `applyView` |
-| 13376 | `zoomAt` |
-| 13390 | `resetView` |
-| 13391 | `viewCenter` |
-| 13399 | `_civMoveViewTo` |
-| 13418 | `_civPlaceScreenPos` |
-| 13439 | `lodZoomStep` |
-| 13455 | `_lodZoomAt` |
-| 13490 | `_carDisarmOtherTools` |
-| 13599 | `_carEnterAssetsMode` |
-| 13611 | `_carExitAssetsMode` |
-| 13655 | `_debugBtn` |
-| 13656 | `_setLayer` |
-| 13657 | `buildLayersPopover` |
-| 13716 | `_isMi` |
-| 13717 | `_distDisp` |
-| 13718 | `_distToKm` |
-| 13719 | `_altDisp` |
-| 13720 | `_altToM` |
-| 13721 | `_distUnit` |
-| 13722 | `_setUnits` |
-| 13729 | `suggestPeakM` |
-| 13733 | `_fmtDist` |
-| 13734 | `renderDistLegend` |
-| 13742 | `_setupHide` |
-| 13752 | `_hasLiveWorld` |
-| 13754 | `_suShowStep` |
-| 13756 | `_setupOpen` |
-| 13774 | `_suSetUnitSegs` |
-| 13775 | `_suActive` |
-| 13776 | `_suIds` |
-| 13779 | `_suRender` |
-| 13787 | `_suGenSync` |
-| 13788 | `_suCalSync` |
-| 13789 | `_suOnWidthInput` |
-| 13791 | `_suOnPeakInput` |
-| 13792 | `_suGenCommit` |
-| 13813 | `_suApplyArchetype` |
-| 13826 | `_suCalCommit` |
-| 13858 | `_sidebarScaleSync` |
-| 13870 | `updateTileSizeEst` |
-| 13900 | `requestLodRender` |
-| 13936 | `scheduleLodRefine` |
-| 13953 | `enterLodFromView` |
-| 13973 | `_overCanvasOverlay` |
-| 14024 | `updateScaleBar` |
-| 14164 | `_gpuApplyTabOverride` |
-| 14198 | `_m4mul` |
-| 14199 | `_m4persp` |
-| 14200 | `_m4lookAt` |
-| 14205 | `_cam3dPos` |
-| 14322 | `_v3dGrabColor` |
-| 14331 | `_v3dGrabCiv` |
-| 14356 | `_v3dHeightSource` |
-| 14368 | `drawSoft` |
-| 14415 | `resizeView3D` |
-| 14420 | `_v3dRender` |
-| 14421 | `_v3dLoop` |
-| 14428 | `_v3dKick` |
-| 14436 | `v3dWorldPos` |
-| 14447 | `v3dProjectPoint` |
-| 14465 | `_v3dDrawLabels` |
-| 14498 | `enter3D` |
-| 14513 | `exit3D` |
+#### Wind/current particle FX
 
-### Script block 2 — Civ/politics layer (350 functions)
+| Line | Function | Purpose |
+|---|---|---|
+| 2132 | `_windFxBounds` | Visible-map bounds for spawning FX particles (LOD-aware). |
+| 2133 | `_windFxProject` | World cell to FX-canvas pixel projection. |
+| 2136 | `_windFxSampleAt` | Sample the wind vector field at a particle's position. |
+| 2141 | `_windFxOceanAt` | Sample the ocean-current field at a particle's position. |
+| 2145 | `_windFxSpawnWind` | Spawn a wind streak particle at a random visible cell. |
+| 2149 | `_windFxSpawnCur` | Spawn an ocean-current streak particle (ocean cells only). |
+| 2155 | `_windFxStart` | Start the FX animation loop when a wind/ocean layer is shown. |
+| 2176 | `_windFxStop` | Stop the loop and clear the FX canvas. |
+| 2182 | `_windFxStep` | Per-frame particle advection, fading and respawn. |
+| 2209 | `_windFxSync` | Start/stop FX based on the active debug layer. |
 
-| Line | Function |
-|---|---|
-| 14577 | `_civFactionColor` |
-| 14635 | `_civCultureByKey` |
-| 14642 | `_civDefaultCulture` |
-| 14644 | `_civAddFaction` |
-| 14657 | `_civRemoveFaction` |
-| 14831 | `_civAgTechByKey` |
-| 14838 | `_civFarmersPerUrbanite` |
-| 14849 | `_civFactionBannerCanvas` |
-| 14907 | `_v3dRenderCivOffscreen` |
-| 14922 | `_civSyncCanvas` |
-| 14933 | `getCivTerritory` |
-| 14945 | `_civGenerateProvinces` |
-| 14980 | `_civZoomK` |
-| 14992 | `_civZoomPickR` |
-| 15003 | `_civZoomRaw` |
-| 15012 | `_civWayLodMin` |
-| 15017 | `_civIconScale` |
-| 15018 | `_civWayScale` |
-| 15025 | `_structSprite` |
-| 15046 | `_carIconBrushRule` |
-| 15051 | `_carIconBrushStamp` |
-| 15088 | `_traitSprite` |
-| 15101 | `_civDrawTraitBadges` |
-| 15124 | `_customSprite` |
-| 15141 | `_featureSprite` |
-| 15159 | `_civTraitDrop` |
-| 15162 | `_civDrawSettlementPin` |
-| 15211 | `_civDrawPoiPin` |
-| 15244 | `drawArcLabel` |
-| 15280 | `_civLabelBox` |
-| 15296 | `_civLabelHitTest` |
-| 15316 | `_carIconTypeList` |
-| 15319 | `_carIconBox` |
-| 15325 | `_carIconHitTest` |
-| 15333 | `_carDrawMapIcon` |
-| 15356 | `_civSelectLabel` |
-| 15362 | `_civConfirmLabel` |
-| 15363 | `_civCancelLabel` |
-| 15390 | `civToScreen` |
-| 15395 | `drawCivLayer` |
-| 15901 | `drawCivLayerAuto` |
-| 15921 | `_civBakeKey` |
-| 15932 | `_civBakeCacheGet` |
-| 15937 | `_civBakeCacheSet` |
-| 15964 | `_civPaintTerritoryAt` |
-| 15978 | `_civEnsurePlaceDefaults` |
-| 16002 | `_civSnapEnabled` |
-| 16005 | `_civSnapRadius` |
-| 16009 | `_civNearestOnWay` |
-| 16025 | `_civFindSnapTarget` |
-| 16043 | `_civSnapPoint` |
-| 16051 | `_civDropPlace` |
-| 16075 | `_civDropPOI` |
-| 16105 | `_civPlacePickVisible` |
-| 16106 | `_civPlacePickWeight` |
-| 16111 | `_civSelectPlaceAt` |
-| 16130 | `_civRenderFactionList` |
-| 16153 | `_civRenderFactionInspector` |
-| 16164 | `_civOpenFactionDrawer` |
-| 16165 | `_civCloseFactionDrawer` |
-| 16177 | `_civOpenFactionsModal` |
-| 16187 | `_civCloseFactionsModal` |
-| 16202 | `_civRenderFactionsWorldOverview` |
-| 16226 | `_civTerrainFitHtml` |
-| 16247 | `_civPopulateFactionEditor` |
-| 16318 | `_civRenderFactionSettlementSublist` |
-| 16344 | `_stEnsureFilterState` |
-| 16348 | `_stBuildFilterUI` |
-| 16365 | `_stUpdateSortDirBtn` |
-| 16373 | `_stRebuildFiltered` |
-| 16415 | `_escHtml` |
-| 16416 | `_stRowHtml` |
-| 16429 | `_stEnsurePool` |
-| 16440 | `_stUpdateVisible` |
-| 16460 | `_stWireOnce` |
-| 16498 | `_civRenderSettlementTable` |
-| 16509 | `_civSectorLabel` |
-| 16511 | `_civRenderEconomyPage` |
-| 16551 | `_civRenderStatisticsPage` |
-| 16607 | `_civFormatPlaceInsp` |
-| 16694 | `_civPopulatePlaceEditor` |
-| 16777 | `_civRenderPlaceEditor` |
-| 16803 | `_civPopulateLabelEditor` |
-| 16845 | `_civOpenAncestorDetails` |
-| 16852 | `_carSelectIcon` |
-| 16857 | `_carIconLabel` |
-| 16864 | `_carGalleryFallbackThumb` |
-| 16876 | `_carPopulateIconGallery` |
-| 16931 | `_carIconGalleryPick` |
-| 16939 | `_carPopulateIconEditor` |
-| 16975 | `_carRenderIconList` |
-| 17019 | `_carRenderIconEditor` |
-| 17025 | `_civRenderLabelList` |
-| 17070 | `_civRenderLabelEditor` |
-| 17088 | `_civRenderPoiList` |
-| 17145 | `_civRenderWayList` |
-| 17231 | `_civRenderJourneyList` |
-| 17303 | `jpTrainPace` |
-| 17378 | `jpSailFactor` |
-| 17463 | `jpWaterWindow` |
-| 17605 | `jpFmtKg` |
-| 17606 | `jpFmtDays` |
-| 17620 | `jpHumanWaterCarryDays` |
-| 17626 | `jpHumanWaterRate` |
-| 17631 | `jpAnimalWaterCarryDays` |
-| 17632 | `jpFatigue` |
-| 17633 | `jpLoadPenalty` |
-| 17654 | `jpGroupClass` |
-| 17665 | `jpSurfaceGain` |
-| 17666 | `jpWxWeighted` |
-| 17680 | `jpWeatherFactor` |
-| 17687 | `jpResolveMount` |
-| 17709 | `jpAnimalTerrainMod` |
-| 17713 | `jpBestAnimalForContext` |
-| 17750 | `jpCanUseWheels` |
-| 17771 | `jpPickSpeciesForRoute` |
-| 17814 | `jpAutoPickTransport` |
-| 17956 | `_jpVesselWaterBlock` |
-| 17975 | `jpVesselDayKm` |
-| 17984 | `jpVesselMatrix` |
-| 18005 | `_jpVesselFits` |
-| 18012 | `jpAutoPickVessel` |
-| 18040 | `_jpAutoStageVessel` |
-| 18053 | `_jpBestLandTransportForStage` |
-| 18080 | `_jpBestPackageForStage` |
-| 18107 | `_jpEffectiveStagePlan` |
-| 18128 | `_jpWorldMeanRichness` |
-| 18134 | `_jpWildlifeForageMod` |
-| 18156 | `jpForaging` |
-| 18169 | `jpConsumptionFactors` |
-| 18177 | `jpCapacity` |
-| 18231 | `jpAssessResupply` |
-| 18256 | `_jpEnsurePlan` |
-| 18299 | `_jpLayovers` |
-| 18303 | `_jpStopKey` |
-| 18310 | `jpLegacyBiomeOf` |
-| 18325 | `_jpRoadCells` |
-| 18343 | `_jpSettlements` |
-| 18350 | `_jpInfraContext` |
-| 18360 | `_jpClaimedAt` |
-| 18373 | `_jpStageInfra` |
-| 18421 | `_jpRiverCondition` |
-| 18447 | `_jpSeaCondition` |
-| 18484 | `_jpCoarseIdx` |
-| 18491 | `_jpDeriveStages` |
-| 18656 | `_jpWaterReachCells` |
-| 18689 | `_jpDrinkingCoarseEase` |
-| 18697 | `_jpStageDryKm` |
-| 18727 | `_jpDesertTierForGap` |
-| 18754 | `jpColumnLengthKm` |
-| 18768 | `jpColumnFactor` |
-| 18782 | `jpSeasonalClosure` |
-| 18809 | `jpRestDays` |
-| 18830 | `jpSeasonAt` |
-| 18847 | `jpSeaClosure` |
-| 18873 | `jpJourneyCost` |
-| 18912 | `jpCalcLand` |
-| 19124 | `jpCalcWater` |
-| 19198 | `_civTransshipments` |
-| 19204 | `_civTransferOverhead` |
-| 19225 | `_jpResupplyReach` |
-| 19255 | `_jpPlan` |
-| 19433 | `_jpVerdict` |
-| 19498 | `_jpConfidence` |
-| 19518 | `_jpPackRange` |
-| 19535 | `_civDrawProfile` |
-| 19576 | `_reDrawRouteMap` |
-| 19614 | `_jpRunAuto` |
-| 19619 | `_jpRefresh` |
-| 19634 | `_jpSyncAssetInputs` |
-| 19642 | `_jpRenderPartyForm` |
-| 19742 | `_jpRenderStops` |
-| 19761 | `_jpRenderResults` |
-| 20323 | `_civUpdatePlannerPanel` |
-| 20350 | `_reRenderSummary` |
-| 20368 | `_jpModeForRoute` |
-| 20391 | `_jpRerouteForMode` |
-| 20406 | `_civOpenRouteEditor` |
-| 20420 | `_civCloseRouteEditor` |
-| 20436 | `_civInfoAt` |
-| 20564 | `_civAssignTid` |
-| 20565 | `_civResyncNextTid` |
-| 20576 | `_civYearDiffInvalidate` |
-| 20580 | `_civYearDiff` |
-| 20596 | `civSnapshotSave` |
-| 20607 | `civSnapshotLoad` |
-| 20615 | `civGotoYear` |
-| 20618 | `civAddYear` |
-| 20635 | `civRemoveYear` |
-| 20644 | `_civFormatYear` |
-| 20645 | `_civBuildTimelineUI` |
-| 20665 | `_civAutoPolity` |
-| 20707 | `_civRng` |
-| 20717 | `_civSettleName` |
-| 20737 | `_civLakeFlooded` |
-| 20747 | `_civSnapLand` |
-| 20787 | `_civSnapToWaterEdge` |
-| 20841 | `_civSnapCoast` |
-| 20880 | `_civSnapPlacesToLand` |
-| 20917 | `_civIsCoastal` |
-| 20938 | `_civBiomeFriction` |
-| 20951 | `_civNavigableRiverDiscount` |
-| 20958 | `_civEnhancedTravelCost` |
-| 21022 | `_civRoutingGrid` |
-| 21035 | `_civLandCostGrid` |
-| 21051 | `_civWaterCostGrid` |
-| 21090 | `_civMixedCostGrid` |
-| 21119 | `_civApplySettlementGravity` |
-| 21142 | `_civPathWaterFrac` |
-| 21154 | `_civPassedSettlements` |
-| 21204 | `_civSeaTimeEdgeCost` |
-| 21240 | `_civMstRoutes` |
-| 21367 | `_civAutoRoutes` |
-| 21389 | `_civPreferSeaRoutes` |
-| 21519 | `_civAutoWorld` |
-| 21526 | `_civHierarchicalNetwork` |
-| 21752 | `_civMarkWayNeighborhood` |
-| 21757 | `_civMarkWaysOnGrid` |
-| 21766 | `_civWalkWayCells` |
-| 21782 | `_civConnectPlaceToNetwork` |
-| 21843 | `_civTerrainValidTest` |
-| 21872 | `_civNearestValidPt` |
-| 21892 | `_civSmoothPath` |
-| 21931 | `_civNetworkMetrics` |
-| 22040 | `_umSiteBoxKm` |
-| 22044 | `_umWaterNearKm` |
-| 22050 | `_umWaterReachKm` |
-| 22055 | `_umSiteKindFromTerrain` |
-| 22096 | `_umInferAge` |
-| 22109 | `_umWallSpec` |
-| 22134 | `_umInferWalls` |
-| 22146 | `_umHarbourScale` |
-| 22152 | `_umPt` |
-| 22156 | `_umRayBoxExit` |
-| 22170 | `_umTerrainOrient` |
-| 22208 | `_umWayBearingFrom` |
-| 22227 | `_umRouteEnds` |
-| 22253 | `_umPrimaryPaths` |
-| 22300 | `_umWaterCtx` |
-| 22403 | `_umTerrainCtx` |
-| 22435 | `_civCoastDistField` |
-| 22450 | `_civOceanDistField` |
-| 22464 | `_civRiverPolylines` |
-| 22476 | `_umSiteProfile` |
-| 22584 | `_civDeriveSpecialisation` |
-| 22613 | `_umOreBearing` |
-| 22635 | `_umPlaceContext` |
-| 22685 | `_umCacheKey` |
-| 22711 | `_umCacheEvict` |
-| 22712 | `_umScheduleGenStep` |
-| 22734 | `_umModelFor` |
-| 22754 | `_umLayoutAlpha` |
-| 22774 | `_umDrawLayout` |
-| 22889 | `_umModelForNow` |
-| 22901 | `_umDrawLayoutPreview` |
-| 22998 | `_cvFitCam` |
-| 23021 | `_cvDrawCity` |
-| 23133 | `_cvLodTierLabel` |
-| 23134 | `_cvUpdateLegend` |
-| 23138 | `_cvRender` |
-| 23148 | `_cvZoomAt` |
-| 23158 | `_civOpenCityViewer` |
-| 23173 | `_civCloseCityViewer` |
-| 23202 | `_civPopulateCityViewerInfo` |
-| 23297 | `_civRegionalPopulation` |
-| 23369 | `subsistenceModeAt` |
-| 23381 | `agrarianDensityKm2` |
-| 23396 | `grainKgPerHaMedieval` |
-| 23405 | `grainYieldRatio` |
-| 23433 | `_civBasePopForKind` |
-| 23441 | `currentAgrarianDensity` |
-| 23461 | `_civCatchmentDensityMean` |
-| 23477 | `_civCatchmentRadiusRaw` |
-| 23481 | `_civCatchmentRadiusCells` |
-| 23490 | `_civCatchmentPop` |
-| 23506 | `_civSettlementPopulation` |
-| 23516 | `_civAgrarianRegionalTotal` |
-| 23560 | `_civFactionCapital` |
-| 23575 | `_civFactionAggregates` |
-| 23748 | `_civCultureTerrainFit` |
-| 23765 | `_civPlaceCatchmentCeiling` |
-| 23774 | `_civPlaceFoodSurplus` |
-| 23792 | `_civPlaceGrainYield` |
-| 23802 | `_civPlaceDefensibility` |
-| 23813 | `_civPlaceConnectedRoads` |
-| 23825 | `_civPlaceRiverContext` |
-| 23932 | `grainYieldKgHa` |
-| 23954 | `foodSurplusRatio` |
-| 23977 | `currentSoilReference` |
-| 23998 | `_civFoodMode` |
-| 24005 | `_civFoodDeliverable` |
-| 24014 | `_civFoodConnected` |
-| 24022 | `_civRoadComponents` |
-| 24041 | `_civRoadConnected` |
-| 24050 | `_civFoodShed` |
-| 24139 | `_civApplyFoodShedCeilings` |
-| 24175 | `_civResourceTradeBalance` |
-| 24208 | `_civPlaceSmelting` |
-| 24278 | `_civPlaceArchetype` |
-| 24313 | `_civPlacePastoralBalance` |
-| 24361 | `_civPlaceNavigability` |
-| 24402 | `_civSeaLaneAt` |
-| 24430 | `_civSaltAccess` |
-| 24442 | `_civGoodReach` |
-| 24459 | `_civPlaceTrade` |
-| 24567 | `_civPlaceResourceContext` |
-| 24585 | `_civPlaceProsperity` |
-| 24596 | `_civUpdatePopReadout` |
-| 24618 | `_civTierForPopulation` |
-| 24619 | `_civApplyRecovery` |
-| 24672 | `_civProximityAdjacency` |
-| 24687 | `_civBetweennessFromAdjacency` |
-| 24713 | `_civSettlementStress` |
-| 24726 | `_civMortalityMigrationRates` |
-| 24738 | `_civGravityMigrate` |
-| 24785 | `_civCollapseStep` |
-| 24852 | `_civRecoveryGrowthStep` |
-| 24875 | `_civSimulateTimeline` |
-| 24896 | `_civRunCollapseSimulation` |
-| 24961 | `_civSelectMetropolises` |
-| 25022 | `_civAssignLandmassFactions` |
-| 25127 | `_civRoadProximityQuery` |
-| 25159 | `_civVillageAcceptProb` |
-| 25164 | `_civSeedVillages` |
-| 25248 | `_civConnectVillageAddons` |
-| 25336 | `_civIterativeAutoWorld` |
-| 25856 | `_civCtxHide` |
-| 25857 | `_civCtxShow` |
-| 25884 | `_civRevealBranch` |
-| 25957 | `_civDijkstraPath` |
-| 26032 | `_civCommitRoute` |
-| 26052 | `_civJoinDijkstraSegs` |
-| 26072 | `_civCommitWay` |
-| 26115 | `_civSyncToState` |
-| 26140 | `_civSyncFromState` |
-| 26235 | `_paintSyncToState` |
-| 26239 | `_paintSyncFromState` |
-| 26266 | `_lodEditsSyncToState` |
-| 26278 | `_lodEditsSyncFromState` |
-| 26319 | `_civBuildFactionPicker` |
-| 26345 | `_civRenameFaction` |
-| 26372 | `_civBuildMapFilterUI` |
-| 26425 | `_civTlStopPlay` |
-| 26429 | `_civTlStartPlay` |
-| 26452 | `_civWireYearSlider` |
-| 26478 | `_civBuildExploreTimelineUI` |
-| 26510 | `_civClosePlacePopup` |
-| 26511 | `_civOpenPlacePopup` |
-| 26539 | `_civRenderInspector` |
-| 26555 | `_civSetTool` |
+#### Noise primitives and worker-pool kernels
 
-### Script block 3 — Asset Library (19 functions)
+| Line | Function | Purpose |
+|---|---|---|
+| 2291 | `mulberry32` | Seeded 32-bit PRNG — the whole app's determinism root. |
+| 2292 | `hash` | 2D integer-lattice hash feeding value noise. |
+| 2293 | `vnoise` | Bilinear value noise at a point. |
+| 2294 | `fbm` | Fractional Brownian motion (octave-summed vnoise). |
+| 2295 | `ridged` | Ridged noise (inverted-abs vnoise) for mountain crests. |
+| 2299 | `ridgedFbm` | Octave-summed ridged noise. |
+| 2301 | `pvnoise` | Periodic (X-wrapping) value noise for cylinder worlds. |
+| 2302 | `pfbm` | Periodic fbm — seam-free on wrapped worlds. |
+| 2303 | `pridged` | Periodic ridged noise. |
+| 2315 | `fillWarpRows` | Pure row-range kernel computing the domain-warp offsets (shipped to workers via toString). |
+| 2326 | `fillHeteroRows` | Pure row-range kernel for the crustal-heterogeneity field. |
+| 2335 | `fillHeightRows` | Pure row-range kernel for the main tectonic heightfield (the master terrain formula). |
+| 2511 | `boxH` | Horizontal box-blur pass. |
+| 2512 | `boxV` | Vertical box-blur pass. |
+| 2513 | `gaussBlur` | Approximate Gaussian blur via three box passes. |
+| 2519 | `v` | DOM helper: read a slider or input's numeric value. |
+| 2520 | `lab` | DOM helper: set a value-readout label. |
 
-| Line | Function |
-|---|---|
-| 26747 | `E` |
-| 26750 | `defaultTransform` |
-| 26751 | `drawItemOnly` |
-| 26758 | `renderItem` |
-| 26763 | `renderToCanvas` |
-| 26768 | `renderToBlob` |
-| 26769 | `fitToBottom` |
-| 26781 | `mkSlots` |
-| 26825 | `slugId` |
-| 26826 | `defaultMeta` |
-| 26832 | `famScatters` |
-| 26836 | `slotRuleKey` |
-| 26841 | `slotRules` |
-| 26913 | `itemHash` |
-| 27021 | `slugName` |
-| 27025 | `toast` |
-| 27128 | `setPreviewBg` |
-| 27135 | `visibleSlots` |
-| 27873 | `encodeItemPng` |
+#### World Structure and derived tectonics
+
+| Line | Function | Purpose |
+|---|---|---|
+| 2528 | `deriveFromWorldStructure` | Map the five high-level World Structure sliders onto the low-level tectonic parameters. |
+| 2540 | `syncDerivedTectSliders` | Push derived values into the tectonic sliders' UI. |
+| 2548 | `syncWSSliders` | Sync World Structure slider UI from an archetype/state. |
+| 2556 | `generateContinentalityField` | Low-frequency continental-mask field that biases land placement per archetype. |
+| 2603 | `applyWorldStructureSeaLevel` | Histogram-derived sea level hitting the archetype's target ocean fraction. |
+| 2621 | `computeWarpPrep` | Precompute warp parameters/buffers before the warp pass. |
+| 2641 | `terrainDetailK` | Resolution-compensating detail gain so terrain character is resolution-independent (shared cap family, max 16). |
+| 2672 | `riverCoarseEase` | Eases river-scale constants between coarse and fine grids. |
+| 2700 | `lodDetailFreqK` | Detail-noise frequency scaling for LOD tiles (same family). |
+| 2731 | `riverWidthScaleK` | Km-true river width scaling across resolutions (same family). |
+| 2735 | `computeWarp` | Domain-warp field, single-threaded. |
+| 2736 | `computeWarpPool` | Domain-warp via the GENPOOL worker pool. |
+| 2737 | `warpParams` | Parameter object for the warp kernels. |
+
+#### Plates, boundaries, orogeny, crust fields
+
+| Line | Function | Purpose |
+|---|---|---|
+| 2740 | `buildPlates` | Seed tectonic plates with random centres, velocities and crust types. |
+| 2771 | `assignPlates` | Jump-flood (JFA) Voronoi assignment of every cell to its plate. |
+| 2825 | `classifyBoundary` | Classify a plate pair's boundary: collision, ocean-continent subduction, ocean-ocean arc, rift or transform (BTYPE). |
+| 2834 | `computeStress` | Per-cell tectonic stress from relative plate motion at boundaries. |
+| 2860 | `distanceToBoundary` | Distance field from plate boundaries (uplift falloff basis). |
+| 2889 | `thinMask` | Morphological thinning of the boundary mask to 1-px lines. |
+| 2910 | `_polyMeta` | Metadata (plate pair, type) for a traced boundary polyline. |
+| 2923 | `traceBoundaries` | Trace thinned boundary cells into ordered polylines. |
+| 2955 | `currentBoundaryGraph` | Cached boundary graph (polylines and types) for the tectonic-graph orogeny path. |
+| 2981 | `buildOrogenyField` | Graph-based orogeny: classify belts T1-T5 along boundaries and build the uplift field. |
+| 3077 | `smoothOrogeny` | Smooth the orogeny field. |
+| 3083 | `plateCrust` | Crust type (oceanic/continental) lookup per plate. |
+| 3088 | `currentOrogenyField` | Cached orogeny field accessor. |
+| 3105 | `computeFlexure` | Lithospheric flexure: blurred load response depressing terrain beside mountain loads. |
+| 3117 | `heteroParams` | Parameter object for the heterogeneity kernels. |
+| 3118 | `_heteroNormalize` | Normalise the heterogeneity field to a stable range. |
+| 3119 | `computeHeterogeneity` | Crustal-heterogeneity field, single-threaded. |
+| 3123 | `computeHeterogeneityPool` | Heterogeneity via the worker pool. |
+| 3132 | `computeResistance` | Erosion-resistance field from lithology/heterogeneity (couples tectonics to erosion). |
+| 3144 | `recomputeResistanceAfterErosion` | Refresh resistance after erosion exposed new material. |
+
+#### Landmass centering and fjords
+
+| Line | Function | Purpose |
+|---|---|---|
+| 3156 | `bestEmptyColumn` | Find the most ocean-filled longitude column (the least destructive seam). |
+| 3161 | `shiftGridX` | Cyclically shift all fields in X. |
+| 3171 | `featherSeamX` | Blend a shifted seam so no hard edge remains. |
+| 3179 | `centerLandmasses` | Rotate the wrapped world so land sits away from the seam (the Center button). |
+| 3209 | `buildFjordMask` | Mask of glacially-carvable coastal valleys weighted by lithology competence. |
+| 3229 | `carveFjords` | Carve fjord troughs into the masked valleys. |
+| 3240 | `currentFjordMask` | Cached fjord mask accessor. |
+| 3245 | `carveFjordsOp` | The Fjords button op: build mask, carve, refresh. |
+
+#### Legacy travel-cost roads (engine kept; UI retired v0.64)
+
+| Line | Function | Purpose |
+|---|---|---|
+| 3257 | `buildTravelCost` | Terrain travel-cost grid (slope, water, biome) used by road pathfinding and territory fill. |
+| 3275 | `roadDijkstra` | Grid Dijkstra (single- or multi-source, optional directional edge cost, X-wrap aware) — the routing engine every path-based feature uses. |
+| 3316 | `buildRoadNetwork` | Legacy MST road network between places over the travel-cost grid. |
+
+#### Master generation pipeline and volcanism
+
+| Line | Function | Purpose |
+|---|---|---|
+| 3334 | `heightParams` | Parameter object for the height kernels. |
+| 3335 | `fillHeightPool` | Heightfield via the worker pool. |
+| 3339 | `generate` | The master pipeline: plates, warp, height, volcanoes, flow, climate, render; completes synchronously and never throws (invariant). |
+| 3410 | `buildTectonicSubstrate` | The deterministic tectonic prefix of generate(), reused by loadZip so loaded worlds rebuild identical substrates. |
+| 3466 | `stampOneVolcano` | Stamp a single volcano cone with crater and noise. |
+| 3474 | `stampVolcanoes` | Stamp volcanoes at stress-weighted boundary sites. |
+| 3485 | `clampFeatureRadiusCells` | Clamp a feature radius to sane cell counts across resolutions. |
+| 3487 | `placeSizedVolcano` | Place one volcano with size drawn from the provincial distribution. |
+| 3497 | `stampVolcanoesSimple` | Simple mode: uniform random volcano placement. |
+| 3508 | `classifyBoundaries` | Boundary-type tally used by province placement. |
+| 3514 | `placeProvinceVolcanoes` | Provinces mode: cluster volcanoes into arc/rift/hotspot provinces. |
+| 3540 | `stampVolcanoesProvinces` | Drive province placement and stamping. |
+| 3559 | `stampOneCrater` | Stamp a single impact crater (rim and bowl). |
+| 3568 | `stampCraters` | Stamp the requested crater count. |
+
+#### Erosion family (droplet, thermal, hillslope, velocity, stream-power, glacial, coastal)
+
+| Line | Function | Purpose |
+|---|---|---|
+| 3584 | `dropletKernel` | Pure droplet-erosion kernel (particle raindrops eroding/depositing), worker-shippable. |
+| 3855 | `perfShow` | Show last-op timing in the perf label. |
+| 3856 | `erodeThermalCPU` | CPU thermal erosion (talus-angle slippage). |
+| 3867 | `erodeThermal` | Thermal erosion dispatcher (GPU when validated, else CPU). |
+| 3872 | `hillslopeDiffuseCPU` | CPU hillslope diffusion. |
+| 3883 | `hillslopeDiffuse` | Hillslope diffusion dispatcher (GPU/CPU). |
+| 3889 | `dropletParams` | Parameter object for droplet erosion. |
+| 3892 | `erodeFinish` | Post-erosion refresh: flow, climate, caches, render. |
+| 3898 | `erode` | The Droplet-erosion button op (sync path). |
+| 3919 | `_bilin` | Bilinear field sample helper for velocity erosion. |
+| 3926 | `centrifugalShear` | Extra shear on meander outer banks (velocity erosion). |
+| 3936 | `velocityErodeKernel` | Pure Mei virtual-pipes velocity-erosion kernel. |
+| 3995 | `veloParams` | Parameter object for velocity erosion. |
+| 3998 | `veloFinish` | Velocity-erosion finish/refresh. |
+| 4001 | `velocityErode` | Velocity-erosion sync op. |
+| 4007 | `velocityEroseAsync` | Velocity erosion in a worker with progress. |
+| 4042 | `erodeAsync` | Droplet erosion in a worker with progress. |
+| 4082 | `streamPowerKernel` | Pure Braun-Willett implicit stream-power incision kernel. |
+| 4198 | `glacialKernel` | Pure glacial-erosion kernel (ice thickness, U-valley carving). |
+| 4260 | `eroFinish` | Shared erosion finish for stream/glacial. |
+| 4261 | `streamParams` | Stream-power parameter object. |
+| 4262 | `glacialParams` | Glacial parameter object. |
+| 4263 | `streamPowerErode` | Stream-power sync op. |
+| 4270 | `evolveCoupled` | Evolve button: N cycles of uplift plus stream-power plus diffusion, coupled. |
+| 4286 | `routeSediment` | Route eroded sediment down the flow field. |
+| 4310 | `depositSediment` | Deposit routed sediment in basins and at coasts. |
+| 4324 | `applyTidalSedimentation` | Deposit tidal-flat sediment in high-tidal-range shallows. |
+| 4336 | `tidalFlats` | The Tidal-flats button op. |
+| 4337 | `glacialErode` | Glacial sync op. |
+| 4345 | `runErosionWorker` | Generic run-a-kernel-in-a-worker harness (self-contained source, Invariant 11). |
+| 4371 | `streamPowerEroseAsync` | Stream-power in a worker. |
+| 4379 | `glacialEroseAsync` | Glacial in a worker. |
+| 4388 | `coastalProcess` | Coastal erosion dispatcher. |
+| 4407 | `coastalProcessCPU` | CPU coastal wave-erosion, estuary and marsh pass. |
+| 4428 | `isostaticRebound` | Isostatic uplift response after glacial unloading. |
+
+#### Flow, rivers, features
+
+| Line | Function | Purpose |
+|---|---|---|
+| 4454 | `strahlerFromReceivers` | Strahler stream order over the receiver graph. |
+| 4493 | `riverFlowThresh` | The file-wide flow threshold for "is a river" (GW·GH·0.0004). |
+| 4494 | `buildRiverNetwork` | Build the river network: receivers, Strahler orders, channels, Rosgen-informed widths. |
+| 4550 | `channelThreshold` | Flow threshold for channel initiation. |
+| 4559 | `traceRiverPolylines` | Trace flow cells into ordered river polylines. |
+| 4596 | `splitRiverPolylines` | Split traced polylines at confluences and seams. |
+| 4612 | `riverSinuAmp` | Sinuosity amplitude by stream order. |
+| 4615 | `riverSinuosity` | Add meander sinuosity to river polylines. |
+| 4633 | `buildFeatureRegistry` | Registry of named world features (peaks, rivers, bays...) for export and labels. |
+| 4697 | `currentFeatures` | Cached feature registry accessor. |
+| 4706 | `featuresNear` | Features near a point (info readouts). |
+| 4715 | `riversInRect` | Rivers intersecting a rectangle (region export). |
+| 4720 | `featureSummary` | Human-readable feature summary text. |
+
+#### Paint layers, legacy roads ops, flow computation, allocation
+
+| Line | Function | Purpose |
+|---|---|---|
+| 4765 | `getPaintLayer` | Lazily allocate the requested hand-paint raster (biome/splat/terrain). |
+| 4774 | `_paintSampleAt` | Read the painted value at a cell (0 = unpainted). |
+| 4783 | `_paintAt` | Apply the paint brush (radius, erase mode) at a cell. |
+| 4802 | `_carPopulatePaintValueSelect` | Fill the paint-value dropdown for the active layer. |
+| 4816 | `buildRoadsOp` | Legacy build-roads op over a downsampled cost grid (≤384px). UI retired v0.64. |
+| 4826 | `clearRoads` | Clear legacy roads state. |
+| 4827 | `clearPlaces` | Clear legacy places state. |
+| 4828 | `clearLabels` | Clear region labels (still the Cartography Clear-labels backing). |
+| 4846 | `_flowRadixSortDesc` | Radix-sort cells by height descending (flow accumulation order). |
+| 4862 | `computeFlow` | Priority-flood depression fill plus MFD flow accumulation — the hydrology base. |
+| 4908 | `invalidateFieldCaches` | Drop every derived-field cache after the heightfield changes. |
+| 4914 | `loadImage` | Import a grayscale image as the heightfield. |
+| 4930 | `normalize` | Normalise the heightfield to 0..1. |
+| 4937 | `allocate` | Allocate all world arrays at the current resolution. |
+
+#### Planetary grounding: units, geoid, tides, temperature
+
+| Line | Function | Purpose |
+|---|---|---|
+| 4951 | `metersPerUnit` | Metres per height unit from the calibrated peak. |
+| 4952 | `elevM` | Cell elevation in metres. |
+| 4960 | `_v3dEffExag` | Effective 3D exaggeration (auto-scaled with map size). |
+| 4961 | `maxGrade` | Max slope grade readout helper. |
+| 4965 | `latAt` | Latitude at a row from the mapped band. |
+| 4973 | `buildGeoid` | Low-frequency geoid undulation field. |
+| 4996 | `refreshGeoid` | Rebuild geoid on parameter change. |
+| 5003 | `geoAt` | Geoid offset at a cell. |
+| 5005 | `currentGeoidPreview` | Cached geoid preview accessor. |
+| 5022 | `tidalForcing` | Tidal forcing magnitude from companion mass, distance and Love number. |
+| 5023 | `computeTideField` | Tidal-range field (coastline geometry amplification). |
+| 5038 | `buildTideField` | Build and cache the tide field. |
+| 5039 | `refreshTides` | Rebuild tides on parameter change. |
+| 5041 | `currentTideField` | Cached tide field accessor. |
+| 5049 | `gridH` | Height accessor with bounds clamp. |
+| 5055 | `applyCryosphereAlbedo` | Ice-albedo feedback: iterative cooling where ice persists. |
+| 5096 | `_obliquityS2` | Second-order obliquity insolation term. |
+| 5098 | `insolationContrastK` | Equator-pole insolation contrast vs axial tilt. |
+| 5102 | `rotationContrastK` | Day-length effect on thermal contrast. |
+| 5115 | `climEffectiveEquatorTemp` | Equator temperature grounded in the planetary parameters. |
+| 5119 | `computeTemperature` | The temperature field: insolation, lapse rate, continentality. |
+| 5153 | `recomputeClimate` | Recompute the full climate chain. |
+| 5154 | `refreshClimate` | Climate refresh plus render. |
+| 5166 | `scheduleRender` | Debounced render request. |
+| 5177 | `mbuf` | Scratch buffer pool (moisture grids). |
+| 5178 | `ibuf` | Scratch buffer pool (int grids). |
+| 5179 | `ubuf` | Scratch buffer pool (byte grids). |
+
+#### Atmosphere and ocean
+
+| Line | Function | Purpose |
+|---|---|---|
+| 5188 | `applyClimateMoistureCorrectors` | Post-sim moisture correctors (coastal gradient, orographic sanity). |
+| 5246 | `oceanSSTAnomaly` | Sea-surface temperature anomaly from currents. |
+| 5270 | `applyOceanCurrents` | Apply current-driven SST anomalies to coastal temperature. |
+| 5295 | `satCap` | Saturation moisture capacity vs temperature. |
+| 5299 | `circulationCells` | Hadley/Ferrel/polar cell wind directions by latitude. |
+| 5315 | `deflectFlow` | Deflect currents around land (coastal steering). |
+| 5368 | `computeOceanCurrent` | Ocean-current field: gyres, Ekman deflection, western intensification. |
+| 5464 | `buildWind` | Wind field: circulation cells plus pressure gradients (or manual direction). |
+| 5537 | `bilC` | Bilinear sample on the coarse climate grid. |
+| 5543 | `blurCoarse` | Blur a coarse-grid field. |
+| 5555 | `currentWindField` | Cached wind field accessor. |
+| 5577 | `currentOceanField` | Cached ocean-current field accessor. |
+| 5604 | `buildWindThrowField` | Windthrow exposure field (storm-felled forest risk). |
+| 5621 | `currentWindThrowField` | Cached windthrow accessor. |
+| 5634 | `buildFloodField` | Flood-risk field (low relief near channels). |
+| 5644 | `currentFloodField` | Cached flood accessor. |
+| 5661 | `currentSlopeField` | Cached slope field accessor. |
+| 5670 | `simulateWeather` | Coarse-grid semi-Lagrangian moisture transport producing the rain field. |
+
+#### Biomes and water bodies
+
+| Line | Function | Purpose |
+|---|---|---|
+| 5736 | `classifyBiome` | Whittaker classification: temperature plus moisture to biome. |
+| 5753 | `buildWaterBodies` | Label lakes vs ocean (flood-filled water bodies). |
+| 5820 | `currentWaterBodies` | Cached water-bodies accessor. |
+
+#### Affordance stack (lithology, soil, water, resources, carrying capacity, suitability)
+
+| Line | Function | Purpose |
+|---|---|---|
+| 5835 | `buildLithology` | Rock-type raster derived from tectonic context (orogeny, age, volcanism). |
+| 5849 | `lithIndexManifest` | Export manifest naming the lithology indices. |
+| 5852 | `buildSoilFertility` | Soil fertility from lithology, sediment, climate and slope. |
+| 5866 | `buildWaterAccess` | Water access score: rivers, lakes, coast, rain reliability. |
+| 5876 | `currentLithology` | Cached lithology accessor. |
+| 5877 | `currentSoil` | Cached soil accessor. |
+| 5878 | `currentWaterAccess` | Cached water-access accessor. |
+| 5903 | `buildRouteCorridors` | Natural route-corridor field (passes, valleys) from cost-distance structure. |
+| 5950 | `currentRouteCorridors` | Cached route-corridor accessor. |
+| 5970 | `buildLandmassQuality` | Per-landmass habitability quality score. |
+| 6015 | `currentLandmassQuality` | Cached landmass-quality accessor. |
+| 6055 | `resourceScarcityCut` | Percentile cut making each resource genuinely scarce (v1.31 thinning). |
+| 6067 | `applyResourceScarcity` | Apply the scarcity cut to a resource field. |
+| 6079 | `resourceIndexManifest` | Export manifest naming the resource channels. |
+| 6085 | `buildResourcePotentials` | The 15 resource-potential fields (copper..alum) from lithology/terrain context. |
+| 6185 | `foragerFloorKm2` | Forager subsistence floor density. |
+| 6193 | `biomeDensityResidual` | Biome residual adjustment on carrying capacity (opt-in). |
+| 6199 | `biomeIntensifyEligible` | Which biomes allow agricultural intensification. |
+| 6217 | `estimateRegionalDensityKm2` | Regional population-density estimate from K. |
+| 6233 | `suppressionRadiusCells` | Convert a spacing in km to a suppression radius in cells. |
+| 6238 | `buildCarryingCapacity` | The carrying-capacity field K: soil, water, climate, biome composite. |
+| 6318 | `_civTerrainRuggednessD` | Defensibility score of relative elevation (mild upland scores highest). |
+| 6319 | `buildSettlementSuitability` | The one unified settlement-suitability field (SUIT_W_FULL weights: water, soil, defense, resources, corridors...). |
+| 6418 | `findSettlementSeeds` | Local-maxima seed picking over suitability with suppression radius. |
+| 6452 | `currentResourcePotentials` | Cached resource-potentials accessor. |
+| 6453 | `currentCarryingCapacity` | Cached K accessor. |
+| 6455 | `currentPopulationDensity` | Cached population-density accessor. |
+| 6462 | `currentSettlementSuitability` | Cached suitability accessor. |
+
+#### Wildlife and ecoregions
+
+| Line | Function | Purpose |
+|---|---|---|
+| 6497 | `buildNPP` | Net-primary-productivity field. |
+| 6504 | `buildTRI` | Terrain-ruggedness index field. |
+| 6517 | `guildTrophic` | Trophic-guild richness scaling with NPP. |
+| 6538 | `buildEcoregions` | Cluster cells into wildlife ecoregions. |
+| 6568 | `wildSig2` | Region signature hash for deterministic rosters. |
+| 6570 | `regionRichness` | Species richness per ecoregion. |
+| 6578 | `assignWildlife` | Assign species rosters (WILD_ROSTERS) to ecoregions. |
+| 6607 | `wildRegionColor` | Deterministic display colour per ecoregion. |
+| 6613 | `currentNPP` | Cached NPP accessor. |
+| 6614 | `currentTRI` | Cached TRI accessor. |
+| 6615 | `currentWildlife` | Cached wildlife assignment accessor. |
+
+#### Tectonic inversion for imported DEMs
+
+| Line | Function | Purpose |
+|---|---|---|
+| 6641 | `buildReliefField` | Relief magnitude field from an imported heightmap. |
+| 6659 | `pickPlateSeeds` | Choose plate seeds consistent with the imported relief. |
+| 6681 | `classifyPlateCrust` | Infer oceanic vs continental crust per inferred plate. |
+| 6698 | `reconstructBoundaryStress` | Rebuild plausible boundary stress from relief. |
+| 6733 | `stampVolcanicArcs` | Mark volcanic arcs along inferred subduction boundaries. |
+| 6745 | `inferPlateVelocities` | Infer plate velocities consistent with the stress pattern. |
+| 6755 | `inferTectonics` | The Infer-tectonics op: full inversion so downstream layers work on imports. |
+
+#### Cartalith biome/terrain bridge and RLE
+
+| Line | Function | Purpose |
+|---|---|---|
+| 6797 | `BIOME_INDEX` | Biome name to index mapping (frozen, append-only). |
+| 6798 | `buildBiomeRaster` | Byte raster of Whittaker biome indices (paint-layer aware). |
+| 6817 | `buildCartBiome` | Map to the 15 CART_BIOMES vocabulary (export/game-facing). |
+| 6833 | `currentCartBiome` | Cached CartBiome accessor. |
+| 6839 | `buildWetlandMask` | Wetland mask (flood + flat + wet). |
+| 6849 | `currentWetlandMask` | Cached wetland accessor. |
+| 6860 | `buildCartTerrain` | Map to the 13 CART_TERRAINS movement-terrain vocabulary. |
+| 6877 | `currentCartTerrain` | Cached CartTerrain accessor. |
+| 6882 | `encodeBiomeRLE` | Run-length-encode a byte raster for export. |
+| 6891 | `decodeBiomeRLE` | Decode the RLE codec. |
+| 6900 | `cartalithGridManifest` | Export manifest for the Cartalith grids. |
+| 6907 | `biomeIndexManifest` | Export manifest naming biome indices. |
+
+#### Asset scatter rules and map icons
+
+| Line | Function | Purpose |
+|---|---|---|
+| 6938 | `defaultScatterRule` | The neutral scatter-rule object. |
+| 6952 | `scatterRuleKey` | Canonical rule key spelling (shared with the Asset Library). |
+| 6971 | `presetScatterRule` | Engine preset rules reproducing the pre-v1.26 hard-coded icon behaviour. |
+| 6987 | `normalizeScatterRule` | Merge a stored rule onto its preset (old-save compatible). |
+| 7014 | `pickWeightedVariant` | Deterministic per-cell variant pick honouring variant weights. |
+| 7030 | `currentScatterRules` | Effective rules: library-pushed over presets. |
+| 7048 | `applyLibraryAssets` | The runtime bridge: accept the Asset Library's art plus rules into assetPack (bumps the scatter generation). |
+| 7088 | `autopopulateScatterRules` | Fill missing rules with presets, never inventing user intent for customs. |
+| 7102 | `placeMapIcons` | Legacy hard-coded icon scattering (pre-rules path). |
+| 7194 | `placeMapIconsRuled` | Rule-driven icon scattering (density, biomes, elevation bands, wetland). |
+| 7294 | `iconSlotForItem` | Which icon slot a scattered item belongs to. |
+| 7304 | `iconVariantsFor` | Variant list for a slot (pack or built-in glyphs). |
+| 7315 | `drawIconGlyph` | Draw a built-in vector glyph fallback for an icon slot. |
+| 7366 | `drawMapIcons` | Draw the scattered plus manual icons onto the map. |
+
+#### Distance fields and SDF edge effects
+
+| Line | Function | Purpose |
+|---|---|---|
+| 7398 | `computeCoastDistance` | Distance-to-coast field. |
+| 7423 | `chamferDist` | Two-pass chamfer distance transform. |
+| 7444 | `jfaDist` | Jump-flood distance transform (parallel-friendly). |
+| 7460 | `distMask` | Build a mask for distance seeding. |
+| 7462 | `buildCoastSDF` | Signed distance to the coastline (render edge effects). |
+| 7471 | `buildRiverSDF` | Signed distance to rivers. |
+| 7481 | `buildBiomeBoundaryDist` | Distance to the nearest biome boundary. |
+
+#### Seasons and Köppen
+
+| Line | Function | Purpose |
+|---|---|---|
+| 7491 | `computeTempInto` | Temperature for an arbitrary season phase into a buffer. |
+| 7501 | `computeSeasons` | Seasonal temperature/moisture extremes (Jan/Jul pair). |
+| 7515 | `KOPPEN_INDEX` | Köppen class to index mapping. |
+| 7524 | `classifyKoppen` | Köppen climate classification from seasonal data. |
+| 7556 | `buildKoppen` | Köppen raster. |
+| 7560 | `koppenColor` | Standard Köppen class colours. |
+| 7561 | `koppenIndexManifest` | Export manifest naming Köppen classes. |
+
+#### Material rendering core
+
+| Line | Function | Purpose |
+|---|---|---|
+| 7568 | `clamp01` | Clamp to 0..1. |
+| 7569 | `smoothstep` | Smoothstep interpolation. |
+| 7570 | `ramp3` | Three-stop colour ramp. |
+| 7584 | `slopeAt` | Slope magnitude at a cell. |
+| 7585 | `vignetteAt` | Edge vignette factor. |
+| 7586 | `gradAt` | Height gradient at a cell. |
+| 7590 | `aspectFactor` | Slope-aspect lighting factor. |
+| 7599 | `curvatureAt` | Terrain curvature (crest/valley) at a cell. |
+| 7624 | `curvatureAtF` | Curvature over an arbitrary field (tiles). |
+| 7627 | `aspectFactorF` | Aspect factor over an arbitrary field. |
+| 7632 | `grassCol` | Grass material colour ramp. |
+| 7633 | `forestCol` | Forest material colour ramp. |
+| 7634 | `sandCol` | Sand material colour ramp. |
+| 7635 | `rockCol` | Rock material colour ramp. |
+| 7636 | `snowCol` | Snow material colour ramp. |
+| 7638 | `wetlandCol` | Wetland material colour ramp. |
+| 7642 | `shadeFactor2` | Hillshade factor (two-light model). |
+| 7655 | `materialWeights` | Per-cell material blend weights (grass/rock/sand/snow/wetland/canopy) — the splat basis. |
+| 7715 | `bioJitter` | Small per-cell colour jitter breaking flat fills. |
+| 7720 | `landColorCore` | The land-pixel material synthesis: materials, textures, AO, crest, SVF, shadows, geology, wetness, season, contours — the big one. |
+| 7966 | `smoothSeaH` | Smoothed sea-adjacent height (coastal shading base). |
+| 7978 | `sharedSeaFields` | Shared cached sea-shading inputs. |
+| 7993 | `aoMul` | Ambient-occlusion multiplier lookup. |
+| 7994 | `buildAOField` | Ambient-occlusion field. |
+| 8008 | `buildCrestField` | Crest-light field (ridge highlighting). |
+| 8023 | `applyCrest` | Apply crest light to a colour. |
+| 8032 | `buildSVFField` | Sky-view-factor field. |
+| 8057 | `buildSunShadowField` | Cast sun-shadow field. |
+| 8083 | `buildLandformField` | Landform classification field (plain/hill/mountain/valley...). |
+| 8107 | `currentLandform` | Cached landform accessor. |
+| 8112 | `seaShadeFrom` | Sea shading from depth and coast distance. |
+| 8122 | `seaColorCore` | The sea-pixel colour synthesis. |
+| 8133 | `sdfEcoKv` | SDF ecotone strength constants. |
+| 8134 | `applyCoastRiverSDFv` | Apply coast/river SDF edge tints to a pixel. |
+| 8145 | `surfaceColor` | Full surface colour for a cell (land or sea core plus SDF, splats). |
+| 8200 | `debugBaseColor` | Base colour under a debug overlay. |
+
+#### Info popups and colour helpers
+
+| Line | Function | Purpose |
+|---|---|---|
+| 8215 | `settlementSeedInfo` | Compose a settlement seed's suitability breakdown text. |
+| 8237 | `hideSettleInfo` | Hide the settlement popup. |
+| 8238 | `showSettleInfo` | Show the settlement-seed popup at a click. |
+| 8257 | `wildFmtPop` | Format a wildlife population estimate. |
+| 8258 | `hideWildInfo` | Hide the wildlife popup. |
+| 8259 | `showWildInfo` | Show the wildlife-region popup at a click. |
+| 8277 | `seaColor` | Simple sea colour (debug paths). |
+| 8285 | `lakeColor` | Lake colour. |
+| 8290 | `lakeColorSampled` | Lake colour sampled from surroundings. |
+| 8296 | `tempColor` | Temperature debug ramp. |
+| 8299 | `rainColor` | Rainfall debug ramp. |
+| 8304 | `lerp` | Scalar interpolation. |
+| 8305 | `mix` | Colour interpolation. |
+| 8318 | `waterShade` | Water depth shading. |
+| 8326 | `flowMapPhases` | Animated flow-map phase offsets. |
+| 8332 | `hypso` | Hypsometric tint ramp. |
+| 8338 | `divColor` | Diverging debug ramp. |
+| 8339 | `hsl` | HSL to RGB helper. |
+| 8342 | `shadeFactor` | Basic hillshade factor. |
+| 8357 | `multiSunFromNormal` | Multi-directional sun term from a normal. |
+| 8364 | `multiSunShade` | Multi-sun hillshade blend. |
+| 8371 | `macroShade` | Low-frequency macro relief shading. |
+| 8374 | `isWater` | Cell water test (sea level plus water bodies). |
+
+#### The renderer
+
+| Line | Function | Purpose |
+|---|---|---|
+| 8376 | `renderNow` | The master render: per-pixel base map plus ~30 debug views plus overlays (rivers, icons, roads, region, civ hook). |
+| 8670 | `waterAnimActive` | Is water animation running. |
+| 8671 | `stopWaterAnim` | Stop the water animation loop. |
+| 8672 | `startWaterAnim` | Start the water animation loop. |
+| 8673 | `waterAnimFrame` | Per-frame animated water redraw. |
+| 8693 | `render` | Public render entry (schedules renderNow). |
+
+#### River channel enforcement
+
+| Line | Function | Purpose |
+|---|---|---|
+| 8701 | `rdpSimplify` | Ramer-Douglas-Peucker polyline simplification. |
+| 8725 | `enforceChannelDescent` | Force monotone descent along a channel. |
+| 8742 | `enforceRiverChannels` | Enforce channels for all rivers. |
+| 8761 | `carveRiverValleys` | Carve valley cross-sections around channels. |
+| 8790 | `catmullRomSample` | Catmull-Rom smooth sampling of a polyline. |
+
+#### Sculpt editor
+
+| Line | Function | Purpose |
+|---|---|---|
+| 8837 | `sculptFbm` | Sculpt-stamp fbm noise. |
+| 8838 | `sculptRidged` | Sculpt-stamp ridged noise. |
+| 8839 | `sculptBillow` | Sculpt-stamp billow noise. |
+| 8845 | `sculptNearestOnStroke` | Distance from a point to the captured stroke (stamp falloff basis). |
+| 9020 | `sculptStampRadius` | Effective stamp radius in cells. |
+| 9021 | `sculptStampBBox` | Stamp bounding box. |
+| 9033 | `sculptApplyStamp` | Apply one stamp's height delta into a buffer (13-feature registry dispatch). |
+| 9101 | `_sculptEditorActive` | Is the Sculpt sub-tab active. |
+| 9102 | `sculptDefaultParams` | Default sculpt parameters. |
+| 9103 | `_sculptCurParams` | Current parameters from the UI. |
+| 9108 | `sculptPointerDown` | Begin a stroke capture. |
+| 9116 | `sculptPointerMove` | Extend the stroke. |
+| 9123 | `sculptCancelStroke` | Abort the stroke. |
+| 9124 | `sculptFinishStroke` | Finish the stroke into a draft stamp. |
+| 9157 | `_sculptNavPanLoop` | Joystick pan animation loop. |
+| 9176 | `_sculptNavSetKnob` | Joystick knob position from touch. |
+| 9197 | `_sculptNavResetKnob` | Reset the joystick. |
+| 9213 | `_sculptNavSync` | Show/hide the joystick with the tool. |
+| 9248 | `sculptClearOverlay` | Clear the sculpt overlay canvas. |
+| 9249 | `_sculptDrawStamp` | Draw one stamp's outline on the overlay. |
+| 9267 | `sculptRenderOverlay` | Draw all draft stamps. |
+| 9275 | `sculptRenderCursor` | Draw the brush cursor. |
+| 9286 | `sculptDrawLODOverlay` | Overlay drawing under tiled LOD. |
+| 9299 | `sculptSnapshot` | Snapshot the draft state for history. |
+| 9300 | `sculptPushHistory` | Push a history entry. |
+| 9301 | `sculptUndo` | Draft undo. |
+| 9308 | `sculptRedo` | Draft redo. |
+| 9317 | `sculptCommit` | Bake the draft stack into the heightfield (one global undo step), refresh everything. |
+| 9353 | `sculptDiscard` | Discard the draft stack. |
+| 9363 | `sculptOnGlobalChange` | Invalidate drafts when the world regenerates under them. |
+| 9367 | `sculptOnParamChange` | Live-update the selected stamp's parameters. |
+| 9373 | `sculptSyncStampList` | Rebuild the stamp-stack list UI. |
+| 9389 | `sculptBuildFeaturePalette` | Build the 13-feature palette from SCULPT_FEATURES. |
+| 9400 | `sculptSyncFeatureSeg` | Sync palette selection state. |
+| 9405 | `sculptBuildPresets` | Build the 8-preset row from SCULPT_PRESETS. |
+| 9415 | `sculptSyncGlobalSliders` | Sync brush/noise sliders from params. |
+| 9428 | `sculptBuildFeatureControls` | Build the per-feature dynamic controls. |
+| 9451 | `sculptSyncUI` | Full sculpt UI sync. |
+
+#### Rivers-as-ways, undo, coordinate mapping, overlays
+
+| Line | Function | Purpose |
+|---|---|---|
+| 9473 | `drawRiverWays` | Draw rivers as styled way polylines (km-true widths). |
+| 9549 | `pushUndo` | Push the single-level global heightmap undo. |
+| 9554 | `undoLast` | Restore the undo buffer (Ctrl+Z). |
+| 9559 | `updateUndoUI` | Sync the undo button and memory readout. |
+| 9570 | `evtToGrid` | Pointer event to fractional grid coordinates. |
+| 9577 | `evtToGridLOD` | LOD-aware inverse (maps through the LOD window); falls back to evtToGrid. |
+| 9587 | `drawRoadsOverlay` | Draw the legacy roads overlay. |
+| 9602 | `drawExportTileGrid` | Draw the export tile grid. |
+| 9611 | `renderRegionOverlay` | Draw the region-select rectangle and handles. |
+
+#### Readout, legend, busy overlay
+
+| Line | Function | Purpose |
+|---|---|---|
+| 9799 | `fmt` | Number formatting helper. |
+| 9800 | `fmtK` | Thousands formatting helper. |
+| 9801 | `sw` | Legend swatch HTML helper. |
+| 9802 | `updateReadout` | Cursor-cell readout (elevation, temp, biome, resources...). |
+| 9824 | `generationInfoText` | Full parameter dump text for bug reports. |
+| 9869 | `updateLegend` | Rebuild the active layer's legend. |
+| 10126 | `pickLoadingMsg` | Pick a humour line from LOAD_MSGS pools. |
+| 10172 | `showBusy` | Show the blocking busy overlay. |
+| 10179 | `hideBusy` | Hide it. |
+| 10185 | `updateResOverlay` | Update the resource-inspection overlay contents. |
+| 10225 | `toggleResOverlay` | Toggle it (Shift+D). |
+
+#### Bake, tile pyramid, LOD viewer, IndexedDB atlas
+
+| Line | Function | Purpose |
+|---|---|---|
+| 10234 | `microtask` | Yield-to-event-loop helper for long bakes. |
+| 10237 | `canvasWorks` | Feature-test canvas readback. |
+| 10241 | `bakeDims` | Output dimensions for the chosen bake resolution. |
+| 10242 | `sampleArr` | Bilinear sample of a field at bake resolution. |
+| 10252 | `sampleArrRowPrep` | Precompute a bake row's sampling weights. |
+| 10255 | `sampleArrRow` | Sample a whole bake row. |
+| 10265 | `amplifyRegion` | Refine (amplify) a region's terrain in place with added detail. |
+| 10307 | `refineTile` | Refine one tile with detail noise. |
+| 10317 | `burnChannels` | Burn river channels into upsampled tiles. |
+| 10358 | `tileMicroErodeKernel` | Micro-erosion kernel for tiles. |
+| 10397 | `tileErode` | Run micro-erosion on a tile. |
+| 10418 | `sharpDelta` | Detail-sharpening delta for upsampled tiles. |
+| 10461 | `pyramidDims` | Tile-pyramid dimensions per zoom level. |
+| 10467 | `addZoomDetail` | Add procedural zoom detail to an upsampled tile. |
+| 10496 | `featureDetailPass` | Feature-aware detail pass (ridges, channels) on tiles. |
+| 10575 | `pyramidTile` | Produce one pyramid tile's heightfield (deterministic from the base field). |
+| 10594 | `pyramidTileBounds` | World bounds of a pyramid tile. |
+| 10600 | `pyramidLevelForZoom` | Pyramid level for a view zoom. |
+| 10606 | `lodCacheKey` | Cache key for a tile. |
+| 10627 | `lodCacheGet` | Tile cache read. |
+| 10631 | `lodCachePut` | Tile cache write (LRU). |
+| 10635 | `lodCacheClear` | Clear the tile cache. |
+| 10637 | `tilesInView` | Tiles intersecting the view. |
+| 10644 | `collectVisibleTiles` | Ordered visible-tile list with states. |
+| 10667 | `_lodRenderW` | Render width for LOD compositing. |
+| 10672 | `lodMaxZoom` | Maximum LOD zoom for the world size. |
+| 10675 | `lodSpanKm` | Km span of the LOD window. |
+| 10699 | `atlasMetaKey` | Atlas metadata record key. |
+| 10700 | `atlasMetaRec` | Atlas metadata record shape. |
+| 10703 | `worldKey` | Stable key identifying this world in the atlas DB. |
+| 10709 | `atlasKeyStr` | Atlas tile key string. |
+| 10710 | `atlasChunkKey` | Atlas chunk key. |
+| 10712 | `atlasEncodeChunk` | Encode a chunk for storage. |
+| 10713 | `atlasDecodeChunk` | Decode a stored chunk. |
+| 10715 | `bakedCover` | Does the atlas cover a tile at sufficient depth. |
+| 10721 | `atlasOpen` | Open the IndexedDB atlas store. |
+| 10731 | `atlasPut` | Store a tile. |
+| 10732 | `atlasGet` | Load a tile. |
+| 10733 | `atlasDelete` | Delete a tile. |
+| 10735 | `atlasKeysForWorld` | All stored keys for this world. |
+| 10736 | `atlasGetMeta` | Read atlas metadata. |
+| 10737 | `atlasPutMeta` | Write atlas metadata. |
+| 10738 | `atlasClearWorld` | Clear this world's atlas entries. |
+| 10741 | `atlasSyncWorld` | Sync atlas state after load/generate. |
+| 10748 | `updateAtlasStatus` | Update the atlas status readout. |
+| 10752 | `atlasLoadImg` | Decode a stored tile image. |
+| 10765 | `bakeVisibleTiles` | Bake the currently visible tiles into the atlas. |
+| 10809 | `bakeAllTiles` | Bake the whole world to the chosen depth (the finalize path). |
+| 10854 | `applyFinalizedUI` | Grey out terrain-mutating UI while finalized. |
+| 10872 | `setFinalized` | Set/clear the finalized flag and sync UI. |
+| 10880 | `atlasChunkFile` | Export filename for an atlas chunk. |
+| 10882 | `buildAtlasManifest` | Manifest of exported atlas chunks. |
+| 10890 | `atlasExportEntries` | ZIP entries for the baked atlas. |
+| 10910 | `atlasImportEntries` | Import atlas chunks from a loaded ZIP. |
+| 10936 | `chunkParent` | Parent chunk key. |
+| 10937 | `chunkChildren` | Child chunk keys. |
+| 10938 | `chunkColorHash` | Debug colour for a chunk. |
+| 10939 | `chunkState` | Chunk state (baked, partial, procedural). |
+| 10946 | `drawLODChunkDebug` | Draw the chunk-debug overlay (grid, colours, labels). |
+| 10972 | `composeEditInto` | Compose a sculpt edit delta into a tile. |
+| 10994 | `composeTileEdits` | Apply all overlapping edits to a tile. |
+| 11006 | `lodViewRect` | The LOD window's world rectangle. |
+| 11011 | `visibleTileKeys` | Keys of visible tiles. |
+| 11020 | `lodTileOpts` | Options bundle for tile generation (detail, burn, micro). |
+| 11052 | `refineVisibleTiles` | Refine visible tiles (async, budgeted). |
+| 11117 | `lodTileCanvasMax` | Max canvas size for tile rendering. |
+| 11126 | `lodPinMaxZ` | Max pinned zoom for cache retention. |
+| 11144 | `_lodBuildTileRGBA` | Render one tile's RGBA via the shared surface-colour path. |
+| 11177 | `_lodScheduleOverviewRebuild` | Debounced overview (zoom-0) rebuild. |
+| 11207 | `_lodRenderKey` | Render-state hash key for tile bitmap caching. |
+| 11222 | `_lodTileCacheGet` | Rendered-bitmap cache read. |
+| 11226 | `_lodTileCacheSet` | Rendered-bitmap cache write. |
+| 11230 | `drawLODView` | Composite visible tiles into the canvas (the LOD renderer, frame-budgeted). |
+| 11457 | `drawLODDebugOverlays` | LOD debug overlays (tile grid, states). |
+
+#### Region tile export
+
+| Line | Function | Purpose |
+|---|---|---|
+| 11536 | `tileDims` | Region-export tile dimensions. |
+| 11544 | `packHeight16` | Pack height to 16-bit PNG channels. |
+| 11548 | `unpackHeight16` | Unpack 16-bit height. |
+| 11555 | `buildTileManifest` | Region-export manifest. |
+| 11569 | `normRegion` | Normalise the region rectangle. |
+| 11582 | `gzipBytes` | Gzip via CompressionStream. |
+| 11585 | `gunzipBytes` | Gunzip via DecompressionStream. |
+| 11606 | `edgeL` | Left-edge extrapolation for tile borders. |
+| 11607 | `edgeR` | Right-edge extrapolation. |
+| 11608 | `edgeU` | Top-edge extrapolation. |
+| 11609 | `edgeD` | Bottom-edge extrapolation. |
+| 11610 | `renderHeightTileRGBA` | Height tile as RGBA. |
+| 11629 | `renderBiomeTileRGBA` | Biome tile as RGBA. |
+| 11756 | `tileShade` | Tile hillshade helper. |
+| 11762 | `debugTileContext` | Debug-layer context for tile rendering. |
+| 11792 | `renderAffordanceTileRGBA` | Affordance-layer tile as RGBA. |
+| 11871 | `tilePngBytes` | Encode a tile canvas to PNG bytes. |
+| 11891 | `exportRegionTiles` | The Region-export op: tiles plus manifest plus gzip. |
+| 11914 | `buildGridFields` | Collect the export field set. |
+| 11931 | `bakePixel` | One baked-raster pixel (full material path at bake res). |
+| 11975 | `bakeSingle` | Bake a single large raster. |
+| 11982 | `bakeTiled` | Bake as tiles. |
+
+#### ZIP, asset packs, export/import
+
+| Line | Function | Purpose |
+|---|---|---|
+| 12004 | `CRC_T` | CRC32 table. |
+| 12005 | `crc32` | CRC32 checksum. |
+| 12006 | `deflateRaw` | Raw-deflate via CompressionStream. |
+| 12009 | `zipStore` | Write a ZIP (deflate since v1.90) from entries. |
+| 12020 | `unzipStore` | Read a stored/deflated ZIP into entries. |
+| 12093 | `parsePackCsv` | Parse a legacy pack.csv manifest. |
+| 12113 | `parsePackManifest` | Parse pack.json (schema 1/2) into slot paths. |
+| 12171 | `pickIconVariant` | Deterministic icon variant for a cell. |
+| 12173 | `spriteDrawRect` | Draw rect for a sprite respecting anchor. |
+| 12187 | `_paintedTex` | Painted-texture lookup for splat rendering. |
+| 12196 | `finalizePackTexture` | Precompute a texture's sampling structure (data plus inverse). |
+| 12200 | `packSummary` | Human-readable pack summary. |
+| 12210 | `unzipAny` | Unzip stored or deflated entries (tolerant reader). |
+| 12229 | `decodePackImage` | Decode a pack image to bitmap. |
+| 12238 | `loadAssetPack` | The pack-import op: parse, decode, install into assetPack, refresh pickers. |
+| 12273 | `clearAssetPack` | Remove the loaded pack. |
+| 12278 | `_carRefreshIconAndPaintPickers` | Refresh Cartography pickers after pack changes. |
+| 12284 | `renderPackInspector` | Render the pack summary and thumbnail grid. |
+| 12299 | `serializeState` | Serialise `state` to params.json (deep, with exclusions). |
+| 12300 | `f32bytes` | Float32Array to bytes. |
+| 12301 | `layerBytes` | Encode a data layer for export. |
+| 12304 | `setProg` | Update the export progress bar. |
+| 12305 | `readme` | Compose the export README text. |
+| 12328 | `_chanEnc` | Channel-atlas value encode. |
+| 12329 | `_chanDec` | Channel-atlas value decode. |
+| 12333 | `packRGB8` | Pack three fields into RGB8. |
+| 12341 | `unpackRGB8` | Unpack RGB8 channels. |
+| 12354 | `_resourceAtlasGroups` | Resource channel grouping for the atlas. |
+| 12364 | `channelAtlasGroups` | All channel-atlas groups. |
+| 12387 | `channelAtlasManifest` | Channel-atlas manifest. |
+| 12397 | `rgbaToPngBytes` | Canvas RGBA to PNG bytes. |
+| 12408 | `channelAtlasEntries` | ZIP entries for the channel atlas. |
+| 12418 | `exportZip` | The Export op: params, layers, rasters, atlas, features, GeoJSON-adjacent manifests into one ZIP. |
+
+#### GeoJSON export
+
+| Line | Function | Purpose |
+|---|---|---|
+| 12490 | `_geoCellKm` | Cell size in km for coordinates. |
+| 12491 | `_geoXY` | Cell to GeoJSON coordinate. |
+| 12501 | `_geoTraceMaskRings` | Trace mask boundaries into rings. |
+| 12529 | `_geoRingArea` | Ring signed area. |
+| 12530 | `_geoPointInRing` | Point-in-ring test (hole assignment). |
+| 12541 | `_geoMaskOutlineCoords` | Mask to polygon coordinates with holes. |
+| 12557 | `_geoTerritoryFeature` | Faction territory as a GeoJSON feature. |
+| 12569 | `_geoProvinceFeature` | Province as a GeoJSON feature. |
+| 12576 | `exportGeoJSON` | The GeoJSON-export op: coasts, rivers, places, ways, territory, provinces. |
+
+#### Load, UI sync, parameter wiring
+
+| Line | Function | Purpose |
+|---|---|---|
+| 12623 | `loadZip` | Load a project ZIP: params, layers, substrate rebuild, atlas import, render. |
+| 12648 | `syncUI` | Push loaded state into every control. |
+| 12714 | `withBusy` | Run an op under the busy overlay. |
+| 12718 | `bind` | Generic control binding helper (slider/checkbox to state with optional refresh). |
+| 12753 | `_tideMoon` | Tide UI moon-preset helper. |
+| 12754 | `_tideUpdate` | Tide slider change handler. |
+| 12784 | `_seasonSliderNote` | Season slider annotation text. |
+| 12857 | `_applyStylePreset` | Apply a map-style preset to the advanced sliders. |
+| 12870 | `_markStyleCustom` | Mark the style Custom when a slider diverges. |
+| 12890 | `tparam` | Bind a tectonic parameter (regenerate-on-change semantics). |
+| 12921 | `eparam` | Bind an erosion parameter (stored, applied on button). |
+| 12955 | `cparam` | Bind a climate parameter (live refresh semantics). |
+| 12981 | `seg` | Bind a segmented-control group. |
+| 12994 | `confirmRegenerate` | Confirm dialog before destructive regenerate. |
+| 13110 | `_civSubPageVisible` | Is a civ sub-page visible. |
+| 13135 | `_civRefreshActiveSubPage` | Re-render whichever civ sub-page is open. |
+| 13183 | `setRegionMode` | Enter/exit region-select mode. |
+
+#### View management (zoom, pan, LOD entry)
+
+| Line | Function | Purpose |
+|---|---|---|
+| 13264 | `_viewCoverScale` | Scale at which the map covers the canvas. |
+| 13280 | `_viewFitScale` | Scale at which the map fits the canvas. |
+| 13294 | `_viewFill` | Fill-mode scale choice. |
+| 13295 | `_viewClampFill` | Clamp pan/zoom to keep the map filling the view. |
+| 13329 | `_lodFitCanvas` | Fit the LOD window to the canvas. |
+| 13359 | `applyView` | Apply the current view transform to the canvases. |
+| 13376 | `zoomAt` | Zoom about a cursor point (keeps the point fixed). |
+| 13390 | `resetView` | Reset zoom/pan. |
+| 13391 | `viewCenter` | Current view centre in world cells. |
+| 13399 | `_civMoveViewTo` | Animate the view to a world position (context-menu Move-viewer). |
+| 13418 | `_civPlaceScreenPos` | A place's current screen position (popup anchoring). |
+| 13439 | `lodZoomStep` | LOD zoom step size. |
+| 13455 | `_lodZoomAt` | Zoom within the LOD viewer about a point. |
+| 13490 | `_carDisarmOtherTools` | Mutual exclusion across label/icon/paint tools. |
+| 13599 | `_carEnterAssetsMode` | Open the Asset Library workspace (hides the map). |
+| 13611 | `_carExitAssetsMode` | Close it and restore the map. |
+
+#### Layers popover, units, setup gate
+
+| Line | Function | Purpose |
+|---|---|---|
+| 13655 | `_debugBtn` | Find a hidden debugSeg button by layer key. |
+| 13656 | `_setLayer` | Switch the active debug layer (proxies debugSeg, updates legend). |
+| 13657 | `buildLayersPopover` | Build the layers popover from LAYER_GROUPS with MRU pins and hotkeys. |
+| 13716 | `_isMi` | Miles mode test. |
+| 13717 | `_distDisp` | Display a distance in the chosen unit. |
+| 13718 | `_distToKm` | Parse a distance input to km. |
+| 13719 | `_altDisp` | Display an altitude in the chosen unit. |
+| 13720 | `_altToM` | Parse an altitude to metres. |
+| 13721 | `_distUnit` | Current distance unit label. |
+| 13722 | `_setUnits` | Switch km/mi and re-render all unit-bearing labels. |
+| 13729 | `suggestPeakM` | Suggested peak height for a map width. |
+| 13733 | `_fmtDist` | Format a distance. |
+| 13734 | `renderDistLegend` | Render the setup gate's scale legend. |
+| 13742 | `_setupHide` | Hide the setup gate. |
+| 13752 | `_hasLiveWorld` | Is there a real generated/loaded world (guards beforeunload and renders). |
+| 13754 | `_suShowStep` | Show a setup-wizard step. |
+| 13756 | `_setupOpen` | Open the setup gate. |
+| 13774 | `_suSetUnitSegs` | Sync the two unit segs. |
+| 13775 | `_suActive` | Is the gate open. |
+| 13776 | `_suIds` | Element ids for the active step. |
+| 13779 | `_suRender` | Render the wizard step state. |
+| 13787 | `_suGenSync` | Sync generate-step fields. |
+| 13788 | `_suCalSync` | Sync calibrate-step fields. |
+| 13789 | `_suOnWidthInput` | Width input handler (updates suggested peak). |
+| 13791 | `_suOnPeakInput` | Peak input handler. |
+| 13792 | `_suGenCommit` | Commit the generate step: apply settings, generate the world. |
+| 13813 | `_suApplyArchetype` | Apply the chosen world-shape archetype. |
+| 13826 | `_suCalCommit` | Commit the calibrate step for an imported DEM. |
+| 13858 | `_sidebarScaleSync` | Sync sidebar scale controls with the gate's. |
+| 13870 | `updateTileSizeEst` | Estimated region-export size readout. |
+| 13900 | `requestLodRender` | Request an LOD composite frame. |
+| 13936 | `scheduleLodRefine` | Debounced tile refine after pan/zoom. |
+| 13953 | `enterLodFromView` | Enter the LOD viewer from the current 2D view. |
+| 13973 | `_overCanvasOverlay` | Is the pointer over a floating overlay (blocks map tools). |
+| 14024 | `updateScaleBar` | Update the distance scale bar. |
+| 14164 | `_gpuApplyTabOverride` | Per-tab GPU enable override (rendering tabs prefer CPU parity). |
+
+#### 3D drape view
+
+| Line | Function | Purpose |
+|---|---|---|
+| 14198 | `_m4mul` | 4x4 matrix multiply. |
+| 14199 | `_m4persp` | Perspective matrix. |
+| 14200 | `_m4lookAt` | Look-at matrix. |
+| 14205 | `_cam3dPos` | Orbit-camera position from yaw/pitch/distance. |
+| 14322 | `_v3dGrabColor` | Grab the 2D map render as the drape texture. |
+| 14331 | `_v3dGrabCiv` | Grab the civ layer as an overlay texture. |
+| 14356 | `_v3dHeightSource` | Choose the height source (base field or LOD window). |
+| 14368 | `drawSoft` | Software-rasterised fallback when WebGL2 is unavailable. |
+| 14415 | `resizeView3D` | Resize the 3D canvases. |
+| 14420 | `_v3dRender` | Render one 3D frame (GL or soft path). |
+| 14421 | `_v3dLoop` | The 3D animation loop. |
+| 14428 | `_v3dKick` | Kick the loop after a change. |
+| 14436 | `v3dWorldPos` | Screen to world position in 3D. |
+| 14447 | `v3dProjectPoint` | World to screen projection in 3D. |
+| 14465 | `_v3dDrawLabels` | Flat screen-space labels over the 3D view. |
+| 14498 | `enter3D` | Switch to the 3D view (build mesh, upload textures). |
+| 14513 | `exit3D` | Return to the 2D view. |
+
+### Script block 2 — Civilization/politics layer (350 functions)
+
+#### Factions: data, roster, banners
+
+| Line | Function | Purpose |
+|---|---|---|
+| 14577 | `_civFactionColor` | Deterministic golden-angle colour for faction N. |
+| 14635 | `_civCultureByKey` | Culture record lookup (CIV_CULTURES, 7 namebases). |
+| 14642 | `_civDefaultCulture` | Deterministic default culture per faction index. |
+| 14644 | `_civAddFaction` | Append a faction (name, colour, culture/religion/government/ag-tech defaults), rebuild pickers. |
+| 14657 | `_civRemoveFaction` | Remove the last faction; its settlements/territory revert to Unclaimed. |
+| 14831 | `_civAgTechByKey` | Agricultural-technology level record lookup (AG_TECH_LEVELS, 6 levels). |
+| 14838 | `_civFarmersPerUrbanite` | A faction's farmers-per-urbanite ratio from its ag-tech level (drives the food model). |
+| 14849 | `_civFactionBannerCanvas` | Procedural faction banner artwork (deterministic per faction). |
+
+#### Civ canvas, territory, provinces
+
+| Line | Function | Purpose |
+|---|---|---|
+| 14907 | `_v3dRenderCivOffscreen` | Render the civ layer offscreen for the 3D drape overlay. |
+| 14922 | `_civSyncCanvas` | Keep the civ canvas sized/aligned with the map canvas. |
+| 14933 | `getCivTerritory` | Lazily allocate the territory byte raster. |
+| 14945 | `_civGenerateProvinces` | Derive provinces per faction (settlement-seeded subdivision of territory); pure-derived, never persisted. |
+
+#### Civ draw helpers (zoom scaling, sprites, pins, labels, icons)
+
+| Line | Function | Purpose |
+|---|---|---|
+| 14980 | `_civZoomK` | Zoom-dependent scale factor for civ drawing. |
+| 14992 | `_civZoomPickR` | Zoom-scaled pick radius for hit tests. |
+| 15003 | `_civZoomRaw` | Raw current zoom value (2D or LOD). |
+| 15012 | `_civWayLodMin` | Min zoom at which a way type draws (CIV_LOD_ROAD; village addons gated deeper). |
+| 15017 | `_civIconScale` | User icon-scale multiplier. |
+| 15018 | `_civWayScale` | User way-width multiplier. |
+| 15025 | `_structSprite` | Settlement-class sprite from the asset pack (fallback glyph). |
+| 15046 | `_carIconBrushRule` | Effective rule for the icon density brush. |
+| 15051 | `_carIconBrushStamp` | Stamp icons under the density brush at a drag point. |
+| 15088 | `_traitSprite` | Trait-badge sprite lookup. |
+| 15101 | `_civDrawTraitBadges` | Draw a settlement's trait badges around its pin. |
+| 15124 | `_customSprite` | Custom-icon sprite lookup. |
+| 15141 | `_featureSprite` | Feature-icon sprite lookup. |
+| 15159 | `_civTraitDrop` | Trait-badge drop-shadow styling. |
+| 15162 | `_civDrawSettlementPin` | Draw a settlement pin (class glyph/sprite, rank-scaled, selected ring). |
+| 15211 | `_civDrawPoiPin` | Draw a POI pin. |
+| 15244 | `drawArcLabel` | Draw text along an arc (curved region labels). |
+| 15280 | `_civLabelBox` | A label's bounding box (hit tests, handles). |
+| 15296 | `_civLabelHitTest` | Which label (and which handle) is under a point. |
+| 15316 | `_carIconTypeList` | Flattened list of manual-icon types. |
+| 15319 | `_carIconBox` | A manual icon's bounding box. |
+| 15325 | `_carIconHitTest` | Which manual icon is under a point. |
+| 15333 | `_carDrawMapIcon` | Draw one manual icon (sprite or glyph). |
+| 15356 | `_civSelectLabel` | Select a label (opens its editor). |
+| 15362 | `_civConfirmLabel` | Confirm the label edit (the on-canvas check mark). |
+| 15363 | `_civCancelLabel` | Cancel/restore the label edit snapshot. |
+
+#### The civ layer renderer
+
+| Line | Function | Purpose |
+|---|---|---|
+| 15390 | `civToScreen` | World cell to civ-canvas pixel (view/LOD aware). |
+| 15395 | `drawCivLayer` | The civ render: territory raster (cached), ways/journeys/previews/snap ring, urban-layout crossfade, diagnostics, pins with label-occupancy placement, region labels with handles, manual icons. |
+| 15901 | `drawCivLayerAuto` | Schedule a civ redraw (debounced). |
+| 15921 | `_civBakeKey` | Cache key for the territory raster bake (note: reads nonexistent `state.sun` — a harmless legacy quirk). |
+| 15932 | `_civBakeCacheGet` | Territory bake cache read. |
+| 15937 | `_civBakeCacheSet` | Territory bake cache write. |
+| 15964 | `_civPaintTerritoryAt` | Brush-paint territory ownership at a cell (faction 0 erases). |
+| 15978 | `_civEnsurePlaceDefaults` | Fill missing fields on a place object (tid, traits, kind...). |
+
+#### Snapping and manual placement
+
+| Line | Function | Purpose |
+|---|---|---|
+| 16002 | `_civSnapEnabled` | Is snap on for the active tool. |
+| 16005 | `_civSnapRadius` | Zoom-scaled snap radius. |
+| 16009 | `_civNearestOnWay` | Nearest point on a way polyline. |
+| 16025 | `_civFindSnapTarget` | Nearest snappable pin/way point for a click. |
+| 16043 | `_civSnapPoint` | Snap a waypoint if a target is near. |
+| 16051 | `_civDropPlace` | Drop a settlement at a clicked cell (water-guarded, faction from picker). |
+| 16075 | `_civDropPOI` | Drop a POI of the selected type. |
+| 16105 | `_civPlacePickVisible` | Is a place visible under current filters/LOD (pickable). |
+| 16106 | `_civPlacePickWeight` | Pick weighting by pin prominence (bigger pins easier to hit). |
+| 16111 | `_civSelectPlaceAt` | Select the nearest pick-weighted place at a click. |
+
+#### Faction UI (roster modal, inspector drawer)
+
+| Line | Function | Purpose |
+|---|---|---|
+| 16130 | `_civRenderFactionList` | Render the faction card list in the roster modal. |
+| 16153 | `_civRenderFactionInspector` | Render the inspector drawer host. |
+| 16164 | `_civOpenFactionDrawer` | Open the per-faction drawer. |
+| 16165 | `_civCloseFactionDrawer` | Close it (selection kept). |
+| 16177 | `_civOpenFactionsModal` | Open the Faction Roster pop-up. |
+| 16187 | `_civCloseFactionsModal` | Close it. |
+| 16202 | `_civRenderFactionsWorldOverview` | World totals line (population, settlements, territory). |
+| 16226 | `_civTerrainFitHtml` | Culture-vs-territory terrain-fit verdict HTML. |
+| 16247 | `_civPopulateFactionEditor` | Build the faction editor: name, culture, religion, government, ag-tech, aggregates, power breakdown. |
+| 16318 | `_civRenderFactionSettlementSublist` | The faction's settlement sublist. |
+
+#### Settlement table (virtualised)
+
+| Line | Function | Purpose |
+|---|---|---|
+| 16344 | `_stEnsureFilterState` | Initialise the table filter state. |
+| 16348 | `_stBuildFilterUI` | Build filter dropdown options. |
+| 16365 | `_stUpdateSortDirBtn` | Sort-direction button label. |
+| 16373 | `_stRebuildFiltered` | Rebuild the filtered/sorted index. |
+| 16415 | `_escHtml` | HTML-escape helper. |
+| 16416 | `_stRowHtml` | One row's HTML. |
+| 16429 | `_stEnsurePool` | DOM row pool for virtualisation. |
+| 16440 | `_stUpdateVisible` | Update visible rows on scroll. |
+| 16460 | `_stWireOnce` | One-time event wiring (search, filters, sort, row click). |
+| 16498 | `_civRenderSettlementTable` | Render/refresh the whole table. |
+
+#### Economy/statistics pages and place editors
+
+| Line | Function | Purpose |
+|---|---|---|
+| 16509 | `_civSectorLabel` | Economy sector display label. |
+| 16511 | `_civRenderEconomyPage` | Faction economy page: sectors, trade, tax, strategic resources (from aggregates). |
+| 16551 | `_civRenderStatisticsPage` | World statistics page. |
+| 16607 | `_civFormatPlaceInsp` | Compose a place's full inspector text (population, food, trade, defensibility...). |
+| 16694 | `_civPopulatePlaceEditor` | Build the place edit form (name, kind, faction, pop, specialisation, traits, history, walls override, delete). |
+| 16777 | `_civRenderPlaceEditor` | Route the selected place into the popup/inspector. |
+| 16803 | `_civPopulateLabelEditor` | Build the region-label editor (text, size, arc, rotation, style). |
+| 16845 | `_civOpenAncestorDetails` | Expand a collapsed ancestor section in an editor. |
+
+#### Manual-icon UI
+
+| Line | Function | Purpose |
+|---|---|---|
+| 16852 | `_carSelectIcon` | Select a manual icon instance. |
+| 16857 | `_carIconLabel` | Display label for an icon type. |
+| 16864 | `_carGalleryFallbackThumb` | Glyph-drawn gallery thumbnail when no sprite exists. |
+| 16876 | `_carPopulateIconGallery` | Build the icon gallery for a family. |
+| 16931 | `_carIconGalleryPick` | Gallery tile pick: arms icon placement. |
+| 16939 | `_carPopulateIconEditor` | Build the icon instance editor (scale, delete). |
+| 16975 | `_carRenderIconList` | Render the manual-icon list. |
+| 17019 | `_carRenderIconEditor` | Route the selected icon into the inspector. |
+| 17025 | `_civRenderLabelList` | Render the region-label list. |
+| 17070 | `_civRenderLabelEditor` | Route the selected label into the inspector. |
+| 17088 | `_civRenderPoiList` | Render the POI list. |
+| 17145 | `_civRenderWayList` | Render the way list (rename/hide/delete, village-tracks disclosure). |
+| 17231 | `_civRenderJourneyList` | Render the journey list (select/rename/delete). |
+
+#### Journey Planner: data-table helpers
+
+| Line | Function | Purpose |
+|---|---|---|
+| 17303 | `jpTrainPace` | Pack-train pace from the slowest member. |
+| 17378 | `jpSailFactor` | Sail performance from rig polar vs wind angle. |
+| 17463 | `jpWaterWindow` | Water-availability window class for a stage. |
+| 17605 | `jpFmtKg` | Format a mass. |
+| 17606 | `jpFmtDays` | Format a duration in days. |
+| 17620 | `jpHumanWaterCarryDays` | Days of water a human can carry. |
+| 17626 | `jpHumanWaterRate` | Human daily water need (climate-scaled). |
+| 17631 | `jpAnimalWaterCarryDays` | Days of water an animal load represents. |
+| 17632 | `jpFatigue` | Cumulative fatigue factor over long journeys. |
+| 17633 | `jpLoadPenalty` | Speed penalty vs load ratio; hard-blocks past JP_LOAD_INVALID_RATIO. |
+| 17654 | `jpGroupClass` | Party's group class (solo/small/caravan/army) from size. |
+| 17665 | `jpSurfaceGain` | Road-surface speed gain per way condition. |
+| 17666 | `jpWxWeighted` | Weather-probability-weighted factor blend. |
+| 17680 | `jpWeatherFactor` | Stage weather speed factor (climate plus season). |
+| 17687 | `jpResolveMount` | Resolve a mount/pack-animal choice for the party. |
+| 17709 | `jpAnimalTerrainMod` | Species terrain modifier (desert/mountain overrides). |
+| 17713 | `jpBestAnimalForContext` | Best species for a stage's terrain/climate context. |
+| 17750 | `jpCanUseWheels` | Are wheeled vehicles viable on the route (JP_WHEEL_BLOCKED terrain). |
+| 17771 | `jpPickSpeciesForRoute` | Species pick with bottleneck veto (worst stage decides). |
+| 17814 | `jpAutoPickTransport` | Auto-select the land transport package for the journey. |
+
+#### Journey Planner: vessels and staging
+
+| Line | Function | Purpose |
+|---|---|---|
+| 17956 | `_jpVesselWaterBlock` | Is a vessel blocked on this water (draft vs river size). |
+| 17975 | `jpVesselDayKm` | A vessel's daily distance under conditions. |
+| 17984 | `jpVesselMatrix` | Candidate-vessel comparison matrix. |
+| 18005 | `_jpVesselFits` | Does a vessel fit the party and cargo. |
+| 18012 | `jpAutoPickVessel` | Auto-select the vessel for a sea journey. |
+| 18040 | `_jpAutoStageVessel` | Per-stage vessel choice for mixed routes. |
+| 18053 | `_jpBestLandTransportForStage` | Best land transport for one stage. |
+| 18080 | `_jpBestPackageForStage` | Best combined package (transport plus animals) for a stage. |
+| 18107 | `_jpEffectiveStagePlan` | The effective per-stage plan after auto-picks and overrides. |
+| 18128 | `_jpWorldMeanRichness` | World-mean wildlife richness (forage baseline). |
+| 18134 | `_jpWildlifeForageMod` | Wildlife-richness modifier on foraging yield. |
+| 18156 | `jpForaging` | Foraging yield per stage (biome, season, terrain, party size). |
+| 18169 | `jpConsumptionFactors` | Food/water consumption factors (terrain, climate). |
+| 18177 | `jpCapacity` | Carrying-capacity convergence: cargo vs consumables vs speed loop. |
+| 18231 | `jpAssessResupply` | Resupply adequacy assessment at stops. |
+| 18256 | `_jpEnsurePlan` | Ensure a journey has a computed plan (lazily runs the planner). |
+| 18299 | `_jpLayovers` | The journey's per-stop layover map. |
+| 18303 | `_jpStopKey` | Stable key for a stop. |
+| 18310 | `jpLegacyBiomeOf` | Map engine biome to the planner's legacy biome vocabulary. |
+| 18325 | `_jpRoadCells` | Set of route cells lying on ways (infrastructure credit). |
+| 18343 | `_jpSettlements` | Settlements along the route. |
+| 18350 | `_jpInfraContext` | Infrastructure context for a stage (road share, conditions). |
+| 18360 | `_jpClaimedAt` | Whose territory a cell is in (customs/safety context). |
+| 18373 | `_jpStageInfra` | Per-stage infrastructure tier. |
+| 18421 | `_jpRiverCondition` | River navigation condition for a stage. |
+| 18447 | `_jpSeaCondition` | Sea condition for a stage (wind, season). |
+| 18484 | `_jpCoarseIdx` | Coarse-grid index for stage sampling. |
+| 18491 | `_jpDeriveStages` | Sample the route into stages with terrain/biome/climate/infra context — the planner's world reader. |
+| 18656 | `_jpWaterReachCells` | Cells within reach of drinking water. |
+| 18689 | `_jpDrinkingCoarseEase` | Coarse-grid easing of drinking-water reach. |
+| 18697 | `_jpStageDryKm` | Dry (waterless) km of a stage. |
+| 18727 | `_jpDesertTierForGap` | Desert severity tier for a waterless gap. |
+| 18754 | `jpColumnLengthKm` | Marching-column length for the party. |
+| 18768 | `jpColumnFactor` | Speed penalty from column length. |
+| 18782 | `jpSeasonalClosure` | Seasonal pass/route closure test. |
+| 18809 | `jpRestDays` | Rest-day cadence (JP_REST_CADENCES) over the journey. |
+| 18830 | `jpSeasonAt` | Season at a given day offset with drift. |
+| 18847 | `jpSeaClosure` | Seasonal sea-lane closure test. |
+| 18873 | `jpJourneyCost` | Journey monetary/supply cost layers. |
+
+#### Journey Planner: core calculators and orchestrator
+
+| Line | Function | Purpose |
+|---|---|---|
+| 18912 | `jpCalcLand` | The land-leg calculator: speed, load, water, forage, fatigue, infra, weather per stage. |
+| 19124 | `jpCalcWater` | The water-leg calculator: vessel speed, wind polars, crew, closures. |
+| 19198 | `_civTransshipments` | Count land-water mode changes (transshipment events). |
+| 19204 | `_civTransferOverhead` | Time overhead per transshipment. |
+| 19225 | `_jpResupplyReach` | How far resupply points reach along the route. |
+| 19255 | `_jpPlan` | The orchestrator: stages, per-stage plans, season drift, rest days, layovers, totals, verdict. |
+| 19433 | `_jpVerdict` | Human verdict (feasible/marginal/infeasible with reasons). |
+| 19498 | `_jpConfidence` | Confidence rating for the plan. |
+| 19518 | `_jpPackRange` | Supply-range summary for the party. |
+| 19535 | `_civDrawProfile` | Draw the route elevation profile canvas. |
+| 19576 | `_reDrawRouteMap` | Draw the Route Editor's mini map (route over terrain). |
+| 19614 | `_jpRunAuto` | Run auto-picks and re-plan. |
+| 19619 | `_jpRefresh` | Re-plan and re-render the editor. |
+| 19634 | `_jpSyncAssetInputs` | Sync party-form inputs from the plan. |
+| 19642 | `_jpRenderPartyForm` | Render the party/transport form. |
+| 19742 | `_jpRenderStops` | Render per-stop rows with layover editors. |
+| 19761 | `_jpRenderResults` | Render the full results (verdict, itinerary, supplies, costs). |
+| 20323 | `_civUpdatePlannerPanel` | Update the Explore-side planner summary panel. |
+| 20350 | `_reRenderSummary` | Update the Route Editor header summary. |
+| 20368 | `_jpModeForRoute` | Land/water/mixed mode classification of a journey. |
+| 20391 | `_jpRerouteForMode` | Re-route a journey for a forced mode (refuses unreachable fallbacks). |
+| 20406 | `_civOpenRouteEditor` | Open the Route Editor modal for a journey. |
+| 20420 | `_civCloseRouteEditor` | Close it. |
+
+#### Explore info tool and timeline
+
+| Line | Function | Purpose |
+|---|---|---|
+| 20436 | `_civInfoAt` | The Info tool: terrain/settlement/site/ecology readout at a click; pin hits open the place popup. |
+| 20564 | `_civAssignTid` | Assign a stable timeline id to an object. |
+| 20565 | `_civResyncNextTid` | Re-sync the tid counter after a load. |
+| 20576 | `_civYearDiffInvalidate` | Invalidate the year-diff cache. |
+| 20580 | `_civYearDiff` | Tid-diff two years (added/removed/changed) for ghost/highlight display. |
+| 20596 | `civSnapshotSave` | Save current civ state as a year snapshot. |
+| 20607 | `civSnapshotLoad` | Load a year snapshot into live state. |
+| 20615 | `civGotoYear` | Go to a recorded year. |
+| 20618 | `civAddYear` | Record a new year snapshot (Add year button). |
+| 20635 | `civRemoveYear` | Delete a recorded year. |
+| 20644 | `_civFormatYear` | Format a year (negative = BCE style). |
+| 20645 | `_civBuildTimelineUI` | Rebuild timeline pills and wire the slider. |
+
+#### Territory generation and naming
+
+| Line | Function | Purpose |
+|---|---|---|
+| 20665 | `_civAutoPolity` | Recalculate territories: heap-Dijkstra flood fill from settlements over travel cost. |
+| 20707 | `_civRng` | Seeded RNG for civ generation. |
+| 20717 | `_civSettleName` | Generate a settlement name from the faction's culture namebase. |
+
+#### Land/water snapping for placement
+
+| Line | Function | Purpose |
+|---|---|---|
+| 20737 | `_civLakeFlooded` | Is a cell in a flooded lake basin. |
+| 20747 | `_civSnapLand` | Snap a point onto dry land within a radius. |
+| 20787 | `_civSnapToWaterEdge` | Nudge a settlement onto the water's edge (behind the floodplain), suitability-guarded. |
+| 20841 | `_civSnapCoast` | Snap onto the shore when the sea is genuinely near. |
+| 20880 | `_civSnapPlacesToLand` | Safety net: no settlement stands in water. |
+| 20917 | `_civIsCoastal` | Coastal test (ocean-only option for ports). |
+
+#### Routing cost model
+
+| Line | Function | Purpose |
+|---|---|---|
+| 20938 | `_civBiomeFriction` | Biome travel-friction table. |
+| 20951 | `_civNavigableRiverDiscount` | Cost discount along navigable rivers. |
+| 20958 | `_civEnhancedTravelCost` | The enhanced terrain travel-cost (slope, biome, rivers, corridors). |
+| 21022 | `_civRoutingGrid` | Downsample to the ≤384px routing grid. |
+| 21035 | `_civLandCostGrid` | Land-only cost grid (water impassable). |
+| 21051 | `_civWaterCostGrid` | Water-only cost grid (land impassable). |
+| 21090 | `_civMixedCostGrid` | Mixed grid: land plus open water at _CIV_SEA_COST. |
+| 21119 | `_civApplySettlementGravity` | Bend routes softly toward settlements they pass near (staging points). |
+| 21142 | `_civPathWaterFrac` | Fraction of a path over water (sea-voyage detection). |
+| 21154 | `_civPassedSettlements` | Ordered settlements a route threads through (stage stops). |
+
+#### Auto-routing and network synthesis
+
+| Line | Function | Purpose |
+|---|---|---|
+| 21204 | `_civSeaTimeEdgeCost` | Sea-edge cost in sailing time from wind polars (directional). |
+| 21240 | `_civMstRoutes` | MST routes among a place set (land or sea variant). |
+| 21367 | `_civAutoRoutes` | The Generate-roads button: rebuild civWays from the settlement set (never touches places). |
+| 21389 | `_civPreferSeaRoutes` | Replace land legs with sea legs where Diocletian-ratio cheaper. |
+| 21519 | `_civAutoWorld` | The Auto-populate button entry (wraps _civIterativeAutoWorld with busy). |
+| 21526 | `_civHierarchicalNetwork` | 3-pass network: MST trunk, min-degree fill, shortcuts; corridor consolidation; usage counts. |
+| 21752 | `_civMarkWayNeighborhood` | Mark a way cell's neighbourhood on the routing grid. |
+| 21757 | `_civMarkWaysOnGrid` | Mark all way cells (shared infra-discount helper). |
+| 21766 | `_civWalkWayCells` | Walk a way's cells invoking a callback. |
+| 21782 | `_civConnectPlaceToNetwork` | Connect one place to the existing network by cheapest path. |
+| 21843 | `_civTerrainValidTest` | Terrain validity predicate factory (land/water, sea-lane allowance). |
+| 21872 | `_civNearestValidPt` | Nearest terrain-valid point (path repair). |
+| 21892 | `_civSmoothPath` | Wrap-aware path smoothing with terrain-validity repair. |
+| 21931 | `_civNetworkMetrics` | Brandes betweenness, closeness, degree, components over the place/way graph. |
+
+#### Urban-morphology adapter (map world to UME city generator)
+
+| Line | Function | Purpose |
+|---|---|---|
+| 22040 | `_umSiteBoxKm` | The town layout's site-box size in km. |
+| 22044 | `_umWaterNearKm` | "Water is near" distance threshold. |
+| 22050 | `_umWaterReachKm` | Water-reach threshold (grid-expressible). |
+| 22055 | `_umSiteKindFromTerrain` | Classify a settlement's site: river, riverthrough (estuary), bay, coast or landlocked. |
+| 22096 | `_umInferAge` | Infer settlement age from kind/pop (drives wall generations). |
+| 22109 | `_umWallSpec` | Wall specification ladder by rank/traits (none/palisade/ditch/stone/bastioned). |
+| 22134 | `_umInferWalls` | Is a settlement walled (explicit override, fortified trait, or rank default). |
+| 22146 | `_umHarbourScale` | Harbour scale from port population. |
+| 22152 | `_umPt` | Normalise a way point to {x,y}. |
+| 22156 | `_umRayBoxExit` | Ray-to-box-edge exit point (route-end derivation). |
+| 22170 | `_umTerrainOrient` | Terrain orientation (valley/coast direction) for layout alignment. |
+| 22208 | `_umWayBearingFrom` | Bearing of a way leaving a settlement. |
+| 22227 | `_umRouteEnds` | Real route-end directions for the layout's approach roads. |
+| 22253 | `_umPrimaryPaths` | Real inter-settlement road polylines (metre offsets) injected as the town's primary streets. |
+| 22300 | `_umWaterCtx` | Local water context: mask, distance transform, river path/width/order, sea cells. |
+| 22403 | `_umTerrainCtx` | Local relief context: heightfield raster for the site box. |
+| 22435 | `_civCoastDistField` | Cached distance-to-any-water field. |
+| 22450 | `_civOceanDistField` | Cached distance-to-ocean field (chamfer DT). |
+| 22464 | `_civRiverPolylines` | Cached traced river polylines. |
+| 22476 | `_umSiteProfile` | The settlement Site Profile: coast/river distances, order, floodplain, rain, biome... |
+| 22584 | `_civDeriveSpecialisation` | Derive a settlement's economic specialisation from its real site. |
+| 22613 | `_umOreBearing` | Bearing toward the dominant ore deposit (ore-yard orientation). |
+| 22635 | `_umPlaceContext` | Assemble the full UME generation context for a place (site kind, water/terrain ctx, routes, walls, economy). |
+| 22685 | `_umCacheKey` | Layout-model cache key (world gen, place fields). |
+| 22711 | `_umCacheEvict` | LRU eviction of layout models. |
+| 22712 | `_umScheduleGenStep` | Deferred (idle) generation of queued layouts. |
+| 22734 | `_umModelFor` | Get or schedule a settlement's layout model. |
+| 22754 | `_umLayoutAlpha` | Zoom crossfade alpha between pin and layout. |
+| 22774 | `_umDrawLayout` | Draw a town layout on the map (rotated, scaled, styled). |
+| 22889 | `_umModelForNow` | Synchronously generate a model (popup preview path). |
+| 22901 | `_umDrawLayoutPreview` | Fit-to-box preview render of a layout. |
+
+#### City Viewer
+
+| Line | Function | Purpose |
+|---|---|---|
+| 22998 | `_cvFitCam` | Fit the viewer camera to the model. |
+| 23021 | `_cvDrawCity` | Draw the town plan with LOD tiers (more detail as you zoom). |
+| 23133 | `_cvLodTierLabel` | Current tier label. |
+| 23134 | `_cvUpdateLegend` | Update the viewer legend. |
+| 23138 | `_cvRender` | Render a viewer frame. |
+| 23148 | `_cvZoomAt` | Zoom about the cursor. |
+| 23158 | `_civOpenCityViewer` | Open the modal for a settlement. |
+| 23173 | `_civCloseCityViewer` | Close it. |
+| 23202 | `_civPopulateCityViewerInfo` | The viewer's info panel (site, economy, wall provenance...). |
+
+#### Population and food model
+
+| Line | Function | Purpose |
+|---|---|---|
+| 23297 | `_civRegionalPopulation` | Regional population total over the carrying-capacity field. |
+| 23369 | `subsistenceModeAt` | Subsistence mode per cell (forager to annual cropping) from K, water, biome, rain. |
+| 23381 | `agrarianDensityKm2` | Raw agrarian density for a subsistence mode. |
+| 23396 | `grainKgPerHaMedieval` | Medieval grain yield constant helper. |
+| 23405 | `grainYieldRatio` | Seed-to-harvest yield ratio vs carrying capacity. |
+| 23433 | `_civBasePopForKind` | Base population per settlement tier. |
+| 23441 | `currentAgrarianDensity` | Normalised agrarian-density field (world total held at the pre-v1.31 basis). |
+| 23461 | `_civCatchmentDensityMean` | Mean density over a settlement's catchment. |
+| 23477 | `_civCatchmentRadiusRaw` | Catchment km² to radius in cells (fractional). |
+| 23481 | `_civCatchmentRadiusCells` | Integer catchment radius. |
+| 23490 | `_civCatchmentPop` | People a settlement's own catchment sustains (the shared core). |
+| 23506 | `_civSettlementPopulation` | Capacity-grounded settlement population: catchment × surplus × trade concentration. |
+| 23516 | `_civAgrarianRegionalTotal` | The "Land sustains" total: Σ density × area over land. |
+
+#### Faction aggregates and per-settlement derived metrics
+
+| Line | Function | Purpose |
+|---|---|---|
+| 23560 | `_civFactionCapital` | A faction's seat (highest-pop capital/metropolis, else highest-pop). |
+| 23575 | `_civFactionAggregates` | The one cached O(grid+places) aggregate pass: population, territory, food, trade, power breakdown, resources, terrain mix per faction. |
+| 23748 | `_civCultureTerrainFit` | Does a faction's territory match its culture's themed terrain (relative to world mean). |
+| 23765 | `_civPlaceCatchmentCeiling` | People a settlement's catchment can feed at full ceiling. |
+| 23774 | `_civPlaceFoodSurplus` | Food surplus/deficit: sustainable vs actual population. |
+| 23792 | `_civPlaceGrainYield` | Seed-to-yield ratio at the settlement's cell (land-viability signal). |
+| 23802 | `_civPlaceDefensibility` | Defensibility: terrain ruggedness plus walls. |
+| 23813 | `_civPlaceConnectedRoads` | Ways whose endpoints land at this settlement. |
+| 23825 | `_civPlaceRiverContext` | River/coast context via the site-kind classifier. |
+| 23932 | `grainYieldKgHa` | Grain yield from soil fertility (proportional, zero on barren ground). |
+| 23954 | `foodSurplusRatio` | Fraction of a cell's farm output that can leave it (soil vs world-median calibrated, ag-tech aware). |
+| 23977 | `currentSoilReference` | Cached world-median soil fertility (the calibration reference). |
+| 23998 | `_civFoodMode` | Cheapest food-transport mode both ends share (land/river/sea). |
+| 24005 | `_civFoodDeliverable` | Deliverable fraction vs distance: 2^(−d/D_mode). |
+| 24014 | `_civFoodConnected` | Is a supplier genuinely reachable (local radius, shared water, or road component). |
+| 24022 | `_civRoadComponents` | Union-find road-connectivity components over way endpoints. |
+| 24041 | `_civRoadConnected` | Same-component test for two places. |
+| 24050 | `_civFoodShed` | Can this settlement be fed: local surplus + hinterland integral + long-range imports. |
+| 24139 | `_civApplyFoodShedCeilings` | Fixed-point pass capping every settlement at its food shed (descending pop order). |
+| 24175 | `_civResourceTradeBalance` | The one shared export/import rule (ratios vs world mean). |
+| 24208 | `_civPlaceSmelting` | Charcoal-limited iron: ore vs fuel budgets over the catchment (the Elba constraint). |
+| 24278 | `_civPlaceArchetype` | Match a settlement to a composite archetype (bog-iron, bronze hub, obsidian, arid salt, pastoral, floodplain). |
+| 24313 | `_civPlacePastoralBalance` | Pasture-vs-crop tension: shares, manure uplift, competition, mode. |
+| 24361 | `_civPlaceNavigability` | Does the settlement touch navigable water (sea lane, site kind, distance fields, Strahler ≥3). |
+| 24402 | `_civSeaLaneAt` | Is a sea-lane way attached to this settlement. |
+| 24430 | `_civSaltAccess` | Salt access: sea evaporation, deposit, or salt lake. |
+| 24442 | `_civGoodReach` | Trade reach of a good (bulk needs water; luxury travels anywhere). |
+| 24459 | `_civPlaceTrade` | Per-settlement trade: specialisation, hinterland balance, food shed, fuel gate, salt; the §9 checklist. |
+| 24567 | `_civPlaceResourceContext` | Windowed resource means around a settlement. |
+| 24585 | `_civPlaceProsperity` | Prosperity blend: centrality, trade per capita, food headroom. |
+| 24596 | `_civUpdatePopReadout` | Fill the modelled-population readout. |
+
+#### Collapse and recovery simulation
+
+| Line | Function | Purpose |
+|---|---|---|
+| 24618 | `_civTierForPopulation` | Settlement tier from population (tier floors). |
+| 24619 | `_civApplyRecovery` | Post-collapse recovery scaling: shrink populations by phase band, demote, prune, ruin-flag. |
+| 24672 | `_civProximityAdjacency` | k-nearest proximity graph among settlements (wrap-aware, km). |
+| 24687 | `_civBetweennessFromAdjacency` | Standalone Brandes betweenness over a prebuilt adjacency. |
+| 24713 | `_civSettlementStress` | Per-settlement collapse stress: centrality loss, density exposure, violence exposure. |
+| 24726 | `_civMortalityMigrationRates` | Stress × severity × character to annual mortality/out-migration rates. |
+| 24738 | `_civGravityMigrate` | Gravity-model migrant redistribution capped by destination headroom. |
+| 24785 | `_civCollapseStep` | One collapse step: stress, deaths, migration, abandonment, demotion (deterministic). |
+| 24852 | `_civRecoveryGrowthStep` | Logistic regrowth step toward catchment ceilings. |
+| 24875 | `_civSimulateTimeline` | Run N collapse/recovery steps returning snapshots. |
+| 24896 | `_civRunCollapseSimulation` | The Simulate button wiring: read the form, run, write year snapshots into civTimeline. |
+
+#### Auto-world settlement synthesis
+
+| Line | Function | Purpose |
+|---|---|---|
+| 24961 | `_civSelectMetropolises` | Opt-in imperial-seat promotion: dominant-centrality capitals of large polities. |
+| 25022 | `_civAssignLandmassFactions` | Faction assignment per landmass with highest-averages seat apportionment; multiple polities share a continent. |
+| 25127 | `_civRoadProximityQuery` | Bucket-grid nearest-road-distance query. |
+| 25159 | `_civVillageAcceptProb` | Soft village accept probability: max(road proximity, suitability ramp). |
+| 25164 | `_civSeedVillages` | Additive village layer: suitability seeds, spacing rejection, soft accept. |
+| 25248 | `_civConnectVillageAddons` | Batched growing-forest connection of villages to the network with ancient tracks. |
+| 25336 | `_civIterativeAutoWorld` | The full Auto-populate: seeds, factions, coastal preference swap, water-edge snap, network passes with centrality feedback, crossroads promotion, sea routes, villages, population, food-shed caps, specialisations. |
+
+#### Canvas tools, context menu, route/way commit
+
+| Line | Function | Purpose |
+|---|---|---|
+| 25856 | `_civCtxHide` | Hide the right-click context menu. |
+| 25857 | `_civCtxShow` | Build and show the context menu at the cursor. |
+| 25884 | `_civRevealBranch` | Navigate to the owning tab/sub-tab before editing (clicks the real buttons). |
+| 25957 | `_civDijkstraPath` | Point-to-point Dijkstra path on land/water/mixed grids with infrastructure discounts and gravity; flags unreachable fallbacks. |
+| 26032 | `_civCommitRoute` | Commit the in-progress route into civJourneys (sea-voyage detection, stop derivation). |
+| 26052 | `_civJoinDijkstraSegs` | Chain per-waypoint Dijkstra segments into one path. |
+| 26072 | `_civCommitWay` | Commit the in-progress manual way into civWays (warns on unreachable straight-line legs). |
+
+#### State persistence and UI wiring
+
+| Line | Function | Purpose |
+|---|---|---|
+| 26115 | `_civSyncToState` | Serialise civ state (territory pairs, timeline, ways, journeys, faction arrays) into state.civ for export. |
+| 26140 | `_civSyncFromState` | Restore civ state after load (old-save compatible field fills). |
+| 26235 | `_paintSyncToState` | Serialise the paint rasters as sparse pairs. |
+| 26239 | `_paintSyncFromState` | Restore paint rasters. |
+| 26266 | `_lodEditsSyncToState` | Serialise unbaked LOD sculpt edits as sparse deltas over deterministic bases. |
+| 26278 | `_lodEditsSyncFromState` | Reconstruct LOD edits on load. |
+| 26319 | `_civBuildFactionPicker` | Build the faction pill row (Unclaimed at 0; double-click rename). |
+| 26345 | `_civRenameFaction` | Inline pill-to-input faction rename. |
+| 26372 | `_civBuildMapFilterUI` | Build the Explore map-filter panel (factions, settlement types, way types). |
+| 26425 | `_civTlStopPlay` | Stop timeline animation. |
+| 26429 | `_civTlStartPlay` | Animate through recorded years. |
+| 26452 | `_civWireYearSlider` | Wire the real-year timeline slider (snaps to recorded years, tick datalist). |
+| 26478 | `_civBuildExploreTimelineUI` | Build the Explore timeline section (slider row gated on ≥2 years). |
+| 26510 | `_civClosePlacePopup` | Close the floating place editor. |
+| 26511 | `_civOpenPlacePopup` | Open it at the place's screen position with the town-layout preview. |
+| 26539 | `_civRenderInspector` | Route the current selection (place popup / label / icon) into the pinned inspector. |
+| 26555 | `_civSetTool` | The single tool switch: mutual exclusion, commits pending route/way, contextual rows, cursor. |
+
+### Script block 3 — Asset Library (19 top-level functions)
+
+Most of this block's logic lives in object literals (`AssetDB`, `AssetCollections`,
+`AssetValidator`, `PackManifestBuilder`, `ZipExporter`, `AssetImporter`, `UIState`,
+`AssetBrowserUI`, `ImageEditor`, `InspectorUI`, `SpriteSheetImporter`, `AssetLibrary`) whose
+methods the mechanical scan does not index; the subsystem map in the block-header comment
+(line 26724) and Part 0 §0.3 cover them. The top-level named functions:
+
+| Line | Function | Purpose |
+|---|---|---|
+| 26747 | `E` | getElementById shorthand. |
+| 26750 | `defaultTransform` | Neutral item transform (scale 1, no pan). |
+| 26751 | `drawItemOnly` | Draw an item with its transform into a square context. |
+| 26758 | `renderItem` | Clear (or black-fill for opaque) then draw an item. |
+| 26763 | `renderToCanvas` | Render an item to a fresh canvas at family size. |
+| 26768 | `renderToBlob` | Render an item to a PNG blob. |
+| 26769 | `fitToBottom` | Base-anchor an item (bottom-anchored icon families). |
+| 26781 | `mkSlots` | Build a family's slot records with codes. |
+| 26825 | `slugId` | Slugify a name to a slot id. |
+| 26826 | `defaultMeta` | Empty metadata record. |
+| 26832 | `famScatters` | Can a family scatter procedurally (feature icons and customs only). |
+| 26836 | `slotRuleKey` | The runtime scatter-rule key for a slot (delegates to the engine's spelling). |
+| 26841 | `slotRules` | Lazily attach a slot's scatter rules (preset for frozen slots, disabled default for customs). |
+| 26913 | `itemHash` | 32×32 FNV image hash for duplicate detection. |
+| 27021 | `slugName` | Slugify a pack name for the export filename. |
+| 27025 | `toast` | Show a transient toast message. |
+| 27128 | `setPreviewBg` | Set and persist the preview background (colour or checker). |
+| 27135 | `visibleSlots` | The filtered/sorted slot list for the grid (search across name/id/code/family/set/tags/items). |
+| 27873 | `encodeItemPng` | Encode an item's source image to PNG bytes (project persistence). |
+
+Notable non-indexed entry points: `window._alExportEntries` / `window._alImportProject`
+(lines 27879/27900 — assets travel inside the project ZIP as `assetlib/library.json` + images),
+`window._alImportPackZip` (27933 — header pack-import absorbs into the Library), and
+`AssetLibrary.syncToRuntime` (27954 — the v1.26/v1.28/v1.91 bridge pushing art, scatter rules,
+structures, biome/terrain/splat textures and pack metadata straight into the engine's `assetPack`
+via `applyLibraryAssets`, with explicit retirement of previously-pushed slots).
 
 ### Script block 4 — Urban morphology engine (UME) (92 functions)
 
-| Line | Function |
-|---|---|
-| 28174 | `UME` |
-| 28178 | `fnv1a` |
-| 28179 | `stream` |
-| 28212 | `resolveProfile` |
-| 28250 | `cloneRules` |
-| 28251 | `resolveRules` |
-| 28256 | `clamp` |
-| 28260 | `applyWildness` |
-| 28274 | `applyPlotChaos` |
-| 28290 | `polyArea` |
-| 28291 | `polyCentroid` |
-| 28295 | `pointInPoly` |
-| 28298 | `segInt` |
-| 28305 | `distPtSeg` |
-| 28309 | `polySelfIntersects` |
-| 28314 | `chaikin` |
-| 28321 | `simplify` |
-| 28330 | `ensureCCW` |
-| 28332 | `insetPoly` |
-| 28351 | `clipConvex` |
-| 28363 | `makeGraph` |
-| 28364 | `gKey` |
-| 28365 | `gridCellsForSeg` |
-| 28372 | `indexEdge` |
-| 28374 | `unindexEdge` |
-| 28376 | `edgesNear` |
-| 28379 | `addNode` |
-| 28380 | `nearestNode` |
-| 28390 | `rawEdge` |
-| 28397 | `splitEdge` |
-| 28407 | `attachPoint` |
-| 28422 | `addStreet` |
-| 28455 | `addPolylineStreet` |
-| 28462 | `extractFaces` |
-| 28509 | `edgeBetween` |
-| 28514 | `astar` |
-| 28557 | `shoreFromMask` |
-| 28571 | `buildSite` |
-| 28723 | `terrainSuitability` |
-| 28744 | `placeAnchors` |
-| 28771 | `buildPrimaries` |
-| 28811 | `buildPrimariesFromPaths` |
-| 28844 | `buildRadialStreets` |
-| 28928 | `buildWaterway` |
-| 28942 | `buildPlaza` |
-| 28971 | `distToLine` |
-| 28974 | `buildHarbour` |
-| 29101 | `addRiverBridges` |
-| 29134 | `detectRiverCrossings` |
-| 29160 | `buildMarkets` |
-| 29189 | `buildCivic` |
-| 29268 | `orientedRect` |
-| 29274 | `gamesShapeAt` |
-| 29277 | `buildGames` |
-| 29390 | `logisticRamp` |
-| 29404 | `estimateCarryingCapacity` |
-| 29427 | `wallOccupancy` |
-| 29443 | `grow` |
-| 29610 | `supersedeWall` |
-| 29631 | `ringCrossings` |
-| 29639 | `convexHull` |
-| 29647 | `densifyLoop` |
-| 29653 | `nearestIdx` |
-| 29655 | `cornerCut` |
-| 29668 | `townBank` |
-| 29695 | `builtMassHull` |
-| 29748 | `buildWall` |
-| 29937 | `applyStarFort` |
-| 30038 | `_killEdge` |
-| 30042 | `pruneLargest` |
-| 30056 | `removeWaterCrossings` |
-| 30093 | `privatizeAlleys` |
-| 30119 | `clearFortZone` |
-| 30159 | `lanePass` |
-| 30193 | `buildBlocks` |
-| 30229 | `buildParcels` |
-| 30345 | `assignDistricts` |
-| 30426 | `bmap` |
-| 30429 | `rectPoly` |
-| 30431 | `buildBuildings` |
-| 30579 | `_rectPts` |
-| 30580 | `_peristyle` |
-| 30588 | `buildFaithSites` |
-| 30711 | `crossesStreet` |
-| 30718 | `stripFields` |
-| 30751 | `ringFields` |
-| 30774 | `buildFarmland` |
-| 30795 | `applyDecay` |
-| 30805 | `buildDetails` |
-| 30902 | `computeMetrics` |
-| 30931 | `generate` |
-| 31087 | `hashModel` |
+A pure, DOM-free IIFE (`UME`) ported from the Urban Morphology PoC; deterministic via labeled RNG
+substreams; consumed by block 2's `_um*` adapter and by the headless test suite (byte-identical
+synthetic path guarded behind `usesRealWater`/`usesRealTerrain`/`economy` flags).
+
+#### RNG, profiles, rules
+
+| Line | Function | Purpose |
+|---|---|---|
+| 28174 | `UME` | The module IIFE returning {cityGen, hashModel, stream, profiles, rules API...}. |
+| 28178 | `fnv1a` | FNV-1a string hash (substream labels, goldens). |
+| 28179 | `stream` | Labeled deterministic RNG substream (range/int/pick/norm/lognormal/chance). |
+| 28212 | `resolveProfile` | Culture profile lookup (medieval organic, Venus radial). |
+| 28250 | `cloneRules` | Deep-clone a rules object. |
+| 28251 | `resolveRules` | Merge partial user rules onto DEFAULT_RULES (byte-identical with none). |
+| 28256 | `clamp` | Numeric clamp. |
+| 28260 | `applyWildness` | Compound slider: map wildness 0-2 onto the street-rule fields. |
+| 28274 | `applyPlotChaos` | Compound slider: map plot chaos onto the parcel-rule fields. |
+
+#### Geometry helpers
+
+| Line | Function | Purpose |
+|---|---|---|
+| 28290 | `polyArea` | Shoelace polygon area. |
+| 28291 | `polyCentroid` | Polygon centroid (area-weighted with degenerate fallback). |
+| 28295 | `pointInPoly` | Ray-cast point-in-polygon. |
+| 28298 | `segInt` | Segment-segment intersection with parameters. |
+| 28305 | `distPtSeg` | Point-to-segment distance. |
+| 28309 | `polySelfIntersects` | Self-intersection (bowtie) test. |
+| 28314 | `chaikin` | Chaikin corner-cutting smoothing. |
+| 28321 | `simplify` | Douglas-Peucker simplification. |
+| 28330 | `ensureCCW` | Force counter-clockwise winding. |
+| 28332 | `insetPoly` | Per-edge inward offset with miter joins (block insetting). |
+| 28351 | `clipConvex` | Sutherland-Hodgman clip against a convex polygon. |
+
+#### Planar street graph
+
+| Line | Function | Purpose |
+|---|---|---|
+| 28363 | `makeGraph` | Empty planar graph with spatial hash. |
+| 28364 | `gKey` | Grid-cell hash key. |
+| 28365 | `gridCellsForSeg` | Visit hash cells along a segment. |
+| 28372 | `indexEdge` | Add an edge to the spatial hash. |
+| 28374 | `unindexEdge` | Remove it. |
+| 28376 | `edgesNear` | Candidate edges near a segment. |
+| 28379 | `addNode` | Add a graph node. |
+| 28380 | `nearestNode` | Nearest node within a radius (via the hash). |
+| 28390 | `rawEdge` | Add an edge (dedup, min length). |
+| 28397 | `splitEdge` | Split an edge at a point into two (T-junction creation). |
+| 28407 | `attachPoint` | Attach a point: snap to node, split nearest edge, or new node. |
+| 28422 | `addStreet` | Insert a street segment splitting at all crossings (planarity invariant). |
+| 28455 | `addPolylineStreet` | Insert a polyline as consecutive street segments. |
+| 28462 | `extractFaces` | Planar face extraction (blocks) via sorted half-edge walk with spur collapse. |
+| 28509 | `edgeBetween` | Find the live edge between two nodes. |
+| 28514 | `astar` | A* over the site cost raster (primary-route pathfinding). |
+
+#### Site model and anchors
+
+| Line | Function | Purpose |
+|---|---|---|
+| 28557 | `shoreFromMask` | Ordered shoreline polyline from a real water mask (coastal towns). |
+| 28571 | `buildSite` | The site model: river/riverthrough/bay/coast/landlocked; real or synthetic water and relief; height/slope/isWater/riverDist queries; bridge point, harbour, route ends. |
+| 28723 | `terrainSuitability` | Per-point buildability: slope score × flood-band score (McHarg overlay). |
+| 28744 | `placeAnchors` | Site the market: flat, dry, near the break-of-bulk point (bridge/quay). |
+
+#### Streets: primaries, radial mode, plaza, harbour, bridges
+
+| Line | Function | Purpose |
+|---|---|---|
+| 28771 | `buildPrimaries` | Synthetic primary routes: A* least-cost with trail reinforcement from route ends to the market. |
+| 28811 | `buildPrimariesFromPaths` | Inject the host's real inter-settlement roads as the primary streets (v0.97). |
+| 28844 | `buildRadialStreets` | Venus radial mode: wobbled concentric rings + primary spokes + cross-spokes around the hub. |
+| 28928 | `buildWaterway` | Venus circular irrigation canal outside the built rings (map-capped closed circle). |
+| 28942 | `buildPlaza` | Market place by widening the principal street (away from the river). |
+| 28971 | `distToLine` | Point-to-polyline distance. |
+| 28974 | `buildHarbour` | Quay, back street, herringbone lanes, harbour road, piers, breakwater mole, harbour defence (chain/seawall/mole-fort); navigability-validated on real water. |
+| 29101 | `addRiverBridges` | Extra synthetic bridges for river-through towns (skipped on real water — roads justify bridges). |
+| 29134 | `detectRiverCrossings` | Record where roads genuinely cross the real river as bridges (or a ford if none). |
+
+#### Amenities, civic, games
+
+| Line | Function | Purpose |
+|---|---|---|
+| 29160 | `buildMarkets` | Specialised markets multiplying with population thresholds (Shambles, Fish, Corn, Cloth, Cattle), clearing their squares. |
+| 29189 | `buildCivic` | Civic hall on the market: town hall/guildhall, basilica, loggia, keep, or Venus dome; rank-scaled. |
+| 29268 | `orientedRect` | Oriented rectangle from centre and axis. |
+| 29274 | `gamesShapeAt` | Games-building footprint (oriented rectangle). |
+| 29277 | `buildGames` | Population-gated spectacle building (tiltyard) sited plaza-adjacent else peripheral, collision-checked, honestly omitted if nowhere fits. |
+
+#### Growth loop and walls
+
+| Line | Function | Purpose |
+|---|---|---|
+| 29390 | `logisticRamp` | Normalised S-curve for staged growth (wall-generations mode). |
+| 29404 | `estimateCarryingCapacity` | Placeholder carrying-capacity factor from ring-sampled terrain suitability (the Cartalith integration hook). |
+| 29427 | `wallOccupancy` | How full is the wall's interior and how much has spilled outside (expansion trigger metric). |
+| 29443 | `grow` | The epoch growth loop: densification vs exploration candidates, market-gradient demand, legalisation rules (T-junctions, angle limits, spacing, water, wall gates), wall episodes. |
+| 29610 | `supersedeWall` | Retire an outgrown circuit: stash to history, demolish the land arc into a ring road, build the next generation. |
+| 29631 | `ringCrossings` | Segment-ring intersection points. |
+| 29639 | `convexHull` | Andrew monotone-chain hull. |
+| 29647 | `densifyLoop` | Resample a loop at a step length. |
+| 29653 | `nearestIdx` | Nearest polyline vertex index. |
+| 29655 | `cornerCut` | Cut acute corners of a ring. |
+| 29668 | `townBank` | The town-side water edge polyline (wall follows the bank). |
+| 29695 | `builtMassHull` | Hull of the built mass (junction nodes), far-bank folded in when substantial; aspect-capped on real water. |
+| 29748 | `buildWall` | The wall circuit: hull-based ring, terrain-deflected onto crests, land arc plus bank-following water walls, spurs, water gates, gate placement where primaries cross. |
+| 29937 | `applyStarFort` | Bastioned trace italienne: resampled corners, pentagonal bastions, curtains, wet/dry ditch, ravelins, covered way, glacis, gate cap. |
+
+#### Cleanup passes
+
+| Line | Function | Purpose |
+|---|---|---|
+| 30038 | `_killEdge` | Remove an edge from the graph. |
+| 30042 | `pruneLargest` | Keep only the largest connected component. |
+| 30056 | `removeWaterCrossings` | Cull streets running through water (real-water mode also culls unbridged primaries). |
+| 30093 | `privatizeAlleys` | Cul-de-sac formation: close a share of minor streets without disconnecting the network. |
+| 30119 | `clearFortZone` | Sweep the fortification's field of fire: buildings, parcels, clutter and non-gate roads. |
+| 30159 | `lanePass` | Split oversized central blocks with back lanes. |
+
+#### Blocks, parcels, districts, buildings
+
+| Line | Function | Purpose |
+|---|---|---|
+| 30193 | `buildBlocks` | Faces to inset block polygons (street-width verges, plaza flagged). |
+| 30229 | `buildParcels` | Series-platted strip parcels via vertex bisectors (grant-then-subdivide frontages, depth clamps, wet/bowtie rejection, area conservation). |
+| 30345 | `assignDistricts` | District assignment: market/burgher/artisan/craftriver/harbour/suburb/agrarian plus economy-rule overrides (ore/fishery/saw yards, granary, warehouse row). |
+| 30426 | `bmap` | Bilinear patch over a parcel quad. |
+| 30429 | `rectPoly` | Sub-rectangle of a parcel in (u,v) space. |
+| 30431 | `buildBuildings` | Parcel-conditioned building grammar: main range, wings, outbuildings, courtyards, warehouses, Venus blended grammar, economy sheds; ridge lines; terrain-aware opt-out. |
+
+#### Faith, farmland, decay, details, metrics, generate
+
+| Line | Function | Purpose |
+|---|---|---|
+| 30579 | `_rectPts` | Axis-aligned rectangle points. |
+| 30580 | `_peristyle` | Colonnade points around a rectangle. |
+| 30588 | `buildFaithSites` | Places of worship by rite (church, temple, shrine, mosque, orthodox cross-in-square) claiming churchyard parcels and clearing houses. |
+| 30711 | `crossesStreet` | Does a polygon cross any live street (farmland guard). |
+| 30718 | `stripFields` | Medieval selion strip fields along approach roads, with pasture share. |
+| 30751 | `ringFields` | Venus concentric ring-farming bands. |
+| 30774 | `buildFarmland` | Farmland dispatch by profile pattern. |
+| 30795 | `applyDecay` | Ruined-state overlay: flag a seeded fraction of parcels/buildings abandoned (geometry untouched). |
+| 30805 | `buildDetails` | Wells, market cross, crane, bollards, garden trees, fences, orchards, economy clutter (spoil heaps, drying racks, log boom). |
+| 30902 | `computeMetrics` | Morphometrics vs literature bands: dead-end share, degree shares, segment lengths, meshedness, frontages. |
+| 30931 | `generate` | The city generator: profile/rules resolution, site, anchors, streets (organic or radial), plaza, harbour, growth, lanes, water-crossing cull, blocks, parcels, districts, buildings, decay, faith, markets, civic, games, details, farmland, alley privatisation, fort-zone sweep, bridge detection, metrics. |
+| 31087 | `hashModel` | Stable FNV hash of a model for determinism goldens. |
 
 ## Part 2 — alphabetical index (all blocks)
 
