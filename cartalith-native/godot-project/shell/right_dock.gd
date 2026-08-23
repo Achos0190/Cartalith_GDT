@@ -691,17 +691,33 @@ func _build_causal_chain_text(s: Dictionary, index: int) -> String:
 func _build_route(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Route")
 	var e := _route_entry
-	_field(sec, "Name", String(e.get("name", "—")))
+	## A hand-drawn way is committed nameless (`civ_commit_way` sets
+	## `name: ""`), so the em-dash fallback has to catch the empty string,
+	## not just a missing key.
+	var nm := String(e.get("name", ""))
+	_field(sec, "Name", nm if not nm.is_empty() else "—")
 	_field(sec, "Type", String(e.get("way_type", "")).capitalize() if _route_kind == "road" else "Sea lane")
+	## `manual` (`GUI_GAP_REGISTER.md` IN-02): the map draws hand-drawn and
+	## generated ways identically, on purpose (the reference styles by
+	## `way_type` alone), so this readout is the only place the distinction
+	## is visible -- and it is worth showing, because only one of the two is
+	## something the user authored.
+	_field(sec, "Source", "Hand-drawn (Way tool)" if e.get("manual", false) else "Generated network")
 
 	var pts: PackedVector2Array = e.get("points", PackedVector2Array())
 	_field(sec, "Points", str(pts.size()))
-	_field(sec, "Length", _route_length_text(pts))
+	## `km` is the engine's own routed length (`Way::km`/`ManualWay::km`,
+	## computed in `f64` over the real grid). Preferred over
+	## `_route_length_text`, which re-measures the `f32` `PackedVector2Array`
+	## this getter rounds to -- that fallback stays for any caller still
+	## passing a dict from before `km` was emitted.
+	var km := float(e.get("km", 0.0))
+	_field(sec, "Length", ("%.1f km" % km) if km > 0.0 else _route_length_text(pts))
 
 	var unreachable := ["Stages", "Vessels", "Cost trace", "Per-stage overrides", "Daily stages"]
 	for f in unreachable:
 		_field(sec, f, "—",
-			"get_roads()/get_sea_routes() carry only {points, brks, way_type, name} -- " +
+			"get_roads()/get_sea_routes() carry only {points, brks, way_type, name, km, manual} -- " +
 			"the manual-route authoring context (ManualWay/RouteContext, tools.rs) that " +
 			"would supply this has no read surface. STRANDED_TOOLS.md row 11.", false)
 

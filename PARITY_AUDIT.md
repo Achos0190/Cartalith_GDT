@@ -163,7 +163,7 @@ simulation, and Brandes betweenness.
 | `_civAgrarianRegionalTotal` → `civPopEstimateOut` ("Land sustains ≈ N") | absent; no `agrarian_regional_total` in `cartalith-civ` | **undisclosed** — §5 item 7 |
 | `civBiomeKChk` (biome carrying-capacity residual toggle) | function present in `cartalith-civ`, **no `#[func]`** | **undisclosed** |
 | `civDiagnosticsChk` (placement-diagnostics overlay) | absent | **undisclosed** |
-| Committed manual ways/routes never reach the map or a list | real; `get_roads()` reads `civ.ways` only | IN-02 |
+| Committed manual ways never reach the map or a list | was real; `get_roads()` read `civ.ways` only | **IN-02, CLOSED 2026-08-24** — both getters now append `InfraTools::ways` tagged `manual: true` (sea lanes via `get_sea_routes()`), matching the reference's one-flat-`civWays` arrangement; the map repaints on commit and CIVIL ▸ Roads ▸ Hand-drawn lists them. The "routes" half was never a gap — `route_count`/`route_get` predate this |
 | Whole-network operations absorbed by `generate()` — auto-populate, clear places/routes, generate roads, recalculate/clear territory, generate provinces | absent as *operations*; the results exist | MS-06…MS-12, all now disabled controls with real reasons |
 
 ### 3.3 Journey Planner

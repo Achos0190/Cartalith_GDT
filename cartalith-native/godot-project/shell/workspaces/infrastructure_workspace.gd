@@ -30,26 +30,33 @@ class_name InfrastructureWorkspace
 ## but, like culture, exports nothing past that crate boundary.
 ##
 ## Drawing a new way or route (`infra_tools_bridge.rs`'s `InfraTools`,
-## `STRANDED_TOOLS.md` row 11) now has both an engine AND a surface -- the
-## TOOLS block below arms Way/Route, click-chains a draft, and commits or
-## discards it. What is still missing, confirmed by reading `get_roads`/
-## `get_sea_routes` in `lib.rs`: **neither iterates `self.infra.ways`/
-## `self.infra.routes`** (both only read `civ.ways`/`civ.sea_routes`, the
-## auto-generated network) -- there is genuinely no getter yet that returns
-## a committed manual way/route for display, matching `way_commit`'s own
-## doc comment ("there is no getter for the manual-ways list itself yet,
-## deliberately out of this milestone's exact scope"). So a committed way
-## really is stored engine-side (and is real input to the next commit's own
-## Dijkstra routing and to `snap_point`), but nothing here can make it
-## *appear* on the map or in a list -- `bridge.roads()`/`bridge.sea_routes()`
-## would not include it even if re-queried, so this file does not pretend
-## to refresh the map after a commit. A status-bar line is the only
-## acknowledgement a commit gets today.
+## `STRANDED_TOOLS.md` row 11) has an engine, a surface, and -- since
+## `GUI_GAP_REGISTER.md` IN-02 was closed -- somewhere for the result to
+## land. The TOOLS block below arms Way/Route, click-chains a draft, and
+## commits or discards it; `get_roads()`/`get_sea_routes()` now append
+## `InfraTools::ways` to the generated network they return, each entry
+## tagged `manual: true`, so `bridge.roads()`/`bridge.sea_routes()` DO
+## include a hand-drawn way once committed. `_commit_way` therefore repaints
+## the map (`_refresh_map_ways`) and refills the Roads ▸ Hand-drawn list
+## (`_refresh_manual_ways`) instead of only printing a status line.
+##
+## That the two sources share one getter is the reference's arrangement
+## rather than a shortcut: `_civCommitWay` (reference line 26077) pushes a
+## hand-drawn way straight onto the same flat `civWays` array as the
+## generated network, and the draw pass branches on `type` alone -- a manual
+## `road` and a generated `road` are drawn identically. `manual` exists to
+## be *listed* and to survive a network rebuild, never to be styled apart,
+## so nothing here gives hand-drawn ways their own colour.
+##
+## Still genuinely missing: rename/retype/delete of an existing way (the
+## reference's way-properties editor -- there is no `way_set_name`/
+## `way_delete` `#[func]`), and manual sea lanes route through the same
+## navy/dashed style as generated ones with no per-way condition field.
 ##
 ## Rows here (Roads/Ports' network lists) read only; clicking a road or sea
-## route pins it into the right dock (`right_dock.gd`'s Route context). The
-## Way/Route *tools* below have no such inspector to pin into yet either,
-## for the same getter gap.
+## route pins it into the right dock (`right_dock.gd`'s Route context), and
+## that now works for a hand-drawn way too, since it is the same dictionary
+## shape.
 
 const WAY_TYPE_ORDER := ["highway", "regional", "road", "track"]
 
@@ -88,6 +95,10 @@ var _way_type := "road"
 ## instance is composed into CIVIL's own dock rather than standing alone --
 ## see this file's own class doc for why.
 var _nested := false
+
+## The Hand-drawn group's row host (`_build_manual_ways`), kept so a commit
+## can refill it without a panel rebuild. `null` until `_build()` has run.
+var _manual_list: Control = null
 
 func _build() -> void:
 	_build_tools()
@@ -217,11 +228,33 @@ func _commit_way() -> void:
 	_way_points = PackedVector2Array()
 	app.viewport.tool_overlay.set_path_preview(_way_points)
 	if idx >= 0:
+		## Both of these are new with `GUI_GAP_REGISTER.md` IN-02's fix:
+		## `get_roads()`/`get_sea_routes()` now include committed manual
+		## ways, so re-reading them really does show the way just drawn.
+		_refresh_map_ways()
+		_refresh_manual_ways()
 		app.set_status("hint",
-			"Way #%d committed -- not shown on the map yet (no manual-way display getter; see this file's own doc comment)." % idx,
+			"Way #%d committed -- drawn on the map and listed under Roads ▸ Hand-drawn." % idx,
 			"text_ghost")
 	if _active_infra_tool == "way":
 		_tool_options_way()
+
+
+## Repaints the map's civ layer so a way committed a moment ago appears
+## without waiting for the next regenerate.
+##
+## Delegates to `CivilizationWorkspace._refresh_civ_data()` -- the shared,
+## camera-preserving repaint whose own doc explains why this must NOT be
+## `ViewportHost.refresh()` (that one calls `reset_view()`, which would snap
+## the camera every time the user committed a way). This class is always
+## composed as that workspace's child since the 2026-08-20 domain merge
+## (`civilization_workspace.gd`'s `add_child(_infra)`), so `get_parent()` is
+## it; the cast is guarded rather than asserted so a future recomposition
+## costs a missing repaint, never a crash mid-commit.
+func _refresh_map_ways() -> void:
+	var civ := get_parent() as CivilizationWorkspace
+	if civ != null:
+		civ._refresh_civ_data()
 
 func _discard_way() -> void:
 	bridge.way_discard()
@@ -313,26 +346,88 @@ func _build_roads() -> void:
 	var roads := bridge.roads()
 	if roads.is_empty():
 		DccWidgets.note(sec, "No roads -- generate a world first (World ▸ Generation Pipeline).")
-		_build_road_gaps(cat)
-		return
+	else:
+		## `bridge.roads()` now carries hand-drawn ways alongside the
+		## generated tiers (`get_roads()`, IN-02), so the tier tally below
+		## no longer sums to `roads.size()` on its own -- WAY_TYPE_ORDER is
+		## the generated vocabulary only. Counting the manual ones out
+		## explicitly keeps the sentence arithmetically true rather than
+		## quietly short by however many the user has drawn.
+		var counts := {}
+		var manual := 0
+		for r in roads:
+			if (r as Dictionary).get("manual", false):
+				manual += 1
+				continue
+			var t := String((r as Dictionary).get("way_type", "road"))
+			counts[t] = int(counts.get(t, 0)) + 1
+		var parts: Array[String] = []
+		for t in WAY_TYPE_ORDER:
+			if counts.has(t):
+				parts.append("%d %s" % [counts[t], t])
+		if manual > 0:
+			parts.append("%d hand-drawn" % manual)
+		DccWidgets.note(sec, "%d ways -- %s." % [roads.size(), ", ".join(parts)])
 
-	var counts := {}
-	for r in roads:
-		var t := String((r as Dictionary).get("way_type", "road"))
-		counts[t] = int(counts.get(t, 0)) + 1
-	var parts: Array[String] = []
-	for t in WAY_TYPE_ORDER:
-		if counts.has(t):
-			parts.append("%d %s" % [counts[t], t])
-	DccWidgets.note(sec, "%d ways -- %s." % [roads.size(), ", ".join(parts)])
+		var longest := DccWidgets.group(sec, "Longest, by point count")
+		var ranked := roads.duplicate()
+		ranked.sort_custom(func(a, b): return (a as Dictionary).points.size() > (b as Dictionary).points.size())
+		for i in range(mini(6, ranked.size())):
+			_route_row(longest, ranked[i], "road")
 
-	var longest := DccWidgets.group(sec, "Longest, by point count")
-	var ranked := roads.duplicate()
-	ranked.sort_custom(func(a, b): return (a as Dictionary).points.size() > (b as Dictionary).points.size())
-	for i in range(mini(6, ranked.size())):
-		_route_row(longest, ranked[i], "road")
-
+	_build_manual_ways(cat)
 	_build_road_gaps(cat)
+
+
+## Every way the Way tool has committed this session (`GUI_GAP_REGISTER.md`
+## IN-02's "or a list" half).
+##
+## Deliberately a filtered view of the SAME two getters the Network group
+## above reads, not a second store: since `get_roads()`/`get_sea_routes()`
+## append `InfraTools::ways` to the generated network (tagged `manual`),
+## "the user's own ways" is a predicate over one list rather than a rival
+## inventory that could drift out of step with what the map draws. That is
+## also the reference's arrangement -- `#civWayList` is one list holding
+## generated and hand-drawn ways together, told apart by a per-row type
+## icon. This group exists because the Network group above shows only a
+## six-row "longest" ranking, in which a freshly-drawn 12 km way would
+## essentially never appear.
+##
+## Repopulated in place by `_refresh_manual_ways` rather than rebuilt:
+## `Workspace` has no rebuild hook (`_build` runs once, from `setup`), and
+## rebuilding the dock on every commit would collapse the accordion the
+## user is working inside.
+func _build_manual_ways(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Hand-drawn")
+	_manual_list = DccWidgets.group(sec, "Committed this session")
+	_refresh_manual_ways()
+
+
+## Clear-and-refill, deliberately, rather than appending only the newest
+## row: a commit can also *renumber* nothing but can produce either a road
+## or a sea lane depending on the way type, so re-reading both getters is
+## both shorter than branching and immune to the two lists getting out of
+## order. At the handful-of-ways scale a person draws by hand, rebuilding a
+## few buttons costs nothing.
+func _refresh_manual_ways() -> void:
+	if _manual_list == null:
+		return
+	for c in _manual_list.get_children():
+		c.queue_free()
+	var rows := 0
+	for r in bridge.roads():
+		if (r as Dictionary).get("manual", false):
+			_route_row(_manual_list, r, "road")
+			rows += 1
+	for r in bridge.sea_routes():
+		if (r as Dictionary).get("manual", false):
+			_route_row(_manual_list, r, "sea")
+			rows += 1
+	if rows == 0:
+		DccWidgets.note(_manual_list,
+			"None yet -- arm Way in the TOOLS block above, click two or more " +
+			"waypoints, then ✓ Commit. Committed ways draw on the map with the " +
+			"generated network and are routed over by the next way you draw.")
 
 
 ## The reference's two whole-network road operations. Same split as CIVIL's
@@ -346,7 +441,7 @@ func _build_road_gaps(parent: Control) -> void:
 	gen.tooltip_text = "The reference's #civAutoRoutesBtn. Route generation is part of compute_civilisation inside generate(); no civ_auto_routes #[func] runs it on its own, and there is no parameter for road density or which tiers get connected (params.rs carries no civ entries). Drawing a way by hand is the wired alternative -- the Way and Route tools in the TOOLS block above."
 	var clear := DccWidgets.action(sec, "Clear ways & journeys", func(): pass)
 	clear.disabled = true
-	clear.tooltip_text = "The reference's #civClearRoadsBtn. CivData::ways/sea_routes are rebuilt wholesale by generate() with no clear #[func]; committed manual ways live in a separate InfraTools store that has no getter yet either (GUI_GAP_REGISTER.md IN-02), so there is nothing here that could honestly claim to clear both."
+	clear.tooltip_text = "The reference's #civClearRoadsBtn. CivData::ways/sea_routes are rebuilt wholesale by generate() with no clear #[func], and InfraTools::ways (where committed manual ways live -- readable since GUI_GAP_REGISTER.md IN-02, but read-only) has no clear either, so there is nothing here that could honestly claim to clear both."
 
 # -- Rivers ---------------------------------------------------------------
 
@@ -448,12 +543,27 @@ func _build_logistics() -> void:
 
 # -- Shared ---------------------------------------------------------------
 
+## One clickable row for a `get_roads()`/`get_sea_routes()` entry.
+##
+## The empty-name fallback below is not defensive padding: a hand-drawn way
+## is committed with `name: ""` (`civ_commit_way` sets `String::new()`, the
+## reference's own `name:''` at line 26077), so every manual row would read
+## as a blank button without it. The reference's own way list falls back the
+## same way, to `'Way '+(ri+1)` -- an index, which this helper has no honest
+## access to (its caller may be showing a filtered or ranked subset), so it
+## names the source instead of inventing a number that would not match the
+## engine's own commit index.
 func _route_row(parent: Control, entry: Dictionary, kind: String) -> void:
-	var label_text := String(entry.get("name", "unnamed"))
+	var label_text := String(entry.get("name", ""))
+	if label_text.is_empty():
+		label_text = "Hand-drawn way" if entry.get("manual", false) else "unnamed"
 	if kind == "road":
 		label_text += " (%s)" % String(entry.get("way_type", "road"))
 	else:
 		label_text += " (sea lane)"
+	var km := float(entry.get("km", 0.0))
+	if km > 0.0:
+		label_text += " -- %d km" % int(round(km))
 	var b := DccWidgets.action(parent, label_text, func(): app.right_dock_ctrl.show_route(entry, kind))
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	b.tooltip_text = "Open this route in the right dock."

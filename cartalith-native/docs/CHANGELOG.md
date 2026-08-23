@@ -20278,3 +20278,120 @@ reported, it affects desktop (which the owner says works correctly) more than
 the phone (where the map is edge-to-edge and the offset is ~0), and
 `viewport_host.gd` had concurrent work in it. Registered as **SH-10** in
 `GUI_GAP_REGISTER.md`.
+
+## Hand-drawn ways reach the map and a list (`GUI_GAP_REGISTER.md` IN-02, 2026-08-24)
+
+`PARITY_AUDIT.md` §3.2's *"committed manual ways/routes never reach the map or
+a list — real; `get_roads()` reads `civ.ways` only"*. The diagnosis was exactly
+right, and the register's *(B) small — one getter* estimate held; what changed
+is **which** getter.
+
+**What the data flow actually was.** Arming Way (`infrastructure_workspace.gd`
+`_on_infra_tool_armed`) calls `bridge.way_begin(type)` → `WorldGen::way_begin`
+→ `InfraTools::way_begin`, which parks a `WayDraft`. Each map click reaches
+`_way_click` → `way_append_point`, which **snaps** the point
+(`civ_snap_point` against `civ.settlements` + `civ.ways` + `infra.ways`) before
+pushing it onto the draft. ✓ Commit calls `_commit_way` →
+`WorldGen::way_commit`, which assembles a `RouteContext` (including every
+previously-committed manual way, so hand-drawn ways really do route over each
+other) and calls `InfraTools::way_commit` → `civ_commit_way`, real least-cost
+Dijkstra. The resulting `ManualWay` is pushed onto **`InfraTools::ways`** — a
+`Vec<ManualWay>` field on `WorldGen.infra`, never onto `CivData::ways`.
+
+So the way was fully real: routed, persisted for the session, and live input to
+the *next* commit's routing and to snapping. It was simply invisible.
+`get_roads()` iterated `civ.ways`, `get_sea_routes()` iterated
+`civ.sea_routes`, and neither had ever looked at `infra.ways` — matching
+`way_commit`'s own doc comment ("there is no getter for the manual-ways list
+itself yet, deliberately out of this milestone's exact scope") and the honest
+status line `_commit_way` printed instead ("not shown on the map yet").
+
+**Why no new getter was written.** The register's estimate assumed a
+`way_count`/`way_get` pair mirroring `route_get`. The reference says not to.
+`_civCommitWay` (reference line 26077) pushes a hand-drawn way straight onto
+the **same flat `civWays` array** the generated network lives in, tagged
+`manual:true`, and the draw pass (line ~15494) branches on `rt.type` alone —
+`highway`/`regional`/`track`/`sea-lane`/`ancient`/default — never on `manual`.
+A hand-drawn `road` and a generated `road` are drawn identically, on purpose.
+`manual` exists so a hand-drawn way *survives a network rebuild*
+(`_civAutoRoutes` snapshots `civWays.filter(w => w.manual)` and feeds the land
+ones back in as `opts.existingWays`) and so `_civRenderWayList` can list it —
+not so it can be styled apart. A separate getter would have split what the
+reference deliberately keeps as one list, and forced a second code path through
+`map_overlay.gd`, `right_dock.gd`'s Route context and both workspace lists for
+no behavioural difference.
+
+**Built:**
+
+- `get_roads()` (`lib.rs`) appends every non-hidden, non-sea `ManualWay` from
+  `infra.ways` after the generated network, with `way_type` from the new
+  `infra_tools_bridge::way_type_key` (`parse_way_type`'s inverse, round-trip
+  tested) and `manual: true`. `get_sea_routes()` does the same for the sea
+  ones. The sea split is the one distinction the reference's own draw pass
+  makes (`type === 'sea-lane'` takes the navy/dashed branch, never a road
+  branch), and this port already splits those two styles across these two
+  getters — so a manual sea lane draws correctly with **zero** renderer change.
+- `km` and `manual` are now on every entry from both getters, generated ones
+  included. `km` was already on `Way` and `SeaRoute` and simply never emitted;
+  it is the engine's `f64` routed length, better than re-measuring the `f32`
+  `PackedVector2Array` those getters round to.
+- `map_overlay.gd`: **one** dictionary key — `"ancient": 1.1` in
+  `ROAD_WIDTH_BY_TYPE`, the width the reference strokes it at (line ~15516),
+  since `ancient` is the one `ManualWayType` with no `WayType` counterpart and
+  would otherwise take the 1.6 `road` default. No draw-loop change of any kind;
+  `manual` is deliberately not consulted while drawing.
+- `infrastructure_workspace.gd`: `_commit_way` now calls `_refresh_map_ways()`
+  (delegating to `CivilizationWorkspace._refresh_civ_data()` — the shared
+  *camera-preserving* repaint, not `ViewportHost.refresh()`, which would snap
+  the view on every commit) and `_refresh_manual_ways()`, and says so in the
+  status bar instead of apologising. New **Roads ▸ Hand-drawn ▸ Committed this
+  session** list, refilled in place rather than rebuilt — `Workspace` has no
+  rebuild hook (`_build` runs once from `setup`) and rebuilding the dock would
+  collapse the accordion the user is working inside. The Network group's tier
+  tally counts hand-drawn ways out separately so it still sums to the total.
+- `right_dock.gd`'s Route context: a **Source** field (Hand-drawn (Way tool) /
+  Generated network), `km` used for Length, and an empty-name fallback — a
+  hand-drawn way is committed with `name: ""` (`civ_commit_way`'s
+  `String::new()`, the reference's own `name:''`), which the old
+  `get("name", "—")` did not catch.
+
+**Verified — driven through the real app, not asserted:**
+
+A temporary harness instantiated `app.tscn`, generated a 384×288 world
+(seed 483920), armed the real Way tool via `app.arm_tool("way")` and fed real
+clicks through `app._on_map_clicked`, then committed through the same
+`_commit_way` the ✓ Commit button calls:
+
+- 4 waypoints → a committed `road` of **105 routed points / 1938.7 km**
+  (Dijkstra, not a polyline through the clicks). `get_roads()` 35 → 36 entries,
+  exactly one `manual: true`, `way_type` round-tripped as `road`.
+- `map_overlay._roads` carries it — i.e. the commit-time repaint fired.
+- **Pixel proof, not just "it's in the array":** a second way committed as
+  `ancient` (the one `way_type` no generated `Way` can carry), then all four
+  generated tiers and the sea layer switched off. Toggling *only* that
+  hand-drawn way changed **179 sampled pixels** (every 2nd pixel in both axes,
+  so ~716 real) between two captured frames. Anything still stroked with the
+  generated tiers hidden is necessarily hand-drawn.
+- A `sea_lane` way landed in `get_sea_routes()` (1 manual) and **did not leak**
+  into `get_roads()` (still the 2 land ways).
+- The list showed all three, with real lengths: `Hand-drawn way (road) --
+  1939 km`, `(ancient) -- 2683 km`, `(sea lane) -- 1122 km`. Clicking a row
+  opened the right dock reading `Type Road · Source Hand-drawn (Way tool) ·
+  Points 105 · Length 1938.7 km`. Screenshotted, both list and inspector.
+- `cargo build -p cartalith-godot` clean; `cargo test -p cartalith-civ -p
+  cartalith-godot` all green, including the new `way_type_key` round-trip test.
+
+**Open, and not folded in silently:** there is no `way_set_name` /
+`way_delete` / way-condition `#[func]`, so a committed way still cannot be
+renamed, retyped or removed — the reference's way-properties editor has no
+counterpart here, and `MS-09` **Clear ways & journeys** stays disabled for that
+reason on both halves now rather than one. §4.5.4's "grade profile / surface"
+half of the Way inspector is likewise unbacked.
+
+**Committed *routes* were never part of this.** `route_count`/`route_get` have
+existed since the Journey Planner milestone. A route is a journey *along*
+existing geometry, not durable geometry — `infra_tools_bridge.rs`'s "Way and
+Route are two separate commit paths, on purpose" — so it belongs to the
+planner's registry, not the way layer. IN-02's original wording said
+"ways/routes"; only the ways half was ever a real gap.
+

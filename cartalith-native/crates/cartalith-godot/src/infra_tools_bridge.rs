@@ -311,6 +311,28 @@ pub fn parse_way_type(s: &str) -> Option<ManualWayType> {
     }
 }
 
+/// [`parse_way_type`]'s inverse, for `get_roads()`'s `way_type` key —
+/// the canonical spelling of each variant, chosen so `parse_way_type`
+/// round-trips it (the test below asserts exactly that).
+///
+/// These four strings join `get_roads()`'s existing four generated tiers
+/// (`highway`/`regional`/`road`/`track`) in ONE key, which is the
+/// reference's own arrangement rather than a convenience: `civWays` holds
+/// generated and hand-drawn ways in one flat array and the draw pass
+/// (reference line ~15494) branches on `rt.type` alone — a manual `road`
+/// and a generated `road` are drawn identically, and `manual` is never
+/// consulted while drawing. `road` and `track` therefore deliberately
+/// collide across the two vocabularies: the reference collides them too,
+/// and it means the same thing in both.
+pub fn way_type_key(t: ManualWayType) -> &'static str {
+    match t {
+        ManualWayType::Road => "road",
+        ManualWayType::Track => "track",
+        ManualWayType::SeaLane => "sea_lane",
+        ManualWayType::Ancient => "ancient",
+    }
+}
+
 /// `route_begin`'s `GString` -> [`RouteMode`] mapping. `RouteMode` is a cost
 /// *domain* (which terrain a route may cross), not a UI routing-style choice
 /// — `land`/`water` are the two constrained domains and `mixed` is the one
@@ -456,6 +478,18 @@ mod tests {
         assert_eq!(parse_way_type("sealane"), Some(ManualWayType::SeaLane));
         assert_eq!(parse_way_type("ancient"), Some(ManualWayType::Ancient));
         assert_eq!(parse_way_type("bridge"), None, "not a real engine way type -- see the module doc");
+    }
+
+    #[test]
+    fn way_type_key_round_trips_through_parse_way_type() {
+        for t in [ManualWayType::Road, ManualWayType::Track, ManualWayType::SeaLane, ManualWayType::Ancient] {
+            assert_eq!(parse_way_type(way_type_key(t)), Some(t), "{} must parse back to itself", way_type_key(t));
+        }
+        // The `get_roads()` contract this key feeds: only `sea_lane`
+        // diverts a manual way to `get_sea_routes()` -- assert the exact
+        // string that branch tests against, so renaming it here breaks a
+        // test rather than silently drawing sea lanes as roads.
+        assert_eq!(way_type_key(ManualWayType::SeaLane), "sea_lane");
     }
 
     #[test]

@@ -441,12 +441,54 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
 | IN-01 | Rivers ▸ Hydrology | 314-319 | no `get_rivers()`; the only river output crossing the boundary is baked into the rendered raster | yes | §3 lists Rivers as one of INFRA's five subjects | (B) large — same entity gap as RD-05 |
-| IN-02 | Committed manual ways/routes never appear on the map or in a list | 20-31 (class doc), 195, 213 | `get_roads()`/`get_sea_routes()` read `civ.ways`/`civ.sea_routes` only, never `infra.ways`/`infra.routes`; `way_commit`'s own doc says the getter is out of scope | yes | §4.5.4's "Way inspector: waypoint list, length, grade profile, surface" | (B) small — one getter mirroring `route_get`'s shape |
+| IN-02 | Committed manual ways never appear on the map or in a list | 20-31 (class doc), 195, 213 | `get_roads()`/`get_sea_routes()` read `civ.ways`/`civ.sea_routes` only, never `infra.ways`; `way_commit`'s own doc said the getter was out of scope | yes when written | §4.5.4's "Way inspector: waypoint list, length, grade profile, surface" | **CLOSED 2026-08-24** — see the note below the table |
 | IN-03 | Way / Route ↶ ↷ (per-waypoint undo) | 232-236 (comment) | no per-waypoint undo in the engine; `InfraTools` only discards the whole draft | yes | §4.5.4 lists ↶ ↷ | (B) small |
 | IN-04 | Way ▸ routing mode (freehand / snap / least-cost) | 229-231 (comment) | `infra_tools_bridge`'s own doc: *"nothing to build a 'freehand' or distinct 'snap' routing mode out of"*; snap is real but automatic | yes | §4.5.4 | **(D)** — engine truth, recorded in-file |
 | IN-05 | Way types: spec says road/track/trail/bridge, engine has road/track/sea_lane/ancient | 42-49 (comment) | `parse_way_type`'s own doc calls the spec list wrong against the tested four-entry enum | yes | §4.5.4 | **(D)** — spec/engine disagreement, resolved in the engine's favour and recorded |
 | IN-06 | Route ▸ vessel / party reference in the options row | `journey_planner_view.gd` `_vessel_field`/`_mount_field`/`_build_animal_definitions` | the journey planner exported nothing past the crate boundary when written | **CLOSED where it can be, and the remainder stated in-UI (2026-08-20)**. The party form's Mount picker and its four per-species **animal definition** pickers are now library-backed (`tl_list("animal")`, custom rows tagged `· custom`), and the choice reaches the engine: `jp_compute`'s new `animal_entries` request key → `TravelLibrary::animal_overrides_selected` → `jp_plan_ex`'s resolver, so a custom entry's capacity/speed/fodder/water and its ten-row terrain table re-plan the journey. The **Vessel** picker lists every library vessel but disables the ones with no engine counterpart (`jp_ship_stats` is still a fixed built-in table — `TRAVEL_LIBRARY_SPEC.md` §6), with the reason on the item itself rather than omitted | §4.5.4 | **CLOSED (2026-08-23)** — the remainder this cell named is done. `TravelLibrary::vessel_overrides` (keyed by **name**, because `JpPlan::vessel` is a name and `jp_ship_stats` is a name lookup, so a vessel needs no `animal_species_slot` equivalent) → `travel_library::vessel_resolver_fn` → `JpVesselResolver` → `jp_calc_water_ex`, the exact sibling of the animal chain and with the same fall-back-to-the-built-in-table contract. Four of `ShipStats`' seven fields come straight off the definition; `river`/`sea` come from `modes` and `open_sea` from `water_rating == Open`, which is precisely `jp_vessel_water_block`'s own test. **The one field with no source is `invalid_water`**: §3.3 has no per-water-type blacklist, so a custom vessel is constrained by its mode and rating only, never by a named water type the way "River Barge cannot navigate River with Rapids" is — stated in the picker's own tooltip rather than papered over. The picker now enables every library vessel that validates `ok` and disables only the incomplete ones, because the resolver declines an incomplete definition rather than sailing a hull with a zero hold |
 | IN-07 | Trade ▸ route assignment | 370-373 | nothing ties a trade relationship to the road or sea lane that would carry it | yes | §3 lists Trade | (B) large |
+
+> **IN-02 CLOSED (2026-08-24).** The audit's diagnosis was exactly right and
+> the "(B) small — one getter" estimate held: the whole engine-side fix is
+> `get_roads()` and `get_sea_routes()` appending `InfraTools::ways` to what
+> they already return, each entry tagged `manual: true` (plus `km`, which
+> both `Way` and `ManualWay` already carried and neither getter emitted).
+>
+> **No new getter was written, deliberately.** The register's own estimate
+> assumed a `way_get`/`way_count` pair mirroring `route_get`, and the
+> reference says not to: `_civCommitWay` (line 26077) pushes a hand-drawn way
+> straight onto the same flat `civWays` array as the generated network,
+> tagged `manual:true`, and the draw pass (line ~15494) branches on `rt.type`
+> alone — a hand-drawn `road` and a generated `road` are drawn identically,
+> and `manual` exists so the way *survives a network rebuild*
+> (`_civAutoRoutes` filters `civWays.filter(w => w.manual)`) and can be
+> listed, never so it can be styled apart. A separate getter would have made
+> two lists out of what the reference deliberately keeps as one, and every
+> consumer (`map_overlay.gd`, `right_dock.gd`'s Route context, the workspace
+> lists) would have needed a second code path for no behavioural difference.
+> Only the *sea lane* splits, into `get_sea_routes()` — that is the one
+> distinction the reference's draw pass does make (`type === 'sea-lane'`
+> takes the navy/dashed branch), and this port already splits those two
+> styles across these two getters.
+>
+> Also closed with it: `_commit_way` now repaints the map
+> (`CivilizationWorkspace._refresh_civ_data()`, camera-preserving) and
+> refills a **Roads ▸ Hand-drawn** list instead of printing "not shown on the
+> map yet"; the right dock's Route context gains a **Source** field
+> (Hand-drawn / Generated) and reports the engine's own `km` rather than
+> re-measuring the `f32` point array. **Committed *routes* were never part of
+> this** — `route_count`/`route_get` have existed since the Journey Planner
+> milestone, and a route is a journey along existing geometry, not durable
+> geometry, so it belongs to the planner's registry and not the way layer
+> (`infra_tools_bridge.rs`'s "Way and Route are two separate commit paths, on
+> purpose"). The IN-02 row's original wording said "ways/routes"; only the
+> ways half was ever a real gap.
+>
+> Still open, and not silently folded in: there is no `way_set_name` /
+> `way_delete` / way-condition `#[func]`, so a committed way cannot be
+> renamed, retyped or removed — the reference's way-properties editor has no
+> counterpart here. §4.5.4's "grade profile / surface" half of the Way
+> inspector is likewise unbacked. Those are separate (B) items, not IN-02.
 
 ### 6.13 CARTO workspace — `cartography_workspace.gd`
 
@@ -1629,7 +1671,7 @@ built" note); one pair was wired live.**
 | MS-06 | **Auto-populate world** (+ capitals / towns / hamlets counts) | `#civAutoPopulateBtn` | `civilization_workspace.gd` — disabled button in Settlements ▸ Not built | `compute_civilisation` runs inside `generate()`; no `civ_populate` `#[func]`, and `params.rs`'s 58 entries carry no civ parameter |
 | MS-07 | **Clear places & routes** | `#civClearPlacesBtn` | same | `CivData` is rebuilt wholesale by `generate()`, never mutated in place — there is no partial teardown to expose |
 | MS-08 | **Generate roads** | `#civAutoRoutesBtn` | `infrastructure_workspace.gd` — disabled button in Roads ▸ Not built | same shape as MS-06; the Way/Route tools are the wired alternative |
-| MS-09 | **Clear ways & journeys** | `#civClearRoadsBtn` | same | same shape as MS-07, compounded by **IN-02** (committed manual ways have no getter) |
+| MS-09 | **Clear ways & journeys** | `#civClearRoadsBtn` | same | same shape as MS-07. IN-02 closing (2026-08-24) makes committed manual ways *readable* but not clearable — `InfraTools::ways` still has no clear `#[func]`, so this stays disabled for both halves |
 | MS-10 | **Recalculate territories** | — | `civilization_workspace.gd` — disabled button in Politics ▸ Not built | `assign_territory()` runs inside `compute_civilisation`; nothing re-runs it against edited settlements |
 | MS-11 | **Clear territory** | — | same | same |
 | MS-12 | **Generate provinces** | — | same | provinces are produced inside `generate()` and only read out. The *tint* half of the canvas's row is live (CARTO ▸ Layers ▸ Political — provinces) |

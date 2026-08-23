@@ -168,7 +168,14 @@ const SETTLEMENT_LABEL_FILL := Color(0.965, 0.925, 0.831)
 ## prominent than a track, the same "tier implies visual weight" principle
 ## `TIER_RADIUS` already applies to settlements.
 const ROAD_COLOR := Color(0.36, 0.29, 0.16, 0.55)
-const ROAD_WIDTH_BY_TYPE := {"highway": 2.6, "regional": 2.0, "road": 1.6, "track": 1.1}
+## `ancient` is not a `WayType`: it is the fourth `ManualWayType`, arriving
+## here since `get_roads()` began appending hand-drawn ways (IN-02). The
+## reference strokes it at the same 1.1×rsc it gives `track` (line ~15516),
+## so it takes that width rather than this dictionary's 1.6 `road` default.
+## Its distinct grey dashed *colour* there is not reproduced -- this control
+## strokes every land way in `ROAD_COLOR` regardless of type, which predates
+## and is unaffected by this addition.
+const ROAD_WIDTH_BY_TYPE := {"highway": 2.6, "regional": 2.0, "road": 1.6, "track": 1.1, "ancient": 1.1}
 const MARKER_OUTLINE := Color(0.101, 0.070, 0.023, 0.85) ## matches PrimaryButton's ink tone
 const HOVER_RADIUS_PAD := 4.0 ## extra hit-test slack (px) beyond the drawn marker radius
 
@@ -368,7 +375,14 @@ func _ready() -> void:
 ## `+0.5` cell-centering, which would be wrong here). `sea_routes` is
 ## `get_sea_routes()`'s `Array[Dictionary]` -- same `{points, brks, name}`
 ## shape minus `way_type` (Phase 2 milestone 13, `SeaRoute` has no
-## highway/regional/road/track tier). Screen-space conversion happens every
+## highway/regional/road/track tier). Both also carry `km: float` and
+## `manual: bool`; this control reads neither. `manual` marks a way the user
+## drew with the Way tool (`GUI_GAP_REGISTER.md` IN-02) and is deliberately
+## NOT consulted while drawing -- the reference keeps hand-drawn and
+## generated ways in one array and styles both by `way_type` alone, so a
+## hand-drawn `road` is meant to be indistinguishable from a generated one.
+## It is there for lists and filters, not for this `_draw()`.
+## Screen-space conversion happens every
 ## frame from the current control size, so this stays correct across
 ## window resizes without needing to be told again.
 ## `border_frac` is `WorldGen.get_border_inset_frac()` -- the plate frame the

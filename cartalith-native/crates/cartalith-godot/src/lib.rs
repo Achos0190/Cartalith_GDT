@@ -3013,10 +3013,41 @@ impl WorldGen {
     /// junction-continuity behaviour) are omitted entirely, not emitted as
     /// a 2-point stub — nothing to draw for those. Empty under the same
     /// conditions as `get_settlements`.
+    ///
+    /// **Hand-drawn ways are in here too** (`GUI_GAP_REGISTER.md` IN-02).
+    /// Every `ManualWay` the Way tool has committed this session
+    /// (`self.infra.ways`) is appended after the generated network, with
+    /// `way_type` carrying `infra_tools_bridge::way_type_key`'s own
+    /// vocabulary (`road`/`track`/`ancient`) and `manual` set `true`. This
+    /// is the reference's arrangement, not a convenience: `_civCommitWay`
+    /// (reference line 26077) pushes straight onto the same flat `civWays`
+    /// array the generated network lives in, tagged `manual:true`, and the
+    /// draw pass branches on `type` alone — so a hand-drawn `road` and a
+    /// generated `road` are drawn identically, and `manual` exists to
+    /// *survive a network rebuild* (`_civAutoRoutes` filters
+    /// `civWays.filter(w => w.manual)`) and to be listable, never to be
+    /// styled differently. Callers wanting only the user's own ways filter
+    /// on `manual`; callers drawing the map should not.
+    ///
+    /// The one exception is a manual **sea lane**: `way_type == "sea_lane"`
+    /// is a different routing domain, and the reference draws it with the
+    /// navy/dashed sea style rather than any road style, so those are
+    /// emitted from `get_sea_routes()` instead of here — same split this
+    /// port's `map_overlay.gd` already draws along.
+    ///
+    /// `km` (float) and `manual` (bool) are on every entry, generated ones
+    /// included; `km` is `Way::km`/`ManualWay::km`, the real routed length.
     #[func]
     fn get_roads(&self) -> Array<VarDictionary> {
         let Some(civ) = self.civ.as_ref() else { return Array::new() };
-        civ.ways
+        // `brks` on every entry below: indices into `points` where that
+        // way's own path has a real gap (two disjoint consolidated runs
+        // sharing one `Way`, not a continuous curve) -- drawing straight
+        // through these would render a phantom line across the gap, so
+        // the renderer must split into separate strokes there instead of
+        // treating `points` as one polyline.
+        let mut out: Array<VarDictionary> = civ
+            .ways
             .iter()
             .filter(|w| !w.hidden)
             .map(|w| {
@@ -3028,16 +3059,20 @@ impl WorldGen {
                     cartalith_civ::WayType::Road => "road",
                     cartalith_civ::WayType::Track => "track",
                 };
-                // `brks`: indices into `points` where this way's own path
-                // has a real gap (two disjoint consolidated runs sharing
-                // one `Way`, not a continuous curve) -- drawing straight
-                // through these would render a phantom line across the
-                // gap, so the renderer must split into separate strokes
-                // there instead of treating `points` as one polyline.
                 let brks: PackedInt32Array = w.brks.iter().map(|&b| b as i32).collect();
-                dict! { "points" => &points, "brks" => &brks, "way_type" => way_type, "name" => w.name.as_str() }
+                dict! { "points" => &points, "brks" => &brks, "way_type" => way_type, "name" => w.name.as_str(), "km" => w.km, "manual" => false }
             })
-            .collect()
+            .collect();
+        if let Some(infra) = self.infra.as_ref() {
+            for w in infra.ways.iter().filter(|w| !w.hidden && !w.sea) {
+                let points: PackedVector2Array =
+                    w.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
+                let brks: PackedInt32Array = w.brks.iter().map(|&b| b as i32).collect();
+                let way_type = infra_tools_bridge::way_type_key(w.way_type);
+                out.push(&dict! { "points" => &points, "brks" => &brks, "way_type" => way_type, "name" => w.name.as_str(), "km" => w.km, "manual" => true });
+            }
+        }
+        out
     }
 
     /// Sea-lane routes (`cartalith_civ::civ_sea_routes`, Phase 2 milestone
@@ -3047,18 +3082,38 @@ impl WorldGen {
     /// the reference's own convention (line ~15511) is a dark navy
     /// underlayer plus a lighter dashed overlay, not a road colour/width.
     /// Empty under the same conditions as `get_roads()`.
+    ///
+    /// **Hand-drawn sea lanes are in here too** (`GUI_GAP_REGISTER.md`
+    /// IN-02): a committed `ManualWay` whose `way_type` is `sea_lane`
+    /// (equivalently `ManualWay::sea`) is appended after the generated
+    /// lanes with `manual` set `true`. It arrives here rather than in
+    /// `get_roads()` because that is the *drawn* distinction the reference
+    /// makes — its single `civWays` loop sends `type === 'sea-lane'` down
+    /// the navy/dashed branch, never a road branch — and this port already
+    /// splits those two styles across these two getters. `manual` and `km`
+    /// are on every entry, generated ones included.
     #[func]
     fn get_sea_routes(&self) -> Array<VarDictionary> {
         let Some(civ) = self.civ.as_ref() else { return Array::new() };
-        civ.sea_routes
+        let mut out: Array<VarDictionary> = civ
+            .sea_routes
             .iter()
             .map(|r| {
                 let points: PackedVector2Array =
                     r.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
                 let brks: PackedInt32Array = r.brks.iter().map(|&b| b as i32).collect();
-                dict! { "points" => &points, "brks" => &brks, "name" => r.name.as_str() }
+                dict! { "points" => &points, "brks" => &brks, "name" => r.name.as_str(), "km" => r.km, "manual" => false }
             })
-            .collect()
+            .collect();
+        if let Some(infra) = self.infra.as_ref() {
+            for w in infra.ways.iter().filter(|w| !w.hidden && w.sea) {
+                let points: PackedVector2Array =
+                    w.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
+                let brks: PackedInt32Array = w.brks.iter().map(|&b| b as i32).collect();
+                out.push(&dict! { "points" => &points, "brks" => &brks, "name" => w.name.as_str(), "km" => w.km, "manual" => true });
+            }
+        }
+        out
     }
 
     /// Province metadata (`cartalith_civ::civ_generate_provinces`) -- one
@@ -4662,9 +4717,12 @@ impl WorldGen {
     /// (`civ_commit_way`; `infra_tools_bridge`'s module doc explains why
     /// there is no "freehand" alternative to route through). Returns the
     /// new way's index (`get_settlements()`/`get_roads()`-style, a plain
-    /// position into the committed list -- there is no getter for the
-    /// manual-ways list itself yet, deliberately out of this milestone's
-    /// exact scope), or `-1` for no draft, fewer than two waypoints, or no
+    /// position into the committed list -- readable back through
+    /// `get_roads()`/`get_sea_routes()`, which since `GUI_GAP_REGISTER.md`
+    /// IN-02 append every committed manual way to the generated network
+    /// they return, tagged `manual: true`; note this index counts *all*
+    /// committed ways including sea lanes, so it is not an offset into
+    /// either getter's array), or `-1` for no draft, fewer than two waypoints, or no
     /// `generate()` yet. Prints (does not block or discard the way) when
     /// some leg had to fall back to a straight line across terrain this
     /// way type is meant to avoid -- `CommitWay::unreachable_legs`'s own
