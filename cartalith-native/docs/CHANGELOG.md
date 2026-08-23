@@ -18912,3 +18912,192 @@ that simply wants a window wider than the 1 684 px this session ran at.
     Journeys list, and the trim's veil over the trimmed-away spine.
 - The harness that drove all of the above was deleted afterwards; nothing of
   it is committed.
+
+## Global heightmap undo — `Edit ▸ Undo` (2026-08-23)
+
+`PARITY_AUDIT.md` §3.1's final "not done" row: *"Global heightmap undo
+(`pushUndo`/`undoLast`/`updateUndoUI`) · 3 · absent. Draft-scoped undo/redo
+**is** real (`cartalith-spatial/src/pass.rs:278`) · ED-01/ED-02/PR-11."*
+Closed for `Undo` and for the memory row; the history *panel* (ED-02) stays
+open and stays (C).
+
+### What the reference actually does — read, not assumed
+
+Reference HTML lines 9548-9565, in full:
+
+```js
+const MAX_UNDO=5; const undoStack=[];
+function pushUndo(){
+  undoStack.push(field.slice());
+  if(undoStack.length>MAX_UNDO) undoStack.shift();
+  updateUndoUI();
+}
+function undoLast(){
+  if(!undoStack.length) return;
+  field.set(undoStack.pop()); updateUndoUI();
+  computeFlow(true); refreshClimate(); renderNow();
+}
+```
+
+Three facts, each of which settled a design question here:
+
+1. **It snapshots `field` and nothing else.** One `Float32Array.slice()`. Not
+   `riverMask`, not `riverFloor`, not `lakeMask`, not climate, not civ.
+2. **The depth is 5.** `reference/FUNCTION_INDEX.md` line 61 says *"one level
+   per destructive op"* — **that line is wrong**, and the reference's own
+   shipped label reads "Up to 5 steps saved in memory". Corrected in
+   `GUI_GAP_REGISTER.md` §7.1 and in `undo.rs`'s module doc rather than
+   silently ported around.
+3. **Fifteen call sites**, all destructive height operations: ten erosion /
+   coastal / glacial / fjord buttons, and `sculptCommit`. Notably **not**
+   `centerLandmasses`, which mutates the field and is deliberately not
+   undoable.
+
+### The scope correction this milestone is really about
+
+`GUI_GAP_REGISTER.md` had ED-01 as **"(B) large"** and its §7.1 proposed a
+**history ledger**: append-only, per-subsystem, one reversal primitive per
+domain across seven domains with three commit models. That research (Photoshop
+snapshots, Blender's typed undo, Krita/Affinity dockers) was done *before*
+anyone read `pushUndo`. Against a three-function, one-`slice()`, five-deep
+gap it would have been a general framework built for a single feature.
+
+What shipped is the reference's own design, with exactly one bound changed
+and every divergence written down. The ledger remains the right *eventual*
+shape for ED-02's panel and is left proposed, not built.
+
+### Built
+
+- **`crates/cartalith-godot/src/undo.rs`** (new) — `HeightUndo`, a
+  `VecDeque<UndoStep>` of pre-operation `Vec<f32>` height fields with a
+  label each. `push` / `restore` / `clear` / `depth` / `bytes` /
+  `next_label` / `set_budget_bytes`. No Godot types, so it unit-tests under
+  plain `cargo test`. It lives in `cartalith-godot` for the same reason
+  `sculpt_bridge`/`icon_bridge`/`paint_bridge` do: `WorldGen` is what owns
+  the live `WorldState` a session edits, and this is session state over it,
+  not engine logic (`ARCHITECTURE.md`'s ladder — it orchestrates nothing and
+  computes no formula).
+- **Six `#[func]`s** on `WorldGen`, in their own
+  `#[godot_api(secondary)]` block: `can_undo`, `undo_label`, `undo_last`,
+  `undo_stats`, `set_undo_budget_mb`, `clear_undo`.
+- **Two push sites**, the reference's own, intersected with what this port
+  has bound: `sculpt_commit` (reference line 9319) and `carve_fjords`
+  (reference line 13017). The reference's other thirteen are erosion buttons
+  this port does not run. **`center_landmasses` deliberately does not push**
+  — the reference does not either, and it drops `civ`/`sculpt` in a way a
+  field-only restore could not undo anyway.
+- **Cleared** by `absorb()` (every generate) and by `load_save()`.
+- **`Edit ▸ Undo`** (`menus.gd`), Ctrl+Z, labelled with the operation
+  (`Undo Sculpt commit`) and tooltipped with depth and bytes held. `Redo`
+  stays disabled with a *new, accurate* reason: the reference has no global
+  redo either, because `undoLast` pops rather than moving a cursor.
+  `Undo history…` stays disabled with a reason that now says the stack is
+  real and the panel is what is missing.
+- **`Preferences ▸ Memory ▸ Undo history`** (PR-11) — five budget rows, each
+  showing how many steps that budget buys *at the current resolution*, plus
+  `Clear undo history now`. The parent row's tooltip carries the live depth,
+  bytes held, budget, and what one step costs here.
+- **`DccApp.undo_last()`** — repaints by writing `map_view.texture` directly
+  rather than `ViewportHost.refresh()`, which would reset the camera to fit;
+  undoing an edit should leave you looking where you were looking. Same two
+  lines `world_workspace.gd`'s `_on_sculpt_commit` already uses for the
+  commit this reverses.
+
+### The bound, and why it is not the reference's
+
+One `f32` height field: **4 MB at 1024², 16 MB at 2048² (the default),
+64 MB at 4096², 256 MB at 8192² (the resolution control's maximum)**. The
+reference's flat `MAX_UNDO = 5` would therefore commit **1.25 GB** of undo
+buffer on the largest world this shell offers, against the ~680 MB
+steady-state `MEMORY_OPTIMIZATION_SCOPE.md` measured at 2048².
+
+So the cap is **a byte budget first** (`DEFAULT_BUDGET_BYTES` = 256 MiB) and
+the reference's step count second (`MAX_STEPS` = 5), whichever binds, with a
+**floor of one step** — a snapshot larger than the whole budget is still an
+undo, because one big undo beats a silently absent one. Effective depth:
+**5 up to 2048², 4 at 4096², 1 at 8192².**
+
+Two further divergences, both forced rather than chosen:
+
+- **Cleared on every generate/load.** The reference does not clear, which is
+  survivable there because its grid cannot change size mid-session;
+  `generate_sized` can, and a 2048² snapshot restored over a 4096² world is a
+  length mismatch, not an undo. Guarded twice: the clear is policy,
+  `restore`'s length check is the guard (and a mismatched step is *dropped*,
+  not left to wedge the stack).
+- **No inline flow/climate recompute.** `undoLast` runs `computeFlow(true);
+  refreshClimate(); renderNow()`. This port defers those at every commit
+  already (`UNIFIED_TOOL_PLAN.md` milestone A), so undo is exactly as
+  consistent as the commit it reverses, and the status line says so.
+
+**Not reverted, exactly as in the reference:** the `river_mask`/`river_floor`
+locks a Sculpt commit's water hooks write. Reverting height without the locks
+leaves a later commit's `enforce_river_channels` re-clamping cells to a floor
+whose channel is no longer carved — the reference's own behaviour. Matching it
+costs 0 MB; diverging costs **+130 % per step** (a `u8` mask plus a second
+`f32` field). Stated in `undo.rs` rather than fixed.
+
+### Verified
+
+- `cargo build -p cartalith-godot` — clean (the only warnings in the crate
+  are a sibling agent's in-flight `render.rs` work, pre-existing to this
+  change).
+- `cargo test -p cartalith-godot --lib` — **275 passed, 0 failed**, of which
+  **12 are new**: empty-stack restore, push/restore round trip, LIFO order,
+  the count bound evicting oldest (the reference's `shift()`), byte
+  accounting across push/pop/clear, the budget bound binding before the count
+  bound, one oversized step surviving an impossible budget, eviction on a
+  budget shrink, the budget floor, length-mismatch refusal (asserting the
+  target is *not* partially written **and** that the dead step is dropped),
+  empty-field rejection, and clear.
+- **No golden-parity test, deliberately, and this is the right call rather
+  than an omission.** `PARITY_TESTING.md`'s machinery diffs *numbers* a
+  reference stage produces. Undo produces no number: it copies a field out
+  and copies it back. The properties worth pinning are ordering, eviction and
+  bounds, which are exactly what the twelve unit tests above assert. Forcing
+  a golden fixture here would have tested `Vec::clone`.
+- `godot4 --headless --path godot-project --quit` — clean, no parse or
+  registration errors.
+- **A headless engine drive** (temporary harness, deleted): generated
+  512×256, confirmed the stack starts empty; sculpt-committed and confirmed a
+  64-cell elevation signature *changed*; `undo_last()` returned
+  `"Sculpt commit"` and the signature came back **bit-identical**; eight
+  consecutive commits held at depth 5; a generate cleared the stack.
+- **Real measured process memory** (`Get-Process PrivateMemorySize64`, the
+  same technique `MEMORY_OPTIMIZATION_SCOPE.md`'s own baseline used), at
+  2048×2048 — the bound is enforced, not merely declared:
+
+  | State | Private |
+  |---|---|
+  | After generate, no undo steps | 476 MB |
+  | Commit 1 · depth 1 · 16 MB held | 492 MB |
+  | Commit 5 · depth 5 · 80 MB held | 556 MB |
+  | Commits 6, 7, 8 · **depth stays 5** | 556 MB |
+  | `Clear undo history now` | **476 MB** |
+  | Re-filled, budget → 64 MB · depth 4 | 540 MB |
+
+- **A real non-headless windowed run** driving the actual `Edit` menu through
+  its own `PopupMenu` (`about_to_popup` + `id_pressed`), not the callbacks
+  directly: `Undo` disabled with the empty-stack reason; after a real sculpt
+  commit the row read **`Undo Sculpt commit  Ctrl+Z`**, enabled, tooltip
+  `1 step saved · <1 MB held`; `Preferences ▸ Memory ▸ Undo history` listed
+  all five budgets with `256 MB` checked and each row annotated
+  `— 5 steps here`; and **a real `Ctrl+Z` key event** (`Input.
+  parse_input_event`, not the callback) reverted the sampled field to its
+  exact pre-commit signature, set the status line to `undid sculpt commit ·
+  0 undo steps left · flow, rivers and climate are not re-run`, and left the
+  row disabled again. Screenshots captured at each step and read back — the
+  Edit menu renders `Undo Sculpt commit` / `Ctrl+Z` as its one enabled row.
+- Both harnesses were deleted afterwards; nothing of them is committed.
+
+### Still open
+
+- **ED-02, the Undo history panel.** Still (C), and now for a sharper reason:
+  the stack and its statistics are real (`undo_stats()`), so the panel needs a
+  *design*, not an engine. `GUI_GAP_REGISTER.md` §7.1's ledger proposal stands
+  as the target shape, with a box on top saying what actually shipped and why.
+- **Redo.** Not a gap — the reference has none either.
+- **The erosion push sites.** Eight of the reference's fifteen `pushUndo()`
+  calls sit on erosion buttons this port has no run path for (`WW-02`,
+  `MS-04`/`MS-05`). Each one is a single `self.undo.push(...)` line on the day
+  its pass lands.

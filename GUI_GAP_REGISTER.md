@@ -256,16 +256,22 @@ classification with the design cited.
 
 | # | UI label | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
-| ED-01 | Undo / Redo | 172-173 | no undo stack; generation one-shot, sculpt has no Godot binding | **partly stale in flavour, not in fact** — sculpt now has 34 bindings *and* draft-scoped undo/redo wired in `right_dock.gd`; what is absent is *global* undo. The sentence is still true of the global stack. | §2.2 | (B) large — `PassBuffer::undo` is draft-scoped and unlabelled; `FUNCTIONAL_CONTRACT.md` §12 calls global undo "absent entirely… necessarily new" |
-| ED-02 | Undo history… | 174 | same | yes | §2.2 names it in one line; **no panel design exists** | **(C)** → §7.1 |
+| ED-01 | Undo / Redo | 172-173 | no undo stack; generation one-shot, sculpt has no Godot binding | **Undo: CLOSED 2026-08-23.** Global heightmap undo is live — `Edit ▸ Undo` (Ctrl+Z), `undo.rs` + five `#[func]`s, pushed by `sculpt_commit` and `carve_fjords`, exactly the reference's own `pushUndo` call sites minus the eight erosion passes this port does not run. The row shows the operation name and depth. **Redo stays disabled and always will**: the reference has no global redo either — `undoLast()` *pops* the snapshot rather than moving a cursor, so an undone step is gone. The Sculpt draft's own Redo (right dock) is a different, real thing. | §2.2 | ~~(B) large~~ → **done**. The scope this row assumed (a general command/diff framework) was not what the reference does: 3 functions, a `Float32Array.slice()` and a 5-deep stack. See §7.1's revised entry |
+| ED-02 | Undo history… | 174 | same | **still open, and now for a sharper reason** — the *stack* is real (`undo_stats()` reports depth, bytes, budget and the next label); what does not exist is a panel over it. Tooltip updated 2026-08-23 to say exactly that. The live depth/cost readout landed in `Preferences ▸ Memory ▸ Undo history` instead (PR-11), which is where the reference's own `#undoMem` sat | §2.2 names it in one line; **no panel design exists** | **(C)** → §7.1 |
 | ED-03 | Cut / Copy / Paste / Delete | 176-179 | nothing selectable beyond settlements, which are read-only | **CLOSED (Delete and edit) 2026-08-23** — see §18: the place-edit popup (`place_editor_window.gd`), the right-click context menu (`map_overlay.gd`'s `map_right_clicked` → `civilization_workspace.gd`) and the `KEY_DELETE` handler (`app.gd`) all exist now; §18.3 lists the four residual sub-gaps (ED-03a..d). Cut/Copy/Paste specifically remain open — no clipboard model exists for any entity. The correction below is what this row said before that: **corrected 2026-08-23** (`PARITY_AUDIT.md` C3/§3.2/§5 item 3) — this was mischaracterized as a clipboard/selection gap. The real finding: `civ_drop_settlement` **creates** a settlement and nothing **edits, moves or deletes** one — there is no place-edit popup (the reference's `placeEditPopup`/`_civPopulatePlaceEditor` has no port, name/kind/faction/pop/specialisation/traits/history/walls-override/delete all absent), no right-click context-menu handler on the map (`_civCtxShow`'s six operations have no counterpart — `PopupMenu` appears only in `menus.gd`/`dcc_shell.gd`, never on `MOUSE_BUTTON_RIGHT` over the viewport), and no `KEY_DELETE` handler anywhere under `godot-project/` (grep confirms). Labels, icons and sculpt stamps genuinely are selectable and deletable through their own panels, which is why the *original* framing looked plausible — but a user who drops a settlement by mistake, or wants to rename/relocate/remove one, has no path to do so at all, not merely a missing uniform selection model. | §2.2 | (B) large — a place-edit popup, a map context menu and a Delete-key handler are three separate missing pieces, not one selection abstraction |
 | ED-04 | Select all / Deselect | 181-182 | same | same | §2.2 | (B) large — same model |
 | ED-05 | Find on map… | 184 | no search index; settlement search lives in the Data manager | yes | §2.2 gives one line; **no search UI design** | **(C)** → §7.2 |
 
-> ED-01/ED-03/ED-04's reasons are stale in *emphasis* — they describe a shell
+> ED-03/ED-04's reasons are stale in *emphasis* — they describe a shell
 > that had no tools. They are not corrected here because rewriting them
-> correctly means describing the global-undo/selection split, which is a
-> paragraph, not a tooltip. Recorded rather than half-fixed.
+> correctly means describing the selection split, which is a paragraph, not a
+> tooltip. Recorded rather than half-fixed. (ED-01's own share of this note is
+> obsolete as of 2026-08-23: its tooltip is gone, because the item is live.)
+>
+> **Edit is no longer 100 % disabled.** §8.4's naming-audit recommendation —
+> move something into Edit so the menu has one live item — was overtaken by
+> ED-01 landing: `Undo` is that item, and it is the one every comparable
+> application puts there first anyway.
 
 ### 6.3 Assets menu + Asset library window
 
@@ -326,7 +332,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | PR-08 | 3D viewport defaults | 335 | no 3D viewport | yes | §2.5 names four fields | (B) large — `DECISIONS.md` §4 defers 3D; `ROADMAP.md` Phase 3 |
 | PR-09 | Lighting rig defaults | 336 | no lighting rig yet | **stale in flavour**: there is no *rig*, but all six fields are real and drive the current render (`TerrainAppearance::{sun_az_deg, sun_alt_deg, relief_ambient, relief_gain, relief_lights, relief_directionality}`) | §2.5 | (B) **wrapper** — one `set_appearance()`-shaped `#[func]`; the same one CA-01 needs |
 | PR-10 | Tiled LOD · tile size · atlas cache | 338 | **corrected — S4** | yes, now | §2.5 gives four rows of values | **(C)** for the atlas-cache design → §7.7 |
-| PR-11 | Memory ▸ Undo history | 339 | no undo stack | yes | §2.5 gives a range and a default | **(C)** — depends on ED-02's undesigned model → §7.1 |
+| PR-11 | Memory ▸ Undo history | 339 | no undo stack | **CLOSED 2026-08-23** — a live submenu, and the one place the stack's real cost is visible: parent-row tooltip gives depth, bytes held, budget, and what one step costs *at this resolution*; the five budget rows each say how many steps that buys here; a `Clear undo history now` row frees it on demand | §2.5 gives a range and a default | ~~(C)~~ → **done, with one deliberate departure from §2.5**: the control is a **byte budget**, not a step count. One height field is 16 MB at 2048² and 256 MB at 8192², so a flat "5 deep" would commit to 1.25 GB on the largest world this shell offers. The step count (5, the reference's `MAX_UNDO`) remains the ceiling; the budget is what binds on a big world. Measured: 80 MB held at 2048², freed exactly on clear |
 | PR-12 | Memory ▸ Clear caches… | 348 | no atlas or field cache exists to clear | yes | §2.5 | (B) small — gated on PR-10 |
 | PR-13 | Theme ▸ Light | 362 | **done 2026-08-19** — `DccTheme.apply_theme()`/`remap()` + `DccShell.rebuild_theme()` walk the tree and repaint every token-derived colour in place; Light is a live radio choice | yes | §2.5 + §11's full light token column | **(A)** — a rebuild pass in `DccTheme`/`DccShell`, no engine at all |
 | PR-14 | Theme ▸ follow system | **done 2026-08-19** — a third radio item, `DisplayServer.is_dark_mode()` resolved once | none | — | §2.5 | **(A)** — Godot exposes the OS preference; the rebuild pass is PR-13's |
@@ -565,6 +571,43 @@ architecture, and a proposal concrete enough to build from without re-searching.
 Sources are linked so the research is checkable rather than asserted.
 
 ### 7.1 Undo history panel, and what "global undo" covers — ED-02, PR-11
+
+> **Partly overtaken by events, 2026-08-23 — read this box before the
+> research below.** Global undo (ED-01) and the memory row (PR-11) are built.
+> They are **not** what this section proposed, and the difference is worth
+> stating rather than quietly leaving two documents to disagree.
+>
+> This section's proposal 1 — *"do not build one global stack; build a history
+> ledger"* — was written from the comparable applications, before anyone had
+> read `pushUndo`/`undoLast`. The reference's global undo is **three functions,
+> one `Float32Array.slice()` and a five-deep array**. It snapshots the height
+> field and nothing else: not `riverMask`, not `riverFloor`, not climate, not
+> civ. A ledger with per-subsystem reversal is a strictly larger thing than
+> the gap `PARITY_AUDIT.md` §3.1 actually names, and building it to close a
+> three-function gap would have been the definition of over-engineering.
+>
+> So what shipped is the reference's own design with one bound changed
+> (a byte budget, because 8192² worlds exist here and not there). What this
+> section proposed remains the right *eventual* shape, and every piece of it
+> is still unbuilt and still undesigned:
+>
+> - **Proposal 2's draft/commit tiering** — accurate and unchanged. What
+>   shipped is the *commit* tier only, for the two commits that write height.
+> - **Proposal 3's panel** — still (C), still undesigned, still ED-02. The
+>   engine now has the data a panel would read (`undo_stats()`), which moves
+>   the panel from "needs an engine" to "needs a design".
+> - **Proposal 4's Preferences row** — shipped, and it kept this section's own
+>   advice to show live memory cost. It diverged on the control's *unit*: a
+>   budget in MB rather than a depth in steps, for the reason PR-11's row
+>   gives. The reference's cap of 30 named here is wrong — `MAX_UNDO` is 5,
+>   which is also what the shipped label says.
+> - **Proposal 5's Adjust Last Operation** — untouched, still (A), still the
+>   cheapest remaining win in this section.
+>
+> One correction to a *source* rather than to this section:
+> `reference/FUNCTION_INDEX.md` line 61 describes the reference's undo as
+> *"one level per destructive op"*. It is five (`const MAX_UNDO=5`), and the
+> reference's own header label reads "Up to 5 steps saved in memory".
 
 **Photoshop.** *History* panel (Window ▸ History). Default **20 states**,
 raisable to **1 000** under *Preferences ▸ Performance*. Two features matter
@@ -1282,6 +1325,14 @@ that eventually land there are never found.
 early, so the menu has one live item. Alternatively, follow Blender and put
 **Preferences** in Edit (see 8.5) — which would give it a live item today.
 
+> **Resolved differently, 2026-08-23.** Global undo turned out *not* to be far
+> off — it was three reference functions and a 5-deep snapshot array, not the
+> command framework this register had assumed (see §7.1's box). `Edit ▸ Undo`
+> is live, so the menu has its live item and it is the one it should have had.
+> The finding behind this recommendation still stands as a lesson: the reason
+> Edit sat 100 % disabled for so long was a scope estimate nobody had checked
+> against the reference.
+
 ### 8.5 Preferences vs Settings vs Project settings
 
 **The comparables split cleanly, and the split is about scope, not about the
@@ -1627,7 +1678,7 @@ No design is proposed for any of these, per §9's rule.
 | **Villages (suitability-weighted)** | Live, but in `File ▸ New world`, not here — `set_villages_enabled` is a creation-time argument |
 | **Way type ▸ trail / bridge** | **IN-05** — spec/engine disagreement resolved in the engine's favour |
 | **Per-stage run controls** implied by the numbered `01…10` stage columns | **WW-11** — `DCC_SHELL_SPEC.md` header correction #2, Playwright-verified against the reference |
-| **Undo history (5 steps)** (`#undoMem`) | **ED-02** + **PR-11**, both disclosed |
+| **Undo history (5 steps)** (`#undoMem`) | **PR-11 built 2026-08-23** (`Preferences ▸ Memory ▸ Undo history`, the live depth/cost readout the canvas asks for); **ED-02**, the panel, still open |
 | **Project settings…** | §8.5 — still nowhere in-product, and still a naming/ownership question rather than a build |
 
 ### 13.6 Naming recommendations — surfaced, not applied

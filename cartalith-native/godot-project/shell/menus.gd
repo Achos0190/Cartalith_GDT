@@ -24,6 +24,12 @@ const ID_SHOW_ON_DISK := 19
 
 const ID_UNDO := 20
 const ID_REDO := 21
+const ID_PREF_UNDO_CLEAR := 22
+
+## `Preferences ▸ Memory ▸ Undo history` (PR-11). Budgets, not step counts --
+## see the submenu's own comment in `_preferences` for why. 256 MB is
+## `undo::DEFAULT_BUDGET_BYTES`; the engine floors any budget at 4 MB.
+const UNDO_BUDGETS_MB: Array[int] = [64, 128, 256, 512, 1024]
 
 const ID_ASSET_LIBRARY := 30
 const ID_SLICER := 31
@@ -114,6 +120,10 @@ var _theme_mode := "dark"  ## "dark" / "light" / "system" -- which of the three
 	## key yet): §2.5's "follow system" is explicitly a one-shot resolve, not a
 	## live subscription, so there is no ongoing mode to save beyond the plain
 	## dark/light bit `DccTheme.is_dark()` already is.
+var _undo_budget_popup: PopupMenu
+var _undo_pref_row := -1   ## `Preferences ▸ Memory ▸ Undo history`'s own row; a
+	## submenu row carries no id, so its index is the only handle there is --
+	## the same reason `_track_gpu_pref_row` below keeps indices.
 var _workspace_popup: PopupMenu
 var _windows_popup: PopupMenu
 var _open_windows: Array = []  ## the live `AcceptDialog`s behind `_windows_popup`, index-parallel to its items
@@ -220,9 +230,29 @@ func _on_file(id: int) -> void:
 # -- §2.2 Edit ----------------------------------------------------------------
 
 func _edit(p: PopupMenu) -> void:
-	_todo(p, "Undo", "No undo stack yet -- generation is one-shot and sculpt has no Godot binding.")
-	_todo(p, "Redo", "Same.")
-	_todo(p, "Undo history…", "Same.")
+	## Global heightmap undo -- the reference's `undoBtn`/`undoLast`, register
+	## ED-01. Covers the two destructive height operations this port has
+	## bound (Sculpt ▸ Commit to map, and Carve fjords), which is the same
+	## set the reference's own `pushUndo()` guards minus the eight erosion
+	## passes it has and this port does not yet run.
+	##
+	## Not the same control as the right dock's Sculpt ▸ Undo, which steps
+	## back through an *uncommitted* draft's stamps. The reference draws the
+	## identical line and routes Ctrl+Z to whichever is in context; here the
+	## accelerator stays on this one, since the draft's own Undo sits two
+	## clicks away in the dock beside the stack it edits.
+	_live(p, "Undo", ID_UNDO, KEY_MASK_CTRL | KEY_Z)
+	var undo_idx := p.item_count - 1
+	_todo(p, "Redo",
+		"Global undo has no redo, in this port or the reference: undoLast() pops the snapshot " +
+		"rather than moving a cursor through a history, so an undone step is gone. " +
+		"The Sculpt draft's own stamp history (right dock, while the Sculpt tool is active) " +
+		"does have a real Redo.")
+	_todo(p, "Undo history…",
+		"The stack is real (Edit ▸ Undo, up to 5 steps within a memory budget) but there is no " +
+		"panel over it: GUI_GAP_REGISTER.md §7.1 classifies ED-02 as a design gap, not an " +
+		"engine one -- what a history row should represent across seven undo domains has not " +
+		"been decided. Preferences ▸ Memory ▸ Undo history shows the live depth and cost.")
 	p.add_separator()
 	_todo(p, "Cut", "Nothing is selectable for editing yet beyond settlements, which are read-only.")
 	_todo(p, "Copy", "Same.")
@@ -233,6 +263,52 @@ func _edit(p: PopupMenu) -> void:
 	_todo(p, "Deselect", "Same.")
 	p.add_separator()
 	_todo(p, "Find on map…", "No search index yet; settlement search lives in the Data manager.")
+
+	## The row's label carries the operation name and the live cost, the way
+	## the reference's own header pairs "↩ Undo" with `#undoMem`'s
+	## "N steps saved · M MB". Rebuilt on every popup because both change
+	## with every commit -- there is no signal to subscribe to.
+	p.about_to_popup.connect(func():
+		var stats: Dictionary = _bridge.undo_stats()
+		var can: bool = _bridge.can_undo()
+		p.set_item_disabled(undo_idx, not can)
+		if can:
+			p.set_item_text(undo_idx, "Undo %s" % _bridge.undo_label())
+			p.set_item_tooltip(undo_idx, "%s · %s held" % [
+				_undo_depth_text(stats), _mb(int(stats.get("bytes", 0)))])
+		else:
+			p.set_item_text(undo_idx, "Undo")
+			p.set_item_tooltip(undo_idx, _undo_empty_reason()))
+	p.id_pressed.connect(_on_edit)
+
+## Why there is nothing to undo -- three genuinely different situations, and
+## saying "nothing to undo" for all three would hide the interesting one (a
+## generate cleared the stack, which is a deliberate divergence from the
+## reference, not a missing feature).
+func _undo_empty_reason() -> String:
+	if not _bridge.has_world:
+		return "Nothing to undo: no world yet."
+	return ("Nothing to undo. The stack holds up to 5 snapshots of the height field, pushed by " +
+		"Sculpt ▸ Commit to map and by Carve fjords, and is cleared by every Generate " +
+		"(a snapshot of the previous world is the wrong content, and at a different " +
+		"resolution the wrong length). Cost and depth: Preferences ▸ Memory ▸ Undo history.")
+
+func _undo_depth_text(stats: Dictionary) -> String:
+	var d := int(stats.get("depth", 0))
+	return "%d step%s saved" % [d, "" if d == 1 else "s"]
+
+## Bytes as the coarse MB the reference's own `#undoMem` prints (`toFixed(0)`),
+## with a sub-MB floor so a small world does not read as "0 MB".
+func _mb(bytes: int) -> String:
+	if bytes <= 0:
+		return "0 MB"
+	if bytes < 1048576:
+		return "<1 MB"
+	return "%d MB" % int(round(float(bytes) / 1048576.0))
+
+func _on_edit(id: int) -> void:
+	match id:
+		ID_UNDO: _host.undo_last()
 
 # -- §2.3 Assets --------------------------------------------------------------
 
@@ -498,7 +574,9 @@ func _preferences(p: PopupMenu) -> void:
 			var row: int = _gpu_pref_rows[i]
 			if row < p.item_count:
 				p.set_item_disabled(row, busy)
-				p.set_item_tooltip(row, why if busy else _gpu_pref_tips[i]))
+				p.set_item_tooltip(row, why if busy else _gpu_pref_tips[i])
+		if _undo_pref_row >= 0 and _undo_pref_row < p.item_count:
+			p.set_item_tooltip(_undo_pref_row, _undo_pref_tip()))
 	## PR-01/PR-02/PR-04/PR-05: the four §2.5 Performance rows the engine now
 	## backs. Each is a submenu rather than a dialog -- every one of them is a
 	## small fixed choice, and a modal for four radio lists would be more
@@ -541,7 +619,27 @@ func _preferences(p: PopupMenu) -> void:
 	## not, which made the pointer dangle (2026-08-20 menu-structure audit).
 	_todo(p, "Tiled LOD · tile size · atlas cache · chunk debug",
 		"Deep-zoom LOD tiling is live and automatic (lod_synthesize_tile/lod_tile_cells, driven by viewport_host.gd) -- what does not exist is any of §2.5's controls over it: no auto/manual switch (#lodAutoChk), no tile-size or LOD-level choice, no Refine detail for the current view (#lodRefineBtn), and no persistent atlas cache to bake into, cap or clear (#lodBakeBtn/#lodClearAtlasBtn -- tiles are synthesized on demand and never written to disk). The reference's two per-tile refinement passes, Burn rivers into tiles and Micro-erode tiles, have no cartalith-engine equivalent either: lod_synthesize_tile resamples the existing field and runs no erosion or river burn-in of its own. The chunk debug overlay (#lodDbgSeg grid / colors / off) and Show tile borders have no draw path -- viewport_host.gd composites LOD tiles into the map layer with no debug visualisation of the tile grid.")
-	_todo(p, "Undo history", "No undo stack yet.")
+	## PR-11, live. §2.5 asked for a depth control; the engine's bound is a
+	## **byte budget** rather than a step count, because one height field is
+	## 16 MB at 2048² and 256 MB at 8192² -- a flat "5 deep" would commit to
+	## 1.25 GB of undo buffer on the largest world this shell offers. The
+	## step count (5, the reference's own `MAX_UNDO`) is still the ceiling;
+	## the budget is what actually binds on a big world. Rows are budgets,
+	## and each shows how many steps that buys at the current resolution,
+	## which is the honest way to present a bound whose depth is
+	## resolution-dependent (`undo.rs`).
+	_undo_budget_popup = PopupMenu.new()
+	_undo_budget_popup.name = "UndoBudget"
+	for i in UNDO_BUDGETS_MB.size():
+		_undo_budget_popup.add_radio_check_item("%d MB" % UNDO_BUDGETS_MB[i], i)
+	_undo_budget_popup.add_separator()
+	_undo_budget_popup.add_item("Clear undo history now", ID_PREF_UNDO_CLEAR)
+	_undo_budget_popup.id_pressed.connect(_on_undo_budget)
+	_undo_budget_popup.about_to_popup.connect(_refresh_undo_budget_menu)
+	_shell.style_popup(_undo_budget_popup)
+	p.add_child(_undo_budget_popup)
+	p.add_submenu_item("Undo history", "UndoBudget")
+	_undo_pref_row = p.item_count - 1
 	## §2.5's Memory group has three items -- Undo history (above, a real
 	## gap), Working set and Clear caches -- but only the first ever made it
 	## into this menu; the other two were missing outright, not even as
@@ -867,6 +965,60 @@ func _on_preferences(id: int, p: PopupMenu) -> void:
 	var on := not bool(_bridge.param_get("use_gpu"))
 	if _bridge.param_set("use_gpu", on):
 		p.set_item_checked(idx, on)
+
+# -- §2.5 Memory ▸ Undo history (PR-11) ---------------------------------------
+
+## The parent row's own tooltip: the live cost, and -- the number that makes
+## the budget legible -- what one step costs at *this* resolution.
+func _undo_pref_tip() -> String:
+	var s: Dictionary = _bridge.undo_stats()
+	if s.is_empty():
+		return "This build's engine has no undo bindings."
+	var step := int(s.get("step_bytes", 0))
+	var head := "%s · %s of a %s budget." % [
+		_undo_depth_text(s), _mb(int(s.get("bytes", 0))), _mb(int(s.get("budget_bytes", 0)))]
+	if step <= 0:
+		return head + " No world yet, so a step costs nothing."
+	return head + (" One step costs %s at this resolution, so the budget holds %d of the %d " +
+		"steps the reference keeps. Cleared by every Generate.") % [
+			_mb(step), _steps_affordable(s), int(s.get("max_steps", 5))]
+
+## How many steps the current budget actually buys at the current step size --
+## the engine's own eviction rule (`undo.rs`: both bounds, floor of one),
+## restated so the menu can show it before a push proves it.
+func _steps_affordable(s: Dictionary) -> int:
+	var step := int(s.get("step_bytes", 0))
+	var max_steps := int(s.get("max_steps", 5))
+	if step <= 0:
+		return max_steps
+	return maxi(1, mini(max_steps, int(s.get("budget_bytes", 0)) / step))
+
+func _refresh_undo_budget_menu() -> void:
+	var s: Dictionary = _bridge.undo_stats()
+	var budget_mb := int(s.get("budget_bytes", 0)) / 1048576
+	var step := int(s.get("step_bytes", 0))
+	for i in UNDO_BUDGETS_MB.size():
+		var mb: int = UNDO_BUDGETS_MB[i]
+		_undo_budget_popup.set_item_checked(i, mb == budget_mb)
+		if step > 0:
+			var steps: int = maxi(1, mini(int(s.get("max_steps", 5)), (mb * 1048576) / step))
+			_undo_budget_popup.set_item_text(i, "%d MB — %d step%s here" % [
+				mb, steps, "" if steps == 1 else "s"])
+		else:
+			_undo_budget_popup.set_item_text(i, "%d MB" % mb)
+	var clear_idx := _undo_budget_popup.get_item_index(ID_PREF_UNDO_CLEAR)
+	if clear_idx >= 0:
+		_undo_budget_popup.set_item_disabled(clear_idx, not _bridge.can_undo())
+		_undo_budget_popup.set_item_tooltip(clear_idx,
+			"Frees %s immediately. The next destructive edit starts a new stack." % _mb(int(s.get("bytes", 0))))
+
+func _on_undo_budget(id: int) -> void:
+	if id == ID_PREF_UNDO_CLEAR:
+		_bridge.clear_undo()
+		return
+	if id >= 0 and id < UNDO_BUDGETS_MB.size():
+		_bridge.set_undo_budget_mb(UNDO_BUDGETS_MB[id])
+		_refresh_undo_budget_menu()
 
 func _refresh_theme_menu() -> void:
 	_theme_popup.set_item_checked(0, _theme_mode == "dark")

@@ -173,3 +173,71 @@ cartalith-civ`, `cargo clippy -p cartalith-civ -p cartalith-godot
 --all-targets` (clean for the new code), `cargo test --workspace` (0
 regressions), `godot4 --headless --quit main.tscn` (clean). Full
 account in `cartalith-native/docs/CHANGELOG.md`.
+
+## Tracked budget line item: the global undo stack (added 2026-08-23)
+
+The first feature this port has shipped whose memory cost is *deliberate,
+user-visible and capped* rather than incidental, so it belongs on this
+document's ledger rather than only in the feature's own scope.
+
+**What it is.** `Edit ▸ Undo` (register `ED-01`, the reference's
+`pushUndo`/`undoLast`) keeps a bounded stack of pre-operation copies of the
+height field -- one `Vec<f32>` per step, held in `cartalith-godot`'s
+`WorldGen` (`crates/cartalith-godot/src/undo.rs`).
+
+**Why it needed a budget rather than the reference's step count.** The
+reference caps at `MAX_UNDO = 5` unconditionally, which is fine in a browser
+at its resolutions. Here one height field is:
+
+| Grid | One step | 5 steps (the reference's rule) |
+|---|---:|---:|
+| 1024² | 4 MB | 20 MB |
+| 2048² (default) | 16 MB | 80 MB |
+| 4096² | 64 MB | 320 MB |
+| 8192² (UI maximum) | 256 MB | **1 280 MB** |
+
+Against this document's own measured ~680 MB steady-state at 2048², a flat
+five-deep rule would have made undo the single largest retained allocation in
+the process at 4096² and larger -- more than the generated world itself.
+
+**The bound.** Both a byte budget (default **256 MiB**,
+`undo::DEFAULT_BUDGET_BYTES`) and the reference's step count (**5**,
+`undo::MAX_STEPS`), whichever binds first, with a floor of one step so a
+single snapshot larger than the whole budget is still an undo rather than a
+silent no-op. Steps are evicted oldest-first. The budget is user-settable at
+`Preferences ▸ Memory ▸ Undo history` (64/128/256/512/1024 MB), which also
+shows the live cost and a `Clear undo history now` row. The stack is cleared
+by every generate and every load.
+
+Effective depth at the default budget: **5 steps up to 2048² (80 MB), 4 at
+4096² (256 MB), 1 at 8192² (256 MB)**.
+
+**Measured, real windowed process, private bytes** (`Get-Process
+PrivateMemorySize64`, the same technique as the baseline above; 2048×2048,
+seed 12345, eight consecutive Sculpt commits):
+
+| State | Private memory |
+|---|---|
+| After generate, before any undo step | 476 MB |
+| After commit 1 (depth 1, 16 MB held) | 492 MB |
+| After commit 5 (depth 5, 80 MB held) | 556 MB |
+| After commits 6-8 (**depth stays 5, 80 MB**) | 556 MB |
+| After `Clear undo history now` | 476 MB |
+| After re-filling, then setting the budget to 64 MB (depth 4) | 540 MB |
+
+The stack grows by exactly one field per step, stops growing at the bound,
+and gives every byte back on clear or on a budget reduction. **The bound is
+real and enforced, not merely declared.**
+
+**Interaction with the rest of this document.** The undo stack is *retained*
+memory, not peak: it adds to the ~680 MB steady-state figure above, and does
+not participate in the ~1.1-1.3 GB generation spike (the stack is cleared at
+the start of every generate, so a generation never runs with a full one). If
+the follow-up investigation this document leaves open ever re-measures
+steady-state, subtract `undo_stats()["bytes"]` before comparing against the
+2026-08-16 numbers, or measure with the stack cleared.
+
+**What is deliberately *not* snapshotted**, and therefore not on this budget:
+`river_mask` / `river_floor` (a `u8` mask plus a second `f32` field, +130 %
+per step). The reference does not snapshot them either. The consequence is
+recorded honestly in `undo.rs`'s module doc rather than paid for here.

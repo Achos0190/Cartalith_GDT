@@ -32,6 +32,7 @@ mod sample_bridge;
 mod sculpt_bridge;
 mod timeline_bridge;
 mod travel_bridge;
+mod undo;
 mod urban_bridge;
 use cartalith_terrain::sculpt::{Feature, FeatureParams, FreehandMode, SculptStamp, SCULPT_PRESETS};
 use render::{QualityTier, RenderCtx, SplatTextures, TerrainAppearance};
@@ -1422,6 +1423,20 @@ struct WorldGen {
     /// the *setting*, not one generation's output, so it survives a
     /// re-generate and is real even before the first `generate()` call.
     asset_library: asset_bridge::AssetLibrarySession,
+    /// The reference's global heightmap undo stack (`pushUndo`/`undoLast`,
+    /// `PARITY_AUDIT.md` §3.1, register `ED-01`/`PR-11`) — a bounded ring of
+    /// pre-operation `field` snapshots. See `undo.rs` for what the reference
+    /// snapshots, how deep it goes, and the three places this port
+    /// deliberately diverges (a byte budget, a clear-on-generate, and no
+    /// inline flow/climate recompute).
+    ///
+    /// Not `Option`: an empty stack is already the "nothing to undo" state,
+    /// so there is no world-dependent construction to defer, unlike
+    /// `sculpt`/`icons`/`paint` above. **Is** cleared by `absorb()` and by
+    /// `load_save()` — a snapshot of the previous world's field is
+    /// meaningless over a new one, and at a different resolution it is not
+    /// even the right length.
+    undo: undo::HeightUndo,
 }
 
 #[godot_api]
@@ -1452,6 +1467,7 @@ impl IRefCounted for WorldGen {
             infra: None,
             travel_library: travel_bridge::TravelLibrary::new(),
             asset_library: asset_bridge::AssetLibrarySession::new(),
+            undo: undo::HeightUndo::new(),
         }
     }
 }
@@ -1551,6 +1567,12 @@ impl WorldGen {
         // (see `infra_tools_bridge.rs`'s own module doc, "nothing here is
         // computed at construction").
         self.infra = Some(infra_tools_bridge::InfraTools::new());
+        // Global heightmap undo: a snapshot of the *previous* world's field
+        // is meaningless over this one, and at a different resolution it is
+        // not even the right length. The reference does not clear here (its
+        // grid cannot change size mid-session); this port's `generate_sized`
+        // can, so it must. See `undo.rs`'s divergence list.
+        self.undo.clear();
         self.source = Some(WorldSource::Generated(Box::new(ws)));
         self.seed = seed;
     }
@@ -2297,6 +2319,15 @@ impl WorldGen {
             cartalith_terrain::fjord::CarveFjordsOpts::default(),
         );
         let cells_carved = carved.iter().zip(ws.field.iter()).filter(|(a, b)| a != b).count();
+        // Global heightmap undo, the reference's own call site (`#fjordBtn`'s
+        // handler opens with `pushUndo()`, reference HTML line 13017). Pushed
+        // *here* rather than at the top of the function, unlike
+        // `sculpt_commit` above: every early return above is a refusal that
+        // never touches the field, and the reference's own button-level push
+        // has no such refusals to avoid (its guards run before the click
+        // handler's `pushUndo()`). No step is spent on a call that changed
+        // nothing.
+        self.undo.push("Carve fjords", &ws.field);
         ws.field = carved;
         dict! {
             "ok" => true,
@@ -2496,6 +2527,10 @@ impl WorldGen {
         // from the *previous* world would silently carry grid coordinates
         // over the wrong dimensions if kept.
         self.infra = None;
+        // Same reasoning as `absorb()`'s own clear: an undo step holds the
+        // *previous* world's height field, which is the wrong content and
+        // possibly the wrong length over a loaded save.
+        self.undo.clear();
         self.source = Some(WorldSource::Loaded(Box::new(save)));
         true
     }
@@ -3723,6 +3758,13 @@ impl WorldGen {
         let (Some(sculpt), Some(WorldSource::Generated(ws))) = (self.sculpt.as_mut(), self.source.as_mut()) else {
             return VarDictionary::new();
         };
+        // Global heightmap undo, the reference's own call site (`sculptCommit`
+        // opens with `pushUndo()`, reference HTML line 9319). Pushed here
+        // rather than at the button, so a commit that turns out to apply
+        // nothing still costs a snapshot exactly as it does in the reference
+        // — matching its step accounting is worth more than saving 16 MB on
+        // an empty commit the UI already disables.
+        self.undo.push("Sculpt commit", &ws.field);
         let summary = sculpt.commit(&mut ws.field, sea_level, &reason);
         // Keep WorldState's own optional river fields in sync with what the
         // Sculpt layer has now locked. `WaterState` (`sculpt.water`) is the
@@ -8025,4 +8067,110 @@ fn key_label_array(table: &[(&str, &str)]) -> Array<VarDictionary> {
         .iter()
         .map(|&(key, label)| vdict! { "key" => key, "label" => label })
         .collect()
+}
+
+/// Global heightmap undo — the reference's `pushUndo`/`undoLast`/
+/// `updateUndoUI` (`PARITY_AUDIT.md` §3.1's three missing functions,
+/// register `ED-01`/`PR-11`). The mechanism, the bound and every deliberate
+/// divergence from the reference live in `undo.rs`'s module doc; this block
+/// is only the `Variant` surface over it.
+///
+/// **Distinct from `sculpt_undo`/`sculpt_redo`**, which pop a *stamp* off an
+/// uncommitted Sculpt draft that was never written to the field. These
+/// revert a whole committed height field. The reference draws the same line
+/// in the same words (its own comment: the stamp history is *"draft-scoped —
+/// separate from the field-level undoStack/pushUndo"*), and Ctrl+Z in the
+/// reference routes to `sculptUndo` while the Sculpt editor is active and to
+/// `undoLast` otherwise.
+#[godot_api(secondary)]
+impl WorldGen {
+    /// Whether `undo_last()` would do anything — the reference's
+    /// `undoBtn.disabled = undoStack.length === 0`.
+    #[func]
+    fn can_undo(&self) -> bool {
+        !self.undo.is_empty()
+    }
+
+    /// The operation `undo_last()` would revert, for an
+    /// "Undo <operation>" menu row. Empty string when the stack is empty.
+    #[func]
+    fn undo_label(&self) -> GString {
+        GString::from(self.undo.next_label().unwrap_or_default())
+    }
+
+    /// Pop the newest snapshot back over the live height field — the
+    /// reference's `undoLast`.
+    ///
+    /// Returns the reverted operation's label, or an empty string when there
+    /// was nothing to revert (or when the snapshot no longer matches the
+    /// live grid's length, which `undo.rs` refuses rather than
+    /// half-applies).
+    ///
+    /// # What it does not re-run
+    ///
+    /// Flow, river extraction and climate, exactly as
+    /// [`Self::sculpt_commit`] and [`Self::carve_fjords`] do not — the
+    /// reference's `undoLast` recomputes them inline, this port defers them
+    /// (`UNIFIED_TOOL_PLAN.md` milestone A). Undo is therefore as consistent
+    /// as the commit it reverses, and no more.
+    ///
+    /// Nor does it revert the `river_mask`/`river_floor` locks a Sculpt
+    /// commit's water hooks wrote. Neither does the reference: it snapshots
+    /// `field` and nothing else. See `undo.rs` for the cost of diverging.
+    ///
+    /// Call `build_color_texture()` again afterwards to see the result —
+    /// the same contract [`Self::sculpt_commit`] documents.
+    #[func]
+    fn undo_last(&mut self) -> GString {
+        let Some(WorldSource::Generated(ws)) = self.source.as_mut() else {
+            return GString::new();
+        };
+        match self.undo.restore(&mut ws.field) {
+            Some(label) => GString::from(&label),
+            None => GString::new(),
+        }
+    }
+
+    /// The reference's `#undoMem` readout (`updateUndoUI`), as data rather
+    /// than as a formatted sentence: `depth` (int), `max_steps` (int, the
+    /// reference's `MAX_UNDO`), `bytes` (int, live cost), `budget_bytes`
+    /// (int), `step_bytes` (int, what the *next* push will cost on this
+    /// grid) and `label` (String, the next step to revert).
+    ///
+    /// `step_bytes` is what makes the byte bound legible in a preference
+    /// row: at 8192² it is 256 MB, which is why the depth there is 1 and not
+    /// the reference's 5.
+    #[func]
+    fn undo_stats(&self) -> VarDictionary {
+        let step_bytes = match self.source.as_ref() {
+            Some(WorldSource::Generated(ws)) => ws.field.len() * 4,
+            _ => 0,
+        };
+        dict! {
+            "depth" => self.undo.depth() as i64,
+            "max_steps" => undo::MAX_STEPS as i64,
+            "bytes" => self.undo.bytes() as i64,
+            "budget_bytes" => self.undo.budget_bytes() as i64,
+            "step_bytes" => step_bytes as i64,
+            "label" => self.undo.next_label().unwrap_or_default(),
+        }
+    }
+
+    /// `Preferences ▸ Memory ▸ Undo history` (register `PR-11`): re-budget
+    /// the stack, evicting immediately if the new budget is smaller.
+    /// Floored at 4 MiB inside `undo.rs`, so a caller cannot set a budget
+    /// that makes undo useless at every resolution.
+    #[func]
+    fn set_undo_budget_mb(&mut self, mb: i64) {
+        self.undo.set_budget_bytes(mb.max(0) as usize * 1024 * 1024);
+    }
+
+    /// Drop every step. The reference has no such control — this exists
+    /// because `Preferences ▸ Memory` is where a user goes to get memory
+    /// back, and the undo buffer is the one line item there they can free on
+    /// demand.
+    #[func]
+    fn clear_undo(&mut self) {
+        self.undo.clear();
+    }
 }

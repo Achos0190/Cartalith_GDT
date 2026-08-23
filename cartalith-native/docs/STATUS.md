@@ -5,7 +5,58 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-23 (post **Journey Planner: the last GUI gaps**.
+Last updated: 2026-08-23 (post **Global undo — `Edit ▸ Undo` is live, and it
+was three functions, not a framework**. `GUI_GAP_REGISTER.md` **ED-01's Undo
+half and PR-11 both closed**; ED-02, the history *panel*, stays open and is
+still (C). `PARITY_AUDIT.md` §3.1's last row — "Global heightmap undo
+(`pushUndo`/`undoLast`/`updateUndoUI`) · 3 · absent" — is closed.
+**The finding worth carrying forward is a scope one.** This register had
+classified ED-01 as "(B) large" and §7.1 had proposed a *history ledger*:
+append-only, per-subsystem, with a reversal primitive per domain across seven
+domains. That proposal was written from Photoshop/Blender/Krita research
+before anyone read the reference. The reference's global undo is
+`undoStack.push(field.slice())`, a five-deep array, and a `field.set(pop())` —
+it snapshots the height field and *nothing else*, not `riverMask`, not
+`riverFloor`, not climate, not civ. Building the ledger to close a
+three-function gap would have been the textbook case of a framework for one
+feature. What shipped is the reference's design with **one bound changed**:
+the cap is a **byte budget** (256 MiB default) *and* the reference's step
+count (5), whichever binds first, floor of one — because one height field is
+16 MB at 2048² and **256 MB at 8192²**, so a flat five-deep rule would have
+committed 1.25 GB of undo buffer on the largest world this shell offers,
+against a measured ~680 MB steady-state world. Effective depth: 5 up to
+2048², 4 at 4096², 1 at 8192². New `cartalith-godot/src/undo.rs` (12 unit
+tests — push/restore/LIFO order/count bound/budget bound/budget floor/eviction
+on shrink/length-mismatch refusal/clear; **deliberately no golden-parity
+test**, and that is the right call rather than a gap: this is state
+management, not a numerical port — there is no reference *number* to diff, and
+the behaviours worth pinning are ordering and eviction, which
+`PARITY_TESTING.md`'s machinery cannot express), five `#[func]`s
+(`can_undo`/`undo_label`/`undo_last`/`undo_stats`/`set_undo_budget_mb` plus
+`clear_undo`), pushed from the two reference call sites this port actually has
+(`sculpt_commit`, `carve_fjords` — the reference's other thirteen are erosion
+buttons that do not exist here; `center_landmasses` is deliberately *not* one,
+matching the reference, which does not `pushUndo()` there either). Three
+deliberate divergences, all stated in `undo.rs`: the byte budget; **cleared on
+every generate/load** (the reference does not clear, which is safe only
+because its grid cannot change size mid-session — `generate_sized` can, and a
+2048² snapshot over a 4096² world is a length mismatch, guarded twice); and
+**no inline flow/climate recompute** (the reference's `undoLast` runs
+`computeFlow(true); refreshClimate()`; this port defers those everywhere else
+too, so undo is exactly as consistent as the commit it reverses). What it
+does **not** revert, exactly as in the reference: `river_mask`/`river_floor`
+locks — matching costs 0 MB, diverging costs +130 % per step. **`Edit` is no
+longer a 100 %-disabled menu**, which §8.4's naming audit had flagged as a
+usability problem in its own right. Also corrected: `FUNCTION_INDEX.md` line
+61 calls the reference's undo *"one level per destructive op"* — `MAX_UNDO`
+is 5. **Verified with real measured process memory**, not a declaration:
+private bytes at 2048² grew exactly 16 MB per commit to 80 MB at depth 5,
+stayed flat across commits 6-8, returned to baseline on `Clear undo history
+now`, and dropped one step on a budget reduction to 64 MB; plus a real
+windowed run driving the actual `Edit` menu — commit, screenshot, fire Undo,
+confirm the sampled field returns bit-identically to its pre-commit
+signature. Full account in `MEMORY_OPTIMIZATION_SCOPE.md`'s new tracked
+line item. — previously, post **Journey Planner: the last GUI gaps**.
 `GUI_GAP_REGISTER.md` §6.9 — **JP-01, JP-03, JP-04, JP-05, JP-07, JP-09
 closed**, **JP-06/JP-08 partly closed** (in-session only, blocked on FI-01's
 save-writer by design), **IN-06's remainder closed**. The headline finding is
@@ -3542,9 +3593,16 @@ milestone F. Remaining: **F** (shell wiring) and nothing else.
   immediately below, whose "referenced by nothing" line is now history.
 - **Open: milestones C-F** — water & ecology (C), civilization (D),
   annotation & measure (E), shell wiring (F). B is done, above.
-  Also deliberately open: the field-level undo snapshot at commit time (no
+  ~~Also deliberately open: the field-level undo snapshot at commit time (no
   undo stack exists in this port yet to snapshot into; `commit` returns the
-  touched-tile list a tile-diff undo would need), and tile-incremental
+  touched-tile list a tile-diff undo would need)~~ — **closed 2026-08-23**:
+  `sculpt_commit` now pushes a full pre-commit `field` snapshot onto the
+  global undo stack (`cartalith-godot/src/undo.rs`, `Edit ▸ Undo`), which is
+  what the reference's own `sculptCommit` does with `pushUndo()`. It is a
+  whole-field snapshot, **not** the tile-diff this line anticipated: the
+  reference does not diff either, and a diff would have been a general
+  framework built for one feature. `commit`'s touched-tile list stays
+  available if a diff ever earns its keep. Still open: tile-incremental
   recompute of hydrology/climate/civ (none are tile-scoped today — staleness
   reports which tiles are stale, stages still recompute globally).
 - ~~**Note for the next session:** `cargo test --workspace` currently fails
@@ -4555,7 +4613,8 @@ dead ends, and cross-file convention drift. `viewport_host.gd`/
    §2.5 names three (Undo history, Working set, Clear caches); only Undo
    history ever made it into the menu, not even as a disabled placeholder
    for the other two. Fixed alongside finding 4: Working set is now live,
-   Clear caches is now an honest `_todo()`.
+   Clear caches is now an honest `_todo()`. *(Undo history went live
+   2026-08-23 — see the global-undo section.)*
 
 **Verified**: every modified file re-read after editing; a headless Godot
 4.7.1 boot (`--headless --path godot-project --quit`) clean, no parse/

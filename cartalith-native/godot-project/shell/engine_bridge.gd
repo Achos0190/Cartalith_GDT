@@ -837,6 +837,53 @@ func sculpt_discard() -> int:
 		return -1
 	return world_gen.sculpt_discard()
 
+# -- Global heightmap undo (Edit ▸ Undo, Ctrl+Z) -------------------------------
+#
+# The reference's `pushUndo`/`undoLast`/`updateUndoUI`, register ED-01/PR-11.
+# Deliberately NOT the same thing as `sculpt_undo`/`sculpt_redo` above: those
+# pop a stamp off an uncommitted draft, these pop a whole committed height
+# field. The reference keeps the same two apart under the same names.
+#
+# Same degrade-rather-than-crash `has_method` guard every wrapper here uses --
+# an older cdylib without these five `#[func]`s reports "nothing to undo"
+# rather than erroring.
+
+func can_undo() -> bool:
+	if not world_gen.has_method("can_undo"):
+		return false
+	return world_gen.can_undo()
+
+## The operation `undo_last()` would revert ("Sculpt commit", "Carve fjords"),
+## or "" when there is nothing to revert.
+func undo_label() -> String:
+	if not world_gen.has_method("undo_label"):
+		return ""
+	return String(world_gen.undo_label())
+
+## Reverts the height field one step. Returns the reverted operation's label,
+## or "" if nothing happened. The caller repaints -- the engine deliberately
+## does not re-run flow/climate here (see `undo.rs`).
+func undo_last() -> String:
+	if not world_gen.has_method("undo_last"):
+		return ""
+	return String(world_gen.undo_last())
+
+## `depth`, `max_steps`, `bytes`, `budget_bytes`, `step_bytes`, `label` --
+## the reference's `#undoMem` readout as data. Empty dictionary on an older
+## cdylib.
+func undo_stats() -> Dictionary:
+	if not world_gen.has_method("undo_stats"):
+		return {}
+	return world_gen.undo_stats()
+
+func set_undo_budget_mb(mb: int) -> void:
+	if world_gen.has_method("set_undo_budget_mb"):
+		world_gen.set_undo_budget_mb(mb)
+
+func clear_undo() -> void:
+	if world_gen.has_method("clear_undo"):
+		world_gen.clear_undo()
+
 
 # icon_bridge.rs
 func icon_arm(family: String, variant: int, scale: float, rotation: float, jitter: float) -> bool:

@@ -733,6 +733,31 @@ func _browse_root(key: String, readout: Label) -> void:
 ## `current_project_path`'s containing folder in the real OS file manager.
 ## `OS.shell_show_in_file_manager` (Godot 4.4+) is preferred; a version that
 ## predates it falls back to `shell_open` on the folder URI.
+## `Edit ▸ Undo` / Ctrl+Z — the reference's `undoBtn` (`undoLast`), register
+## ED-01. Pops one committed height field back off the engine's bounded stack.
+##
+## Repaints by writing `map_view.texture` directly rather than calling
+## `ViewportHost.refresh()`, which would also reset the camera to fit: undoing
+## an edit should leave you looking at exactly where you were looking. That is
+## the same reasoning (and the same two lines) `world_workspace.gd`'s
+## `_on_sculpt_commit` already uses for the commit this reverses.
+##
+## The engine deliberately does not re-run flow, rivers or climate here -- see
+## `undo.rs` -- so the status hint says which stages are now behind the height
+## field rather than leaving that to be discovered.
+func undo_last() -> void:
+	var label := bridge.undo_last()
+	if label == "":
+		set_status("hint", "Nothing to undo.", "text_ghost")
+		return
+	if viewport != null:
+		viewport.map_view.texture = bridge.color_texture()
+		viewport.set_preview_texture(null)
+	var stats: Dictionary = bridge.undo_stats()
+	set_status("pass", "undid %s" % label.to_lower(), "text_dim")
+	set_status("hint", "%d undo step%s left · flow, rivers and climate are not re-run" % [
+		int(stats.get("depth", 0)), "" if int(stats.get("depth", 0)) == 1 else "s"], "text_ghost")
+
 func show_project_on_disk() -> void:
 	if current_project_path == "":
 		return
