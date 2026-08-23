@@ -19838,3 +19838,335 @@ Not verified: on-device or GPU appearance of the four views, per
 - **`applyTidalSedimentation` is now unblocked** on its input side: the tide
   field exists. What MS-05 still lacks is the composing op, which is §19's
   owner decision, not a missing kernel.
+
+## The unified Sculpt/Paint/Measure tool bar, and the measurement toolbar behind it (2026-08-24)
+
+`GUI_GAP_REGISTER.md` **§16 closes**. That section was a deliberate hold —
+the top-left global tool overlay had no drawn presentation anywhere in the
+DCC canvases, and the owner's standing instruction was *"do not touch
+`global_tools.gd`/`tool_overlay.gd` until my own refined design lands."* It
+landed as **two** canvases (vendored in `e7c10ab`), and they are one design:
+
+- `design/Cartalith Paint Toolbar.dc.html` is the unifying bar — *"one bar.
+  three mode buttons on the left; the active mode's tools appear beside
+  them. Options bar below carries brush size."* Three states: Sculpt ▸ Raise,
+  Paint ▸ Terrain, Paint ▸ Biome.
+- `design/Cartalith Measurement Toolbar.dc.html` is that bar's Measure mode
+  in detail — *"tool group in the existing options bar · cross-section in a
+  bottom strip · readouts in the right dock."* Three states: Measure ▸
+  Distance, Cross-Section ▸ Elevation, Area + vertical.
+
+### What was already real, and what the design actually asked for
+
+Read against the engine's own registries rather than the canvas's labels,
+which is where most of the work was:
+
+- **Sculpt and Paint are re-presentation, not new engine work.** Both tool
+  ids were already registered (`world_workspace.gd`), both editors are real
+  (`cartalith-terrain::sculpt` + `sculpt_bridge.rs`, `paint_bridge.rs`), and
+  every control in the new bar writes through the *same* `bridge.sculpt_*` /
+  `bridge.paint_*` call the left-dock panels already use. No sculpt or paint
+  kernel was touched.
+- **Measure was one straight-line ruler and the canvas asks for six tools.**
+  `infra_tools_bridge.rs`'s chain + `cartalith_spatial::measure` covered
+  Distance and (through `MeasuredLeg::bearing_deg`) Bearing. Area, Radius,
+  Cross-section and Δ vertical did not exist in any form.
+
+### The reference search, and its one real hit
+
+`reference/FUNCTION_INDEX.md` and the frozen HTML were searched for every
+term the Measurement canvas suggests — *profile · section · cross-section ·
+elevation · transect · swath · area · bearing · ruler · measur*. The
+findings, stated because three of them are negative:
+
+- **`_civDrawProfile` (line 19535) is not a sampler.** It is a canvas
+  painter for a Journey Planner route's already-computed `plan.profile`
+  array; `jp_plan` builds that array and this port already exposes it
+  (`journey_bridge.rs`). There is **no** sample-a-field-along-an-arbitrary-
+  line function in v2.10.
+- **No polygon-area tool, no radius readout, no vertical/grade readout.**
+- **`_setUnits` (line 13722) is real** but is the app-wide km/mi switch the
+  canvas itself says Measure *inherits*; it is not Measure's control.
+  Registered as **MEA-06**, unbuilt, because nothing in this shell has a
+  unit preference at all.
+- **The polygon primitives are real and were ported.** `polyArea` (28290),
+  `polyCentroid` (28291) and `pointInPoly` (28295) are exactly what the Area
+  tool stands on.
+
+### Ported (golden-parity), and why they could not be reused
+
+`cartalith_spatial::measure` gains `polygon_area` / `polygon_centroid` /
+`point_in_polygon`, with `crates/cartalith-spatial/tests/golden_parity_measure_poly.rs`
+— **5 tests, 6 rings × 14 probes = 84 containment goldens plus 12
+area/centroid goldens, bit-exact on the first run, `assert_eq!` on `f64`
+with no tolerance.**
+
+Both of the workspace's existing shoelaces were checked first and neither
+was reusable, for a *semantic* reason rather than a type one:
+`cartalith-urban::geom::poly_area`/`poly_centroid` are the same functions
+over that crate's `Vec2` (and `cartalith-godot` does not depend on
+`cartalith-urban`), while `cartalith_spatial::geo::ring_area`/
+`point_in_ring` are the `_geo*` family, which take an **explicitly closed**
+ring (`i < len - 1`) where `polyArea`'s family take an **implicitly closed**
+one (`(i + 1) % n`). A user-drawn measuring ring is the second kind. Two
+unit tests pin the new pair against `geo::ring_area`/`point_in_ring` on a
+ring legal under both conventions, so the two copies *inside one crate*
+cannot drift.
+
+Harness: Node `vm.runInContext` over lines **28290-28297** of the frozen
+reference, with the extractor asserting the slice's first and last line and
+all three names *inside the context* before evaluating. Its first run failed
+exactly as `CLAUDE.md`'s "silently-empty golden output" rule predicts — the
+fixtures were being computed host-side, where `function` declarations
+evaluated by `runInContext` are invisible. Fixtures: a rectangle, the same
+rectangle wound the other way (the sign branch, and the proof that winding
+changes neither `pointInPoly` nor `polyCentroid`), a concave "U" with two
+probes 0.0001 cells inside each notch wall, a five-vertex ring on no cell
+corner at all, three collinear points (`polyCentroid`'s own `|2A| < 1e-9`
+fallback, otherwise unreachable), and a triangle for an odd vertex count.
+
+### New, and disclosed as new (`DECISIONS.md` §7d)
+
+`crates/cartalith-godot/src/measure_bridge.rs` — **27 unit tests**. Nothing
+in it is a port and its module doc says so, the same way
+`cartalith_spatial::measure`'s own doc disclosed the ruler in milestone E:
+
+- `section_profile` — N evenly-spaced samples A→B (clamped 2..=1024),
+  wrap-aware through `measure`'s own seam rule, each carrying elevation,
+  slope, temperature, rain, flow, Strahler order, lithology, biome and
+  water body. Plus the canvas's whole PROFILE STATISTICS block and a
+  crossings list (river runs recorded at their highest-order sample,
+  land/water transitions, and prominence-filtered ridges).
+- `area_measure` — exact shoelace projected area, true-surface area
+  (`sqrt(1 + g²)` per cell), perimeter, centroid, bounding box, water
+  subtracted, land area, mean elevation.
+- `radius_measure`, `vertical_measure`, `chain_relief` (the DERIVED block's
+  Δ elevation, 3D length and sinuosity).
+
+Two costs are structural rather than incidental and are commented as such:
+a section **does not** call `sample_bridge::sample_cell` (its 96-cell
+expanding-ring boundary search is fine once per mouse-move and quadratic
+nonsense 1 024 times per drag), and an area **does not** test every cell —
+it strides so at most 250 000 are visited and *reports the stride*, with the
+projected figure never estimated.
+
+**Ridge crossings needed a definition and had none.** The canvas prints a
+count; nothing anywhere says what a ridge crossing is.
+`RIDGE_PROMINENCE_M = 100.0` is this port's own answer, stated in the module
+and in the dock's tooltip: without a prominence rule every ripple in a
+1 024-sample profile counts.
+
+### Boundary and shell
+
+`WorldGen` gains `measure_section` / `measure_area` / `measure_radius` /
+`measure_vertical`, all **stateless** — the caller owns the points, so none
+has a `begin`/`clear` pair — plus five new keys on `measure_result`
+(`overall_bearing_deg`, `has_relief`, `elevation_delta_m`, `total_km_3d`,
+`sinuosity`). `sample_bridge.rs`'s `idx`/`elevation_m`/`cell_m`/`slope_at`
+went `pub(crate)`: the alternative was a fourth hand-copy of
+`metersPerUnit`'s anchoring, and nothing about a section profile differs
+from a point sample except how many cells it reads.
+
+New GDScript: **`tool_bar.gd`** (the unified bar) and **`section_strip.gd`**
+(the profile strip). Two composition decisions, both taken to avoid touching
+`dcc_shell.gd`'s desktop *and* phone layouts for a presentation change:
+
+- The canvas's two bars become a two-row `VBoxContainer` inside the shell's
+  one `tool_options_row`. The `PanelContainer` has a *minimum* height so it
+  simply grows, and `_phone_fit_tool_options()` already recurses through
+  arbitrary containers.
+- The strip is a bottom-anchored child of `viewport_content` — which
+  `dcc_shell.gd` itself calls *"the map surface; overlays are children"* and
+  which `resource_overlay.gd` already uses the same way — not a fourth shell
+  bar. It costs the shell nothing when hidden, which is almost always.
+
+`global_tools.gd` keeps every interaction decision its old header recorded
+and restates them against six modes: Measure has no commit; **Escape clears
+the chain but leaves Measure armed** (§4.5.6's own exception); Region select
+is *not* one of those exceptions and still disarms to Inspect after cleanup;
+leaving either tool clears its draft while Region's rect survives in the
+engine for *Send to Data ▸ Export*. `right_dock.gd` grows **one**
+`CTX_MEASURE` context with six presentations, not six contexts. `app.gd`
+gains a `_backspace_handlers` dictionary — the same shape as the four
+beside it — for the canvas's `⌫ drop last`.
+
+### Verified — windowed, not headless
+
+`cargo build -p cartalith-godot` clean; `cargo test -p cartalith-spatial -p
+cartalith-godot` green (307 + the new suites); `cargo clippy` clean on both;
+headless boot clean. Then a real windowed pass at 1920×1080
+(`_measure_shot.gd`, untracked) that generates a 384×288 world and drives
+the app's own handlers: all six measure modes clicked out and their real
+readouts dumped, all five cross-section channels screenshotted, the
+exaggeration slider swept, the profile scrubbed, Escape checked to clear
+without disarming, a real sculpt stroke through `_on_map_clicked`/`dragged`/
+`released` (1 stamp), and a real paint dab (223 cells). Sample output: a
+2 183 km section at 512 samples · 4 272 m spacing, min −3 177 m / max
+2 421 m, ascent +6 417 m, descent −9 771 m, 5 river · 2 ridge · 7 shore
+crossings, each listed with its own distance; an area reading of
+840 820 km² projected · 840 948 km² true surface · −188 398 km² water ·
+652 422 km² land over 21 525 cells at stride 1.
+
+**Four defects the windowed pass found and the headless one could not:**
+
+1. **The right dock was pushed off the screen.** A `Label` reports its full
+   text width as its minimum size, and this bar sits in the shell's own
+   top-level `VBoxContainer` — one long disclosure note in the Sculpt row
+   raised the whole window's minimum width. Fixed with `clip_text` plus the
+   full text on hover, and `DccWidgets`' dock-width row columns (132/56 px)
+   pulled in to bar widths locally, without changing `dcc_widgets.gd` for a
+   caller it was not written for.
+2. **Vertical exaggeration clipped the profile.** Narrowing the value window
+   around its own midpoint put every metre of land above the top of the plot
+   on a profile running from a −3 177 m trench to a 2 421 m ridge.
+   Exaggeration is *more screen height per metre at an unchanged horizontal
+   scale* — so the strip grows (capped at 42 % of the viewport) and the
+   window always auto-fits. Default ×2 rather than the canvas's ×4, because
+   ×4 on first use takes most of the map before anyone asks it to.
+3. **Stale bar readouts.** The options row carries "n points" / "n stamps" /
+   "n painted", none of which was refreshed by the click, stroke or dab that
+   changed them.
+4. **Two duplicated readings** — the scrub cursor printed elevation twice on
+   the Elevation channel, and the Sculpt header read `SCULPT ·` with an
+   empty sub-mode whenever a non-Freehand feature was armed.
+
+**Not verified:** Android/touch and the phone layout of the two-row bar
+(`DECISIONS.md` §5). Twelve canvas affordances are unbuilt and each is
+registered with its reason as **MEA-01 … MEA-12** in `GUI_GAP_REGISTER.md`
+§16 rather than drawn as a dead control — the notable ones being Sculpt's
+Flatten/Noise (no engine mode), Paint's Water/Lithology (no override array),
+great-circle paths (this map is equirectangular and `measure` is planar),
+and the app-wide km/mi switch.
+
+## The right dock sized itself to its own text, and took the viewport with it (owner report, 2026-08-24)
+
+Owner: *"For the pc/tablet version the right information pane seems to
+move/scale according to the displayed text — it being coordinates or something
+else. This causes the entire viewport to become erratic as it also wants to
+scale according to the information. It's small jumps but super annoying."*
+
+### The root cause was a minimum size, not a splitter
+
+A Godot `Label` with `autowrap_mode == AUTOWRAP_OFF`, no `clip_text` and no
+overrun behaviour reports **its own text width as its minimum width**.
+`right_dock.gd::_field()` — the row builder behind essentially every readout in
+the dock — gave its value label `SIZE_EXPAND_FILL` and none of those three, so
+each row's minimum width was `116 px label column + 8 px separation + whatever
+string the row happened to be holding this frame`.
+
+That number is not local. It travels up the row's `HBoxContainer`, the
+section's `VBoxContainer` and margins, the dock's `ScrollContainer` — which has
+`horizontal_scroll_mode = SCROLL_MODE_DISABLED` (`dcc_shell.gd::_scroll()`) and
+therefore forwards its child's minimum width **whole** rather than absorbing it
+— and lands on the right dock's `PanelContainer`, whose
+`custom_minimum_size.x = _right_width` is a **floor, not a ceiling**. The
+viewport is the one `SIZE_EXPAND_FILL` child of the same `HBoxContainer`
+(`_build_desktop_shell`), so every pixel the dock gained came directly out of
+the map. Nothing in the chain was wrong on its own; the pane's width was simply
+an *output* of its content instead of an input to it.
+
+The row that actually did it was Sample ▸ **"Nearest settlement"**, whose value
+(`"<name> (<n> cells)"`) is rewritten on *every* mouse-motion event over the
+viewport. At 384×288 it forced a **286 px** row minimum against a 300 px dock.
+Measured windowed on the real `app.tscn` over a 61-point cursor sweep: the dock
+oscillated **300 ↔ 319 px** and the viewport **440 ↔ 421 px**, flipping each
+time the cursor crossed into a differently-named settlement's neighbourhood.
+That is the owner's "small jumps", to the pixel.
+
+### Fixed where the number is produced
+
+Every value label in `_field()`, and the 26 px `_accent_readout()`, now sets
+`text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS`. Godot's
+`Label::get_minimum_size()` reports `1 px` for any label that clips or trims,
+so the whole chain above now carries a constant. Ellipsis rather than
+`clip_text` deliberately: both collapse the minimum, only one tells the reader
+a value was trimmed, and every row in this dock reports rather than edits, so
+there is nothing a trimmed value can break. `_field()` also grew an optional
+`label_w`, used by the two rows whose *value* is the content rather than a
+short reading (Nearest, Biome) so the name still fits inside the pane.
+
+`_build_wildlife` had the same fault one level up: its L3 section title was
+`"<biome> ecoregion"`, and `DccTheme.header()` is uppercase Plex Mono tracked
+2 px and does not trim. The header is the constant `"Ecoregion"` now (matching
+`CTX_TITLES`, which already said so) and the biome is a trimmed row.
+
+Nothing was restructured. The dock's containers, its ten contexts and its rows
+are unchanged; this is three properties and a shortened title.
+
+### The coordinate rows, rebuilt
+
+Sample drew `X` and `Y` as two separate rows, in grid cells, with no km reading
+at all. It now draws two rows carrying **a pair each**:
+
+- **`Position`** — km from the map's north-west corner, `X · Y`.
+- **`Cell`** — the raster index every other row in the panel is actually read
+  at, `X · Y`.
+
+Both are mono labels with each axis padded to a fixed column width, so the
+digits hold their columns as the cursor moves instead of sliding past each
+other. A latitude is not a separate fact from its longitude, and one row per
+axis also gave each axis its own label free to size itself.
+
+### Decimal precision comes from the world, not from a guess
+
+One cell is `map_width_km / gw` — `GENERATION_PARAMETERS.md`'s single
+resolution quotient, the same one `terrain_detail_k`, `river_flow_thresh`,
+`civ_catchment_radius_cells` and `suppression_radius_cells` are all derived
+from. Nothing in this port distinguishes two points inside one cell: elevation,
+biome, slope, soil and territory are all per-cell reads. So a coordinate
+printed finer than a cell is inventing precision the grid does not have, and a
+fixed decimal count is wrong in both directions — false precision on a
+continental world, discarded precision on a 100 km one.
+
+The rule is **the largest power of ten no larger than one cell**:
+`clamp(ceil(-log10(cell_km)), 0, 3)`. A decimal count can only move in factors
+of ten, so "no finer than a cell, and within one factor of ten of it" is the
+tightest honest rule the format allows; the clamp at 3 stops a pathological
+metre-scale world asking for a column nobody reads. Verified against four real
+generated worlds:
+
+| world | cell | decimals | reads |
+|---|---|---|---|
+| 4 000 km / 256 | 15.63 km | 0 | `1328 ·  797 km` |
+| 2 400 km / 384 | 6.25 km | 0 | `2394 · 1794 km` |
+| 200 km / 1 024 | 195 m | 1 | ` 66.6 ·  39.8 km` |
+| 100 km / 1 024 | 98 m | 2 | ` 33.30 ·  19.92 km` |
+
+A loaded save with no recorded extent prints `—` for Position and keeps the
+cell index, which is still real — the same "an absent reading is an em dash,
+never a real-looking zero" rule the rest of this panel already follows.
+
+### Verification
+
+Measured, not eyeballed — this is a layout bug and a headless boot cannot see
+it. `_dockjitter_shot.tscn` (uncommitted, per the `_shot.gd` convention) drives
+the real app windowed: generate, then a 61-point cursor sweep across the grid
+plus 40 settlement selections (longest name `Hurngarngarnhaskcairn`, 21 chars),
+sampling `right_dock.size.x` and `viewport_area.size.x` after each layout pass.
+
+- **Before:** dock `min 300 max 319 spread 19 px`, viewport `min 440 max 421
+  spread 19 px`, over 102 samples. Widest row: `Nearest settlement /
+  Brakgormhaskbaldhold (17 cells)` at 286 px.
+- **After:** `spread 0 px` on both, over the same 102 samples — dock pinned at
+  300, viewport at 440 — and still 300/440 after re-generating at
+  200 km/1 024, 100 km/1 024 and 4 000 km/256. The dock body's own minimum
+  width fell **312 → 151 px**, so there is now 149 px of headroom before any
+  row could reach the pane's edge again.
+
+`_measure_shot.tscn` re-run clean, confirming no `_field` regression across the
+six Measure contexts. Headless boot clean. **No Rust changed** — the cell size
+was already reachable from GDScript through `bridge.last_width_km` and
+`bridge.grid_size()`, so no engine-side formatting helper was needed.
+
+### Still open
+
+- **`DccWidgets.note()` keeps a 240 px `custom_minimum_size.x`**, which with
+  the section margins and the drag handle is a ~272 px floor — above
+  `W_RIGHT_DOCK_MIN` (260). It is static per context so it cannot jitter, but
+  it does mean the right dock cannot actually be dragged to its documented
+  minimum on any context that draws a note. `dcc_widgets.gd` is shared, and was
+  left alone rather than edited during concurrent work.
+- **The left dock and the workspace panels were not audited** for the same
+  fault. Nothing there is rewritten on mouse-move, which is why only this dock
+  was visibly erratic, but the mechanism is identical wherever a label holds
+  world-derived text.

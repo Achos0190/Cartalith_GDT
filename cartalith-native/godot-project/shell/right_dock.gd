@@ -120,6 +120,7 @@ var _route_entry: Dictionary = {}
 var _route_kind := ""      ## "road" | "sea"
 var _faction_id := -1
 var _measure_result: Dictionary = {}
+var _measure_mode := "distance"   ## One of `GlobalTools.MEASURE_MODES`' ids.
 var _region_result: Dictionary = {}
 var _wildlife_region: Dictionary = {}
 var _journey_view: JourneyPlannerView = null   ## CTX_JOURNEY delegate -- see `show_journey()`.
@@ -128,8 +129,14 @@ var _journey_view: JourneyPlannerView = null   ## CTX_JOURNEY delegate -- see `s
 ## full `_rebuild()` -- the overlay emits that signal on every mouse-motion
 ## event over the viewport, and tearing the dock down and rebuilding it at
 ## that rate would be needless churn for sixteen labels.
-var _sample_x: Label
-var _sample_y: Label
+## The cursor's coordinate, as **two rows carrying a pair each** rather than
+## the four single-number rows this used to be (`X`, `Y`, and nothing in km at
+## all). A latitude is not a separate fact from its longitude, and one row per
+## axis both read as two unrelated readings and gave each axis its own value
+## label to size itself against -- see `_field()`'s own note on why that
+## mattered for the dock's width.
+var _sample_pos: Label     ## km from the map's north-west corner, X · Y
+var _sample_cell: Label    ## the raster index every other row in this panel reads
 var _sample_elev: Label
 var _sample_nearest: Label
 ## `SAMPLE_FIELDS` label -> its value `Label`, so one `sample_cell()` dict
@@ -167,11 +174,12 @@ func on_settlement_selected(data: Variant, index: int) -> void:
 func on_cursor_sampled(gx: float, gy: float, valid: bool) -> void:
 	if _context != CTX_SAMPLE:
 		return
-	if _sample_x == null:
+	if _sample_pos == null:
 		_rebuild()
 		return
-	_sample_x.text = ("%.0f" % gx) if valid else "—"
-	_sample_y.text = ("%.0f" % gy) if valid else "—"
+	var coord := _coord_texts(gx, gy, valid)
+	_sample_pos.text = coord[0]
+	_sample_cell.text = coord[1]
 	_sample_nearest.text = _nearest_settlement_text(gx, gy, valid)
 	var cell: Dictionary = bridge.sample_cell(int(round(gx)), int(round(gy))) if valid else {}
 	_sample_elev.text = _elevation_text(cell)
@@ -211,11 +219,20 @@ func show_faction(faction_id: int) -> void:
 	_rebuild()
 
 ## Called by `GlobalTools` on every point added to (or cleared from) the
-## Measure chain -- `result` is `measure_result()`'s own dict, straight
-## through.
-func show_measure(result: Dictionary) -> void:
+## Measure chain. `mode` is one of `GlobalTools.MEASURE_MODES`' own ids and
+## `result` is whichever engine dict that mode reads --
+## `measure_result()` for Distance/Bearing, `measure_area()`,
+## `measure_radius()`, `measure_vertical()` or `measure_section()` for the
+## other four.
+##
+## **One context, not six.** All six are "the Measure tool is armed and has a
+## reading"; a `CTX_MEASURE_AREA` and four siblings would each need their own
+## title, their own readout branch and their own dispatch arm for what is one
+## selection with six presentations.
+func show_measure(result: Dictionary, mode: String = "distance") -> void:
 	_context = CTX_MEASURE
 	_measure_result = result
+	_measure_mode = mode
 	_rebuild()
 
 ## Called by `GlobalTools` when a Region marquee commits -- `result` is
@@ -311,8 +328,8 @@ func _rebuild() -> void:
 	for child in body.get_children():
 		body.remove_child(child)
 		child.queue_free()
-	_sample_x = null
-	_sample_y = null
+	_sample_pos = null
+	_sample_cell = null
 	_sample_elev = null
 	_sample_nearest = null
 	_sample_rows.clear()
@@ -365,7 +382,7 @@ func _dock_readout_text() -> String:
 					break
 			return ("%d · %s" % [_faction_id, culture.capitalize()]) if culture != "" else "faction %d" % _faction_id
 		CTX_MEASURE:
-			return ("%.1f km" % float(_measure_result.get("total_km", 0.0))) if not _measure_result.is_empty() else "no chain"
+			return _measure_readout()
 		CTX_REGION:
 			return ("%d cells" % int(_region_result.get("cell_count", 0))) if not _region_result.is_empty() else "no region"
 		CTX_WILDLIFE:
@@ -411,8 +428,16 @@ func _dispatch(body: Control) -> void:
 func _build_sample(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Sample")
 	var valid: bool = bridge.has_world
-	_sample_x = _field(sec, "X", "—", "Cursor grid-cell X. Live once the cursor is over a generated map.")
-	_sample_y = _field(sec, "Y", "—", "Cursor grid-cell Y. Live once the cursor is over a generated map.")
+	_sample_pos = _field(sec, "Position", "—",
+		"Cursor position in km from the map's north-west corner, X then Y. " +
+		"Printed to %d decimal%s for this world: a cell is %s across, and no " %
+			[_coord_decimals(), "" if _coord_decimals() == 1 else "s", _cell_km_text()] +
+		"reading in this port distinguishes two points inside one cell, so the " +
+		"step shown is the largest power of ten that still fits inside one.",
+		true, true)
+	_sample_cell = _field(sec, "Cell", "—",
+		"The raster index every other row in this panel is read at, X then Y. " +
+		"Live once the cursor is over a generated map.", true, true)
 
 	_sample_elev = _accent_readout(sec, "Elevation", "—",
 		"Metres above sea level at the cursor cell, from WorldState::field through " +
@@ -422,9 +447,14 @@ func _build_sample(body: Control) -> void:
 	for f in SAMPLE_FIELDS:
 		_sample_rows[f["label"]] = _field(sec, f["label"], "—", f["tip"], false)
 
-	_sample_nearest = _field(sec, "Nearest settlement", "—",
+	## "Nearest settlement" was this dock's single widest row -- and its value
+	## changes on every mouse-move, which is what made the whole pane breathe
+	## (see `_field()`). The label is shortened and its column narrowed so the
+	## name and its distance both still fit inside the pane's own width instead
+	## of pushing against it.
+	_sample_nearest = _field(sec, "Nearest", "—",
 		"Computed here from get_settlements()'s x/y against the cursor cell.",
-		valid)
+		valid, false, 60)
 
 	## §6's no-selection list has two more entries than the rows above, and
 	## both were simply absent rather than disclosed (2026-08-20 menu-structure
@@ -792,30 +822,241 @@ func _faction_colour_row(parent: Control, roster: Dictionary) -> void:
 	parent.add_child(row)
 
 # -- Measure --------------------------------------------------------------
+#
+# §4.5.1's original right-dock spec was one line -- "Segment table (bearing,
+# length), total, straight-line vs along-path difference" -- and that is
+# Distance mode, still built exactly that way below. The other five come from
+# `design/Cartalith Measurement Toolbar.dc.html`, whose own caption puts the
+# "readouts in the right dock". Every number in all six comes straight off an
+# engine dict (`measure_result` / `measure_area` / `measure_radius` /
+# `measure_vertical` / `measure_section`); nothing is derived a second time
+# here, which is why there is no arithmetic in this section at all beyond the
+# one along-path-minus-straight-line difference §4.5.1 asks for by name.
 
-## §4.5.1's own right-dock spec: "Segment table (bearing, length), total,
-## straight-line vs along-path difference." `measure_result()` carries every
-## field this needs directly (`segments`, `total_km`, `straight_line_km`) --
-## nothing here is derived a second time.
+## The collapsed dock's one number, per mode.
+func _measure_readout() -> String:
+	if _measure_result.is_empty():
+		return "no reading"
+	match _measure_mode:
+		"area":
+			return "%s km²" % _thousands(float(_measure_result.get("projected_km2", 0.0)))
+		"radius":
+			return "r %.0f km" % float(_measure_result.get("radius_km", 0.0))
+		"vertical":
+			return "%+.0f m" % float(_measure_result.get("delta_m", 0.0))
+		"section":
+			return "%.0f km section" % float(_measure_result.get("length_km", 0.0))
+		"bearing":
+			var segs: Array = _measure_result.get("segments", [])
+			return ("%03d°" % int(round(float((segs[0] as Dictionary).get("bearing_deg", 0.0))))) if not segs.is_empty() else "no bearing"
+		_:
+			return "%.1f km" % float(_measure_result.get("total_km", 0.0))
+
 func _build_measure(body: Control) -> void:
-	var sec := DccWidgets.section(body, "Measure")
+	match _measure_mode:
+		"area": _build_measure_area(body)
+		"radius": _build_measure_radius(body)
+		"vertical": _build_measure_vertical(body)
+		"section": _build_measure_section(body)
+		"bearing": _build_measure_bearing(body)
+		_: _build_measure_distance(body)
+
+func _measure_empty(body: Control, title: String, prompt: String) -> VBoxContainer:
+	var sec := DccWidgets.section(body, title)
+	DccWidgets.note(sec, prompt)
+	return sec
+
+func _build_measure_distance(body: Control) -> void:
 	var segments: Array = _measure_result.get("segments", [])
 	if segments.is_empty():
-		DccWidgets.note(sec, "Click the map to drop points; Esc clears the chain.")
-	else:
-		for i in segments.size():
-			var seg: Dictionary = segments[i]
-			_field(sec, "Segment %d" % (i + 1),
-				"%.1f km · %d°" % [float(seg.get("km", 0.0)), int(round(float(seg.get("bearing_deg", 0.0))))])
-	sec.add_child(DccTheme.rule())
-	_field(sec, "Total", "%.1f km" % float(_measure_result.get("total_km", 0.0)))
+		_measure_empty(body, "Measure · distance",
+			"Click the map to drop points. ⌫ drops the last one, Esc clears the chain. Nothing here writes to the world -- a reading persists until you clear it.")
+		return
+	var sec := DccWidgets.section(body, "Measure · distance")
+	_accent_readout(sec, "Total length", "%.0f km" % float(_measure_result.get("total_km", 0.0)),
+		"Summed leg by leg, each leg through cartalith_spatial::measure -- the same km scale every route length in this port uses.")
+	DccWidgets.note(sec, "%d segment%s · %d points" % [
+		segments.size(), "" if segments.size() == 1 else "s",
+		int(_measure_result.get("point_count", 0))])
+
+	var segs := DccWidgets.group(sec, "Segments")
+	for i in segments.size():
+		var seg: Dictionary = segments[i]
+		var b := float(seg.get("bearing_deg", 0.0))
+		_field(segs, "%d" % (i + 1), "%.0f km · %03d° · ↺ %03d°" % [
+			float(seg.get("km", 0.0)), int(round(b)), int(round(fmod(b + 180.0, 360.0)))],
+			"Bearing is this port's own convention: 0° = north, clockwise. ↺ is its reciprocal.")
+
+	_build_measure_derived(body)
+	_build_measure_actions(body)
+
+func _build_measure_bearing(body: Control) -> void:
+	var segments: Array = _measure_result.get("segments", [])
+	if segments.is_empty():
+		_measure_empty(body, "Measure · bearing",
+			"Click two points. The first is the observer, the second the target.")
+		return
+	var seg: Dictionary = segments[0]
+	var b := float(seg.get("bearing_deg", 0.0))
+	var sec := DccWidgets.section(body, "Measure · bearing")
+	_accent_readout(sec, "Bearing", "%03d°" % int(round(b)),
+		"Grid y increases southward in every raster in this port, so 0° is north (-y), 90° east (+x), compass-clockwise.")
+	_field(sec, "Reciprocal", "%03d°" % int(round(fmod(b + 180.0, 360.0))))
+	_field(sec, "Distance", "%.1f km" % float(seg.get("km", 0.0)))
+	_build_measure_derived(body)
+	_build_measure_actions(body)
+
+## The canvas's DERIVED block. The three relief rows read `—` rather than a
+## zero when `has_relief` is false -- a loaded save carries none of the
+## substrate the height field needs, exactly as the Sample panel already says.
+func _build_measure_derived(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Derived")
 	var straight: float = float(_measure_result.get("straight_line_km", 0.0))
 	var total: float = float(_measure_result.get("total_km", 0.0))
 	var diff := total - straight
 	_field(sec, "Straight line", "%.1f km" % straight,
-		"Along-path exceeds straight-line by %.1f km." % diff if diff > 0.01 else "", diff <= 0.01 or straight > 0.0)
-	var clear := DccWidgets.action(sec, "Clear", func(): bridge.measure_clear(); show_measure({}))
-	clear.disabled = segments.is_empty()
+		("Along-path exceeds straight-line by %.1f km." % diff) if diff > 0.01 else "")
+	var ob := float(_measure_result.get("overall_bearing_deg", 0.0))
+	_field(sec, "Overall bearing", "%03d° · ↺ %03d°" % [int(round(ob)), int(round(fmod(ob + 180.0, 360.0)))])
+	var relief := bool(_measure_result.get("has_relief", false))
+	_field(sec, "Sinuosity", ("%.2f" % float(_measure_result.get("sinuosity", 1.0))) if relief else "—",
+		"Along-path over straight-line. 1.00 is a straight run.", relief)
+	_field(sec, "Δ elevation", ("%+.0f m" % float(_measure_result.get("elevation_delta_m", 0.0))) if relief else "—",
+		"First point to last, from the height field.", relief)
+	_field(sec, "3D length", ("%.1f km" % float(_measure_result.get("total_km_3d", 0.0))) if relief else "—",
+		"The chain followed over the ground rather than across the map.", relief)
+	if not relief:
+		DccWidgets.note(sec, "The three relief rows need a generated world: a loaded save carries no height substrate to read.")
+
+## The canvas's foot: save · copy · CSV · plan journey.
+##
+## **Copy is real; save and CSV are one button, and it is Copy.** There is no
+## saved-measurements store in this port and inventing one would be a
+## persistence feature, not a measuring one -- what the canvas's three export
+## buttons are actually for is getting the numbers out, and the clipboard does
+## that with no file dialog, no format decision and no new state. Said out
+## loud below rather than drawn as two disabled buttons.
+func _build_measure_actions(body: Control) -> void:
+	var actions := DccWidgets.group(body, "Actions")
+	DccWidgets.action(actions, "Copy reading", _on_measure_copy)
+	DccWidgets.action(actions, "Plan a journey", func(): app.open_journey_planner())
+	DccWidgets.note(actions,
+		"The canvas's Saved measurements list, Save and CSV are not built: no measurement store exists, " +
+		"and Copy already puts every number above on the clipboard as tab-separated text a spreadsheet reads directly.")
+
+func _on_measure_copy() -> void:
+	var lines: Array[String] = []
+	for key in _measure_result.keys():
+		var v = _measure_result[key]
+		if v is Array or v is Dictionary:
+			continue
+		lines.append("%s\t%s" % [key, str(v)])
+	for i in (_measure_result.get("segments", []) as Array).size():
+		var seg: Dictionary = (_measure_result["segments"] as Array)[i]
+		lines.append("segment %d\t%.4f km\t%.2f deg" % [i + 1, float(seg.get("km", 0.0)), float(seg.get("bearing_deg", 0.0))])
+	DisplayServer.clipboard_set("\n".join(lines))
+	app.set_status("hint", "measurement copied to the clipboard", "text_ghost")
+
+func _build_measure_area(body: Control) -> void:
+	if _measure_result.is_empty():
+		_measure_empty(body, "Measure · area",
+			"Click at least three points. The ring closes itself -- the edge back to the first point is always part of it.")
+		return
+	var r := _measure_result
+	var sec := DccWidgets.section(body, "Measure · area")
+	_accent_readout(sec, "Area · projected", "%s km²" % _thousands(float(r.get("projected_km2", 0.0))),
+		"The exact shoelace figure over the ring's own vertices (polyArea, reference line 28290) times the map's km per cell. Never an estimate.")
+	DccWidgets.note(sec, "true surface %s km² · %d vertices" % [
+		_thousands(float(r.get("true_surface_km2", 0.0))), int(r.get("vertices", 0))])
+	_field(sec, "Perimeter", "%.0f km" % float(r.get("perimeter_km", 0.0)))
+	_field(sec, "Water subtracted", "−%s km²" % _thousands(float(r.get("water_km2", 0.0))),
+		"Ocean and lake cells inside the ring." if bool(r.get("water_from_civ", false)) else
+			"No civilisation layer for this world, so water here means \"below sea level\" -- it counts no lake standing above the waterline.")
+	_field(sec, "Land area", "%s km²" % _thousands(float(r.get("land_km2", 0.0))))
+	_field(sec, "Centroid", "%.0f E · %.0f N" % [float(r.get("centroid_x", 0.0)), float(r.get("centroid_y", 0.0))],
+		"polyCentroid (reference line 28291) -- area-weighted, in grid cells.")
+	_field(sec, "Bounding box", "%.0f × %.0f km" % [float(r.get("bbox_w_km", 0.0)), float(r.get("bbox_h_km", 0.0))])
+	_field(sec, "Mean elevation", "%.0f m" % float(r.get("mean_elev_m", 0.0)))
+	var stride := int(r.get("stride", 1))
+	DccWidgets.note(sec, ("%d cells tested, every one inside the ring." % int(r.get("sampled_cells", 0))) if stride <= 1 else
+		("%d cells tested at a stride of %d -- the projected area above is still exact; only the water split, the true surface and the mean elevation are sampled." % [int(r.get("sampled_cells", 0)), stride]))
+	_build_measure_actions(body)
+
+func _build_measure_radius(body: Control) -> void:
+	if _measure_result.is_empty():
+		_measure_empty(body, "Measure · radius", "Click the centre, then a point on the rim.")
+		return
+	var r := _measure_result
+	var sec := DccWidgets.section(body, "Measure · radius")
+	_accent_readout(sec, "Radius", "%.0f km" % float(r.get("radius_km", 0.0)), "")
+	_field(sec, "Diameter", "%.0f km" % float(r.get("diameter_km", 0.0)))
+	_field(sec, "Circumference", "%.0f km" % float(r.get("circumference_km", 0.0)))
+	_field(sec, "Enclosed area", "%s km²" % _thousands(float(r.get("area_km2", 0.0))),
+		"πr² on the map plane. It is not clipped to the coastline -- use Area for a ring that follows real ground.")
+	_build_measure_actions(body)
+
+func _build_measure_vertical(body: Control) -> void:
+	if _measure_result.is_empty():
+		_measure_empty(body, "Measure · Δ vertical", "Click two points to read the drop between them.")
+		return
+	var r := _measure_result
+	var sec := DccWidgets.section(body, "Measure · Δ vertical")
+	_accent_readout(sec, "Vertical difference", "%+.0f m" % float(r.get("delta_m", 0.0)), "")
+	_field(sec, "P1 · P2 elevation", "%.0f m · %.0f m" % [float(r.get("p1_elev_m", 0.0)), float(r.get("p2_elev_m", 0.0))])
+	_field(sec, "Horizontal distance", "%.1f km" % float(r.get("horizontal_km", 0.0)))
+	_field(sec, "3D distance", "%.1f km" % float(r.get("distance_3d_km", 0.0)))
+	_field(sec, "Grade · angle", "%.2f %% · %.2f°" % [float(r.get("grade_pct", 0.0)), float(r.get("angle_deg", 0.0))])
+	DccWidgets.note(sec,
+		"The canvas gates this pair on 3D relief and disables it in 2D. This port reads the same height field either way, " +
+		"so it stays live in both -- there is nothing the 3D view knows about elevation that the 2D one does not.")
+	_build_measure_actions(body)
+
+## The canvas's state 2 dock: SAMPLED FIELDS, SECTION LINE, CROSSINGS. The
+## profile itself is the strip's (`section_strip.gd`); this is everything
+## about the line that is a number rather than a curve.
+func _build_measure_section(body: Control) -> void:
+	if _measure_result.is_empty():
+		_measure_empty(body, "Measure · cross-section",
+			"Click A then B. The profile draws in the strip under the map; scrubbing it marks the sampled cell on the map.")
+		return
+	var r := _measure_result
+	var stats: Dictionary = r.get("stats", {})
+	var samples: Array = r.get("samples", [])
+
+	var sec := DccWidgets.section(body, "Section line")
+	_accent_readout(sec, "Length", "%.0f km" % float(r.get("length_km", 0.0)), "")
+	_field(sec, "Bearing", "%03d°" % int(round(float(r.get("bearing_deg", 0.0)))))
+	_field(sec, "3D length", "%.0f km" % float(r.get("length_3d_km", 0.0)),
+		"Following the sampled ground rather than the map plane.")
+	_field(sec, "Samples · spacing", "%d · %.0f m" % [samples.size(), float(r.get("spacing_m", 0.0))])
+
+	var st := DccWidgets.section(body, "Profile statistics")
+	_field(st, "min · max", "%.0f m · %.0f m" % [float(stats.get("min_m", 0.0)), float(stats.get("max_m", 0.0))])
+	_field(st, "mean", "%.0f m" % float(stats.get("mean_m", 0.0)))
+	_field(st, "ascent", "%+.0f m" % float(stats.get("ascent_m", 0.0)))
+	_field(st, "descent", "%.0f m" % float(stats.get("descent_m", 0.0)))
+	_field(st, "net Δ", "%+.0f m" % float(stats.get("net_m", 0.0)))
+	_field(st, "mean · max slope", "%.1f° · %.1f°" % [
+		float(stats.get("mean_slope_deg", 0.0)), float(stats.get("max_slope_deg", 0.0))])
+	_field(st, "above 2 000 m", "%.0f km" % float(stats.get("above_2000m_km", 0.0)))
+	_field(st, "river crossings", str(int(stats.get("river_crossings", 0))))
+	_field(st, "ridge crossings", str(int(stats.get("ridge_crossings", 0))),
+		"A local maximum standing at least 100 m above the lower of the two valleys flanking it. That prominence floor is this port's own -- nothing in the reference defines a ridge crossing.")
+	_field(st, "shore crossings", str(int(stats.get("shore_crossings", 0))))
+
+	var cr := DccWidgets.section(body, "Crossings")
+	var crossings: Array = r.get("crossings", [])
+	if crossings.is_empty():
+		DccWidgets.note(cr, "The line crosses no river, ridge or shoreline.")
+	else:
+		for c in crossings:
+			var cd: Dictionary = c
+			_field(cr, "%.0f km" % float(cd.get("km", 0.0)), String(cd.get("label", "")),
+				"%.0f m at this crossing." % float(cd.get("elev_m", 0.0)))
+		DccWidgets.note(cr,
+			"Rivers are described by Strahler order, not by name: no river entity crosses the GDExtension boundary " +
+			"(see this dock's own River context), so there is no toponym to print.")
+	_build_measure_actions(body)
 
 # -- Region select --------------------------------------------------------
 
@@ -866,7 +1107,13 @@ func _build_wildlife(body: Control) -> void:
 		_build_sample(body)
 		return
 	var rec := _wildlife_region
-	var sec := DccWidgets.section(body, "%s ecoregion" % String(rec.get("biome_name", "Unknown")))
+	## The biome name is a row, not the section title: a section header is
+	## `DccTheme.header()`'s uppercase Plex Mono tracked 2 px wide and does not
+	## trim, so "TROPICAL SEASONAL FOREST ECOREGION" was a ~270 px minimum this
+	## panel handed the dock for a value that varies by ecoregion -- the same
+	## width-follows-text fault `_field()` documents, one level up.
+	var sec := DccWidgets.section(body, "Ecoregion")
+	_field(sec, "Biome", String(rec.get("biome_name", "Unknown")), "", true, false, 60)
 	_accent_readout(sec, "Species", "%d" % int(rec.get("richness", 0)),
 		"Species richness: species-area x energy (NPP) x ruggedness x latitude, " +
 		"cut to the biome's Earth-analogue roster.")
@@ -1094,19 +1341,46 @@ func _on_stamp_delete(index: int) -> void:
 
 const _FIELD_LABEL_W := 116
 
+## **The pane's width is an input, never an output.** A Godot `Label` with no
+## trimming reports its own text width as its *minimum* width, and that number
+## travels up through the row, the section, the `ScrollContainer` (whose
+## horizontal scrolling is disabled, so it forwards its child's minimum width
+## whole) and into the right dock's `PanelContainer`, whose `custom_minimum_size
+## .x` is a floor and not a ceiling. So a value wider than the dock made the
+## dock wider, and since the viewport is the one `SIZE_EXPAND_FILL` child of
+## the same `HBoxContainer`, the map lost exactly those pixels -- on every
+## mouse-move that changed a value's length. Measured before this line existed:
+## the Sample panel's "Nearest settlement" row forced a 286 px minimum against
+## a 300 px dock, so the dock breathed 300 <-> 319 px and the viewport 440 <->
+## 421 px as the cursor crossed from one settlement's neighbourhood to another.
+##
+## `text_overrun_behavior` is the fix rather than `clip_text`: both collapse the
+## reported minimum width to 1 px, but the ellipsis says the value was trimmed
+## instead of amputating it silently. Every row in this dock reports rather than
+## edits, so there is nothing here that a trimmed value can break.
+##
+## `label_w` narrows the label column for the handful of rows whose *value* is
+## the content (a settlement name) rather than a short reading.
 func _field(parent: Control, label_text: String, value_text: String,
-		tooltip: String = "", reachable: bool = true) -> Label:
+		tooltip: String = "", reachable: bool = true, mono: bool = false,
+		label_w: int = _FIELD_LABEL_W) -> Label:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 8)
 	row.custom_minimum_size.y = 22
 	row.tooltip_text = tooltip
 	var l := DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL)
-	l.custom_minimum_size.x = _FIELD_LABEL_W
+	l.custom_minimum_size.x = label_w
 	l.clip_text = true
 	row.add_child(l)
-	var v := DccTheme.label(value_text, "text" if reachable else "text_ghost", DccTheme.FS_SMALL)
+	var token := "text" if reachable else "text_ghost"
+	var v: Label
+	if mono:
+		v = DccTheme.mono_label(value_text, token, DccTheme.FS_SMALL)
+	else:
+		v = DccTheme.label(value_text, token, DccTheme.FS_SMALL)
 	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	v.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	row.add_child(v)
 	parent.add_child(row)
 	return v
@@ -1120,9 +1394,89 @@ func _accent_readout(parent: Control, label_text: String, value_text: String, to
 	wrap.tooltip_text = tooltip
 	wrap.add_child(DccTheme.label(label_text, "text_dim", DccTheme.FS_SMALL))
 	var v := DccTheme.label(value_text, "accent", 26)
+	## Same rule as `_field()`: at 26 px a readout is the fastest row in the
+	## dock to outgrow the pane, and this one is rewritten on every mouse-move.
+	v.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	wrap.add_child(v)
 	parent.add_child(wrap)
 	return v
+
+# -- Coordinate readout ----------------------------------------------------
+#
+# Two rules, one shared reason: the coordinate is the one reading in this dock
+# that changes on literally every mouse-move, so it is both the row most able
+# to destabilise the pane's width and the row most able to lie about how much
+# the map actually knows.
+
+## One cell's real size in km -- `map_width_km / gw`, the single quotient
+## `GENERATION_PARAMETERS.md` says every resolution-dependent figure in this
+## port is derived from (`terrain_detail_k`, `river_flow_thresh`,
+## `civ_catchment_radius_cells`, `suppression_radius_cells` all take it).
+## `0.0` when there is no world, or when a loaded save carried no extent.
+func _cell_km() -> float:
+	var gw := bridge.grid_size().x
+	if gw <= 0 or bridge.last_width_km <= 0.0:
+		return 0.0
+	return bridge.last_width_km / float(gw)
+
+## How many decimals a km coordinate may honestly carry **for this world**.
+##
+## Every raster in this port is per-cell; nothing it can be asked -- elevation,
+## biome, slope, territory -- distinguishes two points inside one cell. So the
+## finest meaningful step in a coordinate is one cell, and one cell is not a
+## fixed size: 2 400 km over 384 cells is 6.25 km per cell, 1 000 km over 2 048
+## is 0.49 km, 200 km over 2 048 is 0.098 km. A fixed decimal count would print
+## false precision on the first and throw real precision away on the last.
+##
+## The rule: the displayed step is the **largest power of ten no larger than
+## one cell** -- `ceil(-log10(cell_km))`, clamped to 0..3. That gives 0
+## decimals at 6.25 km/cell (1 km steps, one step ≈ a sixth of a cell), 1 at
+## 0.49 km/cell, 2 at 0.098 km/cell. A decimal count can only move in factors
+## of ten, so "no finer than a cell, and within one factor of ten of it" is the
+## tightest honest rule available; the clamp at 3 stops a pathological
+## metre-scale world asking for a column of digits nobody reads.
+func _coord_decimals() -> int:
+	var km := _cell_km()
+	if km <= 0.0:
+		return 0
+	return clampi(int(ceil(-log(km) / log(10.0))), 0, 3)
+
+## The cell size as the `Position` row's tooltip states it, at whatever
+## precision the number itself needs to be legible.
+func _cell_km_text() -> String:
+	var km := _cell_km()
+	if km <= 0.0:
+		return "of unknown size"
+	if km >= 1.0:
+		return "%.2f km" % km
+	return "%d m" % int(round(km * 1000.0))
+
+## Pad to a fixed character count so the pair keeps its columns in a mono
+## label. Cosmetic only -- the row's *width* is already nailed down by
+## `_field()`'s ellipsis; this is what stops the two numbers sliding past each
+## other as digits come and go.
+func _coord_pad(s: String, chars: int) -> String:
+	return " ".repeat(maxi(0, chars - s.length())) + s
+
+## `[position, cell]` for the two Sample coordinate rows. Both are pairs on one
+## line: X and Y are one reading, and one row per axis was both a worse read
+## and a second label free to size itself to its own digit count.
+func _coord_texts(gx: float, gy: float, valid: bool) -> Array:
+	if not valid or not bridge.has_world:
+		return ["—", "—"]
+	var gs := bridge.grid_size()
+	var cw := str(maxi(gs.x, gs.y) - 1).length()
+	var cell := "%s · %s" % [
+		_coord_pad(str(int(round(gx))), cw), _coord_pad(str(int(round(gy))), cw)]
+	var km := _cell_km()
+	if km <= 0.0:
+		## A loaded save with no recorded extent: the cell index is still real,
+		## the km figure would be invented.
+		return ["—", cell]
+	var fmt := "%%.%df" % _coord_decimals()
+	var kw := (fmt % maxf(bridge.last_width_km, bridge.last_height_km)).length()
+	return ["%s · %s km" % [
+		_coord_pad(fmt % (gx * km), kw), _coord_pad(fmt % (gy * km), kw)], cell]
 
 func _nearest_settlement_text(gx: float, gy: float, valid: bool) -> String:
 	if not valid:
