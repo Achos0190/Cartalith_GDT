@@ -5,7 +5,29 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-23 (post **Global undo — `Edit ▸ Undo` is live, and it
+Last updated: 2026-08-23 (post **Asset library closeout: item transform
+editing, Unassigned imports, draggable slicer lines**. `PARITY_AUDIT.md`
+§3.5's three open items against the Asset library's 2026-08-20 rebuild —
+`GUI_GAP_REGISTER.md` **AS-07, AS-12 and AS-17 — all close for real this
+pass**: `as_set_item_transform`/`as_reset_item_transform` wire the Scale
+slider (now 5..600%, the reference's own `#alScale` bounds) and two new Pan
+X/Pan Y SpinBoxes straight into `LibraryItem::transform`; a reserved
+custom-slot `set` (`UNASSIGNED_SET`) gives "Unassigned imports" a real,
+browsable, live-counted rail row reachable from the footer's Import
+image… with nothing focused; `SliceGrid::with_lines`/`move_line` give the
+slicer real per-interior-line drag handles (not just the Margin boundary),
+and `as_slice_apply`'s new `only_cell` makes a selected cell actually narrow
+what Slice cuts. No new UI scaffolding — every control involved already
+existed. Full account in `CHANGELOG.md`'s entry of the same name. Verified:
+`cargo build -p cartalith-godot` clean; `cargo test -p cartalith-assets -p
+cartalith-godot` (22 `slicer` unit tests incl. 6 new, 30 `asset_bridge` tests
+incl. 6 new, existing golden suites unchanged); non-headless verification via
+direct `_gui_input()` event injection (this project's established fallback
+for OS-level pointer routing into an embedded subwindow) — dragged an
+interior line off a sprite's colour boundary, toggled a cell-scoped slice,
+read a changed transform back off `as_item_summary`, and imported into a
+real "Unassigned imports" row. — previously, post **Global undo — `Edit ▸
+Undo` is live, and it
 was three functions, not a framework**. `GUI_GAP_REGISTER.md` **ED-01's Undo
 half and PR-11 both closed**; ED-02, the history *panel*, stays open and is
 still (C). `PARITY_AUDIT.md` §3.1's last row — "Global heightmap undo

@@ -1642,7 +1642,8 @@ func as_slice_preview(opts: Dictionary) -> Dictionary:
 		return {"ok": false, "error": "as_slice_preview not available on this binary",
 			"total": 0, "non_empty": 0, "usable": false, "blank": PackedInt32Array(),
 			"col_x0": PackedFloat64Array(), "col_x1": PackedFloat64Array(),
-			"row_y0": PackedFloat64Array(), "row_y1": PackedFloat64Array()}
+			"row_y0": PackedFloat64Array(), "row_y1": PackedFloat64Array(),
+			"col_lines_px": PackedFloat64Array(), "row_lines_px": PackedFloat64Array()}
 	return world_gen.as_slice_preview(opts)
 
 ## Slices the loaded sheet into the library (AS-09/AS-10/AS-11). Non-destructive:
@@ -1653,3 +1654,32 @@ func as_slice_apply(opts: Dictionary) -> Dictionary:
 		return {"ok": false, "error": "as_slice_apply not available on this binary",
 			"added": 0, "skipped_blank": 0, "unplaced": 0, "uids": PackedStringArray()}
 	return world_gen.as_slice_apply(opts)
+
+## AS-07: writes one item's scale/pan directly. `false` for an unknown
+## uid/index or an older binary.
+func as_set_item_transform(uid: String, index: int, scale: float, pan_x: float, pan_y: float) -> bool:
+	if not world_gen.has_method("as_set_item_transform"):
+		return false
+	return world_gen.as_set_item_transform(uid, index, scale, pan_x, pan_y)
+
+## AS-07: resets one item's transform to identity, re-fitting to the slot's
+## family when `fit` is true. `{"ok", "scale", "pan_x", "pan_y"}` or
+## `{"ok": false}` for an unknown uid/index or an older binary.
+func as_reset_item_transform(uid: String, index: int, fit: bool) -> Dictionary:
+	if not world_gen.has_method("as_reset_item_transform"):
+		return {"ok": false}
+	return world_gen.as_reset_item_transform(uid, index, fit)
+
+## AS-17: moves interior line `index` of `lines` to `frac`, clamped strictly
+## between its neighbours -- `lines` unchanged on an older binary.
+func as_slicer_move_line(lines: PackedFloat64Array, index: int, frac: float) -> PackedFloat64Array:
+	if not world_gen.has_method("as_slicer_move_line"):
+		return lines
+	return world_gen.as_slicer_move_line(lines, index, frac)
+
+## AS-17: the uniform `n+1`-line array a fresh grid (or a cols/rows edit)
+## falls back to. Empty on an older binary.
+func as_uniform_lines(n: int) -> PackedFloat64Array:
+	if not world_gen.has_method("as_uniform_lines"):
+		return PackedFloat64Array()
+	return world_gen.as_uniform_lines(n)

@@ -19101,3 +19101,141 @@ costs 0 MB; diverging costs **+130 % per step** (a `u8` mask plus a second
   calls sit on erosion buttons this port has no run path for (`WW-02`,
   `MS-04`/`MS-05`). Each one is a single `self.undo.push(...)` line on the day
   its pass lands.
+
+## Asset library closeout: item transform editing, Unassigned imports, draggable slicer lines (2026-08-23)
+
+`PARITY_AUDIT.md` §3.5 named three open items against the Asset library's
+2026-08-20 rebuild — `GUI_GAP_REGISTER.md` AS-07, AS-12, AS-17 — each already
+partly built. All three close for real this pass, no new UI scaffolding: every
+control involved already existed (drawn disabled, or as an established
+interaction pattern to extend), so this is entirely wiring a missing engine
+call underneath what was already there.
+
+### AS-07 — per-item scale/pan editing
+
+`as_item_summary` always reported the real transform; nothing could write one
+back, because `as_set_item_transform` did not exist. It does now, plus
+`as_reset_item_transform` for Fit/Reset (`#[func]`s, `cartalith-godot/src/
+lib.rs`): a direct write into `LibraryItem::transform` via `AssetDB::item_mut`,
+and identity-plus-`fit_to_bottom`-when-anchored-bottom respectively — the same
+two operations the reference's own `alReset`/`alFit` perform (`E('alReset')
+.onclick`/`E('alFit').onclick`, line 27347-27348), just returning the result
+so `asset_library_window.gd` never recomputes `defaultTransform()`/
+`fitToBottom` itself.
+
+The Scale slider (now 5..600%, the reference's own `#alScale` bounds, not the
+placeholder 10..400 it shipped disabled with) and two new Pan X/Pan Y
+SpinBoxes write live through `as_set_item_transform`; Fit/Reset call
+`as_reset_item_transform`. Pan is two SpinBoxes, not the reference's
+drag-on-canvas (`ImageEditor.attach`'s `onpointermove`) — disclosed in the
+window's own header note as the deliberate substitute: exact same value,
+smaller control, no screen-to-fraction conversion for a family-size unit the
+215px preview doesn't even render at (the inspector bakes previews at a fixed
+256px regardless of the slot's own family size).
+
+### AS-12 — the "Unassigned imports" holding bucket
+
+`cartalith_assets::AssetDB` has no slot-less item concept — every item needs a
+uid. `as_add_custom_slot`'s own doc comment already named the fix: a reserved
+custom-slot `set`, `UNASSIGNED_SET = "Unassigned imports"`. The footer's
+Import image… button, previously hard-disabled with "select a slot first"
+whenever nothing was focused, now creates a fresh custom slot in that set and
+imports into it. A new pinned rail row (`_build_unassigned_row`, beside the
+existing Collections list) shows a live count and browses the bucket
+(`_refresh_grid_unassigned`, filtering `as_family_slots`'s new `set` field —
+one field added to an existing `#[func]`, not a new one) the same way
+selecting a Collection does. The status line's own pack summary gained
+`· N unassigned` alongside its slot/item counts.
+
+Honest limit, stated in the window's header: nothing moves an *already
+assigned* item into this bucket (only into/out of a Collection has an engine
+call), so it is reachable from fresh imports only.
+
+### AS-17 — draggable interior grid lines and cell-scoped slicing
+
+`cartalith_assets::SliceGrid` computed every division line as `col/cols`
+inline; there was nothing for a dragged line to override. It now carries
+`col_lines`/`row_lines: Option<Vec<f64>>` (`with_lines`, builder-style, every
+existing call site including golden tests unaffected), and `compute_cells`
+resolves them (`resolve_lines`: the override verbatim when its length is
+exactly `n+1`, `uniform_lines` — literally `resetLines`'s own construction —
+for anything else, including a stale array left over from a `cols`/`rows`
+edit). `move_line` is the actual drag primitive: clamps a line strictly
+between its two neighbours so a drag can never cross or collapse a cell,
+exposed directly as `#[func] as_slicer_move_line` rather than reimplemented
+GDScript-side. `CellGrid` gained `col_line_px`/`row_line_px` — the
+*undisplaced* line positions a drag handle hit-tests and draws against,
+distinct from `column_spans()`'s gutter-narrowed cell edges (golden-pinned:
+an 8px-wide sheet cut 2 cols with 4px spacing has its line at x=4, but the
+cell edges on either side sit at x=2 and x=6).
+
+`SheetPreview` gained a handle on every interior line (a small dot, same
+grabbable-dot language the pre-existing Margin handle already used),
+hit-tested in a new `_find_line` and dragged the same way the Margin handle
+already was — write the drag position, ask the engine to resolve it, redraw
+from the engine's own answer. A cols/rows edit resets the override to
+uniform (`loadSheet`'s own `resetLines()`, reference line 27837), matching a
+fresh sheet load too.
+
+Cell-scoped slicing needed one more field: `SliceParams`/`as_slice_apply`
+gained `only_cell` (a flat cell index). `apply_slice` filters `slice_sheet`'s
+output down to that one cell before any target-placement logic runs, so
+everything downstream — naming, per-target placement, the `SliceOutcome`
+counts — is the same code operating over a shorter list, not a second code
+path. Clicking a cell now toggles cell-scoped mode (click again to
+deselect); the Slice button's own text reads "Slice this cell" while scoped.
+The preview's own "N cells detected" readout still describes the whole grid
+deliberately — only the *cut* narrows, not the detection pass, so the
+readout and the button can disagree on purpose (24 detected, but this one
+cell is what Slice will actually cut).
+
+### Verified
+
+`cargo test -p cartalith-assets -p cartalith-godot`: 22 `slicer` unit tests
+(6 new: `uniform_lines`, `move_line`'s clamp and its outer-edge refusal, a
+dragged line changing `compute_cells`'s output, a wrong-length override
+falling back to uniform, `col_line_px` vs. the gutter-narrowed edge) plus the
+existing 5-test `golden_parity_slicer` suite unchanged (the default uniform
+path is untouched — every fixture still passes byte-for-byte); 30
+`asset_bridge` tests (6 new: `only_cell` narrowing/blank-cell/out-of-range,
+`col_lines` reaching the engine grid and changing cut positions, a
+wrong-length override's fallback). `cargo build -p cartalith-godot` clean.
+
+Non-headlessly, via a temporary (not committed) harness in the established
+`_menu_shot.gd` style: opened the Asset library straight into the slicer,
+loaded a real two-colour PNG, dragged an interior line via synthesised
+`InputEventMouseMotion` and watched the cut move off the sprite's own colour
+boundary (screenshot), clicked a cell and watched the Slice button read
+"Slice this cell" with `only_cell` present in the engine call (screenshot,
+and the toggle-off on a second click), set the Scale slider and both Pan
+SpinBoxes and read the changed transform straight back off
+`as_item_summary`, ran Fit/Reset and confirmed identity, and imported with no
+slot focused and watched it land in a real "Unassigned imports" row with a
+live count and the status line's `· 1 unassigned` (screenshot). The
+line-drag and cell-click events were dispatched directly to
+`SheetPreview._gui_input` rather than through `Input.parse_input_event`'s
+OS-level global-coordinate routing, which proved unreliable to reproduce
+correctly from a script in this embedded-subwindow layout — this project's
+established direct-event-injection fallback (`README.md`'s working
+discipline) when a live mouse isn't available; it exercises every line of
+this pass's actual hit-test/clamp/drag-state logic, just not Godot's own
+dispatch into that method, which the pre-existing pan/zoom/margin-drag
+already proves works.
+
+Two new `engine_bridge.gd` wrapper methods needed adding
+(`as_set_item_transform`/`as_reset_item_transform`/`as_slicer_move_line`/
+`as_uniform_lines`, all `has_method`-guarded against an older binary, the
+same convention every other `as_*` wrapper here already follows) — a brand
+new `#[func]` is invisible to `EngineBridge` until it gets one, unlike a new
+field on an existing call (`as_family_slots`'s `set`), which needed no
+wrapper change at all. Caught by the very first non-headless run: the
+already-correct Rust build reported "Nonexistent function" until the
+wrapper existed.
+
+### Still open
+
+- Dragging a file from *outside* Godot onto a slot — Godot's own drag-and-drop
+  is two unrelated systems (OS drops reach `Window.files_dropped`, never a
+  Control's `_can_drop_data`/`_drop_data`), unrelated to this pass.
+- Moving an already-assigned item into Unassigned imports (no engine call).
+- Per-item pan as SpinBoxes rather than drag-on-canvas (disclosed, not silent).

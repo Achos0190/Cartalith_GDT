@@ -7144,7 +7144,8 @@ impl WorldGen {
     /// every session until something is imported/duplicated into it) --
     /// AS-08's real per-slot fill state and AS-13's "filled slots" readout,
     /// both sourced from here. Each row: `uid`, `id`, `name`, `item_count`,
-    /// `filled` (bool), `has_dupe` (bool, `AssetValidator.slotHasDupe`).
+    /// `filled` (bool), `has_dupe` (bool, `AssetValidator.slotHasDupe`),
+    /// `set` (empty string for the reference's own "Default").
     /// Empty `Array` for an unrecognised `family_key`.
     #[func]
     fn as_family_slots(&self, family_key: GString) -> Array<VarDictionary> {
@@ -7163,6 +7164,11 @@ impl WorldGen {
                     "item_count" => count as i64,
                     "filled" => count > 0,
                     "has_dupe" => cartalith_assets::slot_has_dupe(db, &slot.uid),
+                    // AS-12's "Unassigned imports" bucket: a custom slot's own
+                    // `set` (empty for the reference's "Default"), so a rail
+                    // section can filter to one reserved set name without a
+                    // second engine call per slot.
+                    "set" => slot.set.clone().unwrap_or_default().as_str(),
                 }
             })
             .collect()
@@ -7221,6 +7227,77 @@ impl WorldGen {
             "h" => h as i64,
             "hash" => item.hash.as_str(),
         }
+    }
+
+    /// Directly write one item's scale/pan transform (AS-07): the reference's
+    /// `alScale` slider and `ImageEditor`'s drag-to-pan (`E('alScale').oninput`
+    /// / `ImageEditor.attach`'s `onpointermove`, both around line 27346),
+    /// collapsed onto the single write the engine side needs -- the caller
+    /// supplies whatever combination of scale/pan_x/pan_y it just changed.
+    /// `false` for an unknown uid/index.
+    #[func]
+    fn as_set_item_transform(
+        &mut self,
+        uid: GString,
+        index: i32,
+        scale: f64,
+        pan_x: f64,
+        pan_y: f64,
+    ) -> bool {
+        if index < 0 {
+            return false;
+        }
+        let Some(item) = self
+            .asset_library
+            .db
+            .item_mut(&uid.to_string(), index as usize)
+        else {
+            return false;
+        };
+        item.transform = cartalith_assets::ItemTransform {
+            scale,
+            pan_x,
+            pan_y,
+        };
+        true
+    }
+
+    /// Reset one item's transform to identity, optionally re-fitting it to the
+    /// slot's family (AS-07's Fit/Reset buttons) -- `defaultTransform()` plus,
+    /// for a bottom-anchored family when `fit` is true, `fitToBottom`
+    /// (reference `alFit`/`alReset`, line 27347-27348). Returns the resulting
+    /// transform so the UI never recomputes it. `{"ok": false}` for an
+    /// unknown uid/index.
+    #[func]
+    fn as_reset_item_transform(&mut self, uid: GString, index: i32, fit: bool) -> VarDictionary {
+        if index < 0 {
+            return vdict! { "ok" => false };
+        }
+        let uid_s = uid.to_string();
+        let idx = index as usize;
+        let Some(slot) = self.asset_library.db.get(&uid_s).cloned() else {
+            return vdict! { "ok" => false };
+        };
+        let dims = self
+            .asset_library
+            .image(&uid_s, idx)
+            .map(|img| (img.w, img.h));
+        let mut t = cartalith_assets::ItemTransform::default();
+        if fit
+            && slot.family.anchor() == cartalith_assets::Anchor::Bottom
+            && let Some((w, h)) = dims
+        {
+            cartalith_assets::fit_to_bottom(&mut t, w, h, slot.family.size());
+        }
+        let Some(item) = self.asset_library.db.item_mut(&uid_s, idx) else {
+            return vdict! { "ok" => false };
+        };
+        item.transform = cartalith_assets::ItemTransform {
+            scale: t.scale,
+            pan_x: t.pan_x,
+            pan_y: t.pan_y,
+        };
+        vdict! { "ok" => true, "scale" => t.scale, "pan_x" => t.pan_x, "pan_y" => t.pan_y }
     }
 
     /// A `render_item`-baked, PNG-encoded thumbnail for one stored item
@@ -7431,6 +7508,10 @@ impl WorldGen {
     /// row, and exist so the overlay never has to reimplement
     /// `computeCells`'s half-gutter arithmetic in GDScript and drift from
     /// what the slice actually cuts.
+    ///
+    /// `col_lines_px`/`row_lines_px` (AS-17) are the *undisplaced* division
+    /// lines behind those spans -- a drag handle's hit-test target, not the
+    /// gutter-narrowed cell edge `col_x0`/`col_x1` are.
     #[func]
     fn as_slice_preview(&self, opts: VarDictionary) -> VarDictionary {
         let params = slice_params_from(&opts);
@@ -7441,6 +7522,8 @@ impl WorldGen {
                 let row_y0: PackedFloat64Array = p.row_spans.iter().map(|s| s.0).collect();
                 let row_y1: PackedFloat64Array = p.row_spans.iter().map(|s| s.1).collect();
                 let blank: PackedInt32Array = p.counts.blank.iter().map(|&i| i as i32).collect();
+                let col_lines_px = PackedFloat64Array::from(p.col_lines_px);
+                let row_lines_px = PackedFloat64Array::from(p.row_lines_px);
                 vdict! {
                     "ok" => true, "error" => "",
                     "total" => p.counts.total as i64,
@@ -7449,6 +7532,7 @@ impl WorldGen {
                     "blank" => &blank,
                     "col_x0" => &col_x0, "col_x1" => &col_x1,
                     "row_y0" => &row_y0, "row_y1" => &row_y1,
+                    "col_lines_px" => &col_lines_px, "row_lines_px" => &row_lines_px,
                 }
             }
             Err(e) => {
@@ -7459,9 +7543,45 @@ impl WorldGen {
                     "total" => 0, "non_empty" => 0, "usable" => false, "blank" => &blank,
                     "col_x0" => &empty, "col_x1" => &empty,
                     "row_y0" => &empty, "row_y1" => &empty,
+                    "col_lines_px" => &empty, "row_lines_px" => &empty,
                 }
             }
         }
+    }
+
+    /// AS-17: move interior line `index` of `lines` to `frac` (a fraction of
+    /// the grid rect's own span, matching `cartalith_assets::SliceGrid`'s own
+    /// `col_lines`/`row_lines` units) -- `cartalith_assets::move_line`,
+    /// exposed directly since the clamp-so-lines-never-cross-their-neighbours
+    /// rule is real engine logic, not something a drag handler should
+    /// reimplement in GDScript. `lines` unchanged for `index <= 0` or
+    /// `index >= lines.size() - 1` (the outer edges, which the grid rect's
+    /// own margin owns, not a line).
+    #[func]
+    fn as_slicer_move_line(
+        &self,
+        lines: PackedFloat64Array,
+        index: i32,
+        frac: f64,
+    ) -> PackedFloat64Array {
+        let mut v: Vec<f64> = lines.as_slice().to_vec();
+        if index >= 0 {
+            cartalith_assets::move_line(&mut v, index as usize, frac);
+        }
+        PackedFloat64Array::from(v)
+    }
+
+    /// The uniform `n+1`-line array `cartalith_assets::SliceGrid` falls back
+    /// to on its own (`resetLines`'s own construction) -- exposed so a drag
+    /// handler always starts from the exact array the engine would have used
+    /// implicitly, rather than recomputing `i/n` in GDScript. Empty for
+    /// `n < 1`.
+    #[func]
+    fn as_uniform_lines(&self, n: i32) -> PackedFloat64Array {
+        if n < 1 {
+            return PackedFloat64Array::new();
+        }
+        PackedFloat64Array::from(cartalith_assets::uniform_lines(n as u32))
     }
 
     /// `addSlices()` (AS-09/AS-10/AS-11): slice the loaded sheet and land the
@@ -7525,6 +7645,22 @@ fn slice_params_from(opts: &VarDictionary) -> asset_bridge::SliceParams {
         ],
         tol: f_of("chroma_tol", 40.0).max(0.0),
     });
+    // AS-17: `col_lines`/`row_lines`, a `PackedFloat64Array` per dragged grid
+    // (absent/empty means "no override" -- `cartalith_assets::SliceGrid`'s
+    // own uniform default takes over); `only_cell`, the flat cell index a
+    // click-to-select picked, `-1`/absent meaning "the whole grid" the
+    // reference always sliced.
+    let lines_of = |k: &str| -> Option<Vec<f64>> {
+        opts.get(k)
+            .and_then(|v| v.try_to::<PackedFloat64Array>().ok())
+            .filter(|a| !a.is_empty())
+            .map(|a| a.as_slice().to_vec())
+    };
+    let only_cell = opts
+        .get("only_cell")
+        .and_then(|v| v.try_to::<i64>().ok())
+        .filter(|&i| i >= 0)
+        .map(|i| i as usize);
     asset_bridge::SliceParams {
         cols: int_of("cols", 1),
         rows: int_of("rows", 1),
@@ -7535,6 +7671,9 @@ fn slice_params_from(opts: &VarDictionary) -> asset_bridge::SliceParams {
         // `#alSlSkip` ships checked in the reference, so that is the default
         // a caller who omits the key gets.
         skip_blank: b_of("skip_empty", true),
+        col_lines: lines_of("col_lines"),
+        row_lines: lines_of("row_lines"),
+        only_cell,
     }
 }
 
