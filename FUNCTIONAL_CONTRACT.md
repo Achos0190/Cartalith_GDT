@@ -45,16 +45,16 @@ recommendation, not assumed superiority.
 > control X / function Y" checks, walk that checklist; this document remains the
 > capability-level contract and does not duplicate it.
 
-> **Staleness addendum (2026-08-19, documentation audit).** Several "absent"
-> statuses below were true when written and have since been overtaken by
-> milestones landing on 2026-08-18: the Journey Planner is engine-complete
-> (6/6, `JOURNEY_PLANNER_SCOPE.md` closing status), the Sculpt engine landed
-> as tool-plan milestones B–E (`UNIFIED_TOOL_PLAN.md`), and region-tile
-> export's compute/format core is done and golden-verified (milestone E2;
-> `LOD_TILING_INTEGRATION_SCOPE.md` catalogues it as complete, UI panel
-> pending the milestone-F hold). The rows are left as written — this document
-> is checked against `cartalith-native/docs/STATUS.md`, which is
-> authoritative; treat status cells here as of 2026-08-18 morning.
+> **Corrected 2026-08-23 (`PARITY_AUDIT.md` C2/§7).** The staleness addendum
+> below was written 2026-08-19 and, true to its own name, itself went stale:
+> it said "the rows are left as written" and by 2026-08-23 ten of the summary
+> table's rows plus capability 4's body no longer matched real code. Every
+> row and body paragraph flagged by `PARITY_AUDIT.md` §7's C2 detail table
+> has now been corrected in place, each citing the audit's file:line
+> evidence, re-verified against the repository rather than taken on the
+> audit's word. This addendum is left here as the historical record of when
+> and why the drift happened; the capability sections below are current as
+> of 2026-08-23.
 
 ## Capability-by-capability contract
 
@@ -89,12 +89,16 @@ draft/commit/discard model already: `sculptStamps[]` accumulates touching
 nothing real, `sculptCommit()` bakes the stack plus exactly one
 `computeFlow`/`refreshClimate` call, `sculptDiscard()` drops it.
 
-**This port**: **absent**, explicitly (`MVP_SCOPE.md`'s own "Out of scope"
-table: "Sculpt editor | block 1"). `UNIFIED_TOOL_PLAN.md` (just landed) is
-the first real investigation and the scoping document for building it —
-found the reference's own commit/discard model is the direct ancestor of the
-DCC shell mockup's "pass buffer" language, so this isn't invented UX, it's a
-real feature waiting to be ported with a Rust-native storage layer.
+**This port**: **built** (corrected 2026-08-23, `PARITY_AUDIT.md` C2). What
+was absent when `MVP_SCOPE.md` scoped it out is now real: `UNIFIED_TOOL_PLAN.md`
+milestones B–E landed the brush model, feature registry and commit/discard
+semantics as `cartalith-terrain/src/sculpt.rs` plus `sculpt_bridge.rs` in
+`cartalith-godot`, with roughly 30 `#[func]` bindings exposing it to Godot
+and real draft-scoped undo/redo (`sculpt_undo`/`sculpt_redo`,
+`crates/cartalith-godot/src/lib.rs:3403,3411`). Found the reference's own
+commit/discard model is the direct ancestor of the DCC shell mockup's "pass
+buffer" language, so this wasn't invented UX, it was a real feature ported
+with a Rust-native storage layer, as planned below.
 
 **§7d tag**: **port behavior, modernize implementation.** The brush
 model/feature registry/commit-discard semantics are real and worth porting
@@ -152,10 +156,15 @@ reference does have `_civAutoPolity`, but a deliberately different
 algorithm (capital-seeded + population-weighted, vs. the reference's
 all-settlement-seeded + unweighted + reach-capped), never reconciled
 against it. Economy (`civ_resource_trade_balance`/`get_trade_balances()`)
-and culture-terrain-fit are ported and wired. **Absent**: the Timeline/
-collapse-recovery simulation layer named above — zero of it exists in this
-port (no year snapshots, no collapse/recovery step functions, no
-timeline UI) — untracked anywhere until this correction pass.
+and culture-terrain-fit are ported and wired. **Corrected 2026-08-23**
+(`PARITY_AUDIT.md` C2): the Timeline/collapse-recovery simulation layer
+named above is **fully built**, not absent — `cartalith-civ/src/timeline.rs`
+plus `timeline_bridge.rs` in `cartalith-godot`, with real
+`civ_add_year`/`civ_goto_year`/`civ_year_diff`/`civ_run_collapse_simulation`
+bindings (`crates/cartalith-godot/src/lib.rs:240,261` and neighbouring),
+per-year territory snapshots and timeline playback. The "zero of it exists"
+claim was true when first written and had gone stale by the time this
+document's own summary table still carried it.
 
 **§7d tag**: port as-is for everything with real reference precedent
 (settlements/roads/population/naming/provinces/villages) — already the
@@ -174,14 +183,18 @@ weather-weighted cost), consumption/resupply, seasonal/mountain-pass
 closures, route/stage derivation, verdict/reporting. A real, interactive,
 per-journey planning tool the reference's own UI exposes as a form.
 
-**This port**: **3 of 6 milestones done** (`JOURNEY_PLANNER_SCOPE.md`) —
-physical-modeling primitives, seasonal closures, transport-mode selection (6
-of 10, 4 correctly deferred on real unbuilt dependencies), physical travel
-cost (7 of 11, 2 correctly deferred). Route/stage derivation (milestone 5,
-flagged as likely the largest single piece) and verdict/reporting (milestone
-6) are **absent**. Nothing wired to any UI — deliberately, per that doc's
-own "out of scope" boundary: this is real interactive per-journey tooling,
-not something auto-computed for every settlement pair.
+**This port**: **6 of 6 milestones done, engine-complete** (corrected
+2026-08-23, `PARITY_AUDIT.md` C2/§3.3 — `JOURNEY_PLANNER_SCOPE.md`'s own
+closing status): 65 of the reference's 74 `jp*` functions ported (6 UI-only,
+2 JS idioms, 1 formerly blocked and since ported), with a real Godot
+takeover view, the Travel Library, party set-ups, the timeline band and
+blocked-stage inline resolutions all wired. Remaining gaps are individually
+registered rather than milestone-sized:
+`jpAutoPickTransport`/`_jpRerouteForMode` (JP-01/JP-03),
+`jp_journey_cost` ported but never called (JP-04, `GUI_GAP_REGISTER.md`
+calls it "the single cheapest (B) in the register"), the calculation-trace
+window (JP-05), journey save/registry (JP-06/JP-08), ⇧-drag spine trim
+(JP-07), and the vessel sailing window/resolver (JP-09/IN-06).
 
 **§7d tag**: port as-is. This is deep, historically-grounded domain logic
 (real v1.27/v1.50/v1.52/v1.63/v1.97/v1.98 fixes cited throughout) with no
@@ -210,8 +223,13 @@ own carve-out. **Splat texturing is real** — Asset Library milestone 7 wired
 ground-texture splat into the already-golden `materialWeights` blend. NPR
 Painter styles, geology microtexture, AO/SVF/shadow toggles as *user
 controls* (the render effects exist internally in the reference; exposing
-them as switchable options doesn't yet), SDF tinting, contour intervals,
-and the entire tile pyramid/LOD/region-export system are **absent**.
+them as switchable options doesn't yet), and SDF tinting/contour intervals
+are **absent**. **Corrected 2026-08-23** (`PARITY_AUDIT.md` C2): the tile
+pyramid/LOD/region-export system is **not** entirely absent — deep-zoom LOD
+tile synthesis is live and region-tile export is golden-verified and wired
+to a real route; only the persistent atlas/tile cache and the
+bake/finalize-lock remain unbuilt. See this capability's §7d tag below for
+the detail.
 
 **§7d tag**: mixed, itemized:
 - Default render, atlas look, splat: port as-is / already modernized (the
@@ -219,17 +237,23 @@ and the entire tile pyramid/LOD/region-export system are **absent**.
   own default, not merely equivalent).
 - NPR Painter styles, geology microtexture toggle: port as-is — these are
   presentation choices with no efficiency problem to modernize, just unbuilt.
-- **Tile pyramid / LOD / region export: port behavior, modernize
-  implementation.** This is the contract's clearest §7d case. The
-  reference's own tiled-LOD system exists because a single `<canvas>` could
-  not hold a 20,000km world at full resolution — a browser-memory
-  workaround, not a design goal. Mapbox GL's real architecture (verified via
-  current documentation) is the leading answer: tiles form a quadtree
-  pyramid, `2^zoom × 2^zoom` grid per level, geometry simplified at lower
-  zoom so detail cost scales with what's actually visible, not the whole
-  world. `cartalith-spatial`'s `QuadTree<T>`/`TiledField<T>` (built this
-  session, unintegrated) are already shaped for exactly this — this is a
-  second real trigger for integrating it, alongside the Sculpt editor.
+- **Tile pyramid / LOD / region export: mostly landed, corrected 2026-08-23**
+  (`PARITY_AUDIT.md` C2/§3.1). Deep-zoom LOD **tile synthesis is live**
+  (`lod_bridge.rs`, `lod_synthesize_tile`/`lod_tile_cells`, driven
+  automatically by `viewport_host.gd`), and **region-tile export is
+  golden-verified and wired to a real route**
+  (`crates/cartalith-godot/src/lib.rs:4632` `region_export_tiles`, Data
+  manager's Export ▸ Maps pane, DM-13). Genuinely still absent: the
+  *persistent* atlas/tile cache and the bake/finalize-lock. The reference's
+  own tiled-LOD system exists because a single `<canvas>` could not hold a
+  20,000km world at full resolution — a browser-memory workaround, not a
+  design goal. Mapbox GL's real architecture (verified via current
+  documentation) is the leading answer for what remains: tiles form a
+  quadtree pyramid, `2^zoom × 2^zoom` grid per level, geometry simplified at
+  lower zoom so detail cost scales with what's actually visible, not the
+  whole world. `cartalith-spatial`'s `QuadTree<T>`/`TiledField<T>` are
+  already shaped for exactly this and are now real consumers of it (the
+  LOD tiles), not unintegrated.
 
 ### 7. Labels, annotation, icons
 
@@ -239,14 +263,24 @@ brush/radius), a paint-brush layer for biome/terrain "painted layers"
 
 **This port**: **rule-driven** icon/label placement is done
 (`ASSET_LIBRARY_SCOPE.md` milestone 4/7 — `place_map_icons_ruled`, real
-splat/glyph compositing). **Manual, interactive** placement (a user clicking
-to drop a label or icon, or painting biome/terrain overrides by hand) is
-**absent** — `ASSET_LIBRARY_SCOPE.md` milestone 7 named this explicitly as a
-follow-up rather than a silent gap, and `UNIFIED_TOOL_PLAN.md`'s Annotation &
-Measure group (Label, Icon stamp, Measure, Region select/export) covers
-exactly this: Label and Region export have rich reference precedent and
-zero Rust implementation; Measure has no reference precedent at all and
-needs almost none to build fresh.
+splat/glyph compositing). **Manual, interactive** placement is **built**
+(corrected 2026-08-23, `PARITY_AUDIT.md` C2): `label_bridge.rs`,
+`icon_bridge.rs`, `paint_bridge.rs` and the `measure_*` functions
+(`crates/cartalith-godot/src/lib.rs`, `infra_tools_bridge.rs`) are all
+bound and live — `UNIFIED_TOOL_PLAN.md`'s Annotation & Measure group
+(Label, Icon stamp, Measure, Region select/export) landed. The
+biome/terrain/splat "painted layer" tool (`UNIFIED_TOOL_PLAN.md` milestone
+F) is **also built and wired**, not absent as capability 8 below still
+claimed until this pass — `paint_bridge.rs`'s `paint_set_layer`/
+`paint_set_brush`/`paint_stroke_at`/`paint_commit`/`paint_discard`
+(`crates/cartalith-godot/src/lib.rs:4013-4210`) are armed as a real "Biome
+paint (B)" tool in `world_workspace.gd`, click/drag/release handlers and
+all (this was found independently of the audit's own list — see the final
+report). What remains open, per the register: label/icon on-canvas resize
+handles are inconsistent (`icon_bridge.rs` has none, `label_bridge.rs` does
+— CA-05), and paint's hardness/softness sliders are stored and echoed back
+but never consumed — painting is still a hard disc with no soft falloff
+(WW-06).
 
 **§7d tag**: port as-is for the interaction model (click-to-place is
 correct here, not a case for modernization); the biome/terrain "painted
@@ -269,16 +303,23 @@ re-derived correctly for Rust's own failure modes, not transcribed), placement
 (diffs exactly to 1e-9), the Library model (`AssetDB`/`AssetValidator`, two
 undocumented hardening behaviors found and ported), image handling, and
 renderer integration (sprite compositing + splat, real pixel-verified). The
-one honest carve-out: the **Library-authoring workspace UI** — the sprite-
-sheet slicer, browse/tag/collect UI — is real editor-application UI with no
-engine logic behind it, correctly deferred to `GUI_SHELL_SCOPE.md`'s own
-Assets menu work rather than attempted as data-layer porting.
+**Library-authoring workspace UI is also built** (corrected 2026-08-23,
+`PARITY_AUDIT.md` C2/§3.5) — `asset_library_window.gd` (2,709 lines) is a
+real sprite-sheet slicer with pointer interaction, drag/drop, batch tag/
+collect/rename/duplicate, and pack validation, rebuilt against the design
+canvas per `GUI_SHELL_SCOPE.md`. Open items are individually registered
+rather than a missing workspace: "Unassigned imports" (AS-12), per-
+interior-line dragging and cell-scoped slicing (AS-17), and
+`as_set_item_transform` for slot scale/pan editing (AS-07). Note also: the
+two Cartography "painted layer" biome/terrain overrides this section
+previously said were "honestly left out" are themselves built — see
+capability 7 above.
 
-**§7d tag**: port as-is for the data layer (done, correctly). The
-authoring-UI question is itself a §7d case worth deciding deliberately when
-it's picked up: a canvas-based pixel slicer built fresh in Godot Control
-nodes is real UI work either way; nothing here suggests a better external
-model to copy (this isn't a cartographic problem QGIS/Mapbox solve).
+**§7d tag**: port as-is for the data layer (done, correctly) and for the
+authoring UI (also done — a canvas-based pixel slicer built fresh in Godot
+Control nodes was real UI work either way; nothing suggested a better
+external model to copy, since this isn't a cartographic problem QGIS/Mapbox
+solve).
 
 ### 9. Import / export
 
@@ -289,21 +330,32 @@ GeoJSON (`exportGeoJSON`, line 12576), export `.zip` (`exportZip`, line
 
 **This port**: reading a real HTML-app `.zip` export is **done** (MVP
 criterion 7, verified against a real reference-produced export, not a
-synthetic one). Everything else — writing `.zip`, GeoJSON export, tile/image
-export, heightmap import, tectonics inference — is **absent**, and was
-explicitly out of MVP scope by design (`MVP_SCOPE.md`: "Writing saves is
-out... Point 12 grants reading one specific thing; it is not a general
-save/load licence"). `GUI_FEATURE_PARITY_SCOPE.md`'s own audit already found
-these sitting as `disabled` menu items in the current shell — present,
-honest, unwired.
+synthetic one). **Corrected 2026-08-23** (`PARITY_AUDIT.md` C2): several of
+these are no longer absent. **Heightmap import and tectonics inference are
+done and bit-exact** (`cartalith-terrain/src/infer.rs` +
+`cartalith-engine/src/import.rs`, live at `Data ▸ Import ▸ Heightmaps
+(PNG)`). **Tile/image export is live end to end** (`region_export_tiles`,
+wired to the Data manager's Export ▸ Maps route, DM-13) — what remains of
+that row is the slippy-map-addressing half (XYZ/TMS/WMTS, a zoom ladder,
+retina variants), not tile export itself. **GeoJSON export** is a genuinely
+mixed case worth stating precisely: `cartalith-engine/src/geojson.rs` is
+done and golden-verified (nine reference functions ported), but it has
+**no `#[func]` binding**, so it does not cross the Rust↔Godot boundary yet
+— engine done, boundary not (DM-03, "(B) wrapper"). Still genuinely absent:
+writing `.zip`, and GeoJSON **import**. All of this was explicitly out of
+MVP scope by design at the time (`MVP_SCOPE.md`: "Writing saves is out...
+Point 12 grants reading one specific thing; it is not a general save/load
+licence").
 
 **§7d tag**: port behavior as-is for GeoJSON/heightmap-import (standard
-formats, no modernization angle). **Tile/image export is the same §7d case
-as capability 6's tile pyramid** — the reference bakes a fixed-size PNG
-because that's what a browser can produce; a real tile-server-style export
-(the same quadtree structure Mapbox's own MTS pipeline uses for tileset
-generation) is the leading approach once the underlying LOD/tiling work
-lands, rather than porting the reference's own flat-bake function verbatim.
+formats, no modernization angle) — heightmap import is now done under that
+tag. **Tile/image export is the same §7d case as capability 6's tile
+pyramid**, now mostly landed — the reference bakes a fixed-size PNG because
+that's what a browser can produce; a real tile-server-style export (the
+same quadtree structure Mapbox's own MTS pipeline uses for tileset
+generation) remains the leading approach for the slippy-map-addressing
+remainder, rather than porting the reference's own flat-bake function
+verbatim.
 
 ### 10. Save / load
 
@@ -330,22 +382,25 @@ building against it).
 **This port**: 2D **done**. 3D **absent, deliberately** (`DECISIONS.md` §4,
 "cutting it keeps the first milestone achievable... `ROADMAP.md` Phase 3
 brings it back" — Phase 3 has landed 2D fidelity work but not the 3D drape
-itself yet). LOD **absent**, foundation built and deliberately unintegrated
-(`cartalith-spatial`, `LOD_TILING_BASE_SCOPE.md`). Analysis-field switching:
-`GUI_FEATURE_PARITY_SCOPE.md`'s own audit already flagged this as
-"ambiguous, verify before building" — `render.rs` computes these fields
-internally per-pixel but may not expose them as independently-selectable
-output channels; not resolved by this pass either, still a real open
-question for whoever wires it.
+itself yet). **Corrected 2026-08-23** (`PARITY_AUDIT.md` C2): LOD is **no
+longer absent** — deep-zoom tile synthesis is live and automatic
+(`lod_bridge.rs`, `viewport_host.gd`'s `_lod_backlog`), `cartalith-spatial`
+has real consumers now (`PassBuffer`/`StageGraph`, then the LOD tiles); only
+the persistent on-disk atlas/cache remains unbuilt. **Analysis-field
+switching is resolved**, not ambiguous: `sample_bridge.rs` exposes 18 live
+debug views plus 11 more with stated reasons for their absence — the
+"ambiguous, verify before building" flag from `GUI_FEATURE_PARITY_SCOPE.md`
+has been answered.
 
 **§7d tag**: 2D — port as-is, already done well. 3D — this is `DECISIONS.md`'s
 own deferred scope, not a gap this document is re-opening; when it lands,
 evaluating `Terrain3D`/`godot_heightmap_plugin` (`ROADMAP.md`'s own note) is
 already the planned modernize-over-port path. LOD — **modernize by
-construction**: `cartalith-spatial` was never going to be a port of the
-reference's own tile-baking code, it's a from-scratch packed quadtree
-designed for this engine. Analysis fields — port as-is once the real
-`#debugSeg` control and its field list are confirmed against the reference.
+construction, and now real**: `cartalith-spatial` was never going to be a
+port of the reference's own tile-baking code, it's a from-scratch packed
+quadtree designed for this engine, and it is wired in. Analysis fields —
+port as-is; the real `#debugSeg`-equivalent surface and its field list are
+confirmed and live.
 
 ### 12. Session features (undo, theme, credits)
 
@@ -354,72 +409,127 @@ toggle (dark/light), credits modal.
 
 **This port**: theme **done**, dark-first (`GUI_SHELL_SCOPE.md`'s
 decluttering pass — a real `Theme` resource, not a CSS variable swap; light
-theme itself still deferred as its own milestone). Credits **done**, real
-and reachable, carrying forward the reference's own attribution plus this
-port's own license-audit findings. Undo is **absent entirely** — no
-generation-parameter undo exists, and the DCC shell's own editing model
-(`UI_SHELL_DESIGN.md`: "Undo granularity is one committed pass, not one
-stroke") makes real undo a load-bearing part of the tool-system work
-(`UNIFIED_TOOL_PLAN.md` milestone A, pass-buffer/staleness core) rather than
-a separate feature.
+theme itself has since also shipped, PR-13/PR-14 done 2026-08-19). Credits
+**done**, real and reachable, carrying forward the reference's own
+attribution plus this port's own license-audit findings. **Corrected
+2026-08-23** (`PARITY_AUDIT.md` C2): undo is **not absent entirely** —
+draft-scoped undo/redo is real (`sculpt_undo`/`sculpt_redo`,
+`cartalith-spatial/src/pass.rs`'s `PassBuffer`), wired in `right_dock.gd`.
+Only **global**, generation-parameter-level undo is absent, and the DCC
+shell's own editing model (`UI_SHELL_DESIGN.md`: "Undo granularity is one
+committed pass, not one stroke") still makes that a load-bearing part of the
+tool-system work (`UNIFIED_TOOL_PLAN.md` milestone A) rather than a separate
+feature.
 
 **§7d tag**: theme/credits — already done, arguably already better (a real
 Theme resource composits more consistently than the reference's own CSS
 custom-property approach, though this is a minor case, not a headline
-recommendation). Undo — port behavior, and its implementation is
-necessarily new regardless of §7d, since it has to integrate with a tool
-system the reference's single-canvas architecture never needed to reconcile
-with a native undo stack.
+recommendation). Undo — port behavior for the remaining global case; draft
+undo's implementation was necessarily new regardless of §7d, since it had
+to integrate with a tool system the reference's single-canvas architecture
+never needed to reconcile with a native undo stack.
+
+### 13. Urban morphology (town/city internal layout)
+
+**Added 2026-08-23** (`PARITY_AUDIT.md` C3): this capability had no row in
+this document at all — a real gap, not a stale one, for what `README.md`/
+`STATUS.md` themselves already call "the largest single unported subsystem."
+
+**HTML app**: town/city internal layout generation — radial (Venus) streets,
+plaza and waterway placement, water infrastructure, fortification, graph
+cleanup, block/parcel subdivision, district and building placement,
+amenities, hinterland/decay/detail/metrics, a `generate()` orchestration
+plus `hashModel`, and a 28-function civ-layer adapter (Part 1 block 4 of
+`FUNCTION_INDEX.md`, ~92 functions, plus the block-2 `_um*` adapter). On the
+user-facing side: town layouts drawn on the map at deep zoom
+(`civUrbanLayoutsChk`), a City Viewer modal with its own zoom/pan
+(`cityViewerModal`), and a layout thumbnail in the place-edit popup
+(`peCityPreview`/`peCityOpen`).
+
+**This port**: **milestones 1-7 of ~17 done**
+(`URBAN_MORPHOLOGY_SCOPE.md`) — RNG substreams, a geometry kernel using
+`js_hypot`, the planar street graph, A\* over the cost raster, generation
+rules + culture profiles, the site model, anchors and primary routes, and
+organic growth, each with its own golden-test suite (4,516 lines of
+`cartalith-urban` source). **It has zero consumers**, verified directly for
+this correction (`grep -rn 'cartalith-urban' crates/*/Cargo.toml` returns
+only its own manifest; `cartalith-godot/Cargo.toml` does not depend on it;
+the only mention anywhere under `godot-project/` is one disclosure comment
+in `civilization_workspace.gd:490-491` naming it as unported). Milestones
+8-17 (radial streets/plaza/waterway, water infrastructure, fortification,
+graph cleanup, blocks/parcels, districts/buildings, amenities, hinterland/
+decay/details/metrics, `generate()`/`hashModel`, and the 28-function civ
+adapter) remain entirely unbuilt, and every user-facing surface named above
+(`civUrbanLayoutsChk`, `cityViewerModal`, `peCityPreview`/`peCityOpen`) has
+no disclosure anywhere in this document or `GUI_GAP_REGISTER.md` prior to
+this correction pass.
+
+**§7d tag**: port as-is. This is deep procedural-generation domain logic
+with real reference precedent line-for-line (`URBAN_MORPHOLOGY_SCOPE.md`
+cites exact reference line ranges per milestone); nothing here suggests a
+modernize-over-port angle the way tile pyramids or layer compositing do.
 
 ## Summary coverage table
 
 | Capability | Status | §7d tag |
 |---|---|---|
 | World generation | Done | Port as-is |
-| Terrain editing (Sculpt) | Absent, scoped | Port behavior, modernize storage |
+| Terrain editing (Sculpt) | **Built** (corrected 2026-08-23) | Port behavior, modernize storage |
 | Hydrology/climate/ecology live tuning | Absent | Open design question |
-| Civilisation | Done | Port as-is (territory: modernized by necessity) |
-| Journey Planner | 3/6 milestones | Port as-is |
+| Civilisation | Done, incl. Timeline/collapse (corrected 2026-08-23) | Port as-is (territory: modernized by necessity) |
+| Journey Planner | **6/6 milestones, engine-complete** (corrected 2026-08-23) | Port as-is |
 | Map rendering (default + atlas) | Done, improved | Already modernized |
 | Map rendering (NPR/geology/SDF toggles) | Absent | Port as-is |
-| Tile pyramid / LOD / region export | Absent, foundation built | Modernize (Mapbox-style quadtree) |
+| Tile pyramid / LOD / region export | **LOD tiling live; region export wired** (corrected 2026-08-23) | Modernize (Mapbox-style quadtree); atlas/cache still open |
 | Labels/annotation (rule-driven) | Done | Port as-is |
-| Labels/annotation (manual tools) | Absent, scoped | Port as-is |
+| Labels/annotation (manual tools) | **Built**, incl. biome/terrain paint (corrected 2026-08-23) | Port as-is |
 | Asset library (data layer) | Done, Phase 4 complete | Port as-is |
-| Asset library (authoring UI) | Absent | Deliberate future UI work |
-| Import (GeoJSON/heightmap) | Absent | Port as-is |
-| Export (tiles/image) | Absent | Modernize (tile-server-style) |
+| Asset library (authoring UI) | **Built** (corrected 2026-08-23) | Port as-is |
+| Import (GeoJSON/heightmap) | **Heightmap done; GeoJSON import still absent** (corrected 2026-08-23) | Port as-is |
+| Export (tiles/image) | **Tile export live; GeoJSON export ported, unbound** (corrected 2026-08-23) | Modernize (tile-server-style) for slippy-map addressing remainder |
 | Save (read) | Done | Port as-is |
 | Save (write) | Absent | Port as-is |
 | 2D rendering | Done | Port as-is |
 | 3D view | Absent, deferred by decision | Modernize when built (`Terrain3D`) |
-| Analysis-field switching | Ambiguous, unresolved | Port as-is once confirmed |
-| Theme | Done | Already modernized (minor) |
+| Analysis-field switching | **Resolved** — 18 live views + 11 with stated reasons (corrected 2026-08-23) | Port as-is |
+| Theme | Done, incl. light + follow-system | Already modernized (minor) |
 | Credits | Done | Port as-is |
-| Undo | Absent | New implementation, necessarily |
+| Undo | **Draft-scoped real; global still absent** (corrected 2026-08-23) | New implementation, necessarily, for the global case |
+| Urban morphology | **Milestones 1-7 of ~17 done; zero consumers wired** (added 2026-08-23) | Port as-is |
 
 ## Honest absent-entirely list, with real size
 
-- **Terrain Sculpt editor**: real, scoped (`UNIFIED_TOOL_PLAN.md`), the
-  single largest item — comparable to Journey Planner/Asset Library.
-- **Journey Planner route derivation + verdict**: 2 of 6 milestones,
-  milestone 5 flagged as likely the largest single piece in that plan.
-- **Manual annotation/labeling/measurement tools**: scoped
-  (`UNIFIED_TOOL_PLAN.md` group 5), small-to-medium once the pass-buffer
-  core exists.
-- **Tile pyramid / LOD / deep-zoom / region export**: foundation exists
-  (`cartalith-spatial`) and unintegrated by deliberate choice
-  (`LOD_TILING_BASE_SCOPE.md`) pending a concrete trigger — this document
-  and capability 6 above are that trigger, now recorded.
-- **Save writing, GeoJSON/tile/image export, heightmap import**: real but
-  each individually small-to-medium; none scoped yet.
+**Rewritten 2026-08-23** (`PARITY_AUDIT.md` C2) — most of the previous
+version of this list named things that had since been built. What is
+genuinely still absent, as of this correction:
+
+- **Urban morphology, milestones 8-17**: radial streets/plaza/waterway,
+  water infrastructure, fortification, graph cleanup, blocks/parcels,
+  districts/buildings, amenities, hinterland/decay/details/metrics,
+  `generate()`/`hashModel`, and the 28-function civ adapter — ~45 of block
+  4's 92 functions plus all 28 adapter functions. Milestones 1-7 are done
+  but wired to nothing. By far the largest item on this list — see
+  capability 13 above.
+- **Hydrology/climate/ecology live re-tuning without a full regenerate**:
+  open design question, not yet even scoped as a milestone target.
+- **Save writing**: `.zip` save is entirely unbuilt (read-only so far).
+- **GeoJSON import**: absent (GeoJSON *export* is ported and golden-verified
+  but not yet bound to Godot — see capability 9).
 - **NPR Painter styles, geology microtexture toggle, SDF tinting, contour
   intervals**: presentation-only, no engine dependency, unscoped.
-- **Undo**: absent, tied to the tool-system work.
-- **Asset library authoring UI**: real UI-only work, `GUI_SHELL_SCOPE.md`'s
-  job when picked up.
-- **Live parameter re-tuning without full regenerate**: open design
-  question, not yet even scoped as a milestone target.
+- **Global (generation-parameter) undo**: absent, tied to the tool-system
+  work. Draft-scoped undo/redo for sculpt is real.
+- **Journey Planner's individually-registered gaps**: `jpAutoPickTransport`/
+  `_jpRerouteForMode`, the calculation-trace window, journey save/registry,
+  ⇧-drag spine trim, the vessel sailing window/resolver — none
+  milestone-sized any more; the Journey Planner itself is engine-complete.
+- **Persistent LOD tile atlas/cache, and the bake/finalize-lock**: tile
+  synthesis itself is live; nothing persists it to disk yet.
+- **Settlement/place editing and deletion, and the map's right-click context
+  menu**: `civ_drop_settlement` creates a settlement; nothing edits, moves
+  or deletes one, and there is no `_civCtxShow`-equivalent context menu on
+  the map (`PARITY_AUDIT.md` §3.2, §5 items 2-3; see `GUI_GAP_REGISTER.md`
+  ED-03 for the corrected framing).
 
 ## Top three modernize-over-port recommendations
 
@@ -428,10 +538,12 @@ GL's tile pyramid** — tiles as a quadtree, `2^zoom × 2^zoom` per level,
 geometry/detail simplified at lower zoom so rendering cost scales with what's
 visible rather than total world size. The reference's own tiled-LOD system
 exists because a browser `<canvas>` had no other way to hold a 20,000km
-world; that constraint doesn't apply here. `cartalith-spatial`'s
-`QuadTree<T>` and `TiledField<T>` (real, tested, built this session,
-deliberately unintegrated pending "a concrete need") already have the right
-shape for this. This document is that concrete need, recorded.
+world; that constraint doesn't apply here. **Landed 2026-08-23**:
+`cartalith-spatial`'s `QuadTree<T>` and `TiledField<T>` are no longer
+unintegrated — deep-zoom tile synthesis (`lod_bridge.rs`,
+`viewport_host.gd`) is live and automatic. What remains of this
+recommendation is the persistent on-disk tile cache/atlas, not the
+quadtree integration itself.
 
 **2. Layer compositing (opacity/blend-mode/reorder for territory,
 provinces, settlements, overlays).** Leading example: **QGIS's raster
@@ -448,21 +560,36 @@ contradicted, by this pass's own research.
 **3. Terrain-editing storage (Sculpt/pass-buffer/undo).** Leading example:
 the DCC-tool lineage this port's own shell now follows (Photoshop/Blender-
 style non-destructive editing) — a committed history of discrete edits over
-a tiled field, not whole-canvas snapshots. `cartalith-spatial`'s
-`DirtyTracker` (per-tile dirty flag + monotonic version counter) is the
-right primitive; `UNIFIED_TOOL_PLAN.md` already specifies the
-`PassBuffer<Stamp>` type layered on top, modeled directly on the reference's
-own `sculptStamps[]`/commit/discard semantics — the behavior ports, the
-storage modernizes.
+a tiled field, not whole-canvas snapshots. **Landed 2026-08-23**:
+`cartalith-spatial`'s `DirtyTracker` and the `PassBuffer<Stamp>` type
+`UNIFIED_TOOL_PLAN.md` specified are both real and wired
+(`sculpt_bridge.rs`, `sculpt_undo`/`sculpt_redo`), modeled directly on the
+reference's own `sculptStamps[]`/commit/discard semantics — the behavior
+ported, the storage modernized, as recommended. Only global
+(generation-parameter-level) undo remains open.
 
 ## Disagreements with prior docs
 
-None found. This pass's own reading of `reference/Cartalith Gen1 v2.10.html`
-(Sculpt editor lines, export function line numbers) confirmed rather than
-contradicted `UNIFIED_TOOL_PLAN.md`'s and `MVP_SCOPE.md`'s existing claims.
-One gap not previously flagged anywhere: interactive re-tuning of generation
-parameters without a full regenerate (capability 3) has no scope document
-and no recorded design decision — noted here as newly surfaced, not urgent,
-since the one-shot generation model is itself a deliberate, documented
-choice (`HARDWARE_ACCELERATION.md`) that this capability would need to be
+**Corrected 2026-08-23** (`PARITY_AUDIT.md` C2/§7). This line previously
+read "None found" while this document's own summary table disagreed with
+`cartalith-native/docs/STATUS.md` — the document this file says it is
+checked against — on ten rows plus capability 4's body: Sculpt, Journey
+Planner, tile pyramid/LOD/region export, manual annotation, asset-library
+authoring UI, heightmap import, tile export, undo, analysis-field
+switching, and the Timeline/collapse layer. Each has now been corrected in
+place above rather than left as an open disagreement — see every "corrected
+2026-08-23" marker in this document, all citing `PARITY_AUDIT.md`'s
+file:line evidence, independently re-verified rather than taken on the
+audit's word. One additional disagreement this correction pass found on its
+own, not in the audit's original list: capability 8's claim that the
+Cartography biome/terrain "painted layer" tool was never ported disagreed
+with `paint_bridge.rs`'s real, wired `paint_set_layer`/`paint_stroke_at`/
+`paint_commit` surface and `world_workspace.gd`'s live "Biome paint (B)"
+tool — corrected in capabilities 7 and 8 above.
+
+One gap remains genuinely open, not previously flagged anywhere: interactive
+re-tuning of generation parameters without a full regenerate (capability 3)
+still has no scope document and no recorded design decision — the one-shot
+generation model is itself a deliberate, documented choice
+(`HARDWARE_ACCELERATION.md`) that this capability would need to be
 reconciled with, not silently assumed away.
