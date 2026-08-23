@@ -8677,6 +8677,49 @@ pub fn jp_journey_cost(
     })
 }
 
+/// `jpJourneyCost(plan)` at its real call site (reference line 19854): the
+/// adaptor from a finished [`JpJourneyPlan`] to [`jp_journey_cost`]'s
+/// caller-supplied inputs.
+///
+/// This is `GUI_GAP_REGISTER.md` **JP-04** — the cost model was ported and
+/// golden-tested at milestone 3 and then never called by anything, because
+/// [`jp_journey_cost`] takes the per-leg summary rather than the plan. Every
+/// value it wants is already a field of the finished plan; this is the
+/// three-line mapping that was missing, not new model code.
+///
+/// `None` on a blocked or empty plan, exactly the reference's own
+/// `if(!plan||plan.blocked||!plan.results||!plan.results.length) return null`.
+/// `days` is `totalDays ?? days` for the same reason the reference prefers
+/// it: wages and upkeep are paid on calendar days, rest days included.
+pub fn jp_plan_cost(journey: &JpJourneyPlan, plan: &JpPlan) -> Option<JourneyCost> {
+    if journey.blocked_idx.is_some() || journey.results.is_empty() {
+        return None;
+    }
+    let legs: Vec<JourneyLeg> = journey
+        .results
+        .iter()
+        .map(|r| JourneyLeg {
+            blocked: r.calc.is_err(),
+            cat: r.cat.clone(),
+            km: r.km,
+            crew: match &r.calc {
+                Ok(JpLegCalc::Water(w)) => w.crew,
+                _ => 0,
+            },
+            days: r.days(),
+        })
+        .collect();
+    let claimed: Vec<f64> = journey.stages.iter().map(|s| s.claimed_frac).collect();
+    jp_journey_cost(
+        &plan.party,
+        &legs,
+        &claimed,
+        journey.total_days.unwrap_or(journey.days),
+        journey.km,
+        journey.transshipments,
+    )
+}
+
 // ----------------------------------------------------------------------------
 // Journey Planner milestone 4 -- consumption/resupply (`JOURNEY_PLANNER_SCOPE.md`).
 //
@@ -9414,6 +9457,26 @@ pub struct JpAnimalResolver<'a> {
     pub terrain_mod: &'a dyn Fn(&str, &str) -> Option<Option<f64>>,
 }
 
+/// A Travel Library vessel definition standing in for one of the built-in
+/// `JP_SHIPS` rows -- the exact sibling of [`JpAnimalResolver`], and
+/// `GUI_GAP_REGISTER.md` IN-06's own stated remainder (*"a vessel/vehicle
+/// resolver equivalent to the animal one"*).
+///
+/// One closure, not two: a vessel has no per-terrain affinity table to
+/// override -- what water it may enter is `ShipStats`' own
+/// `river`/`sea`/`open_sea`/`invalid_water`, which the closure already
+/// returns. `None` means "no override, use [`jp_ship_stats`]", so every call
+/// that never receives a resolver is untouched byte for byte.
+pub struct JpVesselResolver<'a> {
+    pub stats: &'a dyn Fn(&str) -> Option<ShipStats>,
+}
+
+fn resolve_ship_stats(name: &str, vessels: Option<&JpVesselResolver>) -> Option<ShipStats> {
+    vessels
+        .and_then(|v| (v.stats)(name))
+        .or_else(|| jp_ship_stats(name))
+}
+
 fn resolve_animal_stats(key: &str, animals: Option<&JpAnimalResolver>) -> Option<AnimalStats> {
     animals
         .and_then(|a| (a.stats)(key))
@@ -9733,6 +9796,26 @@ pub struct JpBlocked {
     pub seasonal: bool,
 }
 
+/// One multiplicative term of a stage's speed chain, in the exact order the
+/// calculator applies it. `GUI_GAP_REGISTER.md` §7.12's own proposal for the
+/// calculation trace (JP-05), and deliberately **not** the reference's
+/// `formula` string: prose is presentation and stays in Godot, but *which*
+/// factors were applied, in what order, with what value, is engine fact and
+/// cannot be re-derived across the boundary without duplicating the tables.
+///
+/// The invariant every trace holds, and both `*_trace_reproduces_daily_km`
+/// tests assert: `terms.map(factor).product() == daily_km`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JpTerm {
+    /// Stable machine key (`"base"`, `"terrain"`, `"load"`, ...) -- Godot
+    /// owns the human label.
+    pub key: &'static str,
+    /// What the factor was read off: the terrain name, the pace, the load
+    /// percentage. Empty when the key alone says everything.
+    pub detail: String,
+    pub factor: f64,
+}
+
 /// `jpCalcLand`'s return (reference line 18912), minus its `formula` trace:
 /// that string is presentation (`ARCHITECTURE.md` -- Godot owns it) and every
 /// value it prints is a field here.
@@ -9760,6 +9843,8 @@ pub struct JpLandCalc {
     /// The resolved desert-water tier, `Some((label, auto))` -- `auto` marks
     /// the v1.51 map-derived path rather than an explicit user choice.
     pub desert_tier: Option<(&'static str, bool)>,
+    /// The speed chain, term by term ([`JpTerm`]).
+    pub trace: Vec<JpTerm>,
 }
 
 /// `jpCalcWater`'s return (reference line 19124), same `formula` omission.
@@ -9774,6 +9859,13 @@ pub struct JpWaterCalc {
     pub hold_kg: f64,
     pub food_needed: f64,
     pub water_needed: f64,
+    /// Hours under way per day for this water type (`jp_water_window`) --
+    /// the *sailing window* `JOURNEY_PLANNER_SPEC.md` §8 asks for per water
+    /// leg (JP-09). It is already a factor of `daily_km`; carried out
+    /// explicitly because nothing else across the boundary can recover it.
+    pub sailing_window_h: f64,
+    /// The speed chain, term by term ([`JpTerm`]).
+    pub trace: Vec<JpTerm>,
 }
 
 /// `jpCalcLand` (reference line 18912, a port of V1.915's `calcLand`): one
@@ -9899,7 +9991,7 @@ pub fn jp_calc_land_ex(
     let p_mod = jp_pace_mod(&plan.pace);
     let i_mod = jp_infra_mod(&st.infra);
     let is_haste = plan.pace == "Haste";
-    let (_cls_label, cls_coord) = jp_group_class(group);
+    let (cls_label, cls_coord) = jp_group_class(group);
     let c_mod = if is_haste { 1.0 } else { cls_coord };
     let f_mod = if is_haste { 1.0 } else { jp_fatigue(hours) };
     let g_mod = if is_haste {
@@ -10038,6 +10130,11 @@ pub fn jp_calc_land_ex(
     let mut days = distance / daily_km;
     let mut resupply: Option<JpResupply> = None;
     let mut load_ratio = ratio0;
+    // The load term the REPORTED speed was actually reached under. Plain
+    // assignment inside the loop below, never a re-derivation: recomputing it
+    // as `daily_km / (raw_daily * col_mod)` would introduce two float
+    // operations into a value the parity tests read.
+    let mut load_mod_final = l_mod;
     let carry_food = plan.carry_food;
     let grazing_mod = jp_season_mods(season).map(|(_, g)| g).unwrap_or(1.0);
     let settlement_days = plan.supply_days.max(1) as f64;
@@ -10082,6 +10179,7 @@ pub fn jp_calc_land_ex(
             let total_mass = cap.cargo + food_needed + water_needed;
             load_ratio = total_mass / cap.capacity;
             let pen = jp_load_penalty(load_ratio).load_mod;
+            load_mod_final = pen;
             let next = raw_daily * col_mod * pen;
             let new_days = distance / next;
             if (new_days - days).abs() < 0.01 {
@@ -10168,6 +10266,40 @@ pub fn jp_calc_land_ex(
         (None, Some(t)) => format!("{transport} — {}", t.label),
         (None, None) => transport.to_string(),
     };
+    // JP-05's calculation trace, in the calculator's own application order:
+    // `raw_no_desert` above, then `desert_speed`, `col_mod`, and the load
+    // term the loop converged on. Every factor is a variable already in
+    // scope -- nothing here is recomputed, so nothing here can disagree with
+    // the number above it.
+    let term = |key: &'static str, detail: String, factor: f64| JpTerm { key, detail, factor };
+    let trace = vec![
+        term("base", transport_label.clone(), base_speed),
+        term("hours", format!("{} h/day", js_fixed(hours, 1)), hours),
+        term("terrain", terrain.to_string(), t_mod),
+        term("route", st.route_cond.clone(), r_mod),
+        term("group", cls_label.to_string(), c_mod),
+        term("pace", plan.pace.clone(), p_mod),
+        term("infra", st.infra.clone(), i_mod),
+        term(
+            "weather",
+            plan.weather_override.clone().unwrap_or_else(|| format!("auto · {season}")),
+            w_w,
+        ),
+        term("fatigue", format!("{} h/day", js_fixed(hours, 1)), f_mod),
+        term("grazing", plan.grazing.clone(), g_mod),
+        term("foraging", plan.foraging.clone(), forage.move_mod),
+        term(
+            "desert water",
+            desert_tier.map_or_else(String::new, |(l, _)| l.to_string()),
+            desert_speed,
+        ),
+        term("column", format!("{} km of column", js_fixed(col_km, 1)), col_mod),
+        term(
+            "load",
+            format!("{}% of capacity", js_fixed(load_ratio * 100.0, 0)),
+            load_mod_final,
+        ),
+    ];
     Ok(JpLandCalc {
         daily_km,
         days,
@@ -10184,6 +10316,7 @@ pub fn jp_calc_land_ex(
         supply_days: plan.supply_days.max(1),
         portage,
         desert_tier,
+        trace,
     })
 }
 
@@ -10192,6 +10325,17 @@ pub fn jp_calc_land_ex(
 /// deliberately not read here -- how long a hull is under way is a property
 /// of the water (`jp_water_window`, v1.43).
 pub fn jp_calc_water(st: &JpStage, plan: &JpPlan) -> Result<JpWaterCalc, JpBlocked> {
+    jp_calc_water_ex(st, plan, None)
+}
+
+/// [`jp_calc_water`] plus a Travel Library vessel override -- see
+/// [`JpVesselResolver`]. Identical to [`jp_calc_water`] when `vessels` is
+/// `None`.
+pub fn jp_calc_water_ex(
+    st: &JpStage,
+    plan: &JpPlan,
+    vessels: Option<&JpVesselResolver>,
+) -> Result<JpWaterCalc, JpBlocked> {
     let blocked = |reason: String| JpBlocked {
         reason,
         seasonal: false,
@@ -10204,7 +10348,7 @@ pub fn jp_calc_water(st: &JpStage, plan: &JpPlan) -> Result<JpWaterCalc, JpBlock
     let passengers = plan.party.group_size.max(0) as f64;
     let cargo = plan.party.cargo_kg.max(0.0);
     let hours = jp_water_window(cat, terrain);
-    let Some(ship) = jp_ship_stats(&plan.vessel) else {
+    let Some(ship) = resolve_ship_stats(&plan.vessel, vessels) else {
         return Err(blocked("No vessel selected for the water leg.".to_string()));
     };
     let is_haste = plan.pace == "Haste";
@@ -10238,6 +10382,9 @@ pub fn jp_calc_water(st: &JpStage, plan: &JpPlan) -> Result<JpWaterCalc, JpBlock
     }
     let mut daily_km = base_daily0;
     let mut trip_days = distance / daily_km;
+    // See `jp_calc_land_ex`'s own `load_mod_final`: assigned, never
+    // re-derived, so the trace cannot disagree with `daily_km`.
+    let mut load_mod_final = 1.0;
     let river_settlement: f64 = 2.0;
     let carry_food = plan.carry_food;
     let (mut food_needed, mut water_needed) = (0.0, 0.0);
@@ -10276,6 +10423,7 @@ pub fn jp_calc_water(st: &JpStage, plan: &JpPlan) -> Result<JpWaterCalc, JpBlock
         } else {
             jp_load_penalty(total_load / ship.cargo_kg).load_mod
         };
+        load_mod_final = pen;
         let next = base_daily0 * pen;
         let nd = distance / next;
         if (nd - trip_days).abs() < 0.01 {
@@ -10313,6 +10461,29 @@ pub fn jp_calc_water(st: &JpStage, plan: &JpPlan) -> Result<JpWaterCalc, JpBlock
             0.0,
         )
     };
+    let term = |key: &'static str, detail: String, factor: f64| JpTerm { key, detail, factor };
+    let trace = vec![
+        term("base", plan.vessel.clone(), ship.speed_kmh),
+        term(
+            "sailing window",
+            format!("{terrain} · {} h/day", js_fixed(hours, 0)),
+            hours,
+        ),
+        term("terrain", terrain.to_string(), t_mod),
+        term("route", st.route_cond.clone(), r_mod),
+        term("pace", plan.pace.clone(), p_mod),
+        term("infra", st.infra.clone(), i_mod),
+        term(
+            "weather",
+            plan.weather_override.clone().unwrap_or_else(|| format!("auto · {season}")),
+            w_w,
+        ),
+        term(
+            "load",
+            format!("{}% of hold", js_fixed(load_ratio * 100.0, 0)),
+            load_mod_final,
+        ),
+    ];
     Ok(JpWaterCalc {
         daily_km,
         days: trip_days,
@@ -10331,6 +10502,8 @@ pub fn jp_calc_water(st: &JpStage, plan: &JpPlan) -> Result<JpWaterCalc, JpBlock
         hold_kg: ship.cargo_kg,
         food_needed,
         water_needed,
+        sailing_window_h: hours,
+        trace,
     })
 }
 
@@ -11299,6 +11472,111 @@ pub fn jp_mode_for_route(transport: &str) -> Option<&'static str> {
     }
 }
 
+/// `_jpRerouteForMode` (reference line 20391, v1.100): re-path a journey's
+/// two endpoints under one travel domain, refusing an unreachable answer
+/// rather than drawing the straight-line fallback.
+///
+/// `force_mode` is the reference's own optional third state: `None` derives
+/// the domain from the journey's own transport ([`jp_mode_for_route`]),
+/// `Some("land"|"water"|"mixed")` overrides it -- which is what a blocked
+/// WATER stage's "re-route land-only" needs, since re-deriving from a
+/// `Sea Faring` transport would re-path the same domain and reproduce the
+/// identical unusable leg.
+///
+/// `Err` carries the reference's own two refusal strings verbatim. The
+/// reference then assigns `jn.pts`/`jn.km`/`jn.brks`; here the caller owns
+/// the journey record, so the new path is returned instead of written.
+pub fn jp_reroute_for_mode(
+    ctx: &tools::RouteContext,
+    pts: &[(f64, f64)],
+    transport: &str,
+    force_mode: Option<&str>,
+) -> Result<tools::DijkstraPath, String> {
+    if pts.len() < 2 {
+        return Err("This route has no drawn path to re-route.".to_string());
+    }
+    let domain = match force_mode {
+        Some("land") => None,
+        Some(m) => Some(m),
+        None => jp_mode_for_route(transport),
+    };
+    let (mode, label) = match domain {
+        Some("water") => (tools::RouteMode::Water, "sea"),
+        Some("mixed") => (tools::RouteMode::Mixed, "river"),
+        _ => (tools::RouteMode::Land, "land"),
+    };
+    let (s, e) = (pts[0], pts[pts.len() - 1]);
+    let r = tools::civ_dijkstra_path(ctx, s.0, s.1, e.0, e.1, mode);
+    if r.pts.len() < 2 || !r.reachable {
+        return Err(format!(
+            "No {label} route connects these two points — the endpoints aren't reachable this way."
+        ));
+    }
+    Ok(r)
+}
+
+/// `JOURNEY_PLANNER_SPEC.md` §3's *"⇧ drag trims"* (gap register JP-07):
+/// the sub-range of a drawn route the planner should actually plan, as two
+/// fractions of the polyline's own arc length.
+///
+/// No reference counterpart -- v2.10 has no spine to drag on, and the port
+/// is not inventing a *model*: the trimmed polyline goes through exactly the
+/// same [`jp_plan`] every untrimmed route does, so a trim can only ever
+/// produce a journey the user could have drawn by hand.
+///
+/// Both endpoints are interpolated on the segment they fall in, so a trim is
+/// continuous rather than snapped to a vertex, and the interior vertices in
+/// between are kept. Returns the whole route unchanged for a full-range or
+/// inverted request, and `None` when fewer than two points would survive.
+pub fn jp_trim_points(pts: &[(f64, f64)], from: f64, to: f64) -> Option<Vec<(f64, f64)>> {
+    if pts.len() < 2 {
+        return None;
+    }
+    let (a, b) = (from.clamp(0.0, 1.0), to.clamp(0.0, 1.0));
+    let (a, b) = (a.min(b), a.max(b));
+    if a <= 0.0 && b >= 1.0 {
+        return Some(pts.to_vec());
+    }
+    // Cumulative arc length in grid units. Not km: the two are proportional
+    // along a polyline, and the spine's own axis is distance-along-route.
+    let mut cum = Vec::with_capacity(pts.len());
+    let mut total = 0.0;
+    cum.push(0.0);
+    for w in pts.windows(2) {
+        total += js_hypot(w[1].0 - w[0].0, w[1].1 - w[0].1);
+        cum.push(total);
+    }
+    if !(total > 0.0) {
+        return None;
+    }
+    let at = |t: f64| -> (f64, f64) {
+        let d = t * total;
+        let i = match cum.binary_search_by(|c| c.partial_cmp(&d).unwrap_or(std::cmp::Ordering::Equal)) {
+            Ok(i) => i.min(pts.len() - 1),
+            Err(i) => i.saturating_sub(1).min(pts.len() - 2),
+        };
+        let i = i.min(pts.len() - 2);
+        let seg = cum[i + 1] - cum[i];
+        let f = if seg > 0.0 { ((d - cum[i]) / seg).clamp(0.0, 1.0) } else { 0.0 };
+        (
+            pts[i].0 + (pts[i + 1].0 - pts[i].0) * f,
+            pts[i].1 + (pts[i + 1].1 - pts[i].1) * f,
+        )
+    };
+    let mut out = vec![at(a)];
+    let (da, db) = (a * total, b * total);
+    for (i, &c) in cum.iter().enumerate() {
+        if c > da && c < db {
+            out.push(pts[i]);
+        }
+    }
+    out.push(at(b));
+    if out.len() < 2 {
+        return None;
+    }
+    Some(out)
+}
+
 /// `_civPassedSettlements` (reference line 21154, v0.73): the ordered list of
 /// distinct settlements a route threads through (within `R` of some path
 /// point) -- origin, intermediate stops, destination. Returns indices into
@@ -12115,9 +12393,8 @@ pub fn jp_plan(
     jp_plan_ex(world, pts, plan, layovers, wildlife_forage_mod, None)
 }
 
-/// [`jp_plan`] plus a Travel Library animal-stat/terrain override applied to
-/// every land stage's [`jp_calc_land`] -- see [`JpAnimalResolver`]. Identical
-/// to [`jp_plan`] when `animals` is `None`.
+/// [`jp_plan_full`] with no vessel resolver -- the signature every caller
+/// before IN-06's vessel half already used.
 pub fn jp_plan_ex(
     world: &JpWorld,
     pts: &[(f64, f64)],
@@ -12125,6 +12402,23 @@ pub fn jp_plan_ex(
     layovers: &JpLayovers,
     wildlife_forage_mod: &dyn Fn(f64, f64) -> f64,
     animals: Option<&JpAnimalResolver>,
+) -> Option<JpJourneyPlan> {
+    jp_plan_full(world, pts, plan, layovers, wildlife_forage_mod, animals, None)
+}
+
+/// [`jp_plan`] plus Travel Library overrides applied to every stage: an
+/// animal-stat/terrain resolver for [`jp_calc_land`] ([`JpAnimalResolver`])
+/// and a vessel resolver for [`jp_calc_water`] ([`JpVesselResolver`]).
+/// Identical to [`jp_plan`] when both are `None`.
+#[allow(clippy::too_many_arguments)]
+pub fn jp_plan_full(
+    world: &JpWorld,
+    pts: &[(f64, f64)],
+    plan: &JpPlan,
+    layovers: &JpLayovers,
+    wildlife_forage_mod: &dyn Fn(f64, f64) -> f64,
+    animals: Option<&JpAnimalResolver>,
+    vessels: Option<&JpVesselResolver>,
 ) -> Option<JpJourneyPlan> {
     if pts.len() < 2 {
         return None;
@@ -12156,7 +12450,7 @@ pub fn jp_plan_ex(
         if cat == "land" {
             jp_calc_land_ex(st, eff, animals).map(|l| JpLegCalc::Land(Box::new(l)))
         } else {
-            jp_calc_water(st, eff).map(JpLegCalc::Water)
+            jp_calc_water_ex(st, eff, vessels).map(JpLegCalc::Water)
         }
     };
 
@@ -12223,7 +12517,7 @@ pub fn jp_plan_ex(
                     vessel: sub.to_string(),
                     ..eff.clone()
                 };
-                if let Ok(w) = jp_calc_water(st, &eff2) {
+                if let Ok(w) = jp_calc_water_ex(st, &eff2, vessels) {
                     r = Ok(JpLegCalc::Water(w));
                     eff = eff2;
                 }
@@ -19860,5 +20154,316 @@ mod tests {
             out.by_faction[1].settlement_count, 1,
             "the places loop is unaffected"
         );
+    }
+    // ------------------------------------------------------------------
+    // Journey Planner closing gaps -- `GUI_GAP_REGISTER.md` JP-04 (cost at
+    // its real call site), JP-05 (calculation trace), JP-03 (re-route for a
+    // mode), JP-07 (spine trim) and IN-06 (the vessel resolver). Every one
+    // of these is a wrapper over an already-golden function, so the tests
+    // here check the WIRING -- that the mapping is the reference's own --
+    // rather than re-verifying arithmetic that `jp_journey_cost` /
+    // `jp_calc_land` / `civ_dijkstra_path` already have goldens for.
+    // ------------------------------------------------------------------
+
+    /// JP-04. The adaptor must feed `jp_journey_cost` exactly what the
+    /// reference's own call site (line 19854) feeds it -- so computing the
+    /// cost by hand from the plan's own fields must give the same answer.
+    #[test]
+    fn jp_plan_cost_maps_the_finished_plan_onto_jp_journey_cost() {
+        let f = m5_fields();
+        let world = m5_world(&f);
+        let plan = m5_plan();
+        let journey = jp_plan(&world, &m5_pts(), &plan, &JpLayovers::new(), &|_, _| 1.0)
+            .expect("m5 route plans");
+        assert!(journey.blocked_idx.is_none(), "fixture must not be blocked");
+        let got = jp_plan_cost(&journey, &plan).expect("a priceable journey");
+
+        let legs: Vec<JourneyLeg> = journey
+            .results
+            .iter()
+            .map(|r| JourneyLeg {
+                blocked: r.calc.is_err(),
+                cat: r.cat.clone(),
+                km: r.km,
+                crew: match &r.calc {
+                    Ok(JpLegCalc::Water(w)) => w.crew,
+                    _ => 0,
+                },
+                days: r.days(),
+            })
+            .collect();
+        let claimed: Vec<f64> = journey.stages.iter().map(|s| s.claimed_frac).collect();
+        let want = jp_journey_cost(
+            &plan.party,
+            &legs,
+            &claimed,
+            journey.total_days.unwrap_or(journey.days),
+            journey.km,
+            journey.transshipments,
+        )
+        .expect("same inputs");
+        assert_eq!(got, want);
+        assert!(got.total > 0.0, "a real journey costs something");
+        // The reference prefers `totalDays` over `days` -- wages and upkeep
+        // are paid on calendar days, rest days included. The fixture must
+        // actually separate the two, or that preference is untested.
+        assert_eq!(got.days, journey.total_days.unwrap());
+        assert!(
+            journey.total_days.unwrap() > journey.days,
+            "fixture must carry rest days, or the totalDays preference is untested"
+        );
+    }
+
+    /// The reference bails on `plan.blocked` before pricing anything.
+    #[test]
+    fn jp_plan_cost_is_none_for_a_blocked_journey() {
+        let f = m5_fields();
+        let world = m5_world(&f);
+        // 400 t of cargo on the same party: the land stages block on load.
+        let base = m5_plan();
+        let plan = JpPlan {
+            party: JpParty {
+                cargo_kg: 400_000.0,
+                ..base.party.clone()
+            },
+            ..base
+        };
+        let journey = jp_plan(&world, &m5_pts(), &plan, &JpLayovers::new(), &|_, _| 1.0)
+            .expect("still derives stages");
+        assert!(journey.blocked_idx.is_some(), "fixture must block");
+        assert!(jp_plan_cost(&journey, &plan).is_none());
+    }
+
+    /// JP-05. The trace is only worth showing if it *is* the calculation --
+    /// the product of its factors must BE the reported daily distance, on
+    /// both calculators, on a real multi-stage journey.
+    #[test]
+    fn the_calculation_trace_reproduces_daily_km_on_every_leg() {
+        let f = m5_fields();
+        let world = m5_world(&f);
+        let plan = m5_plan();
+        let journey = jp_plan(&world, &m5_pts(), &plan, &JpLayovers::new(), &|_, _| 1.0)
+            .expect("m5 route plans");
+        let mut land = 0;
+        let mut water = 0;
+        for (i, r) in journey.results.iter().enumerate() {
+            let (trace, daily_km) = match &r.calc {
+                Ok(JpLegCalc::Land(l)) => {
+                    land += 1;
+                    (&l.trace, l.daily_km)
+                }
+                Ok(JpLegCalc::Water(w)) => {
+                    water += 1;
+                    (&w.trace, w.daily_km)
+                }
+                Err(_) => continue,
+            };
+            assert!(!trace.is_empty(), "leg {i} has no trace");
+            let product: f64 = trace.iter().map(|t| t.factor).product();
+            assert!(
+                (product - daily_km).abs() < 1e-9 * daily_km.max(1.0),
+                "leg {i}: trace product {product} != daily_km {daily_km}"
+            );
+            assert_eq!(trace[0].key, "base");
+            assert!(
+                trace.iter().all(|t| t.factor.is_finite()),
+                "leg {i} has a non-finite factor"
+            );
+        }
+        assert!(land > 0, "fixture must exercise the land calculator");
+        assert!(water > 0, "fixture must exercise the water calculator");
+    }
+
+    /// A trace whose `load` term were pinned at 1.0 would still multiply out
+    /// on an unloaded party -- so check the loaded case names a real
+    /// sub-unity load factor belonging to the *converged* ratio.
+    #[test]
+    fn the_land_trace_load_term_is_the_converged_one_not_the_first_guess() {
+        let st = JpStage {
+            km: 300.0,
+            terrain: "Plains".to_string(),
+            biome: "Temperate Grassland".to_string(),
+            ..JpStage::default()
+        };
+        let heavy = JpPlan {
+            transport: "Baggage Train".to_string(),
+            party: JpParty {
+                group_size: 8,
+                cargo_kg: 900.0,
+                mule: 12,
+                ..JpParty::default()
+            },
+            supply_days: 30,
+            ..JpPlan::default()
+        };
+        let c = jp_calc_land(&st, &heavy).expect("not blocked");
+        let load = c
+            .trace
+            .iter()
+            .find(|t| t.key == "load")
+            .expect("a load term");
+        assert!(load.factor < 1.0, "a loaded party is slowed: {}", load.factor);
+        assert_eq!(
+            load.factor,
+            jp_load_penalty(c.load_ratio).load_mod,
+            "the load term must belong to the REPORTED load ratio"
+        );
+        let product: f64 = c.trace.iter().map(|t| t.factor).product();
+        assert!((product - c.daily_km).abs() < 1e-9 * c.daily_km);
+    }
+
+    /// JP-09's own datum: the sailing window is `jp_water_window`'s hours,
+    /// carried out rather than re-derived across the boundary.
+    #[test]
+    fn the_water_calc_carries_its_sailing_window() {
+        let st = JpStage {
+            km: 200.0,
+            cat: "sea".to_string(),
+            terrain: "Coastal Waters".to_string(),
+            route_cond: "Neutral".to_string(),
+            ..JpStage::default()
+        };
+        let p = JpPlan {
+            transport: "Sea Faring".to_string(),
+            vessel: "Cog".to_string(),
+            ..JpPlan::default()
+        };
+        let c = jp_calc_water(&st, &p).expect("not blocked");
+        assert_eq!(c.sailing_window_h, jp_water_window("sea", "Coastal Waters"));
+        assert_eq!(c.sailing_window_h, 11.0);
+        let w = c
+            .trace
+            .iter()
+            .find(|t| t.key == "sailing window")
+            .expect("a sailing-window term");
+        assert_eq!(w.factor, 11.0);
+    }
+
+    /// IN-06's stated remainder: a vessel resolver, the exact sibling of the
+    /// animal one. `None` must be byte-for-byte the built-in table, a custom
+    /// hull must actually re-plan the leg, and a resolver that answers for
+    /// nothing must fall back per-lookup.
+    #[test]
+    fn a_vessel_resolver_overrides_the_built_in_ship_table() {
+        let st = JpStage {
+            km: 200.0,
+            cat: "sea".to_string(),
+            terrain: "Coastal Waters".to_string(),
+            route_cond: "Neutral".to_string(),
+            ..JpStage::default()
+        };
+        let p = JpPlan {
+            transport: "Sea Faring".to_string(),
+            vessel: "Cog".to_string(),
+            ..JpPlan::default()
+        };
+        let base = jp_calc_water(&st, &p).expect("not blocked");
+        assert_eq!(
+            jp_calc_water_ex(&st, &p, None).expect("not blocked"),
+            base,
+            "no resolver must be identical to the plain calculator"
+        );
+
+        let stats = |name: &str| -> Option<ShipStats> {
+            (name == "Cog").then_some(ShipStats {
+                speed_kmh: 20.0,
+                cargo_kg: 80_000.0,
+                crew: 20,
+                river: false,
+                sea: true,
+                open_sea: true,
+                invalid_water: &[],
+            })
+        };
+        let r = JpVesselResolver { stats: &stats };
+        let fast = jp_calc_water_ex(&st, &p, Some(&r)).expect("not blocked");
+        assert!(fast.daily_km > base.daily_km * 1.9, "a 20 km/h hull is faster");
+        assert_eq!(fast.trace[0].factor, 20.0, "the base term is the override's speed");
+
+        let none = |_: &str| -> Option<ShipStats> { None };
+        let r2 = JpVesselResolver { stats: &none };
+        assert_eq!(
+            jp_calc_water_ex(&st, &p, Some(&r2)).expect("not blocked"),
+            base,
+            "an empty resolver falls back to the built-in table"
+        );
+    }
+
+    /// JP-07. A trim is a sub-polyline and nothing more: endpoints
+    /// interpolated on the segment they fall in, interior vertices kept.
+    #[test]
+    fn jp_trim_points_cuts_a_sub_polyline_by_arc_length() {
+        let pts = vec![(0.0, 0.0), (10.0, 0.0), (20.0, 0.0), (30.0, 0.0)];
+        let full = jp_trim_points(&pts, 0.0, 1.0).expect("full range");
+        assert_eq!(full, pts, "a full-range trim is the identity");
+
+        let mid = jp_trim_points(&pts, 0.25, 0.75).expect("middle half");
+        assert_eq!(mid.first().copied(), Some((7.5, 0.0)));
+        assert_eq!(mid.last().copied(), Some((22.5, 0.0)));
+        assert!(
+            mid.contains(&(10.0, 0.0)) && mid.contains(&(20.0, 0.0)),
+            "interior vertices inside the range are kept: {mid:?}"
+        );
+
+        // A drag can go either way; the range is the same.
+        assert_eq!(jp_trim_points(&pts, 0.75, 0.25).unwrap(), mid);
+
+        // A zero-width request still yields two points, so `jp_plan`'s own
+        // `pts.len() < 2` guard is never tripped by the trim itself.
+        let degenerate = jp_trim_points(&pts, 0.5, 0.5).expect("two points");
+        assert_eq!(degenerate.len(), 2);
+        assert_eq!(degenerate[0], (15.0, 0.0));
+
+        assert!(jp_trim_points(&[(1.0, 1.0)], 0.0, 1.0).is_none(), "one point is no route");
+        assert!(
+            jp_trim_points(&[(1.0, 1.0), (1.0, 1.0)], 0.2, 0.8).is_none(),
+            "a zero-length polyline has no arc length to trim by"
+        );
+    }
+
+    /// JP-03. `_jpRerouteForMode`'s two refusals, verbatim, plus the
+    /// `forceMode` override v1.100 exists for.
+    #[test]
+    fn jp_reroute_for_mode_refuses_what_the_reference_refuses() {
+        // All-land 8x6 world: a water reroute cannot possibly connect.
+        let field = vec![0.7f32; 48];
+        let wb = vec![0u8; 48];
+        let ways: Vec<tools::WayRef> = Vec::new();
+        let ctx = tools::RouteContext {
+            field: &field,
+            water_bodies: &wb,
+            biome: None,
+            river_order: None,
+            places: &[],
+            ways: &ways,
+            gw: 8,
+            gh: 6,
+            sea: 0.42,
+            world: false,
+            map_width_km: 80.0,
+        };
+        let pts = vec![(1.0, 1.0), (6.0, 4.0)];
+
+        assert_eq!(
+            jp_reroute_for_mode(&ctx, &pts[..1], "Walking", None).unwrap_err(),
+            "This route has no drawn path to re-route."
+        );
+
+        let land = jp_reroute_for_mode(&ctx, &pts, "Walking", None).expect("land connects");
+        assert!(land.reachable && land.pts.len() >= 2 && land.km > 0.0);
+
+        // `Sea Faring` derives the water domain -- unreachable on dry land,
+        // and the message names the domain it tried.
+        let err = jp_reroute_for_mode(&ctx, &pts, "Sea Faring", None).unwrap_err();
+        assert!(
+            err.starts_with("No sea route connects these two points"),
+            "{err}"
+        );
+
+        // v1.100's whole point: forcing land past a Sea Faring transport
+        // re-paths the OTHER domain rather than reproducing the same leg.
+        let forced = jp_reroute_for_mode(&ctx, &pts, "Sea Faring", Some("land"))
+            .expect("forced land connects");
+        assert_eq!(forced.pts, land.pts);
     }
 }

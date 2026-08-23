@@ -18706,3 +18706,209 @@ windows now set `max_size`).
   roads, territory or `explanations` — the same staleness
   `civ_drop_settlement` has always disclosed, said in the delete
   confirmation's own text so a user meets it at the moment it matters.
+
+## The Journey Planner's last GUI gaps: two ported functions nobody called, one function nobody ported, and a trim that never existed (2026-08-23)
+
+`PARITY_AUDIT.md` §3.3 has called the Journey Planner "engine-complete" since
+2026-08-18, and it was — 65 of 74 reference `jp*` functions, six milestones, a
+real Godot takeover view. What it was not was *reachable*: nine rows in
+`GUI_GAP_REGISTER.md` §6.9 still described planner controls that were drawn,
+disabled, and honestly labelled. This pass closes six of them, half-closes two
+with the reason named, and re-closes IN-06's stated remainder.
+
+**The shape of the finding is worth stating first, because it recurs.** Two of
+the nine were not missing model code at all. `jp_journey_cost` had been ported
+and golden-tested since milestone 3 and `jp_auto_pick_transport` since
+milestone 6, with eleven tests — and **neither was called from anywhere in the
+crate outside its own test module**. The register had already caught the first
+(JP-04, "the single cheapest (B) in the register") and had it right. It had the
+second wrong: JP-01's disclosed reason said "`jpAutoPickTransport` has no Rust
+port", which was stale. The lesson is the register's own: a disclosed gap
+decays, and the disclosure is the thing to re-verify, not only the code.
+
+### Engine (`cartalith-civ`)
+
+- **`jp_plan_cost`** — the adaptor from a finished `JpJourneyPlan` to
+  `jp_journey_cost`'s caller-supplied inputs. This is the reference's own call
+  site (line 19854) rather than a new function: its `totalDays ?? days`
+  preference (wages and upkeep are paid on *calendar* days, rest days
+  included), its per-leg `{blocked, cat, km, crew, days}` projection, its
+  `stages[i].claimedFrac` list, and its `if(plan.blocked) return null` gate.
+  Ten lines. The test asserts the mapping against a hand-built call with the
+  same inputs, and pins that the fixture actually separates `total_days` from
+  `days` — otherwise the `??` preference would be untested.
+- **`jp_reroute_for_mode`** — `_jpRerouteForMode` (reference line 20391),
+  which `JOURNEY_PLANNER_SCOPE.md`'s closing status recorded as *unblocked* on
+  2026-08-18 and then left unported for five days. It is what that section
+  predicted: a `civ_dijkstra_path` call, v1.100's optional `forceMode`
+  override (the reason a blocked WATER stage's "re-route land-only" cannot
+  just re-derive from `plan.transport` — it would re-path the same domain and
+  reproduce the identical unusable leg), and two refusal strings kept
+  verbatim. Crucially it refuses `reachable: false` outright rather than
+  returning the straight-line fallback `route_commit` tolerates — which is the
+  whole reason `DijkstraPath::reachable` exists. **The ported count moves to
+  66 of 74** and the "blocked at closeout" line is now empty.
+- **`JpTerm` + `JpLandCalc::trace` / `JpWaterCalc::trace`** — the speed chain
+  as structured terms, in the calculator's own application order.
+  `GUI_GAP_REGISTER.md` §7.12 proposed building the trace in GDScript "from
+  the dict values that already cross"; that assumption was checked and is
+  wrong — the terrain, weather, column and converged-load factors are not
+  across the boundary, and re-deriving them in GDScript would have meant a
+  second copy of every engine table. So the *structured* chain crosses instead
+  and the reference's `formula` **prose** still does not, which was §7.12's
+  real constraint. Every factor is a variable already in scope, **assigned,
+  never recomputed**: the load term in particular is captured off the
+  convergence loop's own `pen` rather than derived as
+  `daily_km / (raw_daily * col_mod)`, because that derivation would put two
+  float operations into a value the parity tests read. Invariant, asserted on
+  a real multi-stage journey and on a deliberately-overloaded single stage:
+  `∏ factor == daily_km`.
+- **`jp_trim_points`** — `JOURNEY_PLANNER_SPEC.md` §3's "⇧ drag trims", as a
+  sub-polyline by arc-length fraction. No reference counterpart (v2.10 has no
+  distance spine to drag on) and no invented model: the trimmed polyline goes
+  through the same `jp_plan` every untrimmed route does, so a trim can only
+  produce a journey the user could have drawn by hand. Endpoints interpolated
+  on the segment they fall in; interior vertices kept; inverted input
+  normalised; a zero-width request still returns two points so `jp_plan`'s own
+  `pts.len() < 2` guard can never be tripped by the trim itself.
+- **`JpVesselResolver` / `jp_calc_water_ex` / `jp_plan_full`** — the vessel
+  half of the Travel Library dispatch (`GUI_GAP_REGISTER.md` IN-06's stated
+  remainder), the exact sibling of TL-01's animal resolver: `None` means "no
+  override", so every pre-existing call is byte-for-byte unaffected, and the
+  test pins that directly. `jp_plan_ex` keeps its signature and forwards to
+  the new `jp_plan_full`, so the five existing call sites did not move.
+- **`JpWaterCalc::sailing_window_h`** — `jp_water_window(cat, terrain)`. It
+  was already a factor of the leg's `daily_km` and had simply never been
+  surfaced (JP-09).
+
+### Boundary (`cartalith-godot`)
+
+- `jp_compute` gained two request keys — `auto_carriage` (runs
+  `jp_auto_pick_transport` over the derived route and mutates the plan
+  *before* it is computed, which is `_jpRunAuto`'s single-call-site
+  discipline, and returns the pick as `auto`) and `trim`. The vessel resolver
+  needed no key at all: `plan.vessel` is a **name** and `jp_ship_stats` is a
+  name lookup, so a vessel needs no `animal_species_slot` equivalent — naming
+  the definition *is* the selection.
+- `jp_compute`'s return gained `cost` and `auto`; each leg's dict gained
+  `trace`, and a water leg's gained `sailing_window_h`.
+- New `#[func] jp_reroute(route_index, transport, force_mode)`, which rewrites
+  the committed route in place so `route_get` and `jp_compute`'s `route` index
+  still name it.
+- `TravelLibrary::vessel_overrides` → `travel_library::vessel_resolver_fn`.
+  Four of `ShipStats`' seven fields come straight off a `VesselDef`;
+  `river`/`sea` from `modes` and `open_sea` from `water_rating == Open`, which
+  is precisely `jp_vessel_water_block`'s own test. **`invalid_water` is always
+  empty and that is disclosed, not hidden**: `TRAVEL_LIBRARY_SPEC.md` §3.3 has
+  no per-water-type blacklist field, so a custom vessel is constrained by its
+  mode and rating only, never by a named water type the way "River Barge
+  cannot navigate River with Rapids" is. An entry still missing one of its
+  four numeric fields resolves to `None` — falling back to the built-in table
+  rather than sailing a hull with a zero hold. A correction to this pass's own
+  first draft: the eleven stock vessels turned out to be a 1:1 copy of
+  `JP_SHIPS`, so a fresh library overrides nothing at all; the rule is written
+  as a name test anyway, so a stock hull added later reaches the planner
+  instead of silently becoming another greyed-out row.
+
+### Shell (`journey_planner_view.gd`)
+
+Cost group, calculation-trace group (inline over the selected stage, following
+the spine — §7.12's own recommendation over §8's `⧉` window, since a window
+for one stage is more chrome than the content earns), sailing window per water
+leg, a live "re-route for `<mode>`…" action, the ⇧-drag trim gesture on the
+profile (press to start, motion to preview as a veil over the trimmed-away
+margins, release to commit, ⇧-click to clear), and the Auto carriage note
+turned from an apology into `jpAutoPickTransport`'s real outcome — including
+its `fodder_infeasible` case, where the reported animal count is an honest
+floor rather than an answer.
+
+### Journeys list and "save journey" — **partly closed, and the limit is the point**
+
+A journey can now be named, saved and reloaded — route index plus the whole
+party form, per-stage overrides, layovers, animal entries and trim — from the
+left dock's Journeys list. **Within a session only.** Persisting one to disk
+needs FI-01's `.zip` save-**writer**, which `ROADMAP.md` keeps under "Options
+kept open, not scheduled"; building one as a side effect of a planner button
+would have been a far larger and much less considered thing than this control.
+The list is GDScript-owned rather than a `cartalith-civ` registry for the same
+reason — with no writer behind it there is nothing for the engine to own: a
+saved journey is exactly the request `jp_compute` already takes. The button's
+own tooltip says so, and JP-06/JP-08 stay open in the register.
+
+### One deliberate non-coupling
+
+`TRAVEL_LIBRARY_SPEC.md` §3.3 gives each vessel a `sailing_window`
+(daylight / continuous). The engine's sailing window is `jp_water_window`, a
+property of the **water type** (a sheltered bay is worked in daylight; open
+sea is stood through the night at 22 h). Nothing in the reference couples the
+two, so the two are not conflated — the Vessels group states which one it is
+showing rather than blending them into a model this port made up.
+
+### A layout bug found by trying to use the new gesture, and fixed
+
+The ⇧-drag was built, the unit tests passed, and then it would not fire under
+a real mouse. The cause was not the gesture: **the centre column was being
+stretched to 7 417 px inside its 748 px parent.** `_rebuild_stops` builds one
+chip per stop — a settlement name at natural width plus a 60 px SpinBox — and
+this route has 34 stops; a `Container` propagates its children's combined
+minimum width upward, nothing clipped it, so the route map, the profile spine,
+the stage inspector and the matrix were all shoved mostly off-screen.
+
+Measured, before: a physical click anywhere across the visible spine
+(x = 560 … 1 260) selected **stage 0 or stage 1, of fourteen**. That silently
+capped the spine's own click-to-select and ⌥-click-isolate — both shipped
+2026-08-19 — as much as the new trim, and it had never been disclosed because
+nothing had tried to drive the spine with a real mouse before.
+
+Fixed by hosting the chip row in a plain `Control` (`clip_contents = true`,
+row anchored full-rect) instead of adding it straight to the `HBoxContainer`.
+A plain `Control` reports only its own `custom_minimum_size`, so the
+propagation stops there while the row still receives the real width and lays
+its chips along the distance axis exactly as designed. Measured, after:
+**1 249 px**, and the same probe sweep selects stages 0, 1, 3, 4, 6, 8.
+
+The residual 1 249 vs 748 is not a bug: it is the lower row (inspector 607 px
++ `JOURNEY_PLANNER_SPEC.md` §3's own 642 px stage matrix), a designed width
+that simply wants a window wider than the 1 684 px this session ran at.
+
+### Verified
+
+- `cargo test -p cartalith-civ` — 348 lib tests (8 new) plus every golden
+  integration suite, all green; **no golden value moved**, which is the point:
+  every change is either additive (`trace`, `sailing_window_h`) or a wrapper
+  over an already-golden function. (`cargo test -p cartalith-civ --doc` fails
+  on `unresolved import cartalith_urban` — a concurrent agent's in-flight
+  `urban_adapter.rs` in the same shared tree, not this work.)
+- `cargo test -p cartalith-godot --lib` — 263 (1 new).
+- `cargo build -p cartalith-godot` — fresh cdylib.
+- **A real, non-headless session** (`Godot_v4.7.1-stable_win64`, 1920x1080,
+  AMD RX 7800 XT, OpenGL compatibility) on a generated 384×288 world with a
+  real committed 1 625 km mixed-mode Route, driving each addition and reading
+  the numbers back:
+  - **Trace** — 12 of 14 legs traced (the other two blocked); on every one,
+    `∏ factor − daily_km` = `0.000000000`. Both calculators exercised.
+  - **Sailing window** — water legs reported `12.0 h/day · Calm River` and
+    `9.0 h/day`, matching `jp_water_window` for their own terrains.
+  - **Cost** — priced a 157 km, 19.4-day, 60-person, 0.6 t journey:
+    carriage `5.18196711714046` = `0.6 t × 157.029 km × 0.055` exactly;
+    wages `1164.295` = `60 × 19.4049`; components sum − total = `0.0`;
+    `per_tonne_km 12.4125` = `total / (0.6 × 157.029)`; `break_even 1949.13`
+    = `total / 0.6`. On the blocked route it correctly returned nothing, and
+    the panel said why rather than showing zeros.
+  - **Auto carriage** — `promoted = true`, Walking → Baggage Train, 10 mules
+    + 2 wagons, written back into the (disabled) form fields.
+  - **Trim** — dragged with **real mouse events routed through the viewport's
+    own hit test** (not injected into the handler): `_trim = (0.246, 0.689)`,
+    km `1625.36 → 719.76`, i.e. exactly the `0.4428` fraction dragged. ⇧-click
+    cleared it back to `1625.36`.
+  - **Re-route** — `1625.36 → 1789.95 km` for Walking; forcing the water
+    domain on dry land returned the reference's own refusal verbatim, rather
+    than a straight line.
+  - **Journeys list** — saved, listed and reloaded in-session.
+  - Frames captured at each step and read back: the Cost group, the Vessels
+    group with its sailing-window row, the Calculation trace group (`base ·
+    Baggage Train — wagon-limited 2.20`, `hours · 8.0 h/day ×8.000 17.60`,
+    `terrain · Hills ×0.850 14.96`, `route · None / Wild ×0.850 12.72`), the
+    Journeys list, and the trim's veil over the trimmed-away spine.
+- The harness that drove all of the above was deleted afterwards; nothing of
+  it is committed.

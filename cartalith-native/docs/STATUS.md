@@ -5,7 +5,56 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-23 (post **Urban morphology: the largest unported
+Last updated: 2026-08-23 (post **Journey Planner: the last GUI gaps**.
+`GUI_GAP_REGISTER.md` §6.9 — **JP-01, JP-03, JP-04, JP-05, JP-07, JP-09
+closed**, **JP-06/JP-08 partly closed** (in-session only, blocked on FI-01's
+save-writer by design), **IN-06's remainder closed**. The headline finding is
+that two of the nine gaps were **not** missing model code: `jp_journey_cost`
+(golden-tested since milestone 3) and `jp_auto_pick_transport` (milestone 6,
+eleven tests) were both ported and **called from nowhere outside their own
+tests** — JP-01's disclosed reason ("no Rust port") was simply stale, which is
+the reusable lesson: re-verify the *disclosure*, not only the code. New in
+`cartalith-civ`: `jp_plan_cost` (the reference's own call site, line 19854,
+including its `totalDays ?? days` and blocked-bails-first gates);
+`jp_reroute_for_mode` (`_jpRerouteForMode`, reference 20391 — **the ported
+count moves to 66 of 74**, and `JOURNEY_PLANNER_SCOPE.md`'s "blocked at
+closeout" line is now empty); `JpTerm` + a `trace` on both stage calculators
+(the speed chain as structured terms, `∏ factor == daily_km` asserted — the
+reference's `formula` *prose* still stays out of the engine, which was
+§7.12's real constraint, but its assumption that the factors already crossed
+the boundary was wrong and is corrected in the row); `jp_trim_points` (the
+⇧-drag spine trim, cutting the polyline before anything reads it, so a trim
+is indistinguishable from a shorter drawn route); `JpVesselResolver` /
+`jp_calc_water_ex` / `jp_plan_full` plus `travel_library::vessel_resolver_fn`
+and `TravelLibrary::vessel_overrides` (the vessel sibling of TL-01's animal
+resolver — `invalid_water` has no §3.3 field to come from and is stated in the
+picker's tooltip rather than faked); `JpWaterCalc::sailing_window_h`.
+`jp_compute` gained `auto_carriage`/`trim` in and `cost`/`auto` out, each leg
+gained `trace`, water legs gained `sailing_window_h`, and a new `#[func]
+jp_reroute` rewrites a committed route in place. `journey_planner_view.gd`
+gained the real Cost group, the inline calculation-trace group (§7.12's own
+recommendation over §8's `⧉` window), the per-water-leg sailing window, a live
+re-route action, the ⇧-drag trim gesture, an Auto-carriage note that reports
+`jpAutoPickTransport`'s real pick, and a session-scoped Journeys list.
+**A layout bug was found by trying to use the new gesture and fixed in the
+same pass**: `_rebuild_stops` builds one chip per stop, and a 34-stop route's
+combined minimum width was stretching the whole centre column to **7 417 px
+inside its 748 px parent**, shoving the route map, spine, inspector and matrix
+off-screen — a physical click anywhere across the visible spine reached only
+stage 0 or 1 of 14, which had silently capped the spine's *existing*
+click-to-select and ⌥-isolate since 2026-08-19 and had never been disclosed,
+because nothing had driven the spine with a real mouse before. Hosting the chip
+row in a plain `Control` (which reports only its own minimum size) instead of
+adding it straight to a `Container`: **7 417 px → 1 249 px**, and the same probe
+sweep now reaches stages 0/1/3/4/6/8.
+**Deliberately not done, and said on the button**: a saved journey does not
+survive the session — that needs FI-01's `.zip` save-**writer**, which
+`ROADMAP.md` keeps unscheduled, and it was not built as a side effect of a
+planner control. Verified: `cargo test -p cartalith-civ` (348 lib + every
+golden suite, 8 new, **no golden value moved**), `cargo test -p
+cartalith-godot --lib` (263, 1 new), `cargo build -p cartalith-godot`, and a
+real non-headless session for the two interactive additions.
+— previously, post **Urban morphology: the largest unported
 subsystem gets its first consumer**. `PARITY_AUDIT.md` §3.4 found
 `cartalith-urban` — 4,516 lines, milestones 1-7 of ~17, every module
 golden-tested — with **zero consumers** anywhere in the workspace, and

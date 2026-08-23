@@ -5450,6 +5450,20 @@ fn jp_resupply_dict(r: &cartalith_civ::JpResupply) -> VarDictionary {
     }
 }
 
+/// The speed chain as `Array[{key, detail, factor}]` -- JP-05's calculation
+/// trace. Still not the reference's `formula` *string*: prose stays in
+/// GDScript, which formats these rows into the running-value table
+/// `GUI_GAP_REGISTER.md` §7.12 designed. What crosses is only the fact of
+/// which factors were applied, in order, with what values -- engine
+/// knowledge that cannot be re-derived on the far side without a second
+/// copy of every table.
+fn jp_trace_array(trace: &[cartalith_civ::JpTerm]) -> Array<VarDictionary> {
+    trace
+        .iter()
+        .map(|t| vdict! { "key" => t.key, "detail" => t.detail.as_str(), "factor" => t.factor })
+        .collect()
+}
+
 /// `jpCalcLand`'s return, minus the reference's `formula` trace string --
 /// presentation, which `ARCHITECTURE.md` assigns to Godot, and every value it
 /// prints is a key here.
@@ -5457,7 +5471,9 @@ fn jp_land_calc_dict(l: &cartalith_civ::JpLandCalc) -> VarDictionary {
     let (desert_tier, desert_tier_auto) = l.desert_tier.map_or(("", false), |(label, auto)| (label, auto));
     let capacity = jp_capacity_dict(&l.cap);
     let resupply = l.resupply.as_ref().map_or_else(VarDictionary::new, jp_resupply_dict);
+    let trace = jp_trace_array(&l.trace);
     vdict! {
+        "trace" => &trace,
         "daily_km" => l.daily_km,
         "days" => l.days,
         "load_ratio" => l.load_ratio,
@@ -5480,7 +5496,13 @@ fn jp_land_calc_dict(l: &cartalith_civ::JpLandCalc) -> VarDictionary {
 /// `jpCalcWater`'s return, same `formula` omission.
 fn jp_water_calc_dict(w: &cartalith_civ::JpWaterCalc) -> VarDictionary {
     let resupply = jp_resupply_dict(&w.resupply);
+    let trace = jp_trace_array(&w.trace);
     vdict! {
+        "trace" => &trace,
+        // JP-09's third datum ("per water leg: vessel, hold used, sailing
+        // window"). The other two are `transport_label` and `hold_kg`
+        // below, both already here.
+        "sailing_window_h" => w.sailing_window_h,
         "daily_km" => w.daily_km,
         "days" => w.days,
         "load_ratio" => w.load_ratio,
@@ -5789,6 +5811,27 @@ impl WorldGen {
             return fail("a journey needs at least two route points");
         }
 
+        // ---- the spine trim (JP-07) ----
+        //
+        // `JOURNEY_PLANNER_SPEC.md` §3's "⇧ drag trims", as two fractions of
+        // the route's own arc length. It cuts the polyline BEFORE anything
+        // else reads it, so every downstream stage index, stop key and
+        // per-stage override belongs to the trimmed route -- which is what
+        // makes a trim indistinguishable from having drawn the shorter route
+        // in the first place.
+        let pts = match request.get("trim") {
+            None => pts,
+            Some(v) => {
+                let Ok(t) = v.try_to::<Vector2>() else {
+                    return fail("`trim` must be a Vector2 of two 0-1 fractions of the route's length");
+                };
+                match cartalith_civ::jp_trim_points(&pts, t.x as f64, t.y as f64) {
+                    Some(cut) if cut.len() >= 2 => cut,
+                    _ => return fail("that trim leaves no route to plan"),
+                }
+            }
+        };
+
         // ---- the plan, its per-stage overrides and the layover map ----
         let mut plan = cartalith_civ::JpPlan::default();
         if let Some(v) = request.get("plan") {
@@ -5856,7 +5899,14 @@ impl WorldGen {
             let key = k.to_string();
             if !matches!(
                 key.as_str(),
-                "route" | "points" | "plan" | "stage_overrides" | "layovers" | "animal_entries"
+                "route"
+                    | "points"
+                    | "plan"
+                    | "stage_overrides"
+                    | "layovers"
+                    | "animal_entries"
+                    | "auto_carriage"
+                    | "trim"
             ) {
                 rejected.push(&GString::from(&key));
             }
@@ -5927,9 +5977,37 @@ impl WorldGen {
         }
         let (stats_fn, terrain_fn) = cartalith_civ::travel_library::animal_resolver_fns(&overrides);
         let resolver = cartalith_civ::JpAnimalResolver { stats: &*stats_fn, terrain_mod: &*terrain_fn };
-        let Some(journey) =
-            cartalith_civ::jp_plan_ex(&world, &pts, &plan, &layovers, &|_, _| 1.0, Some(&resolver))
-        else {
+        // The vessel half of the same dispatch (IN-06's stated remainder).
+        // Unconditional and unparameterised, unlike `animal_entries`: a
+        // vessel is chosen by NAME (`plan.vessel`), so the library needs no
+        // slot selection -- naming the definition IS the selection.
+        let vessel_overrides = self.travel_library.vessel_overrides();
+        let vessel_fn = cartalith_civ::travel_library::vessel_resolver_fn(&vessel_overrides);
+        let vessel_resolver = cartalith_civ::JpVesselResolver { stats: &*vessel_fn };
+
+        // ---- auto carriage (JP-01) ----
+        //
+        // `_jpRunAuto` (reference 19614): the picker runs at exactly one
+        // point per refresh, before the plan is computed, and MUTATES the
+        // plan -- which is why the picked counts come back in `auto.plan`
+        // for the party form to write into its own (disabled) spinners,
+        // the reference's own `_jpSyncAssetInputs`.
+        let mut auto = VarDictionary::new();
+        if request.get("auto_carriage").and_then(|v| v.try_to::<bool>().ok()) == Some(true) {
+            let picked = cartalith_civ::jp_auto_pick_transport(&world, &pts, &mut plan);
+            auto = jp_auto_transport_dict(&picked);
+            auto.set("plan", &jp_pairs_dict(&journey_bridge::plan_to_pairs(&plan)));
+        }
+
+        let Some(journey) = cartalith_civ::jp_plan_full(
+            &world,
+            &pts,
+            &plan,
+            &layovers,
+            &|_, _| 1.0,
+            Some(&resolver),
+            Some(&vessel_resolver),
+        ) else {
             return vdict! { "ok" => false, "error" => "no derivable stages for that route", "rejected" => &rejected };
         };
         let v = cartalith_civ::jp_verdict(&journey);
@@ -5944,6 +6022,13 @@ impl WorldGen {
             vdict! { "lo_days" => c.lo_days, "hi_days" => c.hi_days, "lo" => c.lo, "hi" => c.hi, "note" => c.note }
         });
         let plan_dict = jp_journey_plan_dict(&journey);
+        // JP-04. `jp_journey_cost` has been ported and golden-tested since
+        // milestone 3 and was called by nothing; `jp_plan_cost` is the
+        // reference's own call site (line 19854), and this is the line that
+        // was missing. Empty `Dictionary` on a blocked journey -- the
+        // reference's own `null`, and the same convention `confidence` uses.
+        let cost = cartalith_civ::jp_plan_cost(&journey, &plan)
+            .map_or_else(VarDictionary::new, |c| jp_cost_dict(&c));
         vdict! {
             "ok" => true,
             "error" => "",
@@ -5951,8 +6036,129 @@ impl WorldGen {
             "plan" => &plan_dict,
             "verdict" => &verdict,
             "confidence" => &confidence,
+            "cost" => &cost,
+            "auto" => &auto,
         }
     }
+
+    /// `_jpRerouteForMode` (reference line 20391) over a **committed
+    /// route**: re-paths its two endpoints under one travel domain and
+    /// rewrites the route in place, so every consumer that already names it
+    /// by index (`jp_compute`'s `route` key, `route_get`) sees the new line.
+    ///
+    /// `force_mode`: `""` derives the domain from `transport`
+    /// (`jp_mode_for_route`); `"land"`, `"water"` or `"mixed"` overrides it,
+    /// which is what a blocked WATER stage's "re-route land-only" needs.
+    ///
+    /// `{"ok": bool, "error": String, "km": float, "points":
+    /// PackedVector2Array}`. `ok:false` carries the reference's own refusal
+    /// text -- an unreachable answer is refused outright rather than drawn
+    /// as the straight-line fallback `route_commit` tolerates.
+    #[func]
+    fn jp_reroute(&mut self, route_index: i64, transport: GString, force_mode: GString) -> VarDictionary {
+        let fail = |msg: &str| vdict! { "ok" => false, "error" => msg, "km" => 0.0, "points" => &PackedVector2Array::new() };
+        let (Some(WorldSource::Generated(ws)), Some(civ)) = (self.source.as_ref(), self.civ.as_ref()) else {
+            return fail("no generated world -- call generate() first");
+        };
+        let Ok(i) = usize::try_from(route_index) else { return fail("`route_index` must be non-negative") };
+        let Some(route) = self.infra.as_ref().and_then(|t| t.routes.get(i)) else {
+            return fail("no committed route at that index -- see route_count()");
+        };
+        let (pts, mode) = (route.pts.clone(), route.mode);
+        let inputs = infra_tools_bridge::RouteInputs::build(
+            ws, self.gw as usize, self.gh as usize, self.world, self.map_width_km, self.params.river_density, mode,
+        );
+        let manual_ways = self.infra.as_ref().map(|t| t.ways.clone()).unwrap_or_default();
+        let mut way_refs: Vec<cartalith_civ::tools::WayRef> =
+            civ.ways.iter().map(cartalith_civ::tools::WayRef::from).collect();
+        way_refs.extend(manual_ways.iter().map(cartalith_civ::tools::WayRef::from));
+        let ctx = cartalith_civ::tools::RouteContext {
+            field: &ws.field,
+            water_bodies: &inputs.water_bodies,
+            biome: inputs.biome.as_deref(),
+            river_order: inputs.river_order.as_deref(),
+            places: &civ.settlements,
+            ways: &way_refs,
+            gw: self.gw as usize,
+            gh: self.gh as usize,
+            sea: self.sea_level,
+            world: self.world,
+            map_width_km: self.map_width_km,
+        };
+        let forced = force_mode.to_string();
+        let forced = (!forced.is_empty()).then_some(forced);
+        match cartalith_civ::jp_reroute_for_mode(&ctx, &pts, &transport.to_string(), forced.as_deref()) {
+            Err(e) => fail(&e),
+            Ok(r) => {
+                let points: PackedVector2Array =
+                    r.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
+                let km = r.km;
+                if let Some(route) = self.infra.as_mut().and_then(|t| t.routes.get_mut(i)) {
+                    route.pts = r.pts;
+                    route.brks = r.brks;
+                    route.km = km;
+                    route.unreachable_legs = 0;
+                }
+                vdict! { "ok" => true, "error" => "", "km" => km, "points" => &points }
+            }
+        }
+    }
+}
+
+/// [`cartalith_civ::JourneyCost`] flattened. Every figure is in **day-wages**
+/// (`JP_COST_*`'s own unit), never a currency -- `jp_journey_cost`'s own doc
+/// comment has the reasoning. `per_tonne_km`/`break_even_per_tonne` are `-1`
+/// when there is no cargo to divide by, the same "-1 is absent" convention
+/// `stops_needed`/`total_days` already use.
+fn jp_cost_dict(c: &cartalith_civ::JourneyCost) -> VarDictionary {
+    vdict! {
+        "total" => c.total,
+        "carriage" => c.carriage,
+        "wages" => c.wages,
+        "crew" => c.crew,
+        "upkeep" => c.upkeep,
+        "tolls" => c.tolls,
+        "transship" => c.transship,
+        "borders" => c.borders as i64,
+        "days" => c.days,
+        "cargo_t" => c.cargo_t,
+        "per_tonne_km" => c.per_tonne_km.unwrap_or(-1.0),
+        "break_even_per_tonne" => c.break_even_per_tonne.unwrap_or(-1.0),
+        "unit" => "day-wages",
+    }
+}
+
+/// [`cartalith_civ::JpAutoTransport`] flattened -- `jpAutoPickTransport`'s
+/// own `{ok, hint, promoted, warn}` return, with the reference's *prose*
+/// hint left to GDScript and its inputs carried instead.
+fn jp_auto_transport_dict(a: &cartalith_civ::JpAutoTransport) -> VarDictionary {
+    use cartalith_civ::JpAutoTransport as A;
+    let mut d = match a {
+        A::NoLandStages => vdict! { "ok" => false, "reason" => "no_land_stages" },
+        A::NotALandMode => vdict! { "ok" => false, "reason" => "not_a_land_mode" },
+        A::Walking { total_need, porter_cap } => vdict! {
+            "ok" => true, "reason" => "walking", "total_need" => *total_need, "porter_cap" => *porter_cap,
+        },
+        A::WalkingOverloaded { total_need, porter_cap } => vdict! {
+            "ok" => true, "reason" => "walking_overloaded", "warn" => true,
+            "total_need" => *total_need, "porter_cap" => *porter_cap,
+        },
+        A::Mount { pick } => vdict! {
+            "ok" => true, "reason" => "mount", "species" => pick.key, "why" => pick.reason.as_str(),
+        },
+        A::BaggageTrain { pick, count, carts, wagons, promoted, fodder_infeasible } => vdict! {
+            "ok" => true, "reason" => "baggage_train", "species" => pick.key, "why" => pick.reason.as_str(),
+            "count" => *count, "carts" => *carts, "wagons" => *wagons,
+            "promoted" => *promoted, "fodder_infeasible" => *fodder_infeasible,
+        },
+    };
+    if !d.contains_key("warn") {
+        d.set("warn", false);
+    }
+    if !d.contains_key("promoted") {
+        d.set("promoted", false);
+    }
+    d
 }
 
 /// `TRAVEL_LIBRARY_SPEC.md`'s `#[func]` boundary -- omission O1 / gap

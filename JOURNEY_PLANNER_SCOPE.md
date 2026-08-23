@@ -1065,3 +1065,70 @@ capacity, speed, fodder, water and ten-row terrain table. What it still borrows
 from the substituted species is precisely what §3.1 has no fields for, and the
 party form says so by name. `TRAVEL_LIBRARY_SPEC.md` §6 carries the full
 evidence and the four-point cost breakdown.
+
+## Update (2026-08-23) — the count reaches 66 of 74, and the last of the GUI gaps close
+
+This pass took the Journey Planner's remaining rows in `GUI_GAP_REGISTER.md`
+§6.9. Six closed, two closed as far as they honestly can, and the count above
+moves for the first time since closeout.
+
+### The count is now 66 of 74
+
+**`_jpRerouteForMode` is ported.** "The one remaining gap" above recorded it as
+unblocked on 2026-08-18 and then left it unported for five days; it is now
+`cartalith_civ::jp_reroute_for_mode`, and it turned out to be exactly what that
+section predicted — a `civ_dijkstra_path` call plus v1.100's `forceMode`
+override and two refusal strings. So:
+
+**66 ported + 6 unportable (DOM) + 2 not-Rust-functions = 74.** The
+"blocked at closeout" line is now empty, and nothing is unaccounted for.
+
+The engine gained four things that are *not* among the 74, because the
+reference has no counterpart for any of them — stated plainly rather than
+counted as ports:
+
+| new | why it is not a port |
+|---|---|
+| `jp_plan_cost` | the reference's call site is inline JS at line 19854, not a function; this is that call site's Rust half |
+| `JpTerm` / `JpLandCalc::trace` / `JpWaterCalc::trace` | the reference builds a `formula` **string** in the same place. Prose is presentation and stays in Godot; the *structured* chain is engine fact that cannot be re-derived across the boundary without a second copy of every table |
+| `jp_trim_points` | `JOURNEY_PLANNER_SPEC.md` §3's ⇧-drag trim. v2.10 has no distance spine to drag on. It invents no model: the trimmed polyline goes through the same `jp_plan` an untrimmed one does |
+| `JpVesselResolver` / `jp_calc_water_ex` / `travel_library::vessel_resolver_fn` | the Travel Library's own vessel half (`TRAVEL_LIBRARY_SPEC.md` §6), the exact sibling of the animal resolver milestone TL-01 shipped |
+
+### What closed, and what did not
+
+- **JP-01 carriage Auto** — `jp_auto_pick_transport` had been ported since
+  milestone 6 with eleven tests and was called by nothing. `jp_compute` gained
+  `auto_carriage`, which runs it *before* the plan is computed and returns the
+  pick; the party form writes the picked counts back. That is `_jpRunAuto` +
+  `_jpSyncAssetInputs`, the two DOM functions this document counts as
+  unportable, re-expressed in GDScript exactly as `ARCHITECTURE.md` intends.
+- **JP-03 re-route** — above.
+- **JP-04 cost** — `jp_journey_cost` had been ported and golden-tested since
+  milestone 3 and was likewise called by nothing. `jp_plan_cost` is the
+  adaptor; `jp_compute` returns it.
+- **JP-05 calculation trace** — an inline results group, built as
+  `GUI_GAP_REGISTER.md` §7.12 proposed and with its own recommendation taken
+  (no `⧉` window). Invariant asserted engine-side: `∏ factor == daily_km`.
+- **JP-07 spine trim** — `jp_compute`'s `trim` key, cutting the polyline before
+  anything reads it, so the trim is indistinguishable from a shorter drawn route.
+- **JP-09 sailing window** — `JpWaterCalc::sailing_window_h`. It was already a
+  factor of `daily_km` and had simply never been surfaced.
+- **IN-06's remainder** — the vessel resolver.
+- **JP-06 / JP-08 save + journeys list — partly, and the limit is named.** A
+  journey can be named, saved and reloaded *within a session*. Persisting one
+  needs FI-01's `.zip` save-**writer**, which `ROADMAP.md` keeps unscheduled;
+  it was not built as a side effect of a planner button, and the list is
+  GDScript-owned precisely because with no writer behind it there is nothing
+  for the engine to own — a saved journey is exactly the request `jp_compute`
+  already takes.
+
+### One deliberate non-coupling
+
+`TRAVEL_LIBRARY_SPEC.md` §3.3 gives a vessel a `sailing_window`
+(daylight / continuous). The engine's sailing window is `jp_water_window`,
+a property of the **water type**. Nothing in the reference couples the two,
+and this pass did not invent a coupling: the Vessels group prints the
+engine's hours and says which of the two it is showing. Likewise
+`ShipStats::invalid_water` has no §3.3 field to come from, so a custom
+vessel is constrained by its mode and water rating only — the picker's own
+tooltip states that rather than leaving it to be discovered.

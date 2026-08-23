@@ -64,15 +64,23 @@ class_name JourneyPlannerView
 ## data anywhere in this file. Specific, named simplifications against the
 ## mockup's own example content:
 ##
-## - **Journeys list** shows committed routes (`route_count`/`route_get`),
-##   not named, persisted "journeys" -- no such registry exists engine-side.
-## - **Carriage auto/manual**: the toggle is real UI state, but "Auto" mode's
-##   own picker (`jpAutoPickTransport`, reference HTML ~line 19617) has no
-##   Rust port -- `journey_bridge.rs`/`cartalith-civ` expose no
-##   auto-carriage function. Selecting Auto disables the animal/vehicle
-##   fields and disables the picker with a stated reason rather than faking a
-##   plausible-looking auto-pick; genuinely a Rust-side gap, reported rather
-##   than invented here per this task's own constraint.
+## - **Journeys list**: real as of 2026-08-23 (JP-06/JP-08) — "save journey"
+##   names the selected route *plus* the whole party form and adds it to the
+##   list, which reloads it in one click. **In-session only, and said so on
+##   the button**: persisting one to disk needs the `.zip` save-*writer*
+##   (`GUI_GAP_REGISTER.md` FI-01) that `ROADMAP.md` keeps unscheduled, and
+##   building one as a side effect of a planner button would be a far larger
+##   thing than this row. The list lives in GDScript for the same reason:
+##   with no writer behind it there is nothing for the engine to own — a
+##   saved journey is exactly the request `jp_compute` already takes.
+## - **Carriage auto/manual**: real as of 2026-08-23 (JP-01).
+##   `jpAutoPickTransport` was already ported (`cartalith_civ::
+##   jp_auto_pick_transport`); what was missing was the call. Auto now sends
+##   `jp_compute`'s own `auto_carriage` key, the picker mutates the plan
+##   before it is computed (the reference's `_jpRunAuto`, line 19614, one
+##   call site per refresh), and `_sync_auto_carriage()` writes the picked
+##   counts back into the form — its `_jpSyncAssetInputs` (line 19632),
+##   including the `promoted` -> structural-rebuild rule.
 ## - **Party set-ups**: real as of 2026-08-20 (JP-02). Not the reference's
 ##   JS-only `JP_PRESETS` (~line 17595) — the Travel Library's own stored
 ##   rows, stock and captured alike (`tl_list`/`tl_get("preset")`,
@@ -82,21 +90,39 @@ class_name JourneyPlannerView
 ## - **Travel Library definitions in the party form**: real as of
 ##   2026-08-20 (TL-01) for animals — see the "Travel Library wiring"
 ##   section below for exactly what is offerable and what is not, and why.
-## - **Re-route for <mode>…**: `_jpRerouteForMode`/`jpAutoPickTransport`'s
-##   sibling -- same gap, same disclosure.
-## - **Cost group** (food/fodder/wages/tolls/upkeep in currency): `jp_plan`
-##   returns no monetary figures at all (`jp_journey_plan_dict`, checked
-##   against the full field list). Shown with a stated gap, not invented sums.
+## - **Re-route for <mode>…**: real as of 2026-08-23 (JP-03).
+##   `_jpRerouteForMode` (reference line 20391) ported into `cartalith-civ`
+##   and bound as `jp_reroute`; it re-paths the committed route's two
+##   endpoints under the domain the journey's transport implies and rewrites
+##   the route in place. An unreachable answer is refused with the
+##   reference's own message rather than drawn as the straight-line fallback
+##   `route_commit` tolerates.
+## - **Cost group**: real as of 2026-08-23 (JP-04). The model
+##   (`jp_journey_cost`) had been ported and golden-tested since milestone 3
+##   and was called by nothing; `jp_plan_cost` is the reference's own call
+##   site (line 19854) and `jp_compute` now returns its `cost` dict. Priced
+##   in **day-wages**, never a currency — that is the model's own unit, not
+##   a simplification here.
+## - **Calculation trace**: real as of 2026-08-23 (JP-05), built as
+##   `GUI_GAP_REGISTER.md` §7.12 proposed — an inline group over the
+##   selected stage rather than the spec's `⧉` window, one row per
+##   multiplicative term with its running value. The reference's `formula`
+##   *string* still does not cross the boundary; what crosses is the
+##   structured `trace` (`JpTerm`), whose product is asserted engine-side to
+##   equal the leg's own `daily_km`.
 ## - **Elevation-profile sparkline**: unlike the old dialog (which reported
 ##   `plan.profile`'s presence and stopped), this pass DOES draw it --
 ##   `_ProfileView` plots the real 0-1 normalised samples. It was only
 ##   time-boxed out before; rebuilding this view was the right time to close
 ##   it for real.
-## - **⇧-drag spine trim**: genuinely deferred, not faked. `jp_compute` has no
-##   request field for trimming a route's endpoints or interior span --
-##   building the gesture would mean inventing a request shape with nothing
-##   on the other side of the boundary to receive it. Click-to-select and
-##   ⌥-click-to-isolate are both real and implemented.
+## - **⇧-drag spine trim**: real as of 2026-08-23 (JP-07). `jp_compute` gained
+##   a `trim` request key (two fractions of the route's arc length) which
+##   cuts the polyline through `cartalith_civ::jp_trim_points` *before*
+##   anything reads it — so every stage index, stop key and per-stage
+##   override that comes back belongs to the trimmed route, and a trim is
+##   indistinguishable from having drawn the shorter route by hand. ⇧ click
+##   without dragging clears it. Click-to-select and ⌥-click-to-isolate are
+##   unchanged.
 ## - **Stage inspector disabled-with-reason**: implemented for the two cases
 ##   `JOURNEY_PLANNER_SPEC.md` §6 names explicitly (vessel on a land stage,
 ##   mount when the effective transport isn't Mounted Rider). The other
@@ -123,7 +149,25 @@ var _stage_overrides: Dictionary = {}   ## int stage idx -> Dictionary (JpStageO
 var _layovers: Dictionary = {}          ## stop key (String) -> int days
 var _selected_stage := 0
 var _isolated_stage := -1               ## -1 = no isolation
-var _carriage_auto := true              ## View-local only; see class doc's disclosed gap.
+var _carriage_auto := true              ## Sent as `jp_compute`'s own `auto_carriage` (JP-01).
+
+## JP-07. The ⇧-drag spine trim, as two fractions of the route's arc length.
+## `Vector2(0, 1)` is the whole route and is not sent at all, so an untrimmed
+## journey's request is byte-identical to what it was before this existed.
+var _trim := Vector2(0.0, 1.0)
+
+## JP-06 / JP-08. The journeys list: a route index plus the whole party form,
+## named. **In-session only, and deliberately so** -- persisting one across
+## sessions needs the `.zip` save-*writer* (`GUI_GAP_REGISTER.md` FI-01),
+## which `ROADMAP.md` keeps explicitly unscheduled, and building one as a
+## side effect of a planner button would be a much larger thing than this
+## row. Kept in GDScript rather than pushed into `cartalith-civ` for the same
+## reason: with no writer behind it there is nothing for the engine to own --
+## a saved journey is exactly the request `jp_compute` already takes.
+## Entries: `{name: String, route: int, plan: Dictionary, stage_overrides:
+## Dictionary, layovers: Dictionary, animal_entries: Dictionary, trim: Vector2}`.
+var _journeys: Array = []
+var _active_journey := -1
 
 ## TL-01: which Travel Library animal definition occupies each of the four
 ## built-in party-form species slots -- species key (String) -> entry id
@@ -266,9 +310,35 @@ func _refresh_route_choice() -> void:
 	var count := bridge.route_count()
 	if count == 0:
 		DccWidgets.note(_left_route_section,
-			"No committed routes yet -- arm Route (⇧R) below, click waypoints, ✓ Commit, then this list re-reads it. Journeys here are committed routes, not a separate persisted list; JP_PRESETS-style named journeys are a JS-only concept with no engine registry.")
+			"No committed routes yet -- arm Route (⇧R) below, click waypoints, ✓ Commit, then this list re-reads it.")
 		_route_index = -1
 		return
+
+	# JP-08's journeys list: the named, saved journeys first (a journey is a
+	# route *plus* a party form), then the raw committed routes underneath.
+	for i in _journeys.size():
+		var j: Dictionary = _journeys[i]
+		var jrow := HBoxContainer.new()
+		jrow.add_theme_constant_override("separation", 4)
+		var pad := MarginContainer.new()
+		pad.add_theme_constant_override("margin_left", 13)
+		pad.add_theme_constant_override("margin_right", 13)
+		pad.add_child(jrow)
+		_left_route_section.add_child(pad)
+		var open_btn := Button.new()
+		open_btn.text = "%s%s" % ["● " if i == _active_journey else "", String(j.get("name", "journey"))]
+		open_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		open_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		open_btn.tooltip_text = "Route #%d + this party form. Session-only (no save-writer, FI-01)." % int(j.get("route", 0))
+		open_btn.pressed.connect(func(): _load_journey(i))
+		jrow.add_child(open_btn)
+		var del_btn := Button.new()
+		del_btn.text = "×"
+		del_btn.tooltip_text = "Forget this journey."
+		del_btn.pressed.connect(func(): _delete_journey(i))
+		jrow.add_child(del_btn)
+	if not _journeys.is_empty():
+		_left_route_section.add_child(DccTheme.rule())
 
 	var labels: Array = []
 	for i in count:
@@ -289,8 +359,9 @@ func _refresh_route_choice() -> void:
 			_layovers.clear()
 			_selected_stage = 0
 			_isolated_stage = -1
+			_trim = Vector2(0.0, 1.0)
 			_compute(),
-		"route_get()'s own points/km/mode. Journeys here are committed routes, not a separate persisted list.")
+		"route_get()'s own points/km/mode. \"save journey\" in the tool options bar names the route + party form together and adds it to the list above (this session only -- no save-writer exists, FI-01).")
 
 # -- Party form fields (shared field-binding vocabulary, matching journey_planner_window.gd's own convention) --
 
@@ -466,14 +537,13 @@ func _rebuild_party_form() -> void:
 	manual_btn.toggle_mode = true
 	manual_btn.button_pressed = not _carriage_auto
 	manual_btn.focus_mode = Control.FOCUS_NONE
-	auto_btn.pressed.connect(func(): _carriage_auto = true; manual_btn.button_pressed = false; _rebuild_party_form())
-	manual_btn.pressed.connect(func(): _carriage_auto = false; auto_btn.button_pressed = false; _rebuild_party_form())
+	auto_btn.pressed.connect(func(): _carriage_auto = true; manual_btn.button_pressed = false; _rebuild_party_form(); _compute())
+	manual_btn.pressed.connect(func(): _carriage_auto = false; auto_btn.button_pressed = false; _rebuild_party_form(); _compute())
 	mode_row.add_child(auto_btn)
 	mode_row.add_child(manual_btn)
 	carriage.add_child(mode_row)
 	if _carriage_auto:
-		DccWidgets.note(carriage,
-			"Auto (best animal for the route's terrain × biome, km-weighted) is the reference's jpAutoPickTransport — not ported to Rust yet (no cartalith-civ auto-carriage function exists). Counts below stay at whatever Manual last set; toggling Auto only disables editing them here, it does not compute a pick.")
+		DccWidgets.note(carriage, _auto_carriage_note())
 
 	_choice_field(carriage, "Transport", "transport", _options.get("transport", PackedStringArray()), false, true)
 	var transport := String(_plan_values.get("transport", "Walking"))
@@ -511,6 +581,39 @@ func _rebuild_party_form() -> void:
 	footer_pad.add_theme_constant_override("margin_bottom", 8)
 	footer_pad.add_child(footer)
 	_left_party_body.add_child(footer_pad)
+
+## JP-01. `jpAutoPickTransport`'s own outcome, in prose -- the reference's
+## `auto.hint`. Every number here is the picker's own return
+## (`jp_auto_transport_dict`), not a re-derivation in GDScript.
+func _auto_carriage_note() -> String:
+	var auto: Dictionary = _last_result.get("auto", {})
+	if auto.is_empty():
+		return "Auto picks the transport, animal species and vehicle count for this route (jpAutoPickTransport: best animal for the route's terrain × biome, km-weighted). Compute a route to see the pick."
+	var reason := String(auto.get("reason", ""))
+	match reason:
+		"no_land_stages":
+			return "Auto has nothing to pick: this route has no land stage. A water leg picks its own vessel (jp_auto_stage_vessel)."
+		"not_a_land_mode":
+			return "Auto applies to Walking / Mounted Rider / Baggage Train. \"%s\" is a water mode, so the carriage counts below are left alone." % String(_plan_values.get("transport", ""))
+		"walking":
+			return "Walking: the party carries its own load — %s kg needed against %s kg of porter capacity, so no animals or vehicles are assigned." % [
+				_fmt_thousands(float(auto.get("total_need", 0.0)), 0), _fmt_thousands(float(auto.get("porter_cap", 0.0)), 0)]
+		"walking_overloaded":
+			return "⚠ Walking, over capacity: %s kg needed against %s kg of porter capacity, and auto-promote is off — so animals and vehicles stay cleared rather than a pack train being invented. Turn on \"Auto-promote\" below, or reduce the load." % [
+				_fmt_thousands(float(auto.get("total_need", 0.0)), 0), _fmt_thousands(float(auto.get("porter_cap", 0.0)), 0)]
+		"mount":
+			return "Mounted Rider on %s — %s" % [String(auto.get("species", "")), String(auto.get("why", ""))]
+		"baggage_train":
+			var head := "Baggage Train"
+			if bool(auto.get("promoted", false)):
+				head = "Promoted Walking → Baggage Train"
+			var txt := "%s: %d × %s, %d cart(s), %d wagon(s) — %s" % [
+				head, int(auto.get("count", 0)), String(auto.get("species", "")),
+				int(auto.get("carts", 0)), int(auto.get("wagons", 0)), String(auto.get("why", ""))]
+			if bool(auto.get("fodder_infeasible", false)):
+				txt += "  ⚠ No animal count solves this trip: at this length one animal can no longer carry its own fodder, so every animal added makes the shortfall worse. The count shown is an honest floor (cargo + supplies), not an answer — shorten the trip, raise grazing, or resupply."
+			return txt
+	return "Auto ran but reported no outcome this build understands (\"%s\")." % reason
 
 func _animal_pair(parent: Control, label_text: String, key_a: String, key_b: String) -> void:
 	var row := HBoxContainer.new()
@@ -692,10 +795,28 @@ func _mount_field(parent: Control) -> void:
 		"Only consulted when the party carries no donkeys/mules/camels/horses of its own. Entries are the Travel Library's own mount-capable definitions (§3.1 'usable as a mount').")
 	_auto_obs["mount_animal"] = ob
 
-## Vessel picker, library-backed. `jp_ship_stats` is still a fixed built-in
-## table (`TRAVEL_LIBRARY_SPEC.md` §6): a vessel definition only reaches the
-## engine when its *name* is one the table knows, so every other entry is
-## listed but disabled, with the reason on the item itself.
+## Every vessel `jp_compute` will accept for `plan.vessel`: the built-in
+## roster plus every Travel Library definition the vessel resolver can turn
+## into `ShipStats`. Used by this picker and by the stage inspector's own
+## per-stage Vessel override, so both offer the same set.
+##
+## IN-06's remainder, closed: a library vessel reaches the engine through
+## `TravelLibrary::vessel_overrides` -> `travel_library::vessel_resolver_fn`
+## -> `JpVesselResolver`, the exact sibling of the animal resolver. Only an
+## entry still missing one of its four numeric fields stays out, because the
+## resolver declines an incomplete definition rather than shipping a hull
+## with a zero hold.
+func _vessel_names() -> Array:
+	var out: Array = []
+	for n in (_options.get("vessel", PackedStringArray()) as PackedStringArray):
+		out.append(String(n))
+	for r in _library_vessels:
+		var row: Dictionary = r
+		var vessel_name := String(row.get("name", ""))
+		if vessel_name != "" and not out.has(vessel_name) and String(row.get("validation_state", "")) == "ok":
+			out.append(vessel_name)
+	return out
+
 func _vessel_field(parent: Control) -> void:
 	var engine_names: PackedStringArray = _options.get("vessel", PackedStringArray())
 	var labels: Array = []
@@ -704,8 +825,9 @@ func _vessel_field(parent: Control) -> void:
 	for r in _library_vessels:
 		var row: Dictionary = r
 		var vessel_name := String(row.get("name", ""))
-		var hooked := engine_names.has(vessel_name)
-		labels.append(_entry_label(row) if hooked else "%s  — no engine hook" % _entry_label(row))
+		var complete := String(row.get("validation_state", "")) == "ok"
+		var hooked := engine_names.has(vessel_name) or complete
+		labels.append(_entry_label(row) if hooked else "%s  — incomplete" % _entry_label(row))
 		names.append(vessel_name)
 		live.append(hooked)
 	# Any engine vessel with no library row at all still has to be reachable.
@@ -724,7 +846,7 @@ func _vessel_field(parent: Control) -> void:
 				return
 			_plan_values["vessel"] = String(names[i])
 			_plan_value_changed(false),
-		"Stock vessels drive jp_ship_stats. A custom vessel definition is real, validated data with no engine hook yet — no resolver equivalent to the animal one exists for the vessel table (TRAVEL_LIBRARY_SPEC.md §6), so it is listed here but not selectable.")
+		"Every vessel here drives the real water calculation: the eleven built-in hulls through jp_ship_stats, and any Travel Library definition through the vessel resolver (its speed, hold, crew and water rating). An entry still missing one of those four fields is disabled — the resolver declines an incomplete definition rather than sailing a hull with a zero hold. One limit worth knowing: §3.3 has no per-water-type blacklist field, so a custom vessel is constrained by its mode and water rating only, never by a named water type the way \"River Barge cannot navigate River with Rapids\" is.")
 	for i in live.size():
 		if not bool(live[i]):
 			ob.set_item_disabled(i, true)
@@ -762,6 +884,10 @@ func _compute() -> void:
 		_apply_result()
 		return
 	var request: Dictionary = {"route": _route_index, "plan": _plan_values.duplicate(true)}
+	if _carriage_auto:
+		request["auto_carriage"] = true
+	if _trim.x > 0.0 or _trim.y < 1.0:
+		request["trim"] = _trim
 	if not _animal_entries.is_empty():
 		request["animal_entries"] = _animal_entries.duplicate()
 	if not _stage_overrides.is_empty():
@@ -774,10 +900,39 @@ func _compute() -> void:
 	_last_result = bridge.jp_compute(request)
 	_apply_result()
 
+## The carriage keys `jpAutoPickTransport` mutates on the plan -- the exact
+## set the reference's `_jpSyncAssetInputs` (line 19632) writes back into the
+## form's own disabled inputs.
+const _AUTO_CARRIAGE_KEYS := ["donkey", "mule", "camel", "horse",
+	"carts", "wagons", "travois", "sleds", "transport", "mount_animal"]
+
+## `_jpRunAuto` mutates the plan; the form has to show what it picked, or the
+## Auto counts stay at whatever Manual last set (which is exactly the gap the
+## old "toggling Auto only disables editing them" note disclosed). Writes the
+## picked values back into `_plan_values` and rebuilds the form when the
+## picker *promoted* the transport, matching the reference's own
+## `if(auto&&auto.promoted) structural=true`.
+func _sync_auto_carriage() -> bool:
+	if not _carriage_auto:
+		return false
+	var auto: Dictionary = _last_result.get("auto", {})
+	if auto.is_empty() or not bool(auto.get("ok", false)):
+		return false
+	var picked: Dictionary = auto.get("plan", {})
+	for key in _AUTO_CARRIAGE_KEYS:
+		if picked.has(key):
+			_plan_values[key] = picked[key]
+	return bool(auto.get("promoted", false))
+
 func _apply_result() -> void:
 	var plan: Dictionary = {}
 	if bool(_last_result.get("ok", false)):
 		plan = _last_result.get("plan", {})
+	if _sync_auto_carriage():
+		# Walking -> Baggage Train changes which rows the form shows, so it
+		# has to be a rebuild rather than a relabel. `_rebuild_party_form()`
+		# does not recompute, so this cannot recurse.
+		_rebuild_party_form()
 	var stages: Array = plan.get("stages", [])
 	if _selected_stage >= stages.size():
 		_selected_stage = maxi(0, stages.size() - 1)
@@ -830,6 +985,7 @@ func _rebuild_profile(plan: Dictionary) -> void:
 	_profile.bands = bands
 	_profile.selected_idx = _selected_stage
 	_profile.isolated_idx = _isolated_stage
+	_profile.trim = _trim
 	_profile.queue_redraw()
 
 ## JP-13 (`JOURNEY_PLANNER_SPEC.md` §2: "Timeline bar carries the journey
@@ -991,6 +1147,7 @@ func _build_center_panel() -> void:
 	_profile.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_profile.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_profile.stage_clicked.connect(_on_stage_clicked)
+	_profile.trim_dragged.connect(_on_trim_dragged)
 	profile_col.add_child(_profile)
 
 	# -- Stops strip (32px) ------------------------------------------------------
@@ -1006,10 +1163,31 @@ func _build_center_panel() -> void:
 	stops_pad.add_child(stops_outer)
 	stops_wrap.add_child(stops_pad)
 	stops_outer.add_child(DccTheme.mono_label("STOPS · LAYOVER DAYS", "text_dim", DccTheme.FS_HEADER, 2, true))
+	# The chip row goes inside a plain `Control`, not straight into the
+	# HBox. Measured 2026-08-23 on a real 1684 px-wide session: a 34-stop
+	# route's chips (a settlement name at natural width plus a 60 px SpinBox
+	# each) report a combined minimum width of ~7 400 px, and because a
+	# Container propagates its children's minimum size upward with nothing
+	# clipping it, **the whole centre column was being stretched to 7 417 px
+	# inside its 748 px parent** — pushing the route map, the profile spine,
+	# the inspector and the matrix mostly off-screen. A physical mouse could
+	# reach only the first two of fourteen stage bands, which silently capped
+	# the spine's own click-to-select and ⌥-isolate (both long shipped) as
+	# well as this pass's ⇧-drag trim.
+	#
+	# A plain `Control` reports only its OWN `custom_minimum_size`, so the
+	# propagation stops here while the row still receives the real width and
+	# lays its chips across the distance axis exactly as designed; anything
+	# that genuinely does not fit is clipped rather than shoving the layout.
+	var stops_clip := Control.new()
+	stops_clip.clip_contents = true
+	stops_clip.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stops_clip.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	stops_outer.add_child(stops_clip)
 	_stops_row = HBoxContainer.new()
 	_stops_row.add_theme_constant_override("separation", 8)
-	_stops_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	stops_outer.add_child(_stops_row)
+	_stops_row.set_anchors_preset(Control.PRESET_FULL_RECT)
+	stops_clip.add_child(_stops_row)
 	_stops_note = DccTheme.mono_label("", "text_ghost", DccTheme.FS_TINY)
 	stops_outer.add_child(_stops_note)
 
@@ -1209,6 +1387,26 @@ func _on_stage_clicked(idx: int, isolate: bool) -> void:
 	var plan: Dictionary = _last_result.get("plan", {}) if bool(_last_result.get("ok", false)) else {}
 	_rebuild_inspector(plan)
 	_rebuild_matrix(plan)
+	# The trace group traces the SELECTED stage, so it follows the spine.
+	if app != null and app.right_dock_ctrl != null:
+		app.right_dock_ctrl.refresh_journey()
+
+## JP-07. The trim cuts the route polyline inside `jp_compute` (its own
+## `trim` request key -> `cartalith_civ::jp_trim_points`), so every stage
+## index, stop key and per-stage override that comes back belongs to the
+## trimmed route -- which is why the per-stage state is reset here, exactly
+## as picking a different route already does.
+func _on_trim_dragged(from_frac: float, to_frac: float) -> void:
+	var next := Vector2(from_frac, to_frac)
+	if next.is_equal_approx(_trim):
+		return
+	_trim = next
+	_stage_overrides.clear()
+	_layovers.clear()
+	_selected_stage = 0
+	_isolated_stage = -1
+	_tool_options_journey()
+	_compute()
 
 func _stage_override(idx: int) -> Dictionary:
 	return _stage_overrides.get(idx, {})
@@ -1422,7 +1620,7 @@ func _rebuild_inspector(plan: Dictionary) -> void:
 		"Only applies when this stage's travel mode is Mounted Rider.")
 	_override_choice_row(grid, idx, ov, "desert_water", "Desert water", _options.get("desert_water", PackedStringArray()),
 		_inherit_label("desert_water", s, r))
-	_override_choice_row(grid, idx, ov, "vessel", "Vessel", _options.get("vessel", PackedStringArray()),
+	_override_choice_row(grid, idx, ov, "vessel", "Vessel", PackedStringArray(_vessel_names()),
 		_inherit_label("vessel", s, r), cat == "land", "— land stage, no vessel applies.")
 
 	var actions := HBoxContainer.new()
@@ -1714,16 +1912,116 @@ func _tool_options_journey() -> void:
 		_preset_controls(row)
 		var carriage_lbl := DccTheme.mono_label("carriage: %s" % ("auto" if _carriage_auto else "manual"), "text_ghost", DccTheme.FS_SMALL)
 		row.add_child(carriage_lbl)
-		var reroute_btn := DccWidgets.action(row, "re-route for %s…" % String(_plan_values.get("transport", "Walking")), func(): pass)
-		reroute_btn.disabled = true
-		reroute_btn.tooltip_text = "jpAutoPickTransport / _jpRerouteForMode have no Rust port -- see this file's own doc comment."
-		row.add_child(DccTheme.label("⇧ drag spine to trim (deferred) · ⌥ click isolates a stage", "text_ghost", DccTheme.FS_MICRO))
+		var transport := String(_plan_values.get("transport", "Walking"))
+		var reroute_btn := DccWidgets.action(row, "re-route for %s…" % transport, _reroute_journey)
+		reroute_btn.disabled = count == 0
+		reroute_btn.tooltip_text = "_jpRerouteForMode: re-paths this committed route's two endpoints under the domain %s implies (sea / river / land), and refuses an unreachable answer rather than drawing the straight-line fallback route_commit tolerates." % transport
+		var trim_text := "⇧ drag spine to trim · ⌥ click isolates a stage"
+		if _trim.x > 0.0 or _trim.y < 1.0:
+			trim_text = "trimmed %d–%d%% · click the spine outside the range to clear" % [roundi(_trim.x * 100.0), roundi(_trim.y * 100.0)]
+		row.add_child(DccTheme.label(trim_text, "accent" if (_trim.x > 0.0 or _trim.y < 1.0) else "text_ghost", DccTheme.FS_MICRO))
 		row.add_child(DccTheme.spacer())
-		var save_btn := DccWidgets.action(row, "save journey", func(): pass)
-		save_btn.disabled = true
-		save_btn.tooltip_text = "No save-writer exists for journeys (or for projects generally -- cartalith-io is read-only)."
+		var save_btn := DccWidgets.action(row, "save journey", _save_journey)
+		save_btn.disabled = count == 0
+		save_btn.tooltip_text = "Names this route + party form and adds it to the Journeys list in the left dock. IN-SESSION ONLY: persisting it to disk needs the .zip save-writer this port does not have (GUI_GAP_REGISTER.md FI-01), so the list is lost when the app closes."
 		var export_btn := DccWidgets.action(row, "export table", _export_stage_table)
 	)
+
+# ================================== Journeys list / save (JP-06, JP-08) ====
+
+func _save_journey() -> void:
+	var d := ConfirmationDialog.new()
+	d.title = "Save journey"
+	d.min_size = Vector2i(380, 0)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 6)
+	body.add_child(DccTheme.label("Name for this journey:", "text_dim", DccTheme.FS_SMALL))
+	var le := LineEdit.new()
+	var km := 0.0
+	if bool(_last_result.get("ok", false)):
+		km = float((_last_result.get("plan", {}) as Dictionary).get("km", 0.0))
+	le.text = "Journey %d — %s km" % [_journeys.size() + 1, _fmt_thousands(km, 0)]
+	le.select_all_on_focus = true
+	body.add_child(le)
+	body.add_child(DccTheme.label(
+		"Kept for this session only — no save-writer exists yet (FI-01).",
+		"text_ghost", DccTheme.FS_MICRO))
+	d.add_child(body)
+	d.confirmed.connect(func():
+		var jname := le.text.strip_edges()
+		if jname != "":
+			_journeys.append({
+				"name": jname,
+				"route": _route_index,
+				"plan": _plan_values.duplicate(true),
+				"stage_overrides": _stage_overrides.duplicate(true),
+				"layovers": _layovers.duplicate(true),
+				"animal_entries": _animal_entries.duplicate(),
+				"trim": _trim,
+			})
+			_active_journey = _journeys.size() - 1
+			_refresh_route_choice()
+			app.set_status("hint", "Saved journey \"%s\" (this session only)." % jname, "accent")
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered()
+	le.grab_focus.call_deferred()
+
+func _load_journey(i: int) -> void:
+	if i < 0 or i >= _journeys.size():
+		return
+	var j: Dictionary = _journeys[i]
+	_active_journey = i
+	_route_index = int(j.get("route", 0))
+	_plan_values = (j.get("plan", {}) as Dictionary).duplicate(true)
+	_stage_overrides = (j.get("stage_overrides", {}) as Dictionary).duplicate(true)
+	_layovers = (j.get("layovers", {}) as Dictionary).duplicate(true)
+	_animal_entries = (j.get("animal_entries", {}) as Dictionary).duplicate()
+	_trim = j.get("trim", Vector2(0.0, 1.0))
+	_selected_stage = 0
+	_isolated_stage = -1
+	_rebuild_party_form()
+	_tool_options_journey()
+	_compute()
+	app.set_status("hint", "Loaded journey \"%s\"." % String(j.get("name", "")), "accent")
+
+func _delete_journey(i: int) -> void:
+	if i < 0 or i >= _journeys.size():
+		return
+	_journeys.remove_at(i)
+	if _active_journey == i:
+		_active_journey = -1
+	elif _active_journey > i:
+		_active_journey -= 1
+	_refresh_route_choice()
+
+## JP-03. `_jpRerouteForMode` over the selected committed route: re-paths its
+## endpoints under the domain this journey's transport implies, rewrites the
+## route in place (so `route_get`/`jp_compute`'s `route` index still names
+## it), and recomputes. An unreachable answer is reported, not drawn -- the
+## reference refuses `reachable:false` outright.
+func _reroute_journey() -> void:
+	if _route_index < 0 or not bridge.world_gen.has_method("jp_reroute"):
+		app.set_status("hint", "jp_reroute is not exposed by this build's GDExtension binary -- rebuild cartalith-godot.", "warn")
+		return
+	var transport := String(_plan_values.get("transport", "Walking"))
+	var r: Dictionary = bridge.world_gen.jp_reroute(_route_index, transport, "")
+	if not bool(r.get("ok", false)):
+		app.set_status("hint", String(r.get("error", "re-route failed")), "warn")
+		return
+	# The route's geometry changed under every stage index, so per-stage
+	# overrides and layovers no longer name the same ground -- the same reset
+	# picking a different route already does.
+	_stage_overrides.clear()
+	_layovers.clear()
+	_selected_stage = 0
+	_isolated_stage = -1
+	_trim = Vector2(0.0, 1.0)
+	_refresh_route_choice()
+	_tool_options_journey()
+	_compute()
+	app.set_status("hint", "Re-routed for %s — %s km." % [transport, _fmt_thousands(float(r.get("km", 0.0)), 0)], "accent")
 
 # ================================================ Party set-ups (JP-02) ====
 #
@@ -1801,9 +2099,9 @@ func _capture_preset() -> void:
 	le.grab_focus.call_deferred()
 
 ## The one export path with real data behind it: the stage matrix as CSV, to
-## the OS clipboard -- no file-writer exists to save it to disk (same gap the
-## save-journey button discloses), but a clipboard export is honest and
-## immediately useful.
+## the OS clipboard -- no file-writer exists to save it to disk (the same
+## FI-01 gap that keeps the Journeys list session-scoped), but a clipboard
+## export is honest and immediately useful.
 func _export_stage_table() -> void:
 	if not bool(_last_result.get("ok", false)):
 		return
@@ -2095,9 +2393,49 @@ func _build_reach_bar(parent: Control, plan: Dictionary, reach: Dictionary) -> v
 			track.add_child(tick)
 	parent.add_child(track)
 
+## The reference's own cost formatter (line 19855): `1.2k` past a thousand,
+## whole numbers past a hundred, one decimal below.
+func _fmt_wages(v: float) -> String:
+	if v >= 1000.0:
+		return "%.1fk" % (v / 1000.0)
+	return ("%.0f" % v) if v >= 100.0 else ("%.1f" % v)
+
+## JP-04. `jp_compute`'s own `cost` key -- `jp_plan_cost` -> the milestone-3
+## `jp_journey_cost` that nothing used to call. Empty on a blocked journey,
+## which is the reference's own `null` (it bails on `plan.blocked` before
+## pricing anything), not a missing binding.
 func _build_cost_group(body: Control) -> void:
 	var g := DccWidgets.section(body, "Cost")
-	DccWidgets.note(g, "jp_plan returns no monetary figures, so nothing here can be filled today -- but the cost model itself IS ported: cartalith_civ::jp_journey_cost (jpJourneyCost, reference line 18873) computes carriage, wages, crew, upkeep, tolls, transshipment, total, per-tonne-km and break-even, with golden tests. It is simply never called: jp_compute/jp_journey_plan_dict don't invoke it and no #[func] exposes it. Every input it needs is already computed inside jp_plan (per-leg km/days/crew, JpDerivedStage::claimed_frac, JpJourneyPlan::transshipments), so this is a boundary gap, not a model gap. Not invented here.")
+	var cost: Dictionary = _last_result.get("cost", {})
+	if cost.is_empty():
+		DccWidgets.note(g, "No cost for a blocked journey -- jpJourneyCost returns null when any stage is impassable, because there is no trip to price. Clear the block above and this fills in.")
+		return
+	var plan: Dictionary = _last_result.get("plan", {})
+	var total := float(cost.get("total", 0.0))
+	var cargo_t := float(cost.get("cargo_t", 0.0))
+	_kv_row(g, "carriage", "%s  (%.2f t over %s km)" % [
+		_fmt_wages(float(cost.get("carriage", 0.0))), cargo_t, _fmt_thousands(float(plan.get("km", 0.0)), 0)])
+	_kv_row(g, "wages", "%s  (%d × %.0f d)" % [
+		_fmt_wages(float(cost.get("wages", 0.0))), int(_plan_values.get("group_size", 1)), float(cost.get("days", 0.0))])
+	if float(cost.get("crew", 0.0)) > 0.0:
+		_kv_row(g, "crew", _fmt_wages(float(cost.get("crew", 0.0))))
+	if float(cost.get("upkeep", 0.0)) > 0.0:
+		_kv_row(g, "animals & vehicles", _fmt_wages(float(cost.get("upkeep", 0.0))))
+	if float(cost.get("tolls", 0.0)) > 0.0:
+		var borders := int(cost.get("borders", 0))
+		_kv_row(g, "tolls", "%s  (%d frontier%s)" % [_fmt_wages(float(cost.get("tolls", 0.0))), borders, "" if borders == 1 else "s"])
+	if float(cost.get("transship", 0.0)) > 0.0:
+		_kv_row(g, "transshipment", "%s  (%d)" % [_fmt_wages(float(cost.get("transship", 0.0))), int(plan.get("transshipments", 0))])
+	_kv_row(g, "total", "%s day-wages" % _fmt_wages(total), "text_bright")
+	var ptk := float(cost.get("per_tonne_km", -1.0))
+	if ptk >= 0.0:
+		_kv_row(g, "per tonne-km", "%.3f" % ptk, "text_dim")
+	var be := float(cost.get("break_even_per_tonne", -1.0))
+	if be >= 0.0:
+		DccWidgets.note(g, "The cargo must fetch at least %s day-wages per tonne more at the destination than it cost at the origin, simply to cover this journey." % _fmt_wages(be))
+	else:
+		DccWidgets.note(g, "No trade cargo -- this is the cost of moving the party itself.")
+	DccWidgets.note(g, "Priced in day-wages (one day of unskilled labour), never a currency: the land/river/sea carriage ratios follow Diocletian's Price Edict, which this engine already uses for food logistics, while the absolute level of money in a world is the owner's to set. Tolls are approximated from territory changes along the route (JpDerivedStage.claimed_frac crossing 0.5), and the reference labels that an approximation itself.")
 
 func _build_vessels_group(body: Control, plan: Dictionary) -> void:
 	var g := DccWidgets.section(body, "Vessels · water legs")
@@ -2115,25 +2453,56 @@ func _build_vessels_group(body: Control, plan: Dictionary) -> void:
 		_kv_row(g, "hold used", "%s / %s kg" % [
 			_fmt_thousands(float(_plan_values.get("cargo_kg", 0.0)), 0), _fmt_thousands(float(water.get("hold_kg", 0.0)), 0)])
 		_kv_row(g, "crew", str(int(water.get("crew", 0))))
+		# JP-09. `jp_water_window(cat, terrain)` -- hours actually under way
+		# per day on this water type, which is a factor of the leg's own
+		# daily_km rather than a label bolted beside it.
+		_kv_row(g, "sailing window", "%.0f h/day · %s" % [
+			float(water.get("sailing_window_h", 0.0)), String(s.get("terrain", ""))], "water")
 	if not any:
 		DccWidgets.note(g, "No water legs on this route.")
 	else:
-		DccWidgets.note(g, "Sailing-window text (daylight vs. open-water hours) is not part of jp_water_calc's return -- not shown.")
+		DccWidgets.note(g, "The sailing window is the engine's own jp_water_window for each water type (a sheltered bay is worked in daylight; open sea is stood through the night), not the vessel's Travel Library \"sailing window\" field -- nothing in the engine couples the two, and pretending otherwise would invent a model.")
 
+## JP-05. `GUI_GAP_REGISTER.md` §7.12's own proposal, built as an inline
+## group rather than the spec's `⧉` window: one row per multiplicative term
+## in the engine's application order, with the running value beside it. The
+## rows come from `land.trace`/`water.trace` -- structured factors, not the
+## reference's `formula` prose string, which stays out of the engine on
+## purpose. The trace's own invariant (`∏ factor == daily_km`) is asserted in
+## `cartalith-civ`, so the last running value here always equals the km/day
+## the results panel reports above.
 func _build_trace_group(body: Control) -> void:
-	var head := HBoxContainer.new()
-	head.custom_minimum_size.y = 26
-	var pad := MarginContainer.new()
-	pad.add_theme_constant_override("margin_left", 13)
-	pad.add_theme_constant_override("margin_right", 13)
-	pad.add_child(head)
-	body.add_child(DccTheme.rule())
-	body.add_child(pad)
-	head.add_child(DccTheme.mono_label("calculation trace", "text_ghost", DccTheme.FS_SMALL))
-	head.add_child(DccTheme.spacer())
-	var open_btn := DccWidgets.action(head, "open ⧉", func(): pass)
-	open_btn.disabled = true
-	open_btn.tooltip_text = "No calculation-trace window exists yet -- jpCalcLand/jpCalcWater's own 'formula' trace string is deliberately not carried across the boundary (jp_land_calc_dict's own doc comment: presentation, not engine); building a trace window from raw dict values is future work, not faked here."
+	var g := DccWidgets.section(body, "Calculation trace")
+	var plan: Dictionary = _last_result.get("plan", {})
+	var results: Array = plan.get("results", [])
+	if results.is_empty():
+		DccWidgets.note(g, "No computed stage to trace.")
+		return
+	var idx: int = clampi(_selected_stage, 0, results.size() - 1)
+	var r: Dictionary = results[idx]
+	if bool(r.get("blocked", false)):
+		DccWidgets.note(g, "Stage %02d is blocked, so no speed chain was computed for it: %s" % [idx + 1, String(r.get("blocked_reason", ""))])
+		return
+	var calc: Dictionary = r.get("land", r.get("water", {}))
+	var trace: Array = calc.get("trace", [])
+	if trace.is_empty():
+		DccWidgets.note(g, "This build's GDExtension binary returns no trace -- rebuild cartalith-godot.")
+		return
+	DccWidgets.note(g, "Stage %02d · %s — click a band on the spine to trace another stage." % [idx + 1, String(r.get("cat", ""))])
+	var running := 1.0
+	for t in trace:
+		var term: Dictionary = t
+		var factor := float(term.get("factor", 1.0))
+		running *= factor
+		var key := String(term.get("key", ""))
+		var detail := String(term.get("detail", ""))
+		var lhs := key if detail == "" else "%s · %s" % [key, detail]
+		# The first term is the base speed, not a multiplier: printing it as
+		# "×4.0" would read as a factor applied to something.
+		var rhs := ("%.2f" % factor) if key == "base" else "×%.3f    %.2f" % [factor, running]
+		var token := "text" if factor >= 0.999 else ("warn" if factor < 0.7 else "text_dim")
+		_kv_row(g, lhs, rhs, "text_bright" if key == "base" else token)
+	_kv_row(g, "= km/day", "%.2f" % float(calc.get("daily_km", 0.0)), "accent")
 
 # ================================================================ Draw views ====
 
@@ -2212,26 +2581,56 @@ class _RouteMapView extends Control:
 ## ⌥-click isolate).
 class _ProfileView extends Control:
 	signal stage_clicked(idx: int, isolate: bool)
+	## JP-07: `JOURNEY_PLANNER_SPEC.md` §3's "⇧ drag trims". Two fractions of
+	## the distance axis, always ordered low-high; `(0, 1)` clears the trim.
+	signal trim_dragged(from_frac: float, to_frac: float)
 
 	var profile: PackedFloat64Array = PackedFloat64Array()
 	var bands: Array = []   ## [{start, end, cat, blocked, warn, label}] fractions 0..1
 	var selected_idx := -1
 	var isolated_idx := -1
+	var trim := Vector2(0.0, 1.0)   ## the committed trim, drawn as dimmed margins
+
+	var _drag_from := -1.0   ## >= 0 while a ⇧ drag is live
+	var _drag_to := -1.0
 
 	func _ready() -> void:
 		resized.connect(func(): queue_redraw())
 		mouse_filter = Control.MOUSE_FILTER_STOP
 
 	func _gui_input(event: InputEvent) -> void:
-		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			if bands.is_empty() or size.x <= 0.0:
-				return
+		if size.x <= 0.0:
+			return
+		if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 			var frac: float = clampf(event.position.x / size.x, 0.0, 1.0)
-			for i in bands.size():
-				var b: Dictionary = bands[i]
-				if frac >= float(b.get("start", 0.0)) and frac <= float(b.get("end", 1.0)):
-					stage_clicked.emit(i, event.alt_pressed)
-					return
+			if event.pressed and event.shift_pressed:
+				_drag_from = frac
+				_drag_to = frac
+				queue_redraw()
+				return
+			if not event.pressed and _drag_from >= 0.0:
+				var a: float = minf(_drag_from, _drag_to)
+				var b: float = maxf(_drag_from, _drag_to)
+				_drag_from = -1.0
+				_drag_to = -1.0
+				queue_redraw()
+				# A ⇧ click (rather than a drag) clears the trim: a zero-width
+				# range is not a journey, and "click to clear" is the cheapest
+				# undo the gesture can have.
+				if b - a < 0.01:
+					trim_dragged.emit(0.0, 1.0)
+				else:
+					trim_dragged.emit(a, b)
+				return
+			if event.pressed and not bands.is_empty():
+				for i in bands.size():
+					var band: Dictionary = bands[i]
+					if frac >= float(band.get("start", 0.0)) and frac <= float(band.get("end", 1.0)):
+						stage_clicked.emit(i, event.alt_pressed)
+						return
+		elif event is InputEventMouseMotion and _drag_from >= 0.0:
+			_drag_to = clampf(event.position.x / size.x, 0.0, 1.0)
+			queue_redraw()
 
 	func _draw() -> void:
 		var w := size.x
@@ -2285,6 +2684,21 @@ class _ProfileView extends Control:
 			var col := DccTheme.c("block") if bool(b.get("blocked", false)) else (DccTheme.c("accent") if i == selected_idx else DccTheme.c("text_ghost"))
 			draw_string(ThemeDB.fallback_font, Vector2(x0 + 3, h - 4), label_text,
 				HORIZONTAL_ALIGNMENT_LEFT, maxf(4.0, (float(b.get("end", 1.0)) - float(b.get("start", 0.0))) * w - 4.0), 9, col)
+		# JP-07's trim, drawn last so it reads as a mask over the whole spine
+		# rather than as another band: the trimmed-away margins are veiled,
+		# and a live ⇧ drag previews its own range the same way.
+		var live: bool = _drag_from >= 0.0
+		var lo: float = (minf(_drag_from, _drag_to) if live else trim.x)
+		var hi: float = (maxf(_drag_from, _drag_to) if live else trim.y)
+		if lo > 0.0 or hi < 1.0:
+			var veil := Color(DccTheme.c("bg"), 0.62)
+			if lo > 0.0:
+				draw_rect(Rect2(0, 0, lo * w, h), veil)
+			if hi < 1.0:
+				draw_rect(Rect2(hi * w, 0, (1.0 - hi) * w, h), veil)
+			var edge := DccTheme.c("accent")
+			draw_line(Vector2(lo * w, 0), Vector2(lo * w, h), edge, 1.5)
+			draw_line(Vector2(hi * w, 0), Vector2(hi * w, h), edge, 1.5)
 
 ## JP-13's day-band strip -- see `_rebuild_timeline_band()`'s own doc comment
 ## for what each segment means and why "weather hold" never lights up. Same

@@ -1326,6 +1326,44 @@ pub fn animal_resolver_fns(overrides: &HashMap<String, AnimalDef>) -> (AnimalSta
     (Box::new(stats), Box::new(terrain_mod))
 }
 
+pub type VesselStatsFn<'a> = Box<dyn Fn(&str) -> Option<crate::ShipStats> + 'a>;
+
+/// Build the closure [`crate::JpVesselResolver`] wants from a **name**-keyed
+/// override map (`plan.vessel` is a display name, not one of a fixed set of
+/// slots -- which is why this has no `animal_species_slot` equivalent: a
+/// vessel needs no slot to occupy).
+///
+/// Four of `ShipStats`' seven fields come straight off the definition; the
+/// remaining three are derived from §3.3's own declared fields:
+///
+/// | `ShipStats` | from |
+/// |---|---|
+/// | `river`/`sea` | `modes` |
+/// | `open_sea` | `water_rating == Open` -- a Sheltered or Coastal hull is not open-sea rated, which is exactly `jp_vessel_water_block`'s own test |
+/// | `invalid_water` | **always empty.** `TRAVEL_LIBRARY_SPEC.md` §3.3 has no per-water-type blacklist field, and the built-in table's entries (`"River with Rapids"`, `"Open Sea"`) cannot be derived from anything a definition declares. A custom vessel is therefore constrained by its mode and rating only; inventing a blacklist from the rating would be a model this port made up |
+///
+/// Returns `None` for any name the map does not carry *and* for a
+/// definition still missing one of the four numeric fields -- `None` means
+/// "no override", so an incomplete entry degrades to the built-in table
+/// rather than to a hull with a zero hold. That is the same all-or-nothing
+/// contract [`animal_resolver_fns`] deliberately does **not** use, and for a
+/// reason: an animal override is queried field by field, a vessel is one
+/// `ShipStats` value read as a unit.
+pub fn vessel_resolver_fn(overrides: &HashMap<String, VesselDef>) -> VesselStatsFn<'_> {
+    Box::new(move |name: &str| -> Option<crate::ShipStats> {
+        let def = overrides.get(name)?;
+        Some(crate::ShipStats {
+            speed_kmh: def.base_speed_kmh?,
+            cargo_kg: def.hold_kg?,
+            crew: def.crew_required?,
+            river: def.modes.contains(&VesselMode::River),
+            sea: def.modes.contains(&VesselMode::Sea),
+            open_sea: def.water_rating? == WaterRating::Open,
+            invalid_water: &[],
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
