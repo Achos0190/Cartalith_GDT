@@ -304,7 +304,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | DM-01 | Import ▸ Heightmaps (PNG) | 52 | **done, 2026-08-20** | real | §2.4 names it | now a `"live"` route: `DccApp.open_heightmap_import()` → `EngineBridge.import_heightmap` → `WorldGen::import_heightmap`, which decodes the PNG (`cartalith-assets::raster::decode_png`), resamples it at the *image's* aspect ratio and runs `cartalith_engine::import::infer_tectonics` under it — MS-02's other half, same pass |
 | DM-01b | Import ▸ Maps (tiles) **and** Import ▸ GIS / GeoJSON — two rail rows since 2026-08-20, as the canvas has them (they were one concatenated row) | 53 | no tile-map or GeoJSON **import** path exists; TIFF absent | yes | §2.4 | (B) large — the remainder of DM-01 after the heightmap half landed. **TIFF is now a closed question, not a pending dependency decision**: the reference's own file input is `accept="image/*"` decoded by the browser, which does not read TIFF either, so PNG-only is parity rather than a shortfall |
 | DM-02 | Export ▸ Maps (image · tiles) | 51 | **half done, 2026-08-20** — tile export is real; the *pyramid* is not | partly | §9's route pane, **the one fully-designed route in the window** | **The route is live.** §9's full pane shape is built (§14.7) and calls `region_export_tiles` over the live Region-select marquee, writing a zipped `cols × rows` grid — verified end to end: 33 entries, `tiles/index.json` present. What remains of this row is the *slippy-map* half the canvas draws and the engine has no notion of: XYZ/TMS/WMTS addressing, a zoom ladder, retina @2x variants, ocean-tile skipping, `leaflet-preview.html`/`style.json`. All of those are drawn in the pane and disabled with that reason. Still (B), now medium rather than large |
-| DM-03 | Export ▸ GIS / GeoJSON | 53 | `cartalith-engine::geojson` exports region GeoJSON for Region-select only, no route in, no CRS | yes | §2.4 | (B) wrapper — `export_geojson` is golden-verified; needs one `#[func]` plus assembling `GeoJsonWorld` |
+| DM-03 | Export ▸ GIS / GeoJSON | 53 | was: "no route in, no CRS" | **CLOSED (2026-08-24)** | §2.4 | **DONE.** The row's own estimate was exact: one `#[func]` (`geojson_bridge.rs`, `WorldGen::export_geojson`) plus assembling a `GeoJsonWorld` off `CivData` + `WorldState`. Data manager ▸ Export ▸ GIS / GeoJSON is now a `live` route with a real picker and writer. It exports the **whole world**, not the marquee. Three inputs the reference has and this port does not are handled by omission and disclosed in the pane: no `poi` layer (this port's civ layer has no POI kind), `sea` derived from which collection a way came out of rather than read off a shared record, and rivers re-traced from `WorldState`'s receiver tree rather than a `_riverNet` cache. CRS is still not a thing — the document says so in its own `note`, verbatim from the reference. Verified: 305,646 B, 511 features (239 settlement / 43 way / 216 river / 6 territory / 7 province), valid JSON, every coordinate inside the world's 1200 × 900 km box |
 | DM-04 | Export ▸ World Data | 55 | no save writer | yes | §2.4 | (B) large — FI-01's writer |
 | DM-05 | Export ▸ Assets (pack .zip) | 57 | **done, 2026-08-20** | real | §2.4 | now a `"route"` (was `"gap"`) into the Asset library window's real `export_pack_now()`, same "routes, doesn't reimplement" shape as `import_assets` — same as AS-04 |
 | DM-06 | Sources ▸ External / Connected / Registry | 59-61 | no source registry exists | yes | §2.4 names three rows; **§9 designs no pane for any of them** | **(C)** → §7.3 |
@@ -401,12 +401,12 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
 | WW-01 | Finalize · LOD 0–3 · bake & freeze | 290-292 | **corrected — S5** | yes, now | §5.1's dock foot, §4's tool options bar (`app.gd:316-318` carries a second copy) | (B) large — no bake, no atlas write, no finalize-lock state |
-| WW-02 | Run Droplet hydraulic / Hillslope diffuse / Velocity / Glacial / Coastal (5) | 368-373 | was: "not ported; a separate manual pass in the reference with no `cartalith-engine` equivalent" | **no longer true for four of the five** | §5.1 stage 06 | **DONE for 4/5, 2026-08-23 — §19.** All five kernels are ported and bit-exact: `droplet_kernel` (Phase 1), and `hillslope_diffuse` / `velocity_erode_kernel` / `glacial_kernel` / `coastal_process` in `cartalith-erosion/src/passes.rs` (26 golden tests, 98 of 115 mutants killed). Four of them now have a **run path**: `cartalith_engine::ErosionPassParams`, run at the end of `generate_terrain`, exposed as 21 `params.rs` rows in the `erosion` group — six toggles and fifteen knobs, **every toggle off by default** under `DECISIONS.md` §7d, asserted bit-identical rather than assumed. Verified non-headlessly: each pass alone visibly moves the map (38 %/91 %/6 %/45 % of pixels), all-off returns to the base at 0.0000 %. **Droplet is the one still open** — kernel only, no parameter, because its `erodeFinish` tail is a second orchestration and it was outside that pass's remit. The reference's own *button* idiom is still available on top and now cheap (§19.2 (a)); it was not built because UI work is on hold |
+| WW-02 | Run Droplet hydraulic / Hillslope diffuse / Velocity / Glacial / Coastal (5) | 368-373 | was: "not ported; a separate manual pass in the reference with no `cartalith-engine` equivalent" | **no longer true for four of the five** | §5.1 stage 06 | **DONE for 4/5, 2026-08-23 — §19.** All five kernels are ported and bit-exact: `droplet_kernel` (Phase 1), and `hillslope_diffuse` / `velocity_erode_kernel` / `glacial_kernel` / `coastal_process` in `cartalith-erosion/src/passes.rs` (26 golden tests, 98 of 115 mutants killed). Four of them now have a **run path**: `cartalith_engine::ErosionPassParams`, run at the end of `generate_terrain`, exposed as 21 `params.rs` rows in the `erosion` group — six toggles and fifteen knobs, **every toggle off by default** under `DECISIONS.md` §7d, asserted bit-identical rather than assumed (23 rows and a seventh toggle since 2026-08-24, when tidal flats joined them — §19.5). Verified non-headlessly: each pass alone visibly moves the map (38 %/91 %/6 %/45 % of pixels), all-off returns to the base at 0.0000 %. **Droplet is the one still open** — kernel only, no parameter, because its `erodeFinish` tail is a second orchestration and it was outside that pass's remit. The reference's own *button* idiom is still available on top and now cheap (§19.2 (a)); it was not built because UI work is on hold |
 | WW-03 | Sculpt ▸ **Brush shape** (8 falloff shapes, Import brush…, Operation, Falloff curves, Rotation) | 665-672 | no engine behind it, and **not in the reference either** | yes | `DCC_SHELL_SPEC.md`'s own header **correction #3**: *"New design work, not a port gap"* | **(C)** → §7.13 |
 | WW-04 | Sculpt ▸ **Stroke & grid** (Add point / Duplicate / Rotate / Scale / Tilt / Push / Pull / Align) | 665-672 | same | yes | correction #3; `DCC_CONTROL_INDEX.md` §5.2 adds that it rests on a **"control grid" concept that exists nowhere** and cannot be sized until defined | **(C)** → §7.13 |
 | WW-05 | Sculpt ▸ **Actions** (Flip X/Y, Rot L/R, Flatten) | 665-672 | same | yes | correction #3 | **(C)** → §7.13 |
 | WW-06 | Paint ▸ Hardness / Softness | 860-863 | stored and echoed back but never consumed — painting is a hard disc with no soft falloff | yes | §4.5.2 lists both | (B) small — `paint_bridge.rs`'s own module doc |
-| WW-07 | Stage 01 ▸ geoid sea level, tides (moon mass/distance/k₂) | 68 | was: "default-off reference sub-systems with no `cartalith-engine` equivalent" | **half of it is now wrong** | §5.1 stage 01 | **ENGINE HALF CLOSED (2026-08-23)** — `cartalith_climate::geoid` and `::tides` are complete, bit-exact ports (`buildGeoid`/`refreshGeoid`/`geoAt`/`currentGeoidPreview`; `tidalForcing`/`computeTideField`/`buildTideField`/`refreshTides`/`currentTideField`), 13 golden tests between them, both live as debug views (DV-06, DV-07). **What is left is the parameters**: `PlanetParams` carries no geoid amplitude and no moon roster, so both views preview at the reference's own defaults — which is exactly the state the reference itself previews in, since both toggles default off. Wiring the knobs means deciding where a *default-off* sub-system's enable flag lives in this shell's parameter model. The tide field also unblocks `#tidalFlatsBtn`'s input side (MS-05). (B) small ×2, now genuinely small |
+| WW-07 | Stage 01 ▸ geoid sea level, tides (moon mass/distance/k₂) | 68 | was: "default-off reference sub-systems with no `cartalith-engine` equivalent" | **half of it is now wrong** | §5.1 stage 01 | **ENGINE HALF CLOSED (2026-08-23)** — `cartalith_climate::geoid` and `::tides` are complete, bit-exact ports (`buildGeoid`/`refreshGeoid`/`geoAt`/`currentGeoidPreview`; `tidalForcing`/`computeTideField`/`buildTideField`/`refreshTides`/`currentTideField`), 13 golden tests between them, both live as debug views (DV-06, DV-07). **What is left is the parameters**: `PlanetParams` carries no geoid amplitude and no moon roster, so both views preview at the reference's own defaults — which is exactly the state the reference itself previews in, since both toggles default off. Wiring the knobs means deciding where a *default-off* sub-system's enable flag lives in this shell's parameter model. **`#tidalFlatsBtn`'s input side is now closed (2026-08-24, MS-05)**: `passes.tidal_flats` builds the tide field from the finished surface and runs `apply_tidal_sedimentation` over it — which is also the first answer to the enable-flag question, for one sub-system: *the pass toggle is the enable*, because a pass that needs the field is exactly the thing that should pay to build it. The geoid half has no equivalent consumer yet and stays open. (B) small ×2, now genuinely small |
 | WW-08 | Stage 07 ▸ min stream order, lakes as water | 90 | reference **render** filters, not generation parameters — Cartography's work | yes | §5.1 stage 07 | (B) small — and `DCC_CONTROL_INDEX.md` marks "lakes as water" **uncertain** (classification switch or display switch?) |
 | WW-09 | Stage 08 ▸ seasons & Köppen | 94 | was: "not ported" | **wrong as of 2026-08-23** | §5.1 stage 08 | **ENGINE HALF CLOSED (2026-08-23)** — `cartalith_climate::koppen` ports `computeTempInto`/`computeSeasons`/`classifyKoppen`/`buildKoppen`/`koppenColor` with the frozen 30-key order and the Peel et al. palette verbatim; 6 golden tests, classifier bit-exact. Live as debug view DV-04. **What is left is the control**: seasons are a *derived* product, not a generation parameter — the reference builds them lazily when the view is picked and this port does the same, so a "seasons" checkbox would toggle nothing. The honest remaining gap is exposing `axialTiltDeg` and `maxRainMm`, which the classifier reads and the shell does not surface. (B) small |
 | WW-10 | Stages 09 / 10 have no dials | 96-102 | not parameterised — biome classification runs off finished fields; no soil/ore/fertility dials exist in `cartalith-engine` | yes | §5.1 | **(D)** — engine truth, not a gap. Surfacing the *rasters* is a retention-vs-memory decision `MEMORY_OPTIMIZATION_SCOPE.md` already paid to avoid. |
@@ -1667,7 +1667,7 @@ built" note); one pair was wired live.**
 | MS-02 | **Infer tectonics from heightmap** | `#inferTectBtn` | **done, 2026-08-20** — `Data ▸ Import ▸ Heightmaps (PNG)`, and the welcome screen's own *Import a heightmap* tile | Both halves closed in one pass. The reader is `cartalith-assets::raster::decode_png` + `cartalith_terrain::infer::heightmap_to_field`; the inference is `cartalith_terrain::infer` (`buildReliefField`/`pickPlateSeeds`/`classifyPlateCrust`/`reconstructBoundaryStress`/`stampVolcanicArcs`/`inferPlateVelocities`, reference HTML 6641-6752) orchestrated by `cartalith_engine::import::infer_tectonics`. Golden-parity tested bit-exact against the reference (`golden_parity_infer.rs`, 8 tests) |
 | MS-03 | **Fold intensity · trench depth · fault blocks** (structured orogeny) | `foldI`/`trenchD`/`faultB` | `world_workspace.gd` — stage 04 Tectonics' `gap` string, which was **empty** | `generate_terrain` hardcodes the reference's own defaults (0.16, 1.0, 0), so behaviour matches; exposing them threads three fields through `OrogenyParams`' call site |
 | MS-04 | **Evolve climate ↔ terrain · Evolve cycles** | `#evolveBtn`/`#evoCyc` | `world_workspace.gd` — stage 06 Erosion's `gap`, which named five passes and not these | **DONE, 2026-08-23 — §19.** `evolveCoupled` is pure orchestration with no kernel of its own, and every piece it composes already existed here except one: a reusable climate refresh over a changed surface. That function is now written — **`cartalith_engine::refresh_climate`**, `pub`, the reference's `computeFlow(true); refreshClimate();` tail (line 5154) — and Evolve is `passes.evolve_cycles` (`0` is off; the reference's slider starts at 2 because pressing the *button* is its "on", which a parameter has no equivalent of). One `refresh_climate` per cycle, which is the whole point: the rain driving the next cycle's incision reflects the orography the last one built. Verified non-headlessly at 4 cycles — 44.0 % of pixels moved |
-| MS-05 | **Sediment fill** | `#sedimentBtn` | same stage `gap` | **DONE, 2026-08-23 — §19.** `depositSediment`'s kernel is `cartalith_erosion::route_sediment` (mass-conserving, golden-parity bit-exact), and the op composing it is now written into `generate_terrain`'s pass block: stream-power carve → per-cell eroded-column supply → `compute_flow` on the carved surface → `route_sediment`. Exposed as `passes.sediment_fill` + `passes.sediment_capacity` (the reference's own `6.0` default). Verified non-headlessly — 43.7 % of pixels moved. **`#tidalFlatsBtn` stays open**: `apply_tidal_sedimentation` is ported and tested, but it needs `tideField`, which **now exists** (`cartalith_climate::tides`, ported the same day as WW-07's engine half) — no parameter was added for it, since a toggle over an always-absent field is a control that cannot work |
+| MS-05 | **Sediment fill** | `#sedimentBtn` | same stage `gap` | **DONE, 2026-08-23 — §19.** `depositSediment`'s kernel is `cartalith_erosion::route_sediment` (mass-conserving, golden-parity bit-exact), and the op composing it is now written into `generate_terrain`'s pass block: stream-power carve → per-cell eroded-column supply → `compute_flow` on the carved surface → `route_sediment`. Exposed as `passes.sediment_fill` + `passes.sediment_capacity` (the reference's own `6.0` default). Verified non-headlessly — 43.7 % of pixels moved. **`#tidalFlatsBtn` closed too, 2026-08-24**: with `cartalith_climate::tides` landed, `passes.tidal_flats` (+ `passes.tidal_k`, the reference's own `0.45`) is the seventh pass. It runs last, matching the reference's own source order, and builds the tide field from the finished surface right before the kernel reads it — which is what `refreshTides()` does there. **The pass toggle *is* the tides enable**, since `PlanetParams` has no moon roster: the field is built with the reference's own default single moon at this world's `planet.g`, the same substitution the Tides debug view already makes. Verified non-headlessly — 9.00 % of pixels moved, all-off returns to base at 0.0000 % |
 | MS-06 | **Auto-populate world** (+ capitals / towns / hamlets counts) | `#civAutoPopulateBtn` | `civilization_workspace.gd` — disabled button in Settlements ▸ Not built | `compute_civilisation` runs inside `generate()`; no `civ_populate` `#[func]`, and `params.rs`'s 58 entries carry no civ parameter |
 | MS-07 | **Clear places & routes** | `#civClearPlacesBtn` | same | `CivData` is rebuilt wholesale by `generate()`, never mutated in place — there is no partial teardown to expose |
 | MS-08 | **Generate roads** | `#civAutoRoutesBtn` | `infrastructure_workspace.gd` — disabled button in Roads ▸ Not built | same shape as MS-06; the Way/Route tools are the wired alternative |
@@ -2689,7 +2689,8 @@ path needs no UI to be real.
 
 - **WW-02** — `cartalith_engine::ErosionPassParams` on `WorldParams`: six
   toggles (`velocity`, `glacial`, `coastal`, `hillslope`, `sediment_fill`,
-  and `evolve_cycles` as a count where `0` is off) plus fifteen knobs, each
+  and `evolve_cycles` as a count where `0` is off — a seventh, `tidal_flats`,
+  joined them on 2026-08-24, see 19.5) plus fifteen knobs, each
   knob defaulting to the reference's own `state` literal. **21 rows in
   `params.rs`**, in the existing `erosion` group; each knob row names its
   reference slider and carries that slider's real reachable range through its
@@ -2701,10 +2702,7 @@ path needs no UI to be real.
 - **MS-05** (`#sedimentBtn`) — `depositSediment`'s orchestration, transcribed
   into the pass block: stream-power carve → per-cell eroded-column supply →
   `compute_flow` on the carved surface → `route_sediment`.
-  **`#tidalFlatsBtn` stays open**: `apply_tidal_sedimentation` is ported and
-  tested, but it takes a tide field this port does not generate (**WW-07**),
-  and a toggle over an always-absent field is a control that cannot work, so
-  no parameter was added for it.
+  **`#tidalFlatsBtn` closed a day later (2026-08-24)** — see 19.5.
 - **MS-04** (`#evolveBtn`) — the missing engine function was written:
   **`cartalith_engine::refresh_climate`**, `pub`, the
   `computeFlow(true); refreshClimate();` tail (reference line 5154) over a
@@ -2771,3 +2769,138 @@ unclamped.
   well as altitude. A wire-up that ignored the temperature gate would have
   scored like the frozen case; this one scores like nothing happening, which
   is exactly what should happen.
+
+### 19.5 · The seventh pass: tidal flats (2026-08-24)
+
+`#tidalFlatsBtn` was the one row 19.3 left open, and for a specific reason:
+`apply_tidal_sedimentation` was ported and tested in that pass, but the field
+it reads had no producer, and *a toggle over an always-absent field is a
+control that cannot work*. `cartalith_climate::tides` (WW-07's engine half,
+landed the same day) is that producer. The field shapes were checked rather
+than assumed: `compute_tide_field` returns a `Vec<f32>` of `gw*gh` spring
+tidal ranges with land exactly `0`, and `apply_tidal_sedimentation` takes
+`&[f32]` of `w*h` and skips `tr <= 1e-5` — which land satisfies exactly. They
+line up.
+
+**`passes.tidal_flats` + `passes.tidal_k`** (the reference's own `0.45`) are
+the seventh toggle and its knob, in the same `erosion` group as the other six,
+with the same empty `reference_control` and the same reason. The pass runs
+**last**, which is both the reference's own source order (`applyTidalSedimenta
+tion` sits immediately after `depositSediment`) and the right physical order:
+mudflats accrete onto the coastline the passes above finished shaping.
+
+**One thing about this pass is not like the other six, and it is the
+interesting part.** The reference gates its button on `tideField`, which only
+exists while `state.planet.tides.enabled` is on — so the reference has *two*
+switches where this port has one. This toggle is both: turning it on builds
+the tide field from the finished surface right before the kernel reads it,
+which is exactly what `refreshTides()` does there before the button is
+reachable. `PlanetParams` carries no moon roster, so the field is built with
+`TideParams::default()`'s single Earth–Moon-equivalent companion at this
+world's own `planet.g` — the same substitution the Tides debug view (DV-07)
+already documents for itself. That is a partial answer to WW-07's open
+parameter question, for one sub-system: **the consumer's toggle is the enable**.
+The geoid half has no consumer yet and stays open.
+
+**Verification.**
+
+- `cargo test -p cartalith-engine -p cartalith-erosion -p cartalith-hydrology
+  -p cartalith-godot` — green. `each_erosion_pass_changes_the_field_on_its_own`
+  now runs seven cases, and `erosion_passes_off_leave_generation_bit_identical`
+  moves `tidal_k` too.
+- One new test the "something moved" table cannot substitute for:
+  `the_tidal_flats_pass_only_raises_submerged_cells_toward_sea_level` asserts
+  the pass's actual *shape* — every changed cell was submerged, every change is
+  upward, none is pushed past sea level, and sea level itself did not move. A
+  sign error or a swapped `sea`/`depth` would still move cells and would still
+  pass the table.
+- **Measured, at grid resolution**, on a 256×192 world at seed 4242: 3,051
+  cells accreted — 6.21 % of the grid, **19.58 % of every water cell** — mean
+  rise 0.01968 of the 0..1 range, max 0.05129. Water only, upward only.
+- **Non-headless, in the real app**, same harness shape as 19.4: 9.00 % of
+  pixels moved on a 512×384 world at seed 483920, and **all-off returns to the
+  base map at 0.0000 %**. The maps were looked at: the shoals inside the
+  bays — the bottom-right bay and the central sea's margins — have visibly
+  lightened as they fill toward sea level, and no coastline has moved, which is
+  what accretion capped at `sea - 1e-4` should look like.
+
+## 20 · GeoJSON export: the engine was finished, the boundary was missing (2026-08-24)
+
+DM-03's own row estimated this at *"one `#[func]` plus assembling a
+`GeoJsonWorld`"*. That estimate was exact, and it is worth saying why the gap
+looked bigger than it was from outside: `FUNCTIONAL_CONTRACT.md` read the
+capability as **Absent**, when `cartalith_engine::geojson` had been a complete,
+golden-verified port of nine reference functions since milestone E2 —
+character-for-character against the reference's own document, including the
+hand-written JSON writer that exists because `serde_json` renders an integral
+`f64` as `16.0` where `JSON.stringify` renders `16`. What was absent was a
+caller. This is the same shape as Export ▸ Maps (DM-02): ported, tested,
+callerless, and therefore invisible.
+
+### 20.1 · The binding
+
+`crates/cartalith-godot/src/geojson_bridge.rs` — one `#[godot_api(secondary)]`
+block, one `#[func] fn export_geojson(&self) -> GString`, in its own file
+rather than in `lib.rs`, which is a shared hot file. It returns `""` before the
+first `generate()`/`load_save()`; everything else is assembly.
+
+Three of the reference's inputs have no equivalent here, and the document
+handles each by **omission rather than invention**:
+
+- **POIs.** `CIV_POI_KEYS` splits `state.places` into settlements and points of
+  interest. This port's `SettlementKind` is the six settlement tiers and
+  nothing else, so there is no `poi` layer — not an empty one, which would
+  claim the world has no POIs rather than that this port has no POI concept.
+- **`w.sea`.** The reference keeps land ways and sea lanes in one flat
+  `civWays` and distinguishes them with a flag. This port keeps them as two
+  typed collections (`CivData::ways` / `::sea_routes`), so the flag is
+  *derived* from which collection a way came out of — the same information,
+  flattened at the one place that needs it flat.
+- **Rivers.** `_riverNet` is a lazy global cache there; here the receiver tree
+  and Strahler orders are already on `WorldState`, so the polylines are
+  re-traced (`trace_river_polylines`, exactly as `urban_bridge` does). The
+  export's own `min_order` is the reference's **2**, not the `1` the carve
+  pipeline traces with.
+
+**One function had to be ported to do this**, and it is not in the geojson
+module: `splitRiverPolylines` (reference 4596-4608), which cuts a chain
+wherever the next point is not reachable by a straight stroke — the
+antimeridian seam, and optionally an open-water predicate. Without it a wrapped
+receiver chain exports as one `LineString` drawing back across the whole map in
+any GIS consumer. It is pure hydrology geometry, so it went to
+`cartalith_hydrology::split_river_polylines`, next to the tracer, with two
+golden tests whose fixtures were produced by **running the reference's own
+function under node**, not by reading it. The export passes no skip predicate,
+matching the reference's own comment: a lake reach is real hydrology and
+belongs in the exported geometry; only the unrepresentable seam jump is cut.
+
+### 20.2 · The route
+
+`data_manager_window.gd`'s Export ▸ GIS / GeoJSON row flips from `gap` to
+`live`: a pane, two disclosures (the CRS note, which is the document's own
+`note` property verbatim, and the civ-layer note), and one `Export .geojson…`
+chip over a save picker. There is no options pane because the binding has no
+options — `export_geojson` describes the whole world, and every layer it can
+emit it always emits. It exports the **whole world, not the Region-select
+marquee**; the marquee is Export ▸ Maps' input, and the pane says so.
+
+CRS handling still does not exist anywhere in the workspace and this does not
+add any. That is disclosed in the pane and in the document itself.
+
+### 20.3 · Verification
+
+- `cargo test -p cartalith-engine -p cartalith-erosion -p cartalith-hydrology
+  -p cartalith-godot` — green, including the two new
+  `split_river_polylines_matches_the_reference_*` goldens.
+- `cargo build -p cartalith-godot` — fresh shared cdylib.
+- **Non-headless, in the real app**, through the real `EngineBridge`: a
+  512×384 world at seed 483920 exported **305,646 bytes in 21 ms** to a real
+  file. It parses as JSON. It carries **511 features — 239 settlement, 43 way,
+  216 river, 6 territory, 7 province** — and those counts were cross-checked
+  against the bridge's own getters in the same run (239 settlements, 43 roads,
+  0 sea routes; this world genuinely has no sea lanes, so the `sea:true` branch
+  is exercised by no feature here and is the one path that went unverified in
+  the real app). Every coordinate lies inside the world's own 1200 × 900 km
+  box. Numbers render the JS way — `"mapWidthKm":1200`, not `1200.0`. River
+  `strahlerOrder` runs 2 · 3 · 4, confirming the export's own min-order of 2
+  rather than the pipeline's 1.

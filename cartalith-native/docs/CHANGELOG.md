@@ -20395,3 +20395,142 @@ Route are two separate commit paths, on purpose" — so it belongs to the
 planner's registry, not the way layer. IN-02's original wording said
 "ways/routes"; only the ways half was ever a real gap.
 
+## GeoJSON export gets its boundary, and tidal flats gets its tide field (2026-08-24)
+
+Two independent items, both the same shape: an engine capability that was
+already ported and golden-verified but had nothing to run it. Together they
+close the last of `PARITY_AUDIT.md` §3.1's backlog.
+
+---
+
+### 1 · GeoJSON export (`GUI_GAP_REGISTER.md` DM-03, §20)
+
+**The gap was exactly one binding wide, and the register said so.**
+`cartalith-engine/src/geojson.rs` — nine reference functions, a hand-written
+JSON writer that renders numbers the way `JSON.stringify` does, and
+`golden_parity_geojson.rs` matching the reference's own document
+character-for-character — had been finished since milestone E2 with **no
+caller**. `FUNCTIONAL_CONTRACT.md` consequently read the capability as
+*"Absent"*, which was true of the boundary and false of the engine.
+
+**Built:**
+
+- `crates/cartalith-godot/src/geojson_bridge.rs` — one
+  `#[godot_api(secondary)]` block, one `#[func] fn export_geojson(&self) ->
+  GString`, in its own file rather than in `lib.rs` (a shared hot file). It
+  assembles a `GeoJsonWorld` off `CivData` + `WorldState` and returns the
+  document; `""` before the first `generate()`/`load_save()`.
+- `cartalith_hydrology::split_river_polylines` — `splitRiverPolylines`
+  (reference 4596-4608), the one function that had to be *ported* to do this.
+  Without it a receiver chain that wraps the antimeridian exports as a single
+  `LineString` drawing back across the whole map in any GIS consumer. Pure
+  hydrology geometry, so it sits next to `trace_river_polylines`, not in the
+  geojson module.
+- `data_manager_window.gd`'s Export ▸ GIS / GeoJSON row: `gap` → `live`, with
+  a pane, its two disclosures and a save picker. No options pane, because the
+  binding has no options — `export_geojson` describes the whole world and
+  emits every layer it can.
+- `engine_bridge.gd::export_geojson()`, `has_method`-guarded like every
+  sibling, so an older GDExtension degrades to a stated failure rather than a
+  crash.
+
+**Three reference inputs have no equivalent here, and the document handles
+each by omission rather than invention** — stated in the pane and in
+`GUI_GAP_REGISTER.md` §20.1:
+
+- **No `poi` layer.** `CIV_POI_KEYS` splits the reference's `state.places`
+  into settlements and points of interest; this port's `SettlementKind` is the
+  six settlement tiers and nothing else. An empty `poi` layer would claim the
+  world has no POIs rather than that this port has no POI concept.
+- **`sea` is derived, not read.** The reference keeps land ways and sea lanes
+  in one flat `civWays` and distinguishes them with a flag; this port keeps
+  two typed collections, so the flag comes from which collection a way came
+  out of.
+- **Rivers are re-traced, not cached.** `_riverNet` is a lazy global there;
+  here the receiver tree and Strahler orders are already on `WorldState`, so
+  `trace_river_polylines` runs at export time exactly as `urban_bridge` does.
+  `min_order` is the reference's **2** for this path, not the `1` the carve
+  pipeline traces with.
+
+**Verified:**
+
+- Two new goldens for `split_river_polylines`, whose fixtures were produced by
+  **running the reference's own function under node** — sliced out of the
+  frozen HTML at line 4596 and executed verbatim, with an assertion on the
+  slice's own body shape so a drifted slice fails loudly instead of quietly.
+  The chains reach all three branches: a seam crossing whose halves are both
+  drawable, a seam crossing that leaves a one-point tail (dropped), and a skip
+  predicate cutting a chain so that *both* halves are one point and the whole
+  chain vanishes.
+- `cargo test -p cartalith-engine -p cartalith-erosion -p cartalith-hydrology
+  -p cartalith-godot` — green. `cargo build -p cartalith-godot` — fresh cdylib.
+- **Non-headless, in the real app**, through the real `EngineBridge`: a
+  512×384 world at seed 483920 exported **305,646 bytes in 21 ms** to a real
+  file that parses as JSON and carries **511 features — 239 settlement, 43
+  way, 216 river, 6 territory, 7 province**. Those counts were cross-checked
+  against the bridge's own getters in the same run (239 settlements, 43 roads,
+  0 sea routes). Every coordinate lies inside the world's own 1200 × 900 km
+  box. Numbers render the JS way (`"mapWidthKm":1200`, not `1200.0`). River
+  `strahlerOrder` runs 2 · 3 · 4, confirming the export's min-order of 2.
+
+**Open, and not folded in silently:** GeoJSON *import* remains absent, and no
+CRS handling exists anywhere in the workspace — the document discloses that in
+its own `note` property, verbatim from the reference. **One path went
+unverified in the real app**: this world produced zero sea lanes, so no
+feature exercised the `sea: true` branch.
+
+---
+
+### 2 · Tidal flats, the seventh erosion pass (`GUI_GAP_REGISTER.md` §19.5)
+
+The erosion-passes entry above (2026-08-23) left `#tidalFlatsBtn` open for a
+stated reason: `apply_tidal_sedimentation` was ported and tested, but the
+field it reads had no producer, and *a toggle over an always-absent field is a
+control that cannot work*. `cartalith_climate::tides` — landed the same day as
+part of the geoid/tides/seasons/wildlife cluster — is that producer.
+
+**The field shapes were checked, not assumed**: `compute_tide_field` returns a
+`Vec<f32>` of `gw*gh` spring tidal ranges with land exactly `0`, and
+`apply_tidal_sedimentation` takes `&[f32]` of `w*h` and skips `tr <= 1e-5`,
+which land satisfies exactly.
+
+**Built:** `ErosionPassParams::tidal_flats` + `::tidal_k` (the reference's own
+`0.45`), the seventh toggle and its knob, two more `params.rs` rows in the
+existing `erosion` group. The pass runs **last** — the reference's own source
+order (`applyTidalSedimentation` sits immediately after `depositSediment`) and
+the right physical order, since mudflats accrete onto the coastline the other
+passes finished shaping.
+
+**One thing about this pass is not like the other six.** The reference gates
+its button on `tideField`, which exists only while `state.planet.tides.enabled`
+is on — two switches where this port has one. **This toggle is both**: turning
+it on builds the tide field from the finished surface right before the kernel
+reads it, which is what `refreshTides()` does there before the button is even
+reachable. `PlanetParams` carries no moon roster, so the field is built with
+`TideParams::default()`'s single Earth–Moon-equivalent companion at this
+world's own `planet.g` — the same substitution the Tides debug view (DV-07)
+already documents. That is a partial answer to WW-07's open parameter
+question, for one sub-system: *the consumer's toggle is the enable*. The geoid
+half has no consumer yet and stays open.
+
+**Verified:**
+
+- `each_erosion_pass_changes_the_field_on_its_own` now runs seven cases;
+  `erosion_passes_off_leave_generation_bit_identical` moves `tidal_k` too and
+  still `assert_eq!`s field, temperature, rainfall and discharge.
+- One new test the "something moved" table cannot substitute for:
+  `the_tidal_flats_pass_only_raises_submerged_cells_toward_sea_level` asserts
+  the pass's actual **shape** — every changed cell was submerged, every change
+  is upward, none is pushed past sea level, and sea level itself did not move.
+  A sign error or a swapped `sea`/`depth` would still move cells and would
+  still pass the seven-case table.
+- **Measured at grid resolution** on a 256×192 world at seed 4242: **3,051
+  cells accreted — 6.21 % of the grid, 19.58 % of every water cell** — mean
+  rise 0.01968 of the 0..1 range, max 0.05129. Water only, upward only.
+- **Non-headless, in the real app** (same harness shape the erosion-passes
+  entry used): **9.00 % of pixels moved** on a 512×384 world at seed 483920,
+  and **all-off returns to the base map at 0.0000 %** — the default-off
+  guarantee holding through the whole GUI path with a seventh toggle present.
+  The maps were looked at, not only measured: the shoals inside the bays have
+  visibly lightened as they fill toward sea level, and no coastline moved,
+  which is what accretion capped at `sea - 1e-4` should look like.

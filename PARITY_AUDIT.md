@@ -119,7 +119,7 @@ bit-exact and now live at `Data ▸ Import ▸ Heightmaps (PNG)`.
 | Fjords (`buildFjordMask`/`carveFjords`/`currentFjordMask`/`carveFjordsOp`) | 4 | absent | `sample_bridge.rs:613`'s gap-view list |
 | ~~Velocity erosion (Mei virtual pipes) + coastal + glacial + hillslope~~ | ~16 | **DONE (2026-08-23).** Bit-exact kernels in `cartalith-erosion/src/passes.rs` (26 golden tests, 98/115 mutants killed), run as **default-off generation parameters** — `cartalith_engine::ErosionPassParams`, 21 `params.rs` rows. Not the reference's run *buttons*: `DECISIONS.md` §7d, decided at `GUI_GAP_REGISTER.md` §19. **Droplet** is the one of the five still parameter-less | WW-02, tabulated in `GENERATION_PARAMETERS.md` |
 | ~~Evolve coupled + sediment routing/deposition~~ | 4 | **DONE (2026-08-23).** Both are orchestration and are transcribed into the same pass block; `evolveCoupled` needed one genuinely new engine function, now written — `cartalith_engine::refresh_climate`, the reference's `computeFlow(true); refreshClimate();` tail over a changed surface | MS-04 / MS-05, §19 |
-| Tidal flats | 1 | kernel ported and golden-tested (`apply_tidal_sedimentation`); **no control**, because it takes a tidal-range field this port does not generate | MS-05's second half, blocked on WW-07 |
+| ~~Tidal flats~~ | 1 | **DONE (2026-08-24).** The kernel was ported and golden-tested a day earlier; what was missing was the tidal-range field, which `cartalith-climate/src/tides.rs` now produces. `passes.tidal_flats` + `passes.tidal_k` are the **seventh** erosion pass, running last (the reference's own source order), and the toggle doubles as the tides enable — it builds the field from the finished surface right before the kernel reads it, exactly as `refreshTides()` does there. Measured: 19.58 % of every water cell accreted, water only and upward only | MS-05 closes; `GUI_GAP_REGISTER.md` §19.5 |
 | ~~Geoid (`buildGeoid`/`refreshGeoid`/`geoAt`/`currentGeoidPreview`)~~ | 4 | **DONE (2026-08-23)** — `cartalith-climate/src/geoid.rs`, 7 golden tests. The Geoid debug view previews it at the reference's own default amplitude, exactly as `currentGeoidPreview` does while the toggle is off | `GUI_GAP_REGISTER.md` DV-06; WW-07's *parameters* stay open |
 | ~~Tides (`tidalForcing`/`computeTideField`/`buildTideField`/`refreshTides`/`currentTideField`)~~ | 5 | **DONE (2026-08-23)** — `cartalith-climate/src/tides.rs`, 6 golden tests. Green's-law shelf amplification and coastal funnelling both verified against a captured reference world | DV-07; WW-07's *parameters* stay open |
 | ~~Seasons + Köppen (`computeSeasons`/`classifyKoppen`/`buildKoppen`/`koppenColor`…)~~ | 7 | **DONE (2026-08-23)** — `cartalith-climate/src/koppen.rs`, 6 golden tests. The frozen 30-key order and the Peel et al. palette are verbatim; the classifier is bit-exact against the reference's own captured seasonal fields. The *rain* half inherits `simulate_weather`'s three already-disclosed deferrals, which the module doc states rather than hides | DV-04; WW-09's *parameters* stay open |
@@ -133,13 +133,20 @@ bit-exact and now live at `Data ▸ Import ▸ Heightmaps (PNG)`.
 | The remaining **rendering-advanced** toggles as *controls* | parchment, surface texture, sky view factor, ridge crests, ridged relief, slope rock, geology materials, cast shadows, curvature shading, minor channels, wetness, season, SDF coast/river/biome | still absent as controls; several of the underlying effects exist under other names in `TerrainAppearance` (paper, geology, local contrast) but are tier-driven, not exposed | `render_workspace.gd`'s own trimmed disclosure; register RN-01 |
 | `exportZip` + `serializeState` + channel atlas + f32 layer previews | ~20 | absent | FI-01/DM-04 ("no save writer") — but the four *header-bar controls* behind it are not itemised; §5 item 14 |
 
-**GeoJSON export is the one genuinely mis-stated row.**
-`cartalith-engine/src/geojson.rs` exists with `golden_parity_geojson.rs` beside
-it — nine reference functions ported and verified. It has **no `#[func]`
-binding**, which `data_manager_window.gd:132` and register DM-03 both say
-accurately ("(B) wrapper — one `#[func]` plus assembling a `GeoJsonWorld`").
-`FUNCTIONAL_CONTRACT.md` calls it **"Absent"** in both its body and its summary
-table. Engine done, boundary not.
+**GeoJSON export was the one genuinely mis-stated row — CLOSED 2026-08-24.**
+`cartalith-engine/src/geojson.rs` existed with `golden_parity_geojson.rs`
+beside it — nine reference functions ported and verified — but had **no
+`#[func]` binding**, which `data_manager_window.gd` and register DM-03 both
+described accurately ("(B) wrapper — one `#[func]` plus assembling a
+`GeoJsonWorld`"), while `FUNCTIONAL_CONTRACT.md` called it **"Absent"** in both
+its body and its summary table. The wrapper is now
+`crates/cartalith-godot/src/geojson_bridge.rs` and its caller is the Data
+manager's Export ▸ GIS / GeoJSON route; the contract's two rows are corrected.
+One reference function had to be ported alongside it —
+`cartalith_hydrology::split_river_polylines` (`splitRiverPolylines`, reference
+4596), without which a wrapped receiver chain exports as one `LineString`
+drawn back across the whole map. Verified in the real app: 305,646 B, 511
+features across five layers. `GUI_GAP_REGISTER.md` §20.
 
 ### 3.2 Civilisation layer (Part 1 block 2)
 

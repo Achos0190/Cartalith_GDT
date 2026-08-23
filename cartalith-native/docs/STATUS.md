@@ -5,7 +5,60 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **Pinch-to-zoom on the phone: the handler was
+Last updated: 2026-08-24 (post **GeoJSON export gets its boundary, and tidal
+flats gets its tide field** — two small wiring jobs that between them close the
+last of `PARITY_AUDIT.md` §3.1's backlog, both the same shape: a golden-verified
+engine capability with nothing to run it. **DM-03 closes** — `geojson_bridge.rs`
+is one `#[func]` (`WorldGen::export_geojson`) assembling a `GeoJsonWorld` off
+`CivData` + `WorldState`, and Data manager ▸ Export ▸ GIS / GeoJSON is a `live`
+route with a picker and a writer. `cartalith-engine::geojson` had been finished
+and character-exact since milestone E2 with **no caller**, which is why
+`FUNCTIONAL_CONTRACT.md` read it as "Absent". One function had to be ported to
+get there — `cartalith_hydrology::split_river_polylines`
+(`splitRiverPolylines`, reference 4596), without which a wrapped receiver chain
+exports as one `LineString` drawn back across the whole map; two goldens, both
+fixtures produced by **running the reference's own function under node**. Three
+reference inputs this port has no equivalent for are handled by *omission* and
+disclosed in the pane: no `poi` layer, `sea` derived from which collection a
+way came out of, rivers re-traced from `WorldState` rather than a `_riverNet`
+cache (and at the export's own min-order **2**, not the pipeline's 1). Verified
+in the real app: **305,646 B, 511 features** — 239 settlement / 43 way / 216
+river / 6 territory / 7 province — parsing as JSON, cross-checked against the
+bridge's own getters, every coordinate inside the world's 1200 × 900 km box.
+**WW-07/MS-05's `#tidalFlatsBtn` closes too**: `passes.tidal_flats` +
+`passes.tidal_k` are the **seventh** erosion pass, running last, matching the
+reference's own source order. The pass toggle *is* the tides enable — it builds
+the tide field from the finished surface right before the kernel reads it,
+which is what `refreshTides()` does there — with the reference's own default
+single moon, since `PlanetParams` has no roster. Measured at grid resolution:
+**3,051 cells accreted, 19.58 % of every water cell**, mean rise 0.01968, water
+only and upward only; in the real app 9.00 % of pixels moved and **all-off
+still returns to base at 0.0000 %**. Still open: GeoJSON **import**, CRS
+handling anywhere, and WW-07's *geoid* parameters, which have no consumer yet)
+— previously, post **Hand-drawn ways reach the map and a list** —
+`GUI_GAP_REGISTER.md` **IN-02 closes**, and `PARITY_AUDIT.md` §3.2's row with
+it. A way committed by the Way tool was always fully real — routed by
+`civ_commit_way`'s least-cost Dijkstra, kept on `InfraTools::ways`, and live
+input to the next commit's routing and to point snapping — but `get_roads()`
+iterated `civ.ways` and `get_sea_routes()` iterated `civ.sea_routes`, so
+nothing could see it. **No new getter was written, on the reference's own
+authority**: `_civCommitWay` (line 26077) pushes a hand-drawn way onto the
+*same flat `civWays` array* as the generated network tagged `manual:true`, and
+the draw pass branches on `type` alone — so both existing getters simply append
+`infra.ways` (sea lanes to `get_sea_routes()`, the one split the reference's
+draw pass does make), tagged `manual: true`, plus a `km` both structs already
+carried and neither getter emitted. `map_overlay.gd` changed by **one
+dictionary key** (`"ancient": 1.1`) and no draw-loop line; `manual` is
+deliberately never consulted while drawing, because a hand-drawn `road` is
+meant to look like a generated one. `_commit_way` now repaints
+(camera-preserving) and fills a new **CIVIL ▸ Roads ▸ Hand-drawn** list, and the
+right dock's Route context gained a **Source** field. Verified by driving the
+real app — 4 clicks → a 105-point / 1938.7 km committed way — including a
+**pixel-level** proof: with all four generated tiers hidden, toggling one
+hand-drawn `ancient` way changed ~716 real pixels. Still open: no
+`way_set_name`/`way_delete`, so **MS-09** stays disabled; committed *routes*
+were never part of IN-02, `route_get`/`route_count` predate it) — previously,
+post **Pinch-to-zoom on the phone: the handler was
 fine, the events never arrived** — owner-reported *"zooming doesn't seem to
 work on the phone"*. Not a code gap at all: `viewport_host.gd:406` had always
 handled `InputEventMagnifyGesture`, but Godot's Android input layer only
@@ -166,7 +219,7 @@ unreachable — the `sea - 1e-4 - h` headroom cap subsumes it).
 **And then wired, same day** — the run path is **default-off generation
 parameters** (`DECISIONS.md` §7d), not the reference's buttons, and WW-02
 (4 of 5), MS-04 and MS-05 all close. New `cartalith_engine::ErosionPassParams`
-on `WorldParams`: six toggles (`velocity`/`glacial`/`coastal`/`hillslope`/
+on `WorldParams`: six toggles — seven since 2026-08-24 — (`velocity`/`glacial`/`coastal`/`hillslope`/
 `sediment_fill`, plus `evolve_cycles` where `0` is off) and fifteen knobs at
 the reference's own `state` literals, run **at the end of `generate_terrain`
 after `carve_rivers`** in the reference's panel order, exposed as **21
@@ -186,8 +239,8 @@ parameters): pixels moved 38 %/91 %/6 %/45 %/44 %/44 %, all-off returns to
 base at **0.0000 %**, and the honest control — glacial with a low snowline but
 a temperate world moves 0.24 %, because ice needs `temp < 0` too. Still open:
 **droplet** (kernel since Phase 1, no parameter — its `erodeFinish` tail is a
-second orchestration) and **tidal flats** (kernel ported, but needs `tideField`,
-**WW-07**). The reference's own run-*button* idiom stays available on top and
+second orchestration). **Tidal flats was open here too and closed 2026-08-24**
+— see the top of this file. The reference's own run-*button* idiom stays available on top and
 is now cheap; not built because UI work is on hold)
 — previously, post **The reference's NPR block: ten Painter
 styles, coastal waves, animated water, multi-sun**. `PARITY_AUDIT.md` §3.1's

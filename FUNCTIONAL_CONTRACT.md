@@ -337,12 +337,20 @@ done and bit-exact** (`cartalith-terrain/src/infer.rs` +
 (PNG)`). **Tile/image export is live end to end** (`region_export_tiles`,
 wired to the Data manager's Export ▸ Maps route, DM-13) — what remains of
 that row is the slippy-map-addressing half (XYZ/TMS/WMTS, a zoom ladder,
-retina variants), not tile export itself. **GeoJSON export** is a genuinely
-mixed case worth stating precisely: `cartalith-engine/src/geojson.rs` is
-done and golden-verified (nine reference functions ported), but it has
-**no `#[func]` binding**, so it does not cross the Rust↔Godot boundary yet
-— engine done, boundary not (DM-03, "(B) wrapper"). Still genuinely absent:
-writing `.zip`, and GeoJSON **import**. All of this was explicitly out of
+retina variants), not tile export itself. **GeoJSON export is live end to
+end as of 2026-08-24** (corrected — this row previously read "engine done,
+boundary not"): `cartalith-engine/src/geojson.rs` was already done and
+golden-verified (nine reference functions ported), and DM-03's remaining
+half — `crates/cartalith-godot/src/geojson_bridge.rs`, one `#[func]` plus
+assembling a `GeoJsonWorld` — landed with the Data manager's Export ▸ GIS /
+GeoJSON route as its caller. It exports the whole world in local planar
+kilometres, no CRS (which the document discloses in its own `note`
+property, verbatim from the reference). Three reference inputs this port
+has no equivalent for are handled by *omission* and disclosed: no `poi`
+layer, `sea` derived from which collection a way came out of, and rivers
+re-traced from `WorldState` rather than a `_riverNet` cache — see
+`GUI_GAP_REGISTER.md` §20. Still genuinely absent: writing `.zip`, and
+GeoJSON **import**. All of this was explicitly out of
 MVP scope by design at the time (`MVP_SCOPE.md`: "Writing saves is out...
 Point 12 grants reading one specific thing; it is not a general save/load
 licence").
@@ -517,7 +525,7 @@ modernize-over-port angle the way tile pyramids or layer compositing do.
 | Asset library (data layer) | Done, Phase 4 complete | Port as-is |
 | Asset library (authoring UI) | **Built** (corrected 2026-08-23) | Port as-is |
 | Import (GeoJSON/heightmap) | **Heightmap done; GeoJSON import still absent** (corrected 2026-08-23) | Port as-is |
-| Export (tiles/image) | **Tile export live; GeoJSON export ported, unbound** (corrected 2026-08-23) | Modernize (tile-server-style) for slippy-map addressing remainder |
+| Export (tiles/image) | **Tile export live; GeoJSON export live end to end** (corrected 2026-08-24) | Modernize (tile-server-style) for slippy-map addressing remainder |
 | Save (read) | Done | Port as-is |
 | Save (write) | Absent | Port as-is |
 | 2D rendering | Done | Port as-is |
@@ -546,8 +554,8 @@ genuinely still absent, as of this correction:
 - **Hydrology/climate/ecology live re-tuning without a full regenerate**:
   open design question, not yet even scoped as a milestone target.
 - **Save writing**: `.zip` save is entirely unbuilt (read-only so far).
-- **GeoJSON import**: absent (GeoJSON *export* is ported and golden-verified
-  but not yet bound to Godot — see capability 9).
+- **GeoJSON import**: absent. (GeoJSON *export* is no longer on this list —
+  it went live end to end on 2026-08-24; see capability 9.)
 - **NPR Painter styles, geology microtexture toggle, SDF tinting, contour
   intervals**: presentation-only, no engine dependency, unscoped.
 - **Global (generation-parameter) undo**: absent, tied to the tool-system

@@ -19,6 +19,7 @@ use godot::prelude::*;
 mod asset_bridge;
 mod civ_roster_bridge;
 mod civ_tools_bridge;
+mod geojson_bridge;
 mod icon_bridge;
 mod infra_tools_bridge;
 mod journey_bridge;
@@ -1333,7 +1334,6 @@ struct WorldGen {
     /// owner policy decision, and `get_recommended_quality_tier()` exists so a
     /// caller can offer one rather than have it chosen for them.
     quality: QualityTier,
-    /// `UNIFIED_TOOL_PLAN.md` milestone F (`STRANDED_TOOLS.md` rows 4-8):
     /// The reference's non-photorealistic block (`render::Npr`,
     /// `GUI_GAP_REGISTER.md` RN-01): the ten "Painter" hand-drawn styles, the
     /// coastal wave lines, the multi-sun rig and the animated-water flag.
@@ -1345,6 +1345,7 @@ struct WorldGen {
     /// generation stage stale, so `set_npr()` + `build_color_texture()`
     /// re-renders the same world in a different style with no regeneration.
     npr: render::Npr,
+    /// `UNIFIED_TOOL_PLAN.md` milestone F (`STRANDED_TOOLS.md` rows 4-8):
     /// the live, non-destructive Sculpt-editor draft. See
     /// `sculpt_bridge.rs`'s own module doc for why this lives here rather
     /// than a second `GodotClass`. `None` before the first successful
@@ -1471,8 +1472,8 @@ impl IRefCounted for WorldGen {
             seed: 0,
             asset_pack: None,
             quality: QualityTier::Quality,
-            sculpt: None,
             npr: render::Npr::default(),
+            sculpt: None,
             icons: None,
             civ_tools: None,
             paint: None,
@@ -2629,8 +2630,7 @@ impl WorldGen {
         QualityTier::ALL.iter().map(|t| GString::from(t.name())).collect()
     }
 
-    /// A tier this device can plausibly afford, as a **suggestion**. Nothing
-    /// The appearance this `WorldGen` renders with: the active Â§29 quality
+    /// The appearance this `WorldGen` renders with: the active §29 quality
     /// tier, carrying the caller's NPR settings.
     ///
     /// **The single place the two combine.** Before this existed, five call
@@ -2732,6 +2732,7 @@ impl WorldGen {
         applied
     }
 
+    /// A tier this device can plausibly afford, as a **suggestion**. Nothing
     /// applies it: `WorldGen` starts at `"quality"` on every device, and what
     /// a phone should default to is an owner policy decision, not this
     /// crate's. A caller that wants a device-appropriate default calls this
