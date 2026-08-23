@@ -49,6 +49,28 @@ window/handheld/orientation=6
 
 theme/custom="res://theme/dark_theme.tres"
 
+[input_devices]
+
+; Reminder from [display] above: ONLY semicolons start a comment in this file.
+;
+; Pinch-to-zoom on the phone. `ViewportHost._input()` has handled
+; InputEventMagnifyGesture since the camera was written, but on Android that
+; event is never produced unless this setting is on: Godot's Android input
+; layer only attaches its ScaleGestureDetector/GestureDetector when
+; `pan_and_scale_enabled` is set from this key, and the engine default is
+; false. So the pinch branch was live code on a macOS trackpad and dead code
+; on every phone -- the owner's "zooming doesn't seem to work on the phone".
+; Nothing was wrong with the gesture handler; the events never arrived.
+;
+; Confirmed against this exact engine (4.7.1) rather than assumed:
+; ProjectSettings.has_setting() is true and the unset value read back false.
+;
+; Two-finger only. Single-finger touch still emulates a mouse
+; (input_devices/pointing/emulate_mouse_from_touch, default true and left
+; alone), so every existing tap/drag/scroll interaction in the shell is
+; unaffected -- the gesture detector consumes the two-pointer case only.
+pointing/android/enable_pan_and_scale_gestures=true
+
 [rendering]
 
 renderer/rendering_method="gl_compatibility"

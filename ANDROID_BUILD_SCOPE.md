@@ -1115,3 +1115,92 @@ the previous pass despite its own note saying otherwise — and is restored to `
 | Headless smoke test | **PASS** |
 | Desktop windowed launch | **Clean** — world generated, `6a97911` GL fix not regressed |
 | Device install and run | **Clean** — portrait and landscape both captured |
+
+# Pinch-to-zoom pass (2026-08-24)
+
+Owner: *"zooming doesn't seem to work on the phone."* Full write-up in
+`cartalith-native/docs/CHANGELOG.md`; this section records only the Android
+specifics, because they are the reusable part.
+
+## The setting
+
+`input_devices/pointing/android/enable_pan_and_scale_gestures` defaults to
+**false** in Godot 4.7.1, and with it off the Android input layer never
+attaches its `GestureDetector`/`ScaleGestureDetector` — so
+`InputEventMagnifyGesture` and `InputEventPanGesture` are never produced on a
+device, no matter how correctly the game handles them.
+`viewport_host.gd` had handled the magnify event since the camera was written.
+`project.godot` now carries an `[input_devices]` block turning it on.
+
+Two things worth keeping, both read out of the shipped APK with
+`dexdump -d` rather than from documentation:
+
+- `GodotGestureHandler.onScale` and `.onScaleBegin` open with
+  `iget-boolean … panningAndScalingEnabled` and branch straight out;
+  `GodotInputHandler.enablePanningAndScalingGestures(Z)` is the only writer.
+- `ScaleGestureDetector` is built with the 2-arg constructor and
+  `setQuickScaleEnabled` is **never** called, so Android's single-finger
+  double-tap-drag zoom does not exist in a Godot app. Two real fingers is the
+  only path to a magnify event.
+
+## Driving a real multi-touch pinch from `adb`, on an unrooted device
+
+This is the part that took the work, and it is worth writing down because
+every obvious route is a dead end:
+
+| Route | Why it fails |
+|---|---|
+| `adb shell input tap` / `swipe` / `motionevent` | single-pointer only — there is no multi-touch verb in `input` at all |
+| two concurrent `input swipe`s | not a pinch: each is its own pointer-0 DOWN…UP stream, so the app sees one jittering finger and `getPointerCount()` never reaches 2 |
+| `sendevent /dev/input/event2` (the real panel) | node is `0666` but SELinux denies `u:r:shell:s0`; DAC is not the gate here |
+| `adb root` → `setenforce 0` | refused: LineageOS gates it on `persist.sys.root_access`, which cannot be set without root |
+
+**What works: AOSP's own `/system/bin/uinput`.** `/dev/uinput` is group `uhid`
+and `shell` is in `uhid`, so no root is needed. Register a virtual touchscreen
+and inject MT protocol B directly:
+
+- `configuration` entries `100`=`UI_SET_EVBIT` (`EV_KEY`, `EV_ABS`),
+  `101`=`UI_SET_KEYBIT` (`BTN_TOUCH`), `103`=`UI_SET_ABSBIT`,
+  **`110`=`UI_SET_PROPBIT`** with data `[1]` for `INPUT_PROP_DIRECT` — without
+  that property InputReader does not treat it as a touchscreen.
+- `abs_info` ranges set to `0-1079` × `0-2339` so the virtual device maps 1:1
+  onto this panel and injected coordinates are screen coordinates.
+- Both slots down **in the opening report** (`ABS_MT_SLOT` 0 and 1, distinct
+  `ABS_MT_TRACKING_ID`s) so the app gets `ACTION_DOWN` +
+  `ACTION_POINTER_DOWN` with `pointerCount == 2`; interpolated move reports;
+  release by setting each slot's tracking ID to `-1`.
+- Registration needs a `delay` (~2.5 s) before the first inject, or InputReader
+  has not enumerated the device yet.
+- The span must clear `ScaleGestureDetector`'s `config_minScalingSpan`
+  (~27 mm ≈ 430 px here) or `onScaleBegin` is never called. 600 → 1000 px
+  worked; anything starting under ~450 px would silently do nothing.
+
+Generator script and the two command files live in the session scratchpad, not
+in the repo — they are ~90 lines of generated JSON and are cheaper to
+regenerate from this description than to maintain.
+
+## Result
+
+Read off the app's own `z%.1f` viewport readout, on a real 2048 × 1311 world
+generated on the phone (OnePlus 6T, LineageOS 22.2 / Android 15):
+
+| Build | Gesture | Readout |
+|---|---|---|
+| fix on | pinch out 600 → 1000 px | **z1.0 → z2.2** |
+| fix on | pinch in 1000 → 600 px | **z2.2 → z1.0** |
+| control APK, setting `false`, otherwise identical | the same injected pinch | **z1.0, unchanged** |
+
+The control build is the point: it reproduces the owner's report exactly, so
+the setting is the cause rather than something else that moved in the same
+window. Deep-zoom LOD tiles resolve in the zoomed capture, so the whole
+`_zoom_at` → `set_camera_zoom` → `_update_lod` chain runs on touch.
+
+## Device state touched
+
+The virtual `uinput` touchscreen exists only for the lifetime of each `uinput`
+invocation and is gone afterwards; nothing persistent was registered. The
+screen was woken and the keyguard dismissed (no PIN was entered — it was not
+set). Everything pushed to `/data/local/tmp/` was removed again. The fixed APK
+was reinstalled last, so the
+device is left on the fixed build. No settings or properties were changed —
+`persist.sys.root_access` was *attempted* and refused, which changed nothing.

@@ -5,9 +5,24 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **The right dock sized itself to its own text,
-and took the viewport with it** — owner-reported "small jumps but super
-annoying". Not a splitter bug: an untrimmed Godot `Label` reports its own text
+Last updated: 2026-08-24 (post **Pinch-to-zoom on the phone: the handler was
+fine, the events never arrived** — owner-reported *"zooming doesn't seem to
+work on the phone"*. Not a code gap at all: `viewport_host.gd:406` had always
+handled `InputEventMagnifyGesture`, but Godot's Android input layer only
+attaches its `ScaleGestureDetector` when
+`input_devices/pointing/android/enable_pan_and_scale_gestures` is on and the
+engine default is **false**, so the event was never produced and the pinch
+branch was dead on every phone. One-key fix in `project.godot`'s new
+`[input_devices]` block; no GDScript, no Rust. Verified on the real device with
+a genuine two-pointer MT protocol-B pinch injected through AOSP `uinput`
+(`adb shell input` has no multi-touch, `sendevent` is SELinux-denied, `adb
+root` is gated by LineageOS): **z1.0 → z2.2** pinching out, **z2.2 → z1.0**
+pinching in, against a **control APK with the setting off that reproduces the
+bug exactly** — see §**SH-10**/**SH-11** in `GUI_GAP_REGISTER.md`, the second
+of which is a *separate* zoom-pivot defect found in the same pass and
+deliberately left open) — previously, post **The right dock sized itself to its
+own text, and took the viewport with it** — owner-reported "small jumps but
+super annoying". Not a splitter bug: an untrimmed Godot `Label` reports its own text
 width as its *minimum* width, and `right_dock.gd::_field()`'s value label had
 no `clip_text` and no overrun behaviour, so a row's minimum width was its
 current string's width. That travels up through the section, the

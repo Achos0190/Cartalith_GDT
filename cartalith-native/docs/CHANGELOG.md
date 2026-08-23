@@ -20177,3 +20177,104 @@ was already reachable from GDScript through `bridge.last_width_km` and
   fault. Nothing there is rewritten on mouse-move, which is why only this dock
   was visibly erratic, but the mechanism is identical wherever a label holds
   world-derived text.
+
+## Pinch-to-zoom on the phone: the handler was fine, the events never arrived (owner report, 2026-08-24)
+
+Owner: *"zooming doesn't seem to work on the phone."* Desktop wheel-zoom was
+unaffected and had just been touched for an unrelated LOD bug (`4d266de`), so
+the obvious hypothesis was that touch gestures were never wired.
+
+**They were.** `viewport_host.gd::_input()` has had an
+`InputEventMagnifyGesture` branch since the camera was written (line 406), it
+calls the same `_zoom_at()` the wheel does, and its own comment says *"Two-
+finger pinch, synthesized by the platform on touch."* The code was correct and
+had never once run on a phone.
+
+**Root cause: a project setting, not code.** Godot's Android input layer only
+attaches its `GestureDetector`/`ScaleGestureDetector` when
+`input_devices/pointing/android/enable_pan_and_scale_gestures` is on, and the
+engine default is **false**. With it off, `GodotGestureHandler.onScaleBegin`
+and `.onScale` both return early, `handleMagnify` is never called, and no
+`InputEventMagnifyGesture` is ever produced — so the pinch branch was live code
+on a macOS trackpad and dead code on every Android device. `project.godot` had
+no `[input_devices]` section at all.
+
+Verified at three levels rather than assumed:
+
+1. **The setting is real in this exact engine.** `ProjectSettings.has_setting()`
+   → true, and the unset value read back `false`, under
+   `Godot_v4.7.1-stable_win64_console.exe --headless --script`. (Not taken from
+   documentation: this project has been bitten before by a `project.godot` key
+   that looked right and silently was not — see the `[display]` comment block
+   about `##` not being a comment character.)
+2. **The gate is visible in the shipped bytecode.** `dexdump -d` on the
+   exported APK's `classes3.dex`: `GodotGestureHandler.onScale` and
+   `.onScaleBegin` both open with
+   `iget-boolean vN, …, GodotGestureHandler;.panningAndScalingEnabled:Z` and
+   branch out, and `GodotInputHandler.enablePanningAndScalingGestures(Z)` is
+   the only writer. The same dump also shows `ScaleGestureDetector` is
+   constructed with the 2-arg constructor and `setQuickScaleEnabled` is never
+   called — so there is no single-finger double-tap-drag zoom to fall back on,
+   which is why nothing on the phone zoomed at all.
+3. **Driven on the real device, both directions, with a genuine two-pointer
+   pinch.** See below.
+
+**The fix** is the new `[input_devices]` block in `project.godot`:
+`pointing/android/enable_pan_and_scale_gestures=true`. No GDScript and no Rust
+changed. `emulate_mouse_from_touch` is left at its default `true`, so every
+existing single-finger tap/drag/scroll in the shell is untouched — the gesture
+detector only consumes the two-pointer case.
+
+**How the pinch was actually driven** (this project's rule that headless checks
+cannot catch this class of bug applies exactly here — nothing short of two real
+pointers reaches `ScaleGestureDetector`):
+
+- `adb shell input` has no multi-touch command at all (`tap`, `swipe`,
+  `motionevent` are all single-pointer), and two concurrent `swipe`s are not a
+  pinch — each is its own pointer-0 DOWN…UP stream, so the app sees one
+  jittering finger and `getPointerCount()` never reaches 2.
+- `sendevent` on the real touchscreen (`/dev/input/event2`, `synaptics,s3320`)
+  is SELinux-denied to `u:r:shell:s0`, and `adb root` is refused by
+  LineageOS's `persist.sys.root_access` gate (which itself cannot be set
+  without root).
+- What worked: **AOSP's own `/system/bin/uinput`**, which shell can use because
+  `/dev/uinput` is group `uhid` and `shell` is in `uhid`. A generated command
+  script registers a virtual multi-touch touchscreen (`INPUT_PROP_DIRECT` via
+  `UI_SET_PROPBIT`, ABS ranges 0-1079 × 0-2339 to match the panel 1:1) and then
+  injects a real MT protocol-B two-slot sequence: both slots down with distinct
+  `ABS_MT_TRACKING_ID`s in the opening report, 28 interpolated move reports,
+  then both tracking IDs to `-1`. That produces a genuine
+  `ACTION_DOWN`/`ACTION_POINTER_DOWN` with `pointerCount == 2`, which is what
+  `ScaleGestureDetector` requires.
+
+**Result on the device** (OnePlus 6T, LineageOS 22.2 / Android 15, real
+2048 × 1311 world generated on the phone, read off the app's own on-screen
+`z%.1f` readout):
+
+| Build | Injected gesture | Zoom readout |
+|---|---|---|
+| fix on | pinch out, span 600 → 1000 px | **z1.0 → z2.2** |
+| fix on | pinch in, span 1000 → 600 px | **z2.2 → z1.0** |
+| **control: `…enable_pan_and_scale_gestures=false`, same APK otherwise** | the identical injected pinch | **z1.0 → z1.0 (no change)** |
+
+The control build is the point: it reproduces the owner's bug exactly and
+proves the setting is the cause rather than something else that moved. The
+zoomed screenshot also shows the deep-zoom LOD tiles resolving, so the whole
+`_zoom_at` → `overlay.set_camera_zoom` → `_update_lod` chain runs on touch, not
+just the zoom scalar.
+
+**Found but deliberately not fixed here — `_zoom_at()` mixes coordinate
+spaces.** `_input()` delivers `event.position` in *viewport* coordinates, but
+`_camera` is a child of `ViewportHost`, so `_camera.position` is
+`ViewportHost`-local; `_zoom_at`'s `(screen_pt - _camera.position)` conflates
+the two, and the zoom pivot is off by `ViewportHost.global_position`. Measured,
+not inferred: a headless instantiation of `app.tscn` reports
+`ViewportHost.global_position = (412, 70)` on the desktop layout, i.e. the left
+rail plus the menu/tab bars. The pan branch is unaffected (it uses a *delta* of
+two global positions, which is offset-invariant), and `move_view_to()` and
+`_update_lod()` both already work in local space — so `_zoom_at` is the one
+inconsistent site. Left alone because it is a different defect from the one
+reported, it affects desktop (which the owner says works correctly) more than
+the phone (where the map is edge-to-edge and the offset is ~0), and
+`viewport_host.gd` had concurrent work in it. Registered as **SH-10** in
+`GUI_GAP_REGISTER.md`.
