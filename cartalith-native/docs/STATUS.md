@@ -1073,14 +1073,20 @@ after a fixture disagrees.
 
 **Open, in priority order**
 
-- [ ] **Port `js_atan2`** — 22.98% divergence, the largest in the workspace,
-      eight sites, nothing ported. Land it in `cartalith-urban::geom`'s FDLIBM
-      block beside `js_sin`/`js_cos`/`js_log` rather than opening a seventh copy
-      site, then re-verify `cartalith-hydrology::build_channels` specifically.
-- [ ] **`cartalith-jsmath` leaf crate.** 7 copies of `js_hypot`, 7 of
-      `js_round`, 3 of `js_min`/`js_max`, 2 of `toFixed`. Blocked on the urban
-      fork, which is actively editing the file that would move. Mechanical once
-      it lands; one commit, no behaviour change, every golden untouched.
+- [x] **`js_atan2` ported** (closed, verified 2026-08-23, `PARITY_AUDIT.md` §7).
+      `crates/cartalith-jsmath/src/libm.rs:645`, consumed at
+      `cartalith-hydrology/src/lib.rs:279` (`use cartalith_jsmath::js_atan2;`)
+      for the aspect chain specifically, per this item's own note.
+- [x] **`cartalith-jsmath` leaf crate landed** (closed, verified 2026-08-23,
+      `PARITY_AUDIT.md` §7, count corrected against the audit's own claim —
+      see below). The crate exists (`crates/cartalith-jsmath/`) and is a real
+      dependency of **9** other crates (`cartalith-assets`, `cartalith-civ`,
+      `cartalith-climate`, `cartalith-engine`, `cartalith-godot`,
+      `cartalith-hydrology`, `cartalith-spatial`, `cartalith-terrain`,
+      `cartalith-urban`), verified per-`Cargo.toml` for this pass. Note:
+      `PARITY_AUDIT.md` §7 states "10 dependent crates" — that count is off
+      by one (it appears to include `cartalith-jsmath`'s own manifest, which
+      is not a dependent); 9 is the correct figure.
 - [ ] **One debug-only NaN-freedom assertion on the pipeline's output fields**,
       instead of `js_min`/`js_max` at 200 sites. Converts §4.3's
       "believed safe" list to "checked" at a single site.
@@ -3500,16 +3506,11 @@ Two passes landed the same day. The first built the ~430-line `journey_planner_w
 - [x] `cargo test -p cartalith-godot --release --lib` 227/227. No Rust
       changed — `sample_bridge`'s layer table was cleared by the
       investigation, not modified. Headless boot (`--quit-after 30`) clean.
-- [ ] **Open, reported not fixed:** `godot-project/main.tscn` + `main.gd` (the
-      superseded pre-DCC shell, 2,358 lines, referenced by nothing under
-      `shell/`) are still in the project and are the editor's only entry in
-      `.godot/editor/project_metadata.cfg`'s `recent_files`. Running that
-      scene (F6) shows a five-checkbox LAYERS dock, no popover, no field
-      views — a second, independent way to see "crude and incomplete" where
-      layers do not work. `project.godot`'s `run/main_scene` is correctly
-      `res://shell/app.tscn`. Deleting the pair is left to the owner: it is a
-      2,400-line removal and `main.gd` is cited across the port's docs as the
-      source the current shell was ported from.
+- [x] **Closed** (verified 2026-08-23, `PARITY_AUDIT.md` §7). `godot-project/main.tscn`
+      and `main.gd` — the superseded pre-DCC shell this item once flagged as
+      "still in the project" — are deleted (commit `788053b`); neither path
+      exists in the working tree any longer. `project.godot`'s
+      `run/main_scene` remains correctly `res://shell/app.tscn`.
 - [x] **Closed 2026-08-20 — it was a false alarm.** The untracked
       `godot-project/android/build/src/instrumented/assets/project.godot`
       names `res://main.tscn`, but **that file is not ours**: its
@@ -4487,9 +4488,17 @@ Faction context, `"—"` after deselecting back to an empty Sample, and
 
 ## Known-open items (not owner-blocked, just not done yet)
 
-- **`get_settlements()` carries no `tid`, so the Timeline's ghost/highlight/exist-only filters can't touch the map yet** (`TIMELINE_SCOPE.md` milestone 6, `civilization_workspace.gd`'s Timeline category). `NamedSettlement` gained a stable `tid: u64` field at the Rust level in milestone 1, and `civ_year_diff()` returns real tid-keyed present/removed/added sets, but `get_settlements()` (`lib.rs`) never puts `tid` into the `Dictionary` it hands to Godot, so nothing on the GDScript side can match a drawn pin (`map_overlay.gd`) to a diff entry. The three filter checkboxes read/display real `civ_year_diff()` counts but cannot filter, ghost or highlight individual settlement pins on the map until `get_settlements()` (and/or a per-year snapshot-settlements getter, since `civ_goto_year` deliberately never touches live `settlements`) exposes `tid`. A real, bounded Rust-side fix, not attempted in the GDScript-only milestone that found it.
+- ~~**`get_settlements()` carries no `tid`**~~ — **closed** (verified
+  2026-08-23, `PARITY_AUDIT.md` §7). `get_settlements()` (`crates/cartalith-godot/src/lib.rs:2670`)
+  does put `"tid" => s.tid as i64` into the `Dictionary` it hands to Godot.
+  This item was true when written and had gone stale by the time it was
+  still listed here.
 
-- Real Fira Sans/Fira Code font files for the UI theme (design-system match found the pairing; sourcing + OFL-license verification deferred).
+- ~~Real Fira Sans/Fira Code font files for the UI theme~~ — **closed**
+  (verified 2026-08-23, `PARITY_AUDIT.md` §7). Both are sourced, OFL-licensed
+  and wired: `godot-project/fonts/FiraSans-*.ttf`/`FiraCode-*.ttf` plus their
+  `-OFL.txt` licenses are present, and `theme/dark_theme.tres` sets
+  `default_font = ExtResource("Font_fira_sans")` (`FiraSans-Regular.ttf`).
 
 - **~~The phone UI is physically unusable by finger~~ — SUPERSEDED 2026-08-20.** The §13 phone layout has since shipped and **was verified running on the real OnePlus 6T** (`ANDROID_BUILD_SCOPE.md` §4.2). `project.godot` now sets `display/window/handheld/orientation="sensor"`, `DccShell._compute_layout_mode()` latches `_phone` true on this device (order-independent aspect `1080/2340 = 0.4615` < `_PHONE_ASPECT_MAX 0.6`, so landscape does not defeat it), and the shell builds **phone chrome, not desktop chrome**: app bar, floating domain rail (`WORLD`/`CIVIL`/`CARTO`), `⋯` overflow, bottom tool sheet, gesture inset, and in landscape the `_phone_side_safe` cutout pocket down the left edge. `_phone_scale = 1080/393 = 2.75` puts §13's 44 px minimum target at **~121 physical px**, clearing Android's 94 px (48 dp) floor. The verdict below described **the desktop shell running on a phone**, which is no longer what happens.
   - **The old "do not enable sensor rotation" warning is now wrong and has been removed.** It was correct while the phone layout did not exist; the layout is what it was protecting against, and `"sensor"` is now load-bearing in the opposite direction — a fixed landscape lock would make `DccShell._apply_phone_orientation()`'s landscape treatment unreachable.
@@ -4547,15 +4556,11 @@ Full detail in `CHANGELOG.md`'s matching entry. Summary:
       because the mouse is already over the pin at click-time; the right
       dock is populated separately via `settlement_selected`. No stray
       dialog exists. No change made.
-- [ ] **Still open: the `cartalith-godot` bridge call site.** `lib.rs`
-      (~line 639) still calls the old `place_settlements` (kept, unchanged,
-      for exactly this reason) — a concurrent Travel Library `#[func]`
-      pass had that file (and `journey_bridge.rs`) dirty for this entire
-      pass, so it could not be touched. One-line swap to
-      `place_settlements_with_water_edge_snap` once that file is clean
-      again, threading `flood`/`ws.flow_discharge`/`flow_thresh`/
-      `map_width_km` (all already computed at that call site). Until then
-      the live game runs the pre-fix placement path.
+- [x] **Closed** (verified 2026-08-23, `PARITY_AUDIT.md` §7, commit
+      `24d3c12`). The `cartalith-godot` bridge call site now calls
+      `place_settlements_with_water_edge_snap` (`crates/cartalith-godot/src/lib.rs:671`),
+      threading `flood`/`ws.flow_discharge`/`flow_thresh`/`map_width_km` as
+      planned. The live game runs the fixed placement path.
 
 ## Owner-only items
 
