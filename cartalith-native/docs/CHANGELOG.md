@@ -20534,3 +20534,74 @@ half has no consumer yet and stays open.
   The maps were looked at, not only measured: the shoals inside the bays have
   visibly lightened as they fill toward sea level, and no coastline moved,
   which is what accretion capped at `sea - 1e-4` should look like.
+
+---
+
+## The pre-carve flow accumulation nothing read (`DECISIONS.md` §7f, 2026-08-24)
+
+`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` (committed the same day) asked
+the owner's question — *"can't we have everything run from the first
+generation and keep feedback loops to a minimum?"* — and answered it mostly in
+the negative direction the owner was not expecting: the default pipeline
+**already is** a one-way cascade with two single-shot feedback edges, and the
+cost is not in the loop structure at all. It is concentrated in one kernel,
+`compute_flow`, which runs **four times** per default generation. Its §3.2.1
+claimed one of those four runs is dead work. This entry is that claim
+verified, taken, and measured.
+
+**The finding held.** Every statement between `flow_discharge`'s pre-carve
+assignment and its post-carve overwrite was re-read against the current tree,
+not against the research document's line numbers: the carve block reads
+`field`, `pre`, `stress.stress_field`, `resistance_field`, `rainfall` and its
+own locally computed `flow_for_network`, and never `flow_discharge`. On the
+default path the pre-carve call's result is discarded unread.
+
+**The change is one conditional.** `p.carve_rivers && !force_precarve_flow`
+guards the call. The `carve_rivers: false` path is untouched — there the call
+*is* the output, and a skip that leaked into it would be a correctness bug,
+not a speedup. The reasoning, the reference's own motive for the call order
+(`flowField` is a JS module global with readers at any moment; here it is a
+local with none), and the deviation itself are recorded in `DECISIONS.md` §7f
+and restated at the call site, per `CLAUDE.md`'s "raise it, then record the
+new reasoning" rule. This is the same disclosure pattern §7e set.
+
+**Verified — bit-identity, not tolerance.** `generate_terrain`'s body became a
+private `generate_terrain_inner(p, force_precarve_flow)`; the public function
+passes `false`, and exactly one test passes `true`, restoring the reference's
+literal call order. `precarve_flow_skip_leaves_generation_bit_identical` then
+`assert_eq!`s **every** raster `WorldState` carries — `field`, `temperature`,
+`rainfall`, `flow_area`, `flow_discharge`, `river_mask`, `river_floor`,
+`stream_order`, `resistance_field` — plus `gpu_stages_used`, across six
+fixtures: four carving (both `world` modes, three seeds, one non-square grid)
+and two non-carving. The escape hatch exists so that "the skip changes
+nothing" is a proof this crate can run, not an argument in a comment.
+
+`gpu_stages_used` was the research document's own flagged caveat and it cannot
+move: `flow_on_gpu` returns `Some` iff `gpu_flow` is `Some`, which is fixed for
+the whole function, and the two flow calls *inside* the carve block push the
+same `"flow"` string under that same condition. The test asserts it anyway.
+
+**Measured, on this machine, `--release`, best of 3 after a warm-up:**
+
+| Size | Before | After | Saved |
+|---|---|---|---|
+| 512² | 0.3641 s | 0.3280 s | 36 ms (9.9 %) |
+| 1024² | 1.1396 s | 1.0385 s | 101 ms (8.9 %) |
+| 2048² | 4.8275 s | 4.3955 s | **432 ms (8.9 %)** |
+
+One `compute_flow` call at 2048² measures **402 ms** here, so the saving is the
+call and nothing else — a useful cross-check that no second effect crept in.
+(The research document quoted 488.9 ms from an older `CHANGELOG.md` entry; the
+kernel has got faster since, which moves the *fraction* of a generate that flow
+accumulation owns from ~38 % to ~33 %, not the conclusion.)
+
+The whole workspace suite — every golden-parity fixture in `cartalith-engine`,
+`cartalith-hydrology` and the eleven other crates — stays green with **no
+tolerance touched**.
+
+**Considered and not taken**: §3.4 of the same research notes
+`compute_temperature`'s first call is also unread on the default path. It is
+one O(N) per-cell pass rather than a global sort-and-walk, and skipping it
+would mean restructuring `apply_ocean_currents`' `&mut temperature` argument —
+recorded in `DECISIONS.md` §7f so the next reader knows it was weighed, not
+missed.

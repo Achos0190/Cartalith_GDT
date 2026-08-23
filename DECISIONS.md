@@ -326,3 +326,62 @@ concern) and its crossroads-settlement promotion pass (reference line
 ~25607) remain unported. Both are real, separate reference features,
 confirmed by reading them, not conflated with the geometry bug this entry
 fixes — left for a future pass if the owner wants them.
+
+## 7f. The pre-carve `computeFlow(true)` is skipped when carving runs (2026-08-24)
+
+`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §3.2.1 found, and this pass
+confirmed by re-reading every statement between the two points, that
+`generate_terrain` computes `flow_discharge` immediately before
+`carveRiverValleys` and then **unconditionally overwrites it** at that
+function's own step (3). The carve block in between reads `field`, `pre`,
+`stress.stress_field`, `resistance_field`, `rainfall` and its own locally
+computed `flow_for_network` — never `flow_discharge`. On the default path
+(`carve_rivers: true`) the first call's result is therefore discarded unread.
+
+**Why the reference does it.** It is a faithful port of the reference's own
+order. In JS, `flowField` is a module global that the renderer, every overlay
+and the sample readout may read at any moment, and `carveRiverValleys()` is
+conceptually a separate op that could be invoked on its own — so the reference
+has to leave the global current between the two. In this port it is a function
+local with no observer between its two assignments.
+
+**The deviation.** The call is skipped when `p.carve_rivers` is on. It is
+**not** skipped when `carve_rivers` is off, because there it is the output —
+the skip is conditional by construction, not an unconditional deletion.
+
+**What it is worth**, measured on this machine with
+`cargo run --release --example timing_bench -p cartalith-engine`, best of 3
+after a warm-up, `WorldParams::defaults`:
+
+| Size | Before | After | Saved |
+|---|---|---|---|
+| 512² | 0.3641 s | 0.3280 s | 36 ms (9.9 %) |
+| 1024² | 1.1396 s | 1.0385 s | 101 ms (8.9 %) |
+| 2048² | 4.8275 s | 4.3955 s | **432 ms (8.9 %)** |
+
+One `compute_flow` call at 2048² measures 402 ms on the same machine, which is
+what the saving should be and is.
+
+**Why this is not a §7 parity question.** It changes no formula, no constant
+and no operation order — the value that survives is the value that always
+survived, computed from the same inputs by the same call. The claim is
+*bit-identity*, and it is held to that by
+`precarve_flow_skip_leaves_generation_bit_identical` (`cartalith-engine`),
+which runs the same generation twice — once skipping, once with the
+reference's literal call order restored through a private
+`force_precarve_flow` escape hatch — and `assert_eq!`s every raster
+`WorldState` carries plus `gpu_stages_used`, over four carving fixtures
+(both `world` modes, several seeds) and two non-carving ones. `gpu_stages_used`
+cannot differ: `flow_on_gpu` returns `Some` iff `gpu_flow` is `Some`, which is
+fixed for the whole function, and the two flow calls inside the carve block
+push the same `"flow"` string under the same condition.
+
+Disclosed here rather than absorbed because `CLAUDE.md` requires it —
+deviating from the reference's own call sequence is a decision even when the
+output is provably identical. Same pattern as §7e.
+
+**Also found and deliberately not taken**: §3.4 of the same research notes that
+`compute_temperature`'s first call is likewise unread on the default path.
+Left alone — it is one O(N) per-cell pass rather than a global sort-and-walk,
+and skipping it would mean restructuring `apply_ocean_currents`' `&mut
+temperature` argument. Recorded so the next reader knows it was considered.

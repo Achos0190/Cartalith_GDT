@@ -609,6 +609,17 @@ pub struct WorldState {
 /// doc comment for the exact JS functions this mirrors and what's
 /// deliberately not reproduced yet.
 pub fn generate_terrain(p: &WorldParams) -> WorldState {
+    generate_terrain_inner(p, false)
+}
+
+/// `generate_terrain`'s body, with one test-only escape hatch:
+/// `force_precarve_flow` restores the reference's own literal call order
+/// (the pre-carve `computeFlow(true)` that the carve path never reads --
+/// see its call site below and `DECISIONS.md` §7f). Nothing but
+/// `precarve_flow_skip_leaves_generation_bit_identical` passes `true`; it
+/// exists so that "the skip changes nothing" is a proof this crate can run
+/// rather than an argument in a comment.
+fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldState {
     let gw = p.gw;
     let gh = p.gh;
     let world = p.world;
@@ -1109,14 +1120,40 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         );
     }
 
-    let mut flow_discharge = match flow_on_gpu(&field, Some(&rainfall), true) {
-        Some(v) => {
-            if !gpu_stages_used.iter().any(|s| s == "flow") {
-                gpu_stages_used.push("flow".to_string());
+    // `computeFlow(true)` before `carveRiverValleys()` (reference HTML line
+    // 8760). **Deliberate deviation from the reference's own call order,
+    // disclosed here and in `DECISIONS.md` §7f rather than taken silently**
+    // (`CLAUDE.md`): in JS `flowField` is a module global the renderer and
+    // every overlay may read at any moment, so the reference has to keep it
+    // current between the two ops. Here it is a *local*, and when
+    // `p.carve_rivers` is on (the default) every statement in the carve
+    // block below reads `field`, `pre`, `stress`, `resistance_field`,
+    // `rainfall` and its own `flow_for_network` -- never `flow_discharge` --
+    // before step (3) overwrites it wholesale. So on the default path the
+    // call's result is discarded unread: 402 ms of a measured 4.83 s
+    // generation at 2048^2 (~8 %), for a skip rather than an algorithm.
+    //
+    // When `carve_rivers` is off this call **is** the output, so the skip is
+    // conditional, never unconditional.
+    //
+    // `gpu_stages_used` is unaffected: `flow_on_gpu` returns `Some` iff
+    // `gpu_flow` is `Some`, which is fixed for the whole function, and the
+    // two flow calls inside the carve block push the same `"flow"` string
+    // under the same condition -- so the vector's contents cannot differ.
+    // `precarve_flow_skip_leaves_generation_bit_identical` holds all of this
+    // to `assert_eq!` identity against the unskipped call order.
+    let mut flow_discharge = if p.carve_rivers && !force_precarve_flow {
+        Vec::new()
+    } else {
+        match flow_on_gpu(&field, Some(&rainfall), true) {
+            Some(v) => {
+                if !gpu_stages_used.iter().any(|s| s == "flow") {
+                    gpu_stages_used.push("flow".to_string());
+                }
+                v
             }
-            v
+            None => compute_flow(gw, gh, &field, Some(&rainfall), true, world),
         }
-        None => compute_flow(gw, gh, &field, Some(&rainfall), true, world),
     };
 
     let mut channels = None;
@@ -1606,6 +1643,53 @@ mod tests {
         assert_eq!(base.temperature, same.temperature);
         assert_eq!(base.rainfall, same.rainfall);
         assert_eq!(base.flow_discharge, same.flow_discharge);
+    }
+
+    /// `DECISIONS.md` §7f's proof obligation: skipping the pre-carve
+    /// `compute_flow` must be a **pure performance change**. Not a
+    /// tolerance — `assert_eq!` on the raw `f32`s of every field
+    /// `generate_terrain` returns, plus `gpu_stages_used`, against the same
+    /// generation run with the reference's own literal call order restored.
+    ///
+    /// Several seeds and both `world` modes, because the carve block's
+    /// reads are what the claim rests on and a wrapped world takes
+    /// different branches through `compute_flow`, `build_channels` and
+    /// `enforce_channel_descent`. The `carve_rivers = false` case is here
+    /// too: there the call is **not** dead, so `force_precarve_flow` must
+    /// make no difference for the opposite reason, and a skip that leaked
+    /// into that path would show up as an empty `flow_discharge`.
+    #[test]
+    fn precarve_flow_skip_leaves_generation_bit_identical() {
+        for &(gw, gh, seed, world, carve) in &[
+            (24usize, 18usize, 4242i32, false, true),
+            (24, 18, 4242, true, true),
+            (31, 17, 991, false, true),
+            (20, 20, 7, true, true),
+            (24, 18, 4242, false, false),
+            (20, 20, 7, true, false),
+        ] {
+            let mut p = WorldParams::defaults(gw, gh, seed);
+            p.world = world;
+            p.carve_rivers = carve;
+            let skipped = generate_terrain_inner(&p, false);
+            let faithful = generate_terrain_inner(&p, true);
+            let label = format!("{gw}x{gh} seed={seed} world={world} carve={carve}");
+            assert_eq!(skipped.field, faithful.field, "field ({label})");
+            assert_eq!(skipped.temperature, faithful.temperature, "temperature ({label})");
+            assert_eq!(skipped.rainfall, faithful.rainfall, "rainfall ({label})");
+            assert_eq!(skipped.flow_area, faithful.flow_area, "flow_area ({label})");
+            assert_eq!(skipped.flow_discharge, faithful.flow_discharge, "flow_discharge ({label})");
+            assert_eq!(skipped.river_mask, faithful.river_mask, "river_mask ({label})");
+            assert_eq!(skipped.river_floor, faithful.river_floor, "river_floor ({label})");
+            assert_eq!(skipped.stream_order, faithful.stream_order, "stream_order ({label})");
+            assert_eq!(skipped.resistance_field, faithful.resistance_field, "resistance_field ({label})");
+            assert_eq!(skipped.gpu_stages_used, faithful.gpu_stages_used, "gpu_stages_used ({label})");
+            assert_eq!(
+                skipped.flow_discharge.len(),
+                gw * gh,
+                "the skip must never leave flow_discharge empty ({label})"
+            );
+        }
     }
 
     /// Each pass, alone, must actually move the surface — the check that the
