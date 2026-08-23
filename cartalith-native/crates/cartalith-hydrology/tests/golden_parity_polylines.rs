@@ -34,3 +34,48 @@ fn river_width_scale_k_defaults() {
     assert_eq!(cartalith_hydrology::river_width_scale_k(3200.0), 0.25);
     assert_eq!(cartalith_hydrology::river_width_scale_k(50.0), 16.0);
 }
+
+// ---------------------------------------------------------------------------
+// splitRiverPolylines (reference HTML lines 4596-4608)
+//
+// Both fixtures below were produced by running the reference's OWN
+// `splitRiverPolylines` under node (sliced out of `Cartalith Gen1 v2.10.html`
+// at line 4596 and executed verbatim), not derived by reading it. The chains
+// are shaped to reach all three of its branches on a 24-wide grid: a chain
+// that crosses the antimeridian seam (cut, both halves drawable), a chain
+// whose seam cut leaves a one-point tail (dropped), and a clean chain the
+// `skip` predicate cuts in the middle so BOTH halves are one point and the
+// whole chain disappears.
+// ---------------------------------------------------------------------------
+
+fn split_fixture() -> Vec<Vec<(f64, f64)>> {
+    vec![
+        vec![(22.5, 3.5), (23.5, 3.5), (0.5, 3.5), (1.5, 3.5), (2.5, 3.5)],
+        vec![(5.5, 1.5), (6.5, 1.5), (20.5, 1.5)],
+        vec![(9.5, 8.5), (9.5, 9.5), (9.5, 10.5)],
+    ]
+}
+
+#[test]
+fn split_river_polylines_matches_the_reference_without_a_skip_predicate() {
+    let got = cartalith_hydrology::split_river_polylines(&split_fixture(), 24, None);
+    let expected: Vec<Vec<(f64, f64)>> = vec![
+        vec![(22.5, 3.5), (23.5, 3.5)],
+        vec![(0.5, 3.5), (1.5, 3.5), (2.5, 3.5)],
+        vec![(5.5, 1.5), (6.5, 1.5)],
+        vec![(9.5, 8.5), (9.5, 9.5), (9.5, 10.5)],
+    ];
+    assert_eq!(got, expected);
+}
+
+#[test]
+fn split_river_polylines_matches_the_reference_with_a_skip_predicate() {
+    let skip = |p: (f64, f64)| p == (9.5, 9.5);
+    let got = cartalith_hydrology::split_river_polylines(&split_fixture(), 24, Some(&skip));
+    let expected: Vec<Vec<(f64, f64)>> = vec![
+        vec![(22.5, 3.5), (23.5, 3.5)],
+        vec![(0.5, 3.5), (1.5, 3.5), (2.5, 3.5)],
+        vec![(5.5, 1.5), (6.5, 1.5)],
+    ];
+    assert_eq!(got, expected, "a skipped point must cut, and two one-point halves must both vanish");
+}

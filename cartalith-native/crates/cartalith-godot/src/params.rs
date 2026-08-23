@@ -325,6 +325,16 @@ pub const PARAMS: &[ParamSpec] = &[
     ParamSpec { key: "passes.evolve_cycles", group: "erosion", kind: Kind::Int, min: 0.0, max: 12.0, step: 1.0,
         label: "Evolve climate \u{2194} terrain cycles", unit: "", reference_control: "evoCyc",
         get_fn: |p| Value::Num(p.passes.evolve_cycles as f64), set_fn: |p, v| p.passes.evolve_cycles = v as i32 },
+    // The seventh pass. Unlike the six above it, the reference gates its
+    // button on `state.planet.tides.enabled` as well -- this toggle is both,
+    // because turning it on is what builds the tide field it reads. See
+    // `ErosionPassParams::tidal_flats`.
+    ParamSpec { key: "passes.tidal_flats", group: "erosion", kind: Kind::Bool, min: 0.0, max: 1.0, step: 1.0,
+        label: "Tidal flats (mudflat accretion)", unit: "", reference_control: "",
+        get_fn: |p| Value::Bool(p.passes.tidal_flats), set_fn: |p, v| p.passes.tidal_flats = v != 0.0 },
+    ParamSpec { key: "passes.tidal_k", group: "erosion", kind: Kind::Float, min: 0.0, max: 1.0, step: 0.01,
+        label: "Tidal accretion rate", unit: "", reference_control: "",
+        get_fn: |p| Value::Num(p.passes.tidal_k), set_fn: |p, v| p.passes.tidal_k = v },
 
     // ---- climate & biomes ------------------------------------------------
     ParamSpec { key: "climate.lat_n", group: "climate", kind: Kind::Float, min: -90.0, max: 90.0, step: 1.0,

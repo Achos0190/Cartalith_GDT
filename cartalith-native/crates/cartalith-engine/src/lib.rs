@@ -109,10 +109,11 @@ use cartalith_climate::{
     apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
     WeatherParams,
 };
+use cartalith_climate::tides::{compute_tide_field, TideParams};
 use cartalith_erosion::{
-    coastal_process, glacial_kernel, hillslope_diffuse, isostatic_rebound, recompute_resistance_after_erosion,
-    route_sediment, stream_power_kernel, velocity_erode_kernel, CoastalParams, GlacialParams, StreamPowerParams,
-    VelocityParams,
+    apply_tidal_sedimentation, coastal_process, glacial_kernel, hillslope_diffuse, isostatic_rebound,
+    recompute_resistance_after_erosion, route_sediment, stream_power_kernel, velocity_erode_kernel, CoastalParams,
+    GlacialParams, StreamPowerParams, VelocityParams,
 };
 use cartalith_hydrology::{
     build_channels, compute_flow, enforce_channel_descent, river_width_scale_k, strahler_from_receivers,
@@ -257,7 +258,7 @@ pub struct StreamParams {
 /// ## Order
 ///
 /// Fixed and not user-orderable: `velocity → glacial → coastal →
-/// hillslope → evolve → sediment_fill`. It is the reference's own panel
+/// hillslope → evolve → sediment_fill → tidal_flats`. It is the reference's own panel
 /// order, which is the only ordering evidence there is — the reference never
 /// composes two of these in one op, so there is no reference answer and
 /// therefore **no golden fixture for the composed result**. Each *kernel* is
@@ -323,6 +324,25 @@ pub struct ErosionPassParams {
     /// driving the next cycle's incision reflects the orography it just
     /// helped build. `0` (the default) is off; `state.stream.cycles`.
     pub evolve_cycles: i32,
+
+    /// `applyTidalSedimentation()` — the *Tidal flats* button's kernel:
+    /// submerged cells inside the spring tidal range accrete toward sea
+    /// level, hardest where the water is shallowest.
+    ///
+    /// The reference gates its own op on `tideField`, which only exists
+    /// while `state.planet.tides.enabled` is on. This port has no separate
+    /// enable: **this toggle is it**, and turning it on computes the tide
+    /// field (`cartalith_climate::tides::compute_tide_field`) from the
+    /// finished surface right before the kernel reads it — which is exactly
+    /// what `refreshTides()` does in the reference before the button is
+    /// reachable. `PlanetParams` carries no moon roster, so the field is
+    /// built with `TideParams::default()`'s single Earth–Moon-equivalent
+    /// companion at this world's own `planet.g` — the same substitution
+    /// `sample_bridge`'s Tides debug view already documents.
+    pub tidal_flats: bool,
+    /// `applyTidalSedimentation`'s accretion rate. The reference's own
+    /// default, and its only caller's, is `0.45`.
+    pub tidal_k: f64,
 }
 
 impl ErosionPassParams {
@@ -352,13 +372,21 @@ impl ErosionPassParams {
             sediment_fill: false,
             sediment_capacity: 6.0,
             evolve_cycles: 0,
+            tidal_flats: false,
+            tidal_k: 0.45,
         }
     }
 
     /// Whether any pass would actually run — the guard that keeps a default
     /// generation from paying for the flow+climate refresh these need.
     pub fn any(&self) -> bool {
-        self.velocity || self.glacial || self.coastal || self.hillslope || self.sediment_fill || self.evolve_cycles > 0
+        self.velocity
+            || self.glacial
+            || self.coastal
+            || self.hillslope
+            || self.sediment_fill
+            || self.evolve_cycles > 0
+            || self.tidal_flats
     }
 }
 
@@ -1386,6 +1414,28 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
             flow_discharge = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
             route_sediment(&mut field, &flow_discharge, &supply, gw, gh, sea_level, q.sediment_capacity, world);
         }
+        // ---- applyTidalSedimentation() (reference HTML lines 4324-4334) ----
+        // Last, as it is in the reference's own source order (immediately
+        // after `depositSediment`), and because mudflats accrete onto the
+        // coastline the passes above finished shaping.
+        //
+        // The reference's own `if(!tideField) return;` gate is satisfied here
+        // by *building* the field: `refreshTides()` recomputes it from the
+        // live surface, so reading it off the just-finished `field` is the
+        // reference's own ordering, not a shortcut. No geoid (`None`) --
+        // `PlanetParams` carries none, the same reasoning `compute_temperature`
+        // and `simulate_weather` already give for their own `None`.
+        if q.tidal_flats {
+            let tide = compute_tide_field(
+                gw,
+                gh,
+                &field,
+                None,
+                sea_level,
+                &TideParams { g: p.planet.g, ..TideParams::default() },
+            );
+            apply_tidal_sedimentation(&mut field, &tide, sea_level, gw, gh, q.tidal_k);
+        }
         // `erodeFinish`'s own clamp statement (reference HTML line 3894),
         // borrowed from the droplet op's tail. **A deliberate deviation,
         // disclosed** (`CLAUDE.md`'s no-silent-deviation rule): the reference
@@ -1549,6 +1599,7 @@ mod tests {
         p.passes.wave_str = 1.0;
         p.passes.diffuse_d = 0.2;
         p.passes.sediment_capacity = 1.0;
+        p.passes.tidal_k = 1.0;
         assert!(!p.passes.any());
         let same = generate_terrain(&p);
         assert_eq!(base.field, same.field);
@@ -1571,7 +1622,7 @@ mod tests {
         /// on (plus whatever the fixture needs to *reach* it) looks like.
         type Case = (&'static str, fn(&mut WorldParams));
 
-        let cases: [Case; 6] = [
+        let cases: [Case; 7] = [
             ("velocity", |p| {
                 p.passes.velocity = true;
                 p.passes.velo_iters = 20;
@@ -1587,6 +1638,7 @@ mod tests {
             ("hillslope", |p| p.passes.hillslope = true),
             ("sediment_fill", |p| p.passes.sediment_fill = true),
             ("evolve", |p| p.passes.evolve_cycles = 2),
+            ("tidal_flats", |p| p.passes.tidal_flats = true),
         ];
 
         for (name, apply) in cases {
@@ -1610,6 +1662,40 @@ mod tests {
                 "{name}: left the field outside 0..1"
             );
         }
+    }
+
+    /// The tidal-flats pass's own shape, which "something moved" cannot see:
+    /// it is *accretion only* — every changed cell was submerged, every change
+    /// is upward, and none of them is pushed past sea level (the kernel's own
+    /// `sea - 1e-4` ceiling). A sign error or a swapped `sea`/`depth` would
+    /// still move cells and still pass the table above.
+    #[test]
+    fn the_tidal_flats_pass_only_raises_submerged_cells_toward_sea_level() {
+        let base_p = WorldParams::defaults(48, 36, 991);
+        let base = generate_terrain(&base_p);
+        let mut p = base_p.clone();
+        p.passes.tidal_flats = true;
+        let ws = generate_terrain(&p);
+
+        let sea = base.sea_level;
+        assert_eq!(ws.sea_level, sea, "the pass must not move sea level");
+        let mut moved = 0usize;
+        for (i, (&after, &before)) in ws.field.iter().zip(&base.field).enumerate() {
+            if after == before {
+                continue;
+            }
+            moved += 1;
+            assert!(after > before, "cell {i}: tidal sedimentation deposits, never erodes");
+            assert!(
+                (before as f64) < sea,
+                "cell {i}: a cell already at or above sea level must be untouched"
+            );
+            assert!(
+                (after as f64) <= sea,
+                "cell {i}: accretion must stop at sea level, not build land"
+            );
+        }
+        assert!(moved > 0, "no mudflat accreted — the tide field never reached the kernel");
     }
 
     #[test]

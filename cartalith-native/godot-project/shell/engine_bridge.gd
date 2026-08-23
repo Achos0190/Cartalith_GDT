@@ -1278,6 +1278,14 @@ func region_export_tiles(opts: Dictionary) -> PackedByteArray:
 	return world_gen.region_export_tiles(opts)
 
 
+# geojson_bridge.rs -- GUI_GAP_REGISTER.md DM-03. Empty before the first
+# generate()/load, and on a build whose GDExtension predates the binding.
+func export_geojson() -> String:
+	if not world_gen.has_method("export_geojson"):
+		return ""
+	return world_gen.export_geojson()
+
+
 # label_bridge.rs
 func label_create(gx: float, gy: float, text: String) -> int:
 	if not world_gen.has_method("label_create"):

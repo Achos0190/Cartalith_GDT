@@ -76,12 +76,18 @@ class_name DataManagerWindow
 ##   `tiles/index.json`). It is **not** a Leaflet XYZ pyramid, which is what the
 ##   canvas draws; every control the pyramid needs and this export does not have
 ##   is drawn and disabled with that reason.
-## - **Import ▸ Maps**, **Import ▸ GIS / GeoJSON**, **Export ▸ GIS / GeoJSON**,
-##   **Export ▸ World Data**, **Sources** and **Validation** are disclosed gaps:
-##   no tile-map or GeoJSON *import*, no GIS export route, no save writer
-##   (`cartalith-io` reads `.zip` saves; its only `zip::ZipWriter` lives in its
-##   own `#[cfg(test)]` fixture builder), no source registry and no validation
-##   pass exist anywhere in the workspace.
+## - **Export ▸ GIS / GeoJSON** is real as of this pass (DM-03). Same shape of
+##   story as Export ▸ Maps: `cartalith_engine::geojson` was fully ported and
+##   golden-verified character-for-character against the reference's own
+##   document, with no `#[func]` binding and therefore no caller.
+##   `geojson_bridge.rs` is the binding and this window is the caller. It
+##   writes the **whole world**, not the marquee: settlements, ways, sea lanes,
+##   rivers, territory and provinces, in local planar kilometres.
+## - **Import ▸ Maps**, **Import ▸ GIS / GeoJSON**, **Export ▸ World Data**,
+##   **Sources** and **Validation** are disclosed gaps: no tile-map or GeoJSON
+##   *import*, no save writer (`cartalith-io` reads `.zip` saves; its only
+##   `zip::ZipWriter` lives in its own `#[cfg(test)]` fixture builder), no
+##   source registry and no validation pass exist anywhere in the workspace.
 ## - **Conversion is gone, not disclosed.** See above.
 
 # ---------------------------------------------------------------------------
@@ -115,7 +121,7 @@ const RAIL_INDENT := 24     ## `padding:5px 14px 5px 24px` on a route row
 const ROUTES: Array[Dictionary] = [
 	{"group": "Import", "id": "import_maps", "label": "Maps", "badge": "tiles", "kind": "gap",
 		"sub": "no importer",
-		"reason": "No tile-map import path exists. cartalith-engine::geojson only writes region GeoJSON, and nothing reads a tile set back in. TIFF is also absent, and deliberately: the reference's own file input is accept=\"image/*\" and decodes through the browser, which does not decode TIFF either -- so PNG is parity, not a shortfall. Heightmap import itself is live; see the Heightmaps row."},
+		"reason": "No tile-map import path exists. Nothing in the workspace reads a tile set back in. TIFF is also absent, and deliberately: the reference's own file input is accept=\"image/*\" and decodes through the browser, which does not decode TIFF either -- so PNG is parity, not a shortfall. Heightmap import itself is live; see the Heightmaps row."},
 	{"group": "Import", "id": "import_heightmap", "label": "Heightmaps", "badge": "PNG", "kind": "live",
 		"sub": "elevation + inferred tectonics"},
 	{"group": "Import", "id": "import_gis", "label": "GIS / GeoJSON", "badge": "", "kind": "gap",
@@ -127,9 +133,8 @@ const ROUTES: Array[Dictionary] = [
 		"sub": "routes to the Assets menu"},
 	{"group": "Export", "id": "export_maps", "label": "Maps", "badge": "tiles", "kind": "live",
 		"sub": "region marquee · zipped tile grid"},
-	{"group": "Export", "id": "export_gis", "label": "GIS / GeoJSON", "badge": "", "kind": "gap",
-		"sub": "no route in",
-		"reason": "cartalith-engine::geojson exports region GeoJSON for the Region-select tool only, with no #[func] binding into this window and no CRS or world-file support. DM-03 calls this a wrapper-sized gap: one binding plus assembling a GeoJsonWorld."},
+	{"group": "Export", "id": "export_gis", "label": "GIS / GeoJSON", "badge": ".geojson", "kind": "live",
+		"sub": "whole world · planar km"},
 	{"group": "Export", "id": "export_world", "label": "World Data", "badge": "", "kind": "gap",
 		"sub": "no save writer",
 		"reason": "cartalith-io reads .zip saves but does not write them -- the only zip::ZipWriter in the crate lives in its own #[cfg(test)] fixture builder, not production code. A save writer is a separate, larger piece of work (DM-04 / FI-01), out of scope here."},
@@ -166,6 +171,16 @@ const PRESET_NOTE := "No preset store exists. DccSettings persists storage roots
 const VAULT_NOTE := "MARKDOWN_VAULT_INTEGRATION.md is owner-supplied design that is explicitly \"Not started; no code exists\", and its §33 lists two-way sync as a V1 non-goal. DM-14 is deferred by owner decision, so this block is drawn in the canvas's shape and quiet rather than accent -- there is no vault to be linked to."
 
 const PACKAGING_NOTE := "zip_region_export always produces one stored (uncompressed) .zip. A loose folder tree and MBTiles are both new writers, and MBTiles additionally needs the XYZ addressing the scheme row above does not have."
+
+# ---------------------------------------------------------------------------
+# Export ▸ GIS / GeoJSON -- DM-03's own two disclosures
+# ---------------------------------------------------------------------------
+
+## The document carries this same sentence as its own `note` property, verbatim
+## from the reference, so a consumer reading the file learns it too.
+const GEOJSON_CRS_NOTE := "Coordinates are local planar kilometres (east, north) at this world's own scale, with north up -- not WGS84 longitude/latitude. RFC 7946 assumes WGS84, but a procedurally generated world has no true georeference; the reference makes the same call, and the document says so in its own note property."
+
+const GEOJSON_CIV_NOTE := "Settlements, ways, territory and provinces come from the civilisation layer, which only exists for a freshly generated world -- a loaded .zip save carries none of the substrate that pipeline needs (SAVEFILE_COMPAT.md). Exporting a loaded save produces a valid document whose features are rivers and nothing else. This port also has no point-of-interest kind, so there is no poi layer: every place is a settlement."
 
 ## Tile-grid choices the engine accepts (`cols`/`rows`, any `n > 0`). The
 ## canvas's own row is a four-way `0–4 / 0–6 / 0–8 / custom` zoom segment; this
@@ -753,6 +768,18 @@ func _build_simple_pane(route: Dictionary) -> void:
 			DccWidgets.chip(_pane_footer, "Import asset pack .zip…", func():
 				hide()
 				_host.open_asset_pack_picker(), true, 16, 6)
+		"export_gis":
+			## DM-03: `export_geojson` (geojson_bridge.rs) over
+			## `cartalith_engine::geojson`, which is golden-verified
+			## character-for-character against the reference's own document.
+			_col_header(col, "FEATURE COLLECTION")
+			DccWidgets.note(col,
+				"Writes the whole world as one GeoJSON FeatureCollection: settlements, roads, sea lanes, rivers (Strahler order 2 and up), faction territory and provinces, each tagged with its own layer property. Not a region export -- the Region-select marquee is Export ▸ Maps' input, not this one's.")
+			DccWidgets.note(col, GEOJSON_CRS_NOTE)
+			DccWidgets.note(col, GEOJSON_CIV_NOTE)
+			_footer_note("writes one .geojson file")
+			DccWidgets.chip(_pane_footer, "Export .geojson…", func():
+				_pick_geojson_destination(), true, 16, 6)
 		"export_assets":
 			## DM-05: routes to the Asset library window's own real Export pack
 			## .zip… (AS-04, `as_export_pack_bytes` → `archive::write_pack`) --
@@ -1065,6 +1092,70 @@ func _pick_destination() -> void:
 	d.canceled.connect(func(): d.queue_free())
 	add_child(d)
 	d.popup_centered_ratio(0.6)
+
+# ---------------------------------------------------------------------------
+# Export ▸ GIS / GeoJSON -- the run (DM-03)
+#
+# One picker, one write. There is no options pane because the binding has no
+# options: `export_geojson` describes the whole world, and every layer it can
+# emit it always emits.
+# ---------------------------------------------------------------------------
+
+func _pick_geojson_destination() -> void:
+	var d := FileDialog.new()
+	d.title = "Export GeoJSON"
+	d.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	d.access = FileDialog.ACCESS_FILESYSTEM
+	d.add_filter("*.geojson ; GeoJSON FeatureCollection")
+	d.current_dir = DccSettings.storage_root("exports")
+	## The reference names its own download `world_{seed}.geojson`; the shell
+	## has no seed of its own to interpolate, and the document carries it as a
+	## property anyway.
+	d.current_file = "world.geojson"
+	d.file_selected.connect(func(path: String):
+		_run_geojson_export(path)
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered_ratio(0.6)
+
+func _run_geojson_export(path: String) -> void:
+	if _bridge == null:
+		return
+	_status_left.text = "exporting…"
+	_status_left.add_theme_color_override("font_color", DccTheme.c("accent"))
+
+	var t0 := Time.get_ticks_msec()
+	var text := _bridge.export_geojson()
+	var secs := float(Time.get_ticks_msec() - t0) / 1000.0
+
+	if text.is_empty():
+		_record_geojson_run(0, secs, false)
+		_host.set_status("hint",
+			"export failed — no world is loaded, or this build's GDExtension predates export_geojson", "warn")
+	else:
+		var f := FileAccess.open(path, FileAccess.WRITE)
+		if f == null:
+			_record_geojson_run(text.length(), secs, false)
+			_host.set_status("hint",
+				"export failed — could not open %s for writing" % path.get_file(), "warn")
+		else:
+			f.store_string(text)
+			f.close()
+			_record_geojson_run(text.to_utf8_buffer().size(), secs, true)
+			_host.set_status("hint", "exported %s (%s)"
+				% [path.get_file(), _fmt_bytes(text.to_utf8_buffer().size())], "accent")
+	_refresh_foot()
+	_refresh_status()
+
+func _record_geojson_run(bytes: int, secs: float, ok: bool) -> void:
+	var t := Time.get_time_dict_from_system()
+	_runs.push_front({
+		"stamp": "%02d:%02d" % [int(t["hour"]), int(t["minute"])],
+		"label": "geojson", "bytes": bytes, "secs": secs, "ok": ok,
+	})
+	while _runs.size() > 3:
+		_runs.pop_back()
 
 ## `dry` performs the identical export and reports what it produced without
 ## writing it -- which is how the ESTIMATE block gets a real size and time

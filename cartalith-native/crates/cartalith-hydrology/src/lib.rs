@@ -447,6 +447,53 @@ pub fn trace_river_polylines(order: &[i16], recv: &[i32], w: usize, h: usize, mi
     polys
 }
 
+/// `splitRiverPolylines()` (reference HTML lines 4596-4608): cuts a traced
+/// chain wherever the next point is not reachable by a straight stroke from
+/// the previous one, so a wrapped receiver chain is not drawn (or exported)
+/// as one `LineString` running back across the whole map.
+///
+/// Two cuts, matching the reference's two reasons: `skip` (an optional
+/// predicate — the renderer passes "is this point inside an open-water body",
+/// so a river disappears under a lake surface; `exportGeoJSON` passes `null`,
+/// because a lake reach is real hydrology and belongs in the geometry) and
+/// the antimeridian seam, an x-jump of more than half the grid width.
+///
+/// Runs at the render/export sites only — `trace_river_polylines` itself is
+/// untouched, so the `generate()`/carve pipeline stays bit-identical. Runs of
+/// fewer than two points are dropped, exactly as the tracer drops them.
+pub fn split_river_polylines(
+    polys: &[Vec<(f64, f64)>],
+    w: usize,
+    skip: Option<&dyn Fn((f64, f64)) -> bool>,
+) -> Vec<Vec<(f64, f64)>> {
+    /// End the current run: keep it only if it is drawable, then start fresh.
+    fn cut(run: &mut Vec<(f64, f64)>, out: &mut Vec<Vec<(f64, f64)>>) {
+        if run.len() >= 2 {
+            out.push(std::mem::take(run));
+        } else {
+            run.clear();
+        }
+    }
+
+    let half = w as f64 * 0.5;
+    let mut out: Vec<Vec<(f64, f64)>> = Vec::new();
+    for pl in polys {
+        let mut run: Vec<(f64, f64)> = Vec::new();
+        for &p in pl {
+            if skip.is_some_and(|f| f(p)) {
+                cut(&mut run, &mut out);
+                continue;
+            }
+            if run.last().is_some_and(|&last| (p.0 - last.0).abs() > half) {
+                cut(&mut run, &mut out);
+            }
+            run.push(p);
+        }
+        cut(&mut run, &mut out);
+    }
+    out
+}
+
 /// `enforceChannelDescent()` (reference HTML lines 8725-8737): walks an
 /// ordered (downstream) polyline and carves a channel whose centreline
 /// descends monotonically — cutting through any rises so the carved
