@@ -333,8 +333,37 @@ func _settlement_click(gx: float, gy: float) -> void:
 ## reset wrapped around it.
 func _refresh_civ_data() -> void:
 	var g := bridge.grid_size()
-	app.viewport.overlay.set_civ_data(bridge.settlements(), bridge.roads(),
+	app.viewport.overlay.set_civ_data(_tl_apply_filters(bridge.settlements()), bridge.roads(),
 		bridge.sea_routes(), g.x, g.y, bridge.border_inset_frac())
+
+## Timeline "Exist only" filter (`_build_timeline_filters` below): keeps only
+## settlements whose `tid` (`lib.rs`'s `get_settlements()`, now real -- see
+## this file's own top-of-file Timeline comment, corrected below) is in the
+## active year's `civ_year_diff().present` set, so unchecking the box
+## actually removes pins from `map_overlay.gd`'s draw call -- filtering
+## upstream of `set_civ_data`, not inside that file (out of scope for this
+## pass, `CLAUDE.md`'s territory note). Gated on a non-empty timeline: with
+## no recorded years, `civ_year_diff()` has nothing to diff and reports an
+## empty `present` set, which would hide every settlement rather than leave
+## the (undefined, timeline-less) view alone. "Ghost removed"/"Highlight
+## new" stay display-only -- both need per-pin visual state (fade / halo)
+## that only `map_overlay.gd`'s own `_draw()` can render, and "removed"
+## additionally needs the OLD snapshot's settlement data (position/name),
+## which no `#[func]` exposes (`civ_year_diff()` returns tid sets only) --
+## real, disclosed remaining gaps, not silently faked.
+func _tl_apply_filters(settlements: Array) -> Array:
+	if not _tl_filter_exist_only:
+		return settlements
+	if _tl_years().is_empty():
+		return settlements
+	var diff: Dictionary = bridge.civ_year_diff(bridge.get_civ_year())
+	var present: PackedInt64Array = diff.get("present", PackedInt64Array())
+	if present.is_empty():
+		return settlements
+	var present_set := {}
+	for t in present:
+		present_set[int(t)] = true
+	return settlements.filter(func(s): return present_set.has(int(s.get("tid", 0))))
 
 ## §4.5.3's Territory options row: `CIVIL · TERRITORY` · faction · radius ·
 ## add/subtract · a live stats readout · Commit/Discard. No "respect
@@ -639,17 +668,18 @@ func _build_culture() -> void:
 # Left untouched rather than risk building into the wrong one; this category
 # is the "dedicated panel" that note calls for instead.
 #
-# Real, disclosed gap (`_build_timeline_filters` below carries the same note
-# in-product): `get_settlements()` (`lib.rs`) carries no `tid` field even
-# though `NamedSettlement` gained one at the Rust level (`TIMELINE_SCOPE.md`
-# milestone 1, `timeline_bridge.rs`'s own top-of-file doc comment says so
-# outright). So the three filter checkboxes below drive `civ_year_diff()` for
-# real -- the present/removed/added counts they show are live engine output
-# -- but nothing on the Godot side can tell which drawn settlement PIN any of
-# those tids refers to, so exist-only/ghost/highlight cannot filter or style
-# individual pins on the map yet. That is real Rust-side work
-# (`get_settlements()`'s own `#[func]`), out of scope for this GDScript-only
-# milestone -- disclosed here and in `CHANGELOG.md`, not silently faked.
+# `get_settlements()` (`lib.rs`) now carries a real `tid` field (previously a
+# disclosed gap here -- `NamedSettlement` had one at the Rust level but
+# nothing exported it). `_tl_apply_filters` (below `_refresh_civ_data`) uses
+# it: "Exist only" filters the array handed to `map_overlay.gd`'s
+# `set_civ_data` down to the active year's `civ_year_diff().present` tids,
+# upstream of that file rather than inside it. "Ghost removed"/"Highlight
+# new" still cannot style individual pins -- that needs per-pin fade/halo
+# drawing (`map_overlay.gd`'s own `_draw()`, out of scope this pass) and, for
+# removed pins specifically, the OLD snapshot's settlement data (position/
+# name), which no `#[func]` exposes yet (`civ_year_diff()` returns tid sets
+# only). Real, disclosed remaining gap -- see `_build_timeline_filters`'s own
+# note, not silently faked.
 
 func _build_timeline() -> void:
 	var cat := DccWidgets.category(self, "Timeline", categories)
@@ -720,6 +750,7 @@ func _tl_refresh_territory_view() -> void:
 func _tl_goto_year(year: int) -> void:
 	bridge.civ_goto_year(year)
 	_tl_refresh_territory_view()
+	_refresh_civ_data()   ## "Exist only" is keyed to the active year -- see `_tl_apply_filters`.
 
 func _tl_add_year_action() -> void:
 	bridge.civ_add_year(_tl_add_year)
@@ -888,8 +919,9 @@ func _tl_step() -> void:
 func _build_timeline_filters(body: Control) -> void:
 	var sec := DccWidgets.section(body, "Filters")
 	DccWidgets.toggle(sec, "Exist only", _tl_filter_exist_only,
-		func(v: bool): _tl_filter_exist_only = v,
-		"Reference: hide anything not present in the selected year (civ_year_diff().present).")
+		func(v: bool): _tl_filter_exist_only = v; _refresh_civ_data(),
+		"Reference: hide anything not present in the selected year (civ_year_diff().present). " +
+			"Real here -- unchecking removes non-present settlement pins from the map.")
 	DccWidgets.toggle(sec, "Ghost removed", _tl_filter_ghost,
 		func(v: bool): _tl_filter_ghost = v,
 		"Reference: fade objects removed since the previous recorded year (civ_year_diff().removed).")
@@ -906,12 +938,12 @@ func _build_timeline_filters(body: Control) -> void:
 			"%d present, %d removed, %d added vs. the previous recorded year -- real, live civ_year_diff() output." %
 				[present, removed, added])
 	DccWidgets.note(sec,
-		"Not yet wired to the map: get_settlements() carries no tid even though " +
-		"NamedSettlement gained one in Rust (TIMELINE_SCOPE.md milestone 1) -- nothing on " +
-		"this side can tell which drawn pin any of civ_year_diff()'s tids refers to, so " +
-		"these checkboxes read real state above but cannot filter/ghost/highlight " +
-		"individual settlement pins on the map yet. A real, disclosed Rust-side gap " +
-		"(get_settlements()'s own #[func], lib.rs), not faked here.")
+		"get_settlements() now carries tid (lib.rs) -- 'Exist only' is wired for real and " +
+		"filters map pins by the active year's civ_year_diff().present. 'Ghost removed'/" +
+		"'Highlight new' still cannot style individual pins: that needs per-pin fade/halo " +
+		"drawing (map_overlay.gd's own _draw(), out of scope this pass) and, for removed " +
+		"pins specifically, the OLD snapshot's settlement data, which no #[func] exposes yet " +
+		"(civ_year_diff() returns tid sets only, not positions/names). Disclosed, not faked.")
 
 # -- Collapse / recovery simulator form (Cluster B/impure wiring) -------------
 

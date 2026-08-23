@@ -2644,10 +2644,13 @@ impl WorldGen {
     /// `population` (int), `kind` (String: "metropolis"/"capital"/"city"/
     /// "town"/"village"/"hamlet" -- `journey_bridge::settlement_kind_key`
     /// is the single source of that vocabulary), `faction` (int, `1..=6`, matching
-    /// `CIV_FACTION_COUNT`), `capital` (bool), `coastal` (bool). Empty
-    /// before any `generate()` call, after `load_save()` (no civ data for
-    /// a loaded save, see `load_save`'s own doc comment), or if generation
-    /// produced zero settlement candidates.
+    /// `CIV_FACTION_COUNT`), `capital` (bool), `coastal` (bool), `tid` (int
+    /// -- `NamedSettlement::tid`'s stable timeline id, `0` meaning
+    /// "unassigned"; in practice always nonzero once `compute_civilisation`
+    /// has run, since that's where real assignment happens -- see that
+    /// field's own doc comment). Empty before any `generate()` call, after
+    /// `load_save()` (no civ data for a loaded save, see `load_save`'s own
+    /// doc comment), or if generation produced zero settlement candidates.
     #[func]
     fn get_settlements(&self) -> Array<VarDictionary> {
         let Some(civ) = self.civ.as_ref() else { return Array::new() };
@@ -2664,6 +2667,7 @@ impl WorldGen {
                     "faction" => s.placement.faction,
                     "capital" => s.placement.capital,
                     "coastal" => s.placement.coastal,
+                    "tid" => s.tid as i64,
                 }
             })
             .collect()
