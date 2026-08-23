@@ -248,6 +248,11 @@ func _apply_civ_options(request: Dictionary) -> void:
 		world_gen.set_metropolis_enabled(bool(request.get("metropolis", false)))
 	if world_gen.has_method("set_recovery_phase"):
 		world_gen.set_recovery_phase(int(request.get("recovery_phase", 0)))
+	## `civBiomeKChk` (reference line 1406 / `_biomeK` line 6441), the third
+	## one -- default off, same guard, added 2026-08-23 (`PARITY_AUDIT.md`
+	## §5 item 12: the engine parameter always existed, nothing could set it).
+	if world_gen.has_method("set_biome_k_enabled"):
+		world_gen.set_biome_k_enabled(bool(request.get("biome_k", false)))
 
 
 func _worker(seed_value: int, width_km: float, grid_w: int, grid_h: int, archetype: String) -> void:
@@ -920,6 +925,107 @@ func get_factions() -> Array:
 	if not world_gen.has_method("get_factions"):
 		return []
 	return world_gen.get_factions()
+
+
+# civ_roster_bridge.rs -- the place editor, the faction roster and the two
+# readouts `PARITY_AUDIT.md` §5 items 3/4/7/9/10/12 found unported.
+
+func civ_settlement_details(index: int) -> Dictionary:
+	if not world_gen.has_method("civ_settlement_details"):
+		return {}
+	return world_gen.civ_settlement_details(index)
+
+## `fields` carries only the keys that changed -- see the Rust doc comment;
+## an invalid value rejects the whole batch rather than half-applying it.
+func civ_edit_settlement(index: int, fields: Dictionary) -> bool:
+	if not world_gen.has_method("civ_edit_settlement"):
+		return false
+	return world_gen.civ_edit_settlement(index, fields)
+
+func civ_settlement_toggle_trait(index: int, key: String) -> bool:
+	if not world_gen.has_method("civ_settlement_toggle_trait"):
+		return false
+	return world_gen.civ_settlement_toggle_trait(index, key)
+
+func civ_reroll_settlement_name(index: int) -> String:
+	if not world_gen.has_method("civ_reroll_settlement_name"):
+		return ""
+	return world_gen.civ_reroll_settlement_name(index)
+
+func civ_delete_settlement(index: int) -> bool:
+	if not world_gen.has_method("civ_delete_settlement"):
+		return false
+	return world_gen.civ_delete_settlement(index)
+
+func civ_faction_count() -> int:
+	if not world_gen.has_method("civ_faction_count"):
+		return 0
+	return world_gen.civ_faction_count()
+
+func civ_add_faction() -> int:
+	if not world_gen.has_method("civ_add_faction"):
+		return -1
+	return world_gen.civ_add_faction()
+
+func civ_remove_faction() -> bool:
+	if not world_gen.has_method("civ_remove_faction"):
+		return false
+	return world_gen.civ_remove_faction()
+
+func civ_set_faction_field(faction: int, key: String, value: String) -> bool:
+	if not world_gen.has_method("civ_set_faction_field"):
+		return false
+	return world_gen.civ_set_faction_field(faction, key, value)
+
+func civ_faction_terrain_fits() -> Array:
+	if not world_gen.has_method("civ_faction_terrain_fits"):
+		return []
+	return world_gen.civ_faction_terrain_fits()
+
+func civ_agrarian_regional_total() -> Dictionary:
+	if not world_gen.has_method("civ_agrarian_regional_total"):
+		return {}
+	return world_gen.civ_agrarian_regional_total()
+
+func civ_trait_vocabulary() -> Array:
+	if not world_gen.has_method("civ_trait_vocabulary"):
+		return []
+	return world_gen.civ_trait_vocabulary()
+
+func civ_specialisation_vocabulary() -> Array:
+	if not world_gen.has_method("civ_specialisation_vocabulary"):
+		return []
+	return world_gen.civ_specialisation_vocabulary()
+
+func civ_religion_vocabulary() -> Array:
+	if not world_gen.has_method("civ_religion_vocabulary"):
+		return []
+	return world_gen.civ_religion_vocabulary()
+
+func civ_government_vocabulary() -> Array:
+	if not world_gen.has_method("civ_government_vocabulary"):
+		return []
+	return world_gen.civ_government_vocabulary()
+
+func civ_ag_tech_vocabulary() -> Array:
+	if not world_gen.has_method("civ_ag_tech_vocabulary"):
+		return []
+	return world_gen.civ_ag_tech_vocabulary()
+
+func civ_culture_vocabulary() -> PackedStringArray:
+	if not world_gen.has_method("civ_culture_vocabulary"):
+		return PackedStringArray()
+	return world_gen.civ_culture_vocabulary()
+
+func set_biome_k_enabled(enabled: bool) -> void:
+	if not world_gen.has_method("set_biome_k_enabled"):
+		return
+	world_gen.set_biome_k_enabled(enabled)
+
+func get_biome_k_enabled() -> bool:
+	if not world_gen.has_method("get_biome_k_enabled"):
+		return false
+	return world_gen.get_biome_k_enabled()
 
 
 # paint_bridge.rs

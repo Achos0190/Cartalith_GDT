@@ -98,6 +98,22 @@ var _tl_sim_out := ""
 ## class doc and `InfrastructureWorkspace`'s own class doc for the mechanism.
 var _infra: InfrastructureWorkspace
 
+## -- Selection, context menu and Delete key (`PARITY_AUDIT.md` §5 items 2,
+## 3, 4). The reference keeps one `_civSelectedPlace`; this is the same
+## thing as an index into `get_settlements()`, which is the identity every
+## `#[func]` in this area keys on. `-1` for nothing selected. --
+var _selected_index := -1
+## Rebuilt per right click rather than kept: its item list depends on
+## whether a place was hit and what it is called, so a cached menu would be
+## stale on every open but the first.
+var _ctx_menu: PopupMenu
+var _ctx_gx := 0.0
+var _ctx_gy := 0.0
+var _ctx_hit := -1
+## `civPopEstimateOut` ("Land sustains ≈ N") and the Settlements roster
+## body, both refreshed after any place/roster edit.
+var _settlements_body: Control
+
 
 func _build() -> void:
 	_infra = InfrastructureWorkspace.new()
@@ -120,6 +136,128 @@ func _build() -> void:
 	add_child(DccTheme.rule())
 	add_child(_infra)
 	_infra.setup(app, bridge)
+
+	## Both windows are owned by `app` (long-lived, opened from four places
+	## between them); this workspace is the one that knows how to put the
+	## map back in sync afterwards, so it owns the connections rather than
+	## either window reaching into `viewport` itself.
+	app.place_editor_window.place_changed.connect(_on_civ_edited)
+	app.place_editor_window.place_deleted.connect(_on_civ_edited)
+	app.faction_roster_window.roster_changed.connect(_on_roster_changed)
+
+## A place edit or delete moved map data: repaint the pins, refresh the
+## selection state that may now point at a different (or no) settlement, and
+## rebuild the dock's own rosters/readouts.
+func _on_civ_edited() -> void:
+	if _selected_index >= bridge.settlements().size():
+		_selected_index = -1
+	_refresh_civ_data()
+	_rebuild_readouts()
+
+func _on_roster_changed() -> void:
+	## Removing a faction reverts its settlements AND its territory cells to
+	## Unclaimed, so the territory raster is stale too -- same direct write
+	## `_commit_territory` uses, without `refresh()`'s camera reset.
+	app.viewport.territory_view.texture = bridge.territory_texture()
+	_on_civ_edited()
+
+## Rebuilds the two categories whose content a place/roster edit invalidates,
+## scoped the way `_rebuild_timeline` already scopes its own -- Population,
+## Economy and Culture read nothing this touches.
+func _rebuild_readouts() -> void:
+	if _settlements_body != null and is_instance_valid(_settlements_body):
+		for c in _settlements_body.get_children():
+			_settlements_body.remove_child(c)
+			c.queue_free()
+		_fill_settlements(_settlements_body)
+
+# -- Selection, right-click menu, Delete key ---------------------------------
+
+## `app.gd`'s `_wire_selection` forwards every map selection here (this
+## workspace is in `_workspaces`). The reference's `_civSelectedPlace` is
+## what Delete and the place editor both act on; this is that.
+func on_settlement_selected(_data: Variant, index: int) -> void:
+	_selected_index = index
+
+## `_civCtxShow` (reference 25857) and the `contextmenu` handler that builds
+## its item list (25888). Five of the reference's six operations; the sixth
+## ("Drop POI here") is absent because POI is not a ported concept
+## (`GUI_GAP_REGISTER.md` CV-01, `civ_tools_bridge.rs`'s own module doc) --
+## omitted rather than shown disabled, matching how this file's own
+## `_build_tools()` already treats the POI tool.
+##
+## The reference gates its menu on "a civ-capable tab is open"; the
+## equivalent gate here is this workspace being the active domain, which
+## `app.gd`'s broadcast does not check -- so it is checked here.
+func on_map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2) -> void:
+	if app.active_domain() != "civilization":
+		return
+	if not bridge.has_world:
+		return
+	_ctx_gx = gx
+	_ctx_gy = gy
+	_ctx_hit = hit
+	if _ctx_menu == null:
+		_ctx_menu = PopupMenu.new()
+		_ctx_menu.id_pressed.connect(_on_ctx_id)
+		add_child(_ctx_menu)
+	_ctx_menu.clear()
+	if hit >= 0:
+		var s: Dictionary = bridge.settlements()[hit]
+		var nm := String(s.get("name", "(unnamed)"))
+		_ctx_menu.add_item("Edit %s" % nm, 0)
+		_ctx_menu.add_item("Move viewer to %s" % nm, 1)
+		_ctx_menu.add_item("Delete %s" % nm, 2)
+		_ctx_menu.add_separator()
+	_ctx_menu.add_item("Drop settlement here", 3)
+	_ctx_menu.add_separator()
+	_ctx_menu.add_item("Info here (settlement & ecology)", 4)
+	## `screen_pos` is `map_overlay`'s own local space; a `PopupMenu` pops in
+	## screen space, which is what this conversion is for.
+	_ctx_menu.position = Vector2i(app.viewport.overlay.get_screen_position() + screen_pos)
+	_ctx_menu.reset_size()
+	_ctx_menu.popup()
+
+func _on_ctx_id(id: int) -> void:
+	match id:
+		0:
+			_selected_index = _ctx_hit
+			app.open_place_editor(_ctx_hit)
+		1:
+			var s: Dictionary = bridge.settlements()[_ctx_hit]
+			app.viewport.move_view_to(float(int(s.get("x", 0))), float(int(s.get("y", 0))))
+		2:
+			app.place_editor_window.confirm_delete(_ctx_hit)
+		3:
+			## The reference's own "⌂ Drop settlement here" calls
+			## `_civDropPlace` with the menu's own cell, using whatever class
+			## and faction the Settlement tool is currently set to -- exactly
+			## what `_settlement_click` already does, so it is reused rather
+			## than duplicated.
+			_settlement_click(_ctx_gx, _ctx_gy)
+		4:
+			## `_civInfoAt`: the reference opens its own info readout. This
+			## shell's equivalent is the Sample dock, which is already fed by
+			## `cursor_sampled` -- so the honest action is to select whatever
+			## is here and say where to read it, not to build a second panel.
+			if _ctx_hit >= 0:
+				app.right_dock_ctrl.on_settlement_selected(bridge.settlements()[_ctx_hit], _ctx_hit)
+				app.set_status("hint", "Pinned in the right dock — the reference's _civInfoAt readout.", "text_ghost")
+			else:
+				app.set_status("hint",
+					"Nothing here. _civInfoAt's ecology half (biome/wildlife at a cell) has no binding — see the Layers popover's own debug views.",
+					"text_ghost")
+
+## `PARITY_AUDIT.md` §5 item 4 / reference block 2's keydown at line 26096:
+## Delete removes the selected place. Returns `true` when it handled the key,
+## so `app.gd`'s broadcast stops at the first workspace that did.
+func on_delete_key() -> bool:
+	if app.active_domain() != "civilization":
+		return false
+	if _selected_index < 0 or _selected_index >= bridge.settlements().size():
+		return false
+	app.place_editor_window.confirm_delete(_selected_index)
+	return true
 
 # -- Tools (§4.5.3: Settlement, Territory -- and, since the 2026-08-20 merge,
 # §4.5.4: Way, Route) -----------------------------------------------------
@@ -308,6 +446,11 @@ func _settlement_click(gx: float, gy: float) -> void:
 	## `settlement_selected` -> `right_dock.gd`'s `on_settlement_selected`).
 	var settlements := bridge.settlements()
 	if idx < settlements.size():
+		## Also the selection Delete and the place editor act on -- this path
+		## pins the right dock directly rather than through `map_overlay.gd`'s
+		## `settlement_selected`, so `on_settlement_selected` above never fires
+		## for it and `_selected_index` would otherwise stay stale.
+		_selected_index = idx
 		app.right_dock_ctrl.on_settlement_selected(settlements[idx], idx)
 	## §4.5.6: "A tool that writes world data ... reports its staleness
 	## consequence in the status bar the moment it commits." Not `bridge.
@@ -442,11 +585,21 @@ func _discard_territory() -> void:
 
 func _build_settlements() -> void:
 	var cat := DccWidgets.category(self, "Settlements", categories, true)
-	var sec := DccWidgets.section(cat, "Roster")
+	## Everything a place edit or delete invalidates lives under this one
+	## node, so `_rebuild_readouts()` can tear down exactly that much --
+	## same scoping discipline `_rebuild_timeline` already uses for `_tl_body`.
+	_settlements_body = VBoxContainer.new()
+	_settlements_body.add_theme_constant_override("separation", 4)
+	_settlements_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cat.add_child(_settlements_body)
+	_fill_settlements(_settlements_body)
+
+func _fill_settlements(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Roster")
 	var settlements := bridge.settlements()
 	if settlements.is_empty():
 		DccWidgets.note(sec, "No settlements -- generate a world first (World ▸ Generation Pipeline).")
-		_build_settlement_gaps(cat)
+		_build_settlement_gaps(parent)
 		return
 
 	var counts := {}
@@ -458,6 +611,7 @@ func _build_settlements() -> void:
 		if counts.has(kind):
 			parts.append("%d %s" % [counts[kind], kind if int(counts[kind]) == 1 else KIND_PLURAL[kind]])
 	DccWidgets.note(sec, "%d settlements -- %s." % [settlements.size(), ", ".join(parts)])
+	_build_pop_estimate(sec)
 
 	var by_pop := DccWidgets.group(sec, "Largest, by population")
 	var ranked: Array = []
@@ -467,7 +621,29 @@ func _build_settlements() -> void:
 	for i in range(mini(8, ranked.size())):
 		_settlement_row(by_pop, ranked[i].data, ranked[i].index)
 
-	_build_settlement_gaps(cat)
+	_build_settlement_gaps(parent)
+
+## `civPopEstimateOut` / `_civAgrarianRegionalTotal` (reference 23516) --
+## `PARITY_AUDIT.md` §5 item 7, "the only world-level population sanity
+## figure the reference shows", which had no Rust function at all until this
+## pass ported one.
+##
+## Shown beside the settled total on purpose: the number is only useful as a
+## comparison, which is exactly how the reference's own readout row uses it.
+func _build_pop_estimate(parent: Control) -> void:
+	var agr := bridge.civ_agrarian_regional_total()
+	if agr.is_empty():
+		return
+	var sustains := int(agr.get("sustains", 0))
+	var settled := int(agr.get("settled", 0))
+	var land := int(agr.get("land_km2", 0))
+	var pct := (100.0 * float(settled) / float(sustains)) if sustains > 0 else 0.0
+	DccWidgets.note(parent,
+		"Land sustains ≈ %s people over %s km² of land; %s actually live in settlements (%.1f%%). "
+		% [FactionRosterWindow._thousands(sustains), FactionRosterWindow._thousands(land),
+			FactionRosterWindow._thousands(settled), pct]
+		+ "Σ agrarian density × cell area over land -- the ceiling settlement nuclei are sized "
+		+ "against, not a target.")
 
 
 ## The reference's own settlement-population operations, which this shell has
@@ -485,18 +661,31 @@ func _build_settlement_gaps(parent: Control) -> void:
 	var clear := DccWidgets.action(sec, "Clear places & routes", func(): pass)
 	clear.disabled = true
 	clear.tooltip_text = "The reference's #civClearPlacesBtn. Same shape: no civ_clear_places #[func] exists, and CivData is rebuilt wholesale by generate() rather than mutated in place, so there is no partial teardown to expose. Individual manual drops can still be undone by re-generating."
+	var diag := DccWidgets.action(sec, "Settlement diagnostics overlay", func(): pass)
+	diag.disabled = true
+	diag.tooltip_text = "The reference's #civDiagnosticsChk (drawCivLayer §2.6). Every line of the card it draws is urban-morphology data: _umWallSpec's wall ladder, _umSiteProfile's river classification, and a peek into _umModelCache for bridge/ford/harbour validity, inside a SITE_WM×SITE_HM footprint box. None of those exist in this port -- cartalith-urban milestones 8-17 are unported and the crate has no consumer at all -- so the overlay would have nothing to draw. PARITY_AUDIT.md §5 item 13."
 	DccWidgets.note(sec,
-		"Biome carrying-capacity is computed inside cartalith-civ with no parameters, "
-		+ "and urban morphology layouts are a separate unported subsystem "
-		+ "(URBAN_MORPHOLOGY_SCOPE.md, Phase 5, in progress). Village seeding, the "
-		+ "imperial-seat (metropolis) tier and the post-collapse recovery phase ARE "
-		+ "exposed -- all three in File ▸ New world ▸ Generation.")
+		"The biome carrying-capacity residual IS exposed now (File ▸ New world ▸ Generation -- "
+		+ "the reference's own #civBiomeKChk, default off). Urban morphology layouts remain a "
+		+ "separate unported subsystem (URBAN_MORPHOLOGY_SCOPE.md, Phase 5, in progress). "
+		+ "Village seeding, the imperial-seat (metropolis) tier and the post-collapse recovery "
+		+ "phase are exposed in the same place.")
 
 func _settlement_row(parent: Control, data: Dictionary, index: int) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
 	var text := "%s -- %s, pop %d" % [data.get("name", "?"), String(data.get("kind", "?")).capitalize(), int(data.get("population", 0))]
-	var b := DccWidgets.action(parent, text, func(): app.right_dock_ctrl.on_settlement_selected(data, index))
+	var b := DccWidgets.action(row, text, func():
+		_selected_index = index
+		app.right_dock_ctrl.on_settlement_selected(data, index))
 	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.tooltip_text = "Pin this settlement in the right dock (same as clicking it on the map)."
+	var edit := DccWidgets.action(row, "✎", func():
+		_selected_index = index
+		app.open_place_editor(index))
+	edit.tooltip_text = "Open the place editor (name, class, polity, population, economy, traits, history, delete)."
+	parent.add_child(row)
 
 # -- Population -----------------------------------------------------------
 
@@ -601,6 +790,14 @@ func _build_politics() -> void:
 			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			b.tooltip_text = "Open this faction in the right dock."
 
+	## `civOpenFactionsBtn` (`GUI_GAP_REGISTER.md` CV-07 / MS-13). The
+	## register's reason -- "CIV_FACTION_COUNT is a compile-time constant …
+	## get_factions() enumerates a fixed set, it does not own one" -- was
+	## true when written and is not any more: `CivData::faction_roster` owns
+	## a real, growable roster.
+	var roster_btn := DccWidgets.action(sec, "Faction roster…", func(): app.open_faction_roster(), true)
+	roster_btn.tooltip_text = "The reference's Faction Roster modal: world overview, per-faction cards, and the inspector (name / culture / religion / government / ag-tech, procedural banner, Territory fit, settlement sublist), plus add and remove faction."
+
 	DccWidgets.note(sec,
 		"Territory paint and settlement placement (STRANDED_TOOLS.md rows 10, 12) are wired " +
 		"now -- see the TOOLS block at the top of this dock (§4.5.3's Settlement and " +
@@ -616,9 +813,6 @@ func _build_politics() -> void:
 	var gen_prov := DccWidgets.action(gaps, "Generate provinces", func(): pass)
 	gen_prov.disabled = true
 	gen_prov.tooltip_text = "The reference's province generator. Provinces are produced inside generate() and only read out (get_provinces()); no #[func] regenerates them. Their map tint IS live -- Cartography ▸ Layers ▸ Political — provinces."
-	var add_fac := DccWidgets.action(gaps, "Add / remove faction", func(): pass)
-	add_fac.disabled = true
-	add_fac.tooltip_text = "GUI_GAP_REGISTER.md CV-07. CIV_FACTION_COUNT is a compile-time constant in cartalith-civ and factions have no persistent identity across a re-generate, so there is no roster to add to or remove from -- get_factions() enumerates a fixed set, it does not own one."
 	DccWidgets.note(gaps,
 		"Diplomatic relations (the design's own per-faction sub-list) is new work with no " +
 		"reference behaviour behind it either -- cartalith-civ models no inter-faction " +

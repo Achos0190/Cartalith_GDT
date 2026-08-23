@@ -27,6 +27,10 @@ var travel_library_window: TravelLibraryWindow
 ## for the same reason as its neighbours here -- it keeps a settlement picker
 ## and a canvas pan/zoom worth holding between opens.
 var city_viewer_window: CityViewerWindow
+## `placeEditPopup` / `_civPopulatePlaceEditor` and `civFactionsModal` /
+## `_civOpenFactionsModal` (`PARITY_AUDIT.md` §5 items 3, 9, 10).
+var place_editor_window: PlaceEditorWindow
+var faction_roster_window: FactionRosterWindow
 ## Long-lived, unlike `DccBrowseDialog` (which spawns and frees per pick):
 ## the gallery holds a scope chip and a search query worth keeping between
 ## opens, exactly like every other window on this list.
@@ -101,11 +105,31 @@ func _on_map_released(gx: float, gy: float, valid: bool) -> void:
 	if _release_handlers.has(armed_tool):
 		_release_handlers[armed_tool].call(gx, gy, valid)
 
+## `_civCtxShow`'s right click. Unlike the three tool primitives above this
+## is NOT dispatched by armed tool -- the reference's own menu opens
+## regardless of which civ tool is armed (its only gate is "a civ-capable
+## tab is open"), so it is broadcast to every workspace that wants it, the
+## same shape `settlement_selected`/`cursor_sampled` already use.
+func _on_map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2) -> void:
+	for ws in _workspaces:
+		if ws.has_method("on_map_right_clicked"):
+			ws.on_map_right_clicked(gx, gy, hit, screen_pos)
+
 ## §4.5.6: "Escape commits an in-progress multi-click tool... and otherwise
 ## disarms back to Inspect." A key, not a mouse button, so it belongs on
 ## `_unhandled_key_input` regardless of which control has focus.
+##
+## Delete joins it for the same reason (`PARITY_AUDIT.md` §5 item 4,
+## reference block 2's own keydown at line 26096: Delete removes the
+## selected place). Broadcast rather than dispatched, like the right click
+## above -- and deliberately *after* the `LineEdit`/`TextEdit` guard below,
+## because `_unhandled_key_input` still fires for a focused text field on
+## some platforms and deleting a settlement while the user is editing its
+## name would be the worst possible surprise.
 func _unhandled_key_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+	if not (event is InputEventKey and event.pressed):
+		return
+	if event.keycode == KEY_ESCAPE:
 		if _escape_handlers.has(armed_tool):
 			_escape_handlers[armed_tool].call()
 		else:
@@ -114,6 +138,15 @@ func _unhandled_key_input(event: InputEvent) -> void:
 				btn.button_pressed = false
 			arm_tool("inspect")
 		get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_DELETE:
+		var focused := get_viewport().gui_get_focus_owner()
+		if focused is LineEdit or focused is TextEdit or focused is SpinBox:
+			return
+		for ws in _workspaces:
+			if ws.has_method("on_delete_key"):
+				if ws.on_delete_key():
+					get_viewport().set_input_as_handled()
+					return
 
 func _ready() -> void:
 	super._ready()
@@ -168,6 +201,19 @@ func _ready() -> void:
 	city_viewer_window = CityViewerWindow.new()
 	add_child(city_viewer_window)
 	city_viewer_window.setup(bridge)
+
+	## `placeEditPopup` and `civFactionsModal` (`PARITY_AUDIT.md` §5 items 3,
+	## 9, 10). Long-lived like their neighbours -- both keep a selection
+	## worth holding between opens, and the place editor in particular is
+	## reopened from four different places (the context menu, the Delete-key
+	## path's confirm, the roster's settlement sublist, and the CIVIL dock).
+	place_editor_window = PlaceEditorWindow.new()
+	add_child(place_editor_window)
+	place_editor_window.setup(self, bridge)
+
+	faction_roster_window = FactionRosterWindow.new()
+	add_child(faction_roster_window)
+	faction_roster_window.setup(self, bridge)
 
 	performance_window = PerformanceWindow.new()
 	add_child(performance_window)
@@ -356,6 +402,7 @@ func _wire_selection() -> void:
 	viewport.map_clicked.connect(_on_map_clicked)
 	viewport.map_dragged.connect(_on_map_dragged)
 	viewport.map_released.connect(_on_map_released)
+	viewport.map_right_clicked.connect(_on_map_right_clicked)
 
 
 # -- Contextual chrome --------------------------------------------------------
@@ -567,6 +614,15 @@ func open_world_data(tab: String = "") -> void:
 ## can move off it once open.
 func open_city_viewer(index: int) -> void:
 	city_viewer_window.open(index)
+
+## The place editor on one settlement (`PARITY_AUDIT.md` §5 item 3).
+## `index` is an index into `bridge.settlements()`.
+func open_place_editor(index: int) -> void:
+	place_editor_window.open_for(index)
+
+## The Faction Roster modal (`civOpenFactionsBtn`).
+func open_faction_roster() -> void:
+	faction_roster_window.open()
 
 func open_performance() -> void:
 	performance_window.open()

@@ -19,6 +19,9 @@ pub mod labels;
 /// `TIMELINE_SCOPE.md` milestone 1 -- the `_civSettlementPopulation`
 /// dependency chain, the shared tier tables, and the stable-id (`tid`)
 /// helpers `NamedSettlement`/`Way` carry.
+/// The faction roster's and place editor's vocabulary tables, plus
+/// `_civFactionColor` (`PARITY_AUDIT.md` §5 items 3, 9, 10).
+pub mod roster;
 pub mod timeline;
 pub mod tools;
 /// `TRAVEL_LIBRARY_SPEC.md` -- the Travel Library data model, validation,

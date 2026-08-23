@@ -18526,3 +18526,183 @@ and buildings; amenities; hinterland, decay, details and metrics;
 `generate()` and `hashModel`. `ROADMAP.md`'s own estimate stands ("~17
 milestones, not one phase-sized push"). Nothing in this pass approximates,
 stubs or previews any of them.
+
+## The civ-interaction surface: place editing, the map context menu, the Delete key and the faction roster (2026-08-23)
+
+Closes `PARITY_AUDIT.md` §5 items **2, 3, 4, 7, 9, 10 and 12** — seven of the
+fourteen undisclosed surfaces, and the two the audit itself singled out:
+item 3, *"a live usability hole, not just an inventory gap: a user can add a
+settlement they can never fix or undo."* Also closes `GUI_GAP_REGISTER.md`
+**ED-03** (the edit/delete half), **CV-07 / MS-13**, and the `peCityOpen`
+half of **UM-03**. Full register entry: `GUI_GAP_REGISTER.md` §18.
+
+### Ported from the reference
+
+Three functions, all golden-parity verified in
+`cartalith-civ/tests/golden_parity_roster.rs` (Node `vm.runInContext` over
+two line slices, extracted fresh and not checked in):
+
+- **`_civFactionColor`** (HTML **14577-14586**) — the golden-angle hue
+  rotation that colours any faction index past the hand-picked base palette.
+  This is the function that makes "add a faction" possible without a colour
+  picker. 13 golden values across every one of HSL's six hue sectors.
+  **The first slice range was wrong** (14576 caught `CIV_FACTIONS`' closing
+  `];`) and the harness's own boundary assertion said so on the first run —
+  `CLAUDE.md`'s "verify line ranges against the real reference before
+  slicing" rule earning its keep again.
+- **`_civAgrarianRegionalTotal`** (HTML **23516-23528**) → the
+  `civPopEstimateOut` *"Land sustains ≈ N"* readout. The audit's item 7:
+  "the only world-level population sanity figure the reference shows", and
+  `cartalith-civ` had no such function at all. Two golden cases differing
+  only in `mapWidthKm` (800 vs 1250), which pins the `cellKm = mapWidthKm /
+  GW` division *and* its square — a dropped square would move the ratio from
+  2.44 to 1.56. Plus a land-gate negative control (sea above every cell must
+  give exactly zero). The reference's dead `K * AGRARIAN_MAX_KM2` fallback is
+  dropped for the same reason `civ_catchment_pop`'s own `K` parameter was:
+  `typeof currentAgrarianDensity === 'function'` is always true, so that
+  branch cannot run.
+- **`_civAddFaction` / `_civRemoveFaction`** (HTML 14644-14672), including
+  the side effect that is the whole point of the second one: every
+  settlement and every territory cell using the removed index reverts to
+  Unclaimed rather than dangling.
+
+Plus six vocabulary tables ported verbatim as inert lookup data into a new
+`cartalith_civ::roster`: `CIV_FACTION_BASE`, `CIV_TRAITS` (append-only — the
+reference writes these keys into save files), `CIV_SPECIALISATIONS`,
+`CIV_RELIGIONS`, `CIV_GOVERNMENTS` and `AG_TECH_LEVELS`.
+
+### New boundary state, and why it is at the boundary
+
+`cartalith-godot/src/civ_roster_bridge.rs` — `godot`-free, unit-tested under
+plain `cargo test`, the same isolation `civ_tools_bridge.rs` argues for.
+
+- **`FactionRoster`** replaces the reference's five parallel arrays
+  (`civFactionNames`/`civFactionCulture`/`civFactionReligion`/
+  `civFactionGovernment`/`civFactionAgTech`) with one row per index. It
+  lives on `CivData`, not in `cartalith-civ`, because that crate is
+  stateless (`ARCHITECTURE.md`) — exactly where `next_tid` and
+  `CivTools::territory_base` already live for the same reason.
+  **`CIV_FACTION_COUNT` now *seeds* the roster instead of *being* it.**
+- **`PlaceExtrasTable`** holds the five place-editor fields
+  `NamedSettlement` has no room for (specialisation, traits, history, age
+  override, walls override), keyed by **`tid`** rather than index —
+  an index is invalidated by the very delete this work adds, while `tid` is
+  the stable identity `TIMELINE_SCOPE.md` milestone 1 already built. Adding
+  those five as struct fields would have touched all ~15 `NamedSettlement`
+  construction sites across three crates for data the engine does not read.
+
+### 18 new `#[func]`s
+
+`civ_settlement_details` · `civ_edit_settlement` (batched, and
+**all-or-nothing**: an invalid value applies *nothing*, so a shell cannot
+half-apply a form) · `civ_settlement_toggle_trait` ·
+`civ_reroll_settlement_name` (draws from the settlement's *own* faction's
+naming culture — the reference's v1.07 fix — off the same `CivTools::
+name_rng` stream every manual drop uses) · `civ_delete_settlement` ·
+`civ_faction_count` · `civ_add_faction` · `civ_remove_faction` ·
+`civ_set_faction_field` · `civ_faction_terrain_fits` ·
+`civ_agrarian_regional_total` · `set_biome_k_enabled`/`get_biome_k_enabled` ·
+and six vocabulary getters so every picker reads the engine's own table
+rather than a second transcription in GDScript.
+
+`civ_faction_terrain_fits` finally gives **`civ_culture_terrain_fit` a
+caller** — ported earlier and labelled "**Not wired to any caller yet**" in
+its own doc comment ever since. It runs `civ_faction_aggregates` with
+`resources: None, density: None` (which that function explicitly supports)
+and rebuilds the biome raster and ocean-distance field on demand, which is
+why it answers for every faction in one call rather than one at a time.
+
+`get_factions()` gained `name`, `religion`, `government`, `ag_tech` and
+`population`, and its `culture` changed from a recomputed
+`civ_default_culture(f)` to a read of real roster state. Its own doc comment
+asserted "the reference has no faction *name* registry beyond this"; it has
+one, and the correction is recorded there.
+
+`civBiomeKChk` (`PARITY_AUDIT.md` item 12): `build_carrying_capacity` has
+always taken `biome_k`, and nothing could turn it on. Now a `CivOptions`
+flag wired through `File ▸ New world ▸ Generation`, with the wetland mask
+built **only** when it is on — exactly what `currentCarryingCapacity`
+(reference 6453) does. Default OFF, so the off path stays byte-identical.
+
+### Shell
+
+New: `shell/place_editor_window.gd` (`placeEditPopup`), `shell/
+faction_roster_window.gd` (`civFactionsModal`), `shell/faction_banner.gd`
+(`_civFactionBannerCanvas` — a `Control._draw()` port of the reference's
+actual composition: shield outline with two quadratic sweeps via `Curve2D`
+carrying the exact quadratic→cubic control offsets, faction-colour fill, one
+of six glyphs by `fid % 6` at 85% white).
+
+Wiring, all minimal: `map_overlay.gd` gained a `map_right_clicked` signal
+and one `MOUSE_BUTTON_RIGHT` branch (there was **no** right-click handler
+anywhere under `godot-project/` before this); `viewport_host.gd` gained the
+re-emit plus `move_view_to()` (`_civMoveViewTo`, the context menu's
+"Move viewer to" and the roster's "focus camera"); `app.gd` gained the
+broadcast and a `KEY_DELETE` branch, guarded so it never fires while a
+`LineEdit`/`TextEdit`/`SpinBox` has focus; `civilization_workspace.gd` gained
+`on_map_right_clicked`/`on_delete_key`/`on_settlement_selected`, the
+*Faction roster…* button (replacing the disabled *Add / remove faction*
+stub), a per-row ✎ button, and the "Land sustains" readout.
+
+Two Godot-vs-DOM differences found and fixed by looking at the rendered
+window, not by reasoning: `SpinBox` **snaps its displayed value** to
+`min + k*step` where an HTML `<input type=number step=500>` only steps its
+arrows — which showed a population of 4500 for a settlement the engine held
+at 4321 and would have written the lie back on the next interaction (both
+numeric fields now use step 1); and `AcceptDialog` grows to fit its content,
+which pushed the roster's Add/Remove row off the bottom of the screen (both
+windows now set `max_size`).
+
+### Verified
+
+- `cargo test -p cartalith-civ -p cartalith-godot` — **779 passed, 0
+  failed**, including the 3 new golden-parity tests and
+  `civ_roster_bridge`'s 10 unit tests.
+- `cargo build -p cartalith-godot` clean, fresh cdylib.
+- `--headless --path godot-project --quit` clean.
+- **Real windowed run, 1600×900**, driving a throwaway probe scene against
+  the real `DccApp` (deleted after; screenshots are not source, per this
+  project's convention): generate → read a settlement's details → edit all
+  eight fields and verify each → confirm an invalid `kind` and an
+  unassignable `faction` each reject the **whole batch** with nothing
+  applied → toggle traits on/off and confirm insertion order → re-roll a
+  name → add a faction (id 7, colour `(63,57,198)` — the golden
+  `_civFactionColor(7)`, not a `% 6` wrap of faction 1) → edit all five of
+  its fields and confirm the vocabulary guard rejects `cargo_cult` → assign
+  a settlement to it → remove it and confirm that settlement reverted to
+  Unclaimed → delete a settlement and confirm indices shift → open both
+  windows → open the context menu on a real hit (7 items: 5 ops, 2
+  separators) → pan via `move_view_to` → press Delete with a selection and
+  confirm exactly one confirmation dialog appears, and none with no
+  selection → regenerate with `biome_k` on and confirm it moves the answer
+  (Land sustains 1 841 978 → 1 400 861 on the same seed). Screenshots of
+  the place editor, the roster and the context menu were reviewed.
+
+### Open, with the real reason (`GUI_GAP_REGISTER.md` §18.3)
+
+- **POI stays unbuilt, and the decision was re-checked rather than
+  assumed.** `civ_tools_bridge.rs`'s "POI is not a ported concept" is a real
+  state-of-the-port fact, not a stale exploratory note — `cartalith-civ`
+  models Settlement and Territory only and there is no POI record type to
+  attach a drop to. So the context menu ships **five** of the reference's
+  six ops (no "Drop POI here", absent rather than disabled) and the place
+  editor ships no settlement↔POI Category selector.
+- **`civDiagnosticsChk` is blocked on urban morphology, not on UI** — every
+  line of the fact card `drawCivLayer` §2.6 draws is `_um*` data
+  (`_umWallSpec`, `_umSiteProfile`, a peek into `_umModelCache`). Shipped as
+  a **disabled control carrying that reason**, `PARITY_AUDIT.md` item 13.
+- The Faction Inspector's **Power breakdown** and **Economy** block need
+  `civ_faction_aggregates`' resource- and density-fed half, which means
+  retaining the 15 resource rasters and a density field past
+  `compute_civilisation` — a `MEMORY_OPTIMIZATION_SCOPE.md` decision plus an
+  `ECONOMY_SCOPE.md` milestone, not a widget.
+- An edited **specialisation** does not reach the economy aggregation
+  (`FactionPlace::specialisation` is read there; feeding user edits in would
+  move already-golden numbers on an interactive edit). **Age/walls** and the
+  seven **traits** are stored and consumed by nothing — their readers are
+  all unported `_um*` functions, and `map_overlay.gd` has no per-trait glyph
+  pass.
+- A place edit or delete does **not** recompute provinces, trade balances,
+  roads, territory or `explanations` — the same staleness
+  `civ_drop_settlement` has always disclosed, said in the delete
+  confirmation's own text so a user meets it at the moment it matters.

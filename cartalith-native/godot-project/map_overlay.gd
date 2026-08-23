@@ -255,6 +255,24 @@ signal map_clicked(gx: float, gy: float)
 signal map_dragged(gx: float, gy: float)
 signal map_released(gx: float, gy: float, valid: bool)   ## LMB release, ends a drag gesture.
 
+## The reference's `contextmenu` handler on `view` (line 25888) ->
+## `_civCtxShow` (25857). `PARITY_AUDIT.md` §5 item 2: no `MOUSE_BUTTON_RIGHT`
+## handler existed anywhere under `godot-project/`, which left the reference's
+## only path to Move-viewer-to and Delete-nearest-place with no counterpart.
+##
+## Stays as tool-agnostic as the three primitives above: this control reports
+## "a right click landed at this grid cell, and the nearest settlement to it
+## is `hit`", and nothing about what should happen next. The reference does
+## its own nearest-place hit test inside the handler with the *same* radius
+## `_civSelectPlaceAt` uses; here `_hit_test_settlement` already is that one
+## shared definition, so the hit travels with the signal rather than being
+## re-derived by whoever builds the menu.
+##
+## `screen_pos` is this control's local position, which is what a `PopupMenu`
+## needs converted to global -- the receiver owns that conversion, since only
+## it knows which window it is popping into.
+signal map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2)
+
 var _settlements: Array = []
 var _roads: Array = []
 var _sea_routes: Array = []
@@ -1036,6 +1054,26 @@ func _gui_input(event: InputEvent) -> void:
 
 	elif event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_RIGHT:
+			## Press, not release -- the reference opens its menu from
+			## `contextmenu`, which fires on press. `accept_event()` so the
+			## click cannot fall through to anything behind this control,
+			## matching the reference's own `e.preventDefault()` ("the canvas
+			## has no useful native menu; ours only opens in civ-capable
+			## tabs").
+			if not mb.pressed:
+				return
+			var r := _displayed_rect()
+			if r.size.x <= 0.0:
+				return
+			var inter := _interior_rect(r)
+			var pt := _grid_point(mb.position, r, inter)
+			if not pt["valid"]:
+				return
+			map_right_clicked.emit(pt["gx"], pt["gy"],
+				_hit_test_settlement(mb.position, inter, r), mb.position)
+			accept_event()
+			return
 		if mb.button_index != MOUSE_BUTTON_LEFT:
 			return
 		var rect := _displayed_rect()

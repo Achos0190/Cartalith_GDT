@@ -32,6 +32,44 @@ in screen pixels, not `_umLayoutAlpha`'s 24 km band, which cannot fire at
 `ViewportHost.ZOOM_MAX` 8.0. Verified non-headlessly on a real 60 km world:
 8 layouts in 114 ms, 158 to 1 285 street segments each, real map water and
 relief on every one, and both surfaces captured drawing real geometry.
+— previously, post **The civ-interaction surface: place editing,
+the map context menu, the Delete key and the faction roster**. Closes
+`PARITY_AUDIT.md` §5 items **2, 3, 4, 7, 9, 10 and 12** — including the two
+the audit singled out, item 3 being "a live usability hole: a user can add a
+settlement they can never fix or undo" — plus `GUI_GAP_REGISTER.md`
+**ED-03** (edit/delete half), **CV-07 / MS-13**, and `peCityOpen` from
+**UM-03**. Ported and golden-verified: `_civFactionColor`,
+`_civAgrarianRegionalTotal` ("Land sustains ≈ N"), `_civAddFaction`/
+`_civRemoveFaction`, and six vocabulary tables, all in a new
+`cartalith_civ::roster` plus `cartalith_civ::timeline::
+civ_agrarian_regional_total`. New boundary state in
+`cartalith-godot/src/civ_roster_bridge.rs`: a real `FactionRoster` on
+`CivData` (**`CIV_FACTION_COUNT` now *seeds* the roster instead of *being*
+it**) and a `tid`-keyed `PlaceExtrasTable` for the five place-editor fields
+`NamedSettlement` has no room for. **18 new `#[func]`s**, among them the
+first-ever caller for `civ_culture_terrain_fit`
+(`civ_faction_terrain_fits`), and `set_biome_k_enabled` — the
+`build_carrying_capacity` parameter that had existed all along with nothing
+able to turn it on. New shell: `place_editor_window.gd`,
+`faction_roster_window.gd`, `faction_banner.gd` (a real `_draw()` port of
+`_civFactionBannerCanvas`), the first `MOUSE_BUTTON_RIGHT` handler anywhere
+under `godot-project/`, the first `KEY_DELETE` handler, and
+`ViewportHost.move_view_to` (`_civMoveViewTo`). `cargo test -p cartalith-civ
+-p cartalith-godot`: 779 passed, 0 failed. **Verified in a real 1600×900
+window**, not only headless: edit-all-fields, all-or-nothing rejection,
+trait toggling, name re-roll, add/remove faction with the revert-to-Unclaimed
+side effect, delete + index shift, both windows opened and screenshotted, the
+context menu's five ops, Delete-key confirm, and a `biome_k` regenerate that
+genuinely moves the answer. **POI stays unbuilt** — CV-01's decision was
+re-checked against `civ_tools_bridge.rs` and upheld, so the context menu
+ships five of the reference's six ops. `civDiagnosticsChk` is registered
+**blocked on urban morphology, not on UI** (its whole fact card is `_um*`
+data) and ships as a disabled control carrying that reason. Still open, all
+disclosed in `GUI_GAP_REGISTER.md` §18.3: the Faction Inspector's Power and
+Economy blocks (need the resource/density rasters `compute_civilisation`
+frees), specialisation not feeding economy aggregation, age/walls/traits
+stored but consumed by nothing, and no recompute of provinces/trade/roads/
+territory after a place edit.
 — previously, post **Four small reference clusters, ported and
 wired: landmass centering, fjords, wind-throw, landform classification**.
 Closes `PARITY_AUDIT.md` §3.1's four smallest "genuinely not done" rows —

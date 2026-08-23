@@ -88,6 +88,9 @@ var _archetype := "" ## Empty = Classic (World Structure disabled).
 var _villages := false
 var _metropolis := false
 var _recovery_phase := 0
+## `civBiomeKChk` (reference `_biomeK`, line 6441), default OFF -- "0 =
+## biome carrying-capacity residual OFF (bit-identical)".
+var _biome_k := false
 var _dim_syncing := false
 var _auto_generate := true ## Whether Create also calls bridge.generate() -- see set_auto_generate().
 
@@ -189,6 +192,9 @@ func _build(body: VBoxContainer) -> void:
 	metropolis_check = DccWidgets.toggle(gen_sec, "Imperial-seat tier (metropolis ★)", false,
 		func(v: bool): _metropolis = v,
 		"Reference civMetropolisChk, default off. After the road network is scored, promotes up to three capitals that are both dominant trade hubs (normalised betweenness >= 0.85) and seats of a large polity (>= 6 settlements) to the metropolis tier -- at most one per faction. Off means auto-populate output is bit-identical to not having the pass at all.")
+	DccWidgets.toggle(gen_sec, "Biome carrying-capacity residual", false,
+		func(v: bool): _biome_k = v,
+		"Reference civBiomeKChk, default off. Applies a per-biome disease/climate correction to carrying capacity K -- and, where a cell is a lowland wetland, the wetland residual instead. K feeds settlement suitability and the food-shed ceiling, so turning it on moves where settlements are placed and how large they get. Off short-circuits the whole correction, so output is bit-identical to not having it (the reference's own comment).")
 	## Filled from the engine's own `_CIV_RECOVERY_NAME` table rather than a
 	## second transcription of it here -- `get_recovery_phase_names()`.
 	var recovery_labels: Array = []
@@ -384,6 +390,7 @@ func request() -> Dictionary:
 		"archetype": _archetype,
 		"villages": _villages,
 		"metropolis": _metropolis,
+		"biome_k": _biome_k,
 		"recovery_phase": _recovery_phase,
 		"sea_level": bridge.param_get("sea_level"),
 		"dynamic_lithology": bridge.param_get("tect.dynamic_lithology"),

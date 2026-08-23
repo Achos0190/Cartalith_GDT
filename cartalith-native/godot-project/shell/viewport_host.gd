@@ -20,6 +20,8 @@ signal layers_button_pressed()
 signal map_clicked(gx: float, gy: float)   ## §4.5 tool click-placement primitive.
 signal map_dragged(gx: float, gy: float)   ## §4.5 tool drag-paint primitive.
 signal map_released(gx: float, gy: float, valid: bool)   ## §4.5 tool drag-end primitive.
+## `_civCtxShow`'s right-click (`map_overlay.gd`'s own signal, re-emitted).
+signal map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2)
 
 const OVERLAY_SCRIPT := preload("res://map_overlay.gd")
 ## Deep-zoom tile compositing -- see `_build_lod_tile()` and the shader's own
@@ -295,6 +297,7 @@ func _ready() -> void:
 	overlay.map_clicked.connect(func(gx, gy): map_clicked.emit(gx, gy))
 	overlay.map_dragged.connect(func(gx, gy): map_dragged.emit(gx, gy))
 	overlay.map_released.connect(func(gx, gy, valid): map_released.emit(gx, gy, valid))
+	overlay.map_right_clicked.connect(func(gx, gy, hit, pos): map_right_clicked.emit(gx, gy, hit, pos))
 	## The town-layout layer pulls its own data, one deferred batch at a time,
 	## because generating a town is real engine work and only the overlay knows
 	## which towns are on screen and large enough to be worth drawing. This is
@@ -432,6 +435,28 @@ func _zoom_at(screen_pt: Vector2, factor: float) -> void:
 	## baked into `_draw()`'s cached draw commands, so it needs telling every
 	## time zoom actually changes, not just once.
 	overlay.set_camera_zoom(_zoom)
+	_update_lod()
+
+## `_civMoveViewTo(x, y)` -- the reference's context-menu "📍 Move viewer to"
+## op and the Faction Roster's "(focus camera)" link. Centres grid cell
+## `(gx, gy)` in the viewport at the current zoom; no zoom change, matching
+## the reference, which pans only.
+##
+## The camera's own contract (`_zoom_at` above) is `screen = position +
+## local * zoom`, where `local` is `overlay`'s unscaled control space --
+## `overlay` is a FULL_RECT child of `_camera`, so `displayed_rect()` is
+## already in exactly that space. Solving that for "put this local point at
+## the viewport centre" is the one line below; no other pan/zoom state is
+## touched, so a following wheel-zoom still pivots correctly.
+func move_view_to(gx: float, gy: float) -> void:
+	var rect: Rect2 = overlay.displayed_rect()
+	if rect.size.x <= 0.0:
+		return
+	var g := _bridge.grid_size()
+	if g.x <= 0 or g.y <= 0:
+		return
+	var local := rect.position + Vector2((gx + 0.5) / float(g.x), (gy + 0.5) / float(g.y)) * rect.size
+	_camera.position = size * 0.5 - local * _zoom
 	_update_lod()
 
 ## Back to fit, matching the letterboxed `STRETCH_KEEP_ASPECT_CENTERED` view

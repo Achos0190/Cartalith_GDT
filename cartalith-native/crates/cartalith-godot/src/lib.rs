@@ -17,6 +17,7 @@ use godot::init::{ExtensionLibrary, gdextension};
 use godot::prelude::*;
 
 mod asset_bridge;
+mod civ_roster_bridge;
 mod civ_tools_bridge;
 mod icon_bridge;
 mod infra_tools_bridge;
@@ -212,6 +213,27 @@ struct CivData {
     /// parameter -- the collapse stepper's migration-headroom ceiling and the
     /// recovery stepper's logistic regrowth ceiling both key off it.
     dens: Vec<f32>,
+    /// `GUI_GAP_REGISTER.md` CV-07/MS-13, `PARITY_AUDIT.md` §5 items 9/10:
+    /// the reference's own mutable `CIV_FACTIONS` plus its five parallel
+    /// per-faction arrays, collapsed into one row per index (see
+    /// `civ_roster_bridge`'s module doc for why the roster is boundary
+    /// state and not `cartalith-civ` state). Seeded to `CIV_FACTION_COUNT`
+    /// real factions plus "Unclaimed" at index 0 on every
+    /// `compute_civilisation`, then grown/shrunk by `civ_add_faction`/
+    /// `civ_remove_faction`.
+    ///
+    /// **Generation still runs at `CIV_FACTION_COUNT`.** `assign_factions`
+    /// is called inside `generate()` with that constant, so adding a
+    /// faction yields a real, paintable, assignable, editable id that no
+    /// *generated* settlement was seeded into -- which is exactly the
+    /// reference's own behaviour: its `_civAddFaction` likewise touches
+    /// nothing already placed.
+    faction_roster: civ_roster_bridge::FactionRoster,
+    /// `PARITY_AUDIT.md` §5 item 3 / `GUI_GAP_REGISTER.md` ED-03: the five
+    /// place-editor fields `NamedSettlement` has no room for, keyed by
+    /// `tid`. See `civ_roster_bridge`'s module doc for why they sit beside
+    /// the settlement rather than on it, and what that costs.
+    place_extras: civ_roster_bridge::PlaceExtrasTable,
 }
 
 /// `TIMELINE_SCOPE.md` §9's own "Snapshot cap" decision: a generous ceiling
@@ -339,7 +361,7 @@ impl CivData {
 /// without a live engine.
 #[cfg(test)]
 mod civ_timeline_tests {
-    use super::CivData;
+    use super::{CIV_FACTION_COUNT, CivData, civ_roster_bridge};
     use cartalith_civ::{NamedSettlement, SettlementKind, SettlementPlacement};
 
     fn mk_settlement(tid: u64, x: usize, name: &str) -> NamedSettlement {
@@ -374,6 +396,8 @@ mod civ_timeline_tests {
             timeline: Vec::new(),
             year: 0,
             dens: Vec::new(),
+            faction_roster: civ_roster_bridge::FactionRoster::seeded(CIV_FACTION_COUNT as usize),
+            place_extras: civ_roster_bridge::PlaceExtrasTable::default(),
         }
     }
 
@@ -563,6 +587,13 @@ struct CivOptions {
     /// `_civRecoveryPhase` (reference line 6443), default `Stable` (0),
     /// which makes `civ_apply_recovery` a strict no-op.
     recovery: RecoveryPhaseOpt,
+    /// `_biomeK` (reference line 6441), default OFF -- the biome
+    /// carrying-capacity residual (`civBiomeKChk`). The reference's own
+    /// comment on that default is why it stays OFF here: "0 = biome
+    /// carrying-capacity residual OFF (bit-identical)". `build_carrying_
+    /// capacity` has always taken the parameter; until this flag existed
+    /// nothing could turn it on (`PARITY_AUDIT.md` §5 item 12).
+    biome_k: bool,
 }
 
 /// `RecoveryPhase` with a `Default` -- `cartalith_civ`'s own enum has no
@@ -599,7 +630,21 @@ fn compute_civilisation(
 
     let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, map_width_km);
     let water_access = cartalith_civ::build_water_access(&ws.flow_discharge, &ws.field, gw, gh, sea_level, flow_thresh);
-    let carrying_cap = cartalith_civ::build_carrying_capacity(&soil, &water_access, Some(&biome), &ws.temperature, &ws.field, sea_level, 0.0, None);
+    // `civBiomeKChk` (`set_biome_k_enabled`, `CivOptions::biome_k`). The
+    // reference's own `currentCarryingCapacity` (line 6453) passes
+    // `{biomeK:_biomeK, wetMask:_biomeK?currentWetlandMask():null}` -- the
+    // wetland mask is built ONLY when the residual is on, and the `0.0`
+    // default short-circuits the whole correction, so the OFF path below is
+    // byte-identical to what this line always did.
+    let wetland = if opts.biome_k {
+        Some(cartalith_civ::build_wetland_mask(&wb.classification, &ws.field, &ws.rainfall, &soil_slope, sea_level))
+    } else {
+        None
+    };
+    let carrying_cap = cartalith_civ::build_carrying_capacity(
+        &soil, &water_access, Some(&biome), &ws.temperature, &ws.field, sea_level,
+        if opts.biome_k { 1.0 } else { 0.0 }, wetland.as_deref(),
+    );
 
     let mut resources = cartalith_civ::build_resource_potentials(
         &lithology,
@@ -1020,6 +1065,12 @@ fn compute_civilisation(
         timeline: Vec::new(),
         year: 0,
         dens,
+        // Same Cluster-D reset the timeline gets: a fresh generation is a
+        // fresh roster. `CIV_FACTION_COUNT` is what `assign_factions` was
+        // just run with, so the roster and the settlements agree on which
+        // ids exist at the moment this struct is built.
+        faction_roster: civ_roster_bridge::FactionRoster::seeded(CIV_FACTION_COUNT as usize),
+        place_extras: civ_roster_bridge::PlaceExtrasTable::default(),
     }
 }
 
@@ -2757,7 +2808,7 @@ impl WorldGen {
         for (i, &f) in civ.territory.iter().enumerate() {
             let cover = render::border_cover(&appearance, i % gw, i / gw, gw, gh);
             if f > 0 && cover < 1.0 {
-                let (r, g, b) = FACTION_RGB[((f - 1) as usize) % FACTION_RGB.len()];
+                let (r, g, b) = faction_rgb(f);
                 bytes.extend_from_slice(&[r, g, b, (ALPHA as f64 * (1.0 - cover)) as u8]);
             } else {
                 bytes.extend_from_slice(&[0, 0, 0, 0]);
@@ -4051,38 +4102,80 @@ impl WorldGen {
     }
 
     /// Every faction the placement/territory tools can target -- `id`
-    /// (`1..=CIV_FACTION_COUNT`, matching `get_settlements()`/
-    /// `get_provinces()`'s own `faction` field), `culture` (the naming-
-    /// flavour key `civ_default_culture` resolves this faction to -- the
-    /// reference has no faction *name* registry beyond this, so this is
-    /// the honest, real label available, not a placeholder), `color_r`/
-    /// `color_g`/`color_b` (0-255, the exact swatch `build_territory_
-    /// texture` paints this faction's cells in -- `§4.5.3`'s "faction
-    /// swatch"), `settlement_count`, and `claimed_cells`. Empty `Array`
+    /// (`1..=civ_faction_count()`, matching `get_settlements()`/
+    /// `get_provinces()`'s own `faction` field), `name`, `culture`,
+    /// `religion`, `government`, `ag_tech`, `color_r`/`color_g`/`color_b`
+    /// (0-255, the exact swatch `build_territory_texture` paints this
+    /// faction's cells in -- `§4.5.3`'s "faction swatch"),
+    /// `settlement_count`, `population` and `claimed_cells`. Empty `Array`
     /// before any `generate()` call -- there is no `get_factions`-shaped
     /// method anywhere else in this crate to reuse (`get_provinces()`
     /// reports a `faction` id per province, not an enumerable faction
     /// list).
+    ///
+    /// **The five editable fields are real state now** (`GUI_GAP_REGISTER
+    /// .md` CV-07/MS-13). `culture` used to be `civ_default_culture(f)`
+    /// recomputed on every read, with this doc comment saying outright that
+    /// "the reference has no faction *name* registry beyond this". It does
+    /// -- `civFactionNames`/`civFactionCulture`/`civFactionReligion`/
+    /// `civFactionGovernment`/`civFactionAgTech`, five parallel arrays --
+    /// and this port now has its equivalent (`CivData::faction_roster`),
+    /// seeded from exactly the same defaults so an unedited world reads
+    /// identically to before. `civ_set_faction_field` is what moves them.
+    ///
+    /// `population` is the summed `pop` of this faction's own settlements
+    /// -- a plain sum over data already here, not
+    /// `_civFactionAggregates`' territory-integrated `foodProductionCapacity`
+    /// (that needs the density and resource rasters `compute_civilisation`
+    /// frees; still open, see `ECONOMY_SCOPE.md`).
     #[func]
     fn get_factions(&self) -> Array<VarDictionary> {
         let Some(civ) = self.civ.as_ref() else { return Array::new() };
-        (1..=CIV_FACTION_COUNT)
+        (1..civ.faction_roster.0.len() as i32)
             .map(|f| {
                 let settlement_count = civ.settlements.iter().filter(|s| s.placement.faction == f).count();
+                let population: u64 = civ
+                    .settlements
+                    .iter()
+                    .filter(|s| s.placement.faction == f)
+                    .map(|s| u64::from(s.pop))
+                    .sum();
                 let claimed_cells = civ.territory.iter().filter(|&&t| t == f).count();
-                let culture = cartalith_civ::civ_default_culture(f).key;
-                let (r, g, b) = FACTION_RGB[((f - 1) as usize) % FACTION_RGB.len()];
+                let e = &civ.faction_roster.0[f as usize];
+                let (r, g, b) = faction_rgb(f);
                 dict! {
                     "id" => f,
-                    "culture" => culture,
+                    "name" => e.name.as_str(),
+                    "culture" => e.culture.as_str(),
+                    "religion" => e.religion.as_str(),
+                    "government" => e.government.as_str(),
+                    "ag_tech" => e.ag_tech.as_str(),
                     "color_r" => r as i64,
                     "color_g" => g as i64,
                     "color_b" => b as i64,
                     "settlement_count" => settlement_count as i64,
+                    "population" => population as i64,
                     "claimed_cells" => claimed_cells as i64,
                 }
             })
             .collect()
+    }
+}
+
+/// The swatch for faction `f` (`1`-based): [`FACTION_RGB`]'s hand-picked
+/// six for the base roster, `cartalith_civ::roster::civ_faction_color`'s
+/// golden-angle rotation for anything `civ_add_faction` appended past them.
+///
+/// That split is the reference's own (line 14565: `_civFactionColor`
+/// "deterministically colours any index beyond the hand-picked base palette
+/// so appended factions stay visually distinct without needing a colour
+/// picker"). It replaces a `% FACTION_RGB.len()` wrap that would have given
+/// faction 7 faction 1's exact colour.
+fn faction_rgb(f: i32) -> (u8, u8, u8) {
+    let i = (f - 1).max(0) as usize;
+    match FACTION_RGB.get(i) {
+        Some(&c) => c,
+        None => cartalith_civ::roster::civ_faction_color(f as usize),
     }
 }
 
@@ -7230,4 +7323,500 @@ fn slice_target_from(opts: &VarDictionary) -> Result<asset_bridge::SliceTarget, 
         }
         other => Err(format!("unrecognised slice target: {other}")),
     }
+}
+
+/// The civ **roster and place-editor** surface — `PARITY_AUDIT.md` §5
+/// items 2, 3, 4, 7, 9, 10 and 12, and `GUI_GAP_REGISTER.md`
+/// CV-01/CV-07/MS-13/ED-03.
+///
+/// Before this block `civ_drop_settlement` *created* a settlement and
+/// nothing edited, moved or deleted one — the audit's own words, "a live
+/// usability hole, not just an inventory gap: a user can add a settlement
+/// they can never fix or undo." The state these methods drive lives in
+/// `civ_roster_bridge`; see that module's doc comment for the two design
+/// calls (why the roster is boundary state, and why place edits are keyed
+/// by `tid`).
+///
+/// `secondary` for the same compile-time reason every other extra block in
+/// this file is: gdext allows exactly one primary `#[godot_api] impl
+/// WorldGen`, and that one is already spoken for.
+///
+/// **POI is still not here, deliberately.** `civ_tools_bridge.rs`'s module
+/// doc and `GUI_GAP_REGISTER.md` CV-01 both record that POI "is not a
+/// ported concept" — `cartalith-civ` models Settlement and Territory only,
+/// and the omission is explicit rather than an oversight. Nothing in this
+/// block reverses it: the place editor's Category selector
+/// (settlement ↔ POI) has no port, and the context menu's "Drop POI here"
+/// op is absent for the same stated reason.
+#[godot_api(secondary)]
+impl WorldGen {
+    // ---- vocabularies: no `generate()` call required ----
+
+    /// `CIV_TRAITS` (reference line 14715) as `{key, label, glyph}` — the
+    /// place editor's trait pills. Never reorder; the reference writes
+    /// these keys into save files.
+    #[func]
+    fn civ_trait_vocabulary(&self) -> Array<VarDictionary> {
+        cartalith_civ::roster::CIV_TRAITS
+            .iter()
+            .map(|&(key, label, glyph)| vdict! { "key" => key, "label" => label, "glyph" => glyph })
+            .collect()
+    }
+
+    /// `CIV_SPECIALISATIONS` (reference 14729) as `{key, label}`.
+    #[func]
+    fn civ_specialisation_vocabulary(&self) -> Array<VarDictionary> {
+        key_label_array(&cartalith_civ::roster::CIV_SPECIALISATIONS)
+    }
+
+    /// `CIV_RELIGIONS` as `{key, label}`.
+    #[func]
+    fn civ_religion_vocabulary(&self) -> Array<VarDictionary> {
+        key_label_array(&cartalith_civ::roster::CIV_RELIGIONS)
+    }
+
+    /// `CIV_GOVERNMENTS` as `{key, label}`.
+    #[func]
+    fn civ_government_vocabulary(&self) -> Array<VarDictionary> {
+        key_label_array(&cartalith_civ::roster::CIV_GOVERNMENTS)
+    }
+
+    /// `AG_TECH_LEVELS` as `{key, label, hint, farmers_per_urbanite}`.
+    ///
+    /// `farmers_per_urbanite` is reported honestly and consumed by nothing:
+    /// its only readers in the reference are `_civFoodShed`/
+    /// `foodSurplusRatio`, neither of which is ported, so in this port
+    /// ag-tech is as inert as Government and Religion already are in the
+    /// reference itself. See `cartalith_civ::roster`'s module doc.
+    #[func]
+    fn civ_ag_tech_vocabulary(&self) -> Array<VarDictionary> {
+        cartalith_civ::roster::AG_TECH_LEVELS
+            .iter()
+            .map(|t| {
+                vdict! {
+                    "key" => t.key,
+                    "label" => t.label,
+                    "hint" => t.hint,
+                    "farmers_per_urbanite" => t.farmers_per_urbanite,
+                }
+            })
+            .collect()
+    }
+
+    /// `CIV_CULTURES`' seven keys (reference 14607) — the naming-culture
+    /// picker's vocabulary. Label-free: the reference's own table carries
+    /// no display label for a culture, only a key, and inventing one here
+    /// would be a second source of truth for the shell to drift from.
+    #[func]
+    fn civ_culture_vocabulary(&self) -> PackedStringArray {
+        cartalith_civ::CIV_CULTURES.iter().map(|c| GString::from(c.key)).collect()
+    }
+
+    // ---- roster (CV-07 / MS-13) ----
+
+    /// How many real, assignable factions exist right now (`1..=n`),
+    /// excluding "Unclaimed". `0` before any `generate()` call.
+    ///
+    /// This is what `CIV_FACTION_COUNT` used to be the only answer to. It
+    /// still seeds the roster, but it is no longer the whole truth:
+    /// `civ_add_faction`/`civ_remove_faction` move this number.
+    #[func]
+    fn civ_faction_count(&self) -> i64 {
+        self.civ.as_ref().map_or(0, |c| c.faction_roster.count() as i64)
+    }
+
+    /// `_civAddFaction` (reference 14644): appends one faction with the
+    /// reference's own defaults — name `"Faction N"`, `_civFactionColor(N)`,
+    /// `_civDefaultCulture(N)`, religion `none`, government `monarchy`,
+    /// ag-tech `traditionalAgrarian`. Returns its id, or `-1` before any
+    /// `generate()` call.
+    ///
+    /// The new faction owns nothing until something is assigned to it — the
+    /// reference behaves identically. Paint it territory with the Territory
+    /// tool, or set a settlement's Polity to it in the place editor.
+    #[func]
+    fn civ_add_faction(&mut self) -> i64 {
+        match self.civ.as_mut() {
+            Some(civ) => civ.faction_roster.add() as i64,
+            None => -1,
+        }
+    }
+
+    /// `_civRemoveFaction` (reference 14657): drops the **last** faction —
+    /// the reference removes by index-from-the-end only, and so does this —
+    /// reverting every settlement and every territory cell that used it to
+    /// Unclaimed rather than leaving a dangling index.
+    ///
+    /// Returns `false`, changing nothing, at the reference's own floor
+    /// (Unclaimed plus one real faction) or before any `generate()` call.
+    /// The caller owns the confirmation prompt, the same split
+    /// `civ_run_collapse_simulation`'s `needs_confirm` uses — the
+    /// reference's own button asks first, and so should the shell.
+    #[func]
+    fn civ_remove_faction(&mut self) -> bool {
+        let Some(civ) = self.civ.as_mut() else { return false };
+        let CivData { faction_roster, settlements, territory, .. } = civ;
+        faction_roster.remove_last(settlements, territory)
+    }
+
+    /// Writes one editable faction field — `key` is `"name"`, `"culture"`,
+    /// `"religion"`, `"government"` or `"ag_tech"`, exactly the five
+    /// `_civPopulateFactionEditor` (reference 16247) makes editable.
+    ///
+    /// Returns `false` and changes nothing for an unknown faction, an
+    /// unknown key, a blank name, or a value outside that field's own
+    /// reference vocabulary — a typo from GDScript is rejected, not stored.
+    #[func]
+    fn civ_set_faction_field(&mut self, faction: i64, key: GString, value: GString) -> bool {
+        let Some(civ) = self.civ.as_mut() else { return false };
+        if faction < 0 {
+            return false;
+        }
+        civ.faction_roster.set_field(faction as usize, &key.to_string(), &value.to_string())
+    }
+
+    /// `_civCultureTerrainFit` (`cartalith_civ::civ_culture_terrain_fit`,
+    /// reference 23748) for **every** faction in one call, plus the world
+    /// terrain means it is judged against — the Faction Roster's "Territory
+    /// fit" panel.
+    ///
+    /// One call for all of them on purpose: the underlying
+    /// `civ_faction_aggregates` pass is O(cells), so a per-faction binding
+    /// would re-walk the grid once per row of the roster list.
+    ///
+    /// Each entry: `faction`, `culture`, `mix` (a `Dictionary` of the five
+    /// `CIV_TERRAIN_MIX_KEYS` fractions), and — only when that culture is
+    /// terrain-themed — `key`, `value`, `world_mean`, `ratio` and `verdict`
+    /// (`"match"`/`"typical"`/`"mismatch"`). `common` and `imperial` are
+    /// identity-flavoured, not terrain-themed, and get **no verdict at all**
+    /// rather than a fabricated one — the reference's own discipline,
+    /// preserved: `has_verdict` is `false` for those and the shell must say
+    /// "composition only".
+    ///
+    /// The aggregate runs with `resources`/`density` absent, which that
+    /// function explicitly supports: `compute_civilisation` frees the
+    /// resource rasters, and the terrain-mix half needs none of them. The
+    /// biome raster and the ocean-distance field ARE rebuilt here, on
+    /// demand — two full-grid passes, which is why this is a modal-open
+    /// call and not a per-frame one.
+    #[func]
+    fn civ_faction_terrain_fits(&self) -> Array<VarDictionary> {
+        let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref()) else {
+            return Array::new();
+        };
+        let gw = self.gw as usize;
+        let gh = self.gh as usize;
+        let sea = self.sea_level;
+        let biome = cartalith_civ::build_biome_raster(&civ.water_bodies, &ws.temperature, &ws.rainfall);
+        let ocean_dist = cartalith_civ::civ_ocean_dist_field(Some(&civ.water_bodies), &ws.field, gw, gh, sea);
+        let flow_thresh = cartalith_hydrology::river_flow_thresh(gw, gh, gw, self.map_width_km);
+        let has_religion = civ.faction_roster.has_religion_flags();
+        let input = cartalith_civ::FactionAggregatesInput {
+            faction_count: civ.faction_roster.0.len(),
+            gw,
+            gh,
+            sea,
+            map_width_km: self.map_width_km,
+            field: &ws.field,
+            territory: Some(&civ.territory),
+            density: None,
+            resources: None,
+            biome: Some(&biome),
+            flow: Some(&ws.flow_discharge),
+            flow_thresh,
+            ocean_dist: Some(&ocean_dist),
+            faction_has_religion: Some(&has_religion),
+        };
+        let places: Vec<cartalith_civ::FactionPlace> =
+            civ.settlements.iter().map(cartalith_civ::FactionPlace::from_settlement).collect();
+        let agg = cartalith_civ::civ_faction_aggregates(&input, &places);
+
+        (1..civ.faction_roster.0.len())
+            .map(|f| {
+                let culture = civ.faction_roster.0[f].culture.clone();
+                let mix_map = &agg.by_faction[f].terrain_mix;
+                let mut mix = VarDictionary::new();
+                for k in cartalith_civ::CIV_TERRAIN_MIX_KEYS {
+                    mix.set(k, *mix_map.get(k).unwrap_or(&0.0));
+                }
+                let mut out = vdict! {
+                    "faction" => f as i64,
+                    "culture" => culture.as_str(),
+                    "mix" => &mix,
+                    "has_verdict" => false,
+                };
+                let mix_ref: std::collections::HashMap<&str, f64> =
+                    mix_map.iter().map(|(&k, &v)| (k, v)).collect();
+                let world_ref: std::collections::HashMap<&str, f64> =
+                    agg.world_mean_terrain.iter().map(|(&k, &v)| (k, v)).collect();
+                if let Some(fit) = cartalith_civ::civ_culture_terrain_fit(&culture, &mix_ref, &world_ref) {
+                    out.set("has_verdict", true);
+                    out.set("key", fit.key);
+                    out.set("value", fit.value);
+                    out.set("world_mean", fit.world_mean);
+                    out.set("ratio", fit.ratio);
+                    out.set("verdict", fit.verdict);
+                }
+                out
+            })
+            .collect()
+    }
+
+    // ---- place editor (ED-03) ----
+
+    /// Everything `_civPopulatePlaceEditor` (reference 16694) needs that
+    /// `get_settlements()` does not already carry: the five side-table
+    /// fields (`specialisation`, `traits`, `history`, `age`, `walls`) plus
+    /// the settlement's `tid`, so a caller can tell one editing session
+    /// from another across a delete.
+    ///
+    /// `age`/`walls` report `-1` for the reference's own "auto" state
+    /// (`umAge == null` / `umWalls == null`), not a fabricated inferred
+    /// value — this port has not ported `_umInferAge`/`_umInferWalls`
+    /// (urban morphology, milestones 8-17), so there is nothing honest to
+    /// infer with. Empty `Dictionary` for an out-of-range index.
+    #[func]
+    fn civ_settlement_details(&self, index: i64) -> VarDictionary {
+        let Some(civ) = self.civ.as_ref() else { return VarDictionary::new() };
+        let Some(s) = usize::try_from(index).ok().and_then(|i| civ.settlements.get(i)) else {
+            return VarDictionary::new();
+        };
+        let e = civ.place_extras.get(s.tid);
+        let traits: PackedStringArray = e.traits.iter().map(GString::from).collect();
+        let spec = if e.specialisation.is_empty() { "none".to_string() } else { e.specialisation };
+        dict! {
+            "tid" => s.tid as i64,
+            "specialisation" => spec,
+            "traits" => &traits,
+            "history" => e.history,
+            "age" => e.age.map_or(-1i64, i64::from),
+            "walls" => e.walls.map_or(-1i64, i64::from),
+        }
+    }
+
+    /// `_civPopulatePlaceEditor`'s field handlers, batched: pass only the
+    /// keys that changed. Recognised keys —
+    ///
+    /// - `name` (String, blank rejected), `kind` (String, one of the six
+    ///   `SettlementKind` tiers), `faction` (int, must be a real assignable
+    ///   id in the current roster), `population` (int, clamped `>= 0`);
+    /// - `specialisation` (String, a `CIV_SPECIALISATIONS` key), `history`
+    ///   (String), `age` (int, `< 0` = auto, else clamped `30..=1000`),
+    ///   `walls` (int, `< 0` = auto, `0` = off, else on).
+    ///
+    /// Returns `false` and applies **nothing** if any supplied value is
+    /// invalid — all-or-nothing, so a shell cannot half-apply a form.
+    /// Traits toggle through `civ_settlement_toggle_trait` instead,
+    /// matching the reference's own per-pill click handler.
+    ///
+    /// `kind` accepts `"metropolis"` here, unlike `civ_drop_settlement`
+    /// which rejects it: promoting an existing settlement is exactly what
+    /// `_civSelectMetropolises` does, and the editor's own Type dropdown
+    /// lists all six classes.
+    #[func]
+    fn civ_edit_settlement(&mut self, index: i64, fields: VarDictionary) -> bool {
+        let Some(civ) = self.civ.as_mut() else { return false };
+        let Some(i) = usize::try_from(index).ok().filter(|&i| i < civ.settlements.len()) else {
+            return false;
+        };
+
+        // -- validate everything first, mutate nothing yet --
+        let get_s = |k: &str| fields.get(k).and_then(|v| v.try_to::<GString>().ok()).map(|g| g.to_string());
+        let get_i = |k: &str| fields.get(k).and_then(|v| v.try_to::<i64>().ok());
+
+        let name = match get_s("name") {
+            Some(n) if n.trim().is_empty() => return false,
+            other => other,
+        };
+        let kind = match get_s("kind") {
+            Some(k) => match civ_tools_bridge::kind_from_str(&k) {
+                Some(k) => Some(k),
+                None => return false,
+            },
+            None => None,
+        };
+        let faction = match get_i("faction") {
+            Some(f) => {
+                let f = f as i32;
+                if !civ.faction_roster.is_assignable(f) {
+                    return false;
+                }
+                Some(f)
+            }
+            None => None,
+        };
+        let population = get_i("population").map(|p| p.max(0) as u32);
+        let specialisation = get_s("specialisation");
+        if let Some(sp) = specialisation.as_deref()
+            && !cartalith_civ::roster::has_key(&cartalith_civ::roster::CIV_SPECIALISATIONS, sp)
+        {
+            return false;
+        }
+
+        // -- apply --
+        let tid = civ.settlements[i].tid;
+        let s = &mut civ.settlements[i];
+        if let Some(n) = name {
+            s.name = n;
+        }
+        if let Some(k) = kind {
+            s.placement.kind = k;
+            // `place_settlements`' own invariant, kept: `capital` and
+            // `SettlementKind::Capital` are the same fact stored twice, and
+            // `civ_drop_place` already sets them together.
+            s.placement.capital = k == cartalith_civ::SettlementKind::Capital;
+        }
+        if let Some(f) = faction {
+            s.placement.faction = f;
+        }
+        if let Some(p) = population {
+            s.pop = p;
+        }
+        if let Some(sp) = specialisation {
+            civ.place_extras.set_specialisation(tid, &sp);
+        }
+        if let Some(h) = get_s("history") {
+            civ.place_extras.set_history(tid, &h);
+        }
+        if let Some(a) = get_i("age") {
+            civ.place_extras.set_age(tid, a);
+        }
+        if let Some(w) = get_i("walls") {
+            civ.place_extras.set_walls(tid, w);
+        }
+        true
+    }
+
+    /// One trait pill's click (`_civPopulatePlaceEditor`'s `data-trait`
+    /// handler): toggles `key` on or off, preserving insertion order the
+    /// way the reference's own `push`/`splice` does. Returns `false` for an
+    /// out-of-range index or a key outside `CIV_TRAITS`.
+    #[func]
+    fn civ_settlement_toggle_trait(&mut self, index: i64, key: GString) -> bool {
+        let Some(civ) = self.civ.as_mut() else { return false };
+        let Some(tid) = usize::try_from(index).ok().and_then(|i| civ.settlements.get(i)).map(|s| s.tid) else {
+            return false;
+        };
+        civ.place_extras.toggle_trait(tid, &key.to_string())
+    }
+
+    /// `_civPeNameRoll` (the editor's dice button): re-rolls this
+    /// settlement's name from its **own faction's** naming culture, which
+    /// is the reference's v1.07 fix — a rename must match the polity it
+    /// belongs to, not the global `common` pool.
+    ///
+    /// Draws from the same `CivTools::name_rng` stream every manual drop
+    /// uses, so re-rolling never rewinds or forks the naming sequence.
+    /// Returns the new name, or an empty string on failure.
+    #[func]
+    fn civ_reroll_settlement_name(&mut self, index: i64) -> GString {
+        let (Some(civ), Some(tools)) = (self.civ.as_mut(), self.civ_tools.as_mut()) else {
+            return GString::new();
+        };
+        let Some(s) = usize::try_from(index).ok().and_then(|i| civ.settlements.get_mut(i)) else {
+            return GString::new();
+        };
+        s.name = cartalith_civ::civ_settle_name(&mut tools.name_rng, s.placement.faction);
+        GString::from(s.name.as_str())
+    }
+
+    /// `_civPopulatePlaceEditor`'s Delete button and `_civCtxShow`'s
+    /// "Delete <name>" op (reference 16776 / 25913), minus the `confirm()`
+    /// — the shell owns the prompt, matching this file's own
+    /// `civ_run_collapse_simulation` split.
+    ///
+    /// Every index into `get_settlements()` past `index` shifts down by
+    /// one, exactly as the reference's `splice` does. Returns `false` for
+    /// an out-of-range index or before any `generate()` call.
+    ///
+    /// Provinces, trade balances, explanations, roads and territory were
+    /// all computed against the pre-delete roster and are **not**
+    /// recomputed — the same staleness `civ_drop_settlement` already
+    /// discloses in its own status hint. `explanations` is not re-indexed
+    /// either, so `explain_settlement` is stale past the deleted row until
+    /// the next generate; the shell says so rather than silently returning
+    /// a neighbour's causal chain.
+    #[func]
+    fn civ_delete_settlement(&mut self, index: i64) -> bool {
+        let Some(civ) = self.civ.as_mut() else { return false };
+        let Some(i) = usize::try_from(index).ok() else { return false };
+        match civ_roster_bridge::delete_settlement(&mut civ.settlements, i) {
+            Some(tid) => {
+                civ.place_extras.forget(tid);
+                true
+            }
+            None => false,
+        }
+    }
+
+    // ---- readouts ----
+
+    /// `_civAgrarianRegionalTotal` -> `civPopEstimateOut` (reference 23516,
+    /// `PARITY_AUDIT.md` §5 item 7): the "Land sustains ≈ N" readout — the
+    /// only world-level population sanity figure the reference shows, and
+    /// one this port had no function for at all.
+    ///
+    /// `{sustains, land_km2, settled}` — the first two are the reference's
+    /// own `{total, landKm2}`; `settled` is the summed population of the
+    /// settlements that actually exist, so the two can be compared, which
+    /// is the whole point of showing the figure. Empty `Dictionary` before
+    /// any `generate()` call.
+    #[func]
+    fn civ_agrarian_regional_total(&self) -> VarDictionary {
+        let (Some(civ), Some(WorldSource::Generated(ws))) = (self.civ.as_ref(), self.source.as_ref()) else {
+            return VarDictionary::new();
+        };
+        if self.gw == 0 {
+            return VarDictionary::new();
+        }
+        let cell_km = self.map_width_km / self.gw as f64;
+        let out = cartalith_civ::timeline::civ_agrarian_regional_total(
+            &civ.dens,
+            &ws.field,
+            self.sea_level,
+            cell_km,
+        );
+        let settled: u64 = civ.settlements.iter().map(|s| u64::from(s.pop)).sum();
+        dict! {
+            "sustains" => out.total,
+            "land_km2" => out.land_km2,
+            "settled" => settled as i64,
+        }
+    }
+
+    /// `civBiomeKChk` (reference line 1406 / `_biomeK`, line 6441,
+    /// `PARITY_AUDIT.md` §5 item 12): the biome carrying-capacity residual
+    /// — a disease/climate correction on `build_carrying_capacity`'s K.
+    ///
+    /// The engine function has always taken the parameter; nothing could
+    /// turn it on. Default OFF, matching `_biomeK = 0` and its own comment
+    /// ("bit-identical to v0.68"): a zero short-circuits the whole
+    /// residual/wetland correction rather than merely zeroing its
+    /// contribution.
+    ///
+    /// Applies on the **next** `generate()`, like every other `CivOptions`
+    /// flag — K feeds settlement suitability, so flipping it mid-world
+    /// would leave placed settlements sitting on a suitability raster they
+    /// were never scored against.
+    #[func]
+    fn set_biome_k_enabled(&mut self, enabled: bool) {
+        self.civ_options.biome_k = enabled;
+    }
+
+    /// Whether the biome carrying-capacity residual is on
+    /// (`set_biome_k_enabled`).
+    #[func]
+    fn get_biome_k_enabled(&self) -> bool {
+        self.civ_options.biome_k
+    }
+}
+
+/// `{key, label}` rows from one of `cartalith_civ::roster`'s vocabulary
+/// tables — the shape every picker in the Faction Roster and place editor
+/// reads.
+fn key_label_array(table: &[(&str, &str)]) -> Array<VarDictionary> {
+    table
+        .iter()
+        .map(|&(key, label)| vdict! { "key" => key, "label" => label })
+        .collect()
 }

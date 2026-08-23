@@ -169,6 +169,57 @@ pub fn civ_current_agrarian_density(
     out
 }
 
+/// [`civ_agrarian_regional_total`]'s return: the reference's own
+/// `{total, landKm2}` object (line 23527), both already `Math.round`ed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AgrarianRegionalTotal {
+    /// People the whole land area sustains -- the "Land sustains ≈ N"
+    /// readout's number (`civPopEstimateOut`).
+    pub total: f64,
+    /// Land area in km², the same rounding.
+    pub land_km2: f64,
+}
+
+/// `_civAgrarianRegionalTotal` (reference lines 23516-23528, v0.81): the
+/// agrarian regional ceiling -- Σ density × cellKm² over land -- and the
+/// land area it was summed over. `PARITY_AUDIT.md` §5 item 7: this is the
+/// only world-level population sanity figure the reference shows, and it
+/// had no port at all.
+///
+/// The reference's `dens ? dens[i] : K[i]*AGRARIAN_MAX_KM2` fallback is
+/// dropped for exactly the reason [`civ_catchment_pop`]'s own `K`
+/// parameter is: `typeof currentAgrarianDensity === 'function'` is always
+/// true (a hoisted top-level function declaration), so the `K` branch is
+/// unreachable in the reference as it actually runs. `dens` here is
+/// [`civ_current_agrarian_density`]'s normalised output -- and the
+/// reference's own comment insists on the *normalised* field, because the
+/// normalisation is what holds the world total at the pre-v1.31 basis the
+/// settlement nuclei are themselves sized against.
+///
+/// `cell_km` is `(state.mapWidthKm || 800) / GW`; the caller owns that
+/// division because this crate has no `state`.
+pub fn civ_agrarian_regional_total(
+    dens: &[f32],
+    field: &[f32],
+    sea: f64,
+    cell_km: f64,
+) -> AgrarianRegionalTotal {
+    let cell_km2 = cell_km * cell_km;
+    let mut total = 0.0f64;
+    let mut land = 0.0f64;
+    for i in 0..field.len() {
+        if (field[i] as f64) < sea {
+            continue;
+        }
+        land += 1.0;
+        total += dens[i] as f64 * cell_km2;
+    }
+    AgrarianRegionalTotal {
+        total: js_round(total),
+        land_km2: js_round(land * cell_km2),
+    }
+}
+
 /// `_civCatchmentDensityMean` (reference lines 23461-23469): mean value of
 /// `dens` over land cells within `rad_cells` of `(x, y)`, world-wrap aware.
 /// `x`/`y` skip the reference's own `Math.round(cx)`/`Math.round(cy)` --
