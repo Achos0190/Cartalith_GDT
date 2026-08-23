@@ -56,6 +56,10 @@ func _ready() -> void:
 		and world_gen.has_method("gpu_set_multi_mode")
 	npr_api = world_gen.has_method("set_npr") \
 		and world_gen.has_method("get_npr")
+	measure_api = world_gen.has_method("measure_section") \
+		and world_gen.has_method("measure_area") \
+		and world_gen.has_method("measure_radius") \
+		and world_gen.has_method("measure_vertical")
 	_restore_gpu_prefs()
 	_read_param_table()
 	## `WorldParams::default()` is `false` in Rust, and stays that way: it is
@@ -1220,6 +1224,36 @@ func measure_clear() -> void:
 	if not world_gen.has_method("measure_clear"):
 		return
 	world_gen.measure_clear()
+
+## The measurement toolbar's world-reading half (`measure_bridge.rs`,
+## `design/Cartalith Measurement Toolbar.dc.html`). All four are stateless
+## queries -- the caller owns the points -- so unlike the chain above there is
+## no begin/clear pair to mirror here.
+##
+## `measure_api` gates the whole group at load, the same shape `sized_api` /
+## `npr_api` already use, so a shell running against an older cdylib draws the
+## toolbar's Measure modes disabled rather than erroring per click.
+var measure_api := false
+
+func measure_section(ax: float, ay: float, bx: float, by: float, samples: int) -> Dictionary:
+	if not measure_api:
+		return {}
+	return world_gen.measure_section(ax, ay, bx, by, samples)
+
+func measure_area(points: PackedVector2Array) -> Dictionary:
+	if not measure_api:
+		return {}
+	return world_gen.measure_area(points)
+
+func measure_radius(cx: float, cy: float, px: float, py: float) -> Dictionary:
+	if not measure_api:
+		return {}
+	return world_gen.measure_radius(cx, cy, px, py)
+
+func measure_vertical(ax: float, ay: float, bx: float, by: float) -> Dictionary:
+	if not measure_api:
+		return {}
+	return world_gen.measure_vertical(ax, ay, bx, by)
 
 
 # region_bridge.rs

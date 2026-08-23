@@ -2314,7 +2314,7 @@ still finishing). Only log timestamps either side of the emit showed the 29.6 s
 round trip. A screenshot taken 3 s after a tap is not evidence that the tap was
 lost.
 
-## 16 · The top-left global tool overlay has no drawn presentation in the DCC canvas (2026-08-23)
+## 16 · The top-left global tool overlay has no drawn presentation in the DCC canvas (2026-08-23) — **RESOLVED 2026-08-24**
 
 Owner-reported, verified by direct search: the top-left tool set (Measure,
 Region select — `global_tools.gd`, `tool_overlay.gd`, per `DCC_SHELL_SPEC.md`
@@ -2338,6 +2338,57 @@ toolset directly. Until that design lands, this is classified **(D)** —
 a deliberate hold, not an open defect — and no agent should reduce, remove,
 or reshape the existing Measure/Region-select functionality to chase visual
 parity with a canvas that simply hasn't drawn it yet.
+
+### RESOLVED 2026-08-24 — the design landed, and it was two canvases
+
+The hold is lifted and this section is closed. `design/Cartalith Paint
+Toolbar.dc.html` and `design/Cartalith Measurement Toolbar.dc.html` were
+vendored (commit `e7c10ab`) and implemented together, because they are one
+design: the Paint canvas is the *unifying* bar — **one bar, three mode
+buttons (Sculpt · Paint · Measure) on the left, the active mode's tools
+beside them, an options bar below** — and the Measurement canvas is that
+bar's Measure mode drawn in detail, plus a cross-section strip and a
+right-dock readout block.
+
+**What landed.** `tool_bar.gd` (the unified bar, hosted as a two-row
+`VBoxContainer` inside the shell's single `tool_options_row` — no new shell
+region), `section_strip.gd` (the bottom cross-section strip, a
+`viewport_content` overlay in `resource_overlay.gd`'s mould),
+`measure_bridge.rs` (the engine half), six Measure modes in
+`global_tools.gd`, and six presentations of one `CTX_MEASURE` context in
+`right_dock.gd`. Sculpt and Paint are **re-presented, not reimplemented**:
+every control in those two modes writes through the same `bridge.sculpt_*` /
+`bridge.paint_*` call `world_workspace.gd`'s left-dock panels already use.
+
+**Every interaction decision the old file recorded survives** — Measure has
+no commit, Escape clears the chain but leaves Measure armed (§4.5.6's own
+exception), Region select is *not* one of those exceptions and still
+disarms to Inspect after cleanup, and leaving either tool clears its draft
+while Region's rect survives in the engine for *Send to Data ▸ Export*.
+
+**New gaps this design opened, registered rather than silently skipped:**
+
+| Tag | Control | State |
+|---|---|---|
+| **MEA-01** | Sculpt ▸ **Flatten** and **Noise** | **(B)** — the canvas draws seven sculpt tools; `FreehandMode` has eight and neither of these is among them. The row is built from `get_sculpt_freehand_modes()` live, so it shows the eight that exist. Two new kernels, not a wiring gap. |
+| **MEA-02** | Paint ▸ **Water** and **Lithology** layers | **(B)** — `PaintTarget` is Biome/Terrain/Splat. Neither Water nor Lithology has an override array for a dab to write into; adding one is a `cartalith-spatial::paint` change plus a staleness edge, not a control. |
+| **MEA-03** | Sculpt/Paint ▸ **Mask** | **(C)** — no mask channel exists in either editor, and none is designed. Disclosed in the bar's own note. |
+| **MEA-04** | Distance ▸ **path ▸ great circle** | **(D)** — this map is equirectangular and `cartalith_spatial::measure` is planar with a seam rule. There is no spherical path to offer; offering one would report a distance that disagreed with every route length beside it. |
+| **MEA-05** | Distance ▸ **snap ▸ settlements · rivers** | **(C)** — `DCC_SHELL_SPEC.md` §4.5.1 lists no snap modifier for Measure, deliberately (Way/Route have one; the ruler is raw). The canvas adds it. |
+| **MEA-06** | **units ▸ km/mi** | **(A)** — the canvas itself says this *inherits* the app-wide switch (`#calUnitSeg`). The reference has one (`_setUnits`, line 13722, "switch km/mi and re-render all unit-bearing labels"); this shell has no unit preference at all, so every reading in the app is km. App-wide, not Measure's. |
+| **MEA-07** | **Saved measurements** list, **Save**, **CSV**, **export PNG**, **save section** | **(C)** — no measurement store exists. `Copy reading` is built instead and puts every number on the clipboard as tab-separated text; a store is a persistence feature, not a measuring one, and shares FI-01's `.zip`-writer ceiling. |
+| **MEA-08** | Cross-section ▸ draggable **A/B line-end handles** | **(C)** — a third click starts a new section instead. Same two clicks, no new on-canvas hit test. |
+| **MEA-09** | Cross-section ▸ **Custom ▾** field | **(C)** — there is no user-defined field to bind it to. The other five channels (Elevation · Terrain · Climate · Hydrology · Geology) are live. |
+| **MEA-10** | Area ▸ **rectangle** / **freehand** ring modes, and **⌥ subtract a hole** | **(C)** — polygon only. A rectangle is four clicks; a hole needs a second ring and a signed-area subtraction the readout has no place for yet. |
+| **MEA-11** | Vertical tools **disabled in 2D** | **(D)** — the canvas gates Δ vertical and 3D distance on a 3D relief view. This port reads the same height field in both, so they stay live in 2D and the dock says why. |
+| **MEA-12** | Crossings by **river name** | **(D)** — no river entity crosses the GDExtension boundary (this register's own River-context line, `right_dock.gd`). Crossings are described by Strahler order instead of an invented toponym. |
+
+**Ridge crossings needed a definition and did not have one.** The canvas
+prints "ridge crossings 2" and nothing anywhere — canvas, spec, or reference
+— says what one is. `measure_bridge::RIDGE_PROMINENCE_M` is this port's own
+answer, stated in the code and in the dock's tooltip: a local maximum
+standing at least 100 m above the lower of the two valleys flanking it.
+Without a prominence rule every ripple in a 1 024-sample profile counts.
 
 ---
 

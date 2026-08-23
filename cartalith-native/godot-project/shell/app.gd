@@ -20,6 +20,15 @@ var gen_info_dialog: GenInfoDialog
 var journey_planner_view: JourneyPlannerView
 var layers_popover: LayersPopover
 var right_dock_ctrl: RightDock
+## The cross-section's bottom strip (`design/Cartalith Measurement Toolbar
+## .dc.html` state 2). A `viewport_content` overlay rather than a shell
+## region -- see `section_strip.gd`'s own header for why. Hidden unless the
+## Measure tool's Cross-section mode has a reading.
+var section_strip: SectionStrip
+## The unified Sculpt/Paint/Measure tool bar (`design/Cartalith Paint
+## Toolbar.dc.html`). Not a `Node` -- it owns no scene state of its own, only
+## the callback that fills `tool_options_row`.
+var tool_bar: DccToolBar
 var data_manager_window: DataManagerWindow
 var asset_library_window: AssetLibraryWindow
 var travel_library_window: TravelLibraryWindow
@@ -73,6 +82,13 @@ var _release_handlers: Dictionary = {}   ## Callable(gx, gy, valid) -- a drag ge
 ## (§4.5.6: Way, Route). Returning nothing and not disarming is up to the
 ## handler; most tools don't need one and just fall through to the default.
 var _escape_handlers: Dictionary = {}
+## tool id -> Callable(), called on Backspace. Added for the measurement
+## toolbar's own `⌫ drop last` (`design/Cartalith Measurement Toolbar.dc.html`
+## state 1's modifier row) -- the same shape as the four dictionaries above,
+## rather than a keyboard listener inside `global_tools.gd`, because Escape
+## and Delete already arrive through `_unhandled_key_input` here and a second
+## key path would be a second place to look when one of them stops working.
+var _backspace_handlers: Dictionary = {}
 
 func arm_tool(id: String) -> void:
 	if armed_tool == id:
@@ -92,6 +108,9 @@ func register_tool_escape_handler(id: String, handler: Callable) -> void:
 
 func register_tool_release_handler(id: String, handler: Callable) -> void:
 	_release_handlers[id] = handler
+
+func register_tool_backspace_handler(id: String, handler: Callable) -> void:
+	_backspace_handlers[id] = handler
 
 func _on_map_clicked(gx: float, gy: float) -> void:
 	if _click_handlers.has(armed_tool):
@@ -138,6 +157,16 @@ func _unhandled_key_input(event: InputEvent) -> void:
 				btn.button_pressed = false
 			arm_tool("inspect")
 		get_viewport().set_input_as_handled()
+	elif event.keycode == KEY_BACKSPACE:
+		## Same text-field guard Delete needs below, and for the same reason:
+		## Backspace inside a `LineEdit` means "delete a character", never
+		## "drop the last measured point".
+		var typing := get_viewport().gui_get_focus_owner()
+		if typing is LineEdit or typing is TextEdit or typing is SpinBox:
+			return
+		if _backspace_handlers.has(armed_tool):
+			_backspace_handlers[armed_tool].call()
+			get_viewport().set_input_as_handled()
 	elif event.keycode == KEY_DELETE:
 		var focused := get_viewport().gui_get_focus_owner()
 		if focused is LineEdit or focused is TextEdit or focused is SpinBox:
@@ -254,9 +283,22 @@ func _ready() -> void:
 	right_dock_ctrl.setup(self, bridge)
 	_workspaces.append(right_dock_ctrl)
 
+	## The cross-section strip. A second overlay child of `viewport_content`,
+	## added after `viewport` so it draws on top of the map, and after
+	## `resource_overlay` so the two never contend for the same corner (the
+	## HUD is top-right; this is the full bottom edge). Anchored, not laid
+	## out -- see `section_strip.gd`.
+	section_strip = SectionStrip.new()
+	viewport_content.add_child(section_strip)
+	section_strip.setup(self)
+
 	_wire_status()
 	_wire_selection()
 	GlobalTools.install(self)
+	## Built after `GlobalTools.install` because its Measure row reads
+	## `GlobalTools.measure_mode()`, and after `_register_workspaces` because
+	## its Paint row reads `WorldWorkspace`'s own brush dictionary.
+	tool_bar = DccToolBar.install(self, bridge)
 
 	_region_nodes = {
 		DccMenus.ID_WIN_LEFT: left_dock,

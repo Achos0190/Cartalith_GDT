@@ -211,7 +211,15 @@ pub struct FieldRefs<'a> {
 }
 
 impl FieldRefs<'_> {
-    fn idx(&self, x: usize, y: usize) -> usize {
+    // `pub(crate)` since the cross-section/area tools (`measure_bridge.rs`,
+    // `design/Cartalith Measurement Toolbar.dc.html`) read the same rasters
+    // this file already borrows, through the same three helpers. Making them
+    // visible one crate wide was the alternative to a fourth hand-copy of
+    // `metersPerUnit`'s anchoring -- `slope_at`'s own "third copy, deliberately
+    // so" note below is the precedent for when a duplicate is right, and this
+    // is not that case: nothing about a section profile differs from a point
+    // sample except how many cells it reads.
+    pub(crate) fn idx(&self, x: usize, y: usize) -> usize {
         y * self.gw + x
     }
 
@@ -220,7 +228,7 @@ impl FieldRefs<'_> {
     /// `peakM`. Negative below sea level, which is the honest reading for
     /// an ocean cell — the reference's own `hM` clamps at zero only because
     /// a journey stage never travels below the waterline.
-    fn elevation_m(&self, i: usize) -> f64 {
+    pub(crate) fn elevation_m(&self, i: usize) -> f64 {
         let denom = if (1.0 - self.sea_level) == 0.0 { 1e-6 } else { 1.0 - self.sea_level };
         (self.field[i] as f64 - self.sea_level) / denom * self.peak_m
     }
@@ -228,7 +236,7 @@ impl FieldRefs<'_> {
     /// Real map metres per grid cell. `map_width_km / gw` is the *only*
     /// km↔cell quotient in this workspace (`WorldGen::call_params`' own doc
     /// comment), applied isotropically, so one number covers both axes.
-    fn cell_m(&self) -> f64 {
+    pub(crate) fn cell_m(&self) -> f64 {
         if self.gw == 0 || self.map_width_km <= 0.0 {
             0.0
         } else {
@@ -260,7 +268,7 @@ fn slope_gradient(f: &FieldRefs, x: usize, y: usize) -> (f64, f64) {
     ((r - l) * 0.5, (d - u) * 0.5)
 }
 
-fn slope_at(f: &FieldRefs, x: usize, y: usize) -> f64 {
+pub(crate) fn slope_at(f: &FieldRefs, x: usize, y: usize) -> f64 {
     let (dx, dy) = slope_gradient(f, x, y);
     dx.hypot(dy)
 }

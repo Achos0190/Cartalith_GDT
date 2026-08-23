@@ -20,6 +20,19 @@ var _gw := 0
 var _gh := 0
 
 var measure_points: PackedVector2Array = []
+## `design/Cartalith Measurement Toolbar.dc.html` state 3's Area tool draws
+## the same point chain as a **closed ring** (`⏎ close · ⌥ subtract hole`),
+## and its Radius tool draws a circle around the first point instead of a
+## polyline. Both are a property of the armed measure MODE, not of a second
+## set of geometry, so they are two flags on the one chain rather than two
+## more `PackedVector2Array`s -- exactly the reasoning `path_preview`'s own
+## "one primitive rather than one per domain" comment already applies.
+var measure_closed := false
+var measure_radius_cells := 0.0   ## `> 0` draws a circle at `measure_points[0]`.
+## A/B end labels, drawn only when the mode wants them (Cross-section, which
+## is the one measure mode whose two ends are referred to by name everywhere
+## else on screen -- the strip's "SECTION A → B", the dock's SECTION LINE).
+var measure_end_labels := false
 var region_rect := Rect2()   ## Grid-cell coords; zero size means "none".
 var region_dragging := false
 
@@ -74,6 +87,14 @@ func set_grid(gw: int, gh: int) -> void:
 
 func set_measure_points(points: PackedVector2Array) -> void:
 	measure_points = points
+	queue_redraw()
+
+## The armed measure mode's own presentation, set once when the mode changes
+## (`global_tools.gd`'s `_apply_measure_mode`) rather than on every click.
+func set_measure_style(closed: bool, radius_cells: float = 0.0, end_labels: bool = false) -> void:
+	measure_closed = closed
+	measure_radius_cells = radius_cells
+	measure_end_labels = end_labels
 	queue_redraw()
 
 func set_region(rect: Rect2, dragging: bool = false) -> void:
@@ -143,8 +164,31 @@ func _draw() -> void:
 		var screen_pts := PackedVector2Array()
 		for p in measure_points:
 			screen_pts.append(_grid_to_screen(p, rect))
-		if screen_pts.size() > 1:
+		if measure_radius_cells > 0.0:
+			## Radius mode: the ring the reading describes, plus the spoke
+			## that was actually dragged, so the number in the dock has a
+			## visible cause.
+			var r_px: float = measure_radius_cells * (rect.size.x / float(_gw))
+			draw_arc(screen_pts[0], r_px, 0, TAU, 64, MEASURE_COLOR, 1.4, true)
+			if screen_pts.size() > 1:
+				draw_line(screen_pts[0], screen_pts[1], MEASURE_COLOR, 1.0, true)
+		elif measure_closed and screen_pts.size() > 2:
+			## `draw_colored_polygon` refuses a self-intersecting ring on some
+			## drivers, and a measuring ring is allowed to bow-tie mid-draw --
+			## so the fill is a plain closed outline plus nothing, not a
+			## tessellated face.
+			var ring := screen_pts.duplicate()
+			ring.append(screen_pts[0])
+			draw_polyline(ring, MEASURE_COLOR, 1.6, true)
+		elif screen_pts.size() > 1:
 			draw_polyline(screen_pts, MEASURE_COLOR, 1.6, true)
+		if measure_end_labels and screen_pts.size() > 0:
+			var font := DccTheme.mono(1, true)
+			draw_string(font, screen_pts[0] + Vector2(6, -6), "A",
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 11, MEASURE_COLOR)
+			if screen_pts.size() > 1:
+				draw_string(font, screen_pts[screen_pts.size() - 1] + Vector2(6, -6), "B",
+					HORIZONTAL_ALIGNMENT_LEFT, -1, 11, MEASURE_COLOR)
 		## `antialiased` (`draw_circle`'s trailing positional arg) defaults to
 		## `false` in Godot 4 -- same jagged-edge-at-zoom fidelity issue
 		## `map_overlay.gd`'s settlement pins had (see that file's own

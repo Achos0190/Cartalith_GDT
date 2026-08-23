@@ -773,6 +773,7 @@ func _sculpt_release(_gx: float, _gy: float, _valid: bool) -> void:
 	app.viewport.tool_overlay.set_path_preview(_sculpt_stroke_points)
 	app.viewport.set_preview_texture(bridge.build_sculpt_preview_texture())
 	_build_sculpt(_sculpt_body)
+	_refresh_tool_bar()
 	if app.right_dock_ctrl.has_method("show_sculpt_stack"):
 		app.right_dock_ctrl.show_sculpt_stack()
 
@@ -998,3 +999,15 @@ func _paint_drag(gx: float, gy: float) -> void:
 func _paint_release(_gx: float, _gy: float, _valid: bool) -> void:
 	if is_instance_valid(_paint_body):
 		_build_paint(_paint_body)
+	_refresh_tool_bar()
+
+## The unified tool bar (`tool_bar.gd`) shows this panel's own stamp count /
+## painted count in its options row, so a stroke that ends here has to tell
+## it -- otherwise the bar keeps reading "0 stamps" / "0 painted" under a
+## draft that is no longer empty, and its Commit chip stays disabled. Nothing
+## is duplicated: the bar re-reads the same `bridge.sculpt_stamp_count()` /
+## `paint_painted_counts()` this file does.
+func _refresh_tool_bar() -> void:
+	var bar := DccToolBar.instance()
+	if bar != null:
+		bar.refresh()

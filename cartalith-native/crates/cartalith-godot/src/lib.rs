@@ -24,6 +24,7 @@ mod infra_tools_bridge;
 mod journey_bridge;
 mod label_bridge;
 mod lod_bridge;
+mod measure_bridge;
 mod pack;
 mod paint_bridge;
 mod params;
@@ -4896,20 +4897,182 @@ impl WorldGen {
                 "bearing_deg" => leg.bearing_deg,
             });
         }
-        let (straight_cells, straight_km) = match (pts.first(), pts.last()) {
+        let (straight_cells, straight_km, overall_bearing) = match (pts.first(), pts.last()) {
             (Some(&a), Some(&b)) if pts.len() >= 2 => {
-                let m = cartalith_spatial::measure(a, b, gw, self.map_width_km, self.world);
-                (m.cells, m.km)
+                let leg = infra_tools_bridge::measure_leg(a, b, gw, self.map_width_km, self.world);
+                (leg.m.cells, leg.m.km, leg.bearing_deg)
             }
-            _ => (0.0, 0.0),
+            _ => (0.0, 0.0, 0.0),
         };
+        // `design/Cartalith Measurement Toolbar.dc.html` state 1's DERIVED
+        // block. The three relief rows need the height field, which the
+        // chain itself has no access to, so they come from `measure_bridge`
+        // and read `—` (as zeros with `has_relief` false) whenever
+        // `sample_refs()` does -- a loaded save, or before any `generate()`.
+        let relief = self.sample_refs().map(|f| measure_bridge::chain_relief(&f, pts));
         dict! {
             "segments" => &segments,
             "total_cells" => total_cells,
             "total_km" => total_km,
             "straight_line_cells" => straight_cells,
             "straight_line_km" => straight_km,
+            "overall_bearing_deg" => overall_bearing,
             "point_count" => pts.len() as i64,
+            "has_relief" => relief.is_some(),
+            "elevation_delta_m" => relief.map(|r| r.elevation_delta_m).unwrap_or(0.0),
+            "total_km_3d" => relief.map(|r| r.total_km_3d).unwrap_or(0.0),
+            "sinuosity" => relief.map(|r| r.sinuosity).unwrap_or(1.0),
+        }
+    }
+
+    // ===================== Measurement toolbar (design canvas, 2026-08-23) =====================
+    //
+    // `design/Cartalith Measurement Toolbar.dc.html`'s three states beyond the
+    // ruler above. Every one of these is stateless: the caller owns the
+    // points (the tool overlay is already drawing them) and asks for a
+    // reading. Nothing is retained on `WorldGen`, which is why none of them
+    // has a `begin`/`clear` pair the way `measure_*` does -- there is no
+    // chain to accumulate. See `measure_bridge.rs`'s module doc for what is
+    // a port here (the polygon primitives, golden-verified) and what is new
+    // (everything else, `DECISIONS.md` §7d).
+
+    /// The cross-section profile between two grid points (canvas state 2).
+    ///
+    /// Returns `samples` (`Array<Dictionary>`, one per sample point in
+    /// order: `km`, `x`, `y`, `elev_m`, `slope_deg`, `temp_c`, `rain`,
+    /// `flow`, `river_order`, `lithology`, and `biome`/`water` where a
+    /// civilisation layer exists), `stats` (the canvas's own PROFILE
+    /// STATISTICS block), `crossings` (`km`/`kind`/`label`/`elev_m`), plus
+    /// `length_km`, `length_3d_km`, `bearing_deg` and `spacing_m`.
+    ///
+    /// `samples` is clamped to `2 ..= 1024`. Empty `Dictionary` when there is
+    /// no generated world to read.
+    #[func]
+    fn measure_section(&self, ax: f64, ay: f64, bx: f64, by: f64, samples: i64) -> VarDictionary {
+        let Some(f) = self.sample_refs() else { return VarDictionary::new() };
+        let p = measure_bridge::section_profile(&f, (ax, ay), (bx, by), samples.max(0) as usize);
+        let mut out: Array<VarDictionary> = Array::new();
+        for s in &p.samples {
+            let mut d = dict! {
+                "km" => s.km,
+                "x" => s.x as i64,
+                "y" => s.y as i64,
+                "elev_m" => s.elev_m,
+                "slope_deg" => s.slope_deg,
+                "temp_c" => s.temp_c,
+                "rain" => s.rain,
+                "flow" => s.flow,
+                "river_order" => s.river_order,
+                "lithology" => s.lithology,
+            };
+            // Omitted rather than zeroed when absent -- `right_dock.gd`'s own
+            // rule: an absent key becomes an em dash, a present zero is a
+            // real reading.
+            if let Some(b) = s.biome {
+                d.set("biome", b);
+            }
+            if let Some(w) = s.water {
+                d.set("water", w as i64);
+            }
+            out.push(&d);
+        }
+        let mut crossings: Array<VarDictionary> = Array::new();
+        for c in &p.crossings {
+            crossings.push(&dict! {
+                "km" => c.km,
+                "kind" => c.kind,
+                "label" => c.label.clone(),
+                "elev_m" => c.elev_m,
+            });
+        }
+        let st = &p.stats;
+        let stats: VarDictionary = dict! {
+            "min_m" => st.min_m,
+            "max_m" => st.max_m,
+            "mean_m" => st.mean_m,
+            "ascent_m" => st.ascent_m,
+            "descent_m" => st.descent_m,
+            "net_m" => st.net_m,
+            "mean_slope_deg" => st.mean_slope_deg,
+            "max_slope_deg" => st.max_slope_deg,
+            "above_2000m_km" => st.above_2000m_km,
+            "river_crossings" => st.river_crossings as i64,
+            "ridge_crossings" => st.ridge_crossings as i64,
+            "shore_crossings" => st.shore_crossings as i64,
+        };
+        dict! {
+            "samples" => &out,
+            "crossings" => &crossings,
+            "length_km" => p.length_km,
+            "length_3d_km" => p.length_3d_km,
+            "bearing_deg" => p.bearing_deg,
+            "spacing_m" => p.spacing_m,
+            "stats" => &stats,
+        }
+    }
+
+    /// The Area tool's reading over a closed ring given in grid cells (canvas
+    /// state 3). Fewer than three vertices returns a zeroed reading, not an
+    /// error -- a ring under construction is a normal state.
+    ///
+    /// `projected_km2` is the exact shoelace figure; `true_surface_km2`,
+    /// `water_km2`, `land_km2` and `mean_elev_m` come from a strided walk of
+    /// the bounding box and report the `stride` and `sampled_cells` they used
+    /// so a caller can say so.
+    #[func]
+    fn measure_area(&self, points: PackedVector2Array) -> VarDictionary {
+        let Some(f) = self.sample_refs() else { return VarDictionary::new() };
+        let pts: Vec<(f64, f64)> = points.as_slice().iter().map(|p| (p.x as f64, p.y as f64)).collect();
+        let a = measure_bridge::area_measure(&f, &pts);
+        dict! {
+            "vertices" => a.vertices as i64,
+            "projected_km2" => a.projected_km2,
+            "true_surface_km2" => a.true_surface_km2,
+            "perimeter_km" => a.perimeter_km,
+            "centroid_x" => a.centroid.0,
+            "centroid_y" => a.centroid.1,
+            "bbox_x" => a.bbox.0,
+            "bbox_y" => a.bbox.1,
+            "bbox_w" => a.bbox.2,
+            "bbox_h" => a.bbox.3,
+            "bbox_w_km" => a.bbox_w_km,
+            "bbox_h_km" => a.bbox_h_km,
+            "water_km2" => a.water_km2,
+            "land_km2" => a.land_km2,
+            "mean_elev_m" => a.mean_elev_m,
+            "sampled_cells" => a.sampled_cells as i64,
+            "stride" => a.stride as i64,
+            "water_from_civ" => a.water_from_civ,
+        }
+    }
+
+    /// The Radius tool: centre plus a rim point (canvas state 3).
+    #[func]
+    fn measure_radius(&self, cx: f64, cy: f64, px: f64, py: f64) -> VarDictionary {
+        let Some(f) = self.sample_refs() else { return VarDictionary::new() };
+        let r = measure_bridge::radius_measure(&f, (cx, cy), (px, py));
+        dict! {
+            "radius_km" => r.radius_km,
+            "diameter_km" => r.diameter_km,
+            "circumference_km" => r.circumference_km,
+            "area_km2" => r.area_km2,
+        }
+    }
+
+    /// The Δ-vertical / 3D-distance pair over two points (canvas state 3's
+    /// VERTICAL · TWO POINTS block).
+    #[func]
+    fn measure_vertical(&self, ax: f64, ay: f64, bx: f64, by: f64) -> VarDictionary {
+        let Some(f) = self.sample_refs() else { return VarDictionary::new() };
+        let v = measure_bridge::vertical_measure(&f, (ax, ay), (bx, by));
+        dict! {
+            "p1_elev_m" => v.p1_elev_m,
+            "p2_elev_m" => v.p2_elev_m,
+            "delta_m" => v.delta_m,
+            "horizontal_km" => v.horizontal_km,
+            "distance_3d_km" => v.distance_3d_km,
+            "grade_pct" => v.grade_pct,
+            "angle_deg" => v.angle_deg,
         }
     }
 
