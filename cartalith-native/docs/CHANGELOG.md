@@ -18178,3 +18178,205 @@ pass) generated a real 128×83 world and confirmed:
 **`GUI_GAP_REGISTER.md`** gains **WI-05** (§6.6) and **HE-04** (§6.7),
 classified **(A)**, closing the two undisclosed breaches `PARITY_AUDIT.md`
 §5 found.
+
+## Four small reference clusters, ported and wired: landmass centering, fjords, wind-throw, landform classification (2026-08-23)
+
+`PARITY_AUDIT.md` §3.1's four smallest "genuinely not done" rows, taken
+together because they share one shape: each is a handful of pure functions
+with a hook already waiting for it — a disabled button in one case, a
+`GAP_LAYERS` row in the other three. **Twelve reference functions, all four
+clusters bit-exact against the reference on the first attempt.**
+
+### The extraction, first
+
+One Node `vm.runInContext` harness for all four, rebuilt from this file's
+own 2026-08-15 "extraction harness upgrade" recipe: script tag #1 only (the
+urban block's own `function generate` would otherwise shadow the terrain
+one), zero-indent `let`/`const` rewritten to `var` so top-level bindings
+land on the sandbox context, `Worker` left `undefined` so the reference's
+own feature detection takes the sync path, and a permissive Proxy DOM. One
+real `generate()` at `gw=48 gh=32 seed=24601 world=true mapWidthKm=4000`
+supplied every input.
+
+Three of the four clusters are pure and were called directly.
+`buildWindThrowField` is not — it reads `field`, `state.seaLevel`,
+`state.world`, `currentWindField()` and `buildBiomeRaster()` as globals —
+so it was captured by the **monkey-patch-and-capture** technique
+`stampVolcanoesProvinces` established: replace the sandbox's own
+`buildWindThrowField` with a wrapper that snapshots every global input
+immediately before delegating to the unmodified original.
+
+Fixtures are whole 48×32 grids, so they are held as JSON under each crate's
+`tests/fixtures/` rather than as source literals — the shape
+`cartalith-io`'s own `real_export_seed24601_captured.json` already uses.
+`serde_json` joins `cartalith-terrain` and `cartalith-climate` as a
+**dev**-dependency only.
+
+### 1 · Landmass centering — `GUI_GAP_REGISTER.md` MS-01, now live
+
+`bestEmptyColumn`/`shiftGridX`/`featherSeamX` (reference 3156-3177) →
+`cartalith_terrain::center`; `centerLandmasses` (3179-3199) →
+`cartalith_engine::center::center_landmasses`, which is pure orchestration
+over `WorldState`.
+
+**The register's stated reason for the gap was wrong, and that is worth
+recording rather than quietly overwriting.** MS-01 read: *"`generate_terrain`
+places plate seeds from the seed alone; no centring pass and no
+post-generate offset exist"*, and the shipped tooltip said the reference
+*"re-rolls the plate seeds until the land mass lands nearer the middle of
+the sheet, then regenerates."* It does no such thing. The world is a
+cylinder that wraps in X only, so longitude origin is arbitrary; the
+reference circular-shifts **every** grid array by the same offset and gets
+an equivalent world with the seam relocated into open ocean. That needs no
+generation hook at all — which is exactly why the gap looked bigger than it
+was. Both the register row and the tooltip are corrected in place.
+
+Three details the port had to decide on its own, all disclosed in
+`center.rs`'s own doc comments:
+
+- **A larger array set than the reference's.** This port retains
+  `crust_field`, `boundary_type`, `shear_field`, `flow_area` and
+  `stream_order`, which the reference either recomputes or nulls; all are
+  positional rasters and all shift. Its own `warpX`/`warpY`/`geoidField`/
+  `tideField`/`koppenField`/`orogenyField` and four seasonal fields have no
+  equivalent here at all.
+- **`channels` is dropped, not shifted.** `ChannelResult::recv` holds flat
+  grid *indices*; rotating the array leaves every receiver pointing at the
+  cell it used to mean. The reference does exactly this via
+  `_riverNet = null`.
+- **The civ layer and the Sculpt draft are dropped by the binding.** The
+  reference does not shift `state.civ` either, but this port would then draw
+  settlements over terrain that moved out from under them.
+
+`feather_seam_x` reproduces `halfW||2`'s JS truthiness — a `0` half-width
+substitutes `2`, the same substitution `smoothstep`'s `||1e-6` already gets
+in `sculpt.rs`. Sums accumulate in `f64` (the reference's own
+`Float64Array buf`) and round to `f32` only at the store.
+
+**Golden**: `golden_parity_center.rs`, 6 tests, exact `assert_eq!`. The tie
+fixture is an 8×5 grid with three columns holding zero land — only a strict
+`<` returns the first of them, and generated data essentially never ties, so
+that branch is unreachable without a fixture built for it. The same grid is
+re-tested at a sea level where subtracting the geoid genuinely flips the
+answer, so `geo?geo[i]:0` is measured rather than assumed even though this
+port always passes `None`.
+
+**Wired**: the *Center landmasses* button in `app.gd`'s GENERATE · WORLD
+tool-options bar is enabled. Every outcome reaches the status bar, including
+the two non-actions the reference has: offset 0 ("already centred") and the
+Region-mode refusal it raises an `alert()` for.
+
+### 2 · Fjords — `sample_bridge.rs`'s `fjord` gap row, now a real view
+
+`LITH_COMPETENCE`/`buildFjordMask`/`carveFjords` (3208-3238) →
+`cartalith_terrain::fjord`. `currentFjordMask` is not a function here: this
+port's debug rasters are deliberately uncached
+(`MEMORY_OPTIMIZATION_SCOPE.md`), so its *recipe* — sea mask,
+`chamfer_dist`, `build_lithology`, default opts — is what the view's call
+site runs.
+
+**Golden**: `golden_parity_fjord.rs`, 6 tests, exact. Four fixtures, each
+earning its place: the default `{}` opts (97 masked cells, 36 carved); all
+seven `opts.x != null` overrides at once, or the defaults could be
+hard-coded and the suite would still pass; **the same world 12 °C colder**,
+which is the mutation test for the `7 / 6 / -2 / -22 / -12` paleoclimate
+constants (a wrong one can match a lucky world, not two 12 degrees apart);
+and lithology forced to `i % 7` so all seven `LITH_COMPETENCE` entries are
+read.
+
+**Wired**: the *Fjord mask* row in Layers ▸ Hydrology draws the reference's
+own cyan-over-dim-terrain ramp. `carveFjordsOp` also got a binding —
+`WorldGen::carve_fjords()` — behind a *Carve fjords* button in
+`world_workspace.gd`'s Glacial group, alongside the still-disabled *Run
+Glacial* (`glacialErode` remains unported). Opt-in exactly as in the
+reference, so a default world is bit-identical with or without it. **It does
+not re-run flow, rivers or climate** — the identical gap `sculpt_commit`
+documents, stated in the `#[func]`'s doc comment, the button's note and
+`GUI_GAP_REGISTER.md` §17.2.
+
+### 3 · Wind-throw — `sample_bridge.rs`'s `windthrow` gap row, now a real view
+
+`_CANOPY`/`buildWindThrowField` (5602-5618) →
+`cartalith_climate::windthrow`.
+
+**Slope is computed inside the function rather than taken as a parameter,
+and that is a precision decision, not a convenience.** The reference calls
+`slopeAt(x,y)` directly, at full `f64`; `cartalith_civ::build_raw_slope_field`
+rounds every value through `f32` on the way into its `Vec<f32>`. Handing
+that array in would have been a real divergence.
+
+The biome raster is taken as a slice, not re-derived from temp/rain. The
+reference's own v1.86 comment records why that is not merely an
+optimisation: a mountain lake sits above sea level, so `vw < sea` never
+catches it, and re-classifying raw temp/rain called it an ordinary land
+biome instead of water.
+
+**Golden**: `golden_parity_windthrow.rs`, 4 tests, exact — plus four unit
+tests that pin what a whole-grid fixture cannot: the `1 : 0.15` canopy ratio
+exactly, membership of all five `_CANOPY` indices *and* non-membership of
+their neighbours, and the `0.4` exposure floor a flat land cell under full
+wind still carries.
+
+**Wired**: the *Wind-throw* row in Layers ▸ Civilization, green through red.
+It joins `bclass`/`cterrain` in `layer_available`'s per-world check rather
+than becoming unconditionally available — the biome raster needs the
+civilisation layer's water bodies, so a loaded save still honestly reports
+unavailable.
+
+### 4 · Landform classification — `sample_bridge.rs`'s `landform` gap row, now a real view
+
+`LANDFORM_COLS`/`buildLandformField` (8082-8104) →
+`cartalith_terrain::landform`.
+
+`flow_hi` is a **parameter** rather than an internal `riverFlowThresh(W,H)`
+call: that function lives in `cartalith-hydrology`, which depends on
+`cartalith-terrain`, so computing it inside would invert the dependency. The
+one caller passes `cartalith_hydrology::river_flow_thresh`.
+
+The six branches are first-match-wins and stay an `if`/`else if` chain, not
+a `match` — the order is load-bearing (a cliff outranks badlands on a cell
+that satisfies both).
+
+**Golden**: `golden_parity_landform.rs`, 6 tests, exact, with **class
+histograms asserted alongside the rasters** so a change that merely
+reshuffles classes cannot pass by matching a length. Four worlds: the real
+one (which reaches all six classes — asserted, so a future fixture swap
+cannot quietly weaken the suite); `temp`/`rain`/`flow` all `null`, which
+must produce *only* cliffs and mesas because the reference's own `:15` and
+`:0.4` fallbacks sit outside the dune and badlands windows; +22 °C with
+rainfall ×0.15; and −25 °C, where dunes fall to zero and cirques rise.
+
+**Wired**: the *Landforms* row in Layers ▸ Surface, using the reference's own
+`LANDFORM_COLS` as both raster and legend. Class 0 is dropped from the legend
+— it is the *absence* of a landform, and listing it reads as a seventh kind.
+
+### Also fixed en route
+
+`GUI_GAP_REGISTER.md` gained **§17**, the register the debug views never had.
+`PARITY_AUDIT.md` §5 item 8 spotted the hole via Wildlife; it applied to all
+eleven `GAP_LAYERS` rows, whose reasons were disclosed in code only (each
+`LAYER_GROUPS` hint string) and in no register row. All eleven now have ids
+(DV-01…DV-11); four are closed by this pass and `GAP_LAYERS` is down to
+eight.
+
+### Verification
+
+- `cargo build -p cartalith-godot`: clean (the two `cartalith-gpu` dead-code
+  warnings are pre-existing).
+- `cargo test --workspace`: **120 suites, 1 703 passed, 0 failed, 4
+  ignored** — up 22 tests, no regressions.
+- Godot `--headless --path . --quit`: clean.
+- **Not verified in this session**: nobody has looked at the three new debug
+  views or clicked the two new buttons on a real screen. The rasters and the
+  two `#[func]`s are exercised headlessly and by unit test; their
+  *appearance* is a class-(c) claim in `PARITY_AUDIT.md` §4's sense and is
+  not being made.
+
+### Deliberately not done
+
+- **`glacialErode` (`#glacBtn`)**, which sits beside `#fjordBtn` in the same
+  reference panel. Out of scope for this pass and still honestly disabled.
+- **A flow/climate re-run after `carve_fjords`.** Building one is real,
+  separate work (it is the same missing capability `sculpt_commit`'s
+  dirty-tile set has no consumer for), not a side effect of porting a carve
+  kernel.

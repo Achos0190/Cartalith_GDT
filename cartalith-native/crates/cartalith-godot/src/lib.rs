@@ -2125,6 +2125,134 @@ impl WorldGen {
         }
     }
 
+    /// The reference's `#centerBtn` (`centerLandmasses`, reference HTML
+    /// line 3179; `GUI_GAP_REGISTER.md` MS-01): rotate the wrapped world in
+    /// X so the emptiest meridian sits at the map edge, and feather the
+    /// join it moved into the interior.
+    ///
+    /// Returns a summary `Dictionary`: `ok` (bool), `offset` (int, columns
+    /// rotated — `0` means the world was already centred and **nothing was
+    /// touched**), `seam_column` (int), `reason` (String, only when `ok` is
+    /// false).
+    ///
+    /// **World mode only.** In region mode the edges are hard borders and
+    /// there is nothing to re-centre; this returns `ok: false` with a
+    /// reason rather than silently rotating, matching the reference's own
+    /// `alert()`-and-return.
+    ///
+    /// # What it invalidates
+    ///
+    /// The civilisation layer and the Sculpt draft are **dropped**, not
+    /// shifted. Settlement, way and route coordinates are indices into the
+    /// old grid; the reference does not shift them either
+    /// (`centerLandmasses` clears its own derived caches and leaves
+    /// `state.civ` alone), but this port would then render places over
+    /// terrain that has moved out from under them. Re-run `generate()` for
+    /// a civilisation layer over the centred world.
+    ///
+    /// Call `build_color_texture()` again afterwards — the same "no
+    /// regeneration needed, the render path reads the field fresh"
+    /// contract [`Self::sculpt_commit`] documents.
+    #[func]
+    fn center_landmasses(&mut self) -> VarDictionary {
+        let (gw, gh, world) = (self.gw.max(0) as usize, self.gh.max(0) as usize, self.world);
+        let Some(WorldSource::Generated(ws)) = self.source.as_mut() else {
+            return dict! { "ok" => false, "offset" => 0i64, "seam_column" => 0i64,
+                "reason" => "Center landmasses needs a generated world; a loaded save carries no tectonic substrate to rotate." };
+        };
+        let Some(r) = cartalith_engine::center::center_landmasses(ws, gw, gh, world) else {
+            return dict! { "ok" => false, "offset" => 0i64, "seam_column" => 0i64,
+                "reason" => "Center landmasses applies only in Whole-world mode -- the map wraps in longitude there. In Region mode the edges are hard borders, so there is nothing to re-centre." };
+        };
+        if r.offset != 0 {
+            // Both hold coordinates into the grid that just rotated under
+            // them. Dropping beats silently drifting.
+            self.civ = None;
+            self.sculpt = None;
+        }
+        dict! { "ok" => true, "offset" => r.offset as i64, "seam_column" => r.seam_column as i64 }
+    }
+
+    /// The reference's `#fjordBtn` (`carveFjordsOp`, reference HTML line
+    /// 3245): build the fjord-probability mask and overdeepen the coastal
+    /// valley floors inside it, drowning them into inlets while leaving the
+    /// ridges between high.
+    ///
+    /// An **opt-in** pass, exactly as in the reference — it never runs
+    /// during `generate()`, so a default world is bit-identical with or
+    /// without this binding existing.
+    ///
+    /// Returns a summary `Dictionary`: `ok` (bool), `cells_masked` (int,
+    /// cells with a non-zero fjord probability), `cells_carved` (int, cells
+    /// the carve actually lowered), `reason` (String, only when `ok` is
+    /// false). `cells_carved == 0` on a warm or low-relief world is a real
+    /// answer, not a failure: fjords are strictly bound to cold, steep,
+    /// competent-rock coast.
+    ///
+    /// # What it does not re-run
+    ///
+    /// Flow, river extraction and climate are **not** recomputed. The
+    /// reference's own op follows the carve with `enforceRiverChannels()`,
+    /// `computeFlow(true)` and `refreshClimate()`; this port has no
+    /// re-runnable path for those (the same gap [`Self::sculpt_commit`]
+    /// documents, and for the same reason). The height field and every view
+    /// derived from it alone are correct after this call; the flow,
+    /// Strahler and climate rasters are as they were before it.
+    ///
+    /// Preview the mask first with the `fjord` debug view
+    /// (`build_debug_texture("fjord")`), which is the exact same
+    /// computation.
+    #[func]
+    fn carve_fjords(&mut self) -> VarDictionary {
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        let sea = self.sea_level;
+        let Some(WorldSource::Generated(ws)) = self.source.as_mut() else {
+            return dict! { "ok" => false, "cells_masked" => 0i64, "cells_carved" => 0i64,
+                "reason" => "Carve fjords needs a generated world; a loaded save carries no lithology inputs (crust_field/age_field) to derive the mask from." };
+        };
+        let n = gw * gh;
+        if n == 0 || ws.field.len() != n {
+            return dict! { "ok" => false, "cells_masked" => 0i64, "cells_carved" => 0i64,
+                "reason" => "No world." };
+        }
+        let sea_mask: Vec<u8> = ws.field.iter().map(|&h| u8::from((h as f64) < sea)).collect();
+        let coast_d = cartalith_terrain::infer::chamfer_dist(&sea_mask, gw, gh);
+        let lith = cartalith_civ::build_lithology(
+            &ws.field,
+            &ws.age_field,
+            &ws.volcanic_field,
+            &ws.crust_field,
+            &ws.resistance_field,
+            &ws.rainfall,
+            sea,
+        );
+        let mask = cartalith_terrain::fjord::build_fjord_mask(
+            &ws.field,
+            &ws.temperature,
+            &lith,
+            &coast_d,
+            gw,
+            gh,
+            sea,
+            cartalith_terrain::fjord::FjordMaskOpts::for_width(gw),
+        );
+        let carved = cartalith_terrain::fjord::carve_fjords(
+            &ws.field,
+            &mask,
+            gw,
+            gh,
+            sea,
+            cartalith_terrain::fjord::CarveFjordsOpts::default(),
+        );
+        let cells_carved = carved.iter().zip(ws.field.iter()).filter(|(a, b)| a != b).count();
+        ws.field = carved;
+        dict! {
+            "ok" => true,
+            "cells_masked" => mask.iter().filter(|&&m| m > 0.0).count() as i64,
+            "cells_carved" => cells_carved as i64,
+        }
+    }
+
     /// What [`Self::import_heightmap`] would resample a given image onto,
     /// without doing the import — so an import dialog can show the real
     /// working grid before committing, rather than restating

@@ -13,3 +13,9 @@ name = "cartalith_climate"
 cartalith-jsmath = { path = "../cartalith-jsmath" }
 cartalith-terrain = { path = "../cartalith-terrain" }
 rayon = "1"
+
+[dev-dependencies]
+# Golden fixtures captured from the reference under Node are held as JSON
+# rather than as source literals -- they are whole 48x32 grids, the same
+# reason `cartalith-io` already reads its real-export capture this way.
+serde_json = "1.0.151"

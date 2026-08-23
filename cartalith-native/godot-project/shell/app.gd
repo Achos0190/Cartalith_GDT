@@ -407,12 +407,12 @@ func _tool_options_generate() -> void:
 		DccWidgets.action(row, "Generate world", _run_pipeline, true)
 		DccWidgets.action(row, "New seed", _new_seed)
 		## The reference's third button in this same group (`#centerBtn`).
-		## Disclosed here rather than omitted: it is the one v2.10 control that
-		## belongs unambiguously next to Generate/New seed and has no home
-		## anywhere else in this shell.
-		var centre := DccWidgets.action(row, "Center landmasses", func(): pass)
-		centre.disabled = true
-		centre.tooltip_text = "The reference's #centerBtn -- it re-rolls the plate seeds until the land mass lands nearer the middle of the sheet, then regenerates. No cartalith-engine equivalent exists: generate_terrain places plate seeds from the seed alone and exposes no centring pass or post-generate offset, so there is nothing here to call."
+		## Live since 2026-08-23 (`GUI_GAP_REGISTER.md` MS-01): the centring
+		## pass is a real, golden-verified port now
+		## (`cartalith_engine::center::center_landmasses`), so this calls it
+		## instead of disclosing its absence.
+		var centre := DccWidgets.action(row, "Center landmasses", _center_landmasses)
+		centre.tooltip_text = "The reference's #centerBtn. Rotates the world in longitude so the emptiest meridian sits at the map edge, then feathers the join it moved into the interior -- the wrapped map has no natural origin, so this is an equivalent world with the seam relocated into open ocean. Whole-world mode only; Region edges are hard borders. The civilisation layer is dropped, since its coordinates would no longer line up."
 		var busy := DccTheme.mono_label("", "text_ghost", DccTheme.FS_SMALL, 1)
 		_tool_options_stale = busy
 		row.add_child(busy)
@@ -435,6 +435,24 @@ func _run_pipeline() -> void:
 	if bridge.generating:
 		return
 	bridge.generate(new_world_dialog.request())
+
+## The reference's `#centerBtn`. Every outcome is reported in the status bar
+## rather than silently: "already centred" (offset 0) is a real answer, and
+## so is the Region-mode refusal the reference raises an `alert()` for.
+func _center_landmasses() -> void:
+	if not bridge.has_world:
+		set_status("hint", "no world to centre", "accent")
+		return
+	var r: Dictionary = bridge.center_landmasses()
+	if not bool(r.get("ok", false)):
+		set_status("hint", String(r.get("reason", "centring unavailable")), "accent")
+		return
+	var off := int(r.get("offset", 0))
+	if off == 0:
+		set_status("hint", "already centred — the emptiest meridian is at the edge", "text_ghost")
+		return
+	set_status("hint", "centred: rotated %d columns, seam feathered at column %d" %
+		[off, int(r.get("seam_column", 0))], "text_ghost")
 
 func _new_seed() -> void:
 	if new_world_dialog.has_method("randomise_seed"):

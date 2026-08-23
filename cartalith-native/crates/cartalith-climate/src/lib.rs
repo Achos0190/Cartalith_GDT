@@ -4,6 +4,8 @@
 
 use rayon::prelude::*;
 
+pub mod windthrow;
+
 /// `smoothstep()` (reference HTML line 7569).
 fn smoothstep(a: f64, b: f64, x: f64) -> f64 {
     let denom = b - a;

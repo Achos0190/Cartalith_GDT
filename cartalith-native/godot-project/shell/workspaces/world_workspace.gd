@@ -84,7 +84,7 @@ const STAGES: Array = [
 	{"name": "Erosion", "needs": "04 Tectonics, 08 Climate",
 	 "produces": "final surface → 07 Hydrology, 10 Resources & soils",
 	 "groups": ["erosion"], "keys": [],
-	 "gap": "Only the stream-power carve is ported. Droplet hydraulic, Hillslope diffuse, Velocity (momentum), Glacial and Coastal are each a separate manual pass in the reference with no cartalith-engine equivalent -- the groups below for those five are honest placeholders, not missing controls. Two more reference passes have no group at all because they are not passes over this stage's own inputs: Evolve climate <-> terrain (evoCyc / state.stream.cycles, read only by evolveCoupled()) re-runs erosion and climate against each other for n cycles, and Sediment fill deposits into basins afterward -- neither has a cartalith-engine equivalent."},
+	 "gap": "Only the stream-power carve and the Glacial group's fjord carve are ported. Droplet hydraulic, Hillslope diffuse, Velocity (momentum), Glacial erosion itself and Coastal are each a separate manual pass in the reference with no cartalith-engine equivalent -- the groups below for those five are honest placeholders, not missing controls. Two more reference passes have no group at all because they are not passes over this stage's own inputs: Evolve climate <-> terrain (evoCyc / state.stream.cycles, read only by evolveCoupled()) re-runs erosion and climate against each other for n cycles, and Sediment fill deposits into basins afterward -- neither has a cartalith-engine equivalent."},
 	{"name": "Hydrology", "needs": "06 Erosion",
 	 "produces": "rivers, lakes, drainage, flow accumulation → 08 Climate, 09 Ecology & biomes",
 	 "groups": [], "keys": ["carve_rivers", "river_density"],
@@ -372,6 +372,31 @@ func _build_erosion_passes(body: VBoxContainer, stage_index: int) -> void:
 		var btn := DccWidgets.action(grp, "Run %s" % pass_name, func(): pass)
 		btn.disabled = true
 		btn.tooltip_text = "No cartalith-engine implementation exists for this pass."
+		## The reference's Glacial panel carries two buttons, not one:
+		## `#glacBtn` (glacialErode, still unported -- the disabled button
+		## above) and `#fjordBtn` (carveFjordsOp), which is a real,
+		## golden-verified port since 2026-08-23. Only the second is live.
+		if pass_name == "Glacial":
+			_build_fjord_row(grp)
+
+## `#fjordBtn` / `carveFjordsOp` (reference HTML line 3245). Opt-in, exactly
+## as in the reference -- it never runs during generate, so a default world
+## is unchanged by this control existing.
+func _build_fjord_row(grp: Control) -> void:
+	DccWidgets.note(grp, "Fjord carving is ported: it overdeepens the glacially-carvable coastal valleys into drowned inlets, leaving the ridges between them high. Preview the mask first with Layers ▸ Hydrology ▸ Fjord mask. Flow, rivers and climate are not recomputed afterwards.")
+	var fjord := DccWidgets.action(grp, "Carve fjords", _carve_fjords)
+	fjord.tooltip_text = "The reference's #fjordBtn. Cold, steep, competent-rock coast only -- a warm or low-relief world honestly carves nothing."
+
+func _carve_fjords() -> void:
+	if not bridge.has_world:
+		return
+	var r: Dictionary = bridge.carve_fjords()
+	if not bool(r.get("ok", false)):
+		push_warning("Carve fjords: %s" % String(r.get("reason", "unavailable")))
+		return
+	var carved := int(r.get("cells_carved", 0))
+	if carved == 0:
+		push_warning("Carve fjords: %d cells are fjord-eligible, none deep enough to carve -- this world's coast is too warm, too flat or too weak." % int(r.get("cells_masked", 0)))
 
 ## One row for one parameter. `bridge.param_info(key)`'s `type` field decides
 ## the control (`toggle` for bool, `slider` for int/float); nothing about the

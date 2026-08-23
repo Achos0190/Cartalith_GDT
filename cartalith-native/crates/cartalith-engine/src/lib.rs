@@ -100,6 +100,11 @@ pub mod geojson;
 /// elevation field behave like a generated world (`GENERATION_PARAMETERS.md`).
 pub mod import;
 
+/// `centerLandmasses()` — the X-rotation that moves the emptiest meridian
+/// to the map edge, over every retained raster at once
+/// (`GUI_GAP_REGISTER.md` MS-01).
+pub mod center;
+
 use cartalith_climate::{
     apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
     WeatherParams,

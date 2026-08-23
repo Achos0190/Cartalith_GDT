@@ -169,6 +169,7 @@ dependencies = [
  "cartalith-jsmath",
  "cartalith-terrain",
  "rayon",
+ "serde_json",
 ]
 
 [[package]]
@@ -280,6 +281,7 @@ dependencies = [
  "cartalith-rng",
  "cartalith-spatial",
  "rayon",
+ "serde_json",
 ]
 
 [[package]]

@@ -152,7 +152,11 @@ the Assets/Data/Journey/INFRA sections specifically. **Also stale as of
 2026-08-23**: §6.16 (Urban morphology, `PARITY_AUDIT.md` C3) added three
 more (B)-large entries (UM-01/02/03) that were not previously catalogued
 anywhere in this register, and §5's O4/O5/O7/O8 moved from open to done
-(`PARITY_AUDIT.md` C5) — neither is folded into the totals below either, for
+(`PARITY_AUDIT.md` C5); the same day the Journey Planner's own closing pass
+took **JP-01, JP-03, JP-04, JP-05, JP-07 and JP-09** to closed and **JP-06 /
+JP-08** to partly closed (in-session only, blocked on FI-01's save-writer by
+design), and re-closed **IN-06**'s stated remainder with the vessel resolver
+— §6.9's rows carry each account. None of it is folded into the totals below either, for
 the same reason: a full re-derivation is `PARITY_AUDIT.md` §8 item 2's own
 recommendation for a dedicated pass, not a mechanical correction.
 
@@ -370,15 +374,15 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
-| JP-01 | Carriage **Auto** pick | 366 | `jpAutoPickTransport` has no Rust port | yes | `JOURNEY_PLANNER_SPEC.md` §5 ("in auto, counts are computed (terrain × biome, km-weighted) and read-only") | (B) small — a real, bounded port of one reference function |
+| JP-01 | Carriage **Auto** pick | 366 | `jpAutoPickTransport` has no Rust port | **stale — it did** | `JOURNEY_PLANNER_SPEC.md` §5 ("in auto, counts are computed (terrain × biome, km-weighted) and read-only") | **CLOSED (2026-08-23)**. The disclosed reason was wrong: `cartalith_civ::jp_auto_pick_transport` has existed since milestone 6, with eleven tests. What was missing was the *call*. `jp_compute` gained an `auto_carriage` key which runs the picker over the derived route and mutates the plan **before** it is computed — the reference's `_jpRunAuto` (line 19614), one call site per refresh so it can never run twice or fight a promoted transport — and returns its outcome as `auto` (`jp_auto_transport_dict`: the picked species, count, carts/wagons, `promoted`, `fodder_infeasible`, and the mutated plan). `_sync_auto_carriage()` writes the ten carriage keys back into the (disabled) form and rebuilds it when the picker promoted Walking → Baggage Train, which is `_jpSyncAssetInputs` (line 19632) and its own `structural=true` rule |
 | JP-02 | Party set-up picker + capture | `_preset_controls`/`_apply_preset`/`_capture_preset` | `JP_PRESETS` is JS-only; no `jp_presets()` binding | **CLOSED (2026-08-20)**. The tool-options bar now carries a live `set-up` dropdown over `tl_list("preset")` (stock and captured alike, custom rows tagged `· custom` and ⚠-marked by §4 validation state) plus a `capture party…` action writing the current form back through `tl_capture_preset_from_plan`. Deliberately **not** the reference's `JP_PRESETS`: this port's set-ups are the Travel Library's own stored rows, which is the strictly larger thing. Applying assigns only the keys `jp_default_plan()` owns — `tl_get("preset", id)` returns exactly `PRESET_FIELD_KEYS`, `PartyPreset::apply_to`'s own inverse — and leaves per-stage overrides untouched per §3.4 | §5 + `TRAVEL_LIBRARY_SPEC.md` §3.4 | — |
-| JP-03 | Re-route for `<mode>`… | 1320 | `jpAutoPickTransport`/`_jpRerouteForMode` have no Rust port | yes | §6's "faster-mode advisories… with a **use here** action" | (B) small — sibling of JP-01 |
-| JP-04 | **Cost** group | 1519 | **corrected — S3** | yes, now | §8 designs it in full (food/fodder · wages · tolls/ferry · animal upkeep · total · per km and per day) | (B) **wrapper** — `jp_journey_cost` is ported and golden-tested; `jp_compute` never calls it. **The single cheapest (B) in the register.** |
-| JP-05 | Calculation trace ⧉ | 1553-1555 | no trace window; the `formula` string is deliberately not carried across the boundary (`jp_land_calc_dict`'s own doc: presentation, not engine) | yes | §8 says *"opens in its own window (⧉)"* and nothing about its contents | **(C)** → §7.12 |
-| JP-06 | Save journey | 1325 | no save-writer for journeys or projects | yes | §2 lists it in the tool options bar | (B) large — FI-01's writer, plus a journey registry that does not exist |
-| JP-07 | ⇧-drag spine trim | 1323 | `jp_compute` has no request field for trimming | yes | §3: *"⇧ drag trims"* | (B) small — a new `jp_compute` request field plus its handling |
-| JP-08 | Journeys list = committed routes | 226, 250 | no named/persisted journey registry exists engine-side | yes | §3's "journeys list" | (B) large — same registry as JP-06 |
-| JP-09 | Vessels ▸ sailing window | 1540 | not part of `jp_water_calc`'s return | yes | §8: *"per water leg: vessel, hold used, sailing window"* | (B) small — `TRAVEL_LIBRARY_SPEC.md` §3.3 models "sailing window (daylight / continuous)" per vessel; the resolver for vessels does not exist |
+| JP-03 | Re-route for `<mode>`… | 1320 | `jpAutoPickTransport`/`_jpRerouteForMode` have no Rust port | half — see JP-01 | §6's "faster-mode advisories… with a **use here** action" | **CLOSED (2026-08-23)**. `_jpRerouteForMode` (reference line 20391) ported as `cartalith_civ::jp_reroute_for_mode` and bound as `jp_reroute(route_index, transport, force_mode)`: it re-paths the committed route's two endpoints under the domain the transport implies (`jp_mode_for_route`), or under v1.100's explicit `force_mode` override, and rewrites the route in place so `route_get`/`jp_compute`'s `route` index still names it. Both of the reference's refusals are verbatim, and an **unreachable** answer is refused outright rather than drawn as the straight-line fallback `route_commit` tolerates — which is the whole reason `DijkstraPath::reachable` exists. Per-stage overrides, layovers and the trim are cleared on success: the geometry under every stage index changed. **Not** in scope and still open: §6's per-stage *faster-mode advisory* with a "use here" action — `jp_best_land_transport_for_stage` is ported and `jp_compute` does not surface it (that is JP-11's own row) |
+| JP-04 | **Cost** group | 1519 | **corrected — S3** | yes | §8 designs it in full (food/fodder · wages · tolls/ferry · animal upkeep · total · per km and per day) | **CLOSED (2026-08-23)**, and it was as cheap as this row predicted. `jp_plan_cost` is the adaptor from a finished `JpJourneyPlan` to `jp_journey_cost`'s caller-supplied inputs — the reference's own call site (line 19854), including its `totalDays ?? days` preference (wages and upkeep are paid on calendar days, rest days included) and its `if(plan.blocked) return null` gate. `jp_compute` returns it as `cost`; the results panel renders carriage / wages / crew / animals & vehicles / tolls / transshipment / total / per-tonne-km / break-even. Priced in **day-wages**, never a currency — that is `JP_COST_*`'s own unit and the reason the model separates the historically-grounded Diocletian ratios from a world's invented money |
+| JP-05 | Calculation trace ⧉ | 1553-1555 | no trace window; the `formula` string is deliberately not carried across the boundary | yes | §8 says *"opens in its own window (⧉)"* and nothing about its contents | **CLOSED (2026-08-23)**, built exactly as §7.12 proposed and with its recommendation taken: an **inline collapsible group over the selected stage**, not a `⧉` window — a window for one stage is more chrome than the content earns, and §8 lists it as the last of seven groups anyway. §7.12's one wrong assumption is corrected in passing: the factors were *not* all "already in `results[i]`'s `eff` dict or derivable from the stage" — re-deriving `t_mod`/`w_w`/`col_mod`/the converged load term in GDScript would have meant a second copy of every engine table. So the *structured* chain crosses instead (`JpTerm { key, detail, factor }`, `jp_calc_land_ex`/`jp_calc_water_ex`'s own variables, assigned rather than recomputed), while the reference's `formula` **prose** still stays out of the engine. Engine-side invariant, asserted on a real multi-stage journey: `∏ factor == daily_km` |
+| JP-06 | Save journey | 1325 | no save-writer for journeys or projects | yes | §2 lists it in the tool options bar | **PARTLY CLOSED (2026-08-23) — in-session only, said so on the button.** "save journey" names the selected route *plus* the whole party form (plan, per-stage overrides, layovers, animal entries, trim) and adds it to the Journeys list, which reloads it in one click. What is **not** closed is the half this row named: persisting one across sessions still needs FI-01's `.zip` save-**writer**, which `ROADMAP.md` keeps under "Options kept open, not scheduled", and building one as a side effect of a planner button would have been a far larger thing than this control. The list is GDScript-owned rather than a `cartalith-civ` registry for the same reason — with no writer behind it there is nothing for the engine to own: a saved journey is exactly the request `jp_compute` already takes |
+| JP-07 | ⇧-drag spine trim | 1323 | `jp_compute` has no request field for trimming | yes | §3: *"⇧ drag trims"* | **CLOSED (2026-08-23)**, and it was the small thing this row predicted. `jp_compute` gained a `trim` key (a `Vector2` of two 0-1 fractions of the route's own arc length) which cuts the polyline through `cartalith_civ::jp_trim_points` **before** anything else reads it — so every stage index, stop key and per-stage override that comes back belongs to the trimmed route, and a trim is indistinguishable from having drawn the shorter route by hand. Endpoints are interpolated on the segment they fall in (continuous, not vertex-snapped); interior vertices are kept. `_ProfileView` owns the gesture: ⇧-press starts it, motion previews it as a veil over the trimmed-away margins, release commits, and a ⇧ *click* (zero-width) clears it. No reference counterpart exists — v2.10 has no spine to drag on — and none is invented: the trimmed polyline goes through the same `jp_plan` every untrimmed route does |
+| JP-08 | Journeys list = committed routes | 226, 250 | no named/persisted journey registry exists engine-side | yes | §3's "journeys list" | **PARTLY CLOSED (2026-08-23)** — same work as JP-06, same honest limit. The left dock now lists named journeys above the committed routes, each reloading its whole party form and trim in one click, with a × to forget it. **Session-scoped**: nothing is written to disk, so the list is empty again next launch. That remains FI-01's writer, and this row stays open until it exists |
+| JP-09 | Vessels ▸ sailing window | 1540 | not part of `jp_water_calc`'s return | yes | §8: *"per water leg: vessel, hold used, sailing window"* | **CLOSED (2026-08-23)**. `JpWaterCalc` now carries `sailing_window_h` — `jp_water_window(cat, terrain)`, the hours actually under way per day, which was already a *factor* of the leg's `daily_km` and simply never surfaced. The Vessels group prints it per water leg beside the vessel and the hold, completing §8's three. **One thing is deliberately not done**: the engine's window is a property of the **water type** (a sheltered bay is worked in daylight, open sea is stood through the night at 22 h), while `TRAVEL_LIBRARY_SPEC.md` §3.3's `sailing_window` is a property of the **hull**. Nothing in the engine couples the two, so the two are not conflated — the group says which one it is showing rather than quietly blending them into a model this port made up |
 | JP-10 | Supply ▸ foraging offset | 1515 | folded into food/water totals; `jp_plan` doesn't break it out | yes | §8 lists it as its own figure | (B) small |
 | JP-11 | Load ▸ speed penalty | 1500 | folded into each leg's km/day; `jp_plan` returns no separate percentage | yes | §8 | (B) small |
 | JP-12 | Supply ▸ per-leg bar with resupply ticks | **done 2026-08-19** — `_build_reach_bar()`: one segment per gap between consecutive resupply stops (`_stop_fractions()`, the stops strip's own chord-length projection), `block` when that leg's own km exceeds `resupply_reach.required_km`, a tick at every stop | yes | §8 | **(A)**, closed — `resupply_reach` carries `max_gap_km`/`required_km`/`stops`/`unmet`; verified against a real route (9 real `ColorRect` children, 4 lit segments + 5 ticks, 2 legitimately zero-width where a stop coincided with the route's own start) |
@@ -435,7 +439,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | IN-03 | Way / Route ↶ ↷ (per-waypoint undo) | 232-236 (comment) | no per-waypoint undo in the engine; `InfraTools` only discards the whole draft | yes | §4.5.4 lists ↶ ↷ | (B) small |
 | IN-04 | Way ▸ routing mode (freehand / snap / least-cost) | 229-231 (comment) | `infra_tools_bridge`'s own doc: *"nothing to build a 'freehand' or distinct 'snap' routing mode out of"*; snap is real but automatic | yes | §4.5.4 | **(D)** — engine truth, recorded in-file |
 | IN-05 | Way types: spec says road/track/trail/bridge, engine has road/track/sea_lane/ancient | 42-49 (comment) | `parse_way_type`'s own doc calls the spec list wrong against the tested four-entry enum | yes | §4.5.4 | **(D)** — spec/engine disagreement, resolved in the engine's favour and recorded |
-| IN-06 | Route ▸ vessel / party reference in the options row | `journey_planner_view.gd` `_vessel_field`/`_mount_field`/`_build_animal_definitions` | the journey planner exported nothing past the crate boundary when written | **CLOSED where it can be, and the remainder stated in-UI (2026-08-20)**. The party form's Mount picker and its four per-species **animal definition** pickers are now library-backed (`tl_list("animal")`, custom rows tagged `· custom`), and the choice reaches the engine: `jp_compute`'s new `animal_entries` request key → `TravelLibrary::animal_overrides_selected` → `jp_plan_ex`'s resolver, so a custom entry's capacity/speed/fodder/water and its ten-row terrain table re-plan the journey. The **Vessel** picker lists every library vessel but disables the ones with no engine counterpart (`jp_ship_stats` is still a fixed built-in table — `TRAVEL_LIBRARY_SPEC.md` §6), with the reason on the item itself rather than omitted | §4.5.4 | (B) small — remaining: a vessel/vehicle resolver equivalent to the animal one |
+| IN-06 | Route ▸ vessel / party reference in the options row | `journey_planner_view.gd` `_vessel_field`/`_mount_field`/`_build_animal_definitions` | the journey planner exported nothing past the crate boundary when written | **CLOSED where it can be, and the remainder stated in-UI (2026-08-20)**. The party form's Mount picker and its four per-species **animal definition** pickers are now library-backed (`tl_list("animal")`, custom rows tagged `· custom`), and the choice reaches the engine: `jp_compute`'s new `animal_entries` request key → `TravelLibrary::animal_overrides_selected` → `jp_plan_ex`'s resolver, so a custom entry's capacity/speed/fodder/water and its ten-row terrain table re-plan the journey. The **Vessel** picker lists every library vessel but disables the ones with no engine counterpart (`jp_ship_stats` is still a fixed built-in table — `TRAVEL_LIBRARY_SPEC.md` §6), with the reason on the item itself rather than omitted | §4.5.4 | **CLOSED (2026-08-23)** — the remainder this cell named is done. `TravelLibrary::vessel_overrides` (keyed by **name**, because `JpPlan::vessel` is a name and `jp_ship_stats` is a name lookup, so a vessel needs no `animal_species_slot` equivalent) → `travel_library::vessel_resolver_fn` → `JpVesselResolver` → `jp_calc_water_ex`, the exact sibling of the animal chain and with the same fall-back-to-the-built-in-table contract. Four of `ShipStats`' seven fields come straight off the definition; `river`/`sea` come from `modes` and `open_sea` from `water_rating == Open`, which is precisely `jp_vessel_water_block`'s own test. **The one field with no source is `invalid_water`**: §3.3 has no per-water-type blacklist, so a custom vessel is constrained by its mode and rating only, never by a named water type the way "River Barge cannot navigate River with Rapids" is — stated in the picker's own tooltip rather than papered over. The picker now enables every library vessel that validates `ok` and disables only the incomplete ones, because the resolver declines an incomplete definition rather than sailing a hull with a zero hold |
 | IN-07 | Trade ▸ route assignment | 370-373 | nothing ties a trade relationship to the road or sea lane that would carry it | yes | §3 lists Trade | (B) large |
 
 ### 6.13 CARTO workspace — `cartography_workspace.gd`
@@ -505,13 +509,51 @@ unbuilt.
 
 | # | Missing surface | Reference control | Class |
 |---|---|---|---|
-| UM-01 | **Town layouts drawn on the map at deep zoom** | `civUrbanLayoutsChk` | (B) large — no engine output to draw; blocked on milestones 8-17 |
-| UM-02 | **City Viewer modal** — its own canvas, zoom/pan, legend, info panel | `cityViewerModal`, `cvCanvas`/`cvCloseBtn`/`cvLegend`/`cvInfoPanel`, `_cvDrawCity`, `_cvZoomAt` | (B) large — same blocker, plus a whole modal with no design in `DCC_SHELL_SPEC.md` |
-| UM-03 | **Layout thumbnail in the place-edit popup, and its launcher** | `peCityPreview`, `peCityOpen` | (B) large — doubly blocked: no place-edit popup exists at all (ED-03) and no city layout to preview even if it did |
+| UM-01 | **Town layouts drawn on the map at deep zoom** | `civUrbanLayoutsChk` | *partly closed, 2026-08-23* — the layer is live and draws real engine output; what it draws is a **street skeleton**, because blocks/buildings/walls are milestones 10-13 |
+| UM-02 | **City Viewer modal** — its own canvas, zoom/pan, legend, info panel | `cityViewerModal`, `cvCanvas`/`cvCloseBtn`/`cvLegend`/`cvInfoPanel`, `_cvDrawCity`, `_cvZoomAt` | *partly closed, 2026-08-23* — `shell/city_viewer_window.gd`; same engine ceiling, stated on screen in the window's own info panel |
+| UM-03 | **Layout thumbnail in the place-edit popup, and its launcher** | `peCityPreview`, `peCityOpen` | (B) large — still blocked on ED-03 (no place-edit popup exists). The *layout* half is no longer blocked: `app.open_city_viewer(index)` exists and a popup can call it in one line |
 
-All three are (B) rather than (C) or (D): the reference precedent is exact
-and line-cited (`URBAN_MORPHOLOGY_SCOPE.md`), so this is an engine gap, not
-a design gap — the honest opposite of most of this register's (C) entries.
+### UM-01/UM-02 — what closed, 2026-08-23
+
+`cartalith-urban` has its first consumer. Three new pieces, no change to the
+engine crate itself:
+
+- **`cartalith-civ::urban_adapter`** — the reference's block-2 `_um*` adapter
+  (`_umSiteBoxKm`, `_umWaterNearKm`, `_umWaterReachKm`,
+  `_umSiteKindFromTerrain`, `_umInferAge`, `_umRayBoxExit`,
+  `_umWayBearingFrom`, `_umRouteEnds`, `_umPrimaryPaths`, `_umTerrainOrient`,
+  `_umWaterCtx`, `_umTerrainCtx`, `_umPlaceContext`), plus the prefix of
+  `generate()` that milestones 1-7 supply. `URBAN_MORPHOLOGY_SCOPE.md`
+  milestone 17's own named home, started early and deliberately partial. Its
+  module header carries the function-by-function boundary, including the eight
+  `_um*` functions deliberately **not** ported and why each one's *consumer*
+  is milestone 8+.
+- **`cartalith-godot::urban_bridge`** — one `#[func]`, `urban_layouts(indices)`,
+  batched so the full-grid river trace `_umWaterCtx` needs happens once per
+  batch rather than once per town.
+- **`shell/urban_layout_draw.gd`**, **`shell/city_viewer_window.gd`**, and
+  `map_overlay.gd`'s "Urban layouts" block.
+
+**What is still not drawn, and is absent rather than stubbed**: blocks and
+plazas (milestone 12), parcels and buildings (12-13), districts and amenities
+(13-14), the wall circuit and its gates (10), harbour and quay (9), bridges
+and fords (9), farmland and hinterland detail (15). The bridge emits **no
+key** for any of them — an empty `buildings` array would read as "this town
+has none" rather than "this port cannot generate any yet" — and the City
+Viewer's info panel names the list on screen.
+
+**One deliberate divergence from the reference, stated rather than silent**:
+the reveal gate is *not* `_umLayoutAlpha`'s 24 km → 10 km crossfade. That band
+works in the reference because its LOD region window lets the camera reach a
+few-km span; this port's camera clamps at `ViewportHost.ZOOM_MAX` (8.0), so on
+the default 800 km world the closest reachable span is ~100 km and a ported
+24 km threshold would never once fire — a toggle that silently draws nothing.
+The gate is the town's site box measured in screen pixels instead. See
+`map_overlay.gd`'s own block for the full reasoning.
+
+UM-03 stays (B) rather than (C) or (D): the reference precedent is exact and
+line-cited (`URBAN_MORPHOLOGY_SCOPE.md`), so it is an engine/UI gap, not a
+design gap — the honest opposite of most of this register's (C) entries.
 
 ---
 
@@ -960,6 +1002,15 @@ already reads). **The destination URL is the only owner decision**; both items
 are (A) once it exists.
 
 ### 7.12 Calculation trace window — JP-05
+
+> **Acted on, 2026-08-23 — the proposal below was built, with its own
+> recommendation taken** (inline group, not a `⧉` window). One assumption
+> in it turned out to be wrong and is corrected in JP-05's row: the
+> factors were *not* all already across the boundary, so the chain now
+> crosses as structured `JpTerm` rows rather than being re-derived in
+> GDScript from a second copy of the engine's tables. The reference's
+> `formula` **prose** still stays out of the engine, which was the real
+> constraint this section identified.
 
 No comparable in the map/DCC space; the closest are **spreadsheet formula
 auditing** (Excel's Evaluate Formula steps through a calculation one
@@ -1516,7 +1567,7 @@ built" note); one pair was wired live.**
 
 | # | Missing surface | Reference `#id` | Where it now lives | Why it could not be wired |
 |---|---|---|---|---|
-| MS-01 | **Center landmasses** | `#centerBtn` | `app.gd` — disabled button in the GENERATE · WORLD tool-options bar, beside Generate world / New seed | `generate_terrain` places plate seeds from the seed alone; no centring pass and no post-generate offset exist |
+| MS-01 | **Center landmasses** | `#centerBtn` | **done, 2026-08-23** — the button in `app.gd`'s GENERATE · WORLD tool-options bar is live and calls `WorldGen::center_landmasses()`. Engine: `cartalith_terrain::center` (`bestEmptyColumn`/`shiftGridX`/`featherSeamX`, reference HTML 3156-3177) orchestrated by `cartalith_engine::center::center_landmasses` (`centerLandmasses`, 3179-3199). Golden-parity bit-exact (`golden_parity_center.rs`, 6 tests) | Was: "`generate_terrain` places plate seeds from the seed alone; no centring pass and no post-generate offset exist." The premise was right and the conclusion wrong — the reference does not re-roll seeds either, it circular-shifts every grid after the fact, which needs no generation hook at all. The old tooltip's "re-rolls the plate seeds until the land mass lands nearer the middle" was a misreading of the reference; corrected in the same pass |
 | MS-02 | **Infer tectonics from heightmap** | `#inferTectBtn` | **done, 2026-08-20** — `Data ▸ Import ▸ Heightmaps (PNG)`, and the welcome screen's own *Import a heightmap* tile | Both halves closed in one pass. The reader is `cartalith-assets::raster::decode_png` + `cartalith_terrain::infer::heightmap_to_field`; the inference is `cartalith_terrain::infer` (`buildReliefField`/`pickPlateSeeds`/`classifyPlateCrust`/`reconstructBoundaryStress`/`stampVolcanicArcs`/`inferPlateVelocities`, reference HTML 6641-6752) orchestrated by `cartalith_engine::import::infer_tectonics`. Golden-parity tested bit-exact against the reference (`golden_parity_infer.rs`, 8 tests) |
 | MS-03 | **Fold intensity · trench depth · fault blocks** (structured orogeny) | `foldI`/`trenchD`/`faultB` | `world_workspace.gd` — stage 04 Tectonics' `gap` string, which was **empty** | `generate_terrain` hardcodes the reference's own defaults (0.16, 1.0, 0), so behaviour matches; exposing them threads three fields through `OrogenyParams`' call site |
 | MS-04 | **Evolve climate ↔ terrain · Evolve cycles** | `#evolveBtn`/`#evoCyc` | `world_workspace.gd` — stage 06 Erosion's `gap`, which named five passes and not these | `evolveCoupled()` has no `cartalith-engine` equivalent. It is not one of the five that got an honest empty group, because it is not a pass over this stage's inputs — it re-runs erosion and climate against each other |
@@ -2228,3 +2279,59 @@ toolset directly. Until that design lands, this is classified **(D)** —
 a deliberate hold, not an open defect — and no agent should reduce, remove,
 or reshape the existing Measure/Region-select functionality to chase visual
 parity with a canvas that simply hasn't drawn it yet.
+
+---
+
+## 17 · Debug-view gaps were never registered here — four now closed (2026-08-23)
+
+`PARITY_AUDIT.md` §5 item 8 caught the structural hole: the eleven
+honestly-unavailable rows in `sample_bridge.rs`'s `GAP_LAYERS` were
+disclosed **in code only**. Their reasons live in each `LAYER_GROUPS` row's
+hint string, which the Layers popover shows to a user, but no row in this
+register ever named them — so a reader walking `reference/FUNCTION_INDEX.md`
+Part 0's Layers list against this file found nothing at all. The audit spotted
+it via Wildlife; it applied to all eleven.
+
+This section gives them ids. **Four have since been closed rather than
+merely registered** (`PARITY_AUDIT.md` §3.1's landmass-centering, fjord,
+windthrow and landform clusters, ported the same day).
+
+### 17.1 · The register the debug views never had
+
+| # | Reference view | `LAYER_GROUPS` id | Reference functions | State |
+|---|---|---|---|---|
+| **DV-01** | **Fjord mask** | `fjord` (Hydrology) | `buildFjordMask`/`carveFjords`/`currentFjordMask`/`carveFjordsOp`, HTML 3208-3249 | **done, 2026-08-23.** `cartalith_terrain::fjord`; view live; `#fjordBtn` live as *Carve fjords* in `world_workspace.gd`'s Glacial group. `golden_parity_fjord.rs`, 6 tests, bit-exact |
+| **DV-02** | **Landforms** | `landform` (Surface) | `buildLandformField`/`currentLandform`, HTML 8082-8107 | **done, 2026-08-23.** `cartalith_terrain::landform`; view live with the reference's own `LANDFORM_COLS` as its legend. `golden_parity_landform.rs`, 6 tests, bit-exact |
+| **DV-03** | **Wind-throw** | `windthrow` (Civilization) | `buildWindThrowField`/`currentWindThrowField`, HTML 5602-5636 | **done, 2026-08-23.** `cartalith_climate::windthrow`; view live, gated on the civilisation layer's water bodies (the biome raster is a real input, so a loaded save still reports unavailable). `golden_parity_windthrow.rs`, 4 tests, bit-exact |
+| **DV-04** | **Köppen climate** | `koppen` (Climate) | `computeSeasons`/`classifyKoppen`/`buildKoppen`/`koppenColor` (7) | open — WW-09 |
+| **DV-05** | **Orogeny** | `oro` (Tectonics) | the signed orogeny preview | open — needs the boundary-polyline structure `generate_terrain` folds into height and never retains |
+| **DV-06** | **Geoid** | `geoid` (Tectonics) | `buildGeoid`/`refreshGeoid`/`geoAt`/`currentGeoidPreview` (4) | open — WW-07 |
+| **DV-07** | **Tides** | `tides` (Tectonics) | `tidalForcing`/`computeTideField`/`buildTideField`/`refreshTides`/`currentTideField` (5) | open — WW-07 |
+| **DV-08** | **Velocity** | `velo` (Hydrology) | the Mei virtual-pipe velocity-erosion pass | open — WW-02 |
+| **DV-09** | **Pop density** | `popdensity` (Civilization) | the regional persons/km² estimator | open |
+| **DV-10** | **Site profile** | `siteprofile` (Civilization) | the flood + slope buildability composite | open — both inputs exist individually |
+| **DV-11** | **Wildlife** | `wildlife` (Civilization) | `buildTRI`/`guildTrophic`/`buildEcoregions`/`assignWildlife`/`regionRichness`/`wildRegionColor`/`currentWildlife` | open — and its **roster click popup** (`showWildInfo`/`wildFmtPop`) is a separate interaction gap, `PARITY_AUDIT.md` §5 item 8 |
+
+`GAP_LAYERS` is now eight ids, not eleven. `layer_available` gained one
+per-world case: `windthrow` joins `bclass`/`cterrain` on "needs the
+civilisation layer", rather than becoming unconditionally available.
+
+### 17.2 · Two divergences from the reference, disclosed
+
+1. **No hillshade under the class rasters.** The reference draws `landform`
+   and `fjord` over `shadeFactor(x,y)` (HTML 8486-8488). This port's debug
+   rasters are flat-coloured across the board — `lith`, `soil`, `btype` and
+   every other implemented row already are, and `sample_bridge.rs` computes
+   no hillshade at all. Following the module's own convention beat matching
+   the reference on two rows and leaving the other sixteen inconsistent.
+   The fjord view's *non-fjord land* tone uses the reference's own
+   `v*235*s` formula with `s` fixed at 0.47, the midpoint of the range
+   `shadeFactor` would have produced.
+2. **`carve_fjords()` does not re-run flow, rivers or climate.** The
+   reference's `carveFjordsOp` follows the carve with
+   `enforceRiverChannels()`, `computeFlow(true)` and `refreshClimate()`.
+   This port has no re-runnable path for those — the identical gap
+   `sculpt_commit` documents, and for the identical reason. The height
+   field and everything derived from it alone are correct after the call;
+   the flow, Strahler and climate rasters are as they were. Stated in the
+   `#[func]`'s own doc comment and in the button's own note, not only here.

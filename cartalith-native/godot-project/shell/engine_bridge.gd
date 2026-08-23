@@ -602,6 +602,38 @@ func load_asset_pack(path: String) -> bool:
 func has_asset_pack() -> bool:
 	return world_gen.has_asset_pack()
 
+# -- Post-generation field operations -----------------------------------------
+#
+# Two opt-in passes the reference runs from a button, never during generate:
+# `#centerBtn` and the Glacial panel's `#fjordBtn`. Both rewrite the height
+# field in place, so both emit `world_loaded` -- the viewport, layers popover
+# and right dock all already listen for it, which is exactly the "no
+# regeneration needed, the render path reads the field fresh" contract the
+# engine's own doc comments state. Same `has_method` guard as every other
+# wrapper here, so an older GDExtension degrades instead of crashing.
+
+## Rotate the wrapped world so the landmasses sit away from the x-seam
+## (`GUI_GAP_REGISTER.md` MS-01). Returns the engine's summary dictionary:
+## `ok`, `offset`, `seam_column`, and `reason` when `ok` is false.
+func center_landmasses() -> Dictionary:
+	if not world_gen.has_method("center_landmasses"):
+		return {"ok": false, "reason": "This build of the engine has no centring pass."}
+	var r: Dictionary = world_gen.center_landmasses()
+	if bool(r.get("ok", false)) and int(r.get("offset", 0)) != 0:
+		world_loaded.emit()
+	return r
+
+## Overdeepen the glacially-carvable coastal valleys into fjords. Returns
+## the engine's summary dictionary: `ok`, `cells_masked`, `cells_carved`,
+## and `reason` when `ok` is false.
+func carve_fjords() -> Dictionary:
+	if not world_gen.has_method("carve_fjords"):
+		return {"ok": false, "reason": "This build of the engine has no fjord pass."}
+	var r: Dictionary = world_gen.carve_fjords()
+	if bool(r.get("ok", false)) and int(r.get("cells_carved", 0)) > 0:
+		world_loaded.emit()
+	return r
+
 # -- Milestone F tool bindings ------------------------------------------------
 #
 # One thin wrapper per bound-but-unwired #[func], added together so no domain

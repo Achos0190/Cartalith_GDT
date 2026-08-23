@@ -7,7 +7,10 @@ use cartalith_rng::Mulberry32;
 use rayon::prelude::*;
 
 pub mod amplify;
+pub mod center;
+pub mod fjord;
 pub mod infer;
+pub mod landform;
 pub mod sculpt;
 pub mod tile_render;
 

@@ -115,6 +115,18 @@ use cartalith_civ::{
     build_soil_fertility, build_water_access, classify_biome, SuitabilityCtx, BIOME_KEYS, BIOME_LAKE, BIOME_OCEAN, CART_BIOMES,
     CART_TERRAINS, LITH_NAMES,
 };
+use cartalith_climate::windthrow::build_wind_throw_field;
+use cartalith_terrain::fjord::{build_fjord_mask, FjordMaskOpts};
+use cartalith_terrain::infer::chamfer_dist;
+use cartalith_terrain::landform::{build_landform_field, LANDFORM_COLS, LANDFORM_NAMES};
+
+/// The Fjord view's fully-masked colour (reference line 8488's ramp at
+/// `t = 1`), used by the legend so the swatch and the raster cannot drift.
+const FJORD_HI: Rgb = (60.0, 200.0, 240.0);
+
+/// The Wind-throw view's maximum-risk colour (reference line 8506 at
+/// `u = 1`), same reason.
+const WINDTHROW_HI: Rgb = (255.0, 50.0, 50.0);
 
 /// How far a boundary-distance query searches before giving up. A ring
 /// search is O(d²); at 96 that is ~37k cell reads worst case, which is
@@ -548,7 +560,11 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
                 "Velocity",
                 "Not available: no hydraulic velocity-erosion pass (the reference's own \"Pillar 2\") exists in cartalith-erosion.",
             ),
-            ("fjord", "Fjord mask", "Not available: no fjord-probability field exists in this engine."),
+            (
+                "fjord",
+                "Fjord mask",
+                "build_fjord_mask(): the reference's own I_glacial x H_relief x B_crystalline composite, over currentLithology() and the chamfer distance to the sea. Non-zero only on cold, rugged, competent-rock coast.",
+            ),
             ("flood", "Flood", "build_flood_field(): topographic-wetness + discharge + lowland proximity. Land only."),
         ],
     ),
@@ -558,7 +574,11 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
             ("bclass", "Biomes", "buildCartBiome()'s 15-class paint grid, CART_BIOME_COLS."),
             ("cterrain", "Terrain", "buildCartTerrain()'s 13-class paint grid, CART_TERRAIN_COLS."),
             ("lith", "Lithology", "LITH_COLS: the seven rock types."),
-            ("landform", "Landforms", "Not available: no landform classification (the reference's own R5 pass) exists in this engine."),
+            (
+                "landform",
+                "Landforms",
+                "build_landform_field(): the reference's own R5 morphometric classification -- cliff, mesa, cirque, dune, badlands, floodplain, first-match-wins, LANDFORM_COLS.",
+            ),
             ("soil", "Soil fertility", "Pale to rich green. Land only."),
             ("water", "Water access", "build_water_access(): dry tan near nothing, blue near rivers/coast."),
             (
@@ -598,19 +618,29 @@ pub const LAYER_GROUPS: [LayerGroup; 6] = [
                 "Not available: the flood + slope buildability composite has no Rust equivalent beyond its two inputs individually.",
             ),
             ("wildlife", "Wildlife", "Not available: no wildlife-ecoregion classification exists in this engine."),
-            ("windthrow", "Wind-throw", "Not available: no wind-throw hazard model exists in this engine."),
+            (
+                "windthrow",
+                "Wind-throw",
+                "build_wind_throw_field(): prevailing wind speed x closed-canopy density x slope exposure. Land only. Needs the civilisation layer's water bodies for the biome raster, so a loaded save cannot draw it.",
+            ),
             ("control", "Political control", "assign_territory()'s owner per cell, in the faction swatch."),
         ],
     ),
 ];
 
-/// The eighteen reference rows this engine has no computation for at all —
-/// not "unretained", genuinely never ported (this module's own "layer-
+/// The reference rows this engine has no computation for at all — not
+/// "unretained", genuinely never ported (this module's own "layer-
 /// visualization audit" doc section above). Always unavailable, on every
 /// world, which is why these are a flat id list rather than a per-world
 /// input check like every other row below.
-const GAP_LAYERS: &[&str] =
-    &["koppen", "oro", "geoid", "tides", "velo", "fjord", "landform", "popdensity", "siteprofile", "wildlife", "windthrow"];
+///
+/// **Three left this list on 2026-08-23** (`PARITY_AUDIT.md` §3.1):
+/// `fjord`, `landform` and `windthrow` are now real, golden-verified ports
+/// (`cartalith_terrain::fjord`/`::landform`,
+/// `cartalith_climate::windthrow`). `windthrow` moved to a per-world input
+/// check below rather than to unconditional availability — it needs the
+/// biome raster, which needs the civilisation layer's water bodies.
+const GAP_LAYERS: &[&str] = &["koppen", "oro", "geoid", "tides", "velo", "popdensity", "siteprofile", "wildlife"];
 
 /// Whether `id` can be drawn for this world, **without building it**.
 ///
@@ -630,7 +660,7 @@ pub fn layer_available(f: &FieldRefs, id: &str) -> bool {
     match id {
         "off" => true,
         "strahler" => f.stream_order.is_some(),
-        "bclass" | "cterrain" => f.water_bodies.is_some(),
+        "bclass" | "cterrain" | "windthrow" => f.water_bodies.is_some(),
         "control" => f.territory.is_some(),
         other => LAYER_GROUPS.iter().any(|(_, items)| items.iter().any(|(k, _, _)| *k == other)),
     }
@@ -854,6 +884,17 @@ pub fn legend(id: &str) -> Vec<(u8, u8, u8, String)> {
             .collect(),
         "carry" => vec![sw((30.0, 80.0, 30.0), "low"), sw((60.0, 220.0, 60.0), "high carrying capacity")],
         "settle" => vec![sw((80.0, 40.0, 20.0), "poor"), sw((240.0, 140.0, 50.0), "highly suitable")],
+        "fjord" => vec![sw(FJORD_HI, "fjord-prone coast"), sw((30.0, 40.0, 46.0), "no fjord")],
+        // Class swatches, so the palette is the legend -- the same shape
+        // `lith`/`btype` already use. Class 0 ("none") is dropped: it is the
+        // *absence* of a landform, and listing it reads as a seventh kind.
+        "landform" => LANDFORM_COLS
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(k, c)| (c.0 as u8, c.1 as u8, c.2 as u8, LANDFORM_NAMES[k].to_string()))
+            .collect(),
+        "windthrow" => vec![sw(WINDTHROW_HI, "high storm-fell risk"), sw((32.0, 44.0, 40.0), "sheltered / open")],
         _ => Vec::new(),
     }
 }
@@ -1469,6 +1510,92 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
                 push(&mut out, (80.0 + 160.0 * v, 40.0 + 100.0 * (1.0 - v), 20.0 + 30.0 * (1.0 - v)));
             }
         }
+        // The exact chain `currentFjordMask()` (reference line 3240) runs:
+        // a sea mask, its chamfer distance, the lithology grid, and the
+        // default `{}` opts.
+        "fjord" => {
+            let sea_mask: Vec<u8> = (0..n).map(|i| u8::from(is_water(i))).collect();
+            let coast_d = chamfer_dist(&sea_mask, f.gw, f.gh);
+            let lith = build_lithology(f.field, f.age_field, f.volcanic_field, f.crust_field, f.resistance_field, f.rainfall, sea);
+            let mask = build_fjord_mask(
+                f.field,
+                f.temperature,
+                &lith,
+                &coast_d,
+                f.gw,
+                f.gh,
+                sea,
+                FjordMaskOpts::for_width(f.gw),
+            );
+            // Reference line 8488's own ramp: cyan over dim terrain, with
+            // the same `m > 0.02` cut `carve_fjords` uses to decide whether
+            // a cell is in the zone at all.
+            for i in 0..n {
+                if is_water(i) {
+                    push(&mut out, (18.0, 34.0, 58.0));
+                } else {
+                    let m = mask[i] as f64;
+                    if m > 0.02 {
+                        let t = m.min(1.0);
+                        push(&mut out, (20.0 + 40.0 * t, 120.0 + 80.0 * t, 190.0 + 50.0 * t));
+                    } else {
+                        let cc = f.field[i] as f64 * 235.0 * 0.47;
+                        push(&mut out, (cc * 0.9, cc * 0.93, cc));
+                    }
+                }
+            }
+        }
+        "landform" => {
+            let flow_hi = cartalith_hydrology::river_flow_thresh(f.gw, f.gh, f.gw, f.map_width_km);
+            let lf = build_landform_field(
+                f.field,
+                Some(f.temperature),
+                Some(f.rainfall),
+                Some(f.flow_discharge),
+                f.gw,
+                f.gh,
+                sea,
+                flow_hi,
+            );
+            for i in 0..n {
+                if is_water(i) {
+                    push(&mut out, (20.0, 26.0, 40.0));
+                } else {
+                    push(&mut out, LANDFORM_COLS[(lf[i] as usize).min(LANDFORM_COLS.len() - 1)]);
+                }
+            }
+        }
+        "windthrow" => {
+            let biome = build_biome_raster(f.water_bodies?, f.temperature, f.rainfall);
+            let wf = cartalith_climate::current_wind_field(
+                f.gw,
+                f.gh,
+                f.field,
+                sea,
+                f.peak_m,
+                f.world,
+                f.lat_n,
+                f.lat_s,
+                f.equator_temp,
+                f.pole_temp,
+                f.tilt_deg,
+                f.rotation_hours,
+                f.lapse_rate,
+                f.wind_manual,
+                f.wind_dir_deg,
+                f.press_k,
+            );
+            let wt = build_wind_throw_field(f.field, &biome, &wf, f.gw, f.gh, sea, f.world);
+            // Reference line 8506: green (safe) through red (high risk).
+            for i in 0..n {
+                if is_water(i) {
+                    push(&mut out, (18.0, 34.0, 64.0));
+                } else {
+                    let u = wt[i] as f64;
+                    push(&mut out, (50.0 + u * 205.0, 200.0 - u * 150.0, 50.0));
+                }
+            }
+        }
         _ => return None,
     }
     Some(out)
@@ -1871,11 +1998,11 @@ mod tests {
     fn views_without_their_input_return_none() {
         let o = owned(12, 9);
         let no_civ = view(&o, false);
-        for id in ["bclass", "cterrain", "control"] {
+        for id in ["bclass", "cterrain", "control", "windthrow"] {
             assert!(debug_raster(&no_civ, id).is_none(), "{id} needs the civ layer");
         }
         // ...while the WorldState-only views still draw on the same world.
-        for id in ["elevation", "temp", "lith", "slope"] {
+        for id in ["elevation", "temp", "lith", "slope", "fjord", "landform"] {
             assert!(debug_raster(&no_civ, id).is_some(), "{id} needs only WorldState");
         }
         let mut no_rivers = view(&o, true);
@@ -1919,7 +2046,12 @@ mod tests {
         assert_eq!(legend("bclass").len(), 15);
         assert_eq!(legend("btype").len(), 5, "BTYPE 0 (none) is never a boundary colour");
         assert_eq!(legend("rsrc").len(), 6, "only the six the reference's own rsrc view shows");
+        assert_eq!(legend("landform").len(), 6, "class 0 (none) is the absence of a landform, not a class");
         assert!(legend("off").is_empty());
+        // The two ramp legends name the exact colour their own raster
+        // reaches at full intensity, so a swatch cannot drift from the map.
+        assert_eq!(FJORD_HI, (20.0 + 40.0, 120.0 + 80.0, 190.0 + 50.0));
+        assert_eq!(WINDTHROW_HI, (50.0 + 205.0, 200.0 - 150.0, 50.0));
         for (r, g, b, label) in legend("lith") {
             assert!(!label.is_empty());
             assert!(LITH_COLS.contains(&(r, g, b)));

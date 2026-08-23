@@ -5,7 +5,28 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-23 (post **Two small, undisclosed shell gaps: the
+Last updated: 2026-08-23 (post **Four small reference clusters, ported and
+wired: landmass centering, fjords, wind-throw, landform classification**.
+Closes `PARITY_AUDIT.md` §3.1's four smallest "genuinely not done" rows —
+12 reference functions, all four bit-exact on the first attempt, +22 tests
+(`cargo test --workspace`: 120 suites, 1 703 passed, 0 failed, 4 ignored).
+New: `cartalith_terrain::center`/`::fjord`/`::landform`,
+`cartalith_climate::windthrow`, `cartalith_engine::center::center_landmasses`,
+and two `#[func]`s (`center_landmasses`, `carve_fjords`). `GUI_GAP_REGISTER.md`
+MS-01 is **live** — its stated reason for the gap was wrong: the reference does
+not re-roll plate seeds, it circular-shifts every grid array by one offset,
+because a cylinder has no natural longitude origin; the button and its tooltip
+are corrected. Three `GAP_LAYERS` rows became real debug views (`fjord`,
+`landform`, `windthrow`); `GAP_LAYERS` is down from 11 to 8, and `windthrow`
+joins `bclass`/`cterrain` on the per-world "needs the civ layer" check rather
+than becoming unconditionally available. `#fjordBtn` is live as *Carve fjords*
+in `world_workspace.gd`'s Glacial group — opt-in, and it **does not re-run
+flow/rivers/climate**, the same gap `sculpt_commit` documents. New
+`GUI_GAP_REGISTER.md` §17 gives all eleven debug-view gaps register ids
+(DV-01…DV-11), which `PARITY_AUDIT.md` §5 item 8 found they had never had.
+Not verified on a real screen: nobody has looked at the three new views or
+clicked the two new buttons.
+— previously, post **Two small, undisclosed shell gaps: the
 resource overlay and the generation-info dump**. Closes `GUI_GAP_REGISTER.md`
 WI-05/HE-04, `PARITY_AUDIT.md` §5 items 5/6. New `shell/resource_overlay.gd`
 is a top-right diagnostics HUD toggled by `Window ▸ Diagnostics overlay`
