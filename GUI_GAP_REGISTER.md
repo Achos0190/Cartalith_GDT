@@ -2062,3 +2062,28 @@ Note that the same root cause was fixed this pass for the *tool* sheet
 placed into phone chrome without scaling. The fix there was applied at
 `set_tool_options()`, and deliberately does **not** reach the overflow sheet,
 precisely so it does not pre-empt this design.
+
+## 16 · The top-left global tool overlay has no drawn presentation in the DCC canvas (2026-08-23)
+
+Owner-reported, verified by direct search: the top-left tool set (Measure,
+Region select — `global_tools.gd`, `tool_overlay.gd`, per `DCC_SHELL_SPEC.md`
+§4.5.1) is real and live in every domain, but does not appear anywhere in
+`design/Cartalith DCC Shell.dc.html` as a drawn UI element. Confirmed by
+searching the canvas source for "measure"/"paint": the only hits are
+incidental prose ("44 px minimum, **measured** inside the safe area",
+"**repaint** 180 ms") — no toolset artboard exists. `design/Cartalith
+GUI.dc.html` was checked too and has neither.
+
+This is a distinct finding from §13.5(d)'s line on the *Measurement tool* —
+that entry addressed an older, superseded canvas (`Cartalith Menu
+Structure.dc.html`) marking the tool `new` and concluded the canvas
+under-counted an already-shipped feature. This entry is about the *current*
+DCC Shell canvas never having drawn the overlay at all, which is a gap in
+the canvas, not in the shell.
+
+**Owner instruction: do not touch `global_tools.gd`/`tool_overlay.gd` to
+"fix" this.** The owner is designing a more refined presentation for this
+toolset directly. Until that design lands, this is classified **(D)** —
+a deliberate hold, not an open defect — and no agent should reduce, remove,
+or reshape the existing Measure/Region-select functionality to chase visual
+parity with a canvas that simply hasn't drawn it yet.
