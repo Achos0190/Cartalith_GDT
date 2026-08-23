@@ -59,6 +59,13 @@ var _channel := "elevation"
 var _exaggeration := 4.0
 var _samples: Array = []
 var _cursor := -1          ## Index into `_samples`, `-1` for "not scrubbing".
+## The continuous channels' own maximum over THIS section, for the band's
+## bucketing. An absolute scale was the first attempt and it drew Hydrology as
+## one solid bar: flow accumulation is near zero over most of any line and
+## enormous in a channel, so every land sample landed in the same bucket. A
+## band whose job is to show where a field changes has to be scaled to the
+## field's own range along the line it is drawn under.
+var _band_max := {"flow": 1.0, "rain": 1.0}
 
 var _title: Label
 var _cursor_label: Label
@@ -110,6 +117,13 @@ func show_profile(result: Dictionary, channel: String, exaggeration: float) -> v
 		clear()
 		return
 	visible = true
+	_band_max = {"flow": 0.0, "rain": 0.0}
+	for smp in _samples:
+		var sd: Dictionary = smp
+		_band_max["flow"] = maxf(_band_max["flow"], float(sd.get("flow", 0.0)))
+		_band_max["rain"] = maxf(_band_max["rain"], float(sd.get("rain", 0.0)))
+	for k in _band_max.keys():
+		_band_max[k] = maxf(1e-6, _band_max[k])
 	var stats: Dictionary = result.get("stats", {})
 	_title.text = "SECTION A → B   %.0f km   ×%.0f   %s" % [
 		float(result.get("length_km", 0.0)), _exaggeration, _channel_label().to_lower()]
@@ -285,6 +299,11 @@ func _draw_band(r: Rect2) -> void:
 		_plot.draw_rect(Rect2(Vector2(x0, y), Vector2(maxf(1.0, x1 - x0), H_BAND - 4.0)),
 			_band_color(key), true)
 
+## Eight buckets over `[0, top]`, so a band always shows this section's own
+## spread rather than an absolute scale most sections never reach.
+func _bucket(v: float, top: float) -> int:
+	return clampi(int(clampf(v / maxf(1e-9, top), 0.0, 1.0) * 7.0), 0, 7)
+
 func _band_key(s: Variant) -> String:
 	var d: Dictionary = s
 	match _channel:
@@ -293,9 +312,14 @@ func _band_key(s: Variant) -> String:
 		"geology":
 			return String(d.get("lithology", "—"))
 		"climate":
-			return "r%d" % int(clampf(float(d.get("rain", 0.0)), 0.0, 1.0) * 7.0)
+			return "r%d" % _bucket(float(d.get("rain", 0.0)), float(_band_max["rain"]))
 		"hydrology":
-			return "f%d" % clampi(int(log(maxf(1.0, float(d.get("flow", 0.0)))) ), 0, 7)
+			## log1p, not linear and not sqrt: flow accumulation is heavily
+			## heavy-tailed -- one trunk channel carries a thousand times a
+			## hillslope cell, so linear puts everything but the trunk in
+			## bucket 0 and sqrt only narrowly improves on that. Checked on a
+			## real 2 183 km section: linear and sqrt both drew one solid bar.
+			return "f%d" % _bucket(log(1.0 + maxf(0.0, float(d.get("flow", 0.0)))), log(1.0 + float(_band_max["flow"])))
 		_:
 			return ""
 

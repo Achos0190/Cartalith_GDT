@@ -20007,7 +20007,7 @@ crossings, each listed with its own distance; an area reading of
 840 820 km² projected · 840 948 km² true surface · −188 398 km² water ·
 652 422 km² land over 21 525 cells at stride 1.
 
-**Four defects the windowed pass found and the headless one could not:**
+**Five defects the windowed pass found and the headless one could not:**
 
 1. **The right dock was pushed off the screen.** A `Label` reports its full
    text width as its minimum size, and this bar sits in the shell's own
@@ -20029,6 +20029,13 @@ crossings, each listed with its own distance; an area reading of
 4. **Two duplicated readings** — the scrub cursor printed elevation twice on
    the Elevation channel, and the Sculpt header read `SCULPT ·` with an
    empty sub-mode whenever a non-Freehand feature was armed.
+5. **The strip's Hydrology band drew as one solid bar.** Flow accumulation is
+   heavily heavy-tailed — a trunk channel carries a thousand times a hillslope
+   cell — so both an absolute scale and a `sqrt` one put every land sample in
+   bucket 0. Bucketing is `log1p` against the *section's own* maximum now;
+   measured on the same 2 183 km line, all four bands carry five distinct
+   classes with real spatial structure (terrain 50/42/42/30/4 samples per
+   class, geology 103/30/17/12/6, hydrology 97/58/7/5/1).
 
 **Not verified:** Android/touch and the phone layout of the two-row bar
 (`DECISIONS.md` §5). Twelve canvas affordances are unbuilt and each is
