@@ -15,6 +15,8 @@ var menus := DccMenus.new()
 var new_world_dialog: NewWorldDialog
 var world_data_window: WorldDataWindow
 var performance_window: PerformanceWindow
+var resource_overlay: ResourceOverlay
+var gen_info_dialog: GenInfoDialog
 var journey_planner_view: JourneyPlannerView
 var layers_popover: LayersPopover
 var right_dock_ctrl: RightDock
@@ -120,6 +122,23 @@ func _ready() -> void:
 	viewport_content.add_child(viewport)
 	viewport.setup(bridge)
 
+	## `PARITY_AUDIT.md` §5 item 5, the reference's `#resOverlay` (Shift+D) --
+	## a top-right diagnostics HUD, not part of `ViewportHost`'s own "exactly
+	## five things" chrome budget (that file's own header comment), so it is
+	## a second, independent child of `viewport_content` ("the map surface;
+	## overlays are children" -- `dcc_shell.gd`), added after `viewport` so
+	## it draws on top. Anchored/offset in its own script; static insets, not
+	## `set_safe_insets()`-aware -- ponytail: fine for a debug HUD, revisit if
+	## phone chrome ever needs it collision-free.
+	resource_overlay = ResourceOverlay.new()
+	resource_overlay.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	resource_overlay.offset_left = -260
+	resource_overlay.offset_top = 34
+	resource_overlay.offset_right = -10
+	resource_overlay.offset_bottom = 150
+	viewport_content.add_child(resource_overlay)
+	resource_overlay.setup(bridge)
+
 	## Phone chrome sits on top of an edge-to-edge map (§13); `ViewportHost`'s
 	## own corner chrome needs to know where that chrome's edges are so it
 	## doesn't draw under the app bar/rail/tool sheet. Never runs off the
@@ -145,6 +164,10 @@ func _ready() -> void:
 	performance_window = PerformanceWindow.new()
 	add_child(performance_window)
 	performance_window.setup(bridge)
+
+	gen_info_dialog = GenInfoDialog.new()
+	add_child(gen_info_dialog)
+	gen_info_dialog.setup(self, bridge)
 
 	data_manager_window = DataManagerWindow.new()
 	add_child(data_manager_window)
@@ -515,6 +538,12 @@ func open_world_data(tab: String = "") -> void:
 
 func open_performance() -> void:
 	performance_window.open()
+
+func open_gen_info() -> void:
+	gen_info_dialog.open()
+
+func toggle_resource_overlay() -> void:
+	resource_overlay.toggle()
 
 ## `Data`'s five group items (`menus.gd`) all converge here -- `group` is one
 ## of the five `DataManagerWindow.GROUP_ORDER` names, empty opens the window

@@ -18082,3 +18082,99 @@ editor-only evidence.
   project` drawing two stacked headers). Previously reported, seen again this
   pass on the boot screen, and still not fixed: it is §13 dialog layout work,
   not menu work.
+
+## Two small, undisclosed shell gaps: the resource overlay and the generation-info dump (2026-08-23)
+
+`PARITY_AUDIT.md` §3.6 and §5 items 5/6: the reference's Shift+D `#resOverlay`
+and its ℹ️ `#genInfoBtn`/`generationInfoText()` had no port anywhere in this
+shell, and no document disclosed either gap before the audit found them.
+Both are presentation-only wiring over data the engine already exposes — no
+`cartalith-godot` change was needed for either.
+
+**Read the reference before building, and it corrected the premise.**
+`PARITY_AUDIT.md` §5 item 5 (reasonably) guessed `#resOverlay` was a
+cursor-hover resource-potential readout, by name alone. The actual reference
+(`reference/Cartalith Gen1 v2.10.html:10182-10229`) is not hover-driven at
+all: `updateResOverlay()` reads `GW`/`GH`, an approximate memory total, GPU
+status, IndexedDB/Worker availability, LOD state, a handful of boolean
+"active feature" flags and the last generate/render timings, refreshed after
+each render — a small top-right **engine/perf diagnostics HUD**. "res" is
+short for "resolution", not "resource"; it is unrelated to the Resources
+debug *layer* `layers_popover.gd` already draws (a coloured raster — this is
+text, and the two can be on at once).
+
+**Built**, new `godot-project/shell/resource_overlay.gd` (`ResourceOverlay`,
+a `PanelContainer` + one `Label`), field-for-field where this native port
+has a real equivalent and honestly dropped where it doesn't:
+
+- Grid size and megapixels (`EngineBridge.grid_size()`).
+- Working set MB (`OS.get_static_memory_usage()`, same source
+  `performance_window.gd` already uses).
+- GPU status and stage count (`param_get("use_gpu")` + `gpu_stages_used()`).
+- Quality tier (`quality_tier()`).
+- Active feature flags — only the three that exist as real `params.rs`
+  entries (`tect.dynamic_lithology`, `climate.currents`, `volc.provinces`),
+  read straight off `WorldGen.get_params()`. The reference's Seasons/Geoid/
+  Tides flags have no matching `WorldParams` field anywhere in this port
+  and are omitted rather than guessed at; IndexedDB/Worker availability are
+  browser concepts with no native meaning; the reference's `PERF.gen`/
+  `PERF.render` per-stage millisecond breakdown has no Rust-side collector
+  anywhere in `cartalith-godot` and adding one is real engine work, out of
+  this ticket's scope.
+
+Refreshes on `generation_finished`/`world_loaded` plus a 0.5 s `Timer` while
+visible — the cheapest stand-in for the reference's "after every render"
+hook, which would need a render-pipeline callback this port doesn't have
+(`ponytail:` named in the file's own header; add a real render-completion
+signal if 0.5 s latency ever matters). Toggled by a new `Window ▸
+Diagnostics overlay` check item in `menus.gd`, `KEY_MASK_SHIFT | KEY_D`
+accelerator, off by default and independent of the five region-visibility
+checks and their `Reset layout` handling.
+
+**Built**, new `godot-project/shell/gen_info_dialog.gd` (`GenInfoDialog`, an
+`AcceptDialog`) — a bug-report affordance opened from a new `Help ▸
+Generation info…` item: a read-only, selectable `TextEdit` dump of the
+current generation's parameters, plus a `Copy to clipboard` button
+(`DisplayServer.clipboard_set`, the same pattern `journey_planner_view.gd`'s
+stage-table export already uses, with `app.set_status(...)` confirming the
+copy). The reference's `generationInfoText()` is two parts — a hand-picked
+summary line (temperature/altitude range, max grade, read off live JS field
+arrays) and a `JSON.stringify` of the whole generation-affecting state,
+deliberately not hand-picked so a future slider needs no update to the dump
+function. Only the second part is buildable under this ticket's "call the
+existing function, format it, show it" scope: `WorldGen.get_params()`
+(`cartalith-godot/src/lib.rs`) is already exactly that, a flat dotted-key
+dictionary of every generation parameter's current value, self-updating as
+params are added. No `#[func]` anywhere returns field min/max, so the
+elevation/temperature/grade summary is real, out-of-scope engine work and is
+not invented here — the dialog leads instead with what is free (grid, seed,
+extent, quality tier, GPU on/off, all already-exposed reads) and lets
+`get_params()` cover the rest.
+
+Both dialogs/windows follow the existing `app.gd` convention exactly:
+instantiated once in `_ready()`, added to `menus.gd`'s `Window ▸ Open
+windows` live list alongside `Performance`/`Data manager`/etc.
+
+**Verified**: `--headless --path godot-project --quit` clean (after one
+`--editor` pass to register the two new `class_name` scripts in
+`.godot/global_script_class_cache.cfg` — the plain console runtime doesn't
+rebuild that cache on its own, same gotcha `STATUS.md` already records for
+newly-added font resources). Real non-headless interaction: a throwaway
+`SceneTree` harness script (`_verify_res_geninfo.gd`, deleted after — no GUI
+automation tool exists in this sandbox to drive a live window's mouse/
+keyboard, so this drives the same signals a live Shift+D press / menu click
+would through the real `DccApp` scene, the same "direct event injection"
+convention `STATUS.md` already discloses for the Asset Library drag-and-drop
+pass) generated a real 128×83 world and confirmed:
+- `app.toggle_resource_overlay()` flips `resource_overlay.visible` both ways,
+  and the live text reads `128 × 83 · 0.01 MP` / `Working set: 166.3 MB` /
+  `GPU: on · 7 stages` / `Quality: quality` / `Active: Currents, VolcProv`
+  (both booleans set true in the test request, both showing correctly).
+- `gen_info_dialog._dump_text()` reads `Seed 12345` / `Grid 128 x 83 · 1000 x
+  648 km`, contains `Full generation parameters (for reproducing this exact
+  world):` followed by every sorted `get_params()` key with its real value
+  (`tect.plates: …`, `sea_level: 0.42`, …).
+
+**`GUI_GAP_REGISTER.md`** gains **WI-05** (§6.6) and **HE-04** (§6.7),
+classified **(A)**, closing the two undisclosed breaches `PARITY_AUDIT.md`
+§5 found.

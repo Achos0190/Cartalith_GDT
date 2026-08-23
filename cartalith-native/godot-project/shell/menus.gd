@@ -59,10 +59,12 @@ const ID_WIN_TIMELINE := 62
 const ID_WIN_STATUS := 63
 const ID_WIN_RAIL := 64
 const ID_WIN_RESET := 65
+const ID_WIN_DIAG_OVERLAY := 66
 
 const ID_HELP_CREDITS := 70
 const ID_HELP_ABOUT := 71
 const ID_HELP_SHORTCUTS := 72
+const ID_HELP_GEN_INFO := 73
 
 var _shell: DccShell
 var _bridge: EngineBridge
@@ -918,6 +920,20 @@ func _window(p: PopupMenu) -> void:
 		p.set_item_checked(p.item_count - 1, true)
 	p.add_separator()
 
+	## `PARITY_AUDIT.md` §5 item 5: the reference's `#resOverlay` (Shift+D) --
+	## a top-right diagnostics HUD (`resource_overlay.gd`'s own header
+	## comment explains why "Resource" is a misnomer). Off by default,
+	## unlike the five region checks above -- this is a debug aid, not a
+	## layout region a "Reset layout" click should ever have to re-show.
+	p.add_check_item("Diagnostics overlay", ID_WIN_DIAG_OVERLAY)
+	var diag_idx := p.item_count - 1
+	p.set_item_accelerator(diag_idx, KEY_MASK_SHIFT | KEY_D)
+	p.id_pressed.connect(func(id: int):
+		if id == ID_WIN_DIAG_OVERLAY:
+			_host.toggle_resource_overlay()
+			p.set_item_checked(diag_idx, _host.resource_overlay.visible))
+	p.add_separator()
+
 	## WI-02: a real submenu over `DccShell.DOMAINS` -- the list itself is
 	## fixed so it's built once, like `_quality_popup`'s own tier list;
 	## `about_to_popup` only refreshes which row shows as the active domain,
@@ -991,6 +1007,7 @@ func _refresh_open_windows() -> void:
 		["New world…", _host.new_world_dialog],
 		["World data tables", _host.world_data_window],
 		["Performance", _host.performance_window],
+		["Generation info", _host.gen_info_dialog],
 		["Data manager", _host.data_manager_window],
 		["Asset library", _host.asset_library_window],
 		["Travel library", _host.travel_library_window],
@@ -1017,6 +1034,11 @@ func _help(p: PopupMenu) -> void:
 	_todo(p, "Documentation", "No in-app documentation yet; the repository docs are the reference.")
 	_todo(p, "Keyboard shortcuts", "No shortcut table yet.")
 	_live(p, "Credits & academic principles", ID_HELP_CREDITS)
+	## `PARITY_AUDIT.md` §5 item 6: the reference's ℹ️ `#genInfoBtn` --
+	## dumps every generation parameter as plain text, a bug-report
+	## affordance distinct from "Report an issue" below (which still has no
+	## actual issue-filing route).
+	_live(p, "Generation info…", ID_HELP_GEN_INFO)
 	_todo(p, "Report an issue", "No issue route wired.")
 	_live(p, "About", ID_HELP_ABOUT)
 	p.id_pressed.connect(_on_help)
@@ -1024,4 +1046,5 @@ func _help(p: PopupMenu) -> void:
 func _on_help(id: int) -> void:
 	match id:
 		ID_HELP_CREDITS: _host.open_credits()
+		ID_HELP_GEN_INFO: _host.open_gen_info()
 		ID_HELP_ABOUT: _host.open_about()

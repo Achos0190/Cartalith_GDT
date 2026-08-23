@@ -5,7 +5,31 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-23 (post **Phone menu: the five-level disclosure tree from
+Last updated: 2026-08-23 (post **Two small, undisclosed shell gaps: the
+resource overlay and the generation-info dump**. Closes `GUI_GAP_REGISTER.md`
+WI-05/HE-04, `PARITY_AUDIT.md` §5 items 5/6. New `shell/resource_overlay.gd`
+is a top-right diagnostics HUD toggled by `Window ▸ Diagnostics overlay`
+(Shift+D) — grid size, working-set MB, GPU status/stage count, quality tier
+and three real `WorldParams` feature flags, refreshed on generate/load plus a
+0.5s timer while visible. Correcting the audit's own reasonable guess: the
+reference's `#resOverlay` is **not** a cursor-hover resource-potential
+readout — "res" is short for "resolution", and the real `updateResOverlay()`
+(reference lines 10182-10229) is a static engine/perf panel refreshed after
+render, distinct from the Resources debug *layer* already built in
+`layers_popover.gd`. New `shell/gen_info_dialog.gd` is a `Help ▸ Generation
+info…` bug-report dialog: a selectable `TextEdit` dump of `WorldGen.
+get_params()` (already the full parameter set, dotted-key dict, self-updating
+as params are added) plus a `Copy to clipboard` button — deliberately not the
+reference's elevation/temperature/grade summary line, which reads live JS
+field arrays this port has no `#[func]` for and is real, out-of-scope engine
+work. Zero Rust changes for either — both are wiring over `EngineBridge`/
+`WorldGen` calls that already existed. Verified: `--headless --path . --quit`
+clean (after one `--editor` pass to register the two new `class_name`
+scripts), and a throwaway `SceneTree` harness (`_verify_res_geninfo.gd`,
+deleted after — no GUI-automation tool exists in this sandbox to drive a
+live window) generated a real 128×83 world and confirmed both surfaces show
+real, correct live values (`CHANGELOG.md` has the exact readouts).
+— previously, post **Phone menu: the five-level disclosure tree from
 the Android canvas**. Closes `GUI_GAP_REGISTER.md` §15 — the phone menu was
 wired but unusable (unscaled, buried in desktop status chrome, inert to touch).
 New `shell/phone_menu.gd` re-presents `menus.gd` as the canvas's five levels
