@@ -17,21 +17,94 @@ use rayon::prelude::*;
 use cartalith_jsmath::js_atan2;
 
 /// Descending-height, ascending-index-on-tie comparison — the ordering
-/// `_flowRadixSortDesc()` (reference HTML lines 4846-4861) guarantees.
-/// The JS implementation is a radix sort operating on IEEE-754 bit
-/// patterns (an order-preserving float→uint key, inverted for descending
-/// order); the *algorithm* is a correctness-equivalent substitution
-/// target per `PROVENANCE.md` (flow accumulation is downstream of the
-/// heightmap pixels — only the ordering guarantee matters for parity,
-/// not the sort implementation), but its **quirk carries over**: JS
-/// explicitly normalizes `-0.0`'s sort key to match `+0.0`
+/// [`flow_sort_desc`] must produce. **The oracle, not the implementation**:
+/// this is what `compute_flow` used to sort by directly, kept as the
+/// reference definition the radix sort is tested against
+/// (`flow_sort_desc_is_element_identical_to_the_comparison_sort`).
+///
+/// JS explicitly normalizes `-0.0`'s sort key to match `+0.0`
 /// (`if(b===0x80000000) b=0`), which `f32::total_cmp` does not do on its
 /// own (`total_cmp` treats `-0.0 < +0.0`) — normalized here before
 /// comparing.
+#[cfg(test)]
 fn flow_cmp_desc(a: f32, b: f32) -> std::cmp::Ordering {
     let na = if a == 0.0 { 0.0f32 } else { a };
     let nb = if b == 0.0 { 0.0f32 } else { b };
     nb.total_cmp(&na)
+}
+
+/// `_flowRadixSortDesc()` (reference HTML lines 4846-4861): a stable LSD
+/// radix sort over the raw `f32` bit patterns, producing cell indices in
+/// descending height with ties in ascending index.
+///
+/// **Why this is a legitimate substitution at all.** Flow accumulation is
+/// downstream of the heightmap pixels, so per `PROVENANCE.md` only the
+/// *ordering guarantee* is part of the parity contract, not the sort
+/// algorithm — the reference's own comment says the same thing from the
+/// other side, calling its radix sort "BIT-IDENTICAL to the old
+/// `order.sort((a,b)=>field[b]-field[a])` … by construction." This port
+/// carried the comparison form until now; the reference replaced it in
+/// v0.148 after measuring the comparator sort as *"the single hottest
+/// `generate()` line"* (~1,005 ms per call at 2048², 1,005 → 120 ms).
+///
+/// **The key transform, verbatim from the reference.** Three steps on the
+/// `u32` bit pattern:
+/// 1. `if b == 0x8000_0000 { b = 0 }` — canonicalise `-0.0` to `+0.0`.
+///    Without this one line the radix would order them deterministically by
+///    sign and split a tie the comparator treats as equal.
+/// 2. sign-flip so ascending `u32` means ascending `f32`: negatives get
+///    `!b`, non-negatives get `b | 0x8000_0000`. (This is the same total
+///    order `f32::total_cmp` implements, NaNs included — checked, not
+///    assumed: `+NaN` maps above `+inf` and `-NaN` below `-inf` under both.)
+/// 3. `!b` — invert, so ascending `u32` now means **descending** `f32`.
+///
+/// **Stability is load-bearing, and it is a property of the construction,
+/// not an accident.** Counting sort per byte is stable, and the initial
+/// permutation is ascending index, so equal keys come out in ascending
+/// index order — matching JS's spec-stable `Array#sort`. Tie order is not
+/// cosmetic: equal-height cells draining into one receiver add their
+/// `f32` discharge in this order, and float addition rounding depends on
+/// it (`cartalith-rust-conventions`: do not reorder float operations).
+///
+/// Four 8-bit passes end back in the buffer they started in, so the result
+/// is `src` after the last swap, not a fixed one of the two.
+fn flow_sort_desc(field: &[f32], n: usize) -> Vec<u32> {
+    assert!(
+        n <= u32::MAX as usize,
+        "flow_sort_desc indexes cells with u32; {n} cells is beyond that (a >4-billion-cell grid is not a shape this engine ships)"
+    );
+    let mut keys = vec![0u32; n];
+    for (key, &v) in keys.iter_mut().zip(&field[..n]) {
+        let mut b = v.to_bits();
+        if b == 0x8000_0000 {
+            b = 0;
+        }
+        b = if b & 0x8000_0000 != 0 { !b } else { b | 0x8000_0000 };
+        *key = !b;
+    }
+
+    let mut src: Vec<u32> = (0..n as u32).collect();
+    let mut dst = vec![0u32; n];
+    let mut cnt = [0u32; 256];
+    for shift in [0u32, 8, 16, 24] {
+        cnt.fill(0);
+        for &k in &keys {
+            cnt[((k >> shift) & 255) as usize] += 1;
+        }
+        let mut sum = 0u32;
+        for c in cnt.iter_mut() {
+            let here = *c;
+            *c = sum;
+            sum += here;
+        }
+        for &id in &src {
+            let bucket = &mut cnt[((keys[id as usize] >> shift) & 255) as usize];
+            dst[*bucket as usize] = id;
+            *bucket += 1;
+        }
+        std::mem::swap(&mut src, &mut dst);
+    }
+    src
 }
 
 /// `computeFlow()` (reference HTML lines 4862-4890): D8 steepest-descent
@@ -62,8 +135,7 @@ fn flow_cmp_desc(a: f32, b: f32) -> std::cmp::Ordering {
 /// floating-point-reordering reason `stream_power_kernel::ss` is.
 pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, use_rain: bool, world: bool) -> Vec<f32> {
     let n = gw * gh;
-    let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&a, &b| flow_cmp_desc(field[a], field[b]).then(a.cmp(&b)));
+    let order = flow_sort_desc(field, n);
 
     let mut acc = vec![0f32; n];
     if use_rain {
@@ -92,6 +164,7 @@ pub fn compute_flow(gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, u
     }
 
     for &i in &order {
+        let i = i as usize;
         let x = (i % gw) as i64;
         let y = (i / gw) as i64;
         let h = field[i] as f64;
@@ -582,7 +655,105 @@ pub fn enforce_river_channels(field: &mut [f32], river_mask: &[u8], river_floor:
 
 #[cfg(test)]
 mod tests {
-    use super::{build_channels, enforce_river_channels};
+    use super::{build_channels, enforce_river_channels, flow_cmp_desc, flow_sort_desc};
+
+    /// The whole contract of the radix substitution: **element-identical**,
+    /// not merely value-identical. `assert_eq!` on the index vector itself,
+    /// because tie order decides the order equal-height cells add their
+    /// `f32` discharge into a shared receiver, and float addition is not
+    /// associative (`cartalith-rust-conventions`).
+    ///
+    /// The oracle is the comparison sort this replaced, verbatim:
+    /// `sort_by(flow_cmp_desc(field[a], field[b]).then(a.cmp(&b)))`.
+    ///
+    /// The fixtures are shaped to *reach* the two quirks rather than to look
+    /// varied. `field` is `f32` throughout, which is what `WorldState.field`
+    /// is — the reference's `Float32Array`.
+    #[test]
+    fn flow_sort_desc_is_element_identical_to_the_comparison_sort() {
+        let oracle = |field: &[f32]| -> Vec<u32> {
+            let mut order: Vec<u32> = (0..field.len() as u32).collect();
+            order.sort_by(|&a, &b| flow_cmp_desc(field[a as usize], field[b as usize]).then(a.cmp(&b)));
+            order
+        };
+
+        let cases: Vec<(&str, Vec<f32>)> = vec![
+            ("empty", vec![]),
+            ("one", vec![0.5]),
+            // Negative zero next to positive zero, in both orders, with a
+            // duplicate of each: the one quirk the reference calls out by
+            // name. `total_cmp` alone would order these by sign.
+            ("signed zeros", vec![-0.0, 0.0, -0.0, 0.5, 0.0, -0.0, -0.25, 0.0]),
+            ("all zeros, mixed sign", vec![-0.0, 0.0, -0.0, -0.0, 0.0, 0.0, -0.0, 0.0]),
+            // Every element tied: the sort degenerates to "is it stable?".
+            ("all equal", vec![0.375f32; 64]),
+            // Many ties in runs, so a non-stable radix would scramble
+            // within a run without changing any *value*.
+            (
+                "long tied runs",
+                (0..300).map(|i| ((i / 7) as f32) * 0.125 - 8.0).collect(),
+            ),
+            // Signs, subnormals, infinities and NaN (both signs). NaN cannot
+            // occur in a generated `field` -- the reference asserts as much
+            // ("all fields are finite, Invariant 2") -- but the two orderings
+            // must still agree on it, or the equivalence claim is narrower
+            // than it reads.
+            (
+                "the awkward IEEE values",
+                vec![
+                    f32::NAN,
+                    -f32::NAN,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::MIN_POSITIVE,
+                    -f32::MIN_POSITIVE,
+                    f32::from_bits(1),
+                    f32::from_bits(0x8000_0001),
+                    0.0,
+                    -0.0,
+                    1.0,
+                    -1.0,
+                    f32::MAX,
+                    f32::MIN,
+                ],
+            ),
+            // Quantised heights: a real heightmap's ties come from a coarse
+            // lattice, not from bit-identical randomness.
+            (
+                "quantised lattice",
+                (0..1024).map(|i| ((i * 37) % 19) as f32 / 19.0).collect(),
+            ),
+            // A monotone ramp and its reverse: no ties at all, so any
+            // failure here is the key transform, not the stability.
+            ("ramp up", (0..500).map(|i| i as f32 * 1e-3 - 0.25).collect()),
+            ("ramp down", (0..500).map(|i| 0.25 - i as f32 * 1e-3).collect()),
+        ];
+
+        for (label, field) in &cases {
+            let got = flow_sort_desc(field, field.len());
+            assert_eq!(got, oracle(field), "{label}");
+        }
+
+        // A pseudo-random f32 field spanning the whole exponent range, so
+        // every byte of every key actually varies -- the ten curated cases
+        // above are narrow by design and would not catch a wrong shift.
+        let mut s = 0x12345678u32;
+        let mut wide: Vec<f32> = Vec::with_capacity(5000);
+        for _ in 0..5000 {
+            s ^= s << 13;
+            s ^= s >> 17;
+            s ^= s << 5;
+            let v = f32::from_bits(s);
+            wide.push(if v.is_finite() { v } else { (s as f32) * 1e-9 });
+        }
+        assert_eq!(flow_sort_desc(&wide, wide.len()), oracle(&wide), "wide random");
+
+        // And the same field quantised hard, to force thousands of ties on
+        // top of that spread.
+        let tied: Vec<f32> = wide.iter().map(|v| (v.signum() * (v.abs().log2().floor())).max(-40.0)).collect();
+        assert_eq!(flow_sort_desc(&tied, tied.len()), oracle(&tied), "wide random, quantised");
+    }
+
 
     // ---- Math.atan2 fidelity (JS_SEMANTICS_AUDIT.md §4.4) ----------------
     //

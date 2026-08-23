@@ -20605,3 +20605,108 @@ one O(N) per-cell pass rather than a global sort-and-walk, and skipping it
 would mean restructuring `apply_ocean_currents`' `&mut temperature` argument —
 recorded in `DECISIONS.md` §7f so the next reader knows it was weighed, not
 missed.
+
+---
+
+## `compute_flow`'s sort: the reference's own radix sort, ported (2026-08-24)
+
+The other half of `GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md`'s top two
+findings (§3.2.2), and the one the document deliberately framed as *a
+measurement, not a design*: **do not assume the JS ratio transfers.** V8's
+`Array#sort` and Rust's `slice::sort_by` are different implementations with
+different constant factors, and this project has produced honest negative
+results before (GPU weather at 0.93×, GPU flow at 128² at 0.20×). So it was
+built, measured, and only then kept.
+
+**The situation.** `compute_flow` ordered cells with
+
+```rust
+order.sort_by(|&a, &b| flow_cmp_desc(field[a], field[b]).then(a.cmp(&b)));
+```
+
+— a comparison sort over `N` indices with an indirection into `field` on every
+comparison. The reference carried exactly this form until v0.148, measured it
+as *"the single hottest `generate()` line"* (~1,005 ms per call at 2048²), and
+replaced it with a stable LSD radix sort over the raw `f32` bit patterns
+(1,005 → 120 ms). The Rust port had been carrying the pre-optimisation form.
+
+**Why this is not a parity question**, and this was checked rather than
+assumed: flow accumulation is downstream of the heightmap pixels, so
+`PROVENANCE.md`'s rule ("hand-port anything upstream of the heightmap") puts
+only the *ordering guarantee* inside the parity contract, not the sort
+algorithm. `flow_cmp_desc`'s own doc comment had already said so in this
+repository, before this pass. The reference agrees from its side, calling its
+radix sort *"BIT-IDENTICAL to the old `order.sort((a,b)=>field[b]-field[a])` …
+by construction."*
+
+**Ported from the reference, not written from scratch**, so the digit scheme
+matches: four 8-bit LSD passes, counting sort per byte, the key transform
+verbatim —
+
+1. `if b == 0x8000_0000 { b = 0 }` — canonicalise `-0.0` to `+0.0`. Without
+   this the radix would order `-0.0` and `+0.0` deterministically by sign and
+   split a tie the comparator treats as equal.
+2. sign-flip so ascending `u32` means ascending `f32`.
+3. `!b` — invert, so ascending `u32` means **descending** `f32`.
+
+The NaN question was answered rather than waved at: step 2 is the same total
+order `f32::total_cmp` implements, `+NaN` above `+inf` and `-NaN` below
+`-inf` under both, so the two orderings agree even on values the reference
+asserts cannot occur ("all fields are finite, Invariant 2").
+
+**Stability is load-bearing and it is structural.** Counting sort per byte is
+stable and the initial permutation is ascending index, so equal keys come out
+in ascending-index order — what JS's spec-stable `Array#sort` gives for
+comparator-equal elements, and what the previous `.then(a.cmp(&b))` gave here.
+This is not cosmetic: equal-height cells draining into one receiver add their
+`f32` discharge in this order, and float addition is not associative
+(`cartalith-rust-conventions`).
+
+**Verified — element-identical, not value-identical.**
+`flow_sort_desc_is_element_identical_to_the_comparison_sort` `assert_eq!`s the
+**index vector itself** against the comparison sort it replaced, which is kept
+as the oracle (`#[cfg(test)]`). Twelve fixtures, shaped to reach the quirks
+rather than to look varied: signed zeros in both orders with duplicates; an
+all-zeros field of mixed sign; 64 identical values (the sort degenerates to
+"is it stable?"); 300 elements in tied runs of 7; NaN of both signs,
+infinities, subnormals, `MIN`/`MAX`; a quantised lattice; a monotone ramp and
+its reverse (no ties at all, so a failure there is the key transform, not the
+stability); a 5,000-element xorshift field spanning the whole exponent range
+so every byte of every key varies; and that field quantised hard to force
+thousands of ties on top of the spread. Plus the three existing
+reference-derived `golden_parity_flow.rs` fixtures, unchanged and still exact.
+
+**Measured, `--release`, best of 3 after a warm-up, on a real generated
+2048² field — the sort in isolation:**
+
+| Size | `sort_by` | radix | Speedup |
+|---|---|---|---|
+| 512² | 15.7 ms | 1.7 ms | 9.35× |
+| 1024² | 75.0 ms | 7.0 ms | 10.67× |
+| 2048² | **341.8 ms** | **30.8 ms** | **11.08×** |
+
+The sort was **85 %** of `compute_flow` at 2048². Whole kernel, same runs:
+
+| Size | Before | After |
+|---|---|---|
+| 512² | 19.3 ms | 5.2 ms |
+| 1024² | 88.5 ms | 21.4 ms |
+| 2048² | **402.0 ms** | **95.9 ms** (4.19×) |
+
+**End to end**, `timing_bench`, with the §7f skip already in (three flow calls
+per default generation, not four):
+
+| Size | After §7f | After the radix | Saved |
+|---|---|---|---|
+| 512² | 0.3280 s | 0.3152 s | 13 ms |
+| 1024² | 1.0385 s | 0.9127 s | 126 ms (12.1 %) |
+| 2048² | 4.3955 s | **3.5181 s** | **877 ms (20.0 %)** |
+
+**Both changes together: 2048² went 4.8275 s → 3.5181 s — 1.31 s, 27.1 %
+faster, a 1.37× generation.** At 128² the two are within noise of each other
+(0.0784 s → 0.0801 s); the grid is too small for either term to matter, which
+is the same shape every measured pass in this project has found.
+
+The workspace suite — 1,881 tests across 128 binaries, every golden-parity
+fixture in all fourteen crates — stays green with **no tolerance touched** and
+no fixture regenerated. `cargo clippy` clean on both crates; the cdylib builds.

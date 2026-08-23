@@ -5,7 +5,38 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **GeoJSON export gets its boundary, and tidal
+Last updated: 2026-08-24 (post **Generation is 27 % faster and every golden
+value is unchanged** — the two top findings of
+`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md`, implemented and measured.
+**2048² default generation: 4.8275 s → 3.5181 s (1.37×).** Both are pure
+performance changes, both proved rather than argued, no tolerance touched, no
+fixture regenerated. (1) `DECISIONS.md` **§7f** — the pre-carve
+`computeFlow(true)` is skipped when `carve_rivers` is on, because every
+statement in the carve block reads `field`/`pre`/`stress`/`resistance_field`/
+`rainfall`/its own `flow_for_network` and never `flow_discharge` before step
+(3) overwrites it. Skipped only when carving; when `carve_rivers` is off that
+call **is** the output. A disclosed deviation from the reference's own call
+order (in JS `flowField` is a module global with readers at any moment; here
+it is a local with none), recorded per `CLAUDE.md` rather than absorbed —
+**432 ms at 2048², 8.9 %**. Held to bit-identity by
+`precarve_flow_skip_leaves_generation_bit_identical`, which runs the same
+generation twice through a private `force_precarve_flow` escape hatch and
+`assert_eq!`s every raster plus `gpu_stages_used` over six fixtures. (2)
+`compute_flow`'s comparison sort became **the reference's own stable LSD radix
+sort**, ported from `_flowRadixSortDesc` (reference 4846-4861) rather than
+written generically, so the digit scheme and both quirks match: `-0.0`
+canonicalised to `+0.0`, and ascending-index tie-break — structural here, since
+counting sort per byte is stable and the initial permutation is ascending
+index. `PROVENANCE.md` already put the sort *algorithm* outside the parity
+contract (only the ordering guarantee is in it); `flow_sort_desc_is_element_
+identical_to_the_comparison_sort` `assert_eq!`s the **index vector** against
+the old comparator across twelve fixtures — signed zeros, all-equal fields,
+tied runs, NaN of both signs, subnormals, a monotone ramp, and a 5,000-element
+xorshift field spanning the whole exponent range. **The sort alone: 341.8 ms →
+30.8 ms at 2048², 11.08× — it was 85 % of `compute_flow`, which went 402.0 →
+95.9 ms.** Gated on measurement, not on the JS ratio, exactly as the research
+document framed it. Workspace suite green: **1,881 tests, 128 binaries, 0
+failures**) — previously, post **GeoJSON export gets its boundary, and tidal
 flats gets its tide field** — two small wiring jobs that between them close the
 last of `PARITY_AUDIT.md` §3.1's backlog, both the same shape: a golden-verified
 engine capability with nothing to run it. **DM-03 closes** — `geojson_bridge.rs`
@@ -3410,6 +3441,64 @@ baseline is `cartalith-terrain`/`-climate`/`-erosion`/`-hydrology`'s own
 ~96 full-grid allocations, not instrumented stage-by-stage in this
 pass; a real candidate for a follow-up if the owner wants the peak
 pushed further. Full numbers in `cartalith-native/docs/CHANGELOG.md`.
+
+## Generation-pipeline performance (`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §3.2.1/§3.2.2, done 2026-08-24)
+
+Two changes out of that research document's five ranked opportunities. Both
+are **pure performance**: no formula, no constant, no operation order moved,
+and both are held to identity by a test rather than by an argument. Nothing
+below widened a tolerance or regenerated a fixture.
+
+- [x] **§3.2.1 — the pre-carve `compute_flow` is skipped when carving runs**
+      (`DECISIONS.md` §7f). Confirmed dead before touching it by re-reading
+      every statement between `flow_discharge`'s two assignments against the
+      current tree, not against the document's line numbers. Conditional, not
+      unconditional: with `carve_rivers` off that call is the output.
+      Disclosed as a deviation from the reference's own call order per
+      `CLAUDE.md`. **432 ms at 2048² (8.9 %).**
+      `precarve_flow_skip_leaves_generation_bit_identical` `assert_eq!`s every
+      raster `WorldState` carries plus `gpu_stages_used`, over six fixtures
+      (both `world` modes, three seeds, a non-square grid, both
+      `carve_rivers` settings), against the reference's literal call order
+      restored through a private `force_precarve_flow` escape hatch.
+- [x] **§3.2.2 — `_flowRadixSortDesc` ported** (reference 4846-4861), replacing
+      `sort_by`. Sanctioned by `PROVENANCE.md` (only the ordering guarantee is
+      inside the parity contract, not the sort algorithm) and by the reference's
+      own v0.148 note. Both quirks carried: `-0.0` canonicalised to `+0.0`, and
+      ascending-index tie-break, which is structural — stable counting sort per
+      byte over an ascending-index initial permutation. NaN ordering checked
+      rather than assumed (the key transform is `f32::total_cmp`'s total order).
+      **Sort alone at 2048²: 341.8 → 30.8 ms, 11.08×; `compute_flow` 402.0 →
+      95.9 ms; 877 ms off a generation, 20.0 %.**
+      `flow_sort_desc_is_element_identical_to_the_comparison_sort` asserts the
+      **index vector**, not the values, across twelve fixtures.
+
+**End to end, `--release`, best of 3 after a warm-up, seed 12345:**
+
+| Size | Before | After §7f | After the radix | Total |
+|---|---|---|---|---|
+| 128² | 0.0784 s | 0.0796 s | 0.0801 s | within noise |
+| 512² | 0.3641 s | 0.3280 s | 0.3152 s | −13.4 % |
+| 1024² | 1.1396 s | 1.0385 s | 0.9127 s | −19.9 % |
+| 2048² | 4.8275 s | 4.3955 s | **3.5181 s** | **−27.1 % (1.37×)** |
+
+Verified: `cargo test --release --workspace` — 1,881 tests, 128 binaries, 0
+failures; `cargo clippy` clean on both touched crates; `cargo build -p
+cartalith-godot` produces the cdylib. Nothing here was run in the real app —
+these are engine-side numbers from `examples/timing_bench.rs`, which is what
+every previous performance pass in this file used.
+
+**Still open from the same research, deliberately:** §3.2.3 (duplicate
+`ocean_sst_anomaly` — bounded by the coarse `min(gw, 240)` grid, needs a
+measurement before it is worth caching, and the two call sites' arguments must
+be *verified* identical first), §3.2.4 (wiring the staleness graph — the real
+architectural item, but UI-adjacent and the UI hold applies), §3.2.5
+(coarse-to-fine — blocked by `TERRAIN_ARCHITECTURE_RESEARCH.md`'s own
+parity note), and §3.4's second observation (`compute_temperature`'s first call
+is also unread on the default path — one O(N) pass, not a global sort-and-walk,
+and skipping it means restructuring `apply_ocean_currents`' `&mut temperature`
+argument; weighed and left). The document's six open questions for the owner
+are untouched apart from the two answered here.
 
 ## CPU multithreading (`CPU_MULTITHREADING_SCOPE.md`, milestone 1 done 2026-08-16)
 
