@@ -20,9 +20,12 @@
 ; (background #0F172A / accent #22C55E) per explicit user preference for
 ; the reference app's own light scheme instead.
 ;
-; Font: kept Godot's built-in default (Fira Sans/Fira Code was the earlier
-; dark-theme pass's typography match; sourcing + licensing real font files
-; is still a deferred follow-up, see CHANGELOG.md).
+; Font: kept Godot's built-in default. This theme is superseded and not on
+; the live path (see this file's own header above -- `dark_theme.tres` is
+; both `Main`'s theme and `project.godot`'s `gui/theme/custom`), so it was
+; left alone when Fira Sans/Fira Code were sourced and wired into the theme
+; that actually ships (`dark_theme.tres`'s own header has the full story;
+; `fonts/FiraSans-*.ttf`/`fonts/FiraCode-*.ttf`, both SIL OFL 1.1).
 
 [sub_resource type="StyleBoxFlat" id="SB_HeaderBar"]
 bg_color = Color(0.984314, 0.960784, 0.913725, 1)

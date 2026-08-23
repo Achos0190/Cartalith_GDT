@@ -81,7 +81,16 @@ const LIGHT := {
 #
 # Plex is bundled (`fonts/`, SIL OFL 1.1) rather than taken from the system:
 # Android has no Plex, and a silent fallback to Roboto would quietly undo the
-# thing this block exists to achieve.
+# thing this block exists to achieve. The prose face is Fira Sans, same
+# reasoning, same bundling -- `fonts/FiraSans-{Regular,Medium,Bold,Italic}.ttf`
+# (SIL OFL 1.1, `fonts/FiraSans-OFL.txt`), wired as `dark_theme.tres`'s
+# `default_font` rather than duplicated as a helper here, since (unlike Plex)
+# every Control gets it for free with no per-Label override needed. This
+# closes the "Fira Sans/Fira Code, sourcing deferred" note CHANGELOG.md has
+# carried since the original design-system match -- Fira Code itself is
+# sourced too (`fonts/FiraCode-{Regular,Medium}.ttf`) but stays unwired since
+# Plex Mono already fills that exact role, shipped and tested; see
+# `dark_theme.tres`'s own header for the full reasoning.
 
 const FONT_MONO := preload("res://fonts/IBMPlexMono-Regular.ttf")
 const FONT_MONO_MED := preload("res://fonts/IBMPlexMono-Medium.ttf")
