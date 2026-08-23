@@ -186,7 +186,9 @@ func _ready() -> void:
 		DccMenus.ID_WIN_RIGHT: right_dock,
 		DccMenus.ID_WIN_TIMELINE: timeline_row.get_parent().get_parent(),
 		DccMenus.ID_WIN_STATUS: status_row.get_parent().get_parent(),
-		DccMenus.ID_WIN_RAIL: rail_column.get_parent().get_parent(),
+		## Named, not walked to: the phone bottom bar nests differently and
+		## wants a different node hidden -- see `DccShell.rail_region()`.
+		DccMenus.ID_WIN_RAIL: rail_region(),
 	}
 
 	workspace_changed.connect(_on_workspace_changed)

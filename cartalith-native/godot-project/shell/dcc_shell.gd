@@ -96,6 +96,14 @@ var _touch := false
 
 # -- SH-01 rail expansion ------------------------------------------------------
 var _rail_panel: PanelContainer
+## What `Window ▸ Domain rail` hides. Not the same node in both compositions,
+## which is the whole reason it is a named field rather than a walk up from
+## `rail_column`: on desktop it is the rail panel itself (exactly what
+## `rail_column.get_parent().get_parent()` used to reach), but on the phone the
+## domains are three cells of the L1 bottom bar, and hiding the bar would take
+## the MENU cell with it -- the only route back to the row that un-hides it.
+## See `_build_phone_menu_bar()`.
+var _rail_region: Control
 var _rail_collapsed_body: VBoxContainer  ## The domain-button column + spacer + foot -- hidden while expanded.
 var _rail_subnodes_body: VBoxContainer   ## The expanded state's per-domain row list -- hidden while collapsed.
 var _rail_expand_button: Button
@@ -133,6 +141,9 @@ var _phone_chrome_margin: MarginContainer  ## Shifts right in landscape so the
 var _phone_content_gap: Control            ## Hosts the floating rail; its own
 	## rect is the visible gap between the app bar and the tool sheet.
 var _phone_tool_sheet: PanelContainer
+var _phone_scrim: TextureRect  ## Held because its colour lives inside a
+	## `GradientTexture2D`, which `_recolor_subtree()` cannot reach -- see
+	## `rebuild_theme()`.
 var _phone_gesture_inset: Control
 var _phone_clock_label: Label
 var _phone_battery_label: Label
@@ -140,7 +151,10 @@ var _phone_side_clock_label: Label     ## Landscape's rotated-pocket twins of
 var _phone_side_battery_label: Label   ## the two above -- see `_build_phone_side_safe()`.
 var _phone_drawer: Control
 var _phone_panel_picker: Control
-var _phone_overflow: Control
+var _phone_menu_bar: Control    ## L1 of the phone disclosure tree -- the bottom
+	## bar. Named handle because `_phone_bottom_reserve()` has to measure it.
+var _phone_menu: PhoneMenu      ## L2-L5. Replaces the old `_phone_overflow`
+	## sheet (`GUI_GAP_REGISTER.md` §15).
 var _left_sheet_open := false
 var _right_sheet_open := false
 
@@ -170,6 +184,10 @@ func _ready() -> void:
 	_style_window_chrome()
 
 	if _phone:
+		## Hand the Android back gesture to `_notification()` below instead of
+		## letting the SceneTree quit on it -- the phone menu has levels to pop
+		## first (`design/Cartalith Android Phone.dc.html`, PHONE RULES / BACK).
+		get_tree().quit_on_go_back = false
 		_build_phone_shell()
 	else:
 		_build_desktop_shell()
@@ -365,6 +383,13 @@ func rebuild_theme(was_dark: bool) -> void:
 	_recolor_project_theme(old_pal)
 	_style_window_chrome()
 	_recolor_subtree(self, old_pal)
+	## The phone top scrim's colour is inside a `GradientTexture2D`, not on any
+	## node and not in the theme resource, so neither of the two walks above can
+	## see it. Found by capturing the phone menu under the light palette: a
+	## charcoal status band sat above a light screen. Rebuilt rather than
+	## remapped -- the builder already writes it from `c("bg")`.
+	if _phone_scrim != null:
+		_phone_scrim.texture = _phone_scrim_texture()
 
 ## The other half of "everywhere", found 2026-08-20 by capturing every window
 ## under the light palette instead of trusting the walk.
@@ -399,6 +424,8 @@ func _recolor_project_theme(old_pal: Dictionary) -> void:
 	if th == null:
 		return
 	var extras := _theme_extras(was_dark_to_light(old_pal))
+	## See `_bulk_theme_edit()`: without this the walk costs 27 s on a phone.
+	th.set_block_signals(true)
 	for type_name in th.get_color_type_list():
 		for color_name in th.get_color_list(type_name):
 			var nc = _remap_theme_color(th.get_color(color_name, type_name), old_pal, extras)
@@ -415,6 +442,33 @@ func _recolor_project_theme(old_pal: Dictionary) -> void:
 				var nr = _remap_theme_color(f.border_color, old_pal, extras)
 				if nr != null:
 					f.border_color = nr
+	_bulk_theme_edit(th)
+
+## Ends a batch of `Theme` mutations: unblocks the resource's signals and fires
+## `changed` exactly once.
+##
+## **Every `set_color()`/`set_stylebox()` on a live `Theme` emits `changed`, and
+## that re-propagates `NOTIFICATION_THEME_CHANGED` to every `Control` in the
+## tree.** Each edit therefore costs a whole-tree relayout, and this shell's
+## tree is large -- the phone chrome, the parked desktop menu/status model, the
+## dock sheets and every runtime-built window at once.
+##
+## Measured on the real OnePlus 6T before this batching, switching
+## `Preferences ▸ Theme` to Light froze the main thread for **29.6 s**
+## (`projectTheme=27336ms windowChrome=1597ms subtree=670ms`). The giveaway is
+## `windowChrome`: it performs just **5** theme writes and still cost 1.6 s, or
+## ~320 ms *per write* -- the cost is per mutation, not per colour examined. A
+## first attempt at memoising the colour lookups was therefore wasted (27336 ->
+## 27632 ms, i.e. no change) and was removed rather than kept as decoration.
+##
+## Found only because the phone menu made `Theme` reachable by finger for the
+## first time. On desktop the same freeze exists but reads as a hitch on a
+## machine that is ~50x faster per node; on the phone it looked like a **dead
+## tap**, and was twice mistaken for a lost touch event before the log
+## timestamps showed a 29.6 s round trip between press and repaint.
+func _bulk_theme_edit(th: Theme) -> void:
+	th.set_block_signals(false)
+	th.emit_changed()
 
 func was_dark_to_light(old_pal: Dictionary) -> bool:
 	return old_pal == DccTheme.DARK
@@ -436,11 +490,15 @@ func _style_window_chrome() -> void:
 	var th := load(path) as Theme
 	if th == null:
 		return
+	## Five writes, and each one used to cost ~320 ms on the phone -- see
+	## `_bulk_theme_edit()`, which is where that number was measured.
+	th.set_block_signals(true)
 	th.set_color("title_color", "Window", DccTheme.c("text_bright"))
 	th.set_color("title_outline_modulate", "Window", DccTheme.c("raised"))
 	for box in ["embedded_border", "embedded_unfocused_border"]:
 		th.set_stylebox(box, "Window", DccTheme.panel("raised",
 			{"left": 1, "right": 1, "top": 1, "bottom": 1}))
+	_bulk_theme_edit(th)
 
 ## `DccTheme.remap()` first, then the supplementary table below for the
 ## handful of colours the theme resource uses that are not tokens at all.
@@ -554,7 +612,7 @@ func set_tool_options(build: Callable) -> void:
 ## Owner, 2026-08-20: "the bottom menu butons on phone are near too small to
 ## use". They were, and the earlier "44 px lands at ~121 physical px" arithmetic
 ## was measuring the wrong thing -- it described the *chrome* (`_build_phone_app
-## _bar()`, `_build_phone_rail()`), which does route every size through
+## _bar()`, the domain rail of the day), which does route every size through
 ## `_ptap()`. The sheet's *contents* never touched `_ptap()` at all: they are
 ## built by the workspaces' own `_build_*_tool_options_row()` callbacks against
 ## desktop pixel constants (`cartography_workspace.gd` sets buttons to a literal
@@ -599,11 +657,18 @@ func is_phone() -> bool:
 func phone_scale() -> float:
 	return _phone_scale
 
+## The node `Window ▸ Domain rail` shows and hides, for `DccApp`'s region map.
+## Falls back to `rail_column` rather than returning null, so a composition that
+## somehow never set it hides *something* real instead of crashing the menu.
+func rail_region() -> Control:
+	return _rail_region if _rail_region != null else rail_column
+
 # -- §3 Domain rail -----------------------------------------------------------
 
 func _build_rail() -> Control:
 	var rail := PanelContainer.new()
 	_rail_panel = rail
+	_rail_region = rail
 	rail.custom_minimum_size.x = _scaled(DccTheme.W_RAIL_COLLAPSED)
 	rail.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"right": 1}))
 	rail_column = VBoxContainer.new()
@@ -1090,6 +1155,18 @@ func set_status(slot: String, text: String, token: String = "text_faint") -> voi
 	l.text = text
 	l.add_theme_color_override("font_color", DccTheme.c(token))
 
+## Read one status slot back. `phone_menu.gd` re-presents the readout cluster
+## as list rows on its root screen, because on the phone the desktop status bar
+## and menu-bar readouts are parked in a hidden host rather than drawn
+## (`GUI_GAP_REGISTER.md` §15 fault 2). Returns "" for a slot that has never
+## been set, and for one that does not exist -- callers here are building a
+## list, and an unset readout is a row that should simply not appear, not an
+## error to push.
+func status_slot_text(slot: String) -> String:
+	if not _status_labels.has(slot):
+		return ""
+	return (_status_labels[slot] as Label).text
+
 # -- §13 Phone chrome -----------------------------------------------------
 #
 # Phone reorganises rather than truncates: this is a distinct composition,
@@ -1110,13 +1187,15 @@ func set_status(slot: String, text: String, token: String = "text_faint") -> voi
 #   1. The map, edge-to-edge, full rect -- underneath everything (inset rule
 #      "DRAW EDGE-TO-EDGE, PAD BY INSET").
 #   2. A gradient scrim over the top band (inset rule "SCRIM, NOT A BAR").
-#   3. The chrome column: top safe area → app bar → [the rail floats over the
-#      gap below it] → tool sheet → timeline → bottom gesture inset. Wrapped
-#      in `_phone_chrome_margin`, whose left margin is what shifts in
-#      landscape to clear the side safe area.
+#   3. The chrome column: top safe area → app bar → [map gap] → tool sheet →
+#      timeline → **L1 bottom bar** → bottom gesture inset. Wrapped in
+#      `_phone_chrome_margin`, whose left margin is what shifts in landscape
+#      to clear the side safe area. The bottom bar is the one part of this
+#      column that comes from `design/Cartalith Android Phone.dc.html` rather
+#      than the DCC shell canvas; it took the floating domain rail's place.
 #   4. Overlays, all full-rect, all hidden until opened: the side safe area
-#      (landscape only), the ☰ domain drawer, the ▤ panel picker, the ⋯
-#      overflow sheet, and the left/right dock sheets.
+#      (landscape only), the ☰ domain drawer, the panel picker, the phone
+#      menu (`phone_menu.gd`, L2-L5), and the left/right dock sheets.
 #
 # What this section does NOT build, named rather than silently skipped
 # (`menus.gd`'s own discipline for what it can't honour):
@@ -1145,20 +1224,33 @@ func _build_phone_shell() -> void:
 	vp.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_phone_root.add_child(vp)
 
-	_phone_root.add_child(_build_phone_scrim())
+	_phone_scrim = _build_phone_scrim()
+	_phone_root.add_child(_phone_scrim)
 
 	## Menu bar and status bar keep their exact desktop construction --
-	## `add_menu()`/`set_status()` stay phone-unaware -- and relocate into the
-	## ⋯ overflow sheet, built *first* so the app bar's own title label
-	## (built after, below) claims the "top_world" status slot last and wins
-	## it. Both builders register a Label under that key
-	## (`_build_menu_bar()`'s status-readout loop, and the app bar's
-	## subtitle); `_status_labels` keeps only the most recently registered
-	## one live, so this ordering is load-bearing, not incidental.
-	var menu_bar := _build_menu_bar()
-	var status_bar := _build_status_bar()
-	_phone_overflow = _build_phone_overflow(menu_bar, status_bar)
-	_phone_root.add_child(_phone_overflow)
+	## `add_menu()`/`set_status()` stay phone-unaware -- and are parked in a
+	## hidden host. They are the **model**, not a view: `menu_bar_row` is where
+	## `add_menu()` puts the seven real `MenuButton`s and `_status_labels` is
+	## where `set_status()` writes, and `phone_menu.gd` reads both. Nothing here
+	## is drawn.
+	##
+	## §15 fault 2 was that these two bars were previously *reparented into the
+	## phone sheet whole* -- a 150 px desktop wordmark and five readouts that are
+	## empty before a generation, squeezing the menu row into a bottom strip.
+	## Parking them is the fix; the readouts come back as real rows on the
+	## menu's own root screen.
+	##
+	## Still built *first*, for the reason it always was: both this and the app
+	## bar register a Label under the "top_world" status slot, `_status_labels`
+	## keeps only the most recently registered one, and the app bar's subtitle
+	## is the one that must win. That ordering is load-bearing.
+	var model_host := Control.new()
+	model_host.name = "PhoneMenuModel"
+	model_host.visible = false
+	model_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_phone_root.add_child(model_host)
+	model_host.add_child(_build_menu_bar())
+	model_host.add_child(_build_status_bar())
 
 	_phone_chrome_margin = MarginContainer.new()
 	_phone_chrome_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -1173,21 +1265,22 @@ func _build_phone_shell() -> void:
 
 	chrome.add_child(_build_phone_app_bar())
 
-	## The gap between the app bar and the tool sheet. The rail floats over
-	## it (`PRESET_LEFT_WIDE`, below) rather than sharing a row with it,
-	## because the map underneath is meant to show through the rail's own
-	## translucent background here, not stop at a container edge.
+	## The gap between the app bar and the tool sheet: nothing but map. The
+	## floating domain rail used to sit in it; the canvas moved the domains to
+	## the bottom bar, so the map now has the whole width back.
 	_phone_content_gap = Control.new()
 	_phone_content_gap.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_phone_content_gap.mouse_filter = Control.MOUSE_FILTER_PASS
 	chrome.add_child(_phone_content_gap)
-	_phone_content_gap.add_child(_build_phone_rail())
 
 	_phone_tool_sheet = _build_phone_tool_sheet()
 	chrome.add_child(_phone_tool_sheet)
 
 	timeline_bar = _build_timeline()
 	chrome.add_child(timeline_bar)
+
+	_phone_menu_bar = _build_phone_menu_bar()
+	chrome.add_child(_phone_menu_bar)
 
 	_phone_gesture_inset = _build_phone_gesture_inset()
 	chrome.add_child(_phone_gesture_inset)
@@ -1200,6 +1293,13 @@ func _build_phone_shell() -> void:
 
 	_phone_panel_picker = _build_phone_panel_picker()
 	_phone_root.add_child(_phone_panel_picker)
+
+	## L2-L5. Added after the drawer and picker so it draws over them, and
+	## before the dock sheets so a dock sheet still wins -- the same
+	## mutually-exclusive rule `_close_all_phone_overlays()` enforces anyway.
+	_phone_menu = PhoneMenu.new()
+	_phone_root.add_child(_phone_menu)
+	_phone_menu.setup(self)
 
 	## Full-height sheets (§13), built by the exact same functions the
 	## desktop/tablet dock uses -- `as_sheet = true` only swaps the header's
@@ -1220,7 +1320,23 @@ func _build_phone_shell() -> void:
 ## the map should still show faintly through the scrim's lower half. Height
 ## 96 px = the 44 px safe area plus the 52 px app bar, so the fade finishes
 ## exactly where the app bar's own opaque background takes over.
-func _build_phone_scrim() -> Control:
+func _build_phone_scrim() -> TextureRect:
+	var scrim := TextureRect.new()
+	scrim.texture = _phone_scrim_texture()
+	scrim.stretch_mode = TextureRect.STRETCH_SCALE
+	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	scrim.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	scrim.offset_left = 0
+	scrim.offset_right = 0
+	scrim.offset_top = 0
+	scrim.offset_bottom = _pscale(DccTheme.H_PHONE_TOP_SCRIM)
+	return scrim
+
+## The gradient on its own, so `rebuild_theme()` can re-derive it from the new
+## palette without building (and leaking) a second `TextureRect` to steal one
+## from -- which is exactly what the first attempt did, and the engine reported
+## it as a leaked GLES3 texture RID at exit.
+func _phone_scrim_texture() -> GradientTexture2D:
 	var grad := Gradient.new()
 	grad.colors = PackedColorArray([
 		Color(DccTheme.c("bg"), 0.94),
@@ -1234,17 +1350,7 @@ func _build_phone_scrim() -> Control:
 	tex.height = 128
 	tex.fill_from = Vector2(0, 0)
 	tex.fill_to = Vector2(0, 1)
-
-	var scrim := TextureRect.new()
-	scrim.texture = tex
-	scrim.stretch_mode = TextureRect.STRETCH_SCALE
-	scrim.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	scrim.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	scrim.offset_left = 0
-	scrim.offset_right = 0
-	scrim.offset_top = 0
-	scrim.offset_bottom = _pscale(DccTheme.H_PHONE_TOP_SCRIM)
-	return scrim
+	return tex
 
 ## Inset rule "TOP 44 PX · KEEP CLEAR": glyphs only, in left/right pockets,
 ## nothing centred. The 108 px centre lane isn't modelled as a literal spacer
@@ -1377,10 +1483,11 @@ func _build_phone_app_bar() -> Control:
 	title_col.add_child(subtitle)
 	row.add_child(title_col)
 
-	row.add_child(_phone_bar_button(DccIcons.SYMBOLS["panels"], "Panels",
-		func(): _set_panel_picker_open(true), "accent"))
-	row.add_child(_phone_bar_button(DccIcons.SYMBOLS["overflow"], "Menu",
-		func(): _set_overflow_open(true)))
+	## ▤ Panels and ⋯ Menu used to sit here as well. Both are slots 4 and 5 of
+	## the L1 bottom bar now (`_build_phone_menu_bar()`), per `design/Cartalith
+	## Android Phone.dc.html`, and carrying them twice would be two affordances
+	## for one destination -- exactly the duplication that canvas's own "More is
+	## a grouped list, not a duplicate menu bar" note rules out.
 	return bar
 
 func _phone_bar_button(glyph: String, tip: String, on_press: Callable,
@@ -1399,75 +1506,106 @@ func _phone_bar_button(glyph: String, tip: String, on_press: Callable,
 	b.pressed.connect(on_press)
 	return b
 
-## The domain rail (§13: "a 44 px column with each domain in a 44 px hit
-## box"). The mockup's phone screen draws the rail *and* the ☰ drawer
-## together (lines 1467 and 1477-1489) -- the drawer is not a replacement for
-## the rail, it's a second, larger-target way to reach the same five domains.
-## Unlike the desktop rail (`_build_rail()`), the phone cells are text-only:
-## no icon, no measured icon/label offset math -- just a centred vertical
-## label in a plain 44×44 box, so the centring formula is the simple case
-## `_build_rail()`'s own long comment sets up for the icon-biased one: a Label
-## rotated -90° about its own top-left corner maps local (u, v) to global
-## (v, -u), so its rotated box spans x:[0, text_size.y], y:[-text_size.x, 0]
-## relative to `position`. Solving for the position that puts each axis's
-## midpoint at the cell's own centre gives the two lines below.
-func _build_phone_rail() -> Control:
-	var rail := PanelContainer.new()
-	rail.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"right": 1}))
-	rail.set_anchors_preset(Control.PRESET_LEFT_WIDE)
-	rail.offset_left = 0
-	rail.offset_right = _ptap(DccTheme.W_PHONE_RAIL)
-	rail.offset_top = 0
-	rail.offset_bottom = 0
+## L1: the bottom bar (`design/Cartalith Android Phone.dc.html`, artboard
+## "01 · VIEWPORT" -- five equal cells, 64 dp, glyph over a 9.5 px tracked
+## caption, active cell in accent).
+##
+## **This replaces the floating left rail.** The canvas draws no rail: it moves
+## the domains to the bottom, where a thumb reaches them, and its PHONE RULES
+## make the bar level 1 of the disclosure tree outright ("L1 is the bottom
+## bar"). Keeping both would have put the same three domains on screen twice.
+## The ☰ drawer stays, because the canvas's own app bar keeps it and it is the
+## only place a domain's subtitle is legible.
+##
+## Five slots over three domains: WORLD · CIVIL · CARTO, then **PANELS** (the
+## dock picker the app bar used to carry) and **MENU** (the whole program menu
+## tree, `phone_menu.gd`). That is the canvas's own shape -- three-to-five
+## subject tabs, then the two things entered "a few times per session, not per
+## minute".
+##
+## Text-only, no glyph. The canvas draws ◈ ⌗ ◷ ▤ ⋯ over its captions, but the
+## owner has already ruled on exactly this for the desktop rail -- *"those icons
+## don't exist"* -- and the five glyphs it uses are outside the set this build
+## has proven renders on the device (`dcc_icons.gd`'s own note: two symbols in
+## that table are missing from Plex Mono *and* the fallback chain, and render as
+## tofu). A caption that is definitely legible beats a glyph that might be a
+## box; if the icons are ever drawn, they drop into `cell` with no other change.
+##
+## `rail_column` stays the container the domain cells sit in, so
+## `set_rail_foot()`/`_select_domain()` and anything else that already knows
+## that name keeps working. What `Window ▸ Domain rail` hides is `_rail_region`,
+## which here is **only the three domain cells** -- PANELS and MENU stay. Hiding
+## the whole bar would hide the MENU cell, and the menu is the only place the
+## row that un-hides it lives: a one-way door.
+func _build_phone_menu_bar() -> Control:
+	var bar := PanelContainer.new()
+	bar.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"top": 1}))
+
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 0)
+	bar.add_child(row)
+
+	var domains := HBoxContainer.new()
+	domains.add_theme_constant_override("separation", 0)
+	domains.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	domains.size_flags_stretch_ratio = float(DOMAINS.size())
+	_rail_region = domains
+	row.add_child(domains)
 
 	rail_column = VBoxContainer.new()
 	rail_column.add_theme_constant_override("separation", 0)
-	rail_column.set_anchors_preset(Control.PRESET_FULL_RECT)
-	rail.add_child(rail_column)
+	rail_column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	domains.add_child(rail_column)
 
-	var cell_w := float(_ptap(DccTheme.W_PHONE_RAIL))
-	var cell_h := float(_ptap(44))
-	for i in DOMAINS.size():
-		var d: Dictionary = DOMAINS[i]
-		if i > 0:
-			var sep := ColorRect.new()
-			sep.color = DccTheme.c("line")
-			sep.custom_minimum_size = Vector2(_pscale(14), 1)
-			sep.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-			rail_column.add_child(sep)
+	var cells := HBoxContainer.new()
+	cells.add_theme_constant_override("separation", 0)
+	rail_column.add_child(cells)
 
-		var b := Button.new()
-		b.tooltip_text = "%s -- %s" % [d.label, d.subtitle]
-		b.flat = true
-		b.focus_mode = Control.FOCUS_NONE
-		b.custom_minimum_size.y = cell_h
-		b.add_theme_stylebox_override("normal", DccTheme.empty())
-		b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
-		b.pressed.connect(_select_domain.bind(d.id))
+	for d in DOMAINS:
+		var cell := _phone_bar_cell(String(d.rail), String(d.label) + " -- " + String(d.subtitle),
+			_pick_bar_domain.bind(String(d.id)))
+		_domain_buttons[d.id] = cell["button"]
+		_domain_marks[d.id] = {"label": cell["label"]}
+		cells.add_child(cell["button"] as Control)
 
-		var vlabel := DccTheme.mono_label(String(d.rail).to_upper(),
-			"text_faint", _pscale(9), 2, true)
-		vlabel.rotation = -PI / 2.0
-		var text_size := vlabel.get_minimum_size()
-		vlabel.position = Vector2(cell_w * 0.5 - text_size.y * 0.5,
-			cell_h * 0.5 + text_size.x * 0.5)
-		b.add_child(vlabel)
+	## Outside `_rail_region`, on purpose -- see this function's header.
+	row.add_child((_phone_bar_cell("PANELS", "Left and right panels",
+		func(): _set_panel_picker_open(true))["button"]) as Control)
+	row.add_child((_phone_bar_cell("MENU", "File, Edit, Assets, Data, Preferences, Window, Help",
+		func(): _set_overflow_open(true))["button"]) as Control)
+	return bar
 
-		_domain_buttons[d.id] = b
-		_domain_marks[d.id] = {"label": vlabel}
-		rail_column.add_child(b)
+## One bar cell. Returns both nodes because `_select_domain()` recolours the
+## caption and restyles the button, and only the domain cells register there.
+func _phone_bar_cell(caption: String, tip: String, on_press: Callable) -> Dictionary:
+	var b := Button.new()
+	b.tooltip_text = tip
+	b.flat = true
+	b.focus_mode = Control.FOCUS_NONE
+	## Canvas: a 64 dp bar. `_ptap` floors it at the 44 px minimum and scales it
+	## with everything else, so this is the same target arithmetic the app bar's
+	## own buttons use -- not a second set of numbers.
+	b.custom_minimum_size.y = _ptap(64)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.add_theme_stylebox_override("normal", DccTheme.empty())
+	b.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+	b.add_theme_stylebox_override("pressed", DccTheme.active_row(false))
+	b.pressed.connect(on_press)
 
-	rail_column.add_child(DccTheme.spacer())
-	## The mockup's own bottom "›" (line 1488) -- decorative on the desktop
-	## rail too (`_build_rail()`'s equivalent head chevron is a bare Label,
-	## never wired to a `pressed` signal). Matched here rather than invented
-	## new behaviour for it.
-	var foot := DccTheme.mono_label("›", "text_dim", _pscale(12))
-	foot.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	foot.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	foot.custom_minimum_size.y = _pscale(32)
-	rail_column.add_child(foot)
-	return rail
+	var l := DccTheme.mono_label(caption.to_upper(), "text_faint", _pscale(9), 2, true)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	b.add_child(l)
+	l.set_anchors_preset(Control.PRESET_FULL_RECT)
+	return {"button": b, "label": l}
+
+## A bar domain was tapped: switch domain and drop any menu that was over it,
+## so the result is visible immediately -- the canvas's "the map never leaves
+## the screen" rule.
+func _pick_bar_domain(id: String) -> void:
+	_close_all_phone_overlays()
+	_select_domain(id)
 
 ## §13: "tool options become a bottom sheet". The drag handle is decorative --
 ## the mockup pictures exactly one static sheet state, so nothing here answers
@@ -1620,9 +1758,9 @@ func _pick_drawer_domain(id: String) -> void:
 	_select_domain(id)
 	_set_drawer_open(false)
 
-## ☰ domain drawer: the same five `DOMAINS`, as full label + subtitle rows
-## rather than the rail's tracked abbreviations -- a second, more legible way
-## in, not a replacement for the rail (see `_build_phone_rail()`'s comment).
+## ☰ domain drawer: the same `DOMAINS`, as full label + subtitle rows rather
+## than the bottom bar's tracked abbreviations -- a second, more legible way in,
+## not a replacement for it (see `_build_phone_menu_bar()`'s comment).
 func _build_phone_drawer() -> Control:
 	var overlay := _phone_overlay_scrim(func(): _set_drawer_open(false))
 
@@ -1691,65 +1829,20 @@ func _build_phone_panel_picker() -> Control:
 	overlay.visible = false
 	return overlay
 
-## ⋯ overflow: the desktop menu bar and status bar, relocated unmodified. Both
-## are wrapped for width -- the menu bar's seven `MenuButton`s plus its
-## wordmark and readout cluster are sized for a ~1500 px+ desktop bar and
-## overflow 393 px, so it scrolls horizontally; each `MenuButton` still opens
-## its own popup normally once tapped. The status bar's few short labels fit
-## without one.
-func _build_phone_overflow(menu_bar: Control, status_bar: Control) -> Control:
-	var overlay := _phone_overlay_scrim(func(): _set_overflow_open(false))
-
-	var panel := PanelContainer.new()
-	panel.add_theme_stylebox_override("panel", DccTheme.panel("raised", {"top": 1}))
-	panel.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	panel.offset_left = 0
-	panel.offset_right = 0
-	panel.offset_top = -_pscale(220)
-	panel.offset_bottom = -_pscale(DccTheme.H_PHONE_GESTURE)
-
-	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 0)
-	panel.add_child(col)
-
-	var head := HBoxContainer.new()
-	head.custom_minimum_size.y = _ptap(44)
-	head.add_child(DccTheme.header("Menu", ""))
-	head.add_child(DccTheme.spacer())
-	head.add_child(_sheet_close_button(func(): _set_overflow_open(false)))
-	var hp := MarginContainer.new()
-	hp.add_theme_constant_override("margin_left", 14)
-	hp.add_theme_constant_override("margin_right", 6)
-	hp.add_child(head)
-	col.add_child(hp)
-	col.add_child(DccTheme.rule())
-
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
-	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.add_theme_stylebox_override("panel", DccTheme.empty())
-	scroll.add_child(menu_bar)
-	col.add_child(scroll)
-	col.add_child(DccTheme.rule())
-	col.add_child(status_bar)
-
-	overlay.add_child(panel)
-	overlay.visible = false
-	return overlay
-
 # -- Phone overlay state ---------------------------------------------------
 #
 # Every phone overlay is mutually exclusive -- opening any one closes all the
 # others, including a dock sheet -- so there is exactly one state variable per
-# overlay and one shared teardown rather than a general stack.
+# overlay and one shared teardown rather than a general stack. `PhoneMenu` keeps
+# its own drill stack inside itself; from out here it is one more overlay.
 
 func _close_all_phone_overlays() -> void:
 	if _phone_drawer != null:
 		_phone_drawer.visible = false
 	if _phone_panel_picker != null:
 		_phone_panel_picker.visible = false
-	if _phone_overflow != null:
-		_phone_overflow.visible = false
+	if _phone_menu != null:
+		_phone_menu.close()
 	if left_dock != null:
 		left_dock.visible = false
 	if right_dock != null:
@@ -1765,9 +1858,30 @@ func _set_panel_picker_open(open: bool) -> void:
 	_close_all_phone_overlays()
 	_phone_panel_picker.visible = open
 
+## Kept under its old name so `_shot_phone.gd --overflow` and anything else
+## already driving it keeps working; what it opens is now `PhoneMenu`'s L2 root
+## rather than the reparented desktop bar.
 func _set_overflow_open(open: bool) -> void:
 	_close_all_phone_overlays()
-	_phone_overflow.visible = open
+	if open:
+		_phone_menu.open()
+
+## Android's back gesture. `quit_on_go_back` is turned off in `_ready()` while
+## `_phone` is true so this can answer it: the canvas's BACK rule is "leaves a
+## sheet, then the L2 screen, then the viewport -- never the app". At the
+## viewport with nothing open the request falls through to a real quit, which is
+## the platform convention and the only way out of a full-screen app.
+func _notification(what: int) -> void:
+	if what != NOTIFICATION_WM_GO_BACK_REQUEST or not _phone:
+		return
+	if _phone_menu != null and _phone_menu.go_back():
+		return
+	if _phone_drawer != null and _phone_drawer.visible \
+			or _phone_panel_picker != null and _phone_panel_picker.visible \
+			or _left_sheet_open or _right_sheet_open:
+		_close_all_phone_overlays()
+		return
+	get_tree().quit()
 
 func _set_sheet_open(side: String, open: bool) -> void:
 	if open:
@@ -1784,7 +1898,7 @@ func _set_sheet_open(side: String, open: bool) -> void:
 ## live -- a device rotates at runtime even though its form factor never
 ## does. Only safe-area visibility, the chrome column's left margin, and the
 ## two dock sheets' rects change between orientations; the drawer/panel-
-## picker/overflow overlays and the tool sheet/timeline/rail are unaffected,
+## picker/menu overlays and the tool sheet/timeline/bottom bar are unaffected,
 ## so this never touches anything a workspace has attached content to.
 func _apply_phone_orientation() -> void:
 	if _phone_top_safe == null:
@@ -1792,9 +1906,9 @@ func _apply_phone_orientation() -> void:
 	_phone_top_safe.visible = not _landscape
 	_phone_side_safe.visible = _landscape
 
-	## "The domain rail shifts inward" (inset rule, LANDSCAPE): the rail
-	## floats inside this margin, so growing it by the side safe area's own
-	## width is the entire mechanism -- no separate rail repositioning code.
+	## "The chrome shifts inward" (inset rule, LANDSCAPE): everything below the
+	## safe area lives inside this margin, so growing it by the side safe area's
+	## own width is the entire mechanism.
 	var side_reserve := _pscale(DccTheme.H_PHONE_TOP_SAFE) if _landscape else 0
 	_phone_chrome_margin.add_theme_constant_override("margin_left", side_reserve)
 
@@ -1806,6 +1920,13 @@ func _apply_phone_orientation() -> void:
 		sheet.offset_right = 0
 		sheet.offset_top = safe_top
 		sheet.offset_bottom = -_pscale(DccTheme.H_PHONE_GESTURE)
+
+	## The menu takes the same rect as a dock sheet: over the app bar (its own
+	## header replaces it, per the canvas's L2/L3 artboards), never over the
+	## status safe area, the landscape side safe area or the gesture inset.
+	if _phone_menu != null:
+		_phone_menu.apply_insets(float(safe_top), float(side_reserve),
+			float(_pscale(DccTheme.H_PHONE_GESTURE)))
 
 	phone_insets_changed.emit()
 
@@ -1821,7 +1942,10 @@ func _apply_phone_orientation() -> void:
 func phone_content_insets() -> Dictionary:
 	if not _phone:
 		return {"left": 10.0, "top": 10.0, "right": 10.0, "bottom": 10.0}
-	var left := float(_ptap(DccTheme.W_PHONE_RAIL))
+	## No left reserve in portrait any more: the domain rail that used to float
+	## there is the bottom bar now, so the map has the full width back and only
+	## the landscape safe area still eats into it.
+	var left := 0.0
 	if _landscape:
 		left += float(_pscale(DccTheme.H_PHONE_TOP_SAFE))
 	var top := float(_ptap(DccTheme.H_PHONE_APP_BAR))
@@ -1840,9 +1964,13 @@ func phone_content_insets() -> Dictionary:
 ## leaves them floating a bit higher than strictly necessary. Wrong in the
 ## safe direction, in other words.
 func _phone_bottom_reserve() -> float:
+	var bar := 0.0
+	if _phone_menu_bar != null and _phone_menu_bar.visible:
+		bar = _phone_menu_bar.size.y if _phone_menu_bar.size.y > 0.0 \
+			else float(_ptap(64))
 	if _phone_tool_sheet != null and _phone_tool_sheet.size.y > 0.0:
 		var h := _phone_tool_sheet.size.y + float(_pscale(DccTheme.H_PHONE_GESTURE))
 		if timeline_bar != null and timeline_bar.visible:
 			h += timeline_bar.size.y
-		return h + float(_pscale(8))
-	return float(_pscale(20 + 90 + DccTheme.H_PHONE_GESTURE))
+		return h + bar + float(_pscale(8))
+	return float(_pscale(20 + 90 + DccTheme.H_PHONE_GESTURE)) + bar

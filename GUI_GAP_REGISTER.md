@@ -2062,12 +2062,25 @@ place, in the canvas's own shape.
 
 ---
 
-## 15 · The phone overflow menu is wired but inoperable (2026-08-20)
+## 15 · The phone overflow menu is wired but inoperable (2026-08-20) — **RESOLVED 2026-08-23**
+
+> **Resolved 2026-08-23**, and verified on the real OnePlus 6T rather than in an
+> editor preview. The design this section was written to wait for arrived as
+> `design/Cartalith Android Phone.dc.html`, and is implemented as
+> `godot-project/shell/phone_menu.gd` plus an L1 bottom bar in
+> `DccShell._build_phone_menu_bar()`. All four faults below are closed; the
+> per-fault disposition is in **§15.1**, and the device evidence in **§15.2**.
+>
+> The section's own recommendation held up exactly as written: the fix
+> re-presents `menus.gd` and **reimplements none of it** — every row is read off
+> the real `PopupMenu` objects and every tap goes back out through
+> `id_pressed`/`index_pressed`, so no menu id, callback or label is duplicated.
+> Adding an item to `menus.gd` still makes it appear on the phone with no change.
 
 Classification: **(C)** — a real, connected affordance with no phone design
 behind its presentation. Recorded here as the brief for the mobile menu design
-the owner is having produced separately; **deliberately not fixed**, because
-building one now would be discarded when that design lands.
+the owner is having produced separately; not fixed *at the time*, because
+building one then would have been discarded when that design landed.
 
 Owner report, from the OnePlus 6T: *"not much from the menus work on android."*
 
@@ -2103,6 +2116,91 @@ Note that the same root cause was fixed this pass for the *tool* sheet
 placed into phone chrome without scaling. The fix there was applied at
 `set_tool_options()`, and deliberately does **not** reach the overflow sheet,
 precisely so it does not pre-empt this design.
+
+### 15.1 · How each fault was closed (2026-08-23)
+
+| # | Fault | Disposition |
+|---|---|---|
+| 1 | Nothing phone-scaled | Closed. `phone_menu.gd` routes every size through its own `_ps()`/`_pt()` over `DccShell.phone_scale()` — the same helpers the rest of the phone chrome uses, not a second set of numbers. Rows are `_pt(52)`, icon buttons `_pt(44)`, both floored at `DccTheme.PHONE_TAP_MIN`. Measured on device: list rows land at **~129 physical px ≈ 66 dp**, clearing both the canvas's 44 dp bar and Android's 48 dp floor. |
+| 2 | Desktop status chrome reparented into the sheet | Closed. The desktop menu bar and status bar are no longer drawn at all on the phone: they are parked in a hidden `PhoneMenuModel` host and used purely as the **model** — `menu_bar_row` for the seven real `MenuButton`s, `_status_labels` for readouts. The readouts return as real 52 dp list rows under a `Status` band on the menu's root screen, via the new `DccShell.status_slot_text()`. The 150 px wordmark is gone. |
+| 3 | Menus do not respond to touch | Closed. Rows are `PanelContainer`s with their own `gui_input`, handling `InputEventScreenTouch` and `InputEventMouseButton` alike, with a pressed wash for feedback. Driven on device with real `adb shell input tap`/`swipe` at every level — see §15.2. |
+| 4 | ~41 items behind 15 hover-opened submenus | Closed. No `PopupMenu` is ever popped up on the phone. The tree is re-presented as the canvas's five disclosure levels: L1 bottom bar, L2 root list, L3 one menu's items, L4 a 60 %-height sheet, L5 a full screen. Drilling replaces rather than stacks, and Android's system back pops one level at a time (`quit_on_go_back = false` plus `DccShell._notification()`). |
+
+**One honest shortfall, unchanged from the design:** the canvas draws L3 bands
+with titles ("§ HYDRAULIC PASSES"). Every `add_separator()` in `menus.gd` is
+unlabelled, so a band draws as the hairline-and-gap the desktop menu itself
+draws. Giving a separator text turns it into a caption with no change to
+`phone_menu.gd` — but today it is a rule, not a heading, and that is stated
+rather than faked with invented headings.
+
+### 15.2 · Device verification (OnePlus 6T, 1080×2340, 2026-08-23)
+
+Driven with real `adb shell input tap`/`swipe` and read back with
+`adb exec-out screencap`. Not an editor preview — this is the same bug class
+that produced the original gap, and a previous "buttons too small" fix was
+wrongly marked done once already on editor-only evidence.
+
+- **Portrait composition seen for the first time.** `STATUS.md` had recorded it
+  as "still unseen" because `"sensor"` orientation defeats `adb`'s rotation
+  override. The phone was in portrait for this pass, so the canvas's primary
+  composition is now confirmed rather than inferred.
+- **L1** — bottom bar renders `WORLD · CIVIL · CARTO · PANELS · MENU`, active
+  cell in accent.
+- **L2** — root screen lists all seven real menus under `Project` / `Content` /
+  `System` bands with live item counts (File 11, Edit 10, Assets 9, Data 7,
+  Preferences 19, Window 9, Help 5) and the `Status` readout rows.
+- **L3** — `Preferences` drills in with breadcrumb `Menu · L3`; disabled rows
+  draw their reason as a wrapped second line, which is *more* legible than the
+  desktop, where that text is hover-only.
+- **L4** — `Devices` opens as a sheet over a dimmed L3, breadcrumb
+  `Menu · Preferences · L4`, and enumerates **real hardware live**:
+  `Adreno (TM) 630 · integrated · vulkan`. Confirms `about_to_popup` fires on
+  entry, so self-rebuilding submenus are as live here as on desktop.
+- **L5** — `Assets ▸ Asset pack ▸ Edit` reaches a full screen, breadcrumb
+  `Menu · Assets · Asset pack · L5`.
+- **Back** — Android's system back popped sheet → screen → root without exiting
+  the app (pid unchanged), matching the canvas's BACK rule.
+- **Both palettes** — `Preferences ▸ Theme ▸ Light` fired from the L4 sheet
+  repainted the sheet, the scrim, the screen behind it, the toggle and the
+  radio. The light-theme path is verified on hardware, not assumed.
+- **`Window ▸ Domain rail`** toggled off hides only the three domain cells;
+  `PANELS` and `MENU` remain, so the menu that un-hides the rail is still
+  reachable. Toggled back on from that same menu, all five cells returned.
+
+### 15.3 · A 29.6-second freeze this work uncovered, and fixed
+
+Making `Preferences ▸ Theme` reachable by finger for the first time exposed a
+pre-existing defect in `DccShell.rebuild_theme()` that no desktop run had ever
+made visible.
+
+**Every `set_color()`/`set_stylebox()` on a live `Theme` emits `changed`, and
+that re-propagates `NOTIFICATION_THEME_CHANGED` to every `Control` in the
+tree.** `_recolor_project_theme()` performs one such write per remapped entry,
+so each edit cost a whole-tree relayout. Measured on the device:
+
+```
+projectTheme=27336ms  windowChrome=1597ms  subtree=670ms  total=29603ms
+```
+
+The giveaway is `windowChrome`: **5** theme writes, 1597 ms — ~320 ms *per
+write*. The cost is per mutation, not per colour examined. A first attempt at
+memoising the colour lookups was therefore wasted (27336 → 27632 ms, no change)
+and was removed rather than kept as decoration. Batching the writes behind
+`set_block_signals(true)` and firing `changed` **once** (`_bulk_theme_edit()`)
+gives:
+
+```
+projectTheme=274ms    windowChrome=417ms   subtree=685ms   total=1376ms
+```
+
+— 27.3 s → 274 ms for the dominant phase, **29.6 s → 1.4 s** overall.
+
+Worth recording as a method note: the freeze presented as a **dead tap**, not as
+slowness, and was twice misdiagnosed as a lost touch event — once as "the tap
+did nothing", once as "the second tap worked" (it had not; the *first* tap was
+still finishing). Only log timestamps either side of the emit showed the 29.6 s
+round trip. A screenshot taken 3 s after a tap is not evidence that the tap was
+lost.
 
 ## 16 · The top-left global tool overlay has no drawn presentation in the DCC canvas (2026-08-23)
 

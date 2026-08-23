@@ -951,7 +951,35 @@ func _window(p: PopupMenu) -> void:
 	p.add_separator()
 	_live(p, "Reset layout", ID_WIN_RESET)
 	_todo(p, "Save layout as…", "No layout store yet.")
-	p.id_pressed.connect(func(id: int): _host.toggle_region(id))
+	p.id_pressed.connect(func(id: int):
+		_host.toggle_region(id)
+		_sync_region_checks(p, id))
+
+## The five region rows were checked once at build time and never again, so a
+## toggle left the checkmark saying the opposite of the truth until the next
+## restart. Not noticed on desktop, where the mark is a small tick a pointer
+## user glances past; unmissable on the phone, where `phone_menu.gd` draws the
+## same state as a full 40 dp switch that visibly refused to move. Fixed here
+## rather than there, because the stale state is the popup's, not the
+## presentation's -- the desktop menu was wrong too.
+##
+## `Reset layout` re-shows every region (`DccApp.toggle_region`'s own
+## `ID_WIN_RESET` branch), so it re-checks all five rather than flipping one.
+const WIN_REGION_IDS: Array[int] = [ID_WIN_LEFT, ID_WIN_RIGHT, ID_WIN_TIMELINE,
+	ID_WIN_STATUS, ID_WIN_RAIL]
+
+func _sync_region_checks(p: PopupMenu, id: int) -> void:
+	if id == ID_WIN_RESET:
+		for rid in WIN_REGION_IDS:
+			var ri := p.get_item_index(rid)
+			if ri >= 0:
+				p.set_item_checked(ri, true)
+		return
+	if not WIN_REGION_IDS.has(id):
+		return
+	var i := p.get_item_index(id)
+	if i >= 0:
+		p.set_item_checked(i, not p.is_item_checked(i))
 
 ## `_host` is `DccApp` (`app.gd`); these five fields are its own public
 ## `AcceptDialog`s, none reached through any new API. Grepped against

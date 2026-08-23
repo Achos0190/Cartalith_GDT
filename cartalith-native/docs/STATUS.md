@@ -5,7 +5,28 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-23 (post **Deep-zoom LOD: the tiles were the reference's
+Last updated: 2026-08-23 (post **Phone menu: the five-level disclosure tree from
+the Android canvas**. Closes `GUI_GAP_REGISTER.md` §15 — the phone menu was
+wired but unusable (unscaled, buried in desktop status chrome, inert to touch).
+New `shell/phone_menu.gd` re-presents `menus.gd` as the canvas's five levels
+(L1 bottom bar `WORLD · CIVIL · CARTO · PANELS · MENU`, L2 root list, L3 a
+menu's items, L4 a 60 %-height sheet, L5 a full screen) and **reimplements none
+of it** — every row is read off the real `PopupMenu`s and every tap goes back
+out through `id_pressed`, so adding an item to `menus.gd` still appears on the
+phone with no change. The floating left domain rail is gone (the canvas moves
+the domains to the thumb); `Window ▸ Domain rail` now hides only the three
+domain cells via the new `DccShell.rail_region()`, because hiding the whole bar
+would take the `MENU` cell with it — a one-way door. Android system back pops
+sheet → screen → app. **Verified on the real OnePlus 6T with `adb input
+tap`/`swipe`, not an editor preview**, including the *portrait* composition this
+file previously recorded as "still unseen"; rows land at ~129 physical px
+(~66 dp), the `Devices` sheet enumerated real hardware (`Adreno (TM) 630 ·
+integrated · vulkan`), and `Theme ▸ Light` repainted correctly on device. Also
+fixed en route: a **29.6 s main-thread freeze** in `DccShell.rebuild_theme()` —
+every `Theme.set_color()`/`set_stylebox()` emits `changed` and re-propagates
+`NOTIFICATION_THEME_CHANGED` to the whole tree (~320 ms *per write*), now
+batched behind `set_block_signals` + one `emit_changed()`: **29.6 s → 1.4 s**.
+— previously, post **Deep-zoom LOD: the tiles were the reference's
 *Relief* view, not its *Biome* view**. Owner: *"the zoom-lod bug where a zoom
 action exposes the underlying heightmap is still there."* Reproduced on a real
 screen before touching anything — the same camera with the LOD layer shown
@@ -4503,7 +4524,7 @@ Faction context, `"—"` after deselecting back to an empty Sample, and
 - **~~The phone UI is physically unusable by finger~~ — SUPERSEDED 2026-08-20.** The §13 phone layout has since shipped and **was verified running on the real OnePlus 6T** (`ANDROID_BUILD_SCOPE.md` §4.2). `project.godot` now sets `display/window/handheld/orientation="sensor"`, `DccShell._compute_layout_mode()` latches `_phone` true on this device (order-independent aspect `1080/2340 = 0.4615` < `_PHONE_ASPECT_MAX 0.6`, so landscape does not defeat it), and the shell builds **phone chrome, not desktop chrome**: app bar, floating domain rail (`WORLD`/`CIVIL`/`CARTO`), `⋯` overflow, bottom tool sheet, gesture inset, and in landscape the `_phone_side_safe` cutout pocket down the left edge. `_phone_scale = 1080/393 = 2.75` puts §13's 44 px minimum target at **~121 physical px**, clearing Android's 94 px (48 dp) floor. The verdict below described **the desktop shell running on a phone**, which is no longer what happens.
   - **The old "do not enable sensor rotation" warning is now wrong and has been removed.** It was correct while the phone layout did not exist; the layout is what it was protecting against, and `"sensor"` is now load-bearing in the opposite direction — a fixed landscape lock would make `DccShell._apply_phone_orientation()`'s landscape treatment unreachable.
   - **Still open, found 2026-08-20:** runtime-built dialogs (`Open project`, `New world`) keep desktop sizing inside the phone shell — ~1020×690 windows with 10-12 px body type — and `Open project` renders **two stacked headers with two close buttons** (the host `Window` title bar plus the dialog content's own branded header). Reported, not fixed; both are §13 layout work.
-  - **Still unseen:** the *portrait* composition, which is §13's primary design. `adb` cannot force it — Godot's `"sensor"` sets `SCREEN_ORIENTATION_SENSOR`, which follows the accelerometer and overrides `settings put system user_rotation`. Physically rotating the phone is the only way.
+  - **~~Still unseen: the *portrait* composition~~ — SEEN 2026-08-23.** The phone was physically in portrait for the phone-menu pass, so §13's primary composition is now confirmed rather than inferred: app bar, map, tool sheet, the new L1 bottom bar (`WORLD · CIVIL · CARTO · PANELS · MENU`) and the gesture inset, all correctly stacked. The note below still holds for *landscape*, which was **not** re-driven in that pass — `adb` cannot force it, since Godot's `"sensor"` sets `SCREEN_ORIENTATION_SENSOR`, which follows the accelerometer and overrides `settings put system user_rotation`. Physically rotating the phone is the only way, so landscape remains inferred from shared code (`_apply_phone_orientation()` feeds the menu the same insets as a dock sheet), not observed.
   - The measurements below are retained as **historical spec input** for the desktop-shell-on-phone case, not as a current description:
   - **The failure is purely physical scale.** The panel is 403×410 dpi and Godot renders at native resolution with no content scaling. In its landscape configuration the display reports density 314 dpi, putting Android's 48 dp minimum touch target at **94 physical pixels**. Actual sizes: menu bar 34 px (2.15 mm, 36% of minimum), workspace tabs 30 px (32%), tool options bar 34 px (36%), **left tool rail 44 px wide with ~35 px pitch (2.78 mm / 2.2 mm, 47%)**, Layers rows 32 px (34%), status bar 26 px (28%), **menu/dropdown popup rows ~22 px (1.39 mm, 23%)**, **slider grabbers ~12 px (0.76 mm, 13%)**. Body text is 10-13 px against a 24 px (12 sp) minimum, i.e. 0.45-0.8 mm cap heights versus the ~1.5 mm a normal eye resolves at 40 cm.
   - **A fingertip contact patch is 110-160 physical pixels here.** One touch spans the menu bar plus the workspace tabs plus the tool options bar, or five consecutive dropdown rows, or three Layers checkboxes.

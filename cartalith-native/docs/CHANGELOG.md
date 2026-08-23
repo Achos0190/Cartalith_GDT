@@ -17961,3 +17961,124 @@ underneath, which is what made a sub-pixel misalignment legible at all.
 - The reference's LOD is opt-in with real controls (`lodAutoChk`, `lodChk`,
   tile size, pyramid depth, refine-now, atlas bake/clear). This port still has
   none of them — `menus.gd` already discloses that; nothing here changed it.
+
+## Phone menu: the five-level disclosure tree from the Android canvas (2026-08-23)
+
+Closes `GUI_GAP_REGISTER.md` §15 — *"the phone build's menu bar is wired but
+unusable: unscaled, buried in desktop status chrome, and inert to touch."* The
+design the section was written to wait for arrived as `design/Cartalith Android
+Phone.dc.html` (412 × 892 dp, all five disclosure levels, 44 dp minimum row).
+Phone-only; tablet and desktop keep the desktop menus untouched.
+
+**Built:**
+
+- **`godot-project/shell/phone_menu.gd`** (new) — the L2–L5 surface. It
+  **re-presents `menus.gd` and reimplements none of it**: every row is read off
+  the real `PopupMenu` objects `DccShell.add_menu()` already built, and every
+  tap goes back out through `id_pressed`/`index_pressed`. No menu id, callback
+  or label is duplicated, so adding an item to `menus.gd` makes it appear on the
+  phone with no change here. `about_to_popup` is emitted when a popup is
+  *entered*, so Recent worlds, GPU devices, Open windows and the Preferences
+  busy-lock are as live as on desktop — and deliberately **not** emitted to
+  build the root screen's previews, which would run all seven handlers
+  (including the `wgpu` device enumeration) on every render.
+  - L2 root: the seven menus grouped `Project` / `Content` / `System`, plus the
+    status readouts as rows. A menu matching no group falls into a trailing
+    `Other` band, so an eighth can never go silently missing.
+  - L3 a menu's items · L4 a 60 %-height sheet over a dimmed screen · L5 a full
+    screen (the three `Assets ▸ Asset pack ▸ Edit/Batch/Build` cases).
+  - Disabled items draw `menus.gd`'s own "why not" reason as a wrapped second
+    line. A phone has no hover, so this surface is *more* legible than the
+    desktop one, where that text is unreachable without a pointer.
+- **`DccShell._build_phone_menu_bar()`** — L1, five equal cells
+  `WORLD · CIVIL · CARTO · PANELS · MENU`, replacing the floating left domain
+  rail. The canvas draws no rail: it moves the domains to where a thumb reaches.
+  `▤ Panels` and `⋯ Menu` left the app bar in the same move rather than existing
+  twice. Text-only captions, not the canvas's glyphs — the owner has already
+  ruled *"those icons don't exist"* for the desktop rail, and these five are
+  outside the set proven to render on the device.
+- **`DccShell.rail_region()`** + `_rail_region` — what `Window ▸ Domain rail`
+  hides. Named rather than walked to from `rail_column`, because on the phone it
+  is **only the three domain cells**: hiding the whole bar would take the `MENU`
+  cell with it, and the menu is the only place the row that un-hides it lives —
+  a one-way door.
+- **`DccShell.status_slot_text()`** — reads one status slot back, so the menu's
+  root screen can present the readouts as rows.
+- The desktop menu bar and status bar are no longer *drawn* on the phone at all:
+  they are parked in a hidden `PhoneMenuModel` host and used purely as the model
+  (§15 fault 2). The build order stays load-bearing — both they and the app bar
+  register a Label under the `top_world` slot, and the app bar must win.
+- Android system back (`quit_on_go_back = false` + `DccShell._notification()`):
+  leaves a sheet, then the L2 screen, then the overlays, then the app.
+- `menus.gd` — the five `Window ▸` region rows were checked once at build time
+  and never again, so a toggle left the checkmark asserting the opposite of the
+  truth until restart. Fixed at the popup (`_sync_region_checks`), not at the
+  presentation: the desktop menu was wrong too. Invisible there as a small tick;
+  unmissable on the phone, where it draws as a 40 dp switch that refused to move.
+
+**A 29.6-second freeze this uncovered, and fixed:**
+
+Making `Preferences ▸ Theme` reachable by finger exposed a pre-existing defect
+in `DccShell.rebuild_theme()`. Every `set_color()`/`set_stylebox()` on a live
+`Theme` emits `changed`, which re-propagates `NOTIFICATION_THEME_CHANGED` to
+every `Control` in the tree — so each edit cost a whole-tree relayout. Measured
+on the OnePlus 6T: `projectTheme=27336ms windowChrome=1597ms subtree=670ms
+total=29603ms`. The giveaway is `windowChrome`: **5** writes, 1597 ms, i.e.
+~320 ms *per write* — the cost is per mutation, not per colour examined. A first
+attempt at memoising the colour lookups was therefore wasted (27336 → 27632 ms,
+no change) and was **removed rather than kept as decoration**. Batching behind
+`set_block_signals(true)` and firing `changed` once (`_bulk_theme_edit()`):
+`projectTheme=274ms windowChrome=417ms subtree=685ms total=1376ms` — **29.6 s →
+1.4 s**.
+
+Recorded as a method note: the freeze presented as a **dead tap**, not as
+slowness, and was twice misdiagnosed as a lost touch event — once as "the tap
+did nothing", once as "the second tap worked" (it had not; the first was still
+finishing). Only log timestamps either side of the emit showed it. *A screenshot
+taken 3 s after a tap is not evidence that the tap was lost.*
+
+**Verified — on the real OnePlus 6T (1080 × 2340), not an editor preview:**
+
+Driven with real `adb shell input tap`/`swipe`, read back with
+`adb exec-out screencap`. This is the bug class that produced the original gap,
+and a previous "buttons too small" fix was wrongly marked done once already on
+editor-only evidence.
+
+- **Portrait seen for the first time.** `STATUS.md` had it as "still unseen"
+  because `"sensor"` orientation defeats `adb`'s rotation override; the phone
+  was physically in portrait for this pass.
+- Every level driven by finger-equivalent taps: L1 bar → L2 root (all seven
+  menus, live counts File 11 / Edit 10 / Assets 9 / Data 7 / Preferences 19 /
+  Window 9 / Help 5) → L3 `Preferences` → L4 `Devices` sheet → L5
+  `Assets ▸ Asset pack ▸ Edit`, breadcrumbs correct at each.
+- **Live data proven, not assumed:** the `Devices` sheet enumerated real
+  hardware — `Adreno (TM) 630 · integrated · vulkan` — and the L3 row's own
+  subtitle refreshed to match after the visit.
+- Rows measure **~129 physical px ≈ 66 dp** at this device's 314 dpi, clearing
+  both the canvas's 44 dp bar and Android's 48 dp floor.
+- System back popped sheet → screen → root without exiting (pid unchanged).
+- **Both palettes on hardware:** `Theme ▸ Light` fired from the L4 sheet
+  repainted sheet, scrim, the screen behind it, toggle and radio.
+- `Window ▸ Domain rail` off hid only the three domain cells; `PANELS`/`MENU`
+  survived and re-enabled it from that same menu.
+- Desktop unaffected: `--headless --quit-after 200` clean, and the
+  phone-viewport harness still drives all five levels with the theme flip
+  landing (`dark before=true` → `dark after=false`).
+
+### Still open
+
+- **L3 bands have no titles.** The canvas draws them captioned
+  ("§ HYDRAULIC PASSES"); every `add_separator()` in `menus.gd` is unlabelled,
+  so a band draws as the hairline-and-gap the desktop menu draws. Giving a
+  separator text makes it a caption with no change to `phone_menu.gd` — stated
+  rather than faked with invented headings.
+- **Landscape was not re-driven this pass.** `_apply_phone_orientation()` feeds
+  the menu the same insets as a dock sheet and the code path is shared, but the
+  device was in portrait throughout and `adb` cannot force rotation under
+  `"sensor"`. Portrait is the canvas's primary composition and is verified;
+  landscape is inferred from shared code, not observed.
+- **Runtime-built dialogs still carry desktop sizing inside the phone shell**
+  (`Open project`, `New world` — ~1020×690 with 10–12 px type, and `Open
+  project` drawing two stacked headers). Previously reported, seen again this
+  pass on the boot screen, and still not fixed: it is §13 dialog layout work,
+  not menu work.
