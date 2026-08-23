@@ -109,7 +109,11 @@ use cartalith_climate::{
     apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
     WeatherParams,
 };
-use cartalith_erosion::{isostatic_rebound, recompute_resistance_after_erosion, stream_power_kernel, StreamPowerParams};
+use cartalith_erosion::{
+    coastal_process, glacial_kernel, hillslope_diffuse, isostatic_rebound, recompute_resistance_after_erosion,
+    route_sediment, stream_power_kernel, velocity_erode_kernel, CoastalParams, GlacialParams, StreamPowerParams,
+    VelocityParams,
+};
 use cartalith_hydrology::{
     build_channels, compute_flow, enforce_channel_descent, river_width_scale_k, strahler_from_receivers,
     trace_river_polylines, ChannelResult,
@@ -231,6 +235,133 @@ pub struct StreamParams {
     pub climate_k: f64,
 }
 
+/// The reference's **manual erosion buttons**, exposed here as
+/// generation-time passes instead (`GUI_GAP_REGISTER.md` §19, WW-02/MS-04/
+/// MS-05; permitted by `DECISIONS.md` §7d).
+///
+/// **Every toggle is off and every cycle count is zero by default**, so a
+/// default `generate_terrain` is bit-identical to before this struct existed
+/// — the same guarantee the reference gives for its own ops (*"A new op
+/// (never auto-runs) → generate() bit-identical at defaults"*).
+///
+/// ## Why parameters and not buttons
+///
+/// The reference runs none of these inside `generate()`; each is a button
+/// over the finished field followed by `computeFlow(true); refreshClimate()`.
+/// This port takes the §7d route: the *same* kernels, run at the *end* of
+/// generation (after `carve_rivers`, which is where the reference's finished
+/// field is), followed by the same flow+climate refresh — [`refresh_climate`].
+/// Growing the reference's opt-in buttons on top of these is still open and
+/// costs nothing extra, since the run path now exists.
+///
+/// ## Order
+///
+/// Fixed and not user-orderable: `velocity → glacial → coastal →
+/// hillslope → evolve → sediment_fill`. It is the reference's own panel
+/// order, which is the only ordering evidence there is — the reference never
+/// composes two of these in one op, so there is no reference answer and
+/// therefore **no golden fixture for the composed result**. Each *kernel* is
+/// golden-parity bit-exact on its own (`cartalith-erosion::passes`); the
+/// sequence is this port's choice, disclosed rather than implied.
+///
+/// Field names follow the reference's `state.velo`/`state.glacial`/
+/// `state.coastal`/`state.erosion` keys; the derived knobs each kernel needs
+/// beyond these (`dt`, `rain_rate`, `evap`, …) come from the reference's own
+/// `veloParams()`/`glacialParams()` mappings, not from new judgement.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ErosionPassParams {
+    /// `velocityErodeKernel` — Mei virtual-pipes hydraulic erosion.
+    pub velocity: bool,
+    /// `state.velo.iters`, clamped 10..160 by `veloParams()`. Default `60`.
+    pub velo_iters: i32,
+    /// `state.velo.strength`. Drives `capacity` and `erodeK`. Default `0.5`.
+    pub velo_strength: f64,
+    /// `state.velo.meander`. Drives `centrifugalK`. Default `0.6`.
+    pub velo_meander: f64,
+
+    /// `glacialKernel` — ice abrasion carving U-shaped valleys.
+    pub glacial: bool,
+    /// `state.glacial.kg`, erodibility. Default `0.15`.
+    pub glacial_kg: f64,
+    /// `state.glacial.mg`, discharge exponent. Default `0.4`.
+    pub glacial_mg: f64,
+    /// `state.glacial.snowline`, fraction of the above-sea range. Default `0.65`.
+    pub glacial_snowline: f64,
+    /// `state.glacial.uFactor`, trough-wall share. Default `0.6`.
+    pub glacial_u_factor: f64,
+    /// `state.glacial.passes`. Default `8`.
+    pub glacial_passes: i32,
+
+    /// `coastalProcess` — cliff retreat, estuaries, tidal marsh.
+    pub coastal: bool,
+    /// `state.coastal.waveStr`. Default `0.5`.
+    pub wave_str: f64,
+    /// `state.coastal.estuaryDepth`. Default `0.08`.
+    pub estuary_depth: f64,
+    /// `state.coastal.marshBand`. Default `0.03`.
+    pub marsh_band: f64,
+    /// `state.coastal.passes`. Default `4`.
+    pub coastal_passes: i32,
+
+    /// `hillslopeDiffuseCPU` — `∂z/∂t = D∇²z`.
+    pub hillslope: bool,
+    /// `state.erosion.diffuseD`. Default `0.15`.
+    pub diffuse_d: f64,
+    /// `state.erosion.diffusePasses`. Default `6`.
+    pub diffuse_passes: i32,
+
+    /// `depositSediment()` — stream-power carve, then route the eroded mass
+    /// downstream and redeposit it (mass-conserving), building deltas and
+    /// floodplains instead of the broad isostatic rebound.
+    pub sediment_fill: bool,
+    /// `routeSediment`'s `opts.capacity`. The reference's own default, and
+    /// its only caller's, is `6.0`.
+    pub sediment_capacity: f64,
+
+    /// `evolveCoupled(cycles)` — coupled climate ↔ terrain evolution, one
+    /// stream-power carve + full climate refresh per cycle, so the rain
+    /// driving the next cycle's incision reflects the orography it just
+    /// helped build. `0` (the default) is off; `state.stream.cycles`.
+    pub evolve_cycles: i32,
+}
+
+impl ErosionPassParams {
+    /// Every pass off, every knob at the reference's own `state` literal
+    /// (reference HTML lines 2268-2275). Off means `generate_terrain` is
+    /// unchanged, so the knobs are documentation until a toggle is flipped.
+    pub fn off() -> Self {
+        ErosionPassParams {
+            velocity: false,
+            velo_iters: 60,
+            velo_strength: 0.5,
+            velo_meander: 0.6,
+            glacial: false,
+            glacial_kg: 0.15,
+            glacial_mg: 0.4,
+            glacial_snowline: 0.65,
+            glacial_u_factor: 0.6,
+            glacial_passes: 8,
+            coastal: false,
+            wave_str: 0.5,
+            estuary_depth: 0.08,
+            marsh_band: 0.03,
+            coastal_passes: 4,
+            hillslope: false,
+            diffuse_d: 0.15,
+            diffuse_passes: 6,
+            sediment_fill: false,
+            sediment_capacity: 6.0,
+            evolve_cycles: 0,
+        }
+    }
+
+    /// Whether any pass would actually run — the guard that keeps a default
+    /// generation from paying for the flow+climate refresh these need.
+    pub fn any(&self) -> bool {
+        self.velocity || self.glacial || self.coastal || self.hillslope || self.sediment_fill || self.evolve_cycles > 0
+    }
+}
+
 /// `state.world_structure` (reference HTML line 2263) — the five
 /// archetype knobs `ARCHETYPES`'s presets (earth/supercontinent/
 /// archipelago/volcanic/rift, reference HTML lines 2521-2526) set
@@ -271,6 +402,9 @@ pub struct WorldParams {
     pub planet: PlanetParams,
     pub climate: ClimateInputParams,
     pub stream: StreamParams,
+    /// The reference's manual erosion ops, run at the end of generation.
+    /// Entirely off by default — see [`ErosionPassParams`].
+    pub passes: ErosionPassParams,
     pub world_structure: WorldStructureParams,
     /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 6: run plate assignment,
     /// domain warp, crustal heterogeneity, and the flexure/base-field blur
@@ -365,6 +499,7 @@ impl WorldParams {
                 current_k: 1.0,
             },
             stream: StreamParams { uplift: 0.0, k: 0.012, iters: 15, deposit: 0.3, climate_k: 0.5 },
+            passes: ErosionPassParams::off(),
             world_structure: WorldStructureParams {
                 enabled: false,
                 continentality: 0.30,
@@ -1114,6 +1249,184 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
         river_floor = Some(rfloor);
     }
 
+    // ---- the reference's manual erosion ops, as generation-time passes ----
+    // `ErosionPassParams`; `GUI_GAP_REGISTER.md` §19, WW-02/MS-04/MS-05.
+    // Runs here, at the very end, because "the finished field" is what every
+    // one of these buttons operates on in the reference. Entirely skipped
+    // when every toggle is off -- which is the default, so a default world is
+    // bit-identical to one generated before this block existed.
+    if p.passes.any() {
+        let q = &p.passes;
+        if q.velocity {
+            // veloParams() (reference HTML line 3995), verbatim -- including
+            // its own `Math.max(10,Math.min(160,...))` on the iteration count.
+            let vp = VelocityParams {
+                iters: q.velo_iters.clamp(10, 160),
+                dt: 0.02,
+                gravity: 9.8 * p.planet.g,
+                rain_rate: 0.012,
+                evap: 0.05,
+                capacity: 0.5 + 1.5 * q.velo_strength,
+                erode_k: 0.05 + 0.5 * q.velo_strength,
+                deposit_k: 0.25,
+                min_slope: 0.001,
+                centrifugal_k: 1.4 * q.velo_meander,
+                sea: sea_level,
+            };
+            // The returned water/vx/vy are the reference's Velocity debug
+            // view and Pillar-3 flow-map, neither of which this port has a
+            // consumer for -- dropped rather than carried on `WorldState`.
+            // `veloFinish()` is deliberately *not* an isostatic rebound: the
+            // reference's own comment says so ("it's a full hydraulic sim").
+            let _ = velocity_erode_kernel(&mut field, Some(&rainfall), gw, gh, &vp);
+        }
+        if q.glacial {
+            let pre = field.clone();
+            glacial_kernel(
+                &mut field,
+                &temperature,
+                gw,
+                gh,
+                &GlacialParams {
+                    kg: q.glacial_kg,
+                    mg: q.glacial_mg,
+                    snowline: q.glacial_snowline,
+                    u_factor: q.glacial_u_factor,
+                    passes: q.glacial_passes,
+                    g: p.planet.g,
+                    sea: sea_level,
+                    world,
+                },
+            );
+            // glacialErode()'s own `eroFinish(pre)` tail -- glacial is the one
+            // of these the reference follows with an isostatic rebound.
+            isostatic_rebound(&mut field, &pre, gw, gh, p.tect.blur_r, world);
+            if p.tect.dynamic_lithology {
+                recompute_resistance_after_erosion(&mut resistance_field, &pre, &field, 6.0);
+            }
+        }
+        if q.coastal {
+            coastal_process(
+                &mut field,
+                &flow_discharge,
+                gw,
+                gh,
+                sea_level,
+                world,
+                p.planet.g,
+                &CoastalParams {
+                    wave_str: q.wave_str,
+                    estuary_depth: q.estuary_depth,
+                    marsh_band: q.marsh_band,
+                    passes: q.coastal_passes,
+                },
+            );
+        }
+        if q.hillslope {
+            hillslope_diffuse(&mut field, gw, gh, q.diffuse_passes, q.diffuse_d, world);
+        }
+        // ---- evolveCoupled(cycles) (reference HTML lines 4270-4279) ----
+        // Pure orchestration in the reference too; the per-cycle
+        // `refreshClimate()` is the whole point -- the rain driving the next
+        // cycle's incision reflects the orography the last one built.
+        for _ in 0..q.evolve_cycles.max(0) {
+            let pre = field.clone();
+            let sp = StreamPowerParams {
+                k: p.stream.k,
+                uplift: p.stream.uplift,
+                deposit: p.stream.deposit,
+                climate_k: p.stream.climate_k,
+                // evolveCoupled's own `Math.max(4,Math.round(iters*0.6))`.
+                iters: (js_round(p.stream.iters as f64 * 0.6) as i32).max(4),
+                resist: p.tect.resist,
+                g: p.planet.g,
+                world,
+                sea: sea_level,
+            };
+            stream_power_kernel(&mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &sp);
+            isostatic_rebound(&mut field, &pre, gw, gh, p.tect.blur_r, world);
+            if p.tect.dynamic_lithology {
+                recompute_resistance_after_erosion(&mut resistance_field, &pre, &field, 6.0);
+            }
+            refresh_climate(
+                p,
+                sea_level,
+                &field,
+                &climate_params,
+                &weather_params,
+                &mut temperature,
+                &mut rainfall,
+                &mut flow_discharge,
+            );
+        }
+        // ---- depositSediment() (reference HTML lines 4310-4320) ----
+        if q.sediment_fill {
+            let pre = field.clone();
+            let sp = StreamPowerParams {
+                k: p.stream.k,
+                uplift: p.stream.uplift,
+                deposit: p.stream.deposit,
+                climate_k: p.stream.climate_k,
+                iters: p.stream.iters,
+                resist: p.tect.resist,
+                g: p.planet.g,
+                world,
+                sea: sea_level,
+            };
+            stream_power_kernel(&mut field, &stress.stress_field, &resistance_field, &rainfall, gw, gh, &sp);
+            // the eroded column *is* the sediment supply
+            let mut supply = vec![0f32; gw * gh];
+            for i in 0..gw * gh {
+                let d = (pre[i] as f64 - field[i] as f64) as f32;
+                if d > 0.0 {
+                    supply[i] = d;
+                }
+            }
+            // discharge on the carved surface, before routing
+            flow_discharge = compute_flow(gw, gh, &field, Some(&rainfall), true, world);
+            route_sediment(&mut field, &flow_discharge, &supply, gw, gh, sea_level, q.sediment_capacity, world);
+        }
+        // `erodeFinish`'s own clamp statement (reference HTML line 3894),
+        // borrowed from the droplet op's tail. **A deliberate deviation,
+        // disclosed** (`CLAUDE.md`'s no-silent-deviation rule): the reference
+        // runs this clamp only after the droplet pass, and `veloFinish` /
+        // `routeSediment` genuinely can leave a cell outside 0..1 -- velocity
+        // erosion carries only a +-1e9 finite guard, and sediment routing adds
+        // without an upper bound. In the reference that is a transient a user
+        // sees and re-runs past; here it would be baked into a `WorldState`
+        // whose 0..1 field range every downstream stage and the renderer both
+        // assume (and `generate_terrain`'s own end-to-end test asserts).
+        // Applied once for the sequence, after the last pass, so no pass reads
+        // a clamped value the reference would have left unclamped.
+        // Not `f32::clamp`: this is the reference's own two-statement
+        // `if(f<0)f=0; else if(f>1)f=1;`, transcribed -- the same reason
+        // `cartalith_erosion::passes` gives for its own copy of this shape.
+        #[allow(clippy::manual_clamp)]
+        for v in field.iter_mut() {
+            if *v < 0.0 {
+                *v = 0.0;
+            } else if *v > 1.0 {
+                *v = 1.0;
+            }
+        }
+
+        // `computeFlow(true); refreshClimate();` -- the tail every one of
+        // these ops has in the reference, paid once for the whole sequence
+        // rather than once per pass. Composing several of them in one run is
+        // this port's own addition (the reference never does), so there is no
+        // reference behaviour to differ from here -- see `ErosionPassParams`.
+        refresh_climate(
+            p,
+            sea_level,
+            &field,
+            &climate_params,
+            &weather_params,
+            &mut temperature,
+            &mut rainfall,
+            &mut flow_discharge,
+        );
+    }
+
     // PR-04: record each active device's real allocation total *before* the
     // set is dropped, so Preferences ▸ Devices can show a measured number
     // without paying its own ~1.3 s adapter/device handshake to ask.
@@ -1148,9 +1461,156 @@ pub fn generate_terrain(p: &WorldParams) -> WorldState {
     }
 }
 
+/// `computeFlow(true); refreshClimate();` (reference HTML line 5154) — the
+/// tail every terrain-changing op in the reference runs: re-derive discharge
+/// on the new surface, then temperature, rainfall, the moisture correctors
+/// and (when enabled) ocean currents over it.
+///
+/// `GUI_GAP_REGISTER.md` MS-04 named this as the one genuinely missing engine
+/// function: `generate_terrain` used to sequence
+/// `compute_temperature`/`simulate_weather` inline, so nothing could re-derive
+/// climate over a surface that changed afterwards. It is `pub` because that
+/// is the point — any future post-generation op needs exactly this.
+///
+/// **Order matters and is the reference's**: discharge is computed from the
+/// *old* rainfall (that is what `computeFlow(true)` reads), and the moisture
+/// correctors then read the *new* discharge. `computeSeasons()` stays
+/// deferred, as it is in `generate_terrain` itself.
+///
+/// CPU only. `p.use_gpu` selects GPU paths inside `generate_terrain` where a
+/// device handle is in scope; per `HARDWARE_ACCELERATION.md` §27 a CPU path
+/// is always a valid outcome for any stage, and `WorldState.gpu_stages_used`
+/// reports what actually ran rather than what was asked for.
+#[allow(clippy::too_many_arguments)]
+pub fn refresh_climate(
+    p: &WorldParams,
+    sea_level: f64,
+    field: &[f32],
+    climate_params: &ClimateParams,
+    weather_params: &WeatherParams,
+    temperature: &mut Vec<f32>,
+    rainfall: &mut Vec<f32>,
+    flow_discharge: &mut Vec<f32>,
+) {
+    let (gw, gh, world) = (p.gw, p.gh, p.world);
+    *flow_discharge = compute_flow(gw, gh, field, Some(rainfall), true, world);
+    *temperature = compute_temperature(gw, gh, field, None, climate_params);
+    *rainfall = simulate_weather(gw, gh, field, p.climate.w_iters, 0.0, weather_params);
+    apply_climate_moisture_correctors(
+        gw,
+        gh,
+        field,
+        flow_discharge,
+        rainfall,
+        sea_level,
+        world,
+        p.climate.lat_n,
+        p.climate.lat_s,
+        p.climate.zonal_k,
+    );
+    if p.climate.currents {
+        apply_ocean_currents(
+            gw,
+            gh,
+            field,
+            temperature,
+            rainfall,
+            sea_level,
+            world,
+            p.climate.lat_n,
+            p.climate.lat_s,
+            p.climate.equator_temp,
+            p.climate.pole_temp,
+            p.planet.axial_tilt_deg,
+            p.planet.rotation_hours,
+            p.climate.wind_manual,
+            p.climate.wind_dir_deg,
+            p.climate.press_k,
+            p.climate.current_k,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `ErosionPassParams`' whole contract: **off is bit-identical**. Not a
+    /// tolerance — `assert_eq!` on the raw `f32`s, plus temperature, rainfall
+    /// and discharge, because `refresh_climate` must not run either.
+    #[test]
+    fn erosion_passes_off_leave_generation_bit_identical() {
+        let mut p = WorldParams::defaults(24, 18, 4242);
+        let base = generate_terrain(&p);
+        // Every knob moved, every toggle still off: a knob alone must do
+        // nothing at all, or "default-off" is only half true.
+        p.passes.velo_strength = 0.9;
+        p.passes.glacial_kg = 0.8;
+        p.passes.wave_str = 1.0;
+        p.passes.diffuse_d = 0.2;
+        p.passes.sediment_capacity = 1.0;
+        assert!(!p.passes.any());
+        let same = generate_terrain(&p);
+        assert_eq!(base.field, same.field);
+        assert_eq!(base.temperature, same.temperature);
+        assert_eq!(base.rainfall, same.rainfall);
+        assert_eq!(base.flow_discharge, same.flow_discharge);
+    }
+
+    /// Each pass, alone, must actually move the surface — the check that the
+    /// wiring reaches the kernel rather than merely compiling next to it.
+    /// Fixtures are shaped to *reach* each one: glacial needs cells above the
+    /// snowline **and** below freezing, so its case drops the snowline and
+    /// runs a cold world.
+    #[test]
+    fn each_erosion_pass_changes_the_field_on_its_own() {
+        let base_p = WorldParams::defaults(48, 36, 991);
+        let base = generate_terrain(&base_p);
+
+        /// One row of the table below: the pass's name, and what turning it
+        /// on (plus whatever the fixture needs to *reach* it) looks like.
+        type Case = (&'static str, fn(&mut WorldParams));
+
+        let cases: [Case; 6] = [
+            ("velocity", |p| {
+                p.passes.velocity = true;
+                p.passes.velo_iters = 20;
+            }),
+            ("glacial", |p| {
+                p.passes.glacial = true;
+                // reach it: an ice-age world with a low snowline
+                p.passes.glacial_snowline = 0.05;
+                p.climate.equator_temp = -20.0;
+                p.climate.pole_temp = -60.0;
+            }),
+            ("coastal", |p| p.passes.coastal = true),
+            ("hillslope", |p| p.passes.hillslope = true),
+            ("sediment_fill", |p| p.passes.sediment_fill = true),
+            ("evolve", |p| p.passes.evolve_cycles = 2),
+        ];
+
+        for (name, apply) in cases {
+            let mut p = base_p.clone();
+            apply(&mut p);
+            let ws = generate_terrain(&p);
+            // The glacial case also changes the climate inputs, so compare it
+            // against its own climate-only twin rather than the plain base.
+            let reference = if name == "glacial" {
+                let mut q = p.clone();
+                q.passes.glacial = false;
+                generate_terrain(&q).field
+            } else {
+                base.field.clone()
+            };
+            let moved = ws.field.iter().zip(&reference).filter(|(a, b)| a != b).count();
+            assert!(moved > 0, "{name}: the pass ran but nothing moved");
+            assert!(ws.field.iter().all(|v| v.is_finite()), "{name}: produced a non-finite height");
+            assert!(
+                ws.field.iter().all(|&v| (0.0..=1.0).contains(&v)),
+                "{name}: left the field outside 0..1"
+            );
+        }
+    }
 
     #[test]
     fn generate_terrain_runs_end_to_end() {

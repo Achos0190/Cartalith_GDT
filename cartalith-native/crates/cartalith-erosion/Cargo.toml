@@ -10,6 +10,8 @@ description = "droplet, stream-power, thermal erosion"
 name = "cartalith_erosion"
 
 [dependencies]
+cartalith-jsmath = { path = "../cartalith-jsmath" }
+cartalith-noise = { path = "../cartalith-noise" }
 cartalith-rng = { path = "../cartalith-rng" }
 cartalith-terrain = { path = "../cartalith-terrain" }
 rayon = "1"

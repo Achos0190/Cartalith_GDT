@@ -5,29 +5,136 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-23 (post **Asset library closeout: item transform
-editing, Unassigned imports, draggable slicer lines**. `PARITY_AUDIT.md`
-§3.5's three open items against the Asset library's 2026-08-20 rebuild —
-`GUI_GAP_REGISTER.md` **AS-07, AS-12 and AS-17 — all close for real this
-pass**: `as_set_item_transform`/`as_reset_item_transform` wire the Scale
-slider (now 5..600%, the reference's own `#alScale` bounds) and two new Pan
-X/Pan Y SpinBoxes straight into `LibraryItem::transform`; a reserved
-custom-slot `set` (`UNASSIGNED_SET`) gives "Unassigned imports" a real,
-browsable, live-counted rail row reachable from the footer's Import
-image… with nothing focused; `SliceGrid::with_lines`/`move_line` give the
-slicer real per-interior-line drag handles (not just the Margin boundary),
-and `as_slice_apply`'s new `only_cell` makes a selected cell actually narrow
-what Slice cuts. No new UI scaffolding — every control involved already
-existed. Full account in `CHANGELOG.md`'s entry of the same name. Verified:
-`cargo build -p cartalith-godot` clean; `cargo test -p cartalith-assets -p
-cartalith-godot` (22 `slicer` unit tests incl. 6 new, 30 `asset_bridge` tests
-incl. 6 new, existing golden suites unchanged); non-headless verification via
-direct `_gui_input()` event injection (this project's established fallback
-for OS-level pointer routing into an embedded subwindow) — dragged an
-interior line off a sprite's colour boundary, toggled a cell-scoped slice,
-read a changed transform back off `as_item_summary`, and imported into a
-real "Unassigned imports" row. — previously, post **Global undo — `Edit ▸
-Undo` is live, and it
+Last updated: 2026-08-23 (post **Four small clusters closed: geoid, tides,
+seasons+Köppen, wildlife+ecoregions — and the roster popup**.
+`PARITY_AUDIT.md` §3.1 loses four consecutive "absent" rows and §5 **item 8,
+the wildlife roster click popup, is closed** — the last of that section's
+class-(d) rows that was blocked purely on an unported engine cluster rather
+than on a design decision. `GUI_GAP_REGISTER.md` **DV-04/DV-06/DV-07/DV-11
+close**, a new **WL-01** registers the popup, and **WW-07/WW-09 are now
+engine-closed and control-open** in the same shape WW-02 already uses. Three
+new modules in `cartalith-climate` (`geoid.rs`, `tides.rs`, `koppen.rs`) and
+one in `cartalith-civ` (`wildlife.rs`), **27 new golden tests, all bit-exact**
+(geoid 7 · tides 6 · Köppen 6 · wildlife 8), fixtures captured from the frozen
+reference under Node's `vm` and each asserted non-empty and varied before use.
+**Placement was the one real decision.** Wildlife reads as climate and is not:
+`buildNPP`, `buildCartBiome`, `buildWaterAccess` and `buildCarryingCapacity`
+are every one of its inputs and all four already live in `cartalith-civ`, so
+it went there — and `buildNPP` is **consumed, not re-implemented**, which was
+the explicit instruction and is also what the porting ladder wants. Four
+things worth carrying forward: (1) the geoid was already anticipated — this
+port's `compute_temperature` has taken `geo_field: Option<&[f32]>` since Phase
+1, so nothing downstream changed shape; (2) both geoid and tides are **gated
+off by default in the reference too**, and both debug views preview at the
+reference's own fallback defaults, which is not a port shortcut but literally
+what `currentGeoidPreview`/`currentTideField` do; (3) `computeSeasons`' rain
+half runs through `simulate_weather` and therefore inherits its three
+long-standing disclosed deferrals, so the golden suite feeds the **classifier**
+the reference's own captured seasonal rain — making it a test of Köppen rather
+than a third copy of the weather test, and the module doc says so; (4)
+`buildEcoregions`' flood fill keeps the reference's LIFO stack and its exact
+`left,right,up,down` push order, because every aggregate is a running `f64`
+sum over `f32` reads and float addition is not associative. The popup is a
+RIGHT-dock context rather than a floating div — the shell already routes every
+"you clicked something" readout that way — but every field `showWildInfo`
+renders is present in the reference's own order, the hit test is its own
+`max(8, GW/40)` marker radius, and `wild_fmt_pop` stays engine-side so the
+`~4.5M` wording has one implementation, not a GDScript copy. Verified:
+`cargo test -p cartalith-climate -p cartalith-civ` green, `cargo build -p
+cartalith-godot` clean, headless boot clean, and a headless run over a real
+192×120 world confirming all four views draw varied output (297/106/21/15
+distinct colours) and `wildlife_region_at` returns real rosters — "Coastal
+Lowland: 4 species, dominant marine (Harbour seal, Shorebird flock, Otter…)",
+populations formatted `1.8M`. Not verified: on-device/GPU appearance, per
+`DECISIONS.md` §5) — previously, post **The manual erosion passes: seven
+kernels ported, the run path referred to the owner**. `PARITY_AUDIT.md` §3.1's
+"Velocity erosion (Mei virtual pipes) + coastal + glacial + hillslope … kernels
+partly absent, no run-button path" (WW-02) and "Evolve coupled + sediment
+routing/deposition + tidal flats … absent" (MS-04/MS-05) rows are **closed on
+the engine half and explicitly open on the control half**. New
+`cartalith-erosion/src/passes.rs`: `hillslope_diffuse`, `centrifugal_shear` +
+`velocity_erode_kernel` (Mei virtual pipes, semi-Lagrangian momentum
+advection, centrifugal bank shear), `glacial_kernel`, `coastal_process`
+(cliff retreat + estuary + tidal marsh) and `route_sediment` +
+`apply_tidal_sedimentation` — all **bit-exact on the first run**
+(`golden_parity_passes.rs`, 26 tests, `assert_eq!` on `f32`, no tolerance,
+fixtures from a transient Node `vm.runInContext` harness over nine verbatim
+reference slices, each asserted before evaluation). **Mutation-swept: 115
+literal sites, 98 killed**, after four fixture passes shaped to reach the
+survivors — saturating clamps, quantised heights so tie-breaks bite, a 34-wide
+120-iteration velocity run, a 9×36 glacial ramp whose discharge climbs
+*through* the 100-cell cirque cut-off, sub-floor rain and gravity, negative
+discharge, and a monotone chain whose result depends entirely on the sort
+order. The 17 survivors are each explained in the module header, one of them a
+real finding (`applyTidalSedimentation`'s `tr <= 1e-5` floor is provably
+unreachable — the `sea - 1e-4 - h` headroom cap subsumes it).
+**And then wired, same day** — the run path is **default-off generation
+parameters** (`DECISIONS.md` §7d), not the reference's buttons, and WW-02
+(4 of 5), MS-04 and MS-05 all close. New `cartalith_engine::ErosionPassParams`
+on `WorldParams`: six toggles (`velocity`/`glacial`/`coastal`/`hillslope`/
+`sediment_fill`, plus `evolve_cycles` where `0` is off) and fifteen knobs at
+the reference's own `state` literals, run **at the end of `generate_terrain`
+after `carve_rivers`** in the reference's panel order, exposed as **21
+`params.rs` rows** in the existing `erosion` group. `depositSediment` (MS-05)
+and `evolveCoupled` (MS-04) are pure orchestration and are transcribed; the
+one genuinely new engine function MS-04 had named is written — **`pub fn
+refresh_climate`**, the reference's `computeFlow(true); refreshClimate();`
+tail over a changed surface, which nothing here could do before. **Every
+toggle off is bit-identical**, asserted on field *and* temperature *and*
+rainfall *and* discharge, not assumed. One deviation disclosed: the block ends
+with `erodeFinish`'s own 0..1 clamp, because `velocity_erode_kernel` (±1e9
+guard only) and `route_sediment` (no upper bound) genuinely can leave the
+field outside the range every downstream stage assumes — found by a test.
+Verified non-headlessly through the real `EngineBridge` (`_erosion_shot.gd`,
+reset → `param_set` → full re-generate per case, since these are *generation*
+parameters): pixels moved 38 %/91 %/6 %/45 %/44 %/44 %, all-off returns to
+base at **0.0000 %**, and the honest control — glacial with a low snowline but
+a temperate world moves 0.24 %, because ice needs `temp < 0` too. Still open:
+**droplet** (kernel since Phase 1, no parameter — its `erodeFinish` tail is a
+second orchestration) and **tidal flats** (kernel ported, but needs `tideField`,
+**WW-07**). The reference's own run-*button* idiom stays available on top and
+is now cheap; not built because UI work is on hold)
+— previously, post **The reference's NPR block: ten Painter
+styles, coastal waves, animated water, multi-sun**. `PARITY_AUDIT.md` §3.1's
+"NPR 'Painter' styles … ~15 render paths … absent" row is **closed** for the
+Painter/waves/water/multi-sun half; `GUI_GAP_REGISTER.md` gains **RN-02
+(closed)** and RN-01 is now explicitly the *colour/relief* half only. Ten
+styles (watercolor · contour veins · ink · hachure · cel/toon · engraving ·
+stipple · sepia · risograph · pointillism), the coastal wave lines and the
+four-light multi-sun rig are **literal per-pixel ports** into
+`cartalith-godot/src/render.rs` (`Npr`, `apply_npr`, `apply_waves`,
+`coast_distance`, `multi_sun_from_normal`, `grad_at`), every one off at
+`Default` — so `TerrainAppearance::default()`, `js_reference()` and
+`golden_parity_render.rs` are all bit-untouched, seven milestones in. Literal
+rather than shader-based **on purpose**: these are arithmetic on one finished
+colour, so a shader would have bought nothing and cost a second compositing
+stage over an already-`rayon`-parallel raster. New
+`tests/golden_parity_npr.rs` (5 tests, tolerance `1e-9`, fixtures **shaped to
+reach the branches** and each style run *alone* before the two stacked cases,
+plus two explicit non-emptiness assertions) extracted by slicing four ranges
+out of the frozen reference under Node's `vm` — with the extractor asserting
+each slice's first and last line and all ten `viz.*` keys before running it,
+which caught one genuinely off-by-a-line slice. **Mutation-tested: 17 mutants,
+0 survivors.** Two float decisions recorded in-file: `js_round` (not
+`f64::round`) at the contour-index and cel-quantiser sites, and
+`x * PI * 2.0` (not `x * TAU`) in the wave crest. **Animated water is the one
+member that is not in the raster** — it is per-frame, so it is a Godot
+`ShaderMaterial` overlay (`water_anim.gdshader` + `water_anim_layer.gd`) over a
+new `waterfx` channel in `sample_bridge.rs`, i.e. `DECISIONS.md` §7a
+principled equivalence and *stated as such*, the same call `wind_fx_layer.gd`
+made for its streak trails; the reference's own `GW*GH <= 400000` animation
+cap is deliberately **not** ported, because it protects a JavaScript pixel
+loop that no longer exists, and nothing in it touches `wgpu` or a
+`RenderingDevice`. Boundary: `WorldGen::get_npr`/`set_npr` (every key
+optional, returns the count applied so a typo reads as `0`) plus a new
+`WorldGen::appearance()` that is now the single place the quality tier and the
+NPR block combine — five hand-written `TerrainAppearance::for_tier(...)` call
+sites collapsed into it. Dock: `render_workspace.gd` ▸ **Painter styles** and
+**Water & light**, committing on slider release and calling
+`app.viewport.refresh()` rather than `bridge.mark_dirty()`, because none of it
+invalidates a generation stage. Verified with `cargo build -p cartalith-godot`,
+the two golden suites, and a real windowed pass through every style and
+toggle. — previously, post **Global undo — `Edit ▸ Undo` is live, and it
 was three functions, not a framework**. `GUI_GAP_REGISTER.md` **ED-01's Undo
 half and PR-11 both closed**; ED-02, the history *panel*, stays open and is
 still (C). `PARITY_AUDIT.md` §3.1's last row — "Global heightmap undo

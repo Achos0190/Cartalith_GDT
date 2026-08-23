@@ -333,13 +333,14 @@ Stamped after the base height is built and normalized, before erosion.
 | `crater.count` | `crater.count` | int | `100` | 0 .. 200, step 2 | `crat`, raw 0-100 step 1, `v·2` | Number of impact craters recorded in `impact_field`. Sizes follow a realistic D⁻² distribution: mostly small (0.5-5 km), rare large basins (25-200 km). Crater radius scales with `g^−0.22`. |
 | `crater.age` | `crater.age` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `crata`, raw 0-100, `v/100` | Crater degradation. Old = shallow and infilled; young = crisp rim with a central peak. |
 
-## Group `erosion` — the stream-power pass `carveRiverValleys` runs
+## Group `erosion` — the stream-power pass, and the manual passes
 
-These are `state.stream` as read through the reference's own `streamParams()`.
-They apply to the **light** pass `generate()` itself runs at
+The first five rows are `state.stream` as read through the reference's own
+`streamParams()`. They apply to the **light** pass `generate()` itself runs at
 `max(4, round(iters·0.6))` iterations, not to the manual "Stream-power carve"
-button (which this port does not have). `state.stream.cycles` is deliberately
-absent: only `evolveCoupled()` — the manual "Evolve" tool — reads it.
+button (which this port does not have). `state.stream.cycles` has no
+`stream.*` key of its own — it is `passes.evolve_cycles` in the sub-section
+below, since the only thing that reads it is the Evolve op.
 
 | Key | Field | Type | Default | Range | Reference control | Meaning |
 |---|---|---|---|---|---|---|
@@ -348,6 +349,71 @@ absent: only `evolveCoupled()` — the manual "Evolve" tool — reads it.
 | `stream.iters` | `stream.iters` | int | `15` | 4 .. 40, step 1 | `sIt`, raw 4-40 step 1 | Implicit-solver steps (Braun & Willett 2013) toward equilibrium. More = closer to a mature, graded river profile. |
 | `stream.deposit` | `stream.deposit` | float | `0.30` | 0.0 .. 1.0, step 0.01 | `sDep`, raw 0-100, `v/100` | Sediment deposition in low-gradient reaches and below sea level — floodplains and fans. Never raises a channel above the surrounding land. |
 | `stream.climate_k` | `stream.climate_k` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `sClim`, raw 0-100, `v/100` | Couples local rainfall into K (`1 + climateK·2·rain`). High = wet regions erode much faster than dry, giving climate-driven landscape asymmetry. |
+
+### The manual passes, as parameters (2026-08-23)
+
+The same group carries the reference's **manual erosion buttons**, which this
+port runs as generation-time passes instead — `cartalith_engine::ErosionPassParams`,
+`GUI_GAP_REGISTER.md` §19. **Every toggle is off by default**, so a default
+generation is bit-identical to one produced before they existed; that is the
+condition `DECISIONS.md` §7d attaches to a superset, and it is asserted
+(`erosion_passes_off_leave_generation_bit_identical`), not assumed.
+
+They run **at the end of `generate_terrain`, after `carve_rivers`** — "the
+finished field" is what each of these buttons operates on in the reference —
+in the reference's own panel order: `velocity → glacial → coastal → hillslope
+→ evolve → sediment_fill`, followed by one `refresh_climate`. Composing two of
+them in a single run is this port's addition; the reference never does, so
+each *kernel* is golden-parity bit-exact alone and the *sequence* is a choice.
+
+Every toggle's **Reference control is `—`** for one reason, stated once here
+rather than repeated per row: the reference's control is a **button**, not a
+checkbox, so the toggle *is* the §7d addition. Each knob below, by contrast,
+does have a real reference slider and carries its reachable range.
+
+| Key | Field | Type | Default | Range | Reference control | Meaning |
+|---|---|---|---|---|---|---|
+| `passes.velocity` | `passes.velocity` | bool | `false` | — | — (`#veloBtn` is a button) | Run `velocityErodeKernel` — grid virtual-pipes shallow-water hydraulic erosion (Mei et al. 2007) with semi-Lagrangian momentum advection and centrifugal outer-bank shear. The meander/oxbow mechanism. No isostatic rebound follows: the reference's own `veloFinish` says "it's a full hydraulic sim". |
+| `passes.velo_iters` | `passes.velo_iters` | int | `60` | 10 .. 160, step 1 | `vIt`, raw 10-160 step 1 | Simulation iterations. `veloParams()` clamps to this range itself. |
+| `passes.velo_strength` | `passes.velo_strength` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `vStr`, raw 0-100, `v/100` | Drives both capacity (`0.5 + 1.5·s`) and erodibility (`0.05 + 0.5·s`). |
+| `passes.velo_meander` | `passes.velo_meander` | float | `0.60` | 0.0 .. 1.0, step 0.01 | `vMnd`, raw 0-100, `v/100` | Centrifugal bank shear (`1.4·m`). 0 disables outer-bank bias, so channels stay straight. |
+| `passes.glacial` | `passes.glacial` | bool | `false` | — | — (`#glacialBtn` is a button) | Run `glacialKernel` — ice abrasion carving U-shaped troughs, plus cirque overdeepening where discharge is under 100. **Gated on climate as well as altitude**: a cell erodes only above the snowline *and* below freezing, so a temperate world carves essentially nothing however high the intensity. |
+| `passes.glacial_snowline` | `passes.glacial_snowline` | float | `0.65` | 0.0 .. 1.0, step 0.01 | `gSnow`, raw 0-100, `v/100` | Snowline as a fraction of the above-sea range: ice forms above `sea + (1−sea)·snowline`. |
+| `passes.glacial_kg` | `passes.glacial_kg` | float | `0.15` | 0.01 .. 1.0, step 0.01 | `gKg`, raw 1-100, `v/100` | Glacial erodibility, ×planet gravity. |
+| `passes.glacial_mg` | `passes.glacial_mg` | float | `0.40` | 0.0 .. 2.0, step 0.05 | — | Discharge exponent in `E ∝ Q^mg`. The reference has no slider for it; range is this port's judgement. |
+| `passes.glacial_u_factor` | `passes.glacial_u_factor` | float | `0.60` | 0.0 .. 1.0, step 0.01 | `gUF`, raw 0-100, `v/100` | Share of the trunk's incision dealt to each flanking cell — the term that makes the valley U-shaped rather than V-shaped. |
+| `passes.glacial_passes` | `passes.glacial_passes` | int | `8` | 1 .. 30, step 1 | `gPas`, raw 1-30 step 1 | Accumulate/erode passes over the drainage tree. |
+| `passes.coastal` | `passes.coastal` | bool | `false` | — | — (`#coastalBtn` is a button) | Run `coastalProcess` — sea-cliff retreat with debris landing on the land neighbours, estuary widening scaled by `log(discharge)`, then a tidal-marsh accretion pass. Narrow by nature: it only touches the shoreline. |
+| `passes.wave_str` | `passes.wave_str` | float | `0.50` | 0.0 .. 1.0, step 0.01 | `cWave`, raw 0-100, `v/100` | Wave energy, **divided by planet gravity** (∝ 1/g), so a low-gravity world has stronger surf. |
+| `passes.estuary_depth` | `passes.estuary_depth` | float | `0.08` | 0.0 .. 0.2, step 0.002 | `cEst`, raw 0-100, `v/100·0.2` | How far below the coast a river mouth still widens into an estuary. |
+| `passes.marsh_band` | `passes.marsh_band` | float | `0.03` | 0.0 .. 0.1, step 0.001 | `cMar`, raw 0-100, `v/100·0.1` | Height band above sea level where tidal marsh accretes, on slopes under 0.08. |
+| `passes.coastal_passes` | `passes.coastal_passes` | int | `4` | 1 .. 15, step 1 | `cPas`, raw 1-15 step 1 | Wave/estuary passes. The marsh pass runs once, after them. |
+| `passes.hillslope` | `passes.hillslope` | bool | `false` | — | — (`#diffuseBtn` is a button) | Run `hillslopeDiffuseCPU` — `∂z/∂t = D∇²z` by explicit forward Euler. Rounds ridge detail and softens relief everywhere at once. X wraps only in world mode; Y never (the poles are hard edges). |
+| `passes.diffuse_d` | `passes.diffuse_d` | float | `0.15` | 0.002 .. 0.2, step 0.002 | `edD`, raw 1-100, `v/100·0.2` | Diffusivity D. |
+| `passes.diffuse_passes` | `passes.diffuse_passes` | int | `6` | 1 .. 40, step 1 | `edPas`, raw 1-40 step 1 | Forward-Euler steps. |
+| `passes.sediment_fill` | `passes.sediment_fill` | bool | `false` | — | — (`#sedimentBtn` is a button) | Run `depositSediment` — a stream-power carve, then route the eroded mass downstream and redeposit it (mass-conserving) instead of the broad isostatic rebound. Builds deltas, shelves and floodplains. |
+| `passes.sediment_capacity` | `passes.sediment_capacity` | float | `6.0` | 0.0 .. 20.0, step 0.5 | — | `routeSediment`'s transport capacity (`capacity × discharge × slope`); load above it deposits. The reference has no slider — this is its own `opts.capacity` default. |
+| `passes.evolve_cycles` | `passes.evolve_cycles` | int | `0` | 0 .. 12, step 1 | `evoCyc`, raw 2-12 step 1 | Run `evolveCoupled` for N coupled climate ↔ terrain cycles: carve → isostatic rebound → **full climate refresh**, so the rain driving the next cycle's incision reflects the orography the last one built. **`0` is off** — the reference's slider starts at 2 because pressing the *button* is its "on", which a parameter has no equivalent of. |
+
+**Not exposed: tidal flats.** `apply_tidal_sedimentation` is ported and golden-
+tested, but it takes a tide field this port does not generate
+(`GUI_GAP_REGISTER.md` **WW-07**). A toggle over an always-absent field is a
+control that cannot work, so no key was added.
+
+**Not exposed: droplet hydraulic erosion.** `droplet_kernel` has existed since
+Phase 1 and has no parameters here; its `erodeFinish` tail (thermal pass +
+clamp + isostatic rebound) is a second orchestration to transcribe, and it was
+outside the pass that wired the other four.
+
+**One deliberate deviation, disclosed** (`CLAUDE.md`'s no-silent-deviation
+rule): the pass block ends with `erodeFinish`'s own `if(f<0)f=0; else
+if(f>1)f=1;` clamp, which the reference applies only after the *droplet* pass.
+`velocity_erode_kernel` carries only a ±1e9 finite guard and `route_sediment`
+adds without an upper bound, so both genuinely can leave a cell outside 0..1 —
+a transient in the reference, but here it would be baked into a `WorldState`
+whose 0..1 field range the renderer and every downstream stage assume. Applied
+once after the last pass, so no pass reads a clamped value the reference would
+have left unclamped.
 
 ## Group `climate` — Climate & biomes
 
@@ -462,16 +528,28 @@ Recorded so the gap is a decision, not an omission. Every one of these belongs
 to a pipeline stage `cartalith-engine` has not ported, not to a parameter that
 was skipped:
 
-- **Droplet hydraulic erosion** (`drops`, `estr`, `edep`, `ethr`, `etal`) and
-  **hillslope diffusion** (`edD`, `edPas`) — the reference's manual "Erode
-  (droplet)" / "Hillslope diffuse" buttons. `state.erosion` has no
-  `cartalith-engine` equivalent; `generate()` never runs them.
-- **Velocity (momentum) erosion** (`vIt`, `vStr`, `vMnd`) — a manual op the
-  reference itself says "never auto-runs".
-- **Glacial** (`gSnow`, `gKg`, `gUF`, `gPas`) and **coastal** (`cWave`,
-  `cEst`, `cMar`, `cPas`) passes — not ported.
-- **Evolve cycles** (`evoCyc` / `state.stream.cycles`) — read only by
-  `evolveCoupled()`, the manual evolve tool.
+> **Update, 2026-08-23 — most of this list moved out of it.** Velocity,
+> glacial, coastal, hillslope diffusion, sediment fill and evolve cycles are
+> now **exposed parameters**, default-off, in the `erosion` group above ("The
+> manual passes, as parameters"); `GUI_GAP_REGISTER.md` §19 records the
+> decision and `DECISIONS.md` §7d licenses it. What is left below is what is
+> genuinely still absent — and two of the three remaining erosion rows are
+> absent for a *reason that is not the pipeline*: droplet needs a second
+> orchestration transcribed, and tidal flats needs a field
+> (`tideField`, **WW-07**) this port does not generate at all.
+
+- **Droplet hydraulic erosion** (`drops`, `estr`, `edep`, `ethr`, `etal`) —
+  the reference's manual "Erode (droplet)" button. `droplet_kernel` has been
+  ported since Phase 1, but no parameters are exposed: its `erodeFinish` tail
+  (thermal pass + 0..1 clamp + isostatic rebound) is a second orchestration to
+  transcribe, and it was outside the pass that wired the other four buttons.
+  **Hillslope diffusion (`edD`, `edPas`) is no longer in this list** — see
+  `passes.hillslope` / `passes.diffuse_d` / `passes.diffuse_passes` above.
+- **Tidal flats** — `apply_tidal_sedimentation` is ported and golden-tested,
+  but it takes a tidal-range field this port does not generate (**WW-07**), and
+  the reference's own op is equally conditional (`if(!tideField) return;`). A
+  toggle over an always-absent field is a control that cannot work, so no key
+  exists for it.
 - **Structured-orogeny tuning** (`foldI`, `trenchD`, `faultB`) — the T5 knobs.
   `generate_terrain` hardcodes them to the exact values the reference's own
   null-coalescing defaults produce (`0.16`, `1.0`, `0`), documented in the

@@ -1,9 +1,21 @@
 //! droplet, stream-power, thermal erosion
 //!
 //! Ported in pipeline order starting Phase 1 (MVP_SCOPE.md).
+//!
+//! [`passes`] holds the reference's **manual** passes — velocity, glacial,
+//! coastal, hillslope, sediment routing, tidal flats — which `generate()`
+//! never runs in the reference either. See that module's own header.
 
 use cartalith_rng::Mulberry32;
 use rayon::prelude::*;
+
+pub mod passes;
+
+pub use passes::{
+    apply_tidal_sedimentation, centrifugal_shear, coastal_process, glacial_kernel,
+    hillslope_diffuse, route_sediment, velocity_erode_kernel, CoastalParams, GlacialParams,
+    VelocityField, VelocityParams,
+};
 
 struct HGrad {
     height: f64,
@@ -285,7 +297,7 @@ pub fn erode_thermal(fld: &mut [f32], w: usize, h: usize, passes: i32, talus: f6
     }
 }
 
-fn d8_table() -> [f64; 9] {
+pub(crate) fn d8_table() -> [f64; 9] {
     let mut d8 = [0f64; 9];
     for dy in -1i32..=1 {
         for dx in -1i32..=1 {
@@ -302,22 +314,22 @@ fn d8_table() -> [f64; 9] {
 /// priority pop order decides the fill tie-break and therefore lake
 /// shape" — this exact sift-up/sift-down comparison and swap order is
 /// the thing being ported, not just "a min-heap."
-struct MinHeap {
+pub(crate) struct MinHeap {
     p: Vec<f32>,
     v: Vec<i32>,
     len: usize,
 }
 
 impl MinHeap {
-    fn new(cap: usize) -> Self {
+    pub(crate) fn new(cap: usize) -> Self {
         Self { p: vec![0.0; cap], v: vec![0; cap], len: 0 }
     }
 
-    fn size(&self) -> usize {
+    pub(crate) fn size(&self) -> usize {
         self.len
     }
 
-    fn push(&mut self, prio: f32, val: i32) {
+    pub(crate) fn push(&mut self, prio: f32, val: i32) {
         let mut i = self.len;
         self.len += 1;
         self.p[i] = prio;
@@ -333,7 +345,7 @@ impl MinHeap {
         }
     }
 
-    fn pop(&mut self) -> i32 {
+    pub(crate) fn pop(&mut self) -> i32 {
         let rv = self.v[0];
         self.len -= 1;
         let last = self.len;

@@ -19102,6 +19102,366 @@ costs 0 MB; diverging costs **+130 % per step** (a `u8` mask plus a second
   `MS-04`/`MS-05`). Each one is a single `self.undo.push(...)` line on the day
   its pass lands.
 
+## The reference's NPR block: ten Painter styles, waves, animated water, multi-sun (2026-08-23)
+
+`PARITY_AUDIT.md` §3.1 listed "NPR 'Painter' styles, plus rendering-advanced
+toggles, waves, animated water, multi-sun as *controls* · ~15 render paths ·
+absent". `render.rs`'s own module doc named the same block on its **Excluded**
+list, and `render_workspace.gd:55-68` disclosed it in the product. All of that
+was accurate. This closes the Painter/waves/water/multi-sun half of it
+(`GUI_GAP_REGISTER.md` **RN-02**); the rendering-advanced toggles stay open
+under RN-01 and now have their own audit row.
+
+### What was ported, and how literally
+
+Ten styles — **watercolor, contour veins, ink linework, hachure, cel/toon,
+engraving, stipple, sepia, risograph, pointillism** — plus the **coastal wave
+lines** and the **multi-sun light rig**. Every one is a **literal per-pixel
+port**, constant for constant, from reference HTML lines 7907-7958 (the
+Painter block), 8442-8443 + 8555-8558 (the waves) and 8357-8363 (the rig),
+with `computeCoastDistance` (7398-7414) behind the waves.
+
+Literal was the right call and worth stating, because the brief allowed a
+shader: these are ordinary arithmetic on one finished colour — no per-frame
+state, no neighbourhood, no texture sampling — so a shader would have bought
+nothing and cost a second compositing stage over a raster that is already
+`rayon`-parallel (`TERRAIN_APPEARANCE_SCOPE.md` milestone 6). They ride the
+pass that exists.
+
+New in `cartalith-godot/src/render.rs`:
+
+- `Npr` — the whole block as one struct on `TerrainAppearance`, **every field
+  off at `Default`**. `TerrainAppearance::default()` and `js_reference()` are
+  therefore both bit-untouched, and `golden_parity_render.rs` (unmodified)
+  still passes at its original `1e-4`.
+- `apply_npr` — the ten styles in the reference's own order, each behind its
+  own `> 0.0` gate, called from `land_color` in the reference's own slot
+  (after every colour and lighting step, before `ao * vignette`) and skipped
+  entirely on water and when nothing is on.
+- `apply_waves` + `coast_distance` — the chamfer transform and the foam
+  contours. The transform is built **only** when `npr.waves` is on; `RenderCtx`
+  holds an empty `Vec` otherwise and `cell_color` tests its length, so the two
+  cannot disagree.
+- `multi_sun_from_normal` — the reference's four-light rig, wired into
+  `shade()` for `step == 1` only, because `macroShade` is the only consumer in
+  the reference too (`shadeFactor2` and `seaShadeFrom` stay single-sun).
+- `grad_at` — `gradAt`, derived only when hachure is on, exactly as
+  `surfaceColor` derives it.
+
+Two float details that are decisions, not accidents, both recorded in-file:
+`js_round` rather than `f64::round` at the contour-index and cel-quantiser
+sites (JS rounds half toward `+∞`, Rust away from zero, and a channel can sit
+fractionally below zero after the fine-grain term); and `x * PI * 2.0` rather
+than `x * TAU` in the wave crest, because the reference associates it that way
+and the two are not always the same double.
+
+### Verified
+
+New `tests/golden_parity_npr.rs`, five tests, extracted by slicing those four
+ranges out of the frozen reference and running them under Node's `vm` — the
+technique `golden_parity_render.rs` and every other golden test here uses. The
+extractor **asserts each slice's first and last line against expected text and
+asserts each of the ten `viz.*` keys is present** before running it; this
+repo's own working rules record four subsystems bitten by a silently wrong or
+silently empty slice, and one of the four slices here was in fact off by a
+line on the first attempt (it failed loudly, as intended).
+
+Tolerance `1e-9` on a 0-255 channel, not `golden_parity_render.rs`'s `1e-4`:
+there is no two-pass canopy closure here for ULPs to compound through, so the
+tighter bound is the honest one rather than a widened one.
+
+Fixtures are **shaped, not sampled** — twelve cells that reach contours on and
+off an index line, ink either side of its 0.18 edge gate, hachure either side
+of 0.12, engraving across all three darkness bands, and a fully-black and a
+fully-white cell for the clamps. Each style additionally runs **alone** before
+the two stacked cases, so a broken style cannot hide inside a stack. Two
+non-emptiness assertions (the block must actually move some pixels; the
+distance transform must contain both a zero and something above 2) guard the
+silently-empty failure mode directly.
+
+**Mutation-tested: 17 mutants, 0 survivors** — the sepia matrix, the engraving
+frequency, the chamfer diagonal, the rig's primary weight, the ink wobble
+gain, the hachure frequency, the stipple threshold, the index-line multiplier,
+two noise frequencies, the halftone frequency, the cel level count, the wave
+band and period floors, the foam colour, the fade curve and the crest
+exponent.
+
+### Animated water is the one that is not in the raster
+
+It is per-frame, not per-pixel: the reference rebuilds a `GW x GH` `ImageData`
+and `putImageData`s it every animation frame, and caps itself at
+`GW*GH <= 400000` (line 8670) precisely because that does not scale. Baking it
+into `build_color_texture()` would mean re-running the whole appearance
+pipeline sixty times a second.
+
+So the *model* is ported and the *technique* is not — `DECISIONS.md` §7a's
+principled-equivalence carve-out, the same call `wind_fx_layer.gd` made
+earlier this session when it replaced the reference's `destination-out` canvas
+fade with a per-particle trail. New `godot-project/shell/water_anim.gdshader`
+(a `canvas_item` shader) and `water_anim_layer.gd` (a `ColorRect` parented
+under `map_overlay.gd`, the same slot `wind_fx_layer.gd` uses and for the same
+reason — the parent already publishes the letterbox fit, so pan/zoom needs no
+code). The constants are the reference's: `SCALE = 6`, `F = 0.22`, the 2.4 s
+two-stream `flowMapPhases` crossfade, the `rip - 0.5` threshold, `* 240`
+capped at alpha 150, colour (235, 245, 255), and the `s <= 0.02` skip. The
+noise hash is a driver-safe float hash rather than `vnoise`'s `>>>` integer
+arithmetic, which GLSL ES cannot reproduce across drivers.
+
+**The reference's own resolution cap is deliberately not ported.** It exists
+to protect a JavaScript pixel loop that does not exist here.
+
+Its input is a new `waterfx` channel in `sample_bridge.rs` — R/G = the unit
+downhill direction, A = channel intensity — riding the same "a data channel,
+not a view" rule the `flowfx:` prefix already established. Deliberately **not**
+`flow_fx_raster`'s 12/12/8 packing: that layout exists because a wind vector
+has magnitude worth four decimals, whereas this carries a unit direction read
+by a fragment shader, and reassembling 12-bit fields across channels in GLSL
+means `round(texel * 255.0)` per byte and hoping the driver agrees. Direction
+comes from the heightfield gradient (the reference's own documented fallback
+when no velocity field exists, line 8686) and intensity from log-normalised
+`flow_discharge` (the field the reference's `_riverNet` is itself derived
+from). This is principled equivalence, not a golden path, and says so.
+
+Nothing here touches `wgpu` or a `RenderingDevice`: it is an ordinary
+`ShaderMaterial`, which is what keeps it clear of the GL-Compatibility hazard
+class `cartalith-gpu/src/multi.rs` carries.
+
+### The boundary and the dock
+
+`WorldGen::get_npr()` / `set_npr(Dictionary) -> i32`. Every key is optional, so
+the panel sends one changed slider rather than the whole block, and the return
+is the count of recognised keys so a typo reads as `0` rather than as a silent
+no-op. Intensities clamp to `[0,1]` — not an improvement on JS but an
+enforcement of the range JS's own `0..100 / 100` sliders could only ever
+produce, and several styles multiply an intensity straight into a `1 - a`
+darkening term where above-1 inverts rather than intensifies.
+
+`WorldGen::appearance()` is the new single place the quality tier and the NPR
+block combine; five call sites that each wrote
+`TerrainAppearance::for_tier(self.quality)` by hand now go through it, which is
+how the raster and the overlays measured against it stay agreed about where
+the plate frame is.
+
+`render_workspace.gd` gains **Painter styles** (ten sliders plus a contour
+interval under `advanced`) and **Water & light** (wave lines, wave reach,
+animate water, multi-sun). Sliders commit on release, not on every value
+change — a full-map re-render at 2048x1311 is not a per-drag-pixel operation,
+and `DccWidgets.slider` already carries an `on_release` for exactly this.
+Nothing here calls `bridge.mark_dirty()`: this is presentation, so it calls
+`app.viewport.refresh()`, which re-runs `build_color_texture()` over the world
+that is already there. `EngineBridge.npr_api` gates the whole panel off against
+an older `.dll`, matching `sized_api`/`import_api`/`gpu_api`.
+
+The panel's own disclosure was trimmed to what is genuinely still unbuilt, and
+the "Animate water" checkbox unticks itself with a warning if the world has no
+discharge field to animate, rather than sitting on over an effect that is not
+running.
+
+### Still open
+
+- **RN-01's other half** — `TerrainAppearance`'s ~40 palette, relief, AO,
+  paper, geology and local-contrast fields. Still reachable only through the
+  quality tier. `set_npr` does not touch them and was never meant to.
+- **The rendering-advanced toggles as controls** — parchment, surface texture,
+  sky view factor, ridge crests, ridged relief, slope rock, geology materials,
+  cast shadows, curvature shading, minor channels, wetness, season, and the
+  three SDF fields. Several of the *effects* exist in `TerrainAppearance`
+  under this port's own names; none is exposed. Now its own `PARITY_AUDIT.md`
+  row rather than being folded into a closed one.
+- **The quality tiers do not tier the NPR block**, deliberately: a style is
+  off unless someone turned it on, and turning one on is a request, not a
+  default the Performance tier should override.
+
+## The reference's manual erosion passes — seven kernels, wired as generation parameters (2026-08-23)
+
+`PARITY_AUDIT.md` §3.1 carried two rows here: *"Velocity erosion (Mei virtual
+pipes) + coastal + glacial + hillslope **as user-run passes** — kernels partly
+absent, no run-button path"* (WW-02) and *"Evolve coupled + sediment
+routing/deposition + tidal flats — absent"* (MS-04 / MS-05). Both close, in
+two halves: the kernels are bit-exact ports, and the run path is
+**generation-time parameters, every one off by default** (`DECISIONS.md` §7d)
+rather than the reference's own buttons.
+
+### Ported
+
+New `cartalith-erosion/src/passes.rs` — the reference's erosion family minus
+the three already done (droplet, thermal, stream-power):
+
+- **`hillslope_diffuse`** (`hillslopeDiffuseCPU`, 3872-3882) — `∂z/∂t = D∇²z`
+  by explicit forward Euler, X-wrapping only in world mode, Y never.
+- **`centrifugal_shear`** (3926-3930) and **`velocity_erode_kernel`**
+  (`velocityErodeKernel`, 3936-3994) — grid virtual-pipes shallow-water
+  hydraulic erosion after Mei et al. (2007), with semi-Lagrangian momentum
+  advection and outer-bank centrifugal shear for meanders. Returns the water
+  and velocity fields alongside the mutated height, as the reference does for
+  its Velocity debug view.
+- **`glacial_kernel`** (`glacialKernel`, 4198-4257) — ice abrasion on its own
+  priority-flood tree, carving U-shaped troughs by dealing `E·uFactor` to the
+  two cells flanking each eroding trunk cell.
+- **`coastal_process`** (`coastalProcess` + `coastalProcessCPU`, 4388-4424) —
+  sea-cliff retreat with debris landing on the land neighbours, estuary
+  widening scaled by `log(discharge)`, and a tidal-marsh accretion pass that
+  reads slope against the field it is mutating.
+- **`route_sediment`** (`routeSediment`, 4286-4307) — mass-conserving fluvial
+  routing down the steepest-descent network on the current surface.
+- **`apply_tidal_sedimentation`** (`applyTidalSedimentation`, 4324-4334) — the
+  Tidal-flats kernel. Takes the tide field as an argument, since this port
+  does not generate one (WW-07).
+
+Three float decisions are recorded in-file: `js_hypot` and `js_log` from
+`cartalith-jsmath` (V8's are not Rust's, and the velocity kernel calls
+`Math.hypot` five times per cell per iteration); `js_round` at the outer-bank
+index, where JS rounds half toward +∞ and `-0` still satisfies `>= 0`; and
+plain `f64::max`/`min` everywhere else, because the reference pins its own
+all-finite invariant on these kernels, which is the assumption
+`cartalith-rust-conventions` asks to be encoded rather than defaulted.
+
+`route_sediment`'s sort is the parity-critical part and is documented as such:
+`Array.prototype.sort` has been stable since ES2019, so equal-height cells keep
+ascending index order and that order decides which of two tied cells routes
+first. The comparator reproduces `SortCompare`'s own reading of a numeric
+result — negative / positive / everything else including NaN is a tie — rather
+than `partial_cmp`, which would panic on a NaN the reference treats as equal.
+
+### Verified
+
+- `crates/cartalith-erosion/tests/golden_parity_passes.rs` — **26 tests,
+  `assert_eq!` on `f32`, no tolerance, bit-exact on the first run.** Fixtures
+  came from a transient Node `vm.runInContext` harness running nine verbatim
+  slices of the frozen v2.10 file, each slice asserted to contain its own
+  function before being evaluated, and every entry point type-checked as a
+  function afterwards.
+- **Mutation sweep: 115 literal sites, 98 killed.** The first sweep left 37
+  alive; four further fixture passes — saturating clamps, quantised heights so
+  tie-breaks bite, a 34-wide 120-iteration velocity run with a flat pond and a
+  diagonal step pattern, a 9×36 glacial ramp whose discharge climbs *through*
+  the 100-cell cirque cut-off, rain under its own floor, gravity under its own
+  floor, negative discharge, and a monotone chain whose whole result depends on
+  the sort — took it to 17. Each survivor is explained in `passes.rs`' header
+  rather than shrugged at. The interesting one: `applyTidalSedimentation`'s
+  `tr <= 1e-5` floor is **unreachable**, because accretion needs `depth < tr`
+  and any such cell already fails the `sea - 1e-4 - h` headroom cap.
+- `cargo clippy -p cartalith-erosion --all-targets` clean. Four `#[allow]`s,
+  each with a reason: two `manual_clamp` sites that are the reference's own
+  two-statement shape and should keep reading like it, one
+  `needless_range_loop` where the fill *rank* is the loop's whole point, and
+  two `too_many_arguments` on 8-argument kernels.
+- `cargo build -p cartalith-godot` clean — built into an isolated
+  `CARGO_TARGET_DIR`, because the shared `target/debug/cartalith_godot.dll`
+  was held by a concurrent agent's running editor.
+
+### Wired — `cartalith_engine::ErosionPassParams`, 21 parameter keys
+
+The reference runs none of these inside `generate()` and says so in its own
+source (`evolveCoupled`: *"A new op (never auto-runs) → generate()
+bit-identical at defaults"*; `glacialKernel`: *"not part of default
+generate()"*). Two shapes were available — the reference's own opt-in run
+buttons, or default-off generation parameters under `DECISIONS.md` §7d — and
+this pass takes the second. `DECISIONS.md` §7d permits a superset exactly when
+the default reproduces reference behaviour, and here it does, byte for byte.
+
+- **`ErosionPassParams`** on `WorldParams`, six toggles (`velocity`,
+  `glacial`, `coastal`, `hillslope`, `sediment_fill`, and `evolve_cycles` as
+  a count where `0` is off) plus fifteen knobs. Every knob's default is the
+  reference's own `state` literal; **every toggle is off**, so a default
+  generation is bit-identical to one produced before the struct existed.
+- **Where they run**: at the very end of `generate_terrain`, after
+  `carve_rivers` — "the finished field" is what every one of these buttons
+  operates on in the reference. Order is fixed at `velocity → glacial →
+  coastal → hillslope → evolve → sediment_fill`, the reference's own panel
+  order. Composing two of them in one run is this port's own addition (the
+  reference never does), so there is **no golden fixture for the composed
+  result** — each kernel is bit-exact on its own, the sequence is a choice,
+  and `ErosionPassParams`' doc comment says so rather than implying parity.
+- **`refresh_climate`** — new, `pub`, and the one genuinely missing engine
+  function MS-04 had named: `computeFlow(true); refreshClimate();` (reference
+  line 5154) over a changed surface. `generate_terrain` used to sequence
+  `compute_temperature`/`simulate_weather` inline, so nothing could re-derive
+  climate afterwards. Evolve calls it once per cycle — which is the entire
+  point of Evolve, since the rain driving the next cycle's incision must
+  reflect the orography the last one built — and the pass block calls it once
+  at the end for the sequence.
+- **`depositSediment` and `evolveCoupled` are orchestration, transcribed**:
+  stream-power carve → per-cell eroded-column supply → discharge on the carved
+  surface → `route_sediment` for the first; carve → rebound → refresh, `n`
+  times, for the second. Both compose pieces that already existed.
+- **21 rows in `params.rs`**, in the existing `erosion` group. Each knob row
+  names its reference slider and carries that slider's real reachable range
+  through its own `eparam` mapping (`cEst` is `0..100` raw mapping
+  `v/100*0.2`, so the row is `0.0..0.2` step `0.002`). The six toggle rows
+  have an **empty `reference_control`** and say why: the reference's control
+  is a *button*, not a checkbox, so the toggle is the §7d addition itself.
+
+**One deliberate deviation, disclosed** (`CLAUDE.md`'s no-silent-deviation
+rule): the pass block ends with `erodeFinish`'s own `if(f<0)f=0; else
+if(f>1)f=1;` clamp (reference line 3894), which the reference applies only
+after the *droplet* pass. Found by a test, not reasoned about in advance —
+`velocity_erode_kernel` carries only a ±1e9 finite guard and `route_sediment`
+adds without an upper bound, so both genuinely can leave a cell outside 0..1.
+In the reference that is a transient a user re-runs past; here it would be
+baked into a `WorldState` whose 0..1 field range the renderer, every
+downstream stage, and `generate_terrain`'s own end-to-end test all assume. It
+is applied once after the last pass, so no pass reads a clamped value the
+reference would have left unclamped.
+
+Not taken: the run-button shape. It stays cheap — `carve_fjords` and
+`center_landmasses` are already live post-generation ops and the fjord button
+already sits in `world_workspace.gd::_build_erosion_passes` beside these five
+placeholders — and it is a different thing from WW-11's per-stage
+re-execution, which is (D). But UI work is on hold (`CLAUDE.md`), and the
+parameter path needs no UI to be real.
+
+### Verified — the wiring, not just the kernels
+
+- `cargo test -p cartalith-erosion -p cartalith-hydrology -p cartalith-engine`
+  green; `cargo test -p cartalith-godot --test params_mapping` green (the
+  21 new rows pass `every_default_lies_inside_its_own_range`,
+  `keys_are_unique_and_grouped` and `every_engine_param_struct_is_reachable`
+  without any change to those tests).
+- Two new `cartalith-engine` tests.
+  `erosion_passes_off_leave_generation_bit_identical` moves five knobs with
+  every toggle still off and `assert_eq!`s field, temperature, rainfall **and**
+  discharge — a knob alone must do nothing at all, or "default-off" is only
+  half true. `each_erosion_pass_changes_the_field_on_its_own` runs each of the
+  six alone and asserts the surface moved, stayed finite and stayed in 0..1;
+  its glacial case drops the snowline *and* runs a frozen world, because ice
+  needs both, and it compares against its own climate-only twin so the climate
+  override cannot be mistaken for the pass.
+- `cargo clippy -p cartalith-engine --all-targets` clean.
+- `cargo build -p cartalith-godot` — fresh shared
+  `target/debug/cartalith_godot.dll` (the concurrent editor lock that forced
+  the isolated `CARGO_TARGET_DIR` earlier in the day was gone).
+- **Non-headless, in the real app** (`_erosion_shot.gd`, untracked harness in
+  the `_npr_shot.gd` mould): one 512×384 world at seed 483920, generated
+  through the real `EngineBridge` with `reset_params()` then `param_set()`
+  then a full re-generate per case — because these are *generation*
+  parameters, so the pass has to be measured across two generations, not one
+  render. Share of pixels moved by more than 3 levels: velocity 38.2 %,
+  glacial 91.3 %, coastal 6.4 %, hillslope 44.5 %, sediment fill 43.7 %,
+  evolve 44.0 %. **All-off returns to the base map at 0.0000 %** — the
+  default-off guarantee holding through the whole GUI path, not just in a
+  unit test. The maps were looked at, not just measured: hillslope has
+  visibly rounded the ridge detail, velocity has reworked the drainage and
+  crenulated the coastline.
+- The honest control: **`glacial` with the snowline dropped but the world
+  left temperate moves 0.24 %**, because ice needs `temp < 0` as well as
+  altitude. A wire-up that ignored the temperature gate would have scored
+  like the frozen case; this one scores like nothing happening, which is what
+  should happen.
+
+### Still open
+
+- **Tidal flats** — `apply_tidal_sedimentation` is ported and tested, but it
+  takes a tide field and this port does not generate one (**WW-07**). No
+  parameter was added for it, since a toggle over a field that is always
+  absent is a control that cannot work.
+- **Droplet hydraulic** — WW-02's fifth button. Its kernel has existed since
+  Phase 1; it is the one of the five with no parameter here, because it was
+  not in this pass's remit and its `erodeFinish` tail (thermal + clamp +
+  rebound) is a second orchestration to transcribe.
+- The **run-button** shape, if the owner wants the reference's own control
+  idiom as well as the parameters. Unblocked either way now.
+
 ## Asset library closeout: item transform editing, Unassigned imports, draggable slicer lines (2026-08-23)
 
 `PARITY_AUDIT.md` §3.5 named three open items against the Asset library's
@@ -19239,3 +19599,153 @@ wrapper existed.
   Control's `_can_drop_data`/`_drop_data`), unrelated to this pass.
 - Moving an already-assigned item into Unassigned imports (no engine call).
 - Per-item pan as SpinBoxes rather than drag-on-canvas (disclosed, not silent).
+
+---
+
+## Four small clusters: geoid, tides, seasons + Köppen, wildlife + ecoregions — and the roster popup (2026-08-23)
+
+Four consecutive "absent" rows in `PARITY_AUDIT.md` §3.1, closed together
+because they are small, adjacent in the reference, and three of the four feed
+each other. `GUI_GAP_REGISTER.md` **DV-04, DV-06, DV-07 and DV-11** close;
+**WW-07** and **WW-09** move to engine-closed/control-open, the same shape
+WW-02 took the same day; and §5 **item 8** — the wildlife roster click popup,
+a class-(d) row with no disclosure anywhere — closes as new register row
+**WL-01**.
+
+`GAP_LAYERS` in `sample_bridge.rs` is down from eleven ids to **four**: two
+still lack a computation (`oro`, `velo`), two lack a composite
+(`popdensity`, `siteprofile`).
+
+### What was ported
+
+**`cartalith-climate/src/geoid.rs`** — `buildGeoid`/`refreshGeoid`/`geoAt`/
+`currentGeoidPreview` (reference 4967-5015). J2 rotational bulge + four seeded
+low-degree harmonics + low-frequency mantle fbm, seam-blended in X for a
+wrapping world, then re-centred to zero mean and rescaled so the peak absolute
+offset is exactly `amp`. The harmonic and mantle terms use the shared
+`hash`/`fbm` from `cartalith-noise` rather than a private copy, which is the
+one new crate edge this pass added.
+
+**`cartalith-climate/src/tides.rs`** — `tidalForcing`/`computeTideField`/
+`buildTideField`/`refreshTides`/`currentTideField` (5016-5048). Equilibrium
+spring tidal range, amplified by Green's law on shallow shelves (capped at 3x)
+and by coastal funnelling. `computeCoastDistance` turned out to be
+`chamferDist` with land as the seed mask — the same two-pass transform with
+the same `1.4142135623730951` diagonal — so this reuses
+`cartalith_terrain::infer::chamfer_dist` instead of adding a second
+implementation.
+
+**`cartalith-climate/src/koppen.rs`** — `computeTempInto`/`computeSeasons`/
+`classifyKoppen`/`buildKoppen`/`koppenColor` (7491-7562). `KOPPEN_KEYS` is a
+**frozen append-only** order in the reference because the raster it produces is
+an exported index layer, so reordering it would silently reinterpret every
+previously exported map; kept verbatim, with a unit test pinning both ends and
+the palette's parallelism.
+
+**`cartalith-civ/src/wildlife.rs`** — `buildTRI`/`guildTrophic`/
+`buildEcoregions`/`regionRichness`/`assignWildlife`/`wildRegionColor`/
+`currentWildlife` (6489-6620), plus `wildFmtPop` (8257). Connected-component
+ecoregions over the Cartalith biome grid, scored for species richness
+(species-area x energy x heterogeneity x latitude), cut to a named
+Earth-analogue roster and given populations by a Lindeman 10% energy cascade
+over Kleiber metabolic demand.
+
+### Where wildlife went, and why it is not in `cartalith-climate`
+
+It reads as a climate/ecology layer and is not one. Every input it needs —
+`buildNPP`, `buildCartBiome`, `buildWaterAccess`, `buildCarryingCapacity` —
+already lives in `cartalith-civ`, so putting it in `cartalith-climate` would
+have inverted the dependency edge to import four functions back. Only
+`buildTRI` was actually missing. **`buildNPP` was already ported for the
+carrying-capacity chain and is consumed, not re-implemented.**
+
+### Five things recorded rather than assumed
+
+1. **The geoid was already anticipated.** `compute_temperature` has taken
+   `geo_field: Option<&[f32]>` since Phase 1 — the parameter was sitting there
+   waiting for this module, so nothing downstream changed shape and no
+   existing golden test moved.
+2. **Both previews are the reference's own behaviour, not a shortcut.**
+   `currentGeoidPreview` falls back to `0.015` and `currentTideField`
+   substitutes a single default moon, precisely *because* their toggles
+   default off. `PlanetParams` carrying no geoid or moon knobs yet leaves this
+   port in the same state the reference previews in.
+3. **`computeSeasons`' rain half is only as good as `simulate_weather`.** That
+   function carries three long-standing, already-disclosed deferrals (terrain
+   wind deflection, ocean-current SST folding, world-structure interior
+   dryness). The classifier is downstream of them, so the golden suite feeds it
+   the **reference's own captured seasonal rain** — which makes it a test of
+   Köppen rather than a third copy of the weather test. Stated in the module
+   doc, not hidden.
+4. **`buildEcoregions`' traversal order is load-bearing.** Every aggregate is a
+   running `f64` sum over `f32` reads, and float addition is not associative,
+   so the LIFO stack, the `pop()`, and the exact `left, right, up, down` push
+   order are reproduced rather than replaced with a queue or an iterator
+   (`cartalith-rust-conventions`' second rule).
+5. **`assignWildlife`'s dominant-guild pick depends on sort stability.** The
+   reference takes `guilds.slice().sort((a,b)=>b.biomassRel-a.biomassRel)[0]`;
+   V8's sort has been stable since ES2019, so a tie keeps `WILD_GUILDS` order.
+   Rust's `sort_by` is stable too, which is why the same winner comes out —
+   recorded in-file so a future switch to `sort_unstable_by` reads as the
+   parity break it would be.
+
+Two JS coercions needed explicit handling: `refreshGeoid`'s `!(pg.amp > 0)`
+gate (a NaN amplitude reads as *off* in JS, where `amp <= 0` would read as on),
+and `classifyKoppen`'s `state.climate.maxRainMm || 3000` (falsy on `0` and
+`NaN`, but **not** on a negative).
+
+### The roster popup (WL-01)
+
+`WorldGen::wildlife_region_at(gx, gy)` returns the ecoregion whose marker is
+nearest the click, using the reference's own `max(8, GW/40)` hit radius and its
+own `cells < markerMin` skip (HTML 9787-9789); outside the radius it returns an
+empty dictionary, which is `hideWildInfo()`. `app.gd` calls it only while the
+Wildlife view is drawn — the reference gates on `state.debug === 'wildlife'`
+too — so this adds no behaviour to any other view.
+
+The popup itself is a **RIGHT-dock context**, not a floating panel at the
+cursor. This shell already routes every "you clicked something" readout through
+the dock's context switch and a clicked ecoregion is a selection like any
+other; a second positioning system would have been a divergence for nothing.
+Every field `showWildInfo` renders is present and in the reference's own order:
+biome heading, species/area line, summary sentence, the NPP/ruggedness/water
+triple, the lat + coastal + rugged meta line, then one heading per guild with
+its biomass share and one row per species. **`wildFmtPop` stays engine-side**
+(`wild_fmt_pop`, exported from `cartalith-civ`) so the `~4.5M` wording has
+exactly one implementation rather than a GDScript copy free to drift.
+
+### Verification
+
+`cargo test -p cartalith-climate -p cartalith-civ` green. **27 new golden
+tests, all bit-exact, no tolerance widened**: geoid 7, tides 6, Köppen 6,
+wildlife 8. Fixtures were captured from the frozen reference under Node's `vm`,
+and — per this project's own "silently-empty golden output" rule — each is
+asserted non-empty and genuinely varied before use: the Köppen case pins >900
+classified land cells, the tides case pins that at least one cell actually
+reaches the Green's-law cap and that the captured geoid is a real non-zero
+field.
+
+`cargo build -p cartalith-godot` clean; headless boot clean. A headless run
+over a real 192x120 world confirmed all four views draw varied output (geoid
+297 distinct colours, tides 106, Köppen 21, wildlife 15) and that
+`wildlife_region_at` returns real rosters — "Coastal Lowland: 4 species,
+dominant marine (Harbour seal, Shorebird flock, Otter...)", 7,704 km²,
+populations formatted through `wild_fmt_pop` as `1.8M`. Hit rate 4 of 16 probe
+points, which is correct: the reference's marker radius is 8 cells at this grid
+width.
+
+Not verified: on-device or GPU appearance of the four views, per
+`DECISIONS.md` §5.
+
+### Still open
+
+- **WW-07's parameters.** `PlanetParams` carries no geoid amplitude, no enable
+  flag and no moon roster. Exposing them means deciding where a default-off
+  sub-system's toggle lives in this shell's parameter model.
+- **WW-09's parameters.** `axialTiltDeg` and `maxRainMm` are read by the
+  classifier and not surfaced. Seasons themselves are *derived*, built lazily
+  when the view is picked exactly as the reference builds them, so a "seasons"
+  checkbox would toggle nothing.
+- **`applyTidalSedimentation` is now unblocked** on its input side: the tide
+  field exists. What MS-05 still lacks is the composing op, which is §19's
+  owner decision, not a missing kernel.

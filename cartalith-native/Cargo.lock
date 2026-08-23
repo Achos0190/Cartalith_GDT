@@ -162,6 +162,7 @@ dependencies = [
  "cartalith-terrain",
  "cartalith-urban",
  "rayon",
+ "serde_json",
 ]
 
 [[package]]
@@ -169,6 +170,7 @@ name = "cartalith-climate"
 version = "0.1.0"
 dependencies = [
  "cartalith-jsmath",
+ "cartalith-noise",
  "cartalith-terrain",
  "rayon",
  "serde_json",
@@ -194,6 +196,8 @@ dependencies = [
 name = "cartalith-erosion"
 version = "0.1.0"
 dependencies = [
+ "cartalith-jsmath",
+ "cartalith-noise",
  "cartalith-rng",
  "cartalith-terrain",
  "rayon",
