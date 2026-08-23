@@ -31,9 +31,13 @@ starting work — not this file, which is a map rather than a state.
 - **Expect these documents to age, and say so when they have.** Godot versions,
   gdext maturity and crate specifics all move. Re-verify rather than trusting a
   version number written here.
-- **All UI work is on hold** (owner, 2026-08-18) while the interface is
-  redesigned. The notice at the top of `DCC_SHELL_SCOPE.md` has the scope — it
-  includes the tool system's milestone F. Engine work is unaffected.
+- **The UI hold is lifted** (owner, 2026-08-18, later the same day it was
+  called — see the top of `DCC_SHELL_SCOPE.md` for the exact wording and
+  scope). A full DCC-shell replacement, including tool-system milestone F, is
+  underway and has landed in stages since. This line is stale on every prior
+  read of it; corrected here 2026-08-23 after `PARITY_AUDIT.md` caught this
+  file — which auto-loads into every session — still asserting the hold
+  `DCC_SHELL_SCOPE.md`'s own notice had already lifted.
 
 ## Two naming hazards
 
@@ -81,7 +85,7 @@ starting work — not this file, which is a map rather than a state.
 | `FUNCTIONAL_CONTRACT.md` | the HTML app's capabilities vs. this port, tagged per `DECISIONS.md` §7d |
 | `VISION.md` | the owner's target render, with an honest gap assessment |
 | `UI_SHELL_DESIGN.md` | the DCC shell's rule set (owner-supplied) |
-| `DCC_SHELL_SCOPE.md` | how that shell maps onto the port — **carries the UI hold** |
+| `DCC_SHELL_SCOPE.md` | how that shell maps onto the port — **carries the (lifted) UI hold notice** |
 | `GUI_SHELL_SCOPE.md` | the superseded panel-browser shell; history only |
 | `GUI_FEATURE_PARITY_SCOPE.md` | the gap audit between engine capability and GUI |
 | `GUI_GAP_REGISTER.md` | every disconnected control in the shipped shell, classified by whether a design exists; comparable-app research where none does; the menu-naming audit |
