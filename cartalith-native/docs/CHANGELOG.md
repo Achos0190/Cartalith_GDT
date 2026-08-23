@@ -17576,3 +17576,246 @@ Also: `cargo test -p cartalith-gpu` (54 + 8 multi-GPU, all pass, including
 re-shot to confirm the shell and the parameter sliders are unaffected;
 `--headless --quit` clean. The verification harness is uncommitted, the same
 convention `_shot.gd` and `_dm_shot.gd` follow.
+
+## Three stranded items: timeline `tid`, Asset Library Collections/drag-and-drop/slicer interaction, Fira fonts (2026-08-23)
+
+Three independent, previously-disclosed gaps, dispatched together as
+mechanical wiring/completion rather than open-ended work. All three landed;
+none required deviating from `DECISIONS.md`.
+
+### 1 · `get_settlements()` gains `tid`; Timeline's Exist-only filter now touches map pins (`GUI_GAP_REGISTER.md` CV-03)
+
+`get_settlements()` (`lib.rs`) now emits `tid` (`NamedSettlement::tid`, `s.tid
+as i64`) alongside the fields it already had. `civilization_workspace.gd`
+gains `_tl_apply_filters`, called from `_refresh_civ_data` and `_tl_goto_year`:
+when **Exist only** is checked, it filters the settlement array handed to
+`map_overlay.gd`'s `set_civ_data` down to the active year's
+`civ_year_diff().present` tid set — upstream of that file, not inside it
+(`map_overlay.gd` is a sibling agent's territory this pass; it was not
+touched). **Ghost removed**/**Highlight new** stay disclosed-open: both need
+per-pin fade/halo drawing only `map_overlay.gd`'s own `_draw()` can do, and
+"removed" additionally needs the OLD snapshot's settlement data
+(position/name), which no `#[func]` exposes (`civ_year_diff()` returns tid
+sets only). The in-product note in `_build_timeline_filters` and this file's
+own top-of-Timeline comment both say exactly this now, replacing the older
+"nothing on this side can tell which pin a tid refers to" note that `tid`'s
+absence used to force.
+
+### 2 · Asset Library: Collections rail, drag-and-drop, slicer canvas interaction (`GUI_GAP_REGISTER.md` AS-12, AS-17)
+
+Built on `asset_library_window.gd` as rebuilt against the design canvas in
+`88b4d54`, and on `cartalith-assets::slicer` as ported in `e96a7ae` — no
+slicing arithmetic changed.
+
+**Collections rail (AS-12).** New `#[func] as_collections` (`lib.rs`) is the
+read side `as_batch_collect`/`as_slot_summary` never had — until now nothing
+could enumerate every collection that exists, only ask "which collections is
+this one uid in." The family rail gains a rebuilt-on-demand Collections
+section (`_refresh_collections_rail`/`_collection_row`) listing every
+collection with a live member count, selectable into a real collection-scoped
+grid view (`_select_collection`/`_refresh_grid_collection`, which resolves
+each member uid through `as_slot_summary` since a collection can mix uids
+from several families, unlike a family view). "Unassigned imports" stays
+open — still a slot-less bucket the model does not have.
+
+**Drag-and-drop onto slots.** Real, using the named Godot virtuals: dragging
+one or more selected grid tiles onto a Collections row adds them to it
+(`SlotCell._get_drag_data` → `{"type":"asset_uids","uids":[...]}`,
+`CollectionRow._can_drop_data`/`_drop_data` → the same `as_batch_collect` the
+Collect… prompt already calls). Dragging a *file* from outside Godot onto a
+slot to fill it stays unwired, and the grid footer's hint now says why rather
+than just that it isn't wired: Godot's drag-and-drop is two unrelated
+systems — OS-external file drops only ever reach `Window.files_dropped`,
+never a Control's `_can_drop_data`/`_drop_data`, so a slot cannot
+structurally be that kind of drop target. `Import image…` remains the real
+path for that.
+
+**Slicer canvas interaction (AS-17).** `SheetPreview` gains wheel-zoom
+(centred on the cursor and exactly reversible — zoom in then back out returns
+to the prior pan bit-for-bit, verified in the harness below), middle-drag
+pan, click-to-select-a-cell (hit-tested against the engine's own
+`as_slice_preview` cell spans — a real picker/highlight, reported through the
+status bar), and one real draggable grid line: a handle on the grid's own
+**Margin** boundary. Margin is the one grid parameter that's actually uniform
+across the whole sheet (`cartalith_assets::GridRect::inset`), so it is the
+one line with something real to drag *to*; dragging it writes straight to the
+Margin spinbox, so the existing `_refresh_slicer_summary` pipeline stays the
+single source of truth for the readout/overlay/Slice count. Per-*interior*-
+line dragging stays out of scope on purpose: `SliceGrid`/`compute_cells`
+computes a uniform grid from `cols`/`rows`/`margin`/`spacing` only (verified
+by reading `slicer.rs` directly, not assumed) — there is no per-line position
+any engine call accepts, so faking a drag with no engine consequence would be
+exactly the kind of decoration this project's discipline exists to avoid.
+Picking a cell likewise does not narrow what Slice cuts — `as_slice_apply`/
+`slice_target_from` (`lib.rs`) take no cell-selection parameter, so Slice
+still cuts the whole uniform grid; the modal's tooltip and the picker's own
+status-bar readout both say so.
+
+Verified: `cargo build -p cartalith-godot` clean, `cargo test -p
+cartalith-godot --lib` (247 passed), `--headless --path . --quit` clean.
+Functional (non-visual) verification via two uncommitted harness scripts run
+with `-s`, deleted after: one drove `as_add_custom_slot`/`as_import_item`,
+`_select_family`, real `_get_drag_data`/`_can_drop_data`/`_drop_data` calls,
+`_select_collection`, and back to family mode — every step produced the
+expected state with no script errors. The other loaded a real synthetic 6×4
+sheet through `_load_sheet_image`'s real path-based load, then called
+`_zoom_at`, dispatched synthetic `InputEventMouseMotion`/`InputEventMouseButton`
+through `_gui_input` for panning, cell-selection (screen point over cell
+(1,1) resolved to flat index 7, matching `row*cols+col`), and the Margin
+handle drag (dragging to sheet-space (6,6) set Margin to 6.0) — all exactly
+as expected. This is direct event injection against the virtuals, not a live
+mouse-driven session in a real window, so the interaction was **not**
+verified by an actual human-style drag; the pixel-level draw path (handle
+dot, selection outline, dashed grid at the new transform) was not visually
+inspected either. Said plainly per this file's own verification discipline
+rather than claimed as full interactive verification.
+
+### 3 · Fira Sans / Fira Code: sourced, licensed, Fira Sans wired
+
+Both fonts were the original design-system match (`v0.62`-era note, this
+file's own "Deliberately deferred" list: "Typography: the design-system match
+was Fira Sans/Fira Code… Sourcing and OFL-license-checking real font files
+wasn't done this pass"). Sourced for real this pass: `FiraSans-{Regular,
+Medium,Bold,Italic}.ttf` from `mozilla/Fira` (upstream digitized-data
+copyright: Mozilla Foundation and Telefónica S.A.) and `FiraCode-{Regular,
+Medium}.ttf` from `tonsky/FiraCode`'s 6.2 release, both real SIL OFL 1.1 —
+license text fetched from each project's own repository (not paraphrased or
+assumed) and checked in as `fonts/FiraSans-OFL.txt` /
+`fonts/FiraCode-OFL.txt`, each carrying its own upstream copyright line per
+the OFL's own attribution requirement.
+
+Fira Sans is wired for real: `dark_theme.tres` (the live theme —
+`project.godot`'s `gui/theme/custom`, `app.gd`'s theme — not `app_theme.tres`,
+which is superseded and off the live path per its own header) gained an
+`ext_resource` for `FiraSans-Regular.ttf` and sets it as `default_font`, so
+every Control gets it for free with no per-Label override, closing the
+"plain UI sans" half of `dcc_theme.gd`'s own two-face design note. Fira Code
+is sourced and sits in `fonts/` unwired: `dcc_theme.gd`'s own `mono()` already
+carries IBM Plex Mono, bundled and wired in a later, more specific,
+already-shipped-and-tested pass for its own reasons (the tracked-letterspacing
+DCC-tool texture the design leans on) — swapping Fira Code in over a working,
+tested mono face for zero visual-parity gain would be an undisclosed
+regression, not a fix, so it wasn't done. Both theme file headers and
+`dcc_theme.gd`'s own comment record this reasoning in place, not just here.
+
+New `.ttf`s have no `.import` sidecar until Godot's own importer runs (the
+editor binary, not the console-runtime binary, generates one on first project
+scan) — confirmed by reproducing the failure first (`--headless --path .
+--quit` on the plain console binary: `No loader found for resource…
+FontFile`), then running `--headless --editor --path . --quit` once, which
+imported all six new fonts and produced their `.import` files, after which
+the plain headless boot is clean. Verified: `--headless --path . --quit`
+clean after the import pass, with `default_font` resolving to real Fira Sans
+throughout the shell (confirmed by the absence of the resource-load errors
+the pre-import run produced, not by a visual inspection of glyphs).
+
+---
+
+## Wind and Ocean currents: the animation the reference has and this port did not (owner report, 2026-08-23)
+
+> "the ocean current layer isnt animated as the HTML version is. (same for
+> wind)" — owner, 2026-08-23
+
+Both views were ported, and both were **correct**: `sample_bridge.rs` draws
+Wind as hue-by-bearing and Ocean currents as the SST anomaly, which is what
+the reference's own pixel loop (HTML lines 8510-8521) draws. What was never
+ported is that on exactly these two views the reference stacks a **second,
+independent overlay** on top: `#windFxCanvas`, a particle-streak animation
+(`_windFx*`, HTML lines 2113-2209) that the normal render pipeline never
+touches. Measured before the fix on a real screen: **0.0000** mean
+frame-to-frame pixel difference on both views. Perfectly, verifiably static.
+
+### What the reference actually does, read before porting
+
+- Two pools sized by view: `WINDFX_N_WIND = 260`, `WINDFX_N_CUR = 200`.
+- Particles live in plain grid coordinates and project onto the canvas by
+  ratio against the visible bounds — no separate coordinate system.
+- Advection is one Euler step per animation frame at `0.315` cells/tick
+  (`0.9 * 0.35`; the reference's own v1.82 "slow down the arrows from the
+  current animation speed by about 65%").
+- Lifetimes `50 + rand*50` (wind) and `60 + rand*60` (ocean) ticks; respawn
+  on leaving the map, on ageing out, or — ocean only — on drifting onto land.
+- The ocean spawner rejects up to 30 dry candidates before giving up.
+- The trail is `destination-out rgba(0,0,0,0.14)` over a canvas that is never
+  cleared, so a streak is the accumulated history of one-segment strokes.
+- Self-terminating: `_windFxStep` re-reads `state.debug` every tick and stops
+  the moment the view is no longer up.
+
+### Ported
+
+- **`cartalith-climate::current_ocean_field`** — `currentOceanField()` minus
+  its SST term, returning the coarse ocean-current **vector** field and the
+  ocean mask. Split *out of* `ocean_sst_anomaly` rather than written beside
+  it: the anomaly raster and the streaks must agree about which way a current
+  runs, and the reference itself shipped two disagreeing answers to that
+  question until its own v1.78. `golden_parity_ocean_current` and the whole
+  `cartalith-climate` suite still pass byte-for-byte after the extraction.
+- **`sample_bridge::flow_fx_raster`** — the flow field packed into one
+  `gw × gh` RGBA8 buffer: 12 bits each for `u` and `v` against a fixed ±8
+  half-range, and the ocean mask in the alpha byte. Reached through
+  `build_debug_texture` under the ids `flowfx:wind` / `flowfx:ocean`, which
+  are handled before the view match so they never appear in `LAYER_GROUPS`,
+  the legend or the popover. **This is a channel, not a view, and it is a
+  workaround**: the right shape is a `#[func]` returning the field, but
+  `lib.rs` — this crate's sole `godot` boundary — was owner-reserved for
+  concurrent work. Worth replacing; only the GDScript decode would change.
+  Measured peak on a real 512×384 world: 4.48 of the 8.0 scale, zero
+  saturated cells.
+- **`shell/wind_fx_layer.gd`** — the overlay, parented under `map_overlay.gd`
+  so it inherits the map's pan/zoom and projects through the same public
+  `displayed_rect()` the vector overlays already use. Every constant above is
+  the reference's. Created once from `layers_popover.gd::_attach_flow_fx`.
+
+### The one deliberate technique change
+
+The trail. Godot clears its canvas every frame, so reproducing
+`destination-out` literally would mean a never-cleared `SubViewport` — a
+retained GPU render target doing work whether or not anyone is looking at the
+layer, which is the exact resource-lifecycle hazard the `ENUMERATION_BACKENDS`
+entry above is a live bug from. Each particle instead carries its last 12
+positions and redraws them under the *same* geometric decay the fade produces
+(`0.86 ** k`), grouped into twelve uniform-colour `draw_multiline` calls. Same
+streak, no retained target, and literally zero cost when the layer is off.
+This is `MEMORY.md`'s GPU-equivalence bar applied honestly: principled visual
+equivalence, not a per-particle transcription of the JS.
+
+### Verified non-headlessly, because a headless boot cannot see motion at all
+
+`_flowfx_shot.tscn` (uncommitted, the convention `_shot.gd` follows) booted
+the real shell at 1280×800 on an RX 7800 XT, generated a 512×384 world and
+measured the mean per-pixel difference between frames a third of a second
+apart:
+
+| state | frame-to-frame diff | fps |
+|---|---|---|
+| Wind | 0.1343 0.1328 0.1346 0.1367 | 60 |
+| Ocean currents | 0.0515 0.0496 0.0475 0.0478 | 57 |
+| layer off | 0.0000 0.0000 0.0000 | 60 |
+| Ocean, re-armed after off | 0.0515 0.0452 0.0470 | 59 |
+| after a regenerate under a live view | 0.0631 0.0627 0.0666 | 60 |
+
+Plus, on the same run: the overlay node is present and `visible` exactly when
+the view is up and `_kind` empty when it is not; all 260 wind and all 200
+ocean particles sit on cells their own mask calls valid; the packed mask
+round-trips the GPU texture intact (wind 196 608 cells all `a=255`; ocean
+35 559 water / 161 049 land, matching the map's own coastline); mean advected
+speed 2.88 cells/tick for wind against 0.95 for currents, which is why ocean
+streaks are visibly shorter — slower water, same `0.315`, exactly as the
+reference renders it. Screenshots of both views cropped and inspected: wind
+draws tapered white streaks aligned with the field, ocean draws cyan streaks
+confined to water.
+
+Also `cargo test -p cartalith-climate` (21 tests, all pass) and
+`cargo test -p cartalith-godot --lib` including the new
+`flowfx_channel_round_trips_the_flow_vectors`, which decodes the packed
+raster back and asserts it reproduces `current_wind_field` to within one
+quantisation step — the thing that keeps the Rust encode and the GDScript
+decode from drifting apart silently.
+
+### Still open
+
+- The `flowfx:` channel should become a real `#[func]` on `WorldGen`.
+- Streak density/speed are the reference's constants and are not exposed as
+  controls. `MEMORY.md`'s Phase 3 note (re-run `ui-ux-pro-max` for the
+  deferred visualisation controls) is the right place for that, not a raw
+  slider bolted on here.

@@ -898,6 +898,126 @@ fn bil_c(a: &[f32], fx: f64, fy: f64, ww: usize, wh: usize, wrap_x: bool) -> f64
     (v00 * (1.0 - tx) + v01 * tx) * (1.0 - ty) + (v10 * (1.0 - tx) + v11 * tx) * ty
 }
 
+/// Encoding half-range of [`flow_fx_raster`]'s packed vectors, in the same
+/// grid-cells-per-tick units `build_wind`/`compute_ocean_current` return.
+/// `build_wind` runs at `step = 3.0` and both fields damp from there, so
+/// ±8 clears the real range with room to spare; the 12 bits below then land
+/// a resolution of ~0.004 cells/tick on it, which is four orders finer than
+/// the 0.315 advection step `wind_fx_layer.gd` multiplies it by.
+pub const FLOWFX_SCALE: f64 = 8.0;
+
+/// The flow-vector field behind the animated Wind / Ocean-currents streak
+/// overlay (`wind_fx_layer.gd`), packed into one `gw * gh` RGBA8 buffer:
+///
+/// | byte | contents |
+/// |---|---|
+/// | R | `u` bits 11..4 |
+/// | G | `u` bits 3..0 (high nibble), `v` bits 11..8 (low nibble) |
+/// | B | `v` bits 7..0 |
+/// | A | 255 over water the streaks may occupy, 0 elsewhere |
+///
+/// Each 12-bit component is `(component / FLOWFX_SCALE * 0.5 + 0.5) * 4095`,
+/// clamped — the inverse is four lines of GDScript in `wind_fx_layer.gd`,
+/// which is the only consumer.
+///
+/// ## Why a packed raster rather than a `#[func]` returning the field
+///
+/// `lib.rs` is this crate's sole `godot` boundary (this module's own header
+/// says so, and holds to it: nothing here imports `godot`). A dedicated
+/// `#[func] fn flow_field(...) -> Dictionary` returning `PackedFloat32Array`s
+/// is the shape this wants and belongs there; it was not added because
+/// `lib.rs` was owner-reserved for concurrent work when this landed.
+/// `build_debug_texture` forwards its `view` string here unexamined, so this
+/// rides the one grid-sized channel that already exists. **It is a channel,
+/// not a view** — the `flowfx:` prefix and the pre-match early return keep it
+/// out of `LAYER_GROUPS`, the legend and the popover entirely. Worth
+/// replacing with the `#[func]` when `lib.rs` is free; the GDScript decode is
+/// the only thing that would change.
+///
+/// The `A = 0` land mask is what lets ocean streaks respawn on hitting a
+/// coast (`_windFxOceanAt`, reference HTML line 2141) instead of freezing on
+/// the exactly-zero current `compute_ocean_current` writes over land — a
+/// stalled particle and a beached one look different, and only one of them
+/// is what the reference does.
+fn flow_fx_raster(f: &FieldRefs, kind: &str) -> Option<Vec<u8>> {
+    let n = f.gw * f.gh;
+    let wrap_x = f.world;
+    let (u, v, ocean, ww, wh) = match kind {
+        "wind" => {
+            let wf = cartalith_climate::current_wind_field(
+                f.gw,
+                f.gh,
+                f.field,
+                f.sea_level,
+                f.peak_m,
+                f.world,
+                f.lat_n,
+                f.lat_s,
+                f.equator_temp,
+                f.pole_temp,
+                f.tilt_deg,
+                f.rotation_hours,
+                f.lapse_rate,
+                f.wind_manual,
+                f.wind_dir_deg,
+                f.press_k,
+            );
+            (wf.u, wf.v, None, wf.ww, wf.wh)
+        }
+        "ocean" => {
+            let ww = f.gw.min(240);
+            let wh = (cartalith_jsmath::js_round(ww as f64 * f.gh as f64 / f.gw.max(1) as f64) as usize).max(2);
+            let cur = cartalith_climate::current_ocean_field(
+                f.gw,
+                f.gh,
+                f.field,
+                ww,
+                wh,
+                wrap_x,
+                3.0,
+                f.sea_level,
+                f.world,
+                f.lat_n,
+                f.lat_s,
+                f.equator_temp,
+                f.pole_temp,
+                f.tilt_deg,
+                f.rotation_hours,
+                f.wind_manual,
+                f.wind_dir_deg,
+                f.press_k,
+            );
+            // Bilinear on the mask, not nearest — `_windFxOceanAt` samples it
+            // with the same `bilC` it samples `u`/`v` with, so a particle on a
+            // half-cell of coast sees one consistent answer.
+            let mask: Vec<f32> = cur.ocean.iter().map(|&m| m as f32).collect();
+            (cur.u, cur.v, Some(mask), ww, wh)
+        }
+        _ => return None,
+    };
+
+    // The wind view has no water restriction at all (air blows over land);
+    // the ocean view keeps streaks in the water its own mask marks.
+    let enc12 = |x: f64| -> u32 {
+        (((x / FLOWFX_SCALE) * 0.5 + 0.5) * 4095.0).round().clamp(0.0, 4095.0) as u32
+    };
+    let mut out: Vec<u8> = Vec::with_capacity(n * 4);
+    for y in 0..f.gh {
+        let fy = y as f64 / (f.gh as f64 - 1.0).max(1.0) * (wh as f64 - 1.0);
+        for x in 0..f.gw {
+            let fx = x as f64 / (f.gw as f64 - 1.0).max(1.0) * (ww as f64 - 1.0);
+            let uu = enc12(bil_c(&u, fx, fy, ww, wh, wrap_x));
+            let vv = enc12(bil_c(&v, fx, fy, ww, wh, wrap_x));
+            let wet = ocean.as_ref().is_none_or(|m| bil_c(m, fx, fy, ww, wh, wrap_x) >= 0.5);
+            out.push((uu >> 4) as u8);
+            out.push((((uu & 0xF) << 4) | (vv >> 8)) as u8);
+            out.push((vv & 0xFF) as u8);
+            out.push(if wet { 255 } else { 0 });
+        }
+    }
+    Some(out)
+}
+
 /// One debug view as a `gw * gh` RGBA8 byte buffer, ready for
 /// `Image::create_from_data`. `None` for `"off"`, an unknown id, an empty
 /// grid, or a view whose one input this world does not have (Strahler order
@@ -914,6 +1034,18 @@ pub fn debug_raster(f: &FieldRefs, id: &str) -> Option<Vec<u8>> {
     if n == 0 || id == "off" || f.field.len() < n {
         return None;
     }
+    // Not a view: the animated-streak overlay's flow-vector data channel.
+    // Answered here because `build_debug_texture` is this crate's only
+    // grid-sized `gw * gh` byte channel out to GDScript, and it forwards any
+    // id straight through -- see [`flow_fx_raster`] for why that is the shape
+    // this took. Handled before the match so no `LAYER_GROUPS` row, no
+    // `GAP_LAYERS` entry and no legend ever mentions it: the Layers popover
+    // enumerates `LAYER_GROUPS`, never raw ids, so these two are unreachable
+    // from the UI as views.
+    if let Some(kind) = id.strip_prefix("flowfx:") {
+        return flow_fx_raster(f, kind);
+    }
+
     let sea = f.sea_level;
     let is_water = |i: usize| (f.field[i] as f64) < sea;
     let mut out: Vec<u8> = Vec::with_capacity(n * 4);
@@ -1871,6 +2003,49 @@ mod tests {
                 assert_eq!((c[0], c[1], c[2]), (26, 28, 34), "land cell {i} must be the flat land colour");
             }
         }
+    }
+
+    /// The animated-streak overlay's data channel: `wind_fx_layer.gd`'s
+    /// decode is written against exactly this packing, and a silent change
+    /// on either side would show up only as streaks drifting the wrong way
+    /// on a real screen. Round-trips the 12/12/8 layout here instead, and
+    /// asserts the two properties the GDScript relies on -- that the packed
+    /// vectors reproduce `current_wind_field` to within a quantisation step,
+    /// and that the alpha byte is a hard land/water mask for `flowfx:ocean`.
+    #[test]
+    fn flowfx_channel_round_trips_the_flow_vectors() {
+        let o = owned(16, 12);
+        let f = view(&o, true);
+        let wf = cartalith_climate::current_wind_field(
+            f.gw, f.gh, f.field, f.sea_level, f.peak_m, f.world, f.lat_n, f.lat_s, f.equator_temp, f.pole_temp,
+            f.tilt_deg, f.rotation_hours, f.lapse_rate, f.wind_manual, f.wind_dir_deg, f.press_k,
+        );
+        let px = debug_raster(&f, "flowfx:wind").expect("flowfx:wind must produce a raster");
+        assert_eq!(px.len(), o.gw * o.gh * 4);
+
+        // One quantisation step of the 12-bit encoding, plus slack for the
+        // f64 round-trip itself.
+        let tol = 2.0 * FLOWFX_SCALE / 4095.0;
+        let dec = |hi: u8, lo: u8| -> f64 { (((hi as u32) << 4 | (lo as u32) >> 4) as f64 / 4095.0 * 2.0 - 1.0) * FLOWFX_SCALE };
+        for y in 0..f.gh {
+            let fy = y as f64 / (f.gh as f64 - 1.0) * (wf.wh as f64 - 1.0);
+            for x in 0..f.gw {
+                let fx = x as f64 / (f.gw as f64 - 1.0) * (wf.ww as f64 - 1.0);
+                let c = &px[(y * f.gw + x) * 4..][..4];
+                let u = dec(c[0], c[1]);
+                let v = ((((c[1] as u32 & 0xF) << 8 | c[2] as u32) as f64) / 4095.0 * 2.0 - 1.0) * FLOWFX_SCALE;
+                assert!((u - bil_c(&wf.u, fx, fy, wf.ww, wf.wh, f.world)).abs() < tol, "u at {x},{y}");
+                assert!((v - bil_c(&wf.v, fx, fy, wf.ww, wf.wh, f.world)).abs() < tol, "v at {x},{y}");
+                assert_eq!(c[3], 255, "wind streaks are never water-masked");
+            }
+        }
+
+        let px = debug_raster(&f, "flowfx:ocean").expect("flowfx:ocean must produce a raster");
+        assert_eq!(px.len(), o.gw * o.gh * 4);
+        assert!(px.chunks(4).all(|c| c[3] == 0 || c[3] == 255), "the ocean mask byte is binary, never blended");
+        assert!(px.chunks(4).any(|c| c[3] == 255), "a world with ocean must leave somewhere for a streak to spawn");
+
+        assert!(debug_raster(&f, "flowfx:nope").is_none(), "an unknown flow kind must not fabricate a field");
     }
 
     #[test]

@@ -34,6 +34,8 @@ class_name LayersPopover
 ## would make comparing two views needlessly tedious. Click outside or press
 ## Escape to dismiss.
 
+const FLOW_FX_SCRIPT := preload("res://shell/wind_fx_layer.gd")
+
 var bridge: EngineBridge
 var host: ViewportHost
 
@@ -126,6 +128,36 @@ func setup(b: EngineBridge, h: ViewportHost) -> void:
 
 	bridge.generation_finished.connect(func(_ok: bool): if visible: rebuild())
 	bridge.world_loaded.connect(func(): if visible: rebuild())
+
+	_attach_flow_fx()
+
+## The Wind and Ocean-currents rows are the only two field views the reference
+## also *animates* (`#windFxCanvas`, reference HTML lines 2113-2209): particle
+## streaks advected along the flow field, over the static raster. `app.gd`
+## builds exactly one of this popover and this runs from `setup()`, so the one
+## overlay node is created once here rather than on each pick -- it is idle
+## (invisible, holding no field) until `host.debug_view()` actually reads back
+## one of those two, which it polls for itself. See `wind_fx_layer.gd`.
+##
+## Parented under `host.overlay`, not this popover: the streaks belong in the
+## map's own zoomed/panned coordinate space, and `map_overlay.gd` is already
+## the node that carries it (and publishes the letterbox fit rect the
+## particles project through). Attached from here because `set_debug_layer`
+## lives on `ViewportHost`, which is owner-reserved for concurrent work --
+## this popover is the only other place that knows a field view was picked.
+func _attach_flow_fx() -> void:
+	if host == null or host.overlay == null:
+		return
+	## `preload`, not the `WindFxLayer` global class name: a global name only
+	## resolves once the editor has rescanned and written
+	## `.godot/global_script_class_cache.cfg`, so a fresh clone (or any
+	## editor-less run, which is how this port's capture harnesses drive the
+	## shell) would fail to parse this file. `viewport_host.gd`'s own
+	## `OVERLAY_SCRIPT` preload is here for the same reason.
+	var fx: Control = FLOW_FX_SCRIPT.new()
+	fx.name = "WindFxLayer"
+	fx.setup(bridge, host)
+	host.overlay.add_child(fx)
 
 ## Anchored under the viewport's own layers button rather than at a guessed
 ## corner offset -- the button moves with `set_safe_insets()` on phone.

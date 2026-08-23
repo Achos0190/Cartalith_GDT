@@ -5,7 +5,71 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-23 (post **The Devices menu crash: the backend mask was
+Last updated: 2026-08-23 (post **Three stranded items: timeline `tid`, Asset
+Library Collections/drag-and-drop/slicer interaction, Fira fonts**. Three
+independent, previously-disclosed gaps closed together as mechanical wiring,
+not open-ended work — full account in `CHANGELOG.md`. **(1)**
+`get_settlements()` (`lib.rs`) now carries `tid`; `civilization_workspace.gd`'s
+Timeline **Exist only** filter is wired for real, filtering the settlement
+array `map_overlay.gd` draws down to the active year's `civ_year_diff().present`
+set (`GUI_GAP_REGISTER.md` CV-03, partly closed — Ghost removed/Highlight new
+stay open, needing per-pin draw state only `map_overlay.gd` can add, and the
+OLD snapshot's settlement data for "removed", which nothing exposes yet).
+**(2)** Asset Library gained a real Collections rail (new `#[func]
+as_collections`, `_refresh_collections_rail`/`_select_collection`), real
+in-app drag-and-drop (drag selected tiles onto a Collections row →
+`as_batch_collect`, through real `_get_drag_data`/`_can_drop_data`/
+`_drop_data`), and the sprite-sheet slicer's canvas gained wheel-zoom
+(reversible, centred on the cursor), middle-drag pan, click-to-select-a-cell,
+and a draggable Margin handle (`GUI_GAP_REGISTER.md` AS-12/AS-17, both partly
+closed — "Unassigned imports", OS-file-drop-onto-a-slot, and per-interior-
+line dragging all stay open for reasons recorded there, not silent gaps).
+**(3)** Fira Sans and Fira Code sourced for real (SIL OFL 1.1, license text
+fetched from each upstream repo, `fonts/Fira{Sans,Code}-OFL.txt`); Fira Sans
+wired as `dark_theme.tres`'s `default_font`, closing the "Deliberately
+deferred" typography note `CHANGELOG.md` carried since the original
+design-system match. Fira Code is sourced but deliberately left unwired — IBM
+Plex Mono already fills that role, shipped and tested, and swapping it in for
+zero visual-parity gain would be an undisclosed regression, not a fix.
+Verified: `cargo build -p cartalith-godot` clean, `cargo test -p
+cartalith-godot --lib` (247 passed), `--headless --path . --quit` clean
+(after one `--editor` pass to import the six new font files — the plain
+console runtime doesn't import new resources on its own). Drag-and-drop and
+the slicer's canvas interaction were functionally verified via direct event
+injection in two uncommitted harness scripts (deleted after), **not** a live
+mouse-driven session — said plainly, not claimed as full interactive
+verification.
+— previously, post **Wind and Ocean currents: the animation the
+reference has and this port did not**. Owner: *"the ocean current layer isnt
+animated as the HTML version is. (same for wind)"* — and correct. Both views
+were ported and both were *right*; what was never ported is that the reference
+stacks a **second, independent overlay** on exactly these two: `#windFxCanvas`,
+a particle-streak animation (`_windFx*`, HTML lines 2113-2209) the normal
+render pipeline never touches. Measured before the fix on a real screen:
+**0.0000** mean frame-to-frame pixel difference on both. Ported constant for
+constant — 260/200 particles, `0.315` cells/tick advection, `50+rand*50` /
+`60+rand*60` lifetimes, respawn on leaving the map, ageing out or beaching,
+the ocean spawner's 30-try water rejection. `cartalith-climate::
+current_ocean_field` is `currentOceanField()` split *out of* `ocean_sst_anomaly`
+rather than written beside it (the two must agree about which way a current
+runs; the reference itself shipped two disagreeing answers until its own
+v1.78) — golden parity unchanged. **The one deliberate technique change is the
+trail**: Godot clears its canvas every frame, so the reference's
+`destination-out` fade would need a never-cleared `SubViewport` doing GPU work
+behind a closed layer — the exact hazard the Devices crash below is a live bug
+from. Each particle carries its last 12 positions and redraws them under the
+same `0.86 ** k` decay instead: same streak, no retained target, literally zero
+cost when off. **Verified non-headlessly, because headless cannot see motion**:
+Wind 0.134/0.133/0.135/0.137, Ocean 0.052/0.050/0.048/0.048, layer off
+0.000/0.000/0.000, re-armed after off 0.052/0.045/0.047, after a regenerate
+under a live view 0.063/0.063/0.067 — all at 57-60 fps; 260/260 wind and
+200/200 ocean particles on valid cells; the packed mask round-trips intact
+(35 559 water / 161 049 land, matching the coastline). One thing is
+**honestly a workaround**: the flow field reaches GDScript through
+`build_debug_texture` as a packed `flowfx:` raster rather than a `#[func]`,
+because `lib.rs` — this crate's sole `godot` boundary — was owner-reserved for
+concurrent work. Worth replacing; only the GDScript decode changes.
+— previously, post **The Devices menu crash: the backend mask was
 on the wrong call**. Owner: *"There seems to be a crash in the program when you
 get higher than 2k and start changing settings for resources such as GPU/CPU."*
 The size is a red herring — the crash is **opening `Preferences ▸ Performance ▸
@@ -3438,6 +3502,41 @@ Two passes landed the same day. The first built the ~430-line `journey_planner_w
       owner's running editor); and everything routine — editor, Play, every
       `--headless` scripted drive — loads the **debug** entry, not release, so
       both profiles need building when a change is meant to reach an export.
+
+## Wind / Ocean-currents streak animation (owner report, done 2026-08-23)
+
+- [x] **The reference's `#windFxCanvas` particle overlay ported**
+      (`shell/wind_fx_layer.gd`) — 260 wind / 200 ocean particles advected
+      along the flow field at the reference's own `0.315` cells/tick, its
+      lifetimes, its respawn rules, its colours, its 1-cell stroke. Attached
+      once from `layers_popover.gd::_attach_flow_fx`, under `map_overlay.gd`
+      so pan/zoom needs no code.
+- [x] **`cartalith-climate::current_ocean_field`** — `currentOceanField()`'s
+      vector field + ocean mask, extracted from `ocean_sst_anomaly` so the
+      anomaly raster and the streaks cannot disagree. Golden parity unchanged
+      (`cargo test -p cartalith-climate`, 21 green).
+- [x] **Nothing runs while the layer is off.** `_process()` is one
+      `debug_view()` read; no field is held, no particles exist, the node is
+      `visible = false` so `_draw()` is never reached. Verified: 0.0000
+      frame-to-frame difference with the layer off, and a clean restart after
+      a toggle cycle and after a regenerate under a live view.
+- [x] **Verified non-headlessly** at 1280×800 on an RX 7800 XT — the only way
+      a motion feature can be verified. Numbers in the header above and the
+      `CHANGELOG.md` entry; harness `_flowfx_shot.tscn`, uncommitted per the
+      `_shot.gd` convention.
+- [ ] **Still open: the `flowfx:` data channel is a workaround.** The flow
+      field reaches GDScript packed into a `build_debug_texture` raster
+      (12 bits each for `u`/`v` at a ±8 scale, ocean mask in alpha) because
+      `lib.rs`, the crate's sole `godot` boundary, was owner-reserved for
+      concurrent work when this landed. The right shape is a `#[func]`
+      returning the field; swapping to it changes only
+      `wind_fx_layer.gd::_start`/`_decode`. `flow_fx_raster`'s own doc
+      comment says so, and
+      `flowfx_channel_round_trips_the_flow_vectors` pins the two sides
+      together until then.
+- [ ] **Still open: streak density/speed are not exposed as controls** — the
+      reference's constants, unparameterised. Belongs with `MEMORY.md`'s
+      deferred Phase-3 visualisation-controls pass, not a raw slider.
 
 ## Sample panel + Layers popover (`DCC_SHELL_SPEC.md` §6/§9, done 2026-08-19)
 
