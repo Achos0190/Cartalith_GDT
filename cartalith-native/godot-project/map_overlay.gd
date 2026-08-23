@@ -366,6 +366,9 @@ func set_civ_data(settlements: Array, roads: Array, sea_routes: Array, gw: int, 
 	_gh = gh
 	_border_frac = border_frac
 	_hover_index = -1
+	## A settlement roster this control is handed afresh invalidates every
+	## cached town layout by index -- see `clear_urban_layouts()`.
+	clear_urban_layouts()
 	queue_redraw()
 
 
@@ -589,6 +592,14 @@ func _draw() -> void:
 				_draw_way_segment(points, start2, cut, rect, width)
 				start2 = cut
 			_draw_way_segment(points, start2, points.size(), rect, width)
+	## Town layouts sit above the ways -- a town's own high street IS the
+	## through-road, so it must overlay it -- and *replace* the pin of every
+	## place they actually draw (`_urban_revealed`, the reference's
+	## `_umRevealedSet`). See this file's "Urban layouts" block at the foot
+	## for the reveal gate and why it is not `_umLayoutAlpha`'s km band.
+	_urban_revealed.clear()
+	if _show_urban_layouts:
+		_draw_urban_layouts(rect, interior)
 
 	if _show_settlements:
 		## Same formula `_settlement_pin_radius()` uses -- kept as one inline
@@ -636,6 +647,16 @@ func _draw() -> void:
 			## costs nothing and, more importantly, never reserves label
 			## occupancy that a *visible* place would then be pushed out of.
 			if _hidden_settlement_kinds.has(s["kind"]):
+				continue
+			## The reference's `_umRevealedSet` (line 22753): a place whose own
+			## generated layout was actually drawn this frame gives up its pin
+			## to it. The reference crossfades the two across its km band; with
+			## no band here (see the "Urban layouts" block for why) this is the
+			## end state of that fade, applied at the same moment. Without it
+			## the pin -- deliberately sized to hold constant on screen -- sits
+			## squarely over the market anchor and the densest streets, which
+			## is exactly what it is drawn on top of.
+			if _urban_revealed.has(i):
 				continue
 			var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
 			# A settlement whose cell is under the frame has no visible terrain
@@ -1046,3 +1067,168 @@ func _notification(what: int) -> void:
 			_hover_index = -1
 			queue_redraw()
 			settlement_hovered.emit(null, -1)
+
+
+# ── Urban layouts ────────────────────────────────────────────────────────────
+#
+# `civUrbanLayoutsChk` (`GUI_GAP_REGISTER.md` UM-01): the reference's own
+# deep-zoom town-layout layer, `_umDrawLayout` called from `drawCivLayer`'s
+# §2.5. This port draws the same layer from the same kind of data, restricted
+# to what `URBAN_MORPHOLOGY_SCOPE.md` milestones 1-7 actually generate — a
+# street skeleton on a real site. Blocks, buildings and the wall circuit are
+# milestones 10-13 and are not drawn, not stubbed; see `urban_layout_draw.gd`.
+#
+# **The reveal gate is deliberately NOT the reference's `_umLayoutAlpha`.**
+# That function crossfades pins into layouts across a 24 km → 10 km viewport
+# span, which works there because its LOD region window lets the camera reach
+# a few-km span. This port's camera clamps at `ViewportHost.ZOOM_MAX` (8.0),
+# so on a default 800 km world the closest reachable span is ~100 km and a
+# ported 24 km threshold would never once fire — a toggle that silently draws
+# nothing on the default world is worse than a different, stated rule. The
+# gate here is the thing that actually matters for whether a town is worth
+# drawing at all: how many screen pixels its 1.7 km site box covers. A town
+# under `URBAN_MIN_BOX_PX` is a smudge and is skipped, and no layout is even
+# requested for it.
+## `preload`, not the `UrbanLayoutDraw` global class name -- see
+## `city_viewer_window.gd`'s own `DRAW` const for why.
+const URBAN_DRAW := preload("res://shell/urban_layout_draw.gd")
+const URBAN_MIN_BOX_PX := 16.0
+## The site box, in km — `UME.SITE_WM`/`1000` (`urban_adapter::SITE_WM`).
+const URBAN_SITE_BOX_KM := 1.7
+## Requested per frame, and the number is the reference's own
+## `_UM_MODEL_CACHE_MAX` (line 22684): as many towns as it was willing to hold
+## generated at once. Each is a few milliseconds of real generation on the
+## main thread, so the cap is what keeps a pan at deep zoom from stalling.
+const URBAN_BATCH_MAX := 24
+
+## Emitted when the layer is on, the zoom is deep enough, and these settlement
+## indices have no layout yet. `ViewportHost` answers with
+## `set_urban_layouts()`. Deliberately a signal rather than a direct bridge
+## call: this control holds no `EngineBridge` and every other value it draws
+## is pushed into it, not pulled.
+signal urban_layouts_needed(indices: PackedInt32Array)
+
+var _show_urban_layouts := false
+## settlement index -> layout Dictionary, or `null` for an index the engine
+## refused (a settlement in open water — `_umModelFor`'s own refusal). Both
+## are "answered", so neither is requested twice.
+var _urban_layouts: Dictionary = {}
+var _urban_pending := false
+var _map_width_km := 0.0
+## `_umRevealedSet` (reference line 22753): the settlement indices whose layout
+## was actually drawn this frame, so the pin loop can stand down for them.
+## Rebuilt every `_draw()`, never persisted -- the reference rebuilds its own
+## per frame for the same reason (a place mid-generation must not lose its pin
+## on the strength of the toggle alone).
+var _urban_revealed: Dictionary = {}
+
+
+func set_show_urban_layouts(shown: bool) -> void:
+	_show_urban_layouts = shown
+	queue_redraw()
+
+
+## The real map width, needed to size a town against the grid. Pushed from
+## `ViewportHost.refresh()` alongside the civ data.
+func set_map_width_km(km: float) -> void:
+	if is_equal_approx(_map_width_km, km):
+		return
+	_map_width_km = km
+	_urban_layouts.clear()
+	queue_redraw()
+
+
+## `requested` is the batch that was asked for; `layouts` is what came back,
+## which is shorter whenever the engine refused one. Recording the whole
+## requested set is what stops a refused settlement being re-requested every
+## frame forever.
+func set_urban_layouts(requested: PackedInt32Array, layouts: Array) -> void:
+	for i in requested:
+		_urban_layouts[i] = null
+	for l: Dictionary in layouts:
+		_urban_layouts[int(l["index"])] = l
+	_urban_pending = false
+	queue_redraw()
+
+
+## Dropped wholesale when the world changes — `ViewportHost.refresh()` calls
+## `set_civ_data`, which calls this.
+func clear_urban_layouts() -> void:
+	_urban_layouts.clear()
+	_urban_pending = false
+
+
+## Screen pixels per model metre, at the current fit and camera zoom. Widths
+## drawn through this scale with the camera exactly as positions do, which is
+## right for a town's streets (a real world-space width) and is the opposite
+## of what `_settlement_pin_radius` wants for a pin (not a world-space
+## quantity at all).
+func _urban_m_scale(rect: Rect2) -> float:
+	if _map_width_km <= 0.0 or rect.size.x <= 0.0:
+		return 0.0
+	return rect.size.x / (_map_width_km * 1000.0)
+
+
+func _draw_urban_layouts(rect: Rect2, interior: Rect2) -> void:
+	var m_scale := _urban_m_scale(rect)
+	if m_scale <= 0.0:
+		return
+	## The camera scales this whole control, so a box that measures
+	## `box_px` here lands `box_px * _camera_zoom` wide on screen.
+	var box_px := URBAN_SITE_BOX_KM * 1000.0 * m_scale * _camera_zoom
+	if box_px < URBAN_MIN_BOX_PX:
+		return
+
+	## The camera scales and offsets this whole control, so `interior` alone is
+	## "on the plate", not "on screen" -- at deep zoom that is nearly the
+	## entire settlement roster, and generating a town for each is real work.
+	## The viewport rect pulled back through this control's own global
+	## transform is the actual visible area in the space `rect` is measured in.
+	var visible_area := get_global_transform().affine_inverse() * get_viewport_rect()
+	visible_area = visible_area.intersection(interior)
+	if visible_area.size.x <= 0.0 or visible_area.size.y <= 0.0:
+		return
+	## Half a box of slack, so a town whose centre is just off-screen still
+	## draws the half of itself that is on-screen.
+	visible_area = visible_area.grow(box_px * 0.5 / maxf(0.001, _camera_zoom))
+
+	var need := PackedInt32Array()
+	for i in _settlements.size():
+		var s: Dictionary = _settlements[i]
+		if _hidden_settlement_kinds.has(s["kind"]):
+			continue
+		var pos := _cell_to_screen(Vector2(s["x"], s["y"]), rect)
+		if not visible_area.has_point(pos):
+			continue
+		if not _urban_layouts.has(i):
+			if need.size() < URBAN_BATCH_MAX:
+				need.append(i)
+			continue
+		var layout = _urban_layouts[i]
+		if layout == null:
+			continue
+		## `_umDrawLayout`'s own transform: local model metres, measured from
+		## the market anchor, rotated by the layout's terrain orientation, then
+		## scaled into grid units and projected like any other map point — so
+		## the market lands exactly on the settlement's real position and an
+		## injected real road overlays the map road it came from.
+		var anchor: Vector2 = layout.get("market", Vector2.ZERO)
+		var rot: float = float(layout.get("orient", 0.0))
+		var cth := cos(rot)
+		var sth := sin(rot)
+		var grid_per_meter := float(_gw) / (_map_width_km * 1000.0)
+		var to_screen := func(mp: Vector2) -> Vector2:
+			var l := mp - anchor
+			return _point_to_screen(Vector2(
+				float(s["x"]) + 0.5 + (l.x * cth - l.y * sth) * grid_per_meter,
+				float(s["y"]) + 0.5 + (l.x * sth + l.y * cth) * grid_per_meter), rect)
+		## `px_floor` = one screen pixel in this control's own space: the camera
+		## scales this whole control by `_camera_zoom`, so a stroke floored at
+		## a literal 1.0 here would land `_camera_zoom` px thick on screen.
+		URBAN_DRAW.draw_layout(self, layout, to_screen, m_scale,
+			1.0 / maxf(0.001, _camera_zoom), 1.0, false)
+		_urban_revealed[i] = true
+
+	if need.size() > 0 and not _urban_pending:
+		_urban_pending = true
+		urban_layouts_needed.emit.call_deferred(need)

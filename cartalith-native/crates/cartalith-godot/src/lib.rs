@@ -31,6 +31,7 @@ mod sample_bridge;
 mod sculpt_bridge;
 mod timeline_bridge;
 mod travel_bridge;
+mod urban_bridge;
 use cartalith_terrain::sculpt::{Feature, FeatureParams, FreehandMode, SculptStamp, SCULPT_PRESETS};
 use render::{QualityTier, RenderCtx, SplatTextures, TerrainAppearance};
 use rayon::prelude::*;

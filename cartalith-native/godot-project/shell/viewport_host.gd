@@ -295,6 +295,16 @@ func _ready() -> void:
 	overlay.map_clicked.connect(func(gx, gy): map_clicked.emit(gx, gy))
 	overlay.map_dragged.connect(func(gx, gy): map_dragged.emit(gx, gy))
 	overlay.map_released.connect(func(gx, gy, valid): map_released.emit(gx, gy, valid))
+	## The town-layout layer pulls its own data, one deferred batch at a time,
+	## because generating a town is real engine work and only the overlay knows
+	## which towns are on screen and large enough to be worth drawing. This is
+	## the whole of the reference's `_umModelFor` scheduling queue that this
+	## port keeps -- `URBAN_MORPHOLOGY_SCOPE.md` puts its LRU and its
+	## `setTimeout(...,0)` pump explicitly out of scope (a workaround for the
+	## browser's single thread), and the overlay's own index-keyed dictionary,
+	## dropped whole on every `set_civ_data`, is the only invalidation this
+	## shell needs.
+	overlay.urban_layouts_needed.connect(_on_urban_layouts_needed)
 
 	## §4.5.1's tool feedback (Region marquee, Measure ruler) -- above
 	## `overlay` in draw order so it's never hidden behind terrain/vector
@@ -545,6 +555,9 @@ func refresh() -> void:
 	var g := _bridge.grid_size()
 	overlay.set_civ_data(_bridge.settlements(), _bridge.roads(),
 		_bridge.sea_routes(), g.x, g.y, _bridge.border_inset_frac())
+	## A town is sized in real metres, so the layout layer needs the map's own
+	## km extent to know how many pixels 1.7 km is worth.
+	overlay.set_map_width_km(_bridge.last_width_km)
 	tool_overlay.set_grid(g.x, g.y)
 	_width_km = _bridge.last_width_km
 	_update_scale_bar()
@@ -583,7 +596,23 @@ func set_layer_visible(layer: String, shown: bool) -> void:
 		"settlements": overlay.set_show_settlements(shown)
 		"roads": overlay.set_show_roads(shown)
 		"sea_routes": overlay.set_show_sea_routes(shown)
+		## `civUrbanLayoutsChk` (`GUI_GAP_REGISTER.md` UM-01). Reveals only
+		## once a town's 1.7 km site box is worth pixels -- `map_overlay.gd`'s
+		## own "Urban layouts" block owns that gate and states why it is not
+		## the reference's `_umLayoutAlpha` km band.
+		"urban_layouts": overlay.set_show_urban_layouts(shown)
 		_: push_error("ViewportHost: unknown layer '%s'" % layer)
+
+## Answers `map_overlay.gd`'s one-batch-at-a-time request for town layouts.
+## Synchronous, on the main thread: generating a town is a few milliseconds,
+## the batch is capped by the overlay, and this port has no worker path from
+## GDScript into a `#[func]` -- said plainly rather than hidden behind a
+## thread that does not exist.
+func _on_urban_layouts_needed(indices: PackedInt32Array) -> void:
+	if _bridge == null or not _bridge.has_world:
+		overlay.set_urban_layouts(indices, [])
+		return
+	overlay.set_urban_layouts(indices, _bridge.urban_layouts(indices))
 
 ## The per-class / per-way-type half of the reference's own layer filters
 ## (`#explSettlementFilterList`, and `#explShowRoads`'s by-way-type list --

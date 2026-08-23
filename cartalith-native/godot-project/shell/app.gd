@@ -23,6 +23,10 @@ var right_dock_ctrl: RightDock
 var data_manager_window: DataManagerWindow
 var asset_library_window: AssetLibraryWindow
 var travel_library_window: TravelLibraryWindow
+## `GUI_GAP_REGISTER.md` UM-02, the reference's `cityViewerModal`. Long-lived
+## for the same reason as its neighbours here -- it keeps a settlement picker
+## and a canvas pan/zoom worth holding between opens.
+var city_viewer_window: CityViewerWindow
 ## Long-lived, unlike `DccBrowseDialog` (which spawns and frees per pick):
 ## the gallery holds a scope chip and a search query worth keeping between
 ## opens, exactly like every other window on this list.
@@ -160,6 +164,10 @@ func _ready() -> void:
 	world_data_window = WorldDataWindow.new()
 	add_child(world_data_window)
 	world_data_window.setup(bridge)
+
+	city_viewer_window = CityViewerWindow.new()
+	add_child(city_viewer_window)
+	city_viewer_window.setup(bridge)
 
 	performance_window = PerformanceWindow.new()
 	add_child(performance_window)
@@ -553,6 +561,12 @@ func open_asset_pack_picker() -> void:
 ## other caller (the Data menu) still gets the default first-tab open.
 func open_world_data(tab: String = "") -> void:
 	world_data_window.open(tab)
+
+## The City Viewer, on one settlement (`GUI_GAP_REGISTER.md` UM-02).
+## `index` is an index into `bridge.settlements()`; the window's own picker
+## can move off it once open.
+func open_city_viewer(index: int) -> void:
+	city_viewer_window.open(index)
 
 func open_performance() -> void:
 	performance_window.open()

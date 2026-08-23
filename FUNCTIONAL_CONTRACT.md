@@ -464,6 +464,37 @@ adapter) remain entirely unbuilt, and every user-facing surface named above
 no disclosure anywhere in this document or `GUI_GAP_REGISTER.md` prior to
 this correction pass.
 
+**Update, 2026-08-23 (same day, later pass): milestones 1-7 are wired.** The
+"zero consumers" finding above is closed; the milestone count is not.
+`cartalith-civ::urban_adapter` ports the subset of the block-2 `_um*` adapter
+whose *outputs* milestones 1-7 can consume (13 of the 28: `_umSiteBoxKm`,
+`_umWaterNearKm`, `_umWaterReachKm`, `_umSiteKindFromTerrain`, `_umInferAge`,
+`_umRayBoxExit`, `_umWayBearingFrom`, `_umRouteEnds`, `_umPrimaryPaths`,
+`_umTerrainOrient`, `_umWaterCtx`, `_umTerrainCtx`, `_umPlaceContext`) plus
+the prefix of `generate()` those seven milestones supply;
+`cartalith-godot::urban_bridge` exposes it as one batched `#[func]`; and two
+of the three user-facing surfaces are live — the deep-zoom map layer
+(`civUrbanLayoutsChk`) and the City Viewer (`cityViewerModal`), the latter
+with its own canvas, wheel-zoom, drag-pan, legend and info panel. The
+place-edit popup's thumbnail (`peCityPreview`/`peCityOpen`) is not, though
+`app.open_city_viewer(index)` now exists for a popup to call.
+
+What that produces is a **street skeleton on a real site**: the map's own
+river/coast and relief fed into `buildSite`, the market anchor, the arterial
+primaries (grown around the port's real inter-settlement roads when any
+reach the settlement), and the organic street growth off them. Blocks,
+parcels, buildings, districts, amenities and the wall circuit are milestones
+8-17 and are drawn nowhere, stubbed nowhere, and emitted as no dictionary key
+at all. Six `_um*` functions are deliberately unported because their only
+consumers are milestone 8+ (`_umWallSpec`, `_umInferWalls`, `_umHarbourScale`,
+`_umSiteProfile`, `_umOreBearing`, and `_umCacheKey`'s content fingerprint);
+`_umPt` has no Rust equivalent to need; the LRU/queue and the two draw
+functions are out of scope for every milestone by the scope document's own
+statement. **The adapter is not golden-verified** — the capture harness this
+repository's goldens come from slices block 4, and there is no block-2
+fixture; the engine beneath it is golden-verified milestone by milestone, the
+adapter is ported by reading and covered by ordinary unit tests.
+
 **§7d tag**: port as-is. This is deep procedural-generation domain logic
 with real reference precedent line-for-line (`URBAN_MORPHOLOGY_SCOPE.md`
 cites exact reference line ranges per milestone); nothing here suggests a
@@ -495,7 +526,7 @@ modernize-over-port angle the way tile pyramids or layer compositing do.
 | Theme | Done, incl. light + follow-system | Already modernized (minor) |
 | Credits | Done | Port as-is |
 | Undo | **Draft-scoped real; global still absent** (corrected 2026-08-23) | New implementation, necessarily, for the global case |
-| Urban morphology | **Milestones 1-7 of ~17 done; zero consumers wired** (added 2026-08-23) | Port as-is |
+| Urban morphology | **Milestones 1-7 of ~17 done, and now wired end to end** — adapter, bridge, deep-zoom map layer and City Viewer; what draws is a street skeleton, not a city (added and updated 2026-08-23) | Port as-is |
 
 ## Honest absent-entirely list, with real size
 
@@ -506,10 +537,12 @@ genuinely still absent, as of this correction:
 - **Urban morphology, milestones 8-17**: radial streets/plaza/waterway,
   water infrastructure, fortification, graph cleanup, blocks/parcels,
   districts/buildings, amenities, hinterland/decay/details/metrics,
-  `generate()`/`hashModel`, and the 28-function civ adapter — ~45 of block
-  4's 92 functions plus all 28 adapter functions. Milestones 1-7 are done
-  but wired to nothing. By far the largest item on this list — see
-  capability 13 above.
+  `generate()`/`hashModel` — ~45 of block 4's 92 functions. Milestones 1-7
+  are done **and wired** as of the later pass the same day (adapter, bridge,
+  map layer, City Viewer); 13 of the 28 adapter functions are ported, and the
+  other 15 are either milestone-8+-only, not applicable to typed Rust, or
+  explicitly out of scope for every milestone. By far the largest item on
+  this list — see capability 13 above.
 - **Hydrology/climate/ecology live re-tuning without a full regenerate**:
   open design question, not yet even scoped as a milestone target.
 - **Save writing**: `.zip` save is entirely unbuilt (read-only so far).

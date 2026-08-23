@@ -18380,3 +18380,149 @@ eight.
   separate work (it is the same missing capability `sculpt_commit`'s
   dirty-tile set has no consumer for), not a side effect of porting a carve
   kernel.
+
+## Urban morphology: the largest unported subsystem gets its first consumer (2026-08-23)
+
+`PARITY_AUDIT.md` §3.4 named the thing this port had been careful never to
+do and had, in one place, done anyway: `cartalith-urban` — 4,516 lines,
+`URBAN_MORPHOLOGY_SCOPE.md` milestones 1-7 of ~17, every module with its own
+`tests/golden.rs` — had **zero consumers**. `grep -rn 'cartalith-urban'
+crates/*/Cargo.toml` returned only its own manifest; `godot-project/`
+mentioned it exactly once, in a comment saying it was unported.
+`GUI_GAP_REGISTER.md` had no row for it until that same audit added §6.16.
+The "don't wire in what nothing calls" rule was right for one milestone and
+wrong by the seventh: nobody could see, use or regression-check any of it.
+
+This pass wires milestones 1-7 end to end and **nothing more**. What draws is
+a street skeleton on a real site, not a city, and every surface says so.
+
+### What was ported: 13 of the 28 `_um*` adapter functions
+
+New module `cartalith-civ/src/urban_adapter.rs` — the home
+`URBAN_MORPHOLOGY_SCOPE.md` milestone 17 already named for it ("outside
+`cartalith-urban` … so the engine crate stays dependency-light"). One rule
+chose the subset: **a function is ported when milestones 1-7 can consume its
+output.**
+
+`_umSiteBoxKm`, `_umWaterNearKm`, `_umWaterReachKm` (the grid-quantised water
+reach, carrying the v1.34 fix its comment exists for — a km threshold below
+one cell is not strict, it is unsatisfiable); `_umSiteKindFromTerrain` with
+its v1.32/v1.37 corrections; `_umInferAge`; `_umRayBoxExit`,
+`_umWayBearingFrom`, `_umRouteEnds` (matching on the way's **endpoint
+coordinate**, not `aIdx`/`bIdx` — the v0.96 fix, without which a town's roads
+point at interior junctions instead of at its real neighbours);
+`_umPrimaryPaths` with its 55 m arc-length resample; `_umTerrainOrient`;
+`_umWaterCtx` (v0.99's bilinear sea test, the pre-river-stamp
+`seaLakeCells` split, the chamfer DT, and v1.03's 260 m disc rather than
+v1.00's whole-box water fraction); `_umTerrainCtx`; `_umPlaceContext`.
+
+Plus `run_layout` — the **prefix** of the reference's `generate()` (line
+30931) that milestones 1-7 supply: the scalar derivations (`targetLen`,
+`maxRF`, `epochs`, `popTarget`, the age clamp), `buildSite`, the `routeEnds`
+override, `placeAnchors`, the real-water market pin with its outward ring
+search, `buildPrimaries`/`buildPrimariesFromPaths`, and `grow`. It is not
+`generate()`, and its doc comment lists the 21 stages it does not run.
+
+### What was deliberately not ported, and why each one
+
+| Function | Why |
+|---|---|
+| `_umWallSpec`, `_umInferWalls` | fortification is milestone 10. With no `WallBuilder` in existence, `grow`'s `opts.walls` gates calls into a no-op, so a wall spec is a value nothing can build or draw. `walls: false` is passed — the only honest value |
+| `_umHarbourScale` | read only by `buildHarbour`, milestone 9 |
+| `_umSiteProfile` | its consumers are the wall spec (10), harbour/bridge validity (9), economic districts (13) and a Settlement Inspector — none exist |
+| `_umOreBearing` | feeds `economy.oreBearing` (milestones 13/15), and this port's settlements carry no `specialisation` anyway — the gap milestone 17's own note predicted |
+| `_umPt` | a JS `[x,y]`-vs-`{x,y}` normaliser; `Way::pts` is typed |
+| `_umCacheKey`, `_umCacheEvict`, `_umScheduleGenStep`, `_umModelFor`, `_umModelForNow` | "out of scope for every milestone" in the scope document's own words — an LRU plus a `setTimeout(…,0)` pump working around the browser's single thread |
+| `_umDrawLayout`, `_umDrawLayoutPreview`, `_umLayoutAlpha` | likewise: Godot's job. The GDScript below is that job |
+
+Three `_umPlaceContext` fields are absent because their **inputs** are:
+`fortified` (no `traits` on `NamedSettlement`), `economy` (no
+`specialisation`), `culture` (no faction-culture table anywhere in the port —
+so `resolve_profile` takes its own `medieval` fallback, which matters: `venus`
+dispatches onto `buildRadialStreets`, milestone 8).
+
+### The bridge, and the one performance deviation
+
+`cartalith-godot/src/urban_bridge.rs`, one `#[func]`:
+`urban_layouts(indices) -> Array[Dictionary]`, a `#[godot_api(secondary)]`
+block in its own module rather than a fifteenth one in `lib.rs`.
+
+**`traceRiverPolylines` is hoisted out of the per-settlement path.** The
+reference calls it inside `_umWaterCtx`, once per town — a full-grid walk —
+and absorbs the cost with the LRU this port does not have. The bridge traces
+once per *batch*. The call, its arguments and its result are unchanged; only
+where it is made.
+
+The returned Dictionary carries **no key** for blocks, parcels, buildings,
+districts, amenities or the wall. An empty `buildings` array would read as
+"this town has none" rather than "this port cannot generate any yet". It does
+carry `stages`, naming what actually ran, so the disclosure the GUI shows is
+read off the engine rather than restated in GDScript.
+
+### The GUI: a map layer and a City Viewer
+
+- **`shell/urban_layout_draw.gd`** — `_umDrawLayout` and
+  `_umDrawLayoutPreview` are the same drawing twice, differing only in the
+  metres-to-screen transform, so this is one function taking that transform as
+  a `Callable`. The reference's palette RGB for RGB, its casing-then-fill
+  street passes, its `wFill` widths and its draw order — minus `ringroad` and
+  `quay`, which milestones 1-7 cannot produce.
+- **`shell/city_viewer_window.gd`** (`GUI_GAP_REGISTER.md` UM-02) — the
+  reference's `cityViewerModal`: its own canvas with wheel-zoom centred on the
+  cursor and drag-pan (`_cvZoomAt`), `cvLegend`, `cvInfoPanel`, and
+  `cvCloseBtn` as the dialog's own OK button. The info panel names every
+  milestone-8+ stage that did not run, so the window cannot imply a finished
+  town. The initial fit is `_umDrawLayoutPreview`'s built-mass fit degraded
+  honestly to its own third fallback — there is no wall ring and no buildings
+  to bound, so it fits the graph.
+- **`map_overlay.gd`'s "Urban layouts" block** (`civUrbanLayoutsChk`,
+  UM-01) — layouts draw above the ways (a town's high street *is* the
+  through-road) and below the pins. They are pulled one deferred, capped batch
+  at a time, for on-screen settlements only, keyed by index and dropped whole
+  on every `set_civ_data`.
+- **Entry point**: `right_dock.gd`'s Settlement ▸ Actions ▸ **City layout**,
+  beside the existing Economy/Politics/Logistics actions, via
+  `app.open_city_viewer(index)`. The reference puts it in the place-edit popup
+  (`peCityOpen`); this dock's Settlement context is the same information and
+  already holds `_settlement_index`, so the launcher lands here rather than
+  waiting on one. UM-03's popup thumbnail stays open — a popup can now call
+  `open_city_viewer` in one line.
+- **Layer row**: `cartography_workspace.gd`'s `LIVE_LAYERS`, off by default,
+  through the existing `ViewportHost.set_layer_visible` convention.
+
+**The reveal gate is not `_umLayoutAlpha`, and that is deliberate.** Its
+24 km to 10 km viewport-span crossfade works in the reference because its LOD
+region window lets the camera reach a few-km span. `ViewportHost.ZOOM_MAX` is
+8.0, so the default 800 km world's closest reachable span is ~100 km: a
+ported 24 km threshold would never once fire, and a toggle that silently draws
+nothing is this project's own most-repeated failure mode. The gate is the
+town's 1.7 km site box measured in screen pixels instead — a stated rendering
+choice, not a ported constant pretending to be one.
+
+### Verification, and the one thing that is honestly missing
+
+- `cargo test -p cartalith-urban -p cartalith-civ`: all green, **11 new
+  tests**, no golden touched.
+- `cargo build -p cartalith-godot`: clean.
+- Godot `--headless --path . --quit`: clean.
+- **Not golden-verified, and this is the caveat that matters.** The capture
+  harness this repository's urban goldens come from slices reference block
+  **4** (lines 28167-31103) as one contiguous unit. The `_um*` functions live
+  in block **2** and run inside the host's full civ scope (`field`,
+  `flowField`, `civWays`, `state`, `_riverNet`, `currentWaterBodies`). There
+  is no block-2 fixture, and building one is a real harness effort, not
+  something to improvise. Every function is ported by reading the reference
+  line by line with its constants carried verbatim and cited; the engine
+  beneath it stays golden-verified milestone by milestone. The unit tests
+  include the two checks this project keeps rediscovering it needs: that a
+  real settlement produces a **non-empty** street graph, and that no street
+  class a milestone-8+ stage owns has leaked in.
+
+### Deliberately not attempted
+
+Milestones 8-17 — radial (Venus) streets, plaza and waterway; water
+infrastructure; fortification; graph cleanup; blocks and parcels; districts
+and buildings; amenities; hinterland, decay, details and metrics;
+`generate()` and `hashModel`. `ROADMAP.md`'s own estimate stands ("~17
+milestones, not one phase-sized push"). Nothing in this pass approximates,
+stubs or previews any of them.

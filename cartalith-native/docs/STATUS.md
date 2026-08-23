@@ -5,7 +5,34 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-23 (post **Four small reference clusters, ported and
+Last updated: 2026-08-23 (post **Urban morphology: the largest unported
+subsystem gets its first consumer**. `PARITY_AUDIT.md` §3.4 found
+`cartalith-urban` — 4,516 lines, milestones 1-7 of ~17, every module
+golden-tested — with **zero consumers** anywhere in the workspace, and
+`GUI_GAP_REGISTER.md` with no urban section at all until §6.16 was added the
+same day. Three new pieces close that: `cartalith-civ::urban_adapter` (13 of
+the 28 block-2 `_um*` functions, chosen by one rule — *port it when milestones
+1-7 can consume its output* — plus the prefix of `generate()` those seven
+supply), `cartalith-godot::urban_bridge`'s one batched
+`urban_layouts(indices)`, and the GUI: `shell/city_viewer_window.gd` (UM-02 —
+canvas, wheel-zoom, drag-pan, legend, info panel), `map_overlay.gd`'s
+deep-zoom town layer (UM-01, with `_umRevealedSet`'s pin hand-off), launched
+from `right_dock.gd`'s Settlement ▸ Actions ▸ City layout. **What draws is a
+street skeleton on a real site, not a city**: blocks, parcels, buildings,
+districts, amenities and the wall are milestones 8-17 — drawn nowhere, stubbed
+nowhere, and emitted as *no dictionary key at all*, since an empty
+`buildings` array reads as "this town has none". Six `_um*` functions are
+deliberately unported because their only consumers are milestone 8+; the
+LRU/queue and the two draw functions are out of scope for every milestone by
+the scope document's own statement. **Not golden-verified** — the capture
+harness slices reference block 4 and there is no block-2 fixture; ported by
+reading the reference line by line, covered by 11 unit tests. One stated
+deviation: the map layer's reveal gate is the town's 1.7 km site box measured
+in screen pixels, not `_umLayoutAlpha`'s 24 km band, which cannot fire at
+`ViewportHost.ZOOM_MAX` 8.0. Verified non-headlessly on a real 60 km world:
+8 layouts in 114 ms, 158 to 1 285 street segments each, real map water and
+relief on every one, and both surfaces captured drawing real geometry.
+— previously, post **Four small reference clusters, ported and
 wired: landmass centering, fjords, wind-throw, landform classification**.
 Closes `PARITY_AUDIT.md` §3.1's four smallest "genuinely not done" rows —
 12 reference functions, all four bit-exact on the first attempt, +22 tests
@@ -1554,8 +1581,35 @@ Full record: `CHANGELOG.md`'s "GUI decluttering pass" entry,
 
 ## Phase 5 — Urban morphology (`URBAN_MORPHOLOGY_SCOPE.md`, started 2026-08-18)
 
-**~17 milestones. Milestones 1-7 done (2026-08-18).** The scope doc carries the
-full investigation; the four findings worth knowing without opening it:
+**~17 milestones. Milestones 1-7 done (2026-08-18), and wired end to end
+(2026-08-23, milestone "17a").** For nearly a week those seven had **zero
+consumers** — `PARITY_AUDIT.md` §3.4's finding, and the reason
+`GUI_GAP_REGISTER.md` had no urban section at all until §6.16 was added the
+same day. They now run: `cartalith-civ::urban_adapter` (13 of the 28 block-2
+`_um*` functions, chosen by the one rule *"port it when milestones 1-7 can
+consume its output"*, plus the prefix of `generate()` those seven supply),
+`cartalith-godot::urban_bridge`'s one batched `urban_layouts(indices)`
+`#[func]`, `shell/city_viewer_window.gd` (`GUI_GAP_REGISTER.md` UM-02), and
+`map_overlay.gd`'s deep-zoom town layer (UM-01), launched from `right_dock.gd`'s
+Settlement ▸ Actions ▸ City layout.
+
+**What that draws is a street skeleton on a real site, not a city.** The map's
+own river/coast and relief feed `buildSite`; the market anchor, the arterial
+primaries (grown around this port's real inter-settlement roads whenever any
+reach the settlement) and the organic street growth off them are what exists.
+Blocks, parcels, buildings, districts, amenities and the wall circuit are
+milestones 8-17 — drawn nowhere, stubbed nowhere, and emitted as **no
+dictionary key at all**, because an empty `buildings` array reads as "this
+town has none". Two things to carry forward: the adapter is **not**
+golden-verified (the capture harness slices block 4; the `_um*` functions are
+block 2 and there is no fixture — the engine beneath them stays golden-verified
+milestone by milestone), and the map layer's reveal gate is deliberately *not*
+`_umLayoutAlpha`'s 24 km band, which cannot fire at `ViewportHost.ZOOM_MAX`
+8.0. Full account in `CHANGELOG.md` and `URBAN_MORPHOLOGY_SCOPE.md`
+milestone 17a.
+
+The scope doc carries the full investigation; the four findings worth knowing
+without opening it:
 
 1. **The roadmap's "self-contained DOM-free engine" is right, and then some.**
    Script block 4 (lines 28166-31104) is one `const UME = (() => {…})()` IIFE

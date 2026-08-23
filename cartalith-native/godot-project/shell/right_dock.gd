@@ -542,6 +542,15 @@ func _build_settlement(body: Control) -> void:
 	DccWidgets.action(actions, "Economy", func(): app.open_world_data("Economy"))
 	DccWidgets.action(actions, "Politics", func(): show_faction(int(s.get("faction", 0))))
 	DccWidgets.action(actions, "Logistics", func(): app.open_journey_planner())
+	## `GUI_GAP_REGISTER.md` UM-02's launcher. The reference puts it in the
+	## place-edit popup (`peCityOpen`), which this shell does not have yet
+	## (ED-03) -- this dock's own Settlement context is the same information,
+	## already carrying `_settlement_index`, so the action lands here rather
+	## than waiting on a popup. It stays live regardless of whether the town
+	## can be laid out: the window itself explains a refusal (a settlement in
+	## open water gets no town) rather than a disabled button implying the
+	## feature is missing.
+	DccWidgets.action(actions, "City layout", func(): app.open_city_viewer(_settlement_index))
 
 	var why_sec := DccWidgets.section(body, "Why here?")
 	var rt := RichTextLabel.new()

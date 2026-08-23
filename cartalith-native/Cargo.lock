@@ -156,9 +156,11 @@ dependencies = [
  "cartalith-engine",
  "cartalith-hydrology",
  "cartalith-jsmath",
+ "cartalith-noise",
  "cartalith-rng",
  "cartalith-spatial",
  "cartalith-terrain",
+ "cartalith-urban",
  "rayon",
 ]
 

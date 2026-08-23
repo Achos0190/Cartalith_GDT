@@ -25,9 +25,18 @@
 //! Milestone 7 adds [`growth`] — the epoch loop that grows the town onto that
 //! backbone, and the successive-wall-generation machinery it drives.
 //!
-//! **Not wired to anything.** Nothing in this crate is called from
-//! `compute_civilisation()`, `cartalith-godot`, or the GUI — same standing
-//! discipline as `cartalith-spatial` and every unwired subsystem port before it.
+//! **Wired as of 2026-08-23, and only through one door.**
+//! `cartalith_civ::urban_adapter` is this crate's sole consumer: it supplies
+//! the real map's water and relief as [`site::WaterCtx`]/[`site::TerrainCtx`],
+//! runs the prefix of the reference's `generate()` that milestones 1-7 make
+//! possible, and hands the result to `cartalith-godot`'s `urban_bridge` for
+//! the map's deep-zoom town layer and the City Viewer
+//! (`URBAN_MORPHOLOGY_SCOPE.md` milestone 17a). Nothing changed in this crate
+//! to make that work, and nothing here depends on `cartalith-civ` — the
+//! dependency runs one way, which is the whole reason the adapter lives
+//! outside this crate. `compute_civilisation()` still does not call this
+//! subsystem at all: a town is generated on demand, per settlement, never as
+//! a generation stage.
 
 pub mod astar;
 pub mod geom;

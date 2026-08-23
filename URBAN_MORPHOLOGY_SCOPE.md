@@ -1754,6 +1754,79 @@ skip `1.5 → 500`, the parallel-angle limit `0.5 → 3.2`, the exploration band
    engine reject. This will hit milestones 10 (`buildWall`'s terrain
    deflection), 13 (`terrainAware` parcels) and 15 (`computeMetrics`).
 
+### Milestone 17a — the adapter and the first consumer: **done** (2026-08-23)
+
+Out of dependency order on purpose, and the reason is recorded rather than
+assumed away. `PARITY_AUDIT.md` §3.4 found what this document's own "Out of
+scope" section below had prescribed: 4,516 lines of golden-tested engine
+across milestones 1-7, with **zero consumers** — no `Cargo.toml` in the
+workspace naming `cartalith-urban` but its own, and one disclosure comment
+under `godot-project/`. The standing "don't wire in what nothing calls" rule
+had held for so long that the largest unported subsystem was also the least
+*visible* one; `GUI_GAP_REGISTER.md` had no row for it at all until the same
+audit added §6.16.
+
+**What landed.**
+
+- **`cartalith-civ::urban_adapter`** (new module, this document's own named
+  home for milestone 17: *"it should live outside `cartalith-urban` (in
+  `cartalith-civ`, …) so the engine crate stays dependency-light"*). 13 of the
+  28 block-2 `_um*` functions: `_umSiteBoxKm`, `_umWaterNearKm`,
+  `_umWaterReachKm`, `_umSiteKindFromTerrain`, `_umInferAge`, `_umRayBoxExit`,
+  `_umWayBearingFrom`, `_umRouteEnds`, `_umPrimaryPaths`, `_umTerrainOrient`,
+  `_umWaterCtx`, `_umTerrainCtx`, `_umPlaceContext` — chosen by one rule: a
+  function is ported when milestones 1-7 can consume its output. Plus
+  `run_layout`, the prefix of `generate()` (line 30931) those seven supply:
+  the scalar derivations, `buildSite`, the `routeEnds` override, `placeAnchors`,
+  the real-water market pin, `buildPrimaries`/`buildPrimariesFromPaths` and
+  `grow`.
+- **`cartalith-godot::urban_bridge`** — one batched `#[func]`,
+  `urban_layouts(indices)`.
+- **The GUI**: `shell/urban_layout_draw.gd` (`_umDrawLayout`/
+  `_umDrawLayoutPreview`, which are one drawing twice), `shell/
+  city_viewer_window.gd` (`cityViewerModal` — canvas, wheel-zoom, drag-pan,
+  legend, info panel), `map_overlay.gd`'s "Urban layouts" block
+  (`civUrbanLayoutsChk`), and `right_dock.gd`'s Settlement ▸ Actions ▸ City
+  layout as the launcher.
+
+**What is deliberately not ported, by category.**
+
+| Function | Why absent |
+|---|---|
+| `_umWallSpec`, `_umInferWalls` | the whole fortification pipeline is milestone 10; `walls` is passed `false`, because with no `WallBuilder` in existence a wall spec is a value nothing can build or draw |
+| `_umHarbourScale` | consumed only by `buildHarbour`, milestone 9 |
+| `_umSiteProfile` | its consumers are the wall spec (10), harbour/bridge validity (9), economic districts (13) and a Settlement Inspector — none exist |
+| `_umOreBearing` | feeds `economy.oreBearing`, read only by 13/15; and this port's settlements carry no `specialisation`, exactly the gap milestone 17's own note below predicted |
+| `_umPt` | a JS `[x,y]`-vs-`{x,y}` normaliser; `Way::pts` is typed |
+| `_umCacheKey`, `_umCacheEvict`, `_umScheduleGenStep`, `_umModelFor`, `_umModelForNow` | "Out of scope for every milestone" below, verbatim |
+| `_umDrawLayout`, `_umDrawLayoutPreview`, `_umLayoutAlpha` | likewise — Godot's job, and the GUI files above are that job |
+
+**Two honest deviations, both recorded rather than absorbed.**
+
+1. **`traceRiverPolylines` is hoisted out of `_umWaterCtx`.** The reference
+   calls it per settlement — a full-grid walk — and pays for that with the LRU
+   this document rules out. The bridge traces once per *batch* instead. The
+   call and its result are unchanged; only where it is made.
+2. **The map layer's reveal gate is not `_umLayoutAlpha`.** Its 24 km → 10 km
+   viewport-span crossfade cannot fire on this port: `ViewportHost.ZOOM_MAX`
+   is 8.0, so the default 800 km world's closest reachable span is ~100 km. A
+   ported constant that never once fires is a silently-empty surface, which is
+   this project's own most-repeated failure mode. The gate is the town's
+   1.7 km site box measured in screen pixels instead — a stated rendering
+   choice, not a ported one.
+
+**Not golden-verified, and this is the one caveat that matters.** The
+verification convention below slices block **4**; the `_um*` functions live in
+block 2 and run inside the host's full civ scope (`field`, `flowField`,
+`civWays`, `state`, `_riverNet`, `currentWaterBodies`). There is no block-2
+fixture and building one is a real harness effort. Every function is ported by
+reading the reference line by line with its constants carried verbatim and
+cited, and covered by 11 ordinary unit tests over synthetic fields — including
+the two that would catch the failure this project keeps rediscovering: that a
+real settlement produces a *non-empty* street graph, and that no street class
+milestones 8+ own has leaked in. Closing this properly is milestone 17's
+remaining half.
+
 ### Milestone 8 — radial (Venus) streets, plaza, waterway (lines 28835-28970, 3 functions)
 
 `buildRadialStreets`, `buildWaterway`, `buildPlaza`. The second planning mode,
@@ -1860,10 +1933,14 @@ like the reference running on a world where nobody set them.
   `venus` are live; only those get ported.
 - **`buildGridStreets` and the palimpsest planning mode** — likewise removed
   upstream, with no live caller.
-- **Wiring into `compute_civilisation()`, `cartalith-godot`, or the GUI.** Same
-  standing "don't wire in what nothing calls" discipline every subsystem port
-  in this project has held to. Urban morphology's real integration is a
-  rendering decision that does not exist yet.
+- ~~**Wiring into `compute_civilisation()`, `cartalith-godot`, or the GUI.**~~
+  **Superseded 2026-08-23** — see milestone 17a above. The rule was right for
+  as long as there was nothing to render; it became wrong once seven
+  milestones of engine had accumulated with no way for anyone to see, use or
+  regression-check any of it, which is exactly what `PARITY_AUDIT.md` §3.4
+  found. Note the boundary that *did* hold: the wiring is a bridge and a
+  renderer, and `compute_civilisation()` still does not call this subsystem —
+  a town is generated on demand, per settlement, never as a generation stage.
 
 ## Verification convention for this subsystem
 

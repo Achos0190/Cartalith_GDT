@@ -35,12 +35,17 @@ class_name CartographyWorkspace
 ## flagged: CARTO and RENDER were both proposing to own the same future
 ## `set_appearance()`-shaped `#[func]`; merging the domains removes the split.
 
-## The five layers the shell can actually toggle, in §7's own draw order:
+## The layers the shell can actually toggle, in §7's own draw order:
 ## topmost first, matching how the layer list reads.
 const LIVE_LAYERS: Array = [
 	{"id": "settlements", "label": "Settlements", "on": true},
 	{"id": "roads", "label": "Ways & routes", "on": true},
 	{"id": "sea_routes", "label": "Sea routes", "on": true},
+	## The reference's `civUrbanLayoutsChk`. Off by default, like the
+	## reference's own checkbox: a town layout is generated on demand, and it
+	## only reveals once a settlement's 1.7 km site box is worth pixels
+	## (`map_overlay.gd`'s "Urban layouts" block).
+	{"id": "urban_layouts", "label": "Town layouts (deep zoom)", "on": false},
 	{"id": "provinces", "label": "Political — provinces", "on": false},
 	{"id": "territory", "label": "Political — territory", "on": false},
 ]

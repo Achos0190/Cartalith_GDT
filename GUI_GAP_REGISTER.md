@@ -258,7 +258,7 @@ classification with the design cited.
 |---|---|---|---|---|---|---|
 | ED-01 | Undo / Redo | 172-173 | no undo stack; generation one-shot, sculpt has no Godot binding | **partly stale in flavour, not in fact** — sculpt now has 34 bindings *and* draft-scoped undo/redo wired in `right_dock.gd`; what is absent is *global* undo. The sentence is still true of the global stack. | §2.2 | (B) large — `PassBuffer::undo` is draft-scoped and unlabelled; `FUNCTIONAL_CONTRACT.md` §12 calls global undo "absent entirely… necessarily new" |
 | ED-02 | Undo history… | 174 | same | yes | §2.2 names it in one line; **no panel design exists** | **(C)** → §7.1 |
-| ED-03 | Cut / Copy / Paste / Delete | 176-179 | nothing selectable beyond settlements, which are read-only | **corrected 2026-08-23** (`PARITY_AUDIT.md` C3/§3.2/§5 item 3) — this was mischaracterized as a clipboard/selection gap. The real finding: `civ_drop_settlement` **creates** a settlement and nothing **edits, moves or deletes** one — there is no place-edit popup (the reference's `placeEditPopup`/`_civPopulatePlaceEditor` has no port, name/kind/faction/pop/specialisation/traits/history/walls-override/delete all absent), no right-click context-menu handler on the map (`_civCtxShow`'s six operations have no counterpart — `PopupMenu` appears only in `menus.gd`/`dcc_shell.gd`, never on `MOUSE_BUTTON_RIGHT` over the viewport), and no `KEY_DELETE` handler anywhere under `godot-project/` (grep confirms). Labels, icons and sculpt stamps genuinely are selectable and deletable through their own panels, which is why the *original* framing looked plausible — but a user who drops a settlement by mistake, or wants to rename/relocate/remove one, has no path to do so at all, not merely a missing uniform selection model. | §2.2 | (B) large — a place-edit popup, a map context menu and a Delete-key handler are three separate missing pieces, not one selection abstraction |
+| ED-03 | Cut / Copy / Paste / Delete | 176-179 | nothing selectable beyond settlements, which are read-only | **CLOSED (Delete and edit) 2026-08-23** — see §18: the place-edit popup (`place_editor_window.gd`), the right-click context menu (`map_overlay.gd`'s `map_right_clicked` → `civilization_workspace.gd`) and the `KEY_DELETE` handler (`app.gd`) all exist now; §18.3 lists the four residual sub-gaps (ED-03a..d). Cut/Copy/Paste specifically remain open — no clipboard model exists for any entity. The correction below is what this row said before that: **corrected 2026-08-23** (`PARITY_AUDIT.md` C3/§3.2/§5 item 3) — this was mischaracterized as a clipboard/selection gap. The real finding: `civ_drop_settlement` **creates** a settlement and nothing **edits, moves or deletes** one — there is no place-edit popup (the reference's `placeEditPopup`/`_civPopulatePlaceEditor` has no port, name/kind/faction/pop/specialisation/traits/history/walls-override/delete all absent), no right-click context-menu handler on the map (`_civCtxShow`'s six operations have no counterpart — `PopupMenu` appears only in `menus.gd`/`dcc_shell.gd`, never on `MOUSE_BUTTON_RIGHT` over the viewport), and no `KEY_DELETE` handler anywhere under `godot-project/` (grep confirms). Labels, icons and sculpt stamps genuinely are selectable and deletable through their own panels, which is why the *original* framing looked plausible — but a user who drops a settlement by mistake, or wants to rename/relocate/remove one, has no path to do so at all, not merely a missing uniform selection model. | §2.2 | (B) large — a place-edit popup, a map context menu and a Delete-key handler are three separate missing pieces, not one selection abstraction |
 | ED-04 | Select all / Deselect | 181-182 | same | same | §2.2 | (B) large — same model |
 | ED-05 | Find on map… | 184 | no search index; settlement search lives in the Data manager | yes | §2.2 gives one line; **no search UI design** | **(C)** → §7.2 |
 
@@ -420,13 +420,13 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
-| CV-01 | **POI tool** | 94-101 (comment) | omitted, not built inert: `civ_tools_bridge.rs` says POI *"is not a ported concept"*; no Rust function drops one | yes | §4.5.3 designs it in full (kind · faction · name · snap to way, plus a POI inspector) | (B) small — one `civ_drop_poi` mirroring `civ_drop_settlement`; `cartalith-assets`' `poi` family already carries the 10-slot vocabulary |
+| CV-01 | **POI tool** | 94-101 (comment) | **Re-checked and upheld 2026-08-23** (§18.2): omitted, not built inert: `civ_tools_bridge.rs` says POI *"is not a ported concept"*; no Rust function drops one | yes | §4.5.3 designs it in full (kind · faction · name · snap to way, plus a POI inspector) | (B) small — one `civ_drop_poi` mirroring `civ_drop_settlement`; `cartalith-assets`' `poi` family already carries the 10-slot vocabulary |
 | CV-02 | Culture ▸ Profiles | 518-523 | `cartalith-civ` generates culture profiles internally; no `#[func]` exports them | yes | §3 lists Culture as one of CIVIL's five subjects | (B) wrapper — `civ_default_culture` is already called inside `get_factions()`; a fuller `get_cultures()` is one binding |
 | CV-03 | Timeline filters (Exist only / Ghost removed / Highlight new) can't touch map pins | 821-827 | ~~`get_settlements()` carries no `tid` even though `NamedSettlement` has one~~ | — | `TIMELINE_SCOPE.md` m6 | **PARTLY CLOSED 2026-08-23** — `get_settlements()` (`lib.rs`) now carries `tid`. **Exist only** is wired for real: `civilization_workspace.gd`'s `_tl_apply_filters` filters the array handed to `map_overlay.gd`'s `set_civ_data` down to the active year's `civ_year_diff().present` tids, upstream of that file rather than inside it (territory). **Ghost removed / Highlight new** stay disclosed-open: both need per-pin fade/halo drawing (`map_overlay.gd`'s own `_draw()`, still territory this pass), and "removed" specifically needs the OLD snapshot's settlement data (position/name), which no `#[func]` exposes yet (`civ_year_diff()` returns tid sets only). |
 | CV-04 | Settlement class list lacks **metropolis** | 233-239 (comment) | ~~five real `SettlementKind` tiers~~ | — | ~~§4.5.3 lists six~~ | **CLOSED 2026-08-20** — `_civSelectMetropolises` (reference 24961-24989) ported on the owner's decision. `SettlementKind::Metropolis` exists with the reference's own rank-5 tables; `kind_from_str` accepts it, `get_settlements()` reports it, `map_overlay.gd` draws it at rank 5 / glyph ★, and the promotion runs inside `compute_civilisation` behind `set_metropolis_enabled` (reference default OFF). Spec and engine now list the same six. |
 | CV-05 | Territory ▸ "respect coastlines" | 298-304 (comment) | `civ_territory_paint_at` always pushes an ungated circular dab (`PaintStamp::ungated`); no coastline mask behind it | yes | §4.5.3 | (B) small |
 | CV-06 | Settlement ▸ "pick radius" | 236-239 (comment) | `civ_drop_settlement` computes its own pick radius internally and takes no argument | yes | §4.5.3 lists it | **(D)** — engine truth; a slider would be decoration |
-| CV-07 | Faction roster add/remove, persistent identity | *absent* | none | — | §6's Faction context implies a roster; `design/cartalith-menu-structure.md` §3.11 names "add/remove faction, faction roster `#civOpenFactionsBtn`" | (B) large — new Rust state; `CIV_FACTION_COUNT` is a constant |
+| CV-07 | Faction roster add/remove, persistent identity | **CLOSED 2026-08-23**, §18.1 — `civ_roster_bridge::FactionRoster` on `CivData`, `civ_add_faction`/`civ_remove_faction`/`civ_set_faction_field`, and the Faction Roster window behind CIVIL ▸ Politics. The reason below was true when written: `CIV_FACTION_COUNT` now *seeds* a real roster instead of *being* it | none | — | §6's Faction context implies a roster; `design/cartalith-menu-structure.md` §3.11 names "add/remove faction, faction roster `#civOpenFactionsBtn`" | (B) large — new Rust state; `CIV_FACTION_COUNT` is a constant |
 | CV-08 | `_civApplyRecovery` / auto-populate's static "Recovery phase" | *absent* | ~~none~~ | — | `design/cartalith-menu-structure.md` §4 names it | **CLOSED 2026-08-20** — ported (reference 24619-24640) on the owner's decision, wired at the reference's own call site (line 25761) behind `set_recovery_phase`, and surfaced as a five-entry **Recovery phase** dropdown in `File ▸ New world ▸ Generation`, filled from the engine's own `_CIV_RECOVERY_NAME` table. Phase Stable is a strict no-op. |
 | CV-09 | The timeline bar's **six simulation-layer toggles** (Climate · Population · Economy · Politics · Infrastructure · Warfare) | `dcc_shell.gd:628-641` builds an empty `timeline_row` | none in-product — `TIMELINE_SCOPE.md` §4 explains why the bar was left untouched | yes | §10 designs the whole region | **(D)** — `DCC_CONTROL_INDEX.md` summary §5 item 5 and `VISION.md`: the engine is a one-shot static generator by explicit, repeated owner decision. **The bar is drawn and empty in CIVIL/INFRA** — see §11. |
 
@@ -511,7 +511,7 @@ unbuilt.
 |---|---|---|---|
 | UM-01 | **Town layouts drawn on the map at deep zoom** | `civUrbanLayoutsChk` | *partly closed, 2026-08-23* — the layer is live and draws real engine output; what it draws is a **street skeleton**, because blocks/buildings/walls are milestones 10-13 |
 | UM-02 | **City Viewer modal** — its own canvas, zoom/pan, legend, info panel | `cityViewerModal`, `cvCanvas`/`cvCloseBtn`/`cvLegend`/`cvInfoPanel`, `_cvDrawCity`, `_cvZoomAt` | *partly closed, 2026-08-23* — `shell/city_viewer_window.gd`; same engine ceiling, stated on screen in the window's own info panel |
-| UM-03 | **Layout thumbnail in the place-edit popup, and its launcher** | `peCityPreview`, `peCityOpen` | (B) large — still blocked on ED-03 (no place-edit popup exists). The *layout* half is no longer blocked: `app.open_city_viewer(index)` exists and a popup can call it in one line |
+| UM-03 | **Layout thumbnail in the place-edit popup, and its launcher** | `peCityPreview`, `peCityOpen` | **`peCityOpen` CLOSED 2026-08-23** — the place-edit popup now exists (§18.1) and its Actions section calls `app.open_city_viewer(index)`, which is exactly the one line this row predicted. `peCityPreview` (the *thumbnail* inside the popup) stays open: it needs a rendered layout at icon size, not a modal |
 
 ### UM-01/UM-02 — what closed, 2026-08-23
 
@@ -1579,7 +1579,7 @@ built" note); one pair was wired live.**
 | MS-10 | **Recalculate territories** | — | `civilization_workspace.gd` — disabled button in Politics ▸ Not built | `assign_territory()` runs inside `compute_civilisation`; nothing re-runs it against edited settlements |
 | MS-11 | **Clear territory** | — | same | same |
 | MS-12 | **Generate provinces** | — | same | provinces are produced inside `generate()` and only read out. The *tint* half of the canvas's row is live (CARTO ▸ Layers ▸ Political — provinces) |
-| MS-13 | **Add / remove faction** | — | same | **CV-07** was registered as absent-with-no-disclosure; it now has one. `CIV_FACTION_COUNT` is a compile-time constant and factions have no identity across a re-generate |
+| MS-13 | **Add / remove faction** | — | same | **CLOSED 2026-08-23**, §18.1 — built, together with CV-07. The rest of this row is the pre-2026-08-23 state: `CIV_FACTION_COUNT` was a compile-time constant and factions had no identity across a re-generate |
 | MS-14 | **Show rivers in biome view · Rivers as ways · sharper ecotones** | `#showRivers` | `cartography_workspace.gd` — Layers ▸ Not built | Reference *render* filters over a river network that never crosses the boundary (the same entity gap as **RD-05**/**IN-01**); ecotone sharpening is unparameterised |
 | MS-15 | **Refine detail · Burn rivers into tiles · Micro-erode tiles · Chunk debug overlay · Show tile borders** | `#lodRefineBtn`, `#lodDbgSeg` | `menus.gd` — Preferences ▸ Tiled LOD's tooltip, now also renamed to end `· chunk debug` | `lod_synthesize_tile` resamples the existing field and runs no erosion or river burn-in; nothing draws the tile grid. **This also fixed a dangling pointer**: `world_workspace.gd`'s "Not a generation stage" note sent readers to "Preferences ▸ Tiles & LOD" for chunk debug, and that row did not mention it |
 | MS-16 | **Sample ▸ Route cost** and **Sample ▸ E–W elevation profile** | — | `right_dock.gd` — two permanently-dashed rows in the Sample panel | §6's no-selection list has both. Route cost is per-**leg** inside `jp_plan`, meaningless at one cell. The profile's data all exists (`sample_cell` reads any cell) but there is no row-slice `#[func]`, so drawing it means 1 000–4 000 boundary crossings per mouse-move — a binding gap, not a data gap |
@@ -2335,3 +2335,93 @@ civilisation layer", rather than becoming unconditionally available.
    field and everything derived from it alone are correct after the call;
    the flow, Strahler and climate rasters are as they were. Stated in the
    `#[func]`'s own doc comment and in the button's own note, not only here.
+
+---
+
+## 18 · The civ-interaction surface: place editing, the context menu, the Delete key and the faction roster (2026-08-23)
+
+`PARITY_AUDIT.md` §5 called items 2 and 3 "the substantive ones" and item 3
+"a live usability hole, not just an inventory gap: a user can add a
+settlement they can never fix or undo." Eight of that list's fourteen rows
+are civ-interaction rows; this section closes six of them, upholds one
+existing decision, and registers the last as blocked with the real reason.
+
+### 18.1 · What closed
+
+| # | Reference surface | Where it lives now | State |
+|---|---|---|---|
+| **CX-01** | **Right-click context menu**, `_civCtxShow` (HTML 25857) and the `contextmenu` handler that fills it (25888) | `map_overlay.gd`'s new `map_right_clicked` signal → `viewport_host.gd` re-emit → `app.gd`'s broadcast → `civilization_workspace.gd`'s `on_map_right_clicked` | **done.** Five of the reference's six ops: Edit · Move viewer to · Delete · Drop settlement here · Info here. The sixth is Drop POI — see 18.2 |
+| **CX-02** | **Delete key deletes the selected place** (block 2 keydown, HTML 26096) | `app.gd`'s `_unhandled_key_input`, broadcast to any workspace implementing `on_delete_key()` | **done.** Guarded against firing while a `LineEdit`/`TextEdit`/`SpinBox` has focus, and routed through the same confirmation the editor's own Delete button uses |
+| **ED-03** | **Place edit popup**, `placeEditPopup`/`_civPopulatePlaceEditor` (HTML 16694) | `shell/place_editor_window.gd`, over five new `#[func]`s (`civ_settlement_details`, `civ_edit_settlement`, `civ_settlement_toggle_trait`, `civ_reroll_settlement_name`, `civ_delete_settlement`) | **done.** Name (plus the reference's culture-aware re-roll), class, polity, population, economy, the seven traits, age and walls overrides, history, focus camera, delete |
+| **CV-07 / MS-13** | **Add / remove faction, persistent faction identity** | `civ_roster_bridge::FactionRoster` on `CivData`; `civ_add_faction`/`civ_remove_faction`/`civ_set_faction_field`/`civ_faction_count` | **done.** `_civAddFaction`/`_civRemoveFaction` ported including the revert-to-Unclaimed side effect. `CIV_FACTION_COUNT` now *seeds* the roster instead of *being* it |
+| **FR-01** | **Faction Roster modal**, `_civOpenFactionsModal`/`_civRenderFactionList`/`_civPopulateFactionEditor` (HTML 16177/16247) | `shell/faction_roster_window.gd`, opened from CIVIL ▸ Politics ▸ *Faction roster…* | **done in part** — see 18.3 for the two blocks that are not built and why |
+| **FR-02** | **Procedural faction banners**, `_civFactionBannerCanvas` (HTML 14849) | `shell/faction_banner.gd`, a `Control` with a custom `_draw()` | **done.** A port of the reference's own composition — shield outline with two quadratic sweeps, faction colour fill, one of six glyphs by `fid % 6` at 85% white. `Curve2D` with the exact quadratic-to-cubic control offsets, not an eyeballed approximation |
+| **CV-10** | **"Land sustains ≈ N" readout**, `civPopEstimateOut` / `_civAgrarianRegionalTotal` (HTML 23516) | `cartalith_civ::timeline::civ_agrarian_regional_total` plus `civ_agrarian_regional_total()`; shown in CIVIL ▸ Settlements ▸ Roster and in the roster window's world overview | **done.** No such function existed anywhere in `cartalith-civ`; ported with `golden_parity_roster.rs` (Node `vm` over HTML 23516-23528, two cases pinning `cellKm²`) |
+| **CV-11** | **Biome carrying-capacity residual**, `civBiomeKChk` / `_biomeK` (HTML 1406 / 6441) | `CivOptions::biome_k`, `set_biome_k_enabled`/`get_biome_k_enabled`; File ▸ New world ▸ Generation | **done.** `build_carrying_capacity` always took the parameter and nothing could turn it on. Default OFF, matching `_biomeK = 0` ("bit-identical") — and the wetland mask is built only when it is on, exactly as `currentCarryingCapacity` does |
+
+Two more `#[func]` families landed with them, because the pickers need the
+engine's own tables rather than a second transcription in GDScript:
+`civ_trait_vocabulary`, `civ_specialisation_vocabulary`,
+`civ_religion_vocabulary`, `civ_government_vocabulary`,
+`civ_ag_tech_vocabulary`, `civ_culture_vocabulary` (all from the new
+`cartalith_civ::roster`, ported verbatim), and `civ_faction_terrain_fits`,
+which finally gives `civ_culture_terrain_fit` — ported earlier and labelled
+"**Not wired to any caller yet**" in its own doc comment — a real caller.
+
+`get_factions()` grew `name`, `religion`, `government`, `ag_tech` and
+`population`, and its `culture` field changed from a recomputed
+`civ_default_culture(f)` into a read of real roster state. Its own doc
+comment used to assert that "the reference has no faction *name* registry
+beyond this"; it does, and the correction is recorded in that comment.
+
+### 18.2 · CV-01 (POI) — the decision was checked, and upheld
+
+`civ_tools_bridge.rs`'s module doc says POI "is not a ported concept," and
+CV-01 records the tool as *omitted rather than built inert*. That was
+re-read before touching anything here. It is a real state-of-the-port fact,
+not a stale exploratory note: `cartalith-civ/src/tools.rs` ports Settlement
+and Territory only, `civ_place_pick_weight`'s own doc says the reference's
+POI branch "is likewise absent because this port has no POI concept," and
+there is no POI record type anywhere in the workspace to attach a drop to.
+
+**Nothing in this pass reverses it.** Concretely:
+
+- the context menu ships five ops, not six — "Drop POI here" is *absent*,
+  not shown disabled, matching how `civilization_workspace.gd`'s own
+  `_build_tools()` already treats the POI tool;
+- the place editor ships no **Category** selector (settlement ↔ POI), which
+  in a port with one category would have had exactly one option;
+- `civ_settlement_details`/`civ_edit_settlement` are settlement-only, and
+  the new `#[godot_api]` block's own header comment says so.
+
+If POI is ever wanted it is still CV-01's own estimate — one `civ_drop_poi`
+mirroring `civ_drop_settlement`, plus a real record type — and it remains an
+owner call, not an implementation detail.
+
+### 18.3 · What is registered open, with the real reason
+
+| # | Surface | Why not built |
+|---|---|---|
+| **FR-03** | The Faction Inspector's **Power breakdown** (military / economic / political / cultural / religious) and its **Economy** block (food production and surplus, tax income, trade income, primary exports and imports, strategic resources, craft share) | Both read `_civFactionAggregates`' resource- and density-fed half. `civ_faction_aggregates` **is** ported and is now called for real (`civ_faction_terrain_fits`) — but with `resources: None, density: None`, which is all the terrain-mix half needs. Filling those in means retaining the 15 resource rasters and a population-density field past `compute_civilisation`, which `MEMORY_OPTIMIZATION_SCOPE.md` deliberately paid to avoid. A memory decision plus an `ECONOMY_SCOPE.md` milestone, not a widget |
+| **FR-04** | **Diplomatic relations** | No model in either codebase. The reference's own inspector renders "Diplomatic relations — not yet implemented"; so does this |
+| **CV-12** | **Placement-diagnostics overlay**, `civDiagnosticsChk` (HTML 1415, `drawCivLayer` §2.6 at 15617) | **Blocked on urban morphology, not on UI.** Every line of the fact card it draws is `_um*` data: `_umWallSpec`'s wall ladder, `_umSiteProfile`'s river classification and coast distance, and a peek into `_umModelCache` for bridge/ford/harbour validity — inside a `SITE_WM × SITE_HM` footprint box. `cartalith-urban` milestones 8-17 are unported, so the overlay would have nothing to draw. Registered as a **disabled control carrying that reason**, in CIVIL ▸ Settlements ▸ Not built |
+| **ED-03a** | An edited **specialisation** does not reach `civ_faction_aggregates`' sector output | `FactionPlace::specialisation` is a field that function reads, and every caller passes `None`. Feeding user edits in would change already-golden economy numbers on an interactive edit — a decision to take deliberately, not a wiring detail. Stated in `civ_roster_bridge`'s module doc, in the editor's own Economy tooltip, and here |
+| **ED-03b** | The **age** and **walls** overrides are stored and consumed by nothing | Their only readers are `_umInferAge`/`_umInferWalls`/`_umWallSpec`. Same block as CV-12 |
+| **ED-03c** | The seven **traits** are stored and never drawn on the map | The reference draws them as glyphs beside the marker; `map_overlay.gd` has no per-trait glyph pass, and that file is deliberately minimal-touch this pass |
+| **UM-03** | The layout thumbnail (`peCityPreview`) and its City Viewer launcher (`peCityOpen`) inside the place popup | UM-03 called this "doubly blocked: no place-edit popup exists at all (ED-03) and no city layout to preview even if it did." **Half of that is now false** — the popup exists. The remaining half stands |
+| **ED-03d** | A place edit or delete does **not** recompute provinces, trade balances, roads, territory or `explanations` | The same staleness `civ_drop_settlement` has always disclosed in its own status hint, and the same MS-06…MS-12 shape: those are produced inside `generate()` and no `#[func]` re-runs any of them. Stated in `civ_delete_settlement`'s doc comment and in the delete-confirmation dialog's own text, so a user meets it at the moment it matters |
+| **CV-13** | A faction added after generation owns nothing until something is assigned to it | Not a gap — the reference's `_civAddFaction` behaves identically (it appends to `CIV_FACTIONS` and touches nothing already placed). `assign_factions` runs inside `generate()` at `CIV_FACTION_COUNT`; the status hint after Add says exactly this |
+
+### 18.4 · Verification
+
+- `cargo test -p cartalith-civ` — all suites green, including the new
+  `golden_parity_roster.rs` (3 tests: 13 golden `_civFactionColor` values
+  across every hue sector, two `_civAgrarianRegionalTotal` cases, and a
+  land-gate negative control).
+- `cargo test -p cartalith-godot --lib` — 263 passed, including
+  `civ_roster_bridge`'s 10 new unit tests (roster seed / add / remove floor,
+  revert-to-Unclaimed, vocabulary rejection, trait toggle order, the
+  age/walls clamps, delete-by-index).
+- Headless boot (`--headless --path godot-project --quit`) clean.
+- Interactive verification is recorded in this section's own entry in
+  `cartalith-native/docs/CHANGELOG.md`.

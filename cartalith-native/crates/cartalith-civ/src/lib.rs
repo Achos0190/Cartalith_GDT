@@ -27,6 +27,12 @@ pub mod tools;
 /// full picture, including exactly what is and is not wired into
 /// computation yet.
 pub mod travel_library;
+/// `URBAN_MORPHOLOGY_SCOPE.md` milestone 17's home, started early and
+/// deliberately partial: the reference's block-2 `_um*` adapter, restricted
+/// to the subset milestones 1-7 of `cartalith-urban` can consume and produce.
+/// See its own module doc for the exact function-by-function boundary and for
+/// why it is not golden-verified.
+pub mod urban_adapter;
 
 /// `LITH_KEYS` (reference line 5830) -- frozen, append-only.
 pub const LITH_KEYS: [&str; 7] = [
