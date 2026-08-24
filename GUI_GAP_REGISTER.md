@@ -3419,6 +3419,40 @@ as built, with no change of its own. An `HFlowContainer` was tried and
 reverted: inside a horizontal `ScrollContainer` it is handed unbounded width
 and can never wrap.
 
+### PH-11 · A dock sheet remembered its scroll position across close/reopen — **fixed 2026-08-24**
+
+Found on device: scroll a dock sheet down, close it, reopen it — it opens
+still scrolled, never back at the top. Six earlier attempts this session
+missed it.
+
+**The cause was absence, not a stray override.** `_build_left_dock()` /
+`_build_right_dock()` (`dcc_shell.gd`) each build their own `ScrollContainer`
+via `_scroll()`, but the return value was a bare local — never kept on any
+field, never touched again. `_set_sheet_open()` only ever toggled
+`left_dock.visible` / `right_dock.visible`; a sheet's body is built once at
+shell-build time and never torn down between opens (unlike `phone_menu.gd`'s
+own sheet, which rebuilds its body and zeroes `scroll_vertical` on every
+`_render()` — the working precedent this fix mirrors). So nothing anywhere
+ever wrote `scroll_vertical` back to 0. The `ScrollContainer` just kept
+whatever position it was left at, invisible or not.
+
+Fixed with two new fields, `_left_dock_scroll` / `_right_dock_scroll`, set
+where `_scroll()`'s return value used to be discarded, and a `_reset_dock_scroll()`
+call from `_set_sheet_open()` on every open (not close — a sheet still
+mid-close from a fast double-tap gets no benefit from a reset it can't see,
+and open is the one transition that must be correct). The reset writes
+`scroll_vertical = 0` twice — once immediately, once `call_deferred` — since a
+`ScrollContainer` that was `visible = false` a moment ago has not necessarily
+run its own sort/clamp pass yet.
+
+Verified with a new `_sheetscroll_probe.gd` (`--resolution 393x852
+--force-touch`, mirrors PH-05's `_scrolldrag_probe.gd`): opened each sheet,
+appended a 4000 px filler control to guarantee overflow regardless of real
+panel content, scrolled to the bottom (4287 / 3764 px respectively), closed,
+reopened — both read back `scroll_vertical = 0`. Also confirmed on a
+windowed 393x852 run without the filler, against the left dock's real WORLD
+content (0 → 287 → close → reopen → 0).
+
 ---
 
 ## 23 · RF-01 — the CIVIL dock never rebuilt after a world generated (2026-08-24) — **FIXED**

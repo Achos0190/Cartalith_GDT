@@ -157,6 +157,13 @@ var _phone_menu: PhoneMenu      ## L2-L5. Replaces the old `_phone_overflow`
 	## sheet (`GUI_GAP_REGISTER.md` §15).
 var _left_sheet_open := false
 var _right_sheet_open := false
+## The two dock `ScrollContainer`s, held only so `_set_sheet_open()` can zero
+## their scroll on open -- neither dock exposes its `_scroll()` return value
+## anywhere else, and a sheet's body (`left_dock_body`/`right_dock_body`) is
+## never torn down between opens, so whatever scroll position was left from
+## the previous open is still sitting on the node when it reopens.
+var _left_dock_scroll: ScrollContainer
+var _right_dock_scroll: ScrollContainer
 
 # -- Build --------------------------------------------------------------------
 
@@ -194,6 +201,16 @@ func _ready() -> void:
 	## no prompt. `quit_on_go_back` is inert on desktop, where no windowing
 	## system ever sends the request, so there is nothing to guard it with.
 	get_tree().quit_on_go_back = false
+	## The desktop half of the same guard: the title bar's ×, Alt+F4 and the
+	## taskbar's Close all arrive as `NOTIFICATION_WM_CLOSE_REQUEST`, and with
+	## `auto_accept_quit` at its default the SceneTree ends the process on them
+	## before any of this shell's code runs -- an unsaved world destroyed by one
+	## click, the exact fault the back gesture had on Android.
+	##
+	## Turning it off means NOTHING quits the app unless our code asks, so
+	## `_close_requested()` below carries the obligation to always resolve. See
+	## `DccApp._close_requested()` for the proof that it cannot trap the user.
+	get_tree().auto_accept_quit = false
 	if _phone:
 		_build_phone_shell()
 	else:
@@ -1191,6 +1208,7 @@ func _build_left_dock(as_sheet: bool = false) -> Control:
 	col.add_child(_dock_readout("left"))
 
 	var scroll := _scroll()
+	_left_dock_scroll = scroll
 	left_dock_body = VBoxContainer.new()
 	left_dock_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	left_dock_body.add_theme_constant_override("separation", 0)
@@ -1249,6 +1267,7 @@ func _build_right_dock(as_sheet: bool = false) -> Control:
 	col.add_child(_dock_readout("right"))
 
 	var scroll := _scroll()
+	_right_dock_scroll = scroll
 	right_dock_body = VBoxContainer.new()
 	right_dock_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	right_dock_body.add_theme_constant_override("separation", 0)
@@ -2229,6 +2248,20 @@ func phone_present_popup(popup: PopupMenu, title: String, trail: String) -> bool
 ## gone. Nothing in this shell may end the process without going through the
 ## same gate File ▸ Close project goes through.
 func _notification(what: int) -> void:
+	## The desktop system close, handled here for the one reason the whole gate
+	## exists: it must not be possible to end this process with unsaved work in
+	## it without being asked. Deliberately NOT routed through the back chain
+	## above -- back means "leave the innermost thing", and the × means "close
+	## the application", so it skips straight past dialogs, menu levels and
+	## armed tools to the exit gate itself.
+	##
+	## Reaches this node only for the MAIN window: Godot propagates a window's
+	## close request DOWN its own subtree (`Window::_propagate_window_notification`
+	## stops at nested `Window`s), so closing a tool window or a dialog -- all of
+	## which are children of this shell, not parents of it -- never lands here.
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		_close_requested()
+		return
 	if what != NOTIFICATION_WM_GO_BACK_REQUEST:
 		return
 	## Innermost first. An embedded dialog draws OVER the phone menu, so the
@@ -2272,15 +2305,45 @@ func _topmost_subwindow(node: Node) -> Window:
 func _back_exhausted() -> void:
 	get_tree().quit()
 
+## The window manager asked for the app to close. `auto_accept_quit` is off, so
+## this function OWNS the exit: if it neither quits nor puts a resolvable prompt
+## on screen, the window cannot be closed at all. `DccShell` holds no document,
+## so quitting outright is correct here; `DccApp` overrides it to guard unsaved
+## work first, and carries the argument for why its version is still always
+## escapable.
+func _close_requested() -> void:
+	get_tree().quit()
+
 func _set_sheet_open(side: String, open: bool) -> void:
 	if open:
 		_close_all_phone_overlays()
 	if side == "left":
 		_left_sheet_open = open
 		left_dock.visible = open
+		if open:
+			_reset_dock_scroll(_left_dock_scroll)
 	else:
 		_right_sheet_open = open
 		right_dock.visible = open
+		if open:
+			_reset_dock_scroll(_right_dock_scroll)
+
+## `phone_menu.gd::_render()` zeroes its own scroll the same way on every
+## fill; a dock sheet's body, unlike the menu's, is never torn down and
+## rebuilt between opens (`_build_left_dock`/`_build_right_dock` run once, at
+## shell build time, `as_sheet = true` only swapping the header) -- so
+## nothing else ever touches `scroll_vertical` back to 0, and whatever the
+## sheet was scrolled to when it last closed is still sitting on the
+## `ScrollContainer` when it reopens. Set once immediately (the common case)
+## and once more deferred: a `ScrollContainer` that was `visible = false` a
+## moment ago has not necessarily run its own sort/clamp pass yet, and a bare
+## synchronous write here can still be re-clamped against a stale scrollbar
+## range on the same frame the sheet becomes visible.
+func _reset_dock_scroll(scroll: ScrollContainer) -> void:
+	if scroll == null:
+		return
+	scroll.scroll_vertical = 0
+	scroll.call_deferred("set", "scroll_vertical", 0)
 
 ## Re-applied on every resize while `_phone` is true (`_on_window_resized()`),
 ## which is the one part of the phone/tablet decision that genuinely must be

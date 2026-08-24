@@ -5,7 +5,27 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **Manual map authoring, audited live end to end** —
+Last updated: 2026-08-24 (post **Phone: a dock sheet remembered its scroll
+position across close/reopen** — `GUI_GAP_REGISTER.md` **PH-11**, found on
+device: scroll a dock sheet down, close it, reopen it, and it comes back
+still scrolled, never at the top. Six earlier attempts this session missed
+the cause. **Absence, not an override**: `_build_left_dock()`/
+`_build_right_dock()` each build a `ScrollContainer` via `_scroll()`, but the
+return value was a bare local kept nowhere, and `_set_sheet_open()` only ever
+toggled `left_dock.visible`/`right_dock.visible` — a sheet's body is built
+once and never torn down between opens (unlike `phone_menu.gd`'s own sheet,
+which rebuilds its body and zeroes `scroll_vertical` on every `_render()`).
+Nothing anywhere ever wrote `scroll_vertical` back to 0. Fixed with two new
+fields, `_left_dock_scroll`/`_right_dock_scroll`, and a `_reset_dock_scroll()`
+call from `_set_sheet_open()` on every open, written immediately and once
+more `call_deferred` since a just-`visible`d `ScrollContainer` has not
+necessarily run its own clamp pass yet. **Verified** with a new
+`_sheetscroll_probe.gd` (`--resolution 393x852 --force-touch`): both sheets
+scrolled deep (4287 / 3764 px, via a guaranteed-overflow filler) then read
+back `scroll_vertical = 0` after close+reopen; the left dock's real content
+confirmed the same (0 → 287 → 0) with no filler. `cargo build -p
+cartalith-godot` and a headless boot both clean) — previously, post
+**Manual map authoring, audited live end to end** —
 owner question: *"Is the whole system to place assets/labels/manually create
 routes and POI's and settlements there and wired? Basically is all
 functionality there?"* Five capabilities, driven through the real shell on a

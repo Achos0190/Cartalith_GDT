@@ -22631,3 +22631,38 @@ selected-journey branch (the reference's brighter `sel` stroke) because this
 shell has no route selection to drive one. Both are the same shape as the
 `way_set_name`/`way_delete` gap IN-02 left open, and CA-05 (an `icon_handles()`
 to match `label_handles()`) is still the Icon tool's own missing piece.
+
+## Phone: a dock sheet remembered its scroll position across close/reopen (`GUI_GAP_REGISTER.md` PH-11, 2026-08-24)
+
+Found on a device pass: scroll a phone dock sheet down, close it, reopen it —
+it comes back still scrolled, never at the top. Six attempts earlier this
+session missed the actual cause.
+
+**The cause was absence.** `_build_left_dock()`/`_build_right_dock()`
+(`dcc_shell.gd`) each wrap their body in a `ScrollContainer` built by
+`_scroll()`, but the return value was a bare local variable, kept nowhere.
+`_set_sheet_open()` only ever toggled `left_dock.visible`/`right_dock.visible`
+— a dock sheet's body is built once at shell-build time and never torn down
+between opens, unlike `phone_menu.gd`'s own sheet, which rebuilds its body and
+zeroes `scroll_vertical` on every `_render()`. With no reference to the
+`ScrollContainer` anywhere else, nothing ever wrote `scroll_vertical` back to
+0 on either dock, closed or open — the position from the previous open just
+sat on the node.
+
+Fixed with two new fields, `_left_dock_scroll`/`_right_dock_scroll`, captured
+where `_scroll()`'s return value used to be discarded, and a new
+`_reset_dock_scroll()` called from `_set_sheet_open()` on every open (not
+close). It writes `scroll_vertical = 0` immediately and once more
+`call_deferred`, since a `ScrollContainer` that was `visible = false` a
+moment ago has not necessarily run its own sort/clamp pass yet and a bare
+synchronous write can still be re-clamped on the frame the sheet actually
+becomes visible.
+
+**Verified** with a new `_sheetscroll_probe.gd` (`--resolution 393x852
+--force-touch`, mirrors PH-05's `_scrolldrag_probe.gd`): opened each sheet,
+appended a 4000 px filler control so both docks have guaranteed overflow
+regardless of their real content, scrolled to the bottom (4287 px left,
+3764 px right), closed, reopened — both read `scroll_vertical = 0`
+afterward. Also confirmed against the left dock's real WORLD content with no
+filler (0 → 287 → close → reopen → 0). `cargo build -p cartalith-godot` and
+a headless boot both clean.
