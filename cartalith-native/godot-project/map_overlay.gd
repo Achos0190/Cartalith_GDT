@@ -189,6 +189,28 @@ const SEA_ROUTE_DASH_COLOR := Color(0.118, 0.510, 0.784, 0.7)
 const SEA_ROUTE_DASH_WIDTH := 0.85
 const SEA_ROUTE_DASH_LENGTH := 2.6
 
+## §4.5.4's Route tool: a committed *route* is not infrastructure. It is a
+## solved journey across the existing network (`route_commit` ->
+## `civ_join_dijkstra_segs`, mixed land/sea), and the reference draws it as
+## its own layer on top of the ways it follows (`drawCivLayer` block 2b,
+## reference HTML lines 15552-15560, `civJourneys.forEach`) -- a dark
+## underlayer stroke, then a dashed amber overlay. These four constants are
+## that block's own unselected-journey values converted to `Color`:
+## `rgba(40,25,5,.5)` at `lineWidth 3`, then `rgba(200,160,60,.85)` at
+## `lineWidth 1.5` with `setLineDash([5,3])`.
+##
+## Reusing `ROAD_COLOR` would make a route invisible, which is exactly what
+## happened before this existed: a committed 578 km route drew nothing at all
+## (`GUI_GAP_REGISTER.md` IN-09). Selection state (the reference's brighter,
+## thicker `sel` branch) has no counterpart here yet -- there is no route
+## selection in this shell, only a read-only list.
+const MANUAL_ROUTE_UNDERLAY := Color(0.157, 0.098, 0.020, 0.5)
+const MANUAL_ROUTE_UNDERLAY_WIDTH := 3.0
+const MANUAL_ROUTE_COLOR := Color(0.784, 0.627, 0.235, 0.85)
+const MANUAL_ROUTE_WIDTH := 1.5
+const MANUAL_ROUTE_DASH := 5.0
+const MANUAL_ROUTE_GAP := 3.0
+
 ## §4.5.5's Icon tool markers, by `icon_dict`'s `family` key
 ## (`cartalith_assets::manual::ManualIconFamily::key()`). No texture atlas
 ## from the asset pack is wired into Godot yet (`icon_bridge.rs`'s art is
@@ -403,12 +425,27 @@ func _civ_zoom_k() -> float:
 var _manual_icons: Array = []
 var _labels: Array = []
 
+## §4.5.4's Route tool. Each entry is one `route_get(i)` dictionary --
+## `{points: PackedVector2Array, brks: PackedInt32Array, km, mode,
+## unreachable_legs}` -- so `brks` is honoured exactly the way `_sea_routes`'
+## own breaks are: a break ends one stroke and starts the next rather than
+## drawing a straight line across the gap. Its own array rather than a third
+## entry in `set_civ_data` because a committed route is not part of
+## `get_roads()`/`get_sea_routes()` at all (`route_commit` stores into
+## `InfraTools::routes`, a separate list from `InfraTools::ways` that
+## `GUI_GAP_REGISTER.md` IN-02's fix appended to the two network getters).
+var _manual_routes: Array = []
+
 func set_manual_icons(icons: Array) -> void:
 	_manual_icons = icons
 	queue_redraw()
 
 func set_labels(labels: Array) -> void:
 	_labels = labels
+	queue_redraw()
+
+func set_manual_routes(routes: Array) -> void:
+	_manual_routes = routes
 	queue_redraw()
 
 
@@ -625,7 +662,8 @@ func _seed_label_occupancy(rect: Rect2) -> Array[Rect2]:
 
 func _draw() -> void:
 	if (_settlements.is_empty() and _roads.is_empty() and _sea_routes.is_empty()
-			and _manual_icons.is_empty() and _labels.is_empty()):
+			and _manual_icons.is_empty() and _labels.is_empty()
+			and _manual_routes.is_empty()):
 		return
 	var rect := _displayed_rect()
 	if rect.size.x <= 0.0:
@@ -677,6 +715,23 @@ func _draw() -> void:
 				_draw_way_segment(points, start2, cut, rect, width)
 				start2 = cut
 			_draw_way_segment(points, start2, points.size(), rect, width)
+
+	## Committed Route-tool routes, drawn after both network layers so a route
+	## that runs along an existing road is still visible on top of it. Shares
+	## the "Ways & routes" visibility toggle (`set_show_roads`) because that is
+	## the layer row the CARTO dock actually labels "Ways & routes" -- there is
+	## no separate routes checkbox to gate against.
+	if _show_roads:
+		for r: Dictionary in _manual_routes:
+			var rpts: PackedVector2Array = r.get("points", PackedVector2Array())
+			if rpts.size() < 2:
+				continue
+			var rbrks: PackedInt32Array = r.get("brks", PackedInt32Array())
+			var rstart := 0
+			for cut in rbrks:
+				_draw_manual_route_segment(rpts, rstart, cut, rect)
+				rstart = cut
+			_draw_manual_route_segment(rpts, rstart, rpts.size(), rect)
 
 	## Town layouts sit above the ways -- a town's own high street IS the
 	## through-road, so it must overlay it -- and *replace* the pin of every
@@ -985,12 +1040,36 @@ func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, r
 	_draw_dashed_polyline(screen_points, SEA_ROUTE_DASH_COLOR, SEA_ROUTE_DASH_WIDTH, SEA_ROUTE_DASH_LENGTH)
 
 
+## One committed Route-tool route, `points[start:end]` (exclusive). The
+## reference's own two-pass journey stroke (block 2b, lines 15555-15559):
+## solid dark underlayer first, dashed amber on top. Same structure as
+## `_draw_sea_route_segment`, and dashed for the same reason it is -- the
+## overlay walk keeps the dash phase continuous across vertices, which a
+## per-vertex `draw_dashed_line` would not (see `_draw_dashed_polyline`).
+func _draw_manual_route_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2) -> void:
+	if end - start < 2:
+		return
+	var screen_points := PackedVector2Array()
+	screen_points.resize(end - start)
+	for i in range(start, end):
+		screen_points[i - start] = _point_to_screen(points[i], rect)
+	draw_polyline(screen_points, MANUAL_ROUTE_UNDERLAY, MANUAL_ROUTE_UNDERLAY_WIDTH, true)
+	_draw_dashed_polyline(screen_points, MANUAL_ROUTE_COLOR, MANUAL_ROUTE_WIDTH,
+		MANUAL_ROUTE_DASH, MANUAL_ROUTE_GAP)
+
+
 ## Draws `points` as a dashed line with the dash phase carried continuously
-## across every vertex (equal-length dash/gap, `dash_len` each) -- unlike
-## `draw_dashed_line` per-segment, a dash or gap can span a vertex instead
-## of always restarting "on" there.
-func _draw_dashed_polyline(points: PackedVector2Array, color: Color, width: float, dash_len: float) -> void:
-	var period := dash_len * 2.0
+## across every vertex -- unlike `draw_dashed_line` per-segment, a dash or
+## gap can span a vertex instead of always restarting "on" there.
+##
+## `gap_len` defaults to `dash_len` (the equal on/off the sea-lane overlay
+## has always used, unchanged). The Route layer passes an unequal pair
+## because the reference's journey stroke is `setLineDash([5,3])`, not
+## `[5,5]`.
+func _draw_dashed_polyline(points: PackedVector2Array, color: Color, width: float, dash_len: float, gap_len: float = -1.0) -> void:
+	if gap_len < 0.0:
+		gap_len = dash_len
+	var period := dash_len + gap_len
 	var phase := 0.0
 	for i in range(points.size() - 1):
 		var p0 := points[i]

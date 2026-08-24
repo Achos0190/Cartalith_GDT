@@ -48,10 +48,23 @@ class_name InfrastructureWorkspace
 ## be *listed* and to survive a network rebuild, never to be styled apart,
 ## so nothing here gives hand-drawn ways their own colour.
 ##
+## The Route tool (`route_commit`) took the same treatment on 2026-08-24,
+## `GUI_GAP_REGISTER.md` IN-09. A committed route was never in
+## `get_roads()`/`get_sea_routes()` at all -- it lives in `InfraTools::routes`,
+## readable only through `route_count()`/`route_get(i)`, which nothing on the
+## GDScript side called. So a route committed correctly (a live check solved
+## a 578 km, 516-point path with zero unreachable legs) and then appeared
+## nowhere at all -- no map line, no list row. `_commit_route`
+## now repaints the map's own route layer (`_refresh_map_routes` ->
+## `map_overlay.gd`'s `_manual_routes`) and refills a Routes list beside the
+## ways one (`_refresh_manual_routes`).
+##
 ## Still genuinely missing: rename/retype/delete of an existing way (the
 ## reference's way-properties editor -- there is no `way_set_name`/
-## `way_delete` `#[func]`), and manual sea lanes route through the same
-## navy/dashed style as generated ones with no per-way condition field.
+## `way_delete` `#[func]`), the same for routes (no `route_delete`, so the
+## Routes list has no row action and a route can only be cleared by
+## regenerating), and manual sea lanes route through the same navy/dashed
+## style as generated ones with no per-way condition field.
 ##
 ## Rows here (Roads/Ports' network lists) read only; clicking a road or sea
 ## route pins it into the right dock (`right_dock.gd`'s Route context), and
@@ -99,6 +112,10 @@ var _nested := false
 ## The Hand-drawn group's row host (`_build_manual_ways`), kept so a commit
 ## can refill it without a panel rebuild. `null` until `_build()` has run.
 var _manual_list: Control = null
+
+## The Route tool's own committed-list host, the same shape as `_manual_list`
+## above (`GUI_GAP_REGISTER.md` IN-09). `null` until `_build()` has run.
+var _manual_routes_list: Control = null
 
 ## The four data-backed categories' own body nodes, held so `rebuild_readouts()`
 ## can clear and refill exactly those and nothing else -- the same discipline
@@ -151,6 +168,10 @@ func rebuild_readouts() -> void:
 	if _logistics_body != null and is_instance_valid(_logistics_body):
 		_clear_body(_logistics_body)
 		_fill_logistics(_logistics_body)
+	## A regenerate empties both hand-drawn stores, so both lists must go back
+	## to their "None yet" notes rather than keep the previous world's rows.
+	_refresh_manual_ways()
+	_refresh_manual_routes()
 
 ## `remove_child` before `queue_free`: `queue_free` defers to the end of the
 ## frame, so a child left parented is still in `get_children()` while the
@@ -320,11 +341,29 @@ func _commit_route() -> void:
 	_route_points = PackedVector2Array()
 	app.viewport.tool_overlay.set_path_preview(_route_points)
 	if idx >= 0:
+		## Both of these are new with `GUI_GAP_REGISTER.md` IN-09's fix. The
+		## route really was committed before it (`route_count` incremented,
+		## `route_get` returned a full solved path) -- nothing on the GDScript
+		## side ever read either call back, so a 410 km route landed nowhere
+		## the user could see. Exactly IN-02's failure mode one list over.
+		_refresh_map_routes()
+		_refresh_manual_routes()
+		var r := bridge.route_get(idx)
 		app.set_status("hint",
-			"Route #%d committed -- not shown on the map yet (no manual-route display getter; see this file's own doc comment)." % idx,
+			"Route #%d committed -- %.0f km, drawn on the map and listed under Roads ▸ Hand-drawn." % [idx, float(r.get("km", 0.0))],
 			"text_ghost")
 	if _active_infra_tool == "route":
 		_tool_options_route()
+
+
+## The route layer's own repaint. Unlike `_refresh_map_ways` this does NOT go
+## through `CivilizationWorkspace._refresh_civ_data()`: routes are not part of
+## `get_roads()`/`get_sea_routes()`, so `set_civ_data` neither carries nor
+## clears them (see `map_overlay.gd`'s `_manual_routes` doc). `ViewportHost`
+## owns the `route_count`/`route_get` loop, for the same reason it owns
+## `refresh_annotations`' own two list calls.
+func _refresh_map_routes() -> void:
+	app.viewport.overlay.set_manual_routes(app.viewport.manual_routes())
 
 func _discard_route() -> void:
 	bridge.route_discard()
@@ -458,6 +497,12 @@ func _build_manual_ways(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Hand-drawn")
 	_manual_list = DccWidgets.group(sec, "Committed this session")
 	_refresh_manual_ways()
+	## Routes get their own group rather than joining the ways above: a way is
+	## a piece of network the next route can be solved over, a route is a
+	## solved path across it. Merging them would make "committed this session"
+	## mean two different kinds of thing under one heading.
+	_manual_routes_list = DccWidgets.group(sec, "Routes committed this session")
+	_refresh_manual_routes()
 
 
 ## Clear-and-refill, deliberately, rather than appending only the newest
@@ -485,6 +530,38 @@ func _refresh_manual_ways() -> void:
 			"None yet -- arm Way in the TOOLS block above, click two or more " +
 			"waypoints, then ✓ Commit. Committed ways draw on the map with the " +
 			"generated network and are routed over by the next way you draw.")
+
+
+## The Route tool's own committed list -- same clear-and-refill shape as
+## `_refresh_manual_ways` above, over `route_count`/`route_get` instead of the
+## two network getters. Read-only, like every other list in this file: there
+## is no `route_delete`/`route_set_name` `#[func]` to hang a row action off,
+## which is the same "still genuinely missing" gap this file's class doc
+## already records for ways.
+func _refresh_manual_routes() -> void:
+	if _manual_routes_list == null:
+		return
+	for c in _manual_routes_list.get_children():
+		c.queue_free()
+	var n := bridge.route_count()
+	if n <= 0:
+		DccWidgets.note(_manual_routes_list,
+			"None yet -- arm Route in the TOOLS block above, click two or more " +
+			"stops, then ✓ Commit. A route is solved over the existing network " +
+			"(mixed land and sea) and drawn on the map in amber, over the ways " +
+			"it follows.")
+		return
+	for i in n:
+		var r := bridge.route_get(i)
+		if r.is_empty():
+			continue
+		var text := "Route #%d -- %d km (%s)" % [i, int(round(float(r.get("km", 0.0)))), String(r.get("mode", "mixed"))]
+		var unreachable := int(r.get("unreachable_legs", 0))
+		if unreachable > 0:
+			text += " · %d leg(s) straight-lined" % unreachable
+		var lbl := DccTheme.label(text, "text_dim", DccTheme.FS_SMALL)
+		lbl.tooltip_text = "%d path points. No route inspector exists yet (no route_delete/route_set_name binding)." % (r.get("points", PackedVector2Array()) as PackedVector2Array).size()
+		_manual_routes_list.add_child(lbl)
 
 
 ## The reference's two whole-network road operations. Same split as CIVIL's

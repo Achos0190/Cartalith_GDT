@@ -855,6 +855,10 @@ func refresh() -> void:
 	var g := _bridge.grid_size()
 	overlay.set_civ_data(_bridge.settlements(), _bridge.roads(),
 		_bridge.sea_routes(), g.x, g.y, _bridge.border_inset_frac())
+	## A regenerate empties `InfraTools::routes`, so this also *clears* the
+	## route layer rather than leaving the previous world's routes drawn over
+	## the new one.
+	overlay.set_manual_routes(manual_routes())
 	## A town is sized in real metres, so the layout layer needs the map's own
 	## km extent to know how many pixels 1.7 km is worth.
 	overlay.set_map_width_km(_bridge.last_width_km)
@@ -880,6 +884,23 @@ func refresh_annotations() -> void:
 		return
 	overlay.set_manual_icons(_bridge.icon_list())
 	overlay.set_labels(_bridge.label_list())
+	overlay.set_manual_routes(manual_routes())
+
+## Every committed Route-tool route, in `route_get`'s own dictionary shape.
+## `route_count`/`route_get` are the only readback the Route tool has (see
+## `route_count`'s own doc comment in `lib.rs`) -- there is no bulk getter,
+## so the loop lives here rather than in `map_overlay.gd`, which is handed
+## finished data and never calls the bridge itself. Cheap: a session's routes
+## number in the handful, and this runs only on a commit or a regenerate.
+func manual_routes() -> Array:
+	var out: Array = []
+	if _bridge == null:
+		return out
+	for i in _bridge.route_count():
+		var r := _bridge.route_get(i)
+		if not r.is_empty():
+			out.append(r)
+	return out
 
 ## The current pan/zoom camera scale (`_zoom`, `_zoom_at`'s own factor) --
 ## read-only exposure for `label_handles(index, zoom)` callers (`DCC_SHELL_
