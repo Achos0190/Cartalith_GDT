@@ -53,8 +53,19 @@ recommendation, not assumed superiority.
 > has now been corrected in place, each citing the audit's file:line
 > evidence, re-verified against the repository rather than taken on the
 > audit's word. This addendum is left here as the historical record of when
-> and why the drift happened; the capability sections below are current as
+> and why the drift happened; the capability sections below were current as
 > of 2026-08-23.
+>
+> **Corrected again 2026-08-24 (`PARITY_AUDIT.md` pass 2, F2).** The document
+> went stale a second time within 24 hours of the correction above, on
+> Save (write), global undo, NPR Painter styles/contour intervals, most of
+> the Journey Planner's individually-registered gaps, and settlement/place
+> editing plus the map's right-click context menu — all real in code while
+> still marked absent or partial here. Corrected in place again, each
+> re-verified directly against the cited source file. See "Disagreements
+> with prior docs" at the end of this document for the full list and
+> `PARITY_AUDIT.md` pass 2 §14 for why this document in particular keeps
+> drifting. The capability sections below are current as of 2026-08-24.
 
 ## Capability-by-capability contract
 
@@ -117,18 +128,31 @@ tuning, river density and minimum stream order controls, biome ecotone
 detail toggle, lakes-as-water/rivers-as-ways toggles.
 
 **This port**: generation-side **done** (part of criterion 1's parity).
-Interactive re-tuning without a full regenerate is **absent** — every
-parameter change today means a fresh `generate()` call, not a live
-recompute. `UNIFIED_TOOL_PLAN.md`'s staleness section addresses this
-directly for the *editing* case (terrain sculpt marking hydrology stale) but
-pure parameter re-tuning without a brush stroke isn't scoped anywhere yet.
+**Partial, corrected 2026-08-24** (`PARITY_AUDIT.md` pass 2, the row's own
+flagged judgment call). `cartalith_engine::staleness::recompute_stale`
+(`crates/cartalith-engine/src/staleness.rs:205`) is real and wired at four
+call sites (`sculpt_commit`, `carve_fjords`, `paint_commit`,
+`recompute_stale_stages()`): a **committed edit** to the height field now
+re-derives hydrology and climate (temperature/rainfall/flow discharge)
+without a full `generate()`. That is genuine live re-tuning for the editing
+case `UNIFIED_TOOL_PLAN.md`'s staleness section always scoped. What is still
+absent is the case this row originally meant — moving a **slider**
+(erosion/climate/hydrology parameters) and seeing the effect without a full
+regenerate: nothing marks the stage graph stale from a `param_set` call, only
+the three commit paths do (`GUI_GAP_REGISTER.md` SG-03, "needs a design
+first" — a per-parameter → stage table over `params.rs`'s entries does not
+exist yet). So "live tuning" is accurate for edits, not yet for dials; stating
+both halves rather than picking one is deliberate, per the audit's own
+instruction not to force a clean answer here.
 
 **§7d tag**: port behavior (users must be able to change a generation
-parameter and see the effect), implementation open — this port's one-shot
-generate model is itself already `DECISIONS.md`-grounded
+parameter and see the effect), implementation open for the dial case — this
+port's one-shot generate model is itself already `DECISIONS.md`-grounded
 (`HARDWARE_ACCELERATION.md`'s static-generation correction); whether
 per-parameter re-generation becomes interactive is a real design question
-for whoever picks this up, not decided here.
+for whoever picks up SG-03, not decided here. The edit-triggered case is
+already `§7d`-settled: `recompute_stale` reproduces the reference's own
+`computeFlow(true); refreshClimate();` tail, ported as-is.
 
 ### 4. Civilisation (settlements, factions, roads, territory, provinces, villages, economy, statistics)
 
@@ -185,16 +209,23 @@ per-journey planning tool the reference's own UI exposes as a form.
 
 **This port**: **6 of 6 milestones done, engine-complete** (corrected
 2026-08-23, `PARITY_AUDIT.md` C2/§3.3 — `JOURNEY_PLANNER_SCOPE.md`'s own
-closing status): 65 of the reference's 74 `jp*` functions ported (6 UI-only,
-2 JS idioms, 1 formerly blocked and since ported), with a real Godot
-takeover view, the Travel Library, party set-ups, the timeline band and
-blocked-stage inline resolutions all wired. Remaining gaps are individually
-registered rather than milestone-sized:
-`jpAutoPickTransport`/`_jpRerouteForMode` (JP-01/JP-03),
-`jp_journey_cost` ported but never called (JP-04, `GUI_GAP_REGISTER.md`
-calls it "the single cheapest (B) in the register"), the calculation-trace
-window (JP-05), journey save/registry (JP-06/JP-08), ⇧-drag spine trim
-(JP-07), and the vessel sailing window/resolver (JP-09/IN-06).
+closing status): 66 of the reference's 74 `jp*` functions ported (per
+`README.md`'s 2026-08-24 count; nothing blocked), with a real Godot takeover
+view, the Travel Library, party set-ups, the timeline band and blocked-stage
+inline resolutions all wired. **Corrected 2026-08-24** (`PARITY_AUDIT.md`
+pass 2 §10, sweep incident 4, re-verified against the register): the six
+gaps this row used to list individually are now five closed and one
+partly closed. `jpAutoPickTransport`/`_jpRerouteForMode` (JP-01/JP-03),
+`jp_journey_cost`'s caller (JP-04), the calculation-trace window (JP-05),
+and ⇧-drag spine trim (JP-07) are **all closed** — real Rust ports with real
+call sites (`jp_auto_pick_transport`, `jp_reroute_for_mode`, `jp_plan_cost`,
+the inline calculation-trace group, `jp_trim_points`). The vessel sailing
+window (JP-09/IN-06) is likewise closed (`JpWaterCalc::sailing_window_h`).
+What remains is **journey save/registry (JP-06/JP-08), partly closed**: a
+journey can be named and reloaded within a session, but nothing persists it
+across a restart — `save_project` builds `params.json`'s `state` from the
+parameter table alone, with no channel yet for GDScript-owned project state
+(the journeys list, the Travel Library, saved measurements) to reach it.
 
 **§7d tag**: port as-is. This is deep, historically-grounded domain logic
 (real v1.27/v1.50/v1.52/v1.63/v1.97/v1.98 fixes cited throughout) with no
@@ -220,23 +251,34 @@ tint, the atlas look (paper ground, forest stippling, plate border) — all
 gated behind a `js_reference()` no-op so the original JS-parity test stays
 exact, all real deliberate improvements past the reference under §7a/§7d's
 own carve-out. **Splat texturing is real** — Asset Library milestone 7 wired
-ground-texture splat into the already-golden `materialWeights` blend. NPR
-Painter styles, geology microtexture, AO/SVF/shadow toggles as *user
-controls* (the render effects exist internally in the reference; exposing
-them as switchable options doesn't yet), and SDF tinting/contour intervals
-are **absent**. **Corrected 2026-08-23** (`PARITY_AUDIT.md` C2): the tile
-pyramid/LOD/region-export system is **not** entirely absent — deep-zoom LOD
-tile synthesis is live and region-tile export is golden-verified and wired
-to a real route; only the persistent atlas/tile cache and the
-bake/finalize-lock remain unbuilt. See this capability's §7d tag below for
-the detail.
+ground-texture splat into the already-golden `materialWeights` blend. **NPR
+Painter styles are built and live, corrected 2026-08-24**
+(`PARITY_AUDIT.md` pass 2, F2): all ten styles (contour veins, ink
+linework, hachure, watercolor, cel/toon, engraving, stipple, sepia,
+risograph, pointillism) plus the contour-interval control, coastal wave
+lines and multi-sun lighting are literal per-pixel ports
+(`render::apply_npr`/`apply_waves`/`multi_sun_from_normal`, golden-tested in
+`golden_parity_npr.rs`), bound through `WorldGen::get_npr`/`set_npr` and
+built as real controls in the RENDER dock (`render_workspace.gd`'s
+`_build_npr`). Animated water is a Godot `ShaderMaterial` overlay
+(principled-equivalent, not golden — `DECISIONS.md` §7a). **Still absent as
+user controls**: geology microtexture, AO/SVF/shadow toggles (the effects
+exist internally — `TerrainAppearance`'s AO/SVF fields — but are not
+switchable), and SDF coast/river/biome tinting. **Corrected 2026-08-23**
+(`PARITY_AUDIT.md` C2): the tile pyramid/LOD/region-export system is **not**
+entirely absent — deep-zoom LOD tile synthesis is live and region-tile
+export is golden-verified and wired to a real route; only the persistent
+atlas/tile cache and the bake/finalize-lock remain unbuilt. See this
+capability's §7d tag below for the detail.
 
 **§7d tag**: mixed, itemized:
 - Default render, atlas look, splat: port as-is / already modernized (the
   atlas look and hillshade/AO are genuinely *better* than the reference's
   own default, not merely equivalent).
-- NPR Painter styles, geology microtexture toggle: port as-is — these are
-  presentation choices with no efficiency problem to modernize, just unbuilt.
+- NPR Painter styles: port as-is, **and done** — built exactly as literal
+  per-pixel ports, corrected 2026-08-24. Geology microtexture toggle,
+  AO/SVF/shadow toggles, SDF tinting: port as-is — these are presentation
+  choices with no efficiency problem to modernize, just still unbuilt.
 - **Tile pyramid / LOD / region export: mostly landed, corrected 2026-08-23**
   (`PARITY_AUDIT.md` C2/§3.1). Deep-zoom LOD **tile synthesis is live**
   (`lod_bridge.rs`, `lod_synthesize_tile`/`lod_tile_cells`, driven
@@ -349,11 +391,14 @@ property, verbatim from the reference). Three reference inputs this port
 has no equivalent for are handled by *omission* and disclosed: no `poi`
 layer, `sea` derived from which collection a way came out of, and rivers
 re-traced from `WorldState` rather than a `_riverNet` cache — see
-`GUI_GAP_REGISTER.md` §20. Still genuinely absent: writing `.zip`, and
-GeoJSON **import**. All of this was explicitly out of
-MVP scope by design at the time (`MVP_SCOPE.md`: "Writing saves is out...
+`GUI_GAP_REGISTER.md` §20. **Corrected 2026-08-24** (`PARITY_AUDIT.md` pass
+2, cross-checked against capability 10 below): writing `.zip` is **no
+longer absent** — `cartalith_io::write_save` (FI-01, closed 2026-08-23)
+writes the same seven `exportZip()` entries this row used to say were
+unbuilt. Still genuinely absent: GeoJSON **import**. This was explicitly out
+of MVP scope by design at the time (`MVP_SCOPE.md`: "Writing saves is out...
 Point 12 grants reading one specific thing; it is not a general save/load
-licence").
+licence") and has since been built past that scope.
 
 **§7d tag**: port behavior as-is for GeoJSON/heightmap-import (standard
 formats, no modernization angle) — heightmap import is now done under that
@@ -370,13 +415,22 @@ verbatim.
 **HTML app**: `.zip` save/load with a documented format (`SAVEFILE_COMPAT.md`
 already reverse-engineers this against live reference code, not guessed).
 
-**This port**: reading **done** (criterion 7). Writing **absent**,
-deliberately deferred (`SAVEFILE_COMPAT.md`, `MVP_SCOPE.md`).
+**This port**: reading **done** (criterion 7). Writing **done, corrected
+2026-08-24** (`PARITY_AUDIT.md` pass 2, cross-checked against
+`crates/cartalith-io/src/save.rs:145`'s `write_save` and
+`WorldGen::save_project` in `crates/cartalith-godot/src/lib.rs:2704`):
+File ▸ Save / Save as / Autosave / Revert / Close are all real, writing the
+seven documented entries in `exportZip()`'s own order, DEFLATE, verified
+three ways including re-writing a real HTML-app export and diffing against
+that fixture's own captured values (FI-01, `GUI_GAP_REGISTER.md`). One
+disclosed limitation carries over: `state.erosion` is unshimmed by
+`loadZip()` (only 2 of 16 keys modelled), so it is deliberately not written
+rather than written partially — `SAVEFILE_COMPAT.md` has the detail.
 
 **§7d tag**: port as-is. This is a well-specified binary format with a
-correctness bar (byte-for-byte compatibility with reference-produced files,
-already proven on the read side); there's no "QGIS does this better"
-question — bring the same rigor to the write side when it's picked up.
+correctness bar (byte-for-byte compatibility with reference-produced files),
+now proven on both the read and write sides — there's no "QGIS does this
+better" question here.
 
 ### 11. View modes (2D/3D, LOD, analysis fields)
 
@@ -420,22 +474,29 @@ decluttering pass — a real `Theme` resource, not a CSS variable swap; light
 theme itself has since also shipped, PR-13/PR-14 done 2026-08-19). Credits
 **done**, real and reachable, carrying forward the reference's own
 attribution plus this port's own license-audit findings. **Corrected
-2026-08-23** (`PARITY_AUDIT.md` C2): undo is **not absent entirely** —
-draft-scoped undo/redo is real (`sculpt_undo`/`sculpt_redo`,
-`cartalith-spatial/src/pass.rs`'s `PassBuffer`), wired in `right_dock.gd`.
-Only **global**, generation-parameter-level undo is absent, and the DCC
-shell's own editing model (`UI_SHELL_DESIGN.md`: "Undo granularity is one
-committed pass, not one stroke") still makes that a load-bearing part of the
-tool-system work (`UNIFIED_TOOL_PLAN.md` milestone A) rather than a separate
-feature.
+2026-08-24** (`PARITY_AUDIT.md` pass 2, F2 — supersedes the 2026-08-23
+correction below): undo is **done at both tiers**. Draft-scoped undo/redo
+is real (`sculpt_undo`/`sculpt_redo`, `cartalith-spatial/src/pass.rs`'s
+`PassBuffer`), wired in `right_dock.gd`. **Global, generation-parameter-level
+undo is also built**: `cartalith-godot/src/undo.rs`'s `HeightUndo` stack
+(the reference's own `pushUndo`/`undoLast`), bound as `undo_last()`/
+`can_undo()`/`undo_label()`, reachable from the Edit menu ("Undo `<label>`",
+Ctrl+Z — `menus.gd:315-353`, `app.gd:993`) with its budget and live depth
+shown at Preferences ▸ Memory ▸ Undo history (`menus.gd:1011`, PR-11). The
+two tiers are deliberately distinct, not a duplicate: sculpt's is a
+per-stamp draft undo inside one uncommitted pass, the global stack is a
+per-commit snapshot (`self.undo.push(...)` at `sculpt_commit` and
+`carve_fjords`) — the same two-tier split `SCULPT_FUNCTION_CHART.md` §6
+describes.
 
 **§7d tag**: theme/credits — already done, arguably already better (a real
 Theme resource composits more consistently than the reference's own CSS
 custom-property approach, though this is a minor case, not a headline
-recommendation). Undo — port behavior for the remaining global case; draft
-undo's implementation was necessarily new regardless of §7d, since it had
+recommendation). Undo — port behavior, done for both tiers; draft undo's
+implementation was necessarily new regardless of §7d, since it had
 to integrate with a tool system the reference's single-canvas architecture
-never needed to reconcile with a native undo stack.
+never needed to reconcile with a native undo stack, while the global stack
+is a close behavioral port of the reference's own snapshot model.
 
 ### 13. Urban morphology (town/city internal layout)
 
@@ -514,11 +575,12 @@ modernize-over-port angle the way tile pyramids or layer compositing do.
 |---|---|---|
 | World generation | Done | Port as-is |
 | Terrain editing (Sculpt) | **Built** (corrected 2026-08-23) | Port behavior, modernize storage |
-| Hydrology/climate/ecology live tuning | Absent | Open design question |
+| Hydrology/climate/ecology live tuning | **Partial** — edit-triggered recompute real (`recompute_stale`); dial/slider tuning still absent (SG-03) (corrected 2026-08-24, judgment call) | Open design question (dial case only) |
 | Civilisation | Done, incl. Timeline/collapse (corrected 2026-08-23) | Port as-is (territory: modernized by necessity) |
-| Journey Planner | **6/6 milestones, engine-complete** (corrected 2026-08-23) | Port as-is |
+| Journey Planner | **6/6 milestones, engine-complete; 5 of 6 individually-registered gaps closed, 1 partly** (corrected 2026-08-24) | Port as-is |
 | Map rendering (default + atlas) | Done, improved | Already modernized |
-| Map rendering (NPR/geology/SDF toggles) | Absent | Port as-is |
+| Map rendering (NPR toggles) | **Built and live** (corrected 2026-08-24) | Port as-is, done |
+| Map rendering (geology/AO-SVF-shadow/SDF toggles) | Absent | Port as-is |
 | Tile pyramid / LOD / region export | **LOD tiling live; region export wired** (corrected 2026-08-23) | Modernize (Mapbox-style quadtree); atlas/cache still open |
 | Labels/annotation (rule-driven) | Done | Port as-is |
 | Labels/annotation (manual tools) | **Built**, incl. biome/terrain paint (corrected 2026-08-23) | Port as-is |
@@ -527,19 +589,23 @@ modernize-over-port angle the way tile pyramids or layer compositing do.
 | Import (GeoJSON/heightmap) | **Heightmap done; GeoJSON import still absent** (corrected 2026-08-23) | Port as-is |
 | Export (tiles/image) | **Tile export live; GeoJSON export live end to end** (corrected 2026-08-24) | Modernize (tile-server-style) for slippy-map addressing remainder |
 | Save (read) | Done | Port as-is |
-| Save (write) | Absent | Port as-is |
+| Save (write) | **Done** (corrected 2026-08-24) | Port as-is |
 | 2D rendering | Done | Port as-is |
 | 3D view | Absent, deferred by decision | Modernize when built (`Terrain3D`) |
 | Analysis-field switching | **Resolved** — 18 live views + 11 with stated reasons (corrected 2026-08-23) | Port as-is |
 | Theme | Done, incl. light + follow-system | Already modernized (minor) |
 | Credits | Done | Port as-is |
-| Undo | **Draft-scoped real; global still absent** (corrected 2026-08-23) | New implementation, necessarily, for the global case |
+| Undo | **Done at both tiers** — draft-scoped and global (corrected 2026-08-24) | Draft: new implementation, necessarily. Global: close behavioral port |
 | Urban morphology | **Milestones 1-7 of ~17 done, and now wired end to end** — adapter, bridge, deep-zoom map layer and City Viewer; what draws is a street skeleton, not a city (added and updated 2026-08-23) | Port as-is |
 
 ## Honest absent-entirely list, with real size
 
-**Rewritten 2026-08-23** (`PARITY_AUDIT.md` C2) — most of the previous
-version of this list named things that had since been built. What is
+**Rewritten 2026-08-23** (`PARITY_AUDIT.md` C2), **revised again 2026-08-24**
+(`PARITY_AUDIT.md` pass 2, F2) — the previous version named several more
+things that had since been built (save writing, global undo, NPR Painter
+styles, most of the Journey Planner's individually-registered gaps, and
+settlement/place editing plus the map's right-click context menu, all
+verified against real code rather than the audit's own list). What is
 genuinely still absent, as of this correction:
 
 - **Urban morphology, milestones 8-17**: radial streets/plaza/waterway,
@@ -551,26 +617,26 @@ genuinely still absent, as of this correction:
   other 15 are either milestone-8+-only, not applicable to typed Rust, or
   explicitly out of scope for every milestone. By far the largest item on
   this list — see capability 13 above.
-- **Hydrology/climate/ecology live re-tuning without a full regenerate**:
-  open design question, not yet even scoped as a milestone target.
-- **Save writing**: `.zip` save is entirely unbuilt (read-only so far).
 - **GeoJSON import**: absent. (GeoJSON *export* is no longer on this list —
   it went live end to end on 2026-08-24; see capability 9.)
-- **NPR Painter styles, geology microtexture toggle, SDF tinting, contour
-  intervals**: presentation-only, no engine dependency, unscoped.
-- **Global (generation-parameter) undo**: absent, tied to the tool-system
-  work. Draft-scoped undo/redo for sculpt is real.
-- **Journey Planner's individually-registered gaps**: `jpAutoPickTransport`/
-  `_jpRerouteForMode`, the calculation-trace window, journey save/registry,
-  ⇧-drag spine trim, the vessel sailing window/resolver — none
-  milestone-sized any more; the Journey Planner itself is engine-complete.
+- **Geology microtexture toggle, AO/SVF/shadow toggles, SDF tinting**:
+  presentation-only, no engine dependency, unscoped. **Revised 2026-08-24**
+  — NPR Painter styles and contour intervals are removed from this bullet;
+  both are built and live (see capability 6).
+- **Journey save/registry across sessions (JP-06/JP-08), partly**: a
+  journey names and reloads within a session; nothing persists to disk yet
+  — `save_project` has no channel for shell-owned project state. **Revised
+  2026-08-24**: the other five individually-registered Journey Planner gaps
+  (`jpAutoPickTransport`/`_jpRerouteForMode`, `jp_journey_cost`'s caller, the
+  calculation-trace window, ⇧-drag spine trim, the vessel sailing
+  window/resolver) are all closed; only this one remains, and only partly.
 - **Persistent LOD tile atlas/cache, and the bake/finalize-lock**: tile
   synthesis itself is live; nothing persists it to disk yet.
-- **Settlement/place editing and deletion, and the map's right-click context
-  menu**: `civ_drop_settlement` creates a settlement; nothing edits, moves
-  or deletes one, and there is no `_civCtxShow`-equivalent context menu on
-  the map (`PARITY_AUDIT.md` §3.2, §5 items 2-3; see `GUI_GAP_REGISTER.md`
-  ED-03 for the corrected framing).
+- **Dial/slider-triggered live re-tuning (SG-03)**: a moved parameter still
+  marks nothing stale; only a committed edit does (`recompute_stale` — see
+  capability 3's judgment call above). **Revised 2026-08-24** — replaces this
+  list's prior blanket "Hydrology/climate/ecology live re-tuning" entry,
+  since the edit-triggered half of that claim is no longer accurate.
 
 ## Top three modernize-over-port recommendations
 
@@ -606,8 +672,10 @@ a tiled field, not whole-canvas snapshots. **Landed 2026-08-23**:
 `UNIFIED_TOOL_PLAN.md` specified are both real and wired
 (`sculpt_bridge.rs`, `sculpt_undo`/`sculpt_redo`), modeled directly on the
 reference's own `sculptStamps[]`/commit/discard semantics — the behavior
-ported, the storage modernized, as recommended. Only global
-(generation-parameter-level) undo remains open.
+ported, the storage modernized, as recommended. **Corrected 2026-08-24**:
+global (generation-parameter-level) undo is also now built
+(`cartalith-godot/src/undo.rs`, Edit ▸ Undo / Ctrl+Z) — see capability 12
+above. Nothing on this recommendation remains open.
 
 ## Disagreements with prior docs
 
@@ -629,8 +697,26 @@ with `paint_bridge.rs`'s real, wired `paint_set_layer`/`paint_stroke_at`/
 tool — corrected in capabilities 7 and 8 above.
 
 One gap remains genuinely open, not previously flagged anywhere: interactive
-re-tuning of generation parameters without a full regenerate (capability 3)
-still has no scope document and no recorded design decision — the one-shot
-generation model is itself a deliberate, documented choice
-(`HARDWARE_ACCELERATION.md`) that this capability would need to be
-reconciled with, not silently assumed away.
+re-tuning of generation parameters *from a dial* without a full regenerate
+(capability 3's remaining half) still has no scope document and no recorded
+design decision — the one-shot generation model is itself a deliberate,
+documented choice (`HARDWARE_ACCELERATION.md`) that this capability would
+need to be reconciled with, not silently assumed away.
+`GUI_GAP_REGISTER.md` SG-03 is the closest thing to a scope for it, and it
+says "needs a design first."
+
+**Corrected again 2026-08-24** (`PARITY_AUDIT.md` pass 2, F2 — this
+document's own "went stale again within 24 hours" finding). Six-plus rows
+had drifted a second time in the day since the 2026-08-23 pass above: Save
+(write), global undo, NPR Painter styles (including contour intervals),
+five of the six individually-registered Journey Planner gaps,
+`.zip` export's write half, and settlement/place editing plus the map's
+right-click context menu were all still marked absent or partial here while
+real in code. Every one is corrected in place above, independently
+re-verified against the cited source file rather than taken on
+`PARITY_AUDIT.md`'s word (its own pass-2 §13 explicitly left this document's
+fix to a future pass rather than editing it directly). The structural
+reason this document goes stale is itself recorded in `PARITY_AUDIT.md`
+pass 2 §14 point 1: it is a summary table no feature commit is obliged to
+touch, unlike `GUI_GAP_REGISTER.md`, which every agent updates because it
+is where their own row lives.
