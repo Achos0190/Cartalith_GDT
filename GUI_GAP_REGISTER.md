@@ -434,7 +434,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | RD-10 | **`Layers` context** | *absent — omission O9* | none | — | §6 designs it (ordered list, visibility dot, opacity bar, blend mode, nested children under Terrain) | (B) large — opacity is cheap (overlays carry alpha); blend mode and reorder need the three overlays to become independently compositable, an architecture change `GUI_FEATURE_PARITY_SCOPE.md` Category 3 already recommended deferring |
 | RD-11 | Collapsed right dock's primary readout | — | none | — | §6's last line: *"elevation for Sample, layer dots for Layers, stamp count for the stack"*. `DccShell.set_dock_readout("right", …)` exists and **`right_dock.gd` never calls it** — the left dock's is wired (`world_workspace._push_dock_readout`), the right dock's is not | **(A) — done 2026-08-19**: `_push_dock_readout()` called at the end of `_rebuild()` and live from `on_cursor_sampled`; one real reading per existing context (elevation, settlement name, faction id+culture, route length, chain/region/stamp counts, journey days·km). No "Layers" context exists yet (RD-10). |
 | RD-12 | `Brush / Stamp` context | 685-696 | merged into `Stamp stack`, with the reasoning stated in-file | yes | §6 lists both | **(D)** — deliberate: both read the same live state and the eight globals already have live editors in WORLD's dock |
-| RD-13 | Stamp stack ▸ finalize-lock note | 731-737 | no finalize/lock state exists in this engine | **stale 2026-08-24** — `FinalizeLock` exists and `sculpt_commit` is gated on it | yes | §6 | **(A) small, now unblocked.** WW-01 built the state this was gated on. `finalize_check("height_edit")` returns the sentence to show, and the engine already refuses the commit; the remaining work is `right_dock.gd` calling it and greying the stack. Not done here — the right dock was outside this pass |
+| RD-13 | Stamp stack ▸ finalize-lock note | 731-737 | no finalize/lock state exists in this engine | **stale, closed 2026-08-24** — `FinalizeLock` exists and `sculpt_commit` is gated on it | yes | §6 | **(A) — done 2026-08-24.** `right_dock.gd`'s `_build_sculpt()` now calls `bridge.finalize_check("height_edit")` on every rebuild: the Commit button disables (`commit_btn.disabled = stamps.is_empty() or not lock_msg.is_empty()`) and, once finalized, the engine's own refusal sentence ("This world is finalized: the baked atlas is the authoritative surface, so the heightfield is read-only. Un-finalize first.") is shown as a note in the stack, replacing the placeholder text that used to claim no lock state existed. Verified live: unfinalized shows no refusal and an enabled Commit; after `bake_all`+`set_finalized(true)`, `finalize_check` returns the sentence, Commit disables, and that exact sentence appears as a Label in the dock. |
 
 ### 6.9 Journey planner — `journey_planner_view.gd`
 
@@ -4670,12 +4670,17 @@ dock — no squeeze.
 
 **Left open, reported rather than taken:**
 
-- **The map's top-right readout does not carry what the canvas puts there.**
-  `design/Cartalith DCC Shell.dc.html` draws two lines — `2D · equirect · z 5.2`
-  and `relief · atlas preset`, i.e. the projection and the active style preset.
-  The port shows `384 x 288 · 2400 x 1800 km · z1.4`. Both are defensible; the
-  map view mode and the style preset are simply not surfaced on the map at all.
-  A content decision, not a defect.
+- ~~**The map's top-right readout does not carry what the canvas puts there.**~~
+  **Closed, 2026-08-24.** `viewport_host.gd`'s `_update_zoom_readout()` now
+  draws `2D · equirect · z%.1f` over the active style-preset name, matching
+  `design/Cartalith DCC Shell.dc.html`'s `2D · equirect · z 5.2` / `relief ·
+  atlas preset` structurally rather than literally — "2D" and "equirect" are
+  honest constants (`DCC_SHELL_SPEC.md` §2.4: "this port works in one flat km
+  projection throughout"), not a lookup, and the second line is the real
+  active Map style preset (`render_workspace.gd`'s five chips plus "Custom"),
+  pushed in via a new `ViewportHost.set_style_readout()` rather than polled.
+  Grid size and extent (what the port used to show here) already have a home
+  — the WORLD dock readout and the Sample panel — so nothing lost a display.
 - **The Asset Library has no keyboard delete.** Dropping the `⌫` glyph made the
   menu honest; binding Backspace (or Delete) to a destructive batch delete in
   that window is a real design question — confirmation, scope, undo — and was
