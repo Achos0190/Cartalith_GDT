@@ -5,7 +5,55 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **The staleness graph gets its consumer** —
+Last updated: 2026-08-24 (post **Selecting the integrated GPU opened the
+discrete one** — a real `cargo test --workspace` failure on this machine's
+two AMD GPUs, and **not** the device-selection bug it read as.
+`every_enumerated_device_can_be_selected_and_opened` reported that selecting
+`"1002:13c0:AMD Radeon(TM) Graphics"` opened `"AMD Radeon RX 7800 XT"`.
+**Root cause: one logical "open the selected device" operation read the
+process-global preferences twice.** `init_gpu_device_set()` snapshotted
+`preferences()` to branch on mode, then delegated the single-device case to
+`init_gpu_shared_device()` → `pick_primary_adapter()`, which called
+`preferences()` **again** to find the key. A concurrent `set_preferences`
+landing between the two reads leaves the second seeing empty
+`selected_keys`, so the adapter resolves through the *auto* branch —
+`PowerPreference::HighPerformance`, the discrete card — with **no error
+anywhere**: the fallback built to survive a *removed* GPU quietly serviced a
+*racing* one. It reproduced ~1 run in 6 and never under `--test-threads=1`,
+because seven tests in `tests/multi_gpu.rs` shared that global and
+`cargo test` runs them in parallel; it failed only on the integrated
+iteration because losing the race on the discrete one yields the discrete
+GPU anyway. Enumeration, key format, `group_adapters`, `adapter_for_key` and
+backend ranking were correct throughout and are **unchanged**. **Fix:
+snapshot once, then pass it down.** New `init_gpu_device_set_with(&GpuPreferences)`
+holds the whole body and touches no global; `init_gpu_device_set()` is now
+one line over it, so the ambient path takes exactly one snapshot (signature
+and behaviour otherwise unchanged — `cartalith-engine`'s call site and the
+`cartalith-godot` bridge needed **no edit**). `pick_primary_adapter_for(instance,
+keys)` takes the keys explicitly, with `pick_primary_adapter` the thin
+ambient wrapper the single-use pipeline builders still use, and a new
+`open_primary` replaces the single-device path's `init_gpu_shared_device()`
+call — same features, same `REUSED_STAGE_MAX_STORAGE_BUFFERS` floor, same
+label, only the adapter choice differs. **The GL-Compatibility hazard
+(`6a97911`, `6b2c4d9`) was checked rather than assumed**: instance
+construction is still `multi::compute_instance()`, still the crate's only
+construction site, still `backends: COMPUTE_BACKENDS`, at the same moment in
+the same call, and enumeration is still lazy — inside `adapter_for_key`,
+only when a key exists. **Tests:** every device test now passes its
+preferences explicitly (race-free by construction, six global writes
+removed); the two that genuinely exercise the global path serialise on a
+poison-ignoring `PREFS_LOCK`; and new
+`a_globally_set_device_key_is_the_device_that_opens` is the direct
+regression test for the *ambient* path, since fixing only the tests would
+have left the bug live for every real caller. **Verified on the real
+hardware**, both directions correct — discrete key → `AMD Radeon RX 7800 XT
+(DiscreteGpu)`, integrated key → `AMD Radeon(TM) Graphics (IntegratedGpu)`
+— and, because the failure was intermittent, the `multi_gpu` binary was run
+**20 consecutive times at default parallelism with 0 failures** rather than
+trusting one green run. Fresh `cargo build -p cartalith-godot`, then
+`cargo test --workspace`: **1,891 passed, 0 failed, 129 test targets**. No
+tolerance touched, no fixture regenerated, no assertion weakened) —
+previously, post **The staleness graph gets its consumer** —
 `GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §3.2.4's real architectural
 finding, authorised by the owner and now implemented. Until today
 `pipeline_stage_graph` was correct, tested and consumed by nothing, so

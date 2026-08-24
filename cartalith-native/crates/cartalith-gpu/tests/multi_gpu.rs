@@ -9,15 +9,36 @@
 //! unit-tested in `src/multi.rs` and needs no hardware at all; this file is
 //! only for the parts that genuinely require devices.
 //!
+//! **Preferences are passed explicitly here, not set globally** -- every
+//! device test calls [`init_gpu_device_set_with`] with its own
+//! [`GpuPreferences`] value. `cargo test` runs these in parallel, and
+//! `set_preferences` writes one process-global that they would otherwise all
+//! be sharing: the earlier version of this file did exactly that and
+//! `every_enumerated_device_can_be_selected_and_opened` failed on about one
+//! run in six, when a neighbouring test's `set_preferences(default())`
+//! landed between this one's write and its read. The two tests that
+//! genuinely exercise the global path take `PREFS_LOCK` instead.
+//!
 //! Run the timing test's numbers with:
 //! `cargo test -p cartalith-gpu --test multi_gpu -- --nocapture --test-threads=1`
 
+use std::sync::{Mutex, MutexGuard};
 use std::time::Instant;
 
 use cartalith_gpu::{
-    GpuPreferences, MultiGpuMode, enumerate_devices, gpu_working_set_bytes, init_gpu_device_set, set_preferences,
-    split_rows, warp_grid_gpu_split, warp_grid_gpu_with,
+    GpuPreferences, MultiGpuMode, enumerate_devices, gpu_working_set_bytes, init_gpu_device_set,
+    init_gpu_device_set_with, set_preferences, split_rows, warp_grid_gpu_split, warp_grid_gpu_with,
 };
+
+/// Held for the whole of any test that writes the process-global
+/// preferences, so those tests never overlap each other.
+static PREFS_LOCK: Mutex<()> = Mutex::new(());
+
+/// `PREFS_LOCK`, ignoring poisoning: one failing test must not cascade into
+/// the other as a second, misleading failure.
+fn global_prefs() -> MutexGuard<'static, ()> {
+    PREFS_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 /// Non-software devices, in the order [`enumerate_devices`] ranks them.
 fn real_devices() -> Vec<cartalith_gpu::GpuDeviceInfo> {
@@ -67,8 +88,8 @@ fn every_enumerated_device_can_be_selected_and_opened() {
         return;
     }
     for d in &devs {
-        set_preferences(GpuPreferences { selected_keys: vec![d.key.clone()], ..Default::default() });
-        let set = init_gpu_device_set().expect("selected device must open");
+        let prefs = GpuPreferences { selected_keys: vec![d.key.clone()], ..Default::default() };
+        let set = init_gpu_device_set_with(&prefs).expect("selected device must open");
         assert_eq!(set.devices().len(), 1, "single_device mode opens exactly one device");
         assert_eq!(
             set.primary().adapter_name,
@@ -79,6 +100,28 @@ fn every_enumerated_device_can_be_selected_and_opened() {
         );
         assert_eq!(set.primary().device_type, d.device_type);
         println!("selected {:?} -> opened {:?} ({:?})", d.key, set.primary().adapter_name, set.primary().device_type);
+    }
+}
+
+/// The same guarantee through the **ambient** entry point: a key written with
+/// `set_preferences` must be the device `init_gpu_device_set()` opens. This is
+/// the direct regression test for the 2026-08-24 bug, in which that call read
+/// the global twice and could resolve the adapter from a second, different
+/// snapshot -- silently opening the `HighPerformance` device instead of the
+/// named one.
+#[test]
+fn a_globally_set_device_key_is_the_device_that_opens() {
+    let _guard = global_prefs();
+    let devs = real_devices();
+    if devs.is_empty() {
+        println!("skipped: no non-software GPU on this machine");
+        return;
+    }
+    for d in &devs {
+        set_preferences(GpuPreferences { selected_keys: vec![d.key.clone()], ..Default::default() });
+        let set = init_gpu_device_set().expect("selected device must open");
+        assert_eq!(set.primary().adapter_name, d.name, "the global preference must decide, not HighPerformance");
+        assert_eq!(set.primary().device_type, d.device_type);
     }
     set_preferences(GpuPreferences::default());
 }
@@ -91,13 +134,9 @@ fn an_unknown_device_key_falls_back_to_auto() {
         println!("skipped: no non-software GPU on this machine");
         return;
     }
-    set_preferences(GpuPreferences {
-        selected_keys: vec!["ffff:ffff:No Such GPU".to_string()],
-        ..Default::default()
-    });
-    let set = init_gpu_device_set().expect("an unknown key must degrade to auto, not fail");
+    let prefs = GpuPreferences { selected_keys: vec!["ffff:ffff:No Such GPU".to_string()], ..Default::default() };
+    let set = init_gpu_device_set_with(&prefs).expect("an unknown key must degrade to auto, not fail");
     println!("unknown key -> fell back to {:?}", set.primary().adapter_name);
-    set_preferences(GpuPreferences::default());
 }
 
 /// PR-04: the allocator report is a *measurement*, so assert it moves with
@@ -108,8 +147,7 @@ fn device_usage_reports_this_apps_own_allocations() {
         println!("skipped: no non-software GPU on this machine");
         return;
     }
-    set_preferences(GpuPreferences::default());
-    let set = init_gpu_device_set().expect("device");
+    let set = init_gpu_device_set_with(&GpuPreferences::default()).expect("device");
     let Some(before) = cartalith_gpu::device_usage(set.primary()) else {
         println!("skipped: this backend implements no allocator report");
         return;
@@ -147,8 +185,8 @@ fn a_split_across_bands_on_one_device_is_bit_identical_to_the_whole_grid() {
     const H: u32 = 192;
     const SEED: i32 = 90210;
 
-    set_preferences(GpuPreferences { selected_keys: vec![devs[0].key.clone()], ..Default::default() });
-    let set = init_gpu_device_set().expect("device");
+    let prefs = GpuPreferences { selected_keys: vec![devs[0].key.clone()], ..Default::default() };
+    let set = init_gpu_device_set_with(&prefs).expect("device");
     let (whole_x, whole_y) = warp_grid_gpu_with(set.primary(), W, H, SEED, 0.011, 7.5);
 
     // Rebuild the whole grid from bands, using the same partition arithmetic
@@ -166,7 +204,6 @@ fn a_split_across_bands_on_one_device_is_bit_identical_to_the_whole_grid() {
     assert_eq!(band_x.len(), whole_x.len());
     assert_eq!(band_x, whole_x, "warp_x from three bands must be bit-identical to the whole grid");
     assert_eq!(band_y, whole_y, "warp_y likewise");
-    set_preferences(GpuPreferences::default());
 }
 
 /// PR-02's real question: does `split tiles` across this machine's actual
@@ -189,8 +226,8 @@ fn split_tiles_across_two_real_devices_measured() {
         const SEED: i32 = 1337;
         let (wf, amp) = (2.5 / w as f32, 0.18 * w as f32);
 
-        set_preferences(GpuPreferences { selected_keys: vec![keys[0].clone()], ..Default::default() });
-        let single = init_gpu_device_set().expect("primary device");
+        let single_prefs = GpuPreferences { selected_keys: vec![keys[0].clone()], ..Default::default() };
+        let single = init_gpu_device_set_with(&single_prefs).expect("primary device");
         // Warm-up: the first dispatch on a fresh device pays shader
         // compilation, which is not what this measures.
         let _ = warp_grid_gpu_with(single.primary(), 64, 64, SEED, wf, amp);
@@ -199,12 +236,9 @@ fn split_tiles_across_two_real_devices_measured() {
         let single_ms = t0.elapsed().as_secs_f64() * 1e3;
         drop(single);
 
-        set_preferences(GpuPreferences {
-            selected_keys: keys.clone(),
-            mode: MultiGpuMode::SplitTiles,
-            ..Default::default()
-        });
-        let split = init_gpu_device_set().expect("split device set");
+        let split_prefs =
+            GpuPreferences { selected_keys: keys.clone(), mode: MultiGpuMode::SplitTiles, ..Default::default() };
+        let split = init_gpu_device_set_with(&split_prefs).expect("split device set");
         assert!(split.is_split(), "two selected devices in split_tiles mode must actually split");
         let _ = warp_grid_gpu_split(&split, 64, 64, SEED, wf, amp);
         let t1 = Instant::now();
@@ -223,7 +257,6 @@ fn split_tiles_across_two_real_devices_measured() {
         assert!(worst < 1e-2 * f64::from(amp).max(1.0), "split must compute the same field, not a different one");
         drop(split);
     }
-    set_preferences(GpuPreferences::default());
 }
 
 /// Where [`cartalith_gpu::device_weight`]'s numbers come from. Prints the
@@ -240,8 +273,8 @@ fn per_device_warp_throughput_measured() {
         return;
     }
     for d in &devs {
-        set_preferences(GpuPreferences { selected_keys: vec![d.key.clone()], ..Default::default() });
-        let set = init_gpu_device_set().expect("device");
+        let prefs = GpuPreferences { selected_keys: vec![d.key.clone()], ..Default::default() };
+        let set = init_gpu_device_set_with(&prefs).expect("device");
         print!("{:<28} {:?}", d.name, d.device_type);
         for &(w, h) in &[(1024u32, 1024u32), (2048, 2048), (4096, 4096)] {
             let (wf, amp) = (2.5 / w as f32, 0.18 * w as f32);
@@ -252,11 +285,11 @@ fn per_device_warp_throughput_measured() {
         }
         println!();
     }
-    set_preferences(GpuPreferences::default());
 }
 
 #[test]
 fn a_vram_budget_below_the_grids_working_set_keeps_the_gpu_path_off() {
+    let _guard = global_prefs();
     // 2048x2048 x 10 f32 grids = 320 MB by this crate's own estimate.
     let need = gpu_working_set_bytes(2048, 2048);
     assert_eq!(need, 2048 * 2048 * 4 * 10);

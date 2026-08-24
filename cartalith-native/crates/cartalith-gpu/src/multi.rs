@@ -660,12 +660,20 @@ fn adapter_for_key(instance: &wgpu::Instance, key: &str) -> Option<wgpu::Adapter
     matches.into_iter().next()
 }
 
-/// Adapter for the *primary* device: the first selected key if it still
-/// resolves, otherwise the same `PowerPreference::HighPerformance` request
-/// every version of this crate before this module made. An unresolvable
-/// preference degrades to auto rather than to no GPU.
-pub(crate) fn pick_primary_adapter(instance: &wgpu::Instance) -> Option<wgpu::Adapter> {
-    if let Some(key) = preferences().selected_keys.first()
+/// Adapter for the *primary* device, from an explicit selection: the first
+/// key that still resolves, otherwise the same
+/// `PowerPreference::HighPerformance` request every version of this crate
+/// before this module made. An unresolvable preference degrades to auto
+/// rather than to no GPU.
+///
+/// Takes the keys as an argument rather than reading [`preferences`] itself,
+/// and that is a correctness requirement rather than a style choice: see
+/// [`init_gpu_device_set_with`] for the bug that came of the ambient read.
+/// One logical "open the selected device" operation used to consult the
+/// process-global preferences **twice**, and could act on two different
+/// snapshots of it.
+pub(crate) fn pick_primary_adapter_for(instance: &wgpu::Instance, selected_keys: &[String]) -> Option<wgpu::Adapter> {
+    if let Some(key) = selected_keys.first()
         && let Some(a) = adapter_for_key(instance, key)
     {
         return Some(a);
@@ -679,7 +687,26 @@ pub(crate) fn pick_primary_adapter(instance: &wgpu::Instance) -> Option<wgpu::Ad
     .ok()
 }
 
+/// [`pick_primary_adapter_for`] against the current ambient preferences, for
+/// the callers that have no snapshot of their own ([`crate::init_gpu_shared_device`]
+/// and the single-use `init_gpu_*` pipeline builders).
+pub(crate) fn pick_primary_adapter(instance: &wgpu::Instance) -> Option<wgpu::Adapter> {
+    pick_primary_adapter_for(instance, &preferences().selected_keys)
+}
+
 /// Open every device the current preferences call for.
+///
+/// Takes **one** snapshot of the process-global preferences and hands it to
+/// [`init_gpu_device_set_with`], which does the actual work. Callers that
+/// already hold a [`GpuPreferences`] should call that directly.
+///
+/// # Errors
+/// [`GpuInitError::NoAdapter`] when no device could be opened at all.
+pub fn init_gpu_device_set() -> Result<GpuDeviceSet, GpuInitError> {
+    init_gpu_device_set_with(&preferences())
+}
+
+/// Open every device `prefs` calls for, touching no global state.
 ///
 /// In `single_device` mode (the default) this is exactly one device and is
 /// indistinguishable from [`crate::init_gpu_shared_device`]. In `split_tiles`
@@ -687,15 +714,38 @@ pub(crate) fn pick_primary_adapter(instance: &wgpu::Instance) -> Option<wgpu::Ad
 /// skipped rather than fatal, so a machine that has lost its second GPU
 /// still generates on the first.
 ///
+/// **Why this takes `prefs` rather than reading them** (2026-08-24). The
+/// previous version read [`preferences`] here *and* again, one call deeper,
+/// inside `pick_primary_adapter` -- so a single "open the selected device"
+/// operation consulted the process-global twice and could straddle a
+/// concurrent [`set_preferences`]. Deciding `single_device` from a snapshot
+/// naming the integrated GPU and then resolving the adapter from a snapshot
+/// whose `selected_keys` had since been emptied takes the *auto* branch, and
+/// auto is `PowerPreference::HighPerformance` -- the discrete card. The
+/// caller asked for one GPU by key and silently got the other, with no error
+/// anywhere.
+///
+/// This is how it was found: `every_enumerated_device_can_be_selected_and_opened`
+/// failed on roughly one run in six, always on the integrated device and
+/// never in isolation, because seven tests in `tests/multi_gpu.rs` shared
+/// that one global and `cargo test` runs them in parallel. The discrete
+/// iteration could not expose it -- losing the race there yields the discrete
+/// GPU anyway, which is indistinguishable from success.
+///
+/// The single snapshot fixes the crate's half. Callers that set a preference
+/// and then act on it are still two operations; the tests pass their
+/// preferences here explicitly instead, which is race-free by construction.
+///
 /// # Errors
 /// [`GpuInitError::NoAdapter`] when no device could be opened at all.
-pub fn init_gpu_device_set() -> Result<GpuDeviceSet, GpuInitError> {
-    let prefs = preferences();
+pub fn init_gpu_device_set_with(prefs: &GpuPreferences) -> Result<GpuDeviceSet, GpuInitError> {
+    let instance = compute_instance();
+
     if prefs.mode != MultiGpuMode::SplitTiles || prefs.selected_keys.len() < 2 {
-        return Ok(GpuDeviceSet { devices: vec![crate::init_gpu_shared_device()?], mode: prefs.mode });
+        let device = open_primary(&instance, &prefs.selected_keys)?;
+        return Ok(GpuDeviceSet { devices: vec![device], mode: prefs.mode });
     }
 
-    let instance = compute_instance();
     let devices: Vec<GpuDevice> = prefs
         .selected_keys
         .iter()
@@ -715,9 +765,23 @@ pub fn init_gpu_device_set() -> Result<GpuDeviceSet, GpuInitError> {
     if devices.is_empty() {
         // Every selected key failed -- fall back to the auto path rather
         // than to no GPU at all.
-        return Ok(GpuDeviceSet { devices: vec![crate::init_gpu_shared_device()?], mode: MultiGpuMode::SingleDevice });
+        return Ok(GpuDeviceSet { devices: vec![open_primary(&instance, &[])?], mode: MultiGpuMode::SingleDevice });
     }
     Ok(GpuDeviceSet { devices, mode: prefs.mode })
+}
+
+/// The single shared device [`crate::init_gpu_shared_device`] opens, but for
+/// an explicit key list instead of the ambient one. Same features, same
+/// storage-buffer floor, same label -- only the adapter choice differs.
+fn open_primary(instance: &wgpu::Instance, selected_keys: &[String]) -> Result<GpuDevice, GpuInitError> {
+    let adapter = pick_primary_adapter_for(instance, selected_keys).ok_or(GpuInitError::NoAdapter)?;
+    Ok(crate::request_gpu_device_from(
+        adapter,
+        wgpu::Features::empty(),
+        REUSED_STAGE_MAX_STORAGE_BUFFERS,
+        "cartalith-gpu shared device",
+    )?
+    .into_shared())
 }
 
 // -- Split-tiles partitioning --------------------------------------------------
