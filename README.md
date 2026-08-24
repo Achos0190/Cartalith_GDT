@@ -69,6 +69,8 @@ reference actually turned out to do, and what remains:
 `TERRAIN_APPEARANCE_SCOPE.md` · `UNIFIED_TOOL_PLAN.md` ·
 `GPU_LAYER_INTEGRATION_SCOPE.md` · `GPU_COMPUTE_PILOT_SCOPE.md` ·
 `CPU_MULTITHREADING_SCOPE.md` · `MEMORY_OPTIMIZATION_SCOPE.md` ·
+`PERFORMANCE_BENCHMARKS.md` (measured CPU/per-GPU/split comparison at 2048²
+and 8192², and what actually decides how the app feels) ·
 `LOD_TILING_BASE_SCOPE.md` · `ANDROID_BUILD_SCOPE.md` ·
 `GENERATION_PARAMETERS.md` · `SAVEFILE_COMPAT.md` · `TOOLCHAIN.md` ·
 `REFERENCES.md` · `SKILLS.md`
