@@ -24265,3 +24265,69 @@ fixes that, and it stays the named milestone it has been.
 (the three `#[func]`s only), `godot-project/shell/viewport_host.gd`,
 `godot-project/shell/engine_bridge.gd`, `godot-project/map_overlay.gd`
 (two stale `ZOOM_MAX` references).
+
+## Three small, independent UI fixes: a dock that would not collapse, a stale lock note, and a readout that showed the wrong content (2026-08-24)
+
+Three unrelated single-file (plus one two-file) fixes from the same pass —
+no engine change in any of them.
+
+**The dock-collapse `ScrollContainer` lookup.** `dcc_shell.gd`'s
+`_toggle_dock()` hid the collapsed dock's content by walking
+`dock.get_child(0)`'s children for a `ScrollContainer`. On desktop
+`get_child(0)` is the drag-handle `HBoxContainer` `_dock_drag_handle()` wraps
+around the real content column and the 6 px grip — the actual
+`ScrollContainer` lives one level deeper, inside that column. Nothing ever
+matched: the content stayed visible and its own minimum size kept forcing the
+dock past `W_RAIL_COLLAPSED` (40 px) on collapse, reported live at 293 px.
+Fixed by reading the stored `_left_dock_scroll`/`_right_dock_scroll`
+references `_build_left_dock()`/`_build_right_dock()` already populate,
+instead of re-deriving the node from tree shape. Left dock now collapses to
+54 px (the residual 14 px over the nominal 40 is the collapse chevron and the
+grip, both deliberately still visible — "the chevron is all that fits, and it
+is the only affordance for getting the dock back"). Found by the rail-fix
+agent's own report this session (`37aac2d`, logged in `STATUS.md` as "still
+open, noted not fixed").
+
+**`GUI_GAP_REGISTER.md` RD-13 — the Stamp stack's finalize-lock note, taken.**
+`right_dock.gd`'s Sculpt context used to say outright "No finalize/lock state
+exists in this engine yet" — true when written, stale since `948e15a` gave
+`FinalizeLock` a real five-guard engine with `sculpt_commit` as one of the
+guarded call sites. `_build_sculpt()` now calls
+`bridge.finalize_check("height_edit")` on every rebuild: Commit disables
+alongside the pre-existing empty-stack case, and once the world is finalized
+the engine's own refusal sentence is shown verbatim as a note, replacing the
+placeholder that claimed no lock state existed.
+
+**The map's top-right readout carries what the canvas puts there.**
+`design/Cartalith DCC Shell.dc.html` draws projection over style preset —
+`2D · equirect · z 5.2` / `relief · atlas preset` — in that corner; the port
+was drawing grid size and extent instead (`GUI_GAP_REGISTER.md` §28's own
+"left open, reported rather than taken" note, from the same-day rail/wheel/
+measure pass, closed here). "2D" and "equirect" are honest constants, not a
+lookup — this port has one flat km projection throughout (`DCC_SHELL_SPEC.md`
+§2.4) — so only the zoom and the style-preset name are runtime state. The
+style preset was already real, tracked state (`render_workspace.gd`'s five
+Map-style chips plus "Custom" once a manual edit or a loaded named look
+diverges from all five); nothing outside that workspace could see it.
+`ViewportHost` gained `set_style_readout()`, pushed from `render_workspace.gd`'s
+`_apply_preset()`/`_mark_custom()`, the same push-not-poll shape
+`set_camera_zoom()` already uses on `overlay`. Grid size/extent lost no
+display: the WORLD dock readout and the Sample panel already show both.
+
+**Verified live and windowed** (`_uifix_shot.gd`, 1600 × 900, a small
+generated world): left dock 372 → 54 px collapsed with the real
+`ScrollContainer` hidden, restores to 372 px on re-expand; right dock
+300 → 101 px collapsed by the same mechanism (wider because `_toggle_dock()`
+never hides `right_dock_title` the way it hides `left_dock_title` — a second,
+separate, unreported gap, left alone here). Readout reads `2D · equirect ·
+z1.2` / `Default` at boot and updates to `.../Ink` after pressing the Ink
+style chip through its real `pressed` signal. Stamp stack:
+`finalize_check("height_edit")` returns empty and Commit is enabled
+pre-bake; after a real `bake_all` + `set_finalized(true)`, it returns "This
+world is finalized: the baked atlas is the authoritative surface, so the
+heightfield is read-only. Un-finalize first.", Commit disables, and that exact
+sentence is present as a `Label` in the dock. Headless boot clean throughout.
+
+**Files:** `godot-project/shell/dcc_shell.gd`,
+`godot-project/shell/right_dock.gd`, `godot-project/shell/viewport_host.gd`,
+`godot-project/shell/workspaces/render_workspace.gd`.

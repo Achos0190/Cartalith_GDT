@@ -1227,18 +1227,24 @@ func _build_sculpt(body: Control) -> void:
 	redo_btn.disabled = not bridge.sculpt_can_redo()
 	DccWidgets.note(hist, "Draft-scoped only (add/delete/hide/reorder) -- never touches the real heightfield.")
 
+	## `GUI_GAP_REGISTER.md` RD-13: WW-01 (`948e15a`) gave `FinalizeLock` a real
+	## engine, and `sculpt_commit` is one of its five guarded call sites --
+	## `finalize_check("height_edit")` returns the same refusal sentence the
+	## engine itself would print, so the button and the note agree with what a
+	## press would actually do instead of failing silently against a locked
+	## world.
+	var lock_msg := String(bridge.finalize_check("height_edit"))
 	var actions := DccWidgets.group(body, "Commit")
 	var commit_btn := DccWidgets.action(actions, "%s Commit to map" % DccIcons.SYMBOLS["tick"], _on_sculpt_stack_commit, true)
-	commit_btn.disabled = stamps.is_empty()
+	commit_btn.disabled = stamps.is_empty() or not lock_msg.is_empty()
 	var discard_btn := DccWidgets.action(actions, "Discard draft", _on_sculpt_stack_discard)
 	discard_btn.disabled = stamps.is_empty()
 	DccWidgets.note(body,
 		"Commit bakes the whole stamp stack into the heightfield and marks the tiles it " +
 		"touched stale -- it does not re-run erosion, hydrology or climate " +
-		"(DCC_SHELL_SPEC.md header correction #1). No finalize/lock state exists in this " +
-		"engine yet -- no bake/LOD pipeline exists to freeze against (world_workspace.gd's " +
-		"own Finalize section has the same gap), so there is nothing real to report for §6's " +
-		"own finalize-lock note.")
+		"(DCC_SHELL_SPEC.md header correction #1).")
+	if not lock_msg.is_empty():
+		DccWidgets.note(body, lock_msg)
 
 func _sculpt_stamp_row(parent: Control, d: Dictionary, selected: int) -> void:
 	var idx := int(d.get("index", -1))

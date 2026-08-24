@@ -1341,9 +1341,15 @@ func _toggle_dock(is_left: bool) -> void:
 	var side := "left" if is_left else "right"
 	var collapsed := not (_left_collapsed if is_left else _right_collapsed)
 	dock.custom_minimum_size.x = float(DccTheme.W_RAIL_COLLAPSED) if collapsed else (_left_width if is_left else _right_width)
-	for child in dock.get_child(0).get_children():
-		if child is ScrollContainer:
-			child.visible = not collapsed
+	## `dock.get_child(0)` is the drag-handle `HBoxContainer` (`_dock_drag_handle()`
+	## wraps `col` and the grip together), not the `ScrollContainer` -- which sits
+	## one level deeper, inside `col`. Hiding the wrong child left the real
+	## `ScrollContainer`'s content visible and its minimum size still forcing the
+	## dock wider than `W_RAIL_COLLAPSED`. Go straight to the stored reference
+	## instead of walking the tree.
+	var scroll := _left_dock_scroll if is_left else _right_dock_scroll
+	if scroll != null:
+		scroll.visible = not collapsed
 	(_dock_readouts[side] as Label).get_parent().visible = collapsed
 	if is_left:
 		## The title has no room at 40 px; the chevron is all that fits, and it

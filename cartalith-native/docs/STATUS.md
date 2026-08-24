@@ -6690,3 +6690,59 @@ Area 329 · Radius 375` │ `CROSS-SECTION 440 · Elevation 556 … Geology 836`
 the `ScrollContainer` to hide, but on desktop that child is the drag-handle
 `HBoxContainer` and the scroll lives one level deeper — so collapsing the left
 dock leaves it 293 px wide instead of 40. Out of scope for these three reports.
+
+## Three small, independent UI fixes (2026-08-24)
+
+- [x] **The dock-collapse `ScrollContainer` lookup, closed.** The item directly
+      above — `_toggle_dock()` walked `dock.get_child(0)`'s children for a
+      `ScrollContainer`, but on desktop `get_child(0)` is the drag-handle
+      `HBoxContainer` (`_dock_drag_handle()` wraps the real content column and
+      the grip together); the `ScrollContainer` lives one level deeper, inside
+      that column. Nothing ever matched, the content stayed visible, and its
+      minimum size kept forcing the dock past `W_RAIL_COLLAPSED`. Fixed by
+      going straight to the stored `_left_dock_scroll`/`_right_dock_scroll`
+      references `_build_left_dock()`/`_build_right_dock()` already populate,
+      instead of walking the tree. Left dock: 372 → 54 px collapsed (down from
+      the reported 293; the residual 14 px over the nominal 40 is the
+      collapse-chevron button and 6 px drag-handle grip that stay visible by
+      design — "the chevron is all that fits, and it is the only affordance
+      for getting the dock back"). Right dock collapses to 101 px by the same
+      mechanism; wider still because `_toggle_dock()` never hides
+      `right_dock_title` the way it hides `left_dock_title` — a second,
+      separate, unreported gap, left alone here.
+- [x] **`GUI_GAP_REGISTER.md` RD-13 — the Stamp stack's finalize-lock note is
+      real.** `right_dock.gd`'s `_build_sculpt()` used to say outright "No
+      finalize/lock state exists in this engine yet" — true when written, and
+      stale since WW-01 (`948e15a`) gave `FinalizeLock` a real five-guard
+      engine with `sculpt_commit` as one of the guarded call sites. Now calls
+      `bridge.finalize_check("height_edit")` on every rebuild: Commit disables
+      alongside the empty-stack case, and once the world is finalized the
+      engine's own refusal sentence is shown as a note, verbatim, instead of
+      the old placeholder.
+- [x] **The map's top-right readout now matches the canvas's content, not just
+      its position.** `design/Cartalith DCC Shell.dc.html` draws projection
+      over style preset (`2D · equirect · z 5.2` / `relief · atlas preset`)
+      here; the port was drawing grid size and extent instead
+      (`GUI_GAP_REGISTER.md` §28's own "left open, reported rather than taken"
+      note on this, from the same-day rail/wheel/measure pass). `2D` and
+      `equirect` are honest constants, not a lookup — this port has one flat
+      km projection throughout (`DCC_SHELL_SPEC.md` §2.4) — so only the zoom
+      and the style-preset name are live. The style preset was real state
+      already (`render_workspace.gd`'s five Map-style chips plus "Custom") but
+      nothing outside that workspace could see it; `ViewportHost` gained
+      `set_style_readout()`, pushed from `_apply_preset()`/`_mark_custom()`,
+      the same push-not-poll shape `set_camera_zoom()` already uses on
+      `overlay`. Grid size/extent lost no display — the WORLD dock readout and
+      the Sample panel already show both.
+
+**Verified live and windowed** (`_uifix_shot.gd`, 1600 × 900, a small
+generated world): left dock 372 → 54 px collapsed with the real
+`ScrollContainer` hidden, restores to 372 on re-expand; right dock 300 → 101 px
+collapsed, same mechanism confirmed. Readout reads `2D · equirect · z1.2` /
+`Default` at boot, updates to `.../Ink` after pressing the Ink style chip
+through its real `pressed` signal. Stamp stack: `finalize_check("height_edit")`
+empty and Commit enabled pre-bake; after a real `bake_all` + `set_finalized`,
+returns "This world is finalized: the baked atlas is the authoritative
+surface, so the heightfield is read-only. Un-finalize first.", Commit disables,
+and that exact sentence is present as a `Label` in the dock. Headless boot
+clean throughout.

@@ -40,6 +40,12 @@ var _debug_view := "off"          ## Which view `_debug_layer` currently holds.
 
 var _scale_label: Label
 var _readout_label: Label
+## `render_workspace.gd`'s active Map style preset name (or "Custom" once a
+## manual edit or a loaded named look diverges from all five), pushed in via
+## `set_style_readout()` -- see that method's own doc comment for why this
+## file does not read it itself. "Default" until the workspace's first build,
+## matching `_build_map_style()`'s own initial chip selection.
+var _style_readout := "Default"
 var _coords_label: Label
 var _layers_btn: Button
 ## The touch navpad (`GUI_GAP_REGISTER.md` SH-14) and its one stateful member.
@@ -682,12 +688,30 @@ func reset_view() -> void:
 	_clear_lod_tiles()
 	_update_lod()
 
+## `GUI_GAP_REGISTER.md`'s top-right-readout note: `design/Cartalith DCC Shell
+## .dc.html` draws `2D · equirect · z 5.2` over `relief · atlas preset` here --
+## projection and the active style preset, not grid size and extent (those are
+## `_bridge.grid_size()`/`last_width_km`/`last_height_km`, and already have a
+## home: the WORLD dock readout and the Sample panel). "2D" and "equirect" are
+## not live lookups; they are honest constants, not filler -- this port has no
+## camera projection to switch and works in one flat km grid throughout
+## (`DCC_SHELL_SPEC.md` §2.4's own "this port works in one flat km projection
+## throughout"). Only the zoom and the style name are runtime state.
 func _update_zoom_readout() -> void:
 	if _bridge == null or not _bridge.has_world:
 		return
-	var g := _bridge.grid_size()
-	_readout_label.text = "%d x %d  ·  %.0f x %.0f km  ·  z%.1f" % [
-		g.x, g.y, _bridge.last_width_km, _bridge.last_height_km, _zoom]
+	_readout_label.text = "2D · equirect · z%.1f\n%s" % [_zoom, _style_readout]
+
+## `render_workspace.gd` owns the Map style preset (the five chips plus
+## "Custom") as its own UI-only state -- nothing in the engine tracks "the
+## active look" (`GUI_GAP_REGISTER.md`'s own gap note on this readout: "the
+## style preset [is] simply not surfaced on the map at all"). Pushed here
+## rather than read from `app` on every frame, matching `set_camera_zoom()`'s
+## push-not-poll pattern on `overlay` and keeping this leaf node ignorant of
+## which workspace owns which dock.
+func set_style_readout(name: String) -> void:
+	_style_readout = name
+	_update_zoom_readout()
 
 ## Phone chrome (`DccShell._build_phone_shell()`) sits on top of this node's
 ## own edges once the map is edge-to-edge behind it (inset rule "DRAW
