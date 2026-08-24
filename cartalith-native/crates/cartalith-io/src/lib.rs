@@ -7,10 +7,16 @@
 //! writer. `SAVEFILE_COMPAT.md`'s own "Deferred" section is updated to
 //! match.
 
+pub mod atlas;
 pub mod gzip;
 pub mod save;
 pub mod tiles;
 
+pub use atlas::{
+    atlas_chunk_file, atlas_key_str, atlas_meta_key, build_atlas_manifest, decode_chunk,
+    encode_chunk, fnv1a32_hex, world_key, AtlasChunk, AtlasChunkDesc, AtlasChunkRecord, AtlasKey,
+    AtlasManifest, AtlasMeta, AtlasStore, ATLAS_KIND, ATLAS_MANIFEST,
+};
 pub use gzip::{gunzip_bytes, gzip_bytes};
 pub use save::{params_json, write_save, SaveError, SaveWrite, SAVE_VERSION};
 pub use tiles::{

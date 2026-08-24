@@ -57,11 +57,27 @@ pub struct AmplifyOpts {
     pub sea: f64,
     /// Use `ridged` instead of `fbm` for the detail term. Default false.
     pub ridged: bool,
+    /// `opts.zBase` — the pyramid level at which [`add_zoom_detail`] starts
+    /// adding octaves. Default 2, the reference's own. Read by
+    /// [`add_zoom_detail`] only; [`amplify_region`] ignores it, exactly as the
+    /// reference's single shared `opts` bag does.
+    pub z_base: i32,
+    /// `opts.zoomDetailK` — the user's "zoom detail" amount. Default 1, which
+    /// the reference documents as *"legacy, bit-identical"*.
+    pub zoom_detail_k: f64,
 }
 
 impl Default for AmplifyOpts {
     fn default() -> Self {
-        AmplifyOpts { seed: 1234, detail_freq: 1.0, detail_amp: 0.14, sea: 0.42, ridged: false }
+        AmplifyOpts {
+            seed: 1234,
+            detail_freq: 1.0,
+            detail_amp: 0.14,
+            sea: 0.42,
+            ridged: false,
+            z_base: 2,
+            zoom_detail_k: 1.0,
+        }
     }
 }
 
@@ -204,6 +220,93 @@ pub fn refine_tile(
         h: step_y + 1.0,
     };
     amplify_region(src, src_w, src_h, &sub, tile_w, tile_h, opts)
+}
+
+/// `addZoomDetail(data, W, H, coarse, cW, cH, b, z, opts)` (reference line
+/// 10467) — the pyramid's *progressive* (fractal) zoom detail, applied in place
+/// on top of a [`refine_tile`] result.
+///
+/// The reference's own header states the problem it solves: *"amplifyRegion
+/// adds detail at a FIXED coarse-space frequency, so the fbm runs out of
+/// octaves at high zoom and the surface goes smooth ('details don't get more
+/// intricate'). This adds `z − zBase` extra finer octaves, each 2× frequency,
+/// sampled in SHARED coarse coords with a COARSE-relief taper — so adjacent
+/// same-level tiles stay seam-Δ=0 exactly (and oceans/flats stay smooth)."*
+///
+/// Three properties worth stating because they are what the tests pin:
+///
+/// 1. **`z <= opts.z_base` is a no-op**, byte for byte — `extra` is
+///    non-positive and the function returns before touching `data`. That is
+///    what makes it safe to call unconditionally from [`crate`]'s pyramid path
+///    at every level.
+/// 2. **The octave count is capped at 6** (`Math.min(6, z - zBase)`), so an
+///    absurd level costs no more than a sane deep one.
+/// 3. **Below `sea` nothing is touched at all** (`if(base<sea) continue`),
+///    which is a *different* rule from [`amplify_region`]'s smooth
+///    `underwater` fade — the reference really does use a hard cut here.
+///
+/// `b` is the tile's coarse-cell footprint, i.e. exactly what
+/// `cartalith_spatial::pyramid::pyramid_tile_bounds` returns; the detail is
+/// sampled at the shared coarse coordinate it maps each output texel to, which
+/// is the whole reason two neighbouring tiles agree on their shared edge.
+///
+/// # Panics
+///
+/// Panics if `data` is shorter than `w * h`, or `coarse` shorter than
+/// `cw * ch`.
+pub fn add_zoom_detail(
+    data: &mut [f32],
+    w: usize,
+    h: usize,
+    coarse: &[f32],
+    cw: usize,
+    ch: usize,
+    b: &FloatRegion,
+    z: i32,
+    opts: &AmplifyOpts,
+) {
+    assert!(data.len() >= w * h, "add_zoom_detail data is too short");
+    assert!(cw > 0 && ch > 0 && coarse.len() >= cw * ch, "add_zoom_detail coarse is too short");
+    let extra = i32::min(6, z - opts.z_base);
+    if extra <= 0 {
+        return;
+    }
+    let sea = opts.sea;
+    // The reference declares its own local `samp` here rather than reusing
+    // `amplifyRegion`'s; the two are the same bilinear clamp, so this reuses
+    // `samp` above -- an internal restructuring that preserves output, which is
+    // the kind `cartalith-porting-discipline` explicitly allows.
+    let base_freq = opts.detail_freq;
+    let base_amp = opts.detail_amp;
+    let zk = opts.zoom_detail_k;
+    for oy in 0..h {
+        let cy = b.y + if h > 1 { oy as f64 / (h as f64 - 1.0) * b.h } else { 0.0 };
+        for ox in 0..w {
+            let i = oy * w + ox;
+            let base = data[i] as f64;
+            if base < sea {
+                continue;
+            }
+            let cx = b.x + if w > 1 { ox as f64 / (w as f64 - 1.0) * b.w } else { 0.0 };
+            let gx = (samp(coarse, cw, ch, cx + 1.0, cy) - samp(coarse, cw, ch, cx - 1.0, cy)) * 0.5;
+            let gy = (samp(coarse, cw, ch, cx, cy + 1.0) - samp(coarse, cw, ch, cx, cy - 1.0)) * 0.5;
+            let relief = js_min(1.0, js_hypot(gx, gy) * 8.0);
+            if relief <= 0.0 {
+                continue;
+            }
+            let mut amp = base_amp * 0.6 * zk;
+            let mut f = base_freq * 2.0;
+            let mut sum = 0.0;
+            for o in 0..extra {
+                sum += (cartalith_noise::fbm(cx * f, cy * f, opts.seed + 1 + o) - 0.5) * amp;
+                f *= 2.0;
+                amp *= 0.6;
+            }
+            // The reference writes back unclamped -- `data[i]=base+sum*relief`,
+            // no `[0,1]` clamp, unlike `amplifyRegion`'s. Ported as written.
+            data[i] = (base + sum * relief) as f32;
+        }
+    }
 }
 
 #[cfg(test)]

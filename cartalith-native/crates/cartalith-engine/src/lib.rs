@@ -92,6 +92,12 @@ pub mod sculpt_commit;
 /// E and E2). Unwired: nothing calls it yet.
 pub mod region_export;
 
+/// The LOD tile-pyramid bake, the persistent atlas it writes into, the
+/// portable `World/` archive, and the finalize lock that keeps a baked world
+/// from being regenerated out from under its own atlas
+/// (`GUI_GAP_REGISTER.md` WW-01/PR-10/S4/S5).
+pub mod bake;
+
 /// `exportGeoJSON` and its two feature builders (`UNIFIED_TOOL_PLAN.md`
 /// milestone E2). Unwired: nothing calls it yet.
 pub mod geojson;

@@ -52,6 +52,7 @@ pub mod geo;
 pub mod measure;
 pub mod paint;
 pub mod pass;
+pub mod pyramid;
 pub mod region;
 pub mod staleness;
 
@@ -62,6 +63,10 @@ pub use measure::{
 };
 pub use paint::{PaintLayer, PaintStamp};
 pub use pass::{CommitSummary, PassBuffer, PassEntry, Stamp};
+pub use pyramid::{
+    baked_cover, chunk_children, chunk_parent, pyramid_dims, pyramid_level_for_zoom,
+    pyramid_tile_bounds, pyramid_tile_count, tiles_in_view, ChunkId, PyramidDims, TilesInView,
+};
 pub use region::{js_round, norm_region, tile_dims, FloatRegion, TileDims};
 pub use staleness::{StageGraph, StageId, Staleness};
 
