@@ -23453,6 +23453,32 @@ rather than stubbed: the bridge still emits **no key** for any of them.
   ported, so they are checked against the reference engine rather than
   eyeballed.
 
+### Follow-up: a NaN plot rule reached lot geometry, because JS `||` is falsy for NaN
+
+Found reading the port back against the reference rather than from a failing
+test — and **no golden could have caught it**, which is this document's
+recurring finding again: every scenario's rules are finite, so not one of the
+five reaches the branch at all.
+
+`buildParcels` stretches its frontage widths with `(eLen)/(acc||eLen)`. JS
+`||` is falsy for **NaN as well as zero**, so a NaN `acc` takes the `eLen`
+branch and the scale comes out `1`. The port tested `acc == 0.0` alone, which
+misses NaN and divides by it instead — pushing a NaN into all four corners of
+every lot on that frontage, which **draws as nothing at all rather than as an
+error**, the worst failure mode for a visual subsystem.
+
+Reachable in the app, not hypothetical: `applyPlotChaos` writes a NaN slider
+straight into `frontageWidthVariance`, `logn` returns NaN from it, and
+`js_min`/`js_max` propagate NaN by design — which is the whole reason those two
+exist (`cartalith-rust-conventions`). `-0.0` is covered by the same test, since
+`-0.0 == 0.0`.
+
+`a_nan_rule_does_not_reach_lot_geometry` pins both NaN paths the parcel rules
+can produce: the frontage variance above, and the NaN `subdivisionCap` that
+`ParcelRules`' own doc comment describes, which must run the burgage cycle zero
+times rather than panicking. All five golden scenarios pass **unchanged** — the
+fix only moves behaviour no finite input can reach.
+
 ## Bake, tile pyramid, persistent atlas and the finalize lock (`GUI_GAP_REGISTER.md` WW-01 / PR-10 / PR-12 / SH-07, `PARITY_AUDIT.md` §3, 2026-08-24)
 
 `PARITY_AUDIT.md`'s largest genuinely-unstarted row with no owner ruling

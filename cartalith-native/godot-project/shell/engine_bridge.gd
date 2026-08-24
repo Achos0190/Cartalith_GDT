@@ -515,12 +515,13 @@ func trade_balances() -> Array:
 	return world_gen.get_trade_balances()
 
 ## Town layouts for the given settlement indices (`urban_bridge.rs`,
-## `URBAN_MORPHOLOGY_SCOPE.md` milestones 1-7). Shorter than `indices`
+## `URBAN_MORPHOLOGY_SCOPE.md` milestones 1-7 and 12). Shorter than `indices`
 ## whenever the engine refuses a settlement -- a pin in open water gets no
 ## town, which is the reference's own `_umModelFor` refusal. Each entry
 ## carries its own `index` back, and its `stages` array names which generator
-## stages produced it; there is no `blocks`/`buildings`/`wall` key at all,
-## because milestones 8-17 do not exist and an empty array would read as
+## stages produced it. Milestone 12 added `blocks`, `parcels`, `parcel_tone`
+## and `parcel_cls`; there is still no `buildings` or `wall` key at all,
+## because milestones 13 and 10 do not exist and an empty array would read as
 ## "this town has none". Empty against a binary built before this landed, the
 ## same `has_method` guard `lod_tile_cells()` above uses for its own milestone.
 func urban_layouts(indices: PackedInt32Array) -> Array:
