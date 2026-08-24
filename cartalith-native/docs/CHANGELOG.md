@@ -24831,6 +24831,14 @@ appearance and nothing else, so there is no path from it to the heightmap,
 climate, geology, hydrology or the seed. It runs in `build_color_texture` and in
 the export raster, in the same slot in both.
 
+> **Annotated 2026-08-24, after the fact.** That last sentence was written one
+> commit *ahead* of the code: `export_raster.rs` did not exist yet when this
+> entry landed (`423a6a2`); it arrived in the next commit (`57b1214`), which
+> did honour the claim and call `apply_color_grade` in the stated slot. So the
+> sentence was aspirational when written and is true now — but nothing
+> *verified* it either way until the entry below, and the reason that gap could
+> sit unnoticed is worth reading there.
+
 Unlike local contrast, the grade **does** cover the plate frame. That is the
 difference between the two stages: local contrast is about making terrain
 legible and has no business sharpening a neatline, while a warm print with a
@@ -25169,7 +25177,7 @@ Headless, through the real bindings, on a 512×328 world unless stated:
 route is live, the pane builds, the segments swap, the checkbox toggles, both
 footer chips are enabled and connected, pressing one writes a real 7.1 MB PNG,
 and the run appears in the pane's own recent-runs list). 11 `bake_raster.rs`
-tests. `golden_parity_render.rs` unmodified and passing. The 2K PNG was opened
+tests (13 after the colour-grade entry below). `golden_parity_render.rs` unmodified and passing. The 2K PNG was opened
 and looked at: terrain, coastline, snow, biome variation, the plate frame, and
 rivers.
 
@@ -25177,3 +25185,125 @@ rivers.
 whether World Data should also assemble one `.zip` (params + f32 layers + raster
 + atlas + features) or defer to File ▸ Save is not an export task's decision to
 make, and the pane's OUTPUT column says so.
+
+## The graded export was right, and nothing could have told you (2026-08-24)
+
+A follow-up to the two entries above, and mostly a lesson about what a passing
+test proves.
+
+### What was checked, and what was found
+
+The question put to this pass was whether `export_raster.rs` skips the colour
+grade — the entry above says the grade "runs in `build_color_texture` and in
+the export raster, in the same slot in both", and that sentence was written a
+commit before the export raster existed.
+
+**It does not skip it.** `export_raster_png` has called
+`render::apply_color_grade(&appearance, &mut px)` since the commit that created
+it (`57b1214`), immediately after `apply_local_contrast`, off the same
+`self.appearance()` the viewport uses — so the same tier, the same named look,
+the same saved preset, the same ramp and the same per-key overrides. The code
+needed no change. What it needed was evidence.
+
+### Why the existing evidence was worth nothing
+
+`_exportraster_probe.gd` section 13 already compares a grid-resolution export
+against `build_color_texture` **byte for byte**, and it passes at ~15 bytes of
+8,060,928, all ±1. That looks like exactly the assertion that would catch a
+missing grade.
+
+It is not, and the reason is the shipped default. `Natural Vibrant` — the look
+`WorldGen` opens on — leaves all six grade axes at `0.0`, so
+`apply_color_grade` early-returns on `grade_is_identity()` on **both** sides of
+that comparison. Delete the call from the export entirely and section 13 still
+passes, unchanged, at the same ~15 bytes. `Quality tier` is identity too. Of the
+three shipped looks only `Antique Parchment` grades at all.
+
+That is the root `CLAUDE.md` "silently-empty golden output" failure one level
+up: not an empty fixture, but a fixture that reaches the stage under test and
+finds it configured to do nothing. Both halves of the comparison were correct,
+both were graded, and the grade was zero.
+
+### Built
+
+Two tests in `bake_raster.rs` (11 → 13; see the sequencing note below for which
+commit they ride in on), transcribing `build_color_texture`'s sequence the way
+that file already transcribes its river-tint loop:
+
+- `a_grid_resolution_export_carries_the_colour_grade` — under
+  **`Antique Parchment`**, asserts the grade is not vacuous at that look
+  (>50 % of pixels, >2 mean byte levels), that the export's
+  bake → local-contrast → grade sequence lands on the viewport's bytes, and
+  that the two whole-raster stages **do not commute**, so a reordered export
+  would fail the middle assertion rather than slip through it.
+- `the_export_is_unchanged_by_the_grade_at_the_shipped_look` — the other half:
+  under `Quality tier` and `Natural Vibrant` the grade must move nothing, so
+  adding the call cannot have moved any baseline taken under them. It also
+  asserts `grade_is_identity()` for both, which is what makes the *first* test
+  necessary rather than redundant — the day a shipped look starts grading, that
+  assertion fires and says so.
+
+Mutation-checked: removing the grade from the export sequence fails the first
+test at "the grade moved only 0 of 408 pixels".
+
+> **Sequencing, disclosed rather than discovered.** This pass ran while a
+> concurrent session was adding CA-14's four field-influence weights, which
+> changed `apply_color_grade`'s signature to take an `influence: &[f32]` third
+> argument and added `build_grade_influence`. Both new tests call the real
+> three-argument form, as `export_raster.rs` and `build_color_texture` now
+> both do, so **they compile only against that change** and land with the
+> commit carrying it — not with this documentation commit. Whole
+> `cartalith-godot` suite green against the combined tree: 337 lib tests, 13
+> `bake_raster.rs`, 39 `appearance_tiers.rs`, every other target unchanged.
+
+### Verified — non-headless, real bindings, 2048 × 1312 (seed 20260824)
+
+`_gradeexport_probe.gd`, a real session on an RX 7800 XT. Grid resolution
+because that is the only width at which "the export equals the screen" is a
+well-posed byte-for-byte question at all.
+
+| | worst | bytes differing of 8,060,928 |
+|---|---|---|
+| Natural Vibrant, export vs viewport | 1 level | ~16 (0.0002 %, derived) |
+| **Antique Parchment, export vs viewport** | **2 levels** | **10** |
+| Antique with the grade zeroed, export vs viewport | 1 level | 9 |
+
+And the grade's own effect, isolated by zeroing the six axes through
+`set_appearance` with the look otherwise unchanged:
+
+| | moved | mean | worst |
+|---|---|---|---|
+| graded vs ungraded **export** | 87.85 % | 4.23 levels | 16 |
+| graded vs ungraded **screen** | 87.85 % | 4.23 levels | 16 |
+
+The export feels the grade to the third decimal place of the amount the screen
+feels it. Vibrant vs Antique as whole exports: 94.19 % moved, mean 12.94.
+
+**The worst of 2, explained rather than tolerated.** Every other pairing in this
+project reads worst 1 — the `f32` bake prologue, documented since
+`bake_raster.rs` was written. Antique reads 2, and the third row above is what
+settles it: the *same look with the grade off* drops back to 1. Antique's
+contrast is `+0.08`, a slope of `1/(1 − 0.06) = 1.064` about mid-grey, with the
+temperature and tint shifts adding local gain on top. A one-level pre-grade
+difference passed through a gain above 1 and re-quantized lands two levels apart
+whenever both sides straddle a `floor` boundary. Ten bytes of eight million do.
+That is the existing rounding bound amplified, not a second defect, and the
+probe asserts the relationship (`graded ≤ ungraded + 1`) rather than the
+loosened number.
+
+Looked at, not only measured: a 512 px crop of the graded viewport, the graded
+export and the ungraded export side by side. The first two are
+indistinguishable warm parchment; the third is visibly cooler and greener, the
+sea a colder blue, which is what `+0.26` temperature and `+0.18` shadow tint do.
+
+### Corrected
+
+The entry above now carries a dated annotation saying its claim was written a
+commit ahead of its code. `GUI_GAP_REGISTER.md` #34's Verified block covered
+the viewport only and said nothing about the export; it now carries the table
+above.
+
+**Still open:** nothing for the grade. Worth noting for whoever adds the next
+look — a look with a non-identity grade is now load-bearing test surface, and
+`the_export_is_unchanged_by_the_grade_at_the_shipped_look` will fail loudly if
+the shipped default ever becomes one.

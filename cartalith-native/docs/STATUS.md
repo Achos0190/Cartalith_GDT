@@ -5,7 +5,33 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **the renderer was never the problem, its
+Last updated: 2026-08-24 (post **the graded export was right, and nothing
+could have told you** — a verification pass, **no engine change**. The question
+was whether `export_raster.rs` skips `apply_color_grade`; it does not, and has
+called it in the viewport's own slot off the same `self.appearance()` since the
+commit that created it. What was missing was *evidence*, and the reason is
+worth carrying: `_exportraster_probe.gd` §13 already compares a grid-resolution
+export against `build_color_texture` byte for byte and passes — but under the
+shipped default **Natural Vibrant**, whose grade is the identity, so the pass
+early-returns on both sides and **deleting the call entirely would not have
+changed that result**. The root `CLAUDE.md` "silently-empty golden output" rule
+one level up: a fixture that reaches the stage and finds it configured to do
+nothing. Re-verified under **Antique Parchment**, the one shipped look that
+grades, non-headless at 2048×1312: export vs viewport **worst 2 levels, 10
+bytes of 8,060,928**; the grade isolated by zeroing its six axes moves
+**87.85 % of bytes, mean 4.23 levels — the identical figures for the export and
+for the screen**. The worst of 2 (elsewhere always 1) is the `f32` prologue
+amplified by Antique's `+0.08` contrast across a `floor` boundary, proved by
+the same look with the grade off dropping back to worst 1 / 9 bytes — asserted
+as a *relationship*, not a loosened bound. `bake_raster.rs` 11 → **13 tests**
+holding both halves offline (graded look moves the export and matches the
+screen and the two whole-raster stages do not commute; shipped looks grade
+nothing, so no baseline moved), mutation-checked. The `CHANGELOG.md` sentence
+claiming the grade "runs in `build_color_texture` and in the export raster"
+was written **one commit ahead of the code** (`423a6a2`, before
+`export_raster.rs` existed at `57b1214`) and now carries a dated annotation
+saying so)
+— previously, post **the renderer was never the problem, its
 defaults were** — `GUI_GAP_REGISTER.md` **§34**, owner analysis. The
 reference's renderer is already a full pipeline; what makes it muted is that
 most of its enhancement sliders default to `0` and its base palettes are
@@ -2701,8 +2727,15 @@ level) on a 401×277 one.
 **Measured, live, headless and non-headless.** 2K 0.21 s / 2.5 MB; tiled 4K
 0.80 s / 12 tiles + `index.json`, pixel-identical to the single file;
 **8K 43.0 MP in 4.5 s / 30.5 MB**; atlas 0.11 s / 0.57 MB. 52 probe assertions
-and 30 UI assertions, plus 11 `bake_raster.rs` tests. `golden_parity_render.rs`
+and 30 UI assertions, plus 11 `bake_raster.rs` tests (**13** after the
+colour-grade verification pass at the top of this file). `golden_parity_render.rs`
 unmodified and passing.
+
+**The two whole-raster stages are in here too**, and the export runs both:
+`apply_local_contrast` then `apply_color_grade`, in `build_color_texture`'s own
+order, off the same `self.appearance()`. Verified under a *grading* look rather
+than the shipped default — see the top of this file for why that distinction
+was the whole finding.
 
 **Still open:** `exportZip`'s single-archive form. This route writes *loose
 files*; whether World Data should additionally assemble one `.zip` (params +

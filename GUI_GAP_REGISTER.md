@@ -5067,3 +5067,28 @@ arithmetic - `1 + 0.2 * k * (T - 0.5)` at `k = 0.18` is a plus-or-minus 1.8 %
 modulation, about 2.5 levels on a 140-luma pixel - not a porting error. Both
 were left at the numbers the specification names rather than quietly multiplied
 up; their sliders are live and reach real strength.
+
+### Verified again, in the export (2026-08-24)
+
+The block above measured the **viewport** only. The export raster arrived a
+commit later and does carry the grade, in the same slot - but nothing proved
+it, and the obvious proof does not work: the grid-resolution byte-for-byte
+probe passes under `Natural Vibrant`, whose grade is the identity, so
+`apply_color_grade` early-returns on both sides and a missing call is
+invisible. Re-run under **`Antique Parchment`**, the one shipped look that
+grades, non-headless at 2048x1312 (seed 20260824):
+
+| | worst | of 8,060,928 bytes |
+|---|---|---|
+| Natural Vibrant, export vs viewport | 1 level | ~16 |
+| **Antique Parchment, export vs viewport** | **2 levels** | **10** |
+| Antique with the grade zeroed, export vs viewport | 1 level | 9 |
+
+The grade isolated, by zeroing the six axes through `set_appearance` with the
+look otherwise unchanged: **87.85 % of bytes moved, mean 4.23 levels, worst
+16 - identical figures for the export and for the screen.** The worst of 2 in
+row two is row three's worst of 1 amplified by Antique's `+0.08` contrast
+(a slope of 1.064) across a `floor` boundary, not a second defect; the probe
+asserts that relationship rather than the loosened number. Two tests in
+`bake_raster.rs` now hold both halves offline. See `CHANGELOG.md`, *"The graded
+export was right, and nothing could have told you"*.
