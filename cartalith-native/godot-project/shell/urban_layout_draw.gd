@@ -14,7 +14,9 @@ class_name UrbanLayoutDraw
 ##
 ## Milestone 12 added `buildBlocks`/`buildParcels`, so two of the reference's
 ## own layers are now real: `model.blocks` (the opaque urban ground between the
-## streets) and the lots platted inside them. `model.buildings` and
+## streets) and the lots platted inside them. Milestone 8 added `model.plaza` —
+## the market square, drawn as a lighter block fill with its own outline over
+## the roofs, and with nothing platted on it. `model.buildings` and
 ## `model.wall` are still milestones 13 and 10 and are **not** substituted for
 ## — see `_draw_roofs()` for exactly what a "rooftop" is here and what it is
 ## not.
@@ -57,6 +59,15 @@ const ROUTE_END := Color(0.729, 0.545, 0.271)
 const GROUND := Color(0.761, 0.702, 0.580)       # rgb(194,179,148)
 ## The built interior of a block, a shade under the parchment.
 const BLOCK_GROUND := Color(0.671, 0.604, 0.478) # rgb(171,154,122)
+## The market square: `_umDrawLayout` line 22804 fills a plaza block
+## rgb(208,192,154) where an ordinary block is rgb(182,172,148), so this is
+## `BLOCK_GROUND` moved by the same ratio rather than a colour picked here. The
+## square has to read as *open ground* — lighter than the built mass around it
+## and with no roofs on it, which is what `buildParcels` skipping it achieves.
+const PLAZA_GROUND := Color(0.767, 0.674, 0.498)
+## The plaza outline, likewise the reference's own rgb(150,128,86) (line 23046)
+## pulled into this drawing's ink range.
+const PLAZA_LINE := Color(0.588, 0.502, 0.337)
 
 ## The rooftop base, in HSV. Every roof is this hue with its brightness and
 ## saturation moved together by its own `tone` -- see `_roof_color()`.
@@ -146,13 +157,20 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 
 	# Block ground (milestone 12). Under the streets, so the street fills read
 	# as channels cut through the built mass rather than as lines drawn on it.
-	for blk: PackedVector2Array in layout.get("blocks", []) as Array:
+	# The market square (milestone 8) is one of these, flagged and filled a
+	# shade lighter -- it is the same layer, not an overlay, because it *is* a
+	# block: the one the engine kept unbuilt.
+	var blocks: Array = layout.get("blocks", [])
+	var block_plaza: PackedByteArray = layout.get("block_plaza", PackedByteArray())
+	for i in blocks.size():
+		var blk: PackedVector2Array = blocks[i]
 		if blk.size() < 3:
 			continue
 		var bpts := PackedVector2Array()
 		for p in blk:
 			bpts.append(to_screen.call(p))
-		ci.draw_colored_polygon(bpts, tint.call(BLOCK_GROUND))
+		var is_plaza: bool = i < block_plaza.size() and block_plaza[i] != 0
+		ci.draw_colored_polygon(bpts, tint.call(PLAZA_GROUND if is_plaza else BLOCK_GROUND))
 
 	# Streets: casing (ink, wider) then fill (light, narrower), so the network
 	# reads as continuous lines rather than loose segments. Both passes walk
@@ -181,6 +199,18 @@ static func draw_layout(ci: CanvasItem, layout: Dictionary, to_screen: Callable,
 			ci.draw_multiline(screen, tint.call(color), width)
 
 	_draw_roofs(ci, layout, to_screen, m_scale, px_floor, alpha, detail)
+
+	# The plaza outline, over the roofs -- the reference strokes it last for the
+	# same reason (line 23046): the square's edge is where the built frontages
+	# stop, so it has to sit above them to be the boundary rather than a line
+	# under them. Nothing is filled here; the fill is the flagged block above.
+	var plaza: PackedVector2Array = layout.get("plaza", PackedVector2Array())
+	if plaza.size() > 2:
+		var ppts := PackedVector2Array()
+		for p in plaza:
+			ppts.append(to_screen.call(p))
+		ppts.append(ppts[0])
+		ci.draw_polyline(ppts, tint.call(PLAZA_LINE), maxf(px_floor, 1.2 * m_scale), true)
 
 	if show_route_ends:
 		var ends: PackedVector2Array = layout.get("route_ends", PackedVector2Array())

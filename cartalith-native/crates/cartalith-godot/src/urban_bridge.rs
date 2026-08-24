@@ -20,8 +20,12 @@
 //! none" rather than "this port cannot generate any yet". The one key that
 //! does speak about the gap is `"stages"`, which names in plain words what
 //! produced the geometry, so a viewer can label itself honestly instead of
-//! implying a finished city. It also names what milestone 12 ran *without*:
-//! `buildPlaza` is milestone 8, so no block is marked a market square.
+//! implying a finished city.
+//!
+//! Milestone 8's `buildPlaza` landed on 2026-08-24, so `"blocks"` now comes
+//! with a parallel `"block_plaza"` flag and there is a `"plaza"` outline to
+//! stroke — the market square is real open ground rather than a block platted
+//! over the town's own anchor.
 //!
 //! ## Why there is one batch entry point and no cache here
 //!
@@ -108,6 +112,18 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
     // parcels are the lots a renderer draws a rooftop on.
     let blocks: Array<PackedVector2Array> = l.blocks.iter().map(|p| poly(p)).collect();
     d.set("blocks", &blocks);
+    // Milestone 8, parallel to `blocks`: 1 for the market square, which is kept
+    // unbuilt and is drawn a shade lighter (`_umDrawLayout` line 22804).
+    let block_plaza: PackedByteArray = l.block_plaza.iter().map(|p| u8::from(*p)).collect();
+    d.set("block_plaza", &block_plaza);
+
+    // The plaza itself. Absent rather than empty when the site had no primary
+    // to widen -- an empty polygon would read as "this town's market square has
+    // no outline" rather than "this town has no market square".
+    if let Some(p) = &l.plaza {
+        d.set("plaza", &poly(&p.poly));
+        d.set("plaza_center", Vector2::new(p.center.x as f32, p.center.y as f32));
+    }
 
     // Parcels go across as three parallel arrays rather than an array of
     // dictionaries: a town runs to a few thousand lots, and one `Dictionary`
@@ -138,8 +154,9 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
         "buildSite (m5)",
         if l.primaries.is_empty() { "buildPrimaries (m6) — no route produced" } else { "buildPrimaries (m6)" },
         "placeAnchors (m6)",
+        if l.plaza.is_some() { "buildPlaza (m8)" } else { "buildPlaza (m8) — no primary to widen" },
         "grow (m7)",
-        "buildBlocks (m12) — no plaza, so no open market square",
+        "buildBlocks (m12)",
         "buildParcels (m12)",
     ]
     .iter()

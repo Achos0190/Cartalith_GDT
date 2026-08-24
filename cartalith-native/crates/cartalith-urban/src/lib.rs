@@ -30,6 +30,12 @@
 //! shapes, parcels are the smallest stage that produces them, and every
 //! primitive it needs was already built and golden-tested at milestones 1-2.
 //! [`blocks`]'s own header records what the missing upstream stages cost it.
+//! Milestone 8's [`plaza`] then closed the most visible of those: `buildPlaza`
+//! carves the market square out of the principal street, and it runs on the
+//! organic branch as well as the radial one, so every drawn town now has the
+//! one open space a viewer expects at its centre. The rest of milestone 8
+//! (`buildRadialStreets`, `buildWaterway`) serves the Venus planning mode only
+//! and is still outstanding.
 //!
 //! **Wired as of 2026-08-23, and only through one door.**
 //! `cartalith_civ::urban_adapter` is this crate's sole consumer: it supplies
@@ -49,13 +55,15 @@ pub mod blocks;
 pub mod geom;
 pub mod graph;
 pub mod growth;
+pub mod plaza;
 pub mod rng;
 pub mod routes;
 pub mod rules;
 pub mod site;
 
 pub use astar::astar;
-pub use blocks::{Block, Parcel, Plaza, build_blocks, build_parcels};
+pub use blocks::{Block, Parcel, build_blocks, build_parcels};
+pub use plaza::{Plaza, build_plaza};
 pub use geom::{Vec2, js_cos, js_exp, js_hypot, js_log, js_max, js_min, js_round, js_sin};
 pub use graph::{Edge, Face, Graph, Node};
 pub use growth::{

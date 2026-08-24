@@ -843,11 +843,19 @@ at all.
 **And two disclosures the info panel now makes in words**, because `stages`
 cannot make them for itself:
 
-1. **There is no open market square.** `buildPlaza` (milestone 8) runs on the
-   organic branch too, not only the radial one, so without it the block over
-   the market anchor is platted like any other. This is the most visible
-   remaining gap and the smallest change that would close it — the scope
-   document's milestone 8 entry has been re-prioritised on those grounds.
+1. ~~**There is no open market square.**~~ **Closed 2026-08-24.**
+   `buildPlaza` (milestone 8) is ported and runs where `generate()` runs it —
+   between `buildPrimaries` and `grow`, on the organic branch as well as the
+   radial one. The market square is now real generated geometry: the engine
+   flags the block containing `plaza.center`, plats no lots on it, and the
+   bridge carries a `block_plaza` flag beside `blocks` plus the square's own
+   `plaza` outline. `urban_layout_draw.gd` fills that block a shade lighter
+   (the reference's own rgb(208,192,154) against rgb(182,172,148)) and strokes
+   the outline over the roofs. The legend gains a "Market place" row and the
+   info panel's note now *describes* the square rather than apologising for its
+   absence — both conditional on the layout actually having one, since a site
+   with no primary to widen gets no plaza and a swatch for a colour that is not
+   on screen is a lie.
 2. **A rooftop is a whole parcel, inset.** `buildBuildings` would put a
    smaller footprint inside each lot with a grammar per district and a terrain
    gate leaving some lots empty, so this town has no gaps and every roof is

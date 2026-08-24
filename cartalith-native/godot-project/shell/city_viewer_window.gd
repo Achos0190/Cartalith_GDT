@@ -353,6 +353,11 @@ func _rebuild_side() -> void:
 	_swatch(leg, DRAW._roof_color(0.62),
 		"Rooftops — one per parcel, each a slightly different weathered shade")
 	_swatch(leg, DRAW.BLOCK_GROUND, "Block ground — the built interior between streets (buildBlocks)")
+	## Only when the town has one: a site with no primary to widen gets no
+	## plaza, and a swatch for a colour that is not on screen is a lie.
+	if _layout.has("plaza"):
+		_swatch(leg, DRAW.PLAZA_GROUND,
+			"Market place — the block kept open, no lots platted (buildPlaza)")
 	_swatch(leg, DRAW.FILL_PRIMARY, "Primary streets — the arterial backbone (buildPrimaries)")
 	_swatch(leg, DRAW.FILL_OTHER, "Streets and lanes — organic growth (grow)")
 	_swatch(leg, DRAW.WATER, "The site's water — the map's own river/coast")
@@ -394,15 +399,20 @@ func _rebuild_side() -> void:
 		+ "hinterland detail (15). URBAN_MORPHOLOGY_SCOPE.md has 8 of ~17 "
 		+ "milestones built.")
 	DccWidgets.note(stages,
-		"Two things on screen are ahead of the generator, and both are "
-		+ "drawing rather than data. A rooftop is a whole parcel, inset — "
+		"One thing on screen is ahead of the generator, and it is drawing "
+		+ "rather than data. A rooftop is a whole parcel, inset — "
 		+ "buildBuildings (13) would put a smaller footprint inside each lot, "
 		+ "with a grammar per district and a terrain gate that leaves some "
 		+ "lots empty, so this town has no gaps and every roof is the same "
-		+ "simple shape. And there is no open market square: buildPlaza is "
-		+ "milestone 8, so the block over the market anchor is platted like "
-		+ "any other. The rooftop shading is real per-parcel engine output, "
+		+ "simple shape. The rooftop shading is real per-parcel engine output, "
 		+ "not a drawing effect.")
+	if _layout.has("plaza"):
+		DccWidgets.note(stages,
+			"The lighter, outlined square at the centre is the market place — "
+			+ "buildPlaza (milestone 8) widening the principal street away "
+			+ "from the water. It is real generated geometry: the engine "
+			+ "flags that block and plats no lots on it, which is why it is "
+			+ "the one piece of open ground in the town.")
 
 	## Legend and info are both rebuilt here, so this is where the touch fit
 	## belongs -- see `place_editor_window.gd`'s own call for the reasoning.

@@ -1893,11 +1893,9 @@ implied.
 This is the honest cost of taking it out of order, and it is a property of the
 *input*, not of this port:
 
-- **`buildPlaza` (milestone 8) runs on the organic branch too** (reference
-  line 31024), not only the radial one. Without it no block is marked a plaza,
-  so **the town has no open market square** — the block over the market anchor
-  is platted like any other. This is the most visible gap and the City Viewer
-  says so on screen.
+- ~~**`buildPlaza` (milestone 8) runs on the organic branch too**~~ —
+  **closed the same day**, see the milestone-8a record below. It was the most
+  visible gap and the smallest change that closed one.
 - **`removeWaterCrossings` (milestone 11)** does not run, so streets may still
   cross the channel. Milestone 12's own guards absorb most of it: a block whose
   inset centroid is wet is dropped, and a lot with *any* corner in the water is
@@ -1907,17 +1905,134 @@ This is the honest cost of taking it out of order, and it is a property of the
 
 Milestones 8 and 11 will change what comes out of here without changing a line
 of `blocks.rs` — and are the moment to re-run this milestone's mutation sweep
-rather than trusting it.
+rather than trusting it. **Milestone 8a did both**, the same day: `blocks.rs`
+is unchanged apart from its doc comments, and the plaza golden re-runs
+`build_blocks` on every one of its own post-plaza graphs.
 
-### Milestone 8 — radial (Venus) streets, plaza, waterway (lines 28835-28970, 3 functions)
+### Milestone 8a — the plaza: **done** (2026-08-24)
 
-`buildRadialStreets`, `buildWaterway`, `buildPlaza`. The second planning mode,
-independent of `grow`. Separable from milestone 7 and cheaper.
+`buildPlaza` alone, reference lines **28941-28965**. Module
+`cartalith-urban::plaza`; dependencies still `cartalith-rng` only. 12 tests,
+17 golden scenarios, and the first mutation sweep in this subsystem to close
+with **zero survivors**.
 
-**Raised in priority by milestone 12.** `buildPlaza` is no longer only Venus's
-concern: it is what keeps the market square unbuilt, and without it every
-drawn town is missing the one open space a viewer expects at its centre. It is
-the smallest remaining change with a visible payoff.
+Taken out of milestone 8 rather than with it because the milestone's other two
+functions (`buildRadialStreets`, `buildWaterway`) serve the *radial* planning
+mode only, and `buildPlaza` runs on **both** branches of `generate()` (lines
+31018 and 31024). Milestone 12 named it the highest-value remaining change and
+it was: 60 lines of Rust, and it is the difference between a town with an open
+market square and a town with a block platted over its own anchor.
+
+**The stated range over-claimed by five lines at the end.** 28835-28970 runs
+past `buildPlaza`'s close at **28965** and into the four-line harbour section
+comment at 28967-28970, which milestone 7's correction had already assigned to
+milestone 9. Milestone 8's range is **28835-28965**. **Seven ranges checked,
+seven wrong** — and this one is the failure mode the rule was written for: an
+end that is too *late* silently pulls in the next milestone's header.
+
+#### Where it runs is part of the port
+
+`generate()` calls it **between `buildPrimaries` and `grow`** on the organic
+branch, not after growth. The three streets it lays are in the graph before the
+epoch loop starts, so the town accretes *around* the square. Putting it after
+`grow` would still produce a plaza and would produce a different town;
+`cartalith_civ::urban_adapter::run_layout` calls it in the reference's place
+and its module header says why.
+
+#### Nothing new was built for it
+
+The reuse milestone 12 found repeats exactly. `distPtSeg`, `V.norm`/`lerp`/
+`rot90`, `polyCentroid` and `addStreet` were all built and golden-tested at
+milestones 1-2; `stream`/`range` at milestone 1; `site.riverDist` at milestone
+5. No new kernel, no new libm, and no new RNG semantics — `stream(seed,
+'plaza')` is its own labelled substream taking exactly two draws, so adding
+this stage **cannot** perturb any other milestone's sequence. Only the graph
+changes, which is the point of it.
+
+#### The mutation sweep, and why five survivors were closable here
+
+20 mutations, 20 killed. Five survived the first pass, every one of them
+milestone 7's *"exact tie on a continuous value"* class:
+
+| survivor | closed by |
+|---|---|
+| side probe `20 → 21` | a river centreline laid **parallel to the street under test** |
+| side probe `-20 → -21` | the same fixture at a 0.25 m offset |
+| `>` → `>=` in the side ternary | the same fixture at an exact tie |
+| `rot90()` → `-rot90()` | the same exact tie — see below |
+| `d < bd` → `d <= bd` | two primaries exactly equidistant from the market |
+
+Milestone 7 could not close its thirteen because every one rested on a
+polyline distance or a raw `mulberry32` draw. These rested on **distance to a
+centreline**, and `site.river` is a plain field this port may overwrite on a
+real `build_site` site — so the probe gap becomes an *input*. Parallel is what
+makes it a razor: along the edge normal the distance to a parallel line changes
+metre for metre, so `c = 0` gives an exact tie and `c = 0.25` gives a 0.5 m gap,
+which is inside the window a one-metre mutation of either probe moves the
+answer through. **The general lesson: a survivor that rests on a continuous
+comparison is closable exactly when one side of that comparison is a field the
+fixture can set, rather than an output of an earlier stage.**
+
+**Negating the edge normal is not the no-op it looks like.** `nl` is read twice
+— to build the two probe points and as `nl * (side * wd)` — and away from a tie
+the two negations cancel bit-exactly, which is why the mutation survived all 15
+real towns. At an exact tie they do not: both arms of the ternary yield the
+*same* `side`, so the product flips and the square opens the other way. Only
+the tie fixture sees it, and it would have been recorded as a proved-dead
+survivor without one.
+
+#### Findings
+
+1. **`buildPlaza` mutates `g` before its return value exists, and the two do
+   not agree.** The three streets go in through `addStreet`, whose 11 m
+   `attachPoint` snap binds a plaza corner to an existing node rather than
+   creating one — up to **6.1 m** of movement across the fixture set. The
+   reference builds `plaza.poly` and `plaza.center` from the **pre-snap**
+   points regardless. That is why `buildBlocks` tests a *point* against each
+   face rather than comparing polygons, and why a consumer must not assume the
+   returned quad is the face the graph holds.
+2. **The plaza's fourth side is not laid.** Three `addStreet` calls, not four:
+   `p1 → p2` is the primary being widened and is already there. A port that
+   lays four produces the same picture and a different graph.
+3. **"Away from the river" is a statement about 20 m, not about the square.**
+   The probe is a fixed 20 m either side of the street's midpoint and the
+   square is up to 40 m wide, so on a curving channel the finished square's far
+   edge can end up *nearer* the water than the rejected side's would have been
+   — 0.05 m on the `river7` fixture. Reference behaviour, captured, and
+   asserted, so that the next person to measure the square instead of the probe
+   does not read it as a port bug.
+4. **A landlocked site still resolves the ternary.** `riverDist` answers from
+   the synthetic dummy centreline, so the branch is live rather than
+   degenerate; three landlocked scenarios are in the golden for that reason.
+5. **Every scenario produced exactly one flagged block.** Asserted as a
+   property, not just as a golden count — it is the whole point of the
+   milestone, and a change upstream that split the widened band into two faces
+   would show up here first.
+
+#### Corrections to later milestones
+
+1. **Milestone 8's remaining range is 28835-28939** (`buildRadialStreets` at
+   28844 and `buildWaterway` at 28928, plus the radial header comment at
+   28835). `buildPlaza`'s 28941-28965 is done.
+2. **Milestone 9's start of 28967 is right** — milestone 7 moved it there and
+   this milestone confirms it: 28967 is the first line of the harbour block
+   comment, 28966 is blank, and 28965 is `buildPlaza`'s close.
+3. **Milestone 12's mutation sweep should be re-run again after milestone 11**,
+   not treated as re-run by this one. This milestone changed `blocks.rs`'s
+   *input*, and its own golden re-runs `build_blocks` on 17 post-plaza graphs
+   — but `lanePass` and `removeWaterCrossings` will change it again.
+4. **Milestone 16 must call `buildPlaza` between the primaries and `grow`** on
+   the organic branch, and **after** `buildWall` on the radial one (line
+   31018). The two positions differ and both are in `generate()`.
+5. **`Plaza` is `blocks`' input and `plaza`'s output.** It is defined in
+   `plaza.rs` and re-exported from `blocks.rs`; `build_blocks` takes
+   `Option<&Plaza>` rather than `Option<Plaza>` now that it carries a polygon.
+
+### Milestone 8 — radial (Venus) streets, waterway (lines 28835-28939, 2 functions)
+
+`buildRadialStreets`, `buildWaterway`. The second planning mode, independent of
+`grow`. Separable from milestone 7 and cheaper. **`buildPlaza` is done** —
+milestone 8a above.
 
 ### Milestone 9 — water infrastructure (lines 28967-29159, 4 functions)
 

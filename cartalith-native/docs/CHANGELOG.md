@@ -23413,12 +23413,12 @@ and over.
 **Three upstream stages do not run**, and this is the honest cost of taking
 milestone 12 out of order — a property of its *input*, not of the port:
 
-- **`buildPlaza` (milestone 8) runs on the organic branch too** (reference
+- ~~**`buildPlaza` (milestone 8) runs on the organic branch too**~~ (reference
   line 31024), not only the radial one. Without it no block is marked a plaza,
-  so **a drawn town has no open market square** — the block over the market
-  anchor is platted like any other. The most visible gap, and the smallest
-  remaining change with a visible payoff; `URBAN_MORPHOLOGY_SCOPE.md`'s
-  milestone 8 entry has been re-prioritised accordingly.
+  so **a drawn town had no open market square** — the block over the market
+  anchor was platted like any other. It was the most visible gap and the
+  smallest remaining change with a visible payoff, and it was **closed the same
+  day** — see "The town has a market square" below.
 - **`removeWaterCrossings` (milestone 11)** does not run, so streets may still
   cross the channel. Milestone 12's own guards absorb most of it: a block whose
   inset centroid is wet is dropped, and a lot with *any* corner in the water is
@@ -24431,6 +24431,130 @@ silently-empty-golden-output rule).
 `cartalith-gpu/examples/flow_downstream_settlements.rs`,
 `cartalith-engine/src/lib.rs`,
 `cartalith-godot/tests/sculpt_live_l0_bench.rs`.
+
+## The town has a market square, because `buildPlaza` is ported (`URBAN_MORPHOLOGY_SCOPE.md` milestone 8a, 2026-08-24)
+
+Milestone 12 shipped the day before naming its own biggest gap in its own
+words — *"no block is marked a plaza, so the town has no open market square"* —
+and the City Viewer said so on screen. This closes it.
+
+**`buildPlaza` alone, out of milestone 8**, reference lines **28941-28965**,
+new module `cartalith-urban::plaza`. The milestone's other two functions
+(`buildRadialStreets`, `buildWaterway`) serve the radial (Venus) planning mode
+only; `buildPlaza` runs on **both** branches of `generate()` (lines 31018 and
+31024), which is what made it the one piece of milestone 8 worth taking out of
+order. 60 lines of Rust.
+
+### What it does
+
+It carves the market square by widening the principal street nearest the market
+anchor, on the side away from the river (M-DEN-6, "additive plaza mode"). Three
+streets are laid — **not four**: `p1 → p2` is the primary being widened and is
+already in the graph — so the widened band becomes a *face* of the street graph.
+`buildBlocks` then finds that face by `pointInPoly(plaza.center, face)` and
+flags it, and `buildParcels` plats nothing on a flagged block. Nothing marks
+anything unbuilt directly; that chain is the whole mechanism.
+
+**Nothing new was built for it.** `distPtSeg`, `V.norm`/`lerp`/`rot90`,
+`polyCentroid` and `addStreet` came from milestones 1-2, `stream`/`range` from
+milestone 1, `site.riverDist` from milestone 5. No new kernel, no new libm, and
+no new RNG semantics: `stream(seed, 'plaza')` is its own labelled substream
+taking exactly two draws (`range(55, 80)` then `range(26, 40)`, declaration
+order), so adding the stage **cannot** perturb any other milestone's sequence.
+Only the graph changes, which is the point of it.
+
+**Where it runs is part of the port.** `generate()` calls it *between*
+`buildPrimaries` and `grow` on the organic branch, not after growth, so the
+three plaza streets are in the graph before the epoch loop starts and the town
+accretes *around* the square. `cartalith_civ::urban_adapter::run_layout` calls
+it there. Moving it below `grow` would still produce a plaza and would produce
+a different town.
+
+### Verified
+
+**Golden: 17 scenarios** — five site kinds × three seeds, plus both ways the
+function returns `null` (an empty graph, and a graph of live non-primary
+edges). The capture adds `buildPlaza` to `UME._test` by a single anchored
+replacement asserted to match exactly once; the frozen reference file is
+untouched. Bit-exact on the plaza quad and on the market anchor; `graph_hash`
+and `blocks_hash` are the reference's own `fnv1a` over its own dumps, each
+double as its exact 64 bits. The capture refuses to write unless ten scenarios
+produced a plaza, at least one block came back flagged, and the river-side
+ternary took **both** signs. All 17 passed on the first run.
+
+**Mutation-tested: 20 mutations, zero survivors — the first sweep in this
+subsystem to close completely.** Five survived the first pass, every one
+milestone 7's *"exact tie on a continuous value"* class, and unlike milestone
+7's thirteen these were closable: the compared quantity is distance to a
+centreline and `site.river` is a plain field a fixture may set, so a river laid
+**parallel** to the street under test turns the probe gap into an *input*
+(`c = 0` an exact tie, `c = 0.25` a 0.5 m gap). The general form, worth
+carrying forward: **a survivor resting on a continuous comparison is closable
+exactly when one side of that comparison is a field the fixture can set rather
+than an output of an earlier stage.**
+
+That tie fixture also caught the one mutation that looks like a no-op and is
+not. Negating the edge normal cancels bit-exactly away from a tie — `nl` is
+read to build both probe points and again as `nl * (side * wd)` — so it
+survived all 15 real towns. At an exact tie both arms of the ternary yield the
+same `side`, the product flips, and the square opens the other way.
+
+**Range wrong again, seven for seven.** The stated 28835-28970 runs five lines
+past `buildPlaza`'s close at **28965**, into the harbour section comment
+milestone 9 owns — the failure mode root `CLAUDE.md`'s rule was written for,
+since an end that is too *late* does not fail to parse.
+
+**`cargo test -p cartalith-urban`: 102 passed.** Clippy clean on the crate,
+`cargo build -p cartalith-godot` clean, headless boot clean.
+
+### Three findings recorded for later milestones
+
+1. **The graph is mutated before the return value exists, and the two do not
+   agree.** `addStreet`'s 11 m `attachPoint` snap moves plaza corners by up to
+   **6.1 m** across the fixture set, and the reference builds `plaza.poly` and
+   `plaza.center` from the **pre-snap** points regardless. That is why
+   `buildBlocks` tests a *point* against each face rather than comparing
+   polygons, and why a consumer must not assume the returned quad is the face
+   the graph holds.
+2. **"Away from the river" is a statement about the fixed 20 m probe, not about
+   the finished square**, which is up to 40 m wide — on `river7` the chosen
+   side's far edge ends up 0.05 m *nearer* the water than the rejected side's
+   would have been. Reference behaviour, captured and asserted so it is not
+   later read as a port bug.
+3. **A landlocked site still resolves the ternary**, off the synthetic dummy
+   centreline, so the branch is live rather than degenerate. Three landlocked
+   scenarios are in the golden for that.
+
+### Wired through to the screen
+
+`urban_adapter` runs it in `generate()`'s position and puts `plaza` plus a
+`block_plaza` flag parallel to `blocks` on `UrbanLayout`; `urban_bridge` passes
+both across (`block_plaza` as a `PackedByteArray`, `plaza` as the square's own
+outline, **absent** rather than empty when there was no primary to widen — an
+empty polygon would read as "this town's square has no outline"). `stages` now
+says `buildPlaza (m8)`, or `buildPlaza (m8) — no primary to widen`.
+
+`urban_layout_draw.gd` fills the flagged block a shade lighter — the
+reference's own rgb(208,192,154) against rgb(182,172,148), moved by the same
+ratio into this drawing's range — and strokes the square's outline **over** the
+roofs, where the reference strokes it (line 23046), because the edge is where
+the built frontages stop. The City Viewer's legend gains a "Market place" row
+and its stage note now describes the square instead of apologising for its
+absence; both are conditional on the layout actually having one.
+
+**Verified non-headless in the real City Viewer**, all 33 settlements of one
+world (pop 115 to 19,596): 33/33 carry a plaza, every one with **exactly one**
+flagged block, and the plaza colour is measurably on screen in the rendered
+frame and is the minority (90 sampled pixels against 8,570 of block ground).
+One degenerate case is visible and correct: `Crungrimcrag` has a single block
+and it *is* the plaza, so it plats zero parcels.
+
+**Files:** `cartalith-urban/src/plaza.rs` (new), `plaza/tests.rs`,
+`plaza/tests/golden.rs`, `cartalith-urban/src/blocks.rs` (doc + `Plaza`
+re-export + `Option<&Plaza>`), `cartalith-urban/src/lib.rs`,
+`cartalith-civ/src/urban_adapter.rs`, `cartalith-godot/src/urban_bridge.rs`,
+`godot-project/shell/urban_layout_draw.gd`,
+`godot-project/shell/city_viewer_window.gd`.
 
 ## The colour ramp got its other two axes, and the Asset Library got a key that deletes (2026-08-24) — `GUI_GAP_REGISTER.md` CA-02a, §31
 

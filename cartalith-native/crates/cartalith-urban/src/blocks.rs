@@ -24,15 +24,17 @@
 //!
 //! The reference reaches `buildBlocks` with a graph that has been through
 //! `buildPlaza` (milestone 8), `lanePass` and `removeWaterCrossings`
-//! (milestone 11). None of those exist yet, and each leaves a mark here:
+//! (milestone 11). Two of the three still do not exist, and each leaves a mark
+//! here:
 //!
-//! - **No plaza.** `buildPlaza` runs on the organic branch too (reference line
-//!   31024), not only the radial one, and its output is what
-//!   [`build_blocks`]'s `plaza` argument marks as unbuilt. Passing [`None`] is
-//!   faithful to *this* function's contract — it is exactly what the reference
-//!   does when there is no plaza — but the town it draws therefore has no open
-//!   market square, and the block over the market anchor gets platted like any
-//!   other. That is a real visible gap, not a styling choice.
+//! - ~~**No plaza.**~~ **Closed 2026-08-24.** [`crate::plaza::build_plaza`] is
+//!   ported, and `cartalith_civ::urban_adapter` runs it where `generate()`
+//!   does — between `buildPrimaries` and `grow`. A real [`Plaza`] now reaches
+//!   [`build_blocks`]'s second argument, the face over the market anchor comes
+//!   back flagged, and [`build_parcels`] leaves it unplatted. Passing [`None`]
+//!   is still faithful to *this* function's contract (it is exactly what the
+//!   reference does on a graph with no primary to widen) and the tests below
+//!   still exercise that path.
 //! - **No `removeWaterCrossings`.** Streets may still cross the channel, so
 //!   faces can straddle water. This milestone's own guards absorb most of it:
 //!   [`build_blocks`] drops a block whose inset centroid is wet, and
@@ -41,8 +43,9 @@
 //! - **No `lanePass`.** Fewer lanes means larger, coarser faces than the
 //!   reference would produce from the same seed.
 //!
-//! Milestones 8 and 11 will change what comes out of here without changing
-//! anything in this file.
+//! Milestone 11 will change what comes out of here without changing anything
+//! in this file — milestone 8 already has, which is why this module's own
+//! golden was re-run rather than trusted (`plaza/tests.rs`).
 
 use crate::geom::{
     Vec2, ensure_ccw, inset_poly, js_max, js_min, point_in_poly, poly_area, poly_centroid,
@@ -53,13 +56,11 @@ use crate::rng::{Substream, fnv1a, stream};
 use crate::rules::{DEFAULT_RULES, Rules};
 use crate::site::Site;
 
-/// A plaza, as [`build_blocks`] reads one. Milestone 8's `buildPlaza` is what
-/// produces it; nothing in this port does yet, so every caller passes [`None`]
-/// — see this module's header for what that costs.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Plaza {
-    pub center: Vec2,
-}
+/// A plaza, as [`build_blocks`] reads one — milestone 8's
+/// [`crate::plaza::build_plaza`] is what produces it. Re-exported from here
+/// because this is the module that *consumes* it; the definition lives beside
+/// the function that builds it.
+pub use crate::plaza::Plaza;
 
 /// One town block — a face of the street graph, inset to its buildable
 /// interior.
@@ -79,8 +80,8 @@ pub struct Block {
     /// Per-edge inset distance actually used.
     pub edge_dists: Vec<f64>,
     pub area: f64,
-    /// Kept unbuilt. Always `false` in this port — there is no plaza to test
-    /// against (module header).
+    /// The market square: kept unbuilt, and skipped by [`build_parcels`].
+    /// `true` for the one face containing `plaza.center`.
     pub plaza: bool,
 }
 
@@ -130,7 +131,7 @@ pub struct Parcel {
 /// junction artefact, above it a face is the un-enclosed hinterland rather than
 /// a block. `extract_faces`' outer face is skipped, which milestone 2 pinned as
 /// a first-index-wins tie-break on *absolute* area.
-pub fn build_blocks(g: &Graph, plaza: Option<Plaza>, site: &Site) -> Vec<Block> {
+pub fn build_blocks(g: &Graph, plaza: Option<&Plaza>, site: &Site) -> Vec<Block> {
     let faces = g.extract_faces();
     let mut blocks = Vec::new();
     let mut b_id = 0usize;

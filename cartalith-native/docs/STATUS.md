@@ -37,6 +37,45 @@ full strength, a colour edit leaving a dragged alpha at 0.40 (the
 with the picker following the reload — and on a live 7-slot library, Cancel
 keeping both selected assets, Backspace confirming, and Backspace with a
 `LineEdit` focused raising **0 dialogs**)
+— previously, post **Phase 5 milestone 8a: the town has a market
+square, because `buildPlaza` is ported** — milestone 12 shipped naming its own
+biggest gap (*"no block is marked a plaza, so the town has no open market
+square"*) and this closes it. `buildPlaza` alone, out of milestone 8, because
+the milestone's other two functions serve the radial (Venus) planning mode
+while this one runs on **both** branches of `generate()`. 60 lines of Rust,
+**no new primitive** — `distPtSeg`, `V.norm`/`lerp`/`rot90`, `polyCentroid`,
+`addStreet`, `stream`/`range` and `site.riverDist` were all built and golden-
+tested at milestones 1-5. Golden on milestones 6/12's terms: **17 scenarios**
+(five site kinds x three seeds, plus both ways the function returns `null`),
+bit-exact on the plaza quad and hashed over the whole post-plaza graph and the
+blocks that come off it, **all passing on the first run**. **The mutation sweep
+is the part worth reading: 20 mutations, zero survivors — the first in this
+subsystem to close completely.** Five survived the first pass, every one
+milestone 7's *"exact tie on a continuous value"* class, and unlike milestone
+7's thirteen these **were** closable: the compared quantity is distance to a
+centreline, and `site.river` is a field a fixture may set, so a river laid
+*parallel* to the street under test makes the probe gap an input (`c = 0` an
+exact tie, `c = 0.25` a 0.5 m gap). That tie also caught the one mutation that
+looks like a no-op and is not — negating the edge normal cancels bit-exactly
+away from a tie and **flips the square** at one, because both arms of the
+ternary then yield the same side. **Range wrong again, seven for seven**:
+28835-28970 runs five lines past `buildPlaza`'s close at **28965** into the
+harbour comment milestone 9 owns. **Three findings for later milestones**:
+`addStreet`'s 11 m snap moves plaza corners by up to 6.1 m and the reference
+keeps the **pre-snap** quad regardless (so `buildBlocks` tests a point, not a
+polygon); only **three** streets are laid, the fourth side being the primary
+being widened; and *"away from the river"* is a statement about the fixed 20 m
+probe, not about the finished 40 m-wide square, which on `river7` ends up
+0.05 m nearer the water than the rejected side. **Position is part of the
+port**: `generate()` calls it between `buildPrimaries` and `grow`, so the town
+accretes *around* the square. Wired through `urban_adapter` -> `urban_bridge`
+(`block_plaza` flag beside `blocks`, plus the square's own `plaza` outline) ->
+`urban_layout_draw.gd`, which fills that block a shade lighter and strokes the
+outline over the roofs; the City Viewer gains a "Market place" legend row.
+Verified non-headless in the real City Viewer across **all 33 settlements** of
+one world (pop 115 to 19,596): 33/33 carry a plaza, every one with exactly one
+flagged block, and the plaza colour is measurably in the rendered frame.
+`cargo test -p cartalith-urban` 102 passed, clippy clean, headless boot clean)
 — previously, post **LZ-01: deep zoom stopped twenty times short of
 the reference, and the tile it drew had run out of octaves** — owner reported
 *"LOD zooming doesn't seem to go that deep either."* Measured first: the camera
@@ -243,7 +282,8 @@ dense city rendered as a black mass until the ink/ridge passes were gated on
 *measured* on-screen lot size rather than zoom — at ~3 px a lot, the outline
 is wider than the roof. **Three upstream stages still do not run** and the
 panel says so: `buildPlaza` (m8, so **no open market square** — the most
-visible gap and the smallest fix left), `lanePass` and `removeWaterCrossings`
+visible gap and the smallest fix left; **closed 2026-08-24, see the entry
+above**), `lanePass` and `removeWaterCrossings`
 (m11). And one place the drawing is ahead of the generator, also said in
 words: a rooftop is a whole parcel, inset, because `buildBuildings` is m13.
 Verified non-headless on six real settlements, pop 121 to 21,179 — 283 blocks
@@ -3082,8 +3122,9 @@ Full record: `CHANGELOG.md`'s "GUI decluttering pass" entry,
 
 ## Phase 5 — Urban morphology (`URBAN_MORPHOLOGY_SCOPE.md`, started 2026-08-18)
 
-**~17 milestones. Milestones 1-7 done (2026-08-18), and wired end to end
-(2026-08-23, milestone "17a").** For nearly a week those seven had **zero
+**~17 milestones. Milestones 1-7 done (2026-08-18), wired end to end
+(2026-08-23, milestone "17a"), then 12 (2026-08-24) and 8a — `buildPlaza`
+only — the same day.** For nearly a week those seven had **zero
 consumers** — `PARITY_AUDIT.md` §3.4's finding, and the reason
 `GUI_GAP_REGISTER.md` had no urban section at all until §6.16 was added the
 same day. They now run: `cartalith-civ::urban_adapter` (13 of the 28 block-2
@@ -3717,6 +3758,32 @@ should re-run these 60 scenarios with the real builder; **milestone 14's stated
 end overlapped this milestone and moves to 29382**; milestone 16 inherits that
 `grow` always sees `ring: null` and a resolved rule set; and every later
 milestone's raster fixtures must be normalised heightfields.
+
+**Milestone 8a done (2026-08-24)** — `buildPlaza` alone, reference lines
+**28941-28965**, module `cartalith-urban::plaza`. Taken out of milestone 8
+because the other two functions there (`buildRadialStreets`, `buildWaterway`)
+serve the radial planning mode only while this one runs on both branches of
+`generate()`, and because milestone 12 named it the highest-value change left.
+It carves the market square by widening the principal street nearest the market
+away from the river: three streets laid (not four — the fourth side is the
+primary being widened), the widened band becomes a face, `buildBlocks` flags it
+and `buildParcels` plats nothing on it. **No new primitive, no new libm, no new
+RNG semantics** — `stream(seed, 'plaza')` is its own substream taking exactly
+two draws, so it cannot perturb any other milestone's sequence; only the graph
+changes, which is the point.
+
+**Golden**: 17 scenarios, bit-exact on the quad and on the market, hashed over
+the post-plaza graph and the resulting blocks with each double as its exact 64
+bits. **Mutation-tested: 20 mutations, zero survivors**, the first complete
+sweep in this subsystem. The five that survived the first pass were all
+milestone 7's *"exact tie on a continuous value"* class and all closable here,
+because `site.river` is a settable field: a centreline laid **parallel** to the
+street makes the probe gap an input. **Corrections written forward**: milestone
+8's remaining range is **28835-28939**; milestone 9's **28967** start is
+confirmed (28966 is blank, 28965 is `buildPlaza`'s close); milestone 12's sweep
+should still be re-run after milestone 11; milestone 16 must call `buildPlaza`
+**before** `grow` on the organic branch and **after** `buildWall` on the radial
+one, which are two different positions in `generate()`.
 
 ## Phase 4 — Asset Library (`ASSET_LIBRARY_SCOPE.md`, started 2026-08-17, done 2026-08-17)
 
