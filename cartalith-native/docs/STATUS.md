@@ -5,7 +5,36 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **the colour ramp's other two axes, and an
+Last updated: 2026-08-24 (post **RD-01b: the sea lanes and committed routes
+drew their chords too, and the road fix had been shipping a NaN** — §29 closed
+the roads and registered its own leftover in writing; this closes it and found
+a live defect in §29's shipped code doing so. **The expected half**:
+`get_sea_routes()` (generated lanes *and* the manual `sea` ways) goes through
+§29's `way_render_geometry`; `route_get()` does too, but as a **second key**
+(`render_points`/`render_brks`) because `jp_compute` returns
+`plan.stages[i].{i0,i1}` as indices into `CommittedRoute::pts` and
+`journey_planner_view.gd` slices exactly that list per stage — densifying
+`points` would have mis-sliced every stage. Measured on §29's world: sea lanes
+chord mean **0.246** cells; the committed route **124 → 1437** points, chord
+**2.856 → 0.245**, turn/vertex **13.607° → 1.665°**, `km` unmoved at 2195.460,
+endpoints byte-identical. **The unexpected half**: the first sea-lane
+measurement came back `chord mean -nan`. `civ_catmull_rom_sample` divides by
+**all three** knot intervals and guards only the middle one, so two coincident
+control points NaN the *neighbouring* segments — unreachable from
+`civ_smooth_path` (it splines RDP output, which never repeats a point) but
+**reachable from §29's own new caller**, which re-splines `_civSmoothPath`'s
+*rounded* output where a repeated cell is routine. Fixed in
+`civ_catmull_rom_sample` itself so roads, sea lanes and routes are covered by
+one guard; parity-neutral by an exhaustive argument (for duplicate-free input
+`dedup` is the identity, and every input with a duplicate previously gave NaN
+or an empty result). Mutation-tested: guard off → three of five new tests fail
+and two stay green, the two pinning reference behaviour the guard must not
+change. Roads re-measured unchanged at §29's own figures (6342 points / 35 ways
+/ chord 0.2450). 372 civ lib tests + every golden suite, 337 godot lib tests,
+`cargo build -p cartalith-godot` and headless boot clean, and a real
+non-headless run scanning all three getters: **0 non-finite of 6342 road, 807
+sea and 1437 route points** — `GUI_GAP_REGISTER.md` §33)
+— previously, post **the colour ramp's other two axes, and an
 Asset Library key that deletes** — `GUI_GAP_REGISTER.md` **CA-02a** and §31's
 last open item, both of them the *"stated in the panel rather than left to be
 discovered"* residue of an earlier pass. **CA-02a**: `RampStop` gains an alpha
@@ -195,8 +224,9 @@ its own control points at `WAY_RENDER_STEP_CELLS = 0.25` via the same
 untouched. Real shell, 1600×900, same seed and pinned view: 589 → **6,342**
 points, mean chord **2.78 → 0.245** cells, turn per vertex **14.47° → 1.70°**,
 `km` unchanged. 493 civ tests + 334 godot lib tests green, headless boot
-clean. **Left open**: `get_sea_routes()` and the Route tool's committed routes
-have the same chord geometry and want the same three lines —
+clean. ~~**Left open**: `get_sea_routes()` and the Route tool's committed routes
+have the same chord geometry and want the same three lines~~ **— closed by §33,
+which also found the NaN this fix had been shipping** —
 `GUI_GAP_REGISTER.md` §29)
 — previously, post **the bake system's verification pass** — the
 engine and shell above were shipped but never driven; the original commit

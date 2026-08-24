@@ -24679,3 +24679,75 @@ with a `LineEdit` focused → **0 dialogs**.
 `godot-project/shell/engine_bridge.gd`,
 `godot-project/shell/workspaces/render_workspace.gd`,
 `godot-project/shell/asset_library_window.gd`, `godot-project/shell/menus.gd`.
+
+## The sea lanes and committed routes drew their chords too — and the road fix had been shipping a NaN (2026-08-24) — `GUI_GAP_REGISTER.md` §33
+
+§29 ("The roads were curved all along, and the renderer drew their chords")
+fixed `get_roads()` and registered its own leftover in writing: `get_sea_routes()`
+and the committed Route-tool list have the same shape and the same problem, and
+were left alone because that round's report was about roads. This closes them,
+and turned up a live defect in §29's own shipped code on the way.
+
+**The expected half.** `get_sea_routes()` — both the generated `sea_routes` and
+the manual `sea` ways out of `InfraTools` — now returns its Catmull-Rom curve
+re-sampled at `WAY_RENDER_STEP_CELLS` through the same `way_render_geometry`
+helper §29 introduced. `route_get()` does too, but as a **second key**
+(`render_points`/`render_brks`) rather than in place, which is the one real
+design difference from §29: `jp_compute` plans over `CommittedRoute::pts` and
+returns `plan.stages[i].{i0, i1}` as indices into exactly that list, which
+`journey_planner_view.gd` slices to colour the route map per stage and to derive
+stop fractions. Densifying `points` would have silently mis-sliced every stage.
+So `points` stays the engine's own list and only the drawn polyline is refined;
+`map_overlay.gd`'s route pass reads the `render_*` pair with a fallback to
+`points` for an older GDExtension binary.
+
+Measured on §29's own world and probe (seed 483920, 384×288, 2400 km): sea
+lanes 807 points across 2 lanes at chord mean **0.246** cells; the committed
+route **124 → 1437** points, chord mean **2.856 → 0.245**, turn/vertex **13.607°
+→ 1.665°**. `km` did not move (2195.460), both endpoints byte-identical. Roads
+re-measured in the same run come back at 6342 points / 35 ways / chord mean
+0.2450 — §29's recorded figures to the digit, so the shared helper did not
+disturb them.
+
+**The unexpected half — a NaN in already-shipped code.** The first sea-lane
+measurement came back `chord mean -nan`. `civ_catmull_rom_sample` parameterises
+each segment by `sqrt(chord)` and the Barry-Goldman evaluation then divides by
+**all three** knot intervals, while only the middle one (`t2 - t1`) is guarded.
+Two equal consecutive control points zero `t1 - t0` or `t3 - t2` in a
+*neighbouring* window, `lerp` computes `0 * (x / 0)`, and one NaN coordinate
+ruins the whole `PackedVector2Array` the renderer is handed.
+
+It is unreachable from `civ_smooth_path`, the reference's only caller, because
+that splines `civ_rdp_simplify`'s output and RDP always drops a duplicate. §29
+introduced the first caller that can reach it: `way_render_polyline` re-splines
+`_civSmoothPath`'s **rounded** output, where two successive samples landing in
+the same cell is routine — `golden_parity_sea_routes.rs` records two case-1
+routes carrying `km: 0` for precisely that reason. So this was live in road
+rendering since §29 shipped; it had simply never been measured on a way that
+stalls.
+
+**Fixed in `civ_catmull_rom_sample` itself**, not avoided at the new call site,
+so roads, sea lanes and committed routes are covered by one guard: repeated
+consecutive control points are collapsed before the phantom endpoints are built.
+Parity-neutral rather than a deviation, by an exhaustive argument — for input
+with no repeated consecutive point `dedup` is the identity, and *every* input
+that has one previously produced either NaN (runs of 3+) or an empty result (a
+two-point run, via the existing `t2 - t1` skip, which the new `< 2` check
+reproduces exactly). No fixture can tell the two versions apart.
+
+Mutation-tested rather than assumed: with the guard forced off, three of the
+five new tests fail and **two stay green** — the two that pin *reference*
+behaviour the guard must not change (`catmull_rom_degenerate_inputs_match_the_reference`,
+and `catmull_rom_keeps_a_near_coincident_pair`, which exists so nobody later
+widens the exact-equality test into an epsilon and quietly moves the curve).
+
+**Verified:** `cargo build -p cartalith-godot` clean; `cargo test -p
+cartalith-civ` 372 lib tests plus every golden-parity suite, unchanged;
+`cargo test -p cartalith-godot --lib` 337 (five new); headless boot of
+`shell/app.tscn` clean; and a real non-headless 1600×900 run scanning all three
+getters reports **0 non-finite of 6342 road, 807 sea and 1437 route points**,
+with a 31× before/after pair on the committed route showing a kinked polyline
+becoming one continuous sweep.
+
+**Files:** `cartalith-civ/src/lib.rs`, `cartalith-godot/src/lib.rs`,
+`godot-project/map_overlay.gd`.

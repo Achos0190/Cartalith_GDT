@@ -1257,9 +1257,15 @@ fn way_render_polyline(pts: &[(f64, f64)], brks: &[usize]) -> (Vec<(f64, f64)>, 
             out_brks.push(points.len());
         }
         let run = &pts[start..cut];
+        // `_civSmoothPath` rounds each spline sample to a whole cell, so
+        // the list handed to us can repeat a point where the engine's own
+        // input (`civ_rdp_simplify`'s output) never does. That used to come
+        // back NaN; `civ_catmull_rom_sample` now collapses repeats itself,
+        // which fixes it for roads, sea lanes and committed routes at once
+        // -- see its doc comment for why that is parity-neutral.
         let curve = cartalith_civ::civ_catmull_rom_sample(run, WAY_RENDER_STEP_CELLS);
-        // `civ_catmull_rom_sample` can drop a degenerate run to fewer points
-        // than it was given (its own `t2 - t1 < 1e-6` skip); keep the
+        // `civ_catmull_rom_sample` can still return fewer points than it was
+        // given (an all-identical run collapses to nothing); keep the
         // original in that case rather than losing a stroke.
         let first = points.len();
         if curve.len() >= run.len() {
@@ -1348,6 +1354,77 @@ mod way_render_tests {
         assert!(out.len() > 3);
         let (out2, _) = way_render_polyline(&pts, &[2, 1]);
         assert!(!out2.is_empty());
+    }
+
+    /// `civ_dijkstra_path`'s unreachable-leg fallback is a two-point
+    /// straight line, and committed routes (`route_get`'s `render_points`)
+    /// can carry one. Densifying it must leave it dead straight -- a
+    /// two-point run's Catmull-Rom phantom endpoints are its own
+    /// reflections, so the curve through them is the chord.
+    #[test]
+    fn a_two_point_straight_leg_stays_straight() {
+        let pts = vec![(4.0, 4.0), (40.0, 31.0)];
+        let (out, _) = way_render_polyline(&pts, &[]);
+        assert!(out.len() > 100, "expected render density, got {}", out.len());
+        assert_eq!(out[0], pts[0]);
+        assert_eq!(out[out.len() - 1], pts[1]);
+        // Cross product of (end - start) with (p - start): zero for every
+        // point on the chord.
+        let (dx, dy) = (pts[1].0 - pts[0].0, pts[1].1 - pts[0].1);
+        for &(x, y) in &out {
+            let cross = dx * (y - pts[0].1) - dy * (x - pts[0].0);
+            assert!(cross.abs() < 1e-9, "point ({x}, {y}) is off the chord by {cross}");
+        }
+    }
+
+    /// The bug the real sea lanes reported as `chord mean -nan`.
+    /// `_civSmoothPath` rounds every spline sample to a whole cell, so a
+    /// slow-moving stretch of a way emits the same cell twice -- and a
+    /// coincident control-point pair used to make `civ_catmull_rom_sample`
+    /// divide by a zero knot interval. Guarded in that function now, so
+    /// roads, sea lanes and committed routes are all covered; this pins the
+    /// boundary, since it is this boundary that produces such input.
+    ///
+    /// Checked across a `brks` seam too: a NaN anywhere in the flat point
+    /// list is enough to ruin the whole `PackedVector2Array`.
+    #[test]
+    fn a_repeated_cell_in_a_rounded_way_does_not_produce_nan() {
+        // Two runs, each with a stalled sample: at the head of the first,
+        // in the middle of the second.
+        let pts = vec![
+            (4.0, 4.0),
+            (4.0, 4.0),
+            (12.0, 9.0),
+            (20.0, 7.0),
+            (40.0, 30.0),
+            (48.0, 35.0),
+            (48.0, 35.0),
+            (56.0, 33.0),
+            (64.0, 41.0),
+        ];
+        let (out, brks) = way_render_polyline(&pts, &[4]);
+        assert_eq!(brks.len(), 1, "the seam must survive the re-sample");
+        assert!(out.len() > 150, "expected render density, got {}", out.len());
+        assert!(
+            out.iter().all(|&(x, y)| x.is_finite() && y.is_finite()),
+            "non-finite coordinate in the drawn polyline"
+        );
+        // Endpoints of both runs are still the way's own.
+        assert_eq!(out[0], pts[0]);
+        assert_eq!(out[brks[0] - 1], pts[3]);
+        assert_eq!(out[brks[0]], pts[4]);
+        assert_eq!(out[out.len() - 1], pts[8]);
+    }
+
+    /// A run that is nothing but one repeated cell has no curve to draw.
+    /// `civ_catmull_rom_sample` returns nothing for it (as the reference
+    /// already did), and the fallback must keep the stroke rather than
+    /// silently dropping it or indexing past the end.
+    #[test]
+    fn a_fully_degenerate_run_keeps_its_points() {
+        let pts = vec![(7.0, 7.0), (7.0, 7.0), (7.0, 7.0)];
+        let (out, _) = way_render_polyline(&pts, &[]);
+        assert_eq!(out, pts);
     }
 }
 
@@ -4342,6 +4419,18 @@ impl WorldGen {
     /// the navy/dashed branch, never a road branch — and this port already
     /// splits those two styles across these two getters. `manual` and `km`
     /// are on every entry, generated ones included.
+    ///
+    /// # `points` is the lane's curve at render density
+    ///
+    /// Exactly as in `get_roads()`, and for the same reason: a sea lane's
+    /// `pts` come from the same `civ_smooth_path` (`civ_sea_routes` for a
+    /// generated lane, `civ_join_dijkstra_segs` for a committed one), so
+    /// they are the same Catmull-Rom curve sampled every 3 grid cells and
+    /// rounded — an ~87 px straight chord at `ViewportHost.ZOOM_MAX`. See
+    /// `get_roads()`' own doc comment for the measurement and the
+    /// precedent; this is the identical re-sample through
+    /// [`WAY_RENDER_STEP_CELLS`], and `SeaRoute::pts`/`ManualWay::pts` (and
+    /// therefore `km`) are equally untouched.
     #[func]
     fn get_sea_routes(&self) -> Array<VarDictionary> {
         let Some(civ) = self.civ.as_ref() else { return Array::new() };
@@ -4349,17 +4438,13 @@ impl WorldGen {
             .sea_routes
             .iter()
             .map(|r| {
-                let points: PackedVector2Array =
-                    r.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
-                let brks: PackedInt32Array = r.brks.iter().map(|&b| b as i32).collect();
+                let (points, brks) = way_render_geometry(&r.pts, &r.brks);
                 dict! { "points" => &points, "brks" => &brks, "name" => r.name.as_str(), "km" => r.km, "manual" => false }
             })
             .collect();
         if let Some(infra) = self.infra.as_ref() {
             for w in infra.ways.iter().filter(|w| !w.hidden && w.sea) {
-                let points: PackedVector2Array =
-                    w.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
-                let brks: PackedInt32Array = w.brks.iter().map(|&b| b as i32).collect();
+                let (points, brks) = way_render_geometry(&w.pts, &w.brks);
                 out.push(&dict! { "points" => &points, "brks" => &brks, "name" => w.name.as_str(), "km" => w.km, "manual" => true });
             }
         }
@@ -6240,12 +6325,32 @@ impl WorldGen {
     /// feed back to `jp_compute` via its own `points` key, but `jp_compute`
     /// prefers the `route` index precisely so the planner samples the
     /// route's real `f64` grid coordinates rather than a rounded copy.
+    ///
+    /// # Draw `render_points`/`render_brks`, plan against `points`
+    ///
+    /// A committed route's `pts` are `civ_join_dijkstra_segs`' output, i.e.
+    /// the same `civ_smooth_path` curve at the same 3-grid-cell sampling
+    /// `get_roads()`' own doc comment measures as an ~87 px straight chord
+    /// at `ViewportHost.ZOOM_MAX`. `render_points` is that curve re-sampled
+    /// through the same control points at [`WAY_RENDER_STEP_CELLS`], with
+    /// `render_brks` remapped onto it — the identical treatment
+    /// `get_roads()`/`get_sea_routes()` apply to theirs.
+    ///
+    /// It is a *second* key rather than a denser `points` because unlike
+    /// those two getters, this list is indexed into: `jp_compute` plans
+    /// over `CommittedRoute::pts` and returns `plan.stages[i].{i0, i1}` as
+    /// indices into exactly that list, which `journey_planner_view.gd`
+    /// slices to colour the route map per stage. Densifying `points` would
+    /// silently mis-slice every stage. So `points` stays the engine's own
+    /// list, 1:1 with what `jp_compute` planned over, and only the drawn
+    /// polyline is refined.
     #[func]
     fn route_get(&self, index: i64) -> VarDictionary {
         let Ok(i) = usize::try_from(index) else { return VarDictionary::new() };
         let Some(r) = self.infra.as_ref().and_then(|t| t.routes.get(i)) else { return VarDictionary::new() };
         let points: PackedVector2Array = r.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
         let brks: PackedInt32Array = r.brks.iter().map(|&b| b as i32).collect();
+        let (render_points, render_brks) = way_render_geometry(&r.pts, &r.brks);
         let mode = match r.mode {
             cartalith_civ::tools::RouteMode::Land => "land",
             cartalith_civ::tools::RouteMode::Water => "water",
@@ -6254,6 +6359,8 @@ impl WorldGen {
         vdict! {
             "points" => &points,
             "brks" => &brks,
+            "render_points" => &render_points,
+            "render_brks" => &render_brks,
             "km" => r.km,
             "mode" => mode,
             "unreachable_legs" => r.unreachable_legs as i64,

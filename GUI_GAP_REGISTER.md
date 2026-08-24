@@ -4598,10 +4598,14 @@ inputs.
 ### Still open
 
 **Sea routes and committed Route-tool routes were deliberately left alone.**
-`get_sea_routes()` and the manual-route list have the same shape and the same
+~~`get_sea_routes()` and the manual-route list have the same shape and the same
 chord problem, and the same three-line treatment would fix them — but this
 round's report was about roads, and `map_overlay.gd`'s route rendering was
-being edited concurrently. Registered here rather than bundled in.
+being edited concurrently. Registered here rather than bundled in.~~ **Closed by
+§33** — the same treatment, plus two things that were *not* the same: a
+committed route's `points` are indexed into by `jp_compute`, so that list had to
+stay put and the re-sample became a second key; and measuring the sea lanes
+turned up a NaN that this section's own fix had been shipping unnoticed.
 
 **The long straight runs are real, and are not a defect.** Between corners the
 ways stay straight because the route itself is straight there: the routing grid
@@ -4878,3 +4882,90 @@ past what the tile can resolve — noise, not detail.
   "would never once fire". That premise expired with this change. The comment
   now says so; the gate was deliberately not swapped in the same pass, because
   it is a visible behaviour change belonging with the rest of `_umLayoutAlpha`.
+
+## 33 · RD-01b — the sea lanes and committed routes drew their chords too, and the road fix had a live NaN in it (2026-08-24) — **FIXED**
+
+§29 fixed the roads and registered its own leftover: `get_sea_routes()` and the
+committed Route-tool list have the same shape and the same chord problem. This
+closes that, and found something bigger on the way in.
+
+### The chord half, which was the expected part
+
+`get_sea_routes()` (both halves — generated `sea_routes` and the manual `sea`
+ways out of `InfraTools`) now goes through `way_render_geometry`, the same
+boundary helper §29 introduced. `route_get()` does too, but as a **second key**
+rather than in place, and that is the one real design difference from §29:
+
+- `points`/`brks` stay exactly the engine's own list. `jp_compute` plans over
+  `CommittedRoute::pts` and returns `plan.stages[i].{i0, i1}` as indices into
+  that list, which `journey_planner_view.gd` slices to colour the route map per
+  stage and to derive stop fractions. Densifying `points` would have silently
+  mis-sliced every stage.
+- `render_points`/`render_brks` are the drawn polyline. `map_overlay.gd`'s
+  route pass reads those, falling back to `points` for an older GDExtension
+  binary.
+
+Measured on §29's own world and probe (seed 483920, 384×288, 2400 km,
+`_routecurve_shot.gd`):
+
+| | points | chord mean | max | turn/vertex |
+|---|---|---|---|---|
+| sea lanes, after | 807 over 2 lanes | 0.246 cells | 0.314 | 1.686° |
+| committed route, before | 124 | 2.856 cells | 4.243 | 13.607° |
+| committed route, after | 1437 | 0.245 cells | 0.330 | 1.665° |
+
+`km` did not move (2195.460 engine-side, drawn length 351.27 → 352.18 cells —
+the curve is marginally longer than its own chords, which is what a curve is),
+and both endpoints are byte-identical before and after. Roads re-measured in
+the same run come back at 6342 points across 35 ways, chord mean 0.2450 —
+§29's recorded figures to the digit, so the shared helper did not disturb them.
+Shot at 31× on the committed route: before is a polyline with a visible kink,
+after is one continuous sweep.
+
+### The NaN half, which was not
+
+The sea-lane measurement's first run came back `chord mean -nan`.
+
+`civ_catmull_rom_sample` parameterises each segment by `sqrt(chord)` and the
+Barry-Goldman evaluation then divides by **all three** knot intervals, while
+only the middle one (`t2 - t1`) is guarded. Two equal consecutive control
+points make `t1 - t0` or `t3 - t2` exactly zero in a *neighbouring* window, so
+`lerp` computes `0 * (x / 0)` and every point of that segment is NaN. One NaN
+coordinate ruins the whole `PackedVector2Array` the renderer is handed.
+
+It is unreachable from `civ_smooth_path`, the reference's only caller, because
+that splines `civ_rdp_simplify`'s output and RDP always drops a duplicate (its
+deviation from the chord is exactly zero). **§29's fix introduced the first
+caller that can reach it**: `way_render_polyline` re-splines `_civSmoothPath`'s
+*rounded* output, where two successive samples landing in the same cell is a
+routine occurrence — `golden_parity_sea_routes.rs` records two case-1 routes
+carrying `km: 0` for precisely that reason. So this was a live defect in
+already-shipped road rendering, not only in the new code; it simply had not
+been measured on a way that stalls.
+
+Fixed **in `civ_catmull_rom_sample` itself**, not avoided at the new call site,
+so roads, sea lanes and committed routes are all covered by one guard: repeated
+consecutive control points are collapsed before the phantom endpoints are
+built. That is parity-neutral rather than a deviation from the reference, and
+the argument is exhaustive — for any input with no repeated consecutive point
+`dedup` is the identity, and *every* input that has one previously produced
+either NaN (runs of three or more) or an empty result (a two-point run, via the
+existing `t2 - t1` skip, which the new `< 2` check reproduces exactly). No
+fixture can tell the two versions apart. `WAY_RENDER_STEP_CELLS`'s local dedup,
+written while chasing this, was removed in favour of the central one.
+
+Mutation-tested rather than assumed: with the guard forced off, three of the
+five new tests fail (`catmull_rom_survives_coincident_control_points`, which
+walks a duplicate through every position in a five-point way,
+`catmull_rom_survives_runs_of_repeats`, and the boundary-level
+`a_repeated_cell_in_a_rounded_way_does_not_produce_nan`) and two stay green —
+the two that pin *reference* behaviour the guard must not change
+(`catmull_rom_degenerate_inputs_match_the_reference`, and
+`catmull_rom_keeps_a_near_coincident_pair`, which exists so nobody later
+"improves" the exact-equality test into an epsilon and quietly moves the curve).
+
+`cargo test -p cartalith-civ` 372 lib + every golden-parity suite passing,
+`cargo test -p cartalith-godot --lib` 337 passing (five new), `cargo build -p
+cartalith-godot` and headless boot of `shell/app.tscn` both clean, and a real
+non-headless run scanning all three getters reports 0 non-finite of 6342 road,
+807 sea and 1437 route points.

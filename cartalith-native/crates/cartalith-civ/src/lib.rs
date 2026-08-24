@@ -6450,15 +6450,57 @@ fn civ_rdp_simplify(pts: &[(f64, f64)], eps: f64) -> Vec<(f64, f64)> {
 /// Goldman), synthetic reflected phantom endpoints, sampled at
 /// ~`step`-pixel intervals per segment.
 ///
-/// Public because `cartalith-godot`'s `get_roads()` re-samples the *same*
-/// curve through the *same* control points at render density (see that
-/// function's own doc comment, and `WAY_RENDER_STEP_CELLS`). That is a
-/// refinement of this curve, not a second smoothing algorithm, so it must
-/// be this definition and not a copy of it.
+/// Public because `cartalith-godot`'s `get_roads()`, `get_sea_routes()` and
+/// `route_get()` re-sample the *same* curve through the *same* control
+/// points at render density (see `get_roads()`' own doc comment, and
+/// `WAY_RENDER_STEP_CELLS`). That is a refinement of this curve, not a
+/// second smoothing algorithm, so it must be this definition and not a copy
+/// of it.
+///
+/// # Repeated control points are collapsed first
+///
+/// The reference does not do this, and that is a latent NaN in the
+/// reference: each segment is parameterised by `sqrt(chord)` and the Barry-
+/// Goldman evaluation then *divides* by all three knot intervals, while
+/// only the middle one (`t2 - t1`) is guarded. Two equal consecutive
+/// control points make `t1 - t0` or `t3 - t2` exactly zero in a
+/// neighbouring window, so `lerp` computes `0 * (x / 0)` and every point of
+/// that segment comes out NaN.
+///
+/// It is unreachable from `civ_smooth_path`, the reference's only caller,
+/// because that splines `civ_rdp_simplify`'s output and RDP always drops a
+/// duplicate (its deviation from the chord is exactly zero). The port has
+/// callers the reference does not: `get_roads()` and friends re-sample
+/// `_civSmoothPath`'s *rounded* output, where two successive samples landing
+/// in the same cell is routine — `golden_parity_sea_routes.rs` records two
+/// case-1 routes carrying `km: 0` for precisely that reason. Measuring the
+/// real sea lanes returned `chord mean -nan`, which is what found this.
+///
+/// Collapsing is parity-neutral rather than a deviation: for any input with
+/// no repeated consecutive point `dedup` is the identity, and *every* input
+/// that has one produces either NaN (runs of 3+) or an empty result (a
+/// 2-point run, via the existing `t2 - t1` skip, which the `< 2` check below
+/// reproduces exactly). No fixture can tell the two versions apart.
 pub fn civ_catmull_rom_sample(pts: &[(f64, f64)], step: f64) -> Vec<(f64, f64)> {
     if pts.len() < 2 {
         return pts.to_vec();
     }
+    let deduped: Vec<(f64, f64)>;
+    let pts = if pts.windows(2).any(|w| w[0] == w[1]) {
+        deduped = {
+            let mut v = pts.to_vec();
+            v.dedup();
+            v
+        };
+        if deduped.len() < 2 {
+            // Every control point identical: the reference skips all
+            // `n - 1` segments on `t2 - t1 < 1e-6` and returns nothing.
+            return Vec::new();
+        }
+        deduped.as_slice()
+    } else {
+        pts
+    };
     let n = pts.len();
     let mut p: Vec<(f64, f64)> = Vec::with_capacity(n + 2);
     p.push((2.0 * pts[0].0 - pts[1].0, 2.0 * pts[0].1 - pts[1].1));
@@ -20477,5 +20519,74 @@ mod tests {
         let forced = jp_reroute_for_mode(&ctx, &pts, "Sea Faring", Some("land"))
             .expect("forced land connects");
         assert_eq!(forced.pts, land.pts);
+    }
+
+    // -- `civ_catmull_rom_sample`'s coincident-control-point guard ------------
+
+    /// The bug: two equal consecutive control points zero a knot interval
+    /// the Barry-Goldman evaluation divides by, and the *neighbouring*
+    /// segments (not the degenerate one, which the `t2 - t1` skip catches)
+    /// come out NaN. A single NaN coordinate poisons the whole polyline the
+    /// renderer draws.
+    ///
+    /// Every position matters independently: a repeat at the head kills the
+    /// segment after it via `t1 - t0`, a repeat at the tail kills the one
+    /// before it via `t3 - t2`, and one in the middle kills both.
+    #[test]
+    fn catmull_rom_survives_coincident_control_points() {
+        let base = [(4.0, 4.0), (12.0, 9.0), (20.0, 7.0), (28.0, 15.0), (36.0, 12.0)];
+        for dup in 0..base.len() {
+            let mut pts = base.to_vec();
+            pts.insert(dup + 1, base[dup]);
+            let out = civ_catmull_rom_sample(&pts, 0.25);
+            assert!(out.len() > 50, "dup at {dup}: got {} points", out.len());
+            assert!(
+                out.iter().all(|&(x, y)| x.is_finite() && y.is_finite()),
+                "dup at {dup}: non-finite coordinate in the curve"
+            );
+            // The repeat carries no shape, so collapsing it must reproduce
+            // the curve through the distinct points exactly.
+            assert_eq!(out, civ_catmull_rom_sample(&base, 0.25), "dup at {dup}");
+        }
+    }
+
+    /// Three repeats in a row, and a repeat at both ends at once -- the
+    /// rounded output of `_civSmoothPath` can stall for several samples.
+    #[test]
+    fn catmull_rom_survives_runs_of_repeats() {
+        let base = [(4.0, 4.0), (12.0, 9.0), (20.0, 7.0), (28.0, 15.0)];
+        let mut pts = vec![base[0], base[0], base[0]];
+        pts.extend_from_slice(&base[1..]);
+        pts.push(base[3]);
+        pts.push(base[3]);
+        let out = civ_catmull_rom_sample(&pts, 0.25);
+        assert!(out.iter().all(|&(x, y)| x.is_finite() && y.is_finite()));
+        assert_eq!(out, civ_catmull_rom_sample(&base, 0.25));
+    }
+
+    /// The two degenerate shapes, pinned to what the reference already did:
+    /// a single point passes through, and an all-identical list returns
+    /// nothing (the reference skips every segment on `t2 - t1 < 1e-6`).
+    #[test]
+    fn catmull_rom_degenerate_inputs_match_the_reference() {
+        assert_eq!(civ_catmull_rom_sample(&[(3.0, 3.0)], 0.25), vec![(3.0, 3.0)]);
+        assert!(civ_catmull_rom_sample(&[(3.0, 3.0), (3.0, 3.0)], 0.25).is_empty());
+        assert!(
+            civ_catmull_rom_sample(&[(3.0, 3.0), (3.0, 3.0), (3.0, 3.0)], 0.25).is_empty()
+        );
+    }
+
+    /// Mutation guard on the *exactness* of the collapse test. A merely
+    /// near-coincident pair is finite arithmetic in the reference and must
+    /// stay a distinct control point -- widening `dedup` to an epsilon
+    /// would be a real parity deviation, not a fix.
+    #[test]
+    fn catmull_rom_keeps_a_near_coincident_pair() {
+        let base = [(4.0, 4.0), (12.0, 9.0), (20.0, 7.0), (28.0, 15.0)];
+        let mut pts = base.to_vec();
+        pts.insert(2, (12.0 + 1e-9, 9.0));
+        let out = civ_catmull_rom_sample(&pts, 0.25);
+        assert!(out.iter().all(|&(x, y)| x.is_finite() && y.is_finite()));
+        assert_ne!(out, civ_catmull_rom_sample(&base, 0.25));
     }
 }

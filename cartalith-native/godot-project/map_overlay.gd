@@ -546,10 +546,12 @@ var _manual_icons: Array = []
 var _labels: Array = []
 
 ## §4.5.4's Route tool. Each entry is one `route_get(i)` dictionary --
-## `{points: PackedVector2Array, brks: PackedInt32Array, km, mode,
-## unreachable_legs, name}` -- so `brks` is honoured exactly the way `_sea_routes`'
+## `{points: PackedVector2Array, brks: PackedInt32Array, render_points,
+## render_brks, km, mode, unreachable_legs, name}` -- so `brks` is honoured
+## exactly the way `_sea_routes`'
 ## own breaks are: a break ends one stroke and starts the next rather than
-## drawing a straight line across the gap. Its own array rather than a third
+## drawing a straight line across the gap. The draw pass uses the
+## `render_*` pair (see it for why the two exist). Its own array rather than a third
 ## entry in `set_civ_data` because a committed route is not part of
 ## `get_roads()`/`get_sea_routes()` at all (`route_commit` stores into
 ## `InfraTools::routes`, a separate list from `InfraTools::ways` that
@@ -875,11 +877,17 @@ func _draw() -> void:
 	if _show_roads:
 		for ri in _manual_routes.size():
 			var r: Dictionary = _manual_routes[ri]
-			var rpts: PackedVector2Array = r.get("points", PackedVector2Array())
+			## `render_points`, not `points`: a route's `points` are the
+			## engine's own list, kept 1:1 with what `jp_compute` planned
+			## over because `plan.stages[i].{i0,i1}` index into it.
+			## `render_points` is the same curve re-sampled at render
+			## density (`route_get`'s own doc comment) -- the fallback is
+			## for an older GDExtension binary that predates the key.
+			var rpts: PackedVector2Array = r.get("render_points", r.get("points", PackedVector2Array()))
 			if rpts.size() < 2:
 				continue
 			var rsel := ri == _selected_manual_route
-			var rbrks: PackedInt32Array = r.get("brks", PackedInt32Array())
+			var rbrks: PackedInt32Array = r.get("render_brks", r.get("brks", PackedInt32Array()))
 			var rstart := 0
 			for cut in rbrks:
 				_draw_manual_route_segment(rpts, rstart, cut, rect, rsel)
