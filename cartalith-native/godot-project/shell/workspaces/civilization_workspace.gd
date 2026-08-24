@@ -1338,12 +1338,11 @@ func _build_culture() -> void:
 ## accordion's "one open at a time" contract and the header's own caret/accent
 ## state are applied by the code that owns them.
 func open_timeline_category() -> void:
-	for e in categories:
-		var entry: Dictionary = e
-		if String(entry["title"]) == "Politics":
-			if not (entry["body"] as Control).visible:
-				(entry["button"] as Button).pressed.emit()
-			return
+	## `Workspace.open_category()` is the shared version of the search this
+	## function used to spell out; kept as a named entry point because the
+	## timeline strip is the only caller and "Politics" is a v3 name that this
+	## file, not `app.gd`, should own.
+	open_category("Politics")
 
 ## v3 CIVIL ▸ POLITICS: *"Political change over time · #civTlAddYearBtn"*.
 ##
@@ -1404,7 +1403,7 @@ func _build_poi() -> void:
 		+ "landmarks. Stamping one there is real and works; it just is not an "
 		+ "entity anything can own or describe.")
 	var go := DccWidgets.action(cat, "Place an icon → Cartography ▸ Assets & landmarks",
-		func(): app.select_domain("cartography"))
+		func(): app.select_domain_category("cartography", "Assets & landmarks"))
 	go.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 ## v3 CIVIL ▸ MILITARY. Nothing behind it anywhere: no garrison, no

@@ -336,7 +336,7 @@ func _commit_way() -> void:
 		_refresh_map_ways()
 		_refresh_manual_ways()
 		app.set_status("hint",
-			"Way #%d committed -- drawn on the map and listed under Roads ▸ Hand-drawn." % idx,
+			"Way #%d committed -- drawn on the map and listed under Civilization ▸ Routes & ways ▸ Hand-drawn." % idx,
 			"text_ghost")
 	if _active_infra_tool == "way":
 		_tool_options_way()
@@ -379,7 +379,7 @@ func _commit_route() -> void:
 		_refresh_manual_routes()
 		var r := bridge.route_get(idx)
 		app.set_status("hint",
-			"Route #%d committed -- %.0f km, drawn on the map and listed under Roads ▸ Hand-drawn." % [idx, float(r.get("km", 0.0))],
+			"Route #%d committed -- %.0f km, drawn on the map and listed under Civilization ▸ Routes & ways ▸ Hand-drawn." % [idx, float(r.get("km", 0.0))],
 			"text_ghost")
 	if _active_infra_tool == "route":
 		_tool_options_route()
@@ -527,7 +527,15 @@ func build_trade_into(parent: Control) -> void:
 ## The Rivers category left CIVIL for WORLD ▸ Hydrology, which is where v3
 ## puts the river network. Its one honest finding travels with it -- CIVIL had
 ## nothing to add to it beyond a heading.
-func rivers_note() -> String:
+##
+## **`static`, and called from `world_workspace.gd`.** The v3 re-parenting pass
+## wrote this function for exactly that and then never wired it up, so between
+## 2026-08-24 and 2026-08-25 the IN-01 disclosure existed in the source and
+## appeared nowhere in the app -- CIVIL had stopped drawing it and WORLD had
+## never started. Found by grepping for callers rather than by a user hitting
+## the empty category. One owner of the text, two possible hosts, which is the
+## same discipline `build_*_into()` above uses for the controls.
+static func rivers_note() -> String:
 	return ("No hydrological river entity is exposed to Godot -- cartalith-hydrology "
 		+ "computes river networks internally, but the only output that crosses the "
 		+ "GDExtension boundary is baked into build_color_texture()'s rendered raster. "

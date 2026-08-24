@@ -719,7 +719,7 @@ func _preferences(p: PopupMenu) -> void:
 	## not, which made the pointer dangle (2026-08-20 menu-structure audit).
 	## Partly closed 2026-08-24 (register S4/PR-10). The **atlas cache** half is
 	## real now -- a persistent, per-world, on-disk tile pyramid with a bake, a
-	## status readout and a clear (WORLD ▸ Finalize, Preferences ▸ Memory ▸
+	## status readout and a clear (WORLD ▸ Generate ▸ Finalize, Preferences ▸ Memory ▸
 	## Clear caches, and the status bar's `atlas` slot). What this row still
 	## names honestly is §2.5's own *preference* controls over it and the two
 	## per-tile refinement passes, none of which exist.
@@ -755,7 +755,7 @@ func _preferences(p: PopupMenu) -> void:
 	## `top_mem` readout already uses (`app.gd`'s `_wire_status()`).
 	_live(p, "Working set…", ID_PREF_WORKING_SET)
 	## PR-12, live 2026-08-24. There is now a real cache to clear: the
-	## persistent tile atlas (`bake_bridge.rs`), written by WORLD ▸ Finalize ▸
+	## persistent tile atlas (`bake_bridge.rs`), written by WORLD ▸ Generate ▸ Finalize ▸
 	## Bake. Clearing un-finalizes too -- a lock protecting nothing would
 	## strand the world read-only for no reason.
 	_live(p, "Clear caches…", ID_PREF_CLEAR_CACHES)

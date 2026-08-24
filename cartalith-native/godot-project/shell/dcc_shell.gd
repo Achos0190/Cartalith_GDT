@@ -1107,6 +1107,21 @@ func active_domain() -> String:
 func select_domain(id: String) -> void:
 	_select_domain(id)
 
+## Switch domain **and** open the category the caller named -- what every
+## "→ Cartography ▸ Political display"-style jump button in the shell actually
+## promises. See `Workspace.open_category()` for why half of it was not enough
+## once v3 gave CIVIL fourteen categories and CARTO ten.
+##
+## Silent about a miss on purpose at the call site, loud in the log: a stale
+## pointer must not swallow the domain switch the user asked for, and a
+## `push_warning` is what a probe can assert on.
+func select_domain_category(id: String, category: String) -> void:
+	_select_domain(id)
+	var panel: Control = _workspace_panels.get(id)
+	if panel != null and panel.has_method("open_category"):
+		if not panel.call("open_category", category):
+			push_warning("Cartalith: no category '%s' in the %s dock -- stale cross-domain pointer." % [category, id])
+
 ## §6's right-dock header -- see `_build_right_dock()`'s own comment on why
 ## this exists instead of a fixed "LAYERS" label. `text` is already the
 ## upper-cased section name; `DccTheme.header()` built the sigil-free label

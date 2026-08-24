@@ -295,7 +295,7 @@ func _build_way_style(parent: Control) -> void:
 		+ "Sea lanes are a whole-layer switch under Layers rather than a sixth "
 		+ "row here.")
 	DccWidgets.action(types, "Draw and edit ways → Civilization ▸ Routes & ways",
-		func(): app.select_domain("civilization")).alignment = HORIZONTAL_ALIGNMENT_LEFT
+		func(): app.select_domain_category("civilization", "Routes & ways")).alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 	var gaps := DccWidgets.section(parent, "Not built")
 	DccWidgets.note(gaps,
@@ -352,7 +352,7 @@ func _build_political_display(parent: Control) -> void:
 		+ "named administrative units. Both are recomputed by Civilization ▸ "
 		+ "Territories, never by anything in this dock.")
 	var edit := DccWidgets.action(sec, "Edit territories → Civilization ▸ Territories",
-		func(): app.select_domain("civilization"))
+		func(): app.select_domain_category("civilization", "Territories"))
 	edit.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 	var gaps := DccWidgets.section(parent, "Not built")

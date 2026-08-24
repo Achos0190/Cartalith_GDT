@@ -1211,7 +1211,7 @@ func _build_sculpt(body: Control) -> void:
 	var stamps: Array = bridge.sculpt_list_stamps()   ## already newest-first
 	var selected := bridge.sculpt_get_selected_stamp()
 	if stamps.is_empty():
-		DccWidgets.note(sec, "No stamps yet -- arm a Sculpt feature (World ▸ Sculpt) and draw a stroke on the map.")
+		DccWidgets.note(sec, "No stamps yet -- arm a Sculpt feature (World ▸ Terrain ▸ Sculpt) and draw a stroke on the map.")
 	else:
 		for s in stamps:
 			var d: Dictionary = s
