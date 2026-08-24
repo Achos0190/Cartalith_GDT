@@ -113,6 +113,15 @@ var _ctx_hit := -1
 ## `civPopEstimateOut` ("Land sustains ≈ N") and the Settlements roster
 ## body, both refreshed after any place/roster edit.
 var _settlements_body: Control
+## The three other data-backed categories' own bodies, held for the same
+## reason and cleared/refilled by the same `_rebuild_readouts()`. Culture has
+## no body field because it has no data behind it: `_build_culture()` writes
+## one fixed note about the missing binding, which a world does not change.
+## `_tl_body` (Timeline) is the fifth, declared with the rest of the Timeline
+## state above because it also carries playback/simulation state to reset.
+var _population_body: Control
+var _economy_body: Control
+var _politics_body: Control
 ## SG-02's Recompute row. Held as fields because the handler is a coroutine
 ## that has to find both again after the blocking engine call, and because a
 ## GDScript lambda captures locals by value at creation time -- a
@@ -151,6 +160,27 @@ func _build() -> void:
 	app.place_editor_window.place_deleted.connect(_on_civ_edited)
 	app.faction_roster_window.roster_changed.connect(_on_roster_changed)
 
+	## `GUI_GAP_REGISTER.md` RF-01. Everything above ran ONCE, at launch, from
+	## `app.gd`'s `_register_workspaces` -- before any world exists -- so every
+	## category drew its "generate a world first" empty state against an empty
+	## engine. Nothing then re-ran it: `app.gd`'s own `generation_finished`
+	## handler only writes status-bar text, and the only subscriber this file
+	## had was Timeline's (below, now folded into `_on_world_changed`). The
+	## result was a dock that stayed permanently empty over a world the map
+	## was already drawing -- found live against 40 settlements, 6 factions and
+	## a full road network. `_infra` connects its own five categories to the
+	## same two signals, in its own `_build()`.
+	bridge.generation_finished.connect(func(ok: bool): if ok: _on_world_changed())
+	bridge.world_loaded.connect(_on_world_changed)
+
+## A fresh generate or a loaded save replaces every settlement, province,
+## trade balance and recorded year this dock reads -- and invalidates the
+## selection, which is an index into a settlement list that no longer exists.
+func _on_world_changed() -> void:
+	_selected_index = -1
+	_rebuild_readouts()
+	_tl_on_world_changed()
+
 ## A place edit or delete moved map data: repaint the pins, refresh the
 ## selection state that may now point at a different (or no) settlement, and
 ## rebuild the dock's own rosters/readouts.
@@ -167,15 +197,53 @@ func _on_roster_changed() -> void:
 	app.viewport.territory_view.texture = bridge.territory_texture()
 	_on_civ_edited()
 
-## Rebuilds the two categories whose content a place/roster edit invalidates,
-## scoped the way `_rebuild_timeline` already scopes its own -- Population,
-## Economy and Culture read nothing this touches.
+## Rebuilds every category whose content depends on world data, scoped the way
+## `_rebuild_timeline` already scopes its own -- one held body node per
+## category, cleared and refilled, so the accordion around them (`categories`,
+## which holds these same body nodes) is untouched and whichever L2 the user
+## has open stays open.
+##
+## Called from two places, and it took a live 40-settlement world to notice
+## only one of them existed: a place/roster edit (`_on_civ_edited`, always
+## did) and a fresh generate or loaded save (`_on_world_changed`, RF-01 --
+## never did). The old scoping comment here claimed Population and Economy
+## "read nothing this touches", which was wrong on both counts: Population
+## sums `get_settlements()`, and a Recompute (SG-02, which routes through
+## `_on_civ_edited` too) rewrites the trade balances Economy reads and the
+## provinces Politics reads.
+##
+## Cheap on purpose, and checked rather than assumed: every call these four
+## fills make is a pure read of already-computed state -- `get_settlements`/
+## `get_provinces`/`get_trade_balances`/`get_factions` copy stored `Vec`s of a
+## few dozen entries, and the one O(grid) call in the set
+## (`civ_agrarian_regional_total`) is a single linear pass over the stored
+## `civ.dens`/`ws.field` that recomputes neither. This is a *presentation*
+## rebuild, not the civ *recompute* the staleness work deliberately refused to
+## cascade after every stroke -- that one is seconds per press and stays
+## behind its own button.
 func _rebuild_readouts() -> void:
 	if _settlements_body != null and is_instance_valid(_settlements_body):
-		for c in _settlements_body.get_children():
-			_settlements_body.remove_child(c)
-			c.queue_free()
+		_clear_body(_settlements_body)
 		_fill_settlements(_settlements_body)
+	if _population_body != null and is_instance_valid(_population_body):
+		_clear_body(_population_body)
+		_fill_population(_population_body)
+	if _economy_body != null and is_instance_valid(_economy_body):
+		_clear_body(_economy_body)
+		_fill_economy(_economy_body)
+	if _politics_body != null and is_instance_valid(_politics_body):
+		_clear_body(_politics_body)
+		_fill_politics(_politics_body)
+
+## `remove_child` before `queue_free` on purpose: `queue_free` defers to the
+## end of the frame, so a child left parented is still in `get_children()`
+## while the refill runs and would draw twice for one frame. Same teardown
+## `_rebuild_timeline` performs inline, factored out here because four
+## categories now need it.
+static func _clear_body(node: Control) -> void:
+	for c in node.get_children():
+		node.remove_child(c)
+		c.queue_free()
 
 # -- Selection, right-click menu, Delete key ---------------------------------
 
@@ -788,9 +856,14 @@ func _settlement_row(parent: Control, data: Dictionary, index: int) -> void:
 
 # -- Population -----------------------------------------------------------
 
+## Split build/fill, like Settlements above: `_build_*` runs once and claims
+## the category body, `_fill_*` is what `_rebuild_readouts()` can re-run.
 func _build_population() -> void:
-	var cat := DccWidgets.category(self, "Population", categories)
-	var sec := DccWidgets.section(cat, "Totals")
+	_population_body = DccWidgets.category(self, "Population", categories)
+	_fill_population(_population_body)
+
+func _fill_population(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Totals")
 	var settlements := bridge.settlements()
 	if settlements.is_empty():
 		DccWidgets.note(sec, "No settlements -- generate a world first.")
@@ -816,8 +889,11 @@ func _build_population() -> void:
 # -- Economy ----------------------------------------------------------------
 
 func _build_economy() -> void:
-	var cat := DccWidgets.category(self, "Economy", categories)
-	var sec := DccWidgets.section(cat, "Trade balance")
+	_economy_body = DccWidgets.category(self, "Economy", categories)
+	_fill_economy(_economy_body)
+
+func _fill_economy(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Trade balance")
 	var settlements := bridge.settlements()
 	var balances := bridge.trade_balances()
 	if balances.is_empty():
@@ -860,8 +936,11 @@ func _top_key(counts: Dictionary) -> String:
 # -- Politics -----------------------------------------------------------
 
 func _build_politics() -> void:
-	var cat := DccWidgets.category(self, "Politics", categories)
-	var sec := DccWidgets.section(cat, "Factions")
+	_politics_body = DccWidgets.category(self, "Politics", categories)
+	_fill_politics(_politics_body)
+
+func _fill_politics(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Factions")
 	var provinces := bridge.provinces()
 	var settlements := bridge.settlements()
 	if provinces.is_empty():
@@ -902,7 +981,7 @@ func _build_politics() -> void:
 		"now -- see the TOOLS block at the top of this dock (§4.5.3's Settlement and " +
 		"Territory tools).")
 
-	var gaps := DccWidgets.section(cat, "Not built")
+	var gaps := DccWidgets.section(parent, "Not built")
 	var recalc := DccWidgets.action(gaps, "Recalculate territories", func(): pass)
 	recalc.disabled = true
 	recalc.tooltip_text = "The reference's territory recompute. assign_territory() runs inside compute_civilisation as part of generate(); no #[func] re-runs it against edited settlements, so a manual drop does not redraw the claim map until the next full re-generate (which is what the Settlement tool's own status hint already says). Painting a claim by hand is the wired alternative -- the Territory tool above."
@@ -977,8 +1056,12 @@ func _build_culture() -> void:
 func _build_timeline() -> void:
 	var cat := DccWidgets.category(self, "Timeline", categories)
 	_tl_body = cat
-	bridge.generation_finished.connect(func(ok: bool): if ok: _tl_on_world_changed())
-	bridge.world_loaded.connect(func(): _tl_on_world_changed())
+	## The two `bridge.generation_finished`/`bridge.world_loaded` connections
+	## that used to live here are now `_build()`'s single pair, calling
+	## `_on_world_changed()` -- which calls `_tl_on_world_changed()` below
+	## alongside the other five categories. For a long time this was the ONLY
+	## subscriber in the file, which is exactly why the rest of the dock never
+	## refreshed (RF-01); one connection point makes that hard to repeat.
 	_rebuild_timeline()
 
 ## A fresh generate/loaded save invalidates any in-flight playback and the

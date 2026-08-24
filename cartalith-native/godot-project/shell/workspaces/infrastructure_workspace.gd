@@ -100,6 +100,16 @@ var _nested := false
 ## can refill it without a panel rebuild. `null` until `_build()` has run.
 var _manual_list: Control = null
 
+## The four data-backed categories' own body nodes, held so `rebuild_readouts()`
+## can clear and refill exactly those and nothing else -- the same discipline
+## `civilization_workspace.gd` uses for its own four. Rivers has no field
+## because it has no data: `_build_rivers()` writes one fixed note about the
+## missing `get_rivers()` binding, which a world does not change.
+var _roads_body: Control
+var _ports_body: Control
+var _trade_body: Control
+var _logistics_body: Control
+
 func _build() -> void:
 	_build_tools()
 	_build_roads()
@@ -107,6 +117,48 @@ func _build() -> void:
 	_build_ports()
 	_build_trade()
 	_build_logistics()
+
+	## `GUI_GAP_REGISTER.md` RF-01. Everything above runs ONCE -- from
+	## `civilization_workspace.gd`'s `_infra.setup()` at launch, before any
+	## world exists -- so each category drew its "generate a world first" empty
+	## state against an empty engine and, until this pair existed, nothing ever
+	## re-ran it. Connected here rather than driven by the parent workspace so
+	## this class keeps working unchanged if it is ever un-nested again (its
+	## own `_nested` field is the only concession this composition needed, and
+	## this is deliberately not a second one).
+	bridge.generation_finished.connect(func(ok: bool): if ok: rebuild_readouts())
+	bridge.world_loaded.connect(rebuild_readouts)
+
+## Clear-and-refill for the four categories a generate or a loaded save
+## invalidates. Public because `civilization_workspace.gd` composes this class
+## and may want to drive it directly (its own recompute path, for instance);
+## the two signals above are what actually call it today.
+##
+## Same cost profile as CIVIL's own `_rebuild_readouts()`: `get_roads`/
+## `get_sea_routes`/`get_settlements`/`get_trade_balances`/`route_count` are
+## pure reads of stored `Vec`s -- the widest of them copies a few hundred
+## polyline points -- with no engine recompute behind any of them.
+func rebuild_readouts() -> void:
+	if _roads_body != null and is_instance_valid(_roads_body):
+		_clear_body(_roads_body)
+		_fill_roads(_roads_body)
+	if _ports_body != null and is_instance_valid(_ports_body):
+		_clear_body(_ports_body)
+		_fill_ports(_ports_body)
+	if _trade_body != null and is_instance_valid(_trade_body):
+		_clear_body(_trade_body)
+		_fill_trade(_trade_body)
+	if _logistics_body != null and is_instance_valid(_logistics_body):
+		_clear_body(_logistics_body)
+		_fill_logistics(_logistics_body)
+
+## `remove_child` before `queue_free`: `queue_free` defers to the end of the
+## frame, so a child left parented is still in `get_children()` while the
+## refill runs and would draw twice for one frame.
+static func _clear_body(node: Control) -> void:
+	for c in node.get_children():
+		node.remove_child(c)
+		c.queue_free()
 
 # -- Tools (§4.5.4: Way, Route) ------------------------------------------
 
@@ -340,9 +392,14 @@ func _tool_options_infra_idle() -> void:
 
 # -- Roads --------------------------------------------------------------
 
+## Split build/fill: `_build_*` runs once and claims the category body,
+## `_fill_*` is what `rebuild_readouts()` can re-run against a new world.
 func _build_roads() -> void:
-	var cat := DccWidgets.category(self, "Roads", categories, true)
-	var sec := DccWidgets.section(cat, "Network")
+	_roads_body = DccWidgets.category(self, "Roads", categories, true)
+	_fill_roads(_roads_body)
+
+func _fill_roads(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Network")
 	var roads := bridge.roads()
 	if roads.is_empty():
 		DccWidgets.note(sec, "No roads -- generate a world first (World ▸ Generation Pipeline).")
@@ -375,8 +432,8 @@ func _build_roads() -> void:
 		for i in range(mini(6, ranked.size())):
 			_route_row(longest, ranked[i], "road")
 
-	_build_manual_ways(cat)
-	_build_road_gaps(cat)
+	_build_manual_ways(parent)
+	_build_road_gaps(parent)
 
 
 ## Every way the Way tool has committed this session (`GUI_GAP_REGISTER.md`
@@ -458,8 +515,11 @@ func _build_rivers() -> void:
 # -- Ports ------------------------------------------------------------------
 
 func _build_ports() -> void:
-	var cat := DccWidgets.category(self, "Ports", categories)
-	var sec := DccWidgets.section(cat, "Coastal settlements")
+	_ports_body = DccWidgets.category(self, "Ports", categories)
+	_fill_ports(_ports_body)
+
+func _fill_ports(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Coastal settlements")
 	var settlements := bridge.settlements()
 	var coastal: Array = []
 	for s in settlements:
@@ -489,8 +549,11 @@ func _build_ports() -> void:
 # -- Trade ------------------------------------------------------------------
 
 func _build_trade() -> void:
-	var cat := DccWidgets.category(self, "Trade", categories)
-	var sec := DccWidgets.section(cat, "Flows")
+	_trade_body = DccWidgets.category(self, "Trade", categories)
+	_fill_trade(_trade_body)
+
+func _fill_trade(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Flows")
 	var settlements := bridge.settlements()
 	var balances := bridge.trade_balances()
 	if balances.is_empty():
@@ -528,8 +591,11 @@ func _build_trade() -> void:
 ## INFRA's foot cell clickable would be a shared-base-class change for no
 ## capability this dock button doesn't already provide.
 func _build_logistics() -> void:
-	var cat := DccWidgets.category(self, "Logistics", categories)
-	var sec := DccWidgets.section(cat, "Journey planning")
+	_logistics_body = DccWidgets.category(self, "Logistics", categories)
+	_fill_logistics(_logistics_body)
+
+func _fill_logistics(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Journey planning")
 	var count := bridge.route_count()
 	if count == 0:
 		DccWidgets.note(sec,

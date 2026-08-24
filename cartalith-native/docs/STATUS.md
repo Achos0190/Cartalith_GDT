@@ -5,7 +5,45 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **Civ catches up on demand** —
+Last updated: 2026-08-24 (post **The CIVIL dock never rebuilt after a world
+generated** — `GUI_GAP_REGISTER.md` **RF-01**, a new class for that register
+and the first entry in it that is a bug rather than a capability gap. Found
+live on real hardware, PC and Android: with 40 settlements, 6 factions and a
+full road network on screen and correct everywhere else, **ten of the CIVIL
+dock's eleven sections had been showing "generate a world first" since
+launch**. `app.gd:386-400` builds every workspace once, before a world exists;
+`app.gd`'s `generation_finished` handler only writes status-bar text; and the
+one subscriber inside CIVIL was **Timeline alone**. `_rebuild_readouts()`
+existed but rebuilt `_settlements_body` only, and only on a place/roster
+*edit* — which is exactly why no session caught it, since any verification
+that edited something on the way to checking something else refilled the
+roster and made the dock look alive. `world_loaded` (load/revert/reopen) had
+the identical hole. Both `civilization_workspace.gd` and
+`infrastructure_workspace.gd` now split each data-backed category into
+`_build_*` (once, claims the body node) and `_fill_*` (re-runnable) — the
+shape `_rebuild_timeline`/`_tl_body` already used, clearing the *body* so the
+accordion and whichever L2 is open survive — and both subscribe to
+`generation_finished` **and** `world_loaded`. Nine sections gained a refresh
+they never had (Population, Economy, Politics, Ports, Trade, Logistics had
+**none**; Settlements had edit-only, Roads had commit-only); Culture and
+Rivers deliberately get none, since each writes one fixed note about a
+binding that does not exist (CV-02, IN-01). **The cost question was checked,
+not assumed**, because `8e666ac`'s standing rule rejects eagerly cascading civ
+*recompute* (~7 s/stroke): this is *presentation*, every call is
+`civ.<field>.iter().map(..).collect()` over a stored `Vec`, and the one
+O(grid) call (`civ_agrarian_regional_total`) is a linear pass over the
+already-stored `civ.dens`/`ws.field` — **measured at 13.99 ms for all ten
+sections against a 1 350 ms generate**, ~1% added, once per generate.
+Verified **windowed**, not headless — a headless boot proves the extension
+loads, which is precisely what never caught this: `_civdock_shot.gd` asserts
+the empty state is present *before* generating, then generates, switches to
+CIVIL, **edits nothing**, and reads the real `Label`/`Button` text out of the
+live tree for all ten; then checks the edit path still moves the roster
+233 → 232; then generates a *second* world and checks the dock followed it, a
+rebuild that only runs once being the same bug with a longer fuse.
+**Still open:** nothing from this finding — but the question that found it is
+worth asking of every panel built at launch: *what re-runs this, and on which
+signal?*) — previously, post **Civ catches up on demand** —
 `GUI_GAP_REGISTER.md` SG-02 and ED-03d, both closed. The staleness consumer
 that landed the same day stops at climate on purpose; **nothing rebuilt the
 civ layer short of a full `generate()`**, so a sculpted mountain range never

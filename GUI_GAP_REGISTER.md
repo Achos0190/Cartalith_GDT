@@ -46,6 +46,8 @@ the engine as they stand today, and it is the document that goes stale first.
 | [13](#13--the-v210-menu-structure-audit-2026-08-20) | **The v2.10 menu-structure audit** — `design/Cartalith Menu Structure v2.dc.html` against the shipped shell, and the 17 undisclosed omissions it found |
 | [14](#14--visual-sweep-2026-08-20) | **Visual sweep (2026-08-20)** — the shell driven live, screenshotted, and compared against the DCC Shell / Journey Planner mockups. **§14.6 corrects one of its own verdicts**: the Asset library window was passed on function rather than layout, and has been rebuilt against the canvas. |
 | [15](#15--the-phone-overflow-menu-is-wired-but-inoperable-2026-08-20) | **The phone overflow menu (2026-08-20)** — (C): the real menu bar is wired into the phone sheet but is unscaled, buried in desktop status chrome, and inert to touch. Device evidence, kept as the brief for the mobile menu design; **not fixed**. |
+| 16-22 | Seven sections added after the contents table was written; see the `## ` headings directly. |
+| [23](#23--rf-01--the-civil-dock-never-rebuilt-after-a-world-generated-2026-08-24--fixed) | **RF-01 (2026-08-24)** — a new class, and not a capability gap: the whole CIVIL dock (ten sections across two files) was built once at launch and never rebuilt when a world generated or loaded, so it showed "generate a world first" over a finished world. **Fixed**, with the presentation-vs-recompute cost check that shows why this one is safe to hang off every generate. |
 
 ---
 
@@ -493,6 +495,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | CV-06 | Settlement ▸ "pick radius" | 236-239 (comment) | `civ_drop_settlement` computes its own pick radius internally and takes no argument | yes | §4.5.3 lists it | **(D)** — engine truth; a slider would be decoration |
 | CV-07 | Faction roster add/remove, persistent identity | **CLOSED 2026-08-23**, §18.1 — `civ_roster_bridge::FactionRoster` on `CivData`, `civ_add_faction`/`civ_remove_faction`/`civ_set_faction_field`, and the Faction Roster window behind CIVIL ▸ Politics. The reason below was true when written: `CIV_FACTION_COUNT` now *seeds* a real roster instead of *being* it | none | — | §6's Faction context implies a roster; `design/cartalith-menu-structure.md` §3.11 names "add/remove faction, faction roster `#civOpenFactionsBtn`" | (B) large — new Rust state; `CIV_FACTION_COUNT` is a constant |
 | CV-08 | `_civApplyRecovery` / auto-populate's static "Recovery phase" | *absent* | ~~none~~ | — | `design/cartalith-menu-structure.md` §4 names it | **CLOSED 2026-08-20** — ported (reference 24619-24640) on the owner's decision, wired at the reference's own call site (line 25761) behind `set_recovery_phase`, and surfaced as a five-entry **Recovery phase** dropdown in `File ▸ New world ▸ Generation`, filled from the engine's own `_CIV_RECOVERY_NAME` table. Phase Stable is a strict no-op. |
+| CV-10 | **The whole dock never rebuilt after a generate** — Settlements, Population, Economy, Politics all kept their empty state over a finished world | `_build()`, `_rebuild_readouts()` | none — nothing disclosed this, because nothing knew | **not a capability gap at all** | the sections were already designed *and* built; only the signal was missing | **FIXED 2026-08-24 — see §23 (RF-01)**, which owns the finding, the ten-section table, the measured 14 ms rebuild cost and the windowed verification |
 | CV-09 | The timeline bar's **six simulation-layer toggles** (Climate · Population · Economy · Politics · Infrastructure · Warfare) | `dcc_shell.gd:628-641` builds an empty `timeline_row` | none in-product — `TIMELINE_SCOPE.md` §4 explains why the bar was left untouched | yes | §10 designs the whole region | **(D)** — `DCC_CONTROL_INDEX.md` summary §5 item 5 and `VISION.md`: the engine is a one-shot static generator by explicit, repeated owner decision. **The bar is drawn and empty in CIVIL/INFRA** — see §11. |
 
 ### 6.12 INFRA workspace — `infrastructure_workspace.gd` (now composed into CIVIL, §6.11)
@@ -506,6 +509,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | IN-05 | Way types: spec says road/track/trail/bridge, engine has road/track/sea_lane/ancient | 42-49 (comment) | `parse_way_type`'s own doc calls the spec list wrong against the tested four-entry enum | yes | §4.5.4 | **(D)** — spec/engine disagreement, resolved in the engine's favour and recorded |
 | IN-06 | Route ▸ vessel / party reference in the options row | `journey_planner_view.gd` `_vessel_field`/`_mount_field`/`_build_animal_definitions` | the journey planner exported nothing past the crate boundary when written | **CLOSED where it can be, and the remainder stated in-UI (2026-08-20)**. The party form's Mount picker and its four per-species **animal definition** pickers are now library-backed (`tl_list("animal")`, custom rows tagged `· custom`), and the choice reaches the engine: `jp_compute`'s new `animal_entries` request key → `TravelLibrary::animal_overrides_selected` → `jp_plan_ex`'s resolver, so a custom entry's capacity/speed/fodder/water and its ten-row terrain table re-plan the journey. The **Vessel** picker lists every library vessel but disables the ones with no engine counterpart (`jp_ship_stats` is still a fixed built-in table — `TRAVEL_LIBRARY_SPEC.md` §6), with the reason on the item itself rather than omitted | §4.5.4 | **CLOSED (2026-08-23)** — the remainder this cell named is done. `TravelLibrary::vessel_overrides` (keyed by **name**, because `JpPlan::vessel` is a name and `jp_ship_stats` is a name lookup, so a vessel needs no `animal_species_slot` equivalent) → `travel_library::vessel_resolver_fn` → `JpVesselResolver` → `jp_calc_water_ex`, the exact sibling of the animal chain and with the same fall-back-to-the-built-in-table contract. Four of `ShipStats`' seven fields come straight off the definition; `river`/`sea` come from `modes` and `open_sea` from `water_rating == Open`, which is precisely `jp_vessel_water_block`'s own test. **The one field with no source is `invalid_water`**: §3.3 has no per-water-type blacklist, so a custom vessel is constrained by its mode and rating only, never by a named water type the way "River Barge cannot navigate River with Rapids" is — stated in the picker's own tooltip rather than papered over. The picker now enables every library vessel that validates `ok` and disables only the incomplete ones, because the resolver declines an incomplete definition rather than sailing a hull with a zero hold |
 | IN-07 | Trade ▸ route assignment | 370-373 | nothing ties a trade relationship to the road or sea lane that would carry it | yes | §3 lists Trade | (B) large |
+| IN-08 | **Roads, Ports, Trade and Logistics never rebuilt after a generate** | `_build()` | none — nothing disclosed this | **not a capability gap** | all four were designed *and* built; only the signal was missing | **FIXED 2026-08-24 — see §23 (RF-01)**. Roads had a partial path already (`_refresh_manual_ways`, on a way commit); the other three had none at all |
 
 > **IN-02 CLOSED (2026-08-24).** The audit's diagnosis was exactly right and
 > the "(B) small — one getter" estimate held: the whole engine-side fix is
@@ -3224,3 +3228,142 @@ scrolls horizontally — so its mode and tool segments are 44 dp and reachable
 as built, with no change of its own. An `HFlowContainer` was tried and
 reverted: inside a horizontal `ScrollContainer` it is handed unbounded width
 and can never wrap.
+
+---
+
+## 23 · RF-01 — the CIVIL dock never rebuilt after a world generated (2026-08-24) — **FIXED**
+
+A new class for this register, and the reason it needs its own tag: every one
+of the 215 catalogued entries above is a **capability** gap — a control with no
+engine behind it, disclosed and disabled on purpose. RF-01 is the opposite. The
+engine was complete, the surface was finished, the data was correct, and the two
+were simply never connected on the one signal that matters. Nothing in §6.11 or
+§6.12 could have caught it, because every row there asks *"is the disclosed
+reason accurate?"* and every disclosed reason here was accurate — *"No
+settlements — generate a world first"* is a true sentence about an empty engine.
+It just kept being displayed over a world that had 233 settlements in it.
+
+**`RF` = refresh: a wired, finished surface that never rebuilds when the world
+it reads changes.** Not (A)/(B)/(C)/(D) — those classify *missing* things. This
+is a bug.
+
+### What was wrong
+
+`app.gd:386-400` constructs every workspace once, at launch, before any world
+exists: `ws.setup()` → `Workspace.setup()` → `_build()`. `CivilizationWorkspace
+._build()` drew its Settlements/Population/Economy/Politics/Culture/Timeline
+categories, and `_infra.setup()` drew Roads/Rivers/Ports/Trade/Logistics, all
+against an engine with no `civ` in it — so all ten rendered their empty state,
+correctly.
+
+Nothing then re-ran them:
+
+- `app.gd`'s `generation_finished` handler (415-426) writes status-bar text only.
+- The only other subscribers were `world_workspace`, `cartography_workspace`,
+  `right_dock`, `viewport_host` — and, inside CIVIL, **Timeline alone** (the old
+  `_build_timeline()` connection at line ~980).
+- `_rebuild_readouts()` existed but rebuilt `_settlements_body` and nothing else,
+  and only fired on a place/roster **edit** (`_on_civ_edited`), never on a
+  generate.
+
+So a fresh generate refreshed exactly one of eleven sections. Verified live
+against 40 settlements, 6 factions and a full road network: Settlements ▸ ROSTER
+said *"No settlements — generate a world first"*, Politics ▸ FACTIONS said *"No
+provinces"*, Roads ▸ NETWORK said *"No roads"* — while the map drew all of it
+and the right dock showed it on click.
+
+**Why it survived this long.** Any verification workflow that edited a
+settlement or a faction on its way to checking something else tripped
+`_on_civ_edited` → `_rebuild_readouts()`, which refilled the roster and made the
+dock look alive. The bug is only visible if you generate and then touch nothing.
+
+### The fix
+
+Both files now split each data-backed category into `_build_*` (runs once,
+claims the category body node) and `_fill_*` (re-runnable), exactly the shape
+`_rebuild_timeline`/`_tl_body` already used, and both subscribe to
+`generation_finished` **and** `world_loaded` — the second covering load, revert
+and reopen, which had the same hole.
+
+| Section | File | Before | After |
+|---|---|---|---|
+| Settlements ▸ Roster / Land sustains | `civilization_workspace.gd` | edit only | edit + generate + load |
+| Population ▸ Totals | `civilization_workspace.gd` | **never** | edit + generate + load |
+| Economy ▸ Trade balance | `civilization_workspace.gd` | **never** | edit + generate + load |
+| Politics ▸ Factions | `civilization_workspace.gd` | **never** | edit + generate + load |
+| Timeline | `civilization_workspace.gd` | generate + load | unchanged (folded into one handler) |
+| Roads ▸ Network / Hand-drawn | `infrastructure_workspace.gd` | commit only | commit + generate + load |
+| Ports ▸ Coastal / Sea lanes | `infrastructure_workspace.gd` | **never** | generate + load |
+| Trade ▸ Flows | `infrastructure_workspace.gd` | **never** | generate + load |
+| Logistics ▸ Journey planning | `infrastructure_workspace.gd` | **never** | generate + load |
+
+Culture and Rivers are deliberately **not** in the table and hold no body field:
+each writes one fixed note about a binding that does not exist (CV-02, IN-01).
+A world does not change either sentence, so rebuilding them would be motion
+without content.
+
+Two incidental corrections fell out of it. `_rebuild_readouts()`'s own comment
+claimed Population and Economy *"read nothing this touches"* — wrong on both:
+Population sums `get_settlements()`, and SG-02's **Recompute civilisation**
+routes through the same `_on_civ_edited` and rewrites exactly the trade balances
+Economy reads and the provinces Politics reads. Both now refresh after a
+recompute too. And `_on_world_changed()` resets `_selected_index`, which
+otherwise indexed into a settlement list the new world had replaced.
+
+### Cost — measured, not assumed
+
+`8e666ac` (the staleness work) established a standing rule that eagerly
+cascading civ recompute is too expensive to hang off an edit (~7 s/stroke), and
+SG-02 kept it behind an explicit button for the same reason. That rule is about
+**recompute**. This is **presentation**: rendering already-computed state into
+Control nodes, calling nothing that derives anything.
+
+Checked rather than asserted, against `lib.rs`: `get_settlements`,
+`get_provinces`, `get_trade_balances`, `get_roads`, `get_sea_routes`,
+`get_factions` and `route_count` are all `civ.<field>.iter().map(…).collect()`
+over stored `Vec`s. The only O(grid) call in the set,
+`civ_agrarian_regional_total`, is one linear pass over the already-stored
+`civ.dens` / `ws.field` — no normalisation, no recompute.
+
+**Measured in the real app** (`_civdock_shot.gd`, 384×288, 233 settlements):
+
+```
+CIVDOCK REBUILD COST 13.99 ms for all ten sections (presentation only)
+```
+
+against a **1 350 ms** generate on the same world — roughly **1 %** added to a
+generate, once per generate. Nothing here is a recompute, and the staleness
+rule is not weakened by it.
+
+### Verification
+
+`_civdock_shot.gd` / `.tscn` (untracked harness, run **windowed** — a headless
+boot proves the extension loads, which is precisely what never caught this):
+
+1. Assert the empty state IS present before generating, so the rest means
+   something.
+2. Generate, switch to CIVIL, **make no edit of any kind**, then read the real
+   `Label`/`Button` text out of the live node tree and assert all ten sections
+   have dropped the empty state and show real numbers.
+3. Delete a settlement through the real `place_editor_window.place_deleted`
+   path and assert the roster follows 233 → 232 — the pre-existing edit
+   refresh, not regressed.
+4. Generate a **second, different** world and re-run all ten, plus assert the
+   roster is not still showing the first world's count. A rebuild that only
+   ever runs once is the same bug with a longer fuse.
+
+`CIVDOCK RESULT PASS`, plus a screenshot with every accordion body forced open.
+One check needed relaxing and it was not a defect: seed 771155 genuinely
+produces **0 coastal settlements**, so Ports ▸ Coastal correctly reads *"No
+coastal settlements in this world."* rather than the N-of-M sentence — a real
+readout, not an empty state. Confirmed by counting the `coastal` flag directly
+rather than by loosening the assertion and hoping.
+
+### The lesson this register should keep
+
+**A finished surface built before its data exists is not verified by looking at
+it.** The dock was screenshotted in §14's visual sweep and read line-by-line in
+§6.11/§6.12, and both passed, because both looked at it *after* doing something.
+The question that finds this class of bug is *"what re-runs this, and on which
+signal?"* — and for eleven sections across two files the answer was "nothing".
+Worth asking of every other panel built at launch.

@@ -21676,3 +21676,124 @@ painted-cell count, so both stay enabled after a commit with nothing left to
 do. Small (a `paint_draft_count()` `#[func]` and one bridge passthrough),
 left out of this pass to keep the commit off a fourth file another session
 was holding.
+
+## The CIVIL dock never rebuilt after a world generated (`GUI_GAP_REGISTER.md` RF-01, 2026-08-24)
+
+Found live on real hardware, on both PC and Android: with 40 settlements, 6
+factions and a full road network genuinely on screen and correct everywhere
+else -- the map drawing all of it, the right dock showing it on click --
+Settlements ▸ ROSTER said *"No settlements — generate a world first"*, Politics
+▸ FACTIONS said *"No provinces"*, Roads ▸ NETWORK said *"No roads"*. Ten of the
+eleven sections in the CIVIL dock had been rendering their empty state,
+uninterrupted, since launch.
+
+### What was wrong
+
+`app.gd:386-400` builds every workspace exactly once, at launch, before a world
+exists: `ws.setup()` -> `Workspace.setup()` -> `_build()`.
+`CivilizationWorkspace._build()` drew Settlements/Population/Economy/Politics/
+Culture/Timeline, and `_infra.setup()` drew Roads/Rivers/Ports/Trade/Logistics,
+all against an engine with no `civ` in it. Every one of them correctly rendered
+"generate a world first".
+
+Nothing re-ran them. `app.gd`'s own `generation_finished` handler writes
+status-bar text and nothing more; the subscribers to that signal were
+`world_workspace`, `cartography_workspace`, `right_dock`, `viewport_host` --
+and, inside CIVIL, **Timeline alone**. `_rebuild_readouts()` did exist, but it
+rebuilt `_settlements_body` only, and fired only on a place/roster *edit*
+(`_on_civ_edited`), never on a generate. `world_loaded` (load / revert /
+reopen) had the identical hole.
+
+**Why it went unnoticed for so long.** Any verification that edited a
+settlement or a faction on the way to checking something else tripped
+`_on_civ_edited` -> `_rebuild_readouts()`, which refilled the roster and made
+the dock look alive. The bug is only visible if you generate and then touch
+nothing -- which is also, of course, the first thing a user does.
+
+### The fix
+
+Both files now split every data-backed category into `_build_*` (runs once,
+claims the category's body node) and `_fill_*` (re-runnable), the same shape
+`_rebuild_timeline`/`_tl_body` already used -- clearing the *body* rather than
+replacing it, so the accordion (`categories`, which holds those same nodes)
+is untouched and whichever L2 the user has open stays open. Both subscribe to
+`generation_finished` **and** `world_loaded`.
+
+| Section | Refreshed before | Refreshed now |
+|---|---|---|
+| Settlements ▸ Roster / Land sustains | edit only | edit + generate + load |
+| Population ▸ Totals | **never** | edit + generate + load |
+| Economy ▸ Trade balance | **never** | edit + generate + load |
+| Politics ▸ Factions | **never** | edit + generate + load |
+| Timeline | generate + load | unchanged, folded into the one handler |
+| Roads ▸ Network / Hand-drawn | way commit only | commit + generate + load |
+| Ports ▸ Coastal / Sea lanes | **never** | generate + load |
+| Trade ▸ Flows | **never** | generate + load |
+| Logistics ▸ Journey planning | **never** | generate + load |
+
+Culture and Rivers deliberately get no body field and no rebuild: each writes
+one fixed note about a binding that does not exist (CV-02, IN-01), and a world
+does not change either sentence. `InfrastructureWorkspace` connects its own
+four rather than being driven by the parent, so it keeps working unchanged if
+it is ever un-nested again; `_nested` stays the only concession the 2026-08-20
+domain merge needed.
+
+Two corrections fell out of it. `_rebuild_readouts()`'s own comment claimed
+Population and Economy *"read nothing this touches"* -- wrong on both counts:
+Population sums `get_settlements()`, and SG-02's **Recompute civilisation**
+routes through the same `_on_civ_edited` and rewrites precisely the trade
+balances Economy reads and the provinces Politics reads. Both now follow a
+recompute too. And `_on_world_changed()` resets `_selected_index`, which
+otherwise indexed into a settlement list the new world had already replaced.
+
+### Cost, checked rather than assumed
+
+`8e666ac` established that eagerly cascading civ **recompute** is too expensive
+to hang off an edit (~7 s/stroke), and SG-02 kept it behind an explicit button
+for the same reason. That rule is about *deriving new data*. This is
+*presentation*: rendering already-computed state into Control nodes.
+
+Verified against `lib.rs` rather than asserted -- `get_settlements`,
+`get_provinces`, `get_trade_balances`, `get_roads`, `get_sea_routes`,
+`get_factions` and `route_count` are all `civ.<field>.iter().map(..).collect()`
+over stored `Vec`s, and the one O(grid) call in the set,
+`civ_agrarian_regional_total`, is a single linear pass over the already-stored
+`civ.dens`/`ws.field` with no normalisation behind it. **Measured in the real
+app: 13.99 ms for all ten sections, against a 1 350 ms generate on the same
+world** -- about 1% added, once per generate. The staleness rule is not
+weakened.
+
+### Verified
+
+`_civdock_shot.gd` / `.tscn`, run **windowed** -- a headless boot proves the
+extension loads, which is exactly what never caught this:
+
+- The empty state is asserted *present* before generating, so the rest means
+  something.
+- Generate, switch to CIVIL, **make no edit of any kind**, then read the real
+  `Label`/`Button` text out of the live node tree: all ten sections have
+  dropped the empty state and show real numbers (233 settlements -- 6 capitals,
+  2 cities, 7 towns, 11 villages, 207 hamlets; 8 provinces; 35 ways; the Land
+  sustains readout; a populated Largest-by-population roster).
+- The pre-existing edit path is not regressed: a delete through the real
+  `place_editor_window.place_deleted` signal moves the roster 233 -> 232.
+- A **second, different** world is followed too, and the dock is asserted not
+  to be still showing the first world's count -- a rebuild that only ever runs
+  once is the same bug with a longer fuse.
+- `CIVDOCK RESULT PASS`, plus a screenshot with every accordion body forced
+  open (the dock is an accordion, so a normal screenshot shows two sections of
+  ten).
+
+One check needed relaxing and it was not a defect: seed 771155 genuinely
+produces **0 coastal settlements**, so Ports ▸ Coastal correctly reads "No
+coastal settlements in this world." rather than the N-of-M sentence. Confirmed
+by counting the `coastal` flag directly rather than by loosening the assertion
+and hoping.
+
+### Still open
+
+Nothing from this finding. But the question that found it is worth asking of
+every other panel built at launch: **what re-runs this, and on which signal?**
+The dock passed both a line-by-line read (`GUI_GAP_REGISTER.md` §6.11/§6.12)
+and a live visual sweep (§14), because both looked at it *after* doing
+something.
