@@ -5319,6 +5319,17 @@ Faction context, `"—"` after deselecting back to an empty Sample, and
       verified by opening the crate; second axis **wrapper 22 / small 21 /
       large 28**) · **(C) 23** undesigned · **(D) 12** deliberate owner
       decision, no design proposed.
+      **Corrected 2026-08-24** (`PARITY_AUDIT.md` pass 2, F7, cross-checked
+      directly against the register rather than restated): both counts above
+      are the 2026-08-19 snapshot and have gone stale as the register grew —
+      **215 distinct gap IDs** exist as of this correction (up from 123,
+      recounted by grepping every ID pattern the document uses, methodology
+      and caveats in `GUI_GAP_REGISTER.md` §3), and the (A)/(B)/(C)/(D) split
+      above is not mechanically re-derivable against that new total (most
+      closed rows dropped their classification letter when the row was
+      edited to record closure) — a real, disclosed gap rather than a
+      silently wrong number. See `GUI_GAP_REGISTER.md` §3 for the full
+      account.
 - [x] **Layer 3 — comparable-application research** for all 23 (C) entries.
       10 web searches; every attributed claim carries its source URL; every
       entry ends in a proposal precise enough to build from. Three of them
@@ -5353,20 +5364,32 @@ Faction context, `"—"` after deselecting back to an empty Sample, and
       `civ_faction_territory_stats()`/`get_factions()` live; the right dock's
       collapsed primary readout is wired. See "Right dock: RD-03/RD-06/
       RD-08/RD-11" above.
-- [ ] **The (A) list, remaining 13 entries**, in the register's §10 priority
-      order: the Journey Planner's timeline band (rank 3); its blocked-stage
-      inline resolutions (rank 4); the **light theme** (rank 6,
-      `DccTheme.LIGHT` is fully defined — only the build-once stylebox pass
-      blocks it, the largest visible change available with no engine work);
-      the Window menu's workspace list/open-windows list/dock-width dragging
-      (rank 7); and eight more, §10's own table has the full list.
-- [ ] **Nine omissions** — designed surfaces absent entirely, so the menus
-      cannot teach a reader that the port owes them: `Data ▸ ⧉ Travel
-      library… ⇧L`; `Assets ▸ Asset pack ▸`'s whole 24-control submenu;
-      `Preferences ▸ Fallback when VRAM full`; `Theme ▸ follow system`;
-      `Window ▸` workspace list and open-windows list; the New world dialog's
-      project **name** field; the Journey Planner's timeline band and
-      blocked-stage resolutions; and the right dock's `Layers` context.
+- [x] **The (A) list — 16 of its 17 distinct entries done 2026-08-19,
+      corrected 2026-08-24 (`PARITY_AUDIT.md` pass 2, F6, cross-checked
+      against the register's §10 table directly rather than taken on either
+      document's word).** Closed: RD-03 (rank 1); RD-06 + RD-08 (rank 2);
+      JP-13, the Journey Planner's timeline band (rank 3); JP-14, its
+      blocked-stage inline resolutions (rank 4); RD-11 (rank 5); PR-13 + PR-14,
+      the **light theme** + follow-system (rank 6); WI-02 + WI-03 + WI-04, the
+      Window menu's workspace list/open-windows list/dock-width dragging
+      (rank 7); JP-12 + JP-15 (rank 9); SH-05 (rank 10); SH-06's baseline
+      (rank 11, its `→ 1 582 m` draft-stamp suffix reclassified (B), still
+      open); SH-01 (rank 12). **Still open: CA-05** (rank 8, icon on-canvas
+      resize handle) — the only (A)-classified item with a design and
+      nothing built. Four more are one design decision away from (A) status
+      rather than built: ED-05 Find on map, PR-15 Units, PR-16 Keyboard
+      shortcuts, WI-01 Save layout (register §10's own closing note).
+- [x] **Nine omissions — six of nine done 2026-08-19/20, corrected
+      2026-08-24** (`PARITY_AUDIT.md` pass 2, F6). Closed: `Data ▸ ⧉ Travel
+      library… ⇧L` (O1, see DM-15); `Preferences ▸ Fallback when VRAM full`
+      (O3, see PR-05); `Theme ▸ follow system` (O4, see PR-14); `Window ▸`
+      workspace list and open-windows list (O5, see WI-02/WI-03); the Journey
+      Planner's timeline band (O7, see JP-13) and blocked-stage resolutions
+      (O8, see JP-14). **Still open**: `Assets ▸ Asset pack ▸`'s whole
+      24-control submenu (O2, register calls it "(B) wrapper"); the New world
+      dialog's project **name** field (O6, "(B) small"); the right dock's
+      `Layers` context (O9, "(B) large" — seven of the dock's eight contexts
+      are built, `Layers` is not).
 
 ## Known-open items (not owner-blocked, just not done yet)
 
