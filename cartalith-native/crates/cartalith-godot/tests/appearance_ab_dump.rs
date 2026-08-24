@@ -290,3 +290,79 @@ fn dump_ab_classic_and_archipelago() {
     // the same class of bug the plate frame already had fixed here.
     run("wide", WorldParams::defaults(n, n / 2, 12345));
 }
+
+/// `GUI_GAP_REGISTER.md` **CA-11**, measured rather than read: how much of the
+/// map the Wetness slider actually moves, at three real resolutions including
+/// the app's own 2048x1311.
+///
+/// The defect this was written for: `build_hydro_wetness` gated on a
+/// *min-max-normalized* log-flow range and then blurred at `gw * 0.006`, so
+/// both halves shrank as cells got smaller -- 0.208 % of pixels at 512x384 down
+/// to 0.000 % at working resolution. Both are resolution-invariant now (an
+/// absolute upstream-area gate, and a blur whose peak is restored), and this
+/// test is what says so with numbers instead of prose.
+///
+/// Reported per-resolution so a future change that fixes one size and breaks
+/// another cannot pass: the failure mode being guarded is precisely
+/// "tuned at one grid size".
+#[test]
+#[ignore = "generates real worlds; run explicitly with --ignored"]
+fn hydro_wetness_visibility_by_resolution() {
+    // Every resolution is measured before anything is asserted, so a run
+    // prints the whole table rather than stopping at the first size that
+    // fails -- which is the table the retune has to be judged on.
+    let mut verdict: Vec<String> = Vec::new();
+    // The three the register measured, ending at the app's own working size.
+    for (gw, gh) in [(512usize, 384usize), (1024, 768), (2048, 1311)] {
+        let mut p = WorldParams::defaults(gw, gh, 12345);
+        p.use_gpu = false;
+        let ws = generate_terrain(&p);
+        let lith = cartalith_civ::build_lithology(&ws.field, &ws.age_field, &ws.volcanic_field, &ws.crust_field, &ws.resistance_field, &ws.rainfall, ws.sea_level);
+
+        let shot = |strength: f64| -> Vec<u8> {
+            let a = render::TerrainAppearance { hydro_wet_strength: strength, ..Default::default() };
+            let ctx = render::RenderCtx::with_appearance(&ws.field, &ws.temperature, &ws.rainfall, Some(&ws.flow_discharge), gw, gh, ws.sea_level, p.world, 55.0, 5.0, a.clone()).with_lithology(&lith);
+            let mut rgb = vec![0u8; gw * gh * 3];
+            rgb.par_chunks_mut(gw * 3).enumerate().for_each(|(y, row)| {
+                for x in 0..gw {
+                    let (r, g, b) = render::cell_color(&ctx, x, y);
+                    let o = x * 3;
+                    row[o] = (r * 255.0).round().clamp(0.0, 255.0) as u8;
+                    row[o + 1] = (g * 255.0).round().clamp(0.0, 255.0) as u8;
+                    row[o + 2] = (b * 255.0).round().clamp(0.0, 255.0) as u8;
+                }
+            });
+            render::apply_local_contrast(&a, &mut rgb, gw, gh, p.world);
+            rgb
+        };
+        let off = shot(0.0);
+        let on = shot(1.0);
+        let dflt = shot(render::TerrainAppearance::default().hydro_wet_strength);
+
+        // Per *pixel*, not per channel: three channels of one pixel moving is
+        // one visible mark, and the register's own numbers are per pixel.
+        let count = |a: &[u8], b: &[u8]| -> (f64, i32) {
+            let mut moved = 0usize;
+            let mut worst = 0i32;
+            for (pa, pb) in a.chunks_exact(3).zip(b.chunks_exact(3)) {
+                let d = (0..3).map(|c| (pa[c] as i32 - pb[c] as i32).abs()).max().unwrap();
+                if d > 3 {
+                    moved += 1;
+                }
+                worst = worst.max(d);
+            }
+            (moved as f64 / (gw * gh) as f64 * 100.0, worst)
+        };
+        let (full_pct, full_worst) = count(&off, &on);
+        let (def_pct, def_worst) = count(&off, &dflt);
+        println!("CA-11 {gw}x{gh}: 0->1 moves {full_pct:.3}% of pixels (worst {full_worst} levels); 0->default {def_pct:.3}% (worst {def_worst})");
+
+        if full_pct <= 0.5 {
+            verdict.push(format!("{gw}x{gh}: full strength moves only {full_pct:.3}% of pixels -- CA-11 all over again"));
+        }
+        if def_pct <= 0.2 {
+            verdict.push(format!("{gw}x{gh}: the shipped default moves only {def_pct:.3}% of pixels"));
+        }
+    }
+    assert!(verdict.is_empty(), "Wetness is invisible at {} of the three resolutions:\n  {}", verdict.len(), verdict.join("\n  "));
+}

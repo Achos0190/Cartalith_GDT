@@ -22,7 +22,7 @@ use rayon::prelude::*;
 #[path = "../src/render.rs"]
 mod render;
 
-use render::{QualityTier, RenderCtx, TerrainAppearance};
+use render::{ElevationRamp, QualityTier, RampStop, RenderCtx, TerrainAppearance};
 
 /// Non-square on purpose (`GENERATION_PARAMETERS.md`: non-square maps are
 /// real), and big enough that every radius in `render.rs` — AO, hydrology,
@@ -342,17 +342,22 @@ fn tunable_ranges_clamp_and_are_ordered() {
 /// stage, so a value that is real in isolation but swallowed downstream still
 /// fails here.
 ///
-/// Three exemptions, all real and all stated rather than skipped silently:
+/// Two exemptions, both real and both stated rather than skipped silently:
 /// `splat_strength` is inert with no asset pack attached (the synthetic ctx
-/// attaches none, exactly as a pack-less session does); `hydro_wet_strength`'s
-/// tint is measured near-invisible at working resolution — a live binding over
-/// an engine stage that needs retuning (`GUI_GAP_REGISTER.md` CA-11), not a
-/// dead binding; and `border_width_frac` is composited by `lib.rs`'s texture
-/// loop rather than by `cell_color`, so it is asserted below through
-/// `border_cover` instead of through a pixel diff this harness cannot see.
+/// attaches none, exactly as a pack-less session does); and
+/// `border_width_frac` is composited by `lib.rs`'s texture loop rather than by
+/// `cell_color`, so it is asserted below through `border_cover` instead of
+/// through a pixel diff this harness cannot see.
+///
+/// **`hydro_wet_strength` was a third until 2026-08-24** — it was bound
+/// correctly over an engine stage that rendered nothing at working resolution
+/// (`GUI_GAP_REGISTER.md` CA-11). `build_hydro_wetness`'s retune is what let
+/// the exemption go, and this row is now the cheap guard that it stays gone;
+/// `appearance_ab_dump.rs`'s `hydro_wetness_visibility_by_resolution` is the
+/// expensive one that checks it at the three real grid sizes.
 #[test]
 fn every_tunable_is_load_bearing() {
-    const EXEMPT: [&str; 3] = ["splat_strength", "hydro_wet_strength", "border_width_frac"];
+    const EXEMPT: [&str; 2] = ["splat_strength", "border_width_frac"];
     let s = synth();
     let base = render_serial(&s, &TerrainAppearance::default());
     for (key, lo, hi, label) in TerrainAppearance::TUNABLE {
@@ -378,4 +383,172 @@ fn every_tunable_is_load_bearing() {
     assert!(render::border_cover(&wide, 1, 1, GW, GH) > render::border_cover(&off, 1, 1, GW, GH),
         "border_width_frac does not reach border_cover");
     assert_eq!(render::border_cover(&off, 1, 1, GW, GH), 0.0, "0 must remove the frame");
+}
+
+// ---------------------------------------------------------------------------
+// The elevation colour ramp (`GUI_GAP_REGISTER.md` CA-02)
+// ---------------------------------------------------------------------------
+
+fn stop(at: f64, r: f64, g: f64, b: f64) -> RampStop {
+    RampStop { at, col: (r, g, b) }
+}
+
+/// The invariant every other ramp operation rests on: stops come out sorted
+/// whatever order they went in, which is what makes "drag a stop past its
+/// neighbour" a reorder rather than a corrupted ramp.
+#[test]
+fn ramp_stops_are_sorted_and_clamped() {
+    let r = ElevationRamp::normalized([stop(0.9, 0.0, 0.0, 0.0), stop(-2.0, 300.0, 10.0, 10.0), stop(0.4, 20.0, 20.0, 20.0)]);
+    let at: Vec<f64> = r.stops().iter().map(|s| s.at).collect();
+    assert_eq!(at, vec![0.0, 0.4, 0.9], "stops were not sorted, or a position escaped [0,1]");
+    assert_eq!(r.stops()[0].col.0, 255.0, "a channel past 255 was not clamped");
+}
+
+/// `cartalith-rust-conventions` requires a stated NaN policy wherever floats
+/// are ordered. The policy is "a stop with no position is not a stop"; without
+/// it `sort_by(partial_cmp().unwrap())` panics, and a panic in here would cross
+/// the gdext boundary from `set_color_ramp`.
+#[test]
+fn ramp_drops_non_finite_positions_instead_of_panicking() {
+    let r = ElevationRamp::normalized([stop(f64::NAN, 1.0, 1.0, 1.0), stop(0.5, 2.0, 2.0, 2.0), stop(f64::INFINITY, 3.0, 3.0, 3.0)]);
+    assert_eq!(r.stops().len(), 1, "a NaN or infinite stop survived");
+    assert_eq!(r.stops()[0].at, 0.5);
+}
+
+#[test]
+fn ramp_samples_flat_outside_and_linear_between() {
+    let r = ElevationRamp::normalized([stop(0.25, 0.0, 0.0, 0.0), stop(0.75, 100.0, 200.0, 40.0)]);
+    assert_eq!(r.sample(0.0), Some((0.0, 0.0, 0.0)), "below the first stop must hold that stop, not extrapolate");
+    assert_eq!(r.sample(1.0), Some((100.0, 200.0, 40.0)), "above the last stop must hold that stop");
+    let mid = r.sample(0.5).unwrap();
+    assert!((mid.0 - 50.0).abs() < 1e-9 && (mid.1 - 100.0).abs() < 1e-9 && (mid.2 - 20.0).abs() < 1e-9, "midpoint was {mid:?}, wanted the halfway colour");
+    assert_eq!(ElevationRamp::normalized([]).sample(0.5), None, "an empty ramp must say so rather than returning black");
+}
+
+/// Two stops at one position is how a hard band edge is authored, and it is
+/// also the only input that divides by zero.
+#[test]
+fn ramp_tolerates_coincident_stops() {
+    let r = ElevationRamp::normalized([stop(0.0, 10.0, 10.0, 10.0), stop(0.5, 20.0, 20.0, 20.0), stop(0.5, 200.0, 200.0, 200.0), stop(1.0, 250.0, 250.0, 250.0)]);
+    let c = r.sample(0.5).unwrap();
+    assert!(c.0.is_finite() && c.0 >= 20.0 && c.0 <= 200.0, "coincident stops produced {c:?}");
+}
+
+/// Every named ramp must exist, be non-trivial and be sorted -- a preset table
+/// is exactly the kind of hand-written data where one transposed row goes
+/// unnoticed forever.
+#[test]
+fn every_ramp_preset_loads_and_is_ordered() {
+    assert!(!render::RAMP_PRESETS.is_empty());
+    for (name, _) in render::RAMP_PRESETS {
+        let r = ElevationRamp::preset(name).unwrap_or_else(|| panic!("{name} does not load by its own name"));
+        assert!(r.stops().len() >= 2, "{name} has fewer than two stops, so it is a colour and not a ramp");
+        for w in r.stops().windows(2) {
+            assert!(w[0].at <= w[1].at, "{name} is not ordered");
+        }
+        assert_eq!(r.stops().first().unwrap().at, 0.0, "{name} does not start at the shoreline");
+        assert_eq!(r.stops().last().unwrap().at, 1.0, "{name} does not reach the peak");
+    }
+    assert!(ElevationRamp::preset("potato").is_none());
+    assert_eq!(ElevationRamp::default(), ElevationRamp::preset(render::RAMP_PRESETS[0].0).unwrap());
+}
+
+/// Each preset must render a *different* map, or the popover is offering nine
+/// names for fewer than nine looks.
+#[test]
+fn every_ramp_preset_renders_a_distinct_image() {
+    let s = synth();
+    let imgs: Vec<(&str, Vec<u8>)> = render::RAMP_PRESETS
+        .iter()
+        .map(|(name, _)| {
+            let a = TerrainAppearance { ramp_strength: 1.0, ramp: ElevationRamp::preset(name).unwrap(), ..TerrainAppearance::default() };
+            (*name, render_serial(&s, &a))
+        })
+        .collect();
+    for (i, (na, a)) in imgs.iter().enumerate() {
+        for (nb, b) in imgs.iter().skip(i + 1) {
+            assert!(moved(a, b, 2) > 0.01, "ramps {na} and {nb} render the same map");
+        }
+    }
+}
+
+/// The default is off and must cost nothing: swapping the ramp underneath a
+/// `ramp_strength` of `0.0` may not move one byte, or the "skipped entirely"
+/// claim in `land_color` is false.
+#[test]
+fn ramp_is_inert_at_zero_strength() {
+    let s = synth();
+    let base = render_serial(&s, &TerrainAppearance::default());
+    let other = TerrainAppearance { ramp: ElevationRamp::preset("Mono").unwrap(), ..TerrainAppearance::default() };
+    assert_eq!(base, render_serial(&s, &other), "the ramp changed the image while its strength was 0");
+    assert_eq!(TerrainAppearance::default().ramp_strength, 0.0, "CA-02 must ship off");
+    assert_eq!(TerrainAppearance::js_reference().ramp_strength, 0.0, "the JS-parity path must never enter the ramp");
+}
+
+/// Water is a different ramp (`sea_color_core`'s bathymetry) and must not move.
+///
+/// Measured with `local_contrast` off in **both** renders, and that is not a
+/// convenience: `apply_local_contrast` runs over the finished raster, so a real
+/// change on land legitimately bleeds a few levels into the water pixels
+/// beside it (500 of them here). Leaving it on would make this test assert
+/// that the local-contrast pass does not work.
+#[test]
+fn ramp_touches_land_only() {
+    let s = synth();
+    let flat = TerrainAppearance { local_contrast: 0.0, ..TerrainAppearance::default() };
+    let base = render_serial(&s, &flat);
+    let ramped = render_serial(&s, &TerrainAppearance { ramp_strength: 1.0, ramp: ElevationRamp::preset("Mono").unwrap(), ..flat.clone() });
+    let mut sea_moved = 0usize;
+    let mut land_moved = 0usize;
+    for i in 0..GW * GH {
+        let d = (0..3).map(|c| (base[i * 3 + c] as i32 - ramped[i * 3 + c] as i32).abs()).max().unwrap();
+        if d > 2 {
+            if (s.field[i] as f64) < 0.42 {
+                sea_moved += 1;
+            } else {
+                land_moved += 1;
+            }
+        }
+    }
+    assert_eq!(sea_moved, 0, "the elevation ramp painted {sea_moved} water cells");
+    assert!(land_moved > 0, "the elevation ramp painted no land either");
+}
+
+// ---------------------------------------------------------------------------
+// Saving a look (`GUI_GAP_REGISTER.md` CA-08)
+// ---------------------------------------------------------------------------
+
+/// The whole of CA-08 rests on this: a `TerrainAppearance` written out and read
+/// back must render the identical map. Checked through the *render*, not
+/// through field equality, because that is the claim a user makes when they
+/// save a look.
+#[test]
+fn appearance_survives_a_json_round_trip() {
+    let s = synth();
+    let mut a = TerrainAppearance { ramp_strength: 0.55, ramp: ElevationRamp::preset("Imhof").unwrap(), ..TerrainAppearance::default() };
+    a.set_tunable("sun_az_deg", 117.0);
+    a.set_tunable("paper_wash", 0.42);
+    a.npr.sepia = 0.3;
+    a.relief_lights = 9;
+
+    let json = serde_json::to_string(&a).expect("TerrainAppearance must serialize");
+    let back: TerrainAppearance = serde_json::from_str(&json).expect("and deserialize");
+
+    assert_eq!(back.ramp, a.ramp, "the ramp did not survive the round trip");
+    assert_eq!(back.relief_lights, 9);
+    assert_eq!(back.npr.sepia, 0.3);
+    for (key, _, _, label) in TerrainAppearance::TUNABLE {
+        assert_eq!(back.tunable(key), a.tunable(key), "{key} ({label}) did not survive the round trip");
+    }
+    assert_eq!(render_serial(&s, &a), render_serial(&s, &back), "a saved look reloads as a different image");
+}
+
+/// `#[serde(default)]` is what lets a preset written before a field existed
+/// still load. Asserted with a deliberately sparse file rather than trusted.
+#[test]
+fn a_preset_missing_fields_loads_at_their_defaults() {
+    let back: TerrainAppearance = serde_json::from_str("{\"sun_az_deg\": 200.0}").expect("a sparse preset must load");
+    assert_eq!(back.sun_az_deg, 200.0);
+    assert_eq!(back.paper_strength, TerrainAppearance::default().paper_strength, "a field the file did not carry must come back at its own default");
+    assert_eq!(back.ramp, ElevationRamp::default());
 }

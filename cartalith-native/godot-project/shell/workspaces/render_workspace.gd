@@ -17,6 +17,12 @@ class_name RenderWorkspace
 ## styles, the coastal wave lines, animated water and multi-sun) came live one
 ## pass earlier -- see `_build_npr`.
 ##
+## **The elevation colour ramp and saved looks** (2026-08-24, CA-02 and CA-08)
+## are `_build_ramp` and `_build_look_presets`. Both needed a renderer change
+## rather than a binding -- there was no breakpoint ramp in `render.rs` at all,
+## and `TerrainAppearance` did not derive `Serialize` -- which is why they
+## trailed the sliders by a commit.
+##
 ## **Domain merge (2026-08-20, owner instruction: "And render into carto").**
 ## RENDER no longer has its own rail button; this one-subject class is now
 ## composed into `CartographyWorkspace` (`cartography_workspace.gd`'s own
@@ -139,7 +145,8 @@ const APPEARANCE_HELP := {
 	"border_width_frac": "Width of the plate frame (bare-paper margin plus neatlines), as a share of map width. 0 removes the frame.",
 	"litho_strength": "Geology tint: how far exposed rock moves from the climate heuristic toward the palette of the rock actually underneath. The reference's Geology materials slider. Inert on a loaded save, which stores no lithology.",
 	"litho_exposure": "How strongly bedrock shows through the soil cover, from slope, vegetation and moisture.",
-	"hydro_wet_strength": "Wetness: darkens and cools persistently saturated ground near channels. The reference's own Wetness slider. Measured near-invisible at working resolution -- the tint's log-flow gate leaves it under 0.001% of pixels at 2048 wide, so this row is honest about the engine and the engine needs a retune (GUI_GAP_REGISTER.md CA-11).",
+	"hydro_wet_strength": "Wetness: darkens and cools persistently saturated ground near channels. The reference's own Wetness slider. Gated on real upstream drainage area, so it marks the same rivers whatever the map's resolution (GUI_GAP_REGISTER.md CA-11 -- it used to fade out as the grid got finer, and at 2048 wide it moved nothing at all).",
+	"ramp_strength": "How far the colour relief ramp takes over from the material colour. 0 is the material model alone (climate, slope, relief); 1 is a full hypsometric tint. The ramp is applied before the light, so the hillshade, occlusion and paper still read through it at any strength.",
 	"local_contrast": "Adds band-limited detail back after the paper wash. The gain falls to zero on strong edges, so coastlines and snowlines cannot halo.",
 	"splat_strength": "How strongly a loaded asset pack's ground textures blend in. Inert with no pack loaded. The reference's Texture strength.",
 }
@@ -165,7 +172,9 @@ func _build() -> void:
 		DccWidgets.tools_block(self, app, app.tool_group)
 	_build_map_view()
 	_build_map_style()
+	_build_ramp()
 	_build_appearance()
+	_build_look_presets()
 	_build_npr()
 	_build_owed_inventory()
 
@@ -312,6 +321,280 @@ func _tunable(key: String) -> Dictionary:
 			return {"min": float(row[1]), "max": float(row[2]), "label": String(row[3])}
 	return {}
 
+# -- Colour relief: the elevation ramp (`GUI_GAP_REGISTER.md` CA-02) -----------
+
+## `DCC_SHELL_SPEC.md` §7's Colour ramp popover + Stop editor, in the left dock
+## rather than split across a popover and the right dock. The split the spec
+## draws is a three-pane style editor this shell does not have; folding the two
+## into one block loses nothing (the popover is a list of named ramps and the
+## stop editor is the list of stops) and costs no navigation.
+##
+## What is here: the nine named ramps, a live gradient bar, one row per stop
+## with its colour, its elevation and a delete, plus Add stop and Reverse, and
+## the strength slider that blends the whole thing against the material colour.
+##
+## What is **not**, and is stated in the panel rather than left to be
+## discovered: per-stop alpha and per-stop interpolation mode (Linear / Ease /
+## Step). `ElevationRamp::sample` is linear only -- see its own doc comment.
+var _ramp: Array = []
+var _ramp_host: VBoxContainer
+var _ramp_bar: TextureRect
+var _ramp_gradient: Gradient
+
+func _build_ramp() -> void:
+	if not bridge.ramp_api:
+		return
+	var body := DccWidgets.section(self, "Colour relief")
+	_appearance_slider(body, "ramp_strength")
+
+	var names: Array = bridge.ramp_presets()
+	if not names.is_empty():
+		DccWidgets.choice(body, "Ramp", names, -1,
+			func(i: int): _on_ramp_preset(String(names[i])),
+			"Named elevation ramps. Picking one replaces every stop below; edit "
+			+ "from there and the picker no longer describes what is on screen.")
+
+	_ramp_gradient = Gradient.new()
+	var tex := GradientTexture1D.new()
+	tex.gradient = _ramp_gradient
+	tex.width = 256
+	_ramp_bar = TextureRect.new()
+	_ramp_bar.texture = tex
+	_ramp_bar.stretch_mode = TextureRect.STRETCH_SCALE
+	_ramp_bar.custom_minimum_size.y = 16
+	_ramp_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body.add_child(_ramp_bar)
+
+	_ramp_host = VBoxContainer.new()
+	_ramp_host.add_theme_constant_override("separation", 2)
+	body.add_child(_ramp_host)
+
+	DccWidgets.action(body, "Add stop", _on_add_stop)
+	DccWidgets.action(body, "Reverse", _on_reverse_ramp)
+	DccWidgets.note(body,
+		"Stops are keyed to relative land elevation -- 0 at the shoreline, 1 at "
+		+ "the world's highest point -- so a saved ramp means the same picture on "
+		+ "a world with a different peak. The metre readout is that fraction of "
+		+ "this world's own relief. Order is the position: drag a stop past its "
+		+ "neighbour and it takes its place.")
+	DccWidgets.note(body,
+		"Interpolation is linear between stops and flat beyond the ends; the "
+		+ "design's Ease and Step modes, and per-stop alpha, are not built. Water "
+		+ "is untouched -- the sea has its own depth ramp.")
+	_sync_ramp()
+
+## Pull the engine's ramp and rebuild both the bar and the rows.
+func _sync_ramp() -> void:
+	_ramp.clear()
+	for row in bridge.color_ramp():
+		_ramp.append([float(row[0]), row[1] as Color])
+	_rebuild_ramp_rows()
+	_update_ramp_bar()
+
+## The gradient bar, straight from `_ramp` -- redrawn on every value change so
+## dragging a stop shows where it is going, even though the engine is only told
+## on release.
+func _update_ramp_bar() -> void:
+	if _ramp_gradient == null:
+		return
+	var offsets := PackedFloat32Array()
+	var colors := PackedColorArray()
+	var sorted := _ramp.duplicate()
+	sorted.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	for s in sorted:
+		offsets.append(clampf(float(s[0]), 0.0, 1.0))
+		colors.append(s[1])
+	if offsets.is_empty():
+		return
+	## `Gradient` rejects an empty pair and duplicates confuse its own
+	## interpolation, so a one-stop ramp is drawn as a flat two-stop one.
+	if offsets.size() == 1:
+		offsets.append(1.0)
+		colors.append(colors[0])
+	_ramp_gradient.offsets = offsets
+	_ramp_gradient.colors = colors
+
+## Metres above sea level a relative position stands for on *this* world.
+## `0` before the parameter table is read, which reads as `0 m` on every row --
+## honest, and better than a metre figure derived from a peak nobody has yet.
+func _ramp_metres(at: float) -> float:
+	if not bridge.params_available():
+		return 0.0
+	var peak = bridge.param_get("peak_m")
+	return at * (float(peak) if peak != null else 0.0)
+
+func _rebuild_ramp_rows() -> void:
+	if _ramp_host == null:
+		return
+	for c in _ramp_host.get_children():
+		c.queue_free()
+	for i in _ramp.size():
+		## Captured by value into every lambda in this row, so the closures keep
+		## pointing at their own stop rather than at the loop's last one.
+		var idx: int = i
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 4)
+		_ramp_host.add_child(row)
+
+		var swatch := ColorPickerButton.new()
+		swatch.color = _ramp[idx][1]
+		swatch.custom_minimum_size = Vector2(30, 18)
+		swatch.focus_mode = Control.FOCUS_NONE
+		swatch.edit_alpha = false
+		swatch.color_changed.connect(func(c: Color):
+			_ramp[idx][1] = c
+			_update_ramp_bar()
+			_push_ramp(false))
+		row.add_child(swatch)
+
+		var pos := HSlider.new()
+		pos.min_value = 0.0
+		pos.max_value = 1.0
+		pos.step = 0.005
+		pos.value = float(_ramp[idx][0])
+		pos.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		pos.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		pos.custom_minimum_size.y = 14
+		pos.focus_mode = Control.FOCUS_NONE
+		row.add_child(pos)
+
+		var readout := DccTheme.mono_label("", "text", DccTheme.FS_SMALL, 0)
+		readout.custom_minimum_size.x = 62
+		readout.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		readout.text = "%d m" % int(round(_ramp_metres(float(_ramp[idx][0]))))
+		row.add_child(readout)
+
+		pos.value_changed.connect(func(v: float):
+			_ramp[idx][0] = v
+			readout.text = "%d m" % int(round(_ramp_metres(v)))
+			_update_ramp_bar())
+		## Commit on release, like every other row in this dock: a full-map
+		## re-render is not a per-drag-pixel operation.
+		pos.drag_ended.connect(func(_changed: bool): _push_ramp(true))
+
+		var del := DccWidgets.text_button(row, "x", func(): _delete_stop(idx))
+		del.tooltip_text = "Delete this stop"
+		## A one-stop ramp is legal; a zero-stop one is not (the engine refuses
+		## it), so the last delete is disabled rather than silently ignored.
+		del.disabled = _ramp.size() <= 1
+
+func _delete_stop(idx: int) -> void:
+	if _ramp.size() <= 1 or idx < 0 or idx >= _ramp.size():
+		return
+	_ramp.remove_at(idx)
+	_push_ramp(true)
+
+## A new stop in the widest gap, coloured with what the ramp already shows
+## there -- so adding one changes nothing until it is moved, which is what
+## makes it an edit rather than a surprise.
+func _on_add_stop() -> void:
+	var sorted := _ramp.duplicate()
+	sorted.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	var at := 0.5
+	var col := Color(0.5, 0.5, 0.5)
+	if sorted.size() >= 2:
+		var best := -1.0
+		for i in sorted.size() - 1:
+			var gap: float = float(sorted[i + 1][0]) - float(sorted[i][0])
+			if gap > best:
+				best = gap
+				at = (float(sorted[i][0]) + float(sorted[i + 1][0])) * 0.5
+				col = Color(sorted[i][1]).lerp(Color(sorted[i + 1][1]), 0.5)
+	elif sorted.size() == 1:
+		at = clampf(float(sorted[0][0]) + 0.25, 0.0, 1.0)
+		col = sorted[0][1]
+	_ramp.append([at, col])
+	_push_ramp(true)
+
+## The design's own Reverse: the same colours, top to bottom.
+func _on_reverse_ramp() -> void:
+	for s in _ramp:
+		s[0] = 1.0 - float(s[0])
+	_push_ramp(true)
+
+func _on_ramp_preset(name: String) -> void:
+	if bridge.load_ramp_preset(name):
+		_sync_ramp()
+		_mark_custom()
+		_refresh_map()
+
+## Send the whole list; the engine sorts it, so this is add, delete and reorder
+## in one call. `rebuild` re-reads the engine afterwards, which is what makes a
+## reorder show up in the rows -- skipped on a colour change, where the rows are
+## already right and rebuilding would close the colour picker the user is in.
+func _push_ramp(rebuild: bool) -> void:
+	if bridge.set_color_ramp(_ramp) <= 0:
+		return
+	_mark_custom()
+	_refresh_map()
+	if rebuild:
+		_sync_ramp()
+
+# -- Saving a look (`GUI_GAP_REGISTER.md` CA-08) -------------------------------
+
+var _preset_name: LineEdit
+var _preset_pick: OptionButton
+var _preset_slugs: Array = []
+
+func _build_look_presets() -> void:
+	if not bridge.preset_api:
+		return
+	var body := DccWidgets.section(self, "Saved looks")
+	_preset_name = LineEdit.new()
+	_preset_name.placeholder_text = "Name this look"
+	_preset_name.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
+	DccWidgets.well(_preset_name)
+	body.add_child(_preset_name)
+	DccWidgets.action(body, "Save look", _on_save_look, true)
+	_preset_pick = DccWidgets.choice(body, "Saved", [], -1, func(_i: int): pass,
+		"Looks saved on this machine.")
+	DccWidgets.action(body, "Load look", _on_load_look)
+	DccWidgets.note(body,
+		"A look is every value in this panel -- Map view, Rendering-advanced, the "
+		+ "ramp and the Painter styles -- written to its own small JSON file "
+		+ "beside the project, not into the world .zip. It is reusable across "
+		+ "worlds, which is the whole reason to save one, and the .zip is the "
+		+ "reference app's format rather than this port's to extend.")
+	DccWidgets.note(body,
+		"Loading replaces the quality tier as the starting point, so a look saved "
+		+ "at Ultra renders at Ultra wherever it is opened. Reset to quality tier "
+		+ "above hands it all back.")
+	_refresh_preset_list()
+
+func _refresh_preset_list() -> void:
+	if _preset_pick == null:
+		return
+	_preset_slugs.clear()
+	_preset_pick.clear()
+	for entry in bridge.appearance_presets():
+		_preset_pick.add_item(String(entry[0]))
+		_preset_slugs.append(String(entry[1]))
+	_preset_pick.disabled = _preset_slugs.is_empty()
+
+func _on_save_look() -> void:
+	var name := _preset_name.text.strip_edges() if _preset_name != null else ""
+	if name == "":
+		push_warning("Save look: name the look first.")
+		return
+	if not bridge.save_appearance_preset(name):
+		push_warning("Save look: the engine could not write the preset.")
+		return
+	_refresh_preset_list()
+	for i in _preset_slugs.size():
+		if String(_preset_pick.get_item_text(i)) == name:
+			_preset_pick.selected = i
+
+func _on_load_look() -> void:
+	if _preset_pick == null or _preset_pick.selected < 0:
+		return
+	if not bridge.load_appearance_preset(String(_preset_slugs[_preset_pick.selected])):
+		push_warning("Load look: the preset could not be read.")
+		return
+	_sync_appearance()
+	_sync_ramp()
+	_mark_custom()
+	_refresh_map()
+
 # -- The reference's NPR block (`GUI_GAP_REGISTER.md` RN-01) -------------------
 
 ## The ten Painter styles plus the three toggles the reference keeps beside
@@ -434,12 +717,10 @@ func _on_animate_water(on: bool) -> void:
 func _build_owed_inventory() -> void:
 	var sec := DccWidgets.section(self, "Still owed")
 	DccWidgets.note(sec,
-		"Colour relief as an editable ramp: the gradient editor with draggable "
-		+ "stops, add / delete / duplicate / reverse, per-stop elevation and "
-		+ "hex/RGBA, interpolation mode, elevation domain, Auto Fit / Auto "
-		+ "Breakpoints, and the 16 named ramp presets. render.rs holds colour as "
-		+ "a 31-entry material palette, not an elevation-keyed breakpoint ramp, so "
-		+ "this is a renderer change and not a binding (GUI_GAP_REGISTER.md CA-02).")
+		"Of the ramp editor (CA-02, now live above): per-stop alpha and per-stop "
+		+ "interpolation mode (Linear / Ease / Step), stop duplicate, an absolute "
+		+ "elevation domain, and Auto Fit / Auto Breakpoints. The renderer's ramp "
+		+ "is linear between stops and keyed to relative land elevation.")
 	DccWidgets.note(sec,
 		"Colour grading (vibrancy, saturation, contrast, brightness, gamma, "
 		+ "temperature, tint and the four field-influence weights) · Material "
@@ -448,9 +729,10 @@ func _build_owed_inventory() -> void:
 		+ "Detail & atmosphere (macro / meso / micro intensity, distance and "
 		+ "elevation haze) · Preview (on-off, Compare current / previous / split).")
 	DccWidgets.note(sec,
-		"Saving a look: save preset / save as theme. TerrainAppearance does not "
-		+ "derive Serialize, and nothing writes appearance into the project file "
-		+ "yet, so an edited style is per-session (GUI_GAP_REGISTER.md CA-08).")
+		"Of saving a look (CA-08, now live above): rename and delete a saved look, "
+		+ "a thumbnail per look, and sharing one between machines. A look is a "
+		+ "named JSON file under user://appearance_presets and nothing collects "
+		+ "them into a theme.")
 	DccWidgets.note(sec,
 		"None of it is presentation-unsafe: every control here updates visible "
 		+ "tiles only and never marks a generation stage stale.")

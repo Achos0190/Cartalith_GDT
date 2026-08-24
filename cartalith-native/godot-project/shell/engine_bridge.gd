@@ -82,6 +82,13 @@ func _ready() -> void:
 		and _has("set_appearance") \
 		and _has("list_appearance_tunables") \
 		and _has("reset_appearance")
+	ramp_api = _has("get_color_ramp") \
+		and _has("set_color_ramp") \
+		and _has("list_ramp_presets") \
+		and _has("load_ramp_preset")
+	preset_api = _has("save_appearance_preset") \
+		and _has("load_appearance_preset") \
+		and _has("peek_appearance_preset")
 	measure_api = _has("measure_section") \
 		and _has("measure_area") \
 		and _has("measure_radius") \
@@ -601,6 +608,105 @@ func reset_appearance() -> int:
 	if not appearance_api:
 		return 0
 	return world_gen.reset_appearance()
+
+
+# -- Colour ramp (`GUI_GAP_REGISTER.md` CA-02) ---------------------------------
+#
+# A second, later capability flag rather than a widening of `appearance_api`:
+# the tunable surface shipped one commit earlier, so an in-between binary has
+# the sliders and not the ramp, and the panel should lose the ramp block rather
+# than fail to draw the sliders.
+var ramp_api := false
+
+## `["Earth", "Elevation", ...]` -- the engine's own named ramps.
+func ramp_presets() -> Array:
+	if not ramp_api:
+		return []
+	return Array(world_gen.list_ramp_presets())
+
+## `[[position, Color], ...]`, sorted by position. Position is relative land
+## elevation: 0 at the shoreline, 1 at the world's highest point.
+func color_ramp() -> Array:
+	if not ramp_api:
+		return []
+	return world_gen.get_color_ramp()
+
+## Replace the whole ramp. Add, delete and reorder are all this one call --
+## the engine sorts by position, so dragging a stop past its neighbour *is*
+## the reorder. Returns the number of stops accepted (0 = nothing changed).
+func set_color_ramp(stops: Array) -> int:
+	if not ramp_api:
+		return 0
+	return world_gen.set_color_ramp(stops)
+
+func load_ramp_preset(name: String) -> bool:
+	if not ramp_api:
+		return false
+	return world_gen.load_ramp_preset(name)
+
+
+# -- Appearance presets (`GUI_GAP_REGISTER.md` CA-08) --------------------------
+#
+# A named look, saved beside the project rather than inside it: a look is
+# reusable across worlds, which is the whole reason to save one. See
+# `WorldGen::save_appearance_preset` for why it is not a block in the `.zip`.
+
+## Where named looks live. `user://` so it survives an export and is writable
+## on Android, and one folder so the picker is a directory listing.
+const PRESET_DIR := "user://appearance_presets"
+
+var preset_api := false
+
+## The engine takes native OS paths (`save_project`'s own convention), so every
+## call here globalizes first.
+func _preset_path(name: String) -> String:
+	DirAccess.make_dir_recursive_absolute(PRESET_DIR)
+	return ProjectSettings.globalize_path("%s/%s.json" % [PRESET_DIR, _preset_slug(name)])
+
+## A filename that cannot escape the preset folder or collide with a shell
+## quoting rule, while the *display* name inside the file stays whatever the
+## user typed.
+##
+## Idempotent by construction (`a-z0-9_` maps to itself), which is what lets
+## `save_appearance_preset` take a display name and `load_appearance_preset`
+## take either that or the slug `appearance_presets()` handed back.
+func _preset_slug(name: String) -> String:
+	var out := ""
+	for c in name.strip_edges().to_lower():
+		out += c if (c >= "a" and c <= "z") or (c >= "0" and c <= "9") else "_"
+	return out.strip_edges() if out != "" else "preset"
+
+func save_appearance_preset(name: String) -> bool:
+	if not preset_api:
+		return false
+	return world_gen.save_appearance_preset(_preset_path(name), name)
+
+func load_appearance_preset(name: String) -> bool:
+	if not preset_api:
+		return false
+	return world_gen.load_appearance_preset(_preset_path(name))
+
+## `[[display name, slug], ...]` for every preset file in `PRESET_DIR`, read
+## through the engine's own `peek_appearance_preset` so a stray JSON file that
+## is not a Cartalith preset is skipped rather than offered.
+func appearance_presets() -> Array:
+	if not preset_api:
+		return []
+	var out: Array = []
+	var dir := DirAccess.open(PRESET_DIR)
+	if dir == null:
+		return out
+	for f in dir.get_files():
+		if not f.ends_with(".json"):
+			continue
+		var slug := f.trim_suffix(".json")
+		var display: String = world_gen.peek_appearance_preset(
+			ProjectSettings.globalize_path("%s/%s" % [PRESET_DIR, f]))
+		if display == "":
+			continue
+		out.append([display, slug])
+	out.sort_custom(func(a, b): return String(a[0]).naturalnocasecmp_to(String(b[0])) < 0)
+	return out
 
 
 # -- Multi-GPU (`DCC_SHELL_SPEC.md` §2.5, `GUI_GAP_REGISTER.md` PR-01/02/04/05)

@@ -221,6 +221,7 @@ dependencies = [
  "cartalith-terrain",
  "godot",
  "rayon",
+ "serde",
  "serde_json",
 ]
 

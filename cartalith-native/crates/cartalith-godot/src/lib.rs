@@ -1497,6 +1497,31 @@ struct WorldGen {
     /// `set_quality_tier`'s exact terms: nothing here touches the heightmap,
     /// climate, hydrology, biomes, settlements, routes or the seed.
     appearance_over: std::collections::HashMap<String, f64>,
+    /// The caller's own elevation colour ramp (`GUI_GAP_REGISTER.md` CA-02),
+    /// or `None` for whatever the layer beneath supplies.
+    ///
+    /// Its own field rather than a key in `appearance_over` for the obvious
+    /// reason — that map is `f64`-valued — but also for the same reason it
+    /// exists at all: the ramp is a *separate authority* from the tier and
+    /// from the preset, so editing stops must not discard a loaded preset's
+    /// sun azimuth and switching quality tier must not discard the stops.
+    appearance_ramp: Option<render::ElevationRamp>,
+    /// A loaded appearance preset (`GUI_GAP_REGISTER.md` CA-08), replacing the
+    /// **quality tier** as the base layer that `appearance_over` and
+    /// `appearance_ramp` sit on top of. `None` = the tier, which is what every
+    /// session starts as and what `reset_appearance` restores.
+    ///
+    /// A whole `TerrainAppearance` rather than a second override map, and the
+    /// difference matters: a preset is a *complete* description of a look
+    /// (`ARCHITECTURE.md`'s presentation layer, serialized), so loading one
+    /// must reproduce it exactly rather than merging it into whatever the
+    /// session happened to be showing. `load_appearance_preset` therefore also
+    /// clears the override map — see its own doc.
+    ///
+    /// Its cost is the tier's: a preset saved at `Ultra` and loaded on a phone
+    /// really does render at `Ultra`, because that is what the file says. A
+    /// caller who wants the tier's cost back calls `reset_appearance`.
+    appearance_preset: Option<TerrainAppearance>,
     /// `UNIFIED_TOOL_PLAN.md` milestone F (`STRANDED_TOOLS.md` rows 4-8):
     /// the live, non-destructive Sculpt-editor draft. See
     /// `sculpt_bridge.rs`'s own module doc for why this lives here rather
@@ -1644,6 +1669,8 @@ impl IRefCounted for WorldGen {
             quality: QualityTier::Quality,
             npr: render::Npr::default(),
             appearance_over: std::collections::HashMap::new(),
+            appearance_ramp: None,
+            appearance_preset: None,
             sculpt: None,
             icons: None,
             civ_tools: None,
@@ -3120,7 +3147,19 @@ impl WorldGen {
     fn appearance(&self) -> TerrainAppearance {
         let mut npr = self.npr.clone();
         npr.peak_m = self.params.peak_m;
-        let mut a = TerrainAppearance { npr, ..TerrainAppearance::for_tier(self.quality) };
+        // Three layers, cheapest authority first: the quality tier, then a
+        // loaded preset if there is one (CA-08), then the user's own edits
+        // (CA-01) and their ramp (CA-02). Each layer only ever writes what it
+        // actually carries, which is what lets a tier change survive an edit
+        // and an edit survive a tier change.
+        let base = match self.appearance_preset.as_ref() {
+            Some(p) => p.clone(),
+            None => TerrainAppearance::for_tier(self.quality),
+        };
+        let mut a = TerrainAppearance { npr, ..base };
+        if let Some(ramp) = self.appearance_ramp.as_ref() {
+            a.ramp = ramp.clone();
+        }
         for (key, value) in &self.appearance_over {
             if key == render::TUNABLE_LIGHTS.0 {
                 a.relief_lights = value.round().max(1.0) as usize;
@@ -3216,14 +3255,208 @@ impl WorldGen {
         applied
     }
 
-    /// Drop the caller's overrides and hand every appearance value back to the
-    /// active quality tier. Returns how many were dropped, so a "Reset" button
-    /// can stay quiet when there was nothing to reset.
+    /// Drop the caller's overrides, ramp and loaded preset, and hand every
+    /// appearance value back to the active quality tier. Returns how many
+    /// things were dropped, so a "Reset" button can stay quiet when there was
+    /// nothing to reset.
+    ///
+    /// All three layers, not just the override map: after a preset load the
+    /// thing a user means by "reset" is the tier's own look, and leaving the
+    /// preset in place would make the button appear to do nothing on exactly
+    /// the occasion it is most needed.
     #[func]
     fn reset_appearance(&mut self) -> i32 {
-        let n = self.appearance_over.len() as i32;
+        let n = self.appearance_over.len() as i32 + self.appearance_ramp.is_some() as i32 + self.appearance_preset.is_some() as i32;
         self.appearance_over.clear();
+        self.appearance_ramp = None;
+        self.appearance_preset = None;
         n
+    }
+
+    // -- The elevation colour ramp (`GUI_GAP_REGISTER.md` CA-02) --------------
+
+    /// The names of the built-in ramps, in `DCC_SHELL_SPEC.md` §7's own order,
+    /// so the panel's picker is the engine's list rather than a second copy of
+    /// it in GDScript -- the same rule `list_appearance_tunables` follows.
+    #[func]
+    fn list_ramp_presets(&self) -> PackedStringArray {
+        render::RAMP_PRESETS.iter().map(|(n, _)| GString::from(*n)).collect()
+    }
+
+    /// The ramp currently in force, as an `Array` of `[position, Color]` rows,
+    /// sorted by position. `position` is relative land elevation (`0` = the
+    /// shoreline, `1` = the world's highest point); the panel turns that into
+    /// metres with `peak_m` for display, and `RampStop`'s own doc explains why
+    /// the engine will not store metres.
+    #[func]
+    fn get_color_ramp(&self) -> VarArray {
+        let a = self.appearance();
+        let mut out = VarArray::new();
+        for s in a.ramp.stops() {
+            let mut row = VarArray::new();
+            row.push(&s.at.to_variant());
+            row.push(&Color::from_rgba((s.col.0 / 255.0) as f32, (s.col.1 / 255.0) as f32, (s.col.2 / 255.0) as f32, 1.0).to_variant());
+            out.push(&row.to_variant());
+        }
+        out
+    }
+
+    /// Replace the ramp with `stops`, each row `[position, Color]` exactly as
+    /// `get_color_ramp` returns it. Returns the number of stops accepted.
+    ///
+    /// **Adding, deleting and reordering are all this one call**: the panel
+    /// sends the list it wants and the engine sorts it, so a stop dragged past
+    /// its neighbour reorders by position rather than by list index, which is
+    /// what a ramp means. Rows that are not `[number, Color]` are skipped, and
+    /// a non-finite position is dropped rather than sorted against -- see
+    /// `ElevationRamp::normalized` for the NaN policy and why a panic here
+    /// would be worse than a dropped stop (`cartalith-rust-conventions`: a
+    /// panic crossing the gdext boundary takes the process with it).
+    ///
+    /// An **empty** array is refused (returns `0`, changes nothing): a ramp
+    /// with no stops renders nothing at all, and the honest way to turn the
+    /// stage off is `ramp_strength` -- which is a published tunable, so the
+    /// panel already has it.
+    ///
+    /// Presentation only, on `set_appearance`'s exact terms: call
+    /// `build_color_texture()` again to see it, with no regeneration.
+    #[func]
+    fn set_color_ramp(&mut self, stops: VarArray) -> i32 {
+        let mut parsed: Vec<render::RampStop> = Vec::new();
+        for row in stops.iter_shared() {
+            let Ok(row) = row.try_to::<VarArray>() else { continue };
+            if row.len() < 2 {
+                continue;
+            }
+            let Some(at) = row.at(0).try_to::<f64>().ok() else { continue };
+            let Some(c) = row.at(1).try_to::<Color>().ok() else { continue };
+            parsed.push(render::RampStop { at, col: (c.r as f64 * 255.0, c.g as f64 * 255.0, c.b as f64 * 255.0) });
+        }
+        let ramp = render::ElevationRamp::normalized(parsed);
+        if ramp.stops().is_empty() {
+            return 0;
+        }
+        let n = ramp.stops().len() as i32;
+        self.appearance_ramp = Some(ramp);
+        n
+    }
+
+    /// Load one of `list_ramp_presets()`'s ramps by name. `false` for a name
+    /// this build does not have, so a panel written against a newer engine
+    /// loses a row rather than silently showing the wrong colours.
+    #[func]
+    fn load_ramp_preset(&mut self, name: GString) -> bool {
+        match render::ElevationRamp::preset(&name.to_string()) {
+            Some(r) => {
+                self.appearance_ramp = Some(r);
+                true
+            }
+            None => false,
+        }
+    }
+
+    // -- Saving a look (`GUI_GAP_REGISTER.md` CA-08) --------------------------
+
+    /// Write the appearance currently in force to `path` as a small JSON
+    /// preset: the merged look (tier + preset + overrides + ramp), not the
+    /// override map, so the file describes a picture rather than a diff
+    /// against a tier the machine that reads it may not be on.
+    ///
+    /// **A preset file, deliberately not the project `.zip`.** A look is not
+    /// world data -- it is reusable *across* worlds, which is the whole point
+    /// of saving one, and `SAVEFILE_COMPAT.md`'s format is the reference HTML
+    /// app's and shallow-merges `state`, so a block this port invented would
+    /// be one more unshimmed key for that app to choke on. A named sidecar
+    /// costs nothing and travels.
+    ///
+    /// `path` is a native OS filesystem path, the same convention
+    /// `save_project` and `load_asset_pack` use; the shell resolves
+    /// `user://…` through `ProjectSettings.globalize_path` before calling.
+    #[func]
+    fn save_appearance_preset(&self, path: GString, name: GString) -> bool {
+        let doc = serde_json::json!({
+            "format": "cartalith-appearance",
+            "v": 1,
+            "name": name.to_string(),
+            "appearance": self.appearance(),
+        });
+        let text = match serde_json::to_string_pretty(&doc) {
+            Ok(t) => t,
+            Err(e) => {
+                godot_print!("cartalith-godot: save_appearance_preset encode failed: {e}");
+                return false;
+            }
+        };
+        match std::fs::write(path.to_string(), text) {
+            Ok(()) => true,
+            Err(e) => {
+                godot_print!("cartalith-godot: save_appearance_preset write failed: {e}");
+                false
+            }
+        }
+    }
+
+    /// Read a preset written by [`Self::save_appearance_preset`] and make it
+    /// the look. Returns `false` (and changes nothing) on any read, parse or
+    /// format error.
+    ///
+    /// **Clears the override map and the ramp override.** Those are edits
+    /// layered over a base, and the file *is* a base: keeping them would mean
+    /// loading a saved look reproduced something other than the saved look,
+    /// which is the one thing this call has to guarantee. `appearance()` after
+    /// a successful load equals the `appearance()` that was saved, field for
+    /// field -- with the single exception of `npr.peak_m`, which is a fact
+    /// about the world on screen and is re-derived from `params` on every
+    /// render.
+    #[func]
+    fn load_appearance_preset(&mut self, path: GString) -> bool {
+        let text = match std::fs::read_to_string(path.to_string()) {
+            Ok(t) => t,
+            Err(e) => {
+                godot_print!("cartalith-godot: load_appearance_preset open failed: {e}");
+                return false;
+            }
+        };
+        let doc: serde_json::Value = match serde_json::from_str(&text) {
+            Ok(v) => v,
+            Err(e) => {
+                godot_print!("cartalith-godot: load_appearance_preset parse failed: {e}");
+                return false;
+            }
+        };
+        if doc.get("format").and_then(|v| v.as_str()) != Some("cartalith-appearance") {
+            godot_print!("cartalith-godot: load_appearance_preset: not a Cartalith appearance preset");
+            return false;
+        }
+        let Some(body) = doc.get("appearance") else {
+            godot_print!("cartalith-godot: load_appearance_preset: no appearance block");
+            return false;
+        };
+        match serde_json::from_value::<TerrainAppearance>(body.clone()) {
+            Ok(a) => {
+                self.appearance_over.clear();
+                self.appearance_ramp = None;
+                self.appearance_preset = Some(a);
+                true
+            }
+            Err(e) => {
+                godot_print!("cartalith-godot: load_appearance_preset decode failed: {e}");
+                false
+            }
+        }
+    }
+
+    /// The `name` field of a preset file without loading it, or `""` -- so a
+    /// picker can list what is in a folder by its own name rather than by
+    /// filename. Cheap enough to call once per file in a directory listing.
+    #[func]
+    fn peek_appearance_preset(&self, path: GString) -> GString {
+        let Ok(text) = std::fs::read_to_string(path.to_string()) else { return GString::new() };
+        let Ok(doc) = serde_json::from_str::<serde_json::Value>(&text) else { return GString::new() };
+        if doc.get("format").and_then(|v| v.as_str()) != Some("cartalith-appearance") {
+            return GString::new();
+        }
+        GString::from(doc.get("name").and_then(|v| v.as_str()).unwrap_or(""))
     }
 
     /// The reference's NPR block (`GUI_GAP_REGISTER.md` RN-01) as a

@@ -5,7 +5,66 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **A committed route could not be deleted or
+Last updated: 2026-08-24 (post **Three cartography follow-ups: a slider that
+rendered nothing, a ramp that did not exist, and a look that could not be
+saved** — `GUI_GAP_REGISTER.md` **CA-11**, **CA-02** and **CA-08** all
+**closed**, which retires everything the previous cartography pass left
+behind. All three were engine gaps, not missing bindings, which is why none
+of them closed with the twenty-one sliders. **CA-11** (owner-authorised; it
+moves the shipped look): both halves of `build_hydro_wetness` had been tuned
+at a small grid and both shrank as the grid got finer. Its gate normalized
+`flow / (gw*gh)` against the world's own min-max range — but that quantity is
+*already* scale-free (it is the fraction of the map a cell drains), so
+re-normalizing cost the threshold its meaning and put the knee at ~0.8 % of
+map area drained, the trunk river and nothing else; and the box blur that
+softens the halo then lost about `1/(2r+1)` of the peak, with `r = gw*0.006`
+growing with the grid. Now an **absolute** upstream-area gate (`6e-4 … 8e-3`,
+picked by sweeping three pairs, not guessed) plus a **peak-restoring gain of
+`2r+1`**. Measured 0 → 1: **1.216 % → 10.785 %** of pixels at 512×384,
+**0.184 % → 4.966 %** at 1024×768, **0.002 % → 2.589 %** at the app's own
+2048×1311; at the shipped `0.38` default and working resolution **0.000 % →
+1.422 %**, worst per-channel delta 3 → 59 levels. One trade, stated: the gate
+is absolute, so a world whose basins are all smaller than `6e-4` of the map
+gets no wetness — an island with no river has no river to tint. **CA-02** is
+the elevation ramp `render.rs`'s own module doc has said since milestone 1
+did not exist anywhere in this renderer: `ElevationRamp`/`RampStop` keyed to
+**relative land elevation** (0 = shoreline, 1 = the peak — never metres, or a
+saved ramp would mean a different picture on a world with a different peak),
+sampled linearly, blended over the material colour **before the light curve**,
+which is the whole difference between a hypsometric tint over shaded relief
+and an elevation key pasted on top. Land only; **ships off** at
+`ramp_strength: 0.0` with the stage skipped, so `golden_parity_render.rs`
+needed no change and the default look did not move. Nine named ramps as pure
+data. **Add, delete and reorder are one call** — the panel sends the list and
+the engine sorts by position, so dragging a stop past its neighbour *is* the
+reorder. **CA-08** derives `Serialize`/`Deserialize` on `TerrainAppearance`,
+`Npr` and `ElevationRamp` (§7.15's *"one Rust line the whole feature depends
+on"*) and writes a named look to its own JSON sidecar under
+`user://appearance_presets`, **not** into the world `.zip` — a look is
+reusable across worlds, and that format is the reference app's and
+shallow-merges `state`. `WorldGen::appearance()` is now three layers, tier →
+loaded preset → user overrides and ramp; a load replaces the *tier* and
+clears the overrides, because otherwise loading a saved look would reproduce
+something other than the saved look. **Verified non-headlessly at the app's
+own 2048×1311, deliberately not at 512×384**, since CA-11 was invisible
+*only* at working resolution and a small grid would have verified the bug
+away: Wetness default → 0 moves 0.821 % of pixels and default → 1 moves
+1.295 %, reading as wet valley floors along the real drainage; nine ramps all
+distinct; strength back to 0 returns the base at **0.0000 %**; through the
+real dock a drag reaches the engine, Add lands a stop in the widest gap
+(0.39), a drag from index 7 to 0.02 lands it at **index 1 with its colour**,
+delete and Reverse re-render; and an authored look saved, the session mangled
+to 99.999 % different, then loaded back at **0.0000 % moved, worst 0 levels**,
+with Reset returning the tier at 0.0000 %. **10 new tests** (22 in
+`appearance_tiers.rs`), and `hydro_wet_strength` **left**
+`every_tunable_is_load_bearing`'s exemption list — the cheap standing guard —
+while the new `hydro_wetness_visibility_by_resolution` measures all three grid
+sizes on real worlds and reports the whole table before asserting. **Still
+owed**: per-stop alpha, the Ease/Step interpolation modes, duplicate, an
+absolute elevation domain and Auto Fit / Auto Breakpoints on the ramp; rename,
+delete and a thumbnail on saved looks — the panel's own "Still owed" block
+says so) —
+previously, post **A committed route could not be deleted or
 renamed** — `GUI_GAP_REGISTER.md` **IN-09's second half**, the part its own
 closing note said it had not fixed. `InfraTools::route_delete` (`Vec::remove`,
 the reference's `civJourneys.splice(ji,1)`, line 17250) and `route_set_name`,
@@ -156,9 +215,11 @@ network whose area share shrinks as cells shrink. Not fixed because the default
 is `0.38` and a retune moves the shipped look — an owner call. **Two
 non-findings checked rather than assumed:** `splat_strength` is correctly inert
 with no asset pack, and `relief_lights` is live at 1 and merely converged by 12.
-**Still open:** the elevation-keyed colour ramp and stop editor (**CA-02**, a
-renderer change not a binding), saving a look (**CA-08**), and the ten
-Rendering-advanced sliders whose engine stages this port has never had) —
+**Still open at the time:** the elevation-keyed colour ramp and stop editor
+(**CA-02**, a renderer change not a binding), saving a look (**CA-08**), and
+the ten Rendering-advanced sliders whose engine stages this port has never
+had. CA-11, CA-02 and CA-08 all closed later the same day — see the head of
+this preamble; the ten unported render stages remain) —
 previously, post **The desktop close box destroyed unsaved worlds too** —
 `GUI_GAP_REGISTER.md` **BK-02**, BK-01's twin one platform over: nothing
 handled `NOTIFICATION_WM_CLOSE_REQUEST` and `auto_accept_quit` was at its

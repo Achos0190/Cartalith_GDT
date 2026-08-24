@@ -22817,3 +22817,180 @@ map carrying no routes. Screenshots at each step.
 the INFRA dock deletes a route out from under it (it re-reads `route_count()`
 on open, so the failure is a wrong selection in a window that is rarely open
 at the same time, never a crash).
+
+## Three cartography follow-ups: a slider that rendered nothing, a ramp that did not exist, and a look that could not be saved (`GUI_GAP_REGISTER.md` CA-11 / CA-02 / CA-08, 2026-08-24)
+
+The three things the previous entry's measurement pass left behind. Each was
+a real engine gap rather than a missing binding, which is why none of them
+closed with the twenty-one sliders.
+
+### CA-11 — the Wetness slider
+
+Found by measurement the day before and registered rather than fixed, because
+`hydro_wet_strength` ships at `0.38` and a retune moves the default look.
+Owner-authorised this pass.
+
+**Both halves of `build_hydro_wetness` had been tuned at a small grid, and
+both shrank as the grid got finer.**
+
+- The gate was `smoothstep(0.55, 0.88, …)` over the world's own **min-max
+  normalized** log-flow range. That reads as adaptive, and it is — but the
+  quantity being normalized, `flow / (gw*gh)`, is *already* scale-free: it is
+  the fraction of the whole map a cell drains. Re-normalizing it bought
+  nothing and cost the threshold its meaning. In practice `lo` pinned to the
+  `1e-4` clamp floor and `hi` to the largest basin, putting the 0.55 knee at
+  ~0.8 % of map area drained — the trunk river and nothing else. Replaced
+  with an **absolute** upstream-area gate, `WET_AREA_LO = 6e-4` to
+  `WET_AREA_HI = 8e-3`: the same set of *channels* at any resolution, which
+  is what resolution-invariance means for a drainage network.
+- The blur then diluted what survived. A box blur conserves the mean, so
+  smearing a one-cell line over a radius-`r` window drops its peak by about
+  `1/(2r+1)` — and `r` is `gw * 0.006`, so the dilution got **worse** exactly
+  as the grid got finer (3 cells at 512 wide, 12 at 2048). The blur is what
+  makes the halo soft and it stays; what is new is the matching **gain that
+  restores its peak**, `2r + 1`, clamped.
+
+Measured on one generated world, driving 0 → 1, pixels moved:
+
+| grid | before | after |
+|---|---|---|
+| 512×384 | 1.216 % | 10.785 % |
+| 1024×768 | 0.184 % | 4.966 % |
+| 2048×1311 (the app's own) | 0.002 % | 2.589 % |
+
+At the shipped `0.38` default and working resolution: **0.000 % → 1.422 %**,
+worst per-channel delta **3 → 59 levels**.
+
+**The constants were swept, not guessed.** `1e-3 … 1.2e-2` left working
+resolution at 0.67 % and `3e-4 … 5e-3` took it to 3.4 %, which reads as a
+wet-valley wash rather than a river corridor. The shipped pair is the middle
+one.
+
+**One trade, stated rather than discovered later**: the gate is absolute, so
+a world whose basins are all smaller than `6e-4` of the map gets no wetness,
+where the old min-max gate would have tinted its largest stream whatever its
+size. That is the honest answer — an island with no river has no river to
+tint — and it is exactly the choice `build_ao` declines to make, because
+occlusion is a *relief* statistic and really is relative, while drainage area
+is an absolute one.
+
+### CA-02 — an elevation-keyed colour ramp
+
+`render.rs`'s own module doc has recorded since milestone 1 that there is no
+elevation breakpoint ramp anywhere in this renderer — colour comes from
+`material_weights`, a continuous climate/slope/relief blend — and that a
+literal one *"would be a genuinely new visual layer to design on top of (or
+blended with) this material model"*. This is that layer, built the way the
+finding said it had to be.
+
+- `RampStop { at, col }` and `ElevationRamp`, keyed to **relative land
+  elevation** (`0` = shoreline, `1` = the world's highest point), not metres.
+  Metres are a presentation of that (`peak_m` converts, and the panel does);
+  storing them would make a saved ramp mean a different picture on a world
+  with a different peak, which is the one thing a saved look must not do.
+- `ElevationRamp::normalized` is the single place the sort invariant is
+  established, and it carries the NaN policy `cartalith-rust-conventions`
+  requires wherever floats are ordered: **a stop with no position is not a
+  stop**. Without it `sort_by(partial_cmp().unwrap())` panics, and a panic
+  from `set_color_ramp` would cross the gdext boundary.
+- Applied in `land_color` **before the light curve** — after splat and bedrock
+  exposure, before the beach blend — so the hillshade, AO, paper ground, haze,
+  vignette and the whole Painter block still act on it. That ordering is the
+  entire difference between a hypsometric tint over shaded relief (the atlas
+  construction) and a flat elevation key pasted over a map. Land only: water
+  already has its own depth-keyed ramp in `sea_color_core`.
+- **Ships off.** `ramp_strength` defaults to `0.0`, the stage is skipped
+  rather than entered and no-opped, and `js_reference()` never sees it — so
+  `golden_parity_render.rs` needed no change and the shipped look did not
+  move. The ramp behind it is populated anyway (the `Earth` preset), because
+  an empty default would make the one control that turns the feature on look
+  dead, which is precisely what CA-11 was.
+- Nine named ramps as pure data (`RAMP_PRESETS`), the set
+  `DCC_SHELL_SPEC.md` §7's colour-ramp popover lists. `Earth` is first, and
+  is deliberately the closest of the nine to what `material_weights` already
+  produces, so raising the strength slider reads as the ramp *taking over*
+  rather than as a different planet.
+- **Linear interpolation only.** §7 also lists Ease and Step, and Step is how
+  a classic banded hypsometric plate is drawn, but a per-stop interpolation
+  mode is a second axis of state to save, load, edit and test. Stated in the
+  code, in the register and in the panel rather than left as a silent
+  omission.
+
+Bound as `list_ramp_presets` / `get_color_ramp` / `set_color_ramp` /
+`load_ramp_preset`. **Add, delete and reorder are all one call**: the panel
+sends the list it wants and the engine sorts by position, so dragging a stop
+past its neighbour *is* the reorder, rather than a list-index shuffle that
+would mean something different from what the gradient shows. An empty array
+is refused — a ramp with no stops renders nothing, and the honest way to turn
+the stage off is `ramp_strength`, which is already a published tunable.
+
+Panel: CARTO ▸ **Colour relief** — the strength slider, the nine named ramps,
+a live `GradientTexture1D` bar, one row per stop (colour swatch · position ·
+metre readout · delete), Add stop and Reverse.
+
+### CA-08 — saving a look
+
+`TerrainAppearance`, `Npr` and `ElevationRamp` derive `Serialize`/
+`Deserialize` — §7.15's *"the one Rust line the whole feature depends on"* —
+with `#[serde(default)]` at struct level, so a preset written before a field
+existed loads with that field at its own default instead of failing whole.
+
+**A named sidecar file, not a block in the world `.zip`, and the reasoning is
+recorded because it is the kind of thing that gets re-litigated.** A look is
+reusable *across* worlds, which is the whole reason to save one; and
+`SAVEFILE_COMPAT.md`'s format is the reference HTML app's, whose `loadZip()`
+shallow-merges `state`, so a block this port invented would be one more
+unshimmed key for that app to choke on. Looks live in
+`user://appearance_presets/<slug>.json`.
+
+`WorldGen::appearance()` is now **three layers**, cheapest authority first:
+the quality tier, then a loaded preset, then the user's own overrides and
+ramp. A loaded preset replaces the *tier* rather than merging into the
+session — and clears the override map — because otherwise loading a saved
+look would reproduce something other than the saved look. Its cost is the
+tier's: a look saved at `Ultra` renders at `Ultra` wherever it is opened,
+because that is what the file says. `reset_appearance()` drops all three.
+
+Panel: CARTO ▸ **Saved looks** — name field, Save look, a picker built from
+the folder listing (through `peek_appearance_preset`, so a stray JSON file
+that is not a Cartalith preset is skipped rather than offered), Load look.
+
+**Verified — non-headlessly, at the app's own 2048×1311, deliberately not at
+512×384**, since CA-11 was invisible *only* at working resolution and a small
+grid would have verified the bug away.
+
+- 10 new tests in `appearance_tiers.rs` (22 total, all passing) — ramp sort
+  and clamp, the NaN policy, flat-outside/linear-between sampling, coincident
+  stops, every preset loading and ordered, every preset rendering a distinct
+  image, the ramp inert at zero strength, land-only (measured with local
+  contrast off in both renders, because that whole-raster pass legitimately
+  bleeds a land change a few levels into the water beside it), a JSON
+  round-trip asserted **through the render** rather than through field
+  equality, and a sparse preset loading at defaults.
+- `hydro_wet_strength` **left** `every_tunable_is_load_bearing`'s exemption
+  list, which is the cheap standing guard that CA-11 stays fixed;
+  `appearance_ab_dump.rs`'s new `hydro_wetness_visibility_by_resolution` is
+  the expensive one, measuring all three grid sizes on real generated worlds
+  and reporting the whole table before asserting, so a run shows every size
+  rather than stopping at the first failure.
+- `golden_parity_render.rs` and `golden_parity_npr.rs` unchanged and passing:
+  every new stage is off on the JS-parity path. Every other `cartalith-godot`
+  test target re-run green too (nonsquare, pack compositing, paint blend,
+  params mapping, save round-trip).
+- A real windowed run (`_ramp_shot.gd`/`.tscn`) on a generated 2048×1311
+  world: Wetness default → 0 moves **0.821 %** of pixels and default → 1
+  moves **1.295 %**, with the corridors reading as wet valley floors along the
+  actual drainage; all nine ramps render distinct maps (mean |d| 21.0–50.7
+  levels) and strength back to 0 returns the base at **0.0000 %**; through the
+  real dock a slider drag reaches the engine (0.6), Add lands a stop in the
+  widest gap (0.39, between 0.28 and 0.50), a drag from index 7 down to 0.02
+  lands it at **index 1 with its colour**, delete and Reverse both re-render;
+  and an authored look saved, the session mangled to **99.999 %** different,
+  then the preset loaded back at **0.0000 % moved, worst 0 levels** —
+  including the hand-authored four-stop ramp — with Reset then returning the
+  tier's own look at 0.0000 %.
+
+**Still owed on these three**: per-stop alpha, the Ease/Step interpolation
+modes, stop duplicate, an absolute elevation domain and Auto Fit / Auto
+Breakpoints on the ramp; rename, delete and a thumbnail on saved looks. The
+panel's own "Still owed" block says so.

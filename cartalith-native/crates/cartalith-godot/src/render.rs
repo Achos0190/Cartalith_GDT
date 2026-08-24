@@ -261,7 +261,13 @@ fn splat_sample(tex: &SplatChannel, ramp: Rgb, wt: f64, x: usize, y: usize, acc:
 /// separate Godot overlay too (`water_anim_layer.gd`). Keeping the flag here
 /// means the whole NPR vocabulary crosses the gdext boundary through one
 /// `set_npr()` rather than through one method plus an unrelated second one.
-#[derive(Clone, Default)]
+// `Serialize`/`Deserialize` for `GUI_GAP_REGISTER.md` CA-08: a saved
+// appearance preset carries the whole look, and the Painter block is part of
+// the look. `#[serde(default)]` on the struct so a preset written by an older
+// build (one style short) still loads, gaining that style at its own default
+// rather than failing the whole file.
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Npr {
     /// `state.viz.contours` — constant-width elevation isolines, every fifth
     /// an index line.
@@ -314,18 +320,182 @@ pub struct Npr {
     pub animate_water: bool,
 }
 
+/// One breakpoint of an elevation-keyed colour ramp: a position in
+/// **relative land elevation** and the colour the map takes there.
+///
+/// `at` is `land_color`'s own `r` — `0.0` at the shoreline, `1.0` at the
+/// world's highest point — not metres. Metres are a *presentation* of this
+/// (`peak_m` turns one into the other, and the panel does exactly that), and
+/// storing them here would make a saved ramp mean a different picture on a
+/// world with a different peak, which is the one thing a saved look must not
+/// do.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RampStop {
+    /// Relative elevation above sea level, `[0, 1]`.
+    pub at: f64,
+    /// 0-255 per channel, matching every other colour in this file.
+    pub col: Rgb,
+}
+
+/// `GUI_GAP_REGISTER.md` **CA-02** — the elevation-keyed colour ramp this
+/// renderer did not have, as a real breakpoint list rather than as a second
+/// material model.
+///
+/// **What this is and is not.** This module's own doc comment records the
+/// milestone-1 audit finding: colour here comes from `material_weights`, a
+/// continuous climate/slope/relief blend, and *"a literal MapTiler-style
+/// elevation ramp would be a genuinely new visual layer/mode to design on top
+/// of (or blended with) this material model in a future milestone"*. This is
+/// that layer, built the way the finding said it had to be — **on top of**,
+/// blended by [`TerrainAppearance::ramp_strength`], and `0.0` by default, so
+/// the material model stays the shipped look and nothing about it moved.
+///
+/// It is applied to **land only** and **before lighting**, so the hillshade,
+/// AO, paper ground, haze, vignette and the whole Painter block still act on
+/// it exactly as they act on the material colour. That is what makes
+/// `ramp_strength = 1.0` a *hypsometric tint over shaded relief* — the classic
+/// atlas construction — rather than a flat elevation key pasted over the map.
+/// Water keeps its own bathymetric ramp (`sea_color_core`), which is already
+/// depth-keyed and is a different thing.
+///
+/// Stops are kept **sorted by `at`**, which is what makes "reorder" a
+/// meaningful operation rather than a list-index shuffle: dragging a stop past
+/// another *is* the reorder, and [`Self::normalized`] is the single place that
+/// invariant is established.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ElevationRamp {
+    stops: Vec<RampStop>,
+}
+
+impl ElevationRamp {
+    /// Build from arbitrary caller data: positions clamped to `[0, 1]`,
+    /// channels to `[0, 255]`, and the whole list sorted. Non-finite
+    /// positions are dropped rather than sorted against (`partial_cmp` has no
+    /// answer for NaN, and `cartalith-rust-conventions` requires a stated NaN
+    /// policy wherever floats are ordered — the policy here is "a stop with no
+    /// position is not a stop").
+    pub fn normalized(stops: impl IntoIterator<Item = RampStop>) -> Self {
+        let mut stops: Vec<RampStop> = stops
+            .into_iter()
+            .filter(|s| s.at.is_finite())
+            .map(|s| RampStop { at: clamp01(s.at), col: (s.col.0.clamp(0.0, 255.0), s.col.1.clamp(0.0, 255.0), s.col.2.clamp(0.0, 255.0)) })
+            .collect();
+        // Every `at` is finite by the filter above, so this `unwrap` cannot
+        // fire -- the reason it is safe is the line above it, not optimism.
+        stops.sort_by(|a, b| a.at.partial_cmp(&b.at).unwrap());
+        ElevationRamp { stops }
+    }
+
+    pub fn stops(&self) -> &[RampStop] {
+        &self.stops
+    }
+
+    /// The colour at relative elevation `t`, or `None` for an empty ramp —
+    /// the caller decides what "no ramp" means rather than being handed a
+    /// black that would look like a rendered result.
+    ///
+    /// Linear interpolation between neighbouring stops, flat beyond the ends.
+    /// Deliberately **linear only**: `DCC_SHELL_SPEC.md` §7's stop editor also
+    /// lists Ease and Step, and both are real cartographic choices (Step is
+    /// how a classic banded hypsometric plate is drawn), but a per-stop
+    /// interpolation mode is a second axis of state to save, load, edit and
+    /// test, and this milestone's remit is a working ramp. Stated here rather
+    /// than left as a silent omission.
+    pub fn sample(&self, t: f64) -> Option<Rgb> {
+        let t = clamp01(t);
+        let first = self.stops.first()?;
+        if t <= first.at {
+            return Some(first.col);
+        }
+        let last = self.stops.last()?;
+        if t >= last.at {
+            return Some(last.col);
+        }
+        let hi = self.stops.iter().position(|s| s.at >= t)?;
+        let (a, b) = (self.stops[hi - 1], self.stops[hi]);
+        let span = b.at - a.at;
+        // Two stops at the same position are a legal thing to author (it is
+        // how a hard band edge is drawn with linear interpolation), and it is
+        // also the one input that would divide by zero.
+        let k = if span <= 0.0 { 1.0 } else { (t - a.at) / span };
+        Some(mix(a.col, b.col, k))
+    }
+}
+
+impl Default for ElevationRamp {
+    /// The first entry of [`RAMP_PRESETS`]. A ramp is always populated even
+    /// though `ramp_strength` starts at `0.0`, so the editor opens on
+    /// something to edit and the strength slider has something to reveal —
+    /// an empty default would make the one control that turns the feature on
+    /// appear dead, which is the exact failure CA-11 was.
+    fn default() -> Self {
+        ElevationRamp::preset(RAMP_PRESETS[0].0).expect("RAMP_PRESETS[0] must name itself")
+    }
+}
+
+/// The named ramps `DCC_SHELL_SPEC.md` §7's Colour ramp popover lists, as
+/// stops in relative land elevation. Pure data — nine tables, no logic.
+///
+/// Two of the spec's nine are re-read rather than transcribed, and the reason
+/// is stated here rather than hidden: **Imhof** is the classic Swiss-style
+/// warm-lowland/cool-highland progression, and **Atlas** is the muted
+/// physical-atlas green-to-buff-to-brown; the spec names them without
+/// defining their colours, so these are this port's reading of two very
+/// well-known cartographic conventions. `Elevation`, `Mono`, `Ice`,
+/// `Dark ice`, `Desert` and `Dark atlas` are the same kind of reading.
+///
+/// `Earth` is first because it is [`ElevationRamp::default`], and it is
+/// deliberately the closest of the nine to what `material_weights` already
+/// produces — so a user who raises the strength slider without touching
+/// anything else sees the ramp *taking over*, not a different planet.
+#[allow(dead_code)]
+pub const RAMP_PRESETS: &[(&str, &[(f64, (u8, u8, u8))])] = &[
+    ("Earth", &[(0.00, (152, 168, 116)), (0.10, (128, 150, 96)), (0.28, (160, 162, 112)), (0.50, (166, 146, 106)), (0.72, (146, 132, 122)), (0.88, (176, 172, 168)), (1.00, (246, 248, 250))]),
+    ("Elevation", &[(0.00, (0, 97, 71)), (0.20, (114, 168, 84)), (0.40, (224, 214, 130)), (0.60, (204, 148, 78)), (0.80, (150, 90, 62)), (1.00, (255, 255, 255))]),
+    ("Atlas", &[(0.00, (183, 199, 152)), (0.18, (206, 214, 160)), (0.38, (226, 216, 158)), (0.58, (214, 186, 132)), (0.78, (190, 156, 122)), (1.00, (236, 232, 226))]),
+    ("Mono", &[(0.00, (58, 58, 58)), (1.00, (242, 242, 242))]),
+    ("Imhof", &[(0.00, (176, 186, 140)), (0.22, (198, 196, 146)), (0.45, (206, 184, 142)), (0.66, (186, 162, 148)), (0.84, (170, 168, 178)), (1.00, (238, 242, 248))]),
+    ("Ice", &[(0.00, (150, 176, 190)), (0.35, (186, 208, 218)), (0.70, (218, 232, 238)), (1.00, (252, 254, 255))]),
+    ("Dark ice", &[(0.00, (18, 28, 40)), (0.35, (44, 68, 88)), (0.70, (104, 138, 158)), (1.00, (198, 218, 230))]),
+    ("Desert", &[(0.00, (198, 168, 112)), (0.25, (214, 178, 118)), (0.52, (196, 144, 96)), (0.76, (168, 112, 84)), (1.00, (226, 206, 186))]),
+    ("Dark atlas", &[(0.00, (26, 38, 34)), (0.24, (44, 62, 50)), (0.50, (78, 84, 62)), (0.74, (104, 92, 78)), (1.00, (176, 172, 164))]),
+];
+
+impl ElevationRamp {
+    /// One named preset by exact name, or `None` — an unknown name is the
+    /// caller's problem to report, not this function's to paper over with a
+    /// default that would silently be the wrong ramp.
+    #[allow(dead_code)]
+    pub fn preset(name: &str) -> Option<Self> {
+        let (_, stops) = RAMP_PRESETS.iter().find(|(n, _)| *n == name)?;
+        Some(ElevationRamp::normalized(stops.iter().map(|&(at, (r, g, b))| RampStop { at, col: (r as f64, g as f64, b as f64) })))
+    }
+}
+
 /// The renderer's editable colour data and shading constants — what used to
 /// be 26 free-floating module consts, now one real, owned, inspectable
 /// structure. `Default` reproduces today's exact values (pixel-identical
-/// output); nothing here is wired to any UI/`#[func]` yet, matching
-/// `cartalith-spatial`'s own "standalone, real, unintegrated" precedent
-/// from earlier this session. See this module's own doc comment for why
-/// this is a palette table, not an elevation-breakpoint ramp.
+/// output). See this module's own doc comment for why the *material* colour
+/// here is a palette table rather than an elevation-breakpoint ramp — and
+/// [`ElevationRamp`] for the separate, opt-in ramp layer (CA-02) that sits on
+/// top of it at `ramp_strength`.
+///
+/// Live through `WorldGen::{get_appearance, set_appearance,
+/// list_appearance_tunables, reset_appearance}` since 2026-08-24; the
+/// "wired to no UI" note this comment used to carry is no longer true.
 // `Clone` so a caller can hold *one* appearance value, hand it to
 // `RenderCtx::with_appearance`, and still measure the plate frame with
 // `border_cover` afterwards — rather than the raster and the overlays each
 // constructing their own `default()` and hoping the two agree.
-#[derive(Clone)]
+//
+// `Serialize`/`Deserialize` for `GUI_GAP_REGISTER.md` CA-08 — §7.15's "the one
+// Rust line the whole feature depends on". `#[serde(default)]` at struct level
+// is what makes a preset file survive this struct growing a field: an older
+// file loads with the new field at its `Default` value instead of failing, and
+// the loader then renders a look that is exactly what the file described plus
+// today's default for what it could not have described.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct TerrainAppearance {
     pub w_abyss: [Rgb; 3],
     pub w_deep: [Rgb; 3],
@@ -556,6 +726,24 @@ pub struct TerrainAppearance {
     /// rather than a hope about the tuning.
     pub local_contrast_knee: f64,
 
+    // ---- `GUI_GAP_REGISTER.md` CA-02: the elevation colour ramp ----
+    /// How far the material colour is pulled toward [`Self::ramp`]'s colour
+    /// for that cell's relative elevation. `0.0` is the shipped default and
+    /// the whole stage is skipped on it, so the ramp changes no pixel until a
+    /// caller asks for it; `1.0` is a full hypsometric tint, still shaded,
+    /// still on the sheet.
+    ///
+    /// A *blend*, deliberately, and not a mode switch: at 0.3-0.5 the ramp
+    /// gives the map the readable elevation key an atlas plate has while
+    /// `material_weights`' climate and slope information still shows through,
+    /// which is the picture `TERRAIN_APPEARANCE_RESEARCH.md` §30 asks for
+    /// ("make the physical differences visually legible") and a hard override
+    /// would throw away.
+    pub ramp_strength: f64,
+    /// The ramp itself. Always populated — see [`ElevationRamp::default`] for
+    /// why a feature that is off by default still ships with real stops.
+    pub ramp: ElevationRamp,
+
     // ---- Milestone 7 (`ASSET_LIBRARY_SCOPE.md`): ground-texture splat ----
     /// Strength of the ground-texture splat blend (reference `state.viz.
     /// splat`, real default `0.7` — unlike `state.viz.icons`, splat is
@@ -643,6 +831,10 @@ impl Default for TerrainAppearance {
             local_contrast: 0.55,
             local_contrast_radius_frac: 0.010,
             local_contrast_knee: 26.0,
+            // CA-02: off, so the shipped look is unchanged; the ramp behind it
+            // is real so the slider has something to reveal.
+            ramp_strength: 0.0,
+            ramp: ElevationRamp::default(),
             splat_strength: 0.7,
             npr: Npr::default(),
         }
@@ -932,6 +1124,9 @@ tunables! {
     "litho_strength"        => litho_strength,        0.0,   1.0,  "Geology tint";
     "litho_exposure"        => litho_exposure,        0.0,   1.0,  "Bedrock exposure";
     "local_contrast"        => local_contrast,        0.0,   1.0,  "Local contrast";
+    // -- `GUI_GAP_REGISTER.md` CA-02's colour relief (no reference counterpart:
+    //    the reference has no elevation ramp either) --
+    "ramp_strength"         => ramp_strength,         0.0,   1.0,  "Colour relief";
     // -- Reference Paint brush ▸ Texture strength (`splat`) --
     "splat_strength"        => splat_strength,        0.0,   1.0,  "Texture strength";
 }
@@ -1142,13 +1337,43 @@ pub(crate) fn build_ao(field: &[f32], gw: usize, gh: usize, sea_level: f64, worl
 ///
 /// Method: log-compress flow the same way `cell_color`'s own TWI term
 /// already does (`(flow / (gw*gh)).max(1e-4)`, so this stays on a
-/// comparable scale to the existing hydrology math), min-max normalize so
-/// it holds up across worlds with wildly different total flow (the same
-/// reason `build_ao` normalizes by RMS rather than a fixed threshold —
-/// §32's "flatters one terrain, destroys another" failure), then keep only
-/// the top of that range with a smoothstep so ordinary hillside sheet-flow
-/// doesn't tint the whole map, and blur it into a soft halo rather than a
-/// hard one-cell channel outline.
+/// comparable scale to the existing hydrology math), gate it to the cells
+/// that really carry a channel so ordinary hillside sheet-flow doesn't tint
+/// the whole map, and blur that into a soft halo rather than a hard one-cell
+/// channel outline.
+///
+/// ## The `GUI_GAP_REGISTER.md` CA-11 retune (2026-08-24)
+///
+/// Both halves of the original were **tuned at a small grid and shrank with
+/// resolution**, which is why the slider measured 1.216 % of pixels at
+/// 512x384 and 0.002 % at the app's own 2048x1311:
+///
+/// * The gate was a `smoothstep(0.55, 0.88, …)` over the world's own
+///   **min-max-normalized** log-flow range. That reads as adaptive, and it is
+///   — but the quantity it normalizes is already scale-free (`flow / (gw*gh)`
+///   is the *fraction of the map* a cell drains), so re-normalizing it bought
+///   nothing and cost the threshold its meaning. In practice `lo` pinned to
+///   the `1e-4` clamp floor and `hi` to the largest basin, putting the 0.55
+///   knee at ~0.8 % of the map's area drained: the trunk river and nothing
+///   else. Replaced with an **absolute** upstream-area gate
+///   ([`WET_AREA_LO`]/[`WET_AREA_HI`]) — the same set of *channels* at every
+///   resolution, which is what resolution-invariance means for a drainage
+///   network.
+/// * The blur then **diluted what survived**. A box blur conserves the mean,
+///   so smearing a one-cell-wide line over a radius-`r` window drops its peak
+///   by about `1 / (2r + 1)` — and `r` is `gw * 0.006`, so the dilution got
+///   worse exactly as the grid got finer (3 cells at 512 wide, 12 at 2048).
+///   The blur is what makes the halo soft and it stays; what is added is the
+///   matching **gain that restores its peak**, `2r + 1`, clamped. A channel
+///   corridor now reaches full strength at any grid size and falls off over
+///   the same *world* distance.
+///
+/// Together these make the stage depend on the world and not on the raster:
+/// see `appearance_ab_dump.rs`'s `hydro_wetness_visibility_by_resolution`,
+/// which measures all three sizes and fails if any of them goes quiet again.
+/// This deliberately **moves the shipped default look** (owner-authorised) —
+/// `hydro_wet_strength` stays at its own `0.38`; what changed is that 0.38
+/// now renders.
 /// `pub(crate)` for `SCULPT_LIVE_SCOPE.md` milestone L0 -- see
 /// [`smooth_sea_h`]'s doc comment for why.
 pub(crate) fn build_hydro_wetness(flow: Option<&[f32]>, gw: usize, gh: usize, world: bool, a: &TerrainAppearance) -> Vec<f32> {
@@ -1160,25 +1385,42 @@ pub(crate) fn build_hydro_wetness(flow: Option<&[f32]>, gw: usize, gh: usize, wo
         return vec![0f32; n];
     };
     let denom = (gw * gh) as f64;
-    let mut logf: Vec<f32> = flow.iter().map(|&f| (((f as f64) / denom).max(1e-4)).ln() as f32).collect();
-
-    let (mut lo, mut hi) = (f32::MAX, f32::MIN);
-    for &v in &logf {
-        if v < lo {
-            lo = v;
-        }
-        if v > hi {
-            hi = v;
-        }
-    }
-    let range = (hi - lo).max(1e-6);
-    for v in logf.iter_mut() {
-        *v = smoothstep(0.55, 0.88, ((*v - lo) / range) as f64) as f32;
-    }
+    let (lo, hi) = (WET_AREA_LO.ln(), WET_AREA_HI.ln());
+    let gate: Vec<f32> = flow.iter().map(|&f| smoothstep(lo, hi, (((f as f64) / denom).max(1e-4)).ln()) as f32).collect();
 
     let rad = ((gw as f64 * a.hydro_wet_radius_frac).round() as i64).max(1);
-    blur_once(&logf, gw, gh, rad, world)
+    let gain = (2 * rad + 1) as f32;
+    let mut out = blur_once(&gate, gw, gh, rad, world);
+    for v in out.iter_mut() {
+        *v = (*v * gain).clamp(0.0, 1.0);
+    }
+    out
 }
+
+/// Upstream area (as a fraction of the whole map) at which a cell starts to
+/// read as "near water", and the area at which it is fully wet — the CA-11
+/// gate, in the one unit that is the same at every grid size.
+///
+/// `6e-4` is roughly a minor tributary on a continent-sized landmass and
+/// `8e-3` a named river; below the first is hillside sheet flow, which §13 is
+/// explicit must **not** tint the map. Deliberately far lower than the
+/// old normalized gate's effective `8e-3 … 1.1e-1`, which only ever caught
+/// the single largest trunk.
+///
+/// The pair was picked by measurement, not by taste: `1e-3 … 1.2e-2` left the
+/// working resolution at 0.67 % of pixels and `3e-4 … 5e-3` took it to 3.4 %,
+/// which is a wet-valley wash rather than a river corridor. These land at
+/// 1.42 % at 2048x1311 and 7.76 % at 512x384, at the shipped `0.38` strength.
+///
+/// Absolute rather than per-world on purpose, and the trade is stated: a world
+/// whose basins are all smaller than `WET_AREA_LO` (a dense archipelago of
+/// tiny islands) gets no wetness at all, where the old min-max gate would have
+/// tinted its biggest stream whatever its size. That is the honest answer —
+/// an island with no river has no river to tint — and it is the same choice
+/// `build_ao` declines to make only because occlusion is a *relief* statistic,
+/// which really is relative, while drainage area is an absolute one.
+const WET_AREA_LO: f64 = 6.0e-4;
+const WET_AREA_HI: f64 = 8.0e-3;
 
 /// The weighted multidirectional light table (`lx, ly, lz, weight`), built
 /// once per render rather than re-deriving six sin/cos pairs per pixel.
@@ -2008,6 +2250,31 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
             c.1 += (lc.1 - c.1) * e;
             c.2 += (lc.2 - c.2) * e;
         }
+    }
+
+    // `GUI_GAP_REGISTER.md` CA-02: the elevation colour ramp, blended over the
+    // finished *material* colour and **before** the light curve below, so the
+    // hillshade, AO, paper, haze, vignette and the Painter block all still act
+    // on it. That ordering is the whole difference between a hypsometric tint
+    // over shaded relief (the atlas construction) and a flat elevation key
+    // pasted on top of a map. Land only: `land_color` is the land branch, and
+    // water already has its own depth-keyed ramp in `sea_color_core`.
+    //
+    // Placed after splat and bedrock exposure so a loaded pack's ground
+    // texture is tinted by the ramp rather than painted over it, and before
+    // the beach blend below so a shoreline keeps its sand whatever the ramp's
+    // bottom stop is -- the beach is a *material* fact about the coast, not an
+    // elevation band.
+    //
+    // Skipped entirely at `0.0`, which is `default()` and `js_reference()`,
+    // the same dedicated-branch rule every stage since milestone 2 follows.
+    if appearance.ramp_strength > 0.0
+        && let Some(rc) = appearance.ramp.sample(r)
+    {
+        let k = appearance.ramp_strength;
+        c.0 += (rc.0 - c.0) * k;
+        c.1 += (rc.1 - c.1) * k;
+        c.2 += (rc.2 - c.2) * k;
     }
 
     let beach_t = smoothstep(0.03, 0.0, r) * 0.6;
