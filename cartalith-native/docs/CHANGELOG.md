@@ -26151,3 +26151,138 @@ real capability and not a v3-specific one.
 - `DCC_SHELL_SPEC.md` — top-of-file supersession notice plus inline blocks at
   §3, §5 and §7. `GUI_GAP_REGISTER.md` — §37 and the §6.10-6.13 notices.
 - **No Rust.**
+
+## Conformance sweep: two controls that lied about their own state, and a rename that hit the wrong faction (2026-08-25)
+
+`GUI_GAP_REGISTER.md` §38. A pass over the shell's windows and cross-references
+against `design/Cartalith Menu Structure v3.dc.html` and against what the
+controls actually do, driven live rather than read.
+
+### Two new defects, one mechanism
+
+Removing a focused `Control` from the Godot scene tree releases focus and fires
+`focus_exited` **synchronously**. Both of these editors commit their name field
+on that signal and clear their pane before rebuilding it — so a rebuild was
+itself an edit, committing a dying field's stale text after the id it was meant
+for had already moved on.
+
+**FR-02 — selecting a faction renamed it.** The roster's list rows are
+`FOCUS_NONE` (deliberately: clicking one must not take focus off the name
+field), and their handler sets `_selected = fid` *before*
+`_rebuild_inspector()`. So the teardown wrote the previous faction's name onto
+the faction just selected. Measured on a real 6-faction world: with Aurelia's
+field focused, clicking Veldmark left the roster reading
+`1:Aurelia, 2:Aurelia, 3:Korrath, …`. Silent, no undo.
+
+**PE-01 — the place editor's ⟳ re-roll never took on its first press.**
+`DCC_SHELL_SPEC.md` §4.5.3 has `open_for()` focus the name field, so the first
+⟳ rebuilt the form and the teardown wrote the pre-roll name back. Isolated
+three ways: focused, one press left `Yusnashharwell` unchanged; with
+`release_focus()` first, the identical press gave `Abedomarmarch`; the engine
+call on its own returned ten distinct names in ten calls. Only `open_for()`
+grabs focus, so presses two onward always worked — which is why this needed a
+probe to find. The same file's history `TextEdit` had the cross-entity form:
+`open_for()` sets `_index` before rebuilding, so re-opening on another place
+from the map committed the old form's text onto the new one.
+
+The fix is two halves, because a guard alone silently drops real edits: a
+`_rebuilding` flag across `_clear()`, checked by every `focus_exited` commit;
+and `_commit_focused_field()`, called before the id moves, which releases focus
+so a pending edit lands on the entity it was typed for. The other five
+`focus_exited` commits in the shell were checked and are safe.
+
+### Two register items closed
+
+**SH-11 — the zoom pivot.** `_zoom_at()`'s maths was right; its two `_input`
+callers handed it window-space coordinates while `_camera.position` is
+`ViewportHost`-relative, so the pivot was out by `global_position * (1/z0 -
+1/z1)`. Measured: **32.59 px per wheel notch** on the desktop layout, the
+*same* (32.13, 5.46) at three different probe points — a constant offset, not a
+pivot error — against `zoom_step()`'s **0.00 px**, which passes a local point
+and was always correct. After: 0.00 px everywhere.
+
+**WW-13 — Paint Commit / Discard.** Both gated on
+`paint_painted_counts()["total"]`, the composite of committed *and* pending,
+which a commit does not change — so both stayed live over an empty draft and
+"Discard draft" read as "remove the paint I can see" while doing nothing. New
+`PaintEditor::pending_stamps()` and `paint_draft_count()` count what
+`commit_all` bakes and `discard_all` throws away, across all three drafts. The
+WORLD dock and the tool-options bar draw two Commits over one draft and are on
+screen together, so each now refreshes the other — without that, the same
+defect simply reappeared one control over.
+
+### Knock-on effects of the v3 rail pass
+
+Six rendered pointers still named categories that pass retired — the atlas
+cache's `WORLD ▸ Finalize`, the sculpt stack's `World ▸ Sculpt`, the place
+editor's `Politics ▸ Recalculate territories`, and both way/route commit
+toasts' `Roads ▸ Hand-drawn`, which fire at the exact moment a user goes
+looking for what they just drew. Found by extracting every `A ▸ B` string the
+app renders and checking each against the structure that shipped.
+
+**`rivers_note()` had no caller.** It was written so IN-01 (no `get_rivers()`,
+so v3's per-reach river rows have no entity to hang on) would travel with the
+Rivers category to `WORLD ▸ Hydrology`; CIVIL stopped drawing it and WORLD
+never started. It is `static` now, with one owner and one caller.
+
+And the class behind the renames: every `→ Civilization ▸ Territories`-style
+button switched the rail and stopped, leaving the user among collapsed
+categories. Fine when CIVIL had six; v3 gave it fourteen and CARTO ten.
+`Workspace.open_category()` / `DccShell.select_domain_category()` do both
+halves and `push_warning` on a title that no longer exists.
+
+### Verified
+
+Six temporary, untracked probes, all run **windowed** against a real 384 × 288
+world, seed 483920 (233 settlements, 6 factions, 35 ways):
+
+- the roster is unchanged across a selection switch; the first ⟳ renames; a
+  sentinel typed into settlement 6's history does not reach settlement 7 —
+  **and settlement 6 keeps it**, so the flush works and the guard is not
+  swallowing input;
+- zoom-pivot drift 32.59 px → 0.00 px at three probe points;
+- paint Commit/Discard asserted in all four states and both commit directions,
+  with the composite total asserted *unchanged* across a commit — the premise
+  the fix turns on;
+- all three cross-domain jump buttons pressed for real, each asserted on both
+  the resulting domain and the open category; no retired category named as a
+  destination anywhere, with all 33 categories opened;
+- an unwired-control scan over 14 windows and the docks: **0 genuinely
+  unwired, 0 disabled-without-a-reason** (two were fixed to get there — the
+  welcome screen's `Open selected` and the asset library's anchor chips);
+- press-every-enabled-button over nine windows, snapshotting the whole app's
+  rendered text around each press: six no-change presses, five false
+  positives, one real — PE-01;
+- menu accelerators re-enumerated after the v3 pass: 11, each matching its
+  label, none unreachable except `Ctrl+Z` on an empty undo stack. The top bar
+  needed no correction.
+
+`cargo check -p cartalith-godot` clean, two new Rust tests pass, headless
+boot-check clean.
+
+### Files
+
+- `shell/faction_roster_window.gd`, `shell/place_editor_window.gd` —
+  `_rebuilding`, `_commit_focused_field()`, guarded `focus_exited` commits.
+- `shell/viewport_host.gd` — the two `_input` call sites convert to local
+  space; `_zoom_at()`'s own maths untouched.
+- `crates/cartalith-godot/src/paint_bridge.rs` — `pending_stamps()` + 2 tests.
+- `crates/cartalith-godot/src/lib.rs` — `paint_draft_count()`.
+- `shell/engine_bridge.gd`, `shell/tool_bar.gd`,
+  `shell/workspaces/world_workspace.gd` — the WW-13 gate and the cross-refresh;
+  `_build_hydrology_foot()` (IN-01).
+- `shell/workspaces/workspace.gd`, `shell/dcc_shell.gd` —
+  `open_category()` / `select_domain_category()`.
+- `shell/app.gd`, `shell/menus.gd`, `shell/right_dock.gd`,
+  `shell/workspaces/infrastructure_workspace.gd`,
+  `shell/workspaces/cartography_workspace.gd`,
+  `shell/workspaces/civilization_workspace.gd` — the stale pointers and the
+  jump buttons.
+- `shell/open_project_dialog.gd`, `shell/asset_library_window.gd` — the two
+  disabled controls that stated no reason.
+
+### Still open
+
+Everything §37 registered as unbacked (CV-21…CV-26, IN-13, CA-16…CA-19, WW-14,
+WW-15, VA-01, VA-02) is unchanged — all want design or engine work. ED-02 (an
+undo *history panel*) stays (C).

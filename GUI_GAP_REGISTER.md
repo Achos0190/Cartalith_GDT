@@ -46,7 +46,7 @@ the engine as they stand today, and it is the document that goes stale first.
 | [13](#13--the-v210-menu-structure-audit-2026-08-20) | **The v2.10 menu-structure audit** — `design/Cartalith Menu Structure v2.dc.html` against the shipped shell, and the 17 undisclosed omissions it found |
 | [14](#14--visual-sweep-2026-08-20) | **Visual sweep (2026-08-20)** — the shell driven live, screenshotted, and compared against the DCC Shell / Journey Planner mockups. **§14.6 corrects one of its own verdicts**: the Asset library window was passed on function rather than layout, and has been rebuilt against the canvas. |
 | [15](#15--the-phone-overflow-menu-is-wired-but-inoperable-2026-08-20) | **The phone overflow menu (2026-08-20)** — (C): the real menu bar is wired into the phone sheet but is unscaled, buried in desktop status chrome, and inert to touch. Device evidence, kept as the brief for the mobile menu design; **not fixed**. |
-| 16-22, 27-37 | Sections added after the contents table was written; see the `## ` headings directly. **§37 is the left-rail menu structure v3 pass** — what WORLD/CIVIL/CARTO became, the fifteen new IDs (CV-21…CV-26, IN-13, CA-16…CA-19, WW-14, WW-15, VA-01, VA-02) and what was wired rather than disclosed. §32 (deep zoom stopping twenty times short of the reference) is the same batch. §29 (roads drawn as chords), §30 (the map overlay rasterised in the wrong space) and §31 (the *tool* overlay with the same defect, plus four surfaces whose copy had gone stale) are the 2026-08-24 live-driving batch. |
+| 16-22, 27-38 | Sections added after the contents table was written; see the `## ` headings directly. **§38 is the 2026-08-25 conformance sweep** — FR-02 (selecting a faction silently *renamed* it), PE-01 (the place editor's name re-roll was a no-op on its first press), both one defect: a field that commits on `focus_exited`, torn down while focused. It also closes SH-11 (32.59 px of zoom-pivot drift, measured) and WW-13, and cleans up six pointers §37 left aimed at retired categories plus one disclosure that had lost its only caller. **§37 is the left-rail menu structure v3 pass** — what WORLD/CIVIL/CARTO became, the fifteen new IDs (CV-21…CV-26, IN-13, CA-16…CA-19, WW-14, WW-15, VA-01, VA-02) and what was wired rather than disclosed. §32 (deep zoom stopping twenty times short of the reference) is the same batch. §29 (roads drawn as chords), §30 (the map overlay rasterised in the wrong space) and §31 (the *tool* overlay with the same defect, plus four surfaces whose copy had gone stale) are the 2026-08-24 live-driving batch. |
 | [25](#25--bk-01--androids-back-button-killed-the-process-unsaved-world-and-all-2026-08-24--fixed) | **BK-01 (2026-08-24)** — the highest-severity entry in this register, and the only one where a shipped control *destroyed the user's work*: Android's Back button ended the process outright, taking an unsaved generated world with it. Root cause, the navigation model that replaced it, and two related findings (BK-02 desktop close box, unfixed; BK-03 `KEYCODE_M`, a non-finding). **Fixed.** |
 | [26](#26--bk-02--the-desktop-close-box-did-the-same-thing-and-the-reason-it-was-left-alone-was-answerable-2026-08-24--fixed) | **BK-02 (2026-08-24)** — BK-01's twin on the desktop: the title bar's × ended the process with an unsaved world in it. Fixed onto the *same* shared gate, with the four-branch argument for why `auto_accept_quit = false` cannot leave the app un-closeable — the objection §25 declined the fix over. **Fixed.** |
 | [23](#23--rf-01--the-civil-dock-never-rebuilt-after-a-world-generated-2026-08-24--fixed) | **RF-01 (2026-08-24)** — a new class, and not a capability gap: the whole CIVIL dock (ten sections across two files) was built once at launch and never rebuilt when a world generated or loaded, so it showed "generate a world first" over a finished world. **Fixed**, with the presentation-vs-recompute cost check that shows why this one is safe to hang off every generate. |
@@ -479,7 +479,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | WW-11 | Per-stage `Run stage n` / `Run n → 10` / stale dots / `04 / 10` counter | *absent* | the dock's own "Not a generation stage" note and `app.gd:298-306` explain why | yes | §5.1 and §4 both design it | **(D)** — `DCC_SHELL_SPEC.md` header **correction #2**: verified by Playwright against the real reference; the capability exists **nowhere**, not in this engine and not in the app being ported. Building disabled buttons for it was rejected as clutter. |
 
 | WW-12 | Paint ▸ **the map never showed a painted cell** | *absent* | `render.rs`'s own module doc listed *"the paint-brush biome/terrain override"* on its **Excluded** list, and `paint_bridge::swatch_color`'s doc said no literal RGB table had been ported | **was accurate when written, wrong by 2026-08-24** — both `CART_BIOME_COLS` and `CART_TERRAIN_COLS` had been in the same crate since the debug views, and milestone C had built the producer the exclusion note assumed did not exist | reference `landColorCore` 7897-7901 (Biome/Terrain 0.60 tint) and 7765-7773 (Splat texture override) | **CLOSED (2026-08-24).** The tool was fully functional and completely invisible: a commit wrote real cells and `build_color_texture()` never changed a pixel, while the reference's `_paintAt` ends in `render()` and tints the map on the first dab. `render::land_color` now takes a `PaintOverride`; `RenderCtx::with_paint` carries the three committed grids; `build_color_texture` supplies them. Pinned exactly by `tests/paint_blend.rs` (9 tests, mutation-checked: the 0.60 weight and the Biome-then-Terrain order each fail it), with `golden_parity_render.rs` unchanged and passing because `PaintOverride::default()` *is* the unpainted state. `swatch_color` now returns the same two reference tables, so overlay and map name a class with one colour. Verified non-headlessly in the real shell: draft → flat opaque discs, Commit → the same discs blended at 0.60 with relief showing through, erase → the exact clean pixel back. Both `_on_paint_commit` handlers gained the `map_view.texture` refresh + `set_preview_texture(null)` pair `_on_sculpt_commit` already had — without it the fix is invisible in the app and the opaque overlay covers the blend it was standing in for. |
-| WW-13 | Paint ▸ Commit / Discard stay enabled after a commit | 911-914, `tool_bar.gd` 393 | *(none — not previously recorded)* | new, found 2026-08-24 | — | **(A)** small, **open.** Both buttons gate on `paint_painted_counts()["total"]`, which is the composite of committed *and* pending cells, so after a commit they stay live with nothing left to commit or discard — "Discard draft" especially, which then reads as "remove the paint I can see" and does nothing. Wants a `paint_draft_count()` `#[func]` over `PaintEditor`'s three `PassBuffer`s (~15 lines, one `engine_bridge.gd` passthrough); deliberately left out of the WW-12 pass to keep that commit off a fourth file another session was holding. |
+| WW-13 | Paint ▸ Commit / Discard stay enabled after a commit | 911-914, `tool_bar.gd` 393 | *(none — not previously recorded)* | found 2026-08-24, **FIXED 2026-08-25** (§38) | — | **(A)**, closed — `PaintEditor::pending_stamps()` / `paint_draft_count()`, plus a cross-refresh between the dock's pair and the tool bar's chip. Both buttons gate on `paint_painted_counts()["total"]`, which is the composite of committed *and* pending cells, so after a commit they stay live with nothing left to commit or discard — "Discard draft" especially, which then reads as "remove the paint I can see" and does nothing. Wants a `paint_draft_count()` `#[func]` over `PaintEditor`'s three `PassBuffer`s (~15 lines, one `engine_bridge.gd` passthrough); deliberately left out of the WW-12 pass to keep that commit off a fourth file another session was holding. |
 
 ### 6.11 CIVIL workspace — `civilization_workspace.gd`
 
@@ -746,7 +746,7 @@ gains an `a`, and `ElevationRamp` a `RampMode` of `Linear` / `Ease` / `Step`.
 | SH-09 | Layers popover: **Wind / Ocean currents are animated in the reference and were static here** | *done, 2026-08-23* | `shell/wind_fx_layer.gd`, attached from `layers_popover.gd::_attach_flow_fx` | yes | the reference's own `#windFxCanvas` particle-streak overlay (`_windFx*`, HTML lines 2113-2209) — not in any mockup | **(A)**, closed — owner-reported (*"the ocean current layer isnt animated as the HTML version is. (same for wind)"*). The static rasters were correct and are untouched; what was missing is that the reference stacks a **second**, independent overlay on those two views: 260/200 particles advected along the flow field at `0.315` cells/tick, drawn as fading streaks, respawned on leaving the map, ageing out, or (ocean only) beaching. Ported constant-for-constant. The one deliberate technique change is the trail — the reference fades a persistent canvas with `destination-out`; a per-particle history redraw reaches the same streak without a never-cleared `SubViewport` doing GPU work behind a closed layer. Nothing runs while the view is off (verified: 0.0000 frame-to-frame diff) |
 | SH-08 | Menu accelerators for the disabled items (⌘S ⌘⇧S ⌘W ⌘Z ⌘⇧Z ⌘X ⌘C ⌘V ⌫ ⌘A ⌘D ⌘F ⌘⇧P) | `menus.gd` sets only `Ctrl+N`, `Ctrl+O`, `⇧A`, `⇧J` | none | — | §2's tables give every one | **(D)** — an accelerator on a permanently disabled item is dead weight; they arrive with their items |
 | SH-10 | **Phone: pinch-to-zoom did nothing** | *fixed 2026-08-24* — `project.godot`, new `[input_devices]` block | n/a — previously undisclosed, because nothing looked missing | yes | §13's map is the whole screen; pinch is the only zoom affordance a phone has | **(A)**, closed. Owner-reported (*"zooming doesn't seem to work on the phone"*). Not a code gap: `viewport_host.gd:406` had always handled `InputEventMagnifyGesture` and called the same `_zoom_at()` the wheel does. Godot's Android layer only attaches its `ScaleGestureDetector` when `input_devices/pointing/android/enable_pan_and_scale_gestures` is on, and the engine default is **false**, so the event was never produced and the branch was dead on every phone. Confirmed three ways: `ProjectSettings.has_setting()` true / unset value `false` on 4.7.1; `dexdump` of the shipped APK showing `onScale`/`onScaleBegin` gating on `panningAndScalingEnabled` (and `setQuickScaleEnabled` never called, so no single-finger fallback existed either); and a real two-pointer MT-B pinch injected through AOSP `uinput` on the device — **z1.0 → z2.2** out, **z2.2 → z1.0** in, against a **control APK with the setting off that reproduces the bug exactly (z1.0, unchanged)** |
-| SH-11 | **`ViewportHost._zoom_at()` pivots against the wrong origin** | found 2026-08-24 while fixing SH-10; **not fixed** | n/a — previously undisclosed | — | §10's viewport is expected to zoom under the pointer | **(A)** small, open. `_input()` delivers `event.position` in *viewport* coordinates, but `_camera` is a child of `ViewportHost`, so `_camera.position` is `ViewportHost`-local; `viewport_host.gd:427` subtracts one from the other, so the zoom pivot is off by `ViewportHost.global_position` — measured at **(412, 70)** on the desktop layout (left rail + menu/tab bars) from a headless `app.tscn` instantiation, not inferred. Wheel and pinch are both affected; the *pan* branch is not (a delta of two global positions is offset-invariant), and `move_view_to()`/`_update_lod()` already work in local space, so line 427 is the single inconsistent site. Barely visible on the phone (edge-to-edge map, offset ≈ 0), which is why SH-10's fix verified clean. Left for a deliberate pass: it changes desktop zoom behaviour the owner currently calls correct, and `viewport_host.gd` had concurrent work in it |
+| SH-11 | **`ViewportHost._zoom_at()` pivots against the wrong origin** | found 2026-08-24 while fixing SH-10; **FIXED 2026-08-25** (§38) | n/a — previously undisclosed | — | §10's viewport is expected to zoom under the pointer | **(A)**, closed — §38. The two `_input` call sites convert; `_zoom_at()`'s own maths never needed changing. Measured **32.59 px** of drift per wheel notch before, **0.00 px** after, at three probe points. `_input()` delivers `event.position` in *viewport* coordinates, but `_camera` is a child of `ViewportHost`, so `_camera.position` is `ViewportHost`-local; `viewport_host.gd:427` subtracts one from the other, so the zoom pivot is off by `ViewportHost.global_position` — measured at **(412, 70)** on the desktop layout (left rail + menu/tab bars) from a headless `app.tscn` instantiation, not inferred. Wheel and pinch are both affected; the *pan* branch is not (a delta of two global positions is offset-invariant), and `move_view_to()`/`_update_lod()` already work in local space, so line 427 is the single inconsistent site. Barely visible on the phone (edge-to-edge map, offset ≈ 0), which is why SH-10's fix verified clean. Left for a deliberate pass: it changes desktop zoom behaviour the owner currently calls correct, and `viewport_host.gd` had concurrent work in it |
 | SH-12 | **`DccWidgets.note()`'s `custom_minimum_size.x` was wider than the right dock's own documented minimum** | *fixed 2026-08-24* — `dcc_widgets.gd::note()`, `240` → `190` | disclosed only in `CHANGELOG.md`'s "Still open" (695821f), never registered — `PARITY_AUDIT.md` pass 2's **F8** | now yes, this row | `DccTheme.W_RIGHT_DOCK_MIN` (260) is the dock's documented floor | **(A)**, closed. Static per context, so it never jittered (unlike SH-11's cousin bug this same file fixed for `_field()`'s value labels) — it was simply wrong: 240 px plus `section()`'s own 26 px of margin (14 left + 12 right) is 266, and a `group()` nested one level deeper adds 10 more, so the tightest real call site (`right_dock.gd`'s Measure ▸ Actions, a note inside a group inside a section) needed 276 against a 260 px dock. The right dock could not actually be dragged to its own minimum on any context that draws a note — nearly all of them (Sample-with-no-world, River, every empty Measure mode, Region, Sculpt, Wildlife). Fixed at the shared widget (`note()` is called from 18 files, not just `right_dock.gd`), so every caller benefits; the other 17 already give it wider columns and were unaffected either way. `190` leaves 33 px of clearance in the tightest nesting for the `ScrollContainer`'s vertical scrollbar. Headless boot-check clean; **the left dock and workspace panels were the other unaudited half of F8's own "still open" note** — same shared widget, so this fix covers them too, but neither was separately measured against a documented minimum the way the right dock was |
 | SH-13 | **Phone: the map could not be panned at all** | *fixed 2026-08-24* — `viewport_host.gd`, new `InputEventPanGesture` branch in `_input()` | n/a — previously undisclosed; `viewport_host.gd:407` disclosed only the *single-finger* half, and reasoned it away correctly, so nothing looked missing | yes | §4.5.1 makes Pan/zoom a global, always-available modifier; §13's map is the whole screen | **(A)**, closed. Owner-reported, asking after the reference's touch navigation (*"how to move around, snapping the view back to 100% etc."*). Pan was **MMB or Space+LMB only** — a handheld has neither, so with SH-10's pinch fixed in the same window the phone could zoom but never move. Measured before assuming: a real single-finger `adb shell input swipe` across the map changed **51 pixels**, all of them the hover cursor, and left every map pixel identical. The fix is the *other half of the gesture pair SH-10 already switched on* — `enable_pan_and_scale_gestures` gates pan **and** scale together, and `dexdump` of the shipped APK shows `GodotGestureHandler.onScroll` emitting `handlePanEvent` beside the `onScale` pair SH-10 confirmed — so no new setting, no new permission, and nothing to enable. It also matches the reference exactly: its one `touchmove` handler drives zoom about the centroid **and** pan by the centroid delta together (HTML lines 14014-14015), and gives the single finger to the tool, not the camera (*"one finger keeps painting/drawing"*, HTML line 13988), which is the same call `viewport_host.gd` had already made for its own reasons. Verified on the real device (OnePlus 6T, LineageOS/Android 15) with two-pointer MT-B drags injected through AOSP `uinput`, constant span so `ScaleGestureDetector` never fires and the pan is isolated from zoom: **finger −400 px → map −163 px**, **finger +400 px → map +163 px**, `z1.0` throughout, and the round trip returns to a **byte-identical frame (0.000 mean abs diff)** — no drift, correct direction, no zoom side-effect. Reproduced on both a 2048×1311 and a 1024×655 world. **One thing is deliberately left uncalibrated and is not a defect:** the gain. `dexdump` shows Godot's own `onScroll` divides the Android delta by **5.0** (`const/high16 0x40A00000`; `handlePanEvent`/`setPanEvent` then pass it through untouched), which predicts a 0.20× gain, but the measured gain is **0.41×** — a factor of ~2 this pass could not account for from the bytecode. A multiplier tuned to an unexplained one-device measurement is exactly what this port does not do, so the handler stays 1:1 with the platform's own delta and the discrepancy is recorded here instead. The result is usable and directionally correct; it is not yet finger-tracking, and calibrating it is a small, separate, deliberate pass — see SH-14, which is where the reference's own answer to the same problem lives |
 | SH-14 | **The reference's mobile navigation cluster — the `#zoomOverlay` zoom pad, the ✦ pan toggle, `zoomReset`, and what "100%" means** | *closed 2026-08-24* — `viewport_host.gd`: `_build_navpad()` (the four-button column), `zoom_step()`, `set_pan_mode()`, a `MOUSE_BUTTON_LEFT` branch in `_input()`, and a rewritten `reset_view()`; three new glyphs in `dcc_icons.gd` | never disclosed — no register row, and no "zoom pad"/"reset view" entry before this one | yes | **now yes** — `design/Cartalith Android Phone.dc.html` supplied the language; the cluster itself was designed this pass (published canvas, "Cartalith Phone Navpad": one viewport artboard and one anatomy/states artboard) | **(D) → (A), closed.** Owner-reported alongside SH-13, and deliberately raised as a design decision rather than transliterated. **Two owner decisions, 2026-08-23, both taken:** (1) **reset means cover, not fit**, and (2) **the cluster is designed in this shell's language first**, because four floating web buttons are a mobile-web idiom §13 uses nowhere else. **What the reference does, checked line by line rather than assumed:** `zoomIn`/`zoomOut` (13464-13465) are `zoomAt(viewCenter(), 1.35)` and its inverse — the *view centre*, since a button carries no map position; `panBtn` ✋ (13963) is `panMode=!panMode`, a **latching toggle, not a press-and-hold** (the ✋ glyph is misleading, and the whole handler is that one assignment), which then routes a plain button-0 pointerdown to the pan drag (9623) and suppresses the armed tool (13924); `zoomReset` ⟳ (13466) **clears `panMode`** *and* calls **`_viewFill()`** (13294), never `resetView()` (13390) — so **"100%" in this app is the COVER scale, not scale 1**. **What was built:** one right-edge column of four 44 dp pills at the `right:14px` / 10 px-gap geometry the phone canvas's own artboard 01 already uses for a floating cluster, riding the existing `_safe_insets` so it clears the app bar, bottom bar, timeline and gesture strip with no second set of numbers; drawn glyphs (`zoom_in`, `zoom_out`, `view_fill`, and the existing `tool_pan`) rather than the reference's `+`/`−`/✋/⟳ text, because the four must read as one family and `⟳` (U+27F3) is missing from Plex Mono and its whole fallback chain anyway; the pan pill latches to **accent fill with a dark glyph**, the canvas's own on-toggle idiom. Pan mode reuses `_panning` wholesale, so the motion branch needed no change at all, and handling the press in `_input` (before GUI dispatch) is what keeps the armed tool from also seeing the finger — the reference's `!panMode` guard for free. **`reset_view()` was the larger half.** It was plain fit (`_zoom = 1`, `position = ZERO`) with **no UI caller anywhere** — dead code that ran only on generate/load, and visibly the letterboxed state the reference's v1.01 was raised to fix: measured here at 393×852 against a 2048×1311 world, the fit view is a 251 px band with **300 px of dead ground above and below it**. Now cover: `max(size.x/fit.x, size.y/fit.y)` over `overlay.displayed_rect()`, which is the reference's `_viewCoverScale` with its `max(1, …)` floor for free (this camera's `zoom == 1` is already the fit rect, not a natural pixel size). Measured after the change: **covers both axes exactly, centred, zoom 3.387**. **Two deviations, recorded not silent:** (i) the reference's `panX/panY = 0` lands the map exactly aligned on the tight axis but **asymmetrically cropped on the loose one** — an artifact of `transform-origin: 0 0` over a flex-centred wrap, not an intent (its own comment at 13290 says *"cover scale, centred"*); this centres, so the crop is even. (ii) The standing pan clamp (`_viewClampFill`, 13295) is **not** ported — it runs on every `applyView()`, so it is a change to all four pan routes rather than to reset, and it would fight `ZOOM_MIN = 0.4`, which lets this camera zoom *below* fit where the reference floors at fit. **Still open** (below). **Reachability: every touch device, not phones only** — gated on `_touch`, not `DccShell._phone`. What the reference's own `isMobile` gate is really testing is *"there is no wheel, no middle button and no space bar"*, which is as true of a tablet; and `_phone` is an **aspect-ratio** test that exists to pick a layout, which a tablet fails — taking the desktop shell, i.e. desktop chrome with no mouse, the case that needs this most. **Verified windowed at 393×852, not headless:** pad built, 4 buttons, each 44×44 at x=335 (14 px clear of the edge) stacked 10 px apart above the coordinate readout; reset zoom **3.3866811** against an independently-computed cover of **3.3866811**, `covers_x`/`covers_y`/`centred` all true; zoom in **×1.35** and out **×0.740741** exactly; a synthetic one-finger drag moves the camera **0 px with pan mode off and −120 px with it on**; a drag starting **on the pad** moves it 0 px; ⟳ restores cover **and** clears the latch. **Still open, deliberately:** the pan clamp above; and **desktop still has no `reset_view()` caller** — the navpad is touch-only by design, and adding a View-menu entry is a menu-naming decision §7's audit owns, not something to slip in here |
@@ -2287,7 +2287,7 @@ kept promising a fifth. Fixed: subtitle now reads "import · export · sources
 
 ### 14.4 · Defects catalogued, not fixed at the time
 
-*(CV-VS-01 has since been fixed — 2026-08-23. JP-VS-01 is still open.)*
+*(CV-VS-01 has since been fixed — 2026-08-23. **JP-VS-01 too**, 2026-08-24 — §27's `open_journey_planner()` calls `select_domain("civilization")` first, which is the one-line fix its own entry below predicts. This line said "still open" until §38 checked it.)*
 
 **CV-VS-01 — A thin horizontal seam across the map, CIVIL-domain-only.
 FIXED 2026-08-23** — it was a deep-zoom LOD **tile boundary**, and the reason it
@@ -5531,3 +5531,190 @@ was resumed rather than restarted: `_build_simulation()` assigned an undeclared
 declaration — it is that `_rebuild_timeline()` now refills **both** bodies,
 each guarded independently, so the order `_build()` claims them in cannot leave
 one empty.
+
+## 38 · FR-02, PE-01, SH-11, WW-13 — three of the four were a control that lied about its own state (2026-08-25) — **FIXED**
+
+A conformance sweep over the windows and the shell's cross-references, run the
+way this session keeps finding things: by driving the shipped app. Four fixes,
+two of them defects nothing in the repository had recorded, and one whole class
+of stale pointer left behind by §37's re-parenting.
+
+### FR-02 — selecting a faction renamed it
+
+**The worst one, and silent.** `faction_roster_window.gd`'s inspector commits
+the name field on `focus_exited`. Removing a focused `Control` from the tree
+releases focus and fires that signal **synchronously**, so `_clear()` — the
+first act of every rebuild — was itself an edit.
+
+The list rows are `FOCUS_NONE`, deliberately, so clicking one does not take
+focus off the name field. Their handler then runs `_selected = fid` *before*
+`_rebuild_inspector()`. So the teardown wrote the **previous** faction's name
+onto the faction the user had just selected.
+
+Measured on a real 6-faction world, not reasoned about:
+
+| | roster |
+|---|---|
+| before | `1:Aurelia, 2:Veldmark, 3:Korrath, 4:Sythe Dominion, 5:Mirelle, 6:Draumr League` |
+| after clicking Veldmark with Aurelia's name field focused | `1:Aurelia, `**`2:Aurelia`**`, 3:Korrath, 4:Sythe Dominion, 5:Mirelle, 6:Draumr League` |
+
+No prompt, no status line, no undo. Two factions called Aurelia.
+
+### PE-01 — the place editor's ⟳ never took on its first press
+
+Same mechanism, visible instead of destructive. `DCC_SHELL_SPEC.md` §4.5.3 has
+`open_for()` focus the name field, so on desktop it holds focus for the whole
+session. `⟳` re-rolls, then rebuilds; the rebuild's teardown wrote the
+pre-roll name back before the rebuilt field ever read the new one.
+
+Isolated three ways on the same settlement, which is what separated the
+mechanism from the engine:
+
+| path | result |
+|---|---|
+| A — open (focused), one press | `Yusnashharwell` → `Yusnashharwell` (no-op) |
+| B — open, `release_focus()`, one press | `Yusnashharwell` → `Abedomarmarch` |
+| C — `civ_reroll_settlement_name()` direct, ×10 | ten distinct names, every one read back correctly |
+
+Only `open_for()` grabs focus, so **presses two onward worked** — which is
+exactly why this survived to be found by a probe rather than by the eye. The
+same file's history `TextEdit` had the cross-entity form of it: `open_for()`
+sets `_index` and only then rebuilds, so re-opening the editor on another
+place from the map committed the old form's text onto the new one.
+
+**The fix is two halves, because a guard alone silently drops real edits.** A
+`_rebuilding` flag set across `_clear()` and checked by every `focus_exited`
+commit in both files stops the teardown write; `_commit_focused_field()`,
+called before the id moves, releases focus so a pending edit lands on the
+entity it was typed for. Verified: the roster is unchanged across a selection
+switch, the first ⟳ renames, a sentinel typed into settlement 6's history does
+not appear on settlement 7 — **and settlement 6 keeps it**, so the flush works
+and the guard is not merely swallowing input.
+
+The other five `focus_exited` commits in the shell were checked and are safe:
+`cartography_workspace.gd`'s two capture `idx` in the closure, so a teardown
+write goes to the right label; `asset_library_window.gd`'s pack fields are
+built once and never rebuilt under the caret; `travel_library_window.gd`'s
+writes to a local draft; `vault_window.gd`'s reader is not id-switched.
+
+### SH-11 — the zoom pivot, closed
+
+Open since 2026-08-24, deferred only for file contention that no longer
+exists. `_zoom_at()`'s maths was always right; its two `_input` callers handed
+it the wrong space. `InputEvent.position` is window-relative, `_camera.position`
+is `ViewportHost`-relative, so the pivot was out by `global_position * (1/z0 -
+1/z1)`.
+
+Measured rather than inferred: `global_position` (412, 70), one wheel notch
+(zoom 1.6727 → 1.9236), **32.59 px of drift** — and the *same* (32.13, 5.46) at
+three different probe points, which is the signature of a constant offset
+rather than a pivot error, and exactly what that formula predicts.
+`zoom_step()`, which passes `size * 0.5` and was always local, measured
+**0.00 px** on the same run and is untouched. After the fix: 0.00 px at all
+three points.
+
+### WW-13 — Paint Commit / Discard, closed
+
+Open since 2026-08-24, deferred to keep that commit off a fourth file.
+Both buttons gated on `paint_painted_counts()["total"]` — the composite of
+committed *and* pending — which a commit does not change, so both stayed live
+over an empty draft afterwards. New `PaintEditor::pending_stamps()` /
+`paint_draft_count()` counts what `commit_all` would bake and `discard_all`
+would throw away, across all three drafts (a layer switch does not discard the
+layer left behind). Two Rust tests pin the divergence the fix turns on.
+
+The two Commit controls — the WORLD dock's and the tool-options bar's — draw
+over one draft and are on screen together, so each now refreshes the other;
+without that, WW-13 simply reappeared one control over.
+
+Measured, driving real dabs:
+
+| state | pending | composite | dock Commit | dock Discard | bar Commit |
+|---|---|---|---|---|---|
+| before any dab | 0 | 0 | disabled | disabled | disabled |
+| after 2 dabs | 2 | 70 | enabled | enabled | enabled |
+| after dock commit | **0** | **70** | disabled | disabled | disabled |
+| after a further dab, committed from the tool bar | 0 | 74 | disabled | disabled | disabled |
+
+The unchanged composite across a commit is the premise, asserted rather than
+assumed.
+
+### Six stale pointers, and one disclosure that vanished
+
+§37's re-parenting renamed nine categories. Three follow-up renames were caught
+then; six were not, found here by extracting **every** rendered `A ▸ B` string
+and checking it against the structure that shipped:
+
+| where | said | is |
+|---|---|---|
+| `app.gd` atlas-cache tooltip | `WORLD ▸ Finalize` | `WORLD ▸ Generate ▸ Finalize` |
+| `menus.gd` ×2 (comments) | same | same |
+| `right_dock.gd` sculpt stamp empty state | `World ▸ Sculpt` | `World ▸ Terrain ▸ Sculpt` |
+| `place_editor_window.gd` polity tooltip | `Politics ▸ Recalculate territories` | `Civilization ▸ Territories ▸ …` |
+| `infrastructure_workspace.gd` way **and** route commit toasts | `Roads ▸ Hand-drawn` | `Civilization ▸ Routes & ways ▸ Hand-drawn` |
+
+The toasts are the ones that mattered: they fire at the exact moment a user
+goes looking for what they just drew.
+
+**And `rivers_note()` had no caller at all.** §37 wrote it so IN-01 (no
+`get_rivers()`, so v3's per-reach river rows have no entity to hang on) would
+travel with the Rivers category to `WORLD ▸ Hydrology`, and §37 above says it
+did. It did not: CIVIL stopped drawing it and WORLD never started, so for a day
+the finding existed in the source and nowhere in the app. It is `static` now,
+with one owner and one caller.
+
+### The class behind them: a jump button that only did half its job
+
+Every `→ Civilization ▸ Territories`-style button switched the rail and
+stopped. Survivable when CIVIL had six categories; v3 gave it fourteen and
+CARTO ten, in an accordion that opens one at a time, so the odds of guessing
+right went from poor to negligible. `Workspace.open_category()` and
+`DccShell.select_domain_category()` do both halves and `push_warning` on a
+title that no longer exists — so the next rename is loud, not silent.
+
+### Two disabled controls with no stated reason
+
+The `_todo()` contract is that a greyed control says why on hover. A scan of
+every window found two that did not, both disabled at build time and given
+their reason only by a refresh that had not run: the welcome screen's
+**Open selected** (its primary action), and the asset library's three anchor
+chips before any slot is selected. Both now carry the general form of the
+fact.
+
+### Verification
+
+Six temporary, untracked probes (`_deadwire_probe`, `_pressall_probe`,
+`_conform_probe`, `_jump_probe`, `_reroll_probe`/`_reroll2_probe`,
+`_focusbug_probe`), all run **windowed** against a real 384 × 288 world, seed
+483920 — 233 settlements, 6 factions, 35 ways.
+
+- **Unwired-control scan** over 14 windows and the docks: every interactive
+  control checked for a connection on its activation signal, counting the
+  alternates (`text_changed` for a live filter, `color_changed`, `toggled`,
+  `item_activated`). **0 genuinely unwired** — the two reported are a
+  `TabContainer` (Godot switches its own tabs) and a read-only `TextEdit`.
+  **0 disabled-without-a-reason**, after the two fixes above.
+- **Press-every-enabled-button**, one window at a time, snapshotting every
+  rendered string in the whole app before and after each press, with
+  destructive and blocking labels skipped by name. Of six no-change presses,
+  five are false positives (an already-selected tab or nav row, and
+  `CityViewer`'s Fit, which moves a canvas the text snapshot cannot see). The
+  sixth was PE-01.
+- **Menu accelerators** re-enumerated after the v3 pass: 11, each matching its
+  label, none unreachable except `Ctrl+Z` while the undo stack is legitimately
+  empty — unchanged, and the top bar needed no correction.
+- `cargo check -p cartalith-godot` clean; two new Rust tests pass; headless
+  boot-check clean.
+
+### Not fixed, and why
+
+- **CV-24 and the rest of §37's fifteen** are unchanged — all still want
+  design or engine work.
+- **ED-02** (an undo *history panel*) stays (C): no design exists.
+- **The Data manager's five silent nav rows** — `Heightmaps`, `World Data`,
+  `Assets` and the two Export rows carry no tooltip, but each opens a real
+  pane that explains itself, so nothing is being hidden. Left alone rather
+  than given filler.
+- **§14.4's own status line is stale** and is corrected here rather than
+  rewritten in place: **JP-VS-01 is closed**, by §27's `open_journey_planner()`
+  → `select_domain("civilization")`. Its entry still reads "still open".
