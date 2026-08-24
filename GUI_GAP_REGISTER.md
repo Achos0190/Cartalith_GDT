@@ -3103,15 +3103,128 @@ Measured `--release`: **76.5 ms @512², 97.8 ms @1024², 188.9 ms @2048²** —
 **No GUI was built for it, on purpose.** `CLAUDE.md`'s UI hold stands, and the
 brief for that work was explicitly out of scope. What the engine half unblocks
 is registered here so it is picked up as a design rather than improvised as a
-button.
+button. *(All three were subsequently designed and built to owner brief —
+SG-02 on 2026-08-24, SG-01 and SG-03 the same day; the notes under the
+register are those designs.)*
 
 ### 21.1 · The register
 
-| Tag | What | Backed by | State | Why it is not built |
+| Tag | What | Backed by | State | Why it is not built (or, for a closed row, where its design is) |
 |---|---|---|---|---|
-| **SG-01** | A **staleness indicator** — the DCC mockup's own *"downstream update: rivers · deferred"* status line, showing which stages are stale and why | `StageGraph::stale_stages` / `staleness()` return the stage names *and* the most-upstream reason string, already; `sculpt_commit`/`carve_fjords`/`paint_commit` return `still_stale` on every call | **open, no design** | Where it lives (status bar? per-stage chips in the World workspace's stage list? both?) is a shell-layout decision, and `DCC_SHELL_SPEC.md` has no surface for it |
+| **SG-01** | A **staleness indicator** — the DCC mockup's own *"downstream update: rivers · deferred"* status line, showing which stages are stale and why | `WorldGen::stale_stages()` is the read; the shell's own reserved `stale` status slot is the surface, and the Civilization dock's Recompute section carries a per-stage badge | **CLOSED 2026-08-24** | See the note below — where it lives, and the one staleness source the stage graph structurally cannot carry |
 | **SG-02** | A **"Recompute now"** control for the stages a commit leaves stale — today that is always `civ` | `recompute_stale_stages()` exists and is callable; `recompute_civilisation()` is the civ half, and `civilization_workspace.gd`'s Settlements ▸ **Recompute** section is the control | **CLOSED 2026-08-24** | See the note below for the design (what is re-derived, what is preserved, what deliberately is not) and the measured cost |
-| **SG-03** | **`param_set` marking the graph** — a moved dial invalidating the stage it actually affects, instead of `engine_bridge.gd`'s blanket *"a moved dial does not recompute a stage, it marks the world stale until the next full generate"* | Nothing yet: the graph is marked only by the three commit paths | **open, needs a design first** | Needs a per-parameter → stage table over `params.rs`'s entries. That is a real design decision (does `climate.rain_k` invalidate climate only, or civ too? does `tect.seed` invalidate everything, i.e. a full regenerate?), not something to improvise inside a setter |
+| **SG-03** | **`param_set` marking the graph** — a moved dial invalidating the stage it actually affects, instead of `engine_bridge.gd`'s blanket *"a moved dial does not recompute a stage, it marks the world stale until the next full generate"* | `params::invalidates()` is the table; `set_params`/`reset_params` mark the graph from it | **CLOSED 2026-08-24** | See the note below for the table, the rule it is derived from, and the finding that the shipped World dock supersedes every mark it makes |
+
+### SG-01, closed 2026-08-24 — where the indicator lives, and the one source the graph cannot carry
+
+`WorldGen::stale_stages()` is the read: `{stage: {origin, reason, tiles}}`,
+one entry per stale stage, `{}` for the healthy state. It is a pure query —
+every `StageGraph` accessor takes `&self` — so a status bar can call it on a
+clock without ever triggering work, which is what both surfaces do.
+
+**Two surfaces, and neither is new chrome.** The shell has reserved a `stale`
+status slot since `_build_status_bar()` was written, and a `stale` colour
+token and an unused `DccWidgets.stale_mark()` beside it; the slot was
+occupied by the last generation's *duration*, which has moved into `pass`
+("generated · 3.2s") where the rest of that run's outcome already was. It
+now reads `stale: climate · civ — sculpt`. The second surface is a badge
+above the Civilization dock's Recompute button, which says the same thing in
+that button's vocabulary ("Stale over 12 tiles — sculpt. Recompute to catch
+it up." / "Up to date — nothing has changed under it since the last
+recompute."). Both poll on a 1 s `Timer` rather than a signal: staleness is
+produced by half a dozen unrelated `#[func]`s across three workspaces, and
+six notification couplings for a plain query is the wrong trade.
+
+**The button still does not grey itself out**, and the reason has changed.
+The old note said a disabled button would report a state the user cannot
+see; that objection is gone. It stays enabled because "stale" is not the
+only reason to press it — a recompute is also how a user re-derives roads
+and borders after an edit the engine cannot classify — and because the badge
+already delivers what greying out was a proxy for: knowing in advance
+whether it will do anything.
+
+**What the stage graph structurally cannot represent, and what was done
+about it.** A hand-dropped, hand-edited or deleted settlement makes roads,
+territory, provinces and trade balances out of date — but those are `civ`'s
+*own* outputs, and `civ` is the leaf. `mark_changed(Civ)` therefore marks
+nothing stale at all (`staleness.rs`'s
+`a_downstream_only_edit_recomputes_nothing_upstream_of_it`), and marking any
+upstream node instead would be a lie that also drags a pointless
+`refresh_climate` along. Without something, the indicator would read "up to
+date" immediately after the edit `ED-03d`'s button exists for — so
+`WorldGen::civ_dirty` is a plain flag set by exactly those three `#[func]`s,
+cleared by `recompute_civilisation` and by `absorb`, reported as
+`origin: "settlements"`, `reason: "place_edited"`, `tiles: 0`. A flag rather
+than a mark, because the graph is a *dependency* structure and this is not a
+dependency: it is one pass of one stage being behind another pass of the
+same stage.
+
+### SG-03, closed 2026-08-24 — the per-parameter → stage table
+
+`params::invalidates(key) -> Option<PipelineStage>`, consulted by
+`set_params` per applied key and by `reset_params` wholesale. **25 of the 81
+parameters mark something; 56 mark nothing at all**, and that split is the
+whole design.
+
+**The rule, which is derived and not a judgement call.** A parameter belongs
+in the table only if some function *other than* `generate_terrain` reads it —
+because marking a stage stale is a promise that recomputing it will apply the
+new value, and there is no live path that re-runs terrain. Exactly two
+functions qualify today:
+
+| Live consumer | Parameters | Marks | Effect |
+|---|---|---|---|
+| `refresh_climate` (all of what `recompute_stale` runs) | every `climate.*` row — the **climate** and **weather** groups, 20 keys — plus `peak_m`, `planet.g`, `planet.rotation_hours`, `planet.axial_tilt_deg` (24) | `Hydrology` | climate *and* civ go stale; `recompute_stale`'s gate fires and one `refresh_climate` runs |
+| `compute_civilisation` via `recompute_civilisation` | `river_density` (1), through `fresh_river_order` → affordances, roads, territory | `Climate` | **only** civ goes stale; `recompute_stale` runs nothing at all, leaving `still_stale = ["civ"]` for the dock's button |
+| — | the other 56: every tectonic, volcanic, crater, stream, erosion-pass and world-structure knob, plus `carve_rivers`, `use_gpu`, `sea_level` and `world` | nothing | generation-time only; the honest control is Generate |
+
+`sea_level` and `world` are the two rows that *are* read by
+`climate_params_for`/`weather_params_for` and still mark nothing:
+`recompute_stale` is handed `WorldState::sea_level` (a World-Structure
+archetype re-anchors it during generation, so the dial is not what the
+recompute reads), and `WorldGen::recompute_params` pins `world` to the value
+`absorb` snapshotted, because a moved geometry switch must not make a
+recompute describe a different world.
+
+**Why the node marked is one *above* the stage that goes stale.**
+`StageGraph` has no "this stage's own inputs moved" state: `mark_changed(S)`
+means *S's output changed*, which makes S's consumers stale and leaves S
+itself current. So the node to mark is the one immediately upstream of the
+shallowest stage the dial invalidates. For the climate half that is
+`Hydrology`, which is not a fiction for the weather knobs —
+`refresh_climate`'s first statement recomputes `flow_discharge` from the new
+rainfall, and that *is* hydrology's output. It is one node coarser than the
+truth for the few temperature-only dials (`lapse_rate`, `albedo_k`), where
+discharge genuinely does not move; representing those exactly would need a
+fifth, `params` source node, which is a change to the pinned four-node graph
+and was not taken.
+
+**The drift guard is mechanical, not a second list.**
+`params_mapping.rs`'s `every_key_that_moves_refresh_climate_is_marked_and_no_other`
+walks all 81 rows, moves each to the far end of its own range, re-runs
+`refresh_climate` over a fixed height field, and asserts that "the output
+moved" and "`invalidates()` returns `Hydrology`" agree. A new parameter
+cannot be added without deciding this, and a wrong decision fails there
+rather than in the shell. Its baseline deliberately turns `wind_manual` on
+and widens the latitude band, because otherwise `wind_dir_deg` and `albedo_k`
+are provably inert — true of the *default world*, false of the parameter.
+
+**Marking only; nothing is recomputed in the setter.**
+`world_workspace.gd` writes a slider's value on every drag tick, so a
+recompute here would run `refresh_climate` sixty times a second.
+
+**Finding, recorded because it bounds what SG-03 is worth today:** no
+shipped GDScript path leaves one of these marks standing. Every parameter row
+in `world_workspace.gd` calls `_regenerate_live()` on release — the
+reference's own `tparam()` `change` behaviour, verified live in 2026-08-19's
+Playwright pass — and a full `generate()` rebuilds the graph from scratch in
+`absorb()`. `reset_params()` has no shell caller at all. So the table is
+today a correct engine-boundary contract and a prerequisite, not a
+user-visible change: what would consume it is a cheap "apply climate dials
+without regenerating" path, which cannot simply be switched on, because a
+full regenerate with a new `rain_k` produces different *terrain* (weather
+runs inside the carve and the `evolve_cycles` loop), not merely different
+rainfall. That is a parity decision, not a wiring one.
 
 ### SG-02, closed 2026-08-24 — what "recompute civilisation" was decided to mean
 

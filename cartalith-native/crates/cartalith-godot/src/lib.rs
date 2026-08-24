@@ -1645,6 +1645,27 @@ struct WorldGen {
     /// Not `Option`: a zero-world graph is a legal, harmless empty graph, so
     /// there is nothing to defer.
     stages: cartalith_spatial::StageGraph,
+    /// `GUI_GAP_REGISTER.md` **SG-01**: has a settlement been added, edited or
+    /// deleted since the civ layer was last derived?
+    ///
+    /// A flag rather than a `stages` mark because the staleness graph
+    /// genuinely cannot express this state. `civ` is the leaf, and a manual
+    /// place edit changes `civ`'s *own* data — `mark_changed(Civ)` therefore
+    /// marks nothing stale at all (`staleness.rs`'s
+    /// `a_downstream_only_edit_recomputes_nothing_upstream_of_it`), and
+    /// marking any upstream node instead would be a lie that also drags a
+    /// pointless `refresh_climate` along. What is out of date after a drop or
+    /// a delete is everything `compute_civilisation` *derives from* the
+    /// settlement list — roads, territory, provinces, trade balances — which
+    /// is the same node, one pass later.
+    ///
+    /// Set by `civ_drop_settlement`/`civ_edit_settlement`/
+    /// `civ_delete_settlement` (`ED-03d`'s own three), cleared by
+    /// `recompute_civilisation` and by `absorb` (a freshly generated world's
+    /// civ layer is derived from its own settlements by construction). Read
+    /// only by `stale_stages`, so the indicator does not claim "up to date"
+    /// straight after a hand-dropped town.
+    civ_dirty: bool,
 }
 
 #[godot_api]
@@ -1681,6 +1702,7 @@ impl IRefCounted for WorldGen {
             asset_library: asset_bridge::AssetLibrarySession::new(),
             undo: undo::HeightUndo::new(),
             stages: pipeline_stage_graph(1),
+            civ_dirty: false,
         }
     }
 }
@@ -1764,6 +1786,27 @@ impl WorldGen {
         (names(r.ran), names(r.still_stale))
     }
 
+    /// `GUI_GAP_REGISTER.md` **SG-03**: records that a parameter moved, over
+    /// the whole map — a dial is global, unlike a brush stroke's tile set.
+    ///
+    /// [`params::invalidates`] decides `stage`; this only does the marking,
+    /// and deliberately does **not** recompute. `world_workspace.gd` writes a
+    /// slider's value on every drag tick, so a recompute here would run
+    /// `refresh_climate` sixty times a second; the recompute is somebody
+    /// else's decision (`recompute_stale_stages`, `recompute_civilisation`,
+    /// or the next commit path).
+    ///
+    /// Silent with no world: a graph over a world that does not exist yet
+    /// describes nothing, and every dial in the New World dialog is set
+    /// before the first `generate()`.
+    fn mark_param_change(&mut self, stage: PipelineStage, reason: &str) {
+        if self.source.is_none() {
+            return;
+        }
+        let n = self.stages.tile_count();
+        self.stages.mark_changed_tiles(stage.id(), 0..n, reason);
+    }
+
     /// Stores a finished generation: the effective sea level, the render
     /// inputs `render.rs` needs, the civ layer, and which stages actually ran
     /// on GPU.
@@ -1841,6 +1884,9 @@ impl WorldGen {
         self.stages = pipeline_stage_graph(
             self.sculpt.as_ref().expect("just set above").draft.tile_count(),
         );
+        // SG-01: this world's civ layer was derived from this world's own
+        // settlements, three lines up. Nothing is pending.
+        self.civ_dirty = false;
         // Global heightmap undo: a snapshot of the *previous* world's field
         // is meaningless over this one, and at a different resolution it is
         // not even the right length. The reference does not clear here (its
@@ -1986,6 +2032,11 @@ impl WorldGen {
     /// Both empty means every key applied exactly as sent. Rejections are
     /// also printed to the Godot console — a typo'd key in a dialog is a bug
     /// worth seeing, not something to swallow.
+    ///
+    /// **Marks the staleness graph** (`GUI_GAP_REGISTER.md` SG-03) for the 25
+    /// keys that have a live-apply path — see [`params::invalidates`] for the
+    /// table and for why the other 56 mark nothing. Marking only: no stage is
+    /// recomputed here, because a slider writes on every drag tick.
     #[func]
     fn set_params(&mut self, values: VarDictionary) -> VarDictionary {
         let mut rejected: PackedStringArray = PackedStringArray::new();
@@ -2004,6 +2055,14 @@ impl WorldGen {
                     rejected.push(&GString::from(&key));
                 }
             }
+            // SG-03. A rejected key wrote nothing, so it invalidates nothing;
+            // a clamped one wrote a *different* value than asked for, which
+            // still moves the stage.
+            if outcome != params::Outcome::Rejected
+                && let Some(stage) = params::invalidates(&key)
+            {
+                self.mark_param_change(stage, &format!("param:{key}"));
+            }
         }
         dict! { "rejected" => &rejected, "clamped" => &clamped }
     }
@@ -2013,9 +2072,16 @@ impl WorldGen {
     /// "reset to defaults" action, not a GDScript re-send of remembered
     /// numbers. Does not touch `set_villages_enabled` (civ-layer, not a
     /// `WorldParams` field) or anything about an already-generated world.
+    ///
+    /// Marks the same two stages a whole-table rewrite can invalidate
+    /// (SG-03): `Hydrology` for the climate half, `Climate` for
+    /// `river_density`. Cheaper than asking [`params::invalidates`] key by key
+    /// and exactly as accurate — a reset moves every dial at once.
     #[func]
     fn reset_params(&mut self) {
         self.params = params::defaults();
+        self.mark_param_change(PipelineStage::Hydrology, "reset_params");
+        self.mark_param_change(PipelineStage::Climate, "reset_params");
     }
 
     /// Which GPU-eligible stages actually ran on GPU during the last
@@ -2653,6 +2719,80 @@ impl WorldGen {
         }
     }
 
+    /// `GUI_GAP_REGISTER.md` **SG-01**: what is stale right now, and why —
+    /// the read a staleness indicator is built on, and the answer
+    /// [`Self::recompute_stale_stages`] would act on if it were called this
+    /// instant.
+    ///
+    /// A pure query. Every [`cartalith_spatial::StageGraph`] accessor takes
+    /// `&self` precisely so asking can never trigger work, and this preserves
+    /// that: calling it once a second from a status bar recomputes nothing.
+    ///
+    /// Returns one entry per **stale** stage — an empty `Dictionary` is the
+    /// healthy state, not an error — keyed by
+    /// `cartalith_engine::staleness::PipelineStage::name` (`"height"`,
+    /// `"hydrology"`, `"climate"`, `"civ"`), each holding:
+    ///
+    /// - `origin` (String) — the *most upstream* stage whose change has not
+    ///   been consumed, **across every stale tile**, which is the one worth
+    ///   naming: a sculpted ridge shows up at `civ` as `height`, not as a
+    ///   chain of "my upstream moved" and not as the whole-map
+    ///   `mark_recomputed` that ran in the same breath.
+    /// - `reason` (String) — that change's own recorded reason: `"sculpt"`,
+    ///   `"carve_fjords"`, `"paint"`, `"param:climate.rain_k"`,
+    ///   `"reset_params"`. Empty only if a mark was recorded without one.
+    /// - `tiles` (int) — how many of the graph's tiles are stale, so an
+    ///   indicator can tell one brush stroke from a whole-map invalidation.
+    ///   **`0` means not tile-scoped**, which today is only the `civ` entry
+    ///   below.
+    ///
+    /// The `civ` entry has one extra source the graph cannot represent: a
+    /// hand-dropped, hand-edited or deleted settlement (`self.civ_dirty` — see
+    /// that field for why it is a flag and not a mark). It is reported as
+    /// `origin: "settlements"`, `reason: "place_edited"`, `tiles: 0`, and only
+    /// when the graph is not already reporting `civ` stale for a bigger
+    /// reason. Without it the indicator would read "up to date" immediately
+    /// after the edit that `ED-03d`'s Recompute button exists for.
+    #[func]
+    fn stale_stages(&self) -> VarDictionary {
+        let entry = |origin: &str, reason: &str, tiles: i64| -> VarDictionary {
+            dict! { "origin" => origin, "reason" => reason, "tiles" => tiles }
+        };
+        let mut out = VarDictionary::new();
+        let mut civ_reported = false;
+        for s in PipelineStage::ALL {
+            let tiles = self.stages.stale_tiles(s.id());
+            if tiles.is_empty() {
+                continue;
+            }
+            // The most upstream origin over *every* stale tile, not the first
+            // tile's. Found in the real shell, invisible at a grid small
+            // enough for one stroke to cover the whole tiling: a sculpt marks
+            // `Height` at the tiles it touched, but `recompute_stale`'s
+            // `mark_recomputed` bumps hydrology over the *whole* map — so at
+            // any tile the brush missed, civ's most-upstream unconsumed
+            // change is hydrology's own "flow_recomputed" bookkeeping string,
+            // and tile 0 is usually such a tile. Reporting that would name
+            // the recompute instead of the edit that caused it. Ids are
+            // topological, so the smallest is the most upstream — the same
+            // rule `StageGraph::staleness` already applies within one tile.
+            let mut best: Option<(usize, &str, &str)> = None;
+            for &t in &tiles {
+                let Some(why) = self.stages.staleness(s.id(), t) else { continue };
+                if best.is_none_or(|(origin, _, _)| why.origin < origin) {
+                    best = Some((why.origin, why.origin_name, why.reason.unwrap_or("")));
+                }
+            }
+            let (_, origin, reason) = best.expect("stale_tiles only returns tiles staleness() reported");
+            out.set(s.name(), &entry(origin, reason, tiles.len() as i64));
+            civ_reported |= s == PipelineStage::Civ;
+        }
+        if self.civ_dirty && !civ_reported {
+            out.set(PipelineStage::Civ.name(), &entry("settlements", "place_edited", 0));
+        }
+        out
+    }
+
     /// `GUI_GAP_REGISTER.md` SG-02's **"Recompute now"** for `civ` — the one
     /// stage [`Self::recompute_stale_stages`] deliberately leaves stale, and
     /// the recompute `ED-03d` says a place edit or delete never triggered.
@@ -2739,6 +2879,9 @@ impl WorldGen {
         }
         let (n_places, n_ways, n_prov) = (fresh.settlements.len(), fresh.ways.len(), fresh.province_list.len());
         self.civ = Some(fresh);
+        // SG-01: everything derived from the settlement list has just been
+        // re-derived from the settlement list.
+        self.civ_dirty = false;
         self.stages.mark_recomputed(PipelineStage::Civ.id(), "civ_recomputed");
         recomputed.push(&GString::from(PipelineStage::Civ.name()));
         let still_stale: PackedStringArray = PipelineStage::ALL
@@ -5090,7 +5233,12 @@ impl WorldGen {
             k,
             &name,
         ) {
-            Some(i) => i as i64,
+            Some(i) => {
+                // SG-01: roads, territory, provinces and trade balances were
+                // all derived before this settlement existed.
+                self.civ_dirty = true;
+                i as i64
+            }
             None => -1,
         }
     }
@@ -9388,6 +9536,9 @@ impl WorldGen {
         if let Some(w) = get_i("walls") {
             civ.place_extras.set_walls(tid, w);
         }
+        // SG-01: a changed tier, faction or population moves territory,
+        // roads and trade balances, none of which are re-derived here.
+        self.civ_dirty = true;
         true
     }
 
@@ -9453,6 +9604,9 @@ impl WorldGen {
         match civ_roster_bridge::delete_settlement(&mut civ.settlements, i) {
             Some(tid) => {
                 civ.place_extras.forget(tid);
+                // SG-01: the deleted place is still a node in the road
+                // network and still owns territory until a recompute.
+                self.civ_dirty = true;
                 true
             }
             None => false,

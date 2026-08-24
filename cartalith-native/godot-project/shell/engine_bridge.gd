@@ -1321,6 +1321,24 @@ func civ_recompute() -> Dictionary:
 		return {"ok": false, "reason": "This build's extension has no recompute_civilisation."}
 	return world_gen.recompute_civilisation()
 
+## `GUI_GAP_REGISTER.md` SG-01: which pipeline stages are stale right now, and
+## why -- read straight off the engine's own `StageGraph`, so this is the real
+## dirty state and not a flag this script keeps in parallel.
+##
+## `{stage_name: {origin: String, reason: String, tiles: int}}`, one entry per
+## stale stage; `{}` means nothing is stale, which is the healthy state and
+## also what a world-less session reports. `tiles == 0` means the entry is not
+## tile-scoped (only `civ`'s "a settlement was edited" source is).
+##
+## A pure read on the engine side -- every `StageGraph` query takes `&self`,
+## so asking can never trigger a recompute -- but still refused mid-generation
+## for the same `Gd<T>::bind()` reason `param_set` is: the worker thread owns
+## the object while a generation is in flight.
+func stale_stages() -> Dictionary:
+	if generating or not _has("stale_stages"):
+		return {}
+	return world_gen.stale_stages()
+
 func civ_faction_count() -> int:
 	if not _has("civ_faction_count"):
 		return 0

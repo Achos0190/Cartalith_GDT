@@ -5,7 +5,73 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **Three cartography follow-ups: a slider that
+Last updated: 2026-08-24 (post **A staleness indicator, and the dials that
+were never marked stale** — `GUI_GAP_REGISTER.md` **SG-01** and **SG-03**,
+§21's last two open rows, closed together because they are the same feature
+from both ends: SG-03 produces staleness nothing recorded, SG-01 shows
+staleness nothing read. **SG-01** is `#[func] stale_stages()` —
+`{stage: {origin, reason, tiles}}`, `{}` for healthy, a pure query because
+every `StageGraph` accessor takes `&self` — surfaced in **two places that
+already existed**: the shell's `stale` status slot, reserved since
+`_build_status_bar()` was written and until now occupied by the last
+generation's *duration* (moved into `pass`, "generated · 1.4s"), and a badge
+above the Civilization dock's Recompute button. Both poll on a 1 s `Timer`,
+because staleness is produced by half a dozen unrelated `#[func]`s across
+three workspaces and six notification couplings for a plain query is the
+wrong trade. **The one source the stage graph structurally cannot carry** is
+a hand-dropped/edited/deleted settlement: roads, territory, provinces and
+trade balances are `civ`'s *own* outputs and `civ` is the leaf, so
+`mark_changed(Civ)` marks nothing stale at all and marking any upstream node
+would be a lie that also drags a pointless `refresh_climate` along — hence a
+plain `WorldGen::civ_dirty` flag on exactly `ED-03d`'s three `#[func]`s,
+reported as `origin: "settlements"`. **The Recompute button still does not
+grey itself out**, but for a new reason: the badge delivers what greying out
+was a proxy for, and "stale" was never the only reason to press it.
+**SG-03** is `params::invalidates()`: **25 of the 81 parameters mark
+something, 56 mark nothing**, and the rule is derived, not judged — a
+parameter qualifies only if some function *other than* `generate_terrain`
+reads it. Two do. `refresh_climate` reads every `climate.*` row (the climate
+and weather groups, 20 keys) plus `peak_m`/`planet.g`/`planet.rotation_hours`/
+`planet.axial_tilt_deg` → mark **`Hydrology`**, which makes climate *and* civ
+stale and fires `recompute_stale`'s gate; `compute_civilisation` reads
+`river_density` → mark **`Climate`**, which makes **only** civ stale and
+costs no climate pass. `sea_level` and `world` are read by
+`climate_params_for`/`weather_params_for` and still mark nothing, because
+`recompute_stale` is handed `WorldState::sea_level` and `recompute_params`
+pins `world`. **The node marked is one *above* the stage that goes stale**
+because `mark_changed(S)` means "S's output changed", which makes S's
+consumers stale and leaves S current — one node coarser than the truth for
+the two temperature-only dials, which would need a fifth `params` source node
+the four-node graph's own pinning test forbids. **The drift guard is
+mechanical**: `every_key_that_moves_refresh_climate_is_marked_and_no_other`
+walks all 81 rows, moves each to the far end of its range, re-runs
+`refresh_climate` and asserts "output moved" ⟺ "marks Hydrology" — with a
+baseline that deliberately turns `wind_manual` on and widens the latitude
+band, because otherwise `wind_dir_deg` and `albedo_k` are provably inert
+(true of the *default world*, false of the parameter). **One bug only the
+real shell found:** the readout took the first stale tile's origin, and
+`recompute_stale`'s own whole-map `mark_recomputed` means tile 0 usually
+carries hydrology's `"flow_recomputed"` bookkeeping string rather than the
+edit — so a sculpt reported *"stale: civ — flow_recomputed"*. Invisible at
+256×192, where one stroke covers the whole tiling and tile 0 *is* a
+height-marked tile; now the most-upstream origin over **every** stale tile.
+**Verified**: 21 `params_mapping` tests (4 new), a 26-assertion boundary
+probe (`_stalegraph_shot.gd`) and a windowed shell run
+(`_stalegraph_ui_shot.gd`) reading the real `Label` text — clean after
+generate, *"stale: civ — sculpt"* / *"Stale over 30 tiles — sculpt"* after a
+commit, *"stale: climate · civ — param:climate.rain_k"* after a dial,
+*"place_edited"* after a drop, and empty on both surfaces after the button.
+**Finding that bounds what SG-03 is worth today:** no shipped GDScript path
+leaves one of these marks standing — every parameter row in
+`world_workspace.gd` calls `_regenerate_live()` on release (the reference's
+own `tparam()` behaviour) and `absorb()` rebuilds the graph, and
+`reset_params()` has no shell caller at all. The table is a correct
+engine-boundary contract and a prerequisite; what would consume it is a cheap
+"apply the climate dials without regenerating" path, which is a **parity
+decision for the owner**, not a wiring one — a full regenerate with a new
+`rain_k` produces different *terrain*, not merely different rainfall, because
+weather runs inside the carve and the `evolve_cycles` loop) — previously,
+post **Three cartography follow-ups: a slider that
 rendered nothing, a ramp that did not exist, and a look that could not be
 saved** — `GUI_GAP_REGISTER.md` **CA-11**, **CA-02** and **CA-08** all
 **closed**, which retires everything the previous cartography pass left
@@ -4696,6 +4762,15 @@ milestone F. Remaining: **F** (shell wiring) and nothing else.
   territory fixed; the Civilization dock's Settlements ▸ Recompute section
   calls it. Still manual, and still global rather than tile-incremental —
   0.94 s @512² to 4.22 s @2048², release.
+- **Staleness is visible, and dials mark it (2026-08-24, SG-01/SG-03).**
+  `WorldGen::stale_stages()` is the read; the shell's `stale` status slot and
+  a badge above the Recompute button are the two surfaces, both on a 1 s
+  poll. `params::invalidates()` maps 25 of 81 parameters onto a stage
+  (`Hydrology` for the 24 `refresh_climate` reads, `Climate` for
+  `river_density`), and `set_params`/`reset_params` mark from it. Still open:
+  nothing consumes those marks in the shipped shell, because every parameter
+  row regenerates on release — a cheap "apply the climate dials without
+  regenerating" path is an owner parity decision, not a wiring gap.
 - **Paint audited end to end against the reference (2026-08-24).** Disc
   geometry (`hypot > R`, inclusive rim), the three layers and their exact
   palettes (13/13/6), the `wb[i] !== 0` land gate, erase, sparse

@@ -415,13 +415,25 @@ func _register_workspaces() -> void:
 		ws.setup(self, bridge)
 		_workspaces.append(ws)
 
-## There is no staleness state to report: verified live against the reference
-## (Playwright, 2026-08-19) that every generation control regenerates the whole
-## world automatically on release (`tparam()`'s `change` handler, `withBusy
-## ('generating…', generate)`) -- the same mechanism `world_workspace.gd`'s
-## slider/toggle rows now trigger. So the only two states worth telling anyone
-## about are "a regenerate is running" and "here's how long the last one
-## took" -- both live signals, neither an invented dirty flag.
+## Corrected 2026-08-24 (`GUI_GAP_REGISTER.md` SG-01). This used to read "there
+## is no staleness state to report", on the grounds -- verified live against
+## the reference (Playwright, 2026-08-19) -- that every generation control
+## regenerates the whole world on release (`tparam()`'s `change` handler), so
+## the dials can never leave anything behind. That half is still true and
+## `world_workspace.gd` still works that way.
+##
+## What it missed is that the *tools* leave real staleness behind, deliberately:
+## a sculpt or a carve settles hydrology and climate but leaves the civ layer
+## for `recompute_civilisation` to catch up (SG-02's measured reason), and a
+## hand-dropped or deleted settlement leaves everything derived from the
+## roster. That state is the engine's own -- `stale_stages()` reads
+## `cartalith_spatial::StageGraph` -- not an invented dirty flag, which is the
+## objection the old comment was really making. The `stale` status slot the
+## shell has reserved since it was built is where it goes.
+##
+## The generation duration that used to occupy that slot moves into `pass`
+## ("generated · 3.2s"), which is where the rest of the last run's outcome
+## already is.
 func _wire_status() -> void:
 	bridge.generation_started.connect(func():
 		set_status("pass", "generating…", "accent")
@@ -429,10 +441,9 @@ func _wire_status() -> void:
 		if is_instance_valid(_tool_options_stale):
 			_tool_options_stale.text = "generating…")
 	bridge.generation_finished.connect(func(ok: bool):
-		set_status("pass", "generated" if ok else "generate failed",
-			"text_dim" if ok else "accent")
+		set_status("pass", ("generated · %.1fs" % (bridge.last_generate_ms / 1000.0)) if ok
+			else "generate failed", "text_dim" if ok else "accent")
 		set_status("hint", bridge.last_summary, "text_ghost")
-		set_status("stale", ("%.1fs" % (bridge.last_generate_ms / 1000.0)) if ok else "", "text_faint")
 		var g := bridge.grid_size()
 		set_status("top_world", ("ELDRA · %d" % bridge.world_gen.get_seed()) if ok else "—")
 		set_status("top_res", ("%d×%d working" % [g.x, g.y]) if ok else "")
@@ -443,6 +454,73 @@ func _wire_status() -> void:
 	bridge.world_loaded.connect(func():
 		set_status("pass", "loaded", "text_dim")
 		set_status("hint", bridge.last_summary, "text_ghost"))
+	_setup_staleness()
+
+## SG-01's clock. A `Timer` and not a `_process` tick, and not a signal either:
+## staleness is produced by half a dozen unrelated `#[func]`s (every commit
+## path, every place edit, every marked `set_params`), and wiring a
+## notification into each of them would be six couplings for a readout that is
+## a plain query. One second is well under the time it takes to notice, and
+## `stale_stages()` recomputes nothing -- `StageGraph`'s accessors all take
+## `&self`.
+var _stale_timer: Timer
+
+func _setup_staleness() -> void:
+	_stale_timer = Timer.new()
+	_stale_timer.name = "StalenessPoll"
+	_stale_timer.wait_time = 1.0
+	_stale_timer.one_shot = false
+	_stale_timer.timeout.connect(refresh_staleness)
+	add_child(_stale_timer)
+	_stale_timer.start()
+
+## Reads the engine's stage graph and writes the `stale` status slot. Public
+## because a control that has just cleared staleness (the Civilization dock's
+## Recompute button) should show that immediately rather than up to a second
+## later.
+##
+## Names the stale stages, then the most-upstream reason once -- "climate ·
+## civ — sculpt" rather than repeating the cause per stage, since the graph
+## reports the same origin all the way down a chain by design.
+func refresh_staleness() -> void:
+	var stale: Dictionary = bridge.stale_stages()
+	if stale.is_empty():
+		set_status("stale", "", "text_faint")
+		return
+	var names := PackedStringArray()
+	var reason := ""
+	for stage in stale:
+		names.append(String(stage))
+		if reason.is_empty():
+			var e: Dictionary = stale[stage]
+			reason = String(e.get("reason", ""))
+			if reason.is_empty():
+				reason = String(e.get("origin", ""))
+	set_status("stale", "stale: %s — %s" % [" · ".join(names), reason], "stale")
+
+## `GUI_GAP_REGISTER.md` **SH-07**: the status bar's `atlas` slot, which
+## `dcc_shell.gd` has built since the shell shipped and nothing ever wrote.
+##
+## The reference's `updateAtlasStatus` (line 10748) is a chunk *count*; this
+## adds the two numbers a user actually decides on — how deep the bake goes and
+## what it costs on disk — plus the finalize state, since a locked world's
+## single most important fact is that it is locked.
+##
+## Blank for a world with nothing baked: an empty slot is the honest reading of
+## "no atlas", and a permanent "Atlas: empty" would spend a status slot saying
+## nothing. Called after every bake, clear, finalize and generate.
+func refresh_atlas_status() -> void:
+	var st: Dictionary = bridge.atlas_status()
+	if st.is_empty() or int(st.get("chunks", 0)) == 0:
+		set_status("atlas", "", "text_faint")
+		return
+	var text := "atlas: %d chunks · LOD 0–%d · %s" % [
+		int(st.get("chunks", 0)), int(st.get("deepest_level", 0)),
+		String(st.get("bytes_text", ""))]
+	if bool(st.get("finalized", false)):
+		set_status("atlas", text + " · FINALIZED", "accent")
+	else:
+		set_status("atlas", text, "text_dim")
 
 func _wire_selection() -> void:
 	viewport.settlement_selected.connect(func(data, index):
