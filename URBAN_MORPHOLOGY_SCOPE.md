@@ -1827,10 +1827,97 @@ real settlement produces a *non-empty* street graph, and that no street class
 milestones 8+ own has leaked in. Closing this properly is milestone 17's
 remaining half.
 
+### Milestone 12 — blocks and parcels: **done** (2026-08-24)
+
+Out of dependency order, like 17a before it, and for a comparable reason. The
+City Viewer (§17a's own first consumer) drew a wire diagram, because a street
+graph has nothing discrete in it to fill: no shape smaller than the whole
+town. Parcels are the **smallest stage that produces one**, and every
+primitive `buildBlocks`/`buildParcels` need had already been built and
+golden-tested at milestones 1-2 — `ensureCCW`, `insetPoly`, `polyCentroid`,
+`pointInPoly`, `polyArea`, `polySelfIntersects`, `segInt`, `edgeBetween`,
+`extractFaces`, and the `logn`/`chance`/`range` draws. Two functions, no new
+kernel. It was a smaller change than inventing a Voronoi or straight-skeleton
+subdivision to fake the same shapes, and unlike one it is the reference's
+own algorithm.
+
+**What landed.** `cartalith-urban::blocks` — `build_blocks` and
+`build_parcels`, ported from reference lines 30193-30344 (the range this
+document already gave, verified against the file before slicing and correct at
+both ends). `UrbanLayout` gained `blocks`/`parcels`, `urban_bridge` emits
+them, and `urban_layout_draw.gd` draws them.
+
+**One field is this port's own and is marked as such:** `Parcel::tone`, a
+stable 0..1 scalar a renderer varies a rooftop's brightness and saturation
+with. It is drawn from a **separate** RNG substream (`'roof-tone'`), never
+from the per-block `'parcels/…'` stream the geometry comes out of — one extra
+draw from that stream would shift every subsequent frontage width and the
+parcels would stop matching the reference's.
+
+**Verification.** Golden, on milestones 2 and 7's terms: the reference's own
+`buildBlocks`/`buildParcels` run under `vm.runInContext` over the frozen
+file's block 4, with both slice boundaries and the comment balance asserted
+and the two functions exposed by one anchored replacement asserted to match
+exactly once. Five scenarios, ~5,400 parcels, compared by a hash over the
+complete state (both polygons, face ids, edge distances, and every parcel
+field) plus written-out anchors. **All five passed unmodified on the first
+run.**
+
+**What the mutation sweep found, which is the part worth reading.** Every
+constant was mutated by one unit and the suite re-run. Ten were caught. Three
+survivors were real coverage holes and two new scenarios closed them:
+
+1. **The 2000 m probe ray survived** three scenarios, because their blocks are
+   far deeper than the 14-46 m plot depth, so `min(t_min*0.42,
+   depthTarget*1.35)` is always won by the depth term and the ray-cast caps
+   never bind at all. `narrow_rows` (~30 m rows) fixed it.
+2. **`depthTarget*1.35`, the 120 m² floor and the 0.97 area-conservation trim
+   survived** because rectangular faces produce no acute vertices, no tiny
+   slivers and no over-filled block. `wedges` (diagonal cuts) fixed the first.
+3. **The 120 m² floor cannot be reached at all**, and this is the finding to
+   carry forward: `attach_point`'s `SNAP` is 11 m, so any two nodes closer
+   than that merge, and an ~11 m cell — the only rectangular shape with an
+   area near 120 m² — collapses before `extract_faces` ever sees it. Measured,
+   not assumed. The floor guards the degenerate slivers `splitEdge` and
+   crossing-resolution can produce, not anything a clean street lay can make.
+   **Milestone 11's `lanePass` is the first stage that could produce one**,
+   and is where this is worth revisiting.
+
+The 140,000 m² ceiling is pinned by its own boundary test. The 7 m minimum
+frontage, 4 m minimum depth, `riverW/2 + 1` wet margin and the 0.97 trim are
+pinned by the hash for every value the fixtures produce, but not at their own
+boundaries — `blocks/tests.rs` says so in its header rather than leaving it
+implied.
+
+**Three upstream stages are missing, and milestone 12 runs without them.**
+This is the honest cost of taking it out of order, and it is a property of the
+*input*, not of this port:
+
+- **`buildPlaza` (milestone 8) runs on the organic branch too** (reference
+  line 31024), not only the radial one. Without it no block is marked a plaza,
+  so **the town has no open market square** — the block over the market anchor
+  is platted like any other. This is the most visible gap and the City Viewer
+  says so on screen.
+- **`removeWaterCrossings` (milestone 11)** does not run, so streets may still
+  cross the channel. Milestone 12's own guards absorb most of it: a block whose
+  inset centroid is wet is dropped, and a lot with *any* corner in the water is
+  rejected (the reference's footprint test, not a centroid test).
+- **`lanePass` (milestone 11)** does not run, so faces are coarser than the
+  reference's would be from the same seed.
+
+Milestones 8 and 11 will change what comes out of here without changing a line
+of `blocks.rs` — and are the moment to re-run this milestone's mutation sweep
+rather than trusting it.
+
 ### Milestone 8 — radial (Venus) streets, plaza, waterway (lines 28835-28970, 3 functions)
 
 `buildRadialStreets`, `buildWaterway`, `buildPlaza`. The second planning mode,
 independent of `grow`. Separable from milestone 7 and cheaper.
+
+**Raised in priority by milestone 12.** `buildPlaza` is no longer only Venus's
+concern: it is what keeps the market square unbuilt, and without it every
+drawn town is missing the one open space a viewer expects at its centre. It is
+the smallest remaining change with a visible payoff.
 
 ### Milestone 9 — water infrastructure (lines 28967-29159, 4 functions)
 
@@ -1860,15 +1947,14 @@ always has a live road on it.
 `splitEdge` does not (finding 3). **Do not unify them** — the port reproduces
 both as written, and the difference is the reference's, not the port's.
 
-### Milestone 12 — blocks and parcels (lines 30193-30344, 2 functions)
+### Milestone 12 — blocks and parcels: **done**, recorded above
 
-`buildBlocks`, `buildParcels`. Dense: the bisector platting method with
-ray-cast depth caps, log-normal frontage/depth draws, overlap filtering and
-area conservation. `hashModel`'s block/parcel terms cover this, but only from
-milestone 16 — it needs a whole model (milestone 2's finding). Until then, dump
-state directly, as milestone 2 did. Note also that `buildBlocks` skips
-`extractFaces`' outer face, which milestone 2 pinned as a **first-index-wins**
-tie-break on absolute area.
+Built out of order on 2026-08-24 — see the full record in the completed-
+milestone run above. The plan this stub carried was right on every count: the
+line range 30193-30344 was correct at both ends, `buildBlocks` does skip
+`extractFaces`' outer face on milestone 2's first-index-wins tie-break, and
+`hashModel` was indeed unavailable, so the golden dumps state directly exactly
+as milestone 2 did.
 
 ### Milestone 13 — districts and buildings (lines 30345-30710, 7 functions)
 

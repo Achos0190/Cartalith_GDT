@@ -1357,9 +1357,10 @@ func _notification(what: int) -> void:
 # `civUrbanLayoutsChk` (`GUI_GAP_REGISTER.md` UM-01): the reference's own
 # deep-zoom town-layout layer, `_umDrawLayout` called from `drawCivLayer`'s
 # §2.5. This port draws the same layer from the same kind of data, restricted
-# to what `URBAN_MORPHOLOGY_SCOPE.md` milestones 1-7 actually generate — a
-# street skeleton on a real site. Blocks, buildings and the wall circuit are
-# milestones 10-13 and are not drawn, not stubbed; see `urban_layout_draw.gd`.
+# to what `URBAN_MORPHOLOGY_SCOPE.md` actually generates — a street skeleton
+# on a real site, plus milestone 12's blocks and the lots platted in them.
+# Buildings and the wall circuit are milestones 13 and 10 and are not
+# generated; `urban_layout_draw.gd` records what it draws in their place.
 #
 # **The reveal gate is deliberately NOT the reference's `_umLayoutAlpha`.**
 # That function crossfades pins into layouts across a 24 km → 10 km viewport
@@ -1376,6 +1377,11 @@ func _notification(what: int) -> void:
 ## `city_viewer_window.gd`'s own `DRAW` const for why.
 const URBAN_DRAW := preload("res://shell/urban_layout_draw.gd")
 const URBAN_MIN_BOX_PX := 16.0
+## Above this on-screen box width, a town is drawn with its per-roof ink
+## outline, ridge and drop shadow; below it the roofs are flat fills. 620 px
+## across the 1.7 km box puts a ~11 m lot at ~4 px, which is about where an
+## outline stops being sub-pixel. See the call in `_draw_urban_layouts()`.
+const URBAN_FINE_BOX_PX := 620.0
 ## The site box, in km — `UME.SITE_WM`/`1000` (`urban_adapter::SITE_WM`).
 const URBAN_SITE_BOX_KM := 1.7
 ## Requested per frame, and the number is the reference's own
@@ -1508,8 +1514,15 @@ func _draw_urban_layouts(rect: Rect2, interior: Rect2) -> void:
 		## `px_floor` = one screen pixel in this control's own space: the camera
 		## scales this whole control by `_camera_zoom`, so a stroke floored at
 		## a literal 1.0 here would land `_camera_zoom` px thick on screen.
+		## The per-roof ink outline, ridge and drop shadow are three extra
+		## passes over every lot in the town, and a town runs to a couple of
+		## thousand. A lot is ~11 m across in a 1.7 km box, so it covers
+		## `box_px / 155` pixels -- under `URBAN_FINE_BOX_PX` those passes are
+		## drawing sub-pixel detail over and over. The City Viewer, which is
+		## the place a town is actually looked at, always passes 1.0.
 		URBAN_DRAW.draw_layout(self, layout, to_screen, m_scale,
-			1.0 / maxf(0.001, _camera_zoom), 1.0, false)
+			1.0 / maxf(0.001, _camera_zoom), 1.0, false,
+			1.0 if box_px >= URBAN_FINE_BOX_PX else 0.0)
 		_urban_revealed[i] = true
 
 	if need.size() > 0 and not _urban_pending:

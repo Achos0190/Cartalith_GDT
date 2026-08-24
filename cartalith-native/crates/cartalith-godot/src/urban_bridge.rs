@@ -8,15 +8,20 @@
 //! consumer, and `cartalith_civ::urban_adapter` — whose own header carries the
 //! function-by-function boundary — is what stands between it and the engine.
 //!
-//! ## What comes back is a street skeleton, and the dictionary says so
+//! ## What comes back, and what the dictionary says about what is missing
 //!
-//! Milestones 8-17 are not built. There are no blocks, parcels, buildings,
-//! districts, amenities or walls, and this bridge emits **no key** for any of
+//! As of milestone 12 this carries real `blocks` and `parcels` — the faces of
+//! the street graph inset to their buildable interiors, and the strip lots
+//! platted along their frontages. Those are generator output, not stand-ins.
+//!
+//! Buildings, districts, amenities and the wall circuit are still unbuilt
+//! (milestones 10 and 13-17), and this bridge emits **no key** for any of
 //! them — not an empty array, which a renderer would read as "this town has
 //! none" rather than "this port cannot generate any yet". The one key that
 //! does speak about the gap is `"stages"`, which names in plain words what
 //! produced the geometry, so a viewer can label itself honestly instead of
-//! implying a finished city.
+//! implying a finished city. It also names what milestone 12 ran *without*:
+//! `buildPlaza` is milestone 8, so no block is marked a market square.
 //!
 //! ## Why there is one batch entry point and no cache here
 //!
@@ -99,6 +104,23 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
     let prim: Array<PackedVector2Array> = l.primaries.iter().map(|p| poly(p)).collect();
     d.set("primaries", &prim);
 
+    // Milestone 12. Blocks are the opaque urban ground between the streets;
+    // parcels are the lots a renderer draws a rooftop on.
+    let blocks: Array<PackedVector2Array> = l.blocks.iter().map(|p| poly(p)).collect();
+    d.set("blocks", &blocks);
+
+    // Parcels go across as three parallel arrays rather than an array of
+    // dictionaries: a town runs to a few thousand lots, and one `Dictionary`
+    // per lot is a few thousand allocations per redraw for a renderer that
+    // only ever walks them in order. `_draw` wants the packed arrays anyway.
+    let par_poly: Array<PackedVector2Array> = l.parcels.iter().map(|p| poly(&p.poly)).collect();
+    let par_tone: PackedFloat32Array = l.parcels.iter().map(|p| p.tone as f32).collect();
+    let par_cls: PackedStringArray =
+        l.parcels.iter().map(|p| GString::from(p.edge_cls)).collect();
+    d.set("parcels", &par_poly);
+    d.set("parcel_tone", &par_tone);
+    d.set("parcel_cls", &par_cls);
+
     // `site.bridgePt` is `buildSite`'s flattest crossing point, NOT milestone
     // 9's `detectRiverCrossings` output -- absent rather than null so a
     // renderer cannot read it as "no bridge here".
@@ -117,6 +139,8 @@ fn layout_dict(index: i64, l: &UrbanLayout) -> VarDictionary {
         if l.primaries.is_empty() { "buildPrimaries (m6) — no route produced" } else { "buildPrimaries (m6)" },
         "placeAnchors (m6)",
         "grow (m7)",
+        "buildBlocks (m12) — no plaza, so no open market square",
+        "buildParcels (m12)",
     ]
     .iter()
     .map(|s| GString::from(*s))
@@ -137,12 +161,13 @@ impl WorldGen {
     /// The returned array is therefore not necessarily the same length as
     /// `indices`, and each entry carries its own `index` back.
     ///
-    /// **This is not a finished city.** Each entry describes a street
-    /// skeleton on a real site: the site's water, the market anchor, the
-    /// arterial primaries and the organic street growth off them. Blocks,
-    /// parcels, buildings, districts, amenities and the wall circuit are
-    /// milestones 8-17 and have no key here at all. `stages` says which
-    /// generator stages produced what came back.
+    /// **This is not a finished city.** Each entry describes a real site with
+    /// a street network on it, divided into blocks and lots: the site's water,
+    /// the market anchor, the arterial primaries, the organic street growth
+    /// off them, and milestone 12's blocks and parcels. Buildings, districts,
+    /// amenities and the wall circuit are milestones 10 and 13-17 and have no
+    /// key here at all. `stages` says which generator stages produced what
+    /// came back, including which ones ran with a missing input.
     ///
     /// Empty on a loaded save or before the first `generate()` — same
     /// restriction the whole civilisation layer already has

@@ -5,15 +5,18 @@ class_name CityViewerWindow
 ## `cityViewerModal` with its `cvCanvas`, `cvLegend`, `cvInfoPanel` and
 ## `cvCloseBtn`, ported as far as this port's engine can fill it.
 ##
-## **It shows a street skeleton, not a city, and it says so on screen.**
-## `URBAN_MORPHOLOGY_SCOPE.md` has milestones 1-7 of ~17 built: the site
-## model, the market anchor, the arterial primaries and the organic street
-## growth off them. Blocks, parcels, buildings, districts, amenities and the
-## wall circuit are milestones 8-17 and do not exist, so this window draws
-## none of them and its own info panel names each one as missing rather than
-## leaving a viewer to conclude the town simply has no buildings. That
-## disclosure is read off the engine's own `stages` array, so it cannot drift
-## from what actually ran.
+## **It shows a town plan, not a finished city, and it says so on screen.**
+## `URBAN_MORPHOLOGY_SCOPE.md` has milestones 1-7 plus 12 of ~17 built: the
+## site model, the market anchor, the arterial primaries, the organic street
+## growth off them, and the blocks and parcels platted out of that graph.
+## Buildings, districts, amenities and the wall circuit are milestones 10 and
+## 13-17 and do not exist, so this window draws none of them and its own info
+## panel names each one as missing rather than leaving a viewer to conclude
+## the town simply has no buildings. That disclosure is read off the engine's
+## own `stages` array, so it cannot drift from what actually ran — and the
+## panel additionally names the two places where the *drawing* is ahead of
+## the generator (a rooftop is a whole parcel; there is no open market
+## square), which is the one thing `stages` cannot say for itself.
 ##
 ## The canvas's wheel-zoom and drag-pan are the reference's (`_cvZoomAt` and
 ## its pointer-drag handler); the initial fit is `_umDrawLayoutPreview`'s
@@ -247,20 +250,27 @@ func _reset_view() -> void:
 
 ## The model-metre box the view fits. `_umDrawLayoutPreview` fits the *built
 ## mass* (wall ring, else building footprints) precisely so the long approach
-## roads running to the box edge do not shrink the town to a speck. Neither
-## exists here, so this uses the reference's own third fallback — the graph's
-## extent — and then trims the approach roads' influence the only way that is
-## honest without inventing a built mass: it fits the graph, full stop, and
-## leaves the user the wheel.
+## roads running to the box edge do not shrink the town to a speck.
+##
+## Milestone 12 is what finally makes that possible: the blocks *are* the built
+## mass, near enough, so the fit is now the reference's own second choice
+## rather than its third. The graph's extent stays as the fallback for a
+## layout that produced no blocks at all — a hamlet whose faces all fell under
+## the 120 m² floor, or a settlement whose growth never closed a loop.
 func _fit_box() -> Rect2:
-	var streets: Dictionary = _layout.get("streets", {})
 	var lo := Vector2(INF, INF)
 	var hi := Vector2(-INF, -INF)
-	for cls in streets.keys():
-		var segs: PackedVector2Array = streets[cls]
-		for p in segs:
+	for blk: PackedVector2Array in _layout.get("blocks", []) as Array:
+		for p in blk:
 			lo = lo.min(p)
 			hi = hi.max(p)
+	if not (hi.x > lo.x and hi.y > lo.y):
+		var streets: Dictionary = _layout.get("streets", {})
+		for cls in streets.keys():
+			var segs: PackedVector2Array = streets[cls]
+			for p in segs:
+				lo = lo.min(p)
+				hi = hi.max(p)
 	if not (hi.x > lo.x and hi.y > lo.y):
 		return Rect2(Vector2.ZERO,
 			Vector2(float(_layout.get("wm", 1700.0)), float(_layout.get("hm", 1250.0))))
@@ -274,7 +284,10 @@ func _draw_canvas() -> void:
 	if _layout.is_empty():
 		return
 	## `_umDrawLayoutPreview`'s land ground, so streets and water read against
-	## something rather than against the shell's own panel colour.
+	## something rather than against the shell's own panel colour. It is a
+	## muted parchment rather than the reference's green: this is a drawn plan
+	## viewed inside a dark tool window, and the whole map palette is built
+	## around it (`urban_layout_draw.gd`'s header).
 	_canvas.draw_rect(rect, DRAW.GROUND)
 
 	var box := _fit_box()
@@ -337,6 +350,9 @@ func _rebuild_side() -> void:
 		return
 
 	var leg := DccWidgets.section(_legend, "Legend")
+	_swatch(leg, DRAW._roof_color(0.62),
+		"Rooftops — one per parcel, each a slightly different weathered shade")
+	_swatch(leg, DRAW.BLOCK_GROUND, "Block ground — the built interior between streets (buildBlocks)")
 	_swatch(leg, DRAW.FILL_PRIMARY, "Primary streets — the arterial backbone (buildPrimaries)")
 	_swatch(leg, DRAW.FILL_OTHER, "Streets and lanes — organic growth (grow)")
 	_swatch(leg, DRAW.WATER, "The site's water — the map's own river/coast")
@@ -363,6 +379,8 @@ func _rebuild_side() -> void:
 	_field(gen, "Urban radius", "%.0f m" % float(_layout.get("max_rf_m", 0)))
 	_field(gen, "Street segments", str(int(_layout.get("edge_count", 0))))
 	_field(gen, "Primary routes", str((_layout.get("primaries", []) as Array).size()))
+	_field(gen, "Blocks", str((_layout.get("blocks", []) as Array).size()))
+	_field(gen, "Parcels", str((_layout.get("parcels", []) as Array).size()))
 
 	var stages := DccWidgets.section(_info, "What produced this")
 	var ran := ""
@@ -370,12 +388,21 @@ func _rebuild_side() -> void:
 		ran += "· " + s + "\n"
 	DccWidgets.note(stages, ran.strip_edges())
 	DccWidgets.note(stages,
-		"Not generated, and so not drawn: blocks and plazas (milestone 12), "
-		+ "parcels and buildings (12-13), districts and amenities (13-14), the "
-		+ "wall circuit and its gates (10), the harbour and quay (9), bridges "
-		+ "and fords (9), farmland and hinterland detail (15). "
-		+ "URBAN_MORPHOLOGY_SCOPE.md has 7 of ~17 milestones built; this is "
-		+ "the street skeleton those seven produce, not a finished town.")
+		"Not generated, and so not drawn: buildings (milestone 13), districts "
+		+ "and amenities (13-14), the wall circuit and its gates (10), the "
+		+ "harbour and quay (9), bridges and fords (9), farmland and "
+		+ "hinterland detail (15). URBAN_MORPHOLOGY_SCOPE.md has 8 of ~17 "
+		+ "milestones built.")
+	DccWidgets.note(stages,
+		"Two things on screen are ahead of the generator, and both are "
+		+ "drawing rather than data. A rooftop is a whole parcel, inset — "
+		+ "buildBuildings (13) would put a smaller footprint inside each lot, "
+		+ "with a grammar per district and a terrain gate that leaves some "
+		+ "lots empty, so this town has no gaps and every roof is the same "
+		+ "simple shape. And there is no open market square: buildPlaza is "
+		+ "milestone 8, so the block over the market anchor is platted like "
+		+ "any other. The rooftop shading is real per-parcel engine output, "
+		+ "not a drawing effect.")
 
 	## Legend and info are both rebuilt here, so this is where the touch fit
 	## belongs -- see `place_editor_window.gd`'s own call for the reasoning.

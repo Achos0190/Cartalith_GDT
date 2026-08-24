@@ -66,23 +66,35 @@
 //!
 //! # `run_layout` is not `generate()`
 //!
-//! [`run_layout`] runs the *prefix* of the reference's `generate()`
-//! (line 30931) that milestones 1-7 supply: scalar derivation, `buildSite`,
-//! the `routeEnds` override, `placeAnchors`, the real-water market pin,
-//! `buildPrimaries`/`buildPrimariesFromPaths`, and `grow`. It stops there.
-//! `buildPlaza`, `buildHarbour`, `addRiverBridges`, `lanePass`,
-//! `removeWaterCrossings`, `buildBlocks`, `buildParcels`, `assignDistricts`,
-//! `buildBuildings`, `applyDecay`, `buildFaithSites`, `buildMarkets`,
-//! `buildCivic`, `buildGames`, `buildDetails`, `buildFarmland`,
-//! `buildWaterway`, `privatizeAlleys`, `clearFortZone`,
-//! `detectRiverCrossings` and `hashModel` are all milestone 8+ and are not
+//! [`run_layout`] runs a *subset* of the reference's `generate()`
+//! (line 30931) — the milestones that exist, in the reference's own order:
+//! scalar derivation, `buildSite`, the `routeEnds` override, `placeAnchors`,
+//! the real-water market pin, `buildPrimaries`/`buildPrimariesFromPaths`,
+//! `grow` (milestones 1-7), then `buildBlocks` and `buildParcels`
+//! (milestone 12).
+//!
+//! It is a subset rather than a prefix, and the gap in the middle is the
+//! important part: `buildPlaza`, `buildHarbour` and `addRiverBridges`
+//! (milestones 8-9) and `lanePass`/`removeWaterCrossings` (milestone 11) all
+//! run *between* `grow` and `buildBlocks` in the reference, and none of them
+//! exists here. So milestone 12 is faithful to its own contract while its
+//! **input graph** is not yet the graph the reference would hand it — coarser
+//! (no lane pass), still crossing water (no `removeWaterCrossings`), and with
+//! no plaza to keep the market square open. `cartalith_urban::blocks`'
+//! own header itemises the three.
+//!
+//! `assignDistricts`, `buildBuildings`, `applyDecay`, `buildFaithSites`,
+//! `buildMarkets`, `buildCivic`, `buildGames`, `buildDetails`,
+//! `buildFarmland`, `buildWaterway`, `privatizeAlleys`, `clearFortZone`,
+//! `detectRiverCrossings` and `hashModel` are all still unported and are not
 //! called, stubbed or approximated. A town produced here is a **street
-//! skeleton on a real site** — no blocks, no parcels, no buildings, no wall.
+//! skeleton with real blocks and lots on it** — but no buildings, no wall, no
+//! districts and no amenities.
 
 use cartalith_urban::{
-    build_primaries, build_primaries_from_paths, build_site, grow, js_hypot, js_max, js_min,
-    js_round, place_anchors, resolve_profile, resolve_rules, Graph, GrowOpts,
-    RecordingWallBuilder, Site, SiteOpts, TerrainCtx, WallState, WaterCtx,
+    build_blocks, build_parcels, build_primaries, build_primaries_from_paths, build_site, grow,
+    js_hypot, js_max, js_min, js_round, place_anchors, resolve_profile, resolve_rules, Graph,
+    GrowOpts, RecordingWallBuilder, Site, SiteOpts, TerrainCtx, WallState, WaterCtx,
 };
 
 /// Re-exported so a caller can name the point type this module's output is
@@ -943,11 +955,28 @@ pub struct LayoutEdge {
     pub w: f64,
 }
 
+/// One buildable lot, flattened for the bridge: the reference's strip parcel,
+/// which is the smallest thing this port generates and the shape a renderer
+/// draws a rooftop on.
+pub struct LayoutParcel {
+    /// The lot quad, in the reference's `[P0, P1, Q1, Q0]` winding —
+    /// `poly[0]`/`poly[1]` are the street frontage, `poly[3]`/`poly[2]` the
+    /// back, which is what a renderer finds the roof ridge from.
+    pub poly: Vec<Vec2>,
+    pub area: f64,
+    pub edge_cls: &'static str,
+    /// 0..1, stable per lot. See `cartalith_urban::Parcel::tone`.
+    pub tone: f64,
+}
+
 /// What [`run_layout`] produces. Every field is engine output, never a
-/// placeholder: there is no `blocks`, `parcels`, `buildings`, `wall` or
-/// `districts` field here because milestones 8-17 do not exist and an empty
-/// array named `buildings` would read as "this town has no buildings" rather
-/// than "this port cannot build any yet".
+/// placeholder: there is still no `buildings`, `wall` or `districts` field
+/// here because milestones 10 and 13-17 do not exist, and an empty array named
+/// `buildings` would read as "this town has no buildings" rather than "this
+/// port cannot build any yet".
+///
+/// `blocks` and `parcels` **are** present as of milestone 12 — they are real
+/// generator output, not a stand-in for the buildings that are still missing.
 pub struct UrbanLayout {
     pub wm: f64,
     pub hm: f64,
@@ -978,6 +1007,12 @@ pub struct UrbanLayout {
     /// `site.harbour.pt` when the site has one.
     pub harbour_pt: Option<Vec2>,
     pub edges: Vec<LayoutEdge>,
+    /// Milestone 12's town blocks — the faces of the street graph, inset to
+    /// their buildable interiors. The polygon only; the face, ids and edge
+    /// distances stay engine-side, since nothing draws them.
+    pub blocks: Vec<Vec<Vec2>>,
+    /// Milestone 12's strip parcels.
+    pub parcels: Vec<LayoutParcel>,
     /// The primary routes as polylines, before they were laid into the graph
     /// — `buildPrimaries`' own return value, which the reference's
     /// `generate()` discards.
@@ -1132,6 +1167,31 @@ pub fn run_layout(ctx: &UrbanContext) -> Option<UrbanLayout> {
         })
         .collect();
 
+    // Milestone 12. `None` for the plaza is `buildBlocks`' own no-plaza case,
+    // not a stand-in: `buildPlaza` is milestone 8 and does not exist, so the
+    // market square is platted like any other block. `cartalith_urban::blocks`
+    // records what that costs, and the City Viewer says so on screen.
+    //
+    // The reference also runs `lanePass` and `removeWaterCrossings`
+    // (milestone 11) between `grow` and here; neither exists, so these blocks
+    // come off a coarser graph than the reference's would. Milestone 12 is
+    // faithful; its *input* is not yet.
+    let blocks_raw = build_blocks(&g, None, &site);
+    let parcels_raw = build_parcels(
+        ctx.seed,
+        &g,
+        &blocks_raw,
+        anchors.market,
+        epochs,
+        &site,
+        Some(&rules),
+    );
+    let blocks: Vec<Vec<Vec2>> = blocks_raw.into_iter().map(|b| b.poly).collect();
+    let parcels: Vec<LayoutParcel> = parcels_raw
+        .into_iter()
+        .map(|p| LayoutParcel { poly: p.poly, area: p.area, edge_cls: p.edge_cls, tone: p.tone })
+        .collect();
+
     Some(UrbanLayout {
         wm: site.wm,
         hm: site.hm,
@@ -1146,6 +1206,8 @@ pub fn run_layout(ctx: &UrbanContext) -> Option<UrbanLayout> {
         route_ends: site.route_ends.clone(),
         harbour_pt: site.harbour.pt,
         edges,
+        blocks,
+        parcels,
         primaries,
         placed_len,
         target_len,
