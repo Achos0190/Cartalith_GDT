@@ -25983,3 +25983,171 @@ editable Routes list all label type honestly. The reference marks it with a
 per-row emoji where this uses the word.
 
 Full detail, both probes and the measured tables: `GUI_GAP_REGISTER.md` §36.
+
+## The left rail is v3's, and the mode switch that hid half of WORLD is gone (`design/Cartalith Menu Structure v3.dc.html`, `GUI_GAP_REGISTER.md` §37, 2026-08-24)
+
+`design/Cartalith Menu Structure v3.dc.html`, vendored at `8cef062`, revises
+the left-rail domain menus. The owner scoped implementation to **those menus
+only**: the top bar stays as it is, and v3's own top-level `Vault` menu goes
+into the existing **Data** menu instead — verbatim, *"the vault menu can be
+shoved into data"*.
+
+### What changed
+
+| Rail | Before | After (v3's list, v3's order) |
+|---|---|---|
+| WORLD | a `GENERATION PIPELINE \| SCULPT` mode switch over ten numbered stages | **9** categories: Generate · Terrain · Geology · Hydrology · Climate · Biomes · Ecology · Resources · World data |
+| CIVIL | 6 categories, with INFRA's 5 appended below a rule | **14** categories: Civilizations · Factions · Territories · Settlements · Points of interest · Routes & ways · Travel · Trade · Economy · Culture · Politics · Military · Relationships · Simulation |
+| CARTO | 3 categories, with RENDER's flat run of sections below a rule | **10** categories: Map style · Terrain appearance · Colours · Layers · Roads & routes · Labels · Assets & landmarks · Political display · Visibility / zoom · Map presets |
+
+v3's principle, in its own migration audit: *"split by subject rather than by
+run order … the numbered 01-10 stage list disappears as navigation and
+survives as pipeline status."* The engine did not change. `generate()` still
+runs all ten stages in one call, every call, and the pipeline-status readout
+still says so — it just says it once now, instead of ten identical times.
+
+### Re-parenting, not rewriting
+
+v3's closing rule is *"every #id keeps its wiring — this is re-parenting, not
+rewriting"*, and that is literally what shipped. Every builder in the five
+workspace files is the one that was already there, called with a different
+parent:
+
+- `InfrastructureWorkspace` gained `build_ways_into()` / `build_travel_into()`
+  / `build_trade_into()` and a `_dock_hosted` flag that stops it drawing
+  categories of its own. Its `_fill_*` functions and `rebuild_readouts()` are
+  untouched — they are keyed to the body nodes, which is exactly what made
+  re-parenting safe. **Rivers** left CIVIL for WORLD ▸ Hydrology, where v3 puts
+  the river network; **Ports** folded into Routes & ways, since a port is where
+  a sea lane meets a settlement rather than a fifth subject.
+- `RenderWorkspace` gained four `build_*_into()` entry points and an `_h()`
+  host indirection: each builder now attaches to `_h()` instead of `self`, so
+  standalone (non-nested) use is unchanged and CARTO can hand it four
+  different category bodies.
+- `world_workspace.gd`'s `_build_stage()` became `_build_stage_body()`, which
+  draws the same stage — heading, `needs`/`produces` prose, params.rs groups,
+  loose keys, advanced block, disclosed gap — into an L3 section instead of
+  into a category of its own. A `CATEGORIES` table maps the nine names onto
+  the stages each hosts.
+- `civilization_workspace.gd`'s old Politics split three ways: **Factions**
+  (who the polities are), **Territories** (what ground they hold) and
+  **Politics** (change over time, which is what the timeline actually records).
+  The collapse/recovery simulator got its own **Simulation** category, because
+  it is a *model*, not a record — v3's own footnote: *"writes one timeline
+  entry per step: history, never the live editable world."*
+
+**The mode switch went for a reason beyond v3 asking.** It was a mode selector
+over one domain, and the one place in this shell where a dock had a hidden
+half. Sculpt is now a group inside Terrain and Biome paint a group inside
+Biomes; both still appear whenever their tool is armed, which is the "arming a
+tool never changes the workspace" independence every other domain already had.
+
+### Wired to real capability
+
+A menu pass that only produces gap IDs has not done its job. What became
+reachable, or reachable under a name someone would look for:
+
+- **CIVIL ▸ Routes & ways / Travel / Trade** — INFRA's live readouts intact:
+  per-tier tally, longest-ways ranking, sea lanes, hand-drawn ways, the
+  committed-routes list, the journey list, the planner, and the travel library.
+- **CIVIL ▸ Territories** — *Recalculate territories* and *Generate provinces*,
+  the two live `civ_recompute()` shortcuts from `GUI_GAP_REGISTER.md` §31's
+  CV-20 fix, now under a category named for what they do.
+- **CIVIL ▸ Settlements ▸ Linked notes** — the Markdown vault, scoped to the
+  roster above it, keyed on `tid` so a link survives a rename and a recompute.
+- **CARTO ▸ Visibility / zoom ▸ Data overlays** — one button onto
+  `layers_popover.gd`, the shell's existing analysis-field picker, with a live
+  count of what this build's `debug_layers()` offers. Deliberately *not* a
+  second copy of that list: two pickers over one `set_debug_layer()` is the
+  shape this shell keeps having to undo.
+- **WORLD ▸ Generate** — Generate world / New seed / Center landmasses as
+  shortcuts onto `app.gd`'s own handlers. Same one-owner discipline.
+- **Data ▸ Markdown vault ▸ Connect · Browse · Links** — v3's Vault menu,
+  folded into Data. One live row, because there is exactly one window behind
+  it; its tooltip states where v3's frontmatter-mapping and sync-direction
+  rows actually live (a per-write choice in the panel, not a global setting).
+
+### Fifteen new gap IDs, none of them faked
+
+Every v3 row with nothing behind it ships as a disclosed note or a disabled
+control carrying its reason — `menus.gd`'s `_todo()` contract, applied to the
+docks. `GUI_GAP_REGISTER.md` §37 carries the table: **CV-21** faction identity
+colour, **CV-22** faction vault notes, **CV-23** borders/claims/influence,
+**CV-24** the year scrubber as program scope, **CV-25** military, **CV-26**
+relationships, **IN-13** trade flows, **CA-16** per-class way style, **CA-17**
+political display style, **CA-18** the zoom ladder, **CA-19** the biome colour
+table, **WW-14** ecological productivity, **WW-15** coordinate system /
+projection, and the new `VA-` prefix — **VA-01** backlinks and unlinked
+mentions, **VA-02** create-from-template — for the vault's own gaps, as
+distinct from §35's `KV-`, which records what the vault *connected*.
+
+### Verification
+
+`_v3menu_probe.gd` / `.tscn`, temporary and untracked, run **windowed**. A
+headless boot proves the extension loads and the scripts parse, which was
+never the half at risk here. Against a real 384×288 world (seed 483920: 233
+settlements, 8 provinces, 35 ways):
+
+1. Each rail's L2 list asserted **exactly** equal to v3's list, in v3's order,
+   and none of the nine retired category names surviving anywhere.
+2. All 33 categories opened and asserted to have drawn something. An accordion
+   hides its own bugs: a category that throws while building leaves an empty
+   body that looks exactly like a closed one.
+3. Every disabled control asserted to carry a reason, with the four
+   state-gated Sculpt/Paint Commit/Discard buttons named as explicit
+   exemptions rather than pattern-matched past.
+4. The capability-claiming rows driven: the Politics/Simulation split (years
+   under one, the simulator under the other, neither under both), Territories'
+   recompute pressed for real, the Layers/Political-display split, and Data ▸
+   Markdown vault pressed through the real popup with the vault window
+   asserted on screen afterwards.
+5. Screenshots per rail with every category open, then per re-parented
+   category alone.
+
+**PASS, 0 failures**, plus a visual pass over the shots. `cargo check -p
+cartalith-godot` clean — no Rust changed.
+
+**Two defects, both invisible to a headless boot:**
+
+1. **`_dock_hosted` was set too late.** It was assigned inside
+   `build_ways_into()`, which runs *after* `_infra.setup()` — and `setup()` is
+   what runs `_build()`. So INFRA's five retired categories were still being
+   built, under the wrong parent, before the flag took. Both flags now go in
+   before `setup()`, beside `_nested`. This is exactly what the
+   nothing-retired-survives assertion in step 1 exists to catch.
+2. **`_build_simulation()` assigned an undeclared `_sim_body`** — a refactor
+   caught mid-flight by a session-limit kill. The fix is not the declaration:
+   `_rebuild_timeline()` now refills **both** bodies, each guarded
+   independently, so the order `_build()` claims them in cannot leave one
+   empty.
+
+**Three renames the rest of the shell had to follow**, found by grepping for
+the old names rather than by waiting for a user to hit one: the timeline
+strip's hint and its `Open Timeline` tooltip (CIVIL ▸ Timeline → Politics /
+Simulation), `layers_popover.gd`'s footer (the political and way-type switches
+left Cartography ▸ Layers), and three "World ▸ Generation Pipeline" pointers in
+`new_world_dialog.gd` and `tool_bar.gd`. `DccWidgets.stage_category()` lost its
+only caller and is marked as such in place rather than deleted — it is the one
+row type that can carry a marker changing *after* the row is built, which is a
+real capability and not a v3-specific one.
+
+### Files
+
+- `shell/workspaces/world_workspace.gd` — `CATEGORIES`, `_build_categories()`,
+  `_build_stage_body()`, the four category head/foot builders; the mode switch
+  and `_switch_button()` deleted.
+- `shell/workspaces/civilization_workspace.gd` — fourteen categories,
+  Factions/Territories/Simulation/POI/Military/Relationships added, Politics
+  reframed, Population folded into Settlements, `_build_settlement_vault()`.
+- `shell/workspaces/infrastructure_workspace.gd` — `_dock_hosted` and the
+  three `build_*_into()` entry points; `rivers_note()`.
+- `shell/workspaces/cartography_workspace.gd` — ten categories,
+  `_build_way_style()`, `_build_political_display()`, `_build_visibility()`.
+- `shell/workspaces/render_workspace.gd` — `_host`/`_h()` and the four
+  `build_*_into()` entry points; `_build_appearance()` takes a group slice.
+- `shell/menus.gd` — `_build_vault_rows()` under Data.
+- `shell/app.gd`, `shell/layers_popover.gd`, `shell/new_world_dialog.gd`,
+  `shell/tool_bar.gd`, `shell/dcc_widgets.gd` — the cross-reference renames.
+- `DCC_SHELL_SPEC.md` — top-of-file supersession notice plus inline blocks at
+  §3, §5 and §7. `GUI_GAP_REGISTER.md` — §37 and the §6.10-6.13 notices.
+- **No Rust.**

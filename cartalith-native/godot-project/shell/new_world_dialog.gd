@@ -219,7 +219,7 @@ func _build(body: VBoxContainer) -> void:
 	archetype_input = DccWidgets.choice(struct_sec, "Archetype", archetype_labels, 0, _on_archetype_selected,
 		"Reference ARCHETYPES. Choosing one applies its continentality/fragmentation/tectonic-energy/ocean-depth/hotspot-density preset immediately and routes Create through generate_world_structure_sized instead of the plain path.")
 	DccWidgets.note(struct_sec,
-		"The five dials that preset sets -- continentality, fragmentation, tectonic energy, ocean depth, hotspot density -- live in World ▸ Generation Pipeline ▸ 03 World structure, editable there after Create.")
+		"The five dials that preset sets -- continentality, fragmentation, tectonic energy, ocean depth, hotspot density -- live in World ▸ Generate ▸ 03 World structure, editable there after Create.")
 
 	var gen_sec := DccWidgets.section(body, "Generation")
 	villages_check = DccWidgets.toggle(gen_sec, "Village seeding (additive hamlets)", false,
@@ -243,7 +243,7 @@ func _build(body: VBoxContainer) -> void:
 		func(i: int): _recovery_phase = i,
 		"Reference civRecoveryPhase, default Stable. A world that is still recovering from a collapse runs BELOW its ecological ceiling: every settlement's population is scaled by a fraction drawn inside the phase's band, and a nucleus scaled below the labour its tier needs demotes into its own ruins. Phases I and II also abandon tiny settlements that are neither formerly-urban nor ports. Stable is a strict no-op.")
 	DccWidgets.note(gen_sec,
-		"Sea level, dynamic lithology, volcanic provinces, terrain wind deflection and ocean currents are live engine parameters, not dialog state -- edit them in World ▸ Generation Pipeline (stages 02, 04, 05, 08) before or after Create; Create reads whatever they currently hold.")
+		"Sea level, dynamic lithology, volcanic provinces, terrain wind deflection and ocean currents are live engine parameters, not dialog state -- edit them in World ▸ World data (02 Extent & scale), Geology (04 Tectonics, 05 Volcanism & impacts) and Climate (08) before or after Create; Create reads whatever they currently hold.")
 
 func _build_derived_panel(parent: Control) -> void:
 	var panel := PanelContainer.new()

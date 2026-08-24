@@ -685,7 +685,7 @@ func _fill_timeline_strip() -> void:
 	## `VBoxContainer`, so one long sentence raises the whole window's minimum
 	## width and pushes the right dock off the screen.
 	var hint := DccTheme.label(
-		"Years, playback, per-year filters and the collapse/recovery simulation are in the CIVIL dock's Timeline category.",
+		"Years, playback and per-year filters are in CIVIL ▸ Politics; the collapse/recovery simulation is CIVIL ▸ Simulation.",
 		"text_ghost", DccTheme.FS_MICRO)
 	hint.clip_text = true
 	hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -694,10 +694,12 @@ func _fill_timeline_strip() -> void:
 		var ws = _workspace_panels.get("civilization")
 		if ws != null and ws.has_method("open_timeline_category"):
 			ws.open_timeline_category())
-	go.tooltip_text = ("Opens CIVIL ▸ Timeline in the left dock. This strip is §10's reserved "
-		+ "region; the controls themselves need a year-pill list, an add-year field, three "
-		+ "filter checkboxes and the whole collapse-simulation form, which one fixed-height "
-		+ "row cannot hold (TIMELINE_SCOPE.md §4).")
+	go.tooltip_text = ("Opens CIVIL ▸ Politics in the left dock -- the recorded years, the "
+		+ "scrubber, playback and the existence filters, which v3 names 'political change "
+		+ "over time'. This strip is §10's reserved region; v3 calls the scrubber program "
+		+ "scope and it belongs here, but the controls need a year-pill list, an add-year "
+		+ "field and three filter checkboxes, which one fixed-height row cannot hold "
+		+ "(TIMELINE_SCOPE.md §4, GUI_GAP_REGISTER.md CV-24).")
 	## No trailing spacer: `hint` already expands, so the action lands hard
 	## right the way every other bar in this shell puts its action. Adding one
 	## made both grow and parked the button in the middle of the strip.

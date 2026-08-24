@@ -46,7 +46,7 @@ the engine as they stand today, and it is the document that goes stale first.
 | [13](#13--the-v210-menu-structure-audit-2026-08-20) | **The v2.10 menu-structure audit** — `design/Cartalith Menu Structure v2.dc.html` against the shipped shell, and the 17 undisclosed omissions it found |
 | [14](#14--visual-sweep-2026-08-20) | **Visual sweep (2026-08-20)** — the shell driven live, screenshotted, and compared against the DCC Shell / Journey Planner mockups. **§14.6 corrects one of its own verdicts**: the Asset library window was passed on function rather than layout, and has been rebuilt against the canvas. |
 | [15](#15--the-phone-overflow-menu-is-wired-but-inoperable-2026-08-20) | **The phone overflow menu (2026-08-20)** — (C): the real menu bar is wired into the phone sheet but is unscaled, buried in desktop status chrome, and inert to touch. Device evidence, kept as the brief for the mobile menu design; **not fixed**. |
-| 16-22, 27-32 | Sections added after the contents table was written; see the `## ` headings directly. §32 (deep zoom stopping twenty times short of the reference) is the same batch. §29 (roads drawn as chords), §30 (the map overlay rasterised in the wrong space) and §31 (the *tool* overlay with the same defect, plus four surfaces whose copy had gone stale) are the 2026-08-24 live-driving batch. |
+| 16-22, 27-37 | Sections added after the contents table was written; see the `## ` headings directly. **§37 is the left-rail menu structure v3 pass** — what WORLD/CIVIL/CARTO became, the fifteen new IDs (CV-21…CV-26, IN-13, CA-16…CA-19, WW-14, WW-15, VA-01, VA-02) and what was wired rather than disclosed. §32 (deep zoom stopping twenty times short of the reference) is the same batch. §29 (roads drawn as chords), §30 (the map overlay rasterised in the wrong space) and §31 (the *tool* overlay with the same defect, plus four surfaces whose copy had gone stale) are the 2026-08-24 live-driving batch. |
 | [25](#25--bk-01--androids-back-button-killed-the-process-unsaved-world-and-all-2026-08-24--fixed) | **BK-01 (2026-08-24)** — the highest-severity entry in this register, and the only one where a shipped control *destroyed the user's work*: Android's Back button ended the process outright, taking an unsaved generated world with it. Root cause, the navigation model that replaced it, and two related findings (BK-02 desktop close box, unfixed; BK-03 `KEYCODE_M`, a non-finding). **Fixed.** |
 | [26](#26--bk-02--the-desktop-close-box-did-the-same-thing-and-the-reason-it-was-left-alone-was-answerable-2026-08-24--fixed) | **BK-02 (2026-08-24)** — BK-01's twin on the desktop: the title bar's × ended the process with an unsaved world in it. Fixed onto the *same* shared gate, with the four-branch argument for why `auto_accept_quit = false` cannot leave the app un-closeable — the objection §25 declined the fix over. **Fixed.** |
 | [23](#23--rf-01--the-civil-dock-never-rebuilt-after-a-world-generated-2026-08-24--fixed) | **RF-01 (2026-08-24)** — a new class, and not a capability gap: the whole CIVIL dock (ten sections across two files) was built once at launch and never rebuilt when a world generated or loaded, so it showed "generate a world first" over a finished world. **Fixed**, with the presentation-vs-recompute cost check that shows why this one is safe to hang off every generate. |
@@ -458,6 +458,12 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 
 ### 6.10 WORLD workspace — `world_workspace.gd`
 
+> **Re-parented by menu structure v3 (§37, 2026-08-24.)** The rows below still
+> resolve — the file and its builders were not rewritten — but the two-button
+> `GENERATION PIPELINE | SCULPT` switch is gone and the ten numbered stages are
+> now L3 sections inside nine subject categories. §37 adds **WW-14** (ecology)
+> and **WW-15** (coordinate system / projection).
+
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
 | WW-01 | Finalize · LOD 0–3 · bake & freeze | 290-292 | **corrected — S5** | yes, now | §5.1's dock foot, §4's tool options bar (`app.gd:316-318` carries a second copy) | **DONE 2026-08-24.** The whole bake/atlas/finalize system is built — `cartalith-spatial/src/pyramid.rs`, `cartalith-terrain`'s `add_zoom_detail`, `cartalith-io/src/atlas.rs` (a filesystem `AtlasStore` where the reference has IndexedDB), `cartalith-engine/src/bake.rs`, and `cartalith-godot/src/bake_bridge.rs` behind fourteen `#[func]`s. The dock foot takes **the canvas's three-row split** (Bake depth · Bake ALL levels & finalize · Un-finalize) exactly as §7's own note said to when this was built, plus a fourth row for Clear. 16 golden-parity tests, all matching first run. Measured: a 2048×1311 world at 1024 px tiles bakes depth 3 in 1.64 s to 85 chunks and 234 MiB, and a deep-zoom read comes back within one `rg16` LSB (7.63e-6) of live synthesis. ****Closed out 2026-08-24 (verification pass).** The tool-options bar's second copy is live: it presses the same `_on_bake_all` and takes its visible/disabled state *pushed* from `_refresh_finalize()`, the one owner, rather than recomputing it — its tooltip had gone on claiming "No bake/LOD pipeline exists yet" since the day WW-01 shipped. The same pass found and fixed a real dead end: `_refresh_finalize()` ran when the workspace was *built*, which is before any world exists, and nothing re-ran it on generation, so **"Bake ALL levels & finalize" was permanently disabled** — the only callers that would have re-enabled it were the bake and clear buttons, one of them the disabled one. `app.gd`'s `_refresh_world_dependent()` now fires on `generation_finished` and `world_loaded`. Found by pressing the real button in a windowed run, not by reading. **Still open:** the reference's own per-tile Burn-rivers/Micro-erode refinement passes, which `pyramid_tile` documents as deliberately unported |
@@ -476,6 +482,12 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | WW-13 | Paint ▸ Commit / Discard stay enabled after a commit | 911-914, `tool_bar.gd` 393 | *(none — not previously recorded)* | new, found 2026-08-24 | — | **(A)** small, **open.** Both buttons gate on `paint_painted_counts()["total"]`, which is the composite of committed *and* pending cells, so after a commit they stay live with nothing left to commit or discard — "Discard draft" especially, which then reads as "remove the paint I can see" and does nothing. Wants a `paint_draft_count()` `#[func]` over `PaintEditor`'s three `PassBuffer`s (~15 lines, one `engine_bridge.gd` passthrough); deliberately left out of the WW-12 pass to keep that commit off a fourth file another session was holding. |
 
 ### 6.11 CIVIL workspace — `civilization_workspace.gd`
+
+> **Re-parented by menu structure v3 (§37, 2026-08-24.)** Six categories plus
+> INFRA's five became fourteen; Politics split into **Factions** (who the
+> polities are), **Territories** (what ground they hold) and **Politics** (change
+> over time), and the collapse simulator got its own **Simulation** category.
+> §37 adds **CV-21**…**CV-26** and **VA-01**/**VA-02**.
 
 > **Domain merge (2026-08-20, owner instruction: "Infra can be dropped as a
 > name and can be absorbed by civil"):** INFRA is no longer a rail domain —
@@ -501,6 +513,10 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | CV-09 | The timeline bar's **six simulation-layer toggles** (Climate · Population · Economy · Politics · Infrastructure · Warfare) | `dcc_shell.gd:628-641` builds an empty `timeline_row` | none in-product — `TIMELINE_SCOPE.md` §4 explains why the bar was left untouched | yes | §10 designs the whole region | **(D)** — `DCC_CONTROL_INDEX.md` summary §5 item 5 and `VISION.md`: the engine is a one-shot static generator by explicit, repeated owner decision. **The bar is drawn and empty in CIVIL/INFRA** — see §11. |
 
 ### 6.12 INFRA workspace — `infrastructure_workspace.gd` (now composed into CIVIL, §6.11)
+
+> **Re-parented by menu structure v3 (§37, 2026-08-24.)** Roads/Ports/Trade/
+> Logistics are now CIVIL ▸ **Routes & ways** / **Travel** / **Trade**; Rivers
+> left for WORLD ▸ Hydrology, carrying IN-01 with it. §37 adds **IN-13**.
 
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
@@ -642,6 +658,9 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 > inspector is likewise unbacked. Those are separate (B) items, not IN-02.
 
 ### 6.13 CARTO workspace — `cartography_workspace.gd`
+
+> **Re-parented by menu structure v3 (§37, 2026-08-24.)** Three categories plus
+> RENDER's flat run of sections became ten. §37 adds **CA-16**…**CA-19**.
 
 > **Domain merge (2026-08-20, owner instruction: "And render into carto."):**
 > RENDER is no longer a rail domain — §6.14 below is now reached through
@@ -5379,3 +5398,136 @@ Nothing was changed here.
   world generation, a route committed along a road, per-type centred views,
   background-differenced pixel solving, the layering check and the filter
   check). Both temporary and untracked.
+
+---
+
+## 37 · The left-rail menu structure v3 pass — fifteen new IDs, and what the three rails became (2026-08-24)
+
+`design/Cartalith Menu Structure v3.dc.html`, vendored at `8cef062`, revises
+the left-rail domain menus. The owner scoped implementation to **those menus
+only**: the top bar stays as it is, and v3's own top-level `Vault` menu goes
+into the existing **Data** menu instead (owner, verbatim: *"the vault menu can
+be shoved into data"*).
+
+`DCC_SHELL_SPEC.md` carries the supersession disclosure — its top-of-file
+notice plus inline blocks at §3, §5 and §7. This section is the register's
+half: what v3 asked for that this port cannot give it, and where each unbacked
+row is now disclosed rather than faked.
+
+### What the three rails became
+
+| Domain | Before | After (v3's own list and order) |
+|---|---|---|
+| WORLD | a `GENERATION PIPELINE \| SCULPT` mode switch over a numbered ten-stage accordion | 9 categories: Generate · Terrain · Geology · Hydrology · Climate · Biomes · Ecology · Resources · World data |
+| CIVIL | 6 categories + INFRA's 5 appended below a rule | 14 categories: Civilizations · Factions · Territories · Settlements · Points of interest · Routes & ways · Travel · Trade · Economy · Culture · Politics · Military · Relationships · Simulation |
+| CARTO | 3 categories + RENDER's flat run of sections appended below a rule | 10 categories: Map style · Terrain appearance · Colours · Layers · Roads & routes · Labels · Assets & landmarks · Political display · Visibility / zoom · Map presets |
+
+**Nothing was rewritten.** Every builder is the one that was already there,
+called with a different parent — `InfrastructureWorkspace` and
+`RenderWorkspace` gained `build_*_into()` entry points and a flag that stops
+them drawing categories of their own, and `world_workspace.gd`'s
+`_build_stage()` became `_build_stage_body()`, which draws the same content
+into a section instead of into a category of its own. v3's closing rule
+(*"every #id keeps its wiring — this is re-parenting, not rewriting"*) held.
+
+Three renames the rest of the shell had to follow, found by grepping for the
+old names rather than by waiting for a user to hit one: the timeline strip's
+hint and its `Open Timeline` tooltip (CIVIL ▸ Timeline → Politics /
+Simulation), `layers_popover.gd`'s footer (the political and way-type switches
+left Cartography ▸ Layers), and three "World ▸ Generation Pipeline" pointers in
+`new_world_dialog.gd` and `tool_bar.gd`. `DccWidgets.stage_category()` lost its
+only caller and is marked as such in place rather than deleted.
+
+### The fifteen new IDs
+
+Each is a row v3 draws that this port has nothing behind. All fifteen ship as a
+disclosed note or a disabled control carrying its reason — none is drawn as a
+working control, and none is silently omitted.
+
+| # | Row v3 asks for | Where it is disclosed | Why there is nothing behind it | Class |
+|---|---|---|---|---|
+| **CV-21** | Faction **identity colour** and emblem | CIVIL ▸ Factions ▸ Not built | `FactionRoster` stores no colour field, and `map_overlay.gd` derives a faction's tint from its *index*. v3's own CIVIL-owns-the-colour / CARTO-owns-the-paint split has neither half | (B) medium — one roster field plus one overlay lookup |
+| **CV-22** | Faction **history, notes, lore** (v3 marks these `vault`) | CIVIL ▸ Factions ▸ Not built | `cartalith-vault`'s `EntityKind` covers settlement, province and continent. A faction is not addressable there yet | (B) small — one enum variant plus one match arm; `MARKDOWN_VAULT_SCOPE.md` §3 anticipates it |
+| **CV-23** | Borders, claims and **influence** as separate quantities; historical occupation | CIVIL ▸ Territories ▸ Not built | `CivData::territory` is one plurality-owner-per-cell grid: no contested-claim value, no influence field, no per-year ownership record beyond the timeline's settlement snapshots | (B) large |
+| **CV-24** | The year scrubber as **program scope** (v3: *"time is not a domain"*) | The timeline strip's own `Open Timeline` tooltip | Agreed in principle, and not moved. `dcc_shell.gd`'s reserved `timeline_bar` is one fixed-height `HBox` with no room for a year-pill list, an add-year field and three filter checkboxes; `TIMELINE_SCOPE.md` §4's standing instruction is to build a dedicated panel rather than guess the region. A shell-frame change, not a menu change | (C) — design first |
+| **CV-25** | **Military**: garrisons, defensive strength, fortification network, campaigns | CIVIL ▸ Military ▸ Not built (whole category) | `cartalith-civ` models none of them and neither does the reference. New design, not a port gap. What exists is per-settlement *defensibility*, a terrain heuristic, on the right dock | (C) |
+| **CV-26** | **Relationships**: diplomatic matrix, allies/rivals/subjects, treaties — and v3 Politics' vassalage/alliances/rivalries | CIVIL ▸ Relationships ▸ Not built (whole category), and CIVIL ▸ Politics ▸ Not built | There is no edge between two factions to hold a value, at any year, so a matrix would be a grid of blanks. The reference has none either. Absorbs the one-line gap the old Politics category disclosed | (C) |
+| **IN-13** | **Trade flows** as a routed quantity, imports/exports per settlement, route-cost field, trade-influence raster | CIVIL ▸ Trade ▸ Not built | `civ_resource_trade_balance` produces the hinterland surplus/deficit that *is* shown; nothing ties a trade relationship to the way that would carry it. `ECONOMY_SCOPE.md` holds the aggregation | (B) large |
+| **CA-16** | Per-class way **style**: colour, width, casing, dashes, route glow | CARTO ▸ Roads & routes ▸ Not built | `map_overlay.gd` draws every way from one hardcoded width-and-colour pair per type and takes no style argument; the reference's `#civWayScaleR` has no counterpart here. Visibility, which *is* wired, is the whole of what works | (B) medium |
+| **CA-17** | Territory tint opacity, border width/style, claim hatching, influence gradient + legend | CARTO ▸ Political display ▸ Not built | One fixed-alpha fill with a fixed border, and no style record keyed to a faction id for anything to write to. Blocked on CV-21 at the CIVIL end | (B) medium |
+| **CA-18** | **Zoom ladder** (what appears when) and the declutter budget | CARTO ▸ Visibility / zoom ▸ Not built | No per-layer zoom range exists anywhere in the shell; the one zoom-dependent behaviour is the urban-layout reveal band, which `map_overlay.gd` hardcodes. Label/icon collision is not resolved at all — overlapping annotation simply overlaps | (B) large |
+| **CA-19** | **Biome colour table** | CARTO ▸ Colours ▸ Colour grade note | `CART_BIOME_COLS` is a frozen reference table compiled into `cartalith-render` with no `#[func]` to read or rewrite an entry. The four field-influence weights beside it are live | (B) small |
+| **WW-14** | **Ecological productivity**, flora/fauna distribution | WORLD ▸ Ecology ▸ Not parameterised (whole category) | No crate computes either, here or in the reference. Vegetation density and soil *are* computed — derived off biome/climate/lithology with no dials — and are readable as analysis fields; the note points there | (C) |
+| **WW-15** | **Coordinate system · projection** | WORLD ▸ World data ▸ Read the fields | Every field is grid-space, the GeoJSON export writes a plain lon/lat-shaped frame with no CRS declared, and nothing reprojects. Units are km-only (PR-15) | (B) large |
+| **VA-01** | **Backlinks · unlinked mentions** | CIVIL ▸ Settlements ▸ Not built, and Data ▸ *Missing & orphan notes…* | Both need a reverse index over the whole vault. The provider deliberately opens only the files it is asked for, which is what keeps a large vault cheap to browse and is exactly what an unbounded scan would undo | (B) large |
+| **VA-02** | **Create notes from template**, path convention `Settlements/{name}.md` | CIVIL ▸ Settlements ▸ Not built, and Data ▸ *Create notes from template…* | `cartalith-vault` attaches to notes that already exist and refuses a heading that does not — deliberately (`MARKDOWN_VAULT_SCOPE.md` milestone 1's boundary). There is no note *creator* and no template registry, so the owner's own `design/vault-templates/` cannot be instantiated | (B) medium |
+
+`VA-` is a new prefix: the vault's *gaps*, distinct from `KV-` in §35, which
+records what the vault subsystem **connected**.
+
+### What was wired to real capability, not disclosed
+
+Worth separating, because a menu pass that only produces gap IDs has not done
+its job:
+
+- **CIVIL ▸ Routes & ways / Travel / Trade** — INFRA's Roads, Ports, Logistics
+  and Trade content, re-parented into v3's three names, with every live readout
+  intact (per-tier tally, longest-ways ranking, sea lanes, hand-drawn ways, the
+  committed-routes list, the journey list and planner). **Rivers** left CIVIL
+  for WORLD ▸ Hydrology, which is where v3 puts the river network; its one
+  honest finding (IN-01, no `get_rivers()`) travelled with it.
+- **CIVIL ▸ Territories** — *Recalculate territories* and *Generate provinces*,
+  both live shortcuts onto `civ_recompute()` (§31's CV-20 fix), now under a
+  category named for what they do rather than buried under Politics.
+- **CIVIL ▸ Settlements ▸ Linked notes** — the vault entry point, scoped to the
+  settlement roster above it, keyed to `tid`.
+- **CARTO ▸ Visibility / zoom ▸ Data overlays** — one button onto
+  `layers_popover.gd`, the shell's existing analysis-field picker, with a live
+  count of what this build's `debug_layers()` offers. Deliberately *not* a
+  second copy of that list: two pickers over one `set_debug_layer()` is the
+  shape this shell keeps having to undo.
+- **WORLD ▸ Generate** — Generate world / New seed / Center landmasses as
+  shortcuts onto `app.gd`'s own handlers, beside the surviving pipeline-status
+  readout. Same one-owner discipline.
+- **Data ▸ Markdown vault** — v3's `Vault` menu, folded into Data per the
+  owner. One live row onto `vault_window.gd`, whose tooltip states where v3's
+  frontmatter-mapping and sync-direction rows actually live (they are a
+  per-write choice in the panel, not a global setting), plus VA-01 and VA-02 as
+  `_todo` rows.
+
+### Verification
+
+`_v3menu_probe.gd` / `.tscn` (temporary, untracked), run **windowed** — a
+headless boot proves the extension loads and the scripts parse, which was never
+the half at risk. It boots the real app, generates a real world (384×288, seed
+483920: 233 settlements, 8 provinces, 35 ways), and then:
+
+1. Asserts each rail's L2 list is **exactly** v3's list in v3's order, and that
+   none of the nine retired category names survives anywhere. That second check
+   earned its place: the first cut built INFRA's five old categories *and* the
+   three new ones, because `_dock_hosted` was set inside `build_ways_into()` —
+   which runs **after** `setup()`, and `setup()` is what runs `_build()`. Both
+   flags now go in before `setup()`, next to `_nested`.
+2. Opens all 33 categories and asserts each drew something. An accordion hides
+   its own bugs: a category that throws while building leaves an empty body
+   that looks exactly like a closed one.
+3. Asserts every disabled control carries a reason — the `_todo()` contract —
+   with the four state-gated Sculpt/Paint Commit/Discard buttons named as
+   explicit exemptions rather than pattern-matched past.
+4. Drives the rows that claim capability: the Politics/Simulation split (years
+   under one, the simulator under the other, neither under both), Territories'
+   recompute shortcut pressed for real, the Layers/Political display split, and
+   `Data ▸ Markdown vault` pressed through the real popup and asserted by the
+   vault window being on screen afterwards.
+5. Screenshots each rail with every category open, then each re-parented
+   category alone.
+
+**PASS, 0 failures**, plus a visual pass over the shots. `cargo check -p
+cartalith-godot` clean — no Rust changed; this was entirely a shell pass.
+
+One defect the parse check caught before any of that, and the reason this pass
+was resumed rather than restarted: `_build_simulation()` assigned an undeclared
+`_sim_body`, left mid-refactor by a session-limit kill. The fix is not the
+declaration — it is that `_rebuild_timeline()` now refills **both** bodies,
+each guarded independently, so the order `_build()` claims them in cannot leave
+one empty.

@@ -121,11 +121,12 @@ func setup(b: EngineBridge, h: ViewportHost) -> void:
 		"through it. The reference's own #dbgOpacity.")
 
 	DccWidgets.note(foot,
-		"Settlement, road, sea-route, town-layout, territory and province " +
-		"visibility live in Cartography ▸ Layers on the rail -- those are " +
-		"vector overlays drawn from world data, not field rasters, and they " +
-		"toggle rather than replace one another. Town layouts draw themselves " +
-		"once the map spans under 24 km.")
+		"Settlement, road, sea-route and town-layout visibility live in " +
+		"Cartography ▸ Layers on the rail; way types are Cartography ▸ Roads & " +
+		"routes and the two political layers are Cartography ▸ Political " +
+		"display. All of those are vector overlays drawn from world data, not " +
+		"field rasters, and they toggle rather than replace one another. Town " +
+		"layouts draw themselves once the map spans under 24 km.")
 
 	bridge.generation_finished.connect(func(_ok: bool): if visible: rebuild())
 	bridge.world_loaded.connect(func(): if visible: rebuild())

@@ -105,7 +105,43 @@ const STAGES: Array = [
 
 const EROSION_STAGE_INDEX := 5 ## Zero-based -- STAGES[5] is "Erosion".
 
-var _pipeline_body: VBoxContainer
+## **v3's nine WORLD categories** (2026-08-24, `design/Cartalith Menu Structure
+## v3.dc.html`), and which of `STAGES` above each one hosts.
+##
+## v3's migration audit is explicit about what this table is doing: *"Split by
+## subject rather than by run order … The numbered 01-10 stage list disappears
+## as navigation and survives as pipeline status."* So the pipeline is still
+## exactly the ten stages, and `generate()` still runs all ten in one call --
+## nothing about the engine changed. What changed is that the dock is now
+## organised by what a control **is about** rather than by when it runs, which
+## is what makes "where do I set river density" answerable without knowing that
+## hydrology is stage 07.
+##
+## `stages` is in dependency order within a category, so a category hosting two
+## stages still reads top-to-bottom the way the pipeline runs. A category with
+## an empty list is one v3 names that the engine does not parameterise at all --
+## it carries prose, never a dead control.
+const CATEGORIES: Array = [
+	{"name": "Generate", "stages": [2],
+	 "lead": "The one act: seed, extent, steering, run. Every parameter in the eight categories below feeds this call, and this call resolves all ten pipeline stages at once -- there is no partial recompute in this engine or in the app it ports."},
+	{"name": "Terrain", "stages": [5],
+	 "lead": "The surface itself: what erosion does to it, and what a hand does to it. Elevation, slope, curvature and relief are readable as analysis fields -- Cartography ▸ Visibility / zoom ▸ Data overlays."},
+	{"name": "Geology", "stages": [3, 4],
+	 "lead": "What the rock is and where it was pushed: plates, uplift, volcanism, impacts and rock resistance. Everything here runs before erosion and is what erosion cuts into."},
+	{"name": "Hydrology", "stages": [6],
+	 "lead": "Rivers, lakes, drainage and flow accumulation, derived from the finished surface."},
+	{"name": "Climate", "stages": [7],
+	 "lead": "Temperature, rainfall, wind and currents, over the finished surface and under the planet's own geometry."},
+	{"name": "Biomes", "stages": [8],
+	 "lead": "Classification off the finished temperature/rainfall/elevation fields, and the brush that overrides it by hand. Biome *colours* are Cartography's -- v3's own split."},
+	{"name": "Ecology", "stages": [],
+	 "lead": ""},
+	{"name": "Resources", "stages": [9],
+	 "lead": "Soil, ore and fertility, downstream of geology, climate and biomes."},
+	{"name": "World data", "stages": [0, 1],
+	 "lead": "The planet the world sits on and the scale it is measured in. Everything here is an input to generation rather than a product of it."},
+]
+
 var _sculpt_body: VBoxContainer
 var _paint_body: VBoxContainer
 var _stage_state_labels: Array = []  ## stage index -> the trailing state Label.
@@ -169,52 +205,31 @@ func _build() -> void:
 		{"id": "paint", "glyph": "tool_paint", "label": "Biome paint (B)"},
 	])
 
-	var switch_row := HBoxContainer.new()
-	switch_row.add_theme_constant_override("separation", 0)
-	var switch_pad := MarginContainer.new()
-	switch_pad.add_theme_constant_override("margin_left", 12)
-	switch_pad.add_theme_constant_override("margin_right", 12)
-	switch_pad.add_theme_constant_override("margin_top", 8)
-	switch_pad.add_theme_constant_override("margin_bottom", 4)
-	switch_pad.add_child(switch_row)
-	add_child(switch_pad)
-
-	var mode_group := ButtonGroup.new()
-	var pipeline_btn := _switch_button("Generation pipeline", true, mode_group)
-	var sculpt_btn := _switch_button("Sculpt", false, mode_group)
-	switch_row.add_child(pipeline_btn)
-	switch_row.add_child(sculpt_btn)
-
-	_pipeline_body = VBoxContainer.new()
-	_pipeline_body.add_theme_constant_override("separation", 0)
-	_pipeline_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	add_child(_pipeline_body)
-	_build_pipeline(_pipeline_body)
-
+	## **The two-button switch (Generation pipeline | Sculpt) is gone**
+	## (2026-08-24, v3). It was a mode selector over one domain, and v3 has no
+	## such control anywhere: Sculpt is a row inside TERRAIN, which is where a
+	## person looking for "change the shape of the ground" would go. Removing it
+	## also removes the one place in this shell where a dock had a hidden half
+	## -- the accordion is now the only disclosure WORLD uses, like CIVIL and
+	## CARTO. `_sculpt_body`/`_paint_body` still exist and are still rebuilt
+	## wholesale on every generate; they are parented into their categories
+	## instead of into a mode panel.
 	_sculpt_body = VBoxContainer.new()
 	_sculpt_body.add_theme_constant_override("separation", 0)
 	_sculpt_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_sculpt_body.visible = false
-	add_child(_sculpt_body)
-	_build_sculpt(_sculpt_body)
 
-	## Biome paint has no position of its own in §5's two-button switch
-	## (Generation pipeline | Sculpt) -- per §4.5.2 its real estate is the
-	## tool options bar plus a right-dock legend, and this file's own task
-	## boundary keeps the tool options bar (app.gd) out of scope. Hosted here
-	## instead as its own panel, shown whenever the Biome-paint tool is armed
-	## regardless of which of the two switch positions is selected -- the
-	## same "arming a tool never changes the workspace" independence §4.5
-	## already establishes for every other domain.
+	## Biome paint stays a panel of its own, shown whenever the Biome-paint
+	## tool is armed -- the same "arming a tool never changes the workspace"
+	## independence §4.5 establishes for every other domain. It now lives
+	## inside the BIOMES category rather than at the foot of the dock.
 	_paint_body = VBoxContainer.new()
 	_paint_body.add_theme_constant_override("separation", 0)
 	_paint_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_paint_body.visible = false
-	add_child(_paint_body)
-	_build_paint(_paint_body)
 
-	pipeline_btn.pressed.connect(_select_mode.bind("pipeline"))
-	sculpt_btn.pressed.connect(_select_mode.bind("sculpt"))
+	_build_categories()
+	_build_sculpt(_sculpt_body)
+	_build_paint(_paint_body)
 
 	app.register_tool_click_handler("sculpt", _sculpt_click)
 	app.register_tool_drag_handler("sculpt", _sculpt_drag)
@@ -230,12 +245,6 @@ func _build() -> void:
 	bridge.world_loaded.connect(_on_world_loaded)
 	_refresh_stage_states()
 
-func _select_mode(mode: String) -> void:
-	_pipeline_body.visible = mode == "pipeline"
-	_sculpt_body.visible = mode == "sculpt"
-	if mode == "sculpt" and app.right_dock_ctrl.has_method("show_sculpt_stack"):
-		app.right_dock_ctrl.show_sculpt_stack()
-
 ## A new/loaded world means a fresh (or absent) `SculptEditor`/`PaintEditor`
 ## on the Rust side -- both panels rebuild from scratch rather than trusting
 ## whatever they showed for the previous world.
@@ -249,53 +258,149 @@ func _on_world_loaded() -> void:
 	_build_sculpt(_sculpt_body)
 	_build_paint(_paint_body)
 
-## The mockup draws the switch as **tabs**, not as a segmented control: mono
-## caps, the active half carrying an accent top rule and a slightly lifted
-## ground, both halves sitting on the dock's own hairline. A filled amber pill
-## was the first attempt and read as a call-to-action button, which is the one
-## thing this control is not -- it is a view selector.
+# -- v3's nine categories ------------------------------------------------------
+
+## One L2 category per `CATEGORIES` row, each hosting whichever pipeline stages
+## own its subject. Everything a stage contributes -- its dependency prose, its
+## params.rs groups, its loose keys, its disclosed gap -- is drawn by the same
+## `_build_stage_body()` the numbered list used; only the container changed.
+func _build_categories() -> void:
+	for i in CATEGORIES.size():
+		var cat: Dictionary = CATEGORIES[i]
+		var name := String(cat["name"])
+		var body := DccWidgets.category(self, name, categories, i == 0)
+		if not String(cat["lead"]).is_empty():
+			DccWidgets.note(DccWidgets.pad(body, 14, 8, 12, 0), String(cat["lead"]))
+
+		match name:
+			"Generate": _build_generate_head(body)
+			"Terrain": _build_terrain_head(body)
+			"Biomes": pass
+			"Ecology": _build_ecology(body)
+			_: pass
+
+		var stages: Array = cat["stages"]
+		for s in stages:
+			_build_stage_body(body, int(s), stages.size() > 1 or name != String(STAGES[int(s)]["name"]))
+
+		match name:
+			"Generate": _build_generate_foot(body)
+			"Terrain": body.add_child(_sculpt_body)
+			"Geology": _build_geology_foot(body)
+			"Biomes": body.add_child(_paint_body)
+			"World data": _build_world_data_foot(body)
+			_: pass
+
+## v3 GENERATE's own top rows: the three global actions the reference calls
+## `#genBtn` / `#reseedBtn` / `#centerBtn`, then the pipeline-status readout
+## that is all that survives of the numbered stage list.
 ##
-## Deliberately not `flat = true`: on a `toggle_mode` button that suppresses the
-## "pressed" stylebox entirely, so the active tab drew with no accent at all.
-func _switch_button(text: String, active: bool, group: ButtonGroup) -> Button:
-	var b := Button.new()
-	b.text = text.to_upper()
-	b.toggle_mode = true
-	b.button_pressed = active
-	b.button_group = group
-	b.focus_mode = Control.FOCUS_NONE
-	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.custom_minimum_size.y = 30
-	b.add_theme_font_size_override("font_size", DccTheme.FS_HEADER)
-	b.add_theme_font_override("font", DccTheme.mono(2, true))
-	b.add_theme_color_override("font_color", DccTheme.c("text_faint"))
-	b.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
-	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
+## The buttons are shortcuts onto `app.gd`'s own handlers, not second
+## implementations -- the tool-options bar presses exactly the same three, and
+## this shell has repeatedly been bitten by two controls with two independent
+## state computations (the bake button, the recompute rows).
+func _build_generate_head(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Run")
+	var gen := DccWidgets.action(sec, "Generate world", _on_generate_pressed, true)
+	gen.tooltip_text = "The reference's #genBtn. Runs all ten stages against the current parameters and the current seed. The same button sits in the tool options bar above the map."
+	var seed_btn := DccWidgets.action(sec, "New seed", func(): app._new_seed())
+	seed_btn.tooltip_text = "The reference's #reseedBtn. Rolls a new seed in File ▸ New world and regenerates from it."
+	var centre := DccWidgets.action(sec, "Center landmasses", func(): app._center_landmasses())
+	centre.tooltip_text = "The reference's #centerBtn. Rotates the world in longitude so the emptiest meridian sits at the map edge, then feathers the join it moved into the interior. Whole-world mode only; the outcome is reported in the status bar."
 
-	var rest := StyleBoxFlat.new()
-	rest.bg_color = DccTheme.c("panel_alt")
-	rest.border_width_bottom = 1
-	rest.border_color = DccTheme.c("line")
-	var on := StyleBoxFlat.new()
-	on.bg_color = DccTheme.c("accent_wash")
-	on.border_width_top = 1
-	on.border_color = DccTheme.c("accent")
-	b.add_theme_stylebox_override("normal", rest)
-	b.add_theme_stylebox_override("pressed", on)
-	b.add_theme_stylebox_override("hover", rest)
-	return b
+	var status := DccWidgets.section(parent, "Pipeline status")
+	## The one surviving state readout. `_stage_state_labels` is still the
+	## array `_refresh_stage_states()` writes to -- it just has one entry now
+	## instead of ten, because ten identical labels was ten copies of one fact.
+	_stage_state_labels.append(DccTheme.mono_label("", "text_dim", DccTheme.FS_MICRO, 1))
+	status.add_child(_stage_state_labels[0])
+	DccWidgets.note(status,
+		"There is no partial recompute and no per-stage stale flag: one generate() "
+		+ "resolves all ten stages, every call, in this engine and in the app it "
+		+ "ports (verified live against the reference -- every parameter row here "
+		+ "regenerates on release rather than waiting for a run button). What CAN "
+		+ "go stale is the civilisation layer over an edited world, and that has "
+		+ "its own badge and its own button: Civilization ▸ Settlements ▸ "
+		+ "Recompute.")
+	DccWidgets.note(status,
+		"Resolution, working and render, is a creation-time call argument rather "
+		+ "than a stored parameter -- File ▸ New world sets it. Map extent (world "
+		+ "/ region) is the same.")
 
-# -- §5.1 Generation Pipeline --------------------------------------------------
+## v3 GENERATE's `› Bake & finalize` group, plus the LOD row beside it. The
+## finalize foot is unchanged (WW-01); what v3 adds here is the disclosure that
+## the reference's per-tile refine passes are not part of it.
+func _build_generate_foot(parent: Control) -> void:
+	_build_finalize(parent)
 
-func _build_pipeline(parent: Control) -> void:
-	for i in STAGES.size():
-		_build_stage(parent, i)
+	var lod := DccWidgets.section(parent, "LOD terrain data")
+	DccWidgets.note(lod,
+		"v3 moves tile refine and atlas bake out of View and into this category, "
+		+ "on the correct reasoning that both produce terrain *data*. The atlas "
+		+ "half is the Bake above -- it writes every tile of the pyramid to disk. "
+		+ "The refine half is not ported: the reference's per-tile Burn rivers and "
+		+ "Micro-erode passes have no cartalith-spatial equivalent (pyramid_tile's "
+		+ "own doc records that as deliberate), so deep zoom synthesises detail "
+		+ "rather than re-eroding it. Auto-detail on zoom, tile size and the chunk "
+		+ "debug overlay stay program scope -- Preferences ▸ Tiles & LOD.")
 
 	var not_stage := DccWidgets.section(parent, "Not a generation stage")
 	DccWidgets.note(not_stage,
-		"GPU acceleration and multi-GPU → Preferences ▸ Performance. Render quality, lighting, 3D viewport → Preferences ▸ Graphics. Tiled LOD, atlas cache, chunk debug → Preferences ▸ Tiles & LOD. Terrain appearance, style presets, ramps → Cartography. Settlements, routes, politics → Civilization.")
+		"GPU acceleration and multi-GPU → Preferences ▸ Performance. Render quality, lighting, 3D viewport → Preferences ▸ Graphics. Auto-detail on zoom, tile size, chunk debug → Preferences ▸ Tiles & LOD. Terrain appearance, style presets, ramps → Cartography. Settlements, routes, politics → Civilization.")
 
-	_build_finalize(parent)
+## v3 TERRAIN's head: the heightmap entry point, above the erosion passes.
+func _build_terrain_head(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Heightmap")
+	var load_btn := DccWidgets.action(sec, "Load heightmap…",
+		func(): app.open_data_manager("Import"))
+	load_btn.tooltip_text = "The reference's #loadBtn. Opens Data ▸ Import, whose Heightmaps route decodes a PNG, takes it as the elevation field and infers tectonics under it."
+	DccWidgets.note(sec,
+		"An imported heightmap replaces the generated surface. Tectonics are "
+		+ "inferred from it rather than kept -- see Geology below for that pass "
+		+ "on its own.")
+
+## v3 GEOLOGY's foot: the one geology action that is not a parameter.
+func _build_geology_foot(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "From an imported surface")
+	var infer := DccWidgets.action(sec, "Infer tectonics from heightmap…",
+		func(): app.open_data_manager("Import"))
+	infer.tooltip_text = "The reference's #inferTectBtn. Runs as part of the heightmap import (cartalith_engine::import::infer_tectonics) -- there is no separate #[func] to re-run it over an already-imported surface, so this opens the import that performs it."
+
+## v3 names ECOLOGY as its own category. The engine has no ecology parameters
+## at all -- vegetation and soil are *derived* rasters, readable as analysis
+## fields and settable by nothing -- so this carries prose and a pointer to the
+## one place they can actually be seen, rather than a row of dead sliders.
+func _build_ecology(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Not parameterised")
+	DccWidgets.note(sec,
+		"Vegetation density and soil are computed off the finished biome, climate "
+		+ "and lithology fields with no dials of their own in cartalith-engine. "
+		+ "Both are readable as analysis fields -- Cartography ▸ Visibility / zoom "
+		+ "▸ Data overlays.")
+	DccWidgets.note(sec,
+		"Ecological productivity and flora/fauna distribution (v3, GUI_GAP_"
+		+ "REGISTER.md WW-14) do not exist in this port or in the reference: no "
+		+ "crate computes either, so there is nothing to expose. The wildlife "
+		+ "ecoregion view is the closest thing that does exist, and it is a "
+		+ "classification of the biome field rather than a population model.")
+
+## v3 WORLD DATA's foot: the field browser and the GeoJSON export, both of
+## which already exist as program windows.
+func _build_world_data_foot(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Read the fields")
+	var tables := DccWidgets.action(sec, "World data tables…",
+		func(): app.open_world_data())
+	tables.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	var geo := DccWidgets.action(sec, "Export GeoJSON…",
+		func(): app.open_data_manager("Export"))
+	geo.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	geo.tooltip_text = "The reference's #exportGeoBtn. Data ▸ Export ▸ GIS writes coastlines, rivers, settlements, ways and territory as one FeatureCollection."
+	DccWidgets.note(sec,
+		"Coordinate system and projection (v3, GUI_GAP_REGISTER.md WW-15) are not "
+		+ "modelled: every field is grid-space, the export writes a plain "
+		+ "lon/lat-shaped frame with no CRS declared, and nothing reprojects. "
+		+ "Units are km-only -- the reference's km/mi toggle is not ported "
+		+ "(PR-15).")
 
 ## §5.1's dock foot — `GUI_GAP_REGISTER.md` **WW-01**, built 2026-08-24.
 ##
@@ -413,12 +518,22 @@ func _refresh_finalize() -> void:
 			int(est.get("tile_w", 0)), int(est.get("tile_h", 0)),
 			String(est.get("bytes_text", "?")), int(est.get("already_baked", 0))]
 
-func _build_stage(parent: Control, index: int) -> void:
+## One pipeline stage's content, drawn into whichever v3 category owns it.
+##
+## `label_stage` puts the stage's own number and name in as an L3 section
+## heading first. That is on whenever a category hosts more than one stage, or
+## hosts one whose name differs from the category's -- so "Geology" reads as
+## `04 TECTONICS` / `05 VOLCANISM & IMPACTS`, while "Hydrology" (which is
+## stage 07 Hydrology, whole) does not repeat its own name back at itself.
+##
+## The numbers stay because the `needs`/`produces` prose below refers to them
+## ("needs — 01 Planet, 03 World structure"): dropping the labels while keeping
+## the cross-references would leave a dangling numbering scheme.
+func _build_stage_body(parent: Control, index: int, label_stage: bool) -> void:
 	var stage: Dictionary = STAGES[index]
-	var number := "%02d" % (index + 1)
-	var head := DccWidgets.stage_category(parent, number, String(stage["name"]), categories, index == 0)
-	var body: VBoxContainer = head["body"]
-	_stage_state_labels.append(head["state_label"])
+	var body: Control = parent
+	if label_stage:
+		body = DccWidgets.section(parent, "%02d %s" % [index + 1, String(stage["name"])])
 
 	## The mockup indents a stage's `needs`/`produces` under its title rather
 	## than running them to the dock's own edge, which is what `note()` on a
@@ -426,8 +541,9 @@ func _build_stage(parent: Control, index: int) -> void:
 	var meta := VBoxContainer.new()
 	meta.add_theme_constant_override("separation", 1)
 	var meta_pad := MarginContainer.new()
-	meta_pad.add_theme_constant_override("margin_left", 14)
-	meta_pad.add_theme_constant_override("margin_right", 12)
+	meta_pad.add_theme_constant_override("margin_left", 0 if label_stage else 14)
+	meta_pad.add_theme_constant_override("margin_right", 0 if label_stage else 12)
+	meta_pad.add_theme_constant_override("margin_top", 0 if label_stage else 6)
 	meta_pad.add_theme_constant_override("margin_bottom", 2)
 	meta_pad.add_child(meta)
 	body.add_child(meta_pad)
@@ -441,28 +557,44 @@ func _build_stage(parent: Control, index: int) -> void:
 		_build_erosion_passes(body, index)
 		return
 
-	for group_name: String in (stage["groups"] as Array):
-		_build_group_section(body, group_name, index)
+	## A stage that already carries its own `NN NAME` heading and holds exactly
+	## one block of parameters does not get a second heading naming the same
+	## thing -- `03 WORLD STRUCTURE ▸ WORLD STRUCTURE` was the shape the first
+	## cut of this produced. Two or more blocks still get their own headings,
+	## because then the heading is telling the reader something.
+	var groups: Array = stage["groups"]
+	var keys: Array = stage["keys"]
+	var one_block := groups.size() + (1 if not keys.is_empty() else 0) == 1
+	var heading := not (label_stage and one_block)
 
-	if not (stage["keys"] as Array).is_empty():
-		var title: String = KEYS_SECTION_TITLES.get(String(stage["name"]), String(stage["name"]))
-		var sec := DccWidgets.section(body, title)
+	for group_name: String in groups:
+		_build_group_section(body, group_name, index, heading)
+
+	if not keys.is_empty():
+		var host: Control = body
+		if heading:
+			host = DccWidgets.section(body,
+				String(KEYS_SECTION_TITLES.get(String(stage["name"]), String(stage["name"]))))
 		var advanced_keys: Array = []
-		for key: String in (stage["keys"] as Array):
+		for key: String in keys:
 			if ADVANCED_KEYS.has(key):
 				advanced_keys.append(key)
 			else:
-				_build_param_row(sec, key, index)
+				_build_param_row(host, key, index)
 		if not advanced_keys.is_empty():
-			var adv := DccWidgets.advanced(sec)
+			var adv := DccWidgets.advanced(host)
 			for key in advanced_keys:
 				_build_param_row(adv, key, index)
 
 ## One params.rs `group`, in the reference's own within-panel order (the
 ## engine builds PARAMS in that order, and Dictionary iteration in GDScript
 ## preserves insertion order, so no extra sort is needed here).
-func _build_group_section(parent: Control, group_name: String, stage_index: int) -> void:
-	var sec := DccWidgets.section(parent, String(GROUP_TITLES.get(group_name, group_name.capitalize())))
+func _build_group_section(parent: Control, group_name: String, stage_index: int,
+		heading: bool = true) -> void:
+	var sec: Control = parent
+	if heading:
+		sec = DccWidgets.section(parent,
+			String(GROUP_TITLES.get(group_name, group_name.capitalize())))
 	var advanced_keys: Array = []
 	for key in bridge.param_keys():
 		var info := bridge.param_info(key)
@@ -589,7 +721,7 @@ func _refresh_stage_states() -> void:
 			lbl.text = "%s generating" % DccIcons.SYMBOLS["on"]
 			lbl.add_theme_color_override("font_color", DccTheme.c("accent"))
 		else:
-			lbl.text = "%s resolved" % DccIcons.SYMBOLS["tick"]
+			lbl.text = "%s all ten stages resolved" % DccIcons.SYMBOLS["tick"]
 			lbl.add_theme_color_override("font_color", DccTheme.c("text_dim"))
 	_push_dock_readout()
 
@@ -604,7 +736,7 @@ func _push_dock_readout() -> void:
 	elif bridge.generating:
 		app.set_dock_readout("left", "generating…")
 	else:
-		app.set_dock_readout("left", "10 / 10 resolved")
+		app.set_dock_readout("left", "resolved")
 
 ## The dock's own primary action, mirroring the tool options bar's "Generate
 ## world" (`app.gd`'s `_run_pipeline`, `#genBtn` in the reference) -- the same
@@ -631,7 +763,7 @@ func _build_sculpt(parent: Control) -> void:
 
 	if not bridge.has_world:
 		var sec := DccWidgets.section(parent, "Sculpt")
-		DccWidgets.note(sec, "Generate a world first -- the Sculpt editor is created fresh per generated world (World ▸ Generation pipeline).")
+		DccWidgets.note(sec, "Generate a world first -- the Sculpt editor is created fresh per generated world (World ▸ Generate).")
 		return
 	var globals_now := bridge.sculpt_get_globals()
 	if globals_now.is_empty():

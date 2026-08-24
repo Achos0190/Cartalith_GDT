@@ -36,6 +36,27 @@ class_name RenderWorkspace
 ## binding; merging the domains removes the split.
 var _nested := false
 
+## **Where this workspace's sections attach** (2026-08-24, `design/Cartalith
+## Menu Structure v3.dc.html`).
+##
+## v3 splits CARTO into ten named L2 categories, and four of them are this
+## file's content: Map style (map view + presets + painter styles), Terrain
+## appearance (the ramp and the ground/relief groups), Colours (the grade and
+## its field weights) and Map presets (saved looks). Before v3 all of it was
+## one flat run of L3 sections appended below CARTO's own categories, which is
+## what `_nested` used to mean.
+##
+## Rather than move the builders into `cartography_workspace.gd` -- they carry
+## the ramp editor, the preset table and every appearance sync in this file --
+## each one now draws into `_h()` instead of `self`, and CARTO calls the four
+## `build_*_into()` entry points below with its own category bodies. **The
+## builders are unchanged**; only where they attach moved. Standalone
+## (non-nested) use is untouched: `_host` stays null and `_h()` returns `self`.
+var _host: Control = null
+
+func _h() -> Control:
+	return _host if _host != null else self
+
 ## The ten Painter styles, in the reference's own application order, each with
 ## the label and the one-line description the reference's own hint text gives
 ## it (reference HTML line 1763). The keys are `WorldGen::set_npr`'s, and a key
@@ -216,18 +237,62 @@ var _look_names: Array = []
 var _applying := false
 
 func _build() -> void:
+	## Nested under CARTO, this node draws nothing itself: it holds the state
+	## (the ramp, the preset chips, the appearance rows, the water-anim layer)
+	## while `cartography_workspace.gd` calls the four `build_*_into()` entry
+	## points below with v3's own category bodies. See `_host`.
+	if _nested:
+		return
 	## §4.5.1's three global tools -- RENDER owns no tool of its own (no
 	## §4.5.x section names one), so this was always the whole TOOLS block.
-	## Skipped when nested -- see this file's own class doc.
-	if not _nested:
-		DccWidgets.tools_block(self, app, app.tool_group)
+	DccWidgets.tools_block(self, app, app.tool_group)
 	_build_map_view()
 	_build_map_style()
 	_build_ramp()
-	_build_appearance()
+	_build_appearance(APPEARANCE_GROUPS)
 	_build_look_presets()
 	_build_npr()
 	_build_owed_inventory()
+
+# -- v3 entry points ----------------------------------------------------------
+#
+# One per CARTO category that draws this file's content. Each sets `_host`,
+# runs the unchanged builders, and hands `_host` back so a later standalone
+# call still draws into `self`.
+
+## v3 CARTO ▸ MAP STYLE: style preset · mode · relief↔biome mix · sun, then
+## `+ Painter styles (NPR)`.
+func build_map_style_into(parent: Control) -> void:
+	_host = parent
+	_build_map_style()
+	_build_map_view()
+	_build_npr()
+	_host = null
+
+## v3 CARTO ▸ TERRAIN APPEARANCE: `§ Colour relief ramp`, then the relief,
+## sheet, material and atmosphere groups. v3 keeps this category "whole,
+## unchanged in scope" -- its migration audit's own words -- so the split
+## below is only the grade leaving for COLOURS, which v3 does ask for.
+func build_terrain_appearance_into(parent: Control) -> void:
+	_host = parent
+	_build_ramp()
+	_build_appearance(APPEARANCE_GROUPS.slice(0, 4))
+	_host = null
+
+## v3 CARTO ▸ COLOURS: vibrancy/saturation/contrast/brightness/gamma/temp/tint
+## (the colour grade) and `+ Field influence weights`.
+func build_colours_into(parent: Control) -> void:
+	_host = parent
+	_build_appearance(APPEARANCE_GROUPS.slice(4), "Colour grade")
+	_host = null
+
+## v3 CARTO ▸ MAP PRESETS: the saved-look library, plus the inventory of what
+## this dock still owes.
+func build_presets_into(parent: Control) -> void:
+	_host = parent
+	_build_look_presets()
+	_build_owed_inventory()
+	_host = null
 
 # -- The reference's Map view block (reference HTML 1706-1717) -----------------
 
@@ -239,7 +304,7 @@ func _build() -> void:
 func _build_map_view() -> void:
 	if not bridge.appearance_api:
 		return
-	var body := DccWidgets.section(self, "Map view")
+	var body := DccWidgets.section(_h(), "Map view")
 	for key in APPEARANCE_VIEW:
 		_appearance_slider(body, key)
 
@@ -248,7 +313,7 @@ func _build_map_view() -> void:
 func _build_map_style() -> void:
 	if not bridge.npr_api:
 		return
-	var body := DccWidgets.section(self, "Map style")
+	var body := DccWidgets.section(_h(), "Map style")
 	var row := HFlowContainer.new()
 	row.add_theme_constant_override("h_separation", 4)
 	row.add_theme_constant_override("v_separation", 4)
@@ -367,34 +432,54 @@ func _mark_custom() -> void:
 ## Built from `list_appearance_tunables()` -- the engine's own key/range/label
 ## table -- rather than from a second copy of those ranges here, so a slider
 ## cannot offer a value `set_appearance` would clamp.
-func _build_appearance() -> void:
+## `groups` is a slice of `APPEARANCE_GROUPS`: v3 draws the first four under
+## CARTO ▸ Terrain appearance and the last two under CARTO ▸ Colours, so the
+## section takes its title and its Reset scope from whichever half it is. The
+## Reset button itself is engine-wide (`reset_appearance()` hands *every*
+## tunable back), so it is drawn once, with the terrain half.
+func _build_appearance(groups: Array, title: String = "Rendering - advanced") -> void:
 	if not bridge.appearance_api:
 		return
-	var body := DccWidgets.section(self, "Rendering - advanced")
-	for entry in APPEARANCE_GROUPS:
+	var body := DccWidgets.section(_h(), title)
+	for entry in groups:
 		var g := DccWidgets.group(body, String(entry[0]), false)
 		for key in entry[1]:
 			_appearance_slider(g, String(key))
-	DccWidgets.action(body, "Reset to quality tier", func():
-		if bridge.reset_appearance() > 0:
-			_sync_appearance()
-			_refresh_map()
-			_mark_custom())
-	DccWidgets.note(body,
-		"These are the quality tier's own values (Preferences > Render quality) "
-		+ "as the base look above reshapes them, editable. An edit survives a "
-		+ "later tier or look change; Reset hands every one of them back. Reset "
-		+ "deliberately leaves the base look alone -- that picker is above, and "
-		+ "a button in this section silently moving it is the desync this dock "
-		+ "keeps having to fix. All presentation -- nothing here marks a "
-		+ "generation stage stale.")
-	DccWidgets.note(body,
-		"Not bound, because the engine has no such stage: slope rock, minor "
-		+ "channels, sky view factor, cast shadows, season blend and the three "
-		+ "SDF layers (coastlines, river bands, biome blend). Those are "
-		+ "reference render stages this port has not ported, not bindings it is "
-		+ "missing. Ridge crests, surface texture, ridged relief and curvature "
-		+ "shading left this list on 2026-08-24 and are live above.")
+	if title != "Colour grade":
+		DccWidgets.action(body, "Reset to quality tier", func():
+			if bridge.reset_appearance() > 0:
+				_sync_appearance()
+				_refresh_map()
+				_mark_custom())
+		DccWidgets.note(body,
+			"These are the quality tier's own values (Preferences > Render quality) "
+			+ "as the base look above reshapes them, editable. An edit survives a "
+			+ "later tier or look change; Reset hands every one of them back -- "
+			+ "including the colour grade under Colours, which is the same "
+			+ "appearance record. Reset "
+			+ "deliberately leaves the base look alone -- that picker is above, and "
+			+ "a button in this section silently moving it is the desync this dock "
+			+ "keeps having to fix. All presentation -- nothing here marks a "
+			+ "generation stage stale.")
+		DccWidgets.note(body,
+			"Not bound, because the engine has no such stage: slope rock, minor "
+			+ "channels, sky view factor, cast shadows, season blend and the three "
+			+ "SDF layers (coastlines, river bands, biome blend). Those are "
+			+ "reference render stages this port has not ported, not bindings it is "
+			+ "missing. Ridge crests, surface texture, ridged relief and curvature "
+			+ "shading left this list on 2026-08-24 and are live above.")
+	else:
+		DccWidgets.note(body,
+			"A post-process over the finished terrain raster, before rivers, labels "
+			+ "and icons draw -- nothing here describes the ground, it describes the "
+			+ "print. Every weight in Grade field influence is inert while every "
+			+ "slider above it sits at rest. Reset to quality tier, under Terrain "
+			+ "appearance, hands these back too: it is one appearance record.")
+		DccWidgets.note(body,
+			"v3's biome colour table is not bound: `CART_BIOME_COLS` is a frozen "
+			+ "reference table compiled into `cartalith-render`, with no #[func] to "
+			+ "read or rewrite an entry (GUI_GAP_REGISTER.md CA-19). The four field "
+			+ "weights above are the influence half of that category and are live.")
 
 ## One row, with the engine's range and this file's own step/unit/scale.
 func _appearance_slider(parent: Control, key: String) -> void:
@@ -468,7 +553,7 @@ var _ramp_mode_pick: OptionButton
 func _build_ramp() -> void:
 	if not bridge.ramp_api:
 		return
-	var body := DccWidgets.section(self, "Colour relief")
+	var body := DccWidgets.section(_h(), "Colour relief")
 	_appearance_slider(body, "ramp_strength")
 
 	var names: Array = bridge.ramp_presets()
@@ -736,7 +821,7 @@ var _preset_slugs: Array = []
 func _build_look_presets() -> void:
 	if not bridge.preset_api:
 		return
-	var body := DccWidgets.section(self, "Saved looks")
+	var body := DccWidgets.section(_h(), "Saved looks")
 	_preset_name = LineEdit.new()
 	_preset_name.placeholder_text = "Name this look"
 	_preset_name.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
@@ -810,7 +895,7 @@ func _build_npr() -> void:
 		return
 	var npr: Dictionary = bridge.npr_settings()
 
-	var body := DccWidgets.section(self, "Painter styles")
+	var body := DccWidgets.section(_h(), "Painter styles")
 	DccWidgets.note(body,
 		"Hand-drawn non-photorealistic styles, each with its own intensity. "
 		+ "Land only, all default off -- stack them freely.")
@@ -824,7 +909,7 @@ func _build_npr() -> void:
 		+ "interval (1/20th of the world's relief). Only affects Contour veins.",
 		npr)
 
-	var water := DccWidgets.section(self, "Water & light")
+	var water := DccWidgets.section(_h(), "Water & light")
 	_npr_rows["waves"] = {"check": DccWidgets.toggle(water, "Coastal wave lines",
 		bool(npr.get("waves", false)),
 		func(v: bool): _push({"waves": v}),
@@ -912,7 +997,7 @@ func _on_animate_water(on: bool) -> void:
 ## disabled sliders would imply that many separate gaps, when what remains is a
 ## handful of real ones.
 func _build_owed_inventory() -> void:
-	var sec := DccWidgets.section(self, "Still owed")
+	var sec := DccWidgets.section(_h(), "Still owed")
 	DccWidgets.note(sec,
 		"Of the ramp editor (CA-02, now live above): stop duplicate, an absolute "
 		+ "elevation domain, and Auto Fit / Auto Breakpoints. Per-stop alpha and "

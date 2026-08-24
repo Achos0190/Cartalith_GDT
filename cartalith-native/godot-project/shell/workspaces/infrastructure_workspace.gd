@@ -137,13 +137,32 @@ var _ports_body: Control
 var _trade_body: Control
 var _logistics_body: Control
 
+## **Where this workspace's categories attach** (2026-08-24, `design/Cartalith
+## Menu Structure v3.dc.html`).
+##
+## v3 keeps every one of these subjects in CIVIL -- *"Roads are built by
+## people, so the network is civilizational data; there is no separate
+## logistics domain to move it to"* -- but names them the way a person would
+## look for them: **Routes & ways**, **Travel** and **Trade**. Ports fold into
+## Routes & ways (a port is where a sea lane meets a settlement, not a fifth
+## subject) and Rivers leaves for WORLD ▸ Hydrology, which is where v3 puts
+## the river network.
+##
+## So this class no longer draws five categories of its own. It holds the
+## state and the Way/Route tool handlers, and CIVIL calls the three
+## `build_*_into()` entry points below with its own category bodies. The fills
+## (`_fill_roads` etc.) and `rebuild_readouts()` are unchanged -- they are
+## keyed to the body nodes, which is what made re-parenting safe.
+var _dock_hosted := false
+
 func _build() -> void:
 	_build_tools()
-	_build_roads()
-	_build_rivers()
-	_build_ports()
-	_build_trade()
-	_build_logistics()
+	if not _dock_hosted:
+		_build_roads()
+		_build_rivers()
+		_build_ports()
+		_build_trade()
+		_build_logistics()
 
 	## `GUI_GAP_REGISTER.md` RF-01. Everything above runs ONCE -- from
 	## `civilization_workspace.gd`'s `_infra.setup()` at launch, before any
@@ -447,11 +466,80 @@ func _build_roads() -> void:
 	_roads_body = DccWidgets.category(self, "Roads", categories, true)
 	_fill_roads(_roads_body)
 
+# -- v3 entry points ----------------------------------------------------------
+
+## v3 CIVIL ▸ ROUTES & WAYS: `§ Ways` (the permanent network, generated and
+## hand-drawn) then the ports and sea lanes that terminate it. `§ Routes` --
+## a planned traversal *over* that network -- is the Route tool in the TOOLS
+## block plus the "Routes committed this session" list `_build_manual_ways`
+## already draws, so both sit in this one category exactly as v3 draws them.
+func build_ways_into(parent: Control) -> void:
+	_dock_hosted = true
+	_roads_body = VBoxContainer.new()
+	_roads_body.add_theme_constant_override("separation", 0)
+	_roads_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(_roads_body)
+	_fill_roads(_roads_body)
+
+	_ports_body = VBoxContainer.new()
+	_ports_body.add_theme_constant_override("separation", 0)
+	_ports_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(_ports_body)
+	_fill_ports(_ports_body)
+
+	DccWidgets.note(DccWidgets.section(parent, "Where the style lives"),
+		"Line width, colour, casing and dashes per way class are Cartography ▸ "
+		+ "Roads & routes -- v3's own rule: \"a way exists in the world; a route "
+		+ "is an intention over it. Both are CIVIL. Their colour and line width "
+		+ "are CARTO.\" Nothing in that dock changes where a road runs.")
+
+## v3 CIVIL ▸ TRAVEL: journeys, the planner, and the travel library.
+func build_travel_into(parent: Control) -> void:
+	_dock_hosted = true
+	_logistics_body = VBoxContainer.new()
+	_logistics_body.add_theme_constant_override("separation", 0)
+	_logistics_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(_logistics_body)
+	_fill_logistics(_logistics_body)
+
+	var lib := DccWidgets.section(parent, "Travel library")
+	var b := DccWidgets.action(lib, "Travel library… (⇧L)", func(): app.open_travel_library())
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.tooltip_text = "Animals, mounts, vehicles, vessels and saved party set-ups -- the reference tables the planner draws its speeds and loads from."
+
+## v3 CIVIL ▸ TRADE.
+func build_trade_into(parent: Control) -> void:
+	_dock_hosted = true
+	_trade_body = VBoxContainer.new()
+	_trade_body.add_theme_constant_override("separation", 0)
+	_trade_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(_trade_body)
+	_fill_trade(_trade_body)
+
+	DccWidgets.note(DccWidgets.section(parent, "Not built"),
+		"Trade *flows* as a routed quantity, imports/exports per settlement as a "
+		+ "ledger, the route-cost field and a trade-influence raster "
+		+ "(GUI_GAP_REGISTER.md IN-13). civ_resource_trade_balance produces the "
+		+ "hinterland surplus/deficit above and nothing ties a relationship to the "
+		+ "way that would carry it -- ECONOMY_SCOPE.md holds the aggregation that "
+		+ "would.")
+
+## The Rivers category left CIVIL for WORLD ▸ Hydrology, which is where v3
+## puts the river network. Its one honest finding travels with it -- CIVIL had
+## nothing to add to it beyond a heading.
+func rivers_note() -> String:
+	return ("No hydrological river entity is exposed to Godot -- cartalith-hydrology "
+		+ "computes river networks internally, but the only output that crosses the "
+		+ "GDExtension boundary is baked into build_color_texture()'s rendered raster. "
+		+ "There is no get_rivers() and no way to select one, so v3's per-reach rows "
+		+ "(navigability, discharge, catchment, tributaries) have no entity to hang "
+		+ "on. Same finding the right dock's River context reports, field by field.")
+
 func _fill_roads(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Network")
 	var roads := bridge.roads()
 	if roads.is_empty():
-		DccWidgets.note(sec, "No roads -- generate a world first (World ▸ Generation Pipeline).")
+		DccWidgets.note(sec, "No roads -- generate a world first (World ▸ Generate).")
 	else:
 		## `bridge.roads()` now carries hand-drawn ways alongside the
 		## generated tiers (`get_roads()`, IN-02), so the tier tally below

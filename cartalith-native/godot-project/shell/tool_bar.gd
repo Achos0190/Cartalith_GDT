@@ -135,7 +135,7 @@ func _build_mode_buttons(row: HBoxContainer) -> void:
 		b.custom_minimum_size.y = 22
 		if m != "measure" and not bridge.has_world:
 			b.disabled = true
-			b.tooltip_text = "Sculpt and Paint edit a generated world; generate one first (World ▸ Generation pipeline)."
+			b.tooltip_text = "Sculpt and Paint edit a generated world; generate one first (World ▸ Generate)."
 
 func _select_mode(m: String) -> void:
 	mode = m

@@ -52,6 +52,7 @@ const ID_DATA_MGR_EXPORT := 43
 const ID_DATA_MGR_SOURCES := 44
 const ID_DATA_MGR_VALIDATION := 46
 const ID_TRAVEL_LIBRARY := 48
+const ID_VAULT := 45
 
 const ID_PREF_GPU := 50
 const ID_PREF_THEME_DARK := 51
@@ -581,6 +582,7 @@ func _data(p: PopupMenu) -> void:
 	_live(p, "Export ▸ Maps · GIS · World data · Asset pack", ID_DATA_MGR_EXPORT)
 	_live(p, "Sources ▸ External · Connected · Registry", ID_DATA_MGR_SOURCES)
 	_live(p, "Validation ▸ Check data · Repair", ID_DATA_MGR_VALIDATION)
+	_build_vault_rows(p)
 	p.id_pressed.connect(func(id: int) -> void:
 		match id:
 			ID_DATA_MANAGER: _host.open_world_data()
@@ -590,7 +592,47 @@ func _data(p: PopupMenu) -> void:
 			ID_DATA_MGR_EXPORT: _host.open_data_manager("Export")
 			ID_DATA_MGR_SOURCES: _host.open_data_manager("Sources")
 			ID_DATA_MGR_VALIDATION: _host.open_data_manager("Validation")
+			ID_VAULT: _host.open_vault_overview()
 	)
+
+## **The Markdown vault's program-scope entry point** (2026-08-24, `design/
+## Cartalith Menu Structure v3.dc.html`).
+##
+## v3 draws `▾ VAULT` as its own top-bar menu. **It is not one here** (owner,
+## 2026-08-24: *"the vault menu can be shoved into data"*) — a vault is a
+## folder of files this app reads and writes, which is what every other row
+## in this menu already is, and an eighth top-level menu for one window is
+## the kind of bar growth `DCC_SHELL_SPEC.md` §2 exists to prevent.
+##
+## One live row, because there is exactly one window behind it
+## (`vault_window.gd`, `MARKDOWN_VAULT_SCOPE.md` milestone 1) and a second
+## row onto the same window is the duplicate-owner shape this shell keeps
+## having to undo. Three of v3's seven rows are that window's own content and
+## say so in the tooltip; the other three have no implementation at all and
+## are `_todo`, not invented.
+func _build_vault_rows(p: PopupMenu) -> void:
+	p.add_separator()
+	_live(p, "Markdown vault ▸ Connect · Browse · Links", ID_VAULT)
+	p.set_item_tooltip(p.item_count - 1,
+		"Connect or re-link a vault folder (any folder of .md files -- Obsidian is one, "
+		+ "and nothing here requires it), browse it, attach a settlement, province or "
+		+ "continent to a note section, and see every link in this world. Also carries "
+		+ "v3's frontmatter mapping and sync direction, as a per-write choice rather "
+		+ "than a global setting: the field-fill picker chooses which derived keys go "
+		+ "in, fills only empty ones by default, previews every write, and refuses if "
+		+ "the note changed since the preview. Cartalith never rewrites a note's body.")
+	_todo(p, "Create notes from template…",
+		"cartalith-vault attaches to notes that already exist and refuses a heading that "
+		+ "does not -- deliberately (MARKDOWN_VAULT_SCOPE.md milestone 1's boundary). "
+		+ "There is no note creator and no template registry, so nothing can write "
+		+ "Settlements/{name}.md from the owner's Settlement/Landmark/Region templates "
+		+ "(design/vault-templates/) or from anything else. GUI_GAP_REGISTER.md VA-02.")
+	_todo(p, "Missing & orphan notes report…",
+		"Which entities have no note, and which notes point at no entity. Both halves "
+		+ "need a walk of the whole vault; the provider deliberately opens only the "
+		+ "files it is asked for, which is what keeps a large vault cheap to browse and "
+		+ "is exactly what an unbounded scan would undo. Same root cause as backlinks "
+		+ "and unlinked mentions. GUI_GAP_REGISTER.md VA-01.")
 
 # -- §2.5 Preferences ---------------------------------------------------------
 

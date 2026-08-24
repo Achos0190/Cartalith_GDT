@@ -74,11 +74,21 @@ var _territory_faction := 1
 var _territory_radius := 5.0
 var _territory_subtract := false
 
-## -- Timeline state (`TIMELINE_SCOPE.md` milestone 6). See the Timeline
+## -- Timeline state (`TIMELINE_SCOPE.md` milestone 6). See the Politics
 ## section's own header comment, below `_build_culture()`, for why this is a
-## sixth `DccWidgets.category()` here rather than a new `right_dock.gd` CTX_*
+## `DccWidgets.category()` here rather than a new `right_dock.gd` CTX_*
 ## context. --
+##
+## v3 splits what used to be one Timeline category in two, so this state now
+## backs two bodies: `_tl_body` is **Politics** (the recorded years, the
+## scrubber, playback and the existence filters -- political change over
+## time) and `_sim_body` is **Simulation** (the collapse/recovery model that
+## writes into those years). They share every `_tl_sim_*` field below because
+## they are two views of one subject, and `_rebuild_timeline()` refills both
+## from one place -- a simulation run has to re-draw the year list it just
+## appended to, and the year list has to re-draw the result note.
 var _tl_body: VBoxContainer
+var _sim_body: VBoxContainer
 var _tl_add_year := 100                 ## Reference default (`#civTlYear` value="100").
 var _tl_playing := false
 var _tl_play_timer: Timer
@@ -113,15 +123,22 @@ var _ctx_hit := -1
 ## `civPopEstimateOut` ("Land sustains ≈ N") and the Settlements roster
 ## body, both refreshed after any place/roster edit.
 var _settlements_body: Control
-## The three other data-backed categories' own bodies, held for the same
+## The other data-backed categories' own bodies, held for the same
 ## reason and cleared/refilled by the same `_rebuild_readouts()`. Culture has
 ## no body field because it has no data behind it: `_build_culture()` writes
 ## one fixed note about the missing binding, which a world does not change.
-## `_tl_body` (Timeline) is the fifth, declared with the rest of the Timeline
-## state above because it also carries playback/simulation state to reset.
+## `_tl_body` (Politics) and `_sim_body` (Simulation) are declared with the
+## rest of the timeline state above, because they also carry playback and
+## simulation state to reset.
+##
+## `_politics_body` became `_factions_body` + `_territories_body` on
+## 2026-08-24 with v3, which splits the old Politics category in two -- who
+## the polities *are*, and what ground they hold. Politics is now the
+## time-varying half (v3: "political change over time").
 var _population_body: Control
 var _economy_body: Control
-var _politics_body: Control
+var _factions_body: Control
+var _territories_body: Control
 ## SG-02's Recompute row. Held as fields because the handler is a coroutine
 ## that has to find both again after the blocking engine call, and because a
 ## GDScript lambda captures locals by value at creation time -- a
@@ -139,24 +156,44 @@ var _stale_timer: Timer
 func _build() -> void:
 	_infra = InfrastructureWorkspace.new()
 	_infra._nested = true
+	## Both flags have to be set before `setup()`, because `setup()` runs
+	## `_infra._build()` and `_build()` reads them: `_nested` suppresses the
+	## duplicate TOOLS row, `_dock_hosted` suppresses the five categories this
+	## dock now draws itself (v3). Setting `_dock_hosted` inside
+	## `build_ways_into()` alone was not enough -- that call happens *after*
+	## `setup()`, so the old Roads/Rivers/Ports/Trade/Logistics categories
+	## still got built once, under the wrong parent, before it ran.
+	_infra._dock_hosted = true
 
 	_build_tools()
-	_build_settlements()
-	_build_population()
-	_build_economy()
-	_build_politics()
-	_build_culture()
-	_build_timeline()
 
-	## Appended last, after CIVIL's own six categories -- `_infra.setup()`
-	## calls its own `_build()`, which adds its five categories (Roads/
-	## Rivers/Ports/Trade/Logistics) as children of `_infra` itself, and
-	## registers the Way/Route handlers `_build_tools()` above already drew
-	## buttons for. One rule marks the seam so the merge reads as two grouped
-	## subjects, not one undifferentiated list.
-	add_child(DccTheme.rule())
+	## Added and set up *before* the categories, because those categories are
+	## what it draws into now. `_infra.setup()` runs its own `_build()`, which
+	## draws no categories of its own while `_dock_hosted` (set above) but
+	## still registers the Way/Route click, drag and escape handlers
+	## `_build_tools()` above already drew buttons for. See
+	## `InfrastructureWorkspace`'s own `_dock_hosted` doc.
 	add_child(_infra)
 	_infra.setup(app, bridge)
+
+	## v3's fourteen CIVIL categories, in v3's own order.
+	_build_civilizations()                                                ## 1
+	_build_factions()                                                     ## 2
+	_build_territories()                                                  ## 3
+	_build_settlements()                                                  ## 4
+	_build_poi()                                                          ## 5
+	_infra.build_ways_into(
+		DccWidgets.category(self, "Routes & ways", categories))           ## 6
+	_infra.build_travel_into(
+		DccWidgets.category(self, "Travel", categories))                  ## 7
+	_infra.build_trade_into(
+		DccWidgets.category(self, "Trade", categories))                   ## 8
+	_build_economy()                                                      ## 9
+	_build_culture()                                                      ## 10
+	_build_timeline()                                                     ## 11 Politics
+	_build_military()                                                     ## 12
+	_build_relationships()                                                ## 13
+	_build_simulation()                                                   ## 14
 
 	## Both windows are owned by `app` (long-lived, opened from four places
 	## between them); this workspace is the one that knows how to put the
@@ -237,9 +274,12 @@ func _rebuild_readouts() -> void:
 	if _economy_body != null and is_instance_valid(_economy_body):
 		_clear_body(_economy_body)
 		_fill_economy(_economy_body)
-	if _politics_body != null and is_instance_valid(_politics_body):
-		_clear_body(_politics_body)
-		_fill_politics(_politics_body)
+	if _factions_body != null and is_instance_valid(_factions_body):
+		_clear_body(_factions_body)
+		_fill_factions(_factions_body)
+	if _territories_body != null and is_instance_valid(_territories_body):
+		_clear_body(_territories_body)
+		_fill_territories(_territories_body)
 
 ## `remove_child` before `queue_free` on purpose: `queue_free` defers to the
 ## end of the frame, so a child left parented is still in `get_children()`
@@ -680,8 +720,137 @@ func _discard_territory() -> void:
 
 # -- Settlements --------------------------------------------------------
 
+## v3 CIVIL ▸ CIVILIZATIONS: *"Auto-populate world · Clear places & routes ·
+## + Placement model"* -- the world-scale act of putting people on a map,
+## which v3 lifts out of Settlements (a browser over the result) and gives its
+## own category, first on the rail.
+##
+## Every control it names is `_build_settlement_gaps`'s content: none of it is
+## callable in this port, for one reason stated once rather than three times --
+## `compute_civilisation` runs *inside* `generate()` and no `#[func]` runs it
+## alone. The placement model's own dials do exist, in File ▸ New world ▸
+## Generation, and the note says where.
+func _build_civilizations() -> void:
+	var cat := DccWidgets.category(self, "Civilizations", categories, true)
+	DccWidgets.note(DccWidgets.section(cat, "How people get placed"),
+		"Settlement placement is not a separate pass in this port: "
+		+ "compute_civilisation runs inside generate(), reading the finished "
+		+ "terrain, climate and biome fields. So the act v3 draws here is "
+		+ "World ▸ Generate, and what is tunable is the placement model -- "
+		+ "biome carrying-capacity, the imperial-seat tier, village seeding, "
+		+ "urban layouts and the recovery phase -- which lives in File ▸ New "
+		+ "world ▸ Generation because it is a creation-time choice.")
+	var newworld := DccWidgets.action(cat, "Placement model → File ▸ New world…",
+		func(): app.open_new_world())
+	newworld.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_build_settlement_gaps(cat)
+
+## v3 CIVIL ▸ FACTIONS. The roster is the writable half (add/remove/edit,
+## CV-07) and the province tally below it is the derived half.
+##
+## v3 also puts *identity colour* here, and marks it authoritative: "how it
+## paints -- tint, opacity, border width -- is CARTO". That split is designed
+## and not built on either side; the note says so rather than offering a
+## colour picker nothing reads.
+func _build_factions() -> void:
+	_factions_body = DccWidgets.category(self, "Factions", categories)
+	_fill_factions(_factions_body)
+
+func _fill_factions(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Roster")
+	var roster_btn := DccWidgets.action(sec, "Faction roster…", func(): app.open_faction_roster(), true)
+	roster_btn.tooltip_text = "The reference's Faction Roster modal: world overview, per-faction cards, and the inspector (name / culture / religion / government / ag-tech, procedural banner, Territory fit, settlement sublist), plus add and remove faction."
+
+	var provinces := bridge.provinces()
+	var settlements := bridge.settlements()
+	if provinces.is_empty():
+		DccWidgets.note(sec, "No provinces -- generate a world first.")
+	else:
+		var by_faction := {}
+		for p in provinces:
+			var d: Dictionary = p
+			var f := int(d.get("faction", 0))
+			if not by_faction.has(f):
+				by_faction[f] = []
+			by_faction[f].append(d)
+		var factions: Array = by_faction.keys()
+		factions.sort()
+		var roster := DccWidgets.group(sec, "By province count")
+		for f in factions:
+			var provs: Array = by_faction[f]
+			var cap_name := "—"
+			if not provs.is_empty():
+				var cap_idx := int((provs[0] as Dictionary).get("capital_settlement_index", -1))
+				if cap_idx >= 0 and cap_idx < settlements.size():
+					cap_name = String((settlements[cap_idx] as Dictionary).get("name", "—"))
+			var text := "Faction %d -- %d provinces, capital %s" % [f, provs.size(), cap_name]
+			var b := DccWidgets.action(roster, text, func(): app.right_dock_ctrl.show_faction(f))
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			b.tooltip_text = "Open this faction in the right dock."
+
+	var gaps := DccWidgets.section(parent, "Not built")
+	DccWidgets.note(gaps,
+		"Identity colour and emblem (GUI_GAP_REGISTER.md CV-21). The roster "
+		+ "window draws a procedural banner per faction, but FactionRoster stores "
+		+ "no colour field and map_overlay.gd derives a faction's tint from its "
+		+ "index -- so a colour set here would paint nothing, and v3's own "
+		+ "CIVIL-owns-the-colour / CARTO-owns-the-paint split has neither half.")
+	DccWidgets.note(gaps,
+		"History, notes and lore per faction (v3 marks these vault; "
+		+ "GUI_GAP_REGISTER.md CV-22). "
+		+ "cartalith-vault's EntityKind covers settlement, province and continent "
+		+ "-- a faction is not an addressable entity there yet "
+		+ "(MARKDOWN_VAULT_SCOPE.md §3's own \"add a kind later\" note is the "
+		+ "change, one enum variant plus one match arm). Linked notes for "
+		+ "provinces and continents are live under Territories.")
+
+## v3 CIVIL ▸ TERRITORIES: recompute, provinces, the territory brush, and the
+## linked notes for the two entity kinds a territory is made of.
+func _build_territories() -> void:
+	_territories_body = DccWidgets.category(self, "Territories", categories)
+	_fill_territories(_territories_body)
+
+func _fill_territories(parent: Control) -> void:
+	## **Two of these rows stopped being gaps when SG-02 shipped and nobody
+	## moved them** (found 2026-08-24 by driving the dock rather than reading
+	## it). Both tooltips asserted, in the shipped build, that no `#[func]`
+	## re-runs territory or provinces -- and `civ_recompute()` re-derives
+	## *both*. They are shortcuts onto that one call now, exactly the shape the
+	## bake pass used for the tool-options bar's dead copy of "Bake ALL levels":
+	## one owner of the action, two ways in, no second implementation to drift.
+	var pol := DccWidgets.section(parent, "Recompute")
+	var recalc := DccWidgets.action(pol, "Recalculate territories", _recompute_civ)
+	recalc.disabled = not bridge.has_world
+	recalc.tooltip_text = ("The reference's territory recompute. Runs Settlements ▸ Recompute "
+		+ "civilisation, which re-derives the whole civ layer downstream of the settlement "
+		+ "list — territory included — against the current terrain and the current settlements, "
+		+ "hand-dropped and hand-edited ones kept. It does NOT re-place settlements; only "
+		+ "Generate does that. Painting a claim by hand stays available too — the Territory "
+		+ "tool in the TOOLS block above.")
+	var gen_prov := DccWidgets.action(pol, "Generate provinces", _recompute_civ)
+	gen_prov.disabled = not bridge.has_world
+	gen_prov.tooltip_text = ("The reference's province generator. Same one call: Recompute "
+		+ "civilisation rebuilds the province partition and reports how many it produced. "
+		+ "Their map tint is a separate switch — Cartography ▸ Political display.")
+	DccWidgets.note(pol,
+		"The Territory brush and its radius are in the TOOLS block at the top of "
+		+ "this dock; arming it puts the radius in the tool options bar.")
+
+	_fill_knowledge(parent, bridge.provinces())
+
+	var gaps := DccWidgets.section(parent, "Not built")
+	var clear_ter := DccWidgets.action(gaps, "Clear territory", func(): pass)
+	clear_ter.disabled = true
+	clear_ter.tooltip_text = "CivData::territory is rebuilt wholesale by generate() and by civ_recompute(); there is no civ_clear_territory #[func], so there is no way to leave the claim map empty. The Territory tool's own Discard reverts an uncommitted draft only, not the committed claim map."
+	DccWidgets.note(gaps,
+		"Borders, claims and influence as separate quantities, and historical "
+		+ "occupation over time (GUI_GAP_REGISTER.md CV-23). CivData::territory is "
+		+ "one plurality-owner-per-cell grid: there is no contested-claim value, no "
+		+ "influence field to gradient, and no per-year ownership record beyond the "
+		+ "timeline's own settlement snapshots.")
+
 func _build_settlements() -> void:
-	var cat := DccWidgets.category(self, "Settlements", categories, true)
+	var cat := DccWidgets.category(self, "Settlements", categories)
 	## Outside `_settlements_body` on purpose: this section is not a readout
 	## of the roster, and `_rebuild_readouts()` -- which the recompute itself
 	## triggers -- would otherwise free the label the result was just written
@@ -697,12 +866,18 @@ func _build_settlements() -> void:
 	_settlements_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cat.add_child(_settlements_body)
 	_fill_settlements(_settlements_body)
+	## v3 folds Population into Settlements ▸ § Properties ▸ Population rather
+	## than leaving it a category of its own -- the totals are a fact *about*
+	## the roster above, and a category whose whole content is two summary
+	## lines was the emptiest row on the rail.
+	_build_population(cat)
+	_build_settlement_vault(cat)
 
 func _fill_settlements(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Roster")
 	var settlements := bridge.settlements()
 	if settlements.is_empty():
-		DccWidgets.note(sec, "No settlements -- generate a world first (World ▸ Generation Pipeline).")
+		DccWidgets.note(sec, "No settlements -- generate a world first (World ▸ Generate).")
 		_build_settlement_gaps(parent)
 		return
 
@@ -874,7 +1049,7 @@ func _build_settlement_gaps(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Not built")
 	var pop := DccWidgets.action(sec, "Auto-populate world", func(): pass)
 	pop.disabled = true
-	pop.tooltip_text = "The reference's #civAutoPopulateBtn, plus its capitals / towns / hamlets count sliders. In this port settlement placement is not a separate pass: compute_civilisation runs inside generate() and there is no civ_populate #[func] to call on its own, nor any parameter for the three counts (params.rs has 58 entries, none of them civ). Re-generate from World ▸ Generation pipeline to re-place everything."
+	pop.tooltip_text = "The reference's #civAutoPopulateBtn, plus its capitals / towns / hamlets count sliders. In this port settlement placement is not a separate pass: compute_civilisation runs inside generate() and there is no civ_populate #[func] to call on its own, nor any parameter for the three counts (params.rs has 58 entries, none of them civ). Re-generate from World ▸ Generate to re-place everything."
 	var clear := DccWidgets.action(sec, "Clear places & routes", func(): pass)
 	clear.disabled = true
 	clear.tooltip_text = "The reference's #civClearPlacesBtn. Same shape: no civ_clear_places #[func] exists, and CivData is rebuilt wholesale by generate() rather than mutated in place, so there is no partial teardown to expose. Individual manual drops can still be undone by re-generating."
@@ -908,9 +1083,59 @@ func _settlement_row(parent: Control, data: Dictionary, index: int) -> void:
 
 ## Split build/fill, like Settlements above: `_build_*` runs once and claims
 ## the category body, `_fill_*` is what `_rebuild_readouts()` can re-run.
-func _build_population() -> void:
-	_population_body = DccWidgets.category(self, "Population", categories)
+func _build_population(parent: Control) -> void:
+	_population_body = VBoxContainer.new()
+	_population_body.add_theme_constant_override("separation", 0)
+	_population_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(_population_body)
 	_fill_population(_population_body)
+
+## v3 CIVIL ▸ SETTLEMENTS ▸ `§ Vault note`, and it is the one place in v3's
+## civic half where the Markdown vault is fully backed: a settlement is an
+## `EntityKind` in `cartalith-vault`, keyed by its `tid`, which survives a
+## rename and a `civ_recompute()`.
+##
+## v3's own rule for this band -- *"numbers the model reads stay app-native,
+## everything descriptive is a heading in the settlement's note"* -- is
+## already how this port is built: the place editor writes name/class/polity/
+## population, and the vault holds the prose.
+##
+## Three of v3's five rows exist and three do not, and this says which is
+## which rather than drawing five and letting three of them do nothing.
+func _build_settlement_vault(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Linked notes")
+	var info := bridge.vault_info()
+	var root := String(info.get("root", ""))
+	if root.is_empty():
+		DccWidgets.note(sec,
+			"No vault connected. A vault is any folder of .md files -- Obsidian is "
+			+ "one, and nothing here requires it. Cartalith reads on demand and "
+			+ "writes only on an explicit, previewed action; it never rewrites a "
+			+ "note's body.")
+	else:
+		DccWidgets.note(sec, "Vault: %s" % root)
+	var open := DccWidgets.action(sec, "Markdown vault…", func(): app.open_vault_overview(), true)
+	open.tooltip_text = "Connect or re-link a vault folder, browse it, and see every knowledge link in this world -- settlements, provinces and continents together."
+	DccWidgets.note(sec,
+		"A settlement's own notes are on its place editor, under Knowledge -- "
+		+ "click a settlement above, then ✎. The link is keyed to the "
+		+ "settlement's tid, so it survives a rename and a recompute.")
+
+	var gaps := DccWidgets.section(parent, "Not built")
+	DccWidgets.note(gaps,
+		"Create-from-template and a path convention (Settlements/{name}.md; "
+		+ "GUI_GAP_REGISTER.md VA-02): "
+		+ "cartalith-vault attaches to notes that already exist and refuses a "
+		+ "heading that does not, deliberately -- it has no note *creator* and no "
+		+ "template registry (MARKDOWN_VAULT_SCOPE.md milestone 1's boundary). "
+		+ "Frontmatter/author-field population IS built and lives in the vault "
+		+ "panel: OnlyIfEmpty by default, previewed, and it reports what it "
+		+ "skipped rather than overwriting.")
+	DccWidgets.note(gaps,
+		"Backlinks and unlinked mentions (GUI_GAP_REGISTER.md VA-01). Both need a "
+		+ "reverse index over the whole vault; the provider walks the folder "
+		+ "bounded and opens no file it was not asked for, which is what keeps a "
+		+ "large vault cheap and is exactly what a mention scan would undo.")
 
 func _fill_population(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Totals")
@@ -933,7 +1158,7 @@ func _fill_population(parent: Control) -> void:
 		total, settlements.size(), largest_name, largest_pop])
 	DccWidgets.note(sec,
 		"Per-settlement population is real (get_settlements()'s own field). Faction- or " +
-		"province-level population aggregation has no binding -- see Politics below for " +
+		"province-level population aggregation has no binding -- see Factions above for " +
 		"what get_provinces() does carry.")
 
 # -- Economy ----------------------------------------------------------------
@@ -982,95 +1207,6 @@ func _top_key(counts: Dictionary) -> String:
 			best_n = int(counts[k])
 			best_key = String(k)
 	return "%s (%d settlements)" % [best_key, best_n]
-
-# -- Politics -----------------------------------------------------------
-
-func _build_politics() -> void:
-	_politics_body = DccWidgets.category(self, "Politics", categories)
-	_fill_politics(_politics_body)
-
-func _fill_politics(parent: Control) -> void:
-	var sec := DccWidgets.section(parent, "Factions")
-	var provinces := bridge.provinces()
-	var settlements := bridge.settlements()
-	if provinces.is_empty():
-		DccWidgets.note(sec, "No provinces -- generate a world first.")
-	else:
-		var by_faction := {}
-		for p in provinces:
-			var d: Dictionary = p
-			var f := int(d.get("faction", 0))
-			if not by_faction.has(f):
-				by_faction[f] = []
-			by_faction[f].append(d)
-		var factions: Array = by_faction.keys()
-		factions.sort()
-		var roster := DccWidgets.group(sec, "Roster, by province count")
-		for f in factions:
-			var provs: Array = by_faction[f]
-			var cap_name := "—"
-			if not provs.is_empty():
-				var cap_idx := int((provs[0] as Dictionary).get("capital_settlement_index", -1))
-				if cap_idx >= 0 and cap_idx < settlements.size():
-					cap_name = String((settlements[cap_idx] as Dictionary).get("name", "—"))
-			var text := "Faction %d -- %d provinces, capital %s" % [f, provs.size(), cap_name]
-			var b := DccWidgets.action(roster, text, func(): app.right_dock_ctrl.show_faction(f))
-			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
-			b.tooltip_text = "Open this faction in the right dock."
-
-	## `civOpenFactionsBtn` (`GUI_GAP_REGISTER.md` CV-07 / MS-13). The
-	## register's reason -- "CIV_FACTION_COUNT is a compile-time constant …
-	## get_factions() enumerates a fixed set, it does not own one" -- was
-	## true when written and is not any more: `CivData::faction_roster` owns
-	## a real, growable roster.
-	var roster_btn := DccWidgets.action(sec, "Faction roster…", func(): app.open_faction_roster(), true)
-	roster_btn.tooltip_text = "The reference's Faction Roster modal: world overview, per-faction cards, and the inspector (name / culture / religion / government / ag-tech, procedural banner, Territory fit, settlement sublist), plus add and remove faction."
-
-	DccWidgets.note(sec,
-		"Territory paint and settlement placement (STRANDED_TOOLS.md rows 10, 12) are wired " +
-		"now -- see the TOOLS block at the top of this dock (§4.5.3's Settlement and " +
-		"Territory tools).")
-
-	_fill_knowledge(parent, provinces)
-
-	## **Two of these three rows stopped being gaps when SG-02 shipped and
-	## nobody moved them** (found 2026-08-24 by driving the dock rather than
-	## reading it). Both tooltips asserted, in the shipped build, that no
-	## `#[func]` re-runs territory or provinces — and `civ_recompute()`, the
-	## button eight rows up in this same dock, re-derives *both*: its own
-	## result dictionary reports `provinces` rebuilt, `_recompute_civ()`
-	## re-uploads `territory_texture()`, and this file's own Settlement-tool
-	## status hint has said so since that pass ("provinces/trade/roads still
-	## predate it. Settlements ▸ Recompute civilisation catches them up").
-	##
-	## So they are shortcuts onto that one call now, exactly the shape the
-	## bake pass used for the tool-options bar's dead copy of "Bake ALL levels"
-	## — one owner of the action, two ways in, no second implementation to
-	## drift. What they cannot do is re-*place* settlements, which is the real
-	## remaining gap and is what each tooltip says instead of the old claim.
-	var pol := DccWidgets.section(parent, "Recompute")
-	var recalc := DccWidgets.action(pol, "Recalculate territories", _recompute_civ)
-	recalc.disabled = not bridge.has_world
-	recalc.tooltip_text = ("The reference's territory recompute. Runs Settlements ▸ Recompute "
-		+ "civilisation, which re-derives the whole civ layer downstream of the settlement "
-		+ "list — territory included — against the current terrain and the current settlements, "
-		+ "hand-dropped and hand-edited ones kept. It does NOT re-place settlements; only "
-		+ "Generate does that. Painting a claim by hand stays available too — the Territory "
-		+ "tool in the TOOLS block above.")
-	var gen_prov := DccWidgets.action(pol, "Generate provinces", _recompute_civ)
-	gen_prov.disabled = not bridge.has_world
-	gen_prov.tooltip_text = ("The reference's province generator. Same one call: Recompute "
-		+ "civilisation rebuilds the province partition and reports how many it produced. "
-		+ "Their map tint is a separate switch — Cartography ▸ Layers ▸ Political — provinces.")
-
-	var gaps := DccWidgets.section(parent, "Not built")
-	var clear_ter := DccWidgets.action(gaps, "Clear territory", func(): pass)
-	clear_ter.disabled = true
-	clear_ter.tooltip_text = "CivData::territory is rebuilt wholesale by generate() and by civ_recompute(); there is no civ_clear_territory #[func], so there is no way to leave the claim map empty. The Territory tool's own Discard reverts an uncommitted draft only, not the committed claim map."
-	DccWidgets.note(gaps,
-		"Diplomatic relations (the design's own per-faction sub-list) is new work with no " +
-		"reference behaviour behind it either -- cartalith-civ models no inter-faction " +
-		"relation of any kind.")
 
 # -- Knowledge: provinces and continents (Markdown vault) --------------------
 
@@ -1204,21 +1340,94 @@ func _build_culture() -> void:
 func open_timeline_category() -> void:
 	for e in categories:
 		var entry: Dictionary = e
-		if String(entry["title"]) == "Timeline":
+		if String(entry["title"]) == "Politics":
 			if not (entry["body"] as Control).visible:
 				(entry["button"] as Button).pressed.emit()
 			return
 
+## v3 CIVIL ▸ POLITICS: *"Political change over time · #civTlAddYearBtn"*.
+##
+## The recorded years, the scrubber, playback and the existence filters -- the
+## timeline as a *record of political change*, which is what it actually is
+## here: `civ_add_year` snapshots which settlements exist, and going to a year
+## reloads that snapshot's territory.
+##
+## **v3 calls the scrubber program scope, and it stays here anyway.** Its
+## reasoning is sound ("time is not a domain; every domain reads the current
+## year") and the shell already reserves a bottom strip for it
+## (`dcc_shell.gd`'s `timeline_bar`). But that strip is one fixed-height HBox
+## row with no space for a year-pill list, an add-year field and three filter
+## checkboxes, and `TIMELINE_SCOPE.md` §4's standing instruction is to build a
+## dedicated panel rather than risk the wrong region. Moving it is a shell-
+## frame change, not a menu change, so it is out of this pass's scope --
+## recorded in `GUI_GAP_REGISTER.md` CV-24 rather than half-done.
 func _build_timeline() -> void:
-	var cat := DccWidgets.category(self, "Timeline", categories)
+	var cat := DccWidgets.category(self, "Politics", categories)
 	_tl_body = cat
 	## The two `bridge.generation_finished`/`bridge.world_loaded` connections
 	## that used to live here are now `_build()`'s single pair, calling
 	## `_on_world_changed()` -- which calls `_tl_on_world_changed()` below
-	## alongside the other five categories. For a long time this was the ONLY
+	## alongside the other categories. For a long time this was the ONLY
 	## subscriber in the file, which is exactly why the rest of the dock never
 	## refreshed (RF-01); one connection point makes that hard to repeat.
 	_rebuild_timeline()
+
+## v3 CIVIL ▸ SIMULATION: collapse and recovery. Its own category because it
+## is a *model*, not a record -- v3's own footnote: "writes one timeline entry
+## per step: history, never the live editable world."
+func _build_simulation() -> void:
+	_sim_body = DccWidgets.category(self, "Simulation", categories)
+	_rebuild_timeline()
+
+## v3 CIVIL ▸ POINTS OF INTEREST. Not built, and omitted rather than drawn
+## inert: `civ_tools_bridge.rs` says outright that POI *"is not a ported
+## concept"* -- there is no `civ_drop_poi`, no POI record on `CivData`, and
+## nothing for a list to enumerate (`GUI_GAP_REGISTER.md` CV-01).
+##
+## v3 also has POIs absorb the reference's manual icon list -- "an icon on the
+## map becomes a POI entity, not a decoration". That is a real design position
+## and the note says where the icons actually live meanwhile, because they do
+## work: they are Cartography ▸ Assets & landmarks, as placed annotation.
+func _build_poi() -> void:
+	var cat := DccWidgets.category(self, "Points of interest", categories)
+	var sec := DccWidgets.section(cat, "Not built")
+	DccWidgets.note(sec,
+		"A POI is not a ported concept: cartalith-civ has no POI record, so there "
+		+ "is no #[func] to drop one, no list to enumerate and no owner, condition "
+		+ "or importance to edit. One civ_drop_poi mirroring civ_drop_settlement "
+		+ "is the whole engine side, and cartalith-assets' poi family already "
+		+ "carries the ten-slot vocabulary the icons would use.")
+	DccWidgets.note(sec,
+		"v3 has POIs absorb the manual icon list -- \"an icon on the map becomes a "
+		+ "POI entity, not a decoration\". Until the entity exists, placed icons "
+		+ "are annotation and live where annotation lives: Cartography ▸ Assets & "
+		+ "landmarks. Stamping one there is real and works; it just is not an "
+		+ "entity anything can own or describe.")
+	var go := DccWidgets.action(cat, "Place an icon → Cartography ▸ Assets & landmarks",
+		func(): app.select_domain("cartography"))
+	go.alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+## v3 CIVIL ▸ MILITARY. Nothing behind it anywhere: no garrison, no
+## fortification and no campaign exists in `cartalith-civ` or in the reference.
+func _build_military() -> void:
+	var cat := DccWidgets.category(self, "Military", categories)
+	DccWidgets.note(DccWidgets.section(cat, "Not built"),
+		"Garrisons, defensive strength, a fortification network and military "
+		+ "campaigns (GUI_GAP_REGISTER.md CV-25). cartalith-civ models none of "
+		+ "them and neither does the reference -- this is new design, not a port "
+		+ "gap. What does exist is defensibility, a per-settlement terrain "
+		+ "heuristic, on the right dock's Settlement context.")
+
+## v3 CIVIL ▸ RELATIONSHIPS. The diplomatic matrix the old Politics category
+## disclosed as a one-line gap, given the category v3 gives it.
+func _build_relationships() -> void:
+	var cat := DccWidgets.category(self, "Relationships", categories)
+	DccWidgets.note(DccWidgets.section(cat, "Not built"),
+		"A diplomatic relations matrix, allies/rivals/subjects, and treaties "
+		+ "(GUI_GAP_REGISTER.md CV-26). cartalith-civ models no inter-faction "
+		+ "relation of any kind -- there is no edge between two factions to hold a "
+		+ "value, so a matrix would be a grid of blanks. The reference has none "
+		+ "either. Vassalage and alliances under v3's Politics are the same gap.")
 
 ## A fresh generate/loaded save invalidates any in-flight playback and the
 ## last simulation's own readout -- same reasoning `right_dock.gd`'s
@@ -1235,20 +1444,27 @@ func _tl_on_world_changed() -> void:
 ## `_rebuild()`/`show_sculpt_stack()` pair already establishes, scoped to
 ## `_tl_body` rather than the whole workspace so Settlements/Population/etc.
 ## above are untouched.
+## Both bodies are refilled together, and each is guarded on its own so the
+## order `_build()` claims them in cannot leave one empty: Politics is
+## category 11 and Simulation is category 14, so the first call runs with
+## `_sim_body` still null and the second catches both.
 func _rebuild_timeline() -> void:
-	if _tl_body == null:
-		return
-	for c in _tl_body.get_children():
-		_tl_body.remove_child(c)
-		c.queue_free()
-	if not bridge.has_world:
-		DccWidgets.note(_tl_body, "Generate a world first.")
-		return
-	_build_timeline_years(_tl_body)
-	_build_timeline_scrub(_tl_body)
-	_build_timeline_playback(_tl_body)
-	_build_timeline_filters(_tl_body)
-	_build_timeline_sim(_tl_body)
+	if _tl_body != null and is_instance_valid(_tl_body):
+		_clear_body(_tl_body)
+		if not bridge.has_world:
+			DccWidgets.note(_tl_body, "Generate a world first.")
+		else:
+			_build_timeline_years(_tl_body)
+			_build_timeline_scrub(_tl_body)
+			_build_timeline_playback(_tl_body)
+			_build_timeline_filters(_tl_body)
+			_build_politics_gaps(_tl_body)
+	if _sim_body != null and is_instance_valid(_sim_body):
+		_clear_body(_sim_body)
+		if not bridge.has_world:
+			DccWidgets.note(_sim_body, "Generate a world first.")
+		else:
+			_build_timeline_sim(_sim_body)
 
 ## `_civFormatYear` (reference line 20644), ported verbatim: negative years
 ## are BC.
@@ -1476,6 +1692,19 @@ func _build_timeline_filters(body: Control) -> void:
 		"drawing (map_overlay.gd's own _draw(), out of scope this pass) and, for removed " +
 		"pins specifically, the OLD snapshot's settlement data, which no #[func] exposes yet " +
 		"(civ_year_diff() returns tid sets only, not positions/names). Disclosed, not faked.")
+
+## v3 POLITICS' second row -- *"Vassalage · alliances · rivalries"* -- has the
+## same missing model as RELATIONSHIPS below, so it says so here and points at
+## the one category that owns the finding rather than repeating it.
+func _build_politics_gaps(body: Control) -> void:
+	var sec := DccWidgets.section(body, "Not built")
+	DccWidgets.note(sec,
+		"Vassalage, alliances and rivalries over time (GUI_GAP_REGISTER.md "
+		+ "CV-26). A recorded year snapshots which settlements exist and who "
+		+ "holds which cell; it records no relation between two factions, "
+		+ "because cartalith-civ has no such relation to record at any year. "
+		+ "The whole finding is under Relationships below.")
+
 
 # -- Collapse / recovery simulator form (Cluster B/impure wiring) -------------
 

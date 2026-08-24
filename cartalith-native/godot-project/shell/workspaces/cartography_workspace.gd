@@ -29,11 +29,34 @@ class_name CartographyWorkspace
 ## **Domain merge (2026-08-20, owner instruction: "And render into carto").**
 ## This dock now also carries the former RENDER domain's one subject
 ## (terrain appearance groups), via `_render` below -- a real
-## `RenderWorkspace` instance, unmodified in what it does, appended as a
-## nested `VBoxContainer` after this file's own three categories. This
+## `RenderWorkspace` instance, unmodified in what it does. This
 ## directly resolves the CA-01/RN-01 ambiguity `GUI_GAP_REGISTER.md` §8.6
 ## flagged: CARTO and RENDER were both proposing to own the same future
 ## `set_appearance()`-shaped `#[func]`; merging the domains removes the split.
+##
+## **v3 (2026-08-24, `design/Cartalith Menu Structure v3.dc.html`).** This dock
+## was three L2 categories (Layers · Layer properties · Annotation) followed by
+## RENDER's flat run of L3 sections. v3 names ten categories for CARTO and
+## re-parents the same controls into them:
+##
+## | v3 category | Where its content came from |
+## |---|---|
+## | Map style | RENDER's Map style presets + Map view + Painter styles |
+## | Terrain appearance | RENDER's Colour relief ramp + relief/sheet/materials/atmosphere |
+## | Colours | RENDER's Colour grade + Grade field influence |
+## | Layers | this file's Visible layers + Settlements-by-class + the gap notes |
+## | Roads & routes | this file's Ways-by-type filter, out of Layers |
+## | Labels | this file's Annotation ▸ label panel |
+## | Assets & landmarks | this file's Annotation ▸ icon panel |
+## | Political display | the provinces/territory rows, out of Visible layers |
+## | Visibility / zoom | the analysis-field overlays (the Layers popover) |
+## | Map presets | RENDER's Saved looks + Still owed |
+##
+## "Layer properties" is gone as a category: it was one honest note about a
+## capability that does not exist (CA-04), and v3 folds per-layer opacity/
+## blend/zoom into LAYERS' own rows. The note moved there rather than being
+## dropped. Nothing was rewritten -- every builder below is the one that was
+## already here, called with a different parent.
 
 ## The layers the shell can actually toggle, in §7's own draw order:
 ## topmost first, matching how the layer list reads.
@@ -53,6 +76,11 @@ const LIVE_LAYERS: Array = [
 	{"id": "provinces", "label": "Political — provinces", "on": false},
 	{"id": "territory", "label": "Political — territory", "on": false},
 ]
+
+## Which of `LIVE_LAYERS` v3 moves out of Layers and into its own **Political
+## display** category. Named by id rather than by index so adding a layer above
+## them cannot silently re-home one.
+const POLITICAL_LAYERS: Array = ["provinces", "territory"]
 
 ## §4.5.5's Icon family/variant vocabulary -- mirrors
 ## `cartalith-assets/src/slots.rs`'s `PACK_SETTLEMENT_SLOTS`/`PACK_ICON_SLOTS`/
@@ -173,38 +201,58 @@ func _build() -> void:
 		{"id": "label", "glyph": "tool_label", "label": "Label (L)"},
 	])
 
-	var cat := DccWidgets.category(self, "Layers", categories, true)
+	## Added and set up *before* the categories, because those categories are
+	## what it draws into now: `_render.setup()` runs its own `_build()`, which
+	## returns immediately while `_nested`, leaving this node holding RENDER's
+	## state (ramp, preset chips, appearance rows, the water-anim layer) and
+	## drawing nothing of its own. See `RenderWorkspace._host`.
+	add_child(_render)
+	_render.setup(app, bridge)
+
+	## 1 -- MAP STYLE
+	_render.build_map_style_into(
+		DccWidgets.category(self, "Map style", categories, true))
+
+	## 2 -- TERRAIN APPEARANCE
+	_render.build_terrain_appearance_into(
+		DccWidgets.category(self, "Terrain appearance", categories))
+
+	## 3 -- COLOURS
+	_render.build_colours_into(
+		DccWidgets.category(self, "Colours", categories))
+
+	## 4 -- LAYERS
+	var cat := DccWidgets.category(self, "Layers", categories)
 	var body := DccWidgets.section(cat, "Visible layers")
 	for layer in LIVE_LAYERS:
+		if POLITICAL_LAYERS.has(String(layer.id)):
+			continue   ## v3 gives these their own category -- see Political display.
 		DccWidgets.toggle(body, layer.label, layer.on,
 			func(on: bool): app.viewport.set_layer_visible(layer.id, on))
 	DccWidgets.note(body,
 		"Terrain, hillshade and colour relief are one baked raster today, so "
 		+ "they toggle together with the map itself rather than as separate rows.")
-	_build_layer_filters(cat)
+	_build_settlement_class_filter(cat)
 	_build_layer_gaps(cat)
 
-	var props := DccWidgets.category(self, "Layer properties", categories)
-	DccWidgets.note(DccWidgets.section(props, "Fill · light · opacity"),
-		"§7's lighting rig is live, in Map view and Rendering - advanced further "
-		+ "down this dock: render.rs's TerrainAppearance is bound now "
-		+ "(get_appearance / set_appearance). What is still missing here is the "
-		+ "FILL half -- the ramp picker and stop editor -- which needs an "
-		+ "elevation-keyed colour ramp the renderer does not have "
-		+ "(GUI_GAP_REGISTER.md CA-02), and per-layer opacity, which needs the "
-		+ "one baked raster to separate first (CA-04).")
+	## 5 -- ROADS & ROUTES
+	_build_way_style(DccWidgets.category(self, "Roads & routes", categories))
 
-	var annot := DccWidgets.category(self, "Annotation", categories, true)
-	_build_icon_panel(annot)
-	_build_label_panel(annot)
+	## 6 -- LABELS
+	_build_label_panel(DccWidgets.category(self, "Labels", categories))
 
-	## Appended last, after CARTO's own three categories -- `_render.setup()`
-	## calls its own `_build()`, which adds its one "Terrain appearance"
-	## section as a child of `_render` itself. One rule marks the seam, same
-	## as `civilization_workspace.gd`'s own INFRA composition.
-	add_child(DccTheme.rule())
-	add_child(_render)
-	_render.setup(app, bridge)
+	## 7 -- ASSETS & LANDMARKS
+	_build_icon_panel(DccWidgets.category(self, "Assets & landmarks", categories))
+
+	## 8 -- POLITICAL DISPLAY
+	_build_political_display(DccWidgets.category(self, "Political display", categories))
+
+	## 9 -- VISIBILITY / ZOOM
+	_build_visibility(DccWidgets.category(self, "Visibility / zoom", categories))
+
+	## 10 -- MAP PRESETS
+	_render.build_presets_into(
+		DccWidgets.category(self, "Map presets", categories))
 
 	_register_tools()
 	bridge.generation_finished.connect(func(ok: bool): if ok: _on_world_changed())
@@ -217,7 +265,7 @@ func _build() -> void:
 ## everything" default -- so an untouched panel and an untouched overlay
 ## agree before the first click, the same discipline `world_workspace.gd`'s
 ## `_paint_brush` mirror already follows.
-func _build_layer_filters(parent: Control) -> void:
+func _build_settlement_class_filter(parent: Control) -> void:
 	var kinds := DccWidgets.group(parent, "Settlements · by class", false)
 	for kind in SETTLEMENT_KINDS:
 		DccWidgets.toggle(kinds, String(kind).capitalize() + "s", true,
@@ -228,14 +276,35 @@ func _build_layer_filters(parent: Control) -> void:
 		+ "unselectable. The master Settlements switch above still gates the "
 		+ "whole layer.")
 
-	var types := DccWidgets.group(parent, "Ways · by type", false)
+
+## v3 CARTO ▸ ROADS & ROUTES. The per-type visibility switches are real and
+## have been since the way-type filter shipped; they moved out of Layers
+## because v3 gives ways and routes a category of their own.
+##
+## **Its geometry is not here, and that is the category's whole point**: v3's
+## own footnote reads *"Geometry, class and cost belong to CIVIL ▸ Routes &
+## Ways. Nothing here changes where a road runs."*
+func _build_way_style(parent: Control) -> void:
+	var types := DccWidgets.section(parent, "Ways · by type")
 	for t in WAY_TYPES:
 		DccWidgets.toggle(types, String(t["label"]), true,
 			func(on: bool): app.viewport.set_way_type_visible(String(t["key"]), on))
 	DccWidgets.note(types,
 		"Every land way type get_roads() can emit: the generated network's four "
 		+ "usage tiers (cartalith_civ::WayType) plus hand-drawn ancient routes. "
-		+ "Sea lanes have their own row above rather than a sixth switch here.")
+		+ "Sea lanes are a whole-layer switch under Layers rather than a sixth "
+		+ "row here.")
+	DccWidgets.action(types, "Draw and edit ways → Civilization ▸ Routes & ways",
+		func(): app.select_domain("civilization")).alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+	var gaps := DccWidgets.section(parent, "Not built")
+	DccWidgets.note(gaps,
+		"Per-class colour, line width, casing, dashes and route glow "
+		+ "(GUI_GAP_REGISTER.md CA-16). map_overlay.gd draws every way with one "
+		+ "hardcoded width-and-colour pair per type and takes no style argument, "
+		+ "and the reference's own #civWayScaleR width slider has no counterpart "
+		+ "on this side -- so a width control would move nothing. Visibility, "
+		+ "above, is the whole of what is wired.")
 
 
 ## Layer surfaces the reference had, or the design asks for, that this shell
@@ -247,7 +316,9 @@ func _build_layer_gaps(parent: Control) -> void:
 		"Per-layer opacity, draw order and blend mode (GUI_GAP_REGISTER.md CA-04): "
 		+ "terrain, hillshade and colour relief are composited into one raster by "
 		+ "render.rs before it crosses the boundary, so there are no separable "
-		+ "outputs to order or blend. Opacity alone is cheap once they separate.")
+		+ "outputs to order or blend. Opacity alone is cheap once they separate. "
+		+ "v3's sixteen-row draggable stack, its per-layer zoom range and its "
+		+ "picking/clip switches all rest on that same separation.")
 	DccWidgets.note(sec,
 		"Show rivers in biome view (#showRivers) and Rivers as ways: both are "
 		+ "reference RENDER filters over a river network that never crosses the "
@@ -258,7 +329,83 @@ func _build_layer_gaps(parent: Control) -> void:
 	DccWidgets.note(sec,
 		"Sharper ecotones (biome-detail sharpening) is not parameterised: biome "
 		+ "classification runs off the finished temperature/rainfall fields with no "
-		+ "dials of its own -- see World ▸ 09 Ecology & biomes for the same finding.")
+		+ "dials of its own -- see World ▸ Biomes for the same finding.")
+
+
+## v3 CARTO ▸ POLITICAL DISPLAY. The two political layer switches, out of the
+## Layers list, plus the honest statement of what the rest of v3's category
+## (border line style, claim hatching, influence gradient, legend) rests on.
+##
+## v3's own rule for this category: identity colour is CIVIL's, *how* it paints
+## is CARTO's. Today the overlay owns both -- `map_overlay.gd` derives a
+## faction's tint from its index and takes no style argument -- which is why
+## nothing below offers a colour.
+func _build_political_display(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Political layers")
+	for layer in LIVE_LAYERS:
+		if not POLITICAL_LAYERS.has(String(layer.id)):
+			continue
+		DccWidgets.toggle(sec, layer.label, layer.on,
+			func(on: bool): app.viewport.set_layer_visible(layer.id, on))
+	DccWidgets.note(sec,
+		"Territory is the per-cell claim map; provinces are its partition into "
+		+ "named administrative units. Both are recomputed by Civilization ▸ "
+		+ "Territories, never by anything in this dock.")
+	var edit := DccWidgets.action(sec, "Edit territories → Civilization ▸ Territories",
+		func(): app.select_domain("civilization"))
+	edit.alignment = HORIZONTAL_ALIGNMENT_LEFT
+
+	var gaps := DccWidgets.section(parent, "Not built")
+	DccWidgets.note(gaps,
+		"Tint opacity, border line width and style, claim hatching, the influence "
+		+ "gradient and its legend (GUI_GAP_REGISTER.md CA-17). map_overlay.gd "
+		+ "draws territory as one fixed-alpha fill with a fixed border and derives "
+		+ "each faction's colour from its index; there is no style record keyed to "
+		+ "a faction id for any of it to write to. The Faction roster's identity "
+		+ "colour, which v3 makes CIVIL's to own, has no renderer consumer yet "
+		+ "either.")
+
+
+## v3 CARTO ▸ VISIBILITY / ZOOM. Its `§ Data overlays` band is the reference's
+## own Analysis field, which v3's migration audit moves here from View -- and
+## which this shell already has, in full, as the map canvas's Layers popover
+## (`layers_popover.gd`, built from the engine's own `debug_layers()` table).
+##
+## A second copy of that list in this dock would be two pickers over one
+## `set_debug_layer()`, and this shell has been bitten by exactly that shape
+## before (the bake button, the recompute rows). So this is one button onto the
+## one picker, not a reimplementation.
+func _build_visibility(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Data overlays")
+	var groups := bridge.debug_layers()
+	var n := 0
+	for g in groups:
+		n += (g as Dictionary).get("items", []).size()
+	if n == 0:
+		DccWidgets.note(sec,
+			"No field views: this build's engine has no debug_layers() binding.")
+	else:
+		DccWidgets.note(sec,
+			("%d analysis fields across %d groups -- elevation, slope, aspect, "
+			+ "curvature, flow accumulation, temperature, rainfall, wind, currents, "
+			+ "soil, lithology, biome and political control, each with its own "
+			+ "legend and a shared opacity. A view whose input this world lacks is "
+			+ "greyed with its reason.") % [n, groups.size()])
+	var open := DccWidgets.action(sec, "Data overlays…", func(): app.layers_popover.open(), true)
+	open.tooltip_text = "The map canvas's Layers popover -- the one picker for every analysis field, anchored under the viewport's own Layers button. Hotkeys 1-8 select the first eight available views."
+
+	var gaps := DccWidgets.section(parent, "Not built")
+	DccWidgets.note(gaps,
+		"The zoom ladder and the declutter budget (GUI_GAP_REGISTER.md CA-18). "
+		+ "Nothing in this shell carries a per-layer zoom range: the one "
+		+ "zoom-dependent behaviour that exists is the urban-layout reveal band, "
+		+ "which map_overlay.gd hardcodes, and label/icon collision is not "
+		+ "resolved at all -- overlapping annotation simply overlaps.")
+	DccWidgets.note(gaps,
+		"Population density, political control as a *choropleth*, and trade "
+		+ "influence: control is a real debug view above; the other two have no "
+		+ "field. Settlement population is per-place, not rasterised, and no trade "
+		+ "influence field is computed anywhere in cartalith-civ.")
 
 
 # ===========================================================================

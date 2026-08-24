@@ -68,7 +68,17 @@ static func _toggle_category(entry: Dictionary, group: Array) -> void:
 
 ## A numbered, stateful L2 category -- the Generation Pipeline's own stage row
 ## (`DCC_SHELL_SPEC.md` §5.1: "number, state dot, name, state label,
-## disclosure chevron"). `category()`'s single-string title can't host a state
+## disclosure chevron").
+##
+## **No current caller** (2026-08-24): v3 replaced WORLD's numbered ten-stage
+## list with nine subject categories, and the stages became L3 sections inside
+## them (`world_workspace.gd`'s `CATEGORIES`). Kept rather than deleted because
+## it is the only row type that can carry a marker changing *after* the row is
+## built, which is a real capability and not a v3-specific one -- and because
+## deleting it would take §5.1's reasoning below with it. If nothing has
+## claimed it by the time WORLD is next reworked, delete it then.
+##
+## `category()`'s single-string title can't host a state
 ## marker that changes after the row is built -- a bridge signal can flip a
 ## stage stale once the dock already exists -- so this is a genuine second row
 ## type, not `category()` restyled. The accordion contract (one open at a

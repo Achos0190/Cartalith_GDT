@@ -253,9 +253,9 @@ func show_wildlife(rec: Dictionary) -> void:
 	_rebuild()
 
 ## Called by `world_workspace.gd` whenever the Sculpt panel is active or the
-## "sculpt" tool is armed (switching the dock's own Generation pipeline /
-## Sculpt toggle to Sculpt, arming the tool via a feature/preset button, or a
-## stroke ending) -- never on a bare cursor move, so Sample stays the default
+## "sculpt" tool is armed (arming the tool via a feature/preset button, or a
+## stroke ending -- the dock's own Generation pipeline / Sculpt toggle was
+## removed by the v3 menu pass, which folded Sculpt into WORLD ▸ Terrain) -- never on a bare cursor move, so Sample stays the default
 ## everywhere else. `_build_sculpt` below reads the stack fresh from
 ## `bridge.sculpt_list_stamps()` on every `_rebuild()`, so this setter carries
 ## no data of its own the way `show_measure`/`show_region` do.
