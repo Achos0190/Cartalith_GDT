@@ -21905,3 +21905,234 @@ and no dropbox entry**. It was not reproducible when tested deliberately —
 pan-with-a-world-loaded survived every time it was checked, and pan with no
 world survived too — and both restarts happened under repeated `screencap`
 pressure with a 2048×1311 world resident. Noted, not attributed.
+
+## The phone had been running a 21-commit-old engine, and the guards that hid it (2026-08-24)
+
+`GUI_GAP_REGISTER.md` §23 · `ANDROID_BUILD_SCOPE.md` (2026-08-24 staleness pass)
+
+An audit sha256-compared the native library inside `builds/android/Cartalith.apk`
+against the build tree and found it **byte-identical to a 2026-08-23 14:34
+build**, with **25 commits** having landed in `cartalith-native/crates/` since.
+Everything downstream of that is the story: the app on the handset looked
+healthy — clean `logcat`, no crash, no ANR — while the NPR panel refused to
+build, Measure's Area/Radius/Cross-section stayed greyed, the faction roster
+read `?` and `0`, the City Viewer drew nothing, and save, undo, the erosion-pass
+parameters, four debug views, GeoJSON export, hand-drawn ways and civ-recompute
+were all inert. None of that work was broken. It was simply not in the binary.
+
+**The silence is the bug worth fixing, not the stale file.** A stale `.so` is a
+process slip and will happen again; a shell that cannot tell "this feature is
+off" from "this engine does not have that function" turns every such slip into
+a week of phantom bug reports. `engine_bridge.gd` had 200
+`world_gen.has_method("…")` guards and not one of them said anything on a miss.
+
+**What changed.** All 200 route through a single probe:
+
+```gdscript
+func _has(method: String) -> bool:
+	if world_gen.has_method(method):
+		return true
+	if not _missing_bindings.has(method):
+		_missing_bindings[method] = true
+		push_warning("Cartalith: the loaded GDExtension has no WorldGen.%s()…" % method)
+	return false
+```
+
+Once per method name, because several of these wrappers are polled from a
+redraw and a per-frame warning would bury its own signal. `missing_bindings()`
+exposes the accumulated set so the fingerprint is readable at runtime.
+`push_warning` rather than `print` because it takes Godot's `_err_print_error`
+path — the one this project's own `logcat` greps have always targeted.
+
+Proved in both directions on a headless harness: **0** warnings against a
+current library across every binding `_ready()` probes plus NPR, factions,
+undo, debug layers, urban layouts, paint and routes; and **exactly one**
+warning for three consecutive calls on a name no binary exports.
+
+**`cartalith.gdextension`'s release entry had the 2026-08-20 bug the debug
+entry had fixed.** `android.release.arm64`'s path was correct for
+`cargo ndk … build --release`, but nothing in this project has ever run that
+command, so it resolved to a **2026-08-16** artifact. Fixed by building it (so
+the path is real and current) and by writing the exact refresh command for each
+Android entry into the manifest beside the entry it refreshes — in `;` comments,
+because `#` is data to `ConfigFile`.
+
+**On device**, after a clean rebuild and a sha256-verified re-export: the
+library maps `r-xp` into the live process, GL ES 3.2 comes up on the Adreno 630,
+a 1024x655 world generates, and `logcat` carries **zero** missing-binding
+warnings. The NPR panel builds and its styles visibly re-render the map
+(Pointillism and Sepia dragged live); the erosion-pass parameters are live.
+**The handset then dropped off USB**, so the roster, City Viewer, paint
+visibility, save/undo, debug views, GeoJSON export, ways and civ-recompute were
+not driven on hardware and are recorded as unverified there rather than assumed
+— along with the one thing the pass wanted and missed: a positive control that
+`push_warning` reaches `logcat` at all.
+
+## Phone: four things the scaling walk could not see (`GUI_GAP_REGISTER.md` PH-07 – PH-10, 2026-08-24)
+
+A second live-device audit the same day, after the PH-01 – PH-06 pass. Four
+findings, all phone-only, and grouped here because three of them are the same
+shape: **a phone-adaptation rule that was written, ran, and silently did not
+apply.** Nothing about any of the four is visible in a headless run or in the
+desktop build, which is the standing lesson of this section rather than a new
+one — but it is worth stating that in three of these cases the *fix* was
+already present and merely never reached the control.
+
+### PH-07 · `phone_fit()`'s font walk cannot see a `RichTextLabel`
+
+`phone_fit()` re-wrote a control's font size where
+`has_theme_font_size_override("font_size")` was true, which is every control
+in this shell but one. **A `RichTextLabel` does not have that theme item at
+all.** Its sizes are five separate ones — `normal_font_size`,
+`bold_font_size`, `italic_font_size`, `bold_italic_font_size`,
+`mono_font_size` — and writing `font_size` on one does nothing whatsoever, with
+no warning.
+
+The control it cost is the right dock's **"Why here?" causal chain**
+(`right_dock.gd`, `normal_font_size` = `FS_SMALL`), the block that explains why
+a settlement sits where it does. On a 1080 × 2340 handset it drew at a flat 11
+*physical* px, roughly a third the height of every row above it in the same
+panel.
+
+The walk now asks for the override list per control class and scales every
+name that is set. A `RichTextLabel` that overrides *nothing* is scaled too, off
+its resolved theme value: it is pure text with no minimum-size floor to catch
+it, so the un-overridden case is the same fault by another route (`app.gd`'s
+credits body is the shell's other one).
+
+**Recorded as a class: a theme override's *name* is per control type, and a
+walk that assumes one name skips the types that use another — in silence.**
+
+### PH-08 · The dock TOOLS block is unlabelled marks on a touch screen
+
+§4.5's tool palette is `dcc_widgets.gd`'s `tool_button`: a 30 × 30 square with
+a 15 px glyph, an **empty** `normal` stylebox, and the tool's name in a
+tooltip. On a pointer that is a complete control — hover names it, 30 px is a
+comfortable target, and eight empty squares deliberately read as one strip with
+hover picking one out. On a handset neither half survives:
+
+- **There is no hover, so the name is unreachable by any route.** CIVIL's block
+  is seven such marks (Inspect, Measure, Region select, Settlement, Territory,
+  Way, Route), WORLD's four, CARTO's five, with nothing on screen to tell any
+  of them apart.
+- **PH-04's 44 dp floor grew the box and not its contents.** The button became
+  121 physical px on the device; the glyph inside stayed 15, about a millimetre
+  on a 400 ppi panel, left-aligned in the cell, with no border to say where the
+  button even was.
+
+`phone_fit()` now *finishes* a tool button rather than only sizing it. The
+glyph is **re-rasterised from the SVG** at 0.42 of the box — which is why
+`dcc_widgets.gd` now stashes the glyph's *name* on the button: `DccIcons`
+caches per `name@px`, so the 15 px `ImageTexture` already in hand cannot be
+grown without resampling it. The `normal` state gains a visible border (and all
+three states gain the same content margin, or `Button` re-lays its content out
+on press and the caption jumps sideways under the finger holding it). The TOOLS
+block's buttons gain a caption under the icon, stacked by
+`vertical_icon_alignment`, carrying the tool's name with the keyboard shortcut
+stripped — the device that needs the caption is the one with no keyboard.
+
+**Caption vs. icon-only-but-bounded was measured, not assumed**, because it is
+a real trade-off: at the phone reference the widest caption ("Region select")
+asks for 112 dp, and CIVIL's four-tool domain row for 338 dp of a 386 dp sheet.
+They fit — but only just, and only at today's vocabulary. So `tools_block()`
+now lays its rows out in an `HFlowContainer`: **a `BoxContainer` handed more
+minimum width than it has does not clip, it overlaps**, so one longer tool name
+would have put the last tool on top of its neighbour rather than on a second
+line. This is not the `HFlowContainer` PH-06's closing note reverted — that one
+was inside the tool sheet's *horizontal* `ScrollContainer`, where a flow
+container is handed unbounded width and can never wrap. A dock sheet scrolls
+vertically only.
+
+The feature picker (`world_workspace.gd`, 13 glyphs in a 5-column grid) uses
+the same widget and gets the touch size and the border, but no caption: its
+labels carry a whole hint sentence, and a grid is not a row.
+
+### PH-09 · PAINT ▸ Class collapses to its own arrow in the tool sheet
+
+PH-04 turned `OptionButton.fit_to_longest_item` **off** on a phone, because
+such a control reports the width of the longest item in its list and one 287 px
+vocabulary label was widening a whole 393 dp window. Down a dock that is
+exactly right and invisible either way — the row is full width and the control
+expands into it.
+
+The tool-options row is not a dock. It is six controls side by side and none of
+them expands, so `fit_to_longest_item = false` plus PH-04's `clip_text` left
+the Class picker with **no content-derived minimum width at all**: measured at
+35 px on the device, showing which class was selected nowhere.
+
+`phone_fit()` gained a `wide` flag for the one caller whose subtree scrolls
+horizontally, and `set_tool_options()` is that caller. Both shrink measures are
+skipped there. The picker now reports 230 dp and reads "Coastal Lowland", and
+the sheet — which already scrolled sideways — is a little wider.
+
+**The class: a "make it fit the screen" rule is wrong inside a container that
+scrolls on that axis, and the two had to be told apart explicitly rather than
+by one global phone flag.**
+
+### PH-10 · The welcome / open-project dialog was never phone-adapted
+
+`open_project_dialog.gd` wrote the *precedent* PH-06 generalised — fill the
+screen and let `content_scale_factor` map the desktop composition onto the
+393 dp reference — and then never took the finished treatment. It kept the
+hand-rolled geometry half and had none of the rest. It is now on
+`DccWidgets.phone_window()` / `phone_present()` plus
+`DccShell.phone_fit(self, 1.0)`, like the other two, and its hand-made
+`phone_insets_changed` connection is replaced by the shared guarded relay plus
+one that carries only what is specific to this screen.
+
+Two things beyond the shared treatment, both measured:
+
+1. **The toolbar had to stack.** A search well that expands beside a three-chip
+   scope row is one row too many for 393 dp: the chips' own minimum is ~230 dp,
+   and an over-constrained `BoxContainer` overlaps rather than clipping — so
+   the well's outlined panel drew straight over `Recent / All worlds / Shared`,
+   and the `LineEdit` inside it got the ~110 dp left over, which is where the
+   reported "Search wo…" came from. The two symptoms the audit reported
+   separately are one fault. `phone_window()` returns a boolean for exactly
+   this case, and this is its first caller to use it.
+2. **An `AcceptDialog` sizes its content child on resize, and on nothing
+   else.** Hiding the too-wide subtitle (which this file already did, and had
+   to) is a minimum-size change, not a resize — so the body kept the **497 dp**
+   width it had been measured at with the subtitle still in it, inside a 393 dp
+   window. The search well ran 82 dp off the right edge and took the gallery
+   tiles and the *Open selected* button with it. Root-caused by dumping
+   `get_combined_minimum_size()` down the tree against the window's real
+   visible rect (nothing exceeded 380 dp) and by presenting
+   `new_world_dialog.gd` beside it in the same run (377 dp, correct) — which is
+   what ruled out the shared `phone_present()` and pointed at the stale rect.
+   `child_controls_changed()` is the engine's own re-measure for this; it runs
+   last in the phone fit, and again at the end of every `_refresh()`, since the
+   gallery it measures is rebuilt on every keystroke in the search well.
+
+### Verification
+
+`_phonefix_probe.gd` (temporary, uncommitted) drives the real shell at 540 ×
+1170 with `--force-touch`, which puts `_phone_scale` at 1.374 — chosen over a
+clean 2.0 because 786 × 1704 does not fit this dev box's screen and Godot
+clamps it, which flips the aspect test and silently drops the phone
+composition entirely. Measured, all four:
+
+| | before | after |
+|---|---|---|
+| PH-07 `normal_font_size` | 11 (unscaled) | 15 = round(11 × 1.374) |
+| PH-08 tool button | 30 dp box, 15 px icon, no caption, no border | 60 dp box, 25 px icon, captioned, bordered |
+| PH-09 Class picker | ~35 px, no text | 230 dp, "Coastal Lowland" |
+| PH-10 dialog body | 497 dp in a 393 dp window | 380 dp |
+
+Screenshots confirm each: CIVIL's seven captioned tools across two flowed rows;
+the Class picker readable in the sheet with its horizontal scrollbar; the
+welcome dialog with the full placeholder, the chips below the well rather than
+under it, and the ✕ and both foot buttons on screen.
+
+**Desktop control run** (`_deskcheck_shot.gd`, 1600 × 900, all three domains):
+the TOOLS block is unchanged by the `HFlowContainer` swap — same 30 × 30
+buttons at the same 32 px pitch, same 15 px icons, no captions.
+
+**On-device: not re-run this pass.** A debug `.apk` carrying these changes was
+built and signed (`builds/android/Cartalith-phonefix.apk`), but the OnePlus 6T
+dropped off `adb` before it could be installed — `device offline`, then gone
+from `adb devices` entirely — while a concurrent Android pass was using the
+same handset. The measurements above are from the desktop phone-size preview
+and are **lower confidence than an on-device run**, which is the bar this class
+of fault has earned; the `.apk` is ready to install the moment the device is
+back.

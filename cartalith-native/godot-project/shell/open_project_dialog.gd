@@ -95,6 +95,14 @@ var _title_label: Label
 var _subtitle_label: Label
 var _cancel_btn: Button
 
+## Phone (§13). `DccWidgets.phone_window()`'s header comment carries the whole
+## treatment and why; here it decides whether the toolbar stacks and whether
+## the composition is re-fitted for touch.
+var _phone := false
+var _toolbar_row: BoxContainer   ## Held so `_apply_phone_toolbar()` can turn it
+	## on its side -- see there for why the search well and the scope chips
+	## cannot share a row at 393 dp.
+
 ## path -> {seed, modified, size}. Keyed by path *and* mtime so a re-saved
 ## world re-reads rather than showing a stale seed; opening a `.zip` per tile
 ## is cheap but not free, and the gallery rebuilds on every keystroke in the
@@ -118,24 +126,38 @@ func setup(host: DccApp) -> void:
 	borderless = true
 	size = Vector2i(1180, 760)
 	min_size = Vector2i(880, 560)
+	## PH-06's shared treatment, which this dialog wrote the *precedent* for
+	## and then never took: `_present()` below was the original fill-the-screen
+	## reasoning, and `new_world_dialog.gd` / `browse_dialog.gd` were fitted to
+	## the generalised version of it while this file kept the hand-rolled half.
+	## What it was missing is the other half -- `phone_fit()`, the touch-target
+	## and stacking pass -- plus `wrap_controls = false`. Also turns the
+	## rotation relay into the guarded, self-disconnecting one, so the manual
+	## `phone_insets_changed` connection this file used to make is gone: the
+	## shared relay re-presents the *window*, and the one kept below re-fits
+	## only what is specific to this screen.
+	_phone = DccWidgets.phone_window(self, host)
 	_build()
 	## The dashed tile is a drop target, and a drop lands on the *window*, not
 	## on the control under the cursor -- Godot reports files at window level.
 	## Guarded on visibility so a drop onto the shell while this dialog is
 	## closed is not silently swallowed by a hidden dialog.
 	files_dropped.connect(_on_files_dropped)
-	## Rotation changes both the screen this fills and how many tiles fit across
-	## it. `phone_insets_changed` is the shell's own "the phone layout moved"
-	## signal, already emitted by `_apply_phone_orientation()`.
-	if _host.is_phone():
+	if _phone:
+		## Rotation changes how many tiles fit across the gallery; the window
+		## geometry itself is `phone_window()`'s own relay's business.
 		_host.phone_insets_changed.connect(func():
 			if visible:
-				_present())
+				_fit_phone_content())
+		## `1.0`, not `phone_scale()`: `phone_present()` applies the scale once
+		## as the window's `content_scale_factor`, and applying it again here
+		## would square it. The composition is built once, so one pass does.
+		_apply_phone_toolbar()
+		_host.phone_fit(self, 1.0)
 
 func open() -> void:
 	_selected = ""
 	_welcome = false
-	popup_centered()
 	_present()
 	_refresh()
 
@@ -148,7 +170,6 @@ func open() -> void:
 func open_welcome() -> void:
 	_selected = ""
 	_welcome = true
-	popup_centered()
 	_present()
 	_refresh()
 
@@ -165,19 +186,23 @@ func open_welcome() -> void:
 ## a real handset, so the desktop numbers land on the phone reference by
 ## construction instead of by a second set of constants.
 ##
-## Re-run on every open (and on rotation, via `_host.phone_insets_changed`)
-## because the viewport it measures changes with both.
+## Re-run on every open (and on rotation, via the relay `phone_window()`
+## installs) because the viewport it measures changes with both. The geometry
+## itself is now `DccWidgets.phone_present()`, which is this reasoning
+## generalised -- and which also fixed a bug this file's hand-rolled version
+## had: `popup_centered()` first and `size = screen` after produced no resize
+## notification on a *hidden* window, so the body kept its desktop rect and
+## overflowed instead of scrolling. `Window.popup(rect)` sizes as part of
+## showing. See `dcc_widgets.gd`'s own header for the measurement.
 func _present() -> void:
-	if _host == null or not _host.is_phone():
+	if not DccWidgets.phone_present(self, _host):
+		popup_centered()
 		return
-	var scale: float = _host.phone_scale()
-	var screen: Vector2 = _host.get_viewport_rect().size
-	content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
-	content_scale_aspect = Window.CONTENT_SCALE_ASPECT_IGNORE
-	content_scale_factor = scale
-	## `min_size` is authored for desktop and would otherwise refuse a window
-	## narrower than 880 px, which every phone in portrait is.
-	min_size = Vector2i.ZERO
+	_fit_phone_content()
+
+## The two things about *this* screen that a generic phone presentation cannot
+## know: which head text does not fit, and how many tiles do.
+func _fit_phone_content() -> void:
 	## A `Window` cannot shrink below its content minimum, so full-screen only
 	## takes effect once the widest row can actually fit the column. The head is
 	## that row by a wide margin: the subtitle is a single unwrapped `Label`
@@ -186,9 +211,47 @@ func _present() -> void:
 	## say in full, so phone drops it -- everything else (the search well, the
 	## clipped foot note) is already shrinkable.
 	_subtitle_label.visible = false
-	size = Vector2i(screen)
-	position = Vector2i.ZERO
-	_fit_columns(screen.x / scale)
+	_fit_columns(_host.get_viewport_rect().size.x / _host.phone_scale())
+	## **An `AcceptDialog` sizes its content child on resize, and on nothing
+	## else.** Hiding the subtitle a line above is a minimum-size change, not a
+	## resize, so the body kept the 497 dp width it was measured at *with* the
+	## subtitle in it -- inside a 393 dp window. Measured: the search well ran
+	## 82 dp off the right edge, taking the gallery tiles and the "Open
+	## selected" button with it. `child_controls_changed()` is the engine's own
+	## "re-measure me" for exactly this, and it brings the body back to 380 dp
+	## (its real minimum, three over the 377 available, which is nothing).
+	## Called last, so it sees the finished composition.
+	child_controls_changed()
+
+## The toolbar is a search well that expands beside a three-chip scope row.
+## That is one row too many for 393 dp: the chips' own minimum is ~230 dp, and
+## a `BoxContainer` handed more minimum width than it has does not clip, it
+## **overlaps** -- so the well's outlined panel drew straight over `Recent /
+## All worlds / Shared`, and the `LineEdit` inside it got the ~110 dp left
+## over, which is where "Search wo…" came from. Both symptoms measured on the
+## handset; both are the same fault. Stacking is the only fix that keeps every
+## control at full size, and it is exactly what `phone_window()` returns a
+## boolean for.
+func _apply_phone_toolbar() -> void:
+	if _toolbar_row == null:
+		return
+	var stacked := VBoxContainer.new()
+	stacked.add_theme_constant_override("separation", 10)
+	var parent := _toolbar_row.get_parent()
+	var index := _toolbar_row.get_index()
+	parent.remove_child(_toolbar_row)
+	## The children move to the new column rather than the row being reparented
+	## into it -- an `HBoxContainer` nested in a `VBoxContainer` would lay its
+	## own children out horizontally again, which is the arrangement being
+	## undone.
+	for c in _toolbar_row.get_children():
+		_toolbar_row.remove_child(c)
+		(c as Control).size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		stacked.add_child(c)
+	_toolbar_row.queue_free()
+	_toolbar_row = null
+	parent.add_child(stacked)
+	parent.move_child(stacked, index)
 
 ## The gallery is a 4-column grid at 1180 px. At the phone reference width it
 ## fits one tile, and two in landscape -- computed from the tile's own minimum
@@ -259,6 +322,7 @@ func _build_head() -> Control:
 func _build_toolbar() -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
+	_toolbar_row = row   ## `_apply_phone_toolbar()` stacks it on a handset.
 
 	var well := PanelContainer.new()
 	well.add_theme_stylebox_override("panel", DccTheme.outline("line"))
@@ -446,6 +510,12 @@ func _refresh() -> void:
 	else:
 		_foot_note.text = "projects read from %s" % root
 	_refresh_open_button()
+	## The gallery just changed, and on a phone its width is what the window
+	## has to be re-measured against -- see `_fit_phone_content()` for why that
+	## does not happen on its own. Runs on every keystroke in the search well,
+	## which is what `child_controls_changed()` is cheap enough for.
+	if _phone:
+		_fit_phone_content()
 
 ## The search well offers "name, seed or region". Name and seed are real
 ## fields; "region" has no equivalent -- a save carries no region name -- so

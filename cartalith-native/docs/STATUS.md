@@ -5,7 +5,50 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **Phone: the map could not be panned at all** —
+Last updated: 2026-08-24 (post **Phone: four things the scaling walk could not
+see** — `GUI_GAP_REGISTER.md` **PH-07** to **PH-10**, from a second live-device
+audit. Three of the four are the same shape: **a phone-adaptation rule that was
+written, ran, and silently did not apply.** `phone_fit()`'s font walk asked for
+`font_size` and a `RichTextLabel` has no such theme item, so the right dock's
+*"Why here?"* causal chain drew at 11 physical px on a 1080-wide handset;
+PH-04's 44 dp floor grew the TOOLS block's boxes and left their 15 px glyphs
+alone, in a palette whose only label is a **tooltip** touch can never open; and
+PH-04's `fit_to_longest_item = false` — correct in a dock — left PAINT ▸ Class
+with no content-derived width at all in the horizontally-scrolling tool sheet,
+35 px showing nothing. The fourth, `open_project_dialog.gd`, wrote the
+precedent PH-06 generalised and then never took the finished treatment. All
+four fixed; **verified at phone size on the desktop preview, not on the
+handset, which dropped off `adb` before the built `.apk` could be
+installed** — recorded as lower confidence and owed on the next device pass)
+— previously, post **The Android APK was 21 commits stale, and 200
+silent guards hid it** — `GUI_GAP_REGISTER.md` **§24 / SB-01**,
+`ANDROID_BUILD_SCOPE.md`'s 2026-08-24 pass. The `.so` inside
+`builds/android/Cartalith.apk` was sha256-identical to a **2026-08-23 14:34**
+build with **25 commits** landed in `crates/` since, so the handset had been
+running a day-old engine behind a current shell: NPR panel not built, Measure's
+Area/Radius/Cross-section greyed, faction roster showing `?`/`0`, City Viewer
+drawing nothing behind a *"no layout"* message that answered the wrong
+question, and save/undo/erosion-parameters/debug-views/GeoJSON/ways/
+civ-recompute plus the just-landed paint-visibility fix all inert — **none of
+it broken, none of it in the binary, and not one line of log about any of it.**
+Rebuilt (`--profile android-dev`, 161,004,536 bytes), re-exported and
+**sha256-verified that the APK carries the new library** rather than trusting a
+timestamp. `cartalith.gdextension`'s `android.release.arm64` had the same
+rot the 2026-08-20 pass fixed on the debug entry — a *correct* path that no
+documented command refreshes, resolving to a **2026-08-16** artifact; built for
+real now, and each Android entry carries the exact command that refreshes it,
+in `;` comments. **The durable fix is the hardening:** all **200**
+`has_method()` guards in `engine_bridge.gd` now route through `_has()`, which
+`push_warning()`s once per missing name instead of degrading in silence, with
+`missing_bindings()` readable at runtime; proved 0-warnings against a current
+library and exactly-one-per-three-calls against a missing name. On device:
+library mapped `r-xp`, GL ES 3.2, a world generated, **zero missing-binding
+warnings**, NPR panel builds and its styles visibly re-render the map, erosion
+parameters live. **Then the handset dropped off USB**, so roster, City Viewer,
+paint visibility, save/undo, debug views, GeoJSON, ways and civ-recompute are
+**unverified on device**, not verified — and the positive control that
+`push_warning` reaches `logcat` at all was not obtained. Next device pass owes
+that control first) — previously, post **Phone: the map could not be panned at all** —
 `GUI_GAP_REGISTER.md` **SH-13** closed, **SH-14** opened. Owner-reported as a
 question about the reference (*"For touch devices I made some specific
 functions inside the html, how to move around, snapping the view back to 100%
@@ -5706,6 +5749,47 @@ read back from `screencap`.
 
 Both verified on the real OnePlus 6T, not only headless
 (`GUI_GAP_REGISTER.md` §22).
+
+**A second live audit the same day added four more, all four now fixed
+(2026-08-24) — `PH-07` to `PH-10`:**
+
+- **PH-07, the font walk could not see a `RichTextLabel`.** It checked
+  `has_theme_font_size_override("font_size")`, and a `RichTextLabel` has no
+  such theme item — its five are `normal_`/`bold_`/`italic_`/`bold_italic_`/
+  `mono_font_size`. The right dock's **"Why here?"** causal chain was skipped
+  in silence and drew at 11 *physical* px on a 1080-wide handset. The walk now
+  asks per control class, and scales an un-overridden `RichTextLabel` off its
+  theme value too.
+- **PH-08, the dock TOOLS block was unlabelled marks.** 30 x 30, 15 px glyph,
+  empty `normal` stylebox, name in a **tooltip** — and touch has no hover, so
+  CIVIL's seven tools had nothing to tell them apart. PH-04's floor grew the
+  box and left the glyph at 15 px inside it. The glyph is now re-rasterised
+  from the SVG at 0.42 of the box, the button gains a border, and the TOOLS
+  block gains a caption under the icon. Captions fit (widest 112 dp; CIVIL's
+  domain row 338 of 386) but only just, so `tools_block()` moved to
+  `HFlowContainer` — an over-constrained `BoxContainer` *overlaps*.
+- **PH-09, PAINT ▸ Class collapsed to its own arrow.** PH-04's
+  `fit_to_longest_item = false` is right in a dock and wrong in the tool
+  sheet, where nothing expands: no content-derived minimum width at all, 35 px
+  on the device. `phone_fit()` gained a `wide` flag for the one subtree that
+  scrolls horizontally; the picker now reports 230 dp.
+- **PH-10, the welcome / open-project dialog was never phone-adapted.** It
+  wrote the precedent PH-06 generalised and never took the finished treatment.
+  Now on `phone_window()`/`phone_present()`/`phone_fit(self, 1.0)`, with the
+  toolbar stacked (the chips' 230 dp minimum was overlapping the search well,
+  which is both reported symptoms at once) and a `child_controls_changed()`
+  after the fit — **an `AcceptDialog` sizes its content child on resize and on
+  nothing else**, so hiding the too-wide subtitle left the body at 497 dp
+  inside a 393 dp window, with the *Open selected* button off the edge.
+
+**Verification of PH-07 to PH-10 is desktop phone-size preview, not
+on-device** — `_phonefix_probe.gd` at 540 x 1170 `--force-touch` measures all
+four (11→15 px; 30→60 dp box with a 25 px icon and a caption; 35→230 dp
+picker; 497→380 dp body) and a 1600 x 900 control run proves the
+`HFlowContainer` swap is a desktop no-op. A debug `.apk` was built and signed
+(`builds/android/Cartalith-phonefix.apk`) but the handset dropped off `adb`
+before it could be installed. **Lower confidence than an on-device run, which
+is the bar this class of fault has earned; owed on the next device pass.**
 
 **Still open:** nothing from §22. One unrelated observation logged there: the
 `toggle()` rows in New world clip their labels at `ROW_LABEL_W` on a phone.

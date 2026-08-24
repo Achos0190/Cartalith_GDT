@@ -606,7 +606,10 @@ func set_tool_options(build: Callable) -> void:
 	## Deferred one frame so `_phone_bottom_reserve()` reads the sheet's real
 	## post-layout size rather than its size from before this rebuild.
 	if _phone:
-		phone_fit(tool_options_row, _phone_scale)
+		## `wide`: this row lives inside a horizontally scrolling sheet, so it
+		## is the one subtree that must NOT be squeezed to fit the screen --
+		## see `phone_fit()`'s own header.
+		phone_fit(tool_options_row, _phone_scale, true)
 		(func(): phone_insets_changed.emit()).call_deferred()
 
 ## Owner, 2026-08-20: "the bottom menu butons on phone are near too small to
@@ -652,16 +655,60 @@ const _PHONE_FIT_META := "_phone_fitted"
 ## once a button forwards its drag.
 const PHONE_SCROLL_DEADZONE := 10
 
-func phone_fit(node: Node, unit: float) -> void:
+## **The font-size override is not always called `font_size`.** Every control
+## in this shell but one carries the generic name, so the walk below checked
+## only that -- and a `RichTextLabel` does not have it at all. Its own sizes
+## are five separate theme items, one per style, and setting `font_size` on
+## one does nothing whatsoever. The right dock's "Why here?" causal chain
+## (`right_dock.gd`, `normal_font_size` = `FS_SMALL`) was therefore skipped in
+## silence and drew at a flat 11 *physical* px on a 1080-wide handset, about a
+## third the height of every row above it. Measured on the device; there is no
+## warning and no visible failure anywhere else.
+const _FONT_SIZE_KEYS: PackedStringArray = ["font_size"]
+const _RICH_FONT_SIZE_KEYS: PackedStringArray = [
+	"normal_font_size", "bold_font_size", "italic_font_size",
+	"bold_italic_font_size", "mono_font_size"]
+
+## `wide` says the subtree scrolls horizontally, so nothing in it has to be
+## made to fit a 393 dp column. Exactly one caller sets it -- the phone tool
+## sheet, which `_build_phone_tool_sheet()` wraps in a `SCROLL_MODE_AUTO`
+## `ScrollContainer` -- and it turns off the two width-shrinking measures
+## below, both of which are wrong there and one of which was actively
+## breaking it. PAINT ▸ Class is the case that found it: `fit_to_longest_item
+## = false` plus `clip_text` leaves an `OptionButton` with **no** content-
+## derived minimum width at all. Down a dock that is invisible, because the
+## row is full width and the control expands into it; in the tool sheet the
+## row is one of six side by side and none of them expands, so the control
+## collapsed onto its own drop-down arrow -- 35 px, showing which class is
+## selected nowhere. Sizing it from its longest item instead just makes the
+## sheet a little wider, and the sheet already scrolls.
+func phone_fit(node: Node, unit: float, wide: bool = false) -> void:
 	for child in node.get_children():
 		if child is Control and not child.has_meta(_PHONE_FIT_META):
 			var ctl := child as Control
 			ctl.set_meta(_PHONE_FIT_META, true)
 			## Explicit font-size overrides beat any theme we could hang on the
 			## sheet, so they have to be re-written rather than inherited.
-			if unit != 1.0 and ctl.has_theme_font_size_override("font_size"):
-				ctl.add_theme_font_size_override("font_size",
-					maxi(1, int(round(ctl.get_theme_font_size("font_size") * unit))))
+			## See `_RICH_FONT_SIZE_KEYS` for why the name is asked for per
+			## control class rather than assumed to be `font_size`.
+			if unit != 1.0:
+				var rich := ctl is RichTextLabel
+				var scaled_any := false
+				for key in (_RICH_FONT_SIZE_KEYS if rich else _FONT_SIZE_KEYS):
+					if ctl.has_theme_font_size_override(key):
+						ctl.add_theme_font_size_override(key,
+							maxi(1, int(round(ctl.get_theme_font_size(key) * unit))))
+						scaled_any = true
+				## A `RichTextLabel` that overrides *nothing* still needs the
+				## pass: it is pure text with no minimum-size floor to catch
+				## it, so left alone it renders at the stock theme size, which
+				## on a phone is the same unscaled physical pixel the override
+				## case was. `app.gd`'s credits body is the other one in this
+				## shell. Resolved off the theme rather than hard-coded, so a
+				## re-themed default still lands right.
+				if rich and not scaled_any:
+					ctl.add_theme_font_size_override("normal_font_size",
+						maxi(1, int(round(ctl.get_theme_font_size("normal_font_size") * unit))))
 			## Scale whatever the desktop row asked for, then floor anything
 			## tappable at §13's 44 px -- the floor is the half the owner felt.
 			var tap := maxf(1.0, round(DccTheme.PHONE_TAP_MIN * unit))
@@ -675,6 +722,22 @@ func phone_fit(node: Node, unit: float) -> void:
 				if min_size.x > 0.0:
 					min_size.x = maxf(min_size.x, tap)
 			ctl.custom_minimum_size = min_size
+			## §4.5's TOOLS block. The floor above grew each tool's *box* to
+			## 44 dp and left everything inside it exactly as authored, which is
+			## the whole fault: `dcc_widgets.gd`'s `tool_button` is a 15 px
+			## glyph, an **empty** `normal` stylebox, and the tool's name in a
+			## tooltip. On a pointer that is a complete control -- hover names
+			## it, and 30 px is a comfortable target. On a handset it is
+			## neither. There is no hover, so the name is unreachable by any
+			## route at all; and 15 px stays 15 *physical* px, about a
+			## millimetre on a 400 ppi panel, sitting left-aligned in a 121 px
+			## cell with no border to say where the button even is. CIVIL's
+			## block is seven such marks (Inspect, Measure, Region select,
+			## Settlement, Territory, Way, Route) with nothing to tell any of
+			## them apart. Measured on the device, and exactly the class of
+			## fault no headless check can see.
+			if ctl is Button and ctl.has_meta(DccWidgets.TOOL_GLYPH_META):
+				_phone_fit_tool_button(ctl as Button, unit)
 			## **A drag that starts on a row has to reach the scroll above it.**
 			## `dcc_widgets.gd` builds every row as an `HBoxContainer`, and a
 			## `Control` picks by default (`MOUSE_FILTER_STOP`), which ends the
@@ -766,7 +829,7 @@ func phone_fit(node: Node, unit: float) -> void:
 			## from, so trimming it collapses it to nothing -- the roster's
 			## Add/Remove pair went to zero width the first time this was
 			## applied to every button alike.
-			if ctl is Button and (ctl.size_flags_horizontal & Control.SIZE_EXPAND) != 0:
+			if not wide and ctl is Button and (ctl.size_flags_horizontal & Control.SIZE_EXPAND) != 0:
 				(ctl as Button).clip_text = true
 				(ctl as Button).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 			if ctl is OptionButton:
@@ -779,13 +842,58 @@ func phone_fit(node: Node, unit: float) -> void:
 				## (ard plow, …)" alone asked for 287 px of a 393 dp row. A
 				## phone row is full width and never sits beside anything, so
 				## there is no reflow to protect against.
-				(ctl as OptionButton).fit_to_longest_item = false
+				if not wide:
+					(ctl as OptionButton).fit_to_longest_item = false
 				var pop := (ctl as OptionButton).get_popup()
 				pop.add_theme_constant_override("v_separation", int(round(22.0 * unit)))
 				if unit != 1.0:
 					pop.add_theme_font_size_override("font_size",
 						maxi(1, int(round(pop.get_theme_font_size("font_size") * unit))))
-		phone_fit(child, unit)
+		phone_fit(child, unit, wide)
+
+## The phone half of a §4.5 tool button: a real glyph, a visible box, and the
+## name the tooltip can no longer deliver. See the call site in `phone_fit()`
+## for the fault this closes.
+func _phone_fit_tool_button(b: Button, unit: float) -> void:
+	## Re-rasterised from the SVG at the size it will actually be drawn at,
+	## which is why `dcc_widgets.gd` stashes the glyph's *name*: `DccIcons`
+	## caches per `name@px`, so the 15 px texture already in hand cannot be
+	## grown without resampling it. 0.42 of the box leaves the caption room and
+	## keeps the icon off the border.
+	var box := maxf(b.custom_minimum_size.x, b.custom_minimum_size.y)
+	b.icon = DccIcons.get_icon(String(b.get_meta(DccWidgets.TOOL_GLYPH_META)),
+		maxi(1, int(round(box * 0.42))))
+	## The desktop button is invisible at rest on purpose -- a palette of eight
+	## empty squares reads as one strip, and hover picks one out. Touch has no
+	## hover, so at rest is the only state there is, and an unbounded mark is
+	## not identifiable as a target. `pressed` keeps its accent wash, so armed
+	## still reads differently from merely present.
+	b.add_theme_stylebox_override("normal",
+		DccTheme.outline("line_soft", "panel", maxi(1, int(round(unit)))))
+	## `outline()` and `flat()` both carry a zero content margin, so without
+	## this the caption is drawn hard against the border it just gained -- and
+	## the *three* states have to agree, or `Button` re-lays its content out on
+	## press and the label jumps sideways under the finger holding it.
+	var pad: float = round(4.0 * unit)
+	for state in ["normal", "hover", "pressed"]:
+		var sb: StyleBox = b.get_theme_stylebox(state)
+		sb.content_margin_left = pad
+		sb.content_margin_right = pad
+	if not b.has_meta(DccWidgets.TOOL_CAPTION_META):
+		return
+	b.text = String(b.get_meta(DccWidgets.TOOL_CAPTION_META))
+	## Icon *above* the caption, not beside it: `Button` stacks the two
+	## whenever `vertical_icon_alignment` is anything but CENTER, and stacking
+	## is what keeps a tool close to square instead of turning the row into
+	## four wide pills. The width this asks for is why `tools_block()` lays its
+	## rows out in an `HFlowContainer`.
+	b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+	b.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	b.add_theme_font_size_override("font_size",
+		maxi(1, int(round(DccTheme.FS_MICRO * unit))))
+	b.add_theme_color_override("font_color", DccTheme.c("text_dim"))
+	b.add_theme_color_override("font_pressed_color", DccTheme.c("accent"))
+	b.add_theme_color_override("font_hover_color", DccTheme.c("text_bright"))
 
 ## The dock sheets carry every workspace panel -- the NPR Painter block, the
 ## CIVIL dock's Faction roster button, the right dock's Settlement ▸ City

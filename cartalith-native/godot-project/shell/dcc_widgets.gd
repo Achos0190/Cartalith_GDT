@@ -378,6 +378,16 @@ static func modal_button(parent: Control, text: String, on_press: Callable,
 ## dock isn't currently visible. That is the whole mechanism `UI_SHELL_DESIGN
 ## .md`'s "one tool is armed at a time, globally" needs -- no extra
 ## bookkeeping beyond every tool button belonging to one group.
+##
+## The two metas are the phone's half of this widget, and they live here
+## because this is the file that knows the glyph's *name* -- an `ImageTexture`
+## rasterised at 15 px cannot be grown afterwards without resampling, so
+## `DccShell.phone_fit()` has to re-render from the SVG, and for that it needs
+## the name back. `TOOL_CAPTION_META` is set by `tools_block()` only; see there
+## for why the feature picker does not get one.
+const TOOL_GLYPH_META := "dcc_tool_glyph"
+const TOOL_CAPTION_META := "dcc_tool_caption"
+
 static func tool_button(parent: Control, glyph: String, label_text: String,
 		group: ButtonGroup, on_armed: Callable) -> Button:
 	var b := Button.new()
@@ -385,6 +395,7 @@ static func tool_button(parent: Control, glyph: String, label_text: String,
 	b.button_group = group
 	b.focus_mode = Control.FOCUS_NONE
 	b.tooltip_text = label_text
+	b.set_meta(TOOL_GLYPH_META, glyph)
 	b.custom_minimum_size = Vector2(30, 30)
 	b.icon = DccIcons.get_icon(glyph, 15)
 	b.expand_icon = false
@@ -405,18 +416,39 @@ static func tool_button(parent: Control, glyph: String, label_text: String,
 static func tools_block(parent: Control, app, group: ButtonGroup,
 		domain_entries: Array = []) -> void:
 	var sec := section(parent, "Tools")
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 2)
-	sec.add_child(row)
-	for e in GLOBAL_TOOL_ENTRIES:
-		tool_button(row, e["glyph"], e["label"], group, func(): app.arm_tool(e["id"]))
+	sec.add_child(_tools_row(GLOBAL_TOOL_ENTRIES, app, group))
 	if not domain_entries.is_empty():
-		var row2 := HBoxContainer.new()
-		row2.add_theme_constant_override("separation", 2)
-		sec.add_child(row2)
-		for e in domain_entries:
-			tool_button(row2, e["glyph"], e["label"], group, func(): app.arm_tool(e["id"]))
+		sec.add_child(_tools_row(domain_entries, app, group))
 	parent.add_child(DccTheme.rule())
+
+## `HFlowContainer`, not `HBoxContainer`, and only because of the phone: on a
+## handset `DccShell.phone_fit()` puts each tool's *name* under its glyph
+## (they are otherwise unlabelled marks, and touch has no hover to name them
+## with), which makes a row several times wider than the four 30 px squares it
+## was authored as. A `BoxContainer` handed more minimum width than it has does
+## not clip -- it *overlaps*, so the last tool would sit on top of its
+## neighbour rather than moving to a second line. Nothing changes on desktop:
+## a flow container with room for every child lays it out identically.
+static func _tools_row(entries: Array, app, group: ButtonGroup) -> Control:
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 2)
+	row.add_theme_constant_override("v_separation", 2)
+	for e in entries:
+		var b := tool_button(row, e["glyph"], e["label"], group, func(): app.arm_tool(e["id"]))
+		## The TOOLS block is the one caller whose labels are short enough to
+		## draw under a glyph. `world_workspace.gd`'s feature picker uses the
+		## same widget with a whole hint sentence appended, in a 5-column
+		## grid, so it gets the touch size and the border and no caption.
+		b.set_meta(TOOL_CAPTION_META, tool_caption(String(e["label"])))
+	return row
+
+## `"Region select (R)"` -> `"Region select"`. The entry's `label` is written
+## for a tooltip: it carries a keyboard shortcut, and the device that needs the
+## caption is the one with no keyboard to press it on.
+static func tool_caption(label_text: String) -> String:
+	var s := label_text.split(" -- ")[0]
+	var paren := s.find(" (")
+	return (s.substr(0, paren) if paren > 0 else s).strip_edges()
 
 ## §4.5.1 -- present in every domain, identical everywhere.
 const GLOBAL_TOOL_ENTRIES: Array = [
