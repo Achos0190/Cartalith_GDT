@@ -2652,11 +2652,11 @@ owner call, not an implementation detail.
 | **FR-03** | The Faction Inspector's **Power breakdown** (military / economic / political / cultural / religious) and its **Economy** block (food production and surplus, tax income, trade income, primary exports and imports, strategic resources, craft share) | Both read `_civFactionAggregates`' resource- and density-fed half. `civ_faction_aggregates` **is** ported and is now called for real (`civ_faction_terrain_fits`) — but with `resources: None, density: None`, which is all the terrain-mix half needs. Filling those in means retaining the 15 resource rasters and a population-density field past `compute_civilisation`, which `MEMORY_OPTIMIZATION_SCOPE.md` deliberately paid to avoid. A memory decision plus an `ECONOMY_SCOPE.md` milestone, not a widget |
 | **FR-04** | **Diplomatic relations** | No model in either codebase. The reference's own inspector renders "Diplomatic relations — not yet implemented"; so does this |
 | **CV-12** | **Placement-diagnostics overlay**, `civDiagnosticsChk` (HTML 1415, `drawCivLayer` §2.6 at 15617) | **Blocked on urban morphology, not on UI.** Every line of the fact card it draws is `_um*` data: `_umWallSpec`'s wall ladder, `_umSiteProfile`'s river classification and coast distance, and a peek into `_umModelCache` for bridge/ford/harbour validity — inside a `SITE_WM × SITE_HM` footprint box. `cartalith-urban` milestones 8-17 are unported, so the overlay would have nothing to draw. Registered as a **disabled control carrying that reason**, in CIVIL ▸ Settlements ▸ Not built |
-| **ED-03a** | An edited **specialisation** does not reach `civ_faction_aggregates`' sector output | `FactionPlace::specialisation` is a field that function reads, and every caller passes `None`. Feeding user edits in would change already-golden economy numbers on an interactive edit — a decision to take deliberately, not a wiring detail. Stated in `civ_roster_bridge`'s module doc, in the editor's own Economy tooltip, and here |
+| **ED-03a** | An edited **specialisation** does not reach `civ_faction_aggregates`' sector output | `FactionPlace::specialisation` is a field that function reads, and every caller passes `None`. Feeding user edits in would change already-golden economy numbers on an interactive edit — a decision to take deliberately, not a wiring detail. Stated in `civ_roster_bridge`'s module doc, in the editor's own Economy tooltip, and here. **SG-02 does not close this** (checked 2026-08-24): `recompute_civilisation` rebuilds `trade_balances`, which is `civ_resource_trade_balance` over the settlement's own catchment — `civ_faction_aggregates` is not on the path at all, so `specialisation` still reaches nothing |
 | **ED-03b** | The **age** and **walls** overrides are stored and consumed by nothing | Their only readers are `_umInferAge`/`_umInferWalls`/`_umWallSpec`. Same block as CV-12 |
 | **ED-03c** | The seven **traits** are stored and never drawn on the map | The reference draws them as glyphs beside the marker; `map_overlay.gd` has no per-trait glyph pass, and that file is deliberately minimal-touch this pass |
 | **UM-03** | The layout thumbnail (`peCityPreview`) and its City Viewer launcher (`peCityOpen`) inside the place popup | UM-03 called this "doubly blocked: no place-edit popup exists at all (ED-03) and no city layout to preview even if it did." **Half of that is now false** — the popup exists. The remaining half stands |
-| **ED-03d** | A place edit or delete does **not** recompute provinces, trade balances, roads, territory or `explanations` | The same staleness `civ_drop_settlement` has always disclosed in its own status hint, and the same MS-06…MS-12 shape: those are produced inside `generate()` and no `#[func]` re-runs any of them. Stated in `civ_delete_settlement`'s doc comment and in the delete-confirmation dialog's own text, so a user meets it at the moment it matters |
+| **ED-03d** | A place edit or delete does **not** recompute provinces, trade balances, roads, territory or `explanations` | **CLOSED 2026-08-24 (SG-02).** `recompute_civilisation()` rebuilds all five against the current roster and terrain, and the Civilization dock's Settlements ▸ Recompute button calls it; verified in a real run — a hand-dropped capital moved territory, roads, provinces *and* trade balances, all four of which were unmoved before. It stays an explicit button rather than a cascade on every edit: 4.22 s at 2048² is not a per-keystroke cost. The disclosures this row was written about (`civ_delete_settlement`'s doc comment, the delete-confirmation dialog, `_settlement_click`'s status hint) now name that button instead of saying "not recomputed" full stop |
 | **CV-13** | A faction added after generation owns nothing until something is assigned to it | Not a gap — the reference's `_civAddFaction` behaves identically (it appends to `CIV_FACTIONS` and touches nothing already placed). `assign_factions` runs inside `generate()` at `CIV_FACTION_COUNT`; the status hint after Add says exactly this |
 
 ### 18.4 · Verification
@@ -2996,8 +2996,66 @@ button.
 | Tag | What | Backed by | State | Why it is not built |
 |---|---|---|---|---|
 | **SG-01** | A **staleness indicator** — the DCC mockup's own *"downstream update: rivers · deferred"* status line, showing which stages are stale and why | `StageGraph::stale_stages` / `staleness()` return the stage names *and* the most-upstream reason string, already; `sculpt_commit`/`carve_fjords`/`paint_commit` return `still_stale` on every call | **open, no design** | Where it lives (status bar? per-stage chips in the World workspace's stage list? both?) is a shell-layout decision, and `DCC_SHELL_SPEC.md` has no surface for it |
-| **SG-02** | A **"Recompute now"** control for the stages a commit leaves stale — today that is always `civ` | `recompute_stale_stages()` exists and is callable; the civ half additionally needs a `#[func]` that re-runs `compute_civilisation` over the current `WorldState` (it has none — the layer is only ever built inside `generate()`, the same shape MS-06…MS-09 and ED-03d already describe) | **open, engine half incomplete** | Two-part: a control needs somewhere to live, *and* the civ rebuild needs a binding that does not exist. The measured reason it is deferred rather than automatic is `UNIFIED_TOOL_PLAN.md` milestone C's ~7 s/stroke at 2048² |
+| **SG-02** | A **"Recompute now"** control for the stages a commit leaves stale — today that is always `civ` | `recompute_stale_stages()` exists and is callable; `recompute_civilisation()` is the civ half, and `civilization_workspace.gd`'s Settlements ▸ **Recompute** section is the control | **CLOSED 2026-08-24** | See the note below for the design (what is re-derived, what is preserved, what deliberately is not) and the measured cost |
 | **SG-03** | **`param_set` marking the graph** — a moved dial invalidating the stage it actually affects, instead of `engine_bridge.gd`'s blanket *"a moved dial does not recompute a stage, it marks the world stale until the next full generate"* | Nothing yet: the graph is marked only by the three commit paths | **open, needs a design first** | Needs a per-parameter → stage table over `params.rs`'s entries. That is a real design decision (does `climate.rain_k` invalidate climate only, or civ too? does `tect.seed` invalidate everything, i.e. a full regenerate?), not something to improvise inside a setter |
+
+### SG-02, closed 2026-08-24 — what "recompute civilisation" was decided to mean
+
+The engine half is `WorldGen::recompute_civilisation()`; the control is a
+**Recompute** section in the Civilization dock's Settlements category
+(`civilization_workspace.gd`), chosen over a menu item because that dock is
+where every readout the call fixes already lives.
+
+The design question was not whether to rebuild the civ layer but **how much
+of it**, and the answer is deliberately not "all of it":
+
+- **Re-derived** — everything downstream of the settlement list, against the
+  *current* terrain: water bodies, biome, lithology and soil, resource
+  potentials, the hierarchical road topology and its consolidated ways, sea
+  lanes, territory, provinces, per-settlement trade balances, the suitability
+  `explanations` (correctly re-indexed) and agrarian density.
+- **Preserved** — the settlement list itself, and with it everything keyed to
+  it: hand-dropped places (`civ_drop_settlement`), hand-edited names, tiers,
+  populations and factions (`civ_edit_settlement`), the `tid`-keyed
+  `place_extras` side table (traits, specialisation, history, age/walls
+  overrides), the faction roster, the recorded timeline and year, and
+  hand-painted territory — which `CivTools::rebase` re-anchors onto the newly
+  computed borders instead of erasing. `CivTools::commit` could not do that
+  job: it is driven by the in-progress draft and returns early when it is
+  empty, which it always is at recompute time.
+- **Not done** — settlement *placement* is not re-derived. Re-running
+  `find_settlement_seeds`/`place_settlements` would move every settlement,
+  re-roll every name from a fresh RNG, and drop every hand-authored place and
+  every side-table entry keyed to a `tid` that no longer exists. Re-placing
+  from terrain already has a control: Generate. The metropolis promotion, the
+  village seeding pass and the recovery phase are skipped on this path for
+  the same reason — each of them *authors* settlements, and re-running them
+  would overwrite a user's own edit or append a second copy.
+
+Consequence worth stating plainly: sculpt a mountain under a city and the
+recompute reroutes its roads and redraws its borders, but the city stays on
+the mountain.
+
+**Found by the real-shell run, not by reasoning: villages are not road
+network nodes.** The reference seeds them *after* `_civHierarchicalNetwork`
+has run, so an auto-populated village-enabled world has roads between its
+placed settlements and none to its villages. Feeding the whole kept list back
+into the topology — which the first implementation did — took a 384 × 288
+world from **35 ways to 240 on one button press**, restructuring the map
+rather than catching it up, and tripled the call's cost (4.3 s → 0.7 s once
+fixed). `CivData::village_tids` now records which settlements
+`civ_seed_villages` added, keyed by `tid` because neither an index nor a
+trailing range survives `civ_delete_settlement`'s splice or
+`civ_drop_settlement`'s append; the recompute builds the network from the
+non-village settlements and remaps the edge endpoints back. Same world after
+the fix: 35 ways before, 35 after, rerouted around the new mountain.
+
+**Measured** (release, CPU path, square grids at 1200 km): **0.94 s at 512²,
+1.60 s at 1024², 4.22 s at 2048²** — about half the cost of a full
+`generate()` of the same world on the same run (1.28 s / 2.59 s / 8.16 s),
+and below `UNIFIED_TOOL_PLAN.md` milestone C's ~7 s/stroke figure precisely
+because placement and naming are the parts it skips. No fast path: a second
+call on unchanged input costs the same, to within a few ms.
 
 **Not registered, because it is not a gap:** the carve-time river network
 (`channels`, `stream_order`, `river_mask`) staying as it was after an edit.

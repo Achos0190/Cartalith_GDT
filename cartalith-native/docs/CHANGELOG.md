@@ -21414,6 +21414,129 @@ double-click-to-enter are untouched.
 this fix and shared with every narrow dock; not treated here rather than
 guessed at.
 
+## Civ catches up on demand: `recompute_civilisation` (`GUI_GAP_REGISTER.md` SG-02, ED-03d, 2026-08-24)
+
+The staleness consumer that landed earlier the same day stops at climate on
+purpose: `recompute_stale` re-runs hydrology and climate after a terrain edit
+and leaves `civ` stale, because cascading into it was measured at ~7 s per
+stroke (`UNIFIED_TOOL_PLAN.md` milestone C) and that is not a per-stroke cost.
+The gap register carried the consequence twice — SG-02 (nothing rebuilds civ
+short of a full `generate()`) and ED-03d (a place edit or delete recomputes no
+provinces, trade balances, roads, territory or `explanations`). Both are the
+same missing binding.
+
+`WorldGen::recompute_civilisation()` is that binding, and the Civilization
+dock's **Settlements ▸ Recompute** section is its control.
+
+### The design decision: which half of the civ layer is derived
+
+Re-running `compute_civilisation` wholesale is the obvious implementation and
+the wrong one. Settlement placement is not a pure function of terrain in this
+port *any more*: `civ_drop_settlement` appends hand-placed settlements,
+`civ_edit_settlement` rewrites name/tier/population/faction in place, and
+`civ_roster_bridge`'s `place_extras` hangs traits, specialisation, history and
+the age/walls overrides off each one's `tid`. A from-scratch rebuild moves
+every settlement, re-rolls every name from a fresh `civ_name_rng()`, and
+orphans every side-table entry whose `tid` no longer exists — silent loss of
+exactly the data the `tid`-keyed table was introduced to protect.
+
+So the split is drawn at the settlement list:
+
+- `compute_civilisation` gains one parameter, `keep: Option<(Vec<Named
+  Settlement>, u64)>`. `None` is `absorb`'s path and is bit-identical to what
+  the function always did. `Some` takes the settlement list as an **input**
+  and skips the four passes that *author* settlements — seed-finding and
+  placement, naming/population, village seeding, the metropolis promotion and
+  the recovery phase. Everything else runs exactly as before, over the current
+  terrain.
+- The `u64` is `next_tid`. Ways are re-issued ids from the same counter the
+  kept settlements were numbered out of; restarting it at 1 would hand a new
+  road the `tid` of a live settlement.
+- The four fields with no terrain input at all — `timeline`, `year`,
+  `faction_roster`, `place_extras` — are moved across in the `#[func]` rather
+  than rebuilt, since `compute_civilisation`'s Cluster-D reset is right for a
+  fresh generation and pure loss here.
+- Hand-painted territory needed one new function. `CivTools::commit` is driven
+  by the in-progress *draft* and returns early when it is empty, which it
+  always is at recompute time — so it would have handed back a pristine
+  `assign_territory` raster and erased every painted border, while leaving
+  `territory_base` describing the pre-edit world so the *next* subtract stroke
+  restored stale cells. `CivTools::rebase` re-anchors: the new computed answer
+  becomes the base, and the accumulated paint layer is merged back on top.
+
+### One thing only the real shell found: villages are not network nodes
+
+The first working implementation fed the whole kept settlement list into
+`civ_hierarchical_network_topology`. On a 384 x 288 world with village
+seeding on that took the map from **35 ways to 240 on one button press** —
+and tripled the call's cost, 0.7 s to 4.3 s. The cause is an ordering the
+reference has and this function reproduces: `_civSeedVillages` runs *after*
+`_civHierarchicalNetwork`, so villages have never been network nodes. A
+recompute that included them was not catching the world up, it was
+restructuring it.
+
+`CivData::village_tids` records which settlements `civ_seed_villages` added.
+Keyed by `tid`, not by index or by the trailing range they occupy at
+creation, because `civ_delete_settlement` splices and `civ_drop_settlement`
+appends — neither an index nor a range survives a session of editing, and
+`civ_apply_recovery` can drop entries before the ids are even assigned (the
+flags are carried through its own index map for exactly that reason). The
+recompute builds the topology from the non-village settlements and remaps
+`RoadEdge::a`/`.b` back through that index list, since
+`civ_consolidate_and_smooth_ways` reads them as indices into `settlements` —
+an identity the auto-populate path gets for free and this one does not.
+`path` is cell indices and `usage_count` is per cell, so neither needed
+touching. Same world after the fix: 35 ways before, 35 after, rerouted around
+the new mountain range.
+
+**This was invisible to the headless correctness harness**, which runs with
+village seeding off (the engine default), and invisible to reasoning about
+the code — it showed up as a number in the real shell's own road count.
+
+What that buys, and what it costs: roads, sea lanes, territory, provinces,
+trade balances, `explanations` and agrarian density all catch up with the
+edit; settlements do not move. Sculpt a mountain under a city and the
+recompute reroutes its roads and redraws its borders, but the city stays on
+the mountain. Re-placing from terrain already has a control, and it is
+Generate.
+
+Hydrology and climate are settled first, through the same
+`mark_and_recompute` the commit paths use — a civ layer derived over pre-edit
+rainfall would just be a different kind of stale.
+
+### Verified
+
+- `cargo build -p cartalith-godot`, `cargo test -p cartalith-civ -p
+  cartalith-godot` green, plus a new `rebase` test pinning that a painted cell
+  survives a recompute *and* that the next subtract falls through to the new
+  base rather than the old.
+- `_civrecompute_shot.gd` on the real GDExtension boundary, 384 x 288: a
+  committed sculpt stroke leaves `still_stale=["civ"]` and moves nothing in
+  civ until asked; the recompute then changes territory, roads and trade
+  balances, and returns `still_stale=[]`. A hand-dropped town, a hand-renamed
+  and demoted capital, its toggled trait, the 7-entry faction roster and 13
+  hand-painted territory cells all survive it intact. A second pass — drop a
+  capital, recompute — moves territory, roads, provinces *and* trade
+  balances, which is ED-03d closed.
+- Real windowed shell: the button under Settlements ▸ Recompute, pressed
+  after a sculpt commit and after a place edit.
+
+### Measured
+
+Release, CPU path, square grids at 1200 km: **0.94 s at 512², 1.60 s at
+1024², 4.22 s at 2048²**, against 1.28 s / 2.59 s / 8.16 s for a full
+`generate()` on the same run — about half. Below the ~7 s/stroke figure that
+made the automatic cascade unacceptable, precisely because placement and
+naming are what it skips. There is no "nothing changed" fast path: a second
+call costs the same to within a few ms, by design.
+
+**Still open:** SG-01, the staleness *indicator*. The button is deliberately
+always enabled rather than greying itself out when civ is current, because
+the shell has no surface that shows staleness yet — a control that disabled
+itself would be reporting a state the user cannot see. ED-03a is unaffected
+and was re-checked: `civ_faction_aggregates` is not on this path at all, so an
+edited specialisation still reaches no sector output.
+
 ## Painting was invisible on the map (`GUI_GAP_REGISTER.md` WW-12, 2026-08-24)
 
 The owner asked for a check that "terrain and biome painting works

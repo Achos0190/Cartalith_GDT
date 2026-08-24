@@ -307,7 +307,8 @@ pub struct CivTools {
     /// make subtract restore the computed base.
     pub territory_paint: PaintLayer,
     /// `assign_territory`'s own output, captured once in `WorldGen::absorb`
-    /// before any paint touches it. Never mutated after that.
+    /// before any paint touches it. Re-anchored only by [`CivTools::rebase`],
+    /// when a civ recompute produces a new computed answer for it to be.
     pub territory_base: Vec<i32>,
     /// The manual-placement name/population stream, seeded once per world.
     /// See the module doc's RNG section.
@@ -361,6 +362,24 @@ impl CivTools {
         }
         *territory = rebuilt;
         true
+    }
+
+    /// Re-anchors onto a freshly recomputed `assign_territory` output
+    /// (`WorldGen::recompute_civilisation`, `GUI_GAP_REGISTER.md` SG-02):
+    /// the new computed answer becomes `territory_base`, and every
+    /// already-committed dab is merged back on top of it.
+    ///
+    /// Needed because [`CivTools::commit`] is driven by the *draft* and
+    /// returns early when it is empty -- which it always is at recompute
+    /// time. Without this the recompute would hand back a pristine
+    /// `assign_territory` raster and silently erase every hand-painted
+    /// border, while `territory_base` still described the pre-edit world so
+    /// the *next* subtract stroke would restore stale cells.
+    pub fn rebase(&mut self, territory: &mut Vec<i32>) {
+        self.territory_base = territory.clone();
+        if let Some(cells) = self.territory_paint.cells() {
+            cartalith_civ::tools::merge_territory_paint(territory, cells);
+        }
     }
 
     /// Drops the in-progress stroke. `territory_paint`/`territory` are
@@ -620,5 +639,27 @@ mod tests {
         tools.paint_at(1.0, 1.0, 3, 0.0, true);
         tools.commit(&mut territory);
         assert_eq!(territory[1 * 4 + 1], 9, "subtract must fall through to the computed base, not to unclaimed");
+    }
+
+    #[test]
+    fn rebase_keeps_painted_cells_and_adopts_the_new_computed_answer() {
+        let base = vec![9i32; 16];
+        let mut tools = CivTools::new(4, 4, base.clone(), 1);
+        tools.paint_at(1.0, 1.0, 3, 0.0, false);
+        let mut territory = base.clone();
+        tools.commit(&mut territory);
+
+        // `recompute_civilisation`'s fresh `assign_territory` output: every
+        // cell now belongs to faction 4 instead of 9.
+        let mut recomputed = vec![4i32; 16];
+        tools.rebase(&mut recomputed);
+        assert_eq!(recomputed[1 * 4 + 1], 3, "the hand-painted cell survives a civ recompute");
+        assert_eq!(recomputed[0], 4, "every other cell takes the newly computed answer");
+        assert_eq!(tools.territory_base, vec![4i32; 16], "the base is the new computed answer, unpainted");
+
+        // And the next subtract falls through to the NEW base, not the old.
+        tools.paint_at(1.0, 1.0, 3, 0.0, true);
+        tools.commit(&mut recomputed);
+        assert_eq!(recomputed[1 * 4 + 1], 4);
     }
 }

@@ -1112,6 +1112,22 @@ func civ_delete_settlement(index: int) -> bool:
 		return false
 	return world_gen.civ_delete_settlement(index)
 
+## `GUI_GAP_REGISTER.md` SG-02 / ED-03d's "Recompute now" for the civ layer.
+## Re-derives everything downstream of the settlement list -- roads, sea
+## lanes, territory, provinces, trade balances, suitability explanations --
+## against the current (edited) terrain, holding the settlements themselves,
+## the faction roster, the place-edit side table and any hand-painted
+## territory fixed. Placement is NOT re-rolled; that is what Generate does.
+##
+## Synchronous and not cheap (seconds at a large grid, `recompute_
+## civilisation`'s own doc has the measured figures), so every caller shows a
+## wait cursor and reports the `ms` the engine hands back rather than
+## pretending it was instant.
+func civ_recompute() -> Dictionary:
+	if not world_gen.has_method("recompute_civilisation"):
+		return {"ok": false, "reason": "This build's extension has no recompute_civilisation."}
+	return world_gen.recompute_civilisation()
+
 func civ_faction_count() -> int:
 	if not world_gen.has_method("civ_faction_count"):
 		return 0

@@ -113,6 +113,12 @@ var _ctx_hit := -1
 ## `civPopEstimateOut` ("Land sustains ≈ N") and the Settlements roster
 ## body, both refreshed after any place/roster edit.
 var _settlements_body: Control
+## SG-02's Recompute row. Held as fields because the handler is a coroutine
+## that has to find both again after the blocking engine call, and because a
+## GDScript lambda captures locals by value at creation time -- a
+## `func(): _recompute_civ(b)` closing over its own button would capture null.
+var _recompute_btn: Button
+var _recompute_note: Label
 
 
 func _build() -> void:
@@ -473,10 +479,12 @@ func _settlement_click(gx: float, gy: float) -> void:
 	## a full regenerate, which would rebuild `civ.settlements` from scratch
 	## and silently discard this manual drop. The real consequence is
 	## narrower: provinces/trade balances/roads were computed before this
-	## edit and won't reflect it until the next full regenerate, which is
-	## what the hint below actually says.
+	## edit and won't reflect it until the civ layer is rebuilt -- which as
+	## of SG-02 is a button in this dock (Settlements ▸ Recompute), not a
+	## full regenerate, so the hint names it.
 	app.set_status("hint",
-		"Settlement placed -- provinces/trade/roads were computed before this edit.", "text_ghost")
+		"Settlement placed -- provinces/trade/roads still predate it. Settlements ▸ Recompute civilisation catches them up.",
+		"text_ghost")
 	if _active_civ_tool == "settlement":
 		_tool_options_settlement()
 
@@ -600,6 +608,13 @@ func _discard_territory() -> void:
 
 func _build_settlements() -> void:
 	var cat := DccWidgets.category(self, "Settlements", categories, true)
+	## Outside `_settlements_body` on purpose: this section is not a readout
+	## of the roster, and `_rebuild_readouts()` -- which the recompute itself
+	## triggers -- would otherwise free the label the result was just written
+	## to. Being outside also means it exists before a world does, which the
+	## roster inside does not (this dock is built once at startup and only
+	## refills on a place edit).
+	_build_recompute(cat)
 	## Everything a place edit or delete invalidates lives under this one
 	## node, so `_rebuild_readouts()` can tear down exactly that much --
 	## same scoping discipline `_rebuild_timeline` already uses for `_tl_body`.
@@ -638,6 +653,71 @@ func _fill_settlements(parent: Control) -> void:
 
 	_build_settlement_gaps(parent)
 
+## `GUI_GAP_REGISTER.md` SG-02's "Recompute now", and the recompute ED-03d
+## says a place edit never triggered.
+##
+## Lives here rather than in a menu because this is the dock that shows what
+## goes stale: the roster above it, the Economy and Politics categories below
+## it, and the territory/roads the map draws are all products of the one call
+## this button makes. A menu item would have been further from every readout
+## it fixes.
+##
+## Deliberately always enabled rather than gated on "civ is stale". The
+## staleness graph knows (`still_stale` carries `civ` after every terrain
+## commit) but the shell has no staleness indicator yet -- that is SG-01,
+## still open, still without a design -- so a button that greyed itself out
+## would be reporting a state the user cannot see. Pressing it with nothing
+## stale is a real recompute of the same answer, not an error.
+func _build_recompute(parent: Control) -> void:
+	var sec := DccWidgets.section(parent, "Recompute")
+	_recompute_btn = DccWidgets.action(sec, "Recompute civilisation", _recompute_civ)
+	var b := _recompute_btn
+	b.tooltip_text = ("Re-derives everything downstream of the settlement list against the current "
+		+ "terrain: roads, sea lanes, territory, provinces, trade balances and the suitability "
+		+ "explanations. The settlements themselves are kept exactly as they are -- including "
+		+ "hand-dropped and hand-edited ones, their traits and history, the faction roster and "
+		+ "hand-painted territory. It does NOT re-place settlements; sculpt a mountain under a "
+		+ "city and the city stays put. Re-placing from terrain is what Generate does.\n\n"
+		+ "Seconds, not milliseconds, and it runs on the main thread -- the window will hold "
+		+ "still. Measured in a release build: about 1.0 s at 512², 1.6 s at 1024² and 4.2 s at "
+		+ "2048², roughly half the cost of a full Generate of the same world. That is why it is "
+		+ "a button and not an automatic cascade after every brush stroke.")
+	_recompute_note = DccWidgets.note(sec,
+		"A terrain or place edit leaves the civ layer stale on purpose -- press this when you "
+		+ "want roads, territory, provinces and economy to catch up with it.")
+
+## The button's own progress affordance. `recompute_civilisation` is a
+## synchronous engine call with no progress signal to subscribe to, so the
+## honest minimum is to say so before blocking: relabel, disable, let two
+## frames actually paint that, then run. Two frames rather than one because a
+## single `process_frame` await returns before the redraw has reached the
+## screen on the frame the label changed.
+func _recompute_civ() -> void:
+	var b := _recompute_btn
+	if b != null and is_instance_valid(b):
+		b.text = "Recomputing…"
+		b.disabled = true
+		await get_tree().process_frame
+		await get_tree().process_frame
+	var r: Dictionary = bridge.civ_recompute()
+	if b != null and is_instance_valid(b):
+		b.disabled = false
+		b.text = "Recompute civilisation"
+	if _recompute_note != null and is_instance_valid(_recompute_note):
+		if not bool(r.get("ok", false)):
+			_recompute_note.text = "Not recomputed. %s" % String(r.get("reason", "Unknown reason."))
+		else:
+			_recompute_note.text = ("Recomputed in %.1f s: %d settlements kept, %d ways and %d "
+				+ "provinces rebuilt against the current terrain.") % [
+				float(r.get("ms", 0.0)) / 1000.0, int(r.get("settlements", 0)),
+				int(r.get("ways", 0)), int(r.get("provinces", 0))]
+	## Territory and the pins/roads overlay both moved. Same direct writes
+	## `_commit_territory` and `_refresh_civ_data` use, for the same reason
+	## (no camera reset), and `_on_civ_edited` rebuilds the roster readouts --
+	## which is also what puts `_recompute_note` on screen.
+	app.viewport.territory_view.texture = bridge.territory_texture()
+	_on_civ_edited()
+
 ## `civPopEstimateOut` / `_civAgrarianRegionalTotal` (reference 23516) --
 ## `PARITY_AUDIT.md` §5 item 7, "the only world-level population sanity
 ## figure the reference shows", which had no Rust function at all until this
@@ -663,11 +743,15 @@ func _build_pop_estimate(parent: Control) -> void:
 
 ## The reference's own settlement-population operations, which this shell has
 ## no equivalent of because the split is different, not because they were
-## forgotten: `generate()` populates the world as part of the one-shot chain
+## forgotten: `generate()` *places* the world as part of the one-shot chain
 ## (`compute_civilisation`), so there is no separate "populate now" step to
-## press and nothing that clears just the civ layer without re-running the
-## whole pipeline. Said out loud so a reader of this dock can tell that apart
-## from an unfinished panel.
+## press and nothing that clears just the civ layer.
+##
+## Corrected 2026-08-24 (SG-02): the half of that sentence which used to read
+## "without re-running the whole pipeline" is no longer true. `Recompute
+## civilisation` above re-derives the whole civ layer downstream of the
+## settlement list without re-running terrain. What still has no control is
+## re-*placing* settlements, which is what both rows below are about.
 func _build_settlement_gaps(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Not built")
 	var pop := DccWidgets.action(sec, "Auto-populate world", func(): pass)

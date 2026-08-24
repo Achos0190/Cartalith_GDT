@@ -5,7 +5,57 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **Phone: the sheets would not flick, and two
+Last updated: 2026-08-24 (post **Civ catches up on demand** —
+`GUI_GAP_REGISTER.md` SG-02 and ED-03d, both closed. The staleness consumer
+that landed the same day stops at climate on purpose; **nothing rebuilt the
+civ layer short of a full `generate()`**, so a sculpted mountain range never
+reached roads, territory, provinces or trade balances, and neither did a
+hand-dropped or hand-edited settlement. New `#[func]
+recompute_civilisation()`, with the Civilization dock's **Settlements ▸
+Recompute** section as its control. **The design decision is which half of
+the civ layer counts as derived.** A wholesale re-run of
+`compute_civilisation` was rejected: it would move every settlement, re-roll
+every name from a fresh `civ_name_rng()`, and orphan every `place_extras`
+entry keyed to a `tid` that no longer exists — silent loss of exactly what
+the `tid`-keyed table was introduced to protect. So `compute_civilisation`
+gains one parameter, `keep: Option<(Vec<NamedSettlement>, u64)>`; `None` is
+`absorb`'s path, bit-identical to before, and `Some` takes the settlement
+list as an **input**, skipping the five passes that *author* settlements
+(seed-finding/placement, naming/population, village seeding, metropolis
+promotion, recovery phase) and re-deriving everything downstream of it
+against the current terrain — water bodies, biome, lithology/soil,
+resources, road topology and consolidated ways, sea lanes, territory,
+provinces, trade balances, `explanations`, agrarian density. `timeline`,
+`year`, `faction_roster` and `place_extras` are moved across rather than
+reset; hand-painted territory survives through new `CivTools::rebase` (the
+existing `commit` is draft-driven and returns early with an empty draft,
+which is always the case here — it would have erased every painted border
+*and* left `territory_base` describing the pre-edit world). Hydrology and
+climate are settled first through the same `mark_and_recompute` the commit
+paths use. **One thing only the real shell found: villages are not
+road-network nodes** (the reference seeds them after
+`_civHierarchicalNetwork`), and feeding the whole kept list back in took a
+384 x 288 world from **35 ways to 240 on one button press**, at 3x the cost —
+new `CivData::village_tids` (keyed by `tid`, since neither an index nor a
+trailing range survives a delete or a drop) keeps the network to the
+non-village settlements and remaps the edge endpoints back; 35 ways before,
+35 after. **What it deliberately does not do: re-place settlements** —
+sculpt a mountain under a city and the city stays on the mountain; Generate
+is the control for re-placing from terrain. **Measured, release, CPU path,
+1200 km square grids: 0.94 s @512², 1.60 s @1024², 4.22 s @2048² — about
+half a full `generate()` on the same run (1.28/2.59/8.16 s)**, and below the
+~7 s/stroke that made the automatic cascade unacceptable, because placement
+and naming are what it skips. No fast path: a second call costs the same, by
+design. Verified on the real GDExtension boundary
+(`_civrecompute_shot.gd`) — a committed sculpt leaves `still_stale=["civ"]`
+and moves nothing until asked, then the recompute moves territory/roads/
+trade and returns `still_stale=[]`, while a hand-dropped town, a renamed and
+demoted capital, its toggled trait, the 7-entry faction roster and 13
+hand-painted cells all survive; a second pass dropping a capital moves
+territory, roads, provinces *and* trade, which is ED-03d. **Still open:**
+SG-01, the staleness *indicator* — the button is deliberately always enabled
+rather than self-disabling, since the shell has no surface showing staleness
+yet) — previously, post **Phone: the sheets would not flick, and two
 dialogs were still desktop-sized** — `GUI_GAP_REGISTER.md` PH-05 and PH-06,
 the two items the phone pass left open, both now closed and both verified on
 the real handset. PH-05's cause was **not** what PH-04 assumed: `Container`
@@ -4182,6 +4232,13 @@ milestone F. Remaining: **F** (shell wiring) and nothing else.
   available if a diff ever earns its keep. Still open: tile-incremental
   recompute of hydrology/climate/civ (none are tile-scoped today — staleness
   reports which tiles are stale, stages still recompute globally).
+- **The civ half of "recompute now" is bound (2026-08-24, SG-02/ED-03d).**
+  `WorldGen::recompute_civilisation()` re-derives everything downstream of
+  the settlement list against the current terrain while holding the
+  settlements, roster, place-edit side table, timeline and hand-painted
+  territory fixed; the Civilization dock's Settlements ▸ Recompute section
+  calls it. Still manual, and still global rather than tile-incremental —
+  0.94 s @512² to 4.22 s @2048², release.
 - **Paint audited end to end against the reference (2026-08-24).** Disc
   geometry (`hypot > R`, inclusive rim), the three layers and their exact
   palettes (13/13/6), the `wb[i] !== 0` land gate, erase, sparse

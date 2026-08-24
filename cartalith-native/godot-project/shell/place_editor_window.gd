@@ -354,7 +354,7 @@ func confirm_delete(index: int) -> void:
 	var name := String((all[index] as Dictionary).get("name", "this place"))
 	var dlg := ConfirmationDialog.new()
 	dlg.title = "Delete place?"
-	dlg.dialog_text = "Delete %s?\n\nProvinces, trade balances, roads and territory were computed before this edit and are not recomputed." % name
+	dlg.dialog_text = "Delete %s?\n\nProvinces, trade balances, roads and territory were computed before this edit and are not recomputed by the delete itself. The Civilization dock's Settlements ▸ Recompute civilisation rebuilds them against the current roster and terrain." % name
 	dlg.get_ok_button().text = "Delete"
 	dlg.confirmed.connect(func():
 		if bridge.civ_delete_settlement(index):
