@@ -44,6 +44,20 @@ var _inspector_body: VBoxContainer
 var _overview: Label
 var _fits: Array = []         ## `civ_faction_terrain_fits()`, cached per open.
 
+## Phone (§13). The window's own treatment is
+## `DccWidgets.phone_window()`'s; what is specific to *this* window is that
+## master-detail does not survive the width. The list pane is 250 px and the
+## inspector wants the rest, which at a 393 dp reference leaves the inspector
+## 140 -- narrower than a single one of its own vocabulary pickers. So phone
+## runs the classic master-*then*-detail: the list is a screen until a faction
+## is picked, after which it folds into a 52 dp bar carrying that faction's
+## banner and name, and the bar is what reopens it.
+var _phone := false
+var _phone_list_pane: Control
+var _phone_list_bar: PanelContainer
+var _phone_bar_name: Label
+var _phone_bar_banner: Control
+
 ## Emitted whenever the roster changes in a way that moves map data (a
 ## removed faction reverts settlements and territory to Unclaimed).
 signal roster_changed
@@ -59,52 +73,159 @@ func setup(a, b: EngineBridge) -> void:
 	## without this the inspector's own prose pushes the dialog past the
 	## viewport and pushes the Add/Remove row off the bottom of the screen.
 	max_size = Vector2i(1000, 700)
+	## Also turns `wrap_controls` off -- which this window shipped with on,
+	## despite its own `max_size` comment describing exactly the symptom
+	## ("pushes the Add/Remove row off the bottom of the screen"). `max_size`
+	## treated it; this is the cause.
+	_phone = DccWidgets.phone_window(self, a)
 
 	var outer := VBoxContainer.new()
 	outer.add_theme_constant_override("separation", 6)
-	add_child(outer)
+	## Phone: **one** scrolling column, not two nested scrolling panes inside a
+	## third expanding one. Desktop's shape -- a `SIZE_EXPAND_FILL` split holding
+	## two `SIZE_EXPAND_FILL` `ScrollContainer`s -- does not survive an
+	## `AcceptDialog` on a phone: the dialog laid this column out at 377 x 2 619
+	## inside a 393 x 852 window, so the panes had nothing to scroll and their
+	## lower two thirds were simply off the screen. The place editor, whose body
+	## is a single scroll with no nesting, comes out at 377 x 797 in the same
+	## window from the same helper -- which is what identified the nesting as the
+	## cause rather than the window size. Phone follows that shape.
+	##
+	## It is also the better phone design independently: nested scroll regions
+	## on a touch screen make every drag ambiguous, and the design canvas's own
+	## roster artboard is one column from the overview to the settlement list.
+	if _phone:
+		var root := ScrollContainer.new()
+		root.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		root.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		add_child(root)
+		outer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		root.add_child(outer)
+	else:
+		add_child(outer)
 
 	_overview = DccTheme.label("", "text_dim", DccTheme.FS_SMALL)
 	_overview.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	outer.add_child(_overview)
 	outer.add_child(DccTheme.rule())
 
-	var split := HBoxContainer.new()
+	if _phone:
+		_phone_list_bar = _build_phone_list_bar()
+		outer.add_child(_phone_list_bar)
+
+	## Side by side on a pointer; stacked on a phone, where only one of the two
+	## panes is ever visible at a time.
+	var split: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
 	split.add_theme_constant_override("separation", 10)
-	split.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	if not _phone:
+		split.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	outer.add_child(split)
 
 	var left := VBoxContainer.new()
-	left.custom_minimum_size.x = 250
+	if not _phone:
+		left.custom_minimum_size.x = 250
 	left.add_theme_constant_override("separation", 4)
 	split.add_child(left)
-	var list_scroll := ScrollContainer.new()
-	list_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	list_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	left.add_child(list_scroll)
+	_phone_list_pane = left
+	var list_host: Control = left
+	if not _phone:
+		var list_scroll := ScrollContainer.new()
+		list_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		list_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		left.add_child(list_scroll)
+		list_host = list_scroll
 	_list_body = VBoxContainer.new()
 	_list_body.add_theme_constant_override("separation", 2)
 	_list_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	list_scroll.add_child(_list_body)
+	list_host.add_child(_list_body)
 
 	var roster_row := HBoxContainer.new()
 	roster_row.add_theme_constant_override("separation", 6)
 	DccWidgets.action(roster_row, "+ Add faction", _add_faction)
 	DccWidgets.action(roster_row, "− Remove last", _confirm_remove)
+	## Stays under the list it acts on, on both form factors. Pinning it to the
+	## window foot on the phone was tried first and is what found the layout
+	## trap underneath: an `AcceptDialog` sizes its content child from a resize
+	## notification, so anything laid out *after* a `SIZE_EXPAND_FILL` pane can
+	## be pushed past the bottom of a window that was resized while hidden --
+	## measured at 2 611 px of content in an 852 px window. Below the list is
+	## also where these two belong: they change the roster, and the roster is
+	## what the list is.
 	left.add_child(roster_row)
+	if not _phone:
+		split.add_child(DccTheme.rule(true))
 
-	split.add_child(DccTheme.rule(true))
-
-	var right_scroll := ScrollContainer.new()
-	right_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	right_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	split.add_child(right_scroll)
+	var inspector_host: Control = split
+	if not _phone:
+		var right_scroll := ScrollContainer.new()
+		right_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		right_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		right_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		split.add_child(right_scroll)
+		inspector_host = right_scroll
 	_inspector_body = VBoxContainer.new()
 	_inspector_body.add_theme_constant_override("separation", 4)
 	_inspector_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right_scroll.add_child(_inspector_body)
+	inspector_host.add_child(_inspector_body)
 
+	if _phone:
+		DccWidgets.phone_head(outer, "Faction roster", "world politics")
+		_set_phone_list_open(true)
+
+
+# -- Phone: the folded master pane -------------------------------------------
+
+## The bar the list folds into: the selected faction's own banner, its name,
+## its position in the roster, and a chevron. 52 dp, the canvas's list-row
+## height, because it *is* a list row -- the one row of the list still worth
+## showing once a choice has been made.
+func _build_phone_list_bar() -> PanelContainer:
+	var bar := PanelContainer.new()
+	bar.add_theme_stylebox_override("panel", DccTheme.panel("raised", {"bottom": 1}))
+	bar.custom_minimum_size.y = 52
+	bar.mouse_filter = Control.MOUSE_FILTER_STOP
+	bar.gui_input.connect(func(ev: InputEvent):
+		var tapped: bool = (ev is InputEventMouseButton and (ev as InputEventMouseButton).pressed) \
+			or (ev is InputEventScreenTouch and (ev as InputEventScreenTouch).pressed)
+		if tapped:
+			_set_phone_list_open(true))
+
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_left", 14)
+	m.add_theme_constant_override("margin_right", 14)
+	m.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.add_child(m)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	m.add_child(row)
+
+	_phone_bar_banner = FactionBanner.new()
+	_phone_bar_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(_phone_bar_banner)
+	_phone_bar_name = DccTheme.mono_label("", "text_bright", DccTheme.FS_SMALL, 0)
+	_phone_bar_name.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_phone_bar_name.clip_text = true
+	_phone_bar_name.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(_phone_bar_name)
+	var chev := DccTheme.mono_label(DccIcons.SYMBOLS["expand"], "text_ghost", DccTheme.FS_SMALL, 0)
+	chev.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(chev)
+	return bar
+
+## Exactly one of the two panes is on screen. The bar exists only while the
+## list is folded, so it is never a second copy of a row already visible.
+func _set_phone_list_open(open: bool) -> void:
+	if not _phone:
+		return
+	_phone_list_pane.visible = open
+	_phone_list_bar.visible = not open
+	if not open:
+		var d := _faction(_selected)
+		_phone_bar_name.text = String(d.get("name", "?")) if not d.is_empty() else "—"
+		if not d.is_empty():
+			(_phone_bar_banner as FactionBanner).configure(_selected, _color_of(d), 22)
 
 func open() -> void:
 	## Cached once per open, not per faction row: the underlying pass is
@@ -112,7 +233,12 @@ func open() -> void:
 	## see `civ_faction_terrain_fits`' own Rust doc comment.
 	_fits = bridge.civ_faction_terrain_fits()
 	_rebuild()
-	popup_centered()
+	## Reopens on the master, the way a phone list screen does -- picking up
+	## mid-inspector on a faction chosen in a previous session would hide the
+	## only control that says which faction this is.
+	_set_phone_list_open(true)
+	if not DccWidgets.phone_present(self, app):
+		popup_centered()
 
 
 func _clear(node: Control) -> void:
@@ -188,9 +314,18 @@ func _rebuild_list() -> void:
 			_thousands(int(d.get("population", 0)))]
 		if fid == _selected:
 			b.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("sunken"), 3))
-		b.pressed.connect(func(): _selected = fid; _rebuild_list(); _rebuild_inspector())
+		b.pressed.connect(func():
+			_selected = fid
+			_rebuild_list()
+			_rebuild_inspector()
+			## Phone: the pick IS the navigation. Desktop leaves both panes up.
+			_set_phone_list_open(false))
 		row.add_child(b)
 		_list_body.add_child(row)
+	## `_set_field("name")` rebuilds this list on its own, so it needs its own
+	## fit rather than relying on the inspector's.
+	if _phone:
+		app.phone_fit(_list_body, 1.0)
 
 
 # -- Inspector (`_civPopulateFactionEditor`) --------------------------------
@@ -228,6 +363,11 @@ func _rebuild_inspector() -> void:
 	_build_overview_block(d)
 	_build_settlement_sublist()
 	_build_gaps()
+	## Both panes are rebuilt from scratch here and in `_rebuild_list()`, so the
+	## touch fit is re-applied over the window each time; idempotent, per
+	## `DccShell.phone_fit`.
+	if _phone:
+		app.phone_fit(self, 1.0)
 
 
 func _vocab_choice(parent: Control, label_text: String, vocab: Array, current: String, key: String) -> void:

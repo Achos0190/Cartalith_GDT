@@ -212,6 +212,21 @@ func on_map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2) -
 	_ctx_menu.add_item("Drop settlement here", 3)
 	_ctx_menu.add_separator()
 	_ctx_menu.add_item("Info here (settlement & ecology)", 4)
+	## Phone: the very same menu, re-presented as the canvas's L4 sheet
+	## (`phone_menu.gd`'s `open_sheet`), because a finger has no second button
+	## and a pointer-sized popup at a fingertip is both unreadable and clipped
+	## at a screen edge. `map_overlay.gd` turns the press-and-hold into the
+	## `map_right_clicked` that got us here, so nothing above this line differs
+	## between the two pointers -- one menu definition, two presentations.
+	## Returns false on desktop and tablet, where the stock popup below runs
+	## exactly as it always has.
+	var ctx_title := "Here"
+	if hit >= 0:
+		var picked: Dictionary = bridge.settlements()[hit]
+		ctx_title = String(picked.get("name", "Place"))
+	if app.phone_present_popup(_ctx_menu, ctx_title,
+			"Map · cell %d, %d" % [int(gx), int(gy)]):
+		return
 	## `screen_pos` is `map_overlay`'s own local space; a `PopupMenu` pops in
 	## screen space, which is what this conversion is for.
 	_ctx_menu.position = Vector2i(app.viewport.overlay.get_screen_position() + screen_pos)

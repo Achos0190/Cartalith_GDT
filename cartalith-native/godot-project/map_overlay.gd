@@ -280,6 +280,59 @@ signal map_released(gx: float, gy: float, valid: bool)   ## LMB release, ends a 
 ## it knows which window it is popping into.
 signal map_right_clicked(gx: float, gy: float, hit: int, screen_pos: Vector2)
 
+# ── Touch: press-and-hold IS the right click ─────────────────────────────────
+#
+# A finger has no second button, so on Android the context menu above had no
+# route at all -- the one capability from the civ-interaction pass that phone
+# could not reach by any path (`GUI_GAP_REGISTER.md`, and the phone canvas's
+# own TARGETS rule says nothing about it because right click is not a phone
+# gesture). Press-and-hold is the platform's answer, and this is where it
+# belongs: the same control that owns the right click owns its touch twin, so
+# `civilization_workspace.gd` receives one signal and never learns which
+# pointer produced it.
+#
+# **The hard part is not the timer, it is the click that already fired.**
+# `input_devices/pointing/emulate_mouse_from_touch` is on (project.godot), so a
+# finger-down arrives here as a left `InputEventMouseButton` *immediately* --
+# and `_gui_input`'s press branch emits `map_clicked` on press, which with the
+# Settlement tool armed drops a settlement. Holding to open a menu would place
+# a town first and then offer to edit a different one. So a touch press is
+# **withheld** until the gesture says what it is:
+#
+#   drifts past `_TOUCH_SLOP`  -> it was a drag: release the press now, so the
+#                                 sculpt/paint stroke starts from its real origin
+#   lifts before the deadline  -> it was a tap: release the press, then release
+#   reaches the deadline       -> it was a hold: discard the press entirely and
+#                                 emit `map_right_clicked`; the lift is swallowed
+#
+# Driven off the *emulated mouse* stream rather than `InputEventScreenTouch`,
+# deliberately: the emulated events are the ones this control is already known
+# to receive, and `device < 0` (`InputEvent.DEVICE_ID_EMULATION`) is Godot's own
+# marker for them, so a real mouse -- every desktop run -- takes none of this
+# path and behaves exactly as it did.
+#
+# `OS.has_feature("mobile")` is ORed in as a second, coarser gate. Both were
+# needed to get this working the first time and neither was individually
+# provable on the handset without a build cycle per guess, so both stayed: the
+# device id is the precise signal, the feature flag is the guarantee that an
+# Android build takes this path even if a future engine stamps its emulated
+# events differently. A physical mouse plugged into an Android device is the
+# one case the flag over-claims, and it still resolves correctly -- the press
+# is released on the lift or the first motion, one frame later than it would
+# have been.
+const _TOUCH_HOLD_MS := 500
+## Physical pixels, not dp: this control is laid out in the main viewport,
+## which carries no content scale. 28 px is ~10 dp on a 400 ppi handset, which
+## is a finger's idle wobble and comfortably under the distance a deliberate
+## drag covers in half a second.
+const _TOUCH_SLOP := 28.0
+
+var _touch_armed := false        ## a withheld press is outstanding
+var _touch_swallow_up := false   ## the hold fired; the coming lift is not a release
+var _touch_ms := 0
+var _touch_pos := Vector2.ZERO
+var _touch_press: Dictionary = {}
+
 var _settlements: Array = []
 var _roads: Array = []
 var _sea_routes: Array = []
@@ -1064,6 +1117,12 @@ func _gui_input(event: InputEvent) -> void:
 
 		var p := _grid_point(mouse, rect, interior)
 		cursor_sampled.emit(p["gx"], p["gy"], p["valid"])
+		## A withheld touch press that has now travelled is a drag, not a hold:
+		## let it through *before* the first `map_dragged`, so a stroke's origin
+		## is the point the finger went down on rather than wherever it had got
+		## to by the time the slop was exceeded.
+		if _touch_armed and mouse.distance_to(_touch_pos) > _TOUCH_SLOP:
+			_release_touch_press()
 		if p["valid"] and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
 			map_dragged.emit(p["gx"], p["gy"])
 
@@ -1097,11 +1156,34 @@ func _gui_input(event: InputEvent) -> void:
 		var interior := _interior_rect(rect)
 		if mb.pressed:
 			var hit := _hit_test_settlement(mb.position, interior, rect)
-			settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
 			var p := _grid_point(mb.position, rect, interior)
+			## Touch: hold the press back until the gesture identifies itself.
+			## See the `_TOUCH_HOLD_MS` block above for the four outcomes.
+			if mb.device < 0 or OS.has_feature("mobile"):
+				_touch_armed = true
+				_touch_swallow_up = false
+				_touch_ms = Time.get_ticks_msec()
+				_touch_pos = mb.position
+				_touch_press = {"hit": hit, "point": p, "pos": mb.position}
+				set_process(true)
+				return
+			settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
 			if p["valid"]:
 				map_clicked.emit(p["gx"], p["gy"])
 		else:
+			if _touch_swallow_up:
+				## The hold already answered this gesture; the lift is its end,
+				## not a drag's. Emitting `map_released` here would hand a
+				## latched tool (Region select's marquee origin) a commit it
+				## never got an origin for.
+				_touch_swallow_up = false
+				_touch_armed = false
+				set_process(false)
+				return
+			if _touch_armed:
+				## A tap: short, and it never travelled. The press it withheld
+				## is due now, immediately before the release that ends it.
+				_release_touch_press()
 			## §4.5.1's Region select needs the release, not the press --
 			## `map_dragged` already reported every point along the way, but
 			## nothing marked the gesture's *end*, which is where a marquee
@@ -1112,6 +1194,41 @@ func _gui_input(event: InputEvent) -> void:
 			var p := _grid_point(mb.position, rect, interior)
 			map_released.emit(p["gx"], p["gy"], p["valid"])
 
+
+## Let a withheld touch press through, unchanged and in its original order --
+## the selection first, then the click, exactly as the mouse branch emits them
+## and from the point the finger actually went down on, not from where it is
+## now. Clears the arming, so a second call is a no-op.
+func _release_touch_press() -> void:
+	if not _touch_armed:
+		return
+	_touch_armed = false
+	set_process(false)
+	var hit: int = int(_touch_press.get("hit", -1))
+	var p: Dictionary = _touch_press.get("point", {})
+	settlement_selected.emit(_settlements[hit] if hit != -1 else null, hit)
+	if bool(p.get("valid", false)):
+		map_clicked.emit(p["gx"], p["gy"])
+
+## Runs only while a touch press is outstanding (`set_process` is turned on by
+## the press and off by every one of the four exits), so this costs nothing on
+## a desktop run and nothing between gestures on a phone.
+func _process(_delta: float) -> void:
+	if not _touch_armed:
+		set_process(false)
+		return
+	if Time.get_ticks_msec() - _touch_ms < _TOUCH_HOLD_MS:
+		return
+	## The hold. The withheld press is **discarded**, never emitted: that is the
+	## whole point -- opening the menu must not also fire the armed tool.
+	_touch_armed = false
+	_touch_swallow_up = true
+	set_process(false)
+	var p: Dictionary = _touch_press.get("point", {})
+	if not bool(p.get("valid", false)):
+		return
+	map_right_clicked.emit(p["gx"], p["gy"], int(_touch_press.get("hit", -1)),
+		_touch_press.get("pos", Vector2.ZERO))
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_MOUSE_EXIT:

@@ -337,6 +337,30 @@ func open() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	_render()
 
+## Present ONE arbitrary `PopupMenu` as an L4 sheet with nothing behind it but
+## the veiled map -- the map context menu's phone form
+## (`civilization_workspace.gd`'s `_ctx_menu`, opened by a press-and-hold
+## rather than a right click).
+##
+## Everything the canvas asks of a sheet is already built above and none of it
+## is re-implemented here: the 60%-height cap, the grab handle, the scrim that
+## dismisses on tap, 52 dp rows, the disabled-row reason drawn as a second
+## line, and `_activate()`'s two signals -- so the caller builds its menu
+## exactly as it does for desktop and this re-presents it, the same contract
+## the rest of this file has with `menus.gd`. A context menu with a submenu
+## would drill to a full screen from here, which is `_render()`'s existing
+## behaviour and needs nothing special.
+##
+## Deliberately NOT `PopupMenu.popup()` on a phone: a stock popup draws
+## ~20 px rows sized for a pointer, and one opened at a finger near the screen
+## edge is clipped by the window rather than nudged into it.
+func open_sheet(popup: PopupMenu, title: String, trail: String) -> void:
+	_stack.clear()
+	_stack.append(_Step.new(popup, title, trail, 4))
+	visible = true
+	mouse_filter = Control.MOUSE_FILTER_STOP
+	_render()
+
 func close() -> void:
 	visible = false
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -383,18 +407,26 @@ func _render() -> void:
 
 	## The deepest *screen* step. When the top step is a sheet this is the step
 	## behind it, which is exactly what the canvas veils rather than replaces.
-	var screen_step: _Step = _stack[0]
+	##
+	## `open_sheet()` pushes a sheet as the *base* step, so there may be no
+	## screen at all -- and then the thing behind the scrim is the map, which is
+	## precisely what a context menu should veil. Guarded rather than defaulted
+	## to `_stack[0]`, which in that case is the sheet itself and would draw the
+	## sheet's own rows full-screen underneath it.
+	var screen_step: _Step = null
 	for s in _stack:
 		if not s.is_sheet():
 			screen_step = s
 
-	_screen_head_title.text = screen_step.title.to_upper()
-	_screen_head_trail.text = screen_step.trail
-	_screen_back.text = DccIcons.SYMBOLS["cross"] if screen_step.level == 2 \
-		else DccIcons.SYMBOLS["collapse"]
-	_screen_back.tooltip_text = "Close menu" if screen_step.level == 2 else "Back"
-	_fill(_screen_body, screen_step)
-	_screen_scroll.scroll_vertical = 0
+	_screen.visible = screen_step != null
+	if screen_step != null:
+		_screen_head_title.text = screen_step.title.to_upper()
+		_screen_head_trail.text = screen_step.trail
+		_screen_back.text = DccIcons.SYMBOLS["cross"] if screen_step.level == 2 \
+			else DccIcons.SYMBOLS["collapse"]
+		_screen_back.tooltip_text = "Close menu" if screen_step.level == 2 else "Back"
+		_fill(_screen_body, screen_step)
+		_screen_scroll.scroll_vertical = 0
 
 	var sheet_open: bool = top.is_sheet()
 	_sheet_scrim.visible = sheet_open

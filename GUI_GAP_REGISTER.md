@@ -2946,3 +2946,83 @@ does the reference's own post-edit tail (`computeFlow(true);
 refreshClimate();`). Re-extracting rivers after a sculpt stroke would be a
 *new* behaviour with no reference precedent, and is a separate question from
 wiring a UI to what already runs.
+
+---
+
+## 22 · The phone pass on the civ / urban / render windows (2026-08-24)
+
+Four subsystems landed on desktop and tablet this session with no phone pass:
+the civ-interaction popups, the City Viewer, the unified Sculpt/Paint/Measure
+bar, and the NPR Painter block. Driving them on a real OnePlus 6T found one
+structural fault under all of them and four smaller ones. `CHANGELOG.md`'s
+entry of the same date carries the full reasoning; these are the register rows.
+
+### PH-01 · The phone chrome swallowed every tap on the map — **fixed**
+
+`_phone_content_gap` was `MOUSE_FILTER_PASS` and the two containers above it
+were `STOP` by default; all three cover the whole screen. A `PASS` control is
+still picked and forwards to its **parent**, not to what is behind it, so
+`map_overlay.gd`'s `_gui_input()` had never run on a phone. Dead by touch:
+tap-to-select a settlement, and every registered tool click/drag/release
+handler — Settlement, Territory, Way, Route, Measure, Sculpt and Paint dabs.
+Camera pan and pinch masked it, because those come through
+`ViewportHost._input()`, which never consults a `mouse_filter`.
+
+Recorded as a class, not just an instance: **a full-screen layout container in
+the phone chrome must be `MOUSE_FILTER_IGNORE`.** Its children are picked
+independently, so nothing tappable is lost.
+
+### PH-02 · The map context menu had no touch route — **fixed**
+
+Right-click has no finger. Press-and-hold (500 ms, under 28 px drift) now emits
+the same `map_right_clicked`, and `civilization_workspace.gd`'s own menu is
+re-presented as the phone canvas's L4 sheet rather than popped as a
+pointer-sized `PopupMenu` that clips at a screen edge. The withheld-press rule
+in `map_overlay.gd` is what stops the hold from also firing the armed tool.
+
+### PH-03 · `wrap_controls` on three more windows — **fixed**
+
+`place_editor_window.gd`, `faction_roster_window.gd` and
+`city_viewer_window.gd` all shipped with `AcceptDialog`'s constructor default
+left on — the third, fourth and fifth instances of §14's bug class. The roster
+even carried a `max_size` whose comment describes the symptom it was treating.
+Now off in the shared `DccWidgets.phone_window()`, on every platform.
+
+### PH-04 · Desktop-pixel touch targets in every dock and window — **fixed**
+
+`dcc_widgets.gd` is the single source of every row in the shell and is authored
+in desktop pixels (`_row` 24, `slider` 14, `action` 26, `tool_button` 30x30).
+`DccShell.phone_fit()` — `_phone_fit_tool_options()` generalised — now floors
+them at §13's 44 dp across the dock sheets and the three windows. Four
+non-obvious cases it also had to cover are listed in `CHANGELOG.md`:
+`OptionButton.fit_to_longest_item`, `clip_text` on expanding buttons only,
+`PopupMenu` row height, and `MOUSE_FILTER_PASS` on layout containers.
+
+### PH-05 · A dock sheet does not scroll from a drag on its content — **open**
+
+The scrollbar drag works and the category accordion works, so no dock control
+is unreachable; but a flick on the rows does nothing, which is the gesture a
+phone user reaches for first. `MOUSE_FILTER_PASS` on `dcc_widgets.gd`'s rows
+(PH-04) was necessary and not sufficient. Confirmed on the handset both ways:
+the same flick on the 4 px scrollbar scrolls, on the content it does not. The
+place editor's own `ScrollContainer`, inside a subwindow, drag-scrolls
+correctly — so this is specific to the main viewport, not to `ScrollContainer`.
+Not fixed here rather than half-fixed.
+
+### PH-06 · The New world dialog and the file browser are not phone-shaped — **open**
+
+Seen while driving the device: `new_world_dialog.gd` and `browse_dialog.gd`
+both open at their desktop size in the middle of a 1080 x 2340 screen, with
+10 px type. Neither is in this pass's four subjects and both are being edited
+by other work in flight, so they are registered rather than touched.
+`DccWidgets.phone_window()`/`phone_present()` is the shared treatment when
+someone takes them.
+
+### Not registered, because it is not a gap
+
+The unified tool bar. It builds through `set_tool_options()`, which already
+runs the touch fit over the finished row, and the phone tool sheet already
+scrolls horizontally — so its mode and tool segments are 44 dp and reachable
+as built, with no change of its own. An `HFlowContainer` was tried and
+reverted: inside a horizontal `ScrollContainer` it is handed unbounded width
+and can never wrap.

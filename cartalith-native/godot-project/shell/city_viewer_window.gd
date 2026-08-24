@@ -51,8 +51,23 @@ const ZOOM_MIN := 0.25
 const ZOOM_MAX := 12.0
 const ZOOM_STEP := 1.18
 
+## Phone (§13). The canvas and its companion column cannot sit side by side at
+## 393 dp -- the column alone is 264 of them -- so they stack, canvas over
+## column, and the canvas takes a fixed band rather than the leftover height
+## (which under a scrolling column is not a well-defined quantity).
+var _phone := false
+## Dp, and the design canvas's own figure: enough to read a street skeleton at
+## the fit scale, and under 40% of the screen so the info column still opens on
+## real content rather than on a caption.
+const PHONE_CANVAS_H := 330
 
-func setup(b: EngineBridge) -> void:
+
+## `host` is the `DccApp` this window is parented to, needed for the phone
+## treatment. Defaulted rather than added to the call site because `app.gd` is
+## shared and this is the only fact this window wants from it -- the parent is
+## already the right object, and `setup()` is called after `add_child()` at
+## every one of its call sites.
+func setup(b: EngineBridge, host = null) -> void:
 	bridge = b
 	title = "City viewer"
 	size = Vector2i(940, 660)
@@ -60,14 +75,20 @@ func setup(b: EngineBridge) -> void:
 	## The reference's `cvCloseBtn`. `AcceptDialog` already supplies exactly
 	## one OK button; renaming it is the whole control.
 	ok_button_text = "Close"
+	if host == null:
+		host = get_parent()
+	## Also turns `wrap_controls` off -- on with a canvas child that has no
+	## natural size, which is the worst possible combination of the two.
+	_phone = DccWidgets.phone_window(self, host)
 
-	var outer := HBoxContainer.new()
+	var outer: BoxContainer = VBoxContainer.new() if _phone else HBoxContainer.new()
 	outer.add_theme_constant_override("separation", 0)
 	add_child(outer)
 
 	var left := VBoxContainer.new()
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	if not _phone:
+		left.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	left.add_theme_constant_override("separation", 4)
 	outer.add_child(left)
 
@@ -75,9 +96,17 @@ func setup(b: EngineBridge) -> void:
 	head.add_theme_constant_override("separation", 8)
 	_title_label = DccTheme.label("—", "text", DccTheme.FS_BODY)
 	_title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	## The picker is the wide control on a phone, and the name is already in the
+	## header above it -- so phone drops the label rather than letting two
+	## variable-width strings fight over 393 dp.
+	_title_label.visible = not _phone
 	head.add_child(_title_label)
 	_picker = OptionButton.new()
-	_picker.custom_minimum_size.x = 200
+	if _phone:
+		_picker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_picker.clip_text = true
+	else:
+		_picker.custom_minimum_size.x = 200
 	_picker.item_selected.connect(_on_pick)
 	head.add_child(_picker)
 	var reset := Button.new()
@@ -85,11 +114,21 @@ func setup(b: EngineBridge) -> void:
 	reset.focus_mode = Control.FOCUS_NONE
 	reset.pressed.connect(_reset_view)
 	head.add_child(reset)
+	## A wheel is the only zoom the desktop canvas offers, and a phone has none.
+	## Pinch is wired below and is the gesture people reach for first, but it is
+	## also the one a single thumb cannot make -- so the two explicit steps are
+	## here as well, at the canvas's own 44 dp icon-button size.
+	if _phone:
+		_zoom_button(head, "+", 1.0)
+		_zoom_button(head, "−", -1.0)
 	left.add_child(head)
 
 	_canvas = Control.new()
 	_canvas.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_canvas.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	if _phone:
+		_canvas.custom_minimum_size.y = PHONE_CANVAS_H
+	else:
+		_canvas.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_canvas.clip_contents = true
 	_canvas.mouse_filter = Control.MOUSE_FILTER_STOP
 	_canvas.draw.connect(_draw_canvas)
@@ -97,7 +136,10 @@ func setup(b: EngineBridge) -> void:
 	left.add_child(_canvas)
 
 	var side := VBoxContainer.new()
-	side.custom_minimum_size.x = 264
+	if _phone:
+		side.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	else:
+		side.custom_minimum_size.x = 264
 	side.add_theme_constant_override("separation", 0)
 	outer.add_child(side)
 
@@ -123,8 +165,38 @@ func setup(b: EngineBridge) -> void:
 	_info.add_theme_constant_override("separation", 2)
 	side_body.add_child(_info)
 
+	if _phone:
+		DccWidgets.phone_head(outer, "City viewer", "urban morphology")
+
 	bridge.generation_finished.connect(func(_ok: bool): if visible: _reload())
 	bridge.world_loaded.connect(func(): if visible: _reload())
+
+
+## One 44 dp step of the wheel, for the pointer gesture a phone does not have.
+## `dir` is +1 or -1; the zoom is anchored on the canvas centre, which is the
+## only fixed point a button press has.
+func _zoom_button(parent: Control, glyph: String, dir: float) -> Button:
+	var b := Button.new()
+	b.text = glyph
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(44, 44)
+	b.pressed.connect(func(): _zoom_by(pow(ZOOM_STEP, dir), _canvas.size * 0.5))
+	parent.add_child(b)
+	return b
+
+
+## The pan correction that keeps `anchor` fixed while the scale changes,
+## factored out of the wheel handler so the pinch gesture and the two buttons
+## use the identical relation rather than three copies of it.
+func _zoom_by(factor: float, anchor: Vector2) -> void:
+	var before := _zoom
+	_zoom = clampf(_zoom * factor, ZOOM_MIN, ZOOM_MAX)
+	if is_equal_approx(before, _zoom):
+		return
+	var centre := _canvas.size * 0.5
+	var k := _zoom / before
+	_pan = (_pan + centre - anchor) * k - centre + anchor
+	_canvas.queue_redraw()
 
 
 ## Opens on one settlement, by its index in `bridge.settlements()`.
@@ -132,7 +204,8 @@ func open(index: int) -> void:
 	_index = index
 	_refill_picker()
 	_reload()
-	popup_centered()
+	if not DccWidgets.phone_present(self, get_parent()):
+		popup_centered()
 
 
 func _refill_picker() -> void:
@@ -223,15 +296,10 @@ func _on_canvas_input(event: InputEvent) -> void:
 		if mb.button_index == MOUSE_BUTTON_WHEEL_UP or mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			if not mb.pressed:
 				return
-			var factor := ZOOM_STEP if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / ZOOM_STEP
-			var before := _zoom
-			_zoom = clampf(_zoom * factor, ZOOM_MIN, ZOOM_MAX)
 			## Keep the point under the cursor fixed: the pan correction is
 			## the same relation `ViewportHost._zoom_at()` uses.
-			var centre := _canvas.size * 0.5
-			var k := _zoom / before
-			_pan = (_pan + centre - mb.position) * k - centre + mb.position
-			_canvas.queue_redraw()
+			_zoom_by(ZOOM_STEP if mb.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / ZOOM_STEP,
+				mb.position)
 			_canvas.accept_event()
 		elif mb.button_index == MOUSE_BUTTON_LEFT or mb.button_index == MOUSE_BUTTON_MIDDLE:
 			_dragging = mb.pressed
@@ -239,6 +307,18 @@ func _on_canvas_input(event: InputEvent) -> void:
 	elif event is InputEventMouseMotion and _dragging:
 		_pan += (event as InputEventMouseMotion).relative
 		_canvas.queue_redraw()
+		_canvas.accept_event()
+	elif event is InputEventMagnifyGesture:
+		## Android's two-finger pinch, which reaches here because
+		## `project.godot` turns `pointing/android/enable_pan_and_scale_gestures`
+		## on. Anchored on the gesture's own centre, exactly as the wheel is
+		## anchored on the cursor -- so the street under the fingers stays under
+		## them. `accept_event()` matters more here than anywhere else in this
+		## file: without it the pinch keeps travelling and the ScrollContainer
+		## underneath takes the second half of the gesture (the canvas's own
+		## "one primary gesture per region" rule).
+		var mg := event as InputEventMagnifyGesture
+		_zoom_by(mg.factor, mg.position)
 		_canvas.accept_event()
 
 
@@ -296,6 +376,13 @@ func _rebuild_side() -> void:
 		+ "and fords (9), farmland and hinterland detail (15). "
 		+ "URBAN_MORPHOLOGY_SCOPE.md has 7 of ~17 milestones built; this is "
 		+ "the street skeleton those seven produce, not a finished town.")
+
+	## Legend and info are both rebuilt here, so this is where the touch fit
+	## belongs -- see `place_editor_window.gd`'s own call for the reasoning.
+	if _phone:
+		var host := get_parent()
+		if host != null and host.has_method("phone_fit"):
+			host.phone_fit(self, 1.0)
 
 
 func _no_layout_reason() -> String:

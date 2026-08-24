@@ -1204,3 +1204,61 @@ set). Everything pushed to `/data/local/tmp/` was removed again. The fixed APK
 was reinstalled last, so the
 device is left on the fixed build. No settings or properties were changed —
 `persist.sys.root_access` was *attempted* and refused, which changed nothing.
+
+---
+
+## Device pass — the civ / urban / render windows on the phone (2026-08-24)
+
+Hardware: OnePlus 6T (`ONEPLUS_A6013`, LineageOS), 1080 x 2340, `phone_scale`
+2.748. Build: `--export-debug "Android"` against the existing
+`target/aarch64-linux-android/android-dev/libcartalith_godot.so` — this pass is
+GDScript only, so the `.so` was deliberately **not** rebuilt (another agent had
+`lib.rs` mid-flight and rebuilding would have shipped half a change).
+
+### What was driven, and how
+
+Everything through `adb shell input tap` / `swipe`, confirmed with
+`adb exec-out screencap`. A press-and-hold is `input swipe X Y X+1 Y+1 900` —
+a zero-length swipe with a duration, which is a genuine long press rather than
+two taps.
+
+| Path | Result |
+|---|---|
+| Welcome, Generate world, domain switch | world generated on the handset, CIVIL/CARTO reachable |
+| Press-and-hold on a settlement pin | context sheet, titled with the settlement name, carrying Edit / Move viewer / Delete / Drop settlement here / Info here |
+| Press-and-hold on open water | the same sheet, titled `HERE`, with only Drop and Info — the two branches of the same menu |
+| Sheet ▸ Edit | place editor, full screen, own header, no IME over the form |
+| Place editor scroll ▸ Actions | Focus camera / Open in City Viewer / Delete place, all 48 dp |
+| Actions ▸ Open in City Viewer | canvas band over a scrolling info column; picker, Fit and the two zoom steps all 44 dp |
+| City Viewer ▸ settlement picker | 40-name list, rows legible and tappable |
+| CIVIL ▸ left sheet ▸ Politics ▸ Faction roster | opens on the faction list with drawn banners, Add/Remove below it |
+| Roster ▸ tap a faction | list folds to a 52 dp bar carrying that faction's banner and name; inspector fills the screen |
+| CARTO ▸ left sheet | categories collapse/expand; the scrollbar drags |
+
+### The finding that mattered
+
+The first three attempts at the press-and-hold produced nothing at all, and no
+diagnostic reached `logcat`. The cause was not the gesture: **no GUI input had
+ever reached `map_overlay.gd` on a phone** — see `GUI_GAP_REGISTER.md` §22
+PH-01. It was found by moving off the device onto a `--force-touch` desktop run
+at 393 x 852 and asking `gui_get_hovered_control()` what was under the map
+centre; it named the chrome spacer.
+
+**The lesson is the loop, not the bug.** Each device iteration is an export, an
+`adb install` and a re-navigation — several minutes, and `print()`/`printerr()`
+from GDScript never appeared in `logcat` on this build, so the device could
+show *that* something failed but not *where*. The `--force-touch` harness
+reproduces the same composition in seconds with full console output and
+synthesised `device = -1` (`DEVICE_ID_EMULATION`) pointer events, which is what
+Android's mouse emulation stamps on its own — so hit-testing, `mouse_filter`
+and the hold timer are all genuinely exercised. Diagnose there; confirm on the
+handset. Both halves are needed: the desktop harness cannot show an IME
+covering a form, and the handset could not have shown which node was eating the
+tap.
+
+### State the device is left in
+
+The fixed build is installed and is the last thing that ran. Nothing was pushed
+to `/data/local/tmp/`, no properties or settings were changed, and no root was
+attempted. One unrelated app (Google Meet) was brought to the foreground by a
+stray back-press during navigation and was force-stopped again.

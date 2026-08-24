@@ -48,6 +48,11 @@ var _index := -1
 var _body: VBoxContainer
 var _name_edit: LineEdit
 var _footer: Label
+## Phone (§13). `DccWidgets.phone_window()`'s header comment carries the whole
+## treatment and why; here it only decides whether the in-content header below
+## exists and whether each rebuild is re-fitted for touch.
+var _phone := false
+var _phone_title: Label
 
 ## Emitted after any change that moves map data, so the caller can refresh
 ## the overlay without this file knowing how (`civilization_workspace.gd`
@@ -67,10 +72,23 @@ func setup(a, b: EngineBridge) -> void:
 	## The body scrolls; the window must not grow to fit it (same reason
 	## `faction_roster_window.gd` caps its own).
 	max_size = Vector2i(560, 760)
+	## Also turns `wrap_controls` off -- which this window shipped with on,
+	## the third instance of that bug class in this shell.
+	_phone = DccWidgets.phone_window(self, a)
+
+	## One column rather than the scroll directly, so the phone header has
+	## somewhere to sit. An `AcceptDialog` gives its *first* content child the
+	## whole rect, so a second sibling would simply overlap this one.
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 0)
+	add_child(root)
+
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	add_child(scroll)
+	root.add_child(scroll)
+	if _phone:
+		_phone_title = DccWidgets.phone_head(root, "Place", "settlement editor")
 	var pad := MarginContainer.new()
 	for side in ["left", "top", "right", "bottom"]:
 		pad.add_theme_constant_override("margin_" + side, 12)
@@ -89,7 +107,16 @@ func open_for(index: int) -> void:
 	_rebuild()
 	if _index < 0:
 		return
-	popup_centered()
+	if not DccWidgets.phone_present(self, app):
+		popup_centered()
+	## §4.5.3 asks for the editor to open "focused on the name field", and on a
+	## pointer that costs nothing. On a phone a focused `LineEdit` raises the
+	## IME, which on the device pass covered the form from Traits down before
+	## the user had asked to rename anything -- so phone opens on the whole
+	## form and the field takes focus when it is tapped, like every other field
+	## here. Measured on the handset, not assumed.
+	if _phone:
+		return
 	if _name_edit != null:
 		## §4.5.3's own right-dock column asks for "the new settlement's
 		## inspector, live, focused on the name field" -- which nothing in
@@ -121,6 +148,10 @@ func _rebuild() -> void:
 		return
 	var details := bridge.civ_settlement_details(_index)
 	title = "Place — %s" % String(s.get("name", "(unnamed)"))
+	if _phone_title != null:
+		## The window is borderless on a phone, so the title bar this used to
+		## be read from is gone -- the in-content header is where it lives now.
+		_phone_title.text = String(s.get("name", "(unnamed)")).to_upper()
 
 	_build_identity(s)
 	_build_class_and_polity(s)
@@ -130,6 +161,12 @@ func _rebuild() -> void:
 	_build_history(details)
 	_build_actions(s)
 	_build_footer()
+	## Every row above comes from `dcc_widgets.gd`, which is authored in desktop
+	## pixels; this floors the tappable ones at §13's 44 dp. Re-run per rebuild
+	## because a rebuild makes fresh nodes, and safe to re-run because the walk
+	## is idempotent (`DccShell.phone_fit`'s own meta-flag).
+	if _phone:
+		app.phone_fit(self, 1.0)
 
 
 # -- Name + re-roll ---------------------------------------------------------

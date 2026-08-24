@@ -571,6 +571,120 @@ static func band(parent: Control, pad_x: int, gap: int = 14, height: int = 28) -
 	parent.add_child(wrap)
 	return row
 
+# ---------------------------------------------------------------------------
+# Phone treatment for a free-floating window
+#
+# Three windows landed this session as plain `AcceptDialog`s authored at
+# desktop sizes -- 400x640, 880x620, 940x660 -- on a shell whose phone screen
+# is 393 dp wide. Both halves of this shell's twice-recorded window bug class
+# were present in all three, so both are fixed in one place rather than three:
+#
+#   1. `wrap_controls`, which `AcceptDialog` turns ON in its constructor. The
+#      window then grows to fit its content instead of letting the content
+#      scroll, and walks off the bottom of the screen -- taking the buttons
+#      with it (`GUI_GAP_REGISTER.md`, and the same fix in
+#      `asset_library_window.gd` and `data_manager_window.gd`). Wrong on every
+#      platform, so it is applied unconditionally.
+#   2. Desktop pixels on a phone. `open_project_dialog.gd` established the
+#      answer and its reasoning holds unchanged here: fill the screen and let
+#      `content_scale_factor` map the desktop-authored composition onto the
+#      canvas's own 393 dp reference, so one layout serves both form factors
+#      instead of a second set of constants per window.
+#
+# What that precedent does NOT solve is touch target size -- a content scale
+# maps 24 authored px onto 24 *dp*, which is still half of §13's floor. That
+# is `DccShell.phone_fit(dlg, 1.0)`'s job, called by each window after its
+# body is built; `1.0` because the compositor has already applied the scale
+# once and applying it again here would square it.
+# ---------------------------------------------------------------------------
+
+## Once, from `setup()`. Returns whether this is a phone, so the caller can
+## build a stacked layout instead of a side-by-side one -- the one thing a
+## content scale cannot fix, since a 264 px companion column beside a 393 dp
+## body leaves the body 129 px no matter what it is scaled by.
+static func phone_window(dlg: AcceptDialog, host) -> bool:
+	dlg.wrap_controls = false
+	if host == null or not host.has_method("is_phone") or not host.is_phone():
+		return false
+	## The embedded window's own title bar is drawn by the PARENT viewport, at
+	## the parent's scale -- so it does not grow with `content_scale_factor` and
+	## its close box lands at about 5 dp. Dropping the decoration entirely is
+	## the same call `open_project_dialog.gd` made, for the same reason; each
+	## window carries its own titled header inside the content, which does
+	## scale, and `ok_button_text` gives the explicit way out.
+	dlg.borderless = true
+	dlg.ok_button_text = "Close"
+	## A rotation changes both the screen this fills and the scale it fills it
+	## at. `phone_insets_changed` is the shell's own "the phone layout moved"
+	## signal, already emitted by `_apply_phone_orientation()`.
+	host.phone_insets_changed.connect(func():
+		if dlg.visible:
+			phone_present(dlg, host))
+	return true
+
+## Opens the window, phone-shaped. Returns **false** on desktop and tablet,
+## where the caller should go on and `popup_centered()` as it always has --
+## so a call site is two lines and carries no `is_phone()` branch of its own.
+##
+## It opens the window rather than only sizing it, and that is load-bearing
+## rather than convenience. `AcceptDialog` lays its content child out from a
+## resize *notification*; assigning `size` while the dialog is hidden and then
+## calling `popup_centered()` produces no such notification, so the child keeps
+## the rect it last had at its desktop size -- measured at 377 x 2602 inside a
+## 393 x 852 window. The visible symptom is not a cropped window but a body
+## that **overflows instead of scrolling**: a `ScrollContainer` handed 2 602 px
+## of height has nothing to scroll, so the bottom two thirds of a form are
+## simply unreachable. `child_controls_changed()` does not fix it, and neither
+## does re-setting the child's rect afterwards -- the next layout pass puts it
+## back. `Window.popup(rect)` is the engine's own sized-popup entry point: it
+## sets position and size *as part of* showing the window, so the notification
+## arrives and `_update_child_rects()` runs against the real size.
+##
+## Re-run on every open (and on rotation, via `phone_insets_changed`) because
+## the viewport it measures changes with both.
+static func phone_present(dlg: Window, host) -> bool:
+	if host == null or not host.has_method("is_phone") or not host.is_phone():
+		return false
+	var screen: Vector2 = host.get_viewport_rect().size
+	dlg.content_scale_mode = Window.CONTENT_SCALE_MODE_CANVAS_ITEMS
+	dlg.content_scale_aspect = Window.CONTENT_SCALE_ASPECT_IGNORE
+	dlg.content_scale_factor = host.phone_scale()
+	## Both authored for desktop, and both would otherwise fight the fill:
+	## `min_size` refuses a window narrower than 620-880 px, which every phone
+	## in portrait is, and `max_size` -- which two of these three windows set,
+	## precisely to stop `wrap_controls` running them off a 1080p screen --
+	## caps the height at 700-760 and leaves a band of map showing under the
+	## window. With `wrap_controls` off above, the cap has nothing left to
+	## treat, so it goes rather than cropping the fill.
+	dlg.min_size = Vector2i.ZERO
+	dlg.max_size = Vector2i.ZERO
+	dlg.popup(Rect2i(Vector2i.ZERO, Vector2i(screen)))
+	return true
+
+## The header a borderless phone window draws in place of the title bar it
+## gave up: the canvas's 56 dp app-bar row, in dp because the window that
+## hosts it is content-scaled. Returns the title `Label` so a window whose
+## title tracks its subject can keep writing to it.
+static func phone_head(parent: Control, title: String, subtitle: String) -> Label:
+	var wrap := PanelContainer.new()
+	wrap.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"bottom": 1}))
+	wrap.custom_minimum_size.y = 56
+	var m := MarginContainer.new()
+	m.add_theme_constant_override("margin_left", 16)
+	m.add_theme_constant_override("margin_right", 16)
+	wrap.add_child(m)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 2)
+	col.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	m.add_child(col)
+	var t := DccTheme.mono_label(title.to_upper(), "text_bright", 12, 3, true)
+	col.add_child(t)
+	if subtitle != "":
+		col.add_child(DccTheme.mono_label(subtitle, "text_faint", 9, 1))
+	parent.add_child(wrap)
+	parent.move_child(wrap, 0)
+	return t
+
 static func pad(parent: Control, l: int, t: int, r: int, b: int) -> MarginContainer:
 	var m := MarginContainer.new()
 	m.add_theme_constant_override("margin_left", l)

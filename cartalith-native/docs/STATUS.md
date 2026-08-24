@@ -5388,3 +5388,52 @@ Full detail in `CHANGELOG.md`'s matching entry. Summary:
 
 - None currently open. Criterion 4 (real Android device build/install/launch/golden-path) was fully closed 2026-08-17 once the owner unlocked the connected phone mid-session, and **re-verified end to end on 2026-08-18** against everything landed since — see `ANDROID_BUILD_SCOPE.md`.
 - This session has real Windows desktop + `godot4` CLI access + real Android device access, which closes most of what earlier sessions couldn't do themselves.
+
+## Phone: the civ / urban / render windows (2026-08-24)
+
+Design canvas plus implementation plus a real OnePlus 6T pass, for the four
+subsystems that landed on desktop this session with no phone treatment.
+`CHANGELOG.md`'s entry of the same date has the reasoning;
+`GUI_GAP_REGISTER.md` §22 has the register rows; `ANDROID_BUILD_SCOPE.md`'s
+device-pass section has what was driven and how.
+
+**Done, and verified on the handset:**
+
+- **Every tool on the map works by finger at all.** `_phone_content_gap` was
+  `MOUSE_FILTER_PASS` and the two chrome containers above it `STOP`, all three
+  full-screen — so `map_overlay.gd`'s `_gui_input()` had never run on a phone.
+  Tap-to-select and every registered tool click/drag/release handler
+  (Settlement, Territory, Way, Route, Measure, Sculpt, Paint) were dead by
+  touch; camera pan and pinch masked it, because those come through
+  `ViewportHost._input()`, which never consults a `mouse_filter`. Three enums.
+- **Press-and-hold on the map is the right click**, opening
+  `civilization_workspace.gd`'s own menu as the phone canvas's L4 sheet. The
+  press it started with is withheld until the gesture resolves, so holding
+  never drops a settlement first.
+- **Place editor, Faction roster and City Viewer** fill the screen, carry their
+  own 56 dp header, and have no target under 44 dp. `wrap_controls` was on in
+  all three (instances 3-5 of that bug class). City Viewer stacks its canvas
+  over its info column with pinch and two 44 dp zoom steps; the roster runs
+  master-then-detail, folding its list into a 52 dp bar on a pick.
+- **The NPR Painter block and every other dock panel** are touch-sized, via
+  `DccShell.phone_fit()` — `_phone_fit_tool_options()` generalised to any
+  subtree and re-run over the dock sheets from a coalesced `node_added` hook.
+- **The unified tool bar needed nothing**: it already passes through
+  `set_tool_options()`, which already runs the fit.
+
+**Verification.** A `--force-touch` harness at 393 x 852 asserts 25 properties
+across all of it with synthesised `device = -1` pointer events (all pass), and
+the paths above were then driven on the real device with `adb shell input` and
+read back from `screencap`.
+
+**Still open:**
+
+- **A dock sheet does not scroll from a drag on its content.** The scrollbar and
+  the category accordion both work, so nothing is unreachable, but the flick is
+  the gesture a phone user reaches for. `MOUSE_FILTER_PASS` on the rows was
+  necessary and not sufficient (`GUI_GAP_REGISTER.md` §22 PH-05).
+- **`new_world_dialog.gd` and `browse_dialog.gd` are still desktop-sized on the
+  phone** — the residue of the 2026-08-20 note above, now half closed (`Open
+  project` was fixed then; these two were not). `DccWidgets.phone_window()` /
+  `phone_present()` is the shared treatment when someone takes them
+  (`GUI_GAP_REGISTER.md` §22 PH-06).

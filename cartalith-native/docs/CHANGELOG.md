@@ -21009,3 +21009,142 @@ which `save_project` builds in Rust from the parameter table alone. A generic
 "extras" bag added speculatively from a File-menu task is the wrong shape to
 commit to before a second consumer (MEA-07's measurement store, the Travel
 Library) says what it needs. Both register rows say so now.
+
+## The phone could not touch its own map (2026-08-24)
+
+Owner: "use your /design and /ui-ux-pro-max to mutate these upgrades to the
+smartphone layout as well" — the civ-interaction pass, the City Viewer, the
+unified tool bar and the NPR Painter block, all of which landed on
+desktop/tablet this session and none of which had had a phone pass.
+
+The design canvas came first: six artboards continuing
+`design/Cartalith Android Phone.dc.html` at the same 412 x 892 dp frame and
+the same tokens — the map long-press context sheet, the place editor, the city
+viewer, the faction roster, the NPR Painter panel, and an adaptation-rules
+card. Then the implementation, and then the handset.
+
+**What the pass found is not a styling gap.**
+
+`_phone_content_gap` — the spacer between the app bar and the tool sheet,
+which expands to fill the whole middle of the screen — was
+`MOUSE_FILTER_PASS`. `PASS` does not mean what it reads like: a `PASS` control
+is still *picked*, receives the event, and forwards it to its own **parent**,
+never to what is behind it. Only `IGNORE` takes a control out of picking. Two
+more containers above it (`_phone_chrome_margin`, and the chrome
+`VBoxContainer`) are plain `Control`s and so `STOP` by default, each covering
+the full screen on its own.
+
+So `map_overlay.gd`'s `_gui_input()` had **never once run on a phone**.
+Everything a finger should be able to do to the map was dead: tap-to-select a
+settlement, and every registered tool click/drag/release handler — Settlement,
+Territory, Way, Route, Measure, and the Sculpt/Paint dabs. It looked like the
+map worked because camera pan and pinch come through `ViewportHost._input()`,
+a raw input hook that never consults a `mouse_filter` — so the half that was
+broken was exactly the half nobody had driven on the device. Found with
+`gui_get_hovered_control()` over the map centre in a `--force-touch` run: it
+named the spacer, not the overlay. Three enum changes.
+
+**Built on top of that:**
+
+- **Press-and-hold is the right click** (`map_overlay.gd`). A finger has no
+  second button, so the context menu the civ pass added had no touch route at
+  all. 500 ms, under 28 px of drift. The hard part is not the timer but the
+  click that has *already* fired: `emulate_mouse_from_touch` delivers a left
+  press on finger-down, and the press branch emits `map_clicked`, which with
+  the Settlement tool armed drops a town. So a touch press is **withheld**
+  until the gesture identifies itself — drift releases it (so a sculpt stroke
+  starts from its real origin), an early lift releases it and then ends it, and
+  reaching the deadline **discards** it and emits `map_right_clicked`. Gated on
+  `device < 0` (`DEVICE_ID_EMULATION`) or `OS.has_feature("mobile")`, so a
+  desktop mouse takes none of this path.
+- **The context sheet is the same `PopupMenu`, re-presented**
+  (`phone_menu.gd`'s new `open_sheet()`, `DccShell.phone_present_popup()`).
+  `civilization_workspace.gd` builds its menu exactly as it did; on a phone it
+  is drawn as the canvas's L4 sheet — 52 dp rows, grab handle, dismissing
+  scrim, system-back — instead of a pointer-sized popup that clips at a screen
+  edge. One menu definition, two presentations, the same contract
+  `phone_menu.gd` already has with `menus.gd`. Returns false off-phone, so the
+  call site carries no branch of its own.
+- **The three civ windows fill the screen** (`DccWidgets.phone_window()` /
+  `phone_present()`). All three shipped with `wrap_controls` on — the third,
+  fourth and fifth instances of this shell's twice-recorded bug class — and all
+  three were authored at desktop sizes (400x640, 880x620, 940x660) for a 393 dp
+  screen. `open_project_dialog.gd`'s treatment, generalised: borderless with an
+  in-content 56 dp header (the embedded title bar is drawn by the *parent*
+  viewport, so it does not grow with `content_scale_factor` and its close box
+  lands at about 5 dp), `min_size`/`max_size` cleared, and `Window.popup(rect)`
+  rather than a hidden `size =` plus `popup_centered()` — which is
+  load-bearing: `AcceptDialog` lays its content child out from a resize
+  *notification*, and without one the child kept its desktop rect (measured at
+  377 x 2602 inside a 393 x 852 window), so a `ScrollContainer` handed 2602 px
+  of height had nothing to scroll and the lower two thirds of a form were
+  unreachable.
+- **`DccShell.phone_fit(node, unit)`** — `_phone_fit_tool_options()`
+  generalised from the tool row to any subtree, since the docks and the three
+  windows had the same disease: every row comes from `dcc_widgets.gd`, which is
+  authored in desktop pixels (`_row` 24, `slider` 14, `action` 26). `unit` is
+  what one authored pixel is worth — `_phone_scale` in the main viewport, `1.0`
+  inside a content-scaled window. Idempotent by meta-flag, and re-run over the
+  dock sheets from a coalesced `node_added` hook so a panel rebuilt after boot
+  is sized too. Four things it does beyond heights, each found by measurement:
+  - `OptionButton.fit_to_longest_item = false`. A picker reports the width of
+    the **longest item in its list**, not of the selection. The roster's four
+    Identity pickers put its content minimum at 473 px on a 393 dp screen; a
+    `Window` cannot be narrower than its content, so the window grew and the
+    layout went with it.
+  - `clip_text` plus ellipsis on *expanding* buttons only. A `Button` sized by
+    its own text and not expanding has nothing else to get a width from —
+    applied to every button alike, the roster's Add/Remove pair went to zero
+    width.
+  - `v_separation`/font on an `OptionButton`'s `PopupMenu`, which is a `Window`
+    and so not in the walk: its rows measured about 21 dp inside a
+    content-scaled window and about 8 dp in a dock.
+  - `MOUSE_FILTER_PASS` on layout containers. Godot delivers a GUI event to the
+    picked control and then up its parents, stopping at the first `STOP` — and
+    every `dcc_widgets.gd` row is a `STOP` `HBoxContainer`, so a drag starting
+    on a row never reached the scroll above it.
+- **City Viewer stacks** (`city_viewer_window.gd`). A 940 px canvas beside a
+  264 px column leaves the canvas 129 px at 393 dp; phone puts the canvas in a
+  330 dp band with the info column scrolling under it. Pinch
+  (`InputEventMagnifyGesture`, which reaches this file now that
+  `enable_pan_and_scale_gestures` is on) and two 44 dp zoom steps replace the
+  wheel; all three go through one `_zoom_by()` rather than three copies of the
+  pan correction. The canvas `accept_event()`s its gestures so the column under
+  it cannot steal a pan halfway through.
+- **Faction roster runs master-then-detail** (`faction_roster_window.gd`).
+  Picking a faction folds the 250 px list into a 52 dp bar carrying its banner
+  and name; the bar reopens it. Its body is **one** scrolling column on the
+  phone rather than desktop's two nested `SIZE_EXPAND_FILL` scroll panes inside
+  a third — that nesting is what the dialog laid out at 2602 px, and the place
+  editor's single unnested scroll comes out correct at 797 px in the same
+  window from the same helper, which is what identified nesting rather than
+  window size as the cause.
+- **Place editor** no longer grabs the name field on open: §4.5.3's
+  focus-the-name rule costs nothing on a pointer and raises the IME over the
+  form on a phone (seen on the handset, covering everything from Traits down).
+
+**The tool bar needed no change of its own.** It builds through
+`set_tool_options()`, which already runs `phone_fit` over the finished row, and
+the phone tool sheet already scrolls horizontally — so its twelve segments are
+44 dp and reachable as built. An `HFlowContainer` was tried first and reverted:
+inside a horizontal `ScrollContainer` it is handed unbounded width and can
+never wrap, so it would have been inert.
+
+**Verified.** A `--force-touch` harness at 393 x 852 drives every path with
+synthesised `device = -1` pointer events — so hit-testing, `mouse_filter` and
+the hold timer are genuinely exercised rather than bypassed by calling
+callbacks — and asserts 25 properties (tap still selects, hold opens the sheet
+and suppresses the click, back closes it, each window's `wrap_controls`, fill,
+scale, and that no visible target is under 44 dp). All pass. Then on a real
+OnePlus 6T (1080 x 2340, LineageOS), driven with `adb shell input`: the context
+sheet in both its variants (a settlement, with Edit/Move/Delete; and open
+ground, with Drop/Info), the place editor's full scrolling form and its
+Actions, the City Viewer's stacked canvas and 44 dp controls, and the roster
+opening on its list and folding to the bar on a pick.
+
+**Open, found in the same pass and deliberately not fixed:** a dock sheet still
+does not scroll from a drag on its *content*. The scrollbar drag and the
+category accordion both work, so nothing in a dock is unreachable, but the
+flick is the gesture a phone user reaches for. `MOUSE_FILTER_PASS` on the rows
+(above) was necessary and not sufficient; the remaining cause is below the row
+vocabulary and is its own investigation. Registered rather than half-fixed.

@@ -606,7 +606,7 @@ func set_tool_options(build: Callable) -> void:
 	## Deferred one frame so `_phone_bottom_reserve()` reads the sheet's real
 	## post-layout size rather than its size from before this rebuild.
 	if _phone:
-		_phone_fit_tool_options(tool_options_row)
+		phone_fit(tool_options_row, _phone_scale)
 		(func(): phone_insets_changed.emit()).call_deferred()
 
 ## Owner, 2026-08-20: "the bottom menu butons on phone are near too small to
@@ -625,28 +625,157 @@ func set_tool_options(build: Callable) -> void:
 ## dozen workspace files phone-aware (and without touching files another agent
 ## may be mid-flight in). Applied after `build.call()` so it sees the real
 ## nodes, and re-applied on every rebuild because each one makes fresh ones.
-func _phone_fit_tool_options(node: Node) -> void:
+##
+## Generalised 2026-08-24 from the tool row to any subtree, because the dock
+## *sheets* and the three civ windows had exactly the same disease: every row
+## in them comes from `dcc_widgets.gd`, which is authored in desktop pixels
+## (`_row` is 24 px tall, `slider` 14, `action` 26, `tool_button` 30x30) and
+## knows nothing about a phone. One walker fixes all of them; the alternative
+## was making a dozen panel files phone-aware, several of which other agents
+## are mid-flight in.
+##
+## `unit` is what one authored pixel is worth in this subtree's own space:
+##   - `_phone_scale` for anything laid out in the main viewport (the docks,
+##     the tool row) -- there is no content scale there, so a 24 px row really
+##     is 24 physical px, about 2 mm.
+##   - `1.0` for a `Window` that has already set `content_scale_factor` to
+##     `_phone_scale` (the three civ windows, `open_project_dialog.gd`'s own
+##     treatment): the scale is applied once by the compositor, and applying it
+##     again here would double it.
+##
+## Idempotent by meta-flag, because the dock pass below re-runs on every
+## rebuild and a second multiplication would grow every row without bound.
+const _PHONE_FIT_META := "_phone_fitted"
+
+func phone_fit(node: Node, unit: float) -> void:
 	for child in node.get_children():
-		if child is Control:
+		if child is Control and not child.has_meta(_PHONE_FIT_META):
 			var ctl := child as Control
+			ctl.set_meta(_PHONE_FIT_META, true)
 			## Explicit font-size overrides beat any theme we could hang on the
 			## sheet, so they have to be re-written rather than inherited.
-			if ctl.has_theme_font_size_override("font_size"):
+			if unit != 1.0 and ctl.has_theme_font_size_override("font_size"):
 				ctl.add_theme_font_size_override("font_size",
-					_pscale(ctl.get_theme_font_size("font_size")))
+					maxi(1, int(round(ctl.get_theme_font_size("font_size") * unit))))
 			## Scale whatever the desktop row asked for, then floor anything
 			## tappable at §13's 44 px -- the floor is the half the owner felt.
+			var tap := maxf(1.0, round(DccTheme.PHONE_TAP_MIN * unit))
 			var min_size := ctl.custom_minimum_size
 			if min_size.x > 0.0:
-				min_size.x = _pscale(min_size.x)
+				min_size.x = round(min_size.x * unit)
 			if min_size.y > 0.0:
-				min_size.y = _pscale(min_size.y)
+				min_size.y = round(min_size.y * unit)
 			if ctl is BaseButton or ctl is LineEdit or ctl is Range or ctl is TextEdit:
-				min_size.y = maxf(min_size.y, float(_ptap(DccTheme.PHONE_TAP_MIN)))
+				min_size.y = maxf(min_size.y, tap)
 				if min_size.x > 0.0:
-					min_size.x = maxf(min_size.x, float(_ptap(DccTheme.PHONE_TAP_MIN)))
+					min_size.x = maxf(min_size.x, tap)
 			ctl.custom_minimum_size = min_size
-		_phone_fit_tool_options(child)
+			## **A drag that starts on a row has to reach the scroll above it.**
+			## `dcc_widgets.gd` builds every row as an `HBoxContainer`, and a
+			## `Control` picks by default (`MOUSE_FILTER_STOP`), which ends the
+			## event walk right there -- Godot delivers a GUI event to the picked
+			## control and then up its parents, stopping at the first `STOP`. On a
+			## pointer that costs nothing, because scrolling is the wheel. On a
+			## phone it is the whole gesture: the left dock sheet could only be
+			## scrolled by catching its 4 px scrollbar, which on a 400 ppi panel
+			## is about a millimetre, so the NPR Painter block below the fold was
+			## effectively unreachable. Found by driving the real handset -- a
+			## flick on the rows did nothing, the same flick on the scrollbar
+			## worked.
+			##
+			## `PASS`, not `IGNORE`: a `PASS` control is still picked, so the
+			## row keeps its own tooltip and hover, and only *forwards* what it
+			## does not handle. Layout containers only -- a `PanelContainer` is
+			## excluded because several in this shell (`phone_menu.gd`'s rows,
+			## the roster's folded bar) carry their own `gui_input` and must
+			## keep stopping the event they consume.
+			if (ctl is BoxContainer or ctl is MarginContainer) \
+					and ctl.mouse_filter == Control.MOUSE_FILTER_STOP:
+				ctl.mouse_filter = Control.MOUSE_FILTER_PASS
+			## An `OptionButton`'s list is a `PopupMenu`, which is a `Window` and
+			## not a `Control` -- so it is not in this walk and inherits none of
+			## the above. Left alone its rows came out at ~21 dp inside a
+			## content-scaled window (measured on the handset, City Viewer's
+			## settlement picker: 40 names at half the tap floor), and at ~8 dp
+			## in a dock, where nothing scales the stock font either.
+			##
+			## A `PopupMenu` has no row-height property; a row is its font plus
+			## `v_separation`, so those are the two knobs. 22 is what brings a
+			## default row to the 44 dp floor rather than an arbitrary bump.
+			## **A `Button` reports its own text as its minimum width**, and a
+			## `Window` cannot be narrower than its content's minimum -- so one
+			## long label anywhere inside a dialog widens the whole window past
+			## the screen, and everything laid out after the scrolling pane goes
+			## with it. The faction roster is the case that found this: its
+			## settlement sublist ("Draumr League — 13 settlements, 39 210") and
+			## its vocabulary pickers put the content minimum at 473 px on a
+			## 393 dp screen, the window grew to fit, and the Add/Remove row
+			## ended up 1 750 px below the bottom of the phone. Measured with
+			## `get_combined_minimum_size()` down the dialog's own tree in a
+			## `--force-touch` run, not guessed.
+			##
+			## Trimming takes the text out of that calculation while still
+			## drawing it in full wherever it fits -- which at 393 dp is nearly
+			## everywhere -- and marks the rest with an ellipsis rather than
+			## cutting mid-glyph.
+			##
+			## Only for a control that already stretches. A `Button` sized by
+			## its own text and *not* expanding has nothing else to get a width
+			## from, so trimming it collapses it to nothing -- the roster's
+			## Add/Remove pair went to zero width the first time this was
+			## applied to every button alike.
+			if ctl is Button and (ctl.size_flags_horizontal & Control.SIZE_EXPAND) != 0:
+				(ctl as Button).clip_text = true
+				(ctl as Button).text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			if ctl is OptionButton:
+				## `clip_text` alone does not shrink an `OptionButton`:
+				## `fit_to_longest_item` is on by default, so it reports the
+				## width of the **longest item in the list**, not of the
+				## selection, specifically so the control does not resize when
+				## you pick a different one. On a 393 dp screen that is the
+				## expensive guarantee -- Ag. technology's "Traditional Agrarian
+				## (ard plow, …)" alone asked for 287 px of a 393 dp row. A
+				## phone row is full width and never sits beside anything, so
+				## there is no reflow to protect against.
+				(ctl as OptionButton).fit_to_longest_item = false
+				var pop := (ctl as OptionButton).get_popup()
+				pop.add_theme_constant_override("v_separation", int(round(22.0 * unit)))
+				if unit != 1.0:
+					pop.add_theme_font_size_override("font_size",
+						maxi(1, int(round(pop.get_theme_font_size("font_size") * unit))))
+		phone_fit(child, unit)
+
+## The dock sheets carry every workspace panel -- the NPR Painter block, the
+## CIVIL dock's Faction roster button, the right dock's Settlement ▸ City
+## layout -- and every one of them is rebuilt from a signal at some point after
+## boot, so a one-shot pass over the dock at build time would be correct for
+## about a second. `node_added` is the only hook that sees all of them without
+## this file knowing which panels exist; the work is coalesced onto one
+## deferred pass per frame, so a rebuild that adds 2000 nodes still fits once.
+##
+## Cheap because the fit itself is meta-flagged: the pass walks the sheet, but
+## only *touches* the nodes it has not already sized.
+var _phone_fit_pending := false
+
+func _on_phone_node_added(node: Node) -> void:
+	if _phone_fit_pending or not (node is Control):
+		return
+	## Only a dock descendant is our business. Walked rather than connected
+	## per-panel because `child_entered_tree` fires for direct children only,
+	## and every panel is several levels down.
+	var p: Node = node.get_parent()
+	while p != null:
+		if p == left_dock or p == right_dock:
+			_phone_fit_pending = true
+			_run_phone_dock_fit.call_deferred()
+			return
+		p = p.get_parent()
+
+func _run_phone_dock_fit() -> void:
+	_phone_fit_pending = false
+	for dock in [left_dock, right_dock]:
+		if dock != null:
+			phone_fit(dock, _phone_scale)
 
 ## Read by dialogs that have to present themselves differently on a phone
 ## (`open_project_dialog.gd`); `_phone`/`_phone_scale` stay private because
@@ -1252,12 +1381,24 @@ func _build_phone_shell() -> void:
 	model_host.add_child(_build_menu_bar())
 	model_host.add_child(_build_status_bar())
 
+	## Both of these cover the whole screen, and a `Control` picks by default
+	## (`MOUSE_FILTER_STOP`) -- so as pure layout scaffolding they were each,
+	## on their own, enough to keep every tap off the map underneath. See
+	## `_phone_content_gap`'s own comment below for the full diagnosis; these
+	## two are the same bug one and two levels up, and all three had to go for
+	## `map_overlay.gd` to see a finger.
+	##
+	## Their children (the app bar, the tool sheet, the bottom menu bar) are
+	## picked independently of their parent's filter, so nothing tappable is
+	## lost by taking the containers themselves out of picking.
 	_phone_chrome_margin = MarginContainer.new()
 	_phone_chrome_margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_phone_chrome_margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_phone_root.add_child(_phone_chrome_margin)
 
 	var chrome := VBoxContainer.new()
 	chrome.add_theme_constant_override("separation", 0)
+	chrome.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_phone_chrome_margin.add_child(chrome)
 
 	_phone_top_safe = _build_phone_top_safe()
@@ -1270,7 +1411,30 @@ func _build_phone_shell() -> void:
 	## the bottom bar, so the map now has the whole width back.
 	_phone_content_gap = Control.new()
 	_phone_content_gap.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_phone_content_gap.mouse_filter = Control.MOUSE_FILTER_PASS
+	## **`IGNORE`, not `PASS`.** This was `PASS`, and `PASS` does not mean what
+	## it reads like: a `PASS` control is still *picked* -- it receives the
+	## event and then forwards it to its own **parent**, never to the nodes
+	## behind it. So this spacer, which expands to fill the entire region
+	## between the app bar and the tool sheet, was the control under every tap
+	## on the map, and `map_overlay.gd`'s `_gui_input()` had never once run on a
+	## phone. Only `IGNORE` takes a control out of picking so what is behind it
+	## is reached.
+	##
+	## Everything on `map_overlay` that a finger should be able to do was dead
+	## because of this one enum: tap-to-select a settlement, every registered
+	## tool click/drag/release handler (Settlement, Territory, Way, Route,
+	## Measure, and Sculpt/Paint dabs), and the press-and-hold that opens the
+	## civ context sheet. It looked like the map worked because *camera* pan and
+	## pinch come through `ViewportHost._input()`, which is a raw input hook and
+	## never consults a `mouse_filter` at all -- so the half that was broken was
+	## exactly the half nobody had driven on the device.
+	##
+	## Found with `gui_get_hovered_control()` over the map centre in a
+	## `--force-touch` run: it named this node, not the overlay.
+	##
+	## Children are picked on their own, so the floating rail this hosts is
+	## unaffected -- `IGNORE` on a parent does not disable its children.
+	_phone_content_gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chrome.add_child(_phone_content_gap)
 
 	_phone_tool_sheet = _build_phone_tool_sheet()
@@ -1312,6 +1476,11 @@ func _build_phone_shell() -> void:
 	_phone_root.add_child(_build_right_dock(true))
 	right_dock.set_anchors_preset(Control.PRESET_FULL_RECT)
 	right_dock.visible = false
+
+	## Connected only once both docks exist, so `_on_phone_node_added()` never
+	## walks toward a null. Every workspace panel is attached after this point,
+	## which is exactly what it is here to catch.
+	get_tree().node_added.connect(_on_phone_node_added)
 
 	_apply_phone_orientation()
 
@@ -1865,6 +2034,23 @@ func _set_overflow_open(open: bool) -> void:
 	_close_all_phone_overlays()
 	if open:
 		_phone_menu.open()
+
+## Offer a transient `PopupMenu` the phone's own sheet presentation. Returns
+## **false** on desktop and tablet, where the caller should go on and call
+## `PopupMenu.popup()` as it always has -- so a call site reads as one line
+## with no `is_phone()` branch of its own, and a build with no phone chrome
+## behaves identically to one that never heard of this function.
+##
+## Built for `civilization_workspace.gd`'s map context menu, which on a phone
+## is opened by a press-and-hold (`map_overlay.gd`) and cannot use a stock
+## popup: pointer-sized rows, and clipping rather than nudging when a finger
+## lands near the screen edge.
+func phone_present_popup(popup: PopupMenu, title: String, trail: String) -> bool:
+	if not _phone or _phone_menu == null:
+		return false
+	_close_all_phone_overlays()
+	_phone_menu.open_sheet(popup, title, trail)
+	return true
 
 ## Android's back gesture. `quit_on_go_back` is turned off in `_ready()` while
 ## `_phone` is true so this can answer it: the canvas's BACK rule is "leaves a
