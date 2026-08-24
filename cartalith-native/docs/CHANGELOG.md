@@ -22136,3 +22136,157 @@ same handset. The measurements above are from the desktop phone-size preview
 and are **lower confidence than an on-device run**, which is the bar this class
 of fault has earned; the `.apk` is ready to install the moment the device is
 back.
+
+## The touch navpad, and what "100%" actually means (`GUI_GAP_REGISTER.md` SH-14, 2026-08-24)
+
+**SH-14 closed; SH-03 narrowed.** The other half of the owner's question that
+`SH-13` answered the first half of — *"how to move around, snapping the view
+back to 100% etc."* Two owner decisions, both taken as given here:
+
+1. **Reset means cover, not fit.**
+2. **The cluster gets designed in this shell's language first**, rather than
+   transliterating the reference's four floating buttons — a mobile-web idiom
+   §13 uses nowhere else.
+
+### The reference, read line by line rather than assumed
+
+Three of the four behaviours are not guessable from the markup, and one is
+actively misleading:
+
+| Reference | Line | What it really does |
+|---|---|---|
+| `zoomIn` / `zoomOut` | 13464-13465 | `zoomAt(viewCenter(), 1.35)` and its inverse — the **view centre**, because a button press carries no map position of its own |
+| `panBtn` ✋ | 13963 | `panMode=!panMode`. A **latching toggle, not a press-and-hold** — the whole handler is that one assignment, despite the ✋ glyph |
+| ↳ what the mode does | 9623, 13924 | Routes a plain button-0 pointerdown to the pan drag, and suppresses the armed tool (`wantSculpt = … && !panMode && …`) |
+| `zoomReset` ⟳ | 13466 | Clears `panMode` **and** calls `_viewFill()` (13294) — explicitly **not** `resetView()` (13390, `scale=1, pan=0`), which has not been what this button does since v1.13 |
+
+So **"100%" in this app is the COVER scale** — the zoom at which the map fills
+the display — and not scale 1.
+
+### `reset_view()` was the larger half, and it was dead code
+
+It was plain fit: `_zoom = 1`, `_camera.position = ZERO`, which over a
+`STRETCH_KEEP_ASPECT_CENTERED` raster is exactly the letterboxed state the
+reference's own v1.01 was raised to eliminate. **And nothing in the shell
+called it** — it ran only on a fresh generate or load, so the app had no way
+back to a known view at all.
+
+Measured, not asserted: at 393×852 against a 2048×1311 world the fit view is a
+**251 px band with 300 px of dead ground above and below it**.
+
+Now cover. `_viewCoverScale()` (13264) is `max(1, availW/natW, availH/natH)`
+over the canvas's *natural* size; this camera's `zoom == 1` is already the
+letterbox-fit rect rather than a natural pixel size, so the same quantity here
+is `max(size.x / fit.x, size.y / fit.y)` over `overlay.displayed_rect()` — and
+it is `>= 1` by construction, which is the reference's `max(1, …)` floor for
+free, with the fit math reused rather than written a third time.
+
+**Two deviations, disclosed rather than taken silently** (`CLAUDE.md`):
+
+- **Centred, where the reference is not.** Its `_viewFill` sets `panX/panY = 0`
+  and lets `_viewClampFill` settle it; worked through, that lands the map
+  exactly aligned on the tight axis and **asymmetrically cropped on the loose
+  one** — an artifact of `transform-origin: 0 0` over a flex-centred
+  `.canvas-wrap`, not an intent. The reference's own comment at 13290 says
+  *"cover scale, centred"*. This centres, so the crop is even on both edges.
+  The **scale** is the reference's exactly.
+- **The standing pan clamp is not ported.** `_viewClampFill` (13295) runs on
+  every `applyView()`, not just reset, so porting it is a change to all four
+  pan routes rather than to this function — and it would fight `ZOOM_MIN =
+  0.4`, which lets this camera zoom *below* fit where the reference floors at
+  fit. Recorded as open in the register instead of bundled in here.
+
+### The navpad
+
+Designed against `design/Cartalith Android Phone.dc.html` before any GDScript
+was written, and published as a canvas ("Cartalith Phone Navpad": a viewport
+artboard with the cluster in place, and an anatomy/states artboard carrying the
+geometry and the fit-vs-cover diagram). The phone canvas's own artboard 01
+already puts a floating cluster at `right:14px` in a 10 px-gap column — so this
+is that column, not a new idiom: **four 44 dp pills**, riding the existing
+`_safe_insets` so they clear the app bar, bottom bar, timeline and gesture
+strip with no second set of numbers, stacked above the coordinate readout that
+owns the corner.
+
+Glyphs are **drawn** (`dcc_icons.gd`: `zoom_in`, `zoom_out`, `view_fill`, plus
+the existing `tool_pan` reused unchanged) rather than left as the reference's
+`+` / `−` / ✋ / ⟳ text. Two reasons: four controls in one column have to read
+as one family, which a type glyph beside a 1.2 px stroke never does — and `⟳`
+(U+27F3) is missing from Plex Mono *and* the whole fallback chain, the same
+tofu case `search`/`import` were drawn for. The pan pill latches to **accent
+fill with a dark glyph**, the phone canvas's own on-toggle idiom.
+
+Almost nothing new had to be built underneath it:
+
+- **Zoom** is `_zoom_at(size * 0.5, factor)` — the existing handler with one
+  argument filled in, so the readout, `overlay`'s pin compensation and the
+  deep-zoom tile pass all follow for free.
+- **Pan mode** reuses `_panning` wholesale. One `elif` on
+  `MOUSE_BUTTON_LEFT and _pan_mode` sets it, and the motion branch needed **no
+  change at all**. Handling the press in `_input` — before GUI dispatch — is
+  what keeps the armed tool from also seeing the finger, which is the
+  reference's `!panMode` guard by another route. On the phone that press is a
+  single finger via `emulate_mouse_from_touch`; two fingers still go to the
+  magnify/pan gesture pair, untouched.
+- **Reset** calls `reset_view()`, which now also clears the latch.
+
+One guard the reference does not need: its buttons live outside the canvas
+element, while this column sits *over* the map, so without a rect test a tap on
+✋ or ⟳ would start a pan drag as well as press the button.
+
+### Reachability: every touch device, not phones only
+
+Gated on `_touch`, deliberately **not** `DccShell._phone`. What the reference's
+own `isMobile` gate is really testing is *"there is no wheel, no middle button
+and no space bar"* — as true of a tablet as of a phone. And `_phone` is an
+**aspect-ratio** test (`_PHONE_ASPECT_MAX`) that exists to pick a layout: a
+tablet fails it and takes the desktop shell, i.e. desktop chrome with no mouse,
+which is the case that needs this most. Desktop keeps all four already (wheel,
+MMB/Space) and is excluded.
+
+`viewport_host.gd` adopted `DccShell._ready()`'s `--force-touch` testing
+override verbatim, for the reason it exists there: without it `_build_navpad()`
+is unreachable outside a real device and could only ever be verified on one.
+
+### Verified — windowed at 393×852, not headless
+
+`_navpad_probe.gd`, driving the real shell:
+
+- Pad built, **4 buttons, each 44×44**, at x=335 (14 px clear of the edge,
+  since portrait phone reports `right: 0.0` — correct for a text readout,
+  wrong for a round target against the bezel), 10 px apart, above the
+  coordinate readout at y=656.
+- Reset zoom **3.3866811** against an independently computed cover of
+  **3.3866811**; `covers_x`, `covers_y` and `centred` all true; the map's
+  on-screen rect is `(-469, 0) … (862, 852)` in a `393 × 852` viewport.
+- Zoom in **×1.35**, zoom out **×0.740741** — exact.
+- A synthetic one-finger drag moves the camera **0 px with pan mode off** and
+  **−120 px with it on**; a drag starting **on the pad** moves it 0 px; ⟳
+  restores cover **and** clears the latch.
+- Screenshots at 393×852 confirm the pills render over terrain in both states
+  (dark with a hairline, accent with a dark glyph when latched).
+
+One harness limitation found and recorded rather than worked around:
+`Viewport.push_input()` reaches GUI dispatch in this setup (a pushed tap does
+press a `Button`) but **never reaches any node's `_input`** — proven against
+code this pass did not touch, since a pushed `WHEEL_UP` leaves `zoom()`
+bit-identical while wheel zoom demonstrably works in the shipped build. The
+drag tests therefore call `_input` directly; the dispatch wiring is what a
+device pass verifies.
+
+One implementation trap worth writing down: **`Button.flat = true` suppresses
+the background stylebox entirely**, so a flat button with a `normal` override
+draws that override nowhere. Caught by screenshot — the first cut was flat
+(copying `_layers_btn`) and the pills were invisible over the terrain with only
+their glyphs showing.
+
+**On-device: blocked, not skipped.** The handset sat at `device offline` across
+repeated `adb kill-server` / `reconnect` cycles for the whole pass, with a
+concurrent Android session using the same phone. The 393×852 windowed run above
+is the standing evidence; the three live checks still owed are that reset
+visibly crops rather than letterboxes, that the two zoom buttons step, and that
+✋ lets a real finger drag the map.
+
+**Still open, deliberately:** the pan clamp above, and **desktop still has no
+`reset_view()` caller** — the navpad is touch-only by design, and a View-menu
+entry is a menu-naming decision `GUI_GAP_REGISTER.md` §7's audit owns.

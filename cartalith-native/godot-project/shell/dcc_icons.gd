@@ -41,6 +41,20 @@ const PATHS := {
 	"dice": '<rect x="2.4" y="2.4" width="11.2" height="11.2" rx="2"/><circle cx="5.6" cy="5.6" r="0.7" fill="#ffffff" stroke="none"/><circle cx="10.4" cy="10.4" r="0.7" fill="#ffffff" stroke="none"/><circle cx="8" cy="8" r="0.7" fill="#ffffff" stroke="none"/>',
 	"window": '<rect x="1.6" y="4" width="9.6" height="9.6" rx="1"/><path d="M5.2 4 V2.4 H14.4 V11.6 H12.8"/>',
 
+	## The touch navpad (`GUI_GAP_REGISTER.md` SH-14), the port's answer to the
+	## reference's mobile `#zoomOverlay`. Drawn rather than left as the
+	## reference's own `+` / `-` / `✋` / `⟳` text: the four sit in one column
+	## and have to read as one family, which a type glyph beside a 1.2 px
+	## stroke never does -- and `⟳` (U+27F3) is missing from Plex Mono and the
+	## whole fallback chain anyway, the same tofu case `search`/`import` were
+	## drawn for. The hand is `tool_pan` above, reused unchanged.
+	##
+	## `view_fill` is a *frame with the content pushed out to it* -- the cover
+	## reset, not a fit: the two diagonals run outward to opposite corners.
+	"zoom_in": '<circle cx="7" cy="7" r="4.4"/><path d="M10.2 10.2 L14.2 14.2"/><path d="M4.9 7 H9.1"/><path d="M7 4.9 V9.1"/>',
+	"zoom_out": '<circle cx="7" cy="7" r="4.4"/><path d="M10.2 10.2 L14.2 14.2"/><path d="M4.9 7 H9.1"/>',
+	"view_fill": '<rect x="1.8" y="3.2" width="12.4" height="9.6" rx="1"/><path d="M5.8 6.2 H4.2 V7.8"/><path d="M4.4 6.4 L6.9 8.9"/><path d="M10.2 9.8 H11.8 V8.2"/><path d="M11.6 9.6 L9.1 7.1"/>',
+
 	## The two file-dialog screens' own marks (`design/Cartalith DCC Shell.
 	## dc.html`, "Open project dialog 1920"): `⌕` on the search well and `⤓` on
 	## the import/drop tile. Drawn rather than left as text -- unlike the

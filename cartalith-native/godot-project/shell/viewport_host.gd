@@ -42,6 +42,10 @@ var _scale_label: Label
 var _readout_label: Label
 var _coords_label: Label
 var _layers_btn: Button
+## The touch navpad (`GUI_GAP_REGISTER.md` SH-14) and its one stateful member.
+## `null` on desktop -- see `_build_navpad()` for the reachability call.
+var _navpad: VBoxContainer
+var _pan_btn: Button
 var _bridge: EngineBridge
 var _width_km := 0.0
 
@@ -57,7 +61,13 @@ var _safe_insets := {"left": 10.0, "top": 10.0, "right": 10.0, "bottom": 10.0}
 ## tappable on phone, not workspace/dock content this file is exempt from
 ## touching. Tablet gets the same floor (its own target range is "44-52 px");
 ## only pointer-first Windows keeps the original compact 26 px hit box.
-var _touch := DisplayServer.is_touchscreen_available() and OS.has_feature("mobile")
+##
+## `--force-touch` is `DccShell._ready()`'s own testing-only override, adopted
+## here verbatim for the same reason it exists there: no dev/CI box has touch
+## hardware, so without it `_build_navpad()` below is unreachable outside a
+## real device and could only ever be verified on one.
+var _touch := (DisplayServer.is_touchscreen_available() and OS.has_feature("mobile")) \
+	or "--force-touch" in OS.get_cmdline_user_args()
 
 # -- Camera (§4.5.1 Pan / zoom) ------------------------------------------------
 #
@@ -79,6 +89,14 @@ const ZOOM_WHEEL_STEP := 1.15   ## Multiplicative per wheel notch.
 var _zoom := 1.0
 var _panning := false
 var _pan_last_screen := Vector2.ZERO
+## The navpad's ✋ (`GUI_GAP_REGISTER.md` SH-14) -- the reference's `panMode`
+## (9582), which despite the ✋ glyph is a **latching toggle**, not a
+## press-and-hold: `panBtn`'s whole handler is `panMode=!panMode` (13963).
+## Checked before assuming, because "hold to pan" is what the button looks
+## like it means. While it is on, the reference gives a plain button-0
+## pointerdown to the pan drag (9623) and suppresses the armed tool
+## (13924) -- both of which fall out of `_panning` below for free.
+var _pan_mode := false
 
 # -- Deep-zoom tile compositing (`LOD_TILING_INTEGRATION_SCOPE.md` milestone M1) ---
 #
@@ -337,12 +355,18 @@ func _ready() -> void:
 	_layers_btn.pressed.connect(func(): layers_button_pressed.emit())
 	add_child(_layers_btn)
 
+	_build_navpad()
+
 	## A resize changes the native fit rect `_update_lod()` positions every
 	## tile against (`displayed_origin`/`displayed_size`, computed from
 	## `size`) -- without this, resizing the window while zoomed in past the
 	## threshold would leave existing tiles positioned against the old
 	## window size until the next zoom/pan event.
 	resized.connect(_update_lod)
+	## ...and the navpad is the one piece of chrome positioned absolutely
+	## against the *right/bottom* edge rather than anchored there, so unlike
+	## the three labels it does not track a resize on its own.
+	resized.connect(_apply_safe_insets)
 
 	## `_process()` (deep-zoom backlog catch-up, see `_lod_backlog`'s own doc
 	## comment) has nothing to do until `_update_lod()` first populates a
@@ -387,6 +411,33 @@ func _input(event: InputEvent) -> void:
 			_pan_last_screen = mb.position
 			if mb.pressed:
 				get_viewport().set_input_as_handled()
+		elif mb.button_index == MOUSE_BUTTON_LEFT and _pan_mode:
+			## The navpad's ✋ is on, so the primary button *is* the pan drag --
+			## exactly the reference's `if(e.button===1||panMode||spaceDown)`
+			## (9623). Reuses `_panning`, so the MouseMotion branch below needs
+			## no change at all; and handling the press here, before GUI
+			## dispatch, is what keeps the armed tool from also seeing it
+			## (the reference's own `!panMode` tool guard, 13924).
+			##
+			## On the phone this is a single finger: Godot's
+			## `emulate_mouse_from_touch` (default, and left alone by
+			## `project.godot`'s pinch note) delivers a one-finger drag as
+			## LEFT press + motion with the LEFT mask set. Two fingers keep
+			## going to the magnify/pan gesture pair below, unaffected.
+			##
+			## One guard the reference does not need: its buttons live outside
+			## the canvas element, while this column sits *over* the map. This
+			## handler runs before GUI dispatch, so without it a tap on ✋ or ⟳
+			## would start a pan drag as well as press the button.
+			## `get_global_rect()` rather than `get_rect()` -- the former
+			## carries every parent offset, so it is right whether or not this
+			## control happens to start at the viewport origin.
+			if mb.pressed and _navpad != null \
+					and _navpad.get_global_rect().has_point(mb.position):
+				return
+			_panning = mb.pressed
+			_pan_last_screen = mb.position
+			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
 		var space_held := Input.is_key_pressed(KEY_SPACE)
@@ -472,6 +523,42 @@ func _zoom_at(screen_pt: Vector2, factor: float) -> void:
 	overlay.set_camera_zoom(_zoom)
 	_update_lod()
 
+## The navpad's + / − (`GUI_GAP_REGISTER.md` SH-14). The reference's own two
+## buttons are `zoomAt(viewCenter(), 1.35)` and its inverse (13464-13465) --
+## the *centre* of the viewport, not the last-touched point, because a button
+## press carries no map position of its own. That is `_zoom_at` above with one
+## argument filled in; no second zoom path, and every consequence `_zoom_at`
+## already handles (the readout, `overlay`'s pin compensation, the deep-zoom
+## tile pass) follows from calling it.
+const ZOOM_BUTTON_STEP := 1.35   ## Reference 13464. Deliberately coarser than
+	## `ZOOM_WHEEL_STEP` (1.15): a wheel notch is cheap and repeatable, a
+	## 44 px tap is neither.
+
+func zoom_step(factor: float) -> void:
+	_zoom_at(size * 0.5, factor)
+
+## The navpad's ✋. See `_pan_mode`'s own doc comment for why this latches
+## rather than holding. Dropping `_panning` on the way out matters: turning
+## the mode off mid-drag would otherwise leave a pan running with no button
+## down to end it, since the release would no longer take this file's branch.
+func set_pan_mode(on: bool) -> void:
+	if _pan_mode == on:
+		return
+	_pan_mode = on
+	if not on:
+		_panning = false
+	if _pan_btn != null:
+		_pan_btn.set_pressed_no_signal(on)
+		## Accent fill, dark glyph -- the phone canvas's own on-toggle idiom
+		## (`#e0a34a` track, `#141617` knob), not a border or a tint, so the
+		## one latched control in the column is unmistakable at arm's length.
+		_navpad_paint(_pan_btn,
+			DccTheme.c("accent") if on else DccTheme.c("panel"),
+			DccTheme.c("bg") if on else DccTheme.c("text"))
+
+func pan_mode() -> bool:
+	return _pan_mode
+
 ## `_civMoveViewTo(x, y)` -- the reference's context-menu "📍 Move viewer to"
 ## op and the Faction Roster's "(focus camera)" link. Centres grid cell
 ## `(gx, gy)` in the viewport at the current zoom; no zoom change, matching
@@ -494,14 +581,59 @@ func move_view_to(gx: float, gy: float) -> void:
 	_camera.position = size * 0.5 - local * _zoom
 	_update_lod()
 
-## Back to fit, matching the letterboxed `STRETCH_KEEP_ASPECT_CENTERED` view
-## every fresh generate/load already rendered before this camera existed --
-## called from `refresh()` so a new world never opens scrolled off into
-## whatever corner the previous one was zoomed into.
+## `_viewFill()` (reference 13294) -- the default/reset view, which in this app
+## means **cover**, not fit: the map fills the display and whichever axis has
+## slack loses it off the edges. Called from `refresh()` so a new world never
+## opens scrolled off into whatever corner the previous one was zoomed into,
+## and from the navpad's ⟳, which is what the reference's own `zoomReset`
+## calls (13466) -- deliberately *not* `resetView()` (13390, `scale=1, pan=0`),
+## which has not been what that button does since the reference's v1.13.
+##
+## This used to be plain fit (`_zoom = 1`, `position = ZERO`), which is
+## `_camera` at identity over a `STRETCH_KEEP_ASPECT_CENTERED` raster --
+## visibly the letterboxed state the reference's own v1.01 was raised to fix
+## ("eliminate unused letterbox space"), and on a portrait phone against a
+## square world those dead bands are most of the screen. Owner decision,
+## 2026-08-23: reset matches the reference and covers.
+##
+## The scale: `_viewCoverScale()` is `max(1, availW/natW, availH/natH)` over
+## the canvas's *natural* size. This camera's `_zoom == 1` is already the
+## letterbox-fit rect rather than a natural pixel size, so the same quantity
+## here is the fit rect's own shortfall against the viewport -- and it is
+## `>= 1` by construction, which is the reference's `max(1, ...)` floor for
+## free. `overlay.displayed_rect()` is that rect, reused rather than
+## recomputing the fit math a third time.
+##
+## The pan: the reference sets `panX/panY = 0` and lets `_viewClampFill()`
+## (13295) settle it. Worked through, that lands the map exactly aligned on
+## the tight axis and **asymmetrically cropped on the loose one** -- an
+## artifact of `transform-origin: 0 0` over a flex-centred `.canvas-wrap`,
+## not an intent; the reference's own comment at 13290 says "cover scale,
+## centred". Centred is what this does, so the crop is even on both edges.
+## Deviation recorded rather than taken silently (`CLAUDE.md`), and it is the
+## only one -- the scale is the reference's, exactly.
+##
+## The reference's standing pan clamp is deliberately **not** ported. It runs
+## on every `applyView()`, not just reset, so it is a change to all four pan
+## paths (MMB, Space+LMB, pan gesture, navpad pan mode) rather than to this
+## function -- and it would fight `ZOOM_MIN = 0.4`, which lets this camera
+## zoom below fit where the reference floors at fit. Reset restores a known
+## view, which is the whole point of the button; recorded as open in
+## `GUI_GAP_REGISTER.md` rather than bundled in here.
 func reset_view() -> void:
-	_zoom = 1.0
-	_camera.scale = Vector2.ONE
-	_camera.position = Vector2.ZERO
+	var cover := 1.0
+	var origin := Vector2.ZERO
+	var rect: Rect2 = overlay.displayed_rect()
+	if rect.size.x > 0.0 and rect.size.y > 0.0 and size.x > 0.0 and size.y > 0.0:
+		cover = clampf(maxf(size.x / rect.size.x, size.y / rect.size.y), 1.0, ZOOM_MAX)
+		origin = size * 0.5 - rect.get_center() * cover
+	_zoom = cover
+	_camera.scale = Vector2(_zoom, _zoom)
+	_camera.position = origin
+	## `zoomReset` clears `panMode` as well (13466) -- a reset that left the
+	## hand latched would put the view back but not the input mode, which is
+	## half a reset.
+	set_pan_mode(false)
 	_update_zoom_readout()
 	overlay.set_camera_zoom(_zoom)   ## See `_zoom_at()`'s own comment on why this call exists.
 	## Every existing deep-zoom tile belongs to whatever world/size was live
@@ -571,6 +703,14 @@ func _apply_safe_insets() -> void:
 
 	_layers_btn.position = Vector2(l, t)
 
+	## The navpad rides the same insets, so it clears the app bar, the bottom
+	## bar, the timeline and the gesture strip without a second set of
+	## numbers -- and stacks *above* `_coords_label`, which owns this corner.
+	if _navpad != null:
+		var pad := _navpad.get_combined_minimum_size()
+		_navpad.position = Vector2(size.x - maxf(r, float(NAVPAD_EDGE)) - pad.x,
+			size.y - b - coords_size.y - float(NAVPAD_GAP) - pad.y)
+
 func _raster() -> TextureRect:
 	var t := TextureRect.new()
 	t.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -581,6 +721,106 @@ func _raster() -> TextureRect:
 	t.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return t
+
+## The touch navpad -- this port's answer to the reference's mobile-only
+## `#zoomOverlay` (HTML 749-754), and `GUI_GAP_REGISTER.md` SH-14's whole
+## content. Designed rather than transliterated (owner decision, 2026-08-23):
+## the reference draws four bare floating web buttons, a mobile-web idiom this
+## shell uses nowhere else, so this is the same four functions in the phone
+## canvas's own language -- one right-edge column of 44 dp pills, exactly the
+## floating cluster `design/Cartalith Android Phone.dc.html`'s artboard
+## "01 · VIEWPORT" already puts at `right:14px` with a 10 px gap. Nothing here
+## is a new mechanism; it is `_layers_btn` four more times.
+##
+## **Reachability: every touch device, not phones only.** `_touch` is the gate
+## the reference's own `isMobile` gate means -- what that gate is really
+## testing is "there is no wheel, no middle button and no space bar", which is
+## as true of a tablet as of a phone. `DccShell._phone` would be the wrong
+## gate: it is an *aspect-ratio* test (`_PHONE_ASPECT_MAX`) that exists to
+## pick a layout, and a tablet fails it and takes the desktop shell -- desktop
+## chrome with no mouse, which is precisely the case that needs this most.
+## Desktop is excluded because it already has all four (wheel, MMB/Space,
+## and now this file's `reset_view()` from the same call).
+const NAVPAD_HIT := 44     ## §13's floor. Raw, not `_phone_scale`d, for the
+	## same reason `_layers_btn` above is: the shipped phone's viewport is
+	## ~393 px (see `_apply_safe_insets()`'s own note), where that scale is
+	## 1.0 -- and `_safe_insets`, which positions this, arrives already
+	## scaled from `DccShell.phone_content_insets()`.
+const NAVPAD_GAP := 10     ## The canvas's own column gap, and above the 8 px
+	## adjacent-target minimum.
+const NAVPAD_EDGE := 14    ## The canvas's own `right:14px`, used as a *floor*
+	## on the safe inset rather than instead of it. Portrait phone reports
+	## `right: 0.0` (`DccShell.phone_content_insets()`) because no chrome
+	## occupies that edge -- correct for a text readout, wrong for a round
+	## 44 px target, which would sit against the bezel with half its area in
+	## the palm-rejection zone.
+
+func _build_navpad() -> void:
+	if not _touch:
+		return
+	_navpad = VBoxContainer.new()
+	_navpad.add_theme_constant_override("separation", NAVPAD_GAP)
+	_navpad.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+	_navpad.mouse_filter = Control.MOUSE_FILTER_IGNORE   ## The buttons pick;
+		## the column itself must not, or it would eat the map between them.
+	add_child(_navpad)
+
+	_navpad.add_child(_navpad_button("zoom_in", "Zoom in",
+		func(): zoom_step(ZOOM_BUTTON_STEP)))
+	_navpad.add_child(_navpad_button("zoom_out", "Zoom out",
+		func(): zoom_step(1.0 / ZOOM_BUTTON_STEP)))
+
+	_pan_btn = _navpad_button("tool_pan", "Pan mode", Callable())
+	_pan_btn.toggle_mode = true
+	## `set_pan_mode()` writes `button_pressed` back (⟳ clears the mode), which
+	## would re-enter this handler -- it uses `set_pressed_no_signal()` for
+	## exactly that, and this stays the only caller that comes from a finger.
+	_pan_btn.toggled.connect(set_pan_mode)
+	_navpad.add_child(_pan_btn)
+
+	_navpad.add_child(_navpad_button("view_fill", "Reset view", reset_view))
+
+func _navpad_button(glyph: String, tip: String, on_press: Callable) -> Button:
+	var b := Button.new()
+	## Deliberately **not** `flat`, unlike `_layers_btn` and every other button
+	## in this shell: `Button.flat` suppresses the background stylebox
+	## entirely, so a flat button with a `normal` override draws the override
+	## nowhere. Caught by screenshot -- the first cut was flat, and the pills
+	## were invisible over the terrain with only their glyphs showing.
+	b.focus_mode = Control.FOCUS_NONE
+	b.icon = DccIcons.get_icon(glyph, 17)
+	## Icon-only, so the tooltip is the only accessible name it has.
+	b.tooltip_text = tip
+	b.custom_minimum_size = Vector2(NAVPAD_HIT, NAVPAD_HIT)
+	_navpad_paint(b, DccTheme.c("panel"), DccTheme.c("text"))
+	if on_press.is_valid():
+		b.pressed.connect(on_press)
+	return b
+
+## One pill's fill and glyph colour, across all three states. Tinting the
+## glyph through `icon_*_color` rather than `modulate` is what lets the fill
+## and the glyph carry different colours -- `modulate` multiplies the whole
+## control, so an accent pill would drag its own glyph to accent with it.
+func _navpad_paint(b: Button, fill: Color, ink: Color) -> void:
+	var pill := StyleBoxFlat.new()
+	pill.bg_color = fill
+	pill.set_corner_radius_all(NAVPAD_HIT / 2)
+	## A hairline, because unlike every other button in this shell these float
+	## over the *map*: `panel` against dark terrain reads as a shape, against
+	## bright desert or ice it does not. The canvas's own floating chips carry
+	## the same `rgba(255,255,255,.12)` edge for the same reason.
+	pill.set_border_width_all(1)
+	pill.border_color = DccTheme.c("line")
+	b.add_theme_stylebox_override("normal", pill)
+	## A visible press, which a 44 px target with no hover state on a
+	## touchscreen otherwise has no feedback at all for. Lightened toward the
+	## ink rather than swapped for a token, so it works for both fills.
+	var down := pill.duplicate() as StyleBoxFlat
+	down.bg_color = fill.lerp(ink, 0.22)
+	b.add_theme_stylebox_override("hover", down)
+	b.add_theme_stylebox_override("pressed", down)
+	for state in ["normal", "hover", "pressed"]:
+		b.add_theme_color_override("icon_%s_color" % state, ink)
 
 func _chrome(preset: int, align: int) -> Label:
 	var l := DccTheme.label("", "text_faint", DccTheme.FS_SMALL)

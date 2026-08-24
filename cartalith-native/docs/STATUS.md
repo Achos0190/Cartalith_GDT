@@ -5,7 +5,58 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **Phone: four things the scaling walk could not
+Last updated: 2026-08-24 (post **The touch navpad, and what "100%" actually
+means** — `GUI_GAP_REGISTER.md` **SH-14** closed, **SH-03** narrowed. The other
+half of the owner question `SH-13` answered the first half of, and both owner
+decisions on it were taken as given: **reset means cover, not fit**, and **the
+cluster gets designed in this shell's language first** rather than
+transliterating the reference's four floating web buttons. Three of the four
+reference behaviours are not guessable from the markup and one is actively
+misleading — `panBtn` ✋ (13963) is a **latching toggle, not a press-and-hold**
+(the whole handler is `panMode=!panMode`), the zoom buttons zoom about the
+**view centre** at ×1.35 (13464-13465) because a press carries no map position,
+and `zoomReset` ⟳ (13466) clears `panMode` **and** calls `_viewFill()` (13294),
+never `resetView()` — so **"100%" in this app is the COVER scale, not scale 1**.
+**The larger half was `reset_view()`**, which was plain fit *and had no caller
+anywhere* — dead code that ran only on generate/load, leaving the app with no
+way back to a known view at all, and rendering the exact letterbox the
+reference's v1.01 was raised to eliminate: measured at 393×852 against a
+2048×1311 world, a **251 px band with 300 px of dead ground above and below**.
+Now `max(size.x/fit.x, size.y/fit.y)` over `overlay.displayed_rect()` — the
+reference's `_viewCoverScale` including its `max(1, …)` floor for free, since
+this camera's `zoom == 1` is already the fit rect rather than a natural pixel
+size. **Two deviations disclosed, not silent:** it **centres** (the reference's
+`panX/panY = 0` crops asymmetrically on the loose axis, an artifact of
+`transform-origin: 0 0` over a flex-centred wrap, against its own comment
+saying *"cover scale, centred"*); and the standing pan clamp `_viewClampFill`
+is **not** ported, because it runs on every `applyView()` and so is a change to
+all four pan routes, and would fight `ZOOM_MIN = 0.4`. The pad itself is
+**four 44 dp pills** in the right-edge column `design/Cartalith Android Phone.
+dc.html`'s artboard 01 already establishes (`right:14px`, 10 px gap), riding the
+existing `_safe_insets`; glyphs **drawn** (`zoom_in`/`zoom_out`/`view_fill` new,
+`tool_pan` reused) because four controls in one column must read as one family
+and `⟳` is tofu in Plex Mono; the pan pill latches to accent-fill/dark-glyph,
+the canvas's own on-toggle idiom. Underneath it is almost nothing: zoom is
+`_zoom_at(size * 0.5, factor)`, and pan mode reuses `_panning` so the motion
+branch needed **no change at all** — one `elif` on `MOUSE_BUTTON_LEFT and
+_pan_mode`, handled in `_input` before GUI dispatch, which is the reference's
+`!panMode` tool guard by another route. **Reachability is `_touch`, not
+`DccShell._phone`** — the reference's `isMobile` gate really tests "no wheel, no
+MMB, no space bar", as true of a tablet, and `_phone` is an *aspect-ratio* test
+that a tablet fails, taking desktop chrome with no mouse. Verified **windowed at
+393×852**: reset zoom **3.3866811** against an independently computed cover of
+**3.3866811**, `covers_x`/`covers_y`/`centred` all true; zoom ×1.35 and
+×0.740741 exact; a synthetic one-finger drag moves the camera **0 px off, −120
+px on**, and **0 px when it starts on the pad**. Two things written down for the
+next session: `Viewport.push_input()` reaches GUI dispatch in this harness but
+**never any node's `_input`** (proven with untouched wheel-zoom code), and
+**`Button.flat = true` suppresses the background stylebox entirely**, which made
+the first cut's pills invisible over terrain. **On-device blocked, not
+skipped** — the handset sat at `device offline` all pass with a concurrent
+Android session on it. **Still open:** the pan clamp, and **desktop has no
+`reset_view()` caller** — the pad is touch-only by design and a View-menu entry
+is a menu-naming decision §7's audit owns) —
+previously, post **Phone: four things the scaling walk could not
 see** — `GUI_GAP_REGISTER.md` **PH-07** to **PH-10**, from a second live-device
 audit. Three of the four are the same shape: **a phone-adaptation rule that was
 written, ran, and silently did not apply.** `phone_fit()`'s font walk asked for
