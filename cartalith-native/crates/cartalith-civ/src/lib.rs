@@ -6449,7 +6449,13 @@ fn civ_rdp_simplify(pts: &[(f64, f64)], eps: f64) -> Vec<(f64, f64)> {
 /// Catmull-Rom evaluation via repeated linear interpolation (Barry &
 /// Goldman), synthetic reflected phantom endpoints, sampled at
 /// ~`step`-pixel intervals per segment.
-fn civ_catmull_rom_sample(pts: &[(f64, f64)], step: f64) -> Vec<(f64, f64)> {
+///
+/// Public because `cartalith-godot`'s `get_roads()` re-samples the *same*
+/// curve through the *same* control points at render density (see that
+/// function's own doc comment, and `WAY_RENDER_STEP_CELLS`). That is a
+/// refinement of this curve, not a second smoothing algorithm, so it must
+/// be this definition and not a copy of it.
+pub fn civ_catmull_rom_sample(pts: &[(f64, f64)], step: f64) -> Vec<(f64, f64)> {
     if pts.len() < 2 {
         return pts.to_vec();
     }

@@ -23863,3 +23863,67 @@ One durability note: a GDScript error aborts `_ready()` without reaching
 `get_tree().quit()`, and headless Godot then idles forever rather than failing —
 this cost a 10-minute timeout on a one-line typo. Both probes now arm a watchdog
 timer that quits non-zero, which turns that into a visible failure.
+
+## The roads were curved all along, and the renderer drew their chords (2026-08-24) — `GUI_GAP_REGISTER.md` §29
+
+Owner: *"settlement roads all render as straight lines — no organic
+curvature."* Three suspects were obvious and all three were wrong. The
+smoothing **is** ported faithfully (`civ_smooth_path` = `_civSmoothPath`,
+reference 21892), it **does** run on the live path, and `map_overlay.gd`
+**does** `draw_polyline` every point it is handed. Measured over a real
+384×288 world, the ways come back at **mean sinuosity 1.072, ~11° of turn per
+vertex**. They curve.
+
+**The fourth thing was the sampling rate.** `_civSmoothPath` samples its spline
+every **3 grid cells** and rounds each sample to a whole cell, and
+`rdpSimplify`'s own comment says what that is calibrated against — *"eps in
+grid units (caller passes ~1 screen px)"*. The reference draws at roughly one
+cell per screen pixel, so a 3-cell chord is a 3 px chord. Fitted to this
+port's centre panel a 384-cell grid is already ~3.6 px/cell, and
+`ViewportHost.ZOOM_MAX` is 8 — one cell reaches **~29 screen px**, and the same
+chord is an ~87 px straight line meeting the next at a visible angle. The curve
+was real; the chords were what reached the screen.
+
+The reference had already met the near end of this and written it down.
+`_civSmoothPath`'s v0.92 note is an earlier owner report — *"roads nearly miss
+settlements when zooming in"* — fixed by un-rounding a way's **endpoints**,
+reasoning that half a cell is *"imperceptible at low zoom but, amplified by LOD
+zoom (one grid cell can span many screen pixels), visibly"* wrong. It leaves
+the interior rounded because *"their precision was never load-bearing"*. Under
+a DCC camera it is.
+
+**Fixed at the boundary, not in the engine.** `get_roads()` now re-samples each
+way through its own control points at `WAY_RENDER_STEP_CELLS = 0.25`, remapping
+`brks`, using `cartalith_civ::civ_catmull_rom_sample` — the same one
+definition, made `pub`, so this is a refinement of the curve the engine already
+computed and not a second smoothing pass. `Way::pts` never moves, so `km`, the
+network metrics, `um_primary_paths` and every road golden test see exactly what
+they saw. Putting it in `cartalith-civ` would have meant re-baselining
+`_civSmoothPath`'s goldens for a presentational reason; putting it in
+`map_overlay.gd` would have put geometry in GDScript, and that file was under
+concurrent edit.
+
+**Measured in the real shell**, windowed at 1600 × 900, same seed and the same
+pinned view at `ZOOM_MAX` with and without the re-sample: 589 → **6,342**
+points across 35 ways, mean chord **2.78 → 0.245** cells, max chord 4.24 →
+0.328, turn per vertex **14.47° → 1.70°** — the same total turning spread over
+twelve times the vertices, which is the difference between a corner and a
+curve. `km` unchanged at 1243.3 on the longest way; its *drawn* length rises
+0.35%, because a 0.25-cell polyline measures the arc instead of cutting it.
+
+**A fixture lesson worth the line.** The first probe put settlements on an
+exact lattice and 27 of 47 ways came back with *precisely* zero deviation from
+their chord, which read as a dead cost field and nearly became the diagnosis.
+It was the fixture — an axis-aligned pair has exactly one minimum-step
+8-connected path and is forced straight whatever the terrain costs. Jittering
+the placements off the lattice took it to 8/51. `CLAUDE.md`'s "shape fixtures
+to reach the code", read from the other side: a fixture can hide the code by
+making its answer degenerate.
+
+`cargo test -p cartalith-civ` 493 passing, every golden-parity suite included
+and unchanged; `cargo test -p cartalith-godot --lib` 334 passing with three new
+`way_render_tests` (density, `brks` remap, degenerate inputs). Headless boot
+clean. **Left open and registered**: `get_sea_routes()` and the Route tool's
+committed routes have the same chord geometry and want the same three lines,
+deferred only because `map_overlay.gd`'s route rendering was being edited in
+parallel this round.

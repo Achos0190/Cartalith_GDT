@@ -5,7 +5,24 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **the bake system's verification pass** — the
+Last updated: 2026-08-24 (post **RD-01: the roads curve, and the renderer was
+drawing their chords** — owner reported settlement roads rendering as straight
+lines. The smoothing is a faithful port, it does run live, and
+`map_overlay.gd` does draw every point: measured, the ways come back at **mean
+sinuosity 1.072, ~11° of turn per vertex**. `_civSmoothPath` samples its
+spline every **3 grid cells**, which is a 3 px chord on the reference's
+1-cell-per-pixel canvas and an **~87 px straight line** at this port's
+`ZOOM_MAX`. Fixed at the boundary: `get_roads()` re-samples each way through
+its own control points at `WAY_RENDER_STEP_CELLS = 0.25` via the same
+`civ_catmull_rom_sample`, remapping `brks`. **`Way::pts` never moves**, so
+`km`, the network metrics, `um_primary_paths` and every road golden test are
+untouched. Real shell, 1600×900, same seed and pinned view: 589 → **6,342**
+points, mean chord **2.78 → 0.245** cells, turn per vertex **14.47° → 1.70°**,
+`km` unchanged. 493 civ tests + 334 godot lib tests green, headless boot
+clean. **Left open**: `get_sea_routes()` and the Route tool's committed routes
+have the same chord geometry and want the same three lines —
+`GUI_GAP_REGISTER.md` §29)
+— previously, post **the bake system's verification pass** — the
 engine and shell above were shipped but never driven; the original commit
 discloses it was verified "against the *stale* cdylib". Driven now, and it
 found two bugs that only pressing the button could find. **"Bake ALL levels &

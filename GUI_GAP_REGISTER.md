@@ -4422,3 +4422,144 @@ trailing note on hover.
   goes accent with it (canvas state 2 against states 1 and 3).
 
 Headless boot of `shell/app.tscn` clean.
+
+## 29 · RD-01 — the roads curve, and the renderer was drawing their chords (2026-08-24) — **FIXED**
+
+Owner report:
+
+> settlement roads all render as straight lines — no organic curvature
+
+`PARITY_AUDIT.md` pass 1 lists path smoothing as already-clean and
+already-ported, and it is: `civ_smooth_path` (`_civSmoothPath`, reference line
+21892) is a faithful port of `rdpSimplify(run, 1.5)` → `catmullRomSample(·, 3)`
+→ `Math.round`, it runs on the live generation path
+(`civ_consolidate_and_smooth_ways`, called from `compute_civilisation`), and
+`golden_parity_road_consolidation.rs` asserts its exact point lists. So the
+first three suspects were all wrong, and had to be eliminated one at a time.
+
+### What was measured, in order
+
+**The engine's ways really do curve.** A throwaway probe over a real 384×288
+world (seed 483920, `generate_terrain` → `civ_hierarchical_network_topology` →
+`civ_consolidate_and_smooth_ways`) measured **mean sinuosity 1.072 and ~11° of
+turn per vertex** across 51 visible ways. Not straight.
+
+**One false alarm worth recording, because it nearly became the answer.** The
+first fixture placed settlements on an exact lattice, and 27 of 47 ways came
+back with *precisely* zero deviation from their chord — which read as a broken
+cost field. It was the fixture: an axis-aligned pair has exactly one
+minimum-step 8-connected path, so it is forced straight whatever the terrain
+costs. Jittering the placements off the lattice took the nearly-straight count
+from 27/47 to 8/51. (`CLAUDE.md`'s "shape fixtures to reach the code", from the
+other direction: a fixture can also *hide* the code by making the answer
+degenerate.)
+
+**The renderer draws every point it is given.** `map_overlay.gd`'s
+`_draw_way_segment` is one `draw_polyline` over the whole run between `brks`
+entries — no decimation, no endpoint-only drawing, nothing collapsing it.
+
+**So the geometry is curved and all of it is drawn — and it still looks
+straight.** Rasterising the ways directly from the engine, at 4 px per grid
+cell and again at 24 px per cell, showed why: the way is a **polyline of 17-20
+points whose chords are 3 grid cells long**, and at 24 px/cell those chords are
+72 px of dead-straight line meeting at visible angles. The curve is real; what
+reaches the screen is its chords.
+
+### Root cause: a sampling rate calibrated for a canvas that never zoomed
+
+`_civSmoothPath` samples the spline every **3 grid cells** and rounds each
+sample to a whole cell. `rdpSimplify`'s own comment gives the units away —
+*"eps in grid units (caller passes ~1 screen px)"*. The reference draws its map
+at roughly one grid cell per screen pixel, so a 3-cell chord is a 3 px chord
+and a ±0.5-cell rounding is ±0.5 px. Drawing `lineTo` between those points is
+indistinguishable from drawing the curve.
+
+This port's viewport is a zoomable DCC surface. A 384-cell grid fitted to the
+centre panel is already ~3.6 px per cell, and `ViewportHost.ZOOM_MAX` is 8: one
+grid cell can be **~29 screen px**, so the same chord is an ~87 px straight
+segment. Nothing is wrong with the port; the reference's own sampling rate is
+simply not a rendering resolution here.
+
+The reference had already hit the near end of this exact problem and recorded
+it. `_civSmoothPath`'s **v0.92** note is another owner report — *"roads nearly
+miss settlements when zooming in"* — fixed by un-rounding a way's two
+endpoints, with the reasoning verbatim: *"up to half a cell of drift that's
+imperceptible at low zoom but, amplified by LOD zoom (one grid cell can span
+many screen pixels), visibly..."*. It closes by saying interior points stay
+rounded because *"their precision was never load-bearing"*. Under this port's
+zoom, it is.
+
+### The fix: the same curve, sampled at render density, in the boundary layer
+
+`get_roads()` (`cartalith-godot/src/lib.rs`) now hands the renderer the way's
+curve re-sampled through its own control points at `WAY_RENDER_STEP_CELLS =
+0.25` cells, with `brks` remapped onto the new indices. It calls
+`cartalith_civ::civ_catmull_rom_sample` — **the same one definition**, now
+`pub`, not a second smoothing algorithm — so this is a refinement of the curve
+the engine already computed, not a different one.
+
+**Nothing upstream of the boundary moves.** `Way::pts` is untouched, so `km`,
+`_civNetworkMetrics`, `urban_adapter::um_primary_paths` (which reads the ways
+directly, not through this bridge) and every road golden-parity test all see
+exactly what they saw before. Placing it in `cartalith-civ` instead would have
+had to change `_civSmoothPath`'s own constants and re-baseline the goldens for
+a purely presentational reason; placing it in `map_overlay.gd` would have put
+geometry in GDScript against `ARCHITECTURE.md`, and that file was under
+concurrent edit this round.
+
+0.25 cells is not "as fine as possible": at `ZOOM_MAX` it is a ~7 px chord and
+sub-pixel at every zoom below, which is where a finer step stops buying
+anything. Each run between `brks` is re-sampled on its own — splining across a
+break would draw the phantom curve through the seam the break exists to lift
+the pen at — and each run's own two endpoints are re-asserted afterwards, so
+v0.92's guarantee that a way meets its settlement exactly survives the
+re-sample (the spline lands ~1e-16 off, below `f32`, but the invariant is
+written rather than inferred).
+
+### Verification — measured in the real shell, windowed at 1600 × 900
+
+`_roadcurve_shot.gd` generates seed 483920 at 384×288 / 2400 km through the
+real `app.tscn`, reads `get_roads()`, and drives the real camera to `ZOOM_MAX`
+over a road junction. Same build, same seed, same pinned view, with and without
+the re-sample:
+
+| | before | after |
+|---|---|---|
+| points across 35 ways | 589 | **6,342** |
+| mean chord | 2.78 cells | **0.245 cells** |
+| max chord | 4.24 cells | **0.328 cells** |
+| turn per vertex | 14.47° | **1.70°** |
+| longest way `km` | 1243.3 | **1243.3** (unchanged) |
+| longest way drawn length | 198.9 cells | 199.6 cells |
+
+The turn figure is the point: the *total* turning is the same road, now spread
+over twelve times the vertices — which is the difference between a corner and a
+curve. The drawn length rises 0.35% because a polyline at 0.25-cell chords is
+measuring the arc rather than cutting it; `km` is the engine's own number and
+does not move.
+
+Screenshots at `ZOOM_MAX` over the same junction, settlement pins and labels
+hidden so the way itself is legible: before, the roads meet at hard angles with
+straight runs between them; after, they are continuous sweeping curves.
+
+Headless boot of `shell/app.tscn` clean. `cargo test -p cartalith-civ` 493
+passing (every golden-parity suite included, all unchanged), `cargo test -p
+cartalith-godot --lib` 334 passing including three new `way_render_tests`
+covering the density, the `brks` remap, and empty/single-point/out-of-range
+inputs.
+
+### Still open
+
+**Sea routes and committed Route-tool routes were deliberately left alone.**
+`get_sea_routes()` and the manual-route list have the same shape and the same
+chord problem, and the same three-line treatment would fix them — but this
+round's report was about roads, and `map_overlay.gd`'s route rendering was
+being edited concurrently. Registered here rather than bundled in.
+
+**The long straight runs are real, and are not a defect.** Between corners the
+ways stay straight because the route itself is straight there: the routing grid
+is capped at 384 cells wide and the travel cost over land is piecewise-constant
+within a biome (measured p10 1.0003 → p90 1.61, with the slope term contributing
+a p50 of only 0.0014). A road across homogeneous flat ground *is* a straight
+line. Making it meander would mean changing the cost model, which is a
+`DECISIONS.md` conversation and not this fix.

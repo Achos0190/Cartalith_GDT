@@ -1213,6 +1213,144 @@ fn compute_civilisation(
     }
 }
 
+/// Grid cells between successive points of the road polyline `get_roads()`
+/// hands the renderer — see that function's doc comment for why the way's
+/// own 3-cell sampling is too coarse here.
+///
+/// 0.25 cells, not "as fine as possible": at `ViewportHost.ZOOM_MAX` on a
+/// 384-cell grid one cell is ~29 screen px, so this is a ~7 px chord at the
+/// deepest zoom the camera reaches and sub-pixel at every zoom below it —
+/// the point at which a finer step buys nothing visible. It costs ~11x the
+/// points (a measured 51-way, 384x288 world goes from ~1.0k to ~11k across
+/// the whole network), which `map_overlay.gd` walks once per *redraw*, not
+/// per frame: `ViewportHost.refresh()` pushes `get_roads()` into
+/// `set_civ_data` and the overlay caches it.
+const WAY_RENDER_STEP_CELLS: f64 = 0.25;
+
+/// One way's drawable geometry: its Catmull-Rom curve re-sampled at
+/// [`WAY_RENDER_STEP_CELLS`], with `brks` remapped onto the new indices.
+///
+/// Each run between breaks is re-sampled on its own, exactly as
+/// `_civSmoothPath` built it — splining across a break would draw a phantom
+/// curve through the seam the break exists to lift the pen at. A run of
+/// fewer than two points is passed through untouched (there is no curve to
+/// refine, and `civ_catmull_rom_sample` returns such input unchanged
+/// anyway).
+///
+/// This is the pure core, so the index arithmetic is testable without a
+/// Godot runtime (the same reason `civ_timeline_tests` keeps `CivData` free
+/// of `godot` types); [`way_render_geometry`] is the thin `Packed*` wrapper
+/// over it.
+fn way_render_polyline(pts: &[(f64, f64)], brks: &[usize]) -> (Vec<(f64, f64)>, Vec<usize>) {
+    let mut points: Vec<(f64, f64)> = Vec::new();
+    let mut out_brks: Vec<usize> = Vec::new();
+    let mut start = 0usize;
+    for &cut in brks.iter().chain(std::iter::once(&pts.len())) {
+        // Defensive on the engine's own indices: a `brks` entry outside the
+        // point list, or out of order, must not panic across the gdext
+        // boundary (`cartalith-rust-conventions`).
+        let cut = cut.min(pts.len());
+        if cut <= start {
+            continue;
+        }
+        if !points.is_empty() {
+            out_brks.push(points.len());
+        }
+        let run = &pts[start..cut];
+        let curve = cartalith_civ::civ_catmull_rom_sample(run, WAY_RENDER_STEP_CELLS);
+        // `civ_catmull_rom_sample` can drop a degenerate run to fewer points
+        // than it was given (its own `t2 - t1 < 1e-6` skip); keep the
+        // original in that case rather than losing a stroke.
+        let first = points.len();
+        if curve.len() >= run.len() {
+            points.extend_from_slice(&curve);
+        } else {
+            points.extend_from_slice(run);
+        }
+        // Re-assert the run's own endpoints. The spline passes through its
+        // control points analytically, but evaluating it at `t == t1`/`t2`
+        // lands ~1e-16 off, and `_civSmoothPath`'s v0.92 fix exists
+        // precisely so a way's endpoint is the settlement's exact
+        // coordinate. Below f32 resolution either way -- written so the
+        // invariant is stated, not inferred.
+        let last = points.len() - 1;
+        points[first] = run[0];
+        points[last] = run[run.len() - 1];
+        start = cut;
+    }
+    (points, out_brks)
+}
+
+fn way_render_geometry(
+    pts: &[(f64, f64)],
+    brks: &[usize],
+) -> (PackedVector2Array, PackedInt32Array) {
+    let (points, brks) = way_render_polyline(pts, brks);
+    (
+        points.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect(),
+        brks.iter().map(|&b| b as i32).collect(),
+    )
+}
+
+#[cfg(test)]
+mod way_render_tests {
+    use super::{WAY_RENDER_STEP_CELLS, way_render_polyline};
+
+    /// The point of the whole change: a way's drawn polyline is denser than
+    /// its control points, and its chords are `WAY_RENDER_STEP_CELLS`-scale
+    /// rather than the 3 cells `_civSmoothPath` sampled at.
+    #[test]
+    fn resamples_a_way_to_render_density() {
+        // 4 control points, 3 cells apart, with a real corner in them.
+        let pts = vec![(0.0, 0.0), (3.0, 0.0), (6.0, 1.0), (9.0, 4.0)];
+        let (out, brks) = way_render_polyline(&pts, &[]);
+        assert!(brks.is_empty(), "no breaks in, none out");
+        assert!(out.len() > 4 * pts.len(), "expected render density, got {} points", out.len());
+        for w in out.windows(2) {
+            let d = (w[1].0 - w[0].0).hypot(w[1].1 - w[0].1);
+            assert!(d < WAY_RENDER_STEP_CELLS * 2.0, "chord {d} too long");
+        }
+        // Endpoints are the way's own, unmoved -- a road must still meet its
+        // settlement pin exactly (`_civSmoothPath`'s own v0.92 fix).
+        assert_eq!(out[0], pts[0]);
+        let last = out[out.len() - 1];
+        assert!((last.0 - 9.0).abs() < 1e-9 && (last.1 - 4.0).abs() < 1e-9, "{last:?}");
+    }
+
+    /// A break must still separate the two runs it separated before, and the
+    /// runs must not be splined across it.
+    #[test]
+    fn remaps_breaks_onto_the_resampled_list() {
+        let pts = vec![
+            (0.0, 0.0), (3.0, 0.0), (6.0, 0.0), // run A
+            (60.0, 40.0), (63.0, 40.0), (66.0, 41.0), // run B, far away
+        ];
+        let (out, brks) = way_render_polyline(&pts, &[3]);
+        assert_eq!(brks.len(), 1, "one break in, one out");
+        let cut = brks[0];
+        assert_eq!(out[0], (0.0, 0.0), "run A still starts at A's first point");
+        assert_eq!(out[cut], (60.0, 40.0), "run B still starts at B's first point");
+        // Nothing was drawn across the seam: the last point of run A is A's
+        // own end, not an interpolation towards B.
+        let a_end = out[cut - 1];
+        assert!((a_end.0 - 6.0).abs() < 1e-9 && a_end.1.abs() < 1e-9, "{a_end:?}");
+    }
+
+    /// Degenerate inputs the engine can legitimately produce must pass
+    /// through rather than panic across the gdext boundary.
+    #[test]
+    fn degenerate_inputs_survive() {
+        assert_eq!(way_render_polyline(&[], &[]), (vec![], vec![]));
+        assert_eq!(way_render_polyline(&[(1.0, 2.0)], &[]), (vec![(1.0, 2.0)], vec![]));
+        // Out-of-range and out-of-order break indices.
+        let pts = vec![(0.0, 0.0), (3.0, 0.0), (6.0, 0.0)];
+        let (out, _) = way_render_polyline(&pts, &[99]);
+        assert!(out.len() > 3);
+        let (out2, _) = way_render_polyline(&pts, &[2, 1]);
+        assert!(!out2.is_empty());
+    }
+}
+
 /// Named World-Structure archetype presets (reference HTML `ARCHETYPES`,
 /// lines 2521-2526) as `(continentality, fragmentation, tectonic_energy,
 /// ocean_depth, hotspot_density)`.
@@ -4070,6 +4208,40 @@ impl WorldGen {
     ///
     /// `km` (float) and `manual` (bool) are on every entry, generated ones
     /// included; `km` is `Way::km`/`ManualWay::km`, the real routed length.
+    ///
+    /// # `points` is the way's curve at render density, not its control points
+    ///
+    /// `Way::pts` is `_civSmoothPath`'s own output: the Catmull-Rom curve
+    /// sampled every 3 grid cells and rounded to whole cells. The reference
+    /// draws that list with `lineTo`, and can, because it draws the map at
+    /// roughly one grid cell per screen pixel -- a 3-cell chord is a 3 px
+    /// chord and the polyline reads as the curve it came from.
+    ///
+    /// This port's viewport is a zoomable DCC surface. Fit to the panel a
+    /// 384-cell grid is already ~3.6 px per cell, and `ViewportHost.ZOOM_MAX`
+    /// multiplies that by 8: one grid cell can be ~29 screen px, so the same
+    /// 3-cell chord is an ~87 px straight line and every corner in the curve
+    /// is a visible angle. Owner report, 2026-08-24: *"settlement roads all
+    /// render as straight lines -- no organic curvature."* Measured on a
+    /// 384x288 world, the ways really do curve (mean sinuosity 1.07, ~11
+    /// degrees of turn per vertex); what reached the screen was the chords
+    /// between their vertices.
+    ///
+    /// So `points` is that same curve re-sampled through the same control
+    /// points at [`WAY_RENDER_STEP_CELLS`] -- `cartalith_civ::
+    /// civ_catmull_rom_sample`, the one definition, not a second smoothing
+    /// pass. Nothing upstream moves: `Way::pts` (and therefore `km`, the
+    /// network metrics, and `urban_adapter::um_primary_paths`, which reads
+    /// the ways directly) is untouched and every road golden-parity test
+    /// still asserts against it. The reference's own precedent for treating
+    /// a grid-quantised road coordinate as too coarse *once LOD zoom exists*
+    /// is `_civSmoothPath`'s v0.92 note, which un-rounds a way's endpoints
+    /// for exactly this reason ("imperceptible at low zoom but, amplified by
+    /// LOD zoom (one grid cell can span many screen pixels), visibly..."):
+    /// this is that same observation applied to the interior.
+    ///
+    /// `brks` is remapped onto the re-sampled list, so a break still lands
+    /// between the two runs it separates.
     #[func]
     fn get_roads(&self) -> Array<VarDictionary> {
         let Some(civ) = self.civ.as_ref() else { return Array::new() };
@@ -4084,23 +4256,19 @@ impl WorldGen {
             .iter()
             .filter(|w| !w.hidden)
             .map(|w| {
-                let points: PackedVector2Array =
-                    w.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
+                let (points, brks) = way_render_geometry(&w.pts, &w.brks);
                 let way_type = match w.way_type {
                     cartalith_civ::WayType::Highway => "highway",
                     cartalith_civ::WayType::Regional => "regional",
                     cartalith_civ::WayType::Road => "road",
                     cartalith_civ::WayType::Track => "track",
                 };
-                let brks: PackedInt32Array = w.brks.iter().map(|&b| b as i32).collect();
                 dict! { "points" => &points, "brks" => &brks, "way_type" => way_type, "name" => w.name.as_str(), "km" => w.km, "manual" => false }
             })
             .collect();
         if let Some(infra) = self.infra.as_ref() {
             for w in infra.ways.iter().filter(|w| !w.hidden && !w.sea) {
-                let points: PackedVector2Array =
-                    w.pts.iter().map(|&(x, y)| Vector2::new(x as f32, y as f32)).collect();
-                let brks: PackedInt32Array = w.brks.iter().map(|&b| b as i32).collect();
+                let (points, brks) = way_render_geometry(&w.pts, &w.brks);
                 let way_type = infra_tools_bridge::way_type_key(w.way_type);
                 out.push(&dict! { "points" => &points, "brks" => &brks, "way_type" => way_type, "name" => w.name.as_str(), "km" => w.km, "manual" => true });
             }
