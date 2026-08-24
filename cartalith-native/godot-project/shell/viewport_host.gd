@@ -405,13 +405,48 @@ func _input(event: InputEvent) -> void:
 			_pan_last_screen = mm.position
 	elif event is InputEventMagnifyGesture:
 		## Two-finger pinch, synthesized by the platform on touch. Single-
-		## finger drag-to-pan is deliberately not wired on touch yet: it would
-		## collide with a future armed tool's own drag the same way bare
-		## LMB-drag would on desktop, and there is no tool palette yet to
-		## arm/disarm Pan explicitly the way §4.5.1 intends. Pinch has no such
-		## conflict -- nothing else uses two fingers -- so it is safe now.
+		## finger drag-to-pan is deliberately not wired on touch: it would
+		## collide with an armed tool's own drag the same way bare LMB-drag
+		## would on desktop, and the reference makes exactly the same call --
+		## its own touch handler comments *"one finger keeps painting/drawing"*
+		## (HTML line 13988) and gives the single finger to the tool, never to
+		## the camera. Two fingers have no such conflict, so both halves of the
+		## gesture pair are safe, and the reference drives both from that one
+		## handler: zoom about the centroid **and** pan by the centroid's own
+		## delta, in the same `touchmove` (HTML lines 14014-14015).
 		var mg := event as InputEventMagnifyGesture
 		_zoom_at(mg.position, mg.factor)
+		get_viewport().set_input_as_handled()
+	elif event is InputEventPanGesture:
+		## The pan half of that pair, and until it existed a phone could not
+		## move the camera *at all*: pan above is MMB or Space+LMB, and a
+		## handheld has neither -- verified on the real device, where a
+		## single-finger `input swipe` across the map moved only the hover
+		## cursor and left every map pixel identical.
+		##
+		## Emitted by the same Android gesture detector `SH-10` turned on
+		## (`input_devices/pointing/android/enable_pan_and_scale_gestures`) --
+		## the setting name is not incidental, it gates *pan and scale*
+		## together, and the shipped APK's own `GodotGestureHandler` carries
+		## `handlePanEvent`/`setPanEvent` beside the `onScale` pair SH-10
+		## already confirmed. So this arrives for free on a build that already
+		## pinches; nothing new had to be enabled.
+		##
+		## Sign: Android's `GestureDetector` defines `distanceX/Y` as *old
+		## focus minus new*, so the delta points opposite the fingers --
+		## subtracting it makes the map travel *with* them, which is what
+		## every map application does and what the reference's own
+		## `viewT.panX += cx - pinch.cx` does with its own (already-inverted)
+		## convention. Measured on device, not reasoned into place: the same
+		## injected two-finger drag moves the map the way the fingers went.
+		##
+		## `_zoom` is deliberately untouched -- a pan is not a zoom, and the
+		## magnify branch above already owns that half of the gesture, so a
+		## real pinch (which fires both) still zooms and pans exactly once
+		## each, like the reference's single `touchmove` does.
+		var pg := event as InputEventPanGesture
+		_camera.position -= pg.delta
+		_update_lod()
 		get_viewport().set_input_as_handled()
 
 ## Zooms so the world point under `screen_pt` stays under it: with `pan` the

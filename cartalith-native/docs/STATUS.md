@@ -5,7 +5,39 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **The CIVIL dock never rebuilt after a world
+Last updated: 2026-08-24 (post **Phone: the map could not be panned at all** —
+`GUI_GAP_REGISTER.md` **SH-13** closed, **SH-14** opened. Owner-reported as a
+question about the reference (*"For touch devices I made some specific
+functions inside the html, how to move around, snapping the view back to 100%
+etc. Do we have that functionality?"*), and the answer was **no, almost none
+of it**. With SH-10's pinch fix landing the same day the phone could zoom but
+still had **no way to move the camera at all**: pan was `MMB` or `Space+LMB`
+only, and a handheld has neither — measured, not assumed, with a real
+single-finger `adb shell input swipe` that changed 51 pixels, all of them the
+hover cursor. Fixed with one branch in `viewport_host.gd::_input()`,
+`InputEventPanGesture` → `_camera.position -= pg.delta`, which needed no new
+setting: `enable_pan_and_scale_gestures` gates **pan and scale** together, so
+SH-10 had already switched the events on and nothing was listening. It
+also matches the reference, whose single `touchmove` drives zoom about the
+centroid *and* pan by the centroid delta together, and gives the single finger
+to the tool rather than the camera. Verified on the real device with
+constant-span two-pointer `uinput` drags: **−400 px finger → −163 px map**,
+**+400 → +163**, `z1.0` throughout, round trip **byte-identical (0.000)**.
+**Still open, deliberately:** the *gain* — `dexdump` shows Godot's own
+`onScroll` divides the Android delta by 5.0, predicting 0.20×, against a
+measured 0.41×; a multiplier tuned to an unexplained one-device number is not
+a thing this port does, so the handler stays 1:1 and the discrepancy is
+recorded. **And the rest of what the owner asked about is unbuilt and needs an
+owner design decision, not a guess** (SH-14): the reference's mobile-only
+`#zoomOverlay` cluster — `zoomIn`/`zoomOut`, the ✋ `panBtn` hold-to-pan
+toggle, and `zoomReset` ⟳ — plus `#sculptNavpad` (already SH-03). Two
+non-guessable facts about ⟳ are now written down: it clears `panMode` too, and
+since v1.13 it calls `_viewFill()`, **not** `resetView()` — so *"100%" in this
+app means the COVER scale at which the map fills the display, not scale 1*.
+That exposes a second, larger gap: this port's `reset_view()` is plain
+fit/letterbox, visibly the state the reference's v1.01 was raised to fix, and
+it has **no UI caller at all** — it runs only on a fresh generate or load) —
+previously, post **The CIVIL dock never rebuilt after a world
 generated** — `GUI_GAP_REGISTER.md` **RF-01**, a new class for that register
 and the first entry in it that is a bug rather than a capability gap. Found
 live on real hardware, PC and Android: with 40 settlements, 6 factions and a

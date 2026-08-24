@@ -21797,3 +21797,111 @@ every other panel built at launch: **what re-runs this, and on which signal?**
 The dock passed both a line-by-line read (`GUI_GAP_REGISTER.md` §6.11/§6.12)
 and a live visual sweep (§14), because both looked at it *after* doing
 something.
+
+
+## Phone: the map could not be panned at all (2026-08-24)
+
+`GUI_GAP_REGISTER.md` **SH-13** (closed) and **SH-14** (open, owner design).
+Owner-reported, and phrased as a question about the reference rather than a
+bug report: *"For touch devices I made some specific functions inside the
+html, how to move around, snapping the view back to 100% etc. Do we have that
+functionality?"*
+
+The short answer was **no, almost none of it**, and one member of the set was
+not merely missing but load-bearing: with `SH-10`'s pinch fix landing the same
+day, the phone could zoom and still had **no way to move the camera**. Pan was
+`MMB` or `Space+LMB` only (`viewport_host.gd:393`), and a handheld has
+neither.
+
+### What the reference actually has
+
+Five distinct touch-navigation affordances, all found in
+`reference/Cartalith Gen1 v2.10.html` and cross-checked against
+`reference/FUNCTION_INDEX.md` Part 0 (line 90 names the cluster) rather than
+taken from either source alone:
+
+| Reference | Where | What it does |
+|---|---|---|
+| Two-finger pinch | 13988-14020 | Zoom about the centroid **and** pan by the centroid delta, in one `touchmove` |
+| `#zoomOverlay` ▸ `zoomIn`/`zoomOut` | 749-754, 13464-13465 | `×1.35` about the view centre; mobile-only (`isMobile`, 13435); LOD- and 3D-aware |
+| `#zoomOverlay` ▸ `panBtn` ✋ | 752, 13963 | Hold-to-pan **toggle** — makes single-finger drag pan instead of paint |
+| `#zoomOverlay` ▸ `zoomReset` ⟳ | 753, 13466 | The owner's *"snapping back to 100%"* — clears `panMode` **and** calls `_viewFill()` |
+| `#sculptNavpad` | 759-760, 9146-9200 | Velocity joystick, pans while Sculpt has the single finger captured |
+
+Deliberately **not** in that list: bare single-finger drag-to-pan. The
+reference gives the single finger to the tool — *"one finger keeps
+painting/drawing"* (13988) — which is the same call `viewport_host.gd:407`
+had already made independently, for the same reason.
+
+Two details of ⟳ are worth recording because neither is guessable from the
+name. It does not call `resetView()` (13390, `scale=1, pan=0`); since v1.13 it
+calls `_viewFill()` (13354), so **"100%" in this app is the COVER scale — the
+zoom at which the map fills the display — not scale 1**. And it clears
+`panMode` on the way, so the ✋ toggle never survives a reset.
+
+### Built
+
+One branch, in `viewport_host.gd`'s `_input()`: `InputEventPanGesture` →
+`_camera.position -= pg.delta`, then `_update_lod()`, mirroring the mouse-pan
+branch immediately above it.
+
+Nothing had to be enabled for it. `SH-10` turned on
+`input_devices/pointing/android/enable_pan_and_scale_gestures`, and that
+setting's name is not incidental — it gates **pan and scale** together.
+`dexdump` of the shipped APK shows `GodotGestureHandler.onScroll` emitting
+`handlePanEvent` beside the `onScale` pair `SH-10` confirmed, so the events
+were already arriving at a build that nothing was listening for them on.
+
+### Verified — on the real device, not reasoned
+
+OnePlus 6T, LineageOS / Android 15, two-pointer MT-B drags injected through
+AOSP `uinput` (the technique `ANDROID_BUILD_SCOPE.md` records; note this
+device's `uinput` takes `FILE`, not `-f FILE`). Both fingers travel together
+so the span is constant and `ScaleGestureDetector` never fires — the pan is
+measured in isolation from zoom.
+
+- **Before:** a real single-finger `adb shell input swipe` across the map
+  changed **51 pixels**, all of them the hover cursor. Every map pixel
+  identical.
+- **After:** finger **−400 px → map −163 px**; finger **+400 px → map
+  +163 px**; `z1.0` unchanged throughout; and the round trip returns to a
+  **byte-identical frame (0.000 mean abs diff)**. Reproduced on a 2048×1311
+  and a 1024×655 world.
+- `viewport_host.gd` parses clean in isolation (`--check-only`). The full
+  headless boot is **not** clean this pass, and not from this change: a
+  concurrent session's in-flight edit to `dcc_shell.gd:877`
+  (`var sb := b.get_theme_stylebox(state)`, inferred-from-Variant) fails the
+  parse. Confirmed by running `--check-only` against both files separately.
+
+### Still open
+
+**The gain is uncalibrated, deliberately.** `dexdump` shows Godot's own
+`onScroll` divides the Android delta by **5.0** (`const/high16 0x40A00000`;
+`handlePanEvent` and `setPanEvent` then pass it through untouched), predicting
+a 0.20× gain — but the measured gain is **0.41×**, a factor of ~2 this pass
+could not account for from the bytecode. Picking a multiplier to match an
+unexplained single-device measurement is the kind of guess this port does not
+make, so the handler stays 1:1 with the platform's own delta and the
+discrepancy is written down instead. The result is correct in direction,
+reversible without drift, and usable; it is not yet finger-tracking.
+
+**Everything else the owner asked about is unbuilt and needs a design
+decision, not a guess** — `SH-14`. The zoom pad, the ✋ toggle, ⟳ and the
+sculpt joystick are a mobile-web idiom; this shell has its own §13 phone
+language, and translating one into the other is real design work. `⟳` in
+particular cannot be built correctly without settling the second, larger gap
+it exposes: the reference's default *and* reset view is **cover**
+(`_viewCoverScale`, v1.01, from the owner's own *"big unused areas above and
+below"*) with a **fit**-scale zoom floor (v1.13) and a pan clamp that can
+never expose the letterbox (`_viewClampFill`). This port's `reset_view()` is
+plain fit/letterbox — visibly the state v1.01 was raised to fix, and a phone
+screenshot from this pass shows exactly that: the map as a band with large
+black margins above and below. `reset_view()` also has **no caller in the UI
+at all** today; it runs only on a fresh generate or load.
+
+One further observation, recorded because it was seen and not explained: the
+app restarted twice during the injection sweep, with **no tombstone, no ANR
+and no dropbox entry**. It was not reproducible when tested deliberately —
+pan-with-a-world-loaded survived every time it was checked, and pan with no
+world survived too — and both restarts happened under repeated `screencap`
+pressure with a 2048×1311 world resident. Noted, not attributed.
