@@ -698,7 +698,18 @@ func _build_label_tool_options_row(row: HBoxContainer) -> void:
 
 func _build_label_panel(parent: Control) -> void:
 	## `#carLabelList` (`DCC_SHELL_SPEC.md` §4.5.5).
-	var sec := DccWidgets.section(parent, "Placed labels")
+	##
+	## **"Region labels", not "Placed labels"** (`GUI_GAP_REGISTER.md` CA-13,
+	## owner report 2026-08-24: "it isn't possible to drop a name for a region
+	## on the map as in the HTML version"). It always was possible -- arm Label
+	## in TOOLS, click empty ground, type the name -- and a live drive confirmed
+	## the whole path works, handles and all. What was missing was any word
+	## anywhere that connected this section to the thing the owner was looking
+	## for. The reference calls them region labels in every place it names them
+	## (`FUNCTION_INDEX.md`: `_civPopulateLabelEditor` "Build the region-label
+	## editor", `_civRenderLabelList`, `clearLabels` "Clear region labels"), so
+	## this is the reference's own vocabulary, not a new coinage.
+	var sec := DccWidgets.section(parent, "Region labels")
 	_label_list_body = VBoxContainer.new()
 	_label_list_body.add_theme_constant_override("separation", 2)
 	sec.add_child(_label_list_body)
@@ -721,7 +732,14 @@ func _rebuild_label_panel() -> void:
 		child.queue_free()
 	var list: Array = bridge.label_list()
 	if list.is_empty():
-		_label_list_body.add_child(DccTheme.label("none placed", "text_ghost", DccTheme.FS_MICRO))
+		## An empty state that says how to leave it, the same way Logistics'
+		## own "No committed routes yet -- draw one with the Route tool above"
+		## does (`infrastructure_workspace.gd`). "none placed" was true and
+		## useless: it named the absence without naming the tool that ends it.
+		DccWidgets.note(_label_list_body,
+			"None yet -- arm Label (L) in TOOLS above, then click empty ground " +
+			"and type the region's name. Drag its handles to size, rotate and " +
+			"arc it.")
 	for entry in list:
 		var d: Dictionary = entry
 		var idx: int = int(d.get("index", -1))

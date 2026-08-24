@@ -513,6 +513,8 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | IN-07 | Trade ▸ route assignment | 370-373 | nothing ties a trade relationship to the road or sea lane that would carry it | yes | §3 lists Trade | (B) large |
 | IN-08 | **Roads, Ports, Trade and Logistics never rebuilt after a generate** | `_build()` | none — nothing disclosed this | **not a capability gap** | all four were designed *and* built; only the signal was missing | **FIXED 2026-08-24 — see §23 (RF-01)**. Roads had a partial path already (`_refresh_manual_ways`, on a way commit); the other three had none at all |
 | IN-09 | **A committed Route-tool route appeared nowhere at all** — no map line, no list row | `_commit_route` (status hint: *"not shown on the map yet (no manual-route display getter…)"*) | the hint's own reason was **wrong**: `route_count()`/`route_get(i)` have existed since the Journey Planner milestone and return the whole solved polyline. Nothing on the GDScript side ever called either | the *disclosure* was accurate (the route really was invisible), the *reason* was not | §4.5.4's Route tool; the reference draws committed journeys as their own pass (`drawCivLayer` block 2b, lines 15552-15560) | **FIXED 2026-08-24 — see the note below**. Found by live verification, not by reading: the tool committed a 572 km, 506-point path with zero unreachable legs and drew none of it |
+| IN-10 | **`Data ▸ Journey planner… ⇧J` did nothing visible from any domain but CIVIL** | `app.gd`'s `open_journey_planner()` | none — nothing disclosed this either | **not a capability gap** | the planner was engine-complete and the takeover painted correctly; only the domain was wrong | **FIXED 2026-08-24 — see §27**. The shell opens on WORLD; the takeover only paints in CIVIL. Two of the three entry points are reachable from anywhere, and both armed a tool and changed not one pixel |
+| IN-11 | **Every tool's advertised letter was bound to nothing** — `Way (W)`, `Route (⇧R)`, and eight more across four domains | `dcc_widgets.gd`'s `_tools_row` | none — the tooltip *was* the disclosure, and it was false | **not a capability gap** | every tool works when clicked | **FIXED 2026-08-24 — see §27**. A `Shortcut` per button, parsed from the label the tooltip already shows; `BaseButton::shortcut_input`'s visibility rule gives cross-domain inertness for free |
 
 > **IN-09 CLOSED (2026-08-24).** Found while auditing the whole manual
 > map-authoring toolset live (assets · labels · routes · POI · settlements),
@@ -662,6 +664,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | CA-11 | **`hydro_wet_strength` (Wetness) renders nothing at working resolution** | *engine* | — | — | reference `wetnessR` | **CLOSED 2026-08-24 (owner-authorised retune; it moves the shipped look).** Found the day before by measurement, not by reading: the binding was correct end to end and the *stage* was invisible, and got worse as the grid got finer. Both halves of `build_hydro_wetness` had been tuned at a small grid. **(1)** The gate was a `smoothstep(0.55, 0.88, …)` over the world's own *min-max-normalized* log-flow range — but `flow / (gw*gh)` is already scale-free (it is the fraction of the map a cell drains), so re-normalizing it cost the threshold its meaning: `lo` pinned to the `1e-4` clamp floor and `hi` to the largest basin, putting the knee at ~0.8 % of map area drained, i.e. the trunk river and nothing else. Replaced with an **absolute** upstream-area gate, `6e-4 … 8e-3` — the same set of channels at any resolution. **(2)** The blur then diluted what survived: a box blur conserves the mean, so a one-cell line smeared over radius `r = gw * 0.006` loses about `1/(2r+1)` of its peak, and `r` grows with the grid (3 cells at 512 wide, 12 at 2048). The blur stays (it is what makes the halo soft); a matching **gain of `2r + 1`**, clamped, restores its peak. Measured on one generated world, 0 → 1, pixels moved: **1.216 % → 10.785 %** at 512×384, **0.184 % → 4.966 %** at 1024×768, **0.002 % → 2.589 %** at 2048×1311; at the shipped `0.38` default, **0.000 % → 1.422 %** at working resolution (worst per-channel delta 3 → 59 levels). The `6e-4/8e-3` pair was picked by sweeping: `1e-3 … 1.2e-2` left working resolution at 0.67 % and `3e-4 … 5e-3` took it to 3.4 %, which is a wet-valley wash rather than a river corridor. **Trade, stated:** the gate is absolute, so a world whose basins are all smaller than `6e-4` of the map gets no wetness — an island with no river has no river to tint. Verified non-headlessly at 2048×1311 (default → 0 moves 0.821 % of pixels, default → 1 moves 1.295 %, and the corridors read as wet valley floors along the real drainage). `hydro_wet_strength` left `every_tunable_is_load_bearing`'s exemption list, and `appearance_ab_dump.rs`'s new `hydro_wetness_visibility_by_resolution` fails if any of the three sizes goes quiet again. |
 | CA-10 | Layer properties ▸ **Visualization dropdown** | *absent* here; `layers_popover.gd` covers it with 18 debug views | the popover's own footer explains the split | yes | §7 lists it; §10's popover overlaps it | **(D)** — deliberately resolved as one popover rather than two competing pickers (`layers_popover.gd:10-15`) |
 | CA-12 | **The whole Icon tool is inert until an asset pack is imported** — and the app ships with none | `lib.rs`'s `icon_arm`: `if !self.has_asset_pack() { return false; }`; `cartography_workspace.gd:298/310/353` mirror the gate | *"arming a family/slot this port cannot yet draw would let a caller stamp icons with nothing to render, silently"* (`icon_arm`'s own doc comment) | **the disclosure is honest and its stated reason is now obsolete.** `map_overlay.gd`'s `_draw_manual_icons` draws every family from built-in vector shapes and never reads the pack at all — its own doc comment says so (*"No texture atlas from the asset pack is wired into Godot yet… these are honest placeholder glyphs"*). The pack path (`pack::composite_map_icons`) is the **scattered** auto-icon bake, a different feature. So there is no longer a family/slot this port cannot draw | §4.5.5; the reference has **no such gate** — `iconVariantsFor` (line 7304) returns *"pack or built-in glyphs"* and `drawIconGlyph` (7315) is the built-in vector fallback for exactly this case | **(B) small, but an owner call — not taken here.** Verified live 2026-08-24: on a freshly generated world `has_asset_pack()` is `false`, `icon_armed()` is `{}`, and clicking the map with Icon armed places nothing. Loading `cartalith-assets/tests/fixtures/reference_pack.zip` makes the same clicks place and draw three icons immediately. The fix is deleting the three-line gate plus its doc paragraph, but it reverses a written decision, so it is raised rather than done (`CLAUDE.md`: *"Do not deviate from `DECISIONS.md` silently"*) |
+| CA-13 | **Region naming looked absent** (owner report) | `_build_label_panel` / `_rebuild_label_panel` | none | **not a capability gap** — it works end to end | the reference calls these *region labels*; the dock said "Placed labels" / "none placed" and no menu mentions labels at all | **FIXED 2026-08-24 — see §27**. Renamed to **Region labels**; the empty state now names the tool that ends it. A menu route is still owed and is a menu-structure change, not a wording fix |
 
 ### 6.14 RENDER workspace — `render_workspace.gd` (now composed into CARTO, §6.13)
 
@@ -4129,3 +4132,166 @@ bar's × sends), and the process survives with the gate drawn over the map. The
 screenshot the probe saves at that moment shows "This world has unsaved
 changes. / Exit the app?" over a generated world whose status bar reads *unsaved
 changes*. `cargo build -p cartalith-godot` and a headless boot are both clean.
+
+---
+
+## 27 · IN-10, IN-11, CA-13 — the owner could not reach the Journey Planner, the Route tool, or region naming (2026-08-24) — **FIXED**
+
+Owner, live, using the app:
+
+> There is no way to plan a Journey or draw a route.
+>
+> It isn't possible to drop a name for a region on the map as in the HTML
+> version.
+
+Both reports arrived the same day the Journey Planner reached 66/74 reference
+functions and the day after IN-09 made a committed route draw. That contrast is
+the finding: **none of the three capabilities was missing, and two of the three
+paths to them were.** Everything below was established by driving the real
+windowed shell (`_jpprobe_shot.gd`, `_labelprobe_shot.gd`, `_fixprobe_shot.gd`),
+not by reading the files — reading them says all three work, which is exactly
+what made this survive.
+
+### What was actually broken
+
+| id | Symptom the owner hit | Cause | Status |
+|---|---|---|---|
+| **IN-10** | `Data ▸ Journey planner… ⇧J` did **nothing visible** | the takeover only paints while CIVIL is the active domain; the shell opens on WORLD | **FIXED** |
+| **IN-11** | every tool's advertised letter — `W`, `⇧R`, `L`, `B`, `S`, `T`, `V`, `M`, `R`, `I` — did nothing | no key was ever bound to any of them, anywhere | **FIXED** |
+| **CA-13** | region naming looked absent | it works; nothing in the dock said the word "region" or named the tool | **FIXED (wording)** |
+
+### IN-10 — a menu item that changed not one pixel
+
+`journey_planner_view.gd`'s `_recompute_visibility()` requires
+`app.armed_tool == "journey"` **and** `app.active_domain() == "civilization"`.
+That condition is right: the view swaps the whole CIVIL region — left dock,
+map, right dock, tool options bar, timeline band — and would otherwise paint
+over WORLD's generation pipeline.
+
+But `open_journey_planner()` only armed the tool. Of its three entry points,
+one (the INFRA dock's Logistics button) satisfies the domain condition by being
+unclickable outside CIVIL, and two do not: `Data ▸ Journey planner… ⇧J` and the
+right dock's "Plan a journey" are reachable from anywhere. **The shell opens on
+WORLD.** So the owner's most likely first action — launch, generate, open the
+Data menu, pick the one item named after the thing they wanted — armed a tool,
+printed `Journey armed — Esc to release` in ghost text in the far bottom-right
+corner, and left every other pixel of the WORLD workspace exactly where it was.
+Captured before the fix (`jpprobe_02_menu_fired_with_world.png`); the log line
+is unambiguous:
+
+```
+AFTER MENU (domain=world): armed=journey jp_active=false center.visible=false viewport.visible=true
+```
+
+`open_journey_planner()` now calls `select_domain("civilization")` first. The
+ordering is load-bearing but benign either way: the domain switch emits
+`workspace_changed`, recomputes with the tool not yet armed (a no-op), then
+`open()` arms and the recompute paints.
+
+### IN-11 — ten tooltips, zero bindings
+
+Every entry in every `tools_block` carries its key in the label: `"Way (W)"`,
+`"Route (⇧R)"`, `"Label (L)"`, `"Biome paint (B)"`, `"Region select (R)"`,
+and so on. A search of `shell/` for any key handling found `_unhandled_key_input`
+matching Escape, Backspace and Delete, `layers_popover.gd` matching digits, and
+**nothing matching a letter**. The tooltip was the whole feature — the exact
+fake control this register exists to catch, sitting in the middle of the TOOLS
+block in every domain since the block was built.
+
+This is the other half of "there is no way to draw a route" that a working
+Route button does not explain: the tooltip tells you to press `⇧R`, so you do,
+and nothing happens.
+
+The fix is a `Shortcut` per button in `DccWidgets._tools_row`, parsed from the
+label the tooltip already shows, and it is a `Shortcut` rather than a key table
+on `app.gd` for a reason that is not style: `BaseButton::shortcut_input` fires
+only while the button `is_visible_in_tree()` and is enabled. Only the active
+domain's panel is visible, so `W` arms Way exactly when CIVIL is showing and is
+inert in WORLD — the rule we want, for free, instead of re-derived by hand. It
+also runs *after* GUI input, so a focused `LineEdit` eats its own letters and
+typing a settlement's name never arms a tool. `shortcut_in_tooltip` is off:
+the tooltip already spells the key in the mockup's notation (`⇧R`) and Godot
+would append a second, differently-spelled copy under it.
+
+### CA-13 — region naming was never missing
+
+The reference calls these **region labels** wherever it names them
+(`FUNCTION_INDEX.md`: `_civPopulateLabelEditor` *"Build the region-label
+editor"*, `_civRenderLabelList`, `clearLabels` *"Clear region labels"*), and
+the port has had the whole thing since the label milestone: CARTO ▸ TOOLS ▸
+Label, click empty ground, a "New label" prompt whose placeholder is literally
+`Region name`, then `label_create`, drawn on the map with its three
+resize/rotate/arc handles. Driven live end to end (`_labelprobe_shot.gd`): the
+prompt appeared, "Vale of Ashen" was typed, it rendered on the map with handles
+and the options bar read `CARTO · LABEL editing #0 Vale of Ashen ✓ Confirm`.
+So this is **(c) — already possible, not found.** Two reasons it wasn't:
+
+1. The dock section was titled **"Placed labels"** and its empty state read
+   **"none placed"**. Neither says *region*, which is the word the owner was
+   looking for, and neither names the tool that ends the empty state.
+2. No menu anywhere mentions labels or annotation — a scan of every popup for
+   `label`/`annot` returns nothing — so the only path is an unlabelled icon in
+   one domain's TOOLS block, and the only thing that named it was a tooltip
+   whose keyboard shortcut did not work (IN-11).
+
+Fixed by taking the reference's own vocabulary: the section is now **Region
+labels**, and the empty state says *"None yet — arm Label (L) in TOOLS above,
+then click empty ground and type the region's name. Drag its handles to size,
+rotate and arc it."* — the same shape as Logistics' own *"No committed routes
+yet — draw one with the Route tool above"*. With IN-11 fixed, the `(L)` it
+names is now real. **Not done, and stated rather than quietly skipped**: no
+menu route to annotation exists, and adding one is a menu-structure change
+(§13's audit territory), not a wording fix.
+
+### What was working the whole time, and is proven to still be
+
+Reproduced from a fresh launch with real synthesised pointer events, not by
+calling handlers directly:
+
+- CIVIL ▸ TOOLS carries Settlement, Territory, **Way** and **Route**, all
+  enabled and visible; clicking Route arms it (`armed_tool = route`);
+- two real clicks on the map surface reach `_route_click` and the options bar
+  becomes `INFRA · ROUTE · 2 stops · ✓ Commit · Discard`;
+- ✓ Commit takes `route_count()` from 0 to 1, and the Journey Planner then
+  opens on `Route #0 — 506 km (mixed)` with a real route map, elevation
+  profile, stage bands and stops strip (`jpprobe_06_journey_planner_open.png`).
+
+So IN-09's own verification still holds, and "draw a route" was never broken —
+only unreachable by the two means the owner had reason to try (the advertised
+hotkey, and the menu that names the feature).
+
+### A rule this adds to the register's own method
+
+IN-09 left the rule *"a `#[func]` that returns geometry proves nothing about
+whether anything draws it. Check the pixels."* This pass is the layer above it:
+**a control that exists, is enabled, and works when invoked proves nothing about
+whether a user can find it.** Both fixes here are one line of behaviour each,
+and neither would have been found by any amount of reading — only by launching
+the app, doing the obvious thing, and watching nothing happen.
+
+### Verification
+
+`_fixprobe_shot.gd` drives the real windowed shell with a really generated
+world. **24 assertions, all passing:**
+
+- `Data ▸ Journey planner…` fired from the launch domain now switches to CIVIL
+  and paints the takeover; same from CARTO;
+- in CIVIL, `W`/`⇧R`/`R`/`S`/`T`/`V`/`M` arm way/route/region/settlement/
+  territory/inspect/measure; in CARTO, `L`/`I` arm label/icon; in WORLD, `B`
+  arms paint;
+- **cross-domain letters are inert**: `L` and `B` do nothing in CIVIL, `W`
+  does nothing in CARTO, `⇧R` does nothing in WORLD — the visibility rule
+  holds;
+- `W` with a `LineEdit` focused types a `w` and leaves the armed tool alone;
+- the CARTO dock reads "Region labels", carries the new empty state, and no
+  longer says "Placed labels" (the one remaining "none placed" is the Icon
+  panel's own, untouched).
+
+One probe artifact worth recording, because it nearly produced a false bug: the
+`LineEdit` check failed on the first run and passed once the synthesised
+`InputEventKey` carried a `unicode`. A real keyboard always sends one, and it is
+what makes `LineEdit` consume the key as text before the shortcut pass sees it.
+A synthesised key event without `unicode` is not a key any keyboard produces —
+assert against the event the hardware actually sends.
+
+A headless boot of `shell/app.tscn` is clean.

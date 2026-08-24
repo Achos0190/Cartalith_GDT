@@ -23677,3 +23677,66 @@ into one RGB8 PNG plus a decode manifest, and every input already exists
 `build_resource_potentials`, `RESOURCE_KEYS`). `layersPreviewChk` is the f32
 layer previews. **None of the four was built here**; both audit rows are
 corrected rather than left to mislead the next pass.
+
+---
+
+## Three capabilities the owner could not reach (2026-08-24) — `GUI_GAP_REGISTER.md` §27
+
+Owner, live: *"There is no way to plan a Journey or draw a route"* and *"It
+isn't possible to drop a name for a region on the map as in the HTML version."*
+All three capabilities existed and worked. Two of the three **paths** to them
+did not, and the third was there but unnamed. Found by launching the real
+windowed shell and doing the obvious thing — nothing in any of these files
+reads as broken.
+
+**IN-10 — `Data ▸ Journey planner… ⇧J` did nothing from the launch domain.**
+The planner is a tool takeover that only paints while CIVIL is the active
+domain (`journey_planner_view.gd`'s `_recompute_visibility()`, correctly — it
+swaps that domain's whole region). The shell opens on **WORLD**. So the menu
+item, and the right dock's "Plan a journey" with it, armed the tool and changed
+not one pixel: the only feedback was `Journey armed — Esc to release` in ghost
+text in the far corner. Of the three entry points only the INFRA dock's
+Logistics button worked, and only because it is unclickable from anywhere else.
+`app.gd`'s `open_journey_planner()` now selects the domain first.
+
+**IN-11 — every tool's advertised letter was bound to nothing.** `"Way (W)"`,
+`"Route (⇧R)"`, `"Label (L)"`, `"Biome paint (B)"`, `"Settlement (S)"` … ten
+tooltips across four domains, and no key handler anywhere in `shell/` matched a
+letter — Escape, Backspace, Delete and the layers popover's digits were the
+whole keyboard. That is the second half of "no way to draw a route" that a
+working Route button does not explain: the tooltip tells you to press `⇧R`.
+`DccWidgets._tools_row` now parses the key out of the label it already shows
+and hangs a `Shortcut` on the button. A `Shortcut` rather than a key table,
+because `BaseButton::shortcut_input` fires only while the button is visible and
+enabled — and only the active domain's panel is visible, so `W` arms Way in
+CIVIL and is inert in WORLD for free. It also runs after GUI input, so a focused
+`LineEdit` eats its own letters.
+
+**CA-13 — region naming works; nothing said so.** The reference calls these
+*region labels* everywhere it names them, and the port has had the whole thing
+since the label milestone: CARTO ▸ TOOLS ▸ Label, click empty ground, a prompt
+whose placeholder is literally `Region name`, then a drawn label with
+resize/rotate/arc handles. Driven live end to end. But the dock section was
+titled "Placed labels" with a "none placed" empty state — neither says *region*,
+neither names the tool — and no menu mentions labels at all. Renamed to **Region
+labels**, with an empty state that says which tool places one, in the same shape
+as Logistics' own "No committed routes yet — draw one with the Route tool
+above". No menu route was added; that is a menu-structure change, not a wording
+fix, and it is stated as still owed.
+
+**What was never broken, and is proven to still work.** From a fresh launch with
+real synthesised pointer events: CIVIL ▸ TOOLS carries Way and Route enabled;
+Route arms; two real map clicks reach `_route_click`; ✓ Commit takes
+`route_count()` 0 → 1; and the planner opens on `Route #0 — 506 km (mixed)` with
+a live route map, elevation profile, stage bands and stops strip. IN-09's own
+verification still holds.
+
+**Verified:** `_fixprobe_shot.gd` drives the real windowed shell over a really
+generated world — 24 assertions, all passing, including the cross-domain
+inertness of every letter and the focused-`LineEdit` case. Headless boot of
+`shell/app.tscn` clean.
+
+**The rule this pass adds**, one layer above IN-09's *"check the pixels"*: **a
+control that exists, is enabled, and works when invoked proves nothing about
+whether a user can find it.** Neither of these two fixes was findable by
+reading; both were one action into a real launch.

@@ -1271,7 +1271,23 @@ func show_project_on_disk() -> void:
 ## `tool_armed`). Both real entry points converge here: `Data ▸ Journey
 ## planner… ⇧J` (`menus.gd`) and the INFRA dock's own Logistics button
 ## (`infrastructure_workspace.gd`).
+##
+## **The domain switch is load-bearing** (`GUI_GAP_REGISTER.md` IN-10, owner
+## report 2026-08-24: "there is no way to plan a Journey"). Journey's takeover
+## only paints when CIVIL is the active domain -- `journey_planner_view.gd`'s
+## `_recompute_visibility()` requires `app.active_domain() == "civilization"`,
+## correctly, since the view swaps *that domain's* region and would otherwise
+## paint over WORLD's or CARTO's dock. But the shell opens on WORLD, and the
+## two entry points that can be reached from anywhere (`Data ▸ Journey
+## planner… ⇧J` and the right dock's own "Plan a journey") only armed the
+## tool. From WORLD or CARTO the result was a menu item that changed nothing
+## on screen at all: the tool armed, the status line said so in ghost text at
+## the far corner, and every other pixel stayed put. Verified live from a
+## fresh launch before the fix. Selecting the domain first is what the INFRA
+## dock button had implicitly all along (you can only click it from inside
+## CIVIL), so this makes every entry point behave like the one that worked.
 func open_journey_planner() -> void:
+	select_domain("civilization")
 	journey_planner_view.open()
 
 ## `credits.gd` extends AcceptDialog and fills `%CreditsText` from `_ready`, so

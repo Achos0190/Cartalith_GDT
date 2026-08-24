@@ -440,7 +440,57 @@ static func _tools_row(entries: Array, app, group: ButtonGroup) -> Control:
 		## same widget with a whole hint sentence appended, in a 5-column
 		## grid, so it gets the touch size and the border and no caption.
 		b.set_meta(TOOL_CAPTION_META, tool_caption(String(e["label"])))
+		## `GUI_GAP_REGISTER.md` IN-11. Every one of these labels has advertised
+		## a letter since the TOOLS block was first built -- "Way (W)",
+		## "Route (⇧R)", "Label (L)", "Biome paint (B)" -- and until now not one
+		## of them was bound to anything: no `_unhandled_key_input` branch, no
+		## `Shortcut`, nothing anywhere in `shell/` matched a bare letter. The
+		## tooltip was the whole feature. That is exactly the fake control this
+		## port's discipline exists to avoid, and it is a plausible half of the
+		## owner's own "there is no way to draw a route" (2026-08-24).
+		##
+		## A `Shortcut` on the button rather than a key table on `app.gd`, for
+		## one reason that is not style: `BaseButton::shortcut_input` fires only
+		## when the button `is_visible_in_tree()` and is not disabled. Only the
+		## active domain's panel is visible (`DccShell._select_domain`), so `W`
+		## arms Way exactly when CIVIL is showing and is inert in WORLD --
+		## which is the rule we want and would otherwise have to re-derive by
+		## hand. It also lands *after* GUI input, so a focused `LineEdit` eats
+		## its own letters first and typing a settlement name never arms a tool.
+		##
+		## `shortcut_in_tooltip` off: the tooltip already spells the key in the
+		## mockup's own notation (`⇧R`), and Godot would append a second,
+		## differently-spelled copy ("Shift+R") under it.
+		var sc := _tool_shortcut(String(e["label"]))
+		if sc != null:
+			b.shortcut = sc
+			b.shortcut_in_tooltip = false
 	return row
+
+## `"Route (⇧R)"` -> a `Shortcut` for Shift+R; `"Inspect (V)"` -> plain V.
+## Returns `null` for any label whose parenthetical is not a single A-Z letter
+## with an optional `⇧`, so a caller that writes something else gets no
+## shortcut rather than a wrong one.
+static func _tool_shortcut(label_text: String) -> Shortcut:
+	var open_i := label_text.find(" (")
+	var close_i := label_text.rfind(")")
+	if open_i < 0 or close_i <= open_i + 2:
+		return null
+	var body := label_text.substr(open_i + 2, close_i - open_i - 2)
+	var shift := body.begins_with("⇧")
+	if shift:
+		body = body.substr(1)
+	if body.length() != 1:
+		return null
+	var code := body.to_upper().unicode_at(0)
+	if code < KEY_A or code > KEY_Z:
+		return null
+	var ev := InputEventKey.new()
+	ev.keycode = code as Key
+	ev.shift_pressed = shift
+	var sc := Shortcut.new()
+	sc.events = [ev]
+	return sc
 
 ## `"Region select (R)"` -> `"Region select"`. The entry's `label` is written
 ## for a tooltip: it carries a keyboard shortcut, and the device that needs the
