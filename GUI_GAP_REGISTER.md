@@ -7,9 +7,11 @@
 > applications."*
 
 **The premise does not hold, and that is by design.** The shell does not have a
-small number of stragglers to finish connecting: it has **123 catalogued
-disconnected surfaces**, every one of them added *deliberately disabled with a
-stated reason*, per the honesty rule `menus.gd`'s own header states —
+small number of stragglers to finish connecting: it has **215 catalogued
+disconnected surfaces** (123 at this document's original writing; recounted
+2026-08-24, §3 has the method and the caveats), every one of them added
+*deliberately disabled with a stated reason*, per the honesty rule `menus.gd`'s
+own header states —
 
 > *an item with no engine behind it is added **disabled**, with a tooltip that
 > says what is missing. It is never added enabled and silently inert, and never
@@ -34,7 +36,7 @@ the engine as they stand today, and it is the document that goes stale first.
 | [3](#3--headline-counts) | Headline counts |
 | [4](#4--stale-disclosed-reasons-five-fixed-in-this-pass) | Stale disclosed reasons — five fixed here |
 | [5](#5--omissions-designed-not-present-not-even-as-a-disabled-item) | Omissions — designed, and not present at all |
-| [6](#6--layer-1--2-the-catalogue) | **Layer 1 + 2 — the catalogue** (123 entries, classified) |
+| [6](#6--layer-1--2-the-catalogue) | **Layer 1 + 2 — the catalogue** (215 entries as of the 2026-08-24 recount, classified; 123 at original writing) |
 | [7](#7--layer-3--comparable-application-research-for-c) | **Layer 3 — comparable-application research** for every (C) |
 | [8](#8--menu-naming-audit) | **Menu naming audit** |
 | [9](#9--d-entries-owner-decisions-not-gaps) | (D) entries: owner decisions, not gaps |
@@ -121,19 +123,66 @@ carries a second axis. This is the register's most useful column for planning.
 
 ## 3 · Headline counts
 
-**123 catalogued gap entries** (a group of identically-blocked sibling controls
-— the ten Edit-menu items, the five erosion Run buttons — is one entry; the raw
-count of individually disabled controls is ~180).
+**Recounted 2026-08-24** (`PARITY_AUDIT.md` pass 2, F7 — the audit's own
+"~65% off" finding). The "123 catalogued gap entries" figure below was
+computed once, near this document's original writing, and never re-derived
+as the register grew by seven whole sections (§16-§22) and roughly 80 rows
+in the batch pass 2 reviewed. It is superseded by a real recount, method
+disclosed so it is reproducible:
 
-| Class | Count | Share |
+**215 distinct gap IDs**, found by pattern-matching every ID this document
+uses — `grep`-ing for markdown table rows beginning `| <PREFIX>-<NN>` (the
+form nearly every ID in §6, §9, §10, §17-§21 uses: `AS-`, `CA-`, `CV-`,
+`CX-`, `DM-`, `DV-`, `ED-` including its lettered sub-rows `ED-03a`-`ED-03d`,
+`FI-`, `FR-`, `HE-`, `IN-`, `JP-`, `MEA-`, `MS-`, `PR-`, `RD-`, `RN-`, `SG-`,
+`SH-`, `UM-`, `WI-`, `WL-`, `WW-`) plus the six `### PH-0N ·` entries §22
+writes as headings rather than table rows — then de-duplicating (several IDs
+are legitimately restated across sections: §9 regroups every (D) row, §13
+cross-references the v2.10 audit against existing IDs, and §10's priority
+table restates (A) rows already catalogued in §6 — none of that is a new
+entry). **This does not exactly match the audit's own "~203"** — that was
+an estimate, not a grep result: its own §14 point 3 asked for the counts to
+be re-derived rather than deriving them itself, and §13 says why ("a
+classification pass, not an arithmetic one"); 215
+is the reproducible figure as of this correction. `O1`-`O9` (§5's
+"omissions") and `S1`-`S5` (§4's "stale disclosed reasons") use a different,
+non-hyphenated numbering convention and are **not** counted here — they are
+each their own small, separately-headlined table, not part of the 123/215
+catalogue this section has always described.
+
+The original framing still holds — a group of identically-blocked sibling
+controls (the ten Edit-menu items, the five erosion Run buttons) is one
+entry, so the raw count of individually disabled controls is higher than
+215 — only the entry total itself changed, from 123 to 215.
+
+**The A/B/C/D classification breakdown below is left as originally computed
+and is now known-stale, not re-derived — a genuine gap, not a rounding
+error.** Re-deriving it mechanically the way the total count was
+re-derived is not possible: `grep`-ing every ID's own row for its
+`**(A)**`/`**(B)**`/`**(C)**`/`**(D)**` marker finds one on only 54 of the
+215 rows. The other 161 lost their letter when the row was later edited to
+record closure — e.g. `AS-01`'s row now reads *"done, 2026-08-20 ... real ...
+`as_import_item`/`as_add_custom_slot` are wired"* with no `(A)`/`(B)` marker
+anywhere in it, and this is the common case for anything closed rather than
+the exception. Recovering each dropped letter means reading the row's own
+history (what kind of gap it *was* when catalogued, not whether it is now
+closed) one at a time across all 215 — exactly the "classification pass,
+not an arithmetic one... a judgment per row" `PARITY_AUDIT.md` pass 2 itself
+declined to do for this same reason (§13, its own explanation for leaving
+this section's counts alone). The table below is retained as a historical
+snapshot against the old 123-entry total; treat its percentages as
+describing that earlier, smaller catalogue, not the current 215-entry one.
+
+| Class | Count (of 123, stale) | Share (of 123, stale) |
 |---|---:|---:|
 | **(A)** designed + engine-ready | **17** | 14 % |
 | **(B)** designed, engine-blocked | **71** | 58 % |
 | **(C)** undesigned | **23** | 19 % |
 | **(D)** deliberate decision | **12** | 10 % |
-| **Total** | **123** | |
+| **Total (superseded, see above)** | **123** | |
 
-(B) by cost:
+(B) by cost, same caveat — computed against the old 123-entry/71-(B) total,
+not re-derived against 215:
 
 | Cost | Count | Notes |
 |---|---:|---|
@@ -145,27 +194,34 @@ count of individually disabled controls is ~180).
 (AS-01 through AS-08, AS-13, DM-05) moved to done in that pass
 (`ASSET_LIBRARY_SCOPE.md` §10), and two more (**JP-02**, **IN-06**) closed
 with the Travel Library's party-form wiring the same day
-(`TRAVEL_LIBRARY_SPEC.md` §6) — the totals/percentages in this section are
-not yet re-derived across the whole 123-entry register to reflect either;
-§6.3, §6.4, §6.9 and §6.12's own rows are the accurate, current source for
-the Assets/Data/Journey/INFRA sections specifically. **Also stale as of
-2026-08-23**: §6.16 (Urban morphology, `PARITY_AUDIT.md` C3) added three
-more (B)-large entries (UM-01/02/03) that were not previously catalogued
-anywhere in this register, and §5's O4/O5/O7/O8 moved from open to done
-(`PARITY_AUDIT.md` C5); the same day the Journey Planner's own closing pass
-took **JP-01, JP-03, JP-04, JP-05, JP-07 and JP-09** to closed and **JP-06 /
-JP-08** to partly closed (in-session only, blocked on FI-01's save-writer by
-design), and re-closed **IN-06**'s stated remainder with the vessel resolver
-— §6.9's rows carry each account. None of it is folded into the totals below either, for
-the same reason: a full re-derivation is `PARITY_AUDIT.md` §8 item 2's own
-recommendation for a dedicated pass, not a mechanical correction.
+(`TRAVEL_LIBRARY_SPEC.md` §6). **Also stale as of 2026-08-23**: §6.16 (Urban
+morphology, `PARITY_AUDIT.md` C3) added three more (B)-large entries
+(UM-01/02/03) that were not previously catalogued anywhere in this register,
+and §5's O4/O5/O7/O8 moved from open to done (`PARITY_AUDIT.md` C5); the
+same day the Journey Planner's own closing pass took **JP-01, JP-03, JP-04,
+JP-05, JP-07 and JP-09** to closed and **JP-06 / JP-08** to partly closed
+(in-session only, blocked on FI-01's save-writer by design), and re-closed
+**IN-06**'s stated remainder with the vessel resolver — §6.9's rows carry
+each account. **Further stale as of 2026-08-24**: §17-§22 alone added
+roughly 45 more IDs (`DV-01`-`DV-11`, `ED-03a`-`ED-03d`, `CV-10`-`CV-13`,
+`WW`'s erosion-parameter rows, `SG-01`-`SG-03`, `PH-01`-`PH-06`, `SH-09`
+through `SH-12`, and others), none reflected in the 123/17/71/23/12 figures
+above. §6.3, §6.4, §6.9, §6.12, §17, §18, §19, §21 and §22's own rows are
+the accurate, current source for their respective areas; a full re-derivation
+of the class breakdown against the real 215-entry total is
+`PARITY_AUDIT.md` pass 2 §14 point 3's own recommendation for a dedicated
+pass, not something this correction attempts.
 
-**The shape.** Only 19 % of the shell's disclosed gaps are genuinely undesigned.
-58 % have a design and are waiting on the engine — and **31 % of those (22 of 71)
-are waiting on a boundary wrapper, not a capability**. That is the same finding
-`DCC_CONTROL_INDEX.md` summary §1 reached from the other direction ("two whole
-regions of this design are a boundary-wrapper problem, not a capability
-problem"), now measured against the shipped shell rather than the design.
+**The shape**, as computed against the old 123-entry catalogue (see above —
+not re-derived against 215). Only 19 % of the shell's disclosed gaps were
+genuinely undesigned. 58 % had a design and were waiting on the engine — and
+**31 % of those (22 of 71) were waiting on a boundary wrapper, not a
+capability**. That was the same finding `DCC_CONTROL_INDEX.md` summary §1
+reached from the other direction ("two whole regions of this design are a
+boundary-wrapper problem, not a capability problem"), measured against the
+shipped shell rather than the design at the time. Whether the shape still
+holds at 215 entries is exactly the open question the class-breakdown
+re-derivation above would answer.
 
 ---
 
