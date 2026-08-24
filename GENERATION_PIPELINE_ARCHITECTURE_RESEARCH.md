@@ -1019,21 +1019,26 @@ Per `DECISIONS.md`'s convention — raise, do not silently build.
    reasoning in place of its old "what this deliberately does not model"
    section.
 
-5. **Does the owner want more feedback anywhere, or less?** The research points
-   both ways and the project's direction should decide it, not the research.
-   The reduction path is already essentially complete (§3.1). The *addition*
-   path is where the graphics literature has been heading for a decade —
-   erosion↔vegetation (Cordonnier 2017), cryosphere↔albedo and dynamic
-   lithology (both listed as documented follow-ups in this repo's own
-   `system-coupling-audit.md`) — and all of it is affordable **as opt-in
-   parameters**, which `ErosionPassParams` already demonstrates as a working
-   pattern.
+5. **RESOLVED (2026-08-24).** Does the owner want more feedback anywhere, or
+   less? The research pointed both ways and left it to project direction. The
+   reduction path is already essentially complete (§3.1). **Owner's answer:
+   open to the addition path** — new opt-in coupling (erosion↔vegetation,
+   cryosphere↔albedo, dynamic lithology; the latter two already listed as
+   documented follow-ups in this repo's own `system-coupling-audit.md`) is
+   approved as a standing pattern, on the same off-by-default /
+   physically-justified / cost-only-when-enabled terms `ErosionPassParams`
+   already demonstrates. Recorded durably as `DECISIONS.md` §7g — this was the
+   one owner answer from this document that `PARITY_AUDIT.md` pass 2 (finding
+   F3) found existed only in conversation, with no home in the repo. It has
+   one now.
 
-6. **Is `compute_civilisation` in the right crate?** It is the second half of
-   the generation pipeline and it lives in `cartalith-godot`, not
-   `cartalith-engine`. This is out of scope for this document's question but it
-   is what makes the pipeline hard to see as one thing, and it would matter
-   for §3.2.4. Raised, not proposed.
+6. **DEFERRED, not decided (2026-08-24).** Is `compute_civilisation` in the
+   right crate? It is the second half of the generation pipeline and it lives
+   in `cartalith-godot`, not `cartalith-engine`. Out of scope for this
+   document's core question, but it is what makes the pipeline hard to see as
+   one thing, and it would matter for §3.2.4. Owner's answer: not a priority
+   right now. `compute_civilisation` remains in `cartalith-godot/src/lib.rs`;
+   raised, not acted on.
 
 ---
 

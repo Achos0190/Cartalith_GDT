@@ -385,3 +385,32 @@ output is provably identical. Same pattern as §7e.
 Left alone — it is one O(N) per-cell pass rather than a global sort-and-walk,
 and skipping it would mean restructuring `apply_ocean_currents`' `&mut
 temperature` argument. Recorded so the next reader knows it was considered.
+
+## 7g. New opt-in coupling between subsystems is an approved pattern (2026-08-24)
+
+`GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` §4 asked, as its item 5,
+whether the owner wants the door open to *adding* new feedback between
+subsystems — beyond the reduction work §3.2 and §3.2.4 already cover — the
+way the graphics literature has kept moving for a decade (erosion↔vegetation,
+cryosphere↔albedo, dynamic lithology; the latter two already named as
+documented follow-ups elsewhere in this repo).
+
+**Owner's answer: yes, opt-in additions are fair game**, on the same terms
+`ErosionPassParams` already demonstrates as a working pattern in this
+codebase (`crates/cartalith-engine`, wired 2026-08-24, `1f7c295`/`8e666ac`):
+
+- **Off by default.** A new coupling must not change any existing golden
+  output when its toggle is left at its default.
+- **Real physical justification**, not novelty for its own sake — the same
+  bar the six existing erosion passes were held to.
+- **Affordable because it is optional.** The cost of the *feature existing*
+  is roughly the cost of one more conditional branch and one more toggle in
+  `WorldParams`; the cost of *running* it is paid only by whoever turns it on.
+
+This is a standing decision for future work in this area, not a one-time
+approval — a later PR proposing a new opt-in coupling (e.g. erosion feeding
+back into vegetation/biome classification) does not need to re-litigate
+whether such additions are welcome, only whether the specific proposal meets
+the three bars above. Raised via `PARITY_AUDIT.md` pass 2 (§13, finding F3),
+which found this decision existed only in conversation with no durable
+record — recorded here so it has one.
