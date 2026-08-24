@@ -647,6 +647,11 @@ func set_tool_options(build: Callable) -> void:
 ## rebuild and a second multiplication would grow every row without bound.
 const _PHONE_FIT_META := "_phone_fitted"
 
+## §13's touch-scroll deadzone, in authored pixels. See `phone_fit()`'s own
+## `ScrollContainer` branch for why leaving it at Godot's 0 is not an option
+## once a button forwards its drag.
+const PHONE_SCROLL_DEADZONE := 10
+
 func phone_fit(node: Node, unit: float) -> void:
 	for child in node.get_children():
 		if child is Control and not child.has_meta(_PHONE_FIT_META):
@@ -692,6 +697,43 @@ func phone_fit(node: Node, unit: float) -> void:
 			if (ctl is BoxContainer or ctl is MarginContainer) \
 					and ctl.mouse_filter == Control.MOUSE_FILTER_STOP:
 				ctl.mouse_filter = Control.MOUSE_FILTER_PASS
+			## PH-05, the other half of the same sentence -- and the half that was
+			## actually load-bearing. A `Container` already defaults to `PASS`
+			## (measured, 4.7.1: `MOUSE_FILTER_PASS`, not the `Control` default the
+			## comment above assumed), so the rows were never the blocker. **A
+			## `Button` is.** `_scrolldrag_probe.gd` flicked twenty points down the
+			## left sheet: every point that failed to scroll was a `Button` or an
+			## `HSlider`, and from the accordion down the sheet is nothing *but*
+			## buttons -- the L2 `category()` headers, the L4 `group()` headers, every
+			## `action()`. That is the "a flick on the content does nothing" the
+			## handset found, and it is why the scrollbar still worked: only the
+			## content was covered.
+			##
+			## `PASS` is safe on a button *because* `ScrollContainer` and `BaseButton`
+			## already cooperate: past the deadzone the scroll propagates
+			## `NOTIFICATION_SCROLL_BEGIN`, which cancels the button's pending press.
+			## Measured, all four cases: a clean tap fires, a 2 px and a 6 px wobble
+			## still fire, an eight-sample flick scrolls 96 px and fires nothing.
+			##
+			## An `HSlider` is deliberately **not** included: a drag that starts on a
+			## slider means "move this slider", on every touch platform there is.
+			##
+			## Neither are the three `BaseButton`s that open a `Popup` on *press* --
+			## and not for symmetry: such a control pops mid-flick, the popup grabs
+			## the drag, and the gesture then neither scrolls nor is undone (measured
+			## on `OptionButton`: popup open, scroll 0). Their rows still scroll from
+			## the label beside them.
+			if ctl is BaseButton and ctl.mouse_filter == Control.MOUSE_FILTER_STOP 					and not (ctl is OptionButton or ctl is MenuButton 						or ctl is ColorPickerButton):
+				ctl.mouse_filter = Control.MOUSE_FILTER_PASS
+			## That deadzone is not a default -- Godot's is **0**, at which the ~2 px
+			## of wobble in a real thumb tap already counts as a drag and silently
+			## eats the press. Without this, the fix above would trade "the sheet does
+			## not scroll" for "the buttons do not press". Scaled with the rest of the
+			## subtree, so it is the same physical distance in a dock (unscaled,
+			## `unit` = `_phone_scale`) as in a content-scaled window (`unit` = 1.0).
+			if ctl is ScrollContainer:
+				(ctl as ScrollContainer).scroll_deadzone = maxi(
+					PHONE_SCROLL_DEADZONE, int(round(PHONE_SCROLL_DEADZONE * unit)))
 			## An `OptionButton`'s list is a `PopupMenu`, which is a `Window` and
 			## not a `Control` -- so it is not in this walk and inherits none of
 			## the above. Left alone its rows came out at ~21 dp inside a

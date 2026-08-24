@@ -91,6 +91,10 @@ var _recovery_phase := 0
 ## `civBiomeKChk` (reference `_biomeK`, line 6441), default OFF -- "0 =
 ## biome carrying-capacity residual OFF (bit-identical)".
 var _biome_k := false
+## Phone (§13). `DccWidgets.phone_window()`'s header comment carries the whole
+## treatment and why; here it decides whether the in-content header and the
+## Cancel button exist, and whether the form is re-fitted for touch.
+var _phone := false
 var _dim_syncing := false
 var _auto_generate := true ## Whether Create also calls bridge.generate() -- see set_auto_generate().
 
@@ -98,14 +102,41 @@ func setup(b: EngineBridge) -> void:
 	bridge = b
 	title = "New world"
 	size = Vector2i(620, 780)
-	wrap_controls = false ## See _build_stage_dialog's own comment in main.gd: an autowrap dialog grows to its full content height and can run off a 1080p screen.
+	## PH-06. Also turns `wrap_controls` off -- which this dialog already did
+	## by hand, for the reason `_build_stage_dialog` records in `main.gd`: an
+	## autowrap dialog grows to its full content height and can run off a
+	## 1080p screen. The shared call is the same fix, so the hand-rolled line
+	## goes rather than being kept beside it.
+	##
+	## Called *before* the OK button is renamed, deliberately:
+	## `phone_window()` sets `ok_button_text` to "Close" for the read-only
+	## windows it was written for, and here that button is the Create action.
+	_phone = DccWidgets.phone_window(self, get_parent())
 	get_ok_button().text = "Create"
 	confirmed.connect(_on_create)
+
+	## A borderless phone window has no title bar, so it has no ✕ either -- and
+	## unlike the three civ windows, this dialog's own OK button is not a way
+	## out, it is "generate a world". Without this, opening New world on a
+	## handset would be a one-way door.
+	if _phone:
+		add_cancel_button("Cancel")
+
+	## One column rather than the margin directly, so the phone header has
+	## somewhere to sit: an `AcceptDialog` gives its *first* content child the
+	## whole rect, so a second sibling would simply overlap this one
+	## (`place_editor_window.gd` made the same arrangement first).
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 0)
+	add_child(col)
 
 	var margin := MarginContainer.new()
 	for side in ["left", "top", "right", "bottom"]:
 		margin.add_theme_constant_override("margin_" + side, 10)
-	add_child(margin)
+	margin.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	col.add_child(margin)
+	if _phone:
+		DccWidgets.phone_head(col, "New world", "creation-time settings")
 
 	var root := VBoxContainer.new()
 	root.add_theme_constant_override("separation", 4)
@@ -127,6 +158,11 @@ func setup(b: EngineBridge) -> void:
 	_archetype_names = bridge.archetypes()
 	_build(body)
 	_update_extent_state()
+	## `1.0`, not `phone_scale()`: `phone_present()` applies the scale once as
+	## the window's `content_scale_factor`, and applying it again here would
+	## square it. The form is built once, so one pass is enough.
+	if _phone:
+		get_parent().phone_fit(self, 1.0)
 
 func _build(body: VBoxContainer) -> void:
 	var seed_sec := DccWidgets.section(body, "Seed")

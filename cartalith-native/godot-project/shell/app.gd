@@ -583,7 +583,14 @@ func _refresh_rail_foot() -> void:
 # -- Menu callbacks -----------------------------------------------------------
 
 func open_new_world() -> void:
-	new_world_dialog.popup_centered()
+	## PH-06: on a phone the dialog fills the screen instead, and it has to be
+	## *opened* by that call rather than sized by it -- `DccWidgets
+	## .phone_present()`'s own doc comment carries why (an `AcceptDialog` lays
+	## its content out from a resize notification, so a hidden resize followed
+	## by `popup_centered()` leaves the body at its desktop rect and the form
+	## overflows instead of scrolling).
+	if not DccWidgets.phone_present(new_world_dialog, self):
+		new_world_dialog.popup_centered()
 
 ## File ▸ Open project… (`DCC_SHELL_SPEC.md` §2.1). The generic Godot
 ## `FileDialog` this used to pop is gone: `design/Cartalith DCC Shell.dc.html`

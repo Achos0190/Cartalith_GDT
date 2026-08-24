@@ -5,8 +5,22 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **Selecting the integrated GPU opened the
-discrete one** — a real `cargo test --workspace` failure on this machine's
+Last updated: 2026-08-24 (post **Phone: the sheets would not flick, and two
+dialogs were still desktop-sized** — `GUI_GAP_REGISTER.md` PH-05 and PH-06,
+the two items the phone pass left open, both now closed and both verified on
+the real handset. PH-05's cause was **not** what PH-04 assumed: `Container`
+already defaults to `MOUSE_FILTER_PASS`, so that fix was a no-op, and the
+control actually ending the event walk before the `ScrollContainer` was
+**`Button`** — which is most of a dock sheet below the accordion.
+`DccShell.phone_fit()` now passes `BaseButton` (excluding `OptionButton` /
+`MenuButton` / `ColorPickerButton`, which pop a `Popup` on press and would
+swallow the drag) and sets a `scroll_deadzone`, load-bearing because Godot's
+default of 0 turns a 2 px thumb wobble into a scroll and eats the tap. PH-06
+put both dialogs on the shared `phone_window()`/`phone_present()` treatment;
+the browser additionally needed a horizontally scrolled breadcrumb, since
+Android's home path made the crumb row 715 px wide inside a 393 dp window —
+a fault invisible on Windows, where the home path is short) — previously,
+post **Selecting the integrated GPU opened the discrete one** — a real `cargo test --workspace` failure on this machine's
 two AMD GPUs, and **not** the device-selection bug it read as.
 `every_enumerated_device_can_be_selected_and_opened` reported that selecting
 `"1002:13c0:AMD Radeon(TM) Graphics"` opened `"AMD Radeon RX 7800 XT"`.
@@ -5509,14 +5523,28 @@ across all of it with synthesised `device = -1` pointer events (all pass), and
 the paths above were then driven on the real device with `adb shell input` and
 read back from `screencap`.
 
-**Still open:**
+**Both of that pass's open items are now closed (2026-08-24):**
 
-- **A dock sheet does not scroll from a drag on its content.** The scrollbar and
-  the category accordion both work, so nothing is unreachable, but the flick is
-  the gesture a phone user reaches for. `MOUSE_FILTER_PASS` on the rows was
-  necessary and not sufficient (`GUI_GAP_REGISTER.md` §22 PH-05).
-- **`new_world_dialog.gd` and `browse_dialog.gd` are still desktop-sized on the
-  phone** — the residue of the 2026-08-20 note above, now half closed (`Open
-  project` was fixed then; these two were not). `DccWidgets.phone_window()` /
-  `phone_present()` is the shared treatment when someone takes them
-  (`GUI_GAP_REGISTER.md` §22 PH-06).
+- **PH-05, the dock sheets flick.** The blocker was never the rows —
+  `Container` already defaults to `MOUSE_FILTER_PASS`, so PH-04's fix was a
+  no-op. It was **`Button`**: `STOP` ends the event walk before the
+  `ScrollContainer`, and from the accordion down a sheet is nothing but
+  buttons. `DccShell.phone_fit()` now sets `BaseButton` to `PASS` (excluding
+  the three that open a popup on press) and gives every `ScrollContainer` a
+  `scroll_deadzone` — without which a 2 px thumb wobble would eat the tap.
+  New `_scrolldrag_probe.gd`: 8 of 20 points scrolled before, 17 after (the
+  three misses are sliders, on purpose).
+- **PH-06, both dialogs are phone-shaped.** `new_world_dialog.gd` and
+  `browse_dialog.gd` take `phone_window()`/`phone_present()`/`phone_fit()`.
+  New world gained a Cancel button (its OK is *Create*) and a phone header;
+  the browser gained `_shell_of()`, because `_spawn()` is handed a `Window`
+  by one call site, and a **horizontally scrolled breadcrumb** — Android's
+  own home path put the crumb row's minimum at 715 px inside a 393 dp window
+  and pushed the Open button off the screen. Found on the handset *after* a
+  clean desktop probe; a desktop run is not evidence for that class.
+
+Both verified on the real OnePlus 6T, not only headless
+(`GUI_GAP_REGISTER.md` §22).
+
+**Still open:** nothing from §22. One unrelated observation logged there: the
+`toggle()` rows in New world clip their labels at `ROW_LABEL_W` on a phone.

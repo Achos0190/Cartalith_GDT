@@ -627,9 +627,21 @@ static func phone_window(dlg: AcceptDialog, host) -> bool:
 	## A rotation changes both the screen this fills and the scale it fills it
 	## at. `phone_insets_changed` is the shell's own "the phone layout moved"
 	## signal, already emitted by `_apply_phone_orientation()`.
-	host.phone_insets_changed.connect(func():
-		if dlg.visible:
-			phone_present(dlg, host))
+	##
+	## Guarded and self-disconnecting, because `browse_dialog.gd` (PH-06) is
+	## the first caller that does **not** live for the session: it spawns per
+	## pick and frees itself on close. This lambda is created in a `static`
+	## function, so it has no owning instance for Godot to auto-disconnect it
+	## from -- without the guard a rotation after the dialog closed would
+	## touch a freed object, and without the release every browse would leave
+	## a dead connection on the shell.
+	var relay := func():
+		if is_instance_valid(dlg) and dlg.visible:
+			phone_present(dlg, host)
+	host.phone_insets_changed.connect(relay)
+	dlg.tree_exiting.connect(func():
+		if host.phone_insets_changed.is_connected(relay):
+			host.phone_insets_changed.disconnect(relay))
 	return true
 
 ## Opens the window, phone-shaped. Returns **false** on desktop and tablet,

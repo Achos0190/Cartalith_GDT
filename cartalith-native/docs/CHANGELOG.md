@@ -21284,3 +21284,132 @@ neither carries one as tight as `W_RIGHT_DOCK_MIN`.
 **Verified:** headless boot-check clean
 (`Godot_v4.7.1-stable_win64_console.exe --headless --path godot-project`,
 no errors, extension loads). No Rust changed — this is a GDScript constant.
+
+## Phone: the sheets would not flick, and two dialogs were still desktop-sized (`GUI_GAP_REGISTER.md` PH-05, PH-06, fixed 2026-08-24)
+
+The two items the phone pass (`905185c`) registered and left open. Both are
+GDScript only; no Rust changed.
+
+### PH-05 — the blocker was a `Button`, and PH-04's own fix was a no-op
+
+The handset report was precise: the 4 px scrollbar scrolls, the accordion
+opens, **a flick on the content does nothing**. PH-04 had guessed the cause
+(`MOUSE_FILTER_STOP` on `dcc_widgets.gd`'s `HBoxContainer` rows) and set
+layout containers to `PASS`. Measured against 4.7.1 rather than assumed, that
+was wrong in both halves:
+
+| measured | value |
+|---|---|
+| `Container` default `mouse_filter` | **`PASS` (1)** — never `STOP`, so the row fix changed nothing |
+| `Label` | `IGNORE` (2) — which is why the *labels* already scrolled |
+| `Button` / `PanelContainer` | `STOP` (0) |
+| `ScrollContainer` touch drag | driven by **mouse** events (emulated from touch), gated on `DisplayServer.is_touchscreen_available()` |
+
+Godot delivers a GUI event to the picked control and then up its parents,
+stopping at the first `STOP`. So a press that lands on a button never reaches
+the `ScrollContainer`, and the sheet cannot scroll from it.
+
+**`_scrolldrag_probe.gd`** (new, in the Godot project beside `_shot_phone.gd`;
+`Input.set_emulate_touch_from_mouse(true)` is what arms the engine's touch
+scrolling on a dev box with no touchscreen) opened the real left sheet and
+flicked twenty points down it, naming the control under each. Twelve did not
+scroll — **nine `Button`s and three `HSlider`s, nothing else.** From the
+accordion down, the sheet *is* buttons: L2 `category()` headers, L4 `group()`
+headers, every `action()`. That also disposes of the register's guess that the
+main viewport was at fault: the place editor "worked" because its form is
+mostly labels and margins.
+
+**Fix, in `DccShell.phone_fit()`** — the walk PH-04 already runs over the
+docks, the tool row and the three civ windows:
+
+- a `BaseButton` goes to `MOUSE_FILTER_PASS`. Safe because `ScrollContainer`
+  and `BaseButton` already cooperate: past the deadzone the scroll propagates
+  `NOTIFICATION_SCROLL_BEGIN` and the button cancels its pending press.
+- a `ScrollContainer` gets `scroll_deadzone` = new `PHONE_SCROLL_DEADZONE`
+  (10 authored px, scaled with the subtree). **Load-bearing, not tidiness.**
+  Godot's default is 0, at which the ~2 px of wobble in a real thumb tap
+  counts as a drag and eats the press — the fix would have traded "the sheet
+  does not scroll" for "the buttons do not press". Measured at both settings:
+
+  | gesture | deadzone 0 | deadzone 10 |
+  |---|---|---|
+  | clean tap | fires | fires |
+  | 2 px wobble tap | **scrolls 1 px, fires nothing** | fires |
+  | 6 px wobble tap | **scrolls 6 px, fires nothing** | fires |
+  | 8-sample flick | scrolls 96 px, fires nothing | scrolls 96 px, fires nothing |
+
+- `HSlider` is excluded on purpose — a drag starting on a slider means "move
+  this slider" on every touch platform there is.
+- `OptionButton`, `MenuButton` and `ColorPickerButton` are excluded, and not
+  for symmetry: a control that opens a `Popup` on *press* pops it mid-flick
+  and the popup grabs the drag, so the gesture neither scrolls nor is undone
+  (measured on `OptionButton`: popup open, scroll 0). Their rows still scroll
+  from the label beside them, and the behaviour was seen on the device.
+
+After the fix the same twenty-point probe scrolls at 17 of 20 points; the
+three that do not are the sliders.
+
+### PH-06 — both dialogs take the treatment the civ windows already had
+
+`new_world_dialog.gd` and `browse_dialog.gd` now call
+`DccWidgets.phone_window()` / `phone_present()` and `DccShell.phone_fit(self,
+1.0)`. Neither gained a second set of phone constants. Three things the
+shared treatment did not cover:
+
+1. **New world needed a way out.** `phone_window()` goes borderless and this
+   dialog's OK button is *Create*, not Close, so on phone it gains
+   `add_cancel_button("Cancel")` and a `DccWidgets.phone_head()`. The call is
+   placed *before* the OK button is renamed, since `phone_window()` sets
+   `ok_button_text` for the read-only windows it was written for. Its content
+   also moved into a root `VBoxContainer`, because an `AcceptDialog` gives
+   only its *first* child the whole rect — the arrangement
+   `place_editor_window.gd` established.
+2. **The browser is spawned per pick, not owned.** `_spawn()` takes whatever
+   node the caller had; `open_project_dialog.gd` passes `self`, a `Window`
+   that answers neither `is_phone()` nor `phone_scale()`. New `_shell_of()`
+   walks up to the nearest `DccShell`. Being the first *transient* window to
+   take this treatment also exposed a latent fault in the shared code:
+   `phone_window()`'s rotation hook is a lambda created in a `static`
+   function, so nothing auto-disconnects it — it is now guarded with
+   `is_instance_valid()` and released on `tree_exiting`, without which a
+   rotation after the dialog closed would touch a freed object.
+3. **The breadcrumb widened the window off the screen, on Android only.** A
+   `Button` reports its own text as its minimum width — the hazard
+   `phone_fit()` already records for the faction roster — and Android's home
+   directory is `/data/data/org.cartalith.walkingskeleton/files`. Measured:
+   the crumb row's minimum was **715 px inside a 393 dp window**, dragging the
+   list, the foot and the Open button off the right edge. The same dialog
+   fits on Windows because `C:/Users/Vincent` fits; **a desktop run is not
+   evidence for this class of bug.** The crumb row is now a horizontal
+   `ScrollContainer` on phone (56 px minimum after the change, nothing
+   propagating up): it contributes no minimum on the axis it scrolls, keeps
+   every segment reachable rather than trimming behind an ellipsis, and
+   drag-scrolls for free off PH-05.
+
+`browse_dialog.gd`'s file rows also carry PH-05's rule inline — they are
+`PanelContainer`s with their own `gui_input` (a `Button` cannot tell a click
+from a double-click), the one shape the shared walk deliberately skips.
+`PASS` still delivers the press to the handler, so click-to-select and
+double-click-to-enter are untouched.
+
+### Verified
+
+- Headless boot-check clean.
+- `_scrolldrag_probe.gd`, before/after, on the real shell — the twenty-point
+  table above.
+- **Real hardware, OnePlus 6T (1080 x 2340, `--export-debug "Android"`,
+  `adb install -r`).** PH-05: a flick starting on *05 Volcanism & impacts*
+  scrolls the World sheet to its foot and toggles nothing; a tap on *06
+  Erosion* opens it. PH-06: New world fills the screen with its phone header,
+  0 controls under 44 dp, drag-scrolls to Cancel/Create; the browser fits
+  1080 px wide with ✕, crumbs, path well, list and foot all inside, the crumb
+  row scrolls sideways under a drag without navigating, and a row tap still
+  selects. The over-wide browser was **found on the device after a clean
+  desktop probe run**, which is the whole reason PH-06 named on-device the bar.
+- Desktop control run: both dialogs still open centred and decorated at
+  620 x 780 and 760 x 640, unchanged.
+
+**Still open:** the `toggle()` rows in New world clip their labels at
+`ROW_LABEL_W` (132 px) on a phone — *"Village seeding (add"*. Pre-existing to
+this fix and shared with every narrow dock; not treated here rather than
+guessed at.

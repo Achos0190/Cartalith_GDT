@@ -69,6 +69,12 @@ var _rows: Dictionary = {}   ## absolute path -> PanelContainer
 ## SAVE mode only: the foot's file-name field and the name it opens with.
 var _name_edit: LineEdit
 var _default_name := ""
+## Phone (§13, PH-06). `_shell` is the `DccShell` this dialog's treatment is
+## measured against; it is **not** always `host`, because two call sites hand
+## `_spawn()` a `Window` (`open_project_dialog.gd`) rather than the shell, and
+## a `Window` answers neither `is_phone()` nor `phone_scale()`.
+var _phone := false
+var _shell: Node = null
 
 # ---------------------------------------------------------------------------
 # Entry points
@@ -106,6 +112,7 @@ static func _spawn(host: Node, dialog_title: String, mode: PickKind,
 	var d := DccBrowseDialog.new()
 	host.add_child(d)
 	d._default_name = default_name
+	d._shell = _shell_of(host)
 	d.setup(dialog_title, mode, extensions, footnote, on_choose)
 	## One dialog per invocation, freed when it closes -- the same lifetime the
 	## `FileDialog` it replaces had. Windows this shell keeps alive (the asset
@@ -115,8 +122,24 @@ static func _spawn(host: Node, dialog_title: String, mode: PickKind,
 		if not d.visible:
 			d.queue_free())
 	d.navigate(start_dir)
-	d.popup_centered()
+	## PH-06: on a phone this fills the screen, and it is `phone_present()`
+	## that opens it -- see that function's own doc comment for why sizing a
+	## hidden `AcceptDialog` and popping it afterwards leaves the body at its
+	## desktop rect (the list then overflows instead of scrolling).
+	if not DccWidgets.phone_present(d, d._shell):
+		d.popup_centered()
 	return d
+
+## The nearest ancestor that is a `DccShell`. `host` is whatever node the
+## caller had to hand: `DccApp` itself from most call sites, but the Open
+## project dialog passes `self`, a `Window` whose parent is the shell. Walking
+## up is what makes one treatment cover both without either call site having
+## to know about phones.
+static func _shell_of(host: Node) -> Node:
+	var n := host
+	while n != null and not n.has_method("is_phone"):
+		n = n.get_parent()
+	return n
 
 func setup(dialog_title: String, mode: PickKind, extensions: PackedStringArray,
 		footnote: String, on_choose: Callable) -> void:
@@ -125,10 +148,19 @@ func setup(dialog_title: String, mode: PickKind, extensions: PackedStringArray,
 	for e in extensions:
 		_extensions.append(String(e).to_lower().trim_prefix("."))
 	title = dialog_title
+	## PH-06. The dialog draws its own head row with a ✕ and its own foot with
+	## Cancel, so dropping the title bar on a phone costs it nothing -- unlike
+	## `new_world_dialog.gd`, this one needed no way-out button adding.
+	_phone = DccWidgets.phone_window(self, _shell)
 	get_ok_button().hide()   ## the mockup's own foot row replaces it.
 	size = Vector2i(760, 640)
 	min_size = Vector2i(560, 460)
 	_build(dialog_title, footnote)
+	## `1.0`: `phone_present()` has already applied the scale once as the
+	## window's `content_scale_factor`. `navigate()` re-fits after every
+	## listing, since the crumbs and the rows are both rebuilt there.
+	if _phone:
+		_shell.phone_fit(self, 1.0)
 
 # ---------------------------------------------------------------------------
 # Layout
@@ -189,7 +221,30 @@ func _build_head(dialog_title: String) -> Control:
 func _build_breadcrumb() -> Control:
 	_crumb_row = HBoxContainer.new()
 	_crumb_row.add_theme_constant_override("separation", 6)
-	return _pad(_crumb_row, 28, 14, 28, 0)
+	if not _phone:
+		return _pad(_crumb_row, 28, 14, 28, 0)
+	## PH-06, found on the handset and nowhere else: a breadcrumb is as wide as
+	## the path it describes, and **a `Button` reports its own text as its
+	## minimum width** -- the hazard `DccShell.phone_fit()` already records for
+	## the faction roster. Android's own home directory is
+	## `/data/data/org.cartalith.walkingskeleton/files`, four deep and long,
+	## which put the crumb row's minimum at 715 px inside a 393 dp window and
+	## dragged every sibling -- the list, the foot, the Open button -- off the
+	## right edge with it. On Windows the same dialog fits, because
+	## `C:/Users/Vincent` does; the desktop run is not evidence here.
+	##
+	## Scrolled rather than trimmed: a `ScrollContainer` contributes no minimum
+	## on the axis it scrolls, so the row can no longer widen the window, and
+	## every segment stays reachable rather than being dropped behind an
+	## ellipsis. The bar is hidden because the crumbs themselves are the
+	## affordance -- and they drag-scroll, since `phone_fit()` leaves them
+	## `MOUSE_FILTER_PASS` (PH-05).
+	var sc := ScrollContainer.new()
+	sc.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	sc.add_theme_stylebox_override("panel", DccTheme.empty())
+	sc.add_child(_crumb_row)
+	return _pad(sc, 28, 14, 28, 0)
 
 func _build_path_well() -> Control:
 	_path_edit = LineEdit.new()
@@ -261,6 +316,12 @@ func navigate(dir: String) -> void:
 	_refresh_crumbs()
 	_refresh_list()
 	_refresh_primary()
+	## Both refreshes above build fresh nodes -- the breadcrumb segments as
+	## well as the rows -- so the touch fit belongs here rather than on either
+	## one. Idempotent by meta-flag, so re-walking the whole dialog per
+	## navigation only *touches* what the last one did not.
+	if _phone:
+		_shell.phone_fit(self, 1.0)
 
 func _on_path_submitted(text: String) -> void:
 	var p := text.strip_edges().simplify_path()
@@ -371,6 +432,17 @@ func _build_row(path: String, entry_name: String, live: bool, meta: String) -> C
 	var wrap := PanelContainer.new()
 	wrap.add_theme_stylebox_override("panel", DccTheme.empty())
 	wrap.mouse_filter = Control.MOUSE_FILTER_STOP if (live or is_dir) else Control.MOUSE_FILTER_IGNORE
+	## PH-05's rule, in the one place `phone_fit()` cannot reach it: this row
+	## is a `PanelContainer` with its own `gui_input` (see below -- a `Button`
+	## cannot tell a click from a double-click), and the shared walk excludes
+	## exactly that shape because several rows in this shell must keep
+	## stopping the event they consume. Here the row *can* forward: `PASS`
+	## still delivers the press to the handler below, so click-to-select and
+	## double-click-to-enter are untouched, and it also lets a flick reach the
+	## `ScrollContainer` above -- without which a phone could not scroll a
+	## directory listing at all.
+	if _phone and wrap.mouse_filter == Control.MOUSE_FILTER_STOP:
+		wrap.mouse_filter = Control.MOUSE_FILTER_PASS
 
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
