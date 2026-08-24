@@ -103,6 +103,11 @@ func setup(a, b: EngineBridge) -> void:
 ## `_civOpenPlacePopup`: opens on the settlement at `index` into
 ## `get_settlements()`'s own array.
 func open_for(index: int) -> void:
+	## PE-01: flush whatever the currently-open form has focused, against the
+	## settlement it belongs to, before `_index` moves. Without this an editor
+	## re-opened on a different place from the map committed the old form's
+	## text onto the new one.
+	_commit_focused_field()
 	_index = index
 	_rebuild()
 	if _index < 0:
@@ -125,11 +130,47 @@ func open_for(index: int) -> void:
 		_name_edit.select_all()
 
 
+## `_rebuilding` guards the name field's `focus_exited` commit against its own
+## teardown (`GUI_GAP_REGISTER.md` PE-01).
+##
+## §4.5.3 has `open_for()` focus the name field, so on desktop the field holds
+## focus for the whole session. `_clear()` below removes it from the tree,
+## which releases focus and fires `focus_exited` **synchronously** -- and that
+## handler writes the field's text back through `civ_edit_settlement`. Any
+## rebuild triggered by something that changed the name therefore had the OLD
+## name written back over the new one before the rebuilt form ever read it.
+##
+## Measured, not reasoned: the ⟳ re-roll button left the engine name at
+## `Yusnashharwell` across a real press with the field focused, and changed it
+## to `Abedomarmarch` on the identical press with `release_focus()` called
+## first. Every press after the first worked, because only `open_for()` grabs
+## focus -- which is exactly why this survived to be found by a probe rather
+## than by the eye.
+var _rebuilding := false
+
+## Commit whatever field is focused **before** `_index` moves, so a half-typed
+## rename lands on the settlement it was typed for instead of being dropped by
+## the guard. Releasing focus is what makes the `focus_exited` commit fire
+## here, against the right index, rather than inside `_clear()`.
+func _commit_focused_field() -> void:
+	if _body == null:
+		return
+	var vp := _body.get_viewport()
+	if vp == null:
+		return
+	var fo := vp.gui_get_focus_owner()
+	if fo != null and _body.is_ancestor_of(fo):
+		fo.release_focus()
+
 func _clear() -> void:
+	_rebuilding = true
+	## Cleared BEFORE the removal as well, so a handler that reads it during
+	## teardown sees no field rather than a dying one.
+	_name_edit = null
 	for c in _body.get_children():
 		_body.remove_child(c)
 		c.queue_free()
-	_name_edit = null
+	_rebuilding = false
 
 
 func _settlement() -> Dictionary:
@@ -184,7 +225,13 @@ func _build_identity(s: Dictionary) -> void:
 	## focus -- the same reasoning `civilization_workspace.gd`'s own
 	## `_settlement_name_field` gives for not rebuilding on `text_changed`.
 	_name_edit.text_submitted.connect(func(t: String): _apply({"name": t}))
-	_name_edit.focus_exited.connect(func(): _apply({"name": _name_edit.text}))
+	## `_rebuilding` / null guard: this fires during `_clear()`'s own teardown
+	## too, where the "edit" it would commit is the stale text of a field that
+	## is being thrown away. See `_rebuilding`'s doc comment (PE-01).
+	_name_edit.focus_exited.connect(func():
+		if _rebuilding or _name_edit == null:
+			return
+		_apply({"name": _name_edit.text}))
 	row.add_child(_name_edit)
 	var roll := Button.new()
 	roll.text = "⟳"
@@ -223,7 +270,7 @@ func _build_class_and_polity(s: Dictionary) -> void:
 		labels.append("%d · %s" % [int(d.get("id", 1)), String(d.get("name", "?"))])
 	DccWidgets.choice(sec, "Polity", labels, maxi(0, ids.find(int(s.get("faction", 1)))),
 		func(i: int): _apply({"faction": ids[i]}); _rebuild(),
-		"The reference's own Polity picker. Territory is NOT repainted -- assign_territory runs inside generate() and no #[func] re-runs it (GUI_GAP_REGISTER.md, Politics ▸ Recalculate territories).")
+		"The reference's own Polity picker. Territory is NOT repainted -- assign_territory runs inside generate() and no #[func] re-runs it (GUI_GAP_REGISTER.md CV-20). Civilization ▸ Territories ▸ Recalculate territories is the shortcut that does re-run it.")
 
 
 # -- Population + economy ---------------------------------------------------
@@ -318,7 +365,14 @@ func _build_history(details: Dictionary) -> void:
 	te.placeholder_text = "Lore, founding, notable events…"
 	te.custom_minimum_size.y = 84
 	te.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
-	te.focus_exited.connect(func(): _apply({"history": te.text}))
+	## Same guard as the name field above (PE-01). The cross-settlement case is
+	## the dangerous one: `open_for()` sets `_index` and only then rebuilds, so
+	## an unguarded teardown commit writes THIS settlement's history onto the
+	## one the user just opened.
+	te.focus_exited.connect(func():
+		if _rebuilding:
+			return
+		_apply({"history": te.text}))
 	sec.add_child(te)
 
 

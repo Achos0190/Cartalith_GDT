@@ -241,10 +241,36 @@ func open() -> void:
 		popup_centered()
 
 
+## Set for the duration of a pane teardown. The inspector's name field commits
+## on `focus_exited`, and removing a focused `Control` from the tree fires that
+## signal **synchronously** -- so a rebuild was itself an "edit"
+## (`GUI_GAP_REGISTER.md` FR-02). Measured before it was believed: with
+## Aurelia's name field focused, clicking Veldmark in the list left the roster
+## reading `1:Aurelia, 2:Aurelia` -- `_selected` is reassigned before
+## `_rebuild_inspector()`, so the dying field's text was written to the faction
+## the user had just switched TO.
+var _rebuilding := false
+
 func _clear(node: Control) -> void:
+	var was := _rebuilding
+	_rebuilding = true
 	for c in node.get_children():
 		node.remove_child(c)
 		c.queue_free()
+	_rebuilding = was
+
+## Commit whatever the inspector's focused field holds **before** the caller
+## changes `_selected`, so a half-typed rename lands on the faction it was
+## typed for rather than being dropped by the guard above. Returns having
+## released focus, which is what makes the `focus_exited` commit fire here,
+## against the right id, instead of during the teardown.
+func _commit_focused_field() -> void:
+	var vp := _inspector_body.get_viewport()
+	if vp == null:
+		return
+	var fo := vp.gui_get_focus_owner()
+	if fo != null and _inspector_body.is_ancestor_of(fo):
+		fo.release_focus()
 
 
 func _rebuild() -> void:
@@ -315,6 +341,11 @@ func _rebuild_list() -> void:
 		if fid == _selected:
 			b.add_theme_stylebox_override("normal", DccTheme.flat(DccTheme.c("sunken"), 3))
 		b.pressed.connect(func():
+			## FR-02: flush the inspector's pending edit against the faction it
+			## was typed for, before `_selected` moves. These list rows are
+			## `FOCUS_NONE`, so without this the name field keeps focus right up
+			## until `_rebuild_inspector()` frees it -- under the new id.
+			_commit_focused_field()
 			_selected = fid
 			_rebuild_list()
 			_rebuild_inspector()
@@ -347,7 +378,11 @@ func _rebuild_inspector() -> void:
 	name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	name_edit.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	name_edit.text_submitted.connect(func(t: String): _set_field("name", t))
-	name_edit.focus_exited.connect(func(): _set_field("name", name_edit.text))
+	## Guarded against its own teardown -- see `_rebuilding` (FR-02).
+	name_edit.focus_exited.connect(func():
+		if _rebuilding:
+			return
+		_set_field("name", name_edit.text))
 	head.add_child(name_edit)
 	_inspector_body.add_child(head)
 
