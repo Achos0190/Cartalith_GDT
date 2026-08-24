@@ -435,10 +435,10 @@ func _input(event: InputEvent) -> void:
 		var mb := event as InputEventMouseButton
 		var over_map := get_global_rect().has_point(mb.position)
 		if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed and over_map:
-			_zoom_at(mb.position, ZOOM_WHEEL_STEP)
+			_zoom_at(mb.position - global_position, ZOOM_WHEEL_STEP)
 			get_viewport().set_input_as_handled()
 		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed and over_map:
-			_zoom_at(mb.position, 1.0 / ZOOM_WHEEL_STEP)
+			_zoom_at(mb.position - global_position, 1.0 / ZOOM_WHEEL_STEP)
 			get_viewport().set_input_as_handled()
 		elif mb.button_index == MOUSE_BUTTON_MIDDLE:
 			if mb.pressed and not over_map:
@@ -505,7 +505,7 @@ func _input(event: InputEvent) -> void:
 		## handler: zoom about the centroid **and** pan by the centroid's own
 		## delta, in the same `touchmove` (HTML lines 14014-14015).
 		var mg := event as InputEventMagnifyGesture
-		_zoom_at(mg.position, mg.factor)
+		_zoom_at(mg.position - global_position, mg.factor)
 		get_viewport().set_input_as_handled()
 	elif event is InputEventPanGesture:
 		## The pan half of that pair, and until it existed a phone could not
@@ -545,6 +545,18 @@ func _input(event: InputEvent) -> void:
 ## same local point fixed under `screen_pt` after rescaling gives this directly
 ## -- no pivot_offset needed, which sidesteps Control's own layout-vs-transform
 ## interactions around pivot entirely.
+##
+## **`screen_pt` is THIS NODE's local space, not the viewport's**
+## (`GUI_GAP_REGISTER.md` SH-11). `_camera` is a child of `ViewportHost`, so
+## `_camera.position` is measured from this node's own origin; an
+## `InputEvent.position` is measured from the window's. Subtracting one from
+## the other put the pivot out by exactly `global_position * (1/z0 - 1/z1)` --
+## **measured at 32.59 px per wheel notch** on the desktop layout
+## (`global_position` (412, 70), zoom 1.6727 -> 1.9236), the same drift at
+## every probe point, which is the signature of a constant offset rather than
+## a pivot error. `zoom_step()` below was always correct because `size * 0.5`
+## is already local, and measured 0.00 px on the same run. So the two `_input`
+## call sites convert; this function's own maths never needed changing.
 func _zoom_at(screen_pt: Vector2, factor: float) -> void:
 	var new_zoom: float = clampf(_zoom * factor, ZOOM_MIN, _zoom_max)
 	if is_equal_approx(new_zoom, _zoom):
