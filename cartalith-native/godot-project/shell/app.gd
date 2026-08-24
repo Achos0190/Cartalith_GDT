@@ -324,6 +324,8 @@ func _ready() -> void:
 	add_child(journey_planner_view)
 	journey_planner_view.setup(self, bridge)
 
+	_setup_autosave()
+
 	set_status("pass", "no world", "text_faint")
 	set_status("hint", "File ▸ New world… to begin", "text_ghost")
 	set_status("top_world", "—")
@@ -641,6 +643,194 @@ func _load_project(path: String) -> void:
 ## own callback uses, just without the file dialog in front of it.
 func open_recent_project(path: String) -> void:
 	_load_project(path)
+
+# -- §2.1 Project lifecycle ----------------------------------------------------
+#
+# Save / Save as… / Autosave / Revert / Close, all of which were disabled
+# menu items with "requires a save writer" on them until `cartalith-io` grew
+# one (`GUI_GAP_REGISTER.md` FI-01, `SAVEFILE_COMPAT.md`).
+#
+# One rule runs through all five, and it is the same one `_load_project`
+# already followed: `current_project_path` is the single piece of project
+# bookkeeping this shell keeps, and every route through here maintains it or
+# does nothing.
+
+## The autosave clock. A `Timer` rather than a `_process` accumulator because
+## the interval is minutes and the work is a file write -- nothing here wants
+## per-frame resolution.
+var _autosave_timer: Timer
+
+func _setup_autosave() -> void:
+	_autosave_timer = Timer.new()
+	_autosave_timer.name = "Autosave"
+	_autosave_timer.one_shot = false
+	_autosave_timer.timeout.connect(_autosave_tick)
+	add_child(_autosave_timer)
+	## The status slot is one of the four the shell already reserves
+	## (`dcc_shell.gd`'s `_build_status_bar`) and has been empty since it was
+	## built -- this is what it was for.
+	bridge.dirty_changed.connect(func(_d: bool): _refresh_save_status())
+	bridge.project_saved.connect(func(_p: String): _refresh_save_status())
+	apply_autosave_setting()
+
+## Reads `DccSettings.autosave_enabled()` and starts or stops the clock.
+## Called at startup and whenever the menu toggle flips.
+func apply_autosave_setting() -> void:
+	if _autosave_timer == null:
+		return
+	if DccSettings.autosave_enabled():
+		_autosave_timer.wait_time = DccSettings.autosave_minutes() * 60.0
+		_autosave_timer.start()
+	else:
+		_autosave_timer.stop()
+	_refresh_save_status()
+
+## Autosave writes **beside** the project, never over it: a background writer
+## that silently replaces the file the user last chose to keep is how an
+## autosave feature destroys work instead of protecting it. `world.zip`
+## autosaves to `world.autosave.zip`, and recovering is File ▸ Open project…
+## on that file.
+##
+## Skipped when there is nothing to write (no world), nowhere to write it
+## (the project has never been saved, so there is no folder the user has
+## chosen), or nothing new to write (`bridge.world_dirty` -- see its own doc
+## comment for what that does and does not see).
+func _autosave_tick() -> void:
+	if not bridge.save_api or not bridge.has_world or not bridge.world_dirty:
+		return
+	if current_project_path == "":
+		return
+	var target := current_project_path.get_basename() + ".autosave.zip"
+	## Deliberately does **not** clear the dirty flag: the project itself is
+	## still unsaved, and an autosave that made File ▸ Save look unnecessary
+	## would be worse than no autosave.
+	var was_dirty := bridge.world_dirty
+	if bridge.world_gen.save_project(target):
+		set_status("autosave", "autosaved %s" % Time.get_time_string_from_system().substr(0, 5), "text_faint")
+	else:
+		set_status("autosave", "autosave failed", "accent")
+	bridge.world_dirty = was_dirty
+
+func _refresh_save_status() -> void:
+	if not DccSettings.autosave_enabled():
+		set_status("autosave", "" if not bridge.world_dirty else "unsaved changes",
+			"text_faint" if not bridge.world_dirty else "accent")
+	elif current_project_path == "":
+		set_status("autosave", "autosave waiting for a saved project", "text_ghost")
+	else:
+		set_status("autosave", "autosave every %d min" % DccSettings.autosave_minutes(), "text_faint")
+
+## File ▸ Save project. Falls through to Save as… when the world has never
+## been written anywhere -- the behaviour every application has, and the
+## reason there is no separate "Save" disabled state to explain.
+func save_project() -> void:
+	if not bridge.has_world:
+		set_status("hint", "no world to save", "accent")
+		return
+	if current_project_path == "":
+		save_project_as()
+		return
+	_write_project(current_project_path)
+
+## File ▸ Save as… Uses the shell's own browser in its save mode rather than
+## a stock `FileDialog`, for the same reason `open_project_picker()` uses the
+## gallery: this shell draws its own chrome.
+func save_project_as(then: Callable = Callable()) -> void:
+	if not bridge.has_world:
+		set_status("hint", "no world to save", "accent")
+		return
+	var suggested := current_project_path.get_file()
+	if suggested == "":
+		## The reference names its own exports `world_<seed>_<size>.zip`
+		## (reference HTML's `exportZip`); the seed half is the part that
+		## identifies the world, and the bake size means nothing here.
+		suggested = "world_%d.zip" % bridge.world_gen.get_seed()
+	var start := current_project_path.get_base_dir()
+	if start == "":
+		start = DccSettings.storage_root("projects")
+	DccBrowseDialog.choose_save_path(self, "Save project as", "zip", start,
+		"", suggested, func(path: String):
+			if FileAccess.file_exists(path):
+				_confirm(
+					"Overwrite %s?" % path.get_file(),
+					"That file already exists. Saving replaces it.",
+					"Overwrite", func(): _write_project(path, then))
+			else:
+				_write_project(path, then))
+
+## The one place a project is actually written. Everything above routes here
+## so the bookkeeping -- `current_project_path`, the recents list, the status
+## line, the optional continuation -- happens once.
+func _write_project(path: String, then: Callable = Callable()) -> void:
+	if not bridge.save_project(path):
+		set_status("hint", "save failed — see console", "accent")
+		return
+	current_project_path = path
+	DccSettings.remember_project(path)
+	set_status("hint", "saved %s" % path.get_file(), "text_ghost")
+	_refresh_save_status()
+	if then.is_valid():
+		then.call()
+
+## File ▸ Revert to last save. Throws the in-memory world away and reloads
+## the file, which is exactly `_load_project` on the current path -- the
+## confirm in front of it is the whole feature, since the discard is
+## irreversible and the button sits two rows under Save.
+func revert_to_saved() -> void:
+	if current_project_path == "":
+		set_status("hint", "this world has never been saved", "accent")
+		return
+	_confirm(
+		"Revert to last save?",
+		"Everything since the last save of %s is discarded." % current_project_path.get_file(),
+		"Revert", func(): _load_project(current_project_path))
+
+## File ▸ Close project. Prompts **whenever a world exists**, not only when
+## `bridge.world_dirty` is set -- see that flag's own doc comment for what it
+## cannot see, and why a close is the wrong moment to under-report.
+func close_project() -> void:
+	if not bridge.has_world:
+		return
+	var body := "This world has unsaved changes." if bridge.world_dirty \
+		else "Tool edits made since the last save are not tracked, so save if in doubt."
+	var dlg := ConfirmationDialog.new()
+	dlg.title = "Close project"
+	dlg.dialog_text = "%s\n\nClose it?" % body
+	dlg.ok_button_text = "Discard and close"
+	## The third button is the whole reason this prompt could not be built
+	## before: with no writer there was no "Save" to offer, only "discard or
+	## cancel", which is not a choice.
+	var save_btn := dlg.add_button("Save and close", true, "save")
+	save_btn.pressed.connect(func():
+		dlg.hide()
+		if current_project_path == "":
+			save_project_as(func(): _close_world())
+		else:
+			_write_project(current_project_path, func(): _close_world()))
+	dlg.confirmed.connect(_close_world)
+	dlg.visibility_changed.connect(func(): if not dlg.visible: dlg.queue_free())
+	add_child(dlg)
+	dlg.popup_centered()
+
+func _close_world() -> void:
+	bridge.close_world()
+	current_project_path = ""
+	set_status("pass", "no world", "text_faint")
+	set_status("hint", "File ▸ New world… to begin", "text_ghost")
+	set_status("top_world", "—")
+	_refresh_save_status()
+
+## A yes/no prompt with the shell's own wording rules: the destructive answer
+## is named after what it does, never "OK".
+func _confirm(prompt_title: String, body: String, ok_text: String, on_ok: Callable) -> void:
+	var dlg := ConfirmationDialog.new()
+	dlg.title = prompt_title
+	dlg.dialog_text = body
+	dlg.ok_button_text = ok_text
+	dlg.confirmed.connect(on_ok)
+	dlg.visibility_changed.connect(func(): if not dlg.visible: dlg.queue_free())
+	add_child(dlg)
+	dlg.popup_centered()
 
 ## Assets ▸ Import pack… Deliberately *not* the gallery above: the mockup's
 ## Open-project screen is world-shaped throughout (it captions tiles with a

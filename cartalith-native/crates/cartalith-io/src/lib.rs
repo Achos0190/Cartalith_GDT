@@ -1,13 +1,18 @@
-//! save/load — reads the HTML app's .zip saves (SAVEFILE_COMPAT.md)
+//! save/load — the HTML app's .zip save format (SAVEFILE_COMPAT.md)
 //!
-//! `MVP_SCOPE.md` point 12: **reading only**, one specific thing — not a
-//! general save/load licence. Writing a save is explicitly out of scope
-//! (`SAVEFILE_COMPAT.md`'s own "Deferred" section).
+//! `MVP_SCOPE.md` point 12 scoped this to **reading only**, and that was
+//! the whole of this crate for Phases 1-5. [`save`] is the other half,
+//! authorised by the owner (2026-08-23) once `GUI_GAP_REGISTER.md` FI-01,
+//! DM-04, JP-06/JP-08 and MEA-07 had all queued up behind the same missing
+//! writer. `SAVEFILE_COMPAT.md`'s own "Deferred" section is updated to
+//! match.
 
 pub mod gzip;
+pub mod save;
 pub mod tiles;
 
 pub use gzip::{gunzip_bytes, gzip_bytes};
+pub use save::{params_json, write_save, SaveError, SaveWrite, SAVE_VERSION};
 pub use tiles::{
     build_tile_manifest, js_num, json_string, manifest_json, pack_height16, unpack_height16, CoarseBounds, TileManifest,
     TileManifestOpts, TileRecord,
@@ -50,6 +55,21 @@ pub struct SaveFields {
 pub struct SaveData {
     pub params: SaveParams,
     pub fields: SaveFields,
+    /// `params.json`'s whole `state` object, exactly as it was read.
+    ///
+    /// [`SaveParams`] above is the handful of values this port's terrain
+    /// pipeline needs; this is everything else the file carried, kept so a
+    /// caller can pull what it models out of it — `cartalith-godot`'s
+    /// `params::apply_saved_state` reads the generation-parameter block
+    /// [`save::write_save`] wrote — without this crate having to grow a
+    /// struct for 200+ keys of civ and UI state it has nothing to
+    /// deserialize into (`SAVEFILE_COMPAT.md`'s own reasoning for approach
+    /// 1 over approach 2).
+    ///
+    /// `Value::Null` when the file had no `state` object at all. Reading it
+    /// never fails, so a save whose `state` is unrecognisable still loads
+    /// its terrain.
+    pub state: serde_json::Value,
 }
 
 #[derive(Debug)]
@@ -150,6 +170,7 @@ pub fn load_save<R: Read + std::io::Seek>(reader: R) -> Result<SaveData, LoadErr
     Ok(SaveData {
         params: SaveParams { gw, gh, seed, map_width_km, sea_level, world },
         fields: SaveFields { heightmap, temperature, rainfall, volcanic_field, impact_field, strahler_order },
+        state: params_json.get("state").cloned().unwrap_or(serde_json::Value::Null),
     })
 }
 

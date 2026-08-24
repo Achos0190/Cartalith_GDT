@@ -401,6 +401,290 @@ pub const PARAMS: &[ParamSpec] = &[
         get_fn: |p| Value::Bool(p.climate.bulk_evap), set_fn: |p, v| p.climate.bulk_evap = v != 0.0 },
 ];
 
+// ===========================================================================
+// Saving and restoring the table (`SAVEFILE_COMPAT.md`, FI-01)
+// ===========================================================================
+//
+// The `.zip` save's `params.json` carries a `state` object, and this module
+// is where that object's *parameter* half is built and read back.
+//
+// ## Two copies of every value, deliberately
+//
+// A save written here holds each parameter twice:
+//
+// 1. Under [`NATIVE_PARAMS_KEY`] (`state.cartalith`), keyed by this table's
+//    own dotted key. **This is the authoritative copy** and the only one
+//    [`apply_saved_state`] reads. It is lossless by construction: every row
+//    below round-trips, including the ten this port added that the reference
+//    has no equivalent for (`use_gpu`, the six erosion-pass toggles,
+//    `passes.sediment_capacity`, `passes.tidal_k`,
+//    `climate.terrain_wind_deflection`).
+// 2. At its **reference** `state` path (`tect.blurR`, `climate.latN`, ...),
+//    where the row has one. This copy exists for one reader only: the
+//    original HTML app, whose `loadZip()` can then reopen a file this port
+//    wrote.
+//
+// The duplication is what keeps both honest. Without (1), the ten port-only
+// parameters would be silently lost on every save. Without (2), a save this
+// port wrote would reopen in the reference app with the reference app's
+// *defaults* silently standing in for the world's real settings.
+//
+// ## Why (2) is not optional even if reference compatibility were dropped
+//
+// `loadZip()` merges the saved state **shallowly** — `Object.assign(state,
+// pk.state)` — so any nested block written here *replaces* the reference's
+// whole default block rather than merging into it. `state.tect.seed` is
+// mandatory (this port's own reader requires it, `SAVEFILE_COMPAT.md`), so
+// `tect` is written no matter what; writing it with only a seed in it would
+// leave the reference app with an undefined plate count, drift, warp and
+// blur radius. Once `tect` must be complete, every sibling block costs one
+// table column.
+//
+// ## The one block deliberately not written: `state.erosion`
+//
+// `loadZip()` has no `Object.assign` shim for `erosion` (it does for
+// `climate`, `stream`, `velo`, `glacial`, `coastal`, `planet`,
+// `world_structure` and `viz`), and this port models 2 of its 16 keys —
+// `diffuseD` and `diffusePasses`. Writing those two would replace the
+// reference's entire droplet-erosion parameter set with a two-key object.
+// Both rows therefore carry an empty reference path and travel in
+// `state.cartalith` only; a save this port writes leaves the reference app
+// on its own `erosion` defaults, which is a visible, documented limitation
+// rather than a silently mangled block.
+
+/// Where the parameter half of a save lives inside `state` — this port's
+/// own dotted keys, verbatim, as the lossless copy. A key the reference
+/// never wrote, so `loadZip()`'s `Object.assign` carries it through
+/// untouched and `serializeState()` writes it back out: a save can make a
+/// round trip *through the reference app* without losing this port's
+/// parameters.
+pub const NATIVE_PARAMS_KEY: &str = "cartalith";
+
+/// Each [`PARAMS`] key's path inside the reference's own `state` object, or
+/// `""` where the reference has no equivalent. Kept as its own table rather
+/// than a tenth column on [`ParamSpec`] because it is a property of the
+/// *reference*, not of this port's parameter — and because a row here that
+/// names no key is caught by `every_param_has_a_reference_path_decision`,
+/// which is the drift guard a column would otherwise provide.
+///
+/// Every path was read out of `reference/Cartalith Gen1 v2.10.html`'s own
+/// `state` literal (line 2257) and its `loadZip()` shims (line 12624).
+#[rustfmt::skip]
+const JS_PATHS: &[(&str, &str)] = &[
+    ("world", "world"),
+    // The *effective* sea level is written over this by
+    // `cartalith_io::params_json` -- the reference's own `state.seaLevel` is
+    // likewise post-`deriveFromWorldStructure`, so the two agree. The input
+    // value stays in the `cartalith` copy.
+    ("sea_level", "seaLevel"),
+    ("peak_m", "peakM"),
+    ("carve_rivers", "carveRivers"),
+    ("river_density", "viz.riverDensity"),
+    // No reference equivalent: this port's own GPU switch.
+    ("use_gpu", ""),
+
+    ("planet.g", "planet.g"),
+    ("planet.rotation_hours", "planet.rotationHours"),
+    ("planet.axial_tilt_deg", "planet.axialTiltDeg"),
+
+    ("world_structure.enabled", "world_structure.enabled"),
+    ("world_structure.continentality", "world_structure.continentality"),
+    ("world_structure.fragmentation", "world_structure.fragmentation"),
+    ("world_structure.tectonic_energy", "world_structure.tectonicEnergy"),
+    ("world_structure.ocean_depth", "world_structure.oceanDepth"),
+    ("world_structure.hotspot_density", "world_structure.hotspotDensity"),
+
+    ("tect.plates", "tect.plates"),
+    ("tect.vel", "tect.vel"),
+    ("tect.warp", "tect.warp"),
+    ("tect.blur_r", "tect.blurR"),
+    ("tect.alpha", "tect.alpha"),
+    ("tect.beta", "tect.beta"),
+    ("tect.age_inf", "tect.age"),
+    ("tect.ridged", "tect.ridged"),
+    ("tect.flexure", "tect.flexure"),
+    ("tect.hetero", "tect.hetero"),
+    ("tect.resist", "tect.resist"),
+    ("tect.dynamic_lithology", "tect.dynamicLithology"),
+    ("tect.lloyd", "tect.lloyd"),
+
+    ("volc.count", "volc.count"),
+    ("volc.age", "volc.age"),
+    ("volc.provinces", "volc.provinces"),
+    ("crater.count", "crater.count"),
+    ("crater.age", "crater.age"),
+
+    ("stream.uplift", "stream.uplift"),
+    ("stream.k", "stream.k"),
+    ("stream.iters", "stream.iters"),
+    ("stream.deposit", "stream.deposit"),
+    ("stream.climate_k", "stream.climateK"),
+
+    // The six pass *toggles* are this port's own (`ParamSpec`'s own comment:
+    // the reference's control is a button, not a checkbox), so none of them
+    // has a reference path -- only the knobs behind them do.
+    ("passes.velocity", ""),
+    ("passes.velo_iters", "velo.iters"),
+    ("passes.velo_strength", "velo.strength"),
+    ("passes.velo_meander", "velo.meander"),
+    ("passes.glacial", ""),
+    ("passes.glacial_snowline", "glacial.snowline"),
+    ("passes.glacial_kg", "glacial.kg"),
+    ("passes.glacial_mg", "glacial.mg"),
+    ("passes.glacial_u_factor", "glacial.uFactor"),
+    ("passes.glacial_passes", "glacial.passes"),
+    ("passes.coastal", ""),
+    ("passes.wave_str", "coastal.waveStr"),
+    ("passes.estuary_depth", "coastal.estuaryDepth"),
+    ("passes.marsh_band", "coastal.marshBand"),
+    ("passes.coastal_passes", "coastal.passes"),
+    ("passes.hillslope", ""),
+    // See the module note above: `state.erosion` is unshimmed and only
+    // 2/16 modelled, so it is not written at all.
+    ("passes.diffuse_d", ""),
+    ("passes.diffuse_passes", ""),
+    ("passes.sediment_fill", ""),
+    ("passes.sediment_capacity", ""),
+    ("passes.evolve_cycles", "stream.cycles"),
+    // Turning this on is what builds the tide field the pass reads, so the
+    // reference's own gate (`state.planet.tides.enabled`) is the closest
+    // thing it has. `planet.tides` is `Object.assign`-shimmed, so writing
+    // `enabled` alone leaves `k2` and `moons` intact.
+    ("passes.tidal_flats", "planet.tides.enabled"),
+    ("passes.tidal_k", ""),
+
+    ("climate.lat_n", "climate.latN"),
+    ("climate.lat_s", "climate.latS"),
+    ("climate.equator_temp", "climate.equatorTemp"),
+    ("climate.pole_temp", "climate.poleTemp"),
+    ("climate.lapse_rate", "climate.lapseRate"),
+    ("climate.albedo_k", "climate.albedo"),
+    ("climate.currents", "climate.currents"),
+    ("climate.current_k", "climate.currentK"),
+    // Reference v1.78 deleted `state.climate.terrainWind` outright
+    // (`loadZip` still runs `delete state.climate.terrainWind`), so there is
+    // no key to write it to.
+    ("climate.terrain_wind_deflection", ""),
+    ("climate.w_iters", "climate.wIters"),
+    ("climate.rain_k", "climate.rainK"),
+    ("climate.evap", "climate.evap"),
+    ("climate.rain_dep", "climate.rainDep"),
+    ("climate.ocean", "climate.ocean"),
+    // A bool here, the string `'manual'`/`'auto'` there -- written by
+    // `save_state` rather than through this table, which only carries
+    // same-typed values.
+    ("climate.wind_manual", ""),
+    ("climate.wind_dir_deg", "climate.windDir"),
+    ("climate.press_k", "climate.pressK"),
+    ("climate.zonal_k", "climate.zonalK"),
+    ("climate.ocean_hum", "climate.oceanHum"),
+    ("climate.bulk_evap", "climate.bulkEvap"),
+];
+
+/// A parameter's path inside the reference's own `state` object; `Some("")`
+/// for a row this port added that the reference has no equivalent for, and
+/// `None` only for a [`PARAMS`] row nobody has decided about — which
+/// `every_param_has_a_reference_path_decision` fails on.
+pub fn reference_path(key: &str) -> Option<&'static str> {
+    JS_PATHS.iter().find(|(k, _)| *k == key).map(|(_, p)| *p)
+}
+
+/// Writes `value` at a dotted path, creating intermediate objects. A
+/// non-object sitting where an intermediate object is needed is replaced —
+/// this only ever builds a fresh map, so that branch is unreachable in
+/// practice and exists so the function has no panic in it.
+fn put(root: &mut serde_json::Map<String, serde_json::Value>, path: &str, value: serde_json::Value) {
+    match path.split_once('.') {
+        None => {
+            root.insert(path.to_string(), value);
+        }
+        Some((head, rest)) => {
+            let child = root.entry(head).or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            if !child.is_object() {
+                *child = serde_json::Value::Object(serde_json::Map::new());
+            }
+            if let Some(map) = child.as_object_mut() {
+                put(map, rest, value);
+            }
+        }
+    }
+}
+
+/// One parameter as JSON. [`Kind::Int`] rows become JSON integers so a
+/// reference-app slider reading `state.tect.plates` gets `14`, not `14.0`.
+///
+/// A non-finite value becomes `null` rather than panicking — [`set`] rejects
+/// non-finite input, so this is unreachable via the public API, but a save
+/// writer is the wrong place to discover that assumption was wrong.
+fn as_json(spec: &ParamSpec, p: &WorldParams) -> serde_json::Value {
+    match (spec.get_fn)(p) {
+        Value::Bool(b) => serde_json::Value::Bool(b),
+        Value::Num(n) if spec.kind == Kind::Int => serde_json::Value::from(n as i64),
+        Value::Num(n) => serde_json::Number::from_f64(n).map_or(serde_json::Value::Null, serde_json::Value::Number),
+    }
+}
+
+/// The `state` object for a save (`SAVEFILE_COMPAT.md`): every parameter in
+/// this table, twice — once under [`NATIVE_PARAMS_KEY`] by this port's own
+/// key, once at its reference path where it has one. See the module note
+/// above for why both.
+///
+/// Does **not** carry `GW`, `GH`, `state.tect.seed`, `state.seaLevel`,
+/// `state.mapWidthKm` or `state.world` as authoritative values —
+/// `cartalith_io::params_json` fills those in from the world's own
+/// `SaveParams`, so the file cannot disagree with itself.
+pub fn save_state(p: &WorldParams) -> serde_json::Value {
+    let mut state = serde_json::Map::new();
+    let mut native = serde_json::Map::new();
+    for spec in PARAMS {
+        let value = as_json(spec, p);
+        native.insert(spec.key.to_string(), value.clone());
+        match reference_path(spec.key) {
+            Some(path) if !path.is_empty() => put(&mut state, path, value),
+            _ => {}
+        }
+    }
+    // The one type-changing mapping (see `JS_PATHS`).
+    put(
+        &mut state,
+        "climate.windMode",
+        serde_json::Value::from(if p.climate.wind_manual { "manual" } else { "auto" }),
+    );
+    state.insert(NATIVE_PARAMS_KEY.to_string(), serde_json::Value::Object(native));
+    serde_json::Value::Object(state)
+}
+
+/// Restores what [`save_state`] wrote, from a save's `state` object.
+/// Returns how many parameters were applied.
+///
+/// Reads **only** [`NATIVE_PARAMS_KEY`], never the reference paths. A
+/// genuine HTML-app export carries no such key, so opening one leaves every
+/// parameter at its default — exactly the behaviour this port had before a
+/// writer existed, rather than a new and differently-wrong reconstruction
+/// from a state object whose 200+ keys this port models a fraction of.
+///
+/// Every value goes through [`set`], so an out-of-range or wrong-typed entry
+/// in a hand-edited (or future-version) save is clamped or rejected on the
+/// same terms as a GUI write, and never panics.
+pub fn apply_saved_state(p: &mut WorldParams, state: &serde_json::Value) -> usize {
+    let Some(native) = state.get(NATIVE_PARAMS_KEY).and_then(|v| v.as_object()) else {
+        return 0;
+    };
+    let mut applied = 0;
+    for (key, value) in native {
+        let parsed = match value {
+            serde_json::Value::Bool(b) => Some(Value::Bool(*b)),
+            serde_json::Value::Number(n) => n.as_f64().map(Value::Num),
+            _ => None,
+        };
+        let Some(parsed) = parsed else { continue };
+        if set(p, key, parsed) != Outcome::Rejected {
+            applied += 1;
+        }
+    }
+    applied
+}
+
 /// Every distinct `group`, in first-appearance order — the section order a
 /// generated dialog should use.
 pub fn groups() -> Vec<&'static str> {

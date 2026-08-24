@@ -131,7 +131,7 @@ bit-exact and now live at `Data ▸ Import ▸ Heightmaps (PNG)`.
 | Global heightmap undo (`pushUndo`/`undoLast`/`updateUndoUI`) | 3 | absent. Draft-scoped undo/redo **is** real (`cartalith-spatial/src/pass.rs:278`, `sculpt_undo`/`sculpt_redo`) | ED-01/ED-02/PR-11 |
 | ~~NPR "Painter" styles, waves, animated water, multi-sun as *controls*~~ | 10 styles + 3 toggles | **DONE (2026-08-23).** Literal per-pixel ports (`render::apply_npr`/`apply_waves`/`multi_sun_from_normal`/`coast_distance`) with a golden suite of their own (`golden_parity_npr.rs`), bound as `WorldGen::get_npr`/`set_npr`, live in the RENDER dock. Animated water is a Godot `ShaderMaterial` overlay instead (per-frame, so principled-equivalent rather than golden — `DECISIONS.md` §7a) | `GUI_GAP_REGISTER.md` RN-02 |
 | The remaining **rendering-advanced** toggles as *controls* | parchment, surface texture, sky view factor, ridge crests, ridged relief, slope rock, geology materials, cast shadows, curvature shading, minor channels, wetness, season, SDF coast/river/biome | still absent as controls; several of the underlying effects exist under other names in `TerrainAppearance` (paper, geology, local contrast) but are tier-driven, not exposed | `render_workspace.gd`'s own trimmed disclosure; register RN-01 |
-| `exportZip` + `serializeState` + channel atlas + f32 layer previews | ~20 | absent | FI-01/DM-04 ("no save writer") — but the four *header-bar controls* behind it are not itemised; §5 item 14 |
+| `exportZip` + `serializeState` + channel atlas + f32 layer previews | ~20 | **partly present (2026-08-23)** | `serializeState`'s parameter half and `exportZip`'s seven terrain entries are both real now (`cartalith_io::write_save`, FI-01 closed). What stays absent is the *bake* half — `map.png`/tiles, the channel atlas, the f32 layer previews, and the civ/UI payload — all of which are separate capabilities, not the writer; §5 item 14 |
 
 **GeoJSON export was the one genuinely mis-stated row — CLOSED 2026-08-24.**
 `cartalith-engine/src/geojson.rs` existed with `golden_parity_geojson.rs`
@@ -302,7 +302,7 @@ where these fell through.
 | 11 | **Layer hotkeys diverge from the reference** | `LAYER_HOTKEYS` = `0 B T F S W R` vs the port's digits `1–8` | Disclosed against the *spec*, never against the *reference* — a §7d-shaped decision nobody made explicitly |
 | 12 | **Biome carrying-capacity residual toggle** | `civBiomeKChk` | Function exists in `cartalith-civ`; no `#[func]` |
 | 13 | **Placement-diagnostics overlay** | `civDiagnosticsChk` | Absent |
-| 14 | **Export controls in the header bar**, itemised | `bakeRes` (2K/4K/8K), `bakeTiles`, `chanAtlasChk`, `layersPreviewChk` | All four fold into "no save writer" (FI-01/DM-04), but the channel atlas and the f32 layer previews are separate capabilities that no row names |
+| 14 | **Export controls in the header bar**, itemised | `bakeRes` (2K/4K/8K), `bakeTiles`, `chanAtlasChk`, `layersPreviewChk` | **Re-scoped 2026-08-23**: these no longer fold into "no save writer" — that writer exists (FI-01 closed) and none of these four is part of it. All four belong to the **bake / tile-pyramid** system, which is a much larger separate gap, and the channel atlas and the f32 layer previews remain separate capabilities that no row names |
 
 Items 1–3 are the substantive ones. Item 3 in particular is a **live usability
 hole**, not just an inventory gap.

@@ -20865,3 +20865,147 @@ the extension loads headless.
 without touching the graph. Mapping a moved dial onto the stage it
 invalidates needs a per-parameter → stage table, which is a real design, not
 an improvisation — and it is not what a commit path needs.
+
+
+## A world can be saved (2026-08-23)
+
+`SAVEFILE_COMPAT.md`'s own "Deferred" list opened with **"Writing a save"**,
+and `ROADMAP.md` kept it under "Options kept open, not scheduled". Five
+register rows had queued up behind it — FI-01 (Save project), FI-02 (Save
+as…), FI-03 (Autosave), FI-04 (Revert), FI-05 (Close project) — plus DM-04,
+JP-06/JP-08 and MEA-07 further out. The owner authorised it; this is the
+writer and the five controls it unblocks.
+
+**Built — `cartalith-io`:**
+
+- `save.rs`: `write_save(sink, &SaveWrite)`, the mirror of `load_save`.
+  Writes the seven documented entries in `exportZip()`'s own order,
+  DEFLATE-compressed (method 8, the reference's own from v1.90). A `.f32`
+  entry is `gw*gh*4` bytes and nothing else.
+- Two guards, both about the failure this format makes easy — a file that
+  opens cleanly and is quietly wrong. **(1)** Every field must be `gw*gh`
+  long; a `.f32` carries no length of its own, so a short `rainfall.f32` is
+  not a parse error on the way back in, it is a silently truncated climate.
+  **(2)** The five values `load_save` requires are written *by this
+  function*, from `SaveParams`, not by the caller — so a save this crate
+  writes is readable by this crate's own reader **by construction** rather
+  than by the caller having remembered.
+- `SaveData` grew a `state` field: `params.json`'s whole `state` object as
+  read. `cartalith-io` cannot model 200+ keys of civ and UI state it has
+  nothing to deserialize into (`SAVEFILE_COMPAT.md`'s own reasoning for
+  approach 1), but a caller can pull out what it does model.
+
+**Built — `cartalith-godot`:**
+
+- `params.rs` grew `save_state` / `apply_saved_state` and a `JS_PATHS` table
+  mapping each `PARAMS` key onto its path in the reference's own `state`
+  object. Every parameter is written **twice**: at its reference path
+  (`tect.blurR`, `climate.latN`, …) so the HTML app can reopen the file, and
+  under `state.cartalith` by this port's own dotted key. The second copy is
+  the authoritative one and the only one read back — without it, the **ten**
+  parameters this port added that the reference has no equivalent for
+  (`use_gpu`, the six erosion-pass toggles, `passes.sediment_capacity`,
+  `passes.tidal_k`, `climate.terrain_wind_deflection`) would be silently lost
+  on every save. `state.cartalith` is a key the reference never wrote, so
+  `Object.assign` carries it through and `serializeState()` writes it back
+  out: a save can round-trip *through the reference app* and keep them.
+- `WorldGen::save_project(path)`. Builds the archive in memory and writes it
+  once, so a failed save never truncates the file it was replacing — the one
+  behaviour a save button must have. `stream_order` (`i16`) saturates into
+  the format's `u8` exactly as the reference's own exporter does
+  (`so[i] = o>255?255:o`, reference line 12448); a world generated with
+  `carve_rivers` off writes an all-zero raster, the honest encoding of "no
+  channels".
+- `load_save` now restores the parameter block, and the seed.
+
+**Three format findings, recorded in `SAVEFILE_COMPAT.md`:**
+
+1. `loadZip()` merges `state` **shallowly** (`Object.assign(state,
+   pk.state)`), so any nested block a writer emits *replaces* the reference's
+   whole default block. Writing `tect: {seed: N}` — the minimum this port's
+   reader needs — would leave the reference app with an undefined plate
+   count, drift, warp and blur radius. A nested block must be complete or
+   absent.
+2. Most blocks are `Object.assign`-shimmed and four are not (`tect`, `volc`,
+   `crater`, `erosion`). This port writes the first three in full and
+   **omits `state.erosion` entirely**: it models 2 of that block's 16 keys,
+   and writing those two would replace the reference's whole droplet-erosion
+   parameter set. Disclosed limitation, not a silent one — a save this port
+   writes reopens in the reference app with that app's own `erosion`
+   defaults.
+3. `params.json`'s `v` is provenance, not a format selector: `loadZip()`
+   never branches on it, and every shim it has tests for a missing *key*.
+
+**Judgment call, disclosed** (`CLAUDE.md`: do not deviate silently).
+`SAVEFILE_COMPAT.md` said to *confirm before spending time on* HTML-app
+readability. The reference half was written anyway, because `state.tect.seed`
+is mandatory for this port's own reader and finding 1 then forces `tect` to
+be complete — and once one block must carry reference names, every sibling
+costs one table column. What was *not* done on that account: `state.erosion`
+(finding 2), and `world_structure.archetype` (this port stores an
+archetype's knobs, not its name, so a reopened save shows `earth`).
+
+**Built — the shell (`GUI_GAP_REGISTER.md` FI-01..FI-05):**
+
+- **Save** / **Save as…** (Ctrl+S / Ctrl+Shift+S). `DccBrowseDialog` grew a
+  third `PickKind`: `SAVE` is `FILES` plus a name field in the foot, which is
+  the whole difference between "which of these?" and "where shall I put
+  this?" — so no stock `FileDialog` survives on this path either. Clicking an
+  existing save fills its name in; overwriting asks first.
+- **Autosave**, a check item plus a `Timer`, interval in `DccSettings`
+  (machine state, like the GPU block already there). **Off by default** — a
+  background writer that starts unasked is the wrong first impression for a
+  tool that writes hundreds of megabytes per save. Writes *beside* the
+  project (`world.zip` → `world.autosave.zip`), never over it, and
+  deliberately does not clear the unsaved flag. Reports through the status
+  bar's `autosave` slot, which had been empty since the day it was built —
+  and which makes `phone_menu.gd`'s own `autosave` readout row real.
+- **Revert to last save**, with a confirm: the discard is irreversible and
+  the item sits two rows under Save.
+- **Close project**, whose prompt is the part that could not exist before:
+  with no writer there was no **Save** to offer, only "discard or cancel",
+  which is not a choice. `EngineBridge.close_world()` replaces the `WorldGen`
+  handle (the engine has no `unload`; this is also the only way to release
+  the field memory) and re-reads the two caches taken off the old instance.
+- `EngineBridge` grew `world_dirty`, driven by the two signals it already
+  owns. **What it cannot see is stated rather than implied**: a Milestone-F
+  tool commit that mutates the world without emitting `world_loaded` leaves
+  it `false`. So Close prompts whenever a world exists, and only *autosave*
+  gates on the flag — re-writing an unchanged multi-hundred-megabyte world
+  every few minutes is the worse failure there.
+
+**Verified — three independent checks, not one:**
+
+- `tests/golden_parity_save_writer.rs`: re-writes a **real HTML-app export**
+  (`real_export_seed24601.zip`) and compares against that fixture's
+  *independent* value capture, not against the reader that shares the
+  writer's code. Also asserts the 200+ `state` keys this port does not model
+  come back byte-equal — a writer that dropped what it did not understand
+  would lose the whole civ/UI payload of any save it touched.
+- `crates/cartalith-godot/tests/save_round_trip.rs`: generates a real world
+  at a non-square grid, saves, reloads, and then **regenerates from the
+  restored parameters and asserts the height field is bit-identical** — the
+  strongest available statement that nothing generation depends on was lost.
+- `godot-project/_save_probe.gd`, through the real GDExtension: decodes
+  `heightmap.f32` in GDScript and compares it to `sample_cell` on the live
+  world (so the writer is checked against the *engine's* readout, not the
+  reader), then saves → loads → saves and compares all six field entries
+  byte-for-byte. All 81 parameters restored.
+
+**Verified non-headlessly**, in a real window against the real GPU-backed
+build (`_lifecycle_check.gd`): generate → Save → Save as… *through the new
+browser dialog* → regenerate a different world → Revert (restores seed 24601)
+→ Close, answering "Save and close", which wrote the file it was about to
+discard → reopen from Recent worlds → autosave. 26/26 checks.
+
+`cargo test -p cartalith-io -p cartalith-godot` green, headless boot of the
+full shell clean.
+
+**Deliberately not done:** the bake / tile-pyramid / export system (a much
+larger separate gap), and journey persistence. JP-06/JP-08's stated blocker
+— the writer — is gone, but the remaining piece is different and narrower: a
+channel for GDScript-owned project state to reach `params.json`'s `state`,
+which `save_project` builds in Rust from the parameter table alone. A generic
+"extras" bag added speculatively from a File-menu task is the wrong shape to
+commit to before a second consumer (MEA-07's measurement store, the Travel
+Library) says what it needs. Both register rows say so now.

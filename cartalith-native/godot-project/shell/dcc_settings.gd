@@ -26,6 +26,8 @@ const _SEC_RECENT := "recent"
 ## not world state: it belongs here rather than in a `.zip`, because a device
 ## key names hardware this machine has and the next one may not.
 const _SEC_GPU := "gpu"
+## `DCC_SHELL_SPEC.md` §2.1's Autosave toggle (`GUI_GAP_REGISTER.md` FI-01).
+const _SEC_AUTOSAVE := "autosave"
 const MAX_RECENT := 10
 
 ## Order matches §2.1's own listing.
@@ -149,4 +151,32 @@ static func gpu_fallback() -> String:
 static func set_gpu_fallback(name: String) -> void:
 	_ensure_loaded()
 	_cfg.set_value(_SEC_GPU, "fallback", name)
+	_save()
+
+# -- Autosave (§2.1 File) ------------------------------------------------------
+
+## Machine state, not world state, for the same reason the GPU block above is:
+## how often *this install* writes a backup says nothing about the world, and
+## a `.zip` carrying it would impose one user's habit on everyone who opens
+## the file. Off by default -- a background writer that starts without being
+## asked is the wrong first impression for a tool that writes hundreds of
+## megabytes per save.
+static func autosave_enabled() -> bool:
+	_ensure_loaded()
+	return bool(_cfg.get_value(_SEC_AUTOSAVE, "enabled", false))
+
+static func set_autosave_enabled(on: bool) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_AUTOSAVE, "enabled", on)
+	_save()
+
+## Minutes between autosaves. Floored at 1 so a corrupt config cannot ask for
+## a save every frame.
+static func autosave_minutes() -> int:
+	_ensure_loaded()
+	return maxi(1, int(_cfg.get_value(_SEC_AUTOSAVE, "minutes", 10)))
+
+static func set_autosave_minutes(minutes: int) -> void:
+	_ensure_loaded()
+	_cfg.set_value(_SEC_AUTOSAVE, "minutes", maxi(1, minutes))
 	_save()

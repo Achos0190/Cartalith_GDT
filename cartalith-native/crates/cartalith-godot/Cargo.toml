@@ -51,6 +51,12 @@ cartalith-rng = { path = "../cartalith-rng" }
 # erosion/hydrology. Same `rayon = "1"` five sibling crates already declare, so
 # this adds no new dependency to the tree -- only to this crate's own graph.
 rayon = "1"
+# `SAVEFILE_COMPAT.md`/FI-01's save writer: `params.rs` builds the save's
+# `state` object and reads it back. Not a new dependency in the tree --
+# `cartalith-io` (already a dependency above) has declared the same version
+# since the reader was written; this only makes it a direct one, the same
+# precedent `cartalith-terrain`/`cartalith-spatial` set above.
+serde_json = "1.0.151"
 
 # Multi-GPU (`GUI_GAP_REGISTER.md` PR-01/PR-02/PR-04/PR-05): this was a
 # dev-dependency while only the L0 timing harness needed it. The `gpu_*`

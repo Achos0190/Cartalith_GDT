@@ -35,7 +35,12 @@ class_name DccBrowseDialog
 ## and reporting a chosen path is presentation-side plumbing; nothing here
 ## computes a value the engine also computes (`godot-shell` skill's own rule).
 
-enum PickKind { FOLDERS, FILES }
+## `SAVE` is the third mode, added with `File ▸ Save as…` (`GUI_GAP_REGISTER.md`
+## FI-01). It is `FILES` with one extra control -- a name field in the foot --
+## because that is the entire difference between "which of these?" and "where
+## shall I put this?". The rows stay live so clicking an existing save fills
+## the name in, which is how every save dialog spells "overwrite that one".
+enum PickKind { FOLDERS, FILES, SAVE }
 
 ## Counting `14 items` costs one directory open per row. That is nothing in a
 ## project folder and noticeable in `C:/Windows/System32`, so the count is
@@ -61,6 +66,9 @@ var _list: VBoxContainer
 var _foot_note: Label
 var _primary: Button
 var _rows: Dictionary = {}   ## absolute path -> PanelContainer
+## SAVE mode only: the foot's file-name field and the name it opens with.
+var _name_edit: LineEdit
+var _default_name := ""
 
 # ---------------------------------------------------------------------------
 # Entry points
@@ -81,11 +89,23 @@ static func choose_file(host: Node, dialog_title: String, extensions: PackedStri
 	return _spawn(host, dialog_title, PickKind.FILES, extensions, start_dir,
 		footnote, on_choose)
 
+## Choose *where to write* a new file. `default_name` fills the foot's name
+## field (with `extension` appended if it carries none); `on_choose` is called
+## with one absolute path, which may or may not already exist -- overwrite
+## confirmation belongs to the caller, which is the only side that knows what
+## is about to be overwritten.
+static func choose_save_path(host: Node, dialog_title: String, extension: String,
+		start_dir: String, footnote: String, default_name: String,
+		on_choose: Callable) -> DccBrowseDialog:
+	return _spawn(host, dialog_title, PickKind.SAVE, PackedStringArray([extension]),
+		start_dir, footnote, on_choose, default_name)
+
 static func _spawn(host: Node, dialog_title: String, mode: PickKind,
 		extensions: PackedStringArray, start_dir: String, footnote: String,
-		on_choose: Callable) -> DccBrowseDialog:
+		on_choose: Callable, default_name: String = "") -> DccBrowseDialog:
 	var d := DccBrowseDialog.new()
 	host.add_child(d)
+	d._default_name = default_name
 	d.setup(dialog_title, mode, extensions, footnote, on_choose)
 	## One dialog per invocation, freed when it closes -- the same lifetime the
 	## `FileDialog` it replaces had. Windows this shell keeps alive (the asset
@@ -188,13 +208,33 @@ func _build_path_well() -> Control:
 func _build_foot(footnote: String) -> Control:
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
-	_foot_note = DccTheme.mono_label(footnote, "text_ghost", DccTheme.FS_TINY)
-	_foot_note.clip_text = true
-	row.add_child(_foot_note)
+	if _mode == PickKind.SAVE:
+		## The one control the mockup's browser does not draw, because the
+		## mockup never had a save flow. Kept in the foot beside the primary
+		## button -- the "what shall it be called" question belongs next to
+		## the "do it" button, not above the folder list.
+		row.add_child(DccTheme.mono_label("name", "text_ghost", DccTheme.FS_TINY))
+		_name_edit = LineEdit.new()
+		_name_edit.text = _default_name
+		_name_edit.custom_minimum_size.x = 260
+		_name_edit.add_theme_font_size_override("font_size", DccTheme.FS_BODY)
+		_name_edit.add_theme_stylebox_override("normal", _well())
+		_name_edit.add_theme_stylebox_override("focus", DccTheme.outline("accent"))
+		_name_edit.text_changed.connect(func(_t: String): _refresh_primary())
+		_name_edit.text_submitted.connect(func(_t: String): _confirm())
+		row.add_child(_name_edit)
+	else:
+		_foot_note = DccTheme.mono_label(footnote, "text_ghost", DccTheme.FS_TINY)
+		_foot_note.clip_text = true
+		row.add_child(_foot_note)
 	row.add_child(DccTheme.spacer())
 	DccWidgets.modal_button(row, "Cancel", func(): hide())
-	_primary = DccWidgets.modal_button(row,
-		"Use this folder" if _mode == PickKind.FOLDERS else "Open", _confirm, true)
+	var primary_text := "Open"
+	if _mode == PickKind.FOLDERS:
+		primary_text = "Use this folder"
+	elif _mode == PickKind.SAVE:
+		primary_text = "Save"
+	_primary = DccWidgets.modal_button(row, primary_text, _confirm, true)
 	return _pad(row, 28, 14, 28, 14)
 
 # ---------------------------------------------------------------------------
@@ -311,7 +351,7 @@ func _refresh_list() -> void:
 
 	for entry in files:
 		var path := _cwd.path_join(entry)
-		var ok := _mode == PickKind.FILES and _extension_ok(path)
+		var ok := _mode != PickKind.FOLDERS and _extension_ok(path)
 		var meta := _size_text(path) if ok else (
 			"file" if _mode == PickKind.FOLDERS else "file · not a .%s" % ", .".join(_extensions))
 		_list.add_child(_build_row(path, entry, ok, meta))
@@ -422,7 +462,10 @@ func _build_new_folder_row() -> Control:
 			return
 		var da := DirAccess.open(_cwd)
 		if da == null or da.make_dir(clean) != OK:
-			_foot_note.text = "could not create '%s' here" % clean
+			## SAVE mode gives the foot to the name field instead, so there
+			## is no note to write into there.
+			if _foot_note != null:
+				_foot_note.text = "could not create '%s' here" % clean
 			return
 		navigate(_cwd.path_join(clean)))
 	row.add_child(field)
@@ -451,6 +494,11 @@ func _select(path: String) -> void:
 		_paint_row(path, true)
 	if _mode == PickKind.FILES:
 		_path_edit.text = path
+	elif _mode == PickKind.SAVE and _name_edit != null:
+		## Clicking an existing save means "that one" -- the standard
+		## overwrite gesture. The folder is already `_cwd`, so only the name
+		## has to move.
+		_name_edit.text = path.get_file()
 	_refresh_primary()
 
 ## The mockup's selected row: accent hairline, an 8 % accent wash, the name in
@@ -476,12 +524,34 @@ func _paint_row(path: String, on: bool) -> void:
 
 func _refresh_primary() -> void:
 	## Folder mode always has an answer -- the current folder, if no child row
-	## is highlighted. File mode needs a file.
-	_primary.disabled = _mode == PickKind.FILES and _selected == ""
+	## is highlighted. File mode needs a file; save mode needs a name.
+	if _mode == PickKind.FILES:
+		_primary.disabled = _selected == ""
+	elif _mode == PickKind.SAVE:
+		_primary.disabled = _save_path() == ""
+	else:
+		_primary.disabled = false
+
+## SAVE mode's answer: the current folder plus the typed name, with the
+## extension appended when the user did not type one. `""` when there is no
+## usable name -- an empty field, or one that is only a directory separator.
+func _save_path() -> String:
+	if _name_edit == null:
+		return ""
+	var name := _name_edit.text.strip_edges()
+	if name == "" or name.ends_with("/") or name.ends_with("\\"):
+		return ""
+	if not _extensions.is_empty() and not _extension_ok(name):
+		name += "." + _extensions[0]
+	return _cwd.path_join(name)
 
 func _confirm() -> void:
 	var path := _selected if _selected != "" else _cwd
-	if _mode == PickKind.FILES and (_selected == "" or not FileAccess.file_exists(path)):
+	if _mode == PickKind.SAVE:
+		path = _save_path()
+		if path == "":
+			return
+	elif _mode == PickKind.FILES and (_selected == "" or not FileAccess.file_exists(path)):
 		return
 	hide()
 	if _on_choose.is_valid():

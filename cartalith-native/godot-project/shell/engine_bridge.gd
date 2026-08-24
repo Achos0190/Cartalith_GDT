@@ -18,6 +18,8 @@ signal generation_finished(ok: bool)
 signal params_changed()            ## A dial moved; downstream is stale.
 signal params_applied()            ## A generate landed; nothing is stale.
 signal world_loaded()              ## A save or asset pack changed the world.
+signal dirty_changed(dirty: bool)  ## `world_dirty` flipped.
+signal project_saved(path: String) ## A `.zip` was written.
 
 var world_gen: WorldGen = WorldGen.new()
 
@@ -37,6 +39,26 @@ var sized_api := false
 ## screen and the Data manager both hide their import affordance outright
 ## when this is false, rather than drawing a button that cannot work.
 var import_api := false
+
+## `WorldGen::save_project` landed with FI-01; an older GDExtension has no
+## writer, and every save affordance degrades to disabled rather than
+## crashing -- the same probe shape `sized_api`/`import_api` established.
+var save_api := false
+
+## Whether the world has changed since it was last saved or opened
+## (`GUI_GAP_REGISTER.md` FI-01). Driven by the two signals this node owns:
+## a finished generation, and `world_loaded` (which every world-changing
+## wrapper here already emits -- the centring pass, the fjord carve, an
+## applied asset pack). Cleared by `save_project()` and `load_save()`.
+##
+## **What it does not see**, stated rather than implied: a Milestone-F tool
+## commit that mutates the world without emitting `world_loaded` leaves this
+## `false`. That is why `DccApp.close_project()` prompts whenever a world
+## exists rather than only when this is set -- a close is the one moment
+## where under-reporting costs the user work. Autosave *does* gate on it,
+## because re-writing an unchanged multi-hundred-megabyte world every few
+## minutes is the worse failure there.
+var world_dirty := false
 
 var params_dirty := false
 var _param_info: Dictionary = {}     ## key -> the info Dictionary from Rust
@@ -60,6 +82,11 @@ func _ready() -> void:
 		and world_gen.has_method("measure_area") \
 		and world_gen.has_method("measure_radius") \
 		and world_gen.has_method("measure_vertical")
+	save_api = world_gen.has_method("save_project")
+	## Dirty tracking rides the two signals this node already emits rather
+	## than being set by hand in each mutator -- see `world_dirty`.
+	world_loaded.connect(func(): _set_dirty(true))
+	generation_finished.connect(func(ok: bool): if ok: _set_dirty(true))
 	_restore_gpu_prefs()
 	_read_param_table()
 	## `WorldParams::default()` is `false` in Rust, and stays that way: it is
@@ -637,8 +664,61 @@ func load_save(path: String) -> bool:
 		last_height_km = world_gen.get_map_height_km() if sized_api else 0.0
 		last_summary = "%s -- %d x %d cells" % [
 			path.get_file(), world_gen.get_width(), world_gen.get_height()]
+		## A freshly opened world is by definition identical to what is on
+		## disk. The clear comes *after* the emit because Godot delivers
+		## signals synchronously, and the handler above sets the flag.
 		world_loaded.emit()
+		_set_dirty(false)
+		## The dials moved to whatever the save carried, so anything reading
+		## `param_get` has to re-read them.
+		_read_param_table()
 	return ok
+
+## `File ▸ Save project` / `Save as…` (`GUI_GAP_REGISTER.md` FI-01) — writes
+## the current world to `path` as a `.zip` in the format
+## `SAVEFILE_COMPAT.md` documents. Returns `false` (leaving any existing file
+## untouched) when the engine has no writer, when there is no world, or when
+## the write itself fails; the engine logs the reason.
+func save_project(path: String) -> bool:
+	if not save_api or not has_world:
+		return false
+	var ok: bool = world_gen.save_project(path)
+	if ok:
+		_set_dirty(false)
+		project_saved.emit(path)
+	return ok
+
+## `File ▸ Close project` — drops the world and returns this node to the
+## state it had before the first generate.
+##
+## The engine has no `unload`: `WorldGen` holds exactly one world for its
+## whole lifetime, and every accessor on it already answers honestly *before*
+## a world exists. So closing is replacing the handle, which is also the only
+## way to release the field memory. The two caches that were read off the old
+## instance -- the parameter table and the GPU preferences -- are re-read
+## against the new one here, because a stale `_params_cache` pointing at a
+## freed world is exactly the kind of bug that surfaces three dialogs later.
+func close_world() -> void:
+	if generating:
+		return
+	world_gen = WorldGen.new()
+	has_world = false
+	last_summary = ""
+	last_width_km = 0.0
+	last_height_km = 0.0
+	params_dirty = false
+	_restore_gpu_prefs()
+	_read_param_table()
+	world_loaded.emit()
+	## After the emit, for the same reason `load_save` clears it there: the
+	## handler above sets the flag, and an empty shell has nothing to save.
+	_set_dirty(false)
+
+func _set_dirty(value: bool) -> void:
+	if world_dirty == value:
+		return
+	world_dirty = value
+	dirty_changed.emit(value)
 
 func load_asset_pack(path: String) -> bool:
 	var ok: bool = world_gen.load_asset_pack(path)

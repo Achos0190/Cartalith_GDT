@@ -1116,7 +1116,9 @@ counted as ports:
 - **IN-06's remainder** — the vessel resolver.
 - **JP-06 / JP-08 save + journeys list — partly, and the limit is named.** A
   journey can be named, saved and reloaded *within a session*. Persisting one
-  needs FI-01's `.zip` save-**writer**, which `ROADMAP.md` keeps unscheduled;
+  needed FI-01's `.zip` save-**writer** — **which landed 2026-08-23**; what is
+  still missing is narrower: a way for GDScript-owned state to reach the save's
+  `state` object, which `save_project` builds from the parameter table alone;
   it was not built as a side effect of a planner button, and the list is
   GDScript-owned precisely because with no writer behind it there is nothing
   for the engine to own — a saved journey is exactly the request `jp_compute`

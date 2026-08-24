@@ -1,7 +1,9 @@
-# Reading the HTML app's `.zip` saves
+# The HTML app's `.zip` save format
 
-MVP reads an existing save's terrain data. Writing one is out
-(`MVP_SCOPE.md` point 12).
+MVP read an existing save's terrain data; writing one was out (`MVP_SCOPE.md`
+point 12). **A writer exists now** (owner-authorised 2026-08-23) — see
+[Writing a save](#writing-a-save) at the end, which also records the three
+things the real implementation clarified about the format.
 
 Everything below was verified by reading `exportZip()`, `zipStore()`,
 `serializeState()`, and `f32bytes()` in `Cartalith Gen1 v2.10.html`. Re-check
@@ -22,7 +24,7 @@ that early — opening a real export should be one of the first things
 DEFLATE arrived in v1.90; entry names and contents did not change, and pre-v1.90
 STORE-only saves still read. The `zip` crate handles both methods by default.
 
-## Entries the MVP reads
+## Entries this port reads — and, since 2026-08-23, writes
 
 | Entry | Contents | Format |
 |---|---|---|
@@ -90,12 +92,87 @@ This is simpler than the generation path, and it doubles as golden data: a real
 export is a golden fixture that costs nothing extra once the reader exists
 (`PARITY_TESTING.md`).
 
-## Deferred
+## Writing a save
 
-- **Writing a save.** Even a minimal `params.json` plus three `.f32` fields that
-  the HTML app could reopen is a reasonable near-term goal — confirm before
-  spending time on it.
-- **Civ and UI payloads** — settlements, factions, territory, ways, labels, icons,
-  Asset Library. There is nothing in the port to deserialise them into yet.
-- **Saves written by older HTML versions**, where `loadZip()`'s own compatibility
-  shims fill in historical defaults. MVP reads current-version exports.
+`cartalith_io::write_save` (`crates/cartalith-io/src/save.rs`), driven by
+`WorldGen::save_project(path)`. It writes exactly the seven entries the table
+above lists, in `exportZip()`'s own order, DEFLATE-compressed (method 8, the
+reference's own method from v1.90). Nothing else: the atlas, `map.png`, the
+README, the biome/lithology/resource rasters and the Asset Library payload are
+all things a reader must tolerate and a writer need not produce.
+
+Verified three ways rather than one, because the failure this format makes
+easy is a file that opens cleanly and is quietly wrong:
+
+- `crates/cartalith-io/tests/golden_parity_save_writer.rs` re-writes a **real
+  HTML-app export** and checks the result against that fixture's independent
+  value capture, not against the reader that shares the writer's code.
+- `crates/cartalith-godot/tests/save_round_trip.rs` generates a real world,
+  saves it, reloads it, and then regenerates from the restored parameters —
+  the strongest available statement that nothing generation depends on was
+  lost.
+- `godot-project/_save_probe.gd` does the same through the real GDExtension,
+  decoding `heightmap.f32` in GDScript and comparing it to `sample_cell`.
+
+### Three things the implementation clarified
+
+1. **`loadZip()` merges `state` shallowly.** `Object.assign(state, pk.state)`
+   means any nested block a writer emits *replaces* the reference's whole
+   default block rather than merging into it. A writer that emitted
+   `tect: {seed: N}` alone — the minimum this port's own reader needs — would
+   leave the reference app with an undefined plate count, drift, warp and blur
+   radius. Every nested block written must therefore be complete, or absent.
+2. **`loadZip()` shims most blocks and not all.** `climate`, `stream`, `velo`,
+   `glacial`, `coastal`, `planet`, `planet.tides`, `world_structure` and `viz`
+   are each `Object.assign`ed over a default literal, so a partial one is
+   safe. `tect`, `volc`, `crater` and `erosion` are not. This port covers
+   `tect` (bar the four keys `loadZip` backfills individually —
+   `tectonicGraph`, `foldIntensity`, `trenchDepth`, `faultBlock`), `volc` and
+   `crater` in full. **It does not write `state.erosion` at all**: it models 2
+   of that block's 16 keys (`diffuseD`, `diffusePasses`), and writing those
+   two would replace the reference's entire droplet-erosion parameter set.
+   A save this port writes reopens in the reference app with the reference
+   app's own `erosion` defaults — a real, disclosed limitation.
+3. **The `v` field is provenance, not a format selector.** `loadZip()` never
+   branches on it; every compatibility shim it has tests for a missing *key*.
+   This port writes `210`, the frozen reference snapshot it is built against.
+
+### The parameter block, and one judgment call
+
+`params.json`'s `state` carries every generation parameter **twice**:
+
+- at its reference path (`tect.blurR`, `climate.latN`, …), for the HTML app;
+- under `state.cartalith`, keyed by this port's own dotted parameter keys.
+
+The second copy is the one this port reads back, and it exists because ten of
+this port's parameters have no reference equivalent at all (`use_gpu`, the six
+erosion-pass toggles, `passes.sediment_capacity`, `passes.tidal_k`,
+`climate.terrain_wind_deflection` — the reference deleted its own
+`terrainWind` in v1.78). Without it every one of those would be silently lost
+on each save. `state.cartalith` is a key the reference never wrote, so
+`Object.assign` carries it straight through and `serializeState()` writes it
+back out: **a save can round-trip through the reference app without losing
+this port's parameters.** The mapping table and its drift guard live in
+`crates/cartalith-godot/src/params.rs`.
+
+**Judgment call, disclosed:** this document's earlier "Deferred" note said to
+*confirm before spending time on* HTML-app readability. The reference half was
+written anyway, because `state.tect.seed` is mandatory for this port's own
+reader and point 1 above then forces `tect` to be complete — and once one
+block must carry reference names, the rest cost one table column each. What
+was *not* done on that account is `state.erosion` (point 2) and
+`world_structure.archetype` (this port stores the archetype's knobs, not its
+name, so a reopened save shows `earth`).
+
+### Deliberately not written
+
+- **Civ and UI payloads** — settlements, factions, territory, ways, labels,
+  icons, paint and sculpt drafts, the Asset Library. `load_save` clears all of
+  them for a loaded world (they need tectonic substrate the format does not
+  store), so writing them would produce a file this port cannot read back.
+  This is the ceiling `GUI_GAP_REGISTER.md` JP-06/JP-08 and MEA-07 now sit
+  against: the *writer* exists, and what remains is a channel for
+  GDScript-owned project state to reach `state`.
+- **Saves written by older HTML versions**, where `loadZip()`'s own
+  compatibility shims fill in historical defaults. This port reads
+  current-version exports.

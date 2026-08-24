@@ -124,10 +124,17 @@ Revisit when a concrete need appears rather than building it speculatively.
 
 ## Options kept open, not scheduled
 
-Save-file **writing** (`SAVEFILE_COMPAT.md`), store distribution
-(`DECISIONS.md` §6), and a WASM target sharing `cartalith-engine`
-(`DECISIONS.md` §2) are all things the architecture permits and nobody has
-committed to. Raise them rather than assuming they are queued.
+~~Save-file **writing** (`SAVEFILE_COMPAT.md`)~~ — **no longer open. Done,
+2026-08-23**, authorised by the owner after five register rows (FI-01, DM-04,
+JP-06, JP-08, MEA-07) had queued up behind it. `cartalith_io::write_save`
+plus `WorldGen::save_project`; File ▸ Save / Save as… / Autosave / Revert /
+Close project are all real controls now. `SAVEFILE_COMPAT.md`'s own "Writing
+a save" section carries the format decisions and the one disclosed
+limitation (`state.erosion`).
+
+Store distribution (`DECISIONS.md` §6) and a WASM target sharing
+`cartalith-engine` (`DECISIONS.md` §2) are things the architecture permits
+and nobody has committed to. Raise them rather than assuming they are queued.
 
 **Markdown Vault integration** (`MARKDOWN_VAULT_INTEGRATION.md`) — owner-
 supplied full V1 design (2026-08-18): links Cartalith entities (settlements,

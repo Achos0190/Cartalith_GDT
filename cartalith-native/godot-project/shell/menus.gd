@@ -17,6 +17,10 @@ const ID_NEW_WORLD := 10
 const ID_OPEN_PROJECT := 11
 const ID_SAVE := 12
 const ID_SAVE_AS := 13
+## `14` was the one free id in §2.1's block; Autosave is a checkbox item, not
+## an action, so it toggles `DccSettings.autosave_enabled()` and re-arms the
+## shell's clock rather than doing anything itself.
+const ID_AUTOSAVE := 14
 const ID_REVERT := 15
 const ID_CLOSE := 16
 const ID_STORAGE := 17
@@ -173,12 +177,25 @@ func _file(p: PopupMenu) -> void:
 	_recent_popup.id_pressed.connect(_on_recent_world)
 
 	p.add_separator()
-	_todo(p, "Save project", "The engine reads .zip saves but does not write them yet (cartalith-io is read-only).")
-	_todo(p, "Save as…", "Same: no save writer yet.")
-	_todo(p, "Autosave", "Requires a save writer.")
-	_todo(p, "Revert to last save", "Requires a save writer.")
+	## All five were `_todo` rows reading "requires a save writer" until
+	## `cartalith-io` grew one (`GUI_GAP_REGISTER.md` FI-01). They stay
+	## honest by a different mechanism now: enabled only against a build of
+	## the extension that actually has `save_project`, and only while there
+	## is a world to save, both refreshed in `about_to_popup` below.
+	_live(p, "Save project", ID_SAVE, KEY_MASK_CTRL | KEY_S)
+	var save_idx := p.item_count - 1
+	_live(p, "Save as…", ID_SAVE_AS, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_S)
+	var save_as_idx := p.item_count - 1
+	p.add_check_item("Autosave", ID_AUTOSAVE)
+	var autosave_idx := p.item_count - 1
+	p.set_item_tooltip(autosave_idx,
+		"Writes a backup beside the project (world.zip → world.autosave.zip) every %d minutes while it has unsaved changes. Never overwrites the project itself."
+			% DccSettings.autosave_minutes())
+	_live(p, "Revert to last save", ID_REVERT)
+	var revert_idx := p.item_count - 1
 	p.add_separator()
-	_todo(p, "Close project", "No project lifecycle yet; the shell holds one world at a time.")
+	_live(p, "Close project", ID_CLOSE, KEY_MASK_CTRL | KEY_W)
+	var close_idx := p.item_count - 1
 	p.add_separator()
 
 	## One item, one dialog with an inline Browse… per root (`DccApp.
@@ -199,7 +216,25 @@ func _file(p: PopupMenu) -> void:
 
 	p.about_to_popup.connect(func():
 		_refresh_recent_worlds()
-		p.set_item_disabled(show_idx, _host.current_project_path == ""))
+		p.set_item_disabled(show_idx, _host.current_project_path == "")
+		var can_write: bool = _bridge.save_api
+		var has_world: bool = _bridge.has_world
+		for idx in [save_idx, save_as_idx]:
+			p.set_item_disabled(idx, not (can_write and has_world))
+			if not can_write:
+				p.set_item_tooltip(idx, "This build of the engine has no save writer.")
+			elif not has_world:
+				p.set_item_tooltip(idx, "No world to save yet.")
+			else:
+				p.set_item_tooltip(idx, "")
+		p.set_item_disabled(autosave_idx, not can_write)
+		p.set_item_checked(autosave_idx, DccSettings.autosave_enabled())
+		## Revert reloads the file on disk, so it needs one -- a world that
+		## has never been saved has nothing to revert *to*.
+		p.set_item_disabled(revert_idx, _host.current_project_path == "")
+		p.set_item_tooltip(revert_idx,
+			"" if _host.current_project_path != "" else "This world has never been saved.")
+		p.set_item_disabled(close_idx, not has_world))
 	p.id_pressed.connect(_on_file)
 
 func _refresh_recent_worlds() -> void:
@@ -224,6 +259,13 @@ func _on_file(id: int) -> void:
 	match id:
 		ID_NEW_WORLD: _host.open_new_world()
 		ID_OPEN_PROJECT: _host.open_project_picker()
+		ID_SAVE: _host.save_project()
+		ID_SAVE_AS: _host.save_project_as()
+		ID_AUTOSAVE:
+			DccSettings.set_autosave_enabled(not DccSettings.autosave_enabled())
+			_host.apply_autosave_setting()
+		ID_REVERT: _host.revert_to_saved()
+		ID_CLOSE: _host.close_project()
 		ID_STORAGE: _host.open_storage_locations()
 		ID_SHOW_ON_DISK: _host.show_project_on_disk()
 
