@@ -694,6 +694,13 @@ func _paint_tile(path: String, on: bool) -> void:
 
 func _refresh_open_button() -> void:
 	_open_btn.disabled = _selected == "" or not FileAccess.file_exists(_selected)
+	## Every disabled control in this shell states its reason on hover -- this
+	## one had no tooltip at all, so the primary action of the welcome screen
+	## was greyed out and silent about why (found by the 2026-08-25 sweep's
+	## disabled-without-a-reason scan, not by a user).
+	_open_btn.tooltip_text = "" if not _open_btn.disabled \
+		else ("Pick a world above first." if _selected == "" \
+			else "%s is no longer on disk." % _selected.get_file())
 
 func _confirm() -> void:
 	if _selected == "" or not FileAccess.file_exists(_selected):

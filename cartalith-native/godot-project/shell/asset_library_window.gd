@@ -2210,6 +2210,10 @@ func _build_inspector() -> Control:
 	for entry in [["tiled", "none"], ["centre", "center"], ["base", "bottom"]]:
 		var chip := _segment(anchor_box, String(entry[0]), Callable())
 		chip.disabled = true
+		## The per-family reason is written in `_refresh_inspector` below; this
+		## is the one it carries before anything is selected, so the row never
+		## renders as three greyed chips with nothing to say (2026-08-25 sweep).
+		chip.tooltip_text = "Anchor is fixed by the family (cartalith-assets::Family), not a per-slot setting. Select a slot to see which of the three its family uses."
 		_insp_anchor_chips[String(entry[1])] = chip
 
 	var tag_row := _insp_row(rows, "Tags")
