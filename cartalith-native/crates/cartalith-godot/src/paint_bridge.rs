@@ -311,6 +311,27 @@ impl PaintEditor {
         }
     }
 
+    /// Pending, uncommitted dabs across **all three** drafts — exactly what
+    /// [`PaintEditor::commit_all`] would bake and what
+    /// [`PaintEditor::discard_all`] would throw away
+    /// (`GUI_GAP_REGISTER.md` WW-13).
+    ///
+    /// This is deliberately not [`PaintEditor::painted_counts`]: that one
+    /// reports the *composite* of the committed layer and the live draft,
+    /// which is the right number for a legend and the wrong one for the
+    /// Commit / Discard pair. Gated on the composite, both buttons stayed
+    /// live after a commit with nothing left to commit or discard, and
+    /// "Discard draft" then read as "remove the paint I can see" and did
+    /// nothing at all.
+    ///
+    /// All three layers, not just the active one, for the same reason
+    /// `commit_all` covers all three: a layer switch does not discard the
+    /// layer left behind, so a pending dab on Terrain must keep Commit live
+    /// while the panel is showing Biome.
+    pub fn pending_stamps(&self) -> usize {
+        self.draft_biome.len() + self.draft_terrain.len() + self.draft_splat.len()
+    }
+
     fn active_draft_mut(&mut self) -> &mut PassBuffer<PaintStamp> {
         match self.layer {
             PaintTarget::Biome => &mut self.draft_biome,
@@ -722,6 +743,54 @@ mod tests {
         assert!(e.draft_terrain.is_empty());
         assert_eq!(e.biome.cells().unwrap()[1 * 16 + 1], 2);
         assert_eq!(e.terrain.cells().unwrap()[3 * 16 + 3], 4);
+    }
+
+    /// `GUI_GAP_REGISTER.md` WW-13 — the exact divergence the Commit /
+    /// Discard pair was gated on the wrong side of: after a commit,
+    /// `painted_counts` still reports the painted cells (correctly — they
+    /// exist), while `pending_stamps` goes to zero (correctly — there is
+    /// nothing left to commit or discard).
+    #[test]
+    fn pending_stamps_counts_every_layers_draft_and_goes_to_zero_on_commit() {
+        let n = 16 * 12;
+        let mut e = PaintEditor::new(16, 12, land_mask(n));
+        assert_eq!(e.pending_stamps(), 0, "a fresh editor has nothing pending");
+
+        e.set_brush(2, 1.0, 1.0, 0.0, false, false);
+        e.stroke_at(1.0, 1.0);
+        assert_eq!(e.pending_stamps(), 1);
+
+        // A layer switch does not discard the layer left behind, so the
+        // count must still see the Biome dab from inside Terrain.
+        e.set_layer(PaintTarget::Terrain);
+        e.set_brush(4, 1.0, 1.0, 0.0, false, false);
+        e.stroke_at(10.0, 8.0);
+        assert_eq!(e.pending_stamps(), 2, "all three drafts, not just the active one");
+
+        let (total_before, _) = e.painted_counts(n);
+        e.commit_all(n);
+        assert_eq!(e.pending_stamps(), 0, "nothing left to commit or discard");
+        let (total_after, _) = e.painted_counts(n);
+        assert_eq!(
+            total_after, total_before,
+            "the composite total is unchanged by a commit -- which is exactly why it \
+             is the wrong number to gate Commit / Discard on"
+        );
+        assert!(total_after > 0);
+    }
+
+    #[test]
+    fn pending_stamps_goes_to_zero_on_discard_too() {
+        let n = 16 * 12;
+        let mut e = PaintEditor::new(16, 12, land_mask(n));
+        e.set_brush(2, 1.0, 1.0, 0.0, false, false);
+        e.stroke_at(1.0, 1.0);
+        e.stroke_at(4.0, 4.0);
+        assert_eq!(e.pending_stamps(), 2);
+        e.discard_all();
+        assert_eq!(e.pending_stamps(), 0);
+        let (total, _) = e.painted_counts(n);
+        assert_eq!(total, 0, "a discard really did remove the cells too");
     }
 
     #[test]

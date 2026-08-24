@@ -1660,6 +1660,14 @@ func paint_painted_counts() -> Dictionary:
 		return {}
 	return world_gen.paint_painted_counts()
 
+## `GUI_GAP_REGISTER.md` WW-13: the pending-draft dab count, which is what
+## Commit / Discard act on. `paint_painted_counts()["total"]` above is the
+## committed-plus-pending composite and is a legend's number, not a button's.
+func paint_draft_count() -> int:
+	if not _has("paint_draft_count"):
+		return 0
+	return world_gen.paint_draft_count()
+
 func paint_commit() -> Dictionary:
 	if not _has("paint_commit"):
 		return {}

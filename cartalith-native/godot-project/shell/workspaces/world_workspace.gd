@@ -287,9 +287,23 @@ func _build_categories() -> void:
 			"Generate": _build_generate_foot(body)
 			"Terrain": body.add_child(_sculpt_body)
 			"Geology": _build_geology_foot(body)
+			"Hydrology": _build_hydrology_foot(body)
 			"Biomes": body.add_child(_paint_body)
 			"World data": _build_world_data_foot(body)
 			_: pass
+
+## v3 puts the **river network** under HYDROLOGY, and asks for per-reach rows
+## (navigability, discharge, catchment, tributaries). CIVIL's old Rivers
+## category was the only place in the shell that disclosed why there are none;
+## it was retired in the same pass that moved the subject here, so the finding
+## has to be re-drawn here or it is simply gone. `rivers_note()` is its single
+## owner (`GUI_GAP_REGISTER.md` IN-01).
+func _build_hydrology_foot(parent: Control) -> void:
+	## Deliberately NOT "River network" -- `KEYS_SECTION_TITLES` already gives
+	## the stage's own carve/density dials that heading, and two sections with
+	## one name in one category is how a reader ends up reading the wrong one.
+	DccWidgets.note(DccWidgets.section(parent, "Not built"),
+		InfrastructureWorkspace.rivers_note())
 
 ## v3 GENERATE's own top rows: the three global actions the reference calls
 ## `#genBtn` / `#reseedBtn` / `#centerBtn`, then the pipeline-status readout
@@ -1160,11 +1174,22 @@ func _build_paint(parent: Control) -> void:
 			if n > 0:
 				DccWidgets.note(legend, "%s -- %d" % [String(pd2.get("label", "?")), n])
 
+	## `GUI_GAP_REGISTER.md` WW-13. Gated on the **pending draft**, not on
+	## `total` above -- `total` is the composite of committed and pending, so
+	## it stays non-zero after a commit and left both buttons live with
+	## nothing left to act on. "Discard draft" was the worse half: it then
+	## read as "remove the paint I can see" and did nothing at all.
 	var actions := DccWidgets.group(sec, "Commit")
+	var pending := bridge.paint_draft_count()
 	var commit_btn := DccWidgets.action(actions, "%s Commit" % DccIcons.SYMBOLS["tick"], _on_paint_commit, true)
-	commit_btn.disabled = total == 0
+	commit_btn.disabled = pending == 0
 	var discard_btn := DccWidgets.action(actions, "Discard draft", _on_paint_discard)
-	discard_btn.disabled = total == 0
+	discard_btn.disabled = pending == 0
+	if pending == 0:
+		var why := "Nothing pending. Paint on the map to enable this." if total == 0 \
+			else "Nothing pending -- the %d painted cells above are already committed." % total
+		commit_btn.tooltip_text = why
+		discard_btn.tooltip_text = why
 	DccWidgets.note(sec,
 		"Commit writes every layer's pending dabs into their own override arrays, refreshes " +
 		"the map (the committed Biome/Terrain layers are blended into it at the reference's " +
@@ -1224,11 +1249,26 @@ func _on_paint_commit() -> void:
 	var stale: PackedStringArray = summary.get("stale_stages", PackedStringArray())
 	app.set_status("hint", ("painted -- stale: %s" % ", ".join(stale)) if stale.size() > 0 else "painted", "text_ghost")
 	_build_paint(_paint_body)
+	_rebuild_tool_bar()
 
 func _on_paint_discard() -> void:
 	bridge.paint_discard()
 	app.viewport.set_preview_texture(bridge.build_paint_preview_texture())
 	_build_paint(_paint_body)
+	_rebuild_tool_bar()
+
+## The other half of the WW-13 cross-refresh -- see `rebuild_paint_panel()`.
+func _rebuild_tool_bar() -> void:
+	if app.tool_bar != null and app.tool_bar.has_method("rebuild"):
+		app.tool_bar.rebuild()
+
+## `tool_bar.gd` draws a **second** Commit chip for the same draft, and both
+## are on screen together whenever Biome paint is armed. Committing from
+## either one has to refresh the other, or the loser keeps a live button over
+## an empty draft -- which is WW-13's own defect wearing a different hat.
+func rebuild_paint_panel() -> void:
+	if _paint_body != null:
+		_build_paint(_paint_body)
 
 # -- §4.5.2 Biome paint: stroke capture (map_clicked/map_dragged/map_released) -
 #

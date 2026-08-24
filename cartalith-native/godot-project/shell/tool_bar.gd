@@ -386,8 +386,14 @@ func _build_paint_options(row: HBoxContainer) -> void:
 	row.add_child(DccTheme.spacer())
 	var total := int(bridge.paint_painted_counts().get("total", 0))
 	row.add_child(DccTheme.mono_label("%d painted" % total, "text_dim", DccTheme.FS_SMALL))
+	## `GUI_GAP_REGISTER.md` WW-13 -- the pending draft, not the
+	## committed-plus-pending composite the readout beside it shows.
+	var pending := bridge.paint_draft_count()
 	var commit := DccWidgets.chip(row, "Commit", _on_paint_commit, true)
-	commit.disabled = total == 0
+	commit.disabled = pending == 0
+	if pending == 0:
+		commit.tooltip_text = "Nothing pending. Paint on the map to enable this." if total == 0 \
+			else "Nothing pending -- the %d painted cells are already committed." % total
 
 func _on_paint_commit() -> void:
 	var summary: Dictionary = bridge.paint_commit()
@@ -402,6 +408,12 @@ func _on_paint_commit() -> void:
 	var stale: PackedStringArray = summary.get("stale_stages", PackedStringArray())
 	app.set_status("hint", ("painted -- stale: %s" % ", ".join(stale)) if stale.size() > 0 else "painted", "text_ghost")
 	rebuild()
+	## The WORLD dock draws its own Commit / Discard pair over the same draft
+	## and is on screen at the same time (WW-13) -- refresh it, or it keeps a
+	## live pair over a draft this button just emptied.
+	var ws: WorldWorkspace = app._world_workspace()
+	if ws != null:
+		ws.rebuild_paint_panel()
 
 # -- MEASURE -------------------------------------------------------------------
 

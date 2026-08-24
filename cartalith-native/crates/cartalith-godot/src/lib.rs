@@ -6148,6 +6148,17 @@ impl WorldGen {
         vdict! { "layer" => p.layer.key(), "total" => total, "counts" => &counts }
     }
 
+    /// Pending, uncommitted dabs across all three paint drafts — what
+    /// `paint_commit` would bake and `paint_discard` would throw away
+    /// (`paint_bridge::PaintEditor::pending_stamps`), and therefore the
+    /// number the Commit / Discard pair must gate on rather than
+    /// `paint_painted_counts`'s composite total
+    /// (`GUI_GAP_REGISTER.md` WW-13). `0` before any `generate()` call.
+    #[func]
+    fn paint_draft_count(&self) -> i64 {
+        self.paint.as_ref().map_or(0, |p| p.pending_stamps() as i64)
+    }
+
     // ---- commit / discard ----
 
     /// Bakes every layer's pending draft into its own override array
