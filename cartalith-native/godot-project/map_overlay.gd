@@ -152,12 +152,14 @@ const LOD_DOT_OUTLINE_SC := 0.6
 ## holding steady -- confirmed numerically before this fix (a settlement
 ## pin at `zoom=1.0` vs. the same pin at `zoom=4.0` measured 4x the on-screen
 ## radius, not the same one). `_civ_zoom_k()` below is the missing term,
-## using the reference's own clamp bounds (0.35-5.0) rather than this port's
-## own, much wider `ViewportHost` zoom range (0.4 to `lodMaxZoom()`, which is
-## 160 on a default world) -- deliberately:
-## the clamp exists purely so a pin never vanishes at extreme zoom-in nor
-## dominates at extreme zoom-out, a readability bound with no reason to
-## track wherever this port's own pan/zoom range happens to sit.
+## keeping the reference's own `0.35` zoom-out floor. Its `5.0` zoom-*in* cap
+## was kept too, on the argument that the clamp is a readability bound with no
+## reason to track this port's own pan/zoom range -- **wrong, and corrected on
+## 2026-08-24**: past that cap the term stops cancelling and the pin resumes
+## growing linearly, which is the very defect this whole comment is about. It
+## was a 1.6x overshoot while `ViewportHost` capped at 8.0 and became 32x when
+## the cap became `lodMaxZoom()`. `_civ_zoom_k()` below carries the full
+## reasoning and the measurement.
 ##
 ## The resolution term is still ported the same way this comment always
 ## described: tying `sc` to `rect.size.x` ALONE (not `rect.size.x/_gw`,
@@ -461,8 +463,26 @@ func set_camera_zoom(z: float) -> void:
 ## `sc` so a settlement pin holds a roughly constant ON-SCREEN size across
 ## camera zoom -- see `PIN_SCALE_REF_PX`'s own doc comment for the full
 ## derivation of why this term is needed at all.
+##
+## **The reference's upper clamp is deliberately not ported (2026-08-24).**
+## `_civZoomK` is `1/max(0.35,min(5,z))`, and the `min(5,…)` is free there
+## because `z` is `viewT.scale`, which **stays at 1 under Tiled LOD** — the
+## reference's deep zoom lives in `_lodZoom`, a different number entirely, so
+## `viewT.scale` never approaches 5 at the zooms this clamp would bite at.
+## Here `_camera_zoom` *is* the deep zoom. It clamped at `ZOOM_MAX = 8.0` when
+## this was written (a harmless 1.6x pin overshoot at the very deepest view);
+## it now runs to `lodMaxZoom()`, which is 160 on a default 800 km world, and
+## the clamp turned every pin, glyph, name and label outline into 32x of
+## magnified mush sitting exactly on top of the town it marks. Measured live
+## (`_umreveal_shot.gd` at z=60: the pin covers the whole settlement).
+##
+## Dropping it restores what the comment above always claimed: the on-screen
+## size is *exactly* constant, at every zoom in the range, which is what a map
+## pin is. The `0.35` floor is the zoom-*out* half and is untouched — that one
+## does the reference's "never dominate at extreme zoom-out" job, and this port
+## reaches no zoom-out the reference does not.
 func _civ_zoom_k() -> float:
-	return 1.0 / clampf(_camera_zoom, 0.35, 5.0)
+	return 1.0 / maxf(_camera_zoom, 0.35)
 
 
 ## ── Rasterising at screen resolution, not control resolution ────────────────
@@ -959,11 +979,11 @@ func _draw() -> void:
 			if _settlement_hidden(s):
 				continue
 			## The reference's `_umRevealedSet` (line 22753): a place whose own
-			## generated layout was actually drawn this frame gives up its pin
-			## to it. The reference crossfades the two across its km band; with
-			## no band here (see the "Urban layouts" block for why) this is the
-			## end state of that fade, applied at the same moment. Without it
-			## the pin -- deliberately sized to hold constant on screen -- sits
+			## generated layout was drawn *fully opaque* this frame gives up
+			## its pin to it. Only at full opacity: the km band is live again as
+			## of 2026-08-24, and `_draw_urban_layouts()`'s own note at the
+			## handover says why the crossfade ends here rather than fading the
+			## pin through it. Without it the pin -- sized to hold constant -- sits
 			## squarely over the market anchor and the densest streets, which
 			## is exactly what it is drawn on top of.
 			if _urban_revealed.has(i):
@@ -1221,10 +1241,11 @@ func _stroke_points(points: PackedVector2Array, start: int, end: int, rect: Rect
 ## heavier strokes, and this port's raster is fit to the control rather than
 ## drawn at grid resolution, so it has no counterpart here (the same reasoning
 ## `PIN_SCALE_REF_PX`'s doc comment already records for pins). And the zoom
-## term is unclamped, where `_civZoomK()` clamps to 0.35-5.0 -- that clamp is a
-## readability bound for *pins*, which must not vanish; a way that stayed 1.6
-## screen px past zoom 5 and one that crept to 2.6 are equally legible, and
-## exactly constant is the simpler contract.
+## term is unclamped, where `_civ_zoom_k()` keeps a `0.35` zoom-*out* floor --
+## that floor is a readability bound for *pins*, which must not dominate the
+## map when it is zoomed all the way out; a way is a line and shrinks harmlessly
+## with it, and exactly constant is the simpler contract. (`_civZoomK()`'s
+## zoom-*in* cap of 5.0 is no longer ported at all -- see `_civ_zoom_k()`.)
 func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2, width: float) -> void:
 	if end - start < 2:
 		return
@@ -1548,29 +1569,43 @@ func _notification(what: int) -> void:
 # Buildings and the wall circuit are milestones 13 and 10 and are not
 # generated; `urban_layout_draw.gd` records what it draws in their place.
 #
-# **The reveal gate is deliberately NOT the reference's `_umLayoutAlpha`.**
-# That function crossfades pins into layouts across a 24 km → 10 km viewport
-# span, which works there because its LOD region window lets the camera reach
-# a few-km span. When this rule was written, this port's camera clamped at a
-# flat `ZOOM_MAX = 8.0`, so on a default 800 km world the closest reachable
-# span was ~100 km and a ported 24 km threshold would never once have fired —
-# a toggle that silently draws nothing on the default world is worse than a
-# different, stated rule.
+# **The reveal gate IS the reference's `_umLayoutAlpha` again, since
+# 2026-08-24.** It was not, for one stated reason: that function crossfades
+# pins into layouts across a 24 km → 10 km viewport span, and while this port's
+# camera clamped at a flat `ZOOM_MAX = 8.0` the closest reachable span on a
+# default 800 km world was ~100 km — a ported 24 km threshold would never once
+# have fired. So the gate was the town's site box measured in screen pixels
+# (`URBAN_MIN_BOX_PX`) instead, which could.
 #
-# **That premise expired on 2026-08-24**: the cap is now `lodMaxZoom()` and the
-# same world reaches a 5 km span, so `_umLayoutAlpha`'s own thresholds are
-# live ground for the first time. Left as-is rather than swapped in the same
-# pass — the pixel rule below is not wrong, it is a different (and on a very
-# large world, still more useful) question, and switching the reveal gate is a
-# visible behaviour change that belongs with the rest of `_umLayoutAlpha`.
-# Recorded in `GUI_GAP_REGISTER.md` rather than left as a stale comment. The
-# gate here is the thing that actually matters for whether a town is worth
-# drawing at all: how many screen pixels its 1.7 km site box covers. A town
-# under `URBAN_MIN_BOX_PX` is a smudge and is skipped, and no layout is even
-# requested for it.
+# The cap became `lodMaxZoom()` and the same world now reaches a 5 km span,
+# which retired that reason; the swap was deferred one pass and is made here.
+# It is not a cosmetic tidy-up — **the pixel gate was measurably the wrong
+# number.** Measured live (`_umreveal_shot.gd`, 800 km world, 440 px map area):
+# `URBAN_MIN_BOX_PX = 16` first fires at a **47 km** span, where a town is a
+# 16 px speck — and because a revealed town *replaces* its pin, the reveal
+# swapped a legible marker for a smudge two octaves before the town was worth
+# looking at. The reference's own band puts the same reveal at 24 km and
+# completes it at 10 km, which on that measurement is a 31 px → 75 px box.
+#
+# `URBAN_MIN_BOX_PX` survives underneath the band as a floor, not as the gate:
+# it is what keeps a narrow map area (a phone, or the map squeezed between two
+# open docks) from drawing a sub-pixel town just because the *span* qualifies.
+#
+# `URBAN_FINE_BOX_PX` is, on measurement, unreachable here and that is correct:
+# the deepest span is 5 km, so the box tops out near 150 px on that map area
+# and a ~11 m lot is ~1 px. The per-roof ink outline would be wider than the
+# roof it surrounds — the same measured finding that put the constant there.
+# The fine pass belongs to the City Viewer, which is where a town is actually
+# looked at; on the map a town is a mass with streets through it.
 ## `preload`, not the `UrbanLayoutDraw` global class name -- see
 ## `city_viewer_window.gd`'s own `DRAW` const for why.
 const URBAN_DRAW := preload("res://shell/urban_layout_draw.gd")
+## `_umLayoutAlpha`'s crossfade band (reference line 22753), verbatim, in real
+## km of map-area span — `UM_FADE_FAR_KM`/`UM_FADE_NEAR_KM` there. Real km, not
+## a raw zoom number, for the reference's own stated reason: a zoom's numeric
+## meaning scales with map size and 24 km does not.
+const UM_FADE_FAR_KM := 24.0
+const UM_FADE_NEAR_KM := 10.0
 const URBAN_MIN_BOX_PX := 16.0
 ## Above this on-screen box width, a town is drawn with its per-roof ink
 ## outline, ridge and drop shadow; below it the roofs are flat fills. 620 px
@@ -1592,7 +1627,17 @@ const URBAN_BATCH_MAX := 24
 ## is pushed into it, not pulled.
 signal urban_layouts_needed(indices: PackedInt32Array)
 
-var _show_urban_layouts := false
+## **On by default**, where the reference's own `civUrbanLayoutsChk` is off —
+## the one deliberate divergence in this block, and it is the band above that
+## makes it affordable. In the reference the toggle *is* the cost control: with
+## it on, every in-view settlement is a generation candidate. Here nothing is
+## requested at all until the map area spans under 24 km, which is a view you
+## have to deliberately zoom into. Off-by-default cost this feature its whole
+## audience instead: it shipped reachable only from CARTO ▸ Layers on the rail
+## (never from the map's own Layers button, which lists field rasters), and the
+## owner's report was simply "I don't see the settlement rendered on the map
+## itself, the dot yes. But not the place."
+var _show_urban_layouts := true
 ## settlement index -> layout Dictionary, or `null` for an index the engine
 ## refused (a settlement in open water — `_umModelFor`'s own refusal). Both
 ## are "answered", so neither is requested twice.
@@ -1653,7 +1698,38 @@ func _urban_m_scale(rect: Rect2) -> float:
 	return rect.size.x / (_map_width_km * 1000.0)
 
 
+## `lodSpanKm()` (reference line 10675, `mapWidthKm / _lodZoom`): how many km of
+## world the map area spans right now. `rect` is the plate in this control's own
+## local space and the camera scales the whole control, so the plate covers
+## `rect.size.x * _camera_zoom` screen px while the map area itself is `size.x`
+## wide. The two are the same number only when the plate fills the width;
+## letterboxing (a tall world in a wide map area) is why this is a ratio rather
+## than `_map_width_km / _camera_zoom`.
+func _urban_span_km(rect: Rect2) -> float:
+	var plate_px := rect.size.x * _camera_zoom
+	if _map_width_km <= 0.0 or plate_px <= 0.0 or size.x <= 0.0:
+		return 0.0
+	return _map_width_km * size.x / plate_px
+
+
+## `_umLayoutAlpha()` (reference line 22754), ported branch for branch. 0 means
+## the pins have it; 1 means the layouts do; between, both are drawn and the
+## layout is the one that fades.
+func _urban_layout_alpha(rect: Rect2) -> float:
+	if not _show_urban_layouts:
+		return 0.0
+	var span := _urban_span_km(rect)
+	if span <= 0.0 or span >= UM_FADE_FAR_KM:
+		return 0.0
+	if span <= UM_FADE_NEAR_KM:
+		return 1.0
+	return (UM_FADE_FAR_KM - span) / (UM_FADE_FAR_KM - UM_FADE_NEAR_KM)
+
+
 func _draw_urban_layouts(rect: Rect2, interior: Rect2) -> void:
+	var alpha := _urban_layout_alpha(rect)
+	if alpha <= 0.0:
+		return
 	var m_scale := _urban_m_scale(rect)
 	if m_scale <= 0.0:
 		return
@@ -1716,9 +1792,18 @@ func _draw_urban_layouts(rect: Rect2, interior: Rect2) -> void:
 		## drawing sub-pixel detail over and over. The City Viewer, which is
 		## the place a town is actually looked at, always passes 1.0.
 		URBAN_DRAW.draw_layout(self, layout, to_screen, m_scale,
-			1.0 / maxf(0.001, _camera_zoom), 1.0, false,
+			1.0 / maxf(0.001, _camera_zoom), alpha, false,
 			1.0 if box_px >= URBAN_FINE_BOX_PX else 0.0)
-		_urban_revealed[i] = true
+		## The pin hands over only at the *end* of the crossfade. The reference
+		## fades it instead (`pinAlpha = 1 - _umAlpha`, line 15778) and this
+		## does not: a pin here is a disc, an outline, a glyph, a capital ring
+		## and a label, each with its own colour constant, so fading it means
+		## threading an alpha through five draw calls to soften two seconds of
+		## transition. Holding the pin until the layout is fully opaque keeps
+		## the thing you are navigating by legible for the whole fade, which is
+		## the half of that behaviour that matters. Stated, not silent.
+		if alpha >= 1.0:
+			_urban_revealed[i] = true
 
 	if need.size() > 0 and not _urban_pending:
 		_urban_pending = true

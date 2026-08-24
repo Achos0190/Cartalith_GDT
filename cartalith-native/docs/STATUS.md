@@ -30,7 +30,16 @@ non-headlessly on a real 800 km world: the town draws on the **main** map from
 a 10 km span down, with water, roof mass, market anchor and approach roads, and
 pins hold constant on-screen size at every zoom. `URBAN_FINE_BOX_PX` is
 map-unreachable and correctly so — at 5 km a lot is ~1 px and its outline would
-be wider than the roof; that pass is the City Viewer's) — previously, post
+be wider than the roof; that pass is the City Viewer's. **Alignment was checked
+too**, on the owner's follow-up, because the HTML original had a bug class of
+displaced layouts: measured on a **60 km** world (where the 1.7 km site box is
+14.5 grid cells rather than the ~1 cell it is at 800 km), `orient` is 0 on all
+41 layouts, **0.00% of rooftops land on a real water cell** with the minimising
+offset exactly (0.0, 0.0), every drawn river vertex is 0.71 cells from a real
+river cell centre, a `bay` capital's 78-vertex traced shoreline is a mean 88 m
+from the real coastline, and approach-road ends land 3-146 m from the real way
+network. **No displacement.** One content gap found instead: three of four
+`bay` sites draw no sea at all — milestone 9's ground) — previously, post
 **the Markdown vault is real, and continents
 had to be invented to hold it** — `MARKDOWN_VAULT_SCOPE.md` milestones **0 and
 1**, on the owner's own 2026-08-24 instruction to start this work for

@@ -41,11 +41,15 @@ const LIVE_LAYERS: Array = [
 	{"id": "settlements", "label": "Settlements", "on": true},
 	{"id": "roads", "label": "Ways & routes", "on": true},
 	{"id": "sea_routes", "label": "Sea routes", "on": true},
-	## The reference's `civUrbanLayoutsChk`. Off by default, like the
-	## reference's own checkbox: a town layout is generated on demand, and it
-	## only reveals once a settlement's 1.7 km site box is worth pixels
-	## (`map_overlay.gd`'s "Urban layouts" block).
-	{"id": "urban_layouts", "label": "Town layouts (deep zoom)", "on": false},
+	## The reference's `civUrbanLayoutsChk`. **On by default here, where the
+	## reference's own checkbox is off** — `map_overlay.gd`'s "Urban layouts"
+	## block owns that divergence and its reasoning. In short: the reveal band
+	## (the reference's own 24 km → 10 km span crossfade) means nothing is
+	## generated or drawn until you deliberately zoom to town scale, so the
+	## toggle is not carrying a cost the band does not already carry — and off
+	## by default, on a row only reachable from this rail dock, is why the
+	## layer went unseen.
+	{"id": "urban_layouts", "label": "Town layouts (deep zoom)", "on": true},
 	{"id": "provinces", "label": "Political — provinces", "on": false},
 	{"id": "territory", "label": "Political — territory", "on": false},
 ]

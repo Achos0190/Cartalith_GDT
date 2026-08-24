@@ -508,7 +508,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | IN-02 | Committed manual ways never appear on the map or in a list | 20-31 (class doc), 195, 213 | `get_roads()`/`get_sea_routes()` read `civ.ways`/`civ.sea_routes` only, never `infra.ways`; `way_commit`'s own doc said the getter was out of scope | yes when written | §4.5.4's "Way inspector: waypoint list, length, grade profile, surface" | **CLOSED 2026-08-24** — see the note below the table |
 | IN-03 | Way / Route ↶ ↷ (per-waypoint undo) | 232-236 (comment) | no per-waypoint undo in the engine; `InfraTools` only discards the whole draft | yes | §4.5.4 lists ↶ ↷ | (B) small |
 | IN-04 | Way ▸ routing mode (freehand / snap / least-cost) | 229-231 (comment) | `infra_tools_bridge`'s own doc: *"nothing to build a 'freehand' or distinct 'snap' routing mode out of"*; snap is real but automatic | yes | §4.5.4 | **(D)** — engine truth, recorded in-file |
-| IN-05 | Way types: spec says road/track/trail/bridge, engine has road/track/sea_lane/ancient | 42-49 (comment) | `parse_way_type`'s own doc calls the spec list wrong against the tested four-entry enum | yes | §4.5.4 | **(D)** — spec/engine disagreement, resolved in the engine's favour and recorded |
+| IN-05 | Way types: spec says road/track/trail/bridge, engine has road/track/sea_lane/ancient | 42-49 (comment) | `parse_way_type`'s own doc calls the spec list wrong against the tested four-entry enum | yes | §4.5.4 | **(D)** — spec/engine disagreement, resolved in the engine's favour and recorded. The *names* diverge; the **drawn styles do not** — §36 measured every type this port emits against the reference's own literals and closed the gap that mattered |
 | IN-06 | Route ▸ vessel / party reference in the options row | `journey_planner_view.gd` `_vessel_field`/`_mount_field`/`_build_animal_definitions` | the journey planner exported nothing past the crate boundary when written | **CLOSED where it can be, and the remainder stated in-UI (2026-08-20)**. The party form's Mount picker and its four per-species **animal definition** pickers are now library-backed (`tl_list("animal")`, custom rows tagged `· custom`), and the choice reaches the engine: `jp_compute`'s new `animal_entries` request key → `TravelLibrary::animal_overrides_selected` → `jp_plan_ex`'s resolver, so a custom entry's capacity/speed/fodder/water and its ten-row terrain table re-plan the journey. The **Vessel** picker lists every library vessel but disables the ones with no engine counterpart (`jp_ship_stats` is still a fixed built-in table — `TRAVEL_LIBRARY_SPEC.md` §6), with the reason on the item itself rather than omitted | §4.5.4 | **CLOSED (2026-08-23)** — the remainder this cell named is done. `TravelLibrary::vessel_overrides` (keyed by **name**, because `JpPlan::vessel` is a name and `jp_ship_stats` is a name lookup, so a vessel needs no `animal_species_slot` equivalent) → `travel_library::vessel_resolver_fn` → `JpVesselResolver` → `jp_calc_water_ex`, the exact sibling of the animal chain and with the same fall-back-to-the-built-in-table contract. Four of `ShipStats`' seven fields come straight off the definition; `river`/`sea` come from `modes` and `open_sea` from `water_rating == Open`, which is precisely `jp_vessel_water_block`'s own test. **The one field with no source is `invalid_water`**: §3.3 has no per-water-type blacklist, so a custom vessel is constrained by its mode and rating only, never by a named water type the way "River Barge cannot navigate River with Rapids" is — stated in the picker's own tooltip rather than papered over. The picker now enables every library vessel that validates `ok` and disables only the incomplete ones, because the resolver declines an incomplete definition rather than sailing a hull with a zero hold |
 | IN-07 | Trade ▸ route assignment | 370-373 | nothing ties a trade relationship to the road or sea lane that would carry it | yes | §3 lists Trade | (B) large |
 | IN-08 | **Roads, Ports, Trade and Logistics never rebuilt after a generate** | `_build()` | none — nothing disclosed this | **not a capability gap** | all four were designed *and* built; only the signal was missing | **FIXED 2026-08-24 — see §23 (RF-01)**. Roads had a partial path already (`_refresh_manual_ways`, on a way commit); the other three had none at all |
@@ -908,6 +908,50 @@ glyph, name and label outline resume growing linearly: a 1.6x overshoot while
 `ViewportHost` capped at 8.0, and **32x** once the cap became `lodMaxZoom()`.
 At z=60 the pin and its label covered the entire settlement. The cap is not
 ported any more; the `0.35` zoom-*out* floor is untouched.
+
+**Alignment, checked because the owner asked and the HTML original had a bug
+class here** (a "coastal" town whose layout did not touch the coast; a river
+town whose streets floated off the river). Measured with `_umalign_shot.gd`,
+not eyeballed: every geometry is pushed through the *same* local-metres → grid
+transform `_draw_urban_layouts` draws with, then compared against
+`sample_cell()`'s real water mask and Strahler order and against `roads()`'s
+real way polylines. A **60 km** world is used deliberately — at 800 km the
+1.7 km site box is about **one** grid cell across (1.56 km/cell) and no
+displacement below a cell is measurable at all; at 60 km / 512 the box is 14.5
+cells and a displacement would show. 41 settlements, 41 layouts.
+
+- **No rotation is applied at all.** `orient` is `0.000000` on all 41. That is
+  the reference's own rule (`const orient = water ? 0 : _umTerrainOrient(...)`)
+  and every site in this world has real water, so the local frame is
+  world-aligned and the whole rotation-displacement bug class cannot arise.
+- **Rooftops: 0.00% land on a real water cell**, on every town measured (57,
+  94, 101, 140, 141 and 325 rooftops). Sweeping the whole layout ±3 cells in
+  half-cell steps cannot reduce that count below zero, and the minimising
+  offset is exactly **(0.0, 0.0)** in every case.
+- **River towns: exact.** Every drawn river vertex sits **0.71 cells** from the
+  nearest real river cell centre — √2⁄2, the distance from a *cell corner* to
+  the centres around it. The drawn river is the real river, vertex for vertex.
+- **The coastal case: within one cell.** `Skalbjorkellwick`, a `bay` capital,
+  carries a 78-vertex traced shoreline: **mean 0.75 cells (88 m), worst 1.12
+  cells (131 m)** from the real coastline, where a cell is 117 m. 325 rooftops,
+  none in the sea.
+- **Roads connect.** Where a real way reaches the town, its approach-road ends
+  land **3 m to 146 m** from the nearest real way polyline point — under 1.3
+  cells. `Skalbjorkellwick` is the exception and is not a defect: the nearest
+  real way is 4 km away, so its approach ends are the reference's own
+  synthesised box-exit bearings with nothing to meet.
+
+**One real gap found, and it is content rather than displacement**: three of
+the four `bay` sites draw **no sea**. One box is 72.3% real ocean and draws
+0.5% water; another is 32.1% real and draws 0.0%. Only the fourth gets a traced
+shoreline. On the map this is invisible — the terrain raster underneath already
+shows the real sea, and the town is correctly placed against it — but in the
+City Viewer, which has no terrain under it, such a town shows no water at all.
+That is `URBAN_MORPHOLOGY_SCOPE.md` milestone 9's ground (harbour, quay,
+shoreline), recorded here rather than papered over. Related and worth knowing
+when reading a world-scale screenshot: at 800 km the whole town is ~1.1 grid
+cells, so its own water body is *finer than the terrain grid* and will overhang
+a land cell. That is resolution, not displacement.
 
 `URBAN_FINE_BOX_PX` (the per-roof ink outline, ridge and shadow) is confirmed
 map-unreachable at that map width and that is correct, not a fourth defect: at
@@ -5214,3 +5258,124 @@ so a stale source offers Reload or Keep, which are the two actions that cannot
 lose work); project-scoped links (§26 — blocked on the save format carrying a
 civ layer at all, which `SAVEFILE_COMPAT.md`'s format does not); and the
 Android SAF provider. See `MARKDOWN_VAULT_SCOPE.md` §5 and §8.
+
+---
+
+## 36 · RD-02, CA-15 — every land way was the same colour, and the way-type filter could not see two thirds of the network (2026-08-24) — **FIXED**
+
+§29 and §33 fixed the *geometry* of ways, sea lanes and committed routes. This
+is the matching pass over their *type and colour*: a type-by-type comparison of
+`drawCivLayer` §2a/§2b (reference lines 15494-15560) against
+`map_overlay.gd`, driven live and measured in pixels rather than read.
+
+Two real defects, both found by measurement.
+
+### RD-02 — five land way types, one colour
+
+The reference's §2a is a six-branch ladder, and every branch strokes **twice**:
+a dark underlayer, then the type's own colour on top of it — solid for the two
+trunk tiers, dashed for the three minor ones. That two-stroke shape is what
+makes a highway, a track and an ancient way tell apart at a glance.
+
+This port drew land ways with **one** stroke, in one flat colour, with only the
+width varying by type. Its own class doc admitted half of it (*"this control
+strokes every land way in `ROAD_COLOR` regardless of type"*) as a note attached
+to the `ancient` row, so it read as one type's cosmetic shortfall rather than
+as the whole ladder being missing.
+
+Measured before the fix, not assumed. `_waycolor_probe.gd` drives the real
+`_draw_way_segment` on two known flat backgrounds — pure black and pure white —
+which makes the drawn colour and its effective alpha exactly recoverable
+(`b = C·a`, `w = C·a + (1−a)` ⇒ `a = 1 − (w − b)`, `C = b/a`), at
+`set_camera_zoom(0.2)` so `_crisp_begin()`'s `1/k` transform lands every width
+5× thicker and the stroke centre is fully covered. All five land types returned
+the identical `C = (91, 75, 40)`, `a = 0.549` — i.e. `ROAD_COLOR` exactly, five
+times.
+
+`WAY_STYLE` now carries the reference's own five branches verbatim. Measured
+after, same probe, against the composite the reference's literals predict:
+
+| type | reference | underlayer | overlay | dash | measured composite over black | predicted | Δ |
+|---|---|---|---|---|---|---|---|
+| highway | 15515-17 | `rgba(20,10,5,.55)` w2.3 | `rgba(210,145,55,.98)` w1.45 | solid | (206,142,54) a=0.991 | (206.0,142.2,54.0) a=0.991 | 0.2/255 |
+| regional | 15519-21 | `rgba(25,14,5,.45)` w1.8 | `rgba(178,118,52,.88)` w1.15 | solid | (158,105,46) a=0.935 | (158.0,104.6,46.0) a=0.934 | 0.4/255 |
+| road | 15531-34 | `rgba(30,20,10,.4)` w1.2 | `rgba(160,100,60,.75)` w0.7 | `[1.8,1.3]` | (123,77,46) a=0.851 | (123.0,77.0,46.0) a=0.850 | 0.0/255 |
+| track | 15523-26 | `rgba(30,20,10,.35)` w1.1 | `rgba(100,120,60,.75)` w0.6 | `[1.3,2]` | (78,92,46) a=0.839 | (77.6,91.8,45.9) a=0.838 | 0.4/255 |
+| ancient | 15527-30 | `rgba(20,10,5,.35)` w1.1 | `rgba(120,110,100,.65)` w0.65 | `[2.5,1.3]` | (81,73,66) a=0.773 | (80.5,72.7,65.6) a=0.772 | 0.6/255 |
+| sea lane | 15511-14 | `rgba(10,30,60,.4)` w1.5 | `rgba(30,130,200,.7)` w0.85 | `[2.6,2]` | (22,94,147) a=0.818 | (22.2,94.6,147.2) a=0.820 | 0.6/255 |
+| route | 15555-58 | `rgba(40,25,5,.5)` w3 | `rgba(200,160,60,.85)` w1.5 | `[5,3]` | (173,138,51) a=0.924 | (173.0,137.9,51.4) a=0.925 | 0.4/255 |
+| route (sel) | 15556-58 | `rgba(40,25,5,.5)` w5 | `rgba(255,210,80,.98)` w2.5 | `[5,3]` | (250,206,79) a=0.990 | (250.3,206.0,78.5) a=0.990 | 0.6/255 |
+
+Every type within 0.6/255 and 0.002 alpha. Dash *periods* measured off the same
+shots (the on/off split is not measurable — an antialiased dash cap bleeds
+~width/2 past each end — but the period is): road 15 px vs. 15.5 expected,
+track 16 vs. 16.5, ancient 19 vs. 19, sea lane 23 vs. 23, route 40 vs. 40, and
+highway/regional flat solid (row range 0.000).
+
+**The sea lane, route and selected route were already exact before this pass**
+— those three were ported two-stroke from the start (§33, IN-09). Only the
+five land types were flat. One real bug in the sea lane's own numbers, though:
+its gap was **2.6, not 2.0**. `_draw_dashed_polyline`'s `gap_len` defaults to
+`dash_len`, the sea lane was the one caller relying on that default, and the
+reference's pattern is `setLineDash([2.6·rsc, 2·rsc])` — unequal. Measured
+period 26 px where the reference's is 23. Every caller now passes the gap
+explicitly; no pattern in `drawCivLayer` is actually square.
+
+### Layering, and what it is not
+
+The committed-route layer draws after both network layers, which §IN-09
+established for the one case it checked. Re-verified as a measurement rather
+than an assumption: a route was committed deliberately **along** the world's
+longest highway (552 km solved over a 609 km host, 0 unreachable legs), and at
+every pixel where the two coincide the rendered colour is explained by the
+route's composite and not the host's — 13 of 13 coincident pixels, with the
+route's least-squares residual lower at every one.
+
+The remaining pair orders are unchanged and correct by construction: sea lanes
+and land ways never contest a pixel (different getters, water vs. land), and
+within `_roads` the reference itself draws in array order with no per-type
+z-order, which this matches.
+
+### CA-15 — the way-type filter listed the manual vocabulary, not the drawn one
+
+`cartography_workspace.gd`'s **Ways · by type** group listed three keys —
+`road`, `track`, `ancient`. Those are `infra_tools_bridge::parse_way_type`'s
+*manual* vocabulary (IN-05's four, minus `sea_lane`). But the switches drive
+`map_overlay.gd`'s filter on `get_roads()`' `way_type`, and the generated
+network classifies by `cartalith_civ::WayType`, whose two busiest tiers are
+`highway` and `regional` — neither of which was listed.
+
+Measured on a real 384×288 world: **13 highways and 17 regional roads against 4
+roads and 1 track**. Unchecking "Roads" hid 4 of 35 ways; the other 30 could
+not be hidden at all. The reference lists all five (`CIV_WAY_TYPES`, line
+14743) and always has.
+
+`WAY_TYPES` is now that list minus `sea-lane` (which keeps its own top-level
+layer row rather than a second, disagreeing switch). Verified live by toggling
+each type and counting the pixels that vanished along a way of that type:
+highway 284, regional 241, road 102, track 66 — all four present types now
+filterable, none was before except road and track.
+
+### Cataloguing — checked, and correct
+
+INFRA's own lists were audited against `_civRenderWayList` (reference 17145)
+and found honest: a per-tier tally, a "longest" ranking with the type in each
+row's label, a **Sea lanes** group, a hand-drawn-ways group, and the editable
+**Routes committed this session** list. The reference marks type with a per-row
+emoji (`_wayTypeIcons`) where this uses the type word; same information.
+Nothing was changed here.
+
+### Files, and how it was verified
+
+- `map_overlay.gd` — `WAY_STYLE` replaces `ROAD_COLOR`/`ROAD_WIDTH_BY_TYPE`;
+  `_draw_way_segment` takes a style row and strokes twice; the sea lane passes
+  its gap explicitly.
+- `cartography_workspace.gd` — `WAY_TYPES` gains `highway` and `regional`.
+- No Rust. The type data was already correct on the boundary — `get_roads()`
+  has emitted `highway`/`regional`/`road`/`track` since Phase 2 milestone 14
+  and appended `ancient` since IN-02. This was entirely a renderer and a filter
+  list.
+- `_waycolor_probe.gd` (synthetic, exact) and `_wayreal_probe.gd` (real app:
+  world generation, a route committed along a road, per-type centred views,
+  background-differenced pixel solving, the layering check and the filter
+  check). Both temporary and untracked.

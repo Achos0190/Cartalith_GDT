@@ -25867,6 +25867,50 @@ map width, and that is correct rather than a fourth defect: the deepest span is
 outline would be wider than the roof it surrounds — which is the measurement
 that put the constant there. The fine pass is the City Viewer's.
 
+### Is the layout actually *aligned* with the geography? Measured, not eyeballed
+
+The owner asked, because the HTML original had a bug class here: a "coastal"
+town whose layout did not touch the coast, a river town whose streets floated
+off the river. `_umalign_shot.gd` (untracked probe) answers it with numbers.
+Every geometry is pushed through the *same* local-metres → grid transform
+`_draw_urban_layouts` draws with, then compared against `sample_cell()`'s real
+water mask and Strahler order, and against `roads()`'s real way polylines.
+
+**The world size is part of the method.** At 800 km a 1.7 km site box is about
+**one** grid cell across (1.56 km/cell), so no displacement smaller than a cell
+is measurable there at all — a "test" at that scale would have proved nothing
+either way. At 60 km / 512 the box is 14.5 cells, which is the regime where a
+displacement shows up. 41 settlements, 41 layouts.
+
+- **No rotation is applied at all**: `orient` is `0.000000` on all 41. That is
+  the reference's own rule — `const orient = water ? 0 : _umTerrainOrient(...)`
+  — and every site here has real water, so the local frame is world-aligned and
+  the rotation-displacement bug class cannot arise.
+- **Rooftops: 0.00% land on a real water cell**, on every town measured (57,
+  94, 101, 140, 141, 325 rooftops). Sweeping the whole layout ±3 cells in
+  half-cell steps cannot get below zero, and the minimising offset is exactly
+  **(0.0, 0.0)** every time. This is the decisive one: it does not depend on
+  the layout choosing to *draw* its water.
+- **River towns are exact.** Every drawn river vertex sits **0.71 cells** from
+  the nearest real river cell centre — √2⁄2, which is the distance from a cell
+  *corner* to the centres around it. The drawn river is the real river.
+- **The coastal case is within one cell.** `Skalbjorkellwick`, a `bay` capital,
+  carries a 78-vertex traced shoreline: **mean 0.75 cells (88 m), worst 1.12
+  cells (131 m)** from the real coastline, where a cell is 117 m.
+- **Roads connect.** Where a real way reaches the town, the approach-road ends
+  land **3-146 m** from the nearest real way polyline point. `Skalbjorkellwick`
+  is the one exception and is not a defect: the nearest real way is 4 km off,
+  so its ends are the reference's synthesised box-exit bearings with nothing to
+  meet.
+
+**One real gap, and it is content rather than displacement**: three of the four
+`bay` sites draw **no sea** — one box is 72.3% real ocean and draws 0.5% water,
+another is 32.1% real and draws 0.0%; only the fourth gets a traced shoreline.
+Invisible on the map, where the terrain raster already shows the real sea under
+a correctly-placed town; visible in the City Viewer, which has no terrain under
+it. `URBAN_MORPHOLOGY_SCOPE.md` milestone 9's ground (harbour, quay,
+shoreline), recorded rather than papered over.
+
 **One divergence from the reference, stated.** It fades the pin out as the
 layout fades in (`pinAlpha = 1 - _umAlpha`); this hands the pin over at the end
 of the fade instead. A pin here is a disc, an outline, a glyph, a capital ring
