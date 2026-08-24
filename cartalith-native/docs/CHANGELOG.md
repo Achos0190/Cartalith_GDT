@@ -20167,16 +20167,20 @@ was already reachable from GDScript through `bridge.last_width_km` and
 
 ### Still open
 
-- **`DccWidgets.note()` keeps a 240 px `custom_minimum_size.x`**, which with
+- ~~**`DccWidgets.note()` keeps a 240 px `custom_minimum_size.x`**, which with
   the section margins and the drag handle is a ~272 px floor — above
   `W_RIGHT_DOCK_MIN` (260). It is static per context so it cannot jitter, but
   it does mean the right dock cannot actually be dragged to its documented
   minimum on any context that draws a note. `dcc_widgets.gd` is shared, and was
-  left alone rather than edited during concurrent work.
+  left alone rather than edited during concurrent work.~~ **Fixed 2026-08-24**,
+  see the dated entry below (`PARITY_AUDIT.md` pass 2 F8, `GUI_GAP_REGISTER.md`
+  SH-12) — `240` → `190`.
 - **The left dock and the workspace panels were not audited** for the same
   fault. Nothing there is rewritten on mouse-move, which is why only this dock
   was visibly erratic, but the mechanism is identical wherever a label holds
-  world-derived text.
+  world-derived text. The `note()` fix below edits the one shared widget both
+  surfaces call through, so it is covered incidentally — neither was
+  separately measured against a documented minimum.
 
 ## Pinch-to-zoom on the phone: the handler was fine, the events never arrived (owner report, 2026-08-24)
 
@@ -21234,3 +21238,49 @@ failures. Then `cargo build -p cartalith-godot` for a fresh cdylib, and
 
 No tolerance was touched, no fixture regenerated, and no assertion weakened —
 the test that caught this asserts exactly what it asserted before.
+
+## Right dock: the note widget's own floor was still wider than the dock's minimum (`PARITY_AUDIT.md` pass 2 F8, fixed 2026-08-24)
+
+The dock-jitter fix above (695821f) left one item under "Still open":
+`DccWidgets.note()` kept a hardcoded `custom_minimum_size.x = 240`, which
+with the dock's own container padding is wider than `DccTheme.W_RIGHT_DOCK_MIN`
+(260) — so no context that draws a note could actually reach the right
+dock's documented minimum width. `PARITY_AUDIT.md` pass 2 caught that this
+was disclosed only in that narrative "Still open" bullet and never carried
+into `GUI_GAP_REGISTER.md` (**F8**).
+
+**Same fault class as the dock-jitter bug, one register removed.** That fix
+was about a label whose minimum width *tracked live text* and jittered the
+whole layout on every mouse-move; this one is a label whose minimum width is
+a **static** constant that is simply set too high — it never jitters, but it
+permanently overshoots the dock's own contract.
+
+**The actual budget, computed rather than guessed:** `section()`'s own
+`MarginContainer` padding (`dcc_widgets.gd`) takes 26 px off any dock's width
+(14 left + 12 right) before a note's column even starts, and a `group()`
+nested one level deeper inside that section (several `right_dock.gd` call
+sites — Measure ▸ Actions among them) takes a further 10 px left margin. At
+the dock's documented 260 px floor that leaves **223 px** in the tightest
+real case, against the 240 the widget was asking for (266 with section
+padding alone, 276 nested in a group) — the ~272 px `PARITY_AUDIT.md`
+estimated is in that range.
+
+**Fix:** `DccWidgets.note()`'s `custom_minimum_size.x` dropped `240` → `190`,
+leaving 33 px of headroom in the tightest nesting for the right dock's
+`ScrollContainer` to grow a vertical scrollbar without re-blowing the budget.
+`note()` is shared by 18 call sites across the shell, not just
+`right_dock.gd`; every other caller already gives it a column far wider than
+190 (`data_manager_window.gd`'s import/export panes fix their column at
+620 px, for one), so none of them changes behaviour — only the right dock,
+where 190 was the number that mattered, does.
+
+Registered as `GUI_GAP_REGISTER.md` **SH-12**, closed. F8's second half —
+*"the left dock and the workspace panels were not audited for the same
+fault"* — is covered by the same fix, since it edits the one shared widget
+both surfaces call through `DccWidgets.note()`; neither was separately
+measured against a documented minimum the way the right dock was, because
+neither carries one as tight as `W_RIGHT_DOCK_MIN`.
+
+**Verified:** headless boot-check clean
+(`Godot_v4.7.1-stable_win64_console.exe --headless --path godot-project`,
+no errors, extension loads). No Rust changed — this is a GDScript constant.

@@ -426,11 +426,21 @@ const GLOBAL_TOOL_ENTRIES: Array = [
 ]
 
 ## Prose that explains a rule rather than labelling a control. Kept narrow so a
-## dock at its minimum width still wraps sensibly.
+## dock at its minimum width still wraps sensibly -- but narrow enough to fit
+## *inside* that minimum, unlike the 240 (272 with margins) this used to carry
+## against the right dock's own documented floor, `DccTheme.W_RIGHT_DOCK_MIN`
+## (260, `right_dock.gd`'s many `note()` calls). `section()`'s own padding
+## above takes 26 px off that floor (14 left + 12 right) and a `group()`
+## nested inside one more section takes 10 more, leaving 223 px in the
+## tightest real case (`right_dock.gd`'s Measure ▸ Actions, a note inside a
+## group inside a section) -- so 190 keeps clearance for the right dock's
+## ScrollContainer to grow a vertical scrollbar without re-opening the same
+## fixed-floor-fights-the-dock bug PARITY_AUDIT.md's pass 2 (F8) found here,
+## and 695821f fixed one call site up in `_field()`'s value labels.
 static func note(parent: Control, text: String) -> Label:
 	var l := DccTheme.label(text, "text_ghost", DccTheme.FS_MICRO)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.custom_minimum_size.x = 240
+	l.custom_minimum_size.x = 190
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	parent.add_child(l)
 	return l

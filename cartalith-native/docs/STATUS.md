@@ -4481,6 +4481,18 @@ annoying."*
       width fell 312 → 151 px. `_measure_shot.tscn` re-run clean (no `_field`
       regression across the six Measure contexts); headless boot clean. No Rust
       changed.
+- [x] **Follow-up, `PARITY_AUDIT.md` pass 2's F8, fixed 2026-08-24:**
+      `DccWidgets.note()` (`dcc_widgets.gd`, shared by 18 files) still carried
+      a hardcoded `custom_minimum_size.x = 240`. With `section()`'s own 26 px
+      of margin that is already 266 against `W_RIGHT_DOCK_MIN`'s 260, and a
+      `group()` nested one level deeper (e.g. Measure ▸ Actions) pushes the
+      real floor to 276 — so the right dock could not be dragged to its own
+      documented minimum on almost any context that draws a note. Static per
+      context, so it never jittered like the bug above; it was simply wrong.
+      Narrowed to `190`, which clears the tightest nesting (223 px available)
+      with 33 px to spare for the `ScrollContainer`'s vertical scrollbar.
+      Registered as `GUI_GAP_REGISTER.md` **SH-12**. Headless boot-check
+      clean; no Rust changed.
 
 ## Sample panel + Layers popover (`DCC_SHELL_SPEC.md` §6/§9, done 2026-08-19)
 
