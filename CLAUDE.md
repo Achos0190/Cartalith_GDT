@@ -95,7 +95,7 @@ starting work — not this file, which is a map rather than a state.
 | `HETEROGENEOUS_COMPUTE_RESEARCH.md` | owner-supplied; hardware-tiered scheduling, mostly not yet applicable |
 | `TERRAIN_APPEARANCE_RESEARCH.md` | owner-supplied; the source for `TERRAIN_APPEARANCE_SCOPE.md` |
 | **Directories** | |
-| `cartalith-native/` | the Cargo workspace (14 crates) and the Godot project |
+| `cartalith-native/` | the Cargo workspace (15 crates) and the Godot project |
 | `cartalith-native/docs/` | the port's living `CHANGELOG.md` and `STATUS.md` |
 | `reference/` | the frozen HTML snapshot and its function index |
 | `docs/` | **the source project's** documentation — see `docs/README.md` |

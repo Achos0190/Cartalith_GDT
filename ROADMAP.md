@@ -64,8 +64,10 @@ rather than bundling it.
 ambient occlusion, hydrology tint, the atlas look, geological exposure and
 local contrast). **The 3D drape is not started.** The UI/UX half went further
 than this entry anticipated — a full DCC-style shell was designed and built
-(`DCC_SHELL_SCOPE.md`) and is now **on hold** at the owner's direction while
-the interface is redesigned.
+(`DCC_SHELL_SCOPE.md`), and the hold called on 2026-08-18 was **lifted later
+the same day** ("replace the current GUI and replace it in full … including
+all it's wiring and functionality"); shell work has been landing continuously
+since. *Corrected 2026-08-24 (`PARITY_AUDIT.md` pass 2, F1).*
 
 Brings back the 3D drape deferred in `DECISIONS.md` §4, and the point to evaluate
 `Terrain3D` and `godot_heightmap_plugin` (`REFERENCES.md`) — as a dependency or as

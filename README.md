@@ -13,7 +13,7 @@ code is the Cargo workspace in `cartalith-native/`.
 |---|---|
 | 0 — Walking skeleton | **Done** |
 | 1 — Terrain MVP | **Done**, all seven criteria plus closeout |
-| 2 — Civilisation layer | **Done** — 17 milestones; the Journey Planner sub-phase is engine-complete (65 of the reference's 74 `jp*` functions; 6 UI-only, 2 JS idioms, 1 blocked) |
+| 2 — Civilisation layer | **Done** — 17 milestones; the Journey Planner sub-phase is engine-complete (**66** of the reference's 74 `jp*` functions; 6 UI-only, 2 JS idioms, **nothing blocked** — `_jpRerouteForMode` was ported 2026-08-23, `JOURNEY_PLANNER_SCOPE.md` §"the count reaches 66 of 74") |
 | 3 — Rendering and 3D | **Partial** — terrain appearance milestones 1-5 done; the 3D drape (`DECISIONS.md` §4) not started |
 | 4 — Asset Library | **Done**, all seven milestones |
 | 5 — Urban morphology | **In progress** — milestones 1-7 of ~17; the largest single unported subsystem (~3,860 lines) |
@@ -27,9 +27,13 @@ tiling/quadtree base, and the tool system's engine layer (milestones A-E).
 before starting work. `cartalith-native/docs/CHANGELOG.md` is the detailed
 per-milestone history.
 
-**All UI work is currently on hold** at the owner's direction (2026-08-18)
-while the interface is redesigned; see the notice at the top of
-`DCC_SHELL_SCOPE.md`.
+**The UI hold is lifted** (owner, 2026-08-18, later the same day it was
+called). A full DCC-shell replacement — including tool-system milestone F — is
+underway and has been landing in stages since; see the notice at the top of
+`DCC_SHELL_SCOPE.md` for the exact wording and scope. *Corrected 2026-08-24
+(`PARITY_AUDIT.md` pass 2, F1): this line asserted the hold for six days after
+`DCC_SHELL_SCOPE.md` lifted it, and `CLAUDE.md`'s copy was fixed on 2026-08-23
+while this one and `ROADMAP.md`'s were not.*
 
 ## The workspace
 
