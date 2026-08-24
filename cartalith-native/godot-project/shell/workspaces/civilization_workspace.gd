@@ -128,12 +128,6 @@ var _politics_body: Control
 ## `func(): _recompute_civ(b)` closing over its own button would capture null.
 var _recompute_btn: Button
 var _recompute_note: Label
-## SG-01's badge: what the engine's own stage graph says about `civ` right
-## now, above the button that clears it. Polled on the same 1 s clock
-## `app.gd`'s status-slot indicator uses, because the states it reports are
-## produced in three other workspaces (a sculpt, a carve, a dropped place).
-var _recompute_badge: Label
-var _stale_timer: Timer
 
 
 func _build() -> void:
@@ -736,20 +730,14 @@ func _fill_settlements(parent: Control) -> void:
 ## this button makes. A menu item would have been further from every readout
 ## it fixes.
 ##
-## Still deliberately always enabled, and now for a *narrower* reason than
-## before. The old note here said a greyed-out button would be reporting a
-## state the user cannot see, and pointed at SG-01. SG-01 is built (the badge
-## below, and the shell's `stale` status slot), so that objection is gone --
-## but the button must stay pressable anyway, because "stale" is not the only
-## thing it is for: a recompute is also how a user re-derives roads and
-## borders after an edit the engine cannot classify, and pressing it with
-## nothing stale is a real recompute of the same answer, not an error. What
-## the badge changes is that the user now knows *in advance* whether it will
-## do anything, which is what greying it out was only a proxy for.
+## Deliberately always enabled rather than gated on "civ is stale". The
+## staleness graph knows (`still_stale` carries `civ` after every terrain
+## commit) but the shell has no staleness indicator yet -- that is SG-01,
+## still open, still without a design -- so a button that greyed itself out
+## would be reporting a state the user cannot see. Pressing it with nothing
+## stale is a real recompute of the same answer, not an error.
 func _build_recompute(parent: Control) -> void:
 	var sec := DccWidgets.section(parent, "Recompute")
-	_recompute_badge = DccWidgets.note(sec, "")
-	_refresh_staleness()
 	_recompute_btn = DccWidgets.action(sec, "Recompute civilisation", _recompute_civ)
 	var b := _recompute_btn
 	b.tooltip_text = ("Re-derives everything downstream of the settlement list against the current "
@@ -765,38 +753,6 @@ func _build_recompute(parent: Control) -> void:
 	_recompute_note = DccWidgets.note(sec,
 		"A terrain or place edit leaves the civ layer stale on purpose -- press this when you "
 		+ "want roads, territory, provinces and economy to catch up with it.")
-	_stale_timer = Timer.new()
-	_stale_timer.name = "CivStalenessPoll"
-	_stale_timer.wait_time = 1.0
-	_stale_timer.timeout.connect(_refresh_staleness)
-	sec.add_child(_stale_timer)
-	_stale_timer.start()
-
-## SG-01, per-stage rather than per-shell: `civ`'s own entry out of
-## `stale_stages()`, said in the vocabulary of the button below it.
-##
-## Three states, all read from the engine and none of them inferred here: no
-## world at all; `civ` absent from the reply, which is genuinely up to date;
-## or present, with the graph's own most-upstream reason ("sculpt",
-## "carve_fjords", "param:climate.rain_k") or the settlements flag
-## ("place_edited") that the graph structurally cannot carry.
-func _refresh_staleness() -> void:
-	if _recompute_badge == null or not is_instance_valid(_recompute_badge):
-		return
-	if not bridge.has_world:
-		_recompute_badge.text = "No world yet."
-		return
-	var civ: Dictionary = bridge.stale_stages().get("civ", {})
-	if civ.is_empty():
-		_recompute_badge.text = "Up to date -- nothing has changed under it since the last recompute."
-		return
-	var reason := String(civ.get("reason", ""))
-	if reason.is_empty():
-		reason = String(civ.get("origin", "an edit"))
-	var scope := ""
-	if int(civ.get("tiles", 0)) > 0:
-		scope = " over %d tiles" % int(civ.get("tiles", 0))
-	_recompute_badge.text = "Stale%s -- %s. Recompute to catch it up." % [scope, reason]
 
 ## The button's own progress affordance. `recompute_civilisation` is a
 ## synchronous engine call with no progress signal to subscribe to, so the
@@ -829,12 +785,6 @@ func _recompute_civ() -> void:
 	## which is also what puts `_recompute_note` on screen.
 	app.viewport.territory_view.texture = bridge.territory_texture()
 	_on_civ_edited()
-	## Both SG-01 readouts, immediately rather than up to a second later --
-	## the button that just cleared the state is the one place a lagging
-	## badge would read as "it didn't work".
-	_refresh_staleness()
-	if app.has_method("refresh_staleness"):
-		app.refresh_staleness()
 
 ## `civPopEstimateOut` / `_civAgrarianRegionalTotal` (reference 23516) --
 ## `PARITY_AUDIT.md` §5 item 7, "the only world-level population sanity

@@ -32,7 +32,6 @@
 //! user control — its range is this port's own judgement, flagged as such
 //! rather than presented as parity.
 
-use cartalith_engine::staleness::PipelineStage;
 use cartalith_engine::WorldParams;
 
 /// What a parameter's value *is*, for the GUI's control-type choice and for
@@ -701,81 +700,6 @@ pub fn groups() -> Vec<&'static str> {
 /// The spec for a dotted key, or `None` if no such parameter exists.
 pub fn spec(key: &str) -> Option<&'static ParamSpec> {
     PARAMS.iter().find(|s| s.key == key)
-}
-
-/// `GUI_GAP_REGISTER.md` **SG-03**: which node of
-/// [`cartalith_engine::staleness::pipeline_stage_graph`] a moved dial has to
-/// mark changed — or `None` for a parameter with **no live-apply path at
-/// all**, which is most of them (56 of the 81 rows).
-///
-/// ## The rule the table is derived from, not a judgement call
-///
-/// A parameter belongs here only if some function *other than*
-/// `generate_terrain` reads it, because marking a stage stale is a promise
-/// that recomputing it will apply the new value. There are exactly two such
-/// functions today, and each fixes one row's answer:
-///
-/// - [`cartalith_engine::refresh_climate`] — the whole of what
-///   `recompute_stale` runs. It reads `climate_params_for` +
-///   `weather_params_for` (which between them take every `climate.*` field,
-///   plus `peak_m` and all three `planet.*` fields) and, directly,
-///   `climate.w_iters`, `climate.zonal_k` and `climate.currents`. Those 24
-///   keys map to **[`PipelineStage::Hydrology`]**.
-/// - `compute_civilisation` via `WorldGen::recompute_civilisation` — reads
-///   exactly one `WorldParams` field the user can move, `river_density`
-///   (through `fresh_river_order`, so it reaches affordances, roads and
-///   territory). That one key maps to **[`PipelineStage::Climate`]**.
-///
-/// The two remaining `ClimateParams`/`WeatherParams` inputs are deliberately
-/// absent: `sea_level`, because `recompute_stale` is handed
-/// `WorldState::sea_level` (a World-Structure archetype re-anchors it during
-/// generation, so the dial is not what the recompute reads); and `world`,
-/// because `WorldGen::recompute_params` pins it to the value `absorb`
-/// snapshotted rather than reading the dial — a moved geometry switch must
-/// not make a recompute describe a different world.
-/// `params_mapping.rs`'s `every_key_that_moves_refresh_climate_is_marked`
-/// derives the Hydrology half mechanically, by running `refresh_climate`
-/// twice per key, so the list cannot drift from the code.
-///
-/// ## Why the node marked is one *above* the stage that goes stale
-///
-/// [`cartalith_spatial::StageGraph`] has no "this stage's own inputs moved"
-/// state: `mark_changed(S)` means *S's output changed*, which makes S's
-/// **consumers** stale and S itself current (`staleness.rs`'s own
-/// `a_downstream_only_edit_recomputes_nothing_upstream_of_it`). So the node
-/// to mark is the one immediately upstream of the shallowest stage the dial
-/// actually invalidates:
-///
-/// - a climate dial ⇒ mark `Hydrology` ⇒ climate **and** civ go stale, and
-///   `recompute_stale`'s `any_stale(clim)` gate fires, so one
-///   `refresh_climate` runs. Not a fiction for the weather half —
-///   `refresh_climate`'s first statement recomputes `flow_discharge` from the
-///   new rainfall, which *is* hydrology's output. It is one node coarser than
-///   the truth for the few temperature-only dials (`lapse_rate`, `albedo_k`),
-///   where discharge does not in fact move; representing those exactly would
-///   need a fifth, `params` source node, which SG-03 was briefed against the
-///   existing four-node set rather than adding.
-/// - `river_density` ⇒ mark `Climate` ⇒ **only** civ goes stale, and
-///   `recompute_stale` runs nothing at all (neither hydrology nor climate has
-///   a changed upstream), leaving `still_stale = ["civ"]` for the
-///   Civilization dock's Recompute button. Marking `Civ` itself would mark
-///   nothing stale — it is the leaf.
-pub fn invalidates(key: &str) -> Option<PipelineStage> {
-    match key {
-        "river_density" => Some(PipelineStage::Climate),
-        // The four non-`climate.` fields `climate_params_for`/
-        // `weather_params_for` read. `sea_level` and `world` are the two
-        // documented exclusions above.
-        "peak_m" | "planet.g" | "planet.rotation_hours" | "planet.axial_tilt_deg" => {
-            Some(PipelineStage::Hydrology)
-        }
-        // Every `climate.*` row — the `climate` and `weather` groups both —
-        // is read by `refresh_climate`, without exception. A future row that
-        // is not fails the mechanical test rather than silently promising a
-        // recompute that would apply nothing.
-        _ if key.starts_with("climate.") => Some(PipelineStage::Hydrology),
-        _ => None,
-    }
 }
 
 /// Current value of `key` on `p`, or `None` for an unknown key.

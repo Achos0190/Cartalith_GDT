@@ -189,6 +189,8 @@ dependencies = [
  "cartalith-jsmath",
  "cartalith-spatial",
  "cartalith-terrain",
+ "rayon",
+ "serde_json",
  "zip",
 ]
 
@@ -253,6 +255,7 @@ dependencies = [
 name = "cartalith-io"
 version = "0.1.0"
 dependencies = [
+ "cartalith-spatial",
  "flate2",
  "serde",
  "serde_json",
