@@ -236,7 +236,11 @@ impl WorldGen {
             // And the grade, in the same slot it occupies on screen: after
             // local contrast, over the finished terrain image. Without it an
             // export of a graded look would ship the ungraded picture.
-            render::apply_color_grade(&appearance, &mut px);
+            // The grade's four field-influence weights, sampled from the grid
+            // into the export's own raster -- without this the on-screen and
+            // exported pictures would disagree wherever a weight is set.
+            let inf = render::build_grade_influence(ctx, w, h);
+            render::apply_color_grade(&appearance, &mut px, &inf);
             px
         }) else {
             return fail("could not assemble the render context");

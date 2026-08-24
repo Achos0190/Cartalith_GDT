@@ -87,11 +87,12 @@ fn render_serial(s: &Synth, a: &TerrainAppearance) -> Vec<u8> {
     }
     render::apply_local_contrast(a, &mut out, GW, GH, false);
     // The colour grade runs in the same slot `lib.rs`'s own texture loop puts
-    // it in -- after local contrast, over the finished terrain image. Without
-    // it here, every `grade_*` tunable would look inert to
+    // it in -- after local contrast, over the finished terrain image, with the
+    // four field-influence weights resolved against the same ctx. Without it
+    // here, every `grade_*` tunable would look inert to
     // `every_tunable_is_load_bearing`, which is exactly the class of bug that
     // test exists to catch.
-    render::apply_color_grade(a, &mut out);
+    render::apply_color_grade(a, &mut out, &render::build_grade_influence(&c, GW, GH));
     out
 }
 
@@ -110,11 +111,12 @@ fn render_parallel(s: &Synth, a: &TerrainAppearance) -> Vec<u8> {
     });
     render::apply_local_contrast(a, &mut out, GW, GH, false);
     // The colour grade runs in the same slot `lib.rs`'s own texture loop puts
-    // it in -- after local contrast, over the finished terrain image. Without
-    // it here, every `grade_*` tunable would look inert to
+    // it in -- after local contrast, over the finished terrain image, with the
+    // four field-influence weights resolved against the same ctx. Without it
+    // here, every `grade_*` tunable would look inert to
     // `every_tunable_is_load_bearing`, which is exactly the class of bug that
     // test exists to catch.
-    render::apply_color_grade(a, &mut out);
+    render::apply_color_grade(a, &mut out, &render::build_grade_influence(&c, GW, GH));
     out
 }
 
@@ -354,12 +356,17 @@ fn tunable_ranges_clamp_and_are_ordered() {
 /// stage, so a value that is real in isolation but swallowed downstream still
 /// fails here.
 ///
-/// Two exemptions, both real and both stated rather than skipped silently:
+/// Six exemptions, all real and all stated rather than skipped silently:
 /// `splat_strength` is inert with no asset pack attached (the synthetic ctx
-/// attaches none, exactly as a pack-less session does); and
-/// `border_width_frac` is composited by `lib.rs`'s texture loop rather than by
-/// `cell_color`, so it is asserted below through `border_cover` instead of
-/// through a pixel diff this harness cannot see.
+/// attaches none, exactly as a pack-less session does); `border_width_frac` is
+/// composited by `lib.rs`'s texture loop rather than by `cell_color`, so it is
+/// asserted below through `border_cover` instead of through a pixel diff this
+/// harness cannot see; and the four `grade_field_*` weights are **weights on
+/// the grade**, not axes of their own — at the default appearance the grade is
+/// at rest, and scaling nothing is still nothing. They are asserted instead in
+/// `the_field_influence_weights_move_a_grade_and_only_a_grade`, over a grade
+/// that is actually doing something, which is the only condition under which
+/// they can be load-bearing at all.
 ///
 /// **`hydro_wet_strength` was a third until 2026-08-24** — it was bound
 /// correctly over an engine stage that rendered nothing at working resolution
@@ -369,7 +376,8 @@ fn tunable_ranges_clamp_and_are_ordered() {
 /// expensive one that checks it at the three real grid sizes.
 #[test]
 fn every_tunable_is_load_bearing() {
-    const EXEMPT: [&str; 2] = ["splat_strength", "border_width_frac"];
+    const EXEMPT: [&str; 6] =
+        ["splat_strength", "border_width_frac", "grade_field_biome", "grade_field_elevation", "grade_field_moisture", "grade_field_geology"];
     let s = synth();
     let base = render_serial(&s, &TerrainAppearance::default());
     for (key, lo, hi, label) in TerrainAppearance::TUNABLE {
@@ -477,7 +485,7 @@ fn every_new_render_stage_is_load_bearing() {
 fn the_colour_grade_is_inert_at_rest_and_real_otherwise() {
     let src: Vec<u8> = (0..300u32).map(|i| (i * 7 % 256) as u8).collect();
     let mut rest = src.clone();
-    render::apply_color_grade(&TerrainAppearance::default(), &mut rest);
+    render::apply_color_grade(&TerrainAppearance::default(), &mut rest, &[]);
     assert_eq!(rest, src, "the grade moved a pixel at its own defaults");
     assert!(TerrainAppearance::default().grade_is_identity());
 
@@ -488,12 +496,98 @@ fn the_colour_grade_is_inert_at_rest_and_real_otherwise() {
         ("temperature", TerrainAppearance { grade_temperature: 0.4, ..TerrainAppearance::default() }),
         ("shadow_tint", TerrainAppearance { grade_shadow_tint: 0.6, ..TerrainAppearance::default() }),
         ("highlight_tint", TerrainAppearance { grade_highlight_tint: 0.6, ..TerrainAppearance::default() }),
+        ("gamma", TerrainAppearance { grade_gamma: 0.4, ..TerrainAppearance::default() }),
     ] {
         assert!(!a.grade_is_identity(), "{name} did not clear the identity gate");
         let mut px = src.clone();
-        render::apply_color_grade(&a, &mut px);
+        render::apply_color_grade(&a, &mut px, &[]);
         assert_ne!(px, src, "grade `{name}` changed no pixel");
     }
+
+    // A weight with no grade under it must still be the identity: the gate
+    // deliberately ignores the four, and this is what pins that.
+    for a in [
+        TerrainAppearance { grade_field_biome: 1.0, ..TerrainAppearance::default() },
+        TerrainAppearance { grade_field_elevation: -1.0, ..TerrainAppearance::default() },
+        TerrainAppearance { grade_field_moisture: 1.0, ..TerrainAppearance::default() },
+        TerrainAppearance { grade_field_geology: 1.0, ..TerrainAppearance::default() },
+    ] {
+        assert!(a.grade_is_identity(), "a field weight alone must still be the identity grade");
+    }
+}
+
+/// Gamma is a **symmetric power curve**, not a brightness offset: `+k` and
+/// `-k` must be inverse bends about the same endpoints, and neither may move
+/// pure black or pure white. That is the property that separates it from the
+/// exposure axis directly above it, and it is a claim about the maths rather
+/// than about the tuning.
+#[test]
+fn gamma_is_a_symmetric_power_curve_that_pins_both_endpoints() {
+    let g = |k: f64, v: u8| -> u8 {
+        let mut px = vec![v, v, v];
+        render::apply_color_grade(&TerrainAppearance { grade_gamma: k, ..TerrainAppearance::default() }, &mut px, &[]);
+        px[0]
+    };
+    for k in [-1.0, -0.5, 0.5, 1.0] {
+        assert_eq!(g(k, 0), 0, "gamma {k} moved pure black");
+        assert_eq!(g(k, 255), 255, "gamma {k} moved pure white");
+    }
+    // Positive lifts the midtones and negative sinks them; the two are
+    // inverses of each other, which for a power curve means composing them
+    // returns the original value (symmetric in log space, *not* in linear
+    // difference -- the exponents are 2^-k and 2^+k, whose product is 1).
+    for v in [40u8, 96, 160, 220] {
+        assert!(g(0.6, v) > v, "gamma +0.6 did not lift {v}");
+        assert!(g(-0.6, v) < v, "gamma -0.6 did not sink {v}");
+        let round_trip = g(-0.6, g(0.6, v)) as i32;
+        assert!((round_trip - v as i32).abs() <= 2, "gamma +0.6 then -0.6 did not return {v}: got {round_trip}");
+    }
+}
+
+/// The four field-influence weights, over a grade that is actually doing
+/// something. Three claims, each of which would be a real bug if it failed:
+/// all four weights change the picture; all four at rest leave it **byte for
+/// byte** as the flat grade (the multiply-by-one identity the pass depends on);
+/// and none of them reaches an ungraded image, because a weight scales an axis
+/// rather than being one.
+#[test]
+fn the_field_influence_weights_move_a_grade_and_only_a_grade() {
+    let s = synth();
+    // A grade with real work in every axis, so a weight has something to scale.
+    let graded = TerrainAppearance {
+        grade_exposure: 0.25,
+        grade_contrast: 0.30,
+        grade_saturation: 0.35,
+        grade_temperature: 0.40,
+        grade_gamma: 0.30,
+        ..TerrainAppearance::default()
+    };
+    let flat = render_serial(&s, &graded);
+    assert_eq!(flat, render_serial(&s, &TerrainAppearance { ..graded.clone() }), "the flat grade is not reproducible");
+
+    for (key, target) in
+        [("grade_field_biome", 1.0), ("grade_field_elevation", 1.0), ("grade_field_moisture", -1.0), ("grade_field_geology", 1.0)]
+    {
+        let mut a = graded.clone();
+        assert!(a.set_tunable(key, target), "{key} is not a tunable");
+        let m = moved(&flat, &render_serial(&s, &a), 2);
+        assert!(m > 0.001, "{key} at {target} moved {:.4}% of a graded image", m * 100.0);
+
+        // And the same weight over an ungraded appearance changes nothing.
+        let mut b = TerrainAppearance::default();
+        assert!(b.set_tunable(key, target));
+        assert_eq!(render_serial(&s, &b), render_serial(&s, &TerrainAppearance::default()), "{key} reached an ungraded image");
+    }
+
+    // The builder's own gate, at the level the pass reads it.
+    let c = ctx(&s, graded.clone());
+    assert!(render::build_grade_influence(&c, GW, GH).is_empty(), "a flat grade built a non-empty influence buffer");
+    let mut weighted = graded.clone();
+    weighted.set_tunable("grade_field_elevation", 1.0);
+    let inf = render::build_grade_influence(&ctx(&s, weighted), GW, GH);
+    assert_eq!(inf.len(), GW * GH, "the influence buffer is not one entry per cell");
+    assert!(inf.iter().all(|m| (0.0..=2.0).contains(m)), "an influence multiplier escaped 0..2");
+    assert!(inf.iter().any(|m| *m != inf[0]), "the elevation weight produced a constant multiplier");
 }
 
 /// Saturation is exactly luminance-preserving, and the temperature axis is
@@ -506,14 +600,14 @@ fn the_grade_preserves_luminance_where_it_claims_to() {
     let src: Vec<u8> = vec![180, 120, 60, 40, 90, 140, 200, 200, 200, 20, 30, 25];
     for k in [-0.8, -0.3, 0.5, 1.0] {
         let mut px = src.clone();
-        render::apply_color_grade(&TerrainAppearance { grade_saturation: k, ..TerrainAppearance::default() }, &mut px);
+        render::apply_color_grade(&TerrainAppearance { grade_saturation: k, ..TerrainAppearance::default() }, &mut px, &[]);
         for (a, b) in src.chunks(3).zip(px.chunks(3)) {
             assert!((luma(a) - luma(b)).abs() < 1.5, "saturation {k} moved luma {} -> {}", luma(a), luma(b));
         }
     }
     for k in [-1.0, -0.4, 0.4, 1.0] {
         let mut px = src.clone();
-        render::apply_color_grade(&TerrainAppearance { grade_temperature: k, ..TerrainAppearance::default() }, &mut px);
+        render::apply_color_grade(&TerrainAppearance { grade_temperature: k, ..TerrainAppearance::default() }, &mut px, &[]);
         for (a, b) in src.chunks(3).zip(px.chunks(3)) {
             assert!((luma(a) - luma(b)).abs() < 6.0, "temperature {k} moved luma {} -> {} by more than the compensation allows", luma(a), luma(b));
         }
@@ -844,3 +938,4 @@ fn a_preset_missing_fields_loads_at_their_defaults() {
     assert_eq!(back.paper_strength, TerrainAppearance::default().paper_strength, "a field the file did not carry must come back at its own default");
     assert_eq!(back.ramp, ElevationRamp::default());
 }
+

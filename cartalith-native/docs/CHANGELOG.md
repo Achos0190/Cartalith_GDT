@@ -25307,3 +25307,184 @@ above.
 look — a look with a non-identity grade is now load-bearing test surface, and
 `the_export_is_unchanged_by_the_grade_at_the_shipped_look` will fail loudly if
 the shipped default ever becomes one.
+
+## The grade got its last four axes and its midtone bend (`GUI_GAP_REGISTER.md` CA-14, 2026-08-24)
+
+`apply_color_grade` shipped six of ten axes. This closes the other four plus
+gamma, which is what CA-14 has listed as still-owed since the stage was built.
+
+### What the design actually asked for, and where it says so
+
+"The four field-influence weights" was recorded in two places and neither is
+ambiguous about *which* four:
+
+- `design/Cartalith Menu Structure v2.dc.html`, MAP ▸ TERRAIN APPEARANCE ▸
+  COLOUR, nested under the colour controls: **"+ Field influence weights ·
+  Biome · elevation · moisture · geology"**.
+- `TERRAIN_APPEARANCE_RESEARCH.md` §17 (COLOUR VIBRANCY SYSTEM), whose control
+  list ends with the same four names after Vibrancy/Saturation/Contrast/
+  Brightness/Gamma/Temperature/Tint.
+
+Both place them *under* the colour group rather than beside it, which settles
+the semantics the register left open: they are **weights on the grade**, not
+axes of their own. A weight lets the grade's strength track one underlying
+field instead of landing flat across the sheet.
+
+### Built
+
+**Gamma** (`grade_gamma`, −1..1) — a symmetric power curve with exponent
+`2^-gamma`, applied per channel immediately after exposure, which is the
+lift-gamma-gain order every grading tool uses. `0` runs no `powf` at all
+(gated like the temperature axis), so the default path is bit-identical to the
+six-axis grade rather than merely close to it. The base is floored at `0`
+rather than clamped to `0..1`: a negative base with a fractional exponent is
+NaN in Rust as it is in JS, while a base above `1` is a highlight exposure
+already pushed there and crushing it would undo the axis above.
+
+**The four weights** (`grade_field_biome`/`_elevation`/`_moisture`/`_geology`,
+each −1..1) — `render::build_grade_influence(ctx, w, h)` reduces each field to
+a `0..1` per-cell signal, centres it, and sums:
+`m = 1 + Σ wₖ·(2·sₖ − 1)`, clamped to `0..2`. `apply_color_grade` gained a
+third parameter and now scales **every axis' departure from rest** by `m`.
+
+| weight | signal |
+|---|---|
+| elevation | relative land elevation `(h − sea)/(1 − sea)`; `0` on water |
+| moisture | the rainfall field, clamped `0..1` |
+| biome | `BIOME_VEGETATION_COVER[classify_biome(t, m)]`; `0` on water |
+| geology | Rec.709 luma of the cell's own rock in the current lithology palette; the neutral `0.5` where there is no lithology |
+
+**The one part that is this port's own choice, stated rather than buried.**
+Biome is a *category* and a weight needs a scalar, and no document says which
+scalar. `BIOME_VEGETATION_COVER` (14 entries, `BIOME_KEYS` order) is a standing-
+vegetation-cover ordering — bare ice and desert at the bottom, closed temperate
+and tropical rainforest at the top. That ordering is the claim; the exact
+figures are not. Geology deliberately avoids a second such table by reading the
+**lithology palette's own lightness**, so it tracks whatever palette the user is
+looking at instead of a hand-ranked rock list.
+
+The multiplier is a *field* quantity, so it is built per grid cell and sampled
+nearest-neighbour into the output raster — the identity at grid resolution, a
+block sample at 8K, which is right for a term that only scales how hard a
+restrained grade lands.
+
+### Two invariants the implementation is built around
+
+1. **All four weights at rest is byte-identical to the old six-axis grade.**
+   `build_grade_influence` returns an **empty** `Vec` (the `coast_d`/`crest`
+   contract: the consumer reads the length, never a flag), and multiplying by
+   an exactly-`1.0` multiplier is exact in IEEE-754, so the equality is
+   structural rather than approximate.
+2. **A weight with no grade under it is still the identity.**
+   `grade_is_identity()` deliberately ignores the four — scaling nothing is
+   still nothing, and a grade with weights but no axes must early-return like
+   one. `build_grade_influence` checks it too, so a set of weights over a
+   resting grade allocates nothing.
+
+Both call sites pass the buffer: `build_color_texture` at `(gw, gh)` and
+`export_raster_png` at the export's own `(w, h)`, so the screen and the file
+cannot disagree.
+
+### GUI
+
+`render_workspace.gd`: gamma joins the **Colour grade** group in its
+colourist-order slot (second, right after exposure), and the four weights get
+their own adjacent **Grade field influence** group. The design nests them
+inside COLOUR; this shell has no in-group nesting, so an adjacent named group
+is the closest honest arrangement, and each row's help line says outright that
+it does nothing while the grade itself is at rest. The dock's own "Still owed"
+prose is updated: of colour grading, only the free colour pickers for the two
+tints remain.
+
+### Verified
+
+- `cargo build -p cartalith-godot` clean.
+- Whole `cartalith-godot` suite green: 337 lib, 39 `appearance_tiers.rs`
+  (37 → 39), 13 `bake_raster.rs`, every other target unchanged. Golden-parity
+  render and NPR targets both still pass, which is the assertion that matters
+  most here — `render.rs` is `#[path]`-included by them, and the grade is
+  downstream of everything they pin.
+- **`gamma_is_a_symmetric_power_curve_that_pins_both_endpoints`** — pure black
+  and pure white do not move at any gamma; `+k` lifts and `−k` sinks; and
+  `g(−k, g(+k, v)) == v` within one quantisation step. The first draft of this
+  test asserted *linear* symmetry (`+Δ == −Δ`) and failed at 40/255 — a power
+  curve is symmetric in log space, which is the whole difference between gamma
+  and the exposure axis above it. The test was wrong, not the code.
+- **`the_field_influence_weights_move_a_grade_and_only_a_grade`** — over a
+  grade with real work in every axis, each of the four moves the picture; each
+  of the four over an **ungraded** appearance leaves it byte-identical; the
+  influence buffer is empty for a flat grade, one entry per cell otherwise,
+  every multiplier inside `0..2`, and not constant.
+- `every_tunable_is_load_bearing` now exempts the four **by name, with the
+  reason in the doc comment** rather than silently: at the default appearance
+  the grade is at rest, so a weight on it cannot move a pixel and the mutation
+  rule genuinely does not apply. That is the third and fourth such exemption in
+  that test and both are stated the way `splat_strength` and
+  `border_width_frac` already are.
+- Headless boot-check green (`--headless --quit-after 3`, extension initialised).
+
+### Verified — non-headless, real bindings, 1024 × 655 (seed 483920)
+
+`_gradeaxes_shot.gd`, a real windowed session against the built cdylib. Grid
+resolution deliberately below the usual 2048: every claim here is per-pixel and
+the harness compares ~15 whole rasters in interpreted GDScript.
+
+All five keys are published with their real ranges and labels
+(`grade_gamma [-1..1] 'Gamma'`, `grade_field_biome [-1..1] 'Biome influence'`,
+and the other three), so an older cdylib would drop the rows rather than draw
+dead ones.
+
+**Gamma**, against the ungraded base (mean luma 133.11):
+
+| gamma | pixels moved | mean \|d\| | worst | mean luma |
+|---|---|---|---|---|
+| −0.6 | 99.23 % | 32.79 | 39 | **100.29** |
+| −0.3 | 99.23 % | 16.61 | 20 | **116.49** |
+| *rest* | — | — | — | **133.11** |
+| +0.3 | 98.90 % | 15.04 | 19 | **148.16** |
+| +0.6 | 99.10 % | 29.54 | 38 | **162.67** |
+
+Monotone in both directions and roughly symmetric about the base, which is the
+axis behaving as a midtone bend rather than as a second exposure.
+
+**The four weights over a grade that is at rest** — the claim the identity gate
+is built around, on the real bindings rather than in a unit test:
+
+| weight at `1.0` | pixels moved | worst |
+|---|---|---|
+| biome | **0.000 %** | **0** |
+| elevation | **0.000 %** | **0** |
+| moisture | **0.000 %** | **0** |
+| geology | **0.000 %** | **0** |
+
+**And over a grade that is doing something** (exposure `0.25`, contrast `0.30`,
+saturation `0.35`, temperature `0.40`, gamma `0.30` — itself 99.23 % moved,
+mean 43.05 against the base), each measured against that *flat* graded image:
+
+| weight | pixels moved | mean \|d\| | worst |
+|---|---|---|---|
+| biome `+1` | 97.95 % | 31.34 | 113 |
+| elevation `+1` | 94.68 % | 23.06 | 101 |
+| moisture `−1` | 95.51 % | 28.32 | 113 |
+| geology `+1` | 95.75 % | 12.50 | 51 |
+
+Returning every key to rest reproduces the base **byte for byte** (`0.0 %`
+moved, worst `0`).
+
+Looked at, not only measured: the elevation weight's own frame is the clearest
+statement of what the feature is for — the sea and the highest ground read
+essentially ungraded (their signal sits at the low end of the axis, so the
+multiplier lands near `0`) while the lowlands take the warm graded look at full
+strength. A grade that follows the terrain instead of lying flat across the
+sheet, which is what the design's nesting under COLOUR asked for.
+
+Dock: `Gamma`, `Biome influence`, `Elevation influence`, `Moisture influence`
+and `Geology influence` all drawn in the real RENDER workspace. The probe also
+looked for the group heading `Grade field influence` and reported it missing —
+that is the probe, not the dock: `DccWidgets.group` renders a heading as an
+upper-cased `Button`, and the sweep only collected `Label` text.
+
+**Still open:** free colour pickers for the shadow and highlight tints — they
+remain a blue↔amber axis, which is the last row of CA-14. And
+`BIOME_VEGETATION_COVER`'s figures are a first pass; the ordering is what the
+tests pin, so a retune is a table edit and nothing else.

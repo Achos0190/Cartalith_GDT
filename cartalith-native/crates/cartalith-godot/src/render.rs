@@ -1004,6 +1004,37 @@ pub struct TerrainAppearance {
     pub grade_shadow_tint: f64,
     /// Tint of the **highlights**, weighted by `luma`.
     pub grade_highlight_tint: f64,
+    /// Gamma, as a symmetric power curve about the `[0,1]` channel range:
+    /// the exponent is `2^-gamma`, so `+1` lifts the midtones (exponent
+    /// `0.5`), `-1` sinks them (exponent `2`) and `0` is the exact identity —
+    /// no `powf` runs at all at rest, which is what keeps the default path
+    /// bit-identical to the six-axis grade that shipped first.
+    pub grade_gamma: f64,
+
+    // ---- The four field-influence weights (2026-08-24) ----
+    //
+    // `design/Cartalith Menu Structure v2.dc.html`, MAP ▸ TERRAIN APPEARANCE ▸
+    // COLOUR ▸ "+ Field influence weights: Biome · elevation · moisture ·
+    // geology", and `TERRAIN_APPEARANCE_RESEARCH.md` §17, which lists the same
+    // four at the bottom of its COLOUR VIBRANCY SYSTEM control list. They are
+    // weights *on the grade*, not axes of their own: each one lets the grade's
+    // strength track one underlying field instead of landing flat across the
+    // sheet. See [`build_grade_influence`] for the per-cell signals and for
+    // which part of the mapping is this port's own choice.
+    /// How strongly the grade follows **biome vegetation cover**
+    /// ([`BIOME_VEGETATION_COVER`]). `0` is flat, `+1` grades bare ice and
+    /// desert least and closed forest most, `-1` reverses that.
+    pub grade_field_biome: f64,
+    /// How strongly the grade follows **relative land elevation** (`0` at and
+    /// below sea level, `1` at the top of the land range).
+    pub grade_field_elevation: f64,
+    /// How strongly the grade follows **moisture** (the rainfall field, `0..1`).
+    pub grade_field_moisture: f64,
+    /// How strongly the grade follows **geology** — the lightness of the
+    /// cell's own rock in the current lithology palette, so a dark basalt and a
+    /// pale limestone sit at opposite ends of the same axis the map already
+    /// draws. Inert on a loaded save, which carries no lithology.
+    pub grade_field_geology: f64,
 
     /// The reference's non-photorealistic block ([`Npr`]) — all off by
     /// default, so this field changes nothing until a caller sets it.
@@ -1100,6 +1131,11 @@ impl Default for TerrainAppearance {
             grade_temperature: 0.0,
             grade_shadow_tint: 0.0,
             grade_highlight_tint: 0.0,
+            grade_gamma: 0.0,
+            grade_field_biome: 0.0,
+            grade_field_elevation: 0.0,
+            grade_field_moisture: 0.0,
+            grade_field_geology: 0.0,
             npr: Npr::default(),
         }
     }
@@ -1515,6 +1551,15 @@ tunables! {
     "grade_temperature"     => grade_temperature,    -1.0,   1.0,  "Temperature";
     "grade_shadow_tint"     => grade_shadow_tint,    -1.0,   1.0,  "Shadow tint";
     "grade_highlight_tint"  => grade_highlight_tint, -1.0,   1.0,  "Highlight tint";
+    "grade_gamma"           => grade_gamma,          -1.0,   1.0,  "Gamma";
+    // -- The grade's four field-influence weights. Not axes: a weight scales
+    //    the six axes above per cell, so all four are inert while the grade
+    //    itself is at rest (which is why `every_tunable_is_load_bearing`
+    //    exempts them by name and a dedicated test covers them instead). --
+    "grade_field_biome"     => grade_field_biome,    -1.0,   1.0,  "Biome influence";
+    "grade_field_elevation" => grade_field_elevation,-1.0,   1.0,  "Elevation influence";
+    "grade_field_moisture"  => grade_field_moisture, -1.0,   1.0,  "Moisture influence";
+    "grade_field_geology"   => grade_field_geology,  -1.0,   1.0,  "Geology influence";
 }
 
 /// The one tunable that is not an `f64`: the number of hillshade light
@@ -3705,32 +3750,256 @@ pub fn apply_local_contrast(a: &TerrainAppearance, rgb: &mut [u8], gw: usize, gh
 // generation stage stale, and re-grading is a re-render of the texture over
 // the world that is already there.
 //
-// # Why one pass rather than six
+// # Why one pass rather than seven
 //
-// Exposure, contrast, temperature, the two tints and saturation compose into
-// a single read-modify-write per pixel. Six passes over a 2048² buffer would
-// be six times the memory traffic for arithmetic that costs less than the
-// traffic does.
+// Exposure, gamma, contrast, temperature, the two tints and saturation
+// compose into a single read-modify-write per pixel. Seven passes over a
+// 2048² buffer would be seven times the memory traffic for arithmetic that
+// costs less than the traffic does.
+//
+// # The four field-influence weights
+//
+// The one thing in this stage that is *not* purely a function of the pixel.
+// [`build_grade_influence`] turns the four weights into one `f32` multiplier
+// per output pixel, built once from the grid fields before the pass runs;
+// [`apply_color_grade`] then scales every axis' departure from rest by it. The
+// buffer is **empty** whenever all four weights are `0.0`, and the pass reads
+// its length rather than a flag — `coast_d`/`crest`'s own contract in
+// [`RenderCtx`], for the same reason: a gate and a buffer that can disagree
+// eventually do.
+//
+// Multiplying by an exactly-`1.0` multiplier is exact in IEEE-754, so the
+// no-weight path is bit-identical to the six-axis grade that shipped first
+// rather than merely close to it.
 
 impl TerrainAppearance {
     /// Whether the grade is the identity — every parameter at rest. The pass
-    /// early-returns on this rather than evaluating six no-ops per pixel, the
-    /// same gate rule every stage in this file follows.
+    /// early-returns on this rather than evaluating seven no-ops per pixel,
+    /// the same gate rule every stage in this file follows.
+    ///
+    /// The four field weights are deliberately **not** part of this test: a
+    /// weight scales the axes above and scaling nothing is still nothing, so a
+    /// grade with weights but no axes is the identity and must early-return
+    /// like one.
     #[allow(dead_code)]
     pub fn grade_is_identity(&self) -> bool {
-        self.grade_exposure == 0.0 && self.grade_contrast == 0.0 && self.grade_saturation == 0.0 && self.grade_temperature == 0.0 && self.grade_shadow_tint == 0.0 && self.grade_highlight_tint == 0.0
+        self.grade_exposure == 0.0
+            && self.grade_contrast == 0.0
+            && self.grade_saturation == 0.0
+            && self.grade_temperature == 0.0
+            && self.grade_shadow_tint == 0.0
+            && self.grade_highlight_tint == 0.0
+            && self.grade_gamma == 0.0
     }
+
+    /// Whether any field-influence weight is set. Only [`build_grade_influence`]
+    /// needs it, and it is the gate that keeps the whole builder off the
+    /// default path.
+    #[allow(dead_code)]
+    pub fn grade_influence_is_flat(&self) -> bool {
+        self.grade_field_biome == 0.0 && self.grade_field_elevation == 0.0 && self.grade_field_moisture == 0.0 && self.grade_field_geology == 0.0
+    }
+}
+
+/// Standing vegetation cover per `cartalith_civ::BIOME_KEYS` index (`0` =
+/// ocean, `13` = lake), `0..1`.
+///
+/// **This table is this port's own**, and it is the one part of the
+/// field-influence feature the design did not specify. Biome is a *category*,
+/// and a weight needs a scalar; of the properties every one of the thirteen
+/// categories has, standing vegetation cover is the one a colourist means by
+/// "let the grade lean on biome" — it is what puts chroma on a map. The
+/// ordering (bare ice and desert at the bottom, closed temperate and tropical
+/// rainforest at the top) is the only claim being made, not the exact figures.
+#[allow(dead_code)]
+pub const BIOME_VEGETATION_COVER: [f64; 14] = [
+    0.00, // ocean
+    0.00, // ice
+    0.15, // tundra
+    0.75, // boreal
+    0.80, // conifer
+    0.90, // temperate forest
+    1.00, // temperate rainforest
+    0.40, // grassland
+    0.30, // shrubland
+    0.05, // desert
+    0.50, // savanna
+    0.70, // tropical dry forest
+    1.00, // tropical rainforest
+    0.00, // lake
+];
+
+/// One `f32` multiplier per output pixel for [`apply_color_grade`], or an
+/// **empty** `Vec` when every field-influence weight is at rest.
+///
+/// # What each weight reads
+///
+/// Each field is reduced to a `0..1` signal per grid cell and then centred, so
+/// a weight of `0` contributes exactly nothing and the multiplier at rest is
+/// exactly `1.0`:
+///
+/// | weight | signal |
+/// |---|---|
+/// | elevation | relative land elevation, `(h - sea) / (1 - sea)`; `0` on water |
+/// | moisture | the rainfall field, clamped to `0..1` |
+/// | biome | [`BIOME_VEGETATION_COVER`] of `classify_biome(temperature, rainfall)`; `0` on water |
+/// | geology | the Rec.709 luma of the cell's own rock in the current lithology palette; the neutral `0.5` where there is no lithology (a loaded save) |
+///
+/// `m = 1 + Σ wₖ·(2·sₖ − 1)`, clamped to `0..2` so a stack of weights can
+/// double the grade or cancel it but never invert it.
+///
+/// # Resolution
+///
+/// The multiplier is a **field** quantity, so it is built per grid cell and
+/// sampled nearest-neighbour into the output raster. At the on-screen size
+/// (`w == gw`, `h == gh`) that mapping is the identity; at an 8K export it is
+/// a block sample, which is right for a term that only scales how hard a
+/// restrained grade lands and wrong to spend a bilinear read on.
+///
+/// # NaN
+///
+/// The three float fields are `f32` grids the generator produced and every use
+/// below goes through `clamp01`, which pins a NaN to the low end rather than
+/// propagating it (`cartalith-rust-conventions`: this file never sorts or
+/// `partial_cmp`s a float, so there is no panic path here).
+#[allow(dead_code)]
+pub fn build_grade_influence(ctx: &RenderCtx, w: usize, h: usize) -> Vec<f32> {
+    let a = &ctx.appearance;
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    if a.grade_influence_is_flat() || a.grade_is_identity() || w == 0 || h == 0 || gw == 0 || gh == 0 {
+        return Vec::new();
+    }
+    let n = gw * gh;
+    if ctx.field.len() < n || ctx.temperature.len() < n || ctx.rainfall.len() < n {
+        return Vec::new();
+    }
+    let span = (1.0 - ctx.sea_level).max(1e-6);
+    let lith = ctx.lithology.filter(|l| l.len() >= n);
+    let mut cell = vec![1f32; n];
+    cell.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
+        for (x, m) in row.iter_mut().enumerate() {
+            let i = y * gw + x;
+            let hv = ctx.field[i] as f64;
+            let water = hv < ctx.sea_level;
+            let s_elev = if water { 0.0 } else { clamp01((hv - ctx.sea_level) / span) };
+            let s_moist = clamp01(ctx.rainfall[i] as f64);
+            let s_biome = if water {
+                0.0
+            } else {
+                let b = cartalith_civ::classify_biome(ctx.temperature[i] as f64, s_moist) as usize;
+                BIOME_VEGETATION_COVER[b.min(BIOME_VEGETATION_COVER.len() - 1)]
+            };
+            let s_geo = match lith {
+                Some(l) => clamp01(luma(litho_palette(a, l[i])[1]) / 255.0),
+                None => 0.5,
+            };
+            let v = 1.0
+                + a.grade_field_elevation * (2.0 * s_elev - 1.0)
+                + a.grade_field_moisture * (2.0 * s_moist - 1.0)
+                + a.grade_field_biome * (2.0 * s_biome - 1.0)
+                + a.grade_field_geology * (2.0 * s_geo - 1.0);
+            *m = v.clamp(0.0, 2.0) as f32;
+        }
+    });
+    if w == gw && h == gh {
+        return cell;
+    }
+    let mut out = vec![1f32; w * h];
+    out.par_chunks_mut(w).enumerate().for_each(|(oy, row)| {
+        let gy = (oy * gh / h).min(gh - 1);
+        for (ox, m) in row.iter_mut().enumerate() {
+            *m = cell[gy * gw + (ox * gw / w).min(gw - 1)];
+        }
+    });
+    out
+}
+
+/// The grade's seven scalar axes resolved at one influence multiplier.
+///
+/// `at(a, 1.0)` reproduces the unweighted grade exactly — every term is a
+/// multiplication by `1.0`, which IEEE-754 guarantees is the identity for
+/// every finite value.
+#[derive(Clone, Copy)]
+struct GradeAxes {
+    exposure: f64,
+    /// The **weight**, not the exponent — kept in the parameter's own units so
+    /// the `!= 0.0` gate below still means "gamma is at rest" and no `powf`
+    /// runs on the default path.
+    gamma: f64,
+    contrast: f64,
+    temperature: f64,
+    shadow: f64,
+    highlight: f64,
+    sat: f64,
+}
+
+impl GradeAxes {
+    fn at(a: &TerrainAppearance, m: f64) -> Self {
+        let k = a.grade_contrast * m;
+        GradeAxes {
+            exposure: 1.0 + a.grade_exposure * m,
+            gamma: a.grade_gamma * m,
+            // `1 + c` for a lift and `1/(1 - c)` for a boost gives a symmetric
+            // feel either side of 0 without the slope ever going negative
+            // (which would invert the image rather than flatten it) or
+            // infinite.
+            contrast: if k >= 0.0 { 1.0 / (1.0 - k * 0.75).max(0.1) } else { 1.0 + k * 0.75 },
+            temperature: a.grade_temperature * m,
+            shadow: a.grade_shadow_tint * m,
+            highlight: a.grade_highlight_tint * m,
+            sat: 1.0 + a.grade_saturation * m,
+        }
+    }
+}
+
+/// One channel through the gamma curve. The base is floored at `0` rather than
+/// clamped to `0..1`: a negative base with a fractional exponent is NaN in
+/// Rust as it is in JS, while a base above `1` is a highlight exposure already
+/// pushed there and crushing it here would undo the axis above it.
+fn gamma_channel(v: f64, exponent: f64) -> f64 {
+    255.0 * (v / 255.0).max(0.0).powf(exponent)
+}
+
+/// The grade applied to one pixel at one influence multiplier.
+fn grade_pixel(g: &GradeAxes, mut c: Rgb) -> Rgb {
+    c = (c.0 * g.exposure, c.1 * g.exposure, c.2 * g.exposure);
+    if g.gamma != 0.0 {
+        let e = (-g.gamma).exp2();
+        c = (gamma_channel(c.0, e), gamma_channel(c.1, e), gamma_channel(c.2, e));
+    }
+    c = (128.0 + (c.0 - 128.0) * g.contrast, 128.0 + (c.1 - 128.0) * g.contrast, 128.0 + (c.2 - 128.0) * g.contrast);
+    if g.temperature != 0.0 {
+        c = temperature_shift(c, g.temperature);
+    }
+    if g.shadow != 0.0 || g.highlight != 0.0 {
+        let y = clamp01(luma(c) / 255.0);
+        let t = g.shadow * (1.0 - y) + g.highlight * y;
+        if t != 0.0 {
+            c = temperature_shift(c, t);
+        }
+    }
+    if g.sat != 1.0 {
+        c = saturate(c, g.sat);
+    }
+    c
 }
 
 /// The colour grade, over the finished RGB8 raster in place.
 ///
 /// Order is the order a colourist works in and the order that makes each
 /// control mean what its name says: **exposure** (a linear gain, so it moves
-/// the whole image together), **contrast** (about mid-grey, so exposure has
-/// already put the image where the pivot should sit), **temperature** (global,
-/// on the blue↔amber axis), the **two tints** (weighted by luma and its
-/// complement, so they land in the halves they name), and **saturation** last,
-/// about the graded luma rather than the original.
+/// the whole image together), **gamma** (the midtone bend, immediately after
+/// the gain, which is the lift-gamma-gain order every grading tool uses),
+/// **contrast** (about mid-grey, so exposure and gamma have already put the
+/// image where the pivot should sit), **temperature** (global, on the
+/// blue↔amber axis), the **two tints** (weighted by luma and its complement,
+/// so they land in the halves they name), and **saturation** last, about the
+/// graded luma rather than the original.
+///
+/// `influence` is [`build_grade_influence`]'s per-pixel multiplier, or an
+/// **empty** slice for the flat grade. Any other length is treated as empty —
+/// a mismatched buffer is a caller bug, and grading half an image is a worse
+/// answer than grading it evenly.
 ///
 /// Every stage is luminance-aware rather than a raw channel multiply:
 /// saturation is exactly luminance-preserving and both hue axes are
@@ -3749,36 +4018,21 @@ impl TerrainAppearance {
 /// `rayon`-parallel per pixel, on `apply_local_contrast`'s own determinism
 /// argument: each output byte is a pure function of its own three input bytes.
 #[allow(dead_code)]
-pub fn apply_color_grade(a: &TerrainAppearance, rgb: &mut [u8]) {
+pub fn apply_color_grade(a: &TerrainAppearance, rgb: &mut [u8], influence: &[f32]) {
     if a.grade_is_identity() {
         return;
     }
-    let exposure = 1.0 + a.grade_exposure;
-    // `1 + c` for a lift and `1/(1 - c)` for a boost gives a symmetric feel
-    // either side of 0 without the slope ever going negative (which would
-    // invert the image rather than flatten it) or infinite.
-    let contrast = if a.grade_contrast >= 0.0 { 1.0 / (1.0 - a.grade_contrast * 0.75).max(0.1) } else { 1.0 + a.grade_contrast * 0.75 };
-    let sat = 1.0 + a.grade_saturation;
-    rgb.par_chunks_mut(3).for_each(|px| {
+    let weighted = !influence.is_empty() && influence.len() == rgb.len() / 3;
+    // Hoisted for the flat grade, which is every render that leaves the four
+    // weights alone: the per-pixel path costs a division for `contrast` that
+    // there is no reason to pay a million times over for a constant.
+    let flat = GradeAxes::at(a, 1.0);
+    rgb.par_chunks_mut(3).enumerate().for_each(|(i, px)| {
         if px.len() < 3 {
             return;
         }
-        let mut c: Rgb = (px[0] as f64, px[1] as f64, px[2] as f64);
-        c = (c.0 * exposure, c.1 * exposure, c.2 * exposure);
-        c = (128.0 + (c.0 - 128.0) * contrast, 128.0 + (c.1 - 128.0) * contrast, 128.0 + (c.2 - 128.0) * contrast);
-        if a.grade_temperature != 0.0 {
-            c = temperature_shift(c, a.grade_temperature);
-        }
-        if a.grade_shadow_tint != 0.0 || a.grade_highlight_tint != 0.0 {
-            let y = clamp01(luma(c) / 255.0);
-            let t = a.grade_shadow_tint * (1.0 - y) + a.grade_highlight_tint * y;
-            if t != 0.0 {
-                c = temperature_shift(c, t);
-            }
-        }
-        if sat != 1.0 {
-            c = saturate(c, sat);
-        }
+        let g = if weighted { GradeAxes::at(a, influence[i] as f64) } else { flat };
+        let c = grade_pixel(&g, (px[0] as f64, px[1] as f64, px[2] as f64));
         px[0] = c.0.clamp(0.0, 255.0) as u8;
         px[1] = c.1.clamp(0.0, 255.0) as u8;
         px[2] = c.2.clamp(0.0, 255.0) as u8;

@@ -4283,7 +4283,14 @@ impl WorldGen {
         // the scale bar are Godot overlays composited over this texture, so
         // everything downstream of here is furniture rather than ground.
         // A no-op whenever every grade parameter is at rest.
-        render::apply_color_grade(&appearance, &mut bytes);
+        //
+        // The four field-influence weights are built here rather than inside
+        // the pass because they are a *field* quantity and the pass only ever
+        // sees a byte buffer -- `render::build_grade_influence` returns an
+        // empty `Vec` (and the pass then grades flat) whenever all four are at
+        // rest, which is the default.
+        let grade_influence = render::build_grade_influence(&ctx, gw, gh);
+        render::apply_color_grade(&appearance, &mut bytes, &grade_influence);
 
         // Milestone 7: `drawMapIcons`' own painter's pass, composited over
         // the finished raster exactly as it is in the reference (a separate

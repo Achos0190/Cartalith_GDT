@@ -5,7 +5,40 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **the graded export was right, and nothing
+Last updated: 2026-08-24 (post **the grade got its last four axes and its
+midtone bend** — `GUI_GAP_REGISTER.md` **CA-14 now fully closed**.
+**Gamma** (`grade_gamma`) as a symmetric power curve, exponent `2^-gamma`, in
+the lift-gamma-gain slot straight after exposure and gated at `0` so no `powf`
+runs at rest. **The four field-influence weights** the design has always named
+— `design/Cartalith Menu Structure v2.dc.html` MAP ▸ TERRAIN APPEARANCE ▸
+COLOUR carries "+ Field influence weights · Biome · elevation · moisture ·
+geology", and `TERRAIN_APPEARANCE_RESEARCH.md` §17 lists the same four — are
+**weights on the grade, not axes**, which is what both documents' nesting
+settles. `render::build_grade_influence(ctx, w, h)` reduces each field to a
+`0..1` per-cell signal (relative land elevation; rainfall;
+`BIOME_VEGETATION_COVER[classify_biome(t,m)]`; the lithology palette's own
+lightness), centres it and sums to one multiplier per output pixel that scales
+**every axis' departure from rest**. Two structural invariants rather than
+approximate ones: all four at rest returns an **empty** buffer and multiplying
+by exactly `1.0` is exact in IEEE-754, so the flat grade is byte-identical to
+the six-axis version; and a weight with no grade under it is still the identity,
+so `grade_is_identity()` ignores the four deliberately. Both call sites pass it
+— viewport at `(gw, gh)`, export at its own `(w, h)` — so screen and file
+cannot disagree. **The one thing the design did not specify** is which scalar a
+*category* contributes: `BIOME_VEGETATION_COVER` is this port's own standing-
+vegetation ordering (ice/desert low, closed forest high) and says so; geology
+avoids a second such table by reading the palette's lightness. Dock: gamma in
+the **Colour grade** group, the four in an adjacent **Grade field influence**
+group. `appearance_tiers.rs` 37 → **39 tests** — `gamma_is_a_symmetric_power_
+curve_that_pins_both_endpoints` (black and white pinned, `+k` then `−k` returns
+the original; the first draft asserted *linear* symmetry and failed at 40/255,
+which is the whole difference between gamma and exposure) and
+`the_field_influence_weights_move_a_grade_and_only_a_grade`. The four are
+exempted from `every_tunable_is_load_bearing` **by name with the reason
+recorded**, joining `splat_strength`/`border_width_frac`. **Still owed on
+CA-14: nothing but free colour pickers for the two tints**, which remain a
+blue↔amber axis)
+— previously, post **the graded export was right, and nothing
 could have told you** — a verification pass, **no engine change**. The question
 was whether `export_raster.rs` skips `apply_color_grade`; it does not, and has
 called it in the viewport's own slot off the same `self.appearance()` since the

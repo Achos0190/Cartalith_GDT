@@ -123,8 +123,18 @@ const APPEARANCE_GROUPS := [
 	## terrain raster, before rivers, labels and icons draw. Its own group
 	## because it is a different kind of control from everything above it:
 	## nothing here describes the ground, it describes the print.
-	["Colour grade", ["grade_exposure", "grade_contrast", "grade_saturation",
-		"grade_temperature", "grade_shadow_tint", "grade_highlight_tint"]],
+	["Colour grade", ["grade_exposure", "grade_gamma", "grade_contrast",
+		"grade_saturation", "grade_temperature", "grade_shadow_tint",
+		"grade_highlight_tint"]],
+	## The four field-influence weights, in their own group because they are
+	## not axes: each one scales the grade above by an underlying field, so all
+	## four are inert while every slider in "Colour grade" sits at zero. The
+	## design draws them nested under COLOUR for the same reason
+	## (`design/Cartalith Menu Structure v2.dc.html`, "+ Field influence
+	## weights"); this shell has no nesting inside a group, so a named group
+	## adjacent to the grade is the closest honest arrangement.
+	["Grade field influence", ["grade_field_biome", "grade_field_elevation",
+		"grade_field_moisture", "grade_field_geology"]],
 ]
 
 ## Per-key presentation only: the step, the unit, and a display `scale` for the
@@ -181,6 +191,11 @@ const APPEARANCE_HELP := {
 	"grade_temperature": "Colour temperature on a blue-to-amber axis. Luminance-compensated: warming the map does not also brighten it.",
 	"grade_shadow_tint": "The same blue-to-amber axis, weighted toward the dark half of the image only.",
 	"grade_highlight_tint": "The same blue-to-amber axis, weighted toward the bright half of the image only.",
+	"grade_gamma": "Midtone bend, as a symmetric power curve applied straight after exposure. Pure black and pure white do not move; positive lifts the midtones, negative sinks them, and +k then -k returns the original image.",
+	"grade_field_biome": "How far the grade above follows biome vegetation cover -- bare ice and desert least, closed forest most. Negative reverses it. Does nothing while the whole grade is at rest.",
+	"grade_field_elevation": "How far the grade above follows relative land elevation, from 0 at the coast to 1 at the highest ground. Water takes the low end. Does nothing while the whole grade is at rest.",
+	"grade_field_moisture": "How far the grade above follows the rainfall field. Does nothing while the whole grade is at rest.",
+	"grade_field_geology": "How far the grade above follows the lightness of the rock underneath, in the current lithology palette -- dark basalt and pale limestone at opposite ends. Inert on a loaded save, which stores no lithology, and while the whole grade is at rest.",
 }
 
 var _water_anim: Control
@@ -906,9 +921,10 @@ func _build_owed_inventory() -> void:
 		+ "it. The renderer's ramp is keyed to relative land elevation.")
 	DccWidgets.note(sec,
 		"Of colour grading (2026-08-24, now live above as its own group): "
-		+ "exposure, contrast, saturation, temperature and the two tints are "
-		+ "real; gamma and the four field-influence weights are not, and the "
-		+ "two tints are a blue-to-amber axis rather than free colour pickers. "
+		+ "exposure, contrast, saturation, temperature, the two tints, gamma "
+		+ "(2026-08-24) and the four field-influence weights (2026-08-24, "
+		+ "their own group below the grade) are real; the two tints are still "
+		+ "a blue-to-amber axis rather than free colour pickers. "
 		+ "Still owed: Material exposure per class (vegetation / rock / soil and "
 		+ "their slope, curvature and wetness modulation -- only the lithology "
 		+ "pair and the new curvature/crest stages are live) · Detail & "

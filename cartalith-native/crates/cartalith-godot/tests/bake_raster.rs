@@ -373,6 +373,96 @@ fn a_grid_resolution_export_carries_the_river_tint() {
     assert!(changed <= tinted, "{changed} cells changed but only {tinted} are masked");
 }
 
+/// **The export runs the two whole-raster stages, in the viewport's own
+/// order** — `apply_local_contrast` then `apply_color_grade`.
+///
+/// The stages themselves are covered by `appearance_tiers.rs`; what is
+/// covered here is that the *export* runs them, and runs them in that
+/// sequence. That distinction is not pedantry — it is the gap this test was
+/// written to close. `export_raster.rs` does call both, but nothing proved
+/// it, and the live grid-resolution byte-for-byte probe could not: the
+/// shipped default look (`Natural Vibrant`) leaves every grade parameter at
+/// rest, so `apply_color_grade` is an early return on both sides of that
+/// comparison and a missing call would have passed it silently. Exactly the
+/// root `CLAUDE.md` "silently-empty golden output" failure, one level up.
+///
+/// So the look under test is **`Antique Parchment`**, the one shipped look
+/// whose grade is not the identity (temperature `0.26`, saturation `-0.10`,
+/// contrast `0.08`, shadow tint `0.18`), and the test asserts three things:
+/// the grade is not vacuous at that look, the export's sequence reproduces
+/// the viewport's byte for byte, and the order is load-bearing.
+#[test]
+fn a_grid_resolution_export_carries_the_colour_grade() {
+    let (field, temp, rain, flow) = fixture();
+    let a = TerrainAppearance::default().with_look(render::LOOK_ANTIQUE);
+    assert!(!a.grade_is_identity(), "the fixture look grades nothing -- this test would pass vacuously");
+    let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, 0.42, false, 55.0, 5.0, a.clone());
+    let bf = BakeFields::new(&ctx);
+
+    // `export_raster_png`'s own calls, in its own order — including the
+    // grade's field-influence weights, built from the same `build_grade_
+    // influence(ctx, w, h)` both the export and `build_color_texture` use.
+    // Empty here, because Antique leaves all four weights at rest.
+    let inf = render::build_grade_influence(&ctx, GW, GH);
+    let mut got = render::bake_rect(&ctx, &bf, None, GW, GH, 0, 0, GW, GH);
+    let ungraded = got.clone();
+    render::apply_local_contrast(&a, &mut got, GW, GH, false);
+    let pre_grade = got.clone();
+    render::apply_color_grade(&a, &mut got, &inf);
+
+    // 1. The grade is real here, so a missing call cannot hide.
+    let moved = (0..GW * GH).filter(|&i| pre_grade[i * 3..i * 3 + 3] != got[i * 3..i * 3 + 3]).count();
+    assert!(moved * 2 > GW * GH, "the grade moved only {moved} of {} pixels -- too few for this look to be a real test", GW * GH);
+    let mad = (0..got.len()).map(|i| pre_grade[i].abs_diff(got[i]) as f64).sum::<f64>() / got.len() as f64;
+    assert!(mad > 2.0, "the grade moved a mean of {mad:.2} byte levels -- measurably nothing");
+
+    // 2. `build_color_texture`'s sequence, transcribed as this file already
+    //    transcribes its river-tint loop, must land on the same bytes.
+    let mut want = vec![0u8; GW * GH * 3];
+    for y in 0..GH {
+        for x in 0..GW {
+            let (r, g, b) = render::cell_color(&ctx, x, y);
+            let o = (y * GW + x) * 3;
+            want[o] = (r.clamp(0.0, 1.0) * 255.0) as u8;
+            want[o + 1] = (g.clamp(0.0, 1.0) * 255.0) as u8;
+            want[o + 2] = (b.clamp(0.0, 1.0) * 255.0) as u8;
+        }
+    }
+    render::apply_local_contrast(&a, &mut want, GW, GH, false);
+    render::apply_color_grade(&a, &mut want, &inf);
+    assert_eq!(got, want, "the graded export is not the graded screen raster");
+
+    // 3. The order is load-bearing: contrast-then-grade is not
+    //    grade-then-contrast, so an export that ran them the other way round
+    //    would fail assertion 2 rather than sneak through it.
+    let mut swapped = ungraded;
+    render::apply_color_grade(&a, &mut swapped, &inf);
+    render::apply_local_contrast(&a, &mut swapped, GW, GH, false);
+    assert_ne!(swapped, got, "the two whole-raster stages commute on this fixture -- assertion 2 cannot see a reorder");
+}
+
+/// And at the **shipped default**, the grade costs the export nothing and
+/// changes nothing — the other half of the claim, so that adding the call to
+/// the export path cannot have moved the image every existing test and probe
+/// was baselined against.
+#[test]
+fn the_export_is_unchanged_by_the_grade_at_the_shipped_look() {
+    let (field, temp, rain, flow) = fixture();
+    for look in [render::LOOK_TIER, render::LOOK_VIBRANT] {
+        let a = TerrainAppearance::default().with_look(look);
+        assert!(a.grade_is_identity(), "`{look}` no longer grades at rest -- every export baseline taken under it needs re-checking");
+        let ctx = RenderCtx::with_appearance(&field, &temp, &rain, Some(&flow), GW, GH, 0.42, false, 55.0, 5.0, a.clone());
+        let bf = BakeFields::new(&ctx);
+        let inf = render::build_grade_influence(&ctx, GW, GH);
+        assert!(inf.is_empty(), "`{look}` builds an influence field for a grade that does nothing");
+        let mut px = render::bake_rect(&ctx, &bf, None, GW, GH, 0, 0, GW, GH);
+        render::apply_local_contrast(&a, &mut px, GW, GH, false);
+        let before = px.clone();
+        render::apply_color_grade(&a, &mut px, &inf);
+        assert_eq!(px, before, "`{look}` moved a pixel through a grade that is supposed to be at rest");
+    }
+}
+
 /// A finer export tints the same *world*, not more of it. Nearest-cell is
 /// the deliberate choice (`channel_tint`'s doc comment); the property that
 /// makes it the right one is that a river covers the same fraction of the
