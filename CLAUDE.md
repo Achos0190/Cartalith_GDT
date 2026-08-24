@@ -127,3 +127,8 @@ found it.
   `js_min`/`js_max` because JS propagates NaN where Rust absorbs it.
 - **A stale binary reports a healthy `N passed`.** Re-run every mutation
   survivor in isolation.
+- **`godot --headless --import` silently strips `project.godot`'s `;` comments**,
+  including the block warning that `#`/`##` there is silently swallowed as data
+  rather than a comment (see the Constraints section above). Registering a new
+  `class_name` needs that import pass — diff `project.godot` after running it and
+  restore the comment block if it's gone, every time, not just once.
