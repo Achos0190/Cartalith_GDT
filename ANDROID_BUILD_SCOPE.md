@@ -1262,3 +1262,157 @@ The fixed build is installed and is the last thing that ran. Nothing was pushed
 to `/data/local/tmp/`, no properties or settings were changed, and no root was
 attempted. One unrelated app (Google Meet) was brought to the foreground by a
 stray back-press during navigation and was force-stopped again.
+
+---
+
+## The APK was 21 commits stale, and nothing said so (2026-08-24)
+
+An audit sha256-compared `builds/android/Cartalith.apk`'s
+`lib/arm64-v8a/libcartalith_godot.so` against what was on disk and found it
+**byte-identical to a build from 2026-08-23 14:34**. `git log` over
+`cartalith-native/crates/` since that timestamp: **25 commits**. The phone had
+been running a native library a day and 25 commits behind its own shell, and
+had been doing so through at least two device passes that reported clean runs.
+
+**Nothing failed.** No crash, no ANR, no `SCRIPT ERROR`, a clean `logcat` — and
+whole subsystems inert: the NPR "Painter styles" / "Water & light" block did
+not build at all, Measure's Area / Radius / Cross-section stayed greyed while
+Distance and Bearing worked, the faction roster showed `?` and `0`, the City
+Viewer drew nothing behind a misleading "no layout" message, and save, undo,
+the erosion-pass parameters, the geoid/tides/Köppen/wildlife debug views,
+GeoJSON export, hand-drawn ways and the civ-recompute path were all dead. Every
+one of them was *working code*, defeated by a `.so` that predated it.
+
+### Why it was silent, and what that costs
+
+`engine_bridge.gd` guards every wrapper with
+`world_gen.has_method("...")` and returns a safe default on a miss. That guard
+is right — it is what lets a shell degrade instead of crashing against an older
+binary — and it had **200 call sites, none of which said anything.** A stale
+library is therefore indistinguishable from a feature that is merely disabled,
+which is precisely how 25 commits of work went unnoticed on a handset.
+
+### Fixed: the guard now speaks
+
+All 200 sites now route through one probe, `EngineBridge._has()`, which answers
+the same question and `push_warning()`s the first time an answer is `false`:
+
+```
+Cartalith: the loaded GDExtension has no WorldGen.<name>(). Whatever needed it
+is degraded to a safe default. This almost always means the native library is
+older than the shell (a stale libcartalith_godot.so) -- rebuild and re-export
+before treating the missing feature as a bug.
+```
+
+**Once per method name**, not once per call — several of these wrappers are
+polled from a redraw, and a per-frame warning would bury the signal it exists
+to produce. `missing_bindings()` returns the accumulated set, so the staleness
+fingerprint is readable at runtime rather than only in a log.
+
+`push_warning` rather than `print`: it goes through Godot's `_err_print_error`
+path, which is the one this scope document's own `logcat` greps have always
+targeted (`SCRIPT ERROR` / `USER ERROR` / `USER WARNING`), and it is the level
+least likely to be filtered out of an Android log.
+
+Verified both directions on a desktop headless harness: **0 warnings** against
+a current library across every binding `_ready()` probes plus NPR, factions,
+undo, debug layers, urban layouts, paint layers and routes; and **exactly one**
+warning for three consecutive calls on a name no binary exports, proving the
+suppression.
+
+### `android.release.arm64` pointed at a directory nothing refreshes
+
+The same class of bug the 2026-08-20 pass fixed for `android.debug.arm64`,
+still live on the release entry. The path itself was *correct* —
+`target/aarch64-linux-android/release/` is exactly where
+`cargo ndk -t arm64-v8a build --release -p cartalith-godot` writes — but **no
+documented step in this project has ever run that command**, so the file
+sitting there was from **2026-08-16**, eight days old, and a release export
+would have shipped it without complaint.
+
+Resolved by (a) actually building it, so the path now resolves to a current
+21,577,640-byte library, and (b) writing the refresh command for **each**
+Android entry into `cartalith.gdextension` itself, next to the entry it
+refreshes, so neither can rot again without someone editing past the note. The
+comment block is written with `;`, and says why — `#` is parsed as *data* by
+`ConfigFile`, the hazard the fourth pass recorded.
+
+The orphaned `target/aarch64-linux-android/debug/libcartalith_godot.so` (the
+2026-08-18 hand-copy, unreferenced since the 2026-08-20 fix repointed arm64
+debug at `android-dev/`) was deleted. It was a 2026-08-18 artifact that no
+build touches and that an audit can only be misled by.
+
+### The rebuild
+
+- `cargo ndk -t arm64-v8a build --profile android-dev -p cartalith-godot` —
+  clean, 28 s, → **161,004,536 bytes**, against the stale 156,605,784.
+- `cargo ndk -t arm64-v8a build --release -p cartalith-godot` — clean, 38 s,
+  → 21,577,640 bytes.
+- `godot4 --headless --export-debug "Android" builds/android/Cartalith.apk`
+  from `godot-project/` — the preset's `export_path` is relative to the Godot
+  project, so this is the only real APK. A second `cartalith-native/builds/`
+  copy had reappeared since the 2026-08-20 pass deleted it, stale again;
+  deleted again. Both paths are `.gitignore`d, so no binary is committed.
+- **sha256-verified**, the audit's own method: the `.so` inside the APK is
+  `610125e8…51e7751`, byte-identical to the library just built. The APK is
+  genuinely current, not current-by-timestamp.
+
+### On device: confirmed, and then cut short by the handset
+
+OnePlus 6T, 1080x2340 portrait, `adb install -r` first try. `libcartalith_godot.so`
+mapped `r-xp` into the live process (read out of `/proc/<pid>/maps`, not
+inferred), OpenGL ES 3.2 on the Adreno 630, a 1024x655 world generated from
+the welcome screen.
+
+**Zero `Cartalith: the loaded GDExtension has no …` warnings in `logcat`**
+across boot and a full generation.
+
+Confirmed by driving the UI, on the handset:
+
+| Previously dead | Result |
+|---|---|
+| NPR "Painter styles" / "Water & light" panel | **Builds** — Sepia / Risograph / Pointillism sliders, Contour interval, Coastal wave lines, Wave reach, Animate water, Multi-sun lighting |
+| NPR styles actually apply | **Yes** — Pointillism 0.30 → 0.9 and Sepia dragged live; the map re-rendered with visible stipple and a warm cast, same seed, same world |
+| Erosion-pass parameters | **Live** — Uplift, Channeling, Iterations 15, Deposition, Rain→erosion, Velocity momentum / iterations / strength, under STREAM-POWER CARVE |
+| Annotation / icon bindings | **Live** — § PLACED ICONS with a working Clear-all |
+| Generation stage table | 02-10 all `resolved`, driven from `get_param_info` |
+
+**Then the phone dropped off USB** (`offline`, then absent from
+`adb devices` entirely; survived `kill-server`/`start-server`,
+`reconnect offline`, and ten minutes of polling). That is a physical condition
+no `adb` command reaches, and the remaining items — faction roster, City
+Viewer, paint visibility, save/undo, the debug views, GeoJSON export,
+hand-drawn ways, civ-recompute — were **not** driven on the handset this pass.
+They are recorded as *unverified on device*, not as verified, and the honest
+reason is written here rather than smoothed over.
+
+What is known about them without the handset: they are all gated by the same
+`_has()` probe, every one of those probes passes on desktop against a library
+built from the same tree by the same toolchain, and the six `_ready()`-level
+API flags (`sized` / `import` / `gpu` / `npr` / `measure` / `save`) produced no
+warning on the device itself — which is the direct on-device evidence that
+`measure_api` in particular is true, since it is computed at boot from all four
+`measure_*` bindings.
+
+**One thing this pass wanted and did not get:** a positive control proving
+`push_warning` reaches Android's `logcat`. A probe build carrying a
+deliberate boot-time warning was built and was being installed when the device
+disconnected. The mechanism is the same `_err_print_error` path this document's
+own greps target, but that is an argument, not a measurement. **Next device
+pass should confirm it first**, before trusting a silent `logcat` as evidence
+of a matched shell/engine pair.
+
+### Two navigation hazards worth recording
+
+- **`adb shell input keyevent KEYCODE_BACK` exits the app.** It backgrounded
+  Cartalith, foregrounded whatever was behind it (Google Meet), and killed the
+  process — the generated world with it. Dismiss a phone sheet by tapping its
+  `×`, never with Back.
+- **`KEYCODE_M` does not arm the Measure tool.** Godot's Android input layer
+  does not deliver injected key events to the shortcut path, so keyboard
+  shortcuts are not an `adb` shortcut around touch navigation.
+- The left panel sheet **retains its scroll offset across close/reopen and
+  would not scroll back up** by swipe (six attempts, both fast flicks and slow
+  drags, at three x positions). Not investigated — it is the phone-cosmetics
+  territory, and it is recorded here only because it is what blocked reaching
+  the § TOOLS row where Measure is armed.

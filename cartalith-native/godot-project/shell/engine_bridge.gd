@@ -69,20 +69,20 @@ var _thread: Thread
 # -- Lifecycle ----------------------------------------------------------------
 
 func _ready() -> void:
-	sized_api = world_gen.has_method("generate_sized") \
-		and world_gen.has_method("reference_grid_height") \
-		and world_gen.has_method("get_map_height_km")
-	import_api = world_gen.has_method("import_heightmap") \
-		and world_gen.has_method("heightmap_grid_size")
-	gpu_api = world_gen.has_method("gpu_enumerate_devices") \
-		and world_gen.has_method("gpu_set_multi_mode")
-	npr_api = world_gen.has_method("set_npr") \
-		and world_gen.has_method("get_npr")
-	measure_api = world_gen.has_method("measure_section") \
-		and world_gen.has_method("measure_area") \
-		and world_gen.has_method("measure_radius") \
-		and world_gen.has_method("measure_vertical")
-	save_api = world_gen.has_method("save_project")
+	sized_api = _has("generate_sized") \
+		and _has("reference_grid_height") \
+		and _has("get_map_height_km")
+	import_api = _has("import_heightmap") \
+		and _has("heightmap_grid_size")
+	gpu_api = _has("gpu_enumerate_devices") \
+		and _has("gpu_set_multi_mode")
+	npr_api = _has("set_npr") \
+		and _has("get_npr")
+	measure_api = _has("measure_section") \
+		and _has("measure_area") \
+		and _has("measure_radius") \
+		and _has("measure_vertical")
+	save_api = _has("save_project")
 	## Dirty tracking rides the two signals this node already emits rather
 	## than being set by hand in each mutator -- see `world_dirty`.
 	world_loaded.connect(func(): _set_dirty(true))
@@ -104,10 +104,56 @@ func _exit_tree() -> void:
 	if _thread != null and _thread.is_started():
 		_thread.wait_to_finish()
 
+# -- The missing-binding probe ------------------------------------------------
+#
+# Every wrapper in this file is guarded on whether the loaded GDExtension
+# actually exports the `#[func]` it is about to call, so a shell running
+# against an older binary degrades to a safe default instead of crashing.
+# That guard is right, and for two years it was also **silent** -- which is
+# how a stale `libcartalith_godot.so` shipped to the phone on 2026-08-23 and
+# ran for 21 commits with no error, no crash and a clean logcat while whole
+# panels (NPR, Measure's area/radius/section, the faction roster, the city
+# viewer, save/undo, the erosion passes, the debug views, GeoJSON export)
+# quietly did nothing. The app looked healthy. It was 21 commits behind.
+#
+# So the guard now speaks. `_has()` is the single choke point every guard in
+# this file goes through: it answers the same question `world_gen.has_method()`
+# did, and the first time an answer is `false` it says so with
+# `push_warning()`, which reaches the Godot console on desktop and `logcat`
+# on Android (unlike `print()`, which this project has repeatedly found does
+# not survive the Android log path -- `ANDROID_BUILD_SCOPE.md`, 2026-08-24).
+#
+# **Once per method name, not once per call.** Several of these wrappers are
+# polled from `_process` or from a redraw, and a per-frame warning would bury
+# the signal it exists to produce. `_missing_bindings` is the seen-set.
+var _missing_bindings := {}
+
+## True if the loaded GDExtension exports `method`. Warns once per name when
+## it does not -- see the block comment above.
+func _has(method: String) -> bool:
+	if world_gen.has_method(method):
+		return true
+	if not _missing_bindings.has(method):
+		_missing_bindings[method] = true
+		push_warning(
+			"Cartalith: the loaded GDExtension has no WorldGen.%s(). "
+			% method
+			+ "Whatever needed it is degraded to a safe default. This almost "
+			+ "always means the native library is older than the shell "
+			+ "(a stale libcartalith_godot.so) -- rebuild and re-export "
+			+ "before treating the missing feature as a bug."
+		)
+	return false
+
+## Every binding this session found missing, in the order it noticed. Empty on
+## a matched shell/engine pair; anything in it is the staleness fingerprint.
+func missing_bindings() -> PackedStringArray:
+	return PackedStringArray(_missing_bindings.keys())
+
 # -- Parameters ---------------------------------------------------------------
 
 func _read_param_table() -> void:
-	if not world_gen.has_method("get_param_info"):
+	if not _has("get_param_info"):
 		return
 	_param_info = world_gen.get_param_info()
 	_param_defaults = world_gen.get_param_defaults()
@@ -125,7 +171,7 @@ func param_keys() -> Array:
 	return _param_info.keys()
 
 func param_groups() -> PackedStringArray:
-	if world_gen.has_method("get_param_groups"):
+	if _has("get_param_groups"):
 		return world_gen.get_param_groups()
 	return PackedStringArray()
 
@@ -189,7 +235,7 @@ func reset_params(keys: Array = []) -> void:
 	mark_dirty()
 
 func apply_archetype(name: String) -> bool:
-	if not world_gen.has_method("apply_archetype"):
+	if not _has("apply_archetype"):
 		return false
 	var ok: bool = world_gen.apply_archetype(name)
 	if ok:
@@ -197,7 +243,7 @@ func apply_archetype(name: String) -> bool:
 	return ok
 
 func archetypes() -> PackedStringArray:
-	if world_gen.has_method("get_archetypes"):
+	if _has("get_archetypes"):
 		return world_gen.get_archetypes()
 	return PackedStringArray()
 
@@ -243,7 +289,7 @@ func generate(request: Dictionary) -> void:
 	_gen_start_msec = Time.get_ticks_msec()
 	generation_started.emit()
 
-	if world_gen.has_method("set_experimental_flags"):
+	if _has("set_experimental_flags"):
 		world_gen.set_experimental_flags(
 			request.get("dynamic_lithology", false),
 			request.get("volcanic_provinces", false),
@@ -277,14 +323,14 @@ func generate(request: Dictionary) -> void:
 ## extension build degrades to the reference's own defaults rather than
 ## erroring -- the same shape `set_experimental_flags` above already uses.
 func _apply_civ_options(request: Dictionary) -> void:
-	if world_gen.has_method("set_metropolis_enabled"):
+	if _has("set_metropolis_enabled"):
 		world_gen.set_metropolis_enabled(bool(request.get("metropolis", false)))
-	if world_gen.has_method("set_recovery_phase"):
+	if _has("set_recovery_phase"):
 		world_gen.set_recovery_phase(int(request.get("recovery_phase", 0)))
 	## `civBiomeKChk` (reference line 1406 / `_biomeK` line 6441), the third
 	## one -- default off, same guard, added 2026-08-23 (`PARITY_AUDIT.md`
 	## §5 item 12: the engine parameter always existed, nothing could set it).
-	if world_gen.has_method("set_biome_k_enabled"):
+	if _has("set_biome_k_enabled"):
 		world_gen.set_biome_k_enabled(bool(request.get("biome_k", false)))
 
 
@@ -423,7 +469,7 @@ func color_texture() -> Texture2D:
 ## compositor degrades to "off" rather than erroring against it (`0`/`null`
 ## are both values that method already treats as "nothing to show").
 func lod_tile_cells() -> int:
-	if not world_gen.has_method("lod_tile_cells"):
+	if not _has("lod_tile_cells"):
 		return 0
 	return world_gen.lod_tile_cells()
 
@@ -432,7 +478,7 @@ func lod_tile_cells() -> int:
 ## for an out-of-range tile, before any world, or against a binary without
 ## this milestone's `#[func]`s.
 func lod_synthesize_tile(tile_x: int, tile_y: int, detail_level: int) -> Texture2D:
-	if not world_gen.has_method("lod_synthesize_tile"):
+	if not _has("lod_synthesize_tile"):
 		return null
 	return world_gen.lod_synthesize_tile(tile_x, tile_y, detail_level)
 
@@ -467,7 +513,7 @@ func trade_balances() -> Array:
 ## "this town has none". Empty against a binary built before this landed, the
 ## same `has_method` guard `lod_tile_cells()` above uses for its own milestone.
 func urban_layouts(indices: PackedInt32Array) -> Array:
-	if not world_gen.has_method("urban_layouts"):
+	if not _has("urban_layouts"):
 		return []
 	return world_gen.urban_layouts(indices)
 
@@ -478,7 +524,7 @@ func border_inset_frac() -> float:
 	return world_gen.get_border_inset_frac()
 
 func gpu_stages_used() -> PackedStringArray:
-	if world_gen.has_method("get_gpu_stages_used"):
+	if _has("get_gpu_stages_used"):
 		return world_gen.get_gpu_stages_used()
 	return PackedStringArray()
 
@@ -743,7 +789,7 @@ func has_asset_pack() -> bool:
 ## (`GUI_GAP_REGISTER.md` MS-01). Returns the engine's summary dictionary:
 ## `ok`, `offset`, `seam_column`, and `reason` when `ok` is false.
 func center_landmasses() -> Dictionary:
-	if not world_gen.has_method("center_landmasses"):
+	if not _has("center_landmasses"):
 		return {"ok": false, "reason": "This build of the engine has no centring pass."}
 	var r: Dictionary = world_gen.center_landmasses()
 	if bool(r.get("ok", false)) and int(r.get("offset", 0)) != 0:
@@ -754,7 +800,7 @@ func center_landmasses() -> Dictionary:
 ## the engine's summary dictionary: `ok`, `cells_masked`, `cells_carved`,
 ## and `reason` when `ok` is false.
 func carve_fjords() -> Dictionary:
-	if not world_gen.has_method("carve_fjords"):
+	if not _has("carve_fjords"):
 		return {"ok": false, "reason": "This build of the engine has no fjord pass."}
 	var r: Dictionary = world_gen.carve_fjords()
 	if bool(r.get("ok", false)) and int(r.get("cells_carved", 0)) > 0:
@@ -771,177 +817,177 @@ func carve_fjords() -> Dictionary:
 
 # sculpt_bridge.rs
 func get_sculpt_features() -> Array:
-	if not world_gen.has_method("get_sculpt_features"):
+	if not _has("get_sculpt_features"):
 		return []
 	return world_gen.get_sculpt_features()
 
 func get_sculpt_presets() -> Array:
-	if not world_gen.has_method("get_sculpt_presets"):
+	if not _has("get_sculpt_presets"):
 		return []
 	return world_gen.get_sculpt_presets()
 
 func get_sculpt_globals_info() -> Array:
-	if not world_gen.has_method("get_sculpt_globals_info"):
+	if not _has("get_sculpt_globals_info"):
 		return []
 	return world_gen.get_sculpt_globals_info()
 
 func get_sculpt_freehand_modes() -> PackedStringArray:
-	if not world_gen.has_method("get_sculpt_freehand_modes"):
+	if not _has("get_sculpt_freehand_modes"):
 		return PackedStringArray()
 	return world_gen.get_sculpt_freehand_modes()
 
 func sculpt_get_globals() -> Dictionary:
-	if not world_gen.has_method("sculpt_get_globals"):
+	if not _has("sculpt_get_globals"):
 		return {}
 	return world_gen.sculpt_get_globals()
 
 func sculpt_set_globals(values: Dictionary) -> Dictionary:
-	if not world_gen.has_method("sculpt_set_globals"):
+	if not _has("sculpt_set_globals"):
 		return {}
 	return world_gen.sculpt_set_globals(values)
 
 func sculpt_get_feature() -> String:
-	if not world_gen.has_method("sculpt_get_feature"):
+	if not _has("sculpt_get_feature"):
 		return ""
 	return world_gen.sculpt_get_feature()
 
 func sculpt_set_feature(feature_key: String) -> bool:
-	if not world_gen.has_method("sculpt_set_feature"):
+	if not _has("sculpt_set_feature"):
 		return false
 	return world_gen.sculpt_set_feature(feature_key)
 
 func sculpt_get_feature_params() -> Dictionary:
-	if not world_gen.has_method("sculpt_get_feature_params"):
+	if not _has("sculpt_get_feature_params"):
 		return {}
 	return world_gen.sculpt_get_feature_params()
 
 func sculpt_set_feature_params(values: Dictionary) -> Dictionary:
-	if not world_gen.has_method("sculpt_set_feature_params"):
+	if not _has("sculpt_set_feature_params"):
 		return {}
 	return world_gen.sculpt_set_feature_params(values)
 
 func sculpt_apply_preset(index: int) -> bool:
-	if not world_gen.has_method("sculpt_apply_preset"):
+	if not _has("sculpt_apply_preset"):
 		return false
 	return world_gen.sculpt_apply_preset(index)
 
 func sculpt_get_freehand_mode() -> String:
-	if not world_gen.has_method("sculpt_get_freehand_mode"):
+	if not _has("sculpt_get_freehand_mode"):
 		return ""
 	return world_gen.sculpt_get_freehand_mode()
 
 func sculpt_set_freehand_mode(mode_key: String) -> bool:
-	if not world_gen.has_method("sculpt_set_freehand_mode"):
+	if not _has("sculpt_set_freehand_mode"):
 		return false
 	return world_gen.sculpt_set_freehand_mode(mode_key)
 
 func sculpt_get_seed() -> int:
-	if not world_gen.has_method("sculpt_get_seed"):
+	if not _has("sculpt_get_seed"):
 		return -1
 	return world_gen.sculpt_get_seed()
 
 func sculpt_set_seed(seed: int) -> void:
-	if not world_gen.has_method("sculpt_set_seed"):
+	if not _has("sculpt_set_seed"):
 		return
 	world_gen.sculpt_set_seed(seed)
 
 func sculpt_begin_stroke() -> bool:
-	if not world_gen.has_method("sculpt_begin_stroke"):
+	if not _has("sculpt_begin_stroke"):
 		return false
 	return world_gen.sculpt_begin_stroke()
 
 func sculpt_add_point(x: float, y: float) -> int:
-	if not world_gen.has_method("sculpt_add_point"):
+	if not _has("sculpt_add_point"):
 		return -1
 	return world_gen.sculpt_add_point(x, y)
 
 func sculpt_stroke_point_count() -> int:
-	if not world_gen.has_method("sculpt_stroke_point_count"):
+	if not _has("sculpt_stroke_point_count"):
 		return -1
 	return world_gen.sculpt_stroke_point_count()
 
 func sculpt_cancel_stroke() -> void:
-	if not world_gen.has_method("sculpt_cancel_stroke"):
+	if not _has("sculpt_cancel_stroke"):
 		return
 	world_gen.sculpt_cancel_stroke()
 
 func sculpt_end_stroke() -> int:
-	if not world_gen.has_method("sculpt_end_stroke"):
+	if not _has("sculpt_end_stroke"):
 		return -1
 	return world_gen.sculpt_end_stroke()
 
 func sculpt_stamp_count() -> int:
-	if not world_gen.has_method("sculpt_stamp_count"):
+	if not _has("sculpt_stamp_count"):
 		return -1
 	return world_gen.sculpt_stamp_count()
 
 func sculpt_list_stamps() -> Array:
-	if not world_gen.has_method("sculpt_list_stamps"):
+	if not _has("sculpt_list_stamps"):
 		return []
 	return world_gen.sculpt_list_stamps()
 
 func sculpt_get_selected_stamp() -> int:
-	if not world_gen.has_method("sculpt_get_selected_stamp"):
+	if not _has("sculpt_get_selected_stamp"):
 		return -1
 	return world_gen.sculpt_get_selected_stamp()
 
 func sculpt_select_stamp(index: int) -> bool:
-	if not world_gen.has_method("sculpt_select_stamp"):
+	if not _has("sculpt_select_stamp"):
 		return false
 	return world_gen.sculpt_select_stamp(index)
 
 func sculpt_set_stamp_hidden(index: int, hidden: bool) -> bool:
-	if not world_gen.has_method("sculpt_set_stamp_hidden"):
+	if not _has("sculpt_set_stamp_hidden"):
 		return false
 	return world_gen.sculpt_set_stamp_hidden(index, hidden)
 
 func sculpt_move_stamp_up(index: int) -> bool:
-	if not world_gen.has_method("sculpt_move_stamp_up"):
+	if not _has("sculpt_move_stamp_up"):
 		return false
 	return world_gen.sculpt_move_stamp_up(index)
 
 func sculpt_move_stamp_down(index: int) -> bool:
-	if not world_gen.has_method("sculpt_move_stamp_down"):
+	if not _has("sculpt_move_stamp_down"):
 		return false
 	return world_gen.sculpt_move_stamp_down(index)
 
 func sculpt_delete_stamp(index: int) -> bool:
-	if not world_gen.has_method("sculpt_delete_stamp"):
+	if not _has("sculpt_delete_stamp"):
 		return false
 	return world_gen.sculpt_delete_stamp(index)
 
 func sculpt_can_undo() -> bool:
-	if not world_gen.has_method("sculpt_can_undo"):
+	if not _has("sculpt_can_undo"):
 		return false
 	return world_gen.sculpt_can_undo()
 
 func sculpt_can_redo() -> bool:
-	if not world_gen.has_method("sculpt_can_redo"):
+	if not _has("sculpt_can_redo"):
 		return false
 	return world_gen.sculpt_can_redo()
 
 func sculpt_undo() -> bool:
-	if not world_gen.has_method("sculpt_undo"):
+	if not _has("sculpt_undo"):
 		return false
 	return world_gen.sculpt_undo()
 
 func sculpt_redo() -> bool:
-	if not world_gen.has_method("sculpt_redo"):
+	if not _has("sculpt_redo"):
 		return false
 	return world_gen.sculpt_redo()
 
 func build_sculpt_preview_texture() -> Texture2D:
-	if not world_gen.has_method("build_sculpt_preview_texture"):
+	if not _has("build_sculpt_preview_texture"):
 		return null
 	return world_gen.build_sculpt_preview_texture()
 
 func sculpt_commit(reason: String) -> Dictionary:
-	if not world_gen.has_method("sculpt_commit"):
+	if not _has("sculpt_commit"):
 		return {}
 	return world_gen.sculpt_commit(reason)
 
 func sculpt_discard() -> int:
-	if not world_gen.has_method("sculpt_discard"):
+	if not _has("sculpt_discard"):
 		return -1
 	return world_gen.sculpt_discard()
 
@@ -957,14 +1003,14 @@ func sculpt_discard() -> int:
 # rather than erroring.
 
 func can_undo() -> bool:
-	if not world_gen.has_method("can_undo"):
+	if not _has("can_undo"):
 		return false
 	return world_gen.can_undo()
 
 ## The operation `undo_last()` would revert ("Sculpt commit", "Carve fjords"),
 ## or "" when there is nothing to revert.
 func undo_label() -> String:
-	if not world_gen.has_method("undo_label"):
+	if not _has("undo_label"):
 		return ""
 	return String(world_gen.undo_label())
 
@@ -972,7 +1018,7 @@ func undo_label() -> String:
 ## or "" if nothing happened. The caller repaints -- the engine deliberately
 ## does not re-run flow/climate here (see `undo.rs`).
 func undo_last() -> String:
-	if not world_gen.has_method("undo_last"):
+	if not _has("undo_last"):
 		return ""
 	return String(world_gen.undo_last())
 
@@ -980,104 +1026,104 @@ func undo_last() -> String:
 ## the reference's `#undoMem` readout as data. Empty dictionary on an older
 ## cdylib.
 func undo_stats() -> Dictionary:
-	if not world_gen.has_method("undo_stats"):
+	if not _has("undo_stats"):
 		return {}
 	return world_gen.undo_stats()
 
 func set_undo_budget_mb(mb: int) -> void:
-	if world_gen.has_method("set_undo_budget_mb"):
+	if _has("set_undo_budget_mb"):
 		world_gen.set_undo_budget_mb(mb)
 
 func clear_undo() -> void:
-	if world_gen.has_method("clear_undo"):
+	if _has("clear_undo"):
 		world_gen.clear_undo()
 
 
 # icon_bridge.rs
 func icon_arm(family: String, variant: int, scale: float, rotation: float, jitter: float) -> bool:
-	if not world_gen.has_method("icon_arm"):
+	if not _has("icon_arm"):
 		return false
 	return world_gen.icon_arm(family, variant, scale, rotation, jitter)
 
 func icon_armed() -> Dictionary:
-	if not world_gen.has_method("icon_armed"):
+	if not _has("icon_armed"):
 		return {}
 	return world_gen.icon_armed()
 
 func icon_disarm() -> void:
-	if not world_gen.has_method("icon_disarm"):
+	if not _has("icon_disarm"):
 		return
 	world_gen.icon_disarm()
 
 func icon_place(gx: float, gy: float) -> int:
-	if not world_gen.has_method("icon_place"):
+	if not _has("icon_place"):
 		return -1
 	return world_gen.icon_place(gx, gy)
 
 func icon_hit_test(gx: float, gy: float) -> int:
-	if not world_gen.has_method("icon_hit_test"):
+	if not _has("icon_hit_test"):
 		return -1
 	return world_gen.icon_hit_test(gx, gy)
 
 func icon_resize(index: int, cx: float, cy: float, gx: float, gy: float, start_dist: float) -> bool:
-	if not world_gen.has_method("icon_resize"):
+	if not _has("icon_resize"):
 		return false
 	return world_gen.icon_resize(index, cx, cy, gx, gy, start_dist)
 
 func icon_get(index: int) -> Dictionary:
-	if not world_gen.has_method("icon_get"):
+	if not _has("icon_get"):
 		return {}
 	return world_gen.icon_get(index)
 
 func icon_delete(index: int) -> bool:
-	if not world_gen.has_method("icon_delete"):
+	if not _has("icon_delete"):
 		return false
 	return world_gen.icon_delete(index)
 
 func icon_list() -> Array:
-	if not world_gen.has_method("icon_list"):
+	if not _has("icon_list"):
 		return []
 	return world_gen.icon_list()
 
 func icon_clear_all() -> void:
-	if not world_gen.has_method("icon_clear_all"):
+	if not _has("icon_clear_all"):
 		return
 	world_gen.icon_clear_all()
 
 
 # civ_bridge.rs
 func civ_pick_place_at(gx: float, gy: float) -> int:
-	if not world_gen.has_method("civ_pick_place_at"):
+	if not _has("civ_pick_place_at"):
 		return -1
 	return world_gen.civ_pick_place_at(gx, gy)
 
 func civ_drop_settlement(gx: float, gy: float, kind: String, faction: int, name: String, snap_to_water: bool) -> int:
-	if not world_gen.has_method("civ_drop_settlement"):
+	if not _has("civ_drop_settlement"):
 		return -1
 	return world_gen.civ_drop_settlement(gx, gy, kind, faction, name, snap_to_water)
 
 func civ_territory_paint_at(gx: float, gy: float, faction: int, radius: float, subtract: bool) -> void:
-	if not world_gen.has_method("civ_territory_paint_at"):
+	if not _has("civ_territory_paint_at"):
 		return
 	world_gen.civ_territory_paint_at(gx, gy, faction, radius, subtract)
 
 func civ_territory_commit() -> void:
-	if not world_gen.has_method("civ_territory_commit"):
+	if not _has("civ_territory_commit"):
 		return
 	world_gen.civ_territory_commit()
 
 func civ_territory_discard() -> void:
-	if not world_gen.has_method("civ_territory_discard"):
+	if not _has("civ_territory_discard"):
 		return
 	world_gen.civ_territory_discard()
 
 func civ_faction_territory_stats(faction: int) -> Dictionary:
-	if not world_gen.has_method("civ_faction_territory_stats"):
+	if not _has("civ_faction_territory_stats"):
 		return {}
 	return world_gen.civ_faction_territory_stats(faction)
 
 func get_factions() -> Array:
-	if not world_gen.has_method("get_factions"):
+	if not _has("get_factions"):
 		return []
 	return world_gen.get_factions()
 
@@ -1086,29 +1132,29 @@ func get_factions() -> Array:
 # readouts `PARITY_AUDIT.md` §5 items 3/4/7/9/10/12 found unported.
 
 func civ_settlement_details(index: int) -> Dictionary:
-	if not world_gen.has_method("civ_settlement_details"):
+	if not _has("civ_settlement_details"):
 		return {}
 	return world_gen.civ_settlement_details(index)
 
 ## `fields` carries only the keys that changed -- see the Rust doc comment;
 ## an invalid value rejects the whole batch rather than half-applying it.
 func civ_edit_settlement(index: int, fields: Dictionary) -> bool:
-	if not world_gen.has_method("civ_edit_settlement"):
+	if not _has("civ_edit_settlement"):
 		return false
 	return world_gen.civ_edit_settlement(index, fields)
 
 func civ_settlement_toggle_trait(index: int, key: String) -> bool:
-	if not world_gen.has_method("civ_settlement_toggle_trait"):
+	if not _has("civ_settlement_toggle_trait"):
 		return false
 	return world_gen.civ_settlement_toggle_trait(index, key)
 
 func civ_reroll_settlement_name(index: int) -> String:
-	if not world_gen.has_method("civ_reroll_settlement_name"):
+	if not _has("civ_reroll_settlement_name"):
 		return ""
 	return world_gen.civ_reroll_settlement_name(index)
 
 func civ_delete_settlement(index: int) -> bool:
-	if not world_gen.has_method("civ_delete_settlement"):
+	if not _has("civ_delete_settlement"):
 		return false
 	return world_gen.civ_delete_settlement(index)
 
@@ -1124,200 +1170,200 @@ func civ_delete_settlement(index: int) -> bool:
 ## wait cursor and reports the `ms` the engine hands back rather than
 ## pretending it was instant.
 func civ_recompute() -> Dictionary:
-	if not world_gen.has_method("recompute_civilisation"):
+	if not _has("recompute_civilisation"):
 		return {"ok": false, "reason": "This build's extension has no recompute_civilisation."}
 	return world_gen.recompute_civilisation()
 
 func civ_faction_count() -> int:
-	if not world_gen.has_method("civ_faction_count"):
+	if not _has("civ_faction_count"):
 		return 0
 	return world_gen.civ_faction_count()
 
 func civ_add_faction() -> int:
-	if not world_gen.has_method("civ_add_faction"):
+	if not _has("civ_add_faction"):
 		return -1
 	return world_gen.civ_add_faction()
 
 func civ_remove_faction() -> bool:
-	if not world_gen.has_method("civ_remove_faction"):
+	if not _has("civ_remove_faction"):
 		return false
 	return world_gen.civ_remove_faction()
 
 func civ_set_faction_field(faction: int, key: String, value: String) -> bool:
-	if not world_gen.has_method("civ_set_faction_field"):
+	if not _has("civ_set_faction_field"):
 		return false
 	return world_gen.civ_set_faction_field(faction, key, value)
 
 func civ_faction_terrain_fits() -> Array:
-	if not world_gen.has_method("civ_faction_terrain_fits"):
+	if not _has("civ_faction_terrain_fits"):
 		return []
 	return world_gen.civ_faction_terrain_fits()
 
 func civ_agrarian_regional_total() -> Dictionary:
-	if not world_gen.has_method("civ_agrarian_regional_total"):
+	if not _has("civ_agrarian_regional_total"):
 		return {}
 	return world_gen.civ_agrarian_regional_total()
 
 func civ_trait_vocabulary() -> Array:
-	if not world_gen.has_method("civ_trait_vocabulary"):
+	if not _has("civ_trait_vocabulary"):
 		return []
 	return world_gen.civ_trait_vocabulary()
 
 func civ_specialisation_vocabulary() -> Array:
-	if not world_gen.has_method("civ_specialisation_vocabulary"):
+	if not _has("civ_specialisation_vocabulary"):
 		return []
 	return world_gen.civ_specialisation_vocabulary()
 
 func civ_religion_vocabulary() -> Array:
-	if not world_gen.has_method("civ_religion_vocabulary"):
+	if not _has("civ_religion_vocabulary"):
 		return []
 	return world_gen.civ_religion_vocabulary()
 
 func civ_government_vocabulary() -> Array:
-	if not world_gen.has_method("civ_government_vocabulary"):
+	if not _has("civ_government_vocabulary"):
 		return []
 	return world_gen.civ_government_vocabulary()
 
 func civ_ag_tech_vocabulary() -> Array:
-	if not world_gen.has_method("civ_ag_tech_vocabulary"):
+	if not _has("civ_ag_tech_vocabulary"):
 		return []
 	return world_gen.civ_ag_tech_vocabulary()
 
 func civ_culture_vocabulary() -> PackedStringArray:
-	if not world_gen.has_method("civ_culture_vocabulary"):
+	if not _has("civ_culture_vocabulary"):
 		return PackedStringArray()
 	return world_gen.civ_culture_vocabulary()
 
 func set_biome_k_enabled(enabled: bool) -> void:
-	if not world_gen.has_method("set_biome_k_enabled"):
+	if not _has("set_biome_k_enabled"):
 		return
 	world_gen.set_biome_k_enabled(enabled)
 
 func get_biome_k_enabled() -> bool:
-	if not world_gen.has_method("get_biome_k_enabled"):
+	if not _has("get_biome_k_enabled"):
 		return false
 	return world_gen.get_biome_k_enabled()
 
 
 # paint_bridge.rs
 func get_paint_layers() -> PackedStringArray:
-	if not world_gen.has_method("get_paint_layers"):
+	if not _has("get_paint_layers"):
 		return PackedStringArray()
 	return world_gen.get_paint_layers()
 
 func get_paint_palette(layer: String) -> Array:
-	if not world_gen.has_method("get_paint_palette"):
+	if not _has("get_paint_palette"):
 		return []
 	return world_gen.get_paint_palette(layer)
 
 func paint_set_layer(layer: String) -> bool:
-	if not world_gen.has_method("paint_set_layer"):
+	if not _has("paint_set_layer"):
 		return false
 	return world_gen.paint_set_layer(layer)
 
 func paint_set_brush(value: int, radius: float, hardness: float, softness: float, erase: bool, land_only: bool) -> Dictionary:
-	if not world_gen.has_method("paint_set_brush"):
+	if not _has("paint_set_brush"):
 		return {}
 	return world_gen.paint_set_brush(value, radius, hardness, softness, erase, land_only)
 
 func paint_stroke_at(gx: float, gy: float) -> void:
-	if not world_gen.has_method("paint_stroke_at"):
+	if not _has("paint_stroke_at"):
 		return
 	world_gen.paint_stroke_at(gx, gy)
 
 func build_paint_preview_texture() -> Texture2D:
-	if not world_gen.has_method("build_paint_preview_texture"):
+	if not _has("build_paint_preview_texture"):
 		return null
 	return world_gen.build_paint_preview_texture()
 
 func paint_painted_counts() -> Dictionary:
-	if not world_gen.has_method("paint_painted_counts"):
+	if not _has("paint_painted_counts"):
 		return {}
 	return world_gen.paint_painted_counts()
 
 func paint_commit() -> Dictionary:
-	if not world_gen.has_method("paint_commit"):
+	if not _has("paint_commit"):
 		return {}
 	return world_gen.paint_commit()
 
 func paint_discard() -> int:
-	if not world_gen.has_method("paint_discard"):
+	if not _has("paint_discard"):
 		return -1
 	return world_gen.paint_discard()
 
 
 # way_bridge.rs
 func way_begin(way_type: String) -> bool:
-	if not world_gen.has_method("way_begin"):
+	if not _has("way_begin"):
 		return false
 	return world_gen.way_begin(way_type)
 
 func way_append_point(gx: float, gy: float) -> bool:
-	if not world_gen.has_method("way_append_point"):
+	if not _has("way_append_point"):
 		return false
 	return world_gen.way_append_point(gx, gy)
 
 func way_commit() -> int:
-	if not world_gen.has_method("way_commit"):
+	if not _has("way_commit"):
 		return -1
 	return world_gen.way_commit()
 
 func way_discard() -> void:
-	if not world_gen.has_method("way_discard"):
+	if not _has("way_discard"):
 		return
 	world_gen.way_discard()
 
 
 # route_bridge.rs
 func route_begin(mode: String) -> bool:
-	if not world_gen.has_method("route_begin"):
+	if not _has("route_begin"):
 		return false
 	return world_gen.route_begin(mode)
 
 func route_append_stop(gx: float, gy: float) -> bool:
-	if not world_gen.has_method("route_append_stop"):
+	if not _has("route_append_stop"):
 		return false
 	return world_gen.route_append_stop(gx, gy)
 
 func route_commit() -> int:
-	if not world_gen.has_method("route_commit"):
+	if not _has("route_commit"):
 		return -1
 	return world_gen.route_commit()
 
 func route_discard() -> void:
-	if not world_gen.has_method("route_discard"):
+	if not _has("route_discard"):
 		return
 	world_gen.route_discard()
 
 func route_count() -> int:
-	if not world_gen.has_method("route_count"):
+	if not _has("route_count"):
 		return 0
 	return world_gen.route_count()
 
 func route_get(index: int) -> Dictionary:
-	if not world_gen.has_method("route_get"):
+	if not _has("route_get"):
 		return {}
 	return world_gen.route_get(index)
 
 
 # measure_bridge.rs
 func measure_begin() -> void:
-	if not world_gen.has_method("measure_begin"):
+	if not _has("measure_begin"):
 		return
 	world_gen.measure_begin()
 
 func measure_add_point(gx: float, gy: float) -> void:
-	if not world_gen.has_method("measure_add_point"):
+	if not _has("measure_add_point"):
 		return
 	world_gen.measure_add_point(gx, gy)
 
 func measure_result() -> Dictionary:
-	if not world_gen.has_method("measure_result"):
+	if not _has("measure_result"):
 		return {}
 	return world_gen.measure_result()
 
 func measure_clear() -> void:
-	if not world_gen.has_method("measure_clear"):
+	if not _has("measure_clear"):
 		return
 	world_gen.measure_clear()
 
@@ -1354,22 +1400,22 @@ func measure_vertical(ax: float, ay: float, bx: float, by: float) -> Dictionary:
 
 # region_bridge.rs
 func region_set(gx: float, gy: float, gw: float, gh: float) -> void:
-	if not world_gen.has_method("region_set"):
+	if not _has("region_set"):
 		return
 	world_gen.region_set(gx, gy, gw, gh)
 
 func region_get() -> Dictionary:
-	if not world_gen.has_method("region_get"):
+	if not _has("region_get"):
 		return {}
 	return world_gen.region_get()
 
 func region_clear() -> void:
-	if not world_gen.has_method("region_clear"):
+	if not _has("region_clear"):
 		return
 	world_gen.region_clear()
 
 func region_export_tiles(opts: Dictionary) -> PackedByteArray:
-	if not world_gen.has_method("region_export_tiles"):
+	if not _has("region_export_tiles"):
 		return PackedByteArray()
 	return world_gen.region_export_tiles(opts)
 
@@ -1377,111 +1423,111 @@ func region_export_tiles(opts: Dictionary) -> PackedByteArray:
 # geojson_bridge.rs -- GUI_GAP_REGISTER.md DM-03. Empty before the first
 # generate()/load, and on a build whose GDExtension predates the binding.
 func export_geojson() -> String:
-	if not world_gen.has_method("export_geojson"):
+	if not _has("export_geojson"):
 		return ""
 	return world_gen.export_geojson()
 
 
 # label_bridge.rs
 func label_create(gx: float, gy: float, text: String) -> int:
-	if not world_gen.has_method("label_create"):
+	if not _has("label_create"):
 		return -1
 	return world_gen.label_create(gx, gy, text)
 
 func label_move(index: int, gx: float, gy: float) -> bool:
-	if not world_gen.has_method("label_move"):
+	if not _has("label_move"):
 		return false
 	return world_gen.label_move(index, gx, gy)
 
 func label_select(index: int) -> bool:
-	if not world_gen.has_method("label_select"):
+	if not _has("label_select"):
 		return false
 	return world_gen.label_select(index)
 
 func label_get_selected() -> int:
-	if not world_gen.has_method("label_get_selected"):
+	if not _has("label_get_selected"):
 		return -1
 	return world_gen.label_get_selected()
 
 func label_confirm_edit() -> void:
-	if not world_gen.has_method("label_confirm_edit"):
+	if not _has("label_confirm_edit"):
 		return
 	world_gen.label_confirm_edit()
 
 func label_cancel_edit() -> bool:
-	if not world_gen.has_method("label_cancel_edit"):
+	if not _has("label_cancel_edit"):
 		return false
 	return world_gen.label_cancel_edit()
 
 func label_get(index: int) -> Dictionary:
-	if not world_gen.has_method("label_get"):
+	if not _has("label_get"):
 		return {}
 	return world_gen.label_get(index)
 
 func label_list() -> Array:
-	if not world_gen.has_method("label_list"):
+	if not _has("label_list"):
 		return []
 	return world_gen.label_list()
 
 func label_set(index: int, values: Dictionary) -> Dictionary:
-	if not world_gen.has_method("label_set"):
+	if not _has("label_set"):
 		return {}
 	return world_gen.label_set(index, values)
 
 func label_delete(index: int) -> bool:
-	if not world_gen.has_method("label_delete"):
+	if not _has("label_delete"):
 		return false
 	return world_gen.label_delete(index)
 
 func label_clear_all() -> void:
-	if not world_gen.has_method("label_clear_all"):
+	if not _has("label_clear_all"):
 		return
 	world_gen.label_clear_all()
 
 func label_hit_test(gx: float, gy: float) -> int:
-	if not world_gen.has_method("label_hit_test"):
+	if not _has("label_hit_test"):
 		return -1
 	return world_gen.label_hit_test(gx, gy)
 
 func label_handles(index: int, zoom: float) -> Dictionary:
-	if not world_gen.has_method("label_handles"):
+	if not _has("label_handles"):
 		return {}
 	return world_gen.label_handles(index, zoom)
 
 func label_glyph_layout(index: int, zoom: float, char_widths: PackedFloat64Array, total_w: float) -> Array:
-	if not world_gen.has_method("label_glyph_layout"):
+	if not _has("label_glyph_layout"):
 		return []
 	return world_gen.label_glyph_layout(index, zoom, char_widths, total_w)
 
 func label_resize_size(start_size: float, cx: float, cy: float, gx: float, gy: float, start_dist: float) -> float:
-	if not world_gen.has_method("label_resize_size"):
+	if not _has("label_resize_size"):
 		return 0.0
 	return world_gen.label_resize_size(start_size, cx, cy, gx, gy, start_dist)
 
 func label_rotate_deg(cx: float, cy: float, gx: float, gy: float) -> float:
-	if not world_gen.has_method("label_rotate_deg"):
+	if not _has("label_rotate_deg"):
 		return 0.0
 	return world_gen.label_rotate_deg(cx, cy, gx, gy)
 
 func label_arc_value(cx: float, cy: float, grab_angle_deg: float, side: float, gx: float, gy: float) -> float:
-	if not world_gen.has_method("label_arc_value"):
+	if not _has("label_arc_value"):
 		return 0.0
 	return world_gen.label_arc_value(cx, cy, grab_angle_deg, side, gx, gy)
 
 
 # journey_bridge.rs
 func jp_options() -> Dictionary:
-	if not world_gen.has_method("jp_options"):
+	if not _has("jp_options"):
 		return {}
 	return world_gen.jp_options()
 
 func jp_default_plan() -> Dictionary:
-	if not world_gen.has_method("jp_default_plan"):
+	if not _has("jp_default_plan"):
 		return {}
 	return world_gen.jp_default_plan()
 
 func jp_compute(request: Dictionary) -> Dictionary:
-	if not world_gen.has_method("jp_compute"):
+	if not _has("jp_compute"):
 		return {}
 	return world_gen.jp_compute(request)
 
@@ -1498,7 +1544,7 @@ func jp_compute(request: Dictionary) -> Dictionary:
 ## backing data genuinely is not there are **omitted**, never zero-filled --
 ## callers must use `has()`/`get(key, null)`, not `get(key, 0.0)`.
 func sample_cell(gx: int, gy: int) -> Dictionary:
-	if not world_gen.has_method("sample_cell"):
+	if not _has("sample_cell"):
 		return {}
 	return world_gen.sample_cell(gx, gy)
 
@@ -1506,14 +1552,14 @@ func sample_cell(gx: int, gy: int) -> Dictionary:
 ## order. Each item carries `available`, which is false for a view this
 ## particular world has no input for.
 func debug_layers() -> Array:
-	if not world_gen.has_method("debug_layers"):
+	if not _has("debug_layers"):
 		return []
 	return world_gen.debug_layers()
 
 ## One debug view as a grid-sized `Texture2D`. `null` for "off", an unknown
 ## id, or a view this world has no input for.
 func debug_texture(view: String) -> Texture2D:
-	if not world_gen.has_method("build_debug_texture"):
+	if not _has("build_debug_texture"):
 		return null
 	return world_gen.build_debug_texture(view)
 
@@ -1522,7 +1568,7 @@ func debug_texture(view: String) -> Texture2D:
 ## every region marker, when the Wildlife view has no world to read, or on
 ## an engine build without the binding.
 func wildlife_region_at(gx: float, gy: float) -> Dictionary:
-	if not world_gen.has_method("wildlife_region_at"):
+	if not _has("wildlife_region_at"):
 		return {}
 	return world_gen.wildlife_region_at(gx, gy)
 
@@ -1541,7 +1587,7 @@ func wildlife_region_at(gx: float, gy: float) -> Dictionary:
 ## `year`, carrying territory/settlements/ways forward from the nearest
 ## earlier recorded year. A no-op before any generate.
 func civ_add_year(year: int) -> void:
-	if not world_gen.has_method("civ_add_year"):
+	if not _has("civ_add_year"):
 		return
 	world_gen.civ_add_year(year)
 
@@ -1549,7 +1595,7 @@ func civ_add_year(year: int) -> void:
 ## that year's recorded snapshot. Never touches settlements/ways. A no-op
 ## before any generate.
 func civ_goto_year(year: int) -> void:
-	if not world_gen.has_method("civ_goto_year"):
+	if not _has("civ_goto_year"):
 		return
 	world_gen.civ_goto_year(year)
 
@@ -1557,20 +1603,20 @@ func civ_goto_year(year: int) -> void:
 ## back to the earliest remaining one (or year 0 if none remain). A no-op
 ## before any generate or for a year that was never recorded.
 func civ_remove_year(year: int) -> void:
-	if not world_gen.has_method("civ_remove_year"):
+	if not _has("civ_remove_year"):
 		return
 	world_gen.civ_remove_year(year)
 
 ## The active timeline cursor (reference `civYear`). `0` before any
 ## generate/`civ_add_year` call.
 func get_civ_year() -> int:
-	if not world_gen.has_method("get_civ_year"):
+	if not _has("get_civ_year"):
 		return 0
 	return world_gen.get_civ_year()
 
 ## Every recorded timeline year, ascending -- the pill list's own data source.
 func get_civ_timeline_years() -> PackedInt64Array:
-	if not world_gen.has_method("get_civ_timeline_years"):
+	if not _has("get_civ_timeline_years"):
 		return PackedInt64Array()
 	return world_gen.get_civ_timeline_years()
 
@@ -1580,7 +1626,7 @@ func get_civ_timeline_years() -> PackedInt64Array:
 ## exist-only overlay's own data source. Empty sets (not an error) before any
 ## generate or for an unrecorded year.
 func civ_year_diff(year: int) -> Dictionary:
-	if not world_gen.has_method("civ_year_diff"):
+	if not _has("civ_year_diff"):
 		return {}
 	return world_gen.civ_year_diff(year)
 
@@ -1596,7 +1642,7 @@ func civ_year_diff(year: int) -> Dictionary:
 ## running -- re-send the same request with `confirm_overwrite: true` to
 ## proceed. On success, the timeline cursor is left at the run's `end_year`.
 func civ_run_collapse_simulation(request: Dictionary) -> Dictionary:
-	if not world_gen.has_method("civ_run_collapse_simulation"):
+	if not _has("civ_run_collapse_simulation"):
 		return {"ok": false, "error": "civ_run_collapse_simulation not available on this binary"}
 	return world_gen.civ_run_collapse_simulation(request)
 
@@ -1609,7 +1655,7 @@ func civ_run_collapse_simulation(request: Dictionary) -> Dictionary:
 
 ## `{kind: {"total": int, "custom": int, "stock": int}}` for all four definition types.
 func tl_counts() -> Dictionary:
-	if not world_gen.has_method("tl_counts"):
+	if not _has("tl_counts"):
 		return {}
 	return world_gen.tl_counts()
 
@@ -1617,7 +1663,7 @@ func tl_counts() -> Dictionary:
 ## `id`/`name`/`origin`/`editable`/`subtitle`/`species_key`/`validation_state`/
 ## `validation_missing`/`validation_conflicts`/`usage_presets`/`usage_journeys`.
 func tl_list(kind: String) -> Array:
-	if not world_gen.has_method("tl_list"):
+	if not _has("tl_list"):
 		return []
 	return world_gen.tl_list(kind)
 
@@ -1625,32 +1671,32 @@ func tl_list(kind: String) -> Array:
 ## `TRAVEL_LIBRARY_SPEC.md` §3 lists for `kind`. An unset optional field is simply
 ## absent from the returned Dictionary -- test `has()`, don't assume a default.
 func tl_get(kind: String, id: String) -> Dictionary:
-	if not world_gen.has_method("tl_get"):
+	if not _has("tl_get"):
 		return {"ok": false}
 	return world_gen.tl_get(kind, id)
 
 ## Clones `id` (stock or custom) into a new editable custom entry.
 ## `{"ok": true, "id": new_id}` or `{"ok": false, "error": ...}`.
 func tl_duplicate(kind: String, id: String) -> Dictionary:
-	if not world_gen.has_method("tl_duplicate"):
+	if not _has("tl_duplicate"):
 		return {"ok": false, "error": "tl_duplicate not available on this binary"}
 	return world_gen.tl_duplicate(kind, id)
 
 ## A brand-new custom entry with every field unset. `{"ok": true, "id": new_id}`.
 func tl_add_blank(kind: String, name: String) -> Dictionary:
-	if not world_gen.has_method("tl_add_blank"):
+	if not _has("tl_add_blank"):
 		return {"ok": false, "error": "tl_add_blank not available on this binary"}
 	return world_gen.tl_add_blank(kind, name)
 
 ## Deletes a custom entry. No-op on an unknown id or a stock one.
 func tl_delete(kind: String, id: String) -> Dictionary:
-	if not world_gen.has_method("tl_delete"):
+	if not _has("tl_delete"):
 		return {"ok": false}
 	return world_gen.tl_delete(kind, id)
 
 ## Discards every custom entry of one kind, restoring the stock-only bootstrap.
 func tl_reset_to_stock(kind: String) -> Dictionary:
-	if not world_gen.has_method("tl_reset_to_stock"):
+	if not _has("tl_reset_to_stock"):
 		return {"ok": false}
 	return world_gen.tl_reset_to_stock(kind)
 
@@ -1658,14 +1704,14 @@ func tl_reset_to_stock(kind: String) -> Dictionary:
 ## are read-only -- duplicate first). Returns `{"ok", "error", "rejected",
 ## "validation_state", "validation_missing", "validation_conflicts"}`.
 func tl_edit(kind: String, id: String, fields: Dictionary) -> Dictionary:
-	if not world_gen.has_method("tl_edit"):
+	if not _has("tl_edit"):
 		return {"ok": false, "error": "tl_edit not available on this binary", "rejected": []}
 	return world_gen.tl_edit(kind, id, fields)
 
 ## "Capture party from planner": a new custom party preset from `plan`, in
 ## `jp_default_plan()`/`jp_compute`'s own `plan` key vocabulary.
 func tl_capture_preset_from_plan(name: String, plan: Dictionary) -> Dictionary:
-	if not world_gen.has_method("tl_capture_preset_from_plan"):
+	if not _has("tl_capture_preset_from_plan"):
 		return {"ok": false, "error": "tl_capture_preset_from_plan not available on this binary"}
 	return world_gen.tl_capture_preset_from_plan(name, plan)
 
@@ -1678,82 +1724,82 @@ func tl_capture_preset_from_plan(name: String, plan: Dictionary) -> Dictionary:
 ## Decode `bytes` as a PNG and add it as a new item on `uid`. `{"ok": true}` or
 ## `{"ok": false, "error": ...}`.
 func as_import_item(uid: String, item_name: String, bytes: PackedByteArray) -> Dictionary:
-	if not world_gen.has_method("as_import_item"):
+	if not _has("as_import_item"):
 		return {"ok": false, "error": "as_import_item not available on this binary"}
 	return world_gen.as_import_item(uid, item_name, bytes)
 
 ## Add (or return the existing) custom slot. `{"ok": true, "uid": ...}`.
 func as_add_custom_slot(slot_name: String, set_name: String) -> Dictionary:
-	if not world_gen.has_method("as_add_custom_slot"):
+	if not _has("as_add_custom_slot"):
 		return {"ok": false, "error": "as_add_custom_slot not available on this binary"}
 	return world_gen.as_add_custom_slot(slot_name, set_name)
 
 ## Every slot in `family_key`'s registry with real fill state -- each row carries
 ## `uid`/`id`/`name`/`item_count`/`filled`/`has_dupe`. Empty on an older binary.
 func as_family_slots(family_key: String) -> Array:
-	if not world_gen.has_method("as_family_slots"):
+	if not _has("as_family_slots"):
 		return []
 	return world_gen.as_family_slots(family_key)
 
 ## One slot's inspector detail: id/name/family/set, tags, collections, meta fields.
 func as_slot_summary(uid: String) -> Dictionary:
-	if not world_gen.has_method("as_slot_summary"):
+	if not _has("as_slot_summary"):
 		return {"ok": false}
 	return world_gen.as_slot_summary(uid)
 
 ## One item's inspector detail: name, scale/pan_x/pan_y, decoded w/h, hash.
 func as_item_summary(uid: String, index: int) -> Dictionary:
-	if not world_gen.has_method("as_item_summary"):
+	if not _has("as_item_summary"):
 		return {"ok": false}
 	return world_gen.as_item_summary(uid, index)
 
 ## A real, baked PNG thumbnail for one stored item. Empty on a miss or an older binary.
 func as_thumbnail_png(uid: String, index: int, size: int) -> PackedByteArray:
-	if not world_gen.has_method("as_thumbnail_png"):
+	if not _has("as_thumbnail_png"):
 		return PackedByteArray()
 	return world_gen.as_thumbnail_png(uid, index, size)
 
 ## Pack-level metadata and totals: name/author/license/total_items.
 func as_pack_info() -> Dictionary:
-	if not world_gen.has_method("as_pack_info"):
+	if not _has("as_pack_info"):
 		return {"name": "", "author": "", "license": "", "total_items": 0}
 	return world_gen.as_pack_info()
 
 ## Sets the pack's name/author/license fields directly.
 func as_set_pack_info(pack_name: String, author: String, license: String) -> bool:
-	if not world_gen.has_method("as_set_pack_info"):
+	if not _has("as_set_pack_info"):
 		return false
 	return world_gen.as_set_pack_info(pack_name, author, license)
 
 ## Removes one item from a slot.
 func as_remove_item(uid: String, index: int) -> bool:
-	if not world_gen.has_method("as_remove_item"):
+	if not _has("as_remove_item"):
 		return false
 	return world_gen.as_remove_item(uid, index)
 
 ## Resets the whole session to a fresh, empty library.
 func as_clear_library() -> bool:
-	if not world_gen.has_method("as_clear_library"):
+	if not _has("as_clear_library"):
 		return false
 	return world_gen.as_clear_library()
 
 ## `AssetValidator.run()`'s real, ordered warning strings.
 func as_validate() -> PackedStringArray:
-	if not world_gen.has_method("as_validate"):
+	if not _has("as_validate"):
 		return PackedStringArray()
 	return world_gen.as_validate()
 
 ## Bakes every stored item and writes the pack `.zip` bytes.
 ## `{"ok": true, "name": ..., "bytes": PackedByteArray}` or `{"ok": false, "error": ...}`.
 func as_export_pack_bytes() -> Dictionary:
-	if not world_gen.has_method("as_export_pack_bytes"):
+	if not _has("as_export_pack_bytes"):
 		return {"ok": false, "error": "as_export_pack_bytes not available on this binary"}
 	return world_gen.as_export_pack_bytes()
 
 ## Compiles the current session into a pack and loads it straight into the renderer
 ## -- the reference's own `applyToMap()`, same bake `as_export_pack_bytes` does.
 func as_apply_to_map() -> Dictionary:
-	if not world_gen.has_method("as_apply_to_map"):
+	if not _has("as_apply_to_map"):
 		return {"ok": false, "error": "as_apply_to_map not available on this binary"}
 	var result: Dictionary = world_gen.as_apply_to_map()
 	if bool(result.get("ok", false)):
@@ -1762,45 +1808,45 @@ func as_apply_to_map() -> Dictionary:
 
 ## Comma-separated `tags_csv` onto every uid in `uids`.
 func as_batch_tag(uids: PackedStringArray, tags_csv: String) -> Dictionary:
-	if not world_gen.has_method("as_batch_tag"):
+	if not _has("as_batch_tag"):
 		return {"ok": false}
 	return world_gen.as_batch_tag(uids, tags_csv)
 
 ## Adds every uid in `uids` to collection `coll_name`.
 func as_batch_collect(uids: PackedStringArray, coll_name: String) -> Dictionary:
-	if not world_gen.has_method("as_batch_collect"):
+	if not _has("as_batch_collect"):
 		return {"ok": false}
 	return world_gen.as_batch_collect(uids, coll_name)
 
 ## `{base}_01`, `{base}_02`, ... over `uids` in order. `remap` carries
 ## `old_uid -> new_uid` for every custom slot whose uid changed.
 func as_batch_rename(uids: PackedStringArray, base: String) -> Dictionary:
-	if not world_gen.has_method("as_batch_rename"):
+	if not _has("as_batch_rename"):
 		return {"ok": false, "renamed": 0, "remap": {}}
 	return world_gen.as_batch_rename(uids, base)
 
 ## Clones every slot in `uids` carrying at least one item into a new custom slot.
 func as_batch_duplicate(uids: PackedStringArray) -> Dictionary:
-	if not world_gen.has_method("as_batch_duplicate"):
+	if not _has("as_batch_duplicate"):
 		return {"ok": false, "made": 0}
 	return world_gen.as_batch_duplicate(uids)
 
 ## Custom slots in `uids` are removed entirely; frozen slots have their items cleared.
 func as_batch_delete(uids: PackedStringArray) -> Dictionary:
-	if not world_gen.has_method("as_batch_delete"):
+	if not _has("as_batch_delete"):
 		return {"ok": false, "deleted": 0}
 	return world_gen.as_batch_delete(uids)
 
 ## Decodes a sprite sheet and holds it on the session for slicing (AS-09).
 ## `{"ok": true, "w", "h", "name"}` or `{"ok": false, "error": ...}`. PNG only.
 func as_load_sheet(sheet_name: String, bytes: PackedByteArray) -> Dictionary:
-	if not world_gen.has_method("as_load_sheet"):
+	if not _has("as_load_sheet"):
 		return {"ok": false, "error": "as_load_sheet not available on this binary", "w": 0, "h": 0}
 	return world_gen.as_load_sheet(sheet_name, bytes)
 
 ## Drops the loaded sheet (the slicer modal closing).
 func as_clear_sheet() -> bool:
-	if not world_gen.has_method("as_clear_sheet"):
+	if not _has("as_clear_sheet"):
 		return false
 	return world_gen.as_clear_sheet()
 
@@ -1809,7 +1855,7 @@ func as_clear_sheet() -> bool:
 ## "row_y1"}` -- the four span arrays are in sheet pixels, engine-computed, so
 ## the overlay draws exactly the cells `as_slice_apply` will cut.
 func as_slice_preview(opts: Dictionary) -> Dictionary:
-	if not world_gen.has_method("as_slice_preview"):
+	if not _has("as_slice_preview"):
 		return {"ok": false, "error": "as_slice_preview not available on this binary",
 			"total": 0, "non_empty": 0, "usable": false, "blank": PackedInt32Array(),
 			"col_x0": PackedFloat64Array(), "col_x1": PackedFloat64Array(),
@@ -1821,7 +1867,7 @@ func as_slice_preview(opts: Dictionary) -> Dictionary:
 ## the sheet stays loaded. `{"ok", "added", "skipped_blank", "unplaced", "uids"}`
 ## or `{"ok": false, "error": ...}`.
 func as_slice_apply(opts: Dictionary) -> Dictionary:
-	if not world_gen.has_method("as_slice_apply"):
+	if not _has("as_slice_apply"):
 		return {"ok": false, "error": "as_slice_apply not available on this binary",
 			"added": 0, "skipped_blank": 0, "unplaced": 0, "uids": PackedStringArray()}
 	return world_gen.as_slice_apply(opts)
@@ -1829,7 +1875,7 @@ func as_slice_apply(opts: Dictionary) -> Dictionary:
 ## AS-07: writes one item's scale/pan directly. `false` for an unknown
 ## uid/index or an older binary.
 func as_set_item_transform(uid: String, index: int, scale: float, pan_x: float, pan_y: float) -> bool:
-	if not world_gen.has_method("as_set_item_transform"):
+	if not _has("as_set_item_transform"):
 		return false
 	return world_gen.as_set_item_transform(uid, index, scale, pan_x, pan_y)
 
@@ -1837,20 +1883,20 @@ func as_set_item_transform(uid: String, index: int, scale: float, pan_x: float, 
 ## family when `fit` is true. `{"ok", "scale", "pan_x", "pan_y"}` or
 ## `{"ok": false}` for an unknown uid/index or an older binary.
 func as_reset_item_transform(uid: String, index: int, fit: bool) -> Dictionary:
-	if not world_gen.has_method("as_reset_item_transform"):
+	if not _has("as_reset_item_transform"):
 		return {"ok": false}
 	return world_gen.as_reset_item_transform(uid, index, fit)
 
 ## AS-17: moves interior line `index` of `lines` to `frac`, clamped strictly
 ## between its neighbours -- `lines` unchanged on an older binary.
 func as_slicer_move_line(lines: PackedFloat64Array, index: int, frac: float) -> PackedFloat64Array:
-	if not world_gen.has_method("as_slicer_move_line"):
+	if not _has("as_slicer_move_line"):
 		return lines
 	return world_gen.as_slicer_move_line(lines, index, frac)
 
 ## AS-17: the uniform `n+1`-line array a fresh grid (or a cols/rows edit)
 ## falls back to. Empty on an older binary.
 func as_uniform_lines(n: int) -> PackedFloat64Array:
-	if not world_gen.has_method("as_uniform_lines"):
+	if not _has("as_uniform_lines"):
 		return PackedFloat64Array()
 	return world_gen.as_uniform_lines(n)
