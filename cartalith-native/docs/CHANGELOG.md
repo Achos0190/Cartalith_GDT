@@ -21413,3 +21413,143 @@ double-click-to-enter are untouched.
 `ROW_LABEL_W` (132 px) on a phone — *"Village seeding (add"*. Pre-existing to
 this fix and shared with every narrow dock; not treated here rather than
 guessed at.
+
+## Painting was invisible on the map (`GUI_GAP_REGISTER.md` WW-12, 2026-08-24)
+
+The owner asked for a check that "terrain and biome painting works
+correctly". It did not, in the one way that matters to someone using it: a
+committed stroke changed nothing on screen. Everything underneath was right.
+
+### What was audited, and found correct
+
+Read against `reference/Cartalith Gen1 v2.10.html` (`_paintAt` 4783,
+`getPaintLayer` 4765, `_paintSampleAt` 4774, the paint-brush pointer block at
+25933, `landColorCore` 7720/7765/7897, `buildBiomeRaster` 6798,
+`currentCartBiome` 6833, the editor export at 12435) and driven live through
+the real GDExtension boundary:
+
+- **Three layers, three palettes.** `biome`/`terrain`/`splat`, sized 13/13/6
+  -- `CART_BIOMES.slice(0,13)` (water excluded, "the brush never touches
+  water"), all of `CART_TERRAINS`, all of `SPLAT_PAINT_SLOTS`. Correct.
+- **Disc geometry.** `hypot(dx,dy) > R` skips, so the rim at exactly `R` is
+  painted; measured against an independently computed disc at r = 1, 6 and
+  20 on every layer -- exact, every time. (`js_hypot` rather than
+  `f64::hypot` was already correct and already tested; the two only disagree
+  about a cell from r = 125, above the slider's own cap of 40.)
+- **The land gate.** `wb[i] !== 0`, which excludes lakes as well as ocean.
+  A gated dab centred in open water paints nothing; a gated dab on a coast
+  paints exactly the land subset of its own disc (410 of 410 cells, checked
+  cell by cell). `land_only = false` is this port's own disclosed
+  affordance and really does bypass it.
+- **Erase.** Writes `0` over the disc, removing exactly the erased disc's
+  worth of cells and nothing else, and -- after the render fix below -- takes
+  the map pixel back to the *exact* unpainted colour.
+- **Stroke shape.** The reference does not interpolate between pointer
+  samples either (`_carPointerMove` calls `_paintAt` once per sample), so
+  "one dab per call" is parity, not a gap. A fast drag leaves the same gaps
+  it leaves in the reference.
+- **`paint_commit`'s staleness.** Still marks `Civ` and correctly recomputes
+  nothing -- a mid-chain edit does not make its own upstreams stale.
+  Confirmed as intended, not an oversight.
+- **The debug views do not merge paint, and should not.** `buildBiomeRaster`
+  and `currentCartBiome` both take the *unpainted* classifier output in the
+  reference; only the editor export (12435) replaces per cell. The port
+  matches.
+
+### The two real defects
+
+**1. The map never showed a committed cell.** `render.rs`'s module doc had
+listed *"the paint-brush biome/terrain override"* on its Excluded list since
+milestone 1, when there was genuinely no producer for a painted-cell array;
+`UNIFIED_TOOL_PLAN.md` milestone C built that producer and nothing went back
+to the exclusion. So `paint_commit` wrote real cells,
+`build_paint_preview_texture` drew them as a separate opaque overlay, and
+`build_color_texture()` was byte-identical before and after -- while the
+reference's `_paintAt` ends in `render()` and tints the map on the first dab.
+
+`land_color` now takes a `PaintOverride { bio, ter, splat }`:
+
+- **Biome and Terrain**, 7897-7901 verbatim: `l = l + (COLS[p-1] - l) * 0.60`
+  on the *fully shaded* colour, applied sequentially in that order, sitting
+  after the haze and before the NPR block -- the reference's own slot, chosen
+  so "hand-drawn styles still apply consistently on top of painted cells"
+  and painted cells "don't read as flat pasted stickers".
+- **Splat**, 7765-7773: forces one pack ground texture at full coverage
+  instead of the `materialWeights`-weighted multi-slot blend. Inert without
+  a pack, which is the reference's own "empty slots stay procedural".
+- **`_paintedTex` is unreachable, and that is disclosed rather than hidden.**
+  The v1.28 refinement blends a *pack* texture's true colour instead of the
+  flat swatch; `pack.rs` parses but does not decode the `biomes`/`terrains`
+  families, so there is nothing to reach for -- which is exactly the branch
+  `_t || CART_BIOME_COLS[pBio-1]` takes for a pack-less world there too.
+
+`RenderCtx::with_paint` carries the three committed grids (a grid shorter
+than the field is dropped rather than indexed -- that panic would fire once
+per pixel inside a rayon `par_chunks_mut`, and a panic must not cross the
+gdext boundary). `build_color_texture` supplies them from `WorldGen::paint`.
+Committed cells only: the reference has no draft stage for paint at all, so
+there is no reference answer for an uncommitted dab, and showing the
+committed state matches Sculpt's own split.
+
+**2. The overlay preview named every class in the wrong colour.**
+`swatch_color` spaced classes around the hue wheel, on the written grounds
+that *"no literal RGB table behind it ... has been ported"*. That was true
+when written and had already stopped being true: `CART_BIOME_COLS` and
+`CART_TERRAIN_COLS` were in the same crate, for the `bclass`/`cterrain`
+debug views. Preview and map therefore named the same class in two unrelated
+colours. Both tables now live in `render.rs` -- its `landColorCore` port is
+the primary consumer, and `render.rs` is `#[path]`-included standalone by
+five test targets so it cannot reach a sibling module -- and
+`sample_bridge.rs` re-exports them, leaving every existing call path valid.
+Splat keeps a generated hue and that is the honest answer, not a leftover:
+`SPLAT_PAINT_SLOTS` names ground *textures*, and a texture has no swatch.
+
+**3 (shell).** Both `_on_paint_commit` handlers (`tool_bar.gd`,
+`world_workspace.gd`) gained the `map_view.texture = bridge.color_texture()`
++ `set_preview_texture(null)` pair `_on_sculpt_commit` already had. Without
+the first the fix is invisible in the running app; without the second the
+opaque draft overlay sits on top of the blend it was standing in for.
+
+### Verified
+
+- `tests/paint_blend.rs`, 9 new tests, pinning the relation exactly rather
+  than to a tolerance: a painted cell is `blend(unpainted_cell, COLS[v-1])`
+  for **every** legal index of both tables, the two layers compose in the
+  reference's order (with an assertion that the fixture actually
+  distinguishes the two orders, since two 0.60 blends do not commute), only
+  the painted cell changes, water never takes a blend, a short grid is
+  dropped, and three all-zero grids render **bit-identically** to no grids at
+  all. **Mutation-checked, not merely green on the first run**: `0.60` to
+  `0.61` fails three of them; swapping Biome and Terrain fails the
+  composition one.
+- `golden_parity_render.rs` and `golden_parity_npr.rs` pass **unmodified** --
+  `PaintOverride::default()` is the unpainted state, so the pinned JS-parity
+  path never enters the stage. No tolerance touched, no fixture regenerated.
+- `cargo build -p cartalith-godot`, `cargo test -p cartalith-godot`: 312 unit
+  + 53 integration tests across 11 targets, 0 failed.
+- `_paint_shot.gd` on the real GDExtension boundary, 384 x 288: 26 checks,
+  all passing -- the palettes, the three discs at three radii, the gate on
+  open water and on a coast, erase, commit, the preview colour against the
+  literal reference RGB, the map pixel changing at all, two classes moving
+  the map pixel along the reference table's own delta, an LOD tile proving
+  byte-identical with and without paint (it is a shade-*ratio* multiplier
+  over the base raster, so the zoomed view inherits the paint by
+  construction -- the two paths cannot disagree the way `4d266de`'s did), a
+  6-sample drag accumulating overlapping dabs, and erase restoring the exact
+  clean pixel.
+- `_paintgui_shot.gd` in the **real windowed shell** at 2048 x 1311: generate
+  -> arm PAINT on the unified tool bar -> drag a 24-sample stroke through the
+  app's own `map_clicked`/`map_dragged`/`map_released` registry -> press the
+  real Commit chip -> erase and commit again. Screenshots show the draft as
+  flat opaque discs, the commit as the same discs blended at 0.60 with the
+  relief and coastline showing straight through, the status bar reading
+  `painted -- stale: ecology_biomes, resources_soils`, and the erase pass
+  returning the map to its generated appearance with `0 painted`.
+
+### Still open
+
+`GUI_GAP_REGISTER.md` **WW-13**: Commit and Discard gate on the *composite*
+painted-cell count, so both stay enabled after a commit with nothing left to
+do. Small (a `paint_draft_count()` `#[func]` and one bridge passthrough),
+left out of this pass to keep the commit off a fourth file another session
+was holding.

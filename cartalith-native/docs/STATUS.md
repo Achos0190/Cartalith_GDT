@@ -4057,6 +4057,32 @@ milestone F. Remaining: **F** (shell wiring) and nothing else.
 - **Disclosed**: `sculptCommit`'s water-hook body is *transcribed*, not
   sliced (the function's own head and tail are DOM and whole-pipeline
   recompute), so lines 9320-9346 are copied verbatim minus those calls.
+- **The map shows a painted cell now (2026-08-24).** Until this date the
+  brush was fully functional and completely invisible: `paint_commit` wrote
+  real override cells, `build_paint_preview_texture` drew them as a separate
+  opaque overlay, and `build_color_texture()` never changed a pixel — while
+  the reference's own `_paintAt` ends in `render()` and tints the map on the
+  first dab. `render.rs`'s module doc had listed *"the paint-brush biome/
+  terrain override"* on its **Excluded** list since milestone 1 and nothing
+  had revisited it once milestone C built the producer. `land_color` now
+  takes a `PaintOverride` and applies `landColorCore` 7897-7901 verbatim —
+  `l + (CART_*_COLS[p-1] - l) * 0.60` on the fully shaded colour, Biome then
+  Terrain, after the haze and before the NPR block — plus 7765-7773's Splat
+  override (force one pack ground texture at full coverage). `_paintedTex`,
+  the v1.28 refinement that blends a *pack* texture instead of the flat
+  swatch, is unreachable and not a silent gap: `pack.rs` parses but does not
+  decode the `biomes`/`terrains` families, which is exactly the reference's
+  own `_t || CART_BIOME_COLS[...]` fallback branch.
+- **`swatch_color`'s stated reason had expired.** The overlay preview spaced
+  every class around the hue wheel because *"no literal RGB table ... has
+  been ported"* — true when written, and already false: `CART_BIOME_COLS`
+  and `CART_TERRAIN_COLS` were in the same crate for the `bclass`/`cterrain`
+  debug views. Preview and map named the same class in two unrelated
+  colours. Both tables now live in `render.rs` (its `landColorCore` port is
+  the primary consumer, and it is `#[path]`-included standalone by five test
+  targets so it cannot reach a sibling module) and `sample_bridge.rs`
+  re-exports them. Splat keeps a generated hue, correctly: `SPLAT_PAINT_
+  SLOTS` names textures, not colours.
 - **Open, deliberately**: whether an *incremental* terrain commit should
   clear painted overrides under it. The reference only ever had one
   `generate()`, so it has no answer; `PaintLayer::clear` implements the
@@ -4156,6 +4182,14 @@ milestone F. Remaining: **F** (shell wiring) and nothing else.
   available if a diff ever earns its keep. Still open: tile-incremental
   recompute of hydrology/climate/civ (none are tile-scoped today — staleness
   reports which tiles are stale, stages still recompute globally).
+- **Paint audited end to end against the reference (2026-08-24).** Disc
+  geometry (`hypot > R`, inclusive rim), the three layers and their exact
+  palettes (13/13/6), the `wb[i] !== 0` land gate, erase, sparse
+  persistence, one-dab-per-pointer-sample stroking (the reference does not
+  interpolate either) and `paint_commit`'s "marks Civ, recomputes nothing"
+  were all confirmed correct and unchanged. The two real defects were both
+  in *presentation*, above: the map never showed a commit, and the preview
+  named classes in the wrong colours.
 - ~~**Note for the next session:** `cargo test --workspace` currently fails
   to build `cartalith-civ`~~ — **resolved**: that sibling fork has landed.
   Milestone B ran `cargo test --workspace --exclude cartalith-godot` clean.

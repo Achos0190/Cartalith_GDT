@@ -287,6 +287,22 @@ impl PaintEditor {
         }
     }
 
+    /// One named layer's *committed* cells, or `None` while that layer is
+    /// still unallocated — `render::RenderCtx::with_paint`'s own input, and
+    /// the reason the map can show a painted cell at all.
+    ///
+    /// Deliberately by [`PaintTarget`] rather than "the active one":
+    /// `landColorCore` blends Biome and Terrain in the same pixel and lets
+    /// Splat force a ground texture under both, so the renderer needs all
+    /// three at once regardless of which one the brush is pointed at.
+    pub fn layer_cells(&self, target: PaintTarget) -> Option<&[u8]> {
+        match target {
+            PaintTarget::Biome => self.biome.cells(),
+            PaintTarget::Terrain => self.terrain.cells(),
+            PaintTarget::Splat => self.splat.cells(),
+        }
+    }
+
     pub fn active_draft(&self) -> &PassBuffer<PaintStamp> {
         match self.layer {
             PaintTarget::Biome => &self.draft_biome,
@@ -448,31 +464,41 @@ impl PaintEditor {
     }
 }
 
-/// A deterministic, distinct swatch colour for 1-based palette `index` out
-/// of `palette_len` total classes (`0` or an out-of-range index both
-/// return black, fully-transparent-in-practice since `lib.rs`'s own
-/// `build_paint_preview_texture` never calls this for an unpainted cell).
+/// The swatch colour for 1-based palette `index` of `target` (`0` or an
+/// out-of-range index both return black, fully-transparent-in-practice
+/// since `lib.rs`'s own `build_paint_preview_texture` never calls this for
+/// an unpainted cell).
 ///
-/// **This port's own convention, not the reference's.** The reference's
-/// real painted-cell colour (`landColorCore`, a 0.60-alpha blend of "the
-/// painted index's palette colour" over the fully shaded procedural
-/// colour, per `cartalith-spatial/src/paint.rs`'s own doc) has no *literal*
-/// RGB table behind it that this workspace has ported —
-/// `CART_BIOMES`/`CART_TERRAINS`/`SPLAT_PAINT_SLOTS` are label strings, and
-/// `UNIFIED_TOOL_PLAN.md` itself records that "no producer of a
-/// painted-cell array" has been wired into the renderer at all yet. Rather
-/// than block a live preview on that unported table, or invent literal RGB
-/// constants and present them as if they were a real port of it, this
-/// spaces every index evenly around the hue wheel: stable across calls
-/// (the same index always gets the same colour), visually distinct for any
-/// palette this port currently ships (at most 15 classes), and honestly a
-/// new convention rather than a guessed parity value.
-pub fn swatch_color(index: u8, palette_len: usize) -> (u8, u8, u8) {
+/// **Biome and Terrain are the reference's own literal tables**,
+/// `CART_BIOME_COLS` (reference 6813) and `CART_TERRAIN_COLS` (6858) — the
+/// exact colours `landColorCore` blends into the map at weight `0.60`
+/// (`render::land_color`'s own paint blend), so the overlay preview and the
+/// committed map now name a class with the same colour instead of two
+/// unrelated ones.
+///
+/// This function previously spaced every index around the hue wheel, on the
+/// stated grounds that "no literal RGB table behind it ... has been ported".
+/// That was true when it was written and had stopped being true: both
+/// tables were already in this crate, for the `bclass`/`cterrain` debug
+/// views. Corrected 2026-08-24; the generated-hue path survives only for
+/// Splat, which genuinely has no reference colour.
+///
+/// **Splat keeps the generated hue, and that is the honest answer, not a
+/// leftover.** `SPLAT_PAINT_SLOTS` names *ground textures*, not colours:
+/// the reference renders a painted splat cell by forcing that pack
+/// texture's own pixels at full coverage (7765-7773), so a splat class has
+/// no swatch colour to port — only a texture, which is a different thing
+/// and is not something a flat overlay can show.
+pub fn swatch_color(target: PaintTarget, index: u8, palette_len: usize) -> (u8, u8, u8) {
     if index == 0 || palette_len == 0 || index as usize > palette_len {
         return (0, 0, 0);
     }
-    let hue = ((index - 1) as f64 / palette_len as f64) * 360.0;
-    hsv_to_rgb(hue, 0.65, 0.95)
+    let i = index as usize - 1;
+    match target {
+        PaintTarget::Biome => crate::render::CART_BIOME_COLS[i],
+        PaintTarget::Terrain => crate::render::CART_TERRAIN_COLS[i],
+        PaintTarget::Splat => hsv_to_rgb(((index - 1) as f64 / palette_len as f64) * 360.0, 0.65, 0.95),
+    }
 }
 
 fn hsv_to_rgb(h: f64, s: f64, v: f64) -> (u8, u8, u8) {
@@ -731,18 +757,59 @@ mod tests {
 
     #[test]
     fn swatch_color_is_stable_and_distinct_across_a_palette() {
-        let colors: Vec<_> = (1..=13u8).map(|i| swatch_color(i, 13)).collect();
-        for i in 1..=13u8 {
-            assert_eq!(swatch_color(i, 13), colors[i as usize - 1], "must be stable across calls");
+        for t in PaintTarget::ALL {
+            let n = t.palette().len();
+            let colors: Vec<_> = (1..=n as u8).map(|i| swatch_color(t, i, n)).collect();
+            for i in 1..=n as u8 {
+                assert_eq!(swatch_color(t, i, n), colors[i as usize - 1], "must be stable across calls");
+            }
+            let unique: std::collections::HashSet<_> = colors.iter().copied().collect();
+            assert_eq!(unique.len(), colors.len(), "{t:?}: every class should get its own colour");
         }
-        let unique: std::collections::HashSet<_> = colors.iter().copied().collect();
-        assert_eq!(unique.len(), colors.len(), "every class in a 13-entry palette should get its own colour");
+    }
+
+    /// The correction this function needed: the overlay preview and the
+    /// committed map must name a class with the *same* colour, and that
+    /// colour is the reference's own table, not a generated hue.
+    #[test]
+    fn biome_and_terrain_swatches_are_the_reference_tables_the_renderer_blends() {
+        for i in 1..=13u8 {
+            assert_eq!(swatch_color(PaintTarget::Biome, i, 13), crate::render::CART_BIOME_COLS[i as usize - 1]);
+            assert_eq!(swatch_color(PaintTarget::Terrain, i, 13), crate::render::CART_TERRAIN_COLS[i as usize - 1]);
+        }
+        // Spot-check two literal reference values so a table edit cannot
+        // pass this by moving both sides together.
+        assert_eq!(swatch_color(PaintTarget::Biome, 2, 13), (58, 122, 74), "CART_BIOME_COLS[1], Temperate Forest");
+        assert_eq!(swatch_color(PaintTarget::Terrain, 2, 13), (154, 122, 74), "CART_TERRAIN_COLS[1]");
+    }
+
+    /// Splat has no reference colour at all — it names pack textures. Kept
+    /// on the generated hue, and pinned so the distinction stays deliberate.
+    #[test]
+    fn splat_swatches_stay_generated_because_the_reference_has_no_colour_for_them() {
+        assert_ne!(swatch_color(PaintTarget::Splat, 1, 6), crate::render::CART_BIOME_COLS[0]);
+        assert_eq!(swatch_color(PaintTarget::Splat, 1, 6), swatch_color(PaintTarget::Splat, 1, 6));
     }
 
     #[test]
     fn swatch_color_is_black_for_unpainted_or_out_of_range() {
-        assert_eq!(swatch_color(0, 13), (0, 0, 0));
-        assert_eq!(swatch_color(99, 13), (0, 0, 0));
-        assert_eq!(swatch_color(1, 0), (0, 0, 0));
+        for t in PaintTarget::ALL {
+            assert_eq!(swatch_color(t, 0, 13), (0, 0, 0));
+            assert_eq!(swatch_color(t, 99, 13), (0, 0, 0));
+            assert_eq!(swatch_color(t, 1, 0), (0, 0, 0));
+        }
+    }
+
+    #[test]
+    fn layer_cells_reports_only_committed_state() {
+        let n = 16 * 12;
+        let mut e = PaintEditor::new(16, 12, land_mask(n));
+        assert!(e.layer_cells(PaintTarget::Biome).is_none(), "unallocated before anything is painted");
+        e.set_brush(2, 1.0, 1.0, 0.0, false, false);
+        e.stroke_at(4.0, 4.0);
+        assert!(e.layer_cells(PaintTarget::Biome).is_none(), "a pending draft is not committed state");
+        e.commit_all(n);
+        assert_eq!(e.layer_cells(PaintTarget::Biome).unwrap()[4 * 16 + 4], 2);
+        assert!(e.layer_cells(PaintTarget::Splat).is_none(), "an untouched layer stays unallocated");
     }
 }

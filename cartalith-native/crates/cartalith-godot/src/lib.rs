@@ -3061,6 +3061,26 @@ impl WorldGen {
             ctx = ctx.with_splat(splat);
         }
 
+        // The Cartography paint brush's three override grids
+        // (`UNIFIED_TOOL_PLAN.md` milestone C/F). Without this the tool was
+        // fully functional and completely invisible: `paint_commit` wrote
+        // real cells, `build_paint_preview_texture` drew them as a separate
+        // overlay, and the map itself never changed -- while the reference's
+        // own `_paintAt` ends in `render()` and tints the map on the very
+        // first dab. `render::land_color`'s own paint blend is the port of
+        // that tint (`landColorCore` 7897-7901); this is its only producer.
+        //
+        // **Committed cells only, not the live draft.** The reference has no
+        // draft stage for paint at all (`cartalith-spatial/src/paint.rs`'s
+        // own "the only divergence"), so there is no reference answer for
+        // what an uncommitted dab should do to the map; showing the
+        // *committed* state here matches Sculpt's own draft/commit split
+        // exactly, and the in-flight draft is what
+        // `build_paint_preview_texture`'s overlay is for.
+        if let Some(p) = self.paint.as_ref() {
+            ctx = ctx.with_paint(p.layer_cells(paint_bridge::PaintTarget::Biome), p.layer_cells(paint_bridge::PaintTarget::Terrain), p.layer_cells(paint_bridge::PaintTarget::Splat));
+        }
+
         // Milestone 6 (`TERRAIN_APPEARANCE_SCOPE.md`, research §21/§23): one
         // `rayon` row-parallel pass instead of one serial `for y`. Five
         // milestones of appearance work had grown this loop from a hillshade
@@ -4770,7 +4790,7 @@ impl WorldGen {
             if v == 0 {
                 bytes.extend_from_slice(&[0, 0, 0, 0]);
             } else {
-                let (r, g, b) = paint_bridge::swatch_color(v, palette_len);
+                let (r, g, b) = paint_bridge::swatch_color(p.layer, v, palette_len);
                 bytes.extend_from_slice(&[r, g, b, 255]);
             }
         }

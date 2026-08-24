@@ -391,7 +391,14 @@ func _build_paint_options(row: HBoxContainer) -> void:
 
 func _on_paint_commit() -> void:
 	var summary: Dictionary = bridge.paint_commit()
-	app.viewport.set_preview_texture(bridge.build_paint_preview_texture())
+	## Exactly what `_on_sculpt_commit` above does, and now for the same
+	## reason: since 2026-08-24 `build_color_texture()` composites the
+	## committed paint layers itself (`landColorCore`'s 0.60 tint), so the
+	## raster has to be re-fetched or the commit is invisible -- and the
+	## opaque draft overlay has to come off, or it covers the blend it was
+	## standing in for with a flat sticker.
+	app.viewport.map_view.texture = bridge.color_texture()
+	app.viewport.set_preview_texture(null)
 	var stale: PackedStringArray = summary.get("stale_stages", PackedStringArray())
 	app.set_status("hint", ("painted -- stale: %s" % ", ".join(stale)) if stale.size() > 0 else "painted", "text_ghost")
 	rebuild()

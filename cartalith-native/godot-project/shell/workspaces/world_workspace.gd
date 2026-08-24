@@ -913,11 +913,13 @@ func _build_paint(parent: Control) -> void:
 	var discard_btn := DccWidgets.action(actions, "Discard draft", _on_paint_discard)
 	discard_btn.disabled = total == 0
 	DccWidgets.note(sec,
-		"Commit writes every layer's pending dabs into their own override arrays and marks " +
-		"ecology/biomes and resources/soils stale -- it never touches height, hydrology or " +
-		"climate. No renderer currently draws a painted cell into the real map; this preview " +
-		"is this port's own overlay convention, not the reference's (paint_bridge.rs's own " +
-		"swatch_color doc).")
+		"Commit writes every layer's pending dabs into their own override arrays, refreshes " +
+		"the map (the committed Biome/Terrain layers are blended into it at the reference's " +
+		"own 0.60 weight, landColorCore 7898) and marks ecology/biomes and resources/soils " +
+		"stale -- it never touches height, hydrology or climate. The overlay above is the " +
+		"in-flight draft only: it is opaque, so it stands in for the blend until you commit. " +
+		"Splat has no map colour of its own -- it forces a pack ground texture, and shows " +
+		"nothing without a pack loaded.")
 
 func _on_paint_layer_changed(i: int, layers: PackedStringArray) -> void:
 	_paint_layer = String(layers[i])
@@ -959,7 +961,13 @@ func _sync_paint_brush() -> void:
 
 func _on_paint_commit() -> void:
 	var summary: Dictionary = bridge.paint_commit()
-	app.viewport.set_preview_texture(bridge.build_paint_preview_texture())
+	## The same pair `_on_sculpt_commit` uses, for the same reason: since
+	## 2026-08-24 `build_color_texture()` composites the committed paint
+	## layers itself (`landColorCore`'s 0.60 tint), so the map raster must be
+	## re-fetched -- and the opaque draft overlay must come off, or it hides
+	## that blend behind the flat swatch colour it was standing in for.
+	app.viewport.map_view.texture = bridge.color_texture()
+	app.viewport.set_preview_texture(null)
 	var stale: PackedStringArray = summary.get("stale_stages", PackedStringArray())
 	app.set_status("hint", ("painted -- stale: %s" % ", ".join(stale)) if stale.size() > 0 else "painted", "text_ghost")
 	_build_paint(_paint_body)

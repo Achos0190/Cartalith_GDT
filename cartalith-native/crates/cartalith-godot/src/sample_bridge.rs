@@ -830,42 +830,16 @@ pub const RESOURCE_COLS: [(u8, u8, u8); 6] =
 pub const RESOURCE_NAMES: [&str; 6] =
     ["Copper (subduction/arc)", "Tin (old granite)", "Iron (cratons/bog)", "Gold (transform faults)", "Salt (evaporite basins)", "Timber (closed canopy)"];
 
-/// `CART_BIOME_COLS` (reference HTML line 6813), 1-based like `CART_BIOMES`.
-pub const CART_BIOME_COLS: [(u8, u8, u8); 15] = [
-    (90, 147, 184),
-    (58, 122, 74),
-    (168, 163, 90),
-    (74, 120, 120),
-    (158, 149, 96),
-    (42, 106, 58),
-    (58, 106, 90),
-    (122, 122, 138),
-    (154, 138, 106),
-    (201, 165, 90),
-    (165, 181, 197),
-    (106, 74, 74),
-    (122, 138, 74),
-    (58, 122, 184),
-    (30, 70, 110),
-];
-
-/// `CART_TERRAIN_COLS` (reference HTML line 6858), 1-based like
-/// `CART_TERRAINS`; `0` is water/unpainted and drawn separately.
-pub const CART_TERRAIN_COLS: [(u8, u8, u8); 13] = [
-    (138, 138, 138),
-    (154, 122, 74),
-    (194, 160, 96),
-    (176, 176, 96),
-    (111, 95, 51),
-    (138, 154, 82),
-    (154, 154, 154),
-    (122, 122, 138),
-    (99, 99, 122),
-    (86, 106, 70),
-    (212, 184, 122),
-    (213, 224, 234),
-    (122, 106, 106),
-];
+/// `CART_BIOME_COLS` (reference 6813) and `CART_TERRAIN_COLS` (reference
+/// 6858), re-exported from [`crate::render`] rather than held as a second
+/// copy here.
+///
+/// They lived here first, for the `bclass`/`cterrain` debug views. They now
+/// have a second, primary consumer — `landColorCore`'s own paint blend
+/// (`render::land_color`) — and `render.rs` is `#[path]`-included standalone
+/// by five test targets, so it cannot reach this module. One definition,
+/// there; this path stays valid for every existing caller.
+pub use crate::render::{CART_BIOME_COLS, CART_TERRAIN_COLS};
 
 /// Legend rows for one view: `(r, g, b, label)`, drawn as swatches under the
 /// picker. Empty for a view whose meaning is continuous enough that a ramp

@@ -14,8 +14,8 @@
 //!
 //! Excluded: rockSlope refinement, wetness darkening,
 //! geology microtexture and dune ripples, procedural texture synthesis,
-//! ridged-relief creases, curvature shading, the paint-brush biome/terrain
-//! override, SVF/cast-shadow fields, and the coast/river SDF
+//! ridged-relief creases, curvature shading,
+//! SVF/cast-shadow fields, and the coast/river SDF
 //! tinting plus vector river overlay (the last two depend on subsystems
 //! this port hasn't built yet; the existing simple river channel-mask tint
 //! in `lib.rs` stays as this port's stand-in for "rivers visible",
@@ -29,7 +29,11 @@
 //!
 //! The ten "Painter" hand-drawn styles, the coastal wave lines and the
 //! multi-sun light rig were on the excluded list above until they were
-//! ported literally (`apply_npr`, `coast_distance`, `multi_sun_from_normal`).
+//! ported literally (`apply_npr`, `coast_distance`, `multi_sun_from_normal`),
+//! and so was the **paint-brush biome/terrain override**, removed from that
+//! list on 2026-08-24 when [`land_color`] gained its `paint` parameter — see
+//! that blend's own comment, and [`PaintOverride`], for what is and is not
+//! reachable.
 //! They are `state.viz.*`-gated in the reference and off at every default
 //! here, so this changed no pixel of the shipped look; what it changed is
 //! that they are now reachable, through `WorldGen::set_npr`.
@@ -110,6 +114,76 @@ use cartalith_noise::{fbm, vnoise};
 use rayon::prelude::*;
 
 type Rgb = (f64, f64, f64);
+
+/// `CART_BIOME_COLS` (reference HTML line 6813), 1-based like `CART_BIOMES`.
+///
+/// **Canonical here, not in `sample_bridge.rs`**, which re-exports these two
+/// rather than keeping a second copy: `landColorCore`'s paint blend
+/// ([`land_color`]'s own `paint` parameter) is the reference's *primary*
+/// consumer, and this module is `#[path]`-included standalone by five test
+/// targets, so it cannot reach a sibling module's copy.
+pub const CART_BIOME_COLS: [(u8, u8, u8); 15] = [
+    (90, 147, 184),
+    (58, 122, 74),
+    (168, 163, 90),
+    (74, 120, 120),
+    (158, 149, 96),
+    (42, 106, 58),
+    (58, 106, 90),
+    (122, 122, 138),
+    (154, 138, 106),
+    (201, 165, 90),
+    (165, 181, 197),
+    (106, 74, 74),
+    (122, 138, 74),
+    (58, 122, 184),
+    (30, 70, 110),
+];
+
+/// `CART_TERRAIN_COLS` (reference HTML line 6858), 1-based like
+/// `CART_TERRAINS`; `0` is water/unpainted and drawn separately.
+pub const CART_TERRAIN_COLS: [(u8, u8, u8); 13] = [
+    (138, 138, 138),
+    (154, 122, 74),
+    (194, 160, 96),
+    (176, 176, 96),
+    (111, 95, 51),
+    (138, 154, 82),
+    (154, 154, 154),
+    (122, 122, 138),
+    (99, 99, 122),
+    (86, 106, 70),
+    (212, 184, 122),
+    (213, 224, 234),
+    (122, 106, 106),
+];
+
+/// The reference's `pBio`/`pTer`/`pSplat` triple — `landColorCore`'s own last
+/// three parameters (reference 7720), read at each of its three call sites
+/// from `paintBiome`/`paintTerrain`/`paintSplat` (`paintBiome?paintBiome[i]:0`
+/// on the main map at 8168, `_paintSampleAt` in both bake paths at 11731 and
+/// 11970).
+///
+/// `0` in every field is "nothing painted here", which is what every caller
+/// that has no paint editor at all passes — and, being the reference's own
+/// unpainted value, makes the whole paint stage a no-op rather than a
+/// special case. [`PaintOverride::default`] is therefore also the pinned
+/// JS-parity state, so `golden_parity_render.rs` needed no change.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PaintOverride {
+    /// 1-based `CART_BIOMES` index, `0` = unpainted.
+    pub bio: u8,
+    /// 1-based `CART_TERRAINS` index, `0` = unpainted.
+    pub ter: u8,
+    /// 1-based `SPLAT_PAINT_SLOTS` index, `0` = unpainted.
+    pub splat: u8,
+}
+
+impl PaintOverride {
+    fn is_empty(self) -> bool {
+        self.bio == 0 && self.ter == 0 && self.splat == 0
+    }
+}
 
 /// One decoded ground-material channel plus its baked inverse-mean
 /// (`finalizePackTexture`) — real pixel data from a loaded pack
@@ -1239,6 +1313,15 @@ pub struct RenderCtx<'a> {
     /// `None` there — the geology stages then do nothing rather than
     /// inventing a rock type.
     lithology: Option<&'a [u8]>,
+    /// The three Cartography paint-override grids (`paintBiome`/
+    /// `paintTerrain`/`paintSplat`, `0` = unpainted, else a 1-based palette
+    /// index), `None` by construction — attach with [`Self::with_paint`].
+    /// `None` and an all-zero grid are the same picture, which is what keeps
+    /// every existing caller (and `golden_parity_render.rs`, which never
+    /// calls the builder) byte-identical.
+    paint_biome: Option<&'a [u8]>,
+    paint_terrain: Option<&'a [u8]>,
+    paint_splat: Option<&'a [u8]>,
 }
 
 impl<'a> RenderCtx<'a> {
@@ -1283,7 +1366,7 @@ impl<'a> RenderCtx<'a> {
         let hydro_wet = build_hydro_wetness(flow, gw, gh, world, &appearance);
         let lights = build_lights(&appearance);
         let coast_d = if appearance.npr.waves { coast_distance(field, gw, gh, sea_level) } else { Vec::new() };
-        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, hydro_wet, lights, coast_d, appearance, splat: None, lithology: None }
+        RenderCtx { field, temperature, rainfall, flow, gw, gh, sea_level, world, lat_n, lat_s, sea_h, sea_shade, ao, hydro_wet, lights, coast_d, appearance, splat: None, lithology: None, paint_biome: None, paint_terrain: None, paint_splat: None }
     }
 
     /// Attach the world's real rock types (milestone 5, §12). A builder for
@@ -1313,6 +1396,34 @@ impl<'a> RenderCtx<'a> {
     pub fn with_splat(mut self, splat: SplatTextures<'a>) -> Self {
         self.splat = Some(splat);
         self
+    }
+
+    /// Attach the Cartography paint-brush override grids
+    /// (`cartalith_spatial::PaintLayer`'s committed cells, via
+    /// `paint_bridge::PaintEditor`). Each must be `gw * gh` long or it is
+    /// dropped — a short grid would otherwise index-panic per pixel inside
+    /// the parallel render, and `cartalith-rust-conventions`' own rule is
+    /// that a panic must not cross the gdext boundary.
+    ///
+    /// A builder method for the same reason [`Self::with_splat`] is one:
+    /// every existing caller, including the five `#[path]`-including test
+    /// targets, keeps compiling and keeps rendering byte-identically.
+    #[allow(dead_code)]
+    pub fn with_paint(mut self, biome: Option<&'a [u8]>, terrain: Option<&'a [u8]>, splat: Option<&'a [u8]>) -> Self {
+        let n = self.gw * self.gh;
+        let fit = |g: Option<&'a [u8]>| g.filter(|c| c.len() >= n);
+        self.paint_biome = fit(biome);
+        self.paint_terrain = fit(terrain);
+        self.paint_splat = fit(splat);
+        self
+    }
+
+    /// The reference's own per-cell read of the three grids — `paintBiome[i]`
+    /// etc. on the main map (8168), which is exactly this index because the
+    /// main render walks whole cells.
+    fn paint_at(&self, i: usize) -> PaintOverride {
+        let g = |a: Option<&[u8]>| a.map_or(0, |c| c[i]);
+        PaintOverride { bio: g(self.paint_biome), ter: g(self.paint_terrain), splat: g(self.paint_splat) }
     }
 
     fn h(&self, x: usize, y: usize) -> f64 {
@@ -1670,7 +1781,7 @@ fn bio_jitter(x: usize, y: usize, gw: usize) -> f64 {
 /// AO/SVF/shadow fields all being off). Every other `state.viz.*`-gated
 /// extra is omitted — see this module's doc comment.
 #[allow(clippy::too_many_arguments)]
-fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: usize, y: usize, gw: usize, gh: usize, splat: Option<&SplatTextures>) -> Rgb {
+fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64, twi: f64, asp: f64, curv: f64, sh: f64, sh_m: f64, vig: f64, ao: f64, hydro_wet: f64, lith: Option<u8>, grad: (f64, f64), x: usize, y: usize, gw: usize, gh: usize, splat: Option<&SplatTextures>, paint: PaintOverride) -> Rgb {
     let n_low = vnoise(x as f64 * 0.06, y as f64 * 0.06, 11);
     let n_hi = vnoise(x as f64 * 96.0 / gw as f64, y as f64 * 96.0 / gw as f64, 23);
     let n_bio = bio_jitter(x, y, gw);
@@ -1716,23 +1827,50 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     {
         let mut acc: Rgb = (0.0, 0.0, 0.0);
         let mut cov = 0.0;
-        if let Some(tex) = splat.grass {
-            splat_sample(tex, grass_col(appearance, te, me, r, tt), w.grass, x, y, &mut acc, &mut cov);
-        }
-        if let Some(tex) = splat.rock {
-            splat_sample(tex, rock_material_col(appearance, te, me, r, tt, lith), w.rock, x, y, &mut acc, &mut cov);
-        }
-        if let Some(tex) = splat.sand {
-            splat_sample(tex, sand_col(appearance, te, me, tt), w.sand, x, y, &mut acc, &mut cov);
-        }
-        if let Some(tex) = splat.snow {
-            splat_sample(tex, snow_col(appearance, te, tt), w.snow, x, y, &mut acc, &mut cov);
-        }
-        if let Some(tex) = splat.wetland {
-            splat_sample(tex, wetland_col(appearance, te, w.is_mangrove, tt), w.wetland, x, y, &mut acc, &mut cov);
-        }
-        if let Some(tex) = splat.canopy {
-            splat_sample(tex, forest_col(appearance, te, w.meff, tt), w.canopy, x, y, &mut acc, &mut cov);
+        if paint.splat > 0 {
+            // The reference's paint-brush Splat override (7765-7773): force
+            // **one** slot at full coverage, bypassing the
+            // `materialWeights`-weighted multi-slot blend below entirely —
+            // "a genuine 'paint this ground texture here' rather than a
+            // tint". `sp()` is reused unchanged, and an empty slot is still
+            // a no-op (`splat_sample` early-returns on `None`), which is the
+            // reference's own "empty slots stay procedural" contract.
+            //
+            // Indices are 1-based into `SPLAT_PAINT_SLOTS`
+            // (`["grass","rock","sand","snow","wetland","canopy"]`), whose
+            // order this match reproduces; anything out of range paints
+            // nothing rather than wrapping onto the wrong channel.
+            let (tex, ramp) = match paint.splat {
+                1 => (splat.grass, grass_col(appearance, te, me, r, tt)),
+                2 => (splat.rock, rock_material_col(appearance, te, me, r, tt, lith)),
+                3 => (splat.sand, sand_col(appearance, te, me, tt)),
+                4 => (splat.snow, snow_col(appearance, te, tt)),
+                5 => (splat.wetland, wetland_col(appearance, te, w.is_mangrove, tt)),
+                6 => (splat.canopy, forest_col(appearance, te, w.meff, tt)),
+                _ => (None, (0.0, 0.0, 0.0)),
+            };
+            if let Some(tex) = tex {
+                splat_sample(tex, ramp, 1.0, x, y, &mut acc, &mut cov);
+            }
+        } else {
+            if let Some(tex) = splat.grass {
+                splat_sample(tex, grass_col(appearance, te, me, r, tt), w.grass, x, y, &mut acc, &mut cov);
+            }
+            if let Some(tex) = splat.rock {
+                splat_sample(tex, rock_material_col(appearance, te, me, r, tt, lith), w.rock, x, y, &mut acc, &mut cov);
+            }
+            if let Some(tex) = splat.sand {
+                splat_sample(tex, sand_col(appearance, te, me, tt), w.sand, x, y, &mut acc, &mut cov);
+            }
+            if let Some(tex) = splat.snow {
+                splat_sample(tex, snow_col(appearance, te, tt), w.snow, x, y, &mut acc, &mut cov);
+            }
+            if let Some(tex) = splat.wetland {
+                splat_sample(tex, wetland_col(appearance, te, w.is_mangrove, tt), w.wetland, x, y, &mut acc, &mut cov);
+            }
+            if let Some(tex) = splat.canopy {
+                splat_sample(tex, forest_col(appearance, te, w.meff, tt), w.canopy, x, y, &mut acc, &mut cov);
+            }
         }
         if cov > 0.0 {
             let k = appearance.splat_strength * cov;
@@ -1872,6 +2010,42 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
         let wet = hydro_wet * appearance.hydro_wet_strength;
         let target = (50.0, 68.0, 74.0);
         l = (l.0 + (target.0 - l.0) * wet, l.1 + (target.1 - l.1) * wet, l.2 + (target.2 - l.2) * wet);
+    }
+
+    // The paint brush's Biome/Terrain tint (7897-7901) — the reference's own
+    // slot for it: "after every other colour/lighting step and before the
+    // Painter/NPR block so hand-drawn styles still apply consistently on top
+    // of painted cells". A final alpha blend of the painted index's flat
+    // palette colour over the *fully shaded* colour at weight `0.60`,
+    // deliberately not a rewrite of the `material_weights` mix above, "so
+    // hillshade/AO/crest/splat/haze still show through and painted cells
+    // don't read as flat pasted stickers". Both layers can coexist on one
+    // cell and are applied sequentially, Biome then Terrain.
+    //
+    // **`_paintedTex` is not reachable in this port and this is not a
+    // silent gap**: the reference's v1.28 refinement blends a *pack*
+    // texture's true colour instead of the flat swatch when the loaded pack
+    // supplies one for that index, at the same 0.60 weight and the same
+    // position. `pack.rs`'s own module doc records that `LoadedPack` parses
+    // but does not decode the `biomes`/`terrains` families, so there is no
+    // texture to reach for — which is exactly the reference's own
+    // `_t || CART_BIOME_COLS[pBio-1]` fallback, the branch a pack-less world
+    // takes there too. Nothing here diverges; the texture half becomes
+    // reachable the day those two families are decoded.
+    //
+    // Water is deliberately untouched: this blend lives in `landColorCore`,
+    // so `cell_color`'s sea branch never sees it. In the reference that is
+    // moot (`_paintAt` is unconditionally land-gated), and in this port it
+    // is the honest consequence of `Brush::land_only` being a toggle — a dab
+    // placed on water with the gate off is stored, exported and previewed,
+    // and simply has no place in the map's water colour.
+    if !paint.is_empty() {
+        let swatch = |table: &[(u8, u8, u8)], v: u8| if v == 0 { None } else { table.get(v as usize - 1).copied() };
+        for p in [swatch(&CART_BIOME_COLS, paint.bio), swatch(&CART_TERRAIN_COLS, paint.ter)].into_iter().flatten() {
+            l.0 += (p.0 as f64 - l.0) * 0.60;
+            l.1 += (p.1 as f64 - l.1) * 0.60;
+            l.2 += (p.2 as f64 - l.2) * 0.60;
+        }
     }
 
     // The "Painter" NPR block (7903-7962) — land only (`r > 0`), and exactly
@@ -2496,7 +2670,7 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
         // `surfaceColor`'s own hachure guard (8160): the gradient is derived
         // only when hachure is actually on, so the default path pays nothing.
         let grad = if ctx.appearance.npr.hachure > 0.0 { ctx.grad_at(x, y) } else { (0.0, 0.0) };
-        land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, ctx.hydro_wet[i] as f64, ctx.litho_at(x, y), grad, x, y, ctx.gw, ctx.gh, ctx.splat.as_ref())
+        land_color(&ctx.appearance, t, m, slope, r_frac, twi, asp, curv, ctx.macro_shade(x, y), ctx.meso_shade(x, y), ctx.vignette_at(x, y), ctx.ao[i] as f64, ctx.hydro_wet[i] as f64, ctx.litho_at(x, y), grad, x, y, ctx.gw, ctx.gh, ctx.splat.as_ref(), ctx.paint_at(i))
     };
 
     // B4 coastal wave lines (8555-8558): foam contours hugging the shore and
