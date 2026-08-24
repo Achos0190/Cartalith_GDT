@@ -30,6 +30,8 @@ Dependencies run one way, in pipeline order:
 ```
 cartalith-native/                 (workspace root, new repository)
 ├── crates/
+│   ├── cartalith-jsmath/         Math.hypot/exp/sin/cos/log/atan2/round/toFixed
+│   │                             with V8's semantics — no dependencies at all
 │   ├── cartalith-noise/          hash/vnoise/fbm/ridged — hand-ported, see below
 │   ├── cartalith-rng/            mulberry32, ported exactly (PARITY_TESTING.md)
 │   ├── cartalith-terrain/        tectonics → height → normalize → volcanism → archetypes
@@ -42,6 +44,25 @@ cartalith-native/                 (workspace root, new repository)
 ├── godot-project/                scenes, GDScript glue, export presets
 └── docs/                         CHANGELOG.md, HANDOFF.md
 ```
+
+**`cartalith-jsmath` is a true leaf, and that is the point.** It has **no
+dependencies** — not on another Cartalith crate, not on a third-party crate, not
+even a dev-dependency. `JS_SEMANTICS_AUDIT.md` catalogues eight places where
+Rust's standard library and V8 disagree about a floating-point operation, and by
+the time the audit ran the JS-faithful replacements had been written
+independently in five crates: seven copies of `js_hypot`, seven of `js_round`,
+three of `js_min`/`js_max`, two of `toFixed`, and one each of `js_exp`,
+`js_sin`, `js_cos`, `js_log` and `js_atan2` that nothing outside their own crate
+could reach. The copies had already drifted apart in three measurable ways.
+
+A dependency-free crate is the only shape that reaches all fifteen without
+disturbing the one-way ordering above: `cartalith-urban` is allowed only
+`cartalith-rng`, and `cartalith-assets` only `cartalith-io`/`-noise`, so neither
+can see `cartalith-spatial` or `cartalith-hydrology`, where two of those helpers
+used to live. Sitting below everything, it cannot create a cycle wherever it is
+added. Adding *anything* to its `[dependencies]` — including a dev-dependency —
+would put that back in question, which is why its bulk goldens carry a four-line
+inline `mulberry32` rather than borrowing `cartalith-rng`'s.
 
 **`cartalith-noise` is hand-ported rather than taken from `noise-rs`.** `noise-rs`
 is well maintained and would be the obvious choice for a project without a parity

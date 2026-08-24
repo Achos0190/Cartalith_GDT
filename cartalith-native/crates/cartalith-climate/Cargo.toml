@@ -10,4 +10,6 @@ description = "temperature, wind, rainfall"
 name = "cartalith_climate"
 
 [dependencies]
+cartalith-jsmath = { path = "../cartalith-jsmath" }
 cartalith-terrain = { path = "../cartalith-terrain" }
+rayon = "1"

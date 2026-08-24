@@ -1,0 +1,329 @@
+[gd_resource type="Theme" load_steps=14 format=3]
+
+; Real dark Theme resource (GUI decluttering pass, 2026-08-17). Authored
+; against the mockup's own dark tokens -- these are the *exact* values
+; already scattered as inline `theme_override_colors`/`StyleBoxFlat`
+; literals throughout `main.tscn` (verified by comparison, not guessed),
+; centralised here so every control -- including the SpinBox/OptionButton/
+; CheckBox/Button controls that previously fell back to `app_theme.tres`'s
+; light-parchment chrome sitting on this dark shell -- resolves to one
+; theme with no fallback to the light one. Supersedes `app_theme.tres` as
+; both `Main`'s theme and the project-wide default (`project.godot`
+; `gui/theme/custom`); `app_theme.tres` itself is untouched (still a real,
+; working light Theme resource) but no longer wired into the live path.
+;
+; Tokens (GUI_SHELL_SCOPE.md's decluttering-pass section has the full
+; rationale):
+;   surface   #0d0e0f   panel/page background
+;   viewport  #101112   map-viewport background (very slightly lighter)
+;   hairline  rgba(255,255,255,.10)  panel borders
+;   divider   rgba(255,255,255,.05)  in-panel row/section rules
+;   border    rgba(255,255,255,.14)  input-control borders
+;   text      #c8cbcd   primary label/body colour
+;   emphasis  #e8ebec   hover/active text, wordmark
+;   dim       #8d9296   secondary chrome (menu labels, group headers)
+;   label     #5f6468   tertiary/hint text, disabled-state font colour
+;   accent    #e0a34a   the one accent -- active nav row, focus rings,
+;             PrimaryButton fill -- reserved for active/accent states only
+;
+; Font: still Godot's built-in default for both UI chrome and numeric
+; fields. The mockup calls for an IBM-Plex-Mono-equivalent on numeric/data
+; fields (seed, resolution, coordinates) distinct from the UI sans -- no
+; such font asset exists in this repo yet (same real gap `app_theme.tres`'s
+; own header already flagged for Fira Sans/Fira Code and never closed).
+; Sourcing + licensing a real font file is left exactly as deferred as it
+; already was, not silently dropped.
+
+[sub_resource type="StyleBoxFlat" id="SB_FieldNormal"]
+bg_color = Color(0.101961, 0.105882, 0.113725, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(1, 1, 1, 0.14)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+content_margin_left = 10.0
+content_margin_top = 6.0
+content_margin_right = 10.0
+content_margin_bottom = 6.0
+
+[sub_resource type="StyleBoxFlat" id="SB_FieldHover"]
+bg_color = Color(0.145098, 0.152941, 0.160784, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(1, 1, 1, 0.2)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+content_margin_left = 10.0
+content_margin_top = 6.0
+content_margin_right = 10.0
+content_margin_bottom = 6.0
+
+[sub_resource type="StyleBoxFlat" id="SB_FieldPressed"]
+bg_color = Color(0.0745098, 0.0784314, 0.0862745, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.878431, 0.639216, 0.290196, 0.6)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+content_margin_left = 10.0
+content_margin_top = 6.0
+content_margin_right = 10.0
+content_margin_bottom = 6.0
+
+[sub_resource type="StyleBoxFlat" id="SB_FieldDisabled"]
+bg_color = Color(0.0509804, 0.054902, 0.0588235, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(1, 1, 1, 0.06)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+content_margin_left = 10.0
+content_margin_top = 6.0
+content_margin_right = 10.0
+content_margin_bottom = 6.0
+
+[sub_resource type="StyleBoxFlat" id="SB_FieldFocus"]
+bg_color = Color(0, 0, 0, 0)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.878431, 0.639216, 0.290196, 1)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+expand_margin_left = 2.0
+expand_margin_top = 2.0
+expand_margin_right = 2.0
+expand_margin_bottom = 2.0
+
+[sub_resource type="StyleBoxFlat" id="SB_PrimaryNormal"]
+bg_color = Color(0.878431, 0.639216, 0.290196, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16.0
+content_margin_top = 10.0
+content_margin_right = 16.0
+content_margin_bottom = 10.0
+
+[sub_resource type="StyleBoxFlat" id="SB_PrimaryHover"]
+bg_color = Color(0.929412, 0.705882, 0.372549, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16.0
+content_margin_top = 10.0
+content_margin_right = 16.0
+content_margin_bottom = 10.0
+
+[sub_resource type="StyleBoxFlat" id="SB_PrimaryPressed"]
+bg_color = Color(0.768627, 0.54902, 0.219608, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16.0
+content_margin_top = 10.0
+content_margin_right = 16.0
+content_margin_bottom = 10.0
+
+[sub_resource type="StyleBoxFlat" id="SB_PrimaryDisabled"]
+bg_color = Color(0.878431, 0.639216, 0.290196, 0.22)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 16.0
+content_margin_top = 10.0
+content_margin_right = 16.0
+content_margin_bottom = 10.0
+
+[sub_resource type="StyleBoxFlat" id="SB_PrimaryFocus"]
+bg_color = Color(0, 0, 0, 0)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.909804, 0.921569, 0.92549, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+expand_margin_left = 2.0
+expand_margin_top = 2.0
+expand_margin_right = 2.0
+expand_margin_bottom = 2.0
+
+[sub_resource type="StyleBoxFlat" id="SB_Separator"]
+bg_color = Color(1, 1, 1, 0.05)
+content_margin_top = 1.0
+content_margin_bottom = 1.0
+
+[sub_resource type="StyleBoxFlat" id="SB_SliderGroove"]
+bg_color = Color(0.101961, 0.105882, 0.113725, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+content_margin_top = 3.0
+content_margin_bottom = 3.0
+
+[sub_resource type="StyleBoxFlat" id="SB_SliderFill"]
+bg_color = Color(0.878431, 0.639216, 0.290196, 0.55)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+content_margin_top = 3.0
+content_margin_bottom = 3.0
+
+[resource]
+default_font_size = 13
+
+Label/colors/font_color = Color(0.784314, 0.796078, 0.803922, 1)
+Label/font_sizes/font_size = 13
+
+Button/styles/normal = SubResource("SB_FieldNormal")
+Button/styles/hover = SubResource("SB_FieldHover")
+Button/styles/pressed = SubResource("SB_FieldPressed")
+Button/styles/disabled = SubResource("SB_FieldDisabled")
+Button/styles/focus = SubResource("SB_FieldFocus")
+Button/colors/font_color = Color(0.784314, 0.796078, 0.803922, 1)
+Button/colors/font_hover_color = Color(0.909804, 0.921569, 0.92549, 1)
+Button/colors/font_pressed_color = Color(0.878431, 0.639216, 0.290196, 1)
+Button/colors/font_focus_color = Color(0.909804, 0.921569, 0.92549, 1)
+Button/colors/font_disabled_color = Color(0.372549, 0.392157, 0.407843, 1)
+Button/colors/icon_normal_color = Color(0.784314, 0.796078, 0.803922, 1)
+Button/colors/icon_hover_color = Color(0.909804, 0.921569, 0.92549, 1)
+Button/colors/icon_pressed_color = Color(0.878431, 0.639216, 0.290196, 1)
+Button/colors/icon_disabled_color = Color(0.372549, 0.392157, 0.407843, 1)
+Button/font_sizes/font_size = 13
+
+CheckBox/styles/normal = SubResource("SB_FieldDisabled")
+CheckBox/styles/hover = SubResource("SB_FieldDisabled")
+CheckBox/styles/pressed = SubResource("SB_FieldDisabled")
+CheckBox/styles/disabled = SubResource("SB_FieldDisabled")
+CheckBox/styles/focus = SubResource("SB_FieldFocus")
+CheckBox/colors/font_color = Color(0.784314, 0.796078, 0.803922, 1)
+CheckBox/colors/font_hover_color = Color(0.909804, 0.921569, 0.92549, 1)
+CheckBox/colors/font_pressed_color = Color(0.878431, 0.639216, 0.290196, 1)
+CheckBox/colors/font_disabled_color = Color(0.372549, 0.392157, 0.407843, 1)
+CheckBox/colors/checkbox_checked_color = Color(0.878431, 0.639216, 0.290196, 1)
+CheckBox/colors/checkbox_unchecked_color = Color(0.552941, 0.576471, 0.588235, 1)
+CheckBox/font_sizes/font_size = 13
+
+OptionButton/styles/normal = SubResource("SB_FieldNormal")
+OptionButton/styles/hover = SubResource("SB_FieldHover")
+OptionButton/styles/pressed = SubResource("SB_FieldPressed")
+OptionButton/styles/disabled = SubResource("SB_FieldDisabled")
+OptionButton/styles/focus = SubResource("SB_FieldFocus")
+OptionButton/colors/font_color = Color(0.784314, 0.796078, 0.803922, 1)
+OptionButton/colors/font_hover_color = Color(0.909804, 0.921569, 0.92549, 1)
+OptionButton/colors/font_pressed_color = Color(0.878431, 0.639216, 0.290196, 1)
+OptionButton/colors/font_disabled_color = Color(0.372549, 0.392157, 0.407843, 1)
+OptionButton/font_sizes/font_size = 13
+
+LineEdit/styles/normal = SubResource("SB_FieldNormal")
+LineEdit/styles/focus = SubResource("SB_FieldFocus")
+LineEdit/styles/read_only = SubResource("SB_FieldDisabled")
+LineEdit/colors/font_color = Color(0.784314, 0.796078, 0.803922, 1)
+LineEdit/colors/font_placeholder_color = Color(0.372549, 0.392157, 0.407843, 1)
+LineEdit/colors/font_uneditable_color = Color(0.372549, 0.392157, 0.407843, 1)
+LineEdit/colors/caret_color = Color(0.878431, 0.639216, 0.290196, 1)
+LineEdit/colors/selection_color = Color(0.878431, 0.639216, 0.290196, 0.35)
+LineEdit/font_sizes/font_size = 13
+
+SpinBox/styles/up_background = SubResource("SB_FieldNormal")
+SpinBox/styles/up_background_hovered = SubResource("SB_FieldHover")
+SpinBox/styles/up_background_pressed = SubResource("SB_FieldPressed")
+SpinBox/styles/up_background_disabled = SubResource("SB_FieldDisabled")
+SpinBox/styles/down_background = SubResource("SB_FieldNormal")
+SpinBox/styles/down_background_hovered = SubResource("SB_FieldHover")
+SpinBox/styles/down_background_pressed = SubResource("SB_FieldPressed")
+SpinBox/styles/down_background_disabled = SubResource("SB_FieldDisabled")
+SpinBox/colors/up_icon_modulate = Color(0.784314, 0.796078, 0.803922, 1)
+SpinBox/colors/up_hover_icon_modulate = Color(0.909804, 0.921569, 0.92549, 1)
+SpinBox/colors/up_pressed_icon_modulate = Color(0.878431, 0.639216, 0.290196, 1)
+SpinBox/colors/up_disabled_icon_modulate = Color(0.372549, 0.392157, 0.407843, 1)
+SpinBox/colors/down_icon_modulate = Color(0.784314, 0.796078, 0.803922, 1)
+SpinBox/colors/down_hover_icon_modulate = Color(0.909804, 0.921569, 0.92549, 1)
+SpinBox/colors/down_pressed_icon_modulate = Color(0.878431, 0.639216, 0.290196, 1)
+SpinBox/colors/down_disabled_icon_modulate = Color(0.372549, 0.392157, 0.407843, 1)
+
+HSlider/styles/slider = SubResource("SB_SliderGroove")
+HSlider/styles/grabber_area = SubResource("SB_SliderFill")
+HSlider/styles/grabber_area_highlight = SubResource("SB_SliderFill")
+
+HSeparator/styles/separator = SubResource("SB_Separator")
+VSeparator/styles/separator = SubResource("SB_Separator")
+
+PanelContainer/styles/panel = SubResource("SB_FieldDisabled")
+
+ScrollContainer/styles/panel = SubResource("SB_FieldDisabled")
+
+RichTextLabel/colors/default_color = Color(0.784314, 0.796078, 0.803922, 1)
+RichTextLabel/font_sizes/normal_font_size = 13
+
+FoldableContainer/colors/font_color = Color(0.909804, 0.921569, 0.92549, 1)
+FoldableContainer/colors/hover_font_color = Color(0.878431, 0.639216, 0.290196, 1)
+FoldableContainer/colors/collapsed_font_color = Color(0.552941, 0.576471, 0.588235, 1)
+FoldableContainer/styles/panel = SubResource("SB_FieldDisabled")
+FoldableContainer/styles/title_panel = SubResource("SB_FieldNormal")
+FoldableContainer/styles/title_hover_panel = SubResource("SB_FieldHover")
+FoldableContainer/font_sizes/font_size = 12
+
+PrimaryButton/base_type = &"Button"
+PrimaryButton/styles/normal = SubResource("SB_PrimaryNormal")
+PrimaryButton/styles/hover = SubResource("SB_PrimaryHover")
+PrimaryButton/styles/pressed = SubResource("SB_PrimaryPressed")
+PrimaryButton/styles/disabled = SubResource("SB_PrimaryDisabled")
+PrimaryButton/styles/focus = SubResource("SB_PrimaryFocus")
+PrimaryButton/colors/font_color = Color(0.101961, 0.070588, 0.023529, 1)
+PrimaryButton/colors/font_hover_color = Color(0.101961, 0.070588, 0.023529, 1)
+PrimaryButton/colors/font_pressed_color = Color(0.101961, 0.070588, 0.023529, 1)
+PrimaryButton/colors/font_disabled_color = Color(0.101961, 0.070588, 0.023529, 0.55)
+PrimaryButton/font_sizes/font_size = 15
+
+AppTitle/base_type = &"Label"
+AppTitle/colors/font_color = Color(0.909804, 0.921569, 0.92549, 1)
+AppTitle/font_sizes/font_size = 18
+
+SectionHeader/base_type = &"Label"
+SectionHeader/colors/font_color = Color(0.552941, 0.576471, 0.588235, 1)
+SectionHeader/font_sizes/font_size = 11
+
+HintLabel/base_type = &"Label"
+HintLabel/colors/font_color = Color(0.372549, 0.392157, 0.407843, 1)
+HintLabel/font_sizes/font_size = 11
+
+StatusLabel/base_type = &"Label"
+StatusLabel/colors/font_color = Color(0.784314, 0.796078, 0.803922, 1)
+StatusLabel/font_sizes/font_size = 12
+
+ErrorLabel/base_type = &"Label"
+ErrorLabel/colors/font_color = Color(0.901961, 0.419608, 0.419608, 1)
+ErrorLabel/font_sizes/font_size = 12
+
+DataLabel/base_type = &"Label"
+DataLabel/colors/font_color = Color(0.909804, 0.921569, 0.92549, 1)
+DataLabel/font_sizes/font_size = 13

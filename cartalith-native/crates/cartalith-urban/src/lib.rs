@@ -1,0 +1,59 @@
+//! Urban morphology — the reference's script block 4 ("UME", lines 28166-31104
+//! of `reference/Cartalith Gen1 v2.10.html`), ported.
+//!
+//! Block 4 is a self-contained IIFE with **no DOM references at all** (verified
+//! by grep, not assumed: `document`/`window`/`canvas`/`ctx.`/`getElementById`/
+//! `localStorage`/`requestAnimationFrame` produce zero hits inside its line
+//! range) and **no asset-pack references** (confirming, independently, the
+//! finding Phase 4's own milestone-1 investigation recorded). It also takes no
+//! civ *types* — its whole input surface is scalars plus two plain rasters —
+//! so this crate deliberately does **not** depend on `cartalith-civ`. See
+//! `URBAN_MORPHOLOGY_SCOPE.md` for the full investigation and the milestone
+//! plan this crate is being built along.
+//!
+//! Milestone 1 is the foundation every later milestone reads: the labelled RNG
+//! substreams ([`rng`]) and the vector/polygon geometry kernel ([`geom`]).
+//! Milestone 2 adds the [`graph`] the whole engine is built on — a planar
+//! street graph with a uniform-grid spatial index, and the planar face
+//! extraction that turns it into town blocks. Milestone 3 adds [`astar`], the
+//! least-cost search over a site cost raster that milestone 6's primary routes
+//! are traced with. Milestone 4 adds [`rules`] — the culture profiles and the
+//! generation-rule table every later milestone reads its constants out of.
+//! Milestone 5 adds [`site`], the physical setting every later stage queries.
+//! Milestone 6 adds [`routes`] — the market anchor and the arterial backbone,
+//! the first milestone that produces a real street graph end to end.
+//! Milestone 7 adds [`growth`] — the epoch loop that grows the town onto that
+//! backbone, and the successive-wall-generation machinery it drives.
+//!
+//! **Not wired to anything.** Nothing in this crate is called from
+//! `compute_civilisation()`, `cartalith-godot`, or the GUI — same standing
+//! discipline as `cartalith-spatial` and every unwired subsystem port before it.
+
+pub mod astar;
+pub mod geom;
+pub mod graph;
+pub mod growth;
+pub mod rng;
+pub mod routes;
+pub mod rules;
+pub mod site;
+
+pub use astar::astar;
+pub use geom::{Vec2, js_cos, js_exp, js_hypot, js_log, js_max, js_min, js_round, js_sin};
+pub use graph::{Edge, Face, Graph, Node};
+pub use growth::{
+    Gate, GrowOpts, HarbourFront, Occupancy, RecordingWallBuilder, WallBuilder, WallGeneration,
+    WallState, dist_to_line, estimate_carrying_capacity, grow, logistic_ramp, ring_crossings,
+    supersede_wall, wall_occupancy,
+};
+pub use rng::{Substream, fnv1a, stream};
+pub use routes::{Anchors, Route, build_primaries, build_primaries_from_paths, place_anchors};
+pub use site::{
+    Economy, Harbour, Hill, Site, SiteOpts, TerrainCtx, WaterCtx, build_site, shore_from_mask,
+    terrain_suitability,
+};
+pub use rules::{
+    CULTURE_PROFILES, CultureProfile, DEFAULT_RULES, MEDIEVAL, MetaRules, ParcelRules, Rules,
+    RulesPatch, SettlementRules, StreetRules, VENUS, apply_plot_chaos, apply_wildness, clamp,
+    resolve_profile, resolve_rules,
+};

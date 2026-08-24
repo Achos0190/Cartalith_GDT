@@ -4,6 +4,15 @@
 //! general save/load licence. Writing a save is explicitly out of scope
 //! (`SAVEFILE_COMPAT.md`'s own "Deferred" section).
 
+pub mod gzip;
+pub mod tiles;
+
+pub use gzip::{gunzip_bytes, gzip_bytes};
+pub use tiles::{
+    build_tile_manifest, js_num, json_string, manifest_json, pack_height16, unpack_height16, CoarseBounds, TileManifest,
+    TileManifestOpts, TileRecord,
+};
+
 use std::io::Read;
 
 /// `params.json`'s subset this port's terrain pipeline actually reads

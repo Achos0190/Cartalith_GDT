@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"><style>body{margin:0;background:#f0eee9;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif}a{color:#2a78d6}a:hover{color:#1b5fb0}.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}.dv-tid{font:600 10px 'IBM Plex Mono',monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:600 13px/1.2 'Helvetica Neue',Helvetica,sans-serif;color:#1a1a1a}.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}.dv-oid{font:600 10.5px 'IBM Plex Mono',monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 'Helvetica Neue',Helvetica,sans-serif;color:rgba(0,0,0,.55)}.dv-card{max-width:100%;background:#0d0e0f;border:1px solid rgba(0,0,0,.18);border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.14);overflow:hidden}.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}.dv-next{margin:22px 0 0;font:12px/1.5 'Helvetica Neue',Helvetica,sans-serif;color:rgba(0,0,0,.5)}</style></helmet>
+
+<section class="dv-turn" id="t4">
+<div class="dv-thd"><a class="dv-tid" href="#t4">4</a><span class="dv-tname">Light theme — the other state of the theme toggle</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="4a"><div class="dv-olabel"><a class="dv-oid" href="#4a">4a</a>Light theme · same shell as <a class="dv-oid" href="#1a">1a</a>, paper surface</div>
+<div class="dv-card" style="width:1920px;background:#f4f2ee">
+<div data-screen-label="4a World view light" style="width:1920px;height:1080px;background:#f4f2ee;color:#23241f;font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+
+  <div style="height:36px;flex:none;display:flex;align-items:center;gap:26px;padding:0 18px;border-bottom:1px solid rgba(0,0,0,.14)">
+    <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#111210">CARTALITH</div>
+    <div style="display:flex;gap:20px;font-size:11.5px;color:#6b6f6a">
+      <span>Project</span><span>World</span><span>Generate</span><span>Simulate</span><span>Map</span><span>Assets</span><span>View</span>
+    </div>
+    <div style="flex:1"></div>
+    <div style="display:flex;gap:24px;font:11px 'IBM Plex Mono',monospace;color:#7c807a"><span>ELDRA · 483920</span><span>CPU 38</span><span>GPU 71</span><span>1.6 GB</span></div>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+    <div style="width:206px;flex:none;border-right:1px solid rgba(0,0,0,.14);display:flex;flex-direction:column">
+      <div style="height:29px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid rgba(0,0,0,.14);font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#8d9088"><span>WORKSPACE</span><span style="font-size:11px;letter-spacing:0;color:#6b6f6a">‹</span></div>
+      <div style="padding:14px 0;display:flex;flex-direction:column;gap:16px">
+      <div>
+        <div style="padding:0 16px 6px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#8d9088">WORLD</div>
+        <div style="display:flex;flex-direction:column">
+          <div style="padding:4px 16px;border-left:2px solid #a4650f;color:#a4650f;background:rgba(164,101,15,.08)">Overview</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Terrain</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Water</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Climate</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Ecology</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Resources</div>
+        </div>
+      </div>
+      <div>
+        <div style="padding:0 16px 6px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#8d9088">CIVILIZATION</div>
+        <div style="display:flex;flex-direction:column">
+          <div style="padding:4px 16px;border-left:2px solid transparent">Settlements</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Population</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Economy</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Politics</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Culture</div>
+        </div>
+      </div>
+      <div>
+        <div style="padding:0 16px 6px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#8d9088">INFRASTRUCTURE</div>
+        <div style="display:flex;flex-direction:column">
+          <div style="padding:4px 16px;border-left:2px solid transparent">Roads</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Rivers</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Ports</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Trade</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Logistics</div>
+        </div>
+      </div>
+      <div>
+        <div style="padding:0 16px 6px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#8d9088">CARTOGRAPHY</div>
+        <div style="display:flex;flex-direction:column">
+          <div style="padding:4px 16px;border-left:2px solid transparent">Layers</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Styling</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Labels</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Assets</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Export</div>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <div style="width:238px;flex:none;border-right:1px solid rgba(0,0,0,.14);display:flex;flex-direction:column">
+      <div style="height:29px;flex:none;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid rgba(0,0,0,.14);font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#8d9088"><span style="flex:1">LAYERS</span><span>13</span><span style="font-size:11px;letter-spacing:0;color:#6b6f6a">‹</span></div>
+      <div style="display:flex;flex-direction:column;font:10.5px 'IBM Plex Mono',monospace">
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(0,0,0,.07)"><span style="color:#a4650f">●</span><span style="flex:1;color:#111210;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Terrain</span><div style="width:44px;height:2px;background:rgba(0,0,0,.14)"><div style="width:100%;height:2px;background:#6b6f6a"></div></div><span style="width:26px;text-align:right;color:#6b6f6a">100</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(0,0,0,.07)"><span style="color:#a4650f">●</span><span style="flex:1;color:#111210;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Hillshade</span><div style="width:44px;height:2px;background:rgba(0,0,0,.14)"><div style="width:64%;height:2px;background:#6b6f6a"></div></div><span style="width:26px;text-align:right;color:#6b6f6a">64</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(0,0,0,.07)"><span style="color:#a4650f">●</span><span style="flex:1;color:#111210;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Water</span><div style="width:44px;height:2px;background:rgba(0,0,0,.14)"><div style="width:100%;height:2px;background:#6b6f6a"></div></div><span style="width:26px;text-align:right;color:#6b6f6a">100</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(0,0,0,.07)"><span style="color:#a4650f">●</span><span style="flex:1;color:#111210;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Rivers</span><div style="width:44px;height:2px;background:rgba(0,0,0,.14)"><div style="width:90%;height:2px;background:#6b6f6a"></div></div><span style="width:26px;text-align:right;color:#6b6f6a">90</span></div>
+        <div style="padding:6px 16px;border-bottom:1px solid rgba(0,0,0,.07);background:rgba(164,101,15,.07)">
+          <div style="display:flex;align-items:center;gap:9px"><span style="color:#a4650f">●</span><span style="flex:1;color:#a4650f;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Biomes</span><div style="width:44px;height:2px;background:rgba(0,0,0,.14)"><div style="width:82%;height:2px;background:#a4650f"></div></div><span style="width:26px;text-align:right;color:#a4650f">82</span></div>
+          <div style="padding:7px 0 2px 18px;display:flex;flex-direction:column;gap:5px;color:#6b6f6a">
+            <div style="display:flex;justify-content:space-between"><span>Mode</span><span style="color:#111210">Normal ▾</span></div>
+            <div style="display:flex;justify-content:space-between"><span>Rendering</span><span style="color:#111210">Biome palette ▾</span></div>
+            <div style="display:flex;flex-direction:column;gap:3px;padding-top:3px"><span style="color:#111210">☑ Elevation modulation</span><span style="color:#111210">☑ Moisture modulation</span><span style="color:#111210">☑ Slope modulation</span><span style="color:#8d9088">☐ Lithology modulation</span></div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(0,0,0,.07);color:#8d9088"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Ecology</span><div style="width:44px;height:2px;background:rgba(0,0,0,.10)"></div><span style="width:26px;text-align:right">40</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(0,0,0,.07);color:#8d9088"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Resources</span><div style="width:44px;height:2px;background:rgba(0,0,0,.10)"></div><span style="width:26px;text-align:right">55</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(0,0,0,.07)"><span style="color:#a4650f">●</span><span style="flex:1;color:#111210;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Roads</span><div style="width:44px;height:2px;background:rgba(0,0,0,.14)"><div style="width:100%;height:2px;background:#6b6f6a"></div></div><span style="width:26px;text-align:right;color:#6b6f6a">100</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(0,0,0,.07)"><span style="color:#a4650f">●</span><span style="flex:1;color:#111210;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Settlements</span><div style="width:44px;height:2px;background:rgba(0,0,0,.14)"><div style="width:100%;height:2px;background:#6b6f6a"></div></div><span style="width:26px;text-align:right;color:#6b6f6a">100</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(0,0,0,.07);color:#8d9088"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Politics</span><div style="width:44px;height:2px;background:rgba(0,0,0,.10)"></div><span style="width:26px;text-align:right">70</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(0,0,0,.07);color:#8d9088"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Trade</span><div style="width:44px;height:2px;background:rgba(0,0,0,.10)"></div><span style="width:26px;text-align:right">70</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(0,0,0,.07)"><span style="color:#a4650f">●</span><span style="flex:1;color:#111210;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Labels</span><div style="width:44px;height:2px;background:rgba(0,0,0,.14)"><div style="width:100%;height:2px;background:#6b6f6a"></div></div><span style="width:26px;text-align:right;color:#6b6f6a">100</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;color:#8d9088"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Graticule</span><div style="width:44px;height:2px;background:rgba(0,0,0,.10)"></div><span style="width:26px;text-align:right">30</span></div>
+      </div>
+    </div>
+
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+      <div style="height:29px;flex:none;display:flex;align-items:center;gap:0;padding:0 16px;border-bottom:1px solid rgba(0,0,0,.14);font:11px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#74786f">
+        <span style="padding:0 13px 0 0;color:#111210">WORLD</span><span style="padding:0 13px">EDIT</span><span style="padding:0 13px">ANALYSIS</span><span style="padding:0 13px">SIMULATION</span><span style="padding:0 13px">CARTOGRAPHIC</span><span style="padding:0 13px">DEBUG</span>
+        <div style="flex:1"></div>
+        <span style="border:1px solid rgba(0,0,0,.18);padding:2px 9px;color:#23241f">FIELD: NORMAL ▾</span>
+        <span style="padding-left:16px">ZOOM 1:240k</span>
+      </div>
+      <div style="flex:1;position:relative;background:repeating-linear-gradient(135deg,rgba(0,0,0,.055) 0 2px,transparent 2px 9px),linear-gradient(0deg,rgba(255,255,255,.02) 0 1px,transparent 1px) 0 0/100% 64px,#e9e6e0">
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px">
+          <div style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:rgba(0,0,0,.42)">WORLD VIEWPORT</div>
+          <div style="font:11px 'IBM Plex Mono',monospace;color:rgba(0,0,0,.28)">map render · 4096 × 4096 · terrain + hydrology + biomes</div>
+        </div>
+        <div style="position:absolute;left:16px;top:14px;font:11px 'IBM Plex Mono',monospace;color:#7c807a;line-height:1.7">X 4832<br>Y 2910</div>
+        <div style="position:absolute;right:16px;top:14px;font:11px 'IBM Plex Mono',monospace;color:#7c807a;text-align:right;line-height:1.7">N 41°22′<br>E 12°08′</div>
+        <div style="position:absolute;left:16px;bottom:14px;display:flex;align-items:center;gap:8px;font:11px 'IBM Plex Mono',monospace;color:#7c807a"><div style="width:96px;height:1px;background:#7c807a"></div><span>250 km</span></div>
+        <div style="position:absolute;right:16px;bottom:14px;font:11px 'IBM Plex Mono',monospace;color:#7c807a">TILE 34 / 18 · LOD 3</div>
+      </div>
+    </div>
+
+    <div style="width:272px;flex:none;border-left:1px solid rgba(0,0,0,.14);display:flex;flex-direction:column">
+      <div style="height:29px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid rgba(0,0,0,.14);font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#8d9088"><span>INSPECTOR · NO SELECTION</span><span style="font-size:11px;letter-spacing:0;color:#6b6f6a">›</span></div>
+      <div style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:14px 16px;align-content:start">
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9088">X</div><div style="font:14px 'IBM Plex Mono',monospace;color:#111210">4832</div></div>
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9088">Y</div><div style="font:14px 'IBM Plex Mono',monospace;color:#111210">2910</div></div>
+        <div style="grid-column:1 / -1"><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9088">ELEVATION</div><div style="font:26px/1.1 'IBM Plex Mono',monospace;color:#a4650f">2840<span style="font-size:13px;color:#6b6f6a"> m</span></div></div>
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9088">SLOPE</div><div style="font:14px 'IBM Plex Mono',monospace;color:#111210">31.4°</div></div>
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9088">ASPECT</div><div style="font:14px 'IBM Plex Mono',monospace;color:#111210">214°</div></div>
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9088">TEMP</div><div style="font:14px 'IBM Plex Mono',monospace;color:#111210">7.2 °C</div></div>
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9088">PRECIP</div><div style="font:14px 'IBM Plex Mono',monospace;color:#111210">812 mm</div></div>
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9088">DRAINAGE</div><div style="font:14px 'IBM Plex Mono',monospace;color:#111210">0.72</div></div>
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9088">FLOW ACC</div><div style="font:14px 'IBM Plex Mono',monospace;color:#111210">14 200</div></div>
+        <div style="grid-column:1 / -1;border-top:1px solid rgba(0,0,0,.10);padding-top:13px;display:flex;flex-direction:column;gap:8px;font:11px 'IBM Plex Mono',monospace">
+          <div style="display:flex;justify-content:space-between"><span style="color:#8d9088">BIOME</span><span style="color:#111210">Montane forest</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#8d9088">LITHOLOGY</span><span style="color:#111210">Granite</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#8d9088">SOIL</span><span style="color:#111210">Podzol · thin</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#8d9088">CONTROL</span><span style="color:#111210">Unclaimed</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#8d9088">ROUTE COST</span><span style="color:#111210">3.41</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#8d9088">NEAREST SETTLEMENT</span><span style="color:#111210">Valdrin 41 km</span></div>
+        </div>
+        <div style="grid-column:1 / -1;border-top:1px solid rgba(0,0,0,.10);padding-top:13px">
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#8d9088;padding-bottom:7px">ELEVATION PROFILE · E–W</div>
+          <div style="height:52px;border:1px solid rgba(0,0,0,.14);background:repeating-linear-gradient(90deg,rgba(0,0,0,.05) 0 1px,transparent 1px 24px);display:flex;align-items:flex-end;gap:2px;padding:4px">
+            <div style="flex:1;height:22%;background:#7c807a"></div><div style="flex:1;height:34%;background:#7c807a"></div><div style="flex:1;height:52%;background:#7c807a"></div><div style="flex:1;height:78%;background:#6b6f6a"></div><div style="flex:1;height:94%;background:#23241f"></div><div style="flex:1;height:71%;background:#6b6f6a"></div><div style="flex:1;height:48%;background:#7c807a"></div><div style="flex:1;height:31%;background:#7c807a"></div><div style="flex:1;height:40%;background:#7c807a"></div><div style="flex:1;height:26%;background:#7c807a"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:70px;flex:none;padding:0 16px;border-top:1px solid rgba(0,0,0,.14);display:flex;flex-direction:column;justify-content:center;gap:10px">
+    <div style="display:flex;align-items:center;gap:14px;font:11px 'IBM Plex Mono',monospace;color:#74786f">
+      <span>YEAR −400</span>
+      <div style="flex:1;position:relative;height:12px;display:flex;align-items:center">
+        <div style="width:100%;height:1px;background:rgba(0,0,0,.18)"></div>
+        <div style="position:absolute;left:0;width:51%;height:1px;background:#a4650f"></div>
+        <div style="position:absolute;left:51%;width:1px;height:12px;background:#a4650f"></div>
+        <div style="position:absolute;left:51%;transform:translateX(-50%);bottom:14px;color:#a4650f">YEAR 412</div>
+      </div>
+      <span>YEAR 1200</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:22px;font:11px 'IBM Plex Mono',monospace;color:#6b6f6a">
+      <div style="display:flex;gap:14px;color:#111210"><span>▶ Play</span><span>⏸ Pause</span><span>Step ◀ ▶</span></div>
+      <div style="display:flex;gap:7px"><span style="border:1px solid rgba(164,101,15,.55);padding:2px 8px;color:#a4650f">×1</span><span style="border:1px solid rgba(0,0,0,.16);padding:2px 8px">×10</span><span style="border:1px solid rgba(0,0,0,.16);padding:2px 8px">×100</span></div>
+      <span style="color:#8d9088">PAUSED</span>
+      <div style="flex:1"></div>
+      <div style="display:flex;gap:16px"><span style="color:#111210">☑ Climate</span><span style="color:#111210">☑ Population</span><span style="color:#111210">☑ Economy</span><span style="color:#111210">☑ Politics</span><span style="color:#111210">☑ Infrastructure</span><span style="color:#8d9088">☐ Warfare</span></div>
+    </div>
+  </div>
+</div>
+</div></div>
+
+</div>
+
+</div>
+<p class="dv-next">Same geometry as <a class="dv-oid" href="#1a">1a</a>; only the palette differs — paper #f4f2ee, ink #23241f, hairlines at 14% black, amber darkened to #a4650f for contrast. Tablet and phone inherit the same token swap.</p>
+</section>
+
+<section class="dv-turn" id="t3">
+<div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">Collapsed side panels — the state behind every ‹ / › control</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="3a"><div class="dv-olabel"><a class="dv-oid" href="#3a">3a</a>Desktop 1920 × 1080 · all three panels collapsed to 40px rails</div>
+<div class="dv-card" style="width:1920px">
+<div data-screen-label="3a Collapsed rails" style="width:1920px;height:1080px;background:#0d0e0f;color:#c8cbcd;font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+
+  <div style="height:36px;flex:none;display:flex;align-items:center;gap:26px;padding:0 18px;border-bottom:1px solid rgba(255,255,255,.10)">
+    <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec">CARTALITH</div>
+    <div style="display:flex;gap:20px;font-size:11.5px;color:#8d9296"><span>Project</span><span>World</span><span>Generate</span><span>Simulate</span><span>Map</span><span>Assets</span><span>View</span></div>
+    <div style="flex:1"></div>
+    <div style="display:flex;gap:24px;font:11px 'IBM Plex Mono',monospace;color:#6f7478"><span>ELDRA · 483920</span><span>CPU 38</span><span>GPU 71</span><span>1.6 GB</span></div>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+    <div style="width:40px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;align-items:center">
+      <div style="height:29px;width:100%;flex:none;display:flex;align-items:center;justify-content:center;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">›</div>
+      <div style="padding:12px 0;display:flex;flex-direction:column;gap:14px;align-items:center;font:9px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#5f6468">
+        <div style="writing-mode:vertical-rl;color:#e0a34a">WORLD</div>
+        <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+        <div style="writing-mode:vertical-rl">CIVIL</div>
+        <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+        <div style="writing-mode:vertical-rl">INFRA</div>
+        <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+        <div style="writing-mode:vertical-rl">CARTO</div>
+      </div>
+    </div>
+
+    <div style="width:40px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;align-items:center">
+      <div style="height:29px;width:100%;flex:none;display:flex;align-items:center;justify-content:center;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">›</div>
+      <div style="padding:12px 0;display:flex;flex-direction:column;gap:11px;align-items:center;font:10px 'IBM Plex Mono',monospace;color:#5f6468">
+        <div style="writing-mode:vertical-rl;letter-spacing:.12em;color:#5f6468">LAYERS</div>
+        <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+        <span style="color:#e0a34a">●</span><span style="color:#e0a34a">●</span><span style="color:#e0a34a">●</span><span style="color:#e0a34a">●</span><span style="color:#e0a34a">●</span><span>○</span><span>○</span><span style="color:#e0a34a">●</span><span style="color:#e0a34a">●</span><span>○</span><span>○</span><span style="color:#e0a34a">●</span><span>○</span>
+        <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+        <div style="writing-mode:vertical-rl">11/13</div>
+      </div>
+    </div>
+
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+      <div style="height:29px;flex:none;display:flex;align-items:center;gap:0;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#7d8286">
+        <span style="padding:0 13px 0 0;color:#e8ebec">WORLD</span><span style="padding:0 13px">EDIT</span><span style="padding:0 13px">ANALYSIS</span><span style="padding:0 13px">SIMULATION</span><span style="padding:0 13px">CARTOGRAPHIC</span><span style="padding:0 13px">DEBUG</span>
+        <div style="flex:1"></div>
+        <span style="border:1px solid rgba(255,255,255,.14);padding:2px 9px;color:#c8cbcd">FIELD: NORMAL ▾</span>
+        <span style="padding-left:16px">ZOOM 1:240k</span>
+      </div>
+      <div style="flex:1;position:relative;background:repeating-linear-gradient(135deg,rgba(255,255,255,.035) 0 2px,transparent 2px 9px),#101112">
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px">
+          <div style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:rgba(255,255,255,.34)">WORLD VIEWPORT · PANELS COLLAPSED</div>
+          <div style="font:11px 'IBM Plex Mono',monospace;color:rgba(255,255,255,.20)">1840 px of map · rails keep state visible, click ›  to restore a panel</div>
+        </div>
+        <div style="position:absolute;left:16px;top:14px;font:11px 'IBM Plex Mono',monospace;color:#6f7478;line-height:1.7">X 4832<br>Y 2910</div>
+        <div style="position:absolute;right:16px;top:14px;font:11px 'IBM Plex Mono',monospace;color:#6f7478;text-align:right;line-height:1.7">Z 2840 m<br>Montane forest</div>
+        <div style="position:absolute;left:16px;bottom:14px;display:flex;align-items:center;gap:8px;font:11px 'IBM Plex Mono',monospace;color:#6f7478"><div style="width:96px;height:1px;background:#6f7478"></div><span>250 km</span></div>
+        <div style="position:absolute;right:16px;bottom:14px;font:11px 'IBM Plex Mono',monospace;color:#6f7478">TILE 34 / 18 · LOD 3</div>
+      </div>
+    </div>
+
+    <div style="width:40px;flex:none;border-left:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;align-items:center">
+      <div style="height:29px;width:100%;flex:none;display:flex;align-items:center;justify-content:center;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#8d9296">‹</div>
+      <div style="padding:12px 0;display:flex;flex-direction:column;gap:12px;align-items:center;font:9px 'IBM Plex Mono',monospace;letter-spacing:.12em;color:#5f6468">
+        <div style="writing-mode:vertical-rl">INSPECTOR</div>
+        <div style="width:14px;height:1px;background:rgba(255,255,255,.12)"></div>
+        <div style="writing-mode:vertical-rl;color:#e0a34a;font-size:11px;letter-spacing:0">2840 m</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:70px;flex:none;padding:0 16px;border-top:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;justify-content:center;gap:10px">
+    <div style="display:flex;align-items:center;gap:14px;font:11px 'IBM Plex Mono',monospace;color:#7d8286">
+      <span>YEAR −400</span>
+      <div style="flex:1;position:relative;height:12px;display:flex;align-items:center">
+        <div style="width:100%;height:1px;background:rgba(255,255,255,.14)"></div>
+        <div style="position:absolute;left:0;width:51%;height:1px;background:#e0a34a"></div>
+        <div style="position:absolute;left:51%;width:1px;height:12px;background:#e0a34a"></div>
+        <div style="position:absolute;left:51%;transform:translateX(-50%);bottom:14px;color:#e0a34a">YEAR 412</div>
+      </div>
+      <span>YEAR 1200</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:22px;font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+      <div style="display:flex;gap:14px;color:#e8ebec"><span>▶ Play</span><span>⏸ Pause</span><span>Step ◀ ▶</span></div>
+      <div style="display:flex;gap:7px"><span style="border:1px solid rgba(224,163,74,.5);padding:2px 8px;color:#e0a34a">×1</span><span style="border:1px solid rgba(255,255,255,.12);padding:2px 8px">×10</span><span style="border:1px solid rgba(255,255,255,.12);padding:2px 8px">×100</span></div>
+      <span style="color:#5f6468">PAUSED</span>
+      <div style="flex:1"></div>
+      <div style="display:flex;gap:16px"><span style="color:#e8ebec">☑ Climate</span><span style="color:#e8ebec">☑ Population</span><span style="color:#e8ebec">☑ Economy</span><span style="color:#e8ebec">☑ Politics</span><span style="color:#e8ebec">☑ Infrastructure</span><span style="color:#5f6468">☐ Warfare</span></div>
+    </div>
+  </div>
+</div>
+</div></div>
+
+</div>
+<p class="dv-next">Every panel in <a class="dv-oid" href="#1a">1a</a>, <a class="dv-oid" href="#2a">2a</a> and <a class="dv-oid" href="#2c">2c</a> now carries a ‹ / › control; on phone the same panels are sheets dismissed by the grab handle.</p>
+</section>
+
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Mobile layouts — 1a language, touch-sized controls</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2a"><div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Tablet landscape · 1194 × 834 · three panels, collapsible inspector</div>
+<div class="dv-card" style="width:1194px">
+<div data-screen-label="2a Tablet" style="width:1194px;height:834px;background:#0d0e0f;color:#c8cbcd;font:13px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+
+  <div style="height:52px;flex:none;display:flex;align-items:center;gap:14px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10)">
+    <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.14);font:16px 'IBM Plex Mono',monospace;color:#c8cbcd">☰</div>
+    <div style="font:500 13px 'IBM Plex Mono',monospace;letter-spacing:.24em;color:#e8ebec">CARTALITH</div>
+    <div style="flex:1"></div>
+    <div style="display:flex;gap:20px;font:12px 'IBM Plex Mono',monospace;color:#6f7478"><span>ELDRA · 483920</span><span>CPU 38</span><span>GPU 71</span></div>
+    <div style="display:flex;gap:8px">
+      <div style="height:44px;min-width:44px;padding:0 14px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.14);font:12px 'IBM Plex Mono',monospace">FIELD ▾</div>
+      <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.14);font:15px 'IBM Plex Mono',monospace">⋯</div>
+    </div>
+  </div>
+
+  <div style="height:48px;flex:none;display:flex;align-items:stretch;border-bottom:1px solid rgba(255,255,255,.10);font:12px 'IBM Plex Mono',monospace;letter-spacing:.1em">
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;color:#e0a34a;border-bottom:2px solid #e0a34a">WORLD</div>
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;color:#8d9296">EDIT</div>
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;color:#8d9296">ANALYSIS</div>
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;color:#8d9296">SIMULATION</div>
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;color:#8d9296">CARTOGRAPHIC</div>
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;color:#8d9296">DEBUG</div>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+    <div style="width:216px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;overflow:hidden">
+      <div style="height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10);font:10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468"><span>WORKSPACE</span><span style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:14px;letter-spacing:0;color:#8d9296">‹</span></div>
+      <div style="padding:12px 16px 6px;font:10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468">WORLD</div>
+      <div style="display:flex;flex-direction:column">
+        <div style="height:38px;display:flex;align-items:center;padding:0 16px;border-left:2px solid #e0a34a;color:#e0a34a;background:rgba(224,163,74,.06)">Overview</div>
+        <div style="height:38px;display:flex;align-items:center;padding:0 16px;border-left:2px solid transparent">Terrain</div>
+        <div style="height:38px;display:flex;align-items:center;padding:0 16px;border-left:2px solid transparent">Water</div>
+        <div style="height:38px;display:flex;align-items:center;padding:0 16px;border-left:2px solid transparent">Climate</div>
+        <div style="height:38px;display:flex;align-items:center;padding:0 16px;border-left:2px solid transparent">Ecology</div>
+      </div>
+      <div style="padding:14px 16px 6px;font:10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468;border-top:1px solid rgba(255,255,255,.06);margin-top:8px">CIVILIZATION</div>
+      <div style="display:flex;flex-direction:column">
+        <div style="height:38px;display:flex;align-items:center;padding:0 16px">Settlements</div>
+        <div style="height:38px;display:flex;align-items:center;padding:0 16px">Population</div>
+        <div style="height:38px;display:flex;align-items:center;padding:0 16px">Politics</div>
+      </div>
+      <div style="padding:14px 16px 6px;font:10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468;border-top:1px solid rgba(255,255,255,.06);margin-top:8px">CARTOGRAPHY</div>
+      <div style="display:flex;flex-direction:column">
+        <div style="height:38px;display:flex;align-items:center;padding:0 16px">Layers</div>
+        <div style="height:38px;display:flex;align-items:center;padding:0 16px">Appearance</div>
+        <div style="height:38px;display:flex;align-items:center;padding:0 16px">Export</div>
+      </div>
+      <div style="flex:1"></div>
+      <div style="height:44px;flex:none;display:flex;align-items:center;padding:0 16px;border-top:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#5f6468">Stage 11/11 · clean</div>
+    </div>
+
+    <div style="flex:1;position:relative;min-width:0;background:repeating-linear-gradient(135deg,rgba(255,255,255,.035) 0 2px,transparent 2px 9px),#101112">
+      <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px">
+        <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:rgba(255,255,255,.32)">WORLD VIEWPORT</div>
+        <div style="font:12px 'IBM Plex Mono',monospace;color:rgba(255,255,255,.18)">pinch to zoom · two-finger pan · tap to sample</div>
+      </div>
+      <div style="position:absolute;right:14px;top:14px;display:flex;flex-direction:column;gap:8px">
+        <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:rgba(11,12,13,.86);border:1px solid rgba(255,255,255,.14);font:16px 'IBM Plex Mono',monospace">+</div>
+        <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:rgba(11,12,13,.86);border:1px solid rgba(255,255,255,.14);font:16px 'IBM Plex Mono',monospace">−</div>
+        <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:rgba(11,12,13,.86);border:1px solid rgba(255,255,255,.14);font:13px 'IBM Plex Mono',monospace">⤢</div>
+        <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:rgba(11,12,13,.86);border:1px solid rgba(224,163,74,.5);color:#e0a34a;font:12px 'IBM Plex Mono',monospace">L</div>
+      </div>
+      <div style="position:absolute;left:14px;bottom:14px;display:flex;align-items:center;gap:16px;font:12px 'IBM Plex Mono',monospace;color:#7d8286">
+        <span>X 4832 · Y 2910</span>
+        <div style="display:flex;align-items:center;gap:8px"><div style="width:80px;height:1px;background:#7d8286"></div><span>250 km</span></div>
+      </div>
+    </div>
+
+    <div style="width:300px;flex:none;border-left:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column">
+      <div style="height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10)">
+        <span style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468">INSPECTOR · NO SELECTION</span>
+        <span style="width:32px;height:32px;display:flex;align-items:center;justify-content:center;font:14px 'IBM Plex Mono',monospace;color:#8d9296">›</span>
+      </div>
+      <div style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:16px;align-content:start">
+        <div><div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">X</div><div style="font:16px 'IBM Plex Mono',monospace;color:#e8ebec">4832</div></div>
+        <div><div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">Y</div><div style="font:16px 'IBM Plex Mono',monospace;color:#e8ebec">2910</div></div>
+        <div style="grid-column:1 / -1"><div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">ELEVATION</div><div style="font:30px/1.1 'IBM Plex Mono',monospace;color:#e0a34a">2840<span style="font-size:14px;color:#8d9296"> m</span></div></div>
+        <div><div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">SLOPE</div><div style="font:16px 'IBM Plex Mono',monospace;color:#e8ebec">31.4°</div></div>
+        <div><div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">ASPECT</div><div style="font:16px 'IBM Plex Mono',monospace;color:#e8ebec">214°</div></div>
+        <div><div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">TEMP</div><div style="font:16px 'IBM Plex Mono',monospace;color:#e8ebec">7.2 °C</div></div>
+        <div><div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">PRECIP</div><div style="font:16px 'IBM Plex Mono',monospace;color:#e8ebec">812 mm</div></div>
+        <div style="grid-column:1 / -1;border-top:1px solid rgba(255,255,255,.08);padding-top:13px;display:flex;flex-direction:column;gap:9px;font:12px 'IBM Plex Mono',monospace">
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">BIOME</span><span style="color:#e8ebec">Montane forest</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">LITHOLOGY</span><span style="color:#e8ebec">Granite</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">SOIL</span><span style="color:#e8ebec">Podzol · thin</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">CONTROL</span><span style="color:#e8ebec">Unclaimed</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">NEAREST</span><span style="color:#e8ebec">Valdrin 41 km</span></div>
+        </div>
+        <div style="grid-column:1 / -1;border-top:1px solid rgba(255,255,255,.08);padding-top:13px">
+          <div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468;padding-bottom:8px">ELEVATION PROFILE · E–W</div>
+          <div style="height:56px;border:1px solid rgba(255,255,255,.10);display:flex;align-items:flex-end;gap:3px;padding:4px">
+            <div style="flex:1;height:22%;background:#6f7478"></div><div style="flex:1;height:34%;background:#6f7478"></div><div style="flex:1;height:52%;background:#6f7478"></div><div style="flex:1;height:78%;background:#8d9296"></div><div style="flex:1;height:94%;background:#c8cbcd"></div><div style="flex:1;height:71%;background:#8d9296"></div><div style="flex:1;height:48%;background:#6f7478"></div><div style="flex:1;height:31%;background:#6f7478"></div><div style="flex:1;height:40%;background:#6f7478"></div><div style="flex:1;height:26%;background:#6f7478"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:76px;flex:none;border-top:1px solid rgba(255,255,255,.10);padding:0 14px;display:flex;align-items:center;gap:16px">
+    <div style="display:flex;gap:8px">
+      <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.14);font:14px 'IBM Plex Mono',monospace">◀◀</div>
+      <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(224,163,74,.5);color:#e0a34a;font:14px 'IBM Plex Mono',monospace">▶</div>
+      <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.14);font:14px 'IBM Plex Mono',monospace">▶▶</div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:9px">
+      <div style="display:flex;justify-content:space-between;font:12px 'IBM Plex Mono',monospace;color:#7d8286"><span>−400</span><span style="color:#e0a34a">YEAR 412</span><span>1200</span></div>
+      <div style="position:relative;height:20px;display:flex;align-items:center">
+        <div style="width:100%;height:1px;background:rgba(255,255,255,.14)"></div>
+        <div style="position:absolute;left:0;width:51%;height:1px;background:#e0a34a"></div>
+        <div style="position:absolute;left:51%;transform:translateX(-50%);width:20px;height:20px;border-radius:10px;background:#e0a34a"></div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;font:12px 'IBM Plex Mono',monospace">
+      <div style="height:44px;padding:0 14px;display:flex;align-items:center;border:1px solid rgba(224,163,74,.5);color:#e0a34a">×1</div>
+      <div style="height:44px;padding:0 14px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.14)">×10</div>
+      <div style="height:44px;padding:0 14px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.14)">×100</div>
+      <div style="height:44px;padding:0 14px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.14);color:#8d9296">LAYERS ▴</div>
+    </div>
+  </div>
+</div>
+</div></div>
+
+<div class="dv-opt" id="2b"><div class="dv-olabel"><a class="dv-oid" href="#2b">2b</a>Phone · 393 × 852 · three states: map, inspect sheet, layers sheet</div>
+<div style="display:flex;gap:20px">
+
+<div class="dv-card" style="width:393px">
+<div data-screen-label="2b Phone map" style="width:393px;height:852px;background:#0d0e0f;color:#c8cbcd;font:14px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+  <div style="height:44px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 18px 4px;font:12px 'IBM Plex Mono',monospace;color:#8d9296"><span>9:41</span><span>ELDRA</span><span>▮▮▮</span></div>
+  <div style="height:52px;flex:none;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.10)">
+    <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.14);font:16px 'IBM Plex Mono',monospace">☰</div>
+    <div style="flex:1;font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#e8ebec">CARTALITH</div>
+    <div style="height:44px;padding:0 12px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.14);font:11px 'IBM Plex Mono',monospace">WORLD ▾</div>
+  </div>
+  <div style="height:44px;flex:none;display:flex;align-items:center;gap:16px;padding:0 14px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;color:#6f7478">
+    <span>SEED 483920</span><span>STAGE 11/11</span><span style="color:#e0a34a">YEAR 412</span>
+  </div>
+  <div style="flex:1;position:relative;min-height:0;background:repeating-linear-gradient(135deg,rgba(255,255,255,.035) 0 2px,transparent 2px 9px),#101112">
+    <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:0 30px;text-align:center">
+      <div style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:rgba(255,255,255,.32)">WORLD VIEWPORT</div>
+      <div style="font:11px 'IBM Plex Mono',monospace;color:rgba(255,255,255,.18)">tap to sample · long-press for context</div>
+    </div>
+    <div style="position:absolute;right:12px;top:12px;display:flex;flex-direction:column;gap:8px">
+      <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:rgba(11,12,13,.86);border:1px solid rgba(255,255,255,.14);font:16px 'IBM Plex Mono',monospace">+</div>
+      <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:rgba(11,12,13,.86);border:1px solid rgba(255,255,255,.14);font:16px 'IBM Plex Mono',monospace">−</div>
+      <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;background:rgba(11,12,13,.86);border:1px solid rgba(255,255,255,.14);font:13px 'IBM Plex Mono',monospace">⤢</div>
+    </div>
+    <div style="position:absolute;left:12px;bottom:12px;display:flex;align-items:center;gap:8px;font:11px 'IBM Plex Mono',monospace;color:#7d8286"><div style="width:64px;height:1px;background:#7d8286"></div><span>250 km</span></div>
+  </div>
+  <div style="height:64px;flex:none;border-top:1px solid rgba(255,255,255,.10);display:flex;align-items:center;gap:10px;padding:0 12px">
+    <div style="width:44px;height:44px;flex:none;display:flex;align-items:center;justify-content:center;border:1px solid rgba(224,163,74,.5);color:#e0a34a;font:13px 'IBM Plex Mono',monospace">▶</div>
+    <div style="flex:1;position:relative;height:20px;display:flex;align-items:center">
+      <div style="width:100%;height:1px;background:rgba(255,255,255,.14)"></div>
+      <div style="position:absolute;left:0;width:51%;height:1px;background:#e0a34a"></div>
+      <div style="position:absolute;left:51%;transform:translateX(-50%);width:20px;height:20px;border-radius:10px;background:#e0a34a"></div>
+    </div>
+    <div style="height:44px;padding:0 12px;flex:none;display:flex;align-items:center;border:1px solid rgba(255,255,255,.14);font:11px 'IBM Plex Mono',monospace">×1</div>
+  </div>
+  <div style="height:74px;flex:none;border-top:1px solid rgba(255,255,255,.10);display:flex;align-items:stretch;font:10px 'IBM Plex Mono',monospace;letter-spacing:.14em">
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#e0a34a;border-top:2px solid #e0a34a;margin-top:-1px"><span style="font-size:17px">◱</span>MAP</div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#8d9296"><span style="font-size:17px">≡</span>LAYERS</div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#8d9296"><span style="font-size:17px">◎</span>INSPECT</div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#8d9296"><span style="font-size:17px">◷</span>TIME</div>
+  </div>
+</div>
+</div>
+
+<div class="dv-card" style="width:393px">
+<div data-screen-label="2b Phone inspect" style="width:393px;height:852px;background:#0d0e0f;color:#c8cbcd;font:14px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+  <div style="height:44px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 18px 4px;font:12px 'IBM Plex Mono',monospace;color:#8d9296"><span>9:41</span><span>ELDRA</span><span>▮▮▮</span></div>
+  <div style="flex:1;position:relative;min-height:0;background:repeating-linear-gradient(135deg,rgba(255,255,255,.035) 0 2px,transparent 2px 9px),#101112">
+    <div style="position:absolute;left:0;right:0;top:0;height:52px;display:flex;align-items:center;gap:10px;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.10);background:rgba(11,12,13,.9)">
+      <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.14);font:16px 'IBM Plex Mono',monospace">☰</div>
+      <div style="flex:1;font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#e8ebec">CARTALITH</div>
+      <div style="height:44px;padding:0 12px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.14);font:11px 'IBM Plex Mono',monospace">WORLD ▾</div>
+    </div>
+    <div style="position:absolute;left:0;right:0;top:52px;display:flex;align-items:center;justify-content:center;height:120px;font:11px 'IBM Plex Mono',monospace;color:rgba(255,255,255,.22);letter-spacing:.2em">SELECTED · VALDRIN</div>
+  </div>
+
+  <div style="flex:none;border-top:1px solid rgba(255,255,255,.14);background:#0d0e0f;display:flex;flex-direction:column">
+    <div style="height:26px;display:flex;align-items:center;justify-content:center"><div style="width:44px;height:4px;border-radius:2px;background:rgba(255,255,255,.22)"></div></div>
+    <div style="padding:0 16px 8px;display:flex;align-items:baseline;justify-content:space-between">
+      <div><div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468">SETTLEMENT</div><div style="font-size:20px;color:#e8ebec">Valdrin</div></div>
+      <div style="height:44px;padding:0 14px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.14);font:11px 'IBM Plex Mono',monospace">CENTER</div>
+    </div>
+    <div style="padding:8px 16px 0;display:grid;grid-template-columns:1fr 1fr;gap:14px 16px;border-top:1px solid rgba(255,255,255,.08)">
+      <div><div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">POPULATION</div><div style="font:22px/1.1 'IBM Plex Mono',monospace;color:#e0a34a">18,420</div></div>
+      <div><div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">CLASS</div><div style="font:15px 'IBM Plex Mono',monospace;color:#e8ebec">City</div></div>
+      <div><div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">GOVERNMENT</div><div style="font-size:14px;color:#e8ebec">Merchant council</div></div>
+      <div><div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">WATER ACCESS</div><div style="font-size:14px;color:#e8ebec">River · navigable</div></div>
+      <div><div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">AGRICULTURE</div><div style="font:15px 'IBM Plex Mono',monospace;color:#e8ebec">0.68</div></div>
+      <div><div style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">DEFENSIBILITY</div><div style="font:15px 'IBM Plex Mono',monospace;color:#e8ebec">0.41</div></div>
+    </div>
+    <div style="padding:14px 16px 0;margin-top:14px;border-top:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;gap:10px;font:12px 'IBM Plex Mono',monospace">
+      <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">TRADE</span><span style="color:#e8ebec">4 routes · 2 ports</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">CONTROL</span><span style="color:#e8ebec">Vareth League</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">FOUNDED</span><span style="color:#e8ebec">Year 118</span></div>
+    </div>
+    <div style="padding:16px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font:11px 'IBM Plex Mono',monospace">
+      <div style="height:48px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(224,163,74,.5);color:#e0a34a">ECONOMY</div>
+      <div style="height:48px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.14)">POLITICS</div>
+      <div style="height:48px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.14)">ROUTES</div>
+    </div>
+  </div>
+
+  <div style="height:74px;flex:none;border-top:1px solid rgba(255,255,255,.10);display:flex;align-items:stretch;font:10px 'IBM Plex Mono',monospace;letter-spacing:.14em">
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#8d9296"><span style="font-size:17px">◱</span>MAP</div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#8d9296"><span style="font-size:17px">≡</span>LAYERS</div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#e0a34a;border-top:2px solid #e0a34a;margin-top:-1px"><span style="font-size:17px">◎</span>INSPECT</div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#8d9296"><span style="font-size:17px">◷</span>TIME</div>
+  </div>
+</div>
+</div>
+
+<div class="dv-card" style="width:393px">
+<div data-screen-label="2b Phone layers" style="width:393px;height:852px;background:#0d0e0f;color:#c8cbcd;font:14px/1.4 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+  <div style="height:44px;flex:none;display:flex;align-items:flex-end;justify-content:space-between;padding:0 18px 4px;font:12px 'IBM Plex Mono',monospace;color:#8d9296"><span>9:41</span><span>ELDRA</span><span>▮▮▮</span></div>
+  <div style="height:124px;flex:none;position:relative;background:repeating-linear-gradient(135deg,rgba(255,255,255,.035) 0 2px,transparent 2px 9px),#101112;border-bottom:1px solid rgba(255,255,255,.14)">
+    <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font:11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:rgba(255,255,255,.22)">LIVE PREVIEW</div>
+  </div>
+  <div style="flex:1;display:flex;flex-direction:column;min-height:0;overflow:hidden">
+    <div style="height:52px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10)">
+      <span style="font:10px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468">LAYERS · 11 OF 13 VISIBLE</span>
+      <span style="font:11px 'IBM Plex Mono',monospace;color:#e0a34a">EDIT</span>
+    </div>
+    <div style="display:flex;flex-direction:column">
+      <div style="height:52px;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="width:22px;color:#e0a34a;font-size:16px">●</span><span style="flex:1">Terrain</span><div style="width:64px;height:3px;background:rgba(255,255,255,.10)"><div style="width:100%;height:3px;background:#8d9296"></div></div><span style="width:32px;text-align:right;font:12px 'IBM Plex Mono',monospace;color:#8d9296">100</span></div>
+      <div style="height:52px;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="width:22px;color:#e0a34a;font-size:16px">●</span><span style="flex:1">Hillshade</span><div style="width:64px;height:3px;background:rgba(255,255,255,.10)"><div style="width:64%;height:3px;background:#8d9296"></div></div><span style="width:32px;text-align:right;font:12px 'IBM Plex Mono',monospace;color:#8d9296">64</span></div>
+      <div style="height:52px;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="width:22px;color:#e0a34a;font-size:16px">●</span><span style="flex:1">Water · Rivers</span><div style="width:64px;height:3px;background:rgba(255,255,255,.10)"><div style="width:90%;height:3px;background:#8d9296"></div></div><span style="width:32px;text-align:right;font:12px 'IBM Plex Mono',monospace;color:#8d9296">90</span></div>
+      <div style="padding:0 16px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(224,163,74,.05)">
+        <div style="height:52px;display:flex;align-items:center;gap:12px"><span style="width:22px;color:#e0a34a;font-size:16px">●</span><span style="flex:1;color:#e0a34a">Biomes</span><div style="width:64px;height:3px;background:rgba(255,255,255,.10)"><div style="width:82%;height:3px;background:#e0a34a"></div></div><span style="width:32px;text-align:right;font:12px 'IBM Plex Mono',monospace;color:#e0a34a">82</span></div>
+        <div style="padding:0 0 12px;display:flex;flex-direction:column;gap:8px;font:12px 'IBM Plex Mono',monospace;color:#8d9296">
+          <div style="display:flex;justify-content:space-between"><span>Mode</span><span style="color:#e8ebec">Normal ▾</span></div>
+          <div style="display:flex;justify-content:space-between"><span>Rendering</span><span style="color:#e8ebec">Biome palette ▾</span></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding-top:4px">
+            <div style="height:40px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(224,163,74,.4);color:#e0a34a;font-size:11px">☑ ELEV.</div>
+            <div style="height:40px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(224,163,74,.4);color:#e0a34a;font-size:11px">☑ MOISTURE</div>
+            <div style="height:40px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(224,163,74,.4);color:#e0a34a;font-size:11px">☑ SLOPE</div>
+            <div style="height:40px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.12);color:#5f6468;font-size:11px">☐ LITHOLOGY</div>
+          </div>
+        </div>
+      </div>
+      <div style="height:52px;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.05);color:#5f6468"><span style="width:22px;font-size:16px">○</span><span style="flex:1">Resources</span><div style="width:64px;height:3px;background:rgba(255,255,255,.08)"></div><span style="width:32px;text-align:right;font:12px 'IBM Plex Mono',monospace">55</span></div>
+      <div style="height:52px;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="width:22px;color:#e0a34a;font-size:16px">●</span><span style="flex:1">Roads</span><div style="width:64px;height:3px;background:rgba(255,255,255,.10)"><div style="width:100%;height:3px;background:#8d9296"></div></div><span style="width:32px;text-align:right;font:12px 'IBM Plex Mono',monospace;color:#8d9296">100</span></div>
+      <div style="height:52px;display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="width:22px;color:#e0a34a;font-size:16px">●</span><span style="flex:1">Settlements</span><div style="width:64px;height:3px;background:rgba(255,255,255,.10)"><div style="width:100%;height:3px;background:#8d9296"></div></div><span style="width:32px;text-align:right;font:12px 'IBM Plex Mono',monospace;color:#8d9296">100</span></div>
+    </div>
+  </div>
+  <div style="height:74px;flex:none;border-top:1px solid rgba(255,255,255,.10);display:flex;align-items:stretch;font:10px 'IBM Plex Mono',monospace;letter-spacing:.14em">
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#8d9296"><span style="font-size:17px">◱</span>MAP</div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#e0a34a;border-top:2px solid #e0a34a;margin-top:-1px"><span style="font-size:17px">≡</span>LAYERS</div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#8d9296"><span style="font-size:17px">◎</span>INSPECT</div>
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#8d9296"><span style="font-size:17px">◷</span>TIME</div>
+  </div>
+</div>
+</div>
+
+</div></div>
+
+<div class="dv-opt" id="2c"><div class="dv-olabel"><a class="dv-oid" href="#2c">2c</a>Tablet 2K landscape · 2560 × 1600 · full desktop parity, touch-sized</div>
+<div class="dv-card" style="width:2560px">
+<div data-screen-label="2c Tablet 2K" style="width:2560px;height:1600px;background:#0d0e0f;color:#c8cbcd;font:14px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+
+  <div style="height:56px;flex:none;display:flex;align-items:center;gap:30px;padding:0 22px;border-bottom:1px solid rgba(255,255,255,.10)">
+    <div style="font:500 15px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec">CARTALITH</div>
+    <div style="display:flex;gap:6px">
+      <div style="height:44px;padding:0 16px;display:flex;align-items:center;color:#e0a34a;font-size:14px">Project</div>
+      <div style="height:44px;padding:0 16px;display:flex;align-items:center;color:#8d9296">World</div>
+      <div style="height:44px;padding:0 16px;display:flex;align-items:center;color:#8d9296">Generate</div>
+      <div style="height:44px;padding:0 16px;display:flex;align-items:center;color:#8d9296">Simulate</div>
+      <div style="height:44px;padding:0 16px;display:flex;align-items:center;color:#8d9296">Map</div>
+      <div style="height:44px;padding:0 16px;display:flex;align-items:center;color:#8d9296">Assets</div>
+      <div style="height:44px;padding:0 16px;display:flex;align-items:center;color:#8d9296">View</div>
+    </div>
+    <div style="flex:1"></div>
+    <div style="display:flex;gap:30px;font:13px 'IBM Plex Mono',monospace;color:#6f7478"><span>ELDRA · 483920</span><span>EQUIRECT 4096²</span><span>CPU 38</span><span>GPU 71</span><span>1.6 GB</span></div>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+    <div style="width:264px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column">
+      <div style="height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468"><span>WORKSPACE</span><span style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:15px;letter-spacing:0;color:#8d9296">‹</span></div>
+      <div style="padding:14px 20px 6px;font:11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468">WORLD</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px;border-left:2px solid #e0a34a;color:#e0a34a;background:rgba(224,163,74,.06)">Overview</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px;border-left:2px solid transparent">Terrain</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px;border-left:2px solid transparent">Water</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px;border-left:2px solid transparent">Climate</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px;border-left:2px solid transparent">Ecology</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px;border-left:2px solid transparent">Resources</div>
+      <div style="padding:16px 20px 6px;font:11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468;border-top:1px solid rgba(255,255,255,.06);margin-top:10px">CIVILIZATION</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Settlements</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Population</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Economy</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Politics</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Culture</div>
+      <div style="padding:16px 20px 6px;font:11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468;border-top:1px solid rgba(255,255,255,.06);margin-top:10px">INFRASTRUCTURE</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Roads</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Rivers</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Ports</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Trade</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Logistics</div>
+      <div style="padding:16px 20px 6px;font:11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468;border-top:1px solid rgba(255,255,255,.06);margin-top:10px">CARTOGRAPHY</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Layers</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Appearance</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Styling</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Labels</div>
+      <div style="height:40px;display:flex;align-items:center;padding:0 20px">Export</div>
+      <div style="flex:1"></div>
+      <div style="height:52px;flex:none;display:flex;align-items:center;padding:0 20px;border-top:1px solid rgba(255,255,255,.10);font:13px 'IBM Plex Mono',monospace;color:#5f6468">Stage 11/11 · clean</div>
+    </div>
+
+    <div style="width:312px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column">
+      <div style="height:44px;flex:none;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468"><span style="flex:1">LAYERS</span><span>13</span><span style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:15px;letter-spacing:0;color:#8d9296">‹</span></div>
+      <div style="display:flex;flex-direction:column;font:13px 'IBM Plex Mono',monospace">
+        <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:14px">Terrain</span><div style="width:60px;height:3px;background:rgba(255,255,255,.10)"><div style="width:100%;height:3px;background:#8d9296"></div></div><span style="width:30px;text-align:right;color:#8d9296">100</span></div>
+        <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:14px">Hillshade</span><div style="width:60px;height:3px;background:rgba(255,255,255,.10)"><div style="width:64%;height:3px;background:#8d9296"></div></div><span style="width:30px;text-align:right;color:#8d9296">64</span></div>
+        <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:14px">Water</span><div style="width:60px;height:3px;background:rgba(255,255,255,.10)"><div style="width:100%;height:3px;background:#8d9296"></div></div><span style="width:30px;text-align:right;color:#8d9296">100</span></div>
+        <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:14px">Rivers</span><div style="width:60px;height:3px;background:rgba(255,255,255,.10)"><div style="width:90%;height:3px;background:#8d9296"></div></div><span style="width:30px;text-align:right;color:#8d9296">90</span></div>
+        <div style="padding:0 20px 14px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(224,163,74,.05)">
+          <div style="height:44px;display:flex;align-items:center;gap:12px"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e0a34a;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:14px">Biomes</span><div style="width:60px;height:3px;background:rgba(255,255,255,.10)"><div style="width:82%;height:3px;background:#e0a34a"></div></div><span style="width:30px;text-align:right;color:#e0a34a">82</span></div>
+          <div style="display:flex;flex-direction:column;gap:9px;color:#8d9296">
+            <div style="display:flex;justify-content:space-between"><span>Mode</span><span style="color:#e8ebec">Normal ▾</span></div>
+            <div style="display:flex;justify-content:space-between"><span>Rendering</span><span style="color:#e8ebec">Biome palette ▾</span></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;padding-top:4px;font-size:12px">
+              <div style="height:40px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(224,163,74,.4);color:#e0a34a">☑ ELEV.</div>
+              <div style="height:40px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(224,163,74,.4);color:#e0a34a">☑ MOISTURE</div>
+              <div style="height:40px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(224,163,74,.4);color:#e0a34a">☑ SLOPE</div>
+              <div style="height:40px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.12);color:#5f6468">☐ LITHOLOGY</div>
+            </div>
+          </div>
+        </div>
+        <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.05);color:#5f6468"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:14px">Ecology</span><div style="width:60px;height:3px;background:rgba(255,255,255,.08)"></div><span style="width:30px;text-align:right">40</span></div>
+        <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.05);color:#5f6468"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:14px">Resources</span><div style="width:60px;height:3px;background:rgba(255,255,255,.08)"></div><span style="width:30px;text-align:right">55</span></div>
+        <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:14px">Roads</span><div style="width:60px;height:3px;background:rgba(255,255,255,.10)"><div style="width:100%;height:3px;background:#8d9296"></div></div><span style="width:30px;text-align:right;color:#8d9296">100</span></div>
+        <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:14px">Settlements</span><div style="width:60px;height:3px;background:rgba(255,255,255,.10)"><div style="width:100%;height:3px;background:#8d9296"></div></div><span style="width:30px;text-align:right;color:#8d9296">100</span></div>
+        <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.05);color:#5f6468"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:14px">Politics</span><div style="width:60px;height:3px;background:rgba(255,255,255,.08)"></div><span style="width:30px;text-align:right">70</span></div>
+        <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.05);color:#5f6468"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:14px">Trade</span><div style="width:60px;height:3px;background:rgba(255,255,255,.08)"></div><span style="width:30px;text-align:right">70</span></div>
+        <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:14px">Labels</span><div style="width:60px;height:3px;background:rgba(255,255,255,.10)"><div style="width:100%;height:3px;background:#8d9296"></div></div><span style="width:30px;text-align:right;color:#8d9296">100</span></div>
+        <div style="height:44px;display:flex;align-items:center;gap:12px;padding:0 20px;color:#5f6468"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:14px">Graticule</span><div style="width:60px;height:3px;background:rgba(255,255,255,.08)"></div><span style="width:30px;text-align:right">30</span></div>
+      </div>
+    </div>
+
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+      <div style="height:48px;flex:none;display:flex;align-items:center;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.10);font:13px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#8d9296">
+        <div style="display:flex;gap:4px">
+          <div style="height:44px;padding:0 16px;display:flex;align-items:center;color:#e0a34a;border-bottom:2px solid #e0a34a">WORLD</div>
+          <div style="height:44px;padding:0 16px;display:flex;align-items:center">EDIT</div>
+          <div style="height:44px;padding:0 16px;display:flex;align-items:center">ANALYSIS</div>
+          <div style="height:44px;padding:0 16px;display:flex;align-items:center">SIMULATION</div>
+          <div style="height:44px;padding:0 16px;display:flex;align-items:center">CARTOGRAPHIC</div>
+          <div style="height:44px;padding:0 16px;display:flex;align-items:center">DEBUG</div>
+        </div>
+        <div style="flex:1"></div>
+        <div style="height:44px;padding:0 16px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.14);color:#c8cbcd">FIELD: NORMAL ▾</div>
+        <span style="padding-left:22px;font-size:13px">1:240 000</span>
+      </div>
+      <div style="flex:1;position:relative;background:repeating-linear-gradient(135deg,rgba(255,255,255,.035) 0 2px,transparent 2px 10px),#101112">
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:11px">
+          <div style="font:500 14px 'IBM Plex Mono',monospace;letter-spacing:.24em;color:rgba(255,255,255,.32)">WORLD VIEWPORT</div>
+          <div style="font:13px 'IBM Plex Mono',monospace;color:rgba(255,255,255,.18)">pinch to zoom · two-finger pan · tap to sample · stylus draws in EDIT</div>
+        </div>
+        <div style="position:absolute;left:20px;top:18px;font:13px 'IBM Plex Mono',monospace;color:#6f7478;line-height:1.8">X 4832<br>Y 2910<br>TILE 34 / 18 · LOD 3</div>
+        <div style="position:absolute;right:20px;top:18px;display:flex;flex-direction:column;gap:9px">
+          <div style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:rgba(11,12,13,.86);border:1px solid rgba(255,255,255,.14);font:18px 'IBM Plex Mono',monospace">+</div>
+          <div style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:rgba(11,12,13,.86);border:1px solid rgba(255,255,255,.14);font:18px 'IBM Plex Mono',monospace">−</div>
+          <div style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:rgba(11,12,13,.86);border:1px solid rgba(255,255,255,.14);font:15px 'IBM Plex Mono',monospace">⤢</div>
+          <div style="width:48px;height:48px;display:flex;align-items:center;justify-content:center;background:rgba(11,12,13,.86);border:1px solid rgba(255,255,255,.14);font:13px 'IBM Plex Mono',monospace">2D</div>
+        </div>
+        <div style="position:absolute;left:20px;bottom:18px;display:flex;align-items:center;gap:10px;font:13px 'IBM Plex Mono',monospace;color:#6f7478"><div style="width:130px;height:1px;background:#6f7478"></div><span>250 km</span></div>
+        <div style="position:absolute;right:20px;bottom:18px;font:13px 'IBM Plex Mono',monospace;color:#6f7478">N 41°22′ · E 12°08′</div>
+      </div>
+    </div>
+
+    <div style="width:372px;flex:none;border-left:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column">
+      <div style="height:44px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468"><span>INSPECTOR · NO SELECTION</span><span style="width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:15px;letter-spacing:0;color:#8d9296">›</span></div>
+      <div style="padding:20px;display:grid;grid-template-columns:1fr 1fr;gap:18px 20px;align-content:start">
+        <div><div style="font:11px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">X</div><div style="font:18px 'IBM Plex Mono',monospace;color:#e8ebec">4832</div></div>
+        <div><div style="font:11px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">Y</div><div style="font:18px 'IBM Plex Mono',monospace;color:#e8ebec">2910</div></div>
+        <div style="grid-column:1 / -1"><div style="font:11px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">ELEVATION</div><div style="font:38px/1.1 'IBM Plex Mono',monospace;color:#e0a34a">2840<span style="font-size:17px;color:#8d9296"> m</span></div></div>
+        <div><div style="font:11px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">SLOPE</div><div style="font:18px 'IBM Plex Mono',monospace;color:#e8ebec">31.4°</div></div>
+        <div><div style="font:11px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">ASPECT</div><div style="font:18px 'IBM Plex Mono',monospace;color:#e8ebec">214°</div></div>
+        <div><div style="font:11px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">TEMP</div><div style="font:18px 'IBM Plex Mono',monospace;color:#e8ebec">7.2 °C</div></div>
+        <div><div style="font:11px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">PRECIP</div><div style="font:18px 'IBM Plex Mono',monospace;color:#e8ebec">812 mm</div></div>
+        <div><div style="font:11px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">DRAINAGE</div><div style="font:18px 'IBM Plex Mono',monospace;color:#e8ebec">0.72</div></div>
+        <div><div style="font:11px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468">FLOW ACC</div><div style="font:18px 'IBM Plex Mono',monospace;color:#e8ebec">14 200</div></div>
+        <div style="grid-column:1 / -1;border-top:1px solid rgba(255,255,255,.08);padding-top:16px;display:flex;flex-direction:column;gap:11px;font:14px 'IBM Plex Mono',monospace">
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">BIOME</span><span style="color:#e8ebec">Montane forest</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">LITHOLOGY</span><span style="color:#e8ebec">Granite</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">SOIL</span><span style="color:#e8ebec">Podzol · thin</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">CONTROL</span><span style="color:#e8ebec">Unclaimed</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">ROUTE COST</span><span style="color:#e8ebec">3.41</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">NEAREST SETTLEMENT</span><span style="color:#e8ebec">Valdrin 41 km</span></div>
+        </div>
+        <div style="grid-column:1 / -1;border-top:1px solid rgba(255,255,255,.08);padding-top:16px">
+          <div style="font:11px 'IBM Plex Mono',monospace;letter-spacing:.16em;color:#5f6468;padding-bottom:9px">ELEVATION PROFILE · E–W</div>
+          <div style="height:88px;border:1px solid rgba(255,255,255,.10);background:repeating-linear-gradient(90deg,rgba(255,255,255,.04) 0 1px,transparent 1px 28px);display:flex;align-items:flex-end;gap:3px;padding:5px">
+            <div style="flex:1;height:22%;background:#6f7478"></div><div style="flex:1;height:34%;background:#6f7478"></div><div style="flex:1;height:52%;background:#6f7478"></div><div style="flex:1;height:78%;background:#8d9296"></div><div style="flex:1;height:94%;background:#c8cbcd"></div><div style="flex:1;height:71%;background:#8d9296"></div><div style="flex:1;height:48%;background:#6f7478"></div><div style="flex:1;height:31%;background:#6f7478"></div><div style="flex:1;height:40%;background:#6f7478"></div><div style="flex:1;height:26%;background:#6f7478"></div>
+          </div>
+        </div>
+        <div style="grid-column:1 / -1;border-top:1px solid rgba(255,255,255,.08);padding-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:9px;font:13px 'IBM Plex Mono',monospace">
+          <div style="height:48px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(224,163,74,.5);color:#e0a34a">SAMPLE HERE</div>
+          <div style="height:48px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.14)">PIN POINT</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:104px;flex:none;padding:0 22px;border-top:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;justify-content:center;gap:14px">
+    <div style="display:flex;align-items:center;gap:20px;font:13px 'IBM Plex Mono',monospace;color:#7d8286">
+      <span>YEAR −400</span>
+      <div style="flex:1;position:relative;height:22px;display:flex;align-items:center">
+        <div style="width:100%;height:1px;background:rgba(255,255,255,.14)"></div>
+        <div style="position:absolute;left:0;width:51%;height:1px;background:#e0a34a"></div>
+        <div style="position:absolute;left:22%;width:1px;height:8px;background:rgba(255,255,255,.22)"></div>
+        <div style="position:absolute;left:38%;width:1px;height:8px;background:rgba(255,255,255,.22)"></div>
+        <div style="position:absolute;left:64%;width:1px;height:8px;background:rgba(255,255,255,.22)"></div>
+        <div style="position:absolute;left:51%;transform:translateX(-50%);width:22px;height:22px;border-radius:11px;background:#e0a34a"></div>
+        <div style="position:absolute;left:51%;transform:translateX(-50%);bottom:26px;color:#e0a34a">YEAR 412</div>
+      </div>
+      <span>YEAR 1200</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:26px;font:13px 'IBM Plex Mono',monospace;color:#8d9296">
+      <div style="display:flex;gap:8px">
+        <div style="width:48px;height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.14)">◀◀</div>
+        <div style="width:48px;height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(224,163,74,.5);color:#e0a34a">▶</div>
+        <div style="width:48px;height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.14)">⏸</div>
+        <div style="width:48px;height:44px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,.14)">▶▶</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <div style="height:44px;padding:0 18px;display:flex;align-items:center;border:1px solid rgba(224,163,74,.5);color:#e0a34a">×1</div>
+        <div style="height:44px;padding:0 18px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.14)">×10</div>
+        <div style="height:44px;padding:0 18px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.14)">×100</div>
+      </div>
+      <span style="color:#5f6468">PAUSED · step 412 of 1600</span>
+      <div style="flex:1"></div>
+      <div style="display:flex;gap:8px">
+        <div style="height:44px;padding:0 16px;display:flex;align-items:center;border:1px solid rgba(224,163,74,.4);color:#e0a34a">☑ CLIMATE</div>
+        <div style="height:44px;padding:0 16px;display:flex;align-items:center;border:1px solid rgba(224,163,74,.4);color:#e0a34a">☑ POPULATION</div>
+        <div style="height:44px;padding:0 16px;display:flex;align-items:center;border:1px solid rgba(224,163,74,.4);color:#e0a34a">☑ ECONOMY</div>
+        <div style="height:44px;padding:0 16px;display:flex;align-items:center;border:1px solid rgba(224,163,74,.4);color:#e0a34a">☑ POLITICS</div>
+        <div style="height:44px;padding:0 16px;display:flex;align-items:center;border:1px solid rgba(224,163,74,.4);color:#e0a34a">☑ INFRA</div>
+        <div style="height:44px;padding:0 16px;display:flex;align-items:center;border:1px solid rgba(255,255,255,.12);color:#5f6468">☐ WARFARE</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div></div>
+
+</div>
+<p class="dv-next">Try next: "phone terrain-appearance sheet with the gradient editor" · "tablet in portrait" · "add the EDIT-mode brush toolbar to <a class="dv-oid" href="#2a">2a</a>"</p>
+</section>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Default world view — 1920×1080</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a"><div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Strict hairline · docked layer list · point-sample inspector</div>
+<div class="dv-card" style="width:1920px">
+<div data-screen-label="1a World view" style="width:1920px;height:1080px;background:#0d0e0f;color:#c8cbcd;font:11px/1.45 'Helvetica Neue',Helvetica,Arial,sans-serif;display:flex;flex-direction:column;overflow:hidden">
+
+  <div style="height:36px;flex:none;display:flex;align-items:center;gap:26px;padding:0 18px;border-bottom:1px solid rgba(255,255,255,.10)">
+    <div style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:.26em;color:#e8ebec">CARTALITH</div>
+    <div style="display:flex;gap:20px;font-size:11.5px;color:#8d9296">
+      <span>Project</span><span>World</span><span>Generate</span><span>Simulate</span><span>Map</span><span>Assets</span><span>View</span>
+    </div>
+    <div style="flex:1"></div>
+    <div style="display:flex;gap:24px;font:11px 'IBM Plex Mono',monospace;color:#6f7478"><span>ELDRA · 483920</span><span>CPU 38</span><span>GPU 71</span><span>1.6 GB</span></div>
+  </div>
+
+  <div style="flex:1;display:flex;min-height:0">
+    <div style="width:206px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column">
+      <div style="height:29px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10);font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468"><span>WORKSPACE</span><span style="font-size:11px;letter-spacing:0;color:#8d9296">‹</span></div>
+      <div style="padding:14px 0;display:flex;flex-direction:column;gap:16px">
+      <div>
+        <div style="padding:0 16px 6px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468">WORLD</div>
+        <div style="display:flex;flex-direction:column">
+          <div style="padding:4px 16px;border-left:2px solid #e0a34a;color:#e0a34a;background:rgba(224,163,74,.06)">Overview</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Terrain</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Water</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Climate</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Ecology</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Resources</div>
+        </div>
+      </div>
+      <div>
+        <div style="padding:0 16px 6px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468">CIVILIZATION</div>
+        <div style="display:flex;flex-direction:column">
+          <div style="padding:4px 16px;border-left:2px solid transparent">Settlements</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Population</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Economy</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Politics</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Culture</div>
+        </div>
+      </div>
+      <div>
+        <div style="padding:0 16px 6px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468">INFRASTRUCTURE</div>
+        <div style="display:flex;flex-direction:column">
+          <div style="padding:4px 16px;border-left:2px solid transparent">Roads</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Rivers</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Ports</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Trade</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Logistics</div>
+        </div>
+      </div>
+      <div>
+        <div style="padding:0 16px 6px;font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468">CARTOGRAPHY</div>
+        <div style="display:flex;flex-direction:column">
+          <div style="padding:4px 16px;border-left:2px solid transparent">Layers</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Styling</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Labels</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Assets</div>
+          <div style="padding:4px 16px;border-left:2px solid transparent">Export</div>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <div style="width:238px;flex:none;border-right:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column">
+      <div style="height:29px;flex:none;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10);font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468"><span style="flex:1">LAYERS</span><span>13</span><span style="font-size:11px;letter-spacing:0;color:#8d9296">‹</span></div>
+      <div style="display:flex;flex-direction:column;font:10.5px 'IBM Plex Mono',monospace">
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Terrain</span><div style="width:44px;height:2px;background:rgba(255,255,255,.10)"><div style="width:100%;height:2px;background:#8d9296"></div></div><span style="width:26px;text-align:right;color:#8d9296">100</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Hillshade</span><div style="width:44px;height:2px;background:rgba(255,255,255,.10)"><div style="width:64%;height:2px;background:#8d9296"></div></div><span style="width:26px;text-align:right;color:#8d9296">64</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Water</span><div style="width:44px;height:2px;background:rgba(255,255,255,.10)"><div style="width:100%;height:2px;background:#8d9296"></div></div><span style="width:26px;text-align:right;color:#8d9296">100</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Rivers</span><div style="width:44px;height:2px;background:rgba(255,255,255,.10)"><div style="width:90%;height:2px;background:#8d9296"></div></div><span style="width:26px;text-align:right;color:#8d9296">90</span></div>
+        <div style="padding:6px 16px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(224,163,74,.05)">
+          <div style="display:flex;align-items:center;gap:9px"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e0a34a;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Biomes</span><div style="width:44px;height:2px;background:rgba(255,255,255,.10)"><div style="width:82%;height:2px;background:#e0a34a"></div></div><span style="width:26px;text-align:right;color:#e0a34a">82</span></div>
+          <div style="padding:7px 0 2px 18px;display:flex;flex-direction:column;gap:5px;color:#8d9296">
+            <div style="display:flex;justify-content:space-between"><span>Mode</span><span style="color:#e8ebec">Normal ▾</span></div>
+            <div style="display:flex;justify-content:space-between"><span>Rendering</span><span style="color:#e8ebec">Biome palette ▾</span></div>
+            <div style="display:flex;flex-direction:column;gap:3px;padding-top:3px"><span style="color:#e8ebec">☑ Elevation modulation</span><span style="color:#e8ebec">☑ Moisture modulation</span><span style="color:#e8ebec">☑ Slope modulation</span><span style="color:#5f6468">☐ Lithology modulation</span></div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(255,255,255,.05);color:#5f6468"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Ecology</span><div style="width:44px;height:2px;background:rgba(255,255,255,.08)"></div><span style="width:26px;text-align:right">40</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(255,255,255,.05);color:#5f6468"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Resources</span><div style="width:44px;height:2px;background:rgba(255,255,255,.08)"></div><span style="width:26px;text-align:right">55</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Roads</span><div style="width:44px;height:2px;background:rgba(255,255,255,.10)"><div style="width:100%;height:2px;background:#8d9296"></div></div><span style="width:26px;text-align:right;color:#8d9296">100</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Settlements</span><div style="width:44px;height:2px;background:rgba(255,255,255,.10)"><div style="width:100%;height:2px;background:#8d9296"></div></div><span style="width:26px;text-align:right;color:#8d9296">100</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(255,255,255,.05);color:#5f6468"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Politics</span><div style="width:44px;height:2px;background:rgba(255,255,255,.08)"></div><span style="width:26px;text-align:right">70</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(255,255,255,.05);color:#5f6468"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Trade</span><div style="width:44px;height:2px;background:rgba(255,255,255,.08)"></div><span style="width:26px;text-align:right">70</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;border-bottom:1px solid rgba(255,255,255,.05)"><span style="color:#e0a34a">●</span><span style="flex:1;color:#e8ebec;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Labels</span><div style="width:44px;height:2px;background:rgba(255,255,255,.10)"><div style="width:100%;height:2px;background:#8d9296"></div></div><span style="width:26px;text-align:right;color:#8d9296">100</span></div>
+        <div style="display:flex;align-items:center;gap:9px;padding:6px 16px;color:#5f6468"><span>○</span><span style="flex:1;font-family:'Helvetica Neue',Helvetica,sans-serif;font-size:11px">Graticule</span><div style="width:44px;height:2px;background:rgba(255,255,255,.08)"></div><span style="width:26px;text-align:right">30</span></div>
+      </div>
+    </div>
+
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+      <div style="height:29px;flex:none;display:flex;align-items:center;gap:0;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10);font:11px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:#7d8286">
+        <span style="padding:0 13px 0 0;color:#e8ebec">WORLD</span><span style="padding:0 13px">EDIT</span><span style="padding:0 13px">ANALYSIS</span><span style="padding:0 13px">SIMULATION</span><span style="padding:0 13px">CARTOGRAPHIC</span><span style="padding:0 13px">DEBUG</span>
+        <div style="flex:1"></div>
+        <span style="border:1px solid rgba(255,255,255,.14);padding:2px 9px;color:#c8cbcd">FIELD: NORMAL ▾</span>
+        <span style="padding-left:16px">ZOOM 1:240k</span>
+      </div>
+      <div style="flex:1;position:relative;background:repeating-linear-gradient(135deg,rgba(255,255,255,.035) 0 2px,transparent 2px 9px),linear-gradient(0deg,rgba(255,255,255,.02) 0 1px,transparent 1px) 0 0/100% 64px,#101112">
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px">
+          <div style="font:500 11px 'IBM Plex Mono',monospace;letter-spacing:.22em;color:rgba(255,255,255,.34)">WORLD VIEWPORT</div>
+          <div style="font:11px 'IBM Plex Mono',monospace;color:rgba(255,255,255,.20)">map render · 4096 × 4096 · terrain + hydrology + biomes</div>
+        </div>
+        <div style="position:absolute;left:16px;top:14px;font:11px 'IBM Plex Mono',monospace;color:#6f7478;line-height:1.7">X 4832<br>Y 2910</div>
+        <div style="position:absolute;right:16px;top:14px;font:11px 'IBM Plex Mono',monospace;color:#6f7478;text-align:right;line-height:1.7">N 41°22′<br>E 12°08′</div>
+        <div style="position:absolute;left:16px;bottom:14px;display:flex;align-items:center;gap:8px;font:11px 'IBM Plex Mono',monospace;color:#6f7478"><div style="width:96px;height:1px;background:#6f7478"></div><span>250 km</span></div>
+        <div style="position:absolute;right:16px;bottom:14px;font:11px 'IBM Plex Mono',monospace;color:#6f7478">TILE 34 / 18 · LOD 3</div>
+      </div>
+    </div>
+
+    <div style="width:272px;flex:none;border-left:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column">
+      <div style="height:29px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid rgba(255,255,255,.10);font:500 9px 'IBM Plex Mono',monospace;letter-spacing:.2em;color:#5f6468"><span>INSPECTOR · NO SELECTION</span><span style="font-size:11px;letter-spacing:0;color:#8d9296">›</span></div>
+      <div style="padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:14px 16px;align-content:start">
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468">X</div><div style="font:14px 'IBM Plex Mono',monospace;color:#e8ebec">4832</div></div>
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468">Y</div><div style="font:14px 'IBM Plex Mono',monospace;color:#e8ebec">2910</div></div>
+        <div style="grid-column:1 / -1"><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468">ELEVATION</div><div style="font:26px/1.1 'IBM Plex Mono',monospace;color:#e0a34a">2840<span style="font-size:13px;color:#8d9296"> m</span></div></div>
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468">SLOPE</div><div style="font:14px 'IBM Plex Mono',monospace;color:#e8ebec">31.4°</div></div>
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468">ASPECT</div><div style="font:14px 'IBM Plex Mono',monospace;color:#e8ebec">214°</div></div>
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468">TEMP</div><div style="font:14px 'IBM Plex Mono',monospace;color:#e8ebec">7.2 °C</div></div>
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468">PRECIP</div><div style="font:14px 'IBM Plex Mono',monospace;color:#e8ebec">812 mm</div></div>
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468">DRAINAGE</div><div style="font:14px 'IBM Plex Mono',monospace;color:#e8ebec">0.72</div></div>
+        <div><div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468">FLOW ACC</div><div style="font:14px 'IBM Plex Mono',monospace;color:#e8ebec">14 200</div></div>
+        <div style="grid-column:1 / -1;border-top:1px solid rgba(255,255,255,.08);padding-top:13px;display:flex;flex-direction:column;gap:8px;font:11px 'IBM Plex Mono',monospace">
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">BIOME</span><span style="color:#e8ebec">Montane forest</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">LITHOLOGY</span><span style="color:#e8ebec">Granite</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">SOIL</span><span style="color:#e8ebec">Podzol · thin</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">CONTROL</span><span style="color:#e8ebec">Unclaimed</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">ROUTE COST</span><span style="color:#e8ebec">3.41</span></div>
+          <div style="display:flex;justify-content:space-between"><span style="color:#5f6468">NEAREST SETTLEMENT</span><span style="color:#e8ebec">Valdrin 41 km</span></div>
+        </div>
+        <div style="grid-column:1 / -1;border-top:1px solid rgba(255,255,255,.08);padding-top:13px">
+          <div style="font:9px 'IBM Plex Mono',monospace;letter-spacing:.18em;color:#5f6468;padding-bottom:7px">ELEVATION PROFILE · E–W</div>
+          <div style="height:52px;border:1px solid rgba(255,255,255,.10);background:repeating-linear-gradient(90deg,rgba(255,255,255,.04) 0 1px,transparent 1px 24px);display:flex;align-items:flex-end;gap:2px;padding:4px">
+            <div style="flex:1;height:22%;background:#6f7478"></div><div style="flex:1;height:34%;background:#6f7478"></div><div style="flex:1;height:52%;background:#6f7478"></div><div style="flex:1;height:78%;background:#8d9296"></div><div style="flex:1;height:94%;background:#c8cbcd"></div><div style="flex:1;height:71%;background:#8d9296"></div><div style="flex:1;height:48%;background:#6f7478"></div><div style="flex:1;height:31%;background:#6f7478"></div><div style="flex:1;height:40%;background:#6f7478"></div><div style="flex:1;height:26%;background:#6f7478"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="height:70px;flex:none;padding:0 16px;border-top:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;justify-content:center;gap:10px">
+    <div style="display:flex;align-items:center;gap:14px;font:11px 'IBM Plex Mono',monospace;color:#7d8286">
+      <span>YEAR −400</span>
+      <div style="flex:1;position:relative;height:12px;display:flex;align-items:center">
+        <div style="width:100%;height:1px;background:rgba(255,255,255,.14)"></div>
+        <div style="position:absolute;left:0;width:51%;height:1px;background:#e0a34a"></div>
+        <div style="position:absolute;left:51%;width:1px;height:12px;background:#e0a34a"></div>
+        <div style="position:absolute;left:51%;transform:translateX(-50%);bottom:14px;color:#e0a34a">YEAR 412</div>
+      </div>
+      <span>YEAR 1200</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:22px;font:11px 'IBM Plex Mono',monospace;color:#8d9296">
+      <div style="display:flex;gap:14px;color:#e8ebec"><span>▶ Play</span><span>⏸ Pause</span><span>Step ◀ ▶</span></div>
+      <div style="display:flex;gap:7px"><span style="border:1px solid rgba(224,163,74,.5);padding:2px 8px;color:#e0a34a">×1</span><span style="border:1px solid rgba(255,255,255,.12);padding:2px 8px">×10</span><span style="border:1px solid rgba(255,255,255,.12);padding:2px 8px">×100</span></div>
+      <span style="color:#5f6468">PAUSED</span>
+      <div style="flex:1"></div>
+      <div style="display:flex;gap:16px"><span style="color:#e8ebec">☑ Climate</span><span style="color:#e8ebec">☑ Population</span><span style="color:#e8ebec">☑ Economy</span><span style="color:#e8ebec">☑ Politics</span><span style="color:#e8ebec">☑ Infrastructure</span><span style="color:#5f6468">☐ Warfare</span></div>
+    </div>
+  </div>
+</div>
+</div></div>
+
+</div>
+<p class="dv-next">Try next: "build the remaining screens in <a class="dv-oid" href="#1a">1a</a>" · "less amber in <a class="dv-oid" href="#1a">1a</a>"</p>
+</section>
+
+</x-dc>
+</body>
+</html>

@@ -13,3 +13,9 @@ name = "cartalith_io"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 zip = { version = "8.6.0", features = ["deflate"] }
+# UNIFIED_TOOL_PLAN.md milestone E2: gzip for the region export's `.bin`
+# tiles (the reference's `gzipBytes`, a one-liner over the browser's own
+# CompressionStream). Crate work, not a hand-port -- PROVENANCE.md's "take a
+# crate for anything downstream of the pixels". `zip`'s own `deflate` feature
+# already pulls flate2 in, so this adds no new transitive dependency.
+flate2 = "1.1"

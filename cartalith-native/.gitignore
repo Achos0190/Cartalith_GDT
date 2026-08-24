@@ -3,6 +3,16 @@
 godot-project/.godot/
 godot-project/builds/
 godot-project/smoke_test_output.png
+godot-project/android/
+
+# Editor-only / personal tooling — not part of the shipped app, not
+# reviewed for licence or scope (godotsteam has no reason to be in a
+# non-Steam hobby project; godot_ai is a personal MCP dev tool).
+# ponytail: whole addons/ dir ignored rather than picking entries, since
+# nothing currently in it belongs in the repo — un-ignore deliberately
+# if a real addon is ever adopted.
+godot-project/addons/
+godot-project/godot-ai-LICENSE.txt
 
 # Export signing — never committed.
 *.keystore

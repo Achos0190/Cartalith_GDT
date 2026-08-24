@@ -4,16 +4,28 @@
 
 use cartalith_noise::{fbm, pfbm, pridged, pvnoise, ridged, vnoise};
 use cartalith_rng::Mulberry32;
+use rayon::prelude::*;
 
-/// Mirrors JS `Math.round`: ties round toward `+Infinity`, unlike Rust's
-/// `f64::round` (ties away from zero) — `Math.round(-0.5) == 0`, but
-/// `(-0.5_f64).round() == -1.0`. `buildPlates`'s world-wrap math depends
-/// on the JS behaviour specifically (`cartalith-rust-conventions`: match
-/// precision, don't improve it). `(x + 0.5).floor()` is the standard
-/// exact equivalent.
-fn js_round(x: f64) -> f64 {
-    (x + 0.5).floor()
-}
+pub mod amplify;
+pub mod infer;
+pub mod sculpt;
+pub mod tile_render;
+
+// `Math.round`, `Math.sin`, `Math.cos` and `Math.atan2` with JS semantics.
+//
+// `js_round` was written here as `(x + 0.5).floor()` with a doc comment calling
+// it "the standard exact equivalent"; it is not, and `JS_SEMANTICS_AUDIT.md`
+// §3.1 measured the single input where it differs from V8
+// (`0.49999999999999994`, where it gives 1 and `Math.round` gives 0). The
+// comment was corrected in place at the time and the implementation left,
+// because editing six crates under an active fork was the wrong trade. There
+// is one implementation now, in `cartalith-jsmath`, and it is the
+// fractional-part form that is right on that input too.
+//
+// `js_sin`/`js_cos`/`js_atan2` are `build_plates`' world-wrap circular mean --
+// audit §4.4's `-terrain:372`, which it reported and did *not* change because
+// `js_atan2` alone could not fix it. See that call site.
+use cartalith_jsmath::{js_atan2, js_cos, js_round, js_sin};
 
 /// `computeWarp()` / `computeWarpPrep()` / `warpParams()` (reference HTML,
 /// lines 2621-2735) — domain-warped fbm producing the per-cell (x, y)
@@ -49,35 +61,42 @@ pub fn compute_warp(
     let n = gw * gh;
     let mut warp_x = vec![0f32; n];
     let mut warp_y = vec![0f32; n];
-    for y in 0..gh {
-        for x in 0..gw {
-            let i = y * gw + x;
-            let xf = x as f64 * wf;
-            let yf = y as f64 * wf;
-            let qx = if world {
-                pfbm(xf, yf, seed + 17, p_x)
-            } else {
-                fbm(xf, yf, seed + 17)
-            };
-            let qy = if world {
-                pfbm(xf, yf, seed + 101, p_x)
-            } else {
-                fbm(xf, yf, seed + 101)
-            };
-            let wx = if world {
-                pfbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 213, p_x) - 0.5
-            } else {
-                fbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 213) - 0.5
-            };
-            let wy = if world {
-                pfbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 331, p_x) - 0.5
-            } else {
-                fbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 331) - 0.5
-            };
-            warp_x[i] = (wx * 2.0 * amp) as f32;
-            warp_y[i] = (wy * 2.0 * amp) as f32;
-        }
-    }
+    // Rows are independent (`warp_x[i]`/`warp_y[i]` depend only on `x, y`,
+    // never another cell), so parallelizing across rows changes only which
+    // core computes which row, not any value -- output is bit-for-bit
+    // identical to the sequential version (CPU_MULTITHREADING_SCOPE.md).
+    warp_x
+        .par_chunks_mut(gw)
+        .zip(warp_y.par_chunks_mut(gw))
+        .enumerate()
+        .for_each(|(y, (wx_row, wy_row))| {
+            for x in 0..gw {
+                let xf = x as f64 * wf;
+                let yf = y as f64 * wf;
+                let qx = if world {
+                    pfbm(xf, yf, seed + 17, p_x)
+                } else {
+                    fbm(xf, yf, seed + 17)
+                };
+                let qy = if world {
+                    pfbm(xf, yf, seed + 101, p_x)
+                } else {
+                    fbm(xf, yf, seed + 101)
+                };
+                let wx = if world {
+                    pfbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 213, p_x) - 0.5
+                } else {
+                    fbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 213) - 0.5
+                };
+                let wy = if world {
+                    pfbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 331, p_x) - 0.5
+                } else {
+                    fbm(xf + 4.0 * qx, yf + 4.0 * qy, seed + 331) - 0.5
+                };
+                wx_row[x] = (wx * 2.0 * amp) as f32;
+                wy_row[x] = (wy * 2.0 * amp) as f32;
+            }
+        });
     Some((warp_x, warp_y))
 }
 
@@ -344,9 +363,12 @@ pub fn build_plates(
                     }
                 }
                 if world {
+                    // `js_sin`/`js_cos`, not `f64::sin`/`f64::cos`. See the
+                    // circular mean below -- the divergence enters HERE, in the
+                    // accumulation, before `atan2` is ever called.
                     let th = x as f64 / gw as f64 * std::f64::consts::PI * 2.0;
-                    sxs[best] += th.sin();
-                    sxc[best] += th.cos();
+                    sxs[best] += js_sin(th);
+                    sxc[best] += js_cos(th);
                 } else {
                     sx[best] += x as f64;
                 }
@@ -357,7 +379,31 @@ pub fn build_plates(
         for p in 0..n {
             if c[p] != 0.0 {
                 plates[p].x = if world {
-                    (sxs[p].atan2(sxc[p]) / (std::f64::consts::PI * 2.0) + 1.0) * gw as f64
+                    // `JS_SEMANTICS_AUDIT.md` §4.4's `-terrain:372`, fixed.
+                    //
+                    // The audit reported this site and deliberately did **not**
+                    // change it, because at the time only `js_atan2` existed:
+                    // Rust's own `sin`/`cos` already produce a different
+                    // `(sum sin, sum cos)` pair from V8's on 92 of 2 000
+                    // synthetic plates, *before* `atan2` is reached, so
+                    // swapping in `js_atan2` alone moved the result from
+                    // 98/2000 disagreeing to 7/2000 -- an improvement that
+                    // leaves the site differently wrong, which is worse than
+                    // leaving it alone because the next reader would believe
+                    // it had been handled. "Fix this in the same pass that
+                    // lands `js_sin`/`js_cos`, not before, and fix all three
+                    // together."
+                    //
+                    // This is that pass. All three are `cartalith-jsmath`'s
+                    // now, and the accumulation above uses the other two.
+                    //
+                    // It matters because of `-terrain:347`: the next Lloyd
+                    // iteration's `dx = x as f64 - plate.x` feeds a
+                    // nearest-plate argmin, which is structurally the same
+                    // discrete-decision hazard as the river receiver in §2.3,
+                    // one iteration removed. (`-terrain:385` quantises through
+                    // `js_round` and was measured safe either way.)
+                    (js_atan2(sxs[p], sxc[p]) / (std::f64::consts::PI * 2.0) + 1.0) * gw as f64
                         % gw as f64
                 } else {
                     sx[p] / c[p]
@@ -519,36 +565,47 @@ pub fn assign_plates(
 /// where `acc` is a plain number even though it sums `Float32Array`
 /// reads — and is only rounded to `f32` at the point of writing `dst`.
 fn box_h(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64, wrap: bool) {
+    debug_assert_eq!(src.len(), w * h);
+    debug_assert_eq!(dst.len(), w * h);
     let norm = 1.0 / (2.0 * r as f64 + 1.0);
     let wi = w as i64;
-    for y in 0..h {
-        let row = y * w;
-        let mut acc = 0.0f64;
-        if wrap {
-            for k in -r..=r {
-                let idx = (((k % wi) + wi) % wi) as usize;
-                acc += src[row + idx] as f64;
-            }
-        } else {
-            for k in -r..=r {
-                let idx = k.clamp(0, wi - 1) as usize;
-                acc += src[row + idx] as f64;
-            }
-        }
-        for x in 0..w {
-            dst[row + x] = (acc * norm) as f32;
-            let xi = x as i64;
+    // Each row's running sum only reads/writes within that row -- rows are
+    // independent, so chunking `dst`/`src` by row and processing chunks in
+    // parallel is exact, not approximate (CPU_MULTITHREADING_SCOPE.md).
+    dst.par_chunks_mut(w)
+        .zip(src.par_chunks(w))
+        .for_each(|(dst_row, src_row)| {
+            let mut acc = 0.0f64;
             if wrap {
-                let o = (((xi - r) % wi) + wi) % wi;
-                let i = (((xi + r + 1) % wi) + wi) % wi;
-                acc += src[row + i as usize] as f64 - src[row + o as usize] as f64;
+                for k in -r..=r {
+                    let idx = (((k % wi) + wi) % wi) as usize;
+                    acc += src_row[idx] as f64;
+                }
             } else {
-                let o = (xi - r).clamp(0, wi - 1) as usize;
-                let i = (xi + r + 1).clamp(0, wi - 1) as usize;
-                acc += src[row + i] as f64 - src[row + o] as f64;
+                for k in -r..=r {
+                    let idx = k.clamp(0, wi - 1) as usize;
+                    acc += src_row[idx] as f64;
+                }
             }
-        }
-    }
+            // `x` also drives the running-sum update below, not just the
+            // `dst_row` index -- an iterator/enumerate rewrite wouldn't be
+            // clearer here, same reasoning as this crate's other running-
+            // sum/sliding-window loops.
+            #[allow(clippy::needless_range_loop)]
+            for x in 0..w {
+                dst_row[x] = (acc * norm) as f32;
+                let xi = x as i64;
+                if wrap {
+                    let o = (((xi - r) % wi) + wi) % wi;
+                    let i = (((xi + r + 1) % wi) + wi) % wi;
+                    acc += src_row[i as usize] as f64 - src_row[o as usize] as f64;
+                } else {
+                    let o = (xi - r).clamp(0, wi - 1) as usize;
+                    let i = (xi + r + 1).clamp(0, wi - 1) as usize;
+                    acc += src_row[i] as f64 - src_row[o] as f64;
+                }
+            }
+        });
 }
 
 /// `boxV()` (reference HTML line 2512): vertical sliding-window box blur.
@@ -557,18 +614,33 @@ fn box_h(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64, wrap: bool) {
 fn box_v(src: &[f32], dst: &mut [f32], w: usize, h: usize, r: i64) {
     let norm = 1.0 / (2.0 * r as f64 + 1.0);
     let hi = h as i64;
-    for x in 0..w {
+    // Columns are independent, but `dst`'s row-major layout makes a single
+    // column a strided (non-contiguous) write target -- rather than reach
+    // for unsafe to split disjoint strided slices, compute each column
+    // (contiguous in this column-major scratch buffer) in parallel, then
+    // scatter into `dst` in one cheap sequential pass. The scatter is
+    // O(w*h) and memory-bound, negligible next to the O(w*h*(2r+1))-shaped
+    // work it replaces (CPU_MULTITHREADING_SCOPE.md).
+    let mut cols = vec![0f32; w * h];
+    cols.par_chunks_mut(h).enumerate().for_each(|(x, col)| {
         let mut acc = 0.0f64;
         for k in -r..=r {
             let idx = k.clamp(0, hi - 1) as usize;
             acc += src[idx * w + x] as f64;
         }
+        #[allow(clippy::needless_range_loop)] // y also drives the running-sum update below
         for y in 0..h {
-            dst[y * w + x] = (acc * norm) as f32;
+            col[y] = (acc * norm) as f32;
             let yi = y as i64;
             let o = (yi - r).clamp(0, hi - 1) as usize;
             let i = (yi + r + 1).clamp(0, hi - 1) as usize;
             acc += src[i * w + x] as f64 - src[o * w + x] as f64;
+        }
+    });
+    for x in 0..w {
+        let col = &cols[x * h..x * h + h];
+        for y in 0..h {
+            dst[y * w + x] = col[y];
         }
     }
 }
@@ -613,7 +685,7 @@ pub mod btype {
 /// `classifyBoundary()` (reference HTML line 2818): shear-dominant pairs
 /// are transforms regardless of crust type; otherwise convergence splits
 /// by ocean/continent combination, divergence is a rift.
-fn classify_boundary(ocean_a: bool, ocean_b: bool, c: f64, s: f64) -> u8 {
+pub(crate) fn classify_boundary(ocean_a: bool, ocean_b: bool, c: f64, s: f64) -> u8 {
     if s.abs() > 1.5 * c.abs() {
         return btype::TRANSFORM;
     }
@@ -926,7 +998,14 @@ pub fn compute_heterogeneity(
     let hf = 1.5 * terrain_detail_k(gw, map_width_km);
     let oct = (js_round(hf).max(2.0)) as i32;
     let mut out = vec![0f32; n];
-    for y in 0..gh {
+    // Per-row parallel: `out[i]` depends only on `x, y, age[i]` and the
+    // (read-only) warp fields, never another cell -- exact, not
+    // approximate (CPU_MULTITHREADING_SCOPE.md). The max-finding/rescale
+    // passes below stay sequential: a single O(n) scan is not the
+    // bottleneck here (the fbm calls above are), and max is the only
+    // reduction, so parallelizing it would add risk for no measurable gain.
+    out.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
+        #[allow(clippy::needless_range_loop)] // x also drives i, wx, wy below
         for x in 0..gw {
             let i = y * gw + x;
             let wx = x as f64 + warp_x.map_or(0.0, |w| w[i] as f64);
@@ -936,9 +1015,9 @@ pub fn compute_heterogeneity(
             } else {
                 fbm(wx * hf / gw as f64, wy * hf / gw as f64, hetero_seed)
             } - 0.5;
-            out[i] = (low_n * (0.3 + 0.7 * age[i] as f64)) as f32;
+            row[x] = (low_n * (0.3 + 0.7 * age[i] as f64)) as f32;
         }
-    }
+    });
     let mut mx = 1e-6f64;
     for &v in &out {
         let v = (v as f64).abs();
@@ -965,11 +1044,13 @@ pub fn compute_resistance(
 ) -> Vec<f32> {
     let n = gw * gh;
     let mut resistance = vec![0f32; n];
-    for i in 0..n {
+    // `resistance[i] = f(plate_id[i], age_field[i])` -- no cross-cell
+    // dependency, exact under parallel execution (CPU_MULTITHREADING_SCOPE.md).
+    resistance.par_iter_mut().enumerate().for_each(|(i, r)| {
         let pl = plates[plate_id[i]];
         let crustal = pl.base.max(0.0);
-        resistance[i] = (crustal * 0.6 + age_field[i] as f64 * 0.4).min(1.0) as f32;
-    }
+        *r = (crustal * 0.6 + age_field[i] as f64 * 0.4).min(1.0) as f32;
+    });
     resistance
 }
 
@@ -1013,7 +1094,13 @@ pub fn compute_height(
 ) -> Vec<f32> {
     let n = gw * gh;
     let mut field = vec![0f32; n];
-    for y in 0..gh {
+    // `field[i]` reads only cell `i`'s own inputs across every field
+    // parameter here -- no cross-cell dependency, exact under parallel
+    // execution (CPU_MULTITHREADING_SCOPE.md). This is the most
+    // fbm/pridged-heavy per-cell loop in the crate, so the real timing win
+    // is expected to come mostly from here.
+    field.par_chunks_mut(gw).enumerate().for_each(|(y, row)| {
+        #[allow(clippy::needless_range_loop)] // x also drives i, wx, wy below
         for x in 0..gw {
             let i = y * gw + x;
             let sf = stress[i] as f64;
@@ -1038,13 +1125,13 @@ pub fn compute_height(
             } else {
                 fbm(nx, ny, p.seed)
             }) - 0.5;
-            field[i] = (0.5
+            row[x] = (0.5
                 + p.a * (0.40 * bs + 0.50 * t)
                 + p.fwt * flex[i] as f64
                 + p.hwt * hetero[i] as f64
                 + p.b * n_val * (0.25 + 0.75 * rug)) as f32;
         }
-    }
+    });
     field
 }
 
@@ -1210,12 +1297,11 @@ fn place_sized_volcano(
 /// at random, jittered by up to 6 cells.
 ///
 /// **Not the JS default** — `state.volc.provinces` defaults to `true`,
-/// which routes through `stampVolcanoesProvinces` (clustered arc/rift/
-/// hotspot chains) instead. That function isn't ported yet; this one is
-/// the shared foundation (`stampOneVolcano`/`placeSizedVolcano`) both
-/// modes build on, ported first because it's independently useful and
-/// far simpler to golden-verify in isolation. Tracked, not silently
-/// dropped — see `cartalith-native/docs/CHANGELOG.md`.
+/// which routes through `stamp_volcanoes_provinces` (below; clustered
+/// arc/rift/hotspot chains) instead. This is the shared foundation
+/// (`stampOneVolcano`/`placeSizedVolcano`) both modes build on, and stays
+/// reachable as the `provinces: false` path (`cartalith-engine`'s own
+/// `VolcanismParams::provinces`).
 #[allow(clippy::too_many_arguments)]
 pub fn stamp_volcanoes_simple(
     gw: usize,
@@ -1268,6 +1354,276 @@ pub fn stamp_volcanoes_simple(
         {
             placed += 1;
         }
+    }
+}
+
+/// `classifyBoundaries()` (reference HTML lines 3508-3512): splits plate
+/// boundary cells by stress sign — convergent (subduction, `s > 0.05`) vs.
+/// divergent (rift, `s < -0.05`). `stress_field` is a per-cell `f32`
+/// (`Float32Array` in JS); comparing the `f64`-promoted value against the
+/// `f64` literal thresholds, rather than comparing two `f32`s directly,
+/// matches how JS itself reads a typed-array element back as a full-width
+/// number before the comparison.
+fn classify_boundaries(boundary_mask: &[u8], stress_field: &[f32]) -> (Vec<usize>, Vec<usize>) {
+    let mut conv = Vec::new();
+    let mut div = Vec::new();
+    for i in 0..boundary_mask.len() {
+        if boundary_mask[i] == 0 {
+            continue;
+        }
+        let s = stress_field[i] as f64;
+        if s > 0.05 {
+            conv.push(i);
+        } else if s < -0.05 {
+            div.push(i);
+        }
+    }
+    (conv, div)
+}
+
+/// `placeProvinceVolcanoes()` (reference HTML lines 3514-3538): places one
+/// province's volcanoes — an age-progressive hotspot chain along plate
+/// drift, or (arc/rift) boundary-hugging placements spaced along the
+/// matching convergent/divergent cell pool, falling back to a scatter
+/// around the province centre when that pool has no candidates within
+/// `rad_prov`. The reference's own `placed` return array is never read by
+/// its one caller (`stamp_volcanoes_provinces` discards it) — the side
+/// effects on `field`/`volcanic_field` are what matter, so this doesn't
+/// build it.
+///
+/// Every RNG draw below is its own `let`, in the same left-to-right order
+/// the JS source's (multi-draw) argument lists evaluate in —
+/// `place_sized_volcano` also takes `rng: &mut Mulberry32`, so inlining
+/// draws directly as call arguments the way the JS source reads would
+/// need two live mutable borrows of `rng` at once (one held for the `rng`
+/// argument itself, one for a later argument's own `.next_f64()` call) and
+/// doesn't compile; splitting each draw into its own statement first, in
+/// JS's exact argument-evaluation order, is both what compiles and what's
+/// order-correct.
+#[allow(clippy::too_many_arguments)]
+fn place_province_volcanoes(
+    gw: usize,
+    gh: usize,
+    field: &mut [f32],
+    volcanic_field: &mut [f32],
+    map_width_km: f64,
+    peak_m: f64,
+    plate_id: &[usize],
+    plates: &[Plate],
+    kind: &str,
+    cx: f64,
+    cy: f64,
+    rad_prov: f64,
+    count: i32,
+    conv: &[usize],
+    div: &[usize],
+    rng: &mut Mulberry32,
+    cell_km: f64,
+    volc_age: f64,
+) {
+    if kind == "hotspot" {
+        let pid = plate_id[(cy as usize) * gw + cx as usize];
+        let pl = &plates[pid];
+        let (mut ux, mut uy) = (pl.vx, pl.vy);
+        let l = ux.hypot(uy);
+        let l = if l == 0.0 { 1.0 } else { l };
+        ux /= l;
+        uy /= l;
+        let step = (80.0 + rng.next_f64() * 70.0) / cell_km;
+        for n in 0..count {
+            let t = n as f64 - (count as f64 - 1.0) / 2.0;
+            let jx = (rng.next_f64() * 2.0 - 1.0) * 6.0;
+            let jy = (rng.next_f64() * 2.0 - 1.0) * 6.0;
+            let x = cx + ux * step * t + jx;
+            let y = cy + uy * step * t + jy;
+            let age = ((n as f64 / (count as f64 - 1.0).max(1.0)) * 0.85 + rng.next_f64() * volc_age * 0.4).min(1.0);
+            place_sized_volcano(gw, gh, field, volcanic_field, map_width_km, peak_m, x, y, rng, age);
+        }
+        return;
+    }
+
+    let pool: &[usize] = if kind == "arc" { conv } else { div };
+    let mut cand: Vec<usize> = pool
+        .iter()
+        .copied()
+        .filter(|&i| {
+            let x = (i % gw) as f64;
+            let y = (i / gw) as f64;
+            (x - cx).hypot(y - cy) <= rad_prov
+        })
+        .collect();
+    let sp = (50.0 + rng.next_f64() * 100.0) / cell_km;
+
+    if cand.is_empty() {
+        for _ in 0..count {
+            // `6.283`, not `TAU` -- the reference HTML's own literal
+            // (line 3530), not a full-precision 2*pi. Matching it exactly
+            // is the point (`cartalith-rust-conventions`: match precision,
+            // don't improve it).
+            #[allow(clippy::approx_constant)]
+            let a = rng.next_f64() * 6.283;
+            let r = rng.next_f64() * rad_prov * 0.5;
+            let age = rng.next_f64() * volc_age;
+            place_sized_volcano(
+                gw,
+                gh,
+                field,
+                volcanic_field,
+                map_width_km,
+                peak_m,
+                cx + a.cos() * r,
+                cy + a.sin() * r,
+                rng,
+                age,
+            );
+        }
+        return;
+    }
+
+    // Fisher-Yates shuffle -- JS's own loop shape exactly
+    // (`for(k=cand.length-1;k>0;k--)`), not a library shuffle, since the
+    // exact RNG draw sequence is load-bearing for parity.
+    for k in (1..cand.len()).rev() {
+        let j = (rng.next_f64() * (k as f64 + 1.0)) as usize;
+        cand.swap(k, j);
+    }
+
+    let mut chosen: Vec<usize> = Vec::new();
+    for &i in &cand {
+        let x = (i % gw) as f64;
+        let y = (i / gw) as f64;
+        let ok = chosen.iter().all(|&c| {
+            let cxp = (c % gw) as f64;
+            let cyp = (c / gw) as f64;
+            (x - cxp).hypot(y - cyp) >= sp
+        });
+        if ok {
+            chosen.push(i);
+            if chosen.len() as i32 >= count {
+                break;
+            }
+        }
+    }
+
+    let mut pc = 0;
+    for &i in &chosen {
+        let x = (i % gw) as f64;
+        let y = (i / gw) as f64;
+        let jx = (rng.next_f64() * 2.0 - 1.0) * 6.0;
+        let jy = (rng.next_f64() * 2.0 - 1.0) * 6.0;
+        let age = rng.next_f64() * volc_age;
+        place_sized_volcano(gw, gh, field, volcanic_field, map_width_km, peak_m, x + jx, y + jy, rng, age);
+        pc += 1;
+    }
+    while pc < count {
+        let base = if !chosen.is_empty() {
+            chosen[(rng.next_f64() * chosen.len() as f64) as usize]
+        } else {
+            cand[(rng.next_f64() * cand.len() as f64) as usize]
+        };
+        let bx = (base % gw) as f64;
+        let by = (base / gw) as f64;
+        let jx = (rng.next_f64() * 2.0 - 1.0) * 8.0;
+        let jy = (rng.next_f64() * 2.0 - 1.0) * 8.0;
+        let age = rng.next_f64() * volc_age;
+        place_sized_volcano(gw, gh, field, volcanic_field, map_width_km, peak_m, bx + jx, by + jy, rng, age);
+        pc += 1;
+    }
+}
+
+/// `stampVolcanoesProvinces()` (reference HTML lines 3540-3556): the JS
+/// default (`state.volc.provinces` = `true`) — clusters volcanoes into a
+/// handful of provinces (75% arc/subduction, 15% rift, 10% hotspot chain)
+/// along plate boundaries rather than dusting them uniformly the way
+/// `stamp_volcanoes_simple` does.
+#[allow(clippy::too_many_arguments)]
+pub fn stamp_volcanoes_provinces(
+    gw: usize,
+    gh: usize,
+    seed: u32,
+    map_width_km: f64,
+    peak_m: f64,
+    boundary_mask: &[u8],
+    stress_field: &[f32],
+    plate_id: &[usize],
+    plates: &[Plate],
+    volc_count: i32,
+    volc_age: f64,
+    field: &mut [f32],
+    volcanic_field: &mut [f32],
+) {
+    let mut rng = Mulberry32::new(seed ^ 0x5bf03635);
+    let (conv, div) = classify_boundaries(boundary_mask, stress_field);
+    let cell_km = map_width_km / gw as f64;
+    let n_prov = (js_round(volc_count as f64 / 7.0) as i32).clamp(1, 7);
+    let mut remaining = volc_count;
+
+    for pi in 0..n_prov {
+        if remaining <= 0 {
+            break;
+        }
+        let roll = rng.next_f64();
+        let mut kind = if roll < 0.75 {
+            "arc"
+        } else if roll < 0.90 {
+            "rift"
+        } else {
+            "hotspot"
+        };
+        if kind == "arc" && conv.is_empty() {
+            kind = if !div.is_empty() { "rift" } else { "hotspot" };
+        }
+        if kind == "rift" && div.is_empty() {
+            kind = if !conv.is_empty() { "arc" } else { "hotspot" };
+        }
+
+        let (cx, cy, rad_km_p);
+        match kind {
+            "arc" => {
+                let i = conv[(rng.next_f64() * conv.len() as f64) as usize];
+                cx = (i % gw) as f64;
+                cy = (i / gw) as f64;
+                rad_km_p = 100.0 + rng.next_f64() * 200.0;
+            }
+            "rift" => {
+                let i = div[(rng.next_f64() * div.len() as f64) as usize];
+                cx = (i % gw) as f64;
+                cy = (i / gw) as f64;
+                rad_km_p = 200.0 + rng.next_f64() * 400.0;
+            }
+            _ => {
+                cx = (rng.next_f64() * gw as f64).floor();
+                cy = (rng.next_f64() * gh as f64).floor();
+                rad_km_p = 500.0 + rng.next_f64() * 500.0;
+            }
+        }
+
+        let prov_left = (n_prov - pi) as f64;
+        let mut sub = (js_round(remaining as f64 / prov_left * (0.6 + 0.8 * rng.next_f64())) as i32).max(1);
+        if sub > remaining {
+            sub = remaining;
+        }
+        place_province_volcanoes(
+            gw,
+            gh,
+            field,
+            volcanic_field,
+            map_width_km,
+            peak_m,
+            plate_id,
+            plates,
+            kind,
+            cx,
+            cy,
+            rad_km_p / cell_km,
+            sub,
+            &conv,
+            &div,
+            &mut rng,
+            cell_km,
+            volc_age,
+        );
+        remaining -= sub;
     }
 }
 
@@ -1401,6 +1757,548 @@ pub fn stamp_craters(
     }
 }
 
+/* ===================== T1: boundary polyline graph (docs/research/tectonic-feature-graph.md) =====================
+   Turns the per-cell boundary mask into vector polylines so T2+3 (`build_orogeny_field`) can grow
+   features ALONG each margin (arc-length parameterised, per-segment type), instead of the blurred
+   stress blob. Pure + testable, no RNG and no floating-point-precision concerns (the thinning/tracing
+   stage is pure integer/topology; only `poly_meta`'s arc-length and turning-angle use floats, and
+   both are ordinary `Math.hypot`/`Math.atan2` calls this port already handles the same way elsewhere).
+   World-wrap is deliberately ignored here too (reference HTML's own comment: "a margin crossing the
+   x-seam splits in two — a documented refinement for later"), matching upstream. */
+
+/// `thinMask()` (reference HTML lines 2888-2909): Zhang-Suen thinning —
+/// reduces a (possibly 2-cell-thick) boundary mask to a 1-pixel skeleton.
+/// Two half-steps per pass (even step removes north/east-facing boundary
+/// pixels, odd removes south/west-facing), repeated until a full pass
+/// deletes nothing. Each half-step reads the mask as it stood BEFORE that
+/// half-step's own deletions — `del` is collected during the scan and
+/// applied only after it completes, matching JS exactly; deleting
+/// in-place while scanning would remove extra pixels a real Zhang-Suen
+/// pass wouldn't.
+pub fn thin_mask(mask: &[u8], w: usize, h: usize) -> Vec<u8> {
+    let mut a: Vec<u8> = mask.to_vec();
+    let g = |a: &[u8], x: i64, y: i64| -> u8 {
+        if x < 0 || y < 0 || x >= w as i64 || y >= h as i64 {
+            0
+        } else {
+            a[y as usize * w + x as usize]
+        }
+    };
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for step in 0..2 {
+            let mut del = Vec::new();
+            for y in 0..h {
+                for x in 0..w {
+                    let idx = y * w + x;
+                    if a[idx] == 0 {
+                        continue;
+                    }
+                    let (xi, yi) = (x as i64, y as i64);
+                    let p2 = g(&a, xi, yi - 1);
+                    let p3 = g(&a, xi + 1, yi - 1);
+                    let p4 = g(&a, xi + 1, yi);
+                    let p5 = g(&a, xi + 1, yi + 1);
+                    let p6 = g(&a, xi, yi + 1);
+                    let p7 = g(&a, xi - 1, yi + 1);
+                    let p8 = g(&a, xi - 1, yi);
+                    let p9 = g(&a, xi - 1, yi - 1);
+                    let b = p2 + p3 + p4 + p5 + p6 + p7 + p8 + p9;
+                    if !(2..=6).contains(&b) {
+                        continue;
+                    }
+                    let seq = [p2, p3, p4, p5, p6, p7, p8, p9];
+                    let mut a_count = 0;
+                    for k in 0..8 {
+                        if seq[k] == 0 && seq[(k + 1) % 8] == 1 {
+                            a_count += 1;
+                        }
+                    }
+                    if a_count != 1 {
+                        continue;
+                    }
+                    if step == 0 {
+                        if p2 * p4 * p6 != 0 || p4 * p6 * p8 != 0 {
+                            continue;
+                        }
+                    } else if p2 * p4 * p8 != 0 || p2 * p6 * p8 != 0 {
+                        continue;
+                    }
+                    del.push(idx);
+                }
+            }
+            if !del.is_empty() {
+                changed = true;
+                for i in del {
+                    a[i] = 0;
+                }
+            }
+        }
+    }
+    a
+}
+
+/// One 8-connected neighbor offset ring, in the exact order the reference
+/// HTML's own `N8` array lists them — iteration order is behaviorally
+/// significant here (which neighbor `nbrs()` returns *first*, and thus
+/// which direction a walk sets off in when a node has more than one
+/// unvisited neighbor), not just a style choice.
+const N8: [(i64, i64); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+
+fn nbrs(a: &[u8], w: usize, h: usize, x: usize, y: usize) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    for &(dx, dy) in &N8 {
+        let nx = x as i64 + dx;
+        let ny = y as i64 + dy;
+        if nx >= 0 && ny >= 0 && (nx as usize) < w && (ny as usize) < h && a[ny as usize * w + nx as usize] != 0 {
+            out.push((nx as usize, ny as usize));
+        }
+    }
+    out
+}
+
+/// One traced boundary-mask polyline: its grid-cell points plus
+/// `_polyMeta()`'s arc-length/curvature/closed-loop metadata. `kind`
+/// (one of the `btype` constants) starts at `btype::NONE` — `trace_boundaries`
+/// itself only knows geometry; `tag_boundary_types` (`currentBoundaryGraph`'s
+/// own per-polyline dominant-boundary-type majority vote) fills it in,
+/// matching the JS split between untyped `traceBoundaries` and typed
+/// `currentBoundaryGraph`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoundaryPolyline {
+    pub pts: Vec<(usize, usize)>,
+    pub length: f64,
+    pub closed: bool,
+    pub curvature: f64,
+    pub kind: u8,
+}
+
+/// `traceBoundaries()`'s own return value: every traced polyline plus the
+/// junction list (`deg >= 3` cells only — degree-1 endpoints chain-walk
+/// terminates on too, but JS's own `nodes` array doesn't include them).
+pub struct BoundaryGraph {
+    pub polylines: Vec<BoundaryPolyline>,
+    pub nodes: Vec<(usize, usize)>,
+}
+
+/// `_polyMeta()` (reference HTML lines 2910-2920): arc length (sum of
+/// per-segment `Math.hypot`), total absolute turning angle normalized by
+/// length (`curvature`), and whether the point list closes back on
+/// itself.
+fn poly_meta(pts: Vec<(usize, usize)>) -> BoundaryPolyline {
+    let mut length = 0.0;
+    for i in 1..pts.len() {
+        let dx = pts[i].0 as f64 - pts[i - 1].0 as f64;
+        let dy = pts[i].1 as f64 - pts[i - 1].1 as f64;
+        length += dx.hypot(dy);
+    }
+    let mut turn = 0.0;
+    for i in 1..pts.len().saturating_sub(1) {
+        let a1 = (pts[i].1 as f64 - pts[i - 1].1 as f64).atan2(pts[i].0 as f64 - pts[i - 1].0 as f64);
+        let a2 = (pts[i + 1].1 as f64 - pts[i].1 as f64).atan2(pts[i + 1].0 as f64 - pts[i].0 as f64);
+        let mut d = a2 - a1;
+        while d > std::f64::consts::PI {
+            d -= 2.0 * std::f64::consts::PI;
+        }
+        while d < -std::f64::consts::PI {
+            d += 2.0 * std::f64::consts::PI;
+        }
+        turn += d.abs();
+    }
+    let n = pts.len();
+    let closed = n > 3 && pts[0] == pts[n - 1];
+    let curvature = if length > 0.0 { turn / length } else { 0.0 };
+    BoundaryPolyline { pts, length, closed, curvature, kind: btype::NONE }
+}
+
+/// Walks one chain starting at node/endpoint `(sx,sy)`, having just
+/// stepped to `(fx,fy)` — advances along degree-2 cells until hitting
+/// another node/endpoint, a dead end, or closing back on `(sx,sy)`.
+/// Marks every cell it steps onto (never the start `(sx,sy)` itself) as
+/// `visited`.
+#[allow(clippy::too_many_arguments)]
+fn walk(
+    a: &[u8],
+    deg: &[u8],
+    visited: &mut [u8],
+    w: usize,
+    h: usize,
+    sx: usize,
+    sy: usize,
+    fx: usize,
+    fy: usize,
+) -> Vec<(usize, usize)> {
+    let mut pts = vec![(sx, sy)];
+    let (mut px, mut py) = (sx, sy);
+    let (mut cx, mut cy) = (fx, fy);
+    loop {
+        pts.push((cx, cy));
+        visited[cy * w + cx] = 1;
+        if deg[cy * w + cx] != 2 {
+            break;
+        }
+        let ns: Vec<(usize, usize)> = nbrs(a, w, h, cx, cy).into_iter().filter(|&q| q != (px, py)).collect();
+        let Some(&(nx, ny)) = ns.first() else {
+            break;
+        };
+        px = cx;
+        py = cy;
+        cx = nx;
+        cy = ny;
+        if (cx, cy) == (sx, sy) {
+            pts.push((cx, cy));
+            break;
+        }
+    }
+    pts
+}
+
+/// `traceBoundaries()` (reference HTML lines 2921-2952): thins
+/// `boundary_mask` to a 1-px skeleton, then traces it into polylines —
+/// chains run between nodes (degree != 2: endpoints degree-1, junctions
+/// degree-3+), pure loops (all degree-2, no node) traced separately.
+///
+/// **A direct node-to-node edge is walked from both ends** (reference
+/// HTML's own behavior, not a bug this port introduces): `walk()` never
+/// marks its *starting* cell visited, only cells it steps onto — so a
+/// one-cell edge between two nodes gets recorded twice, once per
+/// endpoint, in whichever order the outer node scan reaches each end.
+/// Ported as-is; deduplicating would be a behavioral improvement over
+/// JS, which `cartalith-porting-discipline` reserves for a deliberately
+/// logged decision, not a silent "fix" made while porting.
+pub fn trace_boundaries(mask: &[u8], w: usize, h: usize) -> BoundaryGraph {
+    let a = thin_mask(mask, w, h);
+
+    let mut deg = vec![0u8; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            if a[y * w + x] != 0 {
+                deg[y * w + x] = nbrs(&a, w, h, x, y).len() as u8;
+            }
+        }
+    }
+
+    let mut nodes = Vec::new();
+    for y in 0..h {
+        for x in 0..w {
+            if a[y * w + x] != 0 && deg[y * w + x] >= 3 {
+                nodes.push((x, y));
+            }
+        }
+    }
+
+    let mut visited = vec![0u8; w * h];
+    let mut polylines = Vec::new();
+
+    for y in 0..h {
+        for x in 0..w {
+            if a[y * w + x] == 0 || deg[y * w + x] == 2 {
+                continue;
+            }
+            for (nx, ny) in nbrs(&a, w, h, x, y) {
+                if visited[ny * w + nx] != 0 {
+                    continue;
+                }
+                let pts = walk(&a, &deg, &mut visited, w, h, x, y, nx, ny);
+                if pts.len() >= 2 {
+                    polylines.push(poly_meta(pts));
+                }
+            }
+        }
+    }
+
+    for y in 0..h {
+        for x in 0..w {
+            if a[y * w + x] == 0 || deg[y * w + x] != 2 || visited[y * w + x] != 0 {
+                continue;
+            }
+            visited[y * w + x] = 1;
+            let ns = nbrs(&a, w, h, x, y);
+            let Some(&(fx, fy)) = ns.first() else {
+                continue;
+            };
+            let pts = walk(&a, &deg, &mut visited, w, h, x, y, fx, fy);
+            if pts.len() >= 2 {
+                polylines.push(poly_meta(pts));
+            }
+        }
+    }
+
+    BoundaryGraph { polylines, nodes }
+}
+
+/// `currentBoundaryGraph()`'s own per-polyline tagging step (reference
+/// HTML lines 2954-2964, minus the `_boundaryGraph` cache — a perf-only
+/// detail with no effect on output values, the same reasoning
+/// `compute_warp`'s own doc comment gives for not reproducing JS's
+/// analogous memoization). For each polyline, counts each `btype` value
+/// among its points and sets `.kind` to the most frequent one —
+/// `btype::NONE` (0) is excluded from the vote (a polyline touching no
+/// classified boundary cell falls back to `NONE` via `kind`'s own
+/// `poly_meta` default, not through this function picking it).
+pub fn tag_boundary_types(graph: &mut BoundaryGraph, boundary_type: &[u8], gw: usize) {
+    for pl in &mut graph.polylines {
+        let mut counts = [0i32; 6];
+        for &(x, y) in &pl.pts {
+            counts[boundary_type[y * gw + x] as usize] += 1;
+        }
+        let mut best = -1;
+        let mut bk = 0u8;
+        for (k, &count) in counts.iter().enumerate().skip(1) {
+            if count > best {
+                best = count;
+                bk = k as u8;
+            }
+        }
+        pl.kind = bk;
+    }
+}
+
+/// A Gaussian bump: `G(u,c,s) = exp(-(u-c)^2/s^2)` (reference HTML line
+/// 3032's own inline arrow function).
+fn orogeny_g(u: f64, c: f64, s: f64) -> f64 {
+    (-((u - c) * (u - c)) / (s * s)).exp()
+}
+
+/// Per-boundary-type search radius (reference HTML line 2991's `RADS`
+/// map) — `None` for `btype::NONE` or any other value, meaning "this
+/// polyline contributes no orogeny stamp" (`build_orogeny_field`'s own
+/// skip condition).
+fn orogeny_radius(kind: u8, blur_r: f64) -> Option<f64> {
+    match kind {
+        btype::COLLISION => Some(blur_r * 3.3),
+        btype::SUBDUCTION_OC => Some(blur_r * 2.3),
+        btype::ARC_OO => Some(blur_r * 3.05),
+        btype::RIFT => Some(blur_r * 1.85),
+        btype::TRANSFORM => Some(blur_r * 2.0),
+        _ => None,
+    }
+}
+
+/// Tuning knobs `buildOrogenyField()`'s own `opts` bag takes (reference
+/// HTML lines 2982-2990). `block_w`/`jitter` (JS: `opts.blockW`/
+/// `opts.jitter`) aren't exposed here — this port's one call site
+/// (`cartalith-engine`) never overrides either, matching JS's own only
+/// caller, so their JS defaults (`0.55`, `0.5`) are hardcoded constants
+/// inside `build_orogeny_field` instead of unused knobs threaded through
+/// a struct nothing varies (same reasoning `WeatherParams` gives for
+/// omitting `radius_rel`).
+pub struct OrogenyParams<'a> {
+    pub blur_r: f64,
+    pub seed: i32,
+    pub shear: Option<&'a [f32]>,
+    pub fold_k: f64,
+    pub trench_k: f64,
+    pub fault_block_k: f64,
+}
+
+/// `buildOrogenyField()` (reference HTML lines 2965-3071, "T2+T3: tectonic
+/// feature kernels") — per-boundary-type uplift/depression profiles
+/// stamped along margin polylines, replacing the blurred convergent-stress
+/// blob with linear, asymmetric, type-specific landforms: collision
+/// (multi-ridge fold + orogenic plateau + foreland-basin depression),
+/// subduction/arc (trench + volcanic arc, arc's narrower + has a backarc
+/// basin), rift (axial graben + uplifted shoulders, optionally repeated
+/// Basin-and-Range fault blocks when `fault_block_k > 0`), and transform
+/// (shear-driven linear fault valley + en-echelon pressure ridge/
+/// releasing-bend pair, offset by signed shear).
+///
+/// For each polyline: mean `|stress|`/`|shear|`/signed-shear along its
+/// points (skipped entirely if both are negligible), a majority vote for
+/// which geometric side is oceanic (sampled ±3 cells along the local
+/// normal at up to 16 points), then a signed-distance-field scan
+/// (per-segment bounding-box windows, nearest-segment `t`-projection) that
+/// finds every cell within that type's search radius. Each found cell's
+/// signed distance is wiggled by an `fbm` crest jitter and its overall
+/// vigor modulated by a second `fbm` along-strike factor before the
+/// per-type profile is evaluated and combined into `U` by `|max|` across
+/// overlapping margins (so a junction of two features doesn't double-stack).
+///
+/// Pure. `polylines` must already be typed (`tag_boundary_types`).
+pub fn build_orogeny_field(polylines: &[BoundaryPolyline], stress: &[f32], crust: &[f32], w: usize, h: usize, p: &OrogenyParams) -> Vec<f32> {
+    let blur_r = (if p.blur_r == 0.0 { 18.0 } else { p.blur_r }).max(4.0);
+    let seed = p.seed;
+    let s1 = blur_r * 0.42;
+    let d1 = blur_r * 1.0;
+    let s2 = blur_r * 0.30;
+    let block_w = 0.55 * blur_r;
+    let jit = 0.5;
+
+    let n = w * h;
+    let mut u = vec![0f32; n];
+    // JS: `new Float32Array(W*H)` -- every store narrows to f32, so a
+    // later read is the f32-rounded value widened back to f64, not the
+    // full-precision f64 that produced it. Keeping these as f64 (a first
+    // pass here did) drops that per-cell rounding step JS always takes.
+    let mut dist = vec![0f32; n];
+    let mut side = vec![0f32; n];
+    let mut mark = vec![-1i32; n];
+    let mut pid = -1i32;
+
+    for pl in polylines {
+        let Some(rad) = orogeny_radius(pl.kind, blur_r) else {
+            continue;
+        };
+        if pl.pts.len() < 2 {
+            continue;
+        }
+        pid += 1;
+
+        let mut amp = 0f64;
+        let mut sh_amp = 0f64;
+        let mut sh_sig = 0f64;
+        for &(x, y) in &pl.pts {
+            let i0 = y * w + x;
+            amp += (stress[i0] as f64).abs();
+            if let Some(shear) = p.shear {
+                sh_amp += (shear[i0] as f64).abs();
+                sh_sig += shear[i0] as f64;
+            }
+        }
+        let len = pl.pts.len() as f64;
+        amp /= len;
+        sh_amp /= len;
+        sh_sig /= len;
+        if amp < 1e-4 && sh_amp < 1e-4 {
+            continue;
+        }
+
+        // Which geometric side is oceanic? Majority vote over `crust`
+        // (<0 = oceanic) sampled +-3 cells along the local normal, at up
+        // to 16 points spaced along the polyline. Ties (O-O, C-C) -> -1.
+        let q = &pl.pts;
+        let step = (q.len() / 16).max(1);
+        let mut vote = 0i32;
+        let mut k = 1usize;
+        while k + 1 < q.len() {
+            let (kx1, ky1) = q[k + 1];
+            let (kxm1, kym1) = q[k - 1];
+            let mut tx = kx1 as f64 - kxm1 as f64;
+            let mut ty = ky1 as f64 - kym1 as f64;
+            let tl = tx.hypot(ty);
+            let tl = if tl == 0.0 { 1.0 } else { tl };
+            tx /= tl;
+            ty /= tl;
+            let nx = -ty;
+            let ny = tx;
+            let (kx, ky) = q[k];
+            let xp = (js_round(kx as f64 + nx * 3.0)).clamp(0.0, w as f64 - 1.0) as usize;
+            let yp = (js_round(ky as f64 + ny * 3.0)).clamp(0.0, h as f64 - 1.0) as usize;
+            let xm = (js_round(kx as f64 - nx * 3.0)).clamp(0.0, w as f64 - 1.0) as usize;
+            let ym = (js_round(ky as f64 - ny * 3.0)).clamp(0.0, h as f64 - 1.0) as usize;
+            vote += i32::from(crust[yp * w + xp] < 0.0) - i32::from(crust[ym * w + xm] < 0.0);
+            k += step;
+        }
+        let ocean_sign = if vote > 0 { 1.0 } else { -1.0 };
+
+        // Signed distance field around this polyline: nearest-segment
+        // scan in per-segment windows.
+        let mut touched: Vec<usize> = Vec::new();
+        let pts = &pl.pts;
+        for s in 0..pts.len() - 1 {
+            let (ax, ay) = (pts[s].0 as f64, pts[s].1 as f64);
+            let (bx, by) = (pts[s + 1].0 as f64, pts[s + 1].1 as f64);
+            let ex = bx - ax;
+            let ey = by - ay;
+            let e_l2 = { let v = ex * ex + ey * ey; if v == 0.0 { 1.0 } else { v } };
+            let x0 = (ax.min(bx) - rad).floor().max(0.0) as usize;
+            let x1 = (((ax.max(bx) + rad).ceil()).min(w as f64 - 1.0)) as usize;
+            let y0 = (ay.min(by) - rad).floor().max(0.0) as usize;
+            let y1 = (((ay.max(by) + rad).ceil()).min(h as f64 - 1.0)) as usize;
+            for y in y0..=y1 {
+                for x in x0..=x1 {
+                    let (xf, yf) = (x as f64, y as f64);
+                    let t = (((xf - ax) * ex + (yf - ay) * ey) / e_l2).clamp(0.0, 1.0);
+                    let dx = xf - (ax + ex * t);
+                    let dy = yf - (ay + ey * t);
+                    let d = dx.hypot(dy);
+                    if d > rad {
+                        continue;
+                    }
+                    let i = y * w + x;
+                    let sgn = if ex * dy - ey * dx >= 0.0 { 1.0 } else { -1.0 };
+                    if mark[i] != pid {
+                        mark[i] = pid;
+                        dist[i] = d as f32;
+                        side[i] = sgn as f32;
+                        touched.push(i);
+                    } else if d < dist[i] as f64 {
+                        dist[i] = d as f32;
+                        side[i] = sgn as f32;
+                    }
+                }
+            }
+        }
+
+        for &i in &touched {
+            let x = i % w;
+            let y = i / w;
+            let sd = side[i] as f64 * dist[i] as f64;
+            let de = sd
+                + (fbm(x as f64 / (blur_r * 2.2), y as f64 / (blur_r * 2.2), seed ^ 0x7e11) - 0.5) * jit * blur_r * 2.0;
+            let aj = 0.75 + 0.5 * fbm(x as f64 / (blur_r * 3.1), y as f64 / (blur_r * 3.1), seed ^ 0x33aa);
+            let dor = -ocean_sign * de;
+            let mut amp_here = amp;
+            let prof = if pl.kind == btype::COLLISION {
+                (orogeny_g(de, 0.0, s1) + 0.5 * orogeny_g(de, d1, s2) + 0.3 * orogeny_g(de, -d1, s2))
+                    * (1.0 + p.fold_k * (2.0 * std::f64::consts::PI * de / d1).cos())
+                    + 0.15 * orogeny_g(de, 0.0, blur_r * 0.95)
+                    - 0.35 * orogeny_g(de, -blur_r * 1.7, blur_r * 0.5)
+            } else if pl.kind == btype::SUBDUCTION_OC {
+                -0.9 * p.trench_k * orogeny_g(dor, -blur_r * 0.5, blur_r * 0.30) + 0.75 * orogeny_g(dor, blur_r * 0.8, blur_r * 0.45)
+            } else if pl.kind == btype::ARC_OO {
+                -0.85 * p.trench_k * orogeny_g(dor, -blur_r * 0.45, blur_r * 0.28) + 0.6 * orogeny_g(dor, blur_r * 0.55, blur_r * 0.30)
+                    - 0.22 * orogeny_g(dor, blur_r * 1.5, blur_r * 0.5)
+            } else if pl.kind == btype::RIFT {
+                let mut prof = -0.45 * orogeny_g(de, 0.0, blur_r * 0.30)
+                    + 0.28 * (orogeny_g(de, blur_r * 0.75, blur_r * 0.35) + orogeny_g(de, -blur_r * 0.75, blur_r * 0.35));
+                if p.fault_block_k > 0.0 {
+                    let uu = de / block_w;
+                    let frac = uu - uu.floor();
+                    let tilt = (-2.4 * frac).exp() - 0.36;
+                    let env = (-(de * de) / ((blur_r * 1.7) * (blur_r * 1.7))).exp();
+                    prof += p.fault_block_k * 0.55 * tilt * env;
+                }
+                prof
+            } else {
+                // T4 transform (San Andreas / Dead Sea / Alpine Fault):
+                // driven by shear, not normal stress.
+                amp_here = sh_amp;
+                let ro = sh_sig * blur_r * 1.2;
+                -0.55 * orogeny_g(de, 0.0, blur_r * 0.45) + 0.32 * orogeny_g(de, ro, blur_r * 0.42)
+                    - 0.12 * orogeny_g(de, -ro, blur_r * 0.5)
+            };
+            // JS compares the full f64 `v` against `U[i]` widened back to
+            // f64 (reading a Float32Array never truncates further) and
+            // only narrows to f32 at the point of storage. Narrowing `v`
+            // to f32 before the comparison, as a first pass here did, can
+            // flip which side wins when the two magnitudes are within a
+            // few ULPs of each other -- matching JS's own order, not just
+            // its final stored value, per cartalith-rust-conventions.
+            let v = amp_here * aj * prof;
+            if v.abs() > (u[i] as f64).abs() {
+                u[i] = v as f32;
+            }
+        }
+    }
+
+    u
+}
+
+/// `smoothOrogeny()` (reference HTML lines 3077-3080): a light separable
+/// box blur on the finished orogeny field — the per-type Gaussian
+/// profiles + `|max|` margin-combine + crest-wiggle leave sharp creases;
+/// a small blur (radius proportional to `blur_r`) rounds them off.
+pub fn smooth_orogeny(u: &[f32], w: usize, h: usize, blur_r: f64, wrap: bool) -> Vec<f32> {
+    let r = (js_round((if blur_r == 0.0 { 18.0 } else { blur_r }) * 0.16) as i64).max(1);
+    let mut tmp = vec![0f32; w * h];
+    let mut out = u.to_vec();
+    box_h(&out, &mut tmp, w, h, r, wrap);
+    box_v(&tmp, &mut out, w, h, r);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1420,5 +2318,116 @@ mod tests {
         let a = compute_warp(6, 5, 42, 0.6, false);
         let b = compute_warp(6, 5, 42, 0.6, false);
         assert_eq!(a, b);
+    }
+
+    // Hand-derived against the Zhang-Suen conditions transcribed from the
+    // JS source (see thin_mask's own doc comment).
+    #[test]
+    fn thin_mask_leaves_a_straight_1px_line_untouched() {
+        // Endpoints are always kept (B<2 skip); interior cells of a
+        // straight line have exactly 2 opposite-side 1-neighbors, which
+        // is 2 separate 0->1 transitions around the ring (A=2, not 1),
+        // so they're skipped too -- a straight line is a fixed point.
+        let mask = vec![1u8, 1, 1, 1, 1];
+        let thinned = thin_mask(&mask, 5, 1);
+        assert_eq!(thinned, mask);
+    }
+
+    #[test]
+    fn thin_mask_is_idempotent_and_never_grows() {
+        // A solid 5x4 block: not a fixed point (thinning must remove
+        // interior/edge pixels down toward a skeleton), but whatever it
+        // converges to must itself be stable under a second pass, and
+        // must never have MORE set pixels than the input.
+        let (w, h) = (5, 4);
+        let mask = vec![1u8; w * h];
+        let once = thin_mask(&mask, w, h);
+        let twice = thin_mask(&once, w, h);
+        assert_eq!(once, twice, "a converged thinning must be a fixed point of another pass");
+        let count = |m: &[u8]| m.iter().filter(|&&v| v != 0).count();
+        assert!(count(&once) < count(&mask), "thinning a solid block must remove pixels");
+        assert!(count(&once) > 0, "thinning must not erase the shape entirely");
+    }
+
+    #[test]
+    fn thin_mask_all_zero_stays_all_zero() {
+        let mask = vec![0u8; 12];
+        assert_eq!(thin_mask(&mask, 4, 3), mask);
+    }
+
+    #[test]
+    fn trace_boundaries_traces_a_straight_line_end_to_end() {
+        // W=5,H=1, all-ones: two degree-1 endpoints and three degree-2
+        // interior cells. `nodes` (the returned list) only reports
+        // degree>=3 junctions -- degree-1 endpoints don't count as
+        // "nodes" there even though `isNode()`/the walk's own stopping
+        // condition (deg != 2) treats them as chain terminators, matching
+        // the JS source's own split between the two. Hand-traced:
+        // walk(0,0 -> 1,0) advances cell-by-cell to (4,0) (the far
+        // endpoint), producing one 5-point chain; (4,0)'s own single
+        // neighbor (3,0) is already visited by then, so no second walk
+        // starts there.
+        let mask = vec![1u8, 1, 1, 1, 1];
+        let g = trace_boundaries(&mask, 5, 1);
+        assert!(g.nodes.is_empty(), "no degree>=3 junctions on a straight line");
+        assert_eq!(g.polylines.len(), 1);
+        let p = &g.polylines[0];
+        assert_eq!(p.pts, vec![(0, 0), (1, 0), (2, 0), (3, 0), (4, 0)]);
+        assert!((p.length - 4.0).abs() < 1e-9);
+        assert!(!p.closed);
+        assert_eq!(p.curvature, 0.0, "a straight line never turns");
+    }
+
+    #[test]
+    fn trace_boundaries_walks_a_direct_node_edge_from_both_ends() {
+        // A 2-cell mask: both cells are degree-1 endpoints (no degree>=3
+        // junction, so `nodes` is empty), each other's only neighbor.
+        // Reference HTML's own `traceBoundaries` never marks a walk's
+        // STARTING cell visited, so the single edge between them is
+        // recorded twice -- once from each end -- documented on
+        // `trace_boundaries`'s own doc comment, not a bug this port
+        // introduces.
+        let mask = vec![1u8, 1];
+        let g = trace_boundaries(&mask, 2, 1);
+        assert!(g.nodes.is_empty());
+        assert_eq!(g.polylines.len(), 2);
+        assert_eq!(g.polylines[0].pts, vec![(0, 0), (1, 0)]);
+        assert_eq!(g.polylines[1].pts, vec![(1, 0), (0, 0)]);
+    }
+
+    #[test]
+    fn tag_boundary_types_majority_vote_and_tie_break() {
+        // Hand-traceable (pure counting + argmax over a fixed 6-entry
+        // array) rather than Node-extracted: the JS this mirrors is
+        // inlined in currentBoundaryGraph(), which needs boundaryMask/
+        // boundaryType/GW/GH globals a Node vm sandbox can't reach (`let`-
+        // scoped, never attached to the context object) -- same class of
+        // verification T1's thin_mask/trace_boundaries tests already use.
+        //
+        // Grid (gw=3): row y=0 is [collision, collision, subductionOC];
+        // row y=1 is [rift, rift, _]; row y=2 is [subductionOC, arcOO, _].
+        #[rustfmt::skip]
+        let boundary_type: [u8; 9] = [
+            btype::COLLISION, btype::COLLISION, btype::SUBDUCTION_OC,
+            btype::RIFT,       btype::RIFT,       btype::NONE,
+            btype::SUBDUCTION_OC, btype::ARC_OO,   btype::NONE,
+        ];
+        let mut graph = BoundaryGraph {
+            polylines: vec![
+                // 2 collision cells + 1 subduction -> collision wins outright.
+                BoundaryPolyline { pts: vec![(0, 0), (1, 0), (2, 0)], length: 0.0, closed: false, curvature: 0.0, kind: btype::NONE },
+                // both rift -> rift.
+                BoundaryPolyline { pts: vec![(0, 1), (1, 1)], length: 0.0, closed: false, curvature: 0.0, kind: btype::NONE },
+                // tie: 1 subductionOC (k=2) vs 1 arcOO (k=3) -- JS's
+                // `if(cnt[k]>best)` is strict, so the lower k found first
+                // during the k=1..len scan keeps the win, not the last.
+                BoundaryPolyline { pts: vec![(0, 2), (1, 2)], length: 0.0, closed: false, curvature: 0.0, kind: btype::NONE },
+            ],
+            nodes: vec![],
+        };
+        tag_boundary_types(&mut graph, &boundary_type, 3);
+        assert_eq!(graph.polylines[0].kind, btype::COLLISION);
+        assert_eq!(graph.polylines[1].kind, btype::RIFT);
+        assert_eq!(graph.polylines[2].kind, btype::SUBDUCTION_OC, "tie keeps the lower boundary-type id, matching JS's strict >");
     }
 }

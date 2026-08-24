@@ -1,0 +1,24 @@
+[package]
+name = "cartalith-civ"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "civilisation-layer affordance fields: lithology, soil fertility, water access"
+
+[lib]
+name = "cartalith_civ"
+
+[dependencies]
+cartalith-jsmath = { path = "../cartalith-jsmath" }
+cartalith-engine = { path = "../cartalith-engine" }
+cartalith-hydrology = { path = "../cartalith-hydrology" }
+cartalith-rng = { path = "../cartalith-rng" }
+cartalith-terrain = { path = "../cartalith-terrain" }
+rayon = "1"
+
+[dev-dependencies]
+# Milestone D only: pinning that the Territory brush really is milestone C's
+# PaintStamp::ungated rather than a second disc implementation. The library
+# itself takes a plain `&[u8]` override, so this is not a real dependency.
+cartalith-spatial = { path = "../cartalith-spatial" }
