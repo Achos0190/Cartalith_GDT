@@ -1140,14 +1140,6 @@ fn flow_fx_raster(f: &FieldRefs, kind: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-/// `currentWildlife()`'s exact input chain (reference line 6616): the
-/// Cartalith biome grid, the height field, NPP, TRI, water access and
-/// carrying capacity, segmented into ecoregions and scored.
-///
-/// `None` without a civilisation layer, since `build_cart_biome` needs its
-/// water bodies — the same condition the Biomes and Wind-throw views
-/// already report.
-///
 /// The flow-direction + channel-intensity field behind the **animated water**
 /// overlay (`water_anim_layer.gd`, `GUI_GAP_REGISTER.md` RN-01), packed into
 /// one `gw * gh` RGBA8 buffer:
@@ -1163,7 +1155,7 @@ fn flow_fx_raster(f: &FieldRefs, kind: &str) -> Option<Vec<u8>> {
 /// exists because a wind vector has real magnitude worth four decimal places;
 /// this one carries a **unit** direction, read by a fragment shader rather
 /// than by GDScript. Reassembling 12-bit fields across channels in GLSL means
-/// `round(texel * 255.0)` per byte and hoping the driver agrees â€” a real
+/// `round(texel * 255.0)` per byte and hoping the driver agrees — a real
 /// hazard for one byte of precision nobody can see in a shimmer. One byte per
 /// component decodes as `t * 2.0 - 1.0` and cannot round-trip wrong.
 ///
@@ -1172,7 +1164,7 @@ fn flow_fx_raster(f: &FieldRefs, kind: &str) -> Option<Vec<u8>> {
 /// The reference reads `_veloVx/_veloVy` when a velocity field exists and
 /// falls back to the **downhill gradient of the heightfield** otherwise
 /// (`waterAnimFrame`, line 8686). This port has no velocity field on
-/// `WorldState`, so it takes that documented fallback â€” which is the same
+/// `WorldState`, so it takes that documented fallback — which is the same
 /// direction the water actually runs, and the only one a loaded save could
 /// answer at all.
 ///
@@ -1180,11 +1172,11 @@ fn flow_fx_raster(f: &FieldRefs, kind: &str) -> Option<Vec<u8>> {
 /// network this port has not built as a render input. `flow_discharge` is the
 /// field that network is itself derived from, and the threshold at which a
 /// cell of it *is* a river is already this workspace's own
-/// `cartalith_hydrology::river_flow_thresh` â€” the same call the Water-access,
+/// `cartalith_hydrology::river_flow_thresh` — the same call the Water-access,
 /// Landform and Flood views make, and the same one `build_color_texture`'s
 /// channel tint is keyed to. Intensity ramps from that threshold to eight
 /// times it, `smoothstep`ed, so the shimmer reaches full strength on a trunk
-/// and fades out on a headwater. Land cells only â€” the sea has its own surf
+/// and fades out on a headwater. Land cells only — the sea has its own surf
 /// line (`npr.waves`).
 ///
 /// **A min-max normalisation over the whole grid was tried first and was
@@ -1195,7 +1187,7 @@ fn flow_fx_raster(f: &FieldRefs, kind: &str) -> Option<Vec<u8>> {
 /// already drawn on the map.
 ///
 /// **This is a principled-equivalence path, not a golden one** (`DECISIONS.md`
-/// Â§7a): the picture it drives is a shader animation, and there is no
+/// §7a): the picture it drives is a shader animation, and there is no
 /// per-pixel JS output to be bit-identical with.
 fn water_fx_raster(f: &FieldRefs) -> Option<Vec<u8>> {
     let n = f.gw * f.gh;
@@ -1252,6 +1244,14 @@ fn water_fx_raster(f: &FieldRefs) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// `currentWildlife()`'s exact input chain (reference line 6616): the
+/// Cartalith biome grid, the height field, NPP, TRI, water access and
+/// carrying capacity, segmented into ecoregions and scored.
+///
+/// `None` without a civilisation layer, since `build_cart_biome` needs its
+/// water bodies — the same condition the Biomes and Wind-throw views
+/// already report.
+///
 /// Shared by the Wildlife debug view and by `WorldGen::wildlife_regions()`,
 /// the roster popup's own data source, so the raster a user clicks and the
 /// record they get back cannot come from two different segmentations.
