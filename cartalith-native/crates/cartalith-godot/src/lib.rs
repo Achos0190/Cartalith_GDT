@@ -5493,9 +5493,43 @@ impl WorldGen {
         self.infra.as_ref().map_or(0, |i| i.routes.len() as i64)
     }
 
+    /// Deletes one committed route, shifting every later index down by one
+    /// (`InfraTools::route_delete`, i.e. the reference's own
+    /// `civJourneys.splice(ji,1)` behind its per-row `×` button, reference
+    /// line 17250). `false` for an out-of-range index or before any
+    /// `generate()` call.
+    ///
+    /// **Indices renumber.** Anything holding a route index across this call
+    /// -- `jp_compute`'s `route` key, `jp_reroute`'s `route_index`, a list
+    /// row -- must re-read `route_count()`/`route_get()` afterwards, exactly
+    /// as the reference's list does by re-rendering itself on delete. That
+    /// is the deliberate choice `route_delete`'s own doc comment defends
+    /// (a tombstone would break `route_count()`'s meaning instead).
+    #[func]
+    fn route_delete(&mut self, index: i64) -> bool {
+        let Ok(i) = usize::try_from(index) else { return false };
+        self.infra.as_mut().is_some_and(|t| t.route_delete(i))
+    }
+
+    /// Renames one committed route -- the reference journey list's own
+    /// name field (`nameInput.oninput=()=>{ jn.name=nameInput.value; }`,
+    /// line 17245). `false` for an out-of-range index or before any
+    /// `generate()` call.
+    ///
+    /// An empty string is a legal name and restores the unnamed state; the
+    /// `Journey N` fallback the reference shows for it is computed by
+    /// whoever draws the list, never stored (see `CommittedRoute::name`).
+    #[func]
+    fn route_set_name(&mut self, index: i64, name: GString) -> bool {
+        let Ok(i) = usize::try_from(index) else { return false };
+        let name = name.to_string();
+        self.infra.as_mut().is_some_and(|t| t.route_set_name(i, &name))
+    }
+
     /// One committed route: `{"points": PackedVector2Array, "brks":
     /// PackedInt32Array, "km": float, "mode": String, "unreachable_legs":
-    /// int}` -- `civ_join_dijkstra_segs`' own `{pts, brks, km}` shape plus
+    /// int, "name": String}` -- `civ_join_dijkstra_segs`' own
+    /// `{pts, brks, km}` shape plus
     /// the `RouteMode` it was solved under and how many legs fell back to a
     /// straight line. Empty `Dictionary` for an out-of-range index or
     /// before any `generate()` call, the same convention `icon_get`/
@@ -5523,6 +5557,7 @@ impl WorldGen {
             "km" => r.km,
             "mode" => mode,
             "unreachable_legs" => r.unreachable_legs as i64,
+            "name" => r.name.as_str(),
         }
     }
 

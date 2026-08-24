@@ -59,12 +59,17 @@ class_name InfrastructureWorkspace
 ## `map_overlay.gd`'s `_manual_routes`) and refills a Routes list beside the
 ## ways one (`_refresh_manual_routes`).
 ##
-## Still genuinely missing: rename/retype/delete of an existing way (the
+## The Routes list stopped being read-only later the same day, with IN-09's
+## second half: `route_delete`/`route_set_name` are now real `#[func]`s, so
+## each row carries the reference journey list's own three affordances --
+## select, rename, delete (`_civRenderJourneyList`, reference line 17235) --
+## and selecting one drives `map_overlay.gd`'s block-2b `sel` stroke.
+##
+## Still genuinely missing: rename/retype/delete of an existing *way* (the
 ## reference's way-properties editor -- there is no `way_set_name`/
-## `way_delete` `#[func]`), the same for routes (no `route_delete`, so the
-## Routes list has no row action and a route can only be cleared by
-## regenerating), and manual sea lanes route through the same navy/dashed
-## style as generated ones with no per-way condition field.
+## `way_delete` `#[func]`; only routes got theirs), and manual sea lanes route
+## through the same navy/dashed style as generated ones with no per-way
+## condition field.
 ##
 ## Rows here (Roads/Ports' network lists) read only; clicking a road or sea
 ## route pins it into the right dock (`right_dock.gd`'s Route context), and
@@ -116,6 +121,11 @@ var _manual_list: Control = null
 ## The Route tool's own committed-list host, the same shape as `_manual_list`
 ## above (`GUI_GAP_REGISTER.md` IN-09). `null` until `_build()` has run.
 var _manual_routes_list: Control = null
+
+## The reference's `_civSelectedJourneyIdx`; `-1` for none. Lives here rather
+## than in `map_overlay.gd` because the list is what changes it -- the overlay
+## only draws it (`set_selected_manual_route`).
+var _selected_route := -1
 
 ## The four data-backed categories' own body nodes, held so `rebuild_readouts()`
 ## can clear and refill exactly those and nothing else -- the same discipline
@@ -534,16 +544,26 @@ func _refresh_manual_ways() -> void:
 
 ## The Route tool's own committed list -- same clear-and-refill shape as
 ## `_refresh_manual_ways` above, over `route_count`/`route_get` instead of the
-## two network getters. Read-only, like every other list in this file: there
-## is no `route_delete`/`route_set_name` `#[func]` to hang a row action off,
-## which is the same "still genuinely missing" gap this file's class doc
-## already records for ways.
+## two network getters.
+##
+## Unlike every other list in this file these rows are *editable*, because
+## since 2026-08-24 there is something to edit with: `route_set_name` and
+## `route_delete` (`GUI_GAP_REGISTER.md` IN-09's second half). The row layout
+## is the reference journey card's, minus its planner summary: select glyph ·
+## name field · km · `×`, in that order (`_civRenderJourneyList`, reference
+## line 17235). No planner summary here because that card only shows one for
+## the *selected* row and computes it with `_jpPlan`, which is the Journey
+## Planner's own screen in this shell (`journey_planner_view.gd`), not a
+## left-dock row -- duplicating it here would mean two places computing a
+## plan and disagreeing.
 func _refresh_manual_routes() -> void:
 	if _manual_routes_list == null:
 		return
 	for c in _manual_routes_list.get_children():
 		c.queue_free()
 	var n := bridge.route_count()
+	if _selected_route >= n:
+		_selected_route = -1
 	if n <= 0:
 		DccWidgets.note(_manual_routes_list,
 			"None yet -- arm Route in the TOOLS block above, click two or more " +
@@ -555,13 +575,79 @@ func _refresh_manual_routes() -> void:
 		var r := bridge.route_get(i)
 		if r.is_empty():
 			continue
-		var text := "Route #%d -- %d km (%s)" % [i, int(round(float(r.get("km", 0.0)))), String(r.get("mode", "mixed"))]
-		var unreachable := int(r.get("unreachable_legs", 0))
-		if unreachable > 0:
-			text += " · %d leg(s) straight-lined" % unreachable
-		var lbl := DccTheme.label(text, "text_dim", DccTheme.FS_SMALL)
-		lbl.tooltip_text = "%d path points. No route inspector exists yet (no route_delete/route_set_name binding)." % (r.get("points", PackedVector2Array()) as PackedVector2Array).size()
-		_manual_routes_list.add_child(lbl)
+		_manual_route_row(i, r)
+
+
+## One editable row. `i` is a *live* index into the engine's route list, so
+## every callable below closes over it and the whole list is rebuilt after a
+## delete -- a row holding a stale index would rename or delete its neighbour
+## (`route_delete` renumbers; see its doc comment in `lib.rs`).
+func _manual_route_row(i: int, r: Dictionary) -> void:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	row.custom_minimum_size.y = 24
+
+	## The reference marks selection by re-styling the whole card border; this
+	## dock has no card, so the row carries an explicit glyph instead -- the
+	## same substitution `DccWidgets.segment` already makes for a toggled
+	## state in a flat row.
+	var sel := DccWidgets.text_button(row, "●" if i == _selected_route else "○",
+		func(): _select_route(-1 if i == _selected_route else i))
+	sel.tooltip_text = "Select this route -- drawn brighter and thicker on the map (the reference's own sel stroke, drawCivLayer block 2b). Click again to deselect."
+
+	## `text_changed`, not `text_submitted`: the reference renames on `oninput`,
+	## i.e. per keystroke, and no row rebuild happens here (which would steal
+	## focus mid-word -- the same reasoning `civilization_workspace.gd`'s
+	## `_settlement_name_field` records).
+	var name_edit := LineEdit.new()
+	name_edit.text = String(r.get("name", ""))
+	name_edit.placeholder_text = "Journey %d" % (i + 1)
+	name_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_edit.custom_minimum_size.x = 90
+	name_edit.tooltip_text = "route_set_name. Blank restores the \"Journey %d\" fallback -- that label is computed here, never stored, so it follows the row after a delete renumbers it." % (i + 1)
+	DccWidgets.well(name_edit, 6, 2)
+	name_edit.text_changed.connect(func(t: String): bridge.route_set_name(i, t))
+	row.add_child(name_edit)
+
+	var meta := "%d km" % int(round(float(r.get("km", 0.0))))
+	var unreachable := int(r.get("unreachable_legs", 0))
+	if unreachable > 0:
+		meta += " · %d straight-lined" % unreachable
+	var meta_lbl := DccTheme.mono_label(meta, "text_ghost", DccTheme.FS_TINY)
+	meta_lbl.tooltip_text = "%s mode, %d path points." % [
+		String(r.get("mode", "mixed")),
+		(r.get("points", PackedVector2Array()) as PackedVector2Array).size()]
+	row.add_child(meta_lbl)
+
+	var del := DccWidgets.text_button(row, "×", func(): _delete_route(i))
+	del.tooltip_text = "Delete this route (the reference's own per-row × , line 17250). Later routes renumber down by one, exactly as civJourneys.splice does."
+
+	_manual_routes_list.add_child(row)
+
+
+func _select_route(index: int) -> void:
+	_selected_route = index
+	app.viewport.overlay.set_selected_manual_route(index)
+	_refresh_manual_routes()
+
+
+## Deleting renumbers, so the selection is fixed up here rather than only
+## cleared. **This diverges from the reference on purpose**: it clears the
+## selection only when the index runs off the end (`if(_civSelectedJourneyIdx
+## >=civJourneys.length) _civSelectedJourneyIdx=-1`), which silently moves the
+## selection onto a *different* journey whenever a lower-indexed one is
+## deleted. Following that here would highlight the wrong line on the map.
+func _delete_route(index: int) -> void:
+	if not bridge.route_delete(index):
+		return
+	if _selected_route == index:
+		_selected_route = -1
+	elif _selected_route > index:
+		_selected_route -= 1
+	_refresh_map_routes()
+	app.viewport.overlay.set_selected_manual_route(_selected_route)
+	_refresh_manual_routes()
+	app.set_status("hint", "Route #%d deleted -- later routes renumbered." % index, "text_ghost")
 
 
 ## The reference's two whole-network road operations. Same split as CIVIL's
@@ -575,7 +661,7 @@ func _build_road_gaps(parent: Control) -> void:
 	gen.tooltip_text = "The reference's #civAutoRoutesBtn. Route generation is part of compute_civilisation inside generate(); no civ_auto_routes #[func] runs it on its own, and there is no parameter for road density or which tiers get connected (params.rs carries no civ entries). Drawing a way by hand is the wired alternative -- the Way and Route tools in the TOOLS block above."
 	var clear := DccWidgets.action(sec, "Clear ways & journeys", func(): pass)
 	clear.disabled = true
-	clear.tooltip_text = "The reference's #civClearRoadsBtn. CivData::ways/sea_routes are rebuilt wholesale by generate() with no clear #[func], and InfraTools::ways (where committed manual ways live -- readable since GUI_GAP_REGISTER.md IN-02, but read-only) has no clear either, so there is nothing here that could honestly claim to clear both."
+	clear.tooltip_text = "The reference's #civClearRoadsBtn. CivData::ways/sea_routes are rebuilt wholesale by generate() with no clear #[func], and InfraTools::ways (where committed manual ways live -- readable since GUI_GAP_REGISTER.md IN-02, but read-only) has no clear either, so there is nothing here that could honestly claim to clear both. Journeys alone CAN now be cleared, one at a time, by the × on each row of Routes committed this session (route_delete, IN-09)."
 
 # -- Rivers ---------------------------------------------------------------
 

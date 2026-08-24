@@ -1386,6 +1386,21 @@ func route_get(index: int) -> Dictionary:
 		return {}
 	return world_gen.route_get(index)
 
+## `GUI_GAP_REGISTER.md` IN-09's second half. Deleting renumbers: every later
+## route's index drops by one, so any caller holding one (`jp_compute`'s
+## `route` key, `jp_reroute`, a list row) must re-read `route_count()` after
+## this returns true. That is the engine's deliberate contract, not an
+## accident -- see `route_delete`'s own doc comment in `lib.rs`.
+func route_delete(index: int) -> bool:
+	if not _has("route_delete"):
+		return false
+	return world_gen.route_delete(index)
+
+func route_set_name(index: int, name: String) -> bool:
+	if not _has("route_set_name"):
+		return false
+	return world_gen.route_set_name(index, name)
+
 
 # measure_bridge.rs
 func measure_begin() -> void:

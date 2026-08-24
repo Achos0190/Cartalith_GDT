@@ -201,15 +201,24 @@ const SEA_ROUTE_DASH_LENGTH := 2.6
 ##
 ## Reusing `ROAD_COLOR` would make a route invisible, which is exactly what
 ## happened before this existed: a committed 578 km route drew nothing at all
-## (`GUI_GAP_REGISTER.md` IN-09). Selection state (the reference's brighter,
-## thicker `sel` branch) has no counterpart here yet -- there is no route
-## selection in this shell, only a read-only list.
+## (`GUI_GAP_REGISTER.md` IN-09).
 const MANUAL_ROUTE_UNDERLAY := Color(0.157, 0.098, 0.020, 0.5)
 const MANUAL_ROUTE_UNDERLAY_WIDTH := 3.0
 const MANUAL_ROUTE_COLOR := Color(0.784, 0.627, 0.235, 0.85)
 const MANUAL_ROUTE_WIDTH := 1.5
 const MANUAL_ROUTE_DASH := 5.0
 const MANUAL_ROUTE_GAP := 3.0
+
+## Block 2b's `sel` branch, the same three values it varies and no others:
+## `lineWidth (sel?5:3)`, `strokeStyle sel?'rgba(255,210,80,.98)'`,
+## `lineWidth (sel?2.5:1.5)`. The dash pattern is NOT selection-dependent in
+## the reference and is not made so here. Wired since IN-09's second half
+## (2026-08-24), when `route_delete`/`route_set_name` gave the Routes list a
+## selected row to drive it -- before that there was no route selection in
+## this shell at all.
+const MANUAL_ROUTE_SEL_UNDERLAY_WIDTH := 5.0
+const MANUAL_ROUTE_SEL_COLOR := Color(1.0, 0.824, 0.314, 0.98)
+const MANUAL_ROUTE_SEL_WIDTH := 2.5
 
 ## §4.5.5's Icon tool markers, by `icon_dict`'s `family` key
 ## (`cartalith_assets::manual::ManualIconFamily::key()`). No texture atlas
@@ -427,7 +436,7 @@ var _labels: Array = []
 
 ## §4.5.4's Route tool. Each entry is one `route_get(i)` dictionary --
 ## `{points: PackedVector2Array, brks: PackedInt32Array, km, mode,
-## unreachable_legs}` -- so `brks` is honoured exactly the way `_sea_routes`'
+## unreachable_legs, name}` -- so `brks` is honoured exactly the way `_sea_routes`'
 ## own breaks are: a break ends one stroke and starts the next rather than
 ## drawing a straight line across the gap. Its own array rather than a third
 ## entry in `set_civ_data` because a committed route is not part of
@@ -435,6 +444,13 @@ var _labels: Array = []
 ## `InfraTools::routes`, a separate list from `InfraTools::ways` that
 ## `GUI_GAP_REGISTER.md` IN-02's fix appended to the two network getters).
 var _manual_routes: Array = []
+
+## The reference's `_civSelectedJourneyIdx` -- an index into `_manual_routes`,
+## `-1` for none. Only ever read by the block-2b draw pass, and deliberately
+## an index rather than a copy of the route: a delete renumbers the engine's
+## list (`route_delete`), so anything that cached the route itself would draw
+## a stale line the list no longer has a row for.
+var _selected_manual_route := -1
 
 func set_manual_icons(icons: Array) -> void:
 	_manual_icons = icons
@@ -446,6 +462,18 @@ func set_labels(labels: Array) -> void:
 
 func set_manual_routes(routes: Array) -> void:
 	_manual_routes = routes
+	if _selected_manual_route >= routes.size():
+		_selected_manual_route = -1
+	queue_redraw()
+
+## `-1` clears the selection. Out-of-range is clamped to `-1` rather than
+## refused, since a delete legitimately leaves the caller holding an index
+## that no longer exists.
+func set_selected_manual_route(index: int) -> void:
+	var idx := index if index >= 0 and index < _manual_routes.size() else -1
+	if idx == _selected_manual_route:
+		return
+	_selected_manual_route = idx
 	queue_redraw()
 
 
@@ -722,16 +750,18 @@ func _draw() -> void:
 	## the layer row the CARTO dock actually labels "Ways & routes" -- there is
 	## no separate routes checkbox to gate against.
 	if _show_roads:
-		for r: Dictionary in _manual_routes:
+		for ri in _manual_routes.size():
+			var r: Dictionary = _manual_routes[ri]
 			var rpts: PackedVector2Array = r.get("points", PackedVector2Array())
 			if rpts.size() < 2:
 				continue
+			var rsel := ri == _selected_manual_route
 			var rbrks: PackedInt32Array = r.get("brks", PackedInt32Array())
 			var rstart := 0
 			for cut in rbrks:
-				_draw_manual_route_segment(rpts, rstart, cut, rect)
+				_draw_manual_route_segment(rpts, rstart, cut, rect, rsel)
 				rstart = cut
-			_draw_manual_route_segment(rpts, rstart, rpts.size(), rect)
+			_draw_manual_route_segment(rpts, rstart, rpts.size(), rect, rsel)
 
 	## Town layouts sit above the ways -- a town's own high street IS the
 	## through-road, so it must overlay it -- and *replace* the pin of every
@@ -1046,15 +1076,19 @@ func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, r
 ## `_draw_sea_route_segment`, and dashed for the same reason it is -- the
 ## overlay walk keeps the dash phase continuous across vertices, which a
 ## per-vertex `draw_dashed_line` would not (see `_draw_dashed_polyline`).
-func _draw_manual_route_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2) -> void:
+func _draw_manual_route_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2,
+		sel: bool = false) -> void:
 	if end - start < 2:
 		return
 	var screen_points := PackedVector2Array()
 	screen_points.resize(end - start)
 	for i in range(start, end):
 		screen_points[i - start] = _point_to_screen(points[i], rect)
-	draw_polyline(screen_points, MANUAL_ROUTE_UNDERLAY, MANUAL_ROUTE_UNDERLAY_WIDTH, true)
-	_draw_dashed_polyline(screen_points, MANUAL_ROUTE_COLOR, MANUAL_ROUTE_WIDTH,
+	draw_polyline(screen_points, MANUAL_ROUTE_UNDERLAY,
+		MANUAL_ROUTE_SEL_UNDERLAY_WIDTH if sel else MANUAL_ROUTE_UNDERLAY_WIDTH, true)
+	_draw_dashed_polyline(screen_points,
+		MANUAL_ROUTE_SEL_COLOR if sel else MANUAL_ROUTE_COLOR,
+		MANUAL_ROUTE_SEL_WIDTH if sel else MANUAL_ROUTE_WIDTH,
 		MANUAL_ROUTE_DASH, MANUAL_ROUTE_GAP)
 
 

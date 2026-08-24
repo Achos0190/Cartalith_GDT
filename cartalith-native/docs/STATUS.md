@@ -5,7 +5,43 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **Phone: a dock sheet remembered its scroll
+Last updated: 2026-08-24 (post **A committed route could not be deleted or
+renamed** — `GUI_GAP_REGISTER.md` **IN-09's second half**, the part its own
+closing note said it had not fixed. `InfraTools::route_delete` (`Vec::remove`,
+the reference's `civJourneys.splice(ji,1)`, line 17250) and `route_set_name`,
+both bound as `#[func]`s, plus a `name: String` on `CommittedRoute` that
+`route_get` now returns. **Indices renumber** — stated in both doc comments
+and in `engine_bridge.gd` because `jp_compute`'s `route` key and
+`jp_reroute`'s `route_index` name routes by index; a tombstone would have
+kept those stable at the price of `route_count()` no longer meaning "how many
+routes there are". The empty name is the reference's own resting state and
+the `Journey N` fallback is computed by the list, never stored, so it cannot
+survive a delete and label the wrong row. Each row of "Routes committed this
+session" is now the reference journey card's own select · name · km · `×`
+(`_civRenderJourneyList`, line 17235), minus its `_jpPlan` summary (that is
+`journey_planner_view.gd`'s screen here — two places computing a plan would
+disagree), and `map_overlay.gd` gained block 2b's `sel` branch verbatim
+(underlay 5 not 3, amber `rgba(255,210,80,.98)` at 2.5 not
+`rgba(200,160,60,.85)` at 1.5; the dash is not selection-dependent in the
+reference and is not made so here). **Two deliberate divergences**, both
+commented in code: renaming fires per keystroke but does not rebuild the row
+(which would steal focus mid-word), and deleting a lower-indexed route
+*decrements* the selection rather than leaving it — the reference only clears
+it when the index runs off the end, which silently moves the highlight onto a
+different journey. **Verified** by build, 318 `--lib` tests (three new), a
+headless probe (rename round-trip, out-of-range refusal on both calls, and
+the geometry at the renumbered index proven to be the one that was at index
+2), and — the half that matters, since this whole entry exists because a
+headless pass cannot see pixels — a **windowed run of the real shell**: two
+routes committed, one renamed with its neighbour untouched, one selected and
+seen to thicken and brighten on the map, one deleted and seen to vanish while
+the survivor renumbered and kept the selection, then emptied back to the
+empty-state note with a clean map. **Still open:** `way_set_name`/
+`way_delete` — only routes got theirs — and `journey_planner_view.gd`'s
+cached `_route_index` is not re-validated when the INFRA dock deletes a route
+underneath it (it re-reads `route_count()` on open; the failure is a wrong
+selection, never a crash)) — previously, post **Phone: a dock sheet
+remembered its scroll
 position across close/reopen** — `GUI_GAP_REGISTER.md` **PH-11**, found on
 device: scroll a dock sheet down, close it, reopen it, and it comes back
 still scrolled, never at the top. Six earlier attempts this session missed
@@ -73,11 +109,13 @@ Not changed, because it reverses a written decision — raised for the owner.
 in as many words. One nuance so it is not misread later: the *Icon* tool's
 families include `"poi"`, so a user can place a marker that **looks** like a
 POI — it carries no record, name, faction or inspector. It is an icon.
-**Still open:** no `route_delete`/`route_set_name`, so the new Routes list is
-read-only and a route clears only by regenerating (the reference's journey
-list has a per-row delete, line 17250); no selected-journey stroke, there
-being no route selection in this shell; and **CA-05** (an `icon_handles()` to
-match `label_handles()`) remains the Icon tool's own missing piece) —
+**Still open at the time:** no `route_delete`/`route_set_name`, so the new
+Routes list was read-only and a route cleared only by regenerating (the
+reference's journey list has a per-row delete, line 17250); no
+selected-journey stroke, there being no route selection in this shell — both
+**closed later the same day**, see the head of this preamble; and **CA-05**
+(an `icon_handles()` to match `label_handles()`) remains the Icon tool's own
+missing piece) —
 previously, post **Cartography and map coloration: `TerrainAppearance`
 was bound to nothing** — `GUI_GAP_REGISTER.md` **CA-01**, **PR-09** and the
 colour/relief half of **RN-01** all **closed**, **CA-08** mostly closed, and new

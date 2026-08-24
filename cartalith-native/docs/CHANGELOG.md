@@ -22666,3 +22666,80 @@ regardless of their real content, scrolled to the bottom (4287 px left,
 afterward. Also confirmed against the left dock's real WORLD content with no
 filler (0 → 287 → close → reopen → 0). `cargo build -p cartalith-godot` and
 a headless boot both clean.
+
+## A committed route could not be deleted or renamed (`GUI_GAP_REGISTER.md` IN-09, second half, 2026-08-24)
+
+IN-09's own closing note named what it had not fixed: the Routes list it
+added was read-only, because no `route_delete`/`route_set_name` `#[func]`
+existed, and `map_overlay.gd` had no selected-journey stroke because nothing
+could select one. The reference has all three — a per-row `×`
+(`civJourneys.splice(ji,1)`, line 17250), a live name field
+(`nameInput.oninput`, line 17245) and a brighter/thicker `sel` branch in
+`drawCivLayer` block 2b. That is the whole of this entry.
+
+**Engine (`infra_tools_bridge.rs`, `lib.rs`):**
+
+- `CommittedRoute` gained a `name: String`, empty until set. Empty is the
+  *reference's* resting state, not a placeholder: a `civJourneys` entry has
+  no `name` until the field is typed into, and `_civRenderJourneyList` falls
+  back to `'Journey '+(ji+1)` at draw time. That fallback is therefore
+  deliberately **not** stored — a stored one would survive a delete and leave
+  "Journey 3" sitting at index 1.
+- `InfraTools::route_delete` (`Vec::remove`) and `route_set_name`, plus the
+  two `#[func]`s over them and a `"name"` key on `route_get`.
+- **Indices renumber**, stated in both doc comments and in
+  `engine_bridge.gd`'s wrapper: `jp_compute`'s `route` key and `jp_reroute`'s
+  `route_index` name routes by index, so everything holding one must re-read
+  after a delete, exactly as the reference's list does by re-rendering
+  itself. A tombstone would have kept those indices stable at the price of
+  `route_count()` no longer meaning "how many routes there are", which every
+  existing consumer already assumes it does.
+
+**Shell:**
+
+- Each row of "Routes committed this session" is now the reference journey
+  card's own layout in its own order — select glyph · name field · km · `×`
+  — minus its planner summary, which that card computes with `_jpPlan` and
+  which is `journey_planner_view.gd`'s screen in this shell; duplicating it
+  would mean two places computing a plan and disagreeing.
+- `map_overlay.gd` carries block 2b's `sel` branch verbatim: underlay width
+  5 instead of 3, amber `rgba(255,210,80,.98)` at width 2.5 instead of
+  `rgba(200,160,60,.85)` at 1.5. The dash pattern is not selection-dependent
+  in the reference and is not made so here.
+
+**Two deliberate divergences, both in the code as comments:**
+
+1. The name field renames per keystroke (`text_changed`, the reference's
+   `oninput`) but does **not** rebuild the row — rebuilding would steal focus
+   mid-word, the same reasoning `civilization_workspace.gd`'s
+   `_settlement_name_field` already records.
+2. Deleting a *lower-indexed* route decrements the selection rather than
+   leaving it in place. The reference clears the selection only when the
+   index runs off the end (`if(_civSelectedJourneyIdx>=civJourneys.length)`),
+   which silently moves it onto a different journey — harmless in a list, but
+   here it would highlight the wrong line on the map.
+
+**Verified.** `cargo build -p cartalith-godot` clean; `cargo test -p
+cartalith-godot --lib` 318 passed (three new: renumbering after a delete,
+out-of-range refusal on both calls, and rename-then-clear). A headless probe
+drove the engine directly — three commits, names round-tripping through
+`route_get`, delete the middle one and confirm the *geometry* at the
+renumbered index is the one that used to be at index 2 (104 pts, 1347.1 km),
+out-of-range delete and rename both refused, list emptied and still usable.
+
+Then, **windowed, on the real shell** (this is the half a headless run cannot
+prove, which is the whole reason IN-09 existed): generated a 384x288 world,
+committed two routes through `_commit_route`, opened INFRA ▸ Roads ▸ Routes
+committed this session. Renamed row 0 to "Salt road" and confirmed row 1 was
+untouched and the field was not rebuilt under the caret; selected row 1 and
+saw the glyph fill and the map stroke thicken and brighten; deleted row 0 and
+watched that line vanish from the map while the survivor renumbered to index
+0, kept the selection pointing at *it*, and showed its placeholder as
+"Journey 1"; deleted the last one and got the empty-state note back with a
+map carrying no routes. Screenshots at each step.
+
+**Still open:** `way_set_name`/`way_delete` — only routes got theirs — and
+`journey_planner_view.gd`'s cached `_route_index` is not re-validated when
+the INFRA dock deletes a route out from under it (it re-reads `route_count()`
+on open, so the failure is a wrong selection in a window that is rarely open
+at the same time, never a crash).

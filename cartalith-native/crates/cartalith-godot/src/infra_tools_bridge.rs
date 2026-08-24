@@ -104,6 +104,16 @@ pub struct CommittedRoute {
     pub km: f64,
     pub mode: RouteMode,
     pub unreachable_legs: usize,
+    /// The user's own name for this route, `""` until [`InfraTools::
+    /// route_set_name`] is called. Empty is the *reference's* own resting
+    /// state, not a placeholder this port invented: a `civJourneys` entry
+    /// carries no `name` at all until the list's name field is typed into,
+    /// and `_civRenderJourneyList` (reference line 17237) falls back to
+    /// `'Journey '+(ji+1)` — an index-derived label computed at draw time,
+    /// which is why that fallback belongs to the caller drawing the list
+    /// and is deliberately NOT stored here (storing it would survive a
+    /// delete and leave "Journey 3" sitting at index 1).
+    pub name: String,
 }
 
 /// The per-world tool state for Way, Route, Measure and Region select.
@@ -252,8 +262,48 @@ impl InfraTools {
         let j = civ_join_dijkstra_segs(ctx, &draft.points, draft.mode);
         let idx = self.routes.len();
         let unreachable = j.unreachable_legs;
-        self.routes.push(CommittedRoute { pts: j.pts, brks: j.brks, km: j.km, mode: draft.mode, unreachable_legs: j.unreachable_legs });
+        self.routes.push(CommittedRoute {
+            pts: j.pts,
+            brks: j.brks,
+            km: j.km,
+            mode: draft.mode,
+            unreachable_legs: j.unreachable_legs,
+            name: String::new(),
+        });
         Some((idx, unreachable))
+    }
+
+    /// Removes one committed route, shifting every later index down by one.
+    /// `false` for an out-of-range index.
+    ///
+    /// `Vec::remove`, i.e. the reference's own `civJourneys.splice(ji,1)`
+    /// (line 17250) — **not** a tombstone. The renumbering is real and every
+    /// caller holding an index (`jp_compute`'s `route` key, `jp_reroute`'s
+    /// `route_index`, `route_get`) must re-read after a delete, exactly as
+    /// the reference's own list does by re-rendering itself. A tombstoned
+    /// slot would keep those indices stable at the cost of `route_count()`
+    /// no longer meaning "how many routes there are", which every existing
+    /// consumer already assumes it does.
+    pub fn route_delete(&mut self, index: usize) -> bool {
+        if index >= self.routes.len() {
+            return false;
+        }
+        self.routes.remove(index);
+        true
+    }
+
+    /// Renames one committed route. `false` for an out-of-range index.
+    /// An empty string is a legal name and means "unnamed" — see
+    /// [`CommittedRoute::name`] on why the `Journey N` fallback is the
+    /// caller's, so clearing the field really does restore it.
+    pub fn route_set_name(&mut self, index: usize, name: &str) -> bool {
+        match self.routes.get_mut(index) {
+            Some(r) => {
+                r.name = name.to_string();
+                true
+            }
+            None => false,
+        }
     }
 
     // ===================== Measure =====================
@@ -626,6 +676,58 @@ mod tests {
         assert_eq!(unreachable, 0);
         assert_eq!(t.routes[0].mode, RouteMode::Mixed);
         assert!(t.routes[0].km > 0.0);
+    }
+
+    /// Two routes so the delete/rename tests below can tell "removed the
+    /// right one" from "removed one".
+    fn two_routes(t: &mut InfraTools, ctx: &RouteContext) {
+        for (a, b) in [((2.0, 2.0), (22.0, 13.0)), ((2.0, 6.0), (22.0, 6.0))] {
+            t.route_begin(RouteMode::Mixed);
+            t.route_append_stop(a.0, a.1);
+            t.route_append_stop(b.0, b.1);
+            t.route_commit(ctx).expect("mixed mode can cross the strait");
+        }
+    }
+
+    #[test]
+    fn route_delete_removes_that_route_and_renumbers_the_rest() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        two_routes(&mut t, &ctx);
+        t.route_set_name(1, "Salt road");
+        assert!(t.route_delete(0));
+        assert_eq!(t.routes.len(), 1);
+        // The renumbering is the point: what was index 1 is now index 0,
+        // matching `civJourneys.splice(ji,1)`. A tombstone would fail here.
+        assert_eq!(t.routes[0].name, "Salt road");
+    }
+
+    #[test]
+    fn route_delete_refuses_an_out_of_range_index_without_touching_the_list() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        two_routes(&mut t, &ctx);
+        assert!(!t.route_delete(2));
+        assert!(!t.route_delete(99));
+        assert_eq!(t.routes.len(), 2);
+        assert!(!InfraTools::new().route_delete(0), "nothing to delete before any commit");
+    }
+
+    #[test]
+    fn route_set_name_stores_the_name_and_an_empty_string_clears_it() {
+        let (field, wb) = route_fixture();
+        let ctx = route_ctx(&field, &wb, &[]);
+        let mut t = InfraTools::new();
+        two_routes(&mut t, &ctx);
+        assert_eq!(t.routes[0].name, "", "a fresh commit is unnamed -- the reference's own resting state");
+        assert!(t.route_set_name(0, "Amber way"));
+        assert_eq!(t.routes[0].name, "Amber way");
+        assert_eq!(t.routes[1].name, "", "renaming one route must not touch its neighbour");
+        assert!(t.route_set_name(0, ""));
+        assert_eq!(t.routes[0].name, "", "clearing restores the caller's `Journey N` fallback");
+        assert!(!t.route_set_name(5, "nowhere"));
     }
 
     /// `WorldGen::absorb`/`load_save` reset this whole tool set by swapping

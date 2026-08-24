@@ -247,7 +247,7 @@ behaviour changed.** All five are corrections of fact, not design.
 ### Borderline, deliberately not edited
 
 - ~~`right_dock.gd:674` Region select ▸ *"the Data Manager panel to call it doesn't exist yet"* — the Data manager **window** now exists, but the Export ▸ Maps **panel** genuinely does not. The wording says "panel". Accurate as written.~~ **Superseded 2026-08-20**: the Export ▸ Maps panel was built (§14.7), so the sentence stopped being accurate and the disabled button became live. Both the tooltip and the disable are gone — RD-09 above.
-- `cartography_workspace.gd:277` *"no on-canvas resize handle yet for a placed icon (`icon_bridge.rs`'s own acknowledged gap)"* — `icon_resize`/`icon_hit_test` **are** exposed, so the attribution reads as more engine-blocked than it is; but `icon_bridge.rs:216` really does say *"`None` handle — no on-canvas resize-handle geometry"*, i.e. there is no `icon_handles()` to match `label_handles()`. The claim is true; only the emphasis is off. Left alone, recorded as entry **CA-05** below (an (A) item).
+- ~~`cartography_workspace.gd:277` *"no on-canvas resize handle yet for a placed icon (`icon_bridge.rs`'s own acknowledged gap)"* — `icon_resize`/`icon_hit_test` **are** exposed, so the attribution reads as more engine-blocked than it is; but `icon_bridge.rs:216` really does say *"`None` handle — no on-canvas resize-handle geometry"*, i.e. there is no `icon_handles()` to match `label_handles()`. The claim is true; only the emphasis is off. Left alone, recorded as entry **CA-05** below (an (A) item).~~ **CA-05 CLOSED 2026-08-24** — `icon_handles()` now exists and the note it flagged is gone from that file's own comment. See CA-05's row in §6.13.
 - `infrastructure_workspace.gd:13-14`'s class doc — *"Logistics … exports nothing past that crate boundary"* — is stale, but the same file's `_build_logistics()` says so explicitly two hundred lines later. A code comment, not user-facing text. Left alone.
 
 ---
@@ -550,6 +550,43 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 > reference's brighter, thicker `sel` stroke), because there is no route
 > selection in this shell to drive it. Both are the same shape as the
 > `way_set_name`/`way_delete` gap IN-02 left open.
+>
+> **That half CLOSED too, later the same day (2026-08-24).** The (B) estimate
+> held: two `#[func]`s and a row builder. `InfraTools::route_delete` is
+> `Vec::remove` — the reference's own `civJourneys.splice(ji,1)`, not a
+> tombstone — and `route_set_name` writes a new `CommittedRoute::name` field
+> that `route_get` now returns. **Indices renumber**, which is stated in both
+> doc comments and in `engine_bridge.gd`'s wrapper because `jp_compute`'s
+> `route` key and `jp_reroute`'s `route_index` name routes by index; the
+> alternative (a tombstone) would have kept those stable at the price of
+> `route_count()` no longer meaning "how many routes there are", which every
+> existing consumer already assumes it does.
+>
+> The list rows now carry the reference journey card's own three affordances
+> in its own order — select glyph · name field · km · `×`
+> (`_civRenderJourneyList`, line 17235) — and `map_overlay.gd` gained block
+> 2b's `sel` branch verbatim (underlay width 5 instead of 3, amber
+> `rgba(255,210,80,.98)` at width 2.5 instead of `rgba(200,160,60,.85)` at
+> 1.5; the dash pattern is *not* selection-dependent in the reference and is
+> not made so here). Two deliberate divergences, both disclosed in the code:
+> the **name field renames per keystroke** (the reference's `oninput`) but
+> does **not** rebuild the row, which would steal focus mid-word; and
+> **deleting a lower-indexed route decrements the selection** instead of
+> leaving it where it was — the reference only clears the selection when the
+> index runs off the end (`if(_civSelectedJourneyIdx>=civJourneys.length)`),
+> which silently moves it onto a *different* journey and would highlight the
+> wrong line on the map. No planner summary on the row: that card only shows
+> one for the selected journey and computes it with `_jpPlan`, which is
+> `journey_planner_view.gd`'s own screen here, and duplicating it would mean
+> two places computing a plan and disagreeing.
+>
+> **Still open after this**, and untouched by it: `jp_compute`/`jp_reroute`
+> callers that cache a route index across a delete are the shell's own
+> problem, and `journey_planner_view.gd`'s `_route_index` is not re-validated
+> when the INFRA dock deletes a route out from under it (it re-reads
+> `route_count()` when that screen is opened, so the window is small and the
+> failure is a wrong selection, never a crash). And `way_set_name`/
+> `way_delete` remain missing — only *routes* got theirs.
 
 > **IN-02 CLOSED (2026-08-24).** The audit's diagnosis was exactly right and
 > the "(B) small — one getter" estimate held: the whole engine-side fix is
@@ -616,7 +653,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | CA-02 | Layer properties ▸ **FILL** (colour ramp picker, domain, range) + the **Stop editor** | 110-114 | same note | yes | §7 designs nine named ramps, a popover, and a full stop editor | (B) large — `render.rs`'s own module doc: *"there is no elevation-keyed colour breakpoint ramp anywhere in this renderer."* |
 | CA-03 | Terrain sub-layer visibility (Hand-drawn hillshade / Hillshade / Colour relief) | 105-107 | terrain, hillshade and colour relief are one baked raster, so they toggle with the map | yes | §7's ten-row layer stack | (B) large — needs the single colour pass to become separable outputs |
 | CA-04 | Layer opacity / blend mode / reorder | *absent* | none in this file (`layers_popover.gd` has a *debug-view* opacity slider, a different thing) | — | §6's Layers context, §7 | (B) — opacity is **wrapper** (overlays already carry alpha); blend/reorder is **large** |
-| CA-05 | Icon ▸ on-canvas resize handle | 277-279 | *"no on-canvas resize handle yet… (`icon_bridge.rs`'s own acknowledged gap)"* | true, but the attribution understates what is available — `icon_resize`, `icon_hit_test` and `icon_get` are all exposed; what is missing is `icon_handles()`, the equivalent of `label_handles()`, which `icon_bridge.rs:216` names explicitly | §4.5.5 | **(A)** — the drag math already exists on the Label tool (`_begin_label_handle_drag`); handle geometry can be derived GDScript-side from `icon_get()`, as the reference itself does |
+| CA-05 | Icon ▸ on-canvas resize handle | 277-279 | *"no on-canvas resize handle yet… (`icon_bridge.rs`'s own acknowledged gap)"* | was true — see Now | §4.5.5 | **CLOSED (2026-08-24)** — `icon_bridge::icon_handle`/`IconEditor::handles` port the reference's `drawCivLayer` icon-handle geometry (lines 15883-15893: `hr=max(4,3.2*lsc)`, `hx=px+side/2*0.7`, `hy=py+side/2*0.7`, stored `r=hr*1.6`), transcribed the same way `label_bridge::handle_circles` was for the label's own three handles — `manual.rs` never had a home for it either, being inline canvas drawing rather than a callable reference function. `WorldGen::icon_handles(index, zoom)` returns `{"resize": {"x","y","r"}}`, the same shape `label_handles` already uses, so `tool_overlay.gd`'s existing `set_handles()` primitive needed no change. `cartography_workspace.gd` gained the one missing piece of state the engine has no reason to hold — `icon_get_selected()` (a new `#[func]`, `label_get_selected`'s own icon counterpart) plus `_on_icon_click`/`_on_icon_drag`/`_on_icon_release`, mirroring `_begin_label_handle_drag`'s pattern one handle down (no rotate/arc to capture, and `icon_resize` already commits the scale directly, unlike `label_resize_size` which only computes the value). Verified: place an icon, drag its handle, watch the sprite rescale live and the change survive a zoom/redraw. **Not folded in**: `icon_hit_test`'s own box-hit half is still unused by this file — selecting a *previously placed, now-unselected* icon by clicking its box has no GDScript wiring yet, a separate gap from the resize handle this row was about. |
 | CA-06 | Label ▸ letter-spacing, anchor | 643-648 | no backing field on `MapLabel` (`label_bridge.rs`'s own "Not modelled" note) | yes | §4.5.5's tool options row lists both | (B) small |
 | CA-07 | Label ▸ font (the stored CSS string doesn't render) | 643-648 | Godot has no web-font fallback chain, so only size/angle/arc/colour render | yes | §4.5.5 says "font role" — **a role, not a CSS string** | **(C)** → §7.14 |
 | CA-08 | Style presets (Atlas / Parchment / Physical / Ink) + `custom — edited since preset` + Reset + Save preset | *absent* | none | — | §4's Cartography row | **Mostly closed 2026-08-24** — CARTO ▸ Map style now carries the **reference's own five** (Default / Antique / Ink / Watercolor / Print, reference HTML 12850's `STYLE_PRESETS`) as absolute bundles, the `Custom — controls edited since the last preset` note, and Reset-to-quality-tier. **Still open: Save preset** — `TerrainAppearance` does not derive `Serialize` and nothing writes appearance into the project file, so an edited look is per-session. The design's own four names are a separate question from the reference's five; the reference's won, being verifiable. |
@@ -1625,7 +1662,7 @@ by value delivered per unit of work.
 | 5 | **RD-11** — **done 2026-08-19** | Right dock's collapsed **primary readout** | §6's own last line; `set_dock_readout()` exists and is wired for the left dock only. One call. | §6 |
 | 6 | **PR-13 + PR-14** — **done 2026-08-19** | **Light theme** + follow-system | `DccTheme.LIGHT` is fully defined and §11 gives the complete light token column; only the build-once stylebox pass blocks it. The single largest *visible* change available with no engine work. | §2.5, §11 |
 | 7 | **WI-02 + WI-03 + WI-04** — **done 2026-08-19** | Window menu: workspace list, open-windows list, **dock width dragging** | Three omissions against §1/§2.6; all three read state that already exists. | §1, §2.6 |
-| 8 | **CA-05** | Icon **on-canvas resize handle** | `icon_resize`/`icon_hit_test` are exposed; the drag math already exists on the Label tool and can be copied. Handle geometry derives from `icon_get()`. | §4.5.5 |
+| 8 | **CA-05** — **done 2026-08-24** | Icon **on-canvas resize handle** | `icon_resize`/`icon_hit_test` are exposed; the drag math already exists on the Label tool and can be copied. Handle geometry derives from `icon_get()`. | §4.5.5 |
 | 9 | **JP-12 + JP-15** — **done 2026-08-19** | Supply-reach **per-leg bar with resupply ticks**; party-form fields showing `auto · <resolved>` | `resupply_reach` and each result's `eff` dict already carry every value. | `JOURNEY_PLANNER_SPEC.md` §5, §8 |
 | 10 | **SH-05** — **done 2026-08-19** | Layers popover **hotkey badges 1–8** | The popover already enumerates every view; badges plus `InputMap` entries. | §10 |
 | 11 | **SH-06** — **baseline done 2026-08-19, suffix reclassified (B)** | Viewport `4 812 km E · 1 093 km N · 1 462 m` cursor coordinates + elevation | `sample_cell` gives the committed elevation; the `→ 1 582 m` draft-stamp suffix turned out to need a new Rust entry point (`sample_cell` never reads the sculpt draft) — see the §6.15 row's own note. | §10 |
