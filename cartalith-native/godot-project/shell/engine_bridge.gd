@@ -89,6 +89,9 @@ func _ready() -> void:
 	ramp_mode_api = _has("list_ramp_modes") \
 		and _has("get_ramp_mode") \
 		and _has("set_ramp_mode")
+	look_api = _has("list_looks") \
+		and _has("get_look") \
+		and _has("set_look")
 	preset_api = _has("save_appearance_preset") \
 		and _has("load_appearance_preset") \
 		and _has("peek_appearance_preset")
@@ -564,6 +567,38 @@ func quality_tiers() -> PackedStringArray:
 
 func recommended_quality_tier() -> String:
 	return world_gen.get_recommended_quality_tier()
+
+# -- The named look (2026-08-24) ----------------------------------------------
+#
+# A fourth capability flag rather than a widening of `appearance_api`, for the
+# reason `ramp_api` and `ramp_mode_api` are third and second: this landed after
+# those binaries shipped, and a shell running against an older `.dll` should
+# lose the picker rather than crash on a missing method.
+#
+# The look is the appearance **base** -- colour, chroma, light shaping and
+# grade, layered over the quality tier -- so it is a separate authority from
+# both the tier and the user's own slider overrides, and all three survive each
+# other.
+var look_api := false
+
+## `["Quality tier", "Natural Vibrant", "Antique Parchment"]` -- the engine's
+## own named looks. `Array`, not `PackedStringArray`, for the reason
+## `ramp_presets()` already converts: the panel feeds it straight to
+## `DccWidgets.choice`, which takes an `Array`.
+func looks() -> Array:
+	if not look_api:
+		return []
+	return Array(world_gen.list_looks())
+
+func look() -> String:
+	if not look_api:
+		return ""
+	return world_gen.get_look()
+
+func set_look(name: String) -> bool:
+	if not look_api:
+		return false
+	return world_gen.set_look(name)
 
 # -- NPR / "Painter" styles (`GUI_GAP_REGISTER.md` RN-01) ---------------------
 #

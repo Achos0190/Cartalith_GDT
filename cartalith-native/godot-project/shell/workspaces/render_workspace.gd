@@ -77,12 +77,23 @@ const WATER_ANIM_SCRIPT := preload("res://shell/water_anim_layer.gd")
 ##   where the quality tier put it.
 ## * `icons` (antique true) -- the stylized mountain/hill/tree glyph layer,
 ##   which this port has not built at all.
+##
+## **2026-08-24: each preset now also names a *look*.** A look
+## (`WorldGen::list_looks`) is the engine's colour/chroma/light-shaping/grade
+## layer over the quality tier; the Painter dictionary beside it is the NPR
+## block as before. Splitting the two is what lets "Ink" put pen lines over the
+## shipped vibrant base rather than over the reference's muted one, and what
+## makes "Default" mean the tier's own image rather than "vibrant minus the
+## styles". A preset whose look this cdylib does not have simply keeps the look
+## that is already selected -- `EngineBridge.set_look` returns false and the
+## Painter half still applies.
 const STYLE_PRESETS := [
-	["Default", {}],
-	["Antique", {"sepia": 0.35}],
-	["Ink", {"ink": 0.6, "contours": 0.35}],
-	["Watercolor", {"watercolor": 0.65}],
-	["Print", {"risograph": 0.5, "contours": 0.25}],
+	["Natural Vibrant", "Natural Vibrant", {"multi_sun": true}],
+	["Default", "Quality tier", {}],
+	["Antique", "Antique Parchment", {"sepia": 0.35, "multi_sun": true}],
+	["Ink", "Natural Vibrant", {"ink": 0.6, "contours": 0.35, "multi_sun": true}],
+	["Watercolor", "Natural Vibrant", {"watercolor": 0.65, "multi_sun": true}],
+	["Print", "Natural Vibrant", {"risograph": 0.5, "contours": 0.25}],
 ]
 
 ## What a preset resets before applying itself -- the reference's own
@@ -101,11 +112,19 @@ const STYLE_MANAGED := {
 const APPEARANCE_VIEW := ["exag", "sun_az_deg", "sun_alt_deg", "bio_blend"]
 const APPEARANCE_GROUPS := [
 	["Relief & light", ["relief_lights", "relief_directionality", "relief_ambient",
-		"relief_gain", "ao_strength", "ao_radius_frac"]],
+		"relief_gain", "relief_chroma", "ao_strength", "ao_radius_frac",
+		"crest_strength", "curve_shade", "ridged_strength"]],
 	["The sheet", ["paper_strength", "paper_grain", "paper_mottle", "paper_wash",
 		"stipple_strength", "border_width_frac"]],
-	["Materials", ["litho_strength", "litho_exposure", "hydro_wet_strength",
-		"local_contrast", "splat_strength"]],
+	["Materials", ["biome_sat", "tex_strength", "litho_strength", "litho_exposure",
+		"hydro_wet_strength", "local_contrast", "splat_strength"]],
+	["Atmosphere", ["haze_strength"]],
+	## The colour grade -- a presentation-only post-process over the finished
+	## terrain raster, before rivers, labels and icons draw. Its own group
+	## because it is a different kind of control from everything above it:
+	## nothing here describes the ground, it describes the print.
+	["Colour grade", ["grade_exposure", "grade_contrast", "grade_saturation",
+		"grade_temperature", "grade_shadow_tint", "grade_highlight_tint"]],
 ]
 
 ## Per-key presentation only: the step, the unit, and a display `scale` for the
@@ -149,6 +168,19 @@ const APPEARANCE_HELP := {
 	"ramp_strength": "How far the colour relief ramp takes over from the material colour. 0 is the material model alone (climate, slope, relief); 1 is a full hypsometric tint. The ramp is applied before the light, so the hillshade, occlusion and paper still read through it at any strength.",
 	"local_contrast": "Adds band-limited detail back after the paper wash. The gain falls to zero on strong edges, so coastlines and snowlines cannot halo.",
 	"splat_strength": "How strongly a loaded asset pack's ground textures blend in. Inert with no pack loaded. The reference's Texture strength.",
+	"relief_chroma": "How far the relief lighting keeps the map's colour instead of fading it toward grey. 0 is the reference exactly -- shaded ground is pulled toward one fixed neutral, which costs value as well as chroma. At 1 the shading desaturates about each pixel's own luminance, and shadow cools while sunlight warms, the way a real scene's sky-lit shadow and warm sun differ.",
+	"crest_strength": "Thin bright strokes along convex, steep ridge lines -- the reference's Ridge crests. Costs one whole-grid pass when on and nothing when off.",
+	"curve_shade": "Sun-independent lighting straight from the surface curvature: convex ridges brighten, concave valleys darken. Keeps a landform legible where it happens to run parallel to the sun. The reference's Curvature shading.",
+	"ridged_strength": "Folded creases from a ridged multifractal, weighted by elevation squared so they concentrate in the highlands and leave the lowlands alone. The reference's Ridged relief.",
+	"biome_sat": "How colourful the material mix is, about its own luminance -- so it can never make one material lighter or darker relative to its neighbour, only more or less saturated. Negative is toward grey. No reference counterpart: the reference's only chroma control is Relief <-> biome, which pulls toward a fixed grey and therefore flattens as it desaturates.",
+	"tex_strength": "A three-frequency fine surface modulation over the material colour -- the reference's Surface texture. Evaluated in map coordinates, so a tiled export stays seamless.",
+	"haze_strength": "Atmospheric perspective: how far the plate fades toward sky at its edges. The reference's own fixed 0.18, made adjustable; the shipped look uses 0.09, which reads as air rather than as a vignette.",
+	"grade_exposure": "Overall brightness of the finished map, as a linear gain. The grade is a post-process on the rendered image and touches no world data at all.",
+	"grade_contrast": "Contrast about mid-grey, applied after exposure so the pivot sits where exposure put the image.",
+	"grade_saturation": "Saturation of the finished map, about its own luminance -- exactly luminance-preserving, so it cannot flatten the relief.",
+	"grade_temperature": "Colour temperature on a blue-to-amber axis. Luminance-compensated: warming the map does not also brighten it.",
+	"grade_shadow_tint": "The same blue-to-amber axis, weighted toward the dark half of the image only.",
+	"grade_highlight_tint": "The same blue-to-amber axis, weighted toward the bright half of the image only.",
 }
 
 var _water_anim: Control
@@ -160,6 +192,10 @@ var _npr_rows: Dictionary = {}
 var _app_rows: Dictionary = {}
 var _preset_chips: Array[Button] = []
 var _custom_note: Label
+## The base-look picker, kept so a Map-style chip can move it rather than
+## leaving it naming a look that is not the one drawing the map.
+var _look_pick: OptionButton
+var _look_names: Array = []
 ## True only while `_apply_preset` runs, so the preset's own writes do not
 ## trip the "Custom" mark the reference flips on any manual edit.
 var _applying := false
@@ -202,11 +238,40 @@ func _build_map_style() -> void:
 	row.add_theme_constant_override("h_separation", 4)
 	row.add_theme_constant_override("v_separation", 4)
 	body.add_child(row)
+	## Which chip opens lit is read from the engine, not assumed: the shipped
+	## default is Natural Vibrant and a hard-coded `i == 0` would go on lying
+	## the day that changes.
+	var live_look := bridge.look()
+	## The first chip whose look matches. On a fresh session that is Natural
+	## Vibrant, which is exactly what is on screen; `0` is the fallback for a
+	## cdylib with no look API at all, where the old "Default is lit" behaviour
+	## is still the truthful one.
+	var lit := 1 if not bridge.look_api else 0
+	for i in STYLE_PRESETS.size():
+		if String(STYLE_PRESETS[i][1]) == live_look:
+			lit = i
+			break
 	for i in STYLE_PRESETS.size():
 		var chip := DccWidgets.segment(row, String(STYLE_PRESETS[i][0]),
 			_apply_preset.bind(i))
-		DccWidgets.set_segment_on(chip, i == 0)
+		DccWidgets.set_segment_on(chip, i == lit)
 		_preset_chips.append(chip)
+
+	## The look on its own, because it is the engine's own list and a user may
+	## want a base without a Painter bundle over it.
+	var look_names: Array = bridge.looks()
+	_look_names = look_names
+	if not look_names.is_empty():
+		_look_pick = DccWidgets.choice(body, "Base look", look_names,
+			maxi(look_names.find(live_look), 0),
+			func(i: int): _on_look(String(look_names[i])),
+			"The colour, chroma, light shaping and grade the map is built on, "
+			+ "layered over the quality tier -- the tier decides what the "
+			+ "renderer spends, the look decides what the picture is, and a "
+			+ "phone answers only the first differently. Quality tier is the "
+			+ "identity. Natural Vibrant is the shipped default. Changing it "
+			+ "moves the Rendering-advanced values below, since that is where "
+			+ "they come from.")
 	_custom_note = DccWidgets.note(body,
 		"Custom -- controls edited since the last preset.")
 	_custom_note.visible = false
@@ -220,11 +285,19 @@ func _build_map_style() -> void:
 
 func _apply_preset(index: int) -> void:
 	var values: Dictionary = STYLE_MANAGED.duplicate()
-	for key in Dictionary(STYLE_PRESETS[index][1]):
-		values[key] = STYLE_PRESETS[index][1][key]
+	for key in Dictionary(STYLE_PRESETS[index][2]):
+		values[key] = STYLE_PRESETS[index][2][key]
 	_applying = true
-	if bridge.set_npr(values) > 0:
-		_refresh_map()
+	## The look first, so the one re-render below carries both halves. It moves
+	## the Rendering-advanced values too (a look is where ambient occlusion,
+	## wetness, haze and the grade come from), so those rows are pulled back
+	## from the engine rather than left showing the previous look's numbers --
+	## the desync this register keeps finding one control at a time.
+	bridge.set_look(String(STYLE_PRESETS[index][1]))
+	_sync_look_pick()
+	bridge.set_npr(values)
+	_sync_appearance()
+	_refresh_map()
 	for key in values:
 		if not _npr_rows.has(key):
 			continue
@@ -243,6 +316,23 @@ func _apply_preset(index: int) -> void:
 	## rather than polled -- `ViewportHost.set_style_readout()`'s own comment.
 	if app != null and app.viewport != null:
 		app.viewport.set_style_readout(String(STYLE_PRESETS[index][0]))
+
+## Pick a base look on its own. Marks Custom, because the chips above name a
+## look *and* a Painter bundle and only one half moved.
+func _on_look(name: String) -> void:
+	if not bridge.set_look(name):
+		return
+	_sync_appearance()
+	_refresh_map()
+	_mark_custom()
+
+## Re-select the picker after a Map-style chip changed the look underneath it.
+func _sync_look_pick() -> void:
+	if _look_pick == null:
+		return
+	var i: int = _look_names.find(bridge.look())
+	if i >= 0 and _look_pick.selected != i:
+		_look_pick.select(i)
 
 ## The reference flips the row to "Custom" on any manual edit inside the Map
 ## style section; here that means any Painter or appearance write that did not
@@ -276,16 +366,20 @@ func _build_appearance() -> void:
 			_refresh_map()
 			_mark_custom())
 	DccWidgets.note(body,
-		"These are the quality tier's own values (Preferences > Render quality), "
-		+ "editable. An edit survives a later tier change; Reset hands every one "
-		+ "of them back to the tier. All presentation -- nothing here marks a "
+		"These are the quality tier's own values (Preferences > Render quality) "
+		+ "as the base look above reshapes them, editable. An edit survives a "
+		+ "later tier or look change; Reset hands every one of them back. Reset "
+		+ "deliberately leaves the base look alone -- that picker is above, and "
+		+ "a button in this section silently moving it is the desync this dock "
+		+ "keeps having to fix. All presentation -- nothing here marks a "
 		+ "generation stage stale.")
 	DccWidgets.note(body,
-		"Not bound, because the engine has no such stage: ridge crests, slope "
-		+ "rock, surface texture, minor channels, ridged relief, sky view factor, "
-		+ "cast shadows, curvature shading, season blend and the three SDF "
-		+ "layers (coastlines, river bands, biome blend). Those are reference "
-		+ "render stages this port has not ported, not bindings it is missing.")
+		"Not bound, because the engine has no such stage: slope rock, minor "
+		+ "channels, sky view factor, cast shadows, season blend and the three "
+		+ "SDF layers (coastlines, river bands, biome blend). Those are "
+		+ "reference render stages this port has not ported, not bindings it is "
+		+ "missing. Ridge crests, surface texture, ridged relief and curvature "
+		+ "shading left this list on 2026-08-24 and are live above.")
 
 ## One row, with the engine's range and this file's own step/unit/scale.
 func _appearance_slider(parent: Control, key: String) -> void:
@@ -811,12 +905,16 @@ func _build_owed_inventory() -> void:
 		+ "mode is the ramp's rather than a stop's, which is how the design draws "
 		+ "it. The renderer's ramp is keyed to relative land elevation.")
 	DccWidgets.note(sec,
-		"Colour grading (vibrancy, saturation, contrast, brightness, gamma, "
-		+ "temperature, tint and the four field-influence weights) · Material "
-		+ "exposure per class (vegetation / rock / soil and their slope, curvature "
-		+ "and wetness modulation -- only the lithology pair is live above) · "
-		+ "Detail & atmosphere (macro / meso / micro intensity, distance and "
-		+ "elevation haze) · Preview (on-off, Compare current / previous / split).")
+		"Of colour grading (2026-08-24, now live above as its own group): "
+		+ "exposure, contrast, saturation, temperature and the two tints are "
+		+ "real; gamma and the four field-influence weights are not, and the "
+		+ "two tints are a blue-to-amber axis rather than free colour pickers. "
+		+ "Still owed: Material exposure per class (vegetation / rock / soil and "
+		+ "their slope, curvature and wetness modulation -- only the lithology "
+		+ "pair and the new curvature/crest stages are live) · Detail & "
+		+ "atmosphere (macro / meso / micro intensity separately, and elevation "
+		+ "haze -- only distance haze is live) · Preview (on-off, Compare "
+		+ "current / previous / split).")
 	DccWidgets.note(sec,
 		"Of saving a look (CA-08, now live above): rename and delete a saved look, "
 		+ "a thumbnail per look, and sharing one between machines. A look is a "
