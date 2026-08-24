@@ -54,6 +54,10 @@ var current_project_path := ""
 var _workspaces: Array = []
 var _region_nodes: Dictionary = {}
 var _tool_options_stale: Label
+## The tool-options bar's copy of the WORLD dock's bake button. Rebuilt every
+## time `_tool_options_generate()` runs, so always reached through
+## `is_instance_valid`.
+var _tool_options_bake: Button
 
 # -- §4.5 Tool palette ---------------------------------------------------------
 #
@@ -450,10 +454,12 @@ func _wire_status() -> void:
 		set_status("top_mem", "%.1f GB" % (OS.get_static_memory_usage() / 1073741824.0))
 		if is_instance_valid(_tool_options_stale):
 			_tool_options_stale.text = ""
-		_refresh_rail_foot())
+		_refresh_rail_foot()
+		_refresh_world_dependent())
 	bridge.world_loaded.connect(func():
 		set_status("pass", "loaded", "text_dim")
-		set_status("hint", bridge.last_summary, "text_ghost"))
+		set_status("hint", bridge.last_summary, "text_ghost")
+		_refresh_world_dependent())
 	_setup_staleness()
 
 ## SG-01's clock. A `Timer` and not a `_process` tick, and not a signal either:
@@ -509,6 +515,43 @@ func refresh_staleness() -> void:
 ## Blank for a world with nothing baked: an empty slot is the honest reading of
 ## "no atlas", and a permanent "Atlas: empty" would spend a status slot saying
 ## nothing. Called after every bake, clear, finalize and generate.
+## What has to be re-read when the world itself changes identity — a generate
+## or a save load. Both the atlas slot and the Finalize foot describe *this*
+## world's atlas, and a new world has a different `atlas_world_key()`, so both
+## are stale the instant generation finishes.
+##
+## This existed as a gap rather than a decision: `refresh_atlas_status()`'s own
+## doc already claimed it was "called after every bake, clear, finalize and
+## generate", and the generate call site was never written. The visible symptom
+## was a dead end rather than a stale readout — `_refresh_finalize()` runs when
+## the workspace is *built*, which is before any world exists, so it left
+## "Bake ALL levels & finalize" disabled, and nothing else re-enabled it. The
+## only paths that called it back were the bake and clear buttons, one of which
+## was the disabled one. Found by `_bakeui_shot.gd` pressing the real button.
+func _refresh_world_dependent() -> void:
+	refresh_atlas_status()
+	for ws in _workspaces:
+		if ws.has_method("on_world_changed"):
+			ws.on_world_changed()
+
+## The WORLD workspace, found by capability rather than by index — `_workspaces`
+## also carries the right dock, which is not one.
+func _world_workspace() -> WorldWorkspace:
+	for ws in _workspaces:
+		if ws is WorldWorkspace:
+			return ws
+	return null
+
+## Called by `world_workspace._refresh_finalize()`, the single owner of whether
+## baking is currently possible. See `_tool_options_generate()` for why the
+## header copy is pushed to rather than computed twice.
+func set_bake_shortcut(shown: bool, is_disabled: bool, tip: String) -> void:
+	if not is_instance_valid(_tool_options_bake):
+		return
+	_tool_options_bake.visible = shown
+	_tool_options_bake.disabled = is_disabled
+	_tool_options_bake.tooltip_text = tip
+
 func refresh_atlas_status() -> void:
 	var st: Dictionary = bridge.atlas_status()
 	if st.is_empty() or int(st.get("chunks", 0)) == 0:
@@ -624,9 +667,25 @@ func _tool_options_generate() -> void:
 		_tool_options_stale = busy
 		row.add_child(busy)
 		row.add_child(DccTheme.spacer())
-		var bake := DccWidgets.action(row, "Bake ALL & finalize", func(): pass)
-		bake.disabled = true
-		bake.tooltip_text = "No bake/LOD pipeline exists yet; finalize has nothing to freeze."
+		## §4's tool-options bar carries a second copy of the WORLD dock's bake
+		## control — `GUI_GAP_REGISTER.md` WW-01's own last open item, and until
+		## now a dead placeholder whose tooltip ("No bake/LOD pipeline exists
+		## yet") stopped being true the day WW-01 shipped.
+		##
+		## Wired as a *shortcut*, not a second source of truth: it presses the
+		## same `_on_bake_all` the dock foot does, and `_refresh_finalize()` —
+		## which already runs on every generate, bake, finalize and clear —
+		## pushes its enabled/visible state here through `set_bake_shortcut`.
+		## Two buttons with two independent state computations is exactly the
+		## drift this shell has been bitten by before.
+		var bake := DccWidgets.action(row, "Bake ALL & finalize", func():
+			var ws: WorldWorkspace = _world_workspace()
+			if ws != null:
+				ws.bake_and_finalize())
+		_tool_options_bake = bake
+		var ws0: WorldWorkspace = _world_workspace()
+		if ws0 != null:
+			ws0.on_world_changed()
 		busy.text = "generating…" if bridge.generating else ""
 	)
 

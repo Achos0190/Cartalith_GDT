@@ -5,7 +5,32 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **Bake, tile pyramid, persistent atlas and the
+Last updated: 2026-08-24 (post **the bake system's verification pass** — the
+engine and shell above were shipped but never driven; the original commit
+discloses it was verified "against the *stale* cdylib". Driven now, and it
+found two bugs that only pressing the button could find. **"Bake ALL levels &
+finalize" was permanently disabled**: `_refresh_finalize()` sets
+`disabled = not has_world` and runs when the workspace is *built*, before any
+world exists, and nothing re-ran it on generation — the only callers that
+would have re-enabled it were the bake and clear buttons, one of them the
+disabled one, so no user could ever bake. `app.gd` gained
+`_refresh_world_dependent()` on `generation_finished`/`world_loaded`, which
+also supplies `refresh_atlas_status()`'s missing generate call site — its own
+doc had claimed that site existed since it was written. And **the tool-options
+bar's copy of the control was a dead placeholder** (`func(): pass`) whose
+tooltip still read "No bake/LOD pipeline exists yet", untrue since the day
+WW-01 shipped; it is now a shortcut onto the same `_on_bake_all`, with its
+state *pushed* from the one owner rather than computed twice. WW-01's last open
+item is closed. **Numbers, run rather than described**: 480 engine tests + 21
+`params_mapping` green; the `#[ignore]`d acceptance test at shipping size
+(2048×1311 @ 1024 px) bakes 85 chunks in 1.65 s to **233.73 MiB**, confirming
+the "234 MiB (measured)" figure the UI shows; a 35-assertion headless probe and
+a 26-assertion windowed probe at 1600×900 both fully green, the latter reading
+the real status-bar text back (`atlas: 85 chunks · LOD 0–3 · 16.5 MiB ·
+FINALIZED`). `cargo check -p cartalith-godot` clean, settling the `AmplifyOpts`
+question raised against `e0dfa44` — the caller spreads `..default()`. **Still
+open and unchanged: nothing reads the atlas at draw time yet.**)
+— previously, post **Bake, tile pyramid, persistent atlas and the
 finalize lock** — `PARITY_AUDIT.md`'s largest genuinely-unstarted row, ~50
 reference functions, now built across five crates. Deep zoom in the reference
 does not magnify the base raster, it *re-synthesises* the ground at tile

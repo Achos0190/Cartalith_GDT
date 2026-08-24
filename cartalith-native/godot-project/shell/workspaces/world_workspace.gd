@@ -366,6 +366,21 @@ func _on_bake_all() -> void:
 		int(r.get("baked", 0)), int(r.get("skipped", 0)), float(r.get("seconds", 0.0)),
 		String(bridge.atlas_status().get("text", ""))]
 
+## Broadcast by `app.gd`'s `_refresh_world_dependent()` when a generate or a
+## save load finishes. The Finalize foot describes one specific world's atlas,
+## and both the enable state and the byte estimate move when that world does.
+func on_world_changed() -> void:
+	_refresh_finalize()
+
+## The tool-options bar's copy of this control presses exactly this
+## (`app.gd:_tool_options_generate`). A method rather than exposing
+## `_bake_button` so the header cannot press a button this workspace considers
+## disabled.
+func bake_and_finalize() -> void:
+	if _bake_button == null or _bake_button.disabled or not bridge.has_world:
+		return
+	_on_bake_all()
+
 func _refresh_finalize() -> void:
 	if _bake_button == null:
 		return
@@ -377,6 +392,11 @@ func _refresh_finalize() -> void:
 	_bake_button.visible = not finalized
 	_unfinalize_button.visible = finalized
 	_bake_button.disabled = not has_world
+	## The tool-options bar's copy mirrors this one rather than recomputing it.
+	if app != null and app.has_method("set_bake_shortcut"):
+		app.set_bake_shortcut(not finalized, not has_world,
+			_bake_button.tooltip_text if has_world
+			else "Generate a world before baking: the atlas is keyed to one.")
 	var est: Dictionary = bridge.bake_estimate(_bake_depth)
 	if not has_world:
 		_bake_status.text = "No world yet: generate one before baking."

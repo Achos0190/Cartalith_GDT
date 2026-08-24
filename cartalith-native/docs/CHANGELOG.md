@@ -23797,3 +23797,69 @@ over the map still zooms one `ZOOM_WHEEL_STEP`; and the measure row reads
 `Distance 195 · Bearing 265 · Area 329 · Radius 375` │ `CROSS-SECTION 440 ·
 Elevation 556 … Geology 836` │ `Δ vertical 907`, with `Climate` taking mode to
 `section` and channel to `climate` in one click. Headless boot clean.
+
+## The bake system, actually driven: a dead Bake button, and a header copy that lied (`GUI_GAP_REGISTER.md` WW-01, 2026-08-24)
+
+The verification half of the bake/atlas/finalize work committed in `e0dfa44`,
+`948e15a` and `f11111f`. That pass shipped its engine and its shell, but its own
+commit message discloses that it was "verified headlessly against the *stale*
+cdylib" — the guard discipline working, and not the same thing as having driven
+the feature. This entry is what happened when it was driven.
+
+**The engine held up.** `cargo check -p cartalith-godot` is clean, which settles
+the `AmplifyOpts` question a sibling agent raised against `e0dfa44`: the caller
+uses `..AmplifyOpts::default()`, so `z_base`/`zoom_detail_k` are supplied.
+`cargo test` across `cartalith-spatial/-terrain/-io/-engine` is 480 tests green,
+`params_mapping` 21 green.
+
+**The `#[ignore]`d acceptance test, run rather than described.** At its default
+384 × 256 / 256 px: `generate_terrain` 0.15 s, 85 chunks baked in 0.17 s
+(2 ms/tile), 16.42 MiB on disk, a deep-zoom read within one `rg16` LSB
+(7.63e-6) of live synthesis, 171 archive entries at 9.34 MiB gzipped. Re-run at
+shipping size (`CARTALITH_BAKE_GW=2048 GH=1311 TILE=1024`): 2.26 s to generate,
+85 chunks in 1.65 s (19 ms/tile), **233.73 MiB** — which confirms to two decimal
+places the "234 MiB (measured)" figure `948e15a` put in front of the user, and is
+the reason that readout leads with bytes rather than a tile count.
+
+**A headless probe over `EngineBridge`** (`_bake_probe.gd`, 35 assertions):
+namespace, estimate, bake, read-back, PNG decode, coverage, all five lock
+guards, un-finalize, archive round trip, clear. Two of its own failures were the
+probe's, and worth recording because the shape recurs: it restored `sea_level`
+to its default *before* asserting that changing `sea_level` moved the world key,
+so it compared the key against itself and indicted a correct engine. The
+namespace really does move — `3a15d969` → `7d883d31` → back.
+
+**The two real bugs were both only findable by pressing the button.**
+
+1. **"Bake ALL levels & finalize" was permanently disabled.**
+   `_refresh_finalize()` sets `disabled = not has_world` and runs when the
+   workspace is *built* — which is before any world exists. Nothing re-ran it on
+   generation, and the only callers that would have were the bake and clear
+   buttons, one of which was the disabled one. A user could never bake.
+   `app.gd` gained `_refresh_world_dependent()`, fired on `generation_finished`
+   and `world_loaded`; it also calls `refresh_atlas_status()`, whose own doc
+   comment had claimed since it was written that it was "called after every
+   bake, clear, finalize and generate" — the generate call site never existed.
+2. **The tool-options bar's copy of the control was a dead placeholder**
+   (`func(): pass`, `disabled = true`) whose tooltip still read "No bake/LOD
+   pipeline exists yet; finalize has nothing to freeze." It had been true, and
+   stopped being true the day WW-01 shipped. WW-01's register row already named
+   it as the last open item. It now presses the same `_on_bake_all` and takes
+   its state *pushed* from `_refresh_finalize()` rather than computing it a
+   second time — two buttons with two independent state computations is drift
+   this shell has been bitten by before.
+
+**Verified windowed at 1600 × 900** (`_bakeui_shot.gd`, 26 assertions, all
+passing), because none of the above is visible to a headless boot: the four
+Finalize rows exist; Bake is enabled after a generate; the status bar's `atlas`
+slot goes blank → `atlas: 85 chunks · LOD 0–3 · 16.5 MiB · FINALIZED` → drops
+`FINALIZED` on un-finalize → blank on clear; the dock button swaps to
+Un-finalize and the header shortcut hides with it; a `set_params` through the
+real bridge is refused while finalized; and pressing the *header* button bakes
+all 85 chunks and finalizes exactly as the dock one does. Screenshots confirm
+the readouts render as written. Headless boot clean, no errors.
+
+One durability note: a GDScript error aborts `_ready()` without reaching
+`get_tree().quit()`, and headless Godot then idles forever rather than failing —
+this cost a 10-minute timeout on a one-line typo. Both probes now arm a watchdog
+timer that quits non-zero, which turns that into a visible failure.
