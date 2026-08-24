@@ -62,6 +62,7 @@ const ID_PREF_UNITS_MI := 55
 const ID_PREF_STORAGE := 56
 const ID_PREF_WORKING_SET := 57
 const ID_PREF_THEME_SYSTEM := 58
+const ID_PREF_CLEAR_CACHES := 59
 
 const ID_WIN_LEFT := 60
 const ID_WIN_RIGHT := 61
@@ -659,8 +660,14 @@ func _preferences(p: PopupMenu) -> void:
 	## The one row `world_workspace.gd`'s "Not a generation stage" note points
 	## at for chunk debug, so its tooltip has to actually name that -- it did
 	## not, which made the pointer dangle (2026-08-20 menu-structure audit).
-	_todo(p, "Tiled LOD · tile size · atlas cache · chunk debug",
-		"Deep-zoom LOD tiling is live and automatic (lod_synthesize_tile/lod_tile_cells, driven by viewport_host.gd) -- what does not exist is any of §2.5's controls over it: no auto/manual switch (#lodAutoChk), no tile-size or LOD-level choice, no Refine detail for the current view (#lodRefineBtn), and no persistent atlas cache to bake into, cap or clear (#lodBakeBtn/#lodClearAtlasBtn -- tiles are synthesized on demand and never written to disk). The reference's two per-tile refinement passes, Burn rivers into tiles and Micro-erode tiles, have no cartalith-engine equivalent either: lod_synthesize_tile resamples the existing field and runs no erosion or river burn-in of its own. The chunk debug overlay (#lodDbgSeg grid / colors / off) and Show tile borders have no draw path -- viewport_host.gd composites LOD tiles into the map layer with no debug visualisation of the tile grid.")
+	## Partly closed 2026-08-24 (register S4/PR-10). The **atlas cache** half is
+	## real now -- a persistent, per-world, on-disk tile pyramid with a bake, a
+	## status readout and a clear (WORLD ▸ Finalize, Preferences ▸ Memory ▸
+	## Clear caches, and the status bar's `atlas` slot). What this row still
+	## names honestly is §2.5's own *preference* controls over it and the two
+	## per-tile refinement passes, none of which exist.
+	_todo(p, "Tiled LOD · tile size · LOD level · chunk debug",
+		"The persistent atlas cache is LIVE as of 2026-08-24 -- bake it from WORLD -> Finalize, read it in the status bar, clear it from Memory -> Clear caches. What is still missing from SS2.5 is the preference surface over it: no auto/manual switch (#lodAutoChk), no tile-size or LOD-level choice here (the engine has atlas_set_tile_size(), nothing in Preferences calls it), and no Refine detail for the current view (#lodRefineBtn -- the engine has bake_visible(), likewise uncalled). The reference's two per-tile refinement passes, Burn rivers into tiles and Micro-erode tiles, still have no cartalith-engine equivalent: pyramid_tile() runs refine_tile + add_zoom_detail and neither burns channels nor erodes (its own doc comment lists both as deliberately unported). The chunk debug overlay (#lodDbgSeg grid / colors / off) and Show tile borders have no draw path.")
 	## PR-11, live. §2.5 asked for a depth control; the engine's bound is a
 	## **byte budget** rather than a step count, because one height field is
 	## 16 MB at 2048² and 256 MB at 8192² -- a flat "5 deep" would commit to
@@ -690,7 +697,11 @@ func _preferences(p: PopupMenu) -> void:
 	## `OS.get_static_memory_usage()`, the same source the menu bar's own
 	## `top_mem` readout already uses (`app.gd`'s `_wire_status()`).
 	_live(p, "Working set…", ID_PREF_WORKING_SET)
-	_todo(p, "Clear caches…", "No atlas or field cache exists yet to clear (Preferences ▸ Tiled LOD is itself not built).")
+	## PR-12, live 2026-08-24. There is now a real cache to clear: the
+	## persistent tile atlas (`bake_bridge.rs`), written by WORLD ▸ Finalize ▸
+	## Bake. Clearing un-finalizes too -- a lock protecting nothing would
+	## strand the world read-only for no reason.
+	_live(p, "Clear caches…", ID_PREF_CLEAR_CACHES)
 	p.add_separator()
 
 	## §2.5's Application group: "Storage locations… — Same modal as File."
@@ -1000,6 +1011,17 @@ func _on_preferences(id: int, p: PopupMenu) -> void:
 		return
 	if id == ID_PREF_WORKING_SET:
 		_host.open_performance()
+		return
+	if id == ID_PREF_CLEAR_CACHES:
+		var st: Dictionary = _bridge.atlas_status()
+		var freed := String(st.get("bytes_text", "0 B"))
+		var n := _bridge.atlas_clear()
+		var msg := "nothing baked for this world — no cache to clear"
+		if n > 0:
+			msg = "cleared %d baked chunk%s (%s)" % [n, "" if n == 1 else "s", freed]
+		_host.set_status("hint", msg, "text_dim")
+		if _host.has_method("refresh_atlas_status"):
+			_host.refresh_atlas_status()
 		return
 	if id != ID_PREF_GPU:
 		return

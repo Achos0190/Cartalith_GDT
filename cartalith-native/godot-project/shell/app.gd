@@ -1188,13 +1188,15 @@ func open_storage_locations() -> void:
 		DccWidgets.action(row, "Browse…", func(): _browse_root(key, readout))
 		body.add_child(row)
 		if key == "atlas_cache":
-			## §2.1: "Moving the atlas root invalidates the cache." No tile
-			## atlas/cache concept exists in this port yet (Preferences ▸
-			## Tiled LOD is itself still _todo, `menus.gd`), so there is
-			## nothing to invalidate -- said plainly rather than inventing
-			## cache-invalidation logic for a cache that isn't built.
+			## §2.1: "Moving the atlas root invalidates the cache." As of
+			## 2026-08-24 there is a real cache here -- the persistent tile
+			## atlas WORLD ▸ Finalize ▸ Bake writes (`bake_bridge.rs`), which
+			## `EngineBridge.atlas_ready()` points at exactly this root. Moving
+			## it does not delete anything: the chunks stay where they are and
+			## the new root simply starts empty, which is the honest behaviour
+			## and the one a browser cache pane has.
 			var cache_note := DccTheme.label(
-				"No tile atlas cache exists yet (Preferences ▸ Tiled LOD is not built) -- moving this root has nothing to invalidate.",
+				"The tile atlas baked by WORLD ▸ Finalize lives here. Moving this root leaves the existing chunks in place and starts the new location empty; clear the old one from Preferences ▸ Memory ▸ Clear caches before you move it if you want the space back.",
 				"text_ghost", DccTheme.FS_MICRO)
 			cache_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 			cache_note.custom_minimum_size.x = 560

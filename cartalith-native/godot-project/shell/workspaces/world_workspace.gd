@@ -110,6 +110,14 @@ var _sculpt_body: VBoxContainer
 var _paint_body: VBoxContainer
 var _stage_state_labels: Array = []  ## stage index -> the trailing state Label.
 
+## §5.1's Finalize foot (`GUI_GAP_REGISTER.md` WW-01). `_bake_depth` defaults
+## to 3 -- the reference's own `bakeAllDepth` default, and 85 tiles, which is
+## the deepest bake that finishes in a plausible interactive wait.
+var _bake_depth := 3
+var _bake_button: Button
+var _unfinalize_button: Button
+var _bake_status: Label
+
 ## The in-progress Sculpt stroke's captured points (grid-cell coords), tracked
 ## here in parallel with the engine the same way `GlobalTools._measure_points`
 ## tracks Measure's -- `sculpt_add_point` has no readback of its own, so the
@@ -287,10 +295,103 @@ func _build_pipeline(parent: Control) -> void:
 	DccWidgets.note(not_stage,
 		"GPU acceleration and multi-GPU → Preferences ▸ Performance. Render quality, lighting, 3D viewport → Preferences ▸ Graphics. Tiled LOD, atlas cache, chunk debug → Preferences ▸ Tiles & LOD. Terrain appearance, style presets, ramps → Cartography. Settlements, routes, politics → Civilization.")
 
+	_build_finalize(parent)
+
+## §5.1's dock foot — `GUI_GAP_REGISTER.md` **WW-01**, built 2026-08-24.
+##
+## The design canvas splits the reference's three controls cleanly (Bake depth ·
+## Bake ALL levels & finalize · Un-finalize) where the shell had compressed all
+## three into one disabled button; `GUI_GAP_REGISTER.md` §7's own note says to
+## take the canvas's three-row split when WW-01 is built, so that is what this
+## is.
+##
+## The depth row shows the tile count *before* the user commits, because depth 5
+## is 1365 tiles and finding that out by waiting is not an acceptable way to
+## learn it.
+func _build_finalize(parent: Control) -> void:
 	var foot := DccWidgets.section(parent, "Finalize")
-	var bake := DccWidgets.action(foot, "Finalize · LOD 0–3 · bake & freeze", func(): pass)
-	bake.disabled = true
-	bake.tooltip_text = "No bake pipeline exists: LOD tiles are synthesized on demand at deep zoom (lod_synthesize_tile, LOD_TILING_INTEGRATION_SCOPE.md) and never written anywhere, so there is no frozen atlas to bake into and no finalize-lock state to enter. Finalizing would lock stages 01-10 and Sculpt; there is nothing here to lock against yet."
+	_bake_status = DccWidgets.note(foot, "")
+
+	DccWidgets.choice(foot, "Bake depth", ["LOD 0–2", "LOD 0–3", "LOD 0–4", "LOD 0–5"],
+		_bake_depth - 2,
+		func(i: int):
+			_bake_depth = i + 2
+			_refresh_finalize(),
+		"How deep the pyramid is baked. Level z holds 2^z x 2^z tiles, so the total is (4^(depth+1)-1)/3 -- depth 3 is 85 tiles, depth 4 is 341, depth 5 is 1365. Already-baked chunks are skipped, so raising the depth later only fills the gaps.")
+
+	_bake_button = DccWidgets.action(foot, "Bake ALL levels & finalize", _on_bake_all, true)
+	_bake_button.tooltip_text = "Pre-render every tile of the pyramid to the on-disk atlas, then lock the world. Deep zoom then reads bytes instead of re-synthesising octaves. Already-baked chunks are skipped. This blocks the UI while it runs -- see the size and tile count above before committing."
+	_unfinalize_button = DccWidgets.action(foot, "Un-finalize", func():
+		bridge.set_finalized(false)
+		_refresh_finalize()
+		if app != null and app.has_method("refresh_atlas_status"):
+			app.refresh_atlas_status())
+	_unfinalize_button.tooltip_text = "Unlock the world for further generation and sculpting. The baked atlas is left on disk: re-finalizing needs no re-bake unless a generation parameter actually changed."
+
+	var clear := DccWidgets.action(foot, "Clear this world's atlas", func():
+		bridge.atlas_clear()
+		_refresh_finalize()
+		if app != null and app.has_method("refresh_atlas_status"):
+			app.refresh_atlas_status())
+	clear.tooltip_text = "Delete every baked chunk for this world (Preferences ▸ Memory ▸ Clear caches). Un-finalizes too: a lock protecting nothing would strand the world read-only for no reason."
+
+	_refresh_finalize()
+
+func _on_bake_all() -> void:
+	if bridge.is_finalized():
+		return
+	var est: Dictionary = bridge.bake_estimate(_bake_depth)
+	var remaining := int(est.get("remaining", 0))
+	_bake_button.disabled = true
+	_bake_button.text = "Baking %d tile%s…" % [remaining, "" if remaining == 1 else "s"]
+	## One frame so the button's own label actually paints before the
+	## synchronous bake blocks the main thread -- the bake is not threaded (see
+	## `bake_all`'s own doc comment in lib.rs), so this is the whole of the
+	## busy state the shell can honestly offer.
+	await get_tree().process_frame
+	var r: Dictionary = bridge.bake_all(_bake_depth)
+	_bake_button.text = "Bake ALL levels & finalize"
+	if not bool(r.get("ok", false)):
+		_bake_status.text = "Bake failed: %s" % String(r.get("error", "unknown"))
+		_refresh_finalize()
+		return
+	## Finalize only after a bake that actually put something in the atlas --
+	## `set_finalized(true)` refuses on an empty one anyway, and letting the
+	## button claim success on a no-op would be worse than the refusal.
+	bridge.set_finalized(true)
+	_refresh_finalize()
+	if app != null and app.has_method("refresh_atlas_status"):
+		app.refresh_atlas_status()
+	_bake_status.text = "Baked %d, skipped %d, in %.1fs. %s" % [
+		int(r.get("baked", 0)), int(r.get("skipped", 0)), float(r.get("seconds", 0.0)),
+		String(bridge.atlas_status().get("text", ""))]
+
+func _refresh_finalize() -> void:
+	if _bake_button == null:
+		return
+	var st: Dictionary = bridge.atlas_status()
+	var finalized := bool(st.get("finalized", false))
+	var has_world: bool = bridge.has_world
+	## The reference swaps the bake button for Un-finalize rather than showing
+	## both -- `applyFinalizedUI`'s own `display` toggles, line 10861-10864.
+	_bake_button.visible = not finalized
+	_unfinalize_button.visible = finalized
+	_bake_button.disabled = not has_world
+	var est: Dictionary = bridge.bake_estimate(_bake_depth)
+	if not has_world:
+		_bake_status.text = "No world yet: generate one before baking."
+	elif finalized:
+		_bake_status.text = "FINALIZED. %s Generation parameters and sculpting are locked; Cartography and the 3D view stay live." % String(st.get("text", ""))
+	else:
+		## The byte figure leads, because it is the one that binds: a depth-3
+		## bake of a 2048x1311 world at 1024 px tiles is 234 MiB (measured),
+		## and depth 5 at the same settings is about 3.7 GiB. A tile count
+		## alone reads as small and is not.
+		_bake_status.text = "%s Baking LOD 0–%d is %d tile%s of %d×%d px — about %s on disk (%d already baked)." % [
+			String(st.get("text", "")), _bake_depth, int(est.get("tiles", 0)),
+			"" if int(est.get("tiles", 0)) == 1 else "s",
+			int(est.get("tile_w", 0)), int(est.get("tile_h", 0)),
+			String(est.get("bytes_text", "?")), int(est.get("already_baked", 0))]
 
 func _build_stage(parent: Control, index: int) -> void:
 	var stage: Dictionary = STAGES[index]

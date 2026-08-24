@@ -18,6 +18,7 @@ use godot::init::{ExtensionLibrary, gdextension};
 use godot::prelude::*;
 
 mod asset_bridge;
+mod bake_bridge;
 mod civ_roster_bridge;
 mod civ_tools_bridge;
 mod geojson_bridge;
@@ -1666,6 +1667,17 @@ struct WorldGen {
     /// only by `stale_stages`, so the indicator does not claim "up to date"
     /// straight after a hand-dropped town.
     civ_dirty: bool,
+    /// The LOD tile-pyramid bake, its persistent atlas, and the finalize lock
+    /// (`GUI_GAP_REGISTER.md` WW-01/PR-10/S4/S5, SH-07's `atlas` slot). See
+    /// `bake_bridge.rs`'s own module doc.
+    ///
+    /// **Not reset by `absorb()`**, and that is the point rather than an
+    /// oversight: the atlas root is a machine-level preference and the atlas
+    /// itself is keyed by `atlas_world_key()`, so a regenerate simply moves to
+    /// a different key namespace and the previous world's chunks stay on disk,
+    /// intact, for a caller that regenerates back to the same parameters. What
+    /// *is* cleared there is `finalized` — see `absorb`.
+    bake: bake_bridge::BakeState,
 }
 
 #[godot_api]
@@ -1703,6 +1715,7 @@ impl IRefCounted for WorldGen {
             undo: undo::HeightUndo::new(),
             stages: pipeline_stage_graph(1),
             civ_dirty: false,
+            bake: bake_bridge::BakeState::new(),
         }
     }
 }
@@ -1893,6 +1906,17 @@ impl WorldGen {
         // grid cannot change size mid-session); this port's `generate_sized`
         // can, so it must. See `undo.rs`'s divergence list.
         self.undo.clear();
+        // The finalize lock is a statement about *this* world: "its atlas is
+        // baked and its parameters are frozen". A new world has no atlas, so
+        // it cannot be finalized, and carrying the flag across would lock a
+        // freshly generated world out of being edited for a bake it never
+        // had. The atlas *root* and *tile size* survive, being machine-level
+        // settings rather than world state -- see the `bake` field's own note.
+        //
+        // Nothing is deleted here. The previous world's chunks stay on disk
+        // under their own `atlas_world_key()`, so regenerating back to the
+        // same parameters finds them again rather than re-baking.
+        self.bake.finalized = false;
         self.source = Some(WorldSource::Generated(Box::new(ws)));
         self.seed = seed;
     }
@@ -2039,6 +2063,23 @@ impl WorldGen {
     /// recomputed here, because a slider writes on every drag tick.
     #[func]
     fn set_params(&mut self, values: VarDictionary) -> VarDictionary {
+        // Every row of this table is in the world key (`bake_bridge.rs`), so
+        // a finalized world rejects the whole write rather than half of it --
+        // a partial apply would leave the parameter state describing a world
+        // the atlas was not baked from, which is the exact condition the lock
+        // exists to prevent. `rejected` names every key, so the caller can
+        // report it the same way it reports a bad key.
+        if let Err(msg) = self.bake.check(cartalith_engine::bake::Mutation::Generation) {
+            godot_print!("cartalith-godot: set_params refused -- {msg}");
+            let mut out = VarDictionary::new();
+            let mut all: PackedStringArray = PackedStringArray::new();
+            for (k, _) in values.iter_shared() {
+                all.push(&GString::from(k.to_string().as_str()));
+            }
+            out.set("rejected", &all);
+            out.set("clamped", &PackedStringArray::new());
+            return out;
+        }
         let mut rejected: PackedStringArray = PackedStringArray::new();
         let mut clamped: PackedStringArray = PackedStringArray::new();
         for (k, v) in values.iter_shared() {
@@ -2471,8 +2512,17 @@ impl WorldGen {
     ///
     /// `reference_grid_height()` gives the shape the reference HTML app
     /// itself uses for a given working resolution.
+    /// **Refused while the world is finalized** (`applyFinalizedUI`, reference
+    /// line 10854): the baked atlas is keyed by the generation parameters, so
+    /// changing them would strand every chunk the user just paid minutes of
+    /// compute for. `finalize_check("generation")` is the same refusal as a
+    /// query, so the shell can grey the control and say why.
     #[func]
     fn generate_sized(&mut self, seed: i32, width_km: f64, grid_w: i32, grid_h: i32) {
+        if let Err(msg) = self.bake.check(cartalith_engine::bake::Mutation::Generation) {
+            godot_print!("cartalith-godot: generate refused -- {msg}");
+            return;
+        }
         let (gw, gh) = (grid_w.max(4) as usize, grid_h.max(4) as usize);
         let p = self.call_params(seed, width_km, gw, gh);
         let ws = generate_terrain(&p);
@@ -2944,6 +2994,10 @@ impl WorldGen {
         grid_h: i32,
         archetype: GString,
     ) -> bool {
+        if let Err(msg) = self.bake.check(cartalith_engine::bake::Mutation::Generation) {
+            godot_print!("cartalith-godot: generate refused -- {msg}");
+            return false;
+        }
         let Some(world_structure) = archetype_knobs(&archetype) else {
             godot_print!("cartalith-godot: unknown World-Structure archetype '{archetype}'");
             return false;
@@ -3015,6 +3069,12 @@ impl WorldGen {
     /// fail-quietly-check-the-console shape (`main.gd`'s doc comment).
     #[func]
     fn load_save(&mut self, path: GString) -> bool {
+        // Loading replaces the world outright, which is the most complete
+        // form of the change `Mutation::Generation` names.
+        if let Err(msg) = self.bake.check(cartalith_engine::bake::Mutation::Generation) {
+            godot_print!("cartalith-godot: load_save refused -- {msg}");
+            return false;
+        }
         let file = match std::fs::File::open(path.to_string()) {
             Ok(f) => f,
             Err(e) => {
@@ -4899,6 +4959,14 @@ impl WorldGen {
     /// fresh on every call regardless.
     #[func]
     fn sculpt_commit(&mut self, reason: GString) -> VarDictionary {
+        // The reference forces the sculpt editor read-only while finalized
+        // (`applyFinalizedUI`'s `_sculptNavSync` call, line 10869): the baked
+        // atlas is the authoritative surface, and an edit under it would show
+        // in the live view and vanish at the next zoom.
+        if let Err(msg) = self.bake.check(cartalith_engine::bake::Mutation::HeightEdit) {
+            godot_print!("cartalith-godot: sculpt_commit refused -- {msg}");
+            return VarDictionary::new();
+        }
         let sea_level = self.sea_level;
         let reason = reason.to_string();
         let (Some(sculpt), Some(WorldSource::Generated(ws))) = (self.sculpt.as_mut(), self.source.as_mut()) else {
@@ -6333,6 +6401,10 @@ impl WorldGen {
             detail_amp: get_num("detail_amp").unwrap_or(0.14),
             sea: self.sea_level,
             ridged: opts.get("ridged").and_then(|v| v.try_to::<bool>().ok()).unwrap_or(false),
+            // `z_base`/`zoom_detail_k` steer `add_zoom_detail`, which only the
+            // pyramid bake runs; a region export has no pyramid level, so the
+            // reference's own defaults are the only meaningful values here.
+            ..cartalith_terrain::amplify::AmplifyOpts::default()
         };
         let export_opts = cartalith_engine::region_export::RegionExportOpts {
             cols, rows, tile_size, amplify: &amplify, world: self.world, version: &version, gzip, visual,
@@ -6345,6 +6417,472 @@ impl WorldGen {
                 PackedByteArray::new()
             }
         }
+    }
+
+    // =======================================================================
+    // Bake / tile pyramid / persistent atlas / finalize
+    // (`GUI_GAP_REGISTER.md` WW-01, PR-10/S4, PR-12, S5, SH-07)
+    // =======================================================================
+
+    /// Where the atlas lives — a **real OS directory**, which the shell gets
+    /// from `ProjectSettings.globalize_path("user://atlas")`.
+    ///
+    /// Called once at startup. Until it is, every atlas operation below
+    /// reports "no cache directory set" rather than writing somewhere the user
+    /// did not choose. Creates the directory if it does not exist; `false`
+    /// (with a console line) if it cannot.
+    #[func]
+    fn atlas_set_root(&mut self, path: GString) -> bool {
+        let p = std::path::PathBuf::from(path.to_string());
+        if let Err(e) = std::fs::create_dir_all(&p) {
+            godot_print!("cartalith-godot: atlas_set_root({p:?}) failed: {e}");
+            return false;
+        }
+        self.bake.root = Some(p);
+        true
+    }
+
+    /// `worldKey()` (reference line 10703) — the current world's atlas
+    /// namespace, as lower-case hex.
+    ///
+    /// Empty before the first `generate()`/`load_save()`. **Changing any
+    /// generation parameter changes this**, which is the whole
+    /// cache-invalidation mechanism: see `bake_bridge.rs`'s own module doc for
+    /// exactly which parameters are in the hash and which are deliberately
+    /// out.
+    #[func]
+    fn atlas_world_key(&self) -> GString {
+        GString::from(self.world_key().as_str())
+    }
+
+    /// The reference's `_lodTile` (default 1024) — the pixel size a baked tile
+    /// is synthesised at. Part of the chunk key, so two tile sizes over one
+    /// world are two coexisting bakes rather than one invalidating the other.
+    ///
+    /// Clamped to `[64, 4096]`: below 64 the pyramid is more overhead than
+    /// data, and above 4096 a single level-6 bake would allocate more than any
+    /// target device has.
+    #[func]
+    fn atlas_set_tile_size(&mut self, px: i64) {
+        self.bake.tile_size = px.clamp(64, 4096) as usize;
+    }
+
+    #[func]
+    fn atlas_tile_size(&self) -> i64 {
+        self.bake.tile_size as i64
+    }
+
+    /// `updateAtlasStatus()` (reference line 10748) plus the two numbers it
+    /// does not report — `GUI_GAP_REGISTER.md` SH-07's `atlas` status slot.
+    ///
+    /// Keys: `chunks`, `bytes`, `bytes_text`, `deepest_level` (`-1` for an
+    /// empty atlas), `text`, `finalized`, `tile_size`, `world_key`, `root`.
+    #[func]
+    fn atlas_status(&self) -> VarDictionary {
+        let wk = self.world_key();
+        let st = bake_bridge::atlas_status(&self.bake, &wk);
+        let mut d = VarDictionary::new();
+        d.set("chunks", st.chunks as i64);
+        d.set("bytes", st.bytes as i64);
+        d.set("bytes_text", &GString::from(bake_bridge::human_bytes(st.bytes).as_str()));
+        d.set("deepest_level", st.deepest_level as i64);
+        d.set("text", &GString::from(st.text.as_str()));
+        d.set("finalized", self.bake.finalized);
+        d.set("tile_size", self.bake.tile_size as i64);
+        d.set("world_key", &GString::from(wk.as_str()));
+        d.set(
+            "root",
+            &GString::from(
+                self.bake
+                    .root
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default()
+                    .as_str(),
+            ),
+        );
+        d
+    }
+
+    /// What a bake of this depth would cost, **before** committing to it —
+    /// `GUI_GAP_REGISTER.md` WW-01's *"Bake depth"* row.
+    ///
+    /// Keys: `tiles`, `already_baked`, `remaining`, `seconds`, `bytes`,
+    /// `bytes_text`, `tile_w`, `tile_h`.
+    ///
+    /// **`bytes` is the one to show.** A depth-3 bake of a 2048×1311 world at
+    /// 1024 px tiles is 234 MiB, measured; depth 5 at the same settings is
+    /// about 3.7 GiB. `seconds` is deliberately crude by comparison — see
+    /// `bake_bridge::bake_estimate` for how each is arrived at.
+    #[func]
+    fn bake_estimate(&self, max_z: i64) -> VarDictionary {
+        // 19 ms/tile, measured at 1024 px on a 2048x1311 world
+        // (`bake_real_world.rs`). One number for one machine and one tile
+        // size, which is why the doc above calls the seconds figure crude.
+        let est = bake_bridge::bake_estimate(
+            max_z as i32,
+            self.gw.max(0) as usize,
+            self.gh.max(0) as usize,
+            self.bake.tile_size,
+            19.0,
+        );
+        let (tiles, secs) = (est.tiles, est.seconds);
+        let wk = self.world_key();
+        let done = self
+            .bake
+            .store()
+            .and_then(|s| s.keys_for_world(&wk).ok())
+            .map(|k| {
+                k.iter()
+                    .filter(|x| x.ts == self.bake.tile_size && (x.id.z as i64) <= max_z)
+                    .count()
+            })
+            .unwrap_or(0);
+        let mut d = VarDictionary::new();
+        d.set("tiles", tiles as i64);
+        d.set("already_baked", done as i64);
+        d.set("remaining", (tiles as i64 - done as i64).max(0));
+        d.set("seconds", secs);
+        d.set("bytes", est.total_bytes as i64);
+        d.set("bytes_text", &GString::from(bake_bridge::human_bytes(est.total_bytes).as_str()));
+        d.set("tile_w", est.tile_w as i64);
+        d.set("tile_h", est.tile_h as i64);
+        d
+    }
+
+    /// `bakeAllTiles(maxZ)` (reference line 10809) — bake every tile of every
+    /// level `0..=max_z` into the persistent atlas.
+    ///
+    /// **This is the expensive one.** Depth 3 is 85 tiles, depth 4 is 341,
+    /// depth 5 is 1365 — the reference's own numbers, and
+    /// `bake_estimate(max_z)` reports them before the user commits. Already-
+    /// baked chunks are skipped, so re-running after a partial bake only fills
+    /// the gaps.
+    ///
+    /// Synchronous. The reference yields to the browser event loop between
+    /// tiles; this runs the whole depth in one call (parallel across the tiles
+    /// of each level, `rayon`), so the shell must show a busy state around it.
+    /// A progress *signal* would need the call to be threaded, which is a
+    /// separate piece of work — `GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md`
+    /// covers the same question for `generate()` and it is not solved there
+    /// either.
+    ///
+    /// Keys: `ok`, `baked`, `skipped`, `failed`, `total`, `seconds`, `error`.
+    #[func]
+    fn bake_all(&mut self, max_z: i64) -> VarDictionary {
+        let ids: Vec<cartalith_spatial::pyramid::ChunkId> = Vec::new();
+        self.run_bake(max_z.clamp(0, bake_bridge::MAX_BAKE_DEPTH as i64) as i32, &ids)
+    }
+
+    /// `bakeVisibleTiles()` (reference line 10765) — bake just the tiles a
+    /// view rectangle touches, at one level.
+    ///
+    /// `x0`/`y0`/`x1`/`y1` are in **coarse grid cells**, which is what
+    /// `viewport_host.gd` already computes for its own deep-zoom compositor.
+    /// The camera stays in GDScript, where the camera is.
+    #[func]
+    fn bake_visible(&mut self, z: i64, x0: f64, y0: f64, x1: f64, y1: f64) -> VarDictionary {
+        let (gw, gh) = (self.gw as usize, self.gh as usize);
+        if gw == 0 || gh == 0 {
+            return bake_error("no world generated yet");
+        }
+        let t = cartalith_spatial::pyramid::tiles_in_view(z as i32, x0, y0, x1, y1, gw, gh);
+        let ids: Vec<cartalith_spatial::pyramid::ChunkId> = (t.r0..=t.r1)
+            .flat_map(|r| (t.c0..=t.c1).map(move |c| cartalith_spatial::pyramid::ChunkId::new(z.max(0) as u32, c, r)))
+            .collect();
+        self.run_bake(-1, &ids)
+    }
+
+    /// `atlasClearWorld(wk)` (reference line 10738) — throw away this world's
+    /// baked chunks. `GUI_GAP_REGISTER.md` PR-12's *Memory ▸ Clear caches…*.
+    ///
+    /// Returns how many chunks were removed. **Clears the finalize flag too**:
+    /// a finalized world with no atlas is a lock protecting nothing, and
+    /// leaving it set would strand the user in a read-only world they cannot
+    /// explain.
+    #[func]
+    fn atlas_clear(&mut self) -> i64 {
+        let wk = self.world_key();
+        let Some(store) = self.bake.store() else { return 0 };
+        match store.clear_world(&wk) {
+            Ok(n) => {
+                if n > 0 {
+                    self.bake.finalized = false;
+                }
+                n as i64
+            }
+            Err(e) => {
+                godot_print!("cartalith-godot: atlas_clear failed: {e}");
+                0
+            }
+        }
+    }
+
+    /// `atlasExportEntries` + `zipStore` (reference lines 10890/12009) — this
+    /// world's whole baked atlas as a portable `World/` archive.
+    ///
+    /// Empty `PackedByteArray` when nothing is baked, which is not an error.
+    /// `gzip` compresses each chunk's `rg16`; the PNGs are stored either way
+    /// (already DEFLATE'd internally, so re-compressing them is wasted CPU —
+    /// the reference's own `zipStore` note).
+    #[func]
+    fn atlas_export_zip(&self, gzip: bool) -> PackedByteArray {
+        let Some(store) = self.bake.store() else { return PackedByteArray::new() };
+        let wk = self.world_key();
+        let params = self.source.as_ref().map(|_| params::save_state(&self.params));
+        let Some((entries, _man)) = cartalith_engine::bake::atlas_export_entries(
+            &store,
+            &wk,
+            self.gw as usize,
+            self.gh as usize,
+            env!("CARGO_PKG_VERSION"),
+            0,
+            params,
+            gzip,
+        ) else {
+            return PackedByteArray::new();
+        };
+        let refs: Vec<(&str, &[u8])> =
+            entries.iter().map(|e| (e.name.as_str(), e.data.as_slice())).collect();
+        match cartalith_assets::zip_store_bytes(&refs) {
+            Ok(b) => PackedByteArray::from(b),
+            Err(e) => {
+                godot_print!("cartalith-godot: atlas_export_zip failed: {e}");
+                PackedByteArray::new()
+            }
+        }
+    }
+
+    /// `atlasImportEntries(zip)` (reference line 10910) — read a portable
+    /// `World/` archive into the store.
+    ///
+    /// The archive is filed under **its own** world key, not this session's:
+    /// an atlas describes the world it was baked from, and serving it as this
+    /// world's terrain would be silently wrong. `matches_current` says whether
+    /// the two happen to agree, which is what the shell needs to decide
+    /// between "loaded and live" and "loaded, but for a different world".
+    ///
+    /// Keys: `ok`, `chunks`, `world_key`, `matches_current`, `error`.
+    #[func]
+    fn atlas_import_zip(&mut self, bytes: PackedByteArray) -> VarDictionary {
+        let Some(store) = self.bake.store() else { return bake_error("no atlas root set") };
+        let raw = bytes.to_vec();
+        let entries =
+            match cartalith_assets::archive::read_pack_entries(std::io::Cursor::new(&raw)) {
+                Ok(e) => e,
+                Err(e) => return bake_error(&format!("unreadable archive: {e}")),
+            };
+        let lookup = |name: &str| entries.get(name).cloned();
+        match cartalith_engine::bake::atlas_import_entries(&store, &lookup) {
+            Ok((n, wk)) => {
+                let mut d = VarDictionary::new();
+                d.set("ok", true);
+                d.set("chunks", n as i64);
+                d.set("world_key", &GString::from(wk.as_str()));
+                d.set("matches_current", wk == self.world_key());
+                d.set("error", &GString::new());
+                d
+            }
+            Err(e) => bake_error(&e.to_string()),
+        }
+    }
+
+    /// One baked chunk's stored visual, as PNG bytes — the read side of the
+    /// cache, and the thing that makes a bake worth doing.
+    ///
+    /// Empty when the chunk was never baked, when the bake stored height only
+    /// (`visual: false`), or before any atlas root is set. A caller that gets
+    /// nothing back falls through to live synthesis, exactly as the reference's
+    /// `atlasLoadImg` (line 10752) does.
+    #[func]
+    fn atlas_tile_png(&self, z: i64, col: i64, row: i64) -> PackedByteArray {
+        let Some(store) = self.bake.store() else { return PackedByteArray::new() };
+        if z < 0 || col < 0 || row < 0 {
+            return PackedByteArray::new();
+        }
+        let id = cartalith_spatial::pyramid::ChunkId::new(z as u32, col as u32, row as u32);
+        match store.get(&self.world_key(), self.bake.tile_size, id) {
+            Ok(Some(c)) => c.png.map(PackedByteArray::from).unwrap_or_default(),
+            _ => PackedByteArray::new(),
+        }
+    }
+
+    /// Is a chunk (or any ancestor of it) baked? — `bakedCover` (reference
+    /// line 10715), the rule that stops the viewer refining beneath a baked
+    /// tile and stops the editor composing an edit into one.
+    #[func]
+    fn atlas_is_covered(&self, z: i64, col: i64, row: i64) -> bool {
+        let Some(store) = self.bake.store() else { return false };
+        if z < 0 || col < 0 || row < 0 {
+            return false;
+        }
+        let Ok(keys) = store.keys_for_world(&self.world_key()) else { return false };
+        cartalith_engine::bake::chunk_is_covered(
+            &keys,
+            self.bake.tile_size,
+            cartalith_spatial::pyramid::ChunkId::new(z as u32, col as u32, row as u32),
+        )
+    }
+
+    /// `setFinalized(on)` (reference line 10872).
+    ///
+    /// Finalizing **requires a non-empty atlas**: the lock exists to protect
+    /// baked work, and setting it with nothing baked would be a read-only
+    /// world protecting nothing. Un-finalizing always succeeds — it is the
+    /// escape hatch, and the reference's own v0.66 bug was letting the blanket
+    /// disable reach the Un-finalize button itself.
+    ///
+    /// Returns whether the flag now holds the requested value.
+    #[func]
+    fn set_finalized(&mut self, on: bool) -> bool {
+        if !on {
+            self.bake.finalized = false;
+            return true;
+        }
+        let wk = self.world_key();
+        let n = self
+            .bake
+            .store()
+            .and_then(|s| s.keys_for_world(&wk).ok())
+            .map(|k| k.len())
+            .unwrap_or(0);
+        if n == 0 {
+            godot_print!(
+                "cartalith-godot: refusing to finalize -- nothing is baked for world {wk}"
+            );
+            return false;
+        }
+        self.bake.finalized = true;
+        true
+    }
+
+    #[func]
+    fn is_finalized(&self) -> bool {
+        self.bake.finalized
+    }
+
+    /// May this kind of change proceed? — `applyFinalizedUI`'s rule
+    /// (reference line 10854) as a query, so GDScript can grey a control and
+    /// explain *why* with the same one sentence the engine would refuse with.
+    ///
+    /// `kind` is `"generation"`, `"height_edit"` or `"presentation"`. Returns
+    /// the empty string when allowed, or the message to show when not. An
+    /// unrecognised kind is treated as `"generation"` — the conservative
+    /// reading, since a caller naming something this port does not know about
+    /// is more likely to be mutating the world than styling it.
+    #[func]
+    fn finalize_check(&self, kind: GString) -> GString {
+        let m = match kind.to_string().as_str() {
+            "presentation" => cartalith_engine::bake::Mutation::Presentation,
+            "height_edit" => cartalith_engine::bake::Mutation::HeightEdit,
+            _ => cartalith_engine::bake::Mutation::Generation,
+        };
+        GString::from(self.bake.check(m).err().unwrap_or(""))
+    }
+}
+
+/// A failed bake/atlas call, in the shape every one of them returns.
+fn bake_error(msg: &str) -> VarDictionary {
+    let mut d = VarDictionary::new();
+    d.set("ok", false);
+    d.set("baked", 0i64);
+    d.set("skipped", 0i64);
+    d.set("failed", 0i64);
+    d.set("total", 0i64);
+    d.set("chunks", 0i64);
+    d.set("seconds", 0.0f64);
+    d.set("error", &GString::from(msg));
+    d
+}
+
+/// The non-`#[func]` half of the bake bridge.
+impl WorldGen {
+    /// `worldKey()`'s input and hash in one — see `bake_bridge.rs`'s module
+    /// doc for what is in the signature and what is deliberately left out.
+    ///
+    /// Empty before the first `generate()`/`load_save()`: a world with no
+    /// dimensions has no tiles to bake, and returning a hash of all-zeroes
+    /// would let two different empty sessions share an atlas namespace.
+    fn world_key(&self) -> String {
+        if self.gw <= 0 || self.gh <= 0 {
+            return String::new();
+        }
+        cartalith_io::world_key(&bake_bridge::world_key_signature(
+            self.gw,
+            self.gh,
+            self.seed,
+            self.map_width_km,
+            self.sea_level,
+            self.world,
+            params::save_state(&self.params),
+        ))
+    }
+
+    /// The body both `bake_all` and `bake_visible` share. `max_z >= 0` means
+    /// "the whole pyramid to this depth"; otherwise `ids` names the tiles.
+    ///
+    /// One implementation rather than two, deliberately: two bake loops that
+    /// could disagree about what a stored chunk contains would be the bug this
+    /// system is least able to detect from the outside.
+    fn run_bake(&mut self, max_z: i32, ids: &[cartalith_spatial::pyramid::ChunkId]) -> VarDictionary {
+        let Some(store) = self.bake.store() else { return bake_error("no atlas root set") };
+        let (gw, gh) = (self.gw as usize, self.gh as usize);
+        let field: Vec<f32> = match self.source.as_ref() {
+            Some(WorldSource::Generated(ws)) => ws.field.clone(),
+            Some(WorldSource::Loaded(save)) => save.fields.heightmap.clone(),
+            None => return bake_error("no world generated yet"),
+        };
+        if gw == 0 || gh == 0 || field.len() < gw * gh {
+            return bake_error("no world generated yet");
+        }
+        let wk = self.world_key();
+        // The tile visual uses this world's *current* appearance sun/exag, so
+        // a baked tile and a live one shade under the same light. `sea` comes
+        // from the world, never a caller guess -- `region_export_tiles`'s own
+        // convention.
+        let app = self.appearance();
+        let visual = Some(cartalith_engine::region_export::TileVisual {
+            sea: self.sea_level,
+            sun_az_deg: app.sun_az_deg,
+            exag: app.exag,
+        });
+        let amplify = cartalith_terrain::amplify::AmplifyOpts {
+            seed: self.seed,
+            sea: self.sea_level,
+            ..cartalith_terrain::amplify::AmplifyOpts::default()
+        };
+        let o = cartalith_engine::bake::BakeOpts {
+            world_key: &wk,
+            tile_size: self.bake.tile_size,
+            amplify: &amplify,
+            visual,
+            version: env!("CARGO_PKG_VERSION"),
+        };
+        let t0 = std::time::Instant::now();
+        let report = if max_z >= 0 {
+            cartalith_engine::bake::bake_all_tiles(&field, gw, gh, max_z, &store, &o, |_, _| {})
+        } else {
+            cartalith_engine::bake::bake_tiles(&field, gw, gh, ids, &store, &o, |_, _| {})
+        };
+        let secs = t0.elapsed().as_secs_f64();
+        godot_print!(
+            "cartalith-godot: bake {} baked, {} skipped, {} failed in {:.2}s (world {wk}, tile {}px)",
+            report.baked, report.skipped, report.failed, secs, self.bake.tile_size
+        );
+        let mut d = VarDictionary::new();
+        d.set("ok", report.failed == 0);
+        d.set("baked", report.baked as i64);
+        d.set("skipped", report.skipped as i64);
+        d.set("failed", report.failed as i64);
+        d.set("total", report.total() as i64);
+        d.set("seconds", secs);
+        let err = if report.failed > 0 {
+            format!("{} chunk(s) could not be written", report.failed)
+        } else {
+            String::new()
+        };
+        d.set("error", &GString::from(err.as_str()));
+        d
     }
 }
 

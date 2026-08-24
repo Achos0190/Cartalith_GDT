@@ -1186,6 +1186,131 @@ func clear_undo() -> void:
 		world_gen.clear_undo()
 
 
+# -- bake / tile pyramid / persistent atlas / finalize (bake_bridge.rs) --------
+#
+# `GUI_GAP_REGISTER.md` WW-01 (Finalize · bake & freeze), PR-10/S4 (atlas
+# cache), PR-12 (Clear caches), S5, SH-07 (the status bar's `atlas` slot).
+#
+# The atlas root is the one piece the engine cannot work out for itself:
+# `AtlasStore` wants a real OS directory and Godot's `user://` is not one.
+# Resolved once here, at first use rather than in `_ready()`, so a session that
+# never bakes never creates the directory.
+
+var atlas_api := false
+var _atlas_root_set := false
+
+## True once the engine has somewhere to put baked chunks. Idempotent.
+func atlas_ready() -> bool:
+	if _atlas_root_set:
+		return true
+	if not _has("atlas_set_root"):
+		return false
+	## `DccSettings`' own `atlas_cache` root, not a hardcoded `user://atlas`:
+	## it is already the right shape, already user-settable from
+	## File ▸ Storage locations, and `GUI_GAP_REGISTER.md` §7.7 item 3 already
+	## called it the root the cache should use when the cache shipped.
+	var dir := DccSettings.storage_root("atlas_cache")
+	_atlas_root_set = world_gen.atlas_set_root(dir)
+	if not _atlas_root_set:
+		push_warning("Cartalith: could not create the atlas cache directory at %s" % dir)
+	return _atlas_root_set
+
+## `chunks`, `bytes`, `bytes_text`, `deepest_level`, `text`, `finalized`,
+## `tile_size`, `world_key`, `root`. Never empty on a current cdylib -- an
+## unconfigured or empty atlas is reported in `text`, not by absence.
+func atlas_status() -> Dictionary:
+	if not _has("atlas_status"):
+		return {}
+	atlas_ready()
+	return world_gen.atlas_status()
+
+## What a bake to `max_z` would cost: `tiles`, `already_baked`, `remaining`,
+## `seconds`. Shown *before* the user commits, because depth 5 is 1365 tiles.
+func bake_estimate(max_z: int) -> Dictionary:
+	if not _has("bake_estimate"):
+		return {}
+	atlas_ready()
+	return world_gen.bake_estimate(max_z)
+
+## Bake every tile of every level 0..max_z. Synchronous and slow -- the caller
+## must show a busy state. Returns `ok`, `baked`, `skipped`, `failed`, `total`,
+## `seconds`, `error`.
+func bake_all(max_z: int) -> Dictionary:
+	if not _has("bake_all"):
+		return {"ok": false, "error": "this build has no bake_all()"}
+	if not atlas_ready():
+		return {"ok": false, "error": "no atlas cache directory"}
+	return world_gen.bake_all(max_z)
+
+## Bake just the tiles a view rectangle (in coarse grid cells) touches.
+func bake_visible(z: int, x0: float, y0: float, x1: float, y1: float) -> Dictionary:
+	if not _has("bake_visible"):
+		return {"ok": false, "error": "this build has no bake_visible()"}
+	if not atlas_ready():
+		return {"ok": false, "error": "no atlas cache directory"}
+	return world_gen.bake_visible(z, x0, y0, x1, y1)
+
+## Throw away this world's baked chunks; returns how many went. Clears the
+## finalize lock too -- a lock protecting nothing would strand the user.
+func atlas_clear() -> int:
+	if not _has("atlas_clear"):
+		return 0
+	atlas_ready()
+	return int(world_gen.atlas_clear())
+
+func atlas_export_zip(gzip: bool = true) -> PackedByteArray:
+	if not _has("atlas_export_zip"):
+		return PackedByteArray()
+	atlas_ready()
+	return world_gen.atlas_export_zip(gzip)
+
+func atlas_import_zip(bytes: PackedByteArray) -> Dictionary:
+	if not _has("atlas_import_zip"):
+		return {"ok": false, "error": "this build has no atlas_import_zip()"}
+	if not atlas_ready():
+		return {"ok": false, "error": "no atlas cache directory"}
+	return world_gen.atlas_import_zip(bytes)
+
+## One baked chunk's stored visual as PNG bytes, or empty when that chunk was
+## never baked -- in which case the caller falls through to live synthesis,
+## exactly as the reference's `atlasLoadImg` does.
+func atlas_tile_png(z: int, col: int, row: int) -> PackedByteArray:
+	if not _has("atlas_tile_png"):
+		return PackedByteArray()
+	atlas_ready()
+	return world_gen.atlas_tile_png(z, col, row)
+
+func atlas_tile_size() -> int:
+	if not _has("atlas_tile_size"):
+		return 1024
+	return int(world_gen.atlas_tile_size())
+
+func set_atlas_tile_size(px: int) -> void:
+	if _has("atlas_set_tile_size"):
+		world_gen.atlas_set_tile_size(px)
+
+func is_finalized() -> bool:
+	return _has("is_finalized") and world_gen.is_finalized()
+
+## Finalizing needs a non-empty atlas; un-finalizing always succeeds.
+func set_finalized(on: bool) -> bool:
+	if not _has("set_finalized"):
+		return false
+	var ok: bool = world_gen.set_finalized(on)
+	if ok:
+		finalize_changed.emit(on)
+	return ok
+
+## "" when the change may proceed, otherwise the sentence to show. `kind` is
+## `generation`, `height_edit` or `presentation`.
+func finalize_check(kind: String) -> String:
+	if not _has("finalize_check"):
+		return ""
+	return String(world_gen.finalize_check(kind))
+
+signal finalize_changed(on: bool)
+
+
 # icon_bridge.rs
 func icon_arm(family: String, variant: int, scale: float, rotation: float, jitter: float) -> bool:
 	if not _has("icon_arm"):
