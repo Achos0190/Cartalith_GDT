@@ -4563,3 +4563,50 @@ within a biome (measured p10 1.0003 → p90 1.61, with the slope term contributi
 a p50 of only 0.0014). A road across homogeneous flat ground *is* a straight
 line. Making it meander would mean changing the cost model, which is a
 `DECISIONS.md` conversation and not this fix.
+
+## 30 · MR-01, MR-02, MR-03 — the map overlay rasterised in the wrong space, twice, and gated on a moved baseline (2026-08-24) — **FIXED**
+
+Three owner reports against the live map:
+
+> 1. Settlement name text goes blurry quickly and doesn't scale.
+> 2. Minor settlements (villages/hamlets) are always visible instead of zoom-gated.
+> 3. Routes draw slightly see-through and blurry.
+
+| id | Symptom | Root cause | Fix |
+|---|---|---|---|
+| MR-01 | Settlement names blur within a notch or two of the default view, and grow with zoom instead of holding still | `draw_string`'s `font_size` is in `map_overlay.gd`'s **local** space, which `ViewportHost` then scales by `_camera.scale`. Godot re-scales a `CanvasItem`'s already-recorded draw commands rather than re-running them, so a glyph rasterised at 9 px is a 9 px bitmap stretched over 72 screen px at `ZOOM_MAX`. The `maxi(9, …)` floor (the reference's own `Math.max(9, sz+lsc)`) also defeated `_civ_zoom_k()`'s size compensation, because `sc` at this viewport is 0.63 and `radius + sc` never reaches 9 — so the label was pinned at 9 *local* px and its on-screen size became `9 × zoom` | `_crisp_begin()`/`_crisp_end()` — a `draw_set_transform` of `1/zoom` inside which every coordinate and size is a **screen** pixel. The glyph and name are measured, rasterised and drawn at their final on-screen size, so both are crisp and constant across the whole 0.4-8.0 range |
+| MR-02 | Villages and 209 hamlets drawn full-size, with pins and names, on a map that had never been zoomed | Two causes, one dominant. **(a)** `lib.rs` folds `civ_seed_villages`' output into the settlement roster as plain `Hamlet`s, disclosing the choice as *"a village renders exactly like any other hamlet, which is what the reference's own hamlet-tier tagging for these already implies."* The reference does the opposite: it tags them `villageAddon` **so the renderer will not treat them as hamlets**, gates them at `CIV_VILLAGE_ADDON_LOD = 2.4` rather than `CIV_LOD_PLACE.hamlet = 1.4`, and hides them **outright** with no dot fallback — its own comment names the complaint ("waay too populated") the constant exists for. Measured: **200 of 209 hamlets are addon villages**, against 24 real settlements. And the shell defaults `villages` to `true` where the reference defaults it `false`. **(b)** `_settlement_below_lod` compared `SETTLEMENT_LOD` against the raw `_camera_zoom`, whose meaning moved on 2026-08-23 when `reset_view()` became the reference's **cover** scale: cover is `>= 1` by construction and window-shaped, so the same world opens at `z = 1.04` in one dock layout and `1.36` in another, and every threshold under 1.4 could be satisfied by the opening view alone | **(a)** `VILLAGE_ADDON_LOD = 2.4`, and an addon village below it draws nothing and is not hit-testable (the reference's `_civPlacePickVisible` excludes a still-hidden addon from picking too). **(b)** the thresholds are compared against zoom **normalised by `_lod_zoom_base()`**, re-derived from this control's own geometry, so `1.0` means "the view a world opens at" on every window shape. Measured at the default view: **33 places drawn instead of 233** |
+| MR-03 | A committed route reads as a wide, translucent, blurred band rather than the reference's dark-underlay-plus-dashed-amber | Same space error as MR-01, in the other primitive. The reference multiplies **every** way and journey `lineWidth` and dash length by `rsc` (line 15470, `max(1,GW/512)*_civZoomK()*_civWayScale()`); the port dropped the term. A width fixed in local space is scaled by the camera **together with its antialiasing fringe** — at zoom 8 the 1.5 px amber dash is 12 px wide with ~8 px of soft fringe on each side, which is exactly "see-through and blurry". Ways and sea lanes had it too; routes are simply the layer whose alpha (`.5`/`.85`) makes it obvious | The three linear layers draw inside `_crisp_begin()`, so every width and dash constant in the file is now read as screen pixels and the AA fringe is generated at screen resolution. `ROAD_WIDTH_BY_TYPE`'s 1.6 is 1.6 px of road at any zoom |
+
+**Not one common cause, but not three either.** MR-01 and MR-03 are the same
+bug in two primitives — a quantity that must be screen-space computed in the
+overlay's local space, which the camera transform then magnifies along with its
+rasterisation. They share one fix. MR-02 is independent of both.
+
+**Verified live, non-headlessly**, 1600 × 1000 and 2400 × 800 windows, seed
+483920 over a 384 × 288 world with all six tiers present and one committed
+2,070 km route, captured at the reset view and at 1.5×, 3× and 5.9× it. Before:
+labels stretched to 54 px of bitmap mush, 233 places drawn at the default view,
+the route a soft amber smear. After: labels crisp at every zoom, 33 places at
+the default view with addons revealing at 2.4×, the route a thin dashed line
+over its dark underlay. Headless boot and `smoke_test.gd` clean.
+
+**Left open.** `VILLAGE_ADDON_POP` identifies an addon village by its
+unconditional `pop: 0` — exact for the default pipeline (the smallest base tier
+floors at `round(120 × 0.7 × 0.8) = 67`), and documented as such in both
+`VillageSettlement` and `lib.rs`. It is still a proxy for a flag the engine
+already keeps: `CivData::village_tids`, sitting beside the `tid` that
+`get_settlements()` already emits. Exposing it is one line in `get_settlements()`
+and would retire the proxy; not taken here because `crates/cartalith-godot/
+src/lib.rs` was under concurrent edit. One case degrades until then — with the
+static post-collapse recovery phase enabled, `civ_apply_recovery` floors every
+population at 8, so an addon village stops reporting 0 and is drawn as an
+ordinary hamlet. That is today's behaviour, so the degradation is "no
+improvement", never a place wrongly hidden.
+
+**Also noted, not changed.** `engine_bridge.gd` defaults `villages` to `true`
+(`request.get("villages", true)`) where the reference's `_civVillages` is
+`false`, *"OFF by default ⇒ auto-populate output bit-identical"*. Every world
+this shell generates therefore carries the additive layer. That is a generation
+default, not a rendering defect, and changing it changes what is generated —
+`DECISIONS.md` territory, raised rather than taken.

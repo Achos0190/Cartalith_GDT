@@ -23927,3 +23927,70 @@ clean. **Left open and registered**: `get_sea_routes()` and the Route tool's
 committed routes have the same chord geometry and want the same three lines,
 deferred only because `map_overlay.gd`'s route rendering was being edited in
 parallel this round.
+
+## The map overlay rasterised in the wrong space, twice (2026-08-24) — `GUI_GAP_REGISTER.md` §30
+
+Three owner reports against the live map: settlement names *"go blurry quickly
+and don't scale"*, minor settlements are *"always visible instead of
+zoom-gated"*, routes draw *"slightly see-through and blurry"*. Two of the three
+turned out to be one bug.
+
+**`ViewportHost` scales this control, and Godot does not re-run a
+`CanvasItem`'s draw commands when an ancestor's `scale` changes — it re-scales
+the geometry those commands already produced.** So a `font_size` and a
+`draw_polyline` width, both expressed in the overlay's own local pixels, are
+magnified *along with their rasterisation*: at `ZOOM_MAX` a 9 px glyph is a 9 px
+bitmap stretched over 72 screen px, and a 1.5 px antialiased line is 12 px wide
+with ~8 px of soft fringe on each side. That is the blur in report 1 and the
+"see-through" in report 3, and it is the same defect in two primitives.
+
+`_civ_zoom_k()` already fixes the *size* half of this and could never have
+fixed the *resolution* half. Worse, the label's `maxi(9, …)` floor — faithfully
+ported from the reference's own `Math.max(9, sz+lsc)` — defeated even the size
+half: `sc` at a typical viewport is 0.63, `radius + sc` never reaches 9, so the
+label sat pinned at 9 **local** px and its on-screen size became `9 × zoom`.
+Constant-on-screen pins with labels growing linearly beside them is exactly
+"doesn't scale".
+
+The fix is one mechanism, `_crisp_begin()`/`_crisp_end()`: a `draw_set_transform`
+of `1/zoom` inside which every coordinate and every size is a **screen** pixel.
+Text is measured, rasterised and drawn at its final on-screen size; the three
+linear layers build their strokes and their antialiasing at screen resolution,
+which also restores the reference's `rsc` (line 15470) that every way and
+journey `lineWidth` there is multiplied by and this port had dropped.
+
+**The third report was independent, and its dominant cause was a disclosed
+porting inference that does not hold.** `lib.rs` folds `civ_seed_villages`'
+output into the roster as plain `Hamlet`s, on the reasoning that *"a village
+renders exactly like any other hamlet, which is what the reference's own
+hamlet-tier tagging for these already implies"*. The reference tags them
+`villageAddon` **so the renderer will not treat them as hamlets**: they gate at
+`CIV_VILLAGE_ADDON_LOD = 2.4`, not `CIV_LOD_PLACE.hamlet = 1.4`, and below it
+they are hidden outright with no dot fallback — the constant's own comment names
+the complaint ("waay too populated") it exists for. Measured on the shell's
+default world: **200 of 209 hamlets are addon villages**, against 24 real
+settlements, and the shell defaults `villages` to `true` where the reference
+defaults it `false`.
+
+A second, smaller cause sat underneath: `SETTLEMENT_LOD` was compared against
+the raw `_camera_zoom`, whose meaning moved on 2026-08-23 when `reset_view()`
+became the reference's **cover** scale. Cover is `>= 1` by construction and
+window-shaped — the same world opens at `z = 1.04` in one dock layout and `1.36`
+in another — so a threshold's meaning depended on the window. Both are fixed:
+addon villages gate at 2.4 and are neither drawn nor pickable below it, and every
+threshold is now compared against zoom normalised by `_lod_zoom_base()`, so `1.0`
+means "the view a world opens at" on any window shape.
+
+**Verified live, non-headlessly** at 1600 × 1000 and 2400 × 800, seed 483920 over
+384 × 288 with all six tiers and one committed 2,070 km route, captured at the
+reset view and at 1.5×, 3× and 5.9× it. Before: 54 px of stretched bitmap text,
+233 places drawn at the default view, the route a soft amber band. After: crisp
+text at every zoom, 33 places at the default view with the addon layer revealing
+at 2.4×, the route a thin dashed line over its dark underlay. Headless boot and
+`smoke_test.gd` clean; one file changed.
+
+**Left open and registered.** An addon village is identified by its
+unconditional `pop: 0` — exact for the default pipeline, and a proxy for
+`CivData::village_tids`, which the engine already keeps beside the `tid`
+`get_settlements()` already emits. Exposing it is one line; not taken because
+`crates/cartalith-godot/src/lib.rs` was under concurrent edit this round.

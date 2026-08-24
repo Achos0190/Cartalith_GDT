@@ -82,6 +82,43 @@ const SETTLEMENT_LOD := {
 	"village": 0.7,
 	"hamlet":  1.4,
 }
+## `CIV_VILLAGE_ADDON_LOD` (reference line 6446) -- the threshold for the
+## *additive* village layer the `villages` generation flag produces, which the
+## reference gates separately from `CIV_LOD_PLACE` and, uniquely, hides
+## **outright** below it: "Below it the pin is fully hidden (not the small-dot
+## fallback other kinds get) -- the whole point is to keep the low-zoom map
+## uncluttered." Its own comment names the complaint it was written for
+## ("waay too populated") and the previous value it was raised from (2.0).
+##
+## The port had no equivalent: `lib.rs` folds `civ_seed_villages`' output into
+## the settlement roster as plain `Hamlet`s ("a village renders exactly like
+## any other hamlet, which is what the reference's own hamlet-tier tagging for
+## these already implies") and so drew every one of them under
+## `SETTLEMENT_LOD.hamlet` with a dot fallback. That inference is the one place
+## it does not hold -- the reference tags them `villageAddon` precisely so the
+## renderer will *not* treat them as hamlets. Measured on the shell's own
+## default world (the shell defaults `villages` to true, where the reference
+## defaults it false): 209 addon villages against 24 real settlements, all 209
+## drawn full-size with pins and names from 1.4x zoom. That is the owner's
+## "minor settlements are always visible" (2026-08-24).
+const VILLAGE_ADDON_LOD := 2.4
+## An addon village's only signature in `get_settlements()`: `lib.rs` gives it
+## an unconditional `pop: 0` (its own comment, and `VillageSettlement`'s in
+## `cartalith-civ`), while every base settlement goes through
+## `name_and_populate_settlements`' suitability formula, whose floor for the
+## smallest tier is `round(120 * 0.7 * 0.8) = 67`. Exact, not heuristic, for
+## the default pipeline.
+##
+## It is a proxy nonetheless, and the honest fix is to expose the flag the
+## engine already keeps (`CivData::village_tids`, alongside the `tid` this
+## dictionary already carries) -- registered in `GUI_GAP_REGISTER.md`. One case
+## degrades until then: with the static post-collapse recovery phase enabled,
+## `civ_apply_recovery` floors every population at 8, so an addon village stops
+## reporting 0 and falls back to being drawn as an ordinary hamlet. That is
+## today's behaviour, so the degradation is "no improvement", never a place
+## wrongly hidden.
+const VILLAGE_ADDON_POP := 0
+
 ## Reference's own low-zoom fallback dot (line 15752-15756):
 ## `dr=(isPoi?1.4:1.9)*lsc` plus a `+0.6*lsc` dark outline ring -- `lsc`
 ## there is this file's own per-frame `sc`.
@@ -426,6 +463,71 @@ func set_camera_zoom(z: float) -> void:
 func _civ_zoom_k() -> float:
 	return 1.0 / clampf(_camera_zoom, 0.35, 5.0)
 
+
+## ── Rasterising at screen resolution, not control resolution ────────────────
+##
+## `_civ_zoom_k()` above fixes the *size* half of the camera-scale problem: a
+## quantity multiplied by it comes out the same number of screen pixels at any
+## zoom. It cannot fix the *resolution* half. `ViewportHost` scales this whole
+## control (`_camera.scale`), and Godot does not re-run a `CanvasItem`'s draw
+## commands when an ancestor's scale changes -- it rescales the geometry those
+## commands already produced. A glyph is rasterised into the font atlas at the
+## `font_size` passed to `draw_string`, in THIS control's own local pixels, and
+## an antialiased `draw_polyline`/`draw_line` builds its feathered edge in the
+## same local units. Magnify either by `_camera.scale` and you magnify the
+## rasterisation with it: at zoom 8 a 9 px glyph is a 9 px bitmap stretched over
+## 72 screen pixels, and a 1.5 px line's ~1 px antialiasing fringe becomes an
+## 8 px translucent smear on each side. Both were reported live (2026-08-24,
+## owner: settlement names "go blurry quickly", routes "slightly see-through
+## and blurry") and both reproduced exactly at z=2/z=4/z=8.
+##
+## The fix is to generate the geometry at final screen resolution and then
+## divide it back down, so the camera's own multiply lands on 1:1 pixels:
+## inside `_crisp_begin()`/`_crisp_end()` every coordinate and every size is in
+## **screen** pixels, and `_crisp_begin()` returns the `k` that converts this
+## control's local pixels into them. A 12-screen-px label is rasterised at 12
+## and drawn at 12, at every zoom in the range.
+##
+## Not applied to the pin discs themselves: they are a few pixels across, their
+## softening is not what was reported, and `_draw()`'s settlement loop would
+## have to enter and leave the transform per primitive. Deliberately scoped to
+## the text and the linear layers, which is where the defect is visible.
+func _crisp_begin() -> float:
+	var k := maxf(_camera_zoom, 0.001)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0 / k, 1.0 / k))
+	return k
+
+
+func _crisp_end() -> void:
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+## The camera zoom the *default* view sits at, which is what `SETTLEMENT_LOD`'s
+## thresholds are calibrated against -- `1.0` there means "the zoom you get on
+## opening a world", the same thing the reference's own `viewT.scale == 1` means
+## for `CIV_LOD_PLACE`.
+##
+## `_camera_zoom` stopped being that number on 2026-08-23, when `ViewportHost.
+## reset_view()` changed from plain fit (`_zoom = 1`) to the reference's **cover**
+## scale (owner decision, recorded in that function). Cover is `max(1, size /
+## displayed_rect_size)` and so is `>= 1` by construction and window-shaped: the
+## same freshly-generated world opens at `z = 1.36` in one dock layout and above
+## `1.4` in a wider one. Every threshold below `1.4` was therefore satisfied by
+## the opening view alone, which is exactly the regression the owner reported --
+## villages and 209 hamlets drawn full-size, with pins and names, on a map that
+## had never been zoomed (reproduced live: `z=1.00 hamlet gated`, `z=2.00
+## hamlet NOT gated`, and reset itself already at 1.357).
+##
+## Re-derived here from this control's own geometry rather than pushed in from
+## `reset_view()`: same formula, no second copy of the state to go stale on a
+## window resize, and no second file to edit. The `8.0` ceiling is
+## `ViewportHost.ZOOM_MAX`, which `reset_view()` clamps to as well.
+func _lod_zoom_base() -> float:
+	var rect := _displayed_rect()
+	if rect.size.x <= 0.0 or rect.size.y <= 0.0 or size.x <= 0.0 or size.y <= 0.0:
+		return 1.0
+	return clampf(maxf(size.x / rect.size.x, size.y / rect.size.y), 1.0, 8.0)
+
 ## §4.5.5's Icon and Label tools place these; `bridge.icon_list()`/
 ## `bridge.label_list()` are this data's only source, both already bound
 ## (`icon_bridge.rs`/`label_bridge.rs`) and both wrapped in `engine_bridge.gd`.
@@ -615,14 +717,26 @@ func _point_to_screen(p: Vector2, rect: Rect2) -> Vector2:
 	return rect.position + Vector2(p.x / _gw, p.y / _gh) * rect.size
 
 
-## True below `kind`'s own `SETTLEMENT_LOD` threshold -- the raw camera
-## zoom, not `_civ_zoom_k()`'s clamped/inverted screen-size compensation,
-## matching the reference's own `zoom<lodMin` test (`zoom` there is
-## `_civZoomRaw()`, the un-clamped `viewT.scale`). An unrecognised kind
-## defaults to `0.5` (town/village straddle), same fallback
-## `CIV_LOD_PLACE[p.kind]!=null?...:0.5` uses in the reference.
+## True below `kind`'s own `SETTLEMENT_LOD` threshold -- the camera zoom, not
+## `_civ_zoom_k()`'s clamped/inverted screen-size compensation, matching the
+## reference's own `zoom<lodMin` test (`zoom` there is `_civZoomRaw()`, the
+## un-clamped `viewT.scale`). An unrecognised kind defaults to `0.5`
+## (town/village straddle), same fallback `CIV_LOD_PLACE[p.kind]!=null?...:0.5`
+## uses in the reference.
+## `_camera_zoom` normalised by `_lod_zoom_base()` -- see that function for why
+## the raw camera scale stopped being the right number to compare.
 func _settlement_below_lod(kind: String) -> bool:
-	return _camera_zoom < float(SETTLEMENT_LOD.get(kind, 0.5))
+	return (_camera_zoom / _lod_zoom_base()) < float(SETTLEMENT_LOD.get(kind, 0.5))
+
+
+## True for an addon village still below `VILLAGE_ADDON_LOD` -- drawn as
+## nothing at all, and (per the reference's `_civPlacePickVisible`, which
+## excludes a still-hidden addon from picking) not hit-testable either, so a
+## click cannot select a place that is not on the map.
+func _settlement_hidden(s: Dictionary) -> bool:
+	if s["kind"] != "hamlet" or int(s.get("population", 1)) != VILLAGE_ADDON_POP:
+		return false
+	return (_camera_zoom / _lod_zoom_base()) < VILLAGE_ADDON_LOD
 
 
 ## `(4+klass.rank)*sc` -- the reference's own settlement-pin size formula
@@ -779,6 +893,9 @@ func _draw() -> void:
 		## below it too, exactly like the reference's own `sc` feeds icon,
 		## way and label sizing from one shared value (reference line 15165).
 		var sc: float = (rect.size.x / PIN_SCALE_REF_PX) * _civ_zoom_k()
+		## Local px -> screen px for this frame's text, hoisted out of the loop
+		## because it cannot change inside one `_draw()`. See `_crisp_begin()`.
+		var k := maxf(_camera_zoom, 0.001)
 		var font := get_theme_default_font()
 		# Trait badges (§4.5.3's own reference behaviour, `_civDrawTraitBadges`,
 		# reference line 15101) are a disclosed gap, not an oversight: `get_
@@ -818,6 +935,11 @@ func _draw() -> void:
 			## costs nothing and, more importantly, never reserves label
 			## occupancy that a *visible* place would then be pushed out of.
 			if _hidden_settlement_kinds.has(s["kind"]):
+				continue
+			## Tested in the same place and for the same reason as the class
+			## filter above: an addon village below its own threshold draws
+			## nothing, so it must not reserve label occupancy either.
+			if _settlement_hidden(s):
 				continue
 			## The reference's `_umRevealedSet` (line 22753): a place whose own
 			## generated layout was actually drawn this frame gives up its pin
@@ -896,20 +1018,34 @@ func _draw() -> void:
 			# Godot's own tofu/replacement glyph is, same disclosed limitation
 			# `_draw_labels`' own doc comment already accepts for `font` (no
 			# web-font fallback chain exists in Godot either).
+			#
+			# Sized and rasterised in SCREEN pixels (`_crisp_begin()`): the
+			# reference's `max(9, ...)` floor -- and the `8` here -- are canvas
+			# pixels at `viewT.scale == 1`, i.e. on-screen pixels, and applying
+			# them in this control's local space instead is what made both the
+			# glyph and the name below grow linearly with camera zoom while the
+			# pin under them correctly held still. `radius`/`sc` are local, so
+			# they convert with `* k`.
 			var glyph: String = klass["glyph"]
-			var glyph_px: int = maxi(8, int(radius + 2.0 * sc))
+			_crisp_begin()
+			var glyph_px: int = maxi(8, int((radius + 2.0 * sc) * k))
 			var glyph_w := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px).x
 			var glyph_v_center: float = (font.get_ascent(glyph_px) - font.get_descent(glyph_px)) / 2.0
-			draw_string(font, pos + Vector2(-glyph_w / 2.0, glyph_v_center), glyph,
+			draw_string(font, pos * k + Vector2(-glyph_w / 2.0, glyph_v_center), glyph,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, glyph_px, Color.WHITE)
+			_crisp_end()
 
 			# Auto-placed name label -- see this block's own top comment for
 			# the simplified-occupancy-set reasoning.
 			var name: String = s.get("name", "")
 			if not name.is_empty():
-				var label_px: int = maxi(9, int(radius + sc))
-				var lw := font.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px).x
-				var lh := float(label_px) * 1.3
+				# `label_px` and the measured `lw`/`lh` are screen pixels (see
+				# the glyph's own note above); the candidate boxes and the
+				# occupancy set stay in this control's local space, so both
+				# come back through `/ k`.
+				var label_px: int = maxi(9, int((radius + sc) * k))
+				var lw := font.get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px).x / k
+				var lh := float(label_px) * 1.3 / k
 				for box in _settlement_label_candidates(pos, radius, sc, lw, lh):
 					var fits := true
 					for occ in occupied:
@@ -920,10 +1056,12 @@ func _draw() -> void:
 						continue
 					occupied.append(box)
 					var v_center: float = (font.get_ascent(label_px) - font.get_descent(label_px)) / 2.0
-					var draw_pos := Vector2(box.position.x, box.position.y + box.size.y / 2.0 + v_center)
-					var outline_w: int = maxi(1, int(2.5 * sc))
+					var draw_pos := Vector2(box.position.x, box.position.y + box.size.y / 2.0) * k + Vector2(0.0, v_center)
+					var outline_w: int = maxi(1, int(2.5 * sc * k))
+					_crisp_begin()
 					draw_string_outline(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, outline_w, LABEL_STROKE_COLOR)
 					draw_string(font, draw_pos, name, HORIZONTAL_ALIGNMENT_LEFT, -1, label_px, SETTLEMENT_LABEL_FILL)
+					_crisp_end()
 					break
 
 		if _hover_index >= 0 and _hover_index < _settlements.size():
@@ -1036,17 +1174,46 @@ func _label_font_px(lb: Dictionary, rect: Rect2) -> int:
 	return int(clampf(px, LABEL_FONT_PX_MIN, LABEL_FONT_PX_MAX))
 
 
+## Every linear layer's own points, in **screen** pixels ready for a
+## `_crisp_begin()` block: `_point_to_screen` gives this control's local space,
+## and `* k` is the last step into the space the stroke must be built in. One
+## place rather than three identical loops.
+func _stroke_points(points: PackedVector2Array, start: int, end: int, rect: Rect2, k: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	out.resize(end - start)
+	for i in range(start, end):
+		out[i - start] = _point_to_screen(points[i], rect) * k
+	return out
+
+
 ## Draws `points[start:end]` (exclusive) as one stroke, converted to
 ## screen space. `end - start < 2` is a real, legitimate no-op (a run with
 ## a single point either side of a break contributes nothing to draw).
+##
+## Drawn inside `_crisp_begin()`, which restores the reference's `rsc` (line
+## 15470, `max(1,GW/512)*_civZoomK()*_civWayScale()`) -- the factor every way
+## and journey `lineWidth` in `drawCivLayer` is multiplied by, and which this
+## port dropped on the way in. Every width constant in this file is therefore
+## read as **screen** pixels: `ROAD_WIDTH_BY_TYPE`'s 1.6 is 1.6 px of road at
+## any zoom, where before it was 1.6 px of *this control*, which the camera
+## then scaled to 12.8 on screen at zoom 8 and stretched the antialiasing
+## fringe with it.
+##
+## Two deliberate differences from `rsc`. The resolution half (`max(1,GW/512)`)
+## is not taken: it exists so a bigger working canvas gets proportionally
+## heavier strokes, and this port's raster is fit to the control rather than
+## drawn at grid resolution, so it has no counterpart here (the same reasoning
+## `PIN_SCALE_REF_PX`'s doc comment already records for pins). And the zoom
+## term is unclamped, where `_civZoomK()` clamps to 0.35-5.0 -- that clamp is a
+## readability bound for *pins*, which must not vanish; a way that stayed 1.6
+## screen px past zoom 5 and one that crept to 2.6 are equally legible, and
+## exactly constant is the simpler contract.
 func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2, width: float) -> void:
 	if end - start < 2:
 		return
-	var screen_points := PackedVector2Array()
-	screen_points.resize(end - start)
-	for i in range(start, end):
-		screen_points[i - start] = _point_to_screen(points[i], rect)
-	draw_polyline(screen_points, ROAD_COLOR, width, true)
+	var k := _crisp_begin()
+	draw_polyline(_stroke_points(points, start, end, rect, k), ROAD_COLOR, width, true)
+	_crisp_end()
 
 
 ## Sea lane, reference's own two-pass style (reference HTML line ~15511):
@@ -1062,12 +1229,11 @@ func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: R
 func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2) -> void:
 	if end - start < 2:
 		return
-	var screen_points := PackedVector2Array()
-	screen_points.resize(end - start)
-	for i in range(start, end):
-		screen_points[i - start] = _point_to_screen(points[i], rect)
+	var k := _crisp_begin()   ## Widths and dash lengths in screen px -- see `_draw_way_segment`.
+	var screen_points := _stroke_points(points, start, end, rect, k)
 	draw_polyline(screen_points, SEA_ROUTE_UNDERLAY, SEA_ROUTE_UNDERLAY_WIDTH, true)
 	_draw_dashed_polyline(screen_points, SEA_ROUTE_DASH_COLOR, SEA_ROUTE_DASH_WIDTH, SEA_ROUTE_DASH_LENGTH)
+	_crisp_end()
 
 
 ## One committed Route-tool route, `points[start:end]` (exclusive). The
@@ -1080,16 +1246,15 @@ func _draw_manual_route_segment(points: PackedVector2Array, start: int, end: int
 		sel: bool = false) -> void:
 	if end - start < 2:
 		return
-	var screen_points := PackedVector2Array()
-	screen_points.resize(end - start)
-	for i in range(start, end):
-		screen_points[i - start] = _point_to_screen(points[i], rect)
+	var k := _crisp_begin()   ## Widths and dash lengths in screen px -- see `_draw_way_segment`.
+	var screen_points := _stroke_points(points, start, end, rect, k)
 	draw_polyline(screen_points, MANUAL_ROUTE_UNDERLAY,
 		MANUAL_ROUTE_SEL_UNDERLAY_WIDTH if sel else MANUAL_ROUTE_UNDERLAY_WIDTH, true)
 	_draw_dashed_polyline(screen_points,
 		MANUAL_ROUTE_SEL_COLOR if sel else MANUAL_ROUTE_COLOR,
 		MANUAL_ROUTE_SEL_WIDTH if sel else MANUAL_ROUTE_WIDTH,
 		MANUAL_ROUTE_DASH, MANUAL_ROUTE_GAP)
+	_crisp_end()
 
 
 ## Draws `points` as a dashed line with the dash phase carried continuously
@@ -1189,6 +1354,10 @@ func _hit_test_settlement(mouse: Vector2, interior: Rect2, rect: Rect2) -> int:
 		# hover/click would fill in dock data from what looks like blank
 		# paper.
 		if not interior.has_point(pos):
+			continue
+		## Likewise for an addon village that is drawn as nothing -- see
+		## `_settlement_hidden`.
+		if _settlement_hidden(s):
 			continue
 		var radius: float = _settlement_pin_radius(s["kind"], rect) + HOVER_RADIUS_PAD
 		var d := mouse.distance_to(pos)

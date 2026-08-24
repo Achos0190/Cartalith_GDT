@@ -5,7 +5,38 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **RD-01: the roads curve, and the renderer was
+Last updated: 2026-08-24 (post **MR-01/MR-02/MR-03: the map overlay rasterised
+in the wrong space, twice** — owner reported settlement names going blurry and
+not scaling, minor settlements always visible instead of zoom-gated, and routes
+drawing see-through and blurry. **Two of the three are one bug.** `ViewportHost`
+scales this control, and Godot re-scales a `CanvasItem`'s already-recorded draw
+commands rather than re-running them — so a `font_size` and a `draw_polyline`
+width, both in the overlay's *local* pixels, are magnified along with their
+rasterisation: at `ZOOM_MAX` a 9 px glyph is a 9 px bitmap over 72 screen px,
+and a 1.5 px antialiased line is 12 px wide with ~8 px of fringe each side. The
+label's `maxi(9, …)` floor (a faithful port of the reference's own) also
+defeated `_civ_zoom_k()`, pinning the label at 9 *local* px so its on-screen
+size was `9 × zoom`. Fixed by one mechanism, `_crisp_begin()`/`_crisp_end()`: a
+`1/zoom` `draw_set_transform` inside which every coordinate and size is a
+**screen** pixel — which also restores the reference's `rsc` (line 15470) that
+every way and journey `lineWidth` there is multiplied by and this port dropped.
+The third report was independent: `lib.rs` folds `civ_seed_villages`' output in
+as plain `Hamlet`s on the disclosed reasoning that a village "renders exactly
+like any other hamlet", but the reference tags them `villageAddon` **so the
+renderer will not treat them as hamlets** — `CIV_VILLAGE_ADDON_LOD = 2.4`,
+hidden outright, no dot fallback. Measured: **200 of 209 hamlets are addon
+villages** against 24 real settlements, and the shell defaults `villages` to
+`true` where the reference defaults it `false`. Underneath it, `SETTLEMENT_LOD`
+was compared against raw `_camera_zoom`, whose meaning moved on 2026-08-23 when
+`reset_view()` became **cover** scale (window-shaped, `>= 1`); thresholds are
+now normalised by `_lod_zoom_base()`. Verified live at 1600×1000 and 2400×800,
+reset view and 1.5×/3×/5.9×: **233 → 33 places drawn at the default view**,
+text crisp at every zoom, the route a thin dashed line over its underlay.
+Headless boot + `smoke_test.gd` clean, one file changed. **Left open**: an addon
+village is identified by its unconditional `pop: 0`, a proxy for
+`CivData::village_tids` — one line in `get_settlements()` to retire, deferred
+because that file was under concurrent edit — `GUI_GAP_REGISTER.md` §30)
+— previously, post **RD-01: the roads curve, and the renderer was
 drawing their chords** — owner reported settlement roads rendering as straight
 lines. The smoothing is a faithful port, it does run live, and
 `map_overlay.gd` does draw every point: measured, the ways come back at **mean
