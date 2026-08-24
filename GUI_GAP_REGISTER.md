@@ -653,7 +653,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
 | CA-01 | Layer properties ▸ **LIGHT** (azimuth · elevation · strength · multidirectional) | 110-114 | `TerrainAppearance` is implemented and settable in Rust but bound to no GDExtension method | yes | §7's LIGHT group | **CLOSED 2026-08-24** — `WorldGen::{get_appearance, set_appearance, list_appearance_tunables, reset_appearance}` bind **21 scalars by name**, and `render_workspace.gd` draws them as CARTO ▸ Map view + Rendering-advanced. `DCC_CONTROL_INDEX.md` §3(g)'s "Strength" ambiguity is resolved by exposing **both** `relief_gain` and `relief_directionality` as their own rows rather than picking one. Same binding closes **PR-09** and the colour/relief half of **RN-01**. |
-| CA-02 | Layer properties ▸ **FILL** (colour ramp picker, domain, range) + the **Stop editor** | 110-114 | same note | yes | §7 designs nine named ramps, a popover, and a full stop editor | **CLOSED 2026-08-24** — and it really was the renderer change this row said it was, not a binding. `render.rs` gains `ElevationRamp`/`RampStop` and a `ramp_strength` tunable: an ordered breakpoint list keyed to **relative land elevation** (0 = shoreline, 1 = the world's highest point, so a saved ramp means the same picture on a world with a different peak), sampled linearly, blended over the material colour **before the light curve** — which is the difference between a hypsometric tint over shaded relief and an elevation key pasted on top. Land only; the sea keeps `sea_color_core`'s own depth ramp. **Ships off** (`ramp_strength: 0.0`, whole stage skipped, `js_reference()` untouched), so nothing about the default look moved. Bound as `list_ramp_presets`/`get_color_ramp`/`set_color_ramp`/`load_ramp_preset`; **add, delete and reorder are all `set_color_ramp`** — the panel sends the list it wants and the engine sorts by position, so dragging a stop past its neighbour *is* the reorder. Panel: CARTO ▸ **Colour relief** — the design's nine named ramps, a live gradient bar, one row per stop (colour · position · metre readout · delete), Add stop, Reverse, and the strength slider. Verified non-headlessly at 2048×1311: all nine presets render distinct maps (mean |d| 21.0–50.7 levels), strength back to 0 returns the base at **0.0000 %**, and through the real dock a slider drag reaches the engine (0.6), Add lands a stop in the widest gap (0.39 between 0.28 and 0.50), a drag from index 7 to 0.02 lands it at index 1 **with its colour**, delete and Reverse both re-render. Seven tests. **Still owed**: per-stop alpha, the Ease/Step interpolation modes, duplicate, an absolute elevation domain, and Auto Fit / Auto Breakpoints — stated in the panel's own Still-owed block rather than left to be discovered. |
+| CA-02 | Layer properties ▸ **FILL** (colour ramp picker, domain, range) + the **Stop editor** | 110-114 | same note | yes | §7 designs nine named ramps, a popover, and a full stop editor | **CLOSED 2026-08-24** — and it really was the renderer change this row said it was, not a binding. `render.rs` gains `ElevationRamp`/`RampStop` and a `ramp_strength` tunable: an ordered breakpoint list keyed to **relative land elevation** (0 = shoreline, 1 = the world's highest point, so a saved ramp means the same picture on a world with a different peak), sampled linearly, blended over the material colour **before the light curve** — which is the difference between a hypsometric tint over shaded relief and an elevation key pasted on top. Land only; the sea keeps `sea_color_core`'s own depth ramp. **Ships off** (`ramp_strength: 0.0`, whole stage skipped, `js_reference()` untouched), so nothing about the default look moved. Bound as `list_ramp_presets`/`get_color_ramp`/`set_color_ramp`/`load_ramp_preset`; **add, delete and reorder are all `set_color_ramp`** — the panel sends the list it wants and the engine sorts by position, so dragging a stop past its neighbour *is* the reorder. Panel: CARTO ▸ **Colour relief** — the design's nine named ramps, a live gradient bar, one row per stop (colour · position · metre readout · delete), Add stop, Reverse, and the strength slider. Verified non-headlessly at 2048×1311: all nine presets render distinct maps (mean |d| 21.0–50.7 levels), strength back to 0 returns the base at **0.0000 %**, and through the real dock a slider drag reaches the engine (0.6), Add lands a stop in the widest gap (0.39 between 0.28 and 0.50), a drag from index 7 to 0.02 lands it at index 1 **with its colour**, delete and Reverse both re-render. Seven tests. **Two of the five things this row still owed landed 2026-08-24, one commit later** — see the paragraph under this table. **Still owed**: duplicate, an absolute elevation domain, and Auto Fit / Auto Breakpoints — stated in the panel's own Still-owed block rather than left to be discovered. |
 | CA-03 | Terrain sub-layer visibility (Hand-drawn hillshade / Hillshade / Colour relief) | 105-107 | terrain, hillshade and colour relief are one baked raster, so they toggle with the map | yes | §7's ten-row layer stack | (B) large — needs the single colour pass to become separable outputs |
 | CA-04 | Layer opacity / blend mode / reorder | *absent* | none in this file (`layers_popover.gd` has a *debug-view* opacity slider, a different thing) | — | §6's Layers context, §7 | (B) — opacity is **wrapper** (overlays already carry alpha); blend/reorder is **large** |
 | CA-05 | Icon ▸ on-canvas resize handle | 277-279 | *"no on-canvas resize handle yet… (`icon_bridge.rs`'s own acknowledged gap)"* | was true — see Now | §4.5.5 | **CLOSED (2026-08-24)** — `icon_bridge::icon_handle`/`IconEditor::handles` port the reference's `drawCivLayer` icon-handle geometry (lines 15883-15893: `hr=max(4,3.2*lsc)`, `hx=px+side/2*0.7`, `hy=py+side/2*0.7`, stored `r=hr*1.6`), transcribed the same way `label_bridge::handle_circles` was for the label's own three handles — `manual.rs` never had a home for it either, being inline canvas drawing rather than a callable reference function. `WorldGen::icon_handles(index, zoom)` returns `{"resize": {"x","y","r"}}`, the same shape `label_handles` already uses, so `tool_overlay.gd`'s existing `set_handles()` primitive needed no change. `cartography_workspace.gd` gained the one missing piece of state the engine has no reason to hold — `icon_get_selected()` (a new `#[func]`, `label_get_selected`'s own icon counterpart) plus `_on_icon_click`/`_on_icon_drag`/`_on_icon_release`, mirroring `_begin_label_handle_drag`'s pattern one handle down (no rotate/arc to capture, and `icon_resize` already commits the scale directly, unlike `label_resize_size` which only computes the value). Verified: place an icon, drag its handle, watch the sprite rescale live and the change survive a zoom/redraw. **Not folded in**: `icon_hit_test`'s own box-hit half is still unused by this file — selecting a *previously placed, now-unselected* icon by clicking its box has no GDScript wiring yet, a separate gap from the resize handle this row was about. |
@@ -665,6 +665,45 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | CA-10 | Layer properties ▸ **Visualization dropdown** | *absent* here; `layers_popover.gd` covers it with 18 debug views | the popover's own footer explains the split | yes | §7 lists it; §10's popover overlaps it | **(D)** — deliberately resolved as one popover rather than two competing pickers (`layers_popover.gd:10-15`) |
 | CA-12 | **The whole Icon tool is inert until an asset pack is imported** — and the app ships with none | `lib.rs`'s `icon_arm`: `if !self.has_asset_pack() { return false; }`; `cartography_workspace.gd:298/310/353` mirror the gate | *"arming a family/slot this port cannot yet draw would let a caller stamp icons with nothing to render, silently"* (`icon_arm`'s own doc comment) | **the disclosure is honest and its stated reason is now obsolete.** `map_overlay.gd`'s `_draw_manual_icons` draws every family from built-in vector shapes and never reads the pack at all — its own doc comment says so (*"No texture atlas from the asset pack is wired into Godot yet… these are honest placeholder glyphs"*). The pack path (`pack::composite_map_icons`) is the **scattered** auto-icon bake, a different feature. So there is no longer a family/slot this port cannot draw | §4.5.5; the reference has **no such gate** — `iconVariantsFor` (line 7304) returns *"pack or built-in glyphs"* and `drawIconGlyph` (7315) is the built-in vector fallback for exactly this case | **(B) small, but an owner call — not taken here.** Verified live 2026-08-24: on a freshly generated world `has_asset_pack()` is `false`, `icon_armed()` is `{}`, and clicking the map with Icon armed places nothing. Loading `cartalith-assets/tests/fixtures/reference_pack.zip` makes the same clicks place and draw three icons immediately. The fix is deleting the three-line gate plus its doc paragraph, but it reverses a written decision, so it is raised rather than done (`CLAUDE.md`: *"Do not deviate from `DECISIONS.md` silently"*) |
 | CA-13 | **Region naming looked absent** (owner report) | `_build_label_panel` / `_rebuild_label_panel` | none | **not a capability gap** — it works end to end | the reference calls these *region labels*; the dock said "Placed labels" / "none placed" and no menu mentions labels at all | **FIXED 2026-08-24 — see §27**. Renamed to **Region labels**; the empty state now names the tool that ends it. A menu route is still owed and is a menu-structure change, not a wording fix |
+
+#### CA-02a — the ramp's Ease/Step modes and per-stop alpha (2026-08-24)
+
+**The two axes CA-02 shipped without, and both were `render.rs` rather than a
+binding** — which is why they were deferred in the first place. `RampStop`
+gains an `a`, and `ElevationRamp` a `RampMode` of `Linear` / `Ease` / `Step`.
+
+- **The mode belongs to the ramp, not to a stop.** §7 draws one picker above
+  the stop list, and it is the honest model: "banded" is a statement about the
+  whole plate, not about one breakpoint. `Ease` is this file's own `k²(3-2k)`;
+  `Step` tests `k >= 1.0` rather than returning a flat `0.0`, so a sample
+  landing exactly *on* a stop takes that stop's colour and two coincident stops
+  still draw the hard edge they draw under `Linear`.
+- **Alpha rides the same `k` as the colour** and multiplies into
+  `ramp_strength`, so an alpha-0 stop reveals the material model at that
+  elevation — which is how a ramp is authored to tint only the summits.
+- **Two traps, both taken.** `serde` gets `default = "one"` for the alpha, not
+  `#[serde(default)]`: a look saved before the field existed described *opaque*
+  stops, and `f64::default()` would load every one of them invisible. And
+  `normalized` always returns a `Linear` ramp, so `set_color_ramp` and
+  `load_ramp_preset` carry the mode over by hand — without that, editing one
+  stop silently resets a user's Step plate to Linear.
+- Bound as `list_ramp_modes`/`get_ramp_mode`/`set_ramp_mode`, behind
+  `EngineBridge.ramp_mode_api` — a **third** feature flag, so an in-between
+  binary loses the picker rather than failing to draw the stop list. Panel:
+  a `Blend` picker above the gradient bar, and an alpha slider per stop row.
+  The bar shows `Step` exactly and `Ease` **approximately** (`Gradient` offers
+  cubic, not smoothstep), which the code says rather than hides.
+- Ten tests. **Verified non-headlessly at 2048×1311** on a real world: the
+  three modes render three distinct maps (Linear↔Step 67.4 % of pixels moved,
+  mean |d| 14.1, worst 177; Linear↔Ease 41.5 %, and Step is visibly a banded
+  hypsometric plate where Linear is a wash); an alpha-0 ramp at
+  `ramp_strength = 1.0` returns the base at **0.0000 %**; `set_ramp_mode`
+  survives `set_color_ramp` *and* `load_ramp_preset`; a bad mode name returns
+  `false` and changes nothing; through the real dock an alpha drag re-renders
+  (33.4 % moved) and **a colour edit afterwards leaves the alpha at 0.40**, the
+  `edit_alpha = false` trap; and a saved look round-trips both axes at
+  **0 moved**, with the picker following the reload rather than naming the old
+  mode.
 
 ### 6.14 RENDER workspace — `render_workspace.gd` (now composed into CARTO, §6.13)
 
@@ -4681,10 +4720,29 @@ dock — no squeeze.
   pushed in via a new `ViewportHost.set_style_readout()` rather than polled.
   Grid size and extent (what the port used to show here) already have a home
   — the WORLD dock readout and the Sample panel — so nothing lost a display.
-- **The Asset Library has no keyboard delete.** Dropping the `⌫` glyph made the
-  menu honest; binding Backspace (or Delete) to a destructive batch delete in
-  that window is a real design question — confirmation, scope, undo — and was
-  not improvised here.
+- ~~**The Asset Library has no keyboard delete.**~~ **Closed 2026-08-24.** The
+  design question this row deferred was answered the least clever way
+  available: `_unhandled_key_input` on the library `Window` routes Delete and
+  Backspace **into `_on_batch_delete`**, so the key does exactly what the
+  button does and raises the same confirmation, with the same count and the
+  same "custom slots are removed entirely, frozen slots are emptied" wording. A
+  second, key-only prompt would have been a second place for that wording to
+  drift. Scope is the grid selection; undo stays what it was (there is none,
+  and the prompt now says *"This cannot be undone."*). Two guards, both of them
+  the ones `app.gd`'s own handler needed: **a focused text field wins** (`LineEdit`
+  /`TextEdit`/`SpinBox` — Backspace in the rename prompt or the tag field is
+  never a delete), and **an empty selection says so** in the status bar rather
+  than returning silently, which would make the key look dead on exactly the
+  press that teaches a user it exists. It lives on the window rather than on
+  `DccApp` because a `Window` is its own `Viewport`: the key arrives only while
+  the library has focus, which is why no "is the library open?" check is needed
+  and why the slicer modal does not steal it. The menu glyph stays off —
+  `menus.gd` says why: that row opens the window, it does not delete.
+  **Verified non-headlessly** on a live 7-slot library: empty selection → 0
+  dialogs and a hint; Delete with 2 selected → 1 dialog titled *"Delete 2
+  asset(s)?"*, **Cancel keeps both**; Backspace → the same dialog, OK runs the
+  batch (frozen slots emptied, so the slot count correctly stays 7); and
+  Backspace with a `LineEdit` focused → **0 dialogs**.
 - **Four `ID_*` constants in `menus.gd` are declared and referenced nowhere
   else**: `ID_REDO`, `ID_HELP_SHORTCUTS`, `ID_PREF_QUALITY`, and
   `ID_PREF_UNITS_KM`/`ID_PREF_UNITS_MI`. Not user-visible (Redo is a real

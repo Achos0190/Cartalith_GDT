@@ -482,17 +482,18 @@ func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	ap.add_child(_ap_batch_popup)
 	ap.add_submenu_item("Batch", "APBatch")
 	## `Delete ⌫` used to carry the canvas's own accelerator glyph inside its
-	## label. Two things were wrong with that: nothing anywhere in this shell
-	## binds Backspace to a library delete (`app.gd`'s `_unhandled_key_input`
-	## routes it to the armed tool's own handler and no further, and the Asset
-	## Library window has no key handling at all), and this row does not delete
-	## anything — every one of the five opens the window, as its own tooltip
-	## says. A shortcut printed on a row that is not the action, for a binding
-	## that does not exist, is two promises the build cannot keep.
+	## label, and MN-09 removed it for two reasons. **One of the two is now
+	## false**: since 2026-08-24 `asset_library_window.gd` does bind Delete and
+	## Backspace, to its own confirmed batch delete. The other still stands and
+	## is why the glyph stays off — *this row does not delete anything*. Every
+	## one of the five opens the window, as its own tooltip says, and the
+	## binding lives in the window that has a selection to act on. A shortcut
+	## printed on a row that is not the action is still a promise this build
+	## cannot keep.
 	for label in ["Tag…", "Collect into set…", "Rename…", "Duplicate", "Delete"]:
 		_ap_batch_popup.add_item(label, ID_ASSET_LIBRARY)
 		_ap_batch_popup.set_item_tooltip(_ap_batch_popup.item_count - 1,
-			"Opens the Asset Library window -- every batch op needs a multi-selection, which only the window's own grid (Shift-click ranges, Ctrl-click adds) provides. All five are real there.")
+			"Opens the Asset Library window -- every batch op needs a multi-selection, which only the window's own grid (Shift-click ranges, Ctrl-click adds) provides. All five are real there, and Delete/Backspace there is the same confirmed batch delete.")
 	_ap_batch_popup.id_pressed.connect(func(_id: int): _host.open_asset_library())
 
 	_ap_build_popup = PopupMenu.new()

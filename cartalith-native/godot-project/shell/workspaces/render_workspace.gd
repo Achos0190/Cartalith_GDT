@@ -336,17 +336,25 @@ func _tunable(key: String) -> Dictionary:
 ## into one block loses nothing (the popover is a list of named ramps and the
 ## stop editor is the list of stops) and costs no navigation.
 ##
-## What is here: the nine named ramps, a live gradient bar, one row per stop
-## with its colour, its elevation and a delete, plus Add stop and Reverse, and
-## the strength slider that blends the whole thing against the material colour.
+## What is here: the nine named ramps, the three interpolation modes, a live
+## gradient bar, one row per stop with its colour, its elevation, its alpha and
+## a delete, plus Add stop and Reverse, and the strength slider that blends the
+## whole thing against the material colour.
 ##
-## What is **not**, and is stated in the panel rather than left to be
-## discovered: per-stop alpha and per-stop interpolation mode (Linear / Ease /
-## Step). `ElevationRamp::sample` is linear only -- see its own doc comment.
+## **2026-08-24: the two axes CA-02 shipped without.** Its own note here used to
+## say per-stop alpha and Linear/Ease/Step "are not built"; both are, and both
+## needed `render.rs` rather than a binding. The mode is the **ramp's**, not a
+## stop's -- `DCC_SHELL_SPEC.md` §7 draws one picker above the stop list, and
+## "banded" is a statement about the whole plate.
 var _ramp: Array = []
 var _ramp_host: VBoxContainer
 var _ramp_bar: TextureRect
 var _ramp_gradient: Gradient
+## The engine's own mode name, cached so `_update_ramp_bar` (which runs on every
+## drag frame) is not an engine call per frame.
+var _ramp_mode := ""
+var _ramp_modes: Array = []
+var _ramp_mode_pick: OptionButton
 
 func _build_ramp() -> void:
 	if not bridge.ramp_api:
@@ -360,6 +368,18 @@ func _build_ramp() -> void:
 			func(i: int): _on_ramp_preset(String(names[i])),
 			"Named elevation ramps. Picking one replaces every stop below; edit "
 			+ "from there and the picker no longer describes what is on screen.")
+
+	_ramp_modes = bridge.ramp_modes()
+	var modes: Array = _ramp_modes
+	if not modes.is_empty():
+		_ramp_mode_pick = DccWidgets.choice(body, "Blend", modes, maxi(modes.find(bridge.ramp_mode()), 0),
+			func(i: int): _on_ramp_mode(String(modes[i])),
+			"How the colour crosses from one stop to the next. Linear is a "
+			+ "straight blend. Ease flattens the ramp at each stop and puts the "
+			+ "change in the middle of the interval, so the ramp reads as broad "
+			+ "bands with soft joins. Step draws flat bands with a hard edge on "
+			+ "each stop -- the classic banded hypsometric plate. This belongs "
+			+ "to the ramp rather than to a stop, and survives every stop edit.")
 
 	_ramp_gradient = Gradient.new()
 	var tex := GradientTexture1D.new()
@@ -385,18 +405,38 @@ func _build_ramp() -> void:
 		+ "this world's own relief. Order is the position: drag a stop past its "
 		+ "neighbour and it takes its place.")
 	DccWidgets.note(body,
-		"Interpolation is linear between stops and flat beyond the ends; the "
-		+ "design's Ease and Step modes, and per-stop alpha, are not built. Water "
-		+ "is untouched -- the sea has its own depth ramp.")
+		"Blending is flat beyond the end stops in every mode -- there is no "
+		+ "neighbour out there to blend towards. A stop's alpha is how far that "
+		+ "band takes part: it multiplies the strength above, so 0 leaves the "
+		+ "material colour showing through at that elevation whatever the "
+		+ "slider says. Water is untouched -- the sea has its own depth ramp.")
 	_sync_ramp()
 
 ## Pull the engine's ramp and rebuild both the bar and the rows.
 func _sync_ramp() -> void:
 	_ramp.clear()
+	## The `Color`'s alpha is the stop's own opacity, not a placeholder -- see
+	## `EngineBridge.color_ramp()`.
 	for row in bridge.color_ramp():
 		_ramp.append([float(row[0]), row[1] as Color])
+	_ramp_mode = bridge.ramp_mode()
+	## Re-select the picker, or a look loaded with a different mode would leave
+	## the row naming a mode that is not the one drawing the map -- the exact
+	## failure this register keeps finding, one control at a time.
+	if _ramp_mode_pick != null:
+		var mi: int = _ramp_modes.find(_ramp_mode)
+		if mi >= 0 and _ramp_mode_pick.selected != mi:
+			_ramp_mode_pick.select(mi)
 	_rebuild_ramp_rows()
 	_update_ramp_bar()
+
+func _on_ramp_mode(name: String) -> void:
+	if not bridge.set_ramp_mode(name):
+		return
+	_ramp_mode = name
+	_update_ramp_bar()
+	_mark_custom()
+	_refresh_map()
 
 ## The gradient bar, straight from `_ramp` -- redrawn on every value change so
 ## dragging a stop shows where it is going, even though the engine is only told
@@ -418,6 +458,18 @@ func _update_ramp_bar() -> void:
 	if offsets.size() == 1:
 		offsets.append(1.0)
 		colors.append(colors[0])
+	## Step is exact here; **Ease is an approximation**, and saying so is
+	## cheaper than a hand-baked 256-sample texture. `Gradient` offers cubic,
+	## not smoothstep, so the bar shows an eased join where the renderer's own
+	## `k^2(3-2k)` is a slightly different curve. The bar is a preview of the
+	## ramp, and `render.rs` remains the thing that draws the map.
+	match _ramp_mode:
+		"Step":
+			_ramp_gradient.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CONSTANT
+		"Ease":
+			_ramp_gradient.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_CUBIC
+		_:
+			_ramp_gradient.interpolation_mode = Gradient.GRADIENT_INTERPOLATE_LINEAR
 	_ramp_gradient.offsets = offsets
 	_ramp_gradient.colors = colors
 
@@ -444,12 +496,19 @@ func _rebuild_ramp_rows() -> void:
 		_ramp_host.add_child(row)
 
 		var swatch := ColorPickerButton.new()
-		swatch.color = _ramp[idx][1]
+		## Shown opaque on purpose: this control owns the **hue**, the slider
+		## further along the row owns the alpha, and a swatch drawn at 20%
+		## would read as a colour choice nobody made.
+		var stop_col := Color(_ramp[idx][1])
+		swatch.color = Color(stop_col.r, stop_col.g, stop_col.b, 1.0)
 		swatch.custom_minimum_size = Vector2(30, 18)
 		swatch.focus_mode = Control.FOCUS_NONE
 		swatch.edit_alpha = false
 		swatch.color_changed.connect(func(c: Color):
-			_ramp[idx][1] = c
+			## `edit_alpha = false` makes the picker emit an **opaque** colour,
+			## so the stop's own alpha has to be carried across by hand -- take
+			## `c` whole and every colour edit silently resets the alpha to 1.
+			_ramp[idx][1] = Color(c.r, c.g, c.b, Color(_ramp[idx][1]).a)
 			_update_ramp_bar()
 			_push_ramp(false))
 		row.add_child(swatch)
@@ -478,6 +537,28 @@ func _rebuild_ramp_rows() -> void:
 		## Commit on release, like every other row in this dock: a full-map
 		## re-render is not a per-drag-pixel operation.
 		pos.drag_ended.connect(func(_changed: bool): _push_ramp(true))
+
+		var alpha := HSlider.new()
+		alpha.min_value = 0.0
+		alpha.max_value = 1.0
+		alpha.step = 0.01
+		alpha.value = stop_col.a
+		alpha.custom_minimum_size = Vector2(48, 14)
+		alpha.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		alpha.focus_mode = Control.FOCUS_NONE
+		alpha.tooltip_text = "Alpha -- how far this stop takes part, multiplied " \
+			+ "into the strength above. 0 leaves the material colour showing " \
+			+ "through at this elevation; it interpolates towards its " \
+			+ "neighbours exactly as the colour does."
+		row.add_child(alpha)
+		alpha.value_changed.connect(func(v: float):
+			var c := Color(_ramp[idx][1])
+			c.a = v
+			_ramp[idx][1] = c
+			_update_ramp_bar())
+		## `false`: alpha cannot reorder anything, so re-reading the engine
+		## would rebuild these rows out from under the slider being dragged.
+		alpha.drag_ended.connect(func(_changed: bool): _push_ramp(false))
 
 		var del := DccWidgets.text_button(row, "x", func(): _delete_stop(idx))
 		del.tooltip_text = "Delete this stop"
@@ -724,10 +805,11 @@ func _on_animate_water(on: bool) -> void:
 func _build_owed_inventory() -> void:
 	var sec := DccWidgets.section(self, "Still owed")
 	DccWidgets.note(sec,
-		"Of the ramp editor (CA-02, now live above): per-stop alpha and per-stop "
-		+ "interpolation mode (Linear / Ease / Step), stop duplicate, an absolute "
-		+ "elevation domain, and Auto Fit / Auto Breakpoints. The renderer's ramp "
-		+ "is linear between stops and keyed to relative land elevation.")
+		"Of the ramp editor (CA-02, now live above): stop duplicate, an absolute "
+		+ "elevation domain, and Auto Fit / Auto Breakpoints. Per-stop alpha and "
+		+ "the Linear / Ease / Step modes landed 2026-08-24 and are above; the "
+		+ "mode is the ramp's rather than a stop's, which is how the design draws "
+		+ "it. The renderer's ramp is keyed to relative land elevation.")
 	DccWidgets.note(sec,
 		"Colour grading (vibrancy, saturation, contrast, brightness, gamma, "
 		+ "temperature, tint and the four field-influence weights) · Material "

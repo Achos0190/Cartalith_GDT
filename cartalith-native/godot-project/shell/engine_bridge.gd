@@ -86,6 +86,9 @@ func _ready() -> void:
 		and _has("set_color_ramp") \
 		and _has("list_ramp_presets") \
 		and _has("load_ramp_preset")
+	ramp_mode_api = _has("list_ramp_modes") \
+		and _has("get_ramp_mode") \
+		and _has("set_ramp_mode")
 	preset_api = _has("save_appearance_preset") \
 		and _has("load_appearance_preset") \
 		and _has("peek_appearance_preset")
@@ -636,7 +639,9 @@ func ramp_presets() -> Array:
 	return Array(world_gen.list_ramp_presets())
 
 ## `[[position, Color], ...]`, sorted by position. Position is relative land
-## elevation: 0 at the shoreline, 1 at the world's highest point.
+## elevation: 0 at the shoreline, 1 at the world's highest point. The `Color`'s
+## **alpha is the stop's own opacity** (2026-08-24) -- the row shape did not
+## change when per-stop alpha landed, which is why `ramp_api` still covers both.
 func color_ramp() -> Array:
 	if not ramp_api:
 		return []
@@ -654,6 +659,31 @@ func load_ramp_preset(name: String) -> bool:
 	if not ramp_api:
 		return false
 	return world_gen.load_ramp_preset(name)
+
+## `["Linear", "Ease", "Step"]` -- the engine's own interpolation modes.
+##
+## A third flag, for the same reason `ramp_api` is a second one: Ease/Step and
+## per-stop alpha shipped a commit after the ramp itself, so an in-between
+## binary has the stop editor and no mode picker, and the panel should lose the
+## picker rather than fail to draw the stops.
+var ramp_mode_api := false
+
+func ramp_modes() -> Array:
+	if not ramp_mode_api:
+		return []
+	return Array(world_gen.list_ramp_modes())
+
+func ramp_mode() -> String:
+	if not ramp_mode_api:
+		return ""
+	return String(world_gen.get_ramp_mode())
+
+## `false` for a name this build does not have. The mode is a property of the
+## ramp, not of a stop, and survives `set_color_ramp`.
+func set_ramp_mode(name: String) -> bool:
+	if not ramp_mode_api:
+		return false
+	return world_gen.set_ramp_mode(name)
 
 
 # -- Appearance presets (`GUI_GAP_REGISTER.md` CA-08) --------------------------

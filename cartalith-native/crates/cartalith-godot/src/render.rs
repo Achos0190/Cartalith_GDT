@@ -115,6 +115,12 @@ use rayon::prelude::*;
 
 type Rgb = (f64, f64, f64);
 
+/// A colour and how much of it there is: `0-255` per channel like [`Rgb`], plus
+/// an opacity in `[0, 1]`. Only [`ElevationRamp`] uses it — the ramp is the one
+/// layer in this renderer with an authored per-sample opacity, and everything
+/// else here composites at a fixed strength.
+type Rgba = (f64, f64, f64, f64);
+
 /// `CART_BIOME_COLS` (reference HTML line 6813), 1-based like `CART_BIOMES`.
 ///
 /// **Canonical here, not in `sample_bridge.rs`**, which re-exports these two
@@ -335,6 +341,91 @@ pub struct RampStop {
     pub at: f64,
     /// 0-255 per channel, matching every other colour in this file.
     pub col: Rgb,
+    /// How opaque this stop's colour is over the material colour, `[0, 1]`,
+    /// interpolated between stops exactly as `col` is and then multiplied into
+    /// [`TerrainAppearance::ramp_strength`]. `1.0` is the ramp taking over
+    /// completely at full strength; `0.0` is a stop that reveals the material
+    /// model beneath it, which is how a ramp is authored to tint only the
+    /// summits (or only the lowlands) and leave the rest of the map alone.
+    ///
+    /// `#[serde(default = "one")]`, not `#[serde(default)]`: a saved look
+    /// written before this field existed described **opaque** stops, and
+    /// `f64::default()` would load every one of them as invisible.
+    #[serde(default = "one")]
+    pub a: f64,
+}
+
+/// `serde`'s default for [`RampStop::a`] — see there.
+fn one() -> f64 {
+    1.0
+}
+
+/// How [`ElevationRamp::sample`] crosses from one stop to the next.
+///
+/// A property of the **ramp**, not of a stop: `DCC_SHELL_SPEC.md` §7 draws one
+/// picker above the stop list, and it is also the honest model — "step" is a
+/// statement about the whole plate (a banded hypsometric map is banded
+/// everywhere), not about one breakpoint.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum RampMode {
+    /// Straight lerp between neighbours. What CA-02 shipped, and the default,
+    /// so nothing an existing saved look describes moves.
+    #[default]
+    Linear,
+    /// The same lerp eased at both ends (`k²(3-2k)`, this file's own
+    /// [`smoothstep`] curve), which flattens the ramp at each stop and puts the
+    /// colour change in the middle of the interval. Reads as broad bands with
+    /// soft joins rather than as a continuous wash.
+    Ease,
+    /// No blend at all: every sample takes the colour of the stop at or below
+    /// it, so each pair of stops is one flat band with a hard edge. This is how
+    /// a classic banded hypsometric plate is drawn.
+    Step,
+}
+
+/// The mode names the panel's picker shows, in [`RampMode`]'s own order —
+/// the engine's list rather than a second copy of it in GDScript, the same
+/// rule `RAMP_PRESETS` follows.
+#[allow(dead_code)]
+pub const RAMP_MODES: &[&str] = &["Linear", "Ease", "Step"];
+
+impl RampMode {
+    #[allow(dead_code)]
+    pub fn name(self) -> &'static str {
+        RAMP_MODES[self as usize]
+    }
+
+    /// One of [`RAMP_MODES`] by exact name, or `None` — an unknown name is the
+    /// caller's problem to report, exactly as `ElevationRamp::preset`'s is.
+    #[allow(dead_code)]
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "Linear" => Some(RampMode::Linear),
+            "Ease" => Some(RampMode::Ease),
+            "Step" => Some(RampMode::Step),
+            _ => None,
+        }
+    }
+
+    /// Reshape the `[0, 1]` fraction of the way from one stop to the next.
+    ///
+    /// `Step` tests `>= 1.0` rather than returning a flat `0.0` so a sample
+    /// landing exactly **on** a stop takes that stop's own colour: the band is
+    /// half-open `[a, b)`, which is what makes two stops at the same position
+    /// still draw the hard edge they draw under `Linear`.
+    fn curve(self, k: f64) -> f64 {
+        match self {
+            RampMode::Linear => k,
+            RampMode::Ease => k * k * (3.0 - 2.0 * k),
+            RampMode::Step => {
+                if k >= 1.0 {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
+        }
+    }
 }
 
 /// `GUI_GAP_REGISTER.md` **CA-02** — the elevation-keyed colour ramp this
@@ -365,51 +456,78 @@ pub struct RampStop {
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ElevationRamp {
     stops: Vec<RampStop>,
+    /// `#[serde(default)]` at field level because this struct has none at
+    /// struct level: a saved look written before the mode existed describes a
+    /// `Linear` ramp, and without this it would fail to parse rather than load.
+    #[serde(default)]
+    mode: RampMode,
 }
 
 impl ElevationRamp {
     /// Build from arbitrary caller data: positions clamped to `[0, 1]`,
-    /// channels to `[0, 255]`, and the whole list sorted. Non-finite
-    /// positions are dropped rather than sorted against (`partial_cmp` has no
-    /// answer for NaN, and `cartalith-rust-conventions` requires a stated NaN
-    /// policy wherever floats are ordered — the policy here is "a stop with no
-    /// position is not a stop").
+    /// channels to `[0, 255]`, alpha to `[0, 1]`, and the whole list sorted.
+    /// Non-finite positions are dropped rather than sorted against
+    /// (`partial_cmp` has no answer for NaN, and `cartalith-rust-conventions`
+    /// requires a stated NaN policy wherever floats are ordered — the policy
+    /// here is "a stop with no position is not a stop"). A non-finite **alpha**
+    /// is not a reason to drop a stop, so it becomes `1.0`: an opaque stop is a
+    /// visible mistake, an invisible one looks like the engine ignored the edit.
+    ///
+    /// The result is always [`RampMode::Linear`]; a caller replacing the stops
+    /// of a ramp that has a mode carries it over with [`Self::set_mode`], which
+    /// is what `WorldGen::set_color_ramp` does.
     pub fn normalized(stops: impl IntoIterator<Item = RampStop>) -> Self {
         let mut stops: Vec<RampStop> = stops
             .into_iter()
             .filter(|s| s.at.is_finite())
-            .map(|s| RampStop { at: clamp01(s.at), col: (s.col.0.clamp(0.0, 255.0), s.col.1.clamp(0.0, 255.0), s.col.2.clamp(0.0, 255.0)) })
+            .map(|s| RampStop {
+                at: clamp01(s.at),
+                col: (s.col.0.clamp(0.0, 255.0), s.col.1.clamp(0.0, 255.0), s.col.2.clamp(0.0, 255.0)),
+                a: if s.a.is_finite() { clamp01(s.a) } else { 1.0 },
+            })
             .collect();
         // Every `at` is finite by the filter above, so this `unwrap` cannot
         // fire -- the reason it is safe is the line above it, not optimism.
         stops.sort_by(|a, b| a.at.partial_cmp(&b.at).unwrap());
-        ElevationRamp { stops }
+        ElevationRamp { stops, mode: RampMode::Linear }
     }
 
     pub fn stops(&self) -> &[RampStop] {
         &self.stops
     }
 
-    /// The colour at relative elevation `t`, or `None` for an empty ramp —
-    /// the caller decides what "no ramp" means rather than being handed a
-    /// black that would look like a rendered result.
+    #[allow(dead_code)]
+    pub fn mode(&self) -> RampMode {
+        self.mode
+    }
+
+    #[allow(dead_code)]
+    pub fn set_mode(&mut self, mode: RampMode) {
+        self.mode = mode;
+    }
+
+    /// The colour **and opacity** at relative elevation `t`, or `None` for an
+    /// empty ramp — the caller decides what "no ramp" means rather than being
+    /// handed a black that would look like a rendered result.
     ///
-    /// Linear interpolation between neighbouring stops, flat beyond the ends.
-    /// Deliberately **linear only**: `DCC_SHELL_SPEC.md` §7's stop editor also
-    /// lists Ease and Step, and both are real cartographic choices (Step is
-    /// how a classic banded hypsometric plate is drawn), but a per-stop
-    /// interpolation mode is a second axis of state to save, load, edit and
-    /// test, and this milestone's remit is a working ramp. Stated here rather
-    /// than left as a silent omission.
-    pub fn sample(&self, t: f64) -> Option<Rgb> {
+    /// Interpolation between neighbouring stops is [`Self::mode`]'s; beyond the
+    /// ends it is flat in every mode, because there is no second stop to blend
+    /// towards. CA-02 shipped `Linear` only and said so in this comment; `Ease`
+    /// and `Step` are `DCC_SHELL_SPEC.md` §7's other two, added 2026-08-24.
+    ///
+    /// The alpha rides the same `k` as the colour, so a stop's opacity crosses
+    /// to its neighbour's exactly the way its colour does — including under
+    /// `Step`, where both change at once at the band edge, which is the whole
+    /// point of that mode.
+    pub fn sample(&self, t: f64) -> Option<Rgba> {
         let t = clamp01(t);
         let first = self.stops.first()?;
         if t <= first.at {
-            return Some(first.col);
+            return Some((first.col.0, first.col.1, first.col.2, first.a));
         }
         let last = self.stops.last()?;
         if t >= last.at {
-            return Some(last.col);
+            return Some((last.col.0, last.col.1, last.col.2, last.a));
         }
         let hi = self.stops.iter().position(|s| s.at >= t)?;
         let (a, b) = (self.stops[hi - 1], self.stops[hi]);
@@ -418,7 +536,9 @@ impl ElevationRamp {
         // how a hard band edge is drawn with linear interpolation), and it is
         // also the one input that would divide by zero.
         let k = if span <= 0.0 { 1.0 } else { (t - a.at) / span };
-        Some(mix(a.col, b.col, k))
+        let k = self.mode.curve(k);
+        let c = mix(a.col, b.col, k);
+        Some((c.0, c.1, c.2, lerp(a.a, b.a, k)))
     }
 }
 
@@ -468,7 +588,10 @@ impl ElevationRamp {
     #[allow(dead_code)]
     pub fn preset(name: &str) -> Option<Self> {
         let (_, stops) = RAMP_PRESETS.iter().find(|(n, _)| *n == name)?;
-        Some(ElevationRamp::normalized(stops.iter().map(|&(at, (r, g, b))| RampStop { at, col: (r as f64, g as f64, b as f64) })))
+        // Every preset stop is opaque: a named ramp is a complete picture, and
+        // one that revealed the material model in places would be a look nobody
+        // asked for hiding inside a list of nine.
+        Some(ElevationRamp::normalized(stops.iter().map(|&(at, (r, g, b))| RampStop { at, col: (r as f64, g as f64, b as f64), a: 1.0 })))
     }
 }
 
@@ -2268,13 +2391,21 @@ fn land_color(appearance: &TerrainAppearance, t: f64, m: f64, slope: f64, r: f64
     //
     // Skipped entirely at `0.0`, which is `default()` and `js_reference()`,
     // the same dedicated-branch rule every stage since milestone 2 follows.
+    //
+    // The stop's own alpha multiplies the strength rather than replacing it:
+    // the slider stays "how far the ramp takes over" for the whole layer and
+    // the alpha is "how far this band participates", which composes. A default
+    // ramp is opaque throughout, so `k` is exactly `ramp_strength` and nothing
+    // about the 2026-08-24 look moved.
     if appearance.ramp_strength > 0.0
         && let Some(rc) = appearance.ramp.sample(r)
     {
-        let k = appearance.ramp_strength;
-        c.0 += (rc.0 - c.0) * k;
-        c.1 += (rc.1 - c.1) * k;
-        c.2 += (rc.2 - c.2) * k;
+        let k = appearance.ramp_strength * rc.3;
+        if k > 0.0 {
+            c.0 += (rc.0 - c.0) * k;
+            c.1 += (rc.1 - c.1) * k;
+            c.2 += (rc.2 - c.2) * k;
+        }
     }
 
     let beach_t = smoothstep(0.03, 0.0, r) * 0.6;

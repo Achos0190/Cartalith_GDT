@@ -24431,3 +24431,127 @@ silently-empty-golden-output rule).
 `cartalith-gpu/examples/flow_downstream_settlements.rs`,
 `cartalith-engine/src/lib.rs`,
 `cartalith-godot/tests/sculpt_live_l0_bench.rs`.
+
+## The colour ramp got its other two axes, and the Asset Library got a key that deletes (2026-08-24) — `GUI_GAP_REGISTER.md` CA-02a, §31
+
+Two follow-ups, unrelated to each other except that both were the *"stated in
+the panel rather than left to be discovered"* residue of an earlier pass — the
+kind that stays owed forever unless someone closes it on purpose.
+
+### CA-02a — Ease/Step interpolation and per-stop alpha
+
+CA-02 shipped the elevation colour ramp and named five things it did not have.
+These are the two that were **renderer work rather than a binding**, which is
+exactly why they were deferred and exactly why they had to be taken together:
+they are the two axes `DCC_SHELL_SPEC.md` §7's stop editor draws.
+
+`RampStop` gains an `a`, and `ElevationRamp` a `RampMode` — `Linear`, `Ease`,
+`Step`.
+
+**The mode belongs to the ramp, not to a stop.** §7 draws one picker above the
+stop list, and that is also the honest model: "banded" is a statement about the
+whole plate, not about one breakpoint. `Ease` is this file's own `k²(3-2k)`,
+which flattens the ramp at each stop and puts the change in the middle of the
+interval. `Step` tests `k >= 1.0` rather than returning a flat `0.0`, so a
+sample landing exactly *on* a stop takes that stop's own colour — which is what
+keeps two coincident stops drawing the hard edge they already draw under
+`Linear`.
+
+**Alpha rides the same `k` as the colour** and multiplies into
+`ramp_strength`, so a stop at alpha 0 reveals the material model at that
+elevation. That is how a ramp is authored to tint only the summits and leave
+the lowlands alone, and it is a different thing from turning the strength down,
+which fades the whole plate uniformly.
+
+**Two traps, both taken, and both of the "would have shipped silently" kind:**
+
+1. `#[serde(default = "one")]` for the alpha, **not** `#[serde(default)]`. A
+   look saved before the field existed described *opaque* stops, and
+   `f64::default()` would have loaded every one of them as invisible — a saved
+   look opening as a blank ramp, with nothing in the file to blame.
+2. `ElevationRamp::normalized` always returns a `Linear` ramp, because it is
+   built from a stop list and a stop list has no mode. So `set_color_ramp` and
+   `load_ramp_preset` carry the current mode over by hand. Without that, a user
+   who chose Step and then nudged one stop — or browsed the nine named ramps —
+   would have watched the mode silently reset, with the picker still saying
+   "Step".
+
+Bound as `list_ramp_modes`/`get_ramp_mode`/`set_ramp_mode`, behind a **third**
+`EngineBridge` feature flag (`ramp_mode_api`) rather than widening `ramp_api`:
+an in-between binary then loses the mode picker instead of failing to draw the
+stop list. The row shape of `get_color_ramp`/`set_color_ramp` did **not**
+change — the alpha rides in the `Color` that was already there — so a panel
+written against the older engine still round-trips, it simply always sends
+opaque stops.
+
+Panel (CARTO ▸ Colour relief): a `Blend` picker above the gradient bar, built
+from the engine's list rather than a second copy of the names in GDScript, and
+an alpha slider on every stop row. The bar renders `Step` exactly and `Ease`
+**approximately** — `Gradient` offers cubic, not smoothstep — which the code
+says rather than hides; the bar is a preview, and `render.rs` is what draws the
+map. The panel's own "not built" note is replaced by what the two controls
+actually do.
+
+**Ten tests** in `appearance_tiers.rs`: every mode renders a distinct image,
+`Step` draws flat bands with the edge on the stop, the modes reshape the
+interval and nothing else, the mode survives a stop replacement, alpha rides
+the colour's curve, an all-transparent ramp is exactly as inert as
+`ramp_strength = 0`, and half alpha lands between the material colour and the
+full ramp.
+
+**Verified non-headlessly** at the app's working 2048×1311 on a real world
+(seed 483920), through the live shell:
+
+- the three modes render three distinct maps — Linear↔Step **67.4 %** of pixels
+  moved, mean |d| 14.1, worst 177; Linear↔Ease 41.5 %, mean 2.1 — and `Step` is
+  visibly the classic banded hypsometric plate where `Linear` is a wash;
+- an alpha-0 ramp at `ramp_strength = 1.0` returns the base at **0.0000 %**,
+  and a graded ramp (transparent lowlands, opaque summits) paints 31.7 % of the
+  map, the summits, and nothing else;
+- `set_ramp_mode("Cubic")` returns `false` and changes nothing; the mode
+  survives both `set_color_ramp` and `load_ramp_preset`;
+- through the real dock, an alpha drag re-renders (33.4 % moved) and **a colour
+  edit afterwards leaves the alpha at 0.40** — the `edit_alpha = false` trap,
+  where the picker emits an opaque colour and taking it whole would silently
+  reset every stop's alpha on every colour edit;
+- a saved look round-trips both axes at **0 moved**, and the picker follows the
+  reload rather than continuing to name the old mode.
+
+### §31 — the Asset Library's keyboard delete
+
+§31 dropped the `⌫` glyph from Assets ▸ Batch ▸ Delete because the binding it
+advertised existed nowhere, and left the binding itself open: *"a destructive
+batch delete in that window is a real design question — confirmation, scope,
+undo — and was not improvised here."*
+
+Answered the least clever way available. `_unhandled_key_input` on the library
+`Window` routes Delete and Backspace **into `_on_batch_delete`**, so the key
+does exactly what the button does and raises the same confirmation, with the
+same count and the same "custom slots are removed entirely, frozen slots are
+emptied" wording. A second, key-only prompt would have been a second place for
+that wording to drift. Scope is the grid selection; undo stays what it was —
+there is none, and the prompt now says so.
+
+Two guards, both of them the ones `app.gd`'s own `_unhandled_key_input` found
+it needed: **a focused text field wins** (`LineEdit`/`TextEdit`/`SpinBox` —
+Backspace in the rename prompt or the tag field is never a delete), and **an
+empty selection says so** in the status bar rather than returning silently,
+which would make the key look dead on exactly the press that teaches a user it
+exists. It lives on the window rather than on `DccApp` because a `Window` is
+its own `Viewport`: the key arrives only while the library has focus, which is
+why no "is the library open?" check is needed and why the slicer modal does not
+steal it. The menu glyph stays **off** — that row opens the window, it does not
+delete, and `menus.gd`'s comment now records which half of MN-09's reasoning
+became false and which half still stands.
+
+**Verified non-headlessly** on a live 7-slot library: empty selection → **0
+dialogs** and a hint; Delete with 2 selected → 1 dialog titled *"Delete 2
+asset(s)?"* and **Cancel keeps both**; Backspace → the same dialog, OK runs the
+batch (both were frozen slots, so the slot count correctly stays 7); Backspace
+with a `LineEdit` focused → **0 dialogs**.
+
+**Files:** `cartalith-godot/src/render.rs`, `cartalith-godot/src/lib.rs`,
+`cartalith-godot/tests/appearance_tiers.rs`,
+`godot-project/shell/engine_bridge.gd`,
+`godot-project/shell/workspaces/render_workspace.gd`,
+`godot-project/shell/asset_library_window.gd`, `godot-project/shell/menus.gd`.

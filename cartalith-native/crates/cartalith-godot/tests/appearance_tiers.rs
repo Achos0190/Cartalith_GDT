@@ -22,7 +22,7 @@ use rayon::prelude::*;
 #[path = "../src/render.rs"]
 mod render;
 
-use render::{ElevationRamp, QualityTier, RampStop, RenderCtx, TerrainAppearance};
+use render::{ElevationRamp, QualityTier, RampMode, RampStop, RenderCtx, TerrainAppearance};
 
 /// Non-square on purpose (`GENERATION_PARAMETERS.md`: non-square maps are
 /// real), and big enough that every radius in `render.rs` — AO, hydrology,
@@ -390,7 +390,12 @@ fn every_tunable_is_load_bearing() {
 // ---------------------------------------------------------------------------
 
 fn stop(at: f64, r: f64, g: f64, b: f64) -> RampStop {
-    RampStop { at, col: (r, g, b) }
+    RampStop { at, col: (r, g, b), a: 1.0 }
+}
+
+/// The same, with the per-stop alpha spelled out (2026-08-24).
+fn astop(at: f64, r: f64, g: f64, b: f64, a: f64) -> RampStop {
+    RampStop { at, col: (r, g, b), a }
 }
 
 /// The invariant every other ramp operation rests on: stops come out sorted
@@ -418,8 +423,8 @@ fn ramp_drops_non_finite_positions_instead_of_panicking() {
 #[test]
 fn ramp_samples_flat_outside_and_linear_between() {
     let r = ElevationRamp::normalized([stop(0.25, 0.0, 0.0, 0.0), stop(0.75, 100.0, 200.0, 40.0)]);
-    assert_eq!(r.sample(0.0), Some((0.0, 0.0, 0.0)), "below the first stop must hold that stop, not extrapolate");
-    assert_eq!(r.sample(1.0), Some((100.0, 200.0, 40.0)), "above the last stop must hold that stop");
+    assert_eq!(r.sample(0.0), Some((0.0, 0.0, 0.0, 1.0)), "below the first stop must hold that stop, not extrapolate");
+    assert_eq!(r.sample(1.0), Some((100.0, 200.0, 40.0, 1.0)), "above the last stop must hold that stop");
     let mid = r.sample(0.5).unwrap();
     assert!((mid.0 - 50.0).abs() < 1e-9 && (mid.1 - 100.0).abs() < 1e-9 && (mid.2 - 20.0).abs() < 1e-9, "midpoint was {mid:?}, wanted the halfway colour");
     assert_eq!(ElevationRamp::normalized([]).sample(0.5), None, "an empty ramp must say so rather than returning black");
@@ -515,6 +520,138 @@ fn ramp_touches_land_only() {
 }
 
 // ---------------------------------------------------------------------------
+// Ease/Step interpolation and per-stop alpha (2026-08-24, CA-02's two
+// deliberately-deferred axes)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ramp_modes_reshape_the_interval_and_nothing_else() {
+    let mut r = ElevationRamp::normalized([stop(0.25, 0.0, 0.0, 0.0), stop(0.75, 100.0, 200.0, 40.0)]);
+    assert_eq!(r.mode(), RampMode::Linear, "a ramp built from stops alone must stay what CA-02 shipped");
+    // A *quarter* of the way across, not the midpoint: smoothstep and a straight
+    // lerp agree exactly at 0.5, so a midpoint fixture would pass under a mode
+    // picker that did nothing at all.
+    let t = 0.375;
+    assert!((r.sample(t).unwrap().0 - 25.0).abs() < 1e-9, "Linear moved off the straight lerp");
+    r.set_mode(RampMode::Ease);
+    assert!((r.sample(t).unwrap().0 - 15.625).abs() < 1e-9, "Ease is not k^2(3-2k) -- got {:?}", r.sample(t));
+    r.set_mode(RampMode::Step);
+    assert_eq!(r.sample(t).unwrap().0, 0.0, "Step must hold the lower stop, not blend towards the upper");
+    for m in [RampMode::Linear, RampMode::Ease, RampMode::Step] {
+        r.set_mode(m);
+        assert_eq!(r.sample(0.0), Some((0.0, 0.0, 0.0, 1.0)), "{m:?} extrapolated below the first stop");
+        assert_eq!(r.sample(1.0), Some((100.0, 200.0, 40.0, 1.0)), "{m:?} extrapolated above the last");
+    }
+}
+
+/// The half-open band is the whole claim of `Step`: a sample landing exactly on
+/// a stop takes *that* stop's colour, and everything between it and the next
+/// one is flat. Fixtures sit just below a boundary on purpose.
+#[test]
+fn step_mode_draws_flat_bands_with_the_edge_on_the_stop() {
+    let mut r = ElevationRamp::normalized([stop(0.0, 10.0, 10.0, 10.0), stop(0.5, 200.0, 200.0, 200.0), stop(1.0, 250.0, 250.0, 250.0)]);
+    r.set_mode(RampMode::Step);
+    for t in [0.0, 0.1, 0.3, 0.49999] {
+        assert_eq!(r.sample(t).unwrap().0, 10.0, "t={t} should be flat in the first band");
+    }
+    assert_eq!(r.sample(0.5).unwrap().0, 200.0, "the band edge belongs to the stop it is named after");
+    for t in [0.5, 0.7, 0.99999] {
+        assert_eq!(r.sample(t).unwrap().0, 200.0, "t={t} should be flat in the second band");
+    }
+    assert_eq!(r.sample(1.0).unwrap().0, 250.0);
+}
+
+/// Replacing the stops is not a reason to lose the mode -- that is the bug
+/// `WorldGen::set_color_ramp` would have shipped by calling `normalized` alone,
+/// and the panel calls it on every drag.
+#[test]
+fn a_mode_survives_a_stop_list_being_rebuilt() {
+    let mut r = ElevationRamp::preset("Atlas").unwrap();
+    r.set_mode(RampMode::Step);
+    let mut rebuilt = ElevationRamp::normalized(r.stops().to_vec());
+    assert_eq!(rebuilt.mode(), RampMode::Linear, "normalized must not guess a mode");
+    rebuilt.set_mode(r.mode());
+    assert_eq!(rebuilt, r, "carrying the mode over did not reproduce the ramp");
+    assert_eq!(RampMode::from_name("Step"), Some(RampMode::Step));
+    assert_eq!(RampMode::from_name("Cubic"), None, "an unknown mode name must be refused, not defaulted");
+    for m in [RampMode::Linear, RampMode::Ease, RampMode::Step] {
+        assert_eq!(RampMode::from_name(m.name()), Some(m), "{m:?} does not survive its own name");
+    }
+    assert_eq!(render::RAMP_MODES.len(), 3);
+}
+
+#[test]
+fn per_stop_alpha_rides_the_same_curve_as_the_colour() {
+    let r = ElevationRamp::normalized([astop(0.0, 0.0, 0.0, 0.0, 0.0), astop(1.0, 100.0, 100.0, 100.0, 1.0)]);
+    assert_eq!(r.sample(0.0).unwrap().3, 0.0);
+    assert_eq!(r.sample(1.0).unwrap().3, 1.0);
+    let mid = r.sample(0.5).unwrap();
+    assert!((mid.3 - 0.5).abs() < 1e-9 && (mid.0 - 50.0).abs() < 1e-9, "alpha did not ride the same k as the colour: {mid:?}");
+    // Clamped, and NaN-proofed the *other* way from `at`: a stop with a broken
+    // alpha is opaque, because an invisible one looks like a dropped edit.
+    let odd = ElevationRamp::normalized([astop(0.0, 0.0, 0.0, 0.0, 4.0), astop(0.5, 0.0, 0.0, 0.0, -1.0), astop(1.0, 0.0, 0.0, 0.0, f64::NAN)]);
+    assert_eq!(odd.stops().iter().map(|s| s.a).collect::<Vec<_>>(), vec![1.0, 0.0, 1.0], "an alpha escaped [0,1], or a NaN alpha hid a stop instead of showing it");
+}
+
+/// An all-transparent ramp must be exactly as inert as `ramp_strength = 0`, or
+/// the "skipped entirely" branch in `land_color` is only half true.
+#[test]
+fn a_transparent_ramp_renders_nothing_at_full_strength() {
+    let s = synth();
+    let base = render_serial(&s, &TerrainAppearance::default());
+    let clear = ElevationRamp::normalized(ElevationRamp::preset("Mono").unwrap().stops().iter().map(|s| RampStop { a: 0.0, ..*s }));
+    let a = TerrainAppearance { ramp_strength: 1.0, ramp: clear, ..TerrainAppearance::default() };
+    assert_eq!(base, render_serial(&s, &a), "an alpha-0 ramp still painted at full strength");
+}
+
+/// And a half-opaque one must land between the two, or the alpha is a toggle
+/// wearing a slider's clothes.
+#[test]
+fn half_alpha_lands_between_the_material_colour_and_the_full_ramp() {
+    let s = synth();
+    let flat = TerrainAppearance { local_contrast: 0.0, ..TerrainAppearance::default() };
+    let full = ElevationRamp::preset("Mono").unwrap();
+    let half = ElevationRamp::normalized(full.stops().iter().map(|s| RampStop { a: 0.5, ..*s }));
+    let base = render_serial(&s, &flat);
+    let opaque = render_serial(&s, &TerrainAppearance { ramp_strength: 1.0, ramp: full, ..flat.clone() });
+    let mid = render_serial(&s, &TerrainAppearance { ramp_strength: 1.0, ramp: half, ..flat.clone() });
+    assert!(moved(&base, &mid, 2) > 0.01, "a half-alpha ramp did not paint at all");
+    assert!(moved(&opaque, &mid, 2) > 0.01, "a half-alpha ramp rendered identically to an opaque one");
+}
+
+/// Three modes must be three pictures, for the same reason nine presets must be
+/// nine: a picker offering names for one look is a dead control.
+#[test]
+fn every_ramp_mode_renders_a_distinct_image() {
+    let s = synth();
+    let imgs: Vec<(RampMode, Vec<u8>)> = [RampMode::Linear, RampMode::Ease, RampMode::Step]
+        .into_iter()
+        .map(|m| {
+            let mut ramp = ElevationRamp::preset("Elevation").unwrap();
+            ramp.set_mode(m);
+            (m, render_serial(&s, &TerrainAppearance { ramp_strength: 1.0, ramp, ..TerrainAppearance::default() }))
+        })
+        .collect();
+    for (i, (ma, a)) in imgs.iter().enumerate() {
+        for (mb, b) in imgs.iter().skip(i + 1) {
+            assert!(moved(a, b, 2) > 0.01, "modes {ma:?} and {mb:?} render the same map");
+        }
+    }
+}
+
+/// A look saved before 2026-08-24 described an opaque, linearly-sampled ramp.
+/// It must still load, and it must load as *that* -- the field-level serde
+/// defaults are the only thing standing between an older preset and either a
+/// parse error or an invisible ramp.
+#[test]
+fn a_ca02_era_ramp_json_loads_opaque_and_linear() {
+    let old = r#"{"stops":[{"at":0.0,"col":[10.0,20.0,30.0]},{"at":1.0,"col":[200.0,210.0,220.0]}]}"#;
+    let r: ElevationRamp = serde_json::from_str(old).expect("a CA-02-era ramp must still deserialize");
+    assert_eq!(r.mode(), RampMode::Linear, "an older saved look loaded with a mode it never described");
+    assert_eq!(r.stops().iter().map(|s| s.a).collect::<Vec<_>>(), vec![1.0, 1.0], "an older saved look loaded as invisible");
+}
+
+// ---------------------------------------------------------------------------
 // Saving a look (`GUI_GAP_REGISTER.md` CA-08)
 // ---------------------------------------------------------------------------
 
@@ -526,6 +663,10 @@ fn ramp_touches_land_only() {
 fn appearance_survives_a_json_round_trip() {
     let s = synth();
     let mut a = TerrainAppearance { ramp_strength: 0.55, ramp: ElevationRamp::preset("Imhof").unwrap(), ..TerrainAppearance::default() };
+    // Both 2026-08-24 ramp axes deliberately off their defaults, or this would
+    // only prove that a Linear, opaque ramp round-trips.
+    a.ramp = ElevationRamp::normalized(a.ramp.stops().iter().enumerate().map(|(i, s)| RampStop { a: 0.2 + 0.1 * i as f64, ..*s }));
+    a.ramp.set_mode(RampMode::Ease);
     a.set_tunable("sun_az_deg", 117.0);
     a.set_tunable("paper_wash", 0.42);
     a.npr.sepia = 0.3;

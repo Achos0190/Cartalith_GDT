@@ -1994,7 +1994,7 @@ func _on_batch_delete() -> void:
 		return
 	var d := ConfirmationDialog.new()
 	d.title = "Delete %d asset(s)?" % uids.size()
-	d.dialog_text = "Delete images of %d selected asset(s)? (custom slots are removed entirely; frozen slots are emptied, not removed.)" % uids.size()
+	d.dialog_text = "Delete images of %d selected asset(s)? This cannot be undone. (Custom slots are removed entirely; frozen slots are emptied, not removed.)" % uids.size()
 	d.confirmed.connect(func():
 		var result: Dictionary = _bridge.as_batch_delete(uids)
 		_dirty = true
@@ -2010,6 +2010,46 @@ func _on_batch_delete() -> void:
 	d.canceled.connect(func(): d.queue_free())
 	add_child(d)
 	d.popup_centered()
+
+## Delete / Backspace on the grid selection (`GUI_GAP_REGISTER.md` §31's last
+## open item -- MN-09 recorded that "the Asset Library window has no key
+## handling at all", which is why the Assets ▸ Batch ▸ Delete row lost the
+## accelerator glyph it used to print).
+##
+## **Routed through `_on_batch_delete` rather than deleting.** This is a
+## destructive batch operation with no undo, so the key does exactly what the
+## button does -- it raises the same confirmation, with the same count and the
+## same "custom slots are removed entirely, frozen slots are emptied" wording.
+## A second, key-only prompt would be a second place for that wording to drift.
+##
+## Two guards, both of them the ones `app.gd`'s own `_unhandled_key_input`
+## found it needed:
+##
+##   - **A focused text field wins.** Backspace inside a `LineEdit` means
+##     "delete a character", never "delete eleven assets", and
+##     `_unhandled_key_input` still fires for a focused text field on some
+##     platforms. That covers the rename prompt, the tag field and the
+##     pack-metadata fields, none of which is ever a delete.
+##   - **An empty selection says so.** Returning silently would make the key
+##     look dead on exactly the press that teaches a user it exists.
+##
+## `_unhandled_key_input` on this node rather than on `DccApp`: this is a
+## `Window`, so it is its own `Viewport`, and the key arrives here only while
+## the library has focus -- which is also why no "is the library open?" check
+## is needed, and why the slicer modal (its own `Window`) does not steal it.
+func _unhandled_key_input(event: InputEvent) -> void:
+	if not (event is InputEventKey and event.pressed):
+		return
+	if event.keycode != KEY_DELETE and event.keycode != KEY_BACKSPACE:
+		return
+	var typing := get_viewport().gui_get_focus_owner()
+	if typing is LineEdit or typing is TextEdit or typing is SpinBox:
+		return
+	get_viewport().set_input_as_handled()
+	if _selected.is_empty():
+		_host.set_status("hint", "select at least one slot to delete", "text_ghost")
+		return
+	_on_batch_delete()
 
 # ---------------------------------------------------------------------------
 # Slot inspector

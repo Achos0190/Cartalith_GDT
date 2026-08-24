@@ -3629,6 +3629,12 @@ impl WorldGen {
     /// shoreline, `1` = the world's highest point); the panel turns that into
     /// metres with `peak_m` for display, and `RampStop`'s own doc explains why
     /// the engine will not store metres.
+    ///
+    /// The `Color`'s **alpha is the stop's own alpha**, not a placeholder `1`.
+    /// Carrying it in the colour rather than as a third element keeps this row
+    /// shape and `set_color_ramp`'s identical to what CA-02 published — a panel
+    /// written against the older engine still round-trips, it simply always
+    /// sends opaque stops.
     #[func]
     fn get_color_ramp(&self) -> VarArray {
         let a = self.appearance();
@@ -3636,14 +3642,17 @@ impl WorldGen {
         for s in a.ramp.stops() {
             let mut row = VarArray::new();
             row.push(&s.at.to_variant());
-            row.push(&Color::from_rgba((s.col.0 / 255.0) as f32, (s.col.1 / 255.0) as f32, (s.col.2 / 255.0) as f32, 1.0).to_variant());
+            row.push(&Color::from_rgba((s.col.0 / 255.0) as f32, (s.col.1 / 255.0) as f32, (s.col.2 / 255.0) as f32, s.a as f32).to_variant());
             out.push(&row.to_variant());
         }
         out
     }
 
-    /// Replace the ramp with `stops`, each row `[position, Color]` exactly as
-    /// `get_color_ramp` returns it. Returns the number of stops accepted.
+    /// Replace the ramp's stops with `stops`, each row `[position, Color]`
+    /// exactly as `get_color_ramp` returns it — the `Color`'s alpha is the
+    /// stop's own opacity. Returns the number of stops accepted. The
+    /// interpolation mode is **not** part of this call and survives it; it is
+    /// `set_ramp_mode`'s.
     ///
     /// **Adding, deleting and reordering are all this one call**: the panel
     /// sends the list it wants and the engine sorts it, so a stop dragged past
@@ -3671,9 +3680,13 @@ impl WorldGen {
             }
             let Some(at) = row.at(0).try_to::<f64>().ok() else { continue };
             let Some(c) = row.at(1).try_to::<Color>().ok() else { continue };
-            parsed.push(render::RampStop { at, col: (c.r as f64 * 255.0, c.g as f64 * 255.0, c.b as f64 * 255.0) });
+            parsed.push(render::RampStop { at, col: (c.r as f64 * 255.0, c.g as f64 * 255.0, c.b as f64 * 255.0), a: c.a as f64 });
         }
-        let ramp = render::ElevationRamp::normalized(parsed);
+        let mut ramp = render::ElevationRamp::normalized(parsed);
+        // `normalized` builds a `Linear` ramp; the interpolation mode is a
+        // property of the ramp, not of the stop list this call replaces, so
+        // editing a stop must not silently reset it to Linear.
+        ramp.set_mode(self.appearance().ramp.mode());
         if ramp.stops().is_empty() {
             return 0;
         }
@@ -3688,12 +3701,48 @@ impl WorldGen {
     #[func]
     fn load_ramp_preset(&mut self, name: GString) -> bool {
         match render::ElevationRamp::preset(&name.to_string()) {
-            Some(r) => {
+            Some(mut r) => {
+                // Same reasoning as `set_color_ramp`: the picker's own copy
+                // says it "replaces every stop below", and the mode is not a
+                // stop. A user who chose Step and then browsed the nine ramps
+                // is browsing banded plates.
+                r.set_mode(self.appearance().ramp.mode());
                 self.appearance_ramp = Some(r);
                 true
             }
             None => false,
         }
+    }
+
+    /// The interpolation modes this build has, in the engine's own order —
+    /// `["Linear", "Ease", "Step"]`. The panel's picker is this list, not a
+    /// second copy of it in GDScript.
+    #[func]
+    fn list_ramp_modes(&self) -> PackedStringArray {
+        render::RAMP_MODES.iter().map(|n| GString::from(*n)).collect()
+    }
+
+    /// The mode currently in force, as one of `list_ramp_modes()`'s names.
+    #[func]
+    fn get_ramp_mode(&self) -> GString {
+        GString::from(self.appearance().ramp.mode().name())
+    }
+
+    /// Set the interpolation mode by name. `false` for a name this build does
+    /// not have, so a panel written against a newer engine loses a row rather
+    /// than silently drawing the wrong curve.
+    ///
+    /// Presentation only, on `set_appearance`'s exact terms: call
+    /// `build_color_texture()` again to see it, with no regeneration.
+    #[func]
+    fn set_ramp_mode(&mut self, name: GString) -> bool {
+        let Some(mode) = render::RampMode::from_name(&name.to_string()) else {
+            return false;
+        };
+        let mut ramp = self.appearance().ramp;
+        ramp.set_mode(mode);
+        self.appearance_ramp = Some(ramp);
+        true
     }
 
     // -- Saving a look (`GUI_GAP_REGISTER.md` CA-08) --------------------------

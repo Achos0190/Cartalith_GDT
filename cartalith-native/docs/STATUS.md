@@ -5,7 +5,39 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **LZ-01: deep zoom stopped twenty times short of
+Last updated: 2026-08-24 (post **the colour ramp's other two axes, and an
+Asset Library key that deletes** — `GUI_GAP_REGISTER.md` **CA-02a** and §31's
+last open item, both of them the *"stated in the panel rather than left to be
+discovered"* residue of an earlier pass. **CA-02a**: `RampStop` gains an alpha
+and `ElevationRamp` a `RampMode` of Linear / Ease / Step — the two axes CA-02
+shipped without, and the two that were **renderer work rather than a binding**,
+which is why they were deferred and why they had to be taken together. The mode
+belongs to the **ramp**, not to a stop (§7 draws one picker above the stop list,
+and "banded" is a statement about the whole plate); `Step` tests `k >= 1.0`
+rather than returning a flat `0.0`, so a sample landing exactly *on* a stop
+takes that stop's colour and coincident stops still draw their hard edge. Alpha
+rides the same `k` as the colour and multiplies into `ramp_strength`, so an
+alpha-0 stop reveals the material model at that elevation. **Two silent-failure
+traps taken**: `#[serde(default = "one")]` for the alpha, because a look saved
+before the field existed described *opaque* stops and `f64::default()` would
+load every one invisible; and `normalized` always returns a Linear ramp, so
+`set_color_ramp`/`load_ramp_preset` carry the mode over by hand or editing one
+stop silently resets a Step plate. Bound behind a **third** feature flag
+(`ramp_mode_api`), and the `get_color_ramp` row shape did not change — the
+alpha rides the `Color` that was already there. **§31**: Delete/Backspace in the
+Asset Library route into `_on_batch_delete`, so the key does exactly what the
+button does and raises the same confirmation rather than a second prompt whose
+wording could drift; a focused text field wins, an empty selection says so.
+Ten tests, `cargo build -p cartalith-godot` clean, headless boot clean.
+**Verified non-headless** at 2048×1311 on a real world: three distinct maps
+across the modes (Linear↔Step 67.4 % moved, and Step is visibly a banded
+hypsometric plate), an alpha-0 ramp inert at **0.0000 %** against the base at
+full strength, a colour edit leaving a dragged alpha at 0.40 (the
+`edit_alpha = false` trap), a saved look round-tripping both axes at 0 moved
+with the picker following the reload — and on a live 7-slot library, Cancel
+keeping both selected assets, Backspace confirming, and Backspace with a
+`LineEdit` focused raising **0 dialogs**)
+— previously, post **LZ-01: deep zoom stopped twenty times short of
 the reference, and the tile it drew had run out of octaves** — owner reported
 *"LOD zooming doesn't seem to go that deep either."* Measured first: the camera
 stopped at **z8, a 100 km span**, where the reference's own `lodMaxZoom()`
@@ -243,7 +275,8 @@ the elevation ramp `render.rs`'s own module doc has said since milestone 1
 did not exist anywhere in this renderer: `ElevationRamp`/`RampStop` keyed to
 **relative land elevation** (0 = shoreline, 1 = the peak — never metres, or a
 saved ramp would mean a different picture on a world with a different peak),
-sampled linearly, blended over the material colour **before the light curve**,
+sampled linearly (**Ease and Step, and per-stop alpha, landed later the same
+day — see the head of this file**), blended over the material colour **before the light curve**,
 which is the whole difference between a hypsometric tint over shaded relief
 and an elevation key pasted on top. Land only; **ships off** at
 `ramp_strength: 0.0` with the stage skipped, so `golden_parity_render.rs`
