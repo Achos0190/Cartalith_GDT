@@ -138,8 +138,11 @@ fn run(size: usize) {
 
     // Step 2: the same accumulation, two algorithms, over this world's own final fields.
     let flow_cpu = cartalith_hydrology::compute_flow(gw, gh, &ws.field, Some(&ws.rainfall), true, world);
-    let out = cartalith_gpu::dispatch_gpu_flow(&ctx, gw, gh, &ws.field, Some(&ws.rainfall), true, world);
-    let flow_gpu = out.acc;
+    let Some(out) = cartalith_gpu::dispatch_gpu_flow(&ctx, gw, gh, &ws.field, Some(&ws.rainfall), true, world) else {
+        println!("GPU flow readback failed on this device -- nothing to compare");
+        return;
+    };
+    let flow_gpu = &out.acc;
 
     let mut max_rel = 0.0f64;
     let mut max_abs = 0.0f64;

@@ -366,6 +366,13 @@ pub struct GpuContext {
     pub device_type: wgpu::DeviceType,
     device: wgpu::Device,
     queue: wgpu::Queue,
+    /// Set once this device has failed a readback: a `wgpu` device that
+    /// loses a `map_async` is *gone*, not merely out of room at that size --
+    /// measured, the very next `create_buffer_init` on it panics with
+    /// "Buffer ... is invalid". Shared (`Arc`) with every context built from
+    /// the same device, so one stage's failure closes the GPU path for all of
+    /// them. See [`read_back`].
+    lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
 }
@@ -552,6 +559,13 @@ pub struct GpuBlurContext {
     pub device_type: wgpu::DeviceType,
     device: wgpu::Device,
     queue: wgpu::Queue,
+    /// Set once this device has failed a readback: a `wgpu` device that
+    /// loses a `map_async` is *gone*, not merely out of room at that size --
+    /// measured, the very next `create_buffer_init` on it panics with
+    /// "Buffer ... is invalid". Shared (`Arc`) with every context built from
+    /// the same device, so one stage's failure closes the GPU path for all of
+    /// them. See [`read_back`].
+    lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
     box_h_pipeline: wgpu::ComputePipeline,
     box_v_pipeline: wgpu::ComputePipeline,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -573,6 +587,13 @@ pub struct GpuWeatherContext {
     pub device_type: wgpu::DeviceType,
     device: wgpu::Device,
     queue: wgpu::Queue,
+    /// Set once this device has failed a readback: a `wgpu` device that
+    /// loses a `map_async` is *gone*, not merely out of room at that size --
+    /// measured, the very next `create_buffer_init` on it panics with
+    /// "Buffer ... is invalid". Shared (`Arc`) with every context built from
+    /// the same device, so one stage's failure closes the GPU path for all of
+    /// them. See [`read_back`].
+    lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
     evap_pipeline: wgpu::ComputePipeline,
     advect_pipeline: wgpu::ComputePipeline,
     deposit_pipeline: wgpu::ComputePipeline,
@@ -616,6 +637,7 @@ pub fn init_gpu_weather_with(gpu: &GpuDevice) -> GpuWeatherContext {
         device_type: gpu.device_type,
         device: gpu.device.clone(),
         queue: gpu.queue.clone(),
+        lost: std::sync::Arc::clone(&gpu.lost),
         evap_pipeline: make_pipeline("evap pipeline", "evap_main"),
         advect_pipeline: make_pipeline("advect pipeline", "advect_main"),
         deposit_pipeline: make_pipeline("deposit pipeline", "deposit_main"),
@@ -639,6 +661,13 @@ pub struct GpuFlowContext {
     pub device_type: wgpu::DeviceType,
     device: wgpu::Device,
     queue: wgpu::Queue,
+    /// Set once this device has failed a readback: a `wgpu` device that
+    /// loses a `map_async` is *gone*, not merely out of room at that size --
+    /// measured, the very next `create_buffer_init` on it panics with
+    /// "Buffer ... is invalid". Shared (`Arc`) with every context built from
+    /// the same device, so one stage's failure closes the GPU path for all of
+    /// them. See [`read_back`].
+    lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
     dir_pipeline: wgpu::ComputePipeline,
     scatter_pipeline: wgpu::ComputePipeline,
     merge_pipeline: wgpu::ComputePipeline,
@@ -682,6 +711,7 @@ pub fn init_gpu_flow_with(gpu: &GpuDevice) -> GpuFlowContext {
         device_type: gpu.device_type,
         device: gpu.device.clone(),
         queue: gpu.queue.clone(),
+        lost: std::sync::Arc::clone(&gpu.lost),
         dir_pipeline: make_pipeline("flow dir pipeline", "dir_main"),
         scatter_pipeline: make_pipeline("flow scatter pipeline", "scatter_main"),
         merge_pipeline: make_pipeline("flow merge pipeline", "merge_main"),
@@ -764,6 +794,7 @@ pub fn init_gpu_gauss_blur() -> Result<GpuBlurContext, GpuInitError> {
         device_type: info.device_type,
         device,
         queue,
+        lost: std::sync::Arc::default(),
         box_h_pipeline,
         box_v_pipeline,
         bind_group_layout,
@@ -809,6 +840,13 @@ struct RawGpuDevice {
     device_type: wgpu::DeviceType,
     device: wgpu::Device,
     queue: wgpu::Queue,
+    /// Set once this device has failed a readback: a `wgpu` device that
+    /// loses a `map_async` is *gone*, not merely out of room at that size --
+    /// measured, the very next `create_buffer_init` on it panics with
+    /// "Buffer ... is invalid". Shared (`Arc`) with every context built from
+    /// the same device, so one stage's failure closes the GPU path for all of
+    /// them. See [`read_back`].
+    lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// `HARDWARE_ACCELERATION.md` §10: request the minimum actually needed,
@@ -888,6 +926,7 @@ fn request_gpu_device_from(
         device_type: info.device_type,
         device,
         queue,
+        lost: std::sync::Arc::default(),
     })
 }
 
@@ -936,6 +975,7 @@ fn build_pipeline(
         device_type: raw.device_type,
         device: raw.device,
         queue: raw.queue,
+        lost: raw.lost,
         pipeline,
         bind_group_layout,
     }
@@ -973,6 +1013,13 @@ pub struct GpuDevice {
     pub device_type: wgpu::DeviceType,
     device: wgpu::Device,
     queue: wgpu::Queue,
+    /// Set once this device has failed a readback: a `wgpu` device that
+    /// loses a `map_async` is *gone*, not merely out of room at that size --
+    /// measured, the very next `create_buffer_init` on it panics with
+    /// "Buffer ... is invalid". Shared (`Arc`) with every context built from
+    /// the same device, so one stage's failure closes the GPU path for all of
+    /// them. See [`read_back`].
+    lost: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 /// Sized for the largest bind group among the kernels `generate_terrain`'s
@@ -1000,6 +1047,7 @@ pub fn init_gpu_shared_device() -> Result<GpuDevice, GpuInitError> {
         device_type: raw.device_type,
         device: raw.device,
         queue: raw.queue,
+        lost: raw.lost,
     })
 }
 
@@ -1016,6 +1064,7 @@ fn build_pipeline_shared(
         device_type: gpu.device_type,
         device: gpu.device.clone(),
         queue: gpu.queue.clone(),
+        lost: std::sync::Arc::clone(&gpu.lost),
     };
     build_pipeline(raw, shader_src, label, layout_entries)
 }
@@ -1090,17 +1139,170 @@ pub fn init_gpu_gauss_blur_with(gpu: &GpuDevice) -> GpuBlurContext {
         device_type: gpu.device_type,
         device: gpu.device.clone(),
         queue: gpu.queue.clone(),
+        lost: std::sync::Arc::clone(&gpu.lost),
         box_h_pipeline,
         box_v_pipeline,
         bind_group_layout,
     }
 }
 
+// -- Readback ------------------------------------------------------------------
+//
+// Every dispatch below ends the same way: copy a storage buffer into a
+// `MAP_READ` staging buffer, map it, copy the bytes out, unmap. That tail used
+// to be written out ten times with `.expect("buffer map failed")` at the end of
+// each, which made a device that cannot complete a readback a *panic* -- and a
+// panic inside a loaded GDExtension takes the Godot process with it
+// (`cartalith-rust-conventions`). Measured, not theorised: this machine's
+// integrated Radeon at 8192² passes every limits check, dispatches, and then
+// returns `BufferAsyncError` from the map.
+//
+// So the tail lives in one place and returns `Option`. A failure does two
+// things, and BOTH were needed -- the second was found by re-running the real
+// 8192² integrated-GPU generation after only the first was in place:
+//
+// 1. It records the size against the adapter (`multi::note_readback_failure`),
+//    so a *later* generation at that size skips this device up front rather
+//    than re-discovering the same wall.
+// 2. It marks the live device **lost**. A `wgpu` device that loses a
+//    `map_async` is gone, not merely out of room: with only (1) in place, the
+//    base-field blur failed gracefully at 8192² and the next stage -- weather,
+//    on a 240² coarse grid, far under any size ban -- panicked immediately on
+//    a 32-byte uniform buffer with `Buffer with 'weather params' label is
+//    invalid`. The flag is shared by `Arc` with every context built from the
+//    same device, at every size, for the life of that device. A *new* device
+//    (the next `generate_terrain` opens its own) starts clean, so this is not
+//    a permanent verdict on the hardware.
+//
+// `HARDWARE_ACCELERATION.md` §27: a GPU failure transitions to CPU, it does
+// not crash.
+
+/// What a dispatch needs from whichever context type it was handed: the live
+/// device to poll, the adapter identity to blame if the readback fails, and
+/// the shared lost flag. Implemented for all four context types and for
+/// [`GpuDevice`] itself -- they all already carry these fields, this only
+/// names them once.
+trait DispatchDevice {
+    fn wgpu_device(&self) -> &wgpu::Device;
+    fn identity(&self) -> (&str, u32, wgpu::Backend);
+    fn lost(&self) -> &std::sync::atomic::AtomicBool;
+}
+
+macro_rules! impl_dispatch_device {
+    ($($t:ty),+ $(,)?) => {$(
+        impl DispatchDevice for $t {
+            fn wgpu_device(&self) -> &wgpu::Device {
+                &self.device
+            }
+            fn identity(&self) -> (&str, u32, wgpu::Backend) {
+                (&self.adapter_name, self.adapter_vendor, self.adapter_backend)
+            }
+            fn lost(&self) -> &std::sync::atomic::AtomicBool {
+                &self.lost
+            }
+        }
+    )+};
+}
+impl_dispatch_device!(GpuContext, GpuBlurContext, GpuWeatherContext, GpuFlowContext, GpuDevice);
+
+/// Whether this device has already failed a readback (in this session, at this
+/// size or smaller) or been lost outright. The one gate every entry point
+/// checks before touching the device at all -- including before building a
+/// pipeline on it, since a lost device fails those too.
+fn device_is_unusable(ctx: &impl DispatchDevice, cells: u64) -> bool {
+    if ctx.lost().load(std::sync::atomic::Ordering::Relaxed) {
+        return true;
+    }
+    let (name, vendor, backend) = ctx.identity();
+    multi::readback_failure_cells(name, vendor, backend).is_some_and(|at| cells >= at)
+}
+
+/// Map `staging`, hand its bytes to `f`, unmap, and return `f`'s result --
+/// or `None` if the device could not complete the readback, having first
+/// recorded the size and marked the device lost.
+///
+/// `cells` is the grid the *dispatch* was for, not the length of this
+/// particular buffer: a stage reading two half-width buffers still fails at
+/// the size it was asked to compute, and that is the size a later stage needs
+/// to avoid.
+fn read_back<R>(
+    ctx: &impl DispatchDevice,
+    staging: &wgpu::Buffer,
+    cells: u64,
+    f: impl FnOnce(&[u8]) -> R,
+) -> Option<R> {
+    let (name, vendor, backend) = ctx.identity();
+    let fail = |what: &str| {
+        eprintln!(
+            "cartalith-gpu: {what} on {name} at {cells} cells -- this device is done for this run; \
+             falling back to CPU (HARDWARE_ACCELERATION.md §27)"
+        );
+        multi::note_readback_failure(name, vendor, backend, cells);
+        ctx.lost().store(true, std::sync::atomic::Ordering::Relaxed);
+        None::<()>
+    };
+
+    let slice = staging.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |res| {
+        let _ = tx.send(res);
+    });
+    if let Err(e) = ctx.wgpu_device().poll(wgpu::PollType::wait_indefinitely()) {
+        fail(&format!("device poll failed ({e:?})"))?;
+    }
+    match rx.recv() {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => fail(&format!("buffer map failed ({e:?})"))?,
+        Err(e) => fail(&format!("map_async channel closed ({e})"))?,
+    }
+    let data = match slice.get_mapped_range() {
+        Ok(d) => d,
+        Err(e) => {
+            fail(&format!("get_mapped_range failed ({e:?})"))?;
+            return None;
+        }
+    };
+    let out = f(&data);
+    drop(data);
+    staging.unmap();
+    Some(out)
+}
+
+/// [`read_back`] for the common case: a whole staging buffer of `T`, copied
+/// out as a `Vec<T>`.
+fn read_back_vec<T: Pod>(ctx: &impl DispatchDevice, staging: &wgpu::Buffer, cells: u64) -> Option<Vec<T>> {
+    read_back(ctx, staging, cells, |bytes| bytemuck::cast_slice::<u8, T>(bytes).to_vec())
+}
+
+/// Run one whole-grid dispatch on `gpu`, refusing it up front -- *before the
+/// pipeline is even built* -- if the device is lost or already known not to
+/// reach this size ([`device_supports_grid`], which now answers on measured
+/// readback failures as well as on reported limits).
+///
+/// The `dispatch` closure builds its own context on purpose: shader-module and
+/// pipeline creation are device calls too, and on a lost device they are as
+/// unsafe as the dispatch itself.
+///
+/// The pre-check matters inside a single `generate_terrain` as much as across
+/// calls: the engine resolves its device set once, at the top, so without this
+/// every one of the six GPU stages would separately build, dispatch, wait and
+/// fail on a device the first stage already proved cannot do it.
+fn on_grid<T>(gpu: &GpuDevice, width: u32, height: u32, dispatch: impl FnOnce() -> Option<T>) -> Option<T> {
+    if device_is_unusable(gpu, u64::from(width) * u64::from(height))
+        || !device_supports_grid(gpu, width as usize, height as usize)
+    {
+        return None;
+    }
+    dispatch()
+}
+
 /// Dispatch the GPU kernel over a `width`x`height` grid, sampling
 /// `vnoise(x*scale, y*scale, seed)` at each cell -- read back and return
 /// as a plain `Vec<f32>`, row-major (matches `cartalith-noise`'s own
 /// convention elsewhere in this workspace).
-fn dispatch_gpu(ctx: &GpuContext, width: u32, height: u32, seed: i32, scale: f32) -> Vec<f32> {
+///
+/// `None` if the readback failed; see [`read_back`].
+fn dispatch_gpu(ctx: &GpuContext, width: u32, height: u32, seed: i32, scale: f32) -> Option<Vec<f32>> {
     let count = (width * height) as usize;
     let byte_len = (count * std::mem::size_of::<f32>()) as u64;
 
@@ -1157,25 +1359,13 @@ fn dispatch_gpu(ctx: &GpuContext, width: u32, height: u32, seed: i32, scale: f32
     encoder.copy_buffer_to_buffer(&storage_buf, 0, &staging_buf, 0, byte_len);
     ctx.queue.submit(Some(encoder.finish()));
 
-    let slice = staging_buf.slice(..);
-    let (tx, rx) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |res| {
-        let _ = tx.send(res);
-    });
-    ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
-    rx.recv().expect("map_async channel closed").expect("buffer map failed");
-
-    let data = slice.get_mapped_range().expect("get_mapped_range failed");
-    let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
-    drop(data);
-    staging_buf.unmap();
-    result
+    read_back_vec::<f32>(ctx, &staging_buf, count as u64)
 }
 
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 2: dispatch `gpu_warp.wgsl`,
 /// returning `(warp_x, warp_y)` -- one dispatch computes both, matching
 /// `compute_warp`'s own shape (see [`init_gpu_warp`]'s doc comment).
-fn dispatch_gpu_warp(ctx: &GpuContext, width: u32, height: u32, seed: i32, wf: f32, amp: f32) -> (Vec<f32>, Vec<f32>) {
+fn dispatch_gpu_warp(ctx: &GpuContext, width: u32, height: u32, seed: i32, wf: f32, amp: f32) -> Option<(Vec<f32>, Vec<f32>)> {
     dispatch_gpu_warp_band(ctx, width, height, 0, height, seed, wf, amp)
 }
 
@@ -1201,12 +1391,12 @@ fn dispatch_gpu_warp_band(
     seed: i32,
     wf: f32,
     amp: f32,
-) -> (Vec<f32>, Vec<f32>) {
+) -> Option<(Vec<f32>, Vec<f32>)> {
     let count = (width * band_rows) as usize;
     let mut bx = vec![0f32; count];
     let mut by = vec![0f32; count];
-    dispatch_gpu_warp_band_into(ctx, width, height, y_offset, band_rows, seed, wf, amp, &mut bx, &mut by);
-    (bx, by)
+    dispatch_gpu_warp_band_into(ctx, width, height, y_offset, band_rows, seed, wf, amp, &mut bx, &mut by)?;
+    Some((bx, by))
 }
 
 /// [`dispatch_gpu_warp_band`] writing straight into caller-owned slices.
@@ -1230,7 +1420,7 @@ fn dispatch_gpu_warp_band_into(
     amp: f32,
     out_warp_x: &mut [f32],
     out_warp_y: &mut [f32],
-) {
+) -> Option<()> {
     let count = (width * band_rows) as usize;
     assert_eq!(out_warp_x.len(), count);
     assert_eq!(out_warp_y.len(), count);
@@ -1286,21 +1476,16 @@ fn dispatch_gpu_warp_band_into(
     encoder.copy_buffer_to_buffer(&out_y, 0, &staging_y, 0, byte_len);
     ctx.queue.submit(Some(encoder.finish()));
 
-    let read_back = |staging: &wgpu::Buffer, dst: &mut [f32]| {
-        let slice = staging.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |res| {
-            let _ = tx.send(res);
-        });
-        ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
-        rx.recv().expect("map_async channel closed").expect("buffer map failed");
-        let data = slice.get_mapped_range().expect("get_mapped_range failed");
-        dst.copy_from_slice(bytemuck::cast_slice(&data));
-        drop(data);
-        staging.unmap();
+    // A band's failure is a failure at the size of the grid it is a band OF --
+    // that is the size a later stage has to steer around, not the band's own
+    // row count.
+    let cells = u64::from(width) * u64::from(height);
+    let into = |staging: &wgpu::Buffer, dst: &mut [f32]| {
+        read_back(ctx, staging, cells, |bytes| dst.copy_from_slice(bytemuck::cast_slice(bytes)))
     };
-    read_back(&staging_x, out_warp_x);
-    read_back(&staging_y, out_warp_y);
+    into(&staging_x, out_warp_x)?;
+    into(&staging_y, out_warp_y)?;
+    Some(())
 }
 
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 2: dispatch
@@ -1320,7 +1505,7 @@ fn dispatch_gpu_heterogeneity(
     age: &[f32],
     warp_x: &[f32],
     warp_y: &[f32],
-) -> Vec<f32> {
+) -> Option<Vec<f32>> {
     let count = (width * height) as usize;
     assert_eq!(age.len(), count);
     assert_eq!(warp_x.len(), count);
@@ -1380,18 +1565,7 @@ fn dispatch_gpu_heterogeneity(
     encoder.copy_buffer_to_buffer(&out_buf, 0, &staging_buf, 0, byte_len);
     ctx.queue.submit(Some(encoder.finish()));
 
-    let slice = staging_buf.slice(..);
-    let (tx, rx) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |res| {
-        let _ = tx.send(res);
-    });
-    ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
-    rx.recv().expect("map_async channel closed").expect("buffer map failed");
-    let data = slice.get_mapped_range().expect("get_mapped_range failed");
-    let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
-    drop(data);
-    staging_buf.unmap();
-    result
+    read_back_vec::<f32>(ctx, &staging_buf, count as u64)
 }
 
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 3: dispatch `gpu_height.wgsl`.
@@ -1424,7 +1598,7 @@ fn dispatch_gpu_height(
     warp_x: &[f32],
     warp_y: &[f32],
     oro: &[f32],
-) -> Vec<f32> {
+) -> Option<Vec<f32>> {
     let count = (width * height) as usize;
     assert_eq!(base_field.len(), count);
     assert_eq!(stress.len(), count);
@@ -1512,18 +1686,7 @@ fn dispatch_gpu_height(
     encoder.copy_buffer_to_buffer(&out_buf, 0, &staging_buf, 0, byte_len);
     ctx.queue.submit(Some(encoder.finish()));
 
-    let slice = staging_buf.slice(..);
-    let (tx, rx) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |res| {
-        let _ = tx.send(res);
-    });
-    ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
-    rx.recv().expect("map_async channel closed").expect("buffer map failed");
-    let data = slice.get_mapped_range().expect("get_mapped_range failed");
-    let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
-    drop(data);
-    staging_buf.unmap();
-    result
+    read_back_vec::<f32>(ctx, &staging_buf, count as u64)
 }
 
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 4: dispatch `gpu_resistance.wgsl`.
@@ -1531,7 +1694,14 @@ fn dispatch_gpu_height(
 /// max(0.0)` for each plate -- a tiny (`num_plates`-length) CPU-side step,
 /// not the per-cell workload this kernel accelerates (see the shader's
 /// own header comment).
-fn dispatch_gpu_resistance(ctx: &GpuContext, width: u32, height: u32, plate_id: &[u32], age: &[f32], crustal_per_plate: &[f32]) -> Vec<f32> {
+fn dispatch_gpu_resistance(
+    ctx: &GpuContext,
+    width: u32,
+    height: u32,
+    plate_id: &[u32],
+    age: &[f32],
+    crustal_per_plate: &[f32],
+) -> Option<Vec<f32>> {
     let count = (width * height) as usize;
     assert_eq!(plate_id.len(), count);
     assert_eq!(age.len(), count);
@@ -1597,18 +1767,7 @@ fn dispatch_gpu_resistance(ctx: &GpuContext, width: u32, height: u32, plate_id: 
     encoder.copy_buffer_to_buffer(&out_buf, 0, &staging_buf, 0, byte_len);
     ctx.queue.submit(Some(encoder.finish()));
 
-    let slice = staging_buf.slice(..);
-    let (tx, rx) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |res| {
-        let _ = tx.send(res);
-    });
-    ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
-    rx.recv().expect("map_async channel closed").expect("buffer map failed");
-    let data = slice.get_mapped_range().expect("get_mapped_range failed");
-    let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
-    drop(data);
-    staging_buf.unmap();
-    result
+    read_back_vec::<f32>(ctx, &staging_buf, count as u64)
 }
 
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 4: dispatch `gpu_gauss_blur.
@@ -1622,9 +1781,16 @@ fn dispatch_gpu_resistance(ctx: &GpuContext, width: u32, height: u32, plate_id: 
 /// Rust `f64::round()` agree for the always-positive `r` this function
 /// receives -- both round halfway-from-zero, i.e. up, for positive
 /// values).
-fn dispatch_gpu_gauss_blur(ctx: &GpuBlurContext, src: &[f32], radius: f64, width: u32, height: u32, wrap_x: bool) -> Vec<f32> {
+fn dispatch_gpu_gauss_blur(
+    ctx: &GpuBlurContext,
+    src: &[f32],
+    radius: f64,
+    width: u32,
+    height: u32,
+    wrap_x: bool,
+) -> Option<Vec<f32>> {
     if radius < 1.0 {
-        return src.to_vec();
+        return Some(src.to_vec());
     }
     let count = (width * height) as usize;
     assert_eq!(src.len(), count);
@@ -1708,18 +1874,7 @@ fn dispatch_gpu_gauss_blur(ctx: &GpuBlurContext, src: &[f32], radius: f64, width
     encoder.copy_buffer_to_buffer(&buf_a, 0, &staging_buf, 0, byte_len);
     ctx.queue.submit(Some(encoder.finish()));
 
-    let slice = staging_buf.slice(..);
-    let (tx, rx) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |res| {
-        let _ = tx.send(res);
-    });
-    ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
-    rx.recv().expect("map_async channel closed").expect("buffer map failed");
-    let data = slice.get_mapped_range().expect("get_mapped_range failed");
-    let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
-    drop(data);
-    staging_buf.unmap();
-    result
+    read_back_vec::<f32>(ctx, &staging_buf, count as u64)
 }
 
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 7: `simulate_weather`'s inner
@@ -1754,7 +1909,7 @@ fn dispatch_gpu_weather(
     step: f32,
     bulk_evap: bool,
     wrap_x: bool,
-) -> (Vec<f32>, Vec<f32>) {
+) -> Option<(Vec<f32>, Vec<f32>)> {
     let n = (ww * wh) as usize;
     assert_eq!(eh.len(), n);
     assert_eq!(w_init.len(), n);
@@ -1875,23 +2030,9 @@ fn dispatch_gpu_weather(
     encoder.copy_buffer_to_buffer(&rain_buf, 0, &staging_rain, 0, byte_len);
     ctx.queue.submit(Some(encoder.finish()));
 
-    let read_back = |buf: &wgpu::Buffer| -> Vec<f32> {
-        let slice = buf.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |res| {
-            let _ = tx.send(res);
-        });
-        ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
-        rx.recv().expect("map_async channel closed").expect("buffer map failed");
-        let data = slice.get_mapped_range().expect("get_mapped_range failed");
-        let result: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
-        drop(data);
-        buf.unmap();
-        result
-    };
-    let w_out = read_back(&staging_w);
-    let rain_out = read_back(&staging_rain);
-    (w_out, rain_out)
+    let w_out = read_back_vec::<f32>(ctx, &staging_w, n as u64)?;
+    let rain_out = read_back_vec::<f32>(ctx, &staging_rain, n as u64)?;
+    Some((w_out, rain_out))
 }
 
 /// Public `_with` wrapper (milestone 8's shared-device convention, applied
@@ -1923,12 +2064,19 @@ pub fn simulate_weather_loop_gpu_with(
     step: f32,
     bulk_evap: bool,
     wrap_x: bool,
-) -> (Vec<f32>, Vec<f32>) {
-    let ctx = init_gpu_weather_with(gpu);
-    dispatch_gpu_weather(
-        &ctx, eh, tc, sst_evap, wx, wy, w_init, ww, wh, iters, sea, ocean_hum, evap_c, ocean_c, rain_k, dry, step,
-        bulk_evap, wrap_x,
-    )
+) -> Option<(Vec<f32>, Vec<f32>)> {
+    // `ww`x`wh` is the coarse weather grid, not the world grid -- the size
+    // checked and, on failure, recorded is the one this dispatch actually
+    // asked the device for. (The *lost* check inside `on_grid` is what stops
+    // this stage after an earlier whole-grid stage killed the device; the size
+    // ban alone would wave a 240² grid straight through.)
+    on_grid(gpu, ww, wh, || {
+        let ctx = init_gpu_weather_with(gpu);
+        dispatch_gpu_weather(
+            &ctx, eh, tc, sst_evap, wx, wy, w_init, ww, wh, iters, sea, ocean_hum, evap_c, ocean_c, rain_k, dry,
+            step, bulk_evap, wrap_x,
+        )
+    })
 }
 
 /// `GPU_LAYER_INTEGRATION_SCOPE.md` milestone 5: double-buffered JFA plate
@@ -1950,7 +2098,7 @@ fn dispatch_gpu_assign_plates(
     plate_y: &[f32],
     warp_x: Option<&[f32]>,
     warp_y: Option<&[f32]>,
-) -> Vec<i32> {
+) -> Option<Vec<i32>> {
     let w = width as usize;
     let h = height as usize;
     let n = w * h;
@@ -2119,17 +2267,7 @@ fn dispatch_gpu_assign_plates(
     encoder.copy_buffer_to_buffer(final_buf, 0, &staging_nearest, 0, byte_len_i32);
     ctx.queue.submit(Some(encoder.finish()));
 
-    let slice = staging_nearest.slice(..);
-    let (tx, rx) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |res| {
-        let _ = tx.send(res);
-    });
-    ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
-    rx.recv().expect("map_async channel closed").expect("buffer map failed");
-    let data = slice.get_mapped_range().expect("get_mapped_range failed");
-    let mut nearest: Vec<i32> = bytemuck::cast_slice(&data).to_vec();
-    drop(data);
-    staging_nearest.unmap();
+    let mut nearest = read_back_vec::<i32>(ctx, &staging_nearest, n as u64)?;
 
     // Fallback: any cell JFA never reached (rare/none in practice) gets a
     // brute-force nearest-plate search, matching `assign_plates`'s own
@@ -2155,7 +2293,7 @@ fn dispatch_gpu_assign_plates(
         }
         nearest[i] = best;
     }
-    nearest
+    Some(nearest)
 }
 
 /// The per-cell seed `compute_flow` starts its accumulation from, computed
@@ -2253,6 +2391,10 @@ pub struct GpuFlowResult {
 /// of ~5e-4 and a typical (random-sign, sqrt-cancelling) one far below
 /// that -- comparable to, and at large accumulations better than, the
 /// error the CPU's own long chain of `f32` additions already carries.
+/// `None` -- CPU fallback, never a panic -- when the readback fails, or when
+/// this device already failed one at this size ([`device_supports_grid`]).
+/// This is the one dispatch the engine calls through its own context rather
+/// than through a `_with` wrapper, so it carries the check itself.
 pub fn dispatch_gpu_flow(
     ctx: &GpuFlowContext,
     gw: usize,
@@ -2261,9 +2403,12 @@ pub fn dispatch_gpu_flow(
     rain: Option<&[f32]>,
     use_rain: bool,
     world: bool,
-) -> GpuFlowResult {
+) -> Option<GpuFlowResult> {
     let n = gw * gh;
     assert_eq!(field.len(), n, "field length must be gw*gh");
+    if device_is_unusable(ctx, n as u64) {
+        return None;
+    }
     let width = gw as u32;
     let height = gh as u32;
 
@@ -2373,32 +2518,15 @@ pub fn dispatch_gpu_flow(
     encoder.copy_buffer_to_buffer(&recv_buf, 0, &staging_recv, 0, byte_len_u32);
     ctx.queue.submit(Some(encoder.finish()));
 
-    let acc_slice = staging_acc.slice(..);
-    let recv_slice = staging_recv.slice(..);
-    let (tx_a, rx_a) = std::sync::mpsc::channel();
-    acc_slice.map_async(wgpu::MapMode::Read, move |res| {
-        let _ = tx_a.send(res);
-    });
-    let (tx_r, rx_r) = std::sync::mpsc::channel();
-    recv_slice.map_async(wgpu::MapMode::Read, move |res| {
-        let _ = tx_r.send(res);
-    });
-    ctx.device.poll(wgpu::PollType::wait_indefinitely()).expect("device poll failed");
-    rx_a.recv().expect("map_async channel closed").expect("buffer map failed");
-    rx_r.recv().expect("map_async channel closed").expect("buffer map failed");
+    // One buffer at a time rather than both maps in flight against a single
+    // poll: the submit has already happened, so the second map's wait is
+    // essentially free, and `read_back` is where the failure bookkeeping lives.
+    let acc = read_back(ctx, &staging_acc, n as u64, |bytes| {
+        bytemuck::cast_slice::<u8, u32>(bytes).iter().map(|&q| (q as f64 / scale) as f32).collect::<Vec<f32>>()
+    })?;
+    let recv = read_back_vec::<i32>(ctx, &staging_recv, n as u64)?;
 
-    let acc_data = acc_slice.get_mapped_range().expect("get_mapped_range failed");
-    let acc_raw: &[u32] = bytemuck::cast_slice(&acc_data);
-    let acc: Vec<f32> = acc_raw.iter().map(|&q| (q as f64 / scale) as f32).collect();
-    drop(acc_data);
-    staging_acc.unmap();
-
-    let recv_data = recv_slice.get_mapped_range().expect("get_mapped_range failed");
-    let recv: Vec<i32> = bytemuck::cast_slice(&recv_data).to_vec();
-    drop(recv_data);
-    staging_recv.unmap();
-
-    GpuFlowResult { acc, recv, fixed_point_scale: scale }
+    Some(GpuFlowResult { acc, recv, fixed_point_scale: scale })
 }
 
 /// Convenience wrapper: build a flow pipeline on `gpu` and run one
@@ -2414,9 +2542,12 @@ pub fn flow_accumulation_gpu_with(
     rain: Option<&[f32]>,
     use_rain: bool,
     world: bool,
-) -> Vec<f32> {
-    let ctx = init_gpu_flow_with(gpu);
-    dispatch_gpu_flow(&ctx, gw, gh, field, rain, use_rain, world).acc
+) -> Option<Vec<f32>> {
+    on_grid(gpu, gw as u32, gh as u32, || {
+        let ctx = init_gpu_flow_with(gpu);
+        dispatch_gpu_flow(&ctx, gw, gh, field, rain, use_rain, world)
+    })
+    .map(|r| r.acc)
 }
 
 /// Brute-force exact nearest-plate ground truth (no JFA at all) -- what
@@ -2706,7 +2837,7 @@ pub fn gpu_safe_noise_grid_cpu(width: u32, height: u32, seed: i32, scale: f32) -
 /// warp`/`gpu_fbm`). Returns `None` if GPU init fails for any reason.
 pub fn warp_grid_gpu(width: u32, height: u32, seed: i32, wf: f32, amp: f32) -> Option<(Vec<f32>, Vec<f32>)> {
     let ctx = init_gpu_warp().ok()?;
-    Some(dispatch_gpu_warp(&ctx, width, height, seed, wf, amp))
+    dispatch_gpu_warp(&ctx, width, height, seed, wf, amp)
 }
 
 /// Crustal heterogeneity's pre-normalize value (`compute_heterogeneity`'s
@@ -2724,7 +2855,7 @@ pub fn heterogeneity_grid_gpu(
     warp_y: &[f32],
 ) -> Option<Vec<f32>> {
     let ctx = init_gpu_heterogeneity().ok()?;
-    Some(dispatch_gpu_heterogeneity(&ctx, width, height, hetero_seed, scale, age, warp_x, warp_y))
+    dispatch_gpu_heterogeneity(&ctx, width, height, hetero_seed, scale, age, warp_x, warp_y)
 }
 
 /// `gauss_blur`'s GPU sibling (milestone 4) -- used for both `base_field`
@@ -2732,7 +2863,7 @@ pub fn heterogeneity_grid_gpu(
 /// `flexure_field`.
 pub fn gauss_blur_grid_gpu(src: &[f32], radius: f64, width: u32, height: u32, wrap_x: bool) -> Option<Vec<f32>> {
     let ctx = init_gpu_gauss_blur().ok()?;
-    Some(dispatch_gpu_gauss_blur(&ctx, src, radius, width, height, wrap_x))
+    dispatch_gpu_gauss_blur(&ctx, src, radius, width, height, wrap_x)
 }
 
 /// Plate assignment via JFA (`assign_plates`'s GPU sibling, milestone 5).
@@ -2753,17 +2884,31 @@ pub fn assign_plates_grid_gpu(
     warp_y: Option<&[f32]>,
 ) -> Option<Vec<i32>> {
     let ctx = init_gpu_jfa_plates().ok()?;
-    Some(dispatch_gpu_assign_plates(&ctx, width, height, plate_x, plate_y, warp_x, warp_y))
+    dispatch_gpu_assign_plates(&ctx, width, height, plate_x, plate_y, warp_x, warp_y)
 }
 
 /// `_with` sibling of [`warp_grid_gpu`] -- builds its pipeline on an
 /// already-created [`GpuDevice`] (milestone 8, context reuse across
 /// `generate_terrain`'s several GPU stages) instead of requesting its own
-/// adapter/device. Infallible past device creation, which the caller
-/// already handled by holding a `GpuDevice` in the first place.
-pub fn warp_grid_gpu_with(gpu: &GpuDevice, width: u32, height: u32, seed: i32, wf: f32, amp: f32) -> (Vec<f32>, Vec<f32>) {
-    let ctx = init_gpu_warp_with(gpu);
-    dispatch_gpu_warp(&ctx, width, height, seed, wf, amp)
+/// adapter/device.
+///
+/// `None` when the device cannot reach this grid -- either because its
+/// reported limits say so, or because a readback on it has already failed at
+/// this size ([`device_supports_grid`]), or because this dispatch's own
+/// readback failed. Every caller falls back to the CPU function
+/// (`HARDWARE_ACCELERATION.md` §27); none of them may panic.
+pub fn warp_grid_gpu_with(
+    gpu: &GpuDevice,
+    width: u32,
+    height: u32,
+    seed: i32,
+    wf: f32,
+    amp: f32,
+) -> Option<(Vec<f32>, Vec<f32>)> {
+    on_grid(gpu, width, height, || {
+        let ctx = init_gpu_warp_with(gpu);
+        dispatch_gpu_warp(&ctx, width, height, seed, wf, amp)
+    })
 }
 
 /// One row band of [`warp_grid_gpu_with`], on one device: rows
@@ -2784,9 +2929,11 @@ pub fn warp_band_gpu_with(
     seed: i32,
     wf: f32,
     amp: f32,
-) -> (Vec<f32>, Vec<f32>) {
-    let ctx = init_gpu_warp_with(gpu);
-    dispatch_gpu_warp_band(&ctx, width, height, y_offset, rows, seed, wf, amp)
+) -> Option<(Vec<f32>, Vec<f32>)> {
+    on_grid(gpu, width, height, || {
+        let ctx = init_gpu_warp_with(gpu);
+        dispatch_gpu_warp_band(&ctx, width, height, y_offset, rows, seed, wf, amp)
+    })
 }
 
 /// One device's share of a [`warp_grid_gpu_split`] call: which device, which
@@ -2842,7 +2989,7 @@ pub fn warp_grid_gpu_split(
     seed: i32,
     wf: f32,
     amp: f32,
-) -> (Vec<f32>, Vec<f32>) {
+) -> Option<(Vec<f32>, Vec<f32>)> {
     let devices = set.devices();
     let bands = split_rows(height, &set_weights(set));
     let n = (width as usize) * (height as usize);
@@ -2865,21 +3012,30 @@ pub fn warp_grid_gpu_split(
         jobs.push(WarpBandJob { gpu, y_offset: y0, rows, out_x: mine_x, out_y: mine_y });
     }
 
-    std::thread::scope(|s| {
-        for job in jobs {
-            if job.rows == 0 {
-                continue;
-            }
-            s.spawn(move || {
-                let ctx = init_gpu_warp_with(job.gpu);
-                dispatch_gpu_warp_band_into(
-                    &ctx, width, height, job.y_offset, job.rows, seed, wf, amp, job.out_x, job.out_y,
-                );
-            });
-        }
+    // One band failing is the whole split failing: the bands that did land are
+    // a partial grid, and a partial grid is not an answer. `None` here, and
+    // the caller runs the CPU warp over the whole thing.
+    let every_band_landed = std::thread::scope(|s| {
+        let handles: Vec<_> = jobs
+            .into_iter()
+            .filter(|job| job.rows != 0)
+            .map(|job| {
+                s.spawn(move || {
+                    let WarpBandJob { gpu, y_offset, rows, out_x, out_y } = job;
+                    on_grid(gpu, width, height, || {
+                        let ctx = init_gpu_warp_with(gpu);
+                        dispatch_gpu_warp_band_into(&ctx, width, height, y_offset, rows, seed, wf, amp, out_x, out_y)
+                    })
+                    .is_some()
+                })
+            })
+            .collect();
+        // Collected, not short-circuited: every thread is joined before the
+        // verdict, so a later band's failure is recorded too.
+        handles.into_iter().map(|h| h.join().unwrap_or(false)).collect::<Vec<bool>>().into_iter().all(|ok| ok)
     });
 
-    (out_x, out_y)
+    every_band_landed.then_some((out_x, out_y))
 }
 
 /// `_with` sibling of [`heterogeneity_grid_gpu`].
@@ -2893,15 +3049,26 @@ pub fn heterogeneity_grid_gpu_with(
     age: &[f32],
     warp_x: &[f32],
     warp_y: &[f32],
-) -> Vec<f32> {
-    let ctx = init_gpu_heterogeneity_with(gpu);
-    dispatch_gpu_heterogeneity(&ctx, width, height, hetero_seed, scale, age, warp_x, warp_y)
+) -> Option<Vec<f32>> {
+    on_grid(gpu, width, height, || {
+        let ctx = init_gpu_heterogeneity_with(gpu);
+        dispatch_gpu_heterogeneity(&ctx, width, height, hetero_seed, scale, age, warp_x, warp_y)
+    })
 }
 
 /// `_with` sibling of [`gauss_blur_grid_gpu`].
-pub fn gauss_blur_grid_gpu_with(gpu: &GpuDevice, src: &[f32], radius: f64, width: u32, height: u32, wrap_x: bool) -> Vec<f32> {
-    let ctx = init_gpu_gauss_blur_with(gpu);
-    dispatch_gpu_gauss_blur(&ctx, src, radius, width, height, wrap_x)
+pub fn gauss_blur_grid_gpu_with(
+    gpu: &GpuDevice,
+    src: &[f32],
+    radius: f64,
+    width: u32,
+    height: u32,
+    wrap_x: bool,
+) -> Option<Vec<f32>> {
+    on_grid(gpu, width, height, || {
+        let ctx = init_gpu_gauss_blur_with(gpu);
+        dispatch_gpu_gauss_blur(&ctx, src, radius, width, height, wrap_x)
+    })
 }
 
 /// `_with` sibling of [`assign_plates_grid_gpu`].
@@ -2913,9 +3080,11 @@ pub fn assign_plates_grid_gpu_with(
     plate_y: &[f32],
     warp_x: Option<&[f32]>,
     warp_y: Option<&[f32]>,
-) -> Vec<i32> {
-    let ctx = init_gpu_jfa_plates_with(gpu);
-    dispatch_gpu_assign_plates(&ctx, width, height, plate_x, plate_y, warp_x, warp_y)
+) -> Option<Vec<i32>> {
+    on_grid(gpu, width, height, || {
+        let ctx = init_gpu_jfa_plates_with(gpu);
+        dispatch_gpu_assign_plates(&ctx, width, height, plate_x, plate_y, warp_x, warp_y)
+    })
 }
 
 /// `HARDWARE_ACCELERATION.md` §9's self-test, made concrete: run the real
@@ -2928,7 +3097,11 @@ pub fn self_test(ctx: &GpuContext) -> bool {
     const SEED: i32 = 12345;
     const SCALE: f32 = 0.37; // fractional coords -- exercises interpolation, not just lattice points
 
-    let gpu = dispatch_gpu(ctx, W, H, SEED, SCALE);
+    // A device that cannot even read back an 8x8 grid fails the gate, which
+    // is exactly what a self-test is for.
+    let Some(gpu) = dispatch_gpu(ctx, W, H, SEED, SCALE) else {
+        return false;
+    };
     let cpu = vnoise_grid_cpu(W, H, SEED, SCALE);
 
     gpu.iter().zip(cpu.iter()).all(|(g, c)| ((*g as f64) - (*c as f64)).abs() <= F32_TOLERANCE)
@@ -2955,17 +3128,21 @@ pub fn vnoise_grid(ctx: Option<&GpuContext>, width: u32, height: u32, seed: i32,
         && self_test(ctx)
     {
         let t0 = Instant::now();
-        let values = dispatch_gpu(ctx, width, height, seed, scale);
-        let gpu_time = t0.elapsed();
-        let t1 = Instant::now();
-        let _ = vnoise_grid_cpu(width, height, seed, scale); // for the honest side-by-side timing below
-        let cpu_time = t1.elapsed();
-        return VnoiseResult {
-            values,
-            path: ComputePath::Gpu,
-            gpu_dispatch_and_readback: Some(gpu_time),
-            cpu_duration: cpu_time,
-        };
+        // A failed readback falls THROUGH to the CPU path below rather than
+        // returning -- §27's "transition to CPU", and the reported
+        // `ComputePath` stays honest about which path produced the values.
+        if let Some(values) = dispatch_gpu(ctx, width, height, seed, scale) {
+            let gpu_time = t0.elapsed();
+            let t1 = Instant::now();
+            let _ = vnoise_grid_cpu(width, height, seed, scale); // for the honest side-by-side timing below
+            let cpu_time = t1.elapsed();
+            return VnoiseResult {
+                values,
+                path: ComputePath::Gpu,
+                gpu_dispatch_and_readback: Some(gpu_time),
+                cpu_duration: cpu_time,
+            };
+        }
     }
     let t0 = Instant::now();
     let values = vnoise_grid_cpu(width, height, seed, scale);
@@ -2977,6 +3154,33 @@ pub fn vnoise_grid(ctx: Option<&GpuContext>, width: u32, height: u32, seed: i32,
 #[allow(clippy::excessive_precision)] // milestone 7's weather test reuses a real f32 fixture verbatim, matching cartalith-climate's own golden_parity_weather.rs convention
 mod tests {
     use super::*;
+
+    // -- Readback shims --------------------------------------------------
+    //
+    // Every `dispatch_gpu_*` returns `Option` now, because the shipped path
+    // has to fall back to CPU when a device cannot complete a readback. A
+    // *test* must do the opposite: a readback failure here means the kernel
+    // under test never ran, and silently comparing nothing against nothing is
+    // exactly the "silently-empty golden output" failure this project has
+    // already been bitten by four times (root `CLAUDE.md`). These same-named
+    // wrappers shadow the glob import above (an item in the module wins over
+    // a glob), so each test body reads unchanged and any failure is loud.
+    macro_rules! unwrapping_dispatch {
+        ($name:ident($($arg:ident: $ty:ty),* $(,)?) -> $ret:ty) => {
+            #[allow(clippy::too_many_arguments)]
+            fn $name($($arg: $ty),*) -> $ret {
+                super::$name($($arg),*).expect(concat!(stringify!($name), ": GPU readback failed in a test"))
+            }
+        };
+    }
+    unwrapping_dispatch!(dispatch_gpu(ctx: &GpuContext, width: u32, height: u32, seed: i32, scale: f32) -> Vec<f32>);
+    unwrapping_dispatch!(dispatch_gpu_warp(ctx: &GpuContext, width: u32, height: u32, seed: i32, wf: f32, amp: f32) -> (Vec<f32>, Vec<f32>));
+    unwrapping_dispatch!(dispatch_gpu_heterogeneity(ctx: &GpuContext, width: u32, height: u32, hetero_seed: i32, scale: f32, age: &[f32], warp_x: &[f32], warp_y: &[f32]) -> Vec<f32>);
+    unwrapping_dispatch!(dispatch_gpu_height(ctx: &GpuContext, width: u32, height: u32, seed: i32, nf: f32, a: f32, b: f32, age_inf: f32, fwt: f32, hwt: f32, ridged: bool, has_oro: bool, base_field: &[f32], stress: &[f32], flex: &[f32], hetero: &[f32], age: &[f32], warp_x: &[f32], warp_y: &[f32], oro: &[f32]) -> Vec<f32>);
+    unwrapping_dispatch!(dispatch_gpu_gauss_blur(ctx: &GpuBlurContext, src: &[f32], radius: f64, width: u32, height: u32, wrap_x: bool) -> Vec<f32>);
+    unwrapping_dispatch!(dispatch_gpu_resistance(ctx: &GpuContext, width: u32, height: u32, plate_id: &[u32], age: &[f32], crustal_per_plate: &[f32]) -> Vec<f32>);
+    unwrapping_dispatch!(dispatch_gpu_assign_plates(ctx: &GpuContext, width: u32, height: u32, plate_x: &[f32], plate_y: &[f32], warp_x: Option<&[f32]>, warp_y: Option<&[f32]>) -> Vec<i32>);
+    unwrapping_dispatch!(dispatch_gpu_flow(ctx: &GpuFlowContext, gw: usize, gh: usize, field: &[f32], rain: Option<&[f32]>, use_rain: bool, world: bool) -> GpuFlowResult);
 
     fn try_gpu() -> Option<GpuContext> {
         init_gpu().ok()
@@ -4149,7 +4353,8 @@ mod tests {
             grid.step as f32,
             grid.bulk_evap,
             grid.wrap_x,
-        );
+        )
+        .expect("the weather loop must complete on this device");
         let gpu_result =
             cartalith_climate::finish_weather_grid(&grid.eh, rain, grid.ww, grid.wh, grid.wrap_x, grid.sea, gw, gh);
 

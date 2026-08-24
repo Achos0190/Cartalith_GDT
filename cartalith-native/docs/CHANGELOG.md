@@ -24331,3 +24331,103 @@ sentence is present as a `Label` in the dock. Headless boot clean throughout.
 **Files:** `godot-project/shell/dcc_shell.gd`,
 `godot-project/shell/right_dock.gd`, `godot-project/shell/viewport_host.gd`,
 `godot-project/shell/workspaces/render_workspace.gd`.
+
+## The integrated GPU's 8192² readback panicked, and behind it a lost device panicked again (`PERFORMANCE_BENCHMARKS.md` §9.2, 2026-08-24)
+
+`504c2a6` fixed the *limits* half of the 8192² GPU crash and deliberately left
+the other half on the table, naming it precisely: the integrated Radeon passes
+every limits check at 8192², dispatches, and then dies on
+`rx.recv().expect("buffer map failed")` — `BufferAsyncError` — in the
+base-field blur. Ten such `.expect`-on-readback sites in `cartalith-gpu`.
+This closes it, and found a second bug hiding behind the first.
+
+**Bug 1 — the readback was infallible.** Every dispatch ended with the same
+eight lines of map/poll/copy/unmap, `.expect`ed four ways. A panic there is not
+a failed generation; a panic inside a loaded GDExtension takes the Godot
+process with it (`cartalith-rust-conventions`).
+
+*Fixed by making the tail exist once.* New `read_back`/`read_back_vec` behind a
+small `DispatchDevice` trait implemented for `GpuContext`, `GpuBlurContext`,
+`GpuWeatherContext`, `GpuFlowContext` and `GpuDevice` (all five already carried
+the device handle and the adapter identity; the trait only names them). All
+**eleven** dispatch functions now return `Option` —
+`dispatch_gpu`, `_warp`, `_warp_band`, `_warp_band_into`, `_heterogeneity`,
+`_height`, `_resistance`, `_gauss_blur`, `_weather`, `_assign_plates`, `_flow`
+— as do the public entry points above them (`warp_grid_gpu_with`,
+`warp_band_gpu_with`, `warp_grid_gpu_split`, `heterogeneity_grid_gpu_with`,
+`gauss_blur_grid_gpu_with`, `assign_plates_grid_gpu_with`,
+`simulate_weather_loop_gpu_with`, `dispatch_gpu_flow`,
+`flow_accumulation_gpu_with`). The engine needed almost nothing: every call
+site was already `match gpu_device.map(…) { Some(v) => …, None => cpu(…) }`,
+so it was `map` → `and_then` seven times. `vnoise_grid` falls *through* to its
+CPU branch rather than returning, so the reported `ComputePath` stays honest.
+
+**Bug 2 — a device that loses a readback is gone, not merely full.** This one
+was only visible after bug 1 was fixed and the real 8192² integrated-GPU
+generation was re-run: the blur fell back cleanly, and the **next** stage —
+weather, on a 240² coarse grid, nowhere near any size limit — panicked
+immediately on a **32-byte uniform buffer**:
+
+```
+Failed to get mapped range for buffer created with mapped_at_creation:
+MapRangeError("Buffer with 'weather params' label is invalid")
+```
+
+*Fixed by marking the live device lost.* `GpuDevice` and all four context
+types now carry a shared `Arc<AtomicBool>`; `read_back` sets it on any failure,
+and `on_grid` — the gate every `_with` entry point runs first — refuses
+*before the pipeline is even built*, since shader-module and pipeline creation
+are device calls too. A **new** device (the next `generate_terrain` opens its
+own) starts clean, so this is a verdict on one `wgpu` device, not on the
+hardware. `device_usage` returns `None` for a lost device rather than
+interrogating it, which is why the run below honestly reports "device actually
+used: none".
+
+**And the session-wide half, extending `504c2a6`'s own mechanism as intended.**
+`device_supports_grid` now answers on *two* grounds: the binding arithmetic it
+already had (what the device promises) and a new session record of measured
+readback failures (what it actually did), keyed by adapter identity, keeping
+the **smallest** failing cell count so the ban is monotone — at-or-above is
+refused, below is still tried. `GpuDeviceSet::supports_grid` inherits it
+unchanged, so `generate_terrain`'s existing top-level filter now steers the
+*next* generation away from a size this adapter has already proved it cannot
+reach. `clear_readback_failures()` exists for tests and for a future "try the
+GPU again" affordance.
+
+**Verified on the real device, not a mock.** The exact command that used to
+panic:
+
+```
+compute_config_bench gen gpu1 8192 40 1
+cartalith-gpu: buffer map failed (BufferAsyncError) on AMD Radeon(TM) Graphics
+at 67108864 cells -- this device is done for this run; falling back to CPU
+# gpu_stages_used = ["warp", "plate_assignment", "base_field_blur"]
+RESULT gen cfg=gpu1 size=8192 plates=40 best=81905.1ms
+RESULT peak_working_set_mb cfg=gpu1 size=8192 7571
+```
+
+81.9 s and a correct world, against the CPU path's 78.1 s — the 5% is the three
+GPU stages that ran before the device gave out. Two new tests in
+`cartalith-gpu/tests/multi_gpu.rs` pin it:
+`a_full_8192_generation_on_the_integrated_gpu_completes_or_falls_back` runs
+that whole generation, and
+`the_integrated_gpu_at_8192_falls_back_instead_of_panicking` exists to show why
+the slow one is necessary — an *isolated* 8192² warp on the same device
+completes fine in ~1.0 s, so no single-dispatch test can reach this bug. A
+hardware-free unit test in `multi.rs` covers the record's own arithmetic.
+
+**Also.** `warp_grid_gpu_split` now returns `None` if *any* band fails (a
+partial grid is not an answer), joining every thread before deciding so a later
+band's failure is recorded too; and `generate_terrain` pushes the
+`warp_split` marker on success rather than on attempt, so a stage that fell
+back to CPU no longer appears in `gpu_stages_used`. The in-crate test module
+gets same-named unwrapping shims that shadow the glob import: the shipped path
+must fall back silently, but a *test* whose readback fails must be loud, not
+compare an empty result against an empty result (root `CLAUDE.md`'s
+silently-empty-golden-output rule).
+
+**Files:** `cartalith-gpu/src/lib.rs`, `cartalith-gpu/src/multi.rs`,
+`cartalith-gpu/tests/multi_gpu.rs`,
+`cartalith-gpu/examples/flow_downstream_settlements.rs`,
+`cartalith-engine/src/lib.rs`,
+`cartalith-godot/tests/sculpt_live_l0_bench.rs`.

@@ -176,7 +176,8 @@ fn an_opened_device_can_bind_a_full_grid_at_every_shipped_resolution() {
         assert!(set.supports_grid(size, size), "the set's own check must agree with the per-device one");
     }
     // The dispatch that used to panic, run for real.
-    let (wx, _wy) = warp_grid_gpu_with(set.primary(), 8192, 8192, 4242, 2.5 / 8192.0, 0.18 * 8192.0);
+    let (wx, _wy) = warp_grid_gpu_with(set.primary(), 8192, 8192, 4242, 2.5 / 8192.0, 0.18 * 8192.0)
+        .expect("the 8192² warp must complete on the primary device");
     assert_eq!(wx.len(), 8192 * 8192, "the 8192² warp must return the whole grid");
 }
 
@@ -228,7 +229,7 @@ fn a_split_across_bands_on_one_device_is_bit_identical_to_the_whole_grid() {
 
     let prefs = GpuPreferences { selected_keys: vec![devs[0].key.clone()], ..Default::default() };
     let set = init_gpu_device_set_with(&prefs).expect("device");
-    let (whole_x, whole_y) = warp_grid_gpu_with(set.primary(), W, H, SEED, 0.011, 7.5);
+    let (whole_x, whole_y) = warp_grid_gpu_with(set.primary(), W, H, SEED, 0.011, 7.5).expect("whole-grid warp");
 
     // Rebuild the whole grid from bands, using the same partition arithmetic
     // `warp_grid_gpu_split` uses, but all on one device.
@@ -238,7 +239,8 @@ fn a_split_across_bands_on_one_device_is_bit_identical_to_the_whole_grid() {
         if rows == 0 {
             continue;
         }
-        let (bx, by) = cartalith_gpu::warp_band_gpu_with(set.primary(), W, H, y0, rows, SEED, 0.011, 7.5);
+        let (bx, by) =
+            cartalith_gpu::warp_band_gpu_with(set.primary(), W, H, y0, rows, SEED, 0.011, 7.5).expect("band warp");
         band_x.extend_from_slice(&bx);
         band_y.extend_from_slice(&by);
     }
@@ -273,7 +275,7 @@ fn split_tiles_across_two_real_devices_measured() {
         // compilation, which is not what this measures.
         let _ = warp_grid_gpu_with(single.primary(), 64, 64, SEED, wf, amp);
         let t0 = Instant::now();
-        let (sx, _sy) = warp_grid_gpu_with(single.primary(), w, h, SEED, wf, amp);
+        let (sx, _sy) = warp_grid_gpu_with(single.primary(), w, h, SEED, wf, amp).expect("single-device warp");
         let single_ms = t0.elapsed().as_secs_f64() * 1e3;
         drop(single);
 
@@ -283,7 +285,7 @@ fn split_tiles_across_two_real_devices_measured() {
         assert!(split.is_split(), "two selected devices in split_tiles mode must actually split");
         let _ = warp_grid_gpu_split(&split, 64, 64, SEED, wf, amp);
         let t1 = Instant::now();
-        let (px, _py) = warp_grid_gpu_split(&split, w, h, SEED, wf, amp);
+        let (px, _py) = warp_grid_gpu_split(&split, w, h, SEED, wf, amp).expect("split warp");
         let split_ms = t1.elapsed().as_secs_f64() * 1e3;
 
         assert_eq!(px.len(), sx.len(), "split output must be the full grid");
@@ -339,4 +341,143 @@ fn a_vram_budget_below_the_grids_working_set_keeps_the_gpu_path_off() {
     assert!(cartalith_gpu::gpu_allowed_for_grid(1024, 1024), "a smaller grid still fits");
     set_preferences(GpuPreferences::default());
     assert!(cartalith_gpu::gpu_allowed_for_grid(2048, 2048), "no budget => never refused");
+}
+
+/// **The integrated-GPU 8192² readback, run for real on the real device.**
+///
+/// `504c2a6` fixed the *limits* half of the 8192² crash and reported what it
+/// deliberately left: the integrated Radeon passes every limits check at
+/// 8192², dispatches, and then dies on `expect("buffer map failed")` --
+/// `BufferAsyncError` from the `MAP_READ` staging map, ten such sites in this
+/// crate. A panic there is not a failed generation, it is a dead Godot
+/// process (`cartalith-rust-conventions`).
+///
+/// Nothing is mocked or skipped here: this opens the machine's integrated
+/// device and asks it for a genuine 8192² warp. Two outcomes are acceptable
+/// and both are asserted --
+///
+/// - it completes, and returns the whole grid; or
+/// - it fails, returns `None`, and is *demoted*: [`device_supports_grid`] must
+///   then refuse 8192² on it (so the engine's own device-set filter and every
+///   later stage in the same generation take the CPU path), while a smaller
+///   grid on the very same device must still work.
+///
+/// What is NOT acceptable, and what this test exists to catch, is a panic.
+#[test]
+fn the_integrated_gpu_at_8192_falls_back_instead_of_panicking() {
+    const N: u32 = 8192;
+    let Some(igpu) = real_devices().into_iter().find(|d| d.device_type == wgpu::DeviceType::IntegratedGpu) else {
+        println!("skipped: this machine has no integrated GPU");
+        return;
+    };
+    println!("integrated device: {:?} ({:?})", igpu.name, igpu.backend);
+
+    cartalith_gpu::clear_readback_failures();
+    let prefs = GpuPreferences { selected_keys: vec![igpu.key.clone()], ..Default::default() };
+    let set = init_gpu_device_set_with(&prefs).expect("the integrated device must open");
+    assert_eq!(set.primary().adapter_name, igpu.name, "the test must run on the integrated device, not another one");
+
+    // Its reported limits cover 8192² -- that is precisely why the limits
+    // check alone was not enough, and why this test is about the readback.
+    assert!(
+        cartalith_gpu::device_supports_grid(set.primary(), N as usize, N as usize),
+        "before any attempt, the reported limits say 8192² is fine"
+    );
+
+    let (wf, amp) = (2.5 / N as f32, 0.18 * N as f32);
+    let t = Instant::now();
+    let out = warp_grid_gpu_with(set.primary(), N, N, 4242, wf, amp);
+    let ms = t.elapsed().as_secs_f64() * 1e3;
+
+    match out {
+        Some((wx, wy)) => {
+            println!("8192² completed on the integrated GPU in {ms:.0} ms");
+            assert_eq!(wx.len(), (N as usize) * (N as usize), "a completed dispatch returns the whole grid");
+            assert_eq!(wy.len(), wx.len());
+            assert!(
+                cartalith_gpu::device_supports_grid(set.primary(), N as usize, N as usize),
+                "a device that succeeded must not be demoted"
+            );
+        }
+        None => {
+            println!("8192² failed its readback on the integrated GPU after {ms:.0} ms -- fell back, did not panic");
+            assert!(
+                !cartalith_gpu::device_supports_grid(set.primary(), N as usize, N as usize),
+                "a failed readback must demote the device so later stages skip it"
+            );
+            assert!(
+                !set.supports_grid(N as usize, N as usize),
+                "the set's own check must agree, which is what `generate_terrain`'s filter reads"
+            );
+            // The demotion is size-scoped, not a blanket ban on the device.
+            assert!(
+                cartalith_gpu::device_supports_grid(set.primary(), 512, 512),
+                "a smaller grid on the same device must still be allowed"
+            );
+            let (sx, _sy) = warp_grid_gpu_with(set.primary(), 512, 512, 4242, 2.5 / 512.0, 0.18 * 512.0)
+                .expect("512² must still complete on the device that failed at 8192²");
+            assert_eq!(sx.len(), 512 * 512);
+            // And the refusal is now immediate: no second doomed dispatch.
+            let t = Instant::now();
+            assert!(warp_grid_gpu_with(set.primary(), N, N, 4242, wf, amp).is_none());
+            let again_ms = t.elapsed().as_secs_f64() * 1e3;
+            println!("a second 8192² request was refused in {again_ms:.1} ms without dispatching");
+            assert!(again_ms < ms, "the second attempt must be refused up front, not re-dispatched");
+        }
+    }
+
+    // Leave the session's record as this test found it.
+    cartalith_gpu::clear_readback_failures();
+}
+
+/// **The whole 8192² generation on the integrated GPU, the exact run that
+/// used to kill the process.**
+///
+/// Slow (about a minute and a half, and several GB of working set) and worth
+/// every second: the failure this pins is invisible to any single dispatch.
+/// `the_integrated_gpu_at_8192_falls_back_instead_of_panicking` above shows an
+/// isolated 8192² warp *completing* on this device in about a second — it is
+/// only under the whole pipeline's accumulated working set that the
+/// base-field blur's readback fails, and only then that the stages after it
+/// meet a device that is no longer there.
+///
+/// Two panics, one after the other, are what this test walks through:
+///
+/// 1. before any of this work, `expect("buffer map failed")` in the blur;
+/// 2. with only the `Option` threading in place, the *next* stage — weather,
+///    on a 240² grid nowhere near any size limit — panicked on a 32-byte
+///    uniform buffer with `Buffer with 'weather params' label is invalid`,
+///    because the device was lost, not merely full.
+///
+/// The assertion is simply that this returns. `gpu_stages_used` is printed
+/// rather than asserted: which stages get through before the device gives out
+/// is a property of the hardware and the day, not of this code.
+#[test]
+fn a_full_8192_generation_on_the_integrated_gpu_completes_or_falls_back() {
+    const N: usize = 8192;
+    let Some(igpu) = real_devices().into_iter().find(|d| d.device_type == wgpu::DeviceType::IntegratedGpu) else {
+        println!("skipped: this machine has no integrated GPU");
+        return;
+    };
+    let _guard = global_prefs();
+    cartalith_gpu::clear_readback_failures();
+    set_preferences(GpuPreferences { selected_keys: vec![igpu.key.clone()], ..Default::default() });
+
+    let mut p = cartalith_engine::WorldParams::defaults(N, N, 12345);
+    p.tect.plates = 40;
+    p.use_gpu = true;
+
+    let t = Instant::now();
+    let ws = cartalith_engine::generate_terrain(&p);
+    println!(
+        "8192² on {:?}: {:.1} s, gpu stages that completed = {:?}",
+        igpu.name,
+        t.elapsed().as_secs_f64(),
+        ws.gpu_stages_used
+    );
+    assert_eq!(ws.field.len(), N * N, "the generation must produce a whole 8192² field, GPU or CPU");
+    assert!(ws.field.iter().all(|v| v.is_finite()), "a fallen-back stage must still produce real values");
+
+    set_preferences(GpuPreferences::default());
+    cartalith_gpu::clear_readback_failures();
 }

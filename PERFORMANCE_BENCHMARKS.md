@@ -3,9 +3,10 @@
 > **Agent-produced, and every number in it was measured on this machine.**
 > Nothing here is estimated, scaled from another size, or inherited from an
 > earlier pass — where a figure comes from an existing document it says so and
-> names it. Two failures are reported as failures rather than omitted, and one
-> of them was a real crash that this run found and fixed (`CHANGELOG.md`,
-> same date; commit `504c2a6`).
+> names it. Two failures are reported as failures rather than omitted, and
+> **both were real process-killing crashes that this run found**; both are now
+> fixed (§9, `CHANGELOG.md` same date; commits `504c2a6` and the readback-
+> fallback commit that follows it).
 
 ## 0. The question
 
@@ -136,18 +137,25 @@ concurrency.
 |---|---|---|---|---|---|
 | `cpu` | **78.087 s** | 79.115 s | 1.00× | 7 470 MB | none |
 | `gpu0` discrete | **54.361 s** | 54.431 s | **1.44×** | 7 609 MB | AMD RX 7800 XT |
-| `gpu1` integrated | **fails** | — | — | — | — (see §5.2) |
+| `gpu1` integrated | **81.905 s** | — | 0.95× | 7 571 MB | AMD Radeon(TM) Graphics, **for three stages** — see §9.2 |
 | `gpusplit` both | **54.080 s** | 54.137 s | 1.44× | 7 731 MB | **both** devices reported |
 
 ### 3.3 The bracket for the integrated GPU
 
-Because 8192² fails on it, 4096² was measured to find where it stops being
-usable rather than reporting only a failure:
+Because 8192² does not complete on it, 4096² was measured to find where it
+stops being usable rather than reporting only a failure:
 
-| config | size | best | mean | peak working set |
-|---|---|---|---|---|
-| `gpu1` integrated | 4096² | 15.400 s | 15.424 s | 2 986 MB |
-| `gpu1` integrated | 8192² | **crash** | — | — |
+| config | size | best | mean | peak working set | note |
+|---|---|---|---|---|---|
+| `gpu1` integrated | 4096² | 15.400 s | 15.424 s | 2 986 MB | fully on GPU |
+| `gpu1` integrated | 8192² | 81.905 s | — | 7 571 MB | **three GPU stages, then CPU** (§9.2) |
+
+The 8192² row was a **crash** when this document was first measured. It is now
+a graceful, correct, slightly-slower-than-CPU run: the device fails its first
+whole-grid readback partway through and everything after it falls back
+(`HARDWARE_ACCELERATION.md` §27). The 5% behind the pure-CPU path is the three
+GPU stages that ran and were then discarded. The recommendation in §10 is
+unchanged — this makes a bad configuration survivable, not good.
 
 ### 3.4 Reading the generation table
 
@@ -480,7 +488,9 @@ loop), while `generate_terrain` runs on a `std::thread` exactly as
 - **The integrated GPU's one plausible selling point does not hold up.**
   "Offload to the iGPU so the dGPU stays free" gives a very slightly better
   frame mean at 2048² (330 vs 341 ms — inside noise) at the cost of a 24%
-  slower generate and 200 MB more peak memory, and it cannot run 8192² at all.
+  slower generate and 200 MB more peak memory, and at 8192² it gives out
+  partway through and finishes on the CPU anyway, 5% behind a pure-CPU run
+  (§9.2).
 
 ---
 
@@ -509,43 +519,74 @@ Peak OS working set, per configuration, single-generate runs (from §3):
 
 ---
 
-## 9. Two failures, reported as failures
+## 9. Two failures, both now fixed
+
+*Both were found by measuring rather than by reading, and both were
+process-killing panics on a reachable user action. §9.2 was reported open when
+this document was first written; it was closed on the same day, and the entry
+below now records the fix and the second bug it uncovered.*
 
 ### 9.1 Fixed — GPU device limits capped the path at 5792²
 
 §4. Was a process-killing panic on a reachable user action; fixed and
 regression-tested.
 
-### 9.2 Open — the integrated GPU cannot survive 8192², and says so by panicking
+### 9.2 Fixed 2026-08-24 — the integrated GPU could not survive 8192², and said so by panicking
+
+**What it did:**
 
 ```
 thread 'main' panicked at crates/cartalith-gpu/src/lib.rs:1717:50:
 buffer map failed: BufferAsyncError
 ```
 
-This is the base-field blur's readback. The integrated GPU is past its
-allocation ceiling at ~2.5 GB of working set (`gpu_working_set_bytes(8192,
-8192)`), and the failure surfaces as a `BufferAsyncError` on the map.
+The base-field blur's readback. The integrated GPU is past its allocation
+ceiling at ~2.5 GB of working set (`gpu_working_set_bytes(8192, 8192)`), and
+the failure surfaced as a `BufferAsyncError` on the map — a `.expect`, i.e. a
+panic, i.e. a dead Godot process.
 
-**Not fixed here, deliberately.** There are **ten** `expect`-on-readback sites
-in `cartalith-gpu`, and making them fallible means threading `Option` (or a
-real error) through every dispatch function and every call site in
-`generate_terrain`, then deciding per stage whether a mid-pipeline GPU failure
-should retry on CPU or abandon the whole GPU path for the run. That is genuine
-architecture — a milestone with a scope document, not a benchmark's side
-effect. Recorded here and in `STATUS.md` so it is not rediscovered.
+**What it does now** (same command, same device, this document's `gen gpu1
+8192 40` run, re-measured after the fix):
 
-**Interim mitigation available today, no code needed**: the integrated GPU is
-verified working through 4096² (§3.3), and it is never the default — the
-default preference is empty (`auto` → `PowerPreference::HighPerformance` → the
-discrete card). The only way to reach this is to select the integrated GPU
-explicitly in Preferences ▸ Performance ▸ Devices *and* generate at 8192².
+```
+cartalith-gpu: buffer map failed (BufferAsyncError) on AMD Radeon(TM) Graphics
+at 67108864 cells -- this device is done for this run; falling back to CPU
+# gpu_stages_used = ["warp", "plate_assignment", "base_field_blur"]
+RESULT gen cfg=gpu1 size=8192 plates=40 best=81905.1ms
+RESULT peak_working_set_mb cfg=gpu1 size=8192 7571
+```
 
-**A second interim mitigation that already exists**: the VRAM budget. Setting
-`vram_budget_bytes` to anything below `gpu_working_set_bytes(8192, 8192)` =
-2 560 MB makes `gpu_allowed_for_grid` refuse the GPU path for that grid and
-fall back to CPU, which is exactly the `VramFallback::CpuTilePass` default.
-That is a real, shipped control that turns this crash into a graceful CPU run.
+**81.9 s and a correct world**, against the CPU path's 78.1 s — the 5% is the
+three GPU stages that ran before the device gave out, paid and then discarded.
+That is the honest cost of discovering the wall by hitting it, and it is what
+§27's "transition to CPU" is supposed to look like.
+
+**Two bugs, not one.** The first is the ten `.expect`-on-readback sites; every
+dispatch in `cartalith-gpu` now returns `Option`, and every engine call site
+was already shaped as `match gpu.map(…) { Some => …, None => cpu }`, so the
+change there was `map` → `and_then`. The second was only visible once the
+first was fixed and this run was repeated: with the readback made fallible,
+the blur fell back cleanly and the **next** stage — weather, on a 240² coarse
+grid, nowhere near any size limit — panicked immediately on a 32-byte uniform
+buffer with `Buffer with 'weather params' label is invalid`. A `wgpu` device
+that loses a `map_async` is *gone*, not merely out of room at that size. So a
+readback failure now marks the live device lost, at every size, for the life
+of that device; the next `generate_terrain` opens its own and starts clean.
+
+**Regression-tested against the real device, not a mock.**
+`a_full_8192_generation_on_the_integrated_gpu_completes_or_falls_back` in
+`cartalith-gpu/tests/multi_gpu.rs` runs this exact generation on this exact
+integrated GPU. A companion test
+(`the_integrated_gpu_at_8192_falls_back_instead_of_panicking`) shows why the
+whole-pipeline test is needed: an *isolated* 8192² warp on the same device
+completes fine in ~1.0 s — only under the pipeline's accumulated working set
+does the readback fail.
+
+**The two mitigations that pre-dated the fix still stand**, and are now
+redundancy rather than the only defence: the integrated GPU is never the
+default (empty preference → `PowerPreference::HighPerformance` → the discrete
+card), and setting `vram_budget_bytes` below `gpu_working_set_bytes(8192,
+8192)` = 2 560 MB refuses the GPU path for that grid up front.
 
 ---
 

@@ -721,7 +721,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // `compute_flow` in that case (`HARDWARE_ACCELERATION.md` §27).
     let gpu_flow = gpu_device.map(cartalith_gpu::init_gpu_flow_with);
     let flow_on_gpu = |field: &[f32], rain: Option<&[f32]>, use_rain: bool| -> Option<Vec<f32>> {
-        gpu_flow.as_ref().map(|c| cartalith_gpu::dispatch_gpu_flow(c, gw, gh, field, rain, use_rain, world).acc)
+        gpu_flow.as_ref().and_then(|c| cartalith_gpu::dispatch_gpu_flow(c, gw, gh, field, rain, use_rain, world)).map(|r| r.acc)
     };
 
     // World-wrap isn't supported by the GPU warp kernel yet (milestone 2's
@@ -741,15 +741,22 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             // unless the mode is `split_tiles` AND at least two devices
             // actually opened, so the single-device path below is what runs
             // by default.
-            match gpu_set.as_ref().map(|set| {
-                if set.is_split() {
-                    gpu_stages_used.push("warp_split".to_string());
+            // The `warp_split` marker is recorded on SUCCESS, not on
+            // attempt: both entry points now return `None` when the device
+            // cannot complete the dispatch, and a stage that fell back to
+            // CPU must not appear in `gpu_stages_used`.
+            let split = gpu_set.as_ref().is_some_and(cartalith_gpu::GpuDeviceSet::is_split);
+            match gpu_set.as_ref().and_then(|set| {
+                if split {
                     cartalith_gpu::warp_grid_gpu_split(set, gw as u32, gh as u32, p.tect.seed, wf, amp)
                 } else {
                     cartalith_gpu::warp_grid_gpu_with(set.primary(), gw as u32, gh as u32, p.tect.seed, wf, amp)
                 }
             }) {
                 Some(wxy) => {
+                    if split {
+                        gpu_stages_used.push("warp_split".to_string());
+                    }
                     gpu_stages_used.push("warp".to_string());
                     Some(wxy)
                 }
@@ -771,7 +778,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         let plate_y: Vec<f32> = plates.iter().map(|pl| pl.y as f32).collect();
         gpu_device
             .as_ref()
-            .map(|gpu| cartalith_gpu::assign_plates_grid_gpu_with(gpu, gw as u32, gh as u32, &plate_x, &plate_y, warp_x, warp_y))
+            .and_then(|gpu| cartalith_gpu::assign_plates_grid_gpu_with(gpu, gw as u32, gh as u32, &plate_x, &plate_y, warp_x, warp_y))
             .filter(|ids| ids.iter().all(|&id| id >= 0)) // any unassigned cell => treat as a failed dispatch, fall back
             .map(|ids| {
                 gpu_stages_used.push("plate_assignment".to_string());
@@ -798,7 +805,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         }
         match gpu_device
             .as_ref()
-            .map(|gpu| cartalith_gpu::gauss_blur_grid_gpu_with(gpu, &raw, p.tect.blur_r * 3.0, gw as u32, gh as u32, world))
+            .and_then(|gpu| cartalith_gpu::gauss_blur_grid_gpu_with(gpu, &raw, p.tect.blur_r * 3.0, gw as u32, gh as u32, world))
         {
             Some(broad) => {
                 gpu_stages_used.push("base_field_blur".to_string()); // shared GPU kernel with base_field below
@@ -819,7 +826,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
 
     let base_raw: Vec<f32> = plate_id.iter().map(|&pid| plates[pid].base as f32).collect();
     let base_field = if p.use_gpu {
-        match gpu_device.map(|gpu| {
+        match gpu_device.and_then(|gpu| {
             cartalith_gpu::gauss_blur_grid_gpu_with(gpu, &base_raw, (p.tect.blur_r * 0.35).max(2.0), gw as u32, gh as u32, world)
         }) {
             Some(v) => {
@@ -850,7 +857,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
             zero_wy = vec![0f32; gw * gh];
             (zero_wx.as_slice(), zero_wy.as_slice())
         };
-        match gpu_device.map(|gpu| {
+        match gpu_device.and_then(|gpu| {
             cartalith_gpu::heterogeneity_grid_gpu_with(gpu, gw as u32, gh as u32, hetero_seed, hf / gw as f32, &age_field, wx, wy)
         }) {
             Some(mut out) => {
@@ -1030,7 +1037,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // section for the honest numbers.
     let mut rainfall = if p.use_gpu {
         let grid = cartalith_climate::build_weather_grid(gw, gh, &field, 0.0, &weather_params);
-        match gpu_device.map(|gpu| {
+        match gpu_device.and_then(|gpu| {
             cartalith_gpu::simulate_weather_loop_gpu_with(
                 gpu,
                 &grid.eh,
@@ -1221,7 +1228,7 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
         temperature = compute_temperature(gw, gh, &field, None, &climate_params);
         rainfall = if p.use_gpu {
             let grid = cartalith_climate::build_weather_grid(gw, gh, &field, 0.0, &weather_params);
-            match gpu_device.map(|gpu| {
+            match gpu_device.and_then(|gpu| {
                 cartalith_gpu::simulate_weather_loop_gpu_with(
                     gpu,
                     &grid.eh,

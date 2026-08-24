@@ -579,9 +579,69 @@ pub const fn grid_buffer_bytes(width: usize, height: usize) -> u64 {
 /// `new_world_dialog.gd` offers on this project's hardware; this function is
 /// what makes an adapter that genuinely cannot reach a size degrade to the CPU
 /// path (`HARDWARE_ACCELERATION.md` §27) instead of crashing.
+///
+/// **Two grounds, not one.** The binding arithmetic above is what the device
+/// *promises*; [`note_readback_failure`] is what it actually *did*. An adapter
+/// can report limits that cover a size and still fail to complete a dispatch at
+/// it -- this machine's integrated Radeon reports 2047 MiB and reaches
+/// `create_bind_group` fine at 8192², then returns `BufferAsyncError` from the
+/// `MAP_READ` staging map. There is no query that predicts that; the only
+/// honest signal is having tried. So a device that has failed a readback at a
+/// size is treated as not supporting that size or any larger one for the rest
+/// of the session, and the caller takes the CPU path the same way it does for a
+/// limits failure.
 #[must_use]
 pub fn device_supports_grid(gpu: &GpuDevice, width: usize, height: usize) -> bool {
+    if let Some(failed_at) = readback_failure_cells(&gpu.adapter_name, gpu.adapter_vendor, gpu.adapter_backend)
+        && (width as u64) * (height as u64) >= failed_at
+    {
+        return false;
+    }
     grid_buffer_bytes(width, height) <= device_grid_limit_bytes(gpu)
+}
+
+/// Session-wide record of devices that failed a buffer readback, and the
+/// smallest grid (in **cells**, not bytes) each failed at.
+///
+/// Keyed by adapter identity rather than by a live handle on purpose: the
+/// device set is re-opened per `generate_terrain` call, and what was learnt
+/// about the hardware should outlive the handle that learnt it.
+static READBACK_FAILURES: RwLock<Vec<(String, u64)>> = RwLock::new(Vec::new());
+
+/// The identity a readback failure is recorded against. Not [`device_key`]:
+/// that one needs a `device_id`, which the live [`GpuDevice`] and the per-stage
+/// contexts do not carry -- these three fields are what all of them do.
+fn readback_key(name: &str, vendor: u32, backend: wgpu::Backend) -> String {
+    format!("{vendor:04x}:{}:{name}", backend.to_str())
+}
+
+/// Record that this device could not complete a readback for a `cells`-cell
+/// grid. Keeps the *smallest* failing size, so the ban is monotone: anything
+/// at or above the size that failed is refused, anything below is still tried.
+pub fn note_readback_failure(name: &str, vendor: u32, backend: wgpu::Backend, cells: u64) {
+    let key = readback_key(name, vendor, backend);
+    if let Ok(mut w) = READBACK_FAILURES.write() {
+        match w.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, at)) => *at = (*at).min(cells),
+            None => w.push((key, cells)),
+        }
+    }
+}
+
+/// The smallest grid this device has failed a readback at this session, if any.
+#[must_use]
+pub fn readback_failure_cells(name: &str, vendor: u32, backend: wgpu::Backend) -> Option<u64> {
+    let key = readback_key(name, vendor, backend);
+    READBACK_FAILURES.read().ok()?.iter().find(|(k, _)| *k == key).map(|(_, at)| *at)
+}
+
+/// Forget every recorded readback failure. For tests that need a clean slate,
+/// and for a "try the GPU again" affordance after the user changes something
+/// (a driver update, a smaller world) that might make it work.
+pub fn clear_readback_failures() {
+    if let Ok(mut w) = READBACK_FAILURES.write() {
+        w.clear();
+    }
 }
 
 /// The largest single buffer `gpu` was actually opened for -- the binding of
@@ -623,6 +683,12 @@ pub struct GpuMemoryUse {
 /// signature.
 #[must_use]
 pub fn device_usage(gpu: &GpuDevice) -> Option<GpuMemoryUse> {
+    // A device that lost a readback is invalid; asking it anything is how the
+    // 8192² integrated-GPU run turned a graceful fallback back into a panic.
+    // No reading is the honest answer here, and `None` already means that.
+    if gpu.lost.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
     gpu.device.generate_allocator_report().map(|r| GpuMemoryUse {
         allocated_bytes: r.total_allocated_bytes,
         reserved_bytes: r.total_reserved_bytes,
@@ -932,6 +998,7 @@ impl RawGpuDevice {
             device_type: self.device_type,
             device: self.device,
             queue: self.queue,
+            lost: self.lost,
         }
     }
 }
@@ -1110,6 +1177,34 @@ mod tests {
             VramVerdict::FallBackToCpu,
             "the un-implemented choice degrades safely rather than pretending"
         );
+    }
+
+    /// The readback-failure record's own arithmetic, with no hardware:
+    /// smallest-wins, at-or-above is banned, below still allowed.
+    ///
+    /// Uses a name no real adapter has, so it cannot collide with a
+    /// concurrently-running device test's own record.
+    #[test]
+    fn a_recorded_readback_failure_bans_that_size_and_larger_only() {
+        const NAME: &str = "cartalith test pseudo-adapter";
+        const VENDOR: u32 = 0xdead;
+        let backend = wgpu::Backend::Noop;
+
+        assert_eq!(readback_failure_cells(NAME, VENDOR, backend), None, "nothing recorded yet");
+        note_readback_failure(NAME, VENDOR, backend, 8192 * 8192);
+        assert_eq!(readback_failure_cells(NAME, VENDOR, backend), Some(8192 * 8192));
+
+        // A later, larger failure must not raise the ceiling back up.
+        note_readback_failure(NAME, VENDOR, backend, 16384 * 16384);
+        assert_eq!(readback_failure_cells(NAME, VENDOR, backend), Some(8192 * 8192), "smallest failure wins");
+
+        // A smaller one does lower it.
+        note_readback_failure(NAME, VENDOR, backend, 4096 * 4096);
+        assert_eq!(readback_failure_cells(NAME, VENDOR, backend), Some(4096 * 4096));
+
+        // A different adapter is untouched by any of it.
+        assert_eq!(readback_failure_cells(NAME, VENDOR + 1, backend), None);
+        assert_eq!(readback_failure_cells(NAME, VENDOR, wgpu::Backend::Vulkan), None);
     }
 
     /// The default install must behave exactly as it did before this

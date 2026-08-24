@@ -4114,10 +4114,18 @@ AMD RX 7800 XT discrete + AMD integrated Radeon, both Vulkan) with a new
   `generate_terrain` filters its device set through a new
   `GpuDeviceSet::supports_grid` so an adapter that still cannot reach a size
   falls back to CPU rather than crashing.
-- **Open, reported not fixed**: the *integrated* GPU at 8192² dies on a
-  `expect("buffer map failed")` readback (an allocation failure it cannot
-  survive). Ten such sites in `cartalith-gpu`; making them fallible is its own
-  milestone. Bracket: the integrated GPU is fine through 4096² (15.4 s).
+- **~~Open, reported not fixed~~ — CLOSED the same day** (see the readback-
+  fallback entry in `CHANGELOG.md`): the *integrated* GPU at 8192² died on an
+  `expect("buffer map failed")` readback. All eleven dispatch functions in
+  `cartalith-gpu` now return `Option` and every engine call site falls back
+  (`map` → `and_then`), **and** a device that loses a readback is marked lost —
+  a second panic, found only by re-running the real generation after the first
+  fix, was the *next* stage (weather, a 240² grid) dying on a 32-byte uniform
+  buffer with `Buffer ... is invalid`. `device_supports_grid` now answers on
+  measured readback failures as well as reported limits. The exact run that
+  used to kill the process now completes in **81.9 s** against the CPU path's
+  78.1 s, with three GPU stages before the device gives out. Bracket unchanged:
+  the integrated GPU is fully on-GPU through 4096² (15.4 s).
 - **Also open**: no genuine CPU+GPU hybrid *within* generation exists or is
   cheaply buildable — the pipeline is a strict dependency chain, and a row-band
   CPU/GPU split of any noise stage is barred by `DECISIONS.md` §7c (the two
