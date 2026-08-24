@@ -60,9 +60,10 @@ rather than bundling it.
 ## Phase 3 — Rendering and 3D
 
 **Status: partial.** The 2D-fidelity half is well underway —
-`TERRAIN_APPEARANCE_SCOPE.md` milestones 1-5 (multidirectional hillshade,
+`TERRAIN_APPEARANCE_SCOPE.md` milestones 1-6 (multidirectional hillshade,
 ambient occlusion, hydrology tint, the atlas look, geological exposure and
-local contrast). **The 3D drape is not started.** The UI/UX half went further
+local contrast, then the GPU question answered by measurement plus the §29
+quality tiers). **The 3D drape is not started.** The UI/UX half went further
 than this entry anticipated — a full DCC-style shell was designed and built
 (`DCC_SHELL_SCOPE.md`), and the hold called on 2026-08-18 was **lifted later
 the same day** ("replace the current GUI and replace it in full … including
@@ -97,6 +98,13 @@ becomes a near-term goal — and probably better after Phase 3 establishes what 
 plugs into. Confirm before starting.
 
 ## Phase 5 — Urban morphology
+
+**Status: in progress** — milestones 1-7 done (2026-08-18) and wired end to end
+as milestone 17a (2026-08-23); 8-17 open. Figures mirrored from
+`cartalith-native/docs/STATUS.md`'s own Phase 5 section, which is the
+authority. *Status line added 2026-08-24 by a roadmap-coverage audit — this
+file's own preamble promises every phase one, and Phase 5 was the only section
+without it.*
 
 Block 4, procedural city layouts. Already a self-contained DOM-free engine in the
 JS codebase, which suggests it ports cleanly into `cartalith-urban`, depending on
