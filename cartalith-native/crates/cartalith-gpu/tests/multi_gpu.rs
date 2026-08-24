@@ -139,6 +139,47 @@ fn an_unknown_device_key_falls_back_to_auto() {
     println!("unknown key -> fell back to {:?}", set.primary().adapter_name);
 }
 
+/// A device this crate opens must be able to bind a full-grid `f32` buffer at
+/// **every** resolution the shell offers -- `new_world_dialog.gd`'s
+/// `RESOLUTION_PRESETS = [512, 1024, 2048, 4096, 8192]`.
+///
+/// The regression this pins (found by `PERFORMANCE_BENCHMARKS.md`'s own run,
+/// 2026-08-24): `request_gpu_device_from` opened every device at
+/// `Limits::downlevel_defaults()`, whose `max_storage_buffer_binding_size` is
+/// 128 MiB. One 8192² `f32` grid is 256 MiB, so `use_gpu = true` at the largest
+/// shipped preset -- with the shell's GPU toggle at its own default of on --
+/// died on "Buffer binding 1 range 268435456 exceeds
+/// `max_*_buffer_binding_size` limit 134217728". Not a soft failure: a `wgpu`
+/// validation error is a **panic**, and a panic inside a loaded GDExtension
+/// takes the Godot process with it.
+///
+/// Asserted against the real dispatch, not only against the limit: the last
+/// case actually runs the 8192² warp kernel, which is the exact call that used
+/// to die.
+#[test]
+fn an_opened_device_can_bind_a_full_grid_at_every_shipped_resolution() {
+    let devs = real_devices();
+    if devs.is_empty() {
+        println!("skipped: no non-software GPU on this machine");
+        return;
+    }
+    let prefs = GpuPreferences { selected_keys: vec![devs[0].key.clone()], ..Default::default() };
+    let set = init_gpu_device_set_with(&prefs).expect("device");
+    for size in [512usize, 1024, 2048, 4096, 8192] {
+        assert!(
+            cartalith_gpu::device_supports_grid(set.primary(), size, size),
+            "{size}² needs a {} MiB binding; {:?} was opened with only {} MiB",
+            cartalith_gpu::grid_buffer_bytes(size, size) / (1024 * 1024),
+            set.primary().adapter_name,
+            cartalith_gpu::device_grid_limit_bytes(set.primary()) / (1024 * 1024)
+        );
+        assert!(set.supports_grid(size, size), "the set's own check must agree with the per-device one");
+    }
+    // The dispatch that used to panic, run for real.
+    let (wx, _wy) = warp_grid_gpu_with(set.primary(), 8192, 8192, 4242, 2.5 / 8192.0, 0.18 * 8192.0);
+    assert_eq!(wx.len(), 8192 * 8192, "the 8192² warp must return the whole grid");
+}
+
 /// PR-04: the allocator report is a *measurement*, so assert it moves with
 /// a real allocation rather than merely being `Some`.
 #[test]

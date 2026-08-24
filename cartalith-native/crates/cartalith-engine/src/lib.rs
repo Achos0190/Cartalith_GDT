@@ -691,8 +691,21 @@ fn generate_terrain_inner(p: &WorldParams, force_precarve_flow: bool) -> WorldSt
     // the exact same `PowerPreference::HighPerformance` request as before,
     // so nothing below changes. `gpu_allowed_for_grid` is the VRAM budget
     // gate and is unconditionally `true` while no budget is set.
+    //
+    // `supports_grid` is the second gate, and it is a *hard device* limit
+    // rather than the user-set budget `gpu_allowed_for_grid` applies: a
+    // whole-grid dispatch binds a `gw*gh*f32` storage buffer, and a device
+    // opened with limits below that does not fail softly -- `create_bind_group`
+    // raises a wgpu validation error, which panics, which takes the Godot
+    // process down (`cartalith-rust-conventions`). Found by measurement, not by
+    // reading: `use_gpu = true` at 8192² (a `RESOLUTION_PRESETS` entry, with the
+    // shell's GPU default of on) died on exactly that during
+    // `PERFORMANCE_BENCHMARKS.md`'s run. `cartalith-gpu` now opens devices at
+    // the adapter's own ceilings, which covers every size this port offers on
+    // real hardware; this check is what makes an adapter that still cannot
+    // reach a size fall back to CPU (`HARDWARE_ACCELERATION.md` §27) instead.
     let gpu_set = if p.use_gpu && cartalith_gpu::gpu_allowed_for_grid(gw, gh) {
-        cartalith_gpu::init_gpu_device_set().ok()
+        cartalith_gpu::init_gpu_device_set().ok().filter(|s| s.supports_grid(gw, gh))
     } else {
         None
     };

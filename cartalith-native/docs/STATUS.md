@@ -4049,6 +4049,53 @@ Phase 4's own definition of done, so its absence is not a gap in this row;
 it is `GUI_SHELL_SCOPE.md`'s own future work, same as the Cartography
 paint-brush tool this milestone found and named above.
 
+## Compute-configuration benchmarks (`PERFORMANCE_BENCHMARKS.md`, done 2026-08-24)
+
+Owner asked for a real comparison across compute configurations at 2048² and
+8192², 40 plates, judged on **smoothest experience** rather than raw
+throughput. Measured on this machine's real hardware (16 logical cores, 31 GB,
+AMD RX 7800 XT discrete + AMD integrated Radeon, both Vulkan) with a new
+`cartalith-engine/examples/compute_config_bench.rs`.
+
+- **Recommendation: discrete GPU (device 0), `single device` mode.** Fastest
+  at both sizes (2048²: 3.00 s vs CPU 3.75 s; 8192²: 54.4 s vs CPU 78.1 s) and
+  the best-behaved under concurrency — worst UI frame 535 ms against the CPU
+  path's 768 ms while a generate is in flight. `split tiles` across both GPUs
+  is a wash for the *full pipeline* (only the warp stage splits); the
+  integrated GPU alone is slower everywhere and cannot reach 8192² at all.
+- **The real smoothness bottleneck is not generation** — that already runs on
+  a worker `Thread` (`engine_bridge.gd`). It is **LOD tile synthesis**, which
+  is single-threaded, CPU-only, on the Godot main thread: **16–42 ms per
+  256 px tile**, identical at 2048² and 8192² and identical under every
+  compute config. `MAX_LOD_TILES_PER_UPDATE = 48` therefore buys a
+  **1.28–1.81 s** single-frame stall per input event, and
+  `MAX_LOD_TILES_PER_CATCHUP = 6` costs **135–230 ms every frame** while a
+  backlog drains. One tile already exceeds a 60 Hz frame at z ≥ 6.
+- **Measured headroom for that**: the same 48-tile burst across Rayon is
+  **7.9–8.8× faster** (1.78 s → 0.20 s at z = 8), and the shade ratio's
+  "plain" reference pass is another **24–34 %** of per-tile cost. Neither is
+  taken here — this pass measured, it did not redesign the tile path.
+- **A real crash found and fixed** (see `CHANGELOG.md`, same date): every GPU
+  device was opened at `Limits::downlevel_defaults()`, capping the GPU path at
+  5792², so `use_gpu = true` at the 8192 `RESOLUTION_PRESETS` entry **panicked
+  the process**. Devices now open at the adapter's own ceilings, and
+  `generate_terrain` filters its device set through a new
+  `GpuDeviceSet::supports_grid` so an adapter that still cannot reach a size
+  falls back to CPU rather than crashing.
+- **Open, reported not fixed**: the *integrated* GPU at 8192² dies on a
+  `expect("buffer map failed")` readback (an allocation failure it cannot
+  survive). Ten such sites in `cartalith-gpu`; making them fallible is its own
+  milestone. Bracket: the integrated GPU is fine through 4096² (15.4 s).
+- **Also open**: no genuine CPU+GPU hybrid *within* generation exists or is
+  cheaply buildable — the pipeline is a strict dependency chain, and a row-band
+  CPU/GPU split of any noise stage is barred by `DECISIONS.md` §7c (the two
+  noise hashes differ, so the seam would be visible). Reported rather than
+  faked. `PERFORMANCE_BENCHMARKS.md` §6 has the argument.
+- **Re-run needed**: the tile-synthesis numbers were taken against the
+  in-flight pyramid rewrite of `lod_bridge.rs` (uncommitted at the time), using
+  the committed `cartalith_engine::bake::pyramid_tile` it calls. If that path
+  changes shape, re-run `compute_config_bench tiles`/`tilepar`.
+
 ## GPU-compute pilot (`GPU_COMPUTE_PILOT_SCOPE.md`, `HARDWARE_ACCELERATION.md`)
 
 **Done, 2026-08-16.** Piloted a standalone `wgpu` compute path (new crate

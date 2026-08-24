@@ -554,6 +554,46 @@ pub fn gpu_allowed_for_grid(width: usize, height: usize) -> bool {
     matches!(vram_verdict(width, height), VramVerdict::Ok)
 }
 
+/// Bytes one full-grid `f32` buffer occupies. Every storage binding and every
+/// `MAP_READ` staging buffer in this crate's whole-grid dispatches is exactly
+/// this size, which is why one number answers for all of them.
+#[must_use]
+pub const fn grid_buffer_bytes(width: usize, height: usize) -> u64 {
+    (width as u64) * (height as u64) * (size_of::<f32>() as u64)
+}
+
+/// Whether `gpu` can actually **bind** one full-grid buffer for this size.
+///
+/// A hard device limit, distinct from [`vram_verdict`]'s user-set budget: the
+/// budget is a policy the owner chooses, this is arithmetic the driver
+/// enforces. Both `max_storage_buffer_binding_size` (what a bind group may
+/// reference) and `max_buffer_size` (what may be allocated at all) are checked,
+/// because a whole-grid dispatch needs a buffer of this size on both counts.
+///
+/// **Why this exists as a check rather than as trust in the request**: over the
+/// limit, `wgpu` does not return an error a caller can act on -- it raises a
+/// validation error on the device's uncaptured-error path, which panics, and a
+/// panic inside a loaded GDExtension takes the whole Godot process with it
+/// (`cartalith-rust-conventions`). `request_gpu_device_from` now asks for the
+/// adapter's own ceilings so this is satisfied at every size
+/// `new_world_dialog.gd` offers on this project's hardware; this function is
+/// what makes an adapter that genuinely cannot reach a size degrade to the CPU
+/// path (`HARDWARE_ACCELERATION.md` §27) instead of crashing.
+#[must_use]
+pub fn device_supports_grid(gpu: &GpuDevice, width: usize, height: usize) -> bool {
+    grid_buffer_bytes(width, height) <= device_grid_limit_bytes(gpu)
+}
+
+/// The largest single buffer `gpu` was actually opened for -- the binding of
+/// [`device_supports_grid`]'s two limits. Public because a failure here is only
+/// diagnosable if the number is quotable: "this device tops out at N MiB" is a
+/// different report from "the GPU path is off".
+#[must_use]
+pub fn device_grid_limit_bytes(gpu: &GpuDevice) -> u64 {
+    let l = gpu.device.limits();
+    l.max_storage_buffer_binding_size.min(l.max_buffer_size)
+}
+
 /// A real, measured memory reading for one live device.
 ///
 /// Read the two numbers together. Every dispatch in this crate frees its
@@ -642,6 +682,16 @@ impl GpuDeviceSet {
     #[must_use]
     pub fn is_split(&self) -> bool {
         self.mode == MultiGpuMode::SplitTiles && self.devices.len() >= 2
+    }
+
+    /// Whether **every** device in the set can bind a full-grid buffer at this
+    /// size -- see [`device_supports_grid`]. All, not any: a split dispatch
+    /// gives each device a band of the same grid, and any stage outside the
+    /// split runs whole-grid on [`Self::primary`], so one device that cannot
+    /// reach the size makes the whole set unusable for it.
+    #[must_use]
+    pub fn supports_grid(&self, width: usize, height: usize) -> bool {
+        self.devices.iter().all(|d| device_supports_grid(d, width, height))
     }
 }
 

@@ -846,10 +846,32 @@ fn request_gpu_device_from(
     }
 
     let info = adapter.get_info();
+    let adapter_limits = adapter.limits();
     let mut limits = wgpu::Limits::downlevel_defaults();
-    limits = limits.using_resolution(adapter.limits());
+    limits = limits.using_resolution(adapter_limits.clone());
     limits.max_storage_buffers_per_shader_stage =
         limits.max_storage_buffers_per_shader_stage.max(min_storage_buffers);
+    // `using_resolution` raises only the three `max_texture_dimension_*`
+    // fields; the two *buffer* ceilings stay at `downlevel_defaults()`'s
+    // 128 MiB binding / 256 MiB allocation no matter what the card can do.
+    // One full-grid `f32` buffer is `w*h*4` bytes, so 128 MiB caps the GPU
+    // path at 5792² -- and past it `create_bind_group` does not fall back,
+    // it raises a wgpu validation error, which is a **panic** in the Godot
+    // process (`cartalith-rust-conventions`: no panic crosses the gdext
+    // boundary). Measured, not theorised: `use_gpu = true` at 8192² -- a
+    // resolution `new_world_dialog.gd`'s own `RESOLUTION_PRESETS` offers, with
+    // the GPU toggle at the shell's default of on -- died with
+    // "Buffer binding 1 range 268435456 exceeds `max_*_buffer_binding_size`
+    // limit 134217728" while `PERFORMANCE_BENCHMARKS.md` was being measured.
+    //
+    // Taking the adapter's own reported ceilings keeps
+    // `HARDWARE_ACCELERATION.md` §10's rule intact -- this still never asks
+    // for more than the hardware reports, it just stops asking for less than
+    // the pipeline needs. On this machine both adapters report 2047 MB /
+    // 2048 MB, which covers every size in `RESOLUTION_PRESETS`.
+    limits.max_storage_buffer_binding_size =
+        limits.max_storage_buffer_binding_size.max(adapter_limits.max_storage_buffer_binding_size);
+    limits.max_buffer_size = limits.max_buffer_size.max(adapter_limits.max_buffer_size);
 
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some(device_label),

@@ -24103,3 +24103,80 @@ children that draw at all.
 the full table, the clean-sweep list and three items reported rather than taken
 (the map readout's canvas content, a keyboard delete for the Asset Library, and
 four orphan `ID_*` constants in `menus.gd`).
+
+## The GPU path could not open a buffer big enough for 8192², and crashed instead of falling back (`PERFORMANCE_BENCHMARKS.md`, 2026-08-24)
+
+Found while measuring, not while reading — which is the only reason it was
+found at all. `PERFORMANCE_BENCHMARKS.md` set out to compare CPU/Rayon against
+each of this machine's two real GPUs at 2048² and 8192², 40 plates. The 2048²
+runs all completed. The first 8192² GPU run died:
+
+```
+wgpu error: Validation Error
+  In Device::create_bind_group, label = 'warp bind group'
+    Buffer binding 1 range 268435456 exceeds `max_*_buffer_binding_size` limit 134217728
+```
+
+**The cause.** `request_gpu_device_from` built its device limits as
+`Limits::downlevel_defaults()` then `.using_resolution(adapter.limits())` —
+and `using_resolution` raises only the three `max_texture_dimension_*` fields.
+The two *buffer* ceilings stayed at `downlevel_defaults()`'s 128 MiB binding
+and 256 MiB allocation whatever the card actually reported. One full-grid
+`f32` buffer is `w*h*4` bytes, so the GPU path was silently capped at 5792²:
+4096² (64 MiB) fit, 8192² (256 MiB) did not. Both adapters on this machine
+report 2047 MiB / 2048 MiB, so the ceiling was this crate's own request, not
+the hardware.
+
+**Why it is a crash and not a fallback.** A `wgpu` validation error is raised
+on the device's uncaptured-error path, which panics — and `8192` is a
+`new_world_dialog.gd` `RESOLUTION_PRESETS` entry while the shell's GPU toggle
+defaults to *on*, so the reachable user action is "pick the largest offered
+resolution and press Generate". A panic inside a loaded GDExtension takes the
+Godot process with it (`cartalith-rust-conventions`). This is a *different*
+bug from `3d167eb`'s device-selection race and from the GL-backend instance
+crash `COMPUTE_BACKENDS` documents; it shares only the ">2k" symptom.
+
+**Fixed, in two parts, because the request alone is not a guarantee.**
+
+1. `request_gpu_device_from` now also raises `max_storage_buffer_binding_size`
+   and `max_buffer_size` to the adapter's own reported ceilings.
+   `HARDWARE_ACCELERATION.md` §10's "request the minimum actually needed, never
+   `Limits::unlimited()`" is intact — this still never asks for more than the
+   hardware reports, it stops asking for less than the pipeline needs.
+2. New `cartalith_gpu::device_supports_grid` / `GpuDeviceSet::supports_grid` /
+   `device_grid_limit_bytes`, and `generate_terrain` now filters its opened
+   device set through `supports_grid(gw, gh)`. An adapter that genuinely cannot
+   reach a size takes the CPU path (`HARDWARE_ACCELERATION.md` §27) instead of
+   panicking. This is a *hard device* limit, deliberately separate from
+   `vram_verdict`'s user-set budget: the budget is a policy the owner chooses,
+   this is arithmetic the driver enforces.
+
+**Verified.** New `an_opened_device_can_bind_a_full_grid_at_every_shipped_resolution`
+in `cartalith-gpu/tests/multi_gpu.rs` asserts the limit at all five
+`RESOLUTION_PRESETS` sizes *and* runs the real 8192² warp dispatch that used to
+die. `cargo test --release -p cartalith-gpu -p cartalith-engine`: 10/10 in
+`multi_gpu`, every golden-parity suite unmodified, 0 failures. `cargo clippy
+--release -p cartalith-gpu -p cartalith-engine --all-targets` adds no warning.
+Determinism unchanged: 2048²/`gpu0` still yields `field[0] = 0.4297` before and
+after, and 8192² now completes on the discrete GPU in **54.4 s** against the
+CPU path's **78.1 s**.
+
+**One failure deliberately left unfixed and reported instead.** The
+*integrated* GPU at 8192² still dies, further down, on
+`rx.recv().expect("buffer map failed")` in the base-field blur — an allocation
+failure on a device that physically cannot hold ~2.5 GB of working set. That is
+not the same fix: `cartalith-gpu` has **ten** `expect`-on-readback sites, and
+making them fallible means threading `Option` through every dispatch and every
+engine call site. Real work, its own milestone, not folded into a limits fix.
+`PERFORMANCE_BENCHMARKS.md` §5 has the bracket — the integrated GPU is fine
+through 4096² (15.4 s) and dies at 8192².
+
+**Also added:** `cartalith-engine/examples/compute_config_bench.rs`, the
+harness the whole comparison was measured with — `devices` / `gen` / `tiles` /
+`tilepar` / `interactive` modes, one process per configuration so the OS peak
+working set belongs to that configuration alone. `timing_bench.rs` next door is
+untouched.
+
+**Files:** `cartalith-gpu/src/lib.rs`, `cartalith-gpu/src/multi.rs`,
+`cartalith-gpu/tests/multi_gpu.rs`, `cartalith-engine/src/lib.rs`,
+`cartalith-engine/examples/compute_config_bench.rs`.
