@@ -1031,6 +1031,8 @@ func _fill_politics(parent: Control) -> void:
 		"now -- see the TOOLS block at the top of this dock (§4.5.3's Settlement and " +
 		"Territory tools).")
 
+	_fill_knowledge(parent, provinces)
+
 	## **Two of these three rows stopped being gaps when SG-02 shipped and
 	## nobody moved them** (found 2026-08-24 by driving the dock rather than
 	## reading it). Both tooltips asserted, in the shipped build, that no
@@ -1069,6 +1071,72 @@ func _fill_politics(parent: Control) -> void:
 		"Diplomatic relations (the design's own per-faction sub-list) is new work with no " +
 		"reference behaviour behind it either -- cartalith-civ models no inter-faction " +
 		"relation of any kind.")
+
+# -- Knowledge: provinces and continents (Markdown vault) --------------------
+
+## `MARKDOWN_VAULT_INTEGRATION.md` §28 for the two entity kinds that have no
+## floating editor of their own. A settlement gets its KNOWLEDGE block inside
+## `place_editor_window.gd`; a province and a continent are only ever listed,
+## so their affordance is a row in the list.
+##
+## **Continents live here, in Politics, and that is a judgement worth stating.**
+## A landmass is geography, not politics — but this port's continents are
+## `civ_continents`' output, they carry the faction holding the most of them,
+## and this is the one dock that already reads `CivData`. Splitting them into
+## the World workspace would mean a second file reading the same civ layer for
+## one list. If a real geography dock appears, they belong there.
+func _fill_knowledge(parent: Control, provinces: Array) -> void:
+	var sec := DccWidgets.section(parent, "Linked notes")
+	DccWidgets.note(sec,
+		"Provinces and continents can each be linked to a note in an external Markdown vault " +
+		"(any folder of .md files — Obsidian is one, and nothing here requires it). Cartalith " +
+		"reads on demand and writes only on an explicit, previewed action.")
+
+	if provinces.is_empty():
+		DccWidgets.note(sec, "No provinces — generate a world first.")
+	else:
+		var pg := DccWidgets.group(sec, "Provinces", false)
+		for p in provinces:
+			var d: Dictionary = p
+			var pid := int(d.get("id", 0))
+			var pname := String(d.get("name", "?"))
+			_knowledge_row(pg, "province", pid, pname)
+
+	## `id` here is a **rank by area**, not a persistent identity — the
+	## engine's `get_continents()` doc comment carries the whole reasoning.
+	## The row says so rather than leaving a user to find out when a sculpted
+	## land bridge renumbers two landmasses into one.
+	var continents := bridge.continents()
+	if continents.is_empty():
+		DccWidgets.note(sec, "No continents listed. Either no world has been generated, or every " +
+			"landmass in this one is below the listing floor — an all-islands world legitimately " +
+			"has none, which is a real outcome rather than missing data.")
+	else:
+		var cg := DccWidgets.group(sec, "Continents", false)
+		for c in continents:
+			var d: Dictionary = c
+			var cid := int(d.get("id", 0))
+			var cname := String(d.get("name", "?"))
+			_knowledge_row(cg, "continent", cid, cname,
+				"%d cells · centre %d, %d" % [int(d.get("cells", 0)), int(d.get("cx", 0)), int(d.get("cy", 0))])
+		DccWidgets.note(cg,
+			"A continent's id is its rank by area, largest first — it is derived from the height " +
+			"field on every generate, not stored. Editing terrain so two landmasses merge will " +
+			"renumber them, so every link also remembers the name it was made against.")
+
+
+func _knowledge_row(parent: Control, kind: String, entity_id: int, label: String, detail: String = "") -> void:
+	var summary := bridge.vault_entity_summary(kind, entity_id)
+	var n := int(summary.get("link_count", 0))
+	var mark := ""
+	if n > 0:
+		mark = " · %d note%s %s" % [n, "" if n == 1 else "s",
+			String(VaultWindow.STATUS_TEXT.get(String(summary.get("status", "")), ""))]
+	var text := label + (" — " + detail if detail != "" else "") + mark
+	var b := DccWidgets.action(parent, text, func(): app.open_vault(kind, entity_id, label))
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	b.tooltip_text = "Open the Markdown vault panel scoped to %s." % label
+
 
 # -- Culture ----------------------------------------------------------------
 

@@ -221,6 +221,7 @@ dependencies = [
  "cartalith-rng",
  "cartalith-spatial",
  "cartalith-terrain",
+ "cartalith-vault",
  "godot",
  "rayon",
  "serde",
@@ -301,6 +302,14 @@ version = "0.1.0"
 dependencies = [
  "cartalith-jsmath",
  "cartalith-rng",
+]
+
+[[package]]
+name = "cartalith-vault"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

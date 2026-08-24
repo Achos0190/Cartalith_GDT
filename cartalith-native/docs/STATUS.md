@@ -5,7 +5,60 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **`layersPreviewChk` is real** —
+Last updated: 2026-08-24 (post **the town was on the map; the pin was sitting
+on top of it** — `GUI_GAP_REGISTER.md` **UM-01**, from the owner's report *"I
+don't see the settlement rendered on the map itself, the dot yes. But not the
+place."* The suspect was the reveal gate, which the previous pass had flagged
+as swappable and left alone. It was not the cause, and driving it live found
+**three** defects. (1) **The layer was off by default behind a button that does
+not mention it**: `civUrbanLayoutsChk` sat `on: false` in the CARTO rail dock,
+while the map's own **Layers** button lists field rasters only — now on by
+default, and named in that popover's footnote. (2) **The pixel reveal gate was
+wrong in the opposite direction to the one predicted** — too *early*, not
+unreachable: `URBAN_MIN_BOX_PX = 16` first fired at a **47 km** span and a
+revealed town replaces its pin, so it traded a legible marker for a 16 px
+speck. `_umLayoutAlpha` is ported verbatim now (24 km → 10 km), and
+`draw_layout`'s long-plumbed `alpha` argument finally carries the crossfade:
+measured α = 0.00 at 25 km, 0.44 at 17.8, **1.00 at 10.0**. (3) **The pin grew
+32x and covered the town — visible with the layer OFF, which is the state the
+owner was in**: `_civ_zoom_k()` ported `_civZoomK`'s `min(5, z)` cap, which is
+free in the reference only because `viewT.scale` stays at 1 under Tiled LOD.
+Here `_camera_zoom` *is* the deep zoom, so past 5 the term stops cancelling —
+1.6x while the cap was `ZOOM_MAX = 8.0`, 32x once it became `lodMaxZoom()`. The
+cap is no longer ported; the `0.35` zoom-out floor is untouched. Verified
+non-headlessly on a real 800 km world: the town draws on the **main** map from
+a 10 km span down, with water, roof mass, market anchor and approach roads, and
+pins hold constant on-screen size at every zoom. `URBAN_FINE_BOX_PX` is
+map-unreachable and correctly so — at 5 km a lot is ~1 px and its outline would
+be wider than the roof; that pass is the City Viewer's) — previously, post
+**the Markdown vault is real, and continents
+had to be invented to hold it** — `MARKDOWN_VAULT_SCOPE.md` milestones **0 and
+1**, on the owner's own 2026-08-24 instruction to start this work for
+continents, provinces and settlements. `ROADMAP.md` required an entity audit
+first and it changed the plan: **continents did not exist** —
+`generate_continentality_field` is a per-cell scalar with no identity, no name
+and no boundary, and what the roadmap audit had been calling "world structure
+archetypes" is that field. What *did* exist is `build_landmass_quality`'s
+golden-verified 8-neighbour flood fill, whose `comp`/`sizes`/`count`
+bookkeeping its own doc comment reserved for "later milestones" and which
+`compute_civilisation` has computed and discarded on every generate since
+Phase 2. `cartalith_civ::civ_continents` keeps it — rank by area, a name, a
+bbox, a centroid, a plurality faction, and **no new per-cell memory**.
+Milestone 1 is the new **`cartalith-vault`** crate (section spans and
+section replacement that never reconstruct text, the machine-owned
+`CARTALITH:BEGIN/END` block, knowledge links and §27's status states, the
+desktop provider with atomic writes, and the export-field registry), its
+`vault_bridge.rs`, and the shell: `vault_window.gd`, `vault_store.gd`, a
+KNOWLEDGE section in the place editor keyed on `tid`, and Linked-notes rows
+for every province and continent. **41 + 4 Rust tests and 54 end-to-end
+checks against a real folder of real Markdown files, headless and windowed.**
+Two defects only the live run could find: continent 1 and settlement 1 came
+out with the *same name* (both drawing `civ_name_rng`'s fixed first value), and
+a `String(int)` call GDScript has no constructor for. **Still open**: the map
+snapshot, Compare-with-source, project-scoped links (blocked on the save format
+carrying no civ layer at all), the Android SAF provider, and §35's criteria 6-7,
+which name entity kinds this port does not have. See its own section below)
+— previously, post **`layersPreviewChk` is real** —
 `GUI_GAP_REGISTER.md` **DM-04's last disabled control**, and the fourth of the
 four the reference puts in its export header bar. The row's stated reason
 ("belongs with the f32 layer blobs") conflated two things: `exportZip` writes
@@ -1590,9 +1643,12 @@ LRU/queue and the two draw functions are out of scope for every milestone by
 the scope document's own statement. **Not golden-verified** — the capture
 harness slices reference block 4 and there is no block-2 fixture; ported by
 reading the reference line by line, covered by 11 unit tests. One stated
-deviation: the map layer's reveal gate is the town's 1.7 km site box measured
-in screen pixels, not `_umLayoutAlpha`'s 24 km band, which cannot fire at
-`ViewportHost.ZOOM_MAX` 8.0. Verified non-headlessly on a real 60 km world:
+deviation, **withdrawn 2026-08-24**: the map layer's reveal gate was the town's
+1.7 km site box in screen pixels rather than `_umLayoutAlpha`'s 24 km band,
+which could not fire at `ViewportHost.ZOOM_MAX` 8.0. The band is ported
+verbatim now that the cap is `lodMaxZoom()`, the layer is on by default, and
+`_civ_zoom_k()` no longer ports `_civZoomK`'s zoom-in clamp — see the head of
+this file. Verified non-headlessly on a real 60 km world:
 8 layouts in 114 ms, 158 to 1 285 street segments each, real map water and
 relief on every one, and both surfaces captured drawing real geometry.
 — previously, post **The civ-interaction surface: place editing,
@@ -2735,6 +2791,85 @@ now reachable from GDScript, 7 -> 58, via one flat dotted-key table
 ~58 individual setters; see its own section below and
 `GENERATION_PARAMETERS.md` — post DCC shell milestone 1 — `DCC_SHELL_SCOPE.md`, full structural replacement of the panel-browser shell with the owner-supplied DCC editor design: menu bar/workspace tabs/tool options bar/left tool rail/viewport/right dock/status bar, every real control re-parented, tool rail present and honestly inert, one real gap found and fixed — the status bar's own tool-hint slot wasn't wired — screenshot-verified end-to-end; see its own section below), post real Android device pass — MVP criterion 4 fully closed —, sea routes (Phase 2 milestone 13) wired into `cartalith-godot`'s rendering with a real render-loop crash found and fixed along the way, CPU-multithreading milestones 2-3 — `cartalith-civ` then `cartalith-climate`/`cartalith-erosion`/`cartalith-hydrology` Rayon-parallelized — Phase 1's two closeout items (credits screen, crate license audit) both done, GPU layer integration milestones 7-8 — GPU-backed weather simulation, shared GpuContext across `generate_terrain`'s stages — a new standalone `cartalith-spatial` crate (tiling/quadtree/dirty-tracking base for a future LOD integration — real, tested, referenced by nothing yet), Phase 2 milestone 16 (`_civGenerateProvinces` — resolved the milestone-9 territory-input blocker via milestone 10's own `assign_territory`, data/backend done and verified, rendering wired as a boundary-line overlay in a same-day follow-up), and Phase 2 milestone 17 (economy/Journey Planner investigated for real — two separate large subsystems found, not one; the ~70-function Journey Planner confirmed to genuinely need its own sub-phase per `ROADMAP.md`, not attempted; `civ_resource_trade_balance` ported/tested from the smaller economy layer — **now genuinely wired**, same day: `civ_world_mean_resources`/`civ_place_resource_context` give it real per-settlement inputs, `get_trade_balances()` exposes the result to Godot, and the memory-optimization tension (needs all 15 resource keys, six were being freed early) resolved by moving that free to after settlements are placed — full reasoning in `ECONOMY_SCOPE.md`), Phase 2 milestone 18 (culture beyond naming, investigated — confirmed one real computation exists beyond the already-ported syllable tables, `_civCultureTerrainFit`/`civ_culture_terrain_fit`, ported and tested but not yet wired since its real inputs depend on the still-unstarted `_civFactionAggregates` territory aggregation; Government/Religion/Ag-tech confirmed genuinely UI-only with zero derived computation; a completely unrelated "culture profiles" system found at reference lines 28193+ correctly identified as Phase 5 Urban Morphology scope, not Phase 2), Phase 2 milestone 19 (Journey Planner milestone 1 — the two fully self-contained categories of its ~70 functions ported: physical-modeling primitives and the reference's own "four deferred items" seasonal/closure cluster, 22 tests, full remaining milestone breakdown in new `JOURNEY_PLANNER_SCOPE.md`), Phase 3 milestone 1 (`TerrainAppearance` abstraction in `render.rs` — colour data now owned/structured, pixel-identical output verified, real audit finding that no elevation-breakpoint ramp exists in this renderer), Phase 3 milestone 2 (multidirectional hillshade + ambient occlusion — the first pass where the default render visibly improves; JS golden parity kept exact via a new `js_reference()` appearance rather than re-baselining, min-luma identical before/after so no black valleys, ~free at 45 ms/512²), Phase 3 milestones 3-4 (hydrology tint; then the atlas look — paper/vellum ground, forest stippling, physical plate border — closing three of `VISION.md`'s four remaining atlas elements, with the `js_reference()` gating extended by three more early-returning zeros so `golden_parity_render.rs` stays completely unmodified, and with the cross-world result *inverting* milestones 2-3: stronger on low-relief Archipelago than on mountainous Classic, because the paper acts on the whole sheet), Phase 3 milestone 5 (geological material exposure + local contrast — the world's real rock types from `build_lithology` reach the image for the first time, both as the rock material's own colour and as bedrock showing through thin soil, which matters because Classic's land is 45% shale / 33% metamorphic / 0.4% granite and granite is what the ported heuristic painted by default; plus a band-passed local-contrast pass whose gain *falls to zero* on strong edges so §18's "no haloing" is a property of the maths — interior contrast rises in all three test worlds including a non-square one while clipping falls, and two real corrections came out of measuring and looking: raw slope is resolution-dependent, so the first geology gate silently confined itself to the steepest ~5% of land at 2048², and a plain high-pass amplified milestone 4's own paper grain into a visible quilting), and the GUI shell redesign milestone 1 (`GUI_SHELL_SCOPE.md` — full 6-region professional-editor shell rebuilt in `main.tscn`/`main.gd` from an owner-supplied design import, zero Rust changes, every real control re-parented and screenshot-verified working end-to-end, every not-yet-real feature visibly present but honestly disabled), and the causal-chain explainer (`VISION.md` sequencing item 1 — hovering a settlement shows a real "WHY HERE?" decomposition of `build_settlement_suitability`'s own thirteen weighted terms; proved faithful by a test that reconstructs the real function's output at every cell from the explanation alone, and cross-checked against real terrain across all 40 settlements of a generated world with 0 violations; deliberately per-settlement rather than a general `explain_cell(x,y)`, since the source rasters aren't retained on `CivData` and holding them would undo the memory work), and Journey Planner milestone 2 (transport mode selection — 6 of 10 originally-listed functions shipped, given caller-supplied stage lists; the other 4 confirmed by reading the real reference code to depend on milestone 5's unbuilt route derivation or milestone 3's unbuilt `jpCalcLand`, re-flagged rather than forced; the biome-mapping question this doc worried about turned out to already be answered by the reference's own `jpLegacyBiomeOf`, ported as `jp_biome_key` rather than invented; 15 new tests, `JOURNEY_PLANNER_SCOPE.md` updated), and the GUI decluttering pass (`GUI_SHELL_SCOPE.md` — a design-lead-researched target IA implemented for real: `INFRASTRUCTURE`→`EXPLORE`, `CARTOGRAPHY:Layers` consolidated into the one real `LayersPanel` surface freeing a slot for `Paint`, `WORLD:Resources`→`Sculpt`, CIVILIZATION/CARTOGRAPHY subjects renamed to the reference's real buckets, the invented `GenerateMenu` 11-stage pipeline replaced with the reference's real Step 1→2→3 sequence, a real dark `Theme` resource replacing the light-parchment `SettingsCard` panels that had been sitting on the dark shell, a real `FooterVBox`-visibility bug fixed, before/after windowed screenshots confirming the full golden path unbroken) — see `CHANGELOG.md`), and Journey Planner milestone 3 (physical travel cost — 7 functions shipped including the v1.97 sail polar, the season×biome weather blend and the whole day-wage cost model; 2 of the 11 listed had already shipped with JP milestone 2; the remaining 2 (`jp_calc_land`/`jp_calc_water`) exposed a real dependency-ordering error in `JOURNEY_PLANNER_SCOPE.md` — they need milestone 4's consumption/resupply cluster, which that doc orders *after* them — so they are deferred and the doc is corrected rather than the dependency stubbed; the flagged `JP_BIOMES[...].weather` table confirmed unported and ported here; `jp_journey_cost` confirmed to need no milestone-5 plan object; milestone 2's four deferrals re-read and none resolved; golden-verified via a bare-`vm` Node run of the reference's own source lines, 12 new tests). **Phase 4 started** (`ASSET_LIBRARY_SCOPE.md`, new): the Asset Library investigated for real against the reference rather than its pre-implementation design docs — an asset is one PNG bound to one slot in a frozen ordered vocabulary (8 families), an asset pack is a real PKZIP+`pack.json`/`pack.csv` serialization format, a second `assetlib/library.json` project-embedded format also exists, and the renderer genuinely draws pack sprites with the vector glyphs as fallback; ~2,250+ lines total but only ~600-800 of them portable, so a real sub-phase of seven milestones. Milestone 1 done: new standalone `cartalith-assets` crate (pack manifest model/parse/validate/serialize, 28 tests, golden-verified against the real `parsePackCsv`/`parsePackManifest`/`packSummary`), wired to nothing. **Milestone 2 done**: pack `.zip` read/write, placed in `cartalith-assets::archive` behind an on-by-default `zip` feature after reading `cartalith-io` and finding nothing to share (its whole zip surface is three `zip`-crate calls) plus two reasons not to put it there (reading-only by explicit scope; the dependency would point the wrong way); what is actually ported is the reference's export *policy* — `.png` STORED, timestamps frozen at 1980-01-01 so exports are byte-reproducible, `pack.json` last, names verbatim — and it is verified **in both directions** against a pack the reference's own `PackManifestBuilder.build()` + `zipStore()` produced headlessly, including feeding this port's own output back through the reference's `unzipAny`/`parsePackManifest` (identical payloads, `pack.json`, summary and warnings; the two archives differ by 2 bytes total), 14 new tests, still wired to nothing. Milestone 3 done: scatter rules (`cartalith-assets::scatter` — the `ScatterRule` model, ten slot presets, keyed rule table, weighted variant selection, hardened normalizer), with the three v1.27 hardening fixes **re-derived for Rust rather than transcribed**: the `NaN`-density carpet is still reachable here but by the *opposite* IEEE rule (`f64::min` absorbs NaN where `Math.min` propagates it), the `NaN`-spacing bucket-grid collapse is real and `f64::max` would have masked it, and the `Object.assign` aliasing bug is structurally unreachable — not from ownership but because defaults and untrusted input are different *types* here, so no defensive code was written for it; plus a guarantee the reference cannot have (`Serialize` but deliberately no `Deserialize`, so the hardening cannot be bypassed). Golden-verified: `pick_weighted_variant` diffed exactly over 11 cases × 36 positions, and 37 normalizer fixtures caught a real first-run bug — `density`'s fallback is not symmetric with the other numeric fields (absent keeps the preset, *rejected* lands on a literal 1). 24 new tests; three corrections to milestone 4 recorded (it is not the first cross-crate dependency — this is; `pickIconVariant`/`spaceOf` shipped here; `biomes` is `Vec<f64>` because `Number.isFinite` does not coerce). **Milestone 4 done**: rule-driven icon placement (`cartalith-assets::placement` — `place_map_icons_ruled`/`icon_slot_for_item`/`sprite_draw_rect`), the first real placement golden-parity surface (positional and seeded, diffs exactly); both of milestone 4's own v1.27 fixes (most-specific-first priority sort, `requireWetland` ANDed with the biome test) confirmed **structurally necessary in Rust**, unlike one of milestone 3's three, and proven with a hand-traceable `tGap=1` fixture where the winner is shown independent of rule-insertion order; 23 new tests (12 unit + 11 golden), still wired to nothing. **GPU layer integration milestone 9** (flow accumulation — the first genuinely sequential algorithm in this pipeline redesigned for GPU rather than ported: per-cell D8 flow direction plus pointer-doubling subtree sums in `ceil(log2(n))` rounds, `atomic<u32>` fixed point for order-independent bit-reproducible accumulation; bit-exact against the real `compute_flow` for area seeding and 1.3e-4/3.3e-4 relative at and above the channel threshold for discharge seeding; **measured through to the civilisation layer — river network and settlement positions both come out identical, 104/104 and 125/125 seeds, zero moved**; 15.5× on the kernel at 2048² and the end-to-end `generate_terrain` ratio moving 0.98×→1.74× there; plus two honest "shouldn't run on GPU" findings for the water-body depression fill and `road_dijkstra`), Phase 4 milestone 4 (rule-driven icon placement, `cartalith-assets::placement`, both v1.27 fixes confirmed structurally necessary in Rust, 23 new tests), and Phase 4 milestone 5 (the Library model — `AssetDB`/`AssetCollections`/`AssetValidator.run()`/the `assetlib/library.json` shape, lining up with `SAVEFILE_COMPAT.md`'s existing "nothing to deserialise into yet" note; two real corrections found by reading — per-slot display names turned out load-bearing for the validator's own warning text, and the Library's `poi` vocabulary is ten slots, not the eight `PACK_POI_SLOTS` milestone 1 ported; the id-slugging/uid-collision hardening asked for by name found and ported with tests; 56 new tests, 32 golden-verified against a real reference run), and Phase 4 milestone 6 (image handling, `cartalith-assets::raster` — the first milestone that touches pixels, narrower than its own original description once milestone 5's own corrections are read literally: `image` crate for decode/encode/resize (`png`-only, no default-features), a real `item_hash` content hash deliberately **not** byte-matched to the reference's own browser output since the hash is never serialized on either side and the reference's own canvas-resample kernel is implementation-defined, `fit_to_bottom`/`finalize_pack_texture_inv_mean` golden-verified since they touch no DOM API, `render_item` porting the reference's own single shared thumbnail/preview/bake core, and `AssetDB::apply_library_file_with_items` wiring real item restoration end to end; 15 new tests), and **Phase 4 milestone 7 — closing Phase 4 entirely**: renderer + Godot integration, `cartalith-godot::pack` (the first workspace dependent on `cartalith-assets`) — real sprite compositing (pack art via a bilinear blit, a real procedural glyph fallback for all ten icon slots) and real ground-texture splat (the six `SPLAT_PAINT_SLOTS` channels blended via `land_color`'s already-computed `materialWeights`), with the two Cartography "painted layer" biome/terrain overrides honestly left out (this port has never ported the paint-brush tool that would drive them, a named follow-up rather than a silent gap); `golden_parity_render.rs` unmodified and passing; verified with a real windowed run against the milestone-2 fixture pack, confirmed by inspecting the native pixel output (a real sprite rectangle, a real irregular splat-checkerboard region, real glyph-fallback blobs), full writeup and honesty check against `ASSET_LIBRARY_SCOPE.md` §8's own "done means" in `STATUS.md`'s own Phase 4 section.
 
+## Markdown Vault (`MARKDOWN_VAULT_SCOPE.md`, milestones 0-1 done 2026-08-24)
+
+**Started on the owner's own instruction, 2026-08-24**, for three entity kinds:
+continents, provinces and settlements — **not POIs**, which stay an unported
+concept and were not built as a side effect. `ROADMAP.md` had this under
+"Options kept open, not scheduled" and required `MARKDOWN_VAULT_SCOPE.md` first;
+that document exists and carries the milestone breakdown, the §35
+criterion-by-criterion table and the known limitations.
+
+**New scope, not a port.** `reference/FUNCTION_INDEX.md` has no
+markdown/vault/note/obsidian/knowledge function at all, so this sits outside
+`DECISIONS.md` §7d entirely and there is no golden fixture to match.
+
+### The entity audit — the reason the scope document was required
+
+| Entity | Existed? | Key | Stable across |
+|---|---|---|---|
+| Settlement | **Yes** | `NamedSettlement::tid` | rename, move, neighbouring deletion, `civ_recompute()` |
+| Province | **Yes** | `Province::id` | rename/move; **not** a seed-set change |
+| Continent | **No** — built here | rank by area | terrain-preserving edits only |
+| POI | **No**, deliberately | — | not built |
+
+`generate_continentality_field` is a per-cell `Vec<f32>` with no per-instance
+identity, no name and no boundary. `build_landmass_quality` (reference 5970,
+golden-verified) has always labelled land components and always thrown the
+labelling away — so milestone 0 keeps it.
+
+### Milestone 0 — the addressable continent
+
+`cartalith_civ::Continent` + `civ_continents()`, `WorldGen::get_continents()`.
+1-based rank by area (chosen over the raw component index, which is scan order),
+a name from `civ_settle_name` in the plurality faction's culture, an inclusive
+cell bbox, a centroid, a cell count. `CONTINENT_MIN_CELLS = 64` is a floor on
+what is *listed*, not a definition. `CivData` gains a `Vec<Continent>` and
+**deliberately no raster** — the obvious companion lookup is 268 MB at the
+8192² ceiling for a query nothing performs.
+
+A continent's id is derived, not persistent, and the binding says so where a
+caller would store one. Every knowledge link also stores the entity's name at
+link time — never as a fallback key, only so a stale id can be re-bound.
+
+### Milestone 1 — link, read, section-aware write-back
+
+New crate **`cartalith-vault`** (`serde`/`serde_json` only; no engine crate, no
+`gdext`), five modules: `markdown` (byte-span section replacement that never
+reconstructs text — ATX headings, fenced code, YAML frontmatter, everything
+else opaque), `block` (the machine-owned `CARTALITH:BEGIN/END`, §23's five
+rules, refusing outright on an unterminated or duplicated block), `links`
+(`KnowledgeLink`, `LinkStore`, §27's states, hash outranking timestamp),
+`provider` (`FsVault`: bounded listing, `..` refused, write-to-temp-then-rename)
+and `export` (§19's registry as data, filtered by kind *and* by presence).
+
+Every write takes an `expect_hash` obtainable only from a preview, so §16's
+"must not blindly overwrite" is a type signature rather than a hope.
+
+Shell: `vault_bridge.rs`, `vault_window.gd`, `vault_store.gd`
+(`user://markdown_vault.json`), a KNOWLEDGE section in `place_editor_window.gd`
+keyed on `tid`, and Linked-notes rows in the Civilization dock
+(`GUI_GAP_REGISTER.md` §35, KV-01..KV-03).
+
+### Verified
+
+41 `cartalith-vault` tests (three first-run failures were real bugs: a
+block add/remove cycle that widened the note by a line each time, an id-minting
+order that walked a re-attached link's id up on every click, and a lost
+trailing blank line), 4 `cartalith-civ` tests on a hand-built three-landmass
+fixture, and **`_vault_probe.gd`: 54 end-to-end checks against a real folder of
+real Markdown files on disk, headless and windowed, both green.**
+
+### Still open
+
+Map snapshot (§21); Compare-with-source (§14 — Reload and Keep ship, the two
+actions that cannot lose work); **project-scoped links (§26) blocked** because
+`cartalith-io`'s save format carries no civ layer at all, so a link inside a
+save would point at a `tid` a loaded world does not have; the Android SAF
+provider; and §35's criteria 6-7, which name POIs and "regions" — entity kinds
+this port does not have. `DCC_SHELL_SPEC.md` §9's vault block was deliberately
+not touched.
+
 ## Export raster + channel atlas — `PARITY_AUDIT.md` §5 item 14, three of four (done 2026-08-24)
 
 **Done.** `bakeRes` (2K/4K/8K), `bakeTiles` and `chanAtlasChk` are real and
@@ -3373,10 +3508,11 @@ dictionary key at all**, because an empty `buildings` array reads as "this
 town has none". Two things to carry forward: the adapter is **not**
 golden-verified (the capture harness slices block 4; the `_um*` functions are
 block 2 and there is no fixture — the engine beneath them stays golden-verified
-milestone by milestone), and the map layer's reveal gate is deliberately *not*
-`_umLayoutAlpha`'s 24 km band, which cannot fire at `ViewportHost.ZOOM_MAX`
-8.0. Full account in `CHANGELOG.md` and `URBAN_MORPHOLOGY_SCOPE.md`
-milestone 17a.
+milestone by milestone), and the map layer's reveal gate was deliberately *not*
+`_umLayoutAlpha`'s 24 km band, which could not fire at `ViewportHost.ZOOM_MAX`
+8.0 — **that deviation was withdrawn on 2026-08-24**, when the cap became
+`lodMaxZoom()` and the band was ported verbatim. Full account in
+`CHANGELOG.md` and `URBAN_MORPHOLOGY_SCOPE.md` milestone 17a.
 
 The scope doc carries the full investigation; the four findings worth knowing
 without opening it:

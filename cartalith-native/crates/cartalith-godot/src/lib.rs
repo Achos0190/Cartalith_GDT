@@ -39,6 +39,7 @@ mod timeline_bridge;
 mod travel_bridge;
 mod undo;
 mod urban_bridge;
+mod vault_bridge;
 use cartalith_terrain::sculpt::{Feature, FeatureParams, FreehandMode, SculptStamp, SCULPT_PRESETS};
 use render::{QualityTier, RenderCtx, SplatTextures, TerrainAppearance};
 use rayon::prelude::*;
@@ -146,6 +147,14 @@ struct CivData {
     /// Province metadata (id/faction/name/seed settlement index) parallel
     /// to `provinces` above's cell ids.
     province_list: Vec<cartalith_civ::Province>,
+    /// Addressable landmasses (`cartalith_civ::civ_continents`,
+    /// `MARKDOWN_VAULT_SCOPE.md` milestone 0) — the connected-component
+    /// labelling `build_landmass_quality` has always produced and this
+    /// pipeline has always discarded, kept this time because the vault
+    /// integration needs a third linkable entity beside settlements and
+    /// provinces. Metadata only: no per-cell raster, for the memory reason
+    /// `civ_continents`' own doc comment gives.
+    continents: Vec<cartalith_civ::Continent>,
     /// Per-settlement resource trade balance (`cartalith_civ::
     /// civ_resource_trade_balance`, reference `_civPlaceTrade`'s hinterland
     /// term -- `ECONOMY_SCOPE.md`), same order/index as `settlements`
@@ -422,6 +431,7 @@ mod civ_timeline_tests {
             territory,
             provinces: Vec::new(),
             province_list: Vec::new(),
+            continents: Vec::new(),
             trade_balances: Vec::new(),
             explanations: Vec::new(),
             water_bodies: Vec::new(),
@@ -594,6 +604,18 @@ struct SettlementExplanation {
 /// the reference's real `CIV_FACTIONS.length-1` (7 entries including
 /// "Unclaimed" at index 0, reference line ~14568).
 const CIV_FACTION_COUNT: i32 = 6;
+
+/// Smallest landmass `get_continents()` will list
+/// (`cartalith_civ::civ_continents`' `min_cells`).
+///
+/// Grid-relative would be the tempting choice and is the wrong one: the
+/// question a user is asking is "is this a place, or is it a rock", and that
+/// is a property of the landmass, not of the resolution it was sampled at.
+/// 64 cells is a 8x8 block — the smallest island this port's own settlement
+/// placement will ever put a settlement on with room around it. Everything
+/// smaller is still in the partition and still scores settlement suitability;
+/// it just does not get an entry in a list a person is expected to read.
+const CONTINENT_MIN_CELLS: usize = 64;
 
 /// The six-faction swatch, indexed `faction - 1` (faction `0` is always
 /// "Unclaimed" and never drawn). Hoisted out of `build_territory_texture`
@@ -1118,6 +1140,17 @@ fn compute_civilisation(
     // per-cell shape (`Vec<i32>` faction id, 0 = unowned) the reference
     // function expects -- see `civ_generate_provinces`'s own doc comment.
     let (provinces, province_list) = cartalith_civ::civ_generate_provinces(&settlements, &territory, gw, gh);
+    // Addressable landmasses (`MARKDOWN_VAULT_SCOPE.md` milestone 0). Free:
+    // `landmass` above is already the golden-verified flood fill, and this
+    // only keeps its component bookkeeping instead of dropping it. After
+    // `territory` because the naming culture comes from whichever faction
+    // holds the most of each landmass.
+    //
+    // `CONTINENT_MIN_CELLS` is a floor on what gets *listed*, not a claim
+    // about what a continent is: a two-cell rock is not something a user
+    // wants a note attached to, and an archipelago world legitimately has no
+    // large landmass at all and correctly reports none.
+    let continents = cartalith_civ::civ_continents(&landmass, gw, gh, CONTINENT_MIN_CELLS, Some(&territory));
 
     // Milestone 14 consolidation/smoothing needs NAMED settlements
     // (`pa.name`/`pb.name`) -- must run after the naming/village block
@@ -1197,6 +1230,7 @@ fn compute_civilisation(
         territory,
         provinces,
         province_list,
+        continents,
         trade_balances,
         explanations,
         water_bodies: wb.classification.clone(),
@@ -1905,6 +1939,18 @@ struct WorldGen {
     /// intact, for a caller that regenerates back to the same parameters. What
     /// *is* cleared there is `finalized` — see `absorb`.
     bake: bake_bridge::BakeState,
+    /// The Markdown Vault session (`vault_bridge.rs`,
+    /// `MARKDOWN_VAULT_SCOPE.md` milestone 1) — knowledge links, and the
+    /// device-local directory binding when this device has one.
+    ///
+    /// **Not reset by `absorb()`**, deliberately, and for the same reason
+    /// `bake` above is not: a vault binding is a machine-level preference and
+    /// the links are the *user's* filing, not a derived product of the world.
+    /// Regenerating a world does not un-write the notes it was linked to.
+    /// What regenerating *does* invalidate is the entity ids those links
+    /// point at, which is why every link also stores the entity's name — see
+    /// `cartalith_vault::links`' own module doc on identity stability.
+    vault: cartalith_vault::VaultSession,
 }
 
 #[godot_api]
@@ -1950,6 +1996,7 @@ impl IRefCounted for WorldGen {
             stages: pipeline_stage_graph(1),
             civ_dirty: false,
             bake: bake_bridge::BakeState::new(),
+            vault: cartalith_vault::VaultSession::new(),
         }
     }
 }
@@ -4555,6 +4602,55 @@ impl WorldGen {
                     "faction" => p.faction,
                     "name" => p.name.as_str(),
                     "capital_settlement_index" => p.capital_settlement_index as i64,
+                }
+            })
+            .collect()
+    }
+
+    /// Addressable landmasses (`cartalith_civ::civ_continents`,
+    /// `MARKDOWN_VAULT_SCOPE.md` milestone 0) — one `Dictionary` per
+    /// continent, **largest first**, with keys `id` (int, 1-based rank by
+    /// area — see below), `name` (String), `cells` (int, land cells),
+    /// `faction` (int, the polity holding the most of it, `0` = unclaimed),
+    /// `min_x`/`min_y`/`max_x`/`max_y` (int, inclusive cell bounds) and
+    /// `cx`/`cy` (float, cell-space centroid, for focusing the camera).
+    /// Empty under the same conditions as `get_settlements()`.
+    ///
+    /// # `id` is a rank, not a persistent identity
+    ///
+    /// Stated at the binding because it is what a caller has to know. This
+    /// port had no continent entity at all until this milestone; what it had
+    /// was `build_landmass_quality`'s connected-component labelling, computed
+    /// and discarded on every generate. `id` is that partition ranked by
+    /// area, so it is stable across anything that does not change the size
+    /// ordering — and it is *not* stable across a terrain edit that merges or
+    /// splits a landmass, or across a regenerate with different parameters.
+    ///
+    /// A settlement's `tid` is a real stable id; a continent's is not, and no
+    /// amount of wanting one makes the underlying data carry one. The vault
+    /// integration works with that rather than around it: every knowledge
+    /// link also stores the entity's name at link time, so a link whose id
+    /// has gone stale can be re-bound by hand instead of quietly resolving to
+    /// a different landmass.
+    ///
+    /// Landmasses under `CONTINENT_MIN_CELLS` are omitted (see that constant).
+    #[func]
+    fn get_continents(&self) -> Array<VarDictionary> {
+        let Some(civ) = self.civ.as_ref() else { return Array::new() };
+        civ.continents
+            .iter()
+            .map(|c| {
+                dict! {
+                    "id" => c.id,
+                    "name" => c.name.as_str(),
+                    "cells" => c.cells as i64,
+                    "faction" => c.faction,
+                    "min_x" => c.min_x as i64,
+                    "min_y" => c.min_y as i64,
+                    "max_x" => c.max_x as i64,
+                    "max_y" => c.max_y as i64,
+                    "cx" => c.cx,
+                    "cy" => c.cy,
                 }
             })
             .collect()

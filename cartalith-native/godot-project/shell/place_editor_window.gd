@@ -159,6 +159,7 @@ func _rebuild() -> void:
 	_build_traits(details)
 	_build_urban(details)
 	_build_history(details)
+	_build_knowledge(s)
 	_build_actions(s)
 	_build_footer()
 	## Every row above comes from `dcc_widgets.gd`, which is authored in desktop
@@ -319,6 +320,41 @@ func _build_history(details: Dictionary) -> void:
 	te.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
 	te.focus_exited.connect(func(): _apply({"history": te.text}))
 	sec.add_child(te)
+
+
+# -- Knowledge (Markdown vault) ---------------------------------------------
+
+## `MARKDOWN_VAULT_INTEGRATION.md` §28's KNOWLEDGE block, which the design
+## sketches inside exactly this panel: *"The Markdown functionality should
+## appear in entity information panels rather than as an isolated utility."*
+##
+## What lives here is the affordance and the status; the browser, the reader
+## and the two write actions live in `vault_window.gd`, which this opens
+## already scoped to this settlement.
+##
+## **Keyed by `tid`, not by `_index`.** A settlement's index shifts every time
+## an earlier one is deleted, and a knowledge link that followed the index
+## would silently re-point at a different town. `tid` is this port's own
+## stable id and is what the engine stores.
+func _build_knowledge(s: Dictionary) -> void:
+	var sec := DccWidgets.section(_body, "Knowledge")
+	var tid := int(s.get("tid", 0))
+	if tid == 0:
+		DccWidgets.note(sec, "This settlement has no stable id yet, so nothing can be linked to it.")
+		return
+	var name := String(s.get("name", "this settlement"))
+	var summary := bridge.vault_entity_summary("settlement", tid)
+	var n := int(summary.get("link_count", 0))
+	if n == 0:
+		DccWidgets.note(sec, "No Markdown notes linked.")
+	else:
+		DccWidgets.note(sec, "%d linked note%s — %s" % [n, "" if n == 1 else "s",
+			String(VaultWindow.STATUS_TEXT.get(String(summary.get("status", "")), ""))])
+	var open := DccWidgets.action(sec, "Linked notes…" if n > 0 else "Attach a Markdown note…", func():
+		app.open_vault("settlement", tid, name))
+	open.tooltip_text = ("Links this settlement to a note in an external Markdown vault — any folder "
+		+ "of .md files, Obsidian's included, and nothing here requires Obsidian. Cartalith reads on "
+		+ "demand and writes only on an explicit, previewed action.")
 
 
 # -- Actions ----------------------------------------------------------------

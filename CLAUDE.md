@@ -81,6 +81,7 @@ starting work — not this file, which is a map rather than a state.
 | `LOD_TILING_BASE_SCOPE.md` | `cartalith-spatial`'s tiling/quadtree base |
 | `ANDROID_BUILD_SCOPE.md` | Android toolchain and the real device passes |
 | `GENERATION_PARAMETERS.md` | every exposed generation parameter and its API |
+| `MARKDOWN_VAULT_SCOPE.md` | the Markdown Vault: the entity audit that found continents did not exist, and milestones 0-1 |
 | **Direction and reference** — inputs, not plans | |
 | `FUNCTIONAL_CONTRACT.md` | the HTML app's capabilities vs. this port, tagged per `DECISIONS.md` §7d |
 | `VISION.md` | the owner's target render, with an honest gap assessment |
@@ -89,13 +90,13 @@ starting work — not this file, which is a map rather than a state.
 | `GUI_SHELL_SCOPE.md` | the superseded panel-browser shell; history only |
 | `GUI_FEATURE_PARITY_SCOPE.md` | the gap audit between engine capability and GUI |
 | `GUI_GAP_REGISTER.md` | every disconnected control in the shipped shell, classified by whether a design exists; comparable-app research where none does; the menu-naming audit |
-| `MARKDOWN_VAULT_INTEGRATION.md` | owner-supplied design for a future, unscheduled feature |
+| `MARKDOWN_VAULT_INTEGRATION.md` | owner-supplied V1 design; **scheduled and started 2026-08-24** — see `MARKDOWN_VAULT_SCOPE.md` |
 | `HARDWARE_ACCELERATION.md` | owner-supplied GPU architecture, annotated with a major scope correction |
 | `TERRAIN_ARCHITECTURE_RESEARCH.md` | owner-supplied; tiling/LOD/clipmaps, mostly Phase-3-or-later |
 | `HETEROGENEOUS_COMPUTE_RESEARCH.md` | owner-supplied; hardware-tiered scheduling, mostly not yet applicable |
 | `TERRAIN_APPEARANCE_RESEARCH.md` | owner-supplied; the source for `TERRAIN_APPEARANCE_SCOPE.md` |
 | **Directories** | |
-| `cartalith-native/` | the Cargo workspace (15 crates) and the Godot project |
+| `cartalith-native/` | the Cargo workspace (16 crates) and the Godot project |
 | `cartalith-native/docs/` | the port's living `CHANGELOG.md` and `STATUS.md` |
 | `reference/` | the frozen HTML snapshot and its function index |
 | `docs/` | **the source project's** documentation — see `docs/README.md` |

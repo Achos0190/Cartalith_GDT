@@ -2294,3 +2294,155 @@ func as_uniform_lines(n: int) -> PackedFloat64Array:
 	if not _has("as_uniform_lines"):
 		return PackedFloat64Array()
 	return world_gen.as_uniform_lines(n)
+
+
+# -- Markdown Vault (`MARKDOWN_VAULT_SCOPE.md` milestones 0-1) ---------------
+#
+# Same degrade-rather-than-crash `_has()` guard every wrapper above uses: a
+# binary built before this milestone answers `false` once, with a warning, and
+# the vault panels degrade to "not built into this engine" rather than
+# erroring per rebuild.
+#
+# Reads (`vault_list_files`, `vault_links_for`, `vault_entity_summary`) return
+# a safe empty value; writes return `{"ok": false, "error": ...}`, which is the
+# same failure shape the engine itself returns, so no caller needs two
+# branches.
+
+const _VAULT_UNAVAILABLE := {
+	"ok": false,
+	"error": "This engine build has no Markdown Vault support — rebuild the GDExtension.",
+}
+
+## Addressable landmasses, largest first (`get_continents()`).
+## `id` is a **rank by area**, not a persistent identity — see the engine's
+## own doc comment on that binding before storing one anywhere.
+func continents() -> Array:
+	if not _has("get_continents"):
+		return []
+	return world_gen.get_continents()
+
+func vault_connect(path: String, display_name: String = "") -> Dictionary:
+	if not _has("vault_connect"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_connect(path, display_name)
+
+func vault_disconnect() -> void:
+	if _has("vault_disconnect"):
+		world_gen.vault_disconnect()
+
+func vault_info() -> Dictionary:
+	if not _has("vault_info"):
+		return {"bound": false, "root": "", "display_name": "", "vault_id": "", "link_count": 0}
+	return world_gen.vault_info()
+
+func vault_list_files(limit: int = 2000) -> PackedStringArray:
+	if not _has("vault_list_files"):
+		return PackedStringArray()
+	return world_gen.vault_list_files(limit)
+
+func vault_file_headings(rel: String) -> Array:
+	if not _has("vault_file_headings"):
+		return []
+	return world_gen.vault_file_headings(rel)
+
+func vault_read_file(rel: String) -> String:
+	if not _has("vault_read_file"):
+		return ""
+	return world_gen.vault_read_file(rel)
+
+func vault_attach(kind: String, entity_id: int, label: String, rel: String, heading: String) -> Dictionary:
+	if not _has("vault_attach"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_attach(kind, entity_id, label, rel, heading)
+
+func vault_detach(link_id: String) -> bool:
+	if not _has("vault_detach"):
+		return false
+	return world_gen.vault_detach(link_id)
+
+func vault_links_for(kind: String, entity_id: int) -> Array:
+	if not _has("vault_links_for"):
+		return []
+	return world_gen.vault_links_for(kind, entity_id)
+
+func vault_all_links() -> Array:
+	if not _has("vault_all_links"):
+		return []
+	return world_gen.vault_all_links()
+
+func vault_entity_summary(kind: String, entity_id: int) -> Dictionary:
+	if not _has("vault_entity_summary"):
+		return {"link_count": 0, "status": ""}
+	return world_gen.vault_entity_summary(kind, entity_id)
+
+func vault_link_text(link_id: String) -> String:
+	if not _has("vault_link_text"):
+		return ""
+	return world_gen.vault_link_text(link_id)
+
+func vault_set_link_text(link_id: String, text: String) -> bool:
+	if not _has("vault_set_link_text"):
+		return false
+	return world_gen.vault_set_link_text(link_id, text)
+
+func vault_reload_link(link_id: String) -> Dictionary:
+	if not _has("vault_reload_link"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_reload_link(link_id)
+
+func vault_preview_section_write(link_id: String) -> Dictionary:
+	if not _has("vault_preview_section_write"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_preview_section_write(link_id)
+
+func vault_write_section(link_id: String, expect_hash: String) -> Dictionary:
+	if not _has("vault_write_section"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_write_section(link_id, expect_hash)
+
+func vault_export_fields(kind: String, entity_id: int) -> Array:
+	if not _has("vault_export_fields"):
+		return []
+	return world_gen.vault_export_fields(kind, entity_id)
+
+func vault_entity_values(kind: String, entity_id: int) -> Dictionary:
+	if not _has("vault_entity_values"):
+		return {}
+	return world_gen.vault_entity_values(kind, entity_id)
+
+func vault_block_body(kind: String, entity_id: int, selected: PackedStringArray) -> String:
+	if not _has("vault_block_body"):
+		return ""
+	return world_gen.vault_block_body(kind, entity_id, selected)
+
+func vault_preview_block(rel: String, kind: String, entity_id: int, body: String) -> Dictionary:
+	if not _has("vault_preview_block"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_preview_block(rel, kind, entity_id, body)
+
+func vault_write_block(rel: String, kind: String, entity_id: int, body: String, expect_hash: String) -> Dictionary:
+	if not _has("vault_write_block"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_write_block(rel, kind, entity_id, body, expect_hash)
+
+func vault_preview_field_fill(rel: String, kind: String, entity_id: int, overwrite: bool) -> Dictionary:
+	if not _has("vault_preview_field_fill"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_preview_field_fill(rel, kind, entity_id, overwrite)
+
+func vault_write_field_fill(rel: String, kind: String, entity_id: int, overwrite: bool, expect_hash: String) -> Dictionary:
+	if not _has("vault_write_field_fill"):
+		return _VAULT_UNAVAILABLE
+	return world_gen.vault_write_field_fill(rel, kind, entity_id, overwrite, expect_hash)
+
+## The link store as JSON. `VaultStore` (`vault_store.gd`) owns writing it to
+## disk; this is only the engine's side of that.
+func vault_state_json() -> String:
+	if not _has("vault_state_json"):
+		return ""
+	return world_gen.vault_state_json()
+
+func vault_restore_state(json: String) -> bool:
+	if not _has("vault_restore_state"):
+		return false
+	return world_gen.vault_restore_state(json)

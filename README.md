@@ -37,7 +37,7 @@ while this one and `ROADMAP.md`'s were not.*
 
 ## The workspace
 
-Fifteen crates under `cartalith-native/crates/` — one per subsystem, plus the
+Sixteen crates under `cartalith-native/crates/` — one per subsystem, plus the
 dependency-free `cartalith-jsmath` leaf (`ARCHITECTURE.md`). Only
 `cartalith-godot` depends on `gdext`; everything else is plain Rust and
 testable without Godot.
@@ -46,7 +46,12 @@ testable without Godot.
 `cartalith-terrain` · `cartalith-climate` · `cartalith-erosion` ·
 `cartalith-hydrology` · `cartalith-civ` · `cartalith-engine` ·
 `cartalith-io` · `cartalith-gpu` · `cartalith-spatial` ·
-`cartalith-assets` · `cartalith-urban` · `cartalith-godot`
+`cartalith-assets` · `cartalith-urban` · `cartalith-vault` ·
+`cartalith-godot`
+
+`cartalith-vault` is the newest and the only one that is not engine work at
+all: the Markdown Vault integration (`MARKDOWN_VAULT_SCOPE.md`), depending on
+`serde`/`serde_json` and on nothing else in the workspace.
 
 ## Reading order
 

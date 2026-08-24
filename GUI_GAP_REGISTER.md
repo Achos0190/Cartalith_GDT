@@ -757,7 +757,7 @@ unbuilt.
 
 | # | Missing surface | Reference control | Class |
 |---|---|---|---|
-| UM-01 | **Town layouts drawn on the map at deep zoom** | `civUrbanLayoutsChk` | *partly closed, 2026-08-23; **substantially closed 2026-08-24*** — the layer draws real engine output, now including milestone 12's blocks and the lots platted in them. Buildings and the wall circuit (13, 10) remain the ceiling |
+| UM-01 | **Town layouts drawn on the map at deep zoom** | `civUrbanLayoutsChk` | *partly closed, 2026-08-23; **substantially closed 2026-08-24*** — the layer draws real engine output, now including milestone 12's blocks and the lots platted in them. On by default since 2026-08-24, with `_umLayoutAlpha`'s own 24 km → 10 km crossfade; buildings and the wall circuit (13, 10) remain the ceiling |
 | UM-02 | **City Viewer modal** — its own canvas, zoom/pan, legend, info panel | `cityViewerModal`, `cvCanvas`/`cvCloseBtn`/`cvLegend`/`cvInfoPanel`, `_cvDrawCity`, `_cvZoomAt` | *partly closed, 2026-08-23; **substantially closed 2026-08-24*** — `shell/city_viewer_window.gd` now draws a town plan rather than a wire diagram, and its fit is the reference's own built-mass fit at last. Same remaining engine ceiling, stated on screen |
 | UM-03 | **Layout thumbnail in the place-edit popup, and its launcher** | `peCityPreview`, `peCityOpen` | **`peCityOpen` CLOSED 2026-08-23** — the place-edit popup now exists (§18.1) and its Actions section calls `app.open_city_viewer(index)`, which is exactly the one line this row predicted. `peCityPreview` (the *thumbnail* inside the popup) stays open: it needs a rendered layout at icon size, not a modal |
 
@@ -798,6 +798,11 @@ the default 800 km world the closest reachable span is ~100 km and a ported
 24 km threshold would never once fire — a toggle that silently draws nothing.
 The gate is the town's site box measured in screen pixels instead. See
 `map_overlay.gd`'s own block for the full reasoning.
+
+> **Withdrawn 2026-08-24** — the zoom cap became `lodMaxZoom()`, the premise
+> above expired with it, and the pixel gate turned out to be the wrong number
+> once measured. `_umLayoutAlpha` is ported for real now; see "UM-01 — the
+> owner could not see a town on the map at all" below.
 
 ### UM-01/UM-02 — what closed next, 2026-08-24
 
@@ -861,6 +866,56 @@ cannot make them for itself:
    gate leaving some lots empty, so this town has no gaps and every roof is
    the same simple quad. This is the one place in the drawing that is ahead of
    the generator, and it is labelled as such rather than left to look finished.
+
+### UM-01 — the owner could not see a town on the map at all, 2026-08-24
+
+Owner report: *"I don't see the settlement rendered on the map itself, the dot
+yes. But not the place."* Three defects, only one of which was the suspected
+one, all measured live with `_umreveal_shot.gd` (800 km world, 440 px map area,
+the deepest reachable zoom being 160 = a 5 km span).
+
+**1 · The layer was off by default, on a row nobody would find.** The reveal
+gate was working; the toggle in front of it was not reachable in practice.
+`civUrbanLayoutsChk` shipped `on: false` in `cartography_workspace.gd`'s
+"Visible layers" list — the CARTO rail dock — while the map canvas has its own
+**Layers button**, and that popover lists *field rasters* only. Someone looking
+at the map for a way to turn on town layouts opens the Layers button, does not
+find it, and concludes the feature does not exist. It now defaults **on** (the
+one divergence from the reference's own default, and the band below is what
+makes it free: nothing is generated or drawn until the map spans under 24 km),
+and the popover's footnote names town layouts among the overlays it points at.
+
+**2 · The pixel reveal gate was measurably the wrong number.** Not unreachable
+— the opposite. `URBAN_MIN_BOX_PX = 16` first fired at a **47 km** span, and
+because a revealed town *replaces* its pin, the layer swapped a legible marker
+for a 16 px speck two octaves before the town was worth looking at. The
+reference's own band is ported now, verbatim (`UM_FADE_FAR_KM = 24`,
+`UM_FADE_NEAR_KM = 10`, against `lodSpanKm()`), and `draw_layout`'s `alpha`
+argument — plumbed since the layer was written and passed `1.0` ever since —
+finally carries the crossfade it was built for. Measured after: α = 0.00 at
+25 km, 0.03 at 23.5, 0.44 at 17.8, 0.76 at 13.3, 1.00 at 10.0 and below. The
+pixel constant survives underneath as a floor, not as the gate — it is what
+stops a narrow map area (a phone, or the map squeezed between two open docks)
+drawing a sub-pixel town just because the *span* qualifies.
+
+**3 · The pin ballooned into the town — and this one was visible with the layer
+off, which is what the owner was actually looking at.** `_civ_zoom_k()` ported
+`_civZoomK`'s `1/max(0.35, min(5, z))` including the `min(5, …)`. That cap is
+free in the reference because `viewT.scale` **stays at 1 under Tiled LOD** —
+its deep zoom lives in `_lodZoom`, a different number. Here `_camera_zoom` *is*
+the deep zoom, so past 5 the inverse-zoom term stops cancelling and the pin,
+glyph, name and label outline resume growing linearly: a 1.6x overshoot while
+`ViewportHost` capped at 8.0, and **32x** once the cap became `lodMaxZoom()`.
+At z=60 the pin and its label covered the entire settlement. The cap is not
+ported any more; the `0.35` zoom-*out* floor is untouched.
+
+`URBAN_FINE_BOX_PX` (the per-roof ink outline, ridge and shadow) is confirmed
+map-unreachable at that map width and that is correct, not a fourth defect: at
+a 5 km span the site box tops out near 150 px, an ~11 m lot is ~1 px, and the
+outline would be wider than the roof it surrounds — the measurement that put
+the constant there in the first place. The fine pass belongs to the City
+Viewer. On the map a town reads as a mass with its water and its approach
+roads, which is what it reads as in the reference at the same span.
 
 UM-03's `peCityPreview` (the thumbnail) is now *unblocked on the engine side*
 — there is a layout worth previewing at icon size, where before there was a
@@ -5092,3 +5147,70 @@ row two is row three's worst of 1 amplified by Antique's `+0.08` contrast
 asserts that relationship rather than the loosened number. Two tests in
 `bake_raster.rs` now hold both halves offline. See `CHANGELOG.md`, *"The graded
 export was right, and nothing could have told you"*.
+
+---
+
+## 35 · KV-01, KV-02, KV-03 — the Markdown vault reached the shell, and continents became addressable on the way (2026-08-24) — **NEW SURFACE**
+
+Not a gap this register found: a **new subsystem** the owner scheduled on
+2026-08-24, recorded here because it adds three connected surfaces to a
+document whose job is to say which surfaces are connected, and because the
+audit it started with turned up an entity that did not exist.
+
+`MARKDOWN_VAULT_SCOPE.md` is the scope document; this is the register's view
+of it.
+
+| id | Surface | Where | Status |
+|---|---|---|---|
+| **KV-01** | Place editor ▸ **Knowledge** — linked-note count, worst status, and the affordance that opens the vault panel scoped to this settlement | `place_editor_window.gd` | **Connected.** Keyed on `tid`, not on the array index. |
+| **KV-02** | CIVIL ▸ Politics ▸ **Linked notes** — every province and every continent, each with its own link count and status | `civilization_workspace.gd` | **Connected.** |
+| **KV-03** | **Markdown vault** panel — connect, browse, attach (whole document or one heading), the working copy, the previewed section write-back, the Cartalith block, and author-field population | `vault_window.gd` | **Connected.** |
+
+**The entity audit is the part worth carrying here.** `ROADMAP.md` required it
+before any code, and it changed the plan:
+
+- **Settlements** — real, and the strongest of the three. `NamedSettlement::tid`
+  survives a rename, a move and a neighbouring deletion.
+- **Provinces** — real. `Province::id` is sequential over the seed order and
+  is re-derived by `civ_recompute()`.
+- **Continents** — **did not exist.** What the roadmap audit called "world
+  structure archetypes" is `generate_continentality_field`, a per-cell scalar
+  with no per-instance identity, no name and no boundary. What *did* exist is
+  `build_landmass_quality`'s golden-verified 8-neighbour flood fill, whose
+  `comp`/`sizes`/`count` bookkeeping its own doc comment says was "kept for…
+  later milestones" and which `compute_civilisation` has computed and
+  discarded on every generate since Phase 2. `cartalith_civ::civ_continents`
+  keeps it: rank by area, a name, a bounding box, a centroid, a plurality
+  faction. `WorldGen::get_continents()`.
+- **POIs** — confirmed absent, and **not built as a side effect**. CV-01's own
+  entry stands. `EntityKind` has three variants and no `Poi`, and
+  `MARKDOWN_VAULT_INTEGRATION.md` §35's criteria 6 and 7 are recorded as
+  unsatisfiable in this port rather than faked.
+
+**Two live-run findings**, both invisible to unit tests:
+
+1. Continent 1 and settlement 1 came out with the **same name** in a real
+   generated world, because `civ_name_rng`'s seed is a fixed reference quirk
+   and both were drawing its first value. Continents have their own stream now
+   (`civ_continent_name_rng`), with a test named after the failure.
+2. `String(d.get("cells", 0))` in the new Politics rows — GDScript has no
+   `String(int)` constructor, so the dock threw on every rebuild. Caught by
+   driving the real shell, not by any Rust test.
+
+**Deliberately not touched**: `DCC_SHELL_SPEC.md` §9's *MARKDOWN VAULT ·
+LINKED* block in the Data manager. It assumes `obsidian://` links in exported
+tiles, note links inside exported GeoJSON, and a **two-way sync toggle** —
+which is `MARKDOWN_VAULT_INTEGRATION.md` §33's explicit V1 non-goal.
+`DCC_CONTROL_INDEX.md` records the conflict and the design's own header
+resolves it: that block stays deferred, and the vault path / note-count
+readout is the only part of it consistent with V1. Nothing in this pass writes
+an `obsidian://` link, a wikilink or a block reference anywhere.
+
+**What KV-03 still owes**, each with a stated reason and each in the panel's
+own footer as well as here: the map snapshot (§21 — needs a crop of the live
+renderer at three radii, held as its own milestone rather than shipped as a
+broken image link); Compare-with-source (§14 — this shell has no diff widget,
+so a stale source offers Reload or Keep, which are the two actions that cannot
+lose work); project-scoped links (§26 — blocked on the save format carrying a
+civ layer at all, which `SAVEFILE_COMPAT.md`'s format does not); and the
+Android SAF provider. See `MARKDOWN_VAULT_SCOPE.md` §5 and §8.

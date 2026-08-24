@@ -74,6 +74,12 @@ serde = { version = "1.0.229", features = ["derive"] }
 # the tree either way -- `cartalith-engine` above already pulls it in.
 cartalith-gpu = { path = "../cartalith-gpu" }
 
+# `MARKDOWN_VAULT_SCOPE.md` milestone 1. `vault_bridge.rs` is this crate's
+# half of the Markdown Vault integration; every Markdown, section, block and
+# link decision lives in `cartalith-vault`, which depends on nothing in this
+# workspace and on no Godot type.
+cartalith-vault = { path = "../cartalith-vault" }
+
 [dev-dependencies]
 # `SCULPT_LIVE_SCOPE.md` milestone L0's timing harness
 # (`tests/sculpt_live_l0_bench.rs`) needs `compute_temperature`/

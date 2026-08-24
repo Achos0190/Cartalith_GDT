@@ -146,28 +146,38 @@ Store distribution (`DECISIONS.md` §6) and a WASM target sharing
 `cartalith-engine` (`DECISIONS.md` §2) are things the architecture permits
 and nobody has committed to. Raise them rather than assuming they are queued.
 
-**Markdown Vault integration** (`MARKDOWN_VAULT_INTEGRATION.md`) — owner-
-supplied full V1 design (2026-08-18): links Cartalith entities (settlements,
-POIs, regions) to an external Markdown vault (Obsidian-compatible, not
-Obsidian-dependent), pull-oriented with explicit, section-aware write-back.
-Genuinely new feature, not a port — nothing in the reference HTML app does
-this, so it sits outside `DECISIONS.md` §7d's contract entirely. Needs its
-own `MARKDOWN_VAULT_SCOPE.md` (the same investigate-then-milestone discipline
-every other large effort here has used) before any code — the design doc's
-own V1 acceptance criteria assume entity concepts this port may not fully
-have yet (POIs/regions as addressable entities with their own info panel);
-verify before scoping.
+~~**Markdown Vault integration**~~ — **no longer unscheduled. Started
+2026-08-24 on the owner's own instruction**, naming three entity kinds:
+continents, provinces and settlements (explicitly *not* POIs, which stay an
+unported concept). `MARKDOWN_VAULT_SCOPE.md` is the scope document this
+section demanded, and **milestones 0 and 1 have shipped**: continents are
+addressable entities for the first time, and links, section-aware write-back,
+the machine-owned Cartalith block and author-field population all work
+against a real vault on disk.
 
-**Priority and framing, owner 2026-08-18**: *"Its not a critical part."*
-Stays here, at the end, and does not compete with engine or parity work. The
-target is a **generic Markdown vault** — Obsidian is one compatible vault and
-the owner's own, but nothing may require it and no Obsidian-specific
-behaviour belongs in the core. **An Obsidian plugin is a wish, deferred
-outright.** A refined spec and templates are expected from the owner, so the
-document on file will be replaced or extended before anyone scopes it.
+The verification this section asked for was done first and changed the plan:
+**continents did not exist**. `generate_continentality_field` is a per-cell
+scalar, not an entity — but `build_landmass_quality`'s golden-verified
+8-neighbour flood fill has always labelled land components and always thrown
+the labelling away, so `cartalith_civ::civ_continents` keeps it. Settlements
+(`tid`) and provinces (`id`) were real as expected.
 
-Note that `DCC_SHELL_SPEC.md` §9 puts a vault block in the Data manager that
-assumes more than the V1 design allows (`obsidian://` links, note links in
-exported GeoJSON, two-way sync — the last an explicit V1 non-goal). Treat
-that block as deferred rather than approved; `DCC_CONTROL_INDEX.md` records
-the conflict and `MARKDOWN_VAULT_INTEGRATION.md`'s header resolves it.
+**What is left is real and listed** (`MARKDOWN_VAULT_SCOPE.md` §5, §8): the
+map snapshot (§21), project-scoped links (blocked on the save format carrying
+a civ layer at all), the Android SAF provider, and the Compare view for a
+stale source. POIs and "regions" as §35 criteria 6-7 mean them remain
+unsatisfiable in this port and are recorded as such rather than faked.
+
+**Priority and framing, owner 2026-08-18**: *"Its not a critical part."* It
+does not compete with engine or parity work; the owner's 2026-08-24 go-ahead
+scheduled it, it did not promote it. The target is a **generic Markdown
+vault** — Obsidian is one compatible vault and the owner's own, but nothing
+may require it and no Obsidian-specific behaviour belongs in the core. **An
+Obsidian plugin is a wish, deferred outright.** Nothing shipped writes an
+`obsidian://` link, a wikilink or a block reference.
+
+`DCC_SHELL_SPEC.md` §9's vault block in the Data manager assumes more than
+the V1 design allows (`obsidian://` links, note links in exported GeoJSON,
+two-way sync — the last an explicit V1 non-goal) and **was deliberately not
+touched by this work**; `DCC_CONTROL_INDEX.md` records the conflict and
+`MARKDOWN_VAULT_INTEGRATION.md`'s header resolves it.

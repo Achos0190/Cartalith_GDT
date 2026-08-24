@@ -40,6 +40,9 @@ var city_viewer_window: CityViewerWindow
 ## `_civOpenFactionsModal` (`PARITY_AUDIT.md` §5 items 3, 9, 10).
 var place_editor_window: PlaceEditorWindow
 var faction_roster_window: FactionRosterWindow
+## The Markdown Vault panel (`MARKDOWN_VAULT_SCOPE.md` milestone 1). Opened
+## scoped to a settlement, province or continent, or on its overview.
+var vault_window: VaultWindow
 ## Long-lived, unlike `DccBrowseDialog` (which spawns and frees per pick):
 ## the gallery holds a scope chip and a search query worth keeping between
 ## opens, exactly like every other window on this list.
@@ -287,6 +290,21 @@ func _ready() -> void:
 	open_project_dialog = OpenProjectDialog.new()
 	add_child(open_project_dialog)
 	open_project_dialog.setup(self)
+
+	## The Markdown Vault panel (`MARKDOWN_VAULT_SCOPE.md` milestone 1).
+	## Long-lived like its neighbours: it holds an entity scope, an open
+	## reader and a checkbox set worth keeping between opens, and it is
+	## reached from three different places (the place editor's KNOWLEDGE
+	## section, and the Civilization dock's province and continent rows).
+	##
+	## `store_changed` -> `VaultStore.save_from` is the only writer of
+	## `user://markdown_vault.json`. The window never touches the disk; it
+	## says what changed and this owns when that is persisted.
+	vault_window = VaultWindow.new()
+	add_child(vault_window)
+	vault_window.setup(self, bridge)
+	vault_window.store_changed.connect(func(): VaultStore.save_from(bridge))
+	VaultStore.load_into(bridge)
 
 	layers_popover = LayersPopover.new()
 	add_child(layers_popover)
@@ -1227,6 +1245,18 @@ func open_place_editor(index: int) -> void:
 ## The Faction Roster modal (`civOpenFactionsBtn`).
 func open_faction_roster() -> void:
 	faction_roster_window.open()
+
+## The Markdown Vault panel, scoped to one entity
+## (`MARKDOWN_VAULT_INTEGRATION.md` §28: the vault belongs in the entity's own
+## information panel, not in an isolated utility). `kind` is `"settlement"`,
+## `"province"` or `"continent"`; `entity_id` is that kind's own id — a
+## settlement's **tid**, not its index into `bridge.settlements()`.
+func open_vault(kind: String, entity_id: int, label: String) -> void:
+	vault_window.open_for(kind, entity_id, label)
+
+## The same panel with no entity scope: the whole link store.
+func open_vault_overview() -> void:
+	vault_window.open_overview()
 
 func open_performance() -> void:
 	performance_window.open()

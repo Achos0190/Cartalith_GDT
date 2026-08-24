@@ -25620,3 +25620,257 @@ climate model puts them.
 whether this route should additionally assemble `exportZip`'s single `.zip`
 (params + the f32 blobs + raster + atlas + features). The four previews are the
 *picture* half; the blobs remain the archive half.
+
+## The Markdown vault is real, and continents had to be invented to hold it (`MARKDOWN_VAULT_SCOPE.md` milestones 0-1, 2026-08-24)
+
+Owner instruction, 2026-08-24: start the Markdown Vault integration, for
+**continents, provinces and settlements** — not POIs. `ROADMAP.md` had it under
+"Options kept open, not scheduled" with one precondition: write
+`MARKDOWN_VAULT_SCOPE.md` first, because the owner-supplied design's own
+acceptance criteria (`MARKDOWN_VAULT_INTEGRATION.md` §35) assume entity
+concepts this port might not have.
+
+**That precondition earned its keep on the first question asked.**
+
+### Continents did not exist
+
+`generate_continentality_field` (`cartalith-terrain`) is what the roadmap audit
+had been calling a "world structure archetype": a per-cell `Vec<f32>` biasing
+height from a `continentality`/`fragmentation` knob. It has no per-instance
+identity, no name and no boundary. Searching `cartalith-terrain`,
+`cartalith-engine` and `cartalith-civ` for continent/landmass/region turned up
+no entity of any kind.
+
+What it *did* turn up, one layer along, was
+`cartalith_civ::build_landmass_quality` — reference line 5970, golden-verified,
+an 8-neighbour flood fill that labels every land component and returns
+`LandmassQuality { quality, comp, sizes, count }`. Its own doc comment says
+`comp`/`sizes`/`count` are *"not consumed by this milestone, kept … for later
+milestones"*, and `compute_civilisation` has computed and dropped them on every
+generate since Phase 2.
+
+So **milestone 0** is that bookkeeping kept rather than dropped:
+`cartalith_civ::Continent` + `civ_continents()`, exposed as
+`WorldGen::get_continents()`. Rank by area (1-based, largest first — chosen
+over the raw component index, which is scan order and would renumber every
+landmass when an island appears in the top-left), a generated name, an
+inclusive cell bounding box, a centroid, a cell count, and the faction holding
+the most of it. **No new per-cell memory**: `CivData` gains a `Vec<Continent>`
+and deliberately no raster — the obvious companion lookup would be 268 MB at
+the 8192² ceiling for a query nothing performs, which is
+`MEMORY_OPTIMIZATION_SCOPE.md`'s standing objection to exactly that shape.
+
+**A continent's id is derived, not persistent**, and the binding's doc comment
+says so at the point a caller would store one. A settlement's `tid` is a real
+stable id; a continent's rank is stable under anything that does not change the
+size ordering and renumbers when a sculpted land bridge merges two landmasses.
+Every knowledge link therefore also stores the entity's *name at link time* —
+never as a fallback key, only so a stale id can be re-bound by a person.
+
+Settlements (`tid`) and provinces (`id`) were real as expected. **POIs are
+confirmed absent and were not built as a side effect**: `EntityKind` has three
+variants and no `Poi`, and §35's criteria 6 and 7 are recorded as unsatisfiable
+in this port rather than faked.
+
+### Milestone 1: `cartalith-vault`, a new crate
+
+The whole subsystem, in one crate that depends on `serde`/`serde_json` and
+nothing else in the workspace — no engine crate, no `gdext`. That is what let
+the guarantee be asserted 41 times before any UI existed:
+
+> *A write that changes nothing produces a byte-identical document, and a write
+> that changes one section leaves every other byte alone.*
+
+This is **new scope, not a port** — `reference/FUNCTION_INDEX.md` has no
+markdown/vault/note/obsidian/knowledge function at all — so it sits outside
+`DECISIONS.md` §7d entirely and there is no golden fixture. Round-trip and
+non-destruction are what replace it.
+
+- **`markdown.rs` is not a Markdown parser, and must not become one.** A parser
+  produces an AST, and rendering an AST back to text rewrites the whole
+  document — normalising list markers, collapsing blank lines. §33's own
+  non-goal list names "arbitrary Markdown rewriting" and §10 requires
+  unsupported constructs be "preserved as source text". So it never
+  reconstructs text: it computes **byte spans** and splices, and the bytes
+  outside the span are the same bytes by construction rather than by care. It
+  understands exactly three things — ATX headings, fenced code blocks (a `#`
+  inside a fence is not a heading) and YAML frontmatter. Wikilinks, tags,
+  callouts and embeds pass through as opaque bytes, which is §10's actual
+  requirement.
+- **`block.rs`** — the machine-owned `CARTALITH:BEGIN` / `CARTALITH:END` block.
+  §23's five rules, each mapped to a line of code: insert below frontmatter and
+  title, update replaces only the block, and a `BEGIN` with no `END` or two
+  blocks for one entity **refuse outright**. `render()` is public so the
+  preview and the write share one definition — "deterministic regeneration" is
+  only true if there is one renderer.
+- **`links.rs`** — `KnowledgeLink`, `LinkStore`, and §27's five states plus the
+  local-edit state §15 adds. The content hash **outranks** the timestamp when
+  both are known: a file touched by a sync client has a new mtime and identical
+  bytes, and calling that stale would train the user to ignore the warning.
+- **`provider.rs`** — `FsVault`. Bounded listing (no file opened, dot-
+  directories skipped, so `.obsidian/` is never read), `..` rejected outright
+  rather than normalised, and **write-to-sibling-temp-then-rename**: a vault is
+  someone's worldbuilding corpus and a half-written note is not an acceptable
+  failure mode.
+- **`export.rs`** — §19's registry as data, filtered twice: by what an entity
+  kind *can* have, and by what this entity *does* have. A field with no value
+  never reaches a checkbox and therefore never reaches a note as a blank row,
+  which is §20's rule enforced once instead of in every panel.
+- **The `expect_hash` contract.** Every write takes a hash the caller can only
+  have obtained from a preview of the current file. A source edited between the
+  preview and the confirmation produces a different hash and the write refuses
+  — §16's *"If the source changed in the meantime, Cartalith must not blindly
+  overwrite it"*, as a type signature rather than as a hope.
+
+**§23's contradiction, reconciled rather than left in place.** §23 says user
+content outside the block is immutable; the owner's 2026-08-18 amendment asks
+Cartalith to also populate the author's own template fields. Both exist, split
+by policy: the block is machine-owned and regenerated unattended;
+`markdown::fill_field` is `OnlyIfEmpty` by default, previewed, and reports
+*"skipped — you had already filled it"* rather than overwriting. Field names
+come from the owner's real templates in `design/vault-templates/` verbatim, and
+the two trailing spaces that make a Markdown hard break survive the write.
+
+### The shell
+
+`vault_bridge.rs` (the `#[func]` surface, every method returning
+`{ok, error, …}` rather than unwrapping — a panic crossing the gdext boundary
+takes the process down, and a vault lives on a user's disk where the file *will*
+be missing), `vault_window.gd` (connect, browse, attach, the §29 reader, and the
+three previewed writes), `vault_store.gd` (`user://markdown_vault.json`), plus
+§28's requirement that the vault live in the entity's own panel: a **Knowledge**
+section in `place_editor_window.gd` keyed on `tid`, and **Linked notes** rows
+for every province and continent in the Civilization dock.
+
+**Links are profile-scoped, not project-scoped, and the reason is structural.**
+`cartalith-io` writes the reference app's own `.zip` (`SAVEFILE_COMPAT.md`),
+which carries **no civ layer at all** — `load_save`'s own doc comment says
+`get_settlements()` comes back empty. A link stored inside a save would come
+back pointing at a `tid` that no longer exists. `MARKDOWN_VAULT_SCOPE.md`
+milestone 3 is the change that makes §26 possible; `vault_store.gd` is the one
+file that moves when it lands.
+
+**`DCC_SHELL_SPEC.md` §9's vault block was deliberately not touched.** It
+assumes `obsidian://` links, note links in exported GeoJSON, and a two-way sync
+toggle — §33's explicit V1 non-goal. Nothing here writes an `obsidian://` link,
+a wikilink or a block reference anywhere; the block Cartalith writes is plain
+Markdown that renders identically in Obsidian, in a plain viewer and in a diff.
+
+### Verified
+
+**41 `cartalith-vault` tests**, three of which failed on first run and were
+real bugs, not test bugs:
+
+- an add-then-remove cycle of the Cartalith block **widened the note by a blank
+  line each time** — `remove` took the block's own terminator back but not the
+  pad `upsert` had added on the other side. Caught by asserting `remove` returns
+  the document `==` to the original, not merely that the prose survived.
+- `LinkStore::attach` minted its id *before* dropping the link it was
+  superseding, so re-attaching the same section walked the id up `_2`, `_3`, …
+  on every click.
+- a replacement-section span that dropped the document's own trailing blank
+  line, so a no-op round trip was not byte-identical.
+
+**4 `cartalith-civ` tests** for milestone 0 on a hand-built three-landmass
+fixture whose every number the fixture states — rank order, exact bounding
+boxes, exact centroid, plurality-faction naming, determinism, the empty-ocean
+case.
+
+**`_vault_probe.gd`: 54 end-to-end checks, headless and windowed, both green** —
+the real app, the real shell, a real generated world, and **a real folder of
+real Markdown files on disk**. It writes a hand-authored note with frontmatter
+and four sections, attaches a real settlement by `tid`, edits, previews, writes
+back, and then asserts on disk that the section changed and that each of seven
+hand-authored fragments is still there; writes and updates the Cartalith block
+and asserts the file is otherwise byte-identical; fills the author's template
+fields and asserts the filled one was skipped; edits the file behind Cartalith's
+back and asserts the write refuses and changes nothing.
+
+**Two defects only the live run could find:**
+
+1. Continent 1 and settlement 1 came out **with the same name** in a real
+   world. `civ_name_rng`'s seed is a fixed reference quirk (`state.seed||12345`
+   — see its own doc comment), so its first draw is the same string in every
+   world, and both were taking it. Continents have their own stream now,
+   `civ_continent_name_rng`, same generator and a different starting point, with
+   a test named after the failure.
+2. `String(d.get("cells", 0))` in the new Politics rows — GDScript has no
+   `String(int)` constructor, so the dock threw on every rebuild. No Rust test
+   could have reached it.
+
+`cargo build -p cartalith-godot` clean; `cargo clippy -p cartalith-vault` with
+all targets, clean.
+
+**Still open, each stated in the panel's own footer as well as here**: the map
+snapshot (§21), Compare-with-source (§14 — Reload and Keep ship, and they are
+the two actions that cannot lose work), project-scoped links (§26, blocked
+above), the Android SAF provider, and §35's criteria 6-7, which name entity
+kinds this port does not have.
+
+## The town was on the map; the pin was sitting on top of it (`GUI_GAP_REGISTER.md` UM-01, 2026-08-24)
+
+Owner report: *"I don't see the settlement rendered on the map itself, the dot
+yes. But not the place."* The obvious suspect was the reveal gate — the
+previous pass had left a note saying `_umLayoutAlpha`'s km band was now
+reachable and had deliberately not been swapped in. The obvious suspect was
+wrong, and driving it live found three separate defects instead.
+
+`_umreveal_shot.gd` (untracked probe): generate an 800 km world with
+settlements, pick the largest, and walk the zoom range printing the span in km,
+the site box in screen px, the reveal alpha and how many layouts were drawn,
+with a screenshot and a 3x crop of the town at each stop.
+
+**1 · The layer was off by default, behind a button that does not mention it.**
+The gate was working the whole time. `civUrbanLayoutsChk` shipped `on: false`
+in the CARTO rail dock's "Visible layers" list, while the map canvas has its
+own **Layers** button whose popover lists field rasters only. Look at the map,
+press the thing labelled Layers, and town layouts are not in it. Now `on: true`
+— the one divergence from the reference's own default, affordable precisely
+because of the band below — and the popover's footnote names them.
+
+**2 · The pixel reveal gate was the wrong number, and not in the direction the
+note predicted.** Not unreachable: too *early*. `URBAN_MIN_BOX_PX = 16` first
+fires at a **47 km** span on that map area, and a revealed town replaces its
+pin, so the layer traded a legible marker for a 16 px speck two octaves before
+the town was worth drawing. `_umLayoutAlpha` is ported now, verbatim —
+`UM_FADE_FAR_KM = 24`, `UM_FADE_NEAR_KM = 10`, against a `lodSpanKm()`
+equivalent — and `draw_layout`'s `alpha` argument, plumbed since the layer was
+written and passed a constant `1.0` ever since, finally carries the crossfade
+it exists for. Measured after: α = 0.00 at a 25 km span, 0.03 at 23.5, 0.44 at
+17.8, 0.76 at 13.3, 1.00 at 10.0 and deeper. The pixel constant stays as a
+floor beneath the band, which is what keeps a narrow map area from drawing a
+sub-pixel town just because the span qualifies.
+
+**3 · The pin grew 32x and sat on the town — and this one was visible with the
+layer off, which is the state the owner was actually in.** `_civ_zoom_k()`
+ported `_civZoomK`'s `1/max(0.35, min(5, z))` including the `min(5, …)`. That
+cap costs the reference nothing because `viewT.scale` **stays at 1 under Tiled
+LOD**; its deep zoom is `_lodZoom`, a different variable. Here `_camera_zoom`
+*is* the deep zoom, so past 5 the inverse-zoom term stops cancelling the
+camera's own multiply and the pin, glyph, name and label outline all resume
+growing linearly with it. That was a 1.6x overshoot while `ViewportHost` capped
+at `ZOOM_MAX = 8.0` — annoying, invisible — and became 32x when the cap became
+`lodMaxZoom()`. Screenshotted at z=60: the pin and its name cover the entire
+settlement. The cap is no longer ported. The `0.35` zoom-*out* floor is, and is
+untouched.
+
+**Verified live, non-headless**, on the real shell with a real generated world:
+the town draws on the main map at a 10 km span and deeper — water body, roof
+mass, market anchor, approach roads — with the pin handed over, and the pin and
+label hold constant on-screen size at every zoom in the range. Headless boot
+clean.
+
+**One thing checked and deliberately left alone.** `URBAN_FINE_BOX_PX = 620`
+(the per-roof ink outline, ridge and shadow) is unreachable on the map at that
+map width, and that is correct rather than a fourth defect: the deepest span is
+5 km, so the site box tops out near 150 px, an ~11 m lot is ~1 px, and the
+outline would be wider than the roof it surrounds — which is the measurement
+that put the constant there. The fine pass is the City Viewer's.
+
+**One divergence from the reference, stated.** It fades the pin out as the
+layout fades in (`pinAlpha = 1 - _umAlpha`); this hands the pin over at the end
+of the fade instead. A pin here is a disc, an outline, a glyph, a capital ring
+and a label, each with its own colour constant, so fading it means threading an
+alpha through five draw calls to soften a transition you cross in a second —
+and holding the pin for the whole fade keeps the thing you are navigating by
+legible, which is the half of that behaviour that matters.
