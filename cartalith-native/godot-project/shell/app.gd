@@ -817,9 +817,10 @@ func close_project() -> void:
 		"Save and close", _close_world)
 
 ## The unsaved-work gate. **The only prompt of its kind in the shell** -- File ▸
-## Close project and Android's back gesture at the end of its navigation
-## (`DccShell._back_exhausted()`, overridden below) both come here, rather than
-## the back button growing a second, subtly different one of its own.
+## Close project, Android's back gesture at the end of its navigation
+## (`DccShell._back_exhausted()`) and the desktop window's system close
+## (`DccShell._close_requested()`), both overridden below, all come here, rather
+## than each growing a second, subtly different prompt of its own.
 ##
 ## Prompts **whenever a world exists**, not only when `bridge.world_dirty` is
 ## set -- see that flag's own doc comment for what it cannot see, and why the
@@ -828,8 +829,11 @@ func close_project() -> void:
 ## Three answers, because the third button is the whole reason this prompt could
 ## not be built before there was a writer: with no Save to offer it would have
 ## been "discard or cancel", which is not a choice.
+##
+## Returns the dialog, because `_close_requested()` has to be able to *check*
+## that it really went up -- see there.
 func confirm_unsaved_world(prompt_title: String, question: String,
-		discard_text: String, save_text: String, then: Callable) -> void:
+		discard_text: String, save_text: String, then: Callable) -> ConfirmationDialog:
 	var body := "This world has unsaved changes." if bridge.world_dirty \
 		else "Tool edits made since the last save are not tracked, so save if in doubt."
 	var dlg := ConfirmationDialog.new()
@@ -876,6 +880,7 @@ func confirm_unsaved_world(prompt_title: String, question: String,
 		dlg.tree_exiting.connect(func():
 			if phone_insets_changed.is_connected(refloor):
 				phone_insets_changed.disconnect(refloor))
+	return dlg
 
 ## Floor `ConfirmationDialog`'s three stock answers at §13's 44 dp tap minimum.
 ##
@@ -925,6 +930,61 @@ func _back_exhausted() -> void:
 		return
 	confirm_unsaved_world("Exit Cartalith", "Exit the app?", "Discard and exit",
 		"Save and exit", func(): get_tree().quit())
+
+## The exit prompt raised by the system close, while it is outstanding. `null`
+## once it resolves; `_quit_asked` records that we *tried*, and is set before the
+## attempt so that it survives an attempt that fails halfway.
+var _quit_prompt: ConfirmationDialog = null
+var _quit_asked := false
+
+## The desktop title bar's ×, Alt+F4, the taskbar's Close (BK-02). Same fault as
+## BK-01 and the same fix: `DccShell._ready()` turns `auto_accept_quit` off so
+## the request reaches code, and the request goes through the one shared
+## `confirm_unsaved_world()` gate rather than a second prompt of its own.
+##
+## **Why this cannot leave the app un-closeable**, which is the reason the fix
+## was deferred when BK-02 was registered. `auto_accept_quit = false` means the
+## only way out is our own `quit()`, so the invariant this function keeps is:
+##
+##   *every close request either quits, or leaves a VISIBLE prompt on screen
+##   whose three answers all resolve.*
+##
+## Each branch, in order:
+##
+##   1. The prompt is up and visible -> re-raise it, do not stack a second and
+##      do not quit. Quitting on a double-click of × would destroy the world the
+##      first click just asked about, which is the bug, not a fallback.
+##   2. We already asked and there is no visible prompt -> **quit**. This is the
+##      escape hatch, and it covers the failure the deferral was about: if the
+##      prompt ever fails to appear -- a script error mid-way through building
+##      it, a Window that never shows -- `_quit_asked` is already true, so the
+##      next × ends the process unconditionally.
+##   3. Nothing to lose -> quit at once.
+##   4. Otherwise prompt, then **verify it is actually visible**, and quit
+##      immediately if it is not. The first × is enough even for a prompt that
+##      silently fails on its very first use.
+##
+## Resolution closes the loop from the other side: Cancel hides the dialog, which
+## frees it (`visibility_changed` in `confirm_unsaved_world()`), which clears
+## both flags here; Discard quits; Save writes and then quits through the same
+## continuation. Nothing leaves the flags set with the app still running and
+## nothing on screen.
+func _close_requested() -> void:
+	if is_instance_valid(_quit_prompt) and _quit_prompt.visible:
+		_quit_prompt.grab_focus()
+		return
+	if _quit_asked or not bridge.has_world:
+		get_tree().quit()
+		return
+	_quit_asked = true
+	_quit_prompt = confirm_unsaved_world("Exit Cartalith", "Exit the app?",
+		"Discard and exit", "Save and exit", func(): get_tree().quit())
+	if not (is_instance_valid(_quit_prompt) and _quit_prompt.visible):
+		get_tree().quit()
+		return
+	_quit_prompt.tree_exiting.connect(func():
+		_quit_prompt = null
+		_quit_asked = false)
 
 func _close_world() -> void:
 	bridge.close_world()

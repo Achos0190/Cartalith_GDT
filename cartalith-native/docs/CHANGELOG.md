@@ -22405,6 +22405,80 @@ accelerator in `menus.gd` carries Ctrl or Shift, and no bare `KEY_<letter>`
 exists anywhere in the shell. There is no desktop behaviour for an on-screen
 equivalent to mirror.
 
+## The desktop close box destroyed unsaved worlds too (`GUI_GAP_REGISTER.md` BK-02, 2026-08-24)
+
+BK-01's twin, one platform over, and registered by that entry rather than fixed
+by it. Nothing in the shell handled `NOTIFICATION_WM_CLOSE_REQUEST` and
+`SceneTree.auto_accept_quit` was at its default `true`, so the title bar's ×,
+Alt+F4 and the taskbar's Close each ended the process outright — a generated,
+never-saved world gone with no prompt, with the same aggravation that autosave
+only writes beside a project already saved somewhere.
+
+`DccShell._ready()` now sets `auto_accept_quit = false` beside the
+`quit_on_go_back` line BK-01 added, and `_notification()` routes the close
+request to a new `_close_requested()` hook that `DccApp` overrides onto **the
+same `confirm_unsaved_world()` gate** File ▸ Close project and the back gesture
+already share — a third caller, not a third prompt. The gate needed one change:
+it returns its dialog, so the caller can check that it really went up.
+
+Deliberately **not** routed through the back chain. Back means "leave the
+innermost thing" and walks dialogs, menu levels, overlays and armed tools first;
+× means "close the application", so it goes straight to the exit gate. One
+structural fact makes the wiring safe: Godot propagates a window's close request
+*down its own subtree* (`Window::_propagate_window_notification` stops at nested
+`Window`s), and every tool window and dialog here is a **child** of the shell,
+never a parent — so closing one cannot reach this handler. The main window is
+the only source.
+
+**The reason BK-01 declined this fix was a real objection, and it is answered
+rather than accepted.** `auto_accept_quit = false` does make the app
+un-closeable if the prompt fails to appear — unless the handler carries its own
+escape hatch. The invariant `_close_requested()` keeps is: *every close request
+either quits, or leaves a visible prompt on screen whose three answers all
+resolve.* Four branches, in order:
+
+1. **A visible prompt is already up** → re-raise it. Not quit: exiting on a
+   double-click of × would destroy the world the first click just asked about,
+   which is the bug and not a fallback.
+2. **Already asked, nothing on screen** → quit, unconditionally. The escape
+   hatch, covering exactly the named failure: a script error part-way through
+   building the prompt, or a window that never shows. `_quit_asked` is set
+   *before* the attempt so it survives an attempt that dies halfway.
+3. **Nothing to lose** (`not bridge.has_world`) → quit at once.
+4. Otherwise prompt, then **verify the dialog is really visible**, and quit
+   immediately if it is not — so even the first × is enough against a prompt
+   that fails on its first use.
+
+From the other side: Cancel hides the dialog, which frees it, which clears both
+flags and re-arms the gate; Discard quits; Save writes and quits through the
+same continuation. A **failed** save is the one path that neither quits nor
+prompts — `_write_project()` does not call its continuation when the write
+fails, which is correct, and is not a trap either, because the flags are already
+clear and the next × prompts again.
+
+**Verified** by extending BK-01's own `_backnav_probe.gd` (`_close_box_pass()`,
+`_resolve_pass()`, `_await_real_close()`) against the real shell at `1600x1000`
+with a really generated, never-saved world. The synthesised request puts up the
+shared "Exit Cartalith" gate and it is the object the shell tracks; a second
+request neither stacks nor quits; Cancel clears and re-arms it so a later ×
+prompts afresh; both escape-hatch branches are asserted by branch, since
+pressing them ends the harness. Each answer was then **pressed for real**, one
+process per answer (`-- --resolve=discard|save|cancel`): Discard exited, Save
+wrote a 420 KB `.zip` and *then* exited, Cancel left the app running with
+nothing on screen.
+
+The link BK-01 could not close on Android — that the OS request reaches this
+code at all — **is** closed here. `-- --hold` boots the real shell with a real
+unsaved world and waits; `WM_CLOSE` posted to its `HWND` from outside (what the
+title bar's × sends) leaves the process alive with the gate drawn over the map,
+and the probe saves the screenshot proving it. `cargo build -p cartalith-godot`
+and a headless boot are both clean.
+
+**One repository note:** the `dcc_shell.gd` half of this change was swept into a
+concurrent agent's commit (`0fc9d1c`, PH-11) before it could be committed here,
+so this commit carries only the `app.gd` and probe halves. The tree is
+consistent; nothing is missing.
+
 ## Cartography and map coloration: `TerrainAppearance` was bound to nothing (`GUI_GAP_REGISTER.md` CA-01 / PR-09 / RN-03, 2026-08-24)
 
 Owner question, third of the same kind this session: *"There also was a new

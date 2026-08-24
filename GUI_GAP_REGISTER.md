@@ -48,6 +48,7 @@ the engine as they stand today, and it is the document that goes stale first.
 | [15](#15--the-phone-overflow-menu-is-wired-but-inoperable-2026-08-20) | **The phone overflow menu (2026-08-20)** — (C): the real menu bar is wired into the phone sheet but is unscaled, buried in desktop status chrome, and inert to touch. Device evidence, kept as the brief for the mobile menu design; **not fixed**. |
 | 16-22 | Seven sections added after the contents table was written; see the `## ` headings directly. |
 | [25](#25--bk-01--androids-back-button-killed-the-process-unsaved-world-and-all-2026-08-24--fixed) | **BK-01 (2026-08-24)** — the highest-severity entry in this register, and the only one where a shipped control *destroyed the user's work*: Android's Back button ended the process outright, taking an unsaved generated world with it. Root cause, the navigation model that replaced it, and two related findings (BK-02 desktop close box, unfixed; BK-03 `KEYCODE_M`, a non-finding). **Fixed.** |
+| [26](#26--bk-02--the-desktop-close-box-did-the-same-thing-and-the-reason-it-was-left-alone-was-answerable-2026-08-24--fixed) | **BK-02 (2026-08-24)** — BK-01's twin on the desktop: the title bar's × ended the process with an unsaved world in it. Fixed onto the *same* shared gate, with the four-branch argument for why `auto_accept_quit = false` cannot leave the app un-closeable — the objection §25 declined the fix over. **Fixed.** |
 | [23](#23--rf-01--the-civil-dock-never-rebuilt-after-a-world-generated-2026-08-24--fixed) | **RF-01 (2026-08-24)** — a new class, and not a capability gap: the whole CIVIL dock (ten sections across two files) was built once at launch and never rebuilt when a world generated or loaded, so it showed "generate a world first" over a finished world. **Fixed**, with the presentation-vs-recompute cost check that shows why this one is safe to hang off every generate. |
 
 ---
@@ -3834,7 +3835,7 @@ verified on this handset in the §15 pass ("System back popped sheet → screen 
 root without exiting, pid unchanged"), which is evidence for the mechanism but
 not for this change.
 
-### Two related findings, registered and NOT fixed
+### Two related findings, registered and NOT fixed *(BK-02 fixed since — §26)*
 
 - **BK-02 (A) — the desktop window's close box has no such gate.** Nothing in
   the shell intercepts `NOTIFICATION_WM_CLOSE_REQUEST`, and `auto_accept_quit`
@@ -3854,3 +3855,98 @@ not for this change.
   re-testing only if a bare-letter accelerator is ever introduced — at which
   point the phone needs a surface for it regardless, since handsets have no
   keyboard.
+
+---
+
+## 26 · BK-02 — the desktop close box did the same thing, and the reason it was left alone was answerable (2026-08-24) — **FIXED**
+
+BK-01's own §25 registered this and declined it, for a reason worth quoting
+because it was a real objection and not an excuse: `auto_accept_quit = false`
+"makes the app unquittable if the prompt ever fails to appear, which is a worse
+failure than the one it fixes." That is true of the naive form of the fix. It is
+not true of a fix that carries its own escape hatch, which is what this is.
+
+### The fault
+
+Identical to BK-01, one platform over. Nothing in the shell handled
+`NOTIFICATION_WM_CLOSE_REQUEST`; `SceneTree.auto_accept_quit` was at its default
+`true`; so the title bar's ×, Alt+F4 and the taskbar's Close each ended the
+process outright. A world generated and never saved was gone, with no prompt,
+exactly as Back did on the handset — and with the same aggravation, that
+autosave only writes beside a project already saved somewhere, so nothing
+recovered it.
+
+### The fix
+
+`DccShell._ready()` sets `auto_accept_quit = false` beside the `quit_on_go_back`
+line BK-01 added, and `DccShell._notification()` routes the close request to a
+new `_close_requested()` hook. `DccApp` overrides that hook onto **the same
+`confirm_unsaved_world()` gate** File ▸ Close project and the back gesture
+already share — a third caller, not a third prompt. The only change the gate
+itself needed was to return its dialog, so the caller can check that it really
+went up.
+
+Deliberately *not* routed through the back chain. Back means "leave the
+innermost thing" and walks dialogs, menu levels, overlays and armed tools first;
+the × means "close the application", so it goes straight to the exit gate.
+
+One structural note that makes the wiring safe: Godot propagates a window's
+close request **down its own subtree** (`Window::_propagate_window_notification`
+stops at nested `Window`s). Every tool window and dialog in this shell is a
+*child* of the shell, never a parent, so closing one cannot reach the shell's
+handler — the main window is the only source.
+
+### Why the app cannot be left un-closeable
+
+The invariant `_close_requested()` keeps: **every close request either quits, or
+leaves a visible prompt on screen whose three answers all resolve.** Its four
+branches, in order:
+
+1. **A visible prompt is already up** → re-raise it. Not quit: exiting on a
+   double-click of × would destroy the world the first click just asked about,
+   which is the bug and not a fallback.
+2. **We already asked and nothing is on screen** → quit, unconditionally. This
+   is the escape hatch and it covers exactly the failure the deferral named: a
+   script error part-way through building the prompt, or a window that never
+   shows. `_quit_asked` is set *before* the attempt, so it survives an attempt
+   that dies halfway, and the next × ends the process.
+3. **Nothing to lose** (`not bridge.has_world`) → quit at once.
+4. Otherwise prompt, then **verify the dialog is actually visible** and quit
+   immediately if it is not — so even the very first × is enough against a
+   prompt that fails on its first use.
+
+From the other side: Cancel hides the dialog, which frees it, which clears both
+flags and re-arms the gate; Discard quits; Save writes and quits through the
+same continuation. A *failed* save is the one path that neither quits nor
+prompts — `_write_project()` does not call its continuation when the write
+fails, which is correct (do not exit on a save that did not happen), and it is
+not a trap either, because the flags are already cleared and the next × prompts
+again.
+
+### Verification
+
+`_backnav_probe.gd` (the BK-01 harness, extended — `_close_box_pass()`,
+`_resolve_pass()`, `_await_real_close()`) drives the real shell at `1600x1000`
+with a really generated, never-saved world. All checks pass:
+
+- the real `NOTIFICATION_WM_CLOSE_REQUEST` puts up the shared "Exit Cartalith"
+  gate with Discard / Cancel / Save, and it is the object the shell tracks;
+- a second request while it is up neither stacks a second prompt nor quits;
+- Cancel dismisses it, clears the gate and re-arms it — a later × prompts again
+  with a fresh dialog;
+- both escape-hatch branches are asserted (by branch, since pressing them ends
+  the harness).
+
+Each of the three answers was then **pressed for real**, one process per answer
+(`-- --resolve=discard|save|cancel`), because two of them end the process:
+Discard exited; Save wrote a 420 KB `.zip` and *then* exited; Cancel left the
+app running with nothing on screen.
+
+The link a synthesised notification cannot prove — that the OS request reaches
+this code at all — was closed too, and unlike BK-01's Android delivery it is
+proven here: `-- --hold` boots the real shell with a real unsaved world and
+waits, `WM_CLOSE` is posted to its `HWND` from outside (which is what the title
+bar's × sends), and the process survives with the gate drawn over the map. The
+screenshot the probe saves at that moment shows "This world has unsaved
+changes. / Exit the app?" over a generated world whose status bar reads *unsaved
+changes*. `cargo build -p cartalith-godot` and a headless boot are both clean.

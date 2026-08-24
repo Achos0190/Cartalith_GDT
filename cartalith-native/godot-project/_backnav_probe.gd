@@ -1,9 +1,14 @@
 extends Node
-## TEMPORARY verification harness for the Android back-gesture chain
-## (`DccShell._notification` / `DccApp._back_exhausted`). Drives the REAL shell
-## at handset size with a REAL generated world in memory, delivers the actual
-## `NOTIFICATION_WM_GO_BACK_REQUEST` the Android windowing layer sends, and
-## asserts what each press left.
+## TEMPORARY verification harness for the two ways this shell can be asked to
+## end: the Android back-gesture chain (BK-01, `DccShell._notification` /
+## `DccApp._back_exhausted`) and the desktop window's system close (BK-02,
+## `DccApp._close_requested`). Drives the REAL shell with a REAL generated world
+## in memory, delivers the actual `NOTIFICATION_WM_GO_BACK_REQUEST` /
+## `NOTIFICATION_WM_CLOSE_REQUEST` the windowing layer sends, and asserts what
+## each one left.
+##
+## The close-box pass runs in the desktop composition only (`_close_box_pass`),
+## which is the only place that request exists.
 ##
 ##   godot4 --path . --resolution 393x852 _backnav_probe.tscn -- --force-touch
 ##
@@ -211,6 +216,16 @@ func _desktop_pass() -> void:
 	await get_tree().create_timer(0.8).timeout
 	_check("has_world", bridge.has_world, true)
 
+	## `-- --hold`: stop here, with a real unsaved world in a real window, and
+	## wait. This is the one link a synthesised notification cannot prove -- that
+	## the OS close request (the title bar's ×, `WM_CLOSE`) reaches this code at
+	## all. Drive it from outside: post `WM_CLOSE` to the window, then check the
+	## process is still alive with a prompt on it.
+	if "--hold" in OS.get_cmdline_user_args():
+		print("[hold] pid=", OS.get_process_id(), " -- deliver a real WM_CLOSE now")
+		await _await_real_close()
+		return
+
 	app.close_project()
 	await _frames(4)
 	var wins := _visible_windows()
@@ -242,6 +257,9 @@ func _desktop_pass() -> void:
 		print("  title='", (after[0] as Window).title, "'")
 		_check("it is the exit gate", (after[0] as Window).title, "Exit Cartalith")
 		(after[0] as Window).hide()
+		await _frames(3)
+
+	await _close_box_pass(bridge)
 
 	print("")
 	if _fails.is_empty():
@@ -251,6 +269,169 @@ func _desktop_pass() -> void:
 		for f in _fails:
 			print("  ", f)
 	get_tree().quit(0 if _fails.is_empty() else 1)
+
+## BK-02: the desktop window's system close -- the title bar ×, Alt+F4, the
+## taskbar's Close -- delivered as the real `NOTIFICATION_WM_CLOSE_REQUEST`.
+##
+## The severity here is the same as BK-01's, so the checks are too: with an
+## unsaved world in memory a close request must not end the process. What is
+## extra is the un-closeable-app risk `auto_accept_quit = false` creates, which
+## is why the fix was deferred when BK-02 was registered -- so the invariant
+## checked below is not just "it prompts" but *every close request either quits
+## or leaves a visible, resolvable prompt on screen*.
+func _close_box_pass(bridge) -> void:
+	print("[desktop] BK-02: the close box")
+	_check("auto_accept_quit is OFF", get_tree().auto_accept_quit, false)
+	_check("a world is still loaded", bridge.has_world, true)
+	_check("nothing open before the request", _visible_windows().size(), 0)
+
+	# --- 1. The × prompts instead of destroying the world ------------------
+	await _close()
+	var wins := _visible_windows()
+	_check("a prompt appeared instead of a quit", wins.size(), 1)
+	var prompt: Window = wins[0] if wins.size() > 0 else null
+	if prompt == null:
+		return
+	var texts: Array[String] = []
+	for b in _buttons(prompt):
+		texts.append((b as Button).text)
+	texts.sort()
+	print("  title='", prompt.title, "' buttons=", texts)
+	_check("it is the shared exit gate", prompt.title, "Exit Cartalith")
+	_check("three answers", texts.size() >= 3, true)
+	_check("Save and exit offered", "Save and exit" in texts, true)
+	_check("Discard and exit offered", "Discard and exit" in texts, true)
+	_check("Cancel offered", "Cancel" in texts, true)
+	_check("it is the same gate object the shell tracks", app._quit_prompt, prompt)
+
+	# --- 2. A second × while the prompt is up neither stacks nor quits -----
+	## Quitting on a double-click of the close box would destroy the world the
+	## first click just asked about, so this branch re-raises rather than exits.
+	await _close()
+	_check("still running after a second close request", is_instance_valid(app), true)
+	_check("no second prompt stacked", _visible_windows().size(), 1)
+	_check("the same prompt, still up", _visible_windows()[0] == prompt, true)
+
+	# --- 3. Cancel resolves, and re-arms the gate -------------------------
+	prompt.hide()
+	await _frames(4)
+	_check("cancel dismissed the prompt", _visible_windows().size(), 0)
+	_check("gate cleared on resolve", app._quit_prompt, null)
+	_check("and re-armed for the next request", app._quit_asked, false)
+	await _close()
+	_check("a later × prompts again", _visible_windows().size(), 1)
+	var second: Window = _visible_windows()[0]
+	_check("a fresh prompt, not the freed one", second != prompt, true)
+	second.hide()
+	await _frames(4)
+
+	# --- 4. The escape hatch --------------------------------------------
+	## Checked by branch rather than by pressing, for the same reason the phone
+	## pass checks its empty-world exit that way: passing it honestly terminates
+	## the harness before it can report. Both conditions below reach
+	## `get_tree().quit()` unconditionally in `_close_requested()`.
+	print("  escape hatch (by branch -- pressing it would end the harness)")
+	app._quit_asked = true
+	app._quit_prompt = null
+	_check("asked once, nothing on screen -> would quit",
+		app._quit_asked and not is_instance_valid(app._quit_prompt), true)
+	app._quit_asked = false
+	bridge.has_world = false
+	_check("no world -> would quit", app._quit_asked or not bridge.has_world, true)
+	bridge.has_world = true
+
+	## The three answers actually being *pressed* cannot be checked in the same
+	## run as anything else -- two of them end the process, which is the point.
+	## `-- --resolve=discard|save|cancel` runs one of them and reports through
+	## the exit code; see `_resolve_pass()`.
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--resolve="):
+			await _resolve_pass(bridge, a.substr(10))
+
+## Press one answer of the close-box prompt for real and report what it did.
+##
+## This is the half of "the app can always be closed" that a branch check cannot
+## make: `discard` and `save` must genuinely end the process, and `cancel` must
+## genuinely not. The button object is the one the dialog built, and its
+## `pressed` signal is the same one a mouse click emits, with every connection
+## the real click runs.
+##
+##   discard -> the process must be gone; the harness fails by surviving.
+##   save    -> writes to `user://_bk02_probe.zip` first, then the same exit.
+##              Check the file after the run: quitting is what proves the
+##              continuation ran, the file is what proves it saved first.
+##   cancel  -> the process must survive with nothing on screen.
+func _resolve_pass(bridge, mode: String) -> void:
+	print("[resolve] ", mode)
+	_check("a real world is still in memory to lose", bridge.has_world, true)
+	var want_text: String = {"discard": "Discard and exit", "save": "Save and exit",
+		"cancel": "Cancel"}.get(mode, "")
+	if want_text == "":
+		print("  unknown mode"); get_tree().quit(2); return
+	if mode == "save":
+		var path := ProjectSettings.globalize_path("user://_bk02_probe.zip")
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(path)
+		app.current_project_path = path
+		print("  will save to ", path)
+	await _close()
+	var wins := _visible_windows()
+	if wins.size() != 1:
+		print("  FAIL no prompt to press"); get_tree().quit(1); return
+	var target: Button = null
+	for b in _buttons(wins[0]):
+		if (b as Button).text == want_text:
+			target = b
+	if target == null:
+		print("  FAIL no '", want_text, "' button"); get_tree().quit(1); return
+	print("  pressing '", target.text, "'")
+	target.pressed.emit()
+	await _frames(30)
+	## Only `cancel` can reach this line.
+	if mode == "cancel":
+		_check("cancel left the app running", is_instance_valid(app), true)
+		_check("cancel left nothing on screen", _visible_windows().size(), 0)
+		_check("gate re-armed after cancel", app._quit_asked, false)
+		print("=== RESOLVE cancel OK ===")
+		get_tree().quit(0 if _fails.is_empty() else 1)
+	else:
+		print("=== FAIL: '", want_text, "' did not end the process ===")
+		get_tree().quit(1)
+
+## Wait for an externally delivered, genuinely-from-the-OS close request and
+## record what it did. Surviving it is already the whole fix -- before it, the
+## SceneTree ended the process here -- so the timeout, not the pass, is the
+## failure. The screenshot is kept because it is the only artefact showing the
+## prompt actually drawn over a real world in a real window.
+func _await_real_close() -> void:
+	for i in 1200:
+		await get_tree().create_timer(0.05).timeout
+		if not (is_instance_valid(app._quit_prompt) and app._quit_prompt.visible):
+			continue
+		await _frames(2)
+		var shot := ProjectSettings.globalize_path("user://_bk02_real_close.png")
+		get_viewport().get_texture().get_image().save_png(shot)
+		print("  shot=", shot)
+		_check("a real OS close request was gated", app._quit_prompt.title, "Exit Cartalith")
+		_check("and the process survived it", is_instance_valid(app), true)
+		var texts: Array[String] = []
+		for b in _buttons(app._quit_prompt):
+			texts.append((b as Button).text)
+		texts.sort()
+		print("  buttons: ", texts)
+		_check("three answers on the real prompt", texts.size() >= 3, true)
+		print("=== REAL WM_CLOSE ", "OK" if _fails.is_empty() else "FAILED", " ===")
+		get_tree().quit(0 if _fails.is_empty() else 1)
+		return
+	print("=== FAIL: no close request arrived in 60 s ===")
+	get_tree().quit(1)
+
+## The real notification the windowing system sends for the title bar's ×.
+## Godot propagates it down the main window's subtree, which is where the shell
+## node sits.
+func _close() -> void:
+	app.notification(Node.NOTIFICATION_WM_CLOSE_REQUEST)
+	await _frames(3)
 
 ## `get_children(true)`: `AcceptDialog` parents its whole button bar as an
 ## INTERNAL child, so the default walk sees an empty dialog.

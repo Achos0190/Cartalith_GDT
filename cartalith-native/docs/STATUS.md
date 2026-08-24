@@ -159,6 +159,30 @@ with no asset pack, and `relief_lights` is live at 1 and merely converged by 12.
 **Still open:** the elevation-keyed colour ramp and stop editor (**CA-02**, a
 renderer change not a binding), saving a look (**CA-08**), and the ten
 Rendering-advanced sliders whose engine stages this port has never had) —
+previously, post **The desktop close box destroyed unsaved worlds too** —
+`GUI_GAP_REGISTER.md` **BK-02**, BK-01's twin one platform over: nothing
+handled `NOTIFICATION_WM_CLOSE_REQUEST` and `auto_accept_quit` was at its
+default, so the title bar's ×, Alt+F4 and the taskbar's Close each ended the
+process with a generated, never-saved world in it. Now a **third caller of the
+same `confirm_unsaved_world()` gate** — not a second prompt — reached through a
+new `DccShell._close_requested()` hook that `DccApp` overrides; deliberately
+**not** routed through the back chain, because back means "leave the innermost
+thing" and × means "close the application". **The objection that deferred this
+fix is answered, not accepted.** `auto_accept_quit = false` means nothing quits
+unless our code asks, so `_close_requested()` keeps one invariant: *every close
+request either quits, or leaves a visible prompt whose three answers all
+resolve.* A request arriving while the prompt is up **re-raises** it (quitting
+on a double-click of × would destroy the world the first click asked about); a
+request arriving when we have **already asked and nothing is on screen** quits
+unconditionally — `_quit_asked` is set *before* the attempt so it survives an
+attempt that dies halfway; and the prompt is checked for real visibility the
+moment it is raised, so even a first-use failure exits rather than traps. A
+*failed* save is the one path that neither quits nor prompts, correctly, and
+re-arms the gate. **Verified end to end**: a real `WM_CLOSE` posted to the
+window's `HWND` from outside is gated (the one link BK-01 could not prove on
+Android), and Discard / Save / Cancel were each **pressed for real** in their
+own process — Discard exited, Save wrote a 420 KB `.zip` then exited, Cancel
+left the app running. Extends the same `_backnav_probe.gd` harness —
 previously, post **Android Back destroyed unsaved worlds** —
 `GUI_GAP_REGISTER.md` **BK-01**, and the first **observed user data loss** in
 this port: on the handset the hardware/gesture Back ended the process on a
@@ -2141,9 +2165,18 @@ authorised it after five register rows queued up behind it.
 - **The Close-project prompt is now the shell's one unsaved-work gate**
   (`confirm_unsaved_world()`, 2026-08-24). Android's Back button reaches it
   instead of ending the process — `GUI_GAP_REGISTER.md` **BK-01**, real
-  observed data loss, fixed. **Still open: `BK-02`** — the *desktop* window's
-  close box bypasses it exactly as Back did, because nothing intercepts
-  `NOTIFICATION_WM_CLOSE_REQUEST`. Registered with the reason it was left.
+  observed data loss, fixed. **`BK-02` closed the same day**: the *desktop*
+  window's close box (title bar ×, Alt+F4) bypassed it exactly as Back did,
+  because nothing intercepted `NOTIFICATION_WM_CLOSE_REQUEST` and
+  `auto_accept_quit` was at its default. Now a third caller of the same gate,
+  never a second prompt. The objection that deferred it — "`auto_accept_quit
+  = false` makes the app unquittable if the prompt fails to appear" — is
+  answered rather than accepted: `_close_requested()` quits unconditionally
+  whenever it has already asked and nothing is on screen, and verifies the
+  dialog is really visible before returning, so **every close request either
+  quits or leaves a resolvable prompt up**. Proven with a real `WM_CLOSE`
+  posted to the window from outside, and with each of the three answers
+  pressed in its own process (`GUI_GAP_REGISTER.md` §26).
 
 **Verified three ways** (`CHANGELOG.md` has the detail): a re-write of a
 **real** HTML-app export checked against that fixture's independent value
