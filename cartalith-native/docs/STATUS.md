@@ -5,7 +5,36 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **A staleness indicator, and the dials that
+Last updated: 2026-08-24 (post **Icon tool gained its on-canvas resize
+handle** — `GUI_GAP_REGISTER.md` **CA-05**, the (A) list's last open entry
+(all 17 now closed or built). A placed icon could only be resized by
+deleting and re-placing it — the register's own diagnosis was exact:
+`icon_resize`/`icon_hit_test`/`icon_get` were all already exposed; only
+`icon_handles()` itself, `label_handles()`'s counterpart, was missing.
+`icon_bridge::icon_handle`/`IconEditor::handles` port the reference's
+`drawCivLayer` icon-handle geometry (lines 15883-15893) verbatim — one
+circle, not label's three, since a manual icon has no rotate/arc field at
+all. `WorldGen::icon_handles(index, zoom)` returns the same `{"resize":
+{x,y,r}}` shape `label_handles` already uses, so `tool_overlay.gd` needed no
+change, and a new `WorldGen::icon_get_selected()` gives the shell the one
+piece of `IconEditor` state it had no accessor for. `cartography_workspace.
+gd` gained `IconDragMode`, `_begin_icon_handle_drag`/`_on_icon_drag`/
+`_on_icon_release` mirroring the Label tool's own pattern one handle down.
+**Found the hard way**: `engine_bridge.gd` needed typed wrappers for both
+new `#[func]`s too, not just the Rust side — without them `bridge.
+icon_get_selected()`'s `:=` failed to *compile* (GDScript's static analyzer
+resolves a call's return type from `EngineBridge`'s own method signatures,
+not from the dynamically-dispatched `world_gen` underneath), caught by a
+headless boot before it ever reached a device. **Verified**: 321 `--lib`
+tests (27 in `icon_bridge::`, 6 new), a headless boot, and a new
+`_iconhandle_probe.gd`/`.tscn` run **windowed** against a real
+2048×1311 world with `reference_pack.zip` loaded — placed a Settlement/
+Hamlet, read back a real handle circle, clicked and dragged it, watched
+`scale` go `1.0 → 2.9999947` (the drag's own ratio, not a stub), confirmed
+it survives a `zoom_step` + `refresh_annotations` unchanged while the handle
+itself re-queries correctly at the new zoom, with three screenshots showing
+the icon's own glyph growing and the handle circle tracking its new
+corner) — previously, post ****A staleness indicator, and the dials that
 were never marked stale** — `GUI_GAP_REGISTER.md` **SG-01** and **SG-03**,
 §21's last two open rows, closed together because they are the same feature
 from both ends: SG-03 produces staleness nothing recorded, SG-01 shows
@@ -6011,11 +6040,12 @@ Faction context, `"—"` after deselecting back to an empty Sample, and
       Window menu's workspace list/open-windows list/dock-width dragging
       (rank 7); JP-12 + JP-15 (rank 9); SH-05 (rank 10); SH-06's baseline
       (rank 11, its `→ 1 582 m` draft-stamp suffix reclassified (B), still
-      open); SH-01 (rank 12). **Still open: CA-05** (rank 8, icon on-canvas
-      resize handle) — the only (A)-classified item with a design and
-      nothing built. Four more are one design decision away from (A) status
-      rather than built: ED-05 Find on map, PR-15 Units, PR-16 Keyboard
-      shortcuts, WI-01 Save layout (register §10's own closing note).
+      open); SH-01 (rank 12); **CA-05, done 2026-08-24** (rank 8, icon
+      on-canvas resize handle — see "Icon on-canvas resize handle" below).
+      **All 17 of the (A) list's distinct entries are now closed or built.**
+      Four more are one design decision away from (A) status rather than
+      built: ED-05 Find on map, PR-15 Units, PR-16 Keyboard shortcuts, WI-01
+      Save layout (register §10's own closing note).
 - [x] **Nine omissions — six of nine done 2026-08-19/20, corrected
       2026-08-24** (`PARITY_AUDIT.md` pass 2, F6). Closed: `Data ▸ ⧉ Travel
       library… ⇧L` (O1, see DM-15); `Preferences ▸ Fallback when VRAM full`

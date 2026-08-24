@@ -1207,10 +1207,23 @@ func icon_place(gx: float, gy: float) -> int:
 		return -1
 	return world_gen.icon_place(gx, gy)
 
+## `GUI_GAP_REGISTER.md` CA-05: `label_get_selected`'s own icon counterpart.
+func icon_get_selected() -> int:
+	if not _has("icon_get_selected"):
+		return -1
+	return world_gen.icon_get_selected()
+
 func icon_hit_test(gx: float, gy: float) -> int:
 	if not _has("icon_hit_test"):
 		return -1
 	return world_gen.icon_hit_test(gx, gy)
+
+## `GUI_GAP_REGISTER.md` CA-05: the selected icon's on-canvas resize-handle
+## circle -- `label_handles()`'s own one-handle mirror.
+func icon_handles(index: int, zoom: float) -> Dictionary:
+	if not _has("icon_handles"):
+		return {}
+	return world_gen.icon_handles(index, zoom)
 
 func icon_resize(index: int, cx: float, cy: float, gx: float, gy: float, start_dist: float) -> bool:
 	if not _has("icon_resize"):

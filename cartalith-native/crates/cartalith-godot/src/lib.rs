@@ -5028,18 +5028,52 @@ impl WorldGen {
         icons.place(gx, gy, gw, gh).map_or(-1, |i| i as i64)
     }
 
+    /// The currently selected placed icon's index, or `-1` for none (or
+    /// before any `generate()` call) -- `label_get_selected`'s own icon
+    /// counterpart. `IconEditor`'s own `selected` field is otherwise
+    /// unreadable from this side: `icon_resize` already requires `index`
+    /// to match it, and `icon_handles`'s caller needs to know which index
+    /// to ask for and when to draw a handle at all.
+    #[func]
+    fn icon_get_selected(&self) -> i64 {
+        self.icons.as_ref().and_then(|i| i.selected).map_or(-1, |i| i as i64)
+    }
+
     /// Grid-space hit test against every placed icon's box
-    /// (`icon_bridge::IconEditor::hit_test` -- no on-canvas resize-handle
-    /// geometry yet, box hits only; see that method's own doc comment).
-    /// `(gx, gy)` are grid coordinates, matching `icon_place`'s own
-    /// convention, not screen pixels. Selects and returns the hit icon's
-    /// index on a hit; `-1` on a miss or before any `generate()` call.
+    /// (`icon_bridge::IconEditor::hit_test` -- box hits only; a *handle*
+    /// hit is the shell's own job, by comparing the pointer against
+    /// `icon_handles`' own circle for whichever icon is selected, exactly
+    /// `label_hit_test`'s own precedent one step further -- see that
+    /// method's own doc comment). `(gx, gy)` are grid coordinates, matching
+    /// `icon_place`'s own convention, not screen pixels. Selects and
+    /// returns the hit icon's index on a hit; `-1` on a miss or before any
+    /// `generate()` call.
     #[func]
     fn icon_hit_test(&mut self, gx: f64, gy: f64) -> i64 {
         let grid_w = self.gw as usize;
         let Some(icons) = self.icons.as_mut() else { return -1 };
         let env = cartalith_assets::manual::IconViewEnv { grid_w, zoom_scale: 1.0, icon_scale: 1.0 };
         icons.hit_test(gx, gy, &env).map_or(-1, |i| i as i64)
+    }
+
+    /// Icon `index`'s on-canvas resize-handle circle
+    /// (`icon_bridge::IconEditor::handles`) -- `GUI_GAP_REGISTER.md` CA-05:
+    /// the equivalent of `label_handles`, one handle instead of three since
+    /// a manually-placed icon has no rotate/arc field to hand a handle to
+    /// (`icon_bridge.rs`'s own doc comment). Returns `{"resize": {"x":..,
+    /// "y":.., "r":..}}`, the same `"resize"` key and `{"x","y","r"}` shape
+    /// `label_handles` already uses, so a caller (`tool_overlay.gd`'s
+    /// `set_handles`) can consume either with no reshaping. `zoom` is the
+    /// raw view scale, matching `label_handles`' own parameter (`civ_zoom_k`
+    /// applies its own clamp internally). Empty top-level `Dictionary` for
+    /// an out-of-range `index` or before any `generate()` call.
+    #[func]
+    fn icon_handles(&self, index: i64, zoom: f64) -> VarDictionary {
+        let Ok(i) = usize::try_from(index) else { return VarDictionary::new() };
+        let Some(icons) = self.icons.as_ref() else { return VarDictionary::new() };
+        let env = cartalith_assets::manual::IconViewEnv { grid_w: self.gw as usize, zoom_scale: zoom, icon_scale: 1.0 };
+        let Some(h) = icons.handles(i, &env) else { return VarDictionary::new() };
+        vdict! { "resize" => &vdict! { "x" => h.x, "y" => h.y, "r" => h.r } }
     }
 
     /// Applies one resize-drag sample to the selected icon's scale

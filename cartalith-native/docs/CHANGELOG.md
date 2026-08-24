@@ -23166,3 +23166,121 @@ probe at 256×192, where one stroke covers all twelve tiles and tile 0 *is*
 height-marked. `stale_stages` now takes the most-upstream origin across every
 stale tile — the same "smallest id wins" rule `StageGraph::staleness` already
 applies within one tile.
+
+## Icon tool gained its on-canvas resize handle (`GUI_GAP_REGISTER.md` CA-05, 2026-08-24)
+
+The Icon tool's own doc comments and the register both named this precisely:
+`icon_hit_test`'s `None` handle and `icon_bridge.rs`'s own "no on-canvas
+resize-handle geometry is tracked by this bridge yet" — a placed icon could
+only be resized by deleting and re-placing it, unlike a label, which already
+had three (resize/rotate/arc, `label_handles()`). The register's own
+diagnosis was exact: `icon_resize`/`icon_hit_test`/`icon_get` were all
+already exposed; the one missing piece was `icon_handles()` itself.
+
+**Engine (`icon_bridge.rs`, `lib.rs`):**
+
+- `icon_bridge::icon_handle(box_, env) -> IconHandle` ports the reference's
+  `drawCivLayer` icon-handle geometry (lines 15883-15893 of `Cartalith Gen1
+  v2.10.html`) verbatim: `hr=max(4,3.2*lsc)`, `hx=px+side/2*0.7`,
+  `hy=py+side/2*0.7`, stored hit-circle `r=hr*1.6`. Transcribed rather than
+  sliced, the same reasoning `label_bridge::handle_circles` already gives —
+  inline canvas drawing code the reference itself has no callable function
+  for. One handle only: a manually-placed icon carries no rotate/arc field
+  at all (`manual.rs`'s own module doc), so there was nothing else to
+  compute.
+- `IconEditor::handles(index, env) -> Option<IconHandle>` mirrors
+  `LabelBridge::handles`'s own contract exactly — any valid index works, not
+  only the current selection, matching how a caller decides which index to
+  ask for rather than the editor enforcing it.
+- `WorldGen::icon_handles(index, zoom) -> Dictionary` returns `{"resize":
+  {"x","y","r"}}`, the same `"resize"` key and `{x,y,r}` shape
+  `label_handles` already uses, so `tool_overlay.gd`'s existing
+  `set_handles()` primitive needed no reshaping to consume either.
+- `WorldGen::icon_get_selected() -> i64`, new: `label_get_selected`'s own
+  icon counterpart. `IconEditor`'s `selected` field had no accessor before
+  this — `icon_resize` already required a caller to know it (its own
+  contract: `index` must already be the selection), and `icon_handles`'s
+  caller needs to know which index to ask for and when to draw nothing at
+  all.
+- Six new tests in `icon_bridge.rs` pin the handle formula at zero zoom, at
+  a bigger per-instance `scale`, and at the low-zoom `max(4,...)` floor
+  (mirroring `label_bridge`'s own three geometry tests), plus `IconEditor::
+  handles`'s out-of-range/not-currently-selected contract.
+
+**Shell (`engine_bridge.gd`, `cartography_workspace.gd`):**
+
+- `engine_bridge.gd` gained typed wrappers for both new `#[func]`s
+  (`icon_get_selected() -> int`, `icon_handles(index, zoom) -> Dictionary`),
+  the same `_has()`-guarded pattern every other binding in that file uses.
+  **Found the hard way**: without these, `cartography_workspace.gd`'s own
+  `var sel := bridge.icon_get_selected()` (`:=` type inference) failed to
+  *compile* — `bridge` is statically typed `EngineBridge`, so GDScript's
+  analyzer resolves a call's return type from that class's own method
+  signatures, not from whatever `world_gen` (a dynamically-dispatched
+  `Node`) actually returns at runtime. A headless boot caught it immediately
+  (`Cannot infer the type of "sel" variable`) — the kind of break
+  `TOOLCHAIN.md`'s own "grep the DLL for a string" advice does not catch,
+  since the DLL was fine; the *script* failed to parse.
+- `IconDragMode { NONE, RESIZE }` — the Icon tool's own one-handle mirror of
+  the Label tool's five-mode `DragMode`, since there is no rotate/arc to
+  capture.
+- `_on_icon_click` now checks the currently-selected icon's resize-handle
+  circle *before* falling through to place/select, exactly the reference's
+  own pointerdown precedence (`_carIconHitTest` checked ahead of the click
+  handler's own place branch, reference lines 9664-9671). A hit begins a
+  resize drag (`_begin_icon_handle_drag`, capturing `cx`/`cy`/`start_dist`
+  the same way `_begin_label_handle_drag` does); a miss places as before.
+- `_on_icon_drag`/`_on_icon_release` registered as the tool's drag/release
+  handlers. Unlike the Label tool's resize (`label_resize_size` computes a
+  value the caller must then commit via `label_set`), `icon_resize` already
+  writes the result straight into the icon's own `scale` — so the drag
+  handler has no separate commit call to make.
+- `_update_icon_handles_overlay()` draws through the same `tool_overlay.gd`
+  primitive the Label tool's own handles use, called after every place/
+  delete/clear-all/selection change (`_rebuild_icon_panel`'s own end, the
+  same place `_rebuild_label_edit_form` already calls its label
+  equivalent). The placed-icon list also now highlights the selected row,
+  matching the label list's own convention.
+- The panel's stale note (*"There is no on-canvas resize handle yet…
+  delete and re-place to change one"*) is rewritten to describe what is
+  actually there now.
+
+**Deliberately not folded in:** `icon_hit_test`'s box-hit half is still
+unused by this file — clicking a previously-placed, currently-unselected
+icon to re-select it has no GDScript wiring. That is a real, separate gap
+this entry does not close; CA-05 was specifically about the missing handle
+geometry, and the register's own row said so.
+
+**Verified.** `cargo build -p cartalith-godot` clean and `cargo test -p
+cartalith-godot --lib` 321 passed (27 in `icon_bridge::`, 6 new) — both were
+blocked for part of this session by an unrelated, concurrently in-flight
+`lib.rs` change elsewhere in the same file (a `cartalith_terrain::
+amplify::AmplifyOpts` field addition, someone else's work, not this entry's
+— re-run clean once it landed) and, separately, by a live Godot editor
+holding the debug DLL open (`TOOLCHAIN.md`'s own documented "Windows holds
+an open file handle" failure mode). A headless boot
+(`--headless --path godot-project --quit`) is clean.
+
+Then a new `_iconhandle_probe.gd`/`.tscn` (`_authoring_shot.gd`'s own
+pattern: drive the real shell through `app.arm_tool`/`app._on_map_clicked`/
+`_on_map_dragged`/`_on_map_released`, not a mock) — **windowed**, 1600×1000,
+against a real 2048×1311 world with the repo's own `reference_pack.zip`
+loaded: armed Icon, placed a Settlement/Hamlet at the grid centre
+(`scale=1.0`), read back a non-empty resize handle immediately
+(`icon_handles` returned `{"resize": {x:1035.9, y:667.4, r:12.9}}` at the
+view's own zoom), clicked that exact point (hitting the handle, not
+re-placing — confirmed by the icon count staying at 1), dragged it outward
+over six samples and released: `scale` `1.0 → 2.9999947` (the drag's own
+distance ratio, not a round number, which is the point — it is really
+`icon_resize_scale`'s formula running, not a stub). A `zoom_step(1.35)` plus
+an explicit `refresh_annotations()` followed, and the scale read back
+**unchanged** (`is_equal_approx` true) while `icon_handles` re-queried at
+the new zoom returned a **different**, still-correct circle (`r` shrank
+from 12.9 to 9.5, matching `lsc`'s own inverse relationship with
+`_civZoomK`). Three screenshots confirm it visually: the placed icon's
+built-in vector glyph (an orange square — `map_overlay.gd`'s honest
+placeholder shapes, CA-12's own finding) next to a light-blue circle at the
+handle's own screen position; the square visibly larger and the circle
+correctly repositioned to the bigger box's own corner after the drag; both
+still present, correctly sized and positioned, after the zoom step.
+

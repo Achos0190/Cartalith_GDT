@@ -96,8 +96,8 @@
 //! `cartalith-assets` rewrite this module is chartered not to do.
 
 use cartalith_assets::manual::{
-    icon_box, icon_hit_test, icon_resize_scale, place_manual_icon, ArmedIcon, IconBox,
-    IconHit, IconHitKind, IconViewEnv, ManualIcon, ManualIconFamily,
+    civ_zoom_k, icon_box, icon_hit_test, icon_resize_scale, place_manual_icon, ArmedIcon, IconBox,
+    IconHandle, IconHit, IconHitKind, IconViewEnv, ManualIcon, ManualIconFamily,
 };
 
 /// The armed selection plus the tool-options row's extra chip fields —
@@ -213,9 +213,7 @@ impl IconEditor {
     }
 
     /// `_carIconHitTest`'s box-hit half only (`manual.rs`'s own
-    /// `icon_hit_test`, `None` handle — no on-canvas resize-handle geometry
-    /// is tracked by this bridge yet; that is a render-layer concern for a
-    /// future pass, not a data-model one). Boxes are computed in **grid
+    /// `icon_hit_test`, `None` handle). Boxes are computed in **grid
     /// space** (`env`'s `zoom_scale`/`icon_scale` at their defaults unless
     /// the caller overrides them), matching `gx`/`gy` here and in `place`/
     /// `resize` all being grid coordinates, not screen pixels — a caller
@@ -224,6 +222,13 @@ impl IconEditor {
     /// Sculpt tool. Selects and returns the hit icon's index on a hit
     /// (matching the reference's own hit-then-select click sequencing);
     /// `None` (selection unchanged) on a miss.
+    ///
+    /// **Box hits only, still** — matching `label_bridge::LabelBridge::
+    /// hit_test`'s own precedent: a *handle* hit is the shell's own job,
+    /// by comparing the pointer against the circle [`IconEditor::handles`]
+    /// returns for whichever icon is selected (`GUI_GAP_REGISTER.md` CA-05
+    /// closed that gap — see this file's own module doc for why it lives
+    /// here now).
     pub fn hit_test(&mut self, gx: f64, gy: f64, env: &IconViewEnv) -> Option<usize> {
         let boxes: Vec<IconBox> = self.icons.iter().map(|ic| icon_box(ic, env)).collect();
         match icon_hit_test(&boxes, None, gx, gy) {
@@ -233,6 +238,18 @@ impl IconEditor {
             }
             _ => None,
         }
+    }
+
+    /// Icon `index`'s on-canvas resize-handle circle — see [`icon_handle`].
+    /// `None` for an out-of-range `index`. Unlike [`IconEditor::select`],
+    /// this does not require `index` to be the current selection: exactly
+    /// `label_bridge::LabelBridge::handles`' own contract (any valid index
+    /// works; a caller decides which index to ask for, normally whichever
+    /// one is currently selected).
+    pub fn handles(&self, index: usize, env: &IconViewEnv) -> Option<IconHandle> {
+        let icon = self.icons.get(index)?;
+        let box_ = icon_box(icon, env);
+        Some(icon_handle(&box_, env))
     }
 
     /// Records `index` as selected and snapshots its current `scale` as
@@ -301,6 +318,36 @@ impl Default for IconEditor {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// The reference's `drawCivLayer` selected-icon resize-handle geometry
+/// (lines 15883-15893 of `reference/Cartalith Gen1 v2.10.html`),
+/// transcribed rather than sliced — exactly `label_bridge::handle_circles`'
+/// own reasoning: this is inline canvas drawing code, not a callable
+/// function, so `manual.rs` never had a home for it (that module's own
+/// `IconEditor::hit_test`/`icon_bridge.rs` doc comments called this out as
+/// the one acknowledged gap — `GUI_GAP_REGISTER.md` CA-05).
+///
+/// One handle only — a manually-placed icon has no rotate/arc field at all
+/// (`manual.rs`'s own module doc), so unlike a label's five circles there
+/// is nothing else to compute here.
+///
+/// `lsc` is `label_bridge::handle_circles`'s own render-pass constant
+/// (`Math.max(1,GW/512)*_civZoomK()*_civIconScale()`) — computed inline
+/// here rather than shared with that function, matching `IconBox`'s own
+/// doc comment on why icon/label geometry stay separate rather than behind
+/// a shared abstraction (`cartalith-assets` has no dependency on
+/// `cartalith-civ` to share one through, either).
+pub fn icon_handle(box_: &IconBox, env: &IconViewEnv) -> IconHandle {
+    let lsc = f64::max(1.0, env.grid_w as f64 / 512.0) * civ_zoom_k(env.zoom_scale) * env.icon_scale;
+    let hr = f64::max(4.0, 3.2 * lsc);
+    let hx = box_.px + box_.side / 2.0 * 0.7;
+    let hy = box_.py + box_.side / 2.0 * 0.7;
+    // The reference's own hit-test radius bakes in the *displayed* circle's
+    // own further slack (`_iconHandle={..,r:hr*1.6,..}`, reference line
+    // 15893) — not the drawn `hr` alone, matching `label_bridge::
+    // handle_circles`' own resize/rotate/arc handles doing the same thing.
+    IconHandle { x: hx, y: hy, r: hr * 1.6 }
 }
 
 #[cfg(test)]
@@ -467,6 +514,77 @@ mod tests {
     fn resize_rejects_an_out_of_range_index() {
         let mut e = IconEditor::new();
         assert!(!e.resize(0, 0.0, 0.0, 0.0, 0.0, 1.0));
+    }
+
+    // ---- handles / icon_handle ----
+
+    #[test]
+    fn icon_handle_matches_the_reference_formula() {
+        let ic = ManualIcon { x: 10.0, y: 8.0, family: ManualIconFamily::Feature, slot: "mountain".into(), set: None, scale: 1.0 };
+        // grid_w=2048 -> sc/lsc base = 4; zoom_scale=1 -> civ_zoom_k=1.
+        let env = IconViewEnv { grid_w: 2048, zoom_scale: 1.0, icon_scale: 1.0 };
+        let box_ = icon_box(&ic, &env); // px=10.5, py=8.5, r=20, side=52
+        let h = icon_handle(&box_, &env);
+        assert!((h.x - 28.7).abs() < 1e-9, "hx = px + side/2*0.7 = 10.5 + 18.2");
+        assert!((h.y - 26.7).abs() < 1e-9, "hy = py + side/2*0.7 = 8.5 + 18.2");
+        assert!((h.r - 20.48).abs() < 1e-9, "hr=max(4,3.2*4)=12.8, stored r = hr*1.6");
+    }
+
+    #[test]
+    fn icon_handle_follows_the_boxs_own_per_instance_scale() {
+        let small = ManualIcon { x: 0.0, y: 0.0, family: ManualIconFamily::Feature, slot: "mountain".into(), set: None, scale: 1.0 };
+        let big = ManualIcon { x: 0.0, y: 0.0, family: ManualIconFamily::Feature, slot: "mountain".into(), set: None, scale: 2.5 };
+        let env = IconViewEnv { grid_w: 2048, zoom_scale: 1.0, icon_scale: 1.0 };
+        let h_small = icon_handle(&icon_box(&small, &env), &env);
+        let h_big = icon_handle(&icon_box(&big, &env), &env);
+        // A bigger box pushes the handle further from the icon's own centre,
+        // but the handle's own radius (a fixed on-screen affordance size,
+        // not sprite-relative) is unchanged -- exactly `hr`'s own formula,
+        // which depends only on `lsc`, never on the box.
+        assert!(h_big.x > h_small.x);
+        assert!(h_big.y > h_small.y);
+        assert!((h_big.r - h_small.r).abs() < 1e-9);
+    }
+
+    #[test]
+    fn icon_handle_never_shrinks_below_its_own_floor_at_low_zoom() {
+        // zoom_scale pushed far past civ_zoom_k's own [0.35,5] clamp so lsc
+        // collapses toward its minimum and the max(4,...) floor takes over
+        // -- same fixture shape `label_bridge::handle_circles`' own
+        // low-zoom-floor test uses.
+        let ic = ManualIcon { x: 0.0, y: 0.0, family: ManualIconFamily::Feature, slot: "mountain".into(), set: None, scale: 1.0 };
+        let env = IconViewEnv { grid_w: 512, zoom_scale: 1000.0, icon_scale: 1.0 };
+        let h = icon_handle(&icon_box(&ic, &env), &env);
+        assert!((h.r - 6.4).abs() < 1e-9, "hr floors at 4, stored r = 4*1.6");
+    }
+
+    #[test]
+    fn editor_handles_matches_the_selected_icons_box() {
+        let mut e = IconEditor::new();
+        e.arm("feature", 0, 1.0, 0.0, 0.0);
+        e.place(10.0, 8.0, 2048, 2048);
+        let env = IconViewEnv { grid_w: 2048, zoom_scale: 1.0, icon_scale: 1.0 };
+        let h = e.handles(0, &env).expect("placed icon has a handle");
+        assert!((h.x - 28.7).abs() < 1e-9);
+        assert!((h.y - 26.7).abs() < 1e-9);
+    }
+
+    #[test]
+    fn editor_handles_does_not_require_the_index_to_be_selected() {
+        // Mirrors `label_bridge::LabelBridge::handles`' own contract: any
+        // valid index works, not only the current selection.
+        let mut e = IconEditor::new();
+        e.arm("feature", 0, 1.0, 0.0, 0.0);
+        e.place(1.0, 1.0, 48, 32); // index 0
+        e.place(2.0, 2.0, 48, 32); // index 1, now selected
+        assert_eq!(e.selected, Some(1));
+        assert!(e.handles(0, &env()).is_some(), "index 0 is not selected but is still valid");
+    }
+
+    #[test]
+    fn editor_handles_out_of_range_is_none() {
+        let e = IconEditor::new();
+        assert!(e.handles(0, &env()).is_none());
     }
 
     // ---- delete ----

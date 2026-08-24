@@ -101,6 +101,16 @@ const LABEL_SIZE_MAX := 48.0  ## `cartalith_civ::labels::LABEL_SIZE_MAX`.
 ## `ROTATE`/`ARC` mirror the three handles `label_handles()` returns.
 enum DragMode { NONE, MOVE, RESIZE, ROTATE, ARC }
 
+## The Icon tool's own drag state -- `IconDragMode`'s one-handle mirror of
+## `DragMode` above (`GUI_GAP_REGISTER.md` CA-05: `icon_handles()` returns
+## exactly one circle, `"resize"`, since a manually-placed icon has no
+## rotate/arc field at all -- `icon_bridge.rs`'s own doc comment). `MOVE`
+## has no counterpart here either: unlike the Label tool, a box hit outside
+## the handle isn't wired to a move-drag yet (`icon_hit_test` is exposed but
+## unused by this file still -- a separate gap from CA-05, not folded in
+## here).
+enum IconDragMode { NONE, RESIZE }
+
 # -- Icon tool state (UI-side only -- the engine holds the authoritative armed
 # selection via `icon_arm`; this is just what the tool options row shows and
 # re-arms from on every change). --------------------------------------------
@@ -110,6 +120,15 @@ var _icon_scale := 1.0
 var _icon_rotation := 0.0
 var _icon_jitter := 0.0
 var _icon_list_body: VBoxContainer
+
+# -- Icon tool resize-handle drag state (CA-05) -- mirrors the Label tool's
+# `_label_drag_*` fields one handle down; see `IconDragMode`'s own doc
+# comment. --------------------------------------------------------------
+var _icon_drag_mode := IconDragMode.NONE
+var _icon_drag_index := -1
+var _icon_drag_cx := 0.0
+var _icon_drag_cy := 0.0
+var _icon_drag_start_dist := 0.0
 
 # -- Label tool state ---------------------------------------------------------
 var _label_drag_mode := DragMode.NONE
@@ -231,6 +250,8 @@ func _build_layer_gaps(parent: Control) -> void:
 
 func _register_tools() -> void:
 	app.register_tool_click_handler("icon", _on_icon_click)
+	app.register_tool_drag_handler("icon", _on_icon_drag)
+	app.register_tool_release_handler("icon", _on_icon_release)
 
 	app.register_tool_click_handler("label", _on_label_click)
 	app.register_tool_drag_handler("label", _on_label_drag)
@@ -265,6 +286,8 @@ func _on_any_tool_armed(id: String) -> void:
 		_:
 			_label_drag_mode = DragMode.NONE
 			_label_drag_index = -1
+			_icon_drag_mode = IconDragMode.NONE
+			_icon_drag_index = -1
 			app.viewport.tool_overlay.set_handles([])
 			if app.active_domain() == "cartography":
 				_show_style_tool_options()
@@ -274,6 +297,8 @@ func _on_world_changed() -> void:
 	app.viewport.tool_overlay.set_handles([])
 	_label_drag_mode = DragMode.NONE
 	_label_drag_index = -1
+	_icon_drag_mode = IconDragMode.NONE
+	_icon_drag_index = -1
 	if app.armed_tool == "icon":
 		_arm_icon_from_ui()
 	_rebuild_icon_panel()
@@ -352,7 +377,20 @@ func _build_icon_tool_options_row(row: HBoxContainer) -> void:
 	row.add_child(DccTheme.spacer())
 
 
+## Pointerdown-on-the-handle-starts-a-resize, a-miss-falls-through-to-place
+## precedence (reference lines 9664-9671: `_carIconHitTest` checked before
+## the click handler's own place/select branch) -- `IconEditor::handles`
+## doesn't require `sel` to already be selected, but the reference's own
+## `_iconHandle` is only ever set for `_iconSelected`, so checking it here
+## against whatever `icon_get_selected()` currently names reproduces that.
 func _on_icon_click(gx: float, gy: float) -> void:
+	var sel := bridge.icon_get_selected()
+	if sel >= 0:
+		var h: Dictionary = bridge.icon_handles(sel, app.viewport.zoom()).get("resize", {})
+		if not h.is_empty() and Vector2(gx, gy).distance_to(Vector2(h["x"], h["y"])) <= float(h["r"]):
+			_begin_icon_handle_drag(sel, gx, gy)
+			return
+
 	if not bridge.has_asset_pack():
 		app.set_status("hint", "load an asset pack first — File ▸ Import asset pack", "accent")
 		return
@@ -361,6 +399,38 @@ func _on_icon_click(gx: float, gy: float) -> void:
 		return
 	app.viewport.refresh_annotations()
 	_rebuild_icon_panel()
+
+
+## Captures the resize drag's fixed reference values -- `_iconResize`'s own
+## `{icon,cx,cy,startScale,startDist}` (reference line 9669), mirroring
+## `_begin_label_handle_drag`'s pattern one handle down: an icon has no
+## rotate/arc, so `IconDragMode` only ever has the one mode to capture, and
+## `icon_resize` (unlike `label_resize_size`) already writes the result
+## straight into the icon's own `scale` -- no separate `icon_set` commit
+## call is needed the way `label_set({"size":...})` is.
+func _begin_icon_handle_drag(index: int, gx: float, gy: float) -> void:
+	_icon_drag_mode = IconDragMode.RESIZE
+	_icon_drag_index = index
+	var ic := bridge.icon_get(index)
+	_icon_drag_cx = float(ic.get("x", gx)) + 0.5
+	_icon_drag_cy = float(ic.get("y", gy)) + 0.5
+	_icon_drag_start_dist = maxf(1.0,
+		Vector2(gx + 0.5, gy + 0.5).distance_to(Vector2(_icon_drag_cx, _icon_drag_cy)))
+
+
+func _on_icon_drag(gx: float, gy: float) -> void:
+	if _icon_drag_mode != IconDragMode.RESIZE or _icon_drag_index < 0:
+		return
+	bridge.icon_resize(_icon_drag_index, _icon_drag_cx, _icon_drag_cy, gx, gy, _icon_drag_start_dist)
+	app.viewport.refresh_annotations()
+	_update_icon_handles_overlay()
+
+
+func _on_icon_release(_gx: float, _gy: float, _valid: bool) -> void:
+	if _icon_drag_mode != IconDragMode.NONE:
+		_icon_drag_mode = IconDragMode.NONE
+		_icon_drag_index = -1
+		_rebuild_icon_panel()   ## Syncs the list row's own `×scale` readout to the drag's final value.
 
 
 func _build_icon_panel(parent: Control) -> void:
@@ -377,9 +447,9 @@ func _build_icon_panel(parent: Control) -> void:
 	DccWidgets.note(sec,
 		"Arm the Icon tool above, then click the map to stamp it. Family, "
 		+ "variant, scale, rotation and jitter live in the tool options bar "
-		+ "while Icon is armed. There is no on-canvas resize handle yet for a "
-		+ "placed icon (icon_bridge.rs's own acknowledged gap) -- delete and "
-		+ "re-place to change one.")
+		+ "while Icon is armed. Placing an icon selects it and shows its own "
+		+ "on-canvas resize handle -- drag it to rescale in place; delete and "
+		+ "re-place to change family/slot.")
 
 
 func _rebuild_icon_panel() -> void:
@@ -391,7 +461,6 @@ func _rebuild_icon_panel() -> void:
 	var list: Array = bridge.icon_list()
 	if list.is_empty():
 		_icon_list_body.add_child(DccTheme.label("none placed", "text_ghost", DccTheme.FS_MICRO))
-		return
 	for entry in list:
 		var d: Dictionary = entry
 		var row := HBoxContainer.new()
@@ -400,6 +469,8 @@ func _rebuild_icon_panel() -> void:
 		var l := DccTheme.mono_label(text, "text_dim", DccTheme.FS_SMALL)
 		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		l.clip_text = true
+		if int(d.get("index", -1)) == bridge.icon_get_selected():
+			l.add_theme_color_override("font_color", DccTheme.c("accent"))
 		row.add_child(l)
 		var idx: int = int(d.get("index", -1))
 		var del := Button.new()
@@ -413,6 +484,20 @@ func _rebuild_icon_panel() -> void:
 			_rebuild_icon_panel())
 		row.add_child(del)
 		_icon_list_body.add_child(row)
+	_update_icon_handles_overlay()
+
+
+## Draws the selected icon's resize handle (`icon_handles`,
+## `GUI_GAP_REGISTER.md` CA-05) through the same `tool_overlay.gd` primitive
+## the Label tool's own handles already use -- `_update_label_handles_
+## overlay`'s one-handle mirror.
+func _update_icon_handles_overlay() -> void:
+	var idx := bridge.icon_get_selected()
+	if idx < 0:
+		app.viewport.tool_overlay.set_handles([])
+		return
+	var h: Dictionary = bridge.icon_handles(idx, app.viewport.zoom()).get("resize", {})
+	app.viewport.tool_overlay.set_handles([h] if not h.is_empty() else [])
 
 
 # ===========================================================================
