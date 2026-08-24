@@ -76,9 +76,72 @@ const PATH_PREVIEW_POINT_RADIUS := 2.6
 const HANDLE_COLOR := Color(0.549, 0.816, 1.0, 0.95)   ## `#8fd0ff`, matches the reference's own rotate-handle blue
 const HANDLE_OUTLINE := Color(0.031, 0.024, 0.016, 0.8)
 
+## ── Rasterising at screen resolution, not control resolution ────────────────
+##
+## `ViewportHost` parents this control under `_camera` and scales that camera,
+## exactly as it does `map_overlay.gd` -- and Godot does not re-run a
+## `CanvasItem`'s draw commands when an ancestor's scale changes, it rescales
+## the geometry those commands already produced. So a `draw_polyline` width, a
+## `draw_circle` radius, a `draw_dashed_line` dash and a `draw_string`
+## `font_size`, all written here in THIS control's local pixels, are magnified
+## along with their rasterisation: measured live at 1600x1000, the 1.6 px
+## measure ruler rendered **2 px at zoom 1 and 16 px at zoom 6**, and the
+## 11 px `A` end-label's bounding box went from 17x18 px to 69x74 px at zoom 4
+## -- an 11 px glyph bitmap stretched over four times its size, which is
+## precisely the blur the owner reported against `map_overlay.gd` on
+## 2026-08-24 (`GUI_GAP_REGISTER.md` §30 / MR-01).
+##
+## The fix is that file's, verbatim, because the defect is that file's: inside
+## `_crisp_begin()`/`_crisp_end()` a `1/zoom` `draw_set_transform` is in force,
+## so every coordinate passed to a draw call is a **screen** pixel and every
+## size is left alone. `_crisp_begin()` returns the `k` that converts this
+## control's local pixels into screen pixels; every position multiplies by it,
+## and so does every radius that is a real distance on the map (the brush ring,
+## the Radius reading's circle) -- those must keep scaling with zoom, only
+## their *stroke* must not.
+##
+## Unlike `map_overlay.gd`, this is applied to the whole `_draw()` rather than
+## to the text and linear layers alone: this control has one transform to enter
+## and every primitive it emits is tool chrome, which is screen furniture by
+## definition -- a 3 px ruler dot has no business being 24 px across because
+## the map underneath it was magnified.
+var _camera_zoom := 1.0
+
+## **Observed, not pushed.** `map_overlay.gd` learns the zoom from two
+## `set_camera_zoom()` calls `ViewportHost` makes in `_zoom_at()` and
+## `reset_view()`; this control reads it off the camera itself. The parent
+## *is* `ViewportHost._camera`, and its `scale.x` *is* `_zoom` -- one source,
+## and no third call site for a future fourth zoom path (a pinch gesture, a
+## "zoom to selection") to forget.
+##
+## The compare has to happen every frame rather than on a notification.
+## `set_notify_transform(true)` was the first attempt and does not work here:
+## Godot sends `NOTIFICATION_TRANSFORM_CHANGED` for a `Control`'s own
+## transform, and an ancestor's `scale` change does not propagate it to
+## children -- measured, the ruler went straight back to 16 px at zoom 6. What
+## remains is one float compare per frame against a value that changes a few
+## times a second at most, which is cheaper than the redraw it guards.
+func _process(_delta: float) -> void:
+	var p := get_parent() as Control
+	if p == null or is_equal_approx(p.scale.x, _camera_zoom):
+		return
+	_camera_zoom = p.scale.x
+	queue_redraw()
+
+func _crisp_begin() -> float:
+	var k := maxf(_camera_zoom, 0.001)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2(1.0 / k, 1.0 / k))
+	return k
+
+func _crisp_end() -> void:
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	resized.connect(func(): queue_redraw())
+	var p := get_parent() as Control
+	if p != null:
+		_camera_zoom = p.scale.x
 
 func set_grid(gw: int, gh: int) -> void:
 	_gw = gw
@@ -123,8 +186,10 @@ func set_handles(raw: Array) -> void:
 	handles = raw
 	queue_redraw()
 
-func _grid_to_screen(p: Vector2, rect: Rect2) -> Vector2:
-	return rect.position + Vector2(p.x / _gw, p.y / _gh) * rect.size
+## `k` is `_crisp_begin()`'s return: local pixels -> screen pixels. Folded in
+## here rather than at every call site so no caller can forget it.
+func _grid_to_screen(p: Vector2, rect: Rect2, k: float = 1.0) -> Vector2:
+	return (rect.position + Vector2(p.x / _gw, p.y / _gh) * rect.size) * k
 
 func _draw() -> void:
 	if _gw <= 0 or _gh <= 0 or overlay == null:
@@ -138,9 +203,18 @@ func _draw() -> void:
 	if rect.size.x <= 0.0:
 		return
 
+	## Every coordinate below this line is a SCREEN pixel; every width, dash,
+	## font size and marker radius is left in screen pixels by not being
+	## multiplied at all. See `_crisp_begin()`'s own doc comment above.
+	var k := _crisp_begin()
+	## The one factor that turns a distance in grid cells into screen pixels --
+	## the fit scale and the camera zoom together. Used by the two radii that
+	## are real distances on the map (the brush ring, the Radius reading).
+	var cell_px: float = (rect.size.x / float(_gw)) * k
+
 	if region_rect.size.x > 0.0 and region_rect.size.y > 0.0:
-		var a := _grid_to_screen(region_rect.position, rect)
-		var b := _grid_to_screen(region_rect.position + region_rect.size, rect)
+		var a := _grid_to_screen(region_rect.position, rect, k)
+		var b := _grid_to_screen(region_rect.position + region_rect.size, rect, k)
 		var screen_rect := Rect2(a, b - a).abs()
 		draw_rect(screen_rect, REGION_FILL, true)
 		_draw_dashed_rect(screen_rect, REGION_COLOR, 1.4, REGION_DASH)
@@ -152,23 +226,25 @@ func _draw() -> void:
 			draw_rect(Rect2(corner - Vector2(3, 3), Vector2(6, 6)), REGION_COLOR, true)
 
 	if brush_visible and brush_radius_cells > 0.0:
-		var center_screen := _grid_to_screen(brush_center, rect)
+		var center_screen := _grid_to_screen(brush_center, rect, k)
 		## Radius scales by the SAME fit factor the rest of this control
 		## already uses (`rect.size.x / _gw`), not a fixed pixel size --
 		## a brush is a real distance on the map, so it has to shrink/grow
-		## with zoom exactly like the terrain under it does.
-		var px_radius: float = brush_radius_cells * (rect.size.x / float(_gw))
+		## with zoom exactly like the terrain under it does. `cell_px` carries
+		## the camera zoom as well, since inside `_crisp_begin()` the transform
+		## no longer supplies it.
+		var px_radius: float = brush_radius_cells * cell_px
 		draw_arc(center_screen, px_radius, 0, TAU, 48, MEASURE_COLOR, 1.2, true)
 
 	if measure_points.size() > 0:
 		var screen_pts := PackedVector2Array()
 		for p in measure_points:
-			screen_pts.append(_grid_to_screen(p, rect))
+			screen_pts.append(_grid_to_screen(p, rect, k))
 		if measure_radius_cells > 0.0:
 			## Radius mode: the ring the reading describes, plus the spoke
 			## that was actually dragged, so the number in the dock has a
 			## visible cause.
-			var r_px: float = measure_radius_cells * (rect.size.x / float(_gw))
+			var r_px: float = measure_radius_cells * cell_px
 			draw_arc(screen_pts[0], r_px, 0, TAU, 64, MEASURE_COLOR, 1.4, true)
 			if screen_pts.size() > 1:
 				draw_line(screen_pts[0], screen_pts[1], MEASURE_COLOR, 1.0, true)
@@ -201,20 +277,33 @@ func _draw() -> void:
 	if path_preview.size() > 0:
 		var pp_screen := PackedVector2Array()
 		for p in path_preview:
-			pp_screen.append(_grid_to_screen(p, rect))
+			pp_screen.append(_grid_to_screen(p, rect, k))
 		if pp_screen.size() > 1:
 			draw_polyline(pp_screen, PATH_PREVIEW_COLOR, 1.8, true)
 		for sp in pp_screen:
 			draw_circle(sp, PATH_PREVIEW_POINT_RADIUS, PATH_PREVIEW_COLOR, true, -1.0, true)
 
+	## **`r` is in grid cells, not pixels.** Both producers build it in the same
+	## space as `x`/`y`: `label_bridge::handle_circles` offsets it from
+	## `LabelBox.px/py` (grid coords), and `icon_bridge::icon_handle` from
+	## `IconBox.px/py`. Both floor it at `4.0` — four *cells* — and both are
+	## hit-tested at that radius against a grid-space cursor
+	## (`labels::label_hit_test`, `IconEditor::hit_test`). This file used to
+	## pass it to `draw_circle` untouched, i.e. as four *pixels*, so the drawn
+	## handle and the region you could actually grab were different sizes and
+	## diverged further the more the map was zoomed. `cell_px` is the same
+	## conversion the brush ring above uses, and it makes the circle you see
+	## exactly the circle that answers the click.
 	for h in handles:
 		var hd: Dictionary = h
 		if hd.is_empty():
 			continue
-		var hp := _grid_to_screen(Vector2(hd["x"], hd["y"]), rect)
-		var hr: float = maxf(4.0, float(hd["r"]))
+		var hp := _grid_to_screen(Vector2(hd["x"], hd["y"]), rect, k)
+		var hr: float = maxf(4.0, float(hd["r"]) * cell_px)
 		draw_circle(hp, hr, HANDLE_COLOR, true, -1.0, true)
 		draw_arc(hp, hr, 0, TAU, 16, HANDLE_OUTLINE, 1.0, true)
+
+	_crisp_end()
 
 func _draw_dashed_rect(r: Rect2, color: Color, width: float, dash: float) -> void:
 	var corners := [r.position, r.position + Vector2(r.size.x, 0), r.position + r.size, r.position + Vector2(0, r.size.y)]

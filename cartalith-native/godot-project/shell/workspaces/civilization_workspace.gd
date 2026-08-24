@@ -1031,16 +1031,40 @@ func _fill_politics(parent: Control) -> void:
 		"now -- see the TOOLS block at the top of this dock (§4.5.3's Settlement and " +
 		"Territory tools).")
 
+	## **Two of these three rows stopped being gaps when SG-02 shipped and
+	## nobody moved them** (found 2026-08-24 by driving the dock rather than
+	## reading it). Both tooltips asserted, in the shipped build, that no
+	## `#[func]` re-runs territory or provinces — and `civ_recompute()`, the
+	## button eight rows up in this same dock, re-derives *both*: its own
+	## result dictionary reports `provinces` rebuilt, `_recompute_civ()`
+	## re-uploads `territory_texture()`, and this file's own Settlement-tool
+	## status hint has said so since that pass ("provinces/trade/roads still
+	## predate it. Settlements ▸ Recompute civilisation catches them up").
+	##
+	## So they are shortcuts onto that one call now, exactly the shape the
+	## bake pass used for the tool-options bar's dead copy of "Bake ALL levels"
+	## — one owner of the action, two ways in, no second implementation to
+	## drift. What they cannot do is re-*place* settlements, which is the real
+	## remaining gap and is what each tooltip says instead of the old claim.
+	var pol := DccWidgets.section(parent, "Recompute")
+	var recalc := DccWidgets.action(pol, "Recalculate territories", _recompute_civ)
+	recalc.disabled = not bridge.has_world
+	recalc.tooltip_text = ("The reference's territory recompute. Runs Settlements ▸ Recompute "
+		+ "civilisation, which re-derives the whole civ layer downstream of the settlement "
+		+ "list — territory included — against the current terrain and the current settlements, "
+		+ "hand-dropped and hand-edited ones kept. It does NOT re-place settlements; only "
+		+ "Generate does that. Painting a claim by hand stays available too — the Territory "
+		+ "tool in the TOOLS block above.")
+	var gen_prov := DccWidgets.action(pol, "Generate provinces", _recompute_civ)
+	gen_prov.disabled = not bridge.has_world
+	gen_prov.tooltip_text = ("The reference's province generator. Same one call: Recompute "
+		+ "civilisation rebuilds the province partition and reports how many it produced. "
+		+ "Their map tint is a separate switch — Cartography ▸ Layers ▸ Political — provinces.")
+
 	var gaps := DccWidgets.section(parent, "Not built")
-	var recalc := DccWidgets.action(gaps, "Recalculate territories", func(): pass)
-	recalc.disabled = true
-	recalc.tooltip_text = "The reference's territory recompute. assign_territory() runs inside compute_civilisation as part of generate(); no #[func] re-runs it against edited settlements, so a manual drop does not redraw the claim map until the next full re-generate (which is what the Settlement tool's own status hint already says). Painting a claim by hand is the wired alternative -- the Territory tool above."
 	var clear_ter := DccWidgets.action(gaps, "Clear territory", func(): pass)
 	clear_ter.disabled = true
-	clear_ter.tooltip_text = "Same: CivData::territory is rebuilt wholesale by generate() and there is no civ_clear_territory #[func]. The Territory tool's own Discard reverts an uncommitted draft only, not the committed claim map."
-	var gen_prov := DccWidgets.action(gaps, "Generate provinces", func(): pass)
-	gen_prov.disabled = true
-	gen_prov.tooltip_text = "The reference's province generator. Provinces are produced inside generate() and only read out (get_provinces()); no #[func] regenerates them. Their map tint IS live -- Cartography ▸ Layers ▸ Political — provinces."
+	clear_ter.tooltip_text = "CivData::territory is rebuilt wholesale by generate() and by civ_recompute(); there is no civ_clear_territory #[func], so there is no way to leave the claim map empty. The Territory tool's own Discard reverts an uncommitted draft only, not the committed claim map."
 	DccWidgets.note(gaps,
 		"Diplomatic relations (the design's own per-faction sub-list) is new work with no " +
 		"reference behaviour behind it either -- cartalith-civ models no inter-faction " +
@@ -1102,6 +1126,20 @@ func _build_culture() -> void:
 # name), which no `#[func]` exposes yet (`civ_year_diff()` returns tid sets
 # only). Real, disclosed remaining gap -- see `_build_timeline_filters`'s own
 # note, not silently faked.
+
+## Opens this dock's Timeline category from outside — `app.gd`'s reserved
+## timeline strip is the one caller (see its own comment there for why that
+## strip carries a pointer rather than the controls). Presses the category's
+## real header button rather than flipping `visible` directly, so the
+## accordion's "one open at a time" contract and the header's own caret/accent
+## state are applied by the code that owns them.
+func open_timeline_category() -> void:
+	for e in categories:
+		var entry: Dictionary = e
+		if String(entry["title"]) == "Timeline":
+			if not (entry["body"] as Control).visible:
+				(entry["button"] as Button).pressed.emit()
+			return
 
 func _build_timeline() -> void:
 	var cat := DccWidgets.category(self, "Timeline", categories)

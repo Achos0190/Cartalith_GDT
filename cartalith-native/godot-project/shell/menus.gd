@@ -481,10 +481,18 @@ func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	_shell.style_popup(_ap_batch_popup)
 	ap.add_child(_ap_batch_popup)
 	ap.add_submenu_item("Batch", "APBatch")
-	for label in ["Tag…", "Collect into set…", "Rename…", "Duplicate", "Delete ⌫"]:
+	## `Delete ⌫` used to carry the canvas's own accelerator glyph inside its
+	## label. Two things were wrong with that: nothing anywhere in this shell
+	## binds Backspace to a library delete (`app.gd`'s `_unhandled_key_input`
+	## routes it to the armed tool's own handler and no further, and the Asset
+	## Library window has no key handling at all), and this row does not delete
+	## anything — every one of the five opens the window, as its own tooltip
+	## says. A shortcut printed on a row that is not the action, for a binding
+	## that does not exist, is two promises the build cannot keep.
+	for label in ["Tag…", "Collect into set…", "Rename…", "Duplicate", "Delete"]:
 		_ap_batch_popup.add_item(label, ID_ASSET_LIBRARY)
 		_ap_batch_popup.set_item_tooltip(_ap_batch_popup.item_count - 1,
-			"Opens the Asset Library window -- every batch op needs a multi-selection, which only the window's own grid (⇧-click ranges, ⌘/Ctrl-click adds) provides. All five are real there.")
+			"Opens the Asset Library window -- every batch op needs a multi-selection, which only the window's own grid (Shift-click ranges, Ctrl-click adds) provides. All five are real there.")
 	_ap_batch_popup.id_pressed.connect(func(_id: int): _host.open_asset_library())
 
 	_ap_build_popup = PopupMenu.new()
@@ -495,7 +503,13 @@ func _build_asset_pack_submenu(p: PopupMenu) -> void:
 	_ap_build_popup.add_item("Validate pack (warning count)", ID_AP_VALIDATE)
 	_ap_build_popup.add_item("Apply to map", ID_APPLY_LIBRARY)
 	_ap_build_popup.add_item("Import pack .zip…", ID_IMPORT_PACK)
-	_ap_build_popup.add_item("Export pack .zip… ⌘⇧P", ID_AP_EXPORT)
+	## The canvas draws `⌘⇧P` in the popup's own *accelerator column*, right
+	## of the label — not inside the label. Baking it into the text put the
+	## shortcut on the row twice, `Export pack .zip… ⌘⇧P    Ctrl+Shift+P`, one
+	## of them naming a modifier key that exists on neither platform this port
+	## ships on. `set_item_accelerator` alone renders exactly the canvas's
+	## layout, in the notation the machine actually has.
+	_ap_build_popup.add_item("Export pack .zip…", ID_AP_EXPORT)
 	_ap_build_popup.set_item_accelerator(_ap_build_popup.item_count - 1, KEY_MASK_CTRL | KEY_MASK_SHIFT | KEY_P)
 	_ap_build_popup.id_pressed.connect(_on_assets)
 

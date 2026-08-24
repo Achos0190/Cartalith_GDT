@@ -610,6 +610,7 @@ func _on_workspace_changed(id: String) -> void:
 	## CIVIL 2026-08-20 (`dcc_shell.gd`'s `DOMAINS` doc comment), so the one
 	## surviving id already covers both.
 	timeline_bar.visible = id == "civilization"
+	_fill_timeline_strip()
 	if id != "world":
 		right_dock_ctrl.leave_sculpt_context()
 	match id:
@@ -635,6 +636,53 @@ func _on_workspace_changed(id: String) -> void:
 
 func _tool_options_label(row: Control, text: String, token: String) -> void:
 	row.add_child(DccTheme.mono_label(text, token, DccTheme.FS_SMALL, 2, true))
+
+## §10's reserved timeline strip, which shows only in CIVIL — **and which was
+## 70 px of blank panel across the whole window in that domain** (measured
+## live 2026-08-24: `visible=true, children=0, height=70`). The controls it
+## reserves space for deliberately live in the CIVIL dock's own Timeline
+## category instead, on `TIMELINE_SCOPE.md` §4's "default to your own
+## dedicated panel rather than risking the wrong shell region" — but *leaving
+## the region on screen and empty* was never part of that decision, and
+## `Window ▸ Timeline` toggles it, so a user can also turn an empty band on
+## and off.
+##
+## Given a pointer rather than the controls: the strip now says where the
+## timeline is and takes you there, which is this shell's established answer
+## for a surface whose capability lives elsewhere (the tool-options bar's
+## shortcut onto the WORLD dock's bake button, immediately below). Nothing is
+## duplicated — `open_timeline_category()` presses the dock's own header.
+func _fill_timeline_strip() -> void:
+	if timeline_row == null:
+		return
+	for c in timeline_row.get_children():
+		timeline_row.remove_child(c)
+		c.queue_free()
+	if not timeline_bar.visible:
+		return
+	_tool_options_label(timeline_row, "TIMELINE", "text_dim")
+	## `clip_text` is load-bearing here for the same reason `tool_bar.gd`'s own
+	## `_note()` documents: a `Label` reports its full text width as its
+	## minimum size, and this row sits in the shell's top-level
+	## `VBoxContainer`, so one long sentence raises the whole window's minimum
+	## width and pushes the right dock off the screen.
+	var hint := DccTheme.label(
+		"Years, playback, per-year filters and the collapse/recovery simulation are in the CIVIL dock's Timeline category.",
+		"text_ghost", DccTheme.FS_MICRO)
+	hint.clip_text = true
+	hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	timeline_row.add_child(hint)
+	var go := DccWidgets.action(timeline_row, "Open Timeline", func():
+		var ws = _workspace_panels.get("civilization")
+		if ws != null and ws.has_method("open_timeline_category"):
+			ws.open_timeline_category())
+	go.tooltip_text = ("Opens CIVIL ▸ Timeline in the left dock. This strip is §10's reserved "
+		+ "region; the controls themselves need a year-pill list, an add-year field, three "
+		+ "filter checkboxes and the whole collapse-simulation form, which one fixed-height "
+		+ "row cannot hold (TIMELINE_SCOPE.md §4).")
+	## No trailing spacer: `hint` already expands, so the action lands hard
+	## right the way every other bar in this shell puts its action. Adding one
+	## made both grow and parked the button in the middle of the strip.
 
 ## §4's Generation Pipeline row, in its specified order: context label, the two
 ## run actions, New seed, the stale-from readout, then the finalize action hard
@@ -1391,3 +1439,8 @@ func toggle_region(id: int) -> void:
 		return
 	var node: CanvasItem = _region_nodes[id]
 	node.visible = not node.visible
+	## `Window ▸ Timeline` can turn the strip on from any domain, including the
+	## two `_on_workspace_changed` hides it in — and its contents are built by
+	## that same handler, so without this it comes back blank.
+	if id == DccMenus.ID_WIN_TIMELINE:
+		_fill_timeline_strip()

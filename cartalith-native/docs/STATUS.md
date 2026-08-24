@@ -5,7 +5,49 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **MR-01/MR-02/MR-03: the map overlay rasterised
+Last updated: 2026-08-24 (post **TO-01/TO-02/CV-20/MN-09/SH-15: the *tool*
+overlay had the map overlay's bug too, and four surfaces had stopped telling the
+truth** — owner reported *"plenty of minor discrepancies at the same time"*.
+Another pass with the method that keeps paying: read a `design/*.dc.html`
+canvas as ground truth, drive the live shell **non-headlessly**, measure.
+**The big one is §30's own bug in the overlay nobody looked at**: `ViewportHost`
+parents *two* drawing controls under `_camera` and scales that camera, and only
+`map_overlay` was ever told the zoom. Every constant in `tool_overlay.gd` — the
+measure ruler, region marquee, path preview, brush ring, A/B end labels, label
+and icon handles — was in local pixels and magnified along with its
+rasterisation. Measured by frame difference at 1600×1000: the 1.6 px ruler
+rendered **2 / 6 / 12 / 16 px** at zoom 1/2/4/6 and the 11 px `A` label's bbox
+went **17×18 → 69×74** between zoom 1 and 4; after `_crisp_begin()`/
+`_crisp_end()` it is **2 px at every zoom and 17×18 at both**, while the
+20-cell brush ring still grows 94 → 372 px as it must. The zoom is read off
+`get_parent().scale.x` in `_process` rather than pushed from `viewport_host.gd`
+(concurrent edit) — `set_notify_transform(true)` was tried and **does not
+work**, a `Control` ancestor's `scale` change does not propagate
+`NOTIFICATION_TRANSFORM_CHANGED` to children. **TO-02**, in the same file:
+`HandleCircle.r` is in **grid cells**, not pixels — both producers build it
+beside `x`/`y` and hit-test it against a grid-space cursor, so the drawn handle
+and the region answering the click were different sizes; 32 px against ~30 px
+now, ~13 px before. **CV-20**: CIVIL ▸ Politics offered *Recalculate
+territories* and *Generate provinces* greyed under a **Not built** heading with
+tooltips claiming no `#[func]` re-runs either — while *Recompute civilisation*
+eight rows up does both; they are live shortcuts onto it now (driven: *"233
+settlements kept, 60 ways and 8 provinces rebuilt"*). **MN-09**: `Export pack
+.zip… ⌘⇧P` printed its shortcut twice, once as a key neither shipping platform
+has, and `Delete ⌫` advertised a Backspace binding that exists nowhere.
+**SH-15**: §10's timeline strip was **70 px of blank panel** in CIVIL and
+`Window ▸ Timeline` toggled that blank band; it carries a caption, a line and an
+**Open Timeline** action now. **Driven and found clean**: all 33 available
+Layers-popover field views (distinct rasters, no dupes, hotkeys 1-8 all
+correct), a dead-control sweep of the whole live tree across three docks, four
+right-dock contexts, **all nine tool-options bars** and eight windows (**no dead
+controls**), and all 11 menu accelerators. Camera-space rasterisation is now
+closed exhaustively — those two overlays are the only `_camera` children that
+draw. Four files, no Rust. **Left open**: the map's top-right readout carries
+grid size and extent where the canvas puts projection + style preset (a content
+decision); the Asset Library has no keyboard delete (a design question, not
+improvised); four orphan `ID_*` constants in `menus.gd` —
+`GUI_GAP_REGISTER.md` §31)
+— previously, post **MR-01/MR-02/MR-03: the map overlay rasterised
 in the wrong space, twice** — owner reported settlement names going blurry and
 not scaling, minor settlements always visible instead of zoom-gated, and routes
 drawing see-through and blurry. **Two of the three are one bug.** `ViewportHost`

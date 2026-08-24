@@ -46,7 +46,7 @@ the engine as they stand today, and it is the document that goes stale first.
 | [13](#13--the-v210-menu-structure-audit-2026-08-20) | **The v2.10 menu-structure audit** — `design/Cartalith Menu Structure v2.dc.html` against the shipped shell, and the 17 undisclosed omissions it found |
 | [14](#14--visual-sweep-2026-08-20) | **Visual sweep (2026-08-20)** — the shell driven live, screenshotted, and compared against the DCC Shell / Journey Planner mockups. **§14.6 corrects one of its own verdicts**: the Asset library window was passed on function rather than layout, and has been rebuilt against the canvas. |
 | [15](#15--the-phone-overflow-menu-is-wired-but-inoperable-2026-08-20) | **The phone overflow menu (2026-08-20)** — (C): the real menu bar is wired into the phone sheet but is unscaled, buried in desktop status chrome, and inert to touch. Device evidence, kept as the brief for the mobile menu design; **not fixed**. |
-| 16-22 | Seven sections added after the contents table was written; see the `## ` headings directly. |
+| 16-22, 27-31 | Sections added after the contents table was written; see the `## ` headings directly. §29 (roads drawn as chords), §30 (the map overlay rasterised in the wrong space) and §31 (the *tool* overlay with the same defect, plus four surfaces whose copy had gone stale) are the 2026-08-24 live-driving batch. |
 | [25](#25--bk-01--androids-back-button-killed-the-process-unsaved-world-and-all-2026-08-24--fixed) | **BK-01 (2026-08-24)** — the highest-severity entry in this register, and the only one where a shipped control *destroyed the user's work*: Android's Back button ended the process outright, taking an unsaved generated world with it. Root cause, the navigation model that replaced it, and two related findings (BK-02 desktop close box, unfixed; BK-03 `KEYCODE_M`, a non-finding). **Fixed.** |
 | [26](#26--bk-02--the-desktop-close-box-did-the-same-thing-and-the-reason-it-was-left-alone-was-answerable-2026-08-24--fixed) | **BK-02 (2026-08-24)** — BK-01's twin on the desktop: the title bar's × ended the process with an unsaved world in it. Fixed onto the *same* shared gate, with the four-branch argument for why `auto_accept_quit = false` cannot leave the app un-closeable — the objection §25 declined the fix over. **Fixed.** |
 | [23](#23--rf-01--the-civil-dock-never-rebuilt-after-a-world-generated-2026-08-24--fixed) | **RF-01 (2026-08-24)** — a new class, and not a capability gap: the whole CIVIL dock (ten sections across two files) was built once at launch and never rebuilt when a world generated or loaded, so it showed "generate a world first" over a finished world. **Fixed**, with the presentation-vs-recompute cost check that shows why this one is safe to hang off every generate. |
@@ -4610,3 +4610,79 @@ improvement", never a place wrongly hidden.
 this shell generates therefore carries the additive layer. That is a generation
 default, not a rendering defect, and changing it changes what is generated —
 `DECISIONS.md` territory, raised rather than taken.
+
+## 31 · TO-01, TO-02, CV-20, MN-09, SH-15 — a second overlay in the wrong space, and four surfaces that had stopped telling the truth (2026-08-24) — **FIXED**
+
+Owner report: *"plenty of minor discrepancies at the same time"*, alongside the
+batch §29 and §30 answered. This pass repeated the method that keeps working —
+read a `design/*.dc.html` canvas as ground truth, then **drive the live shell
+non-headlessly** and measure — across areas §29/§30 had not touched.
+
+| id | Symptom | Root cause | Fix |
+|---|---|---|---|
+| TO-01 | Every measure ruler, region marquee, path preview and A/B end label thickens and blurs as the map is zoomed — **the same defect §30 fixed, in the other overlay** | `ViewportHost` parents `map_overlay` **and** `tool_overlay` under `_camera` and scales that camera, but only `map_overlay` was ever told the zoom. Every constant in `tool_overlay.gd` — a 1.6 px `draw_polyline`, a 3 px `MEASURE_POINT_RADIUS`, an 11 px `draw_string`, a 1.4 px dashed marquee with a 6 px dash and 6 px corner squares — is therefore in the control's *local* pixels, magnified along with its rasterisation | `_crisp_begin()`/`_crisp_end()`, `map_overlay.gd`'s own mechanism, applied to the whole `_draw()` rather than to the text and linear layers alone: this control emits nothing but tool chrome, which is screen furniture by definition. The two radii that *are* real map distances — the brush ring, the Radius reading's circle — multiply by `cell_px` so they keep scaling. The zoom is **read off `_camera.scale.x` in `_process`** rather than pushed from `viewport_host.gd`, which was under concurrent edit; `set_notify_transform(true)` was tried first and does not work, since a `Control` ancestor's `scale` change does not propagate `NOTIFICATION_TRANSFORM_CHANGED` to its children |
+| TO-02 | A selected label's or icon's resize/rotate/arc handle is a much smaller circle than the region that actually answers a click on it, and the mismatch grows with zoom | **`HandleCircle.r` is in grid cells, not pixels.** Both producers build it in the same space as `x`/`y` (`label_bridge::handle_circles` offsets from `LabelBox.px/py`, `icon_bridge::icon_handle` from `IconBox.px/py`), both floor it at `4.0` *cells*, and both hit-test it at that radius against a grid-space cursor. `tool_overlay.gd` passed it to `draw_circle` untouched — as four *pixels* | The same `cell_px` conversion the brush ring already used. Measured: `r = 6.4` cells at 2.31 screen px/cell now draws a 32 px circle against the ~30 px the hit test answers, where it drew ~13 px before |
+| CV-20 | CIVIL ▸ Politics offers *Recalculate territories* and *Generate provinces* under a heading reading **Not built**, both greyed, both with tooltips asserting that no `#[func]` re-runs either — while **Recompute civilisation, eight rows up in the same dock, does both** | The two tooltips were written before SG-02 shipped and were never revisited. `civ_recompute()`'s own result dictionary reports `provinces` rebuilt, `_recompute_civ()` re-uploads `territory_texture()`, and this same file's Settlement-tool status hint has said so since that pass. Exactly §30's class of stale copy, and the same shape as the bake pass's *"No bake/LOD pipeline exists yet"* | Both are live **shortcuts onto `_recompute_civ`** — one owner of the action, two ways in, no second implementation to drift; the bake pass's own pattern. Each tooltip now names the real remaining limit (it does not re-*place* settlements; only Generate does). *Clear territory* stays disabled — genuinely absent — with its "Same:" premise corrected |
+| MN-09 | Assets ▸ Asset pack ▸ Build ▸ *Export pack .zip… ⌘⇧P* prints its shortcut **twice**, once as a modifier key neither shipping platform has | The label baked `⌘⇧P` in as text *and* `set_item_accelerator` added `Ctrl+Shift+P`, so the popup rendered `Export pack .zip… ⌘⇧P    Ctrl+Shift+P`. The canvas draws `⌘⇧P` in the popup's own accelerator column, not inside the label — the port copied the glyph and kept the column | Label only; the accelerator alone renders the canvas's layout, in the notation the machine actually has. Sibling: Batch ▸ *Delete ⌫* advertised a Backspace binding that **exists nowhere** (`app.gd`'s `_unhandled_key_input` routes Backspace to the armed tool and no further; `asset_library_window.gd` has no key handling at all) on a row that opens a window rather than deleting anything. Glyph dropped |
+| SH-15 | §10's timeline strip is **70 px of blank panel across the whole window** whenever CIVIL is the active domain, and `Window ▸ Timeline` toggles that blank band on and off | The timeline's controls deliberately live in the CIVIL dock's own Timeline category (`TIMELINE_SCOPE.md` §4: default to a dedicated panel rather than risk the wrong shell region). Leaving the reserved region *on screen and empty* was never part of that decision | The strip carries a pointer: a `TIMELINE` caption, one clipped line saying where the controls are, and an **Open Timeline** action that presses the dock category's own header (`CivilizationWorkspace.open_timeline_category()`). Re-filled by `toggle_region()` too, so turning it on from another domain does not bring the blank band back |
+
+**What was checked and found clean**, since a negative result is worth as much
+as a finding here and stops the next pass re-walking it:
+
+- **The Layers popover's field views, all 37 rows, driven.** 33 available rows
+  clicked through the real `pressed` path: every one set the view it claimed
+  (`debug_view()` echoed the picked id), every one produced a distinct raster
+  (37 FNV hashes, **no duplicates, no nulls**), all four unavailable rows were
+  correctly disabled, and **hotkeys 1-8 each selected exactly their badged row**.
+  Opacity live; still correct after a regenerate to a different grid size.
+- **A dead-control sweep of the whole live tree** — every enabled, visible
+  `Button`/`CheckBox`/`OptionButton`/`Slider`/`LineEdit`/`SpinBox` with no
+  connection on any of its signals — across the shell chrome, all three domain
+  docks, four right-dock contexts (settlement, faction, sculpt, region), **all
+  nine tool-options bars** (sculpt, paint, measure, icon, label, settlement,
+  territory, way, route) and eight windows (Asset library, Data manager,
+  Faction roster, Place editor, City viewer, World data, Performance, Travel
+  library). **No dead controls.** The four flagged by a first, cruder heuristic
+  were all false positives: `toggle_mode` tabs connecting `pressed` rather than
+  `toggled`, `ColorPickerButton`s connecting `color_changed`, and search fields
+  filtering live on `text_changed` rather than `text_submitted`.
+- **Every menu accelerator in the shell**, enumerated from the live popups:
+  11 of them, each matching its label, none unreachable except `Ctrl+Z` while
+  the undo stack is legitimately empty.
+- **Camera-space rasterisation, exhaustively.** `map_overlay` (§30) and
+  `tool_overlay` (here) are the only two `_camera` children that draw. The rest
+  are `TextureRect`s; `wind_fx_layer.gd`'s one-cell stroke width is the
+  reference's own and is *meant* to scale; `journey_planner_view.gd` and
+  `section_strip.gd` draw in unscaled dock controls.
+
+**Verified live, non-headlessly**, 1600 × 1000, seed 483920 over a 384 × 288
+world, by difference against the same frame without the primitive so no
+assumption about terrain colour enters. TO-01 before: the 1.6 px ruler rendered
+**2 / 6 / 12 / 16 px** at zoom 1 / 2 / 4 / 6, and the 11 px `A` label's bounding
+box went **17 × 18 → 69 × 74 px** between zoom 1 and 4. After: **2 px at every
+zoom**, and **17 × 18 px at both**, while the 20-cell brush ring still grows
+94 → 372 px as it must. TO-02 measured in the same run. CV-20 driven for real:
+pressing *Recalculate territories* printed *"Recomputed in 0.8 s: 233
+settlements kept, 60 ways and 8 provinces rebuilt against the current terrain."*
+SH-15: 4 children in CIVIL, still 4 when switched on from WORLD via the Window
+menu, strip minimum width 236 px against a 1600 px window and a 300 px right
+dock — no squeeze.
+
+**Left open, reported rather than taken:**
+
+- **The map's top-right readout does not carry what the canvas puts there.**
+  `design/Cartalith DCC Shell.dc.html` draws two lines — `2D · equirect · z 5.2`
+  and `relief · atlas preset`, i.e. the projection and the active style preset.
+  The port shows `384 x 288 · 2400 x 1800 km · z1.4`. Both are defensible; the
+  map view mode and the style preset are simply not surfaced on the map at all.
+  A content decision, not a defect.
+- **The Asset Library has no keyboard delete.** Dropping the `⌫` glyph made the
+  menu honest; binding Backspace (or Delete) to a destructive batch delete in
+  that window is a real design question — confirmation, scope, undo — and was
+  not improvised here.
+- **Four `ID_*` constants in `menus.gd` are declared and referenced nowhere
+  else**: `ID_REDO`, `ID_HELP_SHORTCUTS`, `ID_PREF_QUALITY`, and
+  `ID_PREF_UNITS_KM`/`ID_PREF_UNITS_MI`. Not user-visible (Redo is a real
+  `_todo` row with a documented reason; the units switch is the same gap
+  `tool_bar.gd`'s Measure options already disclose), but they are the residue
+  of four intended surfaces and are recorded here so the intent is not lost.

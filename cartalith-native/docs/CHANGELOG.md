@@ -23994,3 +23994,112 @@ unconditional `pop: 0` — exact for the default pipeline, and a proxy for
 `CivData::village_tids`, which the engine already keeps beside the `tid`
 `get_settlements()` already emits. Exposing it is one line; not taken because
 `crates/cartalith-godot/src/lib.rs` was under concurrent edit this round.
+
+## The tool overlay had the map overlay's bug too, and four surfaces had stopped telling the truth (2026-08-24) — `GUI_GAP_REGISTER.md` §31
+
+Another pass with the method that keeps paying: read a `design/*.dc.html`
+canvas as ground truth, **drive the live shell non-headlessly**, and measure —
+across areas §29/§30 had not covered.
+
+**The big one is §30's own bug, in the overlay nobody looked at.**
+`ViewportHost` parents *two* drawing controls under `_camera` and scales that
+camera; §30 fixed `map_overlay.gd` and told it the zoom. `tool_overlay.gd` —
+the measure ruler, the region marquee, the way/route/sculpt path preview, the
+brush ring, the label and icon handles — was never told anything, so every
+constant in it was in the control's local pixels and was magnified along with
+its rasterisation. **Measured by frame difference** (the same frame with and
+without the primitive, so nothing about terrain colour enters the test), at
+1600 × 1000 on seed 483920 / 384 × 288:
+
+| | zoom 1 | zoom 2 | zoom 4 | zoom 6 |
+|---|---|---|---|---|
+| 1.6 px measure ruler, **before** | 2 px | 6 px | 12 px | **16 px** |
+| 1.6 px measure ruler, **after** | 2 px | 2 px | 2 px | 2 px |
+| 11 px `A` end-label bbox, **before** | 17 × 18 | — | **69 × 74** | — |
+| 11 px `A` end-label bbox, **after** | 17 × 18 | — | 17 × 18 | — |
+| 20-cell brush ring (must keep scaling) | 94 px | — | 372 px | — |
+
+The fix is `map_overlay.gd`'s, verbatim: `_crisp_begin()`/`_crisp_end()` put a
+`1/zoom` `draw_set_transform` in force, inside which every coordinate is a
+**screen** pixel and every width, dash, marker radius and `font_size` is left
+alone. Applied to the whole `_draw()` here rather than to the text and linear
+layers alone — this control emits nothing but tool chrome, which is screen
+furniture by definition; a 3 px ruler dot has no business being 24 px across
+because the map under it was magnified. The two radii that *are* real map
+distances multiply by `cell_px` and keep scaling.
+
+**One implementation note worth keeping.** The zoom is read off
+`get_parent().scale.x` in `_process` rather than pushed from
+`viewport_host.gd`, because that file was under concurrent edit by another
+agent and `CLAUDE.md`'s territory rule applies. `set_notify_transform(true)`
+was tried first and **does not work**: Godot sends
+`NOTIFICATION_TRANSFORM_CHANGED` for a `Control`'s own transform, and an
+ancestor's `scale` change does not propagate it to children — measured, the
+ruler went straight back to 16 px at zoom 6. One float compare per frame,
+against a value that changes a few times a second at most, is cheaper than the
+redraw it guards.
+
+**And a units bug the same file was hiding.** `HandleCircle.r` — the label
+tool's resize/rotate/arc handles and the icon tool's resize handle — is in
+**grid cells**, not pixels: both producers build it in the same space as
+`x`/`y` (`label_bridge::handle_circles` from `LabelBox.px/py`,
+`icon_bridge::icon_handle` from `IconBox.px/py`), both floor it at `4.0`
+*cells*, and both hit-test it at that radius against a grid-space cursor.
+`tool_overlay.gd` passed it to `draw_circle` untouched, as four *pixels*, so
+the circle you saw and the region that answered your click were different
+sizes. `r = 6.4` cells at 2.31 screen px/cell now draws 32 px against the ~30 px
+the hit test answers; it drew ~13 px before.
+
+**Three surfaces whose copy had gone stale, and one blank panel.**
+
+- **CIVIL ▸ Politics** offered *Recalculate territories* and *Generate
+  provinces* under a heading reading **Not built**, greyed, with tooltips
+  asserting that no `#[func]` re-runs either — while **Recompute civilisation,
+  eight rows up in the same dock, does both**. `civ_recompute()`'s own result
+  dictionary reports `provinces` rebuilt and `_recompute_civ()` re-uploads
+  `territory_texture()`; this same file's Settlement-tool status hint has said
+  so since SG-02 shipped. Both rows are live **shortcuts onto `_recompute_civ`**
+  now — the bake pass's own pattern, one owner of the action and two ways in.
+  Driven for real: pressing *Recalculate territories* printed *"Recomputed in
+  0.8 s: 233 settlements kept, 60 ways and 8 provinces rebuilt against the
+  current terrain."* *Clear territory* stays disabled (genuinely absent) with
+  its "Same:" premise corrected.
+- **`Export pack .zip… ⌘⇧P`** printed its shortcut twice — baked into the label
+  *and* set as an accelerator — one of them naming a modifier key neither
+  Windows nor Android has. The canvas draws it in the popup's accelerator
+  column, not in the label; the port copied the glyph and kept the column.
+  Sibling: **`Delete ⌫`** in the same submenu advertised a Backspace binding
+  that exists nowhere (`app.gd` routes Backspace to the armed tool and no
+  further; `asset_library_window.gd` has no key handling at all) on a row that
+  opens a window rather than deleting anything.
+- **§10's timeline strip was 70 px of blank panel across the whole window** in
+  CIVIL, and `Window ▸ Timeline` toggled that blank band on and off. The
+  controls deliberately live in the CIVIL dock's Timeline category
+  (`TIMELINE_SCOPE.md` §4) — but leaving the reserved region on screen and
+  *empty* was never part of that decision. It carries a pointer now: a caption,
+  one clipped line, and an **Open Timeline** action that presses the dock
+  category's own header. Re-filled by `toggle_region()` too, so switching it on
+  from another domain does not bring the blank band back. Strip minimum width
+  236 px against a 1600 px window — no dock squeeze.
+
+**What was driven and found clean.** Recorded because a negative result stops
+the next pass re-walking it. **The Layers popover's 37 field views**: all 33
+available rows clicked through the real `pressed` path, every one setting the
+view it claimed and producing a **distinct raster** (37 FNV hashes, no
+duplicates, no nulls), all four unavailable rows correctly disabled, and
+**hotkeys 1-8 each selecting exactly their badged row**; still correct after a
+regenerate to a different grid size. **A dead-control sweep of the whole live
+tree** — every enabled, visible `Button`/`CheckBox`/`OptionButton`/`Slider`/
+`LineEdit`/`SpinBox` with no connection on any of its signals — across the
+shell chrome, three domain docks, four right-dock contexts, **all nine
+tool-options bars** and eight windows: **no dead controls**, the four flagged
+by a first cruder heuristic all false positives. **All 11 menu accelerators**,
+each matching its label. And camera-space rasterisation is now closed
+exhaustively: `map_overlay` and `tool_overlay` are the only two `_camera`
+children that draw at all.
+
+**Files:** `tool_overlay.gd`, `app.gd`, `menus.gd`,
+`workspaces/civilization_workspace.gd`. No Rust. `GUI_GAP_REGISTER.md` §31 has
+the full table, the clean-sweep list and three items reported rather than taken
+(the map readout's canvas content, a keyboard delete for the Asset Library, and
+four orphan `ID_*` constants in `menus.gd`).
