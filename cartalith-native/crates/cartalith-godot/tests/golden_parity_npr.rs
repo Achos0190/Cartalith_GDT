@@ -91,7 +91,7 @@ fn painter_styles_match_js() {
     for (si, npr) in npr_settings().into_iter().enumerate() {
         let a = TerrainAppearance { npr, ..TerrainAppearance::default() };
         for (ci, c) in NPR_CASES.iter().enumerate() {
-            let got = render::apply_npr(&a, (c[0], c[1], c[2]), c[3], c[4], c[5], (c[6], c[7]), c[8] as usize, c[9] as usize, 64);
+            let got = render::apply_npr(&a, (c[0], c[1], c[2]), c[3], c[4], c[5], (c[6], c[7]), c[8], c[9], 64);
             for (g, w, ch) in [(got.0, NPR_EXPECTED[k], 'r'), (got.1, NPR_EXPECTED[k + 1], 'g'), (got.2, NPR_EXPECTED[k + 2], 'b')] {
                 assert!((g - w).abs() < TOL, "setting {si} case {ci} channel {ch}: got {g}, want {w}");
             }
@@ -112,7 +112,7 @@ fn painter_styles_match_js() {
 fn painter_is_inert_when_every_style_is_off() {
     let a = TerrainAppearance::default();
     for c in NPR_CASES.iter() {
-        let got = render::apply_npr(&a, (c[0], c[1], c[2]), c[3], c[4], c[5], (c[6], c[7]), c[8] as usize, c[9] as usize, 64);
+        let got = render::apply_npr(&a, (c[0], c[1], c[2]), c[3], c[4], c[5], (c[6], c[7]), c[8], c[9], 64);
         assert_eq!(got, (c[0], c[1], c[2]));
     }
 }

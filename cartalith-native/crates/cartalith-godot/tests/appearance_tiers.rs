@@ -86,6 +86,12 @@ fn render_serial(s: &Synth, a: &TerrainAppearance) -> Vec<u8> {
         }
     }
     render::apply_local_contrast(a, &mut out, GW, GH, false);
+    // The colour grade runs in the same slot `lib.rs`'s own texture loop puts
+    // it in -- after local contrast, over the finished terrain image. Without
+    // it here, every `grade_*` tunable would look inert to
+    // `every_tunable_is_load_bearing`, which is exactly the class of bug that
+    // test exists to catch.
+    render::apply_color_grade(a, &mut out);
     out
 }
 
@@ -103,6 +109,12 @@ fn render_parallel(s: &Synth, a: &TerrainAppearance) -> Vec<u8> {
         }
     });
     render::apply_local_contrast(a, &mut out, GW, GH, false);
+    // The colour grade runs in the same slot `lib.rs`'s own texture loop puts
+    // it in -- after local contrast, over the finished terrain image. Without
+    // it here, every `grade_*` tunable would look inert to
+    // `every_tunable_is_load_bearing`, which is exactly the class of bug that
+    // test exists to catch.
+    render::apply_color_grade(a, &mut out);
     out
 }
 
@@ -383,6 +395,145 @@ fn every_tunable_is_load_bearing() {
     assert!(render::border_cover(&wide, 1, 1, GW, GH) > render::border_cover(&off, 1, 1, GW, GH),
         "border_width_frac does not reach border_cover");
     assert_eq!(render::border_cover(&off, 1, 1, GW, GH), 0.0, "0 must remove the frame");
+}
+
+// ---------------------------------------------------------------------------
+// The named looks (2026-08-24) — the layer that sits on top of the tier
+// ---------------------------------------------------------------------------
+
+/// The identity look has to be exactly that. If `with_look` ever grew a
+/// fall-through that touched something, this is the only place it would show.
+#[test]
+fn the_tier_look_is_the_identity() {
+    let s = synth();
+    let base = render_serial(&s, &TerrainAppearance::default());
+    assert_eq!(base, render_serial(&s, &TerrainAppearance::default().with_look(render::LOOK_TIER)), "the identity look moved the image");
+    assert_eq!(base, render_serial(&s, &TerrainAppearance::default().with_look("Rhubarb")), "an unknown look was not the identity");
+    assert_eq!(render::LOOK_PRESETS[0], render::LOOK_TIER, "the identity must be the first row a picker draws");
+}
+
+/// Every named look must be a different picture from the tier and from each
+/// other — the same mutation rule the tier ladder follows. A look that renders
+/// what the tier renders is a row in a picker that does nothing.
+#[test]
+fn every_look_renders_a_distinct_image() {
+    let s = synth();
+    let imgs: Vec<(&str, Vec<u8>)> = render::LOOK_PRESETS.iter().map(|n| (*n, render_serial(&s, &TerrainAppearance::default().with_look(n)))).collect();
+    for (i, (na, a)) in imgs.iter().enumerate() {
+        for (nb, b) in imgs.iter().skip(i + 1) {
+            assert!(moved(a, b, 1) > 0.01, "looks {na} and {nb} render the same image");
+        }
+    }
+}
+
+/// Natural Vibrant has to actually be more colourful, not merely different —
+/// the owner's stated goal is "richer, more dimensional, still physically
+/// grounded". Mean chroma (max channel minus min channel) is the cheapest
+/// honest statement of that, and the ceiling is the other half of the goal:
+/// this must not become "a rainbow biome map".
+#[test]
+fn natural_vibrant_gains_chroma_without_going_garish() {
+    let s = synth();
+    let chroma = |img: &[u8]| -> f64 {
+        let mut sum = 0.0;
+        for px in img.chunks(3) {
+            let (lo, hi) = (px.iter().min().unwrap(), px.iter().max().unwrap());
+            sum += (*hi as f64) - (*lo as f64);
+        }
+        sum / (img.len() / 3) as f64
+    };
+    let base = chroma(&render_serial(&s, &TerrainAppearance::default()));
+    let vib = chroma(&render_serial(&s, &TerrainAppearance::default().with_look(render::LOOK_VIBRANT)));
+    assert!(vib > base * 1.05, "Natural Vibrant added no chroma: {base:.2} -> {vib:.2}");
+    assert!(vib < base * 2.0, "Natural Vibrant doubled the chroma -- that is the rainbow map, not the target: {base:.2} -> {vib:.2}");
+}
+
+/// Every stage the vibrant look turns on has to be load-bearing on its own,
+/// or the look is paying for a stage whose gate is wrong — the mutation
+/// convention, applied to the new layer rather than to the tier.
+#[test]
+fn every_new_render_stage_is_load_bearing() {
+    let s = synth();
+    let base = render_serial(&s, &TerrainAppearance::default());
+    let d = TerrainAppearance::default();
+    for (name, m) in [
+        ("crest_strength", TerrainAppearance { crest_strength: 0.5, ..d.clone() }),
+        ("tex_strength", TerrainAppearance { tex_strength: 0.5, ..d.clone() }),
+        ("ridged_strength", TerrainAppearance { ridged_strength: 0.5, ..d.clone() }),
+        ("curve_shade", TerrainAppearance { curve_shade: 0.5, ..d.clone() }),
+        ("biome_sat", TerrainAppearance { biome_sat: 0.5, ..d.clone() }),
+        ("relief_chroma", TerrainAppearance { relief_chroma: 1.0, ..d.clone() }),
+        ("haze_strength", TerrainAppearance { haze_strength: 0.0, ..d.clone() }),
+    ] {
+        let m2 = moved(&base, &render_serial(&s, &m), 1);
+        assert!(m2 > 0.001, "`{name}` moved {:.4}% of pixels -- the stage is gated off or does nothing", m2 * 100.0);
+    }
+}
+
+/// The grade is a **post-process on the finished raster**, so it must move a
+/// buffer and nothing else. Asserted the way it is used: over an ordinary RGB
+/// buffer, with the identity proved separately from the effect.
+#[test]
+fn the_colour_grade_is_inert_at_rest_and_real_otherwise() {
+    let src: Vec<u8> = (0..300u32).map(|i| (i * 7 % 256) as u8).collect();
+    let mut rest = src.clone();
+    render::apply_color_grade(&TerrainAppearance::default(), &mut rest);
+    assert_eq!(rest, src, "the grade moved a pixel at its own defaults");
+    assert!(TerrainAppearance::default().grade_is_identity());
+
+    for (name, a) in [
+        ("exposure", TerrainAppearance { grade_exposure: 0.4, ..TerrainAppearance::default() }),
+        ("contrast", TerrainAppearance { grade_contrast: 0.4, ..TerrainAppearance::default() }),
+        ("saturation", TerrainAppearance { grade_saturation: 0.4, ..TerrainAppearance::default() }),
+        ("temperature", TerrainAppearance { grade_temperature: 0.4, ..TerrainAppearance::default() }),
+        ("shadow_tint", TerrainAppearance { grade_shadow_tint: 0.6, ..TerrainAppearance::default() }),
+        ("highlight_tint", TerrainAppearance { grade_highlight_tint: 0.6, ..TerrainAppearance::default() }),
+    ] {
+        assert!(!a.grade_is_identity(), "{name} did not clear the identity gate");
+        let mut px = src.clone();
+        render::apply_color_grade(&a, &mut px);
+        assert_ne!(px, src, "grade `{name}` changed no pixel");
+    }
+}
+
+/// Saturation is exactly luminance-preserving, and the temperature axis is
+/// approximately so. That is the whole claim that separates this grade from a
+/// channel multiply, and it is a property of the maths rather than of the
+/// tuning, so it is asserted rather than eyeballed.
+#[test]
+fn the_grade_preserves_luminance_where_it_claims_to() {
+    let luma = |p: &[u8]| 0.2126 * p[0] as f64 + 0.7152 * p[1] as f64 + 0.0722 * p[2] as f64;
+    let src: Vec<u8> = vec![180, 120, 60, 40, 90, 140, 200, 200, 200, 20, 30, 25];
+    for k in [-0.8, -0.3, 0.5, 1.0] {
+        let mut px = src.clone();
+        render::apply_color_grade(&TerrainAppearance { grade_saturation: k, ..TerrainAppearance::default() }, &mut px);
+        for (a, b) in src.chunks(3).zip(px.chunks(3)) {
+            assert!((luma(a) - luma(b)).abs() < 1.5, "saturation {k} moved luma {} -> {}", luma(a), luma(b));
+        }
+    }
+    for k in [-1.0, -0.4, 0.4, 1.0] {
+        let mut px = src.clone();
+        render::apply_color_grade(&TerrainAppearance { grade_temperature: k, ..TerrainAppearance::default() }, &mut px);
+        for (a, b) in src.chunks(3).zip(px.chunks(3)) {
+            assert!((luma(a) - luma(b)).abs() < 6.0, "temperature {k} moved luma {} -> {} by more than the compensation allows", luma(a), luma(b));
+        }
+    }
+}
+
+/// The pinned JS-parity path must never enter any of it. Cheap, and the guard
+/// that a future look edit cannot reach `js_reference()` through `Default`.
+#[test]
+fn the_js_reference_path_has_none_of_the_new_stages() {
+    let j = TerrainAppearance::js_reference();
+    assert_eq!(j.crest_strength, 0.0);
+    assert_eq!(j.tex_strength, 0.0);
+    assert_eq!(j.ridged_strength, 0.0);
+    assert_eq!(j.curve_shade, 0.0);
+    assert_eq!(j.biome_sat, 0.0);
+    assert_eq!(j.relief_chroma, 0.0, "the reference's grey relief blend must stay the reference's");
+    assert_eq!(j.haze_strength, 0.18, "the reference's own haze literal");
+    assert!(j.grade_is_identity());
+    assert!(!j.npr.multi_sun, "the reference's macro shade is single-sun");
 }
 
 // ---------------------------------------------------------------------------

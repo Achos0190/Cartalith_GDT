@@ -1685,6 +1685,17 @@ struct WorldGen {
     /// owner policy decision, and `get_recommended_quality_tier()` exists so a
     /// caller can offer one rather than have it chosen for them.
     quality: QualityTier,
+    /// The active **named look** (`render::LOOK_PRESETS`) — the colour,
+    /// chroma, light-shaping and grade layer that sits on top of the quality
+    /// tier. `render::LOOK_VIBRANT` on a fresh session (2026-08-24, owner
+    /// instruction); `render::LOOK_TIER` is the identity and is what
+    /// `reset_appearance` restores.
+    ///
+    /// A separate authority from `quality` for the reason `with_look`'s own
+    /// doc gives: the tier decides what the renderer spends, the look decides
+    /// what the picture is, and a phone answers only the first question
+    /// differently. Purely presentation, on `set_quality_tier`'s exact terms.
+    look: String,
     /// The reference's non-photorealistic block (`render::Npr`,
     /// `GUI_GAP_REGISTER.md` RN-01): the ten "Painter" hand-drawn styles, the
     /// coastal wave lines, the multi-sun rig and the animated-water flag.
@@ -1915,7 +1926,14 @@ impl IRefCounted for WorldGen {
             seed: 0,
             asset_pack: None,
             quality: QualityTier::Quality,
-            npr: render::Npr::default(),
+            look: render::LOOK_VIBRANT.to_string(),
+            // Multi-sun on, as the shipped default (2026-08-24). It lives on
+            // the `Npr` block rather than in the look because that is where
+            // the reference keeps it and where `set_npr`/the Painter panel
+            // read and write it; seeding it here rather than in
+            // `Npr::default()` is what keeps `js_reference()` — which inherits
+            // its `npr` from `Default` — the reference's single-sun shading.
+            npr: render::Npr { multi_sun: true, ..render::Npr::default() },
             appearance_over: std::collections::HashMap::new(),
             appearance_ramp: None,
             appearance_preset: None,
@@ -3546,6 +3564,46 @@ impl WorldGen {
         QualityTier::ALL.iter().map(|t| GString::from(t.name())).collect()
     }
 
+    // -- The named look (`render::LOOK_PRESETS`) ------------------------------
+
+    /// Every named look, in the engine's own order -- so the picker is the
+    /// engine's list rather than a second copy of it in GDScript, the rule
+    /// `list_appearance_tunables` and `list_ramp_presets` already follow.
+    #[func]
+    fn list_looks(&self) -> PackedStringArray {
+        render::LOOK_PRESETS.iter().map(|n| GString::from(*n)).collect()
+    }
+
+    /// The look currently in force. `"Natural Vibrant"` on a fresh session.
+    #[func]
+    fn get_look(&self) -> GString {
+        GString::from(self.look.as_str())
+    }
+
+    /// Select a named look. Returns `false` and changes nothing for a name
+    /// this build does not have -- a panel written against a newer engine
+    /// loses a row rather than silently rendering a look nobody chose, which
+    /// is `set_quality_tier`'s own contract.
+    ///
+    /// **Presentation only.** The look never touches the heightmap, climate,
+    /// hydrology, biomes, settlements, routes or the seed; call
+    /// `build_color_texture()` again to see it, with no regeneration.
+    ///
+    /// A look is the *base*, so the caller's own `set_appearance` overrides
+    /// still sit on top of it and survive the change -- deliberately, and for
+    /// the reason `appearance_over`'s own doc gives about the tier.
+    #[func]
+    fn set_look(&mut self, name: GString) -> bool {
+        let name = name.to_string();
+        match render::LOOK_PRESETS.iter().find(|n| n.eq_ignore_ascii_case(&name)) {
+            Some(n) => {
+                self.look = (*n).to_string();
+                true
+            }
+            None => false,
+        }
+    }
+
     /// The appearance this `WorldGen` renders with: the active §29 quality
     /// tier, carrying the caller's NPR settings.
     ///
@@ -3570,9 +3628,13 @@ impl WorldGen {
         // (CA-01) and their ramp (CA-02). Each layer only ever writes what it
         // actually carries, which is what lets a tier change survive an edit
         // and an edit survive a tier change.
+        // A **saved look** (CA-08) is a complete description of an appearance,
+        // so it replaces both the tier and the named look rather than being
+        // graded by whichever one happened to be selected — the same reason it
+        // already replaced the tier alone.
         let base = match self.appearance_preset.as_ref() {
             Some(p) => p.clone(),
-            None => TerrainAppearance::for_tier(self.quality),
+            None => TerrainAppearance::for_tier(self.quality).with_look(&self.look),
         };
         let mut a = TerrainAppearance { npr, ..base };
         if let Some(ramp) = self.appearance_ramp.as_ref() {
@@ -3682,6 +3744,12 @@ impl WorldGen {
     /// thing a user means by "reset" is the tier's own look, and leaving the
     /// preset in place would make the button appear to do nothing on exactly
     /// the occasion it is most needed.
+    ///
+    /// **The named look is deliberately not one of them.** It has its own
+    /// picker, and a button in a different section silently moving that
+    /// picker's selection is the exact desync `GUI_GAP_REGISTER.md` keeps
+    /// finding one control at a time. `set_look("Quality tier")` is how a
+    /// caller drops the look, and the picker shows that it did.
     #[func]
     fn reset_appearance(&mut self) -> i32 {
         let n = self.appearance_over.len() as i32 + self.appearance_ramp.is_some() as i32 + self.appearance_preset.is_some() as i32;
@@ -4206,6 +4274,15 @@ impl WorldGen {
         // not terrain and has no business being contrast-boosted). A no-op
         // whenever `local_contrast == 0.0`.
         render::apply_local_contrast(&appearance, &mut bytes, gw, gh, self.world);
+
+        // The colour grade (2026-08-24) -- the last stage that is about the
+        // *terrain image*. Placed after local contrast, and before the icon
+        // pass below for the same reason local contrast is: drawn artwork is
+        // not terrain, and rivers, labels, settlement markers, territory and
+        // the scale bar are Godot overlays composited over this texture, so
+        // everything downstream of here is furniture rather than ground.
+        // A no-op whenever every grade parameter is at rest.
+        render::apply_color_grade(&appearance, &mut bytes);
 
         // Milestone 7: `drawMapIcons`' own painter's pass, composited over
         // the finished raster exactly as it is in the reference (a separate

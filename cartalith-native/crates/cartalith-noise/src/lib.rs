@@ -89,6 +89,36 @@ pub fn ridged(x: f64, y: f64, s: i32) -> f64 {
     sum / nrm
 }
 
+/// `ridgedFbm(x, y, oct, s)` (reference HTML line 2299) — the same ridged
+/// multifractal as [`ridged`], with the octave count the caller's rather than
+/// fixed at six.
+///
+/// The reference has exactly one function and calls it with a count; this
+/// crate had transcribed only the six-octave case, which is the one the
+/// terrain generator uses. The renderer's ridged-relief stage
+/// (`state.viz.ridgedRelief`) asks for five, so the general form is here now.
+/// [`ridged`] is deliberately **not** rewritten to delegate: it is
+/// golden-verified, and re-expressing a verified loop buys nothing but a
+/// chance to reassociate a float (`cartalith-rust-conventions`).
+pub fn ridged_oct(x: f64, y: f64, oct: i32, s: i32) -> f64 {
+    let mut amp = 0.5;
+    let mut freq = 1.0;
+    let mut sum = 0.0;
+    let mut nrm = 0.0;
+    for o in 0..oct {
+        let n = vnoise(x * freq, y * freq, s + o * 131);
+        let n = 1.0 - (2.0 * n - 1.0).abs();
+        sum += amp * n * n;
+        nrm += amp;
+        amp *= 0.5;
+        freq *= 2.0;
+    }
+    // The reference's own `nrm ? sum/nrm : 0` — `oct <= 0` is the only way to
+    // reach it, and returning 0 there is what the reference does rather than
+    // a NaN crossing into a colour channel.
+    if nrm != 0.0 { sum / nrm } else { 0.0 }
+}
+
 /// `pvnoise(x, y, s, pX)` — `vnoise`'s world-wrap sibling: the x lattice
 /// coordinate wraps mod `pX` so the noise tiles exactly on a cylinder
 /// (used when `state.world` is set).
