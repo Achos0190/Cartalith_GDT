@@ -238,6 +238,11 @@ func _apply_preset(index: int) -> void:
 		DccWidgets.set_segment_on(_preset_chips[i], i == index)
 	if _custom_note != null:
 		_custom_note.visible = false
+	## `GUI_GAP_REGISTER.md`'s top-right-readout note, now taken: the viewport's
+	## own chrome has no idea which style preset is active, so this is pushed in
+	## rather than polled -- `ViewportHost.set_style_readout()`'s own comment.
+	if app != null and app.viewport != null:
+		app.viewport.set_style_readout(String(STYLE_PRESETS[index][0]))
 
 ## The reference flips the row to "Custom" on any manual edit inside the Map
 ## style section; here that means any Painter or appearance write that did not
@@ -249,6 +254,8 @@ func _mark_custom() -> void:
 		DccWidgets.set_segment_on(chip, false)
 	if _custom_note != null:
 		_custom_note.visible = true
+	if app != null and app.viewport != null:
+		app.viewport.set_style_readout("Custom")
 
 # -- The reference's Rendering-advanced block (reference HTML 1731-1751) -------
 
