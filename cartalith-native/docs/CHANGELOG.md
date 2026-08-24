@@ -23740,3 +23740,60 @@ inertness of every letter and the focused-`LineEdit` case. Headless boot of
 control that exists, is enabled, and works when invoked proves nothing about
 whether a user can find it.** Neither of these two fixes was findable by
 reading; both were one action into a real launch.
+
+## The rail, the wheel and the measure row (2026-08-24) — `GUI_GAP_REGISTER.md` §28
+
+Three owner reports from one live session against the vendored canvases. The
+middle one was much the largest: **no `ScrollContainer` anywhere in the
+application could be scrolled with the wheel**, and none ever had been.
+
+**SH-01 — the rail expansion is withdrawn.** The mockup's head chevron had been
+a real `Button` since 2026-08-19, growing the rail to 200 px and swapping the
+domain column for a phone-drawer list of each domain's sub-structure —
+`DCC_SHELL_SPEC.md` §3 asks for exactly that. The canvas never draws it: all
+eight desktop artboards across `design/Cartalith DCC Shell.dc.html` and
+`design/Cartalith Measurement Toolbar.dc.html` open the rail with the same
+literal `width:40px;flex:none`, and the state that got built instead carried the
+*phone* type scale into a 200 px column — screenshotted live, `CARTOGRAPHY` ran
+under the left dock. Gone, with `W_RAIL_EXPANDED` and `DOMAINS[i].subnodes`. The
+29 px head cell and its dim `›` stay, as the `Label` the canvas actually
+specifies. `Window ▸ Domain rail` is untouched: that is the same region toggle
+the other four layout regions have, and not what "collapsible" meant.
+
+**IN-12 — one `_input` handler swallowed every wheel event in the shell.**
+`viewport_host.gd::_input()` handled the wheel with no rect test and then called
+`set_input_as_handled()`. `_input` fires on every node for every event wherever
+the cursor is, and before GUI dispatch — which is why the handler is there, and
+is equally why a notch over the left dock zoomed the map and cancelled GUI
+dispatch for that event. Measured: the left dock holds 836 px of content in a
+774 px window and read `scroll_vertical == 0` after five notches at three
+different hover points. Fixed by generalising the guard the LMB branch already
+carried for the navpad — a *press* belongs to the camera only when it lands on
+`ViewportHost`'s own rect. Releases stay exempt, or a pan that ends over a dock
+leaves the camera stuck to the cursor.
+
+This is the third instance of one pattern class (`4e000a3`, `695821f`): a
+control that participates in input dispatch affects nodes it does not own. The
+first two were `mouse_filter`; this one is `set_input_as_handled()`.
+
+**MT-01 — the measurement quick-buttons were one flat run of six.** The canvas
+draws three groups separated by rules — `[Distance Bearing Area Radius]` │
+`CROSS-SECTION [Elevation … Custom▾]` │ `[Δ vertical  3D distance]` —
+identically in all three of its states. `tool_bar.gd` had flattened all six
+`MEASURE_MODES` into one run and hidden the channel row behind a `Field`
+dropdown that only appeared once Cross-section was armed, so every button after
+Radius sat at the wrong x and five canvas buttons were not on the bar at all.
+Rebuilt to the canvas's grouping, made explicit rather than derived from the
+engine list's declaration order. A channel button now arms Cross-section, which
+is how the canvas reaches it — its first group has exactly four buttons in every
+state.
+
+**Verified live and windowed**, because all three are invisible to a headless
+boot. `_railprobe_shot.gd` at 1600 × 900: the rail holds `Rect2(0, 70, 40, 804)`
+at window widths 1600 → 640 and has no expansion method left; the wheel over the
+rail no longer moves the camera; the left dock scrolls its full 62 px range at
+all three hover points, including with a `Button` under the cursor; the wheel
+over the map still zooms one `ZOOM_WHEEL_STEP`; and the measure row reads
+`Distance 195 · Bearing 265 · Area 329 · Radius 375` │ `CROSS-SECTION 440 ·
+Elevation 556 … Geology 836` │ `Δ vertical 907`, with `Climate` taking mode to
+`section` and channel to `climate` in one click. Headless boot clean.

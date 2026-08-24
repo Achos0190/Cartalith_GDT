@@ -146,8 +146,11 @@ const H_MENU_BAR := 34
 const H_TOOL_OPTIONS := 34
 const H_TIMELINE := 70
 const H_STATUS := 26
+## §1's rail width, and also what a *collapsed dock* narrows to. §1's companion
+## `W_RAIL_EXPANDED := 200` is gone with the rail expansion itself (2026-08-24):
+## the design canvas draws the rail at 40 px in every artboard and never draws
+## an expanded one -- see `dcc_shell.gd::_build_rail()`'s header.
 const W_RAIL_COLLAPSED := 40
-const W_RAIL_EXPANDED := 200
 const W_LEFT_DOCK := 372
 const W_LEFT_DOCK_MIN := 300
 const W_LEFT_DOCK_MAX := 520

@@ -6448,3 +6448,51 @@ is the bar this class of fault has earned; owed on the next device pass.**
 
 **Still open:** nothing from §22. One unrelated observation logged there: the
 `toggle()` rows in New world clip their labels at `ROW_LABEL_W` on a phone.
+
+## The rail, the wheel and the measure row (owner report, fixed 2026-08-24)
+
+Three live reports against the vendored canvases. `GUI_GAP_REGISTER.md` §28 has
+the full account; the middle one is the one worth remembering.
+
+- [x] **SH-01 withdrawn — the domain rail is fixed-width again.** The `›` head
+      chevron had been a `Button` since 2026-08-19, growing the rail to 200 px
+      (`DCC_SHELL_SPEC.md` §3 asks for it). **The canvas draws the rail at
+      `width:40px` in all eight desktop artboards and never draws an expanded
+      one**, and the built state carried the *phone* type scale into a 200 px
+      column — `CARTOGRAPHY` ran under the left dock. Gone, with
+      `W_RAIL_EXPANDED` and `DOMAINS[i].subnodes`. The 29 px head cell and its
+      dim `›` stay as the `Label` the canvas specifies.
+      `Window ▸ Domain rail` is untouched — the same region toggle the other
+      four regions have, and not what "collapsible" meant.
+- [x] **IN-12 — no `ScrollContainer` in the application could be wheel-scrolled,
+      and none ever had been.** `viewport_host.gd::_input()` handled the wheel
+      with no rect test and then called `set_input_as_handled()`. `_input` fires
+      on every node for every event wherever the cursor is, and before GUI
+      dispatch — which is why the handler is there and equally why it broke
+      every dock, popover and dialog body. Fixed by generalising the guard the
+      LMB branch already carried for the navpad: a **press** belongs to the
+      camera only when it lands on `ViewportHost`'s own rect. Releases stay
+      exempt or a pan ending over a dock sticks the camera to the cursor.
+      Third instance of one pattern class (`4e000a3`, `695821f`) — the first two
+      were `mouse_filter`, this one is `set_input_as_handled()`.
+- [x] **MT-01 — the measure quick-buttons match the canvas's three groups.**
+      `[Distance Bearing Area Radius]` │ `CROSS-SECTION [Elevation … ]` │
+      `[Δ vertical]`, where before all six modes were one flat run and the
+      channel row hid behind a `Field` dropdown that appeared only once
+      Cross-section was armed. A channel button arms Cross-section, which is how
+      the canvas reaches it — its first group has exactly four buttons in every
+      state. `Custom ▾` and `3D distance` remain undrawn, disclosed on hover.
+
+**Verified live and windowed** (`_railprobe_shot.gd`, 1600 × 900) — all three
+are invisible to a headless boot: the rail holds `Rect2(0, 70, 40, 804)` from
+1600 down to 640 px of window and has no expansion method left; the wheel over
+the rail no longer touches the camera; the left dock scrolls its full 62 px
+range at three hover points including over a `Button`; the wheel over the map
+still zooms one step; and the measure row measures `Distance 195 · Bearing 265 ·
+Area 329 · Radius 375` │ `CROSS-SECTION 440 · Elevation 556 … Geology 836` │
+`Δ vertical 907`. Headless boot clean.
+
+**Still open, noted not fixed:** `_toggle_dock()` walks `dock.get_child(0)` for
+the `ScrollContainer` to hide, but on desktop that child is the drag-handle
+`HBoxContainer` and the scroll lives one level deeper — so collapsing the left
+dock leaves it 293 px wide instead of 40. Out of scope for these three reports.

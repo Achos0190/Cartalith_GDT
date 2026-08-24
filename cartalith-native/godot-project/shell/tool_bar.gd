@@ -405,19 +405,85 @@ func _on_paint_commit() -> void:
 
 # -- MEASURE -------------------------------------------------------------------
 
+## `design/Cartalith Measurement Toolbar.dc.html` draws this row as **three
+## button groups separated by rules**, identically in all three of its states:
+##
+##     [Distance Bearing Area Radius] │ CROSS-SECTION [Elevation … Custom▾] │ [Δ vertical  3D distance]
+##
+## The first revision of this file flattened all six `MEASURE_MODES` into one
+## run -- Distance · Bearing · Area · Radius · Cross-section · Δ vertical -- and
+## put the channel row behind a `Field` dropdown in the options bar that only
+## appeared once Cross-section was already armed. Every button after Radius
+## therefore sat at the wrong x, and five of the canvas's own quick-buttons were
+## not on the bar at all. The owner reported it as the quick-buttons not being
+## where the design puts them; measured live, `Δ vertical` was at x 533 against
+## the canvas's third group.
+##
+## So the groups are explicit here rather than derived from `MEASURE_MODES`'
+## declaration order: that const is the *engine's* list of six readings, and
+## `_build_measure_options()` still looks up labels and hints through it. The
+## canvas's grouping is a presentation fact about this one row.
+const MEASURE_GROUP_POINT := ["distance", "bearing", "area", "radius"]
+const MEASURE_GROUP_VERTICAL := ["vertical"]
+
+func _measure_mode_dict(id: String) -> Dictionary:
+	for m in GlobalTools.MEASURE_MODES:
+		if String((m as Dictionary)["id"]) == id:
+			return m
+	return {}
+
+func _measure_button(row: HBoxContainer, id: String, current: String) -> void:
+	var d := _measure_mode_dict(id)
+	if d.is_empty():
+		return
+	var b := _tool_segment(row, String(d["label"]), id == current, String(d["hint"]),
+		func(): GlobalTools.set_measure_mode(app, id))
+	if bool(d.get("needs_world", false)) and not (bridge.has_world and bridge.measure_api):
+		b.disabled = true
+		b.tooltip_text = "Reads the height field: generate a world first." if not bridge.has_world \
+			else "This build's engine has no measure_section/area/radius/vertical binding."
+
 func _build_measure_tools(row: HBoxContainer) -> void:
 	var current := GlobalTools.measure_mode()
-	for m in GlobalTools.MEASURE_MODES:
-		var d: Dictionary = m
-		var id := String(d["id"])
-		var b := _tool_segment(row, String(d["label"]), id == current, String(d["hint"]),
-			func(): GlobalTools.set_measure_mode(app, id))
-		if bool(d.get("needs_world", false)) and not (bridge.has_world and bridge.measure_api):
+	for id in MEASURE_GROUP_POINT:
+		_measure_button(row, String(id), current)
+
+	row.add_child(DccTheme.rule(true))
+	## The canvas lights this label with the group: dim while another reading is
+	## armed, accent while the section is the live one (its state 2 against its
+	## states 1 and 3).
+	var on_section := current == "section"
+	row.add_child(DccTheme.mono_label("CROSS-SECTION",
+		"accent" if on_section else "text_dim", DccTheme.FS_SMALL, 2, true))
+	## **A channel button is how the canvas arms Cross-section.** Its first group
+	## has no Cross-section button -- there are four, and all three states draw
+	## exactly four -- so picking a field is the entry point, and picking another
+	## while the section is live only swaps what the strip draws. Both halves are
+	## one call each and neither re-crosses the engine boundary: `set_measure_mode`
+	## re-runs the reading, `set_section_channel` re-draws it.
+	var have_section := bridge.has_world and bridge.measure_api
+	for c in GlobalTools.SECTION_CHANNELS:
+		var cd: Dictionary = c
+		var cid := String(cd["id"])
+		var b := _tool_segment(row, String(cd["label"]),
+			on_section and cid == GlobalTools.section_channel(),
+			"Cross-section ▸ %s. Picking a field arms Cross-section if it is not already; the profile is read in the strip under the map." % String(cd["label"]),
+			func():
+				GlobalTools.set_section_channel(app, cid)
+				if GlobalTools.measure_mode() != "section":
+					GlobalTools.set_measure_mode(app, "section"))
+		if not have_section:
 			b.disabled = true
 			b.tooltip_text = "Reads the height field: generate a world first." if not bridge.has_world \
-				else "This build's engine has no measure_section/area/radius/vertical binding."
+				else "This build's engine has no measure_section binding."
+
+	row.add_child(DccTheme.rule(true))
+	for id in MEASURE_GROUP_VERTICAL:
+		_measure_button(row, String(id), current)
+
 	_note(row, "measurements answer how far · the Sample dock answers what is here",
-		"The canvas's own principle: Information is passive and always running; Measure is deliberate and persists until cleared; Cross-section is one line read in the strip below.")
+		"The canvas's own principle: Information is passive and always running; Measure is deliberate and persists until cleared; Cross-section is one line read in the strip below. " +
+		"Two of its buttons in this row are not drawn because nothing exists behind them: `Custom ▾` has no user-defined field to bind to (`global_tools.gd`'s SECTION_CHANNELS), and `3D distance` is greyed as \"3D only\" in the canvas itself -- this shell has no 3D view, and Δ vertical already returns the 3D distance in the dock.")
 
 func _build_measure_options(row: HBoxContainer) -> void:
 	var mode_id := GlobalTools.measure_mode()
@@ -428,15 +494,11 @@ func _build_measure_options(row: HBoxContainer) -> void:
 	row.add_child(DccTheme.mono_label("MEASURE · %s" % label.to_upper(),
 		"accent", DccTheme.FS_SMALL, 2, true))
 	if mode_id == "section":
-		var channels := GlobalTools.SECTION_CHANNELS
-		var labels: Array = []
-		var sel := 0
-		for i in channels.size():
-			labels.append(String((channels[i] as Dictionary)["label"]))
-			if String((channels[i] as Dictionary)["id"]) == GlobalTools.section_channel():
-				sel = i
-		_narrow(DccWidgets.choice(row, "Field", labels, sel, func(i: int):
-			GlobalTools.set_section_channel(app, String((channels[i] as Dictionary)["id"]))))
+		## The channel picker used to be a `Field` dropdown here. It is the
+		## canvas's own CROSS-SECTION button group in the row above now
+		## (`_build_measure_tools`) -- where the canvas draws it, and visible
+		## whether or not the section is already armed. Not duplicated: two
+		## controls over one static would only ever be a chance to disagree.
 		## `input` stores, `release` re-samples -- the same split every
 		## generation control in this shell uses, and for the same reason: a
 		## 1 024-sample read per drag tick is a boundary crossing per pixel.

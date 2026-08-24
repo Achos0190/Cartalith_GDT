@@ -26,14 +26,10 @@ signal phone_insets_changed()  ## §13: fires whenever a rotation changes where
 # menus in this shell -- that is the structural change this revision makes, and
 # the reason the menu bar below is seven program menus and nothing else.
 
-## `subnodes`: SH-01's rail-expansion sub-node list -- each domain's *real*
-## top-level dock structure, not invented categories. Read off the domain's
-## own left-dock builder rather than the spec (`DCC_CONTROL_INDEX.md`: "the
-## builder has no source for them" -- this is that source): WORLD's two-mode
-## switch plus its one TOOLS-block button (`world_workspace.gd::_build`, "the
-## only button that belongs here is Biome paint"), and CIVIL/CARTO's own
-## `DccWidgets.category()` L2 accordion titles, grepped verbatim from
-## `workspaces/*.gd` (`_build_settlements`/`_build_population`/… etc.).
+## A fourth key, `subnodes`, carried each domain's dock sub-structure for
+## SH-01's expanded rail. **Removed 2026-08-24 with the expansion itself** --
+## see `_build_rail()`'s header for why the rail no longer has two states, and
+## therefore nothing left to list.
 ##
 ## **Domain merge (2026-08-20, owner instruction: "Infra can be dropped as a
 ## name and can be absorbed by civil... And render into carto.")** Five
@@ -49,14 +45,11 @@ signal phone_insets_changed()  ## §13: fires whenever a rotation changes where
 ## for the full disclosure and `GUI_GAP_REGISTER.md` §6.11-§6.14.
 const DOMAINS: Array = [
 	{"id": "world", "label": "World", "rail": "WORLD", "icon": "domain_world",
-		"subtitle": "Terrain, hydrology, climate and ecology",
-		"subnodes": "Generation pipeline · Sculpt · Biome paint"},
+		"subtitle": "Terrain, hydrology, climate and ecology"},
 	{"id": "civilization", "label": "Civilization", "rail": "CIVIL", "icon": "domain_civ",
-		"subtitle": "Settlements, factions, provinces, trade, roads, sea routes and journeys",
-		"subnodes": "Settlements · Population · Economy · Politics · Culture · Timeline · Roads · Rivers · Ports · Trade · Logistics"},
+		"subtitle": "Settlements, factions, provinces, trade, roads, sea routes and journeys"},
 	{"id": "cartography", "label": "Cartography", "rail": "CARTO", "icon": "domain_carto",
-		"subtitle": "Layers, styles, labels, annotation and terrain appearance",
-		"subnodes": "Layers · Layer properties · Annotation · Terrain appearance"},
+		"subtitle": "Layers, styles, labels, annotation and terrain appearance"},
 ]
 
 # -- Region handles -----------------------------------------------------------
@@ -94,8 +87,7 @@ var _dock_readouts: Dictionary = {}    ## "left"/"right" -> the collapsed-state 
 var _workspace_panels: Dictionary = {} ## domain id -> Control
 var _touch := false
 
-# -- SH-01 rail expansion ------------------------------------------------------
-var _rail_panel: PanelContainer
+# -- Domain rail ---------------------------------------------------------------
 ## What `Window ▸ Domain rail` hides. Not the same node in both compositions,
 ## which is the whole reason it is a named field rather than a walk up from
 ## `rail_column`: on desktop it is the rail panel itself (exactly what
@@ -104,10 +96,6 @@ var _rail_panel: PanelContainer
 ## the MENU cell with it -- the only route back to the row that un-hides it.
 ## See `_build_phone_menu_bar()`.
 var _rail_region: Control
-var _rail_collapsed_body: VBoxContainer  ## The domain-button column + spacer + foot -- hidden while expanded.
-var _rail_subnodes_body: VBoxContainer   ## The expanded state's per-domain row list -- hidden while collapsed.
-var _rail_expand_button: Button
-var _rail_expanded := false
 
 # -- WI-04 dock width dragging --------------------------------------------------
 var _dragging_dock := ""  ## "", "left" or "right" -- which handle (if any) owns the current drag.
@@ -968,9 +956,33 @@ func rail_region() -> Control:
 
 # -- §3 Domain rail -----------------------------------------------------------
 
+## **The rail has exactly one width, and no collapsed/expanded pair.**
+##
+## Between 2026-08-19 and 2026-08-24 it had both: SH-01 turned the mockup's head
+## chevron into a `Button` that grew the rail to `W_RAIL_EXPANDED` (200 px) and
+## swapped the domain column for a `_phone_list_row()` list of each domain's
+## sub-structure. `DCC_SHELL_SPEC.md` §3 does ask for that ("the domain's
+## sub-nodes as a 200 px list"), which is why it was built.
+##
+## It is gone because the canvas -- the ground truth the shell is measured
+## against -- **never draws it**. Every one of the eight desktop artboards
+## across `design/Cartalith DCC Shell.dc.html` and
+## `design/Cartalith Measurement Toolbar.dc.html` opens the rail with the same
+## literal `width:40px;flex:none`, in the dark theme, the light theme, the
+## tablet composition and all three measurement states. There is no artboard of
+## an expanded rail to build against, and the state that got built instead
+## borrowed the *phone* drawer's type scale into a 200 px column: screenshotted
+## live, "CARTOGRAPHY" ran straight under the left dock. The owner reported it
+## as "the left rail is collapsible and shouldn't be".
+##
+## What the canvas *does* draw is kept: a 29 px head cell carrying a dim `›`,
+## ruled off from the domains below. It is a `Label` now rather than a `Button`
+## -- chrome the mockup specifies, not an affordance nothing behind it can
+## honour. `Window ▸ Domain rail` still hides the whole region, unchanged: that
+## is the same region toggle the other four layout regions have, reversible from
+## the same menu, and not what "collapsible" meant here.
 func _build_rail() -> Control:
 	var rail := PanelContainer.new()
-	_rail_panel = rail
 	_rail_region = rail
 	rail.custom_minimum_size.x = _scaled(DccTheme.W_RAIL_COLLAPSED)
 	rail.add_theme_stylebox_override("panel", DccTheme.panel("panel", {"right": 1}))
@@ -980,55 +992,24 @@ func _build_rail() -> Control:
 	pad.add_theme_constant_override("margin_top", 12)
 	pad.add_child(rail_column)
 
-	## The mockup opens the rail with a 29 px cell carrying the expand chevron,
-	## ruled off from the domains below it. SH-01: now a real button -- pressing
-	## it grows the rail to `W_RAIL_EXPANDED` (200 px, §1) and swaps the
-	## collapsed domain-button column for `_rail_subnodes_body` below.
+	## The mockup opens the rail with a 29 px cell carrying a dim `›`, ruled off
+	## from the domains below it -- `MOUSE_FILTER_IGNORE` so it is unmistakably
+	## chrome and never eats a hover.
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 0)
-	var head := Button.new()
-	head.flat = true
-	head.focus_mode = Control.FOCUS_NONE
-	head.text = DccIcons.SYMBOLS["expand"]
-	head.tooltip_text = "Expand rail"
-	head.add_theme_font_override("font", DccTheme.mono())
-	head.add_theme_font_size_override("font_size", DccTheme.FS_SMALL)
-	head.add_theme_color_override("font_color", DccTheme.c("text_dim"))
-	head.add_theme_stylebox_override("normal", DccTheme.empty())
-	head.add_theme_stylebox_override("hover", DccTheme.flat(DccTheme.c("line_soft")))
+	var head := DccTheme.mono_label(DccIcons.SYMBOLS["expand"], "text_dim", DccTheme.FS_SMALL)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	head.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	head.custom_minimum_size.y = _scaled(29)
-	head.pressed.connect(_toggle_rail_expansion)
-	_rail_expand_button = head
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.add_child(head)
 	col.add_child(DccTheme.rule())
 
-	## SH-01 (`GUI_GAP_REGISTER.md` §7.17): the register's own proposal --
-	## "reuses `_phone_list_row()` verbatim" -- extended per owner instruction
-	## to carry each domain's *real* sub-structure (`DOMAINS[i].subnodes`, see
-	## that const's own header comment) as the row's subtitle line rather than
-	## the tooltip blurb the phone drawer uses. There is no destination deeper
-	## than the domain itself to jump to -- no engine hook exists to scroll a
-	## dock to one specific L2 category -- so a row's only real action is what
-	## the phone drawer's own row already does: select that domain, then
-	## collapse the rail back (`_pick_rail_domain`), mirroring
-	## `_pick_drawer_domain`'s own close-after-pick.
-	_rail_subnodes_body = VBoxContainer.new()
-	_rail_subnodes_body.add_theme_constant_override("separation", 0)
-	_rail_subnodes_body.visible = false
-	for d in DOMAINS:
-		_rail_subnodes_body.add_child(_phone_list_row(String(d.label), String(d.subnodes),
-			_pick_rail_domain.bind(d.id)))
-		_rail_subnodes_body.add_child(DccTheme.rule())
-	col.add_child(_rail_subnodes_body)
-
-	## Everything the collapsed rail shows -- the domain-button column, the
-	## spacer, and the rail foot -- lives in one wrapper so expansion can hide
-	## and restore it in a single `visible` flip rather than three.
-	_rail_collapsed_body = VBoxContainer.new()
-	_rail_collapsed_body.add_theme_constant_override("separation", 0)
-	_rail_collapsed_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_rail_collapsed_body.add_child(pad)
-	col.add_child(_rail_collapsed_body)
+	var body := VBoxContainer.new()
+	body.add_theme_constant_override("separation", 0)
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_child(pad)
+	col.add_child(body)
 	rail.add_child(col)
 
 	var w := float(_scaled(DccTheme.W_RAIL_COLLAPSED))
@@ -1070,34 +1051,14 @@ func _build_rail() -> Control:
 		_domain_marks[d.id] = {"label": vlabel}
 		rail_column.add_child(b)
 
-	_rail_collapsed_body.add_child(DccTheme.spacer())
+	body.add_child(DccTheme.spacer())
 	rail_foot = DccTheme.mono_label("", "text_ghost", DccTheme.FS_MICRO, 2)
 	rail_foot.rotation = -PI / 2.0
 	var foot_holder := Control.new()
 	foot_holder.custom_minimum_size.y = 84
 	foot_holder.add_child(rail_foot)
-	_rail_collapsed_body.add_child(foot_holder)
+	body.add_child(foot_holder)
 	return rail
-
-## SH-01: toggles the rail between the collapsed domain-button column and the
-## expanded 200 px sub-node list. Symmetric with `_toggle_dock()`'s own
-## chevron-flip pattern, just on the rail instead of a dock.
-func _toggle_rail_expansion() -> void:
-	_rail_expanded = not _rail_expanded
-	_rail_panel.custom_minimum_size.x = float(_scaled(DccTheme.W_RAIL_EXPANDED)) \
-		if _rail_expanded else float(_scaled(DccTheme.W_RAIL_COLLAPSED))
-	_rail_collapsed_body.visible = not _rail_expanded
-	_rail_subnodes_body.visible = _rail_expanded
-	_rail_expand_button.text = DccIcons.SYMBOLS["collapse"] if _rail_expanded else DccIcons.SYMBOLS["expand"]
-	_rail_expand_button.tooltip_text = "Collapse rail" if _rail_expanded else "Expand rail"
-
-## A row in the expanded rail's sub-node list was pressed: jump to that
-## domain, then close back to the collapsed rail, mirroring
-## `_pick_drawer_domain()`'s own close-after-pick on the phone drawer.
-func _pick_rail_domain(id: String) -> void:
-	_select_domain(id)
-	if _rail_expanded:
-		_toggle_rail_expansion()
 
 ## The rail foot carries the active context and, in World, the stage counter.
 ## Re-centred on every set because its width changes with the text.

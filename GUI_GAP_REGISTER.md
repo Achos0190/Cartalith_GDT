@@ -678,7 +678,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
-| SH-01 | Rail expansion `›` → 200 px sub-node list | **done 2026-08-19** — a real `Button`, growing the rail to `W_RAIL_EXPANDED` and listing each domain's real dock sub-structure via `_phone_list_row()` (§7.17's own proposal) | none | — | §3 names it | **(C)** — `DCC_CONTROL_INDEX.md`: *"Sub-node lists per domain are not enumerated in the spec; the builder has no source for them"* → §7.17 |
+| SH-01 | Rail expansion `›` → 200 px sub-node list | **built 2026-08-19, WITHDRAWN 2026-08-24 (§28)** — the canvas draws the rail at `width:40px` in all eight desktop artboards and never draws an expanded one; the owner reported the toggle as a defect. The `›` is kept as the chrome the canvas specifies, not an affordance | none | — | §3 names it; the canvas contradicts it | **(C)** — `DCC_CONTROL_INDEX.md`: *"Sub-node lists per domain are not enumerated in the spec; the builder has no source for them"* → §7.17, §28 |
 | SH-02 | Phone: tool-sheet drag, gesture-inset handle | 1056-1058, 1099-1101 | *"the mockup pictures exactly one static sheet state; nothing here answers a drag gesture"* | yes | §13 | **(D)** — deliberate: inventing a gesture the design does not show |
 | SH-03 | Phone: touch-pan-while-drawing (v2.10 `#sculptNavpad`) | 710-714 | `main.gd` carries no such handling to port forward — grepped | yes | §4.5.6 requires it | (B) small — a genuine gap for whoever wires sculpt touch input. **Narrowed 2026-08-24, not closed.** SH-14's ✋ pan-mode toggle now covers the *need* the navpad exists for — a single finger that pans instead of drawing — with one latched button rather than a velocity joystick, which is the same call the reference itself makes (`panMode` at 9623 is a pan route the joystick is not). What remains genuinely unbuilt is the joystick's own behaviour: **panning without lifting the drawing finger**, mid-stroke, which is the case `#sculptNavpad` was added for and which a mode toggle cannot serve. Whether that is worth building at all is now an open question rather than an assumed gap — reassess when the Sculpt tool has real touch usage to judge it against |
 | SH-04 | Phone: battery / signal glyphs | 863-868 | checked against this Godot build's own `OS` class: no `power`/`battery` method exists | yes | §13's mockup | **(D)** — nothing real to back them cross-platform; only the clock gets real data |
@@ -1734,7 +1734,7 @@ by value delivered per unit of work.
 | 9 | **JP-12 + JP-15** — **done 2026-08-19** | Supply-reach **per-leg bar with resupply ticks**; party-form fields showing `auto · <resolved>` | `resupply_reach` and each result's `eff` dict already carry every value. | `JOURNEY_PLANNER_SPEC.md` §5, §8 |
 | 10 | **SH-05** — **done 2026-08-19** | Layers popover **hotkey badges 1–8** | The popover already enumerates every view; badges plus `InputMap` entries. | §10 |
 | 11 | **SH-06** — **baseline done 2026-08-19, suffix reclassified (B)** | Viewport `4 812 km E · 1 093 km N · 1 462 m` cursor coordinates + elevation | `sample_cell` gives the committed elevation; the `→ 1 582 m` draft-stamp suffix turned out to need a new Rust entry point (`sample_cell` never reads the sculpt draft) — see the §6.15 row's own note. | §10 |
-| 12 | **SH-01** — **done 2026-08-19** | Rail expansion showing label + subtitle at 200 px | Reuses `_phone_list_row()` verbatim; see §7.17 for why this reading beats the spec's unenumerated one. | §3 |
+| 12 | **SH-01** — **done 2026-08-19, withdrawn 2026-08-24 (§28)** | Rail expansion showing label + subtitle at 200 px | Reused `_phone_list_row()` verbatim; §7.17 argued that reading beats the spec's unenumerated one. The canvas draws neither: the rail is 40 px in all eight desktop artboards, and the owner reported the toggle as a defect. | §3 |
 
 Four more become (A) **the moment their design lands** and are the best return on
 a design decision rather than a build: **ED-05 Find on map** (§7.2 — every source
@@ -4295,3 +4295,130 @@ A synthesised key event without `unicode` is not a key any keyboard produces —
 assert against the event the hardware actually sends.
 
 A headless boot of `shell/app.tscn` is clean.
+
+---
+
+## 28 · SH-01, IN-12, MT-01 — the rail collapsed, nothing scrolled, and the measure buttons were in the wrong order (2026-08-24) — **FIXED**
+
+Three owner reports from one live session, against the two vendored canvases
+(`design/Cartalith DCC Shell.dc.html`, `design/Cartalith Measurement
+Toolbar.dc.html`) as ground truth:
+
+> 1. the left rail is collapsible and shouldn't be
+> 2. rail scrolling doesn't work properly on mouse hover
+> 3. the measurement tool quick-buttons aren't in the same position as the design
+
+The middle one turned out to be the largest: **no `ScrollContainer` anywhere in
+the application could be scrolled with the wheel**, and had not been able to
+since the map camera was built.
+
+### SH-01 — the rail expansion is withdrawn
+
+`_build_rail()` had made the mockup's head chevron a real `Button`
+(§7.17's proposal, built 2026-08-19): pressing it grew the rail to
+`W_RAIL_EXPANDED` (200 px) and swapped the domain column for a
+`_phone_list_row()` list of each domain's sub-structure. `DCC_SHELL_SPEC.md` §3
+does ask for that, which is why it was built.
+
+**The canvas never draws it.** Every desktop artboard in both canvases opens the
+rail with the same literal `width:40px;flex:none` — the dark theme, the light
+theme, the tablet composition, and all three measurement states, eight in total.
+There is no expanded-rail artboard to build against, and the state that got
+built instead borrowed the *phone* drawer's type scale into a 200 px column:
+screenshotted live, `CARTOGRAPHY` ran straight under the left dock.
+
+Withdrawn, along with `_rail_subnodes_body`, `_rail_expanded`,
+`_rail_expand_button`, `_rail_panel`, `DOMAINS[i].subnodes` and
+`DccTheme.W_RAIL_EXPANDED`. **What the canvas does draw is kept**: the 29 px
+head cell with its dim `›`, ruled off from the domains — a `Label` with
+`MOUSE_FILTER_IGNORE` now, chrome the mockup specifies rather than an affordance
+nothing behind it can honour.
+
+**Not changed: `Window ▸ Domain rail`.** It still hides the whole region. That
+is the same region toggle the other four layout regions have, reversible from
+the same menu, and it is not what "collapsible" meant here — reported for the
+record rather than removed on inference.
+
+### IN-12 — one `_input` handler swallowed every wheel event in the shell
+
+`viewport_host.gd::_input()` handled `MOUSE_BUTTON_WHEEL_UP`/`_DOWN`
+**unconditionally**, with no rect test, and then called
+`get_viewport().set_input_as_handled()`.
+
+`_input` runs on *every node* for *every event* regardless of where the cursor
+is, and it runs **before** GUI dispatch — which is exactly why the handler is
+there (its own header records the empirical finding that `_unhandled_input`
+never sees the MMB press). The hazard is the other half of the same fact: a
+notch anywhere in the application zoomed the map and then cancelled GUI dispatch
+for that event. So the left dock (measured live: 836 px of content in a 774 px
+window), the right dock, every popover and every dialog body were unscrollable
+by wheel. Reproduced at three separate hover points in the left dock, all
+reading `scroll_vertical == 0` after five notches.
+
+The fix is the guard the LMB branch already carried for the navpad, generalised:
+a **press** only belongs to the camera when it lands on `ViewportHost`'s own
+rect. `_input` still sees everything; it just stops claiming everything.
+Releases are exempt on purpose — a pan that began on the map and ended over a
+dock must still clear `_panning`, or the camera sticks to the cursor.
+
+This is the third instance of the same pattern class this register has recorded
+(`4e000a3` the phone sheet that would not flick, `695821f` the right-dock pane
+that sized itself to its text): **a control that participates in input dispatch
+affects nodes it does not own.** The first two were `mouse_filter`; this one is
+`set_input_as_handled()`, one layer up.
+
+### MT-01 — the measurement quick-buttons were one flat run of six
+
+The canvas draws that row as **three button groups separated by rules**,
+identically in all three of its states:
+
+```
+[Distance Bearing Area Radius] │ CROSS-SECTION [Elevation … Custom▾] │ [Δ vertical  3D distance]
+```
+
+`tool_bar.gd` flattened all six `MEASURE_MODES` into one run — Distance ·
+Bearing · Area · Radius · **Cross-section · Δ vertical** — and put the channel
+row behind a `Field` dropdown in the *options* bar that only appeared once
+Cross-section was already armed. Every button after Radius therefore sat at the
+wrong x (measured live: `Δ vertical` at x 533 against the canvas's third group),
+and five of the canvas's own quick-buttons were not on the bar at all.
+
+Rebuilt to the canvas's grouping, which is now explicit in `tool_bar.gd`
+(`MEASURE_GROUP_POINT` / `MEASURE_GROUP_VERTICAL`) rather than derived from
+`MEASURE_MODES`' declaration order — that const is the *engine's* list of six
+readings, and the canvas's grouping is a presentation fact about this one row.
+
+**A channel button is how the canvas arms Cross-section.** Its first group has
+no Cross-section button; all three states draw exactly four. So picking a field
+arms the section if it is not already, and picking another while the section is
+live only swaps what the strip draws. The `Field` dropdown is gone rather than
+duplicated — two controls over one static are only ever a chance to disagree.
+
+Two canvas buttons are still not drawn, for the reasons already registered:
+`Custom ▾` has no user-defined field to bind to, and `3D distance` is greyed
+"3D only" in the canvas itself — this shell has no 3D view, and Δ vertical
+already returns the 3D distance in the dock. Both are disclosed in the row's
+trailing note on hover.
+
+### Verification — live and windowed, because all three are invisible headless
+
+`_railprobe_shot.gd` drives the real shell at 1600 × 900:
+
+- **rail**: `has_method("_toggle_rail_expansion") == false`; three buttons in
+  the rail, all domains; `Rect2(0, 70, 40, 804)` at window widths 1600, 1100,
+  760 and 640 — it cannot be squeezed either;
+- `Window ▸ Domain rail` still hides and re-shows the region;
+- **wheel over the rail**: camera position and zoom both unchanged (before, it
+  zoomed);
+- **wheel over the left dock**: `scroll_vertical` 0 → **62** at all three hover
+  points, which is the entire 836 − 774 range, including with a `Button` under
+  the cursor;
+- **wheel over the map still zooms**: 1.00 → 1.15, one `ZOOM_WHEEL_STEP`;
+- **measure row**: `Distance 195 · Bearing 265 · Area 329 · Radius 375` │
+  `CROSS-SECTION 440 · Elevation 556 · Terrain 632 · Climate 696 · Hydrology
+  760 · Geology 836` │ `Δ vertical 907` — the canvas's three groups, in order;
+- pressing `Climate` takes `measure_mode()` to `section` and
+  `section_channel()` to `climate` in one click, and the CROSS-SECTION label
+  goes accent with it (canvas state 2 against states 1 and 3).
+
+Headless boot of `shell/app.tscn` clean.

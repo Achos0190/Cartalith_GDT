@@ -397,16 +397,36 @@ func _ready() -> void:
 ## with every future tool that drags with the primary button (Sculpt, Biome
 ## paint, Territory), which is precisely why the spec calls it a modifier and
 ## not a default drag.
+## Running before GUI dispatch is what makes the handler above work, and it is
+## also its one hazard: `_input` fires for **every** node on **every** event,
+## wherever the cursor is. Until 2026-08-24 the wheel branches below took that
+## literally -- a notch anywhere in the shell zoomed the map and then called
+## `set_input_as_handled()`, which cancels GUI dispatch entirely. So **no
+## `ScrollContainer` in the application could be scrolled with the wheel**: the
+## left dock (836 px of content in a 774 px window, measured), the right dock,
+## every popover and every dialog body. Reported by the owner as "rail scrolling
+## doesn't work on mouse hover" and reproduced live at three separate hover
+## points, all reading `scroll_vertical == 0` after five notches.
+##
+## The fix is the guard the LMB branch below already carries for the navpad,
+## generalised: a press only belongs to the camera when it lands on this node's
+## own rect. `_input` still *sees* everything -- that is still required, for the
+## reason the comment above gives -- it just stops *claiming* everything.
+## Releases are deliberately exempt: a pan that began on the map and ended over
+## a dock must still clear `_panning`, or the camera sticks to the cursor.
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
+		var over_map := get_global_rect().has_point(mb.position)
+		if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed and over_map:
 			_zoom_at(mb.position, ZOOM_WHEEL_STEP)
 			get_viewport().set_input_as_handled()
-		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
+		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed and over_map:
 			_zoom_at(mb.position, 1.0 / ZOOM_WHEEL_STEP)
 			get_viewport().set_input_as_handled()
 		elif mb.button_index == MOUSE_BUTTON_MIDDLE:
+			if mb.pressed and not over_map:
+				return
 			_panning = mb.pressed
 			_pan_last_screen = mb.position
 			if mb.pressed:
@@ -432,8 +452,11 @@ func _input(event: InputEvent) -> void:
 			## `get_global_rect()` rather than `get_rect()` -- the former
 			## carries every parent offset, so it is right whether or not this
 			## control happens to start at the viewport origin.
-			if mb.pressed and _navpad != null \
-					and _navpad.get_global_rect().has_point(mb.position):
+			## `over_map` extends that same guard to the docks and bars, which
+			## `_input` reaches just as freely as the navpad -- see this
+			## function's own header.
+			if mb.pressed and (not over_map or (_navpad != null \
+					and _navpad.get_global_rect().has_point(mb.position))):
 				return
 			_panning = mb.pressed
 			_pan_last_screen = mb.position
