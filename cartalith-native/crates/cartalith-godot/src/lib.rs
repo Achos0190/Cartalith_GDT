@@ -21,6 +21,7 @@ mod asset_bridge;
 mod bake_bridge;
 mod civ_roster_bridge;
 mod civ_tools_bridge;
+mod export_raster;
 mod geojson_bridge;
 mod icon_bridge;
 mod infra_tools_bridge;

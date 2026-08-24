@@ -24984,3 +24984,196 @@ the engine (reads back 0.45) and moves 98.5 % of the raster, the Default chip
 moves both the engine and the picker to Quality tier, and the Antique chip lands
 Antique Parchment **and** sepia 0.35 together. A saved look round-trips the new
 fields at **0.0000 % moved**.
+
+---
+
+## The export raster is real, and it was shipping a world with no rivers in it (`PARITY_AUDIT.md` §5 item 14, 2026-08-24)
+
+`bakeRes` (2K/4K/8K), `bakeTiles` and `chanAtlasChk` — three of the four
+header-bar export controls the 2026-08-24 re-scope correctly split away from the
+LOD tile pyramid and then recorded as *"none of the four was built"*. They are
+built now. The fourth, `layersPreviewChk`, is drawn in its position and disabled
+with its reason, because it belongs to `exportZip`'s f32 layer blobs and this
+route does not write those either.
+
+### Why it could not simply call `cell_color` in a loop
+
+The export raster is *finer than the grid*: 8192 px across a 2048-cell world is
+four output pixels per cell on each axis. `cell_color` takes `(x, y): usize` — a
+cell index — so a loop over output pixels could only ever ask it for the nearest
+cell, which is a nearest-neighbour upscale of the screen image rather than a
+higher-resolution render of the world.
+
+The reference's answer, reproduced here: sample every *field* bilinearly at the
+fractional grid position the output pixel lands on, and run the **whole material
+path** on those sampled values. That meant widening `land_color`, `apply_npr`,
+`paper_tone`, `apply_border`, `bio_jitter` and `splat_sample` to `f64`
+coordinates and adding six fractional twins on `RenderCtx` — the reference has
+two of them itself (`curvatureAtF`/`aspectFactorF`), and its comment at 7620 is
+the argument for why this is parity-safe: *"sampleArr at an integer point
+returns the exact cell value with zero interpolation weight on its neighbours"*.
+
+**The prologue is not an optimisation.** `BakeFields` precomputes slope, macro
+shade and meso shade at **grid** resolution, exactly as the reference's bake
+prologue does. Computing them from bilinearly-sampled neighbours instead would
+be *wrong, not merely different*: all three are per-*cell* height differences,
+so evaluating them on a 4× finer lattice divides every slope by four, and
+`material_weights`' own normalizers (`slope/0.04`, `slope/0.08`) would
+reclassify most rock and scree as grass.
+
+### The bug, and why only a live measurement could have found it
+
+A grid-resolution export was compared byte for byte against what the viewport
+actually draws — a 2048×1312 world, exported at 2048, against
+`build_color_texture()`. It came back **291,815 of 8,060,928 bytes different,
+worst channel delta 132**, and every differing byte was a river.
+
+`build_color_texture` composites a **river-channel tint** over its finished
+raster. Its own doc comment says what that is: a stand-in for the reference's
+vector `drawRiverWays` overlay, which is not wired into this port, and which is
+what keeps `MVP_SCOPE.md`'s "rivers visible" satisfied. It reads a mask
+(`channels.chan` for a generated world, the save's `strahler_order` for a loaded
+one) that `RenderCtx` does not carry — so `bake_rect` never saw it, and the
+export was a picture of a world with no rivers in it. Not a subtle discrepancy;
+simply not the map the user was looking at when they pressed the button.
+
+No unit test could have caught it. The tests compare `bake_rect` against
+`cell_color`, and the tint lives in **neither** — it is composited by
+`build_color_texture`'s own loop, which is a `#[func]` the test target cannot
+call. `tests/bake_raster.rs` now transcribes that loop's two lines verbatim and
+requires the export to match them, and the live probe re-measures the same thing
+end to end.
+
+**Before quantization, not after.** The tint runs inside `bake_rect`'s pixel
+loop on `f64` colour. A second pass over the finished bytes would not be
+bit-identical to the screen, which tints in `f64` and quantizes *once*:
+re-deriving `r` from an already-truncated byte shifts the blue channel by a
+level for half of all inputs, because `b*0.5 + 0.45` lands on a `.75` fraction
+where `floor` stops commuting with the halving. (The red and green expressions
+do commute — `+0.3` lands on `.5` — which is exactly the sort of near-miss that
+makes "close enough" the wrong instinct here.)
+
+**Nearest cell, not a bilinear sample.** The mask is categorical: `chan` is a
+channelization flag, `strahler_order` is a stream order, and neither has a
+meaningful value between two cells. Interpolating would fringe every river with
+a band of half-tinted pixels, and would do it *more* visibly at 8K than at 2K —
+exactly backwards. Nearest-cell keeps a river the same width in **world** terms
+at every export resolution, which is what the on-screen tint means, and a test
+pins that the tinted fraction of the image moves less than 5 points across
+1×/2×/4×.
+
+### Where "bit-identical" stops, stated rather than assumed
+
+After the fix the same live comparison is **a dozen or so bytes of 8,060,928,
+every one off by a single level** (12 on one run, 17 on another — it is a
+knife-edge count, so the assertions are bounds and not figures).
+
+The cause is `BakeFields`' own documented choice: it stores the three prologue
+fields as `f32`, because the reference's bake prologue stores
+`gridSlope`/`gridShade`/`gridShadeMeso` in `Float32Array`s while its screen path
+computes them on the fly in doubles. **The reference has exactly this
+discrepancy between its own bake and its own screen.** Widening here would
+*remove* a divergence the original has, which is not what parity means, and
+would cost 1.6 GB instead of 805 MB of prologue at this port's 8192 grid
+ceiling.
+
+So the module doc, `BakeFields::pixel`'s doc, `PARITY_AUDIT.md` and the pane's
+own tooltip were all corrected: the four existing tests assert exact equality on
+a 24×17 fixture and get it, and that is **fixture luck**. Measured on a 401×277
+fixture, `pixel` at an integer cell differs from `cell_color` in `f64` on 51% of
+cells, by at most `2.4e-8`, and after quantization on none of them.
+`the_integer_identity_is_f32_tight_not_bit_exact_at_scale` asserts the bound.
+
+### A probe that was wrong twice before the code was wrong once
+
+Worth recording, because both mistakes are the same shape — asserting a property
+the system was never claimed to have.
+
+1. *"The export must equal the screen at the cells they share."* A 2K export of
+   a 512-cell world **shares no cells** except the two ends: the mapping is
+   `pixel p → cell p*(GW-1)/(W-1)`, so cell `c` lands on the *fractional* pixel
+   `c*2047/511`. Rounding to the nearest real pixel is worth an eighth of a
+   cell, and the material path an eighth of a cell from a coastline is
+   legitimately a different colour — 56% of cells, by up to 139 levels, with
+   local contrast off entirely. The question is only well-posed at the grid's
+   own resolution, so the probe now regenerates at 2048×1312 to ask it.
+2. *"A 4K pixel should differ from the co-located 2K pixel."* It does — under
+   *either* hypothesis, because the two sample mappings put those pixels at
+   different world positions anyway. The null hypothesis worth killing is "the
+   export is the screen resampled up", so the probe now compares the 2K export
+   against a real bilinear upscale of the 512-cell screen image: **5.4 byte
+   levels apart**. (4K against a bilinear upscale of 2K is only 1.4, and is
+   reported rather than asserted — by 2K the export already resolves everything
+   the 512-cell fields carry.)
+
+### The channel atlas
+
+`chanAtlasChk`, in `cartalith_engine::channel_atlas` — data, not a picture, and
+sharing nothing with the raster but the destination folder. Eight RGB8 PNGs plus
+`atlas/index.json`: soil fertility / water access / carrying capacity in one,
+settlement suitability in another, the fifteen resource potentials three to a
+file, biome / lithology / Köppen indices in a third, with the manifest
+documenting which channel of which file holds which field.
+
+Its inputs are **rebuilt rather than retained**, on the same reasoning
+`MEMORY_OPTIMIZATION_SCOPE.md` used to stop retaining them in the first place —
+the fifteen resource fields alone measured ~96 MB at 2048², and holding them for
+the lifetime of a world to serve an export the user runs once is exactly the
+trade that document rejected. The call order mirrors `compute_civilisation`'s so
+the exported data is the data the civ layer actually scored against.
+
+Generated worlds only: a loaded `.zip` save carries none of the tectonic
+substrate these fields derive from (`SAVEFILE_COMPAT.md`), the same condition
+that makes `CivData` `None` for one — and an absent file beats a file of zeros
+labelled "soil fertility". The **Köppen channel is documented and left at
+zero**, which is what the reference does when `state.climate.seasons` never
+built a `koppenField`; dropping it would shift `classes.png`'s meaning silently.
+
+### The route that had outlived its own excuse
+
+Data manager ▸ Export ▸ World Data was a `"gap"` row whose stated reason —
+*"cartalith-io reads .zip saves but does not write them"* — had been untrue
+since FI-01 landed the save writer the day before. It is now live, with
+`bakeRes` as three segments, `bakeTiles` as a checkbox, the atlas as its own
+column, and a live `export_raster_estimate` readout showing the real output size
+and the run's **peak memory** before the user commits to an 8K one. That number
+is worth seeing first: 615 MB.
+
+`encode_png_rgb8` was added to `cartalith-assets::raster` for the same reason —
+routing an 8K raster through `DecodedImage` would widen to RGBA (+33%) and then
+`to_rgba_image`'s own `clone()` (+100%), roughly 470 MB of transient allocation
+against the 129 MB the pixels occupy, for an alpha channel that is 255
+everywhere and makes the PNG bigger.
+
+**Tiled and single are the same pixels.** The raster is rendered *once* either
+way and only the file layout differs, so ticking `bakeTiles` cannot change what
+the map looks like. That is a deliberate departure from the reference, which
+re-renders per tile because a browser canvas has a hard area cap (~16.7 MP on
+iOS Safari, which its own `canvasWorks` probe exists to detect) — a constraint
+no native build has. Rendering once is strictly less work and removes any chance
+of a seam.
+
+### Measured
+
+Headless, through the real bindings, on a 512×328 world unless stated:
+
+| | |
+|---|---|
+| 2K single | 0.21 s, 2.5 MB, 2048 × 1312 |
+| 4K tiled | 0.80 s, 12 tiles + `index.json`, pixel-identical to the single file |
+| **8K single** | **4.5 s, 30.5 MB, 8192 × 5248 (43.0 MP, 615 MB peak)** |
+| atlas | 0.11 s, 0.57 MB, 8 PNGs + manifest |
+| grid-res vs. viewport | ~15 bytes of 8,060,928, all ±1 |
+
+52 probe assertions headless; 30 more non-headless against the real pane (the
+route is live, the pane builds, the segments swap, the checkbox toggles, both
+footer chips are enabled and connected, pressing one writes a real 7.1 MB PNG,
+and the run appears in the pane's own recent-runs list). 11 `bake_raster.rs`
+tests. `golden_parity_render.rs` unmodified and passing. The 2K PNG was opened
+and looked at: terrain, coastline, snow, biome variation, the plate frame, and
+rivers.
+
+**Still open:** `exportZip`'s single-archive form. This route writes loose files;
+whether World Data should also assemble one `.zip` (params + f32 layers + raster
++ atlas + features) or defer to File ▸ Save is not an export task's decision to
+make, and the pane's OUTPUT column says so.

@@ -164,6 +164,31 @@ pub fn encode_png(img: &DecodedImage) -> Result<Vec<u8>, ImageError> {
     Ok(out)
 }
 
+/// Encode a tightly-packed **RGB8** buffer as a PNG, taking ownership of the
+/// bytes rather than copying them.
+///
+/// [`encode_png`] is the right entry point for anything that already holds a
+/// [`DecodedImage`]; this one exists for the export raster
+/// (`TERRAIN_APPEARANCE_SCOPE.md`'s bake milestone), whose renderer produces
+/// RGB8 and whose largest output is 8192 px wide. Routing that through
+/// `DecodedImage` would mean widening to RGBA (+33%) and then
+/// `to_rgba_image`'s own `clone()` (+100%) — roughly 470 MB of transient
+/// allocation on a single 8K export against the 129 MB the pixels actually
+/// occupy. An alpha channel that is `255` everywhere is not worth that, and
+/// the PNG is smaller without it besides.
+pub fn encode_png_rgb8(w: u32, h: u32, rgb: Vec<u8>) -> Result<Vec<u8>, ImageError> {
+    let expected = u64::from(w) * u64::from(h) * 3;
+    if rgb.len() as u64 != expected {
+        return Err(ImageError::BufferSize { expected, actual: rgb.len() as u64 });
+    }
+    let buf = image::RgbImage::from_raw(w, h, rgb).ok_or(ImageError::BufferSize { expected, actual: expected })?;
+    let mut out = Vec::new();
+    image::DynamicImage::ImageRgb8(buf)
+        .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+        .map_err(ImageError::Encode)?;
+    Ok(out)
+}
+
 // ---------------------------------------------------------------------------
 // itemHash
 // ---------------------------------------------------------------------------

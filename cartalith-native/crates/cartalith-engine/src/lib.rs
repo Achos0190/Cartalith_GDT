@@ -111,6 +111,12 @@ pub mod import;
 /// (`GUI_GAP_REGISTER.md` MS-01).
 pub mod center;
 
+/// The channel atlas — the world's affordance fields packed three to an RGB8
+/// PNG, plus its decode manifest (`chanAtlasChk`, `PARITY_AUDIT.md` §5 item
+/// 14). Data, not a picture: the export raster it ships alongside is
+/// `cartalith-godot`'s `render::bake_rect`.
+pub mod channel_atlas;
+
 use cartalith_climate::{
     apply_climate_moisture_correctors, apply_ocean_currents, compute_temperature, simulate_weather, ClimateParams,
     WeatherParams,

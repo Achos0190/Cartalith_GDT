@@ -135,9 +135,8 @@ const ROUTES: Array[Dictionary] = [
 		"sub": "region marquee · zipped tile grid"},
 	{"group": "Export", "id": "export_gis", "label": "GIS / GeoJSON", "badge": ".geojson", "kind": "live",
 		"sub": "whole world · planar km"},
-	{"group": "Export", "id": "export_world", "label": "World Data", "badge": "", "kind": "gap",
-		"sub": "no save writer",
-		"reason": "cartalith-io reads .zip saves but does not write them -- the only zip::ZipWriter in the crate lives in its own #[cfg(test)] fixture builder, not production code. A save writer is a separate, larger piece of work (DM-04 / FI-01), out of scope here."},
+	{"group": "Export", "id": "export_world", "label": "World Data", "badge": "map + atlas", "kind": "live",
+		"sub": "whole world · 2K/4K/8K raster · channel atlas"},
 	{"group": "Export", "id": "export_assets", "label": "Assets", "badge": ".zip", "kind": "route",
 		"sub": "routes to the Asset library"},
 	{"group": "Sources", "id": "sources_external", "label": "External Sources", "badge": "", "kind": "gap",
@@ -219,6 +218,26 @@ var _tx_gzip := false
 var _tx_visual := true
 var _tx_ridged := false
 var _tx_dest := ""
+
+## Export ▸ World Data, live `export_raster_png`/`export_channel_atlas` opts.
+## `bakeRes`' own three widths with the reference's own default in the middle,
+## and `bakeTiles` off -- both the reference's own initial state.
+##
+## The width list is asked of the binding (`export_raster_widths`) rather than
+## written here, so the shell cannot offer a resolution the engine refuses.
+const WD_WIDTH_FALLBACK: Array[int] = [2048, 4096, 8192]
+var _wd_widths: Array[int] = WD_WIDTH_FALLBACK.duplicate()
+var _wd_width := 4096
+var _wd_tiled := false
+
+## Export ▸ World Data -- the two disclosures this route owes, and the one it
+## no longer does. Until 2026-08-24 this row was a **gap** whose reason read
+## "cartalith-io reads .zip saves but does not write them"; that stopped being
+## true when FI-01 landed the writer, and the row outlived it.
+const WD_RASTER_NOTE := "render::bake_rect runs the whole material path -- materials, hillshade, AO, the river tint, the paper ground and the plate frame -- at the fractional grid position each output pixel lands on, so an 8K export carries four times the material detail of a 2K one rather than the same picture resampled. Measured at the grid's own resolution against the live viewport: a dozen or so bytes of 8,060,928 differ, all by a single level, from the f32 prologue the reference stores in a Float32Array too."
+const WD_TILES_NOTE := "Writes tile_{row}_{col}.png plus index.json (cartalith_io::build_tile_manifest) instead of one file. The raster is rendered ONCE either way and only the file layout differs, so this cannot change what the map looks like -- unlike the reference, which re-renders per tile because a browser canvas has a hard area cap no native build has."
+const WD_ATLAS_NOTE := "chanAtlasChk: soil fertility, water access and carrying capacity in one RGB8 PNG; settlement suitability in another; the fifteen resource potentials three to a file; biome and lithology indices in a third -- plus atlas/index.json documenting which channel of which file holds which field. Data at grid resolution, not a picture. The Köppen channel is documented and left at zero: this port retains no Köppen raster, exactly as the reference leaves it null when state.climate.seasons never built one."
+const WD_ZIP_NOTE := "This route writes loose files, not one project .zip. The save writer (cartalith_io::write_save, FI-01) and these two rasters are both real now; assembling exportZip's full archive -- params.json, the f32 layer blobs, map.png, the atlas and features.json in one file -- is the remaining third piece and is not wired here."
 
 ## Session-scoped run log -- `[{stamp, label, bytes, secs, ok}]`, newest first.
 ## DM-12 asks for the canvas's `last run 14:02 · 62 MB`; nothing persists a run
@@ -714,6 +733,8 @@ func _select_route(id: String) -> void:
 
 	if id == "export_maps":
 		_build_tile_export_pane()
+	elif id == "export_world":
+		_build_world_data_pane()
 	else:
 		_build_simple_pane(route)
 	_refresh_status()
@@ -806,6 +827,253 @@ func _footer_note(text: String) -> void:
 	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_pane_footer.add_child(l)
 	_pane_footer.add_child(DccTheme.spacer())
+
+# ---------------------------------------------------------------------------
+# Export ▸ World Data -- the export raster and the channel atlas
+# (`PARITY_AUDIT.md` §5 item 14, `GUI_GAP_REGISTER.md` DM-04)
+#
+# The reference puts these four controls in its header bar next to Export:
+# `bakeRes` (2K/4K/8K), `bakeTiles`, `chanAtlasChk` and `layersPreviewChk`.
+# This shell has no header-bar export strip, and §9 routes every export through
+# this window -- so they live here, in the route the canvas already names for
+# whole-world output, rather than in a fifth place.
+#
+# Three of the four are real. `layersPreviewChk` (human-viewable PNG previews
+# of the f32 data layers) is drawn in its position and disabled with its
+# reason, the same way this window already handles every pyramid control the
+# tile route cannot reach.
+# ---------------------------------------------------------------------------
+
+func _build_world_data_pane() -> void:
+	var grid := HBoxContainer.new()
+	grid.add_theme_constant_override("separation", COL_GAP)
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_pane_body.add_child(grid)
+
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override("separation", 0)
+	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_child(left)
+
+	var right := VBoxContainer.new()
+	right.add_theme_constant_override("separation", 0)
+	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_child(right)
+
+	## Ask the engine which widths it offers rather than trusting the local
+	## fallback -- a build whose binding predates this pane answers nothing,
+	## and then the whole pane must say so instead of offering dead buttons.
+	var api := _raster_api()
+	if api:
+		var got: PackedInt32Array = _bridge.world_gen.export_raster_widths()
+		if got.size() > 0:
+			_wd_widths.clear()
+			for w in got:
+				_wd_widths.append(int(w))
+			if not _wd_widths.has(_wd_width):
+				_wd_width = _wd_widths[_wd_widths.size() / 2]
+
+	_build_wd_raster_column(left, api)
+	_build_wd_atlas_column(left, api)
+	_build_wd_output_column(right, api)
+	_build_wd_footer(api)
+
+## True when this build's GDExtension carries the bindings **and** there is a
+## world to export. Both halves matter and they fail differently, so the two
+## messages below are separate.
+func _raster_api() -> bool:
+	return (_bridge != null and _bridge.world_gen != null
+		and _bridge.world_gen.has_method("export_raster_png")
+		and _bridge.world_gen.has_method("export_channel_atlas"))
+
+func _build_wd_raster_column(col: Control, api: bool) -> void:
+	_col_header(col, "MAP RASTER", WD_RASTER_NOTE)
+
+	if not api:
+		DccWidgets.note(col,
+			"This build's GDExtension predates the export-raster binding (WorldGen::export_raster_png). Rebuild cartalith-godot to enable it.")
+		return
+
+	## `bakeRes` -- 2K / 4K / 8K, labelled the way the reference labels them.
+	var res_row := _row(col, "Resolution")
+	var items: Array = []
+	for w in _wd_widths:
+		items.append({"text": "%dK" % int(round(float(w) / 1024.0)), "enabled": true})
+	_segments(res_row, items, _wd_widths.find(_wd_width), func(i: int):
+		_wd_width = _wd_widths[i]
+		_rebuild_world_data())
+
+	## `bakeDims` -- the real output size, read back from the engine rather
+	## than recomputed here, so the shell can never disagree with what the
+	## file will actually be.
+	var est := _wd_estimate()
+	var dim_row := _row(col, "Output size")
+	if est.is_empty():
+		_well_label(dim_row, "no world",
+			"Generate or load a world first -- bake_dims needs the grid to keep the export at the world's own aspect ratio.")
+	else:
+		_well_label(dim_row, "%d × %d px" % [int(est.get("width", 0)), int(est.get("height", 0))],
+			"WorldGen::export_raster_estimate -> render::bake_dims, the reference's own Math.round(W*GH/GW).")
+
+	_check(col, "Write as %d px tiles" % int(est.get("tile_size", 1024)), _wd_tiled, func():
+		_wd_tiled = not _wd_tiled
+		_rebuild_world_data(),
+		("%d files" % int(est.get("tiles", 0))) if _wd_tiled and not est.is_empty() else "",
+		true, WD_TILES_NOTE)
+
+	_check(col, "Human-viewable f32 layer previews", false, func(): pass, "", false,
+		"layersPreviewChk. The f32 layer blobs themselves are not written by this route either -- both belong to exportZip's archive half, which is the piece named in the OUTPUT column's own note.")
+
+func _build_wd_atlas_column(col: Control, api: bool) -> void:
+	_col_header(col, "CHANNEL ATLAS", WD_ATLAS_NOTE)
+	if not api:
+		DccWidgets.note(col, "Same -- rebuild cartalith-godot for WorldGen::export_channel_atlas.")
+		return
+	var gen := _bridge != null and _bridge.has_world
+	## "8 PNGs" is the measured count, not an estimate: habitat, settlement,
+	## the fifteen resource potentials three to a file, and classes -- plus
+	## atlas/index.json, which is not a PNG and is not counted here.
+	_check(col, "Habitat · settlement · resources · classes", true, func(): pass,
+		"8 PNGs" if gen else "", false,
+		"Every group the reference's channelAtlasGroups builds, and there is no option to omit one: an atlas missing a documented channel is worse than no atlas. A group whose every channel is empty is dropped rather than written black -- channel_atlas::entries' own rule.")
+	if not gen:
+		DccWidgets.note(col,
+			"A loaded .zip save carries none of the tectonic substrate these fields are derived from (SAVEFILE_COMPAT.md), which is the same reason its civilisation layer is absent. The atlas needs a generated world.")
+
+func _build_wd_output_column(col: Control, api: bool) -> void:
+	_col_header(col, "OUTPUT")
+	var dest_row := _row(col, "Folder")
+	_well_label(dest_row, DccSettings.storage_root("exports"),
+		"DccSettings' own exports root -- the same folder Export ▸ Maps and Export ▸ GIS write into.")
+
+	var est := _wd_estimate()
+	if api and not est.is_empty():
+		var peak_row := _row(col, "Peak memory")
+		_well_label(peak_row, _fmt_bytes(int(est.get("peak_bytes", 0))),
+			"3 bytes per output pixel for the raster plus 12 for the local-contrast pass' luma and its two blur buffers. Reported by the binding, not modelled here -- at 8K it is worth seeing before you press the button.")
+		var px_row := _row(col, "Pixels")
+		_well_label(px_row, "%.1f MP" % (float(est.get("pixels", 0)) / 1_000_000.0))
+
+	_col_header(col, "NOT THIS ROUTE")
+	DccWidgets.note(col, WD_ZIP_NOTE)
+
+	_build_recent_runs(col)
+
+func _build_wd_footer(api: bool) -> void:
+	var gen := _bridge != null and _bridge.has_world
+	if not api:
+		_footer_note("binding missing in this build")
+		return
+	_footer_note("writes into %s" % DccSettings.storage_root("exports"))
+	var atlas := DccWidgets.chip(_pane_footer, "Export channel atlas…", func():
+		_pick_atlas_destination(), false, 16, 6)
+	atlas.disabled = not gen
+	if not gen:
+		atlas.tooltip_text = "Generate a world first -- the atlas' fields are all derived from the tectonic substrate."
+	var go := DccWidgets.chip(_pane_footer, "Export %dK map…" % int(round(float(_wd_width) / 1024.0)), func():
+		_pick_raster_destination(), true, 16, 6)
+	go.disabled = _bridge == null or not _bridge.has_world
+	go.tooltip_text = ("export_raster_png -> render::bake_rect, written with std::fs. "
+		+ "Synchronous: an 8K export is seconds of work and the window will not repaint while it runs.")
+
+func _wd_estimate() -> Dictionary:
+	if not _raster_api():
+		return {}
+	return _bridge.world_gen.export_raster_estimate(_wd_width)
+
+func _rebuild_world_data() -> void:
+	if _selected_id == "export_world":
+		_select_route("export_world")
+
+func _pick_raster_destination() -> void:
+	var d := FileDialog.new()
+	d.access = FileDialog.ACCESS_FILESYSTEM
+	d.current_dir = DccSettings.storage_root("exports")
+	if _wd_tiled:
+		## Tiled mode writes a *directory* of tiles plus index.json, so the
+		## picker asks for one -- the reference's own tiles/ prefix, as a real
+		## folder rather than a path inside a zip.
+		d.title = "Export map tiles into…"
+		d.file_mode = FileDialog.FILE_MODE_OPEN_DIR
+		d.dir_selected.connect(func(path: String):
+			_run_raster_export(path)
+			d.queue_free())
+	else:
+		d.title = "Export map raster"
+		d.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+		d.add_filter("*.png ; PNG image")
+		## `exportZip`'s own name for this file.
+		d.current_file = "map.png"
+		d.file_selected.connect(func(path: String):
+			_run_raster_export(path)
+			d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered_ratio(0.6)
+
+func _pick_atlas_destination() -> void:
+	var d := FileDialog.new()
+	d.title = "Export channel atlas into…"
+	d.file_mode = FileDialog.FILE_MODE_OPEN_DIR
+	d.access = FileDialog.ACCESS_FILESYSTEM
+	d.current_dir = DccSettings.storage_root("exports")
+	d.dir_selected.connect(func(path: String):
+		_run_atlas_export(path)
+		d.queue_free())
+	d.canceled.connect(func(): d.queue_free())
+	add_child(d)
+	d.popup_centered_ratio(0.6)
+
+## Both exports write from Rust with `std::fs`, so the path handed across has
+## to be a real OS path -- `globalize_path` is a no-op for one already, and the
+## difference only shows up for a `user://` root, which `DccSettings` can
+## legitimately hold.
+func _run_raster_export(path: String) -> void:
+	if not _raster_api():
+		return
+	_status_left.text = "baking %dK…" % int(round(float(_wd_width) / 1024.0))
+	_status_left.add_theme_color_override("font_color", DccTheme.c("accent"))
+	var r: Dictionary = _bridge.world_gen.export_raster_png(
+		ProjectSettings.globalize_path(path), _wd_width, _wd_tiled)
+	_record_wd_run("map %dK" % int(round(float(_wd_width) / 1024.0)), r)
+	if bool(r.get("ok", false)):
+		var files: PackedStringArray = r.get("files", PackedStringArray())
+		_host.set_status("hint", "exported %d × %d px%s — %s in %.1f s"
+			% [int(r.get("width", 0)), int(r.get("height", 0)),
+				(" as %d tiles" % files.size()) if _wd_tiled else "",
+				_fmt_bytes(int(r.get("bytes", 0))), float(r.get("ms", 0.0)) / 1000.0], "accent")
+	else:
+		_host.set_status("hint", "export failed — %s" % String(r.get("error", "see the Godot log")), "warn")
+	_rebuild_world_data()
+	_refresh_foot()
+	_refresh_status()
+
+func _run_atlas_export(dir: String) -> void:
+	if not _raster_api():
+		return
+	_status_left.text = "packing channel atlas…"
+	_status_left.add_theme_color_override("font_color", DccTheme.c("accent"))
+	var r: Dictionary = _bridge.world_gen.export_channel_atlas(ProjectSettings.globalize_path(dir))
+	_record_wd_run("atlas", r)
+	if bool(r.get("ok", false)):
+		var files: PackedStringArray = r.get("files", PackedStringArray())
+		_host.set_status("hint", "exported %d atlas files (%s) in %.1f s"
+			% [files.size(), _fmt_bytes(int(r.get("bytes", 0))), float(r.get("ms", 0.0)) / 1000.0], "accent")
+	else:
+		_host.set_status("hint", "atlas export failed — %s" % String(r.get("error", "see the Godot log")), "warn")
+	_rebuild_world_data()
+	_refresh_foot()
+	_refresh_status()
+
+func _record_wd_run(label: String, r: Dictionary) -> void:
+	var t := Time.get_time_dict_from_system()
+	_runs.push_front({
+		"stamp": "%02d:%02d" % [int(t["hour"]), int(t["minute"])],
+		"label": label, "bytes": int(r.get("bytes", 0)),
+		"secs": float(r.get("ms", 0.0)) / 1000.0, "ok": bool(r.get("ok", false)),
+	})
+	while _runs.size() > 3:
+		_runs.pop_back()
 
 # ---------------------------------------------------------------------------
 # Export ▸ Maps -- §9's one fully-designed route pane (DM-13)

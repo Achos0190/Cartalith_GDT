@@ -3897,8 +3897,8 @@ pub fn cell_color(ctx: &RenderCtx, x: usize, y: usize) -> (f64, f64, f64) {
 //
 // "Bit-identical" is exact on that test's 24x17 fixture and **f32-tight**
 // at scale: the prologue below is `f32` (see [`BakeFields::pixel`]), so at
-// 2048x1312 through the real binding 12 bytes of 8 060 928 come back one
-// level off. `the_integer_identity_is_f32_tight_not_bit_exact_at_scale`
+// 2048x1312 through the real binding a dozen or so bytes of 8 060 928 come
+// back one level off (12 and 17 on two runs). `the_integer_identity_is_f32_tight_not_bit_exact_at_scale`
 // pins that bound and explains why widening the prologue would be the
 // wrong fix.
 //
