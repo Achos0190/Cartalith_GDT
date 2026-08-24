@@ -511,6 +511,45 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | IN-06 | Route ▸ vessel / party reference in the options row | `journey_planner_view.gd` `_vessel_field`/`_mount_field`/`_build_animal_definitions` | the journey planner exported nothing past the crate boundary when written | **CLOSED where it can be, and the remainder stated in-UI (2026-08-20)**. The party form's Mount picker and its four per-species **animal definition** pickers are now library-backed (`tl_list("animal")`, custom rows tagged `· custom`), and the choice reaches the engine: `jp_compute`'s new `animal_entries` request key → `TravelLibrary::animal_overrides_selected` → `jp_plan_ex`'s resolver, so a custom entry's capacity/speed/fodder/water and its ten-row terrain table re-plan the journey. The **Vessel** picker lists every library vessel but disables the ones with no engine counterpart (`jp_ship_stats` is still a fixed built-in table — `TRAVEL_LIBRARY_SPEC.md` §6), with the reason on the item itself rather than omitted | §4.5.4 | **CLOSED (2026-08-23)** — the remainder this cell named is done. `TravelLibrary::vessel_overrides` (keyed by **name**, because `JpPlan::vessel` is a name and `jp_ship_stats` is a name lookup, so a vessel needs no `animal_species_slot` equivalent) → `travel_library::vessel_resolver_fn` → `JpVesselResolver` → `jp_calc_water_ex`, the exact sibling of the animal chain and with the same fall-back-to-the-built-in-table contract. Four of `ShipStats`' seven fields come straight off the definition; `river`/`sea` come from `modes` and `open_sea` from `water_rating == Open`, which is precisely `jp_vessel_water_block`'s own test. **The one field with no source is `invalid_water`**: §3.3 has no per-water-type blacklist, so a custom vessel is constrained by its mode and rating only, never by a named water type the way "River Barge cannot navigate River with Rapids" is — stated in the picker's own tooltip rather than papered over. The picker now enables every library vessel that validates `ok` and disables only the incomplete ones, because the resolver declines an incomplete definition rather than sailing a hull with a zero hold |
 | IN-07 | Trade ▸ route assignment | 370-373 | nothing ties a trade relationship to the road or sea lane that would carry it | yes | §3 lists Trade | (B) large |
 | IN-08 | **Roads, Ports, Trade and Logistics never rebuilt after a generate** | `_build()` | none — nothing disclosed this | **not a capability gap** | all four were designed *and* built; only the signal was missing | **FIXED 2026-08-24 — see §23 (RF-01)**. Roads had a partial path already (`_refresh_manual_ways`, on a way commit); the other three had none at all |
+| IN-09 | **A committed Route-tool route appeared nowhere at all** — no map line, no list row | `_commit_route` (status hint: *"not shown on the map yet (no manual-route display getter…)"*) | the hint's own reason was **wrong**: `route_count()`/`route_get(i)` have existed since the Journey Planner milestone and return the whole solved polyline. Nothing on the GDScript side ever called either | the *disclosure* was accurate (the route really was invisible), the *reason* was not | §4.5.4's Route tool; the reference draws committed journeys as their own pass (`drawCivLayer` block 2b, lines 15552-15560) | **FIXED 2026-08-24 — see the note below**. Found by live verification, not by reading: the tool committed a 572 km, 506-point path with zero unreachable legs and drew none of it |
+
+> **IN-09 CLOSED (2026-08-24).** Found while auditing the whole manual
+> map-authoring toolset live (assets · labels · routes · POI · settlements),
+> and it is IN-02's failure mode exactly — *the engine does the right thing
+> and nothing renders it* — one list over. That makes it the third of this
+> shape in this register after IN-02 (ways) and WW-12 (painting), which is
+> now enough of a pattern to state as a rule: **a `#[func]` that returns
+> geometry proves nothing about whether anything draws it. Check the pixels.**
+>
+> IN-02's own closing note is why this survived that pass. It reasoned —
+> correctly — that a committed route does not belong in `get_roads()`/
+> `get_sea_routes()`, because a route is a journey *along* geometry rather
+> than durable geometry itself. Then it stopped there, without noticing that
+> the conclusion left routes belonging to **no** layer whatsoever. The note's
+> sentence "committed *routes* were never part of this" was true and is the
+> reason nobody looked again.
+>
+> The reference settles the question outright: `civJourneys` gets its own
+> draw pass in `drawCivLayer` (block 2b), stroked dark (`rgba(40,25,5,.5)`,
+> width 3) then dashed amber (`rgba(200,160,60,.85)`, width 1.5,
+> `setLineDash([5,3])`), *and* its own list with a per-row delete button
+> (line 17250) and a "No journeys yet. Draw one with the **Route** tool and
+> press Esc to commit." empty state (line 17233). So drawing a route is a
+> port, not an addition. `map_overlay.gd` carries that pass in
+> `_manual_routes`/`_draw_manual_route_segment` with the reference's own
+> colours and widths, honouring `brks` the way the sea-lane pass already
+> does; `ViewportHost.manual_routes()` owns the `route_count`/`route_get`
+> loop and `refresh()` pushes it, so a regenerate clears the old world's
+> routes rather than leaving them over the new one.
+>
+> **Not closed with it, and a genuine (B):** the reference's journey list can
+> select, name and delete a row. This one cannot — there is no
+> `route_delete`/`route_set_name` `#[func]`, so the new "Routes committed
+> this session" group is read-only and a route can only be cleared by
+> regenerating. `map_overlay.gd` likewise has no selected-journey branch (the
+> reference's brighter, thicker `sel` stroke), because there is no route
+> selection in this shell to drive it. Both are the same shape as the
+> `way_set_name`/`way_delete` gap IN-02 left open.
 
 > **IN-02 CLOSED (2026-08-24).** The audit's diagnosis was exactly right and
 > the "(B) small — one getter" estimate held: the whole engine-side fix is
@@ -548,6 +587,14 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 > purpose"). The IN-02 row's original wording said "ways/routes"; only the
 > ways half was ever a real gap.
 >
+> **Corrected 2026-08-24 (IN-09).** The paragraph above is right that a route
+> does not belong in the way layer, and wrong that it therefore needed
+> nothing. Excluding routes from *these two getters* left them in *no* layer:
+> a committed route drew nothing anywhere and appeared in no list, which a
+> live check caught. See IN-09 above. The reasoning was sound and the
+> conclusion it should have reached — "so routes need a layer of their own" —
+> was simply never drawn.
+>
 > Still open, and not silently folded in: there is no `way_set_name` /
 > `way_delete` / way-condition `#[func]`, so a committed way cannot be
 > renamed, retyped or removed — the reference's way-properties editor has no
@@ -576,6 +623,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | CA-09 | Layer list ▸ search field; footer tabs **Blocks / Verticality** | *absent* | none | — | §7 names them | **(C)** — `DCC_CONTROL_INDEX.md` marks Blocks/Verticality **uncertain**: *"undefined in the spec beyond the two words"* → §7.16 |
 | CA-11 | **`hydro_wet_strength` (Wetness) renders nothing at working resolution** | *engine* | — | — | reference `wetnessR` | **(B) engine retune, found 2026-08-24 by measurement, not by reading.** The row is bound and live, and the binding is correct end to end; the *stage* is invisible. Driving 0 → 1 against the same world: **0.208 %** of pixels move at 512×384, **0.095 %** at 1024×768 and **0.000 %** at the app's own 2048×1311 (worst per-channel delta 4 levels). It gets worse with resolution because `build_hydro_wetness` gates on `smoothstep(0.55, 0.88, …)` of the *log-flow range* — a 1-D drainage network, whose area share shrinks as cells get smaller — and then blurs at `gw * 0.006`, diluting what little is left. Milestone 3 (`TERRAIN_APPEARANCE_RESEARCH.md` §13) was tuned at a small grid. Not fixed here: the default is `0.38`, so a retune moves the shipped look, which is an owner call. `render_workspace.gd`'s tooltip says so on the row. |
 | CA-10 | Layer properties ▸ **Visualization dropdown** | *absent* here; `layers_popover.gd` covers it with 18 debug views | the popover's own footer explains the split | yes | §7 lists it; §10's popover overlaps it | **(D)** — deliberately resolved as one popover rather than two competing pickers (`layers_popover.gd:10-15`) |
+| CA-12 | **The whole Icon tool is inert until an asset pack is imported** — and the app ships with none | `lib.rs`'s `icon_arm`: `if !self.has_asset_pack() { return false; }`; `cartography_workspace.gd:298/310/353` mirror the gate | *"arming a family/slot this port cannot yet draw would let a caller stamp icons with nothing to render, silently"* (`icon_arm`'s own doc comment) | **the disclosure is honest and its stated reason is now obsolete.** `map_overlay.gd`'s `_draw_manual_icons` draws every family from built-in vector shapes and never reads the pack at all — its own doc comment says so (*"No texture atlas from the asset pack is wired into Godot yet… these are honest placeholder glyphs"*). The pack path (`pack::composite_map_icons`) is the **scattered** auto-icon bake, a different feature. So there is no longer a family/slot this port cannot draw | §4.5.5; the reference has **no such gate** — `iconVariantsFor` (line 7304) returns *"pack or built-in glyphs"* and `drawIconGlyph` (7315) is the built-in vector fallback for exactly this case | **(B) small, but an owner call — not taken here.** Verified live 2026-08-24: on a freshly generated world `has_asset_pack()` is `false`, `icon_armed()` is `{}`, and clicking the map with Icon armed places nothing. Loading `cartalith-assets/tests/fixtures/reference_pack.zip` makes the same clicks place and draw three icons immediately. The fix is deleting the three-line gate plus its doc paragraph, but it reverses a written decision, so it is raised rather than done (`CLAUDE.md`: *"Do not deviate from `DECISIONS.md` silently"*) |
 
 ### 6.14 RENDER workspace — `render_workspace.gd` (now composed into CARTO, §6.13)
 
@@ -2653,6 +2701,20 @@ there is no POI record type anywhere in the workspace to attach a drop to.
 If POI is ever wanted it is still CV-01's own estimate — one `civ_drop_poi`
 mirroring `civ_drop_settlement`, plus a real record type — and it remains an
 owner call, not an implementation detail.
+
+**Re-checked a second time, live, 2026-08-24** (the manual-authoring audit
+that closed IN-09). Nothing has changed and nothing was reversed. The tool
+options bar states it to the user in as many words — *"Settlement, Territory,
+Way and Route tools are armed from the TOOLS block in the dock. POI has no
+engine call (`civ_tools_bridge.rs`) and is not offered."* — which is visible
+in the CIVIL workspace on any generated world. That is the honest treatment
+this register asks for: omitted and *said*, not drawn and dead. One nuance
+worth recording so it is not mistaken for a POI feature later: the **Icon**
+tool's family vocabulary does include `"poi"` (`ManualIconFamily::Poi`, drawn
+as a yellow diamond by `map_overlay.gd`), so a user can place a *marker that
+looks like* a POI. It carries no record, no name, no faction and no
+inspector — it is an icon, and conflating the two would misread the port's
+state.
 
 ### 18.3 · What is registered open, with the real reason
 

@@ -22534,3 +22534,100 @@ style is per-session), and the ten reference Rendering-advanced sliders whose
 stages this port has never had at all: surface texture, sky view factor, ridge
 crests, ridged relief, slope rock, cast shadows, curvature shading, minor
 channels, season blend, and the three SDF layers.
+
+## Manual map authoring, audited live end to end — and a committed route drew nothing (`GUI_GAP_REGISTER.md` IN-09, 2026-08-24)
+
+The owner's question was blunt: *"Is the whole system to place assets/labels/
+manually create routes and POI's and settlements there and wired? Basically
+is all functionality there?"* Five capabilities, audited by driving the real
+shell rather than by reading it — arm the tool through `app.arm_tool`, click
+through `app._on_map_clicked` (the same handler registry the viewport's own
+pointer path uses), then check the engine list, the overlay's array, the dock
+list, a zoom, and a delete.
+
+**Four of the five were already real. One was committing into a void.**
+
+**Found: `route_commit` worked perfectly and rendered nothing.** A live run
+solved a 572 km, 506-point mixed land/sea path with zero unreachable legs.
+`route_count()` returned 1. `route_get(0)` returned the whole polyline with
+its `brks`. And not one pixel reached the map, nor one row any list — the
+status hint said so itself, and gave the wrong reason: *"no manual-route
+display getter."* There is one, and there has been since the Journey Planner
+milestone. Nothing on the GDScript side had ever called it.
+
+This is the third gap of exactly this shape in this register (IN-02, ways;
+**WW-12**, painting; now IN-09, routes) — *the engine does the right thing
+and nothing renders it* — which is now a stated rule rather than a
+coincidence: **a `#[func]` that returns geometry proves nothing about whether
+anything draws it. Check the pixels.**
+
+**Why IN-02's pass missed it.** That note reasoned, correctly, that a
+committed route does not belong in `get_roads()`/`get_sea_routes()` — a route
+is a journey *along* geometry, not durable geometry — and stopped there,
+without noticing the conclusion left routes belonging to **no** layer at all.
+
+**Fixed as a port, not an invention.** The reference gives `civJourneys` its
+own draw pass (`drawCivLayer` block 2b, lines 15552-15560): dark underlayer
+`rgba(40,25,5,.5)` at width 3, then dashed amber `rgba(200,160,60,.85)` at
+width 1.5 with `setLineDash([5,3])`. `map_overlay.gd` now carries that pass
+verbatim (`_manual_routes`, `_draw_manual_route_segment`), honouring `brks`
+the way the sea-lane pass already does and drawing after both network layers
+so a route running along a road stays visible on top of it.
+`_draw_dashed_polyline` gained an optional `gap_len` — defaulting to
+`dash_len`, so the sea-lane overlay is unchanged — because the reference's
+journey dash is `[5,3]`, not `[5,5]`. `ViewportHost.manual_routes()` owns the
+`route_count`/`route_get` loop and `refresh()` pushes it, so a regenerate
+clears the old world's routes rather than leaving them over the new one.
+
+**Verified in the real app, non-headless**, on a generated 2048×1311 world:
+overlay route rows 0 → 1 on commit, the dock's new "Routes committed this
+session" group 0 → 1 rows, both surviving a zoom, and the dashed amber line
+visible in the screenshot crossing land and water. Headless boot clean, zero
+script errors across the whole five-capability run.
+
+**The other four, stated precisely rather than lumped together:**
+
+- **Settlements — fully working.** 40 → 43 on three drops, real generated
+  names and tier-appropriate populations, engine and overlay both updated;
+  the edit popup opens, `civ_edit_settlement` renames, `civ_delete_settlement`
+  removes and both lists follow. Two earlier "delta 0" readings during this
+  audit were the *harness's* fault, not the app's, and are worth recording so
+  the next person does not re-derive them: `civ_drop_settlement` refuses water
+  without Snap-to-water (the status bar says so), and for a click inside an
+  existing place's pick radius it returns **that place's** index rather than
+  making a new one. Both look identical to a naive count check. Land clear of
+  existing places was needed to see the truth.
+- **Labels — fully working**, and the most complete of the five. Create via
+  the real click → prompt → `label_create` path; `label_set` moves size, angle,
+  arc and colour; the three on-canvas handles (resize / rotate / arc) draw and
+  drag; the arced text renders per-glyph on its circle; it survives zoom; the
+  list and delete work. Screenshot-confirmed.
+- **Ways — working**, unchanged since IN-02 closed. 49 → 50 roads on commit,
+  tagged `manual`, drawn and listed.
+- **Icons — working, but gated behind an asset pack the app does not ship**
+  (new **CA-12**). On a fresh world `has_asset_pack()` is `false`, `icon_arm`
+  refuses, `icon_armed()` is `{}` and clicking places nothing. Load
+  `cartalith-assets/tests/fixtures/reference_pack.zip` and the identical
+  clicks place and draw three icons at once. The gate's stated reason —
+  *"arming a family/slot this port cannot yet draw"* — is now obsolete:
+  `map_overlay.gd` draws every family from built-in vector shapes and never
+  reads the pack (the pack path, `composite_map_icons`, is the *scattered*
+  auto-icon bake, a different feature), and the reference has no such gate at
+  all (`iconVariantsFor` returns "pack or built-in glyphs", `drawIconGlyph` is
+  the fallback). **Not changed here** — it reverses a written decision in
+  `icon_arm`'s doc comment, so it is raised for the owner.
+- **POI — genuinely, deliberately absent, re-verified and upheld.** No
+  `civ_drop_poi`, no record type, and the tool options bar says so to the
+  user's face: *"POI has no engine call (`civ_tools_bridge.rs`) and is not
+  offered."* One nuance recorded so it is not misread later: the **Icon**
+  tool's families include `"poi"`, so a user can place a marker that *looks*
+  like a POI. It carries no record, name, faction or inspector. It is an icon.
+
+**Still open after this, and not improvised into existence:** there is no
+`route_delete`/`route_set_name` `#[func]`, so the new Routes list is
+read-only and a route can only be cleared by regenerating — the reference's
+own journey list has a per-row delete (line 17250). `map_overlay.gd` has no
+selected-journey branch (the reference's brighter `sel` stroke) because this
+shell has no route selection to drive one. Both are the same shape as the
+`way_set_name`/`way_delete` gap IN-02 left open, and CA-05 (an `icon_handles()`
+to match `label_handles()`) is still the Icon tool's own missing piece.
