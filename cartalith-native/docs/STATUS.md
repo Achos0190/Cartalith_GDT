@@ -5,7 +5,45 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **RD-01b: the sea lanes and committed routes
+Last updated: 2026-08-24 (post **the renderer was never the problem, its
+defaults were** — `GUI_GAP_REGISTER.md` **§34**, owner analysis. The
+reference's renderer is already a full pipeline; what makes it muted is that
+most of its enhancement sliders default to `0` and its base palettes are
+low-chroma. **Not a rewrite.** Four unported reference stages became literal
+ports in the reference's own slots (**ridge crests** `build_crest`/`apply_crest`
+8005-8023 + 8171/11971; **surface texture** 7841-7851; **ridged relief**
+7853-7862, on a new `cartalith_noise::ridged_oct` added *beside* the
+golden-verified fixed-octave `ridged`; **curvature shading** 7870-7876) —
+**RN-04 closed**. Three new controls beside them: `relief_chroma` (the grey
+`185*light` relief blend costs value as well as chroma, so a `bio_blend` under 1
+reads as faded rather than lit; at 1 the target is a grey of the pixel's *own*
+luminance and shadow cools while sun warms), `biome_sat` (material chroma about
+its own luma) and `haze_strength` (the reference's `0.18` literal, made
+adjustable). Plus a genuinely new stage — **`apply_color_grade`**, six
+presentation-only axes over the **finished raster**, after local contrast and
+before the overlays draw rivers/labels/icons — **CA-14 closed** for six of ten
+axes. **The shipped default moved through a new layer, not through `Default`**:
+`js_reference()` is `Default` with the gates zeroed, so a palette change there
+would break `golden_parity_render.rs`, which is not re-baselineable
+(`DECISIONS.md` §7a). So the re-pitched palettes, the enabled stages and the
+grade live in a **named look** (`LOOK_PRESETS`/`with_look`, bound as
+`list_looks`/`get_look`/`set_look`) layered over the quality tier, and
+`WorldGen` opens on **Natural Vibrant**; **Antique Parchment** is the owner's
+MapEffects-style warm plate and *refines* the existing Antique chip rather than
+duplicating it. **Two of the specified numbers were taken and one refused**: AO
+0.28 → 0.20 and wetness 0.38 → 0.12 both applied as asked; geology 25 % was
+**left at the tier's 0.62/0.55**, because this port already ships more geology
+than the figure asks for and lowering it would make the vibrant look less
+geological than the plain one. Verified non-headlessly at 2048×1311:
+**73.29 % moved, mean chroma 48.67 → 63.37 (+30 %), luma unchanged at ~139,
+luma sd 42.71 → 48.44 (+13 %)** — richer and more dimensional, nowhere near the
+2× that would be a rainbow biome map; every grade axis back to rest returns the
+base at **0.0000 %**. `golden_parity_render.rs` and `golden_parity_npr.rs`
+**untouched** and green, every generation golden suite untouched;
+`appearance_tiers.rs` gained six tests and the grade in its harness. Disclosed:
+surface texture and ridged relief are nearly invisible at the specified levels,
+which is the reference's own arithmetic and not a porting error)
+— previously, post **RD-01b: the sea lanes and committed routes
 drew their chords too, and the road fix had been shipping a NaN** — §29 closed
 the roads and registered its own leftover in writing; this closes it and found
 a live defect in §29's shipped code doing so. **The expected half**:

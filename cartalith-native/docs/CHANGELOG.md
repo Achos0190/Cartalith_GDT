@@ -24751,3 +24751,236 @@ becoming one continuous sweep.
 
 **Files:** `cartalith-civ/src/lib.rs`, `cartalith-godot/src/lib.rs`,
 `godot-project/map_overlay.gd`.
+
+## The renderer was never the problem — its defaults were (2026-08-24) — `GUI_GAP_REGISTER.md` §34
+
+Owner analysis, and an unusually precise one: the reference's renderer is
+already a full pipeline — climate → material weights → biome/material colour →
+texture → relief → multi-scale hillshade → curvature/AO → atmospheric haze →
+optional painter effects → rivers/coast — and what makes its output muted is
+that **most of its enhancement sliders sit at `0` by default** and its base
+palettes are low-chroma. Not a missing-features problem. The instruction was
+explicit: *do not rewrite the renderer*.
+
+So nothing here is a rewrite. Four unported reference stages became literal
+ports in the reference's own pipeline slots, three genuinely new presentation
+controls landed beside them, and the shipped look moved through a **new layer**
+rather than through the tier ladder or the parity path.
+
+### The four ports
+
+All four are `state.viz.*`-gated in the reference and all four were on
+`render.rs`'s own Excluded list:
+
+- **Ridge crests** (`buildCrestField`/`applyCrest`, reference 8005-8023, applied
+  at 8171 and 11971) — `build_crest`/`apply_crest`, a whole-grid precompute of
+  convexity times a `G^1.5` slope weight, blended toward the reference's own
+  `(240, 238, 232)` sunlit-rock tone. `RenderCtx.crest` is an **empty `Vec`**
+  unless the stage is on, and both consumers test the length rather than a flag,
+  which is `coast_d`'s own contract from the NPR pass.
+- **Surface texture** (7841-7851) — a 1:4:16 fbm stack,
+  `C' = C·(1 + 0.2·k·(T − ½))`, in grid coordinates so a tiled bake stays
+  seamless.
+- **Ridged relief** (7853-7862) — a five-octave ridged multifractal weighted by
+  `r²`. `cartalith-noise` had transcribed only the fixed six-octave `ridged`;
+  `ridged_oct` is the reference's general `ridgedFbm(x, y, oct, s)`, added
+  beside it rather than by rewriting the golden-verified one.
+- **Curvature shading** (7870-7876) — `1 + k·0.28·clamp(−curv·90, −1, 1)`, land
+  only. Sun-independent, so a landform stays legible where it runs parallel to
+  the sun.
+
+### The three that are not ports
+
+- **`relief_chroma`** — the answer to the owner's second point. The reference's
+  relief blend is `grey = 185·light` and a `bio_blend` under 1 lerps toward it,
+  which costs **value as well as chroma**: every shaded pixel is dragged toward
+  one fixed neutral, so a map at the shipped `0.90` reads as faded rather than
+  as lit. At `relief_chroma = 1` the grey target becomes a grey of *the pixel's
+  own* luminance — making the blend exactly a desaturation — and the light
+  factor additionally cools and slightly desaturates shadow while warming and
+  slightly saturating sun (±11% chroma, ±5.4% on the red/blue axis, both about
+  luma). `0.0` is the reference byte for byte, and that is what `js_reference()`
+  keeps.
+- **`biome_sat`** — chroma of the material mix about its own Rec.709 luma, so it
+  cannot move one material lighter or darker relative to its neighbour, only
+  more or less colourful. The reference has no such control; its only chroma
+  knob is `bio_blend`, which flattens as it desaturates.
+- **`haze_strength`** — the reference's own `0.18` literal, hoisted out of
+  `land_color` into the tunable table. The haze *colour* `(208, 218, 230)` stays
+  the reference's: that is the sky it fades toward, not a taste.
+
+### The colour grade — a genuinely new pipeline stage
+
+`apply_color_grade`, over the **finished raster**, after `apply_local_contrast`
+and before the Godot overlays draw rivers, labels, settlement markers, territory
+and the scale bar. That is the owner's stated ordering read into this port's
+split: a grade is a statement about the terrain image, and grading the vector
+furniture on top of it would move a label's ink along with the ground.
+
+Six parameters — exposure, contrast, saturation, temperature, shadow tint,
+highlight tint — applied in that order in one pass. Saturation is **exactly**
+luminance-preserving and both hue axes are luminance-compensated (green carries
+the `−0.1963` share that cancels the red/blue swing), so a graded map keeps the
+value structure the relief pipeline built. The two tints are a blue↔amber axis
+rather than free colour pickers, which is a real reduction from the design and
+is stated in the panel. Every parameter is `0.0` at rest and the pass
+early-returns on `grade_is_identity()`.
+
+**Presentation only, structurally**: it is handed an RGB8 buffer and the
+appearance and nothing else, so there is no path from it to the heightmap,
+climate, geology, hydrology or the seed. It runs in `build_color_texture` and in
+the export raster, in the same slot in both.
+
+Unlike local contrast, the grade **does** cover the plate frame. That is the
+difference between the two stages: local contrast is about making terrain
+legible and has no business sharpening a neatline, while a warm print with a
+cold margin is not a print.
+
+### Named looks — how the shipped default moved without touching the parity path
+
+The hard constraint: `TerrainAppearance::js_reference()` is `Default` with the
+stage gates zeroed, so **changing a palette in `Default` changes the JS-parity
+path**. `golden_parity_render.rs` is not re-baselineable — `DECISIONS.md` §7a's
+principled-equivalence carve-out is scoped to paths where JS parity is
+*impractical*, and says in as many words that the CPU rendering port stays
+golden-verified.
+
+So the four re-pitched palettes, the enabled stages and the grade live in a
+**named look** (`LOOK_PRESETS`, `TerrainAppearance::with_look`) layered over the
+quality tier, and `WorldGen` opens on **`Natural Vibrant`**:
+
+- **Quality tier** — the identity; the image milestones 1-7 tuned.
+- **Natural Vibrant** — the new shipped default. Temperate grass
+  `104,132,58 → 156,181,82`, tropical forest `20,78,35 → 35,138,55`, desert
+  `202,154,72 → 238,194,105`, red desert `174,83,47 → 224,123,69` (each pushed
+  into its own **hue family**, not merely brightened, and each keeping its own
+  low-to-high progression, which is what `ramp3`'s micro-ramp reads as surface
+  variety); `relief_chroma 1.0`, `ao 0.20`, `crest 0.12`, `texture 0.18`,
+  `ridged 0.10`, `curvature 0.28`, `wetness 0.12`, `biome_sat +0.20`,
+  `haze 0.09`; multi-sun on.
+- **Antique Parchment** — the warm hand-illustrated plate the owner's MapEffects
+  reference asks for. Refines rather than duplicates: the existing **Antique**
+  Map-style chip was `{"sepia": 0.35}` — a toning matrix over the muted base,
+  not a palette — and now names this look as well, so Antique is a warm sheet
+  *and* the sepia. Ochre/umber palettes, a warmer parchment tint at full
+  strength, a heavier wash and mottle, and the warmth carried in the grade
+  (`temperature +0.26`, `saturation −0.10`, `contrast +0.08`) rather than in the
+  material colours, so relief and biome separation survive it.
+
+**Why a layer and not a replacement.** `for_tier` decides what the renderer
+*spends*; a look decides what the picture *is*. A phone answers only the first
+question differently, so a look that replaced the tier would hand a phone the
+workstation's cost. Every look is a struct-update over the tier and touches only
+colour, chroma, light shaping and grade — never a radius, a light count, or a
+stage a cheap tier switched off.
+
+**Multi-sun** is seeded on `WorldGen`'s own `npr` field rather than in
+`Npr::default()`, for exactly the same reason the palettes are not in `Default`:
+`js_reference()` inherits its `npr` from `Default`, and the reference's macro
+shade is single-sun.
+
+### Where the owner's numbers and the port's state disagreed
+
+The specification was written against the reference, where every enhancement
+slider is `0`. Three are not zero here:
+
+- **Geology 25%** — this port's equivalent is `litho_strength`/`litho_exposure`,
+  already at `0.62`/`0.55` since milestone 5, i.e. *more* geology than the
+  figure asks for. Lowering them would have made the vibrant look less
+  geological than the plain tier. **Left at the tier's values**, disclosed.
+- **AO 20%** — the tier ships `0.28`; the look takes it **down** to `0.20` as
+  specified, coherent because crests, curvature and ridged relief now carry the
+  local relief the broad cavity map used to carry alone.
+- **Wetness 12%** — the tier ships `0.38` after the same day's CA-11 retune; the
+  look takes it to `0.12`. A real reduction of an owner-authorised value, made
+  because this instruction is the later one and names the number.
+
+### The shell
+
+`render_workspace.gd`'s **Map style** block gains a **Base look** picker built
+from `WorldGen::list_looks()`, and every Map-style chip now names a look *and* a
+Painter bundle — which is what lets Ink put pen lines over the vibrant base
+rather than over the reference's muted one, and what makes Default mean the
+tier's own image. Picking a chip moves the look picker with it and re-syncs the
+Rendering-advanced rows, since a look is where their values come from.
+**Rendering — advanced** gains the four new relief stages, biome saturation,
+surface texture, an Atmosphere group for haze, and a **Colour grade** group.
+`EngineBridge` gains a fourth capability flag, `look_api`.
+
+`reset_appearance()` deliberately does **not** clear the look: it has its own
+picker, and a button in another section silently moving that picker is the
+desync this register keeps having to fix one control at a time.
+
+### Tests
+
+`golden_parity_render.rs` and `golden_parity_npr.rs` are **untouched** and green
+— every new field is a no-op in `Default`, and `apply_npr`/`apply_waves` read
+only the `npr` block. Every generation golden suite is untouched.
+`appearance_tiers.rs` gained the grade to its render harness (without it, six
+tunables would have looked inert to `every_tunable_is_load_bearing`, which is
+the exact class of bug that test exists to catch) and six new tests: the
+identity look really is the identity, every look renders a distinct image,
+Natural Vibrant gains chroma **without doubling it** (the owner's own "not a
+rainbow biome map" bound, asserted rather than eyeballed), every new stage is
+load-bearing on its own, the grade is inert at rest and real otherwise, the
+grade preserves luminance where it claims to, and the JS-parity path has none of
+it. The thirteen new tunables ride the existing round-trip / no-aliasing /
+clamping / load-bearing sweeps with no exemptions.
+
+### Verified — a real world at 2048x1311, not a synthetic fixture
+
+`cargo test --workspace` green with no failures; `cargo build -p
+cartalith-godot` clean; headless boot of `shell/app.tscn` clean. And a
+non-headless run (`_look_shot.tscn`, seed 483920, 2048x1311) measuring the real
+raster:
+
+| | moved | mean chroma | mean luma | luma sd |
+|---|---|---|---|---|
+| Quality tier (the look this port shipped until today) | — | 48.67 | 139.61 | 42.71 |
+| **Natural Vibrant** (the new default) | 73.29 % | **63.37** (+30 %) | 138.36 | **48.44** (+13 %) |
+| Antique Parchment | 99.91 % | 66.05 | 140.69 | 47.54 |
+
+That is the owner's stated goal, measured: **+30 % chroma at unchanged
+brightness with 13 % more tonal spread** — richer and more dimensional, and
+nowhere near the 2x that would be a rainbow biome map. Looked at, not only
+measured: the forests read as real green instead of grey-olive, the drylands as
+warm ochre-gold, water is untouched, and the sheet still reads as an atlas
+plate.
+
+Per stage, alone over the tier base (moved at a >3-level tolerance / mean |d| /
+worst channel):
+
+| stage | at | moved | mean \|d\| | worst |
+|---|---|---|---|---|
+| ridge crests | 0.12 | 0.210 % | 0.031 | 13 |
+| surface texture | 0.18 | 0.000 % | 0.203 | 3 |
+| ridged relief | 0.10 | 0.009 % | 0.192 | 6 |
+| curvature shading | 0.28 | 2.468 % | 0.343 | 19 |
+| biome saturation | +0.20 | 52.90 % | 1.607 | 12 |
+| chroma-preserving light | 1.00 | 70.05 % | 4.052 | 18 |
+| haze 0.18 -> 0.09 | — | 35.46 % | 2.040 | 13 |
+| multi-sun | on | 72.53 % | 5.492 | 24 |
+
+**Disclosed rather than tuned away**: surface texture and ridged relief are
+nearly invisible at the specified levels, and that is the reference's own
+arithmetic, not a porting error. `1 + 0.2·k·(T − ½)` at `k = 0.18` is a ±1.8 %
+modulation, which on a 140-luma pixel is ±2.5 levels — under the 3-level
+tolerance this harness counts at. Ridged relief is additionally weighted by
+`r²`, so it only reaches the highlands. Both were left at the numbers the
+specification names rather than being quietly multiplied up; the sliders are
+live and reach real strength.
+
+The grade, each parameter alone: exposure +0.25 moves 99.85 % (luma 139.6 ->
+170.7), contrast +0.30 99.83 % (sd 42.7 -> 52.3), saturation +0.30 99.43 %
+(chroma 48.7 -> 63.1), temperature +0.30 98.91 %, shadow tint −0.40 88.97 %,
+highlight tint +0.40 82.11 % — and **all six back to rest returns the base at
+0.0000 % moved, worst 0 levels**, which is the statement that the stage is a
+true identity at its defaults.
+
+Through the real dock: the Base look picker builds and opens on Natural
+Vibrant, the Natural Vibrant style chip is the lit one, 35 appearance rows draw
+(every new key has one), a real slider drag on Colour grade > Saturation reaches
+the engine (reads back 0.45) and moves 98.5 % of the raster, the Default chip
+moves both the engine and the picker to Quality tier, and the Antique chip lands
+Antique Parchment **and** sepia 0.35 together. A saved look round-trips the new
+fields at **0.0000 % moved**.

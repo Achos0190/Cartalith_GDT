@@ -365,7 +365,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | DM-01b | Import ▸ Maps (tiles) **and** Import ▸ GIS / GeoJSON — two rail rows since 2026-08-20, as the canvas has them (they were one concatenated row) | 53 | no tile-map or GeoJSON **import** path exists; TIFF absent | yes | §2.4 | (B) large — the remainder of DM-01 after the heightmap half landed. **TIFF is now a closed question, not a pending dependency decision**: the reference's own file input is `accept="image/*"` decoded by the browser, which does not read TIFF either, so PNG-only is parity rather than a shortfall |
 | DM-02 | Export ▸ Maps (image · tiles) | 51 | **half done, 2026-08-20** — tile export is real; the *pyramid* is not | partly | §9's route pane, **the one fully-designed route in the window** | **The route is live.** §9's full pane shape is built (§14.7) and calls `region_export_tiles` over the live Region-select marquee, writing a zipped `cols × rows` grid — verified end to end: 33 entries, `tiles/index.json` present. What remains of this row is the *slippy-map* half the canvas draws and the engine has no notion of: XYZ/TMS/WMTS addressing, a zoom ladder, retina @2x variants, ocean-tile skipping, `leaflet-preview.html`/`style.json`. All of those are drawn in the pane and disabled with that reason. Still (B), now medium rather than large |
 | DM-03 | Export ▸ GIS / GeoJSON | 53 | was: "no route in, no CRS" | **CLOSED (2026-08-24)** | §2.4 | **DONE.** The row's own estimate was exact: one `#[func]` (`geojson_bridge.rs`, `WorldGen::export_geojson`) plus assembling a `GeoJsonWorld` off `CivData` + `WorldState`. Data manager ▸ Export ▸ GIS / GeoJSON is now a `live` route with a real picker and writer. It exports the **whole world**, not the marquee. Three inputs the reference has and this port does not are handled by omission and disclosed in the pane: no `poi` layer (this port's civ layer has no POI kind), `sea` derived from which collection a way came out of rather than read off a shared record, and rivers re-traced from `WorldState`'s receiver tree rather than a `_riverNet` cache. CRS is still not a thing — the document says so in its own `note`, verbatim from the reference. Verified: 305,646 B, 511 features (239 settlement / 43 way / 216 river / 6 territory / 7 province), valid JSON, every coordinate inside the world's 1200 × 900 km box |
-| DM-04 | Export ▸ World Data | 55 | ~~no save writer~~ — the writer exists (FI-01, 2026-08-23); what is left is this row's own route | partly | §2.4 | **(B) small, was large.** `WorldGen::save_project` writes the whole world already. What remains is a Data-manager pane that calls it, and one decision nobody has made: whether “Export ▸ World Data” means the same `.zip` File ▸ Save writes, or a subset. Deliberately not improvised as part of FI-01 — the export pane has a designed shape (§9), and inventing a second meaning for the same bytes from inside a File-menu task would have been the wrong place to decide it |
+| DM-04 | Export ▸ World Data | 55 | ~~no save writer~~ → ~~no route~~ | **live (2026-08-24), partly** | §2.4 | **The route is real.** The row was a `"gap"` whose stated reason — *"cartalith-io reads .zip saves but does not write them"* — had been untrue since FI-01 landed the writer on 2026-08-23, and the row outlived it; that is now fixed twice over. The pane offers the two capabilities `PARITY_AUDIT.md` §5 item 14 names and the reference puts in its header bar: the **export raster** at 2K/4K/8K with `bakeTiles` (`WorldGen::export_raster_png` → `render::bake_rect`, single `.png` or a `tile_{r}_{c}.png` grid plus `index.json`) and the **channel atlas** (`WorldGen::export_channel_atlas` → `cartalith_engine::channel_atlas`). A live `export_raster_estimate` readout shows the real `bakeDims` output size and the run's peak memory before the user commits to an 8K one. **What is still open is the archive decision the row already named**, unchanged: this route writes *loose files*, and whether "Export ▸ World Data" should additionally assemble `exportZip`'s single `.zip` (params + f32 layers + raster + atlas + features) or defer to File ▸ Save is still nobody's decision to make from inside an export task. `layersPreviewChk` is drawn disabled with that same reason |
 | DM-05 | Export ▸ Assets (pack .zip) | 57 | **done, 2026-08-20** | real | §2.4 | now a `"route"` (was `"gap"`) into the Asset library window's real `export_pack_now()`, same "routes, doesn't reimplement" shape as `import_assets` — same as AS-04 |
 | DM-06 | Sources ▸ External / Connected / Registry | 59-61 | no source registry exists | yes | §2.4 names three rows; **§9 designs no pane for any of them** | **(C)** → §7.3 |
 | DM-07 | Conversion ▸ Coordinate Systems (EPSG ▸) | 62 | ~~no CRS conversion~~ | — | ~~§2.4 names it~~ | **RESOLVED BY DELETION** (owner, 2026-08-20) — §7.4's research accepted in full. The route is gone from `menus.gd::_data()` and from `data_manager_window.gd`'s `ROUTES`/`GROUP_ORDER`; the Data manager now has **four** groups. |
@@ -4969,3 +4969,101 @@ the two that pin *reference* behaviour the guard must not change
 cartalith-godot` and headless boot of `shell/app.tscn` both clean, and a real
 non-headless run scanning all three getters reports 0 non-finite of 6342 road,
 807 sea and 1437 route points.
+
+## 34 - RN-04, CA-14 - the renderer was already sophisticated; its defaults were conservative (2026-08-24) - **FIXED**
+
+Owner analysis, and a correct one: the reference's renderer runs a full pipeline
+(climate -> material weights -> biome/material colour -> texture -> relief ->
+multi-scale hillshade -> curvature/AO -> atmospheric haze -> optional painter
+effects -> rivers/coast). What makes it look muted is that **most of its
+enhancement sliders default to `0`** and its base palettes are low-chroma - not
+a missing-features problem. The instruction was explicit: do not rewrite the
+renderer. Nothing here is a rewrite.
+
+| id | what | now |
+|---|---|---|
+| **RN-04** | The four remaining reference render stages the panel's own note listed as unported: **ridge crests**, **surface texture**, **ridged relief**, **curvature shading** | **CLOSED.** Literal ports in the reference's own pipeline slots - `build_crest`/`apply_crest` (8005-8023, applied at 8171 and 11971), and three blocks inside `land_color` (7841-7851, 7853-7862, 7870-7876). `cartalith-noise` gained `ridged_oct`, the reference's general `ridgedFbm(x, y, oct, s)`, **beside** the golden-verified fixed-six-octave `ridged` rather than by rewriting it. All four are `0.0` in `Default`, so `golden_parity_render.rs` is untouched. |
+| **CA-14** | **Colour grading** - the group `render_workspace.gd`'s own Still-owed block has listed since the dock was built | **CLOSED (six of ten axes).** `render::apply_color_grade`, a presentation-only post-process over the **finished raster**, after `apply_local_contrast` and before the Godot overlays draw rivers, labels, icons, territory and the scale bar. Exposure, contrast, saturation, temperature, shadow tint, highlight tint - one pass, in that order. Saturation is exactly luminance-preserving and both hue axes are luminance-compensated, so a graded map keeps the value structure the relief pipeline built. **Still owed and stated in the panel**: gamma, the four field-influence weights, and free colour pickers for the two tints (they are a blue-to-amber axis here, not arbitrary colours). |
+
+### The three controls that are not ports
+
+- **`relief_chroma`** answers the owner's second point directly. The reference's
+  relief blend is `grey = 185 * light`, and a `bio_blend` under 1 lerps toward
+  it - which costs **value as well as chroma**, dragging every shaded pixel
+  toward one fixed neutral. That is why the shipped `0.90` reads as a faded map
+  rather than a lit one. At `relief_chroma = 1` the grey target becomes a grey
+  of *the pixel's own* luminance (so the blend is exactly a desaturation) and
+  the light factor additionally cools and slightly desaturates shadow while
+  warming and slightly saturating sun. `0.0` is the reference byte for byte.
+- **`biome_sat`** - chroma of the material mix about its own Rec.709 luma, so it
+  can never move one material lighter or darker relative to its neighbour.
+- **`haze_strength`** - the reference's own `0.18` literal, made adjustable. The
+  haze colour `(208, 218, 230)` stays the reference's: it is the sky, not a
+  taste.
+
+### Named looks - how the shipped default moved without touching the parity path
+
+`TerrainAppearance::js_reference()` is `Default` with the stage gates zeroed, so
+**changing a palette in `Default` changes the JS-parity path**, and
+`golden_parity_render.rs` is not re-baselineable (`DECISIONS.md` 7a's carve-out
+is scoped to paths where JS parity is *impractical*, and says in as many words
+that the CPU rendering port stays golden-verified).
+
+So the re-pitched palettes, the enabled stages and the grade live in a **named
+look** layered over the quality tier - `LOOK_PRESETS` /
+`TerrainAppearance::with_look`, bound as `list_looks`/`get_look`/`set_look` -
+and `WorldGen` opens on **Natural Vibrant**. The tier decides what the renderer
+*spends*; the look decides what the picture *is*; a phone answers only the first
+question differently, which is why a look never touches a radius, a light count,
+or a stage a cheap tier switched off.
+
+Three looks: **Quality tier** (the identity), **Natural Vibrant** (the new
+default), **Antique Parchment**. The last one is section 7 of the owner's brief -
+the warm hand-illustrated MapEffects-style plate - and it **refines rather than
+duplicates**: the existing Antique Map-style chip was `{"sepia": 0.35}`, a
+toning matrix over the muted base and not a palette, and it now names this look
+as well, so Antique is a warm aged sheet *and* the sepia.
+
+Every Map-style chip now carries a look alongside its Painter bundle, which is
+what lets Ink put pen lines over the vibrant base rather than over the
+reference's muted one. `reset_appearance()` deliberately does **not** clear the
+look - it has its own picker, and a button in another section silently moving
+that picker is the desync this register keeps having to fix one control at a
+time.
+
+### Where the specification and the port's state disagreed
+
+The numbers were written against the reference, where every enhancement slider
+is `0`. Three are not zero here, and only two moved:
+
+- **Geology 25 %** - this port's equivalent is `litho_strength`/`litho_exposure`
+  at `0.62`/`0.55` since milestone 5, i.e. *more* geology than asked for.
+  Lowering them would have made the vibrant look less geological than the plain
+  tier. **Left at the tier's values.**
+- **AO 20 %** - taken **down** from the tier's `0.28`, as specified. Coherent,
+  because crests, curvature and ridged relief now carry the local relief the
+  broad cavity map used to carry alone.
+- **Wetness 12 %** - taken down from the tier's `0.38`, which was itself set by
+  the same day's owner-authorised CA-11 retune. A real reduction, made because
+  this instruction is the later one and names the number.
+
+### Verified
+
+Non-headless, a real world at 2048x1311 (seed 483920). Quality tier -> Natural
+Vibrant: **73.29 % of pixels moved, mean chroma 48.67 -> 63.37 (+30 %), mean
+luma 139.61 -> 138.36 (unchanged), luma sd 42.71 -> 48.44 (+13 %)**. That is
+"richer, more dimensional, still physically grounded" as a measurement, and it
+is nowhere near the 2x that would be the rainbow biome map the owner named as
+the failure mode. Every grade parameter back to rest returns the base at
+**0.0000 % moved, worst 0 levels**. Through the real dock: the Base look picker
+opens on Natural Vibrant, the right chip is lit, 35 appearance rows draw, a real
+slider drag on Colour grade > Saturation reaches the engine and moves 98.5 % of
+the raster, and the Antique chip lands the look and the sepia together. A saved
+look round-trips the new fields at 0.0000 %.
+
+**Disclosed rather than tuned away**: surface texture and ridged relief are
+nearly invisible at the specified 18 % and 10 %. That is the reference's own
+arithmetic - `1 + 0.2 * k * (T - 0.5)` at `k = 0.18` is a plus-or-minus 1.8 %
+modulation, about 2.5 levels on a 140-luma pixel - not a porting error. Both
+were left at the numbers the specification names rather than quietly multiplied
+up; their sliders are live and reach real strength.
