@@ -22818,6 +22818,295 @@ the INFRA dock deletes a route out from under it (it re-reads `route_count()`
 on open, so the failure is a wrong selection in a window that is rarely open
 at the same time, never a crash).
 
+## Icon tool gained its on-canvas resize handle (`GUI_GAP_REGISTER.md` CA-05, 2026-08-24)
+
+The Icon tool's own doc comments and the register both named this precisely:
+`icon_hit_test`'s `None` handle and `icon_bridge.rs`'s own "no on-canvas
+resize-handle geometry is tracked by this bridge yet" — a placed icon could
+only be resized by deleting and re-placing it, unlike a label, which already
+had three (resize/rotate/arc, `label_handles()`). The register's own
+diagnosis was exact: `icon_resize`/`icon_hit_test`/`icon_get` were all
+already exposed; the one missing piece was `icon_handles()` itself.
+
+**Engine (`icon_bridge.rs`, `lib.rs`):**
+
+- `icon_bridge::icon_handle(box_, env) -> IconHandle` ports the reference's
+  `drawCivLayer` icon-handle geometry (lines 15883-15893 of `Cartalith Gen1
+  v2.10.html`) verbatim: `hr=max(4,3.2*lsc)`, `hx=px+side/2*0.7`,
+  `hy=py+side/2*0.7`, stored hit-circle `r=hr*1.6`. Transcribed rather than
+  sliced, the same reasoning `label_bridge::handle_circles` already gives —
+  inline canvas drawing code the reference itself has no callable function
+  for. One handle only: a manually-placed icon carries no rotate/arc field
+  at all (`manual.rs`'s own module doc), so there was nothing else to
+  compute.
+- `IconEditor::handles(index, env) -> Option<IconHandle>` mirrors
+  `LabelBridge::handles`'s own contract exactly — any valid index works, not
+  only the current selection, matching how a caller decides which index to
+  ask for rather than the editor enforcing it.
+- `WorldGen::icon_handles(index, zoom) -> Dictionary` returns `{"resize":
+  {"x","y","r"}}`, the same `"resize"` key and `{x,y,r}` shape
+  `label_handles` already uses, so `tool_overlay.gd`'s existing
+  `set_handles()` primitive needed no reshaping to consume either.
+- `WorldGen::icon_get_selected() -> i64`, new: `label_get_selected`'s own
+  icon counterpart. `IconEditor`'s `selected` field had no accessor before
+  this — `icon_resize` already required a caller to know it (its own
+  contract: `index` must already be the selection), and `icon_handles`'s
+  caller needs to know which index to ask for and when to draw nothing at
+  all.
+- Six new tests in `icon_bridge.rs` pin the handle formula at zero zoom, at
+  a bigger per-instance `scale`, and at the low-zoom `max(4,...)` floor
+  (mirroring `label_bridge`'s own three geometry tests), plus `IconEditor::
+  handles`'s out-of-range/not-currently-selected contract.
+
+**Shell (`engine_bridge.gd`, `cartography_workspace.gd`):**
+
+- `engine_bridge.gd` gained typed wrappers for both new `#[func]`s
+  (`icon_get_selected() -> int`, `icon_handles(index, zoom) -> Dictionary`),
+  the same `_has()`-guarded pattern every other binding in that file uses.
+  **Found the hard way**: without these, `cartography_workspace.gd`'s own
+  `var sel := bridge.icon_get_selected()` (`:=` type inference) failed to
+  *compile* — `bridge` is statically typed `EngineBridge`, so GDScript's
+  analyzer resolves a call's return type from that class's own method
+  signatures, not from whatever `world_gen` (a dynamically-dispatched
+  `Node`) actually returns at runtime. A headless boot caught it immediately
+  (`Cannot infer the type of "sel" variable`) — the kind of break
+  `TOOLCHAIN.md`'s own "grep the DLL for a string" advice does not catch,
+  since the DLL was fine; the *script* failed to parse.
+- `IconDragMode { NONE, RESIZE }` — the Icon tool's own one-handle mirror of
+  the Label tool's five-mode `DragMode`, since there is no rotate/arc to
+  capture.
+- `_on_icon_click` now checks the currently-selected icon's resize-handle
+  circle *before* falling through to place/select, exactly the reference's
+  own pointerdown precedence (`_carIconHitTest` checked ahead of the click
+  handler's own place branch, reference lines 9664-9671). A hit begins a
+  resize drag (`_begin_icon_handle_drag`, capturing `cx`/`cy`/`start_dist`
+  the same way `_begin_label_handle_drag` does); a miss places as before.
+- `_on_icon_drag`/`_on_icon_release` registered as the tool's drag/release
+  handlers. Unlike the Label tool's resize (`label_resize_size` computes a
+  value the caller must then commit via `label_set`), `icon_resize` already
+  writes the result straight into the icon's own `scale` — so the drag
+  handler has no separate commit call to make.
+- `_update_icon_handles_overlay()` draws through the same `tool_overlay.gd`
+  primitive the Label tool's own handles use, called after every place/
+  delete/clear-all/selection change (`_rebuild_icon_panel`'s own end, the
+  same place `_rebuild_label_edit_form` already calls its label
+  equivalent). The placed-icon list also now highlights the selected row,
+  matching the label list's own convention.
+- The panel's stale note (*"There is no on-canvas resize handle yet…
+  delete and re-place to change one"*) is rewritten to describe what is
+  actually there now.
+
+**Deliberately not folded in:** `icon_hit_test`'s box-hit half is still
+unused by this file — clicking a previously-placed, currently-unselected
+icon to re-select it has no GDScript wiring. That is a real, separate gap
+this entry does not close; CA-05 was specifically about the missing handle
+geometry, and the register's own row said so.
+
+**Verified.** `cargo build -p cartalith-godot` clean and `cargo test -p
+cartalith-godot --lib` 321 passed (27 in `icon_bridge::`, 6 new) — both were
+blocked for part of this session by an unrelated, concurrently in-flight
+`lib.rs` change elsewhere in the same file (a `cartalith_terrain::
+amplify::AmplifyOpts` field addition, someone else's work, not this entry's
+— re-run clean once it landed) and, separately, by a live Godot editor
+holding the debug DLL open (`TOOLCHAIN.md`'s own documented "Windows holds
+an open file handle" failure mode). A headless boot
+(`--headless --path godot-project --quit`) is clean.
+
+Then a new `_iconhandle_probe.gd`/`.tscn` (`_authoring_shot.gd`'s own
+pattern: drive the real shell through `app.arm_tool`/`app._on_map_clicked`/
+`_on_map_dragged`/`_on_map_released`, not a mock) — **windowed**, 1600×1000,
+against a real 2048×1311 world with the repo's own `reference_pack.zip`
+loaded: armed Icon, placed a Settlement/Hamlet at the grid centre
+(`scale=1.0`), read back a non-empty resize handle immediately
+(`icon_handles` returned `{"resize": {x:1035.9, y:667.4, r:12.9}}` at the
+view's own zoom), clicked that exact point (hitting the handle, not
+re-placing — confirmed by the icon count staying at 1), dragged it outward
+over six samples and released: `scale` `1.0 → 2.9999947` (the drag's own
+distance ratio, not a round number, which is the point — it is really
+`icon_resize_scale`'s formula running, not a stub). A `zoom_step(1.35)` plus
+an explicit `refresh_annotations()` followed, and the scale read back
+**unchanged** (`is_equal_approx` true) while `icon_handles` re-queried at
+the new zoom returned a **different**, still-correct circle (`r` shrank
+from 12.9 to 9.5, matching `lsc`'s own inverse relationship with
+`_civZoomK`). Three screenshots confirm it visually: the placed icon's
+built-in vector glyph (an orange square — `map_overlay.gd`'s honest
+placeholder shapes, CA-12's own finding) next to a light-blue circle at the
+handle's own screen position; the square visibly larger and the circle
+correctly repositioned to the bigger box's own corner after the drag; both
+still present, correctly sized and positioned, after the zoom step.
+
+## A staleness indicator, and the dials that were never marked stale (`GUI_GAP_REGISTER.md` SG-01 / SG-03, 2026-08-24)
+
+The two open rows of §21's staleness register, closed together because they
+are the same feature seen from both ends: SG-03 produces staleness that
+nothing was recording, SG-01 shows staleness that nothing was reading. The
+graph itself has existed since **The staleness graph gets its consumer**, and
+`recompute_civilisation` (SG-02) has been the control that clears it since the
+same day; neither was visible anywhere in the shell.
+
+### SG-01 — the indicator
+
+**Engine.** New `#[func] WorldGen::stale_stages() -> Dictionary`, keyed by
+stage name, `{origin, reason, tiles}` per entry, `{}` for the healthy state.
+`origin` is the graph's *most upstream* unconsumed change — a sculpted ridge
+reads at `civ` as `height`, not as a chain of "my upstream moved" — and
+`reason` is that change's own recorded string (`"sculpt"`, `"carve_fjords"`,
+`"paint"`, `"param:climate.rain_k"`, `"reset_params"`). A pure query: every
+`StageGraph` accessor takes `&self`, so a status bar can poll it without ever
+triggering work.
+
+**The one staleness source the graph structurally cannot carry.** A
+hand-dropped, hand-edited or deleted settlement makes roads, territory,
+provinces and trade balances out of date — but those are `civ`'s *own*
+outputs, and `civ` is the leaf. `mark_changed(Civ)` therefore marks nothing
+stale at all (pinned by `staleness.rs`'s
+`a_downstream_only_edit_recomputes_nothing_upstream_of_it`), and marking any
+upstream node instead would be a lie that also drags a pointless
+`refresh_climate` along. Without something, the indicator would read "up to
+date" immediately after the edit `ED-03d`'s Recompute button exists for. So
+`WorldGen::civ_dirty` is a plain `bool`, set by exactly the three `#[func]`s
+`ED-03d` names (`civ_drop_settlement`, `civ_edit_settlement`,
+`civ_delete_settlement`), cleared by `recompute_civilisation` and by
+`absorb`, and reported as `origin: "settlements"`, `reason: "place_edited"`,
+`tiles: 0`. A flag rather than a mark, because the stage graph is a
+*dependency* structure and this is not a dependency: it is one pass of one
+stage being behind another pass of the same stage.
+
+**Shell — two surfaces, neither of them new chrome.** The shell has reserved
+a `stale` status slot since `dcc_shell.gd`'s `_build_status_bar()` was
+written, with a `stale` colour token and an unused `DccWidgets.stale_mark()`
+beside it; the slot was occupied by the last generation's *duration*, which
+moves into `pass` ("generated · 3.2s") where the rest of that run's outcome
+already was. `app.gd::refresh_staleness()` now writes it as `stale: climate ·
+civ — sculpt`. The second surface is a badge above the Civilization dock's
+Recompute button, saying the same thing in that button's own vocabulary
+("Stale over 12 tiles — sculpt. Recompute to catch it up." / "Up to date —
+nothing has changed under it since the last recompute." / "No world yet.").
+
+Both poll on a 1 s `Timer` rather than a signal. Staleness is produced by
+half a dozen unrelated `#[func]`s across three workspaces, and six
+notification couplings for what is a plain query is the wrong trade; the
+recompute button additionally refreshes both readouts synchronously, since
+the control that just cleared the state is the one place a lagging badge
+would read as "it did not work".
+
+**The Recompute button still does not grey itself out**, and the reason has
+changed. Its old comment said a disabled button would be reporting a state
+the user cannot see, and pointed at SG-01. That objection is gone. It stays
+enabled because "stale" is not the only reason to press it — a recompute is
+also how a user re-derives roads and borders after an edit the engine cannot
+classify — and because the badge already delivers what greying out was only a
+proxy for.
+
+### SG-03 — the per-parameter → stage table
+
+`params::invalidates(key) -> Option<PipelineStage>`, consulted by `set_params`
+per applied key and by `reset_params` wholesale. **25 of the 81 parameters
+mark something; 56 mark nothing at all**, and that split is the design.
+
+**The rule, derived rather than judged.** A parameter belongs in the table
+only if some function *other than* `generate_terrain` reads it, because
+marking a stage stale is a promise that recomputing it will apply the new
+value — and no live path re-runs terrain. Exactly two functions qualify:
+
+| Live consumer | Parameters | Marks | Effect |
+|---|---|---|---|
+| `refresh_climate` (all of what `recompute_stale` runs) | every `climate.*` row — the **climate** and **weather** groups, 20 keys — plus `peak_m`, `planet.g`, `planet.rotation_hours`, `planet.axial_tilt_deg` (24) | `Hydrology` | climate *and* civ go stale; `recompute_stale`'s gate fires, one `refresh_climate` runs |
+| `compute_civilisation` via `recompute_civilisation` | `river_density` (1), through `fresh_river_order` → affordances, roads, territory | `Climate` | **only** civ goes stale; `recompute_stale` runs nothing at all, leaving `still_stale = ["civ"]` for the dock's button |
+| — | the other 56: every tectonic, volcanic, crater, stream, erosion-pass and world-structure knob, plus `carve_rivers`, `use_gpu`, `sea_level`, `world` | nothing | generation-time only; Generate is the honest control |
+
+`sea_level` and `world` are the two rows that *are* read by
+`climate_params_for`/`weather_params_for` and still mark nothing:
+`recompute_stale` is handed `WorldState::sea_level` (a World-Structure
+archetype re-anchors it during generation, so the dial is not what the
+recompute reads), and `recompute_params` pins `world` to the value `absorb`
+snapshotted, because a moved geometry switch must not make a recompute
+describe a different world.
+
+**Why the node marked is one *above* the stage that goes stale.**
+`StageGraph` has no "this stage's own inputs moved" state: `mark_changed(S)`
+means *S's output changed*, which makes S's consumers stale and leaves S
+itself current. The node to mark is therefore the one immediately upstream of
+the shallowest stage the dial invalidates. For the climate half that is
+`Hydrology`, which is not a fiction for the weather knobs —
+`refresh_climate`'s first statement recomputes `flow_discharge` from the new
+rainfall, and that *is* hydrology's output. It is one node coarser than the
+truth for the few temperature-only dials (`lapse_rate`, `albedo_k`), where
+discharge genuinely does not move; representing those exactly would need a
+fifth `params` source node, a change to the four-node graph
+`the_owners_erosion_decision_keeps_the_graph_at_four_acyclic_stages` pins, and
+was not taken.
+
+**Marking only — nothing is recomputed in the setter.**
+`world_workspace.gd` writes a slider's value on every drag tick, so a
+recompute here would run `refresh_climate` sixty times a second.
+
+**The drift guard is mechanical, not a second list.**
+`every_key_that_moves_refresh_climate_is_marked_and_no_other` walks all 81
+rows, moves each to the far end of its own range, re-runs `refresh_climate`
+over a fixed height field, and asserts that "the output moved" and
+"`invalidates()` returns `Hydrology`" agree. A new parameter cannot be added
+without deciding this, and a wrong decision fails there rather than in the
+shell. Its baseline deliberately turns `wind_manual` on and widens the
+latitude band, because otherwise `wind_dir_deg` and `albedo_k` are provably
+inert — true of the *default world*, false of the parameter.
+
+**Finding, recorded because it bounds what SG-03 is worth today: no shipped
+GDScript path leaves one of these marks standing.** Every parameter row in
+`world_workspace.gd` calls `_regenerate_live()` on release — the reference's
+own `tparam()` `change` behaviour, verified live in the 2026-08-19 Playwright
+pass — and a full `generate()` rebuilds the graph from scratch in `absorb()`.
+`reset_params()` has no shell caller at all. So the table is today a correct
+engine-boundary contract and a prerequisite, not a user-visible change. What
+would consume it is a cheap "apply the climate dials without regenerating"
+path, and that cannot simply be switched on: a full regenerate with a new
+`rain_k` produces different *terrain*, not merely different rainfall, because
+weather runs inside the carve and the `evolve_cycles` loop. That is a parity
+decision, not a wiring one, and it is left to the owner.
+
+### Verified
+
+- `cargo build -p cartalith-godot`, and `cargo test -p cartalith-godot --test
+  params_mapping`: **21 passed, 4 new** — the mechanical derivation above,
+  `river_density`'s "civ stale, no climate pass, fields bit-identical", the
+  climate half's end-to-end "marks `Hydrology`, `recompute_stale` runs
+  hydrology+climate, rainfall actually moves, civ waits for its own button",
+  and the generation-time-only set.
+- **The real GDExtension boundary** (`_stalegraph_shot.gd`, 26 assertions,
+  all passing): a freshly generated world reports `{}`; `climate.rain_k`
+  marks exactly `climate` + `civ` with `origin=hydrology`,
+  `reason=param:climate.rain_k` — **and no others**, checked explicitly
+  against `tect.plates`, `stream.k`, `passes.evolve_cycles`, `sea_level`,
+  `world` and `use_gpu`, every one of which leaves `{}`; `river_density`
+  marks `civ` alone and `recompute_stale_stages()` then runs **nothing**; a
+  sculpt commit marks `civ` with `origin=height`, `reason=sculpt` and a real
+  tile count; a hand-dropped, hand-edited and hand-deleted settlement each
+  mark `civ` with `origin=settlements`; `recompute_civilisation()` clears
+  every one of them; and a regenerate resets the graph.
+- **A windowed run of the real shell** (`_stalegraph_ui_shot.gd`), reading
+  the actual `Label` text out of the live tree rather than the engine:
+  `pass` reads *"generated · 1.4s"* (the duration moved rather than
+  vanished), both surfaces clean after a generate, then *"stale: civ —
+  sculpt"* in the status bar and *"Stale over 30 tiles — sculpt. Recompute to
+  catch it up."* on the badge after a commit — arriving on the 1 s poll, not
+  a direct call, so the clock itself is under test — then *"stale: climate ·
+  civ — param:climate.rain_k"* after a real `bridge.param_set`, then both
+  empty and the badge back to *"Up to date"* after pressing the real button,
+  then *"stale: civ — place_edited"* after a hand-dropped settlement.
+- A headless boot of `shell/app.tscn`: extension initialises, no errors.
+
+**One bug only the real shell found, and only at a large enough grid.** The
+readout took the *first* stale tile's origin. `recompute_stale`'s own
+`mark_recomputed` bumps hydrology over the **whole** map, so at any tile the
+brush missed, civ's most-upstream unconsumed change is hydrology's
+`"flow_recomputed"` bookkeeping string — and tile 0 is usually such a tile.
+A sculpt therefore reported *"stale: civ — flow_recomputed"*, naming the
+recompute instead of the edit that caused it. Invisible in the boundary
+probe at 256×192, where one stroke covers all twelve tiles and tile 0 *is*
+height-marked. `stale_stages` now takes the most-upstream origin across every
+stale tile — the same "smallest id wins" rule `StageGraph::staleness` already
+applies within one tile.
+
 ## Three cartography follow-ups: a slider that rendered nothing, a ramp that did not exist, and a look that could not be saved (`GUI_GAP_REGISTER.md` CA-11 / CA-02 / CA-08, 2026-08-24)
 
 The three things the previous entry's measurement pass left behind. Each was
@@ -22995,292 +23284,370 @@ modes, stop duplicate, an absolute elevation domain and Auto Fit / Auto
 Breakpoints on the ramp; rename, delete and a thumbnail on saved looks. The
 panel's own "Still owed" block says so.
 
-## A staleness indicator, and the dials that were never marked stale (`GUI_GAP_REGISTER.md` SG-01 / SG-03, 2026-08-24)
+## The City Viewer draws a town, because milestone 12 gave it one to draw (`URBAN_MORPHOLOGY_SCOPE.md` milestone 12, 2026-08-24)
 
-The two open rows of §21's staleness register, closed together because they
-are the same feature seen from both ends: SG-03 produces staleness that
-nothing was recording, SG-01 shows staleness that nothing was reading. The
-graph itself has existed since **The staleness graph gets its consumer**, and
-`recompute_civilisation` (SG-02) has been the control that clears it since the
-same day; neither was visible anywhere in the shell.
+The owner asked for the City Viewer's rendering to be improved, with a
+MapEffects-style battle-map illustration as the reference and its own caption
+as the brief: *"mix up the brightness and saturation of the rooftops for a
+more natural look."*
 
-### SG-01 — the indicator
+**That technique needs rooftops, and there were none.** The viewer drew the
+street graph and the site boundary, and no amount of styling was going to fix
+that: a street graph has nothing discrete in it to fill — no shape smaller
+than the whole town. So the work is not mainly a rendering change.
 
-**Engine.** New `#[func] WorldGen::stale_stages() -> Dictionary`, keyed by
-stage name, `{origin, reason, tiles}` per entry, `{}` for the healthy state.
-`origin` is the graph's *most upstream* unconsumed change — a sculpted ridge
-reads at `civ` as `height`, not as a chain of "my upstream moved" — and
-`reason` is that change's own recorded string (`"sculpt"`, `"carve_fjords"`,
-`"paint"`, `"param:climate.rain_k"`, `"reset_params"`). A pure query: every
-`StageGraph` accessor takes `&self`, so a status bar can poll it without ever
-triggering work.
+### Why milestone 12 rather than a shortcut
 
-**The one staleness source the graph structurally cannot carry.** A
-hand-dropped, hand-edited or deleted settlement makes roads, territory,
-provinces and trade balances out of date — but those are `civ`'s *own*
-outputs, and `civ` is the leaf. `mark_changed(Civ)` therefore marks nothing
-stale at all (pinned by `staleness.rs`'s
-`a_downstream_only_edit_recomputes_nothing_upstream_of_it`), and marking any
-upstream node instead would be a lie that also drags a pointless
-`refresh_climate` along. Without something, the indicator would read "up to
-date" immediately after the edit `ED-03d`'s Recompute button exists for. So
-`WorldGen::civ_dirty` is a plain `bool`, set by exactly the three `#[func]`s
-`ED-03d` names (`civ_drop_settlement`, `civ_edit_settlement`,
-`civ_delete_settlement`), cleared by `recompute_civilisation` and by
-`absorb`, and reported as `origin: "settlements"`, `reason: "place_edited"`,
-`tiles: 0`. A flag rather than a mark, because the stage graph is a
-*dependency* structure and this is not a dependency: it is one pass of one
-stage being behind another pass of the same stage.
+Three options were weighed. A visual-only pass on the street graph could not
+reach the reference's look, because the look *is* per-building colour
+variation. Inventing a Voronoi or straight-skeleton subdivision would have
+produced colourable shapes, but would have been a competing algorithm sitting
+next to the one this subsystem already plans. And milestone 12 —
+`buildBlocks`/`buildParcels`, reference lines 30193-30344 — turned out to be
+**smaller than either**: two functions, and every primitive they need was
+already built and golden-tested at milestones 1-2 (`ensureCCW`, `insetPoly`,
+`polyCentroid`, `pointInPoly`, `polyArea`, `polySelfIntersects`, `segInt`,
+`edgeBetween`, `extractFaces`, and the `logn`/`chance`/`range` draws). No new
+kernel. So the laziest path and the honest path were the same path.
 
-**Shell — two surfaces, neither of them new chrome.** The shell has reserved
-a `stale` status slot since `dcc_shell.gd`'s `_build_status_bar()` was
-written, with a `stale` colour token and an unused `DccWidgets.stale_mark()`
-beside it; the slot was occupied by the last generation's *duration*, which
-moves into `pass` ("generated · 3.2s") where the rest of that run's outcome
-already was. `app.gd::refresh_staleness()` now writes it as `stale: climate ·
-civ — sculpt`. The second surface is a badge above the Civilization dock's
-Recompute button, saying the same thing in that button's own vocabulary
-("Stale over 12 tiles — sculpt. Recompute to catch it up." / "Up to date —
-nothing has changed under it since the last recompute." / "No world yet.").
+### `cartalith-urban::blocks` (new)
 
-Both poll on a 1 s `Timer` rather than a signal. Staleness is produced by
-half a dozen unrelated `#[func]`s across three workspaces, and six
-notification couplings for what is a plain query is the wrong trade; the
-recompute button additionally refreshes both readouts synchronously, since
-the control that just cleared the state is the one place a lagging badge
-would read as "it did not work".
+`build_blocks` insets each planar face by half the width of the street
+fronting it; `build_parcels` plats that interior into strip lots by the
+vertex-bisector method — angle bisectors capped by ray-cast to the opposite
+boundary, a per-edge depth clamp cast from each edge midpoint, log-normal
+frontage grants subdivided by the burgage cycle, reflex-vertex overlap
+rejection, and an area-conservation trim.
 
-**The Recompute button still does not grey itself out**, and the reason has
-changed. Its old comment said a disabled button would be reporting a state
-the user cannot see, and pointed at SG-01. That objection is gone. It stays
-enabled because "stale" is not the only reason to press it — a recompute is
-also how a user re-derives roads and borders after an edit the engine cannot
-classify — and because the badge already delivers what greying out was only a
-proxy for.
-
-### SG-03 — the per-parameter → stage table
-
-`params::invalidates(key) -> Option<PipelineStage>`, consulted by `set_params`
-per applied key and by `reset_params` wholesale. **25 of the 81 parameters
-mark something; 56 mark nothing at all**, and that split is the design.
-
-**The rule, derived rather than judged.** A parameter belongs in the table
-only if some function *other than* `generate_terrain` reads it, because
-marking a stage stale is a promise that recomputing it will apply the new
-value — and no live path re-runs terrain. Exactly two functions qualify:
-
-| Live consumer | Parameters | Marks | Effect |
-|---|---|---|---|
-| `refresh_climate` (all of what `recompute_stale` runs) | every `climate.*` row — the **climate** and **weather** groups, 20 keys — plus `peak_m`, `planet.g`, `planet.rotation_hours`, `planet.axial_tilt_deg` (24) | `Hydrology` | climate *and* civ go stale; `recompute_stale`'s gate fires, one `refresh_climate` runs |
-| `compute_civilisation` via `recompute_civilisation` | `river_density` (1), through `fresh_river_order` → affordances, roads, territory | `Climate` | **only** civ goes stale; `recompute_stale` runs nothing at all, leaving `still_stale = ["civ"]` for the dock's button |
-| — | the other 56: every tectonic, volcanic, crater, stream, erosion-pass and world-structure knob, plus `carve_rivers`, `use_gpu`, `sea_level`, `world` | nothing | generation-time only; Generate is the honest control |
-
-`sea_level` and `world` are the two rows that *are* read by
-`climate_params_for`/`weather_params_for` and still mark nothing:
-`recompute_stale` is handed `WorldState::sea_level` (a World-Structure
-archetype re-anchors it during generation, so the dial is not what the
-recompute reads), and `recompute_params` pins `world` to the value `absorb`
-snapshotted, because a moved geometry switch must not make a recompute
-describe a different world.
-
-**Why the node marked is one *above* the stage that goes stale.**
-`StageGraph` has no "this stage's own inputs moved" state: `mark_changed(S)`
-means *S's output changed*, which makes S's consumers stale and leaves S
-itself current. The node to mark is therefore the one immediately upstream of
-the shallowest stage the dial invalidates. For the climate half that is
-`Hydrology`, which is not a fiction for the weather knobs —
-`refresh_climate`'s first statement recomputes `flow_discharge` from the new
-rainfall, and that *is* hydrology's output. It is one node coarser than the
-truth for the few temperature-only dials (`lapse_rate`, `albedo_k`), where
-discharge genuinely does not move; representing those exactly would need a
-fifth `params` source node, a change to the four-node graph
-`the_owners_erosion_decision_keeps_the_graph_at_four_acyclic_stages` pins, and
-was not taken.
-
-**Marking only — nothing is recomputed in the setter.**
-`world_workspace.gd` writes a slider's value on every drag tick, so a
-recompute here would run `refresh_climate` sixty times a second.
-
-**The drift guard is mechanical, not a second list.**
-`every_key_that_moves_refresh_climate_is_marked_and_no_other` walks all 81
-rows, moves each to the far end of its own range, re-runs `refresh_climate`
-over a fixed height field, and asserts that "the output moved" and
-"`invalidates()` returns `Hydrology`" agree. A new parameter cannot be added
-without deciding this, and a wrong decision fails there rather than in the
-shell. Its baseline deliberately turns `wind_manual` on and widens the
-latitude band, because otherwise `wind_dir_deg` and `albedo_k` are provably
-inert — true of the *default world*, false of the parameter.
-
-**Finding, recorded because it bounds what SG-03 is worth today: no shipped
-GDScript path leaves one of these marks standing.** Every parameter row in
-`world_workspace.gd` calls `_regenerate_live()` on release — the reference's
-own `tparam()` `change` behaviour, verified live in the 2026-08-19 Playwright
-pass — and a full `generate()` rebuilds the graph from scratch in `absorb()`.
-`reset_params()` has no shell caller at all. So the table is today a correct
-engine-boundary contract and a prerequisite, not a user-visible change. What
-would consume it is a cheap "apply the climate dials without regenerating"
-path, and that cannot simply be switched on: a full regenerate with a new
-`rain_k` produces different *terrain*, not merely different rainfall, because
-weather runs inside the carve and the `evolve_cycles` loop. That is a parity
-decision, not a wiring one, and it is left to the owner.
+**One field is this port's own and is marked so.** `Parcel::tone`, a stable
+0..1 scalar the renderer varies a rooftop's brightness and saturation with. It
+is drawn from a **separate** RNG substream (`'roof-tone'`), never from the
+per-block `'parcels/…'` stream the geometry comes out of: one extra draw from
+that stream would shift every subsequent frontage width and the parcels would
+stop matching the reference's. Colour itself is not decided in the engine —
+`urban_layout_draw.gd` owns the palette, as it already did for streets and
+water.
 
 ### Verified
 
-- `cargo build -p cartalith-godot`, and `cargo test -p cartalith-godot --test
-  params_mapping`: **21 passed, 4 new** — the mechanical derivation above,
-  `river_density`'s "civ stale, no climate pass, fields bit-identical", the
-  climate half's end-to-end "marks `Hydrology`, `recompute_stale` runs
-  hydrology+climate, rainfall actually moves, civ waits for its own button",
-  and the generation-time-only set.
-- **The real GDExtension boundary** (`_stalegraph_shot.gd`, 26 assertions,
-  all passing): a freshly generated world reports `{}`; `climate.rain_k`
-  marks exactly `climate` + `civ` with `origin=hydrology`,
-  `reason=param:climate.rain_k` — **and no others**, checked explicitly
-  against `tect.plates`, `stream.k`, `passes.evolve_cycles`, `sea_level`,
-  `world` and `use_gpu`, every one of which leaves `{}`; `river_density`
-  marks `civ` alone and `recompute_stale_stages()` then runs **nothing**; a
-  sculpt commit marks `civ` with `origin=height`, `reason=sculpt` and a real
-  tile count; a hand-dropped, hand-edited and hand-deleted settlement each
-  mark `civ` with `origin=settlements`; `recompute_civilisation()` clears
-  every one of them; and a regenerate resets the graph.
-- **A windowed run of the real shell** (`_stalegraph_ui_shot.gd`), reading
-  the actual `Label` text out of the live tree rather than the engine:
-  `pass` reads *"generated · 1.4s"* (the duration moved rather than
-  vanished), both surfaces clean after a generate, then *"stale: civ —
-  sculpt"* in the status bar and *"Stale over 30 tiles — sculpt. Recompute to
-  catch it up."* on the badge after a commit — arriving on the 1 s poll, not
-  a direct call, so the clock itself is under test — then *"stale: climate ·
-  civ — param:climate.rain_k"* after a real `bridge.param_set`, then both
-  empty and the badge back to *"Up to date"* after pressing the real button,
-  then *"stale: civ — place_edited"* after a hand-dropped settlement.
-- A headless boot of `shell/app.tscn`: extension initialises, no errors.
+**Golden**, on milestones 2 and 7's terms. The reference's own
+`buildBlocks`/`buildParcels` run under `vm.runInContext` over block 4 of the
+frozen file, with both slice boundaries and the block-comment balance
+asserted, and the two functions exposed by a single anchored replacement
+asserted to match exactly once. The frozen file is never modified. Five
+scenarios (three site kinds on a wide grid, a shallow-row grid, a diagonal-cut
+grid), ~5,400 parcels, compared by a hash over **complete** state — both
+polygons, face ids, edge distances, and every parcel field, each double
+written as its exact 64 bits — plus written-out anchors and separate count
+assertions. **All five passed unmodified on the first run.**
 
-**One bug only the real shell found, and only at a large enough grid.** The
-readout took the *first* stale tile's origin. `recompute_stale`'s own
-`mark_recomputed` bumps hydrology over the **whole** map, so at any tile the
-brush missed, civ's most-upstream unconsumed change is hydrology's
-`"flow_recomputed"` bookkeeping string — and tile 0 is usually such a tile.
-A sculpt therefore reported *"stale: civ — flow_recomputed"*, naming the
-recompute instead of the edit that caused it. Invisible in the boundary
-probe at 256×192, where one stroke covers all twelve tiles and tile 0 *is*
-height-marked. `stale_stages` now takes the most-upstream origin across every
-stale tile — the same "smallest id wins" rule `StageGraph::staleness` already
-applies within one tile.
+**The mutation sweep is the part worth reading.** Every ported constant was
+mutated by one unit and the suite re-run. Ten were caught. Three survivors
+were real, and two new scenarios closed two of them:
 
-## Icon tool gained its on-canvas resize handle (`GUI_GAP_REGISTER.md` CA-05, 2026-08-24)
+1. **The 2000 m probe ray survived** the first three scenarios entirely,
+   because their blocks are far deeper than the 14-46 m plot depth, so
+   `min(t_min*0.42, depthTarget*1.35)` is always won by the depth term and the
+   ray-cast caps never bind at all. `narrow_rows` (~30 m rows) fixed it.
+2. **`depthTarget*1.35` survived** because rectangular faces have no acute
+   vertices, and that cap only binds where a vertex ray-cast is tighter than
+   its edge one. `wedges` (diagonal cuts) fixed it.
+3. **The 120 m² face floor cannot be reached at all**, and this is the finding
+   to carry forward rather than a hole to plug: `attach_point`'s `SNAP` is
+   11 m, so any two nodes closer than that merge, and an ~11 m cell — the only
+   rectangular shape with an area near 120 m² — collapses before
+   `extract_faces` ever sees it. Measured, not assumed: cutting a frame at
+   10.95 m and at 10.98 m both yield a 4-node graph with one face. The floor
+   guards the degenerate slivers `splitEdge` and crossing-resolution produce,
+   not anything a clean street lay can make. **Milestone 11's `lanePass` is the
+   first stage that could produce one**, and is where to revisit it.
 
-The Icon tool's own doc comments and the register both named this precisely:
-`icon_hit_test`'s `None` handle and `icon_bridge.rs`'s own "no on-canvas
-resize-handle geometry is tracked by this bridge yet" — a placed icon could
-only be resized by deleting and re-placing it, unlike a label, which already
-had three (resize/rotate/arc, `label_handles()`). The register's own
-diagnosis was exact: `icon_resize`/`icon_hit_test`/`icon_get` were all
-already exposed; the one missing piece was `icon_handles()` itself.
+The 140,000 m² ceiling is pinned by its own boundary fixture. The 7 m minimum
+frontage, 4 m minimum depth, `riverW/2 + 1` wet margin and the 0.97
+area-conservation trim are pinned by the hash for every value the fixtures
+produce but **not** at their own boundaries — the test module's header says so
+rather than leaving it implied.
 
-**Engine (`icon_bridge.rs`, `lib.rs`):**
+### The drawing (`urban_layout_draw.gd`)
 
-- `icon_bridge::icon_handle(box_, env) -> IconHandle` ports the reference's
-  `drawCivLayer` icon-handle geometry (lines 15883-15893 of `Cartalith Gen1
-  v2.10.html`) verbatim: `hr=max(4,3.2*lsc)`, `hx=px+side/2*0.7`,
-  `hy=py+side/2*0.7`, stored hit-circle `r=hr*1.6`. Transcribed rather than
-  sliced, the same reasoning `label_bridge::handle_circles` already gives —
-  inline canvas drawing code the reference itself has no callable function
-  for. One handle only: a manually-placed icon carries no rotate/arc field
-  at all (`manual.rs`'s own module doc), so there was nothing else to
-  compute.
-- `IconEditor::handles(index, env) -> Option<IconHandle>` mirrors
-  `LabelBridge::handles`'s own contract exactly — any valid index works, not
-  only the current selection, matching how a caller decides which index to
-  ask for rather than the editor enforcing it.
-- `WorldGen::icon_handles(index, zoom) -> Dictionary` returns `{"resize":
-  {"x","y","r"}}`, the same `"resize"` key and `{x,y,r}` shape
-  `label_handles` already uses, so `tool_overlay.gd`'s existing
-  `set_handles()` primitive needed no reshaping to consume either.
-- `WorldGen::icon_get_selected() -> i64`, new: `label_get_selected`'s own
-  icon counterpart. `IconEditor`'s `selected` field had no accessor before
-  this — `icon_resize` already required a caller to know it (its own
-  contract: `index` must already be the selection), and `icon_handles`'s
-  caller needs to know which index to ask for and when to draw nothing at
-  all.
-- Six new tests in `icon_bridge.rs` pin the handle formula at zero zoom, at
-  a bigger per-instance `scale`, and at the low-zoom `max(4,...)` floor
-  (mirroring `label_bridge`'s own three geometry tests), plus `IconEditor::
-  handles`'s out-of-range/not-currently-selected contract.
+Back to front: parchment ground, water, block ground, street casing, street
+fill, roof shadow, roof fill, roof ink, roof ridge, annotation. The reference
+image's technique is applied for real — every roof a different brightness and
+saturation of one warm palette, with brightness up and saturation *down*
+together off the one scalar, because a weathered, sun-bleached roof is both at
+once. That is also why the engine emits one number rather than three
+independent jitters.
 
-**Shell (`engine_bridge.gd`, `cartography_workspace.gd`):**
+Map content keeps its ink-and-parchment language and deliberately does **not**
+follow the shell's light/dark theme — the same rule this file already recorded
+for streets and water, and `map_overlay.gd` for faction colour. The shell's
+amber `accent` appears only on annotation drawn *over* the map (the market
+anchor, the approach-road ends), never as map ink, which is how the DCC shell
+and a hand-drawn plan sit together without competing.
 
-- `engine_bridge.gd` gained typed wrappers for both new `#[func]`s
-  (`icon_get_selected() -> int`, `icon_handles(index, zoom) -> Dictionary`),
-  the same `_has()`-guarded pattern every other binding in that file uses.
-  **Found the hard way**: without these, `cartography_workspace.gd`'s own
-  `var sel := bridge.icon_get_selected()` (`:=` type inference) failed to
-  *compile* — `bridge` is statically typed `EngineBridge`, so GDScript's
-  analyzer resolves a call's return type from that class's own method
-  signatures, not from whatever `world_gen` (a dynamically-dispatched
-  `Node`) actually returns at runtime. A headless boot caught it immediately
-  (`Cannot infer the type of "sel" variable`) — the kind of break
-  `TOOLCHAIN.md`'s own "grep the DLL for a string" advice does not catch,
-  since the DLL was fine; the *script* failed to parse.
-- `IconDragMode { NONE, RESIZE }` — the Icon tool's own one-handle mirror of
-  the Label tool's five-mode `DragMode`, since there is no rotate/arc to
-  capture.
-- `_on_icon_click` now checks the currently-selected icon's resize-handle
-  circle *before* falling through to place/select, exactly the reference's
-  own pointerdown precedence (`_carIconHitTest` checked ahead of the click
-  handler's own place branch, reference lines 9664-9671). A hit begins a
-  resize drag (`_begin_icon_handle_drag`, capturing `cx`/`cy`/`start_dist`
-  the same way `_begin_label_handle_drag` does); a miss places as before.
-- `_on_icon_drag`/`_on_icon_release` registered as the tool's drag/release
-  handlers. Unlike the Label tool's resize (`label_resize_size` computes a
-  value the caller must then commit via `label_set`), `icon_resize` already
-  writes the result straight into the icon's own `scale` — so the drag
-  handler has no separate commit call to make.
-- `_update_icon_handles_overlay()` draws through the same `tool_overlay.gd`
-  primitive the Label tool's own handles use, called after every place/
-  delete/clear-all/selection change (`_rebuild_icon_panel`'s own end, the
-  same place `_rebuild_label_edit_form` already calls its label
-  equivalent). The placed-icon list also now highlights the selected row,
-  matching the label list's own convention.
-- The panel's stale note (*"There is no on-canvas resize handle yet…
-  delete and re-place to change one"*) is rewritten to describe what is
-  actually there now.
+### Two things were measured, and both changed the code
 
-**Deliberately not folded in:** `icon_hit_test`'s box-hit half is still
-unused by this file — clicking a previously-placed, currently-unselected
-icon to re-select it has no GDScript wiring. That is a real, separate gap
-this entry does not close; CA-05 was specifically about the missing handle
-geometry, and the register's own row said so.
+Neither was predictable from reading, and both came from running it on real
+towns rather than on fixtures.
 
-**Verified.** `cargo build -p cartalith-godot` clean and `cargo test -p
-cartalith-godot --lib` 321 passed (27 in `icon_bridge::`, 6 new) — both were
-blocked for part of this session by an unrelated, concurrently in-flight
-`lib.rs` change elsewhere in the same file (a `cartalith_terrain::
-amplify::AmplifyOpts` field addition, someone else's work, not this entry's
-— re-run clean once it landed) and, separately, by a live Godot editor
-holding the debug DLL open (`TOOLCHAIN.md`'s own documented "Windows holds
-an open file handle" failure mode). A headless boot
-(`--headless --path godot-project --quit`) is clean.
+- **577 ms to redraw six towns** — not something anyone can pan. Every roof
+  took its own `draw_polyline` and `draw_line`; folding all roof edges into
+  one `draw_multiline` and all ridges into another took it to **102 ms**, and
+  the City Viewer's own worst case (a 4,370-lot capital) to **46 ms**.
+- **A dense city rendered as a black mass.** A town's lot count runs from 11
+  to 4,370, so the same canvas at the same fit shows a roof at ~40 px or at
+  ~3 px — and at 3 px the ink outline is wider than the roof it surrounds and
+  swallows the tone variation completely. The ink and ridge passes are now
+  gated on the **measured** on-screen lot size (sampled, median) rather than
+  on zoom. For the same reason the street casing is capped in pixels rather
+  than scaled: fitting an 11-lot hamlet to a window zooms far enough that a
+  scaled casing turns the town into a black cross with a few roofs adrift in
+  it.
 
-Then a new `_iconhandle_probe.gd`/`.tscn` (`_authoring_shot.gd`'s own
-pattern: drive the real shell through `app.arm_tool`/`app._on_map_clicked`/
-`_on_map_dragged`/`_on_map_released`, not a mock) — **windowed**, 1600×1000,
-against a real 2048×1311 world with the repo's own `reference_pack.zip`
-loaded: armed Icon, placed a Settlement/Hamlet at the grid centre
-(`scale=1.0`), read back a non-empty resize handle immediately
-(`icon_handles` returned `{"resize": {x:1035.9, y:667.4, r:12.9}}` at the
-view's own zoom), clicked that exact point (hitting the handle, not
-re-placing — confirmed by the icon count staying at 1), dragged it outward
-over six samples and released: `scale` `1.0 → 2.9999947` (the drag's own
-distance ratio, not a round number, which is the point — it is really
-`icon_resize_scale`'s formula running, not a stub). A `zoom_step(1.35)` plus
-an explicit `refresh_annotations()` followed, and the scale read back
-**unchanged** (`is_equal_approx` true) while `icon_handles` re-queried at
-the new zoom returned a **different**, still-correct circle (`r` shrank
-from 12.9 to 9.5, matching `lsc`'s own inverse relationship with
-`_civZoomK`). Three screenshots confirm it visually: the placed icon's
-built-in vector glyph (an orange square — `map_overlay.gd`'s honest
-placeholder shapes, CA-12's own finding) next to a light-blue circle at the
-handle's own screen position; the square visibly larger and the circle
-correctly repositioned to the bigger box's own corner after the drag; both
-still present, correctly sized and positioned, after the zoom step.
+`map_overlay.gd` passes `detail = 0.0` below a 620 px site box, where a lot is
+under ~4 px and the three per-roof passes are drawing sub-pixel detail over
+and over.
 
+### What is still missing, and is said on screen
+
+**Three upstream stages do not run**, and this is the honest cost of taking
+milestone 12 out of order — a property of its *input*, not of the port:
+
+- **`buildPlaza` (milestone 8) runs on the organic branch too** (reference
+  line 31024), not only the radial one. Without it no block is marked a plaza,
+  so **a drawn town has no open market square** — the block over the market
+  anchor is platted like any other. The most visible gap, and the smallest
+  remaining change with a visible payoff; `URBAN_MORPHOLOGY_SCOPE.md`'s
+  milestone 8 entry has been re-prioritised accordingly.
+- **`removeWaterCrossings` (milestone 11)** does not run, so streets may still
+  cross the channel. Milestone 12's own guards absorb most of it: a block whose
+  inset centroid is wet is dropped, and a lot with *any* corner in the water is
+  rejected (the reference's footprint test, not a centroid test).
+- **`lanePass` (milestone 11)** does not run, so faces are coarser than the
+  reference's would be from the same seed.
+
+**And one place the drawing is ahead of the generator**, which `stages` cannot
+say for itself and the info panel therefore says in words: a rooftop is a whole
+parcel, inset. `buildBuildings` (milestone 13) would put a smaller footprint
+inside each lot with a grammar per district and a terrain gate that leaves
+some lots empty — so this town has no gaps and every roof is the same simple
+quad. Buildings, districts, amenities and the wall circuit remain absent
+rather than stubbed: the bridge still emits **no key** for any of them.
+
+### Verified — actually ran
+
+- `cargo test -p cartalith-urban` (90 passed, 6 new), `-p cartalith-civ`,
+  clippy clean on both, `cargo build -p cartalith-godot`.
+- One clippy suggestion **declined and commented**: `!(120.0..=140_000.0)
+  .contains(&a)` differs from the reference's `A<120||A>140000` on NaN (both
+  comparisons are false for NaN, so a NaN face is *kept*; `!contains` would
+  skip it).
+- **Non-headless, on a real world**: six settlements from pop 121 to 21,179 —
+  283 blocks / 4,370 parcels down to 2 / 11 — tone spanning 0..1 within every
+  town and the sequence distinct across all six, so no two settlements share a
+  roof palette. Then the real `CityViewerWindow` opened on the largest, with
+  its legend, info panel and fit box exercised as a user meets them.
+- `--headless --path . --quit`: clean, exit 0.
+- Golden-parity **does** apply here and was used, contrary to the initial
+  expectation that this was purely visual work: two reference functions were
+  ported, so they are checked against the reference engine rather than
+  eyeballed.
+
+## Bake, tile pyramid, persistent atlas and the finalize lock (`GUI_GAP_REGISTER.md` WW-01 / PR-10 / PR-12 / SH-07, `PARITY_AUDIT.md` §3, 2026-08-24)
+
+`PARITY_AUDIT.md`'s largest genuinely-unstarted row with no owner ruling
+against it — ~50 reference functions (`bakeAllTiles`, `atlas*`, `setFinalized`,
+`applyFinalizedUI` and the pyramid geometry beneath them).
+
+**Understanding first, because two different things in the reference share the
+verb.** Deep zoom there does not magnify the base raster; it *re-synthesises*
+the ground at tile resolution — `refineTile` bilinearly upsamples the coarse
+field and adds world-space sub-cell detail, then `addZoomDetail` (reference
+10467) adds `z − zBase` further octaves, each 2× frequency, *"so deeper zoom ⇒
+more octaves ⇒ more intricate relief"*. That is expensive and it is
+deterministic, which is exactly the shape of thing worth caching. **Baking is
+running that synthesis ahead of time for every tile of the pyramid and writing
+the results to a persistent, per-world store**, so a later zoom reads bytes
+instead of recomputing octaves.
+
+**Finalizing is not a UI mode.** The atlas is namespaced by `worldKey`
+(reference 10703), an FNV-1a hash of the generation parameters. Change one and
+every baked chunk in the world becomes *unreachable* — not wrong, unreachable,
+which is worse, because the user paid minutes of compute for it and the app
+would look as though it had thrown the work away. `state.finalized` is what
+makes that a refusal with an explanation instead. The reference's own comment
+puts it better than a summary can: *"the moment the simulation stops being the
+tool and the map starts being it."*
+
+What it exempts is exactly what it must: anything that only changes how the
+field is *drawn*. `applyFinalizedUI` skips `#genV3dSec` because *"the 3D-view
+dials style the drape, never the data"* — and that has to be the same cut
+`worldKey` makes, or a control the lock permits would invalidate the atlas it
+was allowed to change. Here the two are the same cut by construction:
+`bake_bridge::world_key_signature` hashes `params::save_state` (every value
+`generate_terrain` reads, by construction — it is `SAVEFILE_COMPAT.md`'s own
+table) plus the six call-argument fields, and nothing `render.rs` owns.
+
+**Built, in five pieces, each in the crate that owns it:**
+
+| where | what |
+|---|---|
+| `cartalith-spatial/src/pyramid.rs` (new) | `pyramidDims` (10461), `pyramidTileBounds` (10594), `pyramidLevelForZoom` (10600), `tilesInView` (10637), `chunkParent`/`chunkChildren` (10933-4), `bakedCover` (10715), and `pyramid_tile_count` |
+| `cartalith-terrain/src/amplify.rs` | `addZoomDetail` (10467), plus `z_base`/`zoom_detail_k` on `AmplifyOpts` — the reference's own single shared bag, reproduced rather than split |
+| `cartalith-io/src/atlas.rs` (new) | `worldKey`'s FNV-1a, `atlasKeyStr`/`atlasMetaKey`/`atlasChunkFile`, chunk encode/decode over `packHeight16`, `buildAtlasManifest`, `AtlasMeta`, and the store |
+| `cartalith-engine/src/bake.rs` (new) | `pyramidTile` (10575), `bakeAllTiles` (10809), `bakeVisibleTiles` (10765) minus its camera, `atlasExportEntries`/`atlasImportEntries` (10890/10910), and `FinalizeLock` |
+| `cartalith-godot/src/bake_bridge.rs` (new) + 14 `#[func]`s | the atlas root, the world-key signature, the status readout, the cost estimate, and five guard call sites |
+
+**Why `pyramid.rs` is not `TiledField`.** Both are "tiling", and only one of
+them is this. `TiledField` cuts a field it *owns* into fixed-size tiles; a
+pyramid level splits the *whole* field into `2^z × 2^z` tiles whose coarse-cell
+footprint therefore shrinks with depth and is generally fractional. The
+one-cell inset every function works over (`cW − 1`, not `cW`) is the
+reference's own and is deliberate: a tile is sampled by `refineTile`, whose
+coordinates are cell *centres* with endpoints inclusive, so the addressable
+span of a `cW`-wide field is `[0, cW−1]`.
+
+**IndexedDB is the one necessary divergence.** The reference's store is a
+browser API it itself feature-detects and degrades to a no-op without
+(*"browser-only; feature-detected → headless / no-IDB no-op"*). `AtlasStore`
+is a filesystem directory instead, with the same durability contract: survives
+a reload, survives a regenerate, per-world, clearable. What is deliberately
+kept byte-identical is everything a `World/` archive written by either side
+has to agree on — the key string, the chunk encoding, the ancestor-coverage
+rule and the manifest — and all four are golden-pinned.
+
+**Golden parity: 16 tests across three files, every one matching on the first
+run.** Six FNV-1a-64 hashes of `addZoomDetail` output and seven of
+`pyramidTile`'s, so the octave loop is bit-identical to V8's; the atlas
+manifest byte for byte against `JSON.stringify(m, null, 2)`; `pyramidDims`,
+`pyramidTileBounds` (fractional steps of 47/2, 47/4, 47/8), `tilesInView`
+(including the case a "clamp the rect first" port gets wrong — a view entirely
+off the north-west still names tile (0,0)), `pyramidLevelForZoom`, the key and
+path spellings, and the `rg16` round trip.
+
+**Two harness notes worth keeping, both of which cost real time.** `GW`, `GH`,
+`state` and `VERSION` are `let`/`const` in block #1, so they are **not** `vm`
+context properties and `ctx.GW` reads `undefined` — `CLAUDE.md`'s own
+documented hazard ("host-side assignment shadowing `let`-declared reference
+globals"), met by *appending the probe to the block's own source* and running
+the two as one script, which is the only way it shares that lexical scope. And
+block #1's boot line (14554) reads `typeof indexedDB === 'undefined'` and,
+headless, **auto-generates a full world** at the default `state.resW` of 2048
+— minutes per extraction run. The harness supplies a truthy `indexedDB` stub so
+boot takes the browser branch; none of the functions under test reads it.
+
+**Mutation testing found two real things rather than confirming nothing.**
+
+1. **Inserting a `[0,1]` clamp on `addZoomDetail`'s write-back survived every
+   case**, because no fixture pushed a value out of range. Rather than assume,
+   the claim was checked against the reference directly: a cliff fixture at
+   `detailAmp 9.0`, run through the real `addZoomDetail`, comes back spanning
+   `[-0.963, 2.825]`. `amplifyRegion` clamps; this pass does not, and a port
+   that "tidied" that would silently flatten every peak a deep bake touches.
+   Now pinned by its own case.
+2. **Three constants governing the second-and-later octaves** (`f *= 2`,
+   `amp *= 0.6`, the six-octave cap) were invisible to the engine-level test,
+   whose deepest case reached only one octave. `z = 5` and `z = 7` cases added;
+   the terrain-level test had killed all three from the start, so this was a
+   coverage gap between two files rather than a hole.
+
+**Verified end to end on a real generated world** —
+`cartalith-engine/tests/bake_real_world.rs`, `#[ignore]`d and size-configurable
+by environment variable so the same test answers both "does this work" and
+"what does it cost at shipping size":
+
+| world | tile | depth | chunks | time | on disk | archive |
+|---|---|---|---|---|---|---|
+| 384×256 | 256 px | 3 | 85 | 0.17 s (2 ms/tile) | 16.4 MiB | 9.3 MiB gzipped |
+| 2048×1311 | 1024 px | 3 | 85 | 1.64 s (19 ms/tile) | **233.7 MiB** | 104.6 MiB gzipped |
+
+A deep-zoom read comes back within one `rg16` LSB (7.63e-6) of what live
+synthesis produces, the stored visual is a real decodable PNG at the tile's own
+size, a re-bake of the same depth writes nothing and skips all 85, the archive
+round-trips into a fresh store byte for byte, and `clear_world` frees exactly
+85.
+
+**That 233.7 MiB changed the UI.** Every tile at every level has the *same*
+pixel dimensions — `tile_dims` picks them from the region's aspect ratio, and a
+level-`z` tile's footprint is `(gw−1)/2^z × (gh−1)/2^z`, whose aspect is
+`(gw−1)/(gh−1)` regardless of `z` — so the pyramid's height storage is exactly
+`tiles × tw × th × 4`, and depth 5 at those settings is about **3.7 GiB**. The
+Bake depth row therefore leads with the byte figure rather than the tile count,
+because a tile count alone reads as small and is not. `bake_estimate`'s
+prediction is checked against the measured 233.7 MiB by a test, not merely
+computed.
+
+**The shell.** `GUI_GAP_REGISTER.md` §7's own note said to take the design
+canvas's three-row split when WW-01 was built, so the dock foot's single
+disabled button is now Bake depth · Bake ALL levels & finalize · Un-finalize
+(plus a fourth row for Clear), with the reference's own show/hide swap between
+the bake button and Un-finalize (`applyFinalizedUI` lines 10861-10864). The
+status bar's `atlas` slot, built since the shell shipped and never written, now
+carries chunk count, deepest level, bytes and the finalize state — blank when
+nothing is baked, because an empty slot is the honest reading of "no atlas" and
+a permanent "Atlas: empty" would spend a slot saying nothing. Preferences ▸
+Memory ▸ Clear caches is live (PR-12). The atlas root is `DccSettings`' own
+existing `atlas_cache` path, exactly as §7.7 item 3 asked when the cache
+shipped.
+
+**Five guards, not a DOM sweep.** The reference disables controls in the
+Generate → World panel and backs that with three hand-written guards in
+`generate()`, `confirmRegenerate()` and `_sculptEditorActive()`. Here the rule
+is one predicate (`FinalizeLock::check`) called from `generate_sized`,
+`generate_world_structure_sized`, `load_save`, `set_params` and
+`sculpt_commit`, so a sixth mutator added later cannot forget it, and
+`finalize_check(kind)` returns the same sentence as a query so the shell can
+grey a control and say *why*. `set_params` rejects the whole write rather than
+half of it: a partial apply would leave the parameter state describing a world
+the atlas was not baked from, which is the exact condition the lock exists to
+prevent.
+
+**Deliberately not ported, and said so in `pyramid_tile`'s own doc comment:**
+the reference's `coarseFlow` burn-in (`burnChannels`/`sharpDelta`) and its
+`featureDetailPass`/`tileErode` extras. Both are behind `_lodBurnRivers` /
+`_lodMicroErode`, off by default there, so a default bake matches; wiring them
+needs the live flow field and the feature registry routed down to a per-tile
+call, which is a rendering-integration milestone rather than part of the bake.
+`GENPOOL.runTiles` has no counterpart either — `bake_tiles` is already
+`rayon`-parallel across a level's tiles, which is the same parallelism, and
+the reference's `_lodGen` race guard has nothing to guard because the whole
+level completes before the caller regains control.
+
+**Still open.**
+
+- **Nothing reads the atlas at draw time yet.** `atlas_tile_png()` and
+  `atlas_is_covered()` exist and are verified; `viewport_host.gd`'s deep-zoom
+  compositor still calls `lod_synthesize_tile` unconditionally. The cache is
+  written and correct but not yet consulted — the single most valuable
+  follow-up here.
+- No progress signal: `bake_all` is synchronous and blocks the UI for its
+  duration. Threading it is the same unsolved question
+  `GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md` raises for `generate()`.
+- §7.7's atlas size cap in GB, and its item-1 split of the interactive-LOD
+  toggles into the Layers popover and tile size / LOD levels into Export ▸
+  Maps. The engine has `atlas_set_tile_size()` and `bake_visible()`; nothing
+  in Preferences calls either.
+- RD-13's finalize-lock note in the right dock's Stamp stack. Now unblocked
+  and small — the engine refuses the commit and `finalize_check("height_edit")`
+  returns the sentence — but the right dock was outside this pass.
+- `app.gd:316-318`'s second copy of the Finalize control in the tool options
+  bar.
+
+**A scoping correction, recorded because the earlier scoping was wrong.**
+`PARITY_AUDIT.md` §5 item 14 held that the four header-bar export controls
+(`bakeRes` 2K/4K/8K, `bakeTiles`, `chanAtlasChk`, `layersPreviewChk`) belong to
+this system. They do not. The reference has **two separate systems that share
+the verb**: the LOD tile pyramid above, and the **export raster** —
+`bakeDims`/`bakePixel`/`bakeSingle`/`bakeTiled`, which is `exportZip`'s
+`map.png`. `bakePixel` is the full material path (`landColorCore`,
+`seaColorCore`, lakes, SDF coast/river, crest, AO × SVF × cast shadows) at a
+*fractional* sample position, and this port's `render::cell_color` takes
+integer cell indices only — so `bakeRes`/`bakeTiles` are a rendering milestone,
+not an export one. `chanAtlasChk` is a third thing again and much cheaper:
+`_chanEnc`/`packRGB8`/`channelAtlasGroups` pack up to three affordance fields
+into one RGB8 PNG plus a decode manifest, and every input already exists
+(`cartalith_civ::build_soil_fertility`/`build_water_access`/
+`build_carrying_capacity`/`build_settlement_suitability`/
+`build_resource_potentials`, `RESOURCE_KEYS`). `layersPreviewChk` is the f32
+layer previews. **None of the four was built here**; both audit rows are
+corrected rather than left to mislead the next pass.

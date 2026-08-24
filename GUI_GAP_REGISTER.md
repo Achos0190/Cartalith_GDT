@@ -242,8 +242,8 @@ behaviour changed.** All five are corrections of fact, not design.
 | S1 | `right_dock.gd:608` | Faction ▸ Territory — *"no per-faction cell count or area query exists"* | **Two** now exist: `civ_faction_territory_stats(faction)` returns `claimed_cells`/`area_km2`/`contested_cells`, and `get_factions()` (`lib.rs:3442`) carries `claimed_cells` per faction. `civilization_workspace.gd:350-358` already flagged this in a comment ("true when that sentence was written, no longer true") but could not edit the file. | Says the queries exist, names both, points at CIVIL ▸ Territory's options row where the live numbers already show. |
 | S2 | `app.gd:281-284` | CIVIL/INFRA idle context — *"the §4.5 tool palette to arm them is not built yet"* | The TOOLS block **is** built, in both docks (`civilization_workspace._build_tools()`, `infrastructure_workspace._build_tools()`). Both files say so in their own comments and note `app.gd` was out of their scope. | Names the tools each dock actually offers, and that POI is absent for a real engine reason. |
 | S3 | `journey_planner_view.gd:1519` | Cost group — *"the reference's own cost model, if any exists past the HTML's own UI layer, has no Rust port"* | **False.** `cartalith_civ::jp_journey_cost` (`cartalith-civ/src/lib.rs:6885`, ported from `jpJourneyCost` reference line 18873) computes carriage/wages/crew/upkeep/tolls/transshipment/total/per-tonne-km/break-even, with golden tests (`journey_cost_prices_a_mixed_land_and_sea_trip`). It is simply never called. Every input is already computed inside `jp_plan` (`JpDerivedStage::claimed_frac`, `JpJourneyPlan::transshipments`, per-leg km/days/crew). | Says the model is ported, names it, names the three inputs, and calls it a boundary gap rather than a model gap. |
-| S4 | `menus.gd:338` | Tiled LOD · tile size · atlas cache — *"No tile atlas yet."* | Stale in part. Deep-zoom LOD tiling is **live and automatic** (`lod_synthesize_tile`/`lod_tile_cells`, driven by `viewport_host.gd`'s `_lod_backlog`/`MAX_LOD_TILES_PER_UPDATE`). What does not exist is §2.5's *controls* and the *persistent* atlas. | Separates the two: tiling is live, the four preference rows and the on-disk cache are not. |
-| S5 | `world_workspace.gd:292` | Finalize — *"cartalith-spatial exists standalone, unintegrated"* | Stale: `cartalith-spatial` gained real consumers on 2026-08-18 (`PassBuffer`/`StageGraph`, then LOD tiles). The bake/freeze half of the claim is still true. | Keeps the true half (nothing is written anywhere, so there is no atlas to freeze), drops the false half, cites `LOD_TILING_INTEGRATION_SCOPE.md`. |
+| S4 | `menus.gd:338` | Tiled LOD · tile size · atlas cache — *"No tile atlas yet."* | Stale in part. Deep-zoom LOD tiling is **live and automatic** (`lod_synthesize_tile`/`lod_tile_cells`, driven by `viewport_host.gd`'s `_lod_backlog`/`MAX_LOD_TILES_PER_UPDATE`). What does not exist is §2.5's *controls* and the *persistent* atlas. | Separates the two: tiling is live, the four preference rows and the on-disk cache are not. **Re-corrected 2026-08-24**: the on-disk cache exists now (PR-10/WW-01), so the row names the *preference surface* as the remaining gap, not the cache. |
+| S5 | `world_workspace.gd:292` | Finalize — *"cartalith-spatial exists standalone, unintegrated"* | Stale: `cartalith-spatial` gained real consumers on 2026-08-18 (`PassBuffer`/`StageGraph`, then LOD tiles). The bake/freeze half of the claim is still true. | Keeps the true half (nothing is written anywhere, so there is no atlas to freeze), drops the false half, cites `LOD_TILING_INTEGRATION_SCOPE.md`. **Obsolete 2026-08-24**: the disabled button and its whole disclosure are gone, replaced by the live three-row Finalize block (WW-01). |
 
 ### Borderline, deliberately not edited
 
@@ -391,9 +391,9 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | PR-07 | Colour management | 334 | the renderer is sRGB-only | yes | §2.5 gives **three values and nothing else** | **(C)** → §7.6 |
 | PR-08 | 3D viewport defaults | 335 | no 3D viewport | yes | §2.5 names four fields | (B) large — `DECISIONS.md` §4 defers 3D; `ROADMAP.md` Phase 3 |
 | PR-09 | Lighting rig defaults | 336 | no lighting rig yet | **stale in flavour**: there is no *rig*, but all six fields are real and drive the current render (`TerrainAppearance::{sun_az_deg, sun_alt_deg, relief_ambient, relief_gain, relief_lights, relief_directionality}`) | §2.5 | **CLOSED 2026-08-24** with CA-01 — all six are live rows in CARTO ▸ Map view / Rendering-advanced ▸ Relief & light. They live in the map dock rather than in Preferences, which is where `DCC_SHELL_SCOPE.md` §8.6 already resolved terrain appearance to belong; Preferences keeps the *tier* those values start from |
-| PR-10 | Tiled LOD · tile size · atlas cache | 338 | **corrected — S4** | yes, now | §2.5 gives four rows of values | **(C)** for the atlas-cache design → §7.7 |
+| PR-10 | Tiled LOD · tile size · atlas cache | 338 | **corrected — S4** | yes, now | §2.5 gives four rows of values | **Half closed 2026-08-24.** §7.7's own proposal said to ship the atlas-cache row *"only when tiles are actually written to disk"*; they are now (WW-01). The cache is real, per-world, keyed by a hash of the generation parameters, rooted at `DccSettings`' existing `atlas_cache` path exactly as §7.7 item 3 asked, with a live readout (SH-07) and a Clear (PR-12). **Still open:** §7.7's *size cap in GB*, and its item 1 split — the interactive-LOD toggles into the Layers popover and tile size / LOD levels into Export ▸ Maps. The engine has `atlas_set_tile_size()` and `bake_visible()`; nothing in Preferences calls either |
 | PR-11 | Memory ▸ Undo history | 339 | no undo stack | **CLOSED 2026-08-23** — a live submenu, and the one place the stack's real cost is visible: parent-row tooltip gives depth, bytes held, budget, and what one step costs *at this resolution*; the five budget rows each say how many steps that buys here; a `Clear undo history now` row frees it on demand | §2.5 gives a range and a default | ~~(C)~~ → **done, with one deliberate departure from §2.5**: the control is a **byte budget**, not a step count. One height field is 16 MB at 2048² and 256 MB at 8192², so a flat "5 deep" would commit to 1.25 GB on the largest world this shell offers. The step count (5, the reference's `MAX_UNDO`) remains the ceiling; the budget is what binds on a big world. Measured: 80 MB held at 2048², freed exactly on clear |
-| PR-12 | Memory ▸ Clear caches… | 348 | no atlas or field cache exists to clear | yes | §2.5 | (B) small — gated on PR-10 |
+| PR-12 | Memory ▸ Clear caches… | 348 | no atlas or field cache exists to clear | **stale 2026-08-24** — the persistent tile atlas is a real cache now | yes | §2.5 | **DONE 2026-08-24** — a live row (`ID_PREF_CLEAR_CACHES`), reporting how many chunks went and what they had occupied. Un-finalizes as it clears: a lock protecting nothing would strand the world read-only for no reason |
 | PR-13 | Theme ▸ Light | 362 | **done 2026-08-19** — `DccTheme.apply_theme()`/`remap()` + `DccShell.rebuild_theme()` walk the tree and repaint every token-derived colour in place; Light is a live radio choice | yes | §2.5 + §11's full light token column | **(A)** — a rebuild pass in `DccTheme`/`DccShell`, no engine at all |
 | PR-14 | Theme ▸ follow system | **done 2026-08-19** — a third radio item, `DisplayServer.is_dark_mode()` resolved once | none | — | §2.5 | **(A)** — Godot exposes the OS preference; the rebuild pass is PR-13's |
 | PR-15 | Units (km · mi) | 368 | the shell is km-only; the reference's mi toggle is not ported | yes | §2.5 gives two values, **and §5.1 stage 02 gives the same control a second home** — an unresolved ownership collision (`DCC_CONTROL_INDEX.md` §3(j), owner decision 15) | **(C)** → §7.8 |
@@ -434,7 +434,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | RD-10 | **`Layers` context** | *absent — omission O9* | none | — | §6 designs it (ordered list, visibility dot, opacity bar, blend mode, nested children under Terrain) | (B) large — opacity is cheap (overlays carry alpha); blend mode and reorder need the three overlays to become independently compositable, an architecture change `GUI_FEATURE_PARITY_SCOPE.md` Category 3 already recommended deferring |
 | RD-11 | Collapsed right dock's primary readout | — | none | — | §6's last line: *"elevation for Sample, layer dots for Layers, stamp count for the stack"*. `DccShell.set_dock_readout("right", …)` exists and **`right_dock.gd` never calls it** — the left dock's is wired (`world_workspace._push_dock_readout`), the right dock's is not | **(A) — done 2026-08-19**: `_push_dock_readout()` called at the end of `_rebuild()` and live from `on_cursor_sampled`; one real reading per existing context (elevation, settlement name, faction id+culture, route length, chain/region/stamp counts, journey days·km). No "Layers" context exists yet (RD-10). |
 | RD-12 | `Brush / Stamp` context | 685-696 | merged into `Stamp stack`, with the reasoning stated in-file | yes | §6 lists both | **(D)** — deliberate: both read the same live state and the eight globals already have live editors in WORLD's dock |
-| RD-13 | Stamp stack ▸ finalize-lock note | 731-737 | no finalize/lock state exists in this engine | yes | §6 | (B) large — gated on WW-01 |
+| RD-13 | Stamp stack ▸ finalize-lock note | 731-737 | no finalize/lock state exists in this engine | **stale 2026-08-24** — `FinalizeLock` exists and `sculpt_commit` is gated on it | yes | §6 | **(A) small, now unblocked.** WW-01 built the state this was gated on. `finalize_check("height_edit")` returns the sentence to show, and the engine already refuses the commit; the remaining work is `right_dock.gd` calling it and greying the stack. Not done here — the right dock was outside this pass |
 
 ### 6.9 Journey planner — `journey_planner_view.gd`
 
@@ -460,7 +460,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 
 | # | Control | Line | Disclosed reason | Accurate? | Design | Class |
 |---|---|---|---|---|---|---|
-| WW-01 | Finalize · LOD 0–3 · bake & freeze | 290-292 | **corrected — S5** | yes, now | §5.1's dock foot, §4's tool options bar (`app.gd:316-318` carries a second copy) | (B) large — no bake, no atlas write, no finalize-lock state |
+| WW-01 | Finalize · LOD 0–3 · bake & freeze | 290-292 | **corrected — S5** | yes, now | §5.1's dock foot, §4's tool options bar (`app.gd:316-318` carries a second copy) | **DONE 2026-08-24.** The whole bake/atlas/finalize system is built — `cartalith-spatial/src/pyramid.rs`, `cartalith-terrain`'s `add_zoom_detail`, `cartalith-io/src/atlas.rs` (a filesystem `AtlasStore` where the reference has IndexedDB), `cartalith-engine/src/bake.rs`, and `cartalith-godot/src/bake_bridge.rs` behind fourteen `#[func]`s. The dock foot takes **the canvas's three-row split** (Bake depth · Bake ALL levels & finalize · Un-finalize) exactly as §7's own note said to when this was built, plus a fourth row for Clear. 16 golden-parity tests, all matching first run. Measured: a 2048×1311 world at 1024 px tiles bakes depth 3 in 1.64 s to 85 chunks and 234 MiB, and a deep-zoom read comes back within one `rg16` LSB (7.63e-6) of live synthesis. **What is still open** is `app.gd:316-318`'s second copy of the control in the tool options bar, and the reference's own per-tile Burn-rivers/Micro-erode refinement passes, which `pyramid_tile` documents as deliberately unported |
 | WW-02 | Run Droplet hydraulic / Hillslope diffuse / Velocity / Glacial / Coastal (5) | 368-373 | was: "not ported; a separate manual pass in the reference with no `cartalith-engine` equivalent" | **no longer true for four of the five** | §5.1 stage 06 | **DONE for 4/5, 2026-08-23 — §19.** All five kernels are ported and bit-exact: `droplet_kernel` (Phase 1), and `hillslope_diffuse` / `velocity_erode_kernel` / `glacial_kernel` / `coastal_process` in `cartalith-erosion/src/passes.rs` (26 golden tests, 98 of 115 mutants killed). Four of them now have a **run path**: `cartalith_engine::ErosionPassParams`, run at the end of `generate_terrain`, exposed as 21 `params.rs` rows in the `erosion` group — six toggles and fifteen knobs, **every toggle off by default** under `DECISIONS.md` §7d, asserted bit-identical rather than assumed (23 rows and a seventh toggle since 2026-08-24, when tidal flats joined them — §19.5). Verified non-headlessly: each pass alone visibly moves the map (38 %/91 %/6 %/45 % of pixels), all-off returns to the base at 0.0000 %. **Droplet is the one still open** — kernel only, no parameter, because its `erodeFinish` tail is a second orchestration and it was outside that pass's remit. The reference's own *button* idiom is still available on top and now cheap (§19.2 (a)); it was not built because UI work is on hold |
 | WW-03 | Sculpt ▸ **Brush shape** (8 falloff shapes, Import brush…, Operation, Falloff curves, Rotation) | 665-672 | no engine behind it, and **not in the reference either** | yes | `DCC_SHELL_SPEC.md`'s own header **correction #3**: *"New design work, not a port gap"* | **(C)** → §7.13 |
 | WW-04 | Sculpt ▸ **Stroke & grid** (Add point / Duplicate / Rotate / Scale / Tilt / Push / Pull / Align) | 665-672 | same | yes | correction #3; `DCC_CONTROL_INDEX.md` §5.2 adds that it rests on a **"control grid" concept that exists nowhere** and cannot be sized until defined | **(C)** → §7.13 |
@@ -681,7 +681,7 @@ All thirteen `"kind": "gap"` routes, plus the window's own foot and route pane.
 | SH-04 | Phone: battery / signal glyphs | 863-868 | checked against this Godot build's own `OS` class: no `power`/`battery` method exists | yes | §13's mockup | **(D)** — nothing real to back them cross-platform; only the clock gets real data |
 | SH-05 | Layers popover: hotkey badges 1–8 | *done, 2026-08-19* | `layers_popover.gd`'s `_add_hotkey_badge`/`_register_hotkeys`/`_input` | yes | §10: *"grouped rows with hotkey badges"* | **(A)**, closed — badged the first 8 rows in `LAYER_GROUPS`' own real build order (Base/Climate/Tectonics, not the spec's SURFACE/TERRAIN FIELDS/CLIMATE, which has no matching row names — see the entry's own note); real `InputMap` actions, scoped to popover-open |
 | SH-06 | Viewport ▸ `→ 1 582 m` (draft-stamp elevation under the cursor) | *baseline done, suffix genuinely blocked, 2026-08-19* | `viewport_host.gd`'s `_coords_text` | yes, corrected | §10 | **(A)** for the baseline km-E/km-N/elevation readout (built, `sample_cell`); **reclassified (B)** for the `→` draft suffix — `sample_cell` reads only `WorldState::field`, never the sculpt `PassBuffer` draft, and `build_sculpt_preview_texture` composites the draft into a colourised texture only, not a per-cell elevation `#[func]`. The register's premise that this call already existed was wrong. |
-| SH-07 | Status bar ▸ `autosave` and `atlas` slots | `dcc_shell.gd:657` builds both; nothing writes them | none | — | §10's middle group | (B) small — gated on FI-03 and PR-10 respectively |
+| SH-07 | Status bar ▸ `autosave` and `atlas` slots | `dcc_shell.gd:657` builds both; nothing writes them | none | — | §10's middle group | **`atlas` DONE 2026-08-24** — `app.gd`'s `refresh_atlas_status()` writes chunk count, deepest level, bytes and the finalize state, blank when nothing is baked (an empty slot is the honest reading of "no atlas"; a permanent "Atlas: empty" would spend a slot saying nothing). **`autosave` still open**, still gated on FI-03 |
 | SH-09 | Layers popover: **Wind / Ocean currents are animated in the reference and were static here** | *done, 2026-08-23* | `shell/wind_fx_layer.gd`, attached from `layers_popover.gd::_attach_flow_fx` | yes | the reference's own `#windFxCanvas` particle-streak overlay (`_windFx*`, HTML lines 2113-2209) — not in any mockup | **(A)**, closed — owner-reported (*"the ocean current layer isnt animated as the HTML version is. (same for wind)"*). The static rasters were correct and are untouched; what was missing is that the reference stacks a **second**, independent overlay on those two views: 260/200 particles advected along the flow field at `0.315` cells/tick, drawn as fading streaks, respawned on leaving the map, ageing out, or (ocean only) beaching. Ported constant-for-constant. The one deliberate technique change is the trail — the reference fades a persistent canvas with `destination-out`; a per-particle history redraw reaches the same streak without a never-cleared `SubViewport` doing GPU work behind a closed layer. Nothing runs while the view is off (verified: 0.0000 frame-to-frame diff) |
 | SH-08 | Menu accelerators for the disabled items (⌘S ⌘⇧S ⌘W ⌘Z ⌘⇧Z ⌘X ⌘C ⌘V ⌫ ⌘A ⌘D ⌘F ⌘⇧P) | `menus.gd` sets only `Ctrl+N`, `Ctrl+O`, `⇧A`, `⇧J` | none | — | §2's tables give every one | **(D)** — an accelerator on a permanently disabled item is dead weight; they arrive with their items |
 | SH-10 | **Phone: pinch-to-zoom did nothing** | *fixed 2026-08-24* — `project.godot`, new `[input_devices]` block | n/a — previously undisclosed, because nothing looked missing | yes | §13's map is the whole screen; pinch is the only zoom affordance a phone has | **(A)**, closed. Owner-reported (*"zooming doesn't seem to work on the phone"*). Not a code gap: `viewport_host.gd:406` had always handled `InputEventMagnifyGesture` and called the same `_zoom_at()` the wheel does. Godot's Android layer only attaches its `ScaleGestureDetector` when `input_devices/pointing/android/enable_pan_and_scale_gestures` is on, and the engine default is **false**, so the event was never produced and the branch was dead on every phone. Confirmed three ways: `ProjectSettings.has_setting()` true / unset value `false` on 4.7.1; `dexdump` of the shipped APK showing `onScale`/`onScaleBegin` gating on `panningAndScalingEnabled` (and `setQuickScaleEnabled` never called, so no single-finger fallback existed either); and a real two-pointer MT-B pinch injected through AOSP `uinput` on the device — **z1.0 → z2.2** out, **z2.2 → z1.0** in, against a **control APK with the setting off that reproduces the bug exactly (z1.0, unchanged)** |
@@ -715,8 +715,8 @@ unbuilt.
 
 | # | Missing surface | Reference control | Class |
 |---|---|---|---|
-| UM-01 | **Town layouts drawn on the map at deep zoom** | `civUrbanLayoutsChk` | *partly closed, 2026-08-23* — the layer is live and draws real engine output; what it draws is a **street skeleton**, because blocks/buildings/walls are milestones 10-13 |
-| UM-02 | **City Viewer modal** — its own canvas, zoom/pan, legend, info panel | `cityViewerModal`, `cvCanvas`/`cvCloseBtn`/`cvLegend`/`cvInfoPanel`, `_cvDrawCity`, `_cvZoomAt` | *partly closed, 2026-08-23* — `shell/city_viewer_window.gd`; same engine ceiling, stated on screen in the window's own info panel |
+| UM-01 | **Town layouts drawn on the map at deep zoom** | `civUrbanLayoutsChk` | *partly closed, 2026-08-23; **substantially closed 2026-08-24*** — the layer draws real engine output, now including milestone 12's blocks and the lots platted in them. Buildings and the wall circuit (13, 10) remain the ceiling |
+| UM-02 | **City Viewer modal** — its own canvas, zoom/pan, legend, info panel | `cityViewerModal`, `cvCanvas`/`cvCloseBtn`/`cvLegend`/`cvInfoPanel`, `_cvDrawCity`, `_cvZoomAt` | *partly closed, 2026-08-23; **substantially closed 2026-08-24*** — `shell/city_viewer_window.gd` now draws a town plan rather than a wire diagram, and its fit is the reference's own built-mass fit at last. Same remaining engine ceiling, stated on screen |
 | UM-03 | **Layout thumbnail in the place-edit popup, and its launcher** | `peCityPreview`, `peCityOpen` | **`peCityOpen` CLOSED 2026-08-23** — the place-edit popup now exists (§18.1) and its Actions section calls `app.open_city_viewer(index)`, which is exactly the one line this row predicted. `peCityPreview` (the *thumbnail* inside the popup) stays open: it needs a rendered layout at icon size, not a modal |
 
 ### UM-01/UM-02 — what closed, 2026-08-23
@@ -756,6 +756,65 @@ the default 800 km world the closest reachable span is ~100 km and a ported
 24 km threshold would never once fire — a toggle that silently draws nothing.
 The gate is the town's site box measured in screen pixels instead. See
 `map_overlay.gd`'s own block for the full reasoning.
+
+### UM-01/UM-02 — what closed next, 2026-08-24
+
+The owner asked for the viewer's rendering to be improved, against a
+MapEffects-style battle-map illustration whose own caption is the brief:
+*"mix up the brightness and saturation of the rooftops for a more natural
+look."*
+
+**That technique needs rooftops, and there were none** — a street graph has
+nothing discrete in it to fill. So the answer was not a rendering change:
+`URBAN_MORPHOLOGY_SCOPE.md` **milestone 12** (`buildBlocks`/`buildParcels`)
+was ported out of order, because parcels are the smallest stage that produces
+a colourable shape and every primitive they need was already golden-tested at
+milestones 1-2. It was a smaller change than inventing a Voronoi subdivision
+to fake the same shapes, and unlike one it is the reference's own algorithm.
+
+- **Blocks and lots are drawn**, and the roofs carry the technique for real:
+  every one a different brightness and saturation of one warm palette, from a
+  stable per-parcel scalar the engine emits. Brightness up and saturation
+  *down* together, because a weathered roof is both.
+- **The City Viewer's fit is finally the reference's own.** It fitted the
+  whole graph, and said so as a known degradation, because
+  `_umDrawLayoutPreview`'s built-mass fit had no built mass to fit. Blocks are
+  that mass, so the long approach roads no longer shrink a town to a speck.
+- **The map palette and the shell's palette are kept apart on purpose.** Map
+  content stays in its warm ink-and-parchment language and does not follow the
+  light/dark theme (this register's own §6 rule, and `map_overlay.gd`'s for
+  faction colour); the shell's amber `accent` appears only on annotation drawn
+  *over* the map — market anchor, approach-road ends — never as map ink.
+
+**Two measured findings changed the code**, neither predictable from reading:
+a 6-town sheet redrew in 577 ms until every roof edge was folded into one
+`draw_multiline` (102 ms; the viewer's 4,370-lot worst case, 46 ms), and a
+dense city rendered as a black mass until the ink and ridge passes were gated
+on the *measured* on-screen lot size rather than on zoom — at ~3 px a lot, the
+outline is wider than the roof it surrounds.
+
+**What is still not drawn**: buildings (milestone 13), districts and amenities
+(13-14), the wall circuit and gates (10), harbour and quay (9), bridges and
+fords (9), farmland (15). Still absent rather than stubbed — no dictionary key
+at all.
+
+**And two disclosures the info panel now makes in words**, because `stages`
+cannot make them for itself:
+
+1. **There is no open market square.** `buildPlaza` (milestone 8) runs on the
+   organic branch too, not only the radial one, so without it the block over
+   the market anchor is platted like any other. This is the most visible
+   remaining gap and the smallest change that would close it — the scope
+   document's milestone 8 entry has been re-prioritised on those grounds.
+2. **A rooftop is a whole parcel, inset.** `buildBuildings` would put a
+   smaller footprint inside each lot with a grammar per district and a terrain
+   gate leaving some lots empty, so this town has no gaps and every roof is
+   the same simple quad. This is the one place in the drawing that is ahead of
+   the generator, and it is labelled as such rather than left to look finished.
+
+UM-03's `peCityPreview` (the thumbnail) is now *unblocked on the engine side*
+— there is a layout worth previewing at icon size, where before there was a
+wire diagram. It stays open as a UI task.
 
 UM-03 stays (B) rather than (C) or (D): the reference precedent is exact and
 line-cited (`URBAN_MORPHOLOGY_SCOPE.md`), so it is an engine/UI gap, not a
@@ -3964,6 +4023,8 @@ not for this change.
   to appear, which is a worse failure than the one it fixes, and it is a desktop
   behaviour change nobody reported. `close_project()`'s gate is now shared and
   takes a continuation, so wiring it is a small change when the owner wants it.
+  **Fixed the same day — see §26**, which answers the un-quittable objection
+  rather than accepting it.
 - **BK-03 (D) — `KEYCODE_M` does not reach Godot's shortcut path on Android.**
   Checked and closed as a non-finding: **`M` is bound to nothing, on any
   platform.** Every accelerator in `menus.gd` carries a Ctrl or Shift modifier

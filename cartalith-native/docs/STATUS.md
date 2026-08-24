@@ -5,7 +5,132 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **Icon tool gained its on-canvas resize
+Last updated: 2026-08-24 (post **Bake, tile pyramid, persistent atlas and the
+finalize lock** — `PARITY_AUDIT.md`'s largest genuinely-unstarted row, ~50
+reference functions, now built across five crates. Deep zoom in the reference
+does not magnify the base raster, it *re-synthesises* the ground at tile
+resolution and adds `z − zBase` further octaves the deeper you go; baking runs
+that ahead of time for the whole pyramid and writes it to a persistent
+per-world store, and *finalizing* locks the generation parameters because the
+store is keyed by a hash of them. **16 golden tests, every one matching on the
+first run**, including six FNV-1a-64 hashes of `addZoomDetail` output — the
+octave loop is bit-identical to V8's. **Mutation testing found two real
+things**: a `[0,1]` clamp on the write-back survived every case, so the claim
+was checked against the reference directly (a cliff fixture at `detailAmp 9.0`
+really does return `[-0.963, 2.825]` — `amplifyRegion` clamps, this pass does
+not, and "tidying" it would flatten every peak a deep bake touches); and three
+second-octave constants were invisible to the engine test, whose deepest case
+reached one octave. **Measured on a real world**: 2048×1311 at 1024 px bakes
+depth 3 in 1.64 s to 85 chunks and **233.7 MiB**, and a deep-zoom read comes
+back within one `rg16` LSB of live synthesis. That byte figure changed the UI —
+every level shares one tile size, so storage is exactly `tiles × tw × th × 4`
+and depth 5 is ~3.7 GiB, which the Bake depth row now leads with rather than a
+tile count that reads as small and is not. **Still open, and the most valuable
+follow-up: nothing reads the atlas at draw time yet** — `atlas_tile_png()` is
+correct and verified, `viewport_host.gd` still calls `lod_synthesize_tile`
+unconditionally. **A scoping correction**: `PARITY_AUDIT.md` §5 item 14 was
+wrong that `bakeRes`/`bakeTiles`/`chanAtlasChk`/`layersPreviewChk` belong here.
+The reference has two systems sharing the verb — the tile pyramid, and the
+export raster (`bakePixel` at a *fractional* sample position, which this port's
+integer-indexed `cell_color` cannot serve). None of the four was built; both
+audit rows are corrected)
+— previously, post **The City Viewer draws a town, because
+milestone 12 gave it one to draw** — the owner asked for the viewer's
+rendering to be improved against a MapEffects-style illustration whose own
+caption is the brief, *"mix up the brightness and saturation of the rooftops"*.
+**That technique needs rooftops and there were none**: a street graph has
+nothing discrete in it to fill, so the answer was not a rendering change.
+`URBAN_MORPHOLOGY_SCOPE.md` **milestone 12** (`buildBlocks`/`buildParcels`,
+reference lines 30193-30344) is ported **out of order** — parcels are the
+smallest stage that produces a colourable shape, and every primitive they need
+was already golden-tested at milestones 1-2, so it was a smaller change than
+inventing a Voronoi subdivision to fake the same shapes and, unlike one, it is
+the reference's own algorithm. Golden on milestones 2/7's terms: 5 scenarios,
+~5,400 parcels, hashed over complete state, **all passing unmodified on the
+first run**. The **mutation sweep** is the part worth reading — 10 constants
+caught, and two new scenarios added because the 2000 m probe ray and
+`depthTarget*1.35` survived without them (the first fixtures' blocks are
+deeper than the plot depth, so the ray-cast caps never bind at all). Third
+survivor is a **finding, not a hole**: the 120 m² face floor *cannot be
+reached*, because `attach_point`'s `SNAP` is 11 m and an ~11 m cell collapses
+before `extract_faces` sees it — milestone 11's `lanePass` is the first stage
+that could produce such a sliver. A separate read-back found a real
+divergence no golden could: `(eLen)/(acc||eLen)` takes the `eLen` branch for a
+**NaN** `acc`, since JS `||` is falsy for NaN, and `applyPlotChaos` writes NaN
+sliders straight into the parcel rules. **Two measured findings changed the
+drawing**: 577 ms to redraw six towns until every roof edge became one
+`draw_multiline` (→102 ms; the viewer's 4,370-lot worst case →46 ms), and a
+dense city rendered as a black mass until the ink/ridge passes were gated on
+*measured* on-screen lot size rather than zoom — at ~3 px a lot, the outline
+is wider than the roof. **Three upstream stages still do not run** and the
+panel says so: `buildPlaza` (m8, so **no open market square** — the most
+visible gap and the smallest fix left), `lanePass` and `removeWaterCrossings`
+(m11). And one place the drawing is ahead of the generator, also said in
+words: a rooftop is a whole parcel, inset, because `buildBuildings` is m13.
+Verified non-headless on six real settlements, pop 121 to 21,179 — 283 blocks
+/ 4,370 lots down to 2 / 11, tone spanning 0..1 in every town and distinct
+across all six — plus the real `CityViewerWindow` on the largest; `cargo test
+-p cartalith-urban` 91 passed, clippy clean, headless boot clean)
+— previously, post **Three cartography follow-ups: a slider that
+rendered nothing, a ramp that did not exist, and a look that could not be
+saved** — `GUI_GAP_REGISTER.md` **CA-11**, **CA-02** and **CA-08** all
+**closed**, which retires everything the previous cartography pass left
+behind. All three were engine gaps, not missing bindings, which is why none
+of them closed with the twenty-one sliders. **CA-11** (owner-authorised; it
+moves the shipped look): both halves of `build_hydro_wetness` had been tuned
+at a small grid and both shrank as the grid got finer. Its gate normalized
+`flow / (gw*gh)` against the world's own min-max range — but that quantity is
+*already* scale-free (it is the fraction of the map a cell drains), so
+re-normalizing cost the threshold its meaning and put the knee at ~0.8 % of
+map area drained, the trunk river and nothing else; and the box blur that
+softens the halo then lost about `1/(2r+1)` of the peak, with `r = gw*0.006`
+growing with the grid. Now an **absolute** upstream-area gate (`6e-4 … 8e-3`,
+picked by sweeping three pairs, not guessed) plus a **peak-restoring gain of
+`2r+1`**. Measured 0 → 1: **1.216 % → 10.785 %** of pixels at 512×384,
+**0.184 % → 4.966 %** at 1024×768, **0.002 % → 2.589 %** at the app's own
+2048×1311; at the shipped `0.38` default and working resolution **0.000 % →
+1.422 %**, worst per-channel delta 3 → 59 levels. One trade, stated: the gate
+is absolute, so a world whose basins are all smaller than `6e-4` of the map
+gets no wetness — an island with no river has no river to tint. **CA-02** is
+the elevation ramp `render.rs`'s own module doc has said since milestone 1
+did not exist anywhere in this renderer: `ElevationRamp`/`RampStop` keyed to
+**relative land elevation** (0 = shoreline, 1 = the peak — never metres, or a
+saved ramp would mean a different picture on a world with a different peak),
+sampled linearly, blended over the material colour **before the light curve**,
+which is the whole difference between a hypsometric tint over shaded relief
+and an elevation key pasted on top. Land only; **ships off** at
+`ramp_strength: 0.0` with the stage skipped, so `golden_parity_render.rs`
+needed no change and the default look did not move. Nine named ramps as pure
+data. **Add, delete and reorder are one call** — the panel sends the list and
+the engine sorts by position, so dragging a stop past its neighbour *is* the
+reorder. **CA-08** derives `Serialize`/`Deserialize` on `TerrainAppearance`,
+`Npr` and `ElevationRamp` (§7.15's *"one Rust line the whole feature depends
+on"*) and writes a named look to its own JSON sidecar under
+`user://appearance_presets`, **not** into the world `.zip` — a look is
+reusable across worlds, and that format is the reference app's and
+shallow-merges `state`. `WorldGen::appearance()` is now three layers, tier →
+loaded preset → user overrides and ramp; a load replaces the *tier* and
+clears the overrides, because otherwise loading a saved look would reproduce
+something other than the saved look. **Verified non-headlessly at the app's
+own 2048×1311, deliberately not at 512×384**, since CA-11 was invisible
+*only* at working resolution and a small grid would have verified the bug
+away: Wetness default → 0 moves 0.821 % of pixels and default → 1 moves
+1.295 %, reading as wet valley floors along the real drainage; nine ramps all
+distinct; strength back to 0 returns the base at **0.0000 %**; through the
+real dock a drag reaches the engine, Add lands a stop in the widest gap
+(0.39), a drag from index 7 to 0.02 lands it at **index 1 with its colour**,
+delete and Reverse re-render; and an authored look saved, the session mangled
+to 99.999 % different, then loaded back at **0.0000 % moved, worst 0 levels**,
+with Reset returning the tier at 0.0000 %. **10 new tests** (22 in
+`appearance_tiers.rs`), and `hydro_wet_strength` **left**
+`every_tunable_is_load_bearing`'s exemption list — the cheap standing guard —
+while the new `hydro_wetness_visibility_by_resolution` measures all three grid
+sizes on real worlds and reports the whole table before asserting. **Still
+owed**: per-stop alpha, the Ease/Step interpolation modes, duplicate, an
+absolute elevation domain and Auto Fit / Auto Breakpoints on the ramp; rename,
+delete and a thumbnail on saved looks — the panel's own "Still owed" block
+says so) —
+previously, post **Icon tool gained its on-canvas resize
 handle** — `GUI_GAP_REGISTER.md` **CA-05**, the (A) list's last open entry
 (all 17 now closed or built). A placed icon could only be resized by
 deleting and re-placing it — the register's own diagnosis was exact:
@@ -34,7 +159,7 @@ Hamlet, read back a real handle circle, clicked and dragged it, watched
 it survives a `zoom_step` + `refresh_annotations` unchanged while the handle
 itself re-queries correctly at the new zoom, with three screenshots showing
 the icon's own glyph growing and the handle circle tracking its new
-corner) — previously, post ****A staleness indicator, and the dials that
+corner) — previously, post **A staleness indicator, and the dials that
 were never marked stale** — `GUI_GAP_REGISTER.md` **SG-01** and **SG-03**,
 §21's last two open rows, closed together because they are the same feature
 from both ends: SG-03 produces staleness nothing recorded, SG-01 shows
@@ -100,66 +225,7 @@ engine-boundary contract and a prerequisite; what would consume it is a cheap
 decision for the owner**, not a wiring one — a full regenerate with a new
 `rain_k` produces different *terrain*, not merely different rainfall, because
 weather runs inside the carve and the `evolve_cycles` loop) — previously,
-post **Three cartography follow-ups: a slider that
-rendered nothing, a ramp that did not exist, and a look that could not be
-saved** — `GUI_GAP_REGISTER.md` **CA-11**, **CA-02** and **CA-08** all
-**closed**, which retires everything the previous cartography pass left
-behind. All three were engine gaps, not missing bindings, which is why none
-of them closed with the twenty-one sliders. **CA-11** (owner-authorised; it
-moves the shipped look): both halves of `build_hydro_wetness` had been tuned
-at a small grid and both shrank as the grid got finer. Its gate normalized
-`flow / (gw*gh)` against the world's own min-max range — but that quantity is
-*already* scale-free (it is the fraction of the map a cell drains), so
-re-normalizing cost the threshold its meaning and put the knee at ~0.8 % of
-map area drained, the trunk river and nothing else; and the box blur that
-softens the halo then lost about `1/(2r+1)` of the peak, with `r = gw*0.006`
-growing with the grid. Now an **absolute** upstream-area gate (`6e-4 … 8e-3`,
-picked by sweeping three pairs, not guessed) plus a **peak-restoring gain of
-`2r+1`**. Measured 0 → 1: **1.216 % → 10.785 %** of pixels at 512×384,
-**0.184 % → 4.966 %** at 1024×768, **0.002 % → 2.589 %** at the app's own
-2048×1311; at the shipped `0.38` default and working resolution **0.000 % →
-1.422 %**, worst per-channel delta 3 → 59 levels. One trade, stated: the gate
-is absolute, so a world whose basins are all smaller than `6e-4` of the map
-gets no wetness — an island with no river has no river to tint. **CA-02** is
-the elevation ramp `render.rs`'s own module doc has said since milestone 1
-did not exist anywhere in this renderer: `ElevationRamp`/`RampStop` keyed to
-**relative land elevation** (0 = shoreline, 1 = the peak — never metres, or a
-saved ramp would mean a different picture on a world with a different peak),
-sampled linearly, blended over the material colour **before the light curve**,
-which is the whole difference between a hypsometric tint over shaded relief
-and an elevation key pasted on top. Land only; **ships off** at
-`ramp_strength: 0.0` with the stage skipped, so `golden_parity_render.rs`
-needed no change and the default look did not move. Nine named ramps as pure
-data. **Add, delete and reorder are one call** — the panel sends the list and
-the engine sorts by position, so dragging a stop past its neighbour *is* the
-reorder. **CA-08** derives `Serialize`/`Deserialize` on `TerrainAppearance`,
-`Npr` and `ElevationRamp` (§7.15's *"one Rust line the whole feature depends
-on"*) and writes a named look to its own JSON sidecar under
-`user://appearance_presets`, **not** into the world `.zip` — a look is
-reusable across worlds, and that format is the reference app's and
-shallow-merges `state`. `WorldGen::appearance()` is now three layers, tier →
-loaded preset → user overrides and ramp; a load replaces the *tier* and
-clears the overrides, because otherwise loading a saved look would reproduce
-something other than the saved look. **Verified non-headlessly at the app's
-own 2048×1311, deliberately not at 512×384**, since CA-11 was invisible
-*only* at working resolution and a small grid would have verified the bug
-away: Wetness default → 0 moves 0.821 % of pixels and default → 1 moves
-1.295 %, reading as wet valley floors along the real drainage; nine ramps all
-distinct; strength back to 0 returns the base at **0.0000 %**; through the
-real dock a drag reaches the engine, Add lands a stop in the widest gap
-(0.39), a drag from index 7 to 0.02 lands it at **index 1 with its colour**,
-delete and Reverse re-render; and an authored look saved, the session mangled
-to 99.999 % different, then loaded back at **0.0000 % moved, worst 0 levels**,
-with Reset returning the tier at 0.0000 %. **10 new tests** (22 in
-`appearance_tiers.rs`), and `hydro_wet_strength` **left**
-`every_tunable_is_load_bearing`'s exemption list — the cheap standing guard —
-while the new `hydro_wetness_visibility_by_resolution` measures all three grid
-sizes on real worlds and reports the whole table before asserting. **Still
-owed**: per-stop alpha, the Ease/Step interpolation modes, duplicate, an
-absolute elevation domain and Auto Fit / Auto Breakpoints on the ramp; rename,
-delete and a thumbnail on saved looks — the panel's own "Still owed" block
-says so) —
-previously, post **A committed route could not be deleted or
+post **A committed route could not be deleted or
 renamed** — `GUI_GAP_REGISTER.md` **IN-09's second half**, the part its own
 closing note said it had not fixed. `InfraTools::route_delete` (`Vec::remove`,
 the reference's `civJourneys.splice(ji,1)`, line 17250) and `route_set_name`,
@@ -4811,6 +4877,117 @@ milestone F. Remaining: **F** (shell wiring) and nothing else.
 - ~~**Note for the next session:** `cargo test --workspace` currently fails
   to build `cartalith-civ`~~ — **resolved**: that sibling fork has landed.
   Milestone B ran `cargo test --workspace --exclude cartalith-godot` clean.
+
+## Bake / tile pyramid / persistent atlas / finalize (done 2026-08-24)
+
+`PARITY_AUDIT.md`'s largest genuinely-unstarted row with no owner ruling
+against it (~50 reference functions), and `GUI_GAP_REGISTER.md`
+**WW-01/PR-10/PR-12/SH-07**, register **S4/S5**.
+
+**What "bake" means, read off the reference rather than guessed.** Deep zoom
+there does not magnify the base raster; it *re-synthesises* the ground at
+tile resolution (`refineTile` upsamples the coarse field and adds sub-cell
+detail, `addZoomDetail` adds `z - zBase` further octaves so relief keeps
+getting more intricate). Expensive and deterministic -- exactly what is worth
+caching. Baking runs it ahead of time for the whole pyramid and writes the
+results to a persistent, per-world store.
+
+**What "finalize" locks, and why it is not cosmetic.** The atlas is keyed by
+`worldKey`, a hash of the generation parameters. Change one and every baked
+chunk becomes *unreachable* -- not wrong, unreachable, which is worse,
+because the user paid minutes of compute for it. The finalize flag turns that
+into a refusal with an explanation. Exempt is exactly what the reference
+exempts: anything that only changes how the field is *drawn* (`applyFinalizedUI`
+skips `#genV3dSec`, *"the 3D-view dials style the drape, never the data"*).
+Those two cuts have to be the same cut, or a control the lock permits would
+invalidate the atlas it was allowed to change -- and here they are, by
+construction: `bake_bridge::world_key_signature` hashes `params::save_state`
+and nothing `render.rs` owns.
+
+**Five pieces, each in the crate that owns it.**
+
+| where | what |
+|---|---|
+| `cartalith-spatial/src/pyramid.rs` | `pyramidDims`/`pyramidTileBounds`/`pyramidLevelForZoom`/`tilesInView`/`chunkParent`/`chunkChildren`/`bakedCover`. **Not `TiledField`** -- that tiles a field it owns into fixed-size tiles; a pyramid level splits the *whole* field into `2^z x 2^z` tiles whose footprint is fractional and shrinks with depth |
+| `cartalith-terrain/src/amplify.rs` | `addZoomDetail`, plus the two `opts` fields it reads (`z_base`, `zoom_detail_k`) |
+| `cartalith-io/src/atlas.rs` | `worldKey`'s FNV-1a, the key/path spellings, chunk encode/decode over `packHeight16`, `buildAtlasManifest`, and a **filesystem `AtlasStore`** where the reference has IndexedDB |
+| `cartalith-engine/src/bake.rs` | `pyramidTile`, `bakeAllTiles`/`bakeVisibleTiles`, the portable `World/` archive both ways, and `FinalizeLock` |
+| `cartalith-godot/src/bake_bridge.rs` + 14 `#[func]`s | the atlas root, the world-key signature, the status readout, the estimate, and five guard call sites |
+
+**Golden parity: 16 tests across three files, every one matching on the first
+run** -- including six FNV-1a-64 hashes of `addZoomDetail` output and seven of
+`pyramidTile`'s, so the octave loop is bit-identical to V8's, and the atlas
+manifest byte for byte against `JSON.stringify(m, null, 2)`.
+
+**Two harness notes worth keeping.** `GW`/`GH`/`state`/`VERSION` are
+`let`-bound, so the probe has to be *appended to the block's own source*
+rather than read off the `vm` context -- `CLAUDE.md`'s own documented hazard,
+met head-on. And block 1's boot auto-generates a full 2048-wide world when
+`indexedDB` is undefined, so the harness stubs it truthy; without that the
+extraction takes minutes per run.
+
+**Mutation testing found two real things rather than confirming nothing.**
+(1) Inserting a `[0,1]` clamp on `addZoomDetail`'s write-back **survived**
+every case, because none of them pushed a value out of range. Checked against
+the reference directly rather than assumed: a cliff fixture at
+`detailAmp 9.0` really does come back spanning `[-0.963, 2.825]`.
+`amplifyRegion` clamps; this pass does not, and a port that "tidied" it would
+silently flatten every peak a deep bake touches. Pinned. (2) Three constants
+governing the *second and later* octaves were invisible to the engine test,
+whose deepest case reached only one octave; `z=5` and `z=7` cases added.
+
+**Measured, on a real generated world** (`cartalith-engine/tests/bake_real_world.rs`,
+`#[ignore]`d, size-configurable by env var):
+
+| world | tile | depth | chunks | time | on disk | archive |
+|---|---|---|---|---|---|---|
+| 384x256 | 256 px | 3 | 85 | 0.17 s (2 ms/tile) | 16.4 MiB | 9.3 MiB gzipped |
+| 2048x1311 | 1024 px | 3 | 85 | 1.64 s (19 ms/tile) | **233.7 MiB** | 104.6 MiB gzipped |
+
+A deep-zoom read comes back within one `rg16` LSB (7.63e-6) of live
+synthesis, the visual is a real decodable PNG at the tile's own size, a
+re-bake skips all 85, and the archive round-trips into a fresh store byte for
+byte.
+
+**That 234 MiB is the finding the UI had to be changed for.** Every tile at
+every level has the *same* pixel size (`tile_dims` reads the region's aspect,
+and a level-`z` footprint's aspect is `(gw-1)/(gh-1)` regardless of `z`), so
+the storage is exactly `tiles x tw x th x 4` -- which makes depth 5 at those
+settings about **3.7 GiB**. The Bake depth row therefore leads with the byte
+figure, not the tile count: a tile count alone reads as small and is not.
+
+**Still open, and deliberately so.**
+
+- `pyramidTile`'s two opt-in extras -- the reference's `coarseFlow` burn-in
+  (`burnChannels`/`sharpDelta`) and `featureDetailPass`/`tileErode`. Both are
+  off by default there, so a default bake matches; wiring them needs the flow
+  field and feature registry routed to a per-tile call, which is a
+  rendering-integration milestone.
+- No progress *signal*: `bake_all` is synchronous and blocks the UI. Threading
+  it is the same unsolved question `GENERATION_PIPELINE_ARCHITECTURE_RESEARCH.md`
+  raises for `generate()`.
+- Nothing **reads** the atlas at draw time yet. `atlas_tile_png()` and
+  `atlas_is_covered()` exist and are correct; `viewport_host.gd`'s deep-zoom
+  compositor still calls `lod_synthesize_tile` unconditionally. This is the
+  single most valuable follow-up -- the cache is written and verified but not
+  yet consulted.
+- §7.7's *size cap in GB*, and its item-1 split of the interactive-LOD
+  toggles into the Layers popover.
+- `app.gd:316-318`'s second copy of the Finalize control in the tool options
+  bar.
+
+**A scoping correction worth recording.** `PARITY_AUDIT.md` §5 item 14 said
+the four header-bar export controls (`bakeRes` 2K/4K/8K, `bakeTiles`,
+`chanAtlasChk`, `layersPreviewChk`) belong to this system. **They do not.**
+The reference has *two* separate systems both called "bake": the LOD tile
+pyramid above, and the **export raster** (`bakeDims`/`bakePixel`/`bakeSingle`/
+`bakeTiled`), which is `exportZip`'s `map.png`. `bakePixel` is the full
+material path at a *fractional* sample position and this port's
+`render::cell_color` takes integer cell indices only -- a rendering milestone,
+not an export one. `chanAtlasChk` is a third thing again and much cheaper
+(pack three affordance fields into one RGB8 PNG; every input already exists in
+`cartalith-civ`). None of the four was built here. Both audit rows are
+corrected.
 
 ## LOD/tiling base (`LOD_TILING_BASE_SCOPE.md`, done 2026-08-17; integrated 2026-08-18)
 
