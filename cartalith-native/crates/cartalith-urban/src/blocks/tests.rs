@@ -38,6 +38,16 @@
 //! full-state hash for every value the fixtures *do* produce; none is pinned
 //! at its own boundary. Milestones 8 and 11 change the input graph, and are
 //! the right moment to re-run this sweep rather than trusting it.
+//!
+//! ## One thing no golden can catch
+//!
+//! Every scenario's rules are finite, so none of them reaches the NaN
+//! branches the reference's own `||` and `Math.min` semantics create — and
+//! those branches are reachable in the app, because `applyPlotChaos` writes a
+//! NaN slider straight into the parcel rules.
+//! [`a_nan_rule_does_not_reach_lot_geometry`] is the only test that goes
+//! there, and it found a real divergence: `(eLen)/(acc||eLen)` takes the
+//! `eLen` branch for a NaN `acc`, which a Rust `acc == 0.0` test misses.
 
 mod golden;
 
@@ -458,4 +468,53 @@ fn parcels_conserve_block_area() {
             );
         }
     }
+}
+
+/// A NaN generation rule must not put a NaN into a lot's geometry.
+///
+/// `applyPlotChaos` writes a NaN slider straight into
+/// `frontageWidthVariance`, `logn` returns NaN from it, and `js_min`/`js_max`
+/// propagate NaN by design — so `acc` goes NaN and the reference's
+/// `(eLen)/(acc||eLen)` takes the `eLen` branch, because **JS `||` is falsy
+/// for NaN as well as zero**. A Rust `acc == 0.0` test alone misses that and
+/// pushes the NaN into every corner of every lot on the frontage, which
+/// renders as nothing at all rather than as an error.
+///
+/// The five golden scenarios cannot catch this: their rules are finite, so
+/// the NaN branch is never taken. This is the only test that reaches it.
+#[test]
+fn a_nan_rule_does_not_reach_lot_geometry() {
+    use crate::rules::DEFAULT_RULES;
+
+    let sc = &golden::SCENARIOS[0];
+    let site = build_site(sc.seed, 1700.0, 1250.0, sc.kind, SiteOpts::default());
+    let g = build_graph(sc.name);
+    let anchors = place_anchors(sc.seed, &site);
+    let blocks = build_blocks(&g, None, &site);
+
+    let mut rules = DEFAULT_RULES;
+    rules.parcels.frontage_width_variance = f64::NAN;
+    let parcels = build_parcels(sc.seed, &g, &blocks, anchors.market, 8, &site, Some(&rules));
+
+    // Whatever survives the area and self-intersection filters must be finite
+    // geometry. (A NaN area fails `26.0..=2600.0`, so most lots are rejected
+    // outright -- the point is that none of the survivors carries a NaN.)
+    for p in &parcels {
+        for (i, v) in p.poly.iter().enumerate() {
+            assert!(
+                v.x.is_finite() && v.y.is_finite(),
+                "parcel {} vertex {i} is {:?} under a NaN frontage rule",
+                p.id,
+                (v.x, v.y)
+            );
+        }
+        assert!(p.area.is_finite(), "parcel {} has a non-finite area", p.id);
+    }
+
+    // And the NaN subdivision cap the rules doc comment describes must simply
+    // run the burgage cycle zero times rather than panicking or looping.
+    let mut cap_nan = DEFAULT_RULES;
+    cap_nan.parcels.subdivision_cap = f64::NAN;
+    let capped = build_parcels(sc.seed, &g, &blocks, anchors.market, 8, &site, Some(&cap_nan));
+    assert!(!capped.is_empty(), "a NaN subdivision cap produced no lots at all");
 }

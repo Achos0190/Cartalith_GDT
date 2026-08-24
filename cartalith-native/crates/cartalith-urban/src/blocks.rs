@@ -370,7 +370,17 @@ pub fn build_parcels(
             }
 
             // Stretch to fill the frontage exactly.
-            let scale = e_len / if acc == 0.0 { e_len } else { acc };
+            //
+            // The reference writes `(eLen)/(acc||eLen)`, and JS `||` is falsy
+            // for **NaN as well as zero** — so a NaN `acc` takes `eLen` there
+            // and the scale comes out 1, not NaN. `acc == 0.0` alone would
+            // miss that and propagate the NaN into every corner of every lot
+            // on this frontage. Reachable: `applyPlotChaos` writes a NaN
+            // slider straight into `frontageWidthVariance`, `logn` returns
+            // NaN, and `js_min`/`js_max` propagate it by design (which is why
+            // they exist). `-0.0` is covered too: `-0.0 == 0.0` is true.
+            let denom = if acc == 0.0 || acc.is_nan() { e_len } else { acc };
+            let scale = e_len / denom;
             let mut f0 = 0.0f64;
             for w in &widths {
                 let f1 = f0 + w * scale / e_len;
