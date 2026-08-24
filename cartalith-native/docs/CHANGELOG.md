@@ -25488,3 +25488,135 @@ upper-cased `Button`, and the sweep only collected `Label` text.
 remain a blue↔amber axis, which is the last row of CA-14. And
 `BIOME_VEGETATION_COVER`'s figures are a first pass; the ordering is what the
 tests pin, so a retune is a table edit and nothing else.
+
+## `layersPreviewChk` is real — the last disabled control in Export ▸ World Data (`GUI_GAP_REGISTER.md` DM-04, 2026-08-24)
+
+The reference puts four controls in its export header bar. Three of them
+(`bakeRes`, `bakeTiles`, `chanAtlasChk`) became real when the World Data route
+was built; the fourth was drawn in its position and disabled, with the reason
+*"belongs with the f32 layer blobs"*. That reason conflated two things.
+
+### What `layersPreviewChk` actually does
+
+`exportZip` (reference line 12452) reads the box and, when it is ticked, adds
+four entries and nothing else:
+
+```js
+E.push({name:'layers/biome.png',       data:await layerBytes('biome','off')});
+E.push({name:'layers/hillshade.png',   data:await layerBytes('shade','off')});
+E.push({name:'layers/temperature.png', data:await layerBytes('biome','temp')});
+E.push({name:'layers/rainfall.png',    data:await layerBytes('biome','rain')});
+```
+
+`layerBytes(mode, debug)` (12301) sets `state.mode`/`state.debug`, re-runs
+`renderNow`, and grabs the canvas at `GW × GH`. So the box does **not** write
+the `.f32` blobs — those are unconditional, six lines higher, and belong to the
+archive question DM-04 already carries. It writes four *pictures* of layers the
+archive stores as numbers, and the README line it adds calls them
+`reference only`. That is a separable capability, and it is now built.
+
+### Built
+
+`WorldGen::export_layer_previews(dir)` — writes `dir/layers/{biome,
+hillshade,temperature,rainfall}.png`, all RGB8 at the **grid's** own size.
+This port has no global `state.mode`/`state.debug` to swap, so each file is
+built from the pass the reference's own branch would have taken:
+
+| file | `layerBytes` call | built from |
+|---|---|---|
+| `biome.png` | `('biome', 'off')` | `render::bake_rect` at `(gw, gh)` + local contrast + the grade — `export_raster_png`'s own three stages at 1:1 |
+| `hillshade.png` | `('shade', 'off')` | **`render::hillshade_raster`**, new — `renderNow`'s `mode === 'shade'` branch (line 8535) |
+| `temperature.png` | `('biome', 'temp')` | `sample_bridge::debug_raster("temp")` — `tempColor(tempField[i])` |
+| `rainfall.png` | `('biome', 'rain')` | `sample_bridge::debug_raster("rain")` — `rainColor` over land, `[18, 34, 64]` over water |
+
+**The last two are whole-image replacements, not overlays**, and that is the
+reference's behaviour rather than a simplification: `renderNow` blends the debug
+layer over the base map only when `state.debugOpacity < 1`, and its default is
+`1` (line 2260). The preview the reference produces at its own defaults is the
+bare palette raster, which is what these two are.
+
+`render::hillshade_raster` is the only new port:
+
+```js
+const s = 0.15 + 0.85 * shadeFactor(x, y); let c = s * 235; r = g = b = c;
+if (isWater(vw)) { r = c*0.45; g = c*0.6; b = Math.min(255, c*0.9 + 40); }
+```
+
+It lives in `render.rs` rather than beside the other layer rasters in
+`sample_bridge.rs` because `shadeFactor` is `RenderCtx::macro_shade`, and that
+module deliberately carries no `RenderCtx`. **It leaves out what the reference
+puts in**, and says so: the reference reaches this branch through the whole of
+`renderNow`, so its own `hillshade.png` also carries whatever river, wave and
+tide overlays are enabled at the time. A hillshade with rivers painted into it
+is not a hillshade, and `biome.png` beside it already carries them.
+
+**Grid resolution, deliberately**, as the reference's are. These preview `.f32`
+blobs that hold one value per cell; baking them at the map raster's 2K/4K/8K
+would be four more full-size renders of data that has no more detail to give.
+
+**Generated worlds only**, the same rule and the same reason as the channel
+atlas: the temperature and rainfall views read `sample_refs()`, which a loaded
+save has none of (`SAVEFILE_COMPAT.md`).
+
+### GUI
+
+`data_manager_window.gd`: the checkbox in the MAP RASTER column is live, off by
+default exactly as the reference has it (v0.92 made these opt-in on the grounds
+that nothing reads them back on load). Ticking it makes the raster export write
+`layers/` beside whatever it just produced — the tiled route already picked a
+directory, the single route picked a file, so its own directory is the base.
+An older cdylib without the binding gets the "rebuild cartalith-godot" note
+this pane already uses for the other two, rather than a dead row.
+
+### Verified
+
+- `cargo build -p cartalith-godot` clean; whole `cartalith-godot` suite green
+  (337 lib, `appearance_tiers.rs` 39 → **40**, 13 `bake_raster.rs`, every other
+  target unchanged, golden-parity render and NPR included).
+- **`the_hillshade_layer_is_grey_relief_and_blue_water`** — every land cell
+  satisfies `r == g == b` (a colour leak is the obvious failure and nothing else
+  would catch it), every water cell satisfies `b >= g >= r`, nothing on land
+  falls below the `0.15` ambient floor or past the `235` ceiling, the image is
+  not flat, `exag` and `sun_az_deg` both move it, and `biome_sat`/`ramp_strength`
+  both leave it byte-identical.
+- Headless boot-check green.
+
+**Non-headless, real bindings, 1024 × 655 (seed 483920):** `_layerprev_shot.gd`.
+
+Before any world, the binding refuses rather than writing four black PNGs:
+`ok=false, "no world to export -- generate or load one first"`.
+
+After generation, all four written in **176 ms**, 1.73 MB total, every one at
+`1024 × 655`:
+
+| file | mean chroma | mean luma | pixels with `r == g == b` | bytes |
+|---|---|---|---|---|
+| `biome.png` | 61.32 | 142.77 | 0.82 % | 1 009 462 |
+| `hillshade.png` | 34.95 | 164.70 | **71.78 %** | 236 127 |
+| `temperature.png` | 112.88 | 178.28 | 0.00 % | 311 536 |
+| `rainfall.png` | 74.92 | 121.54 | 0.00 % | 174 775 |
+
+The grey share is the load-bearing number: 71.78 % is the land fraction of this
+world, so the hillshade is grey everywhere except the water, and the other three
+are colour rasters throughout.
+
+`layers/biome.png` reproduces the **live viewport raster byte for byte** —
+`0.000 %` of pixels differ, over the whole 1024 × 655 image. Each of the other
+three differs from it at 100.00 % of pixels, and temperature differs from
+rainfall at 100.00 %, so no two files are the same picture and none of them is
+the map.
+
+Through the real dock: `_wd_layers` defaults to `false`, and driving
+`data_manager_window.gd`'s own `_run_layer_previews` wrote all four into
+`layers/`.
+
+Looked at, not only measured: the hillshade is grey shaded relief with flat blue
+water, the ridges and crater rims reading as relief and no biome colour anywhere;
+rainfall is the reference's arid-tan-to-wet-blue ramp over land with the dark
+`[18, 34, 64]` navy over water, wet coasts and dry interior exactly where the
+climate model puts them.
+
+**Still open:** the archive question DM-04 has always carried, unchanged —
+whether this route should additionally assemble `exportZip`'s single `.zip`
+(params + the f32 blobs + raster + atlas + features). The four previews are the
+*picture* half; the blobs remain the archive half.

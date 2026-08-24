@@ -4039,6 +4039,52 @@ pub fn apply_color_grade(a: &TerrainAppearance, rgb: &mut [u8], influence: &[f32
     });
 }
 
+/// `state.mode === 'shade'` (reference `renderNow` line 8535, repeated
+/// verbatim in `debugBaseColor` at 8202) — the grey hillshade view, as an RGB8
+/// raster the size of the grid.
+///
+/// ```js
+/// const s = 0.15 + 0.85 * shadeFactor(x, y); let c = s * 235; r = g = b = c;
+/// if (isWater(vw)) { r = c * 0.45; g = c * 0.6; b = Math.min(255, c * 0.9 + 40); }
+/// ```
+///
+/// `shadeFactor` is this file's [`RenderCtx::macro_shade`], which is why this
+/// lives here rather than in `sample_bridge.rs` next to the other layer
+/// rasters: that module deliberately carries no `RenderCtx` and has no access
+/// to the shading rig at all.
+///
+/// # What it deliberately leaves out
+///
+/// The reference reaches this branch through the whole of `renderNow`, so its
+/// own `layers/hillshade.png` also carries whatever river, wave and tide
+/// overlays happen to be enabled when the export runs. This does not, and that
+/// is the point of the layer: a hillshade with rivers painted into it is not a
+/// hillshade, and `layers/biome.png` beside it already carries them.
+///
+/// `rayon`-parallel by row on the same argument every other whole-grid pass in
+/// this file makes: `macro_shade` is a pure function of the immutable field and
+/// each row owns disjoint output bytes.
+#[allow(dead_code)]
+pub fn hillshade_raster(ctx: &RenderCtx) -> Vec<u8> {
+    let (gw, gh) = (ctx.gw, ctx.gh);
+    let mut out = vec![0u8; gw * gh * 3];
+    if gw == 0 || gh == 0 || ctx.field.len() < gw * gh {
+        return out;
+    }
+    out.par_chunks_mut(gw * 3).enumerate().for_each(|(y, row)| {
+        for x in 0..gw {
+            let c = (0.15 + 0.85 * ctx.macro_shade(x, y)) * 235.0;
+            let (r, g, b) =
+                if ctx.h(x, y) < ctx.sea_level { (c * 0.45, c * 0.6, cartalith_jsmath::js_min(255.0, c * 0.9 + 40.0)) } else { (c, c, c) };
+            let o = x * 3;
+            row[o] = r.clamp(0.0, 255.0) as u8;
+            row[o + 1] = g.clamp(0.0, 255.0) as u8;
+            row[o + 2] = b.clamp(0.0, 255.0) as u8;
+        }
+    });
+    out
+}
+
 /// Top-level per-cell colour, `[0,1]` per channel — `isWater(v) ?
 /// seaColor(...) : surfaceColor(...)` (`debugBaseColor`'s `'biome'`
 /// branch, 8204; the main renderer's own default mode).

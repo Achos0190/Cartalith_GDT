@@ -5,7 +5,37 @@ to know what's done vs. open without re-reading the whole history each
 session. Update it in the same commit as whatever changes its answer.
 `CHANGELOG.md` stays the detailed record of *how*; this is only *what/done?*.
 
-Last updated: 2026-08-24 (post **the grade got its last four axes and its
+Last updated: 2026-08-24 (post **`layersPreviewChk` is real** —
+`GUI_GAP_REGISTER.md` **DM-04's last disabled control**, and the fourth of the
+four the reference puts in its export header bar. The row's stated reason
+("belongs with the f32 layer blobs") conflated two things: `exportZip` writes
+the `.f32` blobs **unconditionally**, six lines above the checkbox, and what the
+box actually adds is four *pictures* — `layers/{biome,hillshade,temperature,
+rainfall}.png` at `GW × GH` — which its own README line calls "reference only".
+`WorldGen::export_layer_previews(dir)` writes exactly those, each from the pass
+the reference's own `layerBytes(mode, debug)` branch would have taken:
+`bake_rect` + local contrast + grade for biome, the **new**
+`render::hillshade_raster` (`renderNow`'s `mode === 'shade'` branch, line 8535)
+for hillshade, and the `temp`/`rain` debug rasters — **whole-image palette
+replacements, not overlays**, because the reference blends a debug layer over
+the base only when `state.debugOpacity < 1` and its default is `1`. Grid
+resolution deliberately (these preview blobs holding one value per cell), and
+generated worlds only, the channel atlas' own rule. `hillshade_raster`
+deliberately **omits** the river/wave/tide overlays the reference picks up by
+going through the whole of `renderNow` — a hillshade with rivers painted into it
+is not a hillshade, and `biome.png` beside it already carries them. In the dock
+as a live checkbox, off by default as the reference has it, writing `layers/`
+beside whatever the raster export just produced. `appearance_tiers.rs` 39 →
+**40** (`the_hillshade_layer_is_grey_relief_and_blue_water`: every land cell
+`r == g == b`, every water cell `b >= g >= r`, the `0.15` floor and `235`
+ceiling both held, relief controls move it and colour controls do not).
+Non-headless at 1024 × 655: all four written in **176 ms**, every one at grid
+size, `biome.png` reproducing the live viewport raster **byte for byte**
+(`0.000 %` differ), hillshade **71.78 %** grey (this world's land fraction) and
+the other three 0 %, and no two files the same picture. **Still open:** the
+archive question DM-04 has always carried — whether this route should also
+assemble `exportZip`'s single `.zip`)
+— previously, post **the grade got its last four axes and its
 midtone bend** — `GUI_GAP_REGISTER.md` **CA-14 now fully closed**.
 **Gamma** (`grade_gamma`) as a symmetric power curve, exponent `2^-gamma`, in
 the lift-gamma-gain slot straight after exposure and gated at `0` so no `powf`

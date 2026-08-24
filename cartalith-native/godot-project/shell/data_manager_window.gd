@@ -229,6 +229,10 @@ const WD_WIDTH_FALLBACK: Array[int] = [2048, 4096, 8192]
 var _wd_widths: Array[int] = WD_WIDTH_FALLBACK.duplicate()
 var _wd_width := 4096
 var _wd_tiled := false
+## `layersPreviewChk` (reference line 555, read by `exportZip` at 12452).
+## Off by default, exactly as the reference has it -- v0.92 made these
+## opt-in on the grounds that nothing reads them back on load.
+var _wd_layers := false
 
 ## Export ▸ World Data -- the two disclosures this route owes, and the one it
 ## no longer does. Until 2026-08-24 this row was a **gap** whose reason read
@@ -237,6 +241,7 @@ var _wd_tiled := false
 const WD_RASTER_NOTE := "render::bake_rect runs the whole material path -- materials, hillshade, AO, the river tint, the paper ground and the plate frame -- at the fractional grid position each output pixel lands on, so an 8K export carries four times the material detail of a 2K one rather than the same picture resampled. Measured at the grid's own resolution against the live viewport: a dozen or so bytes of 8,060,928 differ, all by a single level, from the f32 prologue the reference stores in a Float32Array too."
 const WD_TILES_NOTE := "Writes tile_{row}_{col}.png plus index.json (cartalith_io::build_tile_manifest) instead of one file. The raster is rendered ONCE either way and only the file layout differs, so this cannot change what the map looks like -- unlike the reference, which re-renders per tile because a browser canvas has a hard area cap no native build has."
 const WD_ATLAS_NOTE := "chanAtlasChk: soil fertility, water access and carrying capacity in one RGB8 PNG; settlement suitability in another; the fifteen resource potentials three to a file; biome and lithology indices in a third -- plus atlas/index.json documenting which channel of which file holds which field. Data at grid resolution, not a picture. The Köppen channel is documented and left at zero: this port retains no Köppen raster, exactly as the reference leaves it null when state.climate.seasons never built one."
+const WD_LAYERS_NOTE := "layersPreviewChk: the reference's own four human-viewable previews of the f32 data layers -- biome, hillshade, temperature, rainfall -- written into a layers/ folder beside whatever this run just wrote. Each is built from the pass the reference's own layerBytes(mode, debug) branch would have taken: bake_rect for biome, render::hillshade_raster for renderNow's mode==='shade' branch, and the temp/rain debug rasters, which are whole-image palette replacements rather than overlays because the reference's debugOpacity defaults to 1. Always at the GRID's size, not the raster width above: the .f32 blobs these preview are one value per cell, and the README line calls them reference only. Generated worlds only."
 const WD_ZIP_NOTE := "This route writes loose files, not one project .zip. The save writer (cartalith_io::write_save, FI-01) and these two rasters are both real now; assembling exportZip's full archive -- params.json, the f32 layer blobs, map.png, the atlas and features.json in one file -- is the remaining third piece and is not wired here."
 
 ## Session-scoped run log -- `[{stamp, label, bytes, secs, ok}]`, newest first.
@@ -838,10 +843,10 @@ func _footer_note(text: String) -> void:
 # this window -- so they live here, in the route the canvas already names for
 # whole-world output, rather than in a fifth place.
 #
-# Three of the four are real. `layersPreviewChk` (human-viewable PNG previews
-# of the f32 data layers) is drawn in its position and disabled with its
-# reason, the same way this window already handles every pyramid control the
-# tile route cannot reach.
+# All four are real as of 2026-08-24. `layersPreviewChk` (human-viewable PNG
+# previews of the f32 data layers) was the last one drawn disabled; it now
+# writes the reference's own four PNGs into a `layers/` folder beside the
+# raster export, at the grid's own size -- `WorldGen::export_layer_previews`.
 # ---------------------------------------------------------------------------
 
 func _build_world_data_pane() -> void:
@@ -921,8 +926,25 @@ func _build_wd_raster_column(col: Control, api: bool) -> void:
 		("%d files" % int(est.get("tiles", 0))) if _wd_tiled and not est.is_empty() else "",
 		true, WD_TILES_NOTE)
 
-	_check(col, "Human-viewable f32 layer previews", false, func(): pass, "", false,
-		"layersPreviewChk. The f32 layer blobs themselves are not written by this route either -- both belong to exportZip's archive half, which is the piece named in the OUTPUT column's own note.")
+	## `layersPreviewChk` -- real since 2026-08-24. Four PNGs at the *grid's*
+	## own size (not the raster width above), written into a `layers/` folder
+	## beside whatever the raster export just wrote: biome, hillshade,
+	## temperature, rainfall -- the reference's own four, from the passes its
+	## own `layerBytes(mode, debug)` branches would have taken.
+	if not _bridge.world_gen.has_method("export_layer_previews"):
+		DccWidgets.note(col,
+			"This build's GDExtension predates the layer-preview binding (WorldGen::export_layer_previews). Rebuild cartalith-godot to enable it.")
+		return
+	var gen := _bridge != null and _bridge.has_world
+	var layers_note := ""
+	if gen and not est.is_empty():
+		layers_note = "4 PNGs · %d × %d" % [int(_bridge.world_gen.get_width()), int(_bridge.world_gen.get_height())]
+	var layers_row := _check(col, "Human-viewable f32 layer previews", _wd_layers, func():
+		_wd_layers = not _wd_layers
+		_rebuild_world_data(),
+		layers_note, gen, WD_LAYERS_NOTE)
+	if not gen and layers_row != null:
+		layers_row.tooltip_text = ("Generate a world first.\n\n" + WD_LAYERS_NOTE)
 
 func _build_wd_atlas_column(col: Control, api: bool) -> void:
 	_col_header(col, "CHANNEL ATLAS", WD_ATLAS_NOTE)
@@ -1044,9 +1066,29 @@ func _run_raster_export(path: String) -> void:
 				_fmt_bytes(int(r.get("bytes", 0))), float(r.get("ms", 0.0)) / 1000.0], "accent")
 	else:
 		_host.set_status("hint", "export failed — %s" % String(r.get("error", "see the Godot log")), "warn")
+	if bool(r.get("ok", false)) and _wd_layers:
+		_run_layer_previews(path)
 	_rebuild_world_data()
 	_refresh_foot()
 	_refresh_status()
+
+## `layersPreviewChk`'s half of `exportZip`: four grid-resolution PNGs under a
+## `layers/` folder, written *beside* the raster the run above just produced.
+## The tiled route already picked a directory, so that is the base; the single
+## route picked a file, so its own directory is.
+func _run_layer_previews(path: String) -> void:
+	if _bridge == null or _bridge.world_gen == null or not _bridge.world_gen.has_method("export_layer_previews"):
+		return
+	var base := path if _wd_tiled else path.get_base_dir()
+	_status_left.text = "writing layer previews…"
+	_status_left.add_theme_color_override("font_color", DccTheme.c("accent"))
+	var r: Dictionary = _bridge.world_gen.export_layer_previews(ProjectSettings.globalize_path(base))
+	_record_wd_run("layers", r)
+	if bool(r.get("ok", false)):
+		_host.set_status("hint", "…and 4 layer previews at %d × %d (%s)"
+			% [int(r.get("width", 0)), int(r.get("height", 0)), _fmt_bytes(int(r.get("bytes", 0)))], "accent")
+	else:
+		_host.set_status("hint", "layer previews failed — %s" % String(r.get("error", "see the Godot log")), "warn")
 
 func _run_atlas_export(dir: String) -> void:
 	if not _raster_api():

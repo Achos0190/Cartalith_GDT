@@ -939,3 +939,61 @@ fn a_preset_missing_fields_loads_at_their_defaults() {
     assert_eq!(back.ramp, ElevationRamp::default());
 }
 
+// ---------------------------------------------------------------------------
+// The hillshade layer preview (2026-08-24) -- `layersPreviewChk`'s second file
+// ---------------------------------------------------------------------------
+
+/// `render::hillshade_raster` is `renderNow`'s `mode === 'shade'` branch
+/// (reference line 8535): a **grey** relief image on land, blue-shifted on
+/// water, and nothing else -- no biome colour, no paper, no plate frame.
+///
+/// The formula reads `shadeFactor`, which is private, so what is asserted here
+/// is every property of the branch that is visible from outside it. Each one
+/// would fail for a different real mistake: a colour leak, the water branch
+/// dropped, the `0.15` floor or the `235` ceiling mistyped, or the shading rig
+/// disconnected from the raster entirely.
+#[test]
+fn the_hillshade_layer_is_grey_relief_and_blue_water() {
+    let s = synth();
+    let c = ctx(&s, TerrainAppearance::default());
+    let img = render::hillshade_raster(&c);
+    assert_eq!(img.len(), GW * GH * 3, "the hillshade raster is not one RGB triple per cell");
+
+    let (mut land, mut water) = (0usize, 0usize);
+    for y in 0..GH {
+        for x in 0..GW {
+            let p = &img[(y * GW + x) * 3..(y * GW + x) * 3 + 3];
+            if (s.field[y * GW + x] as f64) < 0.42 {
+                water += 1;
+                // `[c*0.45, c*0.6, min(255, c*0.9+40)]` -- ordered, and blue
+                // strictly ahead of red wherever the cell is not pure black.
+                assert!(p[2] >= p[1] && p[1] >= p[0], "water cell ({x},{y}) is not blue-shifted: {p:?}");
+            } else {
+                land += 1;
+                assert!(p[0] == p[1] && p[1] == p[2], "land cell ({x},{y}) is not grey: {p:?} -- colour leaked into the hillshade layer");
+            }
+        }
+    }
+    assert!(land > 0 && water > 0, "the fixture has no coastline: {land} land, {water} water");
+
+    // The `0.15 + 0.85*s` floor over a `235` ceiling: nothing may reach 0 or
+    // 255 on land, and the image must not be flat.
+    let greys: Vec<u8> = (0..GW * GH).filter(|i| (s.field[*i] as f64) >= 0.42).map(|i| img[i * 3]).collect();
+    let (lo, hi) = (*greys.iter().min().unwrap(), *greys.iter().max().unwrap());
+    assert!(lo >= (0.15 * 235.0) as u8, "a land cell fell below the 0.15 ambient floor: {lo}");
+    assert!(hi <= 235, "a land cell went past the 235 ceiling: {hi}");
+    assert!(hi - lo > 20, "the hillshade is nearly flat ({lo}..{hi}) -- the shading rig is not reaching it");
+
+    // It is a *relief* image, so the relief controls must move it and the
+    // colour controls must not.
+    let mut steep = TerrainAppearance::default();
+    steep.set_tunable("exag", 12.0);
+    assert_ne!(render::hillshade_raster(&ctx(&s, steep)), img, "exaggeration did not reach the hillshade layer");
+    let mut turned = TerrainAppearance::default();
+    turned.set_tunable("sun_az_deg", 135.0);
+    assert_ne!(render::hillshade_raster(&ctx(&s, turned)), img, "the sun azimuth did not reach the hillshade layer");
+    let mut colourful = TerrainAppearance::default();
+    colourful.set_tunable("biome_sat", 1.0);
+    colourful.set_tunable("ramp_strength", 1.0);
+    assert_eq!(render::hillshade_raster(&ctx(&s, colourful)), img, "a colour control moved the grey hillshade layer");
+}

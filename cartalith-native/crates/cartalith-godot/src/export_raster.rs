@@ -34,7 +34,7 @@ use cartalith_engine::channel_atlas::{self, Channel, ChannelGroup, ChannelSrc};
 use cartalith_io::{TileManifestOpts, build_tile_manifest, manifest_json};
 
 use crate::render::{self, BakeFields, RenderCtx, SplatTextures};
-use crate::{WorldGen, WorldSource, paint_bridge};
+use crate::{WorldGen, WorldSource, paint_bridge, sample_bridge};
 
 /// `bakeRes`' own three options, in its own order. Anything else is refused
 /// rather than silently rounded — a 3000 px export is not a resolution this
@@ -270,6 +270,117 @@ impl WorldGen {
                 }
             }
             Err(e) => fail(e),
+        }
+    }
+
+    /// `layersPreviewChk` (reference line 555, read by `exportZip` at 12452) —
+    /// the four human-viewable PNG previews of the `.f32` data layers, written
+    /// into `dir/layers/`.
+    ///
+    /// # The reference's own four, and how each is produced here
+    ///
+    /// `exportZip` writes them with `layerBytes(mode, debug)` (12301), which
+    /// sets `state.mode`/`state.debug`, re-runs `renderNow` and grabs the
+    /// canvas at `GW × GH`. This port has no global mode/debug state to swap,
+    /// so each is built directly from the pass the reference's own branch
+    /// would have taken:
+    ///
+    /// | file | `layerBytes` call | built here from |
+    /// |---|---|---|
+    /// | `layers/biome.png` | `('biome', 'off')` | [`render::bake_rect`] at `(gw, gh)` — the whole material path, at exactly the grid's own sample positions |
+    /// | `layers/hillshade.png` | `('shade', 'off')` | [`render::hillshade_raster`] — `renderNow`'s `mode === 'shade'` branch |
+    /// | `layers/temperature.png` | `('biome', 'temp')` | `sample_bridge::debug_raster("temp")` — `tempColor(tempField[i])`, the reference's own `dbg === 'temp'` branch |
+    /// | `layers/rainfall.png` | `('biome', 'rain')` | `sample_bridge::debug_raster("rain")` — `rainColor` over land, `[18, 34, 64]` over water |
+    ///
+    /// The last two are **whole-image replacements, not overlays**: the
+    /// reference blends the debug layer over the base map only when
+    /// `state.debugOpacity < 1`, and its default is `1` (line 2260). So the
+    /// preview a user gets from the reference at its own defaults is the bare
+    /// palette raster, which is what these two are.
+    ///
+    /// # Written at grid resolution, deliberately
+    ///
+    /// The reference's are `GW × GH` and these are too. They are a *reference
+    /// view of the data layers* — the README line calls them "reference only",
+    /// and the `.f32` blobs beside them are the master copies at exactly this
+    /// size. Baking them at the map raster's 2K/4K/8K would be four more
+    /// full-size renders of data that has one cell per value.
+    ///
+    /// **Generated worlds only**, the same rule and the same reason as
+    /// `export_channel_atlas`: the temperature and rainfall views read
+    /// `sample_refs()`, which a loaded save has none of
+    /// (`SAVEFILE_COMPAT.md`).
+    ///
+    /// Returns `{ok, dir, files, bytes, ms, width, height}`.
+    #[func]
+    fn export_layer_previews(&self, dir: GString) -> VarDictionary {
+        let started = std::time::Instant::now();
+        let dir = PathBuf::from(dir.to_string());
+        if dir.as_os_str().is_empty() {
+            return fail("no destination directory");
+        }
+        let (gw, gh) = (self.gw.max(0) as usize, self.gh.max(0) as usize);
+        if gw == 0 || gh == 0 {
+            return fail("no world to export -- generate or load one first");
+        }
+        let Some(refs) = self.sample_refs() else {
+            return fail("layer previews need a generated world -- a loaded save carries none of the fields they draw");
+        };
+        // `debug_raster` answers RGBA8 because that is what a Godot overlay
+        // texture wants; a PNG on disk beside three opaque siblings does not
+        // need the alpha byte, and the reference's own canvas grab is opaque.
+        let drop_alpha = |rgba: Vec<u8>| -> Vec<u8> { rgba.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect() };
+        let Some(temperature) = sample_bridge::debug_raster(&refs, "temp").map(drop_alpha) else {
+            return fail("the temperature view produced nothing");
+        };
+        let Some(rainfall) = sample_bridge::debug_raster(&refs, "rain").map(drop_alpha) else {
+            return fail("the rainfall view produced nothing");
+        };
+        // The biome layer is the *rendered map* at grid resolution, so it runs
+        // the same three stages `export_raster_png` does and carries the river
+        // tint the same way — `layerBytes('biome', 'off')` reaches it through
+        // the whole of `renderNow` too.
+        let appearance = self.appearance();
+        let world = self.world;
+        let chan: Option<&[u8]> = match self.source.as_ref() {
+            Some(WorldSource::Generated(ws)) => ws.channels.as_ref().map(|c| c.chan.as_slice()),
+            _ => None,
+        };
+        let Some((biome, hillshade)) = self.export_render(|ctx| {
+            let bf = BakeFields::new(ctx);
+            let mut px = render::bake_rect(ctx, &bf, chan, gw, gh, 0, 0, gw, gh);
+            render::apply_local_contrast(&appearance, &mut px, gw, gh, world);
+            let inf = render::build_grade_influence(ctx, gw, gh);
+            render::apply_color_grade(&appearance, &mut px, &inf);
+            (px, render::hillshade_raster(ctx))
+        }) else {
+            return fail("could not assemble the render context");
+        };
+
+        let mut files: Vec<String> = Vec::new();
+        let mut bytes = 0u64;
+        for (name, raster) in [("biome", biome), ("hillshade", hillshade), ("temperature", temperature), ("rainfall", rainfall)] {
+            let png = match cartalith_assets::raster::encode_png_rgb8(gw as u32, gh as u32, raster) {
+                Ok(p) => p,
+                Err(e) => return fail(format!("PNG encode failed for layers/{name}.png: {e}")),
+            };
+            let path = dir.join("layers").join(format!("{name}.png"));
+            if let Err(e) = write_file(&path, &png) {
+                return fail(e);
+            }
+            bytes += png.len() as u64;
+            files.push(path.display().to_string());
+        }
+
+        let names: PackedStringArray = files.iter().map(GString::from).collect();
+        dict! {
+            "ok" => true,
+            "dir" => dir.display().to_string().as_str(),
+            "files" => &names,
+            "bytes" => bytes as i64,
+            "width" => gw as i64,
+            "height" => gh as i64,
+            "ms" => started.elapsed().as_secs_f64() * 1000.0,
         }
     }
 
