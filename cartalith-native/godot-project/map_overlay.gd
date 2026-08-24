@@ -203,31 +203,91 @@ const COASTAL_BADGE_R_SC := 0.55
 ## line 15198) that this control's existing region-label palette already
 ## matches it; only the fill needed a name of its own.
 const SETTLEMENT_LABEL_FILL := Color(0.965, 0.925, 0.831)
-## By `way_type` (`cartalith_civ::WayType`, peak-corridor-usage
-## classification, Phase 2 milestone 14) -- a highway should read as more
-## prominent than a track, the same "tier implies visual weight" principle
-## `TIER_RADIUS` already applies to settlements.
-const ROAD_COLOR := Color(0.36, 0.29, 0.16, 0.55)
-## `ancient` is not a `WayType`: it is the fourth `ManualWayType`, arriving
-## here since `get_roads()` began appending hand-drawn ways (IN-02). The
-## reference strokes it at the same 1.1×rsc it gives `track` (line ~15516),
-## so it takes that width rather than this dictionary's 1.6 `road` default.
-## Its distinct grey dashed *colour* there is not reproduced -- this control
-## strokes every land way in `ROAD_COLOR` regardless of type, which predates
-## and is unaffected by this addition.
-const ROAD_WIDTH_BY_TYPE := {"highway": 2.6, "regional": 2.0, "road": 1.6, "track": 1.1, "ancient": 1.1}
+## Land-way styling by `way_type`, one entry per branch of the reference's own
+## `drawCivLayer` §2a type ladder (reference HTML lines 15511-15534). Every
+## land type there is **two strokes**: a dark underlayer first, then a lighter
+## coloured overlay on top of it -- solid for the two trunk tiers, dashed for
+## the three minor ones -- which is what makes a highway, a track and an
+## ancient way tell apart at a glance rather than by width alone.
+##
+## Each entry is that branch's own literal `strokeStyle`/`lineWidth`/
+## `setLineDash` values converted to `Color`/px, `rsc` factored out (widths
+## here are screen px -- see `_draw_way_segment`'s own note on `_crisp_begin`):
+##
+## | type     | reference line | underlayer            | overlay                  | dash      |
+## |----------|----------------|-----------------------|--------------------------|-----------|
+## | highway  | 15515-15517    | `rgba(20,10,5,.55)` 2.3 | `rgba(210,145,55,.98)` 1.45 | solid   |
+## | regional | 15519-15521    | `rgba(25,14,5,.45)` 1.8 | `rgba(178,118,52,.88)` 1.15 | solid   |
+## | road     | 15531-15534    | `rgba(30,20,10,.4)` 1.2 | `rgba(160,100,60,.75)` 0.7  | `[1.8,1.3]` |
+## | track    | 15523-15526    | `rgba(30,20,10,.35)` 1.1 | `rgba(100,120,60,.75)` 0.6 | `[1.3,2]`   |
+## | ancient  | 15527-15530    | `rgba(20,10,5,.35)` 1.1 | `rgba(120,110,100,.65)` 0.65 | `[2.5,1.3]` |
+##
+## `highway`/`regional`/`road`/`track` are `cartalith_civ::WayType`'s four
+## peak-corridor-usage tiers (Phase 2 milestone 14); `ancient` is not a
+## `WayType` at all but the fourth `ManualWayType`, reaching this control since
+## `get_roads()` began appending hand-drawn ways (IN-02). The reference gives
+## it its own grey dashed branch, and now so does this.
+##
+## **This replaced a single flat `ROAD_COLOR` (2026-08-24.)** Every land way
+## was stroked `Color(0.36, 0.29, 0.16, 0.55)` regardless of type, with only
+## the width varying -- measured, not assumed: a two-background pixel probe
+## recovered exactly `C=(91,75,40) a=0.549` on all five types. So a track and a
+## highway differed by 1.5 px of width and nothing else, and `ancient`'s grey
+## and `track`'s olive -- the two the reference deliberately colours *away*
+## from the road ochre -- were indistinguishable from a trunk road.
+const WAY_STYLE := {
+	"highway": {
+		"under": Color(0.078, 0.039, 0.020, 0.55), "under_w": 2.3,
+		"over": Color(0.824, 0.569, 0.216, 0.98), "over_w": 1.45,
+		"dash": 0.0, "gap": 0.0,
+	},
+	"regional": {
+		"under": Color(0.098, 0.055, 0.020, 0.45), "under_w": 1.8,
+		"over": Color(0.698, 0.463, 0.204, 0.88), "over_w": 1.15,
+		"dash": 0.0, "gap": 0.0,
+	},
+	"road": {
+		"under": Color(0.118, 0.078, 0.039, 0.4), "under_w": 1.2,
+		"over": Color(0.627, 0.392, 0.235, 0.75), "over_w": 0.7,
+		"dash": 1.8, "gap": 1.3,
+	},
+	"track": {
+		"under": Color(0.118, 0.078, 0.039, 0.35), "under_w": 1.1,
+		"over": Color(0.392, 0.471, 0.235, 0.75), "over_w": 0.6,
+		"dash": 1.3, "gap": 2.0,
+	},
+	"ancient": {
+		"under": Color(0.078, 0.039, 0.020, 0.35), "under_w": 1.1,
+		"over": Color(0.471, 0.431, 0.392, 0.65), "over_w": 0.65,
+		"dash": 2.5, "gap": 1.3,
+	},
+}
+## The reference's own `else` arm: an unrecognised `type` falls to the `road`
+## branch rather than being skipped (line 15531's comment says so outright,
+## `// road (default)`).
+const WAY_STYLE_DEFAULT := "road"
 const MARKER_OUTLINE := Color(0.101, 0.070, 0.023, 0.85) ## matches PrimaryButton's ink tone
 const HOVER_RADIUS_PAD := 4.0 ## extra hit-test slack (px) beyond the drawn marker radius
 
-## Sea-lane style: reference's own convention (reference HTML line ~15511)
-## is a dark navy solid underlayer plus a lighter dashed overlay -- not the
-## `ROAD_COLOR`/`ROAD_WIDTH_BY_TYPE` land-road styling, so sea routes read
-## as visually distinct (shipping lanes, not roads) at a glance.
+## Sea-lane style: the `sea-lane` arm of the same §2a ladder `WAY_STYLE` above
+## covers the land types of (reference HTML lines 15511-15514) -- a dark navy
+## solid underlayer plus a lighter dashed overlay, deliberately away from every
+## land-road hue so a shipping lane never reads as a road. Kept as its own
+## constants rather than a sixth `WAY_STYLE` row because sea lanes arrive from
+## a different getter (`get_sea_routes()`, never `get_roads()`) and so never
+## reach `WAY_STYLE`'s lookup.
 const SEA_ROUTE_UNDERLAY := Color(0.039, 0.118, 0.235, 0.4)
 const SEA_ROUTE_UNDERLAY_WIDTH := 1.5
 const SEA_ROUTE_DASH_COLOR := Color(0.118, 0.510, 0.784, 0.7)
 const SEA_ROUTE_DASH_WIDTH := 0.85
+## `setLineDash([2.6*rsc, 2*rsc])` -- an *unequal* pair. The gap was 2.6 here
+## until 2026-08-24 (it fell out of `_draw_dashed_polyline`'s "gap defaults to
+## dash" convenience default), which stretched the lane's period from the
+## reference's 4.6 to 5.2 and left every dash separated by a gap as long as
+## itself. Measured, not assumed: the dash probe read a 26 px period at 5x
+## width scale where the reference's is 23.
 const SEA_ROUTE_DASH_LENGTH := 2.6
+const SEA_ROUTE_DASH_GAP := 2.0
 
 ## §4.5.4's Route tool: a committed *route* is not infrastructure. It is a
 ## solved journey across the existing network (`route_commit` ->
@@ -877,7 +937,7 @@ func _draw() -> void:
 				continue
 			if _hidden_way_types.has(way["way_type"]):
 				continue
-			var width: float = ROAD_WIDTH_BY_TYPE.get(way["way_type"], 1.6)
+			var style: Dictionary = WAY_STYLE.get(way["way_type"], WAY_STYLE[WAY_STYLE_DEFAULT])
 			var brks: PackedInt32Array = way["brks"]
 			# `brks` marks indices where this way's own path has a real gap
 			# (two disjoint consolidated runs sharing one `Way`) -- draw each
@@ -885,9 +945,9 @@ func _draw() -> void:
 			# through the gap.
 			var start2 := 0
 			for cut in brks:
-				_draw_way_segment(points, start2, cut, rect, width)
+				_draw_way_segment(points, start2, cut, rect, style)
 				start2 = cut
-			_draw_way_segment(points, start2, points.size(), rect, width)
+			_draw_way_segment(points, start2, points.size(), rect, style)
 
 	## Committed Route-tool routes, drawn after both network layers so a route
 	## that runs along an existing road is still visible on top of it. Shares
@@ -1231,8 +1291,8 @@ func _stroke_points(points: PackedVector2Array, start: int, end: int, rect: Rect
 ## 15470, `max(1,GW/512)*_civZoomK()*_civWayScale()`) -- the factor every way
 ## and journey `lineWidth` in `drawCivLayer` is multiplied by, and which this
 ## port dropped on the way in. Every width constant in this file is therefore
-## read as **screen** pixels: `ROAD_WIDTH_BY_TYPE`'s 1.6 is 1.6 px of road at
-## any zoom, where before it was 1.6 px of *this control*, which the camera
+## read as **screen** pixels: `WAY_STYLE.road.under_w`'s 1.2 is 1.2 px of road at
+## any zoom, where before it was 1.2 px of *this control*, which the camera
 ## then scaled to 12.8 on screen at zoom 8 and stretched the antialiasing
 ## fringe with it.
 ##
@@ -1246,11 +1306,24 @@ func _stroke_points(points: PackedVector2Array, start: int, end: int, rect: Rect
 ## map when it is zoomed all the way out; a way is a line and shrinks harmlessly
 ## with it, and exactly constant is the simpler contract. (`_civZoomK()`'s
 ## zoom-*in* cap of 5.0 is no longer ported at all -- see `_civ_zoom_k()`.)
-func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2, width: float) -> void:
+##
+## `style` is one `WAY_STYLE` row -- the reference's two-stroke land way: dark
+## underlayer, then the type's own colour on top, dashed for the three minor
+## tiers and solid for the two trunk ones. Same structure as
+## `_draw_sea_route_segment` and `_draw_manual_route_segment` below, which
+## always had it; only the land types were flat.
+func _draw_way_segment(points: PackedVector2Array, start: int, end: int, rect: Rect2,
+		style: Dictionary) -> void:
 	if end - start < 2:
 		return
 	var k := _crisp_begin()
-	draw_polyline(_stroke_points(points, start, end, rect, k), ROAD_COLOR, width, true)
+	var screen_points := _stroke_points(points, start, end, rect, k)
+	draw_polyline(screen_points, style["under"], style["under_w"], true)
+	var dash: float = style["dash"]
+	if dash > 0.0:
+		_draw_dashed_polyline(screen_points, style["over"], style["over_w"], dash, style["gap"])
+	else:
+		draw_polyline(screen_points, style["over"], style["over_w"], true)
 	_crisp_end()
 
 
@@ -1270,7 +1343,8 @@ func _draw_sea_route_segment(points: PackedVector2Array, start: int, end: int, r
 	var k := _crisp_begin()   ## Widths and dash lengths in screen px -- see `_draw_way_segment`.
 	var screen_points := _stroke_points(points, start, end, rect, k)
 	draw_polyline(screen_points, SEA_ROUTE_UNDERLAY, SEA_ROUTE_UNDERLAY_WIDTH, true)
-	_draw_dashed_polyline(screen_points, SEA_ROUTE_DASH_COLOR, SEA_ROUTE_DASH_WIDTH, SEA_ROUTE_DASH_LENGTH)
+	_draw_dashed_polyline(screen_points, SEA_ROUTE_DASH_COLOR, SEA_ROUTE_DASH_WIDTH,
+		SEA_ROUTE_DASH_LENGTH, SEA_ROUTE_DASH_GAP)
 	_crisp_end()
 
 
@@ -1299,10 +1373,11 @@ func _draw_manual_route_segment(points: PackedVector2Array, start: int, end: int
 ## across every vertex -- unlike `draw_dashed_line` per-segment, a dash or
 ## gap can span a vertex instead of always restarting "on" there.
 ##
-## `gap_len` defaults to `dash_len` (the equal on/off the sea-lane overlay
-## has always used, unchanged). The Route layer passes an unequal pair
-## because the reference's journey stroke is `setLineDash([5,3])`, not
-## `[5,5]`.
+## `gap_len` defaults to `dash_len`. Every caller now passes it explicitly --
+## no dash pattern anywhere in `drawCivLayer` is actually equal on/off, and the
+## one that relied on this default (the sea lane) was wrong because of it. The
+## default is kept only so the parameter reads as optional to a future caller
+## that genuinely wants a square dash.
 func _draw_dashed_polyline(points: PackedVector2Array, color: Color, width: float, dash_len: float, gap_len: float = -1.0) -> void:
 	if gap_len < 0.0:
 		gap_len = dash_len

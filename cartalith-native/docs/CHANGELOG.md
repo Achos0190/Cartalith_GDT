@@ -25918,3 +25918,68 @@ and a label, each with its own colour constant, so fading it means threading an
 alpha through five draw calls to soften a transition you cross in a second —
 and holding the pin for the whole fade keeps the thing you are navigating by
 legible, which is the half of that behaviour that matters.
+
+## Every land way was the same colour (`GUI_GAP_REGISTER.md` RD-02 / CA-15, 2026-08-24)
+
+§29 and §33 fixed how ways, sea lanes and committed routes are *shaped*. This
+is the matching pass over how they are *typed and coloured* — `drawCivLayer`
+§2a/§2b (reference 15494-15560) compared branch by branch against
+`map_overlay.gd`, driven live and measured in pixels.
+
+**The reference's §2a is a six-branch ladder and every branch strokes twice**:
+a dark underlayer, then the type's own colour over it — solid for the two trunk
+tiers, dashed for the three minor ones. That is what makes a highway, a track
+and an ancient way tell apart at a glance rather than by width.
+
+**This port drew land ways with one flat stroke**, `ROAD_COLOR`, with only the
+width varying. Measured before the fix rather than read: `_waycolor_probe.gd`
+drives the real `_draw_way_segment` over pure black and pure white, which makes
+colour and effective alpha exactly recoverable (`a = 1 − (w − b)`, `C = b/a`),
+at `set_camera_zoom(0.2)` so `_crisp_begin()`'s `1/k` transform lands every
+width 5× thicker and the stroke centre is fully covered. All five land types
+returned the identical `C = (91, 75, 40)`, `a = 0.549`.
+
+`WAY_STYLE` now carries the reference's five land branches verbatim. Re-measured
+after, against the composite the reference's own literals predict, every type
+lands within **0.6/255 and 0.002 alpha**: highway (206,142,54) a=0.991 vs.
+(206.0,142.2,54.0) a=0.991; regional (158,105,46) a=0.935; road (123,77,46)
+a=0.851 exact to 0.0; track (78,92,46) a=0.839; ancient (81,73,66) a=0.773; and
+the three that were already right — sea lane (22,94,147) a=0.818, route
+(173,138,51) a=0.924, selected route (250,206,79) a=0.990. Dash periods off the
+same shots: road 15 px / 15.5 expected, track 16 / 16.5, ancient 19 / 19, sea
+lane 23 / 23, route 40 / 40, highway and regional flat solid.
+
+**One real bug in the sea lane, which was otherwise exact**: its dash gap was
+2.6, not 2.0. `_draw_dashed_polyline`'s `gap_len` defaults to `dash_len`, the
+sea lane was the one caller taking that default, and the reference's pattern is
+`setLineDash([2.6·rsc, 2·rsc])` — unequal. Measured period 26 px against the
+reference's 23. Every caller passes its gap explicitly now.
+
+**And the filter could not see two thirds of the network.**
+`cartography_workspace.gd`'s **Ways · by type** listed `road`/`track`/`ancient`
+— `parse_way_type`'s *manual* vocabulary — while the switches filter on
+`get_roads()`' `way_type`, which the generated network classifies by
+`cartalith_civ::WayType`. On a real 384×288 world that is **13 highways and 17
+regional roads against 4 roads and 1 track**: unchecking "Roads" hid 4 of 35
+ways and the other 30 could not be hidden at all. The reference lists all five
+(`CIV_WAY_TYPES`, line 14743). Verified live by toggling each type and counting
+the pixels that vanished along a way of that type: highway 284, regional 241,
+road 102, track 66.
+
+**Layering re-verified as a measurement**, not carried over from IN-09's single
+case: a route committed deliberately along the world's longest highway (552 km
+solved over a 609 km host, 0 unreachable legs) is explained by the route's
+composite and not the host's at 13 of 13 coincident pixels. Sea lanes and land
+ways never contest a pixel; within `_roads` the reference itself draws in array
+order with no per-type z-order, which this matches.
+
+**No Rust.** The type data was already correct on the boundary — `get_roads()`
+has emitted `highway`/`regional`/`road`/`track` since Phase 2 milestone 14 and
+appended `ancient` since IN-02. This was a renderer and a filter list.
+
+**Cataloguing audited and left alone**: INFRA's per-tier tally, "longest"
+ranking with the type in each row, Sea lanes group, hand-drawn-ways group and
+editable Routes list all label type honestly. The reference marks it with a
+per-row emoji where this uses the word.
+
+Full detail, both probes and the measured tables: `GUI_GAP_REGISTER.md` §36.

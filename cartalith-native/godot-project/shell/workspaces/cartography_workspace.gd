@@ -83,15 +83,27 @@ const ICON_FAMILIES: Array = [
 ## `SETTLEMENT_KINDS` is the engine's own six tiers in metropolis-first
 ## order (`civ_tools_bridge::kind_from_str`). `metropolis` joined it on
 ## 2026-08-20 with the port of `_civSelectMetropolises`, closing
-## `GUI_GAP_REGISTER.md` CV-04. `WAY_TYPES` lists only the three LAND types:
-## `sea_lane` is drawn from `_sea_routes`, which already has its own top-level
-## row above, so listing it here would give one thing two switches that
-## disagree.
+## `GUI_GAP_REGISTER.md` CV-04. `WAY_TYPES` is the reference's own
+## `CIV_WAY_TYPES` (reference line 14743) minus its `sea-lane` row: sea lanes
+## are drawn from `_sea_routes`, which already has its own top-level layer row
+## above, so listing them here would give one thing two switches that disagree.
+##
+## **The two generated trunk tiers were missing until 2026-08-24.** This list
+## held only `road`/`track`/`ancient` -- `infra_tools_bridge::parse_way_type`'s
+## *manual* vocabulary -- but the switches drive `map_overlay.gd`'s filter on
+## `get_roads()`' `way_type`, and the generated network classifies by
+## `cartalith_civ::WayType`, whose two busiest tiers are `highway` and
+## `regional`. Measured on a real 384x288 world: 13 highways and 17 regional
+## roads against 4 roads and 1 track, so "Roads" off hid 4 of 35 ways and the
+## other 30 could not be hidden at all. The reference lists all five and has
+## since `CIV_WAY_TYPES` existed.
 const SETTLEMENT_KINDS: Array = ["metropolis", "capital", "city", "town", "village", "hamlet"]
 const WAY_TYPES: Array = [
+	{"key": "highway", "label": "Trade highways"},
+	{"key": "regional", "label": "Regional roads"},
 	{"key": "road", "label": "Roads"},
 	{"key": "track", "label": "Tracks"},
-	{"key": "ancient", "label": "Ancient ways"},
+	{"key": "ancient", "label": "Ancient routes"},
 ]
 
 const ICON_SCALE_MIN := 0.2   ## `cartalith_assets::manual::ICON_SCALE_MIN`.
@@ -221,8 +233,9 @@ func _build_layer_filters(parent: Control) -> void:
 		DccWidgets.toggle(types, String(t["label"]), true,
 			func(on: bool): app.viewport.set_way_type_visible(String(t["key"]), on))
 	DccWidgets.note(types,
-		"The engine's own three land way types (infra_tools_bridge::parse_way_type). "
-		+ "Sea lanes have their own row above rather than a fourth switch here.")
+		"Every land way type get_roads() can emit: the generated network's four "
+		+ "usage tiers (cartalith_civ::WayType) plus hand-drawn ancient routes. "
+		+ "Sea lanes have their own row above rather than a sixth switch here.")
 
 
 ## Layer surfaces the reference had, or the design asks for, that this shell
